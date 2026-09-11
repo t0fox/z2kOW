@@ -28,7 +28,10 @@ Z2K_LUA_DIR="${Z2K_LUA_DIR:-$Z2K_ROOT/lua}"
 Z2K_FAKE_DIR="${Z2K_FAKE_DIR:-$Z2K_ROOT/fake}"
 Z2K_LISTS_DIR="${Z2K_LISTS_DIR:-$Z2K_ROOT/lists}"
 Z2K_EXTRA_STRATS_DIR="${Z2K_EXTRA_STRATS_DIR:-$Z2K_ROOT/extra_strats}"
-Z2K_MANIFESTS_DIR="${Z2K_MANIFESTS_DIR:-$Z2K_ROOT/manifests}"
+# Манифесты стратегий лежат в КОРНЕ payload (как на Keenetic): regen-step
+# читает ${ZAPRET2_DIR}/strats_new2.txt напрямую. Переменная — для явности
+# вызовов materialize.sh (каталог всё равно передаётся параметром).
+Z2K_MANIFESTS_DIR="${Z2K_MANIFESTS_DIR:-$Z2K_ROOT}"
 Z2K_ADAPTER_DIR="${Z2K_ADAPTER_DIR:-$Z2K_ROOT/platform/openwrt}"
 
 # --- transient (tmpfs) ---

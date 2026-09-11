@@ -34,7 +34,9 @@ p-84.7, ветка `feat/openwrt-adapter`). Правило: сначала adapt
 ```text
 /etc/z2k/            config (канонический), state/, user-lists/, conf/
 /usr/lib/z2k/        payload read-only: lib/ lua/ fake/ lists/ extra_strats/
-                     manifests/ platform/ share/ (+ симлинк config -> /etc)
+                     strats_new2.txt + quic_strats.ini (в корне, как на
+                     Keenetic — regen-step читает их оттуда напрямую),
+                     etc/ platform/ share/ (+ симлинк config -> /etc)
 /tmp/z2k/            runtime/ locks/ logs/ downloads/ generated/
 ```
 
@@ -73,10 +75,12 @@ WAN-события: hotplug `90-z2k` дёргает только `reload_ifsets`
 `.gitattributes` (только +eol=lf), `lib/config_official.sh` (PHASE3 через
 `${ZAPRET2_DIR}`), `lib/release_map.sh` (platform-диспетчер),
 `lib/auto_update.sh` (targetless fail-safe, `Z2K_CONFIG_FILE`/merge хуки,
-platform gate), `scripts/gen_file_hashes.sh` (platform-маркер только для
-non-keenetic; keenetic-реген байт-идентичен), `UPDATES.json` (только
-files_sha256 hash-обновления allowlisted lib-файлов — манифест следует за
-деревом на каждом релизе). Нарушение seam'а печатается
+platform gate, reinstall executor, converge dirty-refusal + TARGET_REF pin,
+merge failure propagation), `scripts/gen_file_hashes.sh` (platform-маркер
+только для non-keenetic; keenetic-реген байт-идентичен),
+`files/z2k-config-validator.sh` (FAKE_DIR + lua EXTRA),
+`UPDATES.json` (только files_sha256 hash-обновления allowlisted lib-файлов —
+манифест следует за деревом на каждом релизе). Нарушение seam'а печатается
 с категорией (lua/detectors/strategies/webpanel/update-system/warp).
 После каждого upstream sync BASELINE сдвигается на новый upstream HEAD.
 
@@ -112,7 +116,7 @@ Platform-различие — только на build/mapping-стороне:
 
 Граница владения (машиночитаемо: `package/openwrt/ownership.map`):
 пакет — adapter/init/hotplug/bootstrap/шаблон/seed.tar.gz; апдейтер — весь
-payload (lib/lua/fake/lists/strategies/manifests/validator/pem). Model A:
+payload (lib/lua/fake/lists/extra_strats/strats/validator/pem). Model A:
 adapter-файлы НЕ имеют updater-маппингов (только opkg, иначе флаппинг);
 пакет НЕ ставит payload напрямую (только seed.tar.gz -> postinst extract).
 Конфликт = `PACKAGE_UPDATER_OWNERSHIP_CONFLICT`.

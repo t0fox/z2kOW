@@ -23,9 +23,11 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     platform gate (§3/§6/§2.1)
 #   scripts/gen_file_hashes.sh: platform-маркер только для non-keenetic (§2.1;
 #     keenetic-реген байт-идентичен — сторожит channel-тест)
+#   files/z2k-config-validator.sh: FAKE_DIR + lua EXTRA хуки (freeze audit:
+#     без них validate ветирует любой OpenWrt-конфиг)
 #   UPDATES.json: ТОЛЬКО files_sha256 hash-обновления allowlisted lib-файлов
-#     (манифест следует за деревом на каждом релизе; проверяется построчно).
-ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh UPDATES.json"
+#   docs/openwrt-foundation-state-machine.md: модель аудита (docs, не код)
+ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md"
 
 _changed="$($_g diff --name-only "$BASELINE"...HEAD 2>/dev/null)"
 # --ignore-cr-at-eol: на Windows-чекаутах (autocrlf) весь worktree выглядит
@@ -46,7 +48,7 @@ _seam_of() {
         *detect*|*circular*|*rotat*) echo "detectors" ;;
         strats_new2.txt|quic_strats.ini|lib/strategies.sh|lib/config_official.sh) echo "strategies" ;;
         webpanel/*) echo "common-webpanel" ;;
-        lib/auto_update.sh|lib/release_map.sh) echo "update-system" ;;
+        lib/auto_update.sh|lib/release_map.sh|files/z2k-config-validator.sh|scripts/gen_file_hashes.sh) echo "update-system" ;;
         *warp*|*Warp*|*WARP*) echo "warp" ;;
         *) echo "other-common" ;;
     esac
@@ -74,7 +76,7 @@ else
     for _f in $_bad; do
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
-            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh) continue ;;
+            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md) continue ;;
             UPDATES.json)
                 # Манифест следует за деревом: разрешены только hash-обновления
                 # allowlisted lib-файлов в files_sha256 (ни новых ключей, ни

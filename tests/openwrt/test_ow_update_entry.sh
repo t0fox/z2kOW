@@ -43,7 +43,7 @@ fi
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-entry.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 mkdir -p "$T/root/lib" "$T/root/platform/openwrt" "$T/etc"
-for _f in paths.sh env.sh update.sh schedule.sh; do
+for _f in paths.sh env.sh bootstrap.sh update.sh schedule.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f"
 done
 cat > "$T/root/lib/utils.sh" <<'EOF'
@@ -69,6 +69,10 @@ printf '#!/bin/sh\necho "sleep:$*" >> "%s/calls"\n' "$T" > "$T/bin/sleep"
 chmod +x "$T/bin/sleep"
 unset Z2K_AU_MANUAL Z2K_AU_NO_JITTER
 export PATH="$T/bin:$PATH"
+# pre-flight update.sh: marker + tag (восстановление tag — в preflight-тесте)
+mkdir -p "$T/etc/state"
+: > "$T/etc/.payload-initialized"
+printf 'p-84.7\n' > "$T/etc/state/installed-tag"
 
 _call() {
     # _call <action> [VAR=val ...]: unattended-контекст (stdin /dev/null).
@@ -106,5 +110,14 @@ printf 'ENABLED=1\n' > "$T/etc/config"
 _call apply
 assert_contains "плановый apply идёт" "$T/calls" "apply-called"
 assert_contains "плановый jitter 7с" "$T/calls" "sleep:7"
+
+# MANUAL=1 сам означает no jitter (баг C): БЕЗ отдельного NO_JITTER
+_call apply Z2K_AU_MANUAL=1
+assert_contains "manual apply идёт" "$T/calls" "apply-called"
+if grep -q "^sleep:" "$T/calls"; then
+    _t_bad "MANUAL=1 спит без NO_JITTER"
+else
+    _t_ok
+fi
 
 _t_done

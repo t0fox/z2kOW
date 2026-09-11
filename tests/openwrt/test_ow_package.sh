@@ -12,7 +12,11 @@ assert_contains "PKG_NAME" "$MK" "PKG_NAME:=z2k-adapter"
 assert_contains "BuildPackage" "$MK" "BuildPackage,z2k-adapter"
 assert_contains "init.d install" "$MK" "files/etc/init.d/z2k"
 assert_contains "hotplug install" "$MK" "files/etc/hotplug.d/iface/90-z2k"
-assert_contains "prerm stop" "$MK" "init.d/z2k stop"
+assert_contains "prerm uninstall" "$MK" "z2k_ow_uninstall"
+assert_contains "uninstall stops service" "$REPO/platform/openwrt/uninstall.sh" "stop"
+assert_contains "uninstall cron" "$REPO/platform/openwrt/uninstall.sh" "z2k_ow_cron_remove"
+assert_contains "uninstall purges payload" "$REPO/platform/openwrt/uninstall.sh" 'rm -rf "$Z2K_ROOT"'
+assert_contains "uninstall purges tmp" "$REPO/platform/openwrt/uninstall.sh" 'rm -rf "$Z2K_TMP"'
 assert_contains "seed builder" "$MK" "make-seed.sh"
 assert_contains "materialize in seed" "$REPO/package/openwrt/make-seed.sh" "z2k_ow_materialize"
 assert_contains "postinst seed-guard" "$MK" "z2k_ow_seed_ensure"

@@ -8,21 +8,25 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # --- OpenWrt-контекст ---
 _got="$( ( unset Z2K_AU_INSTALLED_TAG_FILE Z2K_AU_LOCK_FILE Z2K_AU_LOG_FILE Z2K_AU_TMP_DIR \
-    Z2K_AU_TRUST_PIN Z2K_AU_PUBKEY ZAPRET2_DIR Z2K_AU_SBIN
+    Z2K_AU_TRUST_PIN Z2K_AU_PUBKEY ZAPRET2_DIR Z2K_AU_SBIN \
+    Z2K_AU_FAILS_FILE Z2K_AU_DIRTY_TREE_FILE
   Z2K_ROOT=/r Z2K_ETC=/e Z2K_TMP=/t
   . "$REPO/platform/openwrt/paths.sh" >/dev/null
   . "$REPO/platform/openwrt/env.sh" >/dev/null
   . "$REPO/lib/utils.sh" >/dev/null 2>&1
   . "$REPO/lib/auto_update.sh" >/dev/null 2>&1
-  printf '%s\n%s\n%s\n%s\n%s\n%s\n' \
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
     "$Z2K_AU_INSTALLED_TAG_FILE" "$Z2K_AU_LOCK_FILE" "$Z2K_AU_LOG_FILE" \
-    "$Z2K_AU_TMP_DIR" "$Z2K_AU_TRUST_PIN" "$Z2K_AU_PUBKEY" ) 2>/dev/null )"
+    "$Z2K_AU_TMP_DIR" "$Z2K_AU_TRUST_PIN" "$Z2K_AU_PUBKEY" \
+    "$Z2K_AU_FAILS_FILE" "$Z2K_AU_DIRTY_TREE_FILE" ) 2>/dev/null )"
 assert_eq "state paths" "/e/state/installed-tag
 /t/locks/update.lock
 /t/logs/z2k-auto-update.log
 /t/update
 /e/.trust/pinned
-/r/etc/z2k-update-pub.pem" "$_got"
+/r/etc/z2k-update-pub.pem
+/e/state/au-delivery-fails
+/e/state/dirty-tree" "$_got"
 case "$_got" in
     */opt/*) _t_bad "в путях остался /opt" ;;
     *) _t_ok ;;

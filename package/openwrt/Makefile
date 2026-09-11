@@ -3,7 +3,7 @@
 # Граница владения (машиночитаемо: ownership.map, сторожит тест):
 #   пакет ВЛАДЕЕТ: adapter (platform/openwrt), init/hotplug, метаданные,
 #     bootstrap (postinst), дефолт config, seed.tar.gz (bootstrap-seed).
-#   пакет НЕ поставляет напрямую: lib/lua/fake/lists/strategies/manifests —
+#   пакет НЕ поставляет напрямую: lib/lua/fake/lists/extra_strats/strats —
 #     они updater-owned; в пакет едут только внутри seed.tar.gz, postinst
 #     извлекает их в /, дальше их перезаписывает подписанный апдейтер.
 #   пакет НЕ трогает никогда: /etc/z2k/config, /etc/z2k/state/*,
@@ -79,13 +79,14 @@ define Package/z2k-adapter/prerm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 Z2K_ROOT="$${Z2K_ROOT:-/usr/lib/z2k}"
-# Убираем только свою cron-строку (по маркеру); чужое не трогаем. Не валим
-# удаление ни при каких условиях.
+Z2K_ETC="$${Z2K_ETC:-/etc/z2k}"
+Z2K_TMP="$${Z2K_TMP:-/tmp/z2k}"
+# Uninstall policy (см. foundation-state-machine §2 S9): вся логика — в
+# z2k_ow_uninstall (та же функция в lifecycle-тестах). Здесь только вызов.
+# Ничего здесь не должно валить удаление.
 . "$$Z2K_ROOT/platform/openwrt/paths.sh" 2>/dev/null
-. "$$Z2K_ROOT/platform/openwrt/schedule.sh" 2>/dev/null
-z2k_ow_cron_remove 2>/dev/null || true
-/etc/init.d/z2k stop 2>/dev/null
-/etc/init.d/z2k disable 2>/dev/null
+. "$$Z2K_ROOT/platform/openwrt/uninstall.sh" 2>/dev/null
+z2k_ow_uninstall 2>/dev/null || true
 exit 0
 endef
 

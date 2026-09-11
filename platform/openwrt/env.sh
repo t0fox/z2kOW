@@ -107,8 +107,28 @@ Z2K_AU_LOCK_FILE="${Z2K_AU_LOCK_FILE:-$Z2K_LOCKS/update.lock}"
 Z2K_AU_LOG_FILE="${Z2K_AU_LOG_FILE:-$Z2K_LOG/z2k-auto-update.log}"
 Z2K_AU_TMP_DIR="${Z2K_AU_TMP_DIR:-$Z2K_TMP/update}"
 export Z2K_AU_INSTALLED_TAG_FILE Z2K_AU_TRUST_PIN Z2K_AU_LOCK_FILE Z2K_AU_LOG_FILE Z2K_AU_TMP_DIR
+# Счётчик delivery-неудач и dirty-маркер — persistent state (не payload!):
+# счётчик в read-only ${ZAPRET2_DIR}/state молча не пишется и 3-strikes
+# эскалация не срабатывает; dirty обязан переживать reboot.
+Z2K_AU_FAILS_FILE="${Z2K_AU_FAILS_FILE:-$Z2K_STATE/au-delivery-fails}"
+Z2K_AU_DIRTY_TREE_FILE="${Z2K_AU_DIRTY_TREE_FILE:-$Z2K_STATE/dirty-tree}"
+export Z2K_AU_FAILS_FILE Z2K_AU_DIRTY_TREE_FILE
 # PUBKEY/VERIFY_BIN не задаём: их дефолты уже идут через ZAPRET2_DIR/Z2K_AU_SBIN
 # (${Z2K_ROOT}/etc/z2k-update-pub.pem и ${Z2K_BIN}/z2k-verify) — тест сверяет.
+
+# ZAPRET_BASE читает только валидатор (бинарник) и Keenetic S99 (не наш
+# путь): указываем на runtime. INIT_SCRIPT уже выставлен выше — валидатор
+# возьмёт его как источник --blob-регистраций (в нашем init их нет, как и
+# на macOS: проверка карты молча скипается, NOT veto).
+# FAKE_DIR ($Z2K_ROOT/fake) и lua EXTRA ($Z2K_ROOT/lua) — хуки валидатора
+# (blob-файлы по имени + z2k-детекторы; fork-lua сканируется из ZAPRET_BASE).
+ZAPRET_BASE="${ZAPRET_BASE:-$Z2K_ZAPRET2_RUNTIME}"
+export ZAPRET_BASE
+# Z2K_FAKE_DIR ($Z2K_ROOT/fake) и Z2K_LUA_DIR ($Z2K_ROOT/lua) уже выставлены
+# paths.sh выше — здесь только экспортируем для валидатора и движка.
+export Z2K_FAKE_DIR Z2K_LUA_DIR
+Z2K_LUA_EXTRA_DIRS="${Z2K_LUA_EXTRA_DIRS:-$Z2K_LUA_DIR}"
+export Z2K_LUA_EXTRA_DIRS
 
 # LAN-сети для zapret2 ifsets (значение задаёт uci.sh, здесь — дефолт).
 OPENWRT_LAN="${OPENWRT_LAN:-lan}"
