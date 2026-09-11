@@ -154,3 +154,29 @@ keenetic-целями (`/opt/etc/`) — отказ до применения, т
 Conffiles отсутствуют осознанно: init/hotplug — package-owned код
 (обновляется с пакетом); `/etc/z2k/*` пакет не поставляет (bootstrap/user).
 Владение трёхклассовое: package / updater / user (см. ownership.map).
+
+## Updater execution (этап 2.2)
+
+Entry — `platform/openwrt/update.sh [apply|check]` (package-owned, НЕ форк):
+`paths.sh -> env.sh -> utils.sh -> auto_update.sh`, затем гейт
+`Z2K_AUTO_UPDATE_ENABLED` (ручной `Z2K_AU_MANUAL=1` обходит), jitter
+`z2k_host_jitter` только плановому пути, затем `au_run_apply`/`au_run_check`.
+Branch-file gate нет: канал = env. PATH докладывается sbin впереди, не сброс.
+
+Канал: `Z2K_AU_BRANCH=z2k-enhanced-openwrt` (production, создаётся к первому
+релизу), `Z2K_AU_REPO_RAW`/`GITHUB_RAW`/`Z2K_AU_RAW_BASE` — один origin
+`t0fox/z2kOW` (manifest == payload lineage). Неизменяемые ref — `$BASE/$ref`
+(хук `au_repo_base`; fork-only ref никогда не уходит в necronicle).
+
+Состояние: tag `state/installed-tag`, trust `etc/.trust/pinned`,
+lock/log/tmp — в `/tmp/z2k/*`. Pubkey/verify — через существующие
+`ZAPRET2_DIR`/`Z2K_AU_SBIN`-дефолты (проверено тестом, common не тронут).
+
+Reinstall: `Z2K_AU_REINSTALL_EXECUTOR` (одна точка в `au_apply_reinstall`).
+Keenetic — legacy `z2k.sh`-путь без изменений. OpenWrt —
+`z2k_ow_reinstall_unsupported`: fail closed (тег стоит, payload цел,
+`z2k.sh` не скачивается и не исполняется; причина — в лог).
+
+Периодика: cron-строка `17 2 * * * update.sh apply` в `/etc/crontabs/root`
+(postinst ставит идемпотентно по маркеру, prerm снимает; cron enable/start
+best-effort). Procd-демона ради суточной задачи нет осознанно.

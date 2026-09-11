@@ -69,12 +69,21 @@ Z2K_ROOT="$${Z2K_ROOT:-/usr/lib/z2k}"
 . "$$Z2K_ROOT/platform/openwrt/paths.sh"
 . "$$Z2K_ROOT/platform/openwrt/bootstrap.sh"
 z2k_ow_seed_ensure || exit 1
+# Ежесуточный updater через cron (строка с маркером, идемпотентно).
+. "$$Z2K_ROOT/platform/openwrt/schedule.sh"
+z2k_ow_cron_install || exit 1
 exit 0
 endef
 
 define Package/z2k-adapter/prerm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
+Z2K_ROOT="$${Z2K_ROOT:-/usr/lib/z2k}"
+# Убираем только свою cron-строку (по маркеру); чужое не трогаем. Не валим
+# удаление ни при каких условиях.
+. "$$Z2K_ROOT/platform/openwrt/paths.sh" 2>/dev/null
+. "$$Z2K_ROOT/platform/openwrt/schedule.sh" 2>/dev/null
+z2k_ow_cron_remove 2>/dev/null || true
 /etc/init.d/z2k stop 2>/dev/null
 /etc/init.d/z2k disable 2>/dev/null
 exit 0
