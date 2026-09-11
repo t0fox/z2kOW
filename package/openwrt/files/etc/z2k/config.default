@@ -1,0 +1,13 @@
+# /etc/z2k/config — канонический конфиг z2k на OpenWrt (shell-vars, как upstream).
+#
+# create_official_config ПЕРЕПИСЫВАЕТ этот файл при каждом старте, сохраняя
+# только saved_*-ключи. Поэтому здесь лежат лишь ключи, чьи значения должны
+# отличаться от умолчаний генератора. Остальное (NFQWS2_OPT, QNUM, marks,
+# ports, AUTOHOSTLIST_*, DISABLE_IPV6...) — в коде генератора и zapret2.
+# Подробности: docs/openwrt-adapter-contract.md.
+
+# Master-гейт сервиса (читает init.d/z2k; переживает регенерацию).
+ENABLED=1
+
+# Пример: несколько LAN-сетей для zapret2 ifsets (по умолчанию "lan").
+#OPENWRT_LAN="lan lan2"

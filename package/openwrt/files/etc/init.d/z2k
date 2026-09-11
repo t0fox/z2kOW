@@ -1,0 +1,68 @@
+#!/bin/sh /etc/rc.common
+# /etc/init.d/z2k - тонкий procd-оркестратор z2k на OpenWrt.
+#
+# Порядок старта: bootstrap (идемпотентно) → генерация /etc/z2k/config штатным
+# create_official_config → запуск nfqws2 с полным z2k OPT_BASE → применение
+# firewall ЧЕРЕЗ zapret2 runtime → z2k custom.d.
+# Владение ресурсами — см. platform/openwrt/firewall.sh (таблица).
+#
+# Требуется DISABLED сервис zapret2: его daemon-половина не используется
+# (stock OPT_BASE без z2k lua-init), firewall-функции вызываются напрямую.
+
+USE_PROCD=1
+# after network, слот рядом с zapret2(21) — его сервис при этом выключен.
+START=22
+
+Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
+Z2K_ETC="${Z2K_ETC:-/etc/z2k}"
+
+z2k_load_adapter() {
+    # shellcheck disable=SC1090,SC1091
+    . "$Z2K_ROOT/platform/openwrt/paths.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/env.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/uci.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/bootstrap.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/generate.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/optbase.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/firewall.sh" || return 1
+    . "$Z2K_LIB/utils.sh" || return 1
+    . "$Z2K_LIB/strategies.sh" || return 1
+    . "$Z2K_LIB/config_official.sh" || return 1
+    return 0
+}
+
+start_service() {
+    z2k_load_adapter || return 1
+    OPENWRT_LAN="$(z2k_ow_lan)"
+    export OPENWRT_LAN
+    z2k_ow_bootstrap || return 1
+    z2k_ow_generate || return 1
+    # shellcheck disable=SC1090
+    . "$Z2K_CONFIG" || return 1
+    # ENABLED — master-гейт upstream-семантики (сохраняется регенерацией).
+    [ "${ENABLED:-1}" = "1" ] || return 1
+
+    local _base _qnum
+    _base="$(z2k_ow_optbase)" || return 1
+    _qnum="${QNUM:-200}"
+
+    procd_open_instance "z2k"
+    # NFQWS2_OPT многострочный: ненумерованное раскрытие режет его на argv
+    # ровно как do_nfqws/run_nfqws в S99zapret2.new и init.d/openwrt/zapret2.
+    # shellcheck disable=SC2086
+    procd_set_param command "$Z2K_NFQWS2" --qnum="$_qnum" $_base $NFQWS2_OPT
+    procd_set_param pidfile "$Z2K_RUN/nfqws2.pid"
+    procd_close_instance
+
+    [ "${INIT_APPLY_FW:-1}" = "1" ] && z2k_ow_fw_apply
+    z2k_ow_custom_daemons 1
+}
+
+stop_service() {
+    z2k_load_adapter || return 1
+    # shellcheck disable=SC1090
+    [ -f "$Z2K_CONFIG" ] && . "$Z2K_CONFIG"
+    z2k_ow_custom_daemons 0
+    # Демона останавливает сам procd; снимаем только firewall.
+    [ "${INIT_APPLY_FW:-1}" = "1" ] && z2k_ow_fw_remove
+}

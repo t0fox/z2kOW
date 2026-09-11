@@ -1,0 +1,21 @@
+#!/bin/sh
+# /etc/hotplug.d/iface/90-z2k - WAN-события БЕЗ рестарта демона.
+#
+# NFQUEUE-перехват от имён интерфейсов не зависит, поэтому ifup/ifdown
+# обновляют ТОЛЬКО zapret2 ifsets (lan/wan/wan6) — та же модель, что stock
+# 90-zapret2 в nftables-ветке. Полного рестарта нет by design.
+
+[ -n "$INTERFACE" ] || exit 0
+[ "$ACTION" = "ifup" ] || [ "$ACTION" = "ifdown" ] || exit 0
+[ -x /etc/init.d/z2k ] || exit 0
+/etc/init.d/z2k enabled || exit 0
+
+Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
+Z2K_ETC="${Z2K_ETC:-/etc/z2k}"
+# shellcheck disable=SC1090,SC1091
+. "$Z2K_ROOT/platform/openwrt/paths.sh" || exit 0
+. "$Z2K_ROOT/platform/openwrt/env.sh" || exit 0
+. "$Z2K_ROOT/platform/openwrt/firewall.sh" || exit 0
+
+logger -t z2k "reloading zapret2 ifsets due to $ACTION of $INTERFACE (daemon untouched)"
+z2k_ow_fw_reload_ifsets

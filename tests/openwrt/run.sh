@@ -1,0 +1,40 @@
+#!/bin/sh
+# tests/openwrt/run.sh - раннер openwrt-наборов (POSIX sh).
+# Использование: sh tests/openwrt/run.sh [из корня репо]
+# Возвращает ненулевой код при любом провале.
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$ROOT" || exit 1
+
+PASS=0; FAIL=0; FAILED=""
+
+# 0. синтаксис всех shell-файлов слоя
+for _f in platform/openwrt/*.sh platform/openwrt/custom.d/.keep \
+          package/openwrt/files/etc/init.d/z2k \
+          package/openwrt/files/etc/hotplug.d/iface/90-z2k \
+          tests/openwrt/*.sh; do
+    [ -f "$_f" ] || continue
+    [ "$(basename "$_f")" = ".keep" ] && continue
+    if sh -n "$_f" 2>/dev/null; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1)); FAILED="$FAILED syntax:$_f"
+        echo "FAIL[syntax]: $_f" >&2
+    fi
+done
+
+# 1. наборы (каждый — один прогон, счёт из SUITE-строки)
+for _t in tests/openwrt/test_ow_*.sh; do
+    _out="$(sh "$_t" 2>&1)"
+    _rc=$?
+    printf '%s\n' "$_out" | grep -E '^(SUITE|FAIL)' || true
+    _n="$(printf '%s\n' "$_out" | sed -n 's/^SUITE\[.*\]: pass=\([0-9]*\) fail=.*/\1/p')"
+    _f="$(printf '%s\n' "$_out" | sed -n 's/^SUITE\[.*\]: pass=[0-9]* fail=\([0-9]*\)/\1/p')"
+    PASS=$((PASS + ${_n:-0}))
+    FAIL=$((FAIL + ${_f:-1}))
+    { [ "$_rc" -eq 0 ] && [ "${_f:-1}" = "0" ]; } || FAILED="$FAILED $(basename "$_t")"
+done
+
+echo "OPENWRT: pass=$PASS fail=$FAIL"
+[ -n "$FAILED" ] && echo "FAILED:$FAILED" >&2
+[ "$FAIL" -eq 0 ]

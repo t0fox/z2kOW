@@ -1,0 +1,26 @@
+#!/bin/sh
+# tests/openwrt/test_ow_lifecycle.sh - Step 10: WAN-события без рестарта демона.
+. "$(dirname "$0")/helper.sh"
+_t_plan "ow-lifecycle"
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+HP="$REPO/package/openwrt/files/etc/hotplug.d/iface/90-z2k"
+SVC="$REPO/package/openwrt/files/etc/init.d/z2k"
+
+assert_contains "hotplug: ifset-reload" "$HP" "reload_ifsets"
+if grep -Eiq 'restart|start_daemons|procd|nfqws' "$HP"; then
+    _t_bad "hotplug трогает демона (должен только обновлять ifsets)"
+else
+    _t_ok
+fi
+assert_contains "hotplug: только ifup/ifdown" "$HP" "ifdown"
+assert_contains "hotplug: уважает enabled" "$HP" "enabled"
+
+assert_contains "service: fw apply на старте" "$SVC" "z2k_ow_fw_apply"
+assert_contains "service: fw remove на стопе" "$SVC" "z2k_ow_fw_remove"
+assert_contains "service: custom.d на старте" "$SVC" "z2k_ow_custom_daemons 1"
+assert_contains "service: custom.d на стопе" "$SVC" "z2k_ow_custom_daemons 0"
+assert_contains "service: master-гейт ENABLED" "$SVC" "ENABLED"
+assert_contains "service: procd" "$SVC" "USE_PROCD=1"
+assert_contains "service: START" "$SVC" "START=22"
+
+_t_done

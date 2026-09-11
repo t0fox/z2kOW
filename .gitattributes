@@ -5,3 +5,11 @@
 *.ini text eol=lf
 *.conf text eol=lf
 *.md text eol=lf
+
+# z2k OpenWrt adapter: extensionless router/packaging files must stay LF
+# (CRLF breaks shell/hotplug on the router). Path-scoped, additive only.
+package/openwrt/Makefile text eol=lf
+package/openwrt/files/etc/init.d/z2k text eol=lf
+package/openwrt/files/etc/hotplug.d/iface/90-z2k text eol=lf
+package/openwrt/files/etc/z2k/config.default text eol=lf
+tests/openwrt/BASELINE text eol=lf
