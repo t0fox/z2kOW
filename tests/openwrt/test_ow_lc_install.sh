@@ -33,9 +33,10 @@ assert_eq "S1 payload цел" "$(sha256sum "$Z2K_ROOT/lib/utils.sh" | awk '{prin
     "$(git -C "$REPO" show HEAD:lib/utils.sh | sha256sum | awk '{print $1}')"
 lc_snap s1-after
 lc_mutlog s1-before s1-after "S1 fresh-current none"
+lc_invariant "S1" || _t_bad "S1 invariant"
 
 # --- S2: seed older -> converge дотягивает ---
-printf 'p-84.0\n' > "$Z2K_AU_INSTALLED_TAG_FILE"
+lc_set_version "p-84.0" || exit 1
 lc_begin; lc_snap s2-before
 lc_apply
 assert_eq "S2 rc" "0" "$LC_RC"
@@ -43,6 +44,7 @@ assert_eq "S2 tag=current" "$SEEDTAG" "$(lc_tag)"
 assert_contains "S2 payload новый" "$Z2K_ROOT/lib/utils.sh" "Z2K_LC_ORIGIN_MARKER=1"
 lc_snap s2-after
 lc_mutlog s2-before s2-after "S2 old-seed converge"
+lc_invariant "S2" || _t_bad "S2 invariant"
 
 # --- S3: interrupted (payload частично + нет marker/tag) -> retry ---
 rm -rf "$Z2K_ROOT/lib" "$Z2K_ETC/.payload-initialized" "$Z2K_AU_INSTALLED_TAG_FILE"
@@ -54,6 +56,7 @@ assert_eq "S3 tag=seed" "$SEEDTAG" "$(lc_tag)"
 z2k_ow_payload_ok && _t_ok || _t_bad "S3 payload не сошёлся"
 lc_snap s3-after
 lc_mutlog s3-before s3-after "S3 interrupted retry"
+lc_invariant "S3" || _t_bad "S3 invariant"
 
 # --- S17: tag-missing -> restore из meta + настоящий launcher in-process ---
 # Отдельный свежий sysroot: trust-pin от прошлых сценариев иначе упрётся в
@@ -74,5 +77,6 @@ assert_eq "S17 launcher rc" "0" "$?"
 assert_eq "S17 tag восстановлен" "$SEEDTAG" "$(lc_tag)"
 lc_snap s17-after
 lc_mutlog s17-before s17-after "S17 missing-tag restore"
+lc_invariant "S17" || _t_bad "S17 invariant"
 
 _t_done

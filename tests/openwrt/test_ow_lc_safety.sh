@@ -58,5 +58,6 @@ wait "$_holder" 2>/dev/null
 au_lock_release 2>/dev/null || true
 lc_snap s11b-after
 lc_mutlog s11b-before s11b-after "S11 postinst-under-lock"
+lc_invariant "S11" || _t_bad "S11 invariant"
 
 _t_done

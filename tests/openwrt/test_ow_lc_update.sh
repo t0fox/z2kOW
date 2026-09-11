@@ -22,7 +22,7 @@ SEEDTAG="$(sed -n 's/^tag=//p' "$Z2K_ROOT/share/seed.meta" | head -1)"
     | lc_origin_put "files/lua/z2k-alert.lua"
 printf 'p-84.0|patch|ref840|files/lua/z2k-alert.lua|regen-config,validate-config,restart-service|false|false\n%s|patch|ref847|files/lua/z2k-alert.lua|regen-config,validate-config,restart-service|false|false\n' \
     "$SEEDTAG" | lc_manifest "$SEEDTAG" || exit 1
-printf 'p-84.0\n' > "$Z2K_AU_INSTALLED_TAG_FILE"
+lc_set_version "p-84.0" || exit 1
 lc_begin; lc_snap s2b-before
 lc_apply
 assert_eq "S2b rc" "0" "$LC_RC"
@@ -33,6 +33,7 @@ assert_contains "S2b restart был" "$LC_T/calls-init" "init:restart"
 [ -f "$LC_T/daemon-alive" ] && _t_ok || _t_bad "S2b демон не поднят restart-степом"
 lc_snap s2b-after
 lc_mutlog s2b-before s2b-after "S2b full steps"
+lc_invariant "S2b" || _t_bad "S2b invariant"
 
 # --- S12: обрыв закачки -> live payload нетронут, tag стоит ---
 lc_fresh_sysroot || { echo "FAIL[ow-lc-update]: sysroot s12" >&2; exit 1; }
@@ -42,7 +43,7 @@ lc_origin_put "lib/utils.sh" <<'EOF'
 EOF
 printf 'p-84.0|patch|ref840|lib/utils.sh||false|false\n%s|patch|ref847|lib/utils.sh||false|false\n' \
     "$SEEDTAG" | lc_manifest "$SEEDTAG" || exit 1
-printf 'p-84.0\n' > "$Z2K_AU_INSTALLED_TAG_FILE"
+lc_set_version "p-84.0" || exit 1
 export LC_FETCH_FAIL="lib/utils.sh"
 lc_begin; lc_snap s12-before
 lc_apply
@@ -56,6 +57,7 @@ else
 fi
 lc_snap s12-after
 lc_mutlog s12-before s12-after "S12 download fail"
+lc_invariant "S12" || _t_bad "S12 invariant"
 
 # --- S13: replace-fail -> rollback + dirty + reinstall-вердикт ---
 # Блокируем runtime-цель merge ПРАВАМИ (chmod 555, pre-state ЦЕЛ — в отличие
@@ -75,7 +77,7 @@ origin-domain.example
 EOF
 printf 'p-84.0|patch|ref840|lib/utils.sh,files/lists/extra-domains.txt||false|false\n%s|patch|ref847|lib/utils.sh,files/lists/extra-domains.txt||false|false\n' \
     "$SEEDTAG" | lc_manifest "$SEEDTAG" || exit 1
-printf 'p-84.0\n' > "$Z2K_AU_INSTALLED_TAG_FILE"
+lc_set_version "p-84.0" || exit 1
 if [ "$(id -u)" = "0" ]; then
     echo "SKIP[ow-lc-update]: S13 needs non-root (r-x enforcement)"
 else
@@ -90,6 +92,7 @@ _decide_out="$(au_decide "$(lc_tag)" "$Z2K_AU_TMP_DIR/UPDATES.json" 2>/dev/null 
 assert_eq "S13 следующий вердикт reinstall" "reinstall" "$_decide_out"
 lc_snap s13-after
 lc_mutlog s13-before s13-after "S13 replace fail + dirty"
+lc_invariant "S13" || _t_bad "S13 invariant"
 fi
 # (sysroot одноразовый: следующий сценарий делает свой fresh)
 
@@ -102,7 +105,7 @@ Z2K_LC_S14=1
 EOF
 printf 'p-84.0|patch|ref840|lib/utils.sh|restart-service|false|false\n%s|patch|ref847|lib/utils.sh|restart-service|false|false\n' \
     "$SEEDTAG" | lc_manifest "$SEEDTAG" || exit 1
-printf 'p-84.0\n' > "$Z2K_AU_INSTALLED_TAG_FILE"
+lc_set_version "p-84.0" || exit 1
 : > "$LC_T/daemon-alive" # демон ЖИВ до обновления
 export LC_INIT_KILLS=1    # ...а restart-степ его уронит
 lc_begin; lc_snap s14-before
@@ -113,6 +116,7 @@ assert_eq "S14 tag стоит" "p-84.0" "$(lc_tag)"
 assert_eq "S14 payload откачен" "0" "$(grep -c Z2K_LC_S14 "$Z2K_ROOT/lib/utils.sh" 2>/dev/null || true)"
 lc_snap s14-after
 lc_mutlog s14-before s14-after "S14 health fail + rollback"
+lc_invariant "S14" || _t_bad "S14 invariant"
 
 # --- S15: ENABLED=0 -> payload обновляется, сервис НЕ стартует ---
 lc_fresh_sysroot || { echo "FAIL[ow-lc-update]: sysroot s15" >&2; exit 1; }
@@ -123,7 +127,7 @@ Z2K_LC_S15=1
 EOF
 printf 'p-84.0|patch|ref840|lib/utils.sh|restart-service|false|false\n%s|patch|ref847|lib/utils.sh|restart-service|false|false\n' \
     "$SEEDTAG" | lc_manifest "$SEEDTAG" || exit 1
-printf 'p-84.0\n' > "$Z2K_AU_INSTALLED_TAG_FILE"
+lc_set_version "p-84.0" || exit 1
 printf 'ENABLED=0\n' > "$Z2K_ETC/config"
 rm -f "$LC_T/daemon-alive"
 lc_begin; lc_snap s15-before
@@ -139,5 +143,6 @@ else
 fi
 lc_snap s15-after
 lc_mutlog s15-before s15-after "S15 disabled update"
+lc_invariant "S15" || _t_bad "S15 invariant"
 
 _t_done

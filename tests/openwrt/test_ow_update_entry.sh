@@ -63,14 +63,30 @@ au_log() { echo "aulog:\$*" >> "$T/calls"; }
 au_run_apply() { echo "apply-called" >> "$T/calls"; }
 au_run_check() { echo "check-called" >> "$T/calls"; }
 EOF
+# config_official/strategies сорсятся launcher'ом? нет, но оба — в
+# Z2K_PAYLOAD_REQUIRED: без них payload_ok ложен и seed_ensure не пустит.
+printf '#!/bin/sh\n# stub\n' > "$T/root/lib/config_official.sh"
+printf '#!/bin/sh\n# stub\n' > "$T/root/lib/strategies.sh"
 printf 'ENABLED=1\n' > "$T/etc/config"
 mkdir -p "$T/bin"
 printf '#!/bin/sh\necho "sleep:$*" >> "%s/calls"\n' "$T" > "$T/bin/sleep"
 chmod +x "$T/bin/sleep"
 unset Z2K_AU_MANUAL Z2K_AU_NO_JITTER
 export PATH="$T/bin:$PATH"
+# pre-flight update.sh (seed_ensure) требует целый payload: добиваем stub-root
+# dummy-файлами + seed.meta/tag в согласии (payload_ok + reconcile проходят)
+mkdir -p "$T/root/lua" "$T/root/extra_strats/TCP/RKN" "$T/root/extra_strats/TCP/YT" \
+         "$T/root/extra_strats/TCP/YT_GV" "$T/root/extra_strats/UDP/YT" \
+         "$T/root/share" "$T/root/lists" "$T/etc/state"
+printf 'x\n' > "$T/root/lua/z2k-alert.lua"
+printf 'x\n' > "$T/root/lua/z2k-state-persist.lua"
+printf 'x\n' > "$T/root/strats_new2.txt"
+for _p in TCP/YT TCP/YT_GV TCP/RKN UDP/YT; do
+    printf 'x\n' > "$T/root/extra_strats/$_p/Strategy.txt"
+done
+printf 'platform=openwrt\ntag=p-84.7\nref=test\n' > "$T/root/share/seed.meta"
+printf 'platform=openwrt\ntag=p-84.7\nref=test\n' > "$T/root/share/payload.meta"
 # pre-flight update.sh: marker + tag (восстановление tag — в preflight-тесте)
-mkdir -p "$T/etc/state"
 : > "$T/etc/.payload-initialized"
 printf 'p-84.7\n' > "$T/etc/state/installed-tag"
 

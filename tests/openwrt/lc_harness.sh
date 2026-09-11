@@ -263,7 +263,6 @@ lc_apply() {
     au_run_apply >/dev/null 2>&1
     LC_RC=$?
 }
-# postinst-эквивалент: ТОТ ЖЕ порядок, что Makefile (seed_ensure, cron).
 lc_postinst() {
     z2k_ow_seed_ensure >/dev/null 2>&1 || return 1
     z2k_ow_cron_install >/dev/null 2>&1 || return 1
@@ -274,7 +273,47 @@ lc_prerm() {
     Z2K_INITSRC="$INIT_SCRIPT" z2k_ow_uninstall >/dev/null 2>&1 || return 1
     return 0
 }
+# lc_invariant <label>: глобальные I1/I2 (§13, QUIESCENT states only!).
+# Проверяет: marker⇒payload_ok; tag⇒marker+meta+равенство; empty⇒без marker/tag.
+# Crash-состояния mid-transaction НАМЕРЕННО валят проверку (детект, не баг):
+# тесты assert'ят FAIL там и OK после repair. Печатает INVARIANT-строку.
+lc_invariant() {
+    local _label="$1" _fail="" _tag="" _meta=""
+    if [ -f "$Z2K_ETC/.payload-initialized" ]; then
+        z2k_ow_payload_ok 2>/dev/null || _fail="${_fail} I1(marker-without-payload)"
+    fi
+    [ -f "$Z2K_AU_INSTALLED_TAG_FILE" ] && \
+        _tag=$(tr -d '[:space:]' < "$Z2K_AU_INSTALLED_TAG_FILE" 2>/dev/null)
+    if [ -n "$_tag" ]; then
+        [ -f "$Z2K_ETC/.payload-initialized" ] || _fail="${_fail} I2a(tag-without-marker)"
+        _meta=$(z2k_ow_payload_meta_tag 2>/dev/null) || _fail="${_fail} I2b(tag-without-meta)"
+        if [ -z "$_fail" ] && [ "$_tag" != "$_meta" ]; then
+            _fail="${_fail} I2c(tag[$_tag]!=meta[$_meta])"
+        fi
+    fi
+    if z2k_ow_payload_empty 2>/dev/null; then
+        [ -f "$Z2K_ETC/.payload-initialized" ] && _fail="${_fail} I-empty-marker"
+        [ -n "$_tag" ] && _fail="${_fail} I-empty-tag"
+    fi
+    if [ -z "$_fail" ]; then
+        printf 'INVARIANT %s: OK\n' "$_label"
+        return 0
+    fi
+    printf 'INVARIANT %s: FAIL%s\n' "$_label" "$_fail"
+    return 1
+}
 lc_tag() { tr -d '[:space:]' < "$Z2K_AU_INSTALLED_TAG_FILE" 2>/dev/null; }
+# lc_set_version <tag>: КОНСИСТЕНТНЫЙ backdate (tag+meta вместе, как после
+# настоящего update). Ручная правка только tag создаёт расхождение, которое
+# invariant справедливо бракует, — этим helper'ом симулируем "старую установку".
+lc_set_version() {
+    printf '%s\n' "$1" > "$Z2K_AU_INSTALLED_TAG_FILE" || return 1
+    { printf 'platform=openwrt\n'
+      printf 'tag=%s\n' "$1"
+      printf 'ref=\n'
+    } > "$Z2K_ROOT/share/payload.meta" 2>/dev/null || return 1
+    return 0
+}
 lc_payload_ver() {
     printf '%s/%s' "$(lc_tag)" "$(sha256sum "$Z2K_ROOT/lib/utils.sh" 2>/dev/null | awk '{print $1}')"
 }

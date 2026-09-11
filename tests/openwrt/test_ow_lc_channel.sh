@@ -38,6 +38,7 @@ assert_eq "S6 rc" "1" "$LC_RC"
 assert_eq "S6 tag стоит" "$SEEDTAG" "$(lc_tag)"
 lc_snap s6-after
 lc_mutlog s6-before s6-after "S6 wrong-platform refused"
+lc_invariant "S6" || _t_bad "S6 invariant"
 # мутаций payload нет вообще (только tmp/логи): MODIFIED пуст
 if lc_mutlog s6-before s6-after S6x 2>/dev/null | grep -E '^MODIFIED: [^ ]'; then
     _t_bad "S6 мутировал payload до отказа"
@@ -54,7 +55,7 @@ Z2K_LC_S7=1
 EOF
 printf 'p-84.0|patch|forkref001|lib/utils.sh||false|false\n%s|patch|forkref002|lib/utils.sh||false|false\n' \
     "$SEEDTAG" | lc_manifest "$SEEDTAG" || exit 1
-printf 'p-84.0\n' > "$Z2K_AU_INSTALLED_TAG_FILE"
+lc_set_version "p-84.0" || exit 1
 : > "$LC_T/fetch.log"
 lc_begin; lc_snap s7-before
 lc_apply
@@ -69,6 +70,7 @@ assert_contains "S7 ref в URL" "$LC_T/fetch.log" "forkref002"
 assert_contains "S7 payload новый" "$Z2K_ROOT/lib/utils.sh" "Z2K_LC_S7=1"
 lc_snap s7-after
 lc_mutlog s7-before s7-after "S7 fork ref t0fox-only"
+lc_invariant "S7" || _t_bad "S7 invariant"
 
 # --- S8: reinstall-входы — точная семантика modern flow ---
 # type=reinstall САМ ПО СЕБЕ reinstall не вызывает (converge его покрывает —
@@ -92,7 +94,7 @@ SEEDTAG="$(sed -n 's/^tag=//p' "$Z2K_ROOT/share/seed.meta" | head -1)"
 _s8case() {
     # $1 имя; окно НЕПУСТО (tag позади current), ждёт rc!=0, tag стоит,
     # з2k.sh не трогали, sentinel нет
-    printf '%s\n' "p-84.0" > "$Z2K_AU_INSTALLED_TAG_FILE"
+    lc_set_version "p-84.0" || exit 1
     : > "$LC_T/fetch.log"
     rm -f "$LC_T/sentinel"
     lc_begin
@@ -117,7 +119,7 @@ Z2K_LC_S8A=1
 EOF
 printf 'p-84.0|reinstall|refR|lib/utils.sh||false|false\n%s|reinstall|refR2|lib/utils.sh||false|false\n' \
     "$SEEDTAG" | lc_manifest "$SEEDTAG" || exit 1
-printf '%s\n' "p-84.0" > "$Z2K_AU_INSTALLED_TAG_FILE"
+lc_set_version "p-84.0" || exit 1
 : > "$LC_T/fetch.log"
 rm -f "$LC_T/sentinel"
 lc_begin
@@ -135,7 +137,7 @@ assert_eq "S8a sentinel нет" "0" "$([ -f "$LC_T/sentinel" ] && echo 1 || echo
 # rc 0, тег двинулся, без установщика
 printf 'p-84.0|patch|refF|lib/utils.sh||true|false\n%s|patch|refF2|lib/utils.sh||true|false\n' \
     "$SEEDTAG" | lc_manifest "$SEEDTAG" || exit 1
-printf '%s\n' "p-84.0" > "$Z2K_AU_INSTALLED_TAG_FILE"
+lc_set_version "p-84.0" || exit 1
 : > "$LC_T/fetch.log"
 rm -f "$LC_T/sentinel"
 lc_begin
@@ -177,7 +179,7 @@ _s8case "full+reinstall"
 unset Z2K_AU_REINSTALL_EXECUTOR
 printf 'p-84.0|reinstall|refR|lib/utils.sh||true|false\n%s|reinstall|refR2|lib/utils.sh||true|false\n' \
     "$SEEDTAG" | lc_manifest "$SEEDTAG" || exit 1
-printf '%s\n' "p-84.0" > "$Z2K_AU_INSTALLED_TAG_FILE"
+lc_set_version "p-84.0" || exit 1
 rm -f "$LC_T/sentinel"
 lc_begin
 au_run_apply >/dev/null 2>&1

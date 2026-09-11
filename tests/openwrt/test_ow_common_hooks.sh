@@ -88,5 +88,17 @@ _hook "converge dirty refusal" "$AU" \
 _hook "converge TARGET_REF pin" "$AU" \
     'Z2K_AU_TARGET_REF=.*au_manifest_ref' \
     'au_manifest_ref'
+_hook "payload meta writer" "$AU" \
+    '^au_write_payload_meta\(\)' \
+    'platform=%s'
+_hook "meta before tag (patch)" "$AU" \
+    'au_write_payload_meta "\$target_tag"' \
+    'files -> meta -> tag'
+# Регрессионный tripwire: правка рядом однажды съела `local tag="$1"`
+# из au_write_installed_tag (все вызовы получали пусто, обновления вставали;
+# unit-наборы это не ловят — они стабят writer; поймал lifecycle-тест).
+_hook "tag writer intact" "$AU" \
+    'local tag="\$1"$' \
+    'installed-tag'
 
 _t_done

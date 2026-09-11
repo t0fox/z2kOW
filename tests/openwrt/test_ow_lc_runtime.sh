@@ -22,7 +22,7 @@ Z2K_LC_S15B=1
 EOF
 printf 'p-84.0|patch|ref840|lib/utils.sh|restart-service|false|false\n%s|patch|ref847|lib/utils.sh|restart-service|false|false\n' \
     "$SEEDTAG" | lc_manifest "$SEEDTAG" || exit 1
-printf 'p-84.0\n' > "$Z2K_AU_INSTALLED_TAG_FILE"
+lc_set_version "p-84.0" || exit 1
 printf 'ENABLED=0\n' > "$Z2K_ETC/config"
 rm -f "$LC_T/daemon-alive"
 : > "$LC_T/calls-init"
@@ -41,6 +41,7 @@ else
 fi
 lc_snap s15-after
 lc_mutlog s15-before s15-after "S15 disabled full launcher"
+lc_invariant "S15" || _t_bad "S15 invariant"
 
 # --- S17-rest: состояния tag (decide-уровень + fetch-отказ) ---
 lc_fresh_sysroot || { echo "FAIL[ow-lc-runtime]: sysroot s17" >&2; exit 1; }
@@ -67,7 +68,7 @@ Z2K_LC_S20=1
 EOF
 printf 'p-84.0|patch|ref840|lib/utils.sh||false|false\n%s|patch|ref847|lib/utils.sh||false|false\n' \
     "$SEEDTAG" | lc_manifest "$SEEDTAG" || exit 1
-printf 'p-84.0\n' > "$Z2K_AU_INSTALLED_TAG_FILE"
+lc_set_version "p-84.0" || exit 1
 printf 'user-s20.example\n' >> "$Z2K_ETC/user-lists/whitelist.txt"
 printf 'Z2K_DYNAMIC_TTL=0\n' >> "$Z2K_ETC/config"
 export LC_FETCH_FAIL="lib/utils.sh"
@@ -85,5 +86,6 @@ assert_contains "S20 payload новый" "$Z2K_ROOT/lib/utils.sh" "Z2K_LC_S20=1"
 assert_contains "S20 whitelist после retry" "$Z2K_ETC/user-lists/whitelist.txt" "user-s20.example"
 lc_snap s20-after
 lc_mutlog s20-before s20-after "S20 fail+retry user-data"
+lc_invariant "S20" || _t_bad "S20 invariant"
 
 _t_done
