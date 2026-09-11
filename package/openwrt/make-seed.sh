@@ -16,8 +16,14 @@
 #   make-seed.sh <tree> <out.tar.gz>
 
 set -e
-MODE="$1"
-TREE="$2"
+if [ "$1" = "--list" ]; then
+    MODE="--list"
+    TREE="$2"
+else
+    MODE="build"
+    TREE="$1"
+    OUT="$2"
+fi
 
 [ -n "$TREE" ] || { echo "make-seed: нужен корень дерева" >&2; exit 1; }
 [ -d "$TREE" ] || { echo "make-seed: нет $TREE" >&2; exit 1; }
@@ -53,7 +59,6 @@ if [ "$MODE" = "--list" ]; then
     exit 0
 fi
 
-OUT="$2"
 [ -n "$OUT" ] || { echo "make-seed: нужен выходной tar.gz" >&2; exit 1; }
 STAGE="$(mktemp -d)" || exit 1
 trap 'rm -rf "$STAGE"' EXIT INT TERM
