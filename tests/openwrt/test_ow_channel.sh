@@ -50,11 +50,15 @@ fi
 # ЗАКОММИЧЕНО. Клон собирается из HEAD: при грязном дереве сравнение
 # "таблица(worktree) vs regen(committed)" ложно краснеет — скипаем e2e
 # честно (остальные секции теста от дерева не зависят).
+# --ignore-cr-at-eol: Windows-чекаут красит весь worktree в CRLF-шум,
+# это не грязь (та же техника, что в upstream-diff guard).
 # (clone, НЕ worktree: у worktree общий gitdir с $REPO, а regen пишет
 # UPDATES.json — любая ошибка cd/gen отравила бы настоящий манифест;
 # tripwire ниже это сторожит). Реальный UPDATES.json тест не трогает.
 _orig_sum="$(cksum "$REPO/UPDATES.json")"
-if git -C "$REPO" status --porcelain -- lib scripts files strats_new2.txt quic_strats.ini UPDATES.json webpanel 2>/dev/null | grep -q .; then
+# Только ВХОДЫ regen (не сам UPDATES.json — он выход): при грязных входах
+# сравнение "таблица(worktree) vs regen(committed)" ложно краснеет.
+if ! git -C "$REPO" diff --ignore-cr-at-eol --quiet HEAD -- lib scripts files strats_new2.txt quic_strats.ini webpanel 2>/dev/null; then
     echo "SKIP[ow-channel]: generator e2e needs committed tree"
 else
 CLONE="$T/clone"
