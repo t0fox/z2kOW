@@ -62,7 +62,13 @@ generate_nfqws2_opt_from_strategies() {
     # branch ниже) теперь default. Юзеры могут опционально включить
     # merge через `Z2K_REFACTOR_PHASE3=1` в config — оставлено для
     # тестирования / возможного rollforward.
-    Z2K_REFACTOR_PHASE3=$(safe_config_read "Z2K_REFACTOR_PHASE3" "/opt/zapret2/config" "0")
+    #
+    # PLATFORM HOOK (allowlisted, см. docs/openwrt-adapter-contract.md § sync):
+    # путь через ${ZAPRET2_DIR}, как у всех ~30 соседних чтений в этой функции.
+    # Было захардкожено "/opt/zapret2/config" — единственное такое чтение в
+    # argv-конвейере. Keenetic: ZAPRET2_DIR там unset либо /opt/zapret2, строка
+    # та же побайтово — default behaviour семантически идентичен.
+    Z2K_REFACTOR_PHASE3=$(safe_config_read "Z2K_REFACTOR_PHASE3" "${ZAPRET2_DIR:-/opt/zapret2}/config" "0")
     # Phase 4 (cdn_tls) удалён 2026-04-27 — отдельный CF/OVH/Hetzner/DO
     # профиль перехватывал non-RKN CF трафик и применял свой набор стратегий
     # слабее проверенного 47-стратегий rkn_tcp rotator'а. CF возвращается
