@@ -1,16 +1,25 @@
 # package/openwrt/ownership.map - machine-readable граница владения.
-# Формат: "<target-path> <owner>", owner = package | updater | user.
-#   package: ставит opkg, z2k-апдейтер эти пути НЕ пишет никогда
-#            (обновляются только вместе с пакетом; conffiles нет осознанно).
-#   updater: развозит z2k install_map (openwrt-line), opkg их НЕ поставляет
-#            напрямую (только внутри share/seed.tar.gz как bootstrap-seed;
-#            сам tarball — package-owned артефакт сборки, его содержимое —
-#            updater-owned с момента извлечения; seed извлекается только без
-#            marker, см. z2k_ow_seed_ensure).
-#   user:    пользовательское состояние. Пакет НЕ поставляет (bootstrap
-#            создаёт если отсутствует, никогда не перезаписывает); апдейтер
-#            может MERGE (extra-domains), но не blind-overwrite.
-#            Допускаются glob-суффиксы /* (поддерево целиком).
+# Формат: "<target-path> <owner>". Классы:
+#   package  — ставит opkg, z2k-апдейтер эти пути НЕ пишет никогда
+#              (обновляются только вместе с пакетом; conffiles нет осознанно).
+#   updater  — развозит z2k install_map (openwrt-line), opkg их НЕ поставляет
+#              напрямую (только внутри share/seed.tar.gz как bootstrap-seed;
+#              сам tarball — package-owned артефакт сборки, его содержимое —
+#              updater-owned с момента извлечения; seed извлекается только без
+#              marker, см. z2k_ow_seed_ensure).
+#   user     — человеческие данные. Пакет НЕ поставляет (bootstrap создаёт
+#              если отсутствует, никогда не перезаписывает); апдейтер может
+#              MERGE (extra-domains), но не blind-overwrite.
+#   install-meta — installation metadata (НЕ user config!): пишет bootstrap
+#              (marker/tag) и updater (tag/dirty/fails); пакет НЕ поставляет
+#              (создаётся на месте); uninstall УДАЛЯЕТ active (marker/tag/
+#              dirty/fails), иначе они утверждали бы ложь о снесённом payload.
+#   trust    — TOFU канала (публичный pin первого verified fetch). Пишет
+#              updater; переживает uninstall (ослаблять ratchet нельзя).
+#   daemon-state — публикует демон (+ правит человек): autocircular state,
+#              discovered/sni/tcp16 карты. Переживает всё (upgrade/update/
+#              uninstall); purge — только вручную.
+# Допускаются glob-суффиксы /* (поддерево целиком).
 # Конфликт package∩updater (точные пути) = PACKAGE_UPDATER_OWNERSHIP_CONFLICT,
 # сторожит tests/openwrt/test_ow_ownership_map.sh.
 /etc/init.d/z2k package
@@ -30,11 +39,21 @@
 /usr/lib/z2k/platform/openwrt/uninstall.sh package
 /usr/lib/z2k/share/config.default package
 /usr/lib/z2k/share/seed.tar.gz package
-# seed.meta едет ВНУТРИ tarball и извлекается с payload: факт о payload,
-# updater-owned с момента извлечения (пакет ставит только tarball,
-# апдейтер meta не правит, seed_ensure только читает).
+# seed.meta едет ВНУТРИ tarball (build-факт о содержимом): updater-owned с
+# момента извлечения (апдейтер её не правит — только читает при re-seed).
 /usr/lib/z2k/share/seed.meta updater
+# payload.meta — живая версия payload: seed кладёт стартовую копию, updater
+# перезаписывает при каждом успешном converge ДО installed-tag (порядок
+# [files -> meta -> tag]). updater-owned.
+/usr/lib/z2k/share/payload.meta updater
 /etc/z2k/config user
-/etc/z2k/.payload-initialized user
-/etc/z2k/state/* user
 /etc/z2k/user-lists/* user
+/etc/z2k/.payload-initialized install-meta
+/etc/z2k/state/installed-tag install-meta
+/etc/z2k/state/dirty-tree install-meta
+/etc/z2k/state/au-delivery-fails install-meta
+/etc/z2k/.trust/pinned trust
+/etc/z2k/state/state.tsv daemon-state
+/etc/z2k/state/discovered-domains.txt daemon-state
+/etc/z2k/state/tcp16_asn.txt daemon-state
+/etc/z2k/state/tcp16_sni.txt daemon-state
