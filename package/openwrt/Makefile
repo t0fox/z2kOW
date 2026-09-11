@@ -36,10 +36,10 @@ config generation via untouched upstream libs, firewall delegation
 to the zapret2 runtime. No fork of common z2k logic.
 endef
 
-define Package/z2k-adapter/conffiles
-/etc/init.d/z2k
-/etc/hotplug.d/iface/90-z2k
-endef
+# conffiles НЕТ осознанно (Model A): init/hotplug — package-owned код,
+# обязаны обновляться вместе с пакетом, а не сохраняться как user-config.
+# /etc/z2k/* пакет вообще не поставляет (bootstrap создаёт, см. ownership.map
+# класс user) — сохранять менеджеру там нечего.
 
 # Корень дерева z2k (in-tree layout: этот Makefile лежит в
 # <tree>/package/openwrt/). Seed собирается из него же.
@@ -64,11 +64,11 @@ define Package/z2k-adapter/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 Z2K_ROOT="$${Z2K_ROOT:-/usr/lib/z2k}"
-# seed первым: bootstrap ждёт payload на месте (lua/стратегии/листы).
-tar -xzf "$$Z2K_ROOT/share/seed.tar.gz" -C / || exit 1
+# Seed — ТОЛЬКО для неинициализированной установки (marker-правило внутри):
+# package upgrade при целом payload ничего не извлекает (Model A).
 . "$$Z2K_ROOT/platform/openwrt/paths.sh"
 . "$$Z2K_ROOT/platform/openwrt/bootstrap.sh"
-z2k_ow_bootstrap || exit 1
+z2k_ow_seed_ensure || exit 1
 exit 0
 endef
 

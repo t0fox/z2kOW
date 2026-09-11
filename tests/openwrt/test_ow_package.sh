@@ -17,8 +17,15 @@ assert_contains "postinst seed first" "$MK" "seed.tar.gz"
 assert_contains "prerm stop" "$MK" "init.d/z2k stop"
 assert_contains "seed builder" "$MK" "make-seed.sh"
 assert_contains "materialize in seed" "$REPO/package/openwrt/make-seed.sh" "z2k_ow_materialize"
-assert_contains "conffiles init" "$MK" "/etc/init.d/z2k"
-assert_contains "conffiles hotplug" "$MK" "/etc/hotplug.d/iface/90-z2k"
+assert_contains "postinst seed-guard" "$MK" "z2k_ow_seed_ensure"
+
+# conffiles НЕТ осознанно: init/hotplug — package-owned код, обновляется
+# вместе с пакетом (Model A). Наличие stanza = провал.
+if grep -q 'conffiles' "$MK"; then
+    _t_bad "conffiles stanza present (должна отсутствовать)"
+else
+    _t_ok
+fi
 
 # Model A: пакет НЕ ставит payload напрямую (только seed) — иначе конфликт
 # владения с апдейтером. Прямых lua/fake/lists/lib-строк в install нет.
