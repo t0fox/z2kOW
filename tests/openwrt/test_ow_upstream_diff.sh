@@ -88,7 +88,7 @@ else
                             $_g diff --ignore-cr-at-eol -- UPDATES.json 2>/dev/null; } \
                     | grep -E '^[+-]' | grep -vE '^[+-]{3}' || true)"
                 _umd_bad="$(printf '%s\n' "$_umd" \
-                    | grep -vE '^[+-]  "lib/(config_official|release_map|auto_update)\.sh": "[0-9a-f]{64}",?$' || true)"
+                    | grep -vE '^[+-]  "(lib/(config_official|release_map|auto_update)\.sh|files/z2k-config-validator\.sh)": "[0-9a-f]{64}",?$' || true)"
                 [ -z "$_umd_bad" ] && continue ;;
         esac
         _unallowed="$_unallowed $_f:$(_seam_of "$_f")"
