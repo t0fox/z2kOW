@@ -22,6 +22,12 @@ assert_eq "TCP16_NETS -> payload lists" "$T/root/lists/tcp16_nets.txt" "$Z2K_TCP
 assert_eq "SNI_PIN default (shipped lists)" "$T/root/lists/sni_wl_pin.txt" "$Z2K_SNI_PIN"
 assert_eq "FWTYPE nftables" "nftables" "$FWTYPE"
 assert_eq "OPENWRT_LAN default" "lan" "$OPENWRT_LAN"
+assert_eq "INIT_SCRIPT procd" "/etc/init.d/z2k" "$INIT_SCRIPT"
+assert_eq "Z2K_CONFIG_FILE canonical" "$T/etc/config" "$Z2K_CONFIG_FILE"
+assert_eq "Z2K_AU_SBIN payload bin" "$T/root/bin" "$Z2K_AU_SBIN"
+assert_eq "STATE_FILE persistent" "$T/etc/state/state.tsv" "$STATE_FILE"
+assert_eq "merge shipped payload" "$T/root/lists/extra-domains.txt" "$Z2K_EXTRA_DOMAINS_SHIPPED"
+assert_eq "merge runtime user-lists" "$T/etc/user-lists/extra-domains.txt" "$Z2K_EXTRA_DOMAINS_RUNTIME"
 
 # предвыставленное окружение не затирается
 ( ZAPRET2_DIR=/keep CONFIG_DIR=/keep2 LISTS_DIR=/keep3 OPENWRT_LAN="lan9"

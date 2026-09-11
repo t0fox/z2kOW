@@ -33,6 +33,17 @@ Z2K_STATE_DIR_OVERRIDE="${Z2K_STATE_DIR_OVERRIDE:-$Z2K_STATE}"
 Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE="${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-$Z2K_TMP}"
 export Z2K_STATE_DIR_OVERRIDE Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE
 
+# Тот же файл глазами shell-стороны: шаг reset-state апдейтера чистит
+# ${STATE_FILE} (дефолт — keenetic-путь; здесь указываем наш).
+STATE_FILE="${STATE_FILE:-$Z2K_STATE/state.tsv}"
+export STATE_FILE
+
+# Пара 3-way merge extra-domains (au_merge_extra_domains): shipped-база из
+# payload, runtime-мерж в user-lists. Keenetic-дефолты — в самом хуке.
+Z2K_EXTRA_DOMAINS_SHIPPED="${Z2K_EXTRA_DOMAINS_SHIPPED:-$Z2K_LISTS_DIR/extra-domains.txt}"
+Z2K_EXTRA_DOMAINS_RUNTIME="${Z2K_EXTRA_DOMAINS_RUNTIME:-$Z2K_USER_LISTS/extra-domains.txt}"
+export Z2K_EXTRA_DOMAINS_SHIPPED Z2K_EXTRA_DOMAINS_RUNTIME
+
 # Lua: tcp16-карты. ASN/SNI — рантайм-состояние (/etc), NETS/PIN — shipped.
 Z2K_TCP16_ASN="${Z2K_TCP16_ASN:-$Z2K_STATE/tcp16_asn.txt}"
 Z2K_TCP16_NETS="${Z2K_TCP16_NETS:-$Z2K_LISTS_DIR/tcp16_nets.txt}"
@@ -44,6 +55,22 @@ export Z2K_TCP16_ASN Z2K_TCP16_NETS Z2K_TCP16_SNI Z2K_SNI_PIN
 # это и есть наш канонический /etc/z2k/config (см. generate.sh).
 ZAPRET_CONFIG="${ZAPRET_CONFIG:-$Z2K_CONFIG}"
 export ZAPRET_CONFIG
+
+# Канонический конфиг для шагов апдейтера (regen-config/validate-config/
+# restart-service): тот же файл. PLATFORM HOOK в lib/auto_update.sh читает
+# именно эту переменную; unset = keenetic-путь, там её никто не выставляет.
+Z2K_CONFIG_FILE="${Z2K_CONFIG_FILE:-$Z2K_CONFIG}"
+export Z2K_CONFIG_FILE
+
+# Init-скрипт для шага restart-service семантики (au_step_restart_service
+# вызывает "$INIT_SCRIPT restart"). utils.sh уважает предустановку.
+INIT_SCRIPT="${INIT_SCRIPT:-/etc/init.d/z2k}"
+export INIT_SCRIPT
+
+# Каталог Go-бинарников для шага refresh-binaries (au_step_refresh_binaries
+# кладёт в ${Z2K_AU_SBIN}). Persistent, согласно storage-модели.
+Z2K_AU_SBIN="${Z2K_AU_SBIN:-$Z2K_BIN}"
+export Z2K_AU_SBIN
 
 # LAN-сети для zapret2 ifsets (значение задаёт uci.sh, здесь — дефолт).
 OPENWRT_LAN="${OPENWRT_LAN:-lan}"
