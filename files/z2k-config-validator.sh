@@ -20,7 +20,10 @@ set -u
 CONFIG_FILE="${1:-/opt/zapret2/config}"
 ZAPRET_BASE="${ZAPRET_BASE:-/opt/zapret2}"
 NFQWS2_BIN="${ZAPRET_BASE}/nfq2/nfqws2"
-FAKE_DIR="${ZAPRET_BASE}/files/fake"
+# PLATFORM HOOK (allowlisted): fake-блобы лежат не всегда в $ZAPRET_BASE/files.
+# Keenetic: unset → тот же путь. OpenWrt: env задаёт Z2K_FAKE_DIR
+# ($Z2K_ROOT/fake — наш маппинг files/fake/* без префикса files/).
+FAKE_DIR="${Z2K_FAKE_DIR:-${ZAPRET_BASE}/files/fake}"
 # Init-скрипт — единственное место, где живут строки регистрации блобов
 # (`--blob=<имя>:@<путь>`). В конфиге их нет вовсе, поэтому карту имён
 # приходится читать отсюда. См. check_blob_references.
@@ -551,7 +554,11 @@ check_lua_desync_actions() {
 # (standard_*) живут в zapret-auto.lua и находятся тем же способом.
 check_lua_detectors() {
     _opt_text="$1"
-    _lua_dir="${ZAPRET_BASE}/lua"
+    # PLATFORM HOOK (allowlisted): дополнительные каталоги lua. Keenetic:
+    # unset → один каталог как раньше. OpenWrt: Z2K_LUA_EXTRA_DIRS добавляет
+    # payload ($Z2K_ROOT/lua с z2k-детекторами) к fork-lua из ZAPRET_BASE;
+    # grep -r ниже принимает список каталогов.
+    _lua_dir="${ZAPRET_BASE}/lua${Z2K_LUA_EXTRA_DIRS:+ $Z2K_LUA_EXTRA_DIRS}"
     _dets=$(printf '%s\n' "$_opt_text" | tr ' ' '\n' \
             | grep -oE '(failure|success)_detector=[A-Za-z_][A-Za-z0-9_]*' \
             | sed 's/.*=//' | sort -u)
@@ -559,7 +566,9 @@ check_lua_detectors() {
 
     _missing=""
     for _d in $_dets; do
-        if ! grep -rqs -- "function[[:space:]]\+${_d}[[:space:]]*(" "$_lua_dir" 2>/dev/null; then
+        # shellcheck disable=SC2086: _lua_dir — СПИСОК каталогов (base + EXTRA),
+        # word splitting здесь намеренно; путей с пробелами на роутерах нет.
+        if ! grep -rqs -- "function[[:space:]]\+${_d}[[:space:]]*(" $_lua_dir 2>/dev/null; then
             _missing="$_missing $_d"
         fi
     done

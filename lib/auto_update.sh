@@ -631,6 +631,22 @@ au_converge_apply() {
         [ -n "$_ca_t" ] || continue
         _ca_stage="$dl/$(printf '%s' "$_ca_path" | tr '/' '_')"
         [ -f "$_ca_stage" ] || continue
+        # extra-domains.txt: 3-way merge, как в старом patch-пути. Прямая
+        # раскладка по обеим целям затёрла бы пользовательские строки
+        # runtime-копии shipped-содержимым: на converge-пути merge НЕ
+        # вызывался вовсе (только старый путь его звал), и каждое обновление
+        # списков молча сносило дописанное руками. Найдено freeze-аудитом.
+        # .merged-guard: у файла две цели, merge обе делает разом и
+        # идемпотентен, но двойная работа и двойной лог не нужны.
+        if [ "$_ca_path" = "files/lists/extra-domains.txt" ]; then
+            if grep -qxF "$_ca_path" "$dl/.merged" 2>/dev/null; then continue; fi
+            if au_merge_extra_domains "$_ca_stage"; then
+                printf '%s\n' "$_ca_path" >> "$dl/.merged" 2>/dev/null
+                continue
+            fi
+            au_log "сходимость: не смержился $_ca_path"; echo 1 >> "$cvfail"
+            continue
+        fi
         mkdir -p "$(dirname "$_ca_t")" 2>/dev/null
         # Атомарно: временный файл в ТОЙ ЖЕ директории и rename. Голый cp
         # переписывает цель на месте, и прерывание (обрыв питания, OOM —
@@ -1348,9 +1364,12 @@ EOF
 # -------------------------------------------------- Z2K_* feature flags ---
 
 # Extract Z2K_* feature flags from the active config to a backup file.
+# Путь — Z2K_CONFIG_FILE (PLATFORM HOOK, см. regen-config): на OpenWrt
+# ${ZAPRET2_DIR}/config — симлинк моста; чтение через него работает, но
+# канонический путь обязан быть один (запись в reapply ниже — через него же).
 au_save_feature_flags() {
     local out="$1"
-    local config_file="${ZAPRET2_DIR:-/opt/zapret2}/config"
+    local config_file="${Z2K_CONFIG_FILE:-${ZAPRET2_DIR:-/opt/zapret2}/config}"
     [ -f "$config_file" ] || return 0
     grep -E '^Z2K_[A-Z0-9_]+=' "$config_file" > "$out" 2>/dev/null || true
     if [ -s "$out" ]; then
@@ -1362,9 +1381,12 @@ au_save_feature_flags() {
 # Reapply Z2K_* feature flags from backup over the active config.
 # Only flags that already exist in the new config are replaced; new-config
 # defaults stand for absent (deprecated) flags.
+# Путь — Z2K_CONFIG_FILE (PLATFORM HOOK): sed -i через ${ZAPRET2_DIR}/config
+# на OpenWrt подменил бы симлинк моста файлом (rename-семантика sed -i),
+# и /etc/z2k/config протух бы посреди обновления.
 au_reapply_feature_flags() {
     local backup="$1"
-    local config_file="${ZAPRET2_DIR:-/opt/zapret2}/config"
+    local config_file="${Z2K_CONFIG_FILE:-${ZAPRET2_DIR:-/opt/zapret2}/config}"
     [ -f "$backup" ] && [ -s "$backup" ] || return 0
     [ -f "$config_file" ] || return 1
 
@@ -1623,9 +1645,15 @@ au_merge_extra_domains() {
         : > "$user_extras"
     fi
 
-    # Update shipped baseline first (shipped_old gets replaced)
-    mkdir -p "$(dirname "$shipped_old")"
-    cp -f "$shipped_new" "$shipped_old"
+    # Update shipped baseline first (shipped_old gets replaced).
+    # Failures here MUST propagate (было: mkdir/cp без проверок + безусловный
+    # return 0 в конце — битый shipped/runtime молча считался смерженным, а
+    # вызывающий шёл дальше как ни в чём не бывало; найдено freeze-аудитом
+    # живым прогоном: mv упал, в журнале "merged ... preserved", rc 0).
+    mkdir -p "$(dirname "$shipped_old")" 2>/dev/null || {
+        au_log "merge extra-domains: не создался каталог $(dirname "$shipped_old")"; return 1; }
+    cp -f "$shipped_new" "$shipped_old" 2>/dev/null || {
+        au_log "merge extra-domains: не записался shipped $shipped_old"; return 1; }
 
     # Build new runtime: shipped_new + user-only lines (deduped)
     {
@@ -1633,8 +1661,10 @@ au_merge_extra_domains() {
         if [ -s "$user_extras" ]; then
             cat "$user_extras"
         fi
-    } | awk '!seen[$0]++' > "$runtime.tmp"
-    mv -f "$runtime.tmp" "$runtime"
+    } | awk '!seen[$0]++' > "$runtime.tmp" 2>/dev/null || {
+        au_log "merge extra-domains: не собрался runtime (нет записи в $(dirname "$runtime"))"; return 1; }
+    mv -f "$runtime.tmp" "$runtime" 2>/dev/null || {
+        au_log "merge extra-domains: не записался runtime $runtime"; return 1; }
 
     local user_n
     user_n=$(wc -l < "$user_extras" 2>/dev/null || echo 0)
@@ -2086,8 +2116,11 @@ au_health_check() {
     # — the init script, every sourced lib, and the root-running CGI. A parse
     # error here means the patch is broken and must roll back. These are all
     # POSIX-sh on the router, so `sh -n` is the right check.
+    # Init — через INIT_SCRIPT (PLATFORM HOOK): Keenetic-дефолт тот же S99,
+    # OpenWrt — /etc/init.d/z2k (апдейтер его не возит, но сломанный init
+    # после seed/postinst обязан ронять health, а не проходить молча).
     local _zd="${ZAPRET2_DIR:-/opt/zapret2}" _bad=""
-    for _s in /opt/etc/init.d/S99zapret2 "$_zd"/lib/*.sh "$_zd"/webpanel/cgi/*.sh; do
+    for _s in "${INIT_SCRIPT:-/opt/etc/init.d/S99zapret2}" "$_zd"/lib/*.sh "$_zd"/webpanel/cgi/*.sh; do
         [ -f "$_s" ] || continue
         sh -n "$_s" 2>/dev/null || _bad="$_bad $_s"
     done
@@ -2270,6 +2303,14 @@ au_rollback_patch() {
     if [ -x /opt/etc/init.d/S99zapret2 ]; then
         /opt/etc/init.d/S99zapret2 restart >/dev/null 2>&1 || true
     fi
+    # OpenWrt: тот же hook INIT_SCRIPT (PLATFORM HOOK) — после отката процесс
+    # должен сойтись с вернувшимися файлами, иначе демон крутит откаченный
+    # конфиг (или лежит мёртвым без respawn). Keenetic-ветка выше — без
+    # изменений; guard `[ -x ... ]` держит обе.
+    if [ -x "${INIT_SCRIPT:-/opt/etc/init.d/S99zapret2}" ] \
+        && [ "${INIT_SCRIPT:-/opt/etc/init.d/S99zapret2}" != "/opt/etc/init.d/S99zapret2" ]; then
+        "$INIT_SCRIPT" restart >/dev/null 2>&1 || true
+    fi
 
     if [ -s "$fail_file" ]; then
         local n
@@ -2391,6 +2432,27 @@ au_apply_converge() {
     local plan="$Z2K_AU_TMP_DIR/converge.plan"
     local rc _ac_self
 
+    # Смешанное дерево сходимостью НЕ лечим: маркер означает, что откат не
+    # смог вернуть часть файлов, и чинить это обязан только reinstall
+    # (он же единственный снимает маркер). Без этого converge молча
+    # "чинил" бы дерево, маркер залипал навсегда (converge его не снимает),
+    # и каждый прогон врал бы про reinstall. Найдено freeze-аудитом.
+    if au_tree_is_dirty; then
+        au_log "дерево помечено как смешанное — сходимость отказывается, нужен reinstall"
+        return 2
+    fi
+
+    # Пин на неизменяемую ссылку, как в старом patch-пути: всё, что скачает
+    # эта сходимость, приедет из ОДНОГО объявленного среза, а не с верхушки
+    # ветки, которая может уехать прямо посреди раскладки (класс r-80.1:
+    # манифест свежий, файл старый, sha не сходится, откат). Пустой ref
+    # (старый манифест) — поведение как раньше, с ветки.
+    Z2K_AU_TARGET_REF=$(au_manifest_ref "$manifest" "$target_tag")
+    export Z2K_AU_TARGET_REF
+    [ -n "$Z2K_AU_TARGET_REF" ] \
+        && au_log "файлы тянем по неизменяемой ссылке $Z2K_AU_TARGET_REF" \
+        || au_log "в манифесте нет ref для $target_tag — тянем с ветки (старый манифест)"
+
     au_converge_plan "$manifest" > "$plan"
     # Не `grep -c . || echo 0`: на пустом файле grep печатает 0 И возвращает 1,
     # так что запасная ветка дописывала второй ноль, и дальше «-eq 0» падало на
@@ -2435,7 +2497,11 @@ au_apply_converge() {
     # связал со счётчиком. Счётчик — вспомогательный: не записался, значит в
     # худшем случае эскалация случится позже, а ронять из-за него обновление
     # нельзя ни при каком исходе.
-    _ac_fails_file="${ZAPRET2_DIR:-/opt/zapret2}/state/au-delivery-fails"
+    # Счётчик подряд идущих неудач доставки — в persistent state, НЕ в payload:
+    # на OpenWrt ${ZAPRET2_DIR}/state read-only (squashfs/overlay), mkdir там
+    # молча падает и 3-strikes эскалация в reinstall не срабатывает никогда
+    # (PLATFORM HOOK; Keenetic-дефолт тот же путь).
+    _ac_fails_file="${Z2K_AU_FAILS_FILE:-${ZAPRET2_DIR:-/opt/zapret2}/state/au-delivery-fails}"
     mkdir -p "$(dirname "$_ac_fails_file")" 2>/dev/null || true
     if ! au_converge_apply "$manifest" "$plan"; then
         au_log "доставка не удалась — откат"
