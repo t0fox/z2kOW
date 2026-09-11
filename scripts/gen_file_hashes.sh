@@ -186,12 +186,20 @@ sed -i.bak '$ s/,$//' "$MAPBLOCK" && rm -f "${MAPBLOCK}.bak"
 # Rebuild: everything as-is, minus any previous block of ours, plus a fresh one
 # straight after "current". awk state machine, so no dependence on where the old
 # block happened to sit.
-awk -v blockfile="$BLOCK" -v mapfile="$MAPBLOCK" '
+#
+# Platform marker: при Z2K_PLATFORM=openwrt (только тогда!) рядом пишется
+# "platform": "openwrt" — роутерный gate (au_manifest_platform_ok) принимает
+# на OpenWrt только такой манифест. Keenetic-релизы байт-в-байт как раньше
+# (без маркера). Старые парсеры (awk/sed по "key": [...] и "key": "hex")
+# строку "platform": "openwrt" не матчат — значение не hex и не массив.
+awk -v blockfile="$BLOCK" -v mapfile="$MAPBLOCK" -v plat="${Z2K_PLATFORM:-keenetic}" '
     /^[[:space:]]*"(files_sha256|install_map)"[[:space:]]*:[[:space:]]*\{/ { skipping = 1; next }
+    /^[[:space:]]*"platform"[[:space:]]*:[[:space:]]*"[^"]*"[[:space:]]*,?[[:space:]]*$/ { next }
     skipping && /^[[:space:]]*\},?[[:space:]]*$/            { skipping = 0; next }
     skipping                                                { next }
     { print }
     /^[[:space:]]*"current"[[:space:]]*:/ && !emitted {
+        if (plat != "" && plat != "keenetic") print "  \"platform\": \"" plat "\"," 
         print "  \"install_map\": {"
         while ((getline line < mapfile) > 0) print line
         close(mapfile)

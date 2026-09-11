@@ -72,6 +72,25 @@ export INIT_SCRIPT
 Z2K_AU_SBIN="${Z2K_AU_SBIN:-$Z2K_BIN}"
 export Z2K_AU_SBIN
 
+# --- Канал обновлений: OpenWrt-line, НЕ upstream Keenetic ---
+#
+# Updater читает ИМЕННО эти переменные (lib/auto_update.sh:18-20, условные
+# присваивания — Keenetic их не выставляет и едет как раньше):
+#   Z2K_AU_BRANCH / Z2K_AU_REPO_RAW / Z2K_AU_MANIFEST_URL (последний выводится
+#   из REPO_RAW сам, его не задаём).
+# Вариант A: production-ветка z2k-enhanced-openwrt (создаётся к первому
+# OpenWrt-релизу; dev-ветки роутеры не опрашивают). upstream sync -> manifest
+# с Z2K_PLATFORM=openwrt на ней -> роутер забирает без перенастройки.
+# Всё переопределяемо окружением.
+Z2K_AU_BRANCH="${Z2K_AU_BRANCH:-z2k-enhanced-openwrt}"
+Z2K_AU_REPO_RAW="${Z2K_AU_REPO_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/${Z2K_AU_BRANCH}}"
+export Z2K_AU_BRANCH Z2K_AU_REPO_RAW
+
+# Та же линия для списков/бинарников (z2k_fetch через GITHUB_RAW; utils.sh
+# уважает предустановку) и для Z2K_GITHUB_RAW-пина в генерируемом конфиге.
+GITHUB_RAW="${GITHUB_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/${Z2K_AU_BRANCH}}"
+export GITHUB_RAW
+
 # LAN-сети для zapret2 ifsets (значение задаёт uci.sh, здесь — дефолт).
 OPENWRT_LAN="${OPENWRT_LAN:-lan}"
 export OPENWRT_LAN

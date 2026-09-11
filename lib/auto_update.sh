@@ -238,6 +238,27 @@ au_repair_torn_pair() {
 
 # Fetch UPDATES.json into $Z2K_AU_TMP_DIR/UPDATES.json. Uses z2k_fetch
 # for layered CDN/DoH fallback if available; raw curl otherwise.
+au_manifest_platform_ok() {
+    # PLATFORM HOOK (allowlisted): OpenWrt-runtime принимает только
+    # OpenWrt-манифест. Активен только при Z2K_PLATFORM=openwrt (Keenetic его
+    # не выставляет — поведение там не меняется никак). Два независимых
+    # признака: явная metadata "platform" (пишет gen_file_hashes.sh при
+    # Z2K_PLATFORM=openwrt) и отсутствие keenetic-корней в install_map
+    # (в openwrt-таблице таких назначений нет по построению — см. drift-тест).
+    # Провал = отказ ДО любого применения, тег не двигается.
+    [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] || return 0
+    grep -q '"platform"[[:space:]]*:[[:space:]]*"openwrt"' "$1" 2>/dev/null || {
+        au_log "ОТКАЗ: манифест не OpenWrt (нет platform=openwrt) — чужой канал, тег не двигаем"
+        return 1
+    }
+    if sed -n '/"install_map"[[:space:]]*:/,/^[[:space:]]*},[[:space:]]*$/p' "$1" 2>/dev/null \
+        | grep -q '"/opt/etc/'; then
+        au_log "ОТКАЗ: OpenWrt-манифест содержит keenetic-цели (/opt/etc) — битая сборка, тег не двигаем"
+        return 1
+    fi
+    return 0
+}
+
 au_fetch_manifest() {
     mkdir -p "$Z2K_AU_TMP_DIR"
     local out="$Z2K_AU_TMP_DIR/UPDATES.json"
@@ -257,6 +278,7 @@ au_fetch_manifest() {
         0)
             # Первая валидная подпись защёлкивает храповик.
             au_trust_pinned || { au_trust_pin; au_log "подпись манифеста принята впервые — дальше она обязательна"; }
+            au_manifest_platform_ok "$out" || return 1
             return 0
             ;;
         2)
@@ -269,6 +291,7 @@ au_fetch_manifest() {
                 return 1
             fi
             au_log "подпись не проверяется (нет ключа или openssl без Ed25519) — принимаю, храповик не защёлкнут"
+            au_manifest_platform_ok "$out" || { rm -f "$out" "$sig"; return 1; }
             return 0
             ;;
         *)
@@ -280,6 +303,7 @@ au_fetch_manifest() {
             # До первой валидной подписи неподписанный манифест — норма: именно
             # им приедет сам публичный ключ.
             au_log "манифест без валидной подписи — принимаю (подпись здесь ещё ни разу не работала)"
+            au_manifest_platform_ok "$out" || { rm -f "$out" "$sig"; return 1; }
             return 0
             ;;
     esac
