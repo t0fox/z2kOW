@@ -4,6 +4,12 @@
 # NFQUEUE-перехват от имён интерфейсов не зависит, поэтому ifup/ifdown
 # обновляют ТОЛЬКО zapret2 ifsets (lan/wan/wan6) — та же модель, что stock
 # 90-zapret2 в nftables-ветке. Полного рестарта нет by design.
+#
+# ПОЧЕМУ НЕ stock 90-zapret2. Stock гейтится на `zapret2 enabled`, а в нашей
+# модели сервис zapret2 намеренно DISABLED (его daemon-половина не
+# используется — OPT_BASE собирает адаптер, см. firewall.sh), поэтому stock
+# hotplug не сработал бы никогда. Этот файл — единственный АКТИВНЫЙ вызов
+# zapret_reload_ifsets; дублирования операции нет, гейт — на z2k enabled.
 
 [ -n "$INTERFACE" ] || exit 0
 [ "$ACTION" = "ifup" ] || [ "$ACTION" = "ifdown" ] || exit 0
