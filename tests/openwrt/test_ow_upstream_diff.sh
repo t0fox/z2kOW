@@ -19,8 +19,11 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #   .gitattributes: только +eol=lf (проверяется отдельно ниже)
 #   lib/config_official.sh: PHASE3-чтение через ${ZAPRET2_DIR} (§2)
 #   lib/release_map.sh: platform-диспетчер + openwrt-таблица (§3)
-#   lib/auto_update.sh: targetless fail-safe, Z2K_CONFIG_FILE/merge хуки (§3/§6)
-ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh"
+#   lib/auto_update.sh: targetless fail-safe, Z2K_CONFIG_FILE/merge хуки,
+#     platform gate (§3/§6/§2.1)
+#   scripts/gen_file_hashes.sh: platform-маркер только для non-keenetic (§2.1;
+#     keenetic-реген байт-идентичен — сторожит channel-тест)
+ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh"
 
 _changed="$($_g diff --name-only "$BASELINE"...HEAD 2>/dev/null)"
 # --ignore-cr-at-eol: на Windows-чекаутах (autocrlf) весь worktree выглядит
@@ -69,7 +72,7 @@ else
     for _f in $_bad; do
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
-            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh) continue ;;
+            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh) continue ;;
         esac
         _unallowed="$_unallowed $_f:$(_seam_of "$_f")"
     done

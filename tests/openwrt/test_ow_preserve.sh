@@ -42,9 +42,14 @@ assert_contains "флаг пережил генерацию" "$Z2K_CONFIG" "Z2K_
 assert_eq "whitelist цел после generate" "$_sum_wl" "$(cksum "$Z2K_USER_LISTS/whitelist.txt")"
 assert_eq "state цел после generate" "$_sum_st" "$(cksum "$Z2K_STATE/discovered-domains.txt")"
 
-# conffiles: пакетные /etc-файлы объявлены сохраняемыми при upgrade
-assert_contains "init conffile" "$REPO/package/openwrt/Makefile" "/etc/init.d/z2k"
-assert_contains "hotplug conffile" "$REPO/package/openwrt/Makefile" "/etc/hotplug.d/iface/90-z2k"
+# init/hotplug — package-owned код БЕЗ conffiles: при upgrade пакет их
+# заменяет (менеджеру нечего сохранять); user-config пакет не поставляет
+# вовсе — ему нечего сохранять/затирать: ни одного $(1)/etc/z2k в install.
+if grep -q 'conffiles' "$REPO/package/openwrt/Makefile"; then
+    _t_bad "conffiles present (init/hotplug обновляются с пакетом)"
+else
+    _t_ok
+fi
 # а /etc/z2k/* пакет НЕ поставляет (ему нечего сохранять/затирать): ни одного
 # упоминания $(1)/etc/z2k в install-цели
 if grep -A30 'define Package/z2k-adapter/install' "$REPO/package/openwrt/Makefile" \

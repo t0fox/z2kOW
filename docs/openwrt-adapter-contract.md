@@ -71,9 +71,11 @@ WAN-события: hotplug `90-z2k` дёргает только `reload_ifsets`
 дифф против BASELINE обязан лежать в `platform/`, `package/`,
 `tests/openwrt/`, этом файле — плюс allowlisted хуки:
 `.gitattributes` (только +eol=lf), `lib/config_official.sh` (PHASE3 через
-`${ZAPRET2_DIR}`), `lib/release_map.sh` (platform-диспетчер), `lib/auto_update.sh`
-(targetless fail-safe, `Z2K_CONFIG_FILE`, merge-пути). Нарушение seam'а
-печатается с категорией (lua/detectors/strategies/webpanel/update-system/warp).
+`${ZAPRET2_DIR}`), `lib/release_map.sh` (platform-диспетчер),
+`lib/auto_update.sh` (targetless fail-safe, `Z2K_CONFIG_FILE`/merge хуки,
+platform gate), `scripts/gen_file_hashes.sh` (platform-маркер только для
+non-keenetic; keenetic-реген байт-идентичен). Нарушение seam'а печатается
+с категорией (lua/detectors/strategies/webpanel/update-system/warp).
 После каждого upstream sync BASELINE сдвигается на новый upstream HEAD.
 
 ## Известные щели (не чиним на этом этапе, зафиксированы осознанно)
@@ -126,3 +128,27 @@ User-owned (`/etc/z2k/config`, `state/*`, `user-lists/*`): пакет не по�
 (aarch64_cortex-a53 -> arm64) — имена GOARCH не меняем; подмена атомарна
 (tmp + sha + mv, старый цел при провале) — сторожит тест паттерна.
 Пакетный менеджер: apk если есть, иначе opkg (`pkg.sh`, без абстракций).
+
+## Corrective pass 2.1: seed/channel/conffiles
+
+Seed — только bootstrap пустой установки (Model A, инвариант в
+`z2k_ow_seed_ensure`): marker `/etc/z2k/.payload-initialized` ставится
+только после extract+bootstrap+verify (`Z2K_PAYLOAD_REQUIRED`, 7 файлов);
+package upgrade при целом payload ничего не извлекает (updater-правки
+сохраняются побайтово); провал — без marker (retry идёт); marker + битый
+payload — громкий провал без авто-recovery (repair: удалить marker).
+Новый seed из пакета ждёт только fresh/repair. Purpose seed задокументирован
+в `package/openwrt/make-seed.sh` и ownership.map.
+
+Канал обновлений (вариант A): production-ветка `z2k-enhanced-openwrt`
+(создаётся к первому OpenWrt-релизу; dev-ветки не опрашиваются), репо
+`t0fox/z2kOW` — всё через env (`Z2K_AU_BRANCH/_REPO_RAW`, `GITHUB_RAW`;
+`Z2K_AU_MANIFEST_URL` выводится сам). Keenetic-дефолты не тронуты.
+Манифест несёт `"platform": "openwrt"` (пишет gen_file_hashes.sh только при
+non-keenetic; старые парсеры слепы — значение не hex и не массив).
+Gate `au_manifest_platform_ok` в fetch (single choke): без ключа или с
+keenetic-целями (`/opt/etc/`) — отказ до применения, тег стоит.
+
+Conffiles отсутствуют осознанно: init/hotplug — package-owned код
+(обновляется с пакетом); `/etc/z2k/*` пакет не поставляет (bootstrap/user).
+Владение трёхклассовое: package / updater / user (см. ownership.map).

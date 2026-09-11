@@ -1,11 +1,17 @@
 # package/openwrt/ownership.map - machine-readable граница владения.
-# Формат: "<target-path> <owner>", owner = package | updater.
-#   package: ставит opkg, z2k-апдейтер эти пути НЕ пишет никогда.
+# Формат: "<target-path> <owner>", owner = package | updater | user.
+#   package: ставит opkg, z2k-апдейтер эти пути НЕ пишет никогда
+#            (обновляются только вместе с пакетом; conffiles нет осознанно).
 #   updater: развозит z2k install_map (openwrt-line), opkg их НЕ поставляет
 #            напрямую (только внутри share/seed.tar.gz как bootstrap-seed;
 #            сам tarball — package-owned артефакт сборки, его содержимое —
-#            updater-owned с момента извлечения).
-# Конфликт (путь в обеих колонках) = PACKAGE_UPDATER_OWNERSHIP_CONFLICT,
+#            updater-owned с момента извлечения; seed извлекается только без
+#            marker, см. z2k_ow_seed_ensure).
+#   user:    пользовательское состояние. Пакет НЕ поставляет (bootstrap
+#            создаёт если отсутствует, никогда не перезаписывает); апдейтер
+#            может MERGE (extra-domains), но не blind-overwrite.
+#            Допускаются glob-суффиксы /* (поддерево целиком).
+# Конфликт package∩updater (точные пути) = PACKAGE_UPDATER_OWNERSHIP_CONFLICT,
 # сторожит tests/openwrt/test_ow_ownership_map.sh.
 /etc/init.d/z2k package
 /etc/hotplug.d/iface/90-z2k package
@@ -21,3 +27,7 @@
 /usr/lib/z2k/platform/openwrt/pkg.sh package
 /usr/lib/z2k/share/config.default package
 /usr/lib/z2k/share/seed.tar.gz package
+/etc/z2k/config user
+/etc/z2k/.payload-initialized user
+/etc/z2k/state/* user
+/etc/z2k/user-lists/* user

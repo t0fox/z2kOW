@@ -9,6 +9,8 @@ _t_plan "ow-channel"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-ch.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
+# shellcheck disable=SC1090,SC1091
+. "$REPO/lib/release_map.sh" 2>/dev/null || { echo "FAIL[ow-channel]: release_map" >&2; exit 1; }
 
 # --- 1. env указывает на OpenWrt-канал ---
 (
@@ -43,28 +45,59 @@ fi
     esac
 ) && _t_ok || _t_bad "Keenetic-дефолты канала изменились"
 
-# --- 3. генератор end-to-end в worktree (реальный UPDATES.json не трогаем) ---
-if WT="$T/wt" git -C "$REPO" worktree add --detach "$T/wt" HEAD >/dev/null 2>&1; then
-    _wt_ok=1
-    trap 'git -C "$REPO" worktree remove --force "$T/wt" >/dev/null 2>&1; rm -rf "$T"' EXIT INT TERM
-    cp "$WT/UPDATES.json" "$T/orig.json"
-    ( cd "$WT" && Z2K_PLATFORM=keenetic sh scripts/gen_file_hashes.sh >/dev/null 2>&1 )
-    if cmp -s "$WT/UPDATES.json" "$T/orig.json"; then
+# --- 3. генератор end-to-end в изолированном клоне ---
+# (clone, НЕ worktree: у worktree общий gitdir с $REPO, а regen пишет
+# UPDATES.json — любая ошибка cd/gen отравила бы настоящий манифест;
+# tripwire ниже это сторожит). Реальный UPDATES.json тест не трогает.
+_orig_sum="$(cksum "$REPO/UPDATES.json")"
+CLONE="$T/clone"
+if git clone -q "$REPO" "$CLONE" 2>/dev/null; then
+    cp "$CLONE/UPDATES.json" "$T/orig.json"
+    ( cd "$CLONE" && Z2K_PLATFORM=keenetic sh scripts/gen_file_hashes.sh >/dev/null 2>&1 )
+    if cmp -s "$CLONE/UPDATES.json" "$T/orig.json"; then
         _t_ok
     else
         _t_bad "keenetic-реген изменил манифест"
     fi
-    ( cd "$WT" && Z2K_PLATFORM=openwrt sh scripts/gen_file_hashes.sh >/dev/null 2>&1 )
-    _owdiff="$(diff "$T/orig.json" "$WT/UPDATES.json" | grep -E '^[<>]' || true)"
-    echo "$_owdiff" | grep -q '"platform": "openwrt"' && _t_ok \
-        || _t_bad "openwrt-реген без platform-маркера: $_owdiff"
-    [ "$(printf '%s' "$_owdiff" | grep -cE '^[<>]')" = "2" ] && _t_ok \
-        || _t_bad "openwrt-реген тронул лишнее: $_owdiff"
-    python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$WT/UPDATES.json" \
+    ( cd "$CLONE" && Z2K_PLATFORM=openwrt sh scripts/gen_file_hashes.sh >/dev/null 2>&1 )
+    _owdiff="$(diff "$T/orig.json" "$CLONE/UPDATES.json" | grep -E '^[<>]' || true)"
+    # +platform ровно один раз
+    [ "$(printf '%s\n' "$_owdiff" | grep -c '"platform": "openwrt"')" = "1" ] \
+        && _t_ok || _t_bad "platform-маркер не ровно один: $_owdiff"
+    # files_sha256 openwrt-пары — keenetic-пары key+hash плюс только ключи
+    # С openwrt-маппингом (quic_strats.ini: маппится только на openwrt —
+    # keenetic его апдейтером не возит вовсе, см. таблицу).
+    # Сравнение по key+hash БЕЗ висячих запятых (позиция последней строки
+    # в блоках разная — запятая там текст, а не смысл).
+    _shablock() { sed -n '/"files_sha256"/,/^  \},$/p' "$1" | grep -E '^  "' | sed 's/,$//'; }
+    _shablock "$T/orig.json" > "$T/sha-orig.txt"
+    _sha_new_bad=""
+    _sha_extra="$(_shablock "$CLONE/UPDATES.json" | grep -vxFf "$T/sha-orig.txt" || true)"
+    for _kl in $(printf '%s\n' "$_sha_extra" | sed 's/^  "//; s/":.*//' ); do
+        [ -n "$(Z2K_PLATFORM=openwrt z2k_install_paths "$_kl" 2>/dev/null)" ] \
+            || _sha_new_bad="$_sha_new_bad $_kl"
+    done
+    [ -z "$_sha_new_bad" ] && _t_ok || _t_bad "sha без openwrt-маппинга: $_sha_new_bad"
+    # install_map openwrt-линии = таблица: для каждого ключа из ОБОИХ файлов
+    # назначения regen обязаны совпасть с z2k_install_paths_for openwrt.
+    _keys="$( { grep -oE '^  "[^"]+": \[' "$T/orig.json"; grep -oE '^  "[^"]+": \[' "$CLONE/UPDATES.json"; } \
+        | sed 's/^  "//; s/": \[$//' | LC_ALL=C sort -u)"
+    _map_bad=""
+    for _k in $_keys; do
+        _want="$(Z2K_PLATFORM=openwrt z2k_install_paths "$_k" 2>/dev/null | LC_ALL=C sort | tr '\n' '|')"
+        _got="$(grep -F "  \"$_k\": [" "$CLONE/UPDATES.json" \
+            | sed 's/.*\[//; s/\].*//' | tr ',' '\n' | sed 's/^[[:space:]]*"//; s/"[[:space:]]*$//' \
+            | grep -v '^$' | LC_ALL=C sort | tr '\n' '|')"
+        [ "$_got" = "$_want" ] || _map_bad="$_map_bad $_k"
+    done
+    [ -z "$_map_bad" ] && _t_ok || _t_bad "карта не сходится с таблицей:$_map_bad"
+    python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$CLONE/UPDATES.json" \
         && _t_ok || _t_bad "openwrt-манифест не JSON"
 else
-    _t_bad "worktree недоступен (git worktree add)"
+    _t_bad "clone недоступен (git clone $REPO)"
 fi
+# tripwire: настоящий манифест не тронут тестом
+assert_eq "UPDATES.json untouched" "$_orig_sum" "$(cksum "$REPO/UPDATES.json")"
 
 # --- 4. gate функционально ---
 # shellcheck disable=SC1090,SC1091
