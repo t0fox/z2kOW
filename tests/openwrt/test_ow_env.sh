@@ -29,6 +29,16 @@ assert_eq "STATE_FILE persistent" "$T/etc/state/state.tsv" "$STATE_FILE"
 assert_eq "merge shipped payload" "$T/root/lists/extra-domains.txt" "$Z2K_EXTRA_DOMAINS_SHIPPED"
 assert_eq "merge runtime user-lists" "$T/etc/user-lists/extra-domains.txt" "$Z2K_EXTRA_DOMAINS_RUNTIME"
 
+# §15: manifest repo == payload repo — один origin везде, без necronicle
+assert_eq "BRANCH production" "z2k-enhanced-openwrt" "$Z2K_AU_BRANCH"
+assert_eq "REPO_RAW origin" "https://raw.githubusercontent.com/t0fox/z2kOW/z2k-enhanced-openwrt" "$Z2K_AU_REPO_RAW"
+assert_eq "RAW_BASE origin" "https://raw.githubusercontent.com/t0fox/z2kOW" "$Z2K_AU_RAW_BASE"
+assert_eq "GITHUB_RAW origin" "https://raw.githubusercontent.com/t0fox/z2kOW/z2k-enhanced-openwrt" "$GITHUB_RAW"
+case "$Z2K_AU_REPO_RAW $Z2K_AU_RAW_BASE $GITHUB_RAW" in
+    *necronicle*) _t_bad "канал ссылается на necronicle" ;;
+    *) _t_ok ;;
+esac
+
 # предвыставленное окружение не затирается
 ( ZAPRET2_DIR=/keep CONFIG_DIR=/keep2 LISTS_DIR=/keep3 OPENWRT_LAN="lan9"
   Z2K_ROOT=/y Z2K_ETC=/x Z2K_TMP=/t

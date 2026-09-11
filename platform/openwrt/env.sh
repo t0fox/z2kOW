@@ -91,6 +91,25 @@ export Z2K_AU_BRANCH Z2K_AU_REPO_RAW
 GITHUB_RAW="${GITHUB_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/${Z2K_AU_BRANCH}}"
 export GITHUB_RAW
 
+# Корень repo для неизменяемых ссылок (au_repo_base: $BASE/$TARGET_REF).
+# Отдельная переменная, а не обрезка REPO_RAW: у base нет суффикса ветки,
+# выводить одно из другого строковой хирургией хрупко. Keenetic-дефолт —
+# в самом хуке au_repo_base; здесь только openwrt-значение.
+Z2K_AU_RAW_BASE="${Z2K_AU_RAW_BASE:-https://raw.githubusercontent.com/t0fox/z2kOW}"
+export Z2K_AU_RAW_BASE
+
+# --- Состояние апдейтера: всё условное в common, здесь — openwrt-значения ---
+# Persistent (переживают reboot/upgrade):
+Z2K_AU_INSTALLED_TAG_FILE="${Z2K_AU_INSTALLED_TAG_FILE:-$Z2K_STATE/installed-tag}"
+Z2K_AU_TRUST_PIN="${Z2K_AU_TRUST_PIN:-$Z2K_ETC/.trust/pinned}"
+# Transient (tmpfs; locks/logs/downloads — см. storage-модель):
+Z2K_AU_LOCK_FILE="${Z2K_AU_LOCK_FILE:-$Z2K_LOCKS/update.lock}"
+Z2K_AU_LOG_FILE="${Z2K_AU_LOG_FILE:-$Z2K_LOG/z2k-auto-update.log}"
+Z2K_AU_TMP_DIR="${Z2K_AU_TMP_DIR:-$Z2K_TMP/update}"
+export Z2K_AU_INSTALLED_TAG_FILE Z2K_AU_TRUST_PIN Z2K_AU_LOCK_FILE Z2K_AU_LOG_FILE Z2K_AU_TMP_DIR
+# PUBKEY/VERIFY_BIN не задаём: их дефолты уже идут через ZAPRET2_DIR/Z2K_AU_SBIN
+# (${Z2K_ROOT}/etc/z2k-update-pub.pem и ${Z2K_BIN}/z2k-verify) — тест сверяет.
+
 # LAN-сети для zapret2 ifsets (значение задаёт uci.sh, здесь — дефолт).
 OPENWRT_LAN="${OPENWRT_LAN:-lan}"
 export OPENWRT_LAN
