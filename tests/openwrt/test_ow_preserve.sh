@@ -45,7 +45,8 @@ assert_eq "state цел после generate" "$_sum_st" "$(cksum "$Z2K_STATE/dis
 # init/hotplug — package-owned код БЕЗ conffiles: при upgrade пакет их
 # заменяет (менеджеру нечего сохранять); user-config пакет не поставляет
 # вовсе — ему нечего сохранять/затирать: ни одного $(1)/etc/z2k в install.
-if grep -q 'conffiles' "$REPO/package/openwrt/Makefile"; then
+# Проверяем STANZA (слово conffiles живёт в комментарии-обосновании).
+if grep -q 'define Package/z2k-adapter/conffiles' "$REPO/package/openwrt/Makefile"; then
     _t_bad "conffiles present (init/hotplug обновляются с пакетом)"
 else
     _t_ok

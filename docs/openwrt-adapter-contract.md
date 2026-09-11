@@ -74,7 +74,9 @@ WAN-события: hotplug `90-z2k` дёргает только `reload_ifsets`
 `${ZAPRET2_DIR}`), `lib/release_map.sh` (platform-диспетчер),
 `lib/auto_update.sh` (targetless fail-safe, `Z2K_CONFIG_FILE`/merge хуки,
 platform gate), `scripts/gen_file_hashes.sh` (platform-маркер только для
-non-keenetic; keenetic-реген байт-идентичен). Нарушение seam'а печатается
+non-keenetic; keenetic-реген байт-идентичен), `UPDATES.json` (только
+files_sha256 hash-обновления allowlisted lib-файлов — манифест следует за
+деревом на каждом релизе). Нарушение seam'а печатается
 с категорией (lua/detectors/strategies/webpanel/update-system/warp).
 После каждого upstream sync BASELINE сдвигается на новый upstream HEAD.
 

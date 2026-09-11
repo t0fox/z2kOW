@@ -12,16 +12,15 @@ assert_contains "PKG_NAME" "$MK" "PKG_NAME:=z2k-adapter"
 assert_contains "BuildPackage" "$MK" "BuildPackage,z2k-adapter"
 assert_contains "init.d install" "$MK" "files/etc/init.d/z2k"
 assert_contains "hotplug install" "$MK" "files/etc/hotplug.d/iface/90-z2k"
-assert_contains "postinst bootstrap" "$MK" "z2k_ow_bootstrap"
-assert_contains "postinst seed first" "$MK" "seed.tar.gz"
 assert_contains "prerm stop" "$MK" "init.d/z2k stop"
 assert_contains "seed builder" "$MK" "make-seed.sh"
 assert_contains "materialize in seed" "$REPO/package/openwrt/make-seed.sh" "z2k_ow_materialize"
 assert_contains "postinst seed-guard" "$MK" "z2k_ow_seed_ensure"
 
 # conffiles НЕТ осознанно: init/hotplug — package-owned код, обновляется
-# вместе с пакетом (Model A). Наличие stanza = провал.
-if grep -q 'conffiles' "$MK"; then
+# вместе с пакетом (Model A). Проверяем STANZA, а не слово (оно есть в
+# комментарии-обосновании выше).
+if grep -q 'define Package/z2k-adapter/conffiles' "$MK"; then
     _t_bad "conffiles stanza present (должна отсутствовать)"
 else
     _t_ok

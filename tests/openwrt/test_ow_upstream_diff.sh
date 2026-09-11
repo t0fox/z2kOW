@@ -23,7 +23,9 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     platform gate (§3/§6/§2.1)
 #   scripts/gen_file_hashes.sh: platform-маркер только для non-keenetic (§2.1;
 #     keenetic-реген байт-идентичен — сторожит channel-тест)
-ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh"
+#   UPDATES.json: ТОЛЬКО files_sha256 hash-обновления allowlisted lib-файлов
+#     (манифест следует за деревом на каждом релизе; проверяется построчно).
+ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh UPDATES.json"
 
 _changed="$($_g diff --name-only "$BASELINE"...HEAD 2>/dev/null)"
 # --ignore-cr-at-eol: на Windows-чекаутах (autocrlf) весь worktree выглядит
@@ -73,6 +75,19 @@ else
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
             lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh) continue ;;
+            UPDATES.json)
+                # Манифест следует за деревом: разрешены только hash-обновления
+                # allowlisted lib-файлов в files_sha256 (ни новых ключей, ни
+                # других секций, ни install_map-правок руками).
+                # --ignore-cr-at-eol на worktree-диффах: Windows-чекаут красит
+                # весь файл в CRLF-шум (см. шапку файла).
+                _umd="$( { $_g diff "$BASELINE"...HEAD -- UPDATES.json 2>/dev/null; \
+                            $_g diff --cached -- UPDATES.json 2>/dev/null; \
+                            $_g diff --ignore-cr-at-eol -- UPDATES.json 2>/dev/null; } \
+                    | grep -E '^[+-]' | grep -vE '^[+-]{3}' || true)"
+                _umd_bad="$(printf '%s\n' "$_umd" \
+                    | grep -vE '^[+-]  "lib/(config_official|release_map|auto_update)\.sh": "[0-9a-f]{64}",?$' || true)"
+                [ -z "$_umd_bad" ] && continue ;;
         esac
         _unallowed="$_unallowed $_f:$(_seam_of "$_f")"
     done
