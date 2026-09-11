@@ -34,6 +34,13 @@ _t_ok
 assert_eq "marker встал" "1" "$([ -f "$Z2K_ETC/.payload-initialized" ] && echo 1 || echo 0)"
 assert_eq "config из дефолта" "1" "$([ -f "$Z2K_CONFIG" ] && echo 1 || echo 0)"
 z2k_ow_payload_ok && _t_ok || _t_bad "payload не верифицируется после fresh"
+# seed.meta извлечён и описывает seed
+assert_file "seed.meta" "$Z2K_ROOT/share/seed.meta"
+assert_contains "meta platform" "$Z2K_ROOT/share/seed.meta" "platform=openwrt"
+_want_tag="$(sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO/UPDATES.json" | head -1)"
+assert_contains "meta tag" "$Z2K_ROOT/share/seed.meta" "tag=$_want_tag"
+# installed-tag записан ИЗ meta (фаза A: никакого false-current)
+assert_eq "tag из seed" "$_want_tag" "$(cat "$Z2K_ETC/state/installed-tag" 2>/dev/null)"
 
 # --- 2+3. повтор и upgrade: updater-пayload сохраняется побайтово ---
 echo "# updater modification" >> "$Z2K_ROOT/lib/utils.sh"
@@ -72,5 +79,22 @@ else
 fi
 assert_eq "marker на месте (repair вручную)" "1" "$([ -f "$Z2K_ETC/.payload-initialized" ] && echo 1 || echo 0)"
 assert_eq "payload НЕ восстановлен тихо" "0" "$([ -f "$Z2K_ROOT/lib/utils.sh" ] && echo 1 || echo 0)"
+
+# --- 7. существующий tag никогда не перетирается seed (иначе upgrade со
+# старым seed откатил бы версию молча) ---
+printf 'p-99.99\n' > "$Z2K_ETC/state/installed-tag"
+tar -xzf "$Z2K_SEED_TARBALL" -C "$Z2K_SEED_DEST" >/dev/null 2>&1 # чиним payload вручную (repair)
+z2k_ow_seed_ensure >/dev/null 2>&1 || { echo "FAIL[ow-seed]: repair ensure" >&2; exit 1; }
+assert_eq "tag не тронут seed" "p-99.99" "$(cat "$Z2K_ETC/state/installed-tag")"
+
+# --- 8. prerm-purge/sysupgrade repair: marker + пустой payload + tag цел ---
+# -> extract, tag PRESERVED (никакого отката версии), marker остаётся
+rm -rf "$SYS/usr"
+mkdir -p "$Z2K_ROOT/share"
+ln -s "$REPO/package/openwrt/files/etc/z2k/config.default" "$Z2K_ROOT/share/config.default"
+z2k_ow_seed_ensure >/dev/null 2>&1 || { echo "FAIL[ow-seed]: purge repair" >&2; exit 1; }
+_t_ok
+assert_eq "tag пережил purge-repair" "p-99.99" "$(cat "$Z2K_ETC/state/installed-tag")"
+z2k_ow_payload_ok && _t_ok || _t_bad "payload не восстановлен после purge"
 
 _t_done

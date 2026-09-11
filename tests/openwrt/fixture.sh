@@ -32,9 +32,9 @@ ow_fixture_init() {
     cp -a "$REPO/files/lists/extra_strats/TCP" "$REPO/files/lists/extra_strats/UDP" \
         "$Z2K_ROOT/extra_strats/" || return 1
     chmod -R u+w "$Z2K_ROOT/extra_strats" || return 1
-    mkdir -p "$Z2K_ROOT/manifests" || return 1
-    ln -s "$REPO/strats_new2.txt" "$Z2K_ROOT/manifests/strats_new2.txt" || return 1
-    ln -s "$REPO/quic_strats.ini" "$Z2K_ROOT/manifests/quic_strats.ini" || return 1
+    # Манифесты — в КОРНЕ payload (как на Keenetic/production).
+    ln -s "$REPO/strats_new2.txt" "$Z2K_ROOT/strats_new2.txt" || return 1
+    ln -s "$REPO/quic_strats.ini" "$Z2K_ROOT/quic_strats.ini" || return 1
     mkdir -p "$Z2K_ROOT/share" || return 1
     ln -s "$REPO/package/openwrt/files/etc/z2k/config.default" \
         "$Z2K_ROOT/share/config.default" || return 1

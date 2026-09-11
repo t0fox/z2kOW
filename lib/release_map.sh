@@ -206,7 +206,11 @@ _z2k_install_paths_openwrt() {
         files/lists/*.txt)
             echo "${or}/lists/${repo_path#files/lists/}" ;;
         strats_new2.txt|quic_strats.ini)
-            echo "${or}/manifests/${repo_path}" ;;
+            # В КОРНЕ payload, как на Keenetic (install.sh кладёт туда же):
+            # au_step_regen_strategies читает ${ZAPRET2_DIR}/strats_new2.txt
+            # напрямую (common, менять путь нельзя), а materialize.sh берёт
+            # каталог параметром — ему всё равно, откуда парсить.
+            echo "${or}/${repo_path}" ;;
         files/z2k-config-validator.sh)
             # Шаг validate-config зовёт его по ${ZAPRET2_DIR}/z2k-config-validator.sh
             # на обеих платформах; без файла шаг валится и тянет откат.

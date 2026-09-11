@@ -27,8 +27,13 @@
 /usr/lib/z2k/platform/openwrt/pkg.sh package
 /usr/lib/z2k/platform/openwrt/update.sh package
 /usr/lib/z2k/platform/openwrt/schedule.sh package
+/usr/lib/z2k/platform/openwrt/uninstall.sh package
 /usr/lib/z2k/share/config.default package
 /usr/lib/z2k/share/seed.tar.gz package
+# seed.meta едет ВНУТРИ tarball и извлекается с payload: факт о payload,
+# updater-owned с момента извлечения (пакет ставит только tarball,
+# апдейтер meta не правит, seed_ensure только читает).
+/usr/lib/z2k/share/seed.meta updater
 /etc/z2k/config user
 /etc/z2k/.payload-initialized user
 /etc/z2k/state/* user
