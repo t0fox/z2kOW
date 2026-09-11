@@ -45,4 +45,25 @@ code | grep -q 'standard_mode_daemons' \
 _n="$(grep -rl 'z2k_ow_optbase' "$REPO/platform/openwrt" "$REPO/package/openwrt" | wc -l)"
 assert_eq "optbase: 1 определение + 1 вызов" "2" "$(printf '%s' "$_n" | tr -d ' ')"
 
+# 8. §10 lifecycle invariants: ровно один владелец у каждого ресурса.
+#   nfqws2 process .... z2k procd adapter (/etc/init.d/z2k)
+#   nft/firewall ...... zapret2 (делегирование, своего builder'а нет)
+#   interface sets .... zapret2 (reload_ifsets; hotplug только зовёт)
+#   selective offload . zapret2 (FLOWOFFLOAD из конфига; своих правил нет)
+# ровно один procd-сервис в слое
+_n="$(grep -rl 'procd_open_instance' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | wc -l)"
+assert_eq "один procd-сервис" "1" "$(printf '%s' "$_n" | tr -d ' ')"
+# ifsets: единственный писатель — zapret2 (мы только вызываем reload)
+code | grep -qE 'lanif|wanif|nft_fill_ifsets|add_element|create_set' \
+    && _t_bad "адаптер пишет interface sets" || _t_ok
+grep -q 'zapret_reload_ifsets' "$REPO/platform/openwrt/firewall.sh" \
+    && _t_ok || _t_bad "нет делегирования ifsets в zapret2"
+# firewall: единственный builder — zapret2 (у нас нет add_rule/chain/set)
+code | grep -qE 'nft add|nft create|iptables -A|iptables -I|fw3|fw4' \
+    && _t_bad "адаптер строит firewall-правила" || _t_ok
+# offload уже покрыт пунктом 3; здесь — явное отсутствие второго владельца:
+# ни одного упоминания flowtable в коде слоя
+code | grep -qi 'flowtable' \
+    && _t_bad "второй offload-владелец (flowtable)" || _t_ok
+
 _t_done

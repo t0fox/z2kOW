@@ -67,20 +67,18 @@ WAN-события: hotplug `90-z2k` дёргает только `reload_ifsets`
 
 ## Sync invariant
 
-`tests/openwrt/test_ow_upstream_diff.sh`: дифф против BASELINE обязан лежать
-в `platform/`, `package/`, `tests/openwrt/`, этом файле. Иначе — стоп-сигнал.
-Единственное исключение: `.gitattributes`, только добавление `eol=lf`-строк
-для extensionless файлов слоя (Makefile/init/hotplug ломаются от CRLF —
-это показало предупреждение самого git при staging).
+`tests/openwrt/test_ow_upstream_diff.sh` (`UPSTREAM_ADAPTER_BOUNDARY`):
+дифф против BASELINE обязан лежать в `platform/`, `package/`,
+`tests/openwrt/`, этом файле — плюс allowlisted хуки:
+`.gitattributes` (только +eol=lf), `lib/config_official.sh` (PHASE3 через
+`${ZAPRET2_DIR}`), `lib/release_map.sh` (platform-диспетчер), `lib/auto_update.sh`
+(targetless fail-safe, `Z2K_CONFIG_FILE`, merge-пути). Нарушение seam'а
+печатается с категорией (lua/detectors/strategies/webpanel/update-system/warp).
+После каждого upstream sync BASELINE сдвигается на новый upstream HEAD.
 
 ## Известные щели (не чиним на этом этапе, зафиксированы осознанно)
 
-1. `lib/config_official.sh:65` — `Z2K_REFACTOR_PHASE3` читается из
-   захардкоженного `/opt/zapret2/config` (единственное такое чтение в
-   argv-конвейере; остальные ~30 — через `${ZAPRET2_DIR}`). Доказательство
-   не-обходности: литерал в коде, `safe_config_read` — только файл, без env.
-   Влияние: только явный opt-in экспериментального флага (дефолт 0 совпадает).
-   Кандидат в однострочный allowlist-хук на следующем слое.
+1. ~~`lib/config_official.sh:65`~~ ЗАКРЫТА (§2): чтение через `${ZAPRET2_DIR}`.
 2. Dry-run валидация в `create_official_config` ищет
    `/opt/zapret2/common/*.sh` литералом — на OpenWrt молча пропускается;
    валидатором служит старт демона под procd + closure-тесты.
@@ -91,3 +89,40 @@ WAN-события: hotplug `90-z2k` дёргает только `reload_ifsets`
    защита апгрейда p-84.4…p-84.6, в свежем payload файла нет.
 5. Autohostlist/ipset-записи (`${ZAPRET2_DIR}/ipset`) и tcp16-проба — следующие
    слои; core идёт с дефолтами (autohostlist=0, пустые tcp16-карты).
+6. Merge extra-domains на OpenWrt работает через хуки путей (§3), но сам
+   `au_merge_extra_domains` вызывается только из updater-контекста —
+   он появится вместе со следующим слоем (scheduler/updater port).
+
+## Update/ownership architecture (этап 2)
+
+Модель доставки: `git diff -> release builder (Z2K_PLATFORM) -> UPDATES.json
+(install_map + steps, данными) -> installed updater executes`. Роутер пути
+не угадывает; старый апдейтер непонятный шаг/отсутствие карты трактует как
+«нужна переустановка» (rc 2); безадресный не-builds файл в changed_files —
+провал без движения тега (fail-safe вместо silent skip).
+
+Platform-различие — только на build/mapping-стороне:
+`z2k_install_paths_for <platform> <path>` (дефолт keenetic, побайтово как
+раньше). Keenetic-доставляемый файл без openwrt-маппинга — только из явного
+списка в drift-тесте, иначе FAIL (молча не теряется).
+
+Граница владения (машиночитаемо: `package/openwrt/ownership.map`):
+пакет — adapter/init/hotplug/bootstrap/шаблон/seed.tar.gz; апдейтер — весь
+payload (lib/lua/fake/lists/strategies/manifests/validator/pem). Model A:
+adapter-файлы НЕ имеют updater-маппингов (только opkg, иначе флаппинг);
+пакет НЕ ставит payload напрямую (только seed.tar.gz -> postinst extract).
+Конфликт = `PACKAGE_UPDATER_OWNERSHIP_CONFLICT`.
+
+User-owned (`/etc/z2k/config`, `state/*`, `user-lists/*`): пакет не поставляет
+(bootstrap — только если отсутствует), conffiles на init/hotplug, генератор
+сохраняет флаги (saved_*).
+
+Шаги — те же семантические имена, исполнитель платформенный через env:
+`INIT_SCRIPT=/etc/init.d/z2k` (restart-service -> procd),
+`Z2K_CONFIG_FILE=/etc/z2k/config` (мимо симлинка-моста),
+`Z2K_AU_SBIN=/usr/lib/z2k/bin` (persistent, без /tmp-кеша),
+`Z2K_EXTRA_DOMAINS_{SHIPPED,RUNTIME}`, `STATE_FILE`.
+Бинарники: `uname -m` (aarch64 -> arm64) и `z2k_ow_goarch` для target-строк
+(aarch64_cortex-a53 -> arm64) — имена GOARCH не меняем; подмена атомарна
+(tmp + sha + mv, старый цел при провале) — сторожит тест паттерна.
+Пакетный менеджер: apk если есть, иначе opkg (`pkg.sh`, без абстракций).

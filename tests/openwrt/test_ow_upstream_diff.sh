@@ -1,15 +1,26 @@
 #!/bin/sh
-# tests/openwrt/test_ow_upstream_diff.sh - Step 13: common upstream untouched.
+# tests/openwrt/test_ow_upstream_diff.sh - §8/§13: UPSTREAM_ADAPTER_BOUNDARY.
 # Всё, что этап добавил/изменил относительно BASELINE, обязано лежать в:
 #   platform/  package/  tests/openwrt/  docs/openwrt-adapter-contract.md
-# Плюс ровно одно исключение: .gitattributes, и только добавление eol=lf-строк
-# (иначе extensionless файлы слоя уедут в CRLF). Иначе — архитектурный сигнал.
+# плюс allowlisted common-хуки (см. ALLOWLIST ниже). Иначе — провал с
+# категорией seam'а: будущий upstream merge, задевший наш seam, виден сразу.
+#
+# После каждого upstream sync BASELINE сдвигается на новый upstream HEAD
+# (иначе легитимные upstream-изменения вечно краснят guard).
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-upstream-diff"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 BASELINE="$(cat "$REPO/tests/openwrt/BASELINE")"
 export GIT_CONFIG_NOSYSTEM=1
 _g="git -c safe.directory=$REPO -C $REPO"
+
+# Разрешённые common-модификации (файл: зачем). Расширять — только с записью
+# сюда и в contract § sync invariant.
+#   .gitattributes: только +eol=lf (проверяется отдельно ниже)
+#   lib/config_official.sh: PHASE3-чтение через ${ZAPRET2_DIR} (§2)
+#   lib/release_map.sh: platform-диспетчер + openwrt-таблица (§3)
+#   lib/auto_update.sh: targetless fail-safe, Z2K_CONFIG_FILE/merge хуки (§3/§6)
+ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh"
 
 _changed="$($_g diff --name-only "$BASELINE"...HEAD 2>/dev/null)"
 # --ignore-cr-at-eol: на Windows-чекаутах (autocrlf) весь worktree выглядит
@@ -20,17 +31,30 @@ _unstaged="$($_g diff --ignore-cr-at-eol --name-only 2>/dev/null)"
 _untracked="$($_g status --porcelain -uall 2>/dev/null | sed -n 's/^?? //p')"
 _all="$(printf '%s\n%s\n%s\n%s' "$_changed" "$_staged" "$_unstaged" "$_untracked" | sed '/^[[:space:]]*$/d' | sort -u)"
 
+echo "UPSTREAM_ADAPTER_BOUNDARY:"
+echo "COMMON_UPSTREAM_DIFF:"
+
+_seam_of() {
+    # $1 — путь; печатает категорию seam'а
+    case "$1" in
+        files/lua/*) echo "lua" ;;
+        *detect*|*circular*|*rotat*) echo "detectors" ;;
+        strats_new2.txt|quic_strats.ini|lib/strategies.sh|lib/config_official.sh) echo "strategies" ;;
+        webpanel/*) echo "common-webpanel" ;;
+        lib/auto_update.sh|lib/release_map.sh) echo "update-system" ;;
+        *warp*|*Warp*|*WARP*) echo "warp" ;;
+        *) echo "other-common" ;;
+    esac
+}
+
 if [ -z "$_all" ]; then
-    echo "COMMON_UPSTREAM_DIFF:"
     echo "none"
     _t_ok
 else
     _bad="$(printf '%s\n' "$_all" | grep -vE '^(platform/|package/|tests/openwrt/|docs/openwrt-adapter-contract\.md$)' || true)"
-    # Единственное разрешённое исключение: .gitattributes, и только если дифф —
-    # чистое добавление eol=lf-строк (без этого extensionless файлы адаптера
-    # уезжают в CRLF на Windows-чекаутах и ломаются на роутере).
-    if [ "$_bad" = ".gitattributes" ]; then
-        # Собираем + / - строки из range-диффа и staged-диффа.
+    # .gitattributes: только чистое добавление eol=lf-строк.
+    _attr_ok=""
+    if printf '%s\n' "$_bad" | grep -qx '.gitattributes'; then
         _attr_all="$( { $_g diff "$BASELINE"...HEAD -- .gitattributes 2>/dev/null; \
                         $_g diff --cached -- .gitattributes 2>/dev/null; } \
             | grep -E '^[+-]' | grep -vE '^[+-]{3}' || true)"
@@ -38,16 +62,24 @@ else
         _attr_added="$(printf '%s\n' "$_attr_all" | grep -E '^\+' || true)"
         _attr_foreign="$(printf '%s\n' "$_attr_added" | grep -v -e 'eol=lf' -e '^+#' -e '^\+$' || true)"
         if [ -z "$_attr_removed" ] && [ -n "$_attr_added" ] && [ -z "$_attr_foreign" ]; then
-            _bad=""
+            _attr_ok="1"
         fi
     fi
-    echo "COMMON_UPSTREAM_DIFF:"
-    if [ -z "$_bad" ]; then
+    _unallowed=""
+    for _f in $_bad; do
+        case "$_f" in
+            .gitattributes) [ -n "$_attr_ok" ] && continue ;;
+            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh) continue ;;
+        esac
+        _unallowed="$_unallowed $_f:$(_seam_of "$_f")"
+    done
+    if [ -z "$_unallowed" ]; then
         echo "none (adapter-only files: $(printf '%s' "$_all" | wc -l | tr -d ' '))"
+        echo "ALLOWLISTED: $ALLOWLIST"
         _t_ok
     else
-        echo "$_bad"
-        _t_bad "вне allowlist: $_bad"
+        echo "$_unallowed"
+        _t_bad "seam нарушен:$_unallowed"
     fi
 fi
 
