@@ -1894,6 +1894,13 @@ EOF
     # больше НИКОГДА — молча, до ручного вмешательства. Файлы при этом уже
     # разложены, так что откатывать нечего; сообщаем и возвращаем ошибку, чтобы
     # это попало в лог и в статус, а не растворилось.
+    #
+    # Перед тегом — payload.meta (порядок [files -> meta -> tag], см.
+    # au_write_payload_meta): pre-flight сверяет tag с meta без сети.
+    if ! au_write_payload_meta "$target_tag"; then
+        au_log "patch: НЕ удалось записать payload.meta — тег не двигаем (следующий прогон повторит)"
+        return 1
+    fi
     if ! au_write_installed_tag "$target_tag"; then
         au_log "patch: НЕ удалось записать installed-tag — следующий прогон не увидит обновлений"
         return 1
@@ -2075,6 +2082,11 @@ au_apply_reinstall() {
     fi
 
     # install.sh may have already written the tag, but enforce it here too.
+    # payload.meta — тоже (порядок [files -> meta -> tag]).
+    if ! au_write_payload_meta "$target_tag"; then
+        au_log "переустановка: НЕ удалось записать payload.meta — отметку не двигаем"
+        return 1
+    fi
     if ! au_write_installed_tag "$target_tag"; then
         au_log "переустановка: НЕ удалось записать отметку версии — следующий прогон не увидит обновлений"
         return 1
@@ -2217,10 +2229,39 @@ au_snapshot_services() {
 # в reinstall. Файл лежит рядом с тегом, то есть переживает перезагрузку.
 Z2K_AU_DIRTY_TREE_FILE="${Z2K_AU_DIRTY_TREE_FILE:-/opt/zapret2/.z2k-tree-dirty}"
 
+# Записать payload-version metadata (PLATFORM HOOK по необходимости, см. ниже).
+#
+# Порядок финализации релиза ОБЯЗАН быть: файлы -> payload.meta -> tag.
+# payload.meta — локальное утверждение "payload соответствует tag", которое
+# pre-flight сверяет БЕЗ сети. Crash между meta и tag чинится advance'ом tag
+# (meta пишется только после доказанной полноты); crash до meta оставляет
+# старый консистентный набор. Обратный порядок (tag раньше meta) оставил бы
+# необнаружимое "tag=Y, payload=X".
+#
+# Почему не в adapter'е: записать meta обязан тот, кто ЗНАЕТ момент полноты
+# (конец converge/patch внутри updater); adapter видит только до/после и не
+# отличил бы успех от обрыва. Keenetic получает тот же файл (безвреден,
+# путь тот же самый); регрессия — полным updater-набором тестов.
+au_write_payload_meta() {
+    local tag="$1" _meta _tmp _back
+    [ -n "$tag" ] || return 1
+    _meta="${ZAPRET2_DIR:-/opt/zapret2}/share/payload.meta"
+    mkdir -p "$(dirname "$_meta")" 2>/dev/null || return 1
+    _tmp="${_meta}.new.$$"
+    { printf 'platform=%s\n' "${Z2K_PLATFORM:-keenetic}"
+      printf 'tag=%s\n' "$tag"
+      printf 'ref=%s\n' "${Z2K_AU_TARGET_REF:-}"
+    } > "$_tmp" 2>/dev/null || { rm -f "$_tmp" 2>/dev/null; return 1; }
+    mv -f "$_tmp" "$_meta" 2>/dev/null || { rm -f "$_tmp" 2>/dev/null; return 1; }
+    _back=$(sed -n 's/^tag=//p' "$_meta" 2>/dev/null | head -1 | tr -d '[:space:]')
+    [ "$_back" = "$tag" ] || return 1
+    return 0
+}
+
 # Записать installed-tag и убедиться, что записалось именно то.
 #
 # Пустой или обрезанный тег — это не «обновление не применилось», это «обновлений
-# не будет больше никогда»: au_decide на пустом теге уходит в ветку
+# будет больше никогда»: au_decide на пустом теге уходит в ветку
 # «empty/corrupt → no update (refusing blind reinstall)» и остаётся там навсегда.
 # Поэтому пишем через временный файл и перечитываем результат.
 au_write_installed_tag() {
@@ -2464,6 +2505,10 @@ au_apply_converge() {
         # Дерево уже совпадает с манифестом и делать нечего. Это штатный исход
         # повторного прогона, а не ошибка: сходимость идемпотентна.
         au_log "дерево совпадает с манифестом — только отметка версии"
+        # meta заодно чинится, если её не было (pre-meta эпоха, ручное удаление):
+        # дерево проверено парой строк выше, утверждение правдиво.
+        au_write_payload_meta "$target_tag" || {
+            au_log "ВНИМАНИЕ: payload.meta не записалась — чинить вручную"; return 1; }
         au_write_installed_tag "$target_tag" || {
             au_log "ВНИМАНИЕ: тег не записался — обновления встанут"; return 1; }
         return 0
@@ -2581,6 +2626,8 @@ au_apply_converge() {
         return 1
     fi
 
+    au_write_payload_meta "$target_tag" || {
+        au_log "ВНИМАНИЕ: payload.meta не записалась — чинить вручную, обновления встанут"; return 1; }
     au_write_installed_tag "$target_tag" || {
         au_log "ВНИМАНИЕ: обновились, но тег не записался — следующей ночью прогон повторится вхолостую"
         return 1; }
