@@ -741,7 +741,11 @@ au_step_regen_config() {
     au_gen_libs_source || { au_log "regen-config: нет генераторов в ${ZAPRET2_DIR}/lib"; return 1; }
     command -v create_official_config >/dev/null 2>&1 || {
         au_log "regen-config: create_official_config недоступна"; return 1; }
-    create_official_config "${ZAPRET2_DIR}/config" >/dev/null 2>&1
+    # PLATFORM HOOK (allowlisted): путь конфига через env. Keenetic: unset →
+    # ${ZAPRET2_DIR}/config как раньше. OpenWrt: /etc/z2k/config (писать в
+    # ${ZAPRET2_DIR}/config там нельзя — это симлинк моста, rename подменил бы
+    # его файлом и /etc протух; см. docs/openwrt-adapter-contract.md).
+    create_official_config "${Z2K_CONFIG_FILE:-${ZAPRET2_DIR}/config}" >/dev/null 2>&1
 }
 
 # Валидация — с правом вето. Перезапуск в сломанный конфиг оставляет роутер без
@@ -771,7 +775,7 @@ au_step_validate_config() {
     # процессом и `set -e` в нём нет. Форма `|| rc=$?` от errexit защищена:
     # команда стоит слева от ||, а это условный контекст.
     rc=0
-    sh "$v" "${ZAPRET2_DIR}/config" >/dev/null 2>&1 || rc=$?
+    sh "$v" "${Z2K_CONFIG_FILE:-${ZAPRET2_DIR}/config}" >/dev/null 2>&1 || rc=$?
     case "$rc" in
         0) return 0 ;;
         1) au_log "validate-config: предупреждения, ошибок нет — продолжаю"; return 0 ;;
@@ -1083,7 +1087,9 @@ au_step_restart_service() {
     #
     # Состояние службы здесь уже такое, какого человек хотел: выключено.
     # Значит шагу нечего делать и не о чем сообщать как об ошибке.
-    _rs_cfg="${ZAPRET2_DIR:-/opt/zapret2}/config"
+    # Тот же PLATFORM HOOK, что в regen-config/validate-config: конфиг, чей
+    # ENABLED читаем, — канонический (см. комментарий там).
+    _rs_cfg="${Z2K_CONFIG_FILE:-${ZAPRET2_DIR:-/opt/zapret2}/config}"
     if [ -f "$_rs_cfg" ]; then
         _rs_en=$(grep -m1 '^ENABLED=' "$_rs_cfg" 2>/dev/null | cut -d= -f2 | tr -d '" ')
         if [ -n "$_rs_en" ] && [ "$_rs_en" != "1" ]; then
@@ -1560,8 +1566,12 @@ au_download_reinstall_script() {
 # Merge: new_runtime = shipped_new ∪ (current_runtime − shipped_old).
 au_merge_extra_domains() {
     local zd="${ZAPRET2_DIR:-/opt/zapret2}"
-    local shipped_old="${zd}/files/lists/extra-domains.txt"
-    local runtime="${zd}/lists/extra-domains.txt"
+    # PLATFORM HOOK (allowlisted): shipped-база и runtime-мерж — два разных
+    # файла. Keenetic: unset → те же пути, побайтово. OpenWrt: пару задаёт
+    # env.sh ($ROOT/lists + /etc/z2k/user-lists). Без хука мерж на OpenWrt
+    # работал бы с /opt-путями и молча терял пользовательские строки.
+    local shipped_old="${Z2K_EXTRA_DOMAINS_SHIPPED:-$zd/files/lists/extra-domains.txt}"
+    local runtime="${Z2K_EXTRA_DOMAINS_RUNTIME:-$zd/lists/extra-domains.txt}"
     local shipped_new="$1"   # path to freshly downloaded shipped version
 
     if [ ! -f "$shipped_new" ]; then
@@ -1731,8 +1741,23 @@ EOF_DEL
         stage="$Z2K_AU_TMP_DIR/dl/$(echo "$repo_path" | tr '/' '_')"
         targets=$(au_targets_for "$repo_path")
         if [ -z "$targets" ]; then
-            au_log "patch: no install target for $repo_path (skipped)"
-            continue
+            case "$repo_path" in
+                */builds/*)
+                    # Единственный законный безадресный класс: цель бинарника
+                    # зависит от арки роутера, его ставит шаг refresh-binaries,
+                    # а не раскладка. Остальное ниже — fail-safe, см. комментарий.
+                    au_log "patch: $repo_path без цели (бинарник, ставит refresh-binaries)"
+                    continue ;;
+            esac
+            # FAIL-SAFE вместо silent skip: файл из changed_files без адреса в
+            # install_map означает манифест, который этот исполнитель не может
+            # применить честно (несогласованная сборка, чужой platform-line,
+            # ручная правка). Молча двинуть тег вперёд — ровно та авария, ради
+            # которой install_map возят данными (см. шапку au_targets_for).
+            # Возвращаем ошибку ДО записи installed-tag: вызывающий откатит
+            # частичное и тег останется на реально разложенном.
+            au_log "patch: no install target for $repo_path — отказываюсь двигать версию, нужен reinstall"
+            return 1
         fi
 
         # extra-domains.txt: 3-way merge (handles both /files/lists/ and /lists/)

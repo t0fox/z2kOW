@@ -15,8 +15,24 @@
 
 # z2k_install_paths <путь в репозитории> — куда класть на роутере (0..N строк).
 # Пусто = файл не доставляется (tests/, scripts/, docs/).
+#
+# Платформа — через Z2K_PLATFORM (по умолчанию keenetic): все существующие
+# вызывающие (release.sh, gen_file_hashes.sh, тесты, роутерные скрипты)
+# получают побайтово те же keenetic-адреса, что и раньше.
 z2k_install_paths() {
-    local repo_path="$1"
+    z2k_install_paths_for "${Z2K_PLATFORM:-keenetic}" "$1"
+}
+
+# z2k_install_paths_for <platform> <путь> — то же, явно под платформу.
+# Неизвестная платформа = пусто (fail-safe: сборка сочтёт такой релиз
+# недоставляемым, а не разложит файлы наугад).
+z2k_install_paths_for() {
+    local _plat="$1" repo_path="$2"
+    case "$_plat" in
+        openwrt) _z2k_install_paths_openwrt "$repo_path"; return $? ;;
+        keenetic) ;;
+        *) return 1 ;;
+    esac
     local zd="${ZAPRET2_DIR:-/opt/zapret2}"
     case "$repo_path" in
         lib/release_map.sh)
@@ -158,6 +174,52 @@ z2k_install_paths() {
             ;;
         *)
             : # no runtime target
+            ;;
+    esac
+}
+
+# Модель A (§4 ownership): platform helpers, init и hotplug — package-owned,
+# их ставит ТОЛЬКО opkg. Updater-маппингов для них НЕТ осознанно: иначе один
+# файл был бы и package-owned, и updater-overwritten (флаппинг при opkg
+# upgrade). Релиз, меняющий только адаптер, недоставляем патчем — ему нужен
+# FULL_INSTALL (opkg upgrade). Конфликт сторожит ownership-тест.
+_z2k_install_paths_openwrt() {
+    local repo_path="$1" or="/usr/lib/z2k"
+    case "$repo_path" in
+        platform/openwrt/*|package/openwrt/*)
+            : ;; # package-owned: ставит opkg, не updater
+        lib/release_map.sh)
+            : ;; # как и на keenetic: карта едет данными, а не кодом
+        lib/*)
+            echo "${or}/lib/${repo_path#lib/}" ;;
+        files/lua/*)
+            echo "${or}/lua/${repo_path#files/lua/}" ;;
+        files/fake/*)
+            echo "${or}/fake/${repo_path#files/fake/}" ;;
+        files/lists/extra_strats/*)
+            echo "${or}/extra_strats/${repo_path#files/lists/extra_strats/}" ;;
+        files/lists/extra-domains.txt)
+            # Как keenetic: shipped-база и runtime-мерж раздельно (3-way merge
+            # на роутере), только под openwrt-корнями.
+            echo "${or}/lists/extra-domains.txt"
+            echo "/etc/z2k/user-lists/extra-domains.txt" ;;
+        files/lists/*.txt)
+            echo "${or}/lists/${repo_path#files/lists/}" ;;
+        strats_new2.txt|quic_strats.ini)
+            echo "${or}/manifests/${repo_path}" ;;
+        files/z2k-config-validator.sh)
+            # Шаг validate-config зовёт его по ${ZAPRET2_DIR}/z2k-config-validator.sh
+            # на обеих платформах; без файла шаг валится и тянет откат.
+            # Остальные files/*.sh — будущие feature layers, каждый добавит
+            # свой маппинг вместе с исполнителем (молча не теряются: drift-тест).
+            echo "${or}/z2k-config-validator.sh" ;;
+        files/etc/*)
+            echo "${or}/etc/${repo_path#files/etc/}" ;;
+        tests/*)
+            : # как keenetic: тесты — dev/CI, на роутер не едут
+            ;;
+        *)
+            : # нет цели: keenetic-only, сборочное или будущее (см. drift-тест)
             ;;
     esac
 }
