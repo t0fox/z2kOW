@@ -25,6 +25,8 @@
 /usr/lib/z2k/platform/openwrt/uci.sh package
 /usr/lib/z2k/platform/openwrt/arch.sh package
 /usr/lib/z2k/platform/openwrt/pkg.sh package
+/usr/lib/z2k/platform/openwrt/update.sh package
+/usr/lib/z2k/platform/openwrt/schedule.sh package
 /usr/lib/z2k/share/config.default package
 /usr/lib/z2k/share/seed.tar.gz package
 /etc/z2k/config user
