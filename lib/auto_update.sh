@@ -19,6 +19,11 @@ Z2K_AU_BRANCH="${Z2K_AU_BRANCH:-z2k-enhanced}"
 Z2K_AU_REPO_RAW="${Z2K_AU_REPO_RAW:-https://raw.githubusercontent.com/necronicle/z2k/${Z2K_AU_BRANCH}}"
 Z2K_AU_MANIFEST_URL="${Z2K_AU_MANIFEST_URL:-${Z2K_AU_REPO_RAW}/UPDATES.json}"
 Z2K_AU_REINSTALL_URL="${Z2K_AU_REINSTALL_URL:-${Z2K_AU_REPO_RAW}/z2k.sh}"
+# PLATFORM HOOK (allowlisted): корень repo отдельно от ветки — неизменяемым
+# ссылкам ($BASE/$TARGET_REF) нужен owner/name БЕЗ суффикса ветки, а выводить
+# одно из другого строковой хирургией хрупко. Keenetic: unset → necronicle
+# как раньше, побайтово. OpenWrt: задаёт env.sh (t0fox/z2kOW).
+Z2K_AU_RAW_BASE="${Z2K_AU_RAW_BASE:-https://raw.githubusercontent.com/necronicle/z2k}"
 
 Z2K_AU_INSTALLED_TAG_FILE="${Z2K_AU_INSTALLED_TAG_FILE:-/opt/zapret2/.z2k-installed-tag}"
 Z2K_AU_LOCK_FILE="${Z2K_AU_LOCK_FILE:-/opt/zapret2/.update.lock}"
@@ -428,9 +433,13 @@ au_manifest_ref() {
 # Z2K_AU_TARGET_REF выставляется перед раскладкой из записи истории целевой
 # версии. Пусто — манифест старый и ссылки не знает: ведём себя как раньше,
 # иначе обновление встало бы у тех, кто пропустил внедряющий релиз.
+#
+# Владелец repo — из Z2K_AU_RAW_BASE (PLATFORM HOOK, см. константы выше):
+# fork-only ref обязан резолвиться в ТОТ ЖЕ repo, что манифест, а не в
+# necronicle/z2k (иначе 404 / чужой payload на OpenWrt).
 au_repo_base() {
     if [ -n "${Z2K_AU_TARGET_REF:-}" ]; then
-        printf 'https://raw.githubusercontent.com/necronicle/z2k/%s' "$Z2K_AU_TARGET_REF"
+        printf '%s/%s' "${Z2K_AU_RAW_BASE:-https://raw.githubusercontent.com/necronicle/z2k}" "$Z2K_AU_TARGET_REF"
     else
         printf '%s' "$Z2K_AU_REPO_RAW"
     fi
@@ -1973,6 +1982,21 @@ au_apply_reinstall() {
     local reinstall_script="$Z2K_AU_TMP_DIR/z2k-reinstall.sh"
     au_save_feature_flags "$saved_flags"
 
+    # PLATFORM HOOK (allowlisted): политика переустановки — одна точка решения.
+    # Keenetic: хук пуст → legacy-путь (скачать z2k.sh, исполнить) как раньше.
+    # OpenWrt: env задаёт Z2K_AU_REINSTALL_EXECUTOR (fail-closed — Keenetic
+    # z2k.sh под root там выполняться не должен, пока нет полноценного
+    # OpenWrt reinstall). Executor вызывается с "$target_tag" "$reset_state";
+    # провал НЕ двигает тег и НЕ трогает payload по построению (мы выходим до).
+    if [ -n "${Z2K_AU_REINSTALL_EXECUTOR:-}" ]; then
+        if ! command -v "$Z2K_AU_REINSTALL_EXECUTOR" >/dev/null 2>&1; then
+            au_log "reinstall: executor $Z2K_AU_REINSTALL_EXECUTOR не найден — fail closed, тег не двигаем"
+            return 1
+        fi
+        "$Z2K_AU_REINSTALL_EXECUTOR" "$target_tag" "$reset_state"
+        return $?
+    fi
+
     mkdir -p "$Z2K_AU_TMP_DIR"
     if ! au_download_reinstall_script "$reinstall_script"; then
         au_log "reinstall failed: could not fetch z2k.sh from any mirror"
@@ -2003,10 +2027,11 @@ au_apply_reinstall() {
     (
         # GITHUB_RAW передаём явно: z2k.sh тянет lib/*, списки и бинарники сам,
         # и без пина взял бы их с верхушки ветки — то есть человек получил бы не
-        # ту версию, которую ему объявили.
+        # ту версию, которую ему объявили. Корень — тот же RAW_BASE, что в
+        # au_repo_base (PLATFORM HOOK): reinstall едет из того же repo.
         env Z2K_AUTO_UPDATE=1 Z2K_AU_TARGET_TAG="$target_tag" \
             Z2K_AU_FEATURE_FLAGS_BACKUP="$saved_flags" \
-            ${Z2K_AU_TARGET_REF:+GITHUB_RAW="https://raw.githubusercontent.com/necronicle/z2k/$Z2K_AU_TARGET_REF"} \
+            ${Z2K_AU_TARGET_REF:+GITHUB_RAW="${Z2K_AU_RAW_BASE:-https://raw.githubusercontent.com/necronicle/z2k}/$Z2K_AU_TARGET_REF"} \
             $reset_env \
             sh "$reinstall_script" install 2>&1
         echo "$?" > "$rc_file"
