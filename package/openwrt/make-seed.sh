@@ -88,6 +88,10 @@ _seed_tag="$(sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "
 _seed_ref="$(git -C "$TREE" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
 mkdir -p "$STAGE/usr/lib/z2k/share" || exit 1
 printf 'platform=openwrt\ntag=%s\nref=%s\n' "$_seed_tag" "$_seed_ref" > "$STAGE/usr/lib/z2k/share/seed.meta" || exit 1
+# payload.meta — живая версия payload (seed стартует с seed.meta; updater
+# перезаписывает её при каждом успешном converge ДО installed-tag — порядок
+# [files -> meta -> tag] делает crash различимым, см. au_write_payload_meta).
+cp -f "$STAGE/usr/lib/z2k/share/seed.meta" "$STAGE/usr/lib/z2k/share/payload.meta" || exit 1
 
 # Alias-симлинки blob-имён (как install.sh на Keenetic): валидатор ищет
 # блоб ПО ИМЕНИ (fake/<имя>[.bin]), а часть имён не совпадает с файлами

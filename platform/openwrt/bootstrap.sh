@@ -121,69 +121,131 @@ z2k_ow_payload_empty() {
     return 0
 }
 
-# z2k_ow_seed_write_tag — installed-tag из seed.meta, ТОЛЬКО если tag
-# отсутствует/пуст. Формат — как au_write_installed_tag (printf + \n,
-# mkdir, re-read verify): существующий tag НЕ трогаем никогда.
-# Путь — Z2K_AU_INSTALLED_TAG_FILE с тем же дефолтом, что env.sh (postinst
-# env.sh не сорсит — только paths.sh + этот файл).
-z2k_ow_seed_write_tag() {
-    local _tagfile="${Z2K_AU_INSTALLED_TAG_FILE:-$Z2K_STATE/installed-tag}"
-    local _tag="" _cur=""
-    [ -f "$_tagfile" ] && \
-        _cur=$(tr -d '[:space:]' < "$_tagfile" 2>/dev/null)
-    [ -n "$_cur" ] && return 0
-    [ -f "$Z2K_ROOT/share/seed.meta" ] || {
-        echo "z2k-openwrt: нет seed.meta — версию установить не из чего" >&2
-        return 1
-    }
-    _tag=$(sed -n 's/^tag=//p' "$Z2K_ROOT/share/seed.meta" 2>/dev/null | head -1 | tr -d '[:space:]')
-    case "$_tag" in
-        ''|*[!A-Za-z0-9._-]*) echo "z2k-openwrt: seed.meta без валидного tag" >&2; return 1 ;;
+# z2k_ow_payload_meta_tag — tag из payload.meta (пусто если нет/битая).
+z2k_ow_payload_meta_tag() {
+    [ -f "$Z2K_ROOT/share/payload.meta" ] || return 1
+    local _t
+    _t=$(sed -n 's/^tag=//p' "$Z2K_ROOT/share/payload.meta" 2>/dev/null | head -1 | tr -d '[:space:]')
+    case "$_t" in
+        ''|*[!A-Za-z0-9._-]*) return 1 ;;
     esac
-    mkdir -p "$(dirname "$_tagfile")" 2>/dev/null || return 1
-    printf '%s\n' "$_tag" > "${_tagfile}.new.$$" 2>/dev/null || return 1
-    mv -f "${_tagfile}.new.$$" "$_tagfile" 2>/dev/null || return 1
-    _cur=$(tr -d '[:space:]' < "$_tagfile" 2>/dev/null)
-    [ "$_cur" = "$_tag" ] || return 1
+    printf '%s' "$_t"
     return 0
 }
 
-# z2k_ow_seed_ensure — ЕДИНСТВЕННЫЙ законный писатель seed (зовёт postinst).
-#
-# Матрица (marker ПОСЛЕДНИМ всегда; marker ⇒ payload verified):
-#   no marker + empty/non-ok payload -> extract -> bootstrap -> verify -> tag?=meta -> mark
-#   no marker + payload ok .......... -> bootstrap -> verify -> tag?=meta -> mark (без extract)
-#   marker + payload ok ............. -> bootstrap -> verify (upgrade: ничего не трогаем)
-#   marker + payload empty .......... -> extract (prerm-purge/sysupgrade repair) ->
-#                                        bootstrap -> verify (TAG PRESERVED — никакого отката версии)
-#   marker + payload partial ........ -> ГРОМКИЙ провал без авто-recovery
-#                                        (repair: руками чистка payload + удалить marker)
-z2k_ow_seed_ensure() {
-    # Извлекаем, только если payload НЕ цел И (нет marker ИЛИ payload пуст):
-    # marker+empty = prerm-purge/sysupgrade repair (tag при этом PRESERVED —
-    # никакого отката версии); marker+partial сюда не попадает (см. ниже).
-    if ! z2k_ow_payload_ok && { [ ! -f "$Z2K_PAYLOAD_MARKER" ] || z2k_ow_payload_empty; }; then
-        [ -f "$Z2K_SEED_TARBALL" ] || {
-            echo "z2k-openwrt: нет seed $Z2K_SEED_TARBALL и payload пуст — нечем инициализировать" >&2
+# z2k_ow_reconcile_tag — tag := payload.meta (идемпотентно).
+# Единственное место, пишущее installed-tag в adapter'е. Правила:
+#   meta валидна + tag любой -> tag := meta (ПЕРЕЗАПИСЬ при расхождении).
+#     Это НЕ откат: meta пишется только ПОСЛЕ доказанной полноты payload
+#     (seed: extract+verify; update: files+verify pre-tag), а tag — всегда
+#     ПОСЛЕ meta. Значит meta новее-or-равна истине о payload, а tag, ей
+#     противоречащий, — ложь (crash между meta и tag; stale после wipe+
+#     reextract). Ошибка возможна лишь в сторону повторной доставки.
+#   tag == meta -> ничего (normal upgrade: tag НЕ трогаем никогда — I5).
+#   meta отсутствует/бита + tag ЕСТЬ + payload ok -> meta := tag (ADOPT,
+#     громко; одноразовое заживление pre-meta эпохи, см. тело).
+#   meta отсутствует/бита + tag отсутствует -> провал (истины нет нигде).
+# Формат записи — как au_write_installed_tag (tmp+rename+re-read).
+z2k_ow_reconcile_tag() {
+    local _tagfile="${Z2K_AU_INSTALLED_TAG_FILE:-$Z2K_STATE/installed-tag}"
+    local _meta="" _cur="" _have_tag=0
+    _meta=$(z2k_ow_payload_meta_tag 2>/dev/null) || _meta=""
+    [ -f "$_tagfile" ] && \
+        _cur=$(tr -d '[:space:]' < "$_tagfile" 2>/dev/null)
+    [ -n "$_cur" ] && _have_tag=1
+    if [ -z "$_meta" ]; then
+        # ADOPT (одноразово, громко): meta нет, но tag есть и payload цел.
+        # Pre-meta эпоха: tag двигался только после доставки, payload_ok gate
+        # держит — утверждение "payload==tag" ошибается лишь в сторону
+        # повторной доставки, никогда в false-current. Без adopt апгрейд со
+        # старого пакета умирал бы с невозможностью обновляться.
+        # meta нет + tag нет -> FAIL (истины нет нигде).
+        [ "$_have_tag" = "1" ] || {
+            echo "z2k-openwrt: нет валидной payload.meta и нет tag — версию установить не из чего" >&2
             return 1
         }
-        tar -xzf "$Z2K_SEED_TARBALL" -C "$Z2K_SEED_DEST" || {
-            echo "z2k-openwrt: извлечение seed не удалось — marker не ставлю" >&2
-            return 1
-        }
+        mkdir -p "$(dirname "$Z2K_ROOT/share/payload.meta")" 2>/dev/null || return 1
+        { printf 'platform=%s\n' "${Z2K_PLATFORM:-openwrt}"
+          printf 'tag=%s\n' "$_cur"
+          printf 'ref=\n'
+        } > "$Z2K_ROOT/share/payload.meta.new.$$" 2>/dev/null || return 1
+        mv -f "$Z2K_ROOT/share/payload.meta.new.$$" "$Z2K_ROOT/share/payload.meta" 2>/dev/null || return 1
+        echo "z2k-openwrt: payload.meta reconstructed from installed-tag $_cur (pre-meta era, once)" >&2
+        return 0
     fi
-    z2k_ow_bootstrap || return 1
-    if ! z2k_ow_payload_ok; then
-        if [ -f "$Z2K_PAYLOAD_MARKER" ] && ! z2k_ow_payload_empty; then
-            echo "z2k-openwrt: payload частичен при marker (partial, не empty) — авто-recovery запрещён, чините вручную" >&2
-        else
-            echo "z2k-openwrt: payload неполон — молчаливого success не будет" >&2
-        fi
-        return 1
-    fi
-    z2k_ow_seed_write_tag || return 1
-    if [ ! -f "$Z2K_PAYLOAD_MARKER" ]; then
-        : > "$Z2K_PAYLOAD_MARKER" || return 1
-    fi
+    [ "$_cur" = "$_meta" ] && return 0
+    mkdir -p "$(dirname "$_tagfile")" 2>/dev/null || return 1
+    printf '%s\n' "$_meta" > "${_tagfile}.new.$$" 2>/dev/null || return 1
+    mv -f "${_tagfile}.new.$$" "$_tagfile" 2>/dev/null || return 1
+    _cur=$(tr -d '[:space:]' < "$_tagfile" 2>/dev/null)
+    [ "$_cur" = "$_meta" ] || return 1
     return 0
 }
+
+# z2k_ow_reseed_from_seed — ЕДИНСТВЕННАЯ операция замены payload seed'ом.
+# Транзакция (marker снимается ПЕРВЫМ, ставится ПОСЛЕДНИМ):
+#   1. invalidate marker (rm -f; дальше любой провал = marker absent)
+#   2. extract seed (tarball обязан существовать)
+#   3. bootstrap
+#   4. verify required payload (включая payload.meta из tarball)
+#   5. reconcile tag := payload.meta (I3: re-seed ВСЕГДА переписывает tag,
+#      даже поверх более нового — payload теперь seed, tag обязан сказать X)
+#   6. marker ПОСЛЕДНИМ
+# Любой провал -> marker absent (I1: marker ⇒ verified). Повтор сходится.
+z2k_ow_reseed_from_seed() {
+    local _tagfile="${Z2K_AU_INSTALLED_TAG_FILE:-$Z2K_STATE/installed-tag}"
+    rm -f "$Z2K_PAYLOAD_MARKER" 2>/dev/null
+    # Провал на ЛЮБОМ шаге снимает и stale tag (rm): tag без marker + без
+    # гарантии payload — ложное утверждение версии (I2). Чистый S1 вместо него.
+    [ -f "$Z2K_SEED_TARBALL" ] || {
+        echo "z2k-openwrt: нет seed $Z2K_SEED_TARBALL — re-seed невозможен" >&2
+        rm -f "$_tagfile" 2>/dev/null; return 1
+    }
+    tar -xzf "$Z2K_SEED_TARBALL" -C "$Z2K_SEED_DEST" || {
+        echo "z2k-openwrt: извлечение seed не удалось" >&2
+        rm -f "$_tagfile" 2>/dev/null; return 1
+    }
+    z2k_ow_bootstrap || { rm -f "$_tagfile" 2>/dev/null; return 1; }
+    z2k_ow_payload_ok || {
+        echo "z2k-openwrt: payload неполон после extract — молчаливого success не будет" >&2
+        rm -f "$_tagfile" 2>/dev/null; return 1
+    }
+    z2k_ow_reconcile_tag || { rm -f "$_tagfile" 2>/dev/null; return 1; }
+    : > "$Z2K_PAYLOAD_MARKER" || { rm -f "$_tagfile" 2>/dev/null; return 1; }
+    return 0
+}
+
+# z2k_ow_seed_ensure — диспетчер (НЕ извлекает сам, кроме вызова транзакции).
+#   marker + payload ok -> bootstrap + verify (upgrade: НИЧЕГО не трогаем,
+#     tag/payload побайтово целы — I5);
+#   no marker + payload ok -> bootstrap + verify + reconcile-if-missing +
+#     mark (идемпотентное завершение);
+#   payload empty (+ tarball) -> re-seed transaction (prerm-purge/sysupgrade
+#     repair; fresh install);
+#   marker + partial -> invalidate marker + FAIL (неизвестное повреждение:
+#     blind overwrite запрещён; следующий запуск увидит no-marker+partial
+#     и сделает re-seed с нуля — damage уже не verified, терять нечего);
+#   no marker + partial -> re-seed transaction (ничего verified не было);
+#   tarball отсутствует там, где нужен -> FAIL.
+z2k_ow_seed_ensure() {
+    if z2k_ow_payload_ok; then
+        z2k_ow_bootstrap || return 1
+        z2k_ow_payload_ok || return 1
+        # Reconcile ВСЕГДА (не только без marker): updater-crash оставляет
+        # marker + tag != meta; equal-case — noop (I5: upgrade ничего не пишет).
+        z2k_ow_reconcile_tag || return 1
+        if [ ! -f "$Z2K_PAYLOAD_MARKER" ]; then
+            : > "$Z2K_PAYLOAD_MARKER" || return 1
+        fi
+        return 0
+    fi
+    if [ -f "$Z2K_PAYLOAD_MARKER" ] && ! z2k_ow_payload_empty; then
+        echo "z2k-openwrt: payload частичен при marker — снимаю marker, авто-recovery запрещён" >&2
+        rm -f "$Z2K_PAYLOAD_MARKER" 2>/dev/null
+        return 1
+    fi
+    z2k_ow_reseed_from_seed
+}
+
+# (Старая версия seed_ensure с preserve-tag удалена здесь: она нарушала I3.
+# См. z2k_ow_seed_ensure выше и state-machine §2.)

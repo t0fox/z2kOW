@@ -55,25 +55,13 @@ if [ "$AU_ENABLED" = "0" ] && [ "$ACTION" = "apply" ] && [ "$AU_MANUAL" != "1" ]
     exit 0
 fi
 
-# Pre-flight состояния установки (до любых fetch/apply):
-#   marker отсутствует -> установка не инициализирована (снесён /etc,
-#     незавершённый postinst): fail closed, common first-run resync
-#     здесь НЕ запускаем — он пометил бы любой payload текущим;
-#   tag отсутствует/пуст + marker + payload ok -> восстановить tag из
-#     seed.meta (локальный факт о payload, НЕ remote current — иначе
-#     старый payload застревает навсегда под свежим тегом).
-if [ ! -f "$Z2K_PAYLOAD_MARKER" ]; then
-    echo "z2k-openwrt: нет marker $Z2K_PAYLOAD_MARKER — установка не инициализирована (переустановите пакет)" >&2
-    exit 1
-fi
-if [ ! -s "$Z2K_AU_INSTALLED_TAG_FILE" ]; then
-    if z2k_ow_payload_ok 2>/dev/null; then
-        z2k_ow_seed_write_tag || exit 1
-    else
-        echo "z2k-openwrt: нет tag и payload неполон — сначала postinst/seed" >&2
-        exit 1
-    fi
-fi
+# Pre-flight локальных инвариантов (§9 state-machine) — ДО любого fetch:
+# z2k_ow_seed_ensure приводит (marker, payload, tag) к доказанному виду:
+# empty -> re-seed (tag := seed), partial+marker -> invalidate + fail,
+# mismatch tag/meta -> reconcile, ok -> noop. После него:
+# marker present + payload ok + tag == payload.meta, ИНАЧЕ сюда не доходим
+# (common first-run resync тем самым недостижим — никакого false-current).
+z2k_ow_seed_ensure || exit 1
 
 case "$ACTION" in
     apply)
