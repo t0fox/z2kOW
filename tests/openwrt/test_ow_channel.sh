@@ -46,10 +46,17 @@ fi
 ) && _t_ok || _t_bad "Keenetic-дефолты канала изменились"
 
 # --- 3. генератор end-to-end в изолированном клоне ---
+# Предусловие: дерево, влияющее на regen (lib/scripts/файлы/UPDATES.json),
+# ЗАКОММИЧЕНО. Клон собирается из HEAD: при грязном дереве сравнение
+# "таблица(worktree) vs regen(committed)" ложно краснеет — скипаем e2e
+# честно (остальные секции теста от дерева не зависят).
 # (clone, НЕ worktree: у worktree общий gitdir с $REPO, а regen пишет
 # UPDATES.json — любая ошибка cd/gen отравила бы настоящий манифест;
 # tripwire ниже это сторожит). Реальный UPDATES.json тест не трогает.
 _orig_sum="$(cksum "$REPO/UPDATES.json")"
+if git -C "$REPO" status --porcelain -- lib scripts files strats_new2.txt quic_strats.ini UPDATES.json webpanel 2>/dev/null | grep -q .; then
+    echo "SKIP[ow-channel]: generator e2e needs committed tree"
+else
 CLONE="$T/clone"
 if git clone -q "$REPO" "$CLONE" 2>/dev/null; then
     cp "$CLONE/UPDATES.json" "$T/orig.json"
@@ -95,6 +102,7 @@ if git clone -q "$REPO" "$CLONE" 2>/dev/null; then
         && _t_ok || _t_bad "openwrt-манифест не JSON"
 else
     _t_bad "clone недоступен (git clone $REPO)"
+fi
 fi
 # tripwire: настоящий манифест не тронут тестом
 assert_eq "UPDATES.json untouched" "$_orig_sum" "$(cksum "$REPO/UPDATES.json")"
