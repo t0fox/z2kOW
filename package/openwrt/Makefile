@@ -1,17 +1,16 @@
-# package/openwrt/Makefile - OpenWrt-пакет z2k-adapter (skeleton).
+# package/openwrt/Makefile - OpenWrt-пакет z2k-adapter.
 #
-# Граница владения (см. docs/openwrt-adapter-contract.md):
+# Граница владения (машиночитаемо: ownership.map, сторожит тест):
 #   пакет ВЛАДЕЕТ: adapter (platform/openwrt), init/hotplug, метаданные,
-#     bootstrap (postinst), дефолт /etc/z2k/config, file mapping payload.
-#   пакет НЕ владеет (пока): updater-семантика, common z2k payload как
-#     версионируемая сущность — payload копируется как есть из этого дерева.
+#     bootstrap (postinst), дефолт config, seed.tar.gz (bootstrap-seed).
+#   пакет НЕ поставляет напрямую: lib/lua/fake/lists/strategies/manifests —
+#     они updater-owned; в пакет едут только внутри seed.tar.gz, postinst
+#     извлекает их в /, дальше их перезаписывает подписанный апдейтер.
+#   пакет НЕ трогает никогда: /etc/z2k/config, /etc/z2k/state/*,
+#     /etc/z2k/user-lists/* (user-owned; bootstrap — только если отсутствует).
 #
-# BUILD-TIME требование: до упаковки выполнить материализацию Strategy.txt
-# (payload read-only, в boot-пути её нет):
-#   ZAPRET2_DIR=<staging>/usr/lib/z2k CONFIG_DIR=<staging-tmp> \
-#     sh -c '. lib/utils.sh; . lib/strategies.sh; . platform/openwrt/materialize.sh;
-#            z2k_ow_materialize <staging>/usr/lib/z2k/manifests'
-# bootstrap.sh на роутере проверяет результат fail-closed.
+# Сборка seed: package/openwrt/make-seed.sh (состав = openwrt-назначения
+# release_map минус package-owned; Strategy.txt прематериализованы).
 
 include $(TOPDIR)/rules.mk
 
@@ -37,37 +36,36 @@ config generation via untouched upstream libs, firewall delegation
 to the zapret2 runtime. No fork of common z2k logic.
 endef
 
-# Mapping repo -> target (см. contract § filesystem):
-#   platform/openwrt/*.sh -> /usr/lib/z2k/platform/openwrt/
-#   lib/*.sh              -> /usr/lib/z2k/lib/
-#   files/lua/*           -> /usr/lib/z2k/lua/
-#   files/fake/*          -> /usr/lib/z2k/fake/
-#   files/lists/*.txt     -> /usr/lib/z2k/lists/
-#   files/lists/extra_strats/* -> /usr/lib/z2k/extra_strats/
-#   strats_new2.txt, quic_strats.ini -> /usr/lib/z2k/manifests/
-#   files/etc/z2k/config.default -> /usr/lib/z2k/share/config.default
+define Package/z2k-adapter/conffiles
+/etc/init.d/z2k
+/etc/hotplug.d/iface/90-z2k
+endef
+
+# Корень дерева z2k (in-tree layout: этот Makefile лежит в
+# <tree>/package/openwrt/). Seed собирается из него же.
+Z2K_TREE:=$(abspath $(dir $(lastword $(MAKEFILE_LIST)))../..)
+
+# ВНИМАНИЕ: пакет намеренно НЕ ставит lib/lua/fake/lists напрямую —
+# см. шапку и ownership.map. Источники ниже: adapter (package-owned),
+# config-шаблон, seed (собирается make-seed.sh из этого же дерева).
 define Package/z2k-adapter/install
 	$(INSTALL_DIR) $(1)/etc/init.d $(1)/etc/hotplug.d/iface
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/platform/openwrt/custom.d
-	$(INSTALL_DIR) $(1)/usr/lib/z2k/lib $(1)/usr/lib/z2k/lua $(1)/usr/lib/z2k/fake
-	$(INSTALL_DIR) $(1)/usr/lib/z2k/lists $(1)/usr/lib/z2k/extra_strats
-	$(INSTALL_DIR) $(1)/usr/lib/z2k/manifests $(1)/usr/lib/z2k/share
+	$(INSTALL_DIR) $(1)/usr/lib/z2k/share
 	$(INSTALL_BIN) ./files/etc/init.d/z2k $(1)/etc/init.d/z2k
 	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/90-z2k $(1)/etc/hotplug.d/iface/90-z2k
 	$(INSTALL_DATA) ./files/etc/z2k/config.default $(1)/usr/lib/z2k/share/config.default
 	$(INSTALL_DATA) ./platform/openwrt/*.sh $(1)/usr/lib/z2k/platform/openwrt/
-	$(INSTALL_DATA) ./lib/*.sh $(1)/usr/lib/z2k/lib/
-	$(INSTALL_DATA) ./files/lua/*.lua $(1)/usr/lib/z2k/lua/
-	$(INSTALL_DATA) ./files/fake/*.bin $(1)/usr/lib/z2k/fake/
-	$(INSTALL_DATA) ./files/lists/*.txt $(1)/usr/lib/z2k/lists/
-	cp -a ./files/lists/extra_strats/* $(1)/usr/lib/z2k/extra_strats/
-	$(INSTALL_DATA) ./strats_new2.txt ./quic_strats.ini $(1)/usr/lib/z2k/manifests/
+	$(Z2K_TREE)/package/openwrt/make-seed.sh $(Z2K_TREE) $(PKG_BUILD_DIR)/seed.tar.gz
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/seed.tar.gz $(1)/usr/lib/z2k/share/seed.tar.gz
 endef
 
 define Package/z2k-adapter/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 Z2K_ROOT="$${Z2K_ROOT:-/usr/lib/z2k}"
+# seed первым: bootstrap ждёт payload на месте (lua/стратегии/листы).
+tar -xzf "$$Z2K_ROOT/share/seed.tar.gz" -C / || exit 1
 . "$$Z2K_ROOT/platform/openwrt/paths.sh"
 . "$$Z2K_ROOT/platform/openwrt/bootstrap.sh"
 z2k_ow_bootstrap || exit 1

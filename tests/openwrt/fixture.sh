@@ -11,7 +11,9 @@ ow_fixture_init() {
 
     export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
     unset ZAPRET2_DIR CONFIG_DIR LISTS_DIR ZAPRET_CONFIG OPENWRT_LAN FWTYPE \
-          Z2K_STATE_DIR_OVERRIDE Z2K_TCP16_ASN Z2K_TCP16_NETS Z2K_TCP16_SNI Z2K_SNI_PIN
+          Z2K_STATE_DIR_OVERRIDE Z2K_TCP16_ASN Z2K_TCP16_NETS Z2K_TCP16_SNI Z2K_SNI_PIN \
+          INIT_SCRIPT Z2K_CONFIG_FILE Z2K_AU_SBIN STATE_FILE \
+          Z2K_EXTRA_DOMAINS_SHIPPED Z2K_EXTRA_DOMAINS_RUNTIME
 
     mkdir -p "$Z2K_ROOT" "$Z2K_ETC" || return 1
     # payload — симлинки на реальное дерево (read-only использование)

@@ -58,6 +58,17 @@ z2k_ow_bootstrap() {
         [ -e "$_f" ] || : > "$_f" || return 1
     done
 
+    # Runtime-копия extra-domains сидируется shipped-базой (как install.sh на
+    # Keenetic): пользователь правит файл, который видит, а 3-way merge
+    # считает добавленные строки его собственными.
+    if [ ! -e "$Z2K_USER_LISTS/extra-domains.txt" ]; then
+        if [ -s "$Z2K_LISTS_DIR/extra-domains.txt" ]; then
+            cp -f "$Z2K_LISTS_DIR/extra-domains.txt" "$Z2K_USER_LISTS/extra-domains.txt" || return 1
+        else
+            : > "$Z2K_USER_LISTS/extra-domains.txt" || return 1
+        fi
+    fi
+
     # --- Strategy.txt прематериализованы сборкой; отсутствие = fail-closed ---
     for _p in TCP/YT TCP/YT_GV TCP/RKN UDP/YT; do
         [ -s "$Z2K_EXTRA_STRATS_DIR/$_p/Strategy.txt" ] || {

@@ -13,12 +13,21 @@ assert_contains "BuildPackage" "$MK" "BuildPackage,z2k-adapter"
 assert_contains "init.d install" "$MK" "files/etc/init.d/z2k"
 assert_contains "hotplug install" "$MK" "files/etc/hotplug.d/iface/90-z2k"
 assert_contains "postinst bootstrap" "$MK" "z2k_ow_bootstrap"
+assert_contains "postinst seed first" "$MK" "seed.tar.gz"
 assert_contains "prerm stop" "$MK" "init.d/z2k stop"
-assert_contains "payload: lua" "$MK" "files/lua"
-assert_contains "payload: fake" "$MK" "files/fake"
-assert_contains "payload: lists" "$MK" "files/lists"
-assert_contains "payload: manifests" "$MK" "strats_new2.txt"
-assert_contains "materialize documented" "$MK" "z2k_ow_materialize"
+assert_contains "seed builder" "$MK" "make-seed.sh"
+assert_contains "materialize in seed" "$REPO/package/openwrt/make-seed.sh" "z2k_ow_materialize"
+assert_contains "conffiles init" "$MK" "/etc/init.d/z2k"
+assert_contains "conffiles hotplug" "$MK" "/etc/hotplug.d/iface/90-z2k"
+
+# Model A: пакет НЕ ставит payload напрямую (только seed) — иначе конфликт
+# владения с апдейтером. Прямых lua/fake/lists/lib-строк в install нет.
+if grep -A25 'define Package/z2k-adapter/install' "$MK" \
+    | grep -E 'files/(lua|fake|lists)|INSTALL_DATA.*\./lib/' >/dev/null; then
+    _t_bad "пакет ставит payload напрямую (должен только seed)"
+else
+    _t_ok
+fi
 
 # каждый источник install-цели существует в репо
 _missing=""
