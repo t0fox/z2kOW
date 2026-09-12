@@ -133,4 +133,23 @@ else
     _t_bad "VERIFY_BIN дефолт не через ZAPRET2_DIR"
 fi
 
+# --- §56: updater НИКОГДА не делает blanket upgrade и не ставит пакеты сам ---
+# Запрет узкий и точный: `apk upgrade`/`opkg upgrade` (blanket) — нигде в
+# updater-коде; install-хелпер pkg.sh дремлет (вызывающих нет — иначе это был
+# бы auto-install из updater). Точные инструкции человеку в сообщениях
+# (gate: "обновите пакет ...") разрешены и обязательны.
+if grep -rn -- 'apk upgrade\|opkg upgrade' "$REPO/lib/auto_update.sh" \
+        "$REPO/platform/openwrt/"*.sh "$REPO/webpanel/cgi/"*.sh 2>/dev/null | grep -q .; then
+    _t_bad "§56: blanket upgrade в updater-коде"
+else
+    _t_ok
+fi
+if grep -rn -- 'z2k_ow_pkg_install' "$REPO/lib/auto_update.sh" \
+        "$REPO/platform/openwrt/update.sh" "$REPO/platform/openwrt/reinstall.sh" \
+        "$REPO/platform/openwrt/schedule.sh" "$REPO/webpanel/cgi/"*.sh 2>/dev/null | grep -q .; then
+    _t_bad "§56: auto-install пакетов из updater"
+else
+    _t_ok
+fi
+
 _t_done

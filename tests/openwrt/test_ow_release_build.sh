@@ -115,4 +115,16 @@ _api47="$(grep -E '^[[:space:]]*[0-9]+[[:space:]]*$' "$REPO/package/openwrt/ADAP
 [ -n "$_req47" ] && [ -n "$_api47" ] && [ "$_req47" -le "$_api47" ] 2>/dev/null \
     && _t_ok || _t_bad "API-окно seed.tag ($_req47) > packaged ($_api47)"
 
+# --- §63: артефакты не в source branch ---
+if git -C "$REPO" ls-files '*.apk' 2>/dev/null | grep -q .; then
+    _t_bad "§63: .apk в git"
+else
+    _t_ok
+fi
+if [ -d "$REPO/dist" ]; then
+    _t_bad "§63: dist/ в дереве"
+else
+    _t_ok
+fi
+
 _t_done
