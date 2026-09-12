@@ -19,7 +19,7 @@ ln -s "$REPO/platform/openwrt/warp-check.sh" "$T/root/platform/openwrt/warp-chec
 cat > "$T/bin/nft" <<EOF
 #!/bin/sh
 echo "nft:\$*" >> "$T/nft.log"
-# Atomic batch (defect 2): `nft -f -` применяет всё или ничего.
+# Atomic batch (defect 2): «nft -f -» применяет всё или ничего.
 # Fault injection: NFT_BATCH_FAIL (fixed string) в batch -> rc 1 БЕЗ изменений.
 if [ "\$1" = "-f" ]; then
     _bin="$T/nft-batch-in"
@@ -36,6 +36,12 @@ if [ "\$1" = "-f" ]; then
             "add element "*)
                 _sn="\$(printf '%s' "\$_l" | awk '{print \$5}')"
                 printf '%s\n' "\$_l" >> "$T/nft-set-\$_sn" ;;
+            "flush chain "*)
+                _cn="\$(printf '%s' "\$_l" | awk '{print \$5}')"
+                : > "$T/nft-chain-\$_cn" ;;
+            "add rule "*)
+                _cn="\$(printf '%s' "\$_l" | awk '{print \$5}')"
+                printf '%s\n' "\$_l" >> "$T/nft-chain-\$_cn" ;;
         esac
     done < "\$_bin"
     exit 0
@@ -45,10 +51,12 @@ if [ "\$1" = "list" ] && [ "\$2" = "table" ]; then
     exit 0
 fi
 if [ "\$1" = "list" ] && [ "\$2" = "set" ]; then
-    exit 0
+    # Defect 6: сета нет (таблицу снесли) — честный провал для set-ensure.
+    [ -f "$T/nft-set-\$5" ] && exit 0
+    exit 1
 fi
 # set-state для W19 (live set переживает corrupt-refresh): как настоящий
-# nft, `add set` существующего сета — no-op (контент НЕ трогаем).
+# nft, «add set» существующего сета — no-op (контент НЕ трогаем).
 if [ "\$1" = "add" ] && [ "\$2" = "set" ]; then
     [ -f "$T/nft-set-\$5" ] || : > "$T/nft-set-\$5"
     exit 0
@@ -63,6 +71,20 @@ if [ "\$1" = "add" ] && [ "\$2" = "element" ]; then
 fi
 if [ "\$1" = "delete" ] && [ "\$2" = "set" ]; then
     rm -f "$T/nft-set-\$5"
+    exit 0
+fi
+# chain-state для W40/W42 (dynamic TUN cardinality, disable converge-to-off).
+# Имя чейна — \$5: flush|add|delete (chain|rule) <fam> <tab> <CHAIN> ... .
+if [ "\$1" = "flush" ] && [ "\$2" = "chain" ]; then
+    : > "$T/nft-chain-\$5"
+    exit 0
+fi
+if [ "\$1" = "add" ] && [ "\$2" = "rule" ]; then
+    printf '%s\n' "\$*" >> "$T/nft-chain-\$5"
+    exit 0
+fi
+if [ "\$1" = "delete" ] && [ "\$2" = "chain" ]; then
+    rm -f "$T/nft-chain-\$5"
     exit 0
 fi
 exit 0
@@ -150,6 +172,29 @@ cat "$T/pidof.out" 2>/dev/null
 exit 0
 EOF
 chmod +x "$T/bin/pidof"
+# mock procd-service: running — по service-active; reload/restart — честная
+# reconcile-симуляция (stop сносит instance, start поднимает по desired:
+# flag=1 + бинарь + ключ, как wanted_boot; иначе instance нет).
+cat > "$T/mock-init" <<EOF
+#!/bin/sh
+echo "init:\$*" >> "$T/init.log"
+case "\$1" in
+    running) [ -f "$T/service-active" ] && exit 0; exit 1 ;;
+    reload|restart)
+        _flag="\$(grep -m1 '^GAME_WARP_ENABLED=' "$T/etc/config" 2>/dev/null | cut -d= -f2 | tr -d '\" ')"
+        if [ "\$_flag" = "1" ] && [ -x "$T/root/bin/z2k-warpd" ] && [ -s "$T/etc/state/warp/device.json" ]; then
+            printf '7777\n' > "$T/pidof.out"
+            mkdir -p "$T/proc/7777"
+            printf 'z2k-warpd run --device x' | tr ' ' '\0' > "$T/proc/7777/cmdline"
+        else
+            printf '\n' > "$T/pidof.out"
+            rm -rf "$T/proc"; mkdir -p "$T/proc"
+        fi
+        exit 0 ;;
+    *) exit 0 ;;
+esac
+EOF
+chmod +x "$T/mock-init"
 cat > "$T/root/bin/z2k-warpd" <<EOF
 #!/bin/sh
 echo "warpd:\$*" >> "$T/warpd.log"
@@ -174,6 +219,7 @@ export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_BIN="$T/root/bin" Z2K_RUN="$T/tmp/runtime" Z2K_STATE="$T/etc/state"
 export Z2K_CONFIG="$T/etc/config" Z2K_LISTS_DIR="$T/root/lists"
 export Z2K_PROC_ROOT="$T/proc"
+export Z2K_INIT="$T/mock-init"
 export Z2K_WARP_SOURCE_ONLY=1
 export WARP_READY_WAIT=6
 # shellcheck disable=SC1090,SC1091
@@ -209,7 +255,11 @@ _reset() {
     rm -f "$T"/ip-route-*
     : > "$T/ip-rules"
     : > "$T/nft.log"; : > "$T/ip.log"; : > "$T/procd.log"; : > "$T/kill.log"; : > "$T/warpd.log"
-    rm -f "$T"/nft-set-*
+    : > "$T/init.log"
+    # Сервис по умолчанию АКТИВЕН (как на живом роутере); остановку
+    # симулирует конкретный тест (W46) удалением service-active.
+    : > "$T/service-active"
+    rm -f "$T"/nft-set-* "$T"/nft-chain-*
     rm -rf "$T/tmp/warp" "$T/proc" "$T/link-z2ktun0"
     mkdir -p "$T/tmp/warp" "$T/proc"
     rm -f "$T/no-table"
@@ -218,6 +268,8 @@ _reset() {
     rm -f "$T/etc/state/warp/device.json"
     rm -rf "$T/etc/user-lists/warp"
     mkdir -p "$T/etc/user-lists/warp/games"
+    # Owner по умолчанию — штатный путь (W38 временно подменяет; сброс здесь).
+    WARP_PBR_OWNER="$T/tmp/warp/pbr.owner"; export WARP_PBR_OWNER
     _mock_bin
 }
 _ready_fixture() {
@@ -589,7 +641,11 @@ z2k_ow_warp rules 2>/dev/null && _t_bad "W26: rules без таблицы при
 rm -f "$T/no-table"
 z2k_ow_warp rules >/dev/null 2>&1 || _t_bad "W26: rules после возврата"
 assert_eq "W26: instance не трогали" "0" "$(grep -c '^instance:' "$T/procd.log" 2>/dev/null || true)"
-assert_eq "W26: правила вернулись" "1" "$(grep -c 'oifname z2ktun0 masquerade' "$T/nft.log")"
+# Live-кардинальность (defect 6): recreate converged, дубликатов нет.
+assert_eq "W26: masquerade live ровно 1" "1" "$(grep -c 'masquerade' "$T/nft-chain-z2k_warp_nat" 2>/dev/null || true)"
+assert_eq "W26: mss live 2" "2" "$(grep -c . "$T/nft-chain-z2k_warp_mss" 2>/dev/null || true)"
+assert_eq "W26: fwd live 1" "1" "$(grep -c . "$T/nft-chain-z2k_warp_fwd" 2>/dev/null || true)"
+assert_contains "W26: mark live" "$T/nft-chain-z2k_warp_mark" "meta mark set"
 _w_inv "W26"
 
 # --- W27: binary refresh while enabled: PBR down -> replace -> up ---
@@ -799,5 +855,199 @@ assert_eq "W37: правил нет" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/de
 assert_eq "W37: route нет" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
 assert_eq "W37: owner нет" "0" "$([ -f "$T/tmp/warp/pbr.owner" ] && echo 1 || echo 0)"
 _w_inv "W37"
+
+# --- W38: owner write failure откатывает PBR (defect 3) ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+_ready_fixture
+: > "$T/ablock"
+WARP_PBR_OWNER="$T/ablock/pbr.owner"; export WARP_PBR_OWNER
+if warp_pbr_up >/dev/null 2>&1; then
+    _t_bad "W38: up принят при мёртвом owner"
+else
+    _t_ok
+fi
+WARP_PBR_OWNER="$T/tmp/warp/pbr.owner"; export WARP_PBR_OWNER
+assert_eq "W38: правила нет" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "W38: route нет" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
+assert_eq "W38: owner нет" "0" "$(ls "$T/tmp/warp/pbr.owner" "$T"/ablock.new.* "$T/tmp/warp/pbr.owner.new."* 2>/dev/null | grep -c . || true)"
+assert_eq "W38: флаг 1 (desired, доведёт cron)" "1" "$(warp_flag)"
+_w_inv "W38"
+
+# --- W39: duplicate exact rule -> conflict/verify-false (defect 4) ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+printf '%s\n' '500: from all fwmark 0x80000000/0x80000000 lookup 989' '500: from all fwmark 0x80000000/0x80000000 lookup 989' > "$T/ip-rules"
+if warp_pbr_verify >/dev/null 2>&1; then _t_bad "W39: verify принял дубликат"; else _t_ok; fi
+z2k_ow_warp enable >/dev/null 2>&1
+assert_eq "W39: enable rc 1" "1" "$?"
+warp_pbr_down >/dev/null 2>&1
+assert_eq "W39: exact не осталось" "0" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules" 2>/dev/null || true)"
+_w_inv "W39"
+
+# --- W40: ten healthy selfheals: dynamic cardinality stable (defect 5) ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W40: enable rc"
+_m0_mss="$(grep -c . "$T/nft-chain-z2k_warp_mss" 2>/dev/null || true)"
+_m0_fwd="$(grep -c . "$T/nft-chain-z2k_warp_fwd" 2>/dev/null || true)"
+_m0_nat="$(grep -c . "$T/nft-chain-z2k_warp_nat" 2>/dev/null || true)"
+_i=0; while [ "$_i" -lt 10 ]; do z2k_ow_warp check >/dev/null 2>&1; _i=$((_i + 1)); done
+assert_eq "W40: mss stable" "$_m0_mss" "$(grep -c . "$T/nft-chain-z2k_warp_mss" 2>/dev/null || true)"
+assert_eq "W40: fwd stable" "$_m0_fwd" "$(grep -c . "$T/nft-chain-z2k_warp_fwd" 2>/dev/null || true)"
+assert_eq "W40: nat stable" "$_m0_nat" "$(grep -c . "$T/nft-chain-z2k_warp_nat" 2>/dev/null || true)"
+assert_eq "W40: mss ровно 2" "2" "$(grep -c . "$T/nft-chain-z2k_warp_mss" 2>/dev/null || true)"
+assert_eq "W40: fwd ровно 1" "1" "$(grep -c . "$T/nft-chain-z2k_warp_fwd" 2>/dev/null || true)"
+assert_eq "W40: nat ровно 1" "1" "$(grep -c . "$T/nft-chain-z2k_warp_nat" 2>/dev/null || true)"
+_w_inv "W40"
+
+# --- W41: firewall recreation restores sets+chains+dynamic (defect 6) ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W41: enable rc"
+assert_contains "W41: set залит" "$T/nft-set-z2k_warp_dst4" "7.7.7.0/24"
+# simulate runtime table recreation: всё nft-состояние снесено:
+rm -f "$T"/nft-set-* "$T"/nft-chain-*
+: > "$T/procd.log"
+z2k_ow_warp rules >/dev/null 2>&1 || _t_bad "W41: rules rc"
+assert_eq "W41: процесс тот же" "7777" "$(warp_pids | tr '\n' ' ' | tr -d ' ')"
+assert_eq "W41: rule то же" "1" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules")"
+assert_contains "W41: route тот же" "$T/ip-route-989" "default dev z2ktun0"
+assert_contains "W41: set восстановлен" "$T/nft-set-z2k_warp_dst4" "7.7.7.0/24"
+assert_eq "W41: mss 2" "2" "$(grep -c . "$T/nft-chain-z2k_warp_mss" 2>/dev/null || true)"
+assert_eq "W41: fwd 1" "1" "$(grep -c . "$T/nft-chain-z2k_warp_fwd" 2>/dev/null || true)"
+assert_eq "W41: nat 1" "1" "$(grep -c . "$T/nft-chain-z2k_warp_nat" 2>/dev/null || true)"
+_w_inv "W41"
+
+# --- W42: disable converge-to-off: маркировки нет, сеты как cache целы ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W42: enable rc"
+assert_eq "W42: mark rules live" "2" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
+z2k_ow_warp disable >/dev/null 2>&1 || _t_bad "W42: disable rc"
+assert_eq "W42: mark пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
+assert_eq "W42: mss пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_mss" 2>/dev/null || true)"
+assert_eq "W42: sets как cache целы" "1" "$(grep -c '7.7.7.0/24' "$T/nft-set-z2k_warp_dst4" 2>/dev/null || true)"
+assert_eq "W42: флаг 0" "0" "$(warp_flag)"
+_w_inv "W42"
+
+# --- W43: race disable vs selfheal: contention без мутаций, финал OFF ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W43: enable rc"
+_save_lock_wait="${WARP_LOCK_WAIT:-}"
+( mkdir "$T/tmp/warp/mutate.lock" 2>/dev/null; sleep 8; rm -rf "$T/tmp/warp/mutate.lock" ) &
+_bgp=$!
+# Holder — отдельный процесс (fork+exec медленнее builtin'ов родителя):
+# ждём ПОДТВЕРЖДЁННОГО hold'а, иначе сами займём лок первыми (гонка наоборот).
+_w=0; while [ ! -d "$T/tmp/warp/mutate.lock" ] && [ "$_w" -lt 10 ]; do sleep 1; _w=$((_w + 1)); done
+export WARP_LOCK_WAIT=3
+if z2k_ow_warp disable >/dev/null 2>&1; then
+    _t_bad "W43: disable принят под чужим локом"
+else
+    _t_ok
+fi
+if [ -n "$_save_lock_wait" ]; then export WARP_LOCK_WAIT="$_save_lock_wait"; else unset WARP_LOCK_WAIT; fi
+assert_eq "W43: флаг всё ещё 1" "1" "$(warp_flag)"
+assert_eq "W43: PBR цел (не трогали)" "1" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules")"
+wait "$_bgp" 2>/dev/null
+z2k_ow_warp disable >/dev/null 2>&1 || _t_bad "W43: disable после release rc"
+assert_eq "W43: флаг 0" "0" "$(warp_flag)"
+assert_eq "W43: PBR down" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "W43: dynamic пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_nat" 2>/dev/null || true)"
+assert_eq "W43: процесс ушёл" "" "$(warp_pids | tr -d ' \n')"
+_w_inv "W43"
+
+# --- W44: updater vs cron: stop под локом не мутирует, owner цел ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W44: enable rc"
+cp "$T/tmp/warp/pbr.owner" "$T/owner-keep"
+cp "$T/ip-rules" "$T/rules-keep"
+( mkdir "$T/tmp/warp/mutate.lock" 2>/dev/null; sleep 8; rm -rf "$T/tmp/warp/mutate.lock" ) &
+_bgp=$!
+# См. W43: ждём подтверждённого hold'а фоновым процессом.
+_w=0; while [ ! -d "$T/tmp/warp/mutate.lock" ] && [ "$_w" -lt 10 ]; do sleep 1; _w=$((_w + 1)); done
+_save_lock_wait="${WARP_LOCK_WAIT:-}"; _save_proc_wait="${WARP_PROC_WAIT:-}"
+export WARP_LOCK_WAIT=2 WARP_PROC_WAIT=2
+if sh "$T/root/platform/openwrt/warp-proc.sh" stop >/dev/null 2>&1; then
+    _t_bad "W44: stop принят под чужим локом"
+else
+    _t_ok
+fi
+if [ -n "$_save_lock_wait" ]; then export WARP_LOCK_WAIT="$_save_lock_wait"; else unset WARP_LOCK_WAIT; fi
+assert_eq "W44: PBR цел" "$(cat "$T/rules-keep")" "$(cat "$T/ip-rules")"
+if cmp -s "$T/owner-keep" "$T/tmp/warp/pbr.owner"; then _t_ok; else _t_bad "W44: owner повреждён"; fi
+wait "$_bgp" 2>/dev/null
+sh "$T/root/platform/openwrt/warp-proc.sh" start >/dev/null 2>&1 || _t_bad "W44: start после release rc"
+assert_eq "W44: rule не задублирован" "1" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules")"
+if [ -n "$_save_proc_wait" ]; then export WARP_PROC_WAIT="$_save_proc_wait"; else unset WARP_PROC_WAIT; fi
+_w_inv "W44"
+
+# --- W45: nfqws2 мёртв, сервис активен: disable всё равно reconciles ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W45: enable rc"
+# всё "упало" (pidof пуст для ВСЕХ), но сервис в procd активен:
+printf '\n' > "$T/pidof.out"
+rm -rf "$T/proc"; mkdir -p "$T/proc"
+: > "$T/init.log"
+z2k_ow_warp disable >/dev/null 2>&1 || _t_bad "W45: disable rc"
+assert_contains "W45: reload был (не pidof-gate)" "$T/init.log" "init:reload"
+assert_eq "W45: PBR down" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "W45: флаг 0" "0" "$(warp_flag)"
+_w_inv "W45"
+
+# --- W46: сервис остановлен намеренно: enable пишет desired, z2k не стартует ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+printf '{"id":"mock-id","addr":"172.16.9.9"}\n' > "$T/etc/state/warp/device.json"
+rm -f "$T/service-active"
+: > "$T/init.log"
+: > "$T/procd.log"
+z2k_ow_warp enable >/dev/null 2>&1
+assert_eq "W46: rc 2 (поднимается, сервис стоит)" "2" "$?"
+assert_eq "W46: флаг 1 записан" "1" "$(warp_flag)"
+if grep -q 'init:reload' "$T/init.log"; then _t_bad "W46: тронули остановленный сервис"; else _t_ok; fi
+# следующий обычный start поднимает WARP (конвергенция на старте):
+z2k_ow_warp 1 >/dev/null 2>&1
+assert_contains "W46: instance открыт на старте" "$T/procd.log" "instance:z2k-warp"
+_w_inv "W46"
+
+# --- W47: disable доказывает отсутствие процесса, а не только flag=0 ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W47: enable rc"
+assert_eq "W47: процесс был" "7777" "$(warp_pids | tr '\n' ' ' | tr -d ' ')"
+z2k_ow_warp disable >/dev/null 2>&1 || _t_bad "W47: disable rc"
+assert_eq "W47: warp_running false" "" "$(warp_pids | tr -d ' \n')"
+_w_inv "W47"
+
+# --- W48: cleanup без parent tmpdir: лок создаётся сам, спина нет ---
+# Регрессия S9-hang (lc_ops): stale-continue перепрыгивал sleep/timeout и
+# mkdir падал вечно. Верный признак — cleanup возвращается, лок отпущен.
+_reset
+rm -rf "$T/tmp/warp"
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+z2k_ow_warp cleanup >/dev/null 2>&1 || _t_bad "W48: cleanup rc"
+assert_eq "W48: лок отпущен" "0" "$([ -d "$T/tmp/warp/mutate.lock" ] && echo 1 || echo 0)"
+_w_inv "W48"
 
 _t_done

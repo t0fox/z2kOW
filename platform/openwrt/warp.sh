@@ -290,6 +290,14 @@ warp_nft_sets_load() {
     return 0
 }
 
+# Sets живы? (таблицу снесли вместе с сетами — MARK-правилам будущих
+# converge не на что ссылаться; rules-путь тогда перезаливает, defect 6).
+_warp_sets_ensure_live() {
+    nft list set "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_SET" >/dev/null 2>&1 || return 1
+    nft list set "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_SET_SRC" >/dev/null 2>&1 || return 1
+    return 0
+}
+
 # --- nft chains/rules (свои chains в ЧУЖОЙ runtime-таблице) ---
 
 warp_nft_rules_apply() {
@@ -318,21 +326,52 @@ warp_nft_rules_apply() {
 }
 
 # NAT/FORWARD/MSS для валидированного iface (вызывать ПОСЛЕ проверки имени).
+# Convergence ОДНОЙ транзакцией (defect 5): ensure chains + flush dynamic +
+# add ровно текущих правил. Повторный tick НЕ копит дубликаты (W40):
+# состояние после N применений идентично состоянию после одного.
+# Base MARK rules — отдельный слой (warp_nft_rules_apply), здесь не трогаем.
 warp_nft_tun_apply() {
-    local _iface="$1"
+    local _iface="$1" _fam="${Z2K_WARP_NFT_FAMILY}" _tab="${Z2K_WARP_NFT_TABLE}"
     [ -n "$_iface" ] || return 1
     # MSS 1240 = engine.MTU(1280)-40 (coupling держит тест с Go-константой):
     # outbound — clamp-to-PMTU, inbound — explicit (НЕ зеркальный PMTU-clamp:
     # дал бы 1460 с LAN-моста; полевое измерение upstream).
-    nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MSS" \
-        oifname "$_iface" tcp flags syn tcp option maxseg size set rt mtu || return 1
-    nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MSS" \
-        iifname "$_iface" tcp flags syn tcp option maxseg size set 1240 || return 1
-    nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_FWD" \
-        oifname "$_iface" accept || return 1
-    nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_NAT" \
-        oifname "$_iface" masquerade || return 1
+    {
+        printf 'add chain %s %s %s\n' "$_fam" "$_tab" "$WARP_CHAIN_MSS"
+        printf 'add chain %s %s %s\n' "$_fam" "$_tab" "$WARP_CHAIN_FWD"
+        printf 'add chain %s %s %s\n' "$_fam" "$_tab" "$WARP_CHAIN_NAT"
+        printf 'flush chain %s %s %s\n' "$_fam" "$_tab" "$WARP_CHAIN_MSS"
+        printf 'flush chain %s %s %s\n' "$_fam" "$_tab" "$WARP_CHAIN_FWD"
+        printf 'flush chain %s %s %s\n' "$_fam" "$_tab" "$WARP_CHAIN_NAT"
+        printf 'add rule %s %s %s oifname %s tcp flags syn tcp option maxseg size set rt mtu\n' \
+            "$_fam" "$_tab" "$WARP_CHAIN_MSS" "$_iface"
+        printf 'add rule %s %s %s iifname %s tcp flags syn tcp option maxseg size set 1240\n' \
+            "$_fam" "$_tab" "$WARP_CHAIN_MSS" "$_iface"
+        printf 'add rule %s %s %s oifname %s accept\n' \
+            "$_fam" "$_tab" "$WARP_CHAIN_FWD" "$_iface"
+        printf 'add rule %s %s %s oifname %s masquerade\n' \
+            "$_fam" "$_tab" "$WARP_CHAIN_NAT" "$_iface"
+    } | nft -f - || return 1
     _z2k_ow_warp_mut "NFT_CREATED: tun $WARP_CHAIN_MSS/$WARP_CHAIN_FWD/$WARP_CHAIN_NAT $_iface"
+    return 0
+}
+
+# Dynamic TUN plumbing в off (no-ready/disable): chains пустые, правил нет.
+_warp_tun_clear() {
+    local _c
+    _z2k_ow_warp_table_ok || return 0
+    for _c in "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
+        nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_c" 2>/dev/null || true
+    done
+    return 0
+}
+
+# Marking side effect в off (disable, defect 7/W42): MARK chain пуст —
+# пакетная маркировка остановлена. Sets сохраняем как cache, chains —
+# для быстрого re-enable (удаляет их только полный stop/remove).
+_warp_mark_clear() {
+    _z2k_ow_warp_table_ok || return 0
+    nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" 2>/dev/null || true
     return 0
 }
 
@@ -413,12 +452,15 @@ _warp_pbr_check() {
         done <<EOF_RULES
 $(ip rule show 2>/dev/null)
 EOF_RULES
-    # Pref (defect 3/W33): если pref существует, ВСЕ записи с ним обязаны
-    # быть нашей exact owned specification. Наша exact: содержит
-    # "fwmark MARK/MASK lookup TABLE". Сосед-чужак с тем же pref (даже рядом
-    # с нашим exact) = CONFLICT: трафик уже уводят, рядом не встаём.
+    # Pref cardinality (defect 4/W39): 0 (ставить можно) или ровно 1 exact
+    # ours. >1 (даже exact-дубликаты — invalid state) или 1 чужой =
+    # conflict/corruption: FAIL LOUDLY, чужое не трогаем.
     _pline="$(ip rule show 2>/dev/null | grep -E "^$WARP_RULE_PREF:" || true)"
     if [ -n "$_pline" ]; then
+        if [ "$(printf '%s\n' "$_pline" | grep -c .)" -gt 1 ]; then
+            echo "z2k-openwrt: warp: pref $WARP_RULE_PREF дублирован — не трогаю" >&2
+            _WARP_CONFLICT=1; return 1
+        fi
         if printf '%s\n' "$_pline" | grep -qvF "fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE"; then
             echo "z2k-openwrt: warp: pref $WARP_RULE_PREF занят чужим правилом — не трогаю" >&2
             _WARP_CONFLICT=1; return 1
@@ -439,12 +481,12 @@ EOF_RULES
 
 warp_pbr_down() {
     # Route+rule ПЕРВЫМИ (мгновенный fail-open), затем тишина.
-    # Rule: ТОЛЬКО exact owned delete (pref+mark/mask+table) — чужое не
-    # трогаем (defect 4). Legacy unmasked-формы нет: на OpenWrt наше правило
-    # всегда ставилось с pref+masked mark, мигрировать нечего.
-    ip rule del pref "$WARP_RULE_PREF" fwmark "$WARP_MARK/$WARP_MASK" table "$WARP_TABLE" 2>/dev/null || true
+    # Rule: ТОЛЬКО exact owned delete (pref+mark/mask+table, bounded от
+    # дубликатов) — чужое не трогаем (defect 4). Legacy unmasked-формы нет:
+    # на OpenWrt наше правило всегда ставилось с pref+masked mark.
+    _warp_rule_delete_exact || true
     _warp_route_release_owned || true
-    rm -f "$WARP_PBR_OWNER" 2>/dev/null
+    rm -f "$WARP_PBR_OWNER" "$WARP_PBR_OWNER".new.* 2>/dev/null
     _z2k_ow_warp_mut "PBR_DOWN"
     return 0
 }
@@ -457,18 +499,28 @@ warp_pbr_down() {
 # (traffic fail-open), а без нашего rule чужой default mark-трафик не
 # маршрутизирует — он безопаснее удалённого чужого default.
 _warp_route_release_owned() {
-    local _cur="" _want="" _oiface=""
+    local _oiface=""
     [ -f "$WARP_PBR_OWNER" ] || return 0
     _oiface="$(sed -n 's/^iface=//p' "$WARP_PBR_OWNER" 2>/dev/null | head -1)"
     case "$_oiface" in
         z2ktun[0-9]|z2ktun[0-9][0-9]) ;;
         *) return 0 ;;
     esac
-    _want="default dev $_oiface"
+    _warp_route_release_iface "$_oiface"
+    return 0
+}
+
+# Доказательство "текущий default таблицы — ровно наш $1": все строки —
+# наш default (иначе drift/чужое: стоим). Пустая таблица: удалять нечего.
+_warp_route_release_iface() {
+    local _iface="$1" _cur=""
+    case "$_iface" in
+        z2ktun[0-9]|z2ktun[0-9][0-9]) ;;
+        *) return 0 ;;
+    esac
     _cur="$(ip route show table "$WARP_TABLE" 2>/dev/null)"
     [ -n "$_cur" ] || return 0
-    # ВСЕ строки таблицы — ровно наш default (иначе drift/чужое: стоим).
-    if printf '%s\n' "$_cur" | grep -qvE "^default dev $_oiface( scope link)?\$"; then
+    if printf '%s\n' "$_cur" | grep -qvE "^default dev $_iface( scope link)?\$"; then
         return 0
     fi
     ip route del default table "$WARP_TABLE" 2>/dev/null || true
@@ -661,22 +713,140 @@ warp_pbr_up() {
     _iface="$(_warp_live_iface)"
     _warp_pbr_check "$_iface" || return 1
     warp_nft_tun_apply "$_iface" || return 1
-    ip route replace default dev "$_iface" table "$WARP_TABLE" 2>/dev/null || return 1
+    # Дальше — PBR-мутации: ЛЮБОЙ провал после первой откатываем целиком
+    # (defect 3: failed enable обязан fail open, без полу-PBR).
+    ip route replace default dev "$_iface" table "$WARP_TABLE" 2>/dev/null || {
+        _warp_pbr_rollback "$_iface"; return 1; }
     if ! ip rule show 2>/dev/null | grep -qF "fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE"; then
-        ip rule add pref "$WARP_RULE_PREF" fwmark "$WARP_MARK/$WARP_MASK" table "$WARP_TABLE" 2>/dev/null || return 1
+        ip rule add pref "$WARP_RULE_PREF" fwmark "$WARP_MARK/$WARP_MASK" table "$WARP_TABLE" 2>/dev/null || {
+            _warp_pbr_rollback "$_iface"; return 1; }
     fi
-    # Ownership record для down-proof (defect 5): без записи route потом
-    # не удалим (сомнение = чужое не трогаем). Пишем ПОСЛЕ успеха всего PBR.
-    mkdir -p "$(dirname "$WARP_PBR_OWNER")" 2>/dev/null || true
-    {
-        printf 'mark=%s\nmask=%s\npref=%s\ntable=%s\niface=%s\n' \
-            "$WARP_MARK" "$WARP_MASK" "$WARP_RULE_PREF" "$WARP_TABLE" "$_iface"
-    } > "$WARP_PBR_OWNER" 2>/dev/null || return 1
+    _warp_owner_write "$_iface" || { _warp_pbr_rollback "$_iface"; return 1; }
     _z2k_ow_warp_mut "PBR_UP: table $WARP_TABLE pref $WARP_RULE_PREF mark $WARP_MARK/$_iface"
     return 0
 }
 
+# Откат незавершённого up (defect 3): снять exact rule (bounded: все
+# exact-дубликаты tuple), route — только если текущий default в точности
+# только что ставленный наш (под локом конкурентных мутаторов нет; чужой
+# drift не трогаем), owner-огрызок удалить. Fail open.
+_warp_pbr_rollback() {
+    local _iface="$1" _cur=""
+    [ -n "$_iface" ] || return 0
+    _warp_rule_delete_exact || true
+    _cur="$(ip route show table "$WARP_TABLE" 2>/dev/null)"
+    if [ -n "$_cur" ] && ! printf '%s\n' "$_cur" | grep -qvE "^default dev $_iface( scope link)?\$"; then
+        ip route del default table "$WARP_TABLE" 2>/dev/null || true
+    fi
+    rm -f "$WARP_PBR_OWNER" "$WARP_PBR_OWNER".new.* 2>/dev/null
+    return 0
+}
+
+# Bounded-delete всех exact-duplicates нашего tuple (defect 4): ip rule del
+# снимает по одному совпадению; >8 — уже не дубликаты, а патология стоим.
+_warp_rule_delete_exact() {
+    local _n=0
+    while [ "$_n" -lt 8 ]; do
+        ip rule show 2>/dev/null | grep -qE "^$WARP_RULE_PREF:.*fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE" || return 0
+        ip rule del pref "$WARP_RULE_PREF" fwmark "$WARP_MARK/$WARP_MASK" table "$WARP_TABLE" 2>/dev/null || return 0
+        _n=$((_n + 1))
+    done
+    return 0
+}
+
+# Owner atomic-write (defect 3): temp -> chmod 600 -> mv. Никаких
+# полу-записей: читатель видит либо целый предыдущий, либо целый новый.
+_warp_owner_write() {
+    local _iface="$1" _tmp="$WARP_PBR_OWNER.new.$$"
+    [ -n "$_iface" ] || return 1
+    mkdir -p "$(dirname "$WARP_PBR_OWNER")" 2>/dev/null || true
+    {
+        printf 'mark=%s\nmask=%s\npref=%s\ntable=%s\niface=%s\n' \
+            "$WARP_MARK" "$WARP_MASK" "$WARP_RULE_PREF" "$WARP_TABLE" "$_iface"
+    } > "$_tmp" 2>/dev/null || { rm -f "$_tmp" 2>/dev/null; return 1; }
+    chmod 600 "$_tmp" 2>/dev/null
+    mv -f "$_tmp" "$WARP_PBR_OWNER" 2>/dev/null || { rm -f "$_tmp" 2>/dev/null; return 1; }
+    return 0
+}
+
 # --- enable/disable/remove ---
+
+# Per-feature mutation lock (defect 8): mkdir-атомарный лок в /tmp (flock
+# на target не гарантирован). Сериализует CLI / cron / hotplug / init /
+# updater. Берут лок ТОЛЬКО verb entry-points (dispatch + warp-proc.sh);
+# внутренние функции — никогда (вложенности нет, дедлока с собой нет).
+# `status` read-only — без лока. Fail-safe: bounded wait, stale recovery,
+# crash holder'а никого не вешает навсегда.
+WARP_LOCK_DIR="${WARP_LOCK_DIR:-${Z2K_TMP:-/tmp/z2k}/warp/mutate.lock}"
+WARP_LOCK_STALE_SECS="${WARP_LOCK_STALE_SECS:-300}"
+_z2k_ow_warp_lock() {
+    local _t="${1:-30}" _waited=0
+    case "$_t" in ''|*[!0-9]*) _t=30 ;; esac
+    mkdir -p "$(dirname "$WARP_LOCK_DIR")" 2>/dev/null || true
+    while ! mkdir "$WARP_LOCK_DIR" 2>/dev/null; do
+        # Протухший лок снимаем, но НЕ перепрыгиваем через sleep/timeout
+        # (continue мимо них давал вечный спин, если mkdir падает всегда —
+        # например, нет parent dir: S9-cleanup поймал это в lc_ops).
+        if _warp_lock_stale; then
+            rm -rf "$WARP_LOCK_DIR" 2>/dev/null
+        fi
+        [ "$_waited" -ge "$_t" ] && return 1
+        sleep 1; _waited=$((_waited + 1))
+    done
+    printf '%s' "$$" > "$WARP_LOCK_DIR/pid" 2>/dev/null || {
+        rm -rf "$WARP_LOCK_DIR" 2>/dev/null; return 1; }
+    return 0
+}
+_z2k_ow_warp_unlock() {
+    # Снимает только свой лок (чужой не трогаем никогда).
+    local _owner=""
+    _owner=$(cat "$WARP_LOCK_DIR/pid" 2>/dev/null)
+    [ "$_owner" = "$$" ] || return 0
+    rm -rf "$WARP_LOCK_DIR" 2>/dev/null
+    return 0
+}
+_warp_lock_stale() {
+    # rc 0 = лок протух (можно снять); rc 1 = живой (ждать).
+    local _owner="" _mt=0 _now=0
+    _owner=$(cat "$WARP_LOCK_DIR/pid" 2>/dev/null)
+    if [ -n "$_owner" ]; then
+        kill -0 "$_owner" 2>/dev/null && return 1
+        return 0
+    fi
+    # PID-записи нет (упал между mkdir и записью): решает возраст; без
+    # date/stat чинить нечего гадать — снимаем (иначе вечный дедлок).
+    _now=$(date +%s 2>/dev/null || echo 0)
+    _mt=$(stat -c %Y "$WARP_LOCK_DIR" 2>/dev/null || echo 0)
+    case "$_mt$_now" in *[!0-9]*) return 0 ;; esac
+    [ "$((_now - _mt))" -gt "$WARP_LOCK_STALE_SECS" ] && return 0
+    return 1
+}
+_warp_locked() {
+    # Выполнить verb "$@" под mutation lock; rc пробрасывается как есть.
+    local _rc
+    _z2k_ow_warp_lock "${WARP_LOCK_WAIT:-30}" || {
+        _wlog "mutation lock busy ($*)"; return 1; }
+    "$@"
+    _rc=$?
+    _z2k_ow_warp_unlock
+    return $_rc
+}
+
+# Реальное procd service state (defect 2): НЕ pidof nfqws2 (мёртвый nfqws2
+# при живом сервисе врал бы "остановлен" — enable не reconciles instance,
+# disable течёт instance). Прямой ubus-запрос first, init running — fallback.
+# Z2K_INIT переопределимо тестам (mock-init).
+_z2k_ow_service_running() {
+    local _init="${Z2K_INIT:-/etc/init.d/z2k}" _ubus=""
+    for _ubus in ubus /sbin/ubus /usr/sbin/ubus; do
+        if command -v "$_ubus" >/dev/null 2>&1; then
+            "$_ubus" -S call service list 2>/dev/null | grep -q '"z2k":{' && return 0
+            return 1
+        fi
+    done
+    [ -x "$_init" ] || return 1
+    "$_init" running >/dev/null 2>&1
+}
 
 warp_enable() {
     warp_set_flag 1
@@ -701,18 +871,28 @@ warp_enable() {
 }
 
 # service reload (не restart): procd пересоздаёт instance без bounce чужих.
-# Только если сервис запущен (иначе intent записан, конвергенция — на старте).
+# ТОЛЬКО если сервис активен (defect 2): на остановленном сервисе intent
+# записан, конвергенция — на старте; весь z2k сам НЕ стартуем (W46).
 _z2k_ow_warp_service_reload() {
-    pidof nfqws2 >/dev/null 2>&1 || return 0
-    [ -x /etc/init.d/z2k ] && /etc/init.d/z2k reload >/dev/null 2>&1 || true
+    _z2k_ow_service_running || return 0
+    "${Z2K_INIT:-/etc/init.d/z2k}" reload >/dev/null 2>&1 || true
     return 0
 }
 
 warp_disable() {
+    # Порядок (defect 1): PBR down ПЕРВЫМ -> clears -> flag 0 -> reconcile.
+    # Reload при flag=1 пересоздал бы instance (окно "выключен, но работает").
     warp_unpin_legacy
     warp_pbr_down
-    _z2k_ow_warp_service_reload
+    _warp_tun_clear
+    _warp_mark_clear
     warp_set_flag 0
+    _z2k_ow_warp_service_reload
+    # Invariant: успех disable => процесса нет (а не только flag=0).
+    if warp_running; then
+        _wlog "disable: процесс всё ещё жив после reconcile"
+        return 1
+    fi
     return 0
 }
 
@@ -794,7 +974,17 @@ warp_status() {
 
 # --- топология lifecycle ---
 
+# Verb entry-point: мутирующие глаголы идут под per-feature lock (defect 8),
+# `status` read-only — мимо лока. Прямые вызовы внутренних warp_* функций
+# лока не берут (однопоточные сценарии; кросс-процессные гонки закрыты здесь).
 z2k_ow_warp() {
+    case "${1:-}" in
+        status) warp_status; return $? ;;
+        *) _warp_locked _z2k_ow_warp_dispatch "$@" ;;
+    esac
+}
+
+_z2k_ow_warp_dispatch() {
     case "${1:-}" in
         1)
             # Boot converge: sets + instance; PBR — только если proven ready
@@ -814,14 +1004,24 @@ z2k_ow_warp() {
             warp_nft_remove >/dev/null 2>&1 || true
             ;;
         rules)
-            # hotplug/firewall-reload: sets (если изменились) + nft converge;
-            # PBR: untouched if valid, restore if vanished+ready. Демон не трогаем.
+            # hotplug/firewall-reload: sets (если изменились; плюс ensure при
+            # сносе таблицы — MARK-правилам не на что ссылаться) + base chains;
+            # затем dynamic TUN по proven-ready (defect 6: одного route/rule
+            # мало — MSS/FWD/NAT тоже восстанавливаем) либо чистое off.
+            # Демон не трогаем.
             if warp_wanted_boot; then
                 warp_nft_sets_reload_if_changed >/dev/null 2>&1 || true
+                _warp_sets_ensure_live || { warp_nft_sets_load >/dev/null 2>&1 || return 1; }
                 warp_nft_rules_apply >/dev/null 2>&1 || return 1
-                warp_pbr_verify >/dev/null 2>&1 || {
-                    _warp_proven_ready && warp_pbr_up >/dev/null 2>&1 || true
-                }
+                if _warp_proven_ready; then
+                    warp_nft_tun_apply "$(_warp_live_iface)" >/dev/null 2>&1 || true
+                    warp_pbr_verify >/dev/null 2>&1 || {
+                        warp_pbr_up >/dev/null 2>&1 || true
+                    }
+                else
+                    _warp_tun_clear >/dev/null 2>&1 || true
+                    warp_pbr_down >/dev/null 2>&1 || true
+                fi
             else
                 warp_pbr_down >/dev/null 2>&1 || true
                 warp_nft_remove >/dev/null 2>&1 || true
@@ -845,6 +1045,8 @@ z2k_ow_warp() {
             ;;
         # CLI-глаголы — явный мэппинг + propagation rc (дефисный reload-lists
         # через "warp_$1" не вызовется; хвостовой return 0 глотал бы rc).
+        # Лок НЕ здесь (его уже держит z2k_ow_warp-обёртка) — только прямые
+        # вызовы; вложенного лока нет.
         install)      warp_install; return $? ;;
         enable)       warp_enable; return $? ;;
         disable)      warp_disable; return $? ;;
@@ -863,12 +1065,14 @@ z2k_ow_warp() {
 
 # Boot-wanted определён один раз — выше (wanted с ENABLED).
 
-# PBR present-and-valid? (verify без изменений; чинит hotplug/tick чтением).
+# PBR present-and-valid? Ровно одна exact rule (defect 4: дубликат exact —
+# тоже invalid, verify=false), плюс route на живой iface.
 warp_pbr_verify() {
-    local _iface
+    local _iface _n
     _iface="$(_warp_live_iface)"
     [ -n "$_iface" ] || return 1
-    ip rule show 2>/dev/null | grep -qF "fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE" || return 1
+    _n="$(ip rule show 2>/dev/null | grep -E "^$WARP_RULE_PREF:.*fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE" | grep -c . || true)"
+    [ "$_n" = "1" ] || return 1
     ip route show table "$WARP_TABLE" 2>/dev/null | grep -qF "default dev $_iface" || return 1
     return 0
 }
@@ -907,8 +1111,9 @@ z2k_ow_warp_check() {
 }
 
 _z2k_ow_warp_service_restart() {
-    pidof nfqws2 >/dev/null 2>&1 || return 0
-    [ -x /etc/init.d/z2k ] && /etc/init.d/z2k restart >/dev/null 2>&1 || true
+    # Как reload: только при активном сервисе (defect 2 — не pidof nfqws2).
+    _z2k_ow_service_running || return 0
+    "${Z2K_INIT:-/etc/init.d/z2k}" restart >/dev/null 2>&1 || true
     return 0
 }
 
@@ -916,13 +1121,13 @@ _z2k_ow_warp_service_restart() {
 [ -n "$Z2K_WARP_SOURCE_ONLY" ] && return 0 2>/dev/null || true
 
 case "${1:-}" in
-    install)   warp_install ;;
-    enable)    warp_enable ;;
-    disable)   warp_disable ;;
-    remove)    warp_remove ;;
+    install)   _warp_locked warp_install ;;
+    enable)    _warp_locked warp_enable ;;
+    disable)   _warp_locked warp_disable ;;
+    remove)    _warp_locked warp_remove ;;
     status)    warp_status ;;
-    selfheal)  warp_selfheal ;;
-    reload-lists) warp_reload_lists ;;
+    selfheal)  _warp_locked warp_selfheal ;;
+    reload-lists) _warp_locked warp_reload_lists ;;
     migrate)   warp_migrate ;;
     *)
         echo "usage: $0 {install|enable|disable|remove|status|selfheal|reload-lists|migrate}" >&2

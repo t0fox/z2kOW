@@ -208,11 +208,17 @@ WARP_ROUTE_PRESENT ⇒ ENGINE_READY=true ∧ iface exists ∧ iface==status.ifac
   наш default правим).
 - Down снимает rule ТОЛЬКО exact delete с pref (defect 4); legacy
   unmasked-форм нет (наше правило всегда ставилось с pref+masked mark).
+- Pref cardinality (W39): pref 500 — 0 или ровно 1 exact ours; дубликат
+  exact или чужак = conflict; verify требует ровно 1 exact; teardown
+  bounded-delete гарантирует ноль exact (только этот tuple, чужое не трогаем).
 - Route удаляется ТОЛЬКО при доказанном ownership (defect 5, подход A):
   owner-record `$TMP/warp/pbr.owner` (mark/mask/pref/table/iface успешного
-  up) + текущий default таблицы в точности наш; mismatch/drift/нет записи —
-  foreign route НЕ трогаем (без нашего rule он mark-трафик не ведёт),
-  owner стирается после teardown. Покрыто W34–W37.
+  up, пишется temp→chmod→mv) + текущий default таблицы в точности наш;
+  mismatch/drift/нет записи — foreign route НЕ трогаем (без нашего rule он
+  mark-трафик не ведёт), owner стирается после teardown. Покрыто W34–W37.
+- Owner write failure откатывает PBR целиком (defect 3/W38): exact rule
+  снять, route — только если текущий default в точности только что
+  ставленный наш, owner-огрызок удалить; возврат — failure (fail open).
 - Любой переход в не-ready: **сначала снять route/rule**, трафик — direct.
   Никаких mark + dead table.
 - `enable`/`warp-proc.sh start` ждут ready с правилом свежести: status.json
@@ -267,10 +273,38 @@ Watchdog за process-dead НЕ конкурирует с procd (только PB
 - Set reload атомарен (defect 2/W19b): валидация ДО live state, затем ОДИН
   `nft -f -` batch (flush обоих + add обоих) — всё или ничего; mid-failure
   оставляет OLD dst/src целыми; пустые входы валидны (оба сета пустеют).
+- Dynamic TUN (MSS/FWD/NAT) — convergence одной `nft -f -` транзакцией
+  (ensure+flush+add ровно 4 правил): повторный tick не копит дубликаты
+  (W40: mss=2/fwd=1/nat=1 после 10 check). При no-ready dynamic chains
+  пустые. Base MARK rules — отдельный слой.
+- Firewall recreate (`rules`, defect 6/W41): sets-ensure (перезалив при сносе
+  таблицы) + base chains + dynamic TUN при proven-ready (+PBR converge);
+  иначе dynamic пуст + PBR down. Одного route/rule мало для «восстановлено».
+- Disable converge-to-off (defect 7/W42): PBR down → dynamic+MARK flush
+  (маркировки нет) → flag 0 → reconcile; sets живут как cache.
 - MASQUE endpoint НЕ исключаем из desync (измерено upstream: ломает
   transit); наши mark-правила match'ят только сеты (W32-тест).
 - CLI: `warp install/enable/disable/remove/status/selfheal/reload-lists`
   (+`migrate` one-shot) — будущая панель просто вызывает.
+
+## 11. Disable order, service state, mutation lock (defects 1/2/8, W43–W47)
+
+- Disable: PBR down → tun/mark clears → `GAME_WARP_ENABLED=0` → reconcile
+  → verify процесса. Reload при flag=1 пересоздал бы instance. Инвариант:
+  успех disable ⇒ flag=0 + нет PBR + нет процесса. `remove` сначала
+  доводит этот инвариант, затем удаляет бинарь.
+- Service state — только procd (`_z2k_ow_service_running`: прямой ubus
+  `service list` first, `init running` fallback; `Z2K_INIT` переопределимо).
+  `pidof nfqws2` как proxy запрещён (мёртвый nfqws2 при живом сервисе).
+  Сервис остановлен намеренно ⇒ только desired state, весь z2k не стартуем
+  (W46: enable пишет flag, reload нет; следующий start поднимает WARP).
+- Mutation lock: mkdir-атомарный `$TMP/warp/mutate.lock` (flock не
+  требуется), берут только verb entry-points (+warp-proc.sh); внутренние
+  вызовы — никогда; `status` — без лока. Fail-safe: bounded wait
+  (`WARP_LOCK_WAIT`, default 30), stale recovery (мёртвый PID — сразу,
+  без PID — по возрасту 300s), holder crash не вешает навсегда; unlock —
+  только свой. W43 (disable под локом не мутирует, после release — OFF),
+  W44 (updater-stop под локом rc 1 без мутаций и порчи owner).
 
 ## 11. Отклонения от upstream (осознанные)
 

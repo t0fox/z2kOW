@@ -21,6 +21,16 @@ assert_file "warp.sh существует" "$WARP"
 assert_file "warp-proc.sh существует" "$WARPP"
 assert_file "warp-check.sh существует" "$WARPC"
 
+# Tripwire класса heredoc-backtick: dash ПАРСИТ backquotes внутри unquoted
+# heredoc (и выполняет их при сборке моков) — однажды это молча роняло весь
+# lifecycle-сьют. Все скрипты слоя, ВКЛЮЧАЯ сами тесты, проходят dash -n.
+for _f in "$WARP" "$WARPP" "$WARPC" \
+    "$REPO/tests/openwrt/test_ow_warp_static.sh" \
+    "$REPO/tests/openwrt/test_ow_warp_functional.sh" \
+    "$REPO/tests/openwrt/test_ow_warp_lifecycle.sh"; do
+    if sh -n "$_f" 2>/dev/null; then _t_ok; else _t_bad "dash -n: $(basename "$_f")"; fi
+done
+
 # Код без комментариев для запретов.
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-ws.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
@@ -42,8 +52,16 @@ done
 # Batch helper пишет "flush set" через echo в `nft -f -`, это не матчится.
 assert_not_contains "sets: нет отдельного live flush" "$_WCODE" 'nft flush set'
 assert_contains "sets: atomic batch через nft -f -" "$WARP" 'nft -f -'
+# Defect 2: service state — только через procd/init, НЕ pidof конкретного
+# демона (мёртвый nfqws2 при живом сервисе врал бы "остановлен").
+assert_not_contains "warp: нет pidof-детектива сервиса" "$_WCODE" 'pidof nfqws2'
+# Defect 8: flock не гарантирован на target — лок обязан быть mkdir-based.
+assert_not_contains "warp: нет flock-зависимости" "$_WCODE" 'flock'
+assert_contains "warp: mutation lock helper" "$WARP" '_z2k_ow_warp_lock()'
+assert_contains "warp: service-state helper" "$WARP" '_z2k_ow_service_running()'
 # Defect 4: каждый `ip rule del` обязан нести pref (exact owned delete).
-if grep 'ip rule del' "$WARP" 2>/dev/null | grep -qv 'pref'; then
+# Комментарии режем (атрибуция упоминает del без pref в тексте).
+if sed 's/#.*$//' "$WARP" 2>/dev/null | grep 'ip rule del' | grep -qv 'pref'; then
     _t_bad "warp.sh: ip rule del без pref"
 else
     _t_ok
