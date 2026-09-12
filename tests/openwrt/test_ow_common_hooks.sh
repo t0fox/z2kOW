@@ -100,5 +100,10 @@ _hook "meta before tag (patch)" "$AU" \
 _hook "tag writer intact" "$AU" \
     'local tag="\$1"$' \
     'installed-tag'
+# TG binary owner (Stage 3, contract §11): openwrt-ветка возвращает сервис
+# целиком (stop -> replace -> start), keenetic-ветка — оба init-скрипта.
+_hook "tg owner openwrt" "$AU" \
+    'Z2K_PLATFORM:-keenetic\}" = "openwrt"' \
+    'S98tg-tunnel /opt/etc/init.d/S97z2k-http-tunnel'
 
 _t_done

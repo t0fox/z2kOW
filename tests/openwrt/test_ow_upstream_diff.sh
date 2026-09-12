@@ -2,6 +2,7 @@
 # tests/openwrt/test_ow_upstream_diff.sh - §8/§13: UPSTREAM_ADAPTER_BOUNDARY.
 # Всё, что этап добавил/изменил относительно BASELINE, обязано лежать в:
 #   platform/  package/  tests/openwrt/  docs/openwrt-adapter-contract.md
+#   docs/openwrt-telegram-contract.md (Stage 3: TG contract, docs, не код)
 # плюс allowlisted common-хуки (см. ALLOWLIST ниже). Иначе — провал с
 # категорией seam'а: будущий upstream merge, задевший наш seam, виден сразу.
 #
@@ -27,7 +28,8 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     без них validate ветирует любой OpenWrt-конфиг)
 #   UPDATES.json: ТОЛЬКО files_sha256 hash-обновления allowlisted lib-файлов
 #   docs/openwrt-foundation-state-machine.md: модель аудита (docs, не код)
-ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md"
+#   docs/openwrt-telegram-contract.md: TG contract Stage 3 (docs, не код)
+ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md"
 
 _changed="$($_g diff --name-only "$BASELINE"...HEAD 2>/dev/null)"
 # --ignore-cr-at-eol: на Windows-чекаутах (autocrlf) весь worktree выглядит
@@ -76,7 +78,7 @@ else
     for _f in $_bad; do
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
-            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md) continue ;;
+            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md) continue ;;
             UPDATES.json)
                 # Манифест следует за деревом: разрешены только hash-обновления
                 # allowlisted lib-файлов в files_sha256 (ни новых ключей, ни
