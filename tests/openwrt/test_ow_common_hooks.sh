@@ -110,5 +110,13 @@ _hook "tg owner openwrt" "$AU" \
 _hook "rt owner openwrt" "$AU" \
     'platform/openwrt/rt-proc.sh' \
     'S96z2k-rt-proxy'
+# WARP binary owner (Stage 5, contract §10/§11): openwrt — process-only
+# bounce + PBR-down-first, keenetic — S51 целиком. РОВНО ОДНА case-ветка
+# z2k-warpd (дубликат молча теневал бы platform-aware ветку).
+_hook "warp owner openwrt" "$AU" \
+    'platform/openwrt/warp-proc.sh' \
+    'S51z2k-warp'
+_nwarp="$(sed -n '/^au_service_for_binary()/,/^}/p' "$AU" | grep -c 'z2k-warpd)' || true)"
+assert_eq "au_service_for_binary: ровно одна z2k-warpd-ветка" "1" "$(printf '%s' "$_nwarp" | tr -d ' ')"
 
 _t_done

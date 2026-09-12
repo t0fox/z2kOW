@@ -37,6 +37,17 @@ for _f in "$_WCODE" "$_WPCODE" "$_WCCODE"; do
     assert_not_contains "glue: нет PPE" "$_f" 'PPE'
     assert_not_contains "glue: нет /opt" "$_f" '/opt'
 done
+# Defect 2: live sets обновляются ТОЛЬКО одной nft-транзакцией — отдельного
+# `nft flush set` (потеря контента при mid-failure) в коде быть не может.
+# Batch helper пишет "flush set" через echo в `nft -f -`, это не матчится.
+assert_not_contains "sets: нет отдельного live flush" "$_WCODE" 'nft flush set'
+assert_contains "sets: atomic batch через nft -f -" "$WARP" 'nft -f -'
+# Defect 4: каждый `ip rule del` обязан нести pref (exact owned delete).
+if grep 'ip rule del' "$WARP" 2>/dev/null | grep -qv 'pref'; then
+    _t_bad "warp.sh: ip rule del без pref"
+else
+    _t_ok
+fi
 
 # --- нет shell-supervisor'а ---
 for _pat in 'while :' '(^|[^_A-Za-z0-9])PIDFILE=' 'sleep \$backoff'; do

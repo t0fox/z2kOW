@@ -1033,7 +1033,6 @@ au_service_for_binary() {
                 echo "/opt/etc/init.d/S51z2k-warp"
             fi ;;
         z2k-detect)        echo "/opt/etc/init.d/S98z2k-detect" ;;
-        z2k-warpd)         echo "/opt/etc/init.d/S51z2k-warp" ;;
         tg-mtproxy-client)
             # COMMON_HOOK (openwrt TG, см. docs/openwrt-telegram-contract.md §11):
             # на OpenWrt keenetic-пути не +x и координация молча пропускалась —

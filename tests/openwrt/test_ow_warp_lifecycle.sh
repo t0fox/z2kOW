@@ -19,6 +19,27 @@ ln -s "$REPO/platform/openwrt/warp-check.sh" "$T/root/platform/openwrt/warp-chec
 cat > "$T/bin/nft" <<EOF
 #!/bin/sh
 echo "nft:\$*" >> "$T/nft.log"
+# Atomic batch (defect 2): `nft -f -` применяет всё или ничего.
+# Fault injection: NFT_BATCH_FAIL (fixed string) в batch -> rc 1 БЕЗ изменений.
+if [ "\$1" = "-f" ]; then
+    _bin="$T/nft-batch-in"
+    cat > "\$_bin" 2>/dev/null
+    sed 's/^/nft-batch:/' "\$_bin" >> "$T/nft.log" 2>/dev/null
+    if [ -n "\${NFT_BATCH_FAIL:-}" ] && grep -qF "\$NFT_BATCH_FAIL" "\$_bin" 2>/dev/null; then
+        exit 1
+    fi
+    while IFS= read -r _l; do
+        case "\$_l" in
+            "flush set "*)
+                _sn="\$(printf '%s' "\$_l" | awk '{print \$5}')"
+                : > "$T/nft-set-\$_sn" ;;
+            "add element "*)
+                _sn="\$(printf '%s' "\$_l" | awk '{print \$5}')"
+                printf '%s\n' "\$_l" >> "$T/nft-set-\$_sn" ;;
+        esac
+    done < "\$_bin"
+    exit 0
+fi
 if [ "\$1" = "list" ] && [ "\$2" = "table" ]; then
     [ -f "$T/no-table" ] && exit 1
     exit 0
@@ -26,9 +47,10 @@ fi
 if [ "\$1" = "list" ] && [ "\$2" = "set" ]; then
     exit 0
 fi
-# set-state для W19 (live set переживает corrupt-refresh):
+# set-state для W19 (live set переживает corrupt-refresh): как настоящий
+# nft, `add set` существующего сета — no-op (контент НЕ трогаем).
 if [ "\$1" = "add" ] && [ "\$2" = "set" ]; then
-    : > "$T/nft-set-\$5"
+    [ -f "$T/nft-set-\$5" ] || : > "$T/nft-set-\$5"
     exit 0
 fi
 if [ "\$1" = "flush" ] && [ "\$2" = "set" ]; then
@@ -66,16 +88,24 @@ if [ "\$1" = "rule" ] && [ "\$2" = "add" ]; then
     exit 0
 fi
 if [ "\$1" = "rule" ] && [ "\$2" = "del" ]; then
-    _fm=""; _tb=""; _prev=""
+    # Exact-match delete (defect 4): снимается только строка, совпадающая
+    # со ВСЕМИ переданными селекторами (pref + fwmark + table).
+    _pref=""; _fm=""; _tb=""; _prev=""
     for _a in "\$@"; do
         case "\$_prev" in
+            pref) _pref="\$_a" ;;
             fwmark) _fm="\$_a" ;;
             table|lookup) _tb="\$_a" ;;
         esac
         _prev="\$_a"
     done
     if [ -f "$T/ip-rules" ]; then
-        grep -v "fwmark \$_fm .*lookup \$_tb" "$T/ip-rules" > "$T/ip-rules.new" 2>/dev/null || : > "$T/ip-rules.new"
+        awk -v p="\$_pref" -v m="\$_fm" -v t="\$_tb" '
+            { del=1
+              if (p != "" && (\$0 !~ "^" p ":")) del=0
+              if (m != "" && index(\$0, "fwmark " m) == 0) del=0
+              if (t != "" && index(\$0, "lookup " t) == 0) del=0
+              if (!del) print }' "$T/ip-rules" > "$T/ip-rules.new" 2>/dev/null || : > "$T/ip-rules.new"
         mv -f "$T/ip-rules.new" "$T/ip-rules"
     fi
     exit 0
@@ -468,6 +498,43 @@ fi
 assert_contains "W19: live set цел после отказа" "$T/nft-set-z2k_warp_dst4" "1.2.3.4"
 _w_inv "W19"
 
+# --- W19b: batch failure mid-way: оба сета целы (atomic, defect 2) ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.8.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+printf '192.168.6.6\n' > "$T/etc/user-lists/warp/devices.txt"
+printf '192.168.6.6 dev br-lan lladdr aa:bb:cc:dd:ee:01 REACHABLE\n' > "$T/neigh"
+_ready_fixture
+warp_nft_sets_load >/dev/null 2>&1 || _t_bad "W19b: seed load rc"
+assert_contains "W19b: OLD dst залит" "$T/nft-set-z2k_warp_dst4" "7.7.8.0/24"
+assert_contains "W19b: OLD src залит" "$T/nft-set-z2k_warp_src4" "192.168.6.6"
+# новые входы + injected failure во втором set update:
+printf '7.7.9.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+printf '192.168.6.7\n' > "$T/etc/user-lists/warp/devices.txt"
+printf '192.168.6.7 dev br-lan lladdr aa:bb:cc:dd:ee:02 REACHABLE\n' > "$T/neigh"
+export NFT_BATCH_FAIL="add element inet zapret z2k_warp_src4"
+if warp_nft_sets_load >/dev/null 2>&1; then
+    _t_bad "W19b: batch failure принят"
+else
+    _t_ok
+fi
+unset NFT_BATCH_FAIL
+assert_contains "W19b: OLD dst цел" "$T/nft-set-z2k_warp_dst4" "7.7.8.0/24"
+if grep -q '7.7.9.0' "$T/nft-set-z2k_warp_dst4"; then _t_bad "W19b: NEW dst просочился"; else _t_ok; fi
+assert_contains "W19b: OLD src цел" "$T/nft-set-z2k_warp_src4" "192.168.6.6"
+if grep -q '192.168.6.7' "$T/nft-set-z2k_warp_src4"; then _t_bad "W19b: NEW src просочился"; else _t_ok; fi
+# без injection тот же batch сходится:
+warp_nft_sets_load >/dev/null 2>&1 || _t_bad "W19b: retry rc"
+assert_contains "W19b: NEW dst после retry" "$T/nft-set-z2k_warp_dst4" "7.7.9.0/24"
+assert_contains "W19b: NEW src после retry" "$T/nft-set-z2k_warp_src4" "192.168.6.7"
+# legitimate empty: оба сета атомарно пустеют:
+: > "$T/etc/user-lists/warp/mine.txt"
+: > "$T/etc/user-lists/warp/devices.txt"
+warp_nft_sets_load >/dev/null 2>&1 || _t_bad "W19b: empty rc"
+assert_eq "W19b: dst пуст" "0" "$(grep -c . "$T/nft-set-z2k_warp_dst4" 2>/dev/null || true)"
+assert_eq "W19b: src пуст" "0" "$(grep -c . "$T/nft-set-z2k_warp_src4" 2>/dev/null || true)"
+_w_inv "W19b"
+
 # --- W20: MAC офлайн скип ---
 _reset
 printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
@@ -668,5 +735,69 @@ if grep -E 'rutracker|api\.|rep\.|static\.|\.wiki' "$T/root/platform/openwrt/war
 else
     _t_ok
 fi
+
+# --- W33: own + foreign same pref -> conflict (defect 3) ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+printf '%s\n' '500: from all fwmark 0x80000000/0x80000000 lookup 989' '500: from 192.168.1.0/24 lookup 123' > "$T/ip-rules"
+z2k_ow_warp enable >/dev/null 2>&1
+assert_eq "W33: rc 1 (hard fail)" "1" "$?"
+assert_eq "W33: route не ставили" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
+assert_contains "W33: наше правило цело" "$T/ip-rules" "500: from all fwmark 0x80000000/0x80000000 lookup 989"
+assert_contains "W33: чужое правило цело" "$T/ip-rules" "500: from 192.168.1.0/24 lookup 123"
+assert_eq "W33: флаг 1 (desired)" "1" "$(warp_flag)"
+_w_inv "W33"
+
+# --- W34: foreign rule arrives after enable; disable снимает только наше ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W34: enable rc"
+# чужак появляется ПОСЛЕ enable (drift):
+printf '499: from 10.9.9.0/24 lookup 100\n' >> "$T/ip-rules"
+z2k_ow_warp disable >/dev/null 2>&1
+assert_eq "W34: наше правило снято" "0" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules" 2>/dev/null || true)"
+assert_contains "W34: чужое правило цело" "$T/ip-rules" "499: from 10.9.9.0/24 lookup 100"
+assert_eq "W34: флаг 0" "0" "$(warp_flag)"
+_w_inv "W34"
+
+# --- W35: foreign route replaces table default; disable не трогает чужое ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W35: enable rc"
+# drift: чужой default вместо нашего:
+printf 'default dev eth0\n' > "$T/ip-route-989"
+z2k_ow_warp disable >/dev/null 2>&1
+assert_eq "W35: наше правило снято" "0" "$(grep -c 'fwmark 0x80000000' "$T/ip-rules" 2>/dev/null || true)"
+assert_contains "W35: чужой default цел" "$T/ip-route-989" "default dev eth0"
+assert_eq "W35: owner убран" "0" "$([ -f "$T/tmp/warp/pbr.owner" ] && echo 1 || echo 0)"
+_w_inv "W35"
+
+# --- W36: normal owned teardown: rule + route + owner уходят ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W36: enable rc"
+assert_eq "W36: owner записан" "1" "$([ -f "$T/tmp/warp/pbr.owner" ] && echo 1 || echo 0)"
+z2k_ow_warp disable >/dev/null 2>&1
+assert_eq "W36: правило снято" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "W36: route снят" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
+assert_eq "W36: owner убран" "0" "$([ -f "$T/tmp/warp/pbr.owner" ] && echo 1 || echo 0)"
+_w_inv "W36"
+
+# --- W37: repeated enable/down: ни route, ни rule, ни owner не текут ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W37: enable1 rc"
+z2k_ow_warp disable >/dev/null 2>&1
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W37: enable2 rc"
+z2k_ow_warp disable >/dev/null 2>&1
+assert_eq "W37: правил нет" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "W37: route нет" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
+assert_eq "W37: owner нет" "0" "$([ -f "$T/tmp/warp/pbr.owner" ] && echo 1 || echo 0)"
+_w_inv "W37"
 
 _t_done

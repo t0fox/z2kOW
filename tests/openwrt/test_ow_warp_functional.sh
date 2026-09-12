@@ -13,6 +13,17 @@ export PATH="$T/bin:$PATH"
 cat > "$T/bin/nft" <<EOF
 #!/bin/sh
 echo "nft:\$*" >> "$T/nft.log"
+# Atomic batch (defect 2): логируем stdin построчно (content-ассерты),
+# fault injection как в lifecycle; state не нужен этому сьюту.
+if [ "\$1" = "-f" ]; then
+    _bin="$T/nft-batch-in"
+    cat > "\$_bin" 2>/dev/null
+    sed 's/^/nft-batch:/' "\$_bin" >> "$T/nft.log" 2>/dev/null
+    if [ -n "\${NFT_BATCH_FAIL:-}" ] && grep -qF "\$NFT_BATCH_FAIL" "\$_bin" 2>/dev/null; then
+        exit 1
+    fi
+    exit 0
+fi
 if [ "\$1" = "list" ] && [ "\$2" = "table" ]; then
     [ -f "$T/no-table" ] && exit 1
     exit 0
@@ -41,16 +52,24 @@ if [ "\$1" = "rule" ] && [ "\$2" = "add" ]; then
     exit 0
 fi
 if [ "\$1" = "rule" ] && [ "\$2" = "del" ]; then
-    _fm=""; _tb=""; _prev=""
+    # Exact-match delete (defect 4): снимается только строка, совпадающая
+    # со ВСЕМИ переданными селекторами (pref + fwmark + table).
+    _pref=""; _fm=""; _tb=""; _prev=""
     for _a in "\$@"; do
         case "\$_prev" in
+            pref) _pref="\$_a" ;;
             fwmark) _fm="\$_a" ;;
             table|lookup) _tb="\$_a" ;;
         esac
         _prev="\$_a"
     done
     if [ -f "$T/ip-rules" ]; then
-        grep -v "fwmark \$_fm .*lookup \$_tb" "$T/ip-rules" > "$T/ip-rules.new" 2>/dev/null || : > "$T/ip-rules.new"
+        awk -v p="\$_pref" -v m="\$_fm" -v t="\$_tb" '
+            { del=1
+              if (p != "" && (\$0 !~ "^" p ":")) del=0
+              if (m != "" && index(\$0, "fwmark " m) == 0) del=0
+              if (t != "" && index(\$0, "lookup " t) == 0) del=0
+              if (!del) print }' "$T/ip-rules" > "$T/ip-rules.new" 2>/dev/null || : > "$T/ip-rules.new"
         mv -f "$T/ip-rules.new" "$T/ip-rules"
     fi
     exit 0
@@ -238,12 +257,20 @@ warp_pbr_up >/dev/null 2>&1 && _t_bad "table-конфликт принят" || _
 printf '500: from all lookup main\n' > "$T/ip-rules"
 warp_pbr_up >/dev/null 2>&1 && _t_bad "pref-конфликт принят" || _t_ok
 : > "$T/ip-rules"
-# down: route+rule первыми, chains отдельно:
+# down: exact owned teardown (defects 4/5): сначала поднимаем owned PBR,
+# затем down — снимаются ровно наше rule (с pref) и наш route (по owner).
+warp_pbr_up >/dev/null 2>&1 || _t_bad "down-fixture: pbr_up rc"
 : > "$T/ip.log"; : > "$T/nft.log"
 warp_pbr_down
-assert_contains "down: route del" "$T/ip.log" "route del default"
-# legacy bare-mark форма тоже снимается:
-printf 'x\n' > "$T/ip-rules"
+assert_contains "down: exact rule del с pref" "$T/ip.log" "rule del pref 500 fwmark 0x80000000/0x80000000 table 989"
+assert_contains "down: route del" "$T/ip.log" "route del default table 989"
+assert_eq "down: правило снято" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "down: route снят" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
+assert_eq "down: owner убран" "0" "$([ -f "$T/tmp/warp/pbr.owner" ] && echo 1 || echo 0)"
+# чужое правило (тот же mark, другой pref) — НЕ трогаем:
+printf '499: from all fwmark 0x80000000/0x80000000 lookup 989\n' > "$T/ip-rules"
+warp_pbr_down >/dev/null 2>&1
+assert_contains "down: чужое правило цело" "$T/ip-rules" "499: from all fwmark"
 
 # --- status line ---
 _out="$(warp_status)"

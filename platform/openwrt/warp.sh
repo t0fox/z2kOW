@@ -27,6 +27,10 @@ WARP_STATUS="${WARP_STATUS:-${Z2K_TMP:-/tmp/z2k}/warp/status.json}"
 WARP_LOG="${WARP_LOG:-${Z2K_TMP:-/tmp/z2k}/warp/warpd.log}"
 WARP_REG_RETRY="${WARP_REG_RETRY:-600}"
 WARP_REG_STAMP="${WARP_REG_STAMP:-${Z2K_TMP:-/tmp/z2k}/warp/register.stamp}"
+# Runtime ownership record PBR (defect 5): пишется успешным pbr_up, читается
+# pbr_down для proof route-ownership; убирается после teardown. Tmpfs —
+# после reboot записи нет, и это корректно (PBR тоже нет).
+WARP_PBR_OWNER="${WARP_PBR_OWNER:-${Z2K_TMP:-/tmp/z2k}/warp/pbr.owner}"
 WARP_LISTS_DIR="${WARP_LISTS_DIR:-${Z2K_ETC:-/etc/z2k}/user-lists/warp}"
 WARP_GAMES_DIR="${WARP_GAMES_DIR:-${Z2K_LISTS_DIR}/games}"
 WARP_ENABLED_FILE="${WARP_ENABLED_FILE:-$WARP_LISTS_DIR/.enabled}"
@@ -235,6 +239,30 @@ _warp_lists_have_content() {
     return 1
 }
 
+# Атомарный коммит ОБОИХ live sets ОДНОЙ nft-транзакцией (defect 2/W19b).
+# $1 — валидированный dst-список (newline), $2 — валидированный src-список.
+# Валидация — ДО вызова; здесь только переход OLD -> NEW целиком или никак:
+# `nft -f -` применяет весь batch атомарно, частичного flush НЕТ.
+# Пустые входы валидны (W18): оба сета атомарно пустеют.
+_warp_nft_sets_commit() {
+    local _dst="$1" _src="$2"
+    {
+        printf 'flush set %s %s %s\n' "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_SET"
+        printf 'flush set %s %s %s\n' "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_SET_SRC"
+        if [ -n "$_dst" ]; then
+            printf 'add element %s %s %s { %s }\n' \
+                "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_SET" \
+                "$(printf '%s' "$_dst" | _warp_csv)"
+        fi
+        if [ -n "$_src" ]; then
+            printf 'add element %s %s %s { %s }\n' \
+                "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_SET_SRC" \
+                "$(printf '%s' "$_src" | _warp_csv)"
+        fi
+    } | nft -f - || return 1
+    return 0
+}
+
 # Загрузить ОБА сета (validate-first: битая строка не доходит до nft).
 # W19: источник НЕпуст, а валидных ноль = corrupt -> отказ, live set цел.
 # Источники пусты (W18, пользователь всё удалил) = валидно пусто -> заливаем
@@ -251,21 +279,13 @@ warp_nft_sets_load() {
         echo "z2k-openwrt: warp: нет таблицы ${Z2K_WARP_NFT_FAMILY} ${Z2K_WARP_NFT_TABLE} (сначала fw_apply)" >&2
         return 1
     }
+    # Idempotent ensure создания (контент не трогаем — только add set):
     for _s in "$WARP_SET" "$WARP_SET_SRC"; do
         nft add set "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_s" \
             '{ type ipv4_addr; flags interval; }' 2>/dev/null || true
-        nft flush set "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_s" 2>/dev/null || true
     done
-    if [ -n "$_dst" ]; then
-        # shellcheck disable=SC2046
-        nft add element "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_SET" \
-            "{ $(printf '%s' "$_dst" | _warp_csv) }" || return 1
-    fi
-    if [ -n "$_src" ]; then
-        # shellcheck disable=SC2046
-        nft add element "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_SET_SRC" \
-            "{ $(printf '%s' "$_src" | _warp_csv) }" || return 1
-    fi
+    # ОДНА транзакция на оба сета (flush+add обоих): всё или ничего.
+    _warp_nft_sets_commit "$_dst" "$_src" || return 1
     _z2k_ow_warp_mut "NFT_CREATED: sets $WARP_SET/$WARP_SET_SRC"
     return 0
 }
@@ -361,7 +381,7 @@ _warp_proven_ready() {
 # Чужие rules/routes НЕ трогаем никогда. При конфликте взводим
 # _WARP_CONFLICT=1, чтобы enable вернул 1 (hard fail), а не 2.
 _warp_pbr_check() {
-    local _iface="$1" _line _mv _mm _mt _ov
+    local _iface="$1" _line _mv _mm _mt _ov _pline
     _WARP_CONFLICT=0
     # Точное наше правило не освобождает от скана: чужой конфликт рядом
     # с нашим = тоже отказ (трафик уже уводят). Нашу exact-строку пропускаем.
@@ -393,10 +413,14 @@ _warp_pbr_check() {
         done <<EOF_RULES
 $(ip rule show 2>/dev/null)
 EOF_RULES
-    # Pref занят чужим (не нашим exact)?
-    if ip rule show 2>/dev/null | grep -qE "^$WARP_RULE_PREF:"; then
-        if ! ip rule show 2>/dev/null | grep -qF "fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE"; then
-            echo "z2k-openwrt: warp: pref $WARP_RULE_PREF занят чужим правилом" >&2
+    # Pref (defect 3/W33): если pref существует, ВСЕ записи с ним обязаны
+    # быть нашей exact owned specification. Наша exact: содержит
+    # "fwmark MARK/MASK lookup TABLE". Сосед-чужак с тем же pref (даже рядом
+    # с нашим exact) = CONFLICT: трафик уже уводят, рядом не встаём.
+    _pline="$(ip rule show 2>/dev/null | grep -E "^$WARP_RULE_PREF:" || true)"
+    if [ -n "$_pline" ]; then
+        if printf '%s\n' "$_pline" | grep -qvF "fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE"; then
+            echo "z2k-openwrt: warp: pref $WARP_RULE_PREF занят чужим правилом — не трогаю" >&2
             _WARP_CONFLICT=1; return 1
         fi
     fi
@@ -415,12 +439,39 @@ EOF_RULES
 
 warp_pbr_down() {
     # Route+rule ПЕРВЫМИ (мгновенный fail-open), затем тишина.
-    # Удаляем только наши exact-спецификации; чужое не трогаем.
-    # shellcheck disable=SC2046
-    ip rule del fwmark "$WARP_MARK/$WARP_MASK" table "$WARP_TABLE" 2>/dev/null || true
-    ip rule del fwmark "$WARP_MARK" table "$WARP_TABLE" 2>/dev/null || true
-    ip route del default table "$WARP_TABLE" 2>/dev/null || true
+    # Rule: ТОЛЬКО exact owned delete (pref+mark/mask+table) — чужое не
+    # трогаем (defect 4). Legacy unmasked-формы нет: на OpenWrt наше правило
+    # всегда ставилось с pref+masked mark, мигрировать нечего.
+    ip rule del pref "$WARP_RULE_PREF" fwmark "$WARP_MARK/$WARP_MASK" table "$WARP_TABLE" 2>/dev/null || true
+    _warp_route_release_owned || true
+    rm -f "$WARP_PBR_OWNER" 2>/dev/null
     _z2k_ow_warp_mut "PBR_DOWN"
+    return 0
+}
+
+# Route delete ТОЛЬКО при доказанном ownership (defect 5, подход A):
+# owner-record (mark/mask/pref/table/iface успешного pbr_up) + текущий
+# default таблицы в точности наш ("default dev IFACE" [scope link]).
+# Mismatch/drift/нет записи/таблица пуста: foreign НЕ трогаем, route НЕ
+# удаляем. Критический принцип: сомневаемся -> exact rule уже снят выше
+# (traffic fail-open), а без нашего rule чужой default mark-трафик не
+# маршрутизирует — он безопаснее удалённого чужого default.
+_warp_route_release_owned() {
+    local _cur="" _want="" _oiface=""
+    [ -f "$WARP_PBR_OWNER" ] || return 0
+    _oiface="$(sed -n 's/^iface=//p' "$WARP_PBR_OWNER" 2>/dev/null | head -1)"
+    case "$_oiface" in
+        z2ktun[0-9]|z2ktun[0-9][0-9]) ;;
+        *) return 0 ;;
+    esac
+    _want="default dev $_oiface"
+    _cur="$(ip route show table "$WARP_TABLE" 2>/dev/null)"
+    [ -n "$_cur" ] || return 0
+    # ВСЕ строки таблицы — ровно наш default (иначе drift/чужое: стоим).
+    if printf '%s\n' "$_cur" | grep -qvE "^default dev $_oiface( scope link)?\$"; then
+        return 0
+    fi
+    ip route del default table "$WARP_TABLE" 2>/dev/null || true
     return 0
 }
 
@@ -614,6 +665,13 @@ warp_pbr_up() {
     if ! ip rule show 2>/dev/null | grep -qF "fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE"; then
         ip rule add pref "$WARP_RULE_PREF" fwmark "$WARP_MARK/$WARP_MASK" table "$WARP_TABLE" 2>/dev/null || return 1
     fi
+    # Ownership record для down-proof (defect 5): без записи route потом
+    # не удалим (сомнение = чужое не трогаем). Пишем ПОСЛЕ успеха всего PBR.
+    mkdir -p "$(dirname "$WARP_PBR_OWNER")" 2>/dev/null || true
+    {
+        printf 'mark=%s\nmask=%s\npref=%s\ntable=%s\niface=%s\n' \
+            "$WARP_MARK" "$WARP_MASK" "$WARP_RULE_PREF" "$WARP_TABLE" "$_iface"
+    } > "$WARP_PBR_OWNER" 2>/dev/null || return 1
     _z2k_ow_warp_mut "PBR_UP: table $WARP_TABLE pref $WARP_RULE_PREF mark $WARP_MARK/$_iface"
     return 0
 }

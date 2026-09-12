@@ -202,8 +202,17 @@ WARP_ROUTE_PRESENT ⇒ ENGINE_READY=true ∧ iface exists ∧ iface==status.ifac
 - До ready: НЕТ ip rule (даже при flag=1 — W4).
 - `ip rule add pref 500 fwmark 0x80000000/0x80000000 table 989`
   (check-then-add; чужой конфликт → fail).
+- Pref ownership строгий (W33): если pref 500 существует, ВСЕ его записи
+  обязаны быть нашей exact-спецификацией; сосед-чужак = CONFLICT, fail loudly.
 - `ip route replace default dev $iface table 989` (после proof; только
   наш default правим).
+- Down снимает rule ТОЛЬКО exact delete с pref (defect 4); legacy
+  unmasked-форм нет (наше правило всегда ставилось с pref+masked mark).
+- Route удаляется ТОЛЬКО при доказанном ownership (defect 5, подход A):
+  owner-record `$TMP/warp/pbr.owner` (mark/mask/pref/table/iface успешного
+  up) + текущий default таблицы в точности наш; mismatch/drift/нет записи —
+  foreign route НЕ трогаем (без нашего rule он mark-трафик не ведёт),
+  owner стирается после teardown. Покрыто W34–W37.
 - Любой переход в не-ready: **сначала снять route/rule**, трафик — direct.
   Никаких mark + dead table.
 - `enable`/`warp-proc.sh start` ждут ready с правилом свежести: status.json
@@ -255,6 +264,9 @@ Watchdog за process-dead НЕ конкурирует с procd (только PB
   сейчас `games/` пуст — пользователь кладёт сам); `.enabled`/devices/user
   не трогаем никогда; по mtime/hash — atomic set reload без рестарта;
   битый refresh (источник непуст, валидных ноль) → live set цел (W19).
+- Set reload атомарен (defect 2/W19b): валидация ДО live state, затем ОДИН
+  `nft -f -` batch (flush обоих + add обоих) — всё или ничего; mid-failure
+  оставляет OLD dst/src целыми; пустые входы валидны (оба сета пустеют).
 - MASQUE endpoint НЕ исключаем из desync (измерено upstream: ломает
   transit); наши mark-правила match'ят только сеты (W32-тест).
 - CLI: `warp install/enable/disable/remove/status/selfheal/reload-lists`

@@ -213,7 +213,7 @@
   "files/z2k-tg-watchdog.sh": "f433391db09dad96471cf96dc6c814fbff846c285ba3cb424806f08ab040ce8f",
   "files/z2k-update-lists.sh": "e936aa3afbef29ba991a1d51b9d051860a1a9ae453ffe5adbd7292c81d5bb893",
   "files/z2k-warp.sh": "b77ef2caca56436d6669f001b4c8479bbe8e935c3f4c8ebe964bf047f1c7e2dd",
-  "lib/auto_update.sh": "c493ed5bda33d61f924ebaaecd06bca25ae0e3fe8c38a4e60803d8336d241525",
+  "lib/auto_update.sh": "3a1d296a528dbe8e4c20e3eb14cf3fa227ea5ae0971eb053aac7c1f6b0467980",
   "lib/config.sh": "e08589c20e3762e5ec7019abd133efc7479c4f396d5997130d657ee393731c8f",
   "lib/config_official.sh": "f939f8ef49505d830ad8546340faccb540a5691f6ef1327cdcf58932273b4d83",
   "lib/install.sh": "0984cb30ae5577c7e2168e50d71ce9e49ba53173bba0972d7ffbc07b9b88ef5a",
