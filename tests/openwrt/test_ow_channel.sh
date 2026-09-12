@@ -1,7 +1,11 @@
 #!/bin/sh
 # tests/openwrt/test_ow_channel.sh - Gap 2: OpenWrt update channel end-to-end.
 #   env -> t0fox/z2kOW production branch (не necronicle, не dev-ветка);
-#   генератор: keenetic-реген байт-идентичен, openwrt-реген = +platform;
+#   генератор: keenetic-реген детерминирован, поток версий неприкосновенен,
+#     хеши кандидата правдивы; committed manifest — опубликованный snapshot
+#     (freshness — свойство релиза, не dev-ветки: обычный dev-коммит
+#     published UPDATES.json НЕ трогает, см. release-контракт §2);
+#     openwrt-реген = +platform;
 #   gate: openwrt-манифест принят, keenetic/поддельный отвергнуты, тег стоит;
 #   старые парсеры слепы к platform-ключу.
 . "$(dirname "$0")/helper.sh"
@@ -65,10 +69,49 @@ CLONE="$T/clone"
 if git clone -q "$REPO" "$CLONE" 2>/dev/null; then
     cp "$CLONE/UPDATES.json" "$T/orig.json"
     ( cd "$CLONE" && Z2K_PLATFORM=keenetic sh scripts/gen_file_hashes.sh >/dev/null 2>&1 )
-    if cmp -s "$CLONE/UPDATES.json" "$T/orig.json"; then
+    cp "$CLONE/UPDATES.json" "$T/cand.json"
+    # (a) детерминизм: повторный regen — побайтово тот же результат.
+    # Бывший byte-compare со snapshot'ом здесь намеренно УБРАН: на dev-ветке
+    # snapshot свежестью не обязан (см. шапку); свежесть восстанавливает
+    # release.sh в релизном коммите, hand-edit'ы переживают regen как
+    # расхождение с правдой (см. (c) ниже), а не как drift bytes.
+    ( cd "$CLONE" && Z2K_PLATFORM=keenetic sh scripts/gen_file_hashes.sh >/dev/null 2>&1 )
+    if cmp -s "$T/cand.json" "$CLONE/UPDATES.json"; then
         _t_ok
     else
-        _t_bad "keenetic-реген изменил манифест"
+        _t_bad "keenetic-реген недетерминирован"
+    fi
+    # (b) поток версий неприкосновенен: current/seq/branch/history кандидата
+    # совпадают со snapshot (генератор обновляет только map+hashes).
+    _stream_bad=""
+    for _sk in '"current"' '"seq"' '"branch"'; do
+        _a="$(grep -m1 "^  $_sk" "$T/orig.json" 2>/dev/null)"
+        _b="$(grep -m1 "^  $_sk" "$T/cand.json" 2>/dev/null)"
+        [ -n "$_a" ] && [ "$_a" = "$_b" ] || _stream_bad="$_stream_bad $_sk"
+    done
+    _ha="$(sed -n '/"history"/,$p' "$T/orig.json" 2>/dev/null | sha256sum | awk '{print $1}')"
+    _hb="$(sed -n '/"history"/,$p' "$T/cand.json" 2>/dev/null | sha256sum | awk '{print $1}')"
+    [ "$_ha" = "$_hb" ] || _stream_bad="$_stream_bad history"
+    [ -z "$_stream_bad" ] && _t_ok || _t_bad "regen тронул поток версий:$_stream_bad"
+    # (c) правдивость: каждый files_sha256 кандидата == sha256 байтов дерева.
+    # Ручная правка хеша (или доставка не того файла) ловится здесь, а не
+    # сравнением со snapshot'ом. Разбор — awk -F'"': поля $2=ключ, $4=hex
+    # (висячая запятая последней строки блока не должна попадать в hex).
+    _lie=""
+    sed -n '/"files_sha256"/,/^  \},?$/p' "$T/cand.json" 2>/dev/null \
+        | grep -E '^  "[^"]+": "[0-9a-f]{64}"' \
+        | awk -F'"' '{print $2 "|" $4}' | while IFS='|' read -r _k _h; do
+        [ -n "$_k" ] && [ -n "$_h" ] || continue
+        if [ ! -f "$CLONE/$_k" ]; then
+            printf 'MISSING %s\n' "$_k" >> "$T/lies"
+        elif [ "$(sha256sum "$CLONE/$_k" 2>/dev/null | awk '{print $1}')" != "$_h" ]; then
+            printf 'MISMATCH %s\n' "$_k" >> "$T/lies"
+        fi
+    done
+    if [ -s "$T/lies" ]; then
+        _t_bad "хеши кандидата врут: $(tr '\n' ' ' < "$T/lies" | cut -c1-200)"
+    else
+        _t_ok
     fi
     ( cd "$CLONE" && Z2K_PLATFORM=openwrt sh scripts/gen_file_hashes.sh >/dev/null 2>&1 )
     _owdiff="$(diff "$T/orig.json" "$CLONE/UPDATES.json" | grep -E '^[<>]' || true)"
