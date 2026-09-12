@@ -43,6 +43,7 @@ while IFS= read -r _line; do
         /usr/lib/z2k/platform/openwrt/*) _src="platform/openwrt/$(basename "$1")" ;;
         /usr/lib/z2k/share/config.default) _src="package/openwrt/files/etc/z2k/config.default" ;;
         /usr/lib/z2k/share/seed.tar.gz) _src="package/openwrt/make-seed.sh" ;;
+        /usr/lib/z2k/share/adapter.api) _src="package/openwrt/ADAPTER_API" ;;
         *) _src="" ;;
     esac
     { [ -n "$_src" ] && [ -f "$REPO/$_src" ]; } || _miss="$_miss $1"

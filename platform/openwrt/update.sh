@@ -27,14 +27,15 @@ export PATH="/usr/sbin:/sbin:$PATH"
 . "$Z2K_LIB/utils.sh" || exit 1
 . "$Z2K_LIB/auto_update.sh" || exit 1
 
-# Platform reinstall policy: fail closed. Keenetic z2k.sh под root здесь
-# выполняться НЕ должен — полного OpenWrt reinstall пока нет (см. contract).
-z2k_ow_reinstall_unsupported() {
-    # $1 target_tag, $2 reset_state
-    au_log "reinstall-required ($1): OpenWrt full reinstall не реализован — fail closed, тег и payload нетронуты (обновите пакет)"
-    return 1
-}
-Z2K_AU_REINSTALL_EXECUTOR="${Z2K_AU_REINSTALL_EXECUTOR:-z2k_ow_reinstall_unsupported}"
+# shellcheck disable=SC1090,SC1091
+. "$Z2K_ROOT/platform/openwrt/reinstall.sh" || exit 1
+
+# Platform reinstall policy: full verified payload reinstall
+# (z2k_ow_payload_reinstall, контракт §9). Keenetic z2k.sh под root здесь
+# выполняться НЕ должен. Executor вызывается au_apply_reinstall ПОСЛЕ
+# verified fetch манифеста; провал НЕ двигает тег и НЕ трогает payload
+# по построению (files → meta → tag, откат до tag).
+Z2K_AU_REINSTALL_EXECUTOR="${Z2K_AU_REINSTALL_EXECUTOR:-z2k_ow_payload_reinstall}"
 export Z2K_AU_REINSTALL_EXECUTOR
 
 ACTION="${1:-apply}"
@@ -54,6 +55,13 @@ if [ "$AU_ENABLED" = "0" ] && [ "$ACTION" = "apply" ] && [ "$AU_MANUAL" != "1" ]
         >> "$Z2K_AU_LOG_FILE" 2>/dev/null
     exit 0
 fi
+
+# Adapter API gate (Stage 7 §7): ДО seed_ensure — гейт решает по verified
+# манифесту, а seed_ensure уже пишет marker/tag/config (мутации состояния).
+# apply + too old → rc 1; check + too old → ADAPTER_UPDATE_REQUIRED, rc 2.
+_grc=0
+z2k_ow_adapter_gate "$ACTION" || _grc=$?
+if [ "$_grc" != "0" ]; then exit "$_grc"; fi
 
 # Pre-flight локальных инвариантов (§9 state-machine) — ДО любого fetch:
 # z2k_ow_seed_ensure приводит (marker, payload, tag) к доказанному виду:

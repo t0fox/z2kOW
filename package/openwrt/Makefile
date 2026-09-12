@@ -74,6 +74,9 @@ define Package/z2k-adapter/install
 	$(INSTALL_BIN) ./files/etc/init.d/z2k $(1)/etc/init.d/z2k
 	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/90-z2k $(1)/etc/hotplug.d/iface/90-z2k
 	$(INSTALL_DATA) ./files/etc/z2k/config.default $(1)/usr/lib/z2k/share/config.default
+	# Adapter API (Stage 7 §6): package-owned source of truth; updater его
+	# никогда не перезаписывает. Абсолютный путь через Z2K_TREE (как seed).
+	$(INSTALL_DATA) $(Z2K_TREE)/package/openwrt/ADAPTER_API $(1)/usr/lib/z2k/share/adapter.api
 	$(INSTALL_DATA) ./platform/openwrt/*.sh $(1)/usr/lib/z2k/platform/openwrt/
 	# Entrypoints исполняются напрямую (cron exec, updater [ -x ]) —
 	# им нужен +x и в пакете, и в seed (режимы в git-индексе; тест держит).

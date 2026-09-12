@@ -1,0 +1,13 @@
+# package/openwrt/ADAPTER_API - monotonic OpenWrt adapter API (Stage 7 §6).
+#
+# Простое целое, НЕ SemVer. Пакет ставит его в /usr/lib/z2k/share/adapter.api
+# (PACKAGE-owned; updater/installer/reinstall его НИКОГДА не пишут).
+# Манифест объявляет требуемый минимум полем openwrt_adapter_api_min на
+# entry (отсутствие = 1); гейт в platform/openwrt/reinstall.sh сравнивает
+# ДО любой payload mutation.
+#
+# Increment ТОЛЬКО если новый common payload реально требует новый platform
+# contract (новый wp_platform_*-примитив, updater hook, lifecycle seam,
+# смена WARP backend-интерфейса). НЕ increment: комментарии, тесты,
+# метаданные пакета, внутренние фиксы.
+1

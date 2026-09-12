@@ -77,17 +77,17 @@ lc_invariant "S7" || _t_bad "S7 invariant"
 # legacy-значение типа живо только на старом пути без карты). Настоящие
 # входы в au_apply_reinstall: converge rc 2, legacy+decide=reinstall,
 # full_install+decide=reinstall. Executor — НАСТОЯЩИЙ
-# z2k_ow_reinstall_unsupported из update.sh (извлекаем функцию sed'ом:
-# сам update.sh сорсить нельзя — он выполнится).
+# z2k_ow_payload_reinstall из platform/openwrt/reinstall.sh (Stage 7;
+# только функции — сорсить безопасно, сам update.sh сорсить нельзя,
+# он выполнится).
 lc_fresh_sysroot || { echo "FAIL[ow-lc-channel]: sysroot s8" >&2; exit 1; }
 mkdir -p "$LC_ORIGIN/files"
 printf '#!/bin/sh\necho "SENTINEL-EXECUTED" >> "%s/sentinel"\n' "$LC_T" > "$LC_ORIGIN/files/z2k.sh"
 chmod +x "$LC_ORIGIN/files/z2k.sh"
-sed -n '/^z2k_ow_reinstall_unsupported()/,/^}/p' "$REPO/platform/openwrt/update.sh" > "$LC_T/executor.sh"
-grep -q 'return 1' "$LC_T/executor.sh" || { echo "FAIL[ow-lc-channel]: executor" >&2; exit 1; }
 # shellcheck disable=SC1090,SC1091
-. "$LC_T/executor.sh"
-Z2K_AU_REINSTALL_EXECUTOR="z2k_ow_reinstall_unsupported"
+. "$REPO/platform/openwrt/reinstall.sh"
+command -v z2k_ow_payload_reinstall >/dev/null 2>&1 || { echo "FAIL[ow-lc-channel]: executor" >&2; exit 1; }
+Z2K_AU_REINSTALL_EXECUTOR="z2k_ow_payload_reinstall"
 export Z2K_AU_REINSTALL_EXECUTOR
 SEEDTAG="$(sed -n 's/^tag=//p' "$Z2K_ROOT/share/seed.meta" | head -1)"
 
@@ -149,16 +149,32 @@ if grep -q "z2k.sh" "$LC_T/fetch.log"; then
 else
     _t_ok
 fi
-# (c) unknown step
+# (c) unknown step: executor доставляет файлы, но шаг из будущего валит
+# прогон уже после доставки → rollback, rc 1, тег стоит, z2k.sh не тронут.
 printf 'p-84.0|patch|refU|lib/utils.sh|future-step-xyz|false|false\n%s|patch|refU2|lib/utils.sh|future-step-xyz|false|false\n' \
     "$SEEDTAG" | lc_manifest "$SEEDTAG" || exit 1
 _s8case "unknown-step"
-# (d) dirty marker preset
+# (d) dirty marker preset: reinstall — лекарство, не приговор. Converge
+# отказывается (rc 2), executor сходится полностью: rc 0, тег двинулся,
+# dirty снят вызывающим, payload новый.
 printf 'p-84.0|patch|refD|lib/utils.sh||false|false\n%s|patch|refD2|lib/utils.sh||false|false\n' \
     "$SEEDTAG" | lc_manifest "$SEEDTAG" || exit 1
 printf 'partial-patch from=p-84.0 to=%s\n' "$SEEDTAG" > "$Z2K_AU_DIRTY_TREE_FILE"
-_s8case "dirty"
-rm -f "$Z2K_AU_DIRTY_TREE_FILE"
+lc_set_version "p-84.0" || exit 1
+: > "$LC_T/fetch.log"
+rm -f "$LC_T/sentinel"
+lc_begin
+au_run_apply >/dev/null 2>&1
+assert_eq "S8d rc" "0" "$?"
+assert_eq "S8d tag двинулся" "$SEEDTAG" "$(lc_tag)"
+assert_eq "S8d dirty снят" "0" "$([ -s "$Z2K_AU_DIRTY_TREE_FILE" ] && echo 1 || echo 0)"
+assert_contains "S8d payload новый" "$Z2K_ROOT/lib/utils.sh" "Z2K_LC_S8A=1"
+if grep -q "z2k.sh" "$LC_T/fetch.log"; then
+    _t_bad "S8d: z2k.sh скачивали"
+else
+    _t_ok
+fi
+assert_eq "S8d sentinel нет" "0" "$([ -f "$LC_T/sentinel" ] && echo 1 || echo 0)"
 # (e) missing install_map (старый формат): au_run_apply старым путём;
 # changed file без карты -> наш fail-safe (return 1), не skip+advance.
 # Без python: вырезаем блок install_map диапазонным sed (формат генератора).
@@ -167,11 +183,29 @@ sed '/"install_map": {/,/^  },$/d' "$LC_ORIGIN/manifest.json" > "$LC_ORIGIN/mani
 cp -f "$LC_ORIGIN/manifest.json" "$LC_ORIGIN/files/UPDATES.json"
 _s8case "missing-map"
 
-# (f) full_install=true + type=reinstall -> legacy au_apply_reinstall
-# -> настоящий executor -> fail-closed (rc 1, тег стоит, з2k.sh не тронут)
+# (f) full_install=true + type=reinstall -> au_apply_reinstall ->
+# настоящий executor: rc 0, тег двинулся, payload новый, z2k.sh не тронут.
+lc_origin_put "lib/utils.sh" <<'EOF'
+#!/bin/sh
+# full-reinstall witness
+Z2K_LC_S8F=1
+EOF
 printf 'p-84.0|reinstall|refFR|lib/utils.sh||true|false\n%s|reinstall|refFR2|lib/utils.sh||true|false\n' \
     "$SEEDTAG" | lc_manifest "$SEEDTAG" || exit 1
-_s8case "full+reinstall"
+lc_set_version "p-84.0" || exit 1
+: > "$LC_T/fetch.log"
+rm -f "$LC_T/sentinel"
+lc_begin
+au_run_apply >/dev/null 2>&1
+assert_eq "S8f rc" "0" "$?"
+assert_eq "S8f tag двинулся" "$SEEDTAG" "$(lc_tag)"
+assert_contains "S8f payload новый" "$Z2K_ROOT/lib/utils.sh" "Z2K_LC_S8F=1"
+if grep -q "z2k.sh" "$LC_T/fetch.log"; then
+    _t_bad "S8f: z2k.sh скачивали"
+else
+    _t_ok
+fi
+assert_eq "S8f sentinel нет" "0" "$([ -f "$LC_T/sentinel" ] && echo 1 || echo 0)"
 
 # control без hook: legacy-путь скачивает sentinel-z2k.sh и ИСПОЛНЯЕТ его
 # (доказывает, что именно hook блокирует исполнение + Keenetic-путь цел).
