@@ -1100,6 +1100,13 @@ au_service_for_binary() {
 # конфиг с @PORT@ и умрёт, поэтому проверяем и отказываемся.
 au_step_rebuild_panel() {
     local zd="${ZAPRET2_DIR:-/opt/zapret2}"
+    # OpenWrt branch (Stage 6, шаг тот же): шаблон из payload, настройки из
+    # USER-дерева, render через platform adapter, рестарт ТОЛЬКО панели и
+    # ТОЛЬКО если она установлена+запущена. Пакета нет — safe no-op.
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+        _au_rebuild_panel_openwrt
+        return $?
+    fi
     local tpl="$zd/webpanel/lighttpd.conf.in"
     local dst="$zd/webpanel/lighttpd.conf"
     local port bind www tmp
@@ -1119,6 +1126,29 @@ au_step_rebuild_panel() {
     mv -f "$tmp" "$dst" || { rm -f "$tmp"; au_log "rebuild-panel: не записался $dst"; return 1; }
     au_log "rebuild-panel: конфиг панели пересобран (порт $port, адрес $bind)"
     [ -x /opt/etc/init.d/S96z2k-webpanel ] && /opt/etc/init.d/S96z2k-webpanel restart >/dev/null 2>&1
+    return 0
+}
+
+# OpenWrt-исполнитель шага rebuild-panel (имя шага общее, семантика та же).
+_au_rebuild_panel_openwrt() {
+    local root="${Z2K_ROOT:-/usr/lib/z2k}" dst=""
+    [ -f "$root/webpanel/lighttpd.conf.in" ] || {
+        au_log "rebuild-panel: шаблона нет — пересобирать не из чего"; return 1; }
+    # shellcheck disable=SC1090,SC1091
+    . "$root/platform/openwrt/webpanel.sh" 2>/dev/null || {
+        au_log "rebuild-panel: нет platform adapter"; return 1; }
+    dst="$(wp_panel_render 2>/dev/null)" || {
+        au_log "rebuild-panel: render не удался"; return 1; }
+    wp_panel_validate "$dst" >/dev/null 2>&1 || {
+        au_log "rebuild-panel: конфиг не валиден"; return 1; }
+    au_log "rebuild-panel: конфиг панели пересобран ($dst)"
+    # Только панель, только если установлена и запущена. Core не трогаем.
+    if [ -x /etc/init.d/z2k-webpanel ]; then
+        if wp_panel_running 2>/dev/null; then
+            /etc/init.d/z2k-webpanel restart >/dev/null 2>&1 || \
+                au_log "rebuild-panel: restart панели не удался"
+        fi
+    fi
     return 0
 }
 
@@ -2019,17 +2049,23 @@ $files
 EOF
 
     # Dedup + restart each service exactly once
-    local svc
+    local svc _svc_init
     for svc in $(echo "$restart_set" | tr ' ' '\n' | sort -u); do
         [ -z "$svc" ] && continue
-        if [ -x "/opt/etc/init.d/$svc" ]; then
+        _svc_init="/opt/etc/init.d/$svc"
+        if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && [ "$svc" = "S96z2k-webpanel" ]; then
+            # OpenWrt: панель — отдельный procd-сервис z2k-webpanel; core
+            # рестарт не затрагивает. Пакета нет (dormant assets) — скип.
+            _svc_init="/etc/init.d/z2k-webpanel"
+        fi
+        if [ -x "$_svc_init" ]; then
             au_log "patch: restart $svc"
             # Вывод перезапуска СОХРАНЯЕМ. Раньше он уходил в /dev/null, и при
             # отказе в журнале оставалось только «returned non-zero» — то есть
             # ровно ничего. Дальше health-check видел мёртвый nfqws2, откатывал
             # исправный патч, и человек читал «непонятно что не так».
             _rst_out=$(mktemp 2>/dev/null || echo /tmp/z2k-au-restart.$$)
-            if ! "/opt/etc/init.d/$svc" restart > "$_rst_out" 2>&1; then
+            if ! "$_svc_init" restart > "$_rst_out" 2>&1; then
                 au_log "patch: $svc restart returned non-zero — вот что он сказал:"
                 tail -12 "$_rst_out" 2>/dev/null | while IFS= read -r _l; do
                     [ -n "$_l" ] && au_log "patch:   $_l"

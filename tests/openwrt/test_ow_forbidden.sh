@@ -7,9 +7,11 @@ _t_plan "ow-forbidden"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # NOTE: сам guard-файл исключён из скана — он содержит эти строки как образцы.
+# test_ow_webpanel_static.sh исключён туда же: его 'ndmc' — проверяемый образец
+# (ban-паттерн Layer A для CGI), а не зависимость; исполняет запрет forbidden.
 _hits="$(grep -rEin 'ndmc|/opt/etc/ndm|kmod_ndms|entware|-j PPE|ipset-exclude.*PPE' \
     "$REPO/platform/openwrt" "$REPO/package/openwrt" "$REPO/tests/openwrt" \
-    | grep -v 'test_ow_forbidden\.sh' || true)"
+    | grep -v -e 'test_ow_forbidden\.sh' -e 'test_ow_webpanel_static\.sh' || true)"
 [ -z "$_hits" ] && _t_ok || _t_bad "Keenetic-зависимости: $_hits"
 
 # S99/keenetic/baggage — только в комментариях (атрибуция), не в коде.
@@ -24,6 +26,7 @@ _hits="$(grep -rEin 'ndmc|/opt/etc/ndm|kmod_ndms|entware|-j PPE|ipset-exclude.*P
 _bad=""
 for _f in "$REPO"/platform/openwrt/*.sh \
           "$REPO"/package/openwrt/files/etc/init.d/z2k \
+          "$REPO"/package/openwrt/files/etc/init.d/z2k-webpanel \
           "$REPO"/package/openwrt/files/etc/hotplug.d/iface/90-z2k; do
     # Исключение: дефолт Z2K_ZAPRET2_RUNTIME=/opt/zapret2 — canonical base
     # самого zapret2 (совпадает с его ZAPRET_BASE-дефолтом), не Keenetic-

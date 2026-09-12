@@ -18,6 +18,8 @@
 // ациклический. Точка входа зависит от оболочки и маршрутизатора — и всё.
 import { initDrawer, initSidebar, initTheme } from "./js/chrome.js";
 import { navigate } from "./js/router.js";
+import { apiGet } from "./js/core/api.js";
+import { applyCapabilities } from "./js/core/loadorder.js";
 
 initTheme();
 initSidebar();
@@ -25,3 +27,7 @@ initDrawer();
 
 if (!location.hash) location.hash = "#/dashboard";
 navigate();
+
+// Platform capabilities для nav (Stage 6): один boot-запрос; без сессии
+// (Keenetic с включённым auth) — молча пропускаем, всё остаётся видимым.
+apiGet("/status").then(applyCapabilities).catch(() => {});

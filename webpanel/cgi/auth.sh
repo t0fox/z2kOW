@@ -43,8 +43,12 @@ json_error() {
 }
 
 # Directory holding the bind/port/hosts files, one level up from cgi/.
+# Stage 6 seam: OpenWrt держит их в USER-дереве (Z2K_PANEL_DIR), а не рядом
+# с updater-owned CGI. На Keenetic переменная пуста — путь как раньше.
 _auth_panel_dir() {
     local d=""
+    [ -n "${Z2K_PANEL_DIR:-}" ] && [ -d "$Z2K_PANEL_DIR" ] && {
+        printf '%s' "$Z2K_PANEL_DIR"; return 0; }
     d=$(dirname "${SELF_DIR:-/opt/zapret2/webpanel/cgi}" 2>/dev/null)
     [ -n "$d" ] && [ -d "$d" ] || d="/opt/zapret2/webpanel"
     printf '%s' "$d"

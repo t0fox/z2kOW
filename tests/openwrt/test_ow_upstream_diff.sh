@@ -40,7 +40,19 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     internal/engine/netsetup_test.go: external-net-backend seam Stage 5
 #     (--net-backend=/SkipNetSetup; Keenetic-дефолт нетронут — сторожит
 #     netsetup_test; только подмена TUN/create/address/transport/health)
-ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go"
+#   webpanel/cgi/platform.sh: tiny platform frontend Stage 6 (NEW, small seam)
+#   webpanel/cgi/api.sh: 2× source platform.sh + openwrt-only /status keys
+#   webpanel/cgi/actions.sh: manifest-URL var + DEBUG_FLAG_FILE var (2 строки)
+#   webpanel/cgi/auth.sh: Z2K_PANEL_DIR seam для bind/hosts (USER-дерево)
+#   webpanel/install.sh: PLATFORM_ENV-подстановка Stage 6 (инсталлер обязан
+#     знать новый плейсхолдер, иначе уходит в конфиг как есть)
+#   webpanel/lighttpd.conf: @PLATFORM_ENV@ Stage 6 (единственный новый
+#     плейсхолдер шаблона)
+#   webpanel/www/js/core/loadorder.js + webpanel/www/js/pages/toggles.js +
+#     webpanel/www/app.js: applyCapabilities Stage 6 (только visibility;
+#     capability-логика вне трёх файлов запрещена)
+#   docs/openwrt-webpanel-contract.md: webpanel contract Stage 6 (docs, не код)
+ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/app.js docs/openwrt-webpanel-contract.md"
 
 _changed="$($_g diff --name-only "$BASELINE"...HEAD 2>/dev/null)"
 # --ignore-cr-at-eol: на Windows-чекаутах (autocrlf) весь worktree выглядит
@@ -89,7 +101,7 @@ else
     for _f in $_bad; do
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
-            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go) continue ;;
+            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/app.js|docs/openwrt-webpanel-contract.md) continue ;;
             UPDATES.json)
                 # Манифест следует за деревом: разрешены только hash-обновления
                 # allowlisted lib-файлов в files_sha256 (ни новых ключей, ни

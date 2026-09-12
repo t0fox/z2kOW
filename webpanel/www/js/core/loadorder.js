@@ -21,6 +21,7 @@ export async function refreshStatus() {
     const s = await apiGet("/status");
     if (_stale("status", seq)) return;
     renderStatusGrid(s);
+    applyCapabilities(s);
   } catch (e) {
     if (_stale("status", seq)) return;
     // ОТКАЗ ЧТЕНИЯ — НЕ ПОВОД ОСТАВИТЬ ЧЕЛОВЕКА БЕЗ ДЕЙСТВИЙ.
@@ -108,6 +109,23 @@ function syncServiceButtons(svc) {
 }
 
 function bool(v) { return v === "1" ? "Вкл" : "Выкл"; }
+
+// Platform capabilities (Stage 6): backend присылает `capabilities` только
+// на OpenWrt; на Keenetic ключа нет — ничего не прячем, поведение 1-в-1.
+// Прячем целиком: никаких молчаливых кнопок-пустышек. style.display, как
+// syncServiceButtons (специфичность перебивает [hidden]).
+export function applyCapabilities(s) {
+  const caps = (s && s.capabilities) || null;
+  if (!caps) return;
+  const hide = (sel) => {
+    document.querySelectorAll(sel).forEach((el) => { el.style.display = "none"; });
+  };
+  if (caps.diag === false) hide('a[data-route="diag"]');
+  if (caps.policy === false) hide("#policy-card");
+  if (caps.ppe === false) hide('[data-key="ppe"]');
+  if (caps.tcp16 === false) hide("#tcp16-card");
+  if (caps.uninstall === false) hide("#uninstall-card");
+}
 
 function fmtSvc(s) {
   return { active: "работает", stopped: "остановлен", not_installed: "не установлен" }[s] || s;

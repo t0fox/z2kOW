@@ -43,7 +43,14 @@ sed 's/#.*$//' "$WARPC" > "$_WCCODE"
 # сканирует и этот файл, исключая только себя) ---
 for _f in "$_WCODE" "$_WPCODE" "$_WCCODE"; do
     assert_not_contains "glue: нет iptables" "$_f" 'iptables'
-    assert_not_contains "glue: нет ipset" "$_f" 'ipset'
+    # Узкое исключение Stage 6: верб `ipset` (имя требует контракт панели,
+    # как keenetic files/z2k-warp.sh) + его определение + usage-строки;
+    # реализация — тот же atomic sets_load, инструмента ipset в коде нет.
+    if grep -v 'warp_ipset\|ipset[)|]' "$_f" | grep -q 'ipset'; then
+        _t_bad "glue: ipset вне ipset-верба в $(basename "$_f")"
+    else
+        _t_ok
+    fi
     assert_not_contains "glue: нет PPE" "$_f" 'PPE'
     assert_not_contains "glue: нет /opt" "$_f" '/opt'
 done

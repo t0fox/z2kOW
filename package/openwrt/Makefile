@@ -36,6 +36,25 @@ config generation via untouched upstream libs, firewall delegation
 to the zapret2 runtime. No fork of common z2k logic.
 endef
 
+# Subpackage панели (§22 контракта): только optionality + init + зависимости.
+# CGI/www/template едут подписанным updater'ом (§23), НЕ пакетом — иначе
+# UI-правки требовали бы пересборки пакета. DEPENDS — только проверенное:
+# lighttpd обязателен; mod_cgi/mod_setenv валидируются на старте с громкой
+# ошибкой (имена mod-пакетов 25.12-фида подтвердить к Stage 7, не угадывать).
+define Package/z2k-webpanel
+  SECTION:=net
+  CATEGORY:=Network
+  TITLE:=z2k webpanel (optional lighttpd frontend over upstream CGI)
+  URL:=https://github.com/necronicle/z2k
+  DEPENDS:=z2k-adapter +lighttpd
+endef
+
+define Package/z2k-webpanel/description
+Optional web UI for z2k: dedicated lighttpd instance serving the unchanged
+upstream frontend/CGI through a tiny platform adapter. Lifecycle independent
+from the core z2k service.
+endef
+
 # conffiles НЕТ осознанно (Model A): init/hotplug — package-owned код,
 # обязаны обновляться вместе с пакетом, а не сохраняться как user-config.
 # /etc/z2k/* пакет вообще не поставляет (bootstrap создаёт, см. ownership.map
@@ -103,4 +122,10 @@ z2k_ow_uninstall 2>/dev/null || true
 exit 0
 endef
 
+define Package/z2k-webpanel/install
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) ./files/etc/init.d/z2k-webpanel $(1)/etc/init.d/z2k-webpanel
+endef
+
 $(eval $(call BuildPackage,z2k-adapter))
+$(eval $(call BuildPackage,z2k-webpanel))

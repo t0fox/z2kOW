@@ -2596,7 +2596,7 @@ pools_read() {
 # debugging silent-stuck rotator behavior.
 
 debug_flag_path() {
-    printf '%s' "$ZAPRET2_DIR/extra_strats/cache/autocircular/debug.flag"
+    printf '%s' "${DEBUG_FLAG_FILE:-$ZAPRET2_DIR/extra_strats/cache/autocircular/debug.flag}"
 }
 
 debug_flag_state() {
@@ -2685,7 +2685,9 @@ update_refresh_manifest() {
             fi
         fi
     fi
-    url="https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json"
+    # Канал — из frozen updater environment (Stage 6 seam): на Keenetic
+    # дефолт ниже, на OpenWrt его перекрывает platform.sh из Z2K_AU_REPO_RAW.
+    url="${Z2K_AU_MANIFEST_URL:-https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json}"
     # $$ в имени: mod_cgi выполняет запросы параллельно, общий temp двух
     # одновременных проверок — это подмена тела на полпути.
     tmp="${AU_MANIFEST_CACHE}.new.$$"

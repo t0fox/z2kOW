@@ -657,11 +657,16 @@ chmod 644 "$STAGE_WWW/index.html" "$STAGE_WWW/app.js" "$STAGE_WWW/style.css" \
           "$STAGE_WWW/favicon.svg" 2>/dev/null || true
 
 echo "[5/7] Writing lighttpd config"
+# @PLATFORM_ENV@ — только OpenWrt-рендерер подставляет setenv-строку; здесь
+# всегда пусто (Keenetic CGI платформу не переключает), но подставить обязаны:
+# иначе установленный конфиг уехал бы с буквальным плейсхолдером и lighttpd
+# не стартовал бы (au rebuild-panel так и проверяет — ни одного @...@).
 sed \
     -e "s|@WWW_DIR@|${WWW_DIR}|g" \
     -e "s|@PORT@|${PORT}|g" \
     -e "s|@BIND@|${BIND}|g" \
     -e "s|@IPV6_SOCKET@|$(_build_ipv6_socket)|g" \
+    -e "s|@PLATFORM_ENV@||g" \
     "$SRC_DIR/lighttpd.conf" > "$STAGE_WP/lighttpd.conf"
 
 # Стойкая копия обновляется тем же значением, что легло в панель: она обязана

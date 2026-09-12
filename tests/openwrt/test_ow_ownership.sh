@@ -9,14 +9,15 @@ SRC="$REPO/platform/openwrt $REPO/package/openwrt"
 # shellcheck disable=SC2086
 code() { for _d in $SRC; do find "$_d" -type f ! -name '.keep'; done | while IFS= read -r _f; do sed 's/#.*$//' "$_f"; done; }
 
-# 1. демоны запускаются из procd-сервиса z2k (ОДИН сервис, с Stage 3 —
+# 1. демоны запускаются из procd-сервисов (ЯДРО — один сервис z2k, с Stage 3 —
 # ДВА instance: nfqws2 в init.d/z2k, tg-mtproxy-client в platform/openwrt/tg.sh;
 # Stage 4 добавляет ТРЕТИЙ: z2k-rt-proxy в platform/openwrt/rt.sh, который init
 # подключает напрямую; Stage 5 добавляет ЧЕТВЁРТЫЙ: z2k-warpd в
-# platform/openwrt/warp.sh (instance того же сервиса); второго
-# init-сервиса нет).
+# platform/openwrt/warp.sh (instance того же сервиса); Stage 6 добавляет
+# ВТОРОЙ сервис: панель z2k-webpanel (свой instance, независимый lifecycle);
+# третьего сервиса нет).
 _n="$(grep -rl 'procd_set_param command' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | wc -l)"
-assert_eq "четыре instance-определения (init + tg.sh + rt.sh + warp.sh)" "4" "$(printf '%s' "$_n" | tr -d ' ')"
+assert_eq "пять command-определений (init + tg.sh + rt.sh + warp.sh + init панели)" "5" "$(printf '%s' "$_n" | tr -d ' ')"
 grep -rl 'procd_set_param command' "$REPO/package/openwrt/files/etc/init.d/z2k" >/dev/null 2>&1 \
     && _t_ok || _t_bad "владелец nfqws2 — не init.d/z2k"
 grep -rl 'procd_set_param command' "$REPO/platform/openwrt/tg.sh" >/dev/null 2>&1 \
@@ -25,6 +26,8 @@ grep -rl 'procd_set_param command' "$REPO/platform/openwrt/rt.sh" >/dev/null 2>&
     && _t_ok || _t_bad "владелец rt — не platform/openwrt/rt.sh"
 grep -rl 'procd_set_param command' "$REPO/platform/openwrt/warp.sh" >/dev/null 2>&1 \
     && _t_ok || _t_bad "владелец warp — не platform/openwrt/warp.sh"
+grep -rl 'procd_set_param command' "$REPO/package/openwrt/files/etc/init.d/z2k-webpanel" >/dev/null 2>&1 \
+    && _t_ok || _t_bad "владелец панели — не init.d/z2k-webpanel"
 _n="$(grep -c 'procd_set_param command' "$REPO/package/openwrt/files/etc/init.d/z2k" 2>/dev/null)"
 assert_eq "nfqws2 command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
 _n="$(grep -c 'procd_set_param command' "$REPO/platform/openwrt/tg.sh" 2>/dev/null)"
@@ -33,6 +36,8 @@ _n="$(grep -c 'procd_set_param command' "$REPO/platform/openwrt/rt.sh" 2>/dev/nu
 assert_eq "rt command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
 _n="$(grep -c 'procd_set_param command' "$REPO/platform/openwrt/warp.sh" 2>/dev/null)"
 assert_eq "warp command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
+_n="$(grep -c 'procd_set_param command' "$REPO/package/openwrt/files/etc/init.d/z2k-webpanel" 2>/dev/null)"
+assert_eq "panel command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
 
 # 2. своей nft-таблицы нет (не строим второй firewall-фреймворк)
 code | grep -qE 'table inet z2k|add table|create table' \
@@ -73,11 +78,13 @@ assert_eq "optbase: 1 определение + 1 вызов" "2" "$(printf '%s' 
 #                       (единственное исключение, см. пункт 8b)
 #   interface sets .... zapret2 (reload_ifsets; hotplug только зовёт)
 #   selective offload . zapret2 (FLOWOFFLOAD из конфига; своих правил нет)
-# ровно один procd-СЕРВИС в слое (instance'ов с Stage 5 — четыре)
+# ровно два procd-СЕРВИСА в слое: z2k (ядро) + z2k-webpanel (панель,
+# Stage 6, независимый lifecycle); третьего нет. instance'ов ядра — четыре
+# (nfqws2 + tg + rt + warp), плюс один панели.
 _n="$(ls "$REPO"/package/openwrt/files/etc/init.d/ 2>/dev/null | wc -l)"
-assert_eq "один procd-сервис (нет второго init-скрипта)" "1" "$(printf '%s' "$_n" | tr -d ' ')"
+assert_eq "два procd-сервиса (ядро + панель, третьего нет)" "2" "$(printf '%s' "$_n" | tr -d ' ')"
 _n="$(grep -rl 'procd_open_instance' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | wc -l)"
-assert_eq "четыре instance (nfqws2 + tg + rt + warp)" "4" "$(printf '%s' "$_n" | tr -d ' ')"
+assert_eq "пять instance (4 ядра + 1 панели)" "5" "$(printf '%s' "$_n" | tr -d ' ')"
 # ifsets: единственный писатель — zapret2 (мы только вызываем reload)
 code | grep -qE 'lanif|wanif|nft_fill_ifsets|add_element|create_set' \
     && _t_bad "адаптер пишет interface sets" || _t_ok

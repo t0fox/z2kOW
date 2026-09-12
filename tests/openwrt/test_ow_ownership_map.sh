@@ -38,6 +38,7 @@ while IFS= read -r _line; do
     [ "${2:-}" = "package" ] || continue
     case "$1" in
         /etc/init.d/z2k) _src="package/openwrt/files/etc/init.d/z2k" ;;
+        /etc/init.d/z2k-webpanel) _src="package/openwrt/files/etc/init.d/z2k-webpanel" ;;
         /etc/hotplug.d/iface/90-z2k) _src="package/openwrt/files/etc/hotplug.d/iface/90-z2k" ;;
         /usr/lib/z2k/platform/openwrt/*) _src="platform/openwrt/$(basename "$1")" ;;
         /usr/lib/z2k/share/config.default) _src="package/openwrt/files/etc/z2k/config.default" ;;

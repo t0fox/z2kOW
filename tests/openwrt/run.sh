@@ -11,6 +11,7 @@ PASS=0; FAIL=0; FAILED=""
 # 0. синтаксис всех shell-файлов слоя
 for _f in platform/openwrt/*.sh platform/openwrt/custom.d/.keep \
           package/openwrt/files/etc/init.d/z2k \
+          package/openwrt/files/etc/init.d/z2k-webpanel \
           package/openwrt/files/etc/hotplug.d/iface/90-z2k \
           tests/openwrt/*.sh; do
     [ -f "$_f" ] || continue

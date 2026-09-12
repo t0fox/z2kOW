@@ -952,6 +952,16 @@ warp_reload_lists() {
     return 0
 }
 
+# Live-apply списков, пока фича включена (панель после правок; Stage 6):
+# тот же atomic sets_load, никакой второй ipset-реализации. Выключено —
+# noop (enable зальёт полностью сам).
+# Совпадает с keenetic-вербом `ipset` files/z2k-warp.sh по контракту вызова.
+warp_ipset() {
+    [ "$(warp_flag)" = "1" ] || return 0
+    warp_nft_sets_load || return 1
+    return 0
+}
+
 # One-shot migrate (CLI): только списки (usque-наследия на OpenWrt нет).
 warp_migrate() {
     warp_lists_migrate
@@ -1059,9 +1069,10 @@ _z2k_ow_warp_dispatch() {
         status)       warp_status; return $? ;;
         selfheal)     warp_selfheal; return $? ;;
         reload-lists) warp_reload_lists; return $? ;;
+        ipset)        warp_ipset; return $? ;;
         migrate)      warp_migrate; return $? ;;
         *)
-            echo "usage: z2k_ow_warp {1|0|rules|proc-bounce|cleanup|check|install|enable|disable|remove|status|selfheal|reload-lists|migrate}" >&2
+            echo "usage: z2k_ow_warp {1|0|rules|proc-bounce|cleanup|check|install|enable|disable|remove|status|selfheal|reload-lists|ipset|migrate}" >&2
             return 1
             ;;
     esac
@@ -1149,8 +1160,9 @@ case "${1:-}" in
     status)    warp_status ;;
     selfheal)  _warp_locked warp_selfheal ;;
     reload-lists) _warp_locked warp_reload_lists ;;
+    ipset) _warp_locked warp_ipset ;;
     migrate)   warp_migrate ;;
     *)
-        echo "usage: $0 {install|enable|disable|remove|status|selfheal|reload-lists|migrate}" >&2
+        echo "usage: $0 {install|enable|disable|remove|status|selfheal|reload-lists|ipset|migrate}" >&2
         exit 1 ;;
 esac

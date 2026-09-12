@@ -219,6 +219,18 @@ _z2k_install_paths_openwrt() {
             echo "${or}/z2k-config-validator.sh" ;;
         files/etc/*)
             echo "${or}/etc/${repo_path#files/etc/}" ;;
+        # Stage 6: webpanel common assets — UPDATER-owned и на OpenWrt
+        # (UI-правки едут подписанным апдейтером, не пакетом). Пути — §23
+        # контракта. install.sh/uninstall.sh/S96-init сюда НЕ входят:
+        # установка/сервис панели на OpenWrt — package-owned.
+        webpanel/cgi/*.sh)
+            echo "${or}/webpanel/cgi/${repo_path#webpanel/cgi/}" ;;
+        webpanel/www/*)
+            echo "${or}/www/${repo_path#webpanel/www/}" ;;
+        webpanel/lighttpd.conf)
+            echo "${or}/webpanel/lighttpd.conf.in" ;;
+        files/z2k-dns-check.sh)
+            echo "${or}/z2k-dns-check.sh" ;;
         tests/*)
             : # как keenetic: тесты — dev/CI, на роутер не едут
             ;;

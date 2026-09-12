@@ -45,6 +45,8 @@
 /usr/lib/z2k/platform/openwrt/warp.sh package
 /usr/lib/z2k/platform/openwrt/warp-proc.sh package
 /usr/lib/z2k/platform/openwrt/warp-check.sh package
+/usr/lib/z2k/platform/openwrt/webpanel.sh package
+/etc/init.d/z2k-webpanel package
 /usr/lib/z2k/share/config.default package
 /usr/lib/z2k/share/seed.tar.gz package
 # seed.meta едет ВНУТРИ tarball (build-факт о содержимом): updater-owned с
@@ -70,3 +72,9 @@
 # НЕ user config (человек не правит), НЕ updater payload, НЕ install-meta
 # (uninstall её НЕ удаляет — иначе reinstall заводил бы новое устройство).
 /etc/z2k/state/warp/device.json daemon-state
+# Webpanel (Stage 6): common CGI/static/template — UPDATER (UI-правки едут
+# подписанным апдейтером); glue/init — PACKAGE; настройки — USER;
+# сгенерированный конфиг/логи/pid — TRANSIENT (tmpfs).
+/usr/lib/z2k/webpanel/* updater
+/usr/lib/z2k/www/* updater
+/etc/z2k/webpanel/* user

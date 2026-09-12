@@ -1,6 +1,6 @@
 import { apiGet, apiPost, errHtml, errMsg, toastErr } from "../core/api.js";
 import { $app } from "../core/dom.js";
-import { _newLoad, _stale, refreshStatus } from "../core/loadorder.js";
+import { _newLoad, _stale, applyCapabilities, refreshStatus } from "../core/loadorder.js";
 import { toast } from "../core/toast.js";
 import { JOB_FAIL, _updateGlobalUILock, confirmModal, jobOutcome, jobUnresolved, openJobModal, setLockAware, unresolvedMsg } from "../job.js";
 import { AUTOHOSTLIST_WARNING, TOGGLES_RESTART_SERVICE, resyncToggle } from "./policy.js";
@@ -187,6 +187,7 @@ export async function renderToggles() {
       return;
     }
     if (_stale("toggles", seq)) return;
+    applyCapabilities(s);
     // /status мог вернуться уже после ухода со страницы: $app очищен, ни
     // одного из этих элементов больше нет, и обращение к badge.hidden роняло
     // весь остаток renderToggles — вместе с привязкой кнопок туннеля,

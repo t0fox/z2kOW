@@ -31,8 +31,18 @@ fi
 
 # shellcheck source=auth.sh
 . "$SELF_DIR/auth.sh"
+# Platform seam (Stage 6): env map ДО actions.sh (её топ-уровневые :- дефолты
+# вычисляются при сорсинге), overrides — ПОСЛЕ (иначе actions.sh перетрёт их
+# своими keenetic-определениями). На Keenetic обе строки no-op. Файл один,
+# идемпотентен. Guard -f: потребители, копирующие api.sh без platform.sh
+# (юнит-стенды), не должны умирать на missing source — `.` с несуществующим
+# файлом роняет неинтерактивный shell молча и без ответа.
+# shellcheck source=platform.sh
+[ -f "$SELF_DIR/platform.sh" ] && . "$SELF_DIR/platform.sh"
 # shellcheck source=actions.sh
 . "$SELF_DIR/actions.sh"
+# shellcheck source=platform.sh
+[ -f "$SELF_DIR/platform.sh" ] && . "$SELF_DIR/platform.sh"
 
 # --- utility: json output ---
 
@@ -278,7 +288,14 @@ case "$method $path" in
         printf ',"ppe":';                    json_string "${ppe:-1}"
         printf ',"auto_update":';            json_string "${auto_update:-1}"
         printf ',"autohostlist":';           json_string "${autohostlist:-0}"
-        printf '},"tunnel":{"running":%s}}\n' "${tunnel_running:-false}"
+        printf '},"tunnel":{"running":%s}' "${tunnel_running:-false}"
+        # OpenWrt capability visibility (§18): только openwrt, Keenetic-байты
+        # не меняются. shapes preserved, ключи аддитивны (фрагмент уже
+        # в кавычках — добавляем только запятую).
+        if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+            printf ',%s' "$(wp_capabilities_json)"
+        fi
+        printf '}\n'
         exit 0
         ;;
 
