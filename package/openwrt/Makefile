@@ -74,6 +74,8 @@ z2k_ow_seed_ensure || exit 1
 z2k_ow_cron_install || exit 1
 # TG health-check cron (своя строка/маркер, см. schedule.sh).
 z2k_ow_tg_cron_install || exit 1
+# RT health-check cron (своя строка/маркер).
+z2k_ow_rt_cron_install || exit 1
 exit 0
 endef
 

@@ -33,3 +33,10 @@ if [ -f "$Z2K_ROOT/platform/openwrt/tg.sh" ]; then
     . "$Z2K_ROOT/platform/openwrt/tg.sh" 2>/dev/null && \
         z2k_ow_tg rules 2>/dev/null || true
 fi
+# RT rules reconverge (Stage 4): nft + whitelist, DNS только verify без
+# commit; демон НЕ трогаем. Аналогичный guard отсутствия файла.
+if [ -f "$Z2K_ROOT/platform/openwrt/rt.sh" ]; then
+    # shellcheck disable=SC1090,SC1091
+    . "$Z2K_ROOT/platform/openwrt/rt.sh" 2>/dev/null && \
+        z2k_ow_rt rules 2>/dev/null || true
+fi

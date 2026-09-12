@@ -26,6 +26,7 @@ z2k_load_adapter() {
     . "$Z2K_ROOT/platform/openwrt/optbase.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/firewall.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/tg.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/rt.sh" || return 1
     . "$Z2K_LIB/utils.sh" || return 1
     . "$Z2K_LIB/strategies.sh" || return 1
     . "$Z2K_LIB/config_official.sh" || return 1
@@ -61,6 +62,9 @@ start_service() {
     # Прямой вызов (НЕ через custom.d-раннер выше): DISABLE_CUSTOM не должен
     # гасить first-class feature. procd останавливает instance сам.
     z2k_ow_tg 1
+    # RT proxy (Stage 4): третий instance + DNS-пины + nft. DNS re-assert
+    # идемпотентен — gap при рестарте нет (контракт stop_proxy).
+    z2k_ow_rt 1
 }
 
 stop_service() {
@@ -70,6 +74,8 @@ stop_service() {
     z2k_ow_custom_daemons 0
     # TG chains снять (sets оставить); демона останавливает сам procd.
     z2k_ow_tg 0
+    # RT full stop: redirect/guard + DNS-пины снять (процесс — через procd).
+    z2k_ow_rt 0
     # Демона останавливает сам procd; снимаем только firewall.
     [ "${INIT_APPLY_FW:-1}" = "1" ] && z2k_ow_fw_remove
 }

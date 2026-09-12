@@ -17,6 +17,9 @@ Z2K_CRON_LINE="17 2 * * * $Z2K_ROOT/platform/openwrt/update.sh apply # z2k-updat
 # TG health-check (Stage 3): конвергенция rules + probe + kill-only backoff.
 # Отдельный маркер и отдельные функции: updater-строку не трогаем.
 Z2K_TG_CRON_LINE="*/5 * * * * $Z2K_ROOT/platform/openwrt/tg-check.sh check # z2k-tg-health"
+# RT health-check (Stage 4): конвергенция RT + halt-teardown при стойкой
+# смерти. Свой маркер, тот же атомарный приём.
+Z2K_RT_CRON_LINE="*/5 * * * * $Z2K_ROOT/platform/openwrt/rt-check.sh check # z2k-rt-health"
 
 z2k_ow_cron_install() {
     mkdir -p "$(dirname "$Z2K_CRON_TAB")" 2>/dev/null || return 1
@@ -86,5 +89,20 @@ z2k_ow_tg_cron_install() {
 z2k_ow_tg_cron_remove() {
     [ -f "$Z2K_CRON_TAB" ] || return 0
     _z2k_ow_cron_swap_line "# z2k-tg-health" "" || return 1
+    return 0
+}
+
+z2k_ow_rt_cron_install() {
+    _z2k_ow_cron_swap_line "# z2k-rt-health" "$Z2K_RT_CRON_LINE" || return 1
+    if [ -x /etc/init.d/cron ]; then
+        /etc/init.d/cron enabled 2>/dev/null || /etc/init.d/cron enable 2>/dev/null || true
+        pidof crond >/dev/null 2>&1 || /etc/init.d/cron start 2>/dev/null || true
+    fi
+    return 0
+}
+
+z2k_ow_rt_cron_remove() {
+    [ -f "$Z2K_CRON_TAB" ] || return 0
+    _z2k_ow_cron_swap_line "# z2k-rt-health" "" || return 1
     return 0
 }
