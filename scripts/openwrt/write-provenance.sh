@@ -6,23 +6,28 @@
 # Входы (обязательные): OW_RELEASE SDK_URL SDK_SHA256 SDK_DIR TARGET ARCH
 #   SRC_COMMIT PKG_VERSION PKG_RELEASE ADAPTER_API SEED_TAG SEED_REF
 #   VERIFIED_REMOTE(true|false) MANIFEST_CURRENT OUT(provenance.json path)
+#   CI_SNAPSHOT(true|false) PRODUCTION_RELEASE(true|false) VERIFIED_SDK(true|false)
 # Использование: VAR=... sh scripts/openwrt/write-provenance.sh
 # POSIX sh + python3.
 
 set -e
 for _v in OW_RELEASE SDK_URL SDK_SHA256 SDK_DIR TARGET ARCH SRC_COMMIT \
          PKG_VERSION PKG_RELEASE ADAPTER_API SEED_TAG SEED_REF \
-         VERIFIED_REMOTE MANIFEST_CURRENT OUT; do
+         VERIFIED_REMOTE MANIFEST_CURRENT OUT \
+         CI_SNAPSHOT PRODUCTION_RELEASE VERIFIED_SDK; do
     eval "_val=\${$_v:-}"
     if [ -z "$_val" ]; then
         printf 'write-provenance: нет %s\n' "$_v" >&2
         exit 1
     fi
 done
-case "$VERIFIED_REMOTE" in
-    true|false) ;;
-    *) printf 'write-provenance: VERIFIED_REMOTE только true|false\n' >&2; exit 1 ;;
-esac
+for _b in VERIFIED_REMOTE CI_SNAPSHOT PRODUCTION_RELEASE VERIFIED_SDK; do
+    eval "_bv=\${$_b:-}"
+    case "$_bv" in
+        true|false) ;;
+        *) printf 'write-provenance: %s только true|false\n' "$_b" >&2; exit 1 ;;
+    esac
+done
 command -v python3 >/dev/null 2>&1 || { printf 'write-provenance: нужен python3\n' >&2; exit 1; }
 
 python3 - <<'PYEOF'
@@ -38,6 +43,9 @@ keymap = (('OW_RELEASE', 'openwrt_release'), ('SDK_URL', 'sdk_url'),
           ('MANIFEST_CURRENT', 'manifest_current'))
 vals = {dst: os.environ[src] for src, dst in keymap}
 vals['seed_ref_verified_remote'] = (os.environ['VERIFIED_REMOTE'] == 'true')
+vals['ci_snapshot'] = (os.environ['CI_SNAPSHOT'] == 'true')
+vals['production_release'] = (os.environ['PRODUCTION_RELEASE'] == 'true')
+vals['verified_sdk'] = (os.environ['VERIFIED_SDK'] == 'true')
 vals['built_at_utc'] = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 out = os.environ['OUT']
 d = open(out, 'w', encoding='utf-8')

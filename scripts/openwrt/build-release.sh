@@ -26,7 +26,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 die() { printf 'build-release: %s\n' "$1" >&2; exit 1; }
 note() { printf 'build-release: %s\n' "$1"; }
 
-SDK="auto"; TARGET=""; ARCH=""; MANIFEST=""; OUT=""; DEV=0; SKIP_TESTS=0
+SDK="auto"; TARGET=""; ARCH=""; MANIFEST=""; OUT=""; DEV=0; SKIP_TESTS=0; CI_SNAPSHOT=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --sdk) SDK="$2"; shift 2 ;;
@@ -36,11 +36,20 @@ while [ $# -gt 0 ]; do
         --out) OUT="$2"; shift 2 ;;
         --dev) DEV=1; shift ;;
         --skip-tests) SKIP_TESTS=1; shift ;;
+        --ci-snapshot) CI_SNAPSHOT=1; shift ;;
+        --print-sdk-pin) _pin_mode=1; shift ;;
         *) die "неизвестный флаг $1" ;;
     esac
 done
 
 [ -n "$TARGET" ] || die "--target обязателен (например mediatek/filogic)"
+# --- 0. SDK pin query: раньше всех остальных гейтов (ему нужен только target).
+_sdk_pin_url() { _t="$1"; _f="$(printf '%s' "$_t" | tr '/' '-')"; printf 'https://downloads.openwrt.org/releases/25.12.5/targets/%s/openwrt-sdk-25.12.5-%s_gcc-14.3.0_musl.Linux-x86_64.tar.zst' "$_t" "$_f"; }
+_sdk_pin_sha() { printf 'ff4a38a397caa2cfe1c39e18f84ddede14878221b3593c3f2c4cfe24e3ec4c25'; }
+if [ "${_pin_mode:-0}" = "1" ]; then
+    printf '%s|%s\n' "$(_sdk_pin_url "$TARGET")" "$(_sdk_pin_sha)"
+    exit 0
+fi
 [ -n "$ARCH" ] || die "--arch обязателен явно, угадывать запрещено (§20)"
 [ -n "$MANIFEST" ] && [ -f "$MANIFEST" ] || die "--manifest: нужен OpenWrt-манифест релиза"
 [ -n "$OUT" ] || die "--out: нужен каталог dist"
@@ -119,20 +128,33 @@ _api_need="$(sh -c '. "$1/lib/auto_update.sh" >/dev/null 2>&1; . "$1/platform/op
 note "adapter API coherence: need=$_api_need packaged=$ADAPTER_API"
 
 # --- 4. exact SDK ---------------------------------------------------------------
-# Пин SDK: релиз и таргет фиксированы здесь (единственное место правды).
-# SHA — sha256 SDK-тарболла с downloads.openwrt.org (заполняется при первом
-# реальном билде и сверяется всегда; несовпадение = отказ).
+# Пин — из функций выше (единственное место правды). Проверяется дважды:
+# tarball при скачивании (CI шаг) + receipt в распакованном SDK (этот шаг —
+# и на cache-hit: каталогу из кеша без чека не доверяем, §7).
 OW_RELEASE="25.12.5"
-SDK_URL="https://downloads.openwrt.org/releases/${OW_RELEASE}/targets/${TARGET}/openwrt-sdk-${OW_RELEASE}-${TARGET}_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
-SDK_SHA256="UNPINNED"
+SDK_URL="$(_sdk_pin_url "$TARGET")"
+SDK_SHA256="$(_sdk_pin_sha)"
 if [ "$SDK" = "auto" ]; then
     for _cand in "$HOME/openwrt-sdk-${OW_RELEASE}-${TARGET}" "$ROOT/.sdk"; do
         if [ -f "$_cand/rules.mk" ] && [ -d "$_cand/staging_dir" ]; then SDK="$_cand"; break; fi
     done
 fi
-[ -d "$SDK" ] || die "SDK не найден ($SDK). Скачайте $SDK_URL, сверьте sha256, распакуйте. Mock-сборки запрещены (§68)."
+[ -d "$SDK" ] || die "SDK не найден ($SDK). Скачайте $SDK_URL, сверьте sha256 ($SDK_SHA256), распакуйте, запишите sha в \$SDK/.sdk-sha256-verified. Mock-сборки запрещены (§68)."
 [ -f "$SDK/rules.mk" ] && [ -d "$SDK/staging_dir" ] && [ -d "$SDK/package" ] \
     || die "$SDK не похож на OpenWrt SDK (нет rules.mk/staging_dir/package)"
+# Receipt identity (§7): кем бы каталог ни был положен (скачивание, кеш),
+# его sha обязана совпасть с пином — иначе это не тот SDK.
+_sdk_receipt="$(cat "$SDK/.sdk-sha256-verified" 2>/dev/null | tr -d '[:space:]')"
+if [ "$_sdk_receipt" = "$SDK_SHA256" ]; then
+    note "SDK identity verified (receipt)"
+    VERIFIED_SDK="true"
+elif [ "$DEV" = "1" ]; then
+    note "ВНИМАНИЕ: SDK receipt отсутствует/чужой (--dev, verified_sdk=false)"
+    VERIFIED_SDK="false"
+else
+    die "SDK identity не подтверждена: нет \$SDK/.sdk-sha256-verified с $SDK_SHA256 (запишите его после сверки тарболла; кешу без чека не доверяем)"
+fi
+export VERIFIED_SDK
 note "SDK: $SDK"
 
 # --- 5. build --------------------------------------------------------------------
@@ -174,11 +196,20 @@ while IFS= read -r _a; do
 done < "$SEED_TMP/apks.txt"
 ( cd "$OUT" && sha256sum z2k-*.apk > sha256sums )
 note "dist: $(ls "$OUT" | tr '\n' ' ')"
-# provenance.json — machine-readable (§24). SDK_SHA256 здесь UNPINNED до
-# первого реального билда: пин вносится в скрипт вместе с проверкой.
+# provenance.json — machine-readable (§24, формат владеет write-provenance.sh).
+# CI snapshot (§4): тот же implementation, но provenance честно маркирует
+# disposable-артефакт (ci_snapshot=true, production_release=false);
+# production_release=true — только не-dev и не-ci прогон до конца.
 export OW_RELEASE SDK_URL SDK_SHA256
 export SDK_DIR="$SDK" TARGET ARCH SRC_COMMIT PKG_VERSION PKG_RELEASE
 export ADAPTER_API SEED_TAG SEED_REF VERIFIED_REMOTE MANIFEST_CURRENT
+export CI_SNAPSHOT="$CI_SNAPSHOT"
+if [ "$CI_SNAPSHOT" = "1" ] || [ "$DEV" = "1" ]; then
+    PRODUCTION_RELEASE="0"
+else
+    PRODUCTION_RELEASE="1"
+fi
+export PRODUCTION_RELEASE
 export OUT="$OUT/provenance.json"
 sh "$ROOT/scripts/openwrt/write-provenance.sh" || die "provenance не записался"
 note "dist готов: $OUT (provenance.json + sha256sums + METADATA.txt)"

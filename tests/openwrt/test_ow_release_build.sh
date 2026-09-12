@@ -78,15 +78,27 @@ _seed_meta="$(tar -xzOf "$T/seed.tar.gz" usr/lib/z2k/share/seed.meta 2>/dev/null
 _pay_meta="$(tar -xzOf "$T/seed.tar.gz" usr/lib/z2k/share/payload.meta 2>/dev/null)"
 assert_eq "seed.meta == payload.meta" "$_seed_meta" "$_pay_meta"
 
+# --- SDK pin: single source of truth (§3) ---
+_pin="$(sh "$REPO/scripts/openwrt/build-release.sh" --print-sdk-pin --target mediatek/filogic 2>/dev/null)"
+assert_eq "sdk pin url" "https://downloads.openwrt.org/releases/25.12.5/targets/mediatek/filogic/openwrt-sdk-25.12.5-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst" "$(printf '%s' "$_pin" | cut -d'|' -f1)"
+assert_eq "sdk pin sha" "ff4a38a397caa2cfe1c39e18f84ddede14878221b3593c3f2c4cfe24e3ec4c25" "$(printf '%s' "$_pin" | cut -d'|' -f2)"
+if grep -q 'SDK_SHA256="UNPINNED"' "$REPO/scripts/openwrt/build-release.sh" 2>/dev/null; then
+    _t_bad "UNPINNED pin остался"
+else
+    _t_ok
+fi
+
 # --- write-provenance.sh: форма + обязательность полей ---
 OW_RELEASE="25.12.5" SDK_URL="https://example.com/sdk.tar.zst" SDK_SHA256="UNPINNED"
 SDK_DIR="/sdk" TARGET="mediatek/filogic" ARCH="aarch64_cortex-a53"
 SRC_COMMIT="abc123" PKG_VERSION="0.1.0" PKG_RELEASE="1" ADAPTER_API="1"
 SEED_TAG="p-2" SEED_REF="p-2" VERIFIED_REMOTE="false" MANIFEST_CURRENT="p-2"
+CI_SNAPSHOT="true" PRODUCTION_RELEASE="false" VERIFIED_SDK="true"
 OUT="$T/provenance.json"
 export OW_RELEASE SDK_URL SDK_SHA256 SDK_DIR TARGET ARCH SRC_COMMIT
 export PKG_VERSION PKG_RELEASE ADAPTER_API SEED_TAG SEED_REF
 export VERIFIED_REMOTE MANIFEST_CURRENT OUT
+export CI_SNAPSHOT PRODUCTION_RELEASE VERIFIED_SDK
 sh "$REPO/scripts/openwrt/write-provenance.sh" >/dev/null 2>&1
 assert_eq "provenance rc" "0" "$?"
 python3 - "$T/provenance.json" <<'PYEOF'
@@ -94,12 +106,15 @@ import json, sys
 d = json.load(open(sys.argv[1], encoding='utf-8'))
 need = ('openwrt_release sdk_url sdk_sha256 sdk_dir target arch source_commit '
         'package_version package_release adapter_api seed_tag seed_ref '
-        'seed_ref_verified_remote manifest_current built_at_utc').split()
+        'seed_ref_verified_remote manifest_current built_at_utc '
+        'ci_snapshot production_release verified_sdk').split()
 miss = [k for k in need if k not in d or d[k] in (None, '')]
 if miss:
     sys.stderr.write('MISSING: %s\n' % ' '.join(miss))
     sys.exit(1)
 assert d['seed_ref_verified_remote'] is False, 'bool, not string'
+assert d['ci_snapshot'] is True and d['production_release'] is False
+assert d['verified_sdk'] is True
 assert d['adapter_api'] == '1' and d['arch'] == 'aarch64_cortex-a53'
 print('provenance shape ok')
 PYEOF
