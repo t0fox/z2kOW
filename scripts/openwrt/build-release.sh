@@ -166,6 +166,13 @@ ln -sfn "$ROOT/package/openwrt" "$SDK/package/z2k"
 note "package linked: $SDK/package/z2k -> $ROOT/package/openwrt"
 # Версия пакета — из Makefile (дерево зафиксировано гейтом чистоты выше).
 SDK_LOG="$SEED_TMP/sdk-build.log"
+# Pristine SDK без .config собирать не умеет; дефолт SDK — его же таргет
+# (явно в provenance через TARGET/ARCH, .PKGINFO-аудит ловит чужую арку).
+if [ ! -f "$SDK/.config" ]; then
+    note "SDK без .config — make defconfig (дефолт таргета SDK)"
+    make -C "$SDK" defconfig >"$SDK_LOG.defconfig" 2>&1 \
+        || die "make defconfig в SDK упал, лог: $SDK_LOG.defconfig"
+fi
 note "make package/z2k-adapter/compile + package/z2k-webpanel/compile ..."
 if ! make -C "$SDK" "package/z2k-adapter/compile" "package/z2k-webpanel/compile" V=s >"$SDK_LOG" 2>&1; then
     die "сборка в SDK упала, лог: $SDK_LOG"

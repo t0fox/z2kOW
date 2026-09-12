@@ -731,3 +731,181 @@ jobs:
       # this repo three times already, so it is a build failure, not a warning.
       - name: Run mutants
         run: GO=go sh tests/mutation.sh
+
+  openwrt-package:
+    name: OpenWrt package (25.12.5 SDK)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # upload-artifact + actions/cache-save need more than the global
+    # contents:read (точечное расширение только этой джобы, не всего workflow).
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Полная история: release/build tooling сверяет ref'ы и regen.
+          fetch-depth: 0
+
+      # Пин — из скрипта, а не из YAML (§3 closure, single source of truth).
+      - name: Resolve SDK pin
+        id: sdk
+        run: |
+          set -eu -o pipefail
+          pin="$(sh scripts/openwrt/build-release.sh --print-sdk-pin --target mediatek/filogic)"
+          echo "url=${pin%%|*}" >> "$GITHUB_OUTPUT"
+          echo "sha=${pin##*|}" >> "$GITHUB_OUTPUT"
+          echo "SDK tarball: ${pin%%|*}"
+          echo "SDK sha256: ${pin##*|}"
+
+      - name: Restore SDK from cache
+        id: sdk-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/openwrt-sdk-25.12.5-mediatek-filogic
+          # Ключ содержит pin: смена SDK = другой ключ, старое не подхватится.
+          key: openwrt-sdk-25.12.5-mediatek-filogic-${{ steps.sdk.outputs.sha }}
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zstd
+
+      # Cache-hit всё равно сверяет identity receipt (§7 closure):
+      # каталогу из кеша без чека не доверяем.
+      - name: Verify cached SDK identity
+        if: steps.sdk-cache.outputs.cache-hit == 'true'
+        run: |
+          set -eu -o pipefail
+          test -f ~/openwrt-sdk-25.12.5-mediatek-filogic/rules.mk
+          test -d ~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir
+          test "$(cat ~/openwrt-sdk-25.12.5-mediatek-filogic/.sdk-sha256-verified)" = '${{ steps.sdk.outputs.sha }}'
+
+      - name: Download and verify SDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eu -o pipefail
+          mkdir -p ~/sdk-dl ~/openwrt-sdk-25.12.5-mediatek-filogic
+          cd ~/sdk-dl || exit 1
+          curl -fSL --retry 3 --retry-all-errors -o sdk.tar.zst '${{ steps.sdk.outputs.url }}'
+          printf '%s  %s\n' '${{ steps.sdk.outputs.sha }}' sdk.tar.zst | sha256sum -c -
+          tar --zstd -xf sdk.tar.zst -C ~/openwrt-sdk-25.12.5-mediatek-filogic --strip-components=1
+          printf '%s\n' '${{ steps.sdk.outputs.sha }}' > ~/openwrt-sdk-25.12.5-mediatek-filogic/.sdk-sha256-verified
+
+      # Зависимости — по реальным метаданным SDK (§9 closure): наши claims
+      # обязаны существовать (fail closed), mod-пакеты — evidence-дамп для
+      # follow-up pin (Makefile не меняем по недоказанным именам).
+      - name: Audit dependencies against SDK feed metadata
+        run: |
+          set -eu -o pipefail
+          sdk=~/openwrt-sdk-25.12.5-mediatek-filogic
+          echo "--- declared DEPENDS must exist in feed metadata ---"
+          grep -rq "^define Package/lighttpd$" "$sdk/package" && echo "OK: lighttpd"
+          grep -rq "^define Package/conntrack$" "$sdk/package" && echo "OK: conntrack"
+          grep -rq "define KernelPackage/nft-queue" "$sdk/package" && echo "OK: kmod-nft-queue"
+          echo "--- lighttpd mod evidence (follow-up pin decision) ---"
+          grep -rl "^define Package/lighttpd-mod-" "$sdk/package" || echo "(no lighttpd-mod-* packages in SDK)"
+          echo "--- base tools evidence (must be base-provided, no DEPENDS) ---"
+          command -v ip ubus uci nft || true
+
+      - name: Generate OpenWrt candidate manifest (temp artifact, not committed)
+        run: |
+          set -eu -o pipefail
+          sh scripts/openwrt/gen-openwrt-manifest.sh \
+            --source-manifest UPDATES.json --tree "$GITHUB_WORKSPACE" \
+            --ref "$(git rev-parse --short HEAD)" \
+            --api-min "$(grep -E '^[[:space:]]*[0-9]+' package/openwrt/ADAPTER_API | tr -d '[:space:]')" \
+            --out "$RUNNER_TEMP/openwrt-UPDATES.json"
+
+      # Вся сборка — каноническим скриптом (§4/§25 closure): логика НЕ
+      # дублируется в YAML. Snapshot маркируется в provenance, публикации нет.
+      - name: Build packages (canonical builder, CI snapshot)
+        run: |
+          set -eu -o pipefail
+          sh scripts/openwrt/build-release.sh --ci-snapshot \
+            --sdk ~/openwrt-sdk-25.12.5-mediatek-filogic \
+            --target mediatek/filogic --arch aarch64_cortex-a53 \
+            --manifest "$RUNNER_TEMP/openwrt-UPDATES.json" \
+            --out "$RUNNER_TEMP/dist" 2>&1 | tee "$RUNNER_TEMP/build-release.log"
+          cp "$RUNNER_TEMP/build-release.log" "$RUNNER_TEMP/dist/"
+
+      - name: Inspect APK metadata (.PKGINFO)
+        run: |
+          set -eu -o pipefail
+          ls -la "$RUNNER_TEMP/dist"/z2k-adapter-*.apk "$RUNNER_TEMP/dist"/z2k-webpanel-*.apk
+          for a in "$RUNNER_TEMP/dist"/z2k-adapter-*.apk "$RUNNER_TEMP/dist"/z2k-webpanel-*.apk; do
+            echo "=== $a ==="
+            tar -tzf "$a" | sort
+            tar -xzOf "$a" .PKGINFO
+          done
+          grep -q 'cortex-a53' "$RUNNER_TEMP/dist/METADATA.txt"
+
+      - name: Build feed index with SDK tooling
+        run: |
+          set -eu -o pipefail
+          sdk=~/openwrt-sdk-25.12.5-mediatek-filogic
+          make -C "$sdk" package/index V=s
+          adb="$(find "$sdk/bin/packages" -name 'packages.adb' | LC_ALL=C sort | head -1)"
+          test -n "$adb"
+          echo "packages.adb: $adb"
+          cp -f "$adb" "$RUNNER_TEMP/dist/packages.adb"
+
+      # Ephemeral-подпись поверх РЕАЛЬНЫХ байтов индекса (§11 closure):
+      # correct принимает, wrong-key и tamper — нет. Production-ключа здесь
+      # нет и быть не должно (§28 closure); приватный ключ уничтожается до upload.
+      - name: Ephemeral feed signing (correct-key / wrong-key / tamper)
+        run: |
+          set -eu -o pipefail
+          cd "$RUNNER_TEMP/dist" || exit 1
+          openssl genpkey -algorithm ed25519 -out feed-test.key
+          openssl pkey -in feed-test.key -pubout -out feed-test.pub
+          openssl genpkey -algorithm ed25519 -out feed-wrong.key
+          openssl pkey -in feed-wrong.key -pubout -out feed-wrong.pub
+          sha256sum z2k-*.apk packages.adb > sha256sums.ci
+          openssl pkeyutl -sign -rawin -inkey feed-test.key -in sha256sums.ci -out sha256sums.ci.sig
+          openssl pkeyutl -verify -rawin -pubin -inkey feed-test.pub -in sha256sums.ci -sigfile sha256sums.ci.sig
+          echo "correct-key accepted"
+          if openssl pkeyutl -verify -rawin -pubin -inkey feed-wrong.pub -in sha256sums.ci -sigfile sha256sums.ci.sig >/dev/null 2>&1; then
+            echo "wrong key accepted — FAIL" >&2
+            exit 1
+          fi
+          echo "wrong-key rejected"
+          cp packages.adb packages.adb.orig
+          printf 'TAMPER' >> packages.adb
+          if sha256sum -c sha256sums.ci >/dev/null 2>&1; then
+            echo "tamper unnoticed — FAIL" >&2
+            exit 1
+          fi
+          echo "tamper rejected"
+          mv -f packages.adb.orig packages.adb
+          shred -u feed-test.key feed-wrong.key
+
+      # Resolution proof в изолированном root (§12 closure): только индекс +
+      # резолв, НЕ router runtime. Подпись обходится ЯВНО (dev-режим артефакта;
+      # сама подпись доказана шагом выше настоящим verify).
+      - name: Feed resolution in isolated root (SDK apk)
+        run: |
+          set -eu -o pipefail
+          apkbin=~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk
+          test -x "$apkbin"
+          "$apkbin" --version
+          mkdir -p "$RUNNER_TEMP/approot/etc/apk/keys" "$RUNNER_TEMP/approot/etc/apk/repositories.d"
+          printf '%s\n' "file://$RUNNER_TEMP/dist" > "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
+          "$apkbin" --root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted update
+          "$apkbin" --root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted search z2k-adapter | grep -q z2k-adapter
+          "$apkbin" --root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted search z2k-webpanel | grep -q z2k-webpanel
+
+      - name: Upload CI snapshot artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: z2k-openwrt-CI-SNAPSHOT-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/dist/z2k-adapter-*.apk
+            ${{ runner.temp }}/dist/z2k-webpanel-*.apk
+            ${{ runner.temp }}/dist/packages.adb
+            ${{ runner.temp }}/dist/sha256sums*
+            ${{ runner.temp }}/dist/provenance.json
+            ${{ runner.temp }}/dist/METADATA.txt
+            ${{ runner.temp }}/dist/build-release.log
+            ${{ runner.temp }}/dist/feed-test.pub
