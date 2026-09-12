@@ -129,4 +129,19 @@ printf 'platform/openwrt/warp.sh\npackage/openwrt/Makefile\n' > "$T/changed-pkg.
 _gotd="$(sh "$GEN" --print-deliverables "$T/changed-pkg.txt" 2>/dev/null)"
 assert_eq "deliverables: package-only пусто (R13)" "" "$_gotd"
 
+# --- §46: каждый ключ install_map результата — sha + updater-dest ---
+# (Никакого ключа без эталона и без цели: молча недоставляемое запрещено.)
+python3 - "$T/out.json" <<'PYEOF'
+import json, sys
+m = json.load(open(sys.argv[1], encoding='utf-8'))
+mp = m['install_map']
+shas = m['files_sha256']
+bad = [k for k in mp if k not in shas or not mp[k]]
+if bad:
+    sys.stderr.write('NO-SHA-OR-DEST: %s\n' % ' '.join(bad))
+    sys.exit(1)
+print('install_map shape ok: %d keys' % len(mp))
+PYEOF
+[ "$?" = "0" ] && _t_ok || _t_bad "install_map shape"
+
 _t_done

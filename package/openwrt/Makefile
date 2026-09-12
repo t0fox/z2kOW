@@ -17,6 +17,12 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
 PKG_RELEASE:=1
+# PKGARCH:=all: пакет везёт только shell/data (seed — lib/lua/fake/lists/
+# strats/webpanel; TG/RT/WARP/z2k-detect едут updater binary flow, НЕ в APK —
+# иначе каждый апстрим-бинер требовал бы пересборки, §52). Доказательство —
+# ELF-scan seed в tests (test_ow_release_package.sh). Появится arch-специфика
+# в пакете — arch станет target'ной; угадывать запрещено (§20).
+PKGARCH:=all
 PKG_MAINTAINER:=z2k contributors
 PKG_LICENSE:=MIT
 
