@@ -74,9 +74,10 @@ _reset() {
 _reset
 z2k_ow_tg 1 || _t_bad "TG1: tg 1 rc"
 assert_eq "TG1: один instance" "1" "$(grep -c '^instance:z2k-tg$' "$T/procd.log")"
+assert_contains "TG1: respawn bounded exact" "$T/procd.log" "param:respawn 3600 5 5"
 assert_contains "TG1: оба порта в command" "$T/procd.log" "--listen=:1443"
 assert_contains "TG1: cdn порт в command" "$T/procd.log" "--listen=:1444"
-assert_eq "TG1: правил 6" "6" "$(grep -c '^nft:add rule' "$T/nft.log")"
+assert_eq "TG1: правил 8 (6 redirect/reject + 2 guard)" "8" "$(grep -c '^nft:add rule' "$T/nft.log")"
 assert_eq "TG1: сетов 3" "3" "$(grep -c '^nft:add element' "$T/nft.log")"
 
 # --- TG2: user-disable: нет процесса, нет правил ---
@@ -100,7 +101,7 @@ _reset
 z2k_ow_tg 1 && z2k_ow_tg 1
 assert_eq "TG4: instance открыты дважды (procd converged)" "2" "$(grep -c '^instance:z2k-tg$' "$T/procd.log")"
 _n1="$(grep -c '^nft:add rule' "$T/nft.log")"
-assert_eq "TG4: правил за 2 прогона 12 (flush+add, состояние то же)" "12" "$_n1"
+assert_eq "TG4: правил за 2 прогона 16 (flush+add, состояние то же)" "16" "$_n1"
 
 # --- TG5: WAN flap (rules): PID stable, демон не тронут ---
 _reset
@@ -110,7 +111,7 @@ printf 'tg-mtproxy-client --listen=:1443 --listen=:1444' | tr ' ' '\0' > "$T/pro
 z2k_ow_tg rules || _t_bad "TG5: rules rc"
 assert_eq "TG5: kill нет" "0" "$(grep -c '^kill:' "$T/kill.log")"
 assert_eq "TG5: instance не открывали" "0" "$(grep -c '^instance:' "$T/procd.log")"
-assert_eq "TG5: правила сошлись" "6" "$(grep -c '^nft:add rule' "$T/nft.log")"
+assert_eq "TG5: правила сошлись" "8" "$(grep -c '^nft:add rule' "$T/nft.log")"
 
 # --- TG6: firewall reload (таблица пересоздана runtime): правила вернулись без рестарта ---
 _reset
@@ -138,7 +139,7 @@ _reset
 z2k_ow_tg rules >/dev/null 2>&1
 : > "$T/nft.log"
 z2k_ow_tg 0
-assert_eq "TG11: chains сняты (4 delete)" "4" "$(grep -c '^nft:delete chain' "$T/nft.log")"
+assert_eq "TG11: chains сняты (5 delete)" "5" "$(grep -c '^nft:delete chain' "$T/nft.log")"
 assert_eq "TG11: sets целы" "0" "$(grep -c '^nft:delete set' "$T/nft.log")"
 : > "$T/nft.log"
 z2k_ow_tg cleanup
@@ -193,13 +194,47 @@ z2k_ow_tg check
 assert_eq "TG15: повтор тих (не воскрешает)" "0" "$(grep -c '^kill:' "$T/kill.log")"
 assert_eq "TG15: правил не ставит" "0" "$(grep -c '^nft:add rule' "$T/nft.log")"
 
-# --- TG16: self-dial: редиректы только на DC/CDN-сеты ---
+# --- TG16: self-dial: редиректы только на DC/CDN-сеты, guard только порты ---
 _reset
 z2k_ow_tg rules >/dev/null 2>&1
-if grep '^nft:add rule' "$T/nft.log" | grep -vE '@z2k_tg_(dc4|dc6|cdn4)' >/dev/null 2>&1; then
-    _t_bad "TG16: правило мимо DC/CDN-сетов"
+if grep '^nft:add rule' "$T/nft.log" | grep -E 'redirect' | grep -vE '@z2k_tg_(dc4|cdn4)' >/dev/null 2>&1; then
+    _t_bad "TG16: redirect мимо DC/CDN-сетов"
 else
     _t_ok
 fi
+assert_eq "TG16: guard-правил ровно 2" "2" "$(grep -c 'z2k_tg_flt_in tcp dport { 1443, 1444 }' "$T/nft.log")"
+
+# --- TG17/TG18: прямой WAN -> :1443/:1444 режется guard-drop'ом ---
+# (структурно: drop-правило есть, scoped по тем же портам, что слушает демон)
+_reset
+z2k_ow_tg rules >/dev/null 2>&1
+assert_contains "TG17: drop :1443" "$T/nft.log" 'z2k_tg_flt_in tcp dport { 1443, 1444 } drop'
+assert_contains "TG18: drop :1444 (та же строка, пара)" "$T/nft.log" 'tcp dport { 1443, 1444 } drop'
+
+# --- TG19/TG20: редиректнутый LAN/CDN проходит (dnat-accept ДО drop) ---
+_accept_ln="$(grep -n 'z2k_tg_flt_in tcp dport { 1443, 1444 } ct status dnat accept' "$T/nft.log" | head -1 | cut -d: -f1)"
+_drop_ln="$(grep -n 'z2k_tg_flt_in tcp dport { 1443, 1444 } drop' "$T/nft.log" | head -1 | cut -d: -f1)"
+if [ -n "$_accept_ln" ] && [ -n "$_drop_ln" ] && [ "$_accept_ln" -lt "$_drop_ln" ]; then
+    _t_ok
+else
+    _t_bad "TG19/20: dnat-accept не до drop ($_accept_ln/$_drop_ln)"
+fi
+
+# --- TG21: повторная конвергенция: guard один (flush+add, не append) ---
+_reset
+z2k_ow_tg rules >/dev/null 2>&1
+z2k_ow_tg rules >/dev/null 2>&1
+assert_eq "TG21: accept ровно по 1 на прогон (2 строки за 2 прогона)" "2" "$(grep -c 'z2k_tg_flt_in tcp dport { 1443, 1444 } ct status dnat accept' "$T/nft.log")"
+assert_eq "TG21: drop ровно по 1 на прогон (2 строки за 2 прогона)" "2" "$(grep -c 'z2k_tg_flt_in tcp dport { 1443, 1444 } drop$' "$T/nft.log")"
+
+# --- TG22: stop/uninstall: guard удалён ---
+_reset
+z2k_ow_tg rules >/dev/null 2>&1
+: > "$T/nft.log"
+z2k_ow_tg 0
+assert_contains "TG22: stop сносит guard chain" "$T/nft.log" 'delete chain inet zapret z2k_tg_flt_in'
+: > "$T/nft.log"
+z2k_ow_tg cleanup
+assert_contains "TG22: cleanup сносит guard chain" "$T/nft.log" 'delete chain inet zapret z2k_tg_flt_in'
 
 _t_done

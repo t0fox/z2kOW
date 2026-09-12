@@ -108,21 +108,40 @@ raw iptables/ipset запрещены, второй таблицы нет (`test
 свои chains внутри чужой таблицы — разрешены ownership-тестом):
 
 ```text
-chain z2k_tg_dst_pre { type nat hook prerouting priority dstnat - 1; }
+chain z2k_tg_dst_pre { type nat hook prerouting priority -101; }
   tcp dport 443 ip daddr @z2k_tg_dc4  redirect to :1443
   tcp dport 80  ip daddr @z2k_tg_cdn4 redirect to :1444
-chain z2k_tg_dst_out { type nat hook output priority dstnat - 1; }
+chain z2k_tg_dst_out { type nat hook output priority -101; }
   (те же два правила — router-local OUTPUT как upstream)
-chain z2k_tg_flt_fwd { type filter hook forward priority filter - 1; }
+chain z2k_tg_flt_fwd { type filter hook forward priority -1; }
   tcp ip6 daddr @z2k_tg_dc6 reject with tcp reset   # весь TCP, как upstream
-chain z2k_tg_flt_out { type filter hook output priority filter - 1; }
+chain z2k_tg_flt_out { type filter hook output priority -1; }
   (то же v6-правило — router-local)
+chain z2k_tg_flt_in { type filter hook input priority -1; }
+  tcp dport { 1443, 1444 } ct status dnat accept
+  tcp dport { 1443, 1444 } drop
 set z2k_tg_dc4  { type ipv4_addr; flags interval; }  # 10 CIDR из §3
 set z2k_tg_dc6  { type ipv6_addr; flags interval; }  # 4 range из §3
 set z2k_tg_cdn4 { type ipv4_addr; flags interval; }  # 168.119.95.238/32
 ```
 
-- Приоритеты `-1` от базовых = «поверх всего», эквивалент `-I 1` в iptables.
+- Приоритеты — plain integers (`-101` перед dstnat `-100`, `-1` перед
+  filter `0`): арифметика вида `dstnat - 1` зависит от парсера nft,
+  числа парсятся всегда. Эквивалент iptables `-I 1`.
+- INPUT-guard (прямой WAN-доступ к wildcard-портам НЕ доходит до демона):
+  REDIRECTнутые пакеты (LAN/router-local) несут conntrack-статус `dnat`
+  (его ставит сам DNAT на весь conntrack — Established-ответы тоже),
+  их пропускаем первыми; прямой трафик без статуса — `drop`. Порядок
+  accept-до-drop КРИТИЧЕН. Scope строго наши порты: blanket
+  `ct status dnat accept` без портов обошёл бы fw4-input для ЧУЖОГО
+  DNAT-трафика (например чужих port-forward на роутер) — запрещён тестом.
+  Интерфейсные матчи (`iifname`, wanif-сеты runtime) отвергнуты осознанно:
+  имён runtime-сетов репозиторий не знает, а ct-статусу они не нужны —
+  различение REDIRECT/direct работает на любом интерфейсе. LAN-direct на
+  :1443 режется здесь же (defense in depth к in-binary guard).
+  Это и есть доказательство инварианта вместо default-fw4-policy:
+  структурно (точные shapes + порядок, TG17–TG22); живой DROP — только
+  на роутере (ядра здесь нет).
 - Конвергенция: `flush chain` + add rules, `flush set` + add elements —
   идемпотентна, дубли невозможны по построению, с core NFQUEUE-сетами
   не пересекается (свои имена, свои chains).
@@ -146,10 +165,20 @@ set z2k_tg_cdn4 { type ipv4_addr; flags interval; }  # 168.119.95.238/32
   `fw_remove`): две строки в init, не монолит.
 - `z2k_ow_tg 1` открывает ВТОРОЙ procd instance `z2k-tg` (первый — nfqws2):
   `procd_set_param command` с точным argv §1 (минус `-v`),
-  `procd_set_param respawn` (дефолты procd = бесконечный respawn с
-  задержкой; второго shell-supervisor нет), `pidfile` под instance,
-  `env SSL_CERT_FILE/SSL_CERT_DIR` — только при существовании путей,
-  `stdout/stderr → logd`.
+  `procd_set_param respawn 3600 5 5` — EXPLICIT bounded:
+  threshold 3600s (прожил дольше — счётчик сброшен, падения здорового
+  демона рестартятся всегда), timeout 5s (пауза), retry 5 (больше 5
+  быстрых падений подряд — procd HALT'ит instance, instance.fail в logread,
+  шторма нет; восстановление — `/etc/init.d/z2k restart`).
+  Доказательство семантики: `procd/service/instance.c` (`instance_exit`:
+  счётчик + halt при `respawn_count > respawn_retry`; `instance_config_parse`:
+  дефолты C `{3600,5,5}` — мы фиксируем их явно, контракт не зависит от
+  дефолтов, `retry=0` (бесконечный шторм) запрещён тестом).
+  Тест проверяет именно выставленные параметры, не комментарий.
+  Process-dead — зона procd, watchdog за него НЕ конкурирует (health-check
+  при мёртвом процессе только чистит счётчики).
+  `pidfile` под instance, `env SSL_CERT_FILE/SSL_CERT_DIR` — только при
+  существовании путей, `stdout/stderr → logd`.
 - Отдельный `/etc/init.d/z2k-tg` (вариант B) ОТКЛОНЁН: два сервиса =
   расходящиеся enable/disable, двойной lifecycle; custom.d-раннер для TG
   тоже отклонён: `DISABLE_CUSTOM=1` (upstream-дефолт) гасил бы first-class
@@ -242,4 +271,6 @@ Keenetic regression proof: keenetic-ветка функции нетронута
 3. Нет S97 (legacy-пустышка не портируется вовсе).
 4. Нет minute-cron watchdog'а как супервизора — 5-мин health-check (converge + probe + kill-only backoff).
 5. v6 REJECT — весь TCP без dport (как upstream; шире формулировки Stage-3 §11 — подтвердить владельцем).
-6. Собственные chains в чужой таблице вместо TOP-правил в общих chains (эквивалент приоритетов).
+6. Собственные chains в чужой таблице вместо TOP-правил в общих chains (эквивалент приоритетов); приоритеты — числами.
+7. INPUT-guard (прямого аналога в upstream нет — там wildcard прикрыт relay-reject + client-guard + полем; здесь — доказуемый nft-drop).
+8. Crash-loop: upstream супервизор рестартит вечно (cap 30s); здесь procd halt'ит после 5 быстрых падений — чинить нечего, штормить нечем.

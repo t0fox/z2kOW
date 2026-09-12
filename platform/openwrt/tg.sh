@@ -36,6 +36,8 @@ Z2K_TG_CHAIN_PRE="${Z2K_TG_CHAIN_PRE:-z2k_tg_dst_pre}"
 Z2K_TG_CHAIN_OUT="${Z2K_TG_CHAIN_OUT:-z2k_tg_dst_out}"
 Z2K_TG_CHAIN_FWD="${Z2K_TG_CHAIN_FWD:-z2k_tg_flt_fwd}"
 Z2K_TG_CHAIN_OUTF="${Z2K_TG_CHAIN_OUTF:-z2k_tg_flt_out}"
+# INPUT-guard против прямого WAN-доступа к wildcard-портам (см. ниже).
+Z2K_TG_CHAIN_IN="${Z2K_TG_CHAIN_IN:-z2k_tg_flt_in}"
 
 Z2K_TG_BIN="${Z2K_TG_BIN:-${Z2K_BIN:-/usr/lib/z2k/bin}/tg-mtproxy-client}"
 Z2K_TG_PIDFILE="${Z2K_TG_PIDFILE:-${Z2K_RUN:-/tmp/z2k/runtime}/tg-tunnel.pid}"
@@ -139,20 +141,26 @@ z2k_ow_tg_nft_apply() {
         "{ $(_z2k_ow_tg_csv "$Z2K_TG_CIDRS6") }" || return 1
     nft add element "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_SETCDN" \
         "{ $(_z2k_ow_tg_csv "$Z2K_TG_CDN_CIDRS") }" || return 1
-    # chains (свои base chains в чужой таблице; приоритет -1 от базовых =
-    # эквивалент iptables -I 1: наши правила первые)
+    # chains (свои base chains в чужой таблице).
+    # Приоритеты — PLAIN INTEGERS (арифметика вида `dstnat - 1` здесь не
+    # используется осознанно: её поддержка зависит от парсера, числа — нет):
+    #   -101 = перед dstnat(-100): эквивалент iptables -I PREROUTING/OUTPUT;
+    #   -1   = перед filter(0): эквивалент -I FORWARD/OUTPUT/INPUT.
     nft add chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" \
-        '{ type nat hook prerouting priority dstnat - 1; }' 2>/dev/null || true
+        '{ type nat hook prerouting priority -101; }' 2>/dev/null || true
     nft add chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" \
-        '{ type nat hook output priority dstnat - 1; }' 2>/dev/null || true
+        '{ type nat hook output priority -101; }' 2>/dev/null || true
     nft add chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_FWD" \
-        '{ type filter hook forward priority filter - 1; }' 2>/dev/null || true
+        '{ type filter hook forward priority -1; }' 2>/dev/null || true
     nft add chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUTF" \
-        '{ type filter hook output priority filter - 1; }' 2>/dev/null || true
+        '{ type filter hook output priority -1; }' 2>/dev/null || true
+    nft add chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_IN" \
+        '{ type filter hook input priority -1; }' 2>/dev/null || true
     nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" 2>/dev/null || true
     nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" 2>/dev/null || true
     nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_FWD" 2>/dev/null || true
     nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUTF" 2>/dev/null || true
+    nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_IN" 2>/dev/null || true
     # Telegram IPv4 TCP/443 -> :1443 (forwarded + router-local)
     nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" \
         tcp dport 443 ip daddr "@$Z2K_TG_SET4" redirect to ":$Z2K_TG_PORT" || return 1
@@ -169,6 +177,18 @@ z2k_ow_tg_nft_apply() {
         tcp ip6 daddr "@$Z2K_TG_SET6" reject with tcp reset || return 1
     nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUTF" \
         tcp ip6 daddr "@$Z2K_TG_SET6" reject with tcp reset || return 1
+    # INPUT-guard: демон слушает wildcard, прямой доступ с WAN к :1443/:1444
+    # обязан не доходить до демона. REDIRECTнутые пакеты (LAN/router-local)
+    # несут conntrack-статус dnat (ставится самим DNAT на весь conntrack) —
+    # их пропускаем первыми; прямой трафик без статуса — drop. Порядок
+    # КРИТИЧЕН (accept до drop). Scope строго наши порты: blanket
+    # `ct status dnat accept` обошёл бы fw4-input для чужого DNAT-трафика.
+    # LAN-direct на :1443 (self-dial) режется здесь же — defense in depth
+    # к in-binary guard'у. Ни одного ACCEPT/input-открытия, только этот drop.
+    nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_IN" \
+        tcp dport "{ $Z2K_TG_PORT, $Z2K_TG_CDN_PORT }" ct status dnat accept || return 1
+    nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_IN" \
+        tcp dport "{ $Z2K_TG_PORT, $Z2K_TG_CDN_PORT }" drop || return 1
     return 0
 }
 
@@ -177,7 +197,7 @@ z2k_ow_tg_nft_apply() {
 z2k_ow_tg_nft_remove() {
     local _full="${1:-}"
     _z2k_ow_tg_table_ok || return 0
-    for _c in "$Z2K_TG_CHAIN_PRE" "$Z2K_TG_CHAIN_OUT" "$Z2K_TG_CHAIN_FWD" "$Z2K_TG_CHAIN_OUTF"; do
+    for _c in "$Z2K_TG_CHAIN_PRE" "$Z2K_TG_CHAIN_OUT" "$Z2K_TG_CHAIN_FWD" "$Z2K_TG_CHAIN_OUTF" "$Z2K_TG_CHAIN_IN"; do
         nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_c" 2>/dev/null || true
         nft delete chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_c" 2>/dev/null || true
     done
@@ -215,9 +235,20 @@ z2k_ow_tg_start_instance() {
     [ -f "$_roots" ] && procd_set_param env "SSL_CERT_FILE=$_roots"
     [ -d /etc/ssl/certs ] && procd_set_param env "SSL_CERT_DIR=/etc/ssl/certs"
     procd_set_param pidfile "$Z2K_TG_PIDFILE"
-    # Дефолты procd (retry=0 = бесконечно): второй shell-supervisor запрещён,
-    # crash-loop держит сам procd.
-    procd_set_param respawn
+    # Respawn EXPLICIT bounded (НЕ голый `respawn` и НЕ retry=0):
+    #   threshold 3600s — прожил дольше: счётчик сбрасывается, падения
+    #     здорового демона рестартятся всегда (watchdog за process-dead
+    #     НЕ конкурирует: мёртвый процесс — зона procd, см. check);
+    #   timeout 5s — пауза перед рестартом;
+    #   retry 5 — больше 5 падений подряд быстрее threshold: procd HALT'ит
+    #     instance (instance.fail в logread, шторма нет) до ручного restart.
+    #     Crash-loop = сломанный артефакт/конфиг (напр. нет секрета):
+    #     вечный рестарт чинил бы ничего и churn'ил правила.
+    #     Восстановление: /etc/init.d/z2k restart (или reboot/updater).
+    # Доказательство: procd/service/instance.c (instance_exit: счётчик +
+    # halt; instance_config_parse: дефолты C {3600,5,5} — мы фиксируем их
+    # явно, чтобы контракт не зависел от дефолтов). Shell-supervisor запрещён.
+    procd_set_param respawn 3600 5 5
     procd_set_param stdout 1
     procd_set_param stderr 1
     procd_close_instance

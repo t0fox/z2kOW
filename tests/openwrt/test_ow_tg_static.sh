@@ -49,7 +49,22 @@ fi
 for _pat in 'while :' '(^|[^_A-Za-z0-9])PIDFILE=' '(^|[^_A-Za-z0-9])GENFILE=' 'sleep \$backoff'; do
     assert_not_contains "tg.sh: нет supervisor-признака ($_pat)" "$_TGCODE" "$_pat"
 done
-assert_contains "tg.sh: respawn через procd" "$TG" 'procd_set_param respawn'
+assert_contains "tg.sh: respawn через procd" "$TG" 'procd_set_param respawn 3600 5 5'
+# голого respawn (неявные дефолты) и retry=0 (бесконечный шторм) быть не должно
+if grep -qE 'procd_set_param respawn[[:space:]]*$' "$TG"; then
+    _t_bad "tg.sh: голый respawn без explicit параметров"
+else
+    _t_ok
+fi
+if grep -qE 'procd_set_param respawn [0-9]+ [0-9]+ 0([^0-9]|$)' "$TG"; then
+    _t_bad "tg.sh: retry=0 (бесконечный crash-loop)"
+else
+    _t_ok
+fi
+# приоритеты — plain integers (арифметика dstnat/filter - N зависит от парсера)
+for _bad in 'priority dstnat -' 'priority dstnat +' 'priority filter -' 'priority filter +'; do
+    assert_not_contains "tg.sh: нет арифметики приоритетов ($_bad)" "$_TGCODE" "$_bad"
+done
 
 # --- один процесс на оба порта ---
 assert_contains "tg.sh: argv строит оба listen" "$TG" '"--listen=:$Z2K_TG_PORT" "--listen=:$Z2K_TG_CDN_PORT"'
@@ -68,11 +83,29 @@ assert_not_contains "tg.sh: нет add table" "$_TGCODE" 'add table|create table
 assert_not_contains "tg.sh: нет второй таблицы z2k" "$_TGCODE" 'table inet z2k'
 assert_contains "tg.sh: таблица runtime" "$TG" 'Z2K_TG_NFT_TABLE'
 assert_contains "tg.sh: проверка таблицы до записей" "$TG" '_z2k_ow_tg_table_ok'
-# ни одного ACCEPT/input-открытия (порты не светим в WAN)
-assert_not_contains "tg.sh: нет ACCEPT" "$_TGCODE" 'ACCEPT|accept'
+# ни одного ACCEPT/input-открытия: `accept` в коде — ТОЛЬКО scoped
+# dnat-accept guard'а (уже проверен выше построчно); -j ACCEPT и голых
+# accept-вердиктов вне guard'а быть не должно.
+assert_not_contains "tg.sh: нет -j ACCEPT" "$_TGCODE" '\-j ACCEPT'
+_tg_accepts="$(grep -n 'accept' "$_TGCODE" | grep -v 'ct status dnat accept' || true)"
+if [ -z "$_tg_accepts" ]; then
+    _t_ok
+else
+    _t_bad "tg.sh: accept вне scoped guard: [$_tg_accepts]"
+fi
 # v6 — reject, не redirect и не drop
 assert_contains "tg.sh: v6 reject" "$TG" 'reject with tcp reset'
 assert_not_contains "tg.sh: v6 не redirect" "$_TGCODE" 'ip6 daddr.*redirect'
+# INPUT-guard: scoped accept (порты + dnat) строго до drop; blanket
+# `ct status dnat accept` без портов обошёл бы fw4-input для чужого DNAT.
+assert_contains "tg.sh: input chain" "$TG" 'type filter hook input priority -1'
+assert_contains "tg.sh: guard accept scoped" "$TG" 'tcp dport "{ $Z2K_TG_PORT, $Z2K_TG_CDN_PORT }" ct status dnat accept'
+assert_contains "tg.sh: guard drop" "$TG" 'tcp dport "{ $Z2K_TG_PORT, $Z2K_TG_CDN_PORT }" drop'
+if grep -E 'add rule .* ct status dnat accept' "$_TGCODE" | grep -v 'tcp dport' >/dev/null 2>&1; then
+    _t_bad "tg.sh: blanket ct-status accept без портов"
+else
+    _t_ok
+fi
 
 # --- секреты не печатаются ---
 assert_not_contains "tg.sh: нет set -x" "$_TGCODE" 'set -x'
