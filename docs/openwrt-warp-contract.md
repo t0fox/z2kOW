@@ -282,6 +282,16 @@ Watchdog за process-dead НЕ конкурирует с procd (только PB
   иначе dynamic пуст + PBR down. Одного route/rule мало для «восстановлено».
 - Disable converge-to-off (defect 7/W42): PBR down → dynamic+MARK flush
   (маркировки нет) → flag 0 → reconcile; sets живут как cache.
+- Not-ready (desired on, tunnel down) держит MARK как инертный desired-слой
+  (defect 4/W49): правила match'ят dst/src-сеты и ставят bit31, но
+  потребляет mark ТОЛЬКО WARP ip-rule (pref 500 → table 989); без него
+  пакеты идут по main table — direct, route не меняется. MARK смывается
+  только полным off (disabled/flag 0/ENABLED 0 — W50) и remove/stop.
+- Owner write failure откатывает PBR целиком (defect 3/W38): exact rule
+  снять, route — только если текущий default в точности только что
+  ставленный наш, owner-огрызок удалить; возврат — failure (fail open).
+  Owner пишется temp→chmod 600→mv; chmod failure = rollback (W52:
+  temp удалён, публикации нет).
 - MASQUE endpoint НЕ исключаем из desync (измерено upstream: ломает
   transit); наши mark-правила match'ят только сеты (W32-тест).
 - CLI: `warp install/enable/disable/remove/status/selfheal/reload-lists`

@@ -764,7 +764,9 @@ _warp_owner_write() {
         printf 'mark=%s\nmask=%s\npref=%s\ntable=%s\niface=%s\n' \
             "$WARP_MARK" "$WARP_MASK" "$WARP_RULE_PREF" "$WARP_TABLE" "$_iface"
     } > "$_tmp" 2>/dev/null || { rm -f "$_tmp" 2>/dev/null; return 1; }
-    chmod 600 "$_tmp" 2>/dev/null
+    # chmod failure = rollback (defect 2): полу-защищённый owner публиковать
+    # нельзя — temp удалить, публикацию не делать, up откатить у вызывающего.
+    chmod 600 "$_tmp" 2>/dev/null || { rm -f "$_tmp" 2>/dev/null; return 1; }
     mv -f "$_tmp" "$WARP_PBR_OWNER" 2>/dev/null || { rm -f "$_tmp" 2>/dev/null; return 1; }
     return 0
 }
@@ -897,7 +899,10 @@ warp_disable() {
 }
 
 warp_remove() {
-    warp_disable
+    # Invariant: успех remove ⇒ успех disable (процесса нет, PBR нет) —
+    # бинарь удаляем ТОЛЬКО после доказанного off. Провал disable = провал
+    # remove, бинарь цел (W51).
+    warp_disable || return 1
     rm -f "$WARP_BIN" "$WARP_BIN".new.* 2>/dev/null
     warp_nft_remove full
     _wlog "движок удалён; ключ устройства и списки сохранены"
@@ -1079,15 +1084,25 @@ warp_pbr_verify() {
 
 # --- health check (cron) ---
 
+# Converge-to-off lite (defect 4): PBR down + dynamic пуст. MARK — параметром:
+# "full" (disabled: маркировки нет вовсе) или "keep" (not-ready: desired-слой
+# инертен — bit31 без WARP ip-rule route не меняет, см. контракт §8).
+_warp_converge_off() {
+    warp_pbr_down >/dev/null 2>&1 || true
+    _warp_tun_clear >/dev/null 2>&1 || true
+    [ "${1:-keep}" = "full" ] && _warp_mark_clear >/dev/null 2>&1
+    return 0
+}
+
 z2k_ow_warp_check() {
     mkdir -p "${Z2K_TMP:-/tmp/z2k}/warp" 2>/dev/null || return 0
     # Graduated gates (НЕ один wanted: устройству без ключа нужен
     # register-recovery, а не молчаливый converge-to-off).
-    [ "$(warp_cfg ENABLED 1)" = "1" ] || { warp_pbr_down >/dev/null 2>&1 || true; return 0; }
-    [ "$(warp_flag)" = "1" ] || { warp_pbr_down >/dev/null 2>&1 || true; return 0; }
-    [ -x "$WARP_BIN" ] || { warp_pbr_down >/dev/null 2>&1 || true; return 0; }
+    [ "$(warp_cfg ENABLED 1)" = "1" ] || { _warp_converge_off full; return 0; }
+    [ "$(warp_flag)" = "1" ] || { _warp_converge_off full; return 0; }
+    [ -x "$WARP_BIN" ] || { _warp_converge_off keep; return 0; }
     if [ ! -s "$WARP_DEVICE" ]; then
-        warp_pbr_down >/dev/null 2>&1 || true
+        _warp_converge_off keep
         if warp_register_due; then
             mkdir -p "$(dirname "$WARP_REG_STAMP")" 2>/dev/null
             date +%s > "$WARP_REG_STAMP" 2>/dev/null
@@ -1098,14 +1113,20 @@ z2k_ow_warp_check() {
     fi
     if ! warp_running; then
         warp_note_death
-        warp_pbr_down >/dev/null 2>&1 || true
+        _warp_converge_off keep
         return 0
     fi
     if _warp_proven_ready; then
         warp_nft_sets_reload_if_changed >/dev/null 2>&1 || true
-        warp_pbr_up >/dev/null 2>&1 || warp_pbr_down >/dev/null 2>&1
+        # Base MARK converge при каждом ready-tick (recovery после not-ready:
+        # rules_apply идемпотентен — flush+add, дубликатов нет).
+        if warp_nft_rules_apply >/dev/null 2>&1; then
+            warp_pbr_up >/dev/null 2>&1 || _warp_converge_off keep
+        else
+            _warp_converge_off keep
+        fi
     else
-        warp_pbr_down >/dev/null 2>&1 || true
+        _warp_converge_off keep
     fi
     return 0
 }

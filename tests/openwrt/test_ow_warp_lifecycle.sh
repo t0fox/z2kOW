@@ -968,32 +968,63 @@ assert_eq "W43: dynamic пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_nat" 2
 assert_eq "W43: процесс ушёл" "" "$(warp_pids | tr -d ' \n')"
 _w_inv "W43"
 
-# --- W44: updater vs cron: stop под локом не мутирует, owner цел ---
+# --- W44: updater vs cron: НАСТОЯЩИЙ refresh flow под локом (defect 3) ---
+# stop под holder'ом падает -> replace отменён, бинарь байт-в-байт цел,
+# PBR/owner целы, refresh рапортует failure. Retry после release доводит:
+# stop ok -> replace -> start -> PBR.
 _reset
 printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
 printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
 _ready_fixture
 z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W44: enable rc"
+sha256sum "$T/root/bin/z2k-warpd" 2>/dev/null | awk '{print $1}' > "$T/w44-old.sha"
 cp "$T/tmp/warp/pbr.owner" "$T/owner-keep"
-cp "$T/ip-rules" "$T/rules-keep"
+cat > "$T/stub-new-bin" <<EOF
+#!/bin/sh
+# MARKER-NEWDATA-w44
+case "\$1" in version) echo "z2k-warpd mock-new"; exit 0 ;; esac
+exit 0
+EOF
+chmod +x "$T/stub-new-bin"
+mkdir -p "$T/au-tmp"
+_newsha44="$(sha256sum "$T/stub-new-bin" 2>/dev/null | awk '{print $1}')"
+printf '{"current":"p-84.7","files_sha256":{"z2k-warpd/builds/z2k-warpd-linux-arm64":"%s"}}\n' \
+    "$_newsha44" > "$T/au-tmp/UPDATES.json"
+Z2K_PLATFORM=openwrt; export Z2K_PLATFORM
+# shellcheck disable=SC1090,SC1091
+. "$REPO/lib/utils.sh" >/dev/null 2>&1
+# shellcheck disable=SC1090,SC1091
+. "$REPO/lib/auto_update.sh" >/dev/null 2>&1 || { echo "FAIL[ow-warp-lifecycle]: au44" >&2; exit 1; }
+au_log() { printf '%s\n' "$1" >> "$T/au.log"; }
+au_gen_libs_source() { return 0; }
+au_bin_goarch() { echo arm64; }
+au_download_repo_file() { cp -f "$T/stub-new-bin" "$2"; printf '%s\n' "$1" >> "$T/fetched"; return 0; }
+is_running() { return 1; }
+: > "$T/au.log"; : > "$T/fetched"
+# contention: holder 8s; refresh обязан провалиться БЕЗ подмены:
 ( mkdir "$T/tmp/warp/mutate.lock" 2>/dev/null; sleep 8; rm -rf "$T/tmp/warp/mutate.lock" ) &
 _bgp=$!
-# См. W43: ждём подтверждённого hold'а фоновым процессом.
 _w=0; while [ ! -d "$T/tmp/warp/mutate.lock" ] && [ "$_w" -lt 10 ]; do sleep 1; _w=$((_w + 1)); done
-_save_lock_wait="${WARP_LOCK_WAIT:-}"; _save_proc_wait="${WARP_PROC_WAIT:-}"
-export WARP_LOCK_WAIT=2 WARP_PROC_WAIT=2
-if sh "$T/root/platform/openwrt/warp-proc.sh" stop >/dev/null 2>&1; then
-    _t_bad "W44: stop принят под чужим локом"
+_save_lock_wait="${WARP_LOCK_WAIT:-}"
+export WARP_LOCK_WAIT=2
+if au_step_refresh_binaries >/dev/null 2>&1; then
+    _t_bad "W44: refresh принят под holder'ом"
 else
     _t_ok
 fi
 if [ -n "$_save_lock_wait" ]; then export WARP_LOCK_WAIT="$_save_lock_wait"; else unset WARP_LOCK_WAIT; fi
-assert_eq "W44: PBR цел" "$(cat "$T/rules-keep")" "$(cat "$T/ip-rules")"
+assert_eq "W44: бинарь цел (no mv)" "$(cat "$T/w44-old.sha")" "$(sha256sum "$T/root/bin/z2k-warpd" 2>/dev/null | awk '{print $1}')"
+assert_eq "W44: tmp подтёрт" "0" "$(ls "$T"/root/bin/z2k-warpd.z2k-au.* 2>/dev/null | grep -c . || true)"
+assert_contains "W44: failure залогирован" "$T/au.log" "owner stop failed"
+assert_eq "W44: PBR цел" "1" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules")"
 if cmp -s "$T/owner-keep" "$T/tmp/warp/pbr.owner"; then _t_ok; else _t_bad "W44: owner повреждён"; fi
 wait "$_bgp" 2>/dev/null
-sh "$T/root/platform/openwrt/warp-proc.sh" start >/dev/null 2>&1 || _t_bad "W44: start после release rc"
-assert_eq "W44: rule не задублирован" "1" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules")"
-if [ -n "$_save_proc_wait" ]; then export WARP_PROC_WAIT="$_save_proc_wait"; else unset WARP_PROC_WAIT; fi
+# retry после release: stop ok -> replace -> start -> PBR:
+au_step_refresh_binaries >/dev/null 2>&1
+assert_eq "W44: retry rc 0" "0" "$?"
+assert_eq "W44: бинарь заменён" "# MARKER-NEWDATA-w44" "$(sed -n '2p' "$T/root/bin/z2k-warpd")"
+assert_eq "W44: PBR цел после замены" "1" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules")"
+unset Z2K_PLATFORM
 _w_inv "W44"
 
 # --- W45: nfqws2 мёртв, сервис активен: disable всё равно reconciles ---
@@ -1049,5 +1080,99 @@ printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
 z2k_ow_warp cleanup >/dev/null 2>&1 || _t_bad "W48: cleanup rc"
 assert_eq "W48: лок отпущен" "0" "$([ -d "$T/tmp/warp/mutate.lock" ] && echo 1 || echo 0)"
 _w_inv "W48"
+
+# --- W49: ready -> not-ready: dynamic пуст, PBR down, MARK как desired ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W49: enable rc"
+assert_eq "W49: mark live" "2" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
+# туннель умер (kill -9): процесса нет, статус врёт not-ready:
+printf '\n' > "$T/pidof.out"
+rm -rf "$T/proc"; mkdir -p "$T/proc"
+printf '{"ready":false}\n' > "$T/tmp/warp/status.json"
+z2k_ow_warp check >/dev/null 2>&1
+assert_eq "W49: mss пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_mss" 2>/dev/null || true)"
+assert_eq "W49: fwd пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_fwd" 2>/dev/null || true)"
+assert_eq "W49: nat пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_nat" 2>/dev/null || true)"
+assert_eq "W49: rule нет" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "W49: route нет" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
+assert_eq "W49: MARK как desired цел" "2" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
+# recovery: демон снова жив+ready -> MARK/base converge + dynamic + PBR:
+_ready_fixture
+z2k_ow_warp check >/dev/null 2>&1
+assert_eq "W49: mark снова 2" "2" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
+assert_eq "W49: mss снова 2" "2" "$(grep -c . "$T/nft-chain-z2k_warp_mss" 2>/dev/null || true)"
+assert_eq "W49: fwd снова 1" "1" "$(grep -c . "$T/nft-chain-z2k_warp_fwd" 2>/dev/null || true)"
+assert_eq "W49: nat снова 1" "1" "$(grep -c . "$T/nft-chain-z2k_warp_nat" 2>/dev/null || true)"
+assert_eq "W49: PBR восстановлен" "1" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules")"
+assert_contains "W49: route восстановлен" "$T/ip-route-989" "default dev z2ktun0"
+_w_inv "W49"
+
+# --- W50: disabled tick: mark + dynamic + PBR все в off ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W50: enable rc"
+# desired-off с residue (флаг напрямую, не через disable — как drift):
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+z2k_ow_warp check >/dev/null 2>&1
+assert_eq "W50: mark пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
+assert_eq "W50: mss пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_mss" 2>/dev/null || true)"
+assert_eq "W50: fwd пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_fwd" 2>/dev/null || true)"
+assert_eq "W50: nat пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_nat" 2>/dev/null || true)"
+assert_eq "W50: PBR нет" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "W50: route нет" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
+_w_inv "W50"
+
+# --- W51: remove после failed disable: бинарь цел ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W51: enable rc"
+# reconcile, который НЕ убивает процесс (procd клинит): init-mock без teardown:
+cat > "$T/mock-init-nodeath" <<EOF
+#!/bin/sh
+echo "init:\$*" >> "$T/init.log"
+exit 0
+EOF
+chmod +x "$T/mock-init-nodeath"
+Z2K_INIT="$T/mock-init-nodeath"; export Z2K_INIT
+if z2k_ow_warp remove >/dev/null 2>&1; then
+    _t_bad "W51: remove принят при живом процессе"
+else
+    _t_ok
+fi
+assert_eq "W51: бинарь цел" "1" "$([ -x "$T/root/bin/z2k-warpd" ] && echo 1 || echo 0)"
+assert_eq "W51: PBR снят (down успел)" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
+Z2K_INIT="$T/mock-init"; export Z2K_INIT
+_w_inv "W51"
+
+# --- W52: chmod owner failure = rollback, ничего не опубликовано ---
+# (function override, НЕ $T/bin-mock: dash кеширует путь уже использованной
+# команды, mock-файл не увидели бы без hash -r; функция бьёт и кеш, и PATH).
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+_ready_fixture
+chmod() {
+    if [ "${CHMOD_FAIL:-0}" = "1" ]; then return 1; fi
+    command chmod "$@"
+}
+export CHMOD_FAIL=1
+if warp_pbr_up >/dev/null 2>&1; then
+    _t_bad "W52: up принят при мёртвом chmod"
+else
+    _t_ok
+fi
+unset CHMOD_FAIL
+unset -f chmod
+assert_eq "W52: правила нет" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "W52: route нет" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
+assert_eq "W52: owner нет" "0" "$(ls "$T/tmp/warp/pbr.owner" "$T/tmp/warp/pbr.owner.new."* 2>/dev/null | grep -c . || true)"
+_w_inv "W52"
 
 _t_done

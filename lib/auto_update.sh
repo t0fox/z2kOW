@@ -987,18 +987,54 @@ au_step_refresh_binaries() {
         chmod +x "$_rb_tmp" 2>/dev/null
         # Владельца останавливаем ДО подмены: mv атомарен и ETXTBSY не даёт, но
         # оставленный работать старый процесс продолжил бы крутить старый код.
+        # Coordinated-replacement hook (openwrt *-proc.sh) с упавшим stop:
+        # подменять под живым процессом нельзя — пропуск replace + failure
+        # (сериализация PBR/DNS; новый W44). Keenetic init-хуки: поведение
+        # прежнее (rc игнорируется) — их stop best-effort по построению, а
+        # пропуск replace там оставлял бы stale-бинарники на ровном месте.
+        _rb_stop_failed=0
         for _rb_svc in $(au_service_for_binary "$_rb_name"); do
-            [ -x "$_rb_svc" ] && "$_rb_svc" stop >/dev/null 2>&1
+            if [ -x "$_rb_svc" ]; then
+                if "$_rb_svc" stop >/dev/null 2>&1; then
+                    :
+                else
+                    case "$_rb_svc" in
+                        */platform/openwrt/*-proc.sh) _rb_stop_failed=1 ;;
+                    esac
+                fi
+            fi
         done
-        if mv -f "$_rb_tmp" "$_rb_dest" 2>/dev/null; then
-            au_log "refresh-binaries: обновлён $_rb_dest"
-        else
+        if [ "$_rb_stop_failed" = "1" ]; then
+            au_log "refresh-binaries: owner stop failed for $_rb_name — бинарь не трогаю"
             rm -f "$_rb_tmp" 2>/dev/null
-            au_log "refresh-binaries: не записался $_rb_dest"; echo 1 >> "$fail"
+            echo 1 >> "$fail"
+        else
+            _rb_replaced=0
+            if mv -f "$_rb_tmp" "$_rb_dest" 2>/dev/null; then
+                _rb_replaced=1
+            else
+                rm -f "$_rb_tmp" 2>/dev/null
+                au_log "refresh-binaries: не записался $_rb_dest"; echo 1 >> "$fail"
+            fi
+            _rb_start_failed=0
+            for _rb_svc in $(au_service_for_binary "$_rb_name"); do
+                if [ -x "$_rb_svc" ]; then
+                    "$_rb_svc" start >/dev/null 2>&1 || {
+                        case "$_rb_svc" in
+                            */platform/openwrt/*-proc.sh) _rb_start_failed=1 ;;
+                        esac
+                    }
+                fi
+            done
+            # Успех заявляем, только если бинарь заменён И owner reconciled:
+            # заменённый файл при упавшем start — факт, но не success.
+            if [ "$_rb_replaced" = "1" ] && [ "$_rb_start_failed" = "0" ]; then
+                au_log "refresh-binaries: обновлён $_rb_dest"
+            elif [ "$_rb_replaced" = "1" ]; then
+                au_log "refresh-binaries: $_rb_dest заменён, но owner start failed — owner не reconciled"
+                echo 1 >> "$fail"
+            fi
         fi
-        for _rb_svc in $(au_service_for_binary "$_rb_name"); do
-            [ -x "$_rb_svc" ] && "$_rb_svc" start >/dev/null 2>&1
-        done
     done
     if [ -s "$fail" ]; then rm -f "$fail"; return 1; fi
     rm -f "$fail"
