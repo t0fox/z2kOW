@@ -56,6 +56,13 @@ define Package/z2k-adapter/install
 	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/90-z2k $(1)/etc/hotplug.d/iface/90-z2k
 	$(INSTALL_DATA) ./files/etc/z2k/config.default $(1)/usr/lib/z2k/share/config.default
 	$(INSTALL_DATA) ./platform/openwrt/*.sh $(1)/usr/lib/z2k/platform/openwrt/
+	# Entrypoints исполняются напрямую (cron exec, updater [ -x ]) —
+	# им нужен +x и в пакете, и в seed (режимы в git-индексе; тест держит).
+	# Остальное только сорсится (644 достаточно).
+	$(INSTALL_BIN) ./platform/openwrt/update.sh ./platform/openwrt/tg-check.sh \
+		./platform/openwrt/rt-check.sh ./platform/openwrt/rt-proc.sh \
+		./platform/openwrt/warp.sh ./platform/openwrt/warp-proc.sh \
+		./platform/openwrt/warp-check.sh $(1)/usr/lib/z2k/platform/openwrt/
 	$(Z2K_TREE)/package/openwrt/make-seed.sh $(Z2K_TREE) $(PKG_BUILD_DIR)/seed.tar.gz
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/seed.tar.gz $(1)/usr/lib/z2k/share/seed.tar.gz
 endef
@@ -76,6 +83,8 @@ z2k_ow_cron_install || exit 1
 z2k_ow_tg_cron_install || exit 1
 # RT health-check cron (своя строка/маркер).
 z2k_ow_rt_cron_install || exit 1
+# WARP selfheal cron (своя строка/маркер).
+z2k_ow_warp_cron_install || exit 1
 exit 0
 endef
 

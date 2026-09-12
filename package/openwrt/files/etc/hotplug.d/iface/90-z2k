@@ -40,3 +40,11 @@ if [ -f "$Z2K_ROOT/platform/openwrt/rt.sh" ]; then
     . "$Z2K_ROOT/platform/openwrt/rt.sh" 2>/dev/null && \
         z2k_ow_rt rules 2>/dev/null || true
 fi
+# WARP rules reconverge (Stage 5): sets (если изменились) + nft; PBR:
+# untouched if valid, restore if vanished+ready. Демон НЕ трогаем.
+if [ -f "$Z2K_ROOT/platform/openwrt/warp.sh" ]; then
+    Z2K_WARP_SOURCE_ONLY=1; export Z2K_WARP_SOURCE_ONLY
+    # shellcheck disable=SC1090,SC1091
+    . "$Z2K_ROOT/platform/openwrt/warp.sh" 2>/dev/null && \
+        z2k_ow_warp rules 2>/dev/null || true
+fi

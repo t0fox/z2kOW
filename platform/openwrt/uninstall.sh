@@ -18,6 +18,7 @@ z2k_ow_uninstall() {
         z2k_ow_cron_remove 2>/dev/null || true
         z2k_ow_tg_cron_remove 2>/dev/null || true
         z2k_ow_rt_cron_remove 2>/dev/null || true
+        z2k_ow_warp_cron_remove 2>/dev/null || true
     } || true
     # TG firewall (Stage 3): chains И sets из runtime-таблицы — она внешняя
     # и переживает удаление пакета; оставить = litter. Best-effort, рано:
@@ -29,6 +30,12 @@ z2k_ow_uninstall() {
     # shellcheck disable=SC1090,SC1091
     . "$Z2K_ROOT/platform/openwrt/rt.sh" 2>/dev/null && \
         z2k_ow_rt cleanup 2>/dev/null || true
+    # WARP (Stage 5): PBR down + chains/sets. Device/lists/флаг живут в /etc
+    # и переживают удаление по frozen-контракту (purge — вручную).
+    Z2K_WARP_SOURCE_ONLY=1; export Z2K_WARP_SOURCE_ONLY
+    # shellcheck disable=SC1090,SC1091
+    . "$Z2K_ROOT/platform/openwrt/warp.sh" 2>/dev/null && \
+        z2k_ow_warp cleanup 2>/dev/null || true
     "${Z2K_INITSRC:-/etc/init.d/z2k}" disable 2>/dev/null || true
     rm -f "$Z2K_ETC/.payload-initialized" \
           "$Z2K_ETC/state/installed-tag" \

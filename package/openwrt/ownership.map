@@ -42,6 +42,9 @@
 /usr/lib/z2k/platform/openwrt/rt.sh package
 /usr/lib/z2k/platform/openwrt/rt-proc.sh package
 /usr/lib/z2k/platform/openwrt/rt-check.sh package
+/usr/lib/z2k/platform/openwrt/warp.sh package
+/usr/lib/z2k/platform/openwrt/warp-proc.sh package
+/usr/lib/z2k/platform/openwrt/warp-check.sh package
 /usr/lib/z2k/share/config.default package
 /usr/lib/z2k/share/seed.tar.gz package
 # seed.meta едет ВНУТРИ tarball (build-факт о содержимом): updater-owned с
@@ -62,3 +65,8 @@
 /etc/z2k/state/discovered-domains.txt daemon-state
 /etc/z2k/state/tcp16_asn.txt daemon-state
 /etc/z2k/state/tcp16_sni.txt daemon-state
+# WARP device identity (Stage 5): пишет register/binary; переживает
+# disable/remove-binary/upgrade/update/reinstall; purge — только вручную.
+# НЕ user config (человек не правит), НЕ updater payload, НЕ install-meta
+# (uninstall её НЕ удаляет — иначе reinstall заводил бы новое устройство).
+/etc/z2k/state/warp/device.json daemon-state

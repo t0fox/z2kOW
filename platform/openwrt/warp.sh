@@ -1,0 +1,872 @@
+#!/bin/sh
+# platform/openwrt/warp.sh - Game WARP glue (Stage 5).
+#
+# Upstream contract: docs/openwrt-warp-contract.md (+mark allocation).
+# Optional feature: бинаря нет = фичи нет. procd instance "z2k-warp",
+# nft sets/chains в runtime-таблице, PBR (mark + table 989) ТОЛЬКО при
+# доказанной ready. Fail open всегда: нет ready = нет маршрута.
+#
+# Использование (требует выставленных paths/env):
+#   CLI (будущая панель просто вызывает):
+#     install reload-lists status selfheal migrate
+#     enable disable remove
+#   lifecycle (init/hotplug/cron/updater):
+#     1 (boot converge: sets + instance, PBR только если proven ready)
+#     0 (full stop), rules (hotplug), proc-bounce, cleanup, check
+#
+# Разделение stop_proxy/stop (upstream S96): proc-bounce (только процесс)
+# vs 0 (полный teardown). Рестарт демона НИКОГДА не снимает PBR-желание,
+# а снятие PBR идёт ПЕРВЫМ при любом переходе в не-ready.
+# Mutation log (§31 RT-стиль): DNS нет; NFT_CREATED:/NFT_REMOVED:/
+# PROCESS_ACTION:/PBR_UP:/PBR_DOWN: на stdout (тихо при Z2K_WARP_QUIET=1).
+
+CONFIG_FILE="${CONFIG_FILE:-${Z2K_ETC:-/etc/z2k}/config}"
+WARP_BIN="${WARP_BIN:-${Z2K_BIN:-/usr/lib/z2k/bin}/z2k-warpd}"
+WARP_DEVICE="${WARP_DEVICE:-${Z2K_STATE:-/etc/z2k/state}/warp/device.json}"
+WARP_STATUS="${WARP_STATUS:-${Z2K_TMP:-/tmp/z2k}/warp/status.json}"
+WARP_LOG="${WARP_LOG:-${Z2K_TMP:-/tmp/z2k}/warp/warpd.log}"
+WARP_REG_RETRY="${WARP_REG_RETRY:-600}"
+WARP_REG_STAMP="${WARP_REG_STAMP:-${Z2K_TMP:-/tmp/z2k}/warp/register.stamp}"
+WARP_LISTS_DIR="${WARP_LISTS_DIR:-${Z2K_ETC:-/etc/z2k}/user-lists/warp}"
+WARP_GAMES_DIR="${WARP_GAMES_DIR:-${Z2K_LISTS_DIR}/games}"
+WARP_ENABLED_FILE="${WARP_ENABLED_FILE:-$WARP_LISTS_DIR/.enabled}"
+WARP_DEVICES_FILE="${WARP_DEVICES_FILE:-$WARP_LISTS_DIR/devices.txt}"
+WARP_ENDPOINTS="${WARP_ENDPOINTS:-${Z2K_LISTS_DIR:-/usr/lib/z2k/lists}/warp-endpoints.txt}"
+WARP_SET="${WARP_SET:-z2k_warp_dst4}"
+WARP_SET_SRC="${WARP_SET_SRC:-z2k_warp_src4}"
+WARP_TABLE="${WARP_TABLE:-989}"
+WARP_MARK="${WARP_MARK:-0x80000000}"
+WARP_MASK="${WARP_MASK:-0x80000000}"
+WARP_RULE_PREF="${WARP_RULE_PREF:-500}"
+WARP_READY_WAIT="${WARP_READY_WAIT:-120}"
+WARP_CHAIN_MARK="${WARP_CHAIN_MARK:-z2k_warp_mark}"
+WARP_CHAIN_MSS="${WARP_CHAIN_MSS:-z2k_warp_mss}"
+WARP_CHAIN_FWD="${WARP_CHAIN_FWD:-z2k_warp_fwd}"
+WARP_CHAIN_NAT="${WARP_CHAIN_NAT:-z2k_warp_nat}"
+Z2K_WARP_NFT_FAMILY="${Z2K_WARP_NFT_FAMILY:-inet}"
+Z2K_WARP_NFT_TABLE="${Z2K_WARP_NFT_TABLE:-zapret}"
+# Релей для API/регистрации, если напрямую заблокирован (как S51/z2k-warp.sh;
+# дефолт продублирован — равенство трёх копий сторожит parity-тест).
+# Секрет релей НЕ логируем никогда (см. warp_register).
+WARP_VPS_PROXY_DEFAULT="http://z2kwarp:z2kW4rpR3g2026@213.176.74.63:8119"
+
+_wlog() { echo "[z2k-warp] $*" >&2; }
+_z2k_ow_warp_mut() { [ -n "$Z2K_WARP_QUIET" ] || printf '%s\n' "$1"; }
+warp_flag() { grep -m1 '^GAME_WARP_ENABLED=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2 | tr -d '" '; }
+warp_set_flag() {
+    [ -f "$CONFIG_FILE" ] || return 0
+    local _tmp="$CONFIG_FILE.warp.$$"
+    if grep -q '^GAME_WARP_ENABLED=' "$CONFIG_FILE"; then
+        sed "s/^GAME_WARP_ENABLED=.*/GAME_WARP_ENABLED=$1/" "$CONFIG_FILE" > "$_tmp" && mv -f "$_tmp" "$CONFIG_FILE"
+    else
+        printf 'GAME_WARP_ENABLED=%s\n' "$1" >> "$CONFIG_FILE"
+    fi
+    rm -f "$_tmp" 2>/dev/null
+}
+warp_cfg() { # $1 key, $2 default: чтение конфига без сорсинга
+    local _v=""
+    [ -f "$CONFIG_FILE" ] && \
+        _v=$(awk -F= -v k="$1" '$1==k {v=$2; gsub(/[" ]/,"",v)} END {print v}' "$CONFIG_FILE" 2>/dev/null)
+    [ -n "$_v" ] && printf '%s' "$_v" || printf '%s' "$2"
+}
+# Поля status.json/device.json — без jq (как upstream).
+_json_str() { sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$1" 2>/dev/null | head -1; }
+_json_raw() { sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\([a-z0-9.-]*\).*/\1/p" "$1" 2>/dev/null | head -1; }
+
+# wanted: global ENABLED=1 + флаг=1 + бинарь +x + ключ -s.
+# (Единая точка для всех путей: init смотрит ENABLED раньше сам,
+# но cron/hotplug идут мимо него.)
+warp_wanted_boot() {
+    [ "$(warp_cfg ENABLED 1)" = "1" ] || return 1
+    [ "$(warp_flag)" = "1" ] || return 1
+    [ -x "$WARP_BIN" ] || return 1
+    [ -s "$WARP_DEVICE" ] || return 1
+    return 0
+}
+
+# Убийство — через helper (тестам — переопределить; procd поднимает сам).
+_z2k_ow_warp_kill() { kill "$@" 2>/dev/null || true; }
+
+# PIDs нашего процесса (матч по `run` в cmdline).
+warp_pids() {
+    local _p _cl
+    for _p in $(pidof z2k-warpd 2>/dev/null); do
+        [ -r "${Z2K_PROC_ROOT:-/proc}/$_p/cmdline" ] || continue
+        _cl=$(tr '\0' ' ' < "${Z2K_PROC_ROOT:-/proc}/$_p/cmdline" 2>/dev/null)
+        case "$_cl" in
+            *" run"*) printf '%s\n' "$_p" ;;
+        esac
+    done
+    return 0
+}
+warp_running() { [ -n "$(warp_pids)" ]; }
+
+# Собрать argv и выполнить $1 как команду (ровно одно слово-колбэк).
+warp_with_argv() {
+    local _cb="$1"
+    shift
+    set -- "$WARP_BIN" run \
+        --device "$WARP_DEVICE" \
+        --status "$WARP_STATUS" \
+        --log "$WARP_LOG" \
+        --endpoints "$WARP_ENDPOINTS" \
+        --net-backend=external
+    "$_cb" "$@"
+}
+_z2k_ow_warp_procd_command() { procd_set_param command "$@"; }
+
+# --- списки: active + валидация (канонические awk-блоки upstream) ---
+
+warp_lists_migrate() {
+    [ -d "$WARP_LISTS_DIR" ] || mkdir -p "$WARP_LISTS_DIR" || {
+        _wlog "cannot create $WARP_LISTS_DIR"; return 1; }
+    mkdir -p "$WARP_GAMES_DIR" 2>/dev/null
+    # One-shot purge legacy aggregate (адаптировано: только user-пути;
+    # shipped-агрегата в репо нет, usque-наследия на OpenWrt не бывает).
+    if [ ! -f "$WARP_LISTS_DIR/.legacy-aggregate-purged" ]; then
+        rm -f "$WARP_LISTS_DIR/game-warp-ips.txt" \
+              "$WARP_LISTS_DIR/.game-warp-ips.base" \
+              "$WARP_LISTS_DIR/.game-warp-ips.upstream" \
+              "$WARP_LISTS_DIR/.game-warp-ips.removed" \
+              "$WARP_LISTS_DIR/.game-warp-ips.san" 2>/dev/null
+        touch "$WARP_LISTS_DIR/.legacy-aggregate-purged" 2>/dev/null || true
+        _wlog "legacy aggregate list removed"
+    fi
+    chmod 644 "$WARP_LISTS_DIR"/*.txt 2>/dev/null
+    return 0
+}
+
+# Файлы назначений: user-списки + включённые game-списки (devices.txt —
+# источники, сюда нельзя). Имя в .enabled без файла — скип.
+warp_active_lists() {
+    local _f _n
+    for _f in "$WARP_LISTS_DIR"/*.txt; do
+        [ "$_f" = "$WARP_DEVICES_FILE" ] && continue
+        [ -f "$_f" ] && printf '%s\n' "$_f"
+    done
+    [ -f "$WARP_ENABLED_FILE" ] || return 0
+    while IFS= read -r _n; do
+        _n=$(printf '%s' "$_n" | tr -d ' \t\r')
+        [ -n "$_n" ] || continue
+        case "$_n" in
+            '#'*|.*|-*) continue ;;
+            *[!A-Za-z0-9._-]*) continue ;;
+        esac
+        [ -f "$WARP_GAMES_DIR/$_n.txt" ] && printf '%s\n' "$WARP_GAMES_DIR/$_n.txt"
+    done < "$WARP_ENABLED_FILE"
+    return 0
+}
+
+# Устройства-источники: IPv4 из LAN/private/CGNAT или MAC через neigh.
+# MAC офлайн — скип сейчас (подхват позже). Публичный IP — reject.
+warp_devices_ips() {
+    [ -s "$WARP_DEVICES_FILE" ] || return 0
+    local _neigh
+    _neigh=$(ip -4 neigh show 2>/dev/null | awk '$0 ~ /lladdr/ {for (i=1;i<=NF;i++) if ($i=="lladdr") printf "%s %s;", tolower($(i+1)), $1}')
+    awk -v neigh="$_neigh" '
+    BEGIN { n = split(neigh, lines, ";"); for (i = 1; i <= n; i++) { split(lines[i], f, " "); if (f[1] != "") mac[f[1]] = f[2] } }
+    # --- z2k warp SOURCE filter (canonical; keep byte-identical in all 3 copies) ---
+    function ip_ok(s,  o) {
+        if (s !~ /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/) return 0
+        split(s, o, ".")
+        if (o[1] > 255 || o[2] > 255 || o[3] > 255 || o[4] > 255) return 0
+        if (o[1] == 10) return 1
+        if (o[1] == 172 && o[2] >= 16 && o[2] <= 31) return 1
+        if (o[1] == 192 && o[2] == 168) return 1
+        if (o[1] == 100 && o[2] >= 64 && o[2] <= 127) return 1
+        return 0
+    }
+    # --- end z2k warp SOURCE filter ---
+    {
+        sub(/\r$/, ""); gsub(/^[ \t]+|[ \t]+$/, "")
+        if ($0 == "" || $0 ~ /^#/) next
+        s = tolower($0); gsub(/-/, ":", s)
+        if (s ~ /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/) { if ((s in mac) && ip_ok(mac[s])) print mac[s]; next }
+        if (ip_ok($0)) print $0
+    }' "$WARP_DEVICES_FILE"
+}
+
+# Валидированные элементы dst: по строке (пустые/комменты/CRLF/пробелы — мимо).
+warp_validated_dst() {
+    warp_active_lists | while IFS= read -r _wl; do cat "$_wl" 2>/dev/null; done | awk '
+# --- z2k warp address filter (canonical; keep byte-identical in all 4 copies) ---
+function z2k_warp_addr_ok(s,   ip, h, o) {
+    if (s !~ /^[1-9][0-9]{0,2}(\.(0|[1-9][0-9]{0,2})){3}(\/([1-9]|[12][0-9]|3[0-2]))?$/) return 0
+    ip = s
+    if (split(s, h, "/") == 2) ip = h[1]
+    # No width cap. There was one at /10, on the reasoning that no game lives on
+    # a /8 — but the blocks it cut are 3.0.0.0/8 and 15.0.0.0/8, i.e. Amazon,
+    # which is exactly what people switch WARP on for. /0 is still impossible:
+    # the grammar above only accepts prefixes 1-32.
+    split(ip, o, ".")
+    if (o[1] > 255 || o[2] > 255 || o[3] > 255 || o[4] > 255) return 0
+    if (o[1] == 10 || o[1] == 127 || o[1] >= 224) return 0
+    if (o[1] == 100 && o[2] >= 64 && o[2] <= 127) return 0
+    if (o[1] == 169 && o[2] == 254) return 0
+    if (o[1] == 172 && o[2] >= 16 && o[2] <= 31) return 0
+    if (o[1] == 192 && o[2] == 168) return 0
+    if (o[1] == 192 && o[2] == 0 && (o[3] == 0 || o[3] == 2)) return 0
+    if (o[1] == 198 && (o[2] == 18 || o[2] == 19)) return 0
+    if (o[1] == 198 && o[2] == 51 && o[3] == 100) return 0
+    if (o[1] == 203 && o[2] == 0 && o[3] == 113) return 0
+    return 1
+}
+# --- end z2k warp address filter ---
+    {
+        sub(/\r$/, ""); gsub(/^[ \t]+|[ \t]+$/, "")
+        if (z2k_warp_addr_ok($0)) print $0
+    }'
+}
+
+# CSV для `add element { ... }` (пусто = валидно пусто, вызывающий решает).
+_warp_csv() { tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g'; }
+
+_z2k_ow_warp_table_ok() {
+    nft list table "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" >/dev/null 2>&1
+}
+
+# W19 helper: есть ли вообще входной материал (файлы с содержимым)?
+_warp_lists_have_content() {
+    local _wl
+    [ -s "$WARP_DEVICES_FILE" ] && return 0
+    for _wl in $(warp_active_lists 2>/dev/null); do
+        [ -s "$_wl" ] && return 0
+    done
+    return 1
+}
+
+# Загрузить ОБА сета (validate-first: битая строка не доходит до nft).
+# W19: источник НЕпуст, а валидных ноль = corrupt -> отказ, live set цел.
+# Источники пусты (W18, пользователь всё удалил) = валидно пусто -> заливаем
+# пустоту. Возврат 0 = live-состояние корректно.
+warp_nft_sets_load() {
+    local _dst _src
+    _dst="$(warp_validated_dst)"
+    _src="$(warp_devices_ips)"
+    if [ -z "$_dst" ] && [ -z "$_src" ] && _warp_lists_have_content; then
+        _wlog "источники непусты, а валидных ноль — corrupt? live set цел"
+        return 1
+    fi
+    _z2k_ow_warp_table_ok || {
+        echo "z2k-openwrt: warp: нет таблицы ${Z2K_WARP_NFT_FAMILY} ${Z2K_WARP_NFT_TABLE} (сначала fw_apply)" >&2
+        return 1
+    }
+    for _s in "$WARP_SET" "$WARP_SET_SRC"; do
+        nft add set "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_s" \
+            '{ type ipv4_addr; flags interval; }' 2>/dev/null || true
+        nft flush set "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_s" 2>/dev/null || true
+    done
+    if [ -n "$_dst" ]; then
+        # shellcheck disable=SC2046
+        nft add element "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_SET" \
+            "{ $(printf '%s' "$_dst" | _warp_csv) }" || return 1
+    fi
+    if [ -n "$_src" ]; then
+        # shellcheck disable=SC2046
+        nft add element "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_SET_SRC" \
+            "{ $(printf '%s' "$_src" | _warp_csv) }" || return 1
+    fi
+    _z2k_ow_warp_mut "NFT_CREATED: sets $WARP_SET/$WARP_SET_SRC"
+    return 0
+}
+
+# --- nft chains/rules (свои chains в ЧУЖОЙ runtime-таблице) ---
+
+warp_nft_rules_apply() {
+    _z2k_ow_warp_table_ok || {
+        echo "z2k-openwrt: warp: нет таблицы ${Z2K_WARP_NFT_FAMILY} ${Z2K_WARP_NFT_TABLE}" >&2
+        return 1
+    }
+    nft add chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
+        '{ type filter hook prerouting priority -150; }' 2>/dev/null || true
+    nft add chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MSS" \
+        '{ type filter hook forward priority -150; }' 2>/dev/null || true
+    nft add chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_FWD" \
+        '{ type filter hook forward priority -1; }' 2>/dev/null || true
+    nft add chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_NAT" \
+        '{ type nat hook postrouting priority 100; }' 2>/dev/null || true
+    for _c in "$WARP_CHAIN_MARK" "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
+        nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_c" 2>/dev/null || true
+    done
+    # Mark ТОЛЬКО PREROUTING, ТОЛЬКО битами маски (чужие биты живут).
+    # masked-mark идиома (доказана реальными правилами): (m & ~MASK) | MARK.
+    nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
+        ip daddr "@$WARP_SET" meta mark set mark '&' 0x7fffffff '^' 0x80000000 || return 1
+    nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
+        ip saddr "@$WARP_SET_SRC" meta mark set mark '&' 0x7fffffff '^' 0x80000000 || return 1
+    return 0
+}
+
+# NAT/FORWARD/MSS для валидированного iface (вызывать ПОСЛЕ проверки имени).
+warp_nft_tun_apply() {
+    local _iface="$1"
+    [ -n "$_iface" ] || return 1
+    # MSS 1240 = engine.MTU(1280)-40 (coupling держит тест с Go-константой):
+    # outbound — clamp-to-PMTU, inbound — explicit (НЕ зеркальный PMTU-clamp:
+    # дал бы 1460 с LAN-моста; полевое измерение upstream).
+    nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MSS" \
+        oifname "$_iface" tcp flags syn tcp option maxseg size set rt mtu || return 1
+    nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MSS" \
+        iifname "$_iface" tcp flags syn tcp option maxseg size set 1240 || return 1
+    nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_FWD" \
+        oifname "$_iface" accept || return 1
+    nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_NAT" \
+        oifname "$_iface" masquerade || return 1
+    _z2k_ow_warp_mut "NFT_CREATED: tun $WARP_CHAIN_MSS/$WARP_CHAIN_FWD/$WARP_CHAIN_NAT $_iface"
+    return 0
+}
+
+warp_nft_remove() {
+    # $1: "full" — снести и sets (remove/uninstall); иначе только chains.
+    local _full="${1:-}" _c _s
+    _z2k_ow_warp_table_ok || return 0
+    for _c in "$WARP_CHAIN_MARK" "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
+        nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_c" 2>/dev/null || true
+        nft delete chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_c" 2>/dev/null || true
+        _z2k_ow_warp_mut "NFT_REMOVED: $_c"
+    done
+    if [ "$_full" = "full" ]; then
+        for _s in "$WARP_SET" "$WARP_SET_SRC"; do
+            nft delete set "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_s" 2>/dev/null || true
+        done
+    fi
+    return 0
+}
+
+# --- PBR: route+rule только при доказанной ready ---
+
+# iface из ЖИВОГО status (не device.json — там прошлый запуск).
+_warp_live_iface() { _json_str "$WARP_STATUS" iface; }
+_warp_iface_valid() {
+    case "$1" in
+        z2ktun[0-9]|z2ktun[0-9][0-9]) ;;
+        *) return 1 ;;
+    esac
+    ip link show dev "$1" >/dev/null 2>&1 || return 1
+    return 0
+}
+
+# proven ready: status ready=true + ЖИВОЙ matching-процесс + валидный iface.
+# (Файл alone врёт после kill -9: defer Remove не выполняется.)
+_warp_proven_ready() {
+    [ "$(_json_raw "$WARP_STATUS" ready)" = "true" ] || return 1
+    warp_running || return 1
+    _warp_iface_valid "$(_warp_live_iface)" || return 1
+    return 0
+}
+
+# Conflict detection ПЕРЕД установкой PBR. Возврат:
+#   0 — ставить можно (пусто или ровно наше — идемпотентность);
+#   1 — чужой конфликт (FAIL LOUDLY, caller снимает PBR).
+# Чужие rules/routes НЕ трогаем никогда. При конфликте взводим
+# _WARP_CONFLICT=1, чтобы enable вернул 1 (hard fail), а не 2.
+_warp_pbr_check() {
+    local _iface="$1" _line _mv _mm _mt _ov
+    _WARP_CONFLICT=0
+    # Точное наше правило не освобождает от скана: чужой конфликт рядом
+    # с нашим = тоже отказ (трафик уже уводят). Нашу exact-строку пропускаем.
+    while IFS= read -r _line; do
+        case "$_line" in *fwmark*) ;; *) continue ;; esac
+        case "$_line" in
+            *"fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE"*) continue ;;
+        esac
+            _mv=$(printf '%s' "$_line" | sed -n 's/.*fwmark \([^ ]*\).*/\1/p' | head -1)
+            _mm="${_mv##*/}"; _mv="${_mv%%/*}"
+            [ -n "$_mm" ] || _mm="0xffffffff"
+            # Числа обязаны парситься (0x понимает и shell); мусор = конфликт
+            # (неизвестное не трогаем, но и рядом не встаём).
+            case "$_mv$_mm" in *[!0-9a-fA-FxX]*)
+                echo "z2k-openwrt: warp: непарсируемый fwmark: $_line" >&2
+                _WARP_CONFLICT=1; return 1 ;; esac
+            # Overlap: чужое НЕ исключает bit31 положительно
+            # (маска покрывает, а значение — нет) => пересечение.
+            _ov=0
+            if [ "$(( _mm & 0x80000000 ))" != "0" ] && [ "$(( _mv & 0x80000000 ))" = "0" ]; then
+                _ov=0
+            else
+                _ov=1
+            fi
+            if [ "$_ov" = "1" ]; then
+                echo "z2k-openwrt: warp: mark-конфликт: $_line (наш $WARP_MARK/$WARP_MASK)" >&2
+                _WARP_CONFLICT=1; return 1
+            fi
+        done <<EOF_RULES
+$(ip rule show 2>/dev/null)
+EOF_RULES
+    # Pref занят чужим (не нашим exact)?
+    if ip rule show 2>/dev/null | grep -qE "^$WARP_RULE_PREF:"; then
+        if ! ip rule show 2>/dev/null | grep -qF "fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE"; then
+            echo "z2k-openwrt: warp: pref $WARP_RULE_PREF занят чужим правилом" >&2
+            _WARP_CONFLICT=1; return 1
+        fi
+    fi
+    # Таблица: пусто (норма) или ровно наш default на живой iface (adopt).
+    _mt="$(ip route show table "$WARP_TABLE" 2>/dev/null)"
+    if [ -n "$_mt" ]; then
+        case "$_mt" in
+            "default dev $_iface"|"default dev $_iface scope link") ;;
+            *)
+                echo "z2k-openwrt: warp: table $WARP_TABLE содержит чужое — не трогаю" >&2
+                _WARP_CONFLICT=1; return 1 ;;
+        esac
+    fi
+    return 0
+}
+
+warp_pbr_down() {
+    # Route+rule ПЕРВЫМИ (мгновенный fail-open), затем тишина.
+    # Удаляем только наши exact-спецификации; чужое не трогаем.
+    # shellcheck disable=SC2046
+    ip rule del fwmark "$WARP_MARK/$WARP_MASK" table "$WARP_TABLE" 2>/dev/null || true
+    ip rule del fwmark "$WARP_MARK" table "$WARP_TABLE" 2>/dev/null || true
+    ip route del default table "$WARP_TABLE" 2>/dev/null || true
+    _z2k_ow_warp_mut "PBR_DOWN"
+    return 0
+}
+
+# --- procd ---
+
+warp_start_instance() {
+    command -v procd_open_instance >/dev/null 2>&1 || {
+        echo "z2k-openwrt: warp: нет procd-контекста (только из start_service)" >&2
+        return 1
+    }
+    local _proxy
+    _proxy="$(warp_cfg Z2K_WARP_VPS_PROXY "")"
+    [ -n "$_proxy" ] || _proxy="$WARP_VPS_PROXY_DEFAULT"
+    procd_open_instance "z2k-warp"
+    warp_with_argv _z2k_ow_warp_procd_command
+    procd_set_param env GODEBUG=asyncpreemptoff=1
+    [ -n "$_proxy" ] && procd_set_param env "Z2K_WARP_VPS_PROXY=$_proxy"
+    procd_set_param pidfile "${Z2K_RUN:-/tmp/z2k/runtime}/warpd.pid"
+    # Bounded respawn как TG/RT (доказательство: procd/service/instance.c):
+    # threshold 3600 / timeout 5 / retry 5; crash-loop halt'ится, не штормит.
+    procd_set_param respawn 3600 5 5
+    procd_set_param stdout 1
+    procd_set_param stderr 1
+    procd_close_instance
+    _z2k_ow_warp_mut "PROCESS_ACTION: instance z2k-warp opened"
+    return 0
+}
+
+# --- install/register (CLI) ---
+
+# Дефолт VPS-релея (как S51/z2k-warp.sh; равенство трёх копий — parity-тест).
+# В логах URL НЕ появляется никогда (см. warp_register).
+WARP_VPS_PROXY_DEFAULT="http://z2kwarp:z2kW4rpR3g2026@213.176.74.63:8119"
+
+# sha256 ожидаемого артефакта из ПРОВЕРЕННОГО манифеста ($1 файл, $2 arch).
+_warp_manifest_sha() {
+    sed -n "s/.*\"z2k-warpd\/builds\/z2k-warpd-linux-$2\"[[:space:]]*:[[:space:]]*\"\([0-9a-f]*\)\".*/\1/p" "$1" 2>/dev/null | head -1
+}
+
+warp_fetch_engine() {
+    # WARP_FETCH_STUB — тесты: вместо сети копируется готовый файл.
+    local _arch="$1" _tmp="$WARP_BIN.new.$$" _want="" _have=""
+    rm -f "$_tmp"
+    if [ -n "$WARP_FETCH_STUB" ]; then
+        cp "$WARP_FETCH_STUB" "$_tmp"
+    else
+        # Тот же verified artifact contract, что у updater: manifest+sig
+        # через z2k_fetch, подпись через au_manifest_verify (z2k-verify или
+        # openssl; verifier'а нет = FAIL, никакого TOFU).
+        # shellcheck disable=SC1090,SC1091
+        . "${Z2K_LIB:-/usr/lib/z2k/lib}/utils.sh" >/dev/null 2>&1 || return 1
+        # shellcheck disable=SC1090,SC1091
+        . "${Z2K_LIB:-/usr/lib/z2k/lib}/auto_update.sh" >/dev/null 2>&1 || return 1
+        local _md="$_tmp.manifest" _sg="$_tmp.manifest.sig"
+        rm -f "$_md" "$_sg"
+        au_fetch_pair "${Z2K_AU_REPO_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/z2k-enhanced-openwrt}/UPDATES.json" \
+                      "${Z2K_AU_REPO_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/z2k-enhanced-openwrt}/UPDATES.json.sig" \
+                      "$_md" "$_sg" || { _wlog "manifest fetch failed"; rm -f "$_md" "$_sg" "$_tmp"; return 1; }
+        if ! au_manifest_verify "$_md" "$_sg"; then
+            _wlog "manifest signature NOT verified (no verifier? install openssl-util or z2k-verify) — refusing"
+            rm -f "$_md" "$_sg" "$_tmp"; return 1
+        fi
+        _want="$(_warp_manifest_sha "$_md" "$_arch")"
+        rm -f "$_md" "$_sg"
+        [ -n "$_want" ] || { _wlog "no manifest hash for arch $_arch — refusing"; rm -f "$_tmp"; return 1; }
+        _wlog "скачиваю движок ($arch, ~7 МБ)..."
+        z2k_fetch "${Z2K_AU_REPO_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/z2k-enhanced-openwrt}/z2k-warpd/builds/z2k-warpd-linux-$_arch" "$_tmp" 2>/dev/null || {
+            _wlog "engine download failed"; rm -f "$_tmp"; return 1; }
+        _have=$(z2k_sha256_file "$_tmp" 2>/dev/null)
+        [ "$_have" = "$_want" ] || { _wlog "sha256 mismatch for engine ($arch)"; rm -f "$_tmp"; return 1; }
+    fi
+    [ -s "$_tmp" ] || { _wlog "engine download failed"; rm -f "$_tmp"; return 1; }
+    if [ -z "$WARP_FETCH_STUB" ]; then
+        head -c 4 "$_tmp" 2>/dev/null | grep -q ELF || { _wlog "engine is not an ELF"; rm -f "$_tmp"; return 1; }
+    fi
+    chmod 755 "$_tmp"
+    "$_tmp" version >/dev/null 2>&1 || { _wlog "engine does not run on this architecture"; rm -f "$_tmp"; return 1; }
+    mkdir -p "$(dirname "$WARP_BIN")" 2>/dev/null
+    mv -f "$_tmp" "$WARP_BIN" || { rm -f "$_tmp"; return 1; }
+    _wlog "движок установлен: $WARP_BIN"
+    return 0
+}
+
+warp_arch() {
+    # Та же карта, что установщик/апдейтер (map_arch_to_bin_arch -> linux-*),
+    # минус префикс: артефакты лежат как z2k-warpd-linux-<arch>.
+    local _hw _ba
+    _hw=$(uname -m 2>/dev/null)
+    if command -v map_arch_to_bin_arch >/dev/null 2>&1; then
+        _ba=$(map_arch_to_bin_arch "$_hw" 2>/dev/null || true)
+    fi
+    [ -n "$_ba" ] || return 1
+    printf '%s' "${_ba#linux-}"
+    return 0
+}
+
+warp_register() {
+    local _out _proxy
+    _proxy="$(warp_cfg Z2K_WARP_VPS_PROXY "")"
+    [ -n "$_proxy" ] || _proxy="$WARP_VPS_PROXY_DEFAULT"
+    mkdir -p "$(dirname "$WARP_DEVICE")" 2>/dev/null
+    if [ -s "$WARP_DEVICE" ]; then
+        _wlog "ключ устройства уже есть — проверяю (новое устройство не создаётся)..."
+    else
+        _wlog "регистрирую устройство (до минуты)..."
+    fi
+    if _out=$("$WARP_BIN" register --device "$WARP_DEVICE" 2>&1); then
+        _wlog "$_out"
+    else
+        # Причина — код, НЕ proxy-URL (секрет релея в логи не пишем).
+        _wlog "напрямую не вышло — пробую через релей..."
+        if _out=$("$WARP_BIN" register --device "$WARP_DEVICE" --proxy "$_proxy" 2>&1); then
+            _wlog "через релей: зарегистрированы"
+        else
+            _wlog "register_blocked"
+            return 1
+        fi
+    fi
+    chmod 600 "$WARP_DEVICE" 2>/dev/null
+    return 0
+}
+
+# Пора ли пробовать регистрацию снова (метка ДО попытки).
+warp_register_due() {
+    local _now _last
+    _now=$(date +%s 2>/dev/null) || return 1
+    _last=$(cat "$WARP_REG_STAMP" 2>/dev/null)
+    case "$_last" in ''|*[!0-9]*) _last=0 ;; esac
+    [ "$((_now - _last))" -ge "$WARP_REG_RETRY" ]
+}
+
+warp_install() {
+    warp_lists_migrate || return 1
+    local _arch
+    _arch=$(warp_arch) || { _wlog "unsupported architecture"; return 1; }
+    warp_fetch_engine "$_arch" || return 1
+    # Ничего не запускается: только движок на диск и ключ устройства.
+    warp_register || return 1
+    return 0
+}
+
+# Одноразовая уборка manual-пинов удалённого подборщика плеча (портировано
+# с OpenWrt-путями; чужие закрепления не трогаем).
+warp_unpin_legacy() {
+    local _f
+    for _f in "${Z2K_STATE:-/etc/z2k/state}/state.tsv" /tmp/z2k-autocircular-state.tsv; do
+        [ -n "$_f" ] && [ -f "$_f" ] || continue
+        awk -F'\t' -v k="rkn_tcp" -v h="cloudflareclient.com|4" \
+            '($1 == k && $2 == h && $5 == "manual") { next } { print }' \
+            "$_f" > "$_f.z2k-unpin.$$" 2>/dev/null || { rm -f "$_f.z2k-unpin.$$"; continue; }
+        if cmp -s "$_f" "$_f.z2k-unpin.$$"; then
+            rm -f "$_f.z2k-unpin.$$"
+        else
+            chmod 644 "$_f.z2k-unpin.$$" 2>/dev/null
+            mv -f "$_f.z2k-unpin.$$" "$_f" 2>/dev/null || rm -f "$_f.z2k-unpin.$$"
+            _wlog "снято закрепление плеча, оставленное удалённым подборщиком"
+        fi
+    done
+    return 0
+}
+
+# Wait for proven ready (NOT stale: status must be newer than wait start,
+# else kill -9 left a ready file of a corpse; defer Remove never runs on SIGKILL).
+# A steady-healthy daemon writes on every transition, so fresh ready = live ready.
+_warp_wait_ready() {
+    local _waited=0 _t0 _mt
+    _t0=$(date +%s 2>/dev/null || echo 0)
+    while [ "$_waited" -lt "${1:-$WARP_READY_WAIT}" ]; do
+        if [ "$(_json_raw "$WARP_STATUS" ready)" = "true" ] && warp_running; then
+            if command -v stat >/dev/null 2>&1; then
+                _mt=$(stat -c %Y "$WARP_STATUS" 2>/dev/null || echo 0)
+                case "$_mt" in ''|*[!0-9]*) _mt=0 ;; esac
+                [ "$_mt" -ge "$_t0" ] || { sleep 2; _waited=$((_waited + 2)); continue; }
+            fi
+            _warp_iface_valid "$(_warp_live_iface)" && return 0
+        fi
+        sleep 2; _waited=$((_waited + 2))
+    done
+    return 1
+}
+
+# PBR install: conflict-check + tun-правила + route + rule.
+# Требует proven ready у вызывающего ИЛИ проверяет сам (дёшево).
+warp_pbr_up() {
+    local _iface
+    _warp_proven_ready || return 1
+    _iface="$(_warp_live_iface)"
+    _warp_pbr_check "$_iface" || return 1
+    warp_nft_tun_apply "$_iface" || return 1
+    ip route replace default dev "$_iface" table "$WARP_TABLE" 2>/dev/null || return 1
+    if ! ip rule show 2>/dev/null | grep -qF "fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE"; then
+        ip rule add pref "$WARP_RULE_PREF" fwmark "$WARP_MARK/$WARP_MASK" table "$WARP_TABLE" 2>/dev/null || return 1
+    fi
+    _z2k_ow_warp_mut "PBR_UP: table $WARP_TABLE pref $WARP_RULE_PREF mark $WARP_MARK/$_iface"
+    return 0
+}
+
+# --- enable/disable/remove ---
+
+warp_enable() {
+    warp_set_flag 1
+    warp_unpin_legacy
+    [ -x "$WARP_BIN" ] || { _wlog "движок не установлен"; warp_set_flag 0; return 1; }
+    warp_nft_sets_load || { _wlog "списки не загрузились"; warp_set_flag 0; return 1; }
+    warp_nft_rules_apply || { _wlog "nft chains не встали"; warp_set_flag 0; return 1; }
+    _z2k_ow_warp_service_reload
+    if _warp_wait_ready "$WARP_READY_WAIT"; then
+        _WARP_CONFLICT=0
+        if warp_pbr_up; then
+            _wlog "WARP ready: $(_json_str "$WARP_STATUS" transport) $(_json_str "$WARP_STATUS" endpoint)"
+            return 0
+        fi
+        # Конфликт foreign state = hard fail (rc 1, флаг остаётся как desired);
+        # иначе — просто не сошлось (rc 2, tick/selfheal доведут).
+        [ "$_WARP_CONFLICT" = "1" ] && return 1
+        return 2
+    fi
+    _wlog "не ready за $WARP_READY_WAIT c: $(_json_str "$WARP_STATUS" last_error) (флаг остаётся, selfheal доведёт)"
+    return 2
+}
+
+# service reload (не restart): procd пересоздаёт instance без bounce чужих.
+# Только если сервис запущен (иначе intent записан, конвергенция — на старте).
+_z2k_ow_warp_service_reload() {
+    pidof nfqws2 >/dev/null 2>&1 || return 0
+    [ -x /etc/init.d/z2k ] && /etc/init.d/z2k reload >/dev/null 2>&1 || true
+    return 0
+}
+
+warp_disable() {
+    warp_unpin_legacy
+    warp_pbr_down
+    _z2k_ow_warp_service_reload
+    warp_set_flag 0
+    return 0
+}
+
+warp_remove() {
+    warp_disable
+    rm -f "$WARP_BIN" "$WARP_BIN".new.* 2>/dev/null
+    warp_nft_remove full
+    _wlog "движок удалён; ключ устройства и списки сохранены"
+    return 0
+}
+
+# --- selfheal tick (cron) ---
+
+# Death-note: движок исчез без stopped/fatal в логе (SIGKILL/OOM) — след.
+warp_note_death() {
+    [ -s "$WARP_LOG" ] || return 0
+    case "$(tail -n1 "$WARP_LOG" 2>/dev/null)" in
+        *" stopped"|*" fatal: "*|*"движок уже запущен"*|*"исчез без остановки"*) return 0 ;;
+    esac
+    local _pid _why
+    _pid=$(_json_raw "$WARP_STATUS" pid)
+    _why="причина в логах не записана"
+    if [ -n "$_pid" ]; then
+        _why=$(dmesg 2>/dev/null | grep "Killed process $_pid " | tail -n1 | sed 's/^\[[^]]*\] *//')
+        [ -n "$_why" ] && _why="OOM-killer: $_why" || _why="причина в логах не записана"
+    fi
+    printf '%s движок исчез без остановки (pid %s): %s\n' \
+        "$(date '+%Y-%m-%d %H:%M:%S')" "${_pid:-?}" "$_why" >> "$WARP_LOG" 2>/dev/null
+    return 0
+}
+
+# (tick живёт один раз — z2k_ow_warp_check ниже; warp_selfheal-обёртка
+# для CLI-диспатча определена рядом с ним.)
+
+# Sets reload только при изменении входов (хеш), без рестарта движка.
+warp_nft_sets_reload_if_changed() {
+    local _hfile="${Z2K_TMP:-/tmp/z2k}/warp/sets.hash" _h="" _old=""
+    mkdir -p "$(dirname "$_hfile")" 2>/dev/null || return 0
+    _h="$( { warp_active_lists | while IFS= read -r _wl; do cat "$_wl" 2>/dev/null; done
+             [ -s "$WARP_DEVICES_FILE" ] && cat "$WARP_DEVICES_FILE"; } | cksum 2>/dev/null | awk '{print $1}')"
+    [ -f "$_hfile" ] && _old=$(cat "$_hfile" 2>/dev/null)
+    [ "$_h" = "$_old" ] && return 0
+    warp_nft_sets_load >/dev/null 2>&1 || return 0
+    printf '%s' "$_h" > "$_hfile" 2>/dev/null
+    return 0
+}
+
+# Явный reload списков (CLI): всегда перезаливаем, без хеш-гейта.
+warp_reload_lists() {
+    warp_lists_migrate || return 1
+    warp_nft_sets_load || return 1
+    return 0
+}
+
+# One-shot migrate (CLI): только списки (usque-наследия на OpenWrt нет).
+warp_migrate() {
+    warp_lists_migrate
+}
+
+# CLI-обёртка selfheal (диспатч ниже зовёт warp_selfheal).
+warp_selfheal() {
+    z2k_ow_warp_check
+}
+
+# --- status (key=value для будущей панели/CLI) ---
+
+warp_status() {
+    local _installed=0 _ready=0 _entries=0 _devices=0
+    [ -x "$WARP_BIN" ] && _installed=1
+    _warp_proven_ready >/dev/null 2>&1 && _ready=1
+    _entries=$(nft list set "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_SET" 2>/dev/null | grep -cE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || true)
+    _devices=$(nft list set "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_SET_SRC" 2>/dev/null | grep -cE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || true)
+    printf 'installed=%s enabled=%s ready=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s\n' \
+        "$_installed" "$(warp_flag)" "$_ready" \
+        "$(_json_str "$WARP_STATUS" transport)" "$(_json_str "$WARP_STATUS" endpoint)" \
+        "$(_json_str "$WARP_STATUS" iface)" "$(_json_str "$WARP_STATUS" addr)" \
+        "$_entries" "$_devices" "$(_json_str "$WARP_STATUS" last_error)"
+}
+
+# --- топология lifecycle ---
+
+z2k_ow_warp() {
+    case "${1:-}" in
+        1)
+            # Boot converge: sets + instance; PBR — только если proven ready
+            # (на старте почти surely нет; tick доведёт). Boot никогда не
+            # валит сервис: sets-load провален -> тихо, tick повторит.
+            warp_wanted_boot || return 0
+            warp_nft_sets_load >/dev/null 2>&1 || return 0
+            warp_nft_rules_apply >/dev/null 2>&1 || return 0
+            warp_start_instance >/dev/null 2>&1 || return 0
+            if _warp_proven_ready; then
+                warp_pbr_up >/dev/null 2>&1 || true
+            fi
+            ;;
+        0)
+            # Full stop: PBR down ПЕРВЫМ, затем chains; процесс — через procd.
+            warp_pbr_down >/dev/null 2>&1 || true
+            warp_nft_remove >/dev/null 2>&1 || true
+            ;;
+        rules)
+            # hotplug/firewall-reload: sets (если изменились) + nft converge;
+            # PBR: untouched if valid, restore if vanished+ready. Демон не трогаем.
+            if warp_wanted_boot; then
+                warp_nft_sets_reload_if_changed >/dev/null 2>&1 || true
+                warp_nft_rules_apply >/dev/null 2>&1 || return 1
+                warp_pbr_verify >/dev/null 2>&1 || {
+                    _warp_proven_ready && warp_pbr_up >/dev/null 2>&1 || true
+                }
+            else
+                warp_pbr_down >/dev/null 2>&1 || true
+                warp_nft_remove >/dev/null 2>&1 || true
+            fi
+            ;;
+        proc-bounce)
+            # Daemon-only restart: ТОЛЬКО kill (procd поднимает); PBR/rules целы.
+            if warp_running; then
+                for _p in $(warp_pids); do _z2k_ow_warp_kill "$_p"; done
+                _z2k_ow_warp_mut "PROCESS_ACTION: bounced (PBR kept)"
+            fi
+            ;;
+        cleanup)
+            # uninstall: всё снять (chains+sets+PBR),filеs — пакет/пользователь.
+            warp_pbr_down >/dev/null 2>&1 || true
+            warp_nft_remove full >/dev/null 2>&1 || true
+            return 0
+            ;;
+        check)
+            z2k_ow_warp_check
+            ;;
+        # CLI-глаголы — явный мэппинг + propagation rc (дефисный reload-lists
+        # через "warp_$1" не вызовется; хвостовой return 0 глотал бы rc).
+        install)      warp_install; return $? ;;
+        enable)       warp_enable; return $? ;;
+        disable)      warp_disable; return $? ;;
+        remove)       warp_remove; return $? ;;
+        status)       warp_status; return $? ;;
+        selfheal)     warp_selfheal; return $? ;;
+        reload-lists) warp_reload_lists; return $? ;;
+        migrate)      warp_migrate; return $? ;;
+        *)
+            echo "usage: z2k_ow_warp {1|0|rules|proc-bounce|cleanup|check|install|enable|disable|remove|status|selfheal|reload-lists|migrate}" >&2
+            return 1
+            ;;
+    esac
+    return 0
+}
+
+# Boot-wanted определён один раз — выше (wanted с ENABLED).
+
+# PBR present-and-valid? (verify без изменений; чинит hotplug/tick чтением).
+warp_pbr_verify() {
+    local _iface
+    _iface="$(_warp_live_iface)"
+    [ -n "$_iface" ] || return 1
+    ip rule show 2>/dev/null | grep -qF "fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE" || return 1
+    ip route show table "$WARP_TABLE" 2>/dev/null | grep -qF "default dev $_iface" || return 1
+    return 0
+}
+
+# --- health check (cron) ---
+
+z2k_ow_warp_check() {
+    mkdir -p "${Z2K_TMP:-/tmp/z2k}/warp" 2>/dev/null || return 0
+    # Graduated gates (НЕ один wanted: устройству без ключа нужен
+    # register-recovery, а не молчаливый converge-to-off).
+    [ "$(warp_cfg ENABLED 1)" = "1" ] || { warp_pbr_down >/dev/null 2>&1 || true; return 0; }
+    [ "$(warp_flag)" = "1" ] || { warp_pbr_down >/dev/null 2>&1 || true; return 0; }
+    [ -x "$WARP_BIN" ] || { warp_pbr_down >/dev/null 2>&1 || true; return 0; }
+    if [ ! -s "$WARP_DEVICE" ]; then
+        warp_pbr_down >/dev/null 2>&1 || true
+        if warp_register_due; then
+            mkdir -p "$(dirname "$WARP_REG_STAMP")" 2>/dev/null
+            date +%s > "$WARP_REG_STAMP" 2>/dev/null
+            { _wlog "нет ключа — регистрирую"; warp_register; } >>"$WARP_LOG" 2>&1 \
+                && _z2k_ow_warp_service_restart
+        fi
+        return 0
+    fi
+    if ! warp_running; then
+        warp_note_death
+        warp_pbr_down >/dev/null 2>&1 || true
+        return 0
+    fi
+    if _warp_proven_ready; then
+        warp_nft_sets_reload_if_changed >/dev/null 2>&1 || true
+        warp_pbr_up >/dev/null 2>&1 || warp_pbr_down >/dev/null 2>&1
+    else
+        warp_pbr_down >/dev/null 2>&1 || true
+    fi
+    return 0
+}
+
+_z2k_ow_warp_service_restart() {
+    pidof nfqws2 >/dev/null 2>&1 || return 0
+    [ -x /etc/init.d/z2k ] && /etc/init.d/z2k restart >/dev/null 2>&1 || true
+    return 0
+}
+
+# Sourced by tests to exercise the functions with stubs — skip the dispatch.
+[ -n "$Z2K_WARP_SOURCE_ONLY" ] && return 0 2>/dev/null || true
+
+case "${1:-}" in
+    install)   warp_install ;;
+    enable)    warp_enable ;;
+    disable)   warp_disable ;;
+    remove)    warp_remove ;;
+    status)    warp_status ;;
+    selfheal)  warp_selfheal ;;
+    reload-lists) warp_reload_lists ;;
+    migrate)   warp_migrate ;;
+    *)
+        echo "usage: $0 {install|enable|disable|remove|status|selfheal|reload-lists|migrate}" >&2
+        exit 1 ;;
+esac
