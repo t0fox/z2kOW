@@ -44,6 +44,11 @@ type Config struct {
 	LockPath   string        // пусто = рядом со status.json
 	ForceStep  *account.Step // --force-transport: лестница из одного шага
 	Logf       func(string, ...any)
+	// SkipNetSetup — платформой владеет FORWARD/MASQUERADE/MSS (OpenWrt,
+	// --net-backend=external): TUN/create/address/transport/health/status
+	// работают как раньше, nat.Ensure/Remove не вызываются вовсе.
+	// Default false = Keenetic iptables как сейчас, побайтово.
+	SkipNetSetup bool
 
 	Now          func() time.Time
 	Sleep        func(ctx context.Context, d time.Duration) error
@@ -166,10 +171,14 @@ func Run(ctx context.Context, cfg Config) error {
 
 	// MSS считаем от MTU туннеля, а не вписываем числом: два числа в разных
 	// местах разъедутся при первой же смене MTU. 20 байт IP плюс 20 TCP.
-	if err := nat.Ensure(nat.Runner(cfg.Run), e.iface, MTU-40); err != nil {
-		cfg.Logf("nat: %v", err)
+	// SkipNetSetup (OpenWrt): сетевым plumbing владеет платформа (nft через
+	// адаптер) — движок делает TUN/транспорт/статус и НЕ трогает netfilter.
+	if !cfg.SkipNetSetup {
+		if err := nat.Ensure(nat.Runner(cfg.Run), e.iface, MTU-40); err != nil {
+			cfg.Logf("nat: %v", err)
+		}
+		defer nat.Remove(nat.Runner(cfg.Run), e.iface, MTU-40)
 	}
-	defer nat.Remove(nat.Runner(cfg.Run), e.iface, MTU-40)
 
 	var lad *ladder.Ladder
 	if cfg.ForceStep != nil {

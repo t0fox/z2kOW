@@ -1,7 +1,7 @@
 // z2k-warpd — собственный WARP-движок z2k для Keenetic.
 //
 //	z2k-warpd register [--device PATH] [--proxy URL]
-//	z2k-warpd run      [--device PATH] [--status PATH] [--log PATH] [--force-transport wg:PORT|h2] [-v]
+//	z2k-warpd run      [--device PATH] [--status PATH] [--log PATH] [--force-transport wg:PORT|h2] [--net-backend=external] [-v]
 //	z2k-warpd status   [--status PATH]
 //	z2k-warpd version
 package main
@@ -167,6 +167,7 @@ func cmdRun(args []string) int {
 	force := fs.String("force-transport", "", "wg:PORT | wg:HOST:PORT | h2 — только этот шаг")
 	proxy := fs.String("proxy", os.Getenv("Z2K_WARP_VPS_PROXY"), "HTTPS-прокси (VPS-релей) для API, если напрямую заблокирован")
 	epPath := fs.String("endpoints", defaultEndpoints, "список запасных эндпоинтов")
+	netBackend := fs.String("net-backend", "", "network plumbing: \"\" (Keenetic iptables, default) | \"external\" (platform owns FORWARD/MASQUERADE/MSS, e.g. OpenWrt)")
 	verbose := fs.Bool("v", false, "подробный лог")
 	fs.Parse(args)
 
@@ -206,11 +207,27 @@ func cmdRun(args []string) int {
 	// диагноза, а с ней в статусе видно, ЧТО именно не работает.
 	repairBadEndpoint(*devPath, *proxy, logf)
 
+	// Сетевой plumbing: дефолт "" = Keenetic iptables как сейчас.
+	// "external" (OpenWrt) = движок делает TUN/транспорт/статус, а
+	// FORWARD/MASQUERADE/MSS владеет платформа (см. engine.Config.SkipNetSetup).
+	// Неизвестное значение — fatal: молчаливый downgrade хуже отказа.
+	var skipNetSetup bool
+	switch *netBackend {
+	case "":
+	case "external":
+		skipNetSetup = true
+		logf("net-backend=external: iptables plumbing disabled, platform owns network setup")
+	default:
+		fmt.Fprintln(os.Stderr, "bad --net-backend", strconv.Quote(*netBackend), "(\"\" | \"external\")")
+		return 2
+	}
+
 	cfg := engine.Config{
-		DevicePath: *devPath,
-		StatusPath: *stPath,
-		Logf:       logf,
-		Proxy:      *proxy,
+		DevicePath:   *devPath,
+		StatusPath:   *stPath,
+		Logf:         logf,
+		Proxy:        *proxy,
+		SkipNetSetup: skipNetSetup,
 		NewTransport: func(step account.Step, dev tun.Device, d *account.Device) (transport.Transport, error) {
 			switch step.Transport {
 			case "wg":
