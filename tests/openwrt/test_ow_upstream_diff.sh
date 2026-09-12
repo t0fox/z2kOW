@@ -109,9 +109,12 @@ else
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
             lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/app.js|docs/openwrt-webpanel-contract.md|docs/openwrt-release-contract.md|scripts/openwrt/gen-openwrt-manifest.sh|scripts/openwrt/build-release.sh|scripts/openwrt/write-provenance.sh) continue ;;
             UPDATES.json)
-                # Манифест следует за деревом: разрешены только hash-обновления
-                # allowlisted lib-файлов в files_sha256 (ни новых ключей, ни
-                # других секций, ни install_map-правок руками).
+                # Манифест следует за деревом: разрешены hash-обновления
+                # файлов, чьи правки сами allowlisted (хеш следует за
+                # контентом — связку доказывает channel-тест побайтово),
+                # плюс ДОБАВЛЕНИЯ install_map для allowlisted файлов.
+                # Запрещены всегда: current/seq/branch/history-правки на
+                # feature-ветке, удаления/изменения существующих map-назначений.
                 # --ignore-cr-at-eol на worktree-диффах: Windows-чекаут красит
                 # весь файл в CRLF-шум (см. шапку файла).
                 _umd="$( { $_g diff "$BASELINE"...HEAD -- UPDATES.json 2>/dev/null; \
@@ -119,7 +122,8 @@ else
                             $_g diff --ignore-cr-at-eol -- UPDATES.json 2>/dev/null; } \
                     | grep -E '^[+-]' | grep -vE '^[+-]{3}' || true)"
                 _umd_bad="$(printf '%s\n' "$_umd" \
-                    | grep -vE '^[+-]  "(lib/(config_official|release_map|auto_update)\.sh|files/z2k-config-validator\.sh)": "[0-9a-f]{64}",?$' || true)"
+                    | grep -vE '^[+-]  "(lib/(config_official|release_map|auto_update)\.sh|files/z2k-config-validator\.sh|webpanel/(cgi/(platform|api|actions|auth)\.sh|install\.sh|lighttpd\.conf|www/(app\.js|js/core/loadorder\.js|js/pages/toggles\.js)))": "[0-9a-f]{64}",?$' \
+                    | grep -vE '^[+]  "webpanel/cgi/platform\.sh": \[' || true)"
                 [ -z "$_umd_bad" ] && continue ;;
         esac
         _unallowed="$_unallowed $_f:$(_seam_of "$_f")"
