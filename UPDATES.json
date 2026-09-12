@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "branch": "z2k-enhanced",
-  "seq": 90,
-  "current": "p-84.7",
+  "seq": 92,
+  "current": "p-84.9",
   "install_map": {
   "files/000-zapret2.sh": ["/opt/etc/ndm/netfilter.d/000-zapret2.sh"],
   "files/S99zapret2.new": ["/opt/etc/init.d/S99zapret2"],
@@ -261,7 +261,7 @@
   "webpanel/www/fonts/FiraSans-600-latin.woff2": "f3cc7b2756c566cf8172bfd269d805c4a1eb953f6b6ce8bf2b2ddf49c5422189",
   "webpanel/www/fonts/FiraSans-700-cyrillic.woff2": "42a8013e902099b563e434d3ccb3bed87ff6d6af8d80fe51ff203f2ac487673b",
   "webpanel/www/fonts/FiraSans-700-latin.woff2": "811e73619cc2909792e8fa134c8d1ed714b898310dd4cc218fc29e40a5dc2890",
-  "webpanel/www/index.html": "4c09664a054b87c3f4262e00cd277adc1ef50a848a3dd0a802b10ff597dc630f",
+  "webpanel/www/index.html": "db82c6b6f57fb3ee6fa3a3c70bafe1bab01e1bb8240b94cef5c1e90fb2b30a63",
   "webpanel/www/js/chrome.js": "3e2217758cde6d87f4809aaf65c4aafca582b936d9c53b19abb4adac1479fdef",
   "webpanel/www/js/core/api.js": "eaa798b49c02373a1cffcdee447587f9969194323dd5471ac74a07d4af7b235f",
   "webpanel/www/js/core/auth.js": "7afe5b139737783402f45fb654b9383b24d68779aae93a0f5f1847608252ad8c",
@@ -547,6 +547,8 @@
 {"v": "p-84.4", "type": "patch", "ts": "2026-09-11T07:10:52Z", "ref": "p-84.4", "desc": "Автоподбор стратегий теперь замечает и такую блокировку, при которой сайт не отвечает вовсе: раньше в этом случае подбор замирал на первой стратегии и страница просто висела до таймаута. Появились настройки Z2K_SILENCE_DETECT и Z2K_SILENCE_SECONDS.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "files/lua/z2k-silence.lua", "files/z2k-config-validator.sh", "lib/config_official.sh", "z2k.sh", "UPDATES.json"], "steps": ["regen-config", "validate-config", "restart-service"], "full_install": false},
 {"v": "p-84.5", "type": "patch", "ts": "2026-09-11T08:33:29Z", "ref": "p-84.5", "desc": "Автоподбор стратегий доведён до конца: теперь он реагирует и когда ответ сайта начался и оборвался, и когда часть запросов к сайту проходит, а часть режется — раньше в обоих случаях подбор оставался на первой стратегии.", "changed_files": ["webpanel/www/index.html", "files/lua/z2k-silence.lua", "UPDATES.json"], "steps": ["restart-service"], "full_install": false},
 {"v": "p-84.6", "type": "patch", "ts": "2026-09-11T09:32:43Z", "ref": "p-84.6", "desc": "Выключенное автообновление больше не включается само после ручного обновления из панели — настройка теперь держится. Подбор стратегий перестал бесконечно перебирать список, когда сайт не открывается по причине, не связанной с обходом: пройдя список один раз, он останавливается и снова берётся за подбор, как только сайт отвечает.", "changed_files": ["webpanel/www/index.html", "files/lua/z2k-silence.lua", "files/z2k-auto-update.sh", "files/z2k-scheduler.sh", "UPDATES.json"], "steps": ["restart-service"], "full_install": false},
-{"v": "p-84.7", "type": "patch", "ts": "2026-09-11T10:33:58Z", "ref": "p-84.7", "desc": "Подбор стратегий вернулся к прежней схеме проверки: восстановлены поправки, которые не дают менять стратегию там, где сайт на самом деле работает — ложный сброс соединения от фильтра, потеря пакета в уже открытой странице, ответ самого сайта. Убрана проверка по молчанию сайта, добавленная накануне: она листала список до конца на доменах, которые не открываются по причинам, к обходу отношения не имеющим.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "files/lua/z2k-alert.lua", "files/lua/z2k-quic-silence.lua", "lib/config_official.sh", "z2k.sh", "UPDATES.json"], "steps": ["regen-config", "validate-config", "restart-service"], "full_install": false}
+{"v": "p-84.7", "type": "patch", "ts": "2026-09-11T10:33:58Z", "ref": "p-84.7", "desc": "Подбор стратегий вернулся к прежней схеме проверки: восстановлены поправки, которые не дают менять стратегию там, где сайт на самом деле работает — ложный сброс соединения от фильтра, потеря пакета в уже открытой странице, ответ самого сайта. Убрана проверка по молчанию сайта, добавленная накануне: она листала список до конца на доменах, которые не открываются по причинам, к обходу отношения не имеющим.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "files/lua/z2k-alert.lua", "files/lua/z2k-quic-silence.lua", "lib/config_official.sh", "z2k.sh", "UPDATES.json"], "steps": ["regen-config", "validate-config", "restart-service"], "full_install": false},
+{"v": "p-84.8", "type": "patch", "ts": "2026-09-11T21:00:09Z", "ref": "p-84.8", "desc": "Обход стал надёжнее на компьютерах с Windows: поддельный пакет, которым z2k обманывает фильтр, у них мог доходить до самого сайта и рвать соединение — теперь он гасится способом, не зависящим от операционной системы. Отдельным хостам вроде апдейтера Discord можно подобрать свою стратегию, не ломая соседние адреса того же сайта. Ошибка в пользовательских стратегиях больше не оставляет роутер без обхода: конфиг с ней не применяется, продолжает работать прежний.", "changed_files": ["webpanel/www/index.html", "files/lua/z2k-modern-core.lua", "lib/config_official.sh", "strats_new2.txt", "UPDATES.json"], "steps": ["regen-strategies", "regen-config", "validate-config", "restart-service"], "full_install": false},
+{"v": "p-84.9", "type": "patch", "ts": "2026-09-12T04:10:31Z", "ref": "p-84.9", "desc": "Откат вчерашнего обновления: возвращены прежние стратегии и прежняя проверка конфига. Если после вчерашнего обновления перестали открываться сайты — это обновление вернёт всё как было.", "changed_files": ["webpanel/www/index.html", "files/lua/z2k-modern-core.lua", "lib/config_official.sh", "strats_new2.txt", "UPDATES.json"], "steps": ["regen-strategies", "regen-config", "validate-config", "restart-service"], "full_install": false}
   ]
 }
