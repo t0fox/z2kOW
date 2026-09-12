@@ -1013,7 +1013,17 @@ au_service_for_binary() {
         z2k-rt-proxy)      echo "/opt/etc/init.d/S96z2k-rt-proxy" ;;
         z2k-detect)        echo "/opt/etc/init.d/S98z2k-detect" ;;
         z2k-warpd)         echo "/opt/etc/init.d/S51z2k-warp" ;;
-        tg-mtproxy-client) echo "/opt/etc/init.d/S98tg-tunnel /opt/etc/init.d/S97z2k-http-tunnel" ;;
+        tg-mtproxy-client)
+            # COMMON_HOOK (openwrt TG, см. docs/openwrt-telegram-contract.md §11):
+            # на OpenWrt keenetic-пути не +x и координация молча пропускалась —
+            # бинарник менялся под живым procd-процессом. Здесь единственный
+            # владелец — сервис z2k целиком (TG instance — его часть): stop →
+            # atomic replace → start переиспользует init-конвергенцию.
+            if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+                echo "/etc/init.d/z2k"
+            else
+                echo "/opt/etc/init.d/S98tg-tunnel /opt/etc/init.d/S97z2k-http-tunnel"
+            fi ;;
     esac
 }
 
