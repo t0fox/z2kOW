@@ -14,8 +14,16 @@
 z2k_ow_uninstall() {
     "${Z2K_INITSRC:-/etc/init.d/z2k}" stop 2>/dev/null || true
     # shellcheck disable=SC1090,SC1091
-    . "$Z2K_ROOT/platform/openwrt/schedule.sh" 2>/dev/null && \
+    . "$Z2K_ROOT/platform/openwrt/schedule.sh" 2>/dev/null && {
         z2k_ow_cron_remove 2>/dev/null || true
+        z2k_ow_tg_cron_remove 2>/dev/null || true
+    } || true
+    # TG firewall (Stage 3): chains И sets из runtime-таблицы — она внешняя
+    # и переживает удаление пакета; оставить = litter. Best-effort, рано:
+    # дальше сносится payload вместе с самим tg.sh.
+    # shellcheck disable=SC1090,SC1091
+    . "$Z2K_ROOT/platform/openwrt/tg.sh" 2>/dev/null && \
+        z2k_ow_tg cleanup 2>/dev/null || true
     "${Z2K_INITSRC:-/etc/init.d/z2k}" disable 2>/dev/null || true
     rm -f "$Z2K_ETC/.payload-initialized" \
           "$Z2K_ETC/state/installed-tag" \

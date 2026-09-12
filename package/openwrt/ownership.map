@@ -37,6 +37,8 @@
 /usr/lib/z2k/platform/openwrt/update.sh package
 /usr/lib/z2k/platform/openwrt/schedule.sh package
 /usr/lib/z2k/platform/openwrt/uninstall.sh package
+/usr/lib/z2k/platform/openwrt/tg.sh package
+/usr/lib/z2k/platform/openwrt/tg-check.sh package
 /usr/lib/z2k/share/config.default package
 /usr/lib/z2k/share/seed.tar.gz package
 # seed.meta едет ВНУТРИ tarball (build-факт о содержимом): updater-owned с

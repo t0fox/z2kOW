@@ -25,3 +25,11 @@ Z2K_ETC="${Z2K_ETC:-/etc/z2k}"
 
 logger -t z2k "reloading zapret2 ifsets due to $ACTION of $INTERFACE (daemon untouched)"
 z2k_ow_fw_reload_ifsets
+# TG rules reconverge (Stage 3): sets переживают flap, правила доставляем
+# идемпотентно; демон НЕ трогаем (PID stable). tg.sh может отсутствовать
+# на старом payload — тогда молча скипаем (правил всё равно нет).
+if [ -f "$Z2K_ROOT/platform/openwrt/tg.sh" ]; then
+    # shellcheck disable=SC1090,SC1091
+    . "$Z2K_ROOT/platform/openwrt/tg.sh" 2>/dev/null && \
+        z2k_ow_tg rules 2>/dev/null || true
+fi

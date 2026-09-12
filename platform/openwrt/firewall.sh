@@ -33,11 +33,14 @@ z2k_ow_fw_apply() { z2k_ow_fw_source || return 1; zapret_apply_firewall; }
 z2k_ow_fw_remove() { z2k_ow_fw_source || return 1; zapret_unapply_firewall; }
 z2k_ow_fw_reload_ifsets() { z2k_ow_fw_source || return 1; zapret_reload_ifsets; }
 
-# --- z2k custom.d: точка расширения для будущих TG/RT/WARP-демонов ---
+# --- z2k custom.d: точка расширения для будущих RT/WARP-демонов ---
 # Контракт повторяет zapret2 custom_runner, отдельный неймспейс:
 # каждый $Z2K_CUSTOM_DIR/*.sh может определить z2k_custom_daemons(),
 # которая вызывается с $1=1 (start) / 0 (stop). DISABLE_CUSTOM=1 (дефолт
 # upstream) раннер гасит целиком.
+#
+# TG (Stage 3) через этот раннер НЕ идёт осознанно: DISABLE_CUSTOM не должен
+# гасить first-class feature — tg.sh вызывается из init.d/z2k напрямую.
 Z2K_CUSTOM_DIR="${Z2K_CUSTOM_DIR:-$Z2K_ADAPTER_DIR/custom.d}"
 
 z2k_ow_custom_daemons() {

@@ -25,6 +25,7 @@ z2k_load_adapter() {
     . "$Z2K_ROOT/platform/openwrt/generate.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/optbase.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/firewall.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/tg.sh" || return 1
     . "$Z2K_LIB/utils.sh" || return 1
     . "$Z2K_LIB/strategies.sh" || return 1
     . "$Z2K_LIB/config_official.sh" || return 1
@@ -56,6 +57,10 @@ start_service() {
 
     [ "${INIT_APPLY_FW:-1}" = "1" ] && z2k_ow_fw_apply
     z2k_ow_custom_daemons 1
+    # TG/CDN tunnel (Stage 3): второй procd instance + nft в runtime-таблице.
+    # Прямой вызов (НЕ через custom.d-раннер выше): DISABLE_CUSTOM не должен
+    # гасить first-class feature. procd останавливает instance сам.
+    z2k_ow_tg 1
 }
 
 stop_service() {
@@ -63,6 +68,8 @@ stop_service() {
     # shellcheck disable=SC1090
     [ -f "$Z2K_CONFIG" ] && . "$Z2K_CONFIG"
     z2k_ow_custom_daemons 0
+    # TG chains снять (sets оставить); демона останавливает сам procd.
+    z2k_ow_tg 0
     # Демона останавливает сам procd; снимаем только firewall.
     [ "${INIT_APPLY_FW:-1}" = "1" ] && z2k_ow_fw_remove
 }

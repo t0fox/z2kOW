@@ -14,6 +14,9 @@
 
 Z2K_CRON_TAB="${Z2K_CRON_TAB:-/etc/crontabs/root}"
 Z2K_CRON_LINE="17 2 * * * $Z2K_ROOT/platform/openwrt/update.sh apply # z2k-updater"
+# TG health-check (Stage 3): конвергенция rules + probe + kill-only backoff.
+# Отдельный маркер и отдельные функции: updater-строку не трогаем.
+Z2K_TG_CRON_LINE="*/5 * * * * $Z2K_ROOT/platform/openwrt/tg-check.sh check # z2k-tg-health"
 
 z2k_ow_cron_install() {
     mkdir -p "$(dirname "$Z2K_CRON_TAB")" 2>/dev/null || return 1
@@ -53,5 +56,35 @@ z2k_ow_cron_remove() {
     fi
     [ -f "$Z2K_CRON_TAB.new" ] || : > "$Z2K_CRON_TAB.new"
     mv -f "$Z2K_CRON_TAB.new" "$Z2K_CRON_TAB" || return 1
+    return 0
+}
+
+# --- TG health cron (тот же атомарный приём, свой маркер) ---
+
+_z2k_ow_cron_swap_line() {
+    # $1 marker-to-drop, $2 line-to-add (пусто = только удалить)
+    mkdir -p "$(dirname "$Z2K_CRON_TAB")" 2>/dev/null || return 1
+    [ -f "$Z2K_CRON_TAB" ] || : > "$Z2K_CRON_TAB" || return 1
+    grep -vF "$1" "$Z2K_CRON_TAB" 2>/dev/null > "$Z2K_CRON_TAB.new" || {
+        [ $? -eq 1 ] || return 1
+        : > "$Z2K_CRON_TAB.new" || return 1
+    }
+    [ -n "$2" ] && { printf '%s\n' "$2" >> "$Z2K_CRON_TAB.new" || return 1; }
+    mv -f "$Z2K_CRON_TAB.new" "$Z2K_CRON_TAB" || return 1
+    return 0
+}
+
+z2k_ow_tg_cron_install() {
+    _z2k_ow_cron_swap_line "# z2k-tg-health" "$Z2K_TG_CRON_LINE" || return 1
+    if [ -x /etc/init.d/cron ]; then
+        /etc/init.d/cron enabled 2>/dev/null || /etc/init.d/cron enable 2>/dev/null || true
+        pidof crond >/dev/null 2>&1 || /etc/init.d/cron start 2>/dev/null || true
+    fi
+    return 0
+}
+
+z2k_ow_tg_cron_remove() {
+    [ -f "$Z2K_CRON_TAB" ] || return 0
+    _z2k_ow_cron_swap_line "# z2k-tg-health" "" || return 1
     return 0
 }

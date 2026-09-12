@@ -27,7 +27,7 @@ define Package/z2k-adapter
   CATEGORY:=Network
   TITLE:=z2k OpenWrt adapter (thin layer over upstream z2k + zapret2 runtime)
   URL:=https://github.com/necronicle/z2k
-  DEPENDS:=+kmod-nft-queue
+  DEPENDS:=+kmod-nft-queue +conntrack
 endef
 
 define Package/z2k-adapter/description
@@ -72,6 +72,8 @@ z2k_ow_seed_ensure || exit 1
 # Ежесуточный updater через cron (строка с маркером, идемпотентно).
 . "$$Z2K_ROOT/platform/openwrt/schedule.sh"
 z2k_ow_cron_install || exit 1
+# TG health-check cron (своя строка/маркер, см. schedule.sh).
+z2k_ow_tg_cron_install || exit 1
 exit 0
 endef
 

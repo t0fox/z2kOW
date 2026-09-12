@@ -33,6 +33,9 @@ Z2K_EXTRA_STRATS_DIR="${Z2K_EXTRA_STRATS_DIR:-$Z2K_ROOT/extra_strats}"
 # вызовов materialize.sh (каталог всё равно передаётся параметром).
 Z2K_MANIFESTS_DIR="${Z2K_MANIFESTS_DIR:-$Z2K_ROOT}"
 Z2K_ADAPTER_DIR="${Z2K_ADAPTER_DIR:-$Z2K_ROOT/platform/openwrt}"
+# TLS bundle для TG-демона (доставляется updater'ом через files/etc/*,
+# release_map: files/etc/* -> $Z2K_ROOT/etc/). Переопределяем для тестов.
+Z2K_TG_TLS_BUNDLE="${Z2K_TG_TLS_BUNDLE:-$Z2K_ROOT/etc/z2k-roots.pem}"
 
 # --- transient (tmpfs) ---
 Z2K_TMP="${Z2K_TMP:-/tmp/z2k}"
