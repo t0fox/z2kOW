@@ -14,4 +14,5 @@ package/openwrt/files/etc/init.d/z2k text eol=lf
 package/openwrt/files/etc/init.d/z2k-webpanel text eol=lf
 package/openwrt/files/etc/hotplug.d/iface/90-z2k text eol=lf
 package/openwrt/files/etc/z2k/config.default text eol=lf
+package/openwrt/ADAPTER_API text eol=lf
 tests/openwrt/BASELINE text eol=lf
