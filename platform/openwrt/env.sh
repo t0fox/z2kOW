@@ -15,6 +15,16 @@
 # Предусловие: пути уже выставлены (paths.sh подключён вызывающим).
 # Автосорсинг paths.sh здесь невозможен: при `. env.sh` $0 — это вызывающий.
 
+# Platform identity для common-кода (constitution, не дефолт):
+# au_manifest_platform_ok gate, au_service_for_binary owner mapping,
+# z2k_install_paths_for dispatch — все читают ${Z2K_PLATFORM:-keenetic}.
+# БЕЗ этой строки в проде (update.sh) common видел keenetic: platform gate
+# пропускал чужие манифесты, а binary-координация молча скипалась
+# (Stage 3/RT root-cause, доказано аудитом Stage 4). Keenetic этот файл
+# не сорсит — там дефолт keenetic нетронут.
+Z2K_PLATFORM="${Z2K_PLATFORM:-openwrt}"
+export Z2K_PLATFORM
+
 # Корень payload — единственная точка входа upstream-конвейера.
 ZAPRET2_DIR="${ZAPRET2_DIR:-$Z2K_ROOT}"
 CONFIG_DIR="${CONFIG_DIR:-$Z2K_CONF_DIR}"

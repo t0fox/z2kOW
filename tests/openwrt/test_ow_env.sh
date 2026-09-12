@@ -21,6 +21,9 @@ assert_eq "TCP16_ASN -> state" "$T/etc/state/tcp16_asn.txt" "$Z2K_TCP16_ASN"
 assert_eq "TCP16_NETS -> payload lists" "$T/root/lists/tcp16_nets.txt" "$Z2K_TCP16_NETS"
 assert_eq "SNI_PIN default (shipped lists)" "$T/root/lists/sni_wl_pin.txt" "$Z2K_SNI_PIN"
 assert_eq "FWTYPE nftables" "nftables" "$FWTYPE"
+# Platform identity (Stage 4 root-cause: без неё common видел keenetic —
+# platform gate пропускал чужие манифесты, binary-координация скипалась).
+assert_eq "Z2K_PLATFORM openwrt" "openwrt" "$Z2K_PLATFORM"
 assert_eq "OPENWRT_LAN default" "lan" "$OPENWRT_LAN"
 assert_eq "INIT_SCRIPT procd" "/etc/init.d/z2k" "$INIT_SCRIPT"
 assert_eq "Z2K_CONFIG_FILE canonical" "$T/etc/config" "$Z2K_CONFIG_FILE"
