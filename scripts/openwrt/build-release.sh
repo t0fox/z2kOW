@@ -52,12 +52,14 @@ PKG_RELEASE="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$ROOT/package/openwrt/Makef
 note "package version: $PKG_VERSION-$PKG_RELEASE"
 
 # --- 1. clean tree (R2) -------------------------------------------------------
-if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
+# Сравнение — контентное (--ignore-cr-at-eol): stat-кэш dual-git окружения
+# даёт фантомную грязь, CRLF-шум — не грязь. Настоящую грязь ловит diff.
+if ! git -C "$ROOT" diff --ignore-cr-at-eol --quiet 2>/dev/null; then
     if [ "$DEV" = "1" ]; then
         note "ВНИМАНИЕ: грязное дерево, продолжаю только как --dev"
     else
         printf 'build-release: в дереве есть незакоммиченные правки:\n' >&2
-        git -C "$ROOT" status --short 2>/dev/null | sed 's/^/  /' >&2
+        git -C "$ROOT" diff --ignore-cr-at-eol --name-only 2>/dev/null | sed 's/^/  /' >&2
         die "production build из грязного дерева запрещён (R2)"
     fi
 fi

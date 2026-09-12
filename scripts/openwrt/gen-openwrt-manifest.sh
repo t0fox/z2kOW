@@ -75,10 +75,12 @@ esac
 
 # Чистое дерево — иначе суммы посчитаются по рабочей копии, а ref укажет на
 # коммит без этих правок (то же правило, что в scripts/release.sh).
+# Сравнение — контентное (--ignore-cr-at-eol): stat-кэш dual-git окружения
+# (WSL/Windows) даёт фантомную грязь, а CRLF-шум Windows-чекаута — не грязь.
 if [ "$ALLOW_DIRTY" != "1" ]; then
-    if [ -n "$(git -C "$TREE" status --porcelain 2>/dev/null)" ]; then
+    if ! git -C "$TREE" diff --ignore-cr-at-eol --quiet 2>/dev/null; then
         printf 'gen-openwrt-manifest: в дереве есть незакоммиченные правки:\n' >&2
-        git -C "$TREE" status --short 2>/dev/null | sed 's/^/  /' >&2
+        git -C "$TREE" diff --ignore-cr-at-eol --name-only 2>/dev/null | sed 's/^/  /' >&2
         die "грязное дерево — манифест собирается из коммитов (или --allow-dirty для проб)"
     fi
 fi
