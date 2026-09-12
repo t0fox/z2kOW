@@ -1010,7 +1010,17 @@ au_step_refresh_binaries() {
 # файл, поэтому подменять его можно только остановив оба.
 au_service_for_binary() {
     case "$1" in
-        z2k-rt-proxy)      echo "/opt/etc/init.d/S96z2k-rt-proxy" ;;
+        z2k-rt-proxy)
+            # COMMON_HOOK (openwrt RT, см. docs/openwrt-rt-proxy-contract.md §10):
+            # полный stop/start сервиса снимал бы DNS-пины (клиенты кешируют
+            # реальный IP), поэтому здесь process-only bounce: rt-proc.sh
+            # stop/start только kill'ят процесс (DNS/rules/exclusion целы),
+            # (ре)старт делает procd. Путь через Z2K_ROOT (тестам — sysroot).
+            if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+                echo "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/rt-proc.sh"
+            else
+                echo "/opt/etc/init.d/S96z2k-rt-proxy"
+            fi ;;
         z2k-detect)        echo "/opt/etc/init.d/S98z2k-detect" ;;
         z2k-warpd)         echo "/opt/etc/init.d/S51z2k-warp" ;;
         tg-mtproxy-client)
