@@ -1027,6 +1027,55 @@ assert_eq "W44: PBR цел после замены" "1" "$(grep -c 'fwmark 0x800
 unset Z2K_PLATFORM
 _w_inv "W44"
 
+# --- W44b: start hook failed -> replace есть, но refresh рапортует failure ---
+# (defect 3: success заявляем, только если бинарь заменён И owner reconciled).
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W44b: enable rc"
+cat > "$T/stub-new-bin" <<EOF
+#!/bin/sh
+# MARKER-NEWDATA-w44b
+case "\$1" in version) echo "z2k-warpd mock-new"; exit 0 ;; esac
+exit 0
+EOF
+chmod +x "$T/stub-new-bin"
+mkdir -p "$T/au-tmp"
+_newsha44b="$(sha256sum "$T/stub-new-bin" 2>/dev/null | awk '{print $1}')"
+printf '{"current":"p-84.7","files_sha256":{"z2k-warpd/builds/z2k-warpd-linux-arm64":"%s"}}\n' \
+    "$_newsha44b" > "$T/au-tmp/UPDATES.json"
+Z2K_PLATFORM=openwrt; export Z2K_PLATFORM
+# shellcheck disable=SC1090,SC1091
+. "$REPO/lib/utils.sh" >/dev/null 2>&1
+# shellcheck disable=SC1090,SC1091
+. "$REPO/lib/auto_update.sh" >/dev/null 2>&1 || { echo "FAIL[ow-warp-lifecycle]: au44b" >&2; exit 1; }
+au_log() { printf '%s\n' "$1" >> "$T/au.log"; }
+au_gen_libs_source() { return 0; }
+au_bin_goarch() { echo arm64; }
+au_download_repo_file() { cp -f "$T/stub-new-bin" "$2"; printf '%s\n' "$1" >> "$T/fetched"; return 0; }
+is_running() { return 1; }
+: > "$T/au.log"; : > "$T/fetched"
+# hook-вариант: stop всегда ok, start всегда падает:
+mv "$T/root/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh.keep"
+cat > "$T/root/platform/openwrt/warp-proc.sh" <<EOF
+#!/bin/sh
+case "\$1" in
+    stop) exit 0 ;;
+    start) exit 1 ;;
+esac
+exit 1
+EOF
+chmod +x "$T/root/platform/openwrt/warp-proc.sh"
+au_step_refresh_binaries >/dev/null 2>&1
+assert_eq "W44b: refresh rc 1" "1" "$?"
+assert_eq "W44b: бинарь заменён (файл новый)" "# MARKER-NEWDATA-w44b" "$(sed -n '2p' "$T/root/bin/z2k-warpd")"
+assert_contains "W44b: failure залогирован" "$T/au.log" "owner не reconciled"
+if grep -q "обновлён $T/root/bin/z2k-warpd" "$T/au.log"; then _t_bad "W44b: заявлен success при упавшем start"; else _t_ok; fi
+mv -f "$T/root/platform/openwrt/warp-proc.sh.keep" "$T/root/platform/openwrt/warp-proc.sh"
+unset Z2K_PLATFORM
+_w_inv "W44b"
+
 # --- W45: nfqws2 мёртв, сервис активен: disable всё равно reconciles ---
 _reset
 printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
