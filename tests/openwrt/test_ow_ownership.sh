@@ -12,21 +12,27 @@ code() { for _d in $SRC; do find "$_d" -type f ! -name '.keep'; done | while IFS
 # 1. демоны запускаются из procd-сервиса z2k (ОДИН сервис, с Stage 3 —
 # ДВА instance: nfqws2 в init.d/z2k, tg-mtproxy-client в platform/openwrt/tg.sh;
 # Stage 4 добавляет ТРЕТИЙ: z2k-rt-proxy в platform/openwrt/rt.sh, который init
-# подключает напрямую; второго init-сервиса нет).
+# подключает напрямую; Stage 5 добавляет ЧЕТВЁРТЫЙ: z2k-warpd в
+# platform/openwrt/warp.sh (instance того же сервиса); второго
+# init-сервиса нет).
 _n="$(grep -rl 'procd_set_param command' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | wc -l)"
-assert_eq "три instance-определения (init + tg.sh + rt.sh)" "3" "$(printf '%s' "$_n" | tr -d ' ')"
+assert_eq "четыре instance-определения (init + tg.sh + rt.sh + warp.sh)" "4" "$(printf '%s' "$_n" | tr -d ' ')"
 grep -rl 'procd_set_param command' "$REPO/package/openwrt/files/etc/init.d/z2k" >/dev/null 2>&1 \
     && _t_ok || _t_bad "владелец nfqws2 — не init.d/z2k"
 grep -rl 'procd_set_param command' "$REPO/platform/openwrt/tg.sh" >/dev/null 2>&1 \
     && _t_ok || _t_bad "владелец tg — не platform/openwrt/tg.sh"
 grep -rl 'procd_set_param command' "$REPO/platform/openwrt/rt.sh" >/dev/null 2>&1 \
     && _t_ok || _t_bad "владелец rt — не platform/openwrt/rt.sh"
+grep -rl 'procd_set_param command' "$REPO/platform/openwrt/warp.sh" >/dev/null 2>&1 \
+    && _t_ok || _t_bad "владелец warp — не platform/openwrt/warp.sh"
 _n="$(grep -c 'procd_set_param command' "$REPO/package/openwrt/files/etc/init.d/z2k" 2>/dev/null)"
 assert_eq "nfqws2 command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
 _n="$(grep -c 'procd_set_param command' "$REPO/platform/openwrt/tg.sh" 2>/dev/null)"
 assert_eq "tg command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
 _n="$(grep -c 'procd_set_param command' "$REPO/platform/openwrt/rt.sh" 2>/dev/null)"
 assert_eq "rt command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
+_n="$(grep -c 'procd_set_param command' "$REPO/platform/openwrt/warp.sh" 2>/dev/null)"
+assert_eq "warp command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
 
 # 2. своей nft-таблицы нет (не строим второй firewall-фреймворк)
 code | grep -qE 'table inet z2k|add table|create table' \
@@ -62,21 +68,22 @@ assert_eq "optbase: 1 определение + 1 вызов" "2" "$(printf '%s' 
 #   nfqws2 process .... z2k procd adapter (/etc/init.d/z2k)
 #   tg process ........ platform/openwrt/tg.sh (instance того же сервиса)
 #   rt process ........ platform/openwrt/rt.sh (instance того же сервиса)
-#   nft/firewall ...... zapret2 (делегирование) + TG/RT chains/sets в ЕГО таблице
+#   warp process ...... platform/openwrt/warp.sh (instance того же сервиса)
+#   nft/firewall ...... zapret2 (делегирование) + TG/RT/WARP chains/sets в ЕГО таблице
 #                       (единственное исключение, см. пункт 8b)
 #   interface sets .... zapret2 (reload_ifsets; hotplug только зовёт)
 #   selective offload . zapret2 (FLOWOFFLOAD из конфига; своих правил нет)
-# ровно один procd-СЕРВИС в слое (instance'ов с Stage 4 — три)
+# ровно один procd-СЕРВИС в слое (instance'ов с Stage 5 — четыре)
 _n="$(ls "$REPO"/package/openwrt/files/etc/init.d/ 2>/dev/null | wc -l)"
 assert_eq "один procd-сервис (нет второго init-скрипта)" "1" "$(printf '%s' "$_n" | tr -d ' ')"
 _n="$(grep -rl 'procd_open_instance' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | wc -l)"
-assert_eq "три instance (nfqws2 + tg + rt)" "3" "$(printf '%s' "$_n" | tr -d ' ')"
+assert_eq "четыре instance (nfqws2 + tg + rt + warp)" "4" "$(printf '%s' "$_n" | tr -d ' ')"
 # ifsets: единственный писатель — zapret2 (мы только вызываем reload)
 code | grep -qE 'lanif|wanif|nft_fill_ifsets|add_element|create_set' \
     && _t_bad "адаптер пишет interface sets" || _t_ok
 grep -q 'zapret_reload_ifsets' "$REPO/platform/openwrt/firewall.sh" \
     && _t_ok || _t_bad "нет делегирования ifsets в zapret2"
-# firewall: builder — zapret2, ЕДИНСТВЕННОЕ исключение — TG/RT glue
+# firewall: builder — zapret2, ЕДИНСТВЕННОЕ исключение — TG/RT/WARP glue
 # (свои chains/sets в ЧУЖОЙ runtime-таблице; таблицу не создаёт, см. 8b).
 # ifsets: единственный писатель — zapret2 (мы только вызываем reload)
 code | grep -qE 'lanif|wanif|nft_fill_ifsets|add_element|create_set' \
@@ -84,20 +91,24 @@ code | grep -qE 'lanif|wanif|nft_fill_ifsets|add_element|create_set' \
 grep -q 'zapret_reload_ifsets' "$REPO/platform/openwrt/firewall.sh" \
     && _t_ok || _t_bad "нет делегирования ifsets в zapret2"
 _nftbuilders="$(grep -rlE 'nft add|nft create' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
-_expected="$REPO/platform/openwrt/rt.sh $REPO/platform/openwrt/tg.sh "
+_expected="$REPO/platform/openwrt/rt.sh $REPO/platform/openwrt/tg.sh $REPO/platform/openwrt/warp.sh "
 if [ -z "$_nftbuilders" ]; then
-    _t_bad "нет TG/RT builder'ов (ожидались tg.sh rt.sh)"
+    _t_bad "нет TG/RT/WARP builder'ов (ожидались tg.sh rt.sh warp.sh)"
 elif [ "$_nftbuilders" = "$_expected" ]; then
     _t_ok
 else
-    _t_bad "firewall строят не только tg.sh+rt.sh: $_nftbuilders"
+    _t_bad "firewall строят не только tg.sh+rt.sh+warp.sh: $_nftbuilders"
 fi
-# 8b. TG-исключение обусловлено: таблицу создаём НЕ мы (только runtime),
+# 8b. TG/RT/WARP-исключение обусловлено: таблицу создаём НЕ мы (только runtime),
 # перед записями — проверка её наличия; второго фреймворка нет.
 code | grep -qE 'add table|create table' \
     && _t_bad "адаптер создаёт nft-таблицу" || _t_ok
 grep -q '_z2k_ow_tg_table_ok' "$REPO/platform/openwrt/tg.sh" \
     && _t_ok || _t_bad "tg.sh пишет без проверки таблицы"
+grep -q '_z2k_ow_rt_table_ok' "$REPO/platform/openwrt/rt.sh" \
+    && _t_ok || _t_bad "rt.sh пишет без проверки таблицы"
+grep -q '_z2k_ow_warp_table_ok' "$REPO/platform/openwrt/warp.sh" \
+    && _t_ok || _t_bad "warp.sh пишет без проверки таблицы"
 code | grep -qE 'iptables -A|iptables -I|fw3|fw4' \
     && _t_bad "адаптер использует чужой firewall-фреймворк" || _t_ok
 # offload уже покрыт пунктом 3; здесь — явное отсутствие второго владельца:

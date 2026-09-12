@@ -4,6 +4,9 @@
 #   platform/  package/  tests/openwrt/  docs/openwrt-adapter-contract.md
 #   docs/openwrt-telegram-contract.md (Stage 3: TG contract, docs, не код)
 #   docs/openwrt-rt-proxy-contract.md (Stage 4: RT contract, docs, не код)
+#   docs/openwrt-warp-contract.md + docs/openwrt-mark-allocation.md
+#     (Stage 5: WARP contracts, docs, не код)
+#   z2k-warpd external-backend seam (Stage 5: 3 Go-файла, см. ALLOWLIST)
 # плюс allowlisted common-хуки (см. ALLOWLIST ниже). Иначе — провал с
 # категорией seam'а: будущий upstream merge, задевший наш seam, виден сразу.
 #
@@ -31,7 +34,13 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #   docs/openwrt-foundation-state-machine.md: модель аудита (docs, не код)
 #   docs/openwrt-telegram-contract.md: TG contract Stage 3 (docs, не код)
 #   docs/openwrt-rt-proxy-contract.md: RT contract Stage 4 (docs, не код)
-ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md"
+#   docs/openwrt-warp-contract.md: WARP contract Stage 5 (docs, не код)
+#   docs/openwrt-mark-allocation.md: карта marks Stage 5 (docs, не код)
+#   z2k-warpd/cmd/z2k-warpd/main.go + internal/engine/engine.go +
+#     internal/engine/netsetup_test.go: external-net-backend seam Stage 5
+#     (--net-backend=/SkipNetSetup; Keenetic-дефолт нетронут — сторожит
+#     netsetup_test; только подмена TUN/create/address/transport/health)
+ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go"
 
 _changed="$($_g diff --name-only "$BASELINE"...HEAD 2>/dev/null)"
 # --ignore-cr-at-eol: на Windows-чекаутах (autocrlf) весь worktree выглядит
@@ -80,7 +89,7 @@ else
     for _f in $_bad; do
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
-            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md) continue ;;
+            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go) continue ;;
             UPDATES.json)
                 # Манифест следует за деревом: разрешены только hash-обновления
                 # allowlisted lib-файлов в files_sha256 (ни новых ключей, ни

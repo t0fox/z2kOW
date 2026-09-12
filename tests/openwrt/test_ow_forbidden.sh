@@ -14,12 +14,13 @@ _hits="$(grep -rEin 'ndmc|/opt/etc/ndm|kmod_ndms|entware|-j PPE|ipset-exclude.*P
 
 # S99/keenetic/baggage — только в комментариях (атрибуция), не в коде.
 # Список багажа: Keenetic-инит, PPE-правила, вотчдоги, tcp16-probe,
-# туннельные имена WARP (будущий слой, ему здесь не место), ndm, /opt-пути.
-# TG/HTTP-tunnel убраны в Stage 3, RT — в Stage 4 (приземлились:
-# platform/openwrt/{tg,rt}.sh + проводка; контракты в docs/).
+# ndm, /opt-пути. Имена z2k-warp ЛЕГИТИМНЫ с Stage 5 (слой приземлился:
+# platform/openwrt/warp{,-proc,-check}.sh + проводка; контракт в docs/).
+# TG/HTTP-tunnel убраны в Stage 3, RT — в Stage 4, WARP — в Stage 5
+# (приземлились: platform/openwrt/{tg,rt,warp}.sh + проводка; контракты
+# в docs/).
 # Границы токенов — чтобы не ловить SHIPPED/tcp16_asn
-# (легитимный lua-state plumbing ядра). Когда WARP приземлится —
-# обновить этот список осознанно.
+# (легитимный lua-state plumbing ядра).
 _bad=""
 for _f in "$REPO"/platform/openwrt/*.sh \
           "$REPO"/package/openwrt/files/etc/init.d/z2k \
@@ -28,7 +29,7 @@ for _f in "$REPO"/platform/openwrt/*.sh \
     # самого zapret2 (совпадает с его ZAPRET_BASE-дефолтом), не Keenetic-
     # предположение; переопределяется окружением. Всё остальное /opt/* — баг.
     _h="$(sed 's/#.*$//' "$_f" | grep -v 'Z2K_ZAPRET2_RUNTIME.*:-/opt/zapret2' \
-        | grep -inE 'keenetic|S99|(^|[^a-zA-Z])PPE([^a-zA-Z]|$)|watchdog|tcp16-probe|Entware|/opt/|z2k-warp|(^|[^a-zA-Z_])ndm([^a-zA-Z_]|$)' || true)"
+        | grep -inE 'keenetic|S99|(^|[^a-zA-Z])PPE([^a-zA-Z]|$)|watchdog|tcp16-probe|Entware|/opt/|(^|[^a-zA-Z_])ndm([^a-zA-Z_]|$)' || true)"
     [ -n "$_h" ] && _bad="$_bad $(basename "$_f"):$_h"
 done
 [ -z "$_bad" ] && _t_ok || _t_bad "багаж в коде:$_bad"
