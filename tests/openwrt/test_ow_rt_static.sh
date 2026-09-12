@@ -76,6 +76,13 @@ for _d in $_rt_legacy; do
     esac
 done
 assert_contains "rt.sh: sentinel" "$RT" 'Z2K_RT_SENTINEL="${Z2K_RT_SENTINEL:-10.171.171.171}"'
+# IPv6 sentinel: documentation prefix (не ULA/loopback/discard), rationale рядом
+assert_contains "rt.sh: v6 sentinel" "$RT" 'Z2K_RT_SENTINEL6="${Z2K_RT_SENTINEL6:-2001:db8::1:1445}"'
+assert_contains "rt.sh: v6 rationale (RFC 3849)" "$RT" 'RFC 3849'
+assert_contains "rt.sh: dual option ip" "$RT" 'Z2K_RT_SECTION_IP'
+# A-only assumption запрещена: verify обязан проверять ОБА family
+assert_contains "rt.sh: verify v6-sentinel" "$RT" 'Z2K_RT_SENTINEL6'
+if grep -q 'AAAA ушёл upstream' "$RT"; then _t_ok; else _t_bad "rt.sh: нет AAAA-leak диагностики"; fi
 
 # --- argv: точная команда upstream, без дублирования дефолтов ---
 assert_contains "rt.sh: argv listen+timeout" "$RT" '"$Z2K_RT_BIN" "--listen=:$Z2K_RT_PORT" "--timeout=$Z2K_RT_TIMEOUT"'

@@ -82,11 +82,22 @@ EOF
 chmod +x "$T/dnsmasq-init"
 cat > "$T/bin/nslookup" <<EOF
 #!/bin/sh
-if grep -qxF "\$1" "$T/nslookup-want" 2>/dev/null; then
+# Модель dnsmasq 2.93: A/v4 из want-v4, AAAA/v6 из want-v6, иначе upstream
+# (want-leak — публичный ответ = баг v4-only формы).
+_rc=1
+if grep -qxF "\$1" "$T/nslookup-want-v4" 2>/dev/null; then
     printf 'Name: %s\nAddress 1: 10.171.171.171\n' "\$1"
-    exit 0
+    _rc=0
 fi
-exit 1
+if grep -qxF "\$1" "$T/nslookup-want-v6" 2>/dev/null; then
+    printf 'Name: %s\nAddress 1: 2001:db8::1:1445\n' "\$1"
+    _rc=0
+fi
+if grep -qxF "\$1" "$T/nslookup-want-leak" 2>/dev/null; then
+    printf 'Name: %s\nAddress 1: 2001:db8:dead::1\n' "\$1"
+    _rc=0
+fi
+exit \$_rc
 EOF
 chmod +x "$T/bin/nslookup"
 cat > "$T/bin/nft" <<EOF
@@ -127,12 +138,14 @@ procd_set_param() { printf 'param:%s\n' "$*" >> "$T/procd.log"; }
 procd_close_instance() { echo "close" >> "$T/procd.log"; }
 
 _reset() {
-    rm -f "$T"/uci/dhcp/* "$T/uci/multi" "$T/nslookup-want"
+    rm -f "$T"/uci/dhcp/* "$T/uci/multi"
+    rm -f "$T/nslookup-want-v4" "$T/nslookup-want-v6" "$T/nslookup-want-leak"
     : > "$T/uci.log"; : > "$T/dnsmasq.log"
     : > "$T/nft.log"; : > "$T/procd.log"; : > "$T/kill.log"
     rm -rf "$T/tmp/rt-health"
     for _d in rutracker.org rutracker.wiki api.rutracker.cc rep.rutracker.cc static.rutracker.cc; do
-        printf '%s\n' "$_d" >> "$T/nslookup-want"
+        printf '%s\n' "$_d" >> "$T/nslookup-want-v4"
+        printf '%s\n' "$_d" >> "$T/nslookup-want-v6"
     done
     printf 'ENABLED=1\n' > "$T/etc/config"
     printf '\n' > "$T/pidof.out"
@@ -153,7 +166,7 @@ assert_eq "RT1 rc" "0" "$?"
 printf '%s\n' "$_out" > "$T/out"
 assert_eq "RT1: DNS-секций 5" "5" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_')"
 assert_eq "RT1: whitelist строк 6 (5+user)" "6" "$(wc -l < "$T/root/lists/whitelist.txt" | tr -d ' ')"
-assert_eq "RT1: правил 4" "4" "$(grep -c '^nft:add rule' "$T/nft.log")"
+assert_eq "RT1: правил 6 (4 redirect/guard + 2 v6-reject)" "6" "$(grep -c '^nft:add rule' "$T/nft.log")"
 assert_eq "RT1: один instance" "1" "$(grep -c '^instance:z2k-rt$' "$T/procd.log")"
 assert_contains "RT1: mut DNS" "$T/out" "DNS_CREATED: rutracker.org"
 assert_contains "RT1: mut NFT" "$T/out" "NFT_CREATED:"
@@ -239,7 +252,7 @@ printf '\n' > "$T/pidof.out"
 : > "$T/nft.log"
 z2k_ow_rt 0 >/dev/null 2>&1
 assert_eq "RT8: DNS ours gone" "0" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_' || true)"
-assert_eq "RT8: chains 3 delete" "3" "$(grep -c '^nft:delete chain' "$T/nft.log")"
+assert_eq "RT8: chains 5 delete" "5" "$(grep -c '^nft:delete chain' "$T/nft.log")"
 
 # --- RT9: uninstall-композиция: cleanup + cron-remove, user-DNS цел ---
 _reset
@@ -266,7 +279,7 @@ z2k_ow_rt rules || _t_bad "RT10: rules rc"
 assert_eq "RT10: kill нет" "0" "$(grep -c '^kill:' "$T/kill.log" 2>/dev/null || true)"
 assert_eq "RT10: commit нет (DNS untouched)" "0" "$(grep -c '^commit:' "$T/uci.log" 2>/dev/null || true)"
 assert_eq "RT10: whitelist цел" "$(cat "$T/s10.wl")" "$(cksum "$T/root/lists/whitelist.txt")"
-assert_eq "RT10: правила сошлись (4)" "4" "$(grep -c '^nft:add rule' "$T/nft.log")"
+assert_eq "RT10: правила сошлись (6)" "6" "$(grep -c '^nft:add rule' "$T/nft.log")"
 
 # --- RT11: пересоздание firewall: restore без churn DNS/процесса ---
 _reset
@@ -296,7 +309,7 @@ if grep -Ei 'flowtable|flow add|offload|PPE' "$T/nft.log" >/dev/null 2>&1; then
 else
     _t_ok
 fi
-if grep '^nft:add rule' "$T/nft.log" | grep -vE '10\.171\.171\.171|dport 1445' >/dev/null 2>&1; then
+if grep '^nft:add rule' "$T/nft.log" | grep -vE '10\.171\.171\.171|dport 1445|2001:db8::1:1445' >/dev/null 2>&1; then
     _t_bad "RT15: правило шире sentinel/:1445"
 else
     _t_ok
@@ -365,5 +378,92 @@ for _d in rutracker.org rutracker.wiki api.rutracker.cc rep.rutracker.cc static.
 done
 _t_ok
 assert_eq "RT20: effective == читаемый генератором" "$T/root/lists/whitelist.txt" "$Z2K_LISTS_DIR/whitelist.txt"
+
+# --- RT21: A exact -> v4-sentinel ---
+_reset
+z2k_ow_rt 1 >/dev/null 2>&1 || _t_bad "RT21: apply rc"
+_a21="$(nslookup rutracker.org 127.0.0.1 2>/dev/null)"
+printf '%s' "$_a21" | grep -qF '10.171.171.171' && _t_ok || _t_bad "RT21: A не sentinel"
+
+# --- RT22: AAAA не уходит upstream (dual-record закрывает leak) ---
+if printf '%s' "$_a21" | grep -qF '2001:db8::1:1445'; then
+    _t_ok
+else
+    _t_bad "RT22: AAAA не v6-sentinel"
+fi
+if printf '%s' "$_a21" | grep -qF '2001:db8:dead::1'; then
+    _t_bad "RT22: публичный AAAA просочился"
+else
+    _t_ok
+fi
+
+# --- RT23: сабдомен не получает ни v4, ни v6 sentinel автоматически ---
+_reset
+printf 'type=hostrecord\nname=cdn.rutracker.org\nip=9.9.9.9\n' > "$T/uci/dhcp/user_cdn"
+z2k_ow_rt 1 >/dev/null 2>&1 || _t_bad "RT23: apply rc"
+_a23="$(nslookup cdn.rutracker.org 127.0.0.1 2>/dev/null || true)"
+if printf '%s' "$_a23" | grep -qF '10.171.171.171'; then
+    _t_bad "RT23: сабдомен получил v4-sentinel"
+else
+    _t_ok
+fi
+if printf '%s' "$_a23" | grep -qF '2001:db8::1:1445'; then
+    _t_bad "RT23: сабдомен получил v6-sentinel"
+else
+    _t_ok
+fi
+[ -f "$T/uci/dhcp/z2k_rt_cdn_rutracker_org" ] && _t_bad "RT23: секция сабдомена" || _t_ok
+
+# --- RT24: TCP к v6-sentinel -> reject (FORWARD и OUTPUT) ---
+_reset
+z2k_ow_rt rules >/dev/null 2>&1 || _t_bad "RT24: rules rc"
+assert_contains "RT24: reject fwd" "$T/nft.log" 'z2k_rt_flt6_fwd tcp ip6 daddr 2001:db8::1:1445 reject with tcp reset'
+assert_contains "RT24: reject out" "$T/nft.log" 'z2k_rt_flt6_out tcp ip6 daddr 2001:db8::1:1445 reject with tcp reset'
+
+# --- RT25: unrelated IPv6 не задет (нет generic reject) ---
+if grep '^nft:add rule' "$T/nft.log" | grep -E 'ip6' | grep -vF '2001:db8::1:1445' >/dev/null 2>&1; then
+    _t_bad "RT25: ip6-правило шире sentinel"
+else
+    _t_ok
+fi
+
+# --- RT26: daemon-only restart сохраняет ОБЕ семьи побайтово ---
+_reset
+z2k_ow_rt 1 >/dev/null 2>&1
+printf '4242\n' > "$T/pidof.out"
+mkdir -p "$T/proc/4242"
+printf 'z2k-rt-proxy --listen=:1445 --timeout=15m' | tr ' ' '\0' > "$T/proc/4242/cmdline"
+_before26="$(for _s in "$T"/uci/dhcp/z2k_rt_*; do echo "==$_s"; cat "$_s"; done)"
+z2k_ow_rt proc-bounce
+_after26="$(for _s in "$T"/uci/dhcp/z2k_rt_*; do echo "==$_s"; cat "$_s"; done)"
+assert_eq "RT26: DNS побайтово цел" "$_before26" "$_after26"
+
+# --- RT27: binary refresh сохраняет ОБЕ семьи ---
+_snap "$T/s27"
+sh "$T/root/platform/openwrt/rt-proc.sh" stop
+sh "$T/root/platform/openwrt/rt-proc.sh" start
+_snap "$T/s27b"
+assert_eq "RT27: uci-секции целы" "$(cat "$T/s27.uci")" "$(cat "$T/s27b.uci")"
+for _s in "$T"/uci/dhcp/z2k_rt_*; do
+    grep -qF '2001:db8::1:1445' "$_s" || _t_bad "RT27: v6 потерян в $(basename "$_s")"
+done
+_t_ok
+
+# --- RT28: uninstall снимает ОБЕ записи, user цел ---
+_reset
+z2k_ow_rt 1 >/dev/null 2>&1 || _t_bad "RT28: setup rc"
+printf 'type=hostrecord\nname=my.home\nip=192.168.1.5\n' > "$T/uci/dhcp/user_home"
+printf 'type=hostrecord\nname=my6.home\nip=fd00::99\n' > "$T/uci/dhcp/user_home6"
+z2k_ow_rt cleanup >/dev/null 2>&1
+assert_eq "RT28: ours gone" "0" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_' || true)"
+assert_eq "RT28: user v4 цел" "192.168.1.5" "$(sed -n 's/^ip=//p' "$T/uci/dhcp/user_home")"
+assert_eq "RT28: user v6 цел" "fd00::99" "$(sed -n 's/^ip=//p' "$T/uci/dhcp/user_home6")"
+# stop снимает и v6-chains тоже:
+_reset
+z2k_ow_rt 1 >/dev/null 2>&1
+: > "$T/nft.log"
+z2k_ow_rt 0 >/dev/null 2>&1
+assert_contains "RT28: v6-fwd chain снят" "$T/nft.log" 'delete chain inet zapret z2k_rt_flt6_fwd'
+assert_contains "RT28: v6-out chain снят" "$T/nft.log" 'delete chain inet zapret z2k_rt_flt6_out'
 
 _t_done

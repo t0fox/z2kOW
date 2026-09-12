@@ -24,6 +24,18 @@
 Z2K_RT_PORT="${Z2K_RT_PORT:-1445}"
 Z2K_RT_TIMEOUT="${Z2K_RT_TIMEOUT:-15m}"
 Z2K_RT_SENTINEL="${Z2K_RT_SENTINEL:-10.171.171.171}"
+# IPv6 sentinel (dual-stack exact hostrecord, см. §5 contract):
+# 2001:db8::/32 — RFC 3849 documentation (гарантированно не реален);
+# НЕ ULA (OpenWrt LAN живёт в случайном fd00::/8 — коллизия), НЕ ::1
+# (бил бы в localhost КЛИЕНТА), НЕ discard 100::/64 (чужая silent-drop
+# семантика — наш механизм это nft reject ниже). Суффикс :1:1445 привязывает
+# адрес к feature-порту. Пакеты сюда при converged-правилах роутер не
+# покидают (их режет reject); без правил — см. live-риск в contract.
+Z2K_RT_SENTINEL6="${Z2K_RT_SENTINEL6:-2001:db8::1:1445}"
+# Полное содержимое option ip наших секций (dnsmasq --host-record=name,v4,v6;
+# generator UCI (dhcp_hostrecord_add) склеивает space-список name+ip
+# в одну запись — проверено чтением dnsmasq.init, не предположением).
+Z2K_RT_SECTION_IP="${Z2K_RT_SECTION_IP:-$Z2K_RT_SENTINEL $Z2K_RT_SENTINEL6}"
 Z2K_RT_DOMAINS="${Z2K_RT_DOMAINS:-rutracker.org rutracker.wiki api.rutracker.cc rep.rutracker.cc static.rutracker.cc}"
 Z2K_RT_DOMAINS_LEGACY="${Z2K_RT_DOMAINS_LEGACY:-www.rutracker.org rutracker.cc}"
 
@@ -33,6 +45,10 @@ Z2K_RT_NFT_TABLE="${Z2K_RT_NFT_TABLE:-zapret}"
 Z2K_RT_CHAIN_PRE="${Z2K_RT_CHAIN_PRE:-z2k_rt_dst_pre}"
 Z2K_RT_CHAIN_OUT="${Z2K_RT_CHAIN_OUT:-z2k_rt_dst_out}"
 Z2K_RT_CHAIN_IN="${Z2K_RT_CHAIN_IN:-z2k_rt_flt_in}"
+# IPv6 fast-reject sentinel (A-only hostrecord НЕ подавляет AAAA-forwarding
+# в dnsmasq 2.93 — доказанный баг; dual-record + reject вместо timeout).
+Z2K_RT_CHAIN_FWD6="${Z2K_RT_CHAIN_FWD6:-z2k_rt_flt6_fwd}"
+Z2K_RT_CHAIN_OUT6="${Z2K_RT_CHAIN_OUT6:-z2k_rt_flt6_out}"
 
 Z2K_RT_BIN="${Z2K_RT_BIN:-${Z2K_BIN:-/usr/lib/z2k/bin}/z2k-rt-proxy}"
 Z2K_RT_PIDFILE="${Z2K_RT_PIDFILE:-${Z2K_RUN:-/tmp/z2k/runtime}/rt-proxy.pid}"
@@ -123,17 +139,27 @@ _z2k_ow_rt_dns_reload() {
 
 _z2k_ow_rt_dns_verify() {
     # UCI-readback (авторитетно для intent) + best-effort живой DNS.
-    local _d _sec _dump _ok=1
+    # Проверяем ОБА family: A-only hostrecord в dnsmasq 2.93 НЕ подавляет
+    # AAAA-forwarding upstream (доказанный баг) — молчание здесь = bypass.
+    local _d _sec _dump _ok=1 _out
     _dump="$(_z2k_ow_rt_dns_dump)"
     for _d in $Z2K_RT_DOMAINS; do
         _sec="$(_z2k_ow_rt_sec "$_d")"
-        printf '%s\n' "$_dump" | grep -qxF "$_sec|$_d|$Z2K_RT_SENTINEL" || _ok=0
+        printf '%s\n' "$_dump" | grep -qxF "$_sec|$_d|$Z2K_RT_SECTION_IP" || _ok=0
     done
     [ "$_ok" = "1" ] || return 1
     if command -v nslookup >/dev/null 2>&1; then
         for _d in $Z2K_RT_DOMAINS; do
-            nslookup "$_d" 127.0.0.1 2>/dev/null | grep -qF "$Z2K_RT_SENTINEL" || {
-                echo "z2k-openwrt: rt: DNS не отдаёт sentinel для $_d" >&2
+            _out=$(nslookup "$_d" 127.0.0.1 2>/dev/null) || {
+                echo "z2k-openwrt: rt: DNS не отвечает для $_d" >&2
+                return 1
+            }
+            printf '%s\n' "$_out" | grep -qF "$Z2K_RT_SENTINEL" || {
+                echo "z2k-openwrt: rt: DNS не отдаёт v4-sentinel для $_d" >&2
+                return 1
+            }
+            printf '%s\n' "$_out" | grep -qF "$Z2K_RT_SENTINEL6" || {
+                echo "z2k-openwrt: rt: DNS не отдаёт v6-sentinel для $_d (AAAA ушёл upstream?)" >&2
                 return 1
             }
         done
@@ -143,35 +169,43 @@ _z2k_ow_rt_dns_verify() {
 
 # Применить DNS-пины транзакцией. Возврат 0 = все 5 стоят и проверены.
 z2k_ow_rt_dns_apply() {
-    local _n _d _sec _dump _line _stage=0 _sec_domain
+    local _n _d _sec _dump _stage=0 _ls _ln _li
     _n="$(_z2k_ow_rt_dns_instances)"
     [ "$_n" = "1" ] || {
         echo "z2k-openwrt: rt: dnsmasq-инстансов в dhcp: $_n (нужен ровно 1)" >&2
         return 1
     }
     _dump="$(_z2k_ow_rt_dns_dump)"
-    # Конфликты: чужая секция с тем же именем (любой IP) — fail loudly.
+    # Конфликты: ЧУЖАЯ секция с тем же именем — fail loudly, СРАЗУ ОБА
+    # family (чужой A-only pin + наш dual = неопределённый микс).
+    # Своя секция с неверным содержимым (pre-dual эпоха) — НЕ конфликт,
+    # лечится stage-fix ниже. Проверяем КАЖДУЮ строку: foreign-дубликат
+    # рядом с корректной ours не должен проскакивать.
     for _d in $Z2K_RT_DOMAINS; do
         _sec="$(_z2k_ow_rt_sec "$_d")"
-        _line="$(printf '%s\n' "$_dump" | awk -F'|' -v d="$_d" 'tolower($2)==d {print}')"
-        [ -z "$_line" ] && continue
-        case "$_line" in
-            "$_sec|$_d|$Z2K_RT_SENTINEL")
-                _z2k_ow_rt_mut "DNS_PRESERVED: $_d" ;;
-            *)
-                echo "z2k-openwrt: rt: конфликт DNS: $_line (наша секция $_sec) — уберите чужую запись, не перезаписываю" >&2
-                return 1 ;;
-        esac
+        while IFS='|' read -r _ls _ln _li; do
+            [ -n "$_ls" ] || continue
+            [ "$(printf '%s' "$_ln" | tr 'A-Z' 'a-z')" = "$_d" ] || continue
+            if [ "$_ls" = "$_sec" ]; then
+                [ "$_ln|$_li" = "$_d|$Z2K_RT_SECTION_IP" ] && \
+                    _z2k_ow_rt_mut "DNS_PRESERVED: $_d"
+            else
+                echo "z2k-openwrt: rt: конфликт DNS: $_ls|$_ln|$_li (наша секция $_sec) — уберите чужую запись, не перезаписываю" >&2
+                return 1
+            fi
+        done <<EOF_DUMP
+$_dump
+EOF_DUMP
     done
-    # Stage наших отсутствующих/чужих-по-имени (same-name foreign уже отсечены выше).
+    # Stage наших отсутствующих/устаревших (v4-only эпохи): пишем dual целиком.
     for _d in $Z2K_RT_DOMAINS; do
         _sec="$(_z2k_ow_rt_sec "$_d")"
-        if printf '%s\n' "$_dump" | grep -qxF "$_sec|$_d|$Z2K_RT_SENTINEL"; then
+        if printf '%s\n' "$_dump" | grep -qxF "$_sec|$_d|$Z2K_RT_SECTION_IP"; then
             continue
         fi
         uci set "dhcp.$_sec=hostrecord" >/dev/null 2>&1 || return 1
         uci set "dhcp.$_sec.name=$_d" >/dev/null 2>&1 || return 1
-        uci set "dhcp.$_sec.ip=$Z2K_RT_SENTINEL" >/dev/null 2>&1 || return 1
+        uci set "dhcp.$_sec.ip=$Z2K_RT_SECTION_IP" >/dev/null 2>&1 || return 1
         _stage=1
         _z2k_ow_rt_mut "DNS_CREATED: $_d"
     done
@@ -261,9 +295,15 @@ z2k_ow_rt_nft_apply() {
         '{ type nat hook output priority -101; }' 2>/dev/null || true
     nft add chain "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_IN" \
         '{ type filter hook input priority -1; }' 2>/dev/null || true
+    nft add chain "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_FWD6" \
+        '{ type filter hook forward priority -1; }' 2>/dev/null || true
+    nft add chain "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_OUT6" \
+        '{ type filter hook output priority -1; }' 2>/dev/null || true
     nft flush chain "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_PRE" 2>/dev/null || true
     nft flush chain "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_OUT" 2>/dev/null || true
     nft flush chain "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_IN" 2>/dev/null || true
+    nft flush chain "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_FWD6" 2>/dev/null || true
+    nft flush chain "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_OUT6" 2>/dev/null || true
     nft add rule "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_PRE" \
         tcp dport 443 ip daddr "$Z2K_RT_SENTINEL" redirect to ":$Z2K_RT_PORT" || return 1
     _z2k_ow_rt_mut "NFT_CREATED: $Z2K_RT_CHAIN_PRE redirect :$Z2K_RT_PORT"
@@ -275,13 +315,22 @@ z2k_ow_rt_nft_apply() {
     nft add rule "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_IN" \
         tcp dport "$Z2K_RT_PORT" drop || return 1
     _z2k_ow_rt_mut "NFT_CREATED: $Z2K_RT_CHAIN_IN guard :$Z2K_RT_PORT"
+    # IPv6 sentinel fast-reject (FORWARD для LAN, OUTPUT для router-local):
+    # TCP RST вместо timeout -> клиент сразу fallback'ится на tunneled IPv4.
+    # Scope строго sentinel (никакого generic v6 reject — Cloudflare/shared).
+    nft add rule "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_FWD6" \
+        tcp ip6 daddr "$Z2K_RT_SENTINEL6" reject with tcp reset || return 1
+    _z2k_ow_rt_mut "NFT_CREATED: $Z2K_RT_CHAIN_FWD6 reject $Z2K_RT_SENTINEL6"
+    nft add rule "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_OUT6" \
+        tcp ip6 daddr "$Z2K_RT_SENTINEL6" reject with tcp reset || return 1
+    _z2k_ow_rt_mut "NFT_CREATED: $Z2K_RT_CHAIN_OUT6 reject $Z2K_RT_SENTINEL6"
     return 0
 }
 
 z2k_ow_rt_nft_remove() {
     local _c
     _z2k_ow_rt_table_ok || return 0
-    for _c in "$Z2K_RT_CHAIN_PRE" "$Z2K_RT_CHAIN_OUT" "$Z2K_RT_CHAIN_IN"; do
+    for _c in "$Z2K_RT_CHAIN_PRE" "$Z2K_RT_CHAIN_OUT" "$Z2K_RT_CHAIN_IN" "$Z2K_RT_CHAIN_FWD6" "$Z2K_RT_CHAIN_OUT6"; do
         nft flush chain "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$_c" 2>/dev/null || true
         nft delete chain "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$_c" 2>/dev/null || true
         _z2k_ow_rt_mut "NFT_REMOVED: $_c"

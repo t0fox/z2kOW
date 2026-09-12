@@ -4,6 +4,14 @@
 НЕ память. Foundation FROZEN; порт только в `platform/openwrt/*`,
 `package/openwrt/*`, `tests/openwrt/*`, `docs/*` (+ точечный COMMON_HOOK §13).
 
+> Target: OpenWrt 25.12.5 ships dnsmasq 2.93.
+> Do NOT assume an IPv4-only host-record suppresses AAAA forwarding:
+> A-only `--host-record` перекрывает A локально, но отсутствующий RR-type
+> (AAAA) 2.93 может отправить upstream — клиент уйдёт напрямую по IPv6
+> в обход прокси (доказанный баг, лечится dual-record ниже). Если будущий
+> dnsmasq поменяет behavior, dual-схема остаётся детерминированной
+> (оба типа отвечают локально при любом поведении forwarding).
+
 ## 1. Upstream: цепочка и argv
 
 ```text
@@ -61,29 +69,42 @@ Invariant: `ACTIVE == official five`,
 pin во время рестарта → клиент кеширует настоящий CloudFlare IP → обход RT
 до протухания кеша. На OpenWrt то же разделение (§8).
 
-## 5. DNS на OpenWrt: exact UCI hostrecord (НЕ ndmc, НЕ suffix)
+## 5. DNS на OpenWrt: exact DUAL hostrecord (НЕ ndmc, НЕ suffix)
 
 `ndmc`/`list address` не портируются (суффикс-стиль противоречит
-exact-контракту). Механизм — OpenWrt UCI `config hostrecord`
-(exact A-record, dnsmasq `--host-record=name,IPv4`):
+exact-контракту). Механизм — OpenWrt UCI `config hostrecord` с ОБОИМИ
+адресами в одной `option ip` (генератор `dhcp_hostrecord_add` из
+dnsmasq.init склеивает space-списки name+ip в `--host-record=name,v4,v6` —
+проверено чтением генератора, не предположением):
 
 ```text
 config hostrecord 'z2k_rt_rutracker_org'
     option name 'rutracker.org'
-    option ip '10.171.171.171'
+    option ip '10.171.171.171 2001:db8::1:1445'
 ```
 
-×5 (суффикс секции — детерминированная санитизация домена).
-Без `ipv6`-опции: AAAA не отдаём (NODATA), v6-обхода нет, scope не расширяем.
+×5. Фактическая generated запись эквивалентна
+`--host-record=rutracker.org,10.171.171.171,2001:db8::1:1445`.
+
+IPv6 sentinel `2001:db8::1:1445`: `2001:db8::/32` — RFC 3849 documentation
+(гарантированно не реален); НЕ ULA (OpenWrt LAN живёт в случайном
+`fd00::/8` — коллизия); НЕ `::1` (бил бы в localhost КЛИЕНТА); НЕ discard
+`100::/64` (чужая silent-drop семантика — наш механизм это nft reject
+ниже). Суффикс `:1:1445` привязывает адрес к feature-порту.
+
+RT proxy остаётся IPv4-only: sentinel НЕ redirect'им, а deterministic
+fast-reject (см. nft ниже) — AAAA не висит в timeout, клиент сразу
+fallback'ится на tunneled IPv4.
 
 ## 6. DNS ownership и конфликты
 
 - Namespace `z2k_rt_*` — только наши секции. Cleanup удаляет только их
   (active + legacy + любые будущие `z2k_rt_*`-hostrecord вне active set).
-- Чужие секции НЕ трогаем никогда. Конфликт (чужая секция с тем же именем
-  (case-insensitive) + другой IP, либо тот же IP под чужим именем =
-  неопределённый duplicate) → **fail loudly**, без перезаписи. Причина
-  в сообщении.
+- Чужие секции НЕ трогаем никогда. Конфликт (чужая секция с тем же именем,
+  ПРОВЕРЯЮТСЯ ОБА family: чужой A-only pin без v6 — тоже конфликт, дописать
+  в чужую секцию нельзя) → **fail loudly**, без перезаписи. Причина
+  в сообщении. Своя устаревшая (v4-only) секция — не конфликт, лечится
+  stage-fix в dual.
 - dnsmasq instances: секций типа `dnsmasq` в `dhcp` обязана быть ровно одна;
   иначе — явный отказ (не пишем в случайный instance).
 
@@ -91,8 +112,10 @@ config hostrecord 'z2k_rt_rutracker_org'
 
 ```text
 prepare (set/delete наших секций) → uci commit dhcp
-→ /etc/init.d/dnsmasq reload → verify (uci-readback всех 5 + best-effort
-nslookup 127.0.0.1, если есть чем)
+→ /etc/init.d/dnsmasq reload → verify (uci-readback всех 5 dual +
+  best-effort nslookup 127.0.0.1: A строго v4-sentinel, AAAA строго
+  v6-sentinel, никакого публичного AAAA)
+→ если reload недостаточен/упал: один restart → re-verify
 ```
 
 Провал на любом шаге → RT НЕ ready (fail-closed, без частичных заявлений).
@@ -230,8 +253,8 @@ RKN-лист править нельзя — сломает converge-идемп�
 - Hotplug: `z2k_ow_rt rules` — nft+whitelist converge, DNS без commit/reload
   (только verify), PID untouched.
 - Restart сервиса: полная конвергенция (DNS re-assert идемпотентно, gap нет).
-- Full stop (`0`): process + redirect + guard + DNS. Daemon-only bounce:
-  только процесс.
+- Full stop (`0`): process + redirect + v6-reject + guard + DNS (ОБЕ семьи).
+  Daemon-only bounce: только процесс.
 - Uninstall: всё выше + legacy-DNS cleanup + снять rt-health cron;
   user-DNS не трогаем. Purge — вручную (frozen).
 
@@ -264,4 +287,6 @@ watchdog/supervisor нет (`z2k-rt-proxy` сам health-check'ит upstream-п�
    (geosite не бегает на OpenWrt).
 6. Halt-teardown через latch (в upstream супервизор не сдаётся никогда —
    здесь сдача явная и согласованная, иначе вечный blackhole).
-7. IPv6: только отсутствие AAAA (как задумано sceptre-моделью, без новых записей).
+7. IPv6: dual exact hostrecord (A + `2001:db8::1:1445`) + nft fast-reject
+   вместо допущения «A-only подавляет AAAA» (неверно для dnsmasq 2.93 —
+   найденный DNS correctness bug; см. шапку про target-версию).

@@ -82,13 +82,25 @@ EOF
 chmod +x "$T/dnsmasq-init"
 cat > "$T/bin/nslookup" <<EOF
 #!/bin/sh
-# \$1 домен, \$2 сервер. Ответ — sentinel, если домен в списке ожидания.
+# Модель семантики dnsmasq 2.93 (баг-репорт): A отвечает sentinel4, если домен
+# в want-v4; AAAA отвечает sentinel6, если в want-v6, ИНАЧЕ уходит upstream
+# (want-leak — публичный ответ). Dual-record => оба типа локальны => no forward.
+# \$1 домен, \$2 сервер.
 echo "nslookup:\$1" >> "$T/nslookup.log"
-if grep -qxF "\$1" "$T/nslookup-want" 2>/dev/null; then
-    printf 'Server: 127.0.0.1\nAddress 1: 127.0.0.1\nName: %s\nAddress 1: 10.171.171.171\n' "\$1"
-    exit 0
+_rc=1
+if grep -qxF "\$1" "$T/nslookup-want-v4" 2>/dev/null; then
+    printf 'Name: %s\nAddress 1: 10.171.171.171\n' "\$1"
+    _rc=0
 fi
-exit 1
+if grep -qxF "\$1" "$T/nslookup-want-v6" 2>/dev/null; then
+    printf 'Name: %s\nAddress 1: 2001:db8::1:1445\n' "\$1"
+    _rc=0
+fi
+if grep -qxF "\$1" "$T/nslookup-want-leak" 2>/dev/null; then
+    printf 'Name: %s\nAddress 1: 2001:db8:dead::1\n' "\$1"
+    _rc=0
+fi
+exit \$_rc
 EOF
 chmod +x "$T/bin/nslookup"
 
@@ -107,16 +119,61 @@ export Z2K_DNSMASQ_INIT="$T/dnsmasq-init"
 . "$REPO/platform/openwrt/rt.sh" || { echo "FAIL[ow-rt-dns]: source" >&2; exit 1; }
 
 _reset() {
-    rm -f "$T"/uci/dhcp/* "$T/uci/multi" "$T/dnsmasq-fail-reload" "$T/nslookup-want"
+    rm -f "$T"/uci/dhcp/* "$T/uci/multi" "$T/dnsmasq-fail-reload"
+    rm -f "$T/nslookup-want-v4" "$T/nslookup-want-v6" "$T/nslookup-want-leak"
     : > "$T/uci.log"; : > "$T/dnsmasq.log"; : > "$T/nslookup.log"
+    for _d in rutracker.org rutracker.wiki api.rutracker.cc rep.rutracker.cc static.rutracker.cc; do
+        printf '%s\n' "$_d" >> "$T/nslookup-want-v4"
+        printf '%s\n' "$_d" >> "$T/nslookup-want-v6"
+    done
     printf 'ENABLED=1\n' > "$T/etc/config"
 }
 
+# --- BUG PROOF (dnsmasq 2.93): v4-only hostrecord НЕ подавляет AAAA ---
+# Старая форма секций (только ip v4, как до fix) + live-DNS: A идёт в sentinel,
+# а AAAA уходит upstream (публичный ответ) — bypass RT. Этот кейс КРАСНЕЕТ на
+# старом коде (verify не проверял AAAA вовсе) и документирует дыру; следом
+# apply лечит секции в dual и leak исчезает.
+_reset
+printf 'type=hostrecord\nname=rutracker.org\nip=10.171.171.171\n' > "$T/uci/dhcp/z2k_rt_rutracker_org"
+# v4-only форма: v6-sentinel dnsmasq НЕ обещан (want-v6 пуст для домена),
+# upstream отдаёт публичный AAAA (want-leak) — модель dnsmasq 2.93.
+grep -vxF 'rutracker.org' "$T/nslookup-want-v6" > "$T/nslookup-want-v6.new" 2>/dev/null || : > "$T/nslookup-want-v6.new"
+mv -f "$T/nslookup-want-v6.new" "$T/nslookup-want-v6"
+printf '%s\n' "rutracker.org" >> "$T/nslookup-want-leak"
+_bug_out="$(nslookup rutracker.org 127.0.0.1 2>/dev/null)"
+assert_contains "BUG: A идёт в sentinel" "$T/nslookup.log" "nslookup:rutracker.org"
+if printf '%s' "$_bug_out" | grep -qF '2001:db8:dead::1'; then
+    _t_ok
+else
+    _t_bad "BUG не воспроизвёлся: v4-only обязан течь AAAA upstream"
+fi
+if printf '%s' "$_bug_out" | grep -qF '2001:db8::1:1445'; then
+    _t_bad "BUG: v4-only откуда-то отдаёт v6-sentinel"
+else
+    _t_ok
+fi
+# apply чинит секцию в dual — leak закрыт тем же моком
+# (want-v6 возвращаем ДО apply: собственный verify apply требует обе семьи):
+rm -f "$T/nslookup-want-leak"
+printf '%s\n' "rutracker.org" >> "$T/nslookup-want-v6"
+z2k_ow_rt_dns_apply >/dev/null 2>&1 || _t_bad "heal rc"
+_heal_out="$(nslookup rutracker.org 127.0.0.1 2>/dev/null)"
+assert_contains "heal: A sentinel" "$T/nslookup.log" "nslookup:rutracker.org"
+if printf '%s' "$_heal_out" | grep -qF '2001:db8:dead::1'; then
+    _t_bad "heal: leak остался"
+else
+    _t_ok
+fi
+if printf '%s' "$_heal_out" | grep -qF '2001:db8::1:1445'; then
+    _t_ok
+else
+    _t_bad "heal: AAAA не отдаёт v6-sentinel"
+fi
+assert_contains "heal: секция dual" "$T/uci/dhcp/z2k_rt_rutracker_org" "10.171.171.171 2001:db8::1:1445"
+
 # --- RT1-DNS: fresh apply: 5 created + commit + reload + verify ---
 _reset
-for _d in rutracker.org rutracker.wiki api.rutracker.cc rep.rutracker.cc static.rutracker.cc; do
-    printf '%s\n' "$_d" >> "$T/nslookup-want"
-done
 _out="$(z2k_ow_rt_dns_apply 2>"$T/err")"
 assert_eq "apply rc" "0" "$?"
 printf '%s\n' "$_out" > "$T/out"
@@ -125,9 +182,9 @@ assert_eq "commit один" "1" "$(grep -c '^commit:dhcp$' "$T/uci.log")"
 assert_contains "reload вызван" "$T/dnsmasq.log" "dnsmasq:reload"
 assert_contains "CREATED rutracker.org (stdout)" "$T/out" "DNS_CREATED: rutracker.org"
 [ -s "$T/err" ] && _t_bad "диагностика утекла в stdout" || _t_ok
-# содержимое секций точное
+# содержимое секций точное (dual: v4 + v6 в одной option ip)
 assert_eq "имя секции" "rutracker.org" "$(sed -n 's/^name=//p' "$T/uci/dhcp/z2k_rt_rutracker_org")"
-assert_eq "ip секции" "10.171.171.171" "$(sed -n 's/^ip=//p' "$T/uci/dhcp/z2k_rt_rutracker_org")"
+assert_eq "ip секции dual" "10.171.171.171 2001:db8::1:1445" "$(sed -n 's/^ip=//p' "$T/uci/dhcp/z2k_rt_rutracker_org")"
 if grep -q 'ipv6' "$T"/uci/dhcp/*; then _t_bad "AAAA в секциях"; else _t_ok; fi
 
 # --- идемпотентность: повтор без commit/reload, все PRESERVED ---
@@ -140,9 +197,6 @@ assert_eq "PRESERVED x5" "5" "$(printf '%s' "$_out" | grep -c '^DNS_PRESERVED: '
 
 # --- RT2 exactness: foo.rutracker.org не трогаем и не создаём ---
 _reset
-for _d in rutracker.org rutracker.wiki api.rutracker.cc rep.rutracker.cc static.rutracker.cc; do
-    printf '%s\n' "$_d" >> "$T/nslookup-want"
-done
 printf 'type=hostrecord\nname=foo.rutracker.org\nip=1.2.3.4\n' > "$T/uci/dhcp/user_sub"
 z2k_ow_rt_dns_apply >/dev/null 2>&1
 assert_eq "чужой сабдомен цел" "1.2.3.4" "$(sed -n 's/^ip=//p' "$T/uci/dhcp/user_sub")"
@@ -150,9 +204,6 @@ assert_eq "чужой сабдомен цел" "1.2.3.4" "$(sed -n 's/^ip=//p' "
 
 # --- RT3 legacy: старые ours удаляются ---
 _reset
-for _d in rutracker.org rutracker.wiki api.rutracker.cc rep.rutracker.cc static.rutracker.cc; do
-    printf '%s\n' "$_d" >> "$T/nslookup-want"
-done
 printf 'type=hostrecord\nname=www.rutracker.org\nip=10.171.171.171\n' > "$T/uci/dhcp/z2k_rt_www_rutracker_org"
 printf 'type=hostrecord\nname=rutracker.cc\nip=10.171.171.171\n' > "$T/uci/dhcp/z2k_rt_rutracker_cc"
 z2k_ow_rt_dns_apply >/dev/null 2>&1
@@ -170,8 +221,17 @@ assert_eq "commit при конфликте нет" "0" "$(grep -c '^commit:' "$
 assert_eq "чужой цел" "9.9.9.9" "$(sed -n 's/^ip=//p' "$T/uci/dhcp/user_pin")"
 # тот же IP под чужим именем — тоже конфликт (duplicate ambiguity)
 _reset
-printf 'type=hostrecord\nname=RUTRACKER.ORG\nip=10.171.171.171\n' > "$T/uci/dhcp/user_same"
+printf 'type=hostrecord\nname=RUTRACKER.ORG\nip=10.171.171.171 2001:db8::1:1445\n' > "$T/uci/dhcp/user_same"
 z2k_ow_rt_dns_apply >/dev/null 2>&1 && _t_bad "дубликат принят" || _t_ok
+# чужой v4-correct, но без v6 — тоже конфликт (дописать в чужую нельзя)
+_reset
+printf 'type=hostrecord\nname=api.rutracker.cc\nip=10.171.171.171\n' > "$T/uci/dhcp/user_v4only"
+z2k_ow_rt_dns_apply >/dev/null 2>&1 && _t_bad "чужой v4-only принят" || _t_ok
+# своя v4-only секция (pre-dual эпоха) — лечится stage-fix, не конфликт
+_reset
+printf 'type=hostrecord\nname=rep.rutracker.cc\nip=10.171.171.171\n' > "$T/uci/dhcp/z2k_rt_rep_rutracker_cc"
+z2k_ow_rt_dns_apply >/dev/null 2>&1 || _t_bad "heal v4-only rc"
+assert_eq "heal дописал v6" "10.171.171.171 2001:db8::1:1445" "$(sed -n 's/^ip=//p' "$T/uci/dhcp/z2k_rt_rep_rutracker_cc")"
 
 # --- multi-instance и отсутствие uci ---
 _reset
@@ -184,9 +244,6 @@ mv "$T/bin/uci.hidden" "$T/bin/uci"
 
 # --- remove: только ours, чужие целы ---
 _reset
-for _d in rutracker.org rutracker.wiki api.rutracker.cc rep.rutracker.cc static.rutracker.cc; do
-    printf '%s\n' "$_d" >> "$T/nslookup-want"
-done
 printf 'type=hostrecord\nname=my.home\nip=192.168.1.5\n' > "$T/uci/dhcp/user_home"
 z2k_ow_rt_dns_apply >/dev/null 2>&1 || _t_bad "setup apply"
 _out="$(z2k_ow_rt_dns_remove 2>/dev/null)"
@@ -197,9 +254,6 @@ assert_eq "REMOVED x5" "5" "$(printf '%s' "$_out" | grep -c '^DNS_REMOVED: z2k_r
 
 # --- reload недостаточен -> restart fallback ---
 _reset
-for _d in rutracker.org rutracker.wiki api.rutracker.cc rep.rutracker.cc static.rutracker.cc; do
-    printf '%s\n' "$_d" >> "$T/nslookup-want"
-done
 : > "$T/dnsmasq-fail-reload"
 _out="$(z2k_ow_rt_dns_apply 2>/dev/null)"
 assert_eq "fallback rc" "0" "$?"
