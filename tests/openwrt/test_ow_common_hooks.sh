@@ -105,5 +105,10 @@ _hook "tag writer intact" "$AU" \
 _hook "tg owner openwrt" "$AU" \
     'Z2K_PLATFORM:-keenetic\}" = "openwrt"' \
     'S98tg-tunnel /opt/etc/init.d/S97z2k-http-tunnel'
+# RT binary owner (Stage 4, contract §10): openwrt — process-only bounce
+# (DNS/rules целы), keenetic — S96 целиком.
+_hook "rt owner openwrt" "$AU" \
+    'platform/openwrt/rt-proc.sh' \
+    'S96z2k-rt-proxy'
 
 _t_done
