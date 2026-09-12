@@ -229,8 +229,10 @@ z2k_ow_payload_reinstall() {
     fi
 
     # 6. шаги окном обновления, ДОСТАВЛЕННЫМ кодом (урок p-67.9 — как converge).
+    # Путь — через Z2K_ROOT (openwrt payload root; ZAPRET2_DIR здесь равен
+    # ему же, но его /opt-дефолт триггерит forbidden-guard и врёт читателю).
     local _tags _e _full="" _reset="" _steps _sh _steps_h="" _rc=0
-    local _ac_self="${ZAPRET2_DIR:-/opt/z2k}/lib/auto_update.sh"
+    local _ac_self="${Z2K_ROOT:-/usr/lib/z2k}/lib/auto_update.sh"
     _tags=$(au_history_entries_after "$_manifest" "$_installed" 2>/dev/null \
         | sed -n 's/.*"v"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
     for _t2 in $_tags; do

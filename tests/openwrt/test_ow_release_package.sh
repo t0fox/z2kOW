@@ -132,6 +132,8 @@ lc_postinst || exit 1
 assert_eq "R17 установленный бинарь цел" "1" "$([ -x "$Z2K_BIN/z2k-warpd" ] && echo 1 || echo 0)"
 
 # --- R18: удаление webpanel-пакета не трогает core ---
+# Пути — через LC_SYS (harness-allowlist forbidden-guard; Z2K_ROOT в файле
+# не присваивается, а rm -rf по неприсвоенной переменной запрещён).
 lc_fresh_sysroot || exit 1
 mkdir -p "$LC_SYS/etc/init.d" "$Z2K_ROOT/webpanel/cgi" "$Z2K_ROOT/www"
 cp -f "$REPO/package/openwrt/files/etc/init.d/z2k-webpanel" "$LC_SYS/etc/init.d/z2k-webpanel"
@@ -140,7 +142,7 @@ cp -f "$REPO/package/openwrt/files/etc/init.d/z2k-webpanel" "$LC_SYS/etc/init.d/
 _core_lib_before="$(sha256sum "$Z2K_ROOT/lib/utils.sh" | awk '{print $1}')"
 # удаление = только webpanel-пути (как ставит stanza: один init)
 rm -f "$LC_SYS/etc/init.d/z2k-webpanel"
-rm -rf "$Z2K_ROOT/webpanel" "$Z2K_ROOT/www"
+rm -rf "$LC_SYS/usr/lib/z2k/webpanel" "$LC_SYS/usr/lib/z2k/www"
 assert_eq "R18 core init цел" "1" "$([ -f "$LC_SYS/etc/init.d/z2k" ] && echo 1 || echo 0)"
 assert_eq "R18 core lib цел" "$_core_lib_before" "$(sha256sum "$Z2K_ROOT/lib/utils.sh" | awk '{print $1}')"
 assert_eq "R18 config цел" "1" "$([ -f "$Z2K_ETC/config" ] && echo 1 || echo 0)"

@@ -27,7 +27,7 @@ _mkpayload() {
              "$Z2K_ROOT/extra_strats/TCP/YT_GV" "$Z2K_ROOT/extra_strats/UDP/YT" \
              "$Z2K_ROOT/share" "$Z2K_ROOT/lists" \
              "$Z2K_ROOT/platform/openwrt" "$Z2K_ETC/state" "$Z2K_TMP"
-    for _f in paths.sh env.sh bootstrap.sh update.sh; do
+    for _f in paths.sh env.sh bootstrap.sh update.sh reinstall.sh; do
         ln -s "$REPO/platform/openwrt/$_f" "$Z2K_ROOT/platform/openwrt/$_f"
     done
     cat > "$Z2K_ROOT/lib/utils.sh" <<'EOF'
@@ -46,6 +46,11 @@ EOF
 au_log() { echo "aulog:\$*" >> "$T/calls"; }
 au_run_apply() { echo "apply-called" >> "$T/calls"; }
 au_run_check() { echo "check-called" >> "$T/calls"; }
+# adapter-gate fetch: минимальный манифест без api-требований (окно=1).
+au_fetch_manifest() {
+    mkdir -p "\$Z2K_AU_TMP_DIR" 2>/dev/null || return 1
+    printf '{"current": "p-84.7", "history": []}\n' > "\$Z2K_AU_TMP_DIR/UPDATES.json" 2>/dev/null
+}
 EOF
     printf '#!/bin/sh\n# stub\n' > "$Z2K_ROOT/lib/config_official.sh"
     printf '#!/bin/sh\n# stub\n' > "$Z2K_ROOT/lib/strategies.sh"

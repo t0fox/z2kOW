@@ -52,7 +52,12 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     webpanel/www/app.js: applyCapabilities Stage 6 (только visibility;
 #     capability-логика вне трёх файлов запрещена)
 #   docs/openwrt-webpanel-contract.md: webpanel contract Stage 6 (docs, не код)
-ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/app.js docs/openwrt-webpanel-contract.md"
+#   docs/openwrt-release-contract.md: release contract Stage 7 (docs, не код)
+#   scripts/openwrt/gen-openwrt-manifest.sh: генерация OpenWrt-манифеста
+#     Stage 7 (NEW; common-манифест не трогает, только читает)
+#   scripts/openwrt/build-release.sh + scripts/openwrt/write-provenance.sh:
+#     каноническая сборка APK-релиза Stage 7 (NEW; только гейты+артефакты)
+ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/app.js docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh"
 
 _changed="$($_g diff --name-only "$BASELINE"...HEAD 2>/dev/null)"
 # --ignore-cr-at-eol: на Windows-чекаутах (autocrlf) весь worktree выглядит
@@ -73,6 +78,7 @@ _seam_of() {
         *detect*|*circular*|*rotat*) echo "detectors" ;;
         strats_new2.txt|quic_strats.ini|lib/strategies.sh|lib/config_official.sh) echo "strategies" ;;
         webpanel/*) echo "common-webpanel" ;;
+        scripts/openwrt/*) echo "release-tooling" ;;
         lib/auto_update.sh|lib/release_map.sh|files/z2k-config-validator.sh|scripts/gen_file_hashes.sh) echo "update-system" ;;
         *warp*|*Warp*|*WARP*) echo "warp" ;;
         *) echo "other-common" ;;
@@ -101,7 +107,7 @@ else
     for _f in $_bad; do
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
-            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/app.js|docs/openwrt-webpanel-contract.md) continue ;;
+            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/app.js|docs/openwrt-webpanel-contract.md|docs/openwrt-release-contract.md|scripts/openwrt/gen-openwrt-manifest.sh|scripts/openwrt/build-release.sh|scripts/openwrt/write-provenance.sh) continue ;;
             UPDATES.json)
                 # Манифест следует за деревом: разрешены только hash-обновления
                 # allowlisted lib-файлов в files_sha256 (ни новых ключей, ни

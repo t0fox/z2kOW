@@ -56,13 +56,6 @@ if [ "$AU_ENABLED" = "0" ] && [ "$ACTION" = "apply" ] && [ "$AU_MANUAL" != "1" ]
     exit 0
 fi
 
-# Adapter API gate (Stage 7 §7): ДО seed_ensure — гейт решает по verified
-# манифесту, а seed_ensure уже пишет marker/tag/config (мутации состояния).
-# apply + too old → rc 1; check + too old → ADAPTER_UPDATE_REQUIRED, rc 2.
-_grc=0
-z2k_ow_adapter_gate "$ACTION" || _grc=$?
-if [ "$_grc" != "0" ]; then exit "$_grc"; fi
-
 # Pre-flight локальных инвариантов (§9 state-machine) — ДО любого fetch:
 # z2k_ow_seed_ensure приводит (marker, payload, tag) к доказанному виду:
 # empty -> re-seed (tag := seed), partial+marker -> invalidate + fail,
@@ -70,6 +63,17 @@ if [ "$_grc" != "0" ]; then exit "$_grc"; fi
 # marker present + payload ok + tag == payload.meta, ИНАЧЕ сюда не доходим
 # (common first-run resync тем самым недостижим — никакого false-current).
 z2k_ow_seed_ensure || exit 1
+
+# Adapter API gate (Stage 7 §7): ПОСЛЕ seed_ensure, ДО au_run_apply.
+# Порядок осознанный: seed_ensure не трогает байты payload (на целом —
+# чистый noop, I5), но восстанавливает tag (healed install), а гейту tag
+# нужен всегда — иначе установка с потерянным тегом обходила бы проверку
+# окна (fresh install закрыт coherence seed на сборке, §10 контракта).
+# apply + too old → rc 1; check + too old → ADAPTER_UPDATE_REQUIRED, rc 2.
+# Ничего из нового манифеста до гейта не применяется.
+_grc=0
+z2k_ow_adapter_gate "$ACTION" || _grc=$?
+if [ "$_grc" != "0" ]; then exit "$_grc"; fi
 
 case "$ACTION" in
     apply)

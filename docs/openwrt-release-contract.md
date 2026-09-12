@@ -80,10 +80,13 @@ TRANSIENT. Отдельный `z2k-webpanel.apk` доводится до product
   смена WARP backend-интерфейса). НЕ increment: комментарии, тесты,
   метаданные пакета, внутренние фиксы.
 
-## §7. API gate: до ЛЮБОЙ payload mutation (§9)
+## §7. API gate: до au_run_apply, после seed_ensure (§9)
 
-В `platform/openwrt/update.sh`, ДО `seed_ensure` (гейт не требует ничего,
-кроме env + common libs):
+В `platform/openwrt/update.sh`, ПОСЛЕ `seed_ensure`, ДО `au_run_apply`
+(порядок осознанный: seed_ensure не трогает байты payload — на целом это
+чистый noop I5, — но восстанавливает tag; гейту tag нужен всегда, иначе
+установка с потерянным тегом обходила бы проверку окна. Fresh install
+закрыт coherence seed на сборке, §10):
 
 ```text
 required <= installed → update proceeds

@@ -43,7 +43,7 @@ fi
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-entry.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 mkdir -p "$T/root/lib" "$T/root/platform/openwrt" "$T/etc"
-for _f in paths.sh env.sh bootstrap.sh update.sh schedule.sh; do
+for _f in paths.sh env.sh bootstrap.sh update.sh schedule.sh reinstall.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f"
 done
 cat > "$T/root/lib/utils.sh" <<'EOF'
@@ -62,6 +62,11 @@ cat > "$T/root/lib/auto_update.sh" <<EOF
 au_log() { echo "aulog:\$*" >> "$T/calls"; }
 au_run_apply() { echo "apply-called" >> "$T/calls"; }
 au_run_check() { echo "check-called" >> "$T/calls"; }
+# adapter-gate fetch: минимальный манифест без api-требований (окно=1).
+au_fetch_manifest() {
+    mkdir -p "\$Z2K_AU_TMP_DIR" 2>/dev/null || return 1
+    printf '{"current": "p-84.7", "history": []}\n' > "\$Z2K_AU_TMP_DIR/UPDATES.json" 2>/dev/null
+}
 EOF
 # config_official/strategies сорсятся launcher'ом? нет, но оба — в
 # Z2K_PAYLOAD_REQUIRED: без них payload_ok ложен и seed_ensure не пустит.
