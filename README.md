@@ -2,7 +2,7 @@
 
 <h1>z2kOW</h1>
 
-<p><strong>z2k для OpenWrt без отдельного форка runtime</strong></p>
+<p><strong>z2k для OpenWrt через тонкий platform adapter</strong></p>
 
 [![CI](https://github.com/t0fox/z2kOW/actions/workflows/ci.yml/badge.svg?branch=feat/openwrt-adapter)](https://github.com/t0fox/z2kOW/actions/workflows/ci.yml)
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-25.12.5-58A6FF?logo=openwrt&logoColor=white)](https://openwrt.org/)
@@ -11,190 +11,135 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-22C55E)](./LICENSE)
 
 <p>
-  <a href="./docs/openwrt-adapter-contract.md"><strong>Архитектура OpenWrt</strong></a>
+  <a href="#быстрый-старт"><strong>Быстрый старт</strong></a>
   ·
-  <a href="./docs/openwrt-release-contract.md"><strong>Release contract</strong></a>
+  <a href="#как-пользоваться-z2k"><strong>Гайд</strong></a>
+  ·
+  <a href="./docs/openwrt-adapter-contract.md"><strong>Архитектура</strong></a>
   ·
   <a href="https://github.com/t0fox/z2kOW/actions/workflows/ci.yml"><strong>CI</strong></a>
-  ·
-  <a href="https://github.com/necronicle/z2k"><strong>Upstream z2k</strong></a>
 </p>
 
 </div>
 
 > [!IMPORTANT]
-> **Текущий статус — release candidate для live acceptance.** Реальные APK уже собираются OpenWrt SDK 25.12.5, проходят resolver/feed/CI-проверки и устанавливаются в isolated root. Проверка на реальном Cudy WR3000 v1 — следующий этап. До её завершения CI snapshot не считается публичным production-релизом.
+> Сейчас z2kOW находится на этапе **live acceptance**. Реальные APK уже собираются pinned OpenWrt SDK 25.12.5 и полностью проходят CI, resolver и isolated-root install. Следующий этап — проверка на реальном Cudy WR3000 v1. До неё CI snapshot считается тестовой сборкой, а не публичным production-релизом.
 
-## О проекте
+## Что это
 
-**z2kOW** — OpenWrt-адаптация [necronicle/z2k](https://github.com/necronicle/z2k), построенная не как отдельный порт, а как тонкий слой совместимости платформы.
+**z2kOW** — OpenWrt-адаптация [necronicle/z2k](https://github.com/necronicle/z2k), сделанная не как отдельный форк, а как слой совместимости платформы.
 
-Общая логика z2k остаётся общей: стратегии, Lua, autocircular, детекторы, Telegram/RT/WARP-компоненты, updater и webpanel не получают отдельные OpenWrt-копии. Различия платформы вынесены в adapter, который переводит ожидаемые z2k-операции в native-механизмы OpenWrt.
+Общая логика z2k остаётся общей:
 
-Основные принципы:
+- стратегии и autocircular;
+- Lua;
+- списки;
+- Telegram transport;
+- RT proxy;
+- WARP engine;
+- updater;
+- webpanel.
 
-- **upstream-first** — common logic обновляется вместе с z2k, а не переносится вручную;
-- **тонкий platform adapter** — OpenWrt-специфика живёт в `platform/openwrt/*` и package glue;
-- **один runtime owner** — firewall, процессы и feature lifecycle не дублируются;
-- **два независимых канала обновления** — payload z2k обновляется часто, APK adapter только при изменении platform contract;
-- **никакого LuCI-переписывания** — существующий webpanel работает через небольшой compatibility backend.
+OpenWrt-специфика вынесена отдельно:
 
-## Текущее состояние
+- `procd` вместо Keenetic init;
+- `nftables/fw4` вместо platform-specific firewall glue;
+- `UCI/dnsmasq` вместо `ndmc`;
+- OpenWrt paths;
+- APK/package lifecycle;
+- PBR/mark translation.
 
-| Контур | Статус |
-|---|:--:|
-| Foundation / bootstrap / lifecycle | **PASS** |
-| Core z2k + nft/NFQUEUE adapter | **PASS** |
-| Telegram + CDN | **PASS** |
-| RuTracker RT proxy | **PASS** |
-| WARP / split routing | **PASS** |
-| Webpanel compatibility layer | **PASS** |
-| OpenWrt package / release pipeline | **PASS** |
-| Real OpenWrt 25.12.5 SDK build | **PASS** |
-| Real APK resolver + `packages.adb` | **PASS** |
-| Go verification / reproducible binaries | **PASS** |
-| Live Cudy WR3000 v1 | **PENDING** |
-| Production feed signing/publication | **PENDING** |
-
-Последний closure CI собрал реальные APK и полностью прошёл все jobs на commit `dca297c`.
-
-## Архитектура
-
-```mermaid
-flowchart TD
-    UP["upstream · necronicle/z2k"] --> COMMON["common z2k logic"]
-    COMMON --> CORE["nfqws2 · strategies · Lua · updater"]
-    COMMON --> FEATURES["TG · RT proxy · WARP · webpanel"]
-
-    ADAPTER["platform/openwrt · thin adapter"] --> PROCD["procd"]
-    ADAPTER --> NFT["nftables / fw4"]
-    ADAPTER --> UCI["UCI / dnsmasq"]
-    ADAPTER --> PATHS["OpenWrt paths / lifecycle"]
-
-    CORE --> ADAPTER
-    FEATURES --> ADAPTER
-    ADAPTER --> ROUTER["OpenWrt runtime"]
-```
-
-На OpenWrt не появляется второй z2k:
+Идея проекта простая:
 
 ```text
 upstream z2k
       │
       │ common logic почти без изменений
       ▼
-OpenWrt compatibility layer
+OpenWrt compatibility adapter
       │
-      ├── procd вместо Keenetic init
-      ├── nft/fw4 вместо platform-specific firewall glue
-      ├── UCI/dnsmasq вместо ndmc
-      ├── OpenWrt filesystem layout
-      ├── package/bootstrap/update glue
-      └── mark/PBR translation
+      ├── procd
+      ├── nft/fw4
+      ├── UCI/dnsmasq
+      ├── OpenWrt filesystem
+      └── package/update glue
 ```
 
-Именно поэтому обычное обновление upstream не должно превращаться в новый порт.
+## Текущее состояние
 
-## Возможности
+| Контур | Статус |
+|---|:--:|
+| Foundation / bootstrap / lifecycle | **PASS** |
+| Core z2k + nft/NFQUEUE | **PASS** |
+| Telegram + CDN | **PASS** |
+| RuTracker RT proxy | **PASS** |
+| WARP | **PASS** |
+| Webpanel | **PASS** |
+| Real APK build | **PASS** |
+| `packages.adb` + resolver | **PASS** |
+| Go / reproducible binaries | **PASS** |
+| Live Cudy WR3000 v1 | **PENDING** |
+| Production feed/signing | **PENDING** |
 
-| Компонент | Что делает |
-|---|---|
-| **Core z2k** | Запускает zapret2 / `nfqws2`, стратегии и общий lifecycle через procd |
-| **nft/NFQUEUE** | Использует единый `inet zapret`, без второго firewall framework |
-| **Autocircular** | Общая upstream-логика стратегий без OpenWrt-форка |
-| **Telegram + CDN** | Прозрачный TG transport и CDN path через отдельный procd instance |
-| **RT proxy** | Прозрачный HTTPS CONNECT path для RuTracker с OpenWrt DNS integration |
-| **WARP** | Опциональный split tunnel с внешним OpenWrt networking backend и PBR |
-| **Webpanel** | Исходный frontend/CGI z2k через маленький OpenWrt platform seam |
-| **Updater** | Подписанный payload update отдельно от APK adapter |
-| **Package layer** | Native OpenWrt APK, bootstrap, ownership и lifecycle |
+Последний полностью зелёный CI: commit `dca297c`.
 
-## Что принципиально не форкается
+---
 
-z2kOW не создаёт OpenWrt-копии для:
+# Быстрый старт
 
-- Lua и стратегий;
-- autocircular и detector logic;
-- Telegram client logic;
-- RT proxy logic;
-- WARP transport logic;
-- общего updater/release semantics;
-- webpanel frontend и API.
+> [!WARNING]
+> До завершения live acceptance ниже используется **CI snapshot**. Для него допустим локальный `--allow-untrusted`. Это не финальная схема production-установки.
 
-Platform-specific эффекты должны заканчиваться в adapter layer.
+## 1. Совместимость
 
-## Пакеты
-
-Сейчас CI собирает два APK:
-
-| Пакет | Назначение |
-|---|---|
-| `z2k-adapter` | Core OpenWrt adapter, lifecycle, seed/bootstrap и platform glue |
-| `z2k-webpanel` | Опциональный dedicated lighttpd instance для существующего z2k webpanel |
-
-Текущий воспроизводимый build contract:
+Текущий build contract:
 
 | Параметр | Значение |
 |---|---|
 | OpenWrt | **25.12.5** |
 | Target | **`mediatek/filogic`** |
-| Package arch | **`aarch64_cortex-a53`** |
-| Формат | **APK v3** |
-| Adapter API | **1** |
+| Arch | **`aarch64_cortex-a53`** |
+| Package format | **APK v3** |
 | Test device | **Cudy WR3000 v1** |
+| Adapter API | **1** |
 
-CI использует pinned OpenWrt SDK и проверяет package metadata, зависимости, feed index, signature/tamper path и установку в isolated root.
+## 2. Скачай CI artifact
 
-## Быстрый старт
-
-> [!WARNING]
-> До завершения live acceptance ниже используется **CI snapshot**, а не production feed. Это путь для тестирования на целевом роутере, не финальная пользовательская установка.
-
-### 1. Скачай CI artifact
-
-Открой зелёный workflow **CI** для ветки `feat/openwrt-adapter` и скачай artifact вида:
+Открой зелёный workflow **CI** для `feat/openwrt-adapter` и скачай artifact вида:
 
 ```text
 z2k-openwrt-CI-SNAPSHOT-<commit>
 ```
 
-Внутри находятся:
+Внутри:
 
 ```text
-z2k-adapter-<version>.apk
-z2k-webpanel-<version>.apk
+z2k-adapter-0.1.0-r1.apk
+z2k-webpanel-0.1.0-r1.apk
 packages.adb
 sha256sums
 provenance.json
 METADATA.txt
 ```
 
-### 2. Проверь файлы
+Перед установкой сверь SHA256.
 
-Перед передачей на роутер:
+## 3. Установи core
 
-```sh
-sha256sum -c sha256sums
-```
-
-После копирования на роутер сверь SHA256 ещё раз.
-
-### 3. Установи core adapter
-
-Для CI snapshot допускается явная локальная установка unsigned test artifact:
+Скопируй APK на роутер и выполни:
 
 ```sh
 apk add --allow-untrusted ./z2k-adapter-0.1.0-r1.apk
 ```
 
-Запуск:
+Затем:
 
 ```sh
 /etc/init.d/z2k enable
 /etc/init.d/z2k start
 ```
 
-Проверка:
+Быстрая проверка:
 
 ```sh
 /etc/init.d/z2k status
@@ -202,7 +147,7 @@ ubus call service list '{"name":"z2k"}'
 nft list table inet zapret
 ```
 
-### 4. Установи webpanel при необходимости
+## 4. Установи webpanel
 
 ```sh
 apk add --allow-untrusted ./z2k-webpanel-0.1.0-r1.apk
@@ -210,71 +155,263 @@ apk add --allow-untrusted ./z2k-webpanel-0.1.0-r1.apk
 /etc/init.d/z2k-webpanel start
 ```
 
-Webpanel имеет отдельный lifecycle: остановка core z2k не должна выключать сам интерфейс.
-
-## Runtime layout
-
-| Путь | Владелец | Назначение |
-|---|---|---|
-| `/usr/lib/z2k/` | updater/package | Общий payload и platform runtime |
-| `/usr/lib/z2k/platform/openwrt/` | package | OpenWrt compatibility layer |
-| `/usr/lib/z2k/bin/` | updater | Runtime binaries |
-| `/etc/z2k/config` | user | Основная конфигурация |
-| `/etc/z2k/state/` | user/runtime | Persistent state |
-| `/etc/z2k/user-lists/` | user | Пользовательские списки |
-| `/tmp/z2k/` | transient | Runtime state, logs, generated files |
-
-Package-owned и updater-owned файлы разделены: payload update не должен перезаписывать platform adapter, а APK upgrade не должен откатывать здоровый payload к seed.
-
-## Сеть и ownership
-
-### Firewall
-
-Canonical owner — одна таблица:
+По умолчанию панель слушает LAN-адрес роутера на:
 
 ```text
-inet zapret
+http://<LAN-IP>:8088
 ```
 
-Core runtime владеет NFQUEUE и базовым flow, feature adapters добавляют только свои узкие chains/sets. Второй nft framework не создаётся.
+Stock lighttpd OpenWrt не используется и не перенастраивается — у панели свой dedicated instance.
 
-### Процессы
+---
 
-Один `/etc/init.d/z2k` управляет несколькими procd instances:
+# Как пользоваться z2k
+
+Ниже — именно пользовательский гайд z2k, но уже для OpenWrt.
+
+## Основное управление
+
+| Действие | Команда |
+|---|---|
+| Старт | `/etc/init.d/z2k start` |
+| Стоп | `/etc/init.d/z2k stop` |
+| Рестарт | `/etc/init.d/z2k restart` |
+| Reload | `/etc/init.d/z2k reload` |
+| Статус | `/etc/init.d/z2k status` |
+| Автозапуск включить | `/etc/init.d/z2k enable` |
+| Автозапуск выключить | `/etc/init.d/z2k disable` |
+
+Главный конфиг:
 
 ```text
-core
+/etc/z2k/config
+```
+
+Persistent state:
+
+```text
+/etc/z2k/state/
+```
+
+Пользовательские списки и кастомные настройки:
+
+```text
+/etc/z2k/user-lists/
+```
+
+Runtime/logs:
+
+```text
+/tmp/z2k/
+```
+
+## Что происходит при старте
+
+`/etc/init.d/z2k` выполняет один общий lifecycle:
+
+```text
+bootstrap
+  ↓
+генерация config
+  ↓
+nfqws2
+  ↓
+nft/NFQUEUE
+  ↓
 Telegram/CDN
+  ↓
 RT proxy
-WARP
+  ↓
+WARP desired-state
 ```
 
-Webpanel вынесен в отдельный:
+Все процессы принадлежат одному procd-сервису `z2k`.
+
+## Webpanel
+
+Панель остаётся той же по логике, что upstream z2k: frontend и CGI не переписаны под LuCI.
+
+На OpenWrt добавлен только adapter:
 
 ```text
-/etc/init.d/z2k-webpanel
+upstream webpanel
+      ↓
+webpanel/cgi/platform.sh
+      ↓
+platform/openwrt/webpanel.sh
+      ↓
+procd / nft / UCI / existing feature adapters
 ```
 
-и не связан с lifecycle core-процессов.
+Через панель доступны:
 
-## Telegram + CDN
+- статус core;
+- start/stop/restart;
+- стратегии;
+- whitelist;
+- extra domains;
+- исключения;
+- custom strategies;
+- Telegram;
+- WARP;
+- проверка/применение обновлений;
+- состояние updater;
+- neighbor list для WARP.
 
-OpenWrt adapter сохраняет общий transport z2k:
+Keenetic-only controls, у которых нет OpenWrt-эквивалента, не эмулируются фальшиво:
+
+| Функция | OpenWrt |
+|---|:--:|
+| Keenetic policy | Нет |
+| PPE toggle Keenetic | Нет |
+| Full uninstall из браузера | Нет |
+| WARP | Да |
+| Telegram | Да |
+
+Полное удаление делается пакетным менеджером, а не CGI.
+
+---
+
+# Стратегии и autocircular
+
+Главная логика z2k здесь такая же, как upstream.
+
+Для разных типов трафика используются отдельные strategy pools:
+
+- RKN / обычный TCP/TLS;
+- YouTube TCP;
+- GoogleVideo TCP;
+- YouTube QUIC;
+- Discord UDP.
+
+В профиле может быть несколько стратегий:
+
+```text
+strategy=1
+strategy=2
+strategy=3
+...
+```
+
+Модуль `circular` отслеживает успех и неудачи и при необходимости переходит к следующему варианту.
+
+### Что это значит для пользователя
+
+После первого запуска сайт не обязан заработать именно с первой попытки.
+
+Если конкретный домен попал под autocircular, z2k может потребоваться несколько соединений, чтобы подобрать рабочую стратегию.
+
+То есть нормальный сценарий:
+
+```text
+первый запрос не прошёл
+→ circular считает неудачу
+→ следующий strategy
+→ новый запрос
+→ успешный strategy закрепился
+```
+
+Состояние сохраняется в persistent state и переживает рестарты:
+
+```text
+/etc/z2k/state/state.tsv
+```
+
+Поэтому после обучения система не должна начинать подбор заново при каждом reboot.
+
+## Custom strategies
+
+Пользовательские стратегии на OpenWrt хранятся отдельно от updater-owned payload:
+
+```text
+/etc/z2k/user-lists/custom-strategies/
+```
+
+Они не должны исчезать после обычного update или APK upgrade.
+
+Если custom strategy задана для конкретного pool, она перекрывает shipped strategy этого pool.
+
+---
+
+# Домены, whitelist и исключения
+
+Updater-owned списки:
+
+```text
+/usr/lib/z2k/lists/
+```
+
+Пользовательские:
+
+```text
+/etc/z2k/user-lists/
+```
+
+Основные файлы:
+
+| Файл | Назначение |
+|---|---|
+| `/etc/z2k/user-lists/extra-domains.txt` | Домены, которые нужно добавить в обработку |
+| `/etc/z2k/user-lists/whitelist.txt` | Домены, которые не нужно обходить |
+| `/etc/z2k/user-lists/exclude.txt` | Пользовательские исключения |
+| `/etc/z2k/user-lists/custom-strategies/` | Собственные стратегии |
+| `/etc/z2k/user-lists/warp/` | WARP lists/devices |
+
+Эти файлы — user-owned. Updater не должен затирать их shipped-версиями.
+
+После изменения через webpanel нужный reload/restart выполняется самим backend.
+
+---
+
+# Telegram + CDN
+
+Telegram реализован как отдельный procd instance внутри сервиса z2k.
+
+Один `tg-mtproxy-client` обслуживает:
 
 ```text
 :1443  Telegram
 :1444  CDN
 ```
 
-TG/CDN lifecycle принадлежит platform adapter и procd. CGI/webpanel не запускает transport напрямую и не создаёт собственные nft rules.
+Вручную клиентские устройства настраивать не нужно — adapter делает transparent routing.
 
-Подробности: [openwrt-telegram-contract.md](./docs/openwrt-telegram-contract.md).
+Управлять проще всего из webpanel.
 
-## RuTracker RT proxy
+Ручной флаг:
 
-RT adapter использует существующий upstream proxy и добавляет только OpenWrt networking/DNS integration.
+```text
+TG_PROXY_USER_DISABLED=0   # включено
+TG_PROXY_USER_DISABLED=1   # выключено
+```
 
-Canonical domains:
+в:
+
+```text
+/etc/z2k/config
+```
+
+После изменения:
+
+```sh
+/etc/init.d/z2k reload
+```
+
+Проверка процесса:
+
+```sh
+ubus call service list '{"name":"z2k"}'
+```
+
+Telegram adapter не создаёт вторую nft-таблицу — его chains/sets живут внутри `inet zapret`.
+
+---
+
+# RuTracker RT proxy
+
+RT proxy — first-class feature того же core lifecycle.
+
+Поддерживаемые домены:
 
 ```text
 rutracker.org
@@ -284,112 +421,382 @@ rep.rutracker.cc
 static.rutracker.cc
 ```
 
-Подробности: [openwrt-rt-proxy-contract.md](./docs/openwrt-rt-proxy-contract.md).
-
-## WARP
-
-WARP остаётся опциональным компонентом.
-
-Сам `z2k-warpd` получил минимальный platform seam:
+IPv4 sentinel:
 
 ```text
---net-backend=external
+10.171.171.171
 ```
 
-При нём engine не поднимает собственный iptables networking, а OpenWrt adapter владеет nft/PBR lifecycle.
-
-Основные параметры:
+IPv6 sentinel:
 
 ```text
+2001:db8::1:1445
+```
+
+HTTPS traffic направляется на локальный transparent proxy `:1445`.
+
+Пользователю не нужно отдельно держать второй init-сервис или firewall script: RT запускается и сходится вместе с `z2k`.
+
+---
+
+# WARP
+
+WARP предназначен для трафика, который нельзя нормально обойти только desync-стратегиями — прежде всего IP-based сценариев и игровых сетей.
+
+WARP **не ставится автоматически** вместе с core.
+
+## Установить engine
+
+```sh
+/usr/lib/z2k/platform/openwrt/warp.sh install
+```
+
+Эта команда:
+
+- скачивает правильный binary для архитектуры;
+- регистрирует устройство;
+- сохраняет identity;
+- не включает routing автоматически.
+
+Identity:
+
+```text
+/etc/z2k/state/warp/device.json
+```
+
+## Включить
+
+```sh
+/usr/lib/z2k/platform/openwrt/warp.sh enable
+```
+
+## Статус
+
+```sh
+/usr/lib/z2k/platform/openwrt/warp.sh status
+```
+
+## Выключить
+
+```sh
+/usr/lib/z2k/platform/openwrt/warp.sh disable
+```
+
+## Удалить engine
+
+```sh
+/usr/lib/z2k/platform/openwrt/warp.sh remove
+```
+
+При remove сохраняются:
+
+- device identity;
+- user lists.
+
+Маршрутизация WARP:
+
+```text
+fwmark 0x80000000/0x80000000
+rule pref 500
 table 989
-mark  0x80000000/0x80000000
-pref  500
 ```
 
-WARP binary не обязан присутствовать после базовой установки и не включается автоматически.
+Если tunnel не ready, adapter fail-open: PBR снимается, dynamic rules очищаются, обычный трафик не должен blackhole'иться.
 
-Подробности: [openwrt-warp-contract.md](./docs/openwrt-warp-contract.md).
+---
+
+# Обновления
+
+В z2kOW два независимых канала доставки.
+
+## Payload update
+
+Обычные изменения:
+
+- Lua;
+- strategies;
+- lists;
+- common libs;
+- webpanel assets;
+- binaries;
+
+идут через подписанный z2k updater.
+
+Проверить:
+
+```sh
+/usr/lib/z2k/platform/openwrt/update.sh check
+```
+
+Применить вручную:
+
+```sh
+Z2K_AU_MANUAL=1 /usr/lib/z2k/platform/openwrt/update.sh apply
+```
+
+Ручной apply не ждёт nightly jitter.
+
+## APK update
+
+Если меняется сам OpenWrt adapter:
+
+```text
+platform/openwrt/*
+init.d
+hotplug
+package metadata
+adapter API
+```
+
+нужен новый `z2k-adapter.apk`.
+
+Это происходит значительно реже.
+
+Главное правило:
+
+```text
+обычный upstream z2k update
+→ НЕ требует пересборки APK
+```
+
+---
+
+# Проверка состояния
+
+## Core
+
+```sh
+/etc/init.d/z2k status
+ubus call service list '{"name":"z2k"}'
+```
+
+## nft/NFQUEUE
+
+```sh
+nft list table inet zapret
+```
+
+## Routes и marks
+
+```sh
+ip rule
+ip route show table all
+```
 
 ## Webpanel
 
-z2kOW не делает LuCI-версию панели и не поддерживает отдельный OpenWrt frontend.
-
-Используется существующий webpanel z2k:
-
-```text
-upstream webpanel
-      ↓
-webpanel/cgi/platform.sh
-      ↓
-platform/openwrt/webpanel.sh
-      ↓
-existing OpenWrt adapter primitives
+```sh
+/etc/init.d/z2k-webpanel status
 ```
 
-На OpenWrt панель:
+Если panel не стартует:
 
-- использует dedicated lighttpd instance;
-- не трогает stock OpenWrt lighttpd;
-- по умолчанию привязывается к LAN;
-- не управляет nft/PBR напрямую;
-- вызывает уже существующие TG/WARP/update primitives;
-- скрывает Keenetic-only controls, у которых нет эквивалента.
+```sh
+logread | grep -i z2k
+logread | grep -i lighttpd
+```
 
-Подробности: [openwrt-webpanel-contract.md](./docs/openwrt-webpanel-contract.md).
+## Updater
 
-## Обновления: два независимых lane
+```sh
+/usr/lib/z2k/platform/openwrt/update.sh check
+```
 
-Главная идея release model:
+Логи и transient state:
+
+```text
+/tmp/z2k/logs/
+/tmp/z2k/runtime/
+/tmp/z2k/warp/
+```
+
+---
+
+# Если сайт не открывается
+
+Порядок проверки:
+
+1. Убедись, что core действительно запущен.
+2. Проверь `inet zapret`.
+3. Сделай несколько новых соединений/перезагрузок страницы — autocircular может подбирать strategy.
+4. Если домена нет в shipped lists, добавь его в:
+   ```text
+   /etc/z2k/user-lists/extra-domains.txt
+   ```
+5. Если сайт ломается именно из-за обработки z2k — добавь его в whitelist/exclude.
+6. После изменения списка выполни reload через webpanel или:
+   ```sh
+   /etc/init.d/z2k reload
+   ```
+7. Посмотри logs:
+   ```sh
+   logread | grep -i z2k
+   ```
+
+Не начинай сразу менять nft rules вручную: firewall state принадлежит adapter/runtime и при следующем converge ручная правка всё равно будет заменена.
+
+---
+
+# Если после включения WARP пропал интернет
+
+Проверь:
+
+```sh
+/usr/lib/z2k/platform/openwrt/warp.sh status
+ip rule
+ip route show table 989
+nft list table inet zapret
+```
+
+Нормальная fail-open модель:
+
+```text
+WARP not ready
+→ PBR removed
+→ dynamic TUN rules empty
+→ обычный интернет продолжает работать
+```
+
+Если это не так — это уже runtime defect, а не ожидаемое поведение.
+
+---
+
+# Webpanel не открывается
+
+Проверить:
+
+```sh
+/etc/init.d/z2k-webpanel status
+logread | grep -i lighttpd
+```
+
+По умолчанию порт:
+
+```text
+8088
+```
+
+Настройки панели:
+
+```text
+/etc/z2k/webpanel/
+```
+
+Сгенерированный lighttpd config transient:
+
+```text
+/tmp/z2k/runtime/webpanel/lighttpd.conf
+```
+
+Если `8088` уже занят чужим процессом, z2k-webpanel специально не убивает его и не подменяет конфиг — старт завершается ошибкой.
+
+---
+
+# Удаление и переустановка
+
+Webpanel:
+
+```sh
+apk del z2k-webpanel
+```
+
+Core:
+
+```sh
+apk del z2k-adapter
+```
+
+По контракту uninstall сохраняет пользовательские данные:
+
+```text
+/etc/z2k/config
+/etc/z2k/state/
+/etc/z2k/user-lists/
+/etc/z2k/webpanel/
+```
+
+Это позволяет установить пакет снова и не потерять config, WARP identity и user lists.
+
+После переустановки healthy payload не должен откатываться к старому seed.
+
+---
+
+# Что пока не переносится с Keenetic
+
+Не каждая upstream-кнопка имеет смысл на OpenWrt.
+
+Сейчас намеренно нет отдельной эмуляции:
+
+- Keenetic NDM policy;
+- Keenetic PPE toggle;
+- full package uninstall из browser;
+- Keenetic-specific `ndmc` tools.
+
+Если feature не имеет честного OpenWrt-equivalent, она скрывается/отключается, а не имитируется пустышкой.
+
+---
+
+# Runtime layout
+
+| Путь | Класс | Что лежит |
+|---|---|---|
+| `/usr/lib/z2k/` | payload | common z2k |
+| `/usr/lib/z2k/platform/openwrt/` | package | adapter |
+| `/usr/lib/z2k/bin/` | updater | binaries |
+| `/etc/z2k/config` | user | config |
+| `/etc/z2k/state/` | persistent | autocircular/updater/WARP state |
+| `/etc/z2k/user-lists/` | user | whitelist, extra domains, WARP lists |
+| `/etc/z2k/webpanel/` | user | настройки panel |
+| `/tmp/z2k/` | transient | logs/runtime/downloads/generated |
+
+Package-owned и updater-owned части разделены.
+
+---
+
+# Архитектура
 
 ```mermaid
-flowchart LR
-    U["upstream/common change"] --> M["signed payload manifest"]
-    M --> P["/usr/lib/z2k payload"]
+flowchart TD
+    UP["necronicle/z2k"] --> COMMON["common z2k"]
+    COMMON --> NFQ["nfqws2 / strategies / Lua"]
+    COMMON --> F["TG / RT / WARP / webpanel"]
 
-    A["OpenWrt adapter change"] --> APK["z2k-adapter.apk"]
-    APK --> G["platform glue"]
+    AD["platform/openwrt"] --> P["procd"]
+    AD --> N["nftables / fw4"]
+    AD --> U["UCI / dnsmasq"]
+    AD --> R["paths / package / PBR"]
+
+    NFQ --> AD
+    F --> AD
+    AD --> OW["OpenWrt"]
 ```
 
-Обычное обновление Lua, стратегий, списков, webpanel assets или common logic:
+Canonical firewall table:
 
 ```text
-новый signed payload
-→ APK не пересобирается
+inet zapret
 ```
 
-Изменение platform contract:
+Feature adapters добавляют свои chains/sets в неё, но не создают параллельный firewall framework.
 
-```text
-новый adapter API
-→ новый APK
-→ только после него payload, который требует новый API
-```
+---
 
-Это позволяет обновлять upstream z2k без постоянного ручного переноса OpenWrt-патчей.
+# CI и сборка
 
-Подробности: [openwrt-release-contract.md](./docs/openwrt-release-contract.md).
+CI проверяет:
 
-## CI и воспроизводимость
-
-CI проверяет не только source tests.
-
-В pipeline входят:
-
-- ShellCheck и syntax checks;
+- ShellCheck;
 - Lua tests;
 - Go `gofmt`, `vet`, race tests и cross-compile;
 - byte-for-byte reproducibility shipped binaries;
-- полный OpenWrt test harness;
+- OpenWrt test harness;
 - pinned OpenWrt 25.12.5 SDK;
-- настоящая APK-сборка;
-- APK v3 metadata через `adbdump`;
-- настоящий `packages.adb`;
-- ephemeral correct-key / wrong-key / tamper verification;
-- package resolution и install в isolated APK root.
-
-Host/mock tests не считаются заменой live-router acceptance.
-
-## Разработка
+- real APK build;
+- APK v3 metadata;
+- `packages.adb`;
+- ephemeral signing;
+- wrong-key/tamper rejection;
+- isolated-root dependency resolution.
 
 Полный OpenWrt harness:
 
@@ -397,52 +804,52 @@ Host/mock tests не считаются заменой live-router acceptance.
 sh tests/openwrt/run.sh
 ```
 
-Канонический package builder:
+Package builder:
 
 ```sh
 sh scripts/openwrt/build-release.sh --ci-snapshot ...
 ```
 
-OpenWrt manifest generator:
+Manifest generator:
 
 ```sh
 sh scripts/openwrt/gen-openwrt-manifest.sh ...
 ```
 
-Не собирай production artifact из dirty tree и не меняй `UPDATES.json` вручную ради feature-ветки.
+---
 
-## Документация
+# Документация
 
 | Документ | Назначение |
 |---|---|
-| [OpenWrt adapter contract](./docs/openwrt-adapter-contract.md) | Platform boundary, ownership и invariants |
-| [Foundation state machine](./docs/openwrt-foundation-state-machine.md) | Seed, marker, tag и lifecycle |
-| [Mark allocation](./docs/openwrt-mark-allocation.md) | Разделение fwmark между subsystems |
-| [Telegram contract](./docs/openwrt-telegram-contract.md) | TG/CDN networking и lifecycle |
-| [RT proxy contract](./docs/openwrt-rt-proxy-contract.md) | RuTracker proxy и DNS semantics |
-| [WARP contract](./docs/openwrt-warp-contract.md) | WARP/PBR ownership и fail-open |
-| [Webpanel contract](./docs/openwrt-webpanel-contract.md) | Platform seam для существующей панели |
-| [Release contract](./docs/openwrt-release-contract.md) | APK/payload lanes, adapter API и release gates |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | Общая upstream архитектура z2k |
-| [RELEASING.md](./RELEASING.md) | Общий release lifecycle |
-| [SECURITY.md](./SECURITY.md) | Модель доверия и подписи |
+| [OpenWrt adapter contract](./docs/openwrt-adapter-contract.md) | Platform boundary и ownership |
+| [Foundation state machine](./docs/openwrt-foundation-state-machine.md) | Seed/tag/bootstrap |
+| [Mark allocation](./docs/openwrt-mark-allocation.md) | fwmark allocation |
+| [Telegram contract](./docs/openwrt-telegram-contract.md) | TG/CDN |
+| [RT proxy contract](./docs/openwrt-rt-proxy-contract.md) | RuTracker |
+| [WARP contract](./docs/openwrt-warp-contract.md) | WARP/PBR |
+| [Webpanel contract](./docs/openwrt-webpanel-contract.md) | Panel adapter |
+| [Release contract](./docs/openwrt-release-contract.md) | APK/payload lanes |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Общая архитектура z2k |
+| [RELEASING.md](./RELEASING.md) | Release lifecycle |
+| [SECURITY.md](./SECURITY.md) | Trust/signature model |
 
-## Upstream и связанные проекты
+---
 
-z2kOW существует как OpenWrt platform layer вокруг upstream z2k, а не как попытка заменить его.
+# Upstream и связанные проекты
 
 | Проект | Связь |
 |---|---|
-| [necronicle/z2k](https://github.com/necronicle/z2k) | Основной upstream: common runtime, стратегии, updater и webpanel |
-| [necronicle/zapret2-z2k](https://github.com/necronicle/zapret2-z2k) | Zapret2 engine / `nfqws2` |
-| [OpenWrt](https://openwrt.org/) | Целевая platform |
-| [t0fox/zapret2-manager](https://github.com/t0fox/zapret2-manager) | Отдельный OpenWrt manager-проект; не является runtime z2kOW |
+| [necronicle/z2k](https://github.com/necronicle/z2k) | Основной upstream |
+| [necronicle/zapret2-z2k](https://github.com/necronicle/zapret2-z2k) | `nfqws2` / zapret2 runtime |
+| [OpenWrt](https://openwrt.org/) | Целевая платформа |
+| [t0fox/zapret2-manager](https://github.com/t0fox/zapret2-manager) | Отдельный OpenWrt manager-проект |
 
-Upstream-код сохраняет своё авторство, историю и лицензирование. OpenWrt adapter развивается отдельно только там, где действительно требуется platform-specific behavior.
+z2kOW не пытается заменить upstream z2k. Его задача — дать z2k OpenWrt-платформу с минимальным количеством локальных platform seams.
 
 ## Лицензия
 
-Проект распространяется по лицензии **MIT**. Подробности — в [LICENSE](./LICENSE).
+MIT. См. [LICENSE](./LICENSE).
 
 ---
 
