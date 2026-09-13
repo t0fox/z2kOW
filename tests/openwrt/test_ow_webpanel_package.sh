@@ -50,7 +50,7 @@ cp "$TPL" "$T/tpl.conf"
 _out="$(wp_panel_render)" || _t_bad "render rc"
 assert_contains "render: docroot" "$_out" "$T/root/www"
 assert_contains "render: bind IP" "$_out" 'server.bind                 = "192.168.7.1"'
-assert_contains "render: cgi alias" "$_out" '"/cgi-bin/" => "/usr/lib/z2k/webpanel/cgi/"'
+assert_contains "render: cgi alias" "$_out" '"/cgi-bin/api" => "/usr/lib/z2k/webpanel/cgi/api.sh"'
 _kko="$(grep -nE '/opt/|Entware' "$_out" 2>/dev/null || true)"
 [ -z "$_kko" ] && _t_ok || _t_bad "keenetic-пути в сгенерённом конфиге: $_kko"
 

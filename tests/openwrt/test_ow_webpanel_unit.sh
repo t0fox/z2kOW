@@ -83,8 +83,8 @@ WP_TEMPLATE="$T/tpl.conf"
 # render создаёт каталог errorlog (lighttpd без него не открывает лог):
 _out4="$(WP_LOG_DIR="$T/tmp/z2k-log" wp_panel_render)" || _t_bad "render4 rc"
 [ -d "$T/tmp/z2k-log" ] && _t_ok || _t_bad "render: лог-каталог не создан"
-# render маппит CGI декларативно (alias, без симлинков в document-root):
-assert_contains "render: cgi alias" "$_out4" '"/cgi-bin/" => "/usr/lib/z2k/webpanel/cgi/"'
+# render маппит CGI виртуально на файл (не каталог — иначе 404 + source leak):
+assert_contains "render: cgi alias" "$_out4" '"/cgi-bin/api" => "/usr/lib/z2k/webpanel/cgi/api.sh"'
 # мусор в bind (имя сети вместо IP — артефакт старого wp_lan_ip) -> громкий
 # отказ, а не конфиг с bind="lan", умирающий глубоко в lighttpd:
 printf 'lan\n' > "$T/etc/z2k/webpanel/bind"

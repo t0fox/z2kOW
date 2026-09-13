@@ -10,7 +10,7 @@
 _t_plan "ow-webpanel-config"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wcfg.XXXXXX")" || exit 1
-trap 'rm -rf "$T"' EXIT INT TERM
+trap 'kill ${_srvpid:-} 2>/dev/null; rm -rf "$T"' EXIT INT TERM
 
 mkdir -p "$T/etc/z2k/webpanel" "$T/tmp/z2k/runtime" "$T/root/platform/openwrt" "$T/root/www" "$T/bin"
 export PATH="$T/bin:$PATH"
@@ -30,8 +30,8 @@ cp "$REPO/webpanel/lighttpd.conf" "$T/tpl.conf"
 _out="$(wp_panel_render)" || { echo "FAIL[ow-webpanel-config]: render" >&2; exit 1; }
 mkdir -p "$T/root/www"
 
-if ! command -v lighttpd >/dev/null 2>&1; then
-    echo "SKIP[ow-webpanel-config]: нет lighttpd на хосте (в CI ставится из apt)"
+if ! command -v lighttpd >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
+    echo "SKIP[ow-webpanel-config]: нет lighttpd/curl на хосте (в CI ставятся из apt)"
     echo "SUITE[ow-webpanel-config]: pass=0 fail=0"
     exit 0
 fi
@@ -53,4 +53,103 @@ _bout="$(lighttpd -t -f "$T/bad.conf" 2>&1)"; _brc=$?
 if [ "$_brc" != "0" ]; then _t_ok
 else _t_bad "lighttpd -t принял битый синтаксис"; fi
 
+# --- REAL HTTP integration: настоящий lighttpd на 127.0.0.1, mock api.sh ---
+# Доказывает end-to-end routing (чего -t не видит): /cgi-bin/api исполняется,
+# PATH_INFO доезжает, исходники не светятся. Mock СПЕЦИАЛЬНО mode 0644:
+# interpreter-handler (/bin/sh) +x не требует (доказано live-разбором).
+mkdir -p "$T/srv/www" "$T/srv/cgi" "$T/httplog"
+printf '<html><head><title>Z2K-WEBPANEL-FIXTURE</title></head><body>hi</body></html>\n' > "$T/srv/www/index.html"
+cat > "$T/srv/cgi/api.sh" <<'EOF'
+#!/bin/sh
+printf 'Content-Type: application/json\r\n\r\n'
+printf '{"executed":true,"script_name":"%s","path_info":"%s"}\n' "$SCRIPT_NAME" "$PATH_INFO"
+EOF
+chmod 644 "$T/srv/cgi/api.sh"
+for _d in auth actions platform; do
+    printf '#!/bin/sh\n# SECRET-SOURCE-MARKER-%s\n' "$_d" > "$T/srv/cgi/$_d.sh"
+    chmod 644 "$T/srv/cgi/$_d.sh"
+done
+# live-конфиг из шаблона под фикстуру: свой docroot уже есть ($T/root/www
+# с index? нет — кладём маркер и туда), bind/порт/логи/pid — локальные,
+# alias-цель — фикстурный cgi-каталог.
+printf '<html><head><title>Z2K-WEBPANEL-FIXTURE</title></head><body>hi</body></html>\n' > "$T/root/www/index.html"
+sed -e 's|^server.bind .*|server.bind = "127.0.0.1"|' \
+    -e "s|^server.port .*|server.port = 18080|" \
+    -e "s|/tmp/z2k/logs/z2k-webpanel-error.log|$T/httplog/error.log|" \
+    -e "s|/var/run/z2k-webpanel.pid|$T/httplog/pid|" \
+    -e "s|/usr/lib/z2k/webpanel/cgi/|$T/srv/cgi/|" \
+    "$_out" > "$T/live.conf"
+_http_get() {
+    # $1 port $2 path -> тело в http-body.txt; rc=0 только при HTTP 200
+    _code="$(curl -s -o "$T/http-body.txt" -w '%{http_code}' --max-time 10 "http://127.0.0.1:$1$2" 2>/dev/null)" || return 1
+    [ "$_code" = "200" ]
+}
+_srv_start() {
+    # $1 conf $2 port; rc=0 если static-маркер отвечает (до 3 попыток —
+    # медленные раннеры стартуют lighttpd дольше секунды).
+    lighttpd -D -f "$1" >/dev/null 2>&1 &
+    _srvpid=$!
+    _try=0
+    while [ "$_try" -lt 3 ]; do
+        sleep 1
+        if _http_get "$2" "/" && grep -q "Z2K-WEBPANEL-FIXTURE" "$T/http-body.txt" 2>/dev/null; then
+            return 0
+        fi
+        _try=$((_try + 1))
+    done
+    kill "$_srvpid" 2>/dev/null
+    return 1
+}
+_srv_stop() {
+    kill "$_srvpid" 2>/dev/null
+    sleep 1
+    kill -9 "$_srvpid" 2>/dev/null
+    if kill -0 "$_srvpid" 2>/dev/null; then
+        _t_bad "lighttpd не остановился"
+    else
+        _t_ok
+    fi
+}
+trap 'kill ${_srvpid:-} 2>/dev/null; rm -rf "$T"' EXIT INT TERM
+if ! _srv_start "$T/live.conf" 18080; then
+    _t_bad "live lighttpd не встал (лог: $(tail -5 "$T/httplog/error.log" 2>/dev/null | tr '\n' '|'))"
+else
+    # 1-2. endpoint'ы исполняют mock (0644!): JSON бывает только из выполнения
+    # (файла /cgi-bin/api на диске нет — статике отдать нечего).
+    if _http_get 18080 "/cgi-bin/api" && grep -q '"executed":true' "$T/http-body.txt" \
+        && grep -q 'cgi-bin/api' "$T/http-body.txt"; then _t_ok
+    else _t_bad "GET /cgi-bin/api не исполнил mock"; fi
+    if _http_get 18080 "/cgi-bin/api/status" && grep -q '"path_info":"/status"' "$T/http-body.txt"; then _t_ok
+    else _t_bad "GET /cgi-bin/api/status без PATH_INFO=/status"; fi
+    # 3. исходники НЕ светятся: прямые .sh — 404 без маркеров.
+    for _d in api auth actions platform; do
+        if curl -s -o "$T/http-body.txt" -w '%{http_code}' --max-time 10 \
+                "http://127.0.0.1:18080/cgi-bin/$_d.sh" 2>/dev/null | grep -q '^404$' \
+            && ! grep -q "SECRET-SOURCE-MARKER" "$T/http-body.txt" 2>/dev/null; then _t_ok
+        else _t_bad "source disclosure: /cgi-bin/$_d.sh"; fi
+    done
+    _srv_stop
+fi
+# 4. Негативный контроль: СТАРЫЙ directory-alias в той же фикстуре обязан
+# ПРОВАЛИТЬ routing-тест (иначе тест не отличит фикс от бага: на живом
+# роутере старый alias давал 404 на endpoint'ах + 200 с исходниками).
+sed -e 's|"/cgi-bin/api" =>.*|"/cgi-bin/" => "'"$T"'/srv/cgi/"|' \
+    "$T/live.conf" > "$T/live-bad.conf"
+sed -i 's|^server.port .*|server.port = 18081|' "$T/live-bad.conf"
+if ! _srv_start "$T/live-bad.conf" 18081; then
+    _t_bad "negative-конфиг не встал (ожидался живой сервер с битым роутингом)"
+else
+    if _http_get 18081 "/cgi-bin/api/status" && grep -q '"path_info":"/status"' "$T/http-body.txt" 2>/dev/null; then
+        _t_bad "старый directory-alias тоже роутит API (тест не отличает фикс)"
+    else
+        _t_ok
+    fi
+    if curl -s --max-time 10 "http://127.0.0.1:18081/cgi-bin/api.sh" 2>/dev/null | grep -q "SECRET-SOURCE-MARKER"; then
+        _t_ok
+    else
+        _t_bad "negative-фикстура не воспроизводит source disclosure"
+    fi
+    _srv_stop
+fi
+_srvpid=""
 _t_done
