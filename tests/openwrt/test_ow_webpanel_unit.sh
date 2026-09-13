@@ -30,9 +30,32 @@ export WP_TEMPLATE="$T/tpl.conf" WP_PORT_DEFAULT=8088
 cp "$REPO/webpanel/lighttpd.conf" "$T/tpl.conf"
 
 # --- lan: IPv4 из uci, имя сети — отказ (lighttpd bind="lan" не стартует) ---
+# NOTE: MOCK_* обязаны быть export'ed: uci-stub — внешний процесс, через
+# subshell $(...) до него доходят только экспортированные переменные
+# (shell-функции видят и неэкспортные — в этом разница с прямым вызовом).
 assert_eq "lan из uci" "192.168.7.1" "$(wp_lan_ip)"
-MOCK_LAN_IP="lan" wp_lan_ip >/dev/null 2>&1 && _t_bad "lan: имя принято" || _t_ok
-MOCK_LAN_ABSENT=1 wp_lan_ip >/dev/null 2>&1 && _t_bad "lan: без uci принят" || _t_ok
+# CIDR-суффикс uci с живого роутера (Stage 8 live-дефект) — снимается.
+# IP специально НЕ дефолтный: иначе тест зелёный и без strip (вакцина).
+export MOCK_LAN_IP="10.20.30.40/24"
+assert_eq "lan CIDR strip" "10.20.30.40" "$(wp_lan_ip)"
+export MOCK_LAN_IP="lan"
+wp_lan_ip >/dev/null 2>&1 && _t_bad "lan: имя принято" || _t_ok
+export MOCK_LAN_IP="192.168.7.999/24"
+wp_lan_ip >/dev/null 2>&1 && _t_bad "lan: октет 999 принят" || _t_ok
+unset MOCK_LAN_IP
+export MOCK_LAN_ABSENT=1
+wp_lan_ip >/dev/null 2>&1 && _t_bad "lan: без uci принят" || _t_ok
+unset MOCK_LAN_ABSENT
+# fallback-seam: uci нет в PATH, явный путь через WP_UCI_BIN (как /sbin/uci
+# в урезанном postinst-PATH; фикстура вместо настоящего /sbin, host PATH
+# не задействован).
+mkdir -p "$T/fake-sbin"
+cat > "$T/fake-sbin/uci" <<'EOF'
+#!/bin/sh
+[ "$1 $2 $3" = "-q get network.lan.ipaddr" ] && printf '10.11.12.13/24'
+EOF
+chmod +x "$T/fake-sbin/uci"
+assert_eq "lan fallback-seam" "10.11.12.13" "$(PATH="/usr/bin:/bin" WP_UCI_BIN="$T/fake-sbin/uci" wp_lan_ip)"
 
 # --- render: настройки только если отсутствуют (WP2/WP3) ---
 _out="$(wp_panel_render)" || _t_bad "render rc"
