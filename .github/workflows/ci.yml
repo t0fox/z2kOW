@@ -910,6 +910,8 @@ jobs:
           test -x "$apkbin"
           "$apkbin" --version
           mkdir -p "$RUNNER_TEMP/approot/etc/apk/keys" "$RUNNER_TEMP/approot/etc/apk/repositories.d"
+          # apk v3 без lib/apk/db умирает "Unable to lock database" (поймано CI).
+          mkdir -p "$RUNNER_TEMP/approot/lib/apk/db" "$RUNNER_TEMP/approot/tmp"
           printf '%s\n' "file://$RUNNER_TEMP/dist" > "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
           "$apkbin" --root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted update
           "$apkbin" --root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted search z2k-adapter | grep -q z2k-adapter
