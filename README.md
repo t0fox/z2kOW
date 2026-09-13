@@ -538,6 +538,18 @@ Z2K_AU_MANUAL=1 /usr/lib/z2k/platform/openwrt/update.sh apply
 
 Ручной apply не ждёт nightly jitter.
 
+## Подпись обновлений
+
+Манифест обновлений подписывается, роутер проверяет подпись перед применением. Приватного ключа в репозитории нет.
+
+Публичный ключ едет вместе с установкой (`files/etc/z2k-update-pub.pem`). Его отпечаток:
+
+```
+1041720fa0dff53e2babbf547a705c2f43c30bca2c6ca2ddf7144cfe3b470a01
+```
+
+Если ключ придётся сменить, установка покажет отпечаток нового ключа — сверьте с этим. Не совпал — не подтверждайте.
+
 ## APK update
 
 Если меняется сам OpenWrt adapter:
@@ -819,6 +831,31 @@ sh scripts/openwrt/gen-openwrt-manifest.sh ...
 ```
 
 ---
+
+## Огромная благодарность спонсорам проекта
+
+- **SupWgeneral**
+- **Alexey**
+- **Jet_sk_ya**
+- **Suharik39**
+- **ZyaK<-**
+- **Алексей Стрельцов**
+- **Diman86RUS**
+- **Alex**
+- **GRM**
+- **Dez**
+- **hoaxx**
+- **Mansurchick**
+- **Dkarloff - SEO отец**
+- **KIBERPANK**
+- **olmer2002**
+- **TiaMax**
+- **Denis**
+- **Mega Man**
+- **TheGreatYogo**
+- **logistik77**
+- **b11d11**
+- **BloodKnife39**
 
 # Документация
 
