@@ -63,7 +63,14 @@ note "package version: $PKG_VERSION-$PKG_RELEASE"
 # --- 1. clean tree (R2) -------------------------------------------------------
 # Сравнение — контентное (--ignore-cr-at-eol): stat-кэш dual-git окружения
 # даёт фантомную грязь, CRLF-шум — не грязь. Настоящую грязь ловит diff.
-if ! git -C "$ROOT" diff --ignore-cr-at-eol --quiet 2>/dev/null; then
+# Плюс untracked-мусор: `git diff` его не видит вовсе, а Makefile-глобы
+# (platform/openwrt/*.sh) упаковали бы его молча — R2-тест держит обе ветки.
+_tree_dirty() {
+    git -C "$ROOT" diff --ignore-cr-at-eol --quiet 2>/dev/null || return 0
+    git -C "$ROOT" status --porcelain -uall 2>/dev/null | grep -q '^??' && return 0
+    return 1
+}
+if _tree_dirty; then
     if [ "$DEV" = "1" ]; then
         note "ВНИМАНИЕ: грязное дерево, продолжаю только как --dev"
     else

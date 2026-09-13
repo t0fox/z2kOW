@@ -8,10 +8,13 @@
 _t_plan "ow-release-build"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-rbuild.XXXXXX")" || exit 1
-trap 'rm -rf "$T"' EXIT INT TERM
+# restore ADAPTER_API тоже в trap: kill между append и возвратом иначе
+# оставил бы грязное дерево (R2 tracked-ветка ниже).
+trap 'cp -f "$T/adapter-api.orig" "$REPO/package/openwrt/ADAPTER_API" 2>/dev/null; rm -rf "$T"' EXIT INT TERM
 BUILD="$REPO/scripts/openwrt/build-release.sh"
 
-# --- R2: dirty tree -> production-отказ (детерминированно: временный мусор) ---
+# --- R2: dirty tree -> production-отказ (детерминированно, быстро) ---
+# Ветка 1: untracked-мусор (git diff его НЕ видит — ловит ??-ветка гейта).
 printf 'stage7-dirty-probe\n' > "$REPO/.stage7-dirty-probe"
 _out="$(sh "$BUILD" --sdk "$T/no-sdk" --target mediatek/filogic --arch aarch64_cortex-a53 \
     --manifest "$REPO/UPDATES.json" --out "$T/dist" 2>&1)"
@@ -22,6 +25,24 @@ case "$_out" in
     *"грязн"*) _t_ok ;;
     *) _t_bad "R2: отказ без слова про грязное дерево" ;;
 esac
+# Ветка 2: tracked-правка (ловит diff-ветка). Файл сохраняем и возвращаем
+# побайтово: гейт обязан сработать, дерево — остаться нетронутым.
+cp -f "$REPO/package/openwrt/ADAPTER_API" "$T/adapter-api.orig" || exit 1
+printf '# stage7-dirty-probe\n' >> "$REPO/package/openwrt/ADAPTER_API"
+_out="$(sh "$BUILD" --sdk "$T/no-sdk" --target mediatek/filogic --arch aarch64_cortex-a53 \
+    --manifest "$REPO/UPDATES.json" --out "$T/dist" 2>&1)"
+_rc=$?
+cp -f "$T/adapter-api.orig" "$REPO/package/openwrt/ADAPTER_API"
+assert_eq "R2 tracked rc" "1" "$_rc"
+case "$_out" in
+    *"грязн"*) _t_ok ;;
+    *) _t_bad "R2 tracked: отказ без слова про грязное дерево" ;;
+esac
+if cmp -s "$T/adapter-api.orig" "$REPO/package/openwrt/ADAPTER_API"; then
+    _t_ok
+else
+    _t_bad "R2 tracked: файл не возвращён побайтово"
+fi
 # --dev проходит МИМО dirty-гейта дальше (до следующего гейта, не в прод)
 _out="$(sh "$BUILD" --dev --skip-tests --sdk "$T/no-sdk" --target mediatek/filogic \
     --arch aarch64_cortex-a53 --manifest "$REPO/UPDATES.json" --out "$T/dist" 2>&1)"
