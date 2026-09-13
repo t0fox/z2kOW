@@ -121,15 +121,20 @@ case "$SEED_REF" in
 esac
 git -C "$ROOT" cat-file -e "${SEED_REF}^{commit}" 2>/dev/null \
     || die "seed.ref $SEED_REF нет локально"
-# remote-resolvable (§49): без сети — отказ, кроме --dev с честной пометкой.
+# remote-resolvable (§49): ref обязан быть скачиваемым с origin (достижим
+# из origin-треков свежего полного клона — CI чекаут именно такой). ВАЖНО:
+# `git ls-remote origin <sha>` здесь НЕ работает в принципе — его паттерн
+# матчит только REF-имена, sha не совпадёт никогда, гейт был бы всегда красным
+# (поймано реальным CI-раном). Без сети — отказ, кроме --dev с честной пометкой.
 VERIFIED_REMOTE="false"
-if git ls-remote origin "$SEED_REF" 2>/dev/null | grep -q .; then
+_remote_hit="$(git -C "$ROOT" branch -r --contains "$SEED_REF" 2>/dev/null | head -1 | tr -d '[:space:]')"
+if [ -n "$_remote_hit" ]; then
     VERIFIED_REMOTE="true"
-    note "seed.ref существует на origin"
+    note "seed.ref достижим с origin ($_remote_hit)"
 elif [ "$DEV" = "1" ]; then
     note "ВНИМАНИЕ: remote-проверка ref невозможна (--dev, verified_remote=false)"
 else
-    die "seed.ref $SEED_REF не виден на origin (ls-remote пуст) — immutable ref обязан скачиваться после релиза (§49)"
+    die "seed.ref $SEED_REF не достижим ни с одного origin-трека — запушьте ветку: immutable ref обязан скачиваться после релиза (§49)"
 fi
 # API-окно seed <= packaged API (§47 coherence).
 ADAPTER_API="$(grep -E '^[[:space:]]*[0-9]+[[:space:]]*$' "$ROOT/package/openwrt/ADAPTER_API" 2>/dev/null | tr -d '[:space:]')"
