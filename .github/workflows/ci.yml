@@ -912,6 +912,10 @@ jobs:
       #     postinst покрыта ow-seed/lc функционально.
       #   - раннер не root: создание DB только через --usermode (подсказал
       #     сам apk: "Use --usermode to allow creating database as non-root").
+      #   - корень ЧУЖОЙ арки (aarch64 на x86_64-хосте): без явного arch ВСЕ
+      #     пакеты uniformly uninstallable (доказано логом: arch везде
+      #     aarch64_cortex-a53, хост x86_64, /etc/apk/arch пуст). apk берёт
+      #     arch из флага, файла /etc/apk/arch или uname — задаём оба.
       - name: Feed resolution in isolated root (SDK apk)
         run: |
           set -eu -o pipefail
@@ -955,7 +959,8 @@ jobs:
             echo "$DL/targets/$TGT/kmods/$KABI/packages.adb"
           } > "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
           cat "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
-          APKROOT=(--root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted --usermode)
+          printf '%s\n' "aarch64_cortex-a53" > "$RUNNER_TEMP/approot/etc/apk/arch"
+          APKROOT=(--root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted --usermode --arch aarch64_cortex-a53)
           "$apkbin" "${APKROOT[@]}" --initdb --no-scripts add z2k-adapter z2k-webpanel
           "$apkbin" "${APKROOT[@]}" search z2k-adapter | grep -q z2k-adapter
           "$apkbin" "${APKROOT[@]}" search z2k-webpanel | grep -q z2k-webpanel
