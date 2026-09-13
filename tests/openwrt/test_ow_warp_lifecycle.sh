@@ -571,7 +571,7 @@ assert_contains "W19b: OLD src залит" "$T/nft-set-z2k_warp_src4" "192.168.6
 printf '7.7.9.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
 printf '192.168.6.7\n' > "$T/etc/user-lists/warp/devices.txt"
 printf '192.168.6.7 dev br-lan lladdr aa:bb:cc:dd:ee:02 REACHABLE\n' > "$T/neigh"
-export NFT_BATCH_FAIL="add element inet zapret z2k_warp_src4"
+export NFT_BATCH_FAIL="add element inet zapret2 z2k_warp_src4"
 if warp_nft_sets_load >/dev/null 2>&1; then
     _t_bad "W19b: batch failure принят"
 else

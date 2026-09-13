@@ -463,7 +463,7 @@ _reset
 z2k_ow_rt 1 >/dev/null 2>&1
 : > "$T/nft.log"
 z2k_ow_rt 0 >/dev/null 2>&1
-assert_contains "RT28: v6-fwd chain снят" "$T/nft.log" 'delete chain inet zapret z2k_rt_flt6_fwd'
-assert_contains "RT28: v6-out chain снят" "$T/nft.log" 'delete chain inet zapret z2k_rt_flt6_out'
+assert_contains "RT28: v6-fwd chain снят" "$T/nft.log" 'delete chain inet zapret2 z2k_rt_flt6_fwd'
+assert_contains "RT28: v6-out chain снят" "$T/nft.log" 'delete chain inet zapret2 z2k_rt_flt6_out'
 
 _t_done

@@ -68,25 +68,25 @@ chmod +x "$T/root/bin/tg-mtproxy-client"
 # --- nft apply: точные shapes ---
 : > "$T/nft.log"
 z2k_ow_tg_nft_apply || _t_bad "nft_apply rc"
-assert_contains "set dc4 создан" "$T/nft.log" 'add set inet zapret z2k_tg_dc4 { type ipv4_addr; flags interval; }'
-assert_contains "set dc6 создан" "$T/nft.log" 'add set inet zapret z2k_tg_dc6 { type ipv6_addr; flags interval; }'
-assert_contains "set cdn создан" "$T/nft.log" 'add set inet zapret z2k_tg_cdn4 { type ipv4_addr; flags interval; }'
-assert_contains "dc4 элементы" "$T/nft.log" 'add element inet zapret z2k_tg_dc4 { 149.154.160.0/20, 91.108.4.0/22, 91.108.8.0/22, 91.108.12.0/22, 91.108.16.0/22, 91.108.20.0/22, 91.108.56.0/22, 91.105.192.0/23, 95.161.64.0/20, 185.76.151.0/24 }'
-assert_contains "dc6 элементы" "$T/nft.log" 'add element inet zapret z2k_tg_dc6 { 2001:67c:4e8::/48, 2001:b28:f23c::/47, 2001:b28:f23f::/48, 2a0a:f280:203::/48 }'
-assert_contains "cdn элемент" "$T/nft.log" 'add element inet zapret z2k_tg_cdn4 { 168.119.95.238/32 }'
-assert_contains "chain prerouting" "$T/nft.log" 'add chain inet zapret z2k_tg_dst_pre { type nat hook prerouting priority -101; }'
-assert_contains "chain output nat" "$T/nft.log" 'add chain inet zapret z2k_tg_dst_out { type nat hook output priority -101; }'
-assert_contains "chain forward" "$T/nft.log" 'add chain inet zapret z2k_tg_flt_fwd { type filter hook forward priority -1; }'
-assert_contains "chain output filter" "$T/nft.log" 'add chain inet zapret z2k_tg_flt_out { type filter hook output priority -1; }'
-assert_contains "chain input guard" "$T/nft.log" 'add chain inet zapret z2k_tg_flt_in { type filter hook input priority -1; }'
-assert_contains "redirect 443 pre" "$T/nft.log" 'add rule inet zapret z2k_tg_dst_pre tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443'
-assert_contains "redirect 443 out" "$T/nft.log" 'add rule inet zapret z2k_tg_dst_out tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443'
-assert_contains "redirect 80 pre" "$T/nft.log" 'add rule inet zapret z2k_tg_dst_pre tcp dport 80 ip daddr @z2k_tg_cdn4 redirect to :1444'
-assert_contains "redirect 80 out" "$T/nft.log" 'add rule inet zapret z2k_tg_dst_out tcp dport 80 ip daddr @z2k_tg_cdn4 redirect to :1444'
-assert_contains "v6 reject fwd" "$T/nft.log" 'add rule inet zapret z2k_tg_flt_fwd tcp ip6 daddr @z2k_tg_dc6 reject with tcp reset'
-assert_contains "v6 reject out" "$T/nft.log" 'add rule inet zapret z2k_tg_flt_out tcp ip6 daddr @z2k_tg_dc6 reject with tcp reset'
-assert_contains "guard accept scoped" "$T/nft.log" 'add rule inet zapret z2k_tg_flt_in tcp dport { 1443, 1444 } ct status dnat accept'
-assert_contains "guard drop" "$T/nft.log" 'add rule inet zapret z2k_tg_flt_in tcp dport { 1443, 1444 } drop'
+assert_contains "set dc4 создан" "$T/nft.log" 'add set inet zapret2 z2k_tg_dc4 { type ipv4_addr; flags interval; }'
+assert_contains "set dc6 создан" "$T/nft.log" 'add set inet zapret2 z2k_tg_dc6 { type ipv6_addr; flags interval; }'
+assert_contains "set cdn создан" "$T/nft.log" 'add set inet zapret2 z2k_tg_cdn4 { type ipv4_addr; flags interval; }'
+assert_contains "dc4 элементы" "$T/nft.log" 'add element inet zapret2 z2k_tg_dc4 { 149.154.160.0/20, 91.108.4.0/22, 91.108.8.0/22, 91.108.12.0/22, 91.108.16.0/22, 91.108.20.0/22, 91.108.56.0/22, 91.105.192.0/23, 95.161.64.0/20, 185.76.151.0/24 }'
+assert_contains "dc6 элементы" "$T/nft.log" 'add element inet zapret2 z2k_tg_dc6 { 2001:67c:4e8::/48, 2001:b28:f23c::/47, 2001:b28:f23f::/48, 2a0a:f280:203::/48 }'
+assert_contains "cdn элемент" "$T/nft.log" 'add element inet zapret2 z2k_tg_cdn4 { 168.119.95.238/32 }'
+assert_contains "chain prerouting" "$T/nft.log" 'add chain inet zapret2 z2k_tg_dst_pre { type nat hook prerouting priority -101; }'
+assert_contains "chain output nat" "$T/nft.log" 'add chain inet zapret2 z2k_tg_dst_out { type nat hook output priority -101; }'
+assert_contains "chain forward" "$T/nft.log" 'add chain inet zapret2 z2k_tg_flt_fwd { type filter hook forward priority -1; }'
+assert_contains "chain output filter" "$T/nft.log" 'add chain inet zapret2 z2k_tg_flt_out { type filter hook output priority -1; }'
+assert_contains "chain input guard" "$T/nft.log" 'add chain inet zapret2 z2k_tg_flt_in { type filter hook input priority -1; }'
+assert_contains "redirect 443 pre" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_pre tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443'
+assert_contains "redirect 443 out" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_out tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443'
+assert_contains "redirect 80 pre" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_pre tcp dport 80 ip daddr @z2k_tg_cdn4 redirect to :1444'
+assert_contains "redirect 80 out" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_out tcp dport 80 ip daddr @z2k_tg_cdn4 redirect to :1444'
+assert_contains "v6 reject fwd" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_fwd tcp ip6 daddr @z2k_tg_dc6 reject with tcp reset'
+assert_contains "v6 reject out" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_out tcp ip6 daddr @z2k_tg_dc6 reject with tcp reset'
+assert_contains "guard accept scoped" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_in tcp dport { 1443, 1444 } ct status dnat accept'
+assert_contains "guard drop" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_in tcp dport { 1443, 1444 } drop'
 # порядок в chain: accept СТРОГО до drop (иначе редиректнутые тоже режем)
 _accept_ln="$(grep -n 'z2k_tg_flt_in tcp dport { 1443, 1444 } ct status dnat accept' "$T/nft.log" | head -1 | cut -d: -f1)"
 _drop_ln="$(grep -n 'z2k_tg_flt_in tcp dport { 1443, 1444 } drop' "$T/nft.log" | head -1 | cut -d: -f1)"
@@ -130,9 +130,9 @@ rm -f "$T/no-table"
 # --- remove: chains да (5), sets нет; cleanup full: и sets ---
 : > "$T/nft.log"
 z2k_ow_tg_nft_remove
-assert_contains "flush pre" "$T/nft.log" 'flush chain inet zapret z2k_tg_dst_pre'
-assert_contains "delete fwd" "$T/nft.log" 'delete chain inet zapret z2k_tg_flt_fwd'
-assert_contains "delete input guard" "$T/nft.log" 'delete chain inet zapret z2k_tg_flt_in'
+assert_contains "flush pre" "$T/nft.log" 'flush chain inet zapret2 z2k_tg_dst_pre'
+assert_contains "delete fwd" "$T/nft.log" 'delete chain inet zapret2 z2k_tg_flt_fwd'
+assert_contains "delete input guard" "$T/nft.log" 'delete chain inet zapret2 z2k_tg_flt_in'
 assert_eq "remove: chains сняты (5 delete)" "5" "$(grep -c '^nft:delete chain' "$T/nft.log")"
 if grep -E '^nft:delete set' "$T/nft.log" >/dev/null 2>&1; then
     _t_bad "обычный remove снёс sets"
@@ -141,9 +141,9 @@ else
 fi
 : > "$T/nft.log"
 z2k_ow_tg_nft_remove full
-assert_contains "full сносит set dc4" "$T/nft.log" 'delete set inet zapret z2k_tg_dc4'
-assert_contains "full сносит set dc6" "$T/nft.log" 'delete set inet zapret z2k_tg_dc6'
-assert_contains "full сносит set cdn" "$T/nft.log" 'delete set inet zapret z2k_tg_cdn4'
+assert_contains "full сносит set dc4" "$T/nft.log" 'delete set inet zapret2 z2k_tg_dc4'
+assert_contains "full сносит set dc6" "$T/nft.log" 'delete set inet zapret2 z2k_tg_dc6'
+assert_contains "full сносит set cdn" "$T/nft.log" 'delete set inet zapret2 z2k_tg_cdn4'
 
 # --- conntrack: ровно TG CIDR + CDN, ничего больше ---
 : > "$T/conntrack.log"

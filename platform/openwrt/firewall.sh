@@ -5,7 +5,7 @@
 #   процесс nfqws2 ............ z2k procd-сервис (init.d/z2k). Причина: OPT_BASE
 #     stock zapret2-init жёстко зашит в скрипте без z2k lua-init/--blob/
 #     --bind-fix — через конфиг не инжектится, делегировать нечего.
-#   nft-таблица zapret ....... zapret2 runtime (zapret_apply_firewall/remove).
+#   nft-таблица zapret2 ...... zapret2 runtime (zapret_apply_firewall/remove).
 #   lan/wan ifsets ........... zapret2 runtime (reload_ifsets по hotplug).
 #   QNUM/marks/ports ......... ОБЩИЕ: лежат в /etc/z2k/config, демон и firewall
 #     читают один файл (тест сверяет равенство).

@@ -40,8 +40,9 @@ Z2K_RT_DOMAINS="${Z2K_RT_DOMAINS:-rutracker.org rutracker.wiki api.rutracker.cc 
 Z2K_RT_DOMAINS_LEGACY="${Z2K_RT_DOMAINS_LEGACY:-www.rutracker.org rutracker.cc}"
 
 # --- nft (свои chains в ЧУЖОЙ runtime-таблице; таблицу не создаём) ---
+# Дефолт таблицы — как у TG (см. tg.sh): дефолт pinned runtime.
 Z2K_RT_NFT_FAMILY="${Z2K_RT_NFT_FAMILY:-inet}"
-Z2K_RT_NFT_TABLE="${Z2K_RT_NFT_TABLE:-zapret}"
+Z2K_RT_NFT_TABLE="${Z2K_RT_NFT_TABLE:-zapret2}"
 Z2K_RT_CHAIN_PRE="${Z2K_RT_CHAIN_PRE:-z2k_rt_dst_pre}"
 Z2K_RT_CHAIN_OUT="${Z2K_RT_CHAIN_OUT:-z2k_rt_dst_out}"
 Z2K_RT_CHAIN_IN="${Z2K_RT_CHAIN_IN:-z2k_rt_flt_in}"

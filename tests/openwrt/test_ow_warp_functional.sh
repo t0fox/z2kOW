@@ -225,7 +225,7 @@ fi
 printf '1.2.3.4\n10.0.0.5\n' > "$T/etc/user-lists/warp/mine.txt"
 : > "$T/nft.log"
 warp_nft_sets_load || _t_bad "sets load rc"
-assert_contains "dst element 1.2.3.4" "$T/nft.log" 'add element inet zapret z2k_warp_dst4 { 1.2.3.4'
+assert_contains "dst element 1.2.3.4" "$T/nft.log" 'add element inet zapret2 z2k_warp_dst4 { 1.2.3.4'
 assert_contains "dst element из game" "$T/nft.log" '5.5.5.5'
 if grep -q '10.0.0.5' "$T/nft.log"; then _t_bad "приват уехал в set"; else _t_ok; fi
 if grep -q '999.1.1.1' "$T/nft.log"; then _t_bad "битый IP уехал в set"; else _t_ok; fi

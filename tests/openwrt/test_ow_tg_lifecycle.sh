@@ -186,7 +186,7 @@ z2k_ow_tg check >/dev/null 2>&1
 printf 'ENABLED=1\nTG_PROXY_USER_DISABLED=1\n' > "$T/etc/config"
 z2k_ow_tg check
 assert_contains "TG15: процесс добит" "$T/kill.log" "kill:4242"
-assert_contains "TG15: chains сняты" "$T/nft.log" "delete chain inet zapret z2k_tg_dst_pre"
+assert_contains "TG15: chains сняты" "$T/nft.log" "delete chain inet zapret2 z2k_tg_dst_pre"
 # процесс умер (симулируем смерть для pidof), повтор тих и не воскрешает:
 printf '\n' > "$T/pidof.out"
 : > "$T/kill.log"; : > "$T/nft.log"
@@ -232,9 +232,9 @@ _reset
 z2k_ow_tg rules >/dev/null 2>&1
 : > "$T/nft.log"
 z2k_ow_tg 0
-assert_contains "TG22: stop сносит guard chain" "$T/nft.log" 'delete chain inet zapret z2k_tg_flt_in'
+assert_contains "TG22: stop сносит guard chain" "$T/nft.log" 'delete chain inet zapret2 z2k_tg_flt_in'
 : > "$T/nft.log"
 z2k_ow_tg cleanup
-assert_contains "TG22: cleanup сносит guard chain" "$T/nft.log" 'delete chain inet zapret z2k_tg_flt_in'
+assert_contains "TG22: cleanup сносит guard chain" "$T/nft.log" 'delete chain inet zapret2 z2k_tg_flt_in'
 
 _t_done

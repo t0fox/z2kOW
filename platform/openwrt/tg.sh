@@ -27,8 +27,11 @@ Z2K_TG_PROBE_URL="${Z2K_TG_PROBE_URL:-https://core.telegram.org/}"
 Z2K_TG_PROBE_RESOLVE_IP="${Z2K_TG_PROBE_RESOLVE_IP:-149.154.167.99}"
 
 # --- nft-имена (свои sets/chains в ЧУЖОЙ runtime-таблице; таблицу не создаём) ---
+# Дефолт таблицы = дефолт pinned zapret2 runtime (ZAPRET_NFT_TABLE=zapret2):
+# свои chains в чужой таблице, второго фреймворка нет (Stage 8 live-дефект:
+# дефолт zapret не совпадал с рантаймом — TG/RT/WARP валились fail-closed).
 Z2K_TG_NFT_FAMILY="${Z2K_TG_NFT_FAMILY:-inet}"
-Z2K_TG_NFT_TABLE="${Z2K_TG_NFT_TABLE:-zapret}"
+Z2K_TG_NFT_TABLE="${Z2K_TG_NFT_TABLE:-zapret2}"
 Z2K_TG_SET4="${Z2K_TG_SET4:-z2k_tg_dc4}"
 Z2K_TG_SET6="${Z2K_TG_SET6:-z2k_tg_dc6}"
 Z2K_TG_SETCDN="${Z2K_TG_SETCDN:-z2k_tg_cdn4}"

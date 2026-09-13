@@ -48,7 +48,8 @@ WARP_CHAIN_MSS="${WARP_CHAIN_MSS:-z2k_warp_mss}"
 WARP_CHAIN_FWD="${WARP_CHAIN_FWD:-z2k_warp_fwd}"
 WARP_CHAIN_NAT="${WARP_CHAIN_NAT:-z2k_warp_nat}"
 Z2K_WARP_NFT_FAMILY="${Z2K_WARP_NFT_FAMILY:-inet}"
-Z2K_WARP_NFT_TABLE="${Z2K_WARP_NFT_TABLE:-zapret}"
+# Дефолт таблицы — как у TG (см. tg.sh): дефолт pinned runtime.
+Z2K_WARP_NFT_TABLE="${Z2K_WARP_NFT_TABLE:-zapret2}"
 # Релей для API/регистрации, если напрямую заблокирован (как S51/z2k-warp.sh;
 # дефолт продублирован — равенство трёх копий сторожит parity-тест).
 # Секрет релей НЕ логируем никогда (см. warp_register).
