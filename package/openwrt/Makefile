@@ -78,8 +78,12 @@ endef
 # класс user) — сохранять менеджеру там нечего.
 
 # Корень дерева z2k (in-tree layout: этот Makefile лежит в
-# <tree>/package/openwrt/). Seed собирается из него же.
-Z2K_TREE:=$(abspath $(dir $(lastword $(MAKEFILE_LIST)))../..)
+# <tree>/package/openwrt/). Через $(CURDIR), НЕ через MAKEFILE_LIST: SDK
+# инклудит Makefile относительным путём (через симлинк package/z2k), и
+# $(lastword $(MAKEFILE_LIST)) там относителен — abspath от него уводил в
+# /home/runner (поймано реальным CI-раном). CURDIR install-рецептов всегда
+# абсолютен и равен каталогу пакета (./files/... ниже на него опираются).
+Z2K_TREE:=$(abspath $(CURDIR)/../..)
 
 # ВНИМАНИЕ: пакет намеренно НЕ ставит lib/lua/fake/lists напрямую —
 # см. шапку и ownership.map. Источники ниже: adapter (package-owned),
