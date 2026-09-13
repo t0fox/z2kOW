@@ -26,10 +26,25 @@ wp_lan_ip() {
     # Только uci network.lan.ipaddr (канонический LAN IP; uci есть всегда).
     # НИКАКОГО ubus call здесь: static-guard запрещает platform-логику
     # через ubus в этом слое. Строгая IPv4-валидация: мусор — отказ.
-    local _ip=""
-    if command -v uci >/dev/null 2>&1; then
-        _ip="$(uci -q get network.lan.ipaddr 2>/dev/null)"
+    # CIDR-суффикс uci (192.168.1.1/24 на живом 25.12.5) снимаем ДО проверки
+    # (Stage 8 live-дефект: целиком CIDR валидацию не проходил).
+    # Имя сети ("lan") — отказ: lighttpd bind="lan" не стартует.
+    # WP_UCI_BIN — шов тестируемости (как WP_IP_BIN ниже): явный путь
+    # к uci-бинарнику; в проде не выставлен — работает авто-поиск.
+    local _ip="" _uci="${WP_UCI_BIN:-}"
+    if [ -z "$_uci" ]; then
+        if command -v uci >/dev/null 2>&1; then
+            _uci="uci"
+        elif [ -x /sbin/uci ]; then
+            # Урезанный PATH (postinst-контекст): явный системный путь.
+            _uci="/sbin/uci"
+        else
+            echo "нет uci для LAN-адреса" >&2
+            return 1
+        fi
     fi
+    _ip="$("$_uci" -q get network.lan.ipaddr 2>/dev/null)"
+    _ip="${_ip%%/*}"
     _wp_is_ipv4 "$_ip" || { echo "нет LAN IPv4-адреса для bind" >&2; return 1; }
     printf '%s' "$_ip"
 }
