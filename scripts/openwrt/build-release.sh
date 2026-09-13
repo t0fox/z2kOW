@@ -217,8 +217,26 @@ printf '%s\n' "$_found" > "$SEED_TMP/apks.txt"
 while IFS= read -r _a; do
     [ -n "$_a" ] || continue
     printf 'package from %s built %s\nmetadata:\n' "$_a" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$OUT/METADATA.txt"
-    _tarlist="$(tar -tzf "$_a" 2>/dev/null | LC_ALL=C sort)" \
-        || die "не читается tar-список $_a"
+    _tarlist=""
+    if tar -tzf "$_a" 2>/dev/null | LC_ALL=C sort >"$SEED_TMP/tarlist.txt"; then
+        _tarlist="$(cat "$SEED_TMP/tarlist.txt")"
+    else
+        # НЕ gzip-tar (pipefail нет — статус tar проверяем напрямую, иначе
+        # пустой листинг молча выдавался за "1 entry"). Диагностируем формат:
+        note "file $_a: $(file -b "$_a" 2>/dev/null || echo 'no file(1)')"
+        note "head(c): $(head -c 64 "$_a" 2>/dev/null | od -An -c | head -3 | tr '\n' '|')"
+        for _decomp in "zstd -dc" "xz -dc"; do
+            if $_decomp "$_a" 2>/dev/null | tar -t 2>/dev/null | LC_ALL=C sort >"$SEED_TMP/tarlist.txt"; then
+                note "apk inner compression: $_decomp"
+                _tarlist="$(cat "$SEED_TMP/tarlist.txt")"
+                break
+            fi
+        done
+        if command -v ar >/dev/null 2>&1 && ar t "$_a" >/dev/null 2>&1; then
+            note "apk is ar archive: $(ar t "$_a" 2>/dev/null | tr '\n' ' ')"
+        fi
+    fi
+    [ -n "$_tarlist" ] || die "не читается tar-список $_a (формат выше)"
     printf '%s\n' "$_tarlist" >> "$OUT/METADATA.txt"
     # Листинг — и в stdout: на первом реальном APK формат может отличаться
     # от ожидаемого (.PKGINFO-префикс и т.п.), слепой die недиагностируем.
