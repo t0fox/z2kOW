@@ -770,7 +770,9 @@ jobs:
       - name: Install host tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y zstd
+          # lighttpd — для настоящего `lighttpd -t` над сгенерённым конфигом
+          # панели (test_ow_webpanel_config.sh; без него — громкий SKIP).
+          sudo apt-get install -y zstd lighttpd
 
       # Cache-hit всё равно сверяет identity receipt (§7 closure):
       # каталогу из кеша без чека не доверяем.

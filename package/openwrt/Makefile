@@ -44,15 +44,17 @@ endef
 
 # Subpackage панели (§22 контракта): только optionality + init + зависимости.
 # CGI/www/template едут подписанным updater'ом (§23), НЕ пакетом — иначе
-# UI-правки требовали бы пересборки пакета. DEPENDS — только проверенное:
-# lighttpd обязателен; mod_cgi/mod_setenv валидируются на старте с громкой
-# ошибкой (имена mod-пакетов 25.12-фида подтвердить к Stage 7, не угадывать).
+# UI-правки требовали бы пересборки пакета. DEPENDS — только проверенное
+# по живому 25.12.5-фиду (Stage 8 live): lighttpd обязателен; mod_cgi и
+# mod_setenv — без них postinst/старт валятся; mod_alias — нужен alias.url
+# /cgi-bin/ -> webpanel/cgi (файла в document-root нет, симлинки updater
+# может снести — только декларативный маппинг).
 define Package/z2k-webpanel
   SECTION:=net
   CATEGORY:=Network
   TITLE:=z2k webpanel (optional lighttpd frontend over upstream CGI)
   URL:=https://github.com/necronicle/z2k
-  DEPENDS:=z2k-adapter +lighttpd
+  DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
 endef
 
 define Package/z2k-webpanel/description

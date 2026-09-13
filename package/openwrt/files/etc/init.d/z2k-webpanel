@@ -17,11 +17,15 @@ start_service() {
     local _cfg="" _port=""
     # Render transient config (настройки создаются, только если отсутствуют).
     _cfg="$(wp_panel_render)" || return 1
-    wp_panel_validate "$_cfg" >/dev/null 2>&1 || {
-        echo "z2k-webpanel: конфиг не валиден: $_cfg" >&2
-        echo "z2k-webpanel: нужен lighttpd с mod_cgi (и mod_setenv): доустановите модули" >&2
+    # Точную ошибку валидации — наружу, а не в /dev/null: немая "конфиг
+    # не валиден" стоила целого live-цикла диагностики (rc брать у команды,
+    # не у tail: out="$(cmd 2>&1)"; rc=$?).
+    _vout="$(wp_panel_validate "$_cfg" 2>&1)"; _vrc=$?
+    if [ "$_vrc" != "0" ]; then
+        printf '%s\n' "$_vout" >&2
+        echo "z2k-webpanel: конфиг не валиден: $_cfg (причина — в выводе lighttpd выше)" >&2
         return 1
-    }
+    fi
     _port="$(wp_panel_port)"
     # Чужой слушатель: FAIL LOUDLY (не kill, не reconfig). Свой — нормально.
     wp_port_free_or_ours "$_port" || {
@@ -42,4 +46,17 @@ start_service() {
         return 1
     }
     return 0
+}
+
+status() {
+    # Правдивый статус вместо procd-дефолта: pidfile + cmdline-match.
+    # "active with no instances" успехом НЕ считается (rc=1, "stopped").
+    # shellcheck disable=SC1090,SC1091
+    . "$Z2K_ROOT/platform/openwrt/webpanel.sh" 2>/dev/null || return 1
+    if wp_panel_running 2>/dev/null; then
+        echo "running"
+        return 0
+    fi
+    echo "stopped"
+    return 1
 }

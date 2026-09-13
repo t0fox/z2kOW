@@ -9,9 +9,11 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 # NOTE: сам guard-файл исключён из скана — он содержит эти строки как образцы.
 # test_ow_webpanel_static.sh исключён туда же: его 'ndmc' — проверяемый образец
 # (ban-паттерн Layer A для CGI), а не зависимость; исполняет запрет forbidden.
+# test_ow_webpanel_package.sh — тоже: его grep-паттерн цитирует запрещённые
+# строки как данные для assert'а отсутствия, а не использует их.
 _hits="$(grep -rEin 'ndmc|/opt/etc/ndm|kmod_ndms|entware|-j PPE|ipset-exclude.*PPE' \
     "$REPO/platform/openwrt" "$REPO/package/openwrt" "$REPO/tests/openwrt" \
-    | grep -v -e 'test_ow_forbidden\.sh' -e 'test_ow_webpanel_static\.sh' || true)"
+    | grep -v -e 'test_ow_forbidden\.sh' -e 'test_ow_webpanel_static\.sh' -e 'test_ow_webpanel_package\.sh' || true)"
 [ -z "$_hits" ] && _t_ok || _t_bad "Keenetic-зависимости: $_hits"
 
 # S99/keenetic/baggage — только в комментариях (атрибуция), не в коде.
@@ -64,7 +66,7 @@ done
 # запрет только на tr. NOTE: образцы ниже исключены из скана.
 _trbad="$(grep -rEn "tr +(-[cds]+ +)?'?\[:[a-z]+:\]" \
     "$REPO/platform" "$REPO/package" "$REPO/lib" "$REPO/scripts" "$REPO/files" \
-    "$REPO/vps" "$REPO/z2k.sh" "$REPO/z2k_cleanup.sh" "$REPO/tests" \
+    "$REPO/vps" "$REPO/webpanel" "$REPO/z2k.sh" "$REPO/z2k_cleanup.sh" "$REPO/tests" \
     2>/dev/null | grep -v 'test_ow_forbidden\.sh' || true)"
 [ -z "$_trbad" ] && _t_ok || _t_bad "busybox-unsafe tr-класс: $_trbad"
 

@@ -29,7 +29,7 @@ done
 for _t in tests/openwrt/test_ow_*.sh; do
     _out="$(sh "$_t" 2>&1)"
     _rc=$?
-    printf '%s\n' "$_out" | grep -E '^(SUITE|FAIL)' || true
+    printf '%s\n' "$_out" | grep -E '^(SUITE|FAIL|SKIP)' || true
     _n="$(printf '%s\n' "$_out" | sed -n 's/^SUITE\[.*\]: pass=\([0-9]*\) fail=.*/\1/p')"
     _f="$(printf '%s\n' "$_out" | sed -n 's/^SUITE\[.*\]: pass=[0-9]* fail=\([0-9]*\)/\1/p')"
     PASS=$((PASS + ${_n:-0}))

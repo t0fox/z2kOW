@@ -10,10 +10,18 @@ trap 'rm -rf "$T"' EXIT INT TERM
 mkdir -p "$T/root/platform/openwrt" "$T/etc/z2k/webpanel" "$T/tmp/z2k/runtime" "$T/bin"
 export PATH="$T/bin:$PATH"
 ln -s "$REPO/platform/openwrt/webpanel.sh" "$T/root/platform/openwrt/webpanel.sh" 2>/dev/null
-cat > "$T/root/platform/openwrt/uci.sh" <<'EOF'
+# uci-stub: только network.lan.ipaddr (остальное — пусто/rc!=0), как настоящий.
+cat > "$T/bin/uci" <<'EOF'
 #!/bin/sh
-z2k_ow_lan() { printf '%s' "${MOCK_LAN_IP:-192.168.7.1}"; }
+# stub: только network.lan.ipaddr (MOCK_LAN_ABSENT=1 — ключа нет).
+if [ "$1 $2 $3" = "-q get network.lan.ipaddr" ]; then
+    [ -n "${MOCK_LAN_ABSENT:-}" ] && exit 1
+    printf '%s' "${MOCK_LAN_IP:-192.168.7.1}"
+else
+    exit 1
+fi
 EOF
+chmod +x "$T/bin/uci"
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export WP_SETTINGS_DIR="$T/etc/z2k/webpanel" WP_RUN_DIR="$T/tmp/z2k/runtime/webpanel"
 export WP_TEMPLATE="$T/tpl.conf" WP_PORT_DEFAULT=8088
@@ -21,8 +29,10 @@ export WP_TEMPLATE="$T/tpl.conf" WP_PORT_DEFAULT=8088
 . "$T/root/platform/openwrt/webpanel.sh" || { echo "FAIL[ow-webpanel-unit]: source" >&2; exit 1; }
 cp "$REPO/webpanel/lighttpd.conf" "$T/tpl.conf"
 
-# --- lan: канонический примитив, без второго детектора ---
-assert_eq "lan из адаптера" "192.168.7.1" "$(wp_lan_ip)"
+# --- lan: IPv4 из uci, имя сети — отказ (lighttpd bind="lan" не стартует) ---
+assert_eq "lan из uci" "192.168.7.1" "$(wp_lan_ip)"
+MOCK_LAN_IP="lan" wp_lan_ip >/dev/null 2>&1 && _t_bad "lan: имя принято" || _t_ok
+MOCK_LAN_ABSENT=1 wp_lan_ip >/dev/null 2>&1 && _t_bad "lan: без uci принят" || _t_ok
 
 # --- render: настройки только если отсутствуют (WP2/WP3) ---
 _out="$(wp_panel_render)" || _t_bad "render rc"
@@ -47,6 +57,16 @@ assert_contains "render3: шаблон обновлён" "$_out3" '# v2'
 WP_TEMPLATE="$T/tpl-no-such-file.conf"
 if wp_panel_render >/dev/null 2>&1; then _t_bad "render: битый принят"; else _t_ok; fi
 WP_TEMPLATE="$T/tpl.conf"
+# render создаёт каталог errorlog (lighttpd без него не открывает лог):
+_out4="$(WP_LOG_DIR="$T/tmp/z2k-log" wp_panel_render)" || _t_bad "render4 rc"
+[ -d "$T/tmp/z2k-log" ] && _t_ok || _t_bad "render: лог-каталог не создан"
+# render маппит CGI декларативно (alias, без симлинков в document-root):
+assert_contains "render: cgi alias" "$_out4" '"/cgi-bin/" => "/usr/lib/z2k/webpanel/cgi/"'
+# мусор в bind (имя сети вместо IP — артефакт старого wp_lan_ip) -> громкий
+# отказ, а не конфиг с bind="lan", умирающий глубоко в lighttpd:
+printf 'lan\n' > "$T/etc/z2k/webpanel/bind"
+if WP_LOG_DIR="$T/tmp/z2k-log" wp_panel_render >/dev/null 2>&1; then _t_bad "render: мусорный bind принят"; else _t_ok; fi
+printf '10.9.9.9\n' > "$T/etc/z2k/webpanel/bind"
 
 # --- validate: mock lighttpd (коды как настоящий -tt) ---
 cat > "$T/bin/lighttpd" <<EOF

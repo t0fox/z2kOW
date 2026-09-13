@@ -5,14 +5,33 @@
 # реализаций — везде делегация замороженным адаптерам Stages 1-5.
 # Вызывается из webpanel/cgi/platform.sh (override-функции).
 
-# Канонический LAN (второго детектора нет): uci.sh из того же слоя.
+# Канонический LAN IPv4 для server.bind (НЕ имя сети!).
+# z2k_ow_lan отдаёт ИМЯ сети ("lan") для zapret2 OPENWRT_LAN — lighttpd
+# резолвить его не умеет, bind="lan" роняет старт (Stage 8 live-дефект).
+# Источники: uci network.lan.ipaddr, иначе ubus network.interface.lan.
+# Строгая IPv4-валидация: мусор — отказ, а не bind-куда-попало.
+_wp_is_ipv4() {
+    local _o="$1" _p="" _n=0
+    case "$_o" in ''|*[!0-9.]*) return 1 ;; esac
+    while [ -n "$_o" ]; do
+        _p="${_o%%.*}"
+        case "$_p" in ''|*[!0-9]*) return 1 ;; esac
+        [ "$_p" -le 255 ] 2>/dev/null || return 1
+        _n=$((_n + 1))
+        case "$_o" in *.*) _o="${_o#*.}" ;; *) _o="" ;; esac
+    done
+    [ "$_n" = "4" ]
+}
 wp_lan_ip() {
-    # shellcheck disable=SC1090,SC1091
-    if ! command -v z2k_ow_lan >/dev/null 2>&1; then
-        . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/uci.sh" 2>/dev/null || return 1
+    # Только uci network.lan.ipaddr (канонический LAN IP; uci есть всегда).
+    # НИКАКОГО ubus call здесь: static-guard запрещает platform-логику
+    # через ubus в этом слое. Строгая IPv4-валидация: мусор — отказ.
+    local _ip=""
+    if command -v uci >/dev/null 2>&1; then
+        _ip="$(uci -q get network.lan.ipaddr 2>/dev/null)"
     fi
-    command -v z2k_ow_lan >/dev/null 2>&1 || return 1
-    z2k_ow_lan 2>/dev/null
+    _wp_is_ipv4 "$_ip" || { echo "нет LAN IPv4-адреса для bind" >&2; return 1; }
+    printf '%s' "$_ip"
 }
 
 # Пути настроек панели (USER) и transient-конфига. Переопределимы тестам.
@@ -20,6 +39,9 @@ WP_SETTINGS_DIR="${WP_SETTINGS_DIR:-${Z2K_ETC:-/etc/z2k}/webpanel}"
 WP_RUN_DIR="${WP_RUN_DIR:-${Z2K_TMP:-/tmp/z2k}/runtime/webpanel}"
 WP_TEMPLATE="${WP_TEMPLATE:-${Z2K_ROOT:-/usr/lib/z2k}/webpanel/lighttpd.conf.in}"
 WP_PORT_DEFAULT="${WP_PORT_DEFAULT:-8088}"
+# Каталог errorlog lighttpd (из шаблона; tmpfs — пересоздавать при каждом
+# render, иначе lighttpd не открывает лог и старт валится).
+WP_LOG_DIR="${WP_LOG_DIR:-/tmp/z2k/logs}"
 
 # Порт панели из настроек (или дефолт). Для init-проверок.
 wp_panel_port() {
@@ -34,7 +56,7 @@ wp_panel_port() {
 # @PLATFORM_ENV@ подставляет Z2K_PLATFORM для CGI (тот же шаблон, §27).
 wp_panel_render() {
     local port="" bind="" bind6="" sock="" dst tmp
-    mkdir -p "$WP_SETTINGS_DIR" "$WP_RUN_DIR" 2>/dev/null || return 1
+    mkdir -p "$WP_SETTINGS_DIR" "$WP_RUN_DIR" "$WP_LOG_DIR" 2>/dev/null || return 1
     [ -f "$WP_TEMPLATE" ] || { echo "нет шаблона $WP_TEMPLATE" >&2; return 1; }
     port=$(cat "$WP_SETTINGS_DIR/port" 2>/dev/null | tr -dc '0-9')
     [ -n "$port" ] || port="$WP_PORT_DEFAULT"
@@ -42,6 +64,9 @@ wp_panel_render() {
     if [ -z "$bind" ]; then
         bind="$(wp_lan_ip)" || { echo "нет LAN-адреса для bind" >&2; return 1; }
     fi
+    # Fail fast: мусор в bind (имя сети вместо IP, опечатка) иначе умирает
+    # глубоко в lighttpd с невнятной ошибкой. Проверяем и из настроек.
+    _wp_is_ipv4 "$bind" || { echo "bind не IPv4-адрес: [$bind]" >&2; return 1; }
     # Сохраняем ТОЛЬКО отсутствующее (переустановка/обновление не сбрасывает).
     [ -f "$WP_SETTINGS_DIR/port" ] || printf '%s\n' "$port" > "$WP_SETTINGS_DIR/port"
     [ -f "$WP_SETTINGS_DIR/bind" ] || printf '%s\n' "$bind" > "$WP_SETTINGS_DIR/bind"
