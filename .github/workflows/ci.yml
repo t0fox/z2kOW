@@ -761,7 +761,7 @@ jobs:
 
       - name: Restore SDK from cache
         id: sdk-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/openwrt-sdk-25.12.5-mediatek-filogic
           # Ключ содержит pin: смена SDK = другой ключ, старое не подхватится.
@@ -792,6 +792,17 @@ jobs:
           printf '%s  %s\n' '${{ steps.sdk.outputs.sha }}' sdk.tar.zst | sha256sum -c -
           tar --zstd -xf sdk.tar.zst -C ~/openwrt-sdk-25.12.5-mediatek-filogic --strip-components=1
           printf '%s\n' '${{ steps.sdk.outputs.sha }}' > ~/openwrt-sdk-25.12.5-mediatek-filogic/.sdk-sha256-verified
+
+      # Save — отдельным шагом с if:always(): монолитный actions/cache свой
+      # post-save на падающих джобах молча не выполняет (эмпирически: вечный
+      # cache-miss при красном Build packages), и каждый ран заново тянул
+      # 240МБ. Сохраняем то, что скачали и сверили, независимо от вердикта.
+      - name: Save SDK to cache
+        if: always()
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/openwrt-sdk-25.12.5-mediatek-filogic
+          key: openwrt-sdk-25.12.5-mediatek-filogic-${{ steps.sdk.outputs.sha }}
 
       # Зависимости — по реальным метаданным SDK (§9 closure): наши claims
       # обязаны существовать (fail closed), mod-пакеты — evidence-дамп для

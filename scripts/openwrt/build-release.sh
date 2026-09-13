@@ -195,7 +195,8 @@ if [ ! -f "$SDK/.config" ]; then
 fi
 note "make package/z2k-adapter/compile + package/z2k-webpanel/compile ..."
 if ! make -C "$SDK" "package/z2k-adapter/compile" "package/z2k-webpanel/compile" V=s >"$SDK_LOG" 2>&1; then
-    tail -50 "$SDK_LOG" 2>/dev/null >&2 || true
+    # Порядок важен: сначала stdout->stderr, глушение — только для tail'а.
+    tail -50 "$SDK_LOG" >&2 || true
     die "сборка в SDK упала, лог: $SDK_LOG"
 fi
 note "SDK build ok"
