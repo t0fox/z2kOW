@@ -218,21 +218,29 @@ while IFS= read -r _a; do
     [ -n "$_a" ] || continue
     printf 'package from %s built %s\nmetadata:\n' "$_a" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$OUT/METADATA.txt"
     _tarlist=""
-    if tar -tzf "$_a" 2>/dev/null | LC_ALL=C sort >"$SEED_TMP/tarlist.txt"; then
+    # БЕЗ пайпа в условии: в dash нет pipefail, `if tar|sort` проверяет sort
+    # (всегда 0) — else-блок с диагностикой становился мёртвым (поймано CI).
+    _tar_rc=0
+    tar -tzf "$_a" 2>"$SEED_TMP/tar.err" >"$SEED_TMP/tarlist-raw.txt" || _tar_rc=$?
+    if [ "$_tar_rc" -eq 0 ] && [ -s "$SEED_TMP/tarlist-raw.txt" ]; then
+        LC_ALL=C sort "$SEED_TMP/tarlist-raw.txt" >"$SEED_TMP/tarlist.txt"
         _tarlist="$(cat "$SEED_TMP/tarlist.txt")"
     else
-        # НЕ gzip-tar (pipefail нет — статус tar проверяем напрямую, иначе
-        # пустой листинг молча выдавался за "1 entry"). Диагностируем формат:
+        # НЕ gzip-tar. Диагностируем контейнер (OpenWrt 25.12 APK — не факт
+        # что gzip: проверяем file/магию и пробуем zstd/xz/ar по очереди).
         note "file $_a: $(file -b "$_a" 2>/dev/null || echo 'no file(1)')"
-        note "head(c): $(head -c 64 "$_a" 2>/dev/null | od -An -c | head -3 | tr '\n' '|')"
+        note "size: $(wc -c <"$_a" 2>/dev/null || echo '?') bytes; tar-err: $(head -c 200 "$SEED_TMP/tar.err" 2>/dev/null | tr '\n' '|')"
+        note "head: $(head -c 48 "$_a" 2>/dev/null | od -An -c | tr '\n' '|' | head -c 200)"
         for _decomp in "zstd -dc" "xz -dc"; do
-            if $_decomp "$_a" 2>/dev/null | tar -t 2>/dev/null | LC_ALL=C sort >"$SEED_TMP/tarlist.txt"; then
+            if $_decomp "$_a" 2>/dev/null | tar -t 2>/dev/null | LC_ALL=C sort >"$SEED_TMP/tarlist.txt" \
+                && [ -s "$SEED_TMP/tarlist.txt" ]; then
                 note "apk inner compression: $_decomp"
                 _tarlist="$(cat "$SEED_TMP/tarlist.txt")"
+                _apk_decomp="$_decomp"
                 break
             fi
         done
-        if command -v ar >/dev/null 2>&1 && ar t "$_a" >/dev/null 2>&1; then
+        if [ -z "$_tarlist" ] && command -v ar >/dev/null 2>&1 && ar t "$_a" >/dev/null 2>&1; then
             note "apk is ar archive: $(ar t "$_a" 2>/dev/null | tr '\n' ' ')"
         fi
     fi
@@ -245,8 +253,13 @@ while IFS= read -r _a; do
     _pkginfo_name="$(printf '%s\n' "$_tarlist" | grep -E '(^|/)\.PKGINFO$' | head -1)"
     [ -n "$_pkginfo_name" ] \
         || die "в $_a нет .PKGINFO (dotfiles выше)"
-    tar -xzOf "$_a" "$_pkginfo_name" 2>/dev/null >> "$OUT/METADATA.txt" \
-        || die "не извлекается $_pkginfo_name из $_a"
+    if [ -n "${_apk_decomp:-}" ]; then
+        $_apk_decomp "$_a" 2>/dev/null | tar -xO "$_pkginfo_name" 2>/dev/null >> "$OUT/METADATA.txt" \
+            || die "не извлекается $_pkginfo_name из $_a ($_apk_decomp)"
+    else
+        tar -xzOf "$_a" "$_pkginfo_name" 2>/dev/null >> "$OUT/METADATA.txt" \
+            || die "не извлекается $_pkginfo_name из $_a"
+    fi
     printf '\n---\n' >> "$OUT/METADATA.txt"
 done < "$SEED_TMP/apks.txt"
 ( cd "$OUT" && sha256sum z2k-*.apk > sha256sums )
