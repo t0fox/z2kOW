@@ -146,7 +146,9 @@ else
     else
         _t_ok
     fi
-    if curl -s --max-time 10 "http://127.0.0.1:18081/cgi-bin/api.sh" 2>/dev/null | grep -q "SECRET-SOURCE-MARKER"; then
+    # Disclosure доказываем через auth.sh: у api.sh в фикстуре JSON-mock
+    # (маркера в нём нет by design — его-то endpoint и проверяем выше).
+    if curl -s --max-time 10 "http://127.0.0.1:18081/cgi-bin/auth.sh" 2>/dev/null | grep -q "SECRET-SOURCE-MARKER"; then
         _t_ok
     else
         _t_bad "negative-фикстура не воспроизводит source disclosure"
