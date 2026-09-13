@@ -61,6 +61,17 @@ upstream frontend/CGI through a tiny platform adapter. Lifecycle independent
 from the core z2k service.
 endef
 
+# Пакет — только shell/data (seed собирает make-seed.sh на install-фазе):
+# компилировать нечего. Без пустых переопределений SDK пытается гнать
+# дефолтный Build/Configure+Build/Compile в пустом build_dir и падает
+# "No targets specified" (поймано реальным CI-раном). Стандартный паттерн
+# script-only пакетов OpenWrt.
+define Build/Configure
+endef
+
+define Build/Compile
+endef
+
 # conffiles НЕТ осознанно (Model A): init/hotplug — package-owned код,
 # обязаны обновляться вместе с пакетом, а не сохраняться как user-config.
 # /etc/z2k/* пакет вообще не поставляет (bootstrap создаёт, см. ownership.map
