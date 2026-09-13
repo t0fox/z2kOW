@@ -23,7 +23,7 @@ _new_sysroot() {
 # --- crash 1: tarball отсутствует (extract невозможен) ---
 # tag НАМЕРЕННО оставляем stale: провал re-seed обязан его снять (I2)
 _new_sysroot
-rm -rf "$SYS/usr"; mkdir -p "$Z2K_ROOT/share"
+rm -rf "${SYS:?}/usr"; mkdir -p "$Z2K_ROOT/share"
 rm -f "$Z2K_ETC/.payload-initialized"
 Z2K_SEED_TARBALL="$LC_T/no-such.tar.gz"; export Z2K_SEED_TARBALL
 z2k_ow_seed_ensure >/dev/null 2>&1 && _t_bad "без tarball принято" || _t_ok
@@ -33,7 +33,7 @@ lc_invariant "c1-post" || _t_bad "c1 invariant"
 
 # --- crash 2: tarball битый (extract падает на полпути), tag stale ---
 _new_sysroot
-rm -rf "$SYS/usr"; mkdir -p "$Z2K_ROOT/share"
+rm -rf "${SYS:?}/usr"; mkdir -p "$Z2K_ROOT/share"
 ln -s "$REPO/package/openwrt/files/etc/z2k/config.default" "$Z2K_ROOT/share/config.default"
 rm -f "$Z2K_ETC/.payload-initialized"
 printf 'NOT-A-TARBALL' > "$LC_T/bad.tar.gz"
@@ -46,7 +46,7 @@ lc_invariant "c2-post" || _t_bad "c2 invariant"
 # --- crash 3: bootstrap падает (нет config.default) -> retry чинит ---
 # tag stale оставляем: провал должен его снять, retry — записать seed
 _new_sysroot
-rm -rf "$SYS/usr"; mkdir -p "$Z2K_ROOT/share"
+rm -rf "${SYS:?}/usr"; mkdir -p "$Z2K_ROOT/share"
 rm -f "$Z2K_ETC/.payload-initialized" "$Z2K_ETC/config"
 Z2K_SEED_TARBALL="$Z2K_ROOT/share/seed.tar.gz"; export Z2K_SEED_TARBALL
 cp -f "$LC_SEED_TARBALL" "$Z2K_SEED_TARBALL" 2>/dev/null || true
@@ -64,7 +64,7 @@ lc_invariant "c3-post" || _t_bad "c3 invariant"
 
 # --- crash 4: verify падает (seed без required файла) ---
 _new_sysroot
-rm -rf "$SYS/usr"; mkdir -p "$Z2K_ROOT/share"
+rm -rf "${SYS:?}/usr"; mkdir -p "$Z2K_ROOT/share"
 ln -s "$REPO/package/openwrt/files/etc/z2k/config.default" "$Z2K_ROOT/share/config.default"
 rm -f "$Z2K_ETC/.payload-initialized" "$Z2K_ETC/state/installed-tag"
 # tarball без lib/utils.sh: extract ok, verify — нет
@@ -79,7 +79,7 @@ lc_invariant "c4-post" || _t_bad "c4 invariant"
 
 # --- crash 5: tag-write падает (read-only state) -> marker absent; retry ok ---
 _new_sysroot
-rm -rf "$SYS/usr"; mkdir -p "$Z2K_ROOT/share"
+rm -rf "${SYS:?}/usr"; mkdir -p "$Z2K_ROOT/share"
 ln -s "$REPO/package/openwrt/files/etc/z2k/config.default" "$Z2K_ROOT/share/config.default"
 rm -f "$Z2K_ETC/.payload-initialized" "$Z2K_ETC/state/installed-tag"
 cp -f "$LC_SEED_TARBALL" "$LC_T/good2.tar.gz"

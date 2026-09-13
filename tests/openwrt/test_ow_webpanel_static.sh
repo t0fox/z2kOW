@@ -67,8 +67,8 @@ fi
 assert_contains "install.sh знает PLATFORM_ENV" "$REPO/webpanel/install.sh" "PLATFORM_ENV"
 
 # api.sh: platform.sh до И после actions.sh (env раньше дефолтов, overrides позже).
-# Матчим только исполняемые source-строки (SELF_DIR/...): комментарии и
-# shellcheck-директивы упоминают те же имена и для порядка не показательны.
+# Матчим только исполняемые source-строки (SELF_DIR/...): упоминания
+# в комментариях и shellcheck-директивах для порядка не показательны.
 _lp1="$(grep -n 'SELF_DIR/platform\.sh"' "$REPO/webpanel/cgi/api.sh" | head -1 | cut -d: -f1)"
 _la="$(grep -n 'SELF_DIR/actions\.sh"' "$REPO/webpanel/cgi/api.sh" | head -1 | cut -d: -f1)"
 _lp2="$(grep -n 'SELF_DIR/platform\.sh"' "$REPO/webpanel/cgi/api.sh" | tail -1 | cut -d: -f1)"

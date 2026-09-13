@@ -61,7 +61,7 @@ assert_eq "meta не тронута без re-seed" "$_sum_meta" "$(cksum "$Z2K_
 # --- 4+5. failed bootstrap -> без marker; retry идёт ---
 rm -f "$Z2K_ETC/.payload-initialized" "$Z2K_ROOT/share/config.default" "$Z2K_CONFIG"
 Z2K_SEED_TARBALL="$T/seed.tar.gz"; export Z2K_SEED_TARBALL
-rm -rf "$SYS/usr" # будто ничего не было (кроме /etc без marker)
+rm -rf "${SYS:?}/usr" # будто ничего не было (кроме /etc без marker)
 mkdir -p "$Z2K_ROOT/share"
 if z2k_ow_seed_ensure >/dev/null 2>&1; then
     _t_bad "ensure успешен без config.default (должен падать)"
@@ -94,7 +94,7 @@ assert_eq "marker снова встал" "1" "$([ -f "$Z2K_ETC/.payload-initiali
 # --- 8. prerm-purge/sysupgrade repair: marker + пустой payload ---
 # -> re-seed, tag := seed (НЕ preserve! старое поведение удалено как
 # false-current, см. I3).
-rm -rf "$SYS/usr"
+rm -rf "${SYS:?}/usr"
 mkdir -p "$Z2K_ROOT/share"
 ln -s "$REPO/package/openwrt/files/etc/z2k/config.default" "$Z2K_ROOT/share/config.default"
 printf 'p-99.99\n' > "$Z2K_ETC/state/installed-tag"
@@ -121,7 +121,7 @@ z2k_ow_seed_ensure >/dev/null 2>&1 || { echo "FAIL[ow-seed]: re-sync" >&2; exit 
 # --- 11. crash-матрица re-seed: после каждого провала marker отсутствует ---
 # (a) битый tarball
 printf 'p-88.88\n' > "$Z2K_ETC/state/installed-tag"
-rm -rf "$SYS/usr"; mkdir -p "$Z2K_ROOT/share"
+rm -rf "${SYS:?}/usr"; mkdir -p "$Z2K_ROOT/share"
 ln -s "$REPO/package/openwrt/files/etc/z2k/config.default" "$Z2K_ROOT/share/config.default"
 rm -f "$Z2K_ETC/.payload-initialized"
 printf 'NOT-A-TARBALL' > "$T/bad.tar.gz"

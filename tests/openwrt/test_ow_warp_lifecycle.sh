@@ -10,6 +10,13 @@ trap 'rm -rf "$T"' EXIT INT TERM
 
 mkdir -p "$T/bin" "$T/root/bin" "$T/root/platform/openwrt" "$T/etc" "$T/etc/state/warp" "$T/etc/user-lists/warp/games" "$T/tmp" "$T/proc"
 export PATH="$T/bin:$PATH"
+# chmod-mock для W52 — определён ЗДЕСЬ (а не рядом с W52): иначе shellcheck
+# SC2218 на каждый более ранний вызов chmod. По умолчанию passthrough
+# (command chmod), W52 включает отказ через CHMOD_FAIL=1.
+chmod() {
+    if [ "${CHMOD_FAIL:-0}" = "1" ]; then return 1; fi
+    command chmod "$@"
+}
 for _f in paths.sh env.sh warp.sh tg.sh firewall.sh schedule.sh uninstall.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
@@ -871,7 +878,7 @@ fi
 WARP_PBR_OWNER="$T/tmp/warp/pbr.owner"; export WARP_PBR_OWNER
 assert_eq "W38: правила нет" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
 assert_eq "W38: route нет" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
-assert_eq "W38: owner нет" "0" "$(ls "$T/tmp/warp/pbr.owner" "$T"/ablock.new.* "$T/tmp/warp/pbr.owner.new."* 2>/dev/null | grep -c . || true)"
+assert_eq "W38: owner нет" "0" "$(_c=0; for _f in "$T/tmp/warp/pbr.owner" "$T"/ablock.new.* "$T/tmp/warp/pbr.owner.new."*; do [ -e "$_f" ] 2>/dev/null && _c=$((_c + 1)); done; printf '%s' "$_c")"
 assert_eq "W38: флаг 1 (desired, доведёт cron)" "1" "$(warp_flag)"
 _w_inv "W38"
 
@@ -1014,7 +1021,7 @@ else
 fi
 if [ -n "$_save_lock_wait" ]; then export WARP_LOCK_WAIT="$_save_lock_wait"; else unset WARP_LOCK_WAIT; fi
 assert_eq "W44: бинарь цел (no mv)" "$(cat "$T/w44-old.sha")" "$(sha256sum "$T/root/bin/z2k-warpd" 2>/dev/null | awk '{print $1}')"
-assert_eq "W44: tmp подтёрт" "0" "$(ls "$T"/root/bin/z2k-warpd.z2k-au.* 2>/dev/null | grep -c . || true)"
+assert_eq "W44: tmp подтёрт" "0" "$(find "$T"/root/bin -maxdepth 1 -name 'z2k-warpd.z2k-au.*' 2>/dev/null | grep -c . || true)"
 assert_contains "W44: failure залогирован" "$T/au.log" "owner stop failed"
 assert_eq "W44: PBR цел" "1" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules")"
 if cmp -s "$T/owner-keep" "$T/tmp/warp/pbr.owner"; then _t_ok; else _t_bad "W44: owner повреждён"; fi
@@ -1203,14 +1210,11 @@ _w_inv "W51"
 # --- W52: chmod owner failure = rollback, ничего не опубликовано ---
 # (function override, НЕ $T/bin-mock: dash кеширует путь уже использованной
 # команды, mock-файл не увидели бы без hash -r; функция бьёт и кеш, и PATH).
+# Сам мок определён вверху файла (SC2218); здесь только включаем отказ.
 _reset
 printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
 printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
 _ready_fixture
-chmod() {
-    if [ "${CHMOD_FAIL:-0}" = "1" ]; then return 1; fi
-    command chmod "$@"
-}
 export CHMOD_FAIL=1
 if warp_pbr_up >/dev/null 2>&1; then
     _t_bad "W52: up принят при мёртвом chmod"
@@ -1218,10 +1222,9 @@ else
     _t_ok
 fi
 unset CHMOD_FAIL
-unset -f chmod
 assert_eq "W52: правила нет" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
 assert_eq "W52: route нет" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
-assert_eq "W52: owner нет" "0" "$(ls "$T/tmp/warp/pbr.owner" "$T/tmp/warp/pbr.owner.new."* 2>/dev/null | grep -c . || true)"
+assert_eq "W52: owner нет" "0" "$(_c=0; for _f in "$T/tmp/warp/pbr.owner" "$T/tmp/warp/pbr.owner.new."*; do [ -e "$_f" ] 2>/dev/null && _c=$((_c + 1)); done; printf '%s' "$_c")"
 _w_inv "W52"
 
 _t_done

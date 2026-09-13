@@ -35,6 +35,9 @@ _excluded() {
     while IFS= read -r _line; do
         [ -n "$_line" ] || continue
         _pat="${_line%%|*}"
+        # Паттерны НАМЕРЕННО globs (см. OPENWRT_EXCLUDED выше:
+        # files/init.d/S*, files/ndm/*); кавычки превратили бы их в литералы.
+        # shellcheck disable=SC2254
         case "$1" in
             $_pat) return 0 ;;
         esac

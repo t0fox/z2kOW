@@ -47,7 +47,7 @@ lc_mutlog s2-before s2-after "S2 old-seed converge"
 lc_invariant "S2" || _t_bad "S2 invariant"
 
 # --- S3: interrupted (payload частично + нет marker/tag) -> retry ---
-rm -rf "$Z2K_ROOT/lib" "$Z2K_ETC/.payload-initialized" "$Z2K_AU_INSTALLED_TAG_FILE"
+rm -rf "${Z2K_ROOT:?}/lib" "${Z2K_ETC:?}/.payload-initialized" "${Z2K_AU_INSTALLED_TAG_FILE:?}"
 mkdir -p "$Z2K_ROOT/lib"
 lc_begin; lc_snap s3-before
 z2k_ow_seed_ensure >/dev/null 2>&1
@@ -72,7 +72,9 @@ rm -f "$Z2K_AU_INSTALLED_TAG_FILE"
 lc_begin; lc_snap s17-before
 ( export Z2K_ROOT Z2K_ETC Z2K_TMP Z2K_AU_MANUAL=1 Z2K_AU_NO_JITTER=1
   export Z2K_AU_PUBKEY=/nonexistent-pubkey.pem
-  < /dev/null . "$Z2K_ROOT/platform/openwrt/update.sh" apply >/dev/null 2>&1 )
+  # SC2240: аргументы через $@ (dot с аргументами — не POSIX): update.sh читает $1.
+  set -- apply
+  < /dev/null . "$Z2K_ROOT/platform/openwrt/update.sh" >/dev/null 2>&1 )
 assert_eq "S17 launcher rc" "0" "$?"
 assert_eq "S17 tag восстановлен" "$SEEDTAG" "$(lc_tag)"
 lc_snap s17-after

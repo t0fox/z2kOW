@@ -7,20 +7,20 @@
 _t_plan "ow-source-order"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 
-for _entry in "$REPO"/platform/openwrt/update.sh; do
-    _code="$(sed 's/#.*$//' "$_entry")"
-    _lp="$(printf '%s\n' "$_code" | grep -n 'platform/openwrt/paths\.sh' | head -1 | cut -d: -f1)"
-    _le="$(printf '%s\n' "$_code" | grep -n 'platform/openwrt/env\.sh' | head -1 | cut -d: -f1)"
-    _lu="$(printf '%s\n' "$_code" | grep -n 'utils\.sh' | head -1 | cut -d: -f1)"
-    _la="$(printf '%s\n' "$_code" | grep -n 'auto_update\.sh' | head -1 | cut -d: -f1)"
-    _b="$(basename "$_entry")"
-    if [ -n "$_lp" ] && [ -n "$_le" ] && [ -n "$_lu" ] && [ -n "$_la" ] \
-        && [ "$_lp" -lt "$_le" ] && [ "$_le" -lt "$_lu" ] && [ "$_lu" -lt "$_la" ]; then
-        _t_ok
-    else
-        _t_bad "$_b: порядок нарушен (paths=$_lp env=$_le utils=$_lu auto_update=$_la)"
-    fi
-done
+# Один entrypoint (цикл по одному файлу роняет SC2043) — порядок тот же.
+_entry="$REPO/platform/openwrt/update.sh"
+_code="$(sed 's/#.*$//' "$_entry")"
+_lp="$(printf '%s\n' "$_code" | grep -n 'platform/openwrt/paths\.sh' | head -1 | cut -d: -f1)"
+_le="$(printf '%s\n' "$_code" | grep -n 'platform/openwrt/env\.sh' | head -1 | cut -d: -f1)"
+_lu="$(printf '%s\n' "$_code" | grep -n 'utils\.sh' | head -1 | cut -d: -f1)"
+_la="$(printf '%s\n' "$_code" | grep -n 'auto_update\.sh' | head -1 | cut -d: -f1)"
+_b="$(basename "$_entry")"
+if [ -n "$_lp" ] && [ -n "$_le" ] && [ -n "$_lu" ] && [ -n "$_la" ] \
+    && [ "$_lp" -lt "$_le" ] && [ "$_le" -lt "$_lu" ] && [ "$_lu" -lt "$_la" ]; then
+    _t_ok
+else
+    _t_bad "$_b: порядок нарушен (paths=$_lp env=$_le utils=$_lu auto_update=$_la)"
+fi
 
 # функционально: defaults auto_update вычислены ПОСЛЕ env (канал t0fox)
 _got="$( ( Z2K_ROOT=/r Z2K_ETC=/e Z2K_TMP=/t

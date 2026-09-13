@@ -164,7 +164,7 @@ _reset
 _out="$(z2k_ow_rt 1 2>"$T/err")"
 assert_eq "RT1 rc" "0" "$?"
 printf '%s\n' "$_out" > "$T/out"
-assert_eq "RT1: DNS-секций 5" "5" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_')"
+assert_eq "RT1: DNS-секций 5" "5" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c .)"
 assert_eq "RT1: whitelist строк 6 (5+user)" "6" "$(wc -l < "$T/root/lists/whitelist.txt" | tr -d ' ')"
 assert_eq "RT1: правил 6 (4 redirect/guard + 2 v6-reject)" "6" "$(grep -c '^nft:add rule' "$T/nft.log")"
 assert_eq "RT1: один instance" "1" "$(grep -c '^instance:z2k-rt$' "$T/procd.log")"
@@ -183,7 +183,7 @@ _reset
 printf 'type=hostrecord\nname=www.rutracker.org\nip=10.171.171.171\n' > "$T/uci/dhcp/z2k_rt_www_rutracker_org"
 printf 'type=hostrecord\nname=rutracker.cc\nip=10.171.171.171\n' > "$T/uci/dhcp/z2k_rt_rutracker_cc"
 z2k_ow_rt 1 >/dev/null 2>&1
-assert_eq "RT3: legacy gone, active 5" "5" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_')"
+assert_eq "RT3: legacy gone, active 5" "5" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c .)"
 
 # --- RT4: повторный старт: без дублей ---
 _reset
@@ -191,7 +191,7 @@ z2k_ow_rt 1 >/dev/null 2>&1
 _snap "$T/s4a"
 : > "$T/nft.log"
 z2k_ow_rt 1 >/dev/null 2>&1
-assert_eq "RT4: секций те же 5" "5" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_')"
+assert_eq "RT4: секций те же 5" "5" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c .)"
 assert_eq "RT4: whitelist без дублей" "6" "$(wc -l < "$T/root/lists/whitelist.txt" | tr -d ' ')"
 
 # --- RT5: crash (transient): DNS/rules на месте, ничего не снято ---
@@ -200,7 +200,7 @@ z2k_ow_rt 1 >/dev/null 2>&1
 : > "$T/nft.log"
 printf '\n' > "$T/pidof.out"
 z2k_ow_rt check >/dev/null 2>&1
-assert_eq "RT5: DNS цел" "5" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_')"
+assert_eq "RT5: DNS цел" "5" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c .)"
 if grep -q '^nft:delete' "$T/nft.log"; then _t_bad "RT5: transient снял правила"; else _t_ok; fi
 assert_eq "RT5: dead-tick заведён" "1" "$(cat "$T/tmp/rt-health/dead" 2>/dev/null)"
 
@@ -251,7 +251,7 @@ z2k_ow_rt 1 >/dev/null 2>&1
 printf '\n' > "$T/pidof.out"
 : > "$T/nft.log"
 z2k_ow_rt 0 >/dev/null 2>&1
-assert_eq "RT8: DNS ours gone" "0" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_' || true)"
+assert_eq "RT8: DNS ours gone" "0" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c . || true)"
 assert_eq "RT8: chains 5 delete" "5" "$(grep -c '^nft:delete chain' "$T/nft.log")"
 
 # --- RT9: uninstall-композиция: cleanup + cron-remove, user-DNS цел ---
@@ -265,7 +265,7 @@ Z2K_CRON_TAB="$T/crontab"; export Z2K_CRON_TAB
 z2k_ow_rt_cron_install >/dev/null 2>&1 || _t_bad "RT9: cron install"
 z2k_ow_rt cleanup >/dev/null 2>&1
 z2k_ow_rt_cron_remove >/dev/null 2>&1 || _t_bad "RT9: cron remove"
-assert_eq "RT9: DNS ours gone" "0" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_' || true)"
+assert_eq "RT9: DNS ours gone" "0" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c . || true)"
 assert_eq "RT9: user-DNS цел" "192.168.1.5" "$(sed -n 's/^ip=//p' "$T/uci/dhcp/user_home")"
 if grep -q 'z2k-rt-health' "$T/crontab"; then _t_bad "RT9: cron-строка осталась"; else _t_ok; fi
 
@@ -343,9 +343,9 @@ z2k_ow_rt 1 >/dev/null 2>&1
 printf '\n' > "$T/pidof.out"
 z2k_ow_rt check >/dev/null 2>&1
 z2k_ow_rt check >/dev/null 2>&1
-assert_eq "RT18: после 2 тиков пины целы" "5" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_')"
+assert_eq "RT18: после 2 тиков пины целы" "5" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c .)"
 z2k_ow_rt check >/dev/null 2>&1
-assert_eq "RT18: после 3 тиков DNS снят" "0" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_' || true)"
+assert_eq "RT18: после 3 тиков DNS снят" "0" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c . || true)"
 assert_eq "RT18: latch стоит" "1" "$([ -f "$T/tmp/rt-health/halted" ] && echo 1 || echo 0)"
 _snap "$T/s18"
 z2k_ow_rt check >/dev/null 2>&1
@@ -354,7 +354,7 @@ assert_eq "RT18: 4-й тик без flap (uci)" "$(cat "$T/s18.uci")" "$(cat "$T
 # процесс вернулся (оператор поднял) -> reconverge + latch снят
 printf '4242\n' > "$T/pidof.out"
 z2k_ow_rt check >/dev/null 2>&1
-assert_eq "RT18: reconverge DNS" "5" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_')"
+assert_eq "RT18: reconverge DNS" "5" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c .)"
 assert_eq "RT18: latch снят" "0" "$([ -f "$T/tmp/rt-health/halted" ] && echo 1 || echo 0)"
 
 # --- RT19: ENABLED=0: ничего нет ---
@@ -363,7 +363,7 @@ printf 'ENABLED=0\n' > "$T/etc/config"
 z2k_ow_rt 1
 assert_eq "RT19: instance нет" "0" "$(grep -c '^instance:' "$T/procd.log" 2>/dev/null || true)"
 assert_eq "RT19: правил нет" "0" "$(grep -c '^nft:add rule' "$T/nft.log" 2>/dev/null || true)"
-assert_eq "RT19: DNS нет" "0" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_' || true)"
+assert_eq "RT19: DNS нет" "0" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c . || true)"
 
 # --- RT20: shipped RKN содержит домены + effective whitelist держит 5 ---
 if grep -qxF 'rutracker.org' "$REPO/files/lists/extra_strats/TCP/RKN/List.txt"; then
@@ -455,7 +455,7 @@ z2k_ow_rt 1 >/dev/null 2>&1 || _t_bad "RT28: setup rc"
 printf 'type=hostrecord\nname=my.home\nip=192.168.1.5\n' > "$T/uci/dhcp/user_home"
 printf 'type=hostrecord\nname=my6.home\nip=fd00::99\n' > "$T/uci/dhcp/user_home6"
 z2k_ow_rt cleanup >/dev/null 2>&1
-assert_eq "RT28: ours gone" "0" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_' || true)"
+assert_eq "RT28: ours gone" "0" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c . || true)"
 assert_eq "RT28: user v4 цел" "192.168.1.5" "$(sed -n 's/^ip=//p' "$T/uci/dhcp/user_home")"
 assert_eq "RT28: user v6 цел" "fd00::99" "$(sed -n 's/^ip=//p' "$T/uci/dhcp/user_home6")"
 # stop снимает и v6-chains тоже:

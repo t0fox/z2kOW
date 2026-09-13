@@ -209,7 +209,7 @@ printf 'type=hostrecord\nname=rutracker.cc\nip=10.171.171.171\n' > "$T/uci/dhcp/
 z2k_ow_rt_dns_apply >/dev/null 2>&1
 [ -f "$T/uci/dhcp/z2k_rt_www_rutracker_org" ] && _t_bad "legacy www не удалён" || _t_ok
 [ -f "$T/uci/dhcp/z2k_rt_rutracker_cc" ] && _t_bad "legacy cc не удалён" || _t_ok
-assert_eq "active все стоят" "5" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_')"
+assert_eq "active все стоят" "5" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c .)"
 
 # --- RT16 conflict: чужой same-domain другой IP -> громкий отказ без записи ---
 _reset
@@ -248,7 +248,7 @@ printf 'type=hostrecord\nname=my.home\nip=192.168.1.5\n' > "$T/uci/dhcp/user_hom
 z2k_ow_rt_dns_apply >/dev/null 2>&1 || _t_bad "setup apply"
 _out="$(z2k_ow_rt_dns_remove 2>/dev/null)"
 assert_eq "remove rc" "0" "$?"
-assert_eq "наших не осталось" "0" "$(ls "$T/uci/dhcp" | grep -c '^z2k_rt_' || true)"
+assert_eq "наших не осталось" "0" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c . || true)"
 assert_eq "чужой цел" "192.168.1.5" "$(sed -n 's/^ip=//p' "$T/uci/dhcp/user_home")"
 assert_eq "REMOVED x5" "5" "$(printf '%s' "$_out" | grep -c '^DNS_REMOVED: z2k_rt_')"
 

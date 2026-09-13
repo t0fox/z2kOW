@@ -68,7 +68,8 @@ _call() {
     : > "$T/calls"
     ( unset Z2K_AU_MANUAL Z2K_AU_NO_JITTER
       export Z2K_ROOT Z2K_ETC Z2K_TMP
-      _v=; for _v in "$@"; do export "$_v"; done
+      # Имена намеренно динамические (VAR=val из "$@"; :? роняет пустое вслух).
+      _v=; for _v in "$@"; do export "${_v?}"; done
       < /dev/null sh "$Z2K_ROOT/platform/openwrt/update.sh" "$_action" >/dev/null 2>&1
       echo "rc=$?" >> "$T/calls" )
 }

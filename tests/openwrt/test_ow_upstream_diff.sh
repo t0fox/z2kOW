@@ -57,9 +57,20 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     Stage 7 (NEW; common-манифест не трогает, только читает)
 #   scripts/openwrt/build-release.sh + scripts/openwrt/write-provenance.sh:
 #     каноническая сборка APK-релиза Stage 7 (NEW; только гейты+артефакты)
-ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/app.js docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh"
+#   .github/workflows/ci.yml: openwrt-package job на pinned SDK (closure;
+#     остальной workflow не тронут, permissions contents:read + actions:write
+#     точечно на джобу)
+ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/app.js docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh .github/workflows/ci.yml"
 
-_changed="$($_g diff --name-only "$BASELINE"...HEAD 2>/dev/null)"
+# Граница меряется от production-ветки, когда она видна: то, что уже
+# опубликовано production-релизом (манифест, подпись, index.html...), —
+# не наш seam (closure §1: published snapshot не трогаем, свежесть манифеста
+# — свойство релиза). Без origin — строгий fallback на BASELINE.
+_REF="$BASELINE"
+if git -c safe.directory="$REPO" -C "$REPO" rev-parse --verify origin/z2k-enhanced >/dev/null 2>&1; then
+    _REF="origin/z2k-enhanced"
+fi
+_changed="$($_g diff --name-only "$_REF"...HEAD 2>/dev/null)"
 # --ignore-cr-at-eol: на Windows-чекаутах (autocrlf) весь worktree выглядит
 # изменённым; флаг гасит чисто-CRLF шум, настоящие правки остаются видны.
 _staged="$($_g diff --ignore-cr-at-eol --name-only --cached 2>/dev/null)"
@@ -93,7 +104,7 @@ else
     # .gitattributes: только чистое добавление eol=lf-строк.
     _attr_ok=""
     if printf '%s\n' "$_bad" | grep -qx '.gitattributes'; then
-        _attr_all="$( { $_g diff "$BASELINE"...HEAD -- .gitattributes 2>/dev/null; \
+        _attr_all="$( { $_g diff "$_REF"...HEAD -- .gitattributes 2>/dev/null; \
                         $_g diff --cached -- .gitattributes 2>/dev/null; } \
             | grep -E '^[+-]' | grep -vE '^[+-]{3}' || true)"
         _attr_removed="$(printf '%s\n' "$_attr_all" | grep -E '^-' || true)"
@@ -107,7 +118,7 @@ else
     for _f in $_bad; do
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
-            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/app.js|docs/openwrt-webpanel-contract.md|docs/openwrt-release-contract.md|scripts/openwrt/gen-openwrt-manifest.sh|scripts/openwrt/build-release.sh|scripts/openwrt/write-provenance.sh) continue ;;
+            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/app.js|docs/openwrt-webpanel-contract.md|docs/openwrt-release-contract.md|scripts/openwrt/gen-openwrt-manifest.sh|scripts/openwrt/build-release.sh|scripts/openwrt/write-provenance.sh|.github/workflows/ci.yml) continue ;;
             UPDATES.json)
                 # Манифест следует за деревом: разрешены hash-обновления
                 # файлов, чьи правки сами allowlisted (хеш следует за
@@ -117,7 +128,7 @@ else
                 # feature-ветке, удаления/изменения существующих map-назначений.
                 # --ignore-cr-at-eol на worktree-диффах: Windows-чекаут красит
                 # весь файл в CRLF-шум (см. шапку файла).
-                _umd="$( { $_g diff "$BASELINE"...HEAD -- UPDATES.json 2>/dev/null; \
+                _umd="$( { $_g diff "$_REF"...HEAD -- UPDATES.json 2>/dev/null; \
                             $_g diff --cached -- UPDATES.json 2>/dev/null; \
                             $_g diff --ignore-cr-at-eol -- UPDATES.json 2>/dev/null; } \
                     | grep -E '^[+-]' | grep -vE '^[+-]{3}' || true)"

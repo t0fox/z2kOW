@@ -566,8 +566,9 @@ check_lua_detectors() {
 
     _missing=""
     for _d in $_dets; do
-        # shellcheck disable=SC2086: _lua_dir — СПИСОК каталогов (base + EXTRA),
-        # word splitting здесь намеренно; путей с пробелами на роутерах нет.
+        # shellcheck disable=SC2086
+        # _lua_dir — СПИСОК каталогов (base + EXTRA), word splitting здесь
+        # намеренно; путей с пробелами на роутерах нет.
         if ! grep -rqs -- "function[[:space:]]\+${_d}[[:space:]]*(" $_lua_dir 2>/dev/null; then
             _missing="$_missing $_d"
         fi
