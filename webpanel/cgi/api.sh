@@ -336,6 +336,36 @@ case "$method $path" in
         exit 0
         ;;
 
+    # ---------- TOGGLES (read-only flat map) ----------
+    # telemetry.js читает GET /toggles ради stats_ack ДО первого /status:
+    # карточка «уходит статистика» живёт на дашборде, а не в «Режимах».
+    # Маршрута не было ни на одной платформе (фронт молча терпел 404) —
+    # это общая дыра контракта, а не platform-различие: форма та же, что
+    # у вложенного "toggles" в /status, только плоская. Значения — через
+    # json_string, как в /status (правка конфига руками не должна рвать JSON).
+    "GET /toggles")
+        disable_cd=$(read_flag "DISABLE_CUSTOM" "$CONFIG_FILE" "1")
+        if [ "$disable_cd" = "0" ]; then customd="1"; else customd="0"; fi
+        dynamic_ttl=$(read_flag "Z2K_DYNAMIC_TTL" "$CONFIG_FILE" "1")
+        stats=$(read_flag "Z2K_STATS" "$CONFIG_FILE" "1")
+        stats_ack=$(read_flag "Z2K_STATS_ACK" "$CONFIG_FILE" "1")
+        ppe=$(read_flag "Z2K_PPE_DEOFFLOAD" "$CONFIG_FILE" "1")
+        auto_update=$(read_flag "Z2K_AUTO_UPDATE_ENABLED" "$CONFIG_FILE" "1")
+        autohostlist=$(read_flag "Z2K_AUTOHOSTLIST" "$CONFIG_FILE" "0")
+        game_warp=$(read_flag "GAME_WARP_ENABLED" "$CONFIG_FILE" "0")
+        json_header
+        printf '{"ok":true,"game_warp":';     json_string "${game_warp:-0}"
+        printf ',"customd":';                 json_string "${customd:-0}"
+        printf ',"dynamic_ttl":';             json_string "${dynamic_ttl:-1}"
+        printf ',"stats":';                   json_string "${stats:-1}"
+        printf ',"stats_ack":';               json_string "${stats_ack:-1}"
+        printf ',"ppe":';                     json_string "${ppe:-1}"
+        printf ',"auto_update":';             json_string "${auto_update:-1}"
+        printf ',"autohostlist":';            json_string "${autohostlist:-0}"
+        printf '}\n'
+        exit 0
+        ;;
+
     # ---------- TOGGLES (async — returns job_id) ----------
     "POST /toggle/game-warp"|\
     "POST /toggle/customd"|\

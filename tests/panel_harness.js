@@ -26,6 +26,10 @@ const mkEl = () => {
   const el = {
     _h: "", style: {}, dataset: {}, classList: { add(){}, remove(){}, toggle(){}, contains(){return false} },
     children: [], attributes: {},
+    // Все mock-узлы считаются живыми (isConnected): telemetry-guard
+    // host.isConnected === false обязан пропускать их, иначе карточка
+    // статистики никогда не исполнится в харнессе.
+    isConnected: true,
     set innerHTML(v){ this._h = String(v); noteRendered(this._h); },
     get innerHTML(){ return this._h; },
     set textContent(v){ this._h = String(v); noteRendered(this._h); },
@@ -86,9 +90,21 @@ global.navigator = { clipboard: { writeText: async () => {} }, userAgent: "node"
 // STRATEGY_POOL_NAMES внутри него никогда не происходит — ровно поэтому первая
 // версия этой заглушки пропустила реальную поломку страницы «Свои стратегии».
 const FIXTURES = {
-  "/status": { ok:true, installed:"r-71.1", running:true, service:"running",
-    toggles:{game_warp:"0",customd:"0",dynamic_ttl:"1",
-             stats:"1",ppe:"1",auto_update:"1",autohostlist:"0"}, tunnel:{running:true} },
+  // Z2K_OW_CAPS=1 — OpenWrt-форма /status (platform + capabilities) для
+  // tests/openwrt/test_ow_webpanel_pages.sh: исполняет OW-ветки фронта
+  // (applyCapabilities, OW-текст dynamic_ttl, title). Дефолт — Keenetic 1-в-1.
+  "/status": (process.env.Z2K_OW_CAPS === "1")
+    ? { ok:true, installed:true, running:true, service:"active",
+        toggles:{game_warp:"0",customd:"0",dynamic_ttl:"1",
+                 stats:"1",stats_ack:"0",ppe:"1",auto_update:"1",autohostlist:"0"},
+        tunnel:{running:false}, platform:"openwrt",
+        capabilities:{policy:false,ppe:false,tcp16:false,diag:false,
+                      warp:true,telegram:true,uninstall:false} }
+    : { ok:true, installed:"r-71.1", running:true, service:"running",
+        toggles:{game_warp:"0",customd:"0",dynamic_ttl:"1",
+                 stats:"1",ppe:"1",auto_update:"1",autohostlist:"0"}, tunnel:{running:true} },
+  "/toggles": { ok:true, game_warp:"0",customd:"0",dynamic_ttl:"1",
+                stats:"1",stats_ack:"0",ppe:"1",auto_update:"1",autohostlist:"0" },
   "/strategy/pools": { ok:true, pools:[
     {pool:"rkn_tcp",custom:0,line:""},{pool:"yt_tcp",custom:1,line:"--filter-tcp=443"},
     {pool:"gv_tcp",custom:0,line:""},{pool:"yt_quic",custom:0,line:""}] },

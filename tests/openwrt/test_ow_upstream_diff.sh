@@ -51,6 +51,9 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     эти пути — это ожидаемо, а не seam.
 #   webpanel/cgi/platform.sh: tiny platform frontend Stage 6 (NEW, small seam)
 #   webpanel/cgi/api.sh: 2× source platform.sh + openwrt-only /status keys
+#     + GET /toggles (common fix: фронт telemetry.js звал его всегда, кейса
+#     не было ни на одной платформе; плоская форма вложенного "toggles"
+#     из /status, Keenetic-байты нетронуты)
 #   webpanel/cgi/actions.sh: manifest-URL var + DEBUG_FLAG_FILE var (2 строки)
 #   webpanel/cgi/auth.sh: Z2K_PANEL_DIR seam для bind/hosts (USER-дерево)
 #   webpanel/install.sh: PLATFORM_ENV-подстановка Stage 6 (инсталлер обязан
@@ -58,8 +61,14 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #   webpanel/lighttpd.conf: @PLATFORM_ENV@ Stage 6 (единственный новый
 #     плейсхолдер шаблона)
 #   webpanel/www/js/core/loadorder.js + webpanel/www/js/pages/toggles.js +
-#     webpanel/www/app.js: applyCapabilities Stage 6 (только visibility;
-#     capability-логика вне трёх файлов запрещена)
+#     webpanel/www/js/pages/telemetry.js + webpanel/www/app.js +
+#     webpanel/www/js/router.js: applyCapabilities Stage 6 (только visibility;
+#     capability-логика вне этих файлов запрещена) + Stage 8: OW-текст
+#     dynamic_ttl (TTL-fix Keenetic там не существует), <title> вкладки через
+#     тот же capabilities-сигнал, недостающий ROUTE_TITLES.autohostlist
+#     (fallback врал на обеих платформах) и guard навигационной гонки в
+#     renderStatsNotice (TypeError после ухода со страницы — обе платформы);
+#     upstream-тексты и поведение 1-в-1
 #   docs/openwrt-webpanel-contract.md: webpanel contract Stage 6 (docs, не код)
 #   docs/openwrt-release-contract.md: release contract Stage 7 (docs, не код)
 #   scripts/openwrt/gen-openwrt-manifest.sh: генерация OpenWrt-манифеста
@@ -70,6 +79,11 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     чинит репетицию под ref-pinning Stage 2.2.2, прод-механика та же)
 #   tests/test_manifest_signature.sh: eval platform gate (closure; список
 #     выдёргиваемых функций обязан следовать за хуками au_fetch_manifest)
+#   tests/test_webpanel_api_contract.sh: блок GET /toggles (common fix выше;
+#     плоская проекция, Keenetic-дефолт; без него Keenetic-регрессии слепы
+#     к новому маршруту)
+#   tests/panel_harness.js: Z2K_OW_CAPS-ветка фикстур (inert по умолчанию:
+#     без env — Keenetic 1-в-1; исполняет OW-ветки фронта в OW pages-тесте)
 #   tests/test_release_tooling.sh: fixture-теги предыдущих релизов (closure;
 #     hermetic вместо ambient remote state — форк без тегов)
 #   lib/strategies.sh: busybox-safe tr-idiom Stage 8 (live-дефект: BusyBox tr
@@ -85,7 +99,7 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #   .github/workflows/ci.yml: openwrt-package job на pinned SDK (closure;
 #     остальной workflow не тронут, permissions contents:read + actions:write
 #     точечно на джобу)
-ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go z2k-warpd/builds/* webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/app.js docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh .github/workflows/ci.yml scripts/rehearse_update.sh tests/test_manifest_signature.sh tests/test_release_tooling.sh lib/strategies.sh z2k.sh tests/test_au_compat.sh README.md"
+ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go z2k-warpd/builds/* webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/js/pages/telemetry.js webpanel/www/js/router.js webpanel/www/app.js docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh .github/workflows/ci.yml scripts/rehearse_update.sh tests/test_manifest_signature.sh tests/test_webpanel_api_contract.sh tests/panel_harness.js tests/test_release_tooling.sh lib/strategies.sh z2k.sh tests/test_au_compat.sh README.md"
 
 # Граница меряется от production-ветки, когда она видна: то, что уже
 # опубликовано production-релизом (манифест, подпись, index.html...), —
@@ -144,7 +158,7 @@ else
     for _f in $_bad; do
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
-            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|z2k-warpd/builds/*|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/app.js|docs/openwrt-webpanel-contract.md|docs/openwrt-release-contract.md|scripts/openwrt/gen-openwrt-manifest.sh|scripts/openwrt/build-release.sh|scripts/openwrt/write-provenance.sh|.github/workflows/ci.yml|scripts/rehearse_update.sh|tests/test_manifest_signature.sh|tests/test_release_tooling.sh|lib/strategies.sh|z2k.sh|tests/test_au_compat.sh|README.md) continue ;;
+            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|z2k-warpd/builds/*|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/js/pages/telemetry.js|webpanel/www/js/router.js|webpanel/www/app.js|docs/openwrt-webpanel-contract.md|docs/openwrt-release-contract.md|scripts/openwrt/gen-openwrt-manifest.sh|scripts/openwrt/build-release.sh|scripts/openwrt/write-provenance.sh|.github/workflows/ci.yml|scripts/rehearse_update.sh|tests/test_manifest_signature.sh|tests/test_webpanel_api_contract.sh|tests/panel_harness.js|tests/test_release_tooling.sh|lib/strategies.sh|z2k.sh|tests/test_au_compat.sh|README.md) continue ;;
             UPDATES.json)
                 # Манифест следует за деревом: разрешены hash-обновления
                 # файлов, чьи правки сами allowlisted (хеш следует за
@@ -159,7 +173,7 @@ else
                             $_g diff --ignore-cr-at-eol -- UPDATES.json 2>/dev/null; } \
                     | grep -E '^[+-]' | grep -vE '^[+-]{3}' || true)"
                 _umd_bad="$(printf '%s\n' "$_umd" \
-                    | grep -vE '^[+-]  "(lib/(config_official|release_map|auto_update)\.sh|files/z2k-config-validator\.sh|webpanel/(cgi/(platform|api|actions|auth)\.sh|install\.sh|lighttpd\.conf|www/(app\.js|js/core/loadorder\.js|js/pages/toggles\.js)))": "[0-9a-f]{64}",?$' \
+                    | grep -vE '^[+-]  "(lib/(config_official|release_map|auto_update)\.sh|files/z2k-config-validator\.sh|webpanel/(cgi/(platform|api|actions|auth)\.sh|install\.sh|lighttpd\.conf|www/(app\.js|js/core/loadorder\.js|js/pages/(toggles|telemetry)\.js|js/router\.js)))": "[0-9a-f]{64}",?$' \
                     | grep -vE '^[+]  "webpanel/cgi/platform\.sh": \[' || true)"
                 [ -z "$_umd_bad" ] && continue ;;
         esac

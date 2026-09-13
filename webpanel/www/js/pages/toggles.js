@@ -36,6 +36,18 @@ const TOGGLE_API_NAME = {
   autohostlist: "autohostlist",
 };
 
+// OpenWrt-вариант описания dynamic_ttl: TTL-fix Keenetic там не существует,
+// и совет «выключайте, если включён TTL-fix Keenetic» вводит в заблуждение.
+// Первые два предложения — те же, что в общем тексте выше; меняется только
+// условие выключения. Применяется только при platform=openwrt из /status
+// (на Keenetic ключа platform нет — текст 1-в-1 upstream).
+const DYNAMIC_TTL_DESC_OPENWRT =
+  "Пакеты-обманки, которыми z2k пробивает блокировку, по умолчанию уходят с одним и тем же счётчиком переходов. " +
+  "У настоящих пакетов с вашего роутера он другой — и по этому расхождению обманку несложно отличить от обычного трафика. " +
+  "Опция подгоняет счётчик под настоящий, и обманка перестаёт выделяться. " +
+  "Выключайте, если на роутере настроена своя подмена TTL (например, для раздачи мобильного интернета): " +
+  "тогда счётчик всё равно переписывается дальше по тракту, и наша правка только тратит процессор.";
+
 export async function renderToggles() {
   $app.innerHTML = `
     <h1 class="page-title">Режимы</h1>
@@ -188,6 +200,13 @@ export async function renderToggles() {
     }
     if (_stale("toggles", seq)) return;
     applyCapabilities(s);
+    // Платформенно-зависимый текст — ПОСЛЕ applyCapabilities, когда platform
+    // известна. Строка политики и PPE-ряд на OpenWrt спрятаны целиком, а ряд
+    // dynamic_ttl виден — ему и правим описание (см. DYNAMIC_TTL_DESC_OPENWRT).
+    if (s && s.platform === "openwrt") {
+      const ttlDesc = $app.querySelector('[data-key="dynamic_ttl"] .t-desc');
+      if (ttlDesc) ttlDesc.textContent = DYNAMIC_TTL_DESC_OPENWRT;
+    }
     // /status мог вернуться уже после ухода со страницы: $app очищен, ни
     // одного из этих элементов больше нет, и обращение к badge.hidden роняло
     // весь остаток renderToggles — вместе с привязкой кнопок туннеля,

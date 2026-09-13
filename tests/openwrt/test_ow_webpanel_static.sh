@@ -127,15 +127,40 @@ else
     _t_ok
 fi
 
-# Frontend: только capability visibility (3 файла + loadorder helper).
+# Frontend: только capability visibility (allowlisted файлы + loadorder helper).
 assert_contains "js: caps helper" "$REPO/webpanel/www/js/core/loadorder.js" "applyCapabilities"
 assert_contains "js: toggles hook" "$REPO/webpanel/www/js/pages/toggles.js" "applyCapabilities"
 assert_contains "js: boot hook" "$REPO/webpanel/www/app.js" "applyCapabilities"
 if grep -rlE 'openwrt|PLATFORM|capabilit' "$REPO/webpanel/www/js" 2>/dev/null \
-    | grep -vE 'loadorder\.js|toggles\.js|app\.js' | grep -q .; then
-    _t_bad "js: capability-логика вне трёх файлов"
+    | grep -vE 'loadorder\.js|toggles\.js|app\.js|router\.js' | grep -q .; then
+    _t_bad "js: capability-логика вне allowlisted файлов"
 else
     _t_ok
 fi
+# router.js — только недостающий ROUTE_TITLES.autohostlist, никакой
+# platform-логики (см. проверку выше: слова openwrt там быть не должно).
+assert_contains "js: autohostlist title" "$REPO/webpanel/www/js/router.js" 'autohostlist:'
+if grep -n 'openwrt\|PLATFORM\|capabilit' "$REPO/webpanel/www/js/router.js" 2>/dev/null | grep -q .; then
+    _t_bad "js: router.js с platform-логикой (разрешён только title)"
+else
+    _t_ok
+fi
+
+# Stage 8 parity: GET /toggles — общий кейс (обе платформы), без
+# platform-ветвления (форма та же, что вложенный "toggles" из /status).
+assert_contains "api.sh: GET /toggles case" "$REPO/webpanel/cgi/api.sh" '"GET /toggles")'
+if grep -n '"GET /toggles")' "$REPO/webpanel/cgi/api.sh" | cut -d: -f1 | { read -r _l; sed -n "${_l},$((_l + 25))p" "$REPO/webpanel/cgi/api.sh"; } | grep -qE 'Z2K_PLATFORM|openwrt'; then
+    _t_bad "api.sh: GET /toggles с platform-ветвлением (должен быть общим)"
+else
+    _t_ok
+fi
+
+# Stage 8 parity текстов: upstream-формулировки 1-в-1, OW-варианты только
+# за capability-сигналом и только в тех же трёх файлах.
+assert_contains "js: OW dynamic_ttl desc" "$REPO/webpanel/www/js/pages/toggles.js" "DYNAMIC_TTL_DESC_OPENWRT"
+assert_contains "js: OW desc за platform" "$REPO/webpanel/www/js/pages/toggles.js" 's.platform === "openwrt"'
+assert_contains "js: upstream TTL-fix текст цел" "$REPO/webpanel/www/js/pages/toggles.js" "TTL-fix Keenetic"
+assert_contains "js: OW title guard" "$REPO/webpanel/www/js/core/loadorder.js" 'для OpenWrt'
+assert_contains "js: telemetry nav-guard" "$REPO/webpanel/www/js/pages/telemetry.js" 'host.isConnected === false'
 
 _t_done

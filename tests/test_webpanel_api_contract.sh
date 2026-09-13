@@ -185,6 +185,22 @@ printf 'ENABLED=1\nGAME_WARP_ENABLED=1\n' > "$CONFIG_FILE"
 OUT=$(cgi GET /status "" | cgi_body)
 assert_eq "нормальный флаг читается как раньше" "1" "$(jget "$OUT" 'd["toggles"]["game_warp"]')"
 
+printf "\n--- /toggles: плоская карта тумблеров (фронт telemetry.js) ---\n"
+# telemetry.js читает GET /toggles ради stats_ack; кейса не было ни на одной
+# платформе (фронт молча терпел 404). Форма — плоская проекция вложенного
+# "toggles" из /status, значения строками через json_string.
+printf 'ENABLED=1\nGAME_WARP_ENABLED=1\nZ2K_STATS_ACK=0\n' > "$CONFIG_FILE"
+OUT=$(cgi GET /toggles "" | cgi_body)
+assert_eq "toggles — валидный JSON"       "1" "$(json_ok_p "$OUT")"
+assert_eq "toggles — game_warp"           "1" "$(jget "$OUT" 'd["game_warp"]')"
+assert_eq "toggles — stats_ack"           "0" "$(jget "$OUT" 'd["stats_ack"]')"
+assert_eq "toggles — dynamic_ttl default" "1" "$(jget "$OUT" 'd["dynamic_ttl"]')"
+printf 'ENABLED=1\nGAME_WARP_ENABLED=0"x\n' > "$CONFIG_FILE"
+OUT=$(cgi GET /toggles "" | cgi_body)
+assert_eq "toggles — битый флаг не рвёт JSON" "1"    "$(json_ok_p "$OUT")"
+assert_eq "toggles — кавычка экранирована"    '0"x'  "$(jget "$OUT" 'd["game_warp"]')"
+printf 'ENABLED=1\nGAME_WARP_ENABLED=1\n' > "$CONFIG_FILE"
+
 printf "\n--- /policy/status, /warp/status, /debug: те же сырые %%s ---\n"
 printf 'ENABLED=1\nPOLICY_NAME=Через ВПН\nPOLICY_EXCLUDE=0"x\n' > "$CONFIG_FILE"
 OUT=$(cgi GET /policy/status "" | cgi_body)

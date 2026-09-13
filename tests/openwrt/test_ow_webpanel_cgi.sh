@@ -312,4 +312,301 @@ _jo="$(_poll_job "$_jid")" || _t_bad "apply: job не завершился"
 assert_contains "apply: updater вызван" "$T/apply.log" "apply-args:apply"
 assert_contains "apply: manual флаг" "$T/apply.log" "manual=1"
 
+# --- WP-MATRIX (webpanel parity, п.4/п.5): каждый frontend GET/POST ---
+# Карта вкладок → вызовов → endpoints сверена с source (58 вызовов / 75
+# кейсов). Здесь regression-гейт: HTTP + shape + controlled-отказ, всё
+# внутри fixture (nft/ip/init — моки, сеть не трогается).
+_mg() { # $1 label $2 path [$3 query] — проверяет 200, печатает тело
+    _mr="$(_cgi GET "$2" "${3:-}")"
+    assert_eq "$1: HTTP 200" "Status: 200 OK" "$(printf '%s\n' "$_mr" | _cgi_status)"
+    printf '%s\n' "$_mr" | _cgi_body
+}
+_poll_job_ok() { # $1 jobid $2 label — done + exit 0
+    _jo="$(_poll_job "$1")" || { _t_bad "$2: job не завершился"; return 1; }
+    assert_eq "$2: job done" "true" "$(_jget "$_jo" 'd["done"]')"
+    assert_eq "$2: job rc 0" "0" "$(_jget "$_jo" 'd["exit"]')"
+}
+
+# GET /toggles: единственный вызов без кейса (404 был на обеих платформах).
+OUT="$(_mg "toggles" /toggles)"
+assert_eq "toggles: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+assert_eq "toggles: stats_ack default 1" "1" "$(_jget "$OUT" 'd["stats_ack"]')"
+assert_eq "toggles: game_warp из конфига" "0" "$(_jget "$OUT" 'd["game_warp"]')"
+printf 'GAME_WARP_ENABLED=0\nENABLED=1\nZ2K_STATS_ACK=0\n' > "$T/etc/config"
+OUT="$(_mg "toggles ack=0" /toggles)"
+assert_eq "toggles: stats_ack=0 доезжает (telemetry)" "0" "$(_jget "$OUT" 'd["stats_ack"]')"
+printf 'GAME_WARP_ENABLED=0\nENABLED=1\n' > "$T/etc/config"
+
+# Остальные frontend GET: статус + по одному ключевому полю shape.
+OUT="$(_mg "exclude" /exclude)"
+assert_eq "exclude: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+OUT="$(_mg "extra-domains" /extra-domains)"
+assert_eq "extra-domains: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+OUT="$(_mg "autohostlist-domains" /autohostlist-domains)"
+assert_eq "autohostlist-domains: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+OUT="$(_mg "dns-check" /dns/check)"
+assert_eq "dns-check: own пуст" "" "$(_jget "$OUT" 'd["own"]')"
+OUT="$(_mg "strategy-pick" /strategy/pick)"
+assert_eq "strategy-pick: result null" "null" "$(_jget "$OUT" 'd["result"]')"
+OUT="$(_mg "strategy-pools" /strategy/pools)"
+assert_eq "strategy-pools: 5 пулов" "5" "$(_jget "$OUT" 'len(d["pools"])')"
+OUT="$(_mg "warp-games" /warp/games)"
+assert_eq "warp-games: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+OUT="$(_mg "warp-lists" /warp/lists)"
+assert_eq "warp-lists: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+RAW="$(_cgi GET /warp/list "name=nosuch")"
+assert_eq "warp-list missing: 404 controlled" "Status: 404 Not Found" "$(printf '%s\n' "$RAW" | _cgi_status)"
+RAW="$(_cgi GET /warp/devices)"
+assert_eq "warp-devices: text/plain" "Content-Type: text/plain; charset=utf-8" "$(printf '%s\n' "$RAW" | _cgi_status)"
+assert_contains "warp-devices: тело" "$T/etc/user-lists/warp/devices.txt" "aa:bb:cc:dd:ee:ff"
+OUT="$(_mg "tcp16" /tcp16)"
+assert_eq "tcp16: running false" "false" "$(_jget "$OUT" 'd["running"]')"
+OUT="$(_mg "state" /state)"
+assert_eq "state: entries пусты" "0" "$(_jget "$OUT" 'len(d["entries"])')"
+OUT="$(_mg "pools" /pools)"
+assert_eq "pools: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+OUT="$(_mg "policy-status" /policy/status)"
+assert_eq "policy-status: exists 0" "0" "$(_jget "$OUT" 'd["exists"]')"
+OUT="$(_mg "auth-state" /auth/state)"
+assert_eq "auth-state: required false" "false" "$(_jget "$OUT" 'd["required"]')"
+OUT="$(_mg "debug" /debug)"
+assert_eq "debug: enabled 0" "0" "$(_jget "$OUT" 'd["enabled"]')"
+OUT="$(_mg "diag" /diag)"
+assert_eq "diag: ok (контент честный)" "true" "$(_jget "$OUT" 'd["ok"]')"
+RAW="$(_cgi GET /diag/download)"
+assert_eq "diag-download: 200" "Status: 200 OK" "$(printf '%s\n' "$RAW" | _cgi_status)"
+RAW="$(_cgi POST /probe/run)"
+assert_eq "probe/run: 410 Gone" "Status: 410 Gone" "$(printf '%s\n' "$RAW" | _cgi_status)"
+RAW="$(_cgi GET /strategy/pool "pool=rkn_tcp")"
+assert_eq "pool missing: text/plain пусто" "Content-Type: text/plain; charset=utf-8" "$(printf '%s\n' "$RAW" | _cgi_status)"
+
+# POST toggles: каждый job доходит до done/rc 0, флаг — в конфиге.
+for _tg in "dynamic-ttl:Z2K_DYNAMIC_TTL:1" "stats:Z2K_STATS:1" "auto-update:Z2K_AUTO_UPDATE_ENABLED:1" "autohostlist:Z2K_AUTOHOSTLIST:1"; do
+    _tn="${_tg%%:*}"; _rest="${_tg#*:}"; _tk="${_rest%%:*}"; _tv="${_rest##*:}"
+    printf 'value=%s' "$_tv" > "$T/body.txt"
+    RAW="$(_cgi POST /toggle/$_tn "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+    assert_eq "toggle $_tn: job выдан" "true" "$(_jget "$OUT" 'd["ok"]')"
+    _jid="$(_jget "$OUT" 'd["job"]')"
+    JOB_IDS="$JOB_IDS $_jid"
+    _poll_job_ok "$_jid" "toggle $_tn"
+    assert_eq "toggle $_tn: флаг $_tk=$_tv" "$_tv" "$(grep -m1 "^$_tk=" "$T/etc/config" | cut -d= -f2)"
+done
+printf 'value=9' > "$T/body.txt"
+RAW="$(_cgi POST /toggle/stats "" "$T/body.txt")"
+assert_eq "toggle bad value: 400" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+
+# Service controls: job + эффект через mock-init.
+for _svc in start stop restart; do
+    : > "$T/init.log"
+    RAW="$(_cgi POST /service/$_svc)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+    assert_eq "service $_svc: job выдан" "true" "$(_jget "$OUT" 'd["ok"]')"
+    _jid="$(_jget "$OUT" 'd["job"]')"
+    JOB_IDS="$JOB_IDS $_jid"
+    _poll_job_ok "$_jid" "service $_svc"
+    assert_contains "service $_svc: init $_svc" "$T/init.log" "$_svc"
+done
+
+# Tunnel enable: job rc 0 (disable покрыт выше).
+RAW="$(_cgi POST /tunnel/enable)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "tunnel enable: job выдан" "true" "$(_jget "$OUT" 'd["ok"]')"
+_jid="$(_jget "$OUT" 'd["job"]')"
+JOB_IDS="$JOB_IDS $_jid"
+_poll_job_ok "$_jid" "tunnel enable"
+
+# Strategy pick: плохой домен — 400 сразу; хороший — job с быстрым
+# контролируемым отказом (rc 3: нет модуля замера в fixture).
+printf 'domain=bad!host&mode=tcp13' > "$T/body.txt"
+RAW="$(_cgi POST /strategy/pick "" "$T/body.txt")"
+assert_eq "pick bad domain: 400" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf 'domain=example.com&mode=tcp13' > "$T/body.txt"
+RAW="$(_cgi POST /strategy/pick "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "pick: job выдан" "true" "$(_jget "$OUT" 'd["ok"]')"
+_jid="$(_jget "$OUT" 'd["job"]')"
+JOB_IDS="$JOB_IDS $_jid"
+_jo="$(_poll_job "$_jid")" || _t_bad "pick: job не завершился"
+assert_eq "pick: job done" "true" "$(_jget "$_jo" 'd["done"]')"
+if [ "$(_jget "$_jo" 'd["exit"]')" = "0" ]; then
+    _t_bad "pick: job rc 0 без модуля замера"
+else
+    _t_ok
+fi
+
+# DNS: own сохраняется в fixture; check — job с быстрым отказом (нет скрипта).
+printf 'my-own\n8.8.8.8' > "$T/body.txt"
+RAW="$(_cgi POST /dns/own "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "dns own: saved" "8.8.8.8" "$(cat "$T/etc/user-lists/dns-check.txt" 2>/dev/null | head -1)"
+RAW="$(_cgi POST /dns/check)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "dns check: job выдан" "true" "$(_jget "$OUT" 'd["ok"]')"
+_jid="$(_jget "$OUT" 'd["job"]')"
+JOB_IDS="$JOB_IDS $_jid"
+_jo="$(_poll_job "$_jid")" || _t_bad "dns check: job не завершился"
+assert_eq "dns check: job done" "true" "$(_jget "$_jo" 'd["done"]')"
+
+# Stats ack: флаг в конфиге.
+RAW="$(_cgi POST /stats/ack)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "stats ack: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+assert_eq "stats ack: флаг 1" "1" "$(grep -m1 '^Z2K_STATS_ACK=' "$T/etc/config" | cut -d= -f2)"
+
+# WARP install/remove — через стаб (сеть не трогаем); reregister — без
+# device-файла быстрый rc 0 по коду («и так отсутствует»).
+cat > "$T/warp-stub.sh" <<EOF
+#!/bin/sh
+echo "warp-stub:\$*" >> "$T/warp-stub.log"
+case "\$1" in
+    status) echo 'installed=1 enabled=0 ready=0 transport= endpoint= iface= addr= entries=0 devices=1 error= mem=0' ;;
+    *) exit 0 ;;
+esac
+EOF
+chmod +x "$T/warp-stub.sh"
+export WARP_SCRIPT="$T/warp-stub.sh"
+: > "$T/warp-stub.log"
+for _wa in install remove; do
+    RAW="$(_cgi POST /warp/$_wa)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+    assert_eq "warp $_wa: job выдан" "true" "$(_jget "$OUT" 'd["ok"]')"
+    _jid="$(_jget "$OUT" 'd["job"]')"
+    JOB_IDS="$JOB_IDS $_jid"
+    _poll_job_ok "$_jid" "warp $_wa"
+done
+assert_contains "warp: стаб вызывался" "$T/warp-stub.log" "warp-stub:install"
+mv "$T/etc/state/warp/device.json" "$T/device.json.bak"
+RAW="$(_cgi POST /warp/reregister)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "warp reregister: job выдан" "true" "$(_jget "$OUT" 'd["ok"]')"
+_jid="$(_jget "$OUT" 'd["job"]')"
+JOB_IDS="$JOB_IDS $_jid"
+_poll_job_ok "$_jid" "warp reregister без записи"
+mv "$T/device.json.bak" "$T/etc/state/warp/device.json"
+unset WARP_SCRIPT
+
+# Остальные мутации: controlled-контракты без побочных эффектов хоста.
+printf 'name=x&value=1' > "$T/body.txt"
+RAW="$(_cgi POST /warp/games/toggle "" "$T/body.txt")"
+assert_eq "games toggle nosuch: 400" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf 'name=nosuch' > "$T/body.txt"
+RAW="$(_cgi POST /warp/list/delete "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "warp list delete nosuch: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+printf 'key=rkn_tcp&host=h.example&strategy=2&mode=auto' > "$T/body.txt"
+RAW="$(_cgi POST /state/set "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "state set: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+printf 'key=rkn_tcp&host=h.example' > "$T/body.txt"
+RAW="$(_cgi POST /state/delete "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "state delete: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+RAW="$(_cgi POST /state/clear)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "state clear: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+printf 'domain=gone.example' > "$T/body.txt"
+RAW="$(_cgi POST /whitelist/delete "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "whitelist delete missing: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+printf 'domain=foo.example' > "$T/body.txt"
+RAW="$(_cgi POST /extra-domains/add "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "extra-domains add: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+RAW="$(_cgi POST /extra-domains/delete "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "extra-domains delete: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+RAW="$(_cgi POST /autohostlist-domains/delete "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "autohostlist delete: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+printf -- '--filter-tcp=80\n' > "$T/body.txt"
+RAW="$(_cgi POST /strategy/pool/validate "pool=rkn_tcp" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "pool validate: движок fixture валидирует" "true" "$(_jget "$OUT" 'd["valid"]')"
+printf 'value=1' > "$T/body.txt"
+RAW="$(_cgi POST /debug "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "debug set: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+printf 'value=0' > "$T/body.txt"
+RAW="$(_cgi POST /debug "" "$T/body.txt")" >/dev/null
+RAW="$(_cgi POST /auth/challenge)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "auth challenge без пароля: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+RAW="$(_cgi POST /auth/logout)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "auth logout: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+printf 'domain=example.com' > "$T/body.txt"
+RAW="$(_cgi POST /diag/probe "" "$T/body.txt")"
+assert_eq "diag probe без модуля: 503" "Status: 503 Service Unavailable" "$(printf '%s\n' "$RAW" | _cgi_status)"
+RAW="$(_cgi POST /tcp16/probe)"
+assert_eq "tcp16 probe без пробы: 503" "Status: 503 Service Unavailable" "$(printf '%s\n' "$RAW" | _cgi_status)"
+
+# --- FRESH INSTALL (п.8): ни конфига, ни списков, ни state, ни WARP-файлов ---
+# Панель обязана открываться и читать initial state; отсутствие optional
+# state — не "panel unavailable". Отдельный минимальный fixture T2.
+T2="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wpfresh.XXXXXX")" || exit 1
+trap 'rm -rf "$T" "$T2"; for _j in $JOB_IDS; do rm -f "/tmp/z2k-job-$_j.log" "/tmp/z2k-job-$_j.pid" "/tmp/z2k-job-$_j.exit"; done' EXIT INT TERM
+mkdir -p "$T2/bin" "$T2/root/platform/openwrt" "$T2/root/bin" "$T2/root/lib" \
+         "$T2/etc" "$T2/tmp/z2k/runtime"
+for _f in paths.sh env.sh warp.sh tg.sh rt.sh firewall.sh uci.sh schedule.sh uninstall.sh webpanel.sh; do
+    ln -s "$REPO/platform/openwrt/$_f" "$T2/root/platform/openwrt/$_f" 2>/dev/null
+done
+ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T2/root/platform/openwrt/warp-proc.sh" 2>/dev/null
+mkdir -p "$T2/cgi"
+cp "$REPO/webpanel/cgi/api.sh" "$REPO/webpanel/cgi/auth.sh" \
+   "$REPO/webpanel/cgi/actions.sh" "$REPO/webpanel/cgi/platform.sh" "$T2/cgi/"
+printf '#!/bin/sh\nsafe_config_read() { return 1; }\n' > "$T2/root/lib/utils.sh"
+cat > "$T2/mock-init" <<EOF
+#!/bin/sh
+case "\$1" in
+    running) exit 1 ;;
+    *) exit 0 ;;
+esac
+EOF
+chmod +x "$T2/mock-init"
+cat > "$T2/bin/pidof" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$T2/bin/pidof"
+: > "$T2/leases"; : > "$T2/arp-empty"
+_cgi2() { # тот же контракт, что _cgi, но на пустом T2 (Z2K_CONFIG нет!)
+    _m="$1"; _p="$2"; _q="${3:-}"; _b="${4:-}"
+    if [ -n "$_b" ]; then
+        _cl=$(wc -c < "$_b" | tr -d ' ')
+        env REQUEST_METHOD="$_m" PATH_INFO="$_p" QUERY_STRING="$_q" \
+            HTTP_HOST="192.168.1.1" HTTP_X_Z2K_PANEL="1" CONTENT_LENGTH="$_cl" \
+            Z2K_PLATFORM=openwrt Z2K_ROOT="$T2/root" Z2K_ETC="$T2/etc" Z2K_TMP="$T2/tmp" \
+            Z2K_CONFIG="$T2/etc/config" Z2K_PROC_ROOT="$T2/proc" Z2K_INIT="$T2/mock-init" \
+            Z2K_BIN="$T2/root/bin" INIT_SCRIPT="$T2/mock-init" ZAPRET2_DIR="$T2/zapret2" \
+            WP_IP_BIN="$T2/bin/ip" WP_DHCP_LEASES="$T2/leases" WP_ARP_PATH="$T2/arp-empty" \
+            PATH="$T2/bin:/usr/bin:/bin" \
+            sh "$T2/cgi/api.sh" < "$_b" 2>"$T2/last.err"
+    else
+        env REQUEST_METHOD="$_m" PATH_INFO="$_p" QUERY_STRING="$_q" \
+            HTTP_HOST="192.168.1.1" HTTP_X_Z2K_PANEL="1" CONTENT_LENGTH="0" \
+            Z2K_PLATFORM=openwrt Z2K_ROOT="$T2/root" Z2K_ETC="$T2/etc" Z2K_TMP="$T2/tmp" \
+            Z2K_CONFIG="$T2/etc/config" Z2K_PROC_ROOT="$T2/proc" Z2K_INIT="$T2/mock-init" \
+            Z2K_BIN="$T2/root/bin" INIT_SCRIPT="$T2/mock-init" ZAPRET2_DIR="$T2/zapret2" \
+            WP_IP_BIN="$T2/bin/ip" WP_DHCP_LEASES="$T2/leases" WP_ARP_PATH="$T2/arp-empty" \
+            PATH="$T2/bin:/usr/bin:/bin" \
+            sh "$T2/cgi/api.sh" < /dev/null 2>"$T2/last.err"
+    fi
+}
+_fresh() { # $1 label $2 path [$3 query] — 200 + валидный JSON + пустой stderr
+    _fr="$(_cgi2 GET "$2" "${3:-}")"
+    assert_eq "fresh $1: HTTP 200" "Status: 200 OK" "$(printf '%s\n' "$_fr" | _cgi_status)"
+    _fb="$(printf '%s\n' "$_fr" | _cgi_body)"
+    assert_eq "fresh $1: валидный JSON" "1" "$(printf '%s' "$_fb" | python3 -c 'import json,sys; json.load(sys.stdin); print(1)' 2>/dev/null || echo 0)"
+    if [ -s "$T2/last.err" ]; then
+        _t_bad "fresh $1: stderr не пуст: $(head -c 200 "$T2/last.err" | tr '\n' '|')"
+    else
+        _t_ok
+    fi
+    printf '%s' "$_fb"
+}
+OUT="$(_fresh "status" /status)"
+assert_eq "fresh status: installed false" "false" "$(_jget "$OUT" 'd["installed"]')"
+assert_eq "fresh status: toggles defaults" "1" "$(_jget "$OUT" 'd["toggles"]["dynamic_ttl"]')"
+assert_eq "fresh status: caps openwrt" "openwrt" "$(_jget "$OUT" 'd["platform"]')"
+OUT="$(_fresh "toggles" /toggles)"
+assert_eq "fresh toggles: stats_ack default" "1" "$(_jget "$OUT" 'd["stats_ack"]')"
+OUT="$(_fresh "whitelist" /whitelist)"
+assert_eq "fresh whitelist: пуст" "0" "$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["domains"]))' 2>/dev/null)"
+OUT="$(_fresh "exclude" /exclude)"
+assert_eq "fresh exclude: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+OUT="$(_fresh "extra-domains" /extra-domains)"
+assert_eq "fresh extra-domains: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+OUT="$(_fresh "warp-status" /warp/status)"
+assert_eq "fresh warp-status: installed false" "false" "$(_jget "$OUT" 'd["installed"]')"
+OUT="$(_fresh "warp-neighbors" /warp/neighbors)"
+assert_eq "fresh neighbors: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+OUT="$(_fresh "state" /state)"
+assert_eq "fresh state: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+OUT="$(_fresh "strategy-pools" /strategy/pools)"
+assert_eq "fresh strategy-pools: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+OUT="$(_fresh "auth-state" /auth/state)"
+assert_eq "fresh auth-state: required false" "false" "$(_jget "$OUT" 'd["required"]')"
+OUT="$(_fresh "tcp16" /tcp16)"
+assert_eq "fresh tcp16: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+
 _t_done

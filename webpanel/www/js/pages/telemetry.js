@@ -21,6 +21,16 @@ export async function renderStatsNotice() {
   }
   if (!t || t.stats_ack !== "0") return;
 
+  // Пока летел /toggles, этот рендер мог стать stale: boot дергает navigate
+  // дважды (прямой вызов + hashchange от дефолтного hash), и дашборд
+  // исполняется два раза подряд. Первый fetch приходит, когда живой DOM уже
+  // от второго рендера: getElementById("stats-notice") находится (чужой, ещё
+  // без кнопок), а getElementById("stats-ack-ok") ниже — нет: TypeError на
+  // КАЖДОЙ полной загрузке при stats_ack=0 (поймано browser smoke).
+  // isConnected отличает свой живой host от чужого/д detached; проверка
+  // строгая (=== false), чтобы старые браузеры вели себя как раньше.
+  if (host.isConnected === false) return;
+
   host.hidden = false;
   host.className = "card";
   host.innerHTML = `
