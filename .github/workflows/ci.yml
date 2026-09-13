@@ -907,12 +907,12 @@ jobs:
       #   - lib/apk/db сам не создаётся ("Unable to lock database") — mkdir;
       #   - пустой root надо инициализировать ("Unable to read database") —
       #     ТОЛЬКО add --initdb это умеет, голый update — нет;
-          #   - postinst выполнять НЕЛЬЗЯ: он целится в /usr/lib/z2k раннера
-          #     (apk не ставит IPKG_INSTROOT) — ставим --no-scripts, логика
-          #     postinst покрыта ow-seed/lc функционально.
-          #   - раннер не root: создание DB только через --usermode (подсказал
-          #     сам apk: "Use --usermode to allow creating database as non-root").
-          - name: Feed resolution in isolated root (SDK apk)
+      #   - postinst выполнять НЕЛЬЗЯ: он целится в /usr/lib/z2k раннера
+      #     (apk не ставит IPKG_INSTROOT) — ставим --no-scripts, логика
+      #     postinst покрыта ow-seed/lc функционально.
+      #   - раннер не root: создание DB только через --usermode (подсказал
+      #     сам apk: "Use --usermode to allow creating database as non-root").
+      - name: Feed resolution in isolated root (SDK apk)
         run: |
           set -eu -o pipefail
           apkbin=~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk

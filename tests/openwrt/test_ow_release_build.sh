@@ -109,6 +109,13 @@ else
     _t_ok
 fi
 
+# --- CI workflow: ручка dispatch + отступы шагов (сломанный YAML = GitHub
+# молча не создаёт раны вообще, 422 на dispatch; поймано руками) ---
+grep -q '^  workflow_dispatch:' "$REPO/.github/workflows/ci.yml" 2>/dev/null \
+    && _t_ok || _t_bad "ci.yml: нет workflow_dispatch-ручки"
+_bad_ci="$(grep -nE '^[[:space:]]+- name: ' "$REPO/.github/workflows/ci.yml" 2>/dev/null | grep -vE '^[0-9]+:      - name: ' || true)"
+if [ -z "$_bad_ci" ]; then _t_ok; else _t_bad "ci.yml: шаги не на 6 пробелах: $_bad_ci"; fi
+
 # --- write-provenance.sh: форма + обязательность полей ---
 OW_RELEASE="25.12.5" SDK_URL="https://example.com/sdk.tar.zst" SDK_SHA256="UNPINNED"
 SDK_DIR="/sdk" TARGET="mediatek/filogic" ARCH="aarch64_cortex-a53"
