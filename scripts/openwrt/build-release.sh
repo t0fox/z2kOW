@@ -251,11 +251,14 @@ note "dist: $(ls "$OUT" | tr '\n' ' ')"
 export OW_RELEASE SDK_URL SDK_SHA256
 export SDK_DIR="$SDK" TARGET ARCH SRC_COMMIT PKG_VERSION PKG_RELEASE
 export ADAPTER_API SEED_TAG SEED_REF VERIFIED_REMOTE MANIFEST_CURRENT
-export CI_SNAPSHOT="$CI_SNAPSHOT"
-if [ "$CI_SNAPSHOT" = "1" ] || [ "$DEV" = "1" ]; then
-    PRODUCTION_RELEASE="0"
+# write-provenance.sh принимает только true|false (0/1 уронили бы его
+# bool-гейт — поймано первым же полным CI-прогоном).
+if [ "$CI_SNAPSHOT" = "1" ]; then CI_SNAPSHOT="true"; else CI_SNAPSHOT="false"; fi
+export CI_SNAPSHOT
+if [ "$CI_SNAPSHOT" = "true" ] || [ "$DEV" = "1" ]; then
+    PRODUCTION_RELEASE="false"
 else
-    PRODUCTION_RELEASE="1"
+    PRODUCTION_RELEASE="true"
 fi
 export PRODUCTION_RELEASE
 export OUT="$OUT/provenance.json"
