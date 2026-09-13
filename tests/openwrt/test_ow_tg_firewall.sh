@@ -83,8 +83,8 @@ assert_contains "redirect 443 pre" "$T/nft.log" 'add rule inet zapret2 z2k_tg_ds
 assert_contains "redirect 443 out" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_out tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443'
 assert_contains "redirect 80 pre" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_pre tcp dport 80 ip daddr @z2k_tg_cdn4 redirect to :1444'
 assert_contains "redirect 80 out" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_out tcp dport 80 ip daddr @z2k_tg_cdn4 redirect to :1444'
-assert_contains "v6 reject fwd" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_fwd tcp ip6 daddr @z2k_tg_dc6 reject with tcp reset'
-assert_contains "v6 reject out" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_out tcp ip6 daddr @z2k_tg_dc6 reject with tcp reset'
+assert_contains "v6 reject fwd" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_fwd ip6 daddr @z2k_tg_dc6 tcp dport {80, 443} reject with icmpv6 type port-unreachable'
+assert_contains "v6 reject out" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_out ip6 daddr @z2k_tg_dc6 tcp dport {80, 443} reject with icmpv6 type port-unreachable'
 assert_contains "guard accept scoped" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_in tcp dport { 1443, 1444 } ct status dnat accept'
 assert_contains "guard drop" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_in tcp dport { 1443, 1444 } drop'
 # порядок в chain: accept СТРОГО до drop (иначе редиректнутые тоже режем)

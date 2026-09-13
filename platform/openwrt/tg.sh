@@ -174,12 +174,14 @@ z2k_ow_tg_nft_apply() {
         tcp dport 80 ip daddr "@$Z2K_TG_SETCDN" redirect to ":$Z2K_TG_CDN_PORT" || return 1
     nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" \
         tcp dport 80 ip daddr "@$Z2K_TG_SETCDN" redirect to ":$Z2K_TG_CDN_PORT" || return 1
-    # Telegram IPv6: весь TCP (как upstream, без dport) -> мгновенный RST,
-    # быстрый fallback клиента на tunneled IPv4. НЕ redirect, НЕ drop.
+    # Telegram IPv6: TCP обслуживаемых портов (80/443, как redirect'ы выше) ->
+    # мгновенный icmpv6-reject, быстрый fallback клиента на tunneled IPv4.
+    # НЕ redirect, НЕ drop. TCP RST невозможен для IPv6, bare `tcp` без портов
+    # перед verdict парсер ядра тоже отвергает (Stage 8 live-дефект).
     nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_FWD" \
-        tcp ip6 daddr "@$Z2K_TG_SET6" reject with tcp reset || return 1
+        ip6 daddr "@$Z2K_TG_SET6" tcp dport "{80, 443}" reject with icmpv6 type port-unreachable || return 1
     nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUTF" \
-        tcp ip6 daddr "@$Z2K_TG_SET6" reject with tcp reset || return 1
+        ip6 daddr "@$Z2K_TG_SET6" tcp dport "{80, 443}" reject with icmpv6 type port-unreachable || return 1
     # INPUT-guard: демон слушает wildcard, прямой доступ с WAN к :1443/:1444
     # обязан не доходить до демона. REDIRECTнутые пакеты (LAN/router-local)
     # несут conntrack-статус dnat (ставится самим DNAT на весь conntrack) —

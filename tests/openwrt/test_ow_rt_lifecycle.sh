@@ -414,11 +414,12 @@ else
 fi
 [ -f "$T/uci/dhcp/z2k_rt_cdn_rutracker_org" ] && _t_bad "RT23: секция сабдомена" || _t_ok
 
-# --- RT24: TCP к v6-sentinel -> reject (FORWARD и OUTPUT) ---
+# --- RT24: TCP к v6-sentinel -> icmpv6-reject (FORWARD и OUTPUT) ---
+# (TCP RST невозможен для IPv6 — см. firewall-suite.)
 _reset
 z2k_ow_rt rules >/dev/null 2>&1 || _t_bad "RT24: rules rc"
-assert_contains "RT24: reject fwd" "$T/nft.log" 'z2k_rt_flt6_fwd tcp ip6 daddr 2001:db8::1:1445 reject with tcp reset'
-assert_contains "RT24: reject out" "$T/nft.log" 'z2k_rt_flt6_out tcp ip6 daddr 2001:db8::1:1445 reject with tcp reset'
+assert_contains "RT24: reject fwd" "$T/nft.log" 'z2k_rt_flt6_fwd ip6 daddr 2001:db8::1:1445 tcp dport 443 reject with icmpv6 type port-unreachable'
+assert_contains "RT24: reject out" "$T/nft.log" 'z2k_rt_flt6_out ip6 daddr 2001:db8::1:1445 tcp dport 443 reject with icmpv6 type port-unreachable'
 
 # --- RT25: unrelated IPv6 не задет (нет generic reject) ---
 if grep '^nft:add rule' "$T/nft.log" | grep -E 'ip6' | grep -vF '2001:db8::1:1445' >/dev/null 2>&1; then

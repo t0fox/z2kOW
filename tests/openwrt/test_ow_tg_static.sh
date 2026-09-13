@@ -93,8 +93,9 @@ if [ -z "$_tg_accepts" ]; then
 else
     _t_bad "tg.sh: accept вне scoped guard: [$_tg_accepts]"
 fi
-# v6 — reject, не redirect и не drop
-assert_contains "tg.sh: v6 reject" "$TG" 'reject with tcp reset'
+# v6 — icmpv6-reject, не redirect и не drop (TCP RST невозможен для IPv6:
+# парсер ядра отвергает `reject with tcp reset` в v6-контексте — Stage 8)
+assert_contains "tg.sh: v6 reject" "$TG" 'reject with icmpv6 type port-unreachable'
 assert_not_contains "tg.sh: v6 не redirect" "$_TGCODE" 'ip6 daddr.*redirect'
 # INPUT-guard: scoped accept (порты + dnat) строго до drop; blanket
 # `ct status dnat accept` без портов обошёл бы fw4-input для чужого DNAT.

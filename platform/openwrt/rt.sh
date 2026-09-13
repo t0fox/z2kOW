@@ -317,13 +317,17 @@ z2k_ow_rt_nft_apply() {
         tcp dport "$Z2K_RT_PORT" drop || return 1
     _z2k_ow_rt_mut "NFT_CREATED: $Z2K_RT_CHAIN_IN guard :$Z2K_RT_PORT"
     # IPv6 sentinel fast-reject (FORWARD для LAN, OUTPUT для router-local):
-    # TCP RST вместо timeout -> клиент сразу fallback'ится на tunneled IPv4.
-    # Scope строго sentinel (никакого generic v6 reject — Cloudflare/shared).
+    # icmpv6 port-unreachable вместо timeout -> клиент сразу fallback'ится
+    # на tunneled IPv4. TCP RST здесь НЕВОЗМОЖЕН: парсер ядра отвергает
+    # `reject with tcp reset` в v6-контексте, а bare `tcp` без портов перед
+    # verdict — тоже (Stage 8 live-дефект, доказано nft -c на 6.12).
+    # Scope строго sentinel:443 (единственный обслуживаемый порт).
+    # Никакого generic v6 reject — Cloudflare/shared.
     nft add rule "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_FWD6" \
-        tcp ip6 daddr "$Z2K_RT_SENTINEL6" reject with tcp reset || return 1
+        ip6 daddr "$Z2K_RT_SENTINEL6" tcp dport 443 reject with icmpv6 type port-unreachable || return 1
     _z2k_ow_rt_mut "NFT_CREATED: $Z2K_RT_CHAIN_FWD6 reject $Z2K_RT_SENTINEL6"
     nft add rule "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_OUT6" \
-        tcp ip6 daddr "$Z2K_RT_SENTINEL6" reject with tcp reset || return 1
+        ip6 daddr "$Z2K_RT_SENTINEL6" tcp dport 443 reject with icmpv6 type port-unreachable || return 1
     _z2k_ow_rt_mut "NFT_CREATED: $Z2K_RT_CHAIN_OUT6 reject $Z2K_RT_SENTINEL6"
     return 0
 }

@@ -131,7 +131,7 @@ assert_eq "TG7: fails не заведён" "0" "$([ -f "$T/tmp/tg-health/fails" 
 _reset
 z2k_ow_tg rules || _t_bad "TG8-10: rules rc"
 assert_eq "TG8: 443->1443 x2" "2" "$(grep -c 'dport 443.*redirect to :1443' "$T/nft.log")"
-assert_eq "TG9: v6 reject x2, не redirect" "2" "$(grep -c 'ip6 daddr @z2k_tg_dc6 reject with tcp reset' "$T/nft.log")"
+assert_eq "TG9: v6 reject x2, не redirect" "2" "$(grep -c 'ip6 daddr @z2k_tg_dc6 tcp dport {80, 443} reject with icmpv6 type port-unreachable' "$T/nft.log")"
 assert_eq "TG10: 80->1444 x2, тот же процесс" "2" "$(grep -c 'dport 80.*redirect to :1444' "$T/nft.log")"
 
 # --- TG11: stop: chains gone, sets stay; cleanup: sets gone ---
