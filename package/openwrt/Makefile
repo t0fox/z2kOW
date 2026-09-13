@@ -85,13 +85,14 @@ define Package/z2k-adapter/install
 	$(INSTALL_DATA) $(Z2K_TREE)/package/openwrt/ADAPTER_API $(1)/usr/lib/z2k/share/adapter.api
 	$(INSTALL_DATA) ./platform/openwrt/*.sh $(1)/usr/lib/z2k/platform/openwrt/
 	# Entrypoints исполняются напрямую (cron exec, updater [ -x ]) —
-	# им нужен +x и в пакете, и в seed (режимы в git-индексе; тест держит).
-	# Остальное только сорсится (644 достаточно).
+	# им нужен +x и в пакете, и в seed (INSTALL_BIN ставит 0755 сам;
+	# git-индекс хранит 644 — прямой запуск .sh из дерева в Linux-чекауте
+	# падает Permission denied, поэтому везде явный `sh`).
 	$(INSTALL_BIN) ./platform/openwrt/update.sh ./platform/openwrt/tg-check.sh \
 		./platform/openwrt/rt-check.sh ./platform/openwrt/rt-proc.sh \
 		./platform/openwrt/warp.sh ./platform/openwrt/warp-proc.sh \
 		./platform/openwrt/warp-check.sh $(1)/usr/lib/z2k/platform/openwrt/
-	$(Z2K_TREE)/package/openwrt/make-seed.sh $(Z2K_TREE) $(PKG_BUILD_DIR)/seed.tar.gz
+	sh $(Z2K_TREE)/package/openwrt/make-seed.sh $(Z2K_TREE) $(PKG_BUILD_DIR)/seed.tar.gz
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/seed.tar.gz $(1)/usr/lib/z2k/share/seed.tar.gz
 endef
 

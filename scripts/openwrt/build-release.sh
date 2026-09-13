@@ -193,8 +193,10 @@ if [ ! -f "$SDK/.config" ]; then
     make -C "$SDK" defconfig >"$SDK_LOG.defconfig" 2>&1 \
         || die "make defconfig в SDK упал, лог: $SDK_LOG.defconfig"
 fi
-note "make package/z2k-adapter/compile + package/z2k-webpanel/compile ..."
-if ! make -C "$SDK" "package/z2k-adapter/compile" "package/z2k-webpanel/compile" V=s >"$SDK_LOG" 2>&1; then
+note "make package/z2k/compile ..."
+# Цель — ДИРЕКТОРИЯ пакета (наш симлинк package/z2k), НЕ имя пакета:
+# package/z2k-adapter/compile правила не существует (поймано реальным CI).
+if ! make -C "$SDK" "package/z2k/compile" V=s >"$SDK_LOG" 2>&1; then
     # Порядок важен: сначала stdout->stderr, глушение — только для tail'а.
     tail -50 "$SDK_LOG" >&2 || true
     die "сборка в SDK упала, лог: $SDK_LOG"
