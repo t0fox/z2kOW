@@ -79,25 +79,25 @@ Z2K_AU_INSTALLED_TAG_FILE="$SB/tag"; printf 'p-4\n' > "$Z2K_AU_INSTALLED_TAG_FIL
 assert_eq "успешный прогон" "0" "$(au_apply_converge p-5 restart-service; echo $?)"
 assert_eq "файл доставлен" "новое" "$(cat "$SB/zd/a.lua" 2>/dev/null)"
 assert_eq "порядок: снимок → шаги, отката нет" "snapshot restart" "$(tr '\n' ' ' < "$SB/acts.log" | sed 's/ $//')"
-assert_eq "версия переставлена" "p-5" "$(cat "$SB/tag" | tr -d '[:space:]')"
+assert_eq "версия переставлена" "p-5" "$(cat "$SB/tag" | tr -d ' \t\r\n')"
 
 # Повторный прогон: дерево уже совпало — только отметка, без шагов.
 : > "$SB/acts.log"; printf 'p-4\n' > "$SB/tag"
 assert_eq "идемпотентность: успех" "0" "$(au_apply_converge p-5; echo $?)"
 assert_eq "идемпотентность: ничего не делалось" "" "$(tr '\n' ' ' < "$SB/acts.log" | sed 's/ $//')"
-assert_eq "идемпотентность: версия всё равно отмечена" "p-5" "$(cat "$SB/tag" | tr -d '[:space:]')"
+assert_eq "идемпотентность: версия всё равно отмечена" "p-5" "$(cat "$SB/tag" | tr -d ' \t\r\n')"
 
 # Провал health-check: откат, версия НЕ двигается.
 : > "$SB/acts.log"; printf 'p-4\n' > "$SB/tag"; touch "$SB/sick"; printf 'старое\n' > "$SB/zd/a.lua"
 assert_eq "health-check провален — rc 1" "1" "$(au_apply_converge p-5 restart-service; echo $?)"
 assert_eq "был откат" "yes" "$(grep -q rollback "$SB/acts.log" && echo yes || echo no)"
-assert_eq "версия НЕ сдвинулась" "p-4" "$(cat "$SB/tag" | tr -d '[:space:]')"
+assert_eq "версия НЕ сдвинулась" "p-4" "$(cat "$SB/tag" | tr -d ' \t\r\n')"
 rm -f "$SB/sick"
 
 # Неизвестный шаг: rc 2 — наверх, за полной установкой; версия не двигается.
 : > "$SB/acts.log"; printf 'p-4\n' > "$SB/tag"; printf 'старое\n' > "$SB/zd/a.lua"
 assert_eq "неизвестный шаг — rc 2" "2" "$(au_apply_converge p-5 шаг-из-будущего; echo $?)"
-assert_eq "неизвестный шаг: версия НЕ сдвинулась" "p-4" "$(cat "$SB/tag" | tr -d '[:space:]')"
+assert_eq "неизвестный шаг: версия НЕ сдвинулась" "p-4" "$(cat "$SB/tag" | tr -d ' \t\r\n')"
 
 # Старый флаг релиза «reset_state»: он появился до каталога шагов и раньше
 # работал только через полную переустановку. Новый путь обязан его уважать —

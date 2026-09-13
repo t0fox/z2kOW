@@ -59,8 +59,8 @@ command -v python3 >/dev/null 2>&1 || die "нужен python3"
 SEED_TMP="$(mktemp -d)" || exit 1
 trap 'rm -rf "$SEED_TMP"' EXIT INT TERM
 # Версия — один источник: Makefile (package-only релиз = version-bump commit).
-PKG_VERSION="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$ROOT/package/openwrt/Makefile" | head -1 | tr -d '[:space:]')"
-PKG_RELEASE="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$ROOT/package/openwrt/Makefile" | head -1 | tr -d '[:space:]')"
+PKG_VERSION="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$ROOT/package/openwrt/Makefile" | head -1 | tr -d ' \t\r\n')"
+PKG_RELEASE="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$ROOT/package/openwrt/Makefile" | head -1 | tr -d ' \t\r\n')"
 [ -n "$PKG_VERSION" ] && [ -n "$PKG_RELEASE" ] || die "нет PKG_VERSION/PKG_RELEASE в package/openwrt/Makefile"
 note "package version: $PKG_VERSION-$PKG_RELEASE"
 
@@ -127,7 +127,7 @@ git -C "$ROOT" cat-file -e "${SEED_REF}^{commit}" 2>/dev/null \
 # матчит только REF-имена, sha не совпадёт никогда, гейт был бы всегда красным
 # (поймано реальным CI-раном). Без сети — отказ, кроме --dev с честной пометкой.
 VERIFIED_REMOTE="false"
-_remote_hit="$(git -C "$ROOT" branch -r --contains "$SEED_REF" 2>/dev/null | head -1 | tr -d '[:space:]')"
+_remote_hit="$(git -C "$ROOT" branch -r --contains "$SEED_REF" 2>/dev/null | head -1 | tr -d ' \t\r\n')"
 if [ -n "$_remote_hit" ]; then
     VERIFIED_REMOTE="true"
     note "seed.ref достижим с origin ($_remote_hit)"
@@ -137,7 +137,7 @@ else
     die "seed.ref $SEED_REF не достижим ни с одного origin-трека — запушьте ветку: immutable ref обязан скачиваться после релиза (§49)"
 fi
 # API-окно seed <= packaged API (§47 coherence).
-ADAPTER_API="$(grep -E '^[[:space:]]*[0-9]+[[:space:]]*$' "$ROOT/package/openwrt/ADAPTER_API" 2>/dev/null | tr -d '[:space:]')"
+ADAPTER_API="$(grep -E '^[[:space:]]*[0-9]+[[:space:]]*$' "$ROOT/package/openwrt/ADAPTER_API" 2>/dev/null | tr -d ' \t\r\n')"
 case "$ADAPTER_API" in
     ''|*[!0-9]*) die "package/openwrt/ADAPTER_API не целое" ;;
 esac
@@ -164,7 +164,7 @@ fi
     || die "$SDK не похож на OpenWrt SDK (нет rules.mk/staging_dir/package)"
 # Receipt identity (§7): кем бы каталог ни был положен (скачивание, кеш),
 # его sha обязана совпасть с пином — иначе это не тот SDK.
-_sdk_receipt="$(cat "$SDK/.sdk-sha256-verified" 2>/dev/null | tr -d '[:space:]')"
+_sdk_receipt="$(cat "$SDK/.sdk-sha256-verified" 2>/dev/null | tr -d ' \t\r\n')"
 if [ "$_sdk_receipt" = "$SDK_SHA256" ]; then
     note "SDK identity verified (receipt)"
     VERIFIED_SDK="true"

@@ -285,7 +285,7 @@ lc_invariant() {
         z2k_ow_payload_ok 2>/dev/null || _fail="${_fail} I1(marker-without-payload)"
     fi
     [ -f "$Z2K_AU_INSTALLED_TAG_FILE" ] && \
-        _tag=$(tr -d '[:space:]' < "$Z2K_AU_INSTALLED_TAG_FILE" 2>/dev/null)
+        _tag=$(tr -d ' \t\r\n' < "$Z2K_AU_INSTALLED_TAG_FILE" 2>/dev/null)
     if [ -n "$_tag" ]; then
         [ -f "$Z2K_ETC/.payload-initialized" ] || _fail="${_fail} I2a(tag-without-marker)"
         _meta=$(z2k_ow_payload_meta_tag 2>/dev/null) || _fail="${_fail} I2b(tag-without-meta)"
@@ -304,7 +304,7 @@ lc_invariant() {
     printf 'INVARIANT %s: FAIL%s\n' "$_label" "$_fail"
     return 1
 }
-lc_tag() { tr -d '[:space:]' < "$Z2K_AU_INSTALLED_TAG_FILE" 2>/dev/null; }
+lc_tag() { tr -d ' \t\r\n' < "$Z2K_AU_INSTALLED_TAG_FILE" 2>/dev/null; }
 # lc_set_version <tag>: КОНСИСТЕНТНЫЙ backdate (tag+meta вместе, как после
 # настоящего update). Ручная правка только tag создаёт расхождение, которое
 # invariant справедливо бракует, — этим helper'ом симулируем "старую установку".

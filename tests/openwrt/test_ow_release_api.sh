@@ -22,7 +22,7 @@ export Z2K_AU_INSTALLED_TAG_FILE="$T/etc/state/installed-tag"
 
 # --- source of truth: package/openwrt/ADAPTER_API ---
 assert_file "ADAPTER_API существует" "$REPO/package/openwrt/ADAPTER_API"
-_api_src="$(grep -E '^[[:space:]]*[0-9]+[[:space:]]*$' "$REPO/package/openwrt/ADAPTER_API" | tr -d '[:space:]')"
+_api_src="$(grep -E '^[[:space:]]*[0-9]+[[:space:]]*$' "$REPO/package/openwrt/ADAPTER_API" | tr -d ' \t\r\n')"
 assert_eq "ADAPTER_API == 1" "1" "$_api_src"
 
 # --- installed: нет файла (pre-API пакет) = 1 ---

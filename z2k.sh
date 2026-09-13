@@ -391,7 +391,7 @@ _z2k_doh_check() {
 _z2k_resolve_doh_pool() {
     local host="$1"
     local cache_var
-    cache_var="Z2K_POOL_$(printf '%s' "$host" | tr -c '[:alnum:]' '_')"
+    cache_var="Z2K_POOL_$(printf '%s' "$host" | tr -c 'A-Za-z0-9' '_')"
     eval "local cached=\${$cache_var:-}"
     if [ -n "$cached" ]; then printf '%s' "$cached"; return 0; fi
     local resp

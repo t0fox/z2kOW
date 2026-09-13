@@ -154,7 +154,7 @@ sh "$REPO/scripts/openwrt/write-provenance.sh" >/dev/null 2>&1 \
 
 # --- §47: API-окно seed.tag над реальным манифестом <= packaged API ---
 _req47="$(sh -c '. "$1/lib/auto_update.sh" >/dev/null 2>&1; . "$1/platform/openwrt/reinstall.sh" >/dev/null 2>&1; z2k_ow_manifest_api_required "$2" "$3"' sh "$REPO" "$REPO/UPDATES.json" "$_seed_tag" 2>/dev/null)"
-_api47="$(grep -E '^[[:space:]]*[0-9]+[[:space:]]*$' "$REPO/package/openwrt/ADAPTER_API" 2>/dev/null | tr -d '[:space:]')"
+_api47="$(grep -E '^[[:space:]]*[0-9]+[[:space:]]*$' "$REPO/package/openwrt/ADAPTER_API" 2>/dev/null | tr -d ' \t\r\n')"
 [ -n "$_req47" ] && [ -n "$_api47" ] && [ "$_req47" -le "$_api47" ] 2>/dev/null \
     && _t_ok || _t_bad "API-окно seed.tag ($_req47) > packaged ($_api47)"
 

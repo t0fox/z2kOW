@@ -125,7 +125,7 @@ z2k_ow_payload_empty() {
 z2k_ow_payload_meta_tag() {
     [ -f "$Z2K_ROOT/share/payload.meta" ] || return 1
     local _t
-    _t=$(sed -n 's/^tag=//p' "$Z2K_ROOT/share/payload.meta" 2>/dev/null | head -1 | tr -d '[:space:]')
+    _t=$(sed -n 's/^tag=//p' "$Z2K_ROOT/share/payload.meta" 2>/dev/null | head -1 | tr -d ' \t\r\n')
     case "$_t" in
         ''|*[!A-Za-z0-9._-]*) return 1 ;;
     esac
@@ -151,7 +151,7 @@ z2k_ow_reconcile_tag() {
     local _meta="" _cur="" _have_tag=0
     _meta=$(z2k_ow_payload_meta_tag 2>/dev/null) || _meta=""
     [ -f "$_tagfile" ] && \
-        _cur=$(tr -d '[:space:]' < "$_tagfile" 2>/dev/null)
+        _cur=$(tr -d ' \t\r\n' < "$_tagfile" 2>/dev/null)
     [ -n "$_cur" ] && _have_tag=1
     if [ -z "$_meta" ]; then
         # ADOPT (одноразово, громко): meta нет, но tag есть и payload цел.
@@ -177,7 +177,7 @@ z2k_ow_reconcile_tag() {
     mkdir -p "$(dirname "$_tagfile")" 2>/dev/null || return 1
     printf '%s\n' "$_meta" > "${_tagfile}.new.$$" 2>/dev/null || return 1
     mv -f "${_tagfile}.new.$$" "$_tagfile" 2>/dev/null || return 1
-    _cur=$(tr -d '[:space:]' < "$_tagfile" 2>/dev/null)
+    _cur=$(tr -d ' \t\r\n' < "$_tagfile" 2>/dev/null)
     [ "$_cur" = "$_meta" ] || return 1
     return 0
 }

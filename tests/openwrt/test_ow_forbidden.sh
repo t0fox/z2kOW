@@ -56,4 +56,16 @@ for _tf in "$REPO"/tests/openwrt/test_ow_*.sh "$REPO"/tests/openwrt/lc_harness.s
 done
 [ -z "$_rmbad" ] && _t_ok || _t_bad "rm -rf по неприсвоенной переменной:$_rmbad"
 
+# BusyBox tr не знает POSIX-классов ВООБЩЕ (ни '[:space:]', ни '[[:space:]]'):
+# считает их литералами и молча вырезает буквы s,p,a,c,e,: (live-дефект
+# Stage 8: installed-tag p-84.9 -> -84.9, tag никогда не сходился с правдой).
+# Shipped shell обязан использовать только явные наборы (' \t\r\n',
+# 'A-Za-z0-9', '0-9'). sed/grep-классы ([[:space:]]) живы и разрешены —
+# запрет только на tr. NOTE: образцы ниже исключены из скана.
+_trbad="$(grep -rEn "tr +(-[cds]+ +)?'?\[:[a-z]+:\]" \
+    "$REPO/platform" "$REPO/package" "$REPO/lib" "$REPO/scripts" "$REPO/files" \
+    "$REPO/vps" "$REPO/z2k.sh" "$REPO/z2k_cleanup.sh" "$REPO/tests" \
+    2>/dev/null | grep -v 'test_ow_forbidden\.sh' || true)"
+[ -z "$_trbad" ] && _t_ok || _t_bad "busybox-unsafe tr-класс: $_trbad"
+
 _t_done

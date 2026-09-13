@@ -38,14 +38,14 @@ wp_panel_render() {
     [ -f "$WP_TEMPLATE" ] || { echo "нет шаблона $WP_TEMPLATE" >&2; return 1; }
     port=$(cat "$WP_SETTINGS_DIR/port" 2>/dev/null | tr -dc '0-9')
     [ -n "$port" ] || port="$WP_PORT_DEFAULT"
-    bind=$(cat "$WP_SETTINGS_DIR/bind" 2>/dev/null | tr -d '[:space:]')
+    bind=$(cat "$WP_SETTINGS_DIR/bind" 2>/dev/null | tr -d ' \t\r\n')
     if [ -z "$bind" ]; then
         bind="$(wp_lan_ip)" || { echo "нет LAN-адреса для bind" >&2; return 1; }
     fi
     # Сохраняем ТОЛЬКО отсутствующее (переустановка/обновление не сбрасывает).
     [ -f "$WP_SETTINGS_DIR/port" ] || printf '%s\n' "$port" > "$WP_SETTINGS_DIR/port"
     [ -f "$WP_SETTINGS_DIR/bind" ] || printf '%s\n' "$bind" > "$WP_SETTINGS_DIR/bind"
-    bind6=$(cat "$WP_SETTINGS_DIR/bind6" 2>/dev/null | tr -d '[:space:]')
+    bind6=$(cat "$WP_SETTINGS_DIR/bind6" 2>/dev/null | tr -d ' \t\r\n')
     if [ -n "$bind6" ]; then
         sock='$SERVER["socket"] == "['"$bind6"']:'"$port"'" { }'
     else

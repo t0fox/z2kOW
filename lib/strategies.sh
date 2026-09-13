@@ -244,7 +244,7 @@ EOF
 
     # Подсчет и валидация
     local total_count
-    total_count=$(grep -c '^[0-9]' "$output_file" 2>/dev/null | tr -d '[:space:]')
+    total_count=$(grep -c '^[0-9]' "$output_file" 2>/dev/null | tr -d ' \t\r\n')
     total_count=${total_count:-0}
 
     if [ "$total_count" -eq 0 ] 2>/dev/null || [ -z "$total_count" ]; then

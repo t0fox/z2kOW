@@ -1112,7 +1112,7 @@ au_step_rebuild_panel() {
     local port bind www tmp
     [ -f "$tpl" ] || { au_log "rebuild-panel: шаблона $tpl нет — пересобирать не из чего"; return 1; }
     port=$(tr -dc '0-9' < "$zd/webpanel/port" 2>/dev/null)
-    bind=$(tr -d '[:space:]' < "$zd/webpanel/bind" 2>/dev/null)
+    bind=$(tr -d ' \t\r\n' < "$zd/webpanel/bind" 2>/dev/null)
     www="$zd/www"
     [ -n "$port" ] || { au_log "rebuild-panel: не читается сохранённый порт"; return 1; }
     [ -n "$bind" ] || { au_log "rebuild-panel: не читается сохранённый адрес"; return 1; }
@@ -1369,7 +1369,7 @@ au_decide() {
     # and fall into au_history_entries_after's "not found → emit ALL history"
     # path → a full reinstall (+reset_state, since the window then spans
     # entries that carry it) fires EVERY night even though nothing changed.
-    installed_tag=$(printf '%s' "$installed_tag" | tr -d '[:space:]')
+    installed_tag=$(printf '%s' "$installed_tag" | tr -d ' \t\r\n')
 
     local current
     current=$(au_manifest_current "$manifest")
@@ -2355,7 +2355,7 @@ au_write_payload_meta() {
       printf 'ref=%s\n' "${Z2K_AU_TARGET_REF:-}"
     } > "$_tmp" 2>/dev/null || { rm -f "$_tmp" 2>/dev/null; return 1; }
     mv -f "$_tmp" "$_meta" 2>/dev/null || { rm -f "$_tmp" 2>/dev/null; return 1; }
-    _back=$(sed -n 's/^tag=//p' "$_meta" 2>/dev/null | head -1 | tr -d '[:space:]')
+    _back=$(sed -n 's/^tag=//p' "$_meta" 2>/dev/null | head -1 | tr -d ' \t\r\n')
     [ "$_back" = "$tag" ] || return 1
     return 0
 }
@@ -2381,8 +2381,8 @@ au_write_installed_tag() {
     fi
     # Перечитать: на умирающем NAND запись «проходит», а файл потом пустой.
     local back
-    back=$(tr -d '[:space:]' < "$Z2K_AU_INSTALLED_TAG_FILE" 2>/dev/null)
-    [ "$back" = "$(printf '%s' "$tag" | tr -d '[:space:]')" ] || return 1
+    back=$(tr -d ' \t\r\n' < "$Z2K_AU_INSTALLED_TAG_FILE" 2>/dev/null)
+    [ "$back" = "$(printf '%s' "$tag" | tr -d ' \t\r\n')" ] || return 1
     return 0
 }
 
@@ -2823,7 +2823,7 @@ au_run_apply() {
     if [ -f "$Z2K_AU_INSTALLED_TAG_FILE" ]; then
         installed=$(cat "$Z2K_AU_INSTALLED_TAG_FILE" 2>/dev/null)
         # Normalize for the empty-check below (au_decide trims again itself).
-        installed=$(printf '%s' "$installed" | tr -d '[:space:]')
+        installed=$(printf '%s' "$installed" | tr -d ' \t\r\n')
     fi
     if [ -z "$installed" ]; then
         # No tag file (pre-versioning / fresh install) OR an empty/truncated

@@ -26,7 +26,7 @@ z2k_ow_adapter_api_installed() {
         echo "z2k-openwrt: adapter.api не содержит ровно одну версию: $_f" >&2
         return 1
     }
-    _v=$(grep -E '^[[:space:]]*[0-9]+[[:space:]]*$' "$_f" 2>/dev/null | tr -d '[:space:]')
+    _v=$(grep -E '^[[:space:]]*[0-9]+[[:space:]]*$' "$_f" 2>/dev/null | tr -d ' \t\r\n')
     case "$_v" in
         ''|*[!0-9]*) echo "z2k-openwrt: adapter.api бит: $_f" >&2; return 1 ;;
     esac
@@ -89,7 +89,7 @@ z2k_ow_adapter_gate() {
     local _action="${1:-apply}" _tagfile _tag _req _inst
     _tagfile="${Z2K_AU_INSTALLED_TAG_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-tag}"
     if [ ! -f "$_tagfile" ]; then return 0; fi
-    _tag=$(tr -d '[:space:]' < "$_tagfile" 2>/dev/null)
+    _tag=$(tr -d ' \t\r\n' < "$_tagfile" 2>/dev/null)
     [ -n "$_tag" ] || return 0
     au_fetch_manifest || {
         au_log "adapter-gate: манифест не получен — без данных не решаю"
@@ -154,7 +154,7 @@ z2k_ow_payload_reinstall() {
     # 1. API re-check (defense in depth: executor могут позвать и иначе).
     local _tagfile _installed _req _inst
     _tagfile="${Z2K_AU_INSTALLED_TAG_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-tag}"
-    _installed=$(tr -d '[:space:]' < "$_tagfile" 2>/dev/null)
+    _installed=$(tr -d ' \t\r\n' < "$_tagfile" 2>/dev/null)
     [ -n "$_installed" ] || { au_log "reinstall: нет installed tag — не с чем сравнить окно"; return 1; }
     _req=$(z2k_ow_manifest_api_required "$_manifest" "$_installed") || {
         au_log "reinstall: битое требование API — fail closed"; return 1; }
