@@ -86,7 +86,9 @@ merge failure propagation), `scripts/gen_file_hashes.sh` (platform-маркер
 "Отгружаемые бинарники", не этот guard: path-based проверка отличить
 refresh от подмены не может, content держит пересборка+sha256 каждый ран),
 `lib/strategies.sh` + `z2k.sh` + `tests/test_au_compat.sh` (busybox-safe
-tr-idiom Stage 8: замена GNU-классов явными наборами, GNU-эквивалент).
+tr-idiom Stage 8: замена GNU-классов явными наборами, GNU-эквивалент),
+`README.md` (deliberate owner rewrite под адаптер; семантику подсказки
+держит test_exclude_hint_truthful, не этот guard).
 Нарушение seam'а печатается
 с категорией (lua/detectors/strategies/webpanel/update-system/warp).
 После каждого upstream sync BASELINE сдвигается на новый upstream HEAD.
