@@ -13,7 +13,9 @@ MK="$REPO/package/openwrt/Makefile"
 
 # --- §20: PKGARCH:=all + ELF-proof seed ---
 assert_contains "pkg arch all" "$MK" "PKGARCH:=all"
-"$REPO/package/openwrt/make-seed.sh" --list "$REPO" > "$T/seedlist.txt" 2>/dev/null \
+# явный sh: индекс хранит 100644, прямой запуск в Linux-чекауте
+# падает Permission denied (см. drift-тест)
+sh "$REPO/package/openwrt/make-seed.sh" --list "$REPO" > "$T/seedlist.txt" 2>/dev/null \
     || { echo "FAIL[ow-release-package]: seed list" >&2; exit 1; }
 python3 - "$T/seedlist.txt" "$REPO" <<'PYEOF'
 import sys

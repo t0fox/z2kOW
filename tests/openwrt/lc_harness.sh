@@ -74,7 +74,9 @@ lc_init() {
     # настоящий seed из дерева (один на файл; переиспользуем если уже есть)
     if [ -z "${LC_SEED_TARBALL:-}" ] || [ ! -f "$LC_SEED_TARBALL" ]; then
         LC_SEED_TARBALL="$LC_T/seed.tar.gz"
-        "$LC_REPO/package/openwrt/make-seed.sh" "$LC_REPO" "$LC_SEED_TARBALL" \
+        # явный sh: индекс хранит 100644 (см. drift-тест) — прямой запуск
+        # в Linux-чекауте падает Permission denied и роняет весь lc-каскад
+        sh "$LC_REPO/package/openwrt/make-seed.sh" "$LC_REPO" "$LC_SEED_TARBALL" \
             >/dev/null 2>&1 || return 1
     fi
     export LC_SEED_TARBALL

@@ -53,7 +53,10 @@ trap 'rm -f "$_filelist" "$_seedlist"' EXIT INT TERM
 ( cd "$REPO" && git ls-files --cached --others --exclude-standard ) >"$_filelist" 2>/dev/null
 
 _n_ow=0; _bad_root=""; _bad_lost=""; _bad_seed=""
-"$REPO/package/openwrt/make-seed.sh" --list "$REPO" 2>/dev/null | awk -F'\t' '{print $1}' \
+# Явный sh: .sh в индексе лежат 100644 (Windows-наследие) — прямой запуск
+# работает только там, где FS рисует fake +x (локальный drvfs), а в честном
+# Linux-чекауте (CI) падает Permission denied с пустым seedlist.
+sh "$REPO/package/openwrt/make-seed.sh" --list "$REPO" 2>/dev/null | awk -F'\t' '{print $1}' \
     | LC_ALL=C sort -u >"$_seedlist"
 while IFS= read -r _f; do
     [ -n "$_f" ] || continue

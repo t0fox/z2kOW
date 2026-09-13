@@ -21,7 +21,8 @@ _sum_lib="$(cksum "$Z2K_ROOT/lib/utils.sh")"
 _sum_lua="$(cksum "$Z2K_ROOT/lua/z2k-alert.lua")"
 # "новый пакет": adapter v2 + СТАРЫЙ seed (собран из pristine-корня симуляцией:
 # перестраиваем tarball из ТЕКУЩЕГО дерева — контент тот же seed, mtime новый)
-"$LC_REPO/package/openwrt/make-seed.sh" "$LC_REPO" "$Z2K_ROOT/share/seed.tar.gz" >/dev/null 2>&1 || exit 1
+# явный sh: индекс хранит 100644 (см. drift-тест)
+sh "$LC_REPO/package/openwrt/make-seed.sh" "$LC_REPO" "$Z2K_ROOT/share/seed.tar.gz" >/dev/null 2>&1 || exit 1
 printf '# v2 adapter\n' >> "$Z2K_ROOT/platform/openwrt/update.sh"
 lc_begin; lc_snap s4-before
 lc_postinst
