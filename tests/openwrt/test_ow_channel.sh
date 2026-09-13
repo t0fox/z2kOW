@@ -126,8 +126,20 @@ if git clone -q "$REPO" "$CLONE" 2>/dev/null; then
     _shablock() { sed -n '/"files_sha256"/,/^  \},$/p' "$1" | grep -E '^  "' | sed 's/,$//'; }
     _shablock "$T/orig.json" > "$T/sha-orig.txt"
     _sha_new_bad=""
+    # Binary-flow deliverables (build-matrix.tsv — единственный источник):
+    # openwrt-линия везёт их историей/refresh-binaries, а НЕ install_map
+    # (генератор их дропает из ow-map осознанно, dropped_keenetic). Маппинг
+    # им противопоказан: drift потребовал бы их в seed (8МБ блобы в PKGARCH
+    # :=all-пакете). Без изъятия КАЖДАЯ пересборка — ложное срабатывание:
+    # хеши бинарников всегда новые, а назначения нет и не должно быть.
+    # Правдивость их хешей держит проверка (c) выше — она исключений не имеет.
+    _binflow="$T/binflow.txt"
+    : > "$_binflow"
+    awk -F'\t' '!/^#/ && NF>=6 && $3 != "-" {print $3"/"$4"-linux-"$6}' \
+        "$CLONE/build-matrix.tsv" 2>/dev/null | LC_ALL=C sort -u > "$_binflow" || true
     _sha_extra="$(_shablock "$CLONE/UPDATES.json" | grep -vxFf "$T/sha-orig.txt" || true)"
     for _kl in $(printf '%s\n' "$_sha_extra" | sed 's/^  "//; s/":.*//' ); do
+        grep -qxF "$_kl" "$_binflow" 2>/dev/null && continue
         [ -n "$(Z2K_PLATFORM=openwrt z2k_install_paths "$_kl" 2>/dev/null)" ] \
             || _sha_new_bad="$_sha_new_bad $_kl"
     done

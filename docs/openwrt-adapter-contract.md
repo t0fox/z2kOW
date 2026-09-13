@@ -80,7 +80,12 @@ merge failure propagation), `scripts/gen_file_hashes.sh` (platform-маркер
 только для non-keenetic; keenetic-реген байт-идентичен),
 `files/z2k-config-validator.sh` (FAKE_DIR + lua EXTRA),
 `UPDATES.json` (только files_sha256 hash-обновления allowlisted lib-файлов —
-манифест следует за деревом на каждом релизе). Нарушение seam'а печатается
+манифест следует за деревом на каждом релизе),
+`z2k-warpd/builds/*` (deliberate build refresh: бинарники, пересобранные
+каноническим тулчейном z2k-warpd/Makefile; БАЙТ-АВТОРИТЕТ — CI-джоба
+"Отгружаемые бинарники", не этот guard: path-based проверка отличить
+refresh от подмены не может, content держит пересборка+sha256 каждый ран).
+Нарушение seam'а печатается
 с категорией (lua/detectors/strategies/webpanel/update-system/warp).
 После каждого upstream sync BASELINE сдвигается на новый upstream HEAD.
 

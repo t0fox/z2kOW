@@ -921,41 +921,39 @@ jobs:
           mkdir -p "$RUNNER_TEMP/approot/etc/apk/keys" "$RUNNER_TEMP/approot/etc/apk/repositories.d"
           mkdir -p "$RUNNER_TEMP/approot/lib/apk/db" "$RUNNER_TEMP/approot/tmp"
           # Резолв — против НАСТОЯЩИХ фидов релиза (тот же 25.12.5, что и SDK:
-          # версионная консистентность по построению) + наш dist. Только наш
-          # фид резолвить не может: conntrack/lighttpd/libc — base/packages,
-          # kmod-nft-queue — kmods таргета (резолвер это честно показал).
+          # версионная консистентность по построению). Пять ролей, все
+          # обязательны: наш dist + target packages (kernel/libc/libpthread)
+          # + arch base + arch packages + kmods таргета под ТОЧНЫЙ kernel ABI.
           REL=25.12.5; ARCH=aarch64_cortex-a53; TGT=mediatek/filogic
           DL="https://downloads.openwrt.org/releases/$REL"
+          # Kernel ABI — из target packages feed (источник правды), НЕ head -1
+          # листинга kmods: kernel 6.12.94~<hash>-r1 <-> kmods dir 6.12.94-1-<hash>.
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/target-packages.adb" "$DL/targets/$TGT/packages/packages.adb"
+          KVER_FULL="$("$apkbin" adbdump "$RUNNER_TEMP/target-packages.adb" 2>/dev/null | grep -A1 '^  name: kernel$' | sed -n 's/^  version: //p' | head -1)"
+          echo "target kernel package: $KVER_FULL"
+          KABI="$(printf '%s' "$KVER_FULL" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+)~([0-9a-f]+)-r[0-9]+$/\1-1-\2/')"
+          case "$KABI" in
+            [0-9]*.[0-9]*.[0-9]*-1-[0-9a-f]*) ;;
+            *) echo "kmods ABI не вывелся из kernel $KVER_FULL" >&2; exit 1 ;;
+          esac
+          echo "kmods ABI: $KABI"
+          curl -fsSL --retry 3 -o /dev/null "$DL/targets/$TGT/kmods/$KABI/" \
+            || { echo "kmods dir $KABI отсутствует на релизе" >&2; exit 1; }
           {
             echo "file://$RUNNER_TEMP/dist/packages.adb"
+            echo "$DL/targets/$TGT/packages/packages.adb"
             echo "$DL/packages/$ARCH/base/packages.adb"
             echo "$DL/packages/$ARCH/packages/packages.adb"
-            KMOD="$(curl -fsSL --retry 3 "$DL/targets/$TGT/kmods/" | sed -n 's/.*href="\([^"]*\)".*/\1/p' | grep -E '^[0-9].*/$' | head -1)"
-            test -n "$KMOD"
-            echo "${DL}/targets/${TGT}/kmods/${KMOD}packages.adb"
+            echo "$DL/targets/$TGT/kmods/$KABI/packages.adb"
           } > "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
           cat "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
-          # Кто предоставляет libpthread (транзитивный dep lighttpd)? Смотрим
-          # прямо в индексы фидов — ответ решает, какой фид добавить.
-          apkbin=~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk
-          mkdir -p "$RUNNER_TEMP/adbq"
-          n=0
-          while IFS= read -r _repo; do
-            [ -n "$_repo" ] || continue
-            n=$((n + 1))
-            if curl -fsSL --retry 2 -o "$RUNNER_TEMP/adbq/$n.adb" "$_repo" 2>/dev/null; then
-              echo "== repo $n: $_repo"
-              "$apkbin" adbdump "$RUNNER_TEMP/adbq/$n.adb" 2>/dev/null | grep -B4 -A1 -i 'pthread' | head -30 || echo "(no pthread here)"
-            else
-              echo "== repo $n: local/skip $_repo"
-            fi
-          done < "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
           APKROOT=(--root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted --usermode)
           "$apkbin" "${APKROOT[@]}" --initdb --no-scripts add z2k-adapter z2k-webpanel
           "$apkbin" "${APKROOT[@]}" search z2k-adapter | grep -q z2k-adapter
           "$apkbin" "${APKROOT[@]}" search z2k-webpanel | grep -q z2k-webpanel
           test -f "$RUNNER_TEMP/approot/usr/lib/z2k/platform/openwrt/update.sh"
           test -f "$RUNNER_TEMP/approot/etc/init.d/z2k"
+          test -f "$RUNNER_TEMP/approot/etc/init.d/z2k-webpanel"
           test -f "$RUNNER_TEMP/approot/usr/lib/z2k/share/seed.tar.gz"
 
       - name: Upload CI snapshot artifact
