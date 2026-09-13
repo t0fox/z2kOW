@@ -130,11 +130,13 @@ else
     done
     _srv_stop
 fi
-# 4. Негативный контроль: СТАРЫЙ directory-alias в той же фикстуре обязан
-# ПРОВАЛИТЬ routing-тест (иначе тест не отличит фикс от бага: на живом
-# роутере старый alias давал 404 на endpoint'ах + 200 с исходниками).
-sed -e 's|"/cgi-bin/api" =>.*|"/cgi-bin/" => "'"$T"'/srv/cgi/"|' \
-    "$T/live.conf" > "$T/live-bad.conf"
+# 4. Негативный контроль: СТАРЫЙ глобальный directory-alias в той же
+# фикстуре обязан ПРОВАЛИТЬ routing-тест (иначе тест не отличит фикс от
+# бага: на живом роутере глобальный alias давал 404 на endpoint'ах + 200
+# с исходниками). NB: alias обязан быть ГЛОБАЛЬНЫМ, как в живом баге —
+# внутри conditional он безвреден (conditional его и ограничивает).
+sed -e '/^    alias\.url = ($/,+2d' "$T/live.conf" > "$T/live-bad.conf"
+printf '\nalias.url += (\n    "/cgi-bin/" => "%s/srv/cgi/"\n)\n' "$T" >> "$T/live-bad.conf"
 sed -i 's|^server.port .*|server.port = 18081|' "$T/live-bad.conf"
 if ! _srv_start "$T/live-bad.conf" 18081; then
     _t_bad "negative-конфиг не встал (ожидался живой сервер с битым роутингом)"
