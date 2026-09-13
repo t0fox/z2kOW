@@ -217,12 +217,18 @@ printf '%s\n' "$_found" > "$SEED_TMP/apks.txt"
 while IFS= read -r _a; do
     [ -n "$_a" ] || continue
     printf 'package from %s built %s\nmetadata:\n' "$_a" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$OUT/METADATA.txt"
-    tar -tzf "$_a" 2>/dev/null | LC_ALL=C sort >> "$OUT/METADATA.txt" || \
-        die "не читается tar-список $_a"
+    _tarlist="$(tar -tzf "$_a" 2>/dev/null | LC_ALL=C sort)" \
+        || die "не читается tar-список $_a"
+    printf '%s\n' "$_tarlist" >> "$OUT/METADATA.txt"
+    # Листинг — и в stdout: на первом реальном APK формат может отличаться
+    # от ожидаемого (.PKGINFO-префикс и т.п.), слепой die недиагностируем.
+    note "tar-list $_a: $(printf '%s\n' "$_tarlist" | wc -l) entries; dotfiles: $(printf '%s\n' "$_tarlist" | grep -E '(^|/)\.' | tr '\n' ' ')"
     printf '\n.PKGINFO:\n' >> "$OUT/METADATA.txt"
-    tar -xzOf "$_a" .PKGINFO 2>/dev/null >> "$OUT/METADATA.txt" \
-        || tar -xzOf "$_a" ./.PKGINFO 2>/dev/null >> "$OUT/METADATA.txt" \
-        || die "в $_a нет .PKGINFO"
+    _pkginfo_name="$(printf '%s\n' "$_tarlist" | grep -E '(^|/)\.PKGINFO$' | head -1)"
+    [ -n "$_pkginfo_name" ] \
+        || die "в $_a нет .PKGINFO (dotfiles выше)"
+    tar -xzOf "$_a" "$_pkginfo_name" 2>/dev/null >> "$OUT/METADATA.txt" \
+        || die "не извлекается $_pkginfo_name из $_a"
     printf '\n---\n' >> "$OUT/METADATA.txt"
 done < "$SEED_TMP/apks.txt"
 ( cd "$OUT" && sha256sum z2k-*.apk > sha256sums )
