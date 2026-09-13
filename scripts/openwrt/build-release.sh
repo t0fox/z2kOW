@@ -54,6 +54,10 @@ fi
 [ -n "$MANIFEST" ] && [ -f "$MANIFEST" ] || die "--manifest: нужен OpenWrt-манифест релиза"
 [ -n "$OUT" ] || die "--out: нужен каталог dist"
 command -v python3 >/dev/null 2>&1 || die "нужен python3"
+# SEED_TMP — рано: нужен уже секции Stage-тестов (лог сьюта), а не только
+# секции seed coherence. Один mktemp на весь прогон, trap — один.
+SEED_TMP="$(mktemp -d)" || exit 1
+trap 'rm -rf "$SEED_TMP"' EXIT INT TERM
 # Версия — один источник: Makefile (package-only релиз = version-bump commit).
 PKG_VERSION="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$ROOT/package/openwrt/Makefile" | head -1 | tr -d '[:space:]')"
 PKG_RELEASE="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$ROOT/package/openwrt/Makefile" | head -1 | tr -d '[:space:]')"
@@ -104,8 +108,6 @@ MANIFEST_CURRENT="$(sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/
 [ -n "$MANIFEST_CURRENT" ] || die "в манифесте нет current"
 # seed собираем ТУТ же, из ЭТОГО дерева (не из артефакта): состав обязан
 # совпасть с тем, что поедет в пакет.
-SEED_TMP="$(mktemp -d)" || exit 1
-trap 'rm -rf "$SEED_TMP"' EXIT INT TERM
 sh "$ROOT/package/openwrt/make-seed.sh" "$ROOT" "$SEED_TMP/seed.tar.gz" >/dev/null 2>&1 \
     || die "make-seed.sh упал"
 SEED_TAG="$(tar -xzOf "$SEED_TMP/seed.tar.gz" usr/lib/z2k/share/seed.meta 2>/dev/null | sed -n 's/^tag=//p' | head -1)"
