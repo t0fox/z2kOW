@@ -960,8 +960,10 @@ jobs:
           } > "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
           cat "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
           printf '%s\n' "aarch64_cortex-a53" > "$RUNNER_TEMP/approot/etc/apk/arch"
-          APKROOT=(--root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted --usermode --arch aarch64_cortex-a53)
-          "$apkbin" "${APKROOT[@]}" --initdb --no-scripts add z2k-adapter z2k-webpanel
+          #   - search/usermode-несовместимость: --initdb/--no-scripts/--usermode —
+          #     ТОЛЬКО флаги add (search их отвергает "unrecognized option").
+          APKROOT=(--root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted --arch aarch64_cortex-a53)
+          "$apkbin" "${APKROOT[@]}" --usermode --initdb --no-scripts add z2k-adapter z2k-webpanel
           "$apkbin" "${APKROOT[@]}" search z2k-adapter | grep -q z2k-adapter
           "$apkbin" "${APKROOT[@]}" search z2k-webpanel | grep -q z2k-webpanel
           test -f "$RUNNER_TEMP/approot/usr/lib/z2k/platform/openwrt/update.sh"
