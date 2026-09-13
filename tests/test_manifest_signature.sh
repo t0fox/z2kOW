@@ -187,6 +187,10 @@ eval "$(awk '/^au_fetch_pair\(\) \{/,/^\}/' "$AU")"
 eval "$(awk '/^au_repair_torn_pair\(\) \{/,/^\}/' "$AU")"
 eval "$(awk '/^au_fetch_manifest\(\) \{/,/^\}/' "$AU")"
 eval "$(awk '/^au_manifest_current\(\) \{/,/^\}/' "$AU")"
+# platform gate зовётся из au_fetch_manifest: без него eval-контекст
+# падает с command not found (Stage 2 platform hook). Без Z2K_PLATFORM
+# гейт — passthrough (return 0 первой строкой).
+eval "$(awk '/^au_manifest_platform_ok\(\) \{/,/^\}/' "$AU")"
 
 SRV="$TMP/srv"; mkdir -p "$SRV"
 Z2K_AU_TMP_DIR="$TMP/au"

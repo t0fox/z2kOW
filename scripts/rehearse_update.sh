@@ -112,6 +112,24 @@ mkdir -p "$BASE"
 CANDSB="$WORK/cand"
 mkdir -p "$CANDSB"
 cp -R "$CAND/." "$CANDSB/" 2>/dev/null || { printf 'не копируется кандидат\n' >&2; exit 2; }
+# Ref-префиксы как в проде: скачивание идёт по неизменяемой ссылке
+# base/<ref>/<path> (au_repo_base + Z2K_AU_TARGET_REF), а не голым путём.
+# Поэтому каждый ref из манифеста получает своё поддерево с копией
+# deliverables (ветка без префикса тоже раздаётся — как raw без ref).
+# Без этого фикстуры с ref (напр. "HEAD") дают 404 на каждом файле — именно
+# так Stage 2.2.2 (repo-base hook) молча уронил эту репетицию до первого CI.
+_refs=$(sed -n 's/.*"ref"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$CANDSB/UPDATES.json" 2>/dev/null | LC_ALL=C sort -u)
+for _rr in $_refs; do
+    case "$_rr" in
+        ''|*[!A-Za-z0-9._-]*) continue ;; # пустой (legacy) и пути — не префиксы
+    esac
+    mkdir -p "$CANDSB/$_rr" || exit 2
+    ( cd "$CANDSB" && for _e in *; do
+        [ -e "$_e" ] || continue
+        case "$_e" in UPDATES.json*|"$_rr") continue ;; esac
+        cp -Rf "$_e" "$CANDSB/$_rr/" || exit 2
+      done ) || exit 2
+done
 awk -v sb="$SBOX" '
     /"[^"]+"[[:space:]]*:[[:space:]]*\[/ {
         line = $0; out = ""
@@ -218,6 +236,9 @@ Z2K_AU_TMP_DIR="$WORK/tmp"; export Z2K_AU_TMP_DIR
 Z2K_AU_LOG_FILE="$LOG"; export Z2K_AU_LOG_FILE
 Z2K_AU_INSTALLED_TAG_FILE="$BASE/.z2k-installed-tag"; export Z2K_AU_INSTALLED_TAG_FILE
 Z2K_AU_REPO_RAW="http://127.0.0.1:$PORT"; export Z2K_AU_REPO_RAW
+# RAW_BASE — тот же локальный сервер: ref'ы резолвятся в зеркала из блока
+# выше (как raw.githubusercontent.com в проде), наружу не ходим — hermetic.
+Z2K_AU_RAW_BASE="http://127.0.0.1:$PORT"; export Z2K_AU_RAW_BASE
 Z2K_AU_MANIFEST_URL="http://127.0.0.1:$PORT/UPDATES.json"; export Z2K_AU_MANIFEST_URL
 GITHUB_RAW="http://127.0.0.1:$PORT"; export GITHUB_RAW
 mkdir -p "\$Z2K_AU_TMP_DIR"

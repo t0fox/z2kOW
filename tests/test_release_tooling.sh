@@ -107,6 +107,17 @@ git diff --cached --quiet || git commit -q -m "overlay working tree" >/dev/null 
 # опубликовано ровно то, что лежит в дереве" — штатное состояние перед релизом.
 git remote set-url origin "$TMP/clone" 2>/dev/null || git remote add origin "$TMP/clone" 2>/dev/null
 
+# Теги предыдущих релизов — тоже фикстура песочницы, а не ambient remote state.
+# release.sh проверяет существование PREV_REF (git cat-file -e) раньше любых
+# гейтов; на checkout без тегов (форк, shallow) все сценарии ниже умирали бы
+# одной чужой ошибкой вместо своих. Ставим лёгкие теги на базу песочницы:
+# проверяется СУЩЕСТВОВАНИЕ ссылки, а не подпись (подписи тегов — забота
+# publish gate, см. test_publish_gate.sh). HEAD скипаем: он и так резолвится.
+for _tr in $(sed -n 's/.*"ref"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' UPDATES.json 2>/dev/null | LC_ALL=C sort -u); do
+    case "$_tr" in ''|HEAD) continue ;; esac
+    git tag -f "$_tr" HEAD >/dev/null 2>&1 || true
+done
+
 # --- property 1, с зубами: порядок проверяется только при СМЕНЕ версии ---------
 # На сошедшемся дереве правка кеш-бастера — no-op, и неверный порядок внутри
 # генератора не проявляется вообще. Ловится он лишь тогда, когда "current"
