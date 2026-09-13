@@ -109,6 +109,19 @@ printf '# TAMPERED\n' >> "$T/tree/lib/a.sh"
 sh "$GEN" --source-manifest "$T/src.json" --tree "$T/tree" --ref "p-2" \
     --api-min 1 --out "$T/out2.json" --allow-dirty >/dev/null 2>&1 \
     && _t_bad "gen: sha-mismatch принят" || _t_ok
+# --- --refresh-stale-hashes: правда дерева с громким списком ---
+sh "$GEN" --source-manifest "$T/src.json" --tree "$T/tree" --ref "p-2" \
+    --api-min 1 --out "$T/out2r.json" --allow-dirty --refresh-stale-hashes \
+    > "$T/refresh.log" 2>&1
+assert_eq "gen refresh rc" "0" "$?"
+_newsha="$(sha256sum "$T/tree/lib/a.sh" | awk '{print $1}')"
+assert_eq "gen refresh: хэш дерева" "$_newsha" \
+    "$(sed -n 's/^  "lib\/a.sh": "\(.*\)",\?$/\1/p' "$T/out2r.json" | head -1)"
+if grep -q 'refreshed=1' "$T/refresh.log" 2>/dev/null && grep -q 'lib/a.sh' "$T/refresh.log" 2>/dev/null; then
+    _t_ok
+else
+    _t_bad "gen refresh: нет громкого списка"
+fi
 
 # --- dirty tree: отказ без флага ---
 rm -rf "$T/grepo" && mkdir -p "$T/grepo" && cd "$T/grepo" || exit 1
