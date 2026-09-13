@@ -84,7 +84,9 @@ merge failure propagation), `scripts/gen_file_hashes.sh` (platform-маркер
 `z2k-warpd/builds/*` (deliberate build refresh: бинарники, пересобранные
 каноническим тулчейном z2k-warpd/Makefile; БАЙТ-АВТОРИТЕТ — CI-джоба
 "Отгружаемые бинарники", не этот guard: path-based проверка отличить
-refresh от подмены не может, content держит пересборка+sha256 каждый ран).
+refresh от подмены не может, content держит пересборка+sha256 каждый ран),
+`lib/strategies.sh` + `z2k.sh` + `tests/test_au_compat.sh` (busybox-safe
+tr-idiom Stage 8: замена GNU-классов явными наборами, GNU-эквивалент).
 Нарушение seam'а печатается
 с категорией (lua/detectors/strategies/webpanel/update-system/warp).
 После каждого upstream sync BASELINE сдвигается на новый upstream HEAD.
