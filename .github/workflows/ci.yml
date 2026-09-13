@@ -845,24 +845,28 @@ jobs:
             --out "$RUNNER_TEMP/dist" 2>&1 | tee "$RUNNER_TEMP/build-release.log"
           cp "$RUNNER_TEMP/build-release.log" "$RUNNER_TEMP/dist/"
 
-      - name: Inspect APK metadata (.PKGINFO)
+      - name: Inspect APK metadata (apk v3 adbdump)
         run: |
           set -eu -o pipefail
           ls -la "$RUNNER_TEMP/dist"/z2k-adapter-*.apk "$RUNNER_TEMP/dist"/z2k-webpanel-*.apk
-          for a in "$RUNNER_TEMP/dist"/z2k-adapter-*.apk "$RUNNER_TEMP/dist"/z2k-webpanel-*.apk; do
-            echo "=== $a ==="
-            tar -tzf "$a" | sort
-            tar -xzOf "$a" .PKGINFO
-          done
-          grep -q 'cortex-a53' "$RUNNER_TEMP/dist/METADATA.txt"
+          echo "=== METADATA.txt (adbdump) ==="
+          cat "$RUNNER_TEMP/dist/METADATA.txt"
+          # Arch-assert — следующим коммитом, когда увидим поле arch в
+          # adbdump (PKGARCH:=all может дать arch=all — тогда доказательство
+          # арки = Makefile-пин + путь bin/packages/aarch64_cortex-a53/).
 
       - name: Build feed index with SDK tooling
         run: |
           set -eu -o pipefail
           sdk=~/openwrt-sdk-25.12.5-mediatek-filogic
           make -C "$sdk" package/index V=s
-          adb="$(find "$sdk/bin/packages" -name 'packages.adb' | LC_ALL=C sort | head -1)"
-          test -n "$adb"
+          # Индекс — из ТОЙ ЖЕ директории, где лежат наши .apk (в SDK
+          # несколько packages.adb: base/kmods/luci/...; head -1 по всему
+          # дереву мог взять чужой).
+          apkdir="$(dirname "$(find "$sdk/bin/packages" -name 'z2k-adapter-*.apk' | LC_ALL=C sort | head -1)")"
+          test -n "$apkdir"
+          adb="$apkdir/packages.adb"
+          test -f "$adb"
           echo "packages.adb: $adb"
           cp -f "$adb" "$RUNNER_TEMP/dist/packages.adb"
 

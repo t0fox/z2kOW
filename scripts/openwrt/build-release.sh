@@ -209,57 +209,28 @@ mkdir -p "$OUT" || die "нет $OUT"
 _found="$(find "$SDK/bin/packages" -name 'z2k-*.apk' 2>/dev/null | LC_ALL=C sort)"
 [ -n "$_found" ] || die "SDK отработал, но z2k-*.apk не найдены в $SDK/bin/packages"
 printf '%s\n' "$_found" | while IFS= read -r _a; do cp -f "$_a" "$OUT/" || exit 1; done
-# inspect metadata БЕЗ apk-тулчейна: .apk — tar, .PKGINFO внутри читается.
-# Цикл — редиректом из файла, НЕ пайпом: die/exit внутри тела обязаны ронять
+# inspect metadata ШТАТНЫМ apk-тулчейном SDK: OpenWrt 25.12 — это APK v3,
+# .apk там ADB-контейнер ("ADBd"-магия), а НЕ gzip-tar — tar им не читается
+# в принципе, .PKGINFO отдельно не лежит (поймано реальными CI-ранами).
+# Метаданные показывает `apk adbdump` (cheatsheet opkg-to-apk). Цикл —
+# редиректом из файла, НЕ пайпом: die/exit внутри тела обязаны ронять
 # скрипт, а не молча умирать в подоболочке.
+APKBIN="$SDK/staging_dir/host/bin/apk"
+[ -x "$APKBIN" ] || die "нет host apk ($APKBIN) — inspect нечем"
+note "host apk: $("$APKBIN" --version 2>&1 | head -1)"
 printf '%s\n' "$_found" > "$SEED_TMP/apks.txt"
 : > "$OUT/METADATA.txt" || die "нет $OUT/METADATA.txt"
 while IFS= read -r _a; do
     [ -n "$_a" ] || continue
-    printf 'package from %s built %s\nmetadata:\n' "$_a" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$OUT/METADATA.txt"
-    _tarlist=""
-    # БЕЗ пайпа в условии: в dash нет pipefail, `if tar|sort` проверяет sort
-    # (всегда 0) — else-блок с диагностикой становился мёртвым (поймано CI).
-    _tar_rc=0
-    tar -tzf "$_a" 2>"$SEED_TMP/tar.err" >"$SEED_TMP/tarlist-raw.txt" || _tar_rc=$?
-    if [ "$_tar_rc" -eq 0 ] && [ -s "$SEED_TMP/tarlist-raw.txt" ]; then
-        LC_ALL=C sort "$SEED_TMP/tarlist-raw.txt" >"$SEED_TMP/tarlist.txt"
-        _tarlist="$(cat "$SEED_TMP/tarlist.txt")"
-    else
-        # НЕ gzip-tar. Диагностируем контейнер (OpenWrt 25.12 APK — не факт
-        # что gzip: проверяем file/магию и пробуем zstd/xz/ar по очереди).
-        note "file $_a: $(file -b "$_a" 2>/dev/null || echo 'no file(1)')"
-        note "size: $(wc -c <"$_a" 2>/dev/null || echo '?') bytes; tar-err: $(head -c 200 "$SEED_TMP/tar.err" 2>/dev/null | tr '\n' '|')"
-        note "head: $(head -c 48 "$_a" 2>/dev/null | od -An -c | tr '\n' '|' | head -c 200)"
-        for _decomp in "zstd -dc" "xz -dc"; do
-            if $_decomp "$_a" 2>/dev/null | tar -t 2>/dev/null | LC_ALL=C sort >"$SEED_TMP/tarlist.txt" \
-                && [ -s "$SEED_TMP/tarlist.txt" ]; then
-                note "apk inner compression: $_decomp"
-                _tarlist="$(cat "$SEED_TMP/tarlist.txt")"
-                _apk_decomp="$_decomp"
-                break
-            fi
-        done
-        if [ -z "$_tarlist" ] && command -v ar >/dev/null 2>&1 && ar t "$_a" >/dev/null 2>&1; then
-            note "apk is ar archive: $(ar t "$_a" 2>/dev/null | tr '\n' ' ')"
-        fi
-    fi
-    [ -n "$_tarlist" ] || die "не читается tar-список $_a (формат выше)"
-    printf '%s\n' "$_tarlist" >> "$OUT/METADATA.txt"
-    # Листинг — и в stdout: на первом реальном APK формат может отличаться
-    # от ожидаемого (.PKGINFO-префикс и т.п.), слепой die недиагностируем.
-    note "tar-list $_a: $(printf '%s\n' "$_tarlist" | wc -l) entries; dotfiles: $(printf '%s\n' "$_tarlist" | grep -E '(^|/)\.' | tr '\n' ' ')"
-    printf '\n.PKGINFO:\n' >> "$OUT/METADATA.txt"
-    _pkginfo_name="$(printf '%s\n' "$_tarlist" | grep -E '(^|/)\.PKGINFO$' | head -1)"
-    [ -n "$_pkginfo_name" ] \
-        || die "в $_a нет .PKGINFO (dotfiles выше)"
-    if [ -n "${_apk_decomp:-}" ]; then
-        $_apk_decomp "$_a" 2>/dev/null | tar -xO "$_pkginfo_name" 2>/dev/null >> "$OUT/METADATA.txt" \
-            || die "не извлекается $_pkginfo_name из $_a ($_apk_decomp)"
-    else
-        tar -xzOf "$_a" "$_pkginfo_name" 2>/dev/null >> "$OUT/METADATA.txt" \
-            || die "не извлекается $_pkginfo_name из $_a"
-    fi
+    printf 'package from %s built %s\nadbdump:\n' "$_a" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$OUT/METADATA.txt"
+    note "file $_a: $(file -b "$_a" 2>/dev/null || echo '?'); size: $(wc -c <"$_a" 2>/dev/null || echo '?') bytes"
+    "$APKBIN" adbdump "$_a" >"$SEED_TMP/adb.txt" 2>"$SEED_TMP/adb.err" \
+        || { head -c 800 "$SEED_TMP/adb.err" >&2 || true; die "adbdump упал для $_a"; }
+    cat "$SEED_TMP/adb.txt" >> "$OUT/METADATA.txt"
+    note "adbdump head: $(head -15 "$SEED_TMP/adb.txt" | tr '\n' '|' | head -c 700)"
+    # Имя пакета обязано присутствовать (иначе собрали не то).
+    grep -q "z2k-adapter\|z2k-webpanel" "$SEED_TMP/adb.txt" \
+        || die "adbdump $_a без имени пакета"
     printf '\n---\n' >> "$OUT/METADATA.txt"
 done < "$SEED_TMP/apks.txt"
 ( cd "$OUT" && sha256sum z2k-*.apk > sha256sums )
