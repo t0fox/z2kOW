@@ -195,6 +195,7 @@ if [ ! -f "$SDK/.config" ]; then
 fi
 note "make package/z2k-adapter/compile + package/z2k-webpanel/compile ..."
 if ! make -C "$SDK" "package/z2k-adapter/compile" "package/z2k-webpanel/compile" V=s >"$SDK_LOG" 2>&1; then
+    tail -50 "$SDK_LOG" 2>/dev/null >&2 || true
     die "сборка в SDK упала, лог: $SDK_LOG"
 fi
 note "SDK build ok"
@@ -224,6 +225,12 @@ done < "$SEED_TMP/apks.txt"
 ( cd "$OUT" && sha256sum z2k-*.apk > sha256sums )
 if [ -f "$OW_TESTS_LOG" ]; then
     cp -f "$OW_TESTS_LOG" "$OUT/ow-tests.log" 2>/dev/null || true
+fi
+if [ -f "$SDK_LOG" ]; then
+    cp -f "$SDK_LOG" "$OUT/sdk-build.log" 2>/dev/null || true
+fi
+if [ -f "$SDK_LOG.defconfig" ]; then
+    cp -f "$SDK_LOG.defconfig" "$OUT/sdk-defconfig.log" 2>/dev/null || true
 fi
 note "dist: $(ls "$OUT" | tr '\n' ' ')"
 # provenance.json — machine-readable (§24, формат владеет write-provenance.sh).

@@ -912,5 +912,7 @@ jobs:
             ${{ runner.temp }}/dist/provenance.json
             ${{ runner.temp }}/dist/METADATA.txt
             ${{ runner.temp }}/dist/ow-tests.log
+            ${{ runner.temp }}/dist/sdk-build.log
+            ${{ runner.temp }}/dist/sdk-defconfig.log
             ${{ runner.temp }}/dist/build-release.log
             ${{ runner.temp }}/dist/feed-test.pub
