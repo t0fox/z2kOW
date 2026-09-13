@@ -907,10 +907,12 @@ jobs:
       #   - lib/apk/db сам не создаётся ("Unable to lock database") — mkdir;
       #   - пустой root надо инициализировать ("Unable to read database") —
       #     ТОЛЬКО add --initdb это умеет, голый update — нет;
-      #   - postinst выполнять НЕЛЬЗЯ: он целится в /usr/lib/z2k раннера
-      #     (apk не ставит IPKG_INSTROOT) — ставим --no-scripts, логика
-      #     postinst покрыта ow-seed/lc функционально.
-      - name: Feed resolution in isolated root (SDK apk)
+          #   - postinst выполнять НЕЛЬЗЯ: он целится в /usr/lib/z2k раннера
+          #     (apk не ставит IPKG_INSTROOT) — ставим --no-scripts, логика
+          #     postinst покрыта ow-seed/lc функционально.
+          #   - раннер не root: создание DB только через --usermode (подсказал
+          #     сам apk: "Use --usermode to allow creating database as non-root").
+          - name: Feed resolution in isolated root (SDK apk)
         run: |
           set -eu -o pipefail
           apkbin=~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk
@@ -921,9 +923,10 @@ jobs:
           # apk v3: запись репозитория — прямой URL на packages.adb (как в
           # distfeeds.list релиза), НЕ каталог: каталог ищет <arch>/packages.adb.
           printf '%s\n' "file://$RUNNER_TEMP/dist/packages.adb" > "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
-          "$apkbin" --root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted --initdb --no-scripts add z2k-adapter z2k-webpanel
-          "$apkbin" --root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted search z2k-adapter | grep -q z2k-adapter
-          "$apkbin" --root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted search z2k-webpanel | grep -q z2k-webpanel
+          APKROOT=(--root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted --usermode)
+          "$apkbin" "${APKROOT[@]}" --initdb --no-scripts add z2k-adapter z2k-webpanel
+          "$apkbin" "${APKROOT[@]}" search z2k-adapter | grep -q z2k-adapter
+          "$apkbin" "${APKROOT[@]}" search z2k-webpanel | grep -q z2k-webpanel
           test -f "$RUNNER_TEMP/approot/usr/lib/z2k/platform/openwrt/update.sh"
           test -f "$RUNNER_TEMP/approot/etc/init.d/z2k"
           test -f "$RUNNER_TEMP/approot/usr/lib/z2k/share/seed.tar.gz"
