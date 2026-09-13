@@ -43,12 +43,14 @@ _tout="$(lighttpd -t -f "$_out" 2>&1)"; _trc=$?
 if [ "$_trc" = "0" ]; then _t_ok
 else _t_bad "lighttpd -t отверг конфиг: $_tout"; fi
 
-# Негативный контроль: несуществующий модуль обязан ронять -t
-# (иначе позитив выше — пустышка, проверяющая ничего).
+# Негативный контроль: битый синтаксис обязан ронять -t (иначе позитив
+# выше — пустышка). NOTE: несуществующий модуль через server.modules +=
+# этот -t НЕ ловит (модули он не грузит — проверено CI-раном); имена модулей
+# держит static-assert в test_ow_webpanel_package.sh (точный сет + DEPENDS).
 cp "$_out" "$T/bad.conf"
-printf '\nserver.modules += ( "mod_no_such_xyz" )\n' >> "$T/bad.conf"
+printf '\nthis is not valid lighttpd {{{ \n' >> "$T/bad.conf"
 _bout="$(lighttpd -t -f "$T/bad.conf" 2>&1)"; _brc=$?
 if [ "$_brc" != "0" ]; then _t_ok
-else _t_bad "lighttpd -t принял несуществующий модуль"; fi
+else _t_bad "lighttpd -t принял битый синтаксис"; fi
 
 _t_done
