@@ -231,6 +231,11 @@ while IFS= read -r _a; do
     # Имя пакета обязано присутствовать (иначе собрали не то).
     grep -q "z2k-adapter\|z2k-webpanel" "$SEED_TMP/adb.txt" \
         || die "adbdump $_a без имени пакета"
+    # Арка — из реального adbdump (резолвер её же показывает; PKGARCH:=all
+    # всё равно даёт target-арку — доказано CI-раном).
+    grep -q "aarch64_cortex-a53" "$SEED_TMP/adb.txt" \
+        || die "adbdump $_a без arch aarch64_cortex-a53"
+    note "arch: $(grep -E 'arch' "$SEED_TMP/adb.txt" | head -3 | tr '\n' '|' | head -c 200)"
     printf '\n---\n' >> "$OUT/METADATA.txt"
 done < "$SEED_TMP/apks.txt"
 ( cd "$OUT" && sha256sum z2k-*.apk > sha256sums )

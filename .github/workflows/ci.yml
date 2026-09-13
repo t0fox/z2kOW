@@ -920,9 +920,21 @@ jobs:
           "$apkbin" --version
           mkdir -p "$RUNNER_TEMP/approot/etc/apk/keys" "$RUNNER_TEMP/approot/etc/apk/repositories.d"
           mkdir -p "$RUNNER_TEMP/approot/lib/apk/db" "$RUNNER_TEMP/approot/tmp"
-          # apk v3: запись репозитория — прямой URL на packages.adb (как в
-          # distfeeds.list релиза), НЕ каталог: каталог ищет <arch>/packages.adb.
-          printf '%s\n' "file://$RUNNER_TEMP/dist/packages.adb" > "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
+          # Резолв — против НАСТОЯЩИХ фидов релиза (тот же 25.12.5, что и SDK:
+          # версионная консистентность по построению) + наш dist. Только наш
+          # фид резолвить не может: conntrack/lighttpd/libc — base/packages,
+          # kmod-nft-queue — kmods таргета (резолвер это честно показал).
+          REL=25.12.5; ARCH=aarch64_cortex-a53; TGT=mediatek/filogic
+          DL="https://downloads.openwrt.org/releases/$REL"
+          {
+            echo "file://$RUNNER_TEMP/dist/packages.adb"
+            echo "$DL/packages/$ARCH/base/packages.adb"
+            echo "$DL/packages/$ARCH/packages/packages.adb"
+            KMOD="$(curl -fsSL --retry 3 "$DL/targets/$TGT/kmods/" | sed -n 's/.*href="\([^"]*\)".*/\1/p' | grep -E '^[0-9].*/$' | head -1)"
+            test -n "$KMOD"
+            echo "${DL}/targets/${TGT}/kmods/${KMOD}packages.adb"
+          } > "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
+          cat "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
           APKROOT=(--root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted --usermode)
           "$apkbin" "${APKROOT[@]}" --initdb --no-scripts add z2k-adapter z2k-webpanel
           "$apkbin" "${APKROOT[@]}" search z2k-adapter | grep -q z2k-adapter
