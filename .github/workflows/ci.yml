@@ -935,6 +935,21 @@ jobs:
             echo "${DL}/targets/${TGT}/kmods/${KMOD}packages.adb"
           } > "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
           cat "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
+          # Кто предоставляет libpthread (транзитивный dep lighttpd)? Смотрим
+          # прямо в индексы фидов — ответ решает, какой фид добавить.
+          apkbin=~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk
+          mkdir -p "$RUNNER_TEMP/adbq"
+          n=0
+          while IFS= read -r _repo; do
+            [ -n "$_repo" ] || continue
+            n=$((n + 1))
+            if curl -fsSL --retry 2 -o "$RUNNER_TEMP/adbq/$n.adb" "$_repo" 2>/dev/null; then
+              echo "== repo $n: $_repo"
+              "$apkbin" adbdump "$RUNNER_TEMP/adbq/$n.adb" 2>/dev/null | grep -B4 -A1 -i 'pthread' | head -30 || echo "(no pthread here)"
+            else
+              echo "== repo $n: local/skip $_repo"
+            fi
+          done < "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
           APKROOT=(--root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted --usermode)
           "$apkbin" "${APKROOT[@]}" --initdb --no-scripts add z2k-adapter z2k-webpanel
           "$apkbin" "${APKROOT[@]}" search z2k-adapter | grep -q z2k-adapter
