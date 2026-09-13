@@ -184,7 +184,8 @@ assert_contains "au: warp openwrt-ветка" "$AU" 'warp-proc.sh'
 assert_contains "au: keenetic S51 цел" "$AU" '/opt/etc/init.d/S51z2k-warp'
 # Entrypoints — в INSTALL_BIN-блоке Makefile (исполняются напрямую:
 # cron exec, updater [ -x ]); остальное может оставаться INSTALL_DATA.
-_binblock="$(awk '/\$\(INSTALL_BIN\) \.\/platform\/openwrt\//,/usr\/lib\/z2k\/platform\/openwrt\/$/' "$MK")"
+# Пути — через $(Z2K_TREE) (рецепт работает из package/openwrt/).
+_binblock="$(awk '/\$\(INSTALL_BIN\) .*platform\/openwrt\//,/usr\/lib\/z2k\/platform\/openwrt\/$/' "$MK")"
 for _e in update.sh tg-check.sh rt-check.sh rt-proc.sh warp.sh warp-proc.sh warp-check.sh; do
     if printf '%s' "$_binblock" | grep -qF "$_e"; then _t_ok; else _t_bad "Makefile: $_e не в INSTALL_BIN"; fi
 done
