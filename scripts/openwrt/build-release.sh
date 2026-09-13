@@ -83,14 +83,20 @@ SRC_COMMIT="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)" || die "не git-ре�
 note "source commit: $SRC_COMMIT"
 
 # --- 2. Stage-тесты ------------------------------------------------------------
+# Лог сьюта — в артефакт (не в /dev/null: иначе падение в CI недиагностируемо;
+# FAIL-строки дублируем в stdout сразу).
+OW_TESTS_LOG="$SEED_TMP/ow-tests.log"
 if [ "$SKIP_TESTS" = "1" ]; then
     [ "$DEV" = "1" ] || die "--skip-tests только вместе с --dev"
     note "ВНИМАНИЕ: Stage-тесты пропущены (--dev)"
 else
-    note "Stage-тесты: sh tests/openwrt/run.sh"
-    sh "$ROOT/tests/openwrt/run.sh" >/dev/null 2>&1 \
-        || die "tests/openwrt/run.sh упал — production build запрещён"
-    note "Stage-тесты зелёные"
+    note "Stage-тесты: sh tests/openwrt/run.sh (лог: ow-tests.log)"
+    if sh "$ROOT/tests/openwrt/run.sh" >"$OW_TESTS_LOG" 2>&1; then
+        note "Stage-тесты зелёные"
+    else
+        grep -E '^(SUITE.*fail=[1-9]|FAIL|OPENWRT)' "$OW_TESTS_LOG" 2>/dev/null | head -30 >&2 || true
+        die "tests/openwrt/run.sh упал — production build запрещён (см. ow-tests.log в dist)"
+    fi
 fi
 
 # --- 3. manifest/seed coherence -------------------------------------------------
@@ -209,6 +215,9 @@ while IFS= read -r _a; do
     printf '\n---\n' >> "$OUT/METADATA.txt"
 done < "$SEED_TMP/apks.txt"
 ( cd "$OUT" && sha256sum z2k-*.apk > sha256sums )
+if [ -f "$OW_TESTS_LOG" ]; then
+    cp -f "$OW_TESTS_LOG" "$OUT/ow-tests.log" 2>/dev/null || true
+fi
 note "dist: $(ls "$OUT" | tr '\n' ' ')"
 # provenance.json — machine-readable (§24, формат владеет write-provenance.sh).
 # CI snapshot (§4): тот же implementation, но provenance честно маркирует

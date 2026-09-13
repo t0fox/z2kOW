@@ -57,10 +57,16 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     Stage 7 (NEW; common-манифест не трогает, только читает)
 #   scripts/openwrt/build-release.sh + scripts/openwrt/write-provenance.sh:
 #     каноническая сборка APK-релиза Stage 7 (NEW; только гейты+артефакты)
+#   scripts/rehearse_update.sh: ref-префиксы + hermetic RAW_BASE (closure;
+#     чинит репетицию под ref-pinning Stage 2.2.2, прод-механика та же)
+#   tests/test_manifest_signature.sh: eval platform gate (closure; список
+#     выдёргиваемых функций обязан следовать за хуками au_fetch_manifest)
+#   tests/test_release_tooling.sh: fixture-теги предыдущих релизов (closure;
+#     hermetic вместо ambient remote state — форк без тегов)
 #   .github/workflows/ci.yml: openwrt-package job на pinned SDK (closure;
 #     остальной workflow не тронут, permissions contents:read + actions:write
 #     точечно на джобу)
-ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/app.js docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh .github/workflows/ci.yml"
+ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/app.js docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh .github/workflows/ci.yml scripts/rehearse_update.sh tests/test_manifest_signature.sh tests/test_release_tooling.sh"
 
 # Граница меряется от production-ветки, когда она видна: то, что уже
 # опубликовано production-релизом (манифест, подпись, index.html...), —
@@ -89,7 +95,8 @@ _seam_of() {
         *detect*|*circular*|*rotat*) echo "detectors" ;;
         strats_new2.txt|quic_strats.ini|lib/strategies.sh|lib/config_official.sh) echo "strategies" ;;
         webpanel/*) echo "common-webpanel" ;;
-        scripts/openwrt/*) echo "release-tooling" ;;
+        scripts/openwrt/*|scripts/rehearse_update.sh) echo "release-tooling" ;;
+        tests/*) echo "common-tests" ;;
         lib/auto_update.sh|lib/release_map.sh|files/z2k-config-validator.sh|scripts/gen_file_hashes.sh) echo "update-system" ;;
         *warp*|*Warp*|*WARP*) echo "warp" ;;
         *) echo "other-common" ;;
@@ -118,7 +125,7 @@ else
     for _f in $_bad; do
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
-            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/app.js|docs/openwrt-webpanel-contract.md|docs/openwrt-release-contract.md|scripts/openwrt/gen-openwrt-manifest.sh|scripts/openwrt/build-release.sh|scripts/openwrt/write-provenance.sh|.github/workflows/ci.yml) continue ;;
+            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/app.js|docs/openwrt-webpanel-contract.md|docs/openwrt-release-contract.md|scripts/openwrt/gen-openwrt-manifest.sh|scripts/openwrt/build-release.sh|scripts/openwrt/write-provenance.sh|.github/workflows/ci.yml|scripts/rehearse_update.sh|tests/test_manifest_signature.sh|tests/test_release_tooling.sh) continue ;;
             UPDATES.json)
                 # Манифест следует за деревом: разрешены hash-обновления
                 # файлов, чьи правки сами allowlisted (хеш следует за
