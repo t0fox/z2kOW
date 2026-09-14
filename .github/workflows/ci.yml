@@ -1002,32 +1002,10 @@ jobs:
           "$apkbin" --version
           mkdir -p "$RUNNER_TEMP/approot/etc/apk/keys" "$RUNNER_TEMP/approot/etc/apk/repositories.d"
           mkdir -p "$RUNNER_TEMP/approot/lib/apk/db" "$RUNNER_TEMP/approot/tmp"
-          # Резолв — против НАСТОЯЩИХ фидов релиза (тот же 25.12.5, что и SDK:
-          # версионная консистентность по построению). Наш feed — пятым,
-          # флагом --repository (добавляется, не заменяет).
-          REL=25.12.5; ARCH=aarch64_cortex-a53; TGT=mediatek/filogic
-          DL="https://downloads.openwrt.org/releases/$REL"
-          # Kernel ABI — из target packages feed (источник правды), НЕ head -1
-          # листинга kmods: kernel 6.12.94~<hash>-r1 <-> kmods dir 6.12.94-1-<hash>.
-          # ФОРМАТ ВАЖЕН: дамп ИНДЕКСА — списки с дефисом ("  - name: kernel",
-          # "    version: ..."), а не формат дампа пакета ("  name:") —
-          # несовпавший grep под pipefail умирал МОЛЧА (доказано прошлым раном).
-          curl -fSLsS --retry 3 -o "$RUNNER_TEMP/target-packages.adb" "$DL/targets/$TGT/packages/packages.adb"
-          echo "--- kernel record (target feed):"
-          "$apkbin" adbdump "$RUNNER_TEMP/target-packages.adb" 2>/dev/null | grep -A3 '^  - name: kernel$' | head -8 || true
-          # || true ВНУТРИ подстановки: несовпавший grep под pipefail иначе
-          # роняет шаг молча, до громкой проверки ниже.
-          KVER_FULL="$("$apkbin" adbdump "$RUNNER_TEMP/target-packages.adb" 2>/dev/null | grep -A3 '^  - name: kernel$' | sed -n 's/^ *version: //p' | head -1 || true)"
-          [ -n "$KVER_FULL" ] || { echo "kernel record не распознан (дамп выше)" >&2; exit 1; }
-          echo "target kernel package: $KVER_FULL"
-          KABI="$(printf '%s' "$KVER_FULL" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+)~([0-9a-f]+)-r[0-9]+$/\1-1-\2/')"
-          case "$KABI" in
-            [0-9]*.[0-9]*.[0-9]*-1-[0-9a-f]*) ;;
-            *) echo "kmods ABI не вывелся из kernel $KVER_FULL" >&2; exit 1 ;;
-          esac
-          echo "kmods ABI: $KABI"
-          curl -fSLsS --retry 3 -o /dev/null "$DL/targets/$TGT/kmods/$KABI/" \
-            || { echo "kmods dir $KABI отсутствует на релизе" >&2; exit 1; }
+          # Канонические репозитории — общий fragment (4 системных + z2k):
+          # тот же KABI-derivation, что в upgrade-шаге (расхождение = баг).
+          # shellcheck disable=SC1090,SC1091
+          . scripts/openwrt/ci-apk-repos.sh
           FEED_PORT=18881
           python3 -c 'import functools,sys; from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), functools.partial(SimpleHTTPRequestHandler, directory=sys.argv[2])).serve_forever()' "$FEED_PORT" "$RUNNER_TEMP/dist/feed" &
           FEED_SRV=$!
@@ -1035,15 +1013,15 @@ jobs:
           sleep 2
           curl -fSLsS --max-time 10 -o /dev/null "http://127.0.0.1:$FEED_PORT/packages.adb"
           printf '%s\n' "aarch64_cortex-a53" > "$RUNNER_TEMP/approot/etc/apk/arch"
+          # shellcheck disable=SC2086
+          SYS_REPOS="$(z2k_apk_repos "$apkbin" "$RUNNER_TEMP" "http://127.0.0.1:$FEED_PORT/packages.adb")"
+          test -n "$SYS_REPOS"
           # Ставим ТОЛЬКО webpanel: adapter приедет по его DEPENDS, runtime —
           # по DEPENDS адаптера. Явное перечисление троицы здесь запретило бы
           # сам предмет проверки (parity flow).
+          # shellcheck disable=SC2086
           "$apkbin" --root "$RUNNER_TEMP/approot" --arch aarch64_cortex-a53 --allow-untrusted \
-            --repository "$DL/targets/$TGT/packages/packages.adb" \
-            --repository "$DL/packages/$ARCH/base/packages.adb" \
-            --repository "$DL/packages/$ARCH/packages/packages.adb" \
-            --repository "$DL/targets/$TGT/kmods/$KABI/packages.adb" \
-            --repository "http://127.0.0.1:$FEED_PORT/packages.adb" \
+            $SYS_REPOS \
             --usermode --initdb --no-scripts add z2k-webpanel
           "$apkbin" --root "$RUNNER_TEMP/approot" --arch aarch64_cortex-a53 --allow-untrusted \
             --repository "http://127.0.0.1:$FEED_PORT/packages.adb" \
@@ -1085,8 +1063,11 @@ jobs:
         run: |
           set -eu -o pipefail
           apkbin=~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk
-          REL=25.12.5; ARCH=aarch64_cortex-a53; TGT=mediatek/filogic
-          DL="https://downloads.openwrt.org/releases/$REL"
+          # shellcheck disable=SC1090,SC1091
+          . scripts/openwrt/ci-apk-repos.sh
+          # Порты — ТОЛЬКО этого шага (прошлый step мёртв, его vars недоступны):
+          OLD_PORT=18882
+          NEW_PORT=18881
           mkdir -p "$RUNNER_TEMP/oldfeed" "$RUNNER_TEMP/oldart"
           # Предыдущий snapshot — явный пин рана (аудита ради, не latest):
           # CI 34873838732 / HEAD 389c6c4 = r2/r2/r3.
@@ -1095,32 +1076,34 @@ jobs:
             --dir "$RUNNER_TEMP/oldart" --repo "$GITHUB_REPOSITORY"
           cp -f "$RUNNER_TEMP/oldart"/z2k-*.apk "$RUNNER_TEMP/oldart/feed/packages.adb" "$RUNNER_TEMP/oldfeed/"
           ls "$RUNNER_TEMP/oldfeed/"
-          python3 -c 'import functools,sys; from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), functools.partial(SimpleHTTPRequestHandler, directory=sys.argv[2])).serve_forever()' 18882 "$RUNNER_TEMP/oldfeed" &
+          python3 -c 'import functools,sys; from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), functools.partial(SimpleHTTPRequestHandler, directory=sys.argv[2])).serve_forever()' "$OLD_PORT" "$RUNNER_TEMP/oldfeed" &
           OLDSRV=$!
           # Новый фид тоже поднимаем здесь же (сервер прошлого шага уже мёртв:
           # у каждого step свой shell и свой EXIT-trap).
-          python3 -c 'import functools,sys; from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), functools.partial(SimpleHTTPRequestHandler, directory=sys.argv[2])).serve_forever()' 18881 "$RUNNER_TEMP/dist/feed" &
+          python3 -c 'import functools,sys; from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), functools.partial(SimpleHTTPRequestHandler, directory=sys.argv[2])).serve_forever()' "$NEW_PORT" "$RUNNER_TEMP/dist/feed" &
           NEWSRV=$!
           trap 'kill $OLDSRV $NEWSRV 2>/dev/null' EXIT
           sleep 2
           mkdir -p "$RUNNER_TEMP/approot2/etc/apk/keys" "$RUNNER_TEMP/approot2/etc/apk/repositories.d"
           mkdir -p "$RUNNER_TEMP/approot2/lib/apk/db" "$RUNNER_TEMP/approot2/tmp"
           printf '%s\n' "aarch64_cortex-a53" > "$RUNNER_TEMP/approot2/etc/apk/arch"
+          # shellcheck disable=SC2086
+          OLD_REPOS="$(z2k_apk_repos "$apkbin" "$RUNNER_TEMP" "http://127.0.0.1:$OLD_PORT/packages.adb")"
+          test -n "$OLD_REPOS"
+          # shellcheck disable=SC2086
           "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 --allow-untrusted \
-            --repository "$DL/targets/$TGT/packages/packages.adb" \
-            --repository "$DL/packages/$ARCH/base/packages.adb" \
-            --repository "$DL/packages/$ARCH/packages/packages.adb" \
-            --repository "http://127.0.0.1:18882/packages.adb" \
+            $OLD_REPOS \
             --usermode --initdb --no-scripts add z2k-webpanel z2k-adapter z2k-zapret2-runtime
           echo "--- before:"
           "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 info -v 2>/dev/null | grep '^z2k' || \
             "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 --allow-untrusted info 2>/dev/null | grep '^z2k'
-          # Phase 2: новый фид уже висит на 18881 (шаг выше) — ОДНА операция.
+          # Phase 2: ОДНА canonical user-операция против нового фида.
+          # shellcheck disable=SC2086
+          NEW_REPOS="$(z2k_apk_repos "$apkbin" "$RUNNER_TEMP" "http://127.0.0.1:$NEW_PORT/packages.adb")"
+          test -n "$NEW_REPOS"
+          # shellcheck disable=SC2086
           "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 --allow-untrusted \
-            --repository "$DL/targets/$TGT/packages/packages.adb" \
-            --repository "$DL/packages/$ARCH/base/packages.adb" \
-            --repository "$DL/packages/$ARCH/packages/packages.adb" \
-            --repository "http://127.0.0.1:$FEED_PORT/packages.adb" \
+            $NEW_REPOS \
             --usermode --no-scripts upgrade z2k-webpanel
           echo "--- after:"
           _v="$("$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 info -v 2>/dev/null | grep '^z2k' || true)"
