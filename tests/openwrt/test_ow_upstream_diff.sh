@@ -25,7 +25,8 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #   lib/config_official.sh: PHASE3-чтение через ${ZAPRET2_DIR} (§2)
 #   lib/release_map.sh: platform-диспетчер + openwrt-таблица (§3)
 #   lib/auto_update.sh: targetless fail-safe, Z2K_CONFIG_FILE/merge хуки,
-#     platform gate (§3/§6/§2.1)
+#     platform gate (§3/§6/§2.1) + Z2K_AU_NO_OWNER_START в refresh-binaries
+#     (только fresh-provisioning без owner bounce; дефолт — поведение 1-в-1)
 #   scripts/gen_file_hashes.sh: platform-маркер только для non-keenetic (§2.1;
 #     keenetic-реген байт-идентичен — сторожит channel-тест)
 #   files/z2k-config-validator.sh: FAKE_DIR + lua EXTRA хуки (freeze audit:
@@ -75,6 +76,9 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     Stage 7 (NEW; common-манифест не трогает, только читает)
 #   scripts/openwrt/build-release.sh + scripts/openwrt/write-provenance.sh:
 #     каноническая сборка APK-релиза Stage 7 (NEW; только гейты+артефакты)
+#     + runtime pin/provenance (RUNTIME_*; формат владеет юнит-тест)
+#   scripts/openwrt/verify-runtime.sh: гейт runtime tarball (NEW; только
+#     проверки pin/closure/ELF, сеть не нужна — tarball даёт вызывающий)
 #   scripts/rehearse_update.sh: ref-префиксы + hermetic RAW_BASE (closure;
 #     чинит репетицию под ref-pinning Stage 2.2.2, прод-механика та же)
 #   tests/test_manifest_signature.sh: eval platform gate (closure; список
@@ -99,7 +103,7 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #   .github/workflows/ci.yml: openwrt-package job на pinned SDK (closure;
 #     остальной workflow не тронут, permissions contents:read + actions:write
 #     точечно на джобу)
-ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go z2k-warpd/builds/* webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/js/pages/telemetry.js webpanel/www/js/router.js webpanel/www/app.js docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh .github/workflows/ci.yml scripts/rehearse_update.sh tests/test_manifest_signature.sh tests/test_webpanel_api_contract.sh tests/panel_harness.js tests/test_release_tooling.sh lib/strategies.sh z2k.sh tests/test_au_compat.sh README.md"
+ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go z2k-warpd/builds/* webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/js/pages/telemetry.js webpanel/www/js/router.js webpanel/www/app.js docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh scripts/openwrt/verify-runtime.sh .github/workflows/ci.yml scripts/rehearse_update.sh tests/test_manifest_signature.sh tests/test_webpanel_api_contract.sh tests/panel_harness.js tests/test_release_tooling.sh lib/strategies.sh z2k.sh tests/test_au_compat.sh README.md"
 
 # Граница меряется от production-ветки, когда она видна: то, что уже
 # опубликовано production-релизом (манифест, подпись, index.html...), —
@@ -158,7 +162,7 @@ else
     for _f in $_bad; do
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
-            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|z2k-warpd/builds/*|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/js/pages/telemetry.js|webpanel/www/js/router.js|webpanel/www/app.js|docs/openwrt-webpanel-contract.md|docs/openwrt-release-contract.md|scripts/openwrt/gen-openwrt-manifest.sh|scripts/openwrt/build-release.sh|scripts/openwrt/write-provenance.sh|.github/workflows/ci.yml|scripts/rehearse_update.sh|tests/test_manifest_signature.sh|tests/test_webpanel_api_contract.sh|tests/panel_harness.js|tests/test_release_tooling.sh|lib/strategies.sh|z2k.sh|tests/test_au_compat.sh|README.md) continue ;;
+            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|z2k-warpd/builds/*|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/js/pages/telemetry.js|webpanel/www/js/router.js|webpanel/www/app.js|docs/openwrt-webpanel-contract.md|docs/openwrt-release-contract.md|scripts/openwrt/gen-openwrt-manifest.sh|scripts/openwrt/build-release.sh|scripts/openwrt/write-provenance.sh|scripts/openwrt/verify-runtime.sh|.github/workflows/ci.yml|scripts/rehearse_update.sh|tests/test_manifest_signature.sh|tests/test_webpanel_api_contract.sh|tests/panel_harness.js|tests/test_release_tooling.sh|lib/strategies.sh|z2k.sh|tests/test_au_compat.sh|README.md) continue ;;
             UPDATES.json)
                 # Манифест следует за деревом: разрешены hash-обновления
                 # файлов, чьи правки сами allowlisted (хеш следует за

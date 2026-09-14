@@ -47,6 +47,10 @@ start_service() {
     # ENABLED — master-гейт upstream-семантики (сохраняется регенерацией).
     [ "${ENABLED:-1}" = "1" ] || return 1
 
+    # Preflight runtime ДО procd: отсутствующий движок обязан ронять start
+    # здесь с точной причиной, а не job exit=0 + exit=127 потом (live-урок).
+    z2k_ow_runtime_preflight || return 1
+
     local _base _qnum
     _base="$(z2k_ow_optbase)" || return 1
     _qnum="${QNUM:-200}"

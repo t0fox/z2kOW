@@ -26,6 +26,31 @@ assert_contains "seed builder" "$MK" "make-seed.sh"
 assert_contains "materialize in seed" "$REPO/package/openwrt/make-seed.sh" "z2k_ow_materialize"
 assert_contains "postinst seed-guard" "$MK" "z2k_ow_seed_ensure"
 
+# TCP tuning (parity step_tcp_tuning): package-owned sysctl.d + best-effort apply.
+SYSCTL="$REPO/package/openwrt/files/etc/sysctl.d/99-z2k.conf"
+assert_file "sysctl.d tuning существует" "$SYSCTL"
+for _k in "net.ipv4.tcp_rmem = 4096 524288 4194304" "net.ipv4.tcp_wmem = 4096 524288 4194304" \
+          "net.core.rmem_max = 4194304" "net.core.wmem_max = 4194304"; do
+    assert_contains "sysctl key: $_k" "$SYSCTL" "$_k"
+done
+if grep -q 'tcp_congestion_control' "$SYSCTL"; then
+    _t_bad "sysctl.d: bbr-строка (шумит в boot-лог без модуля; только runtime-try)"
+else
+    _t_ok
+fi
+assert_contains "sysctl.d ставится пакетом" "$MK" "files/etc/sysctl.d/99-z2k.conf"
+assert_contains "postinst sysctl best-effort" "$MK" "sysctl -p /etc/sysctl.d/99-z2k.conf"
+assert_contains "postinst bbr try" "$MK" "tcp_congestion_control=bbr"
+
+# Fresh-install autostart (parity: upstream finalize поднимает сервис).
+# Upgrade running-сервис не трогает (только WAS_FRESH-ветка).
+assert_contains "postinst fresh marker" "$MK" "Z2K_OW_WAS_FRESH"
+assert_contains "postinst enable fresh" "$MK" "/etc/init.d/z2k enable"
+assert_contains "postinst start fresh" "$MK" "/etc/init.d/z2k start"
+assert_contains "postinst running check" "$MK" "/etc/init.d/z2k running"
+if grep -q 'Z2K_OW_WAS_FRESH" = "1"' "$MK"; then _t_ok
+else _t_bad "postinst: autostart без WAS_FRESH-гейта (тронет upgrade)"; fi
+
 # conffiles НЕТ осознанно: init/hotplug — package-owned код, обновляется
 # вместе с пакетом (Model A). Проверяем STANZA, а не слово (оно есть в
 # комментарии-обосновании выше).

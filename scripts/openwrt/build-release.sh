@@ -178,12 +178,20 @@ export VERIFIED_SDK
 note "SDK: $SDK"
 
 # --- 5. build --------------------------------------------------------------------
-# Пакет в SDK-дерево — симлинком (исходник остаётся деревом релиза).
+# Пакеты в SDK-дерево — симлинками (исходники остаются деревом релиза).
+# Два дерева: package/openwrt (adapter+webpanel, PKGARCH=all) и
+# package/z2k-runtime (pinned dataplane, target-arch): PKGARCH/VERSION/
+# SOURCE у них несовместимы, общий Makefile невозможен — см. его шапку.
 if [ -e "$SDK/package/z2k" ] && [ ! -L "$SDK/package/z2k" ]; then
     die "$SDK/package/z2k существует и не симлинк — уберите вручную"
 fi
 ln -sfn "$ROOT/package/openwrt" "$SDK/package/z2k"
 note "package linked: $SDK/package/z2k -> $ROOT/package/openwrt"
+if [ -e "$SDK/package/z2k-runtime" ] && [ ! -L "$SDK/package/z2k-runtime" ]; then
+    die "$SDK/package/z2k-runtime существует и не симлинк — уберите вручную"
+fi
+ln -sfn "$ROOT/package/z2k-runtime" "$SDK/package/z2k-runtime"
+note "package linked: $SDK/package/z2k-runtime -> $ROOT/package/z2k-runtime"
 # Версия пакета — из Makefile (дерево зафиксировано гейтом чистоты выше).
 SDK_LOG="$SEED_TMP/sdk-build.log"
 # Pristine SDK без .config собирать не умеет; дефолт SDK — его же таргет
@@ -193,10 +201,10 @@ if [ ! -f "$SDK/.config" ]; then
     make -C "$SDK" defconfig >"$SDK_LOG.defconfig" 2>&1 \
         || die "make defconfig в SDK упал, лог: $SDK_LOG.defconfig"
 fi
-note "make package/z2k/compile ..."
-# Цель — ДИРЕКТОРИЯ пакета (наш симлинк package/z2k), НЕ имя пакета:
+note "make package/z2k/compile + package/z2k-runtime/compile ..."
+# Цели — ДИРЕКТОРИИ пакетов (наши симлинки), НЕ имена пакетов:
 # package/z2k-adapter/compile правила не существует (поймано реальным CI).
-if ! make -C "$SDK" "package/z2k/compile" V=s >"$SDK_LOG" 2>&1; then
+if ! make -C "$SDK" "package/z2k/compile" "package/z2k-runtime/compile" V=s >"$SDK_LOG" 2>&1; then
     # Порядок важен: сначала stdout->stderr, глушение — только для tail'а.
     tail -50 "$SDK_LOG" >&2 || true
     die "сборка в SDK упала, лог: $SDK_LOG"
@@ -229,7 +237,7 @@ while IFS= read -r _a; do
     cat "$SEED_TMP/adb.txt" >> "$OUT/METADATA.txt"
     note "adbdump head: $(head -15 "$SEED_TMP/adb.txt" | tr '\n' '|' | head -c 700)"
     # Имя пакета обязано присутствовать (иначе собрали не то).
-    grep -q "z2k-adapter\|z2k-webpanel" "$SEED_TMP/adb.txt" \
+    grep -q "z2k-adapter\|z2k-webpanel\|z2k-zapret2-runtime" "$SEED_TMP/adb.txt" \
         || die "adbdump $_a без имени пакета"
     # Арка — из реального adbdump (резолвер её же показывает; PKGARCH:=all
     # всё равно даёт target-арку — доказано CI-раном).
@@ -256,6 +264,14 @@ note "dist: $(ls "$OUT" | tr '\n' ' ')"
 export OW_RELEASE SDK_URL SDK_SHA256
 export SDK_DIR="$SDK" TARGET ARCH SRC_COMMIT PKG_VERSION PKG_RELEASE
 export ADAPTER_API SEED_TAG SEED_REF VERIFIED_REMOTE MANIFEST_CURRENT
+# Runtime pin — из его Makefile (единственное место правды, §3).
+RUNTIME_TAG="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$ROOT/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
+RUNTIME_URL="$(sed -n 's|^PKG_SOURCE_URL:=\(.*\)|\1|p' "$ROOT/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')$(sed -n 's/^PKG_SOURCE:=\(.*\)/\1/p' "$ROOT/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
+RUNTIME_SHA256="$(sed -n 's/^PKG_HASH:=\(.*\)/\1/p' "$ROOT/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
+[ -n "$RUNTIME_TAG" ] && [ -n "$RUNTIME_URL" ] && [ -n "$RUNTIME_SHA256" ] \
+    || die "runtime pin не читается из package/z2k-runtime/Makefile"
+note "runtime pin: $RUNTIME_TAG $RUNTIME_SHA256"
+export RUNTIME_TAG RUNTIME_URL RUNTIME_SHA256
 # write-provenance.sh принимает только true|false (0/1 уронили бы его
 # bool-гейт — поймано первым же полным CI-прогоном).
 if [ "$CI_SNAPSHOT" = "1" ]; then CI_SNAPSHOT="true"; else CI_SNAPSHOT="false"; fi

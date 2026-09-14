@@ -1,0 +1,33 @@
+# package/z2k-runtime/runtime-closure.txt - канонический runtime closure zapret2.
+#
+# Dest-пути ПОД /opt/zapret2 (по одному на строку), которые обязан ставить
+# пакет z2k-zapret2-runtime. Выведено из кода, а не на глаз:
+#   nfq2/ip2net/mdig — init.d/openwrt/functions + ipset/def.sh ($ZAPRET_BASE/...);
+#   lua/*            — optbase.sh (--lua-init, .lua или .gz);
+#   init.d/openwrt/functions — firewall.sh (z2k_ow_fw_source);
+#   common/*.sh      — functions их сорсит (9 файлов, см. closure-тест);
+#   ipset/*          — IPSET_CR + def.sh.
+# НЕ входят осознанно: init.d/openwrt/zapret2 (daemon-half не используется),
+# 90-zapret2 (свой hotplug 90-z2k), firewall.zapret2 (fw3-legacy),
+# config* (ZAPRET_CONFIG=/etc/z2k/config), files/fake (payload-owned),
+# остальные arch из binaries/ (только целевой).
+# Дрейф сторожит tests/openwrt/test_ow_runtime_closure.sh:
+# code-refs ⊆ этот файл ⊆ recipe Makefile.
+nfq2/nfqws2
+ip2net/ip2net
+mdig/mdig
+lua/zapret-lib.lua
+lua/zapret-antidpi.lua
+lua/zapret-auto.lua
+init.d/openwrt/functions
+common/base.sh
+common/fwtype.sh
+common/linux_iphelper.sh
+common/ipt.sh
+common/nft.sh
+common/linux_fw.sh
+common/linux_daemons.sh
+common/list.sh
+common/custom.sh
+ipset/create_ipset.sh
+ipset/def.sh

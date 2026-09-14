@@ -122,11 +122,13 @@ SDK_DIR="/sdk" TARGET="mediatek/filogic" ARCH="aarch64_cortex-a53"
 SRC_COMMIT="abc123" PKG_VERSION="0.1.0" PKG_RELEASE="1" ADAPTER_API="1"
 SEED_TAG="p-2" SEED_REF="p-2" VERIFIED_REMOTE="false" MANIFEST_CURRENT="p-2"
 CI_SNAPSHOT="true" PRODUCTION_RELEASE="false" VERIFIED_SDK="true"
+RUNTIME_TAG="v9.9-test" RUNTIME_URL="https://example.com/rt.tar.gz" RUNTIME_SHA256="TESTHASH"
 OUT="$T/provenance.json"
 export OW_RELEASE SDK_URL SDK_SHA256 SDK_DIR TARGET ARCH SRC_COMMIT
 export PKG_VERSION PKG_RELEASE ADAPTER_API SEED_TAG SEED_REF
 export VERIFIED_REMOTE MANIFEST_CURRENT OUT
 export CI_SNAPSHOT PRODUCTION_RELEASE VERIFIED_SDK
+export RUNTIME_TAG RUNTIME_URL RUNTIME_SHA256
 sh "$REPO/scripts/openwrt/write-provenance.sh" >/dev/null 2>&1
 assert_eq "provenance rc" "0" "$?"
 python3 - "$T/provenance.json" <<'PYEOF'
@@ -135,7 +137,8 @@ d = json.load(open(sys.argv[1], encoding='utf-8'))
 need = ('openwrt_release sdk_url sdk_sha256 sdk_dir target arch source_commit '
         'package_version package_release adapter_api seed_tag seed_ref '
         'seed_ref_verified_remote manifest_current built_at_utc '
-        'ci_snapshot production_release verified_sdk').split()
+        'ci_snapshot production_release verified_sdk '
+        'runtime_tag runtime_url runtime_sha256').split()
 miss = [k for k in need if k not in d or d[k] in (None, '')]
 if miss:
     sys.stderr.write('MISSING: %s\n' % ' '.join(miss))

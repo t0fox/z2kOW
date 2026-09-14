@@ -33,6 +33,32 @@ z2k_ow_fw_apply() { z2k_ow_fw_source || return 1; zapret_apply_firewall; }
 z2k_ow_fw_remove() { z2k_ow_fw_source || return 1; zapret_unapply_firewall; }
 z2k_ow_fw_reload_ifsets() { z2k_ow_fw_source || return 1; zapret_reload_ifsets; }
 
+# z2k_ow_runtime_preflight — fail loudly ДО procd (start gate).
+# Ложный success прошлого live: POST /service/start -> job exit=0, процесс
+# exit=127 (нет бинарника), UI потом показывал stopped. Проверяем здесь:
+# демон +x, functions, fork-lua (plain или .gz, как в optbase.sh).
+# Сообщение — точный путь (runtime_missing: ...); rc!=0 роняет start_service
+# до создания instance, а webpanel job — в exit!=0.
+z2k_ow_runtime_preflight() {
+    local _n _rt="${Z2K_ZAPRET2_RUNTIME:-/opt/zapret2}"
+    local _nfqws2="${Z2K_NFQWS2:-$_rt/nfq2/nfqws2}"
+    [ -x "$_nfqws2" ] || {
+        echo "z2k-openwrt: runtime_missing: $_nfqws2 (поставьте z2k-zapret2-runtime)" >&2
+        return 1
+    }
+    [ -f "$_rt/init.d/openwrt/functions" ] || {
+        echo "z2k-openwrt: runtime_missing: $_rt/init.d/openwrt/functions" >&2
+        return 1
+    }
+    for _n in zapret-lib.lua zapret-antidpi.lua zapret-auto.lua; do
+        if [ ! -f "$_rt/lua/$_n" ] && [ ! -f "$_rt/lua/$_n.gz" ]; then
+            echo "z2k-openwrt: runtime_missing: $_rt/lua/$_n" >&2
+            return 1
+        fi
+    done
+    return 0
+}
+
 # --- z2k custom.d: точка расширения для будущих RT/WARP-демонов ---
 # Контракт повторяет zapret2 custom_runner, отдельный неймспейс:
 # каждый $Z2K_CUSTOM_DIR/*.sh может определить z2k_custom_daemons(),

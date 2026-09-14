@@ -889,6 +889,16 @@ au_bin_goarch() {
 
 au_step_refresh_binaries() {
     local manifest="$Z2K_AU_TMP_DIR/UPDATES.json"
+    # Z2K_AU_NO_OWNER_START=1: только положить файлы, НЕ трогать сервисы.
+    # Нужно fresh-install provisioning на OpenWrt (postinst): ставить бинарники
+    # там обязано без побочных запусков (postinst не стартует сервисы), а
+    # upgrade-путь с валидными бинарниками всё равно NOOP. Обычный updater-путь
+    # переменную не выставляет — поведение 1-в-1 прежнее (stop/replace/start).
+    # Флаг — ТОЛЬКО для fresh-provisioning (владельцы заведомо не запущены);
+    # на работающей системе его ставить нельзя: замена под живым процессом
+    # без bounce оставила бы stale-процесс до следующего рестарта.
+    local _no_owner=0
+    [ "${Z2K_AU_NO_OWNER_START:-0}" = "1" ] && _no_owner=1
     # Опознание арки живёт в utils.sh (get_arch, map_arch_to_bin_arch). Штатный
     # вход его подключает, но полагаться на вызывающего нельзя: ровно на такой
     # неявной зависимости шаг очистки записей молчал у всех.
@@ -992,7 +1002,18 @@ au_step_refresh_binaries() {
         # (сериализация PBR/DNS; новый W44). Keenetic init-хуки: поведение
         # прежнее (rc игнорируется) — их stop best-effort по построению, а
         # пропуск replace там оставлял бы stale-бинарники на ровном месте.
+        # Z2K_AU_NO_OWNER_START=1 (fresh-provisioning): пропуск всего блока —
+        # ниже сразу atomic replace без stop/start.
         _rb_stop_failed=0
+        if [ "$_no_owner" = "1" ]; then
+            if mv -f "$_rb_tmp" "$_rb_dest" 2>/dev/null; then
+                au_log "refresh-binaries: установлен $_rb_dest (без owner bounce)"
+            else
+                rm -f "$_rb_tmp" 2>/dev/null
+                au_log "refresh-binaries: не записался $_rb_dest"; echo 1 >> "$fail"
+            fi
+            continue
+        fi
         for _rb_svc in $(au_service_for_binary "$_rb_name"); do
             if [ -x "$_rb_svc" ]; then
                 if "$_rb_svc" stop >/dev/null 2>&1; then

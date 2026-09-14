@@ -817,10 +817,31 @@ jobs:
           grep -rq "^define Package/lighttpd$" "$sdk/package" && echo "OK: lighttpd"
           grep -rq "^define Package/conntrack$" "$sdk/package" && echo "OK: conntrack"
           grep -rq "define KernelPackage/nft-queue" "$sdk/package" && echo "OK: kmod-nft-queue"
+          echo "--- runtime DEPENDS (z2k-zapret2-runtime closure) ---"
+          grep -rq "^define Package/nftables$" "$sdk/package" && echo "OK: nftables"
+          grep -rq "define KernelPackage/nft-nat" "$sdk/package" && echo "OK: kmod-nft-nat"
+          grep -rq "define KernelPackage/nft-offload" "$sdk/package" && echo "OK: kmod-nft-offload"
           echo "--- lighttpd mod evidence (follow-up pin decision) ---"
           grep -rl "^define Package/lighttpd-mod-" "$sdk/package" || echo "(no lighttpd-mod-* packages in SDK)"
           echo "--- base tools evidence (must be base-provided, no DEPENDS) ---"
           command -v ip ubus uci nft || true
+
+      # Runtime tarball — для sysroot-теста (Z2K_RT_TARBALL) и verify-гейта
+      # ниже. Качаем один раз: build-release скачает его сам ещё раз в SDK dl
+      # (там свой PKG_HASH-гейт), это доказательство URL+sha отдельно от сборки.
+      - name: Fetch zapret2 runtime tarball (pin proof + sysroot fixture)
+        run: |
+          set -eu -o pipefail
+          url="$(sed -n 's|^PKG_SOURCE_URL:=\(.*\)|\1|p' package/z2k-runtime/Makefile | head -1 | tr -d ' \t\r')"
+          file="$(sed -n 's/^PKG_SOURCE:=\(.*\)/\1/p' package/z2k-runtime/Makefile | head -1 | tr -d ' \t\r')"
+          test -n "$url" && test -n "$file"
+          curl -fSL --retry 3 --retry-all-errors -o "${{ runner.temp }}/$file" "$url$file"
+          echo "Z2K_RT_TARBALL=${{ runner.temp }}/$file" >> "$GITHUB_ENV"
+
+      - name: Verify zapret2 runtime tarball (hash + closure + arm64 ELF)
+        run: |
+          set -eu -o pipefail
+          sh scripts/openwrt/verify-runtime.sh --tarball "$Z2K_RT_TARBALL"
 
       - name: Generate OpenWrt candidate manifest (temp artifact, not committed)
         run: |
@@ -850,7 +871,7 @@ jobs:
       - name: Inspect APK metadata (apk v3 adbdump)
         run: |
           set -eu -o pipefail
-          ls -la "$RUNNER_TEMP/dist"/z2k-adapter-*.apk "$RUNNER_TEMP/dist"/z2k-webpanel-*.apk
+          ls -la "$RUNNER_TEMP/dist"/z2k-adapter-*.apk "$RUNNER_TEMP/dist"/z2k-webpanel-*.apk "$RUNNER_TEMP/dist"/z2k-zapret2-runtime-*.apk
           echo "=== METADATA.txt (adbdump) ==="
           cat "$RUNNER_TEMP/dist/METADATA.txt"
           # Arch-assert — следующим коммитом, когда увидим поле arch в

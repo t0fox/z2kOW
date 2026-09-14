@@ -7,6 +7,7 @@
 #   SRC_COMMIT PKG_VERSION PKG_RELEASE ADAPTER_API SEED_TAG SEED_REF
 #   VERIFIED_REMOTE(true|false) MANIFEST_CURRENT OUT(provenance.json path)
 #   CI_SNAPSHOT(true|false) PRODUCTION_RELEASE(true|false) VERIFIED_SDK(true|false)
+#   RUNTIME_TAG RUNTIME_URL RUNTIME_SHA256 (pin внешнего dataplane, §3)
 # Использование: VAR=... sh scripts/openwrt/write-provenance.sh
 # POSIX sh + python3.
 
@@ -14,7 +15,8 @@ set -e
 for _v in OW_RELEASE SDK_URL SDK_SHA256 SDK_DIR TARGET ARCH SRC_COMMIT \
          PKG_VERSION PKG_RELEASE ADAPTER_API SEED_TAG SEED_REF \
          VERIFIED_REMOTE MANIFEST_CURRENT OUT \
-         CI_SNAPSHOT PRODUCTION_RELEASE VERIFIED_SDK; do
+         CI_SNAPSHOT PRODUCTION_RELEASE VERIFIED_SDK \
+         RUNTIME_TAG RUNTIME_URL RUNTIME_SHA256; do
     eval "_val=\${$_v:-}"
     if [ -z "$_val" ]; then
         printf 'write-provenance: нет %s\n' "$_v" >&2
@@ -40,7 +42,9 @@ keymap = (('OW_RELEASE', 'openwrt_release'), ('SDK_URL', 'sdk_url'),
           ('SRC_COMMIT', 'source_commit'), ('PKG_VERSION', 'package_version'),
           ('PKG_RELEASE', 'package_release'), ('ADAPTER_API', 'adapter_api'),
           ('SEED_TAG', 'seed_tag'), ('SEED_REF', 'seed_ref'),
-          ('MANIFEST_CURRENT', 'manifest_current'))
+          ('MANIFEST_CURRENT', 'manifest_current'),
+          ('RUNTIME_TAG', 'runtime_tag'), ('RUNTIME_URL', 'runtime_url'),
+          ('RUNTIME_SHA256', 'runtime_sha256'))
 vals = {dst: os.environ[src] for src, dst in keymap}
 vals['seed_ref_verified_remote'] = (os.environ['VERIFIED_REMOTE'] == 'true')
 vals['ci_snapshot'] = (os.environ['CI_SNAPSHOT'] == 'true')

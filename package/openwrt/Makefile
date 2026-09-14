@@ -3,6 +3,9 @@
 # Граница владения (машиночитаемо: ownership.map, сторожит тест):
 #   пакет ВЛАДЕЕТ: adapter (platform/openwrt), init/hotplug, метаданные,
 #     bootstrap (postinst), дефолт config, seed.tar.gz (bootstrap-seed).
+#     Runtime closure (/opt/z2k... /opt/zapret2/*) — ОТДЕЛЬНЫЙ пакет
+#     package/z2k-runtime (свои PKGARCH/VERSION: arch-specific несовместим
+#     с PKGARCH:=all этого файла, см. его шапку).
 #   пакет НЕ поставляет напрямую: lib/lua/fake/lists/extra_strats/strats —
 #     они updater-owned; в пакет едут только внутри seed.tar.gz, postinst
 #     извлекает их в /, дальше их перезаписывает подписанный апдейтер.
@@ -17,11 +20,11 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
 PKG_RELEASE:=1
-# PKGARCH:=all: пакет везёт только shell/data (seed — lib/lua/fake/lists/
-# strats/webpanel; TG/RT/WARP/z2k-detect едут updater binary flow, НЕ в APK —
-# иначе каждый апстрим-бинер требовал бы пересборки, §52). Доказательство —
-# ELF-scan seed в tests (test_ow_release_package.sh). Появится arch-специфика
-# в пакете — arch станет target'ной; угадывать запрещено (§20).
+# PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
+# lists/strats/webpanel; z2k-owned TG/RT/WARP/z2k-detect едут updater binary
+# flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
+# Исключение — станза z2k-zapret2-runtime ниже: внешний pinned dataplane,
+# arch-specific по построению (свой PKG_VERSION и guard ARCH).
 PKGARCH:=all
 PKG_MAINTAINER:=z2k contributors
 PKG_LICENSE:=MIT
@@ -33,7 +36,11 @@ define Package/z2k-adapter
   CATEGORY:=Network
   TITLE:=z2k OpenWrt adapter (thin layer over upstream z2k + zapret2 runtime)
   URL:=https://github.com/necronicle/z2k
-  DEPENDS:=+kmod-nft-queue +conntrack
+  # +z2k-zapret2-runtime: dataplane closure ставит отдельный пакет
+  # (package/z2k-runtime — apk тянет его сам, установка z2kOW сама
+  # обеспечивает runtime, parity с upstream installer); Model A: fresh
+  # install без него — нерабочий продукт (§2).
+  DEPENDS:=+kmod-nft-queue +conntrack +z2k-zapret2-runtime
 endef
 
 define Package/z2k-adapter/description
@@ -92,6 +99,8 @@ Z2K_TREE:=$(abspath $(CURDIR)/../..)
 # config-шаблон, seed (собирается make-seed.sh из этого же дерева).
 define Package/z2k-adapter/install
 	$(INSTALL_DIR) $(1)/etc/init.d $(1)/etc/hotplug.d/iface
+	$(INSTALL_DIR) $(1)/etc/sysctl.d
+	$(INSTALL_DATA) ./files/etc/sysctl.d/99-z2k.conf $(1)/etc/sysctl.d/99-z2k.conf
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/platform/openwrt/custom.d
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/share
 	$(INSTALL_BIN) ./files/etc/init.d/z2k $(1)/etc/init.d/z2k
@@ -122,11 +131,30 @@ define Package/z2k-adapter/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 Z2K_ROOT="$${Z2K_ROOT:-/usr/lib/z2k}"
+# Fresh-install parity с upstream finalize (сервис running в конце установки):
+# маркер меряем ДО seed_ensure (extract ставит его) — upgrade с маркером сюда
+# не попадает никогда.
+Z2K_OW_WAS_FRESH=0
 # Seed — ТОЛЬКО для неинициализированной установки (marker-правило внутри):
 # package upgrade при целом payload ничего не извлекает (Model A).
 . "$$Z2K_ROOT/platform/openwrt/paths.sh"
+[ -f "$${Z2K_ETC:-/etc/z2k}/.payload-initialized" ] || Z2K_OW_WAS_FRESH=1
 . "$$Z2K_ROOT/platform/openwrt/bootstrap.sh"
 z2k_ow_seed_ensure || exit 1
+# z2k-owned binaries (TG/RT/detect): fresh-install provisioning best-effort
+# (platform/openwrt/binaries.sh reuses au_step_refresh_binaries: manifest
+# hashes + atomic replace, но БЕЗ owner bounce). Транзакцию НЕ роняем: без
+# сети отказ здесь штатен, enforcement — в start preflight (fail loudly).
+# env.sh обязателен здесь (postinst иначе не выставляет Z2K_PLATFORM/
+# канал/состояние апдейтера, и platform-gate манифеста увидел бы keenetic).
+if . "$$Z2K_ROOT/platform/openwrt/env.sh" 2>/dev/null \
+    && . "$$Z2K_ROOT/platform/openwrt/binaries.sh" 2>/dev/null \
+    && . "$$Z2K_ROOT/lib/utils.sh" 2>/dev/null \
+    && . "$$Z2K_ROOT/lib/auto_update.sh" 2>/dev/null; then
+    z2k_ow_ensure_binaries 2>&1 || echo "z2k-openwrt: postinst: binaries доставит обновление (см. лог выше)" >&2
+else
+    echo "z2k-openwrt: postinst: нет libs для ensure-binaries (доставит обновление)" >&2
+fi
 # Ежесуточный updater через cron (строка с маркером, идемпотентно).
 . "$$Z2K_ROOT/platform/openwrt/schedule.sh"
 z2k_ow_cron_install || exit 1
@@ -136,6 +164,33 @@ z2k_ow_tg_cron_install || exit 1
 z2k_ow_rt_cron_install || exit 1
 # WARP selfheal cron (своя строка/маркер).
 z2k_ow_warp_cron_install || exit 1
+# TCP tuning живьём (parity step_tcp_tuning; warn-only, см. ниже).
+if [ -f /etc/sysctl.d/99-z2k.conf ]; then
+    sysctl -p /etc/sysctl.d/99-z2k.conf >/dev/null 2>&1 \
+        || echo "z2k-openwrt: postinst: sysctl.d не применился (применится при загрузке)" >&2
+fi
+# BBR — как upstream (try + silent fallback): модуля может не быть, тогда
+# остаётся cubic. Не персистим: строка bbr в sysctl.d шумела бы в boot-лог
+# на ядрах без модуля; rmem-ключи выше — всегда валидны.
+sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1 || true
+# Fresh-install autostart (parity: upstream finalize поднимает сервис в конце
+# установки). ТОЛЬКО fresh (см. Z2K_OW_WAS_FRESH выше): upgrade running-сервис
+# не трогает. Best-effort: preflight объяснит отказ громко, транзакцию не
+# роняем — offline-установка валидна, старт позже вручную/кнопкой.
+if [ "$Z2K_OW_WAS_FRESH" = "1" ]; then
+    /etc/init.d/z2k enable >/dev/null 2>&1 \
+        || echo "z2k-openwrt: postinst: enable не удался" >&2
+    if /etc/init.d/z2k start 2>&1; then
+        sleep 2
+        if /etc/init.d/z2k running >/dev/null 2>&1; then
+            echo "z2k-openwrt: postinst: core запущен (fresh install)" >&2
+        else
+            echo "z2k-openwrt: postinst: core не поднялся — смотрите лог, стартуйте вручную" >&2
+        fi
+    else
+        echo "z2k-openwrt: postinst: start отказался (preflight выше) — стартуйте вручную после устранения" >&2
+    fi
+fi
 exit 0
 endef
 
