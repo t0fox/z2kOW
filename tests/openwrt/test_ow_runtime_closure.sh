@@ -107,14 +107,13 @@ fi
 
 # --- 5. recipe исполняется (тот же текст, не эмуляция): извлекаем install-
 # рецепт из Makefile, подменяем make-функции shell-эквивалентами и гоняем
-# на настоящем tarball. OpenWrt распаковывает БЕЗ strip (tar -C PKG_BUILD_DIR/..),
-# эмуляция повторяет ровно это. Только с Z2K_RT_TARBALL. ---
+# на настоящем tarball. Распаковка — КАК PKG_UNPACK в Makefile
+# (--strip-components=1; дефолт кладёт дерево мимо PKG_BUILD_DIR — поймано
+# двумя CI-ранами). Только с Z2K_RT_TARBALL. ---
 if [ -n "${Z2K_RT_TARBALL:-}" ] && [ -f "$Z2K_RT_TARBALL" ]; then
     _rx="$(mktemp -d "$T/rtx.XXXXXX")" || exit 1
-    _rtop="$(sed -n 's/^Z2K_RT_TOPDIR:=\(.*\)/\1/p' "$MK" | head -1 | tr -d ' \t\r\n')"
-    [ -n "$_rtop" ] || { echo "FAIL[ow-runtime-closure]: нет TOPDIR в Makefile" >&2; exit 1; }
     mkdir -p "$_rx/build" || exit 1
-    tar -xzf "$Z2K_RT_TARBALL" -C "$_rx/build" || { echo "FAIL[ow-runtime-closure]: recipe extract" >&2; exit 1; }
+    tar -xzf "$Z2K_RT_TARBALL" -C "$_rx/build" --strip-components=1 || { echo "FAIL[ow-runtime-closure]: recipe extract" >&2; exit 1; }
     _rdest="$T/recipe-dest"
     mkdir -p "$_rdest" || exit 1
     sed -n '/^define Package\/z2k-zapret2-runtime\/install$/,/^endef$/p' "$MK" \
@@ -128,7 +127,7 @@ if [ -n "${Z2K_RT_TARBALL:-}" ] && [ -f "$Z2K_RT_TARBALL" ]; then
       _BA="linux-arm64"
       sed -e 's/\$(INSTALL_DIR)/mkdir -p/g' -e 's/\$(INSTALL_BIN)/install -m0755/g' \
           -e 's/\$(INSTALL_DATA)/install -m0644/g' -e "s|\$(1)|$_1|g" \
-          -e "s|\$(PKG_BUILD_DIR)|$_PBD|g" -e "s|\$(Z2K_RT_TOPDIR)|$_rtop|g" \
+          -e "s|\$(PKG_BUILD_DIR)|$_PBD|g" \
           -e "s|\$(Z2K_RT_BINARCH)|$_BA|g" -e 's/\$(ARCH)/$ARCH/g' \
           "$T/recipe.sh" > "$T/recipe-run.sh"
       sh -n "$T/recipe-run.sh" || exit 1

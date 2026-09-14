@@ -36,10 +36,15 @@ PKG_HASH:=be3df5508cd0c2bbbfe220aecc5fbf43594d42a3eedf8bcdaa844bb5a01aba8e
 PKG_LICENSE:=Unknown
 PKG_MAINTAINER:=z2k contributors
 
-# Topdir внутри tarball — явный (не wildcard): OpenWrt распаковывает PKG_SOURCE
-# в PKG_BUILD_DIR БЕЗ strip (tar -C PKG_BUILD_DIR/..), смена layout upstream =
-# fail closed (недостающий файл роняет install громко, доказано CI-раном).
+# Topdir внутри tarball — только для tooling (verify/closure листингуют
+# tarball с ним). РАСПАКОВКА — с strip (PKG_UNPACK ниже): дефолт OpenWrt
+# кладёт дерево РЯДОМ с PKG_BUILD_DIR (tar -C PKG_BUILD_DIR/..), и рецепт
+# тогда не видит файлов (доказано двумя CI-ранами: сначала пустая сборка,
+# потом No such file). Z2K_RT_TOPDIR в рецепте НЕ используется.
 Z2K_RT_TOPDIR:=zapret2-v1.0.5.1-z2k-r2
+# Явный unpack со strip единственного верхнего каталога: без него дерево
+# ложится мимо PKG_BUILD_DIR. host tar на машине сборки есть всегда.
+PKG_UNPACK:=$(HOST_TAR) -C $(PKG_BUILD_DIR) --strip-components=1 -xzf $(DL_DIR)/$(PKG_SOURCE)
 # Бинарный каталог tarball для нашего единственного таргета захардкожен
 # (НЕ через $(ARCH)): package-Makefile парсится и сканером метаданных, где
 # ARCH пуст, и любой ifneq-гард ронял бы регистрацию пакета молча (поймано
@@ -81,33 +86,33 @@ endef
 # Раскладка — ЯВНО по одному файлу (совпадает с runtime-closure.txt 1:1,
 # дрейф сторожит тест побайтно, а не по каталогам): декларативнее
 # install_bin.sh и воспроизводимо без запуска чужого кода на хосте сборки.
+# Пути — от PKG_BUILD_DIR БЕЗ topdir (см. PKG_UNPACK/strip выше); смена
+# layout upstream = недостающий файл роняет install громко.
 # lua распаковываем здесь (как Keenetic installer §4: движок ест plain .lua;
 # gzip на роутере не требуем).
 define Package/z2k-zapret2-runtime/install
-	# Arch-guard в recipe (здесь ARCH верный, в отличие от parse-time):
-	# пакет arch-specific, чужой таргет — громкий отказ, не чужой бинарь.
 	[ "$(ARCH)" = "aarch64" ] || { echo "z2k-zapret2-runtime: unsupported ARCH [$(ARCH)], only aarch64" >&2; exit 1; }
 	$(INSTALL_DIR) $(1)/opt/zapret2/nfq2 $(1)/opt/zapret2/ip2net $(1)/opt/zapret2/mdig
 	$(INSTALL_DIR) $(1)/opt/zapret2/lua $(1)/opt/zapret2/init.d/openwrt
 	$(INSTALL_DIR) $(1)/opt/zapret2/common $(1)/opt/zapret2/ipset
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/binaries/$(Z2K_RT_BINARCH)/nfqws2 $(1)/opt/zapret2/nfq2/nfqws2
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/binaries/$(Z2K_RT_BINARCH)/ip2net $(1)/opt/zapret2/ip2net/ip2net
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/binaries/$(Z2K_RT_BINARCH)/mdig $(1)/opt/zapret2/mdig/mdig
-	gzip -dc $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/lua/zapret-lib.lua.gz > $(1)/opt/zapret2/lua/zapret-lib.lua
-	gzip -dc $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/lua/zapret-antidpi.lua.gz > $(1)/opt/zapret2/lua/zapret-antidpi.lua
-	gzip -dc $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/lua/zapret-auto.lua.gz > $(1)/opt/zapret2/lua/zapret-auto.lua
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/init.d/openwrt/functions $(1)/opt/zapret2/init.d/openwrt/functions
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/common/base.sh $(1)/opt/zapret2/common/base.sh
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/common/fwtype.sh $(1)/opt/zapret2/common/fwtype.sh
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/common/linux_iphelper.sh $(1)/opt/zapret2/common/linux_iphelper.sh
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/common/ipt.sh $(1)/opt/zapret2/common/ipt.sh
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/common/nft.sh $(1)/opt/zapret2/common/nft.sh
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/common/linux_fw.sh $(1)/opt/zapret2/common/linux_fw.sh
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/common/linux_daemons.sh $(1)/opt/zapret2/common/linux_daemons.sh
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/common/list.sh $(1)/opt/zapret2/common/list.sh
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/common/custom.sh $(1)/opt/zapret2/common/custom.sh
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/ipset/create_ipset.sh $(1)/opt/zapret2/ipset/create_ipset.sh
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(Z2K_RT_TOPDIR)/ipset/def.sh $(1)/opt/zapret2/ipset/def.sh
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/binaries/$(Z2K_RT_BINARCH)/nfqws2 $(1)/opt/zapret2/nfq2/nfqws2
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/binaries/$(Z2K_RT_BINARCH)/ip2net $(1)/opt/zapret2/ip2net/ip2net
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/binaries/$(Z2K_RT_BINARCH)/mdig $(1)/opt/zapret2/mdig/mdig
+	gzip -dc $(PKG_BUILD_DIR)/lua/zapret-lib.lua.gz > $(1)/opt/zapret2/lua/zapret-lib.lua
+	gzip -dc $(PKG_BUILD_DIR)/lua/zapret-antidpi.lua.gz > $(1)/opt/zapret2/lua/zapret-antidpi.lua
+	gzip -dc $(PKG_BUILD_DIR)/lua/zapret-auto.lua.gz > $(1)/opt/zapret2/lua/zapret-auto.lua
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/init.d/openwrt/functions $(1)/opt/zapret2/init.d/openwrt/functions
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/common/base.sh $(1)/opt/zapret2/common/base.sh
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/common/fwtype.sh $(1)/opt/zapret2/common/fwtype.sh
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/common/linux_iphelper.sh $(1)/opt/zapret2/common/linux_iphelper.sh
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/common/ipt.sh $(1)/opt/zapret2/common/ipt.sh
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/common/nft.sh $(1)/opt/zapret2/common/nft.sh
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/common/linux_fw.sh $(1)/opt/zapret2/common/linux_fw.sh
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/common/linux_daemons.sh $(1)/opt/zapret2/common/linux_daemons.sh
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/common/list.sh $(1)/opt/zapret2/common/list.sh
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/common/custom.sh $(1)/opt/zapret2/common/custom.sh
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/ipset/create_ipset.sh $(1)/opt/zapret2/ipset/create_ipset.sh
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/ipset/def.sh $(1)/opt/zapret2/ipset/def.sh
 endef
 
 $(eval $(call BuildPackage,z2k-zapret2-runtime))
