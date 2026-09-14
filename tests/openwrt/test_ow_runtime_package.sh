@@ -19,7 +19,7 @@ assert_contains "pin url" "$MK" "https://github.com/necronicle/zapret2-z2k/relea
 assert_contains "pin sha" "$MK" "PKG_HASH:=be3df5508cd0c2bbbfe220aecc5fbf43594d42a3eedf8bcdaa844bb5a01aba8e"
 assert_contains "pin topdir" "$MK" "Z2K_RT_TOPDIR:=zapret2-v1.0.5.1-z2k-r2"
 assert_contains "pin binarch" "$MK" "Z2K_RT_BINARCH:=linux-arm64"
-assert_contains "unpack strips topdir" "$MK" 'PKG_UNPACK:=$(HOST_TAR) -C $(PKG_BUILD_DIR) --strip-components=1 -xzf $(DL_DIR)/$(PKG_SOURCE)'
+assert_contains "unpack strips topdir" "$MK" 'PKG_UNPACK:=tar -C $(PKG_BUILD_DIR) --strip-components=1 -xzf $(DL_DIR)/$(PKG_SOURCE)'
 
 # Arch-guard: только тестируемый таргет, чужая арка — fail closed.
 # Гард ЖИВЁТ в recipe (там ARCH верный): parse-time ifneq ронял регистрацию
