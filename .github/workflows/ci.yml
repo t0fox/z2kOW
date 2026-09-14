@@ -1005,7 +1005,7 @@ jobs:
           # Канонические репозитории — общий fragment (4 системных + z2k):
           # тот же KABI-derivation, что в upgrade-шаге (расхождение = баг).
           # shellcheck disable=SC1090,SC1091
-          . scripts/openwrt/ci-apk-repos.sh
+          . tests/openwrt/ci-apk-repos.sh
           FEED_PORT=18881
           python3 -c 'import functools,sys; from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), functools.partial(SimpleHTTPRequestHandler, directory=sys.argv[2])).serve_forever()' "$FEED_PORT" "$RUNNER_TEMP/dist/feed" &
           FEED_SRV=$!
@@ -1064,7 +1064,7 @@ jobs:
           set -eu -o pipefail
           apkbin=~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk
           # shellcheck disable=SC1090,SC1091
-          . scripts/openwrt/ci-apk-repos.sh
+          . tests/openwrt/ci-apk-repos.sh
           # Порты — ТОЛЬКО этого шага (прошлый step мёртв, его vars недоступны):
           OLD_PORT=18882
           NEW_PORT=18881

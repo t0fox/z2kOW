@@ -1,5 +1,8 @@
 #!/bin/sh
-# scripts/openwrt/ci-apk-repos.sh - canonical repositories fragment (CI-only).
+# tests/openwrt/ci-apk-repos.sh - canonical repositories fragment (CI-only).
+#
+# Ownership: test infrastructure (НЕ scripts/openwrt release-tooling seam —
+# boundary guard запрещает расширять production seam ради helper'ов).
 #
 # Один источник набора системных feeds для apk --repository транзакций:
 # target packages + arch base + arch packages + exact kmods/$KABI + z2k feed.
@@ -8,7 +11,7 @@
 # phase 1 без kmods не нашёл kmod-nft-* зависимости).
 #
 # Использование:
-#   . scripts/openwrt/ci-apk-repos.sh
+#   . tests/openwrt/ci-apk-repos.sh
 #   z2k_apk_repos "$apkbin" "$tmpdir" "$z2k_feed_url"
 # Печатает готовые --repository флаги (по одному на строку; вызывающий
 # подставляет НЕкавыченно — это намеренное word splitting для флагов).
