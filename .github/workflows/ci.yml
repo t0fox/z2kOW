@@ -993,6 +993,12 @@ jobs:
           test -f "$RUNNER_TEMP/approot/etc/init.d/z2k"
           test -f "$RUNNER_TEMP/approot/etc/init.d/z2k-webpanel"
           test -f "$RUNNER_TEMP/approot/usr/lib/z2k/share/seed.tar.gz"
+          # Runtime DEPENDS-resolution proof (§2): ставим только adapter+webpanel,
+          # как пользователь, — рантайм обязан приехать сам по DEPENDS.
+          test -f "$RUNNER_TEMP/approot/opt/zapret2/nfq2/nfqws2"
+          test -f "$RUNNER_TEMP/approot/opt/zapret2/init.d/openwrt/functions"
+          test -f "$RUNNER_TEMP/approot/opt/zapret2/lua/zapret-lib.lua"
+          "$apkbin" "${APKROOT[@]}" search z2k-zapret2-runtime | grep -q z2k-zapret2-runtime
 
       - name: Upload CI snapshot artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -1001,6 +1007,7 @@ jobs:
           path: |
             ${{ runner.temp }}/dist/z2k-adapter-*.apk
             ${{ runner.temp }}/dist/z2k-webpanel-*.apk
+            ${{ runner.temp }}/dist/z2k-zapret2-runtime-*.apk
             ${{ runner.temp }}/dist/packages.adb
             ${{ runner.temp }}/dist/sha256sums*
             ${{ runner.temp }}/dist/provenance.json
