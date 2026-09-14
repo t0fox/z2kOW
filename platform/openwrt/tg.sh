@@ -274,6 +274,11 @@ z2k_ow_tg() {
             ;;
         rules)
             # hotplug/firewall-reload: только правила, демон не трогаем.
+            # Ready-gate (no resurrection после manual stop/failed start):
+            # предикат из env.sh; при одиночном сорсинге в тестах его нет.
+            if command -v z2k_ow_core_ready >/dev/null 2>&1; then
+                z2k_ow_core_ready || return 0
+            fi
             z2k_ow_tg_wanted || { z2k_ow_tg_nft_remove; return 0; }
             z2k_ow_tg_nft_apply || return 1
             ;;
@@ -283,6 +288,9 @@ z2k_ow_tg() {
             return 0
             ;;
         check)
+            if command -v z2k_ow_core_ready >/dev/null 2>&1; then
+                z2k_ow_core_ready || return 0
+            fi
             z2k_ow_tg_check
             ;;
         *)
@@ -290,6 +298,19 @@ z2k_ow_tg() {
             return 1
             ;;
     esac
+    return 0
+}
+
+# z2k_ow_tg_verify — start-gate: wanted ⇒ процесс жив + ключевая chain на
+# месте; не wanted (нет бинарника/выключено) ⇒ пропуск, а не провал.
+z2k_ow_tg_verify() {
+    z2k_ow_tg_wanted || return 0
+    z2k_ow_tg_running || {
+        echo "z2k-openwrt: tg_verify: демон не жив" >&2; return 1; }
+    nft list chain "${Z2K_TG_NFT_FAMILY:-inet}" "${Z2K_TG_NFT_TABLE:-zapret2}" \
+        "${Z2K_TG_CHAIN_PRE:-z2k_tg_dst_pre}" >/dev/null 2>&1 || {
+        echo "z2k-openwrt: tg_verify: нет chain ${Z2K_TG_CHAIN_PRE:-z2k_tg_dst_pre}" >&2
+        return 1; }
     return 0
 }
 

@@ -44,6 +44,10 @@ Z2K_LOCKS="${Z2K_LOCKS:-$Z2K_TMP/locks}"
 Z2K_LOG="${Z2K_LOG:-$Z2K_TMP/logs}"
 Z2K_DOWNLOADS="${Z2K_DOWNLOADS:-$Z2K_TMP/downloads}"
 Z2K_GENERATED="${Z2K_GENERATED:-$Z2K_TMP/generated}"
+# Маркер dataplane-ready: создаётся start_service ПОСЛЕДНИМ (все required
+# прошли), снимается ПЕРВЫМ в stop и при любом failed start. /status и
+# health-гейты различают по нему running-процесс от готового dataplane.
+Z2K_CORE_READY="${Z2K_CORE_READY:-$Z2K_RUN/core-ready}"
 
 # --- zapret2 runtime (чужое дерево, только читаем) ---
 # Каталог установки zapret2-z2k OpenWrt runtime: nfq2/nfqws2, common/*.sh,

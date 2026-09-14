@@ -7,9 +7,9 @@
 # без Keenetic-специфики, без второй таблицы.
 #
 # Использование (требует выставленных paths/env):
-#   z2k_ow_rt 1            - конвергенция: DNS + whitelist + nft + instance
-#   z2k_ow_rt 0            - full stop: процесс (через procd) + nft + DNS
-#   z2k_ow_rt rules        - hotplug: nft + whitelist converge (+DNS verify
+#   z2k_ow_rt 1            - конвергенция: DNS + exclude + nft + instance
+#   z2k_ow_rt 0            - full stop: процесс (через procd) + nft + DNS + exclude-truncate
+#   z2k_ow_rt rules        - hotplug: nft + exclude converge (+DNS verify
 #                            без commit), демон не трогаем
 #   z2k_ow_rt proc-bounce  - ТОЛЬКО kill процесса (restart/refresh; DNS/rules целы)
 #   z2k_ow_rt cleanup      - uninstall: всё снять (DNS ours + nft), never fail
@@ -301,21 +301,37 @@ z2k_ow_rt_dns_remove() {
     return 0
 }
 
-# --- desync-exclusion (RT20): effective whitelist ensure ---
-
-# whitelist.txt читает генератор (wl_excl -> $Z2K_LISTS_DIR/whitelist.txt).
-# RKN-лист updater-owned (править нельзя — сломаем converge); geosite-subtract
-# на OpenWrt не бегает. Поэтому ensure exact-5 здесь: append недостающих,
-# чужие строки/порядок не трогаем, ничего не удаляем. Провал -> RT не ready.
+# --- desync-exclusion (RT20, владение J): adapter-owned exclude-файл ---
+#
+# Раньше 5 RT-доменов дописывались в user-owned whitelist.txt: их некому было
+# снять (full/halt teardown их не трогал — чужой файл), и провал RT оставлял
+# прямое исключение навсегда. Теперь exact-5 живут в $Z2K_RT_EXCLUDE
+# (adapter-owned), генератор читает его через Z2K_HOSTLIST_EXCLUDE_EXTRA-hook.
+# ensure: atomic rewrite exact-5. deactivate (stop/halt/!wanted/cleanup-шлейф):
+# truncate в пустой (НЕ delete: конфиг ссылается на путь, missing-file ронял
+# бы proc-bounce рестарт демона). Чужие строки невозможны по построению —
+# файл пишем только мы целиком; user-whitelist не трогаем никогда.
+_z2k_ow_rt_exclude_file() {
+    printf '%s' "${Z2K_RT_EXCLUDE:-${Z2K_ETC:-/etc/z2k}/rt-exclude.txt}"
+}
 z2k_ow_rt_desync_exclude() {
-    local _wl="${Z2K_LISTS_DIR:-/usr/lib/z2k/lists}/whitelist.txt" _d
-    mkdir -p "$(dirname "$_wl")" 2>/dev/null || return 1
-    [ -e "$_wl" ] || : > "$_wl" 2>/dev/null || return 1
+    local _f _tmp _d
+    _f="$(_z2k_ow_rt_exclude_file)"
+    mkdir -p "$(dirname "$_f")" 2>/dev/null || return 1
+    _tmp="$_f.tmp.$$"
+    : > "$_tmp" 2>/dev/null || return 1
     for _d in $Z2K_RT_DOMAINS; do
-        grep -qxF "$_d" "$_wl" 2>/dev/null || {
-            printf '%s\n' "$_d" >> "$_wl" 2>/dev/null || return 1
-        }
+        printf '%s\n' "$_d" >> "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
     done
+    mv -f "$_tmp" "$_f" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+    return 0
+}
+# Снять RT-исключение: пустой файл (см. выше, почему не delete).
+z2k_ow_rt_desync_include() {
+    local _f
+    _f="$(_z2k_ow_rt_exclude_file)"
+    [ -e "$_f" ] || return 0
+    : > "$_f" 2>/dev/null || return 1
     return 0
 }
 
@@ -414,9 +430,10 @@ z2k_ow_rt_start_instance() {
 _z2k_ow_rt_halt_teardown() {
     z2k_ow_rt_nft_remove >/dev/null 2>&1 || true
     z2k_ow_rt_dns_remove >/dev/null 2>&1 || true
+    z2k_ow_rt_desync_include >/dev/null 2>&1 || true
     mkdir -p "$(dirname "$Z2K_RT_HALT_LATCH")" 2>/dev/null
     : > "$Z2K_RT_HALT_LATCH" 2>/dev/null
-    logger -t z2k-rt "daemon dead persistently, feature torn down (DNS+redirect removed), latched until service restart" 2>/dev/null || true
+    logger -t z2k-rt "daemon dead persistently, feature torn down (DNS+redirect+exclusion removed), latched until service restart" 2>/dev/null || true
     return 0
 }
 
@@ -432,13 +449,19 @@ z2k_ow_rt() {
             ;;
         0)
             # Full stop: процесс — через procd (сервис останавливается);
-            # здесь снимаем nft + DNS. Порядок: сначала redirect (трафик
-            # перестаёт идти в локальный порт), затем DNS.
+            # здесь снимаем nft + DNS + exclusion. Порядок: сначала redirect
+            # (трафик перестаёт идти в локальный порт), затем DNS, затем
+            # exclusion вернуть (пустой файл — домены снова десинкаются).
             z2k_ow_rt_nft_remove
             z2k_ow_rt_dns_remove
+            z2k_ow_rt_desync_include
             ;;
         rules)
             # hotplug/firewall-reload: converge без трогания демона.
+            # Ready-gate (no resurrection; предикат из env.sh).
+            if command -v z2k_ow_core_ready >/dev/null 2>&1; then
+                z2k_ow_core_ready || return 0
+            fi
             # !wanted -> converge-to-stop (правила+DNS снять), процесс не kill'им
             # (владелец — procd; следующий stop/restart доведёт).
             if z2k_ow_rt_wanted; then
@@ -447,6 +470,7 @@ z2k_ow_rt() {
             else
                 z2k_ow_rt_nft_remove
                 z2k_ow_rt_dns_remove >/dev/null 2>&1 || true
+                z2k_ow_rt_desync_include >/dev/null 2>&1 || true
             fi
             ;;
         proc-bounce)
@@ -459,12 +483,18 @@ z2k_ow_rt() {
             ;;
         cleanup)
             # uninstall: всё снять, никогда не валить удаление.
+            # Adapter-owned exclude-файл удаляем целиком (user-whitelist
+            # не трогали никогда — там удалять нечего).
             z2k_ow_rt_nft_remove >/dev/null 2>&1 || true
             z2k_ow_rt_dns_remove >/dev/null 2>&1 || true
+            rm -f "$(_z2k_ow_rt_exclude_file)" 2>/dev/null || true
             rm -f "$Z2K_RT_HALT_LATCH" 2>/dev/null
             return 0
             ;;
         check)
+            if command -v z2k_ow_core_ready >/dev/null 2>&1; then
+                z2k_ow_core_ready || return 0
+            fi
             z2k_ow_rt_check
             ;;
         *)
@@ -475,18 +505,31 @@ z2k_ow_rt() {
     return 0
 }
 
+# z2k_ow_rt_verify — start-gate: wanted ⇒ процесс жив + DNS-пины сошлись
+# (авторитетный intent + живой резолв sentinel'ов); не wanted ⇒ пропуск.
+z2k_ow_rt_verify() {
+    z2k_ow_rt_wanted || return 0
+    z2k_ow_rt_running || {
+        echo "z2k-openwrt: rt_verify: демон не жив" >&2; return 1; }
+    _z2k_ow_rt_dns_verify || {
+        echo "z2k-openwrt: rt_verify: DNS-пины не сошлись" >&2; return 1; }
+    return 0
+}
+
 # --- health check (cron) ---
 
 z2k_ow_rt_check() {
     local _dead_f="$Z2K_RT_HEALTH_DIR/dead" _dead=0
     mkdir -p "$Z2K_RT_HEALTH_DIR" 2>/dev/null || return 0
     if ! z2k_ow_rt_wanted; then
-        # Disabled: конвергенция к стоп (процесс добить, правила+DNS снять).
+        # Disabled: конвергенция к стоп (процесс добить, правила+DNS снять,
+        # exclusion вернуть).
         if z2k_ow_rt_running; then
             for _p in $(z2k_ow_rt_pids); do _z2k_ow_rt_kill "$_p"; done
         fi
         z2k_ow_rt_nft_remove >/dev/null 2>&1 || true
         z2k_ow_rt_dns_remove >/dev/null 2>&1 || true
+        z2k_ow_rt_desync_include >/dev/null 2>&1 || true
         rm -f "$_dead_f" "$Z2K_RT_HALT_LATCH" 2>/dev/null
         return 0
     fi

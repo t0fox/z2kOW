@@ -220,28 +220,29 @@ Scope строго порт; blanket `ct status dnat accept` запрещён т
 - `FLOWOFFLOAD` на OpenWrt по умолчанию `none` (генератор) — runtime
   offload-цепочки при этом вообще не строит.
 
-## 14. nfqws2 exclusion (RT20): effective-whitelist ensure
+## 14. nfqws2 exclusion (RT20/J): adapter-owned exclude-файл
 
 Факты: runtime перехватывает в mangle PREROUTING (раньше nat REDIRECT) —
-fight реален; исключение только на уровне nfqws2 `--hostlist-exclude`
-(= `$Z2K_LISTS_DIR/whitelist.txt` → симлинк на user-файл; updater-owned
-RKN-лист править нельзя — сломает converge-идемпотентность; geosite-subtract
-на OpenWrt не бегает — его файл не доставляется).
+fight реален; исключение только на уровне nfqws2 `--hostlist-exclude`.
 
-Механизм `z2k_ow_rt_desync_exclude` (adapter-owned, updater-proof):
-- ensure: ровно 5 exact-строк присутствуют в effective whitelist
-  (append недостающих; чужие строки и порядок — никогда не трогаем,
-  ничего не удаляем).
-- exact-line matching (НЕ suffix: `foo.rutracker.org` не покрывает
-  `rutracker.org`).
+Владение (J): 5 RT-доменов живут в ОТДЕЛЬНОМ adapter-owned файле
+`$Z2K_ETC/rt-exclude.txt`, а НЕ дописываются в user-owned whitelist.txt
+(прежняя схема: снимать некому — full/halt teardown чужой файл не трогал,
+провал RT оставлял вечное исключение). Генератор читает файл через
+platform-neutral hook `Z2K_HOSTLIST_EXCLUDE_EXTRA` (common, unset = 1-в-1).
+
+Механизм `z2k_ow_rt_desync_exclude` / `z2k_ow_rt_desync_include`:
+- ensure: atomic rewrite exact-5 (чужих строк нет по построению).
+- deactivate (0/halt/!wanted): truncate в пустой — НЕ delete (конфиг
+  ссылается на путь; missing-file ронял бы proc-bounce рестарт).
+- cleanup (uninstall): rm целиком (user-whitelist не трогали — там нечего).
 - провал записи → RT НЕ ready (fail-closed, как DNS).
-- Перегенерация конфига подхватывает исключение штатно через `wl_excl`
+- Перегенерация конфига подхватывает исключение штатно через hook
   (перезапуск демона не нужен — движок перечитывает по mtime, но тестовый
   контракт этого не требует).
-- Доказательство RT20: (a) shipped RKN-лист содержит домены (фиктива? нет —
-  реальный grep), (b) ensure кладёт 5 в effective файл, (c) effective файл
-  == читаемый генератором (`$Z2K_LISTS_DIR/whitelist.txt`), (d)wl_excl
-  в RKN-профиле сгенерированного конфига указывает туда же.
+- Доказательство RT20: (a) shipped RKN-лист содержит домены (реальный grep),
+  (b) ensure кладёт exact-5 в adapter-файл, (c) user-whitelist нетронут,
+  (d) hook в RKN-профиле сгенерированного конфига указывает на файл.
 
 ## 15. No-blackhole и halt-teardown
 
@@ -260,11 +261,11 @@ RKN-лист править нельзя — сломает converge-идемп�
 
 ## 16. WAN flap / firewall reload / restart / uninstall
 
-- Hotplug: `z2k_ow_rt rules` — nft+whitelist converge, DNS без commit/reload
+- Hotplug: `z2k_ow_rt rules` — nft+exclude converge, DNS без commit/reload
   (только verify), PID untouched.
 - Restart сервиса: полная конвергенция (DNS re-assert идемпотентно, gap нет).
-- Full stop (`0`): process + redirect + v6-reject + guard + DNS (ОБЕ семьи).
-  Daemon-only bounce: только процесс.
+- Full stop (`0`): process + redirect + v6-reject + guard + DNS (ОБЕ семьи)
+  + exclusion truncate. Daemon-only bounce: только процесс.
 - Uninstall: всё выше + legacy-DNS cleanup + снять rt-health cron;
   user-DNS не трогаем. Purge — вручную (frozen).
 

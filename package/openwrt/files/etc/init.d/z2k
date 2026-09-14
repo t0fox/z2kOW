@@ -15,6 +15,7 @@ START=22
 
 Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
 Z2K_ETC="${Z2K_ETC:-/etc/z2k}"
+Z2K_RUN="${Z2K_RUN:-${Z2K_TMP:-/tmp/z2k}/runtime}"
 
 z2k_load_adapter() {
     # shellcheck disable=SC1090,SC1091
@@ -36,6 +37,39 @@ z2k_load_adapter() {
     return 0
 }
 
+# Bounded wait: nfqws2 запущен И держит очередь (consumer registered),
+# а не просто "procd принял instance". Таймаут переопределяем для тестов.
+_z2k_ow_wait_consumer() {
+    local _t="${Z2K_START_CONSUMER_TIMEOUT:-10}" _pid _q="${QNUM:-200}"
+    while [ "$_t" -gt 0 ]; do
+        _pid="$(cat "$Z2K_RUN/nfqws2.pid" 2>/dev/null)"
+        if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null && \
+           grep -q "^[[:space:]]*$_q " \
+               "${Z2K_NFQUEUE_PROC:-/proc/net/netfilter/nfnetlink_queue}" 2>/dev/null; then
+            return 0
+        fi
+        sleep 1; _t=$((_t - 1))
+    done
+    echo "z2k-openwrt: consumer timeout: nfqws2 не держит очередь $_q" >&2
+    return 1
+}
+
+# Откат failed start: только z2k-owned состояние, best-effort, всегда rc 0.
+# Процессы бьём явно (на уборку procd при провале старта полагаться нельзя),
+# partial firewall снимаем, ready отсутствует по построению (создаётся только
+# в самом конце успеха). TG/RT/WARP-нули идемпотентны (converge-to-stop).
+z2k_ow_start_rollback() {
+    rm -f "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" 2>/dev/null
+    local _pid
+    _pid="$(cat "$Z2K_RUN/nfqws2.pid" 2>/dev/null)"
+    [ -n "$_pid" ] && kill "$_pid" 2>/dev/null
+    z2k_ow_tg 0 >/dev/null 2>&1
+    z2k_ow_rt 0 >/dev/null 2>&1
+    z2k_ow_warp 0 >/dev/null 2>&1
+    [ "${INIT_APPLY_FW:-1}" = "1" ] && z2k_ow_fw_remove >/dev/null 2>&1
+    return 0
+}
+
 start_service() {
     z2k_load_adapter || return 1
     OPENWRT_LAN="$(z2k_ow_lan)"
@@ -47,9 +81,13 @@ start_service() {
     # ENABLED — master-гейт upstream-семантики (сохраняется регенерацией).
     [ "${ENABLED:-1}" = "1" ] || return 1
 
-    # Preflight runtime ДО procd: отсутствующий движок обязан ронять start
+    # Preflight runtime ДО всего: отсутствующий движок обязан ронять start
     # здесь с точной причиной, а не job exit=0 + exit=127 потом (live-урок).
     z2k_ow_runtime_preflight || return 1
+
+    # core-ready снимаем ПЕРВЫМ: дальше — либо новый ready в самом конце,
+    # либо его отсутствие при любом провале (деградация видна /status).
+    rm -f "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" 2>/dev/null
 
     local _base _qnum
     _base="$(z2k_ow_optbase)" || return 1
@@ -63,32 +101,95 @@ start_service() {
     procd_set_param pidfile "$Z2K_RUN/nfqws2.pid"
     procd_close_instance
 
-    [ "${INIT_APPLY_FW:-1}" = "1" ] && z2k_ow_fw_apply
+    # Транзакция (порядок E): consumer → fw apply → fw verify → TG → RT →
+    # WARP (optional, warn-only — маскировать нечего: все required уже прошли
+    # раньше него) → core-ready ПОСЛЕДНИМ. Любой required-провал: rollback +
+    # return 1 (job nonzero, "Готово" не печатается, ready отсутствует).
+    _z2k_ow_wait_consumer || { z2k_ow_start_rollback; return 1; }
+    if [ "${INIT_APPLY_FW:-1}" = "1" ]; then
+        z2k_ow_fw_apply && z2k_ow_fw_verify || { z2k_ow_start_rollback; return 1; }
+    fi
     z2k_ow_custom_daemons 1
     # TG/CDN tunnel (Stage 3): второй procd instance + nft в runtime-таблице.
-    # Прямой вызов (НЕ через custom.d-раннер выше): DISABLE_CUSTOM не должен
+    # Прямой вызов (НЕ через custom.d-раннер): DISABLE_CUSTOM не должен
     # гасить first-class feature. procd останавливает instance сам.
-    z2k_ow_tg 1
+    z2k_ow_tg 1 && z2k_ow_tg_verify || { z2k_ow_start_rollback; return 1; }
     # RT proxy (Stage 4): третий instance + DNS-пины + nft. DNS re-assert
     # идемпотентен — gap при рестарте нет (контракт stop_proxy).
-    z2k_ow_rt 1
+    z2k_ow_rt 1 && z2k_ow_rt_verify || { z2k_ow_start_rollback; return 1; }
     # WARP (Stage 5): четвёртый instance + sets; PBR — только если proven
     # ready (на старте почти surely нет; tick доведёт). Boot никогда не
-    # валит сервис (внутри — soft-fail).
-    z2k_ow_warp 1
+    # валит сервис (внутри — soft-fail); warn-only и здесь.
+    z2k_ow_warp 1 || echo "z2k-openwrt: warp на старте soft-fail (tick доведёт)" >&2
+    : > "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" || { z2k_ow_start_rollback; return 1; }
+    return 0
 }
 
 stop_service() {
     z2k_load_adapter || return 1
     # shellcheck disable=SC1090
     [ -f "$Z2K_CONFIG" ] && . "$Z2K_CONFIG"
-    z2k_ow_custom_daemons 0
+    local _rc=0
+    # core-ready FIRST: с этого момента гейты видят not-ready, resurrection
+    # запрещена даже если teardown ниже частично провалится.
+    rm -f "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" 2>/dev/null
+    # Агрегируем ошибки (каждый шаг best-effort, но итог честный): молчаливый
+    # частичный стоп хуже громкого.
+    z2k_ow_custom_daemons 0 || _rc=1
     # TG chains снять (sets оставить); демона останавливает сам procd.
-    z2k_ow_tg 0
+    z2k_ow_tg 0 || _rc=1
     # RT full stop: redirect/guard + DNS-пины снять (процесс — через procd).
-    z2k_ow_rt 0
+    z2k_ow_rt 0 || _rc=1
     # WARP full stop: PBR down первым, затем chains (sets оставить).
-    z2k_ow_warp 0
+    z2k_ow_warp 0 || _rc=1
     # Демона останавливает сам procd; снимаем только firewall.
-    [ "${INIT_APPLY_FW:-1}" = "1" ] && z2k_ow_fw_remove
+    # INIT_APPLY_FW=0: fw не наш — ни снимать, ни проверять нечего, и это НЕ
+    # провал (иначе внешний fw давал бы ложный nonzero стопа).
+    if [ "${INIT_APPLY_FW:-1}" = "1" ]; then
+        z2k_ow_fw_remove || _rc=1
+        z2k_ow_stop_verify || _rc=1
+    fi
+    return $_rc
+}
+
+# z2k_ow_stop_verify — доказать ОТСУТСТВИЕ z2k-owned состояния после teardown.
+# Отсутствующая chain/set == чисто (снимать было нечего); живая chain с нашим
+# jump/redirect или живой PBR-tuple == грязь. Чужие правила не трогаем и не
+# судим (только exact-наши маркеры).
+z2k_ow_stop_verify() {
+    local _tab="${Z2K_ZAPRET_NFT_TABLE:-${ZAPRET_NFT_TABLE:-zapret2}}" _rc=0
+    local _c
+    # Core jumps: нигде не должно остаться jump в рабочие chains.
+    for _pair in "postnat_hook postnat" "prenat_hook prenat"; do
+        set -- $_pair
+        if nft list chain inet "$_tab" "$1" 2>/dev/null | grep -q "jump $2"; then
+            echo "z2k-openwrt: stop_verify: остался jump $2 в $1" >&2
+            _rc=1
+        fi
+    done
+    # TG/RT working chains: teardown их удаляет (flush+delete) — живых быть
+    # не должно. Sets остаются осознанно (их не судим).
+    for _c in "${Z2K_TG_CHAIN_PRE:-z2k_tg_dst_pre}" "${Z2K_TG_CHAIN_OUT:-z2k_tg_dst_out}" \
+             "${Z2K_TG_CHAIN_FWD:-z2k_tg_flt_fwd}" "${Z2K_TG_CHAIN_OUTF:-z2k_tg_flt_out}" \
+             "${Z2K_TG_CHAIN_IN:-z2k_tg_flt_in}" "${Z2K_RT_CHAIN_PRE:-z2k_rt_dst_pre}" \
+             "${Z2K_RT_CHAIN_OUT:-z2k_rt_dst_out}" "${Z2K_RT_CHAIN_IN:-z2k_rt_flt_in}" \
+             "${Z2K_RT_CHAIN_FWD6:-z2k_rt_flt6_fwd}" "${Z2K_RT_CHAIN_OUT6:-z2k_rt_flt6_out}" \
+             "${WARP_CHAIN_MARK:-z2k_warp_mark}" "${WARP_CHAIN_MSS:-z2k_warp_mss}" \
+             "${WARP_CHAIN_FWD:-z2k_warp_fwd}" "${WARP_CHAIN_NAT:-z2k_warp_nat}"; do
+        if nft list chain inet "$_tab" "$_c" >/dev/null 2>&1; then
+            echo "z2k-openwrt: stop_verify: осталась chain $_c" >&2
+            _rc=1
+        fi
+    done
+    # RT DNS-пины: наши uci-секции должны отсутствовать.
+    if _z2k_ow_rt_dns_dump 2>/dev/null | grep -q '^z2k_rt_'; then
+        echo "z2k-openwrt: stop_verify: остались RT DNS-пины" >&2
+        _rc=1
+    fi
+    # WARP PBR-tuple: exact-наше правило должно отсутствовать.
+    if ip rule show 2>/dev/null | grep -qF "fwmark ${WARP_MARK:-0x80000000}/${WARP_MASK:-0x80000000} lookup ${WARP_TABLE:-989}"; then
+        echo "z2k-openwrt: stop_verify: остался WARP PBR-tuple" >&2
+        _rc=1
+    fi
+    return $_rc
 }

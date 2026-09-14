@@ -114,9 +114,9 @@ z2k-openwrt-CI-SNAPSHOT-<commit>
 Внутри:
 
 ```text
-z2k-adapter-0.1.0-r2.apk
-z2k-webpanel-0.1.0-r2.apk
-z2k-zapret2-runtime-1.0.5.1-r3.apk
+z2k-adapter-0.1.0-r3.apk
+z2k-webpanel-0.1.0-r3.apk
+z2k-zapret2-runtime-1.0.5.1-r4.apk
 packages.adb
 sha256sums
 provenance.json
@@ -125,12 +125,17 @@ METADATA.txt
 
 Перед установкой сверь SHA256.
 
+Upgrade одной операцией: `apk upgrade z2k-webpanel` (или `apk add
+z2k-webpanel`) — versioned EXTRA_DEPENDS заставляют резолвер co-upgrade'ить
+adapter, а runtime приезжает dependency resolver'ом сам. Runtime вручную
+не перечислять (доказано CI upgrade-регрессией: r2/r2/r3 → r3/r3/r4).
+
 ## 3. Установи core
 
 Скопируй APK на роутер и выполни:
 
 ```sh
-apk add --allow-untrusted ./z2k-adapter-0.1.0-r2.apk
+apk add --allow-untrusted ./z2k-adapter-0.1.0-r3.apk
 ```
 
 Затем:
@@ -151,7 +156,7 @@ nft list table inet zapret
 ## 4. Установи webpanel
 
 ```sh
-apk add --allow-untrusted ./z2k-webpanel-0.1.0-r2.apk
+apk add --allow-untrusted ./z2k-webpanel-0.1.0-r3.apk
 /etc/init.d/z2k-webpanel enable
 /etc/init.d/z2k-webpanel start
 ```

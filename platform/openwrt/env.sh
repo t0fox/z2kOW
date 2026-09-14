@@ -148,3 +148,25 @@ export Z2K_LUA_EXTRA_DIRS
 # LAN-сети для zapret2 ifsets (значение задаёт uci.sh, здесь — дефолт).
 OPENWRT_LAN="${OPENWRT_LAN:-lan}"
 export OPENWRT_LAN
+
+# Adapter-owned RT exclusion (владение J): 5 RT-доменов живут в ОТДЕЛЬНОМ
+# файле, а не дописываются в user-owned whitelist.txt. Генератор подхватывает
+# его через platform-neutral hook Z2K_HOSTLIST_EXCLUDE_EXTRA (только если файл
+# существует). Содержимое — exact-5 при активном RT, пусто при стопе (truncate,
+# не delete: конфиг ссылается на путь, missing-file ронял бы рестарт демона).
+# Писатель один (rt.sh, atomic rename); панель/пользователь его не трогают.
+
+Z2K_RT_EXCLUDE="${Z2K_RT_EXCLUDE:-$Z2K_ETC/rt-exclude.txt}"
+export Z2K_RT_EXCLUDE
+Z2K_HOSTLIST_EXCLUDE_EXTRA="${Z2K_HOSTLIST_EXCLUDE_EXTRA:-$Z2K_RT_EXCLUDE}"
+export Z2K_HOSTLIST_EXCLUDE_EXTRA
+
+# z2k_ow_core_ready — предикат "dataplane готов": маркер core-ready СУЩЕСТВУЕТ
+# (его создаёт start_service последним и снимает первым stop/failed start)
+# И сервис running. Reconvergence (hotplug/cron check/rules) разрешена только
+# при ready — иначе manual stop/failed start воскресали бы правилами.
+# INIT_SCRIPT переопределяем для тестов (на роутере — /etc/init.d/z2k).
+z2k_ow_core_ready() {
+    [ -f "${Z2K_CORE_READY:-${Z2K_RUN:-/tmp/z2k/runtime}/core-ready}" ] || return 1
+    "${INIT_SCRIPT:-/etc/init.d/z2k}" running >/dev/null 2>&1
+}

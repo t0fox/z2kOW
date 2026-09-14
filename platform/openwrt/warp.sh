@@ -1025,6 +1025,10 @@ _z2k_ow_warp_dispatch() {
             # затем dynamic TUN по proven-ready (defect 6: одного route/rule
             # мало — MSS/FWD/NAT тоже восстанавливаем) либо чистое off.
             # Демон не трогаем.
+            # Ready-gate (no resurrection; предикат из env.sh).
+            if command -v z2k_ow_core_ready >/dev/null 2>&1; then
+                z2k_ow_core_ready || return 0
+            fi
             if warp_wanted_boot; then
                 warp_nft_sets_reload_if_changed >/dev/null 2>&1 || true
                 _warp_sets_ensure_live || { warp_nft_sets_load >/dev/null 2>&1 || return 1; }
@@ -1057,6 +1061,9 @@ _z2k_ow_warp_dispatch() {
             return 0
             ;;
         check)
+            if command -v z2k_ow_core_ready >/dev/null 2>&1; then
+                z2k_ow_core_ready || return 0
+            fi
             z2k_ow_warp_check
             ;;
         # CLI-глаголы — явный мэппинг + propagation rc (дефисный reload-lists

@@ -7,6 +7,7 @@ HP="$REPO/package/openwrt/files/etc/hotplug.d/iface/90-z2k"
 SVC="$REPO/package/openwrt/files/etc/init.d/z2k"
 
 assert_contains "hotplug: ifset-reload" "$HP" "reload_ifsets"
+assert_contains "hotplug: ready-gate" "$HP" "z2k_ow_core_ready"
 if grep -Eiq 'restart|start_daemons|procd|nfqws' "$HP"; then
     _t_bad "hotplug трогает демона (должен только обновлять ifsets)"
 else
@@ -16,6 +17,10 @@ assert_contains "hotplug: только ifup/ifdown" "$HP" "ifdown"
 assert_contains "hotplug: уважает enabled" "$HP" "enabled"
 
 assert_contains "service: fw apply на старте" "$SVC" "z2k_ow_fw_apply"
+assert_contains "service: fw verify на старте" "$SVC" "z2k_ow_fw_verify"
+assert_contains "service: core-ready LAST" "$SVC" "Z2K_CORE_READY"
+assert_contains "service: rollback" "$SVC" "z2k_ow_start_rollback"
+assert_contains "service: stop verify" "$SVC" "z2k_ow_stop_verify"
 assert_contains "service: fw remove на стопе" "$SVC" "z2k_ow_fw_remove"
 assert_contains "service: custom.d на старте" "$SVC" "z2k_ow_custom_daemons 1"
 assert_contains "service: custom.d на стопе" "$SVC" "z2k_ow_custom_daemons 0"

@@ -1,0 +1,35 @@
+# package/z2k-runtime/runtime-mode.contract - machine-readable mode contract.
+#
+# Формат: "<dest-под-/opt/zapret2> <role> <mode>".
+# role: exec (исполняется напрямую: ELF или $IPSET_CR) | source (только `. file`)
+#       | read (только читается движком).
+# mode: 0755 (INSTALL_BIN) | 0644 (INSTALL_DATA).
+# Источник ролей — call graph, не догадки:
+#   exec create_ipset.sh: "$IPSET_CR" "$@" в init.d/openwrt/functions create_ipset()
+#   exec ELF: procd command (nfqws2), def.sh mdig/ip2net вызовы
+#   source functions: `. "$_f"` в platform/openwrt/firewall.sh z2k_ow_fw_source
+#   source common/*: `. "$ZAPRET_BASE/common/..."` в functions
+#   source def.sh: `. "$EXEDIR/def.sh"` в create_ipset.sh
+#   read lua/*: --lua-init движка (plain .lua, распакованные из .gz рецептом)
+# Проверка: tests/openwrt/test_ow_runtime_modes.sh — по реальному install
+# staging (не по тексту Makefile): regression на live-урок p-84.17, когда
+# create_ipset.sh уехал 0644 и Permission denied убил весь dataplane при
+# живом nfqws2 и job success.
+nfq2/nfqws2 exec 0755
+ip2net/ip2net exec 0755
+mdig/mdig exec 0755
+lua/zapret-lib.lua read 0644
+lua/zapret-antidpi.lua read 0644
+lua/zapret-auto.lua read 0644
+init.d/openwrt/functions source 0644
+common/base.sh source 0644
+common/fwtype.sh source 0644
+common/linux_iphelper.sh source 0644
+common/ipt.sh source 0644
+common/nft.sh source 0644
+common/linux_fw.sh source 0644
+common/linux_daemons.sh source 0644
+common/list.sh source 0644
+common/custom.sh source 0644
+ipset/create_ipset.sh exec 0755
+ipset/def.sh source 0644

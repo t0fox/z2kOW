@@ -149,23 +149,25 @@ _reset() {
     done
     printf 'ENABLED=1\n' > "$T/etc/config"
     printf '\n' > "$T/pidof.out"
-    rm -f "$T/no-table"
+    rm -f "$T/no-table" "$T/etc/rt-exclude.txt"
     chmod +x "$T/root/bin/z2k-rt-proxy"
     printf 'user-line.example\n' > "$T/root/lists/whitelist.txt"
 }
-_snap() { # $1 файл снимка: uci-секции + whitelist + nft.log
+_snap() { # $1 файл снимка: uci-секции + whitelist + exclude + nft.log
     ls "$T/uci/dhcp" 2>/dev/null | sort > "$1.uci"
     cksum "$T/root/lists/whitelist.txt" > "$1.wl"
+    cksum "$T/etc/rt-exclude.txt" > "$1.ex" 2>/dev/null || : > "$1.ex"
     cp "$T/nft.log" "$1.nft" 2>/dev/null || : > "$1.nft"
 }
 
-# --- RT1: fresh start: DNS + whitelist + redirect + guard + процесс ---
+# --- RT1: fresh start: DNS + exclude + redirect + guard + процесс ---
 _reset
 _out="$(z2k_ow_rt 1 2>"$T/err")"
 assert_eq "RT1 rc" "0" "$?"
 printf '%s\n' "$_out" > "$T/out"
 assert_eq "RT1: DNS-секций 5" "5" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c .)"
-assert_eq "RT1: whitelist строк 6 (5+user)" "6" "$(wc -l < "$T/root/lists/whitelist.txt" | tr -d ' ')"
+assert_eq "RT1: user-whitelist нетронут (1 строка)" "1" "$(wc -l < "$T/root/lists/whitelist.txt" | tr -d ' ')"
+assert_eq "RT1: exclude exact-5" "5" "$(wc -l < "$T/etc/rt-exclude.txt" | tr -d ' ')"
 assert_eq "RT1: правил 6 (4 redirect/guard + 2 v6-reject)" "6" "$(grep -c '^nft:add rule' "$T/nft.log")"
 assert_eq "RT1: один instance" "1" "$(grep -c '^instance:z2k-rt$' "$T/procd.log")"
 assert_contains "RT1: mut DNS" "$T/out" "DNS_CREATED: rutracker.org"
@@ -192,7 +194,8 @@ _snap "$T/s4a"
 : > "$T/nft.log"
 z2k_ow_rt 1 >/dev/null 2>&1
 assert_eq "RT4: секций те же 5" "5" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c .)"
-assert_eq "RT4: whitelist без дублей" "6" "$(wc -l < "$T/root/lists/whitelist.txt" | tr -d ' ')"
+assert_eq "RT4: whitelist цел (1)" "1" "$(wc -l < "$T/root/lists/whitelist.txt" | tr -d ' ')"
+assert_eq "RT4: exclude без дублей (5)" "5" "$(wc -l < "$T/etc/rt-exclude.txt" | tr -d ' ')"
 
 # --- RT5: crash (transient): DNS/rules на месте, ничего не снято ---
 _reset
@@ -245,7 +248,7 @@ assert_eq "RT7: owner openwrt" "$T/root/platform/openwrt/rt-proc.sh" "$(au_servi
 unset Z2K_PLATFORM
 assert_eq "RT7: owner keenetic" "/opt/etc/init.d/S96z2k-rt-proxy" "$(au_service_for_binary z2k-rt-proxy)"
 
-# --- RT8: full stop: процесс/DNS/правила/guard gone ---
+# --- RT8: full stop: процесс/DNS/правила/guard gone, exclusion пуст ---
 _reset
 z2k_ow_rt 1 >/dev/null 2>&1
 printf '\n' > "$T/pidof.out"
@@ -253,6 +256,16 @@ printf '\n' > "$T/pidof.out"
 z2k_ow_rt 0 >/dev/null 2>&1
 assert_eq "RT8: DNS ours gone" "0" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c . || true)"
 assert_eq "RT8: chains 5 delete" "5" "$(grep -c '^nft:delete chain' "$T/nft.log")"
+assert_eq "RT8: exclude пуст (не delete: путь жив)" "0" "$(grep -c . "$T/etc/rt-exclude.txt")"
+[ -f "$T/etc/rt-exclude.txt" ] && _t_ok || _t_bad "RT8: exclude-путь удалён (должен truncate)"
+assert_eq "RT8: user-whitelist цел" "user-line.example" "$(cat "$T/root/lists/whitelist.txt")"
+
+# --- RT8b: cleanup удаляет adapter exclude-файл, user цел ---
+_reset
+z2k_ow_rt 1 >/dev/null 2>&1
+z2k_ow_rt cleanup >/dev/null 2>&1
+[ -e "$T/etc/rt-exclude.txt" ] && _t_bad "RT8b: exclude-файл остался" || _t_ok
+assert_eq "RT8b: user-whitelist цел" "user-line.example" "$(cat "$T/root/lists/whitelist.txt")"
 
 # --- RT9: uninstall-композиция: cleanup + cron-remove, user-DNS цел ---
 _reset
@@ -365,7 +378,7 @@ assert_eq "RT19: instance нет" "0" "$(grep -c '^instance:' "$T/procd.log" 2>/
 assert_eq "RT19: правил нет" "0" "$(grep -c '^nft:add rule' "$T/nft.log" 2>/dev/null || true)"
 assert_eq "RT19: DNS нет" "0" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c . || true)"
 
-# --- RT20: shipped RKN содержит домены + effective whitelist держит 5 ---
+# --- RT20: shipped RKN содержит домены + adapter exclude держит exact-5 ---
 if grep -qxF 'rutracker.org' "$REPO/files/lists/extra_strats/TCP/RKN/List.txt"; then
     _t_ok
 else
@@ -374,10 +387,10 @@ fi
 _reset
 z2k_ow_rt 1 >/dev/null 2>&1
 for _d in rutracker.org rutracker.wiki api.rutracker.cc rep.rutracker.cc static.rutracker.cc; do
-    grep -qxF "$_d" "$T/root/lists/whitelist.txt" || _t_bad "RT20: нет $_d в effective whitelist"
+    grep -qxF "$_d" "$T/etc/rt-exclude.txt" || _t_bad "RT20: нет $_d в adapter exclude"
 done
 _t_ok
-assert_eq "RT20: effective == читаемый генератором" "$T/root/lists/whitelist.txt" "$Z2K_LISTS_DIR/whitelist.txt"
+assert_eq "RT20: user-whitelist не тронут" "user-line.example" "$(cat "$T/root/lists/whitelist.txt")"
 
 # --- RT21: A exact -> v4-sentinel ---
 _reset

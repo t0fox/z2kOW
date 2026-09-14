@@ -9,7 +9,10 @@
 # модели сервис zapret2 намеренно DISABLED (его daemon-половина не
 # используется — OPT_BASE собирает адаптер, см. firewall.sh), поэтому stock
 # hotplug не сработал бы никогда. Этот файл — единственный АКТИВНЫЙ вызов
-# zapret_reload_ifsets; дублирования операции нет, гейт — на z2k enabled.
+# zapret_reload_ifsets; дублирования операции нет.
+# Гейты (оба): enabled (установлен и разрешён) И core-ready (dataplane жив).
+# Ready-гейт запрещает resurrection: после manual stop/failed start ifup
+# не должен пересоздавать rules/state.
 
 [ -n "$INTERFACE" ] || exit 0
 [ "$ACTION" = "ifup" ] || [ "$ACTION" = "ifdown" ] || exit 0
@@ -22,6 +25,7 @@ Z2K_ETC="${Z2K_ETC:-/etc/z2k}"
 . "$Z2K_ROOT/platform/openwrt/paths.sh" || exit 0
 . "$Z2K_ROOT/platform/openwrt/env.sh" || exit 0
 . "$Z2K_ROOT/platform/openwrt/firewall.sh" || exit 0
+z2k_ow_core_ready || exit 0
 
 logger -t z2k "reloading zapret2 ifsets due to $ACTION of $INTERFACE (daemon untouched)"
 z2k_ow_fw_reload_ifsets

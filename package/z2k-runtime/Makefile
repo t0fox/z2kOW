@@ -27,12 +27,14 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=z2k-zapret2-runtime
 # Версия APK: upstream 1.0.5.1 + PKG_RELEASE. APK-грамматика запрещает
 # дефисы внутри версии ("1.0.5.1-z2k-r2-r1 invalid", доказано CI-раном),
-# поэтому upstream-repack идёт СЧЁТЧИКОМ: r3 -> RELEASE 3.
+# поэтому upstream-repack идёт СЧЁТЧИКОМ: r3 -> RELEASE 3, modes-fix -> 4.
 # Правило bump'а: PKG_RELEASE = max(upstream-repack, packaging-rev),
 # строго растёт при любом изменении содержимого; upstream 1.0.5.2-r0
 # начнётся с RELEASE 1. Точный upstream tag — в Z2K_RT_TAG ниже.
 PKG_VERSION:=1.0.5.1
-PKG_RELEASE:=3
+PKG_RELEASE:=4
+# RELEASE 4 (p-84.17 sync fix): create_ipset.sh INSTALL_BIN (+x) вместо
+# INSTALL_DATA — live-урок §12 (Permission denied убил dataplane).
 # Точный upstream tag (единственное место правды для tooling/provenance;
 # PKG_VERSION его не несёт из-за APK-грамматики, см. выше).
 Z2K_RT_TAG:=v1.0.5.1-z2k-r3
@@ -102,6 +104,11 @@ endef
 # layout upstream = недостающий файл роняет install громко.
 # lua распаковываем здесь (как Keenetic installer §4: движок ест plain .lua;
 # gzip на роутере не требуем).
+# create_ipset.sh ИСПОЛНЯЕТСЯ ($IPSET_CR "$@" в init.d/openwrt/functions),
+# а не сорсится — в рецепте ему INSTALL_BIN (live-урок p-84.17: 0644 ронял
+# весь dataplane Permission denied; роли — в runtime-mode.contract рядом).
+# def.sh только source (`. "$EXEDIR/def.sh"`), common/*.sh только source,
+# lua только read — им INSTALL_DATA достаточно.
 define Package/z2k-zapret2-runtime/install
 	[ "$(ARCH)" = "aarch64" ] || { echo "z2k-zapret2-runtime: unsupported ARCH [$(ARCH)], only aarch64" >&2; exit 1; }
 	$(INSTALL_DIR) $(1)/opt/zapret2/nfq2 $(1)/opt/zapret2/ip2net $(1)/opt/zapret2/mdig
@@ -123,7 +130,7 @@ define Package/z2k-zapret2-runtime/install
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/common/linux_daemons.sh $(1)/opt/zapret2/common/linux_daemons.sh
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/common/list.sh $(1)/opt/zapret2/common/list.sh
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/common/custom.sh $(1)/opt/zapret2/common/custom.sh
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/ipset/create_ipset.sh $(1)/opt/zapret2/ipset/create_ipset.sh
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/ipset/create_ipset.sh $(1)/opt/zapret2/ipset/create_ipset.sh
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/ipset/def.sh $(1)/opt/zapret2/ipset/def.sh
 endef
 

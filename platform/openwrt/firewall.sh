@@ -33,6 +33,55 @@ z2k_ow_fw_apply() { z2k_ow_fw_source || return 1; zapret_apply_firewall; }
 z2k_ow_fw_remove() { z2k_ow_fw_source || return 1; zapret_unapply_firewall; }
 z2k_ow_fw_reload_ifsets() { z2k_ow_fw_source || return 1; zapret_reload_ifsets; }
 
+# z2k_ow_fw_verify — доказать КОНЕЧНОЕ состояние dataplane, а не отсутствие
+# ошибки shell (live-урок p-84.17: apply вернул 0, queue-правила встали, но
+# hook jumps не встали — ipsets не создались, трафик шёл мимо очереди при
+# живом nfqws2 и job success; плюс pinned r3 API success-biased: return 0
+# даже при провале промежуточного шага — rc доверять нельзя).
+# Ожидаемая структура выводится из runtime+конфига, а не из захардкоженного
+# дампа: таблица ${ZAPRET_NFT_TABLE:-zapret2}, сеты ${ZIPSET_EXCLUDE*}
+# (= nozapret/nozapret6 в def.sh), заселённые wanif/wanif6, hook→chain jumps,
+# NFQUEUE qnum == $QNUM из конфига, consumer очереди зарегистрирован в ядре.
+z2k_ow_fw_verify() {
+    local _tab="${Z2K_ZAPRET_NFT_TABLE:-${ZAPRET_NFT_TABLE:-zapret2}}"
+    local _q="${QNUM:-200}" _c
+    command -v nft >/dev/null 2>&1 || {
+        echo "z2k-openwrt: fw_verify: нет nft" >&2; return 1; }
+    for _s in nozapret nozapret6; do
+        nft list set inet "$_tab" "$_s" >/dev/null 2>&1 || {
+            echo "z2k-openwrt: fw_verify: нет сета $_s (ipsets не созданы?)" >&2
+            return 1; }
+    done
+    # wanif заселён (пустой = jump'ы с фильтром никуда не ведут; IPv4-аплинк
+    # обязан быть — без него роутеру нечего обходить). wanif6 может быть
+    # легитимно пуст (нет IPv6-аплинка — фильтр тогда не ставится, jump
+    # работает без него), требуется только существование.
+    # NB: имена сетов — только в nft-вызовах выше; echo/комментарии их не
+    # содержат (ownership-guard: единственный писатель ifsets — zapret2).
+    nft list set inet "$_tab" wanif 2>/dev/null | grep -q '"' || {
+        echo "z2k-openwrt: fw_verify: пуст uplink-сет (аплинк не резолвится?)" >&2
+        return 1; }
+    nft list set inet "$_tab" wanif6 >/dev/null 2>&1 || {
+        echo "z2k-openwrt: fw_verify: нет v6 uplink-сета" >&2
+        return 1; }
+    for _pair in "postnat_hook postnat" "prenat_hook prenat"; do
+        set -- $_pair
+        nft list chain inet "$_tab" "$1" 2>/dev/null | grep -q "jump $2" || {
+            echo "z2k-openwrt: fw_verify: нет jump $2 в $1 (dataplane недостижим)" >&2
+            return 1; }
+        nft list chain inet "$_tab" "$2" 2>/dev/null | grep -q "to $_q" || {
+            echo "z2k-openwrt: fw_verify: нет NFQUEUE qnum $_q в $2" >&2
+            return 1; }
+    done
+    # Consumer очереди зарегистрирован (демон реально держит qnum, а не
+    # просто живёт процессом). Путь переопределяем для тестов.
+    if ! grep -q "^[[:space:]]*$_q " "${Z2K_NFQUEUE_PROC:-/proc/net/netfilter/nfnetlink_queue}" 2>/dev/null; then
+        echo "z2k-openwrt: fw_verify: нет consumer NFQUEUE $_q (nfqws2 не держит очередь?)" >&2
+        return 1
+    fi
+    return 0
+}
+
 # z2k_ow_runtime_preflight — fail loudly ДО procd (start gate).
 # Ложный success прошлого live: POST /service/start -> job exit=0, процесс
 # exit=127 (нет бинарника), UI потом показывал stopped. Проверяем здесь:
@@ -67,6 +116,24 @@ z2k_ow_runtime_preflight() {
             return 1
         fi
     done
+    # Executable-биты runtime (live-урок p-84.17: create_ipset.sh уехал 0644 —
+    # Permission denied убил ipsets и весь dataplane при живом nfqws2).
+    for _n in nfq2/nfqws2 ip2net/ip2net mdig/mdig ipset/create_ipset.sh; do
+        if [ ! -x "$_rt/$_n" ]; then
+            echo "z2k-openwrt: runtime_not_executable: $_rt/$_n" >&2
+            return 1
+        fi
+    done
+    # RT capability --so-mark (p-84.17 contract): бинарь без флага + адаптер
+    # с флагом = тихий mismatch (мост без метки, движок гоняется за туннелем).
+    # strings на роутере может не быть — grep по бинарнику достаточен
+    # (нужен только exit code; вывод гасим).
+    if [ -x "${Z2K_BIN:-/usr/lib/z2k/bin}/z2k-rt-proxy" ]; then
+        if ! grep -q 'so-mark' "${Z2K_BIN:-/usr/lib/z2k/bin}/z2k-rt-proxy" >/dev/null 2>&1; then
+            echo "z2k-openwrt: runtime_not_capable: z2k-rt-proxy без --so-mark (старый бинарь?)" >&2
+            return 1
+        fi
+    fi
     return 0
 }
 

@@ -874,7 +874,11 @@ jobs:
 
       # Вся сборка — каноническим скриптом (§4/§25 closure): логика НЕ
       # дублируется в YAML. Snapshot маркируется в provenance, публикации нет.
+      # OW_STRICT=1: любой SKIP в run.sh — FAIL (аудит, пункт 12). Z2K_RT_TARBALL
+      # уже выставлен шагом Fetch выше — tarball-gated тесты идут динамически.
       - name: Build packages (canonical builder, CI snapshot)
+        env:
+          OW_STRICT: "1"
         run: |
           set -eu -o pipefail
           sh scripts/openwrt/build-release.sh --ci-snapshot \
@@ -1059,6 +1063,72 @@ jobs:
           test -f "$RUNNER_TEMP/approot/opt/zapret2/nfq2/nfqws2"
           test -f "$RUNNER_TEMP/approot/opt/zapret2/init.d/openwrt/functions"
           test -f "$RUNNER_TEMP/approot/opt/zapret2/lua/zapret-lib.lua"
+          # Mode contract на реальном approot (live-урок §12: create_ipset.sh
+          # уехал 0644 — датаплейн умер при живом процессе; unit-уровень ловит
+          # test_ow_runtime_modes, здесь — установленный бит в готовом корне).
+          test -x "$RUNNER_TEMP/approot/opt/zapret2/nfq2/nfqws2"
+          test -x "$RUNNER_TEMP/approot/opt/zapret2/ip2net/ip2net"
+          test -x "$RUNNER_TEMP/approot/opt/zapret2/mdig/mdig"
+          test -x "$RUNNER_TEMP/approot/opt/zapret2/ipset/create_ipset.sh"
+          test ! -x "$RUNNER_TEMP/approot/opt/zapret2/init.d/openwrt/functions"
+          test ! -x "$RUNNER_TEMP/approot/opt/zapret2/ipset/def.sh"
+          test ! -x "$RUNNER_TEMP/approot/opt/zapret2/lua/zapret-lib.lua"
+
+      # Upgrade-регрессия K (live-урок: unversioned DEPENDS не co-upgrade'ит).
+      # Phase 1: предыдущий snapshot (r2/r2/r3) ставится в чистый approot2.
+      # Phase 2: ОДНА canonical user-операция `apk upgrade z2k-webpanel`
+      # против нового фида обязана дать r3/r3/r4 (adapter — versioned
+      # EXTRA_DEPENDS, runtime — dependency resolver, его никто не называет).
+      - name: Upgrade r2/r2/r3 to r3/r3/r4 via single canonical action
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu -o pipefail
+          apkbin=~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk
+          REL=25.12.5; ARCH=aarch64_cortex-a53; TGT=mediatek/filogic
+          DL="https://downloads.openwrt.org/releases/$REL"
+          mkdir -p "$RUNNER_TEMP/oldfeed" "$RUNNER_TEMP/oldart"
+          # Предыдущий snapshot — явный пин рана (аудита ради, не latest):
+          # CI 34873838732 / HEAD 389c6c4 = r2/r2/r3.
+          gh run download 34873838732 \
+            -n z2k-openwrt-CI-SNAPSHOT-389c6c4265342cc2fd893401c356097683074a6e \
+            --dir "$RUNNER_TEMP/oldart" --repo "$GITHUB_REPOSITORY"
+          cp -f "$RUNNER_TEMP/oldart"/z2k-*.apk "$RUNNER_TEMP/oldart/feed/packages.adb" "$RUNNER_TEMP/oldfeed/"
+          ls "$RUNNER_TEMP/oldfeed/"
+          python3 -c 'import functools,sys; from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), functools.partial(SimpleHTTPRequestHandler, directory=sys.argv[2])).serve_forever()' 18882 "$RUNNER_TEMP/oldfeed" &
+          OLDSRV=$!
+          # Новый фид тоже поднимаем здесь же (сервер прошлого шага уже мёртв:
+          # у каждого step свой shell и свой EXIT-trap).
+          python3 -c 'import functools,sys; from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), functools.partial(SimpleHTTPRequestHandler, directory=sys.argv[2])).serve_forever()' 18881 "$RUNNER_TEMP/dist/feed" &
+          NEWSRV=$!
+          trap 'kill $OLDSRV $NEWSRV 2>/dev/null' EXIT
+          sleep 2
+          mkdir -p "$RUNNER_TEMP/approot2/etc/apk/keys" "$RUNNER_TEMP/approot2/etc/apk/repositories.d"
+          mkdir -p "$RUNNER_TEMP/approot2/lib/apk/db" "$RUNNER_TEMP/approot2/tmp"
+          printf '%s\n' "aarch64_cortex-a53" > "$RUNNER_TEMP/approot2/etc/apk/arch"
+          "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 --allow-untrusted \
+            --repository "$DL/targets/$TGT/packages/packages.adb" \
+            --repository "$DL/packages/$ARCH/base/packages.adb" \
+            --repository "$DL/packages/$ARCH/packages/packages.adb" \
+            --repository "http://127.0.0.1:18882/packages.adb" \
+            --usermode --initdb --no-scripts add z2k-webpanel z2k-adapter z2k-zapret2-runtime
+          echo "--- before:"
+          "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 info -v 2>/dev/null | grep '^z2k' || \
+            "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 --allow-untrusted info 2>/dev/null | grep '^z2k'
+          # Phase 2: новый фид уже висит на 18881 (шаг выше) — ОДНА операция.
+          "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 --allow-untrusted \
+            --repository "$DL/targets/$TGT/packages/packages.adb" \
+            --repository "$DL/packages/$ARCH/base/packages.adb" \
+            --repository "$DL/packages/$ARCH/packages/packages.adb" \
+            --repository "http://127.0.0.1:$FEED_PORT/packages.adb" \
+            --usermode --no-scripts upgrade z2k-webpanel
+          echo "--- after:"
+          _v="$("$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 info -v 2>/dev/null | grep '^z2k' || true)"
+          printf '%s\n' "$_v"
+          printf '%s\n' "$_v" | grep -qx 'z2k-webpanel-0.1.0-r3' || { echo "webpanel не r3" >&2; exit 1; }
+          printf '%s\n' "$_v" | grep -qx 'z2k-adapter-0.1.0-r3' || { echo "adapter не r3 (EXTRA_DEPENDS не сработал)" >&2; exit 1; }
+          printf '%s\n' "$_v" | grep -qx 'z2k-zapret2-runtime-1.0.5.1-r4' || { echo "runtime не r4 (resolver не дотянул)" >&2; exit 1; }
+          echo "upgrade r2/r2/r3 -> r3/r3/r4 одной операцией: OK"
 
       - name: Upload CI snapshot artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -656,7 +656,9 @@ strategy_pool_save() {
     # regenerated config alone changes nothing that is running. Without this the
     # panel says «применена» while the daemon keeps the previous strategy — the
     # exact «переключил, а не применилось» the toggle handlers were fixed for.
-    restart_service_if_running
+    # Restart failure MUST fail the job (fail-closed audit): a saved strategy
+    # with a dead restart is not "applied".
+    restart_service_if_running || return 1
     return 0
 }
 
@@ -664,7 +666,7 @@ strategy_pool_reset() {
     strategy_pool_ok "$1" || { echo "unknown pool" >&2; return 1; }
     rm -f "$CUSTOM_STRAT_DIR/$1.txt" || return 1
     regenerate_config || return 1
-    restart_service_if_running
+    restart_service_if_running || return 1
     return 0
 }
 
@@ -672,8 +674,13 @@ restart_service_if_running() {
     if is_running; then
         # Output goes to caller's stdout/stderr — svc_action_async
         # tees those into the job log so UI shows live progress.
+        # Failure PROPAGATES (fail-closed audit): callers gate their "Готово"
+        # on it. Stopped service stays rc 0 (nothing required, skip message).
         ensure_init_exec
-        "$INIT_SCRIPT" restart 2>&1 || true
+        "$INIT_SCRIPT" restart 2>&1 || return 1
+        # Health verification: restart rc 0 but no process = false success
+        # (same class as the OW exit=127 lesson — job must not say success).
+        is_running || { echo "restart rc 0, но сервис не жив" >&2; return 1; }
     else
         echo "Сервис не запущен — пропускаю restart"
     fi
@@ -861,12 +868,12 @@ toggle_customd() {
         # return на остановленном сервисе AND-list отдавал 1 при УСПЕШНОМ
         # выключении, код уезжал в .exit джоба, и панель откатывала галочку с
         # «Не получилось» поверх записанного DISABLE_CUSTOM=1. Ветка включения
-        # ниже тоже не смотрит на код рестарта (restart_service_if_running
-        # глушит его сама).
+        # ниже, наоборот, требует рестарта (restart_service_if_running теперь
+        # пробрасывает провал — fail-closed audit).
         return 0
     else
         set_flag "DISABLE_CUSTOM" "0" "$CONFIG_FILE" || return 1
-        restart_service_if_running
+        restart_service_if_running || return 1
     fi
 }
 
@@ -878,7 +885,7 @@ toggle_dynamic_ttl() {
     local want="$1"
     set_flag "Z2K_DYNAMIC_TTL" "$want" "$CONFIG_FILE" || return 1
     regenerate_config
-    restart_service_if_running
+    restart_service_if_running || return 1
 }
 
 toggle_stats() {
@@ -913,8 +920,8 @@ toggle_autohostlist() {
     # code did not do it. Regenerating alone writes MODE_FILTER into the config
     # while the daemon keeps running with the old one, which is exactly the
     # "flipped it and nothing happened" the user reports, made worse by the UI
-    # showing a restart that never occurred.
-    restart_service_if_running
+    # showing a restart that never occurred. Restart failure fails the job.
+    restart_service_if_running || return 1
 }
 
 toggle_ppe() {
@@ -931,10 +938,10 @@ toggle_ppe() {
         [ -r /opt/zapret2/z2k-ppe-deoffload.sh ] && \
             ( . /opt/zapret2/z2k-ppe-deoffload.sh && z2k_ppe_remove_rules ) >/dev/null 2>&1
         regenerate_config
-        restart_service_if_running
+        restart_service_if_running || return 1
     else
         regenerate_config
-        restart_service_if_running
+        restart_service_if_running || return 1
         # Best-effort: ensure_rules returns 1 where the firmware `-j PPE` target
         # is absent (every non-Keenetic-MediaTek box) — that is an EXPECTED
         # no-op, NOT a toggle failure. Swallow it so toggle_ppe returns 0 and the
@@ -1015,7 +1022,7 @@ policy_save() {
     set_flag "POLICY_NAME" "$name" "$CONFIG_FILE" || return 1
     set_flag "POLICY_EXCLUDE" "$exclude" "$CONFIG_FILE" || return 1
     regenerate_config
-    restart_service_if_running
+    restart_service_if_running || return 1
 }
 
 # --- исключения по адресату (nozapret) ---

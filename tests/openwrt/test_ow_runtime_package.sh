@@ -28,7 +28,7 @@ assert_contains "keenetic pin parity" "$REPO/lib/install.sh" "releases/download/
 # APK-версия — digits only + numeric release (дефисы запрещены грамматикой
 # APK: "1.0.5.1-z2k-r2-r1 invalid", доказано CI-раном; repack идёт счётчиком).
 assert_contains "apk version digits" "$MK" "PKG_VERSION:=1.0.5.1"
-assert_contains "apk release tracks repack" "$MK" "PKG_RELEASE:=3"
+assert_contains "apk release tracks repack" "$MK" "PKG_RELEASE:=4"
 if grep -qE '^PKG_(VERSION|RELEASE):=.*-' "$MK"; then
     _t_bad "дефис в PKG_VERSION/RELEASE (invalid APK version)"
 else

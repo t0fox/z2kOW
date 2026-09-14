@@ -91,15 +91,18 @@ _n="$(ls "$REPO"/package/openwrt/files/etc/init.d/ 2>/dev/null | wc -l)"
 assert_eq "три procd-сервиса (ядро + панель + detect)" "3" "$(printf '%s' "$_n" | tr -d ' ')"
 _n="$(grep -rl 'procd_open_instance' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | wc -l)"
 assert_eq "шесть instance (4 ядра + 1 панели + 1 detect)" "6" "$(printf '%s' "$_n" | tr -d ' ')"
-# ifsets: единственный писатель — zapret2 (мы только вызываем reload)
-code | grep -qE 'lanif|wanif|nft_fill_ifsets|add_element|create_set' \
+# ifsets: единственный писатель — zapret2 (мы только вызываем reload).
+# fw_verify ЧИТАЕТ wanif (nft list set — существование/заселённость), но не
+# пишет: исключаем read-only list-линии из скана (запись — add/create/flush).
+code | grep -vE 'nft list set' | grep -qE 'lanif|wanif|nft_fill_ifsets|add_element|create_set' \
     && _t_bad "адаптер пишет interface sets" || _t_ok
 grep -q 'zapret_reload_ifsets' "$REPO/platform/openwrt/firewall.sh" \
     && _t_ok || _t_bad "нет делегирования ifsets в zapret2"
 # firewall: builder — zapret2, ЕДИНСТВЕННОЕ исключение — TG/RT/WARP glue
 # (свои chains/sets в ЧУЖОЙ runtime-таблице; таблицу не создаёт, см. 8b).
-# ifsets: единственный писатель — zapret2 (мы только вызываем reload)
-code | grep -qE 'lanif|wanif|nft_fill_ifsets|add_element|create_set' \
+# ifsets: единственный писатель — zapret2 (мы только вызываем reload;
+# read-only list-исключение — см. выше).
+code | grep -vE 'nft list set' | grep -qE 'lanif|wanif|nft_fill_ifsets|add_element|create_set' \
     && _t_bad "адаптер пишет interface sets" || _t_ok
 grep -q 'zapret_reload_ifsets' "$REPO/platform/openwrt/firewall.sh" \
     && _t_ok || _t_bad "нет делегирования ifsets в zapret2"

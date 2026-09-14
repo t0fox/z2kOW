@@ -19,7 +19,9 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=2
+PKG_RELEASE:=3
+# RELEASE 3 (p-84.17 sync fix): fw_apply/verify hard gate + transactional
+# start + preflight +x (live-урок §12: мёртвый dataplane при job success).
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
 # lists/strats/webpanel; z2k-owned TG/RT/WARP/z2k-detect едут updater binary
 # flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
@@ -40,7 +42,13 @@ define Package/z2k-adapter
   # (package/z2k-runtime — apk тянет его сам, установка z2kOW сама
   # обеспечивает runtime, parity с upstream installer); Model A: fresh
   # install без него — нерабочий продукт (§2).
+  # Versioned (>=) через EXTRA_DEPENDS — нативный механизм OpenWrt для
+  # версионных constraint'ов (в DEPENDS им не место: там kconfig-символы).
+  # live-урок p-84.17 — apk upgrade НЕ co-upgrade'ит уже установленный dep
+  # без constraint'а. Нижняя граница = текущий runtime APK; консистентность
+  # с package/z2k-runtime/Makefile сторожит тест. Lockstep: snapshot бампит все.
   DEPENDS:=+kmod-nft-queue +conntrack +z2k-zapret2-runtime
+  EXTRA_DEPENDS:=z2k-zapret2-runtime (>= 1.0.5.1-r4)
 endef
 
 define Package/z2k-adapter/description
@@ -61,7 +69,11 @@ define Package/z2k-webpanel
   CATEGORY:=Network
   TITLE:=z2k webpanel (optional lighttpd frontend over upstream CGI)
   URL:=https://github.com/necronicle/z2k
+  # Versioned adapter-dep через EXTRA_DEPENDS (тот же live-урок: без
+  # constraint'а upgrade webpanel оставляет старый adapter). Граница =
+  # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
+  EXTRA_DEPENDS:=z2k-adapter (>= 0.1.0-r3)
 endef
 
 define Package/z2k-webpanel/description

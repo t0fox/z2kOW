@@ -11,14 +11,31 @@ if [ "${Z2K_PLATFORM:-keenetic}" != "openwrt" ]; then
     return 0 2>/dev/null || true
 fi
 
+# Здоровье адаптера: любой несорсящийся/отсутствующий компонент = controlled
+# PLATFORM_UNAVAILABLE (fail-closed audit I). Молчаливый fallback в Keenetic
+# defaults запрещён: мутации тогда действовали бы на чужие пути с success.
+Z2K_PLATFORM_STATUS="ok"
 # --- пути: замороженный адаптер, затем панельный домен (никакого
 # дублирования канальных дефолтов и никакого /opt-symlink костыля) ---
 Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
 export Z2K_ROOT
+# -f guard ОБЯЗАТЕЛЕН: `.` по отсутствующему файлу — фатален для dash
+# (роняет CGI без ответа, `||` не спасает — тот же класс, что чинили в api.sh).
 # shellcheck disable=SC1090,SC1091
-. "$Z2K_ROOT/platform/openwrt/paths.sh" 2>/dev/null || return 0
+if [ -f "$Z2K_ROOT/platform/openwrt/paths.sh" ]; then
+    . "$Z2K_ROOT/platform/openwrt/paths.sh" 2>/dev/null || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+else
+    Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+fi
 # shellcheck disable=SC1090,SC1091
-. "$Z2K_ROOT/platform/openwrt/env.sh" 2>/dev/null || return 0
+if [ -f "$Z2K_ROOT/platform/openwrt/env.sh" ]; then
+    . "$Z2K_ROOT/platform/openwrt/env.sh" 2>/dev/null || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+else
+    Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+fi
+[ -f "$Z2K_ROOT/platform/openwrt/paths.sh" ] || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+[ -f "$Z2K_ROOT/platform/openwrt/env.sh" ] || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+[ -f "$Z2K_ROOT/platform/openwrt/webpanel.sh" ] || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
 
 # Панельные пути поверх адаптерных (панельный домен; env.sh их не знает).
 # Updater-owned и user-owned списки не смешиваются никогда (§5 контракта).
@@ -58,7 +75,10 @@ case ":$PATH:" in
 esac
 
 # shellcheck disable=SC1090,SC1091
-. "$Z2K_ROOT/platform/openwrt/webpanel.sh" 2>/dev/null || true
+if [ -f "$Z2K_ROOT/platform/openwrt/webpanel.sh" ]; then
+    . "$Z2K_ROOT/platform/openwrt/webpanel.sh" 2>/dev/null || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+fi
+export Z2K_PLATFORM_STATUS
 
 # --- overrides: те же имена, OS-эффект через замороженные адаптеры ---
 
@@ -123,6 +143,29 @@ uninstall_async() {
 }
 
 # Capability JSON для /status (только openwrt; Keenetic ответы не меняются).
+# Health model (N): running (процесс) и ready (dataplane) — разные факты.
+# ready = маркер core-ready (создаёт start_service последним, снимает первым
+# stop/failed start). running=true + ready=false = degraded, а не healthy.
+# Фронт пока не рисует degraded отдельно — данные exposed для него и для soak.
 wp_capabilities_json() {
-    printf '"platform":"openwrt","capabilities":{"policy":false,"ppe":false,"tcp16":false,"diag":false,"warp":true,"telegram":true,"uninstall":false}'
+    local _ready=false _degraded=false _running=false
+    is_running >/dev/null 2>&1 && _running=true
+    [ -f "${Z2K_CORE_READY:-${Z2K_RUN:-/tmp/z2k/runtime}/core-ready}" ] && _ready=true
+    { [ "$_running" = "true" ] && [ "$_ready" = "false" ]; } && _degraded=true
+    printf '"platform":"openwrt","ready":%s,"degraded":%s,"capabilities":{"policy":false,"ppe":false,"tcp16":false,"diag":false,"warp":true,"telegram":true,"uninstall":false}' \
+        "$_ready" "$_degraded"
 }
+
+# Fail-closed мутации при битом адаптере (только explicit openwrt + broken;
+# Keenetic/здоровый OW не задеты). Блок — ПОСЛЕ обычных override выше, иначе
+# они перезатёрли бы его. /status при этом отдаёт installed:false (деградация
+# видна, а не маскируется); все мутации — громкий отказ, никакого Keenetic
+# fallback на чужие пути.
+if [ "$Z2K_PLATFORM_STATUS" != "ok" ]; then
+    is_installed() { return 1; }
+    svc_start() { echo "PLATFORM_UNAVAILABLE: повреждён OpenWrt-адаптер" >&2; return 1; }
+    svc_stop() { echo "PLATFORM_UNAVAILABLE: повреждён OpenWrt-адаптер" >&2; return 1; }
+    svc_restart() { echo "PLATFORM_UNAVAILABLE: повреждён OpenWrt-адаптер" >&2; return 1; }
+    restart_service_if_running() { echo "PLATFORM_UNAVAILABLE: повреждён OpenWrt-адаптер" >&2; return 1; }
+    regenerate_config() { echo "PLATFORM_UNAVAILABLE: повреждён OpenWrt-адаптер" >&2; return 1; }
+fi

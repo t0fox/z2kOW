@@ -7,6 +7,11 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT" || exit 1
 
 PASS=0; FAIL=0; FAILED=""
+# STRICT=1 (CI): любой SKIP = FAIL. Локально SKIP допустим (нет lighttpd/curl,
+# нет скачанного runtime tarball), в CI всё это есть — молчаливый пропуск
+# там маскировал бы непроверенное (аудит, пункт 12).
+STRICT="${OW_STRICT:-0}"
+SKIPPED=""
 
 # 0. синтаксис всех shell-файлов слоя (+ Stage 7 release tooling)
 for _f in platform/openwrt/*.sh platform/openwrt/custom.d/.keep \
@@ -31,6 +36,9 @@ for _t in tests/openwrt/test_ow_*.sh; do
     _out="$(sh "$_t" 2>&1)"
     _rc=$?
     printf '%s\n' "$_out" | grep -E '^(SUITE|FAIL|SKIP)' || true
+    if printf '%s\n' "$_out" | grep -q '^SKIP'; then
+        SKIPPED="$SKIPPED $(basename "$_t")"
+    fi
     _n="$(printf '%s\n' "$_out" | sed -n 's/^SUITE\[.*\]: pass=\([0-9]*\) fail=.*/\1/p')"
     _f="$(printf '%s\n' "$_out" | sed -n 's/^SUITE\[.*\]: pass=[0-9]* fail=\([0-9]*\)/\1/p')"
     PASS=$((PASS + ${_n:-0}))
@@ -40,4 +48,8 @@ done
 
 echo "OPENWRT: pass=$PASS fail=$FAIL"
 [ -n "$FAILED" ] && echo "FAILED:$FAILED" >&2
+if [ "$STRICT" = "1" ] && [ -n "$SKIPPED" ]; then
+    echo "STRICT-SKIP:$SKIPPED" >&2
+    FAIL=$((FAIL + 1))
+fi
 [ "$FAIL" -eq 0 ]

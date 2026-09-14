@@ -21,9 +21,10 @@ SR="$T/sysroot"
 mkdir -p "$SR/usr/lib/z2k/bin" "$SR/usr/lib/z2k/platform/openwrt" \
          "$SR/etc/z2k" "$SR/tmp/z2k" "$T/bin" "$T/repo" "$T/au-tmp"
 export PATH="$T/bin:/usr/bin:/bin"
-# required binaries fixture (preflight требует TG/RT/detect как completeness).
+# required binaries fixture (preflight требует TG/RT/detect как completeness;
+# rt-стаб so-mark capable — иначе preflight требует capability, см. contract).
 for _b in tg-mtproxy-client z2k-rt-proxy z2k-detect; do
-    printf '#!/bin/sh\nexit 0\n' > "$SR/usr/lib/z2k/bin/$_b"
+    printf '#!/bin/sh\n# so-mark\nexit 0\n' > "$SR/usr/lib/z2k/bin/$_b"
     chmod +x "$SR/usr/lib/z2k/bin/$_b"
 done
 
@@ -36,11 +37,18 @@ export Z2K_NFQWS2="$T/rt/nfq2/nfqws2"
 export Z2K_AU_TMP_DIR="$T/au-tmp" Z2K_AU_LOG_FILE="$T/au.log"
 export Z2K_AU_SBIN="$Z2K_BIN"
 export Z2K_LIB="$REPO/lib"
+export Z2K_RUN="$SR/tmp/z2k/runtime"
+mkdir -p "$Z2K_RUN"
 
 # --- A. fixture runtime + preflight обе ветки ---
-mkdir -p "$T/rt/nfq2" "$T/rt/init.d/openwrt" "$T/rt/lua"
-printf '#!/bin/sh\nexit 0\n' > "$T/rt/nfq2/nfqws2"
-chmod +x "$T/rt/nfq2/nfqws2"
+# Фикстура моделирует УСТАНОВЛЕННЫЙ пакет (mode contract): exec-файлы +x.
+mkdir -p "$T/rt/nfq2" "$T/rt/ip2net" "$T/rt/mdig" "$T/rt/init.d/openwrt" "$T/rt/lua" "$T/rt/ipset"
+for _b in nfq2/nfqws2 ip2net/ip2net mdig/mdig; do
+    printf '#!/bin/sh\nexit 0\n' > "$T/rt/$_b"
+    chmod +x "$T/rt/$_b"
+done
+printf '#!/bin/sh\nexit 0\n' > "$T/rt/ipset/create_ipset.sh"
+chmod +x "$T/rt/ipset/create_ipset.sh"
 : > "$T/rt/init.d/openwrt/functions"
 for _l in zapret-lib.lua zapret-antidpi.lua zapret-auto.lua; do
     : > "$T/rt/lua/$_l"
@@ -108,7 +116,12 @@ _goarch="$(au_bin_goarch)"
 _mkbin() { # $1 dest-name -> fixture manifest path; пишет тело, печатает "path sha"
     _mb="mtproxy-client/builds/$1-linux-${_goarch}"
     case "$1" in z2k-detect) _mb="z2k-detect/builds/$1-linux-${_goarch}" ;; esac
-    printf '#!/bin/sh\necho fixture-%s\n' "$1" > "$T/repo/$1-linux-${_goarch}"
+    # rt-фикстура so-mark capable (preflight capability, см. contract).
+    if [ "$1" = "z2k-rt-proxy" ]; then
+        printf '#!/bin/sh\necho fixture-%s\n# so-mark\n' "$1" > "$T/repo/$1-linux-${_goarch}"
+    else
+        printf '#!/bin/sh\necho fixture-%s\n' "$1" > "$T/repo/$1-linux-${_goarch}"
+    fi
     printf '%s %s\n' "$_mb" "$(sha256sum "$T/repo/$1-linux-${_goarch}" | awk '{print $1}')"
 }
 : > "$T/man.entries"
@@ -197,6 +210,12 @@ procd_open_instance() { printf 'PROCD-CALLED\n' >> "$T/procd.calls"; }
 procd_set_param() { return 0; }
 procd_close_instance() { return 0; }
 z2k_ow_fw_apply() { return 0; }
+# Порядок, а не fw-семантика (она — в start_gate с настоящим verify):
+# consumer-wait и verify здесь стабы, иначе тест упирается в фикстуру nft.
+_z2k_ow_wait_consumer() { return 0; }
+z2k_ow_fw_verify() { return 0; }
+z2k_ow_tg_verify() { return 0; }
+z2k_ow_rt_verify() { return 0; }
 z2k_ow_custom_daemons() { return 0; }
 z2k_ow_tg() { return 0; }
 z2k_ow_rt() { return 0; }

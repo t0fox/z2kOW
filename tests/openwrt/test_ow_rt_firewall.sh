@@ -119,24 +119,30 @@ assert_contains "бинарник+порты" "$T/argv.log" "$T/root/bin/z2k-rt-
 assert_eq "ровно 4 argv (+so-mark builtin)" "1" "$(grep -c "^ARGV:$T/root/bin/z2k-rt-proxy --listen=:1445 --timeout=15m --so-mark=0x40000000$" "$T/argv.log")"
 assert_eq "builder молчит" "" "$_out$(cat "$T/argv.err")"
 
-# --- whitelist ensure (RT20): append exact-5, чужое цело ---
+# --- exclusion (RT20/J): adapter-owned файл, user-whitelist не трогаем ---
+# ensure пишет exact-5 atomic rewrite; deactivate — truncate (не delete:
+# конфиг ссылается на путь). Чужих строк в файле быть не может по построению.
+export Z2K_ETC="$T/etc" Z2K_RT_EXCLUDE="$T/etc/rt-exclude.txt"
 z2k_ow_rt_desync_exclude || _t_bad "exclude rc"
 for _d in rutracker.org rutracker.wiki api.rutracker.cc rep.rutracker.cc static.rutracker.cc; do
-    assert_contains "exclude $_d" "$T/root/lists/whitelist.txt" "$_d"
+    assert_contains "exclude $_d" "$T/etc/rt-exclude.txt" "$_d"
 done
-assert_contains "user-строка цела" "$T/root/lists/whitelist.txt" "user-domain.example"
-_before="$(cksum "$T/root/lists/whitelist.txt")"
+assert_eq "exclude ровно 5 строк" "5" "$(grep -c . "$T/etc/rt-exclude.txt")"
+# user-whitelist вообще не тронут (там только своё).
+assert_eq "user whitelist цел" "user-domain.example" "$(cat "$T/root/lists/whitelist.txt")"
+# чужой мусор в exclude-файле переживает? Нет: ensure переписывает целиком.
+printf 'evil.example\n' >> "$T/etc/rt-exclude.txt"
 z2k_ow_rt_desync_exclude || _t_bad "exclude повтор rc"
-assert_eq "повтор не дописывает" "$_before" "$(cksum "$T/root/lists/whitelist.txt")"
-# exact-line, не suffix: foo.rutracker.org не покрывает rutracker.org
-printf 'foo.rutracker.org\n' > "$T/root/lists/whitelist.txt"
-printf 'user-domain.example\n' >> "$T/root/lists/whitelist.txt"
-z2k_ow_rt_desync_exclude || _t_bad "exclude после сабдомена rc"
-if grep -qxF 'rutracker.org' "$T/root/lists/whitelist.txt"; then
-    _t_ok
+assert_eq "повтор чистит чужое" "5" "$(grep -c . "$T/etc/rt-exclude.txt")"
+if grep -qxF 'evil.example' "$T/etc/rt-exclude.txt"; then
+    _t_bad "чужое пережило ensure"
 else
-    _t_bad "exact rutracker.org не добавлен (suffix посчитан покрытием)"
+    _t_ok
 fi
+# deactivate: пустой файл, путь жив (proc-bounce рестарт не уронить).
+z2k_ow_rt_desync_include || _t_bad "include rc"
+assert_eq "deactivate пуст" "0" "$(grep -c . "$T/etc/rt-exclude.txt")"
+[ -f "$T/etc/rt-exclude.txt" ] && _t_ok || _t_bad "deactivate удалил путь"
 
 # --- pids: матч по :1445 ---
 mkdir -p "$T/proc/777" "$T/proc/888"
