@@ -43,8 +43,11 @@ PKG_MAINTAINER:=z2k contributors
 # потом No such file). Z2K_RT_TOPDIR в рецепте НЕ используется.
 Z2K_RT_TOPDIR:=zapret2-v1.0.5.1-z2k-r2
 # Явный unpack со strip единственного верхнего каталога: без него дерево
-# ложится мимо PKG_BUILD_DIR. host tar на машине сборки есть всегда.
-PKG_UNPACK:=tar -C $(PKG_BUILD_DIR) --strip-components=1 -xzf $(DL_DIR)/$(PKG_SOURCE)
+# ложится мимо PKG_BUILD_DIR. Присваивание РЕКУРСИВНОЕ (=, не :=):
+# PKG_BUILD_DIR связан поздно (per-package), немедленное раскрытие замораживает
+# его пустым — и unpack превращается в `tar -C --strip...` (доказано локальным
+# SDK-репро: tar жалуется на --strip-components как на файл).
+PKG_UNPACK=tar -C $(PKG_BUILD_DIR) --strip-components=1 -xzf $(DL_DIR)/$(PKG_SOURCE)
 # Бинарный каталог tarball для нашего единственного таргета захардкожен
 # (НЕ через $(ARCH)): package-Makefile парсится и сканером метаданных, где
 # ARCH пуст, и любой ifneq-гард ронял бы регистрацию пакета молча (поймано
