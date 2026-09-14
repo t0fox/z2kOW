@@ -243,16 +243,26 @@ if grep -q PROCD-CALLED "$T/procd.calls" 2>/dev/null; then _t_ok
 else _t_bad "start_service с runtime не дошёл до procd"; fi
 
 # --- E. настоящий tarball (только с Z2K_RT_TARBALL): closure -> preflight ---
+# Раскладка — как ставит ПАКЕТ (mode contract): exec-файлам +x вручную,
+# т.к. tarball хранит их без битов, а +x даёт recipe (INSTALL_BIN).
+# Именно это расхождение скрывало live-баг §12 от тестов.
 if [ -n "${Z2K_RT_TARBALL:-}" ] && [ -f "$Z2K_RT_TARBALL" ]; then
     mkdir -p "$T/rtreal"
     tar -xzf "$Z2K_RT_TARBALL" -C "$T/rtreal" || { echo "FAIL[ow-fresh-sysroot]: tarball extract" >&2; exit 1; }
     _rd="$T/rtreal/$(tar -tzf "$Z2K_RT_TARBALL" 2>/dev/null | sed -n 's|^\([^/]*\)/$|\1|p' | head -1)"
     [ -n "$_rd" ] && [ -d "$_rd" ] || { echo "FAIL[ow-fresh-sysroot]: tarball topdir" >&2; exit 1; }
-    mkdir -p "$T/rtreal-rt/nfq2" "$T/rtreal-rt/init.d/openwrt" "$T/rtreal-rt/lua"
+    mkdir -p "$T/rtreal-rt/nfq2" "$T/rtreal-rt/ip2net" "$T/rtreal-rt/mdig" \
+             "$T/rtreal-rt/init.d/openwrt" "$T/rtreal-rt/lua" "$T/rtreal-rt/ipset"
     cp -f "$_rd/binaries/linux-arm64/nfqws2" "$T/rtreal-rt/nfq2/" 2>/dev/null \
         || { echo "FAIL[ow-fresh-sysroot]: нет arm64 nfqws2 в tarball" >&2; exit 1; }
-    chmod +x "$T/rtreal-rt/nfq2/nfqws2"
+    cp -f "$_rd/binaries/linux-arm64/ip2net" "$T/rtreal-rt/ip2net/" 2>/dev/null || exit 1
+    cp -f "$_rd/binaries/linux-arm64/mdig" "$T/rtreal-rt/mdig/" 2>/dev/null || exit 1
     cp -f "$_rd/init.d/openwrt/functions" "$T/rtreal-rt/init.d/openwrt/" || exit 1
+    cp -f "$_rd/ipset/create_ipset.sh" "$T/rtreal-rt/ipset/" 2>/dev/null \
+        || { echo "FAIL[ow-fresh-sysroot]: нет create_ipset.sh в tarball" >&2; exit 1; }
+    # +x — ровно exec-ролям из runtime-mode.contract (INSTALL_BIN в пакете).
+    chmod +x "$T/rtreal-rt/nfq2/nfqws2" "$T/rtreal-rt/ip2net/ip2net" \
+             "$T/rtreal-rt/mdig/mdig" "$T/rtreal-rt/ipset/create_ipset.sh"
     ( cd "$_rd/lua" && for _l in zapret-lib.lua.gz zapret-antidpi.lua.gz zapret-auto.lua.gz; do
         gzip -dc "$_l" > "$T/rtreal-rt/lua/${_l%.gz}" || exit 1
     done ) || { echo "FAIL[ow-fresh-sysroot]: lua unpack" >&2; exit 1; }
