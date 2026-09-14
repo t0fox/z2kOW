@@ -1,814 +1,240 @@
--- z2k-alert.lua — поправки к штатному детектору неудач.
---
--- ИСТОРИЯ ФАЙЛА, ЧТОБЫ НЕ ХОДИТЬ ПО КРУГУ. Снят 10.09.2026 (коммит 17e1158,
--- «ротация: только штатные детекторы») вместе с z2k-quic-silence.lua — тогда
--- решение было оставить в ротации один bol-van. Возвращён 11.09.2026 по
--- решению Марка: отказ от кастома совпал по времени с ростом числа ротаций, и
--- поправки ниже как раз тем и заняты, что ротацию ПРИТОРМАЖИВАЮТ (живой хост
--- не ротируем, RST сервера не провал, провал вешается на ту стратегию, на
--- которой соединение началось).
---
--- ЧТО НЕ ВЕРНУЛОСЬ ВМЕСТЕ С НИМ и почему. Из прежней редакции здесь была ещё
--- половина про обрыв на 16 КБ (z2k_stall_watch, z2k_sni_pick, перебор имён,
--- карта сетей и ASN). Она НЕ восстановлена: с 10.09 это отдельный механизм —
--- z2k-tcp16.lua плюс проба z2k-tcp16-probe.sh и карточка на дашборде, и он
--- работает. Две копии одних и тех же имён в разных файлах решались бы порядком
--- загрузки, то есть молча и не в нашу пользу.
--- роутере 18.08.2026. Логика bol-van вызывается как есть, мы только сужаем
--- вход, добавляем сигналы и держим политику «живой хост не ротируем».
---
--- 1. РЕТРАНСМИТ СЧИТАЕМ ТОЛЬКО НА ПЕРВОМ ЗАПРОСЕ (ClientHello / HTTP-запрос).
---    standard_failure_detector считает провалом ЛЮБУЮ исходящую
---    ретрансмиссию в пределах maxseq. Пойманный случай: телефон по вайфаю
---    переслал пакет TLS application data (17 03 03 ...) в УЖЕ РАБОТАЮЩЕЙ
---    сессии, payload_type 'unknown', и это засчиталось в провал страты.
---
--- 2. ФАТАЛЬНЫЙ TLS-АЛЕРТ ДО ServerHello — ПРОВАЛ.
---    Сервер подтверждает ClientHello целиком, отвечает семибайтовой записью
---    alert и закрывается по FIN. Ретрансмитить нечего, RST нет — штатный
---    детектор слеп, страта не ротируется никогда.
---
--- 6. ПРОВАЛ ЗАСЧИТЫВАЕТСЯ ТОЙ СТРАТЕГИИ, НА КОТОРОЙ СОЕДИНЕНИЕ НАЧАЛОСЬ.
---    Замер 19.08.2026: инстаграм принудительно посажен на заведомо нерабочую
---    седьмую стратегию. Сервер честно ответил `decode_error` на покорёженный
---    ClientHello — 104 фатальных алерта. Ротировать было правильно, но
---    instagram.com по IPv6 за ОДНУ СЕКУНДУ пролистал двенадцать стратегий:
---      failure counter 3/3 -> circular: rotate strategy to 15
---      failure counter 3/3 -> circular: rotate strategy to 16
---      failure counter 3/3 -> circular: rotate strategy to 17
---    Причина в темпе, а не в логике. Страница открывает десятки соединений
---    разом; все они ушли на седьмой и все вернулись с алертом. Каждые три
---    провала — немедленная ротация, а провалы соединений, начатых ещё на
---    седьмой, продолжали капать уже после неё и вешались на стратегии, которые
---    не отправили ни одного пакета. Успехов за это время ноль, гасить счётчик
---    нечем.
---
---    Поэтому соединение помечается номером стратегии при первом же пакете, и
---    провал засчитывается, только если она всё ещё текущая. После ротации
---    счётчик набирается заново — теми соединениями, которые реально пошли на
---    новой стратегии.
+-- Early TCP failures beyond the standard RST/retransmission detector.
+-- No host-liveness veto, TTL attribution or incoming-retransmission heuristic.
+-- circular owns attempt identity, terminal results, rotation and optional RST.
+-- The second return value is part of the fork's detector contract:
+-- pending = keep observing; neutral = stop without changing the host counter.
 
--- 5. RST ОТ САМОГО СЕРВЕРА — НЕ ПРОВАЛ.
---    Планка `inseq` у нас поднята до 18-26К намеренно (см. комментарий в
---    lib/config_official.sh): ниже неё не срабатывает штатный success, иначе
---    байтовый гейт ТСПУ на 12-18К объявляется успехом и RST после него
---    становится невидим. Но у bol-van это ОДНА ручка на два смысла, и заодно
---    она объявляет DPI-сбросом ЛЮБОЙ входящий RST до 26 КБ.
---
---    Полевой замер 19.08.2026: apple.com уехал с рабочей первой стратегии на
---    нерабочую вторую. В отладке за 4.5 часа ровно 15 событий детектора, все —
---    incoming RST; 13 из них на s1 подавил гвард живости, а два прошли:
---      standard_failure_detector: incoming RST s7488 in range s26000
---    RST после 7488 доставленных байт — это обычный разрыв со стороны сервера
---    или его балансира, а не DPI: DPI рвёт в начале потока либо на гейте.
---
---    Отличаем по TTL. Инжектированный на пути RST приходит с TTL, который не
---    может принадлежать потоку настоящего сервера: у ТСПУ это два хопа от нас
---    (ttl 126 при данных сервера около полусотни). Запоминаем TTL первого
---    пакета данных и сверяем с ним RST. Совпал — сервер закрылся сам.
---    Не совпал или данных ещё не было — считаем провалом, как раньше, поэтому
---    ни классический сброс на хендшейке, ни гейт на 16К не теряются.
-
--- 3. ЖИВОЙ ХОСТ НЕ РОТИРУЕМ.
---    Пойманная ложная ротация: ТСПУ шлёт поддельный RST (ttl=126, два хопа —
---    настоящий ответ Меты пришёл бы с TTL около полусотни) на первом байте
---    ответа. Три таких за минуту уводят страту, при том что в том же окне
---    девять соединений к тому же хосту прошли нормально:
---      LUA: standard_failure_detector: incoming RST s1 in range s26000
---      LUA: automate: failure counter 3-9(succ)=net -6/3 content_fresh=false
---      LUA: circular: rotate strategy to 2
---    В движке защита по успехам есть, но в нативном режиме мертва: её
---    пропускает вперёд `not content_fresh`, а content-gate заполняется только
---    в снятой ветке r-49. Поэтому считаем живые ответы сами, здесь.
---
--- 4. ВСТАВШИЙ ВХОДЯЩИЙ ПОТОК — ПРОВАЛ. Только пулы видео.
---    LG webOS на заведомо нерабочей 20-й стратегии: соединение к googlevideo
---    поднимается, сервер отдаёт 4482 байта и дальше шлёт один и тот же сегмент
---    15-16 раз, телевизор не подтверждает ни разу. RST нет, FIN нет,
---    исходящих ретрансмитов нет — 676 вызовов детектора и ноль событий, страта
---    стоит вечно, видео не грузится. Штатный детектор смотрит только
---    ИСХОДЯЩИЕ ретрансмиты, входящих не видит вовсе.
---
---    Признак здесь — ИМЕННО ОСТАНОВКА, а не факт повтора. Первая редакция
---    считала любые входящие ретрансмиты в пределах inseq, и 19.08.2026 это
---    увело gv_tcp с первой стратегии на четвёртую без единого реального блока:
---    inseq у gv — 24000, окно перехвата 50 пакетов (~70 КБ), то есть под
---    наблюдением не хендшейк, а первые 24 КБ ВИДЕОПОТОКА. Телевизор, тянущий
---    многомегабитный поток по вайфаю, три потерянных пакета в этом отрезке
---    выдаёт штатно, а gv держит десятки параллельных соединений разом —
---    кворум «три соединения за минуту» набирается на ровном месте.
-
--- Окно и порог. Окно совпадает с `time=` у circular (60 с по умолчанию):
--- дольше держать нельзя, иначе вчерашние успехи защищают сегодня умерший хост.
--- ── HTTP-классификатор ответов ───────────────────────────────────────────────
---
--- ПЕРЕЕХАЛ СЮДА 26.08.2026 из z2k-detectors.lua, который удалён целиком.
---
--- Тот файл на 1858 строк был мёртв: замер боевого конфига показал, что из него
--- достижима ровно одна функция — эта, и зовёт её z2k_fail_verdict ниже. Все
--- остальные детекторы (z2k_silent_drop_detector, z2k_mid_stream_stall,
--- z2k_tls_stalled и прочие) в конфиг не проводились ни разу; единственное
--- упоминание z2k_mid_stream_stall нашлось В КОММЕНТАРИИ.
---
--- ПОЧЕМУ КЛАССИФИКАТОР НЕ УДАЛЁН ВМЕСТЕ С ФАЙЛОМ. Проба 29 доменов из боевого
--- списка РКН с линии Марка: 19 обычных редиректов, 7 без ответа вовсе, 2 ответа
--- 403 и один 200. Оба 403 прогнаны через эту самую функцию — оба neutral, ни
--- одного hard_fail. Блокировка ТАМ приходит молчанием, а молчание
--- классификатору недоступно: классифицировать нечего.
---
--- Но это ОДНА линия у ОДНОГО провайдера. Там, где провайдер инжектирует
--- страницу-заглушку, эта функция — единственная, кто её видит: штатный детектор
--- смотрит только редирект 302/307. Двести строк не та цена, ради которой стоит
--- терять покрытие, опровергнутое на одном провайдере из всех наших.
--- ---------------------------------------------------------------------------
---
--- Body markers: substrings checked against lowercased response body.
--- These are RU-DPI specific; "blackhole" is included because it appears
--- both as a domain name (blackhole.svyaztelecom.ru) and in some block-page
--- HTML. Generic words like "forbidden"/"warning"/"restrict" are NOT in
--- the body list because they appear on legitimate 4xx pages too.
-local Z2K_HTTP_BLOCK_BODY_MARKERS = {
-  "rkn", "lawfilter", "zapret", "eais", "blocked-by", "vigruzki", "blackhole",
+local RESPONSE_LIMIT = 4096
+local REQUEST_LIMIT = 32768
+local BLOCK_PORTALS = {
+    ["eais.rkn.gov.ru"] = true,
+    ["lawfilter.ertelecom.ru"] = true,
+    ["blackhole.svyaztelecom.ru"] = true,
+    ["warning.rt.ru"] = true,
+    ["warn.beeline.ru"] = true,
+    ["deny.megafon.ru"] = true,
 }
 
--- Host-prefix markers for cross-SLD redirect detection. Operator block
--- pages commonly live on subdomains like warn.beeline.ru, deny.megafon.ru.
--- These prefixes (with trailing dot — host-anchored) catch operator
--- redirect targets without firing on legitimate URLs containing the
--- bare word in path/query.
--- Leading-label-anchored (sub(1,#p)==p, every entry ends in "."). Inflected
--- forms added 2026-05-30 (review w7kkh0yb7): "warn." alone MISSED the single
--- most common RU stub warning.rt.ru (Ростелеком) — "warning" is one label with
--- no dot after "warn"; same for restricted./blocking./blockpage. A host that
--- STARTS with these is a block portal (legit sites don't), so leading-anchored
--- prefixes are low-FP. (Bare generic words stay OUT of the body list — they
--- appear on legit 4xx pages.)
-local Z2K_HTTP_BLOCK_HOST_PREFIXES = {
-  "warn.", "warning.", "deny.", "restrict.", "restricted.", "block.",
-  "blocked.", "blocking.", "blockpage.", "blackhole.", "forbidden.",
-}
-
--- Server-side WAF response headers — signal that the SERVER (not DPI on
--- path) actively rejected the request. Each entry is {lowered_header,
--- lowered_value_substring}. Match fires when the header is present AND
--- its lowered value contains the substring.
---
--- Initial conservative list — only signals confirmed in the wild as
--- pure server-side enforcement, NOT mixable with DPI imitation:
---   x-vercel-mitigated: deny     (Vercel WAF hard block)
---
--- Additional headers gated behind Z2K_WAF_MARKERS_AGGRESSIVE=1 env
--- because they can fire on legitimate per-request CF challenges or
--- Sucuri rate-limit pages that the user is supposed to retry through;
--- counting those as server-active would skip bypass attempts that
--- ARE worth trying.
-local Z2K_HTTP_WAF_HEADERS_CORE = {
-  { "x-vercel-mitigated", "deny" },
-}
-local Z2K_HTTP_WAF_HEADERS_AGGRESSIVE = {
-  { "x-vercel-mitigated", "deny" },
-  { "cf-mitigated", "challenge" },
-  { "cf-mitigated", "block" },
-  { "x-sucuri-block", "" },
-}
-local Z2K_HTTP_WAF_HEADERS =
-  (os.getenv("Z2K_WAF_MARKERS_AGGRESSIVE") == "1")
-    and Z2K_HTTP_WAF_HEADERS_AGGRESSIVE
-    or  Z2K_HTTP_WAF_HEADERS_CORE
-
--- Sanitize a reason_detail string for safe inclusion in debug.log lines.
--- Keep ASCII alphanumeric + dot/dash/equals/colon/underscore; replace
--- everything else (CRLF, spaces, tabs, non-ASCII, raw URL chars) with
--- underscore. Cap length at 64 chars to avoid log bloat. This prevents
--- log injection from attacker-controlled Location URLs / response bodies.
-local function z2k_sanitize_reason(s)
-  if type(s) ~= "string" then return "" end
-  if #s > 64 then s = s:sub(1, 64) end
-  return (s:gsub("[^A-Za-z0-9._:=-]", "_"))
-end
-
-local function z2k_find_body_marker(payload_lower)
-  for _, m in ipairs(Z2K_HTTP_BLOCK_BODY_MARKERS) do
-    if payload_lower:find(m, 1, true) then return m end
-  end
-  return nil
-end
-
-local function z2k_find_host_marker(host_lower)
-  -- Match a block marker as a COMPLETE dot-delimited domain label, NOT a bare
-  -- substring. Operator/RKN block pages carry the marker as a real label
-  -- (lawfilter.ertelecom.ru, eais.rkn.gov.ru, blackhole.svyaztelecom.ru), so
-  -- label-anchoring keeps real coverage while killing the false-positive a bare
-  -- substring scan produced: short markers matched INSIDE legitimate hostnames
-  -- ("rkn" inside spa-rkn-otes.com, "eais" inside id-eais.com), which then
-  -- counted a legit cross-SLD redirect as a DPI block and rotated the strategy
-  -- needlessly. (Stage 1 review w4h4x4bif flagged this; Этап 4 fix.)
-  local padded = "." .. host_lower .. "."
-  for _, m in ipairs(Z2K_HTTP_BLOCK_BODY_MARKERS) do
-    if padded:find("." .. m .. ".", 1, true) then return m end
-  end
-  -- Host-prefix markers (warn.beeline.ru, deny.megafon.ru, etc).
-  for _, p in ipairs(Z2K_HTTP_BLOCK_HOST_PREFIXES) do
-    if host_lower:sub(1, #p) == p then return "prefix:" .. p end
-  end
-  -- CGNAT captive-portal redirect target (review w7kkh0yb7): an operator
-  -- DNS-poison / 302 to a literal 100.64.0.0/10 (carrier-grade NAT) address is
-  -- a block portal, never a real cross-SLD destination. Match the /10 range
-  -- exactly (2nd octet 64-127) — NOT a raw "100." prefix, which would
-  -- false-positive on public 100.x addresses.
-  local o2 = host_lower:match("^100%.(%d+)%.")
-  if o2 then
-    local n = tonumber(o2)
-    if n and n >= 64 and n <= 127 then return "cgnat:100.64/10" end
-  end
-  return nil
-end
-
--- Scan dissected HTTP reply headers for server-side WAF rejection
--- markers. `headers` is the array returned by http_dissect_reply with
--- {header, header_low, value} items. Returns "header:value-substring"
--- on match (used as reason suffix), nil otherwise.
-local function z2k_find_waf_header(headers)
-  if type(headers) ~= "table" then return nil end
-  for _, want in ipairs(Z2K_HTTP_WAF_HEADERS) do
-    local want_header, want_value = want[1], want[2]
-    for _, h in ipairs(headers) do
-      if type(h) == "table" and h.header_low == want_header then
-        local v = type(h.value) == "string" and h.value:lower() or ""
-        if want_value == "" or v:find(want_value, 1, true) then
-          return want_header .. ":" .. (want_value ~= "" and want_value or v:sub(1, 24))
+local function body_marker(body)
+    local low = body:lower()
+    for domain in pairs(BLOCK_PORTALS) do
+        -- A complete hostname, not rkn inside SparkNotes or a URL suffix.
+        if (" " .. low .. " "):find("[^%w_.%-]" .. domain:gsub("%.", "%%.") .. "[^%w_.%-]") then
+            return domain
         end
-      end
     end
-  end
-  return nil
+    -- Specific block-page wording; individual words are not signatures.
+    if low:find("access blocked by rkn", 1, true) then return "blocked_by_rkn" end
 end
 
--- Extract host from Location header value, lowercased. Handles three
--- forms:
---   1. absolute URL    "https://example.com/path"  → use dissect_url
---   2. scheme-relative "//example.com/path"        → manual parse
---                       (dissect_url misses these — its regex is
---                       `[a-z]+://` which doesn't match `//host`)
---   3. path-only       "/some/path"                → returns nil
---                       (no host change, same-origin redirect)
--- Strip `:port` suffix from a hostname (mirrors dissect_url's domain
--- extraction at zapret-lib.lua:1816-1821). Apply before SLD comparison
--- so example.com:443 == example.com.
-local function z2k_strip_port(host)
-  if type(host) ~= "string" then return host end
-  return (host:gsub(":%d+$", ""))
+local function location_host(value)
+    if not value then return nil end
+    local authority = value:match("^%s*[Hh][Tt][Tt][Pp][Ss]?://([^/%s?#]+)")
+        or value:match("^%s*//([^/%s?#]+)")
+    if not authority then return nil end
+    authority = authority:match("([^@]+)$")
+    return authority:gsub(":%d+$", ""):gsub("%.$", ""):lower()
 end
 
-local function z2k_extract_loc_host(location)
-  if type(location) ~= "string" or location == "" then return nil end
-  if location:sub(1, 2) == "//" then
-    local host = location:match("^//([^/?#]+)")
-    if not host then return nil end
-    return z2k_strip_port(host):lower()
-  end
-  if type(dissect_url) == "function" then
-    local ds = dissect_url(location)
-    if ds and ds.domain then return ds.domain:lower() end
-  end
-  return nil
-end
-
--- z2k_classify_http_reply(desync) — shared HTTP-reply classifier.
---
--- Returns:
---   "positive", nil                  — real-success response (2xx, 304,
---                                       same-SLD 3xx upgrade)
---   "neutral",  reason_string        — suspicious/ambiguous response
---                                       (4xx/5xx no marker, cross-SLD 3xx
---                                       no marker, unparseable redirect)
---   "hard_fail", reason_string       — confirmed block (4xx/5xx with body
---                                       marker; cross-SLD 3xx with host
---                                       marker or block-prefix)
---   "server_active_reject", reason   — server itself rejected (bare 451
---                                       без RKN markers = RFC 7725 origin
---                                       compliance; 4xx с WAF response
---                                       header = server WAF, не DPI).
---                                       Не fail (bypass не поможет) и не
---                                       success (бэкап-роутинг бессмыслен) —
---                                       autocircular skip-rotation gate.
---   nil, nil                         — not applicable (not http_reply,
---                                       no payload, no parseable code)
 function z2k_classify_http_reply(desync)
-  if not desync or desync.outgoing then return nil, nil end
-  if desync.l7payload ~= "http_reply" then return nil, nil end
-  local payload = desync.dis and desync.dis.payload
-  if type(payload) ~= "string" then return nil, nil end
-
-  local code_s = payload:match("^HTTP/%d%.%d%s+([0-9][0-9][0-9])")
-  local code = tonumber(code_s)
-  if not code then return nil, nil end
-
-  -- 2xx and 304 = real positive
-  if code >= 200 and code < 300 then return "positive", nil end
-  if code == 304 then return "positive", nil end
-
-  -- 4xx / 5xx — dissect once for body + headers (WAF marker scan и
-  -- body marker scan делят один parse).
-  --
-  -- IMPORTANT: body marker scan читает только BODY, не headers. Per RFC
-  -- 7725 a legitimate 451 from origin/CDN may carry `Link: <authority>;
-  -- rel="blocked-by"` header — substring "blocked-by" в нашем
-  -- body-marker списке. WAF header scan — отдельный list (X-Vercel-*,
-  -- cf-mitigated, X-Sucuri-Block), не пересекается с body markers.
-  if code >= 400 and code < 600 then
-    local body = ""
-    local hdis = nil
-    if type(http_dissect_reply) == "function" then
-      hdis = http_dissect_reply(payload)
-      if hdis and hdis.body then body = hdis.body end
+    if not desync or desync.outgoing or desync.l7payload ~= "http_reply" then return nil end
+    local p = desync.dis and desync.dis.payload
+    if type(p) ~= "string" then return nil end
+    local code = tonumber(p:match("^HTTP/1%.[01]%s+(%d%d%d)%s"))
+    if not code then return nil end
+    local split = p:find("\r\n\r\n", 1, true)
+    if not split then return "neutral", "incomplete_headers" end
+    local headers, body = p:sub(1, split + 1):lower(), p:sub(split + 4)
+    if code >= 400 and code < 600 then
+        -- Compressed bodies cannot be classified by plaintext substring scans.
+        local encoding = headers:match("\r\ncontent%-encoding:%s*([^\r\n]+)")
+        if encoding and encoding ~= "identity" then return "neutral", "encoded_body" end
+        local marker = body_marker(body)
+        if marker then return "hard_fail", "http_block_portal:" .. marker end
+        return "neutral", "http_error_without_signature"
     end
-    -- Fallback: separate body manually at first blank-line if dissector
-    -- is unavailable / returned no body field.
-    if body == "" then
-      local sep = payload:find("\r\n\r\n", 1, true)
-      if sep then body = payload:sub(sep + 4) end
+    if code >= 200 and code < 300 or code == 304 then return "positive" end
+    if code == 301 or code == 302 or code == 303 or code == 307 or code == 308 then
+        local location = p:match("\r\n[Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]:[ \t]*([^\r\n]+)")
+        local target = location_host(location)
+        if target and BLOCK_PORTALS[target] then return "hard_fail", "http_redirect_portal:" .. target end
+        if location and location:match("^/[^/]") then return "positive" end
+        local host = desync.track and desync.track.hostname
+        if target and host and target == host:lower():gsub(":%d+$", ""):gsub("%.$", "") then return "positive" end
+        -- A cross-domain redirect is ordinary navigation, not proof of DPI.
+        return "neutral", "http_redirect"
     end
+    return "neutral", "http_other_status"
+end
 
-    local low = body ~= "" and body:lower() or ""
-    local rkn_marker = low ~= "" and z2k_find_body_marker(low) or nil
-
-    -- 451 split: RKN body marker → hard_fail (наш RKN). Bare 451 (no
-    -- marker) was previously classified as server_active_reject, but
-    -- we treat this as Hot — origin geo-compliance MAY be
-    -- bypassable by changing egress fingerprint (different SNI / fake
-    -- TLS hello), so autocircular keeps rotating.
-    if code == 451 then
-      if rkn_marker then
-        return "hard_fail", "http_4xx_marker:" .. z2k_sanitize_reason(rkn_marker)
-      end
-      return "neutral", "http_451_no_marker"
+-- Bounded prefix reassembly. Handles gaps, retransmissions and matching
+-- overlaps. Conflicting overlaps are inconclusive, never a block signature.
+local function prefix_add(state, seq, payload, limit)
+    if state.bad then return false end
+    if seq < 1 or seq > limit or #payload == 0 then return true end
+    payload = payload:sub(1, limit - seq + 1)
+    local data = state.data or ""
+    local overlap = math.min(#payload, #data - seq + 1)
+    if overlap > 0 and data:sub(seq, seq + overlap - 1) ~= payload:sub(1, overlap) then
+        state.bad = true
+        return false
     end
-
-    -- WAF response headers (Vercel/CF/Sucuri) used to be classified as
-    -- server_active_reject. Same rationale as bare 451:
-    -- packet-level fingerprint masking can sometimes evade WAF
-    -- signature matching, so let autocircular rotate before giving up.
-    if hdis and hdis.headers then
-      local waf = z2k_find_waf_header(hdis.headers)
-      if waf then
-        return "neutral", "waf_header:" .. z2k_sanitize_reason(waf)
-      end
+    if seq <= #data + 1 then
+        if seq + #payload - 1 > #data then state.data = data .. payload:sub(#data - seq + 2) end
+    else
+        state.parts = state.parts or {}
+        state.bytes = (state.bytes or 0) + #payload
+        if #state.parts >= 16 or state.bytes > limit * 2 then state.bad = true; return false end
+        state.parts[#state.parts + 1] = { seq, payload }
     end
-
-    if body == "" then
-      return "neutral", "http_4xx_no_body:code=" .. tostring(code)
+    local changed = true
+    while changed and state.parts do
+        changed = false
+        for i = #state.parts, 1, -1 do
+            local part = state.parts[i]
+            if part[1] <= #(state.data or "") + 1 then
+                table.remove(state.parts, i)
+                state.bytes = state.bytes - #part[2]
+                if not prefix_add(state, part[1], part[2], limit) then return false end
+                changed = true
+                break
+            end
+        end
     end
-    if rkn_marker then
-      return "hard_fail", "http_4xx_marker:" .. z2k_sanitize_reason(rkn_marker)
+    return true
+end
+
+local function record_length(p)
+    if #p < 5 or p:byte(2) ~= 3 or p:byte(3) > 3 then return nil end
+    return p:byte(4) * 256 + p:byte(5)
+end
+
+local function first_request(desync, crec)
+    local p, seq = desync.dis.payload or "", pos_get(desync, 's')
+    if not crec.request_start then
+        if desync.l7payload ~= "tls_client_hello" and desync.l7payload ~= "http_req" then return end
+        crec.request_start = seq
+        crec.request_kind = desync.l7payload
+        if crec.request_kind == "tls_client_hello" then
+            local len = record_length(desync.reasm_data or p)
+            if len and len + 5 <= REQUEST_LIMIT then crec.request_end = seq + len + 5 end
+        else
+            crec.request_prefix = {}
+        end
     end
-    return "neutral", "http_4xx_no_marker:code=" .. tostring(code)
-  end
-
-  -- 3xx — Location parse + cross-SLD check
-  if code == 301 or code == 302 or code == 303 or code == 307 or code == 308 then
-    if type(http_dissect_reply) ~= "function" or
-       type(array_field_search) ~= "function" then
-      return "neutral", "http_redirect_no_dissector"
+    if crec.request_prefix then
+        local start = seq - crec.request_start + 1
+        if not prefix_add(crec.request_prefix, start, p, RESPONSE_LIMIT) then
+            crec.request_prefix = nil
+            return
+        end
+        local data = crec.request_prefix.data or ""
+        local boundary = data:find("\r\n\r\n", 1, true)
+        crec.request_end = crec.request_start + (boundary and boundary + 3 or #data)
+        if boundary or #data >= RESPONSE_LIMIT then crec.request_prefix = nil end
     end
-    local hdis = http_dissect_reply(payload)
-    if not hdis then return "neutral", "http_redirect_unparseable" end
-    local idx = array_field_search(hdis.headers, "header_low", "location")
-    if not idx then return "neutral", "http_redirect_no_location" end
-    local loc_host = z2k_extract_loc_host(hdis.headers[idx].value)
-    if not loc_host then
-      -- Path-only or unparseable Location — same-origin redirect, treat
-      -- as positive (the request handshake succeeded; redirect is just
-      -- application-level navigation).
-      return "positive", nil
+end
+
+local function native_failure(desync, crec)
+    -- Old engines may still send RST inside standard_failure_detector. Clear
+    -- reset in this call; the new dispatcher uses the original arg only after
+    -- accepting the result. Never run the broad cross-domain redirect heuristic.
+    local copy, arg = {}, {}
+    for k, v in pairs(desync) do copy[k] = v end
+    for k, v in pairs(desync.arg) do arg[k] = v end
+    arg.reset, arg.no_http_redirect = nil, true
+    copy.arg = arg
+    return standard_failure_detector(copy, crec)
+end
+
+local function http_response(desync, crec, state)
+    local data = state.data or ""
+    local boundary = data:find("\r\n\r\n", 1, true)
+    if not boundary then
+        if #data >= RESPONSE_LIMIT then return false, "neutral" end
+        return false, "pending"
     end
-    local req_host = desync.track and desync.track.hostname
-    if not req_host then return "neutral", "http_redirect_no_req_host" end
-    -- Defensive port-strip: HTTP Host header may carry port even though
-    -- nfqws2 dissector usually normalises it. Cheap to apply, prevents
-    -- a same-origin redirect to host:port being misclassified cross-SLD.
-    local req_lower = z2k_strip_port(req_host:lower())
-    local req_sld = type(dissect_nld) == "function" and dissect_nld(req_lower, 2) or req_lower
-    local loc_sld = type(dissect_nld) == "function" and dissect_nld(loc_host, 2) or loc_host
-    if req_sld and loc_sld and req_sld == loc_sld then
-      -- Same-SLD redirect = legit (HTTP→HTTPS upgrade, vanity URL,
-      -- internal app routing). Strategy did its job — handshake worked.
-      return "positive", nil
+    local packet = { outgoing = false, l7payload = "http_reply", track = desync.track, dis = { payload = data } }
+    local class = z2k_classify_http_reply(packet)
+    if class == "hard_fail" then return true end
+    if class == "positive" then return false, "success" end
+    local code = tonumber(data:match("^HTTP/1%.[01]%s+(%d%d%d)%s"))
+    if not code or code < 400 or code >= 600 then return false, "neutral" end
+    local header = data:sub(1, boundary + 1):lower()
+    local length = tonumber(header:match("\r\ncontent%-length:%s*(%d+)%s*\r\n"))
+    if #data >= RESPONSE_LIMIT or (length and #data - boundary - 3 >= length)
+        or header:find("\r\ncontent%-encoding:", 1, false) then
+        return false, "neutral"
     end
-    -- Cross-SLD — check if loc_host carries a block marker
-    local marker = z2k_find_host_marker(loc_host)
-    if marker then
-      return "hard_fail", "http_redirect_marker:" .. z2k_sanitize_reason(marker)
+    -- No length (or chunked): inspect only the bounded prefix, until EOF/cap.
+    return false, "pending"
+end
+
+local function tls_response(crec, state)
+    local data, offset = state.data or "", 1
+    if #data - offset + 1 >= 5 then
+        local record = data:sub(offset)
+        local len = record_length(record)
+        if not len or len == 0 or len > 18432 then return false, "neutral" end
+        local kind = record:byte(1)
+        if kind == 22 then
+            if #record < 9 then return false, "pending" end
+            local handshake_len = record:byte(7) * 65536 + record:byte(8) * 256 + record:byte(9)
+            if record:byte(6) == 2 and len >= 4 and handshake_len >= 38 then
+                crec.server_hello = true
+                crec.response_prefix = nil
+                return false -- only normal byte-progress success from here on
+            end
+            return false, "neutral"
+        elseif kind == 21 then
+            if len ~= 2 then return false, "neutral" end
+            if #record < 7 then return false, "pending" end
+            if record:byte(6) == 2 and record:byte(7) ~= 0 then
+                DLOG("z2k_fail_tls_alert: plaintext fatal alert " .. record:byte(7))
+                return true
+            end
+            return false, "neutral"
+        elseif kind == 20 or kind == 23 then
+            -- Cannot interpret protected records as plaintext alerts, including
+            -- TLS 1.2 abbreviated handshakes. No guessed ciphertext severity.
+            return false, "neutral"
+        else
+            return false, "neutral"
+        end
     end
-    return "neutral", "http_redirect_cross_sld_no_marker"
-  end
-
-  -- 1xx informational, 3xx other (300/305/306/...), unknown — neutral.
-  return "neutral", "http_other_code:code=" .. tostring(code)
-end
-
-local Z2K_OK_WINDOW = 60
--- Сколько живых ответов за окно считаем доказательством, что страта рабочая.
--- Три: одиночный ответ бывает и на пути, который DPI рвёт через раз.
-local Z2K_OK_MIN = 3
-
-local function host_record(desync)
-	local ok, hrec = pcall(automate_host_record, desync)
-	if ok then return hrec end
-	return nil
-end
-
--- Живой ответ = сервер прислал непустой пейлоад, который не является
--- фатальным алертом. Считаем по хосту, а не по соединению: ложная ротация
--- как раз и складывается из нескольких соединений.
---
--- Окно отсчитывается от ПЕРВОГО успеха в серии, а не от последнего. Сброс по
--- давности последнего пакета окном не является: на хосте с непрерывным
--- трафиком каждый пакет отодвигает срок, счётчик не обнуляется никогда, и
--- получается «три успеха когда-либо плюс один пакет за минуту». Тогда хост,
--- который час назад работал, а сейчас режется, держит гвард взведённым вечно —
--- ровно то, что в шапке названо недопустимым.
--- Форвард-декларация: strategy_current определён ниже, рядом с note_strategy,
--- но нужен уже здесь. Без неё имя ушло бы в ГЛОБАЛЬНУЮ таблицу и вернуло nil —
--- ошибка была бы рантаймовой, то есть невидимой и для luac, и для тестов,
--- которые зовут только host_alive.
-local strategy_current
-
-local function note_alive(desync, crec, is_fatal_alert)
-	if is_fatal_alert then return end
-	local p = desync.dis and desync.dis.payload
-	if not p or #p == 0 then return end
-	-- ОДНО СОЕДИНЕНИЕ = ОДНО ДОКАЗАТЕЛЬСТВО.
-	--
-	-- Считался каждый входящий пакет, поэтому три сегмента ОДНОГО ответа
-	-- взводили гвард, а он дальше глушил провалы параллельных соединений:
-	-- ретрансмит ClientHello, ранний RST и фатальный алерт. Порог выше
-	-- обоснован как «три живых ОТВЕТА», а не «три пакета» — приводим
-	-- реализацию к тому, что в нём написано. Без crec (движок не дал запись
-	-- соединения) считаем как раньше: ослепить детектор хуже, чем пересчитать.
-	if crec then
-		if crec.z2k_alive_seen then return end
-	end
-	-- Успех соединения, начатого на ПРЕЖНЕЙ стратегии, ничего не говорит о
-	-- нынешней. Проверка стояла только на провалах (strategy_current ниже),
-	-- и из-за этой асимметрии запоздалый ответ старого flow защищал страту,
-	-- через которую он не проходил.
-	if not strategy_current(desync, crec) then return end
-	local hrec = host_record(desync)
-	if not hrec then return end
-	local now = os.time()
-	-- Счётчик привязан к НОМЕРУ стратегии. Раньше привязки не было вовсе:
-	-- после ротации доказательства, набранные на старой страте, продолжали
-	-- гасить провалы новой все 60 секунд окна.
-	if hrec.z2k_ok_nstrat ~= hrec.nstrategy then
-		hrec.z2k_ok_n = 0
-		hrec.z2k_ok_start = now
-		hrec.z2k_ok_nstrat = hrec.nstrategy
-	end
-	if not hrec.z2k_ok_start or (now - hrec.z2k_ok_start) > Z2K_OK_WINDOW then
-		hrec.z2k_ok_n = 0
-		hrec.z2k_ok_start = now
-	end
-	hrec.z2k_ok_n = hrec.z2k_ok_n + 1
-	hrec.z2k_ok_last = now
-	if crec then crec.z2k_alive_seen = true end
-end
-
--- true, если хост прямо сейчас доказал, что работает.
-local function host_alive(desync)
-	local hrec = host_record(desync)
-	if not hrec or not hrec.z2k_ok_start then return false end
-	-- Доказательства другой стратегии не в счёт — см. note_alive.
-	if hrec.z2k_ok_nstrat ~= hrec.nstrategy then
-		hrec.z2k_ok_n = 0
-		return false
-	end
-	if (os.time() - hrec.z2k_ok_start) > Z2K_OK_WINDOW then
-		hrec.z2k_ok_n = 0
-		return false
-	end
-	return (hrec.z2k_ok_n or 0) >= Z2K_OK_MIN
-end
-
--- Пулы, где вставший входящий поток считается провалом.
---
--- РКН включён 19.08.2026. До этого он был исключён намеренно, и причина в
--- комментарии стояла такая: на одном хосте живут и API-ответы в пару
--- килобайт, и страницы, и рвать рабочую страту из-за одного залипшего
--- соединения нельзя. Но это была претензия к ПЕРВОЙ редакции правила, которая
--- считала провалом любой входящий ретрансмит — то есть любую потерю пакета.
--- Ровно она в тот же день увела gv_tcp с первой стратегии на четвёртую.
--- Нынешняя редакция требует шесть повторов ОДНОГО сегмента без единого
--- продвижения вперёд, даёт одно событие на соединение, и на ротацию нужно три
--- соединения. Потеря пакета такого не набирает.
---
--- Зачем это РКН. `inseq` там поднят до 26000 ради байтового гейта ТСПУ, но
--- сам гейт он не ЛОВИТ — только не даёт объявить успех раньше него. Если гейт
--- рвёт поток тихо, без RST и FIN, у профиля не остаётся ни одного события, и
--- заблокированный сайт стоит на нерабочей стратегии вечно. Это правило —
--- единственный сигнал на такой случай.
-local Z2K_RETRANS_POOLS = { yt_tcp = true, gv_tcp = true, rkn_tcp = true }
--- Сколько раз подряд сервер должен повторить ОДИН И ТОТ ЖЕ сегмент, ни разу
--- не продвинув поток вперёд, чтобы считать поток вставшим. Полевой замер
--- 18.08.2026, LG webOS на заведомо нерабочей 20-й стратегии: на КАЖДОМ
--- соединении к googlevideo сервер слал один и тот же seq 15-16 раз, телевизор
--- не подтверждал ни разу, RST и FIN не приходили вовсе. Шесть — с запасом ниже
--- замеренных пятнадцати и заведомо выше здорового потока: там потеря головного
--- сегмента лечится одним-двумя повторами, после чего идут НОВЫЕ данные, и
--- счётчик обнуляется.
-local Z2K_RETRANS_MIN = 6
-
--- Провал по вставшему входящему потоку. Считаем по СОЕДИНЕНИЮ (crec), а не по
--- хосту: залипает именно поток, и пятнадцать повторов в нём — законченное
--- событие.
---
--- Гвард по живости сюда намеренно не применяется. Такое соединение как раз и
--- отдаёт первые килобайты данных, то есть по меркам гварда хост «живой» —
--- и настоящий провал был бы подавлен своим же ответом. Для пулов видео живость
--- определяется не байтами, а тем, едет ли поток дальше.
-local function incoming_retrans_failure(desync, crec)
-	if not crec then return false end
-	if not Z2K_RETRANS_POOLS[desync.arg.key] then return false end
-
-	-- Клиент закрылся раньше — считать нечего. Замер 30.08.2026, ловушка на
-	-- facebook.com|6: при НАСТОЯЩЕЙ блокировке клиент молчит и ждёт, а FIN шлёт
-	-- лишь через четырнадцать секунд ПОСЛЕ того, как вердикт уже вынесен. То
-	-- есть боевые срабатывания этот гвард не глушит, а брошенное соединение —
-	-- где FIN идёт ПЕРВЫМ, и уже потом сервер долбит закрытый сокет — перестаёт
-	-- набивать ротатору провалы и уводить рабочую стратегию.
-	if crec.z2k_cli_closed then return false end
-
-	local p = desync.dis.payload
-	-- Чистые ACK данных не несут, повторами их считать нечего.
-	if not p or #p == 0 then return false end
-
-	-- Тот же признак, которым движок ловит ИСХОДЯЩИЕ ретрансмиты: позиция
-	-- пакета не выше уже виденного максимума. Своего счёта позиций не заводим,
-	-- иначе разойдёмся с движком на переупорядоченных и частично перекрытых
-	-- сегментах.
-	--
-	-- ПОТОК ПОЕХАЛ — залипания нет, счёт начинаем заново. Это и есть развилка
-	-- между «сервер долбит мёртвый сегмент» и «по дороге потерялся пакет»:
-	-- во втором случае за повтором приходят новые данные.
-	if not is_retransmission(desync) then
-		crec.z2k_stall_pos = nil
-		crec.z2k_in_retrans = 0
-		return false
-	end
-
-	-- Поток, пробивший планку успеха, ротировать не за что: страта своё дело
-	-- сделала, а повторы там — обычная потеря пакетов по дороге.
-	local s = pos_get(desync, 's') or 0
-	local bar = tonumber(desync.arg.inseq) or 0
-	if bar > 0 and s >= bar then return false end
-
-	-- Повтор ДРУГОГО сегмента: сервер отъехал назад по окну, а не долбит одно
-	-- место. Считаем это новой попыткой, а не продолжением прежней серии.
-	if crec.z2k_stall_pos ~= s then
-		crec.z2k_stall_pos = s
-		crec.z2k_in_retrans = 1
-		return false
-	end
-
-	-- Одно соединение — одно событие. Дальше порога не считаем: сервер долбит
-	-- мёртвый поток по пятнадцать раз, и без этого стопа он в одиночку набирает
-	-- ротатору всю норму провалов, уводя страту, которая для остальных
-	-- соединений работает. Тот же стоп стоит у bol-van в штатном детекторе
-	-- (`(crec.retrans or 0) < arg.retrans`, lua/zapret-auto.lua).
-	if (crec.z2k_in_retrans or 0) >= Z2K_RETRANS_MIN then return false end
-
-	crec.z2k_in_retrans = crec.z2k_in_retrans + 1
-	if crec.z2k_in_retrans < Z2K_RETRANS_MIN then return false end
-
-	DLOG("z2k_fail_tls_alert: входящий поток встал на s" .. s .. ", повтор " ..
-	     crec.z2k_in_retrans .. "/" .. Z2K_RETRANS_MIN .. " без продвижения -> failure")
-	return true
-end
-
--- TTL пакета: подпись пути, по которому он пришёл.
-local function packet_ttl(desync)
-	local d = desync.dis
-	if not d then return nil end
-	if d.ip and d.ip.ip_ttl then return d.ip.ip_ttl end
-	if d.ip6 and d.ip6.ip6_hlim then return d.ip6.ip6_hlim end
-	return nil
-end
-
--- Разброс TTL внутри одного потока. Ноль ставить нельзя: у крупных CDN ответы
--- приходят с разных машин балансира, путь отличается на хоп-другой.
-local Z2K_TTL_TOLERANCE = 2
-
--- Эталон берём с ПЕРВОГО пакета данных: он заведомо от настоящего сервера,
--- инжектировать данные DPI не станет — он рвёт.
-local function note_server_ttl(desync, crec)
-	if not crec or crec.z2k_srv_ttl then return end
-	local p = desync.dis and desync.dis.payload
-	if not p or #p == 0 then return end
-	crec.z2k_srv_ttl = packet_ttl(desync)
-end
-
--- Вердикт по входящему провалу, который нашёл штатный детектор:
---   "server" — RST пришёл тем же путём, что и данные: сервер закрылся сам;
---   "block"  — либо RST с чужим TTL (инжект), либо вовсе не RST (DPI-редирект);
---   nil      — судить не по чему, решает гвард живости.
---
--- Почему "block" обязан идти МИМО гварда живости. Гвард считает живым любой
--- непустой ответ, а оба этих класса блокировки как раз и приходят ПОСЛЕ
--- нормальных данных:
---   * байтовый гейт ТСПУ — ради него планка inseq и поднята до 26К — рвёт
---     соединение на 12-18 КБ, то есть после десятков «живых» пакетов. С
---     гвардом впереди он не даёт события никогда, и планка стоит впустую;
---   * страница-заглушка в HTTP-пуле — тоже непустой ответ, и три соединения
---     подряд успевают взвести гвард раньше, чем наберётся порог провалов.
--- Инжект и редирект — доказательства блокировки сами по себе, живость хоста
--- их не отменяет.
-local function incoming_reset_verdict(desync, crec)
-	local tcp = desync.dis and desync.dis.tcp
-	if not tcp or not tcp.th_flags or not TH_RST then return nil end
-	-- Не RST — значит DPI-редирект. Мимо гварда его пускать НЕЛЬЗЯ:
-	-- is_dpi_redirect (zapret-auto.lua:108) считает редиректом ЛЮБОЙ ответ,
-	-- где SLD цели не совпал с SLD запроса, без всякой проверки на страницу-
-	-- заглушку. На восьмидесятом порту такие редиректы законны сплошь и рядом
-	-- — сокращатели ссылок, передача на CDN другого домена, OAuth. Ложное
-	-- срабатывание тут стоит рабочей стратегии, а самоподавление настоящего
-	-- редиректа закрыто иначе: провальный пакет больше не считается «живым»
-	-- ответом (см. порядок вызовов в z2k_fail_tls_alert).
-	if bitand(tcp.th_flags, TH_RST) == 0 then return nil end
-
-	-- Эталона нет: данных сервер ещё не присылал. Это классический DPI-сброс
-	-- на хендшейке, но ровно так же выглядит и поддельный RST на живом хосте,
-	-- поэтому оставляем решение гварду живости.
-	if not crec or not crec.z2k_srv_ttl then return nil end
-
-	local t = packet_ttl(desync)
-	if not t then return nil end
-	local d = t - crec.z2k_srv_ttl
-	if d < 0 then d = -d end
-	if d > Z2K_TTL_TOLERANCE then
-		DLOG("z2k_fail_tls_alert: RST с TTL " .. t .. " при данных сервера TTL " ..
-		     crec.z2k_srv_ttl .. " — инжект, провал независимо от живости хоста")
-		return "block"
-	end
-	DLOG("z2k_fail_tls_alert: RST с TTL " .. t .. " при данных сервера TTL " ..
-	     crec.z2k_srv_ttl .. " — разрыв со стороны сервера, не провал")
-	return "server"
-end
-
--- Номер стратегии, под которым соединение началось. Ставится на первом же
--- пакете, до любых проверок: если пометить позже, соединение, чей провал
--- доехал уже после ротации, унаследует НОВЫЙ номер и отфильтровано не будет.
-local function note_strategy(desync, crec)
-	if not crec or crec.z2k_nstrat then return end
-	local hrec = host_record(desync)
-	if hrec and hrec.nstrategy then crec.z2k_nstrat = hrec.nstrategy end
-end
-
--- false, если стратегия под соединением уже сменилась. Без пометки или без
--- host-записи не судим: лучше засчитать лишний провал, чем ослепить детектор.
-strategy_current = function(desync, crec)
-	if not crec or not crec.z2k_nstrat then return true end
-	local hrec = host_record(desync)
-	if not hrec or not hrec.nstrategy then return true end
-	return crec.z2k_nstrat == hrec.nstrategy
-end
-
-local function suppressed(desync, why)
-	if host_alive(desync) then
-		DLOG("z2k_fail_tls_alert: " .. why .. " подавлен — хост отвечает живьём в текущем окне")
-		return true
-	end
-	return false
-end
-
--- Первый запрос клиента в соединении: до ответа сервера его ретрансмит
--- действительно означает, что запрос не дошёл. Пул HTTP работает с http_req,
--- пулы TLS — с tls_client_hello; всё остальное это уже живая сессия.
-local Z2K_FIRST_REQUEST = { tls_client_hello = true, http_req = true }
-
-
-local function z2k_fail_verdict(desync, crec)
-	-- Исходящее: в штатный детектор пускаем только первый запрос. Ретрансмиты
-	-- живой сессии — не признак негодной стратегии.
-	if desync.outgoing then
-		-- КЛИЕНТ УШЁЛ ПЕРВЫМ. Отмечаем момент, когда клиент закрыл свою сторону:
-		-- всё, что сервер повторяет после этого, он повторяет в закрытый сокет,
-		-- и к качеству стратегии отношения не имеет.
-		local fl = desync.dis and desync.dis.tcp and desync.dis.tcp.th_flags
-		if fl and TH_FIN and TH_RST and crec and not crec.z2k_cli_closed
-		   and (bitand(fl, TH_FIN) ~= 0 or bitand(fl, TH_RST) ~= 0) then
-			crec.z2k_cli_closed = os.time()
-		end
-		if not Z2K_FIRST_REQUEST[desync.l7payload] then return false end
-		if not standard_failure_detector(desync, crec) then return false end
-		if suppressed(desync, "ретрансмит ClientHello") then return false end
-		return true
-	end
-
-	if not desync.dis or not desync.dis.tcp then return false end
-
-	local p = desync.dis.payload
-	local fatal_alert = false
-	if p and #p >= 7
-	   and p:byte(1) == 0x15          -- content type alert
-	   and p:byte(2) == 0x03          -- major version TLS
-	   and p:byte(6) == 2 then        -- уровень 2 = fatal; 1 (close_notify) — норма
-		-- только до ServerHello: алерт после реального ответа сервера — другой
-		-- случай (политика сервера либо инжект), его сюда не мешаем.
-		local s = pos_get(desync, 's') or 0
-		fatal_alert = (s <= 1024)
-	end
-
-	note_server_ttl(desync, crec)
-
-	-- Входящее: штатный детектор (входящий RST, DPI-редирект), окно 16К-гейта
-	-- по inseq — его же.
-	--
-	-- ПОРЯДОК ВАЖЕН. Учёт живости идёт ПОСЛЕ вердикта и только если провала
-	-- нет: иначе пакет, который сам является блокировкой, засчитывается в
-	-- доказательство того, что хост живой, и глушит собственный провал.
-	-- Страница-заглушка DPI — непустой ответ, и трёх соединений хватает, чтобы
-	-- взвести гвард раньше, чем наберётся порог провалов; блокировка тогда не
-	-- ротируется никогда.
-	-- HTTP-ОТВЕТ РАЗБИРАЕМ СВОИМ КЛАССИФИКАТОРОМ, ДО ШТАТНОГО ДЕТЕКТОРА.
-	--
-	-- Разборов кодов в профилях нет: их инжекции и проход, который их же
-	-- вырезал, сняты 2026-08-26 — в конфиг они не попадали ни разу. Их работу
-	-- делает эта обёртка. Штатный детектор кодов не смотрит вовсе, поэтому
-	-- 403/451/5xx с нашими маркерами блокировки и
-	-- редирект на страницу блокировки проходили как обычный ответ — и, хуже
-	-- того, засчитывались в живость хоста ниже: заглушка DPI это непустой
-	-- пейлоад без фатального алерта. Трёх таких хватало, чтобы взвести гвард
-	-- раньше, чем наберётся кворум провалов, и блокировка не ротировалась.
-	--
-	-- Классификатор с 26.08.2026 живёт в ЭТОМ же файле (см. шапку). Проверку
-	-- типа держим не ради отсутствующего файла, а ради частично обновлённой
-	-- установки: обновление раскладывает файлы по одному, и обёртка обязана
-	-- пережить окно, в котором рядом лежит ещё старая пара.
-	local http_class
-	if type(z2k_classify_http_reply) == "function" then
-		local ok_c, cls = pcall(z2k_classify_http_reply, desync)
-		if ok_c then http_class = cls end
-	end
-	if http_class == "hard_fail" then
-		DLOG("z2k_fail_tls_alert: HTTP-ответ с маркером блокировки -> failure")
-		return true
-	end
-
-	local failed = standard_failure_detector(desync, crec)
-	-- В живость идёт только то, что доказывает работу: разбор либо не про
-	-- HTTP (nil), либо признал ответ настоящим (positive). "neutral" — это
-	-- голый 451, WAF-заголовок, 4xx без тела: провалом не считаем, но и
-	-- доказательством жизни оно не является.
-	if not failed and (http_class == nil or http_class == "positive") then
-		note_alive(desync, crec, fatal_alert)
-	end
-
-	if failed then
-		local verdict = incoming_reset_verdict(desync, crec)
-		if verdict == "server" then return false end
-		if verdict == "block" then return true end
-		if suppressed(desync, "входящий провал") then return false end
-		return true
-	end
-
-	-- 4. ВХОДЯЩИЙ РЕТРАНСМИТ — ПРОВАЛ. Только пулы видео.
-	if incoming_retrans_failure(desync, crec) then return true end
-
-	if fatal_alert then
-		if suppressed(desync, "фатальный алерт") then return false end
-		DLOG("z2k_fail_tls_alert: fatal alert desc=" .. tostring(p:byte(7)) .. " -> failure")
-		return true
-	end
-
-	return false
+    return false, "pending"
 end
 
 function z2k_fail_tls_alert(desync, crec)
-	note_strategy(desync, crec)
-
-	local failed = z2k_fail_verdict(desync, crec)
-	if not failed then return false end
-
-	if not strategy_current(desync, crec) then
-		DLOG("z2k_fail_tls_alert: провал соединения со стратегии " ..
-		     tostring(crec.z2k_nstrat) .. " не засчитан — сейчас уже другая")
-		return false
-	end
-	-- Время последнего ЗАСЧИТАННОГО провала. Читает z2k-state-persist.lua:
-	-- откат sticky-успехом разрешён только если успех НОВЕЕ этой отметки.
-	-- Иначе успех, случившийся ДО провалов, отменяет ротацию, которую эти
-	-- провалы только что оплатили, и кворум приходится набирать заново.
-	local hrec = host_record(desync)
-	if hrec then
-		-- Тот же источник времени, что у z2k-state-persist.lua (now_f): их
-		-- значения сравниваются напрямую, и расхождение в базе часов дало бы
-		-- сравнение целых секунд с дробными и промах на секунду в обе стороны.
-		local t
-		if type(clock_getfloattime) == "function" then
-			local ok_t, v = pcall(clock_getfloattime)
-			if ok_t and tonumber(v) then t = tonumber(v) end
-		end
-		hrec.z2k_last_fail_ts = t or os.time()
-	end
-	return true
+    if not crec or not desync.dis or not desync.dis.tcp then return false end
+    local p, flags = desync.dis.payload or "", desync.dis.tcp.th_flags
+    if desync.outgoing then
+        first_request(desync, crec)
+        local seq = pos_get(desync, 's')
+        if crec.request_end and not crec.server_hello and not crec.http_started
+            and seq >= crec.request_start and seq < crec.request_end then
+            return native_failure(desync, crec)
+        end
+        return false
+    end
+    -- RST is a transport failure within the native window, regardless of TTL.
+    if bitand(flags, TH_RST) ~= 0 then return native_failure(desync, crec) end
+    if crec.server_hello then return false end
+    if #p == 0 then
+        if bitand(flags, TH_FIN) ~= 0 and crec.response_prefix then return false, "neutral" end
+        return false
+    end
+    local http = crec.request_kind == "http_req" or desync.arg.key == "http_rkn" or desync.l7payload == "http_reply"
+    crec.http_started = http or nil
+    crec.response_prefix = crec.response_prefix or {}
+    local state = crec.response_prefix
+    if not prefix_add(state, pos_get(desync, 's'), p, RESPONSE_LIMIT) then
+        crec.response_prefix = nil
+        return false, "neutral"
+    end
+    local failed, outcome
+    if http then failed, outcome = http_response(desync, crec, state)
+    else failed, outcome = tls_response(crec, state) end
+    if failed or outcome == "neutral" or outcome == "success" then crec.response_prefix = nil end
+    return failed, outcome
 end

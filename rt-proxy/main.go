@@ -39,7 +39,10 @@ var (
 	proxyPort   = flag.String("proxy-port", "443", "upstream proxy port")
 	seedIPs     = flag.String("ips", "", "comma-separated upstream proxy IPs (seed pool; re-resolved from proxy-host too)")
 	healthEvery = flag.Duration("health-interval", 90*time.Second, "health-check interval for the IP pool")
-	healthHost  = flag.String("health-target", "rutracker.org:443", "CONNECT target used to probe a proxy IP")
+	// Метка исходящих сокетов. Ноль — не метить (поведение до 12.09.2026).
+	// Зачем она нужна и почему именно метка — см. mark_linux.go.
+	soMark     = flag.Int("so-mark", 0, "SO_MARK на исходящих сокетах моста (0 — не метить)")
+	healthHost = flag.String("health-target", "rutracker.org:443", "CONNECT target used to probe a proxy IP")
 
 	// Пин SPKI цели health-проверки. Пусто = проверка выключена.
 	//
@@ -266,7 +269,9 @@ func directResolver() *net.Resolver {
 		// direct lookup would fail, and we would silently fall back to exactly the
 		// stale ndnproxy answer this resolver exists to bypass.
 		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			d := net.Dialer{Timeout: 4 * time.Second}
+			// Резолвер тоже метим: запрос уходит с роутера тем же путём, и
+			// без метки движок обхода увидит и его.
+			d := net.Dialer{Timeout: 4 * time.Second, Control: markControl(*soMark)}
 			return d.DialContext(ctx, network, *resolverAddr)
 		},
 	}
@@ -582,7 +587,7 @@ func (b *bufConn) Read(p []byte) (int, error) { return b.br.Read(p) }
 // the 10s recover cadence effectively ~34s — in exactly the window users are
 // waiting. openTunnel had the same doubling at 8s per try.
 func dialProxyDeadline(ip string, deadline time.Time) (net.Conn, error) {
-	d := net.Dialer{Deadline: deadline}
+	d := net.Dialer{Deadline: deadline, Control: markControl(*soMark)}
 	raw, err := d.Dial("tcp", net.JoinHostPort(ip, *proxyPort))
 	if err != nil {
 		return nil, err
@@ -817,7 +822,7 @@ func dialDirect(sni string, hello []byte) (net.Conn, *bufio.Reader) {
 		if ip == nil || !routableUnicast(ip) {
 			continue // sentinel / loopback / RFC1918 / link-local — would loop back inside
 		}
-		d := net.Dialer{Timeout: *dialTO}
+		d := net.Dialer{Timeout: *dialTO, Control: markControl(*soMark)}
 		c, err := d.Dial("tcp", net.JoinHostPort(ips, "443"))
 		if err != nil {
 			continue

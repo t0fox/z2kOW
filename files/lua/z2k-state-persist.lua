@@ -1,27 +1,10 @@
 -- z2k-state-persist.lua
 -- Persist zapret-auto.lua "circular" per-host strategy across nfqws2 restarts.
 --
--- Design (state layer over the NATIVE circular(); ported from the proven
--- pre-r-41 z2k-autocircular.lua state core — persist + a bounded sticky-success
--- revert that keeps state.tsv on the strategy actually working):
---   - zapret-auto.lua stores nstrategy in global autostate[askey][hostkey].
---   - This file wraps circular() to:
---       1) seed autostate from a single TSV file on disk (best effort),
---       2) save nstrategy back to disk when it changes (rate-limited), and
---       3) revert circular's nstrategy drift when the host recently succeeded.
---   - Single state.tsv, full-file rewrite with merge (split-brain-safe across
---     processes) + a lockfile + a debounce window. NO sharding, NO WAL.
---   - Persist fires on confirmed-success states AND on every outgoing initial
---     packet (TLS ClientHello / QUIC initial / HTTP request) as a fallback, so
---     default-1 and hard-to-observe QUIC profiles still show; a server-active
---     rejection never pins. persist_if_changed() + debounce keep writes cheap.
---   - Sticky-success revert (THE accuracy fix): orig_circular drifts nstrategy
---     on parallel failing flows (HTTP/2 fan-out behind one hostname) even while
---     the host succeeds; if it advanced nstrategy within 30s of a real success
---     on (host|key), revert to the pre-circular value so the persisted/active
---     strategy stays the one actually working. (silent-retry / probe-override /
---     UCB stay OUT — those are Этап 6.)
---   - Storage key = desync.arg.key when provided, else desync.func_instance.
+-- Saves the native circular host strategy and honors explicit operator pins.
+-- Flow attribution and rotation live in zapret-auto.lua; this layer never
+-- infers success from traffic in order to undo an automatic rotation.
+-- State writes remain merged, locked and rate limited.
 --
 -- Unit tests: tests/test_z2k_state_persist.lua (Lua harness) and
 -- tests/test_z2k_state_persist.sh (shell wrapper) — run via
@@ -237,11 +220,21 @@ local function release_lock(lockfile)
   if lockfile then os.remove(lockfile) end
 end
 
+local flush_pending = false
 local function write_state()
   local now = now_t()
   if now ~= 0 and (now - last_write) < write_interval then
-    return                       -- debounced; the next packet's write flushes it
+    if not flush_pending and type(timer_set) == "function" then
+      flush_pending = true
+      timer_set("z2k_state_flush", function()
+        flush_pending = false
+        write_state()
+      end, (write_interval - (now - last_write)) * 1000 + 10, true)
+    end
+    return
   end
+  if flush_pending and type(timer_del) == "function" then timer_del("z2k_state_flush") end
+  flush_pending = false
   last_write = now
 
   local path = choose_state_file_for_write()
@@ -314,6 +307,9 @@ local allowed_hostkey_funcs = {
   sld_hostkey = true,
   tld_hostkey = true,
   z2k_nohost_key = true,
+  -- The generated domain pools use this helper; persistence must derive the
+  -- same host record as circular for saves, restoration and operator pins.
+  z2k_service_hostkey = true,
 }
 
 local function get_hostkey_func(desync)
@@ -424,16 +420,6 @@ end
 -- ---------------------------------------------------------------------------
 -- known-good gating helpers (ported from the legacy z2k-autocircular state core)
 -- ---------------------------------------------------------------------------
-local STICKY_WINDOW_SEC = 30
-
-local function now_f()
-  if type(clock_getfloattime) == "function" then
-    local ok, v = pcall(clock_getfloattime)
-    if ok and tonumber(v) then return tonumber(v) end
-  end
-  return tonumber(os.time() or 0) or 0
-end
-
 -- Native conntrack success/failure flags stamped on desync.track.lua_state.automate
 -- (crec) by the native success/failure detectors and z2k detectors.
 local function conn_record_flags(desync)
@@ -443,7 +429,7 @@ local function conn_record_flags(desync)
   if not crec then return false, false, false, false end
   return (crec.nocheck and true or false),
          (crec.failure and true or false),
-         (crec.z2k_neutral_observed and true or false),
+         ((crec.neutral or crec.z2k_neutral_observed) and true or false),
          (crec.z2k_server_active_reject and true or false)
 end
 
@@ -471,21 +457,6 @@ local function is_quic_key(askey)
   if not askey then return false end
   local s = tostring(askey)
   return s == "yt_quic" or s == "rkn_quic" or s == "custom_quic" or s == "cf_quic"
-end
-
--- Sticky-success revert is SAFE only for real-hostname pools, where each visited
--- host gets its own (host|key) bucket. Hostless pools (hostkey=z2k_nohost_key →
--- hostn="nohost": discord_udp / STUN / voice DTLS to many Discord DC IPs)
--- collapse ALL flows into ONE shared "nohost|<key>" bucket. A success on one
--- flow would then revert (pin) every OTHER flow's circular advancement, freezing
--- the whole pool on the first-working strategy and breaking voice to DCs that
--- need a different desync. r-43 had no revert at all, so discord rotated freely
--- and voice worked — keep exactly that behaviour for hostless/discord pools.
-local function is_sticky_eligible(askey, hostn)
-  if hostn == nil or hostn == "nohost" then return false end
-  local s = askey and tostring(askey) or ""
-  if s:match("^discord") then return false end
-  return true
 end
 
 -- ---------------------------------------------------------------------------
@@ -518,6 +489,8 @@ local function set_live_nstrategy(askey, hostn, n)
   for hostkey, arec in pairs(ah) do
     if normalize_hostkey_for_state(hostkey) == hostn then
       arec.nstrategy = n
+      -- A manual reset to the same number is still a new attempt generation.
+      arec.generation = nil
       -- Вместе со стратегией обнуляем накопленные неудачи хоста.
       --
       -- Момент, когда человек жмёт «×» или выбирает стратегию руками, — это
@@ -539,10 +512,10 @@ local function set_live_nstrategy(askey, hostn, n)
   end
 end
 
-local function reconcile_external_edits()
+local function reconcile_external_edits(force)
   if not loaded then return end
   local now = now_t()
-  if now ~= 0 and (now - last_reconcile) < reconcile_interval then return end
+  if not force and now ~= 0 and (now - last_reconcile) < reconcile_interval then return end
   last_reconcile = now
 
   -- Read the SAME view the bridge actually persists to — primary AND fallback,
@@ -594,17 +567,26 @@ local function reconcile_external_edits()
   last_written = snapshot_strategies(disk)
 end
 
+local function apply_pin(askey, hostn, hrec)
+  if not hrec or not askey or not hostn then return end
+  local srec = state[askey] and state[askey][hostn]
+  if srec and srec.mode == "frozen" and tonumber(srec.strategy) then
+    hrec.nstrategy = tonumber(srec.strategy)
+    hrec.final = tonumber(srec.strategy)
+  else
+    hrec.final = nil
+  end
+end
+
 -- ---------------------------------------------------------------------------
--- wrap circular() — persist + bounded sticky-success revert + external reconcile.
--- Keeps state.tsv on the strategy actually working (reverts circular's
--- parallel-flow drift within 30s of a real success). NO silent-retry / probe /
--- UCB here — those stay at Этап 6.
+-- wrap circular() — persistence + explicit operator reconciliation.
+-- No automatic success-based override of circular's result.
 -- ---------------------------------------------------------------------------
 if type(circular) == "function" then
   local orig_circular = circular
   circular = function(ctx, desync)
     local askey_before, hostn_before, hrec_before
-    local nstrategy_before_circular   -- snapshot before orig_circular mutates hrec
+    local nstrategy_before_circular   -- used for initial seed recovery
     -- pre-block errors stay swallowed: never break the nfqws desync path.
     pcall(function()
       askey_before, hostn_before, hrec_before = get_record_for_desync(desync, true)
@@ -615,33 +597,21 @@ if type(circular) == "function" then
     -- (debounced internally). Errors swallowed — must never break the desync.
     pcall(reconcile_external_edits)
 
-    -- FREEZE CLAMP (webpanel freeze button) — affects ONLY this one domain. A row
-    -- the operator froze (mode="frozen") must physically stop rotating: set
-    -- hrec.final = hrec.nstrategy = the pinned strategy BEFORE orig_circular, so the
-    -- engine's OWN guard (`if hrec.final ~= hrec.nstrategy` → skip failure-check+
-    -- rotate) refuses to rotate THIS host on the wire. This replaces the old
-    -- post-hoc force-back, which let the rotated strategy execute and only masked
-    -- the display (frozen row showed strat 1 while the engine ran 2). Per-host:
-    -- every other domain keeps rotating exactly as before. Releasing the freeze
-    -- (mode back to auto, adopted by reconcile above) clears final → rotation
-    -- resumes. No shipped profile tags :final, so hrec.final is ours to drive.
     pcall(function()
-      if hrec_before and askey_before and hostn_before then
-        local srec = state[askey_before] and state[askey_before][hostn_before]
-        if srec and srec.mode == "frozen" and tonumber(srec.strategy) then
-          hrec_before.nstrategy = tonumber(srec.strategy)
-          hrec_before.final = tonumber(srec.strategy)
-        elseif hrec_before.final then
-          hrec_before.final = nil
+      apply_pin(askey_before, hostn_before, hrec_before)
+      if hrec_before and not hrec_before.on_strategy_changed then
+        hrec_before.on_strategy_changed = function(rec)
+          persist_if_changed(askey_before, hostn_before, rec)
+        end
+        hrec_before.before_async_result = function(rec)
+          -- No packet may arrive between an operator pin and a QUIC timeout.
+          reconcile_external_edits(true)
+          apply_pin(askey_before, hostn_before, rec)
         end
       end
     end)
 
-    -- Snapshot the sticky-revert baseline AFTER reconcile: circular starts from
-    -- the reconciled value, so an operator edit/delete applied just now is the
-    -- legitimate starting point, NOT "drift" to be rolled back. Capturing it
-    -- before reconcile would let the 30s sticky window erase the operator's
-    -- change on the very next packet.
+    -- Remember whether this host was seeded before circular ran.
     if hrec_before then
       nstrategy_before_circular = tonumber(hrec_before.nstrategy)
     end
@@ -740,79 +710,8 @@ if type(circular) == "function" then
            desync.l7payload == "http_req")
         local success_event = successful_state or response_state or quic_candidate_state
 
-        -- Sticky-success revert (THE accuracy fix). orig_circular advances
-        -- nstrategy on TCP-level signals (retrans / lua failures) that fire on
-        -- parallel failing flows even while OTHER flows on the same host succeed
-        -- (HTTP/2 fan-out behind one hostname). Without this, state.tsv records
-        -- the drifted strategy, not the working one. Per-profile scope
-        -- (hostn|askey): success on gv_tcp must NOT freeze rotation on yt_tcp.
-        -- Ключ вяжется на askey (разрешённый выше), а НЕ на askey_after.
-        --
-        -- Строкой 617 этот же файл предупреждает: askey_after может указывать
-        -- на исполненный инстанс (fake_1_2), а не на состояние circular. Везде
-        -- ниже используется разрешённый askey — is_sticky_eligible,
-        -- persist_if_changed. Здесь стоял сырой askey_after, и это ломало
-        -- механизм полностью: имя инстанса МЕНЯЕТСЯ при смене стратегии, то
-        -- есть ровно в тот момент, когда откат и должен сработать. Отметка
-        -- успеха записывалась под одним ключом, а искалась под другим —
-        -- промах, отката нет, в state.tsv уезжала уведённая стратегия вместо
-        -- работающей. Файл называет этот механизм «THE accuracy fix», и он не
-        -- срабатывал ни разу.
-        local sticky_key = (hostn and askey)
-          and (hostn .. "|" .. tostring(askey)) or nil
-        -- z2k content-gated sticky re-arm. A BARE TLS ServerHello (response_state)
-        -- on a handshake-but-BLOCKED host (whatsapp/Meta) must NOT re-arm the
-        -- sticky timestamp — otherwise the ~150 ServerHellos perpetually refresh
-        -- it and the revert below snaps the rotation that the rotator's content
-        -- gate just performed straight back within STICKY_WINDOW_SEC (the second
-        -- deadlock layer). A ServerHello only counts as content-backed once SOME
-        -- flow under this host has actually delivered real reverse content (the
-        -- rotator's hrec.content_seen_last gate, fresh within STICKY_WINDOW_SEC).
-        -- A real terminal success (nocheck/inseq>26K -> successful_state) and the
-        -- QUIC candidate path are NOT gated — those are strong proofs already.
-        local content_backed = hrec.content_seen_last
-          and (now_f() - (tonumber(hrec.content_seen_last) or 0)) <= STICKY_WINDOW_SEC
-        -- ATTRIBUTION ДЛЯ УСПЕХА. Для провалов z2k-alert.lua запоминает номер
-        -- стратегии, на которой соединение НАЧАЛОСЬ, и отбрасывает запоздалые
-        -- события; для успеха такой проверки не было ни здесь, ни там. Старый
-        -- flow, начатый на S и завершившийся уже после перехода на S+1, мог
-        -- перевзвести sticky для S+1 — то есть повлиять на стратегию, через
-        -- которую он вообще не проходил.
-        --
-        -- crec — это desync.track.lua_state.automate (движок: automate_conn_record
-        -- в lua/zapret-auto.lua), та же таблица, куда пишет z2k-alert.lua.
-        -- Сверяем с nstrategy_before_circular, а не с hrec.nstrategy: если
-        -- circular только что сдвинул номер, flow законно шёл на прежнем.
-        local flow_crec = desync and desync.track and desync.track.lua_state
-          and desync.track.lua_state.automate
-        local flow_nstrat = flow_crec and tonumber(flow_crec.z2k_nstrat)
-        -- Без метки не судим — ослепить перевзвод хуже, чем разрешить лишний.
-        local flow_current = (flow_nstrat == nil) or (nstrategy_before_circular == nil)
-          or (flow_nstrat == nstrategy_before_circular)
-        local rearm_event = flow_current and (successful_state or quic_candidate_state
-          or (response_state and content_backed))
-        _G.Z2K_STICKY_SUCCESS_TS = _G.Z2K_STICKY_SUCCESS_TS or {}
-        if rearm_event and sticky_key then
-          _G.Z2K_STICKY_SUCCESS_TS[sticky_key] = now_f()
-        end
-        if sticky_key and is_sticky_eligible(askey, hostn) and nstrategy_before_circular and hrec.nstrategy
-           and (tonumber(hrec.nstrategy) or 0) > nstrategy_before_circular then
-          local last_ok = _G.Z2K_STICKY_SUCCESS_TS[sticky_key]
-          -- Откат разрешён, только если успех НОВЕЕ последнего засчитанного
-          -- провала (отметку ставит z2k-alert.lua на том же источнике времени).
-          --
-          -- Иначе выходило так: успех на S, затем три новых провала, circular
-          -- честно уходит на S+1 — и sticky немедленно возвращает S успехом,
-          -- который случился ДО этих провалов. Провалы при этом уже потрачены,
-          -- кворум надо набирать заново, и хост залипает на неработающей
-          -- стратегии. Механизм задумывался против дрейфа от параллельных
-          -- flow'ов, а не против ротации, которую провалы только что оплатили.
-          local fail_ts = tonumber(hrec.z2k_last_fail_ts)
-          local ok_is_fresh = last_ok and (not fail_ts or last_ok > fail_ts)
-          if ok_is_fresh and (now_f() - last_ok) <= STICKY_WINDOW_SEC then
-            hrec.nstrategy = nstrategy_before_circular
-          end
-        end
+        -- Rotation belongs exclusively to circular. Persistence never rolls
+        -- back a decision based on unrelated/recent successful connections.
 
         -- (Freeze enforcement moved to the pre-circular FREEZE CLAMP at the top of
         -- this wrapper: hrec.final makes the engine itself refuse to rotate a frozen
@@ -845,5 +744,5 @@ z2k_state_persist = {
   state_file = function() return STATE_FILE_PRIMARY end,
   _state = function() return state end,
   _set_interval = function(n) write_interval = tonumber(n) or write_interval end,
-  _reset = function() loaded = false; state = {}; last_write = 0; last_written = {}; last_reconcile = 0; _G.Z2K_STICKY_SUCCESS_TS = {} end,
+  _reset = function() if type(timer_del) == "function" then timer_del("z2k_state_flush") end; flush_pending = false; loaded = false; state = {}; last_write = 0; last_written = {}; last_reconcile = 0 end,
 }

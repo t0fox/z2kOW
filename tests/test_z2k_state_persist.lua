@@ -3,7 +3,7 @@
 -- circular(): a single state.tsv, full-file merge-rewrite, persist on every
 -- outgoing initial packet (incl. the default strategy 1, so working-on-default
 -- profiles still show), hostless keying via hostkey=z2k_nohost_key, restart
--- restore, config clamp, and the sticky-success revert.
+-- restore, config clamp, and absence of success-based rollback.
 --
 -- This mirrors the proven pre-r-41 z2k-autocircular persist core 1:1.
 -- The .sh wrapper points Z2K_STATE_DIR_OVERRIDE / fallback at an isolated tmp dir.
@@ -79,14 +79,8 @@ function circular(ctx, desync)        -- luacheck: ignore
     hrec.ctstrategy = n
   end
   if not hrec.nstrategy then hrec.nstrategy = 1 end
-  -- mirror automate_content_gate (zapret-auto.lua): an incoming flow delivering
-  -- real reverse content past the handshake region stamps the per-host content
-  -- gate, which drives state-persist's content-backed sticky re-arm.
-  --
-  -- ПРОВЕРЕНО НА БОЕВОМ ДВИЖКЕ 2026-08-22: функция существует
-  -- (/opt/zapret2/lua/zapret-auto.lua, Z2K_CONTENT_GATE_BYTES=16384) и читает
-  -- ИМЕННО reverse: `pos_get(desync,'b',true)`, где третий аргумент выбирает
-  -- pos.reverse (zapret-lib.lua: pos_get). Мок повторяет это дословно.
+  -- Legacy content metadata is fixture input, not the current core's success
+  -- detector. Persistence must ignore it when deciding whether to undo rotation.
   if not desync.outgoing then
     local rev = desync.track.pos and desync.track.pos.reverse
     if rev and tonumber(rev.pbcounter) and rev.pbcounter > 16384 then
@@ -362,32 +356,20 @@ do
 end
 
 -- ===========================================================================
--- Sticky-success revert (THE accuracy fix, ported from legacy z2k-autocircular).
--- orig_circular drifts nstrategy on parallel failing flows even while the host
--- succeeds; if a real success happened within 30s, the drift is reverted so
--- state.tsv stays on the working strategy.
-
--- T15: a CONTENT-BACKED success (incoming ServerHello + real reverse content
--- past the gate), then circular drifts upward within the window → nstrategy
--- reverts to the pre-circular value, and the working strategy (1) stays in
--- state.tsv. Content-backing is required: a bare ServerHello no longer arms the
--- sticky re-arm (see T15b — the whatsapp/Meta handshake-but-block protection).
+-- Persistence must preserve core rotation even after a recent success.
+-- T15: a large server response cannot authorize a persistence rollback.
 do
   fresh()
   now = 1000
   circular(nil, mk("rkn_tcp", "sticky.com", {outgoing = false, l7payload = "tls_server_hello", in_bytes = 20000}))
   now = 1010
   circular(nil, mk("rkn_tcp", "sticky.com", {sim = 3}))   -- circular drifts 1→3
-  check("T15: drift reverted to pre-circular value (recent success)",
-        1, autostate["rkn_tcp"]["sticky.com"].nstrategy)
-  check("T15: state.tsv stays on the working strategy 1", 1, row("rkn_tcp", "sticky.com"))
+  check("T15: persistence preserves rotation despite recent success",
+        3, autostate["rkn_tcp"]["sticky.com"].nstrategy)
+  check("T15: state.tsv saves the rotated strategy", 3, row("rkn_tcp", "sticky.com"))
 end
 
--- T15b: a BARE ServerHello with NO real content (handshake-but-BLOCKED class —
--- whatsapp/Meta ~3-5KB cert flight that never delivers content) must NOT arm the
--- sticky re-arm. Otherwise the ServerHello flood perpetually pins a non-piercing
--- strategy and snaps the rotator's content-gated rotation straight back within
--- the 30s window (the Layer-2 deadlock). content_backed=false → drift is KEPT.
+-- T15b: a bare ServerHello cannot authorize rollback either.
 do
   fresh()
   now = 1500
@@ -789,7 +771,7 @@ do
   hrec.z2k_last_fail_ts = 2990          -- провалы ДО успеха
   now = 3010
   circular(nil, mk("rkn_tcp", "fresh.com", {sim = 3}))
-  check("C1: успех НОВЕЕ провалов откат по-прежнему делает", 1, hrec.nstrategy)
+  check("C1: сохранение не отменяет ротацию даже при более новом успехе", 3, hrec.nstrategy)
 end
 
 -- B1: успех соединения, начатого на ПРЕЖНЕЙ стратегии, не перевзводит sticky.
@@ -813,8 +795,7 @@ do
         autostate["rkn_tcp"]["late.com"].nstrategy)
 end
 
--- Контроль к B1: успех flow'а, начатого на ТЕКУЩЕЙ страте, откат делает.
--- Без этой половины тест прошёл бы и на коде, который перевзвод сломал вовсе.
+-- A current-generation success also gives persistence no rollback authority.
 do
   fresh()
   now = 5000
@@ -824,7 +805,7 @@ do
                                           in_bytes = 20000, crec = { z2k_nstrat = 2 }}))
   now = 5010
   circular(nil, mk("rkn_tcp", "cur.com", {sim = 3}))
-  check("B1-контроль: успех flow'а с текущей страты откат делает", 2,
+  check("B1-контроль: текущий успех не даёт persistence права отменять ротацию", 3,
         autostate["rkn_tcp"]["cur.com"].nstrategy)
 end
 

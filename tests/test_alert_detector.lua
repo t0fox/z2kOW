@@ -1,859 +1,142 @@
--- tests/test_alert_detector.lua
--- Юнит-тесты обёртки z2k_fail_tls_alert (files/lua/z2k-alert.lua).
---
--- Запуск: lua tests/test_alert_detector.lua
---
--- Обёртка родилась из двух полевых замеров 2026-08-18 (боевой роутер):
---   1. нерабочая страта не ротировалась вовсе — сервер подтверждал
---      ClientHello, отвечал семибайтовым фатальным алертом и закрывался по
---      FIN; у штатного детектора для такого нет ни одного события;
---   2. рабочая страта уезжала сама — телефон переслал пакет TLS application
---      data в живой сессии, штатный детектор засчитал это провалом.
---
--- Здесь сторожим ровно контракт обёртки, а не поведение штатного детектора:
--- он подменён трассирующей заглушкой, чтобы было видно, звали его или нет.
-
-local PASS, FAIL = 0, 0
-local function ok(m) PASS = PASS + 1; print("[PASS] " .. m) end
-local function no(m, want, got)
-    FAIL = FAIL + 1
-    print(string.format("[FAIL] %s (want=%s got=%s)", m, tostring(want), tostring(got)))
-end
-
--- ----- окружение движка (минимальные заглушки) ------------------------------
-function DLOG() end
-TH_FIN = 0x01
-TH_RST = 0x04
-function bitand(a, b)
-    local r, p = 0, 1
-    while a > 0 and b > 0 do
-        if a % 2 == 1 and b % 2 == 1 then r = r + p end
-        a, b, p = math.floor(a / 2), math.floor(b / 2), p * 2
+-- Integration regressions: production dispatcher, native detectors and parsers.
+local H=dofile('tests/lib/detector_harness.lua')
+H.test('early fatal alert is counted once, without sending RST',function()
+    local d=H.tcp(nil,true,1,H.client,'tls_client_hello'); H.step(d)
+    local reply=H.tcp(d.track,false,1,H.alert); local h,c=H.step(reply); H.step(reply)
+    H.eq(true,c.failure); H.eq(1,h.failure_counter); H.eq(0,#H.sent)
+end)
+H.test('split fatal alert, including reordered pieces, is reassembled',function()
+    for _,reverse in ipairs({false,true}) do
+        local t=H.track(reverse and 'reordered.example' or 'split.example')
+        H.step(H.tcp(t,true,1,H.client,'tls_client_hello'))
+        if reverse then H.step(H.tcp(t,false,6,H.alert:sub(6))) end
+        local h,c=H.step(H.tcp(t,false,1,H.alert:sub(1,5)))
+        if not reverse then h,c=H.step(H.tcp(t,false,6,H.alert:sub(6))) end
+        H.eq(true,c.failure); H.eq(1,h.failure_counter)
     end
-    return r
-end
-
-local std_calls = 0
-local std_result = false
-function standard_failure_detector()
-    std_calls = std_calls + 1
-    return std_result
-end
-
-local pos_value = 1
-function pos_get() return pos_value end
-
--- Признак ретрансмиссии в движке — позиция пакета не выше уже виденного
--- максимума (lua/zapret-lib.lua). В тесте задаём его явно.
-local retrans_flag = false
-function is_retransmission() return retrans_flag end
-
--- Хост-запись: обёртка ведёт в ней счёт живых ответов, чтобы не уводить
--- страту с хоста, который прямо сейчас нормально отвечает.
-local hrec = {}
-function automate_host_record() return hrec end
-local function reset_host() hrec = {} end
-
-local here = arg and arg[0] and arg[0]:match("^(.*)/[^/]+$") or "tests"
-dofile(here .. "/../files/lua/z2k-alert.lua")
-
--- ----- конструкторы пакетов --------------------------------------------------
-local function alert(level, desc)
-    -- запись TLS alert: 15 03 03 00 02 <level> <desc>
-    return string.char(0x15, 0x03, 0x03, 0x00, 0x02, level, desc)
-end
-
-local function incoming(payload)
-    return { outgoing = false, l7payload = "unknown", arg = {},
-             dis = { tcp = {}, payload = payload } }
-end
-
--- Сегмент с данными в пуле видео: позиция в потоке плюс ключ и планка успеха.
--- retrans=false — сегмент пришёл впервые.
-local function seg_gv(bytes, bar, key, retrans)
-    pos_value = bytes
-    retrans_flag = (retrans ~= false)
-    return { outgoing = false, l7payload = "unknown",
-             arg = { key = key or "gv_tcp", inseq = tostring(bar or 24000) },
-             dis = { tcp = { th_flags = 0x18 }, payload = string.rep("y", 1400) } }
-end
-
-local function outgoing(l7)
-    return { outgoing = true, l7payload = l7, arg = {},
-             dis = { tcp = {}, payload = string.rep("x", 300) } }
-end
-
--- crec — запись соединения; в ней обёртка ведёт счёт повторов сегмента.
--- По умолчанию каждый вызов = новое соединение; для проверки ретрансмитов
--- передаём одну и ту же таблицу.
-local function run(desync, crec)
-    std_calls = 0
-    return z2k_fail_tls_alert(desync, crec or {}), std_calls
-end
-
--- ----- 1. исходящее: штатный зовём только на ClientHello ---------------------
-std_result = true   -- штатный «нашёл провал» — проверяем, дадут ли ему слово
-
-pos_value = 1
-local fired, calls = run(outgoing("tls_client_hello"))
-if fired and calls == 1 then
-    ok("ретрансмит ClientHello уходит в штатный детектор и считается провалом")
-else
-    no("ClientHello делегируется", "true/1", tostring(fired) .. "/" .. calls)
-end
-
-fired, calls = run(outgoing("unknown"))
-if not fired and calls == 0 then
-    ok("ретрансмит данных живой сессии не доходит до штатного детектора")
-else
-    no("app data не считается провалом", "false/0", tostring(fired) .. "/" .. calls)
-end
-
--- HTTP-пул (http_rkn) работает с http_req: для него это тот же первый запрос,
--- что ClientHello для TLS, и его ретрансмит так же означает, что запрос не
--- дошёл. Без этого обёртку нельзя надеть на http_rkn, не потеряв детект
--- молчаливого дропа.
-fired, calls = run(outgoing("http_req"))
-if fired and calls == 1 then
-    ok("ретрансмит HTTP-запроса уходит в штатный детектор и считается провалом")
-else
-    no("http_req делегируется", "true/1", tostring(fired) .. "/" .. calls)
-end
-
-fired, calls = run(outgoing("http_reply"))
-if not fired and calls == 0 then
-    ok("прочие исходящие пейлоады не считаются")
-else
-    no("http_reply не считается", "false/0", tostring(fired) .. "/" .. calls)
-end
-
--- ----- 2. входящее: штатный вызывается всегда --------------------------------
-std_result = true
-fired, calls = run(incoming(""))
-if fired and calls == 1 then
-    ok("входящее: вердикт штатного детектора (RST/редирект) уважается")
-else
-    no("входящее делегируется", "true/1", tostring(fired) .. "/" .. calls)
-end
-
--- ----- 3. фатальный алерт до ServerHello -------------------------------------
-std_result = false  -- штатный молчит, событие должна дать только обёртка
-
-pos_value = 1
-fired = run(incoming(alert(2, 40)))
-if fired then
-    ok("фатальный алерт (уровень 2) до ServerHello = провал")
-else
-    no("fatal alert считается провалом", "true", tostring(fired))
-end
-
-fired = run(incoming(alert(1, 0)))
-if not fired then
-    ok("close_notify (уровень 1) провалом не считается")
-else
-    no("warning-алерт игнорируется", "false", tostring(fired))
-end
-
-pos_value = 20000
-fired = run(incoming(alert(2, 40)))
-if not fired then
-    ok("алерт после реального ответа сервера не считается провалом")
-else
-    no("алерт за порогом позиции игнорируется", "false", tostring(fired))
-end
-
-pos_value = 1
-fired = run(incoming(string.char(0x17, 0x03, 0x03, 0x00, 0x35, 0x7B, 0x41)))
-if not fired then
-    ok("application data (0x17) не путается с алертом")
-else
-    no("не срабатывать на app data", "false", tostring(fired))
-end
-
-fired = run(incoming(string.char(0x15, 0x03)))
-if not fired then
-    ok("обрезанная запись короче 7 байт не роняет детектор")
-else
-    no("короткая запись игнорируется", "false", tostring(fired))
-end
-
--- ----- 4. живой хост не ротируем -------------------------------------------
--- Пойманный полевой случай: три поддельных RST на фоне девяти нормальных
--- соединений к тому же хосту уводили рабочую страту.
-reset_host()
-pos_value = 1
-
--- Три живых ответа сервера подряд. std_result=false — это ОБЫЧНЫЕ ответы, на
--- которых штатный детектор молчит. Пакет, который сам является провалом, в
--- живость больше не засчитывается, и подпирать гвард им нельзя.
-std_result = false
-for _ = 1, 3 do run(incoming("HTTP/2 payload")) end
-
-std_result = true
-fired = run(incoming(""))     -- RST: штатный детектор говорит «провал»
-if not fired then
-    ok("провал подавлен: хост в этом же окне трижды ответил живьём")
-else
-    no("живой хост не ротируется", "false", tostring(fired))
-end
-
--- тот же RST на хосте, который ничем себя не проявил
-reset_host()
-fired = run(incoming(""))
-if fired then
-    ok("на молчащем хосте провал засчитывается как раньше")
-else
-    no("молчащий хост ротируется", "true", tostring(fired))
-end
-
--- живость протухает: успехи старше окна не защищают
-reset_host()
-for _ = 1, 3 do run(incoming("HTTP/2 payload")) end
-hrec.z2k_ok_start = os.time() - 600
-fired = run(incoming(""))
-if fired then
-    ok("протухшие успехи не защищают страту")
-else
-    no("устаревание живости", "true", tostring(fired))
-end
-
--- Окно отсчитывается от ПЕРВОГО успеха серии, а не от последнего. Иначе на
--- хосте с непрерывным трафиком счётчик не обнуляется никогда: каждый пакет
--- отодвигает срок, и хост, который час назад работал, а сейчас режется,
--- держит гвард взведённым вечно.
-reset_host()
-for _ = 1, 3 do run(incoming("HTTP/2 payload")) end
-hrec.z2k_ok_start = os.time() - 600   -- серия началась давно
-run(incoming("HTTP/2 payload"))        -- но трафик идёт прямо сейчас
-fired = run(incoming(""))
-if fired then
-    ok("непрерывный трафик не продлевает окно живости бесконечно")
-else
-    no("окно от первого успеха", "true", tostring(fired))
-end
-
--- фатальный алерт сам живым ответом не считается
-reset_host()
-std_result = false
-pos_value = 1
-run(incoming(alert(2, 40)))
-run(incoming(alert(2, 40)))
-run(incoming(alert(2, 40)))
-fired = run(incoming(alert(2, 40)))
-if fired then
-    ok("серия фатальных алертов не создаёт ложной живости")
-else
-    no("алерты не считаются живостью", "true", tostring(fired))
-end
-
--- ----- 5. вставший входящий поток (только пулы видео) ---------------------
--- Полевой случай LG webOS на нерабочей 20-й стратегии: сервер отдаёт 4482
--- байта и дальше шлёт один и тот же сегмент 15-16 раз, телевизор не
--- подтверждает. Ни RST, ни FIN, ни исходящих ретрансмитов — детектор молчал.
---
--- Признак — ОСТАНОВКА потока, а не факт повтора. Первая редакция считала любой
--- входящий ретрансмит в пределах inseq и 19.08.2026 увела gv_tcp с первой
--- стратегии на четвёртую без единого реального блока: под планкой inseq=24000
--- лежит не хендшейк, а первые 24 КБ видеопотока, где телевизор по вайфаю
--- штатно теряет пакеты.
-reset_host()
-std_result = false
-
--- первое появление сегмента и пять повторов — ещё не приговор
-local conn = {}
-fired = run(seg_gv(4482, 24000, nil, false), conn)
-if not fired then
-    ok("первый приход сегмента провалом не считается")
-else
-    no("первый приход", "false", tostring(fired))
-end
-local early = false
-for _ = 1, 5 do
-    if run(seg_gv(4482, 24000), conn) then early = true end
-end
-if not early then
-    ok("пять повторов подряд — ещё не провал")
-else
-    no("порог не срабатывает раньше шести", "false", "true")
-end
-fired = run(seg_gv(4482, 24000), conn)
-if fired then
-    ok("шесть повторов одного сегмента без продвижения = провал")
-else
-    no("порог шести повторов", "true", tostring(fired))
-end
-
--- БРОШЕННОЕ СОЕДИНЕНИЕ. Клиент закрыл свою сторону — дальше сервер долбит уже
--- закрытый сокет, и повторы там про качество стратегии не говорят ничего.
---
--- Замер 30.08.2026, ловушка на боевом роутере (facebook.com|6): при НАСТОЯЩЕЙ
--- блокировке клиент молчит и ждёт, а FIN шлёт лишь через четырнадцать секунд
--- ПОСЛЕ вынесенного вердикта. Отсюда и разделитель — не наличие FIN, а его
--- порядок: закрылся раньше повторов — не считаем.
-local function client_fin()
-    return { outgoing = true, l7payload = "unknown", arg = { key = "gv_tcp" },
-             dis = { tcp = { th_flags = 0x11 }, payload = "" } }   -- ACK+FIN
-end
-local function client_rst()
-    return { outgoing = true, l7payload = "unknown", arg = { key = "gv_tcp" },
-             dis = { tcp = { th_flags = 0x04 }, payload = "" } }
-end
-
-reset_host()
-conn = {}
-run(client_fin(), conn)
-fired = false
-run(seg_gv(4482, 24000, nil, false), conn)
-for _ = 1, 8 do
-    if run(seg_gv(4482, 24000), conn) then fired = true end
-end
-if not fired then
-    ok("клиент ушёл первым — повторы в закрытый сокет провалом не считаются")
-else
-    no("брошенное соединение не должно давать провал", "false", "true")
-end
-
-reset_host()
-conn = {}
-run(client_rst(), conn)
-fired = false
-run(seg_gv(4482, 24000, nil, false), conn)
-for _ = 1, 8 do
-    if run(seg_gv(4482, 24000), conn) then fired = true end
-end
-if not fired then
-    ok("RST клиента гасит счёт так же, как FIN")
-else
-    no("RST клиента", "false", "true")
-end
-
--- Обратная сторона: без закрытия со стороны клиента боевой вердикт обязан
--- остаться. Иначе гвард съел бы ровно тот случай, ради которого всё писалось.
-reset_host()
-conn = {}
-fired = false
-run(seg_gv(4482, 24000, nil, false), conn)
-for _ = 1, 8 do
-    if run(seg_gv(4482, 24000), conn) then fired = true end
-end
-if fired then
-    ok("клиент молчит и ждёт — блокировка по-прежнему ловится")
-else
-    no("боевой вердикт не должен глохнуть", "true", "false")
-end
-
--- ГЛАВНОЕ. Поток теряет пакеты, но едет: за повтором приходят новые данные.
--- Ровно это давал телевизор на РАБОЧЕЙ стратегии, и ровно это уводило gv_tcp.
--- Двадцать ретрансмитов в окне не должны дать ни одного события.
-conn = {}
-local pos = 1400
-local retrans_seen = 0
-fired = false
-for _ = 1, 10 do
-    if run(seg_gv(pos, 24000, nil, false), conn) then fired = true end   -- новые данные
-    if run(seg_gv(pos, 24000), conn) then fired = true end               -- потеря, повтор
-    if run(seg_gv(pos, 24000), conn) then fired = true end               -- и ещё один
-    retrans_seen = retrans_seen + 2
-    pos = pos + 1400
-end
-if not fired and retrans_seen == 20 then
-    ok("поток с потерями, но идущий вперёд, провалом не считается (20 ретрансмитов)")
-else
-    no("продвижение обнуляет счёт", "false", tostring(fired))
-end
-
--- поток, который движется вперёд без единого повтора, тем более молчит
-conn = {}
-for _, p in ipairs({1400, 2800, 4200, 5600, 7000}) do
-    fired = run(seg_gv(p, 24000, nil, false), conn)
-end
-if not fired then
-    ok("поток без повторов провалом не считается")
-else
-    no("движение вперёд провалом не считается", "false", tostring(fired))
-end
-
--- сервер отъезжает назад по окну на РАЗНЫЕ сегменты — это не залипание
-conn = {}
-fired = false
-for _ = 1, 4 do
-    for _, p in ipairs({4482, 5882, 7282}) do
-        if run(seg_gv(p, 24000), conn) then fired = true end
+end)
+H.test('ServerHello followed by alert is outside the plaintext early-alert scope',function()
+    local d=H.tcp(nil,false,1,H.hello,'tls_server_hello'); H.step(d)
+    local h,c=H.step(H.tcp(d.track,false,#H.hello+1,H.alert))
+    H.eq(true,c.server_hello); H.eq(nil,c.failure); H.eq(nil,h.failure_counter)
+end)
+H.test('protected TLS records are not parsed as plaintext fatal alerts',function()
+    local p=string.char(0x15,3,3,0,32,2)..string.rep('x',31)
+    local h,c=H.step(H.tcp(nil,false,1,p))
+    H.eq(true,c.neutral); H.eq(nil,h.failure_counter)
+end)
+H.test('warning close_notify is neutral',function()
+    local h,c=H.step(H.tcp(nil,false,1,string.char(0x15,3,3,0,2,1,0)))
+    H.eq(true,c.neutral); H.eq(nil,h.failure_counter)
+end)
+H.test('three sibling ServerHellos cannot suppress a failed handshake',function()
+    for i=1,3 do H.step(H.tcp(H.track('cdn'..i..'.review.example'),false,1,H.hello,'tls_server_hello')) end
+    local h,c=H.step(H.tcp(H.track('broken.review.example'),false,1,H.alert))
+    H.eq(true,c.failure); H.eq(1,h.failure_counter)
+end)
+H.test('ClientHello tail retransmissions retain native counting and one accepted reset',function()
+    local d=H.tcp(nil,true,1,H.client:sub(1,40),'tls_client_hello'); H.step(d)
+    local h,c
+    for i=1,4 do h,c=H.step(H.tcp(d.track,true,41,H.client:sub(41),'unknown',true)) end
+    H.eq(true,c.failure); H.eq(1,h.failure_counter); H.eq(1,#H.sent)
+end)
+H.test('application-data retransmissions after the first request are ignored',function()
+    local d=H.tcp(nil,true,1,H.client,'tls_client_hello'); H.step(d)
+    local h,c
+    for i=1,4 do h,c=H.step(H.tcp(d.track,true,#H.client+1,'app data','unknown',true)) end
+    H.eq(nil,c.failure); H.eq(nil,h.failure_counter); H.eq(0,#H.sent)
+end)
+H.test('HTTP request header continuation is included but keepalive second request is not',function()
+    local request='GET / HTTP/1.1\r\nHost: review.example\r\n\r\n'
+    local d=H.tcp(nil,true,1,request:sub(1,20),'http_req'); H.step(d)
+    H.step(H.tcp(d.track,true,21,request:sub(21),'unknown'))
+    local h,c
+    for i=1,3 do h,c=H.step(H.tcp(d.track,true,#request+1,request,'http_req',true)) end
+    H.eq(nil,c.failure)
+    for i=1,3 do h,c=H.step(H.tcp(d.track,true,21,request:sub(21),'unknown',true)) end
+    H.eq(true,c.failure); H.eq(1,h.failure_counter)
+end)
+H.test('RST with payload does not authenticate its own TTL',function()
+    local d=H.tcp(nil,false,1,'injected'); d.dis.tcp.th_flags=TH_RST+TH_ACK
+    local h,c=H.step(d); H.eq(true,c.failure); H.eq(1,h.failure_counter)
+end)
+H.test('server-matching TTL cannot veto an early RST',function()
+    local d=H.tcp(nil,false,1,H.hello,'tls_server_hello'); H.step(d)
+    local rst=H.tcp(d.track,false,#H.hello+1,''); rst.dis.tcp.th_flags=TH_RST+TH_ACK
+    local _,c=H.step(rst); H.eq(true,c.failure)
+end)
+H.test('zero-window probes do not rotate the host',function()
+    local d=H.tcp(nil,false,1,H.hello,'tls_server_hello'); H.step(d)
+    local h,c
+    for i=1,6 do
+        local probe=H.tcp(d.track,false,100,'x','unknown',true); probe.track.pos.reverse.tcp.winsize=0
+        h,c=H.step(probe)
     end
-end
-if not fired then
-    ok("повторы разных сегментов не складываются в залипание")
-else
-    no("залипание = один и тот же сегмент", "false", tostring(fired))
-end
-
--- повторы за планкой успеха — обычная потеря пакетов, не наше дело
-conn = {}
-for _ = 1, 12 do fired = run(seg_gv(30000, 24000), conn) end
-if not fired then
-    ok("повторы выше планки успеха провалом не считаются")
-else
-    no("выше планки — не провал", "false", tostring(fired))
-end
-
--- чистые ACK стоят на одной позиции: их повторами считать нельзя
-conn = {}
-local ack = seg_gv(4482, 24000); ack.dis.payload = ""
-for _ = 1, 12 do fired = run(ack, conn) end
-if not fired then
-    ok("серия пустых ACK на одной позиции провалом не считается")
-else
-    no("пустые ACK не считаются", "false", tostring(fired))
-end
-
--- ключ yt_tcp тоже под правилом: картинки и страницы ютуба залипают так же
-conn = {}
-fired = false
-for _ = 1, 7 do if run(seg_gv(4482, 18000, "yt_tcp"), conn) then fired = true end end
-if fired then
-    ok("правило работает и в пуле yt_tcp")
-else
-    no("yt_tcp под правилом", "true", tostring(fired))
-end
-
--- РКН включён 19.08.2026: без этого правила тихий байтовый гейт ТСПУ не даёт
--- профилю ни одного события, и заблокированный сайт стоит на нерабочей
--- стратегии вечно. Считаем ЛЮБОЕ срабатывание за прогон, а не последнее:
--- после порога правило возвращает false (одно событие на соединение), и
--- проверка по последнему вызову молча пропускала бы отключённый пул.
-conn = {}
-fired = false
-for _ = 1, 12 do if run(seg_gv(4482, 26000, "rkn_tcp"), conn) then fired = true end end
-if fired then
-    ok("в пуле rkn_tcp правило работает")
-else
-    no("РКН под правилом", "true", tostring(fired))
-end
-
--- А вот пул, которого в списке нет, правило игнорирует целиком.
-conn = {}
-fired = false
-for _ = 1, 12 do if run(seg_gv(4482, 26000, "discord_udp"), conn) then fired = true end end
-if not fired then
-    ok("пул вне списка правило не трогает")
-else
-    no("правило только для перечисленных пулов", "false", tostring(fired))
-end
-
--- И главное для РКН: потеря пакета на живом соединении провалом НЕ становится.
--- Именно этого боялись, когда РКН из правила исключали.
-conn = {}
-fired = false
-local rkn_pos = 1400
-for _ = 1, 10 do
-    if run(seg_gv(rkn_pos, 26000, "rkn_tcp", false), conn) then fired = true end
-    if run(seg_gv(rkn_pos, 26000, "rkn_tcp"), conn) then fired = true end
-    if run(seg_gv(rkn_pos, 26000, "rkn_tcp"), conn) then fired = true end
-    rkn_pos = rkn_pos + 1400
-end
-if not fired then
-    ok("на РКН поток с потерями, но идущий вперёд, провалом не считается")
-else
-    no("РКН: продвижение обнуляет счёт", "false", tostring(fired))
-end
-
--- гвард по живости здесь НЕ применяется: залипшее соединение само же и
--- отдаёт те килобайты, по которым хост считается живым
-reset_host()
-for _ = 1, 3 do run(incoming("HTTP/2 payload")) end
-conn = {}
-fired = false
-for _ = 1, 7 do if run(seg_gv(4482, 24000), conn) then fired = true end end
-if fired then
-    ok("залипание засчитывается даже когда хост считается живым")
-else
-    no("живость не подавляет залипание", "true", tostring(fired))
-end
-
--- одно соединение — одно событие. Сервер повторяет сегмент пятнадцать раз;
--- если считать каждый повтор, один мёртвый поток набирает ротатору всю норму
--- провалов и уводит страту, работающую для остальных соединений.
-conn = {}
-local fires = 0
-for _ = 1, 16 do
-    if run(seg_gv(4482, 24000), conn) then fires = fires + 1 end
-end
-if fires == 1 then
-    ok("шестнадцать повторов одного потока дают ровно одно событие")
-else
-    no("одно соединение — одно событие", "1", fires)
-end
-
--- счёт ведётся по соединению, а не по хосту: два разных залипших потока
--- не должны складываться в одно событие раньше времени
-local c1, c2 = {}, {}
-fired = false
-for _ = 1, 5 do
-    if run(seg_gv(4482, 24000), c1) then fired = true end
-    if run(seg_gv(4482, 24000), c2) then fired = true end
-end
-if not fired then
-    ok("повторы разных соединений не складываются")
-else
-    no("счёт по соединению", "false", tostring(fired))
-end
-
--- ----- 6. RST от самого сервера (сверка TTL) --------------------------------
--- Полевой случай 19.08.2026: apple.com уехал с рабочей первой стратегии на
--- нерабочую вторую. За 4.5 часа отладки все 15 событий детектора — incoming
--- RST, и два прошедших были на s7488, то есть после 7.4 КБ доставленных
--- данных. Это разрыв со стороны сервера, а не DPI. Планку inseq снижать
--- нельзя (на ней держится детект байтового гейта ТСПУ на 12-18К), поэтому
--- различаем по TTL.
-reset_host()
-
-local function srv_data(ttl, hlim)
-    local d = { outgoing = false, l7payload = "unknown", arg = {},
-                dis = { tcp = { th_flags = 0x18 }, payload = string.rep("z", 1400) } }
-    if hlim then d.dis.ip6 = { ip6_hlim = hlim } else d.dis.ip = { ip_ttl = ttl } end
-    return d
-end
-local function srv_rst(ttl, hlim)
-    local d = { outgoing = false, l7payload = "unknown", arg = {},
-                dis = { tcp = { th_flags = TH_RST }, payload = "" } }
-    if hlim then d.dis.ip6 = { ip6_hlim = hlim } else d.dis.ip = { ip_ttl = ttl } end
-    return d
-end
-
--- сервер отдал данные и сам же закрылся: TTL тот же
-reset_host(); conn = {}
-std_result = false; pos_value = 1400
-run(srv_data(52), conn)
-std_result = true; pos_value = 7488
-fired = run(srv_rst(52), conn)
-if not fired then
-    ok("RST с TTL потока = разрыв сервера, страту не уводит")
-else
-    no("RST сервера не провал", "false", tostring(fired))
-end
-
--- ТСПУ в двух хопах от нас: данные сервера ttl 52, инжект ttl 126
-reset_host(); conn = {}
-std_result = false; pos_value = 1400
-run(srv_data(52), conn)
-std_result = true; pos_value = 14000
-fired = run(srv_rst(126), conn)
-if fired then
-    ok("инжектированный RST (TTL 126 против 52) остаётся провалом")
-else
-    no("байтовый гейт ТСПУ ловится", "true", tostring(fired))
-end
-
--- эталона нет — данных сервер не присылал вовсе: классический сброс на
--- хендшейке, судить не по чему, считаем провалом как раньше
-reset_host(); conn = {}
-std_result = true; pos_value = 1
-fired = run(srv_rst(126), conn)
-if fired then
-    ok("RST до первого байта данных считается провалом (эталона нет)")
-else
-    no("сброс на хендшейке ловится", "true", tostring(fired))
-end
-
--- балансир CDN отвечает с соседней машины: хоп-другой разницы — всё ещё сервер
-reset_host(); conn = {}
-std_result = false; pos_value = 1400
-run(srv_data(52), conn)
-std_result = true; pos_value = 9000
-fired = run(srv_rst(50), conn)
-if not fired then
-    ok("разброс TTL в пределах двух хопов — всё ещё сервер")
-else
-    no("допуск на балансир", "false", tostring(fired))
-end
-
--- а вот три хопа разницы — уже не тот путь
-reset_host(); conn = {}
-std_result = false; pos_value = 1400
-run(srv_data(52), conn)
-std_result = true; pos_value = 9000
-fired = run(srv_rst(56), conn)
-if fired then
-    ok("разброс больше двух хопов считается провалом")
-else
-    no("порог допуска", "true", tostring(fired))
-end
-
--- IPv6: то же самое по ip6_hlim
-reset_host(); conn = {}
-std_result = false; pos_value = 1400
-run(srv_data(nil, 54), conn)
-std_result = true; pos_value = 7488
-fired = run(srv_rst(nil, 54), conn)
-if not fired then
-    ok("сверка работает и по IPv6 (ip6_hlim)")
-else
-    no("IPv6 hop limit", "false", tostring(fired))
-end
-
--- провал не по RST (DPI-редирект) сверкой TTL не подавляется
-reset_host(); conn = {}
-std_result = false; pos_value = 1400
-run(srv_data(52), conn)
-std_result = true; pos_value = 2000
-local redirect = srv_data(52); redirect.dis.tcp.th_flags = 0x18
-fired = run(redirect, conn)
-if fired then
-    ok("не-RST провал (редирект) сверкой TTL не подавляется")
-else
-    no("редирект остаётся провалом", "true", tostring(fired))
-end
-
--- пакет без IP-заголовка в дизассемблере не роняет детектор
-reset_host(); conn = {}
-std_result = false; pos_value = 1400
-run(srv_data(52), conn)
-std_result = true; pos_value = 7488
-local bare = srv_rst(52); bare.dis.ip = nil
-fired = run(bare, conn)
-if fired then
-    ok("RST без разобранного IP-заголовка судится по-старому")
-else
-    no("нет TTL — нет подавления", "true", tostring(fired))
-end
-
--- ----- 7. блокировка идёт мимо гварда живости -------------------------------
--- Гвард считает живым ЛЮБОЙ непустой ответ, а два класса блокировки как раз и
--- приходят ПОСЛЕ нормальных данных. Если пустить их через гвард, планка
--- inseq=26000 стоит впустую, а HTTP-пул не ротируется на заглушке.
-
--- байтовый гейт ТСПУ: сервер отдал 12 КБ (десятки «живых» пакетов), затем
--- инжектированный RST на s16000. Это ровно тот случай, ради которого планка
--- inseq и поднята до 26000.
-reset_host(); conn = {}
-std_result = false
-for i = 1, 10 do pos_value = i * 1400; run(srv_data(52), conn) end
-std_result = true; pos_value = 16000
-fired = run(srv_rst(126), conn)
-if fired then
-    ok("байтовый гейт: инжектированный RST после 12 КБ данных = провал")
-else
-    no("гейт не душится живостью", "true", tostring(fired))
-end
-
--- DPI-редирект в HTTP-пуле: страница-заглушка — тоже непустой ответ. Если
--- считать её признаком жизни, три соединения подряд взводят гвард раньше, чем
--- наберётся порог провалов, и блокировка не ротируется никогда. Проверяем, что
--- серия заглушек гвард НЕ взводит и каждая засчитывается провалом.
-reset_host()
-std_result = true; pos_value = 2000
-local blocked = 0
-for _ = 1, 5 do
-    local blockpage = srv_data(52); blockpage.dis.tcp.th_flags = 0x18
-    if run(blockpage, {}) then blocked = blocked + 1 end
-end
-if blocked == 5 then
-    ok("серия страниц-заглушек не взводит гвард живости")
-else
-    no("заглушка не признак жизни", "5", blocked)
-end
-
--- Но законный редирект на живом хосте гвард обязан душить: is_dpi_redirect
--- считает редиректом любое несовпадение SLD, без проверки на заглушку, а на
--- восьмидесятом порту это сплошь сокращатели ссылок и передача на чужой CDN.
-reset_host()
-std_result = false; pos_value = 1400
-for _ = 1, 3 do run(srv_data(52), {}) end
-std_result = true; pos_value = 2000
-local legit = srv_data(52); legit.dis.tcp.th_flags = 0x18
-fired = run(legit, {})
-if not fired then
-    ok("редирект на хосте с живым трафиком подавлен гвардом")
-else
-    no("законный редирект не уводит страту", "false", tostring(fired))
-end
-
--- А вот RST БЕЗ эталона TTL по-прежнему решает гвард: так выглядит и
--- поддельный RST на живом хосте (замер 18.08, ttl 126 при девяти успешных
--- соединениях в том же окне), и настоящий сброс на хендшейке.
-reset_host(); conn = {}
-std_result = false
-for _ = 1, 3 do run(incoming("HTTP/2 payload")) end
-std_result = true; pos_value = 1
-fired = run(srv_rst(126), conn)
-if not fired then
-    ok("RST без эталона TTL на живом хосте остаётся под гвардом")
-else
-    no("гвард сохранён там, где судить не по чему", "false", tostring(fired))
-end
-
--- ----- 8. провал принадлежит стратегии, на которой соединение началось -------
--- Замер 19.08.2026: инстаграм на заведомо нерабочей 7-й стратегии пролистал
--- ДВЕНАДЦАТЬ стратегий за одну секунду. Ротировать было правильно — сервер
--- отвечал decode_error, — но десятки соединений ушли на 7-ю разом, и их
--- провалы капали уже после ротации, вешаясь на стратегии, которые не отправили
--- ни одного пакета.
-
--- провал соединения, начатого на текущей стратегии, засчитывается
-reset_host()
-hrec.nstrategy = 7
-std_result = true; pos_value = 1
-conn = {}
-fired = run(incoming(""), conn)
-if fired then
-    ok("провал на текущей стратегии засчитывается")
-else
-    no("обычный провал не потерян", "true", tostring(fired))
-end
-
--- то же соединение после ротации — провал больше не наш
-reset_host()
-hrec.nstrategy = 7
-std_result = false; pos_value = 1
-conn = {}
-run(incoming("данные"), conn)      -- соединение началось на 7-й
-hrec.nstrategy = 8                  -- ротация произошла
-std_result = true
-fired = run(incoming(""), conn)
-if not fired then
-    ok("провал соединения с прошлой стратегии не засчитывается")
-else
-    no("провал не вешается на новую стратегию", "false", tostring(fired))
-end
-
--- а соединение, ОТКРЫТОЕ уже после ротации, считается как обычно
-reset_host()
-hrec.nstrategy = 8
-std_result = true; pos_value = 1
-fired = run(incoming(""), {})
-if fired then
-    ok("новое соединение после ротации провал засчитывает")
-else
-    no("после ротации счётчик набирается заново", "true", tostring(fired))
-end
-
--- без номера стратегии в host-записи не судим: лучше лишний провал, чем
--- ослепший детектор
-reset_host()
-std_result = true; pos_value = 1
-fired = run(incoming(""), {})
-if fired then
-    ok("без номера стратегии провал засчитывается по-старому")
-else
-    no("нет nstrategy — не слепнем", "true", tostring(fired))
-end
-
--- ----- живость: ОДНО СОЕДИНЕНИЕ = ОДНО ДОКАЗАТЕЛЬСТВО ------------------------
---
--- Гвард живости глушит провалы, пока хост доказанно отвечает. Считался каждый
--- входящий пакет, поэтому три сегмента ОДНОГО ответа взводили его, и дальше он
--- гасил провалы ПАРАЛЛЕЛЬНЫХ соединений — ретрансмит ClientHello, ранний RST,
--- фатальный алерт. Порог обоснован как «три ОТВЕТА», а не «три пакета».
---
--- Взведённость наблюдаем поведением: при взведённом гварде входящий провал
--- подавляется, при невзведённом — засчитывается.
-local function live(crec)
-    std_result = false
-    pos_value = 1
-    run(incoming(string.rep("d", 500)), crec)
-end
-
-local function failure_counted()
-    std_result = true
-    pos_value = 1
-    return (run(incoming(string.rep("z", 300)), {}))
-end
-
-reset_host(); hrec.nstrategy = 1
-local one_flow = {}
-live(one_flow); live(one_flow); live(one_flow)
-if failure_counted() then
-    ok("три пакета ОДНОГО соединения не взводят гвард живости")
-else
-    no("три пакета одного flow не доказывают жизнь", "провал засчитан",
-       "подавлен — гвард взвёлся с одного соединения")
-end
-
-reset_host(); hrec.nstrategy = 1
-live({}); live({}); live({})
-if not failure_counted() then
-    ok("три РАЗНЫХ соединения гвард взводят — защита от ложной ротации цела")
-else
-    no("три соединения взводят гвард", "провал подавлен", "засчитан")
-end
-
--- ----- живость привязана к НОМЕРУ стратегии ---------------------------------
---
--- Доказательства, набранные на старой страте, гасили провалы новой все 60 с
--- окна: счётчик не сбрасывался при ротации вообще ничем.
-reset_host(); hrec.nstrategy = 1
-live({}); live({}); live({})
-hrec.nstrategy = 2
-if failure_counted() then
-    ok("смена стратегии обнуляет доказательства живости")
-else
-    no("живость старой страты не защищает новую", "провал засчитан",
-       "подавлен — счётчик пережил ротацию")
-end
-
--- ----- успех запоздалого flow не защищает нынешнюю страту -------------------
---
--- Для провалов это уже проверялось выше (strategy_current). Для успеха
--- проверки не было — асимметрия, из-за которой ответ соединения, начатого на
--- прежней страте, взводил гвард для новой.
-reset_host(); hrec.nstrategy = 2
-live({ z2k_nstrat = 1 }); live({ z2k_nstrat = 1 }); live({ z2k_nstrat = 1 })
-if failure_counted() then
-    ok("успех соединения со СТАРОЙ стратегии не взводит гвард")
-else
-    no("запоздалый успех не защищает новую страту", "провал засчитан", "подавлен")
-end
-
--- ----- HTTP: маркер блокировки = провал, а не доказательство жизни ----------
---
--- При Z2K_NATIVE_DETECTORS=1 (дефолт) наши разборы кодов срезаются с http_rkn,
--- и остаётся эта обёртка. Штатный детектор кодов не смотрит, поэтому заглушка
--- DPI с 403/451 проходила как обычный ответ И засчитывалась в живость.
--- Классификатор здесь подменён: проверяется проводка обёртки, а сам разбор
--- кодов пинится своими тестами (tests/test_http_classifier.*).
-local http_class_stub = nil
-function z2k_classify_http_reply() return http_class_stub end
-
-reset_host(); hrec.nstrategy = 1
-http_class_stub = "hard_fail"
-std_result = false; pos_value = 1
-local blocked = run(incoming("HTTP/1.1 403 Forbidden\r\n\r\n<html>rkn</html>"), {})
-if blocked then
-    ok("HTTP-ответ с маркером блокировки становится провалом")
-else
-    no("маркер блокировки = провал", "true", tostring(blocked))
-end
-
-reset_host(); hrec.nstrategy = 1
-http_class_stub = "hard_fail"
-live({}); live({}); live({})
-http_class_stub = nil
-if failure_counted() then
-    ok("заглушка блокировки не идёт в доказательства живости")
-else
-    no("страница блокировки не доказывает жизнь", "провал засчитан",
-       "подавлен — заглушки взвели гвард")
-end
-
-reset_host(); hrec.nstrategy = 1
-http_class_stub = "neutral"
-live({}); live({}); live({})
-http_class_stub = nil
-if failure_counted() then
-    ok("голый 451 / WAF-заголовок тоже не доказывают жизнь")
-else
-    no("neutral не доказывает жизнь", "провал засчитан", "подавлен")
-end
-
--- ----- отметка времени провала для sticky в z2k-state-persist ---------------
-reset_host(); hrec.nstrategy = 1
-std_result = true; pos_value = 1
-run(incoming(string.rep("z", 300)), {})
-if tonumber(hrec.z2k_last_fail_ts) then
-    ok("засчитанный провал оставляет отметку времени для sticky")
-else
-    no("отметка времени провала", "число", tostring(hrec.z2k_last_fail_ts))
-end
-
-print(string.format("\nPASSED: %d\nFAILED: %d", PASS, FAIL))
-os.exit(FAIL == 0 and 0 or 1)
+    H.eq(nil,c.failure); H.eq(nil,h.failure_counter)
+end)
+H.test('client FIN does not hide a subsequent server fatal alert',function()
+    local d=H.tcp(nil,true,1,H.client,'tls_client_hello'); H.step(d)
+    local fin=H.tcp(d.track,true,#H.client+1,''); fin.dis.tcp.th_flags=TH_FIN+TH_ACK; H.step(fin)
+    local _,c=H.step(H.tcp(d.track,false,1,H.alert)); H.eq(true,c.failure)
+end)
+H.test('HTTP block body split from headers still fails',function()
+    local header='HTTP/1.1 403 Forbidden\r\nContent-Length: 21\r\n\r\n'
+    local d=H.http(nil,1,header); H.step(d)
+    local h,c=H.step(H.http(d.track,#header+1,'access blocked by rkn'))
+    H.eq(true,c.failure); H.eq(1,h.failure_counter)
+end)
+H.test('ordinary cross-domain 302 is neutral, not a native redirect failure',function()
+    for i=1,3 do
+        local h,c=H.step(H.http(nil,1,'HTTP/1.1 302 Found\r\nLocation: https://login.example.org/\r\n\r\n'))
+        H.eq(true,c.neutral); H.eq(nil,c.failure); H.eq(1,h.nstrategy)
+    end
+end)
+H.test('explicit block-portal redirect fails',function()
+    local _,c=H.step(H.http(nil,1,'HTTP/1.1 302 Found\r\nLocation: https://warning.rt.ru/\r\n\r\n'))
+    H.eq(true,c.failure)
+end)
+H.test('SparkNotes error text is not rkn',function()
+    local _,c=H.step(H.http(nil,1,'HTTP/1.1 403 Forbidden\r\nContent-Length: 10\r\n\r\nSparkNotes'))
+    H.eq(true,c.neutral); H.eq(nil,c.failure)
+end)
+H.test('large HTTP error is classified before native byte success',function()
+    local d=H.http(nil,1,'HTTP/1.1 403 Forbidden\r\nContent-Length: 9000\r\n\r\n'); H.step(d)
+    local h=automate_host_record(d); h.failure_counter=2
+    H.step(H.http(d.track,1000,string.rep('x',1000))) -- gap: no terminal success
+    H.step(H.http(d.track,4201,string.rep('x',500)))
+    H.eq(2,h.failure_counter); H.eq(nil,d.track.lua_state.automate.nocheck)
+end)
+H.test('conflicting prefix overlap is neutral, not a forged block signature',function()
+    local d=H.http(nil,1,'HTTP/1.1 403'); H.step(d)
+    local _,c=H.step(H.http(d.track,1,'HTTP/1.1 451'))
+    H.eq(true,c.neutral); H.eq(nil,c.failure)
+end)
+H.test('bounded response buffer terminates inconclusively at cap',function()
+    local _,c=H.step(H.http(nil,1,'HTTP/1.1 403 '..string.rep('x',5000)))
+    H.eq(true,c.neutral); H.eq(nil,c.response_prefix)
+end)
+H.test('confirmed small HTTP 200 resets failures',function()
+    local d=H.http(nil,1,'HTTP/1.1 200 OK\r\n'); local h=H.step(d); h.failure_counter=2
+    local _,c=H.step(H.http(d.track,#d.dis.payload+1,'Content-Length: 0\r\n\r\n'))
+    H.eq(true,c.nocheck); H.eq(nil,c.neutral); H.eq(nil,h.failure_counter)
+end)
+H.test('two retransmissions fail one attempt; three failed connections rotate',function()
+    local h
+    for attempt=1,3 do
+        local d=H.tcp(nil,true,1,H.client,'tls_client_hello'); local c
+        h,c=H.step(d)
+        H.step(H.tcp(d.track,true,1,H.client,'tls_client_hello',true))
+        H.eq(nil,c.failure); H.eq(attempt-1,#H.sent)
+        H.step(H.tcp(d.track,true,1,H.client,'tls_client_hello',true))
+        H.eq(true,c.failure); H.eq(attempt,#H.sent)
+        H.eq(attempt==3 and 2 or 1,h.nstrategy)
+    end
+end)
+H.test('a single lost packet can recover without reset or rotation',function()
+    local d=H.tcp(nil,true,1,H.client,'tls_client_hello'); local h,c=H.step(d)
+    H.step(H.tcp(d.track,true,1,H.client,'tls_client_hello',true))
+    H.step(H.tcp(d.track,false,1,H.hello,'tls_server_hello'))
+    H.step(H.tcp(d.track,false,4200,'fresh application progress'))
+    H.eq(true,c.nocheck); H.eq(nil,c.failure); H.eq(0,#H.sent); H.eq(1,h.nstrategy)
+end)
+H.finish()

@@ -697,6 +697,20 @@ jobs:
       - name: Run luacheck
         run: luacheck files/lua/*.lua --codes -q
 
+      # Харнес детекторов грузит circular и штатные детекторы ИЗ ФОРКА
+      # (tests/lib/detector_harness.lua: dofile($Z2K_FORK_DIR/tests/harness.lua)),
+      # потому что проверяет связку «наш детектор + настоящее ядро ротации», а
+      # не наш код в вакууме. Без чекаута шаг ниже падает на «cannot open
+      # ../zapret2-z2k-fork/tests/harness.lua» — так и случилось на p-84.10.
+      # У задания shellcheck такой чекаут был с 2026-08-08, здесь его не было.
+      - name: Checkout engine fork (harness for detector tests)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: necronicle/zapret2-z2k
+          ref: z2k-master
+          path: zapret2-z2k-fork
+          persist-credentials: false
+
       - name: Run lua unit tests
         # Direct invocation in addition to tests/run_all.sh in the
         # shellcheck job — defence-in-depth so a future change that
@@ -704,6 +718,8 @@ jobs:
         # skip the lua harness. Use the versioned binary explicitly:
         # `lua` symlink relies on update-alternatives which is not
         # guaranteed on minimal Ubuntu images.
+        env:
+          Z2K_FORK_DIR: ${{ github.workspace }}/zapret2-z2k-fork
         run: |
           lua5.3 tests/test_tcp16_lua.lua
           lua5.3 tests/test_alert_detector.lua

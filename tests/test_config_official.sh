@@ -90,70 +90,16 @@ CONFIG_DIR="$MOCK_CONFIG_DIR"
 LISTS_DIR="$MOCK_LISTS"
 
 # ==============================================================================
-# TEST: ensure_circular_nld2 (extracted inline from generate_nfqws2_opt_from_strategies)
-# We replicate the function here since it is defined as a nested function.
-# ==============================================================================
-
-ensure_circular_nld2() {
-    local input="$1"
-    local out=""
-    local token=""
-    local opts=""
-    local part=""
-    local rest=""
-    local old_ifs="$IFS"
-
-    for token in $input; do
-        case "$token" in
-            --lua-desync=circular:*)
-                opts="${token#--lua-desync=circular:}"
-                rest=""
-                IFS=':'
-                for part in $opts; do
-                    case "$part" in
-                        nld=*) ;;
-                        *) rest="${rest:+$rest:}$part" ;;
-                    esac
-                done
-                IFS="$old_ifs"
-                if [ -n "$rest" ]; then
-                    token="--lua-desync=circular:${rest}:nld=2"
-                else
-                    token="--lua-desync=circular:nld=2"
-                fi
-                ;;
-        esac
-        out="${out:+$out }$token"
-    done
-
-    IFS="$old_ifs"
-    printf '%s' "$out"
-}
-
-printf "\n--- ensure_circular_nld2 ---\n"
-
-# Test: adds nld=2 to circular token without existing nld
-INPUT1="--filter-tcp=443 --lua-desync=circular:fails=3:time=60:key=test --lua-desync=fake:strategy=1"
-RESULT1=$(ensure_circular_nld2 "$INPUT1")
-assert_contains "nld2: adds nld=2 to circular token" "nld=2" "$RESULT1"
-assert_contains "nld2: preserves fails param" "fails=3" "$RESULT1"
-assert_contains "nld2: preserves non-circular tokens" "--filter-tcp=443" "$RESULT1"
-
-# Test: replaces existing nld value with nld=2
-INPUT2="--lua-desync=circular:fails=3:nld=5:time=60"
-RESULT2=$(ensure_circular_nld2 "$INPUT2")
-assert_contains "nld2: replaces existing nld with nld=2" "nld=2" "$RESULT2"
-assert_not_contains "nld2: removes old nld=5" "nld=5" "$RESULT2"
-
-# Test: does not modify non-circular tokens
-INPUT3="--lua-desync=fake:payload=tls_client_hello:dir=out"
-RESULT3=$(ensure_circular_nld2 "$INPUT3")
-assert_eq "nld2: non-circular token unchanged" "$INPUT3" "$RESULT3"
-
-# Test: bare circular with no opts
-INPUT4="--lua-desync=circular:key=test"
-RESULT4=$(ensure_circular_nld2 "$INPUT4")
-assert_contains "nld2: adds nld=2 to minimal circular" "nld=2" "$RESULT4"
+# Exercise the production normalizer, not a copied implementation.
+eval "$(awk '/^    ensure_circular_host_scope\(\) \{/,/^    \}/' "$SCRIPT_DIR/lib/config_official.sh")"
+INPUT="--filter-tcp=443 --lua-desync=circular:fails=3:nld=2:key=test --lua-desync=fake:strategy=1"
+RESULT=$(ensure_circular_host_scope "$INPUT")
+assert_contains "full hostname: nld=0" "nld=0" "$RESULT"
+assert_not_contains "full hostname: no broad nld=2" "nld=2" "$RESULT"
+assert_contains "host scope preserves quorum" "fails=3" "$RESULT"
+INPUT="--lua-desync=circular:key=test:hostkey=z2k_nohost_key"
+RESULT=$(ensure_circular_host_scope "$INPUT")
+assert_contains "explicit hostkey preserved" "hostkey=z2k_nohost_key" "$RESULT"
 
 printf "\n--- Austerus mode removed (all_tcp443) ---\n"
 
@@ -575,7 +521,7 @@ test_padencap_under_flag "1" "1" "rkn_tcp с padencap"
 printf "\n--- штатные детекторы, circular по документации (решение 10.09.2026) ---\n"
 # Своих детекторов нет: ни failure_detector=, ни success_detector= ни в одном
 # пуле. Параметры circular — из docs/manual.md апстрима (standard_*_detector):
-# retrans=3, maxseq=32768, inseq=4096, плюс reset (RST ретрансмиттеру после
+# retrans=2, maxseq=32768, inseq=4096, плюс reset (RST ретрансмиттеру после
 # фиксации неудачи; в автохостлисте у bol-van это умолчание). Окно входящих —
 # -s5556 (inseq 4096 + 1460). QUIC: udp_in=1 по документации, udp_out=5 — по
 # замеру 19.08.2026 (см. комментарий у quic_udp).
@@ -586,12 +532,12 @@ assert_not_contains "нет сторожа обрыва"           "z2k_stall_wa
 for _k in rkn_tcp yt_tcp gv_tcp; do
     _line=$(printf '%s\n' "$_flat_doc" | grep -F "key=$_k" | head -1)
     _circ=$(printf '%s\n' "$_line" | tr ' ' '\n' | grep -- '--lua-desync=circular:' | head -1)
-    assert_contains     "$_k: retrans=3 (manual: «не менее retrans ретрансмиссий», по умолчанию 3)" "retrans=3"    "$_circ"
+    assert_contains     "$_k: retrans=2 (экспериментальный порог двух повторов)" "retrans=2"    "$_circ"
     assert_contains     "$_k: maxseq=32768"  "maxseq=32768" "$_circ"
     assert_contains     "$_k: inseq=4096"    "inseq=4096"   "$_circ"
     assert_contains     "$_k: reset"         ":reset"       "$_circ"
     assert_contains     "$_k: fails=3"       "fails=3"      "$_circ"
-    assert_not_contains "$_k: нет старых retrans=2"    "retrans=2"    "$_circ"
+    assert_not_contains "$_k: нет прежнего retrans=3"    "retrans=3"    "$_circ"
     assert_not_contains "$_k: нет старых maxseq=16384" "maxseq=16384" "$_circ"
     assert_contains     "$_k: окно входящих -s5556"    "--in-range=-s5556" "$_line"
 done
@@ -614,7 +560,7 @@ assert_contains "http_rkn: обёртка проведена и здесь" "fai
 for _k in rkn_tcp yt_tcp gv_tcp; do
     _circ=$(printf '%s\n' "$_flat_doc" | grep -F "key=$_k" | head -1 | tr ' ' '\n' | grep -- '--lua-desync=circular:' | head -1)
     assert_contains "$_k: обёртка детектора проведена" "failure_detector=z2k_fail_tls_alert" "$_circ"
-    assert_contains "$_k: штатные пороги рядом уцелели" "retrans=3"                          "$_circ"
+    assert_contains "$_k: штатные пороги рядом уцелели" "retrans=2"                          "$_circ"
 done
 # Обёртка узнаёт о живости хоста только из вызовов на ВХОДЯЩИХ пакетах.
 # Два условия в профиле это обеспечивают, и оба легко потерять правкой:
@@ -637,14 +583,14 @@ assert_not_contains "yt_quic: TCP-обёртку на UDP не вешаем" "z2
 OUT_DET_NOLUA=$(Z2K_TEST_NO_DETECTOR_LUA=1 run_generator "detect-nolua" "" "_seed_tls_circulars")
 _rkn_nolua=$(get_rkn_tcp_arm_line "$OUT_DET_NOLUA" | tr ' ' '\n' | grep -- '--lua-desync=circular:' | head -1)
 assert_not_contains "без файла модуля детектор не проводится" "failure_detector=" "$_rkn_nolua"
-assert_contains     "без файла модуля штатное на месте"       "retrans=3"        "$_rkn_nolua"
+assert_contains     "без файла модуля штатное на месте"       "retrans=2"        "$_rkn_nolua"
 assert_contains     "http_rkn: fails=3"           "circular:fails=3" "$_http"
 
 # Выключатель RST: Z2K_CIRCULAR_RESET=0 снимает reset, остальное на месте.
 OUT_NORST=$(run_generator "docalign-norst" "Z2K_CIRCULAR_RESET=0" "_seed_tls_circulars")
 _rkn_norst=$(printf '%s\n' "$OUT_NORST" | awk -f "$SCRIPT_DIR/tests/lib/nfqws2_flatten.awk" | grep -F "key=rkn_tcp" | head -1 | tr ' ' '\n' | grep -- '--lua-desync=circular:' | head -1)
 assert_not_contains "Z2K_CIRCULAR_RESET=0: reset снят"      ":reset"   "$_rkn_norst"
-assert_contains     "Z2K_CIRCULAR_RESET=0: retrans=3 остался" "retrans=3" "$_rkn_norst"
+assert_contains     "Z2K_CIRCULAR_RESET=0: retrans=2 остался" "retrans=2" "$_rkn_norst"
 
 # Правленый руками Strategy.txt с чужим детектором и старыми порогами
 # приводится к тому же виду: имя функции, которой нет на диске, роняет движок в
@@ -664,7 +610,7 @@ _dups_det=$(printf '%s' "$_rkn_hand" | grep -o "failure_detector=" | wc -l | tr 
 assert_eq "ручной Strategy.txt: детектор не задвоен" "1" "$_dups_det"
 assert_not_contains "ручной Strategy.txt: inseq=26000 снят"        "inseq=26000"       "$_rkn_hand"
 assert_contains     "ручной Strategy.txt: inseq=4096 поставлен"    "inseq=4096"        "$_rkn_hand"
-assert_contains     "ручной Strategy.txt: retrans=3 поставлен"     "retrans=3"         "$_rkn_hand"
+assert_contains     "ручной Strategy.txt: retrans=2 поставлен"     "retrans=2"         "$_rkn_hand"
 _dups=$(printf '%s' "$_rkn_hand" | grep -o "retrans=" | wc -l | tr -d ' ')
 assert_eq "ручной Strategy.txt: retrans не задвоен" "1" "$_dups"
 

@@ -26,6 +26,7 @@ globals = {
     "z2k_dynamic_ttl",
     "cond_tcp_has_ts",
     "automate_host_record",
+    "circular_report_failure",
     "circular",
     -- Сброс накопленных счётчиков удач/неудач хоста. Предусмотрен движком
     -- ровно для нашего случая: состояние ротации меняет не детектор, а человек
@@ -36,7 +37,7 @@ globals = {
     -- hrec/crec и os.time(), никакого desync (lua/zapret-auto.lua).
     "automate_failure_counter",
     -- z2k-modern-core.lua hostkey fn (returns "nohost" for IP/no-hostname flows)
-    "z2k_nohost_key",
+    "z2k_nohost_key", "z2k_service_hostkey",
     -- z2k-state-persist.lua exported API table
     "z2k_state_persist",
     -- z2k-detectors.lua internal helper, top-level so earlier detector

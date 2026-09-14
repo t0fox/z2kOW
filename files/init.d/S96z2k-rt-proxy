@@ -22,6 +22,31 @@ BIN="/opt/sbin/z2k-rt-proxy"
 LOG="/tmp/z2k-log/z2k-rt-proxy.log"
 PIDFILE="/var/run/z2k-rt-proxy.pid"
 LISTEN_PORT="1445"
+# Метка исходящих сокетов моста. Берётся у d2k, если он установлен: его
+# правило `-m mark --mark <метка> -j RETURN` стоит первым в исходящей цепочке и
+# уводит помеченный пакет мимо очереди. Без метки движок обхода видит соединения
+# моста как обычную цель, подсматривает SNI ps1.blockme.site и заводит поиск
+# обхода на СОБСТВЕННЫЙ работающий туннель — трата бюджета зондов и
+# вмешательство в него (поймано 12.09.2026 по журналу d2k).
+#
+# Источник значения — сперва конфигурация d2k, затем умолчание из его же
+# init-скрипта. Своего числа здесь нет намеренно: метка принадлежит ему, и
+# зашитая копия разошлась бы молча, а исключение перестало бы работать.
+# d2k не установлен — метки нет, поведение прежнее.
+D2K_INIT="/opt/etc/init.d/S99d2k"
+SO_MARK=""
+if [ -x "$D2K_INIT" ]; then
+    SO_MARK=$(sed -n 's/^MARK=//p' /opt/d2k/config 2>/dev/null | head -1)
+    [ -n "$SO_MARK" ] || SO_MARK=$(sed -n 's/^MARK=//p' "$D2K_INIT" 2>/dev/null | head -1)
+fi
+# Принимаем и десятичную, и шестнадцатеричную запись: в конфигурации d2k метка
+# записана как 0x2d, и флаг моста разбирает обе (strconv с основанием 0).
+case "$SO_MARK" in
+    0x*|0X*) MARK_ARG="--so-mark=$SO_MARK" ;;
+    ''|*[!0-9]*) MARK_ARG="" ;;
+    *) MARK_ARG="--so-mark=$SO_MARK" ;;
+esac
+
 SENTINEL="10.171.171.171"
 # Exactly the set the OFFICIAL RuTracker extension proxies. Taken from the shipped
 # artifact, not from anyone's description of it: addons.mozilla.org add-on
@@ -157,7 +182,7 @@ start() {
             # GODEBUG=asyncpreemptoff=1: disable Go's SIGURG-based async goroutine
             # preemption — it crashes the runtime on MIPS/mipsel (soft-float
             # Keenetics), the same guard S97z2k-http-tunnel / S98tg-tunnel use.
-            GODEBUG=asyncpreemptoff=1 $BIN --listen=:$LISTEN_PORT --timeout=15m </dev/null >> "$LOG" 2>&1 &
+            GODEBUG=asyncpreemptoff=1 $BIN --listen=:$LISTEN_PORT --timeout=15m $MARK_ARG </dev/null >> "$LOG" 2>&1 &
             child=$!
             wait "$child"
             t1=$(date +%s 2>/dev/null || echo 0)

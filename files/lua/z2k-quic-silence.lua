@@ -1,136 +1,148 @@
--- z2k: детектор неудач для пулов QUIC.
---
--- ЗАЧЕМ ОН ЕСТЬ. Штатный детектор считает провалом ситуацию «отослано >=udp_out
--- пакетов, принято <=udp_in». Для современного QUIC-клиента эта посылка неверна.
--- Замер 2026-08-19 на боевом роутере, 1646 потоков:
---
---   мёртвые (ответа нет вовсе, 402)   живые (до третьего входящего, 1239)
---     1 пакет   57                      1 пакет   14
---     2 пакета 222                      2 пакета 524
---     3         26                      3        278
---     4         11                      4        308
---     5         64                      5         93
---
--- Мёртвый поток шлёт МЕНЬШЕ пакетов, чем живой: браузер не долбится в стену, он
--- отправляет Initial, ждёт и уходит на TCP. Порогом по числу исходящих эти два
--- класса не разделяются вообще — проверены все значения от 2 до 12, всюду либо
--- ловится единицы процентов мёртвых, либо ложно падает большинство живых.
---
--- Разделяет их ВРЕМЯ, а не счёт. Здоровый поток отвечает за десятки
--- миллисекунд; мёртвый молчит вечно. Мануал, раздел «Таймеры»: «Таймеры могут
--- быть полезны для обработки ситуаций отсутствия реакции из сети на отсылаемые
--- пакеты». Ровно этим и пользуемся.
---
--- КАК УСТРОЕНО. На первом исходящем пакете потока взводим одноразовый таймер.
--- Каждый входящий пакет ставит в записи соединения отметку «ответили». Когда
--- таймер срабатывает, отметки либо есть, либо нет: нет — засчитываем провал
--- через штатный automate_failure_counter и, если счётчик добрал до fails,
--- двигаем стратегию той же формулой, что и circular.
---
--- Одноразовый таймер на поток — штатная идиома движка, так же сделан send с
--- аргументом delay в lua/zapret-antidpi.lua («oneshot timer, auto deletes»).
+-- Bounded QUIC handshake observation (v1/v2). A Retry/Initial is progress,
+-- not success. Only bidirectional short-header traffic ends this observation
+-- successfully. This is a transport heuristic, not authenticated application
+-- success. Unsupported versions use the native counters.
+local WAIT_MS, MAX_MS = 5000, 15000
+local POOLS = { yt_quic = true, gv_quic = true }
+local serial = 0
 
--- Сколько ждём ответа. Одна секунда — типичный первый PTO у QUIC-клиента, то
--- есть к этому моменту здоровый поток уже давно получил ответ, а мёртвый как
--- раз готовится к первой ретрансмиссии. Две секунды берём с запасом на
--- медленный мобильный аплинк и на то, что таймеры вызываются между блоками
--- пакетов, а не точно в срок.
-local Z2K_QUIC_WAIT_MS = 2000
-
--- Пулы, где правило работает. QUIC к видео либо идёт, либо не идёт;
--- промежуточных «маленьких правильных ответов» там не бывает.
-local Z2K_QUIC_POOLS = { yt_quic = true, gv_quic = true }
-
--- Провал засчитывается, только если исходящих было не меньше. Одиночный
--- пакет — это может быть что угодно, вплоть до случайного зонда.
-local Z2K_QUIC_MIN_OUT = 2
-
--- Сработал таймер: смотрим, ответил ли кто-нибудь за окно ожидания.
---
--- data.crec и data.hrec — те же таблицы, что видел детектор: crec живёт в
--- desync.track.lua_state, hrec в глобальном autostate. timer_set кладёт data в
--- реестр Lua через luaL_ref, поэтому ссылки остаются валидными.
-function z2k_quic_silence_timer(name, data)
-    local crec, hrec = data.crec, data.hrec
-    if not crec or not hrec then return end
-
-    -- Ответ пришёл — поток живой, делать нечего. Счётчик неудач при этом НЕ
-    -- сбрасываем: сброс это дело детектора удач, а он у пула свой и работает
-    -- по своим порогам. Молча уходим, чтобы не спорить с ним за одну переменную.
-    if crec.z2k_quic_answered then return end
-
-    -- За время ожидания движок мог сам вынести вердикт по этому потоку
-    -- (штатный детектор удач или неудач ставит nocheck). Тогда не лезем.
-    if crec.nocheck then
-        DLOG("z2k_quic_silence: " .. name .. " — вердикт уже вынесен движком, пропускаем")
-        return
-    end
-    crec.nocheck = true
-
-    local fails = tonumber(data.fails) or 3
-    local maxtime = tonumber(data.maxtime) or 60
-
-    DLOG("z2k_quic_silence: " .. name .. " — за " .. Z2K_QUIC_WAIT_MS ..
-         " мс ни одного входящего пакета -> failure")
-
-    -- Штатный счётчик: он же сам защищает от двойного счёта по одному
-    -- соединению (crec.failure) и сам сбрасывается по maxtime.
-    if not automate_failure_counter(hrec, crec, fails, maxtime) then return end
-
-    -- Порог добран — крутим стратегию ровно так же, как это делает circular.
-    -- ctstrategy и final заполняет он сам на первом пакете потока, поэтому к
-    -- моменту срабатывания таймера они уже есть.
-    if not hrec.ctstrategy or hrec.ctstrategy < 1 then return end
-    if hrec.final and hrec.final == hrec.nstrategy then
-        DLOG("z2k_quic_silence: стратегия " .. tostring(hrec.final) ..
-             " финальная, дальше не крутим")
-        return
-    end
-    hrec.nstrategy = ((hrec.nstrategy or 1) % hrec.ctstrategy) + 1
-    DLOG("z2k_quic_silence: rotate strategy to " .. hrec.nstrategy)
+local function now_ms()
+    return (type(clock_getfloattime) == "function" and clock_getfloattime() or os.time()) * 1000
 end
 
--- Детектор неудач. Ставится как failure_detector= у circular пула QUIC.
---
--- Сам по себе он почти всегда возвращает false: вердикт выносит таймер. Здесь
--- только два дела — отметить входящие и взвести ожидание на первом исходящем.
+local function varint(p, offset)
+    local b = p:byte(offset)
+    if not b then return nil end
+    local size = 2 ^ math.floor(b / 64)
+    if offset + size - 1 > #p then return nil end
+    local value = b % 64
+    for i = offset + 1, offset + size - 1 do value = value * 256 + p:byte(i) end
+    return value, offset + size
+end
+
+local function packet(p, offset, short_cid)
+    local first = p:byte(offset)
+    if not first then return nil end
+    if first < 128 then
+        if not short_cid or #p - offset + 1 < 1 + #short_cid + 17 then return nil end
+        if p:sub(offset + 1, offset + #short_cid) ~= short_cid then return nil end
+        return { kind = "short" }, #p + 1
+    end
+    if #p - offset + 1 < 7 then return nil end
+    local version = p:byte(offset+1) * 16777216 + p:byte(offset+2) * 65536
+        + p:byte(offset+3) * 256 + p:byte(offset+4)
+    local pos = offset + 5
+    local dlen = p:byte(pos)
+    if dlen > 20 or pos + dlen + 1 > #p then return nil end
+    local dcid = p:sub(pos + 1, pos + dlen)
+    pos = pos + dlen + 1
+    local slen = p:byte(pos)
+    if slen > 20 or pos + slen > #p then return nil end
+    local scid = p:sub(pos + 1, pos + slen)
+    pos = pos + slen + 1
+    local kind
+    if version == 0 then
+        if #p - pos + 1 < 4 or (#p - pos + 1) % 4 ~= 0 then return nil end
+        kind = "version"
+    elseif version == 1 then
+        kind = ({[0]="initial", "zero", "handshake", "retry"})[math.floor(first / 16) % 4]
+    elseif version == 0x6b3343cf then
+        kind = ({[0]="retry", "initial", "zero", "handshake"})[math.floor(first / 16) % 4]
+    else
+        return nil
+    end
+    if kind == "version" or kind == "retry" then
+        if kind == "retry" and #p - pos + 1 < 17 then return nil end
+        return { kind=kind, version=version, dcid=dcid, scid=scid }, #p + 1
+    end
+    if kind == "initial" then
+        local token
+        token, pos = varint(p, pos)
+        if not token or token > #p - pos + 1 then return nil end
+        pos = pos + token
+    end
+    local length
+    length, pos = varint(p, pos)
+    if not length or length < 17 or length > #p - pos + 1 then return nil end
+    return { kind=kind, version=version, dcid=dcid, scid=scid }, pos + length
+end
+
+local function cancel(q)
+    if type(timer_del) == "function" then timer_del(q.timer) end
+end
+
+local function arm(q, crec, hrec, arg)
+    local delay = math.max(10, math.min(q.wait, q.deadline - now_ms()))
+    timer_set(q.timer, "z2k_quic_silence_timer", math.floor(delay), true,
+        { crec=crec, hrec=hrec, arg={fails=arg.fails, time=arg.time} })
+end
+
+function z2k_quic_silence_timer(_name, data)
+    if not data or not data.crec or not data.hrec then return end
+    -- Core validates the generation, terminal result and explicit final pin.
+    circular_report_failure(data.hrec, data.crec, data.arg or {})
+end
+
 function z2k_fail_quic_silence(desync, crec)
-    if not desync.dis or not desync.dis.udp then
-        -- не наш протокол — отдаём штатному, пусть решает как раньше
+    if not desync.dis or not desync.dis.udp or not POOLS[desync.arg.key]
+        or type(circular_report_failure) ~= "function" then
         return standard_failure_detector(desync, crec)
     end
-    if not Z2K_QUIC_POOLS[desync.arg.key] then
-        return standard_failure_detector(desync, crec)
+    if crec.quic_native then return standard_failure_detector(desync, crec) end
+    local p = desync.dis.payload or ""
+    local q = crec.quic_observation
+    if not q then
+        if not desync.outgoing or desync.l7payload ~= "quic_initial" then return false, "pending" end
+        local initial = packet(p, 1)
+        if not initial or initial.kind ~= "initial" then
+            crec.quic_native = true
+            return standard_failure_detector(desync, crec)
+        end
+        local wait = tonumber(desync.arg.quic_wait_ms) or WAIT_MS
+        wait = math.max(1000, math.min(60000, wait))
+        serial = serial + 1
+        q = { version=initial.version, client_cid=initial.scid, server_cid=initial.dcid,
+            phase=0, wait=wait, deadline=now_ms()+math.max(MAX_MS, wait*3), timer="z2kqs_"..serial }
+        crec.quic_observation = q
+        arm(q, crec, crec.host_record, desync.arg)
     end
-    if not crec then return false end
 
-    if not desync.outgoing then
-        crec.z2k_quic_answered = true
-        return false
+    local previous, offset, count = q.phase, 1, 0
+    while offset <= #p and count < 8 do
+        local expected = desync.outgoing and q.server_cid or q.client_cid
+        local h, next_offset = packet(p, offset, expected)
+        if not h then break end
+        count = count + 1
+        if h.kind == "short" and q.phase >= 2 then
+            if desync.outgoing then q.out_short = true else q.in_short = true end
+            q.phase = math.max(q.phase, 4)
+        elseif desync.outgoing and h.kind == "initial" then
+            q.version, q.client_cid = h.version, h.scid
+        elseif not desync.outgoing and h.dcid == q.client_cid then
+            if h.kind == "version" then
+                q.phase = math.max(q.phase, 1)
+            elseif h.version == q.version then
+                q.server_cid = h.scid
+                if h.kind == "retry" then q.phase = math.max(q.phase, 1)
+                elseif h.kind == "initial" then q.phase = math.max(q.phase, 2)
+                elseif h.kind == "handshake" then q.phase = math.max(q.phase, 3) end
+            end
+        end
+        offset = next_offset
     end
-
-    -- Дальше только исходящее.
-    if crec.z2k_quic_armed then return false end
-    if not desync.track then return false end
-
-    local out_n = pos_get(desync, 'n') or 0
-    if out_n < Z2K_QUIC_MIN_OUT then return false end
-
-    local hrec = automate_host_record(desync)
-    if not hrec then return false end
-
-    crec.z2k_quic_armed = true
-    -- Имя таймера — по пятёрке адрес-порт, БЕЗ счётчика пакетов. Штатный
-    -- desync_timer_name добавляет pcounter и потому уникален на пакет; нам
-    -- нужен один таймер на поток, иначе каждый следующий Initial перезаводил бы
-    -- отсчёт и вердикт не наступил бы никогда.
-    local tname = "z2kqs_" .. dis_timer_name(desync.dis)
-    timer_set(tname, "z2k_quic_silence_timer", Z2K_QUIC_WAIT_MS, true, {
-        crec = crec,
-        hrec = hrec,
-        fails = desync.arg.fails,
-        maxtime = desync.arg.time,
-    })
-    DLOG("z2k_quic_silence: жду ответа " .. Z2K_QUIC_WAIT_MS .. " мс по " .. tname)
-    return false
+    if q.in_short and q.out_short then
+        cancel(q)
+        return false, "success"
+    end
+    -- Once either intercepted direction ends, completion can happen outside
+    -- Lua's view. A later timer would mistake lost visibility for a failure.
+    local limit = tonumber(desync.outgoing and desync.arg.quic_out_limit or desync.arg.quic_in_limit) or 8
+    if limit > 0 and pos_get(desync, 'n') >= limit then
+        cancel(q)
+        return false, "neutral"
+    end
+    if q.phase > previous then arm(q, crec, crec.host_record, desync.arg) end
+    -- Repeated Initials/Retry and arbitrary UDP replies cannot perpetually
+    -- extend the deadline or trigger the native two-datagram success shortcut.
+    return false, "pending"
 end

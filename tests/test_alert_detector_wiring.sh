@@ -28,7 +28,7 @@
 #   3. Окно входящих пакетов NFQWS2_TCP_PKT_IN и пороги circular рядом с
 #      проводкой. ЧИСЛА ЗДЕСЬ ДРУГИЕ, ЧЕМ БЫЛИ ДО 10.09.2026, и это не
 #      небрежность: 10.09 пороги приведены к документации nfqws2
-#      (retrans=3, maxseq=32768, inseq=4096, окно 10 пакетов), и 11.09 вернули
+#      (retrans=2, maxseq=32768, inseq=4096, окно 10 пакетов), и 11.09 вернули
 #      ТОЛЬКО детекторы, параметры трогать не просили. Набор охраняет, что
 #      проводка и пороги живут рядом и не съедают друг друга, а не конкретную
 #      редакцию чисел.
@@ -58,36 +58,18 @@ else
 fi
 
 # Обёртка обязана делегировать штатному, а не подменять его: иначе теряются
-# входящий RST, DPI-редирект и всё окно 16К-гейта по inseq.
+# входящий RST и исходящие ретрансмиссии в пределах штатного окна.
 if grep -q 'standard_failure_detector' "$LUA"; then
     ok "обёртка делегирует standard_failure_detector"
 else
     no "делегирование штатному" "вызов standard_failure_detector" "нет"
 fi
-# Ретрансмит — только на ПЕРВОМ запросе соединения, иначе возвращается ложная
-# ротация: провалом становится любая потеря пакета в живой сессии. Для TLS это
-# ClientHello, для HTTP-пула — http_req; всё остальное отсекается.
-if grep -q 'Z2K_FIRST_REQUEST\[desync.l7payload\]' "$LUA" \
-   && grep -q 'tls_client_hello = true' "$LUA" \
-   && grep -q 'http_req = true' "$LUA"; then
-    ok "ретрансмиссия считается только на первом запросе (ClientHello / http_req)"
+# Detailed packet/state behavior is tested with the production engine in Lua.
+# These dangerous decision paths must not return to the shipped wrapper.
+if grep -qE 'z2k_ok_n|z2k_srv_ttl|incoming_retrans_failure' "$LUA"; then
+    no "ненадёжные гварды удалены" "нет veto/stall" "старый гвард найден"
 else
-    no "сужение по первому запросу" 'Z2K_FIRST_REQUEST с tls_client_hello и http_req' "нет"
-fi
-# Уровень alert: 2 = fatal. Уровень 1 (close_notify) — штатное завершение,
-# считать его провалом значит ротировать на каждом закрытии сессии.
-if grep -qE 'byte\(6\) (~=|==) 2' "$LUA"; then
-    ok "провалом считается только fatal-алерт (уровень 2)"
-else
-    no "фильтр по уровню алерта" "проверка byte(6) на 2 (fatal)" "нет"
-fi
-
-# Живой хост не ротируем: политика «успехи гасят провалы» переехала сюда из
-# снятой ветки r-49, и без неё три поддельных RST уводят рабочую страту.
-if grep -q 'z2k_ok_n' "$LUA"; then
-    ok "обёртка ведёт учёт живых ответов хоста"
-else
-    no "учёт живости" "счётчик z2k_ok_n" "нет"
+    ok "нет veto по живости/TTL и ротации по входящим повторам"
 fi
 
 # --- 1b. Переключателя режима ротации в поставке нет ---------------------------
@@ -129,6 +111,7 @@ echo "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=c
 echo "ENABLED=1" > "$root/config"
 # Файл детектора на месте — проводка обязана появиться.
 mkdir -p "$root/lua"; cp "$LUA" "$root/lua/z2k-alert.lua"
+cp "$ROOT/files/lua/z2k-quic-silence.lua" "$root/lua/z2k-quic-silence.lua"
 
 OUT=$( ZAPRET2_DIR="$root" generate_nfqws2_opt_from_strategies 2>/dev/null )
 RKN=$(printf '%s\n' "$OUT" | awk -f "$ROOT/tests/lib/nfqws2_flatten.awk" | grep -F 'key=rkn_tcp' | head -1)
@@ -143,10 +126,10 @@ esac
 # Штатные аргументы обязаны уцелеть рядом с проводкой: детектор их использует.
 # Значения — те, что ставит ensure_circular_doc_args по документации.
 case "$RKN" in
-    *retrans=3*inseq=4096*|*inseq=4096*retrans=3*)
+    *retrans=2*inseq=4096*|*inseq=4096*retrans=2*)
         ok "inseq и retrans на месте рядом с детектором" ;;
     *)
-        no "inseq/retrans уцелели" "inseq=4096 и retrans=3" "$RKN" ;;
+        no "inseq/retrans уцелели" "inseq=4096 и retrans=2" "$RKN" ;;
 esac
 
 # HTTP-пул объявляется НИЖЕ блока проводки TLS-пулов, и до 19.08.2026 его туда
@@ -164,17 +147,7 @@ case "$HTTP" in
 esac
 
 # --- 2в. Инстанс circular не должен быть сужен по payload ----------------------
-# Движок зовёт lua-инстанс только на подходящем payload. Если --payload= стоит
-# ПЕРЕД circular, детектор не увидит ни одного входящего пакета С ДАННЫМИ, и
-# разом умирают: правило вставшего потока, фатальный TLS-алерт, сверка TTL и
-# гвард живости — им всем нужен пейлоад. Доедут только ClientHello и пустые
-# пакеты, то есть RST вообще без гвардов.
-#
-# Замер 19.08.2026 на боевом роутере, до правки:
-#   key="yt_tcp"  ... payload_type= empty tls_client_hello
-#   key="gv_tcp"  ... payload_type= all
-#   key="rkn_tcp" ... payload_type= all
-# Сторожим порядок токенов у всех трёх TLS-пулов сразу.
+# Продолжения TLS-записей должны доходить до детектора с l7payload=unknown.
 for _key in rkn_tcp yt_tcp gv_tcp; do
     _prof=$(printf '%s\n' "$OUT" | awk -f "$ROOT/tests/lib/nfqws2_flatten.awk" \
             | grep -F "key=$_key" | head -1)
@@ -192,6 +165,22 @@ for _key in rkn_tcp yt_tcp gv_tcp; do
         no "$_key: сужение circular по payload" "--payload= после circular" "стоит перед ним"
     fi
 done
+
+# QUIC must receive the actual capture limits, including generator overrides.
+for _limits in "8 8" "4 6"; do
+    set -- "${_limits% *}" "${_limits#* }"
+    _qout=$(Z2K_UDP_PKT_IN=$1 Z2K_UDP_PKT_OUT=$2 ZAPRET2_DIR="$root" generate_nfqws2_opt_from_strategies 2>/dev/null)
+    _qprof=$(printf '%s\n' "$_qout" | awk -f "$ROOT/tests/lib/nfqws2_flatten.awk" | grep -F 'key=yt_quic' | head -1)
+    case "$_qprof" in
+        *failure_detector=z2k_fail_quic_silence:quic_in_limit="$1":quic_out_limit="$2"*)
+            ok "QUIC capture limits in=$1 out=$2 reach circular" ;;
+        *) no "QUIC capture limits reach circular" "$1/$2" "missing or stale" ;;
+    esac
+done
+case "$HTTP" in
+    *--payload=all*--lua-desync=circular:*) ok "HTTP continuations reach circular" ;;
+    *) no "HTTP continuations reach circular" "payload=all" "narrow filter" ;;
+esac
 
 # --- 2b. Нет файла — нет и проводки --------------------------------------------
 # Иначе движок валится в error() на каждом пакете профиля, и профиль РКН
@@ -214,9 +203,7 @@ case "$HTTP_NOLUA" in
 esac
 
 # --- 3. Окно входящих ----------------------------------------------------------
-# Число живёт в z2k_reply_pkt_cap: его читает и тело конфига, и сторож обрыва
-# (ему потолок нужен, чтобы отличать «поток встал» от «мы ослепли»). Разъедься
-# они — сторож начнёт судить вслепую, поэтому проверяем саму функцию.
+# Окно должно позволять достичь штатного порога успеха.
 _pkt_in=$(sed -n '/^z2k_reply_pkt_cap()/,/^}/p' "$ROOT/lib/config_official.sh" \
           | grep -oE 'echo [0-9]+' | head -1 | grep -oE '[0-9]+')
 if [ "$_pkt_in" = "10" ]; then
