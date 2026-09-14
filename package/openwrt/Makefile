@@ -44,11 +44,13 @@ define Package/z2k-adapter
   # install без него — нерабочий продукт (§2).
   # Versioned (>=) через EXTRA_DEPENDS — нативный механизм OpenWrt для
   # версионных constraint'ов (в DEPENDS им не место: там kconfig-символы).
+  # Формат — нативная грамматика APK (без пробелов: пробел рвал бы токен
+  # парсером control-файла, доказано CI-раном "dependency format is invalid").
   # live-урок p-84.17 — apk upgrade НЕ co-upgrade'ит уже установленный dep
   # без constraint'а. Нижняя граница = текущий runtime APK; консистентность
   # с package/z2k-runtime/Makefile сторожит тест. Lockstep: snapshot бампит все.
   DEPENDS:=+kmod-nft-queue +conntrack +z2k-zapret2-runtime
-  EXTRA_DEPENDS:=z2k-zapret2-runtime (>= 1.0.5.1-r4)
+  EXTRA_DEPENDS:=z2k-zapret2-runtime>=1.0.5.1-r4
 endef
 
 define Package/z2k-adapter/description
@@ -73,7 +75,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>= 0.1.0-r3)
+  EXTRA_DEPENDS:=z2k-adapter>=0.1.0-r3
 endef
 
 define Package/z2k-webpanel/description
