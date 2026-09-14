@@ -23,8 +23,15 @@ _aver="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$MK" | head -1 | tr -d ' \t\r\n')
 _arel="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$MK" | head -1 | tr -d ' \t\r\n')"
 _rver="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$REPO/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
 _rrel="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$REPO/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
-assert_contains "webpanel dep == adapter version" "$MK" "EXTRA_DEPENDS:=z2k-adapter>=${_aver}-r${_arel}"
-assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapret2-runtime>=${_rver}-r${_rrel}"
+assert_contains "webpanel dep == adapter version" "$MK" "EXTRA_DEPENDS:=z2k-adapter (>=${_aver}-r${_arel})"
+assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapret2-runtime (>=${_rver}-r${_rrel})"
+# Каноническая грамматика FormatDepends (два провала доказали оба края):
+# "name (>=ver)" — пробел только между именем и скобкой. Проверяем форму
+# строго, чтобы правка не вернула ни "pkg>=ver", ни "(>= ver)".
+for _dep in "z2k-adapter (>=${_aver}-r${_arel})" "z2k-zapret2-runtime (>=${_rver}-r${_rrel})"; do
+    if printf '%s' "$_dep" | grep -qE '^[A-Za-z0-9+._-]+ \(([<>=!]+[^ )]+)\)$'; then _t_ok
+    else _t_bad "dep не в канонической форме: [$_dep]"; fi
+done
 assert_contains "webpanel init install" "$MK" "files/etc/init.d/z2k-webpanel"
 assert_contains "prerm uninstall" "$MK" "z2k_ow_uninstall"
 assert_contains "uninstall stops service" "$REPO/platform/openwrt/uninstall.sh" "stop"
