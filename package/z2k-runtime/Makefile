@@ -7,10 +7,10 @@
 #
 # Pin — единственное место правды (§3), дублируется в provenance.json
 # (RUNTIME_* через build-release.sh) и в closure-тесте:
-#   TAG (upstream tag):            v1.0.5.1-z2k-r2
-#   TARBALL:                       zapret2-v1.0.5.1-z2k-r2-openwrt-embedded.tar.gz
-#   URL:  https://github.com/necronicle/zapret2-z2k/releases/download/v1.0.5.1-z2k-r2/zapret2-v1.0.5.1-z2k-r2-openwrt-embedded.tar.gz
-#   SHA256:                        be3df5508cd0c2bbbfe220aecc5fbf43594d42a3eedf8bcdaa844bb5a01aba8e
+#   TAG (upstream tag):            v1.0.5.1-z2k-r3
+#   TARBALL:                       zapret2-v1.0.5.1-z2k-r3-openwrt-embedded.tar.gz
+#   URL:  https://github.com/necronicle/zapret2-z2k/releases/download/v1.0.5.1-z2k-r3/zapret2-v1.0.5.1-z2k-r3-openwrt-embedded.tar.gz
+#   SHA256:                        5d9bfd9d490f13d7aefc8d25269b44f6e06b1ad47be144f331df6476d33d93fe
 #   TARGET ARCH:                   aarch64 (mediatek/filogic); ELF64 AArch64 EXEC,
 #                                  static (без PT_INTERP) — доказано CI-гейтом.
 # Почему repack, а не сборка из исходников: upstream не публикует .ipk,
@@ -27,18 +27,18 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=z2k-zapret2-runtime
 # Версия APK: upstream 1.0.5.1 + PKG_RELEASE. APK-грамматика запрещает
 # дефисы внутри версии ("1.0.5.1-z2k-r2-r1 invalid", доказано CI-раном),
-# поэтому upstream-repack идёт СЧЁТЧИКОМ: r2 -> RELEASE 2.
+# поэтому upstream-repack идёт СЧЁТЧИКОМ: r3 -> RELEASE 3.
 # Правило bump'а: PKG_RELEASE = max(upstream-repack, packaging-rev),
 # строго растёт при любом изменении содержимого; upstream 1.0.5.2-r0
 # начнётся с RELEASE 1. Точный upstream tag — в Z2K_RT_TAG ниже.
 PKG_VERSION:=1.0.5.1
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 # Точный upstream tag (единственное место правды для tooling/provenance;
 # PKG_VERSION его не несёт из-за APK-грамматики, см. выше).
-Z2K_RT_TAG:=v1.0.5.1-z2k-r2
-PKG_SOURCE:=zapret2-v1.0.5.1-z2k-r2-openwrt-embedded.tar.gz
-PKG_SOURCE_URL:=https://github.com/necronicle/zapret2-z2k/releases/download/v1.0.5.1-z2k-r2/
-PKG_HASH:=be3df5508cd0c2bbbfe220aecc5fbf43594d42a3eedf8bcdaa844bb5a01aba8e
+Z2K_RT_TAG:=v1.0.5.1-z2k-r3
+PKG_SOURCE:=zapret2-v1.0.5.1-z2k-r3-openwrt-embedded.tar.gz
+PKG_SOURCE_URL:=https://github.com/necronicle/zapret2-z2k/releases/download/v1.0.5.1-z2k-r3/
+PKG_HASH:=5d9bfd9d490f13d7aefc8d25269b44f6e06b1ad47be144f331df6476d33d93fe
 # Лицензия upstream не задекларирована (в tarball нет LICENSE, GitHub license
 # API пуст и у форка, и у bol-van/zapret): честный Unknown вместо угаданного
 # идентификатора. Уточнить при первом bump'е, если upstream задекларирует.
@@ -50,7 +50,7 @@ PKG_MAINTAINER:=z2k contributors
 # кладёт дерево РЯДОМ с PKG_BUILD_DIR (tar -C PKG_BUILD_DIR/..), и рецепт
 # тогда не видит файлов (доказано двумя CI-ранами: сначала пустая сборка,
 # потом No such file). Z2K_RT_TOPDIR в рецепте НЕ используется.
-Z2K_RT_TOPDIR:=zapret2-v1.0.5.1-z2k-r2
+Z2K_RT_TOPDIR:=zapret2-v1.0.5.1-z2k-r3
 # Явный unpack со strip единственного верхнего каталога: без него дерево
 # ложится мимо PKG_BUILD_DIR. Присваивание РЕКУРСИВНОЕ (=, не :=):
 # PKG_BUILD_DIR связан поздно (per-package), немедленное раскрытие замораживает

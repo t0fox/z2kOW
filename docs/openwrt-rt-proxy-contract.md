@@ -20,11 +20,21 @@ exact RuTracker hostname → ndmc DNS-override → 10.171.171.171
 → z2k-rt-proxy → ps1.blockme.site HTTPS CONNECT pool
 ```
 
-Daemon argv (`files/init.d/S96z2k-rt-proxy:160`):
+Daemon argv (`files/init.d/S96z2k-rt-proxy:185`, p-84.17 — плюс so-mark):
 
 ```text
-GODEBUG=asyncpreemptoff=1 $BIN --listen=:1445 --timeout=15m
+GODEBUG=asyncpreemptoff=1 $BIN --listen=:1445 --timeout=15m $MARK_ARG
 ```
+
+`MARK_ARG=--so-mark=<метка>` (p-84.17, коммит `5eef8ea`): мост метит свои
+исходящие сокеты меткой desync-движка, иначе очереди видят его соединения
+к `ps1.blockme.site` как обычную цель и движок заводит поиск обхода на
+собственный туннель. OW-порядок значения (`platform/openwrt/rt.sh`,
+`_z2k_ow_rt_somark`): `/etc/z2k/config DESYNC_MARK` → дефолт из файла самого
+runtime (`/opt/zapret2/init.d/openwrt/functions`, читается динамически) →
+встроенный дефолт (паритет с файлом ловит `test_ow_rt_somark.sh` §8 через
+`Z2K_RT_TARBALL`). Рычаг: `meta mark and DESYNC_MARK == 0 ... jump`
+(`common/nft.sh`, все хуки включая output) — помеченный пакет мимо очередей.
 
 Без `-v`, без секретов. Дефолты прокси/здоровья/резолвера — скомпилированы
 в Go (`rt-proxy/main.go:37-80`, НЕ дублировать в shell):

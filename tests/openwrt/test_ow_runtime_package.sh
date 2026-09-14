@@ -13,18 +13,22 @@ assert_contains "runtime stanza" "$MK" "define Package/z2k-zapret2-runtime"
 assert_contains "runtime BuildPackage" "$MK" "BuildPackage,z2k-zapret2-runtime"
 
 # Pin (§3): tag/url/sha в одном месте, точные строки.
-assert_contains "pin tag" "$MK" "Z2K_RT_TAG:=v1.0.5.1-z2k-r2"
-assert_contains "pin tarball" "$MK" "zapret2-v1.0.5.1-z2k-r2-openwrt-embedded.tar.gz"
-assert_contains "pin url" "$MK" "https://github.com/necronicle/zapret2-z2k/releases/download/v1.0.5.1-z2k-r2/"
-assert_contains "pin sha" "$MK" "PKG_HASH:=be3df5508cd0c2bbbfe220aecc5fbf43594d42a3eedf8bcdaa844bb5a01aba8e"
-assert_contains "pin topdir" "$MK" "Z2K_RT_TOPDIR:=zapret2-v1.0.5.1-z2k-r2"
+# r3 (p-84.17 sync): движок с поколениями вердиктов, upstream lib/install.sh
+# fallback_url указывает на r3 — расхождение пинов запрещено.
+assert_contains "pin tag" "$MK" "Z2K_RT_TAG:=v1.0.5.1-z2k-r3"
+assert_contains "pin tarball" "$MK" "zapret2-v1.0.5.1-z2k-r3-openwrt-embedded.tar.gz"
+assert_contains "pin url" "$MK" "https://github.com/necronicle/zapret2-z2k/releases/download/v1.0.5.1-z2k-r3/"
+assert_contains "pin sha" "$MK" "PKG_HASH:=5d9bfd9d490f13d7aefc8d25269b44f6e06b1ad47be144f331df6476d33d93fe"
+assert_contains "pin topdir" "$MK" "Z2K_RT_TOPDIR:=zapret2-v1.0.5.1-z2k-r3"
 assert_contains "pin binarch" "$MK" "Z2K_RT_BINARCH:=linux-arm64"
 assert_contains "unpack strips topdir" "$MK" 'PKG_UNPACK=tar -C $(PKG_BUILD_DIR) --strip-components=1 -xzf $(DL_DIR)/$(PKG_SOURCE)'
+# Пин един: Keenetic fallback_url обязан указывать на тот же tag.
+assert_contains "keenetic pin parity" "$REPO/lib/install.sh" "releases/download/v1.0.5.1-z2k-r3/"
 
 # APK-версия — digits only + numeric release (дефисы запрещены грамматикой
 # APK: "1.0.5.1-z2k-r2-r1 invalid", доказано CI-раном; repack идёт счётчиком).
 assert_contains "apk version digits" "$MK" "PKG_VERSION:=1.0.5.1"
-assert_contains "apk release tracks repack" "$MK" "PKG_RELEASE:=2"
+assert_contains "apk release tracks repack" "$MK" "PKG_RELEASE:=3"
 if grep -qE '^PKG_(VERSION|RELEASE):=.*-' "$MK"; then
     _t_bad "дефис в PKG_VERSION/RELEASE (invalid APK version)"
 else

@@ -84,10 +84,18 @@ assert_contains "rt.sh: dual option ip" "$RT" 'Z2K_RT_SECTION_IP'
 assert_contains "rt.sh: verify v6-sentinel" "$RT" 'Z2K_RT_SENTINEL6'
 if grep -q 'AAAA ушёл upstream' "$RT"; then _t_ok; else _t_bad "rt.sh: нет AAAA-leak диагностики"; fi
 
-# --- argv: точная команда upstream, без дублирования дефолтов ---
-assert_contains "rt.sh: argv listen+timeout" "$RT" '"$Z2K_RT_BIN" "--listen=:$Z2K_RT_PORT" "--timeout=$Z2K_RT_TIMEOUT"'
+# --- argv: точная команда upstream + so-mark parity (p-84.17) ---
+assert_contains "rt.sh: argv listen+timeout+somark" "$RT" '"$Z2K_RT_BIN" "--listen=:$Z2K_RT_PORT" "--timeout=$Z2K_RT_TIMEOUT" "--so-mark=$(_z2k_ow_rt_somark)"'
 assert_not_contains "rt.sh: нет proxy-host в shell" "$_RTCODE" 'proxy-host|blockme'
 assert_not_contains "rt.sh: нет resolver в shell" "$_RTCODE" 'resolver.*1\.1\.1\.1'
+# so-mark: значение принадлежит runtime (конфиг -> файл runtime -> builtin),
+# своей копии числа нет (как S96: метка принадлежит движку). Бинарь умеет
+# флаг — доказано strings в sync-задаче (функционал: test_ow_rt_somark.sh).
+assert_contains "rt.sh: somark resolver" "$RT" '_z2k_ow_rt_somark() {'
+assert_contains "rt.sh: somark config key" "$RT" 'z2k_ow_rt_cfg DESYNC_MARK'
+assert_contains "rt.sh: somark runtime file" "$RT" 'init.d/openwrt/functions'
+assert_contains "rt.sh: somark builtin" "$RT" 'Z2K_RT_SOMARK_BUILTIN='
+assert_contains "contract: somark" "$REPO/docs/openwrt-rt-proxy-contract.md" 'so-mark'
 
 # --- nft: свои chains, чужой таблицы не создаём, нет flowtable ---
 assert_not_contains "rt.sh: нет add table" "$_RTCODE" 'add table|create table'

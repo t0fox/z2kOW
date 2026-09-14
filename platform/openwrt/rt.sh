@@ -80,11 +80,52 @@ _z2k_ow_rt_mut() { [ -n "$Z2K_RT_QUIET" ] || printf '%s\n' "$1"; }
 # Убийство — через helper (тестам — переопределить; procd поднимает сам).
 _z2k_ow_rt_kill() { kill "$@" 2>/dev/null || true; }
 
+# --- so-mark (p-84.17 parity с S96z2k-rt-proxy) ---
+# Собственные исходящие соединения моста (к ps1.blockme.site) — тоже
+# исходящий трафик роутера, и без метки очереди desync видят в нём обычную
+# цель: движок заводит поиск обхода на СОБСТВЕННЫЙ работающий туннель
+# (поймано upstream 12.09.2026 по журналу d2k).
+# Метка принадлежит zapret2-runtime: правило активации его nft-цепочек —
+# `meta mark and DESYNC_MARK == 0 ... jump <chain>` (common/nft.sh,
+# nft_activate_chain; хуки включают output/predefrag). Помеченный сокет
+# очереди пропускает — та же семантика, что d2k `-m mark RETURN` на Keenetic,
+# только рычаг штатный для обеих платформ.
+# Значение: /etc/z2k/config DESYNC_MARK (ОБЩИЙ ключ, см. firewall.sh §10) →
+# дефолт из файла самого runtime (читается динамически, НЕ копия) →
+# встроенный дефолт runtime. Расхождение встроенного с файлом runtime ловит
+# тест (молчаливый дрейф запрещён). Бинарь с --so-mark едет в том же seed/
+# manifest, что и этот код (refresh-binaries); старый бинарь без флага
+# возможен только при ручной подмене — preflight его не ловит, см. риски.
+# Z2K_ZAPRET2_RUNTIME гарантирует paths.sh (сорсится раньше всегда, см.
+# update.sh/init порядок; без него путь пуст и резолвер тихо падает на
+# builtin — fail-safe; литерал /opt в glue запрещён конвенцией слоя).
+Z2K_RT_SOMARK_FNS="${Z2K_RT_SOMARK_FNS:-${Z2K_ZAPRET2_RUNTIME}/init.d/openwrt/functions}"
+Z2K_RT_SOMARK_BUILTIN="${Z2K_RT_SOMARK_BUILTIN:-0x40000000}"
+_z2k_ow_rt_somark_valid() {
+    case "$1" in
+        0x*|0X*) case "$1" in 0[xX]*[!0-9a-fA-F]*|0x|0X) return 1;; *) return 0;; esac ;;
+        '') return 1 ;;
+        *[!0-9]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+_z2k_ow_rt_somark() {
+    local _m=""
+    _m="$(z2k_ow_rt_cfg DESYNC_MARK "")"
+    _z2k_ow_rt_somark_valid "$_m" || _m=""
+    if [ -z "$_m" ] && [ -f "$Z2K_RT_SOMARK_FNS" ]; then
+        _m=$(sed -n 's/^DESYNC_MARK=${DESYNC_MARK:-\(.*\)}.*/\1/p' "$Z2K_RT_SOMARK_FNS" 2>/dev/null | head -1)
+        _z2k_ow_rt_somark_valid "$_m" || _m=""
+    fi
+    [ -n "$_m" ] || _m="$Z2K_RT_SOMARK_BUILTIN"
+    printf '%s' "$_m"
+}
+
 # Собрать argv и выполнить $1 как команду (ровно одно слово-колбэк).
 z2k_ow_rt_with_argv() {
     local _cb="$1"
     shift
-    set -- "$Z2K_RT_BIN" "--listen=:$Z2K_RT_PORT" "--timeout=$Z2K_RT_TIMEOUT"
+    set -- "$Z2K_RT_BIN" "--listen=:$Z2K_RT_PORT" "--timeout=$Z2K_RT_TIMEOUT" "--so-mark=$(_z2k_ow_rt_somark)"
     "$_cb" "$@"
 }
 _z2k_ow_rt_procd_command() { procd_set_param command "$@"; }

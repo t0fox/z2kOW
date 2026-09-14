@@ -111,12 +111,12 @@ z2k_ow_rt_nft_remove
 assert_eq "delete chains 5" "5" "$(grep -c '^nft:delete chain' "$T/nft.log")"
 assert_contains "guard chain снесён" "$T/nft.log" 'delete chain inet zapret2 z2k_rt_flt_in'
 
-# --- argv: точная команда upstream ---
+# --- argv: точная команда upstream + so-mark (p-84.17 parity) ---
 _rec() { printf 'ARGV:%s\n' "$*" >> "$T/argv.log"; }
 : > "$T/argv.log"
 _out="$(z2k_ow_rt_with_argv _rec 2>"$T/argv.err")"
 assert_contains "бинарник+порты" "$T/argv.log" "$T/root/bin/z2k-rt-proxy --listen=:1445 --timeout=15m"
-assert_eq "ровно 3 argv (без дефолтов в shell)" "1" "$(grep -c "^ARGV:$T/root/bin/z2k-rt-proxy --listen=:1445 --timeout=15m$" "$T/argv.log")"
+assert_eq "ровно 4 argv (+so-mark builtin)" "1" "$(grep -c "^ARGV:$T/root/bin/z2k-rt-proxy --listen=:1445 --timeout=15m --so-mark=0x40000000$" "$T/argv.log")"
 assert_eq "builder молчит" "" "$_out$(cat "$T/argv.err")"
 
 # --- whitelist ensure (RT20): append exact-5, чужое цело ---
