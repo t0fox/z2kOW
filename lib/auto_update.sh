@@ -1200,6 +1200,9 @@ _au_rebuild_panel_openwrt() {
 au_step_reset_state() {
     local zd="${ZAPRET2_DIR:-/opt/zapret2}"
     local ac="$zd/extra_strats/cache/autocircular"
+    # PLATFORM HOOK (allowlisted): OpenWrt fallback state живёт в $Z2K_TMP,
+    # а не в /tmp (env.sh: Z2K_AU_STATE_FALLBACK). Unset = keenetic 1-в-1.
+    [ -n "${Z2K_AU_STATE_FALLBACK:-}" ] && rm -f "$Z2K_AU_STATE_FALLBACK" 2>/dev/null
     rm -f "${STATE_FILE:-$ac/state.tsv}" \
           "$ac/state.tsv.lock" "$ac/state.tsv.tmp" \
           /tmp/z2k-autocircular-state.tsv 2>/dev/null

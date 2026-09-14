@@ -47,6 +47,11 @@ export Z2K_STATE_DIR_OVERRIDE Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE
 # ${STATE_FILE} (дефолт — keenetic-путь; здесь указываем наш).
 STATE_FILE="${STATE_FILE:-$Z2K_STATE/state.tsv}"
 export STATE_FILE
+# Тот же fallback глазами reset-state: lua пишет запасную копию в
+# ${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE}/z2k-autocircular-state.tsv (см. выше),
+# шаг чистит её через этот hook (lib/auto_update.sh au_step_reset_state).
+Z2K_AU_STATE_FALLBACK="${Z2K_AU_STATE_FALLBACK:-$Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE/z2k-autocircular-state.tsv}"
+export Z2K_AU_STATE_FALLBACK
 
 # Пара 3-way merge extra-domains (au_merge_extra_domains): shipped-база из
 # payload, runtime-мерж в user-lists. Keenetic-дефолты — в самом хуке.

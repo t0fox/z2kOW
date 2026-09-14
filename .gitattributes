@@ -5,6 +5,9 @@
 *.ini text eol=lf
 *.conf text eol=lf
 *.md text eol=lf
+# Signature-bearing manifest: CRLF in a Windows checkout breaks
+# UPDATES.json.sig verification (ed25519 over exact bytes). p-84.17 sync fix.
+UPDATES.json text eol=lf
 
 # z2k OpenWrt adapter: extensionless router/packaging files must stay LF
 # (CRLF breaks shell/hotplug on the router). Path-scoped, additive only.

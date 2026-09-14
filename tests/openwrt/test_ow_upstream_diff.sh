@@ -27,6 +27,8 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #   lib/auto_update.sh: targetless fail-safe, Z2K_CONFIG_FILE/merge хуки,
 #     platform gate (§3/§6/§2.1) + Z2K_AU_NO_OWNER_START в refresh-binaries
 #     (только fresh-provisioning без owner bounce; дефолт — поведение 1-в-1)
+#     + Z2K_AU_STATE_FALLBACK в reset-state (p-84.17 sync: OW-fallback state
+#     живёт в $Z2K_TMP, unset = keenetic 1-в-1)
 #   scripts/gen_file_hashes.sh: platform-маркер только для non-keenetic (§2.1;
 #     keenetic-реген байт-идентичен — сторожит channel-тест)
 #   files/z2k-config-validator.sh: FAKE_DIR + lua EXTRA хуки (freeze audit:
