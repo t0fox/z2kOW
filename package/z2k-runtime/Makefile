@@ -25,8 +25,17 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-zapret2-runtime
-PKG_VERSION:=1.0.5.1-z2k-r2
-PKG_RELEASE:=1
+# Версия APK: upstream 1.0.5.1 + PKG_RELEASE. APK-грамматика запрещает
+# дефисы внутри версии ("1.0.5.1-z2k-r2-r1 invalid", доказано CI-раном),
+# поэтому upstream-repack идёт СЧЁТЧИКОМ: r2 -> RELEASE 2.
+# Правило bump'а: PKG_RELEASE = max(upstream-repack, packaging-rev),
+# строго растёт при любом изменении содержимого; upstream 1.0.5.2-r0
+# начнётся с RELEASE 1. Точный upstream tag — в Z2K_RT_TAG ниже.
+PKG_VERSION:=1.0.5.1
+PKG_RELEASE:=2
+# Точный upstream tag (единственное место правды для tooling/provenance;
+# PKG_VERSION его не несёт из-за APK-грамматики, см. выше).
+Z2K_RT_TAG:=v1.0.5.1-z2k-r2
 PKG_SOURCE:=zapret2-v1.0.5.1-z2k-r2-openwrt-embedded.tar.gz
 PKG_SOURCE_URL:=https://github.com/necronicle/zapret2-z2k/releases/download/v1.0.5.1-z2k-r2/
 PKG_HASH:=be3df5508cd0c2bbbfe220aecc5fbf43594d42a3eedf8bcdaa844bb5a01aba8e

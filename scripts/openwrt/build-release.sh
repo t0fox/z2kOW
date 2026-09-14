@@ -265,7 +265,9 @@ export OW_RELEASE SDK_URL SDK_SHA256
 export SDK_DIR="$SDK" TARGET ARCH SRC_COMMIT PKG_VERSION PKG_RELEASE
 export ADAPTER_API SEED_TAG SEED_REF VERIFIED_REMOTE MANIFEST_CURRENT
 # Runtime pin — из его Makefile (единственное место правды, §3).
-RUNTIME_TAG="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$ROOT/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
+# TAG — из Z2K_RT_TAG (PKG_VERSION несёт только upstream digits: APK-грамматика
+# запрещает дефисы, а repack идёт счётчиком PKG_RELEASE).
+RUNTIME_TAG="$(sed -n 's/^Z2K_RT_TAG:=\(.*\)/\1/p' "$ROOT/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
 RUNTIME_URL="$(sed -n 's|^PKG_SOURCE_URL:=\(.*\)|\1|p' "$ROOT/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')$(sed -n 's/^PKG_SOURCE:=\(.*\)/\1/p' "$ROOT/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
 RUNTIME_SHA256="$(sed -n 's/^PKG_HASH:=\(.*\)/\1/p' "$ROOT/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
 [ -n "$RUNTIME_TAG" ] && [ -n "$RUNTIME_URL" ] && [ -n "$RUNTIME_SHA256" ] \
