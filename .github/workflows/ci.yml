@@ -1098,13 +1098,16 @@ jobs:
           "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 info -v 2>/dev/null | grep '^z2k' || \
             "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 --allow-untrusted info 2>/dev/null | grep '^z2k'
           # Phase 2: ОДНА canonical user-операция против нового фида.
+          # ВНИМАНИЕ: --usermode/--initdb — ТОЛЬКО флаги add (upgrade их
+          # отвергает "unrecognized option", доказано раном; --no-scripts на
+          # upgrade допустим и обязателен — postinst целится в /usr/lib/z2k).
           # shellcheck disable=SC2086
           NEW_REPOS="$(z2k_apk_repos "$apkbin" "$RUNNER_TEMP" "http://127.0.0.1:$NEW_PORT/packages.adb")"
           test -n "$NEW_REPOS"
           # shellcheck disable=SC2086
           "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 --allow-untrusted \
             $NEW_REPOS \
-            --usermode --no-scripts upgrade z2k-webpanel
+            --no-scripts upgrade z2k-webpanel
           echo "--- after:"
           _v="$("$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 info -v 2>/dev/null | grep '^z2k' || true)"
           printf '%s\n' "$_v"
