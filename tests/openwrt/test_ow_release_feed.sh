@@ -19,7 +19,7 @@ openssl genpkey -algorithm ed25519 -out "$T/feed.key" 2>/dev/null || exit 1
 openssl pkey -in "$T/feed.key" -pubout -out "$T/feed.pub" 2>/dev/null || exit 1
 openssl genpkey -algorithm ed25519 -out "$T/other.key" 2>/dev/null || exit 1
 openssl pkey -in "$T/other.key" -pubout -out "$T/other.pub" 2>/dev/null || exit 1
-printf 'z2k-adapter-0.1.0-r1.apk\nz2k-webpanel-0.1.0-r1.apk\n' > "$T/files.txt"
+printf 'z2k-adapter-0.1.0-r2.apk\nz2k-webpanel-0.1.0-r2.apk\n' > "$T/files.txt"
 ( cd "$T" && sha256sum files.txt > sha256sums )
 # sign: та же примитивная схема, что у payload (pkeyutl -rawin), тем же ключом
 # типа, что поставляет оператор для фида (формат ключа фида — см. контракт).

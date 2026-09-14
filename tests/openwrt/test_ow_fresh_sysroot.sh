@@ -21,6 +21,11 @@ SR="$T/sysroot"
 mkdir -p "$SR/usr/lib/z2k/bin" "$SR/usr/lib/z2k/platform/openwrt" \
          "$SR/etc/z2k" "$SR/tmp/z2k" "$T/bin" "$T/repo" "$T/au-tmp"
 export PATH="$T/bin:/usr/bin:/bin"
+# required binaries fixture (preflight требует TG/RT/detect как completeness).
+for _b in tg-mtproxy-client z2k-rt-proxy z2k-detect; do
+    printf '#!/bin/sh\nexit 0\n' > "$SR/usr/lib/z2k/bin/$_b"
+    chmod +x "$SR/usr/lib/z2k/bin/$_b"
+done
 
 # --- ambient /opt хоста не используется: все runtime-пути ниже — в $T ---
 export Z2K_PLATFORM=openwrt
@@ -68,6 +73,19 @@ else
     esac
 fi
 : > "$T/rt/lua/zapret-auto.lua"
+# required binaries: отсутствие любого роняет preflight (completeness).
+rm -f "$SR/usr/lib/z2k/bin/tg-mtproxy-client"
+if z2k_ow_runtime_preflight 2>"$T/pre.out"; then
+    _t_bad "preflight без tg-mtproxy-client прошёл"
+else
+    _t_ok
+    case "$(cat "$T/pre.out")" in
+        *missing*required*binary*tg-mtproxy-client*) _t_ok ;;
+        *) _t_bad "preflight без tg: нет missing required binary" ;;
+    esac
+fi
+printf '#!/bin/sh\nexit 0\n' > "$SR/usr/lib/z2k/bin/tg-mtproxy-client"
+chmod +x "$SR/usr/lib/z2k/bin/tg-mtproxy-client"
 
 # --- B. настоящий seed в sysroot ---
 sh "$REPO/package/openwrt/make-seed.sh" "$REPO" "$T/seed.tar.gz" >/dev/null 2>&1 \

@@ -56,6 +56,17 @@ z2k_ow_runtime_preflight() {
             return 1
         fi
     done
+    # Required z2k-owned binaries (инвариант fresh-install completeness):
+    # tg-mtproxy-client, z2k-rt-proxy, z2k-detect ставит ensure-binaries
+    # (postinst best-effort / updater); WARP — optional (кнопка), здесь
+    # не проверяется. Отсутствующий required — громкий отказ, а не
+    # молчаливый skip: silent-degraded core хуже нестартанувшего.
+    for _n in tg-mtproxy-client z2k-rt-proxy z2k-detect; do
+        if [ ! -x "${Z2K_BIN:-/usr/lib/z2k/bin}/$_n" ]; then
+            echo "z2k-openwrt: missing required binary: ${Z2K_BIN:-/usr/lib/z2k/bin}/$_n (fresh install incomplete: нет сети для ensure?)" >&2
+            return 1
+        fi
+    done
     return 0
 }
 

@@ -923,9 +923,39 @@ jobs:
           mv -f packages.adb.orig packages.adb
           shred -u feed-test.key feed-wrong.key
 
-      # Resolution proof в изолированном root (§12 closure): только индекс +
-      # резолв, НЕ router runtime. Подпись обходится ЯВНО (dev-режим артефакта;
-      # сама подпись доказана шагом выше настоящим verify).
+      # Minimal signed feed (§2-§4 closure): ТОЛЬКО publish-APK (3 шт.),
+      # индекс пересобран mkndx и подписан нативным apk-механизмом.
+      # Ключ — ephemeral EC P-256 (как BUILD_KEY_SDK; production-ключа здесь
+      # нет и быть не должно). Приват уничтожается до upload, pub едет
+      # в artifact (точка доверия live-валидации: ключ в /etc/apk/keys).
+      - name: Assemble minimal signed feed (publish APKs only)
+        run: |
+          set -eu -o pipefail
+          apkbin=~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk
+          test -x "$apkbin"
+          feed="$RUNNER_TEMP/dist/feed"
+          mkdir -p "$feed"
+          cp -f "$RUNNER_TEMP/dist"/z2k-adapter-*.apk "$RUNNER_TEMP/dist"/z2k-webpanel-*.apk "$RUNNER_TEMP/dist"/z2k-zapret2-runtime-*.apk "$feed/"
+          test "$(ls "$feed"/*.apk | wc -l)" = "3"
+          openssl ecparam -name prime256v1 -genkey -noout -out "$feed/feed-apk.key"
+          openssl ec -in "$feed/feed-apk.key" -pubout -out "$feed/feed.pub"
+          (cd "$feed" && "$apkbin" mkndx --root "$feed" --keys-dir "$feed" --allow-untrusted --sign "$feed/feed-apk.key" --output packages.adb z2k-*.apk)
+          # proof: sig-блок есть; с нашим pub в keys-dir — ни одного UNTRUSTED.
+          "$apkbin" adbdump "$feed/packages.adb" | grep -q 'sig '
+          mkdir -p "$feed/keys"
+          cp -f "$feed/feed.pub" "$feed/keys/"
+          if "$apkbin" --keys-dir "$feed/keys" adbdump "$feed/packages.adb" 2>&1 | grep -q UNTRUSTED; then
+            echo "feed index signature NOT trusted by shipped pub — FAIL" >&2
+            exit 1
+          fi
+          echo "feed index signed + trusted by feed.pub"
+          shred -u "$feed/feed-apk.key"
+
+      # Resolution proof в изолированном root (§12 closure + parity flow):
+      # ставим ТОЛЬКО z2k-webpanel — adapter и runtime обязаны приехать сами
+      # по DEPENDS (никто их не перечисляет). Репозитории ДОБАВЛЯЮТСЯ флагом
+      # --repository (нормальный режим); --repositories-file ЗАПРЕЩЁН здесь —
+      # он ЗАМЕНЯЕТ normal repositories, и тест тогда доказывал бы другой режим.
       # v3-тонкости (пойманы CI по очереди):
       #   - lib/apk/db сам не создаётся ("Unable to lock database") — mkdir;
       #   - пустой root надо инициализировать ("Unable to read database") —
@@ -939,7 +969,12 @@ jobs:
       #     пакеты uniformly uninstallable (доказано логом: arch везде
       #     aarch64_cortex-a53, хост x86_64, /etc/apk/arch пуст). apk берёт
       #     arch из флага, файла /etc/apk/arch или uname — задаём оба.
-      - name: Feed resolution in isolated root (SDK apk)
+      #   - search/usermode-несовместимость: --initdb/--no-scripts/--usermode —
+      #     ТОЛЬКО флаги add (search их отвергает "unrecognized option").
+      #   - feed раздаём по http threaded-сервером (single-threaded
+      #     http.server роняет параллельные fetch apk: EPERM на роутере,
+      #     доказано live-сессией).
+      - name: Feed resolution in isolated root (SDK apk, http + --repository)
         run: |
           set -eu -o pipefail
           apkbin=~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk
@@ -948,9 +983,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/approot/etc/apk/keys" "$RUNNER_TEMP/approot/etc/apk/repositories.d"
           mkdir -p "$RUNNER_TEMP/approot/lib/apk/db" "$RUNNER_TEMP/approot/tmp"
           # Резолв — против НАСТОЯЩИХ фидов релиза (тот же 25.12.5, что и SDK:
-          # версионная консистентность по построению). Пять ролей, все
-          # обязательны: наш dist + target packages (kernel/libc/libpthread)
-          # + arch base + arch packages + kmods таргета под ТОЧНЫЙ kernel ABI.
+          # версионная консистентность по построению). Наш feed — пятым,
+          # флагом --repository (добавляется, не заменяет).
           REL=25.12.5; ARCH=aarch64_cortex-a53; TGT=mediatek/filogic
           DL="https://downloads.openwrt.org/releases/$REL"
           # Kernel ABI — из target packages feed (источник правды), НЕ head -1
@@ -974,31 +1008,41 @@ jobs:
           echo "kmods ABI: $KABI"
           curl -fSLsS --retry 3 -o /dev/null "$DL/targets/$TGT/kmods/$KABI/" \
             || { echo "kmods dir $KABI отсутствует на релизе" >&2; exit 1; }
-          {
-            echo "file://$RUNNER_TEMP/dist/packages.adb"
-            echo "$DL/targets/$TGT/packages/packages.adb"
-            echo "$DL/packages/$ARCH/base/packages.adb"
-            echo "$DL/packages/$ARCH/packages/packages.adb"
-            echo "$DL/targets/$TGT/kmods/$KABI/packages.adb"
-          } > "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
-          cat "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list"
+          FEED_PORT=18881
+          python3 -c 'import functools,sys; from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), functools.partial(SimpleHTTPRequestHandler, directory=sys.argv[2])).serve_forever()' "$FEED_PORT" "$RUNNER_TEMP/dist/feed" &
+          FEED_SRV=$!
+          trap 'kill $FEED_SRV 2>/dev/null' EXIT
+          sleep 2
+          curl -fSLsS --max-time 10 -o /dev/null "http://127.0.0.1:$FEED_PORT/packages.adb"
           printf '%s\n' "aarch64_cortex-a53" > "$RUNNER_TEMP/approot/etc/apk/arch"
-          #   - search/usermode-несовместимость: --initdb/--no-scripts/--usermode —
-          #     ТОЛЬКО флаги add (search их отвергает "unrecognized option").
-          APKROOT=(--root "$RUNNER_TEMP/approot" --repositories-file "$RUNNER_TEMP/approot/etc/apk/repositories.d/z2k.list" --allow-untrusted --arch aarch64_cortex-a53)
-          "$apkbin" "${APKROOT[@]}" --usermode --initdb --no-scripts add z2k-adapter z2k-webpanel
-          "$apkbin" "${APKROOT[@]}" search z2k-adapter | grep -q z2k-adapter
-          "$apkbin" "${APKROOT[@]}" search z2k-webpanel | grep -q z2k-webpanel
+          # Ставим ТОЛЬКО webpanel: adapter приедет по его DEPENDS, runtime —
+          # по DEPENDS адаптера. Явное перечисление троицы здесь запретило бы
+          # сам предмет проверки (parity flow).
+          "$apkbin" --root "$RUNNER_TEMP/approot" --arch aarch64_cortex-a53 --allow-untrusted \
+            --repository "$DL/targets/$TGT/packages/packages.adb" \
+            --repository "$DL/packages/$ARCH/base/packages.adb" \
+            --repository "$DL/packages/$ARCH/packages/packages.adb" \
+            --repository "$DL/targets/$TGT/kmods/$KABI/packages.adb" \
+            --repository "http://127.0.0.1:$FEED_PORT/packages.adb" \
+            --usermode --initdb --no-scripts add z2k-webpanel
+          "$apkbin" --root "$RUNNER_TEMP/approot" --arch aarch64_cortex-a53 --allow-untrusted \
+            --repository "http://127.0.0.1:$FEED_PORT/packages.adb" \
+            search z2k-webpanel | grep -q z2k-webpanel
+          "$apkbin" --root "$RUNNER_TEMP/approot" --arch aarch64_cortex-a53 --allow-untrusted \
+            --repository "http://127.0.0.1:$FEED_PORT/packages.adb" \
+            search z2k-adapter | grep -q z2k-adapter
+          "$apkbin" --root "$RUNNER_TEMP/approot" --arch aarch64_cortex-a53 --allow-untrusted \
+            --repository "http://127.0.0.1:$FEED_PORT/packages.adb" \
+            search z2k-zapret2-runtime | grep -q z2k-zapret2-runtime
           test -f "$RUNNER_TEMP/approot/usr/lib/z2k/platform/openwrt/update.sh"
           test -f "$RUNNER_TEMP/approot/etc/init.d/z2k"
           test -f "$RUNNER_TEMP/approot/etc/init.d/z2k-webpanel"
           test -f "$RUNNER_TEMP/approot/usr/lib/z2k/share/seed.tar.gz"
-          # Runtime DEPENDS-resolution proof (§2): ставим только adapter+webpanel,
-          # как пользователь, — рантайм обязан приехать сам по DEPENDS.
+          # Runtime DEPENDS-resolution proof (§2): его никто не просил явно —
+          # он приехал сам как зависимость адаптера.
           test -f "$RUNNER_TEMP/approot/opt/zapret2/nfq2/nfqws2"
           test -f "$RUNNER_TEMP/approot/opt/zapret2/init.d/openwrt/functions"
           test -f "$RUNNER_TEMP/approot/opt/zapret2/lua/zapret-lib.lua"
-          "$apkbin" "${APKROOT[@]}" search z2k-zapret2-runtime | grep -q z2k-zapret2-runtime
 
       - name: Upload CI snapshot artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -1008,7 +1052,11 @@ jobs:
             ${{ runner.temp }}/dist/z2k-adapter-*.apk
             ${{ runner.temp }}/dist/z2k-webpanel-*.apk
             ${{ runner.temp }}/dist/z2k-zapret2-runtime-*.apk
+            ${{ runner.temp }}/dist/feed/packages.adb
+            ${{ runner.temp }}/dist/feed/feed.pub
             ${{ runner.temp }}/dist/packages.adb
+            ${{ runner.temp }}/dist/feed/packages.adb
+            ${{ runner.temp }}/dist/feed/feed.pub
             ${{ runner.temp }}/dist/sha256sums*
             ${{ runner.temp }}/dist/provenance.json
             ${{ runner.temp }}/dist/METADATA.txt

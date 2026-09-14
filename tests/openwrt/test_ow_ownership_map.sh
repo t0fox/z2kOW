@@ -39,12 +39,17 @@ while IFS= read -r _line; do
     case "$1" in
         /etc/init.d/z2k) _src="package/openwrt/files/etc/init.d/z2k" ;;
         /etc/init.d/z2k-webpanel) _src="package/openwrt/files/etc/init.d/z2k-webpanel" ;;
+        /etc/init.d/z2k-detect) _src="package/openwrt/files/etc/init.d/z2k-detect" ;;
         /etc/sysctl.d/99-z2k.conf) _src="package/openwrt/files/etc/sysctl.d/99-z2k.conf" ;;
         /etc/hotplug.d/iface/90-z2k) _src="package/openwrt/files/etc/hotplug.d/iface/90-z2k" ;;
         /usr/lib/z2k/platform/openwrt/*) _src="platform/openwrt/$(basename "$1")" ;;
         /usr/lib/z2k/share/config.default) _src="package/openwrt/files/etc/z2k/config.default" ;;
         /usr/lib/z2k/share/seed.tar.gz) _src="package/openwrt/make-seed.sh" ;;
         /usr/lib/z2k/share/adapter.api) _src="package/openwrt/ADAPTER_API" ;;
+        # snapshot truth: build-generated (Build/Prepare из manifests/commit),
+        # источник — рецепт, его создающий.
+        /usr/lib/z2k/share/snapshot-manifest.json) _src="package/openwrt/Makefile" ;;
+        /usr/lib/z2k/share/snapshot-commit) _src="package/openwrt/Makefile" ;;
         /opt/zapret2/*) _src="package/z2k-runtime/Makefile" ;;
         *) _src="" ;;
     esac

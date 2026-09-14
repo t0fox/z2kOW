@@ -36,10 +36,29 @@ z2k_ow_ensure_binaries() {
         return 1
     }
     if [ ! -s "$Z2K_AU_TMP_DIR/UPDATES.json" ]; then
-        au_fetch_manifest || {
+        if au_fetch_manifest 2>/dev/null; then
+            : # канал ok — production path (подписанный канал всегда первый)
+        elif [ -s "$Z2K_ROOT/share/snapshot-manifest.json" ] && \
+             [ -s "$Z2K_ROOT/share/snapshot-commit" ]; then
+            # Snapshot fallback: канала нет (офлайн/снапшот до релиза ветки),
+            # но сборка положила point-in-time truth. Привязка к коммиту —
+            # immutable raw-URL вместо плавающей ветки.
+            cp -f "$Z2K_ROOT/share/snapshot-manifest.json" \
+                "$Z2K_AU_TMP_DIR/UPDATES.json" 2>/dev/null || {
+                echo "z2k-openwrt: ensure-binaries: snapshot-манифест не лёг" >&2
+                return 1
+            }
+            Z2K_AU_TARGET_REF="$(tr -d ' \t\r\n' < "$Z2K_ROOT/share/snapshot-commit" 2>/dev/null)"
+            case "$Z2K_AU_TARGET_REF" in
+                ''|*[!0-9a-f]*) echo "z2k-openwrt: ensure-binaries: бит snapshot-commit" >&2; return 1 ;;
+            esac
+            export Z2K_AU_TARGET_REF
+            au_manifest_platform_ok "$Z2K_AU_TMP_DIR/UPDATES.json" || return 1
+            au_log "ensure-binaries: канал недоступен — snapshot-манифест ($Z2K_AU_TARGET_REF)"
+        else
             echo "z2k-openwrt: ensure-binaries: нет манифеста (сеть/канал?)" >&2
             return 1
-        }
+        fi
     fi
     # Только файлы, никаких owner stop/start (см. флаг): postinst не
     # стартует сервисы; владельцы на fresh-установке заведомо не запущены.

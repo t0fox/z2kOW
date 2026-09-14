@@ -23,6 +23,7 @@
 # Конфликт package∩updater (точные пути) = PACKAGE_UPDATER_OWNERSHIP_CONFLICT,
 # сторожит tests/openwrt/test_ow_ownership_map.sh.
 /etc/init.d/z2k package
+/etc/init.d/z2k-detect package
 /etc/hotplug.d/iface/90-z2k package
 /etc/sysctl.d/99-z2k.conf package
 /usr/lib/z2k/platform/openwrt/paths.sh package
@@ -54,6 +55,10 @@
 # Adapter API (Stage 7 §6): ставит пакет из package/openwrt/ADAPTER_API;
 # updater/installer/reinstall его НИКОГДА не пишут.
 /usr/lib/z2k/share/adapter.api package
+# Snapshot truth сборки (manifest+commit для fresh-provisioning без канала):
+# кладёт Build/Prepare пакета, updater не пишет, читает ensure-binaries.
+/usr/lib/z2k/share/snapshot-manifest.json package
+/usr/lib/z2k/share/snapshot-commit package
 # seed.meta едет ВНУТРИ tarball (build-факт о содержимом): updater-owned с
 # момента извлечения (апдейтер её не правит — только читает при re-seed).
 /usr/lib/z2k/share/seed.meta updater

@@ -94,4 +94,41 @@ else
     _t_ok
 fi
 
+# detect-сервис (parity S98z2k-detect): отдельный procd, Z2K_DISCOVER-gate.
+DET="$REPO/package/openwrt/files/etc/init.d/z2k-detect"
+assert_file "detect init существует" "$DET"
+assert_contains "detect instance" "$DET" 'procd_open_instance "z2k-detect"'
+assert_contains "detect ставится пакетом" "$MK" "files/etc/init.d/z2k-detect"
+assert_contains "detect ownership" "$REPO/package/openwrt/ownership.map" "/etc/init.d/z2k-detect package"
+assert_contains "detect fresh enable" "$MK" "/etc/init.d/z2k-detect enable"
+# Функционально: flag 0/absent -> instance нет; flag 1 + бинарь -> instance.
+DT="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-pkgd.XXXXXX")" || exit 1
+trap 'rm -rf "$DT"' EXIT INT TERM
+mkdir -p "$DT/etc"
+printf '#!/bin/sh\nexit 0\n' > "$DT/z2k-detect-bin"
+chmod +x "$DT/z2k-detect-bin"
+Z2K_ETC="$DT/etc" Z2K_DETECT_BIN="$DT/z2k-detect-bin"
+export Z2K_ETC Z2K_DETECT_BIN
+# shellcheck disable=SC1090,SC1091
+. "$DET" || { echo "FAIL[ow-package]: source z2k-detect" >&2; exit 1; }
+procd_open_instance() { printf 'INST:%s\n' "$1" >> "$DT/procd.calls"; }
+procd_set_param() { return 0; }
+procd_close_instance() { return 0; }
+: > "$DT/procd.calls"
+printf 'ENABLED=1\n' > "$DT/etc/config"
+start_service >/dev/null 2>&1
+if grep -q . "$DT/procd.calls" 2>/dev/null; then
+    _t_bad "detect без флага открыла instance (default обязан быть off)"
+else
+    _t_ok
+fi
+printf 'ENABLED=1\nZ2K_DISCOVER=1\n' > "$DT/etc/config"
+: > "$DT/procd.calls"
+if start_service >/dev/null 2>&1 && grep -q 'INST:z2k-detect' "$DT/procd.calls" 2>/dev/null; then
+    _t_ok
+else
+    _t_bad "detect с флагом не открыла instance"
+fi
+rm -rf "$DT"
+
 _t_done

@@ -19,12 +19,12 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
 # lists/strats/webpanel; z2k-owned TG/RT/WARP/z2k-detect едут updater binary
 # flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
-# Исключение — станза z2k-zapret2-runtime ниже: внешний pinned dataplane,
-# arch-specific по построению (свой PKG_VERSION и guard ARCH).
+# Внешний pinned dataplane — отдельный пакет package/z2k-runtime
+# (arch-specific, свои PKGARCH/VERSION).
 PKGARCH:=all
 PKG_MAINTAINER:=z2k contributors
 PKG_LICENSE:=MIT
@@ -81,6 +81,18 @@ endef
 define Build/Compile
 endef
 
+# Snapshot-манифест сборки (point-in-time truth для fresh-provisioning без
+# канала): build-release.sh кладёт кандидатный манифест и source commit
+# в Z2K_OW_SNAPSHOT_MANIFEST/Z2K_OW_SNAPSHOT_COMMIT — здесь забираем их
+# в PKG_BUILD_DIR. Без переменных — тихий noop (dev-сборки).
+# НЕ путать с seed: seed — updater-owned payload, это — package-owned
+# bootstrap-данные (ownership.map).
+define Build/Prepare
+	mkdir -p $(PKG_BUILD_DIR)
+	[ -z "$(Z2K_OW_SNAPSHOT_MANIFEST)" ] || cp -f "$(Z2K_OW_SNAPSHOT_MANIFEST)" $(PKG_BUILD_DIR)/snapshot-manifest.json
+	[ -z "$(Z2K_OW_SNAPSHOT_COMMIT)" ] || printf '%s\n' "$(Z2K_OW_SNAPSHOT_COMMIT)" > $(PKG_BUILD_DIR)/snapshot-commit
+endef
+
 # conffiles НЕТ осознанно (Model A): init/hotplug — package-owned код,
 # обязаны обновляться вместе с пакетом, а не сохраняться как user-config.
 # /etc/z2k/* пакет вообще не поставляет (bootstrap создаёт, см. ownership.map
@@ -104,11 +116,17 @@ define Package/z2k-adapter/install
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/platform/openwrt/custom.d
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/share
 	$(INSTALL_BIN) ./files/etc/init.d/z2k $(1)/etc/init.d/z2k
+	$(INSTALL_BIN) ./files/etc/init.d/z2k-detect $(1)/etc/init.d/z2k-detect
 	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/90-z2k $(1)/etc/hotplug.d/iface/90-z2k
 	$(INSTALL_DATA) ./files/etc/z2k/config.default $(1)/usr/lib/z2k/share/config.default
 	# Adapter API (Stage 7 §6): package-owned source of truth; updater его
 	# никогда не перезаписывает. Абсолютный путь через Z2K_TREE (как seed).
 	$(INSTALL_DATA) $(Z2K_TREE)/package/openwrt/ADAPTER_API $(1)/usr/lib/z2k/share/adapter.api
+	# Snapshot-манифест сборки + commit (готовит Build/Prepare выше, только
+	# если build-release.sh их передал; dev-сборки без них — файлов нет,
+	# ensure тогда работает только через канал).
+	if [ -f $(PKG_BUILD_DIR)/snapshot-manifest.json ]; then $(INSTALL_DATA) $(PKG_BUILD_DIR)/snapshot-manifest.json $(1)/usr/lib/z2k/share/snapshot-manifest.json; fi
+	if [ -f $(PKG_BUILD_DIR)/snapshot-commit ]; then $(INSTALL_DATA) $(PKG_BUILD_DIR)/snapshot-commit $(1)/usr/lib/z2k/share/snapshot-commit; fi
 	# platform/ — в КОРНЕ дерева, а рецепт работает из package/openwrt/
 	# (./files/... ниже — package-local, им префикс не нужен). Относительный
 	# ./platform/... здесь указывал в никуда (поймано реальным CI-раном).
@@ -180,6 +198,10 @@ sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1 || true
 if [ "$Z2K_OW_WAS_FRESH" = "1" ]; then
     /etc/init.d/z2k enable >/dev/null 2>&1 \
         || echo "z2k-openwrt: postinst: enable не удался" >&2
+    # detect-сервис ставим включённым (parity S98): сам демон self-gated
+    # флагом Z2K_DISCOVER (default OFF) и дормантен до включения.
+    /etc/init.d/z2k-detect enable >/dev/null 2>&1 \
+        || echo "z2k-openwrt: postinst: detect enable не удался" >&2
     if /etc/init.d/z2k start 2>&1; then
         sleep 2
         if /etc/init.d/z2k running >/dev/null 2>&1; then

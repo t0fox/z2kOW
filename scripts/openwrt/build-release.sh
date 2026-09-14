@@ -178,6 +178,15 @@ export VERIFIED_SDK
 note "SDK: $SDK"
 
 # --- 5. build --------------------------------------------------------------------
+# Snapshot truth для fresh-provisioning без канала: кандидатный манифест
+# (свежее дерево, platform=openwrt) + полный source commit едут в пакет
+# через Build/Prepare (package-owned bootstrap-данные, НЕ payload).
+# Production-путь их игнорирует (канал первый); snapshot fallback — в
+# z2k_ow_ensure_binaries. Переменные пустыми не бывают: MANIFEST и
+# SRC_COMMIT проверены гейтами выше.
+export Z2K_OW_SNAPSHOT_MANIFEST="$MANIFEST"
+export Z2K_OW_SNAPSHOT_COMMIT="$SRC_COMMIT"
+note "snapshot truth: manifest=$MANIFEST commit=$SRC_COMMIT"
 # Пакеты в SDK-дерево — симлинками (исходники остаются деревом релиза).
 # Два дерева: package/openwrt (adapter+webpanel, PKGARCH=all) и
 # package/z2k-runtime (pinned dataplane, target-arch): PKGARCH/VERSION/
