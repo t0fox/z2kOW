@@ -14,6 +14,8 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 CLOSURE="$REPO/package/z2k-runtime/runtime-closure.txt"
 MK="$REPO/package/z2k-runtime/Makefile"
 MAP="$REPO/package/openwrt/ownership.map"
+T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-rtclosure.XXXXXX")" || exit 1
+trap 'rm -rf "$T"' EXIT INT TERM
 
 assert_file "closure существует" "$CLOSURE"
 assert_file "runtime Makefile существует" "$MK"
@@ -83,10 +85,17 @@ if [ -n "${Z2K_RT_TARBALL:-}" ] && [ -f "$Z2K_RT_TARBALL" ]; then
             if grep -qxF "$_tp" "$_tl" 2>/dev/null; then _t_ok
             else _t_bad "tarball: нет $_tp (closure: $_e)"; fi
         done < "$CLOSURE"
-        # arm64 ELF proof прямо на tarball-бинарнике.
+        # arm64 ELF proof прямо на tarball-бинарнике: e_machine (offset 18,
+        # 2 байта LE), AArch64 = 183 = 0xB7. ТОЛЬКО dd+case (как detect_endianness
+        # в lib/utils.sh): BusyBox od не знает -A/-j/-N (сторожит
+        # test_router_shell_portability, issue #43), -c единственный
+        # разрешённый флаг — а нам нужен БАЙТ, не символ.
         _nfq="$_top/binaries/linux-arm64/nfqws2"
-        if tar -xzOf "$Z2K_RT_TARBALL" "$_nfq" 2>/dev/null | od -An -tx1 -j18 -N1 2>/dev/null | grep -q 'b7'; then _t_ok
-        else _t_bad "tarball: nfqws2 не AArch64 (e_machine!=0xb7)"; fi
+        _em="$(tar -xzOf "$Z2K_RT_TARBALL" "$_nfq" 2>/dev/null | dd bs=1 skip=18 count=1 2>/dev/null)"
+        case "$_em" in
+            "$(printf '\267')") _t_ok ;;
+            *) _t_bad "tarball: nfqws2 не AArch64 (e_machine low byte не 0xB7)" ;;
+        esac
     else
         _t_bad "tarball не читается: $Z2K_RT_TARBALL"
     fi
@@ -94,6 +103,57 @@ if [ -n "${Z2K_RT_TARBALL:-}" ] && [ -f "$Z2K_RT_TARBALL" ]; then
 else
     echo "SKIP[ow-runtime-closure]: нет Z2K_RT_TARBALL (релизный tarball; в CI подкладывается)"
     echo "SUITE-SECTION[ow-runtime-closure-tarball]: skipped"
+fi
+
+# --- 5. recipe исполняется (тот же текст, не эмуляция): извлекаем install-
+# рецепт из Makefile, подменяем make-функции shell-эквивалентами и гоняем
+# на настоящем tarball. Ловит опечатки путей/gunzip, которые grep-гейты
+# выше не видят. Только с Z2K_RT_TARBALL (как секция 4). ---
+if [ -n "${Z2K_RT_TARBALL:-}" ] && [ -f "$Z2K_RT_TARBALL" ]; then
+    _rx="$(mktemp -d "$T/rtx.XXXXXX")" || exit 1
+    tar -xzf "$Z2K_RT_TARBALL" -C "$_rx" || { echo "FAIL[ow-runtime-closure]: recipe extract" >&2; exit 1; }
+    _rdest="$T/recipe-dest"
+    mkdir -p "$_rdest" || exit 1
+    sed -n '/^define Package\/z2k-zapret2-runtime\/install$/,/^endef$/p' "$MK" \
+        | grep -v '^define ' | grep -v '^endef$' > "$T/recipe.sh"
+    # ARCH-guard: симулируем целевой env (сам guard проверен статикой выше);
+    # make-функции -> shell: INSTALL_DIR=mkdir, INSTALL_BIN/DATA=install.
+    ( ARCH=aarch64
+      export ARCH
+      _1="$_rdest"
+      _PBD="$_rx"
+      _TOP="$(sed -n 's/^Z2K_RT_TOPDIR:=\(.*\)/\1/p' "$MK" | head -1 | tr -d ' \t\r\n')"
+      _BA="linux-arm64"
+      [ -n "$_TOP" ] || exit 1
+      sed -e 's/\$(INSTALL_DIR)/mkdir -p/g' -e 's/\$(INSTALL_BIN)/install -m0755/g' \
+          -e 's/\$(INSTALL_DATA)/install -m0644/g' -e "s|\$(1)|$_1|g" \
+          -e "s|\$(PKG_BUILD_DIR)|$_PBD|g" -e "s|\$(Z2K_RT_TOPDIR)|$_TOP|g" \
+          -e "s|\$(Z2K_RT_BINARCH)|$_BA|g" -e 's/\$(ARCH)/$ARCH/g' \
+          "$T/recipe.sh" > "$T/recipe-run.sh"
+      sh -n "$T/recipe-run.sh" || exit 1
+      sh "$T/recipe-run.sh" || exit 1
+    ) || _t_bad "recipe не исполнился на настоящем tarball"
+    _rc_n=0
+    while IFS= read -r _e; do
+        case "$_e" in ''|'#'*) continue ;; esac
+        if [ -f "$_rdest/opt/zapret2/$_e" ]; then _t_ok
+        else _t_bad "recipe: нет результата $_e"; fi
+        _rc_n=$((_rc_n + 1))
+    done < "$CLOSURE"
+    _cl_n="$(grep -vcE '^#|^$' "$CLOSURE")"
+    assert_eq "recipe: файлов как в closure" "$_cl_n" "$_rc_n"
+    for _x in nfq2/nfqws2 ip2net/ip2net mdig/mdig; do
+        if [ -x "$_rdest/opt/zapret2/$_x" ]; then _t_ok
+        else _t_bad "recipe: $_x не +x"; fi
+    done
+    # lua распакован (первые байты — не gzip-магия 1f8b).
+    if [ "$(head -c 2 "$_rdest/opt/zapret2/lua/zapret-lib.lua" 2>/dev/null)" = "$(printf '\037\213')" ]; then
+        _t_bad "recipe: lua не распаковался (gzip внутри)"
+    else
+        _t_ok
+    fi
+else
+    echo "SKIP[ow-runtime-closure]: recipe-exec без Z2K_RT_TARBALL"
 fi
 
 _t_done

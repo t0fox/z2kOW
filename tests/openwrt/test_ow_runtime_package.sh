@@ -21,7 +21,11 @@ assert_contains "pin topdir" "$MK" "Z2K_RT_TOPDIR:=zapret2-v1.0.5.1-z2k-r2"
 assert_contains "pin binarch" "$MK" "Z2K_RT_BINARCH:=linux-arm64"
 
 # Arch-guard: только тестируемый таргет, чужая арка — fail closed.
-assert_contains "arch guard" "$MK" 'ifneq ($(ARCH),aarch64)'
+# Гард ЖИВЁТ в recipe (там ARCH верный): parse-time ifneq ронял регистрацию
+# пакета молча (scan без ARCH), доказано SDK-репро.
+assert_contains "arch guard recipe" "$MK" '[ "$(ARCH)" = "aarch64" ]'
+assert_contains "arch guard msg" "$MK" 'unsupported ARCH'
+assert_contains "binarch hardcode" "$MK" 'Z2K_RT_BINARCH:=linux-arm64'
 
 # DEPENDS runtime: ядро NFQUEUE-пути (зеркало upstream prereqs).
 _dep="$(sed -n '/^define Package\/z2k-zapret2-runtime$/,/^endef$/p' "$MK" 2>/dev/null | grep -E '^  DEPENDS:=')"

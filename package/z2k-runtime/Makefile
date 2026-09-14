@@ -38,11 +38,12 @@ PKG_MAINTAINER:=z2k contributors
 
 # Topdir внутри tarball — явный (не wildcard): смена layout upstream = fail closed.
 Z2K_RT_TOPDIR:=zapret2-v1.0.5.1-z2k-r2
-# Только тестируемый таргет: бинарь в пакете arch-specific. Расширение на
-# другие арки — отдельным изменением с маппингом и CI-доказательством.
-ifneq ($(ARCH),aarch64)
-  $(error z2k-zapret2-runtime: unsupported ARCH [$(ARCH)], only aarch64)
-endif
+# Бинарный каталог tarball для нашего единственного таргета захардкожен
+# (НЕ через $(ARCH)): package-Makefile парсится и сканером метаданных, где
+# ARCH пуст, и любой ifneq-гард ронял бы регистрацию пакета молча (поймано
+# локальным SDK-репро: пустая stanza в .packageinfo, сборка 0.17с вхолостую).
+# Чужой арке здесь неоткуда взяться:.guard ниже — в recipe (там ARCH верный),
+# плюс adbdump-гейт build-release.sh сверяет arch каждого .apk.
 Z2K_RT_BINARCH:=linux-arm64
 
 include $(INCLUDE_DIR)/package.mk
@@ -81,6 +82,9 @@ endef
 # lua распаковываем здесь (как Keenetic installer §4: движок ест plain .lua;
 # gzip на роутере не требуем).
 define Package/z2k-zapret2-runtime/install
+	# Arch-guard в recipe (здесь ARCH верный, в отличие от parse-time):
+	# пакет arch-specific, чужой таргет — громкий отказ, не чужой бинарь.
+	[ "$(ARCH)" = "aarch64" ] || { echo "z2k-zapret2-runtime: unsupported ARCH [$(ARCH)], only aarch64" >&2; exit 1; }
 	$(INSTALL_DIR) $(1)/opt/zapret2/nfq2 $(1)/opt/zapret2/ip2net $(1)/opt/zapret2/mdig
 	$(INSTALL_DIR) $(1)/opt/zapret2/lua $(1)/opt/zapret2/init.d/openwrt
 	$(INSTALL_DIR) $(1)/opt/zapret2/common $(1)/opt/zapret2/ipset

@@ -71,8 +71,10 @@ done
 printf 'verify-runtime: closure present\n'
 
 # e_machine field (offset 18, 2 bytes LE): AArch64 = 183 = 0xB7.
-if tar -xzOf "$TARBALL" "$_RT_TOP/binaries/$_RT_ARCH/nfqws2" 2>/dev/null \
-    | od -An -tx1 -j18 -N1 2>/dev/null | grep -q 'b7'; then
+# ТОЛЬКО dd+case (как detect_endianness в lib/utils.sh): BusyBox od не знает
+# -A/-j/-N (сторожит test_router_shell_portability), а скрипт обязан быть
+# переносимым везде, не только на CI-Ubuntu.
+if [ "$(tar -xzOf "$TARBALL" "$_RT_TOP/binaries/$_RT_ARCH/nfqws2" 2>/dev/null | dd bs=1 skip=18 count=1 2>/dev/null)" = "$(printf '\267')" ]; then
     printf 'verify-runtime: ELF AArch64 ok\n'
 else
     printf 'verify-runtime: nfqws2 не AArch64\n' >&2; exit 1
