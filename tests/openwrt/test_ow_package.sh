@@ -12,6 +12,8 @@ assert_contains "PKG_NAME" "$MK" "PKG_NAME:=z2k-adapter"
 assert_contains "BuildPackage" "$MK" "BuildPackage,z2k-adapter"
 assert_contains "init.d install" "$MK" "files/etc/init.d/z2k"
 assert_contains "hotplug install" "$MK" "files/etc/hotplug.d/iface/90-z2k"
+assert_contains "adapter resolves OpenSSL for signed manifest verification" "$MK" \
+    "DEPENDS:=+kmod-nft-queue +conntrack +openssl-util +z2k-zapret2-runtime"
 # Stage 6: опциональный сабпакет панели (зависимость + свой init, без payload).
 assert_contains "webpanel subpackage" "$MK" "Package/z2k-webpanel"
 assert_contains "webpanel BuildPackage" "$MK" "BuildPackage,z2k-webpanel"

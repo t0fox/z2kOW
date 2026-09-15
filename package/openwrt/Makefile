@@ -19,11 +19,13 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=8
+PKG_RELEASE:=9
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
 # бы два разных артефакта с одним именем.
+# RELEASE 9: resolve openssl-util with the adapter. WARP and updater manifest
+# signatures need Ed25519 verification before a pinned z2k-verify is available.
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
 # lists/strats/webpanel; z2k-owned TG/RT/WARP/z2k-detect едут updater binary
 # flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
@@ -40,6 +42,8 @@ define Package/z2k-adapter
   CATEGORY:=Network
   TITLE:=z2k OpenWrt adapter (thin layer over upstream z2k + zapret2 runtime)
   URL:=https://github.com/necronicle/z2k
+  # +openssl-util: signed WARP/updater manifests need the documented OpenSSL
+  # Ed25519 verifier fallback on OpenWrt; let apk resolve the dependency.
   # +z2k-zapret2-runtime: dataplane closure ставит отдельный пакет
   # (package/z2k-runtime — apk тянет его сам, установка z2kOW сама
   # обеспечивает runtime, parity с upstream installer); Model A: fresh
@@ -54,7 +58,7 @@ define Package/z2k-adapter
   # live-урок p-84.17 — apk upgrade НЕ co-upgrade'ит уже установленный dep
   # без constraint'а. Нижняя граница = текущий runtime APK; консистентность
   # с package/z2k-runtime/Makefile сторожит тест. Lockstep: snapshot бампит все.
-  DEPENDS:=+kmod-nft-queue +conntrack +z2k-zapret2-runtime
+  DEPENDS:=+kmod-nft-queue +conntrack +openssl-util +z2k-zapret2-runtime
   EXTRA_DEPENDS:=z2k-zapret2-runtime (>=1.0.5.1-r4)
 endef
 
@@ -80,7 +84,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r8)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r9)
 endef
 
 define Package/z2k-webpanel/description
