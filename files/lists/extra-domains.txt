@@ -47,5 +47,10 @@ security.iot.i.tplinknbu.com
 # и трек не играл. Замер 15.09.2026 на роутере владельца: до — 16 122 байта за
 # 20 с, после добавления — список 19 КБ и кусок 200 КБ за 0,4 с.
 soundcloud.cloud
+# Amazon CloudFront и AWS: на них живут медиа и API многих сервисов (SoundCloud,
+# Discord, часть игр), и блок по объёму режет их так же, как всё остальное.
+# Добавлены по указанию владельца 15.09.2026.
+amazonaws.com
+cloudfront.net
 tapo.com
 mailsuite.com

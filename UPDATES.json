@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "branch": "z2k-enhanced",
-  "seq": 101,
-  "current": "p-84.21",
+  "seq": 102,
+  "current": "p-84.22",
   "install_map": {
   "files/000-zapret2.sh": ["/opt/etc/ndm/netfilter.d/000-zapret2.sh"],
   "files/S99zapret2.new": ["/opt/etc/init.d/S99zapret2"],
@@ -166,7 +166,7 @@
   "files/init.d/S98z2k-detect": "fa699873791f5c07ecb1621940f45ba489a1c98d5fac26bc82f64177768d7ea2",
   "files/init.d/S99z2k-scheduler": "3c1ec23a3f47b2c79fd400da48a7b831b15d11c5553e8be253d48fbbfae7f60d",
   "files/lists/cf_extra_check_ips.txt": "79ffc4803151f5ded1de96d7dc1ecaba37ec2e4b2bb7985cecf8c7ff8da68975",
-  "files/lists/extra-domains.txt": "23c7328c111f6c4ec1d9a65cd804d39dc820f5288b0c2252f01a3584d76911e8",
+  "files/lists/extra-domains.txt": "638ca3d1d7cb81185d4b00cb7d74e2cea56cce43d4f59dcc67b206e8abd67d87",
   "files/lists/extra_strats/TCP/RKN/Discord.txt": "a56b277a06466c6a6152d7a48c17010629ae6f50c038a55b9d3889202bc9a7f1",
   "files/lists/extra_strats/TCP/RKN/List.txt": "e8c04588571fc5fbd798c255c5d39ac34af9855d86802f2dfbca97e5f3f251b2",
   "files/lists/extra_strats/TCP/YT/List.txt": "e9d2e1e18d2d7a73485b506306721171e0c264feed3546b6d964cc213eef191c",
@@ -261,7 +261,7 @@
   "webpanel/www/fonts/FiraSans-600-latin.woff2": "f3cc7b2756c566cf8172bfd269d805c4a1eb953f6b6ce8bf2b2ddf49c5422189",
   "webpanel/www/fonts/FiraSans-700-cyrillic.woff2": "42a8013e902099b563e434d3ccb3bed87ff6d6af8d80fe51ff203f2ac487673b",
   "webpanel/www/fonts/FiraSans-700-latin.woff2": "811e73619cc2909792e8fa134c8d1ed714b898310dd4cc218fc29e40a5dc2890",
-  "webpanel/www/index.html": "8028d5914d4be459cea15f6d471dd9e8956d1a9ef3d2cee9bc251fcd5542bb85",
+  "webpanel/www/index.html": "261ccb071021e295d469ee5019b811c34c4e0813d963b805b411d8b94d08c462",
   "webpanel/www/js/chrome.js": "3e2217758cde6d87f4809aaf65c4aafca582b936d9c53b19abb4adac1479fdef",
   "webpanel/www/js/core/api.js": "eaa798b49c02373a1cffcdee447587f9969194323dd5471ac74a07d4af7b235f",
   "webpanel/www/js/core/auth.js": "7afe5b139737783402f45fb654b9383b24d68779aae93a0f5f1847608252ad8c",
@@ -558,6 +558,7 @@
 {"v": "p-84.18", "type": "patch", "ts": "2026-09-14T17:05:31Z", "ref": "p-84.18", "desc": "WARP: транспорт можно выбрать вручную — WireGuard или MASQUE, можно вписать свой ключ WARP+, свои списки включаются и выключаются ползунком, а зависшее включение прерывается следующим нажатием. В ротаторе поддомены собраны под своим доменом. Команда z2k работает из любого каталога, а программы собраны исправленной версией Go.", "changed_files": ["webpanel/www/index.html", "files/init.d/S51z2k-warp", "files/lua/z2k-alert.lua", "files/z2k-warp.sh", "lib/auto_update.sh", "lib/config_official.sh", "lib/install.sh", "lib/utils.sh", "mtproxy-client/builds/tg-mtproxy-client-linux-386", "mtproxy-client/builds/tg-mtproxy-client-linux-amd64", "mtproxy-client/builds/tg-mtproxy-client-linux-arm", "mtproxy-client/builds/tg-mtproxy-client-linux-arm64", "mtproxy-client/builds/tg-mtproxy-client-linux-mips", "mtproxy-client/builds/tg-mtproxy-client-linux-mips64el", "mtproxy-client/builds/tg-mtproxy-client-linux-mips64le", "mtproxy-client/builds/tg-mtproxy-client-linux-mipsel", "mtproxy-client/builds/tg-mtproxy-client-linux-mipsle", "mtproxy-client/builds/tg-mtproxy-client-linux-ppc64", "mtproxy-client/builds/tg-mtproxy-client-linux-riscv64", "mtproxy-client/builds/tg-mtproxy-client-linux-x86", "mtproxy-client/builds/z2k-rt-proxy-linux-amd64", "mtproxy-client/builds/z2k-rt-proxy-linux-arm", "mtproxy-client/builds/z2k-rt-proxy-linux-arm64", "mtproxy-client/builds/z2k-rt-proxy-linux-mips", "mtproxy-client/builds/z2k-rt-proxy-linux-mipsel", "mtproxy-client/builds/z2k-rt-proxy-linux-mipsle", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/job.js", "webpanel/www/js/pages/strategies.js", "webpanel/www/js/pages/warp.js", "webpanel/www/js/state-model.js", "webpanel/www/style.css", "z2k-detect/builds/z2k-detect-linux-386", "z2k-detect/builds/z2k-detect-linux-amd64", "z2k-detect/builds/z2k-detect-linux-arm", "z2k-detect/builds/z2k-detect-linux-arm64", "z2k-detect/builds/z2k-detect-linux-mips", "z2k-detect/builds/z2k-detect-linux-mips64le", "z2k-detect/builds/z2k-detect-linux-mipsle", "z2k-detect/builds/z2k-detect-linux-ppc64", "z2k-detect/builds/z2k-detect-linux-riscv64", "z2k-verify/builds/z2k-verify-linux-386", "z2k-verify/builds/z2k-verify-linux-amd64", "z2k-verify/builds/z2k-verify-linux-arm", "z2k-verify/builds/z2k-verify-linux-arm64", "z2k-verify/builds/z2k-verify-linux-mips", "z2k-verify/builds/z2k-verify-linux-mips64le", "z2k-verify/builds/z2k-verify-linux-mipsle", "z2k-verify/builds/z2k-verify-linux-ppc64", "z2k-verify/builds/z2k-verify-linux-riscv64", "z2k-warpd/builds/z2k-warpd-linux-amd64", "z2k-warpd/builds/z2k-warpd-linux-arm", "z2k-warpd/builds/z2k-warpd-linux-arm64", "z2k-warpd/builds/z2k-warpd-linux-mips", "z2k-warpd/builds/z2k-warpd-linux-mips64el", "z2k-warpd/builds/z2k-warpd-linux-mipsel", "z2k-warpd/builds/z2k-warpd-linux-mipsle", "z2k-warpd/builds/z2k-warpd-linux-ppc64", "z2k-warpd/builds/z2k-warpd-linux-riscv64", "z2k-warpd/builds/z2k-warpd-linux-x86", "z2k.sh", "UPDATES.json"], "steps": ["regen-config", "validate-config", "refresh-binaries", "restart-service"], "full_install": false},
 {"v": "p-84.19", "type": "patch", "ts": "2026-09-15T06:46:07Z", "ref": "p-84.19", "desc": "Новый спонсор проекта — SIGogelon: имя появилось в меню роутера, в описании проекта и на странице «Благодарности» в веб-панели.", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false},
 {"v": "p-84.20", "type": "patch", "ts": "2026-09-15T11:37:00Z", "ref": "p-84.20", "desc": "Если после сбоя пропадало одно из правил обхода, например для исходящего HTTPS, роутер сам этого не замечал, и часть сайтов переставала открываться до ручного перезапуска. Теперь каждое нужное правило проверяется отдельно и возвращается автоматически.", "changed_files": ["webpanel/www/index.html", "files/z2k-nfqueue-selfheal.sh", "UPDATES.json"], "steps": [], "full_install": false},
-{"v": "p-84.21", "type": "patch", "ts": "2026-09-15T16:51:02Z", "ref": "p-84.21", "desc": "На SoundCloud снова играет музыка: поток шёл с нового адреса сервиса, который обход не обрабатывал, и обрывался в самом начале.", "changed_files": ["webpanel/www/index.html", "files/lists/extra-domains.txt", "UPDATES.json"], "steps": [], "full_install": false}
+{"v": "p-84.21", "type": "patch", "ts": "2026-09-15T16:51:02Z", "ref": "p-84.21", "desc": "На SoundCloud снова играет музыка: поток шёл с нового адреса сервиса, который обход не обрабатывал, и обрывался в самом начале.", "changed_files": ["webpanel/www/index.html", "files/lists/extra-domains.txt", "UPDATES.json"], "steps": [], "full_install": false},
+{"v": "p-84.22", "type": "patch", "ts": "2026-09-15T19:03:30Z", "ref": "p-84.22", "desc": "Сервисы на серверах Amazon CloudFront и AWS теперь под обходом: их адреса добавлены в список дополнительных доменов.", "changed_files": ["webpanel/www/index.html", "files/lists/extra-domains.txt", "UPDATES.json"], "steps": [], "full_install": false}
   ]
 }
