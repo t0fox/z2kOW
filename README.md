@@ -115,7 +115,7 @@ z2k-openwrt-CI-SNAPSHOT-<commit>
 
 ```text
 z2k-adapter-0.1.0-r4.apk
-z2k-webpanel-0.1.0-r3.apk
+z2k-webpanel-0.1.0-r4.apk
 z2k-zapret2-runtime-1.0.5.1-r4.apk
 packages.adb
 sha256sums
@@ -156,7 +156,7 @@ nft list table inet zapret
 ## 4. Установи webpanel
 
 ```sh
-apk add --allow-untrusted ./z2k-webpanel-0.1.0-r3.apk
+apk add --allow-untrusted ./z2k-webpanel-0.1.0-r4.apk
 /etc/init.d/z2k-webpanel enable
 /etc/init.d/z2k-webpanel start
 ```
