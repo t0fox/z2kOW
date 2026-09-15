@@ -67,6 +67,10 @@ assert_eq "manifest tcp" "/usr/lib/z2k/strats_new2.txt" "$(_ow strats_new2.txt)"
 assert_eq "manifest quic" "/usr/lib/z2k/quic_strats.ini" "$(_ow quic_strats.ini)"
 assert_eq "pem" "/usr/lib/z2k/etc/z2k-update-pub.pem" "$(_ow files/etc/z2k-update-pub.pem)"
 assert_eq "pool list" "/usr/lib/z2k/extra_strats/TCP/RKN/List.txt" "$(_ow files/lists/extra_strats/TCP/RKN/List.txt)"
+# p-84.21/22 domain delivery: extra-domains едет updater'ом под openwrt-корень
+# (soundcloud.cloud, amazonaws.com, cloudfront.net — см. seed-тест).
+if _ow files/lists/extra-domains.txt 2>/dev/null | grep -qxF '/usr/lib/z2k/lists/extra-domains.txt'; then _t_ok
+else _t_bad "extra-domains без openwrt-назначения"; fi
 
 # Model A (§4): package-owned НЕ имеет updater-маппингов (только opkg)
 assert_eq "adapter sh без маппинга" "" "$(_ow platform/openwrt/paths.sh)"

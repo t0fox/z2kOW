@@ -43,11 +43,19 @@ assert_file "payload.meta" "$Z2K_ROOT/share/payload.meta"
 assert_contains "meta platform" "$Z2K_ROOT/share/payload.meta" "platform=openwrt"
 assert_eq "tag из seed" "$_want_tag" "$(cat "$Z2K_ETC/state/installed-tag" 2>/dev/null)"
 assert_eq "meta.tag из seed" "$_want_tag" "$(sed -n 's/^tag=//p' "$Z2K_ROOT/share/payload.meta" | head -1)"
-# p-84.21 SoundCloud: extra-domains в seed содержит soundcloud.cloud
-# (иначе поток снова оборвётся в начале — см. релиз).
-if tar -xzOf "$Z2K_SEED_TARBALL" usr/lib/z2k/lists/extra-domains.txt 2>/dev/null \
-    | grep -qxF 'soundcloud.cloud'; then _t_ok
-else _t_bad "seed без soundcloud.cloud в lists/extra-domains.txt"; fi
+# p-84.21 SoundCloud + p-84.22 AWS/CloudFront: extra-domains в seed содержит
+# все три (иначе потоки обрываются в начале — см. релизы).
+# Source of truth — upstream common list; копий в OpenWrt нет.
+for _d in soundcloud.cloud amazonaws.com cloudfront.net; do
+    if tar -xzOf "$Z2K_SEED_TARBALL" usr/lib/z2k/lists/extra-domains.txt 2>/dev/null \
+        | grep -qxF "$_d"; then _t_ok
+    else _t_bad "seed без $_d в lists/extra-domains.txt"; fi
+done
+# Тот же набор — в исходном дереве (seed собран из него, а не из копий).
+for _d in soundcloud.cloud amazonaws.com cloudfront.net; do
+    if grep -qxF "$_d" "$REPO/files/lists/extra-domains.txt" 2>/dev/null; then _t_ok
+    else _t_bad "дерево без $_d в files/lists/extra-domains.txt"; fi
+done
 
 # --- 2+3. повтор и upgrade БЕЗ re-seed: всё побайтово цело (I5) ---
 echo "# updater modification" >> "$Z2K_ROOT/lib/utils.sh"
