@@ -33,15 +33,16 @@ z2k_ow_fw_apply() { z2k_ow_fw_source || return 1; zapret_apply_firewall; }
 z2k_ow_fw_remove() { z2k_ow_fw_source || return 1; zapret_unapply_firewall; }
 z2k_ow_fw_reload_ifsets() { z2k_ow_fw_source || return 1; zapret_reload_ifsets; }
 
-# z2k_ow_fw_verify — доказать КОНЕЧНОЕ состояние dataplane, а не отсутствие
-# ошибки shell (live-урок p-84.17: apply вернул 0, queue-правила встали, но
-# hook jumps не встали — ipsets не создались, трафик шёл мимо очереди при
-# живом nfqws2 и job success; плюс pinned r3 API success-biased: return 0
-# даже при провале промежуточного шага — rc доверять нельзя).
+# z2k_ow_fw_verify — доказать КОНЕЧНОЕ СТАТИЧЕСКОЕ состояние dataplane
+# (live-урок p-84.17: apply вернул 0, queue-правила встали, но hook jumps не
+# встали — ipsets не создались, трафик шёл мимо очереди при живом nfqws2).
+# СТРОГО статика: sets/jumps/rules. Consumer/process-доказательства здесь
+# ЗАПРЕЩЕНЫ: verify зовётся из start_service ДО commit в procd, процессов
+# там ещё нет (live-урок: consumer-check здесь ронял каждый старт).
 # Ожидаемая структура выводится из runtime+конфига, а не из захардкоженного
 # дампа: таблица ${ZAPRET_NFT_TABLE:-zapret2}, сеты ${ZIPSET_EXCLUDE*}
-# (= nozapret/nozapret6 в def.sh), заселённые wanif/wanif6, hook→chain jumps,
-# NFQUEUE qnum == $QNUM из конфига, consumer очереди зарегистрирован в ядре.
+# (= nozapret/nozapret6 в def.sh), заселённый wanif, hook→chain jumps,
+# NFQUEUE qnum == $QNUM из конфига.
 z2k_ow_fw_verify() {
     local _tab="${Z2K_ZAPRET_NFT_TABLE:-${ZAPRET_NFT_TABLE:-zapret2}}"
     local _q="${QNUM:-200}" _c
@@ -73,12 +74,6 @@ z2k_ow_fw_verify() {
             echo "z2k-openwrt: fw_verify: нет NFQUEUE qnum $_q в $2" >&2
             return 1; }
     done
-    # Consumer очереди зарегистрирован (демон реально держит qnum, а не
-    # просто живёт процессом). Путь переопределяем для тестов.
-    if ! grep -q "^[[:space:]]*$_q " "${Z2K_NFQUEUE_PROC:-/proc/net/netfilter/nfnetlink_queue}" 2>/dev/null; then
-        echo "z2k-openwrt: fw_verify: нет consumer NFQUEUE $_q (nfqws2 не держит очередь?)" >&2
-        return 1
-    fi
     return 0
 }
 

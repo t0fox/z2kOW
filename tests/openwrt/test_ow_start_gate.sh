@@ -211,6 +211,19 @@ assert_contains "rt-fail rt был" "$T/calls" "rt:1"
 [ -f "$T/run/core-ready" ] && _t_bad "rt-fail: ready создан" || _t_ok
 rm -f "$T/rt-verify-fail"
 
+# --- 4e. service_started без маркера (start_service провалился, rc.common
+# всё равно его зовёт): rc 1, никаких проверок процессов, ready нет ---
+rm -f "$T/run/core-ready" "$T/run/starting"
+: > "$T/calls"
+service_started >/dev/null 2>&1
+assert_eq "started-without-marker rc" "1" "$?"
+[ -f "$T/run/core-ready" ] && _t_bad "markerless: ready создан" || _t_ok
+if grep -qE 'tg-verify|rt-verify' "$T/calls"; then
+    _t_bad "markerless: verify вызывались"
+else
+    _t_ok
+fi
+
 # --- 4d. consumer не поднялся (post-spawn timeout): rc 1, ready нет ---
 kill "$_BG" 2>/dev/null
 (false &) ; _dead=$!; wait "$_dead" 2>/dev/null

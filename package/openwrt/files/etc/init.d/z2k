@@ -139,6 +139,12 @@ start_service() {
     # ready (на старте почти surely нет; tick доведёт). Boot никогда не
     # валит сервис (внутри — soft-fail); warn-only и здесь.
     z2k_ow_warp 1 || echo "z2k-openwrt: warp на старте soft-fail (tick доведёт)" >&2
+    # Маркер "pre-spawn транзакция прошла": service_started (ниже) работает
+    # только по нему. Нужен потому, что rc.common вызывает service_started
+    # БЕЗУСЛОВНО — даже если start_service выше провалился (его rc при этом
+    # глотается); без маркера service_started не отличил бы провал старта
+    # от успеха и проверял бы несуществующие процессы.
+    : > "$Z2K_RUN/starting" || { z2k_ow_start_rollback; return 1; }
     return 0
 }
 
@@ -152,6 +158,14 @@ service_started() {
     z2k_load_adapter >/dev/null 2>&1 || return 1
     # shellcheck disable=SC1090
     [ -f "$Z2K_CONFIG" ] && . "$Z2K_CONFIG"
+    # Без маркера pre-spawn успеха делать нечего: start_service провалился
+    # (его rc rc.common проглотил) — честный провал наружу, а не проверки
+    # несуществующих процессов с последующим ложным ready.
+    if [ ! -f "$Z2K_RUN/starting" ]; then
+        echo "z2k-openwrt: service_started без pre-spawn успеха (start_service провалился)" >&2
+        return 1
+    fi
+    rm -f "$Z2K_RUN/starting" 2>/dev/null
     _z2k_ow_wait_consumer || { z2k_ow_start_rollback; return 1; }
     if z2k_ow_tg_wanted 2>/dev/null; then
         _z2k_ow_wait_feature tg && z2k_ow_tg_verify || { z2k_ow_start_rollback; return 1; }
@@ -169,8 +183,9 @@ stop_service() {
     [ -f "$Z2K_CONFIG" ] && . "$Z2K_CONFIG"
     local _rc=0
     # core-ready FIRST: с этого момента гейты видят not-ready, resurrection
-    # запрещена даже если teardown ниже частично провалится.
-    rm -f "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" 2>/dev/null
+    # запрещена даже если teardown ниже частично провалится. Заодно снимаем
+    # starting-маркер (зависший старт + stop = чисто).
+    rm -f "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" "$Z2K_RUN/starting" 2>/dev/null
     # Агрегируем ошибки (каждый шаг best-effort, но итог честный): молчаливый
     # частичный стоп хуже громкого.
     z2k_ow_custom_daemons 0 || _rc=1
