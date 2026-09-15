@@ -75,7 +75,7 @@ health-check). Здесь fail-open не защищает от DPI, а подм�
 
 ## Go
 
-**Тулчейн `go1.25.12`**, пин в Makefile'ах и в CI. Не 1.26.x — на MIPS ловили
+**Тулчейн `go1.25.13`**, пин в Makefile'ах и в CI. Не 1.26.x — на MIPS ловили
 `_ENOSYS`.
 
 **`GODEBUG=asyncpreemptoff=1`** для бинарников на MIPS.

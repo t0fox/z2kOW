@@ -590,15 +590,15 @@ _z2k_curl_doh_chunked() {
 # tests/test_verifier_pin.sh это сторожит.
 _z2k_verify_pin() {
     case "$1" in
-        linux-386)       printf 5562755c20c89b6fd9f0658d6357e42319c8e59fbdbad0ed1f7fcf621d884634 ;;
-        linux-amd64)     printf f56e014f6bbc44e6ee5f00df4c06c609cc21e6ec32f997e781f676d74aa96a77 ;;
-        linux-arm)       printf d209071a855374e9e8448a0a912a7dff25d2e333e02c8f7a331843055f652552 ;;
-        linux-arm64)     printf f8eb80ec69a67d82a343e15179c3834ff54a60bf9179fb29ac39f0c7ad4180ff ;;
-        linux-mips)      printf cce3c09aa623abd9760162b4ca287e8cfa7bc483844c562a4798422f2a73aa16 ;;
-        linux-mips64le)  printf 2445355639a6974f58ad6c93ef8e68f3d4d8ad2aec9f31c58a1e4171bf9d7a54 ;;
-        linux-mipsle)    printf 374bf1b1bfe5c36718a63fe0e423b954af8190361fce10dd43270cc1e7fcfeb1 ;;
-        linux-ppc64)     printf 704bf261af555c86b65882ba0763a2e183e4780e374bf5f6994ca2b54a974dfb ;;
-        linux-riscv64)   printf 82c17ccf09ae1ea6d37c637b223958aff94fa14741bf080f6d9580c63fca692e ;;
+        linux-386)       printf c4dd725afde508ea88443be95a743ff65576ab5b67b459cf56a6f84147d56a4a ;;
+        linux-amd64)     printf a6d464fa9558cde252df0343a65e384e728f36ada2ad13f484a40ca5f1d0f637 ;;
+        linux-arm)       printf c9a4b45a19e47b10519dea73e3deb4a73ec21d79c82509f8d301cac7e5835242 ;;
+        linux-arm64)     printf 17100b6758cca49b8cdfe37c96034aa58e2203c338debd8d32945cf477f0b3cf ;;
+        linux-mips)      printf a902128d670990730849959868df7af6cd47a379d4150ea5327c5ab426ad316c ;;
+        linux-mips64le)  printf 43301a645b3eb4a114a4e548684c365148d6287402002b3c949ccb8848b30935 ;;
+        linux-mipsle)    printf 2487675fbca54c9ef5873990d73feebae8cff4416620596d5da3f2b3d529d797 ;;
+        linux-ppc64)     printf c337b976fc61664720414a2f643491e5f05fbb6fe242dbfb193a6d58da1f4877 ;;
+        linux-riscv64)   printf 0bf0f6711b100fa3f5ddfde6ad3149ad394c9ea2d1615471da9cd8d97b00a9ac ;;
         *) return 1 ;;
     esac
 }

@@ -432,3 +432,83 @@ func TestOpenedButUnprovenIsNotRememberedAndCoolsDown(t *testing.T) {
 	cancel()
 	<-done
 }
+
+// Режим «только MASQUE»: WG не открывается ни лестницей, ни пробой возврата,
+// и h2 не записывается в память — иначе автомат потом стартовал бы с него.
+func TestModeH2NeverTouchesWGAndDoesNotPinLastGood(t *testing.T) {
+	h := newHarness(t, baseDevice(), map[string]bool{"wg:2408": true, "wg:854": true, "h2:443": true})
+	cfg := h.config()
+	cfg.Mode = "h2"
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { Run(ctx, cfg); close(done) }()
+	waitFor(t, "ready on h2", func() bool { s := readStatus(h); return s != nil && s.Ready && s.Transport == "h2" })
+	start := h.config().Now()
+	waitFor(t, "11 минут на h2", func() bool { return h.config().Now().Sub(start) > 11*time.Minute })
+	cancel()
+	<-done
+	h.mu.Lock()
+	for _, m := range h.made {
+		if m.step.Transport != "h2" {
+			h.mu.Unlock()
+			t.Fatalf("в режиме MASQUE открыт %+v", m.step)
+		}
+	}
+	h.mu.Unlock()
+	d, _ := account.Load(h.dev)
+	if d.LastGood != nil {
+		t.Fatalf("режим MASQUE записал last_good %+v", d.LastGood)
+	}
+}
+
+// Контраст к тесту выше: в автомате та же картина через десять минут на h2
+// уходит обратно на WireGuard. Без него тест режима проходил бы и тогда, когда
+// проба возврата сломана целиком.
+func TestAutoOnH2ProbesBackToWG(t *testing.T) {
+	d := baseDevice()
+	d.LastGood = &account.Step{Transport: "h2", Port: 443}
+	h := newHarness(t, d, map[string]bool{"wg:2408": true, "h2:443": true})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { Run(ctx, h.config()); close(done) }()
+	// Статус наружу пишется не чаще раза в секунду, а десять минут на h2 в
+	// харнесе пролетают быстрее — поэтому смотрим не на статус, а на порядок
+	// открытых транспортов: сперва h2 с памяти, потом WireGuard.
+	waitFor(t, "возврат на wg", func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return len(h.made) >= 2 && h.made[0].step.Transport == "h2" && h.made[len(h.made)-1].step.Transport == "wg"
+	})
+	cancel()
+	<-done
+}
+
+// Режим «только WireGuard»: когда все WG-ступени мертвы, движок уходит в
+// кулдаун, а не на MASQUE.
+func TestModeWGNeverFallsToH2(t *testing.T) {
+	h := newHarness(t, baseDevice(), map[string]bool{"h2:443": true})
+	cfg := h.config()
+	cfg.Mode = "wg"
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { Run(ctx, cfg); close(done) }()
+	waitFor(t, "кулдаун после полного прохода", func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		for _, s := range h.sleeps {
+			if s > time.Minute {
+				return true
+			}
+		}
+		return false
+	})
+	cancel()
+	<-done
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, m := range h.made {
+		if m.step.Transport == "h2" {
+			t.Fatalf("режим WireGuard открыл h2")
+		}
+	}
+}

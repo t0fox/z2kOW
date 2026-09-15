@@ -43,6 +43,7 @@ type Config struct {
 	StatusPath string
 	LockPath   string        // пусто = рядом со status.json
 	ForceStep  *account.Step // --force-transport: лестница из одного шага
+	Mode       string        // --transport: ladder.ModeAuto / ModeWG / ModeH2
 	Logf       func(string, ...any)
 	// SkipNetSetup — платформой владеет FORWARD/MASQUERADE/MSS (OpenWrt,
 	// --net-backend=external): TUN/create/address/transport/health/status
@@ -188,7 +189,7 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 		lad = ladder.NewFixed(fs)
 	} else {
-		lad = ladder.New(d.Endpoint, d.LastGood)
+		lad = ladder.NewMode(d.Endpoint, d.LastGood, cfg.Mode)
 	}
 	mon := &health.Monitor{Probe: cfg.Probe, Doubt: 30 * time.Second, Fails: 2,
 		ProveEvery: 3 * time.Second}
@@ -275,6 +276,13 @@ func (e *Engine) commitGood(lad *ladder.Ladder) {
 	// no_transit висел бы в статусе вечно на отладочном прогоне.
 	e.lastErr = ""
 	if e.cfg.ForceStep != nil {
+		return
+	}
+	// MASQUE, выбранный вручную, в память тоже не пишется. Иначе после
+	// возврата в автомат лестница стартовала бы с h2 — ровно с того, от чего
+	// человек, вернувшись в автомат, и хотел уйти. WireGuard записывать можно:
+	// его ступени есть и в автоматической лестнице.
+	if e.cfg.Mode == ladder.ModeH2 {
 		return
 	}
 	good := lad.Good()
@@ -385,7 +393,9 @@ func (e *Engine) serve(ctx context.Context, tr transport.Transport, step account
 			}
 			return false
 		}
-		if lad.OnH2() && e.cfg.ForceStep == nil && now.Sub(lastUp) >= ladder.ProbeUpEvery {
+		// Проба «не вернулся ли WireGuard» — только в автомате. В режиме MASQUE
+		// она уводила бы туннель с выбранного транспорта каждые десять минут.
+		if lad.OnH2() && e.cfg.ForceStep == nil && e.cfg.Mode == ladder.ModeAuto && now.Sub(lastUp) >= ladder.ProbeUpEvery {
 			lastUp = now
 			if e.wgReachable(ctx) {
 				e.cfg.Logf("ladder: WireGuard reachable again — leaving h2")

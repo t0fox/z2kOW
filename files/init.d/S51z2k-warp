@@ -24,6 +24,16 @@ _cfg="${ZAPRET2_DIR:-/opt/zapret2}/config"
 _proxy=$(grep -m1 '^Z2K_WARP_VPS_PROXY=' "$_cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
 export Z2K_WARP_VPS_PROXY="${_proxy:-http://z2kwarp:z2kW4rpR3g2026@213.176.74.63:8119}"
 
+# Транспорт, выбранный в панели: auto (умолчание), wg или h2. Передаётся
+# переменной окружения, а не флагом: движок старой сборки флага не знает и
+# упал бы на разборе аргументов, а переменную просто не увидит и пойдёт
+# автоматом. Мусор в конфиге не экспортируем — это тоже автомат.
+_transport=$(grep -m1 '^Z2K_WARP_TRANSPORT=' "$_cfg" 2>/dev/null | cut -d= -f2- | tr -d "\"' ")
+case "$_transport" in
+    wg|h2) export Z2K_WARP_TRANSPORT="$_transport" ;;
+    *) unset Z2K_WARP_TRANSPORT ;;
+esac
+
 # ЗАПУСКАТЬ ИЛИ НЕТ, РЕШАЕТ ФЛАГ, А НЕ НАЛИЧИЕ БИНАРНИКА.
 #
 # Бинарник остаётся на диске и после «Выключить WARP» — чтобы повторное

@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -466,7 +467,11 @@ func (c *Client) RepairBadEndpoint(ctx context.Context, path string) (*Device, b
 		return d, false, fmt.Errorf("re-register (bad endpoint %s): %w", d.Endpoint.V4, rerr)
 	}
 	fresh.EndpointRetried = true
-	return fresh, true, fresh.Save(path)
+	if err := fresh.Save(path); err != nil {
+		return fresh, true, err
+	}
+	c.carryLicense(ctx, path, fresh)
+	return fresh, true, nil
 }
 
 // Ensure — «устройство есть и живо»: существующий device.json проверяется
@@ -504,7 +509,182 @@ func (c *Client) Ensure(ctx context.Context, path string) (*Device, bool, error)
 	if err != nil {
 		return nil, false, err
 	}
-	return d, true, d.Save(path)
+	if err := d.Save(path); err != nil {
+		return d, true, err
+	}
+	c.carryLicense(ctx, path, d)
+	return d, true, nil
+}
+
+// ---- WARP+: свой ключ лицензии ---------------------------------------------
+//
+// Протокол — тот же, что у wgcf (cloudflare/api.go UpdateLicenseKey и
+// openapi-spec.yml): PUT /reg/{id}/account с {"license": ключ} привязывает
+// устройство к аккаунту, которому принадлежит ключ; GET /reg/{id}/account
+// отдаёт тип аккаунта. Ключ устройства и регистрация при этом не меняются —
+// перерегистрироваться не нужно, туннель тот же. У одного аккаунта не больше
+// пяти активных устройств (так пишет wgcf в описании update).
+//
+// Признак подписки — account_type, а НЕ warp_plus. Замер на роутере владельца
+// 2026-09-14: у бесплатной записи "account_type":"free" и при этом
+// "warp_plus":true — это флаг включённости функции, а не оплаченный аккаунт.
+
+// AccountInfo — то, что о привязанном аккаунте нужно панели. Ключ здесь не
+// хранится: файл с этой сводкой читает панель, а ключ — секрет.
+type AccountInfo struct {
+	AccountType string  `json:"account_type"`
+	PremiumData float64 `json:"premium_data"`
+	Quota       float64 `json:"quota"`
+	Checked     int64   `json:"checked"`
+	// Error — ключ сохранён, но к устройству не привязался (новая регистрация
+	// после починки адреса). Без этого поля панель показала бы «бесплатный» и
+	// не объяснила бы, куда делся WARP+.
+	Error string `json:"error,omitempty"`
+}
+
+// Plus — оплаченный аккаунт (WARP+ с лимитом, безлимитный или Zero Trust).
+func (a *AccountInfo) Plus() bool {
+	switch a.AccountType {
+	case "limited", "unlimited", "team":
+		return true
+	}
+	return false
+}
+
+// APIError — отказ API с текстом Cloudflare, если он его прислал: «ключ
+// неверный» и «лимит устройств» человеку нужно увидеть словами, а не кодом.
+type APIError struct {
+	Op      string
+	Status  int
+	Message string
+}
+
+func (e *APIError) Error() string {
+	if e.Message != "" {
+		return fmt.Sprintf("%s: HTTP %d: %s", e.Op, e.Status, e.Message)
+	}
+	return fmt.Sprintf("%s: HTTP %d", e.Op, e.Status)
+}
+
+func apiError(op string, resp *http.Response) error {
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	var env struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	msg := ""
+	if json.Unmarshal(b, &env) == nil {
+		var parts []string
+		for _, e := range env.Errors {
+			if e.Message != "" {
+				parts = append(parts, e.Message)
+			}
+		}
+		msg = strings.Join(parts, "; ")
+	}
+	return &APIError{Op: op, Status: resp.StatusCode, Message: msg}
+}
+
+// Account читает тип аккаунта, к которому привязано устройство.
+func (c *Client) Account(ctx context.Context, d *Device) (*AccountInfo, error) {
+	resp, err := c.do(ctx, "GET", "/reg/"+d.ID+"/account", d.Token, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case 200:
+	case 401, 403, 404:
+		return nil, ErrRevoked
+	default:
+		return nil, apiError("account", resp)
+	}
+	var a AccountInfo
+	if err := json.NewDecoder(resp.Body).Decode(&a); err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// ApplyLicense привязывает устройство к аккаунту ключа и возвращает, каким
+// аккаунт стал.
+func (c *Client) ApplyLicense(ctx context.Context, d *Device, key string) (*AccountInfo, error) {
+	resp, err := c.do(ctx, "PUT", "/reg/"+d.ID+"/account", d.Token, map[string]any{"license": key})
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, apiError("license", resp)
+	}
+	return c.Account(ctx, d)
+}
+
+// LicensePath — где лежит ключ: рядом с device.json, режим 0600.
+//
+// ОТДЕЛЬНЫМ ФАЙЛОМ, А НЕ ПОЛЕМ В device.json. Запись устройства заменяется
+// целиком при перерегистрации (кнопка в панели, починка негодного адреса), и
+// ключ, живший внутри неё, пропадал бы вместе со старой записью — человек
+// молча оказывался бы на бесплатном аккаунте.
+func LicensePath(devicePath string) string {
+	return filepath.Join(filepath.Dir(devicePath), "license")
+}
+
+// AccountInfoPath — сводка об аккаунте для панели, без секретов.
+func AccountInfoPath(devicePath string) string {
+	return filepath.Join(filepath.Dir(devicePath), "account.json")
+}
+
+// LoadLicense — сохранённый ключ или пустая строка.
+func LoadLicense(devicePath string) string {
+	b, err := os.ReadFile(LicensePath(devicePath))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func writeAtomic(path string, b []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, mode); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// SaveLicense запоминает ключ.
+func SaveLicense(devicePath, key string) error {
+	return writeAtomic(LicensePath(devicePath), []byte(key+"\n"), 0600)
+}
+
+// SaveAccountInfo пишет сводку для панели.
+func SaveAccountInfo(devicePath string, a *AccountInfo) error {
+	b, err := json.Marshal(a)
+	if err != nil {
+		return err
+	}
+	return writeAtomic(AccountInfoPath(devicePath), b, 0644)
+}
+
+// carryLicense — новое устройство (регистрация заново) привязывается к
+// сохранённому ключу. Отказ не валит регистрацию: туннель на бесплатном
+// аккаунте лучше, чем никакого, а причина ляжет в сводку для панели.
+func (c *Client) carryLicense(ctx context.Context, path string, d *Device) {
+	key := LoadLicense(path)
+	if key == "" {
+		return
+	}
+	a, err := c.ApplyLicense(ctx, d, key)
+	if err != nil {
+		_ = SaveAccountInfo(path, &AccountInfo{AccountType: "free", Checked: time.Now().Unix(), Error: err.Error()})
+		return
+	}
+	a.Checked = time.Now().Unix()
+	_ = SaveAccountInfo(path, a)
 }
 
 // Reserved — три байта client_id, которые несёт заголовок каждого WG-пакета.

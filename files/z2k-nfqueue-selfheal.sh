@@ -130,7 +130,51 @@ nfq_missing() {   # $1 = iptables|ip6tables ; $2 = -4|-6
     # ниже NFQ_FLOOR лечится. Storm-safe: start_fw кладёт полный набор (>=3) → на
     # следующем тике условие снято, а легитимная смена топологии (v6 down / WAN
     # failover) либо роняет WAN family (гейт выше), либо удовлетворяется одним re-apply.
-    [ "$_n" -lt "$NFQ_FLOOR" ]
+    if [ "$_n" -lt "$NFQ_FLOOR" ]; then
+        nfq_why="$2: NFQUEUE-правил $_n"
+        return 0
+    fi
+    # ПОРОГА ПО ОБЩЕМУ ЧИСЛУ МАЛО. Поле 15.09.2026: из шести правил пропало одно —
+    # исходящее для TCP, остались исходящее UDP и четыре входящих. Пять не ниже
+    # порога, самолечение молчало, а весь исходящий HTTPS шёл мимо обхода: не
+    # открывалась веб-версия WhatsApp, и не проходили даже пробы, которыми роутер
+    # подбирает для неё адреса. Лечилось только ручным перезапуском сервиса.
+    #
+    # Поэтому сверяем каждое правило, которое start_fw ОБЯЗАН поставить по конфигу,
+    # а не их сумму. Набор повторяет zapret_do_firewall_standard_nfqws_rules_ipt
+    # (common/ipt.sh): для протокола с непустым списком портов исходящее правило
+    # ставится при ненулевом PKT_OUT, входящие (INPUT и FORWARD) — при ненулевом
+    # PKT_IN, а пустой PKT_IN берёт значение PKT_OUT (так же в S99zapret2). Чего
+    # конфиг не требует, того и не ждём — иначе вечный re-apply на законно
+    # урезанном наборе.
+    for _p in tcp udp; do
+        for _c in $(nfq_expected_chains "$_p"); do
+            printf '%s\n' "$_dump" | grep NFQUEUE | grep -- "-A $_c " | grep -q -- " -p $_p " && continue
+            nfq_why="$2: нет правила $_c $_p"
+            return 0
+        done
+    done
+    return 1
+}
+
+# Значение из конфига без кавычек (последнее присваивание побеждает, как при сорсинге).
+cfg_val() {
+    sed -n "s/^$1=//p" "$ZAPRET_CONFIG" 2>/dev/null | tail -n 1 | tr -d "\"'"
+}
+
+# Цепочки, в которых конфиг требует NFQUEUE-правило для протокола $1.
+# NFQWS2_ENABLE=0 — движок правил не ставит вовсе, ждать нечего.
+nfq_expected_chains() {
+    local _up _ports _out _in
+    [ "$(cfg_val NFQWS2_ENABLE)" = "0" ] && return 0
+    _up=$(printf '%s' "$1" | tr 'a-z' 'A-Z')
+    _ports=$(cfg_val "NFQWS2_PORTS_${_up}")
+    [ -n "$_ports" ] || return 0
+    _out=$(cfg_val "NFQWS2_${_up}_PKT_OUT")
+    _in=$(cfg_val "NFQWS2_${_up}_PKT_IN")
+    [ -n "$_in" ] || _in="$_out"
+    case "$_out" in ''|0) ;; *) echo POSTROUTING ;; esac
+    case "$_in" in ''|0) ;; *) echo INPUT; echo FORWARD ;; esac
 }
 
 # True iff any WAN-up family is genuinely missing its NFQUEUE rules.
@@ -193,7 +237,7 @@ mkdir "$RESTART_FW_LOCK" 2>/dev/null || exit 0
 # start_fw is idempotent (ipt() -C||-I, private chains -N/-F+-C||-A) and re-adds
 # ONLY the missing rules with NO teardown, NO conntrack-sysctl flip, NO gap —
 # and still WAN-gated per-family via fw_nfqws_post4/6 (no silent bypass death).
-log "nfqws2 up, WAN present, 0 NFQUEUE rules -> start_fw (re-apply)"
+log "nfqws2 up, WAN present, ${nfq_why:-NFQUEUE-правила пропали} -> start_fw (re-apply)"
 "$INIT_SCRIPT" start_fw >/dev/null 2>&1
 rmdir "$RESTART_FW_LOCK" 2>/dev/null
 

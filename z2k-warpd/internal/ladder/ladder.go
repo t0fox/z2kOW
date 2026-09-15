@@ -128,10 +128,76 @@ func SetFallbackHosts(hosts []string) {
 	fallbackHosts = hosts
 }
 
+// Режимы транспорта, выбранные человеком (z2k-warpd run --transport).
+//
+// ModeAuto — вся лестница, как было всегда. ModeWG и ModeH2 — выбор вручную:
+// у кого-то автомат уходит на MASQUE при живом, но редко отвечающем
+// WireGuard, у кого-то наоборот часами перебирает мёртвые WG-порты, и
+// человек знает про свою линию больше, чем лестница за один проход.
+const (
+	ModeAuto = ""
+	ModeWG   = "wg"
+	ModeH2   = "h2"
+)
+
+// ParseMode — строка режима в константу. Пустое и «auto» — автомат; всё, что
+// не распознано, тоже автомат, с ok=false: значение приходит из конфига
+// роутера, и опечатка в нём не должна оставлять человека без туннеля.
+func ParseMode(s string) (mode string, ok bool) {
+	switch s {
+	case "", "auto":
+		return ModeAuto, true
+	case "wg":
+		return ModeWG, true
+	case "h2", "masque":
+		return ModeH2, true
+	}
+	return ModeAuto, false
+}
+
 // New строит лестницу: первичный WG-хост по всем портам, затем запасные
 // хосты по своим портам, затем h2. start — last_good; если его нет в
 // лестнице (эндпоинты обновились), начинаем с вершины.
 func New(ep account.Endpoint, start *account.Step) *Ladder {
+	return NewMode(ep, start, ModeAuto)
+}
+
+// NewMode — лестница под выбранный режим.
+//
+// WireGuard вручную — это ВСЕ WG-ступени (выданные порты, запасные хосты),
+// а не один порт: выбор человека «не уходи на MASQUE», а не «сиди на 2408».
+// Перебор портов и есть обход блоков по 5-tuple, отнимать его незачем.
+// MASQUE вручную — единственная ступень h2.
+func NewMode(ep account.Endpoint, start *account.Step, mode string) *Ladder {
+	l := newAuto(ep, start)
+	if mode == ModeAuto {
+		return l
+	}
+	var steps []account.Step
+	for _, s := range l.steps {
+		if (s.Transport == "h2") == (mode == ModeH2) {
+			steps = append(steps, s)
+		}
+	}
+	// Пустой лестницы не бывает: без WG-адресов в регистрации и без запасных
+	// режим «только WireGuard» оставил бы движку ноль ступеней, и Current()
+	// упал бы на пустом срезе. Такой роутер ходит автоматом.
+	if len(steps) == 0 {
+		return l
+	}
+	l = &Ladder{steps: steps}
+	if start != nil {
+		for i, s := range steps {
+			if s == *start {
+				l.idx = i
+				break
+			}
+		}
+	}
+	return l
+}
+
+func newAuto(ep account.Endpoint, start *account.Step) *Ladder {
 	var steps []account.Step
 	// Хост, уже попавший в лестницу, второй раз не добавляем: иначе запасной
 	// адрес, который Cloudflare и так выдал этому устройству, пробовался бы

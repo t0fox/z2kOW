@@ -2,7 +2,7 @@ BINARY=z2k-warpd
 # -trimpath и -buildvcs=false обязательны: без них в бинарь попадают локальные
 # пути и git-ревизия, и сверка отгруженных байтов с пересборкой не сходится.
 # Тулчейн пинован: Go 1.26+ неверно собирает MIPS soft-float под эти роутеры.
-GO ?= $(HOME)/go/bin/go1.25.12
+GO ?= $(HOME)/go/bin/go1.25.13
 GOFLAGS=-ldflags="-s -w" -trimpath -buildvcs=false
 PKG=./cmd/z2k-warpd
 

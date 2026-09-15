@@ -50,6 +50,7 @@ cat > "$SB/fake-warpd-$$" <<EOF
 #!/bin/sh
 echo "GODEBUG=\$GODEBUG" > "$SB/env"
 echo "ARGS=\$*" >> "$SB/env"
+echo "TRANSPORT=\${Z2K_WARP_TRANSPORT-unset}" >> "$SB/env"
 trap 'kill \$c 2>/dev/null; exit 0' TERM INT
 sleep 30 & c=\$!
 wait \$c
@@ -131,6 +132,21 @@ Z2K_STUB_PATH="$SB/bin" BIN="$SB/fake-warpd-$$" PIDFILE="$SB/pid" sh "$INIT" sta
 sleep 1
 assert_eq "aarch64 gets no GODEBUG" "GODEBUG=" "$(grep GODEBUG "$SB/env")"
 BIN="$SB/fake-warpd-$$" PIDFILE="$SB/pid" sh "$INIT" stop >/dev/null 2>&1
+
+# --- выбор транспорта: из конфига в окружение движка, мусор не проходит ---
+# Флагом его передавать нельзя: старый движок флага не знает и упал бы на
+# разборе аргументов. Переменную он просто не увидит.
+for _case in "wg:wg" "h2:h2" "auto:unset" "udp:unset" "'h2':h2"; do
+    _in=${_case%%:*}; _want=${_case#*:}
+    printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_TRANSPORT=%s\n' "$_in" > "$SB/zd/config"
+    rm -f "$SB/env"
+    Z2K_WARP_TRANSPORT=h2 BIN="$SB/fake-warpd-$$" PIDFILE="$SB/pid" sh "$INIT" start >/dev/null 2>&1
+    sleep 1
+    assert_eq "транспорт $_in в конфиге → $_want в окружении движка" "TRANSPORT=$_want" "$(grep TRANSPORT "$SB/env")"
+    assert_eq "транспорт $_in: движок запущен без лишних аргументов" "ARGS=run" "$(grep ARGS "$SB/env")"
+    BIN="$SB/fake-warpd-$$" PIDFILE="$SB/pid" sh "$INIT" stop >/dev/null 2>&1
+    sleep 1
+done
 
 printf "\nPASSED: %d\nFAILED: %d\n" "$TESTS_PASSED" "$TESTS_FAILED"
 [ "$TESTS_FAILED" -eq 0 ]

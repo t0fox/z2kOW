@@ -112,13 +112,23 @@ export function setLockAware(el, disabled) {
 
 export function _updateGlobalUILock() {
   const busy = _activeJobs.size > 0;
+  // ГРУППА ЗАМКА. Элемент внутри [data-lock-group="X"] не запирается задачами
+  // своей же группы — только чужими. Так устроена карточка WARP: её действия
+  // перебивают друг друга сами (files/z2k-warp.sh, warp_op_*), и зависшее
+  // включение обязано оставлять живыми тумблер и выбор транспорта. Под чужой
+  // задачей — переустановкой, рестартом сервиса — она заперта, как всё.
+  const busyFor = (el) => {
+    const host = el && typeof el.closest === "function" ? el.closest("[data-lock-group]") : null;
+    const group = host && host.dataset ? host.dataset.lockGroup : "";
+    return group ? foreignJobsActive(group) : busy;
+  };
   const lockMsg = "Дождитесь завершения текущей операции";
   // Сравнение именно с undefined: lockBackup === "0" — валидный бэкап
   // («был включён»), но строка "0" ложна, и на !dataset.lockBackup вторая
   // задача перезаписывала бэкап уже залоченным значением "1". После неё
   // элемент оставался выключенным навсегда — до перезагрузки страницы.
   document.querySelectorAll(".switch input[type=\"checkbox\"]").forEach(cb => {
-    if (busy) {
+    if (busyFor(cb)) {
       if (cb.dataset.lockBackup === undefined) {
         cb.dataset.lockBackup = cb.disabled ? "1" : "0";
         cb.disabled = true;
@@ -160,7 +170,7 @@ export function _updateGlobalUILock() {
     // поломкой, а не занятостью.
     const hasLockableControl = card.querySelector(".switch input[type=\"checkbox\"], [data-svc], #tg-enable, #tg-disable, #uninstall-btn");
     if (!hasLockableControl) return;
-    if (busy) card.classList.add("card-locked");
+    if (busyFor(card)) card.classList.add("card-locked");
     else card.classList.remove("card-locked");
   });
 
@@ -181,6 +191,26 @@ export function _updateGlobalUILock() {
       pill.remove();
     }
   }
+}
+
+// Идут ли задачи НЕ из этой группы (см. «группа замка» выше).
+export function foreignJobsActive(group) {
+  for (const j of _activeJobs.values()) {
+    if (!j.opts || j.opts.lockGroup !== group) return true;
+  }
+  return false;
+}
+
+// Задача без модалки: значок в углу и фоновый опрос — то же, что остаётся от
+// модалки после «Скрыть». Для действий, которые следующее нажатие может
+// перебить: модалка поверх страницы закрывала бы ровно те контролы, которыми
+// перебивают. Лог открывается кликом по значку.
+export function trackJob(title, jobId, opts = {}) {
+  if (!_activeJobs.has(jobId)) {
+    _activeJobs.set(jobId, { title, opts });
+    _renderJobBadges();
+  }
+  return _startJobPoller(jobId, opts);
 }
 
 // Background poller для одного jobId. Живёт независимо от модалки —

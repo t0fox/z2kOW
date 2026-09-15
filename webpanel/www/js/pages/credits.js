@@ -256,6 +256,17 @@ export function renderCredits() {
           пропустили.
         </p>
       </div>
+
+      <div class="card credits-card sponsor-card">
+        <div class="credits-badge sponsor-badge">${_icons.heart} Спонсор проекта</div>
+        <div class="credits-name">SIGogelon</div>
+        <p class="desc">
+          Спасибо, SIGogelon. z2k ставят на роутер и забывают — и это лучшая
+          оценка, какую он может получить. Чтобы так и оставалось, кто-то должен
+          помнить за всех: следить за блокировками, чинить и выпускать
+          обновления. Поддержка помогает делать это без перерывов.
+        </p>
+      </div>
     </div>
   `;
 }

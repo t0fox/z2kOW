@@ -362,3 +362,66 @@ func TestCIDRExpandsToSeveralHosts(t *testing.T) {
 		}
 	}
 }
+
+// ВЫБОР ТРАНСПОРТА ВРУЧНУЮ.
+//
+// «Только WireGuard» — это все WG-ступени, а не один порт: перебор портов и
+// запасных хостов и есть обход блоков по 5-tuple. «Только MASQUE» — одна h2.
+func TestModeWGKeepsEveryWGStepAndDropsH2(t *testing.T) {
+	noFallback(t)
+	auto := New(ep(854, 859), nil)
+	l := NewMode(ep(854, 859), nil, ModeWG)
+	if l.Len() != auto.Len()-1 {
+		t.Fatalf("wg: %d ступеней при %d в автомате", l.Len(), auto.Len())
+	}
+	for i := 0; i < l.Len(); i++ {
+		if l.steps[i].Transport != "wg" {
+			t.Fatalf("в режиме WireGuard ступень %d: %+v", i, l.steps[i])
+		}
+	}
+	for i := 0; i < 2*l.Len(); i++ {
+		if l.OnH2() {
+			t.Fatal("режим WireGuard дошёл до h2")
+		}
+		l.Next(time.Unix(int64(i), 0))
+	}
+}
+
+func TestModeH2IsOnlyH2(t *testing.T) {
+	l := NewMode(ep(854, 859), nil, ModeH2)
+	if l.Len() != 1 || !l.OnH2() {
+		t.Fatalf("h2: %+v", l.steps)
+	}
+}
+
+func TestModeWGStartsFromWGLastGoodAndIgnoresH2LastGood(t *testing.T) {
+	noFallback(t)
+	good := account.Step{Transport: "wg", Host: "8.6.112.0", Port: 859}
+	if l := NewMode(ep(854, 859), &good, ModeWG); l.Current() != good {
+		t.Fatalf("старт не с last_good: %+v", l.Current())
+	}
+	h2 := account.Step{Transport: "h2", Port: 443}
+	if l := NewMode(ep(854, 859), &h2, ModeWG); l.Current().Transport != "wg" || l.Index() != 0 {
+		t.Fatalf("last_good=h2 в режиме WireGuard: %+v @%d", l.Current(), l.Index())
+	}
+}
+
+func TestModeWGWithoutAnyWGStepFallsBackToAuto(t *testing.T) {
+	noFallback(t)
+	l := NewMode(account.Endpoint{}, nil, ModeWG)
+	if l.Len() == 0 {
+		t.Fatal("пустая лестница")
+	}
+	_ = l.Current()
+}
+
+func TestParseMode(t *testing.T) {
+	for in, want := range map[string]string{"": ModeAuto, "auto": ModeAuto, "wg": ModeWG, "h2": ModeH2, "masque": ModeH2} {
+		if got, ok := ParseMode(in); !ok || got != want {
+			t.Fatalf("%q -> %q ok=%v", in, got, ok)
+		}
+	}
+	if got, ok := ParseMode("udp"); ok || got != ModeAuto {
+		t.Fatalf("мусор должен давать автомат с ok=false: %q ok=%v", got, ok)
+	}
+}

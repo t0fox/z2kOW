@@ -83,15 +83,32 @@ for m in $MODULES; do
 done
 ok "все модули объявлены в матрице сборки"
 
-# --- 3. Сканер уязвимостей -----------------------------------------------------
-_scan=$(grep -n 'for m in ' "$SEC" | head -1 | cut -d: -f2-)
-for m in $MODULES; do
-    case "$_scan" in
-        *"$m"*) ;;
-        *) no "модуль $m в сканере уязвимостей" "есть в цикле govulncheck" "нет" ;;
-    esac
-done
-ok "список сканера проверен"
+# --- 3. Сканер уязвимостей и сборка для CodeQL ----------------------------------
+#
+# Циклов по модулям в security.yml два: govulncheck и сборка для CodeQL (Go
+# анализируется только собранным). Проверяем КАЖДЫЙ: модуль, выпавший из
+# сборки, CodeQL молча не проанализирует.
+_loops=$(grep 'for m in ' "$SEC")
+_nloops=$(printf '%s\n' "$_loops" | grep -c 'for m in ')
+if [ "$_nloops" -ge 2 ]; then
+    ok "в security.yml оба цикла по модулям на месте ($_nloops)"
+else
+    no "циклы по модулям в security.yml" "govulncheck и сборка для CodeQL" "$_nloops"
+fi
+printf '%s\n' "$_loops" | while IFS= read -r _scan; do
+    for m in $MODULES; do
+        case "$_scan" in
+            *"$m"*) ;;
+            *) printf 'MISS %s\n' "$m" ;;
+        esac
+    done
+done > "${TMPDIR:-/tmp}/modmatrix.$$"
+if [ -s "${TMPDIR:-/tmp}/modmatrix.$$" ]; then
+    no "все модули в циклах security.yml" "полный список" "$(tr '\n' ' ' < "${TMPDIR:-/tmp}/modmatrix.$$")"
+else
+    ok "список сканера и сборки для CodeQL проверен"
+fi
+rm -f "${TMPDIR:-/tmp}/modmatrix.$$"
 
 # --- 4. Dependabot -------------------------------------------------------------
 #

@@ -2,7 +2,7 @@ import { apiGet, apiGetText, apiPost, apiPostText, errHtml, toastErr } from "../
 import { $app, _icons, escapeHtml, humanAgo, skeletonBlocks, skeletonLines, statusIcon } from "../core/dom.js";
 import { _newLoad, _stale } from "../core/loadorder.js";
 import { toast } from "../core/toast.js";
-import { JOB_FAIL, _activeJobs, _updateGlobalUILock, awaitPanelBack, jobOutcome, jobUnresolved, openJobModal, unresolvedMsg } from "../job.js";
+import { JOB_FAIL, _updateGlobalUILock, awaitPanelBack, foreignJobsActive, jobOutcome, jobUnresolved, openJobModal, setLockAware, trackJob, unresolvedMsg } from "../job.js";
 
 // Раздел «WARP»: туннель Cloudflare WARP на нашем движке z2k-warpd
 // (WireGuard, при полном UDP-блоке — MASQUE по TCP 443). Три действия —
@@ -10,6 +10,88 @@ import { JOB_FAIL, _activeJobs, _updateGlobalUILock, awaitPanelBack, jobOutcome,
 // движка, ни демона. Что идёт в туннель: адреса из списков (игровые +
 // свои) и целые устройства по IP/MAC. Всё — файлы в /opt/zapret2/lists/warp/.
 let _warpLists = [];
+
+// Транспорт туннеля: автомат или выбор вручную. Порядок — от умолчания к
+// частным случаям. Подсказка говорит, чем выбор обернётся на плохой линии:
+// ради этого выбор и делают.
+const WARP_MODES = [
+  { id: "auto", label: "Автоматически",
+    hint: "Сначала WireGuard, если его режут — MASQUE через TCP 443. На MASQUE раз в 10 минут проверяется, не заработал ли WireGuard снова." },
+  { id: "wg", label: "WireGuard",
+    hint: "Только WireGuard, на MASQUE не переключается. Если провайдер режет WireGuard, туннель не поднимется." },
+  { id: "h2", label: "MASQUE",
+    hint: "Только MASQUE через TCP 443. Трафик идёт поверх TCP, поэтому на линии с потерями он медленнее WireGuard." },
+];
+let _warpMode = "auto";
+
+// Текущее действие с туннелем (включение, выключение, смена транспорта).
+// Новое нажатие не ждёт старое: сервер прерывает предыдущее (код 3), а панель
+// просто перестаёт слушать его итог — владеет состоянием последнее нажатие.
+let _warpJob = null;
+let _warpJobTitle = "";
+let _warpReqs = 0;          // запросы, ещё не получившие id задачи
+let _warpPoll = null;       // перечитывание статуса, пока действие идёт
+
+function warpReqBegin() { _warpReqs++; }
+function warpReqEnd() { _warpReqs = Math.max(0, _warpReqs - 1); }
+function warpActing() { return !!_warpJob || _warpReqs > 0; }
+
+// Последняя содержательная строка лога задачи — для тоста о неудаче: модалки
+// с логом у этих действий нет, а причина нужна сразу. Рамки и отметки
+// времени обёртки задачи (svc_action_async) пропускаются.
+function jobReason(d) {
+  const lines = String((d && d.log) || "").split("\n").map(l => l.trim())
+    .filter(l => l && !/^─+$/.test(l) && !/^\[\d\d:\d\d:\d\d\]/.test(l));
+  return lines.length ? lines[lines.length - 1].replace(/^\[z2k-warp\]\s*/, "") : "причина в логе задачи";
+}
+
+function warpPendingUI() {
+  const el = document.getElementById("warp-pending");
+  if (el) {
+    el.hidden = !_warpJob;
+    if (_warpJob) {
+      // Подсказка — ровно о том, что стало можно: не ждать, а перебить.
+      el.innerHTML = `<span class="status-ico">${_icons.hourglass}</span>${escapeHtml(_warpJobTitle)}… ` +
+        "Если зависло — выключите тумблер или выберите другой транспорт, это прервёт текущее действие.";
+    }
+  }
+  clearInterval(_warpPoll);
+  _warpPoll = null;
+  if (_warpJob) {
+    _warpPoll = setInterval(() => {
+      if (!document.getElementById("warp-status-grid")) { clearInterval(_warpPoll); _warpPoll = null; return; }
+      loadWarpStatus();
+    }, 3000);
+  }
+}
+
+// Запуск действия без модалки. onFinal зовётся только для ПОСЛЕДНЕГО
+// действия: итог перебитого никого не интересует, и откатывать по нему
+// тумблер значило бы отменить нажатие, которое его перебило.
+function warpTrack(title, jobId, onFinal) {
+  _warpJob = jobId;
+  _warpJobTitle = title;
+  warpPendingUI();
+  trackJob(title, jobId, {
+    lockGroup: "warp",
+    onDone: (d) => {
+      if (_warpJob !== jobId) return;
+      _warpJob = null;
+      warpPendingUI();
+      const outcome = jobOutcome(d);
+      if (jobUnresolved(outcome)) {
+        const m = unresolvedMsg(outcome);
+        if (m) toast(m, "bad");
+        awaitPanelBack().then(() => loadWarpStatus());
+        return;
+      }
+      // Код 3 у последнего действия — его перебили из другой вкладки или с
+      // другого устройства. Сказать нечего, состояние перечитаем.
+      if (!(d && d.exit === 3)) onFinal(outcome, d);
+      loadWarpStatus();
+    },
+  });
+}
 
 // Коды last_error движка → текст. Движок пишет код, панель — смысл.
 const WARP_ERRORS = {
@@ -46,7 +128,7 @@ function fmtSize(b) {
 export async function renderWarp() {
   $app.innerHTML = `
     <h1 class="page-title">WARP</h1>
-    <div class="card">
+    <div class="card" data-lock-group="warp">
       <div class="toggle-row" data-key="game_warp">
         <div class="t-text">
           <div class="t-name">WARP-туннель</div>
@@ -58,7 +140,26 @@ export async function renderWarp() {
           <span class="slider"></span>
         </label>
       </div>
+      <p class="desc warp-pending" id="warp-pending" role="status" hidden></p>
       <div class="status-grid" id="warp-status-grid" hidden></div>
+      <div class="warp-transport" id="warp-transport" hidden>
+        <div class="t-name" id="warp-transport-label">Выбор транспорта</div>
+        <div class="segmented" id="warp-transport-seg" role="radiogroup" aria-labelledby="warp-transport-label">
+          ${WARP_MODES.map(m => `<button type="button" class="seg-btn" data-mode="${m.id}" role="radio" aria-checked="false">${m.label}</button>`).join("")}
+        </div>
+        <p class="desc" id="warp-transport-hint"></p>
+      </div>
+      <div class="warp-plus" id="warp-plus" hidden>
+        <label class="t-name" for="warp-plus-key">Ключ WARP+</label>
+        <p class="desc" id="warp-plus-state"></p>
+        <div class="warp-plus-row">
+          <input type="password" id="warp-plus-key" autocomplete="off" autocapitalize="off"
+                 spellcheck="false" maxlength="64" placeholder="xxxxxxxx-xxxxxxxx-xxxxxxxx">
+          <button class="btn" id="warp-plus-apply">Применить ключ</button>
+        </div>
+        <p class="desc">Свой ключ из приложения 1.1.1.1 (Account → Key). Роутер станет одним
+          из устройств вашего аккаунта — у аккаунта их не больше пяти.</p>
+      </div>
       <div class="btn-row" id="warp-actions" style="margin-top:12px;align-items:center;flex-wrap:wrap" hidden>
         <button class="btn btn-primary" id="warp-install-btn" hidden>Установить WARP</button>
         <span class="desc" id="warp-install-note" style="margin:0" hidden>~7 МБ; регистрирует устройство у Cloudflare. Ничего не запускается, пока не включите тумблер.</span>
@@ -75,6 +176,10 @@ export async function renderWarp() {
         чтения; свои адреса добавляйте ниже, отдельным списком.
       </p>
       <div id="warp-games" class="warp-games">${skeletonBlocks(3)}</div>
+      <div class="warp-own" id="warp-own" hidden>
+        <h4 class="warp-own-title">Свои списки</h4>
+        <div id="warp-own-list" class="warp-games"></div>
+      </div>
     </div>
     <div class="card" id="warp-devices-card" hidden>
       <h3>Устройства</h3>
@@ -98,7 +203,8 @@ export async function renderWarp() {
       <p class="desc">
         Каждый список — текстовый файл: один IPv4-адрес или CIDR-подсеть на строку
         (<code>203.0.113.7</code> или <code>203.0.113.0/24</code>; строки с <code>#</code> —
-        комментарии). Через WARP идёт трафик ко всем адресам из всех списков.
+        комментарии). Через WARP идёт трафик ко всем адресам из включённых списков;
+        включают и выключают их тумблеры в карточке выше.
         <b>Изменения применяются сразу</b>, без перезапуска, и переживают
         переустановку z2k.
       </p>
@@ -127,6 +233,14 @@ export async function renderWarp() {
   document.getElementById("warp-install-btn").addEventListener("click", warpInstall);
   document.getElementById("warp-remove-btn").addEventListener("click", warpRemove);
   document.getElementById("warp-rereg-btn").addEventListener("click", warpReregister);
+  document.getElementById("warp-plus-apply").addEventListener("click", warpLicenseApply);
+  document.getElementById("warp-plus-key").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") warpLicenseApply();
+  });
+  document.getElementById("warp-transport-seg").addEventListener("click", (e) => {
+    const btn = e.target.closest(".seg-btn");
+    if (btn) warpTransportPick(btn.dataset.mode);
+  });
   document.getElementById("warp-devices-save").addEventListener("click", warpDevicesSave);
   document.getElementById("warp-new-btn").addEventListener("click", warpNewList);
   document.getElementById("warp-import-btn").addEventListener("click", () => {
@@ -236,8 +350,8 @@ async function loadWarpGames() {
   const on = games.filter(g => g.enabled === 1 || g.enabled === "1").length;
   host.innerHTML = `
     <p class="desc" id="warp-games-summary">${on === 0
-      ? "Сейчас не включён ни один список — через туннель не идёт ничего."
-      : `Включено списков: ${on} из ${games.length}.`}</p>
+      ? "Не включён ни один игровой список."
+      : `Включено игровых списков: ${on} из ${games.length}.`}</p>
     ${games.map(g => `
       <div class="toggle-row" data-game="${escapeHtml(g.name)}">
         <div class="t-text">
@@ -314,17 +428,27 @@ async function loadWarpStatus() {
   document.getElementById("warp-devices-card").hidden = false;
 
   const box = $app.querySelector('[data-key="game_warp"] input');
+  // ПОКА ДЕЙСТВИЕ ИДЁТ, ТУМБЛЕР И ВЫБОР ТРАНСПОРТА ПОКАЗЫВАЮТ НАЖАТОЕ, А НЕ
+  // КОНФИГ. Статус перечитывается каждые три секунды, а флаг в конфиге
+  // меняется не сразу: выключение пишет его последним шагом. Синхронизация
+  // «всегда» возвращала тумблер во «вкл» через секунду после того, как его
+  // выключили, — ровно в тот момент, когда им прерывают зависшее включение.
   if (box) {
-    // Checked-состояние синкаем ВСЕГДА. С disabled аккуратнее: если сейчас
-    // идёт job, свитч залочен _updateGlobalUILock'ом — не раслочиваем его в
-    // обход лока, а поправляем lockBackup, чтобы разлочка после job'а
-    // вернула enabled.
-    box.checked = enabled;
-    if (_activeJobs.size) {
-      if (box.dataset.lockBackup !== undefined) box.dataset.lockBackup = "0";
-    } else {
-      box.disabled = false;
-    }
+    if (!warpActing()) box.checked = enabled;
+    // Под чужой задачей тумблер заперт замком — правим его запомненное
+    // состояние, а не .disabled напрямую (иначе снятие замка вернёт старое).
+    setLockAware(box, false);
+  }
+
+  const transportBox = document.getElementById("warp-transport");
+  if (transportBox) transportBox.hidden = !installed;
+  const plusBox = document.getElementById("warp-plus");
+  if (plusBox) plusBox.hidden = !installed;
+  const plusState = document.getElementById("warp-plus-state");
+  if (plusState) plusState.textContent = warpPlanText(d);
+  if (!warpActing()) {
+    _warpMode = WARP_MODES.some(m => m.id === d.transport_mode) ? d.transport_mode : "auto";
+    setWarpMode(_warpMode);
   }
 
   if (!installed) {
@@ -341,6 +465,11 @@ async function loadWarpStatus() {
   } else if (!enabled) {
     tunnelValue = "выключен";
     tunnelKind = "";
+  } else if (d.error === "no_endpoint" && _warpMode !== "auto") {
+    // Выбран один транспорт — и молчит именно он. «Провайдер блокирует WARP
+    // целиком» здесь было бы неправдой: второй транспорт никто не пробовал.
+    tunnelValue = "На выбранном транспорте ни один адрес Cloudflare не отвечает — попробуйте «Автоматически».";
+    tunnelKind = "bad";
   } else if (d.error) {
     tunnelValue = WARP_ERRORS[d.error] || d.error;
     tunnelKind = "bad";
@@ -367,6 +496,99 @@ async function loadWarpStatus() {
     const icon = statusIcon(c.kind);
     return `<div class="status-cell ${c.kind}"><div class="label">${c.label}</div><div class="value">${icon ? `<span class="status-ico">${icon}</span>` : ""}${escapeHtml(c.value)}</div></div>`;
   }).join("");
+}
+
+function setWarpMode(mode) {
+  const seg = document.getElementById("warp-transport-seg");
+  if (!seg) return;
+  seg.querySelectorAll(".seg-btn").forEach(b => {
+    const on = b.dataset.mode === mode;
+    b.classList.toggle("seg-on", on);
+    b.setAttribute("aria-checked", String(on));
+  });
+  const hint = document.getElementById("warp-transport-hint");
+  const m = WARP_MODES.find(x => x.id === mode);
+  if (hint && m) hint.textContent = m.hint;
+}
+
+// Смена транспорта у включённого WARP перезапускает движок — задача без
+// модалки, со значком в углу; туннель на секунды пропадает. У выключенного
+// сохраняется только выбор, ждать нечего. Нажатие во время идущего действия
+// его прерывает (см. warpTrack).
+async function warpTransportPick(mode) {
+  if (!WARP_MODES.some(m => m.id === mode) || mode === _warpMode) return;
+  if (foreignJobsActive("warp")) { toast("Дождитесь завершения текущей операции", "bad"); return; }
+  const label = (WARP_MODES.find(m => m.id === mode) || {}).label;
+  _warpMode = mode;
+  setWarpMode(mode);
+  warpReqBegin();
+  let resp;
+  try {
+    resp = await apiPost("/warp/transport", { value: mode });
+  } catch (e) {
+    warpReqEnd();
+    toastErr("Ошибка: ", e);
+    loadWarpStatus();
+    return;
+  }
+  warpReqEnd();
+  if (!resp || !resp.job) {
+    toast(`Выбран ${label}. Применится при включении WARP`);
+    loadWarpStatus();
+    return;
+  }
+  warpTrack("Переключаю транспорт WARP", resp.job, (outcome, d) => {
+    if (outcome === JOB_FAIL) toast(`Не переключилось: ${jobReason(d)}`, "bad");
+    else toast(`Транспорт переключён: ${label}`);
+  });
+}
+
+// Тип аккаунта словами. Признак подписки — account_type: у бесплатной записи
+// Cloudflare тоже отдаёт warp_plus:true (замер 2026-09-14), и на нём панель
+// показала бы WARP+ всем подряд.
+const WARP_PLANS = { free: "бесплатный", limited: "WARP+", unlimited: "WARP+ Unlimited", team: "Zero Trust" };
+
+function warpPlanText(d) {
+  if (d.plan_error) {
+    return "Ключ сохранён, но к новой записи устройства не привязался — введите его и примените ещё раз.";
+  }
+  const plan = WARP_PLANS[d.plan];
+  if (!plan) return d.license ? "Ключ сохранён; тип аккаунта ещё не проверялся." : "Ключ не задан — работает бесплатный WARP.";
+  return `Аккаунт: ${plan}` + (d.license ? ", ключ сохранён." : ".");
+}
+
+// Ключ уходит задачей с модалкой: ответ Cloudflare нужен человеку словами
+// («неверный ключ», «слишком много устройств»), и лог задачи его показывает.
+// Поле очищается сразу после отправки — ключ не должен висеть на странице.
+async function warpLicenseApply() {
+  const input = document.getElementById("warp-plus-key");
+  const btn = document.getElementById("warp-plus-apply");
+  const key = (input.value || "").trim();
+  if (!/^[A-Za-z0-9-]{8,64}$/.test(key)) {
+    toast("Ключ WARP+ — латинские буквы, цифры и дефисы", "bad");
+    input.focus();
+    return;
+  }
+  if (foreignJobsActive("warp") || warpActing()) { toast("Дождитесь завершения текущей операции", "bad"); return; }
+  btn.disabled = true;
+  let resp;
+  try {
+    resp = await apiPost("/warp/license", { key });
+  } catch (e) {
+    btn.disabled = false;
+    toastErr("Ошибка: ", e);
+    return;
+  }
+  input.value = "";
+  openJobModal("Применяю ключ WARP+", resp.job, {
+    onDone: (d) => {
+      btn.disabled = false;
+      const outcome = jobOutcome(d);
+      if (outcome === JOB_FAIL) toast(jobReason(d), "bad");
+      else if (!jobUnresolved(outcome)) toast("Ключ применён");
+      loadWarpStatus();
+    },
+  });
 }
 
 // Установить / Удалить — долгие действия, идут job'ом с модалкой, как
@@ -484,44 +706,33 @@ async function warpDevicesSave() {
   }
 }
 
-// Аналог toggleClick, но со своим onDone: после переключения обновляем
-// статус-грид раздела (туннель/ipset), а не дашборд.
+// Включение и выключение туннеля. Без модалки и без замка на тумблере: если
+// включение зависло, его прерывают тем же тумблером (или выбором транспорта).
+// .disabled — только на время самого запроса, id задачи приходит за доли
+// секунды; класс .loading не ставится, он снимает с тумблера клики.
 async function warpToggle(box) {
-  const sw = box.closest(".switch");
   const wanted = box.checked ? "1" : "0";
-  sw.classList.add("loading");
   box.disabled = true;
+  warpReqBegin();
   let resp;
   try {
     resp = await apiPost("/toggle/game-warp", { value: wanted });
   } catch (e) {
+    warpReqEnd();
     box.checked = !box.checked;
     box.disabled = false;
-    sw.classList.remove("loading");
     toastErr("Ошибка: ", e);
     return;
   }
-  openJobModal((wanted === "1" ? "Включаю" : "Отключаю") + " WARP-туннель", resp.job, {
-    onDone: (d) => {
-      sw.classList.remove("loading");
-      box.disabled = false;
-      const outcome = jobOutcome(d);
-      if (outcome === JOB_FAIL) {
-        box.checked = !box.checked;
-        toast("Не включилось — причина в логе выше", "bad");
-      } else if (jobUnresolved(outcome)) {
-        // Не знаем, чем кончилось — не откатываем чекбокс и не врём.
-        // loadWarpStatus сам вернёт фактическое состояние, когда панель
-        // снова ответит.
-        const m = unresolvedMsg(outcome);
-        if (m) toast(m, "bad");
-        awaitPanelBack().then(() => loadWarpStatus());
-        return;
-      } else {
-        toast(wanted === "1" ? "Включено" : "Выключено");
-      }
-      loadWarpStatus();
-    },
+  warpReqEnd();
+  box.disabled = false;
+  warpTrack((wanted === "1" ? "Включаю" : "Отключаю") + " WARP-туннель", resp.job, (outcome, d) => {
+    if (outcome === JOB_FAIL) {
+      box.checked = wanted !== "1";
+      toast((wanted === "1" ? "Не включилось: " : "Не выключилось: ") + jobReason(d), "bad");
+    } else {
+      toast(wanted === "1" ? "Включено" : "Выключено");
+    }
   });
 }
 
@@ -533,6 +744,7 @@ async function loadWarpLists() {
     const d = await apiGet("/warp/lists");
     if (_stale("warpLists", seq)) return;
     _warpLists = d.lists || [];
+    renderOwnToggles(_warpLists);
     if (!_warpLists.length) {
       list.innerHTML = `<li style="color:var(--text-muted)">(нет списков — создайте новый или импортируйте .txt)</li>`;
       return;
@@ -541,7 +753,7 @@ async function loadWarpLists() {
       <li>
         <span class="warp-item">
           <span class="warp-item-name">${escapeHtml(l.name)}.txt</span>
-          <span class="warp-item-meta">${addrs(l.entries)} · ${fmtSize(l.size)}${Number(l.mtime) > 0 ? " · изменён " + humanAgo(Number(l.mtime)) : ""}</span>
+          <span class="warp-item-meta">${addrs(l.entries)} · ${fmtSize(l.size)}${Number(l.mtime) > 0 ? " · изменён " + humanAgo(Number(l.mtime)) : ""}${listOn(l) ? "" : " · выключен"}</span>
         </span>
         <span class="warp-item-actions">
           <button class="btn-icon" title="Редактировать" aria-label="Редактировать ${escapeHtml(l.name)}" data-edit="${escapeHtml(l.name)}">${_icons.edit}</button>
@@ -563,6 +775,52 @@ async function loadWarpLists() {
     if (_stale("warpLists", seq)) return;
     list.innerHTML = `<li style="color:var(--bad)">${errHtml(e)}</li>`;
   }
+}
+
+// Свой список включён, пока его явно не выключили: старый роутер поля «on»
+// не отдаёт, и все его списки работают — так их и показываем.
+function listOn(l) { return !(l.on === 0 || l.on === "0"); }
+
+// Тумблеры своих списков — под игровыми, в той же карточке и той же разметкой:
+// «что идёт через туннель» человек включает в одном месте. Редактирование,
+// импорт и удаление остаются в карточке «Списки адресов».
+function renderOwnToggles(lists) {
+  const box = document.getElementById("warp-own");
+  const host = document.getElementById("warp-own-list");
+  if (!box || !host) return;
+  box.hidden = !lists.length;
+  host.innerHTML = lists.map(l => `
+      <div class="toggle-row" data-own="${escapeHtml(l.name)}">
+        <div class="t-text">
+          <div class="t-name" title="${escapeHtml(l.name)}">${escapeHtml(l.name)}</div>
+          <div class="t-desc">${addrs(l.entries)}</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" ${listOn(l) ? "checked" : ""} aria-label="Список ${escapeHtml(l.name)} через WARP">
+          <span class="slider"></span>
+        </label>
+      </div>`).join("");
+  host.querySelectorAll("[data-own] input").forEach(cb => {
+    cb.addEventListener("change", () => warpOwnToggle(cb));
+  });
+}
+
+async function warpOwnToggle(box) {
+  const row = box.closest("[data-own]");
+  const name = row.getAttribute("data-own");
+  const wanted = box.checked ? "1" : "0";
+  box.disabled = true;
+  try {
+    await apiPost("/warp/list/toggle", { name, value: wanted });
+  } catch (e) {
+    box.checked = !box.checked;
+    toastErr("Ошибка: ", e);
+    box.disabled = false;
+    return;
+  }
+  box.disabled = false;
+  toast(wanted === "1" ? `${name} включён` : `${name} выключен`);
+  loadWarpLists();
 }
 
 async function warpEditOpen(name, prefill) {

@@ -23,7 +23,10 @@ for reset in 1 0; do
     generate_nfqws2_opt_from_strategies > "$TMP/raw"
     awk -f tests/lib/nfqws2_flatten.awk "$TMP/raw" > "$TMP/flat-$reset"
 done
-export Z2K_PROFILE_FIXTURE="$TMP/flat-1" Z2K_PROFILE_NO_RESET="$TMP/flat-0"
+printf 'ENABLED=1\nZ2K_DISCORD_UPDATE_TLS_TIMEOUT=0\n' > "$ZAPRET2_DIR/config"
+generate_nfqws2_opt_from_strategies > "$TMP/raw"
+awk -f tests/lib/nfqws2_flatten.awk "$TMP/raw" > "$TMP/timeout-off"
+export Z2K_PROFILE_FIXTURE="$TMP/flat-1" Z2K_PROFILE_NO_RESET="$TMP/flat-0" Z2K_PROFILE_TIMEOUT_OFF="$TMP/timeout-off"
 mkdir -p "$TMP/state" "$TMP/fallback"
 export Z2K_STATE_DIR_OVERRIDE="$TMP/state" Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE="$TMP/fallback"
 "${LUA:-lua}" tests/test_profile_observation.lua

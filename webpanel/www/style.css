@@ -1219,6 +1219,81 @@ body[data-page="login"] #app { max-width: none; }
   vertical-align: 1px;
 }
 
+/* ГРУППЫ ПО ДОМЕНУ. Поддомены одного сайта собраны под строкой-заголовком
+   (js/state-model.js, groupDomain). Заголовок — такая же строка таблицы с теми
+   же колонками, а не плашка поперёк: в колонках лежит сводка по группе, и её
+   читают тем же движением глаза, что и обычные строки.
+   Сводка приглушена, имя группы — нет: ищут по нему. */
+.state-table tbody.sg-closed tr.sg-member { display: none; }
+.state-table tr.sg-head {
+  cursor: pointer;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+}
+.state-table td.sg-title { color: var(--text); }
+.sg-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sg-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.sg-toggle .icon {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  transition: transform var(--dur-micro) var(--ease-emphasized);
+}
+.sg-closed .sg-toggle .icon { transform: rotate(-90deg); }
+.sg-name { font-weight: 600; }
+/* Число записей, а не имён: v4 и v6 одного хоста — две записи с разными
+   стратегиями, и сводка справа считает именно их. */
+.sg-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.sg-frozen {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent);
+}
+.sg-frozen .icon { width: 15px; height: 15px; }
+/* Стрелка висит в поле слева, а имена в колонке «Домен» начинаются с одной
+   вертикали — и у заголовков групп, и у одиночных строк (16px стрелки + 6px
+   зазора). Иначе колонка читается рваным краем. Поле появляется, только если
+   на экране есть хоть одна группа: без групп отступ был бы пустым местом.
+   Строки группы сдвинуты глубже, и слева от них идёт тонкая направляющая по
+   оси стрелки — видно, где группа кончается. Нарисована фоном, а не
+   псевдоэлементом: ::before у ячеек на телефоне занят подписью поля. */
+.state-table.sg-any td.state-host,
+.state-table.sg-any th[data-sort="host"] {
+  padding-left: calc(var(--space-12) + 22px);
+}
+.state-table.sg-any td.sg-leaf {
+  padding-left: calc(var(--space-12) + 22px + var(--space-16));
+  background: linear-gradient(var(--border), var(--border)) no-repeat
+              calc(var(--space-12) + 7px) 0 / 1px 100%;
+}
+.sg-parent { color: var(--text-muted); }
+
 /* ---------- STATUS GRID ---------- */
 .status-grid {
   display: grid;
@@ -1756,6 +1831,32 @@ input[type=text]:focus, input[type=password]:focus {
   margin-top: 12px;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
+/* Выбор транспорта — под статусом, в той же карточке: статус говорит, на чём
+   туннель стоит сейчас, а переключатель — на чём ему стоять. Подсказка под
+   ним меняется вместе с выбором и говорит, чем он обернётся на плохой линии. */
+/* Идущее действие с туннелем. Не модалка: под ней остались бы недоступны
+   тумблер и выбор транспорта, которыми зависшее действие и прерывают. */
+.warp-pending {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  margin: var(--space-8) 0 0;
+  max-width: 64ch;
+}
+.warp-pending .status-ico { flex: 0 0 auto; color: var(--text-muted); line-height: 0; margin-top: 2px; }
+.warp-transport { margin-top: var(--space-16); }
+/* Ключ WARP+ — под выбором транспорта, тем же ритмом: подпись, состояние,
+   поле с кнопкой в строку (на узком экране кнопка уходит под поле). */
+.warp-plus { margin-top: var(--space-16); }
+.warp-plus .t-name { display: block; font-weight: 500; }
+.warp-plus .desc { margin: var(--space-4) 0 0; max-width: 64ch; }
+.warp-plus-row { display: flex; flex-wrap: wrap; gap: var(--space-8); margin-top: var(--space-8); }
+.warp-plus-row input { flex: 1 1 16rem; min-width: 0; max-width: 28rem; font-family: var(--font-mono); }
+.warp-transport .t-name { font-weight: 500; }
+.warp-transport .segmented { flex-wrap: wrap; }
+.warp-transport .seg-btn:disabled { cursor: progress; opacity: 0.7; }
+.warp-transport .desc { margin: var(--space-8) 0 0; max-width: 64ch; }
+
 
 /* Игровые списки: 22 строки по 58px делали страницу нечитаемой. Компактная
    строка — имя и счётчик в одну линию, на ширине ≥720px в две колонки. */
@@ -1771,6 +1872,10 @@ input[type=text]:focus, input[type=password]:focus {
 .warp-games .t-name { font-weight: 500; font-size: 13px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .warp-games .t-desc { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .warp-games .switch { flex-shrink: 0; }
+/* Свои списки под игровыми: та же сетка и те же строки, отделены только
+   подзаголовком — это одно действие «пустить через туннель», а не новый раздел. */
+.warp-own { margin-top: var(--space-16); padding-top: var(--space-12); border-top: 1px solid var(--border); }
+.warp-own-title { margin: 0 0 var(--space-4); font-size: 13px; font-weight: 600; color: var(--text); }
 .warp-games .t-name { flex-shrink: 1; }
 .warp-games > .warp-offline { grid-column: 1 / -1; margin-top: 8px; }
 .warp-offline summary { cursor: pointer; font-size: 13px; color: var(--text-muted); padding: 6px 0; }
@@ -2284,6 +2389,25 @@ body[data-page="strategies"] #app { max-width: none; }
     margin-bottom: 4px;
     border-bottom: 1px solid var(--border);
   }
+  /* Заголовок группы на телефоне — карточка без кнопки удаления, с именем
+     первой строкой и без подписи «Домен» над ним: имя и есть заголовок.
+     Сводка идёт парами «подпись значение» в строку с переносом, а не полем
+     на строку, как у записи: в столбик заголовок выходил ростом с саму
+     запись (~160px), и свёрнутый список на телефоне почти не сокращался.
+     Строки группы сдвинуты вправо, как на десктопе. */
+  .state-table tr.sg-head {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: var(--space-16);
+    background: var(--bg-subtle);
+  }
+  .state-table tr.sg-head td { flex: 0 0 auto; justify-content: flex-start; gap: 2px 6px; }
+  .state-table tr.sg-head td.sg-lead { display: none; }
+  .state-table tr.sg-head td.sg-title { order: -1; flex-basis: 100%; padding-bottom: 6px; }
+  .state-table tr.sg-head td.sg-title::before { content: none; }
+  .state-table tr.sg-member { margin-left: var(--space-16); }
+  .state-table.sg-any td.state-host,
+  .state-table.sg-any td.sg-leaf { padding-left: 0; background: none; }
 }
 
 /* Small phone (≤374px) — ещё компактнее на старых iPhone SE.

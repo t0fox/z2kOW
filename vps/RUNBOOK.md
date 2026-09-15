@@ -136,7 +136,7 @@ cd vps-relay && ulimit -n 20000 && go test -tags load -run TestLoad_3000Sessions
 из `/etc/z2k/relay-<i>.env` через reuseport.
 
 ```
-cd vps-relay && PATH=<go1.25.12>:$PATH sh deploy/build.sh
+cd vps-relay && PATH=<go1.25.13>:$PATH sh deploy/build.sh
 scp -O vps-relay/z2k-vps-relay root@213.176.74.63:/usr/local/bin/z2k-vps-relay.new
 ssh root@213.176.74.63 'cp -p /usr/local/bin/z2k-vps-relay /usr/local/bin/z2k-vps-relay.prev && mv -f /usr/local/bin/z2k-vps-relay.new /usr/local/bin/z2k-vps-relay'
 sh vps/bin/deploy.sh --apply              # юнит/скрипты; nginx перезагружается только если менялся

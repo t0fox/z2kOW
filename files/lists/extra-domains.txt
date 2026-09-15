@@ -41,5 +41,11 @@ rua.gr
 ru-board.com
 searchtor.to
 security.iot.i.tplinknbu.com
+# SoundCloud: сайт и sndcdn.com есть в списке РКН, а музыка идёт с нового домена
+# soundcloud.cloud (playback.media-streaming — список и куски трека, assets.web —
+# ресурсы плеера), которого там нет. Без обработки поток вставал ровно на 16 КБ,
+# и трек не играл. Замер 15.09.2026 на роутере владельца: до — 16 122 байта за
+# 20 с, после добавления — список 19 КБ и кусок 200 КБ за 0,4 с.
+soundcloud.cloud
 tapo.com
 mailsuite.com

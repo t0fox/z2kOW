@@ -163,8 +163,26 @@ assert_contains "lists TSV has test row" "test" "$OUT"
 ENTRIES=$(warp_lists | awk -F'\t' '$1=="test"{print $2}')
 assert_eq "entry count = valid lines only" "1" "$ENTRIES"
 
+printf "\n--- warp_list_toggle: свой список включается и выключается ---\n"
+assert_eq "новый список включён" "1" "$(warp_lists | awk -F'\t' '$1=="test"{print $5}')"
+warp_list_toggle test 0
+assert_eq "выключение записано в .disabled" "test" "$(cat "$WARP_LISTS_DIR/.disabled")"
+assert_eq "warp_lists показывает выключенным" "0" "$(warp_lists | awk -F'\t' '$1=="test"{print $5}')"
+warp_list_toggle test 0
+assert_eq "повторное выключение не дублирует имя" "1" "$(grep -cxF test "$WARP_LISTS_DIR/.disabled")"
+warp_list_toggle test 1
+assert_eq "включение снимает отметку" "0" "$(grep -cxF test "$WARP_LISTS_DIR/.disabled")"
+warp_list_toggle nosuch 0 2>/dev/null && r=0 || r=1
+assert_eq "несуществующий список не переключается" "1" "$r"
+warp_list_toggle "../x" 0 2>/dev/null && r=0 || r=1
+assert_eq "враждебное имя отвергнуто" "1" "$r"
+warp_list_toggle test 2 2>/dev/null && r=0 || r=1
+assert_eq "значение кроме 0/1 отвергнуто" "1" "$r"
+warp_list_toggle test 0
+
 printf "\n--- warp_list_delete ---\n"
 warp_list_delete test
+assert_eq "удаление уносит отметку «выключен»" "0" "$(cat "$WARP_LISTS_DIR/.disabled" 2>/dev/null | grep -cxF test)"
 assert_eq "file removed" "0" "$([ -f "$WARP_LISTS_DIR/test.txt" ] && echo 1 || echo 0)"
 warp_list_delete test && r=0 || r=1
 assert_eq "delete idempotent" "0" "$r"
@@ -314,6 +332,15 @@ assert_not_contains "drops /0"           "0.0.0.0/0"    "$SAN"
 assert_not_contains "drops leading-zero" "08.8.8.8"     "$SAN"
 assert_not_contains "drops comment"      "# comment"    "$SAN"
 assert_eq "update-lists uses canonical regex" "1" "$(grep -cF '/^[1-9][0-9]{0,2}(\.(0|[1-9][0-9]{0,2})){3}(\/([1-9]|[12][0-9]|3[0-2]))?$/' "$SCRIPT_DIR/files/z2k-update-lists.sh")"
+
+printf "\n--- переустановка сохраняет выключенные свои списки ---\n"
+# Без переноса .disabled все выключенные человеком списки молча включались бы
+# обратно после первой же переустановки или обновления с reinstall.
+INST="$SCRIPT_DIR/lib/install.sh"
+assert_eq ".disabled попадает в бэкап" "1" \
+    "$(grep -c 'cp -f "$ZAPRET2_DIR/lists/warp/.disabled" "$backup_tmp/warp-lists/.disabled"' "$INST")"
+assert_eq ".disabled восстанавливается" "1" \
+    "$(grep -c 'cp -f "$backup_tmp/warp-lists/.disabled" "${ZAPRET2_DIR}/lists/warp/.disabled"' "$INST")"
 
 printf "\nPASSED: %d\nFAILED: %d\n" "$TESTS_PASSED" "$TESTS_FAILED"
 [ "$TESTS_FAILED" -eq 0 ] || exit 1

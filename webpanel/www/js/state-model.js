@@ -41,3 +41,64 @@ export let stateSort = loadStateSort();
 export let statePools = {};
 
 export function setStatePools(v) { statePools = v || {}; }
+
+// ГРУППИРОВКА СТРОК РОТАТОРА ПО ДОМЕНУ.
+//
+// Ключ ротации у служебных пулов теперь — полное имя хоста (z2k_service_hostkey
+// в files/lua/z2k-modern-core.lua ставит nld=0), и таблица показывает каждый
+// поддомен отдельной строкой. На роутере владельца 14.09 это 109 записей, из
+// них 18 — поддомены apple.com, а у discord.media их бывает под сотню
+// (finland10000 … finland10100). Искать среди такого нужный сайт невозможно.
+//
+// Группировка — только вид. Движок по-прежнему держит отдельную ячейку на
+// каждое имя, и правка строки уходит в API с тем же сырым ключом; родитель
+// нигде не хранится и вычисляется здесь при отрисовке.
+//
+// Родитель — последние две метки имени, и три, если предпоследняя — служебный
+// уровень национальной зоны (news.bbc.co.uk → bbc.co.uk). Полного списка
+// публичных суффиксов тут нет сознательно: это ~230 КБ, которые пришлось бы
+// отдавать с роутера ради подписи над строками. Промах эвристики здесь стоит
+// дёшево — строки не теряются, а оказываются под соседним заголовком. В движке
+// та же эвристика была бы ошибкой другого масштаба: чужие сайты делили бы одну
+// стратегию, поэтому там её и нет (комментарий у z2k_service_hostkey).
+const SLD_GENERIC = new Set([
+  "ac", "biz", "co", "com", "edu", "go", "gob", "gov", "info", "int", "ltd",
+  "mil", "msk", "ne", "net", "nhs", "nic", "nom", "or", "org", "plc", "pp",
+  "sch", "spb",
+]);
+
+export function groupDomain(name) {
+  const s = String(name == null ? "" : name).toLowerCase();
+  // Адрес вместо имени (запись без SNI) не группируется: «3.4» из 1.2.3.4
+  // было бы бессмыслицей, а у IPv6 меток нет вовсе.
+  if (s.indexOf(":") >= 0 || /^[0-9.]+$/.test(s)) return s;
+  const p = s.split(".");
+  if (p.length <= 2) return s;
+  const tld = p[p.length - 1];
+  const sld = p[p.length - 2];
+  return p.slice((tld.length === 2 && SLD_GENERIC.has(sld)) ? -3 : -2).join(".");
+}
+
+// Раскрытые группы. По умолчанию всё свёрнуто: смысл группировки в том, чтобы
+// 109 строк стали 42, а не в том, чтобы добавить к ним ещё 19 заголовков.
+// Запоминается в браузере рядом с сортировкой — это настройка вида, а не
+// роутера. Без памяти любая правка строки внутри группы сворачивала бы её:
+// после каждого изменения таблица перерисовывается целиком.
+const STATE_OPEN_KEY = "z2k-state-open-groups";
+// Потолок, чтобы список не рос вечно: имена групп после очистки стейта
+// остаются в хранилище. Set хранит порядок вставки, отрезаются самые старые.
+const STATE_OPEN_MAX = 200;
+
+function loadOpenGroups() {
+  try {
+    const v = JSON.parse(localStorage.getItem(STATE_OPEN_KEY));
+    return new Set(Array.isArray(v) ? v.filter(x => typeof x === "string") : []);
+  } catch (_) { return new Set(); }
+}
+
+export const stateOpenGroups = loadOpenGroups();
+
+export function saveOpenGroups() {
+  const all = Array.from(stateOpenGroups);
+  try { localStorage.setItem(STATE_OPEN_KEY, JSON.stringify(all.slice(-STATE_OPEN_MAX))); } catch (_) {}
+}

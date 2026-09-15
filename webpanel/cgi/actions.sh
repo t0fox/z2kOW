@@ -756,6 +756,7 @@ job_reap() {
 _tmp_reap_orphans() {
     local f
     for f in /tmp/z2k-strat-shadow.* /tmp/z2k-strategy-check.* /tmp/z2k-strategy-err.* \
+             /tmp/z2k-warp-license.* \
              "${AU_MANIFEST_CACHE:-/tmp/z2k-au-manifest.json}".new.*; do
         [ -e "$f" ] || continue
         # Проверять надо ВЫВОД find, а не его код возврата: несовпадение по
@@ -822,6 +823,17 @@ svc_action_async() {
 # Коды enable — контракт: 0 ready; 2 включено, туннель поднимается (флаг
 # остаётся, причина — код в статусе, панель переводит его в текст); 1 — нет
 # бинаря (флаг откатывается).
+# Код 3 — действие перебито более новым (выключили, пока включение ждало
+# готовности, или выбрали другой транспорт). Это не ошибка и не повод откатывать
+# что-либо в панели: состоянием теперь владеет новое действие. Коды от сигнала
+# (>128) — то же самое: застрявшее действие снял его преемник.
+warp_rc_superseded() {
+    case "$1" in
+        3|129|13[0-9]|14[0-9]) return 0 ;;
+    esac
+    return 1
+}
+
 toggle_game_warp() {
     local want="$1" rc
     if [ "$want" = "1" ]; then
@@ -830,13 +842,75 @@ toggle_game_warp() {
             echo "Туннель ещё не поднялся — причина в статусе раздела WARP. Режим оставлен включённым, трафик пока идёт напрямую; движок продолжает попытки в фоне." >&2
             return 0
         fi
+        if warp_rc_superseded "$rc"; then
+            echo "Прервано: запущено другое действие с WARP"
+            return 3
+        fi
         if [ "$rc" != "0" ]; then
             echo "WARP не установлен — нажмите «Установить» в разделе WARP" >&2
             return 1
         fi
     else
-        sh "$WARP_SCRIPT" disable
+        sh "$WARP_SCRIPT" disable; rc=$?
+        if warp_rc_superseded "$rc"; then
+            echo "Прервано: запущено другое действие с WARP"
+            return 3
+        fi
+        return "$rc"
     fi
+}
+
+# Транспорт WARP, выбранный в панели: auto | wg | h2. Флаг пишется всегда,
+# движок перезапускается только у включённого WARP. Код 2 от restart — не
+# ошибка: выбор сохранён, туннель на новом транспорте ещё поднимается, и
+# причина видна в статусе раздела (тот же контракт, что у toggle_game_warp).
+warp_transport_set() {
+    local mode="$1" rc
+    case "$mode" in
+        auto|wg|h2) ;;
+        *) echo "неизвестный транспорт: $mode" >&2; return 1 ;;
+    esac
+    set_flag "Z2K_WARP_TRANSPORT" "$mode" "$CONFIG_FILE" || return 1
+    if [ "$(read_flag "GAME_WARP_ENABLED" "$CONFIG_FILE" "0")" != "1" ] || [ ! -f "$WARP_SCRIPT" ]; then
+        echo "Сохранено. Применится при включении WARP."
+        return 0
+    fi
+    sh "$WARP_SCRIPT" restart; rc=$?
+    if [ "$rc" = "2" ]; then
+        echo "Туннель на выбранном транспорте ещё не поднялся — причина в статусе раздела WARP. Движок продолжает попытки в фоне." >&2
+        return 0
+    fi
+    if warp_rc_superseded "$rc"; then
+        echo "Прервано: запущено другое действие с WARP"
+        return 3
+    fi
+    return "$rc"
+}
+
+# Ключ WARP+. Панель кладёт ключ во временный файл с правами 0600, а задача
+# передаёт его скрипту через stdin и файл сразу удаляет: в строке команды
+# задачи ключ стоял бы в списке процессов и в логе, который панель показывает.
+# Путь проверяется по шаблону — функция не должна читать и удалять что угодно.
+warp_license_apply() {
+    local f="$1" out rc msg
+    case "$f" in
+        /tmp/z2k-warp-license.*) ;;
+        *) echo "неверный путь ключа" >&2; return 1 ;;
+    esac
+    [ -f "$f" ] || { echo "ключ не передан — введите его ещё раз" >&2; return 1; }
+    out=$(sh "$WARP_SCRIPT" license < "$f" 2>&1); rc=$?
+    rm -f "$f"
+    [ -n "$out" ] && printf '%s\n' "$out"
+    case "$rc" in
+        0) echo "Ключ применён." ;;
+        2) echo "Это не похоже на ключ WARP+: в нём только латинские буквы, цифры и дефисы." >&2 ;;
+        3)
+            msg=$(printf '%s\n' "$out" | sed -n 's/.*license_rejected: [a-z]*: //p' | tail -n1)
+            echo "Cloudflare не принял ключ: ${msg:-без объяснения}" >&2 ;;
+        4) echo "Сначала установите WARP: ключ привязывается к зарегистрированному устройству." >&2 ;;
+        *) echo "Cloudflare не ответил ни напрямую, ни через релей — попробуйте позже." >&2 ;;
+    esac
+    return "$rc"
 }
 
 # Установка движка: скачать бинарь под арку, зарегистрировать устройство.
@@ -1605,8 +1679,8 @@ _extra_domains_delete_locked() {
 }
 
 # --- WARP lists (webpanel «WARP» section) ---
-# User-owned IPv4/CIDR lists in $WARP_LISTS_DIR — z2k-warp.sh loads ALL *.txt
-# there into the z2k_warp ipset. Те же правила записи, что и у whitelist:
+# User-owned IPv4/CIDR lists in $WARP_LISTS_DIR — z2k-warp.sh loads every *.txt
+# there that is not switched off in .disabled into the z2k_warp ipset. Те же правила записи, что и у whitelist:
 # наполненный temp подменяет файл целиком через _file_replace (rename, а не
 # «обнулить и залить»), режим и владелец переносятся на новый inode, сервис не
 # перезапускается. After any mutation, if WARP is enabled we rebuild the live
@@ -1886,8 +1960,51 @@ warp_devices_save() {
     return 0
 }
 
+# Выключенные СВОИ списки — имена по строке в lists/warp/.disabled.
+#
+# Отдельный файл, а не общий .enabled с игровыми: свои списки включены по
+# умолчанию (так было всегда, и обновление не должно выключить человеку уже
+# работающие), а игровые — выключены. Разные умолчания в одном файле читались
+# бы по-разному в зависимости от того, в каком каталоге лежит имя, а имена
+# своего и игрового списка могут совпасть.
+WARP_USER_OFF_FILE="${WARP_USER_OFF_FILE:-$WARP_LISTS_DIR/.disabled}"
+
+warp_list_on() {
+    [ -f "$WARP_USER_OFF_FILE" ] || return 0
+    ! grep -qxF "$1" "$WARP_USER_OFF_FILE" 2>/dev/null
+}
+
+warp_list_toggle() {
+    # Под замком по той же причине, что и warp_game_toggle: тумблеры щёлкают
+    # подряд, и два запроса, переписывающие файл целиком, откатывали бы друг
+    # друга.
+    _list_lock "$WARP_USER_OFF_FILE" || { echo "список занят, повторите" >&2; return 1; }
+    _warp_list_toggle_locked "$@"; _rc=$?
+    _list_unlock "$WARP_USER_OFF_FILE"
+    return $_rc
+}
+
+_warp_list_toggle_locked() {
+    # warp_list_toggle <name> <0|1>
+    local name="$1" want="$2" tmp
+    warp_name_ok "$name" || { echo "invalid list name" >&2; return 1; }
+    case "$want" in 0|1) ;; *) echo "value must be 0 or 1" >&2; return 1 ;; esac
+    [ -f "$WARP_LISTS_DIR/$name.txt" ] || { echo "no such list" >&2; return 1; }
+    warp_lists_ensure_dir
+    tmp="${WARP_USER_OFF_FILE}.$$"
+    if [ -f "$WARP_USER_OFF_FILE" ]; then
+        grep -vxF "$name" "$WARP_USER_OFF_FILE" > "$tmp" 2>/dev/null || : > "$tmp"
+    else
+        : > "$tmp"
+    fi
+    [ "$want" = "0" ] && printf '%s\n' "$name" >> "$tmp"
+    mv -f "$tmp" "$WARP_USER_OFF_FILE" || { rm -f "$tmp"; echo "save failed" >&2; return 1; }
+    chmod 644 "$WARP_USER_OFF_FILE" 2>/dev/null
+    return 0
+}
+
 warp_lists() {
-    # TSV на stdout: name<TAB>entries<TAB>size<TAB>mtime (name без .txt).
+    # TSV на stdout: name<TAB>entries<TAB>size<TAB>mtime<TAB>on (name без .txt).
     warp_lists_ensure_dir
     local f name entries size mtime
     for f in "$WARP_LISTS_DIR"/*.txt; do
@@ -1898,7 +2015,8 @@ warp_lists() {
         size=$(wc -c < "$f" | tr -d ' ')
         # busybox: date -r (no stat -c), see update_status_string
         mtime=$(date -r "$f" +%s 2>/dev/null)
-        printf '%s\t%s\t%s\t%s\n' "$name" "${entries:-0}" "${size:-0}" "${mtime:-0}"
+        printf '%s\t%s\t%s\t%s\t%s\n' "$name" "${entries:-0}" "${size:-0}" "${mtime:-0}" \
+            "$(warp_list_on "$name" && echo 1 || echo 0)"
     done
 }
 
@@ -2095,6 +2213,15 @@ warp_list_delete() {
     # которого и так больше нет.
     [ -f "$file" ] || return 0
     rm -f "$file" || { echo "delete failed" >&2; return 1; }
+    # Отметку «выключен» уносим вместе со списком: новый список с тем же именем
+    # должен родиться включённым, как любой новый, а не унаследовать чужой выбор.
+    if [ -f "$WARP_USER_OFF_FILE" ] && grep -qxF "$name" "$WARP_USER_OFF_FILE" 2>/dev/null; then
+        _list_lock "$WARP_USER_OFF_FILE" && {
+            grep -vxF "$name" "$WARP_USER_OFF_FILE" > "$WARP_USER_OFF_FILE.$$" 2>/dev/null || : > "$WARP_USER_OFF_FILE.$$"
+            mv -f "$WARP_USER_OFF_FILE.$$" "$WARP_USER_OFF_FILE" || rm -f "$WARP_USER_OFF_FILE.$$"
+            _list_unlock "$WARP_USER_OFF_FILE"
+        }
+    fi
     warp_ipset_reload_if_enabled
     return 0
 }

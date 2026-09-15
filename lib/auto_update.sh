@@ -2423,6 +2423,23 @@ au_write_installed_tag() {
     return 0
 }
 
+# Команда `z2k` — после каждого удачного обновления: те, кто ставил z2k до
+# появления ссылки и обновлялся без переустановки, получают её здесь (issue #57).
+# Та же логика, что у z2k_ensure_cli_link в utils.sh, но своей копией: прогон
+# автообновления utils.sh не подключает, и зависимость от него превратила бы
+# починку в тихий no-op. Без шума и без влияния на исход обновления.
+au_ensure_cli_link() {
+    local target="${ZAPRET2_DIR:-/opt/zapret2}/z2k.sh" link="${Z2K_CLI_LINK:-/opt/bin/z2k}"
+    [ -f "$target" ] || return 0
+    if [ -e "$link" ] && [ ! -L "$link" ]; then
+        return 0
+    fi
+    [ -L "$link" ] && [ "$(readlink "$link" 2>/dev/null)" = "$target" ] && return 0
+    mkdir -p "$(dirname "$link")" 2>/dev/null
+    ln -sf "$target" "$link" 2>/dev/null && au_log "команда z2k восстановлена: $link"
+    return 0
+}
+
 au_mark_dirty_tree() {
     local from="$1" to="$2"
     mkdir -p "$(dirname "$Z2K_AU_DIRTY_TREE_FILE")" 2>/dev/null
@@ -2980,6 +2997,7 @@ au_run_apply() {
                     # то, что релиз перечислил шаг в манифесте: мусор в конфиге
                     # роутера накопился ДО того, как этот шаг появился.
                     au_step_cleanup_ip_hosts
+                    au_ensure_cli_link
                     au_lock_release; return 0 ;;
                 2) au_log "падаю на полную переустановку" ;;
                 *) au_lock_release; return 1 ;;
@@ -3096,6 +3114,7 @@ au_run_apply() {
         ( sh "$_au_zd/z2k-update-lists.sh" warp-games >/dev/null 2>&1 || true ) &
     fi
 
+    au_ensure_cli_link
     au_log "update OK: now at $target_tag"
     au_lock_release
     trap - EXIT INT TERM HUP

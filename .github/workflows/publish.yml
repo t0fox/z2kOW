@@ -456,7 +456,16 @@ jobs:
     if: needs.gate.outputs.publish == 'yes' && needs.publish.outputs.moved == 'yes'
     # Вызываем явно: пуш, сделанный GITHUB_TOKEN, чужие workflow не запускает,
     # поэтому сам по себе jsdelivr-purge.yml после публикации не заведётся.
-    uses: ./.github/workflows/jsdelivr-purge.yml
+    #
+    # zizmor (self-repository) просит «$/» вместо «./». Для ВЫЗОВА
+    # переиспользуемого workflow разницы нет: и «$/», и «./» берут вызываемый
+    # файл из того же коммита, что и вызывающий, а не из рабочего каталога
+    # (docs.github.com, reusable-workflow-calling-syntax), — подменить его
+    # файлом, выкачанным на раннер, нельзя, риск из описания правки относится к
+    # шагам, а не к job-вызовам. А «$/» ломает CI: закреплённый actionlint
+    # v1.7.12 (последний выпуск) такой синтаксис не знает и валит «Workflow
+    # lint». Перейти на «$/», когда его поддержит actionlint.
+    uses: ./.github/workflows/jsdelivr-purge.yml # zizmor: ignore[self-repository] см. комментарий выше
     with:
       ref: ${{ needs.gate.outputs.sha }}
       # Обе точки, а не только новая: без before purge не может посчитать

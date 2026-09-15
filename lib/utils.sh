@@ -797,6 +797,26 @@ get_entware_arch() {
     '
 }
 
+# Команда `z2k` из любого каталога — ссылка /opt/bin/z2k на установленный z2k.sh.
+#
+# Ставилась только в финале установки и только если z2k.sh в этот раз
+# скачался. Без ссылки оставались все, кто ставил z2k до её появления
+# (апрель 2026) и дальше обновлялся без переустановки, и те, у кого на финальном
+# шаге не прошёл запрос к GitHub (issue #57). Поэтому зовётся и из установки, и
+# после каждого обновления: флот сходится сам.
+#
+# Ссылку заменяем, обычный файл с тем же именем — нет: это чужое.
+z2k_ensure_cli_link() {
+    local target="${1:-/opt/zapret2/z2k.sh}" link="${Z2K_CLI_LINK:-/opt/bin/z2k}"
+    [ -f "$target" ] || return 1
+    if [ -e "$link" ] && [ ! -L "$link" ]; then
+        return 1
+    fi
+    [ -L "$link" ] && [ "$(readlink "$link" 2>/dev/null)" = "$target" ] && return 0
+    mkdir -p "$(dirname "$link")" 2>/dev/null
+    ln -sf "$target" "$link" 2>/dev/null
+}
+
 map_arch_to_bin_arch() {
     case "$1" in
         aarch64|arm64|*aarch64*|*arm64*) echo "linux-arm64" ;;

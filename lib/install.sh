@@ -1554,6 +1554,10 @@ step_build_zapret2() {
             # с вооружения 3-way merge больше не существуют.
             [ -f "$ZAPRET2_DIR/lists/warp/.enabled" ] && \
                 cp -f "$ZAPRET2_DIR/lists/warp/.enabled" "$backup_tmp/warp-lists/.enabled" 2>/dev/null
+            # .disabled — выключенные человеком СВОИ списки. Без него после
+            # переустановки все они молча включались бы обратно.
+            [ -f "$ZAPRET2_DIR/lists/warp/.disabled" ] && \
+                cp -f "$ZAPRET2_DIR/lists/warp/.disabled" "$backup_tmp/warp-lists/.disabled" 2>/dev/null
             # Игровые списки (games/*.txt) — апстрим-данные, и раньше их
             # намеренно не сохраняли: «пере-скачаются». Пере-скачивались они
             # каждый раз и в ПЕРЕДНЕМ плане: шаг, который сам себя подписывает
@@ -2482,6 +2486,8 @@ TMPJUNK
         # Restore the user's choice of enabled game lists (see backup block).
         [ -f "$backup_tmp/warp-lists/.enabled" ] && \
             cp -f "$backup_tmp/warp-lists/.enabled" "${ZAPRET2_DIR}/lists/warp/.enabled" 2>/dev/null
+        [ -f "$backup_tmp/warp-lists/.disabled" ] && \
+            cp -f "$backup_tmp/warp-lists/.disabled" "${ZAPRET2_DIR}/lists/warp/.disabled" 2>/dev/null
         # Отчёт о переносе — здесь, а не в чужом блоке.
         #
         # Стояла эта строка внутри восстановления custom-strategies, то есть
@@ -4488,18 +4494,18 @@ step_finalize() {
     if z2k_fetch "$local_z2k_url" "$local_z2k_script"; then
         chmod +x "$local_z2k_script" 2>/dev/null || true
         printf "  %-25s: %s\n" "z2k script" "$local_z2k_script"
-        # Expose a short `z2k` command in /opt/bin/ so users can just type
-        # `z2k menu`, `z2k diag` etc. without remembering the full path.
-        # Symlink (not copy) so re-installs that refresh z2k.sh are picked
-        # up automatically. /opt/bin/ is on PATH in Entware by default.
-        if [ -d /opt/bin ] && ln -sf "$local_z2k_script" /opt/bin/z2k 2>/dev/null; then
-            print_info "Команда 'z2k <args>' доступна из любого места (${local_z2k_script})"
-        else
-            print_info "Открыть меню позже: sh ${local_z2k_script} menu"
-        fi
     else
         print_warning "Не удалось сохранить z2k.sh в ${local_z2k_script}"
         print_info "Для повторного запуска используйте curl-команду из README"
+    fi
+    # Short `z2k` command in /opt/bin/ (on PATH in Entware). Symlink, not copy,
+    # so a refreshed z2k.sh is picked up automatically. Made WHENEVER z2k.sh is
+    # on disk — not only when this run's fetch succeeded: a failed fetch leaves
+    # the previous copy in place, and the command should work with it (#57).
+    if z2k_ensure_cli_link "$local_z2k_script"; then
+        print_info "Команда 'z2k <args>' доступна из любого места (${local_z2k_script})"
+    elif [ -f "$local_z2k_script" ]; then
+        print_info "Открыть меню позже: sh ${local_z2k_script} menu"
     fi
 
     # Webpanel re-install — opt-in component, восстанавливаем только если

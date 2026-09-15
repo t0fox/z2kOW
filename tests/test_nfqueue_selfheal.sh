@@ -33,6 +33,18 @@ cat > "$BIN/iptables" <<'EOF'
 # only care about `-t mangle -S`. IPT_FAIL=1 simulates an xtables-lock race
 # (dump exits non-zero) so we can assert the false-drop guard.
 [ "${IPT_FAIL:-0}" = 1 ] && exit 1
+# RULES — настоящий вид правил (как в `iptables -t mangle -S` на Keenetic):
+# «POSTROUTING:tcp INPUT:udp ...». Без RULES — NFQ безликих строк.
+if [ -n "${RULES:-}" ]; then
+    for r in $RULES; do
+        c=${r%%:*}; p=${r#*:}
+        case "$c" in
+            POSTROUTING) echo "-A POSTROUTING -o eth3 -p $p -m set --match-set zport_$p dst -j NFQUEUE --queue-num 200 --queue-bypass" ;;
+            *) echo "-A $c -i eth3 -p $p -m set --match-set zport_$p src -j NFQUEUE --queue-num 200 --queue-bypass" ;;
+        esac
+    done
+    exit 0
+fi
 n="${NFQ:-0}"; i=0
 while [ "$i" -lt "$n" ]; do echo "-A POSTROUTING -j NFQUEUE --queue-num 200 --queue-bypass"; i=$((i+1)); done
 exit 0
@@ -77,8 +89,8 @@ LOCK="$TMP/lock"; LAST="$TMP/last"; LOG="$TMP/log"
 # PATH includes /opt/sbin so the script skips its own PATH-prepend and our $BIN
 # mocks win over any real iptables/ip on the CI host.
 run() {  # env: NFQ, NFQ6 (def NFQ), PIDOF_OK, ROUTE_OK (v4 def 1), ROUTE6_OK (v6 def 0)
-    env NFQ="${NFQ:-0}" NFQ6="${NFQ6:-${NFQ:-0}}" PIDOF_OK="${PIDOF_OK:-1}" \
-        ROUTE_OK="${ROUTE_OK:-1}" ROUTE6_OK="${ROUTE6_OK:-0}" IPT_FAIL="${IPT_FAIL:-0}" \
+    env NFQ="${NFQ:-0}" NFQ6="${NFQ6:-${NFQ:-0}}" RULES="${RULES:-}" PIDOF_OK="${PIDOF_OK:-1}" \
+        ROUTE_OK="${ROUTE_OK:-1}" ROUTE6_OK="${ROUTE6_OK:-0}" IPT_FAIL="${IPT_FAIL:-0}" RULES6="${RULES6:-}" \
         PATH="$BIN:/opt/sbin:/opt/bin:$PATH" \
         INIT_SCRIPT="$INIT" ZAPRET_CONFIG="$CFG" \
         RESTART_FW_LOCK="$LOCK" RESTART_FW_LAST="$LAST" \
@@ -92,7 +104,7 @@ count() { wc -l < "$CNT" | tr -d ' '; }
 # Hermetic: a var-assignment PREFIX on a function call persists in the shell
 # (POSIX behaviour) — e.g. `IPT_FAIL=1 run` would leak into the next test. Clear
 # every toggle so each case starts from run()'s documented defaults.
-reset() { : > "$CNT"; rm -rf "$LOCK"; rm -f "$LAST"; unset NFQ NFQ6 PIDOF_OK ROUTE_OK ROUTE6_OK IPT_FAIL MI LS CS; }
+reset() { : > "$CNT"; rm -rf "$LOCK"; rm -f "$LAST"; rm -f "$LOG"; unset NFQ NFQ6 RULES PIDOF_OK ROUTE_OK ROUTE6_OK IPT_FAIL MI LS CS; }
 
 # --- 1) the bug condition: nfqws2 up, WAN up, enabled, 0 NFQUEUE -> restart_fw
 reset; NFQ=0 PIDOF_OK=1 ROUTE_OK=1 run
@@ -196,6 +208,67 @@ n=$(count); [ "$n" = "0" ] && ok "count == floor (2) -> no re-apply" || no "floo
 # --- 18) PARTIAL wipe on v6 (v6 active): v4 full, v6 stuck at 1 -> heal (per-family floor)
 reset; NFQ=6 NFQ6=1 PIDOF_OK=1 ROUTE_OK=1 ROUTE6_OK=1 run
 n=$(count); [ "$n" = "1" ] && ok "partial wipe v6 (count==1 < floor) -> heal fires" || no "v6 partial heals" "1" "$n"
+
+# --- 19) ПРОПАЛО ОДНО ПРАВИЛО ИЗ ШЕСТИ (поле 15.09.2026). Исходящее TCP ушло,
+#   осталось пять: не ниже порога, прежний код молчал, а весь исходящий HTTPS
+#   шёл мимо обхода. Сверка по конфигу обязана это увидеть.
+FULL="POSTROUTING:tcp POSTROUTING:udp INPUT:tcp INPUT:udp FORWARD:tcp FORWARD:udp"
+cat > "$CFG" <<'CFGEOF'
+ENABLED=1
+NFQWS2_ENABLE=1
+NFQWS2_PORTS_TCP="80,443,2053,2083,2087,2096,5222,8443"
+NFQWS2_PORTS_UDP="443,50000-50099,1400,3478-3481,5349,19294-19344"
+NFQWS2_TCP_PKT_OUT="20"
+NFQWS2_TCP_PKT_IN="10"
+NFQWS2_UDP_PKT_OUT="8"
+NFQWS2_UDP_PKT_IN="8"
+CFGEOF
+reset; RULES="$FULL" run
+n=$(count); [ "$n" = "0" ] && ok "полный набор по конфигу -> no-op" || no "полный набор" "0" "$n"
+reset; RULES="POSTROUTING:udp INPUT:tcp INPUT:udp FORWARD:tcp FORWARD:udp" run
+n=$(count); [ "$n" = "1" ] && ok "пропало исходящее TCP (5 из 6) -> heal fires" || no "исходящее TCP" "1" "$n"
+grep -q "нет правила POSTROUTING tcp" "$LOG" 2>/dev/null \
+    && ok "в журнале названо, какого правила нет" || no "причина в журнале" "POSTROUTING tcp" "$(cat "$LOG" 2>/dev/null)"
+reset; RULES="POSTROUTING:tcp POSTROUTING:udp INPUT:tcp INPUT:udp FORWARD:tcp" run
+n=$(count); [ "$n" = "1" ] && ok "пропало входящее UDP в FORWARD -> heal fires" || no "входящее UDP FORWARD" "1" "$n"
+
+# --- 20) Чего конфиг не требует, того не ждём: иначе вечный re-apply.
+reset; sed -i.bak 's/^NFQWS2_PORTS_UDP=.*/NFQWS2_PORTS_UDP=""/' "$CFG"
+RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" run
+n=$(count); [ "$n" = "0" ] && ok "UDP-портов нет -> UDP-правил не ждём" || no "пустые UDP-порты" "0" "$n"
+reset; sed -i.bak 's/^NFQWS2_PORTS_UDP=.*/NFQWS2_PORTS_UDP="443"/; s/^NFQWS2_UDP_PKT_OUT=.*/NFQWS2_UDP_PKT_OUT="0"/; s/^NFQWS2_UDP_PKT_IN=.*/NFQWS2_UDP_PKT_IN="0"/' "$CFG"
+RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" run
+n=$(count); [ "$n" = "0" ] && ok "UDP_PKT_OUT/IN=0 -> UDP-правил не ждём" || no "нулевые окна UDP" "0" "$n"
+# Пустой PKT_IN берёт значение PKT_OUT — входящие ОБЯЗАНЫ быть.
+reset; sed -i.bak 's/^NFQWS2_TCP_PKT_IN=.*/NFQWS2_TCP_PKT_IN=""/' "$CFG"
+RULES="POSTROUTING:tcp" run
+n=$(count); [ "$n" = "1" ] && ok "пустой TCP_PKT_IN = PKT_OUT -> входящие TCP ждём" || no "PKT_IN по OUT" "1" "$n"
+reset; sed -i.bak 's/^NFQWS2_ENABLE=.*/NFQWS2_ENABLE=0/' "$CFG"
+RULES="POSTROUTING:tcp INPUT:tcp" run
+n=$(count); [ "$n" = "0" ] && ok "NFQWS2_ENABLE=0 -> по конфигу ничего не ждём" || no "NFQWS2_ENABLE=0" "0" "$n"
+rm -f "$CFG.bak"
+
+# --- 21) v6 активен: пропало исходящее TCP только в v6 -> heal.
+cat > "$CFG" <<'CFGEOF'
+ENABLED=1
+NFQWS2_PORTS_TCP="443"
+NFQWS2_TCP_PKT_OUT="20"
+CFGEOF
+cat > "$BIN/ip6tables" <<'EOF6'
+#!/bin/sh
+for r in ${RULES6:-}; do
+    c=${r%%:*}; p=${r#*:}
+    echo "-A $c -o eth3 -p $p -m set --match-set zport6_$p dst -j NFQUEUE --queue-num 200 --queue-bypass"
+done
+exit 0
+EOF6
+chmod +x "$BIN/ip6tables"
+reset; RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" RULES6="INPUT:tcp FORWARD:tcp" ROUTE6_OK=1 run
+n=$(count); [ "$n" = "1" ] && ok "v6: пропало исходящее TCP -> heal fires" || no "v6 исходящее TCP" "1" "$n"
+reset; RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" RULES6="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" ROUTE6_OK=1 run
+n=$(count); [ "$n" = "0" ] && ok "v6: полный набор -> no-op" || no "v6 полный набор" "0" "$n"
+unset RULES6
+printf 'ENABLED=1\n' > "$CFG"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

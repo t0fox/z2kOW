@@ -2,7 +2,7 @@
 #
 # Тулчейн пиннится так же, как у остальных модулей: не 1.26.x, там ловили
 # _ENOSYS на MIPS (golang/go#77730).
-GO ?= $(HOME)/go/bin/go1.25.12
+GO ?= $(HOME)/go/bin/go1.25.13
 PKG = ./cmd/z2k-verify
 OUTDIR = builds
 

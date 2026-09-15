@@ -247,7 +247,7 @@ global.fetch = async (url, init) => {
   const method = (init && init.method) || "GET";
   CALLS[p] = (CALLS[p] || 0) + 1;
   if (init && init.body !== undefined) (BODIES[p] = BODIES[p] || []).push(String(init.body));
-  const body = await ROUTER(p, method);
+  const body = await ROUTER(p, method, String(url));
   // Ответ с кодом ошибки — это ОТВЕТ, а не обрыв связи. Панель обязана
   // отличать одно от другого, поэтому фикстура умеет и то и другое:
   // __status делает отказ,брошенное исключение — потерю связи.
@@ -762,6 +762,152 @@ const SCENARIOS = {
             "запросов: " + CALLS["/toggle/autohostlist"] + " checked=" + box.checked);
     },
   },
+
+  // ЗАВИСШЕЕ ВКЛЮЧЕНИЕ WARP ПРЕРЫВАЕТСЯ ТЕМ ЖЕ ТУМБЛЕРОМ.
+  //
+  // Раньше включение шло модалкой под глобальным замком: пока движок ждал
+  // готовности (до двух минут), выключить WARP было нечем. Теперь тумблер жив,
+  // второе нажатие уходит на сервер сразу, а итог перебитого действия (код 3)
+  // панель игнорирует — иначе он откатил бы тумблер обратно во «вкл».
+  warp_interrupt_toggle: {
+    hash: "#/warp",
+    setup() {
+      const st = { enabled: "0", job11: "running", job12: "running" };
+      global.__W = st;
+      ROUTER = async (p, method, url) => {
+        if (p === "/warp/status") {
+          return { ok: true, enabled: st.enabled, installed: true, ready: false, transport: "", endpoint: "",
+                   iface: "", addr: "", entries: 0, devices: 0, error: "", mem_kb: 0, transport_mode: "auto" };
+        }
+        if (p === "/toggle/game-warp") {
+          const v = new URLSearchParams(BODIES[p][BODIES[p].length - 1]).get("value");
+          if (v === "1") { st.enabled = "1"; return { ok: true, job: "11" }; }
+          st.job11 = "superseded";           // сервер перебил зависшее включение
+          return { ok: true, job: "12" };
+        }
+        if (p === "/job") {
+          const id = new URL(url, "http://r").searchParams.get("id");
+          const state = id === "11" ? st.job11 : st.job12;
+          if (state === "running") return { ok: true, status: "running", done: false, exit: null, log: "[z2k-warp] жду готовности" };
+          if (state === "superseded") return { ok: true, status: "done", done: true, exit: 3, log: "Прервано: запущено другое действие с WARP" };
+          return { ok: true, status: "done", done: true, exit: 0, log: "ok" };
+        }
+        if (p === "/warp/games") return { ok: true, games: [] };
+        if (p === "/warp/lists") return { ok: true, lists: [] };
+        if (p === "/warp/neighbors") return { ok: true, devices: [] };
+        return { ok: true };
+      };
+    },
+    async run() {
+      await sleep(80);
+      const box = q('#app>[data-key="game_warp"] input');
+      box.checked = true; box.fire("change");
+      await sleep(60);
+      check("включение ушло на сервер", postedValue("/toggle/game-warp") === "1", BODIES["/toggle/game-warp"]);
+      check("модалка не заслоняет страницу", !document.body.children.some(c => c.className === "modal-backdrop"),
+            "модалка открыта");
+      check("тумблер жив, пока включение идёт", box.disabled === false, "disabled=" + box.disabled);
+      check("видно, что действие идёт и его можно прервать", q("#warp-pending").hidden === false &&
+            /прервёт/.test(q("#warp-pending").innerHTML), q("#warp-pending").innerHTML);
+
+      box.checked = false; box.fire("change");
+      await sleep(60);
+      const bodies = BODIES["/toggle/game-warp"] || [];
+      check("выключение ушло, не дожидаясь зависшего включения",
+            bodies.length === 2 && new URLSearchParams(bodies[1]).get("value") === "0", bodies.join(" | "));
+      // Флаг в конфиге выключение пишет последним шагом: статус всё ещё «вкл».
+      await sleep(3400);
+      check("перечитанный статус не вернул тумблер во «вкл»", box.checked === false, "checked=" + box.checked);
+      check("итог перебитого включения не показан как ошибка",
+            !TOASTS.some(t => /Не включилось/.test(t)), TOASTS.join(" | "));
+
+      global.__W.enabled = "0"; global.__W.job12 = "ok";
+      await sleep(1600);
+      check("итог последнего действия показан", TOASTS.some(t => t === "Выключено"), TOASTS.join(" | "));
+      check("тумблер остался выключенным", box.checked === false, "checked=" + box.checked);
+      check("строка «идёт действие» убрана", q("#warp-pending").hidden === true, "hidden=" + q("#warp-pending").hidden);
+    },
+  },
+
+  // Смена транспорта во время идущей смены: второй выбор прерывает первый.
+  warp_interrupt_transport: {
+    hash: "#/warp",
+    setup() {
+      const st = { mode: "auto", job21: "running", job22: "running" };
+      global.__W = st;
+      ROUTER = async (p, method, url) => {
+        if (p === "/warp/status") {
+          return { ok: true, enabled: "1", installed: true, ready: false, transport: "", endpoint: "",
+                   iface: "", addr: "", entries: 0, devices: 0, error: "", mem_kb: 0, transport_mode: st.mode };
+        }
+        if (p === "/warp/transport") {
+          const v = new URLSearchParams(BODIES[p][BODIES[p].length - 1]).get("value");
+          st.mode = v;
+          if (v === "wg") return { ok: true, job: "21" };
+          st.job21 = "superseded";
+          return { ok: true, job: "22" };
+        }
+        if (p === "/job") {
+          const id = new URL(url, "http://r").searchParams.get("id");
+          const state = id === "21" ? st.job21 : st.job22;
+          if (state === "running") return { ok: true, status: "running", done: false, exit: null, log: "..." };
+          if (state === "superseded") return { ok: true, status: "done", done: true, exit: 3, log: "Прервано" };
+          return { ok: true, status: "done", done: true, exit: 0, log: "ok" };
+        }
+        if (p === "/warp/games") return { ok: true, games: [] };
+        if (p === "/warp/lists") return { ok: true, lists: [] };
+        if (p === "/warp/neighbors") return { ok: true, devices: [] };
+        return { ok: true };
+      };
+    },
+    async run() {
+      await sleep(80);
+      const seg = q("#warp-transport-seg");
+      const pick = (mode) => seg.fire("click", { target: { closest: () => ({ dataset: { mode } }) } });
+      pick("wg");
+      await sleep(60);
+      pick("h2");
+      await sleep(60);
+      check("второй выбор не ждёт первый", (CALLS["/warp/transport"] || 0) === 2, "запросов: " + CALLS["/warp/transport"]);
+      check("никакого «дождитесь» для своих действий",
+            !TOASTS.some(t => /Дождитесь/.test(t)), TOASTS.join(" | "));
+      await sleep(1300);
+      check("итог перебитого выбора не показан как ошибка",
+            !TOASTS.some(t => /Не переключилось/.test(t)), TOASTS.join(" | "));
+      global.__W.job22 = "ok";
+      await sleep(1500);
+      check("итог последнего выбора показан", TOASTS.some(t => t === "Транспорт переключён: MASQUE"), TOASTS.join(" | "));
+    },
+  },
+
+  // Под ЧУЖОЙ задачей (здесь — установка движка) выбор транспорта заперт, как
+  // и раньше: перебивать друг друга умеют только действия самого туннеля.
+  warp_foreign_job_blocks: {
+    hash: "#/warp",
+    setup() {
+      ROUTER = async (p) => {
+        if (p === "/warp/status") {
+          return { ok: true, enabled: "1", installed: true, ready: false, transport: "", endpoint: "",
+                   iface: "", addr: "", entries: 0, devices: 0, error: "", mem_kb: 0, transport_mode: "auto" };
+        }
+        if (p === "/warp/install") return { ok: true, job: "31" };
+        if (p === "/job") return { ok: true, status: "running", done: false, exit: null, log: "..." };
+        if (p === "/warp/games") return { ok: true, games: [] };
+        if (p === "/warp/lists") return { ok: true, lists: [] };
+        if (p === "/warp/neighbors") return { ok: true, devices: [] };
+        return { ok: true };
+      };
+    },
+    async run() {
+      await sleep(80);
+      q("#warp-install-btn").fire("click");
+      await sleep(80);
+      q("#warp-transport-seg").fire("click", { target: { closest: () => ({ dataset: { mode: "h2" } }) } });
+      await sleep(60);
+      check("под чужой задачей выбор транспорта не уходит", !CALLS["/warp/transport"], "запросов: " + CALLS["/warp/transport"]);
+      check("человеку сказано подождать", TOASTS.some(t => /Дождитесь/.test(t)), TOASTS.join(" | "));
+    },
+  },
 };
 
 (async () => {
@@ -798,7 +944,8 @@ run_scen() {
 for scen in stale_apply poller_gone outage job_refused state_race state_resort_race \
             update_check_failed toggles_status_failed toggles_left_page \
             autohostlist_warn autohostlist_accept autohostlist_escape \
-            autohostlist_dismiss autohostlist_off other_toggle_no_warn; do
+            autohostlist_dismiss autohostlist_off other_toggle_no_warn \
+            warp_interrupt_toggle warp_interrupt_transport warp_foreign_job_blocks; do
     out=$(run_scen "$JS" "$scen")
     printf '%s\n' "$out"
     PASS=$((PASS + $(printf '%s\n' "$out" | grep -c '^\[PASS\]')))
@@ -846,6 +993,12 @@ meta "подложка закрывается от любого клика" auto
 meta "тумблер не блокируется на время вопроса" autohostlist_warn 's/^      box.disabled = true;$//'
 meta "спрашивают и при выключении" autohostlist_off 's/key === "autohostlist" && wanted === "1"/key === "autohostlist"/'
 meta "спрашивают на любом тумблере" other_toggle_no_warn 's/key === "autohostlist" && wanted === "1"/wanted === "1"/'
+# Прерывание действий WARP — по мутанту на каждую строку, ради которой всё писалось.
+meta "итог перебитого действия снова трогает тумблер" warp_interrupt_toggle 's/^ *if (_warpJob !== jobId) return;$//'
+meta "перечитанный статус снова перетирает нажатое" warp_interrupt_toggle 's/if (!warpActing()) box.checked = enabled;/box.checked = enabled;/'
+meta "WARP-действия снова идут модалкой" warp_interrupt_toggle 's/^\( *\)trackJob(title, jobId, {$/\1openJobModal(title, jobId, {/'
+meta "выбор транспорта снова заперт своим же действием" warp_interrupt_transport 's/if (foreignJobsActive("warp")) {/if (_warpJob) {/'
+meta "чужая задача больше не запирает выбор транспорта" warp_foreign_job_blocks 's/if (foreignJobsActive("warp")) {/if (false) {/'
 # Фокус на отказе: с фокусом на «Включать» Enter по привычке включает молча.
 meta "фокус уехал на кнопку согласия" autohostlist_warn 's/^      cancelBtn\.focus();$/      okBtn.focus();/'
 

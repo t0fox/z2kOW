@@ -1289,7 +1289,11 @@ generate_nfqws2_opt_from_strategies() {
     }
 
     if [ -f "${ZAPRET2_DIR:-/opt/zapret2}/lua/z2k-alert.lua" ]; then
-        rkn_tcp=$(ensure_rkn_failure_detector "$rkn_tcp" "z2k_fail_tls_alert")
+        local discord_tls_detector="z2k_fail_tls_alert"
+        if [ "$(safe_config_read "Z2K_DISCORD_UPDATE_TLS_TIMEOUT" "${ZAPRET2_DIR:-/opt/zapret2}/config" "1")" = "1" ]; then
+            discord_tls_detector="${discord_tls_detector}:discord_tls_timeout=1:discord_tls_in_limit=$(z2k_reply_pkt_cap):discord_tls_out_limit=20"
+        fi
+        rkn_tcp=$(ensure_rkn_failure_detector "$rkn_tcp" "$discord_tls_detector")
         youtube_tcp=$(ensure_rkn_failure_detector "$youtube_tcp" "z2k_fail_tls_alert")
         youtube_gv_tcp=$(ensure_rkn_failure_detector "$youtube_gv_tcp" "z2k_fail_tls_alert")
     else
@@ -1925,6 +1929,7 @@ create_official_config() {
     local saved_TG_PROXY_USER_DISABLED="0"
     local saved_ENABLED="1"
     local saved_Z2K_CIRCULAR_RESET="1"
+    local saved_Z2K_DISCORD_UPDATE_TLS_TIMEOUT="1"
     local saved_Z2K_PADENCAP="1"
     local saved_Z2K_NFQWS2_TEMPLATES="1"
     local saved_Z2K_INJECT_TLS_MODS="0"
@@ -1961,6 +1966,9 @@ create_official_config() {
     # Регенерацию вызывает любой другой тумблер панели и само ночное
     # обновление, поэтому выключение не переживало ни одного цикла.
     local saved_Z2K_AUTO_UPDATE_ENABLED="1"
+    # Транспорт WARP, выбранный в панели. Та же механика пропажи, что выше:
+    # без этой строки выбор сбрасывался бы в автомат любым тумблером.
+    local saved_Z2K_WARP_TRANSPORT="auto"
     if [ -f "$config_file" ]; then
         saved_GAME_WARP_ENABLED=$(safe_config_read "GAME_WARP_ENABLED" "$config_file" "0")
         saved_TG_PROXY_USER_DISABLED=$(safe_config_read "TG_PROXY_USER_DISABLED" "$config_file" "0")
@@ -1974,6 +1982,7 @@ create_official_config() {
         # Z2K_CIRCULAR_RESET — RST ретрансмиттеру после фиксации неудачи
         # (см. ensure_circular_doc_args). Умолчание 1, переживает регенерацию.
         saved_Z2K_CIRCULAR_RESET=$(safe_config_read "Z2K_CIRCULAR_RESET" "$config_file" "1")
+        saved_Z2K_DISCORD_UPDATE_TLS_TIMEOUT=$(safe_config_read "Z2K_DISCORD_UPDATE_TLS_TIMEOUT" "$config_file" "1")
         saved_Z2K_PADENCAP=$(safe_config_read "Z2K_PADENCAP" "$config_file" "1")
         saved_Z2K_NFQWS2_TEMPLATES=$(safe_config_read "Z2K_NFQWS2_TEMPLATES" "$config_file" "1")
         saved_Z2K_INJECT_TLS_MODS=$(safe_config_read "Z2K_INJECT_TLS_MODS" "$config_file" "0")
@@ -2021,6 +2030,9 @@ create_official_config() {
         saved_Z2K_PPE_DEOFFLOAD_QUIC=$(safe_config_read "Z2K_PPE_DEOFFLOAD_QUIC" "$config_file" "1")
         saved_Z2K_PANEL_AUTH=$(safe_config_read "Z2K_PANEL_AUTH" "$config_file" "0")
         saved_Z2K_AUTO_UPDATE_ENABLED=$(safe_config_read "Z2K_AUTO_UPDATE_ENABLED" "$config_file" "1")
+        saved_Z2K_WARP_TRANSPORT=$(safe_config_read "Z2K_WARP_TRANSPORT" "$config_file" "auto")
+        # В heredoc значение уходит без кавычек — пропускаем только известное.
+        case "$saved_Z2K_WARP_TRANSPORT" in wg|h2) ;; *) saved_Z2K_WARP_TRANSPORT=auto ;; esac
     fi
 
     # NFQWS2_TCP_PKT_IN — глубина наблюдения за ответом, см. z2k_reply_pkt_cap.
@@ -2339,6 +2351,11 @@ TG_PROXY_USER_DISABLED=${saved_TG_PROXY_USER_DISABLED}
 # RST рвёт живые потоки.
 Z2K_CIRCULAR_RESET=${saved_Z2K_CIRCULAR_RESET}
 
+# Experimental: recover ACKed ClientHello without any TLS reply ONLY for
+# updates.discord.com in the RKN pool. 10s deadline, at most 6 retries / 5min.
+# 0 disables it; Z2K_CIRCULAR_RESET=0 also disables intervention.
+Z2K_DISCORD_UPDATE_TLS_TIMEOUT=${saved_Z2K_DISCORD_UPDATE_TLS_TIMEOUT}
+
 # TLS extension auto-injection master switch (default 0, 2026-05-03):
 # выключено по дефолту после field-проверки — auto-injection
 # z2k_grease/alpn/psk/keyshare/earlydata/pha/sct/delegcred/padencap к
@@ -2423,6 +2440,7 @@ Z2K_PPE_DEOFFLOAD=${saved_Z2K_PPE_DEOFFLOAD}
 Z2K_PPE_DEOFFLOAD_QUIC=${saved_Z2K_PPE_DEOFFLOAD_QUIC}
 Z2K_PANEL_AUTH=${saved_Z2K_PANEL_AUTH}
 Z2K_AUTO_UPDATE_ENABLED=${saved_Z2K_AUTO_UPDATE_ENABLED}
+Z2K_WARP_TRANSPORT=${saved_Z2K_WARP_TRANSPORT}
 
 # Persist the branch URL that this install was booted from, so that
 # z2k-update-lists.sh and other post-install tools (cron-driven) can

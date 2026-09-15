@@ -64,3 +64,26 @@ updates:
     groups:
       go-minor-patch:
         update-types: ["minor", "patch"]
+    # ВЕРСИИ, ТРЕБУЮЩИЕ GO 1.26, НЕ ПРЕДЛАГАТЬ.
+    #
+    # golang.org/x/crypto 0.56.0, x/net 0.58.0 и x/sys 0.48.0 объявляют
+    # `go 1.26.0`, и бамп на них поднимает директиву go в модуле. Ветка 1.26.x
+    # нам закрыта: на MIPS её рантайм ломается (golang/go#77730, см. ci.yml у
+    # GO_VERSION). Так пришёл #58 (14.09.2026, закрыт) — в нём падали сборки трёх
+    # модулей с «go.mod requires go >= 1.26.0».
+    #
+    # Цена этого правила названа честно. Документация помечает ignore значками
+    # И version updates, И security updates — то есть оно глушит и
+    # PR-исправления безопасности для этих модулей. Потерь в мердже это не
+    # даёт: такой PR всё равно не влить без Go 1.26. А сигнал об уязвимости
+    # остаётся у govulncheck в security.yml, который сверяет модули целиком.
+    #
+    # Снимать вместе с переходом на Go 1.26 — когда MIPS-проблему закроют или
+    # когда для неё найдётся обход.
+    ignore:
+      - dependency-name: "golang.org/x/crypto"
+        versions: [">= 0.56.0"]
+      - dependency-name: "golang.org/x/net"
+        versions: [">= 0.58.0"]
+      - dependency-name: "golang.org/x/sys"
+        versions: [">= 0.48.0"]

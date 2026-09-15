@@ -3,7 +3,7 @@ import { apiGet, apiPost, errHtml, toastErr } from "../core/api.js";
 import { $app, _icons, escapeHtml, skeletonLines } from "../core/dom.js";
 import { _newLoad, _stale } from "../core/loadorder.js";
 import { toast } from "../core/toast.js";
-import { STATE_SORT_LABELS, saveStateSort, setStatePools, statePools, stateSort } from "../state-model.js";
+import { STATE_SORT_LABELS, groupDomain, saveOpenGroups, saveStateSort, setStatePools, stateOpenGroups, statePools, stateSort } from "../state-model.js";
 
 //
 // Раньше это были два соседних пункта меню — «Стратегии» и «Rotator» — и люди
@@ -94,7 +94,9 @@ export async function renderState() {
         <li><b>замок в столбце «Заморозка»</b> — открытый замок значит идёт
             автоподбор; нажмите, чтобы заморозить (замок закроется) и стратегия
             перестанет меняться; нажмите закрытый замок — разморозить;</li>
-        <li><b>× слева</b> — удалить запись (старт с первой стратегии).</li>
+        <li><b>× слева</b> — удалить запись (старт с первой стратегии);</li>
+        <li><b>домен со стрелкой</b> — записи его поддоменов собраны вместе;
+            нажмите, чтобы раскрыть или свернуть.</li>
       </ul>
       <p class="desc">
         Пул, которому вы задали <a href="#/strategies">свою стратегию</a>, здесь
@@ -235,12 +237,22 @@ async function loadState(useCache) {
       return;
     }
     const nowSec = Math.floor(Date.now() / 1000);
+    // Имя без суффикса семейства и его родитель считаются один раз на строку:
+    // ими пользуются и сортировка, и группировка, и отрисовка.
+    const meta = new Map(visible.map(e => {
+      const hf = splitFamily(e.host);
+      return [e, { name: hf.name, fam: hf.fam, group: groupDomain(hf.name) }];
+    }));
     // Sort a shallow copy — never mutate the cached server response.
     const sorted = visible.slice().sort((a, b) => {
       let av, bv;
       switch (stateSort.key) {
         case "key":      av = String(a.key  || ""); bv = String(b.key  || ""); break;
-        case "host":     av = String(a.host || ""); bv = String(b.host || ""); break;
+        // По домену — сперва по родителю, потом по полному имени. Иначе группа
+        // вставала бы туда, где по алфавиту её первый поддомен: apple.com
+        // оказывался у «api.», discord.media — у «c-arn04».
+        case "host":     av = meta.get(a).group + "\u0000" + String(a.host || "");
+                         bv = meta.get(b).group + "\u0000" + String(b.host || ""); break;
         case "strategy": av = Number(a.strategy) || 0; bv = Number(b.strategy) || 0; break;
         // 'age' sorts by age value (= now - ts). Asc → freshest first
         // (small age), which matches what we'd want by default when
@@ -250,15 +262,22 @@ async function loadState(useCache) {
       }
       if (av < bv) return stateSort.dir === "asc" ? -1 : 1;
       if (av > bv) return stateSort.dir === "asc" ?  1 : -1;
-      return 0;
+      // Равные по выбранной колонке — по домену. Без этого внутри одного
+      // профиля строки шли в порядке файла, и группы перемешивались с
+      // одиночными строками случайно; v4 и v6 одного хоста разъезжались.
+      const ah = meta.get(a).group + "\u0000" + String(a.host || "");
+      const bh = meta.get(b).group + "\u0000" + String(b.host || "");
+      return ah < bh ? -1 : ah > bh ? 1 : 0;
     });
 
-    const rows = sorted.map(e => {
-      const age = nowSec - Number(e.ts || 0);
-      const ageStr = age < 60 ? age + "с" :
-                     age < 3600 ? Math.floor(age / 60) + "м" :
-                     age < 86400 ? Math.floor(age / 3600) + "ч" :
-                     Math.floor(age / 86400) + "д";
+    const fmtAge = (age) => age < 60 ? age + "с" :
+                            age < 3600 ? Math.floor(age / 60) + "м" :
+                            age < 86400 ? Math.floor(age / 3600) + "ч" :
+                            Math.floor(age / 86400) + "д";
+
+    const rowHtml = (e, inGroup) => {
+      const m = meta.get(e);
+      const ageStr = fmtAge(nowSec - Number(e.ts || 0));
       const frozen = e.mode === "frozen";
       // Pool size from the live nfqws2 cmdline; fall back to the row's own
       // strategy so a stale/larger pinned value still appears in the dropdown.
@@ -267,21 +286,30 @@ async function loadState(useCache) {
       for (let i = 1; i <= N; i++) {
         opts += `<option value="${i}"${i === Number(e.strategy) ? " selected" : ""}>${i}</option>`;
       }
+      // Внутри группы родитель уже написан в заголовке, поэтому в строке он
+      // приглушён, и глаз цепляется за то, чем строки различаются. Имя,
+      // совпадающее с родителем (сам chatgpt.com в группе chatgpt.com),
+      // печатается целиком. Обе части — в ОДНОМ span: на телефоне ячейка
+      // становится flex-контейнером, и текст с соседним span разъехались бы
+      // в два элемента с зазором посреди имени.
+      const tail = "." + m.group;
+      const nameHtml = inGroup && m.name.length > tail.length && m.name.slice(-tail.length) === tail
+        ? `<span>${escapeHtml(m.name.slice(0, -tail.length))}<span class="sg-parent">${escapeHtml(tail)}</span></span>`
+        : escapeHtml(m.name);
       // data-host в атрибутах остаётся СЫРЫМ ключом: это идентификатор
       // записи для API, его резать нельзя. Делим только видимое человеку.
-      const _hf = splitFamily(e.host);
       // data-label attrs feed the mobile card layout (CSS pseudo-elements)
       return `
-        <tr${frozen ? ' style="background:rgba(120,140,255,0.10)"' : ''}>
+        <tr${inGroup ? ' class="sg-member"' : ""}${frozen ? ' style="background:rgba(120,140,255,0.10)"' : ''}>
           <td data-label="">
             <button class="btn btn-danger btn-icon state-del"
                     title="Удалить запись"
-                    aria-label="Удалить ${escapeHtml(_hf.name)}${_hf.fam ? ", " + _hf.fam : ""}"
+                    aria-label="Удалить ${escapeHtml(m.name)}${m.fam ? ", " + m.fam : ""}"
                     data-key="${escapeHtml(e.key)}"
                     data-host="${escapeHtml(e.host)}">${_icons.close}</button>
           </td>
           <td data-label="Профиль">${escapeHtml(e.key)}</td>
-          <td data-label="Домен">${escapeHtml(_hf.name)}${_hf.fam ? ` <span class="fam-tag">${_hf.fam}</span>` : ""}</td>
+          <td data-label="Домен" class="state-host${inGroup ? " sg-leaf" : ""}">${nameHtml}${m.fam ? ` <span class="fam-tag">${m.fam}</span>` : ""}</td>
           <td data-label="Стратегия">
             <select class="state-strat-sel"
                     data-key="${escapeHtml(e.key)}"
@@ -301,7 +329,80 @@ async function loadState(useCache) {
           <td data-label="Возраст" class="state-age">${ageStr}</td>
         </tr>
       `;
-    }).join("");
+    };
+
+    // Группа встаёт туда, где в текущей сортировке оказалась её первая строка,
+    // и внутри держит тот же порядок. Так сортировка по возрасту поднимает
+    // наверх группу со свежей записью, а по стратегии — группу, где подбор
+    // ушёл дальше всех, и сводка в заголовке говорит ровно об этой строке.
+    const blocks = [];
+    const byGroup = new Map();
+    for (const e of sorted) {
+      const m = meta.get(e);
+      let b = byGroup.get(m.group);
+      if (!b) { b = { group: m.group, rows: [], names: new Set() }; byGroup.set(m.group, b); blocks.push(b); }
+      b.rows.push(e);
+      b.names.add(m.name);
+    }
+
+    const plural = (n, one, few, many) => {
+      const d = n % 10, h = n % 100;
+      if (d === 1 && h !== 11) return one;
+      if (d >= 2 && d <= 4 && (h < 12 || h > 14)) return few;
+      return many;
+    };
+    // Номера стратегий в сводке: одно число, если у всех одна; до трёх —
+    // перечнем; больше — диапазоном, иначе ячейка расползается на всю строку.
+    const strategySummary = (rows) => {
+      const nums = Array.from(new Set(rows.map(e => Number(e.strategy) || 0))).sort((x, y) => x - y);
+      return nums.length <= 3 ? nums.join(", ") : `${nums[0]}–${nums[nums.length - 1]}`;
+    };
+
+    const groupHtml = (b) => {
+      const open = stateOpenGroups.has(b.group);
+      const n = b.rows.length;
+      const keys = Array.from(new Set(b.rows.map(e => String(e.key || ""))));
+      const nFrozen = b.rows.filter(e => e.mode === "frozen").length;
+      const freshest = Math.min(...b.rows.map(e => nowSec - Number(e.ts || 0)));
+      const countText = `${n} ${plural(n, "запись", "записи", "записей")}`;
+      return `
+        <tbody class="sg${open ? "" : " sg-closed"}" data-group="${escapeHtml(b.group)}">
+          <tr class="sg-head">
+            <td data-label="" class="sg-lead"></td>
+            <td data-label="Профиль">${escapeHtml(keys.join(", "))}</td>
+            <td data-label="Домен" class="sg-title">
+              <button type="button" class="sg-toggle" aria-expanded="${open}"
+                      data-count="${escapeHtml(countText)}"
+                      title="${open ? "Свернуть" : "Раскрыть"}: ${escapeHtml(countText)}">
+                ${_icons.chevronDown}<span class="sg-name">${escapeHtml(b.group)}</span><span class="sg-count" aria-label="${escapeHtml(countText)}">${n}</span>
+              </button>
+            </td>
+            <td data-label="Стратегия">${escapeHtml(strategySummary(b.rows))}</td>
+            <td data-label="Заморозка">${nFrozen
+              ? `<span class="sg-frozen">${_icons.lockClosed}${nFrozen === n ? "все" : `${nFrozen} из ${n}`}</span>`
+              : `<span class="sg-quiet">нет</span>`}</td>
+            <td data-label="Возраст" class="state-age">${fmtAge(freshest)}</td>
+          </tr>
+          ${b.rows.map(e => rowHtml(e, true)).join("")}
+        </tbody>
+      `;
+    };
+
+    // Заголовок получает только группа из РАЗНЫХ имён. chatgpt.com|4 и
+    // chatgpt.com|6 — один сайт в двух семействах адресов, сворачивать там
+    // нечего, а заголовок над парой одинаковых строк только прибавил бы шума.
+    // Одиночные строки подряд собираются в общий tbody.
+    let html = "";
+    let loose = "";
+    for (const b of blocks) {
+      if (b.names.size >= 2) {
+        if (loose) { html += `<tbody>${loose}</tbody>`; loose = ""; }
+        html += groupHtml(b);
+      } else {
+        loose += b.rows.map(e => rowHtml(e, false)).join("");
+      }
+    }
+    if (loose) html += `<tbody>${loose}</tbody>`;
 
     const arrow = k => stateSort.key === k ? (stateSort.dir === "asc" ? " " + _icons.arrowUp : " " + _icons.arrowDown) : "";
     const th = (k, label) => `<th class="sortable" data-sort="${k}">${label}${arrow(k)}</th>`;
@@ -313,11 +414,11 @@ async function loadState(useCache) {
         Сортировка: ${sortLabel} ${sortArrow}
       </button>
       <div class="table-scroll">
-      <table class="state-table">
+      <table class="state-table${blocks.some(b => b.names.size >= 2) ? " sg-any" : ""}">
         <thead>
           <tr><th></th>${th("key","Профиль")}${th("host","Домен")}${th("strategy","Стратегия")}<th>Заморозка</th>${th("age","Возраст")}</tr>
         </thead>
-        <tbody>${rows}</tbody>
+        ${html}
       </table>
       </div>
     `;
@@ -334,6 +435,26 @@ async function loadState(useCache) {
       btn.addEventListener("click", () => {
         const newMode = btn.dataset.frozen === "1" ? "auto" : "frozen";
         stateSet(btn.dataset.key, btn.dataset.host, btn.dataset.strategy, newMode);
+      });
+    });
+    // Раскрытие — без перерисовки и без сети: строки группы уже в разметке,
+    // меняется только класс её tbody. Клик ловится на всей строке заголовка
+    // (цель шире, чем имя), а кнопка внутри даёт клавиатуру и скринридер —
+    // её собственный клик всплывает сюда же, поэтому обработчик один.
+    body.querySelectorAll("tbody.sg").forEach(tb => {
+      const head = tb.querySelector(".sg-head");
+      if (!head) return;
+      head.addEventListener("click", () => {
+        const g = tb.dataset.group;
+        const open = !stateOpenGroups.has(g);
+        if (open) stateOpenGroups.add(g); else stateOpenGroups.delete(g);
+        saveOpenGroups();
+        tb.classList.toggle("sg-closed", !open);
+        const btn = tb.querySelector(".sg-toggle");
+        if (btn) {
+          btn.setAttribute("aria-expanded", String(open));
+          btn.setAttribute("title", `${open ? "Свернуть" : "Раскрыть"}: ${btn.dataset.count}`);
+        }
       });
     });
     const sortBtn = document.getElementById("state-sort-btn");

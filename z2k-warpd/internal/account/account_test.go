@@ -3,6 +3,7 @@ package account
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -518,5 +519,119 @@ func TestRepairSilentWhenNoDevice(t *testing.T) {
 	}
 	if done || d != nil {
 		t.Fatalf("чинить было нечего, а функция что-то вернула: done=%v d=%+v", done, d)
+	}
+}
+
+// WARP+: ключ уходит PUT'ом на /reg/{id}/account (как у wgcf), тип аккаунта
+// читается GET'ом оттуда же, признак подписки — account_type, а не warp_plus.
+func licenseSrv(t *testing.T, puts *[]string, reject string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/v0a2158/reg":
+			w.Write([]byte(regBody))
+		case r.Method == "PATCH":
+			w.Write([]byte(`{"warp_enabled":true}`))
+		case r.Method == "PUT" && r.URL.Path == "/v0a2158/reg/dev1/account":
+			if r.Header.Get("Authorization") != "Bearer tok1" {
+				t.Error("license PUT без bearer")
+			}
+			var body map[string]string
+			json.NewDecoder(r.Body).Decode(&body)
+			*puts = append(*puts, body["license"])
+			if reject != "" {
+				w.WriteHeader(400)
+				w.Write([]byte(`{"result":null,"success":false,"errors":[{"code":1000,"message":"` + reject + `"}],"messages":[]}`))
+				return
+			}
+			w.Write([]byte(`{"id":"acc","premium_data":0,"quota":0}`))
+		case r.Method == "GET" && r.URL.Path == "/v0a2158/reg/dev1/account":
+			if len(*puts) > 0 && reject == "" {
+				w.Write([]byte(`{"id":"acc","account_type":"unlimited","warp_plus":true,"premium_data":0,"quota":0,"license":"SECRET"}`))
+				return
+			}
+			w.Write([]byte(`{"id":"acc","account_type":"free","warp_plus":true,"premium_data":0,"quota":0,"license":"OTHER"}`))
+		case r.Method == "GET" && r.URL.Path == "/v0a2158/reg/dev1":
+			w.Write([]byte(regBody))
+		default:
+			w.WriteHeader(500)
+		}
+	}))
+}
+
+func TestApplyLicenseBindsAndReadsAccountType(t *testing.T) {
+	var puts []string
+	s := licenseSrv(t, &puts, "")
+	defer s.Close()
+	c := &Client{BaseURL: s.URL, HTTP: s.Client()}
+	d := &Device{ID: "dev1", Token: "tok1"}
+	before, err := c.Account(context.Background(), d)
+	if err != nil || before.Plus() {
+		t.Fatalf("бесплатный аккаунт с warp_plus:true не должен считаться WARP+: %+v %v", before, err)
+	}
+	a, err := c.ApplyLicense(context.Background(), d, "AbC12345-dEf67890-GhI13579")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(puts) != 1 || puts[0] != "AbC12345-dEf67890-GhI13579" {
+		t.Fatalf("ключ ушёл не так: %v", puts)
+	}
+	if a.AccountType != "unlimited" || !a.Plus() {
+		t.Fatalf("после ключа: %+v", a)
+	}
+}
+
+func TestApplyLicenseRejectionCarriesCloudflareMessage(t *testing.T) {
+	var puts []string
+	s := licenseSrv(t, &puts, "Too many connected devices.")
+	defer s.Close()
+	c := &Client{BaseURL: s.URL, HTTP: s.Client()}
+	_, err := c.ApplyLicense(context.Background(), &Device{ID: "dev1", Token: "tok1"}, "AbC12345-dEf67890-GhI13579")
+	var ae *APIError
+	if !errors.As(err, &ae) || ae.Status != 400 || ae.Message != "Too many connected devices." {
+		t.Fatalf("отказ без текста Cloudflare: %v", err)
+	}
+}
+
+// Новая регистрация (починка негодного адреса, отзыв устройства) привязывается
+// к сохранённому ключу — иначе человек молча оказался бы на бесплатном.
+func TestNewRegistrationCarriesSavedLicense(t *testing.T) {
+	var puts []string
+	s := licenseSrv(t, &puts, "")
+	defer s.Close()
+	c := &Client{BaseURL: s.URL, HTTP: s.Client()}
+	p := filepath.Join(t.TempDir(), "device.json")
+
+	// Без ключа — ни одного PUT.
+	if _, created, err := c.Ensure(context.Background(), p); err != nil || !created {
+		t.Fatalf("fresh: %v %v", created, err)
+	}
+	if len(puts) != 0 {
+		t.Fatalf("без сохранённого ключа PUT не нужен: %v", puts)
+	}
+
+	if err := SaveLicense(p, "AbC12345-dEf67890-GhI13579"); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := os.Stat(LicensePath(p)); st == nil || st.Mode().Perm() != 0600 {
+		t.Fatalf("ключ обязан лежать с правами 0600: %v", st)
+	}
+	// Регистрация заново — ключ переносится.
+	os.Remove(p)
+	if _, created, err := c.Ensure(context.Background(), p); err != nil || !created {
+		t.Fatalf("re-register: %v %v", created, err)
+	}
+	if len(puts) != 1 || puts[0] != "AbC12345-dEf67890-GhI13579" {
+		t.Fatalf("ключ не перенесён на новую регистрацию: %v", puts)
+	}
+	b, err := os.ReadFile(AccountInfoPath(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "AbC12345") || strings.Contains(string(b), "SECRET") {
+		t.Fatalf("в сводке для панели оказался ключ: %s", b)
+	}
+	var a AccountInfo
+	if json.Unmarshal(b, &a) != nil || a.AccountType != "unlimited" {
+		t.Fatalf("сводка: %s", b)
 	}
 }

@@ -13,7 +13,7 @@
 
 set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-GO="${GO:-$HOME/go/bin/go1.25.12}"
+GO="${GO:-$HOME/go/bin/go1.25.13}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -199,8 +199,8 @@ sh_mutant "remove burns the device key" \
 
 # Без движка флаг обязан откатиться, иначе панель врёт «включено».
 sh_mutant "enable without engine leaves the flag on" \
-    '    [ -x "$WARP_BIN" ] || { _wlog "движок не установлен — нажмите «Установить»"; warp_set_flag 0; return 1; }' \
-    '    [ -x "$WARP_BIN" ] || { _wlog "движок не установлен — нажмите «Установить»"; return 1; }'
+    '    [ -x "$WARP_BIN" ] || { _wlog "движок не установлен — нажмите «Установить»"; warp_set_flag 0; warp_op_unlock; return 1; }' \
+    '    [ -x "$WARP_BIN" ] || { _wlog "движок не установлен — нажмите «Установить»"; warp_op_unlock; return 1; }'
 
 # --set-mark затирает mark-word Keenetic; форма с маской — не косметика.
 sh_mutant "MARK regresses to --set-mark (clobbers the mark word)" \

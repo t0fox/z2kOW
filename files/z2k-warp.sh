@@ -119,6 +119,9 @@ warp_daemon_running() { [ -x "$WARP_INIT" ] && sh "$WARP_INIT" status >/dev/null
 # whatever the user had switched off.
 WARP_GAMES_DIR="${WARP_GAMES_DIR:-$WARP_LISTS_DIR/games}"
 WARP_ENABLED_FILE="${WARP_ENABLED_FILE:-$WARP_LISTS_DIR/.enabled}"
+# Свои списки, наоборот, включены по умолчанию; выключенные человеком
+# перечислены в .disabled (см. warp_list_toggle в webpanel/cgi/actions.sh).
+WARP_USER_OFF_FILE="${WARP_USER_OFF_FILE:-$WARP_LISTS_DIR/.disabled}"
 
 warp_lists_migrate() {
     [ -d "$WARP_LISTS_DIR" ] || mkdir -p "$WARP_LISTS_DIR" || {
@@ -146,16 +149,20 @@ warp_lists_migrate() {
     return 0
 }
 
-# Echo the files to load: every user list, plus each enabled game list that
-# actually exists. A name in .enabled with no file behind it (upstream dropped
-# it, or the refresh has not run yet) is simply skipped.
+# Echo the files to load: every user list not switched off, plus each enabled
+# game list that actually exists. A name in .enabled with no file behind it
+# (upstream dropped it, or the refresh has not run yet) is simply skipped.
 warp_active_lists() {
     local f n
     for f in "$WARP_LISTS_DIR"/*.txt; do
         # devices.txt — список УСТРОЙСТВ (источников), он грузится в z2k_warp_src
         # отдельно; сюда, в адреса назначения, ему нельзя.
         [ "$f" = "$WARP_DEVICES_FILE" ] && continue
-        [ -f "$f" ] && printf '%s\n' "$f"
+        [ -f "$f" ] || continue
+        if [ -f "$WARP_USER_OFF_FILE" ] && grep -qxF "$(basename "$f" .txt)" "$WARP_USER_OFF_FILE" 2>/dev/null; then
+            continue
+        fi
+        printf '%s\n' "$f"
     done
     [ -f "$WARP_ENABLED_FILE" ] || return 0
     while IFS= read -r n; do
@@ -516,23 +523,95 @@ warp_unpin_legacy() {
     return 0
 }
 
+# ---- действия с туннелем перебивают друг друга ---------------------------------
+#
+# Включение ждёт готовности до WARP_READY_WAIT секунд, смена транспорта — столько
+# же после перезапуска. Пока одно такое ожидание висело, панель держала весь
+# раздел под замком: ни выключить, ни выбрать другой транспорт человек не мог,
+# хотя именно это и нужно, когда включение не поднимается.
+#
+# Теперь ПОСЛЕДНЕЕ действие главнее. Каждое записывает свой pid в WARP_OP_FILE;
+# ожидание готовности сверяет его на каждом круге и, увидев чужой, выходит с
+# кодом 3 ничего больше не трогая. Короткие участки, меняющие состояние (флаг,
+# демон, маршрут), идут под замком: иначе прерванное включение могло бы
+# запустить демон уже после того, как выключение его остановило. Держатель
+# замка, которого перебили, прав на продолжение не имеет — если он застрял,
+# новое действие его снимает.
+WARP_OP_DIR="${WARP_OP_DIR:-$(dirname "$WARP_STATUS")}"
+WARP_OP_FILE="$WARP_OP_DIR/op"
+WARP_OP_LOCK="$WARP_OP_DIR/op.lock"
+WARP_OP_LOCK_WAIT="${WARP_OP_LOCK_WAIT:-5}"   # секунд ждать застрявшего держателя
+
+warp_op_begin() {
+    mkdir -p "$WARP_OP_DIR" 2>/dev/null
+    printf '%s\n' "$$" > "$WARP_OP_FILE"
+}
+
+# Всё ещё ли это действие последнее.
+warp_op_current() { [ "$(cat "$WARP_OP_FILE" 2>/dev/null)" = "$$" ]; }
+
+warp_op_lock() {
+    local waited=0 holder
+    while ! mkdir "$WARP_OP_LOCK" 2>/dev/null; do
+        holder=$(cat "$WARP_OP_LOCK/pid" 2>/dev/null)
+        # Держатель умер, не сняв замок (его убили вместе с задачей) — замок битый.
+        if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+            rm -rf "$WARP_OP_LOCK" 2>/dev/null
+            continue
+        fi
+        if [ "$waited" -ge "$WARP_OP_LOCK_WAIT" ]; then
+            # Снимать чужой замок вправе только последнее действие. Перебитое
+            # само уступает: иначе старое выключение, застав новое включение в
+            # долгом участке, убило бы его и выключило туннель вопреки
+            # последнему нажатию.
+            warp_op_current || return 1
+            # Застрял — и уже перебит нами: снимаем его вместе с замком.
+            if [ -n "$holder" ] && [ "$holder" != "$$" ]; then
+                _wlog "предыдущее действие с WARP не отвечает (pid $holder) — прерываю"
+                kill "$holder" 2>/dev/null
+            fi
+            rm -rf "$WARP_OP_LOCK" 2>/dev/null
+            continue
+        fi
+        sleep 1; waited=$((waited + 1))
+    done
+    printf '%s\n' "$$" > "$WARP_OP_LOCK/pid"
+    return 0
+}
+
+warp_op_unlock() { rm -rf "$WARP_OP_LOCK" 2>/dev/null; return 0; }
+
+warp_op_superseded() {
+    _wlog "прервано: запущено другое действие с WARP"
+    return 3
+}
+
 warp_enable() {
+    warp_op_begin
+    warp_op_lock || { warp_op_superseded; return 3; }
+    warp_op_current || { warp_op_unlock; warp_op_superseded; return 3; }
     warp_set_flag 1
     warp_unpin_legacy
-    [ -x "$WARP_BIN" ] || { _wlog "движок не установлен — нажмите «Установить»"; warp_set_flag 0; return 1; }
+    [ -x "$WARP_BIN" ] || { _wlog "движок не установлен — нажмите «Установить»"; warp_set_flag 0; warp_op_unlock; return 1; }
     warp_ipset_all
-    ipset list -n "$WARP_IPSET" >/dev/null 2>&1 || { _wlog "cannot create ipset $WARP_IPSET"; warp_set_flag 0; return 1; }
+    ipset list -n "$WARP_IPSET" >/dev/null 2>&1 || { _wlog "cannot create ipset $WARP_IPSET"; warp_set_flag 0; warp_op_unlock; return 1; }
     warp_daemon_running || sh "$WARP_INIT" start >/dev/null 2>&1
+    warp_op_unlock
     local waited=0
     while [ "$waited" -lt "$WARP_READY_WAIT" ]; do
+        warp_op_current || { warp_op_superseded; return 3; }
         warp_ready && break
         sleep 2; waited=$((waited + 2))
     done
+    warp_op_lock || { warp_op_superseded; return 3; }
+    warp_op_current || { warp_op_unlock; warp_op_superseded; return 3; }
     if warp_ready; then
         warp_pbr_up
+        warp_op_unlock
         _wlog "WARP ready: $(_json_str "$WARP_STATUS" transport) $(_json_str "$WARP_STATUS" endpoint)"
         return 0
     fi
+    warp_op_unlock
     # Не ready — так и говорим. Подбор плеча десинка отсюда УДАЛЁН: туннель не
     # имеет права крутить ротацию обхода ради себя, а брошенный подбор оставлял
     # хост закреплённым навсегда. Движок ищет рабочий транспорт сам, лестницей.
@@ -540,12 +619,55 @@ warp_enable() {
     return 2
 }
 
+# Выключение — выход из любого зависшего состояния: оно короткое и снимает
+# застрявшего держателя замка. Перебитым оно бывает, только если после него
+# уже нажали что-то ещё — тогда главнее то нажатие.
 warp_disable() {
+    warp_op_begin
+    warp_op_lock || { warp_op_superseded; return 3; }
+    warp_op_current || { warp_op_unlock; warp_op_superseded; return 3; }
     warp_unpin_legacy
     warp_pbr_down
     [ -x "$WARP_INIT" ] && sh "$WARP_INIT" stop >/dev/null 2>&1
     warp_set_flag 0
+    warp_op_unlock
     return 0
+}
+
+# Перезапуск движка с новыми настройками — смена транспорта в панели.
+# Маршрут снимается ДО остановки: пока движок встаёт заново, трафик идёт
+# напрямую, а не в интерфейс, которого уже нет. Дальше — обычное включение со
+# своим ожиданием готовности и теми же кодами 0/1/2/3. У выключенного WARP
+# перезапускать нечего: выбор применится при включении.
+warp_restart() {
+    warp_op_begin
+    warp_op_lock || { warp_op_superseded; return 3; }
+    warp_op_current || { warp_op_unlock; warp_op_superseded; return 3; }
+    if [ "$(warp_flag)" != "1" ]; then
+        warp_op_unlock
+        return 0
+    fi
+    warp_pbr_down
+    [ -x "$WARP_INIT" ] && sh "$WARP_INIT" stop >/dev/null 2>&1
+    warp_op_unlock
+    warp_enable
+}
+
+# Ключ WARP+ со stdin — в движок тоже через stdin (z2k-warpd license): в
+# аргументах он был бы виден в списке процессов. Сначала напрямую; при сетевом
+# отказе (код 1) — через релей, как регистрация. Отказ Cloudflare (код 3) через
+# релей не повторяем: ответ будет тем же.
+warp_license() {
+    local key out rc
+    [ -x "$WARP_BIN" ] || { _wlog "движок не установлен — нажмите «Установить»"; return 4; }
+    key=$(cat)
+    out=$(printf '%s' "$key" | "$WARP_BIN" license --device "$WARP_DEVICE" 2>&1); rc=$?
+    if [ "$rc" = "1" ] && [ -n "$WARP_VPS_PROXY" ]; then
+        _wlog "напрямую Cloudflare не ответил — пробую через релей..."
+        out=$(printf '%s' "$key" | "$WARP_BIN" license --device "$WARP_DEVICE" --proxy "$WARP_VPS_PROXY" 2>&1); rc=$?
+    fi
+    printf '%s\n' "$out"
+    return "$rc"
 }
 
 warp_remove() {
@@ -620,12 +742,22 @@ warp_status() {
     # mem — RSS движка в КБ из status.json: панель показывает его, чтобы «а
     # почему WARP ест сто мегабайт» не требовало htop. В конце строки: error=
     # может быть пустым, и читатели режут строку по ключам, а не по позиции.
-    printf 'installed=%s enabled=%s ready=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s\n' \
+    # plan — тип аккаунта из сводки, которую пишет z2k-warpd license (сети
+    # здесь нет: это путь опроса панели); plan_err=1 — ключ сохранён, но к
+    # новой записи устройства не привязался; license=1 — ключ сохранён. Сам
+    # ключ сюда не попадает никогда.
+    local acct plan plan_err=0 lic=0
+    acct="$(dirname "$WARP_DEVICE")/account.json"
+    plan=$(_json_str "$acct" account_type)
+    case "$plan" in *[!a-z_]*) plan="" ;; esac
+    [ -n "$(_json_str "$acct" error)" ] && plan_err=1
+    [ -s "$(dirname "$WARP_DEVICE")/license" ] && lic=1
+    printf 'installed=%s enabled=%s ready=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s\n' \
         "$installed" "${GAME_WARP_ENABLED_OVERRIDE:-$(warp_flag)}" "$ready" \
         "$(_json_str "$WARP_STATUS" transport)" "$(_json_str "$WARP_STATUS" endpoint)" \
         "$(_json_str "$WARP_STATUS" iface)" "$(_json_str "$WARP_STATUS" addr)" \
         "${entries:-0}" "${devices:-0}" "$(_json_str "$WARP_STATUS" last_error)" \
-        "$(_json_raw "$WARP_STATUS" mem_kb)"
+        "$(_json_raw "$WARP_STATUS" mem_kb)" "$plan" "$plan_err" "$lic"
 }
 
 # Зачистка usque-эпохи — по уликам, а не по имени, и пакет — один раз.
@@ -691,10 +823,12 @@ case "$1" in
     install)  warp_install ;;
     enable)   warp_enable ;;
     disable)  warp_disable ;;
+    restart)  warp_restart ;;
+    license)  warp_license ;;
     remove)   warp_remove ;;
     ipset)    warp_ipset_all ;;
     selfheal) warp_selfheal ;;
     status)   warp_status ;;
     migrate)  warp_lists_migrate; warp_migrate_usque ;;
-    *) echo "usage: $0 {install|enable|disable|remove|ipset|selfheal|status|migrate}" >&2; exit 1 ;;
+    *) echo "usage: $0 {install|enable|disable|restart|license|remove|ipset|selfheal|status|migrate}" >&2; exit 1 ;;
 esac

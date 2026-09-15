@@ -30,6 +30,7 @@ local function profiles(path)
 end
 local all=profiles(assert(os.getenv('Z2K_PROFILE_FIXTURE')))
 local no_reset=profiles(assert(os.getenv('Z2K_PROFILE_NO_RESET')))
+local timeout_off=profiles(assert(os.getenv('Z2K_PROFILE_TIMEOUT_OFF')))
 local function circular_instance(pool)
     for _,ins in ipairs(assert(all[pool],pool)) do if ins.func=='circular' then return ins end end
     error('missing circular: '..pool)
@@ -155,6 +156,42 @@ local function profile_initial(key,host)
     d.arg=circular_instance(key).arg
     return d
 end
+H.test('generated RKN profile wires the TLS timeout and its opt-out',function()
+    local arg=circular_instance('rkn_tcp').arg
+    H.eq('1',arg.discord_tls_timeout)
+    H.eq('10',arg.discord_tls_in_limit); H.eq('20',arg.discord_tls_out_limit)
+    for _,ins in ipairs(timeout_off.rkn_tcp) do
+        if ins.func=='circular' then H.eq(nil,ins.arg.discord_tls_timeout) end
+    end
+    for _,key in ipairs({'yt_tcp','gv_tcp','http_rkn','yt_quic','discord_udp'}) do
+        H.eq(nil,circular_instance(key).arg.discord_tls_timeout)
+    end
+end)
+local function discord_waiting()
+    local d=profile_initial('rkn_tcp','updates.discord.com')
+    local hello=string.char(22,3,3,0,100,1,0,0,96,3,3)..string.rep('x',94)
+    d.dis.payload=hello
+    d.dis.tcp.th_seq=1000; d.dis.tcp.th_ack=9000; d.dis.tcp.th_dport=443
+    d.track.pos.direct.pcounter=3
+    local h,c=H.step(d)
+    local ack=H.tcp(d.track,false,1,'','unknown'); ack.arg=d.arg
+    ack.dis.tcp.th_ack=1000+#hello; ack.dis.tcp.th_seq=9000; ack.dis.tcp.th_sport=443
+    ack.track.pos.direct.pcounter=2
+    H.step(ack)
+    return h,c
+end
+H.test('generated TLS timeout persists rotation and honors a disk freeze before expiry',function()
+    fresh_state()
+    local h,c
+    for i=1,3 do h=discord_waiting(); H.advance(11) end
+    H.eq(2,h.nstrategy); H.eq(3,#H.sent)
+    H.eq(2,disk_strategy('rkn_tcp','updates.discord.com|4'))
+    h,c=discord_waiting()
+    local f=assert(io.open(state_path,'w'))
+    f:write('rkn_tcp\tupdates.discord.com|4\t2\t1033\tfrozen\n'); f:close()
+    H.advance(11)
+    H.eq(2,h.final); H.eq(nil,c.failure); H.eq(3,#H.sent)
+end)
 H.test('generated host keys persist the selected strategy for every domain pool',function()
     fresh_state()
     for _,key in ipairs({'rkn_tcp','yt_tcp','gv_tcp','http_rkn','yt_quic'}) do

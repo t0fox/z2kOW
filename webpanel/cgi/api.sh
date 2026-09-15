@@ -627,8 +627,55 @@ case "$method $path" in
         printf ',"addr":';     json_string "$(_wf addr)"
         printf ',"entries":%s,"devices":%s,"error":' "$(_wf entries | grep -E '^[0-9]+$' || echo 0)" "$(_wf devices | grep -E '^[0-9]+$' || echo 0)"
         json_string "$(_wf error)"
-        printf ',"mem_kb":%s}\n' "$(_wf mem | grep -E '^[0-9]+$' || echo 0)"
+        printf ',"mem_kb":%s' "$(_wf mem | grep -E '^[0-9]+$' || echo 0)"
+        printf ',"plan":'; json_string "$(_wf plan)"
+        w_pe=false; [ "$(_wf plan_err)" = "1" ] && w_pe=true
+        w_lic=false; [ "$(_wf license)" = "1" ] && w_lic=true
+        printf ',"plan_error":%s,"license":%s' "$w_pe" "$w_lic"
+        # Выбор человека, а не то, на чём движок стоит сейчас (это transport
+        # выше). Мусор в конфиге показываем автоматом — так его и прочтёт
+        # init-скрипт.
+        w_mode=$(read_flag "Z2K_WARP_TRANSPORT" "$CONFIG_FILE" "auto")
+        case "$w_mode" in wg|h2) ;; *) w_mode=auto ;; esac
+        printf ',"transport_mode":"%s"}\n' "$w_mode"
         exit 0
+        ;;
+
+    # Ключ WARP+. Проверка формы — здесь же, до файла и задачи: всё, что
+    # проходит, безопасно и в файле, и в JSON запроса к Cloudflare.
+    "POST /warp/license")
+        body=$(read_body)
+        l_key=$(form_value "$body" "key")
+        case "$l_key" in
+            ''|*[!A-Za-z0-9-]*) json_fail "400 Bad Request" "key: latin letters, digits and dashes" ;;
+        esac
+        [ "${#l_key}" -ge 8 ] && [ "${#l_key}" -le 64 ] || json_fail "400 Bad Request" "key length 8-64"
+        l_file="/tmp/z2k-warp-license.$$.$(date +%s)"
+        ( umask 077; printf '%s\n' "$l_key" > "$l_file" ) || json_fail "500 Internal Server Error" "save failed"
+        job_id=$(svc_action_async "Применяю ключ WARP+" "warp_license_apply ${l_file}")
+        json_header
+        printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
+        exit 0
+        ;;
+
+    # Выбор транспорта. У включённого WARP — задача с перезапуском движка,
+    # у выключенного — просто запись флага, без задачи и без модалки: ждать
+    # там нечего.
+    "POST /warp/transport")
+        body=$(read_body)
+        val=$(form_value "$body" "value")
+        case "$val" in
+            auto|wg|h2) ;;
+            *) json_fail "400 Bad Request" "value must be auto, wg or h2" ;;
+        esac
+        if [ "$(read_flag "GAME_WARP_ENABLED" "$CONFIG_FILE" "0")" = "1" ]; then
+            job_id=$(svc_action_async "Переключаю транспорт WARP" "warp_transport_set ${val}")
+            json_header
+            printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
+            exit 0
+        fi
+        set_flag "Z2K_WARP_TRANSPORT" "$val" "$CONFIG_FILE" || json_fail "500 Internal Server Error" "save failed"
+        json_ok
         ;;
 
     # Установка/удаление движка — долгие (скачивание ~7 МБ, регистрация у
@@ -915,12 +962,13 @@ case "$method $path" in
         json_header
         printf '{"ok":true,"lists":['
         first=1
-        warp_lists | while IFS="$(printf '\t')" read -r wname wentries wsize wmtime; do
+        warp_lists | while IFS="$(printf '\t')" read -r wname wentries wsize wmtime won; do
             [ -z "$wname" ] && continue
             if [ "$first" = "1" ]; then first=0; else printf ','; fi
             printf '{"name":'; json_string "$wname"
-            printf ',"entries":%s,"size":%s,"mtime":%s}' \
-                "${wentries:-0}" "${wsize:-0}" "${wmtime:-0}"
+            [ "$won" = "0" ] || won=1
+            printf ',"entries":%s,"size":%s,"mtime":%s,"on":%s}' \
+                "${wentries:-0}" "${wsize:-0}" "${wmtime:-0}" "$won"
         done
         printf ']}\n'
         exit 0
@@ -972,6 +1020,24 @@ case "$method $path" in
         w_inv=$(printf '%s' "$result" | sed -n 's/.*skipped_invalid=\([0-9]*\).*/\1/p')
         json_header
         printf '{"ok":true,"saved":%d,"skipped_invalid":%d}\n' "${w_saved:-0}" "${w_inv:-0}"
+        exit 0
+        ;;
+
+    # Свой список: включить или выключить, не удаляя. Применяется сразу —
+    # тем же пересбором сета, что и правка списка.
+    "POST /warp/list/toggle")
+        body=$(read_body)
+        l_name=$(form_value "$body" "name")
+        l_val=$(form_value "$body" "value")
+        case "$l_val" in
+            0|1) ;;
+            *) json_fail "400 Bad Request" "value must be 0 or 1" ;;
+        esac
+        warp_list_toggle "$l_name" "$l_val" || json_fail "400 Bad Request" "toggle failed"
+        warp_ipset_reload_if_enabled
+        json_header
+        printf '{"ok":true,"name":'; json_string "$l_name"
+        printf ',"on":%s}\n' "$l_val"
         exit 0
         ;;
 

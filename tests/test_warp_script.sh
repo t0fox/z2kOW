@@ -64,6 +64,15 @@ cat > "$SB/bin/z2k-warpd-stub" <<EOF
 echo "\$*" >> "$SB/warpd.log"
 case "\$1" in
     register) [ -f "$SB/reg.fail" ] && { echo "register_blocked boom" >&2; exit 1; }; echo '{"id":"dev"}' > "$SB/etc/device.json"; exit 0 ;;
+    license)
+        cat >> "$SB/license.stdin"; echo >> "$SB/license.stdin"
+        case "\$*" in
+            *--proxy*) [ -f "$SB/lic.proxyfail" ] && { echo "register_blocked relay" >&2; exit 1; } ;;
+            *) [ -f "$SB/lic.directfail" ] && { echo "register_blocked direct" >&2; exit 1; } ;;
+        esac
+        [ -f "$SB/lic.reject" ] && { echo "license_rejected: license: HTTP 400: Invalid license" >&2; exit 3; }
+        echo '{"account_type":"unlimited","premium_data":0,"quota":0,"checked":1}' > "$SB/etc/account.json"
+        echo "account_type=unlimited plus=true"; exit 0 ;;
     version) echo "z2k-warpd test" ;;
 esac
 exit 0
@@ -85,7 +94,8 @@ printf '1.2.3.0/24\n' > "$SB/z2k/lists/warp/my.txt"
 W() { # запуск скрипта с окружением песочницы
     Z2K_STUB_PATH="$SB/bin" ZAPRET2_DIR="$SB/z2k" CONFIG_FILE="$SB/z2k/config" \
     WARP_BIN="$SB/sbin/z2k-warpd" WARP_INIT="$SB/bin/S51" WARP_DEVICE="$SB/etc/device.json" \
-    WARP_STATUS="$SB/tmp/status.json" WARP_LISTS_DIR="$SB/z2k/lists/warp" WARP_READY_WAIT=1 \
+    WARP_STATUS="$SB/tmp/status.json" WARP_LISTS_DIR="$SB/z2k/lists/warp" WARP_READY_WAIT="${RW:-1}" \
+    WARP_OP_LOCK_WAIT="${LW:-5}" \
     WARP_LOG="$SB/tmp/engine.log" \
     WARP_FETCH_STUB="$SB/bin/z2k-warpd-stub" \
     sh "$SB/z2k/z2k-warp.sh" "$@"
@@ -137,6 +147,75 @@ assert_eq "enable not-ready: rc 2" "2" "$rc"
 assert_eq "enable not-ready: flag stays 1" "1" "$(flag)"
 assert_eq "enable not-ready: reason code on stderr" "1" "$(printf '%s' "$out" | grep -c no_endpoint)"
 assert_eq "enable not-ready: no MARK rules" "0" "$(grep -c -- '-A PREROUTING' "$SB/ipt.log" 2>/dev/null || echo 0)"
+
+# ---------- новое действие перебивает зависшее ----------
+# Включение ждёт готовности до WARP_READY_WAIT. Пока оно висело, выключить WARP
+# или выбрать другой транспорт было нельзя — теперь последнее нажатие главнее.
+clearlogs; ready false no_endpoint; W disable >/dev/null 2>&1; clearlogs
+( rc=0; RW=60 W enable >/dev/null 2>&1 || rc=$?; echo "$rc" > "$SB/bg.rc" ) &
+bg=$!
+sleep 2
+t0=$(date +%s)
+rc=0; W disable >/dev/null 2>&1 || rc=$?
+wait "$bg"
+t1=$(date +%s)
+assert_eq "перебивка: выключение прошло" "0" "$rc"
+assert_eq "перебивка: зависшее включение вышло с кодом 3" "3" "$(cat "$SB/bg.rc")"
+assert_eq "перебивка: включение ушло за секунды, а не дождалось конца" "yes" "$([ $((t1 - t0)) -le 6 ] && echo yes || echo no)"
+assert_eq "перебивка: флаг выключен" "0" "$(flag)"
+assert_eq "перебивка: движок остановлен последним" "stop" "$(tail -n1 "$SB/s51.log")"
+assert_eq "перебивка: маршрут не поднят" "0" "$(cat "$SB/ipt.log" 2>/dev/null | grep -c -- '-A PREROUTING')"
+
+# Смена транспорта поверх зависшего включения: включение уступает, туннель
+# перезапускается.
+clearlogs; ready false no_endpoint
+( rc=0; RW=60 W enable >/dev/null 2>&1 || rc=$?; echo "$rc" > "$SB/bg.rc" ) &
+bg=$!
+sleep 2
+rc=0; W restart >/dev/null 2>&1 || rc=$?
+wait "$bg"
+assert_eq "перебивка рестартом: включение вышло с кодом 3" "3" "$(cat "$SB/bg.rc")"
+assert_eq "перебивка рестартом: сам рестарт дошёл до конца (не ready → 2)" "2" "$rc"
+assert_eq "перебивка рестартом: флаг остался включён" "1" "$(flag)"
+
+# Застрявший держатель замка — жив, но не отпускает. Новое действие ждёт
+# WARP_OP_LOCK_WAIT, снимает его и делает своё.
+clearlogs
+sleep 60 & stuck=$!
+mkdir -p "$SB/tmp/op.lock"; echo "$stuck" > "$SB/tmp/op.lock/pid"; echo "$stuck" > "$SB/tmp/op"
+rc=0; LW=1 W disable >/dev/null 2>&1 || rc=$?
+assert_eq "застрявший замок: выключение прошло" "0" "$rc"
+assert_eq "застрявший замок: держатель снят" "dead" "$(kill -0 "$stuck" 2>/dev/null && echo alive || echo dead)"
+assert_eq "застрявший замок: флаг выключен" "0" "$(flag)"
+kill "$stuck" 2>/dev/null
+# Держатель умер, не сняв замок, — замок битый, ждать нечего.
+mkdir -p "$SB/tmp/op.lock"; echo 999999 > "$SB/tmp/op.lock/pid"
+t0=$(date +%s); W disable >/dev/null 2>&1; t1=$(date +%s)
+assert_eq "битый замок: снят без ожидания" "yes" "$([ $((t1 - t0)) -le 2 ] && echo yes || echo no)"
+assert_eq "после действий замок не остаётся" "no" "$([ -d "$SB/tmp/op.lock" ] && echo yes || echo no)"
+
+# ---------- ключ WARP+ ----------
+# Ключ идёт в движок через stdin, не аргументом: аргументы видны в списке
+# процессов и в логе задачи панели.
+clearlogs; rm -f "$SB/license.stdin" "$SB/lic."*
+rc=0; out=$(printf 'AbC12345-dEf67890-GhI13579' | W license 2>&1) || rc=$?
+assert_eq "ключ: применён" "0" "$rc"
+assert_eq "ключ: дошёл до движка через stdin" "AbC12345-dEf67890-GhI13579" "$(head -n1 "$SB/license.stdin")"
+assert_eq "ключ: в аргументах движка его нет" "0" "$(grep -c 'AbC12345' "$SB/warpd.log")"
+assert_eq "ключ: статус показывает тип аккаунта" "plan=unlimited plan_err=0" "$(W status | grep -o 'plan=[a-z]* plan_err=[01]')"
+# Напрямую не вышло — через релей, тем же ключом.
+clearlogs; rm -f "$SB/license.stdin"; touch "$SB/lic.directfail"
+rc=0; printf 'AbC12345-dEf67890-GhI13579' | W license >/dev/null 2>&1 || rc=$?
+assert_eq "ключ через релей: применён" "0" "$rc"
+assert_eq "ключ через релей: вторая попытка шла через --proxy" "1" "$(grep -c -- 'license .*--proxy' "$SB/warpd.log")"
+assert_eq "ключ через релей: оба раза тот же ключ" "2" "$(grep -c 'AbC12345-dEf67890-GhI13579' "$SB/license.stdin")"
+# Отказ Cloudflare через релей не повторяется: ответ был бы тем же.
+clearlogs; rm -f "$SB/lic."*; touch "$SB/lic.reject"
+rc=0; out=$(printf 'bad-key-000' | W license 2>&1) || rc=$?
+assert_eq "отказ Cloudflare: код 3" "3" "$rc"
+assert_eq "отказ Cloudflare: через релей не повторяли" "0" "$(grep -c -- '--proxy' "$SB/warpd.log")"
+assert_eq "отказ Cloudflare: текст отказа виден" "1" "$(printf '%s' "$out" | grep -c 'Invalid license')"
+rm -f "$SB/lic."* "$SB/etc/account.json"
 
 # ---------- enable (no binary) ----------
 clearlogs; W disable >/dev/null 2>&1; clearlogs; mv "$SB/sbin/z2k-warpd" "$SB/sbin/z2k-warpd.off"

@@ -2,6 +2,7 @@
 //
 //	z2k-warpd register [--device PATH] [--proxy URL]
 //	z2k-warpd run      [--device PATH] [--status PATH] [--log PATH] [--force-transport wg:PORT|h2] [--net-backend=external] [-v]
+//	z2k-warpd license  [--device PATH] [--proxy URL]   < ключ WARP+ (пусто — только перечитать аккаунт)
 //	z2k-warpd status   [--status PATH]
 //	z2k-warpd version
 package main
@@ -12,6 +13,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -66,6 +68,8 @@ func main() {
 		os.Exit(cmdRegister(os.Args[2:]))
 	case "run":
 		os.Exit(cmdRun(os.Args[2:]))
+	case "license":
+		os.Exit(cmdLicense(os.Args[2:]))
 	case "status":
 		os.Exit(cmdStatus(os.Args[2:]))
 	default:
@@ -74,7 +78,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: z2k-warpd register|run|status|version [flags]")
+	fmt.Fprintln(os.Stderr, "usage: z2k-warpd register|run|license|status|version [flags]")
 	os.Exit(2)
 }
 
@@ -113,6 +117,93 @@ func cmdRegister(args []string) int {
 		fmt.Println("device ok", d.ID)
 	}
 	return 0
+}
+
+// cmdLicense — ключ WARP+.
+//
+// КЛЮЧ ЧИТАЕТСЯ ИЗ STDIN, А НЕ АРГУМЕНТОМ. Аргументы процесса видны любому в
+// списке процессов роутера и попадают в лог задачи панели дословно; ключ —
+// платная подписка человека.
+//
+// Коды: 0 — готово; 1 — API недоступен (вызывающий пробует через релей);
+// 2 — ключ не похож на ключ; 3 — Cloudflare отказал (повтор через релей даст
+// тот же отказ, пробовать незачем); 4 — нет записи устройства.
+// Пустой ввод — только перечитать тип аккаунта.
+func cmdLicense(args []string) int {
+	fs := flag.NewFlagSet("license", flag.ExitOnError)
+	devPath := fs.String("device", defaultDevice, "device.json")
+	proxy := fs.String("proxy", "", "HTTPS proxy (VPS-релей)")
+	fs.Parse(args)
+
+	d, err := account.Load(*devPath)
+	if err != nil || d.ID == "" {
+		fmt.Fprintln(os.Stderr, "no_device: устройство не зарегистрировано — сначала установите WARP")
+		return 4
+	}
+	raw, _ := io.ReadAll(io.LimitReader(os.Stdin, 512))
+	key := strings.TrimSpace(string(raw))
+	if key != "" && !licenseKeyOK(key) {
+		fmt.Fprintln(os.Stderr, "bad_key: ключ состоит из латинских букв, цифр и дефисов")
+		return 2
+	}
+
+	client := &account.Client{HTTP: &http.Client{Timeout: 25 * time.Second}}
+	if *proxy != "" {
+		u, perr := url.Parse(*proxy)
+		if perr != nil {
+			fmt.Fprintln(os.Stderr, status.ErrRegisterBlocked, "bad --proxy")
+			return 1
+		}
+		client.HTTP.Transport = &http.Transport{Proxy: http.ProxyURL(u)}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	var a *account.AccountInfo
+	if key != "" {
+		a, err = client.ApplyLicense(ctx, d, key)
+	} else {
+		a, err = client.Account(ctx, d)
+	}
+	if err != nil {
+		var ae *account.APIError
+		switch {
+		case errors.As(err, &ae):
+			fmt.Fprintln(os.Stderr, "license_rejected:", ae.Error())
+			return 3
+		case errors.Is(err, account.ErrRevoked):
+			fmt.Fprintln(os.Stderr, status.ErrDeviceRevoked, err)
+			return 3
+		}
+		fmt.Fprintln(os.Stderr, status.ErrRegisterBlocked, err)
+		return 1
+	}
+	if key != "" {
+		if err := account.SaveLicense(*devPath, key); err != nil {
+			fmt.Fprintln(os.Stderr, "ключ применён, но не сохранился:", err)
+		}
+	}
+	a.Checked = time.Now().Unix()
+	if err := account.SaveAccountInfo(*devPath, a); err != nil {
+		fmt.Fprintln(os.Stderr, "account.json:", err)
+	}
+	fmt.Printf("account_type=%s plus=%t premium_data=%.0f quota=%.0f\n", a.AccountType, a.Plus(), a.PremiumData, a.Quota)
+	return 0
+}
+
+// licenseKeyOK — грубая проверка формы. Точный формат ключа Cloudflare не
+// публикует; всё, что сюда проходит, безопасно отправить в JSON и записать в
+// файл, а правильность решает сам API.
+func licenseKeyOK(k string) bool {
+	if len(k) < 8 || len(k) > 64 {
+		return false
+	}
+	for _, r := range k {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // repairBadEndpoint — см. account.RepairBadEndpoint. Отдельная функция, чтобы
@@ -165,6 +256,12 @@ func cmdRun(args []string) int {
 	stPath := fs.String("status", defaultStatus, "status.json")
 	logPath := fs.String("log", defaultLog, "лог (tmpfs)")
 	force := fs.String("force-transport", "", "wg:PORT | wg:HOST:PORT | h2 — только этот шаг")
+	// Режим — через переменную окружения по умолчанию, а не только флагом.
+	// Init-скрипт экспортирует её из конфига; движок старой сборки её просто
+	// не видит и работает автоматом. Флаг, переданный старому движку, уронил
+	// бы его на разборе аргументов — и человек, выбравший транспорт до
+	// обновления бинарника, остался бы без WARP вовсе.
+	modeArg := fs.String("transport", os.Getenv("Z2K_WARP_TRANSPORT"), "auto | wg | h2 — какими транспортами ходить")
 	proxy := fs.String("proxy", os.Getenv("Z2K_WARP_VPS_PROXY"), "HTTPS-прокси (VPS-релей) для API, если напрямую заблокирован")
 	epPath := fs.String("endpoints", defaultEndpoints, "список запасных эндпоинтов")
 	netBackend := fs.String("net-backend", "", "network plumbing: \"\" (Keenetic iptables, default) | \"external\" (platform owns FORWARD/MASQUERADE/MSS, e.g. OpenWrt)")
@@ -237,6 +334,14 @@ func cmdRun(args []string) int {
 			}
 			return nil, fmt.Errorf("unknown transport %q", step.Transport)
 		},
+	}
+	mode, modeOK := ladder.ParseMode(*modeArg)
+	if !modeOK {
+		logf("неизвестный режим транспорта %q — работаю автоматически", *modeArg)
+	}
+	cfg.Mode = mode
+	if mode != ladder.ModeAuto {
+		logf("транспорт выбран вручную: %s", mode)
 	}
 	if *force != "" {
 		s, err := parseForce(*force)

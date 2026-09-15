@@ -109,6 +109,104 @@ local function record_length(p)
     return p:byte(4) * 256 + p:byte(5)
 end
 
+-- Opt-in recovery for one updater which can wait indefinitely after its
+-- ClientHello was ACKed. No inference about established/application traffic.
+local discord_tls_serial = 0
+local function discord_tls_now()
+    return clock_getfloattime()
+end
+
+local function discord_tls_cancel(crec)
+    local q = crec.discord_tls
+    if not q then return end
+    q.done = true
+    timer_del(q.name)
+    if q.budget.pending == q then q.budget.pending = nil end
+end
+
+function z2k_discord_tls_timer(_name, data)
+    local c, h, q = data.crec, data.hrec, data.observation
+    if q.done then return end
+    discord_tls_cancel(c)
+    if c.nocheck or c.failure or q.lua_state.automate ~= c then return end
+    -- The core reconciles operator edits and checks the attempt generation,
+    -- final pin and quorum before accepting this one connection's failure.
+    circular_report_failure(h, c, data.arg)
+    if not c.failure then return end
+    q.budget.used = q.budget.used + 1
+    DLOG("discord TLS: ACKed ClientHello timed out; retry " .. q.budget.used .. "/6")
+    -- Use the server's last ACK headers: sequence = client's RCV.NXT, so
+    -- this is an acceptable reset, rather than an out-of-window challenge.
+    local ok, sent = pcall(rawsend_dissect, q.reset, q.options)
+    if not ok or not sent then DLOG_ERR("discord TLS: could not reset stalled client") end
+end
+
+local function discord_tls_observe(desync, crec)
+    local arg, dis = desync.arg, desync.dis
+    local q, h = crec.discord_tls, crec.host_record
+    if arg.discord_tls_timeout ~= "1" or not arg.reset or arg.key ~= "rkn_tcp"
+        or not desync.track or desync.track.hostname ~= "updates.discord.com"
+        or arg.hostkey ~= "z2k_service_hostkey" or not h
+        or type(circular_report_failure) ~= "function"
+        or type(timer_set) ~= "function" or type(timer_del) ~= "function"
+        or type(clock_getfloattime) ~= "function" then return end
+    if q and q.done then return end
+    local p, tcp = dis.payload or "", dis.tcp
+    if (desync.outgoing and tcp.th_dport or tcp.th_sport) ~= 443 then return end
+    local count = pos_get(desync, 'n')
+    local limit = tonumber(desync.outgoing and arg.discord_tls_out_limit or arg.discord_tls_in_limit)
+    -- At the capture boundary a reply could become invisible. Stop observing.
+    if not count or not limit or count >= limit
+        or bitand(tcp.th_flags, TH_SYN + TH_FIN + TH_RST) ~= 0
+        or (not desync.outgoing and #p > 0) then
+        if q then discord_tls_cancel(crec) end
+        return
+    end
+    if desync.outgoing then
+        if q then
+            if #p > 0 and pos_get(desync, 's') >= crec.request_end then discord_tls_cancel(crec) end
+            return
+        end
+        if desync.l7payload ~= "tls_client_hello" or crec.request_start ~= 1
+            or not crec.request_end or type(tcp.th_seq) ~= "number"
+            or type(tcp.th_ack) ~= "number" or bitand(tcp.th_flags, TH_ACK) == 0
+            or crec.server_hello or crec.http_started or crec.response_prefix
+            or h.final == h.nstrategy then return end
+        -- ACKing one TLS record does not necessarily ACK the entire handshake:
+        -- leave ClientHellos split across TLS records to the native detector.
+        local hello = desync.reasm_data or p
+        if #hello < 9 or hello:byte(6) ~= 1 then return end
+        local hello_length = hello:byte(7)*65536 + hello:byte(8)*256 + hello:byte(9)
+        if record_length(hello) ~= hello_length + 4 then return end
+        local now = discord_tls_now()
+        local b = h.discord_tls_budget
+        if not b then b = { started=now, used=0 }; h.discord_tls_budget = b end
+        if b.pending then return end
+        if now - b.started >= 300 then b.started, b.used = now, 0 end
+        if b.used >= 6 then return end
+        discord_tls_serial = discord_tls_serial + 1
+        q = { name="z2kdt_"..discord_tls_serial, budget=b, lua_state=desync.track.lua_state,
+            server_seq=tcp.th_ack,
+            request_end=(tcp.th_seq + crec.request_end - crec.request_start) % 4294967296 }
+        crec.discord_tls, b.pending = q, q
+        -- Start the deadline at ClientHello, but never reset unless the entire
+        -- request was ACKed. This also bounds the lifetime of an unACKed watch.
+        timer_set(q.name, function(name, data)
+            if not q.reset then discord_tls_cancel(crec); return end
+            z2k_discord_tls_timer(name, data)
+        end, 10000, true, { crec=crec, hrec=h, observation=q,
+            arg={fails=arg.fails, time=arg.time} })
+    elseif q and bitand(tcp.th_flags, TH_ACK) ~= 0
+        and type(tcp.th_ack) == "number" and type(tcp.th_seq) == "number"
+        and tcp.th_ack == q.request_end and tcp.th_seq == q.server_seq then
+        q.reset = deepcopy(dis)
+        q.reset.payload = nil
+        q.reset.tcp.th_flags, q.reset.tcp.th_win = TH_RST, 0
+        q.reset.tcp.options = nil
+        q.options = rawsend_opts_base(desync)
+    end
+end
+
 local function first_request(desync, crec)
     local p, seq = desync.dis.payload or "", pos_get(desync, 's')
     if not crec.request_start then
@@ -210,6 +308,7 @@ function z2k_fail_tls_alert(desync, crec)
     local p, flags = desync.dis.payload or "", desync.dis.tcp.th_flags
     if desync.outgoing then
         first_request(desync, crec)
+        discord_tls_observe(desync, crec)
         local seq = pos_get(desync, 's')
         if crec.request_end and not crec.server_hello and not crec.http_started
             and seq >= crec.request_start and seq < crec.request_end then
@@ -217,6 +316,7 @@ function z2k_fail_tls_alert(desync, crec)
         end
         return false
     end
+    discord_tls_observe(desync, crec)
     -- RST is a transport failure within the native window, regardless of TTL.
     if bitand(flags, TH_RST) ~= 0 then return native_failure(desync, crec) end
     if crec.server_hello then return false end

@@ -166,6 +166,27 @@ mkdir -p "$GDIR/sub"
 printf '../../etc/passwd\n-rf\n.hidden\nsub/../../mine\n' > "$ENABLED"
 assert_eq "hostile names rejected"           "mine.txt," "$(active)"
 
+printf "\n--- loader: own lists are on unless switched off ---\n"
+# Свои списки включены по умолчанию — обновление не должно выключить уже
+# работающие; выключенные перечислены в .disabled.
+USER_OFF="$WDIR/.disabled"
+active_own() {
+    sh -c "WARP_LISTS_DIR='$WDIR'; WARP_GAMES_DIR='$GDIR'; WARP_ENABLED_FILE='$ENABLED'; WARP_USER_OFF_FILE='$USER_OFF'
+           $(awk '/^warp_active_lists\(\)/,/^}$/' "$SCRIPT_DIR/files/z2k-warp.sh")
+           warp_active_lists | sed 's|.*/||' | LC_ALL=C sort | tr '\n' ','"
+}
+: > "$ENABLED"
+printf '2.2.2.2\n' > "$WDIR/other.txt"
+rm -f "$USER_OFF"
+assert_eq "no .disabled -> all own lists"     "mine.txt,other.txt," "$(active_own)"
+printf 'other\n' > "$USER_OFF"
+assert_eq "switched-off own list not loaded"  "mine.txt," "$(active_own)"
+# Имя своего и игрового списка может совпасть: выключение своего не трогает игровой.
+printf '3.3.3.3\n' > "$GDIR/other.txt"
+printf 'other\n' > "$ENABLED"
+assert_eq "same-named game list unaffected"   "mine.txt,other.txt," "$(active_own)"
+rm -f "$USER_OFF" "$WDIR/other.txt" "$GDIR/other.txt"
+
 printf "\n--- the aggregate is gone for good ---\n"
 assert_eq "no shipped aggregate in the repo" "0" \
           "$([ -f "$SCRIPT_DIR/files/lists/game-warp-ips.txt" ] && echo 1 || echo 0)"
