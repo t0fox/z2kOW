@@ -611,12 +611,25 @@ warp_fetch_engine() {
 warp_arch() {
     # Та же карта, что установщик/апдейтер (map_arch_to_bin_arch -> linux-*),
     # минус префикс: артефакты лежат как z2k-warpd-linux-<arch>.
-    local _hw _ba
+    # Карту НЕ дублируем: при standalone-запуске (sh warp.sh install из
+    # панели, где common utils не подсорсен) подтягиваем её оттуда
+    # best-effort. Нет карты вовсе — честный отказ с причиной, а не голое
+    # "unsupported architecture" на поддерживаемой арке (live-урок: функция
+    # отсутствовала — aarch64 выглядел неподдерживаемым).
+    local _hw _ba _ul
     _hw=$(uname -m 2>/dev/null)
+    if ! command -v map_arch_to_bin_arch >/dev/null 2>&1; then
+        _ul="${Z2K_LIB:-${Z2K_ROOT:-/usr/lib/z2k}/lib}/utils.sh"
+        # shellcheck disable=SC1090,SC1091
+        [ -f "$_ul" ] && . "$_ul" 2>/dev/null
+    fi
     if command -v map_arch_to_bin_arch >/dev/null 2>&1; then
         _ba=$(map_arch_to_bin_arch "$_hw" 2>/dev/null || true)
+    else
+        echo "z2k-openwrt: warp: нет карты арок (utils.sh недоступен)" >&2
+        return 1
     fi
-    [ -n "$_ba" ] || return 1
+    [ -n "$_ba" ] || { echo "z2k-openwrt: warp: арка $_hw не маппится" >&2; return 1; }
     printf '%s' "${_ba#linux-}"
     return 0
 }

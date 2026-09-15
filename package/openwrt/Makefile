@@ -19,16 +19,13 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=5
-# RELEASE 3 (p-84.17 sync fix): fw_apply/verify hard gate + transactional
-# start + preflight +x (live-урок §12: мёртвый dataplane при job success).
-# RELEASE 4: service_started-архитектура (live-урок: procd спавнит процессы
-# только после commit — consumer/process-verify переехали из start_service в
-# service_started, чей rc rc.common пробрасывает в job; start_service rc
-# глотался всегда).
+PKG_RELEASE:=6
 # RELEASE 5 (live-урок): fw_verify СТРОГО static (consumer-check в нём ронял
 # каждый старт: до commit процессов нет) + starting-маркер (rc.common зовёт
 # service_started безусловно, даже при провале start_service).
+# RELEASE 6 (live-урок): warp_arch подтягивает карту арок из common utils
+# при standalone-запуске (панель звала sh warp.sh install без utils —
+# aarch64 отвечал ложным "unsupported architecture").
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
 # lists/strats/webpanel; z2k-owned TG/RT/WARP/z2k-detect едут updater binary
 # flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
@@ -85,7 +82,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r5)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r6)
 endef
 
 define Package/z2k-webpanel/description
