@@ -74,6 +74,16 @@ warp_cfg() { # $1 key, $2 default: чтение конфига без сорси
         _v=$(awk -F= -v k="$1" '$1==k {v=$2; gsub(/[" ]/,"",v)} END {print v}' "$CONFIG_FILE" 2>/dev/null)
     [ -n "$_v" ] && printf '%s' "$_v" || printf '%s' "$2"
 }
+# Транспорт движка (p-84.18 parity: auto|wg|h2). Источник — конфиг
+# (Z2K_WARP_TRANSPORT пишет панель; генератор его сохраняет при regen).
+# Движок читает ту же переменную из env (см. merged main.go: default =
+# os.Getenv) — procd instance экспортирует её ниже. Мусор = auto (та же
+# нормализация, что у статус-эндпоинта панели в /warp/status).
+warp_transport() {
+    local _m=""
+    _m="$(warp_cfg Z2K_WARP_TRANSPORT auto)"
+    case "$_m" in wg|h2) printf '%s' "$_m" ;; *) printf 'auto' ;; esac
+}
 # Поля status.json/device.json — без jq (как upstream).
 _json_str() { sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$1" 2>/dev/null | head -1; }
 _json_raw() { sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\([a-z0-9.-]*\).*/\1/p" "$1" 2>/dev/null | head -1; }
@@ -143,11 +153,19 @@ warp_lists_migrate() {
 
 # Файлы назначений: user-списки + включённые game-списки (devices.txt —
 # источники, сюда нельзя). Имя в .enabled без файла — скип.
+# p-84.18 parity: user-список, выключенный тумблером панели (имя лежит в
+# $WARP_LISTS_DIR/.disabled — ведёт common warp_list_toggle), в наборы НЕ
+# входит. Game-списки — opt-in через .enabled (там же, общий формат).
 warp_active_lists() {
-    local _f _n
+    local _f _n _off="$WARP_LISTS_DIR/.disabled"
     for _f in "$WARP_LISTS_DIR"/*.txt; do
         [ "$_f" = "$WARP_DEVICES_FILE" ] && continue
-        [ -f "$_f" ] && printf '%s\n' "$_f"
+        [ -f "$_f" ] || continue
+        if [ -f "$_off" ]; then
+            _n=$(basename "$_f" .txt)
+            grep -qxF "$_n" "$_off" 2>/dev/null && continue
+        fi
+        printf '%s\n' "$_f"
     done
     [ -f "$WARP_ENABLED_FILE" ] || return 0
     while IFS= read -r _n; do
@@ -541,6 +559,9 @@ warp_start_instance() {
     procd_open_instance "z2k-warp"
     warp_with_argv _z2k_ow_warp_procd_command
     procd_set_param env GODEBUG=asyncpreemptoff=1
+    # Транспорт — через env (движок читает Z2K_WARP_TRANSPORT сам; флагом
+    # нельзя: старое бинарное не знает --transport и упадёт на разборе).
+    procd_set_param env "Z2K_WARP_TRANSPORT=$(warp_transport)"
     [ -n "$_proxy" ] && procd_set_param env "Z2K_WARP_VPS_PROXY=$_proxy"
     procd_set_param pidfile "${Z2K_RUN:-/tmp/z2k/runtime}/warpd.pid"
     # Bounded respawn как TG/RT (доказательство: procd/service/instance.c):
@@ -670,6 +691,7 @@ warp_register_due() {
 }
 
 warp_install() {
+    warp_op_begin
     warp_lists_migrate || return 1
     local _arch
     _arch=$(warp_arch) || { _wlog "unsupported architecture"; return 1; }
@@ -702,10 +724,17 @@ warp_unpin_legacy() {
 # Wait for proven ready (NOT stale: status must be newer than wait start,
 # else kill -9 left a ready file of a corpse; defer Remove never runs on SIGKILL).
 # A steady-healthy daemon writes on every transition, so fresh ready = live ready.
+# Supersession ($2 != "internal"): чужое user-действие в середине ожидания =
+# выход 3. Внутренние продолжения (proc-bounce рефреша: $2 = "internal") —
+# не новое намерение пользователя, а хвост текущего flow (иначе stale op-file
+# убивал бы refresh, W44).
 _warp_wait_ready() {
     local _waited=0 _t0 _mt
     _t0=$(date +%s 2>/dev/null || echo 0)
     while [ "$_waited" -lt "${1:-$WARP_READY_WAIT}" ]; do
+        if [ "${2:-}" != "internal" ]; then
+            warp_op_current || { warp_op_superseded; return 3; }
+        fi
         if [ "$(_json_raw "$WARP_STATUS" ready)" = "true" ] && warp_running; then
             if command -v stat >/dev/null 2>&1; then
                 _mt=$(stat -c %Y "$WARP_STATUS" 2>/dev/null || echo 0)
@@ -796,7 +825,7 @@ _warp_owner_write() {
 WARP_LOCK_DIR="${WARP_LOCK_DIR:-${Z2K_TMP:-/tmp/z2k}/warp/mutate.lock}"
 WARP_LOCK_STALE_SECS="${WARP_LOCK_STALE_SECS:-300}"
 _z2k_ow_warp_lock() {
-    local _t="${1:-30}" _waited=0
+    local _t="${1:-30}" _waited=0 _owner=""
     case "$_t" in ''|*[!0-9]*) _t=30 ;; esac
     mkdir -p "$(dirname "$WARP_LOCK_DIR")" 2>/dev/null || true
     while ! mkdir "$WARP_LOCK_DIR" 2>/dev/null; do
@@ -806,7 +835,21 @@ _z2k_ow_warp_lock() {
         if _warp_lock_stale; then
             rm -rf "$WARP_LOCK_DIR" 2>/dev/null
         fi
-        [ "$_waited" -ge "$_t" ] && return 1
+        if [ "$_waited" -ge "$_t" ]; then
+            # Preemption (supersession): снять чужой STUCK-lock вправе только
+            # последнее user-действие; перебитое уступает само через
+            # current-checks и никого не убивает.
+            if warp_op_current 2>/dev/null && _warp_lock_stale; then
+                _owner="$(cat "$WARP_LOCK_DIR/pid" 2>/dev/null)"
+                if [ -n "$_owner" ] && [ "$_owner" != "$$" ]; then
+                    _wlog "предыдущее действие с WARP не отвечает (pid $_owner) — прерываю"
+                    kill "$_owner" 2>/dev/null
+                fi
+                rm -rf "$WARP_LOCK_DIR" 2>/dev/null
+                continue
+            fi
+            return 1
+        fi
         sleep 1; _waited=$((_waited + 1))
     done
     printf '%s' "$$" > "$WARP_LOCK_DIR/pid" 2>/dev/null || {
@@ -848,6 +891,33 @@ _warp_locked() {
     return $_rc
 }
 
+# --- supersession (p-84.18 parity): последнее user-действие побеждает ---
+#
+# Модель — та же, что upstream (op-file + current-checks), поверх нашего
+# mkdir-lock (не копируем их lock целиком): каждое user-действие пишет свой
+# pid в op-file; долгие ожидания сверяют его на каждом круге и, увидев чужой,
+# выходят с кодом 3 ничего больше не трогая. Короткие участки под замком;
+# держатель, застрявший ПОСЛЕ того, как его перебили, снимается новым
+# действием (только им — перебитое уступает само).
+# User-глаголы (begin): install/enable/disable/remove/restart/license.
+# Lifecycle (1/0/rules/check/...) op-file НЕ трогают: иначе cron-тик крал бы
+# "текущесть" у долгого пользовательского enable.
+WARP_OP_FILE="${WARP_OP_FILE:-${Z2K_TMP:-/tmp/z2k}/warp/op}"
+warp_op_begin() {
+    mkdir -p "$(dirname "$WARP_OP_FILE")" 2>/dev/null
+    printf '%s\n' "$$" > "$WARP_OP_FILE" 2>/dev/null
+    return 0
+}
+# Всё ещё ли это действие последнее (нет op-file = не user-контекст = да).
+warp_op_current() {
+    [ -f "$WARP_OP_FILE" ] || return 0
+    [ "$(cat "$WARP_OP_FILE" 2>/dev/null)" = "$$" ]
+}
+warp_op_superseded() {
+    _wlog "прервано: запущено другое действие с WARP"
+    return 3
+}
+
 # Реальное procd service state (defect 2): НЕ pidof nfqws2 (мёртвый nfqws2
 # при живом сервисе врал бы "остановлен" — enable не reconciles instance,
 # disable течёт instance). Прямой ubus-запрос first, init running — fallback.
@@ -865,13 +935,26 @@ _z2k_ow_service_running() {
 }
 
 warp_enable() {
+    warp_op_begin
     warp_set_flag 1
     warp_unpin_legacy
     [ -x "$WARP_BIN" ] || { _wlog "движок не установлен"; warp_set_flag 0; return 1; }
     warp_nft_sets_load || { _wlog "списки не загрузились"; warp_set_flag 0; return 1; }
     warp_nft_rules_apply || { _wlog "nft chains не встали"; warp_set_flag 0; return 1; }
     _z2k_ow_warp_service_reload
-    if _warp_wait_ready "$WARP_READY_WAIT"; then
+    _warp_wait_and_pbr
+}
+
+# Общий хвост enable/restart: ожидание proven ready (+supersede-checks
+# внутри) и PBR. Коды как upstream warp_enable: 0 ready; 2 включено, туннель
+# поднимается (флаг остаётся, причина — в статусе); 1 — конфликт foreign
+# state (desired-флаг цел); 3 — перебито новым действием.
+_warp_wait_and_pbr() {
+    local _wrc=0
+    _warp_wait_ready "$WARP_READY_WAIT"; _wrc=$?
+    # Supersede (3) пробрасываем как есть — это не "не ready", а "нас перебили".
+    [ "$_wrc" = "3" ] && return 3
+    if [ "$_wrc" = "0" ]; then
         _WARP_CONFLICT=0
         if warp_pbr_up; then
             _wlog "WARP ready: $(_json_str "$WARP_STATUS" transport) $(_json_str "$WARP_STATUS" endpoint)"
@@ -898,6 +981,7 @@ _z2k_ow_warp_service_reload() {
 warp_disable() {
     # Порядок (defect 1): PBR down ПЕРВЫМ -> clears -> flag 0 -> reconcile.
     # Reload при flag=1 пересоздал бы instance (окно "выключен, но работает").
+    warp_op_begin
     warp_unpin_legacy
     warp_pbr_down
     _warp_tun_clear
@@ -912,10 +996,46 @@ warp_disable() {
     return 0
 }
 
+# Перезапуск движка со сменой транспорта (панель; контракт как upstream
+# warp_restart): PBR down ПЕРВЫМ (трафик напрямую, пока движок встаёт),
+# bounce демона (procd поднимет с новым Z2K_WARP_TRANSPORT env), дальше как
+# включение (wait + PBR, те же коды 0/1/2/3). Выключенному нечего
+# перезапускать: выбор применится при включении.
+warp_restart() {
+    warp_op_begin
+    if [ "$(warp_flag)" != "1" ]; then
+        return 0
+    fi
+    warp_pbr_down >/dev/null 2>&1 || true
+    if warp_running; then
+        for _p in $(warp_pids); do _z2k_ow_warp_kill "$_p"; done
+    fi
+    _warp_wait_and_pbr
+}
+
+# Ключ WARP+ со stdin — в движок через stdin (не в argv/логи, §9).
+# rc-контракт как upstream warp_license: 0 применён, 2 не похож на ключ,
+# 3 reject Cloudflare, 4 нет движка. Сеть: напрямую, затем релей.
+warp_license() {
+    local _key _out _rc _proxy
+    [ -x "$WARP_BIN" ] || { _wlog "движок не установлен — нажмите «Установить»"; return 4; }
+    _key=$(cat)
+    _proxy="$(warp_cfg Z2K_WARP_VPS_PROXY "")"
+    [ -n "$_proxy" ] || _proxy="$WARP_VPS_PROXY_DEFAULT"
+    _out=$(printf '%s' "$_key" | "$WARP_BIN" license --device "$WARP_DEVICE" 2>&1); _rc=$?
+    if [ "$_rc" = "1" ] && [ -n "$_proxy" ]; then
+        _wlog "напрямую Cloudflare не ответил — пробую через релей..."
+        _out=$(printf '%s' "$_key" | "$WARP_BIN" license --device "$WARP_DEVICE" --proxy "$_proxy" 2>&1); _rc=$?
+    fi
+    [ -n "$_out" ] && printf '%s\n' "$_out"
+    return "$_rc"
+}
+
 warp_remove() {
     # Invariant: успех remove ⇒ успех disable (процесса нет, PBR нет) —
     # бинарь удаляем ТОЛЬКО после доказанного off. Провал disable = провал
     # remove, бинарь цел (W51).
+    warp_op_begin
     warp_disable || return 1
     rm -f "$WARP_BIN" "$WARP_BIN".new.* 2>/dev/null
     warp_nft_remove full
@@ -994,11 +1114,21 @@ warp_status() {
     _warp_proven_ready >/dev/null 2>&1 && _ready=1
     _entries=$(nft list set "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_SET" 2>/dev/null | grep -cE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || true)
     _devices=$(nft list set "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_SET_SRC" 2>/dev/null | grep -cE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || true)
-    printf 'installed=%s enabled=%s ready=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s\n' \
+    # plan/license — из daemon-sidecars (пишет z2k-warpd license, читаем
+    # только факты наличия/типа; сам ключ сюда не попадает никогда, §9):
+    # plan — account_type, plan_err — ключ не привязался, license — ключ есть.
+    local _acct _plan _plan_err=0 _lic=0
+    _acct="$(dirname "$WARP_DEVICE")/account.json"
+    _plan=$(_json_str "$_acct" account_type)
+    case "$_plan" in *[!a-z_]*) _plan="" ;; esac
+    [ -n "$(_json_str "$_acct" error)" ] && _plan_err=1
+    [ -s "$(dirname "$WARP_DEVICE")/license" ] && _lic=1
+    printf 'installed=%s enabled=%s ready=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s\n' \
         "$_installed" "$(warp_flag)" "$_ready" \
         "$(_json_str "$WARP_STATUS" transport)" "$(_json_str "$WARP_STATUS" endpoint)" \
         "$(_json_str "$WARP_STATUS" iface)" "$(_json_str "$WARP_STATUS" addr)" \
-        "$_entries" "$_devices" "$(_json_str "$WARP_STATUS" last_error)"
+        "$_entries" "$_devices" "$(_json_str "$WARP_STATUS" last_error)" \
+        "$(_json_raw "$WARP_STATUS" mem_kb)" "$_plan" "$_plan_err" "$_lic"
 }
 
 # --- топология lifecycle ---
@@ -1087,13 +1217,15 @@ _z2k_ow_warp_dispatch() {
         enable)       warp_enable; return $? ;;
         disable)      warp_disable; return $? ;;
         remove)       warp_remove; return $? ;;
+        restart)      warp_restart; return $? ;;
+        license)      warp_license; return $? ;;
         status)       warp_status; return $? ;;
         selfheal)     warp_selfheal; return $? ;;
         reload-lists) warp_reload_lists; return $? ;;
         ipset)        warp_ipset; return $? ;;
         migrate)      warp_migrate; return $? ;;
         *)
-            echo "usage: z2k_ow_warp {1|0|rules|proc-bounce|cleanup|check|install|enable|disable|remove|status|selfheal|reload-lists|ipset|migrate}" >&2
+            echo "usage: z2k_ow_warp {1|0|rules|proc-bounce|cleanup|check|install|enable|disable|remove|restart|license|status|selfheal|reload-lists|ipset|migrate}" >&2
             return 1
             ;;
     esac
@@ -1178,12 +1310,14 @@ case "${1:-}" in
     enable)    _warp_locked warp_enable ;;
     disable)   _warp_locked warp_disable ;;
     remove)    _warp_locked warp_remove ;;
+    restart)   _warp_locked warp_restart ;;
+    license)   _warp_locked warp_license ;;
     status)    warp_status ;;
     selfheal)  _warp_locked warp_selfheal ;;
     reload-lists) _warp_locked warp_reload_lists ;;
     ipset) _warp_locked warp_ipset ;;
     migrate)   warp_migrate ;;
     *)
-        echo "usage: $0 {install|enable|disable|remove|status|selfheal|reload-lists|ipset|migrate}" >&2
+        echo "usage: $0 {install|enable|disable|remove|restart|license|status|selfheal|reload-lists|ipset|migrate}" >&2
         exit 1 ;;
 esac

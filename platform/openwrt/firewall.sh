@@ -33,6 +33,25 @@ z2k_ow_fw_apply() { z2k_ow_fw_source || return 1; zapret_apply_firewall; }
 z2k_ow_fw_remove() { z2k_ow_fw_source || return 1; zapret_unapply_firewall; }
 z2k_ow_fw_reload_ifsets() { z2k_ow_fw_source || return 1; zapret_reload_ifsets; }
 
+# z2k_ow_fw_check — periodic convergence (cron, p-84.20 parity): сверяет
+# КАЖДЫЙ required invariant через fw_verify (не count), при дрейфе — ОДНА
+# попытка re-apply + повторная сверка. Упорный провал = снять ready
+# (degraded виден), демона НЕ дёргаем (трафик уже fail-open мимо очереди;
+# рестарт-шторм каждые 5 минут хуже). No-ready = немедленный возврат
+# (воскрешать нечего и нельзя). INIT_APPLY_FW=0 = чужой fw, скип.
+z2k_ow_fw_check() {
+    [ "${INIT_APPLY_FW:-1}" = "1" ] || return 0
+    if command -v z2k_ow_core_ready >/dev/null 2>&1; then
+        z2k_ow_core_ready || return 0
+    fi
+    z2k_ow_fw_verify >/dev/null 2>&1 && return 0
+    z2k_ow_fw_apply >/dev/null 2>&1 || return 0
+    z2k_ow_fw_verify >/dev/null 2>&1 && return 0
+    rm -f "${Z2K_CORE_READY:-${Z2K_RUN:-/tmp/z2k/runtime}/core-ready}" 2>/dev/null
+    echo "z2k-openwrt: fw_check: инварианты не сошлись после re-apply — ready снят (degraded)" >&2
+    return 0
+}
+
 # z2k_ow_fw_verify — доказать КОНЕЧНОЕ СТАТИЧЕСКОЕ состояние dataplane
 # (live-урок p-84.17: apply вернул 0, queue-правила встали, но hook jumps не
 # встали — ipsets не создались, трафик шёл мимо очереди при живом nfqws2).

@@ -23,6 +23,9 @@ Z2K_RT_CRON_LINE="*/5 * * * * $Z2K_ROOT/platform/openwrt/rt-check.sh check # z2k
 # WARP selfheal (Stage 5): converge-to-ready-or-fail-open. Каденс честные
 # 60 секунд (cron-абстракция — минуты; ложную 25s гарантию не даём).
 Z2K_WARP_CRON_LINE="*/1 * * * * $Z2K_ROOT/platform/openwrt/warp-check.sh check # z2k-warp-health"
+# Core firewall health (p-84.20): сверка каждого required инварианта, одна
+# попытка re-apply, упорный провал снимает ready. Каденс 5 минут, как TG/RT.
+Z2K_FW_CRON_LINE="*/5 * * * * $Z2K_ROOT/platform/openwrt/fw-check.sh check # z2k-fw-health"
 
 z2k_ow_cron_install() {
     mkdir -p "$(dirname "$Z2K_CRON_TAB")" 2>/dev/null || return 1
@@ -122,5 +125,20 @@ z2k_ow_warp_cron_install() {
 z2k_ow_warp_cron_remove() {
     [ -f "$Z2K_CRON_TAB" ] || return 0
     _z2k_ow_cron_swap_line "# z2k-warp-health" "" || return 1
+    return 0
+}
+
+z2k_ow_fw_cron_install() {
+    _z2k_ow_cron_swap_line "# z2k-fw-health" "$Z2K_FW_CRON_LINE" || return 1
+    if [ -x /etc/init.d/cron ]; then
+        /etc/init.d/cron enabled 2>/dev/null || /etc/init.d/cron enable 2>/dev/null || true
+        pidof crond >/dev/null 2>&1 || /etc/init.d/cron start 2>/dev/null || true
+    fi
+    return 0
+}
+
+z2k_ow_fw_cron_remove() {
+    [ -f "$Z2K_CRON_TAB" ] || return 0
+    _z2k_ow_cron_swap_line "# z2k-fw-health" "" || return 1
     return 0
 }

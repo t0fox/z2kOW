@@ -1077,9 +1077,10 @@ jobs:
           NEW_PORT=18881
           mkdir -p "$RUNNER_TEMP/oldfeed" "$RUNNER_TEMP/oldart"
           # Предыдущий snapshot — явный пин рана (аудита ради, не latest):
-          # CI 34873838732 / HEAD 389c6c4 = r2/r2/r3.
-          gh run download 34873838732 \
-            -n z2k-openwrt-CI-SNAPSHOT-389c6c4265342cc2fd893401c356097683074a6e \
+          # CI 35003245734 / HEAD 81f623e = r6/r6/r4 (последний green перед
+          # p-84.21 sync; r2-эпоха закрыта).
+          gh run download 35003245734 \
+            -n z2k-openwrt-CI-SNAPSHOT-81f623eccea1f0f59c7425f5cbaeea4a929d07a3 \
             --dir "$RUNNER_TEMP/oldart" --repo "$GITHUB_REPOSITORY"
           cp -f "$RUNNER_TEMP/oldart"/z2k-*.apk "$RUNNER_TEMP/oldart/feed/packages.adb" "$RUNNER_TEMP/oldfeed/"
           ls "$RUNNER_TEMP/oldfeed/"

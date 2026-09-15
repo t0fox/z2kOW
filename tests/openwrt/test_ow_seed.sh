@@ -43,6 +43,11 @@ assert_file "payload.meta" "$Z2K_ROOT/share/payload.meta"
 assert_contains "meta platform" "$Z2K_ROOT/share/payload.meta" "platform=openwrt"
 assert_eq "tag из seed" "$_want_tag" "$(cat "$Z2K_ETC/state/installed-tag" 2>/dev/null)"
 assert_eq "meta.tag из seed" "$_want_tag" "$(sed -n 's/^tag=//p' "$Z2K_ROOT/share/payload.meta" | head -1)"
+# p-84.21 SoundCloud: extra-domains в seed содержит soundcloud.cloud
+# (иначе поток снова оборвётся в начале — см. релиз).
+if tar -xzOf "$Z2K_SEED_TARBALL" usr/lib/z2k/lists/extra-domains.txt 2>/dev/null \
+    | grep -qxF 'soundcloud.cloud'; then _t_ok
+else _t_bad "seed без soundcloud.cloud в lists/extra-domains.txt"; fi
 
 # --- 2+3. повтор и upgrade БЕЗ re-seed: всё побайтово цело (I5) ---
 echo "# updater modification" >> "$Z2K_ROOT/lib/utils.sh"

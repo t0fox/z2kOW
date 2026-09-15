@@ -47,7 +47,10 @@ case "${1:-}" in
         fi
         # Ждём ready ограниченно (тестам — WARP_PROC_WAIT); не дождались —
         # PBR доводит cron при живом ready. Возврат всегда 0 (fail-open).
-        if _warp_wait_ready "${WARP_PROC_WAIT:-60}"; then
+        # "internal": это хвост refresh-flow, а не новое user-намерение —
+        # чужой op-file его не перебивает (иначе stale enable убивал бы
+        # refresh, W44).
+        if _warp_wait_ready "${WARP_PROC_WAIT:-60}" internal; then
             warp_pbr_up >/dev/null 2>&1 || true
         fi
         _z2k_ow_warp_unlock

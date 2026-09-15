@@ -44,7 +44,7 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     (--net-backend=/SkipNetSetup; Keenetic-дефолт нетронут — сторожит
 #     netsetup_test; только подмена TUN/create/address/transport/health)
 #   z2k-warpd/builds/*: deliberate build refresh (closure): отгружаемые
-#     бинарники, пересобранные каноническим тулчейном (Go 1.25.12,
+#     бинарники, пересобранные каноническим тулчейном (Go 1.25.13,
 #     CGO_ENABLED=0, -trimpath -buildvcs=false -ldflags="-s -w" из
 #     z2k-warpd/Makefile). БАЙТ-АВТОРИТЕТ — НЕ здесь, а в CI-джобе
 #     "Отгружаемые бинарники" (пересборка из исходника + sha256 равенство

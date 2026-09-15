@@ -114,8 +114,8 @@ z2k-openwrt-CI-SNAPSHOT-<commit>
 Внутри:
 
 ```text
-z2k-adapter-0.1.0-r6.apk
-z2k-webpanel-0.1.0-r6.apk
+z2k-adapter-0.1.0-r7.apk
+z2k-webpanel-0.1.0-r7.apk
 z2k-zapret2-runtime-1.0.5.1-r4.apk
 packages.adb
 sha256sums
@@ -135,7 +135,7 @@ adapter, а runtime приезжает dependency resolver'ом сам. Runtime 
 Скопируй APK на роутер и выполни:
 
 ```sh
-apk add --allow-untrusted ./z2k-adapter-0.1.0-r6.apk
+apk add --allow-untrusted ./z2k-adapter-0.1.0-r7.apk
 ```
 
 Затем:
@@ -156,7 +156,7 @@ nft list table inet zapret
 ## 4. Установи webpanel
 
 ```sh
-apk add --allow-untrusted ./z2k-webpanel-0.1.0-r6.apk
+apk add --allow-untrusted ./z2k-webpanel-0.1.0-r7.apk
 /etc/init.d/z2k-webpanel enable
 /etc/init.d/z2k-webpanel start
 ```

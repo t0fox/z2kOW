@@ -19,13 +19,15 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=6
+PKG_RELEASE:=7
 # RELEASE 5 (live-урок): fw_verify СТРОГО static (consumer-check в нём ронял
 # каждый старт: до commit процессов нет) + starting-маркер (rc.common зовёт
 # service_started безусловно, даже при провале start_service).
 # RELEASE 6 (live-урок): warp_arch подтягивает карту арок из common utils
 # при standalone-запуске (панель звала sh warp.sh install без utils —
 # aarch64 отвечал ложным "unsupported architecture").
+# RELEASE 7 (p-84.21 sync): WARP parity (transport/license/restart/lists/
+# supersession/status), fw-check periodic, soundcloud seed-proof.
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
 # lists/strats/webpanel; z2k-owned TG/RT/WARP/z2k-detect едут updater binary
 # flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
@@ -82,7 +84,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r6)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r7)
 endef
 
 define Package/z2k-webpanel/description
@@ -161,7 +163,7 @@ define Package/z2k-adapter/install
 	$(INSTALL_BIN) $(Z2K_TREE)/platform/openwrt/update.sh $(Z2K_TREE)/platform/openwrt/tg-check.sh \
 		$(Z2K_TREE)/platform/openwrt/rt-check.sh $(Z2K_TREE)/platform/openwrt/rt-proc.sh \
 		$(Z2K_TREE)/platform/openwrt/warp.sh $(Z2K_TREE)/platform/openwrt/warp-proc.sh \
-		$(Z2K_TREE)/platform/openwrt/warp-check.sh $(1)/usr/lib/z2k/platform/openwrt/
+		$(Z2K_TREE)/platform/openwrt/warp-check.sh $(Z2K_TREE)/platform/openwrt/fw-check.sh $(1)/usr/lib/z2k/platform/openwrt/
 	sh $(Z2K_TREE)/package/openwrt/make-seed.sh $(Z2K_TREE) $(PKG_BUILD_DIR)/seed.tar.gz
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/seed.tar.gz $(1)/usr/lib/z2k/share/seed.tar.gz
 endef
@@ -203,6 +205,8 @@ z2k_ow_tg_cron_install || exit 1
 z2k_ow_rt_cron_install || exit 1
 # WARP selfheal cron (своя строка/маркер).
 z2k_ow_warp_cron_install || exit 1
+# Core firewall health cron (p-84.20 parity; своя строка/маркер).
+z2k_ow_fw_cron_install || exit 1
 # TCP tuning живьём (parity step_tcp_tuning; warn-only, см. ниже).
 if [ -f /etc/sysctl.d/99-z2k.conf ]; then
     sysctl -p /etc/sysctl.d/99-z2k.conf >/dev/null 2>&1 \

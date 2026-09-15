@@ -5,6 +5,9 @@
 *.ini text eol=lf
 *.conf text eol=lf
 *.md text eol=lf
+# webpanel JS deploys to the router AND is byte-parsed by test tooling
+# (panel_js.sh import-stripping breaks on CRLF) — same class as UPDATES.json.
+*.js text eol=lf
 # Signature-bearing manifest: CRLF in a Windows checkout breaks
 # UPDATES.json.sig verification (ed25519 over exact bytes). p-84.17 sync fix.
 UPDATES.json text eol=lf

@@ -33,6 +33,7 @@
 /usr/lib/z2k/platform/openwrt/bootstrap.sh package
 /usr/lib/z2k/platform/openwrt/materialize.sh package
 /usr/lib/z2k/platform/openwrt/firewall.sh package
+/usr/lib/z2k/platform/openwrt/fw-check.sh package
 /usr/lib/z2k/platform/openwrt/uci.sh package
 /usr/lib/z2k/platform/openwrt/arch.sh package
 /usr/lib/z2k/platform/openwrt/pkg.sh package

@@ -19,6 +19,7 @@ z2k_ow_uninstall() {
         z2k_ow_tg_cron_remove 2>/dev/null || true
         z2k_ow_rt_cron_remove 2>/dev/null || true
         z2k_ow_warp_cron_remove 2>/dev/null || true
+        z2k_ow_fw_cron_remove 2>/dev/null || true
     } || true
     # TG firewall (Stage 3): chains И sets из runtime-таблицы — она внешняя
     # и переживает удаление пакета; оставить = litter. Best-effort, рано:
