@@ -38,9 +38,11 @@ z2k_load_adapter() {
 }
 
 # Bounded wait: nfqws2 запущен И держит очередь (consumer registered),
-# а не просто "procd принял instance". Таймаут переопределяем для тестов.
+# а не просто "procd принял instance". Вызывать ТОЛЬКО из service_started
+# (после commit в procd): внутри start_service процессов ещё нет — procd
+# спавнит их после возврата. Таймаут переопределяем для тестов.
 _z2k_ow_wait_consumer() {
-    local _t="${Z2K_START_CONSUMER_TIMEOUT:-10}" _pid _q="${QNUM:-200}"
+    local _t="${Z2K_START_CONSUMER_TIMEOUT:-30}" _pid _q="${QNUM:-200}"
     while [ "$_t" -gt 0 ]; do
         _pid="$(cat "$Z2K_RUN/nfqws2.pid" 2>/dev/null)"
         if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null && \
@@ -51,6 +53,21 @@ _z2k_ow_wait_consumer() {
         sleep 1; _t=$((_t - 1))
     done
     echo "z2k-openwrt: consumer timeout: nfqws2 не держит очередь $_q" >&2
+    return 1
+}
+
+# Bounded wait TG/RT-процессов (тоже только post-commit). Короткий: procd
+# спавнит быстро; долгий вис — уже не старт, а залипание.
+_z2k_ow_wait_feature() {
+    local _what="$1" _t="${Z2K_START_FEATURE_TIMEOUT:-15}"
+    while [ "$_t" -gt 0 ]; do
+        case "$_what" in
+            tg) z2k_ow_tg_running 2>/dev/null && return 0 ;;
+            rt) z2k_ow_rt_running 2>/dev/null && return 0 ;;
+        esac
+        sleep 1; _t=$((_t - 1))
+    done
+    echo "z2k-openwrt: feature timeout: $_what не поднялся" >&2
     return 1
 }
 
@@ -101,11 +118,12 @@ start_service() {
     procd_set_param pidfile "$Z2K_RUN/nfqws2.pid"
     procd_close_instance
 
-    # Транзакция (порядок E): consumer → fw apply → fw verify → TG → RT →
-    # WARP (optional, warn-only — маскировать нечего: все required уже прошли
-    # раньше него) → core-ready ПОСЛЕДНИМ. Любой required-провал: rollback +
-    # return 1 (job nonzero, "Готово" не печатается, ready отсутствует).
-    _z2k_ow_wait_consumer || { z2k_ow_start_rollback; return 1; }
+    # Транзакция pre-spawn (порядок E): preflight → rm ready → instance →
+    # fw apply → fw verify (СТАТИКА: sets/jumps/rules, без consumer/process —
+    # процессов до commit нет) → TG (DNS/nft/instance-def) → RT → WARP
+    # (optional, warn-only). Process/consumer-доказательства — в
+    # service_started ниже (post-commit). Любой required-провал здесь:
+    # rollback + return 1 (ничего не заспавнено — откат дешёвый).
     if [ "${INIT_APPLY_FW:-1}" = "1" ]; then
         z2k_ow_fw_apply && z2k_ow_fw_verify || { z2k_ow_start_rollback; return 1; }
     fi
@@ -113,14 +131,34 @@ start_service() {
     # TG/CDN tunnel (Stage 3): второй procd instance + nft в runtime-таблице.
     # Прямой вызов (НЕ через custom.d-раннер): DISABLE_CUSTOM не должен
     # гасить first-class feature. procd останавливает instance сам.
-    z2k_ow_tg 1 && z2k_ow_tg_verify || { z2k_ow_start_rollback; return 1; }
+    z2k_ow_tg 1 || { z2k_ow_start_rollback; return 1; }
     # RT proxy (Stage 4): третий instance + DNS-пины + nft. DNS re-assert
     # идемпотентен — gap при рестарте нет (контракт stop_proxy).
-    z2k_ow_rt 1 && z2k_ow_rt_verify || { z2k_ow_start_rollback; return 1; }
+    z2k_ow_rt 1 || { z2k_ow_start_rollback; return 1; }
     # WARP (Stage 5): четвёртый instance + sets; PBR — только если proven
     # ready (на старте почти surely нет; tick доведёт). Boot никогда не
     # валит сервис (внутри — soft-fail); warn-only и здесь.
     z2k_ow_warp 1 || echo "z2k-openwrt: warp на старте soft-fail (tick доведёт)" >&2
+    return 0
+}
+
+# service_started: вызывает rc.common ПОСЛЕ commit в procd (см. /etc/rc.common:
+# start() { rc_procd start_service; ...; service_started; }), и — в отличие от
+# start_service — его rc ПРОБРАСЫВАЕТСЯ в rc `init start` и дальше в job.
+# Здесь — всё, что требует ЖИВЫХ процессов: consumer → TG → RT verify →
+# core-ready ПОСЛЕДНИМ. Провал: loud + best-effort teardown + return 1
+# (job nonzero, ready отсутствует, degraded виден).
+service_started() {
+    z2k_load_adapter >/dev/null 2>&1 || return 1
+    # shellcheck disable=SC1090
+    [ -f "$Z2K_CONFIG" ] && . "$Z2K_CONFIG"
+    _z2k_ow_wait_consumer || { z2k_ow_start_rollback; return 1; }
+    if z2k_ow_tg_wanted 2>/dev/null; then
+        _z2k_ow_wait_feature tg && z2k_ow_tg_verify || { z2k_ow_start_rollback; return 1; }
+    fi
+    if z2k_ow_rt_wanted 2>/dev/null; then
+        _z2k_ow_wait_feature rt && z2k_ow_rt_verify || { z2k_ow_start_rollback; return 1; }
+    fi
     : > "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" || { z2k_ow_start_rollback; return 1; }
     return 0
 }

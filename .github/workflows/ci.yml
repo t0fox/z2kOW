@@ -1053,11 +1053,12 @@ jobs:
           test ! -x "$RUNNER_TEMP/approot/opt/zapret2/lua/zapret-lib.lua"
 
       # Upgrade-регрессия K (live-урок: unversioned DEPENDS не co-upgrade'ит).
-      # Phase 1: предыдущий snapshot (r2/r2/r3) ставится в чистый approot2.
+      # Phase 1: предыдущий snapshot ставится в чистый approot2.
       # Phase 2: ОДНА canonical user-операция `apk upgrade z2k-webpanel`
-      # против нового фида обязана дать r3/r3/r4 (adapter — versioned
-      # EXTRA_DEPENDS, runtime — dependency resolver, его никто не называет).
-      - name: Upgrade r2/r2/r3 to r3/r3/r4 via single canonical action
+      # против нового фида обязана дотянуть всё до версий НОВОГО фида
+      # (adapter — versioned EXTRA_DEPENDS, runtime — dependency resolver,
+      # его никто не называет).
+      - name: Upgrade pinned snapshot to feed versions via single action
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1111,10 +1112,17 @@ jobs:
           echo "--- after:"
           _v="$("$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 info -v 2>/dev/null | grep '^z2k' || true)"
           printf '%s\n' "$_v"
-          printf '%s\n' "$_v" | grep -qx 'z2k-webpanel-0.1.0-r3' || { echo "webpanel не r3" >&2; exit 1; }
-          printf '%s\n' "$_v" | grep -qx 'z2k-adapter-0.1.0-r3' || { echo "adapter не r3 (EXTRA_DEPENDS не сработал)" >&2; exit 1; }
-          printf '%s\n' "$_v" | grep -qx 'z2k-zapret2-runtime-1.0.5.1-r4' || { echo "runtime не r4 (resolver не дотянул)" >&2; exit 1; }
-          echo "upgrade r2/r2/r3 -> r3/r3/r4 одной операцией: OK"
+          # Ожидаемое — из НОВОГО фида (источник правды), не хардкод: версии
+          # бампятся, тест обязан следовать за деревом, а не наоборот.
+          _exp_w="$("$apkbin" adbdump "$RUNNER_TEMP/dist/feed/packages.adb" 2>/dev/null | grep -A2 '^  - name: z2k-webpanel$' | sed -n 's/^ *version: //p' | head -1 || true)"
+          _exp_a="$("$apkbin" adbdump "$RUNNER_TEMP/dist/feed/packages.adb" 2>/dev/null | grep -A2 '^  - name: z2k-adapter$' | sed -n 's/^ *version: //p' | head -1 || true)"
+          _exp_r="$("$apkbin" adbdump "$RUNNER_TEMP/dist/feed/packages.adb" 2>/dev/null | grep -A2 '^  - name: z2k-zapret2-runtime$' | sed -n 's/^ *version: //p' | head -1 || true)"
+          [ -n "$_exp_w" ] && [ -n "$_exp_a" ] && [ -n "$_exp_r" ] || { echo "версии из нового фида не прочитались" >&2; exit 1; }
+          echo "expected from new feed: $_exp_w / $_exp_a / $_exp_r"
+          printf '%s\n' "$_v" | grep -qx "z2k-webpanel-$_exp_w" || { echo "webpanel не $_exp_w" >&2; exit 1; }
+          printf '%s\n' "$_v" | grep -qx "z2k-adapter-$_exp_a" || { echo "adapter не $_exp_a (EXTRA_DEPENDS не сработал)" >&2; exit 1; }
+          printf '%s\n' "$_v" | grep -qx "z2k-zapret2-runtime-$_exp_r" || { echo "runtime не $_exp_r (resolver не дотянул)" >&2; exit 1; }
+          echo "upgrade одной операцией до версий фида: OK"
 
       - name: Upload CI snapshot artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

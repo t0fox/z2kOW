@@ -103,6 +103,10 @@ z2k_ow_tg() { echo "tg:$1" >> "$T/calls"; return 0; }
 z2k_ow_rt() { echo "rt:$1" >> "$T/calls"; return 0; }
 z2k_ow_tg_verify() { echo "tg-verify" >> "$T/calls"; [ -f "$T/tg-verify-fail" ] && return 1; return 0; }
 z2k_ow_rt_verify() { echo "rt-verify" >> "$T/calls"; [ -f "$T/rt-verify-fail" ] && return 1; return 0; }
+z2k_ow_tg_wanted() { return 0; }
+z2k_ow_rt_wanted() { return 0; }
+z2k_ow_tg_running() { return 0; }
+z2k_ow_rt_running() { return 0; }
 z2k_ow_warp() { echo "warp:$1" >> "$T/calls"; return 0; }
 z2k_ow_lan() { printf 'br-lan'; return 0; }
 procd_open_instance() { echo "instance:$1" >> "$T/calls"; return 0; }
@@ -110,11 +114,26 @@ procd_set_param() { echo "param:$*" >> "$T/calls"; return 0; }
 procd_close_instance() { echo "instance-close" >> "$T/calls"; return 0; }
 
 _run() {
-    # Свежий живой consumer на каждый прогон (rollback прошлого кейса его убил).
-    kill "$_BG" 2>/dev/null
-    sleep 60 & _BG=$!
-    printf '%s\n' "$_BG" > "$T/run/nfqws2.pid"
-    : > "$T/calls"; start_service >/dev/null 2>&1; echo "rc=$?" >> "$T/calls"
+    # Свежий живой consumer на каждый прогон (rollback прошлого кейса его убил;
+    # кейс 4d ставит мёртвый pid сам — тогда без respawn).
+    if [ ! -f "$T/no-respawn" ]; then
+        kill "$_BG" 2>/dev/null
+        sleep 60 & _BG=$!
+        printf '%s\n' "$_BG" > "$T/run/nfqws2.pid"
+    fi
+    rm -f "$T/run/core-ready"
+    : > "$T/calls"
+    # rc.common start(): start_service, затем service_started (его rc и едет
+    # в job — в отличие от start_service, который rc.common глотает).
+    start_service >/dev/null 2>&1
+    _src=$?
+    echo "start-rc=$_src" >> "$T/calls"
+    if [ "$_src" = "0" ]; then
+        service_started >/dev/null 2>&1
+        echo "rc=$?" >> "$T/calls"
+    else
+        echo "rc=$_src" >> "$T/calls"
+    fi
 }
 _consumer_dead() {
     # rollback убил consumer'а: pid из pidfile мёртв.
@@ -122,7 +141,7 @@ _consumer_dead() {
     [ -n "$_p" ] && ! kill -0 "$_p" 2>/dev/null
 }
 
-# --- 1. всё хорошо: rc 0, instance открыт, все фичи стартовали ---
+# --- 1. всё хорошо: start rc 0 + started rc 0 + ready создан ---
 _run
 assert_contains "happy rc 0" "$T/calls" "rc=0"
 assert_contains "happy instance" "$T/calls" "instance:z2k"
@@ -130,10 +149,11 @@ assert_contains "happy tg" "$T/calls" "tg:1"
 assert_contains "happy rt" "$T/calls" "rt:1"
 assert_contains "happy warp" "$T/calls" "warp:1"
 assert_contains "happy fw applied" "$T/calls" "fw:apply"
+assert_contains "happy tg verified post-spawn" "$T/calls" "tg-verify"
+assert_contains "happy rt verified post-spawn" "$T/calls" "rt-verify"
+[ -f "$T/run/core-ready" ] && _t_ok || _t_bad "happy: core-ready не создан"
 
-# --- 2. fw_apply FAIL: rc 1, rollback, TG/RT/WARP не стартовали ---
-# (порядок E: instance УЖЕ открыт до гейта — по дизайну; rollback обязан
-# убить consumer и снять partial fw).
+# --- 2. fw_apply FAIL (pre-spawn): rc 1, rollback, TG/RT не стартовали ---
 : > "$T/fw-apply-fail" 2>/dev/null; printf '' > "$T/fw-apply-fail"
 _run
 assert_contains "apply-fail rc" "$T/calls" "rc=1"
@@ -143,9 +163,10 @@ for _s in "tg:1" "rt:1" "warp:1" "custom:1"; do
     grep -qF "$_s" "$T/calls" && _t_bad "apply-fail: стартовало $_s" || _t_ok
 done
 _consumer_dead && _t_ok || _t_bad "apply-fail: consumer не убит rollback'ом"
+[ -f "$T/run/core-ready" ] && _t_bad "apply-fail: ready создан" || _t_ok
 rm -f "$T/fw-apply-fail"
 
-# --- 3. apply ok + verify FAIL (нет jumps): то же самое ---
+# --- 3. apply ok + verify FAIL (нет jumps, pre-spawn): то же самое ---
 printf '' > "$T/nft-nojump"
 _run
 assert_contains "verify-fail rc" "$T/calls" "rc=1"
@@ -154,6 +175,7 @@ for _s in "tg:1" "rt:1" "warp:1"; do
     grep -qF "$_s" "$T/calls" && _t_bad "verify-fail: стартовало $_s" || _t_ok
 done
 _consumer_dead && _t_ok || _t_bad "verify-fail: consumer не убит rollback'ом"
+[ -f "$T/run/core-ready" ] && _t_bad "verify-fail: ready создан" || _t_ok
 rm -f "$T/nft-nojump"
 
 # --- 4. apply ok + verify FAIL (нет сетов) ---
@@ -163,27 +185,43 @@ assert_contains "noset rc" "$T/calls" "rc=1"
 assert_contains "noset rollback" "$T/calls" "fw:remove"
 rm -f "$T/nft-noset"
 
-# --- 4b. required TG FAIL: rc 1, rollback, RT/WARP не стартовали ---
+# --- 4b. required TG FAIL (post-spawn, в service_started): rc 1, rollback ---
+# (instance-дефиниции tg/rt уже даны в start_service — по дизайну; гейт здесь
+# на исходе: teardown обязан снять всё — tg:0, rt:0, fw:remove, consumer убит).
 printf '' > "$T/tg-verify-fail"
 _run
 assert_contains "tg-fail rc" "$T/calls" "rc=1"
-assert_contains "tg-fail rollback" "$T/calls" "fw:remove"
-for _s in "rt:1" "warp:1"; do
-    grep -qF "$_s" "$T/calls" && _t_bad "tg-fail: стартовало $_s" || _t_ok
-done
+assert_contains "tg-fail rollback fw" "$T/calls" "fw:remove"
+assert_contains "tg-fail rollback tg" "$T/calls" "tg:0"
+assert_contains "tg-fail rollback rt" "$T/calls" "rt:0"
 assert_contains "tg-fail tg был" "$T/calls" "tg:1"
 _consumer_dead && _t_ok || _t_bad "tg-fail: consumer не убит rollback'ом"
+[ -f "$T/run/core-ready" ] && _t_bad "tg-fail: ready создан" || _t_ok
 rm -f "$T/tg-verify-fail"
 
-# --- 4c. required RT FAIL: rc 1, rollback, WARP не стартовал ---
+# --- 4c. required RT FAIL (post-spawn): rc 1, rollback ---
 printf '' > "$T/rt-verify-fail"
 _run
 assert_contains "rt-fail rc" "$T/calls" "rc=1"
-assert_contains "rt-fail rollback" "$T/calls" "fw:remove"
-grep -qF "warp:1" "$T/calls" && _t_bad "rt-fail: стартовал warp" || _t_ok
+assert_contains "rt-fail rollback fw" "$T/calls" "fw:remove"
+assert_contains "rt-fail rollback tg" "$T/calls" "tg:0"
+assert_contains "rt-fail rollback rt" "$T/calls" "rt:0"
 assert_contains "rt-fail tg был" "$T/calls" "tg:1"
 assert_contains "rt-fail rt был" "$T/calls" "rt:1"
+[ -f "$T/run/core-ready" ] && _t_bad "rt-fail: ready создан" || _t_ok
 rm -f "$T/rt-verify-fail"
+
+# --- 4d. consumer не поднялся (post-spawn timeout): rc 1, ready нет ---
+kill "$_BG" 2>/dev/null
+(false &) ; _dead=$!; wait "$_dead" 2>/dev/null
+printf '%s\n' "$_dead" > "$T/run/nfqws2.pid"
+: > "$T/no-respawn"
+export Z2K_START_CONSUMER_TIMEOUT=2
+_run
+unset Z2K_START_CONSUMER_TIMEOUT
+rm -f "$T/no-respawn"
+assert_contains "consumer-fail rc" "$T/calls" "rc=1"
+[ -f "$T/run/core-ready" ] && _t_bad "consumer-fail: ready создан" || _t_ok
 
 # --- 5. preflight ловит 0644 create_ipset.sh ДО всего ---
 chmod 0644 "$T/rt/ipset/create_ipset.sh"
