@@ -199,11 +199,21 @@ Branch-file gate нет: канал = env. PATH докладывается sbin 
 lock/log/tmp — в `/tmp/z2k/*`. Pubkey/verify — через существующие
 `ZAPRET2_DIR`/`Z2K_AU_SBIN`-дефолты (проверено тестом, common не тронут).
 
+QUIC rotation state is migrated by the OpenWrt adapter before procd creates
+the nfqws2 instance: both `/etc/z2k/state/state.tsv` and the
+`Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE` copy are scanned, and only a first-field
+`yt_quic` is atomically renamed to `quic`. The migration uses the same lock,
+stale-lock, metadata-preservation, and retry semantics as the Lua writer;
+unrelated pools and strategy numbers remain byte-for-byte intact.
+
 Reinstall: `Z2K_AU_REINSTALL_EXECUTOR` (одна точка в `au_apply_reinstall`).
 Keenetic — legacy `z2k.sh`-путь без изменений. OpenWrt —
 `z2k_ow_reinstall_unsupported`: fail closed (тег стоит, payload цел,
 `z2k.sh` не скачивается и не исполняется; причина — в лог).
 
-Периодика: cron-строка `17 2 * * * update.sh apply` в `/etc/crontabs/root`
-(postinst ставит идемпотентно по маркеру, prerm снимает; cron enable/start
-best-effort). Procd-демона ради суточной задачи нет осознанно.
+Периодика: OpenWrt-планировщик хранит выбранный `Z2K_AU_HOUR` (00..23,
+по умолчанию `02`) и конвергирует одну cron-строку вида `17 HH * * *
+update.sh apply` в `/etc/crontabs/root` (postinst/API ставят её идемпотентно,
+изменение часа не плодит записи, prerm снимает; cron enable/start best-effort).
+Launcher добавляет детерминированный разброс 0..3599 секунд (до 60 минут).
+Procd-демона ради суточной задачи нет осознанно.
