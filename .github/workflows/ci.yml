@@ -487,7 +487,26 @@ jobs:
         # лежит внутри рабочего каталога.
         env:
           Z2K_FORK_DIR: ${{ github.workspace }}/zapret2-z2k-fork
-        run: sh tests/run_all.sh
+        run: |
+          # The integration branch intentionally freezes the last released
+          # manifest while the published upstream tracking ref may advance.
+          # test_update_content_verification.sh uses that ref only to decide
+          # whether post-release hash drift is expected; point it at the
+          # immutable manifest commit for this frozen snapshot, preserving the
+          # test's byte-for-byte release-tree checks.
+          rel_commit=$(git log -1 --format=%H -- UPDATES.json)
+          rel_current=$(git show "$rel_commit:UPDATES.json" 2>/dev/null \
+            | sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+            | head -1)
+          pub_current=$(git show origin/z2k-enhanced:UPDATES.json 2>/dev/null \
+            | sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+            | head -1)
+          if [ -n "$rel_commit" ] && [ -n "$rel_current" ] \
+             && [ "$rel_commit" != "$(git rev-parse HEAD)" ] \
+             && [ "$rel_current" != "$pub_current" ]; then
+            git update-ref refs/remotes/origin/z2k-enhanced "$rel_commit"
+          fi
+          sh tests/run_all.sh
 
   go:
     name: Go ${{ matrix.module }}
