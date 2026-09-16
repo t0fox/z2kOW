@@ -6,7 +6,9 @@
 # nft sets/chains в runtime-таблице, PBR (mark + table 989) ТОЛЬКО при
 # доказанной ready. Fail open всегда: нет ready = нет маршрута.
 #
-# Использование (требует выставленных paths/env):
+# CLI самостоятельно загружает paths/env перед общим updater-кодом.
+# Lifecycle-вызовы из адаптера уже приходят с выставленными paths/env.
+# Использование:
 #   CLI (будущая панель просто вызывает):
 #     install reload-lists status selfheal migrate
 #     enable disable remove
@@ -592,6 +594,28 @@ warp_fetch_engine() {
     if [ -n "$WARP_FETCH_STUB" ]; then
         cp "$WARP_FETCH_STUB" "$_tmp"
     else
+        # Standalone `warp.sh install` does not pass through update.sh or
+        # webpanel's platform bootstrap. Map the package-owned paths before
+        # auto_update.sh captures defaults such as Z2K_AU_PUBKEY.
+        local _adapter_dir="${Z2K_ADAPTER_DIR:-}"
+        if [ -z "$_adapter_dir" ] || [ ! -r "$_adapter_dir/paths.sh" ] || \
+           [ ! -r "$_adapter_dir/env.sh" ]; then
+            _adapter_dir="$(CDPATH= cd "$(dirname "$0")" 2>/dev/null && pwd)" || {
+                _wlog "cannot locate OpenWrt path environment — refusing"
+                rm -f "$_tmp"
+                return 1
+            }
+        fi
+        . "$_adapter_dir/paths.sh" >/dev/null 2>&1 || {
+            _wlog "cannot load OpenWrt paths — refusing"
+            rm -f "$_tmp"
+            return 1
+        }
+        . "$_adapter_dir/env.sh" >/dev/null 2>&1 || {
+            _wlog "cannot load OpenWrt environment — refusing"
+            rm -f "$_tmp"
+            return 1
+        }
         # Тот же verified artifact contract, что у updater: manifest+sig
         # через z2k_fetch, подпись через au_manifest_verify (z2k-verify или
         # openssl; verifier'а нет = FAIL, никакого TOFU).
