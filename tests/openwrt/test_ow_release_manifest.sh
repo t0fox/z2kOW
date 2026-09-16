@@ -16,9 +16,12 @@ ln -s "$REPO/package/openwrt/ownership.map" "$T/tree/package/openwrt/ownership.m
 printf '#!/bin/sh\n# fixture lib\n' > "$T/tree/lib/a.sh"
 printf '# keenetic only\n' > "$T/tree/files/S99probe.new"
 printf '#!/bin/sh\n# fixture cgi\n' > "$T/tree/webpanel/cgi/probe.sh"
+mkdir -p "$T/tree/z2k-warpd/builds"
+printf 'warp fixture\n' > "$T/tree/z2k-warpd/builds/z2k-warpd-linux-arm64"
 _sha_a="$(sha256sum "$T/tree/lib/a.sh" | awk '{print $1}')"
 _sha_s="$(sha256sum "$T/tree/files/S99probe.new" | awk '{print $1}')"
 _sha_w="$(sha256sum "$T/tree/webpanel/cgi/probe.sh" | awk '{print $1}')"
+_sha_warp="$(sha256sum "$T/tree/z2k-warpd/builds/z2k-warpd-linux-arm64" | awk '{print $1}')"
 cat > "$T/src.json" <<EOF
 {"schema": 1,
 "branch": "z2k-enhanced",
@@ -32,7 +35,8 @@ cat > "$T/src.json" <<EOF
 "files_sha256": {
   "lib/a.sh": "$_sha_a",
   "files/S99probe.new": "$_sha_s",
-  "webpanel/cgi/probe.sh": "$_sha_w"
+  "webpanel/cgi/probe.sh": "$_sha_w",
+  "z2k-warpd/builds/z2k-warpd-linux-arm64": "$(printf '%064d' 0 | tr '0' 'c')"
 },
 "history": [
 {"v": "p-1", "type": "patch", "ref": "p-1", "changed_files": ["lib/a.sh"], "steps": []},
@@ -117,10 +121,18 @@ assert_eq "gen refresh rc" "0" "$?"
 _newsha="$(sha256sum "$T/tree/lib/a.sh" | awk '{print $1}')"
 assert_eq "gen refresh: хэш дерева" "$_newsha" \
     "$(sed -n 's/^  "lib\/a.sh": "\(.*\)",\?$/\1/p' "$T/out2r.json" | head -1)"
-if grep -q 'refreshed=1' "$T/refresh.log" 2>/dev/null && grep -q 'lib/a.sh' "$T/refresh.log" 2>/dev/null; then
+if grep -q 'refreshed=' "$T/refresh.log" 2>/dev/null && grep -q 'lib/a.sh' "$T/refresh.log" 2>/dev/null; then
     _t_ok
 else
     _t_bad "gen refresh: нет громкого списка"
+fi
+assert_eq "gen refresh: optional WARP hash" "$_sha_warp" \
+    "$(sed -n 's/^  "z2k-warpd\/builds\/z2k-warpd-linux-arm64": "\(.*\)",\?$/\1/p' "$T/out2r.json" | head -1)"
+if grep -q 'z2k-warpd/builds/z2k-warpd-linux-arm64' "$T/out2r.json" 2>/dev/null \
+   && ! grep -A1 '"install_map"' "$T/out2r.json" | grep -q 'z2k-warpd/builds'; then
+    _t_ok
+else
+    _t_bad "gen refresh: WARP hash изменён без install_map destination"
 fi
 
 # --- dirty tree: отказ без флага ---

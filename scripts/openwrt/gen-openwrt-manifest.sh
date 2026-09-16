@@ -185,6 +185,20 @@ for key in man['install_map'].keys():
     owmap[key] = dests
     kept += 1
 
+# Optional WARP artifacts are intentionally absent from install_map entirely;
+# refresh their candidate digests in a separate pass so the snapshot pins the
+# binary that the standalone adapter fetches.  This is CI-only and leaves the
+# production generator's strict common manifest untouched.
+if refresh:
+    for key in man['files_sha256'].keys():
+        if not key.startswith('z2k-warpd/builds/') or key in owshas:
+            continue
+        got = tree_sha(key)
+        if got is None:
+            fail('нет файла дерева для %s' % key)
+        owshas[key] = got
+        refreshed.append(key)
+
 # history: как есть; current-записи без api-поля ставим требуемый минимум.
 hist = man['history']
 if not isinstance(hist, list) or not hist:
