@@ -4,8 +4,8 @@
 # the OpenWrt runtime paths). No WARP+ material or other secrets are printed.
 # shellcheck disable=SC2154  # paths/env variables are supplied by env.sh.
 
-_root=$Z2K_ROOT
-[ -n "$_root" ] || _root=/usr/lib/z2k
+_root=${Z2K_ROOT:-}
+[ -n "$_root" ] || exit 2
 if [ -f "$_root/platform/openwrt/paths.sh" ]; then
     . "$_root/platform/openwrt/paths.sh" 2>/dev/null || true
 fi
@@ -13,21 +13,14 @@ if [ -f "$_root/platform/openwrt/env.sh" ]; then
     . "$_root/platform/openwrt/env.sh" 2>/dev/null || true
 fi
 
-_cfg=$Z2K_CONFIG
-[ -n "$_cfg" ] || _cfg=/etc/z2k/config
-_init=$Z2K_INIT
-[ -n "$_init" ] || _init=/etc/init.d/z2k
-_run=$Z2K_RUN
-[ -n "$_run" ] || _run=/tmp/z2k/runtime
-_bin=$Z2K_BIN
-[ -n "$_bin" ] || _bin=$_root/bin
-_nfq=$Z2K_NFQWS2
-[ -n "$_nfq" ] || _nfq=/opt/zapret2/nfq2/nfqws2
-_warp_status=$Z2K_TMP
-[ -n "$_warp_status" ] || _warp_status=/tmp/z2k
+_cfg=${Z2K_CONFIG:-}
+_init=${Z2K_INIT:-}
+_run=${Z2K_RUN:-}
+_bin=${Z2K_BIN:-}
+_nfq=${Z2K_NFQWS2:-}
+_warp_status=${Z2K_TMP:-}
 _warp_status=$_warp_status/warp/status.json
-_warp_device=$Z2K_STATE
-[ -n "$_warp_device" ] || _warp_device=/etc/z2k/state
+_warp_device=${Z2K_STATE:-}
 _warp_device=$_warp_device/warp/device.json
 
 _count_process() {
@@ -97,7 +90,7 @@ print_firewall() {
     printf 'NFQUEUE queue rules: %s (expected 8)\n' "$rules"
     printf 'queue 200 consumers : %s\n' "$qcons"
     printf 'owned helper chains : %s\n' "$chains"
-    printf 'backend             : nftables/fw4\n'
+    printf 'backend             : OpenWrt nftables\n'
 }
 
 print_tunnel() {
@@ -145,8 +138,7 @@ print_warp() {
 
 print_platform() {
     local root free
-    root=$Z2K_ROOT
-    [ -n "$root" ] || root=/usr/lib/z2k
+    root=${Z2K_ROOT:-}
     free=$(df -h "$root" 2>/dev/null | awk 'NR==2 {printf "%s свободно из %s (занято %s)", $4, $2, $5}')
     [ -n "$free" ] || free=неизвестно
     printf '\n=== platform ===\n'
@@ -161,10 +153,8 @@ print_platform() {
 
 print_lists() {
     local d f n label user
-    d=$Z2K_EXTRA_STRATS_DIR
-    [ -n "$d" ] || d=$_root/extra_strats
-    user=$Z2K_USER_LISTS
-    [ -n "$user" ] || user=/etc/z2k/user-lists
+    d=${Z2K_EXTRA_STRATS_DIR:-}
+    user=${Z2K_USER_LISTS:-}
     printf '\n=== domain lists ===\n'
     for f in "TCP/RKN/List.txt:RKN blocked (TCP)" \
              "TCP/YT/List.txt:YouTube" \
