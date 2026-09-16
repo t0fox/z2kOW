@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=18
+PKG_RELEASE:=19
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -41,6 +41,9 @@ PKG_RELEASE:=18
 # daemon receives the newly selected transport env instead of a stale respawn.
 # RELEASE 18: make that service rebuild lock-aware for direct lifecycle calls;
 # only an outer user action lock is released and reacquired around procd.
+# RELEASE 19: accept p-84.23 QUIC pool semantics with OpenWrt-owned state
+# migration, selected-hour cron, narrow auto-update gate, and channel-scoped
+# webpanel history.
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
 # lists/strats/webpanel; z2k-owned TG/RT/WARP/z2k-detect едут updater binary
 # flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
@@ -99,7 +102,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r18)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r19)
 endef
 
 define Package/z2k-webpanel/description
