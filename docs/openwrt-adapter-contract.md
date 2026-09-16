@@ -200,8 +200,9 @@ lock/log/tmp — в `/tmp/z2k/*`. Pubkey/verify — через существу�
 `ZAPRET2_DIR`/`Z2K_AU_SBIN`-дефолты (проверено тестом, common не тронут).
 
 QUIC rotation state is migrated by the OpenWrt adapter before procd creates
-the nfqws2 instance: both `/etc/z2k/state/state.tsv` and the
-`Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE` copy are scanned, and only a first-field
+the nfqws2 instance: `/etc/z2k/state/state.tsv`, the
+`Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE` copy, and the pre-p-84.23
+`/tmp/z2k-autocircular-state.tsv` path are scanned, and only a first-field
 `yt_quic` is atomically renamed to `quic`. The migration uses the same lock,
 stale-lock, metadata-preservation, and retry semantics as the Lua writer;
 unrelated pools and strategy numbers remain byte-for-byte intact.

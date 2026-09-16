@@ -75,14 +75,25 @@ _z2k_ow_migrate_quic_state_file() {
 # an old key; the next start retries safely.
 z2k_ow_migrate_quic_state() {
     local _primary="${STATE_FILE:-${Z2K_STATE:-/etc/z2k/state}/state.tsv}"
-    local _fallback="${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-/tmp/z2k}/z2k-autocircular-state.tsv"
-    local _f _rc _all_ok=1 _failed=0 _saw=0
+    local _fallback="${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-${Z2K_TMP:-/tmp/z2k}}/z2k-autocircular-state.tsv"
+    # p-84.23's OpenWrt override lives under /tmp/z2k, while older installs
+    # wrote the same fallback directly under /tmp. Scan both so an upgrade
+    # cannot leave the old yt_quic rows behind. Tests may redirect this legacy
+    # path without touching the host /tmp.
+    local _legacy="${Z2K_AUTOCIRCULAR_LEGACY_FALLBACK_OVERRIDE:-/tmp/z2k-autocircular-state.tsv}"
+    local _f _rc _all_ok=1 _failed=0 _saw=0 _seen=""
 
     # The marker is advisory only. Always inspect both paths: a fallback file
     # can be created after an earlier boot, and a busy-lock attempt must be
     # retried even when a previous run left the marker behind.
-    for _f in "$_primary" "$_fallback"; do
-        [ -s "$_f" ] || { _all_ok=0; continue; }
+    for _f in "$_primary" "$_fallback" "$_legacy"; do
+        # Do not process the same file twice when an override points at the
+        # primary or preferred fallback path.
+        case " $_seen " in *" $_f "*) continue ;; esac
+        _seen="$_seen $_f"
+        # Missing/empty files are valid on a fresh install; only files that
+        # exist and contain state participate in the completion decision.
+        [ -s "$_f" ] || continue
         _saw=1
         _z2k_ow_migrate_quic_state_file "$_f"
         _rc=$?
@@ -93,9 +104,8 @@ z2k_ow_migrate_quic_state() {
         fi
     done
 
-    # Be conservative: mark complete only when both configured files existed
-    # and were successfully inspected/migrated. This keeps a missing/empty
-    # fallback eligible for a later boot.
+    # Mark complete once every existing state file was inspected/migrated.
+    # Missing/empty fallbacks remain valid and do not create a spurious marker.
     if [ "$_saw" -eq 1 ] && [ "$_all_ok" -eq 1 ]; then
         mkdir -p "$(dirname "${Z2K_QUIC_STATE_MIGRATION_MARKER}")" 2>/dev/null || return 1
         local _mark_tmp="${Z2K_QUIC_STATE_MIGRATION_MARKER}.tmp.$$"
