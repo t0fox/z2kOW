@@ -52,6 +52,7 @@
 /usr/lib/z2k/platform/openwrt/reinstall.sh package
 /etc/init.d/z2k-webpanel package
 /usr/lib/z2k/share/config.default package
+/usr/lib/z2k/z2k-diag.sh package
 /usr/lib/z2k/share/seed.tar.gz package
 # Adapter API (Stage 7 §6): ставит пакет из package/openwrt/ADAPTER_API;
 # updater/installer/reinstall его НИКОГДА не пишут.

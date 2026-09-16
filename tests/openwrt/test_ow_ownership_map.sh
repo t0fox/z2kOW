@@ -44,6 +44,7 @@ while IFS= read -r _line; do
         /etc/hotplug.d/iface/90-z2k) _src="package/openwrt/files/etc/hotplug.d/iface/90-z2k" ;;
         /usr/lib/z2k/platform/openwrt/*) _src="platform/openwrt/$(basename "$1")" ;;
         /usr/lib/z2k/share/config.default) _src="package/openwrt/files/etc/z2k/config.default" ;;
+        /usr/lib/z2k/z2k-diag.sh) _src="files/z2k-diag.sh" ;;
         /usr/lib/z2k/share/seed.tar.gz) _src="package/openwrt/make-seed.sh" ;;
         /usr/lib/z2k/share/adapter.api) _src="package/openwrt/ADAPTER_API" ;;
         # snapshot truth: build-generated (Build/Prepare из manifests/commit),

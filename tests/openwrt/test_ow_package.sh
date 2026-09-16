@@ -12,6 +12,11 @@ assert_contains "PKG_NAME" "$MK" "PKG_NAME:=z2k-adapter"
 assert_contains "BuildPackage" "$MK" "BuildPackage,z2k-adapter"
 assert_contains "init.d install" "$MK" "files/etc/init.d/z2k"
 assert_contains "hotplug install" "$MK" "files/etc/hotplug.d/iface/90-z2k"
+assert_file "diagnostics source exists" "$REPO/files/z2k-diag.sh"
+assert_contains "adapter installs diagnostics helper at runtime lookup path" "$MK" \
+    '$(Z2K_TREE)/files/z2k-diag.sh $(1)/usr/lib/z2k/z2k-diag.sh'
+assert_contains "diagnostics helper has one package owner" "$REPO/package/openwrt/ownership.map" \
+    "/usr/lib/z2k/z2k-diag.sh package"
 assert_contains "adapter resolves OpenSSL for signed manifest verification" "$MK" \
     "DEPENDS:=+kmod-nft-queue +conntrack +openssl-util +z2k-zapret2-runtime"
 # Stage 6: опциональный сабпакет панели (зависимость + свой init, без payload).
