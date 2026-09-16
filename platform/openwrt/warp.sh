@@ -488,7 +488,11 @@ EOF_RULES
         fi
     fi
     # Таблица: пусто (норма) или ровно наш default на живой iface (adopt).
-    _mt="$(ip route show table "$WARP_TABLE" 2>/dev/null)"
+    # BusyBox ip may leave padding before the newline (the live router emits
+    # `default dev z2ktun0 scope link `).  Route ownership is textual, so
+    # normalize that harmless presentation detail before the exact check;
+    # otherwise a route we just installed is misclassified as foreign.
+    _mt="$(ip route show table "$WARP_TABLE" 2>/dev/null | sed 's/[[:space:]]*$//')"
     if [ -n "$_mt" ]; then
         case "$_mt" in
             "default dev $_iface"|"default dev $_iface scope link") ;;
@@ -539,7 +543,7 @@ _warp_route_release_iface() {
         z2ktun[0-9]|z2ktun[0-9][0-9]) ;;
         *) return 0 ;;
     esac
-    _cur="$(ip route show table "$WARP_TABLE" 2>/dev/null)"
+    _cur="$(ip route show table "$WARP_TABLE" 2>/dev/null | sed 's/[[:space:]]*$//')"
     [ -n "$_cur" ] || return 0
     if printf '%s\n' "$_cur" | grep -qvE "^default dev $_iface( scope link)?\$"; then
         return 0

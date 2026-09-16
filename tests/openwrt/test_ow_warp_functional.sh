@@ -245,6 +245,13 @@ assert_contains "rule add exact" "$T/ip-rules" "fwmark 0x80000000/0x80000000 loo
 _adds1="$(grep -c '^ip:rule add' "$T/ip.log")"
 warp_pbr_up || _t_bad "pbr_up повтор rc"
 assert_eq "rule add идемпотентен" "$_adds1" "$(grep -c '^ip:rule add' "$T/ip.log")"
+# BusyBox ip on the live router pads route output before the newline.  The
+# ownership check must accept that presentation without treating our route as
+# foreign (and teardown must still be able to release it).
+sed 's/$/ /' "$T/ip-route-989" > "$T/ip-route-989.padded"
+mv -f "$T/ip-route-989.padded" "$T/ip-route-989"
+warp_pbr_up || _t_bad "pbr_up: padded route output"
+assert_contains "padded route accepted" "$T/ip-rules" "fwmark 0x80000000/0x80000000 lookup 989"
 # конфликт mark:
 printf '400: from all fwmark 0x80000000/0xffffffff lookup 100\n' > "$T/ip-rules"
 warp_pbr_up >/dev/null 2>&1 && _t_bad "mark-конфликт принят" || _t_ok
