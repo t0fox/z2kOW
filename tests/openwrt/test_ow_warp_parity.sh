@@ -101,6 +101,17 @@ _kill="$(grep -n '^kill:' "$T/calls" | head -1 | cut -d: -f1)"
 if [ -n "$_pb" ] && [ -n "$_kill" ] && [ "$_pb" -lt "$_kill" ]; then _t_ok
 else _t_bad "restart: PBR down не первым (pbr=$_pb kill=$_kill)"; fi
 
+# Активный procd должен пересобрать instance, иначе respawn сохранит старый
+# transport env. Сервисный рестарт здесь stubbed, но порядок и повторный
+# захват feature-lock остаются реальными.
+WARP_READY_WAIT=4
+_z2k_ow_service_running() { return 0; }
+_z2k_ow_warp_service_restart() { touch "$WARP_STATUS"; echo "service-restart" >> "$T/calls"; return 0; }
+: > "$T/calls"
+warp_restart >/dev/null 2>&1
+assert_eq "restart active service rc" "0" "$?"
+assert_contains "restart rebuilds procd instance" "$T/calls" "service-restart"
+
 # --- 3. license: rc-контракт + ключ не в логах ---
 printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
 export WARP_BIN="$T/root/bin/z2k-warpd" WARP_DEVICE="$T/etc/state/warp/device.json"

@@ -1059,10 +1059,13 @@ warp_disable() {
 }
 
 # Перезапуск движка со сменой транспорта (панель; контракт как upstream
-# warp_restart): PBR down ПЕРВЫМ (трафик напрямую, пока движок встаёт),
-# bounce демона (procd поднимет с новым Z2K_WARP_TRANSPORT env), дальше как
-# включение (wait + PBR, те же коды 0/1/2/3). Выключенному нечего
-# перезапускать: выбор применится при включении.
+# warp_restart): PBR down ПЕРВЫМ (трафик напрямую, пока движок встаёт).
+# На активном procd-сервисе одного kill недостаточно: instance хранит env,
+# поэтому делаем полный service restart, который заново объявляет instance с
+# новым Z2K_WARP_TRANSPORT. Лок временно отпускаем, иначе start_service не
+# сможет открыть тот же WARP-lock. После restart снова захватываем его и
+# сверяем supersession перед PBR. Выключенному нечего перезапускать: выбор
+# применится при включении.
 warp_restart() {
     warp_op_begin
     if [ "$(warp_flag)" != "1" ]; then
@@ -1071,6 +1074,14 @@ warp_restart() {
     warp_pbr_down >/dev/null 2>&1 || true
     if warp_running; then
         for _p in $(warp_pids); do _z2k_ow_warp_kill "$_p"; done
+    fi
+    # procd respawn uses the already-committed instance definition, including
+    # its old env. Rebuild that definition through the owning service.
+    if _z2k_ow_service_running; then
+        _z2k_ow_warp_unlock
+        _z2k_ow_warp_service_restart
+        _z2k_ow_warp_lock "${WARP_LOCK_WAIT:-30}" || return 1
+        warp_op_current || { warp_op_superseded; return 3; }
     fi
     _warp_wait_and_pbr
 }
