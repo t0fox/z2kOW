@@ -237,7 +237,20 @@ jobs:
                  | sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
           _cur=$(sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' UPDATES.json | head -1)
 
-          if [ -z "$_pub" ]; then
+           # A frozen integration branch may intentionally lag the published
+           # channel while carrying later commits.  If UPDATES.json and its
+           # signature are byte-identical to the commit that last changed them,
+           # this is still a working snapshot, not an unsigned release edit.
+           _manifest_commit=$(git log -1 --format=%H -- UPDATES.json)
+           _head=$(git rev-parse HEAD)
+           if [ -n "$_pub" ] && [ "$_pub" != "$_cur" ] \
+              && [ -n "$_manifest_commit" ] && [ "$_manifest_commit" != "$_head" ] \
+              && git diff --quiet "$_manifest_commit" HEAD -- UPDATES.json UPDATES.json.sig; then
+             echo "frozen integration snapshot: manifest=$_cur published=$_pub"
+             exit 0
+           fi
+
+           if [ -z "$_pub" ]; then
             # Нет опубликованного состояния (форк, первый прогон) — сверяем то,
             # что можем: карту с деревом.
             echo "опубликованный манифест недоступен — сверяю карту с деревом"

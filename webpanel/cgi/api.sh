@@ -45,9 +45,9 @@ fi
 [ -f "$SELF_DIR/platform.sh" ] && . "$SELF_DIR/platform.sh"
 
 # The OpenWrt scheduler is package-owned and may be newer than the common
-# payload's platform seam during a mixed-version upgrade.  Keep the route
+# payload seam during a mixed-version upgrade.  Keep the route
 # bound to that single scheduler authority even when the payload still has
-# an older platform.sh which does not source it yet.
+# an older platform seam which does not source it yet.
 if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] \
     && ! command -v z2k_ow_cron_install >/dev/null 2>&1; then
     _ow_schedule="${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/schedule.sh"
