@@ -48,7 +48,7 @@ H.test('every shipped TCP pool uses retrans=2, quorum 3, and the reset opt-out',
 end)
 H.test('QUIC drops only outgoing Initials, never replies or later packets',function()
     local checked=0
-    for _,ins in ipairs(all.yt_quic) do
+    for _,ins in ipairs(all.quic) do
         if ins.func=='drop' then
             checked=checked+1
             for _,out in ipairs({true,false}) do
@@ -76,7 +76,7 @@ H.test('Discord observer sees replies and unknown data while fakes stay within o
     end
 end)
 H.test('host scope separates public suffixes and unrelated API services',function()
-    for _,key in ipairs({'rkn_tcp','yt_tcp','gv_tcp','yt_quic'}) do
+    for _,key in ipairs({'rkn_tcp','yt_tcp','gv_tcp','quic'}) do
         local arg=circular_instance(key).arg
         H.eq('z2k_service_hostkey',arg.hostkey)
         for _,host in ipairs({'youtube.co.uk','bbc.co.uk','fonts.googleapis.com','youtubei.googleapis.com'}) do
@@ -87,7 +87,7 @@ H.test('host scope separates public suffixes and unrelated API services',functio
     end
 end)
 H.test('only the explicit video CDN is grouped and families remain separate',function()
-    for _,key in ipairs({'gv_tcp','yt_quic'}) do
+    for _,key in ipairs({'gv_tcp','quic'}) do
         local arg=circular_instance(key).arg
         for _,host in ipairs({'rr1.googlevideo.com','rr2.googlevideo.com'}) do
             local d=H.tcp(H.track(host),true,1,'x'); d.arg=arg
@@ -150,7 +150,7 @@ local function disk_strategy(key,host)
 end
 local function profile_initial(key,host)
     local d
-    if key=='yt_quic' then d=H.qstart(H.track(host))
+    if key=='quic' then d=H.qstart(H.track(host))
     elseif key=='http_rkn' then d=H.tcp(H.track(host),true,1,'GET / HTTP/1.1\r\n\r\n','http_req')
     else d=H.tcp(H.track(host),true,1,H.client,'tls_client_hello') end
     d.arg=circular_instance(key).arg
@@ -163,7 +163,7 @@ H.test('generated RKN profile wires the TLS timeout and its opt-out',function()
     for _,ins in ipairs(timeout_off.rkn_tcp) do
         if ins.func=='circular' then H.eq(nil,ins.arg.discord_tls_timeout) end
     end
-    for _,key in ipairs({'yt_tcp','gv_tcp','http_rkn','yt_quic','discord_udp'}) do
+    for _,key in ipairs({'yt_tcp','gv_tcp','http_rkn','quic','discord_udp'}) do
         H.eq(nil,circular_instance(key).arg.discord_tls_timeout)
     end
 end)
@@ -194,8 +194,8 @@ H.test('generated TLS timeout persists rotation and honors a disk freeze before 
 end)
 H.test('generated host keys persist the selected strategy for every domain pool',function()
     fresh_state()
-    for _,key in ipairs({'rkn_tcp','yt_tcp','gv_tcp','http_rkn','yt_quic'}) do
-        local host=key=='gv_tcp' or key=='yt_quic'
+    for _,key in ipairs({'rkn_tcp','yt_tcp','gv_tcp','http_rkn','quic'}) do
+        local host=key=='gv_tcp' or key=='quic'
         host=host and 'rr1.googlevideo.com' or 'api.example.co.uk'
         local d=profile_initial(key,host)
         local h=H.step(d)
@@ -224,9 +224,9 @@ end)
 H.test('generated QUIC profile persists a timer rotation without another packet',function()
     fresh_state()
     local h
-    for i=1,3 do h=H.step(profile_initial('yt_quic','rr2.googlevideo.com')) end
+    for i=1,3 do h=H.step(profile_initial('quic','rr2.googlevideo.com')) end
     H.advance(6)
     H.eq(2,h.nstrategy)
-    H.eq(2,disk_strategy('yt_quic','googlevideo.com|4'))
+    H.eq(2,disk_strategy('quic','googlevideo.com|4'))
 end)
 H.finish()

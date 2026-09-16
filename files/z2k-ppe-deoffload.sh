@@ -31,7 +31,7 @@
 #   fail to actually count. retrans=1 + this de-offload = native rotation works.
 #
 #   QUIC (UDP/443) gets the SAME treatment (Z2K_PPE_DEOFFLOAD_QUIC, default ON):
-#   YouTube / Apple-TV login rides HTTP/3, and the yt_quic `circular` can only
+#   YouTube / Apple-TV login rides HTTP/3, and the QUIC `circular` can only
 #   rotate to a provider-working fake-blob if nfqws2 sees the QUIC response,
 #   which the offload engine otherwise hides (the outgoing QUIC Initial is always
 #   seen pre-bind, but the incoming verdict is not). Same connskip window bounds
@@ -100,7 +100,7 @@ z2k_ppe_user_disabled() {
 }
 
 # Also de-offload the QUIC (UDP/443) handshake? (default ON; off only if =0).
-# This restores the QUIC response so the yt_quic `circular` can rotate like the
+# This restores the QUIC response so the QUIC `circular` can rotate like the
 # TCP pools — needed for YouTube/Apple-TV login over HTTP/3 on offload routers.
 z2k_ppe_quic_enabled() {
     [ -f "$PPE_CONFIG_FILE" ] || return 0
@@ -140,7 +140,7 @@ z2k_ppe_rule_present_fwd6() { _z2k_ppe_ipt6 -t mangle -C FORWARD    $_z2k_ppe_ar
 z2k_ppe_rule_present_pre6() { _z2k_ppe_ipt6 -t mangle -C PREROUTING $_z2k_ppe_args; }
 
 # QUIC (UDP) handshake de-offload — same connskip window, restores the HTTP/3
-# response so yt_quic rotates. Single port (multiport not needed for one port).
+# response so the QUIC pool rotates. Single port (multiport not needed for one port).
 _z2k_ppe_udp_args="-p udp --dport $PPE_QUIC_PORT -m connskip --connskip $PPE_CONNSKIP -j $PPE_TARGET"
 
 z2k_ppe_udp_present_fwd4() { _z2k_ppe_ipt  -t mangle -C FORWARD    $_z2k_ppe_udp_args; }
@@ -162,7 +162,7 @@ z2k_ppe_ensure_rules() {
         z2k_ppe_rule_present_pre6 || _z2k_ppe_ipt6 -t mangle -I PREROUTING $_z2k_ppe_args
         z2k_ppe_rule_present_fwd6 || _z2k_ppe_ipt6 -t mangle -I FORWARD    $_z2k_ppe_args
     fi
-    # QUIC (UDP/443) handshake de-offload — enables yt_quic native rotation.
+    # QUIC (UDP/443) handshake de-offload — enables QUIC native rotation.
     if z2k_ppe_quic_enabled; then
         z2k_ppe_udp_present_pre4 || _z2k_ppe_ipt -t mangle -I PREROUTING $_z2k_ppe_udp_args
         z2k_ppe_udp_present_fwd4 || _z2k_ppe_ipt -t mangle -I FORWARD    $_z2k_ppe_udp_args

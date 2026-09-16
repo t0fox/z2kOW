@@ -75,7 +75,7 @@ echo "whitelisted.example.com" > "$MOCK_LISTS/whitelist.txt"
 echo "--filter-tcp=443 --filter-l7=tls --lua-desync=circular:fails=3:time=60:key=rkn_tcp --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=6:strategy=1" > "$MOCK_EXTRA_STRATS/TCP/RKN/Strategy.txt"
 echo "--filter-tcp=443 --filter-l7=tls --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=4" > "$MOCK_EXTRA_STRATS/TCP/YT/Strategy.txt"
 echo "--filter-tcp=443 --filter-l7=tls --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=4" > "$MOCK_EXTRA_STRATS/TCP/YT_GV/Strategy.txt"
-echo "--filter-udp=443 --filter-l7=quic --lua-desync=circular:fails=3:time=60:key=yt_quic --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=3:strategy=1" > "$MOCK_EXTRA_STRATS/UDP/YT/Strategy.txt"
+echo "--filter-udp=443 --filter-l7=quic --lua-desync=circular:fails=3:time=60:key=quic --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=3:strategy=1" > "$MOCK_EXTRA_STRATS/UDP/YT/Strategy.txt"
 
 # Create mock config (no Austerus)
 echo "ENABLED=1" > "$MOCK_ZAPRET2/config"
@@ -144,7 +144,7 @@ printf "\n--- Config output structure ---\n"
 SAMPLE_OPT="--hostlist-exclude=/opt/zapret2/lists/whitelist.txt --hostlist=/opt/zapret2/extra_strats/TCP/RKN/List.txt --filter-tcp=443 --filter-l7=tls --lua-desync=circular:fails=3:key=rkn_tcp:nld=2:inseq=26000:failure_detector=z2k_silent_drop_detector:success_detector=z2k_http_success_positive_only:no_http_redirect --lua-desync=fake:strategy=1 --new
 --hostlist-exclude=/opt/zapret2/lists/whitelist.txt --hostlist=/opt/zapret2/extra_strats/TCP/YT/List.txt --filter-tcp=443 --filter-l7=tls --lua-desync=circular:fails=3:key=yt_tcp:nld=2:inseq=18000:failure_detector=z2k_silent_drop_detector:success_detector=z2k_success_no_reset:no_http_redirect --lua-desync=fake:repeats=4 --new
 --hostlist-exclude=/opt/zapret2/lists/whitelist.txt --hostlist=/opt/zapret2/extra_strats/TCP/YT_GV/List.txt --filter-tcp=443 --filter-l7=tls --lua-desync=circular:fails=3:key=gv_tcp:nld=2:inseq=24000:failure_detector=z2k_silent_drop_detector:success_detector=z2k_http_success_positive_only:no_http_redirect --lua-desync=fake:repeats=4 --new
---hostlist-exclude=/opt/zapret2/lists/whitelist.txt --hostlist=/opt/zapret2/extra_strats/UDP/YT/List.txt --filter-udp=443 --filter-l7=quic --lua-desync=circular:fails=3:key=yt_quic:nld=2 --new
+--hostlist-exclude=/opt/zapret2/lists/whitelist.txt --hostlist=/opt/zapret2/extra_strats/UDP/YT/List.txt --filter-udp=443 --filter-l7=quic --lua-desync=circular:fails=3:key=quic:nld=2 --new
 --filter-udp=50000-50099 --filter-l7=discord,stun --lua-desync=circular:fails=3:time=60:udp_in=1:udp_out=4:key=discord_udp:nld=2:hostkey=z2k_nohost_key"
 
 # Native rollback structure guarantees (2026-05-28):
@@ -543,10 +543,10 @@ for _k in rkn_tcp yt_tcp gv_tcp; do
 done
 _yt_circ=$(printf '%s\n' "$_flat_doc" | grep -F "key=yt_tcp" | head -1 | tr ' ' '\n' | grep -- '--lua-desync=circular:' | head -1)
 assert_contains "yt_tcp: окно счётчика 300 (замер ТВ 25-26.08) сохранено" "time=300" "$_yt_circ"
-_quic=$(printf '%s\n' "$_flat_doc" | grep -F "key=yt_quic" | head -1)
-assert_contains     "yt_quic: udp_in=1 по документации" "udp_in=1"  "$_quic"
-assert_contains     "yt_quic: udp_out=5 по замеру"      "udp_out=5" "$_quic"
-assert_contains     "yt_quic: детектор молчания QUIC проведён" "failure_detector=z2k_fail_quic_silence" "$_quic"
+_quic=$(printf '%s\n' "$_flat_doc" | grep -F "key=quic" | head -1)
+assert_contains     "quic: udp_in=1 по документации" "udp_in=1"  "$_quic"
+assert_contains     "quic: udp_out=5 по замеру"      "udp_out=5" "$_quic"
+assert_contains     "quic: детектор молчания QUIC проведён" "failure_detector=z2k_fail_quic_silence" "$_quic"
 _http=$(printf '%s\n' "$_flat_doc" | grep -F "key=http_rkn" | head -1)
 assert_contains "http_rkn: обёртка проведена и здесь" "failure_detector=z2k_fail_tls_alert" "$_http"
 
@@ -575,8 +575,8 @@ for _k in rkn_tcp yt_tcp gv_tcp; do
 done
 # QUIC — свой детектор и свой файл: штатный для UDP не работает в принципе
 # (замер 19.08 по 1646 потокам), различает классы только время.
-_quic_sil=$(printf '%s\n' "$_flat_doc" | grep -F "key=yt_quic" | head -1)
-assert_not_contains "yt_quic: TCP-обёртку на UDP не вешаем" "z2k_fail_tls_alert" "$_quic_sil"
+_quic_sil=$(printf '%s\n' "$_flat_doc" | grep -F "key=quic" | head -1)
+assert_not_contains "quic: TCP-обёртку на UDP не вешаем" "z2k_fail_tls_alert" "$_quic_sil"
 
 # Файлов модулей нет — имя функции резолвить некому, движок падал бы в error()
 # на каждом пакете профиля. Тот же гейт, что у подстановки имени 16 КБ.
@@ -654,7 +654,7 @@ test_corrupt_pool_fails_closed() {
     echo "rutracker.org"  > "$root/extra_strats/TCP/RKN/List.txt"
     echo "--filter-tcp=443 --filter-l7=tls --lua-desync=circular:fails=3:time=60:key=yt_tcp --lua-desync=fake:strategy=1" > "$root/extra_strats/TCP/YT/Strategy.txt"
     echo "--filter-tcp=443 --filter-l7=tls --lua-desync=circular:fails=3:time=60:key=gv_tcp --lua-desync=fake:strategy=1" > "$root/extra_strats/TCP/YT_GV/Strategy.txt"
-    echo "--filter-udp=443 --filter-l7=quic --lua-desync=circular:fails=3:time=60:key=yt_quic --lua-desync=fake:strategy=1" > "$root/extra_strats/UDP/YT/Strategy.txt"
+    echo "--filter-udp=443 --filter-l7=quic --lua-desync=circular:fails=3:time=60:key=quic --lua-desync=fake:strategy=1" > "$root/extra_strats/UDP/YT/Strategy.txt"
     # RKN pool: all-0xFF garbage, exactly the dead-block failure mode.
     awk 'BEGIN{for(i=0;i<64;i++)printf "%c",255}' > "$root/extra_strats/TCP/RKN/Strategy.txt"
 
@@ -693,7 +693,7 @@ test_corrupt_custom_strategy() {
         echo "--filter-tcp=443 --filter-l7=tls --lua-desync=circular:fails=3:time=60:key=x --lua-desync=fake:strategy=1" \
             > "$root/extra_strats/$f/Strategy.txt"
     done
-    echo "--filter-udp=443 --filter-l7=quic --lua-desync=circular:fails=3:time=60:key=yt_quic --lua-desync=fake:strategy=1" \
+    echo "--filter-udp=443 --filter-l7=quic --lua-desync=circular:fails=3:time=60:key=quic --lua-desync=fake:strategy=1" \
         > "$root/extra_strats/UDP/YT/Strategy.txt"
 
     # The custom override under test.

@@ -67,7 +67,7 @@ assert_eq "gv_tcp: окно расширено"  "300" "$(time_of gv_tcp)"
 # ослабляет защиту от ложной ротации, ничего не давая взамен.
 assert_eq "rkn_tcp: окно прежнее"   "60"  "$(time_of rkn_tcp)"
 assert_eq "http_rkn: окно прежнее"  "60"  "$(time_of http_rkn)"
-assert_eq "yt_quic: окно прежнее"   "60"  "$(time_of yt_quic)"
+assert_eq "quic: окно прежнее"   "60"  "$(time_of quic)"
 assert_eq "discord_udp: окно прежнее" "60" "$(time_of discord_udp)"
 
 # ── Значение задано в одном месте ────────────────────────────────────────────

@@ -456,7 +456,7 @@ end
 local function is_quic_key(askey)
   if not askey then return false end
   local s = tostring(askey)
-  return s == "yt_quic" or s == "rkn_quic" or s == "custom_quic" or s == "cf_quic"
+  return s == "quic" or s == "yt_quic" or s == "rkn_quic" or s == "custom_quic" or s == "cf_quic"
 end
 
 -- ---------------------------------------------------------------------------

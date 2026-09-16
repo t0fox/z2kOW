@@ -74,7 +74,7 @@ done
 
 # --- 2. Совпадает с формулой apply ------------------------------------------
 default_pool_numbers; YT=$Z2K_POOL_YT; GV=$Z2K_POOL_GV; RKN=$Z2K_POOL_RKN
-_quic=$(get_quic_strategy_num_by_name "yt_quic_autocircular"); [ -n "$_quic" ] || _quic=2
+_quic=$(get_quic_strategy_num_by_name "quic_autocircular"); [ -n "$_quic" ] || _quic=2
 
 cmp_pool() {   # $1 — путь пула, $2 — ожидаемое содержимое
     if [ "$(cat "$1" 2>/dev/null)" = "$2" ]; then

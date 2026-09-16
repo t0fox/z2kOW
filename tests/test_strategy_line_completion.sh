@@ -30,7 +30,7 @@ printf -- '--filter-tcp=443 --filter-l7=tls --lua-desync=circular:fails=3:key=gv
 # Каркас QUIC-пула отличается от TCP не только ключом: другой фильтр порта,
 # другой уровень L7, свои окна и --payload. Форма взята с боевой строки
 # (lib/config_official.sh, quic_udp).
-QSKEL='--filter-udp=443 --filter-l7=quic --in-range=a --out-range=a --payload=all --lua-desync=circular:fails=3:time=60:udp_in=3:udp_out=5:key=yt_quic:nld=2'
+QSKEL='--filter-udp=443 --filter-l7=quic --in-range=a --out-range=a --payload=all --lua-desync=circular:fails=3:time=60:udp_in=3:udp_out=5:key=quic:nld=2'
 printf '%s --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=3\n' "$QSKEL" \
     > "$SB/extra_strats/UDP/YT/Strategy.txt"
 
@@ -141,7 +141,7 @@ rm -f "$CUSTOM_STRAT_DIR/rkn_tcp.txt"
 # Панель и генератор намеренно не сорсят друг друга, поэтому пути дублируются.
 # Разъедутся — панель молча перестанет достраивать, и человек снова получит
 # непонятную ошибку. Сверяем напрямую.
-for _p in rkn_tcp yt_tcp gv_tcp yt_quic; do
+for _p in rkn_tcp yt_tcp gv_tcp quic; do
     _panel=$(ZAPRET2_DIR="/opt/zapret2" _strategy_pool_source "$_p")
     _rel=${_panel#/opt/zapret2/}
     grep -q "z2k_read_pool_strategy \"\${extra_strats_dir}/${_rel#extra_strats/}\"" "$ROOT/lib/config_official.sh" \
@@ -243,7 +243,7 @@ esac
 # сочла бы её полным набором и каркас не добавила: обход остался бы без
 # ротатора, без окон и без --payload — то есть молча без ротации.
 QPRIM='--lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=11'
-outq=$(printf '%s\n' "$QPRIM" | strategy_complete_line yt_quic)
+outq=$(printf '%s\n' "$QPRIM" | strategy_complete_line quic)
 case "$outq" in
     *--filter-udp=443*) ok "QUIC: подставлен фильтр порта UDP" ;;
     *) bad "QUIC: нет --filter-udp: [$outq]" ;;
@@ -257,8 +257,8 @@ case "$outq" in
     *) bad "QUIC: потерян --payload: [$outq]" ;;
 esac
 case "$outq" in
-    *key=yt_quic*) ok "QUIC: ключ ротатора свой" ;;
-    *) bad "QUIC: нет key=yt_quic: [$outq]" ;;
+    *key=quic*) ok "QUIC: ключ ротатора свой" ;;
+    *) bad "QUIC: нет key=quic: [$outq]" ;;
 esac
 case "$outq" in
     *key=rkn_tcp*|*key=yt_tcp*) bad "QUIC: приехал чужой ключ ротатора: [$outq]" ;;

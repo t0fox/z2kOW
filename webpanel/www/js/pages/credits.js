@@ -267,6 +267,17 @@ export function renderCredits() {
           обновления. Поддержка помогает делать это без перерывов.
         </p>
       </div>
+
+      <div class="card credits-card sponsor-card">
+        <div class="credits-badge sponsor-badge">${_icons.heart} Спонсор проекта</div>
+        <div class="credits-name">yozh</div>
+        <p class="desc">
+          Спасибо, yozh. Блокировки меняются быстрее, чем выходят релизы, и
+          догонять их приходится постоянно: проверять, что перестало работать,
+          искать, чем это обойти, и доводить найденное до роутеров. Поддержка
+          оплачивает именно эту гонку.
+        </p>
+      </div>
     </div>
   `;
 }
@@ -275,6 +286,8 @@ const STRATEGY_POOL_NAMES = {
   rkn_tcp: "Заблокированные сайты (TCP)",
   yt_tcp:  "YouTube (TCP)",
   gv_tcp:  "YouTube видео (TCP)",
+  quic: "QUIC (все сайты)",
+  // Имя до 16.09.2026 — встречается в старых строках состояния и в сводке.
   yt_quic: "YouTube (QUIC/UDP)",
   discord_udp: "Дискорд, голос (UDP)",
 };

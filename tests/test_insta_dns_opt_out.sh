@@ -39,5 +39,38 @@ M="$ROOT/lib/menu.sh"
 assert_eq "menu: убрать → Z2K_INSTA_DNS=0" "1" "$(grep -c 'set_flag "Z2K_INSTA_DNS" "0"' "$M")"
 assert_eq "menu: вернуть → Z2K_INSTA_DNS=1" "1" "$(grep -c 'set_flag "Z2K_INSTA_DNS" "1"' "$M")"
 
+# --- 5. пропавшие записи возвращаются, если флаг не 0 (поле 15.09.2026) ---
+# Раньше рефреш видел «записей нет» и выходил, считая, что их убрал пользователь,
+# — хотя отказ давно пишется флагом. Instagram не открывался, пока кто-нибудь не
+# ставил затравочную запись руками.
+SB5="$SB/case5"; mkdir -p "$SB5/bin" "$SB5/z2k"
+cat > "$SB5/bin/ndmc" <<EOF5
+#!/bin/sh
+case "\$*" in
+    *"show running-config"*) : ;;
+    *) echo "\$*" >> "$SB5/ndmc.log" ;;
+esac
+exit 0
+EOF5
+cat > "$SB5/bin/openssl" <<'EOF5'
+#!/bin/sh
+cat >/dev/null; echo "(stdin)= 00ff"
+EOF5
+cat > "$SB5/bin/curl" <<'EOF5'
+#!/bin/sh
+case "$*" in
+    *"/resolve"*) printf '%s' '{"results":{"instagram.com":["157.240.9.174"]}}' ;;
+    *) printf '200' ;;
+esac
+exit 0
+EOF5
+chmod +x "$SB5/bin/ndmc" "$SB5/bin/openssl" "$SB5/bin/curl"
+printf 'Z2K_INSTA_DNS=1\nZ2K_RESOLVE_SECRET=test\n' > "$SB5/z2k/config"
+Z2K_STUB_PATH="$SB5/bin" ZAPRET2_DIR="$SB5/z2k" CONFIG_FILE="$SB5/z2k/config" LOG_FILE="$SB5/refresh.log" sh "$R" >/dev/null 2>&1
+assert_eq "refresh: без записей и с флагом 1 адрес прописан заново" "1" \
+    "$(cat "$SB5/ndmc.log" 2>/dev/null | grep -c 'ip host instagram.com 157.240.9.174$')"
+assert_eq "refresh: старый сторож «нет записей — выход» не срабатывает" "0" \
+    "$(cat "$SB5/refresh.log" 2>/dev/null | grep -c 'cleared by user')"
+
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

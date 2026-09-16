@@ -117,7 +117,13 @@ ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_upd
 # не наш seam (closure §1: published snapshot не трогаем, свежесть манифеста
 # — свойство релиза). Без origin — строгий fallback на BASELINE.
 _REF="$BASELINE"
-if git -c safe.directory="$REPO" -C "$REPO" rev-parse --verify origin/z2k-enhanced >/dev/null 2>&1; then
+# origin/z2k-enhanced is a published snapshot only while it includes the
+# declared upstream BASELINE. Immediately after an upstream sync a local
+# checkout can still have the previous remote-tracking snapshot; measuring
+# from that stale ref would misclassify every accepted upstream file as an
+# adapter seam. BASELINE is the authoritative sync boundary in that case.
+if git -c safe.directory="$REPO" -C "$REPO" merge-base --is-ancestor \
+    "$BASELINE" origin/z2k-enhanced >/dev/null 2>&1; then
     _REF="origin/z2k-enhanced"
 fi
 _changed="$($_g diff --name-only "$_REF"...HEAD 2>/dev/null)"

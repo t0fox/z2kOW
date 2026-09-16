@@ -77,11 +77,11 @@ if [ "$_grc" != "0" ]; then exit "$_grc"; fi
 
 case "$ACTION" in
     apply)
-        # Разброс 0..90 мин — только плановому пути (под cron stdin не tty).
+        # Разброс 0..60 мин — только плановому пути (под cron stdin не tty).
         # Ручной (Z2K_AU_MANUAL=1) не ждёт и БЕЗ отдельного NO_JITTER:
         # manual сам по себе означает no jitter (см. contract §14).
         if [ ! -t 0 ] && [ "$AU_NO_JITTER" != "1" ] && [ "$AU_MANUAL" != "1" ]; then
-            JITTER=$(z2k_host_jitter 5400)
+            JITTER=$(z2k_host_jitter 3600)
             au_log "ночной разброс: жду ${JITTER}с"
             sleep "$JITTER"
         fi

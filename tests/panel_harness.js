@@ -107,13 +107,13 @@ const FIXTURES = {
                 stats:"1",stats_ack:"0",ppe:"1",auto_update:"1",autohostlist:"0" },
   "/strategy/pools": { ok:true, pools:[
     {pool:"rkn_tcp",custom:0,line:""},{pool:"yt_tcp",custom:1,line:"--filter-tcp=443"},
-    {pool:"gv_tcp",custom:0,line:""},{pool:"yt_quic",custom:0,line:""}] },
+    {pool:"gv_tcp",custom:0,line:""},{pool:"quic",custom:0,line:""}] },
   "/strategy/pool": { ok:true, pool:"rkn_tcp", custom:0, line:"" },
   "/state": { ok:true, entries:[
     {key:"rkn_tcp",host:"example.com|4",strategy:"3",ts:1785830000,mode:"auto"},
     {key:"yt_tcp",host:"youtube.com|4",strategy:"7",ts:1785830100,mode:"frozen"},
     {key:"discord_udp",host:"nohost",strategy:"2",ts:1785830200,mode:"auto"}] },
-  "/pools": { ok:true, pools:{rkn_tcp:50,yt_tcp:22,gv_tcp:22,yt_quic:13,discord_udp:9} },
+  "/pools": { ok:true, pools:{rkn_tcp:50,yt_tcp:22,gv_tcp:22,quic:13,discord_udp:9} },
   "/whitelist": { ok:true, domains:["gosuslugi.ru","sberbank.ru","keenetic.link"] },
   "/exclude": { ok:true, entries:["tiandycloud.com","203.0.113.0/24","2001:db8::1"] },
   "/extra-domains": { ok:true, domains:["example.org","cdnbase.com"] },

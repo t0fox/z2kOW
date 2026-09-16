@@ -23,9 +23,94 @@ const TOGGLE_DEFS = [
     desc: "На Keenetic (MediaTek) аппаратный ускоритель уводит поток в железо после первого пакета, и роутер не видит повторные ClientHello — стратегия залипает для блокировок без RST (mailsuite и т.п.). Эта опция держит окно рукопожатия на CPU только для нужных портов (родной firmware-механизм -j PPE), поэтому подбор стратегии снова работает, а общий трафик остаётся ускоренным. Работает только на совместимых Keenetic. Выключите, чтобы вернуть прежнее поведение." },
   { key: "autohostlist", name: "Автохостлист",
     desc: "Обычно обходятся только домены из списков. С этой опцией движок сам замечает, что домен не открывается, и добавляет его — найденное попадает в основной список и подхватывается штатно. Плюс: сайты вне списков начинают работать без ручных добавлений. Минус: движок судит по поведению соединения и иногда ошибается, в список может попасть домен, который просто лежал сам по себе. Это смена принципа отбора трафика целиком, поэтому по умолчанию выключено." },
+  // Час не зашит в текст: он настраивается ниже, и описание, называющее
+  // «02:00» у человека, выбравшего 05:00, врало бы прямо над селектором.
   { key: "auto_update", name: "Автообновление",
-    desc: "Ночью в 02:00 роутер сам проверяет обновления и устанавливает их. Выключите, если хотите обновляться только вручную — кнопка «Обновить» продолжит работать, и панель по-прежнему покажет, что доступна новая версия." },
+    desc: "Ночью роутер сам проверяет обновления и устанавливает их. Выключите, если хотите обновляться только вручную — кнопка «Обновить» продолжит работать, и панель по-прежнему покажет, что доступна новая версия.",
+    extra: `
+      <div class="t-sub" id="au-hour-row" hidden>
+        <label class="t-sub-label" for="au-hour">Время</label>
+        <select class="t-sub-select" id="au-hour" disabled></select>
+        <span class="t-sub-note" id="au-hour-note"></span>
+      </div>` },
 ];
+
+// Разброс запуска: z2k-auto-update.sh сдвигает старт на 0..60 минут
+// (z2k_host_jitter 3600) — одинаково для конкретного роутера, но по флоту
+// врассыпную, иначе тысяча роутеров придёт к GitHub в одну секунду.
+const AU_JITTER_MIN = 60;
+
+function auWindowText(hour) {
+  const h = Number(hour);
+  if (!Number.isInteger(h) || h < 0 || h > 23) return "";
+  const end = (h * 60 + AU_JITTER_MIN) % (24 * 60);
+  const pad = n => String(n).padStart(2, "0");
+  return `обновится между ${pad(h)}:00 и ${pad(Math.floor(end / 60))}:${pad(end % 60)} — разброс, чтобы все роутеры не пришли за обновлением одновременно`;
+}
+
+// Выбор времени имеет смысл только при включённом автообновлении, поэтому
+// строка следует за тумблером. Живёт отдельной функцией, а не внутри
+// обработчика: то же самое делает загрузка состояния и откат неудавшегося
+// переключения в toggleClick — иначе строка осталась бы от прошлого ответа.
+function auHourSync(box) {
+  const row = document.getElementById("au-hour-row");
+  if (!row || !box) return;
+  row.hidden = !box.checked;
+}
+
+// Часы, а не часы с минутами: разброс в час делает минутную точность
+// обещанием, которого механизм не даёт.
+function wireAuHour(hour, box) {
+  const sel = document.getElementById("au-hour");
+  const note = document.getElementById("au-hour-note");
+  if (!sel) return;
+  // children, а не options: список заполняется один раз, а повторный
+  // /status приходит на ту же страницу — 24 варианта не должны удваиваться.
+  if (!sel.children.length) {
+    for (let h = 0; h < 24; h++) {
+      const v = String(h).padStart(2, "0");
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = `${v}:00`;
+      sel.appendChild(o);
+    }
+  }
+  const cur = /^([01][0-9]|2[0-3])$/.test(String(hour || "")) ? String(hour) : "02";
+  sel.value = cur;
+  // Сохранённое значение держим на самом элементе: с него откатывается
+  // выбор, если запись в конфиг не прошла.
+  sel.dataset.saved = cur;
+  setLockAware(sel, false);
+  if (note) note.textContent = auWindowText(cur);
+  if (!sel.dataset.wired) {
+    sel.dataset.wired = "1";
+    sel.addEventListener("change", () => saveAuHour(sel, note));
+  }
+  auHourSync(box);
+}
+
+async function saveAuHour(sel, note) {
+  const val = sel.value;
+  const prev = sel.dataset.saved || "02";
+  if (val === prev) return;
+  sel.disabled = true;
+  try {
+    await apiPost("/update/schedule", { hour: val });
+  } catch (e) {
+    // Показанный час обязан совпадать с тем, что лежит в конфиге: иначе
+    // человек уходит со страницы уверенным, что выбрал время, а ночью
+    // сработает старое.
+    sel.value = prev;
+    if (note) note.textContent = auWindowText(prev);
+    toastErr("Не удалось сохранить время: ", e);
+    return;
+  } finally {
+    sel.disabled = false;
+  }
+  sel.dataset.saved = val;
+  if (note) note.textContent = auWindowText(val);
+  toast(`Автообновление в ${val}:00`);
+}
 
 const TOGGLE_API_NAME = {
   customd: "customd",
@@ -58,6 +143,7 @@ export async function renderToggles() {
           <div class="t-text">
             <div class="t-name">${t.name}</div>
             <div class="t-desc">${t.desc}</div>
+            ${t.extra || ""}
           </div>
           <label class="switch">
             <input type="checkbox" disabled>
@@ -183,6 +269,9 @@ export async function renderToggles() {
       });
       setLockAware($app.querySelector("#tg-enable"), true);
       setLockAware($app.querySelector("#tg-disable"), true);
+      // Селектор времени — тот же класс: не зная состояния, панель не знает
+      // и текущего часа, а запись вслепую затёрла бы выбранный.
+      setLockAware($app.querySelector("#au-hour"), true);
       errBox.hidden = false;
       errBox.innerHTML = `
         <p class="desc" style="color:var(--bad)">Не удалось прочитать состояние: ${errHtml(e)}.
@@ -214,19 +303,30 @@ export async function renderToggles() {
     const badge = $app.querySelector("#tg-state-badge");
     if (!badge) return;
     if (errBox) { errBox.hidden = true; errBox.innerHTML = ""; }
+    // Чекбокс автообновления ловим здесь же: строка с временем ходит за ним,
+    // и искать его вторым, другим селектором — способ однажды поехать врозь.
+    let auBox = null;
     TOGGLE_DEFS.forEach(t => {
       const row = $app.querySelector(`[data-key="${t.key}"]`);
       if (!row) return;
       const box = row.querySelector("input");
+      if (t.key === "auto_update") auBox = box;
       box.checked = s.toggles[t.key] === "1";
       setLockAware(box, false);
       // Повторная загрузка не должна вешать второй обработчик: два POST'а
       // на один клик — два конкурентных рестарта сервиса.
       if (!box.dataset.wired) {
         box.dataset.wired = "1";
-        box.addEventListener("change", () => toggleClick(t.key, box));
+        box.addEventListener("change", () => {
+          // Строку времени показываем сразу по клику, не дожидаясь конца
+          // джоба: ответ придёт через десяток секунд, а тумблер уже стоит
+          // в новом положении — расхождение выглядело бы как залипание.
+          if (t.key === "auto_update") auHourSync(box);
+          toggleClick(t.key, box);
+        });
       }
     });
+    wireAuHour(s.toggles && s.toggles.au_hour, auBox);
     // TG-tunnel state pill + button enable/disable matching reality.
     const tgRunning = s.tunnel && s.tunnel.running === true;
     badge.hidden = false;
@@ -494,6 +594,9 @@ async function toggleClick(key, box) {
       } else {
         toast(wanted === "1" ? "Включено" : "Выключено");
       }
+      // Чекбокс мог вернуться в прежнее положение (провал или resync) —
+      // строка с временем обязана поехать за ним.
+      if (key === "auto_update") auHourSync(box);
       if (restarts && !jobUnresolved(outcome)) setTimeout(refreshStatus, 500);
     },
   });

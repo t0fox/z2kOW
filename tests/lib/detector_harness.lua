@@ -8,8 +8,12 @@ H.tcp=function(...)
     local d=tcp(...); d.arg.failure_detector='z2k_fail_tls_alert'; d.arg.retrans='2'; return d
 end
 local udp=H.udp
+-- Ключ пула QUIC переименован 16.09.2026: yt_quic -> quic (профиль перестал
+-- быть ютубовским). В форке harness.lua держит старое имя, и тесты писали бы
+-- состояние в несуществующий у боевого конфига пул — подменяем здесь, чтобы
+-- проверять то имя, с которым код реально живёт на роутере.
 H.udp=function(...)
-    local d=udp(...); d.arg.failure_detector='z2k_fail_quic_silence'; return d
+    local d=udp(...); d.arg.failure_detector='z2k_fail_quic_silence'; d.arg.key='quic'; return d
 end
 H.hello=string.char(0x16,3,3,0,42,2,0,0,38)..string.rep('\0',38)
 H.alert=string.char(0x15,3,3,0,2,2,40)

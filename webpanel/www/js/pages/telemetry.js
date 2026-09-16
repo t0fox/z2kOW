@@ -37,7 +37,7 @@ export async function renderStatsNotice() {
     <h3>z2k отправляет обезличенную статистику</h3>
     <p class="desc">
       Раз в сутки уходит срез ротации: <strong>имя пула</strong>
-      (yt_quic, rkn_tcp…), <strong>номер стратегии</strong> и
+      (quic, rkn_tcp…), <strong>номер стратегии</strong> и
       <strong>как долго она держится</strong> — округлённо.
       Доменов, посещённых адресов и идентификатора роутера в посылке нет.
     </p>

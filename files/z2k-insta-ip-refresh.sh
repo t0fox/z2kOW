@@ -24,7 +24,9 @@
 # from install.sh on fresh install (to replace the previously-baked-in
 # defaults with live edges).
 
-export PATH=/opt/sbin:/opt/bin:/sbin:/usr/sbin:/bin:/usr/bin
+# Z2K_STUB_PATH — только для тестов: каталог со стабами встаёт перед системным
+# PATH (так же, как в S51z2k-warp). В проде переменной нет.
+export PATH="${Z2K_STUB_PATH:+$Z2K_STUB_PATH:}/opt/sbin:/opt/bin:/sbin:/usr/sbin:/bin:/usr/bin"
 
 LOG="${LOG_FILE:-/tmp/z2k-log/z2k-insta-refresh.log}"
 # CWE-59: root-owned 0700 log dir
@@ -136,20 +138,25 @@ if ! command -v ndmc >/dev/null 2>&1; then
     exit 0
 fi
 
-# 3. If the user has zero ip host records for insta, they cleared them
-#    via menu [I] — respect that, do not resurrect.
-# Сторож «пользователь всё вычистил». Смотрим записи ВСЕХ управляемых семейств,
-# а не только инстаграмных: 4pda.to добавлен 2026-08-19 и к инстаграму отношения
-# не имеет. Пока сторож смотрел только на instagram/cdninstagram, человек,
-# нажавший [I] Очистить, терял заодно и обновление адресов 4pda — а он этого
-# не выбирал.
+# 3. Сторожа «ноль записей = пользователь сам всё вычистил» здесь больше НЕТ.
+#
+# Он появился, когда отказ через меню [I] ещё нигде не записывался, и был
+# единственным способом не воскрешать удалённое. С 23.08.2026 (issue #39) отказ
+# пишется флагом Z2K_INSTA_DNS=0, и его проверка стоит выше — это решение
+# пользователя, а не догадка. Установка к тому моменту уже прошивала записи
+# заново при их отсутствии; рефреш остался последним местом со старой догадкой.
+#
+# Цена догадки — поле 15.09.2026: у человека записи пропали (не через [I]:
+# флаг остался 1), и рефреш каждый раз выходил на первом шаге, не обращаясь к
+# VPS. Instagram не открывался, а вернуть адреса могла только ручная затравка.
+# Теперь пропавшие записи прописываются заново при первом удачном обращении.
 existing=$(LD_LIBRARY_PATH= ndmc -c "show running-config" 2>/dev/null \
-    | awk '/^ip host/ && ($3 ~ /(^|\.)instagram\.com$/ || $3 ~ /(^|\.)cdninstagram\.com$/ || $3 ~ /(^|\.)4pda\.to$/) {print}')
+    | awk '/^ip host/ && ($3 ~ /(^|\.)instagram\.com$/ || $3 ~ /(^|\.)cdninstagram\.com$/ || $3 ~ /(^|\.)whatsapp\.(com|net)$/) {print}')
 if [ -z "$existing" ]; then
-    log "no existing ip host records for managed domains (cleared by user via [I]?) — exit"
-    exit 0
+    log "записей ip host для управляемых доменов нет — пропишу заново, если VPS ответит"
+else
+    log "found existing ip host records: $(printf '%s\n' "$existing" | wc -l | tr -d ' ')"
 fi
-log "found existing ip host records: $(printf '%s\n' "$existing" | wc -l | tr -d ' ')"
 
 # 4. Build request body.
 body='{"hosts":['

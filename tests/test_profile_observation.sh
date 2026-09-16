@@ -15,7 +15,7 @@ for spec in 'rkn RKN' 'yt YT' 'gv YT_GV'; do
     set -- "${spec% *}" "${spec#* }"
     awk -v prefix="manual_autocircular_$1 " 'index($0,prefix)==1 {sub(/^.* : nfqws2 /, ""); print; exit}' strats_new2.txt > "$ZAPRET2_DIR/extra_strats/TCP/$2/Strategy.txt"
 done
-awk '/^\[yt_quic_autocircular\]/{active=1;next} active && /^args=/{sub(/^args=/,"--filter-udp=443 --filter-l7=quic ");print;exit}' quic_strats.ini > "$ZAPRET2_DIR/extra_strats/UDP/YT/Strategy.txt"
+awk '/^\[quic_autocircular\]/{active=1;next} active && /^args=/{sub(/^args=/,"--filter-udp=443 --filter-l7=quic ");print;exit}' quic_strats.ini > "$ZAPRET2_DIR/extra_strats/UDP/YT/Strategy.txt"
 . ./lib/utils.sh
 . ./lib/config_official.sh
 for reset in 1 0; do

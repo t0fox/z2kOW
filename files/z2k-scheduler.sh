@@ -12,7 +12,7 @@
 # the same minute twice if we wake up multiple times within it.
 #
 # Tasks (HH:MM <command>):
-#   02:00  z2k-auto-update.sh apply       — nightly auto-update check
+#   HH:00  z2k-auto-update.sh apply       — nightly auto-update, HH=Z2K_AU_HOUR (02)
 #   03:00  z2k-stats-upload.sh             — anonymized strategy stats -> VPS
 #   03:30  z2k-tcp16-probe.sh              — блок по объёму: сети и имя на каждую
 #   04:00  z2k-update-lists.sh             — RKN/YT hostlist refresh
@@ -28,7 +28,7 @@ export PATH=/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/sbin:/usr/sbin:/bin:/
 # кнопкой в панели или пунктом меню, в окружении лежат Z2K_AU_MANUAL=1 и
 # Z2K_AU_NO_JITTER=1. Первая говорит z2k-auto-update.sh «это ручной запуск,
 # гейт не применяй» — то есть выключенное автообновление начинало срабатывать
-# каждую ночь. Вторая снимает разброс 0..90 мин и сводит такие роутеры в один
+# каждую ночь. Вторая снимает разброс 0..60 мин и сводит такие роутеры в один
 # запрос к GitHub в 02:00:00.
 #
 # Источник чинится в z2k-auto-update.sh (он снимает метки с себя), здесь —
@@ -165,6 +165,24 @@ mark_fired_in() {
     fi
     printf '%s=%s\n' "$key" "$val" >> "${file}.tmp"
     mv "${file}.tmp" "$file"
+}
+
+# Час ночного автообновления (issue #60: «нет возможности выбрать время»).
+#
+# Читаем из конфига КАЖДЫЙ РАЗ, а не один раз при старте: человек меняет час в
+# панели, и ждать перезагрузки роутера ради этого он не должен. Цена — один awk
+# в час (вызов стоит за `минуты = 00`, см. цикл ниже), а не каждые 30 секунд.
+#
+# Конфиг не исполняем: `.` затянул бы сюда весь ENABLED/NFQWS2_OPT и переопределил
+# бы переменные самого планировщика. Тот же awk-разбор, что в z2k-auto-update.sh.
+#
+# Мусор в ключе = ночное умолчание. Сравнение строковое, поэтому «2» без нуля
+# не совпало бы ни с одним тиком и автообновление тихо перестало бы приходить.
+au_hour() {
+    _auh=$(awk -F= '/^Z2K_AU_HOUR=/ {gsub(/["'"'"' ]/,"",$2); print $2; exit}' \
+           "${ZAPRET2_DIR}/config" 2>/dev/null)
+    case "$_auh" in [01][0-9]|2[0-3]) ;; *) _auh=02 ;; esac
+    printf '%s' "$_auh"
 }
 
 # Daily-cadence keys live on flash ($STATE) so a same-day reboot can't re-fire.
@@ -321,15 +339,21 @@ while true; do
     today=$(date +%Y-%m-%d)
     now_epoch=$(date +%s)
 
+    # Автообновление — в час, выбранный человеком в панели, а не в зашитые
+    # 02:00. Стоит ДО общего case: там ветки взаимоисключающие, и `*:00`
+    # перехватывал бы 03:00 у выгрузки статистики.
+    #
+    # Порядок условий не косметика: au_hour читает конфиг, и проверка минут
+    # перед ним оставляет этот awk ровно на ровных часах.
+    if [ "${hhmm#*:}" = "00" ] && [ "${hhmm%:*}" = "$(au_hour)" ] \
+       && [ "$(last_fired_for_key auto-update)" != "$today" ]; then
+        mark_fired auto-update "$today"
+        run_task auto-update "${ZAPRET2_DIR}/z2k-auto-update.sh" apply
+    fi
+
     # Daily tasks — gate on date-key so each only fires once per day even
     # if our 30s tick passes through the same minute twice.
     case "$hhmm" in
-        02:00)
-            if [ "$(last_fired_for_key auto-update)" != "$today" ]; then
-                mark_fired auto-update "$today"
-                run_task auto-update "${ZAPRET2_DIR}/z2k-auto-update.sh" apply
-            fi
-            ;;
         03:00)
             # Anonymized strategy-stats upload (gated on Z2K_STATS inside the
             # script; silent no-op on opt-out / network failure).

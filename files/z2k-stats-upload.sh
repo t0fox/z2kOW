@@ -7,7 +7,7 @@
 # rotation profiles accordingly. See vps-stats/ for the server side.
 #
 # WHAT LEAVES THE DEVICE (and nothing else):
-#   * pool key      — e.g. yt_quic / rkn_tcp / yt_tcp  (a strategy bucket name)
+#   * pool key      — e.g. quic / rkn_tcp / yt_tcp  (a strategy bucket name)
 #   * strategy slot — the integer rotation slot the pool currently sits on
 #   * dwell         — as long as the slot has been stable, ROUNDED INTO BUCKETS
 #                     (see dwell_bucket below): точная секунда не нужна для

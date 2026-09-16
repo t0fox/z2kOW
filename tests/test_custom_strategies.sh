@@ -169,7 +169,7 @@ case "$(resolve)" in SHIPPED*) ok "файл без содержимого отк
 # for every pool separately — deleting one line in the generator is otherwise
 # invisible here, and that pool silently goes back to the shipped strategy.
 _wired=0
-for _pool in rkn_tcp yt_tcp gv_tcp yt_quic; do
+for _pool in rkn_tcp yt_tcp gv_tcp quic; do
     grep -q "z2k_custom_strategy $_pool" "$CFG" && _wired=$((_wired + 1))
 done
 [ "$_wired" = 4 ] && ok "подстановка подключена для всех четырёх пулов" \

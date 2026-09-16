@@ -170,7 +170,7 @@ done
 for _limits in "8 8" "4 6"; do
     set -- "${_limits% *}" "${_limits#* }"
     _qout=$(Z2K_UDP_PKT_IN=$1 Z2K_UDP_PKT_OUT=$2 ZAPRET2_DIR="$root" generate_nfqws2_opt_from_strategies 2>/dev/null)
-    _qprof=$(printf '%s\n' "$_qout" | awk -f "$ROOT/tests/lib/nfqws2_flatten.awk" | grep -F 'key=yt_quic' | head -1)
+    _qprof=$(printf '%s\n' "$_qout" | awk -f "$ROOT/tests/lib/nfqws2_flatten.awk" | grep -F 'key=quic' | head -1)
     case "$_qprof" in
         *failure_detector=z2k_fail_quic_silence:quic_in_limit="$1":quic_out_limit="$2"*)
             ok "QUIC capture limits in=$1 out=$2 reach circular" ;;

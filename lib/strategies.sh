@@ -81,7 +81,7 @@ create_default_strategy_files() {
     # пишет ровно то, что уже лежит.
     local yt gv rkn quic p_yt p_gv p_rkn p_quic
     default_pool_numbers; yt=$Z2K_POOL_YT; gv=$Z2K_POOL_GV; rkn=$Z2K_POOL_RKN
-    quic=$(get_quic_strategy_num_by_name "yt_quic_autocircular" 2>/dev/null)
+    quic=$(get_quic_strategy_num_by_name "quic_autocircular" 2>/dev/null)
     [ -n "$quic" ] || quic=2
 
     p_yt=$(get_strategy "$yt" 2>/dev/null)
@@ -353,7 +353,7 @@ get_current_quic_profile_params() {
         # ТОТ ЖЕ АВАРИЙНЫЙ ПУЛ, ЧТО КЛАДЁТ УСТАНОВКА.
         #
         # Здесь стоял одиночный fake:blob=fake_default_quic:repeats=6 — без
-        # ротации и без key=yt_quic. При непрочитанном манифесте установка
+        # ротации и без key=quic. При непрочитанном манифесте установка
         # честно клала аварийный пул с ротацией, а поздний apply в КОНЦЕ той же
         # установки перетирал его этой статикой: пул терял запасные слоты, а
         # состояние ротации уезжало в чужую ячейку (ключ по умолчанию).
@@ -717,7 +717,7 @@ apply_autocircular_strategies() {
     local yt_tcp yt_gv rkn
     default_pool_numbers; yt_tcp=$Z2K_POOL_YT; yt_gv=$Z2K_POOL_GV; rkn=$Z2K_POOL_RKN
     local quic
-    quic=$(get_quic_strategy_num_by_name "yt_quic_autocircular")
+    quic=$(get_quic_strategy_num_by_name "quic_autocircular")
     [ -z "$quic" ] && quic=2
 
     print_header "Применение autocircular стратегий"

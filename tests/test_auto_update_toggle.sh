@@ -75,7 +75,7 @@ grep -q "ZAPRET2_DIR=\"$ROOT\"" "$UNDER_TEST" \
     && ok "фикстура: корень установки подменён" \
     || { no "фикстура: корень установки подменён" "$ROOT" "не подставился"; exit 1; }
 
-# Z2K_AU_NO_JITTER is unrelated to the toggle — it only suppresses the 0..90min
+# Z2K_AU_NO_JITTER is unrelated to the toggle — it only suppresses the 0..60min
 # nightly spread, which would otherwise make this suite sleep. Set everywhere.
 run() {
     # run <config-line-or-empty> <action> [extra-env]
@@ -124,7 +124,7 @@ case "$out" in *CHECK_RAN*) ok "проверка наличия обновлен
 # поля 12.09.2026 («автообновления у меня офф всегда», а ночью обновилось).
 #
 # Вторая метка, Z2K_AU_NO_JITTER, утекала тем же путём и снимала разброс
-# 0..90 мин — такие роутеры шли на GitHub в 02:00:00 все вместе.
+# 0..60 мин — такие роутеры шли на GitHub в 02:00:00 все вместе.
 out=$(run 'Z2K_AUTO_UPDATE_ENABLED=0' apply 'Z2K_AU_MANUAL=1')
 case "$out" in *'CHILD_ENV M=[нет]'*) ok "Z2K_AU_MANUAL не наследуется установщиком и планировщиком" ;;
                *) no "Z2K_AU_MANUAL не наследуется потомками" "M=[нет]" "$out" ;; esac
@@ -179,8 +179,42 @@ out=$(run 'Z2K_AUTO_UPDATE_ENABLED=' apply)
 case "$out" in *APPLY_RAN*) ok "пустое значение = включено (не выключаем молча)" ;;
                *) no "пустое значение = включено" "APPLY_RAN" "$out" ;; esac
 
+# --- КРИВОЙ КОНФИГ: «выключено» обязано читаться во всех видах -------------
+#
+# Замер 16.09.2026: на каждом из этих конфигов старый гейт ОТКРЫВАЛСЯ, то есть
+# роутер обновлялся ночью при выключенном тумблере. Ни один из них не выдумка:
+# так конфиг выглядит после правки руками, после редактора с CRLF и после
+# переноса флагов установщиком. Для человека все они — выключенное
+# автообновление, и молчаливое обновление ночью он считает нашим враньём.
+nightly() { # nightly <строки конфига в printf %b>; печатает ДА/НЕТ
+    printf '%b' "$1" > "$ROOT/config"
+    _o=$(env Z2K_AU_NO_JITTER=1 sh "$UNDER_TEST" apply 2>&1 </dev/null)
+    case "$_o" in *APPLY_RAN*) echo ДА ;; *) echo НЕТ ;; esac
+}
+_c() { if [ "$2" = "$3" ]; then ok "$1"; else no "$1" "$2" "$3"; fi; }
+_c "конфиг из Windows (CR в конце) — не обновляемся" НЕТ \
+   "$(nightly 'Z2K_AUTO_UPDATE_ENABLED=0\r\n')"
+_c "табуляция после нуля — не обновляемся" НЕТ \
+   "$(nightly 'Z2K_AUTO_UPDATE_ENABLED=0\t\n')"
+_c "комментарий в строке — не обновляемся" НЕТ \
+   "$(nightly 'Z2K_AUTO_UPDATE_ENABLED=0 # выключил руками\n')"
+_c "export перед ключом — не обновляемся" НЕТ \
+   "$(nightly 'export Z2K_AUTO_UPDATE_ENABLED=0\n')"
+# Две строки: оболочка при `. config` применяет ПОСЛЕДНЮЮ, а прежний awk читал
+# первую и обновлял ночью — ровно наоборот тому, что видит сам сервис.
+_c "дубликат ключа: побеждает выключение" НЕТ \
+   "$(nightly 'Z2K_AUTO_UPDATE_ENABLED=1\nZ2K_AUTO_UPDATE_ENABLED=0\n')"
+# И обратная сторона: молча выключать автообновление мы не имеем права.
+_c "похожее имя ключа не считается нашим" ДА \
+   "$(nightly 'Z2K_AUTO_UPDATE_ENABLED_OLD=0\n')"
+_c "ноль в чужом ключе не выключает обновления" ДА \
+   "$(nightly 'GAME_WARP_ENABLED=0\n')"
+
 # --- the name must not collide with the env marker --------------------------
-grep -qE '^\s*AU_ENABLED=.*Z2K_AUTO_UPDATE_ENABLED=' "$SRC" \
+grep -qE '^AU_OFF=\$\(awk' "$SRC" \
+    && ok "гейт читает конфиг сам, а не наследует решение" \
+    || no "гейт читает конфиг сам" "AU_OFF=$(awk ...)" "иное"
+grep -q 'Z2K_AUTO_UPDATE_ENABLED\[\[:space:\]\]\*=' "$SRC" \
     && ok "ключ конфига называется Z2K_AUTO_UPDATE_ENABLED" \
     || no "ключ конфига называется Z2K_AUTO_UPDATE_ENABLED" "полное имя" "иное"
 grep -qE '/\^Z2K_AUTO_UPDATE=' "$SRC" \
@@ -247,8 +281,8 @@ case "$apply_fn" in *'Z2K_AU_MANUAL=1'*) ok "кнопка «Обновить» �
                     *) no "кнопка «Обновить» помечает запуск как ручной" "Z2K_AU_MANUAL=1" "нет" ;; esac
 # Same line fixes a separate, pre-existing defect: the subshell closes stdin, so
 # the updater could not tell a button press from cron and slept the nightly
-# 0..90min jitter with an empty job log.
-case "$apply_fn" in *'Z2K_AU_NO_JITTER=1'*) ok "ручной запуск не уходит в ночной jitter (до 90 мин)" ;;
+# 0..60min jitter with an empty job log.
+case "$apply_fn" in *'Z2K_AU_NO_JITTER=1'*) ok "ручной запуск не уходит в ночной jitter (до 60 мин)" ;;
                     *) no "ручной запуск не уходит в ночной jitter" "Z2K_AU_NO_JITTER=1" "нет" ;; esac
 
 # --- фоновая задача обязана пережить смерть панели --------------------------

@@ -56,7 +56,7 @@ end
 function z2k_service_hostkey(desync)
     local host = desync.track and desync.track.hostname
     local pool = desync.arg.key
-    local video = (pool == "gv_tcp" or pool == "yt_quic" or pool == "google_tls")
+    local video = (pool == "gv_tcp" or pool == "quic" or pool == "yt_quic" or pool == "google_tls")
         and host and (host == "googlevideo.com" or host:sub(-16) == ".googlevideo.com")
     local copy, arg = {}, {}
     for k, v in pairs(desync) do copy[k] = v end

@@ -301,10 +301,10 @@ circular(nil, mk("discord_voice", nil, {hostkey = "z2k_nohost_key",
                                         l7payload = "quic_initial", sim = 2}))
 check("T8: hostless discord_voice persisted under 'nohost' via z2k_nohost_key", 2, row("discord_voice", "nohost"))
 
--- T9: QUIC initial packets persist (yt_quic) — the path that was missing before.
+-- T9: QUIC initial packets persist (quic) — the path that was missing before.
 fresh()
-circular(nil, mk("yt_quic", "googlevideo.com", {l7payload = "quic_initial", sim = 2}))
-check("T9: yt_quic QUIC-initial persisted", 2, row("yt_quic", "googlevideo.com"))
+circular(nil, mk("quic", "googlevideo.com", {l7payload = "quic_initial", sim = 2}))
+check("T9: quic QUIC-initial persisted", 2, row("quic", "googlevideo.com"))
 
 -- T10: config shrank (nstrategy beyond ctstrategy) → normalize to 1 + drop entry.
 do

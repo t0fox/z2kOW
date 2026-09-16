@@ -97,7 +97,7 @@ check_udp_thresholds проба "$3"
 EOF
 }
 
-good=$(probe 8 8 "--lua-desync=circular:fails=3:udp_in=3:udp_out=5:key=yt_quic")
+good=$(probe 8 8 "--lua-desync=circular:fails=3:udp_in=3:udp_out=5:key=quic")
 if [ -z "$good" ]; then
     ok "на здоровой конфигурации сторож молчит"
 else
@@ -105,23 +105,23 @@ else
 fi
 
 # то, что стояло у нас с июня: порог выше окна
-caught=$(probe 3 5 "--lua-desync=circular:fails=3:udp_in=8:udp_out=4:key=yt_quic")
+caught=$(probe 3 5 "--lua-desync=circular:fails=3:udp_in=8:udp_out=4:key=quic")
 case "$caught" in
     *"udp_in=8"*"недостижим"*) ok "сторож ловит udp_in выше окна (июньская конфигурация)" ;;
     *) bad "сторож пропустил udp_in=8 при окне 3, вернул: ${caught:-пусто}" ;;
 esac
 
-caught=$(probe 8 4 "--lua-desync=circular:fails=3:udp_in=3:udp_out=9:key=yt_quic")
+caught=$(probe 8 4 "--lua-desync=circular:fails=3:udp_in=3:udp_out=9:key=quic")
 case "$caught" in
     *"udp_out=9"*"недостижим"*) ok "сторож ловит udp_out выше окна" ;;
     *) bad "сторож пропустил udp_out=9 при окне 4, вернул: ${caught:-пусто}" ;;
 esac
 
 # И сам вызов обязан стоять в генераторе, иначе сторож мёртвый груз.
-if grep -q 'check_udp_thresholds yt_quic' "$SRC"; then
+if grep -q 'check_udp_thresholds quic' "$SRC"; then
     ok "сторож вызывается для пула видео"
 else
-    bad "вызова check_udp_thresholds для yt_quic в генераторе нет"
+    bad "вызова check_udp_thresholds для quic в генераторе нет"
 fi
 
 echo

@@ -91,8 +91,8 @@ case "$_last" in
     *) no "детектор последний" "--hostlist-auto в последней строке" "$(printf '%s' "$_last" | cut -c1-80)" ;;
 esac
 
-# --- 3. Профили YouTube/GV/QUIC не изменились --------------------------------
-for _marker in 'TCP/YT/List.txt' 'TCP/YT_GV/List.txt' 'UDP/YT/List.txt'; do
+# --- 3. Профили YouTube и GV не изменились -----------------------------------
+for _marker in 'TCP/YT/List.txt' 'TCP/YT_GV/List.txt'; do
     _a=$(printf '%s\n' "$OFF" | grep -F "$_marker" | head -1)
     _b=$(printf '%s\n' "$ON"  | grep -F "$_marker" | head -1)
     if [ -n "$_a" ] && [ "$_a" = "$_b" ]; then
@@ -100,6 +100,32 @@ for _marker in 'TCP/YT/List.txt' 'TCP/YT_GV/List.txt' 'UDP/YT/List.txt'; do
     else
         no "профиль с $_marker не тронут" "побайтно тот же" "разошлись"
     fi
+done
+
+# --- 3a. QUIC-профиль, наоборот, ОБЯЗАН подхватить автолист -------------------
+#
+# С 16.09.2026 пул QUIC общий: тот же профиль несёт списки РКН, дополнительные
+# домены и найденное детектором. Значит, и автохостлист он обязан получать по
+# тем же правилам, что rkn_tcp, — иначе домен, который движок нашёл сам,
+# обходится по TCP и остаётся сломанным по HTTP/3, а человек видит «нашли, но
+# не работает».
+_q_off=$(printf '%s\n' "$OFF" | grep -F 'UDP/YT/List.txt' | head -1)
+_q_on=$(printf '%s\n' "$ON"  | grep -F 'UDP/YT/List.txt' | head -1)
+case "$_q_off" in
+    *zapret-hosts-auto.txt*) no "выключен — автолиста в QUIC нет" "без автолиста" "есть" ;;
+    *) ok "выключен — QUIC-профиль без автолиста" ;;
+esac
+case "$_q_on" in
+    *zapret-hosts-auto.txt*) ok "включён — QUIC-профиль подхватил автолист" ;;
+    *) no "включён — автолист в QUIC" "--hostlist=…zapret-hosts-auto.txt" "$(printf '%s' "$_q_on" | cut -c1-120)" ;;
+esac
+# И ркн-списки в нём есть в обоих положениях тумблера — это и есть «общий пул».
+for _st in OFF ON; do
+    eval "_line=\$$( [ "$_st" = OFF ] && echo OFF || echo ON )"
+    case "$_line" in
+        *"TCP/RKN/List.txt"*) ok "QUIC несёт список РКН ($_st)" ;;
+        *) no "QUIC несёт список РКН ($_st)" "--hostlist=…TCP/RKN/List.txt" "нет" ;;
+    esac
 done
 
 # --- 4. Найденное подключено обратно ----------------------------------------

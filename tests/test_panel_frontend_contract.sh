@@ -166,7 +166,7 @@ function mkEl(key) {
     // Фокус отслеживается: «предупреждение открывается с фокусом на отказе»
     // и «после закрытия фокус вернулся» иначе не проверить ничем.
     focus() { global.document.activeElement = this; },
-    blur() {}, click() {}, insertAdjacentHTML() {}, scrollIntoView() {},
+    blur() {}, click() {}, insertAdjacentHTML(pos, h) { if (pos === "beforeend") this._h += String(h); }, scrollIntoView() {},
     fire(t, ev) { (this.listeners[t] || []).slice().forEach(f => f(ev || {})); },
   };
   return el;
@@ -237,7 +237,8 @@ global.prompt = () => null;
 const STATUS = {
   ok: true, installed: "r-73", service: "active",
   toggles: { game_warp: "0", customd: "0",
-             dynamic_ttl: "1", stats: "1", ppe: "1", auto_update: "1", autohostlist: "0" },
+             dynamic_ttl: "1", stats: "1", ppe: "1", auto_update: "1", autohostlist: "0",
+             au_hour: "02" },
   tunnel: { running: false },
 };
 const UPD_OK = { ok: true, installed: "r-73", available: "r-73", behind: 0, last_check: 0, pending: [] };
@@ -485,6 +486,100 @@ const SCENARIOS = {
       check("кнопка повторной проверки на месте", b.innerHTML.indexOf("upd-recheck") >= 0, b.innerHTML.slice(0, 160));
       check("панель не выдаёт незнание за «последнюю версию»",
             b.innerHTML.indexOf("последняя версия") < 0, b.innerHTML.slice(0, 160));
+    },
+  },
+
+  // Клик по «история версий» открывает модалку с чейнджлогом; скролл догружает порцию; Escape закрывает её.
+  update_history_modal: {
+    hash: "#/dashboard",
+    setup() {
+      ROUTER = async (p, method, url) => {
+        if (p === "/update/status") return UPD_OK;
+        if (p === "/update/history") {
+          const u = new URL(url, "http://r");
+          const off = Number(u.searchParams.get("offset") || 0);
+          if (off === 0) {
+            return { ok: true, total: 3, history: [
+              { v: "p-84.22", type: "patch", ts: "2026-09-15T19:03:30Z", desc: "First test desc" },
+              { v: "p-84.21", type: "patch", ts: "2026-09-15T16:51:02Z", desc: "Second test desc" }
+            ]};
+          }
+          return { ok: true, total: 3, history: [
+            { v: "p-84.20", type: "patch", ts: "2026-09-14T12:00:00Z", desc: "Third test desc" }
+          ]};
+        }
+        return STATUS;
+      };
+    },
+    async run() {
+      await sleep(250);
+      const link = q("#upd-history-link");
+      check("ссылка на историю версий на месте", !!link, "link=" + link);
+      link.fire("click");
+      await sleep(150);
+      const bd = document.body.children.find(c => c.className === "modal-backdrop");
+      check("модалка открылась с заголовком «История версий»",
+            bd && bd.innerHTML.indexOf("История версий") >= 0,
+            "bd=" + (bd && bd.innerHTML.slice(0, 100)));
+      const list = q("#hist-modal-list");
+      check("записи истории отображены", list && list.innerHTML.indexOf("p-84.22") >= 0,
+            list && list.innerHTML.slice(0, 160));
+      // Скролл вниз догружает следующую порцию через insertAdjacentHTML
+      list.scrollTop = 800;
+      list.clientHeight = 200;
+      list.scrollHeight = 1000;
+      list.fire("scroll");
+      await sleep(150);
+      check("скролл догрузил следующую порцию", list && list.innerHTML.indexOf("p-84.20") >= 0,
+            list && list.innerHTML.slice(0, 240));
+      document.fire("keydown", { key: "Escape", preventDefault() {} });
+      await sleep(50);
+      const left = document.body.children.find(c => c.className === "modal-backdrop");
+      check("Escape закрыл модалку истории версий", !left, "backdrop висит");
+    },
+  },
+
+  // Пустая история версий (кэша нет) не молчит, а объясняет причину и даёт кнопку «Проверить».
+  update_history_empty: {
+    hash: "#/dashboard",
+    setup() {
+      ROUTER = async (p) => {
+        if (p === "/update/status") return UPD_OK;
+        if (p === "/update/history") return { ok: true, total: 0, history: [] };
+        return STATUS;
+      };
+    },
+    async run() {
+      await sleep(250);
+      const link = q("#upd-history-link");
+      link.fire("click");
+      await sleep(150);
+      const list = q("#hist-modal-list");
+      check("пустая история сообщает причину и предлагает проверить",
+            list && list.innerHTML.indexOf("не смог сходить на GitHub") >= 0 && list.innerHTML.indexOf("hist-recheck-btn") >= 0,
+            list && list.innerHTML);
+    },
+  },
+
+  // Ошибка загрузки истории версий не прячется за «не смог сходить на GitHub», а сообщает о сбое.
+  update_history_failed: {
+    hash: "#/dashboard",
+    setup() {
+      ROUTER = async (p) => {
+        if (p === "/update/status") return UPD_OK;
+        if (p === "/update/history") throw new Error("CGI 500 failure");
+        return STATUS;
+      };
+    },
+    async run() {
+      await sleep(250);
+      const link = q("#upd-history-link");
+      link.fire("click");
+      await sleep(150);
+      const list = q("#hist-modal-list");
+      check("ошибка истории показывает сообщение об ошибке",
+            list && list.innerHTML.indexOf("Не удалось загрузить историю версий") >= 0 && list.innerHTML.indexOf("CGI 500 failure") >= 0,
+            list && list.innerHTML);
     },
   },
 
@@ -930,6 +1025,75 @@ const SCENARIOS = {
       check("человеку сказано подождать", TOASTS.some(t => /Дождитесь/.test(t)), TOASTS.join(" | "));
     },
   },
+
+  // Час ночного обновления (issue #60). Проверяется то, за что человек здесь
+  // платит вниманием: показан ли ТОТ час, что лежит в конфиге, уходит ли
+  // выбранный на роутер и совпадает ли подпись с выбором.
+  au_hour_pick: {
+    hash: "#/toggles",
+    setup() {
+      ROUTER = async (p) => {
+        if (p === "/update/schedule") return { ok: true };
+        if (p === "/policy/status") return { ok: true, name: "nfqws", exclude: "0", exists: false };
+        return { ...STATUS, toggles: { ...STATUS.toggles, au_hour: "07" } };
+      };
+    },
+    async run() {
+      await sleep(120);
+      const sel = q("#au-hour");
+      check("строка времени показана при включённом автообновлении", q("#au-hour-row").hidden === false,
+            String(q("#au-hour-row").hidden));
+      check("в списке 24 часа", sel.children.length === 24, "вариантов: " + sel.children.length);
+      check("селектор показывает час из конфига", sel.value === "07", sel.value);
+      check("подпись описывает окно запуска", /07:00 и 08:00/.test(q("#au-hour-note").textContent),
+            q("#au-hour-note").textContent);
+      sel.value = "05";
+      sel.fire("change");
+      await sleep(60);
+      const body = (BODIES["/update/schedule"] || [])[0];
+      check("выбранный час ушёл на роутер", body !== undefined && new URLSearchParams(body).get("hour") === "05", body);
+      check("подпись поехала за выбором", /05:00 и 06:00/.test(q("#au-hour-note").textContent),
+            q("#au-hour-note").textContent);
+    },
+  },
+
+  // Запись не прошла. Показанный час обязан вернуться к тому, что реально
+  // лежит в конфиге: иначе человек уходит уверенным, что выбрал время.
+  au_hour_save_failed: {
+    hash: "#/toggles",
+    setup() {
+      ROUTER = async (p) => {
+        if (p === "/update/schedule") return { ok: false, error: "save failed", __status: 500 };
+        if (p === "/policy/status") return { ok: true, name: "nfqws", exclude: "0", exists: false };
+        return STATUS;
+      };
+    },
+    async run() {
+      await sleep(120);
+      const sel = q("#au-hour");
+      sel.value = "05";
+      sel.fire("change");
+      await sleep(80);
+      check("показанный час вернулся к сохранённому", sel.value === "02", sel.value);
+      check("про отказ сказано", TOASTS.some(t => /Не удалось сохранить время/.test(t)), TOASTS.join(" | "));
+    },
+  },
+
+  // Автообновление выключено — выбирать время нечему.
+  au_hour_off: {
+    hash: "#/toggles",
+    setup() {
+      ROUTER = async (p) => {
+        if (p === "/policy/status") return { ok: true, name: "nfqws", exclude: "0", exists: false };
+        return { ...STATUS, toggles: { ...STATUS.toggles, auto_update: "0" } };
+      };
+    },
+    async run() {
+      await sleep(120);
+      check("строка времени скрыта", q("#au-hour-row").hidden === true, String(q("#au-hour-row").hidden));
+      check("ничего не сохранялось", !CALLS["/update/schedule"], "запросов: " + CALLS["/update/schedule"]);
+    },
+  },
 };
 
 (async () => {
@@ -964,11 +1128,13 @@ run_scen() {
 
 # Счётчики внутри while-пайпа теряются (subshell), поэтому считаем по выводу.
 for scen in stale_apply poller_gone outage job_refused state_race state_resort_race \
-            update_check_failed toggles_status_failed toggles_left_page \
+            update_check_failed update_history_modal update_history_empty update_history_failed \
+            toggles_status_failed toggles_left_page \
             warp_left_page \
             autohostlist_warn autohostlist_accept autohostlist_escape \
             autohostlist_dismiss autohostlist_off other_toggle_no_warn \
-            warp_interrupt_toggle warp_interrupt_transport warp_foreign_job_blocks; do
+            warp_interrupt_toggle warp_interrupt_transport warp_foreign_job_blocks \
+            au_hour_pick au_hour_save_failed au_hour_off; do
     out=$(run_scen "$JS" "$scen")
     printf '%s\n' "$out"
     PASS=$((PASS + $(printf '%s\n' "$out" | grep -c '^\[PASS\]')))
@@ -1002,6 +1168,10 @@ meta "кнопки туннеля снова живы при непрочита�
 meta "ответ после ухода со страницы снова роняет страницу" toggles_left_page '/if (!badge) return;/d'
 meta "ответ WARP после ухода со страницы снова роняет страницу" warp_left_page '/if (!grid\.isConnected) return;/d'
 meta "упавшая проверка обновлений снова прячет весь блок" update_check_failed 's/^      err = e;$/      banner.hidden = true; return;/'
+meta "Escape перестал закрывать историю версий" update_history_modal 's/if (e\.key === "Escape") {/if (false) {/'
+meta "догрузка по скроллу не дописывает в список" update_history_modal 's/listEl\.insertAdjacentHTML/return; listEl.insertAdjacentHTML/'
+meta "пустая история снова молчит" update_history_empty 's/showEmptyState()/return/'
+meta "ошибка загрузки истории выдаётся за пустой кэш" update_history_failed 's/showErrorState(e)/showEmptyState()/'
 meta "предупреждение автохостлиста снято" autohostlist_warn 's/key === "autohostlist" && wanted === "1"/false/'
 meta "запрос уходит, не дожидаясь ответа юзера" autohostlist_accept 's/const go = await confirmModal/const go = true; confirmModal/'
 meta "Escape перестал быть отказом" autohostlist_escape 's/if (e.key === "Escape") { finish(false); return; }/return;/'
@@ -1022,6 +1192,10 @@ meta "итог перебитого действия снова трогает �
 meta "перечитанный статус снова перетирает нажатое" warp_interrupt_toggle 's/if (!warpActing()) box.checked = enabled;/box.checked = enabled;/'
 meta "WARP-действия снова идут модалкой" warp_interrupt_toggle 's/^\( *\)trackJob(title, jobId, {$/\1openJobModal(title, jobId, {/'
 meta "выбор транспорта снова заперт своим же действием" warp_interrupt_transport 's/if (foreignJobsActive("warp")) {/if (_warpJob) {/'
+# Час автообновления: мутант на каждую строку, ради которой сценарий написан.
+meta "селектор перестал показывать сохранённый час" au_hour_pick 's/^ *sel\.value = cur;$//'
+meta "провал записи оставляет невыбранный час" au_hour_save_failed 's/^ *sel\.value = prev;$//'
+meta "строка времени видна при выключенном автообновлении" au_hour_off 's/row.hidden = !box.checked;/row.hidden = false;/'
 meta "чужая задача больше не запирает выбор транспорта" warp_foreign_job_blocks 's/if (foreignJobsActive("warp")) {/if (false) {/'
 # Фокус на отказе: с фокусом на «Включать» Enter по привычке включает молча.
 meta "фокус уехал на кнопку согласия" autohostlist_warn 's/^      cancelBtn\.focus();$/      okBtn.focus();/'

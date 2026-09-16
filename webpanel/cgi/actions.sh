@@ -315,7 +315,7 @@ regenerate_config() {
 # User-owned, unlike shipped Strategy.txt (whose edits an update wipes by
 # design). Read by the generator on EVERY regeneration, so they survive toggles,
 # reinstalls and auto-updates.
-STRATEGY_POOLS="rkn_tcp yt_tcp gv_tcp yt_quic discord_udp"
+STRATEGY_POOLS="rkn_tcp yt_tcp gv_tcp quic discord_udp"
 CUSTOM_STRAT_DIR="${CUSTOM_STRAT_DIR:-$ZAPRET2_DIR/lists/custom-strategies}"
 
 strategy_pool_ok() {
@@ -330,7 +330,10 @@ _strategy_pool_source() {
         rkn_tcp) printf '%s\n' "$ZAPRET2_DIR/extra_strats/TCP/RKN/Strategy.txt" ;;
         yt_tcp)  printf '%s\n' "$ZAPRET2_DIR/extra_strats/TCP/YT/Strategy.txt" ;;
         gv_tcp)  printf '%s\n' "$ZAPRET2_DIR/extra_strats/TCP/YT_GV/Strategy.txt" ;;
-        yt_quic) printf '%s\n' "$ZAPRET2_DIR/extra_strats/UDP/YT/Strategy.txt" ;;
+        # Каталог файла остался ютубовским: путь виден людям в инструкциях и
+        # в их собственных заметках, а переносить файлы ради имени ключа —
+        # ломать то, что у человека уже работает.
+        quic|yt_quic) printf '%s\n' "$ZAPRET2_DIR/extra_strats/UDP/YT/Strategy.txt" ;;
         # У голосового пула шипованного файла НЕТ: его строка живёт прямо в
         # генераторе (lib/config_official.sh, discord_udp). Дублировать её сюда
         # нельзя — две копии длинной строки разъедутся на первом же изменении,
@@ -3018,6 +3021,49 @@ update_pending_entries() {
     ' "$AU_MANIFEST_CACHE"
 }
 
+# Extract history entries in reverse chronological order (newest first).
+# Accepts offset and limit (defaults: 0, 20).
+# Outputs JSON: {"ok":true,"total":<n>,"history":[...]}
+#
+# Note: Assumes one JSON entry per line in the history array, as produced by
+# scripts/release.sh. Strips deliverable lists (changed_files, steps) to reduce payload.
+update_history_entries() {
+    local offset="${1:-0}"
+    local limit="${2:-20}"
+    local src=""
+    for cand in "$AU_MANIFEST_CACHE" "$ZAPRET2_DIR/UPDATES.json" "/opt/zapret2/UPDATES.json"; do
+        if [ -s "$cand" ]; then src="$cand"; break; fi
+    done
+    [ -n "$src" ] || { printf '{"ok":true,"total":0,"history":[]}'; return; }
+    awk -v off="$offset" -v lim="$limit" '
+        /^[[:space:]]*\{[[:space:]]*"v"[[:space:]]*:/ {
+            line = $0
+            sub(/^[[:space:]]+/, "", line)
+            sub(/[[:space:]]+$/, "", line)
+            sub(/,$/, "", line)
+            gsub(/"changed_files"[[:space:]]*:[[:space:]]*\[[^]]*\][[:space:]]*,?[[:space:]]*/, "", line)
+            gsub(/"steps"[[:space:]]*:[[:space:]]*\[[^]]*\][[:space:]]*,?[[:space:]]*/, "", line)
+            gsub(/"ref"[[:space:]]*:[[:space:]]*"[^"]*"[[:space:]]*,?[[:space:]]*/, "", line)
+            gsub(/"full_install"[[:space:]]*:[[:space:]]*(true|false)[[:space:]]*,?[[:space:]]*/, "", line)
+            sub(/,[[:space:]]*\}/, "}", line)
+            entries[++n] = line
+        }
+        END {
+            printf "{\"ok\":true,\"total\":%d,\"history\":[", n
+            start = n - off
+            end = start - lim + 1
+            if (end < 1) end = 1
+            count = 0
+            for (i = start; i >= end; i--) {
+                if (i < 1 || i > n) continue
+                printf "%s%s", (count > 0 ? "," : ""), entries[i]
+                count++
+            }
+            printf "]}"
+        }
+    ' "$src"
+}
+
 # Launch auto-update apply asynchronously, return job_id for /job?id=...
 # polling. Output streams to /tmp/z2k-job-<id>.log so the UI can tail it via
 # the existing job_log path. The real auto-update log at /opt/var/log/...
@@ -3040,7 +3086,7 @@ update_apply_async() {
     # Z2K_AU_MANUAL=1 — a human pressed the button, so this apply runs even when
     # nightly auto-update is switched off.
     #
-    # Z2K_AU_NO_JITTER=1 — the updater sleeps a deterministic 0..90min per-host
+    # Z2K_AU_NO_JITTER=1 — the updater sleeps a deterministic 0..60min per-host
     # jitter to spread the fleet's nightly GitHub hits, and it decides "this is
     # the nightly run" from stdin not being a tty. This subshell closes stdin
     # (it has to — see the note above), so a button press was indistinguishable

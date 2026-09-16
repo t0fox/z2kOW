@@ -3820,7 +3820,11 @@ step_finalize() {
     if [ -x "${ZAPRET2_DIR}/z2k-scheduler.sh" ] && [ -x /opt/etc/init.d/S99z2k-scheduler ]; then
         /opt/etc/init.d/S99z2k-scheduler restart >/dev/null 2>&1
         if pgrep -f "z2k-scheduler\.sh" >/dev/null 2>&1; then
-            print_success "Планировщик z2k запущен (auto-update 02:00, lists 04:00)"
+            # Час автообновления выбирается в панели (Z2K_AU_HOUR) и переживает
+            # переустановку — зашитые «02:00» врали бы каждому, кто его менял.
+            _sched_au_hour=$(safe_config_read "Z2K_AU_HOUR" "${ZAPRET2_DIR}/config" "02")
+            case "$_sched_au_hour" in [01][0-9]|2[0-3]) ;; *) _sched_au_hour=02 ;; esac
+            print_success "Планировщик z2k запущен (auto-update ${_sched_au_hour}:00, lists 04:00)"
         else
             print_warning "Планировщик z2k не запустился — проверьте /opt/var/log/z2k-scheduler.log"
         fi

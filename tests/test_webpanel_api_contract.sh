@@ -482,6 +482,46 @@ job_wait "$JOB"
 OUT=$(policy_post "$(urlenc "${NAME32}я")")
 assert_eq "кириллическое имя в 33 символа отклонено" "false" "$(jget "$OUT" 'd["ok"]')"
 
+printf "\n--- /update/history: контракт отдачи истории версий ---\n"
+cat > "$AU_MANIFEST_CACHE" <<'MAN'
+{
+  "current": "p-2",
+  "history": [
+    {"v": "p-1", "type": "patch", "ts": "2026-09-01T12:00:00Z", "desc": "first", "changed_files": ["a.txt"], "steps": []},
+    {"v": "p-2", "type": "patch", "ts": "2026-09-02T12:00:00Z", "desc": "second", "changed_files": ["b.txt"], "steps": []}
+  ]
+}
+MAN
+RAW=$(cgi GET /update/history "")
+OUT=$(printf '%s\n' "$RAW" | cgi_body)
+assert_eq "update/history: 200 OK" "Status: 200 OK" "$(printf '%s\n' "$RAW" | cgi_status)"
+assert_eq "update/history: Content-Type JSON" "application/json;" "$(printf '%s\n' "$RAW" | cgi_ctype)"
+assert_eq "update/history: тело — валидный JSON" "1" "$(json_ok_p "$OUT")"
+assert_eq "update/history: ok=true" "true" "$(jget "$OUT" 'd["ok"]')"
+assert_eq "update/history: total=2" "2" "$(jget "$OUT" 'd["total"]')"
+assert_eq "update/history: newest first (v=p-2)" "p-2" "$(jget "$OUT" 'd["history"][0]["v"]')"
+assert_eq "update/history: changed_files вырезано" "null" "$(jget "$OUT" 'd["history"][0].get("changed_files")')"
+assert_eq "update/history: steps вырезано" "null" "$(jget "$OUT" 'd["history"][0].get("steps")')"
+
+# Пагинация: ?offset=1&limit=1 возвращает ровно одну вторую запись
+RAW=$(cgi GET /update/history "offset=1&limit=1")
+OUT=$(printf '%s\n' "$RAW" | cgi_body)
+assert_eq "update/history: offset=1&limit=1 длина 1" "1" "$(jget "$OUT" 'len(d["history"])')"
+assert_eq "update/history: offset=1&limit=1 вторая запись (v=p-1)" "p-1" "$(jget "$OUT" 'd["history"][0]["v"]')"
+
+# Клэмп: нечисловой offset -> 0, завышенный limit -> 100
+RAW=$(cgi GET /update/history "offset=abc&limit=99999")
+OUT=$(printf '%s\n' "$RAW" | cgi_body)
+assert_eq "update/history: clamp ok=true" "true" "$(jget "$OUT" 'd["ok"]')"
+assert_eq "update/history: clamp отдал все записи" "2" "$(jget "$OUT" 'len(d["history"])')"
+
+# Пустой манифест: total=0, history=[]
+rm -f "$AU_MANIFEST_CACHE"
+OUT=$(cgi GET /update/history "" | cgi_body)
+assert_eq "update/history без кэша: ok=true" "true" "$(jget "$OUT" 'd["ok"]')"
+assert_eq "update/history без кэша: total=0" "0" "$(jget "$OUT" 'd["total"]')"
+assert_eq "update/history без кэша: history=[]" "0" "$(jget "$OUT" 'len(d["history"])')"
+
 printf "\n--- form_value / json_escape (вырезаны из api.sh) ---\n"
 # api.sh — не библиотека: source запускает диспетчер и завершает процесс.
 # Поэтому две чистые функции вырезаем из НЕГО ЖЕ (не копия, не переписывание)

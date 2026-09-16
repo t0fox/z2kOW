@@ -75,7 +75,7 @@ try:
         raise SystemExit
 
     print("READY=yes")
-    print("OK_PLAIN=%d" % post({"schema": 1, "rows": [{"pool": "yt_quic", "strategy": 1, "dwell": 99}]}))
+    print("OK_PLAIN=%d" % post({"schema": 1, "rows": [{"pool": "quic", "strategy": 1, "dwell": 99}]}))
     print("OK_BADTOKEN=%d" % post({"schema": 1, "rows": [{"pool": "a", "strategy": 1, "dwell": 1}]}, token="wrong"))
 
     # 400 одинаковых пар в одной выгрузке: каждое значение внутри объявленных
@@ -83,7 +83,7 @@ try:
     # схлопывания один запрос выдавал себя за 400 сэмплов и накручивал score
     # той пары, по которому люди решают, что двигать в начало ротации.
     print("OK_DUP=%d" % post({"schema": 1,
-                              "rows": [{"pool": "yt_quic", "strategy": 7,
+                              "rows": [{"pool": "quic", "strategy": 7,
                                         "dwell": 31536000, "count": 100000}] * 400}))
 
     # Обрыв соединения на середине. По умолчанию socketserver печатает адрес
@@ -290,7 +290,7 @@ PYEOF
 python3 -c "
 import json, sys
 good = json.dumps({'schema': 1, 'rx_date': '2026-08-15',
-                   'rows': [{'pool': 'yt_quic', 'strategy': 1, 'dwell': 600, 'count': 1}]})
+                   'rows': [{'pool': 'quic', 'strategy': 1, 'dwell': 600, 'count': 1}]})
 with open(sys.argv[1], 'w') as f:
     f.write(good + '\n' + '[' * 200000 + ']' * 200000 + '\n' + good + '\n')
 " "$WORK/agg.jsonl"

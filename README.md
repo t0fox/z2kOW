@@ -863,6 +863,7 @@ sh scripts/openwrt/gen-openwrt-manifest.sh ...
 - **b11d11**
 - **BloodKnife39**
 - **SIGogelon**
+- **yozh**
 
 **Windows:** если на iPhone или Mac сайты открываются, а на компьютере с Windows висят — [включите метки времени TCP одной командой](#4-windows-если-сайты-висят-и-не-открываются).
 
@@ -1018,7 +1019,7 @@ z2kOW не пытается заменить upstream z2k. Его задача �
   блокировки и характерные маркеры в 4xx/5xx. Заголовки и начало тела собираются
   в пределах 4096 байт. Обычные ошибки и редиректы на другой сайт нейтральны;
   2xx/304 и редирект на тот же хост сбрасывают счётчик неудач.
-- **QUIC в пулах `yt_quic`/`gv_quic`:** один Initial запускает таймер на 5 с.
+- **QUIC в пуле `quic`:** один Initial запускает таймер на 5 с.
   Новый этап рукопожатия продлевает ожидание, но суммарно не более 15 с.
   Retry, Initial и произвольный UDP-ответ не означают успех. Наблюдаемый обмен
   short-header пакетами в обе стороны завершает проверку успешно; исчерпание
@@ -1292,7 +1293,7 @@ some-blocked-site.org
 | `rkn_tcp` | Заблокированные сайты (TCP/TLS) | 50 |
 | `yt_tcp` | YouTube (TCP) | 22 |
 | `gv_tcp` | YouTube видео, googlevideo (TCP) | 22 |
-| `yt_quic` | YouTube (QUIC/UDP) | 9 |
+| `quic` | QUIC/UDP: ютуб и заблокированные сайты | 9 |
 
 Профили Telegram, Discord и HTTP так не настраиваются.
 
@@ -1321,7 +1322,7 @@ some-blocked-site.org
 /opt/zapret2/lists/custom-strategies/rkn_tcp.txt
 /opt/zapret2/lists/custom-strategies/yt_tcp.txt
 /opt/zapret2/lists/custom-strategies/gv_tcp.txt
-/opt/zapret2/lists/custom-strategies/yt_quic.txt
+/opt/zapret2/lists/custom-strategies/quic.txt
 ```
 
 Генератор читает их напрямую, так что править можно и руками — но этот путь **не проходит проверку движком**, и об ошибке вы узнаете по тому, что сервис не поднялся. Проще отредактировать файл по SSH, затем открыть раздел «Стратегии» в панели (ваш текст уже будет в поле) и нажать «Сохранить и применить» — проверка, пересборка и перезапуск произойдут сами.
@@ -1403,7 +1404,7 @@ z2k/
 ├── z2k.sh                      # Bootstrap / main installer
 ├── z2k_cleanup.sh              # Complete uninstall
 ├── strats_new2.txt             # TCP strategy database (RKN 50 / YT 22 / GV 22)
-├── quic_strats.ini             # UDP/QUIC strategy database (yt_quic + discord_voice)
+├── quic_strats.ini             # UDP/QUIC strategy database (quic + discord_voice)
 ├── lib/                        # Core modules (загружаются z2k.sh)
 │   ├── utils.sh                # Utilities, safe_config_read, z2k_fetch с 5-layer fallback
 │   ├── install.sh              # 16-step install + rollback

@@ -2,7 +2,7 @@
 # tests/test_update_jitter.sh — ночные задачи расходятся по времени, а не бьют
 # в одну минуту всем флотом.
 #
-# ЧТО СЛУЧИЛОСЬ. Разброс ночного обновления (0..90 мин) считался через `cksum`,
+# ЧТО СЛУЧИЛОСЬ. Разброс ночного обновления (0..60 мин) считался через `cksum`,
 # которого на Entware НЕТ. Строка «не посчиталось — значит ноль» превращала
 # сбой в «ноль у всех»: каждый роутер обновлялся ровно в 02:00:00. В логе
 # владельца это видно дословно — fire в 02:00:20, done в 02:00:22, две секунды
@@ -23,22 +23,22 @@ SB=$(mktemp -d); trap 'rm -rf "$SB"' EXIT
 . "$ROOT/lib/utils.sh" 2>/dev/null
 
 # --- 1. значение в диапазоне ---
-j=$(z2k_host_jitter 5400)
+j=$(z2k_host_jitter 3600)
 case "$j" in
     ''|*[!0-9]*) no "джиттер — число" "число" "[$j]" ;;
-    *) if [ "$j" -ge 0 ] && [ "$j" -lt 5400 ]; then ok "джиттер в диапазоне 0..5399 ($j)"
-       else no "джиттер в диапазоне" "0..5399" "$j"; fi ;;
+    *) if [ "$j" -ge 0 ] && [ "$j" -lt 3600 ]; then ok "джиттер в диапазоне 0..3599 ($j)"
+       else no "джиттер в диапазоне" "0..3599" "$j"; fi ;;
 esac
 
 # --- 2. стабилен на одном хосте (роутер не должен «плавать» ночь от ночи) ---
-assert_eq "джиттер стабилен между вызовами" "$j" "$(z2k_host_jitter 5400)"
+assert_eq "джиттер стабилен между вызовами" "$j" "$(z2k_host_jitter 3600)"
 
 # --- 3. разный на разных хостах ---
 mkdir -p "$SB/bin"
 mk_host() { printf '#!/bin/sh\necho %s\n' "$1" > "$SB/bin/hostname"; chmod +x "$SB/bin/hostname"; }
-mk_host Keenetic-0235; a=$(PATH="$SB/bin:$PATH" z2k_host_jitter 5400)
-mk_host Keenetic-9981; b=$(PATH="$SB/bin:$PATH" z2k_host_jitter 5400)
-mk_host Keenetic-4417; c=$(PATH="$SB/bin:$PATH" z2k_host_jitter 5400)
+mk_host Keenetic-0235; a=$(PATH="$SB/bin:$PATH" z2k_host_jitter 3600)
+mk_host Keenetic-9981; b=$(PATH="$SB/bin:$PATH" z2k_host_jitter 3600)
+mk_host Keenetic-4417; c=$(PATH="$SB/bin:$PATH" z2k_host_jitter 3600)
 if [ "$a" != "$b" ] || [ "$b" != "$c" ]; then ok "разные хосты — разное время ($a/$b/$c)"
 else no "разные хосты — разное время" "различаются" "$a/$b/$c"; fi
 
@@ -54,7 +54,7 @@ chmod +x "$SB/bin/md5sum" "$SB/bin/sha256sum" "$SB/bin/cksum"
 zeros=0; vals=""
 i=0
 while [ "$i" -lt 6 ]; do
-    v=$(PATH="$SB/bin:$PATH" sh -c ". '$ROOT/lib/utils.sh' 2>/dev/null; z2k_host_jitter 5400")
+    v=$(PATH="$SB/bin:$PATH" sh -c ". '$ROOT/lib/utils.sh' 2>/dev/null; z2k_host_jitter 3600")
     vals="$vals $v"
     [ "$v" = "0" ] && zeros=$((zeros+1))
     i=$((i+1))

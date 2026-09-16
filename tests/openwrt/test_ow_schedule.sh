@@ -44,11 +44,11 @@ assert_contains "актуальная строка" "$Z2K_CRON_TAB" "/r/platform
 # jitter: детерминирован на хосте и в окне
 # shellcheck disable=SC1090,SC1091
 . "$REPO/lib/utils.sh" >/dev/null 2>&1 || exit 1
-_j1="$(z2k_host_jitter 5400)"; _j2="$(z2k_host_jitter 5400)"
+_j1="$(z2k_host_jitter 3600)"; _j2="$(z2k_host_jitter 3600)"
 assert_eq "jitter детерминирован" "$_j1" "$_j2"
 case "$_j1" in
     ''|*[!0-9]*) _t_bad "jitter не число: $_j1" ;;
-    *) [ "$_j1" -lt 5400 ] && _t_ok || _t_bad "jitter вне окна: $_j1" ;;
+    *) [ "$_j1" -lt 3600 ] && _t_ok || _t_bad "jitter вне окна: $_j1" ;;
 esac
 
 # Makefile wire: postinst ставит cron, prerm — через uninstall-функцию
