@@ -209,8 +209,7 @@ done
         _pub=$(git -C "$HERE" show origin/z2k-enhanced:UPDATES.json 2>/dev/null \
                | sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
         _cur=$(sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$HERE/UPDATES.json" | head -1)
-        _head=$(git -C "$HERE" rev-parse HEAD 2>/dev/null)
-        if [ -n "$_rel_commit" ] && [ "$_rel_commit" != "$_head" ]; then
+        if [ -n "$_pub" ] && [ "$_pub" = "$_cur" ]; then
             ok "манифест описывает выпущенный срез, а не рабочую копию (расхождений $drift — это норма между релизами)"
         else
             no "манифест синхронен с деревом" "0 расхождений" "drift=$drift gone=$gone"
