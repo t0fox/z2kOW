@@ -16,6 +16,7 @@ AD="$REPO/platform/openwrt"
 # shellcheck disable=SC1090,SC1091
 . "$Z2K_LIB/utils.sh" || { echo "FAIL[ow-quic-regen]: utils.sh" >&2; exit 1; }
 . "$Z2K_LIB/strategies.sh" || { echo "FAIL[ow-quic-regen]: strategies.sh" >&2; exit 1; }
+. "$Z2K_LIB/config_official.sh" || { echo "FAIL[ow-quic-regen]: config_official" >&2; exit 1; }
 . "$AD/materialize.sh"
 # shellcheck disable=SC1090,SC1091
 . "$REPO/lib/release_map.sh" || { echo "FAIL[ow-quic-regen]: release_map" >&2; exit 1; }
@@ -55,5 +56,43 @@ if grep -q "repeats=77" "$CONFIG_DIR/quic_strategies.conf" 2>/dev/null; then _t_
 else _t_bad "мутация не доехала в generated conf"; fi
 if grep -q "repeats=77" "$Z2K_EXTRA_STRATS_DIR/UDP/YT/Strategy.txt" 2>/dev/null; then _t_ok
 else _t_bad "мутация не доехала в UDP/YT/Strategy.txt"; fi
+
+# 4. Custom strategy compatibility: canonical quic.txt wins over legacy
+# yt_quic.txt; when canonical is absent, the legacy file remains usable.
+mkdir -p "$Z2K_ROOT/lists/custom-strategies" || exit 1
+printf '%s\n' '--lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=91:strategy=1' \
+    > "$Z2K_ROOT/lists/custom-strategies/quic.txt"
+printf '%s\n' '--lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=88:strategy=1' \
+    > "$Z2K_ROOT/lists/custom-strategies/yt_quic.txt"
+# The generator reads supplementary flags through $ZAPRET2_DIR/config. Keep
+# this test independent from the filesystem's symlink capability (the
+# production bridge itself is covered by test_ow_generate on Linux/CI).
+cp -f "$Z2K_ROOT/share/config.default" "$Z2K_ROOT/config" || exit 1
+_ow_gen_nfq() { generate_nfqws2_opt_from_strategies; }
+# 5. The shared QUIC profile carries the complete RKN closure, while the
+# autohostlist is conditional and Discord remains on its dedicated UDP profile.
+printf '\nZ2K_AUTOHOSTLIST=1\n' >> "$Z2K_ROOT/config"
+_ow_gen_nfq >"$T/gen-ah.out" 2>"$T/gen-ah.log" || { echo "FAIL[ow-quic-regen]: autohost generate" >&2; exit 1; }
+_nfq="$(cat "$T/gen-ah.out")"
+_quic_line="$(printf '%s\n' "$_nfq" | grep -m1 -- '--hostlist=.*UDP/YT/List.txt' || true)"
+printf '%s\n' "$_quic_line" | grep -q 'repeats=91' && _t_ok || _t_bad "quic.txt не имеет приоритета над yt_quic.txt"
+printf '%s\n' "$_quic_line" | grep -q 'repeats=88' && _t_bad "legacy yt_quic.txt ошибочно перекрыл quic.txt" || _t_ok
+rm -f "$Z2K_ROOT/lists/custom-strategies/quic.txt"
+_legacy="$(z2k_custom_strategy yt_quic 2>/dev/null || true)"
+printf '%s\n' "$_legacy" | grep -q 'repeats=88' && _t_ok || _t_bad "legacy yt_quic.txt не применяется как fallback"
+for _path in \
+    "$Z2K_EXTRA_STRATS_DIR/UDP/YT/List.txt" \
+    "$Z2K_EXTRA_STRATS_DIR/TCP/RKN/List.txt" \
+    "$Z2K_LISTS_DIR/extra-domains.txt" \
+    "$Z2K_LISTS_DIR/discovered-domains.txt" \
+    "$Z2K_ROOT/ipset/zapret-hosts-auto.txt"; do
+    printf '%s\n' "$_quic_line" | grep -qF -- "--hostlist=$_path" && _t_ok || _t_bad "QUIC profile missing hostlist $_path"
+done
+printf '%s\n' "$_quic_line" | grep -q 'TCP_Discord.txt' && _t_bad "Discord hostlist попал в общий QUIC профиль" || _t_ok
+sed -i 's/^Z2K_AUTOHOSTLIST=1$/Z2K_AUTOHOSTLIST=0/' "$Z2K_ROOT/config"
+_ow_gen_nfq >"$T/gen-no-ah.out" 2>"$T/gen-no-ah.log" || { echo "FAIL[ow-quic-regen]: no-autohost generate" >&2; exit 1; }
+_nfq="$(cat "$T/gen-no-ah.out")"
+_quic_line="$(printf '%s\n' "$_nfq" | grep -m1 -- '--hostlist=.*UDP/YT/List.txt' || true)"
+printf '%s\n' "$_quic_line" | grep -qF -- "--hostlist=$Z2K_ROOT/ipset/zapret-hosts-auto.txt" && _t_bad "autohostlist подключён при Z2K_AUTOHOSTLIST=0" || _t_ok
 
 _t_done

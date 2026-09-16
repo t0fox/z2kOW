@@ -56,6 +56,9 @@ z2k_ow_bootstrap() {
             echo "z2k-openwrt: lists/whitelist.txt существует и не симлинк" >&2
             return 1
         }
+        # Create the user-owned source before linking.  BusyBox accepts a
+        # dangling link, but Windows-backed test filesystems reject it.
+        [ -e "$Z2K_USER_LISTS/whitelist.txt" ] || : > "$Z2K_USER_LISTS/whitelist.txt" || return 1
         ln -s "$Z2K_USER_LISTS/whitelist.txt" "$Z2K_LISTS_DIR/whitelist.txt" || return 1
     fi
     if [ ! -L "$Z2K_LISTS_DIR/discovered-domains.txt" ]; then
@@ -63,6 +66,7 @@ z2k_ow_bootstrap() {
             echo "z2k-openwrt: lists/discovered-domains.txt существует и не симлинк" >&2
             return 1
         }
+        [ -e "$Z2K_STATE/discovered-domains.txt" ] || : > "$Z2K_STATE/discovered-domains.txt" || return 1
         ln -s "$Z2K_STATE/discovered-domains.txt" "$Z2K_LISTS_DIR/discovered-domains.txt" || return 1
     fi
     for _f in "$Z2K_USER_LISTS/whitelist.txt" "$Z2K_STATE/discovered-domains.txt" \
