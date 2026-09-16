@@ -957,8 +957,13 @@ _warp_locked() {
 # lets a newer panel action supersede a long restart/enable while the older
 # action is still waiting, instead of timing out behind its lock.
 _warp_user_locked() {
+    local _rc _owner
     warp_op_begin
     _warp_locked "$@"
+    _rc=$?
+    _owner=$(cat "$WARP_OP_FILE" 2>/dev/null)
+    [ "$_owner" = "$$" ] && rm -f "$WARP_OP_FILE" 2>/dev/null
+    return $_rc
 }
 
 # --- supersession (p-84.18 parity): последнее user-действие побеждает ---
