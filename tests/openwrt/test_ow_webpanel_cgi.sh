@@ -289,7 +289,14 @@ assert_eq "history: payload fallback" "ow-payload" "$(_jget "$OUT" 'd["history"]
 [ ! -e "$REPO/webpanel/cgi/update-openwrt.js" ] && _t_ok || _t_bad "forbidden update-openwrt.js exists"
 
 # Common webpanel route persists the selected hour and invokes the OpenWrt
-# platform seam, which converges the existing updater marker in cron.
+# platform seam, which converges the existing updater marker in cron.  Start
+# with a deliberately old seam (the mixed-version state seen during a live
+# upgrade): api.sh must still bind the route to the package scheduler.
+awk '
+    skip { if ($0 ~ /^fi$/) skip=0; next }
+    /# The common \/update\/schedule route calls this seam/ { skip=1; next }
+    { print }
+' "$T/cgi/platform.sh" > "$T/cgi/platform.sh.old" && mv "$T/cgi/platform.sh.old" "$T/cgi/platform.sh"
 printf 'hour=11' > "$T/body.txt"
 RAW="$(_cgi POST /update/schedule "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "schedule API: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
