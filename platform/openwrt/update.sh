@@ -46,9 +46,36 @@ AU_MANUAL="${Z2K_AU_MANUAL:-0}"
 AU_NO_JITTER="${Z2K_AU_NO_JITTER:-0}"
 unset Z2K_AU_MANUAL Z2K_AU_NO_JITTER
 
+# Narrow fail-safe parser for the unattended destructive path.  Do not use
+# safe_config_read here: this gate must notice every explicit supported zero,
+# including export/spacing/comments/CRLF, and must stay conservative when a
+# config contains conflicting assignments.  It deliberately reads data only;
+# the OpenWrt config is executable shell text and must never be sourced here.
+z2k_ow_auto_update_disabled() {
+    local _cfg="${1:-${Z2K_CONFIG:-/etc/z2k/config}}"
+    [ -r "$_cfg" ] || return 1
+    awk '
+        {
+            line = $0
+            gsub(/\r/, "", line)
+            if (line !~ /^[ \t]*(export[ \t]+)?Z2K_AUTO_UPDATE_ENABLED[ \t]*=/)
+                next
+            sub(/^[ \t]*/, "", line)
+            sub(/^export[ \t]+/, "", line)
+            sub(/^Z2K_AUTO_UPDATE_ENABLED[ \t]*=[ \t]*/, "", line)
+            sub(/[ \t]*#.*/, "", line)
+            sub(/^[ \t]+/, "", line)
+            sub(/[ \t]+$/, "", line)
+            if (line == "0" || line == "\"0\"" || line == "\0470\047")
+                found = 1
+        }
+        END { exit(found ? 0 : 1) }
+    ' "$_cfg" 2>/dev/null
+}
+
 # User gate — только плановый apply; check и ручной apply идут всегда.
-AU_ENABLED=$(safe_config_read "Z2K_AUTO_UPDATE_ENABLED" "$Z2K_CONFIG" "1")
-if [ "$AU_ENABLED" = "0" ] && [ "$ACTION" = "apply" ] && [ "$AU_MANUAL" != "1" ]; then
+if z2k_ow_auto_update_disabled "$Z2K_CONFIG" \
+    && [ "$ACTION" = "apply" ] && [ "$AU_MANUAL" != "1" ]; then
     echo "Автообновление отключено в настройках — плановое обновление пропущено."
     mkdir -p "$(dirname "$Z2K_AU_LOG_FILE")" 2>/dev/null
     echo "$(date '+%Y-%m-%d %H:%M:%S') [auto-update] отключено в настройках — плановое обновление пропущено" \

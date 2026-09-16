@@ -3,7 +3,7 @@
 #
 # Выбор: cron вместо procd-демона — ноль resident-кода ради суточной задачи
 # (критерий §11: минимум custom code). Cron-строка одна, jitter — внутри
-# launcher (update.sh): cron срабатывает раз в сутки, разброс 0..90 мин
+# launcher (update.sh): cron срабатывает раз в сутки, разброс 0..60 мин
 # делает launcher. Ручной запуск — тот же launcher без jitter.
 #
 # Строка живёт в /etc/crontabs/root (задания выполняются от root; отдельные
@@ -27,7 +27,50 @@ Z2K_WARP_CRON_LINE="*/1 * * * * $Z2K_ROOT/platform/openwrt/warp-check.sh check #
 # попытка re-apply, упорный провал снимает ready. Каденс 5 минут, как TG/RT.
 Z2K_FW_CRON_LINE="*/5 * * * * $Z2K_ROOT/platform/openwrt/fw-check.sh check # z2k-fw-health"
 
+# Read the selected hour as data.  The config is a shell fragment, so never
+# source it from cron/postinst.  The last assignment wins for the normal
+# case (matching shell config semantics); an invalid last assignment falls
+# back to 02.  Quotes are accepted only around the complete two-digit value.
+z2k_ow_schedule_hour() {
+    local _cfg="${1:-${Z2K_CONFIG:-/etc/z2k/config}}" _hour
+    [ -r "$_cfg" ] || { printf '02'; return 0; }
+    _hour=$(awk '
+        function trim(s) {
+            sub(/^[ \t]+/, "", s)
+            sub(/[ \t]+$/, "", s)
+            return s
+        }
+        {
+            line = $0
+            gsub(/\r/, "", line)
+            if (line !~ /^[ \t]*(export[ \t]+)?Z2K_AU_HOUR[ \t]*=/)
+                next
+            sub(/^[ \t]*/, "", line)
+            sub(/^export[ \t]+/, "", line)
+            sub(/^Z2K_AU_HOUR[ \t]*=[ \t]*/, "", line)
+            sub(/[ \t]*#.*/, "", line)
+            line = trim(line)
+            if (line ~ /^"[0-9][0-9]"$/ || line ~ /^\047[0-9][0-9]\047$/) {
+                line = substr(line, 2, 2)
+            }
+            seen = 1
+            candidate = (line ~ /^[0-9][0-9]$/ && (line + 0) <= 23) ? line : ""
+        }
+        END {
+            print (seen && candidate != "" ? candidate : "02")
+        }
+    ' "$_cfg" 2>/dev/null)
+    case "$_hour" in
+        [01][0-9]|2[0-3]) ;;
+        *) _hour=02 ;;
+    esac
+    printf '%s' "$_hour"
+}
+
 z2k_ow_cron_install() {
+    local _hour
+    _hour=$(z2k_ow_schedule_hour "${Z2K_CONFIG:-/etc/z2k/config}") || return 1
+    Z2K_CRON_LINE="17 $_hour * * * $Z2K_ROOT/platform/openwrt/update.sh apply # z2k-updater"
     mkdir -p "$(dirname "$Z2K_CRON_TAB")" 2>/dev/null || return 1
     [ -f "$Z2K_CRON_TAB" ] || : > "$Z2K_CRON_TAB" || return 1
     # Дедупликация: схлопываем все старые marker-строки в одну актуальную

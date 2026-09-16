@@ -1477,6 +1477,10 @@ case "$method $path" in
         esac
         set_flag "Z2K_AU_HOUR" "$val" "$CONFIG_FILE" \
             || json_fail "500 Internal Server Error" "save failed"
+        if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+            z2k_ow_cron_install \
+                || json_fail "500 Internal Server Error" "schedule sync failed"
+        fi
         json_ok
         ;;
 

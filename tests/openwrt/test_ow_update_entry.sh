@@ -128,6 +128,58 @@ fi
 _call apply Z2K_AU_MANUAL=1 Z2K_AU_NO_JITTER=1
 assert_contains "ручной при выключенном идёт" "$T/calls" "apply-called"
 
+# Fail-safe parser: every supported explicit zero disables unattended apply,
+# including spacing, export, comments, CRLF, and a conflicting later zero.
+for _cfg in \
+    '  Z2K_AUTO_UPDATE_ENABLED = 0  ' \
+    'export Z2K_AUTO_UPDATE_ENABLED=0 # comment' \
+    'Z2K_AUTO_UPDATE_ENABLED="0"' \
+    "Z2K_AUTO_UPDATE_ENABLED='0'" \
+    'Z2K_AUTO_UPDATE_ENABLED=1
+Z2K_AUTO_UPDATE_ENABLED=0'; do
+    printf '%s\n' "$_cfg" > "$T/etc/config"
+    _call apply
+    if grep -q "apply-called" "$T/calls"; then
+        _t_bad "поддерживаемая форма zero обошла unattended gate: $_cfg"
+    else
+        _t_ok
+    fi
+done
+printf 'export Z2K_AUTO_UPDATE_ENABLED=0\r\n' > "$T/etc/config"
+_call apply
+if grep -q "apply-called" "$T/calls"; then
+    _t_bad "CRLF zero обошёл unattended gate"
+else
+    _t_ok
+fi
+
+# Malformed/non-disabled forms keep the normal path available.  A non-zero
+# value, an inline suffix, and mismatched quotes are outside the grammar.
+for _cfg in \
+    'Z2K_AUTO_UPDATE_ENABLED=1' \
+    'Z2K_AUTO_UPDATE_ENABLED=0extra' \
+    'Z2K_AUTO_UPDATE_ENABLED="0' \
+    "Z2K_AUTO_UPDATE_ENABLED='0"; do
+    printf '%s\n' "$_cfg" > "$T/etc/config"
+    _call apply
+    assert_contains "не-disabled форма продолжает apply" "$T/calls" "apply-called"
+done
+
+# Reverse conflict is conservative too: any supported zero is enough.
+printf 'Z2K_AUTO_UPDATE_ENABLED=0\nZ2K_AUTO_UPDATE_ENABLED=1\n' > "$T/etc/config"
+_call apply
+if grep -q "apply-called" "$T/calls"; then
+    _t_bad "zero в конфликте не остановил unattended apply"
+else
+    _t_ok
+fi
+
+# check and manual apply remain allowed for the same disabled config.
+_call check
+assert_contains "check при disabled идёт" "$T/calls" "check-called"
+_call apply Z2K_AU_MANUAL=1
+assert_contains "manual при disabled идёт" "$T/calls" "apply-called"
+
 printf 'ENABLED=1\n' > "$T/etc/config"
 _call apply
 assert_contains "плановый apply идёт" "$T/calls" "apply-called"
