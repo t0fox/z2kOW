@@ -60,13 +60,17 @@ Z2K_PANEL_CONFIG="${Z2K_PANEL_CONFIG:-$Z2K_CONFIG}"
 Z2K_PANEL_DIR="${Z2K_PANEL_DIR:-$Z2K_ETC/webpanel}"
 Z2K_PAYLOAD_MARKER="${Z2K_PAYLOAD_MARKER:-$Z2K_ETC/.payload-initialized}"
 Z2K_AU_MANIFEST_URL="${Z2K_AU_MANIFEST_URL:-$Z2K_AU_REPO_RAW/UPDATES.json}"
+# Keep the panel's cache on the same OpenWrt tmpfs namespace as the updater.
+# actions.sh is sourced afterwards, so its :- default cannot select a
+# Keenetic-era /tmp file or later fall back to an /opt manifest.
+AU_MANIFEST_CACHE="${AU_MANIFEST_CACHE:-${Z2K_AU_TMP_DIR:-$Z2K_TMP}/UPDATES.json}"
 Z2K_INIT="${Z2K_INIT:-/etc/init.d/z2k}"
 INIT_SCRIPT="${INIT_SCRIPT:-/etc/init.d/z2k}"
 export CONFIG_FILE WHITELIST_FILE EXTRA_DOMAINS_FILE EXCLUDE_FILE \
     CUSTOM_STRAT_DIR WARP_SCRIPT WARP_LISTS_DIR WARP_GAMES_DIR WARP_DEVICE \
     WARP_INIT STATE_FILE DNS_CHECK_SCRIPT DNS_CHECK_OWN Z2K_DETECT_BIN \
     AU_TAG_FILE AU_SCRIPT Z2K_PANEL_CONFIG Z2K_PANEL_DIR Z2K_PAYLOAD_MARKER \
-    Z2K_AU_MANIFEST_URL Z2K_INIT INIT_SCRIPT DEBUG_FLAG_FILE
+    Z2K_AU_MANIFEST_URL AU_MANIFEST_CACHE Z2K_INIT INIT_SCRIPT DEBUG_FLAG_FILE
 
 # sbin — вперёд при отсутствии (как update.sh): операторский PATH не сносим.
 case ":$PATH:" in
@@ -77,6 +81,13 @@ esac
 # shellcheck disable=SC1090,SC1091
 if [ -f "$Z2K_ROOT/platform/openwrt/webpanel.sh" ]; then
     . "$Z2K_ROOT/platform/openwrt/webpanel.sh" 2>/dev/null || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+fi
+# The common /update/schedule route calls this seam after persisting the
+# value.  Loading the package-owned scheduler here keeps OpenWrt cron
+# convergence in its sole platform authority; Keenetic never enters this
+# branch.
+if [ -f "$Z2K_ROOT/platform/openwrt/schedule.sh" ]; then
+    . "$Z2K_ROOT/platform/openwrt/schedule.sh" 2>/dev/null || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
 fi
 export Z2K_PLATFORM_STATUS
 

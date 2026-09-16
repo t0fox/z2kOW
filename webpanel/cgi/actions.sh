@@ -3031,9 +3031,23 @@ update_history_entries() {
     local offset="${1:-0}"
     local limit="${2:-20}"
     local src=""
-    for cand in "$AU_MANIFEST_CACHE" "$ZAPRET2_DIR/UPDATES.json" "/opt/zapret2/UPDATES.json"; do
+    # OpenWrt has its own signed channel/cache and must never display a
+    # Keenetic manifest when that cache is cold.  Preserve the legacy fallback
+    # chain byte-for-byte for Keenetic callers.
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+        _history_candidates="$AU_MANIFEST_CACHE
+$Z2K_ROOT/UPDATES.json"
+    else
+        _history_candidates="$AU_MANIFEST_CACHE
+$ZAPRET2_DIR/UPDATES.json
+/opt/zapret2/UPDATES.json"
+    fi
+    while IFS= read -r cand; do
+        [ -n "$cand" ] || continue
         if [ -s "$cand" ]; then src="$cand"; break; fi
-    done
+    done <<EOF
+$_history_candidates
+EOF
     [ -n "$src" ] || { printf '{"ok":true,"total":0,"history":[]}'; return; }
     awk -v off="$offset" -v lim="$limit" '
         /^[[:space:]]*\{[[:space:]]*"v"[[:space:]]*:/ {

@@ -116,6 +116,7 @@ chmod +x "$T/zapret2/nfq2/nfqws2"
 export Z2K_PLATFORM=openwrt Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc" Z2K_INIT="$T/mock-init"
 export Z2K_BIN="$T/root/bin" INIT_SCRIPT="$T/mock-init" ZAPRET2_DIR="$T/zapret2"
+export Z2K_CRON_TAB="$T/etc/crontabs/root"
 export WP_IP_BIN="$T/bin/ip"
 export WARP_STATUS="$T/tmp/z2k/warp-status.json"
 export WP_DHCP_LEASES="$T/leases" WP_ARP_PATH="$T/arp-empty"
@@ -258,6 +259,42 @@ export AU_TAG_FILE="$T/etc/state/installed-tag"
 RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "update: installed" "p-84.7" "$(_jget "$OUT" 'd["installed"]')"
 assert_eq "update: available" "p-84.7" "$(_jget "$OUT" 'd["available"]')"
+
+# /update/history is bound to the OpenWrt channel.  A payload manifest may be
+# used as the cold-cache fallback, but a similarly present Keenetic /opt
+# manifest must never become the source.
+cat > "$T/root/UPDATES.json" <<'EOF'
+{
+  "current": "ow-payload",
+  "history": [
+    {"v": "ow-payload", "type": "patch", "ts": "2026-09-16T01:00:00Z", "desc": "openwrt"}
+  ]
+}
+EOF
+cat > "$T/manifest.json" <<'EOF'
+{
+  "current": "ow-cache",
+  "history": [
+    {"v": "ow-cache-1", "type": "patch", "ts": "2026-09-16T02:00:00Z", "desc": "cache"},
+    {"v": "ow-cache-2", "type": "patch", "ts": "2026-09-16T03:00:00Z", "desc": "cache-new"}
+  ]
+}
+EOF
+RAW="$(_cgi GET /update/history "offset=0&limit=1")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "history: cache newest first" "ow-cache-2" "$(_jget "$OUT" 'd["history"][0]["v"]')"
+rm -f "$T/manifest.json"
+RAW="$(_cgi GET /update/history "offset=0&limit=1")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "history: payload fallback" "ow-payload" "$(_jget "$OUT" 'd["history"][0]["v"]')"
+[ ! -e "$REPO/webpanel/cgi/api-openwrt.sh" ] && _t_ok || _t_bad "forbidden api-openwrt.sh exists"
+[ ! -e "$REPO/webpanel/cgi/update-openwrt.js" ] && _t_ok || _t_bad "forbidden update-openwrt.js exists"
+
+# Common webpanel route persists the selected hour and invokes the OpenWrt
+# platform seam, which converges the existing updater marker in cron.
+printf 'hour=11' > "$T/body.txt"
+RAW="$(_cgi POST /update/schedule "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "schedule API: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
+assert_eq "schedule API: config hour" "11" "$(grep -m1 '^Z2K_AU_HOUR=' "$T/etc/config" | cut -d= -f2)"
+assert_contains "schedule API: cron converged" "$Z2K_CRON_TAB" "17 11 * * * $Z2K_ROOT/platform/openwrt/update.sh apply # z2k-updater"
 
 # --- отказы Keenetic-only (WP19/WP20/WP34-контекст): маршруты async, отказ
 # падает в job (rc != 0), немедленный ответ — только job id ---
