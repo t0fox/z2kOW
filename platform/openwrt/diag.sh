@@ -2,11 +2,16 @@
 # OpenWrt diagnostics adapter.
 # The common diagnostic calls this hook for OS-specific probes (procd/nft and
 # the OpenWrt runtime paths). No WARP+ material or other secrets are printed.
+# shellcheck disable=SC2154  # paths/env variables are supplied by env.sh.
 
 _root=$Z2K_ROOT
 [ -n "$_root" ] || _root=/usr/lib/z2k
-[ -f "$_root/platform/openwrt/paths.sh" ] && . "$_root/platform/openwrt/paths.sh" 2>/dev/null || true
-[ -f "$_root/platform/openwrt/env.sh" ] && . "$_root/platform/openwrt/env.sh" 2>/dev/null || true
+if [ -f "$_root/platform/openwrt/paths.sh" ]; then
+    . "$_root/platform/openwrt/paths.sh" 2>/dev/null || true
+fi
+if [ -f "$_root/platform/openwrt/env.sh" ]; then
+    . "$_root/platform/openwrt/env.sh" 2>/dev/null || true
+fi
 
 _cfg=$Z2K_CONFIG
 [ -n "$_cfg" ] || _cfg=/etc/z2k/config
