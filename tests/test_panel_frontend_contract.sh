@@ -532,6 +532,28 @@ const SCENARIOS = {
     },
   },
 
+  // WARP status has the same lifecycle boundary as the toggles page, but its
+  // response updates several controls after the await. Leaving the route must
+  // make the late response a no-op rather than writing into removed DOM.
+  warp_left_page: {
+    hash: "#/warp",
+    setup() {
+      ROUTER = async (p) => {
+        if (p === "/warp/status") { await sleep(250); return { ok: true, installed: true, enabled: "0", transport_mode: "auto" }; }
+        return { ok: true, lists: [], devices: "", games: [], neighbors: [] };
+      };
+    },
+    async run() {
+      const grid = q("#warp-status-grid");
+      NULL_SEL.push("#warp-switch", "#warp-actions", "#warp-install-btn",
+                    "#warp-install-note", "#warp-remove-btn", "#warp-devices-card");
+      grid.isConnected = false;
+      await sleep(500);
+      check("ответ WARP после ухода со страницы ничего не уронил",
+            UNHANDLED.length === 0, UNHANDLED.join(" | "));
+    },
+  },
+
   // Автохостлист — единственный тумблер, который сам решает, чей трафик
   // обходить. Ошибка движка выглядит для юзера как «сайт сломался», поэтому
   // включение спрашивают вслух. Пока юзер не ответил, в сеть не уходит
@@ -943,6 +965,7 @@ run_scen() {
 # Счётчики внутри while-пайпа теряются (subshell), поэтому считаем по выводу.
 for scen in stale_apply poller_gone outage job_refused state_race state_resort_race \
             update_check_failed toggles_status_failed toggles_left_page \
+            warp_left_page \
             autohostlist_warn autohostlist_accept autohostlist_escape \
             autohostlist_dismiss autohostlist_off other_toggle_no_warn \
             warp_interrupt_toggle warp_interrupt_transport warp_foreign_job_blocks; do
@@ -977,6 +1000,7 @@ meta "пересортировка снова считается новой за
 meta "отказ панели снова неотличим от обрыва связи" job_refused 's/typeof e\.httpStatus === "number"/false/'
 meta "кнопки туннеля снова живы при непрочитанном статусе" toggles_status_failed '/"#tg-enable"), true);/d; /"#tg-disable"), true);/d'
 meta "ответ после ухода со страницы снова роняет страницу" toggles_left_page '/if (!badge) return;/d'
+meta "ответ WARP после ухода со страницы снова роняет страницу" warp_left_page '/if (!grid\.isConnected) return;/d'
 meta "упавшая проверка обновлений снова прячет весь блок" update_check_failed 's/^      err = e;$/      banner.hidden = true; return;/'
 meta "предупреждение автохостлиста снято" autohostlist_warn 's/key === "autohostlist" && wanted === "1"/false/'
 meta "запрос уходит, не дожидаясь ответа юзера" autohostlist_accept 's/const go = await confirmModal/const go = true; confirmModal/'

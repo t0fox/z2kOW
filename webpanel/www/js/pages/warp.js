@@ -399,6 +399,9 @@ async function loadWarpStatus() {
     return;
   }
   if (_stale("warpStatus", seq)) return;
+  // The request may finish after the router has rendered another page. The
+  // old grid is then detached; do not write a late response into dead DOM.
+  if (!grid.isConnected) return;
   const enabled = d.enabled === "1";
   const installed = !!d.installed;
 
