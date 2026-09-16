@@ -753,7 +753,7 @@ warp_register_due() {
 }
 
 warp_install() {
-    warp_op_begin
+    warp_op_current || { warp_op_superseded; return 3; }
     warp_lists_migrate || return 1
     local _arch
     _arch=$(warp_arch) || { _wlog "unsupported architecture"; return 1; }
@@ -953,6 +953,14 @@ _warp_locked() {
     return $_rc
 }
 
+# User entry-points publish intent before waiting for the feature lock. This
+# lets a newer panel action supersede a long restart/enable while the older
+# action is still waiting, instead of timing out behind its lock.
+_warp_user_locked() {
+    warp_op_begin
+    _warp_locked "$@"
+}
+
 # --- supersession (p-84.18 parity): последнее user-действие побеждает ---
 #
 # Модель — та же, что upstream (op-file + current-checks), поверх нашего
@@ -997,7 +1005,7 @@ _z2k_ow_service_running() {
 }
 
 warp_enable() {
-    warp_op_begin
+    warp_op_current || { warp_op_superseded; return 3; }
     warp_set_flag 1
     warp_unpin_legacy
     [ -x "$WARP_BIN" ] || { _wlog "движок не установлен"; warp_set_flag 0; return 1; }
@@ -1043,7 +1051,7 @@ _z2k_ow_warp_service_reload() {
 warp_disable() {
     # Порядок (defect 1): PBR down ПЕРВЫМ -> clears -> flag 0 -> reconcile.
     # Reload при flag=1 пересоздал бы instance (окно "выключен, но работает").
-    warp_op_begin
+    warp_op_current || { warp_op_superseded; return 3; }
     warp_unpin_legacy
     warp_pbr_down
     _warp_tun_clear
@@ -1067,7 +1075,7 @@ warp_disable() {
 # сверяем supersession перед PBR. Выключенному нечего перезапускать: выбор
 # применится при включении.
 warp_restart() {
-    warp_op_begin
+    warp_op_current || { warp_op_superseded; return 3; }
     if [ "$(warp_flag)" != "1" ]; then
         return 0
     fi
@@ -1108,7 +1116,7 @@ warp_remove() {
     # Invariant: успех remove ⇒ успех disable (процесса нет, PBR нет) —
     # бинарь удаляем ТОЛЬКО после доказанного off. Провал disable = провал
     # remove, бинарь цел (W51).
-    warp_op_begin
+    warp_op_current || { warp_op_superseded; return 3; }
     warp_disable || return 1
     rm -f "$WARP_BIN" "$WARP_BIN".new.* 2>/dev/null
     warp_nft_remove full
@@ -1379,16 +1387,16 @@ _z2k_ow_warp_service_restart() {
 [ -n "$Z2K_WARP_SOURCE_ONLY" ] && return 0 2>/dev/null || true
 
 case "${1:-}" in
-    install)   _warp_locked warp_install ;;
-    enable)    _warp_locked warp_enable ;;
-    disable)   _warp_locked warp_disable ;;
-    remove)    _warp_locked warp_remove ;;
-    restart)   _warp_locked warp_restart ;;
-    license)   _warp_locked warp_license ;;
+    install)   _warp_user_locked warp_install ;;
+    enable)    _warp_user_locked warp_enable ;;
+    disable)   _warp_user_locked warp_disable ;;
+    remove)    _warp_user_locked warp_remove ;;
+    restart)   _warp_user_locked warp_restart ;;
+    license)   _warp_user_locked warp_license ;;
     status)    warp_status ;;
-    selfheal)  _warp_locked warp_selfheal ;;
-    reload-lists) _warp_locked warp_reload_lists ;;
-    ipset) _warp_locked warp_ipset ;;
+    selfheal)  _warp_user_locked warp_selfheal ;;
+    reload-lists) _warp_user_locked warp_reload_lists ;;
+    ipset) _warp_user_locked warp_ipset ;;
     migrate)   warp_migrate ;;
     *)
         echo "usage: $0 {install|enable|disable|remove|restart|license|status|selfheal|reload-lists|ipset|migrate}" >&2
