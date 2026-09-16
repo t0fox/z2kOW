@@ -1010,13 +1010,23 @@ _z2k_ow_service_running() {
 }
 
 warp_enable() {
+    local _was_enabled _need_rebuild
     warp_op_current || { warp_op_superseded; return 3; }
+    _was_enabled="$(warp_flag)"
     warp_set_flag 1
     warp_unpin_legacy
     [ -x "$WARP_BIN" ] || { _wlog "движок не установлен"; warp_set_flag 0; return 1; }
     warp_nft_sets_load || { _wlog "списки не загрузились"; warp_set_flag 0; return 1; }
     warp_nft_rules_apply || { _wlog "nft chains не встали"; warp_set_flag 0; return 1; }
-    _z2k_ow_warp_service_reload
+    _need_rebuild=0
+    if _z2k_ow_service_running && { [ "$_was_enabled" != "1" ] || ! warp_running; }; then
+        _need_rebuild=1
+    fi
+    if [ "$_need_rebuild" = "1" ]; then
+        _z2k_ow_warp_service_rebuild || return $?
+    else
+        _z2k_ow_warp_service_reload
+    fi
     _warp_wait_and_pbr
 }
 
@@ -1053,16 +1063,41 @@ _z2k_ow_warp_service_reload() {
     return 0
 }
 
+# Rebuild the owning procd service when the WARP instance must be created or
+# removed. The feature lock is released while rc.common runs so its own
+# z2k_ow_warp lifecycle calls can acquire it; the caller regains ownership
+# before it proceeds to readiness/PBR checks.
+_z2k_ow_warp_service_rebuild() {
+    local _held=0 _owner=""
+    _z2k_ow_service_running || return 0
+    _owner=$(cat "$WARP_LOCK_DIR/pid" 2>/dev/null)
+    [ "$_owner" = "$$" ] && _held=1
+    [ "$_held" = "1" ] && _z2k_ow_warp_unlock
+    _z2k_ow_warp_service_restart
+    if [ "$_held" = "1" ]; then
+        _z2k_ow_warp_lock "${WARP_LOCK_WAIT:-30}" || return 1
+        warp_op_current || { warp_op_superseded; return 3; }
+    fi
+    return 0
+}
+
 warp_disable() {
+    local _was_running
     # Порядок (defect 1): PBR down ПЕРВЫМ -> clears -> flag 0 -> reconcile.
     # Reload при flag=1 пересоздал бы instance (окно "выключен, но работает").
     warp_op_current || { warp_op_superseded; return 3; }
     warp_unpin_legacy
+    _was_running=0
+    warp_running && _was_running=1
     warp_pbr_down
     _warp_tun_clear
     _warp_mark_clear
     warp_set_flag 0
-    _z2k_ow_warp_service_reload
+    if [ "$_was_running" = "1" ] && _z2k_ow_service_running; then
+        _z2k_ow_warp_service_rebuild || return $?
+    else
+        _z2k_ow_warp_service_reload
+    fi
     # Invariant: успех disable => процесса нет (а не только flag=0).
     if warp_running; then
         _wlog "disable: процесс всё ещё жив после reconcile"
@@ -1090,12 +1125,7 @@ warp_restart() {
     fi
     # procd respawn uses the already-committed instance definition, including
     # its old env. Rebuild that definition through the owning service.
-    if _z2k_ow_service_running; then
-        _z2k_ow_warp_unlock
-        _z2k_ow_warp_service_restart
-        _z2k_ow_warp_lock "${WARP_LOCK_WAIT:-30}" || return 1
-        warp_op_current || { warp_op_superseded; return 3; }
-    fi
+    _z2k_ow_warp_service_rebuild || return $?
     _warp_wait_and_pbr
 }
 
