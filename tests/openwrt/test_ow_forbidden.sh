@@ -11,9 +11,11 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 # (ban-паттерн Layer A для CGI), а не зависимость; исполняет запрет forbidden.
 # test_ow_webpanel_package.sh — тоже: его grep-паттерн цитирует запрещённые
 # строки как данные для assert'а отсутствия, а не использует их.
+# test_ow_insta_boundary.sh — boundary test intentionally names the upstream
+# helper and its ndmc guard as data; it verifies that OpenWrt never owns it.
 _hits="$(grep -rEin 'ndmc|/opt/etc/ndm|kmod_ndms|entware|-j PPE|ipset-exclude.*PPE' \
     "$REPO/platform/openwrt" "$REPO/package/openwrt" "$REPO/tests/openwrt" \
-    | grep -v -e 'test_ow_forbidden\.sh' -e 'test_ow_webpanel_static\.sh' -e 'test_ow_webpanel_package\.sh' || true)"
+    | grep -v -e 'test_ow_forbidden\.sh' -e 'test_ow_webpanel_static\.sh' -e 'test_ow_webpanel_package\.sh' -e 'test_ow_insta_boundary\.sh' || true)"
 [ -z "$_hits" ] && _t_ok || _t_bad "Keenetic-зависимости: $_hits"
 
 # S99/keenetic/baggage — только в комментариях (атрибуция), не в коде.
