@@ -111,6 +111,7 @@ done
 . "$REPO/lib/auto_update.sh" || { echo "FAIL[ow-fresh-sysroot]: source auto_update" >&2; exit 1; }
 # shellcheck disable=SC1090,SC1091
 . "$REPO/platform/openwrt/binaries.sh" || { echo "FAIL[ow-fresh-sysroot]: source binaries" >&2; exit 1; }
+. "$REPO/platform/openwrt/manifest.sh" || { echo "FAIL[ow-fresh-sysroot]: source manifest" >&2; exit 1; }
 _goarch="$(au_bin_goarch)"
 [ -n "$_goarch" ] || { echo "FAIL[ow-fresh-sysroot]: goarch пуст на хосте" >&2; exit 1; }
 _mkbin() { # $1 dest-name -> fixture manifest path; пишет тело, печатает "path sha"
@@ -133,7 +134,16 @@ _mw="$(_mkbin "z2k-warpd" | sed 's|^mtproxy-client/builds/|z2k-warpd/builds/|')"
 printf '"%s": "%s"\n' "${_mw%% *}" "${_mw##* }" >> "$T/man.entries"
 # fixture-файл warpd лежит под mtproxy-именем; manifest ждёт z2k-warpd-путь —
 # fetch-стаб маппит по basename, warpd всё равно пропускается (absent+optional).
-{ printf '{"files_sha256": {\n'; cat "$T/man.entries"; printf '}}\n'; } > "$T/au-tmp/UPDATES.json"
+{ printf '{"current":"p-fixture","platform":"openwrt","install_map":{},"files_sha256": {\n'; cat "$T/man.entries"; printf '},"history":[]}\n'; } > "$T/au-tmp/UPDATES.json"
+# Production mode now always resolves a signed manifest pair when no embedded
+# snapshot is present.  Keep the test offline by serving the fixture through
+# that exact common fetch/verify boundary.
+cp -f "$T/au-tmp/UPDATES.json" "$T/fixture-manifest.json"
+au_fetch_pair() {
+    cp -f "$T/fixture-manifest.json" "$3" || return 1
+    printf 'signed\n' > "$4"
+}
+au_manifest_verify() { return 0; }
 # stub fetch: по basename URL отдаёт fixture-файл; считает вызовы.
 z2k_fetch() { # $1 url $2 dest — fixture transport (считает вызовы)
     printf 'x\n' >> "$T/fetch.calls"
@@ -187,6 +197,7 @@ _tg_want="$(sha256sum "$T/repo/tg-mtproxy-client-linux-${_goarch}" | awk '{print
 assert_eq "ensure replace: sha сошлась" "$_tg_want" "$(sha256sum "$Z2K_BIN/tg-mtproxy-client" | awk '{print $1}')"
 # manifest отсутствует + fetch мёртв -> громкий rc!=0, файлы целы.
 mv "$T/au-tmp/UPDATES.json" "$T/au-tmp/UPDATES.json.bak"
+au_fetch_pair() { return 1; }
 z2k_fetch() { return 1; }
 _before_tg="$(sha256sum "$Z2K_BIN/tg-mtproxy-client" | awk '{print $1}')"
 if z2k_ow_ensure_binaries >"$T/ensure4.log" 2>&1; then
@@ -196,6 +207,10 @@ else
 fi
 assert_eq "ensure fail: файлы не тронуты" "$_before_tg" "$(sha256sum "$Z2K_BIN/tg-mtproxy-client" | awk '{print $1}')"
 mv "$T/au-tmp/UPDATES.json.bak" "$T/au-tmp/UPDATES.json"
+au_fetch_pair() {
+    cp -f "$T/fixture-manifest.json" "$3" || return 1
+    printf 'signed\n' > "$4"
+}
 
 # --- D. init wiring: preflight-fail блокирует procd_open_instance ---
 # shellcheck disable=SC1090,SC1091

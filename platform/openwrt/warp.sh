@@ -583,8 +583,24 @@ warp_start_instance() {
 WARP_VPS_PROXY_DEFAULT="http://z2kwarp:z2kW4rpR3g2026@213.176.74.63:8119"
 
 # sha256 ожидаемого артефакта из ПРОВЕРЕННОГО манифеста ($1 файл, $2 arch).
+_warp_manifest_path() {
+    printf 'z2k-warpd/builds/z2k-warpd-linux-%s' "$1"
+}
+
 _warp_manifest_sha() {
-    sed -n "s/.*\"z2k-warpd\/builds\/z2k-warpd-linux-$2\"[[:space:]]*:[[:space:]]*\"\([0-9a-f]*\)\".*/\1/p" "$1" 2>/dev/null | head -1
+    if command -v z2k_ow_manifest_file_sha >/dev/null 2>&1; then
+        z2k_ow_manifest_file_sha "$1" "$(_warp_manifest_path "$2")" | tr 'A-F' 'a-f'
+    else
+        return 1
+    fi
+}
+
+_z2k_ow_manifest_helper_load() {
+    command -v z2k_ow_manifest_prepare >/dev/null 2>&1 && return 0
+    local _d="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
+    [ -r "$_d/manifest.sh" ] || return 1
+    # shellcheck disable=SC1090,SC1091
+    . "$_d/manifest.sh"
 }
 
 warp_fetch_engine() {
@@ -616,30 +632,38 @@ warp_fetch_engine() {
             rm -f "$_tmp"
             return 1
         }
-        # Тот же verified artifact contract, что у updater: manifest+sig
-        # через z2k_fetch, подпись через au_manifest_verify (z2k-verify или
-        # openssl; verifier'а нет = FAIL, никакого TOFU).
+        # Resolve the one OpenWrt manifest authority. A CI snapshot uses the
+        # package-embedded manifest and immutable commit; production uses the
+        # signed channel. The helper keeps common hash/download primitives.
         # shellcheck disable=SC1090,SC1091
         . "${Z2K_LIB:-/usr/lib/z2k/lib}/utils.sh" >/dev/null 2>&1 || return 1
         # shellcheck disable=SC1090,SC1091
         . "${Z2K_LIB:-/usr/lib/z2k/lib}/auto_update.sh" >/dev/null 2>&1 || return 1
+        _z2k_ow_manifest_helper_load || {
+            _wlog "cannot load OpenWrt manifest helper"
+            rm -f "$_tmp"
+            return 1
+        }
         local _md="$_tmp.manifest" _sg="$_tmp.manifest.sig"
-        rm -f "$_md" "$_sg"
-        au_fetch_pair "${Z2K_AU_REPO_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/z2k-enhanced-openwrt}/UPDATES.json" \
-                      "${Z2K_AU_REPO_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/z2k-enhanced-openwrt}/UPDATES.json.sig" \
-                      "$_md" "$_sg" || { _wlog "manifest fetch failed"; rm -f "$_md" "$_sg" "$_tmp"; return 1; }
-        if ! au_manifest_verify "$_md" "$_sg"; then
-            _wlog "manifest signature NOT verified (no verifier? install openssl-util or z2k-verify) — refusing"
-            rm -f "$_md" "$_sg" "$_tmp"; return 1
-        fi
+        z2k_ow_manifest_prepare "$_md" "$_arch" || {
+            _wlog "manifest authority unavailable — refusing"
+            rm -f "$_md" "$_sg" "$_tmp"
+            return 1
+        }
         _want="$(_warp_manifest_sha "$_md" "$_arch")"
-        rm -f "$_md" "$_sg"
-        [ -n "$_want" ] || { _wlog "no manifest hash for arch $_arch — refusing"; rm -f "$_tmp"; return 1; }
-        _wlog "скачиваю движок ($arch, ~7 МБ)..."
-        z2k_fetch "${Z2K_AU_REPO_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/z2k-enhanced-openwrt}/z2k-warpd/builds/z2k-warpd-linux-$_arch" "$_tmp" 2>/dev/null || {
-            _wlog "engine download failed"; rm -f "$_tmp"; return 1; }
+        [ -n "$_want" ] || { _wlog "no manifest hash for arch $_arch — refusing"; rm -f "$_md" "$_sg" "$_tmp"; return 1; }
+        local _url
+        _url=$(z2k_ow_manifest_file_url "$(_warp_manifest_path "$_arch")") || {
+            _wlog "manifest source URL unavailable — refusing"
+            rm -f "$_md" "$_sg" "$_tmp"
+            return 1
+        }
+        _wlog "скачиваю движок ($_arch, ~7 МБ)..."
+        z2k_fetch "$_url" "$_tmp" 2>/dev/null || {
+            _wlog "engine download failed"; rm -f "$_md" "$_sg" "$_tmp"; return 1; }
         _have=$(z2k_sha256_file "$_tmp" 2>/dev/null)
-        [ "$_have" = "$_want" ] || { _wlog "sha256 mismatch for engine ($arch)"; rm -f "$_tmp"; return 1; }
+        rm -f "$_md" "$_sg"
+        [ "$_have" = "$_want" ] || { _wlog "sha256 mismatch for engine ($_arch)"; rm -f "$_tmp"; return 1; }
     fi
     [ -s "$_tmp" ] || { _wlog "engine download failed"; rm -f "$_tmp"; return 1; }
     if [ -z "$WARP_FETCH_STUB" ]; then

@@ -28,6 +28,7 @@
 /etc/sysctl.d/99-z2k.conf package
 /usr/lib/z2k/platform/openwrt/paths.sh package
 /usr/lib/z2k/platform/openwrt/env.sh package
+/usr/lib/z2k/platform/openwrt/manifest.sh package
 /usr/lib/z2k/platform/openwrt/optbase.sh package
 /usr/lib/z2k/platform/openwrt/generate.sh package
 /usr/lib/z2k/platform/openwrt/bootstrap.sh package

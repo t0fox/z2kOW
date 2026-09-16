@@ -98,6 +98,7 @@ for _s in etc/init.d/z2k etc/hotplug.d/iface/90-z2k etc/z2k/config.default; do
     [ -f "$PF/$_s" ] || _missing="$_missing $_s"
 done
 for _s in platform/openwrt/paths.sh platform/openwrt/env.sh \
+          platform/openwrt/manifest.sh \
           platform/openwrt/optbase.sh platform/openwrt/generate.sh \
           platform/openwrt/bootstrap.sh platform/openwrt/materialize.sh \
           platform/openwrt/firewall.sh platform/openwrt/uci.sh \

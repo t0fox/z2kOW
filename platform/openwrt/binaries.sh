@@ -26,6 +26,14 @@
 # auto_update.sh}. Вызыватель (postinst) обязан НЕ ронять транзакцию:
 # best-effort снаружи, enforcement — в start preflight.
 
+_z2k_ow_manifest_helper_load() {
+    command -v z2k_ow_manifest_prepare >/dev/null 2>&1 && return 0
+    local _d="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
+    [ -r "$_d/manifest.sh" ] || return 1
+    # shellcheck disable=SC1090,SC1091
+    . "$_d/manifest.sh"
+}
+
 z2k_ow_ensure_binaries() {
     [ -n "${Z2K_BIN:-}" ] || {
         echo "z2k-openwrt: ensure-binaries: нет Z2K_BIN (подключите paths.sh)" >&2
@@ -41,25 +49,16 @@ z2k_ow_ensure_binaries() {
         echo "z2k-openwrt: ensure-binaries: не создаётся $Z2K_AU_TMP_DIR" >&2
         return 1
     }
-    if [ -s "$Z2K_ROOT/share/snapshot-manifest.json" ] && \
-       [ -s "$Z2K_ROOT/share/snapshot-commit" ]; then
-        cp -f "$Z2K_ROOT/share/snapshot-manifest.json" \
-            "$Z2K_AU_TMP_DIR/UPDATES.json" 2>/dev/null || {
-            echo "z2k-openwrt: ensure-binaries: snapshot-манифест не лёг" >&2
-            return 1
-        }
-        Z2K_AU_TARGET_REF="$(tr -d ' \t\r\n' < "$Z2K_ROOT/share/snapshot-commit" 2>/dev/null)"
-        case "$Z2K_AU_TARGET_REF" in
-            ''|*[!0-9a-f]*) echo "z2k-openwrt: ensure-binaries: бит snapshot-commit" >&2; return 1 ;;
-        esac
-        export Z2K_AU_TARGET_REF
-        au_manifest_platform_ok "$Z2K_AU_TMP_DIR/UPDATES.json" || return 1
+    _z2k_ow_manifest_helper_load || {
+        echo "z2k-openwrt: ensure-binaries: нет manifest helper" >&2
+        return 1
+    }
+    z2k_ow_manifest_prepare "$Z2K_AU_TMP_DIR/UPDATES.json" || {
+        echo "z2k-openwrt: ensure-binaries: не удалось подготовить манифест" >&2
+        return 1
+    }
+    if [ "${Z2K_OW_MANIFEST_MODE:-}" = snapshot ]; then
         au_log "ensure-binaries: snapshot-манифест authoritative ($Z2K_AU_TARGET_REF)"
-    elif [ ! -s "$Z2K_AU_TMP_DIR/UPDATES.json" ]; then
-        au_fetch_manifest 2>/dev/null || {
-            echo "z2k-openwrt: ensure-binaries: нет манифеста (сеть/канал?)" >&2
-            return 1
-        }
     fi
     # Только файлы, никаких owner stop/start (см. флаг): postinst не
     # стартует сервисы; владельцы на fresh-установке заведомо не запущены.

@@ -10,12 +10,16 @@ trap 'rm -rf "$T"' EXIT INT TERM
 mkdir -p "$T/root/platform/openwrt" "$T/root/lib" "$T/root/etc" "$T/etc" "$T/tmp"
 cp "$REPO/platform/openwrt/paths.sh" "$T/root/platform/openwrt/paths.sh"
 cp "$REPO/platform/openwrt/env.sh" "$T/root/platform/openwrt/env.sh"
+cp "$REPO/platform/openwrt/manifest.sh" "$T/root/platform/openwrt/manifest.sh"
 cp "$REPO/platform/openwrt/warp.sh" "$T/root/platform/openwrt/warp.sh"
 printf 'test public key\n' > "$T/root/etc/z2k-update-pub.pem"
 : > "$T/root/lib/utils.sh"
 cat > "$T/root/lib/auto_update.sh" <<'EOF'
 Z2K_AU_PUBKEY="${Z2K_AU_PUBKEY:-${ZAPRET2_DIR:-/opt/zapret2}/etc/z2k-update-pub.pem}"
-au_fetch_pair() { : > "$3"; : > "$4"; }
+au_fetch_pair() {
+    printf '{"current":"p-1","platform":"openwrt","install_map":{},"files_sha256":{},"history":[]}\n' > "$3"
+    printf 'signed\n' > "$4"
+}
 au_manifest_verify() {
     printf '%s' "$Z2K_AU_PUBKEY" > "$Z2K_WARP_TEST_CAPTURE"
     [ -s "$Z2K_AU_PUBKEY" ]

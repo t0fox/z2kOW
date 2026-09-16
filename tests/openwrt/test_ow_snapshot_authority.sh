@@ -16,18 +16,29 @@ mkdir -p "$T/bin" "$T/tmp/update"
 # shellcheck disable=SC1090,SC1091
 . "$REPO/platform/openwrt/paths.sh" || exit 1
 . "$REPO/platform/openwrt/env.sh" || exit 1
+. "$REPO/platform/openwrt/manifest.sh" || exit 1
 . "$REPO/platform/openwrt/binaries.sh" || exit 1
 # shellcheck disable=SC1090,SC1091
 . "$REPO/lib/utils.sh" || exit 1
 
 # Настоящий au недоступен изолированно — стабы именно точек ветвления:
 # fetch (канал) обязан НЕ вызываться; platform_ok и refresh — вызываются.
-au_fetch_manifest() { echo "FETCH-CALLED" >> "$T/calls"; printf '{"current":"p-99.99"}\n' > "$Z2K_AU_TMP_DIR/UPDATES.json"; return 0; }
+au_fetch_pair() {
+    echo "FETCH-PAIR-CALLED" >> "$T/calls"
+    printf '{"current":"p-99.99","platform":"openwrt","install_map":{},"files_sha256":{"z2k-warpd/builds/z2k-warpd-linux-arm64":"%s"}}\n' \
+        "$_remote_hash" > "$3"
+    printf 'signed\n' > "$4"
+    return 0
+}
+au_manifest_verify() { echo "VERIFY-CALLED" >> "$T/calls"; return 0; }
 au_manifest_platform_ok() { echo "platform-ok:$1" >> "$T/calls"; return 0; }
 au_step_refresh_binaries() { echo "refresh" >> "$T/calls"; return 0; }
 au_log() { echo "aulog:$*" >> "$T/calls"; }
 
-printf '{"current":"p-84.17","snapshot":true}\n' > "$T/root/share/snapshot-manifest.json"
+_snapshot_hash="$(printf '%064d' 0 | tr '0' 'a')"
+_remote_hash="$(printf '%064d' 0 | tr '0' 'b')"
+printf '{"current":"p-84.17","platform":"openwrt","snapshot":true,"install_map":{},"files_sha256":{"z2k-warpd/builds/z2k-warpd-linux-arm64":"%s"}}\n' \
+    "$_snapshot_hash" > "$T/root/share/snapshot-manifest.json"
 printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' > "$T/root/share/snapshot-commit"
 
 : > "$T/calls"
@@ -42,12 +53,14 @@ assert_contains "TMP манифест == snapshot" "$T/tmp/update/UPDATES.json" 
 assert_eq "TARGET_REF == snapshot-commit" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "$Z2K_AU_TARGET_REF"
 assert_contains "refresh вызван" "$T/calls" "refresh"
 
-# Без embedded snapshot — канальный путь как раньше (fetch вызывается).
+# Без embedded snapshot — production path fetches and verifies the signed pair.
 rm -f "$T/root/share/snapshot-manifest.json" "$T/root/share/snapshot-commit"
 rm -f "$T/tmp/update/UPDATES.json"
 : > "$T/calls"
 z2k_ow_ensure_binaries >/dev/null 2>&1
 assert_eq "channel rc" "0" "$?"
-assert_contains "без snapshot канал опрашивается" "$T/calls" "FETCH-CALLED"
+assert_contains "без snapshot канал опрашивается" "$T/calls" "FETCH-PAIR-CALLED"
+assert_contains "production подпись проверяется" "$T/calls" "VERIFY-CALLED"
+assert_eq "production target ref сброшен" "" "$Z2K_AU_TARGET_REF"
 
 _t_done
