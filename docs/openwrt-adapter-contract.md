@@ -87,6 +87,9 @@ merge failure propagation), `scripts/gen_file_hashes.sh` (platform-маркер
 refresh от подмены не может, content держит пересборка+sha256 каждый ран),
 `lib/strategies.sh` + `z2k.sh` + `tests/test_au_compat.sh` (busybox-safe
 tr-idiom Stage 8: замена GNU-классов явными наборами, GNU-эквивалент),
+`webpanel/www/js/pages/warp.js` + `tests/test_panel_frontend_contract.sh`
+(platform-neutral WARP detached-DOM lifecycle guard and its regression
+scenario; common frontend behavior, no OpenWrt fork),
 `README.md` (deliberate owner rewrite под адаптер; семантику подсказки
 держит test_exclude_hint_truthful, не этот guard).
 Нарушение seam'а печатается
