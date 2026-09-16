@@ -41,7 +41,8 @@ z2k_ow_uninstall() {
     rm -f "$Z2K_ETC/.payload-initialized" \
           "$Z2K_ETC/state/installed-tag" \
           "$Z2K_ETC/state/dirty-tree" \
-          "$Z2K_ETC/state/au-delivery-fails" 2>/dev/null || true
+          "$Z2K_ETC/state/au-delivery-fails" \
+          "$Z2K_ETC/state/quic-pool-key-migrated" 2>/dev/null || true
     rm -rf "$Z2K_ROOT" 2>/dev/null || true
     rm -rf "$Z2K_TMP" 2>/dev/null || true
     return 0
