@@ -50,6 +50,7 @@
 /usr/lib/z2k/platform/openwrt/warp.sh package
 /usr/lib/z2k/platform/openwrt/warp-proc.sh package
 /usr/lib/z2k/platform/openwrt/warp-check.sh package
+/usr/lib/z2k/platform/openwrt/diag.sh package
 /usr/lib/z2k/platform/openwrt/webpanel.sh package
 /usr/lib/z2k/platform/openwrt/reinstall.sh package
 /etc/init.d/z2k-webpanel package

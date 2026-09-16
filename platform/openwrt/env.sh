@@ -161,6 +161,12 @@ export Z2K_RT_EXCLUDE
 Z2K_HOSTLIST_EXCLUDE_EXTRA="${Z2K_HOSTLIST_EXCLUDE_EXTRA:-$Z2K_RT_EXCLUDE}"
 export Z2K_HOSTLIST_EXCLUDE_EXTRA
 
+# Common diagnostics delegate OS-specific probes (procd/nft/runtime paths) to
+# this tiny adapter hook.  Unset on Keenetic, so its upstream diagnostics stay
+# byte-for-byte unchanged.
+Z2K_DIAG_HOOK="${Z2K_DIAG_HOOK:-$Z2K_ADAPTER_DIR/diag.sh}"
+export Z2K_DIAG_HOOK
+
 # z2k_ow_core_ready — предикат "dataplane готов": маркер core-ready СУЩЕСТВУЕТ
 # (его создаёт start_service последним и снимает первым stop/failed start)
 # И сервис running. Reconvergence (hotplug/cron check/rules) разрешена только

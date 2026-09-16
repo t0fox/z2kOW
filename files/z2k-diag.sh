@@ -40,6 +40,10 @@ set -u
 
 ZAPRET2_DIR="${ZAPRET2_DIR:-/opt/zapret2}"
 INIT_SCRIPT="${INIT_SCRIPT:-/opt/etc/init.d/S99zapret2}"
+Z2K_DIAG_HOOK="${Z2K_DIAG_HOOK:-}"
+z2k_diag_hook() {
+    [ -n "$Z2K_DIAG_HOOK" ] && [ -x "$Z2K_DIAG_HOOK" ]
+}
 VPS_IP="${VPS_IP:-213.176.74.63}"
 
 MODE="full"
@@ -559,6 +563,10 @@ print_service() {
 # SECTION: iptables rules
 # =============================================================================
 print_iptables() {
+    if z2k_diag_hook; then
+        "$Z2K_DIAG_HOOK" firewall
+        return $?
+    fi
     printf '\n=== iptables ===\n'
     # grep -c already prints a number and returns exit 1 on 0 matches —
     # wrap in `|| true` so set -u / set -e friends don't abort and so the
@@ -648,6 +656,10 @@ print_iptables() {
 # SECTION: TG tunnel
 # =============================================================================
 print_tunnel() {
+    if z2k_diag_hook; then
+        "$Z2K_DIAG_HOOK" tunnel
+        return $?
+    fi
     printf '\n=== telegram tunnel ===\n'
     local tg_bin="/opt/sbin/tg-mtproxy-client"
     if [ -x "$tg_bin" ]; then
@@ -795,6 +807,10 @@ print_tcp16() {
 }
 
 print_warp() {
+    if z2k_diag_hook; then
+        "$Z2K_DIAG_HOOK" warp
+        return $?
+    fi
     printf '\n=== warp ===\n'
     local on bin=/opt/sbin/z2k-warpd st=/tmp/z2k-warp/status.json dev=/opt/etc/z2k-warp/device.json
     on=$(grep -m1 '^GAME_WARP_ENABLED=' "${ZAPRET2_DIR}/config" 2>/dev/null | cut -d= -f2 | tr -d '" ')
@@ -1059,6 +1075,10 @@ clock_skew_vs_relay() {
 }
 
 print_health() {
+    if z2k_diag_hook; then
+        "$Z2K_DIAG_HOOK" health
+        return $?
+    fi
     local issues=""
     _add() { issues="${issues}  [!] $1
 "; }
@@ -1379,6 +1399,10 @@ print_health() {
 # чате. Их объединяет то, что симптом всегда один и тот же («ничего не
 # работает»), а причина лежит вне z2k и по логам самого z2k не видна.
 print_platform() {
+    if z2k_diag_hook; then
+        "$Z2K_DIAG_HOOK" platform
+        return $?
+    fi
     printf '\n=== platform ===\n'
 
     # /opt на USB. После пропадания питания ext4 остаётся грязной, и Entware
@@ -1452,6 +1476,10 @@ print_platform() {
 # теряем, а переносим сюда: при разборе «сайт не обходится» это первое, что
 # надо знать, и раньше за этим приходилось лезть в отдельную вкладку.
 print_lists() {
+    if z2k_diag_hook; then
+        "$Z2K_DIAG_HOOK" lists
+        return $?
+    fi
     printf '\n=== domain lists ===\n'
     local d="${ZAPRET2_DIR}/extra_strats" f n label
     # Метки латиницей не из вредности: printf '%-18s' считает БАЙТЫ, а не
@@ -1484,6 +1512,10 @@ print_lists() {
 # SECTION: network path — почему стратегии могут не применяться
 # =============================================================================
 print_netpath() {
+    if z2k_diag_hook; then
+        "$Z2K_DIAG_HOOK" netpath
+        return $?
+    fi
     printf '\n=== network path ===\n'
 
     # ПОРТ ВЕБМОРДЫ РОУТЕРА. Панель проверяет пароль не сама — она спрашивает

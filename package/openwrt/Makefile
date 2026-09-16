@@ -182,7 +182,8 @@ define Package/z2k-adapter/install
 	$(INSTALL_BIN) $(Z2K_TREE)/platform/openwrt/update.sh $(Z2K_TREE)/platform/openwrt/tg-check.sh \
 		$(Z2K_TREE)/platform/openwrt/rt-check.sh $(Z2K_TREE)/platform/openwrt/rt-proc.sh \
 		$(Z2K_TREE)/platform/openwrt/warp.sh $(Z2K_TREE)/platform/openwrt/warp-proc.sh \
-		$(Z2K_TREE)/platform/openwrt/warp-check.sh $(Z2K_TREE)/platform/openwrt/fw-check.sh $(1)/usr/lib/z2k/platform/openwrt/
+		$(Z2K_TREE)/platform/openwrt/warp-check.sh $(Z2K_TREE)/platform/openwrt/fw-check.sh \
+		$(Z2K_TREE)/platform/openwrt/diag.sh $(1)/usr/lib/z2k/platform/openwrt/
 	sh $(Z2K_TREE)/package/openwrt/make-seed.sh $(Z2K_TREE) $(PKG_BUILD_DIR)/seed.tar.gz
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/seed.tar.gz $(1)/usr/lib/z2k/share/seed.tar.gz
 endef
