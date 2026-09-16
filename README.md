@@ -22,6 +22,8 @@
 
 </div>
 
+**Telegram-группа: [@zapret2keenetic](https://t.me/zapret2keenetic)** — вопросы, помощь с настройкой, обсуждение
+
 > [!IMPORTANT]
 > Сейчас z2kOW находится на этапе **live acceptance**. Реальные APK уже собираются pinned OpenWrt SDK 25.12.5 и полностью проходят CI, resolver и isolated-root install. Следующий этап — проверка на реальном Cudy WR3000 v1. До неё CI snapshot считается тестовой сборкой, а не публичным production-релизом.
 
