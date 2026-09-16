@@ -564,11 +564,21 @@ warp_start_instance() {
     [ -n "$_proxy" ] || _proxy="$WARP_VPS_PROXY_DEFAULT"
     procd_open_instance "z2k-warp"
     warp_with_argv _z2k_ow_warp_procd_command
-    procd_set_param env GODEBUG=asyncpreemptoff=1
-    # Транспорт — через env (движок читает Z2K_WARP_TRANSPORT сам; флагом
-    # нельзя: старое бинарное не знает --transport и упадёт на разборе).
-    procd_set_param env "Z2K_WARP_TRANSPORT=$(warp_transport)"
-    [ -n "$_proxy" ] && procd_set_param env "Z2K_WARP_VPS_PROXY=$_proxy"
+    # procd_set_param env публикует весь параметр одним блоком: повторный
+    # вызов заменяет предыдущий набор на BusyBox/OpenWrt, поэтому GODEBUG,
+    # выбранный транспорт и релей должны попасть в одну запись. Транспорт
+    # остаётся env-параметром: старое бинарное не знает --transport и упадёт
+    # на разборе такого флага.
+    if [ -n "$_proxy" ]; then
+        procd_set_param env \
+            GODEBUG=asyncpreemptoff=1 \
+            "Z2K_WARP_TRANSPORT=$(warp_transport)" \
+            "Z2K_WARP_VPS_PROXY=$_proxy"
+    else
+        procd_set_param env \
+            GODEBUG=asyncpreemptoff=1 \
+            "Z2K_WARP_TRANSPORT=$(warp_transport)"
+    fi
     procd_set_param pidfile "${Z2K_RUN:-/tmp/z2k/runtime}/warpd.pid"
     # Bounded respawn как TG/RT (доказательство: procd/service/instance.c):
     # threshold 3600 / timeout 5 / retry 5; crash-loop halt'ится, не штормит.

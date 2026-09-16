@@ -73,7 +73,10 @@ procd_close_instance() { :; }
 printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_TRANSPORT=h2\n' > "$T/etc/config"
 : > "$T/calls"
 warp_start_instance >/dev/null 2>&1
-assert_contains "instance env transport" "$T/calls" "param:env Z2K_WARP_TRANSPORT=h2"
+assert_contains "instance env transport" "$T/calls" "Z2K_WARP_TRANSPORT=h2"
+assert_eq "instance env is one procd block" "1" "$(grep -c '^param:env ' "$T/calls")"
+assert_contains "instance env carries runtime tuning" "$T/calls" "param:env GODEBUG=asyncpreemptoff=1"
+assert_contains "instance env carries relay" "$T/calls" "Z2K_WARP_VPS_PROXY=http://"
 
 # --- 2. restart: disabled = noop; enabled = pbr-down, bounce, wait ---
 printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
