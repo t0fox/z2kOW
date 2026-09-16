@@ -32,6 +32,7 @@
 /usr/lib/z2k/platform/openwrt/optbase.sh package
 /usr/lib/z2k/platform/openwrt/generate.sh package
 /usr/lib/z2k/platform/openwrt/bootstrap.sh package
+/usr/lib/z2k/platform/openwrt/state.sh package
 /usr/lib/z2k/platform/openwrt/materialize.sh package
 /usr/lib/z2k/platform/openwrt/firewall.sh package
 /usr/lib/z2k/platform/openwrt/fw-check.sh package
@@ -75,6 +76,7 @@
 /etc/z2k/state/installed-tag install-meta
 /etc/z2k/state/dirty-tree install-meta
 /etc/z2k/state/au-delivery-fails install-meta
+/etc/z2k/state/quic-pool-key-migrated install-meta
 /etc/z2k/.trust/pinned trust
 /etc/z2k/state/state.tsv daemon-state
 /etc/z2k/state/discovered-domains.txt daemon-state

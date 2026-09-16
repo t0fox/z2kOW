@@ -24,6 +24,7 @@ z2k_load_adapter() {
     . "$Z2K_ROOT/platform/openwrt/uci.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/bootstrap.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/generate.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/state.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/optbase.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/firewall.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/tg.sh" || return 1
@@ -101,6 +102,14 @@ start_service() {
     # Preflight runtime ДО всего: отсутствующий движок обязан ронять start
     # здесь с точной причиной, а не job exit=0 + exit=127 потом (live-урок).
     z2k_ow_runtime_preflight || return 1
+
+    # nfqws2 reads rotation state during Lua init, so migrate before procd
+    # instance creation. A busy lock fails the start and is retried next boot.
+    # Keep the lifecycle test seam usable with a deliberately minimal loader;
+    # packaged OpenWrt always loads state.sh above in z2k_load_adapter.
+    if command -v z2k_ow_migrate_quic_state >/dev/null 2>&1; then
+        z2k_ow_migrate_quic_state || return 1
+    fi
 
     # core-ready снимаем ПЕРВЫМ: дальше — либо новый ready в самом конце,
     # либо его отсутствие при любом провале (деградация видна /status).
