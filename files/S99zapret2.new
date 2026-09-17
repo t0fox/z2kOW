@@ -501,6 +501,38 @@ _z2k_migrate_quic_pool_key()
 	return 0
 }
 
+# ДОЗАПИСЬ ДОМЕНОВ KEENETIC В БЕЛЫЙ СПИСОК (16.09.2026).
+#
+# keenetic.name, mykeenetic.com/.net/.ru, netcraze.net и crazedns.ru — имена, по
+# которым человек заходит в морду СВОЕГО роутера. Обход на них не нужен и
+# вреден: блокировки там нет, а рвущееся рукопожатие выглядит как «роутер
+# недоступен».
+#
+# ЗДЕСЬ, А НЕ ТОЛЬКО В УСТАНОВЩИКЕ. Список доменов заводит create_base_config
+# (lib/config.sh), а её зовёт только полная установка. Патч её не запускает —
+# значит у всех, кто уже стоит, дозапись не случилась бы никогда, и правка
+# доехала бы лишь до новых установок. Init приезжает вместе с обновлением и
+# стартует сразу после него.
+#
+# Дозапись одноразовая по содержимому файла, а не по отметке: человек правит
+# белый список руками, и если он эти строки СНЯЛ — вернуть их значит переспорить
+# его решение. Поэтому сторож — на весь блок сразу (crazedns.ru), как в
+# установщике.
+_z2k_whitelist_keenetic()
+{
+	local wl="${LISTS_DIR:-$ZAPRET_BASE/lists}/whitelist.txt"
+	[ -f "$wl" ] || return 0
+	grep -q '^crazedns\.ru$' "$wl" 2>/dev/null && return 0
+	# Файл читает демон по mtime, поэтому дописываем ДО его старта.
+	{
+		printf '\n# === Keenetic: остальные имена облака и KeenDNS ===\n'
+		printf 'keenetic.name\nmykeenetic.com\nmykeenetic.net\nmykeenetic.ru\n'
+		printf 'netcraze.net\ncrazedns.ru\n'
+	} >> "$wl" 2>/dev/null \
+		&& echo "whitelist: добавлены домены Keenetic/KeenDNS"
+	return 0
+}
+
 repair_autocircular_files_after_daemon_start()
 {
 	# nfqws2 can touch autocircular files very early during boot/restart.
@@ -2625,6 +2657,8 @@ start()
     # Результат больше НЕ игнорируется: раньше здесь стоял голый вызов, и ниже
     # безусловно печаталось «service started» + return 0 — отсюда зелёная панель
     # при мёртвом обходе.
+    _z2k_whitelist_keenetic
+
     # Перенос ключа пула QUIC — строго ДО подъёма демона: он читает state.tsv
     # при старте, и правка файла под работающим демоном была бы гонкой с его
     # собственным снимком.

@@ -173,11 +173,18 @@ const ENTRIES = [
   { key: "rkn_tcp", host: "2a00:1450::200e|6",             strategy: "1", ts: NOW - 900, mode: "auto" },
   { key: "rkn_tcp", host: "cdn.discordapp.com|4",          strategy: "1", ts: NOW - 900, mode: "auto" },
   { key: "discord_udp", host: "nohost",                    strategy: "1", ts: NOW - 900, mode: "auto" },
+  // Тот же домен в ДРУГОМ пуле: у quic свой арсенал, и складывать такие строки
+  // в одну группу нельзя — сводка стратегий стала бы про разные наборы.
+  { key: "quic", host: "latency.discord.media|4",           strategy: "3", ts: NOW - 900, mode: "auto" },
+  { key: "quic", host: "finland10000.discord.media|4",      strategy: "1", ts: NOW - 900, mode: "auto" },
 ];
 const CALLS = {};
-global.fetch = async (url) => {
-  const p = String(url).replace(/^.*\/cgi-bin\/api/, "").split("?")[0];
+const REQS = [];
+global.fetch = async (url, init) => {
+  const full = String(url).replace(/^.*\/cgi-bin\/api/, "");
+  const p = full.split("?")[0];
   CALLS[p] = (CALLS[p] || 0) + 1;
+  REQS.push({ path: p, url: full, body: init && init.body ? String(init.body) : "" });
   let body = { ok: true };
   if (p === "/state") body = { ok: true, entries: ENTRIES };
   if (p === "/pools") body = { ok: true, pools: { rkn_tcp: 50 } };
@@ -193,11 +200,18 @@ function blocks(html) {
   let m;
   while ((m = re.exec(html))) {
     const attrs = m[1];
-    const g = (attrs.match(/data-group="([^"]*)"/) || [])[1] || "";
+    // data-group с 16.09.2026 — СОСТАВНОЙ ключ «пул\u0000домен»: один и тот же
+    // домен в разных пулах это разные группы (номера стратегий у пулов свои).
+    // Раскладываем, чтобы проверки ниже оставались про домен.
+    const graw = (attrs.match(/data-group="([^"]*)"/) || [])[1] || "";
+    const gparts = graw.split("\u0000");
+    const g = gparts.length > 1 ? gparts[1] : graw;
+    const gpool = gparts.length > 1 ? gparts[0] : "";
     const cls = (attrs.match(/class="([^"]*)"/) || [])[1] || "";
     const hosts = [...m[2].matchAll(/class="btn btn-danger btn-icon state-del"[\s\S]*?data-host="([^"]*)"/g)].map(x => x[1]);
     const head = (m[2].match(/<tr class="sg-head">([\s\S]*?)<\/tr>/) || [])[1] || "";
-    out.push({ group: g, cls, hosts, head, members: (m[2].match(/class="sg-member"/g) || []).length });
+    out.push({ group: g, pool: gpool, raw: graw, cls, hosts, head,
+               members: (m[2].match(/class="sg-member"/g) || []).length });
   }
   return out;
 }
@@ -208,7 +222,23 @@ const SC = {
     async run() {
       const html = sel("#state-body").innerHTML;
       const b = blocks(html);
-      const dm = b.find(x => x.group === "discord.media");
+      const dm = b.find(x => x.group === "discord.media" && x.pool === "rkn_tcp");
+      const dmq = b.find(x => x.group === "discord.media" && x.pool === "quic");
+      check("один домен в двух пулах — две группы, а не одна",
+            !!dm && !!dmq && dm.members === 3 && dmq.members === 2,
+            JSON.stringify(b.map(x => x.raw)));
+      check("группа помнит свой пул", !!dmq && dmq.pool === "quic", dmq && dmq.raw);
+      // Кнопки пакетных действий: адресуются составным ключом, иначе действие
+      // уедет в группу того же домена из соседнего пула.
+      check("в шапке есть сброс группы с составным ключом",
+            dm && /class="btn btn-danger btn-icon sg-reset"[\s\S]*?data-gkey="rkn_tcp&#0;discord\.media"/.test(dm.head)
+               || (dm && dm.head.indexOf('sg-reset') >= 0 && dm.head.indexOf(dm.raw) >= 0),
+            dm && dm.head.replace(/\s+/g, " ").slice(0, 300));
+      check("в шапке есть заморозка группы",
+            dm && /class="btn btn-icon sg-freeze"/.test(dm.head) && dm.head.indexOf('data-frozen="0"') >= 0,
+            dm && dm.head.replace(/\s+/g, " ").slice(0, 300));
+      check("частичная заморозка не выдаётся за полную",
+            dm && /1 из 3/.test(dm.head), dm && dm.head.replace(/\s+/g, " ").slice(0, 300));
       check("поддомены discord.media собраны в одну группу", dm && dm.members === 3, JSON.stringify(b.map(x => x.group)));
       check("в группе уходят сырые ключи записей (имя|семейство)",
             dm && dm.hosts.join(",") === "finland10000.discord.media|4,finland10001.discord.media|4,latency.discord.media|6",
@@ -230,8 +260,10 @@ const SC = {
             JSON.stringify(b.map(x => x.group)));
       check("запись без имени (Discord-войс) в таблицу не попала", html.indexOf('data-host="nohost"') < 0, "nohost в таблице");
       const order = b.flatMap(x => x.group ? ["[" + x.group + "]"] : x.hosts);
+      // Две группы discord.media подряд: домен первый ключ, пул второй —
+      // quic перед rkn_tcp по алфавиту пула.
       const want = ["1.2.3.4|4", "2a00:1450::200e|6", "[bbc.co.uk]", "chatgpt.com|4", "chatgpt.com|6",
-                    "[discord.media]", "cdn.discordapp.com|4", "sport.other.co.uk|4"];
+                    "[discord.media]", "[discord.media]", "cdn.discordapp.com|4", "sport.other.co.uk|4"];
       check("по домену группы стоят по имени родителя", JSON.stringify(order) === JSON.stringify(want), JSON.stringify(order));
     },
   },
@@ -240,16 +272,21 @@ const SC = {
     async run() {
       const b = blocks(sel("#state-body").innerHTML);
       const order = b.flatMap(x => x.group ? ["[" + x.group + "]"] : x.hosts);
-      const want = ["1.2.3.4|4", "2a00:1450::200e|6", "[bbc.co.uk]", "chatgpt.com|4", "chatgpt.com|6",
-                    "[discord.media]", "cdn.discordapp.com|4", "sport.other.co.uk|4"];
+      // Сортировка по профилю: quic идёт раньше rkn_tcp, поэтому его группа
+      // стоит первой, а внутри rkn_tcp порядок прежний — по домену.
+      const want = ["[discord.media]", "1.2.3.4|4", "2a00:1450::200e|6", "[bbc.co.uk]", "chatgpt.com|4",
+                    "chatgpt.com|6", "[discord.media]", "cdn.discordapp.com|4", "sport.other.co.uk|4"];
       check("равные по профилю строки идут по домену", JSON.stringify(order) === JSON.stringify(want), JSON.stringify(order));
     },
   },
   remembered: {
-    setup() { localStorage.setItem("z2k-state-open-groups", JSON.stringify(["discord.media"])); },
+    // Ключ памяти с 16.09.2026 составной: «пул\u0000домен». Старые записи от
+    // прежних версий просто не совпадут, и группа отрисуется свёрнутой — это
+    // разовая косметика, состояние ротации к ней отношения не имеет.
+    setup() { localStorage.setItem("z2k-state-open-groups", JSON.stringify(["rkn_tcp\u0000discord.media"])); },
     async run() {
       const b = blocks(sel("#state-body").innerHTML);
-      const dm = b.find(x => x.group === "discord.media");
+      const dm = b.find(x => x.group === "discord.media" && x.pool === "rkn_tcp");
       check("раскрытая раньше группа рисуется раскрытой", dm && !/\bsg-closed\b/.test(dm.cls), dm && dm.cls);
       const bbc = b.find(x => x.group === "bbc.co.uk");
       check("остальные группы по-прежнему свёрнуты", bbc && /\bsg-closed\b/.test(bbc.cls), bbc && bbc.cls);
@@ -330,9 +367,9 @@ meta() {
 meta "заголовок над парой v4/v6 одного имени" render 's/if (b\.names\.size >= 2) {/if (b.rows.length >= 2) {/'
 meta "зоны второго уровня не учитываются" render 's/(tld\.length === 2 && SLD_GENERIC\.has(sld)) ? -3 : -2/-2/'
 meta "группы раскрыты по умолчанию" render 's/<tbody class="sg\${open ? "" : " sg-closed"}"/<tbody class="sg"/'
-meta "сортировка по домену без родителя" render 's/case "host":     av = meta\.get(a)\.group + "\\u0000" + /case "host":     av = /'
+meta "сортировка по домену без родителя" render 's/case "host":     av = meta\.get(a)\.group + "\\u0000" + String(a\.key || "") + "\\u0000" + /case "host":     av = /'
 meta "равные строки снова в порядке файла" tiebreak 's/return ah < bh ? -1 : ah > bh ? 1 : 0;/return 0;/'
-meta "раскрытие не запоминается" remembered 's/const open = stateOpenGroups\.has(b\.group);/const open = false;/'
+meta "раскрытие не запоминается" remembered 's/const open = stateOpenGroups\.has(b\.gkey);/const open = false;/'
 meta "клик не сохраняет раскрытие" toggle 's/^ *saveOpenGroups();$//'
 
 printf '\nPASSED: %d\nFAILED: %d\nSKIPPED: %d\n' "$PASS" "$FAIL" "$SKIP"

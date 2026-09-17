@@ -90,6 +90,7 @@ commands:
   quic <domain>             то же для QUIC/UDP: чем режут датаграммы
   voice                     голос Дискорда; адрес берётся из ИДУЩЕГО разговора
   tcp16 [-asn N] [-scan F]  проба на блок по объёму соединения; -scan ищет проходящее имя
+  dnsms -server IP           время обычного UDP-запроса к DNS, в миллисекундах
   run [-dns-source SRC]     start daemon. SRC: agh|dnsmasq|pkt (default: auto)`)
 }
 
@@ -117,6 +118,8 @@ func main() {
 		voiceCmd(ctx, args[1:])
 	case "tcp16":
 		tcp16Cmd(ctx, args[1:])
+	case "dnsms":
+		dnsmsCmd(ctx, args[1:])
 	case "run":
 		runCmd(ctx, args[1:])
 	default:

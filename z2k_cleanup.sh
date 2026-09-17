@@ -48,6 +48,8 @@ log_info "Попытка мягкой остановки через init-скр�
 for init in /opt/etc/init.d/S99zapret2 /opt/etc/init.d/S99zapret \
             /opt/etc/init.d/S97z2k-http-tunnel \
             /opt/etc/init.d/S96z2k-rt-proxy \
+            /opt/etc/init.d/S96z2k-webpanel \
+            /opt/etc/init.d/S98z2k-detect \
             /opt/etc/init.d/S51z2k-warp \
             /opt/etc/init.d/S95z2k-tpws \
             /opt/etc/init.d/S98tg-tunnel \
@@ -64,14 +66,22 @@ done
 
 log_info "Удаление init-скриптов..."
 
+# Шаблон S*z2k* в конце списка — намеренно. Перечисление руками уже трижды
+# отставало от жизни: после полной очистки на роутере оставались S96z2k-webpanel,
+# S98z2k-detect и S02z2k-tcp-tuning (поле, 16.09.2026). Имена наших служб все
+# начинаются с z2k, поэтому шаблон закрывает и те, что появятся позже.
 for init in /opt/etc/init.d/S99zapret2 /opt/etc/init.d/S99zapret \
             /opt/etc/init.d/S99nfqws   /opt/etc/init.d/S99nfqws2 \
             /opt/etc/init.d/S97z2k-http-tunnel \
             /opt/etc/init.d/S96z2k-rt-proxy \
+            /opt/etc/init.d/S96z2k-webpanel \
+            /opt/etc/init.d/S98z2k-detect \
+            /opt/etc/init.d/S02z2k-tcp-tuning \
             /opt/etc/init.d/S51z2k-warp \
             /opt/etc/init.d/S95z2k-tpws \
             /opt/etc/init.d/S98tg-tunnel /opt/etc/init.d/S97tg-mtproxy \
-            /opt/etc/init.d/S99z2k-scheduler; do
+            /opt/etc/init.d/S99z2k-scheduler \
+            /opt/etc/init.d/S*z2k*; do
     if [ -f "$init" ]; then
         rm -f "$init"
         log_info "  Удалён: $init"
@@ -96,7 +106,8 @@ for hook in /opt/etc/ndm/netfilter.d/000-zapret2.sh \
             /opt/etc/ndm/netfilter.d/93-z2k-tpws-redirect.sh \
             /opt/etc/ndm/netfilter.d/*z2k-tpws* \
             /opt/etc/ndm/netfilter.d/94-z2k-ppe-deoffload.sh \
-            /opt/etc/ndm/netfilter.d/*z2k-ppe*; do
+            /opt/etc/ndm/netfilter.d/*z2k-ppe* \
+            /opt/etc/ndm/netfilter.d/*z2k*; do
     if [ -f "$hook" ]; then
         rm -f "$hook"
         log_info "  Удалён: $hook"
@@ -438,7 +449,10 @@ fi
 # z2k-detect и z2k-warpd лежат там же и так же не уходят с деревом: их забыли
 # внести, и после деинсталляции на флешке оставалось 12 МБ мёртвых бинарников.
 for _f in /opt/sbin/z2k-rt-proxy /opt/sbin/z2k-rt-proxy.z2kbak \
-          /opt/sbin/z2k-detect /opt/sbin/z2k-warpd; do
+          /opt/sbin/z2k-detect /opt/sbin/z2k-warpd \
+          /opt/sbin/z2k-usque \
+          /opt/sbin/z2k-detect.new.* /opt/sbin/z2k-warpd.new.* \
+          /opt/sbin/z2k-rt-proxy.new.*; do
     [ -f "$_f" ] && rm -f "$_f" && log_info "  Удалён $_f"
 done
 
@@ -503,6 +517,23 @@ fi
 
 log_info "Очистка временных файлов..."
 
+# ЧТО УХОДИТ ВМЕСТЕ С ДЕРЕВОМ, А ЧТО ЛЕЖИТ ОТДЕЛЬНО.
+#
+# Часть нашего состояния живёт ВНЕ /opt/zapret2 и переживает переустановку
+# намеренно: адрес и порт панели (/opt/etc/z2k/webpanel), доверенный ключ
+# релизов (/opt/etc/z2k/.trust) и регистрация WARP у Cloudflare
+# (/opt/etc/z2k-warp). Для обновления это правильно — иначе человек каждый раз
+# заново ищет панель и жжёт регистрацию. Но ЭТОТ скрипт называется полной
+# зачисткой, и «полная» обязана значить полную: после него на роутере не должно
+# остаться ни настроек, ни регистрации, ни журналов.
+#
+# Отличие от кнопки «Удалить» в панели сознательное: она сносит обход, но
+# регистрацию WARP бережёт (перерегистрация у Cloudflare не бесплатна и
+# ограничена по частоте). Здесь — сносим.
+#
+# НЕ ТРОГАЕМ /opt/etc/opkg.conf.z2k-bak: это резервная копия ЧУЖОГО файла,
+# сделанная перед правкой зеркала Entware. Удалять чужую резервную копию мы не
+# вправе — человек может по ней восстановиться.
 for tmpdir in /tmp/z2k /tmp/zapret /tmp/zapret2 /tmp/blockcheck* \
               /tmp/z2k-log/tg-tunnel.log /tmp/tg-tunnel-watchdog.state \
               /var/run/tg-tunnel.pid \
@@ -513,7 +544,16 @@ for tmpdir in /tmp/z2k /tmp/zapret /tmp/zapret2 /tmp/blockcheck* \
               /var/run/z2k-scheduler.pid /opt/var/log/z2k-scheduler.log \
               /opt/var/log/z2k-classify.log \
               /opt/var/log/z2k-classify-drift.log \
-              /opt/var/log/z2k-classify-history.tsv; do
+              /opt/var/log/z2k-classify-history.tsv \
+              /opt/var/log/z2k-auto-update.log \
+              /opt/var/log/z2k-auto-update.log.old \
+              /opt/var/log/z2k-detect-watchdog.log \
+              /tmp/z2k-tcp16-probe.log \
+              /opt/bin/z2k \
+              /opt/etc/z2k \
+              /opt/etc/z2k-warp \
+              /opt/etc/.z2k-rkn-fp.list /opt/etc/.z2k-rkn-fp.sha256 \
+              /opt/etc/.z2k-instagram-purge-2026-05-28.done; do
     if [ -e "$tmpdir" ]; then
         rm -rf "$tmpdir"
         log_info "  Удалён: $tmpdir"
@@ -584,6 +624,29 @@ done
 if [ -f /opt/sbin/tg-mtproxy-client ]; then
     log_error "Бинарник всё ещё существует: /opt/sbin/tg-mtproxy-client"
 fi
+
+# ==========================================
+# 10. Вернуть штатный lighttpd, если мы его выключали
+# ==========================================
+#
+# Установка панели переименовывает конфликтующий S*lighttpd в
+# .<имя>.disabled-by-z2k, чтобы он не держал порт 8088. Основное удаление
+# (lib/install.sh) его возвращает, а эта зачистка — нет: человек, дошедший до
+# аварийного скрипта, оставался с выключенным навсегда штатным lighttpd и без
+# единого следа почему. Ровно эта жалоба пришла с поля 30.08.2026.
+#
+# Чужой файл не затираем: имя занято — значит человек что-то сделал сам.
+for _dis in /opt/etc/init.d/.S*lighttpd.disabled-by-z2k; do
+    [ -e "$_dis" ] || continue
+    _base="${_dis##*/}"; _base="${_base#.}"; _base="${_base%.disabled-by-z2k}"
+    if [ -e "${_dis%/*}/$_base" ]; then
+        log_warn "Не возвращаю $_base — файл с таким именем уже есть"
+    elif mv "$_dis" "${_dis%/*}/$_base" 2>/dev/null; then
+        log_info "Возвращён штатный init: $_base"
+    else
+        log_warn "Не удалось вернуть $_dis — перенесите вручную"
+    fi
+done
 
 echo ""
 echo "============================================"

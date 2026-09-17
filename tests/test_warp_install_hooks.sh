@@ -46,7 +46,16 @@ assert_eq "scheduler: WARP block no longer promises usque restarts" "0" "$(sed -
 
 C="$SCRIPT_DIR/z2k_cleanup.sh"
 assert_eq "cleanup: knows z2ktun" "yes" "$(grep -q 'z2ktun' "$C" && echo yes || echo no)"
-assert_eq "cleanup: no usque" "0" "$(count 'usque' "$C")"
+# Аварийная зачистка — ЕДИНСТВЕННОЕ место, где имя usque осталось законным, и
+# ровно в одном виде: снести забытый бинарник эпохи usque с флешки. Всё
+# остальное про него (init-скрипт, killall, карта служб, откат) снято вместе с
+# эпохой и возвращаться не должно — там запрет держится в проверках выше.
+#
+# Повод: после «полной очистки» на роутере оставался /opt/sbin/z2k-usque у тех,
+# кто не проходил миграцию (16.09.2026).
+assert_eq "cleanup: усковый бинарник сносится" "1" "$(count '/opt/sbin/z2k-usque' "$C")"
+assert_eq "cleanup: ничего другого про usque нет" "1" "$(count 'usque' "$C")"
+assert_eq "cleanup: усковый init не воскрешён" "0" "$(count 'S51usque' "$C")"
 
 printf "\nPASSED: %d\nFAILED: %d\n" "$TESTS_PASSED" "$TESTS_FAILED"
 [ "$TESTS_FAILED" -eq 0 ]

@@ -22,6 +22,11 @@
 # ИСКЛЮЧЕНИЕ — границы. z2k_fetch, au_log, печать и системные утилиты подменяют
 # затем, чтобы тест не лез в сеть и не звал iptables. Это законно и в список
 # ниже внесено явно: молчаливого исключения быть не должно.
+#
+# is_zapret2_running — из той же породы: он спрашивает таблицу процессов живой
+# машины (pgrep nfqws2). Тест, который проверяет ПОВЕДЕНИЕ при запущенном и при
+# остановленном сервисе, обязан управлять этим ответом, а не зависеть от того,
+# что случайно бежит на машине разработчика.
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '[PASS] %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '[FAIL] %s\n' "$1"; }
@@ -34,7 +39,8 @@ BOUNDARY=" z2k_fetch au_log print_info print_success print_warning print_error
  _wlog log die warn info ok no bad assert_eq cleanup main usage setof
  curl wget iptables ip6tables ipset pgrep pkill sleep date hostname nft
  au_download_repo_file z2k_sha256_file safe_config_read read_flag is_running
- au_snapshot_services au_step_refresh_binaries au_repo_base start stop restart "
+ au_snapshot_services au_step_refresh_binaries au_repo_base start stop restart
+ is_zapret2_running "
 # Список многострочный, а сверка идёт подстрокой " имя ". За последним словом
 # каждой строки стоит перевод строки, а не пробел, поэтому такие имена в
 # исключение не попадали: is_running был внесён явно и всё равно объявлялся

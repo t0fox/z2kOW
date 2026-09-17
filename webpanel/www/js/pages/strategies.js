@@ -1,5 +1,5 @@
 import { openSortSheet } from "../chrome.js";
-import { apiGet, apiPost, errHtml, toastErr } from "../core/api.js";
+import { apiGet, apiPost, apiPostText, errHtml, toastErr } from "../core/api.js";
 import { $app, _icons, escapeHtml, skeletonLines } from "../core/dom.js";
 import { _newLoad, _stale } from "../core/loadorder.js";
 import { toast } from "../core/toast.js";
@@ -239,9 +239,18 @@ async function loadState(useCache) {
     const nowSec = Math.floor(Date.now() / 1000);
     // Имя без суффикса семейства и его родитель считаются один раз на строку:
     // ими пользуются и сортировка, и группировка, и отрисовка.
+    // КЛЮЧ ГРУППЫ — ПУЛ ПЛЮС ДОМЕН, А НЕ ОДИН ДОМЕН.
+    //
+    // Номера стратегий живут внутри пула: у quic девять плеч, у gv_tcp
+    // двадцать два. googlevideo.com встречается в обоих, и одна общая группа
+    // складывала строки с несопоставимыми номерами — сводка в заголовке
+    // получалась про «1, 3» из разных наборов, а групповое действие над такой
+    // смесью объяснить человеку нечем.
     const meta = new Map(visible.map(e => {
       const hf = splitFamily(e.host);
-      return [e, { name: hf.name, fam: hf.fam, group: groupDomain(hf.name) }];
+      const dom = groupDomain(hf.name);
+      return [e, { name: hf.name, fam: hf.fam, group: dom,
+                   gkey: String(e.key || "") + "\u0000" + dom }];
     }));
     // Sort a shallow copy — never mutate the cached server response.
     const sorted = visible.slice().sort((a, b) => {
@@ -251,8 +260,11 @@ async function loadState(useCache) {
         // По домену — сперва по родителю, потом по полному имени. Иначе группа
         // вставала бы туда, где по алфавиту её первый поддомен: apple.com
         // оказывался у «api.», discord.media — у «c-arn04».
-        case "host":     av = meta.get(a).group + "\u0000" + String(a.host || "");
-                         bv = meta.get(b).group + "\u0000" + String(b.host || ""); break;
+        // Домен — первым, пул — вторым: иначе колонка «Домен» незаметно
+        // сортирует по профилю, а группы одного домена из разных пулов
+        // разъезжаются по разным концам таблицы.
+        case "host":     av = meta.get(a).group + "\u0000" + String(a.key || "") + "\u0000" + String(a.host || "");
+                         bv = meta.get(b).group + "\u0000" + String(b.key || "") + "\u0000" + String(b.host || ""); break;
         case "strategy": av = Number(a.strategy) || 0; bv = Number(b.strategy) || 0; break;
         // 'age' sorts by age value (= now - ts). Asc → freshest first
         // (small age), which matches what we'd want by default when
@@ -265,8 +277,8 @@ async function loadState(useCache) {
       // Равные по выбранной колонке — по домену. Без этого внутри одного
       // профиля строки шли в порядке файла, и группы перемешивались с
       // одиночными строками случайно; v4 и v6 одного хоста разъезжались.
-      const ah = meta.get(a).group + "\u0000" + String(a.host || "");
-      const bh = meta.get(b).group + "\u0000" + String(b.host || "");
+      const ah = meta.get(a).group + "\u0000" + String(a.key || "") + "\u0000" + String(a.host || "");
+      const bh = meta.get(b).group + "\u0000" + String(b.key || "") + "\u0000" + String(b.host || "");
       return ah < bh ? -1 : ah > bh ? 1 : 0;
     });
 
@@ -339,8 +351,12 @@ async function loadState(useCache) {
     const byGroup = new Map();
     for (const e of sorted) {
       const m = meta.get(e);
-      let b = byGroup.get(m.group);
-      if (!b) { b = { group: m.group, rows: [], names: new Set() }; byGroup.set(m.group, b); blocks.push(b); }
+      let b = byGroup.get(m.gkey);
+      if (!b) {
+        b = { group: m.group, gkey: m.gkey, pool: String(e.key || ""), rows: [], names: new Set() };
+        byGroup.set(m.gkey, b);
+        blocks.push(b);
+      }
       b.rows.push(e);
       b.names.add(m.name);
     }
@@ -359,16 +375,27 @@ async function loadState(useCache) {
     };
 
     const groupHtml = (b) => {
-      const open = stateOpenGroups.has(b.group);
+      // Открытость помним по СОСТАВНОМУ ключу: googlevideo.com в quic и в
+      // gv_tcp — разные группы, и сворачиваться они обязаны независимо.
+      const open = stateOpenGroups.has(b.gkey);
       const n = b.rows.length;
-      const keys = Array.from(new Set(b.rows.map(e => String(e.key || ""))));
+      const keys = [b.pool];
       const nFrozen = b.rows.filter(e => e.mode === "frozen").length;
+      // Действие над группой — одно на всю: заморозить, если заморожены не все,
+      // иначе разморозить. Отдельной кнопки «разморозить» нет: состояние видно
+      // в той же ячейке, и две кнопки на одно состояние путают.
+      const groupFrozen = nFrozen === n && n > 0;
       const freshest = Math.min(...b.rows.map(e => nowSec - Number(e.ts || 0)));
       const countText = `${n} ${plural(n, "запись", "записи", "записей")}`;
       return `
-        <tbody class="sg${open ? "" : " sg-closed"}" data-group="${escapeHtml(b.group)}">
+        <tbody class="sg${open ? "" : " sg-closed"}" data-group="${escapeHtml(b.gkey)}">
           <tr class="sg-head">
-            <td data-label="" class="sg-lead"></td>
+            <td data-label="" class="sg-lead">
+              <button class="btn btn-danger btn-icon sg-reset"
+                      title="Сбросить подбор для всей группы (${escapeHtml(String(n))} ${escapeHtml(plural(n, "записи", "записей", "записей"))})"
+                      aria-label="Сбросить подбор для группы ${escapeHtml(b.group)}"
+                      data-gkey="${escapeHtml(b.gkey)}">${_icons.close}</button>
+            </td>
             <td data-label="Профиль">${escapeHtml(keys.join(", "))}</td>
             <td data-label="Домен" class="sg-title">
               <button type="button" class="sg-toggle" aria-expanded="${open}"
@@ -378,9 +405,17 @@ async function loadState(useCache) {
               </button>
             </td>
             <td data-label="Стратегия">${escapeHtml(strategySummary(b.rows))}</td>
-            <td data-label="Заморозка">${nFrozen
-              ? `<span class="sg-frozen">${_icons.lockClosed}${nFrozen === n ? "все" : `${nFrozen} из ${n}`}</span>`
-              : `<span class="sg-quiet">нет</span>`}</td>
+            <td data-label="Заморозка">
+              <button class="btn btn-icon sg-freeze"
+                      data-gkey="${escapeHtml(b.gkey)}"
+                      data-frozen="${groupFrozen ? "1" : "0"}"
+                      style="color:${nFrozen ? "var(--accent)" : "var(--text-muted)"}"
+                      title="${groupFrozen
+                        ? "Вся группа заморожена — нажмите, чтобы вернуть авторотацию"
+                        : "Заморозить всю группу на текущих стратегиях"}">${groupFrozen ? _icons.lockClosed : _icons.lockOpen}</button>
+              ${nFrozen
+                ? `<span class="sg-frozen">${nFrozen === n ? "все" : `${nFrozen} из ${n}`}</span>`
+                : ""}</td>
             <td data-label="Возраст" class="state-age">${fmtAge(freshest)}</td>
           </tr>
           ${b.rows.map(e => rowHtml(e, true)).join("")}
@@ -437,6 +472,24 @@ async function loadState(useCache) {
         stateSet(btn.dataset.key, btn.dataset.host, btn.dataset.strategy, newMode);
       });
     });
+    // Пакетные действия. stopPropagation обязателен: клик ловится на ВСЕЙ
+    // строке заголовка (цель шире, чем имя), и без него нажатие на кнопку
+    // заодно сворачивало бы группу — ровно в тот момент, когда человек
+    // читает подтверждение.
+    body.querySelectorAll(".sg-reset").forEach(btn => {
+      btn.addEventListener("click", ev => {
+        ev.stopPropagation();
+        const tb = btn.closest("tbody.sg");
+        if (tb) stateBulk("delete", tb);
+      });
+    });
+    body.querySelectorAll(".sg-freeze").forEach(btn => {
+      btn.addEventListener("click", ev => {
+        ev.stopPropagation();
+        const tb = btn.closest("tbody.sg");
+        if (tb) stateBulk(btn.dataset.frozen === "1" ? "unfreeze" : "freeze", tb);
+      });
+    });
     // Раскрытие — без перерисовки и без сети: строки группы уже в разметке,
     // меняется только класс её tbody. Клик ловится на всей строке заголовка
     // (цель шире, чем имя), а кнопка внутри даёт клавиатуру и скринридер —
@@ -477,6 +530,40 @@ async function loadState(useCache) {
     if (seq && _stale("state", seq)) return;
     body.innerHTML = `<p style="color:var(--bad)">${errHtml(e)}</p>`;
   }
+}
+
+// Пакетная операция над группой. Хосты берём ИЗ РАЗМЕТКИ той же группы, а не
+// из кэша ответа: на экране человек видит именно эти строки, и действие обязано
+// совпадать с увиденным, даже если фоновый опрос успел принести другой срез.
+async function stateBulk(action, tb) {
+  const rows = Array.from(tb.querySelectorAll("tr.sg-member .state-del"));
+  const hosts = rows.map(b => b.dataset.host).filter(Boolean);
+  const key = rows.length ? rows[0].dataset.key : "";
+  if (!key || !hosts.length) return;
+  const name = tb.querySelector(".sg-name");
+  const group = name ? name.textContent : "группы";
+  const n = hosts.length;
+  const word = { delete: "Сбросить подбор", freeze: "Заморозить", unfreeze: "Разморозить" }[action];
+  const tail = action === "delete"
+    ? "Подбор для этих доменов начнётся с первой стратегии при следующей попытке."
+    : action === "freeze"
+      ? "Каждая строка закрепится на СВОЕЙ текущей стратегии, ротация для них остановится."
+      : "Ротация для этих строк продолжится с текущей стратегии.";
+  if (!confirm(`${word}: ${group} (${key}), записей: ${n}?\n\n${tail}`)) return;
+  let res;
+  try {
+    res = await apiPostText(`/state/bulk?action=${encodeURIComponent(action)}&key=${encodeURIComponent(key)}`,
+                            hosts.join("\n") + "\n");
+  } catch (e) {
+    toastErr("Не получилось: ", e);
+    return;
+  }
+  // «Сделано N из M» — не украшение: часть строк демон мог убрать сам, пока
+  // человек читал подтверждение, и молчаливое «готово» в таком случае врёт.
+  const done = Number(res && res.done) || 0;
+  const total = Number(res && res.total) || n;
+  toast(done === total ? `Готово: ${done}` : `Сделано ${done} из ${total}`);
+  loadState();
 }
 
 async function stateDelete(key, host) {

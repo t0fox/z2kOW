@@ -125,3 +125,5 @@ ZL-01	21859	-	Zenlayer	193.118.45.137	443
 CN-01	51765	-	CreaNova	185.112.82.170	443	
 SCA-01	58061	-	Scalaxy	5.61.55.146	443	
 FRX-01	48040	-	Fornex	199.68.199.16	443	
+DIST-01	20860	*	Iomart (подкасты Apple)	95.154.194.29	443	audio.thisisdistorted.com
+DIST-02	20860	*	Iomart (подкасты Apple)	78.129.140.59	443	audio.thisisdistorted.com

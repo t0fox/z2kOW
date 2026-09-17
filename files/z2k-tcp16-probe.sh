@@ -222,14 +222,35 @@ case "$rc" in
         # разом: половина карты хуже, чем прежняя целая.
         if [ -s "$CAND" ]; then
             echo
-            echo "подбор имён: $(grep -vc '^#' "$CAND" 2>/dev/null || echo '?') кандидатов на каждую сеть с обрывом, пачками по $BATCH"
-            if run_logged ">>" env $DETECT_ENV "$DETECT" tcp16 -targets "$TARGETS" -scan "$CAND" -per-asn \
+            # УЖЕ НАЙДЕННЫЕ ИМЕНА — В НАЧАЛО ПЕРЕБОРА.
+            #
+            # Перебор идёт сверху вниз и останавливается на первом подошедшем
+            # имени, а карта пересобирается каждую ночь с нуля. Без этой
+            # склейки сеть, чьё имя лежит в хвосте списка, каждую ночь платит
+            # за весь путь до него заново: замер 16.09.2026 — louisvuitton.com
+            # для AS20860 стоит на 1247-м месте, это двенадцать минут перебора
+            # ради значения, которое мы уже знаем.
+            #
+            # Порядок внутри остального списка не трогаем: он выстрадан
+            # замером и отвечает за то, что большинство сетей решается за
+            # десятки имён.
+            _cand_run="$CAND"
+            if [ -s "$SNIOUT" ]; then
+                _cand_run="/tmp/z2k-tcp16-cand.$$"
+                { awk -F'\t' '/^[0-9]/ && $2 != "" { print $2 }' "$SNIOUT" 2>/dev/null
+                  grep -v '^#' "$CAND" 2>/dev/null
+                } | awk 'NF && !seen[$0]++' > "$_cand_run" 2>/dev/null \
+                    || _cand_run="$CAND"
+            fi
+            echo "подбор имён: $(grep -vc '^#' "$_cand_run" 2>/dev/null || echo '?') кандидатов на каждую сеть с обрывом, пачками по $BATCH"
+            if run_logged ">>" env $DETECT_ENV "$DETECT" tcp16 -targets "$TARGETS" -scan "$_cand_run" -per-asn \
                  -sni-out "$SNIOUT.new" -parallel "$PARALLEL" -batch "$BATCH"; then
                 mv -f "$SNIOUT.new" "$SNIOUT"
             else
                 rm -f "$SNIOUT.new"
                 echo "подбор имён не дал результата, карта оставлена прежней" >&2
             fi
+            [ "$_cand_run" = "$CAND" ] || rm -f "$_cand_run"
         fi
         ;;
     0)  # блока нет

@@ -1,0 +1,7 @@
+# Synthetic WARP+ license used only by a sandboxed CGI regression test.
+# Exclude this historical finding, not all shell tests or future credentials.
+87999925aacbf5acb19cfedb0f16665a10cbc2d0:tests/test_webpanel_api_contract.sh:generic-api-key:268
+
+# Empty Makefile assignment: the generic rule consumed the following GOFLAGS
+# line as a credential. No secret value was present in this commit.
+2c2efada9f4aaec5fb12ec4b9eee8ec6d0f8865d:mtproxy-client/Makefile:generic-api-key:8

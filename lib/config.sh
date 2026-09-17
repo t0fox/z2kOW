@@ -620,6 +620,28 @@ marketplace.visualstudio.com
 
 # === Oracle Cloud Infrastructure ===
 customer-oci.com
+
+# === Keenetic: облако, KeenDNS и его российские бренды ===
+# Через эти имена человек заходит в морду СВОЕГО роутера и в наш веб-интерфейс.
+# Обход на них не нужен и вреден: там нет блокировки, а рвущееся рукопожатие
+# выглядит как «роутер недоступен».
+keenetic.net
+keenetic.name
+keenetic.pro
+keenetic.com
+keenetic.io
+keenetic.cloud
+keenetic.link
+mykeenetic.com
+mykeenetic.net
+mykeenetic.ru
+netcraze.pro
+netcraze.com
+netcraze.net
+netcraze.io
+netcraze.cloud
+netcraze.link
+crazedns.ru
 EOF
 
         # Проверить что файл действительно создался
@@ -658,6 +680,26 @@ KEENETIC
         if ! grep -q "^keenetic\.net$" "$whitelist" 2>/dev/null; then
             printf 'keenetic.net\n' >> "$whitelist"
             print_info "Добавлен keenetic.net в whitelist (адрес морды роутера)"
+        fi
+
+        # Остальные имена того же облака: mykeenetic.*, keenetic.name,
+        # netcraze.net и crazedns.ru (16.09.2026, по жалобам из поля).
+        #
+        # Сторож — по crazedns.ru, а не по первому имени блока: блоки выше уже
+        # проверяют keenetic.pro и netcraze.pro, и у давно установленных
+        # дозапись по ним не сработала бы никогда — домены как бы есть.
+        if ! grep -q "^crazedns\.ru$" "$whitelist" 2>/dev/null; then
+            cat >> "$whitelist" <<'KEEN2'
+
+# === Keenetic: остальные имена облака и KeenDNS ===
+keenetic.name
+mykeenetic.com
+mykeenetic.net
+mykeenetic.ru
+netcraze.net
+crazedns.ru
+KEEN2
+            print_info "Добавлены остальные домены Keenetic/KeenDNS в whitelist"
         fi
 
         # Дозаписать netcraze (новый бренд KeenDNS в РФ, та же инфраструктура)

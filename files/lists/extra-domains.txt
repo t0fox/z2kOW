@@ -54,3 +54,8 @@ amazonaws.com
 cloudfront.net
 tapo.com
 mailsuite.com
+# Подкасты Apple: страница открывается с хостов Apple, а звук идёт с
+# audio.thisisdistorted.com (AS20860, Iomart). Эта сеть режет поток по
+# объёму на 16 КБ — страница есть, выпуск не играет. Лечится подстановкой
+# имени (см. files/lua/z2k-tcp16.lua), но профиль обязан до хоста дотянуться.
+thisisdistorted.com

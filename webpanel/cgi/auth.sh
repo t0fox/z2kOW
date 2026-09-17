@@ -170,10 +170,17 @@ _auth_host_allowed() {
     # keenetic.net — штатное локальное имя роутера (my.keenetic.net), по нему
     # открывают и родной веб-интерфейс. Без него у всех, у кого панель в
     # закладках под этим именем, каждый запрос отвечал 403.
+    # mykeenetic.*, keenetic.name, netcraze.net и crazedns.ru — те же облачные
+    # имена Keenetic, добавлены 16.09.2026. Человек, у которого панель открыта
+    # по такому адресу, без этой строки получает 403 на КАЖДОЕ действие, а
+    # выглядит это как «панель не работает».
     case "$h" in
         keenetic.net|*.keenetic.net) return 0 ;;
+        keenetic.name|*.keenetic.name) return 0 ;;
         *.keenetic.pro|*.keenetic.com|*.keenetic.io|*.keenetic.cloud|*.keenetic.link) return 0 ;;
-        *.netcraze.pro|*.netcraze.com|*.netcraze.io|*.netcraze.cloud|*.netcraze.link) return 0 ;;
+        *.mykeenetic.com|*.mykeenetic.net|*.mykeenetic.ru) return 0 ;;
+        *.netcraze.pro|*.netcraze.com|*.netcraze.net|*.netcraze.io|*.netcraze.cloud|*.netcraze.link) return 0 ;;
+        *.crazedns.ru) return 0 ;;
     esac
 
     # Names that cannot exist in public DNS, so cannot be rebound: local

@@ -256,7 +256,7 @@ panel_auth_gate
 # Крупные загрузки (списки, своя стратегия) идут через read_body_raw и свои
 # собственные потолки в мегабайтах — их это ограничение не касается.
 case "$PATH_INFO" in
-    /warp/list/save|/warp/devices/save|/whitelist/import|/strategy/pool/save|/strategy/pool/validate) ;;
+    /warp/list/save|/warp/devices/save|/whitelist/import|/strategy/pool/save|/strategy/pool/validate|/state/bulk) ;;
     *)
         if [ "${CONTENT_LENGTH:-0}" -gt "$Z2K_MAX_BODY" ] 2>/dev/null; then
             json_fail "413 Payload Too Large" "запрос слишком большой"
@@ -1256,6 +1256,30 @@ case "$method $path" in
 
     # Pin / manually select a rotator row's strategy. mode=auto adopts it live and
     # keeps rotating; mode=frozen adopts it AND stops the rotator from changing it.
+    # Пакетная операция над группой строк ротатора: действие и пул — в запросе,
+    # список хостов — телом, по одному в строке (как /warp/list/save). Тело, а
+    # не повторяющиеся параметры: form_value отдаёт ПЕРВОЕ совпадение, и
+    # семьдесят четыре host= пришлось бы разбирать вручную.
+    "POST /state/bulk")
+        s_action=$(form_value "${QUERY_STRING:-}" "action")
+        s_key=$(form_value "${QUERY_STRING:-}" "key")
+        if [ "${CONTENT_LENGTH:-0}" -gt 65536 ] 2>/dev/null; then
+            json_fail "413 Payload Too Large" "слишком большая группа (максимум 64 КБ списка)"
+        fi
+        { [ -z "$s_action" ] || [ -z "$s_key" ]; } && \
+            json_fail "400 Bad Request" "action and key required"
+        s_res=$(read_body_raw | state_bulk "$s_action" "$s_key" 2>/tmp/z2k-bulk-err.$$) || {
+            s_err=$(cat "/tmp/z2k-bulk-err.$$" 2>/dev/null); rm -f "/tmp/z2k-bulk-err.$$"
+            json_fail "400 Bad Request" "${s_err:-bulk failed}"
+        }
+        rm -f "/tmp/z2k-bulk-err.$$"
+        json_header
+        printf '{"ok":true,"done":%s,"total":%s}\n' \
+            "$(printf '%s' "$s_res" | awk '{print $1+0; exit}')" \
+            "$(printf '%s' "$s_res" | awk '{print $2+0; exit}')"
+        exit 0
+        ;;
+
     "POST /state/set")
         body=$(read_body)
         s_key=$(form_value "$body" "key")

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -44,9 +45,14 @@ func TestTargetsCarrySNI(t *testing.T) {
 	}
 }
 
-// И то же на ПОСТАВЛЯЕМОМ файле: семь имён должны быть на месте, иначе колонка
-// есть, а данных в ней нет.
-func TestShippedTargetsHaveSevenNames(t *testing.T) {
+// И то же на ПОСТАВЛЯЕМОМ файле: имена в седьмой колонке должны быть, иначе
+// колонка есть, а данных в ней нет.
+//
+// Раньше здесь стояло точное число 7 — и тест краснел на каждой НОВОЙ мишени с
+// именем, то есть наказывал ровно за то, ради чего колонка заведена
+// (16.09.2026: добавили две мишени сети Iomart, стало 9). Проверяем нижнюю
+// границу и то, что имена принадлежат своим строкам.
+func TestShippedTargetsHaveNames(t *testing.T) {
 	p := filepath.Join("..", "..", "..", "files", "lists", "tcp16_targets.txt")
 	if _, err := os.Stat(p); err != nil {
 		t.Skipf("нет поставляемого файла: %v", err)
@@ -61,7 +67,17 @@ func TestShippedTargetsHaveSevenNames(t *testing.T) {
 			n++
 		}
 	}
-	if n != 7 {
-		t.Fatalf("мишеней с именем %d, а у эталона 7", n)
+	if n < 7 {
+		t.Fatalf("мишеней с именем %d, а их должно быть не меньше семи", n)
+	}
+	// Имя обязано быть доменным и относиться к своей строке: пустая или
+	// мусорная колонка сделала бы подбор имени пробой в никуда.
+	for _, x := range tgs {
+		if x.SNI == "" {
+			continue
+		}
+		if strings.ContainsAny(x.SNI, " \t/:") || !strings.Contains(x.SNI, ".") {
+			t.Errorf("мишень %s: в колонке имени не домен: %q", x.IP, x.SNI)
+		}
 	}
 }

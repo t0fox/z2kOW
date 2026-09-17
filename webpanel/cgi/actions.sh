@@ -759,7 +759,7 @@ job_reap() {
 _tmp_reap_orphans() {
     local f
     for f in /tmp/z2k-strat-shadow.* /tmp/z2k-strategy-check.* /tmp/z2k-strategy-err.* \
-             /tmp/z2k-warp-license.* \
+             /tmp/z2k-warp-license.* /tmp/z2k-state-bulk.* /tmp/z2k-bulk-err.* \
              "${AU_MANIFEST_CACHE:-/tmp/z2k-au-manifest.json}".new.*; do
         [ -e "$f" ] || continue
         # Проверять надо ВЫВОД find, а не его код возврата: несовпадение по
@@ -2528,6 +2528,88 @@ state_delete() {
     _state_delete_one_file "$STATE_FILE" "$key" "$host" || { _state_unlock "$STATE_FILE"; return 1; }
     _state_delete_one_file "$STATE_FILE_FALLBACK" "$key" "$host" || { _state_unlock "$STATE_FILE"; return 1; }
     _state_unlock "$STATE_FILE"
+}
+
+# ПАКЕТНАЯ ОПЕРАЦИЯ НАД ГРУППОЙ СТРОК: state_bulk <действие> <пул>.
+#
+# Хосты приходят на stdin, по одному в строке. Действия:
+#   delete   — снести строки (ротация для них начнётся заново)
+#   freeze   — закрепить каждую строку на ЕЁ ТЕКУЩЕЙ стратегии
+#   unfreeze — вернуть авторотацию
+#
+# ПОЧЕМУ ПАКЕТОМ, А НЕ ЦИКЛОМ ПОШТУЧНО. Группа fbcdn.net на роутере владельца —
+# 74 строки. Поштучно это 74 захвата общего с Lua замка и 74 перезаписи файла
+# состояния НА ФЛЕШКЕ, причём между ними демон успевает записать свой снимок, и
+# часть правок теряется. Здесь один замок и одна перезапись на файл.
+#
+# Стратегию при заморозке НЕ трогаем: она у каждой строки своя, общей у группы
+# нет и быть не может — в одной группе строки одного пула, но подбор у каждого
+# хоста свой. Метку времени тоже не трогаем: ротация не двигалась.
+#
+# Печатает «сделано всего» — вызывающий показывает это человеку, потому что
+# частичный результат (часть хостов уже удалил демон) обязан быть виден.
+state_bulk() {
+    local action="$1" key="$2"
+    case "$action" in delete|freeze|unfreeze) ;; *) echo "bad action" >&2; return 1 ;; esac
+    [ -z "$key" ] && { echo "key required" >&2; return 1; }
+    _chars_ok "$key" 'a-zA-Z0-9_' || { echo "bad key" >&2; return 1; }
+
+    local hosts="/tmp/z2k-state-bulk.$$"
+    local total=0 _h
+    : > "$hosts" || { echo "no tmp" >&2; return 1; }
+    # `|| [ -n "$_h" ]` — не украшение: read отдаёт ненулевой код на ПОСЛЕДНЕЙ
+    # строке без перевода в конце, и тело цикла для неё не выполняется. Замер на
+    # живом роутере 16.09.2026: из десяти хостов группы обработались девять,
+    # последний молча пропал. Панель перевод строки шлёт, а curl и любой другой
+    # клиент — как получится.
+    while IFS= read -r _h || [ -n "$_h" ]; do
+        _h=$(printf '%s' "$_h" | tr -d ' \r')
+        [ -z "$_h" ] && continue
+        # Негодное имя пропускаем молча в файл НЕ кладём: одна кривая строка не
+        # должна отменять операцию над остальными семьюдесятью.
+        _chars_ok "$_h" 'a-zA-Z0-9.|-' || continue
+        printf '%s\n' "$_h" >> "$hosts"
+        total=$((total + 1))
+    done
+    if [ "$total" = 0 ]; then
+        rm -f "$hosts"
+        echo "no hosts" >&2
+        return 1
+    fi
+
+    _state_lock "$STATE_FILE" || { rm -f "$hosts"; echo "state busy" >&2; return 1; }
+    local done_n=0 _f _tmp
+    # Считаем по ОСНОВНОМУ файлу: он же и показывается в панели.
+    if [ -f "$STATE_FILE" ]; then
+        done_n=$(awk -F'\t' -v key="$key" '
+            NR == FNR { want[$0] = 1; next }
+            $1 == key && ($2 in want) { n++ }
+            END { print n + 0 }' "$hosts" "$STATE_FILE" 2>/dev/null)
+        case "$done_n" in ''|*[!0-9]*) done_n=0 ;; esac
+    fi
+    for _f in "$STATE_FILE" "$STATE_FILE_FALLBACK"; do
+        [ -f "$_f" ] || continue
+        _tmp="$_f.z2k-bulk.$$"
+        if ! awk -F'\t' -v OFS='\t' -v key="$key" -v act="$action" '
+            NR == FNR { want[$0] = 1; next }
+            $1 != key || !($2 in want) { print; next }
+            act == "delete" { next }
+            { $5 = (act == "freeze" ? "frozen" : "auto"); print }
+        ' "$hosts" "$_f" > "$_tmp" 2>/dev/null; then
+            rm -f "$_tmp"
+            _state_unlock "$STATE_FILE"; rm -f "$hosts"
+            echo "bulk failed" >&2
+            return 1
+        fi
+        _file_replace "$_f" "$_tmp" || {
+            rm -f "$_tmp"; _state_unlock "$STATE_FILE"; rm -f "$hosts"
+            echo "bulk replace failed" >&2; return 1
+        }
+    done
+    _state_unlock "$STATE_FILE"
+    rm -f "$hosts"
+    printf '%s %s\n' "$done_n" "$total"
+    return 0
 }
 
 # Wipe ALL rotator rows from both state files (header kept, inode preserved by

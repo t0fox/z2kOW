@@ -80,6 +80,10 @@ func New(tunDev tun.Device, d *account.Device, logf func(string, ...any)) (*Tran
 }
 
 func (t *Transport) tlsConfig() (*tls.Config, error) {
+	pin := t.pinnedKey()
+	if pin == nil {
+		return nil, errors.New("h2: missing or invalid peer key in registration; refresh masque registration")
+	}
 	priv, err := account.ECPrivateKey(t.d.H2.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("h2 key: %w", err)
@@ -94,28 +98,22 @@ func (t *Transport) tlsConfig() (*tls.Config, error) {
 		return nil, fmt.Errorf("h2 cert: %w", err)
 	}
 	cfg := &tls.Config{
-		Certificates:       []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: priv}},
-		ServerName:         sni,
-		NextProtos:         []string{"h2"},
-		InsecureSkipVerify: true, // SNI не совпадает с эндпоинтом; доверие — пиннинг ниже
-	}
-	if pin := t.pinnedKey(); pin != nil {
-		cfg.VerifyPeerCertificate = func(raw [][]byte, _ [][]*x509.Certificate) error {
-			if len(raw) == 0 {
+		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: priv}},
+		ServerName:   sni,
+		NextProtos:   []string{"h2"},
+		// MASQUE authenticates with the registered public key, not the Web PKI.
+		// VerifyConnection also runs on resumed sessions; no unpinned fallback.
+		InsecureSkipVerify: true,
+		VerifyConnection: func(state tls.ConnectionState) error {
+			if len(state.PeerCertificates) == 0 {
 				return errors.New("no server certificate")
 			}
-			cert, err := x509.ParseCertificate(raw[0])
-			if err != nil {
-				return err
-			}
-			got, ok := cert.PublicKey.(*ecdsa.PublicKey)
+			got, ok := state.PeerCertificates[0].PublicKey.(*ecdsa.PublicKey)
 			if !ok || !got.Equal(pin) {
 				return errors.New("endpoint key does not match registration")
 			}
 			return nil
-		}
-	} else {
-		t.logf("h2: no peer key in registration — TLS pinning off")
+		},
 	}
 	return cfg, nil
 }
