@@ -118,13 +118,15 @@ scenario; common frontend behavior, no OpenWrt fork),
 ### Keenetic-only Instagram/WhatsApp refresher
 
 `files/z2k-insta-ip-refresh.sh` остаётся upstream-помощником Keenetic: он
-управляет `ndmc ip host` и вызывается только из Keenetic
-`files/z2k-update-lists.sh`. У OpenWrt для этих файлов нет install-map target,
-package-рецепта или lifecycle-вызова; OpenWrt обновляет свои списки через
-собственный adapter seam. Это намеренная граница, а не пропущенная интеграция.
+управляет `ndmc ip host` и вызывается только из полного цикла Keenetic
+`files/z2k-update-lists.sh`. OpenWrt доставляет тот же общий helper в payload,
+но запускает только его `warp-games` entrypoint из собственной cron-строки;
+Keenetic-only insta/ndmc путь в OpenWrt не вызывается.
 
-Ошибка источника WARP gaming lists (`sources.json`) сохраняется отдельно и не
-маскируется этой границей.
+Ранее WARP gaming lists оставались пустыми из-за отсутствующего OpenWrt
+install-map target. Теперь target `/usr/lib/z2k/z2k-update-lists.sh` и marker
+`z2k-warp-games` закрывают эту delivery-дыру; если внешний `sources.json`
+недоступен, helper оставляет старые списки и UI честно показывает ошибку.
 
 Модель доставки: `git diff -> release builder (Z2K_PLATFORM) -> UPDATES.json
 (install_map + steps, данными) -> installed updater executes`. Роутер пути

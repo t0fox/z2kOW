@@ -152,6 +152,14 @@ udp_ms() {
     # z2k-detect уже лежит на каждом роутере (его возит проба блока по объёму),
     # и подкоманда dnsms меряет ровно обмен. Замер на роутере владельца: 26 мс
     # против 28 у dig на том же сервере.
+    # OpenWrt publishes the detector in its package-owned binary directory.
+    # The panel exports this exact path as Z2K_DETECT_BIN; consume it before
+    # the legacy Keenetic locations so the probe never assumes /opt on OW.
+    if [ -n "${Z2K_DETECT_BIN:-}" ] && [ -x "$Z2K_DETECT_BIN" ]; then
+        "$Z2K_DETECT_BIN" dnsms -server "$1" -name "$2" \
+            -timeout "${TIMEOUT}s" 2>/dev/null | head -1
+        return 0
+    fi
     for _dd in /opt/sbin /opt/bin "${ZAPRET2_DIR:-/opt/zapret2}"; do
         if [ -x "$_dd/z2k-detect" ]; then
             "$_dd/z2k-detect" dnsms -server "$1" -name "$2" \

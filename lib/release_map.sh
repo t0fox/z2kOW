@@ -237,6 +237,11 @@ _z2k_install_paths_openwrt() {
             echo "${or}/webpanel/lighttpd.conf.in" ;;
         files/z2k-dns-check.sh)
             echo "${or}/z2k-dns-check.sh" ;;
+        files/z2k-update-lists.sh)
+            # The common helper is also the OpenWrt owner of the WARP gaming
+            # list refresh. Its warp-games entrypoint is platform-neutral;
+            # Keenetic-only full-cycle helpers remain gated out of OW cron.
+            echo "${or}/z2k-update-lists.sh" ;;
         tests/*)
             : # как keenetic: тесты — dev/CI, на роутер не едут
             ;;

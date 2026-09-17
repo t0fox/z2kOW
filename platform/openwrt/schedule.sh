@@ -14,6 +14,11 @@
 
 Z2K_CRON_TAB="${Z2K_CRON_TAB:-/etc/crontabs/root}"
 Z2K_CRON_LINE="17 2 * * * $Z2K_ROOT/platform/openwrt/update.sh apply # z2k-updater"
+# WARP gaming lists: the common helper owns the source parser and atomic list
+# refresh; OpenWrt supplies only its payload root and its own log location.
+# Keep this as a separate marker so update/install and health schedules do not
+# overwrite one another.
+Z2K_WARP_GAMES_CRON_LINE="37 2 * * * ZAPRET2_DIR=$Z2K_ROOT LOG_FILE=${Z2K_LOG:-/tmp/z2k/logs}/z2k-warp-games.log $Z2K_ROOT/z2k-update-lists.sh warp-games # z2k-warp-games"
 # TG health-check (Stage 3): конвергенция rules + probe + kill-only backoff.
 # Отдельный маркер и отдельные функции: updater-строку не трогаем.
 Z2K_TG_CRON_LINE="*/5 * * * * $Z2K_ROOT/platform/openwrt/tg-check.sh check # z2k-tg-health"
@@ -71,19 +76,17 @@ z2k_ow_cron_install() {
     local _hour
     _hour=$(z2k_ow_schedule_hour "${Z2K_CONFIG:-/etc/z2k/config}") || return 1
     Z2K_CRON_LINE="17 $_hour * * * $Z2K_ROOT/platform/openwrt/update.sh apply # z2k-updater"
+    Z2K_WARP_GAMES_CRON_LINE="37 $_hour * * * ZAPRET2_DIR=$Z2K_ROOT LOG_FILE=${Z2K_LOG:-/tmp/z2k/logs}/z2k-warp-games.log $Z2K_ROOT/z2k-update-lists.sh warp-games # z2k-warp-games"
     mkdir -p "$(dirname "$Z2K_CRON_TAB")" 2>/dev/null || return 1
     [ -f "$Z2K_CRON_TAB" ] || : > "$Z2K_CRON_TAB" || return 1
     # Дедупликация: схлопываем все старые marker-строки в одну актуальную
     # (иначе правка расписания в новой версии плодила бы дубли).
     # Запись — temp в том же каталоге + rename (shared crontab нельзя
     # оставить обрезанным при сбое).
-    grep -vF "# z2k-updater" "$Z2K_CRON_TAB" 2>/dev/null > "$Z2K_CRON_TAB.new" || {
-        # grep rc=1 = все строки были нашими (или файл пуст): new пуст, и это
-        # нормально — ниже допишем единственную строку. rc>1 = реальная ошибка.
-        [ $? -eq 1 ] || return 1
-        : > "$Z2K_CRON_TAB.new" || return 1
-    }
+    awk '!index($0, "# z2k-updater") && !index($0, "# z2k-warp-games")' \
+        "$Z2K_CRON_TAB" > "$Z2K_CRON_TAB.new" 2>/dev/null || return 1
     printf '%s\n' "$Z2K_CRON_LINE" >> "$Z2K_CRON_TAB.new" || return 1
+    printf '%s\n' "$Z2K_WARP_GAMES_CRON_LINE" >> "$Z2K_CRON_TAB.new" || return 1
     mv -f "$Z2K_CRON_TAB.new" "$Z2K_CRON_TAB" || return 1
     # cron в части сборок выключен по умолчанию — фиксируем намерение
     # (enable) и поднимаем best-effort, если его нет в процессах; дважды
@@ -100,13 +103,8 @@ z2k_ow_cron_remove() {
     [ -f "$Z2K_CRON_TAB" ] || return 0
     # Та же атомарность; z2k-only файл (все строки наши) после remove пуст,
     # но цел — grep rc=1 здесь НЕ ошибка (см. install выше).
-    grep -vF "# z2k-updater" "$Z2K_CRON_TAB" > "$Z2K_CRON_TAB.new" 2>/dev/null
-    _rc=$?
-    if [ "$_rc" -gt 1 ]; then
-        rm -f "$Z2K_CRON_TAB.new" 2>/dev/null
-        return 1
-    fi
-    [ -f "$Z2K_CRON_TAB.new" ] || : > "$Z2K_CRON_TAB.new"
+    awk '!index($0, "# z2k-updater") && !index($0, "# z2k-warp-games")' \
+        "$Z2K_CRON_TAB" > "$Z2K_CRON_TAB.new" 2>/dev/null || return 1
     mv -f "$Z2K_CRON_TAB.new" "$Z2K_CRON_TAB" || return 1
     return 0
 }

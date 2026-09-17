@@ -114,7 +114,7 @@ z2k_ow_cron_install >/dev/null 2>&1; z2k_ow_tg_cron_install >/dev/null 2>&1
 z2k_ow_rt_cron_install >/dev/null 2>&1; z2k_ow_warp_cron_install >/dev/null 2>&1
 z2k_ow_cron_install >/dev/null 2>&1; z2k_ow_tg_cron_install >/dev/null 2>&1
 z2k_ow_rt_cron_install >/dev/null 2>&1; z2k_ow_warp_cron_install >/dev/null 2>&1
-for _m in "z2k-update" "z2k-tg-health" "z2k-rt-health" "z2k-warp-health"; do
+for _m in "# z2k-updater" "# z2k-tg-health" "# z2k-rt-health" "# z2k-warp-health"; do
     _c="$(grep -c "$_m" "$Z2K_CRON_TAB" 2>/dev/null || echo 0)"
     assert_eq "R16 cron single: $_m" "1" "$_c"
 done

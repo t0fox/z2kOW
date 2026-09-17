@@ -46,11 +46,10 @@ OpenWrt mapping:
 /etc/z2k/user-lists/warp/*.txt, devices.txt, .enabled   USER (пакет/updater
                                                           не поставляют/не пишут)
 /usr/lib/z2k/lists/warp/games/*.txt                     UPDATER (converge;
-                                                          на практике пусто,
-                                                          пока update-lists
-                                                          не портирован —
-                                                          пользователь может
-                                                          класть файлы сам)
+                                                          common helper's
+                                                          warp-games cron
+                                                          refresh; user does
+                                                          not write here)
 ```
 
 Загружается: каждый user-*.txt (кроме devices.txt) + каждый games/<name>.txt

@@ -9,9 +9,9 @@
 # silently dies on the first `awk` call (see reference_cron_path_entware).
 export PATH=/opt/sbin:/opt/bin:/sbin:/usr/sbin:/bin:/usr/bin
 
-ZAPRET2_DIR="/opt/zapret2"
-INIT_SCRIPT="/opt/etc/init.d/S99zapret2"
-LOG_FILE="${ZAPRET2_DIR}/update-lists.log"
+ZAPRET2_DIR="${ZAPRET2_DIR:-/opt/zapret2}"
+INIT_SCRIPT="${INIT_SCRIPT:-/opt/etc/init.d/S99zapret2}"
+LOG_FILE="${LOG_FILE:-${ZAPRET2_DIR}/update-lists.log}"
 MAX_LOG_LINES=200
 
 # GITHUB_RAW is resolved in this order:
