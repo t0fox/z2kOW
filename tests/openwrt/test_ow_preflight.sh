@@ -61,6 +61,7 @@ EOF
     done
     printf 'platform=openwrt\ntag=p-84.7\nref=abc123\n' > "$Z2K_ROOT/share/seed.meta"
     printf 'platform=openwrt\ntag=p-84.7\nref=abc123\n' > "$Z2K_ROOT/share/payload.meta"
+    printf '#!/bin/sh\n' > "$Z2K_ROOT/z2k-update-lists.sh"
     printf 'ENABLED=1\n' > "$Z2K_ETC/config"
 }
 _call() {

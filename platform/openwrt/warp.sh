@@ -346,6 +346,49 @@ warp_nft_rules_apply() {
     return 0
 }
 
+warp_nft_rules_verify() {
+    local _c _out
+    _z2k_ow_warp_table_ok || return 1
+    for _c in "$WARP_CHAIN_MARK" "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
+        _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$_c" 2>/dev/null) || return 1
+        [ -n "$_out" ] || return 1
+    done
+    _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_MARK" 2>/dev/null)
+    printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip daddr @$WARP_SET meta mark set" || return 1
+    printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip saddr @$WARP_SET_SRC meta mark set" || return 1
+    return 0
+}
+
+warp_nft_tun_verify() {
+    local _iface="$1" _out
+    [ -n "$_iface" ] || return 1
+    for _c in "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
+        _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$_c" 2>/dev/null) || return 1
+        [ -n "$_out" ] || return 1
+    done
+    _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_MSS" 2>/dev/null)
+    printf '%s\n' "$_out" | grep -q "oifname .*$_iface.*maxseg size set rt mtu" || return 1
+    printf '%s\n' "$_out" | grep -q "iifname .*$_iface.*maxseg size set 1240" || return 1
+    _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_FWD" 2>/dev/null)
+    printf '%s\n' "$_out" | grep -q "oifname .*$_iface.* accept" || return 1
+    _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_NAT" 2>/dev/null)
+    printf '%s\n' "$_out" | grep -q "oifname .*$_iface.* masquerade" || return 1
+    return 0
+}
+
+warp_nft_sets_verify() {
+    local _want _got _list
+    _z2k_ow_warp_table_ok || return 1
+    _want="$(warp_validated_dst | sed 's#/32$##' | sort -u)"
+    _list="$(nft list set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_SET" 2>/dev/null)" || return 1
+    _got="$(printf '%s\n' "$_list" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?' | sort -u)"
+    [ "$_want" = "$_got" ] || return 1
+    _want="$(warp_devices_ips | sort -u)"
+    _list="$(nft list set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_SET_SRC" 2>/dev/null)" || return 1
+    _got="$(printf '%s\n' "$_list" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?' | sort -u)"
+    [ "$_want" = "$_got" ]
+}
+
 # NAT/FORWARD/MSS для валидированного iface (вызывать ПОСЛЕ проверки имени).
 # Convergence ОДНОЙ транзакцией (defect 5): ensure chains + flush dynamic +
 # add ровно текущих правил. Повторный tick НЕ копит дубликаты (W40):
@@ -813,20 +856,33 @@ _warp_wait_ready() {
 # PBR install: conflict-check + tun-правила + route + rule.
 # Требует proven ready у вызывающего ИЛИ проверяет сам (дёшево).
 warp_pbr_up() {
-    local _iface
+    local _mode="${1:-full}" _iface _route_ok=0 _rule_ok=0
     _warp_proven_ready || return 1
     _iface="$(_warp_live_iface)"
     _warp_pbr_check "$_iface" || return 1
-    warp_nft_tun_apply "$_iface" || return 1
+    if [ "$_mode" = "repair" ]; then
+        warp_nft_tun_verify "$_iface" >/dev/null 2>&1 || warp_nft_tun_apply "$_iface" || return 1
+    else
+        warp_nft_tun_apply "$_iface" || return 1
+    fi
     # Дальше — PBR-мутации: ЛЮБОЙ провал после первой откатываем целиком
     # (defect 3: failed enable обязан fail open, без полу-PBR).
-    ip route replace default dev "$_iface" table "$WARP_TABLE" 2>/dev/null || {
-        _warp_pbr_rollback "$_iface"; return 1; }
-    if ! ip rule show 2>/dev/null | grep -qF "fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE"; then
+    if ip route show table "$WARP_TABLE" 2>/dev/null | grep -qE "^default dev $_iface( scope link)?$"; then
+        _route_ok=1
+    fi
+    if ip rule show 2>/dev/null | grep -qF "fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE"; then
+        _rule_ok=1
+    fi
+    if [ "$_route_ok" = "0" ]; then
+        ip route replace default dev "$_iface" table "$WARP_TABLE" 2>/dev/null || {
+            _warp_pbr_rollback "$_iface"; return 1; }
+    fi
+    if [ "$_rule_ok" = "0" ]; then
         ip rule add pref "$WARP_RULE_PREF" fwmark "$WARP_MARK/$WARP_MASK" table "$WARP_TABLE" 2>/dev/null || {
             _warp_pbr_rollback "$_iface"; return 1; }
     fi
-    _warp_owner_write "$_iface" || { _warp_pbr_rollback "$_iface"; return 1; }
+    warp_pbr_owner_verify "$_iface" >/dev/null 2>&1 || \
+        _warp_owner_write "$_iface" || { _warp_pbr_rollback "$_iface"; return 1; }
     _z2k_ow_warp_mut "PBR_UP: table $WARP_TABLE pref $WARP_RULE_PREF mark $WARP_MARK/$_iface"
     return 0
 }
@@ -1189,8 +1245,17 @@ warp_nft_sets_reload_if_changed() {
     _h="$( { warp_active_lists | while IFS= read -r _wl; do cat "$_wl" 2>/dev/null; done
              [ -s "$WARP_DEVICES_FILE" ] && cat "$WARP_DEVICES_FILE"; } | cksum 2>/dev/null | awk '{print $1}')"
     [ -f "$_hfile" ] && _old=$(cat "$_hfile" 2>/dev/null)
-    [ "$_h" = "$_old" ] && return 0
-    warp_nft_sets_load >/dev/null 2>&1 || return 0
+    if [ "$_h" = "$_old" ] && warp_nft_sets_verify >/dev/null 2>&1; then
+        return 0
+    fi
+    # A missing hash marker is not a reason to rewrite healthy kernel state;
+    # adopt the live sets after the read-only verifier succeeds.
+    if warp_nft_sets_verify >/dev/null 2>&1; then
+        printf '%s' "$_h" > "$_hfile" 2>/dev/null || true
+        return 0
+    fi
+    warp_nft_sets_load >/dev/null 2>&1 || return 1
+    warp_nft_sets_verify >/dev/null 2>&1 || return 1
     printf '%s' "$_h" > "$_hfile" 2>/dev/null
     return 0
 }
@@ -1362,6 +1427,18 @@ warp_pbr_verify() {
     return 0
 }
 
+warp_pbr_owner_verify() {
+    local _iface="$1" _o
+    [ -n "$_iface" ] && [ -s "$WARP_PBR_OWNER" ] || return 1
+    _o=$(cat "$WARP_PBR_OWNER" 2>/dev/null) || return 1
+    printf '%s\n' "$_o" | grep -qxF "mark=$WARP_MARK" || return 1
+    printf '%s\n' "$_o" | grep -qxF "mask=$WARP_MASK" || return 1
+    printf '%s\n' "$_o" | grep -qxF "pref=$WARP_RULE_PREF" || return 1
+    printf '%s\n' "$_o" | grep -qxF "table=$WARP_TABLE" || return 1
+    printf '%s\n' "$_o" | grep -qxF "iface=$_iface" || return 1
+    return 0
+}
+
 # --- health check (cron) ---
 
 # Converge-to-off lite (defect 4): PBR down + dynamic пуст. MARK — параметром:
@@ -1397,14 +1474,28 @@ z2k_ow_warp_check() {
         return 0
     fi
     if _warp_proven_ready; then
+        local _iface
+        _iface="$(_warp_live_iface)"
+        # Read-only probes first.  Every repair is tied to the failed layer;
+        # healthy MARK/TUN/PBR/owner state performs zero nft/ip/filesystem
+        # mutations, even when the tick runs every minute.
         warp_nft_sets_reload_if_changed >/dev/null 2>&1 || true
-        # Base MARK converge при каждом ready-tick (recovery после not-ready:
-        # rules_apply идемпотентен — flush+add, дубликатов нет).
-        if warp_nft_rules_apply >/dev/null 2>&1; then
-            warp_pbr_up >/dev/null 2>&1 || _warp_converge_off keep
-        else
-            _warp_converge_off keep
+        if ! warp_nft_rules_verify >/dev/null 2>&1; then
+            warp_nft_rules_apply >/dev/null 2>&1 || { _warp_converge_off keep; return 0; }
         fi
+        if ! warp_nft_tun_verify "$_iface" >/dev/null 2>&1; then
+            warp_nft_tun_apply "$_iface" >/dev/null 2>&1 || { _warp_converge_off keep; return 0; }
+        fi
+        if ! warp_pbr_verify >/dev/null 2>&1; then
+            warp_pbr_up repair >/dev/null 2>&1 || _warp_converge_off keep
+        elif ! warp_pbr_owner_verify "$_iface" >/dev/null 2>&1; then
+            _warp_owner_write "$_iface" >/dev/null 2>&1 || _warp_converge_off keep
+        fi
+        warp_nft_sets_verify >/dev/null 2>&1 && \
+            warp_nft_rules_verify >/dev/null 2>&1 && \
+            warp_nft_tun_verify "$_iface" >/dev/null 2>&1 && \
+            warp_pbr_verify >/dev/null 2>&1 && \
+            warp_pbr_owner_verify "$_iface" >/dev/null 2>&1 || _warp_converge_off keep
     else
         _warp_converge_off keep
     fi

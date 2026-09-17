@@ -130,6 +130,10 @@ install-map target. Теперь target `/usr/lib/z2k/z2k-update-lists.sh` и ma
 Cron передаёт `/etc/z2k/config` через `CONFIG_FILE` и вызывает
 `platform/openwrt/warp.sh ipset` через `Z2K_WARP_IPSET_SCRIPT`, поэтому
 включённая игра после обновления списка сразу доходит до OpenWrt nft-set.
+Строка запускает helper через `sh`: common-файл сохраняет updater-владение и
+может оставаться с mode `0644`. При обновлении с более старого APK, где helper
+ещё отсутствовал в payload, `z2k_ow_seed_additive` добавляет только этот
+отсутствующий entrypoint из seed и не переизвлекает существующий payload.
 
 Модель доставки: `git diff -> release builder (Z2K_PLATFORM) -> UPDATES.json
 (install_map + steps, данными) -> installed updater executes`. Роутер пути
@@ -169,7 +173,8 @@ Seed — только bootstrap пустой установки (Model A, инв
 `z2k_ow_seed_ensure`): marker `/etc/z2k/.payload-initialized` ставится
 только после extract+bootstrap+verify (`Z2K_PAYLOAD_REQUIRED`, 7 файлов);
 package upgrade при целом payload ничего не извлекает (updater-правки
-сохраняются побайтово); провал — без marker (retry идёт); marker + битый
+сохраняются побайтово). Единственное additive-исключение — отсутствующий
+`z2k-update-lists.sh`, который копируется из seed без перезаписи; провал — без marker (retry идёт); marker + битый
 payload — громкий провал без авто-recovery (repair: удалить marker).
 Новый seed из пакета ждёт только fresh/repair. Purpose seed задокументирован
 в `package/openwrt/make-seed.sh` и ownership.map.

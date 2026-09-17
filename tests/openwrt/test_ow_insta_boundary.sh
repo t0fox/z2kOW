@@ -33,6 +33,7 @@ assert_contains "helper сам гейтится по ndmc" "$REPO/files/z2k-inst
 assert_contains "gaming-list source failure остаётся видимым" "$REPO/files/z2k-update-lists.sh" 'warp games index unavailable'
 assert_contains "UI сохраняет gaming-list error" "$REPO/webpanel/www/js/pages/warp.js" 'Списки не загрузились — источник был недоступен'
 assert_contains "OpenWrt cron обновляет gaming lists" "$REPO/platform/openwrt/schedule.sh" 'z2k-warp-games'
+assert_contains "OpenWrt cron запускает common helper через sh" "$REPO/platform/openwrt/schedule.sh" 'sh $Z2K_ROOT/z2k-update-lists.sh warp-games'
 assert_contains "OpenWrt helper принимает payload root" "$REPO/files/z2k-update-lists.sh" 'ZAPRET2_DIR:-/opt/zapret2'
 assert_contains "OpenWrt cron передаёт canonical config" "$REPO/platform/openwrt/schedule.sh" 'CONFIG_FILE=${Z2K_CONFIG:-/etc/z2k/config}'
 assert_contains "OpenWrt cron вызывает platform WARP reload" "$REPO/platform/openwrt/schedule.sh" 'Z2K_WARP_IPSET_SCRIPT=$Z2K_ROOT/platform/openwrt/warp.sh'

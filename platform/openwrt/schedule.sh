@@ -18,7 +18,7 @@ Z2K_CRON_LINE="17 2 * * * $Z2K_ROOT/platform/openwrt/update.sh apply # z2k-updat
 # refresh; OpenWrt supplies only its payload root and its own log location.
 # Keep this as a separate marker so update/install and health schedules do not
 # overwrite one another.
-Z2K_WARP_GAMES_CRON_LINE="37 2 * * * ZAPRET2_DIR=$Z2K_ROOT CONFIG_FILE=${Z2K_CONFIG:-/etc/z2k/config} Z2K_WARP_IPSET_SCRIPT=$Z2K_ROOT/platform/openwrt/warp.sh LOG_FILE=${Z2K_LOG:-/tmp/z2k/logs}/z2k-warp-games.log $Z2K_ROOT/z2k-update-lists.sh warp-games # z2k-warp-games"
+Z2K_WARP_GAMES_CRON_LINE="37 2 * * * ZAPRET2_DIR=$Z2K_ROOT CONFIG_FILE=${Z2K_CONFIG:-/etc/z2k/config} Z2K_WARP_IPSET_SCRIPT=$Z2K_ROOT/platform/openwrt/warp.sh LOG_FILE=${Z2K_LOG:-/tmp/z2k/logs}/z2k-warp-games.log sh $Z2K_ROOT/z2k-update-lists.sh warp-games # z2k-warp-games"
 # TG health-check (Stage 3): конвергенция rules + probe + kill-only backoff.
 # Отдельный маркер и отдельные функции: updater-строку не трогаем.
 Z2K_TG_CRON_LINE="*/5 * * * * $Z2K_ROOT/platform/openwrt/tg-check.sh check # z2k-tg-health"
@@ -76,7 +76,7 @@ z2k_ow_cron_install() {
     local _hour
     _hour=$(z2k_ow_schedule_hour "${Z2K_CONFIG:-/etc/z2k/config}") || return 1
     Z2K_CRON_LINE="17 $_hour * * * $Z2K_ROOT/platform/openwrt/update.sh apply # z2k-updater"
-    Z2K_WARP_GAMES_CRON_LINE="37 $_hour * * * ZAPRET2_DIR=$Z2K_ROOT CONFIG_FILE=${Z2K_CONFIG:-/etc/z2k/config} Z2K_WARP_IPSET_SCRIPT=$Z2K_ROOT/platform/openwrt/warp.sh LOG_FILE=${Z2K_LOG:-/tmp/z2k/logs}/z2k-warp-games.log $Z2K_ROOT/z2k-update-lists.sh warp-games # z2k-warp-games"
+    Z2K_WARP_GAMES_CRON_LINE="37 $_hour * * * ZAPRET2_DIR=$Z2K_ROOT CONFIG_FILE=${Z2K_CONFIG:-/etc/z2k/config} Z2K_WARP_IPSET_SCRIPT=$Z2K_ROOT/platform/openwrt/warp.sh LOG_FILE=${Z2K_LOG:-/tmp/z2k/logs}/z2k-warp-games.log sh $Z2K_ROOT/z2k-update-lists.sh warp-games # z2k-warp-games"
     mkdir -p "$(dirname "$Z2K_CRON_TAB")" 2>/dev/null || return 1
     [ -f "$Z2K_CRON_TAB" ] || : > "$Z2K_CRON_TAB" || return 1
     # Дедупликация: схлопываем все старые marker-строки в одну актуальную

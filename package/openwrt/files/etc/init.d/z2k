@@ -38,20 +38,52 @@ z2k_load_adapter() {
     return 0
 }
 
+# BusyBox builds differ: some have an executable usleep applet, some only
+# whole-second sleep. Probe the operation itself once, then use 50 ms polls
+# against one absolute deadline. This keeps the fallback bounded and avoids
+# turning a fast process start into an artificial one-second wait.
+Z2K_FRACSLEEP="${Z2K_FRACSLEEP:-}"
+_z2k_ow_fracsleep_avail() {
+    [ -n "$Z2K_FRACSLEEP" ] || {
+        if usleep 1 >/dev/null 2>&1; then Z2K_FRACSLEEP=1; else Z2K_FRACSLEEP=0; fi
+    }
+    [ "$Z2K_FRACSLEEP" = "1" ]
+}
+_z2k_ow_poll_sleep() {
+    if _z2k_ow_fracsleep_avail; then usleep 50000 2>/dev/null; else sleep 1; fi
+}
+_z2k_ow_deadline() {
+    local _now
+    _now=$(date +%s 2>/dev/null || echo 0)
+    case "$_now" in ''|*[!0-9]*) _now=0 ;; esac
+    printf '%s' $((_now + ${1:-0}))
+}
+_z2k_ow_before_deadline() {
+    local _now
+    _now=$(date +%s 2>/dev/null || echo 0)
+    case "$_now" in ''|*[!0-9]*) _now=0 ;; esac
+    [ "$_now" -lt "$1" ]
+}
+
 # Bounded wait: nfqws2 запущен И держит очередь (consumer registered),
 # а не просто "procd принял instance". Вызывать ТОЛЬКО из service_started
 # (после commit в procd): внутри start_service процессов ещё нет — procd
 # спавнит их после возврата. Таймаут переопределяем для тестов.
 _z2k_ow_wait_consumer() {
-    local _t="${Z2K_START_CONSUMER_TIMEOUT:-30}" _pid _q="${QNUM:-200}"
-    while [ "$_t" -gt 0 ]; do
+    local _deadline _pid _q="${QNUM:-200}" _owner
+    _deadline="$(_z2k_ow_deadline "${Z2K_START_CONSUMER_TIMEOUT:-30}")"
+    while :; do
         _pid="$(cat "$Z2K_RUN/nfqws2.pid" 2>/dev/null)"
-        if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null && \
-           grep -q "^[[:space:]]*$_q " \
-               "${Z2K_NFQUEUE_PROC:-/proc/net/netfilter/nfnetlink_queue}" 2>/dev/null; then
-            return 0
+        if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null; then
+            # nfnetlink_queue column 2 is the netlink peer portid. Match it
+            # together with the queue number so another nfqws2 instance cannot
+            # make this daemon look ready.
+            while read -r _qnum _owner _rest; do
+                [ "$_qnum" = "$_q" ] && [ "$_owner" = "$_pid" ] && return 0
+            done < "${Z2K_NFQUEUE_PROC:-/proc/net/netfilter/nfnetlink_queue}" 2>/dev/null
         fi
-        sleep 1; _t=$((_t - 1))
+        _z2k_ow_before_deadline "$_deadline" || break
+        _z2k_ow_poll_sleep
     done
     echo "z2k-openwrt: consumer timeout: nfqws2 не держит очередь $_q" >&2
     return 1
@@ -60,13 +92,15 @@ _z2k_ow_wait_consumer() {
 # Bounded wait TG/RT-процессов (тоже только post-commit). Короткий: procd
 # спавнит быстро; долгий вис — уже не старт, а залипание.
 _z2k_ow_wait_feature() {
-    local _what="$1" _t="${Z2K_START_FEATURE_TIMEOUT:-15}"
-    while [ "$_t" -gt 0 ]; do
+    local _what="$1" _deadline
+    _deadline="$(_z2k_ow_deadline "${Z2K_START_FEATURE_TIMEOUT:-15}")"
+    while :; do
         case "$_what" in
             tg) z2k_ow_tg_running 2>/dev/null && return 0 ;;
             rt) z2k_ow_rt_running 2>/dev/null && return 0 ;;
         esac
-        sleep 1; _t=$((_t - 1))
+        _z2k_ow_before_deadline "$_deadline" || break
+        _z2k_ow_poll_sleep
     done
     echo "z2k-openwrt: feature timeout: $_what не поднялся" >&2
     return 1

@@ -91,6 +91,9 @@ for _p in TCP/YT TCP/YT_GV TCP/RKN UDP/YT; do
 done
 printf 'platform=openwrt\ntag=p-84.7\nref=test\n' > "$T/root/share/seed.meta"
 printf 'platform=openwrt\ntag=p-84.7\nref=test\n' > "$T/root/share/payload.meta"
+# Existing payload fixture includes the additive helper, so this launcher test
+# stays focused on update entry gating; its migration is covered separately.
+printf '#!/bin/sh\n' > "$T/root/z2k-update-lists.sh"
 # pre-flight update.sh: marker + tag (восстановление tag — в preflight-тесте)
 : > "$T/etc/.payload-initialized"
 printf 'p-84.7\n' > "$T/etc/state/installed-tag"

@@ -85,7 +85,7 @@ printf 'ENABLED=1\nQNUM=200\n' > "$T/etc/config"
 sleep 60 & _BG=$!
 trap 'kill "$_BG" 2>/dev/null; rm -rf "$T"' EXIT INT TERM
 printf '%s\n' "$_BG" > "$T/run/nfqws2.pid"
-printf '200 4242 0 2 65531 0 0 0 1\n' > "$T/nfqueue"
+printf '200 %s 0 2 65531 0 0 0 1\n' "$_BG" > "$T/nfqueue"
 export Z2K_NFQUEUE_PROC="$T/nfqueue" Z2K_START_CONSUMER_TIMEOUT=3
 # shellcheck disable=SC1090,SC1091
 . "$REPO/package/openwrt/files/etc/init.d/z2k" || { echo "FAIL[ow-start-gate]: source init" >&2; exit 1; }
@@ -120,6 +120,7 @@ _run() {
         kill "$_BG" 2>/dev/null
         sleep 60 & _BG=$!
         printf '%s\n' "$_BG" > "$T/run/nfqws2.pid"
+        printf '200 %s 0 2 65531 0 0 0 1\n' "$_BG" > "$T/nfqueue"
     fi
     rm -f "$T/run/core-ready"
     : > "$T/calls"
@@ -247,11 +248,54 @@ esac
 chmod +x "$T/rt/ipset/create_ipset.sh"
 z2k_ow_runtime_preflight >/dev/null 2>&1 \
     && _t_ok || _t_bad "preflight 0755 упал"
+[ -s "$T/etc/state/runtime-capabilities" ] && _t_ok || \
+    _t_bad "preflight proof не сохранён"
+
+# Same immutable binary: the next gate may verify the hash/proof, but must not
+# rescan the ELF for the capability.  The seam rejects only the expensive
+# capability grep; the proof lookup uses a different grep form.
+cat > "$T/bin/grep" <<EOF
+#!/bin/sh
+if [ "\$2" = "so-mark" ]; then
+    echo scan >> "$T/so-mark-scans"
+    exit 99
+fi
+exec /usr/bin/grep "\$@"
+EOF
+chmod +x "$T/bin/grep"
+z2k_ow_runtime_preflight >/dev/null 2>&1 \
+    && _t_ok || _t_bad "preflight cached proof не использован"
+[ ! -s "$T/so-mark-scans" ] && _t_ok || \
+    _t_bad "preflight cached proof повторно сканировал ELF"
+rm -f "$T/bin/grep"
 
 # --- 6. preflight ловит 0644 nfqws2 ---
 chmod 0644 "$T/rt/nfq2/nfqws2"
 z2k_ow_runtime_preflight >/dev/null 2>&1 \
     && _t_bad "preflight 0644 nfqws2 прошёл" || _t_ok
 chmod +x "$T/rt/nfq2/nfqws2"
+
+# --- 7. readiness appears between sub-second polls ---
+# The first probe is empty; the usleep seam publishes the queue after two
+# fractional sleeps.  A one-second polling loop would either quantize this
+# case or fail the explicit sub-second contract.
+cat > "$T/bin/usleep" <<EOF
+#!/bin/sh
+_n=\$(cat "$T/usleep.count" 2>/dev/null || echo 0)
+_n=\$((_n + 1))
+printf '%s\n' "\$_n" > "$T/usleep.count"
+[ "\$_n" -ge 3 ] && printf '200 %s 0 2 65531 0 0 0 1\n' "\$(cat "$T/run/nfqws2.pid")" > "$T/nfqueue"
+exit 0
+EOF
+chmod +x "$T/bin/usleep"
+sleep 60 & _BG=$!
+printf '%s\n' "$_BG" > "$T/run/nfqws2.pid"
+: > "$T/nfqueue"
+: > "$T/usleep.count"
+Z2K_FRACSLEEP= Z2K_START_CONSUMER_TIMEOUT=2 _z2k_ow_wait_consumer
+assert_eq "readiness между fractional polls rc" "0" "$?"
+_us=$(cat "$T/usleep.count" 2>/dev/null || echo 0)
+[ "$_us" -ge 3 ] && _t_ok || _t_bad "readiness: usleep polls=$_us"
+kill "$_BG" 2>/dev/null
 
 _t_done

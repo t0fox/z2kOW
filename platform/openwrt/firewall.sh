@@ -140,12 +140,29 @@ z2k_ow_runtime_preflight() {
     done
     # RT capability --so-mark (p-84.17 contract): бинарь без флага + адаптер
     # с флагом = тихий mismatch (мост без метки, движок гоняется за туннелем).
-    # strings на роутере может не быть — grep по бинарнику достаточен
-    # (нужен только exit code; вывод гасим).
+    # The immutable binary is scanned once per content hash.  Subsequent
+    # restarts compute the cheap cryptographic hash and consult the proof,
+    # while a changed binary necessarily re-enters the loud capability gate.
     if [ -x "${Z2K_BIN:-/usr/lib/z2k/bin}/z2k-rt-proxy" ]; then
-        if ! grep -q 'so-mark' "${Z2K_BIN:-/usr/lib/z2k/bin}/z2k-rt-proxy" >/dev/null 2>&1; then
-            echo "z2k-openwrt: runtime_not_capable: z2k-rt-proxy без --so-mark (старый бинарь?)" >&2
+        local _rtbin="${Z2K_BIN:-/usr/lib/z2k/bin}/z2k-rt-proxy" \
+              _rtproof="${Z2K_RUNTIME_CAPABILITY_CACHE:-${Z2K_STATE:-${Z2K_ETC:-/etc/z2k}/state}/runtime-capabilities}" \
+              _rthash=""
+        if command -v sha256sum >/dev/null 2>&1; then
+            _rthash=$(sha256sum "$_rtbin" 2>/dev/null | awk '{print $1}')
+        else
+            echo "z2k-openwrt: runtime_not_capable: sha256sum отсутствует, proof z2k-rt-proxy невозможен" >&2
             return 1
+        fi
+        if [ -z "$_rthash" ] || ! grep -qxF "$_rthash|so-mark=1" "$_rtproof" 2>/dev/null; then
+            if ! grep -q 'so-mark' "$_rtbin" >/dev/null 2>&1; then
+                echo "z2k-openwrt: runtime_not_capable: z2k-rt-proxy без --so-mark (старый бинарь?)" >&2
+                return 1
+            fi
+            mkdir -p "$(dirname "$_rtproof")" 2>/dev/null || return 1
+            printf '%s|so-mark=1\n' "$_rthash" > "${_rtproof}.tmp.$$" 2>/dev/null || return 1
+            mv -f "${_rtproof}.tmp.$$" "$_rtproof" 2>/dev/null || {
+                rm -f "${_rtproof}.tmp.$$" 2>/dev/null; return 1;
+            }
         fi
     fi
     return 0

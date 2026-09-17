@@ -107,6 +107,14 @@ if [ "\$1" = "list" ] && [ "\$2" = "table" ]; then
     [ -f "$T/no-table" ] && exit 1
     exit 0
 fi
+if [ "\$1" = "list" ] && [ "\$2" = "chain" ]; then
+    case "\$5" in
+        z2k_rt_dst_pre|z2k_rt_dst_out) echo 'tcp dport 443 ip daddr 10.171.171.171 redirect to :1445' ;;
+        z2k_rt_flt_in) echo 'tcp dport 1445 ct status dnat accept'; echo 'tcp dport 1445 drop' ;;
+        z2k_rt_flt6_fwd|z2k_rt_flt6_out) echo 'ip6 daddr 2001:db8::1:1445 tcp dport 443 reject with icmpv6 port-unreachable' ;;
+    esac
+    exit 0
+fi
 exit 0
 EOF
 chmod +x "$T/bin/nft"
@@ -196,6 +204,18 @@ z2k_ow_rt 1 >/dev/null 2>&1
 assert_eq "RT4: секций те же 5" "5" "$(find "$T/uci/dhcp" -maxdepth 1 -name 'z2k_rt_*' | grep -c .)"
 assert_eq "RT4: whitelist цел (1)" "1" "$(wc -l < "$T/root/lists/whitelist.txt" | tr -d ' ')"
 assert_eq "RT4: exclude без дублей (5)" "5" "$(wc -l < "$T/etc/rt-exclude.txt" | tr -d ' ')"
+
+# --- RT4b: healthy check is read-only across every owned layer ---
+printf '4242\n' > "$T/pidof.out"
+mkdir -p "$T/proc/4242"
+printf 'z2k-rt-proxy --listen=:1445 --timeout=15m' | tr ' ' '\0' > "$T/proc/4242/cmdline"
+: > "$T/nft.log"; : > "$T/uci.log"; : > "$T/dnsmasq.log"
+_rt_ex_before="$(cksum "$T/etc/rt-exclude.txt")"
+z2k_ow_rt check >/dev/null 2>&1 || _t_bad "RT4b: healthy check rc"
+assert_eq "RT4b: nft mutation zero" "0" "$(grep -Ec '^nft:(add|flush|delete|replace|-f)' "$T/nft.log" 2>/dev/null || true)"
+assert_eq "RT4b: UCI mutation zero" "0" "$(grep -Ec '^(set|delete|commit)' "$T/uci.log" 2>/dev/null || true)"
+assert_eq "RT4b: dnsmasq reload zero" "0" "$(grep -Ec '^(dnsmasq:reload|dnsmasq:restart)' "$T/dnsmasq.log" 2>/dev/null || true)"
+assert_eq "RT4b: exclude bytes stable" "$_rt_ex_before" "$(cksum "$T/etc/rt-exclude.txt")"
 
 # --- RT5: crash (transient): DNS/rules на месте, ничего не снято ---
 _reset

@@ -15,6 +15,15 @@ Z2K_SEED_DEST="${Z2K_SEED_DEST:-/}"
 # только когда всё это на месте, и проверяется при каждом ensure.
 # share/seed.meta — тоже required: без него tag установить не из чего.
 Z2K_PAYLOAD_REQUIRED="${Z2K_PAYLOAD_REQUIRED:-lib/utils.sh lib/config_official.sh lib/strategies.sh lua/z2k-alert.lua lua/z2k-state-persist.lua strats_new2.txt extra_strats/TCP/RKN/Strategy.txt share/seed.meta}"
+
+# Additive payload bridge for files introduced after an older package was
+# installed. A package upgrade must not re-extract the whole seed (that would
+# overwrite updater-owned state), but a new adapter entrypoint still has to be
+# available before its cron/service caller runs.
+Z2K_PAYLOAD_ADDITIVE="${Z2K_PAYLOAD_ADDITIVE:-z2k-update-lists.sh}"
+# Seed archives always carry the payload below this relative prefix. Keeping
+# it relative avoids introducing a second absolute OpenWrt path authority.
+Z2K_SEED_PAYLOAD_ROOT="${Z2K_SEED_PAYLOAD_ROOT:-usr/lib/z2k}"
 #
 # Мосты, которые создаёт z2k_ow_bootstrap (обоснование — в contract):
 #   $Z2K_ROOT/config → /etc/z2k/config (чтения ${ZAPRET2_DIR}/config внутри
@@ -219,6 +228,42 @@ z2k_ow_reseed_from_seed() {
     return 0
 }
 
+# Copy only known additive entrypoints when an older payload predates them.
+# Existing payload files are never overwritten. The seed is extracted into a
+# transient directory first, so a package upgrade cannot mutate the live tree
+# until the source file is proven to exist.
+z2k_ow_seed_additive() {
+    local _r _src _tmp
+    for _r in $Z2K_PAYLOAD_ADDITIVE; do
+        [ -s "$Z2K_ROOT/$_r" ] && continue
+        [ -f "$Z2K_SEED_TARBALL" ] || {
+            echo "z2k-openwrt: нет seed для additive payload $_r" >&2
+            return 1
+        }
+        _tmp="$(mktemp -d "${Z2K_TMP:-/tmp/z2k}/seed-add.XXXXXX")" || return 1
+        if ! tar -xzf "$Z2K_SEED_TARBALL" -C "$_tmp"; then
+            rm -rf "$_tmp"
+            return 1
+        fi
+        _src="$_tmp/$Z2K_SEED_PAYLOAD_ROOT/$_r"
+        if [ ! -s "$_src" ]; then
+            echo "z2k-openwrt: seed не содержит additive payload $_r" >&2
+            rm -rf "$_tmp"
+            return 1
+        fi
+        mkdir -p "$(dirname "$Z2K_ROOT/$_r")" || {
+            rm -rf "$_tmp"
+            return 1
+        }
+        cp -p "$_src" "$Z2K_ROOT/$_r" || {
+            rm -rf "$_tmp"
+            return 1
+        }
+        rm -rf "$_tmp"
+    done
+    return 0
+}
+
 # z2k_ow_seed_ensure — диспетчер (НЕ извлекает сам, кроме вызова транзакции).
 #   marker + payload ok -> bootstrap + verify (upgrade: НИЧЕГО не трогаем,
 #     tag/payload побайтово целы — I5);
@@ -235,6 +280,7 @@ z2k_ow_seed_ensure() {
     if z2k_ow_payload_ok; then
         z2k_ow_bootstrap || return 1
         z2k_ow_payload_ok || return 1
+        z2k_ow_seed_additive || return 1
         # Reconcile ВСЕГДА (не только без marker): updater-crash оставляет
         # marker + tag != meta; equal-case — noop (I5: upgrade ничего не пишет).
         z2k_ow_reconcile_tag || return 1

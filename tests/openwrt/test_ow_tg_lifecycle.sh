@@ -17,6 +17,22 @@ if [ "\$1" = "list" ] && [ "\$2" = "table" ]; then
     [ -f "$T/no-table" ] && exit 1
     exit 0
 fi
+if [ "\$1" = "list" ] && [ "\$2" = "set" ]; then
+    case "\$5" in
+        z2k_tg_dc6) echo 'set z2k_tg_dc6 { elements = { 2001:67c:4e8::/48, 2001:b28:f23c::/47, 2001:b28:f23f::/48, 2a0a:f280:203::/48 } }' ;;
+        z2k_tg_cdn4) echo 'set z2k_tg_cdn4 { elements = { 168.119.95.238 } }' ;;
+        *) echo 'set z2k_tg_dc4 { elements = { 149.154.160.0/20, 91.108.4.0/22, 91.108.8.0/22, 91.108.12.0/22, 91.108.16.0/22, 91.108.20.0/22, 91.108.56.0/22, 91.105.192.0/23, 95.161.64.0/20, 185.76.151.0/24 } }' ;;
+    esac
+    exit 0
+fi
+if [ "\$1" = "list" ] && [ "\$2" = "chain" ]; then
+    case "\$5" in
+        z2k_tg_dst_pre|z2k_tg_dst_out) echo 'tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443'; echo 'tcp dport 80 ip daddr @z2k_tg_cdn4 redirect to :1444' ;;
+        z2k_tg_flt_fwd|z2k_tg_flt_out) echo 'ip6 daddr @z2k_tg_dc6 tcp dport { 80, 443 } reject with icmpv6 port-unreachable' ;;
+        z2k_tg_flt_in) echo 'tcp dport { 1443, 1444 } ct status dnat accept'; echo 'tcp dport { 1443, 1444 } drop' ;;
+    esac
+    exit 0
+fi
 exit 0
 EOF
 chmod +x "$T/bin/nft"

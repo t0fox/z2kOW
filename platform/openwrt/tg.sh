@@ -314,6 +314,55 @@ z2k_ow_tg_verify() {
     return 0
 }
 
+# Read-only TG dataplane verifier.  It deliberately inspects the complete
+# owned surface before deciding to repair it: a healthy tick must not call
+# nft add/flush or conntrack at all.  The redirect flag is consumed by the
+# caller so conntrack is flushed only when redirect/guard routing was actually
+# repaired, never for a list-only drift.
+z2k_ow_tg_nft_verify() {
+    local _s _c _out _need
+    Z2K_TG_NFT_DRIFT_REDIRECT=0
+    _z2k_ow_tg_table_ok || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+    for _s in "$Z2K_TG_SET4:$Z2K_TG_CIDRS" \
+              "$Z2K_TG_SET6:$Z2K_TG_CIDRS6" \
+              "$Z2K_TG_SETCDN:$Z2K_TG_CDN_CIDRS"; do
+        _name=${_s%%:*}; _need=${_s#*:}
+        _out=$(nft list set "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_name" 2>/dev/null) || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+        [ -n "$_out" ] || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+        for _v in $_need; do
+            printf '%s\n' "$_out" | grep -qF "${_v%/32}" || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+        done
+    done
+    for _c in "$Z2K_TG_CHAIN_PRE" "$Z2K_TG_CHAIN_OUT" \
+              "$Z2K_TG_CHAIN_FWD" "$Z2K_TG_CHAIN_OUTF" "$Z2K_TG_CHAIN_IN"; do
+        _out=$(nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_c" 2>/dev/null) || {
+            Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+        [ -n "$_out" ] || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+    done
+    for _need in \
+        "tcp dport 443 ip daddr @$Z2K_TG_SET4 redirect to :$Z2K_TG_PORT" \
+        "tcp dport 80 ip daddr @$Z2K_TG_SETCDN redirect to :$Z2K_TG_CDN_PORT"; do
+        for _c in "$Z2K_TG_CHAIN_PRE" "$Z2K_TG_CHAIN_OUT"; do
+            _out=$(nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_c" 2>/dev/null)
+            printf '%s\n' "$_out" | tr -s ' ' | grep -qF "$_need" || {
+                Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+        done
+    done
+    for _c in "$Z2K_TG_CHAIN_FWD" "$Z2K_TG_CHAIN_OUTF"; do
+        _out=$(nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_c" 2>/dev/null)
+        printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip6 daddr @$Z2K_TG_SET6 tcp dport" || {
+            Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+        printf '%s\n' "$_out" | grep -q 'reject with icmpv6.*port-unreachable' || {
+            Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+    done
+    _out=$(nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_IN" 2>/dev/null)
+    printf '%s\n' "$_out" | tr -s ' ' | grep -qF "tcp dport { $Z2K_TG_PORT, $Z2K_TG_CDN_PORT } ct status dnat accept" || {
+        Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+    printf '%s\n' "$_out" | tr -s ' ' | grep -qF "tcp dport { $Z2K_TG_PORT, $Z2K_TG_CDN_PORT } drop" || {
+        Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+    return 0
+}
+
 # --- health check (cron, см. contract §8) ---
 
 _z2k_ow_tg_probe() {
@@ -360,9 +409,14 @@ z2k_ow_tg_check() {
         rm -f "$_fails_f" "$_kill_f" 2>/dev/null
         return 0
     fi
-    # Правила чиним всегда (дешево, идемпотентно); демон НЕ трогаем.
-    if z2k_ow_tg_nft_apply 2>/dev/null; then
-        z2k_ow_tg_conntrack_flush
+    # Сначала read-only probe.  Healthy state is a strict zero-mutation path.
+    # Repair only owned TG state; conntrack is flushed only when redirect/
+    # guard routing itself was missing and had to be rebuilt.
+    if ! z2k_ow_tg_nft_verify 2>/dev/null; then
+        if z2k_ow_tg_nft_apply 2>/dev/null && [ "${Z2K_TG_NFT_DRIFT_REDIRECT:-1}" = "1" ]; then
+            z2k_ow_tg_conntrack_flush
+        fi
+        z2k_ow_tg_nft_verify >/dev/null 2>&1 || return 0
     fi
     # procd поднимет упавший сам; убиваем только ЗАВИСШИЙ живой (probe).
     if ! z2k_ow_tg_running; then

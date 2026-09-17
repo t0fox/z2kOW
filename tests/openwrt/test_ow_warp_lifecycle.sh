@@ -59,7 +59,11 @@ if [ "\$1" = "list" ] && [ "\$2" = "table" ]; then
 fi
 if [ "\$1" = "list" ] && [ "\$2" = "set" ]; then
     # Defect 6: сета нет (таблицу снесли) — честный провал для set-ensure.
-    [ -f "$T/nft-set-\$5" ] && exit 0
+    [ -f "$T/nft-set-\$5" ] && { cat "$T/nft-set-\$5"; exit 0; }
+    exit 1
+fi
+if [ "\$1" = "list" ] && [ "\$2" = "chain" ]; then
+    [ -f "$T/nft-chain-\$5" ] && { cat "$T/nft-chain-\$5"; exit 0; }
     exit 1
 fi
 # set-state для W19 (live set переживает corrupt-refresh): как настоящий
@@ -903,6 +907,8 @@ z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W40: enable rc"
 _m0_mss="$(grep -c . "$T/nft-chain-z2k_warp_mss" 2>/dev/null || true)"
 _m0_fwd="$(grep -c . "$T/nft-chain-z2k_warp_fwd" 2>/dev/null || true)"
 _m0_nat="$(grep -c . "$T/nft-chain-z2k_warp_nat" 2>/dev/null || true)"
+: > "$T/nft.log"; : > "$T/ip.log"
+cp "$T/tmp/warp/pbr.owner" "$T/pbr.owner.before" 2>/dev/null || true
 _i=0; while [ "$_i" -lt 10 ]; do z2k_ow_warp check >/dev/null 2>&1; _i=$((_i + 1)); done
 assert_eq "W40: mss stable" "$_m0_mss" "$(grep -c . "$T/nft-chain-z2k_warp_mss" 2>/dev/null || true)"
 assert_eq "W40: fwd stable" "$_m0_fwd" "$(grep -c . "$T/nft-chain-z2k_warp_fwd" 2>/dev/null || true)"
@@ -910,6 +916,9 @@ assert_eq "W40: nat stable" "$_m0_nat" "$(grep -c . "$T/nft-chain-z2k_warp_nat" 
 assert_eq "W40: mss ровно 2" "2" "$(grep -c . "$T/nft-chain-z2k_warp_mss" 2>/dev/null || true)"
 assert_eq "W40: fwd ровно 1" "1" "$(grep -c . "$T/nft-chain-z2k_warp_fwd" 2>/dev/null || true)"
 assert_eq "W40: nat ровно 1" "1" "$(grep -c . "$T/nft-chain-z2k_warp_nat" 2>/dev/null || true)"
+assert_eq "W40: healthy nft mutations zero" "0" "$(grep -Ec '^nft:(add|flush|delete|replace|-f)' "$T/nft.log" 2>/dev/null || true)"
+assert_eq "W40: healthy route/rule mutations zero" "0" "$(grep -Ec '^ip:(route (add|del|delete|replace|change|flush)|rule (add|del|delete|replace|change|flush))' "$T/ip.log" 2>/dev/null || true)"
+assert_eq "W40: owner bytes stable" "$(cat "$T/pbr.owner.before" 2>/dev/null)" "$(cat "$T/tmp/warp/pbr.owner" 2>/dev/null)"
 _w_inv "W40"
 
 # --- W41: firewall recreation restores sets+chains+dynamic (defect 6) ---

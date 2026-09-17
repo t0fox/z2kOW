@@ -326,6 +326,17 @@ z2k_ow_rt_desync_exclude() {
     mv -f "$_tmp" "$_f" 2>/dev/null || { rm -f "$_tmp"; return 1; }
     return 0
 }
+
+z2k_ow_rt_desync_exclude_verify() {
+    local _f="$(_z2k_ow_rt_exclude_file)" _tmp="${Z2K_TMP:-/tmp/z2k}/rt-exclude.expected.$$" _d
+    [ -f "$_f" ] || return 1
+    mkdir -p "$(dirname "$_tmp")" 2>/dev/null || return 1
+    : > "$_tmp" || return 1
+    for _d in $Z2K_RT_DOMAINS; do printf '%s\n' "$_d" >> "$_tmp" || { rm -f "$_tmp"; return 1; }; done
+    cmp -s "$_tmp" "$_f"; _rc=$?
+    rm -f "$_tmp" 2>/dev/null
+    return "$_rc"
+}
 # Снять RT-исключение: пустой файл (см. выше, почему не delete).
 z2k_ow_rt_desync_include() {
     local _f
@@ -386,6 +397,35 @@ z2k_ow_rt_nft_apply() {
     nft add rule "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_OUT6" \
         ip6 daddr "$Z2K_RT_SENTINEL6" tcp dport 443 reject with icmpv6 type port-unreachable || return 1
     _z2k_ow_rt_mut "NFT_CREATED: $Z2K_RT_CHAIN_OUT6 reject $Z2K_RT_SENTINEL6"
+    return 0
+}
+
+# Complete read-only verifier for the RT-owned nft surface.  It is separate
+# from the destructive apply path so a healthy cron tick never flushes and
+# rebuilds valid redirect/guard chains.
+z2k_ow_rt_nft_verify() {
+    local _c _out _need
+    _z2k_ow_rt_table_ok || return 1
+    for _c in "$Z2K_RT_CHAIN_PRE" "$Z2K_RT_CHAIN_OUT" "$Z2K_RT_CHAIN_IN" \
+              "$Z2K_RT_CHAIN_FWD6" "$Z2K_RT_CHAIN_OUT6"; do
+        _out=$(nft list chain "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$_c" 2>/dev/null) || return 1
+        [ -n "$_out" ] || return 1
+    done
+    for _need in \
+        "tcp dport 443 ip daddr $Z2K_RT_SENTINEL redirect to :$Z2K_RT_PORT"; do
+        for _c in "$Z2K_RT_CHAIN_PRE" "$Z2K_RT_CHAIN_OUT"; do
+            _out=$(nft list chain "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$_c" 2>/dev/null)
+            printf '%s\n' "$_out" | tr -s ' ' | grep -qF "$_need" || return 1
+        done
+    done
+    _out=$(nft list chain "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$Z2K_RT_CHAIN_IN" 2>/dev/null)
+    printf '%s\n' "$_out" | tr -s ' ' | grep -qF "tcp dport $Z2K_RT_PORT ct status dnat accept" || return 1
+    printf '%s\n' "$_out" | tr -s ' ' | grep -qF "tcp dport $Z2K_RT_PORT drop" || return 1
+    for _c in "$Z2K_RT_CHAIN_FWD6" "$Z2K_RT_CHAIN_OUT6"; do
+        _out=$(nft list chain "$Z2K_RT_NFT_FAMILY" "$Z2K_RT_NFT_TABLE" "$_c" 2>/dev/null)
+        printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip6 daddr $Z2K_RT_SENTINEL6 tcp dport 443" || return 1
+        printf '%s\n' "$_out" | grep -q 'reject with icmpv6.*port-unreachable' || return 1
+    done
     return 0
 }
 
@@ -542,10 +582,21 @@ z2k_ow_rt_check() {
             return 0
         fi
     fi
-    # Converge (только добавляет/проверяет — removals здесь нет).
-    z2k_ow_rt_dns_apply >/dev/null 2>&1 || return 0
-    z2k_ow_rt_desync_exclude >/dev/null 2>&1 || return 0
-    z2k_ow_rt_nft_apply >/dev/null 2>&1 || return 0
+    # Verify each owned layer first.  A healthy tick is read-only; repair only
+    # the layer that drifted and let that layer's own verify gate perform any
+    # required reload/commit.
+    if ! _z2k_ow_rt_dns_verify >/dev/null 2>&1; then
+        z2k_ow_rt_dns_apply >/dev/null 2>&1 || return 0
+    fi
+    if ! z2k_ow_rt_desync_exclude_verify >/dev/null 2>&1; then
+        z2k_ow_rt_desync_exclude >/dev/null 2>&1 || return 0
+    fi
+    if ! z2k_ow_rt_nft_verify >/dev/null 2>&1; then
+        z2k_ow_rt_nft_apply >/dev/null 2>&1 || return 0
+    fi
+    _z2k_ow_rt_dns_verify >/dev/null 2>&1 || return 0
+    z2k_ow_rt_desync_exclude_verify >/dev/null 2>&1 || return 0
+    z2k_ow_rt_nft_verify >/dev/null 2>&1 || return 0
     if z2k_ow_rt_running; then
         rm -f "$_dead_f" 2>/dev/null
         return 0
