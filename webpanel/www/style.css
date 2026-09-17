@@ -2518,8 +2518,11 @@ body[data-page="strategies"] #app { max-width: none; }
     margin-bottom: 4px;
     border-bottom: 1px solid var(--border);
   }
-  /* Заголовок группы на телефоне — карточка без кнопки удаления, с именем
-     первой строкой и без подписи «Домен» над ним: имя и есть заголовок.
+  /* Заголовок группы на телефоне — карточка с именем первой строкой и без
+     подписи «Домен» над ним: имя и есть заголовок. Кнопка «сбросить подбор»
+     (ячейка sg-lead) стоит в правом верхнем углу той же строки, что и имя,
+     поверх карточки: до 16.09 ячейка была пустой и пряталась целиком, после
+     появления групповых действий прятать её значило прятать кнопку.
      Сводка идёт парами «подпись значение» в строку с переносом, а не полем
      на строку, как у записи: в столбик заголовок выходил ростом с саму
      запись (~160px), и свёрнутый список на телефоне почти не сокращался.
@@ -2527,12 +2530,20 @@ body[data-page="strategies"] #app { max-width: none; }
   .state-table tr.sg-head {
     display: flex;
     flex-wrap: wrap;
+    position: relative;
     column-gap: var(--space-16);
     background: var(--bg-subtle);
   }
   .state-table tr.sg-head td { flex: 0 0 auto; justify-content: flex-start; gap: 2px 6px; }
-  .state-table tr.sg-head td.sg-lead { display: none; }
-  .state-table tr.sg-head td.sg-title { order: -1; flex-basis: 100%; padding-bottom: 6px; }
+  .state-table tr.sg-head td.sg-lead {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    padding: 0;
+    margin: 0;
+    border: 0;
+  }
+  .state-table tr.sg-head td.sg-title { order: -1; flex-basis: 100%; padding-bottom: 6px; padding-right: 44px; }
   .state-table tr.sg-head td.sg-title::before { content: none; }
   .state-table tr.sg-member { margin-left: var(--space-16); }
   .state-table.sg-any td.state-host,
