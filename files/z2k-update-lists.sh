@@ -10,19 +10,20 @@
 export PATH=/opt/sbin:/opt/bin:/sbin:/usr/sbin:/bin:/usr/bin
 
 ZAPRET2_DIR="${ZAPRET2_DIR:-/opt/zapret2}"
+CONFIG_FILE="${CONFIG_FILE:-${ZAPRET2_DIR}/config}"
 INIT_SCRIPT="${INIT_SCRIPT:-/opt/etc/init.d/S99zapret2}"
 LOG_FILE="${LOG_FILE:-${ZAPRET2_DIR}/update-lists.log}"
 MAX_LOG_LINES=200
 
 # GITHUB_RAW is resolved in this order:
 #   1. Explicit env var (useful for manual overrides and testing)
-#   2. Z2K_GITHUB_RAW from /opt/zapret2/config (persisted at install time)
+#   2. Z2K_GITHUB_RAW from CONFIG_FILE (persisted at install time)
 #   3. master branch default
 # This means clean installs from a non-master branch (e.g. z2k-enhanced
 # during feature testing) continue pulling domain lists from the SAME
 # branch via cron, instead of silently drifting back to master.
-if [ -z "${GITHUB_RAW:-}" ] && [ -r "${ZAPRET2_DIR}/config" ]; then
-    _persisted_raw=$(grep '^Z2K_GITHUB_RAW=' "${ZAPRET2_DIR}/config" 2>/dev/null | head -1 | cut -d= -f2- | sed 's/^"//;s/"$//')
+if [ -z "${GITHUB_RAW:-}" ] && [ -r "$CONFIG_FILE" ]; then
+    _persisted_raw=$(grep '^Z2K_GITHUB_RAW=' "$CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2- | sed 's/^"//;s/"$//')
     [ -n "$_persisted_raw" ] && GITHUB_RAW="$_persisted_raw"
 fi
 GITHUB_RAW="${GITHUB_RAW:-https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced}"
@@ -786,10 +787,13 @@ function z2k_warp_addr_ok(s,   ip, h, o) {
 
     log_msg "OK: warp game lists refreshed ($ok lists, $skipped unavailable)"
 
-    # WARP is routing-only — reload the ipset live if the mode is on.
-    if [ "$(grep -m1 '^GAME_WARP_ENABLED=' "${ZAPRET2_DIR}/config" 2>/dev/null | cut -d= -f2 | tr -d '"' | tr -d ' ')" = "1" ] \
-       && [ -x "${ZAPRET2_DIR}/z2k-warp.sh" ]; then
-        sh "${ZAPRET2_DIR}/z2k-warp.sh" ipset >>"$LOG_FILE" 2>&1
+    # WARP is routing-only — reload the ipset live if the mode is on. The
+    # default keeps Keenetic's historical path; OpenWrt supplies its config
+    # and platform-owned reload script through the adapter seam.
+    local _warp_ipset_script="${Z2K_WARP_IPSET_SCRIPT:-${ZAPRET2_DIR}/z2k-warp.sh}"
+    if [ "$(grep -m1 '^GAME_WARP_ENABLED=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' | tr -d ' ')" = "1" ] \
+       && [ -x "$_warp_ipset_script" ]; then
+        sh "$_warp_ipset_script" ipset >>"$LOG_FILE" 2>&1
     fi
     return 0
 }

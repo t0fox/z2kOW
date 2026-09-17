@@ -127,6 +127,9 @@ Keenetic-only insta/ndmc путь в OpenWrt не вызывается.
 install-map target. Теперь target `/usr/lib/z2k/z2k-update-lists.sh` и marker
 `z2k-warp-games` закрывают эту delivery-дыру; если внешний `sources.json`
 недоступен, helper оставляет старые списки и UI честно показывает ошибку.
+Cron передаёт `/etc/z2k/config` через `CONFIG_FILE` и вызывает
+`platform/openwrt/warp.sh ipset` через `Z2K_WARP_IPSET_SCRIPT`, поэтому
+включённая игра после обновления списка сразу доходит до OpenWrt nft-set.
 
 Модель доставки: `git diff -> release builder (Z2K_PLATFORM) -> UPDATES.json
 (install_map + steps, данными) -> installed updater executes`. Роутер пути

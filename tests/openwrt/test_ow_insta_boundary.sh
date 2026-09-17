@@ -34,5 +34,7 @@ assert_contains "gaming-list source failure остаётся видимым" "$R
 assert_contains "UI сохраняет gaming-list error" "$REPO/webpanel/www/js/pages/warp.js" 'Списки не загрузились — источник был недоступен'
 assert_contains "OpenWrt cron обновляет gaming lists" "$REPO/platform/openwrt/schedule.sh" 'z2k-warp-games'
 assert_contains "OpenWrt helper принимает payload root" "$REPO/files/z2k-update-lists.sh" 'ZAPRET2_DIR:-/opt/zapret2'
+assert_contains "OpenWrt cron передаёт canonical config" "$REPO/platform/openwrt/schedule.sh" 'CONFIG_FILE=${Z2K_CONFIG:-/etc/z2k/config}'
+assert_contains "OpenWrt cron вызывает platform WARP reload" "$REPO/platform/openwrt/schedule.sh" 'Z2K_WARP_IPSET_SCRIPT=$Z2K_ROOT/platform/openwrt/warp.sh'
 
 _t_done
