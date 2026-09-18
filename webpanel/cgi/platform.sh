@@ -91,31 +91,6 @@ if [ -f "$Z2K_ROOT/platform/openwrt/schedule.sh" ]; then
 fi
 export Z2K_PLATFORM_STATUS
 
-# Version provenance is deliberately read-only.  The panel must be able to
-# distinguish the updater-owned payload from the package seed and the APKs;
-# treating the seed tag as the installed payload was the source of stale
-# dashboard claims after an adapter package upgrade.
-z2k_ow_meta_value() {
-    local _file="$1" _key="$2" _value
-    [ -r "$_file" ] || return 1
-    _value=$(sed -n "s/^${_key}=//p" "$_file" 2>/dev/null | head -1 | tr -d ' \t\r\n')
-    [ -n "$_value" ] || return 1
-    printf '%s' "$_value"
-}
-z2k_ow_payload_tag() {
-    z2k_ow_meta_value "${Z2K_ROOT:-/usr/lib/z2k}/share/payload.meta" tag
-}
-z2k_ow_seed_tag() {
-    z2k_ow_meta_value "${Z2K_ROOT:-/usr/lib/z2k}/share/seed.meta" tag
-}
-z2k_ow_package_version() {
-    local _pkg="$1" _line
-    command -v apk >/dev/null 2>&1 || return 1
-    _line=$(apk list --installed "$_pkg" 2>/dev/null | grep -m1 "^${_pkg}-" || true)
-    [ -n "$_line" ] || return 1
-    printf '%s' "${_line%% *}"
-}
-
 # --- overrides: те же имена, OS-эффект через замороженные адаптеры ---
 
 # Core service state: реальный procd (не pgrep; класс ошибки Stage 5).

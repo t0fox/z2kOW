@@ -5,6 +5,25 @@
 # реализаций — везде делегация замороженным адаптерам Stages 1-5.
 # Вызывается из webpanel/cgi/platform.sh (override-функции).
 
+# Read-only provenance helpers.  The panel reports the payload bytes served
+# today separately from the package seed and installed APK versions.
+z2k_ow_meta_value() {
+    local _file="$1" _key="$2" _value
+    [ -r "$_file" ] || return 1
+    _value=$(sed -n "s/^${_key}=//p" "$_file" 2>/dev/null | head -1 | tr -d ' \t\r\n')
+    [ -n "$_value" ] || return 1
+    printf '%s' "$_value"
+}
+z2k_ow_payload_tag() { z2k_ow_meta_value "${Z2K_ROOT:-/usr/lib/z2k}/share/payload.meta" tag; }
+z2k_ow_seed_tag() { z2k_ow_meta_value "${Z2K_ROOT:-/usr/lib/z2k}/share/seed.meta" tag; }
+z2k_ow_package_version() {
+    local _pkg="$1" _line
+    command -v apk >/dev/null 2>&1 || return 1
+    _line=$(apk list --installed "$_pkg" 2>/dev/null | grep -m1 "^${_pkg}-" || true)
+    [ -n "$_line" ] || return 1
+    printf '%s' "${_line%% *}"
+}
+
 # Канонический LAN IPv4 для server.bind (НЕ имя сети!).
 # z2k_ow_lan отдаёт ИМЯ сети ("lan") для zapret2 OPENWRT_LAN — lighttpd
 # резолвить его не умеет, bind="lan" роняет старт (Stage 8 live-дефект).
