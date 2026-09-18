@@ -77,6 +77,19 @@ echo "nft:\$*" >> "$T/nft.log"
 exit 0
 EOF
 chmod +x "$T/bin/nft"
+# Package/version provenance fixture.  The payload is already p-84.26 while
+# the adapter is still r23: the panel must report the payload truth and expose
+# the package release separately instead of presenting the seed/tag mismatch
+# as an installed upstream version.
+cat > "$T/bin/apk" <<'EOF'
+#!/bin/sh
+case "$*" in
+    *z2k-adapter*) echo 'z2k-adapter-0.1.0-r23 aarch64_cortex-a53 [installed]' ;;
+    *z2k-webpanel*) echo 'z2k-webpanel-0.1.0-r21 aarch64_cortex-a53 [installed]' ;;
+    *z2k-zapret2-runtime*) echo 'z2k-zapret2-runtime-1.0.5.1-r4 aarch64_cortex-a53 [installed]' ;;
+esac
+EOF
+chmod +x "$T/bin/apk"
 # --- fixtures ---
 printf 'GAME_WARP_ENABLED=0\nENABLED=1\n' > "$T/etc/config"
 : > "$T/etc/user-lists/whitelist.txt"
@@ -251,14 +264,22 @@ assert_eq "neighbors: on=1" "true" "$(_jget "$OUT" 'd["devices"][0]["on"]')"
 
 # --- update status с OpenWrt-канала (WP17) ---
 cat > "$T/manifest.json" <<'EOF'
-{"current":"p-84.7","platform":"openwrt","install_map":{},"files_sha256":{},"history":[]}
+{"current":"p-84.26","platform":"openwrt","install_map":{},"files_sha256":{},"history":[]}
 EOF
 export AU_MANIFEST_CACHE="$T/manifest.json"
-printf 'p-84.7\n' > "$T/etc/state/installed-tag"
+mkdir -p "$T/root/share"
+printf 'platform=openwrt\ntag=p-84.26\nref=f161e1d\n' > "$T/root/share/seed.meta"
+printf 'platform=openwrt\ntag=p-84.26\nref=f161e1d\n' > "$T/root/share/payload.meta"
+printf 'p-84.23\n' > "$T/etc/state/installed-tag"
 export AU_TAG_FILE="$T/etc/state/installed-tag"
 RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
-assert_eq "update: installed" "p-84.7" "$(_jget "$OUT" 'd["installed"]')"
-assert_eq "update: available" "p-84.7" "$(_jget "$OUT" 'd["available"]')"
+assert_eq "update: installed payload truth" "p-84.26" "$(_jget "$OUT" 'd["installed"]')"
+assert_eq "update: payload" "p-84.26" "$(_jget "$OUT" 'd["payload"]')"
+assert_eq "update: seed" "p-84.26" "$(_jget "$OUT" 'd["seed"]')"
+assert_eq "update: adapter release stays explicit" "z2k-adapter-0.1.0-r23" "$(_jget "$OUT" 'd["adapter_package"]')"
+assert_eq "update: webpanel release stays explicit" "z2k-webpanel-0.1.0-r21" "$(_jget "$OUT" 'd["webpanel_package"]')"
+assert_eq "update: runtime release stays explicit" "z2k-zapret2-runtime-1.0.5.1-r4" "$(_jget "$OUT" 'd["runtime_package"]')"
+assert_eq "update: available" "p-84.26" "$(_jget "$OUT" 'd["available"]')"
 
 # /update/history is bound to the OpenWrt channel.  A payload manifest may be
 # used as the cold-cache fallback, but a similarly present Keenetic /opt

@@ -1460,6 +1460,11 @@ case "$method $path" in
         # GET → may refresh the cache opportunistically (TTL guarded).
         update_refresh_manifest 0 2>/dev/null || true
         installed=$(update_installed_tag)
+        payload_tag=$(update_payload_tag)
+        seed_tag=$(update_seed_tag)
+        adapter_package=$(update_package_version z2k-adapter)
+        webpanel_package=$(update_package_version z2k-webpanel)
+        runtime_package=$(update_package_version z2k-zapret2-runtime)
         available=$(update_manifest_current)
         behind=$(update_behind_count "$installed")
         last_check=$(update_last_check_ts)
@@ -1471,6 +1476,11 @@ case "$method $path" in
         json_string "$installed"
         printf ',"available":'
         json_string "$available"
+        printf ',"payload":'; json_string "${payload_tag:-$installed}"
+        printf ',"seed":'; json_string "${seed_tag:-}"
+        printf ',"adapter_package":'; json_string "${adapter_package:-}"
+        printf ',"webpanel_package":'; json_string "${webpanel_package:-}"
+        printf ',"runtime_package":'; json_string "${runtime_package:-}"
         printf ',"behind":%s,"last_check":%s,"fetch_failed":%s,"check_age":%s,"pending":%s' \
             "${behind:-0}" "${last_check:-0}" "${fetch_failed:-false}" "${check_age:--1}" "${pending:-[]}"
         au_schedule_json
@@ -1481,6 +1491,11 @@ case "$method $path" in
     "POST /update/check")
         update_refresh_manifest 1 2>/dev/null
         installed=$(update_installed_tag)
+        payload_tag=$(update_payload_tag)
+        seed_tag=$(update_seed_tag)
+        adapter_package=$(update_package_version z2k-adapter)
+        webpanel_package=$(update_package_version z2k-webpanel)
+        runtime_package=$(update_package_version z2k-zapret2-runtime)
         available=$(update_manifest_current)
         behind=$(update_behind_count "$installed")
         last_check=$(update_last_check_ts)
@@ -1492,6 +1507,11 @@ case "$method $path" in
         json_string "$installed"
         printf ',"available":'
         json_string "$available"
+        printf ',"payload":'; json_string "${payload_tag:-$installed}"
+        printf ',"seed":'; json_string "${seed_tag:-}"
+        printf ',"adapter_package":'; json_string "${adapter_package:-}"
+        printf ',"webpanel_package":'; json_string "${webpanel_package:-}"
+        printf ',"runtime_package":'; json_string "${runtime_package:-}"
         printf ',"behind":%s,"last_check":%s,"fetch_failed":%s,"check_age":%s,"pending":%s' \
             "${behind:-0}" "${last_check:-0}" "${fetch_failed:-false}" "${check_age:--1}" "${pending:-[]}"
         au_schedule_json

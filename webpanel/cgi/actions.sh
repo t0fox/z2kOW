@@ -2869,10 +2869,35 @@ AU_SCRIPT="${AU_SCRIPT:-$ZAPRET2_DIR/z2k-auto-update.sh}"
 AU_LOG_FILE="${AU_LOG_FILE:-/opt/var/log/z2k-auto-update.log}"
 
 update_installed_tag() {
+    # OpenWrt payload.meta is the version of the bytes actually served by the
+    # panel.  Use it when available; installed-tag remains the updater state
+    # file and is only the fallback for pre-meta/fixture environments.
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && command -v z2k_ow_payload_tag >/dev/null 2>&1; then
+        _payload_tag=$(z2k_ow_payload_tag 2>/dev/null || true)
+        [ -n "$_payload_tag" ] && { printf '%s' "$_payload_tag"; return 0; }
+    fi
     if [ -f "$AU_TAG_FILE" ]; then
         head -1 "$AU_TAG_FILE" 2>/dev/null | tr -d ' \r\n'
     else
         printf 'unknown'
+    fi
+}
+
+update_payload_tag() {
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && command -v z2k_ow_payload_tag >/dev/null 2>&1; then
+        z2k_ow_payload_tag 2>/dev/null || true
+    fi
+}
+
+update_seed_tag() {
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && command -v z2k_ow_seed_tag >/dev/null 2>&1; then
+        z2k_ow_seed_tag 2>/dev/null || true
+    fi
+}
+
+update_package_version() {
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && command -v z2k_ow_package_version >/dev/null 2>&1; then
+        z2k_ow_package_version "$1" 2>/dev/null || true
     fi
 }
 
