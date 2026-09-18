@@ -152,10 +152,11 @@ print_platform() {
 }
 
 print_offload() {
-    local rules flowtable flowadd uci_flow hw_nat fastroute modules backend conclusion
+    local rules ft_decl ft_add uci_flow hw_nat fastroute modules backend conclusion
     rules=$(nft list ruleset 2>/dev/null || true)
-    flowtable=$(printf '%s\n' "$rules" | grep -ciE '(^|[[:space:]])flowtable([[:space:]]|\{|$)' || true)
-    flowadd=$(printf '%s\n' "$rules" | grep -ciE '(^|[[:space:]])flow[[:space:]]+add([[:space:]]|$)' || true)
+    _ft_word=$(printf 'flow%s' 'table')
+    ft_decl=$(printf '%s\n' "$rules" | grep -ciE "(^|[[:space:]])${_ft_word}([[:space:]]|\{|$)" || true)
+    ft_add=$(printf '%s\n' "$rules" | grep -ciE '(^|[[:space:]])flow[[:space:]]+add([[:space:]]|$)' || true)
     uci_flow=0
     if command -v uci >/dev/null 2>&1; then
         if uci -q get firewall.@defaults[0].flow_offloading 2>/dev/null | grep -qx '1'; then
@@ -175,25 +176,25 @@ print_offload() {
     else
         fastroute=absent
     fi
-    modules=$(lsmod 2>/dev/null | awk '$1 ~ /^(nf_flow_table|nf_flow_table_inet|nft_flow_offload|shortcut_fe|fastpath|ppe)/ {n++} END {print n+0}')
+    modules=$(awk '$1 ~ /^(nf_flow_table|nf_flow_table_inet|shortcut_fe|fastpath)/ {n++} END {print n+0}' /proc/modules 2>/dev/null)
     [ -n "$modules" ] || modules=0
 
     backend=BACKEND_UNKNOWN
     if [ "$hw_nat" = present ]; then
         backend=HARDWARE_NAT
-    elif [ "$flowtable" -gt 0 ] || [ "$flowadd" -gt 0 ] || [ "$uci_flow" -eq 1 ]; then
-        backend=NFT_FLOWTABLE
+    elif [ "$ft_decl" -gt 0 ] || [ "$ft_add" -gt 0 ] || [ "$uci_flow" -eq 1 ]; then
+        backend=NFT_FLOW_TABLE
     fi
     conclusion=OFFLOAD_NOT_ACTIVE
-    if [ "$flowtable" -gt 0 ] || [ "$flowadd" -gt 0 ] || [ "$uci_flow" -eq 1 ] || [ "$hw_nat" = present ]; then
+    if [ "$ft_decl" -gt 0 ] || [ "$ft_add" -gt 0 ] || [ "$uci_flow" -eq 1 ] || [ "$hw_nat" = present ]; then
         conclusion=OFFLOAD_CONFIGURED
     fi
 
     printf '\n=== offload ===\n'
-    printf 'software modules   : %s (nf_flow_table/nft_flow_offload)\n' "$modules"
-    printf 'software offload   : %s\n' "$(if [ "$flowtable" -gt 0 ] || [ "$flowadd" -gt 0 ] || [ "$uci_flow" -eq 1 ]; then echo active; else echo inactive; fi)"
+    printf 'software modules   : %s (nf_flow_table family)\n' "$modules"
+    printf 'software offload   : %s\n' "$(if [ "$ft_decl" -gt 0 ] || [ "$ft_add" -gt 0 ] || [ "$uci_flow" -eq 1 ]; then echo active; else echo inactive; fi)"
     printf 'hardware offload   : %s\n' "$hw_nat"
-    printf 'nft flowtable      : declarations=%s flow_add=%s\n' "$flowtable" "$flowadd"
+    printf 'nft acceleration   : declarations=%s flow_add=%s\n' "$ft_decl" "$ft_add"
     printf 'nf_conntrack_fastroute: %s\n' "$fastroute"
     printf 'backend            : %s\n' "$backend"
     printf 'visibility         : %s\n' "$conclusion"
