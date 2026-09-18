@@ -98,6 +98,7 @@ done
 
 # warp.sh имеет ipset-верб (панельный live-reload без второй реализации).
 assert_contains "warp.sh: ipset verb" "$REPO/platform/openwrt/warp.sh" "warp_ipset()"
+assert_contains "OpenWrt hides fastroute" "$REPO/webpanel/www/js/core/loadorder.js" 'caps.fastroute === false'
 
 # rebuild-panel: имя шага общее + openwrt-исполнитель.
 assert_contains "rebuild-panel hook" "$AU" "_au_rebuild_panel_openwrt"

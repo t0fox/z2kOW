@@ -133,6 +133,14 @@ toggle_ppe() {
     return 1
 }
 
+# p-85's fastroute switch is a Keenetic-only control. OpenWrt has no
+# nf_conntrack_fastroute or hw_nat backend on the supported target; exposing a
+# config-only switch would report success while changing no dataplane state.
+toggle_fastroute() {
+    echo "Программный fastpath недоступен на OpenWrt: backend не обнаружен" >&2
+    return 1
+}
+
 policy_status() {
     printf 'name=|exclude=0|exists=0\n'
 }
@@ -163,7 +171,7 @@ wp_capabilities_json() {
     is_running >/dev/null 2>&1 && _running=true
     [ -f "${Z2K_CORE_READY:-${Z2K_RUN:-/tmp/z2k/runtime}/core-ready}" ] && _ready=true
     { [ "$_running" = "true" ] && [ "$_ready" = "false" ]; } && _degraded=true
-    printf '"platform":"openwrt","ready":%s,"degraded":%s,"capabilities":{"policy":false,"ppe":false,"tcp16":false,"diag":false,"warp":true,"telegram":true,"uninstall":false}' \
+    printf '"platform":"openwrt","ready":%s,"degraded":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":false,"diag":false,"warp":true,"telegram":true,"uninstall":false}' \
         "$_ready" "$_degraded"
 }
 
