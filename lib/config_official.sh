@@ -1969,6 +1969,7 @@ create_official_config() {
     local _pn_q="" _pe_q=""   # те же значения, экранированные под одинарные кавычки
     local saved_Z2K_PPE_DEOFFLOAD="1"
     local saved_Z2K_PPE_DEOFFLOAD_QUIC="1"
+    local saved_Z2K_FASTROUTE_OFF="1"
     # Вход в панель по паролю. Умолчание 0 — выключено; панель годами ставили
     # без пароля, и регенерация конфига не должна его однажды включить.
     #
@@ -2056,6 +2057,10 @@ create_official_config() {
         # and the r-56.6 DISABLE_IPV6 fix).
         saved_Z2K_PPE_DEOFFLOAD=$(safe_config_read "Z2K_PPE_DEOFFLOAD" "$config_file" "1")
         saved_Z2K_PPE_DEOFFLOAD_QUIC=$(safe_config_read "Z2K_PPE_DEOFFLOAD_QUIC" "$config_file" "1")
+        # Z2K_FASTROUTE_OFF — гасить программный fastpath там, где нет аппаратного
+        # NAT (S99 z2k_fastroute_wanted, панель toggle_fastroute). Тот же класс.
+        saved_Z2K_FASTROUTE_OFF=$(safe_config_read "Z2K_FASTROUTE_OFF" "$config_file" "1")
+        case "$saved_Z2K_FASTROUTE_OFF" in 0|1) ;; *) saved_Z2K_FASTROUTE_OFF=1 ;; esac
         saved_Z2K_PANEL_AUTH=$(safe_config_read "Z2K_PANEL_AUTH" "$config_file" "0")
         saved_Z2K_AUTO_UPDATE_ENABLED=$(safe_config_read "Z2K_AUTO_UPDATE_ENABLED" "$config_file" "1")
         saved_Z2K_WARP_TRANSPORT=$(safe_config_read "Z2K_WARP_TRANSPORT" "$config_file" "auto")
@@ -2471,6 +2476,10 @@ POLICY_EXCLUDE='${_pe_q}'
 # silently re-enable de-offload after the user turned it off.
 Z2K_PPE_DEOFFLOAD=${saved_Z2K_PPE_DEOFFLOAD}
 Z2K_PPE_DEOFFLOAD_QUIC=${saved_Z2K_PPE_DEOFFLOAD_QUIC}
+# Программный fastpath (nf_conntrack_fastroute) гасится на старте сервиса только
+# там, где нет драйвера аппаратного NAT (портированная KeeneticOS на Cudy и
+# т.п.). 0 — не трогать никогда. Тумблер в панели, «Режимы».
+Z2K_FASTROUTE_OFF=${saved_Z2K_FASTROUTE_OFF}
 Z2K_PANEL_AUTH=${saved_Z2K_PANEL_AUTH}
 Z2K_AUTO_UPDATE_ENABLED=${saved_Z2K_AUTO_UPDATE_ENABLED}
 Z2K_WARP_TRANSPORT=${saved_Z2K_WARP_TRANSPORT}

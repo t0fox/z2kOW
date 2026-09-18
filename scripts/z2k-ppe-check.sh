@@ -9,7 +9,7 @@ FOE=/proc/driver/hw_nat/foe/binds
 echo "=== z2k-ppe-check $(date '+%F %T'), окно $DUR с ==="
 echo "board : $(tr -d '\0' < /proc/device-tree/model 2>/dev/null) | $(uname -m) | $(ndmc -c 'show version' 2>/dev/null | grep -i -m1 'hw_id\|model' | tr -s ' ')"
 echo "fw    : $(ndmc -c 'show version' 2>/dev/null | grep -i -m1 'release\|title' | tr -s ' ')"
-echo "fastnat=$(cat /proc/sys/net/netfilter/nf_conntrack_fastnat 2>/dev/null) ppe_enabled=$(cat /proc/sys/net/hwnat/ppe_enabled 2>/dev/null || echo n/a) PPE-target=$(grep -qw PPE /proc/net/ip_tables_targets 2>/dev/null && echo yes || echo no) foe-table=$([ -r $FOE ] && echo yes || echo no)"
+echo "fastnat=$(cat /proc/sys/net/netfilter/nf_conntrack_fastnat 2>/dev/null) fastroute=$(cat /proc/sys/net/netfilter/nf_conntrack_fastroute 2>/dev/null || echo n/a) hw_nat-driver=$([ -d /proc/driver/hw_nat ] && echo yes || echo NO) ppe_enabled=$(cat /proc/sys/net/hwnat/ppe_enabled 2>/dev/null || echo n/a) PPE-target=$(grep -qw PPE /proc/net/ip_tables_targets 2>/dev/null && echo yes || echo no) foe-table=$([ -r $FOE ] && echo yes || echo no)"
 echo "rules : PPE=$(iptables -w -t mangle -S 2>/dev/null | grep -c -- '-j PPE') NFQUEUE=$(iptables -w -t mangle -S 2>/dev/null | grep -c NFQUEUE) nfqws2=$(pidof nfqws2 >/dev/null && echo up || echo DOWN)"
 LANNET=${LANNET:-$(ip -o -4 addr show br0 2>/dev/null | awk '{print $4}' | head -1 | sed 's#\.[0-9]*/#.0/#')}
 [ -n "$LANNET" ] || LANNET=192.168.0.0/16

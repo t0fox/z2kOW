@@ -237,7 +237,7 @@ global.prompt = () => null;
 const STATUS = {
   ok: true, installed: "r-73", service: "active",
   toggles: { game_warp: "0", customd: "0",
-             dynamic_ttl: "1", stats: "1", ppe: "1", auto_update: "1", autohostlist: "0",
+             dynamic_ttl: "1", stats: "1", ppe: "1", fastroute: "1", auto_update: "1", autohostlist: "0",
              au_hour: "02" },
   tunnel: { running: false },
 };

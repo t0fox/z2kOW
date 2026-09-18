@@ -288,6 +288,7 @@ case "$method $path" in
         # до этого аплоадер молчит (files/z2k-stats-upload.sh).
         stats_ack=$(read_flag "Z2K_STATS_ACK" "$CONFIG_FILE" "1")
         ppe=$(read_flag "Z2K_PPE_DEOFFLOAD" "$CONFIG_FILE" "1")
+        fastroute=$(read_flag "Z2K_FASTROUTE_OFF" "$CONFIG_FILE" "1")
         auto_update=$(read_flag "Z2K_AUTO_UPDATE_ENABLED" "$CONFIG_FILE" "1")
         # Час ночного обновления. Нормализуем здесь, а не в панели: конфиг
         # правят и руками, а селектор без совпадающего варианта показал бы
@@ -315,6 +316,7 @@ case "$method $path" in
         printf ',"stats":';                  json_string "${stats:-1}"
         printf ',"stats_ack":';              json_string "${stats_ack:-1}"
         printf ',"ppe":';                    json_string "${ppe:-1}"
+        printf ',"fastroute":';              json_string "${fastroute:-1}"
         printf ',"auto_update":';            json_string "${auto_update:-1}"
         printf ',"au_hour":';                json_string "${au_hour:-02}"
         printf ',"autohostlist":';           json_string "${autohostlist:-0}"
@@ -402,6 +404,7 @@ case "$method $path" in
     "POST /toggle/dynamic-ttl"|\
     "POST /toggle/stats"|\
     "POST /toggle/ppe"|\
+    "POST /toggle/fastroute"|\
     "POST /toggle/auto-update"|\
     "POST /toggle/autohostlist")
         body=$(read_body)
@@ -417,6 +420,7 @@ case "$method $path" in
             /toggle/dynamic-ttl)     _toggle_fn=toggle_dynamic_ttl;     _label="Динамический TTL" ;;
             /toggle/stats)           _toggle_fn=toggle_stats;           _label="Сбор статистики" ;;
             /toggle/ppe)             _toggle_fn=toggle_ppe;             _label="PPE de-offload" ;;
+            /toggle/fastroute)       _toggle_fn=toggle_fastroute;       _label="Программный fastpath" ;;
             /toggle/auto-update)     _toggle_fn=toggle_auto_update;     _label="Автообновление" ;;
             /toggle/autohostlist)    _toggle_fn=toggle_autohostlist;    _label="Автохостлист" ;;
         esac

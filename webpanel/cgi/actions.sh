@@ -1082,6 +1082,22 @@ toggle_ppe() {
     fi
 }
 
+toggle_fastroute() {
+    # Z2K_FASTROUTE_OFF — гасить программный маршрутный кэш nf_conntrack_fastroute
+    # там, где нет драйвера аппаратного NAT (портированная KeeneticOS на Cudy и
+    # т.п.): без этого fastpath уводит поток после рукопожатия и ротатор не видит
+    # отказов. Живёт в S99 z2k_conntrack_tune_start; здесь флаг плюс применение
+    # на лету, перезапуск сервиса не нужен. Где железный NAT есть, флаг ничего
+    # не меняет — сисктл там не трогается в обе стороны.
+    local want="$1"
+    set_flag "Z2K_FASTROUTE_OFF" "$want" "$CONFIG_FILE" || return 1
+    local f=/proc/sys/net/netfilter/nf_conntrack_fastroute
+    [ -w "$f" ] || return 0
+    [ -d /proc/driver/hw_nat ] && return 0
+    if [ "$want" = "0" ]; then echo 1 > "$f" 2>/dev/null; else echo 0 > "$f" 2>/dev/null; fi
+    return 0
+}
+
 # --- policy access (Keenetic NDM ip policy filter) ---
 
 # policy_exists <name>: returns 0 if a Keenetic IP policy с description = <name>
