@@ -22,6 +22,9 @@ _sha_a="$(sha256sum "$T/tree/lib/a.sh" | awk '{print $1}')"
 _sha_s="$(sha256sum "$T/tree/files/S99probe.new" | awk '{print $1}')"
 _sha_w="$(sha256sum "$T/tree/webpanel/cgi/probe.sh" | awk '{print $1}')"
 _sha_warp="$(sha256sum "$T/tree/z2k-warpd/builds/z2k-warpd-linux-arm64" | awk '{print $1}')"
+mkdir -p "$T/tree/z2k-detect/builds"
+printf 'detect fixture original\n' > "$T/tree/z2k-detect/builds/z2k-detect-linux-arm64"
+_sha_detect_original="$(sha256sum "$T/tree/z2k-detect/builds/z2k-detect-linux-arm64" | awk '{print $1}')"
 cat > "$T/src.json" <<EOF
 {"schema": 1,
 "branch": "z2k-enhanced",
@@ -36,7 +39,8 @@ cat > "$T/src.json" <<EOF
   "lib/a.sh": "$_sha_a",
   "files/S99probe.new": "$_sha_s",
   "webpanel/cgi/probe.sh": "$_sha_w",
-  "z2k-warpd/builds/z2k-warpd-linux-arm64": "$(printf '%064d' 0 | tr '0' 'c')"
+  "z2k-warpd/builds/z2k-warpd-linux-arm64": "$(printf '%064d' 0 | tr '0' 'c')",
+  "z2k-detect/builds/z2k-detect-linux-arm64": "$_sha_detect_original"
 },
 "history": [
 {"v": "p-1", "type": "patch", "ref": "p-1", "changed_files": ["lib/a.sh"], "steps": []},
@@ -134,6 +138,20 @@ if grep -q 'z2k-warpd/builds/z2k-warpd-linux-arm64' "$T/out2r.json" 2>/dev/null 
 else
     _t_bad "gen refresh: WARP hash изменён без install_map destination"
 fi
+# z2k-detect is the strategy-picker binary and follows the same snapshot-only
+# architecture-specific path.  A stale hash here restores the old CLI and
+# makes the final picker reject -deadline/-progress-file despite a fresh
+# source rebuild.
+printf 'detect-fixture\n' > "$T/tree/z2k-detect/builds/z2k-detect-linux-arm64"
+_sha_detect="$(sha256sum "$T/tree/z2k-detect/builds/z2k-detect-linux-arm64" | awk '{print $1}')"
+sh "$GEN" --source-manifest "$T/src.json" --tree "$T/tree" --ref "p-2" \
+    --api-min 1 --out "$T/out2rd.json" --allow-dirty --refresh-stale-hashes \
+    > "$T/refresh-detect.log" 2>&1
+assert_eq "gen refresh detect rc" "0" "$?"
+assert_eq "gen refresh: optional detect hash" "$_sha_detect" \
+    "$(sed -n 's/^  "z2k-detect\/builds\/z2k-detect-linux-arm64": "\(.*\)",\?$/\1/p' "$T/out2rd.json" | head -1)"
+grep -q 'z2k-detect/builds/z2k-detect-linux-arm64' "$T/out2rd.json" 2>/dev/null \
+    && _t_ok || _t_bad "gen refresh: detect hash missing"
 
 # --- dirty tree: отказ без флага ---
 rm -rf "$T/grepo" && mkdir -p "$T/grepo" && cd "$T/grepo" || exit 1

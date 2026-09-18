@@ -185,13 +185,17 @@ for key in man['install_map'].keys():
     owmap[key] = dests
     kept += 1
 
-# Optional WARP artifacts are intentionally absent from install_map entirely;
-# refresh their candidate digests in a separate pass so the snapshot pins the
-# binary that the standalone adapter fetches.  This is CI-only and leaves the
-# production generator's strict common manifest untouched.
+# Architecture-specific adapter binaries are intentionally absent from
+# install_map entirely; refresh their candidate digests in a separate pass so
+# the snapshot pins the binaries that the standalone adapter fetches.  This is
+# CI-only and leaves the production generator's strict common manifest
+# untouched.  z2k-detect is part of the strategy-picker path, so omitting it
+# would silently ship the stale upstream hash even when the candidate rebuilt
+# the binary with the current CLI contract.
 if refresh:
     for key in man['files_sha256'].keys():
-        if not key.startswith('z2k-warpd/builds/') or key in owshas:
+        if not (key.startswith('z2k-warpd/builds/') or
+                key.startswith('z2k-detect/builds/')) or key in owshas:
             continue
         got = tree_sha(key)
         if got is None:
