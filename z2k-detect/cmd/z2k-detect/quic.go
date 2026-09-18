@@ -30,12 +30,18 @@ func quicCmd(ctx context.Context, rest []string) {
 	timeout := fs.Duration("timeout", 0, "ожидание ответа; ноль — вывести из измеренного RTT")
 	parallel := fs.Int("parallel", 6, "сколько зондов держать в воздухе")
 	addr := fs.String("addr", "", "слать на этот адрес вместо разрешения имени (имя остаётся в SNI)")
+	deadline := fs.Duration("deadline", 0, "общий потолок измерения; ноль — без потолка")
 	asJSON := fs.Bool("json", false, "выдать результат как JSON")
 	_ = fs.Parse(rest)
 	if fs.NArg() < 1 {
 		fatal("quic: не указан домен")
 	}
 	host := fs.Arg(0)
+	if *deadline > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, *deadline)
+		defer cancel()
+	}
 	// Человек вставляет и «домен:порт», и просто домен.
 	if h, p, err := net.SplitHostPort(host); err == nil {
 		host = h

@@ -184,7 +184,7 @@ func runProperties(ctx context.Context, ip4 []byte, port uint16, tr Trigger, opt
 			}
 		}
 		obs.Pass, obs.Fail = pass, opt.Repeats-pass
-		res.Trace = append(res.Trace, obs)
+		recordObservation(res, opt, obs)
 		got := pass == opt.Repeats
 		pp.set(&res.Props, got)
 		if got {

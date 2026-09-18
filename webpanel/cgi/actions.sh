@@ -742,7 +742,7 @@ job_reap() {
                 continue    # задача ещё идёт — не трогаем
             fi
         fi
-        rm -f "/tmp/z2k-job-${id}.log" "/tmp/z2k-job-${id}.pid" "/tmp/z2k-job-${id}.exit" 2>/dev/null
+        rm -f "/tmp/z2k-job-${id}.log" "/tmp/z2k-job-${id}.pid" "/tmp/z2k-job-${id}.exit" "/tmp/z2k-job-${id}.cancel" "/tmp/z2k-job-${id}.child" 2>/dev/null
     done
     _tmp_reap_orphans
     return 0
@@ -759,6 +759,7 @@ job_reap() {
 _tmp_reap_orphans() {
     local f
     for f in /tmp/z2k-strat-shadow.* /tmp/z2k-strategy-check.* /tmp/z2k-strategy-err.* \
+             /tmp/z2k-strategy-pick-* \
              /tmp/z2k-warp-license.* /tmp/z2k-state-bulk.* /tmp/z2k-bulk-err.* \
              "${AU_MANIFEST_CACHE:-/tmp/z2k-au-manifest.json}".new.*; do
         [ -e "$f" ] || continue
@@ -796,8 +797,10 @@ svc_action_async() {
     (
         printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$label" > "$log"
         printf '─────────────────────────────────────────\n' >> "$log"
+        export Z2K_JOB_ID="$job_id"
         eval "$cmd" >> "$log" 2>&1
         local rc=$?
+        rm -f "/tmp/z2k-job-${job_id}.cancel" "/tmp/z2k-job-${job_id}.child" 2>/dev/null
         printf '─────────────────────────────────────────\n' >> "$log"
         if [ "$rc" = "0" ]; then
             printf '[%s] Готово ✓\n' "$(date '+%H:%M:%S')" >> "$log"
@@ -808,6 +811,55 @@ svc_action_async() {
     ) </dev/null >/dev/null 2>&1 &
     echo "$!" > "/tmp/z2k-job-${job_id}.pid"
     printf '%s' "$job_id"
+}
+
+# Cancel one background job without accepting an arbitrary PID from the
+# request.  The only authority is the numeric id returned by
+# svc_action_async; TERM reaches the shell and its direct children, allowing
+# z2k-detect to emit CANCELLED and clean its nft table before we reap it.
+job_pid_alive() {
+    local pid="$1" state
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 1
+    state=$(awk '{print $3}' "/proc/${pid}/stat" 2>/dev/null)
+    [ "$state" != Z ]
+}
+
+job_descendants() {
+    local pid="$1" child
+    for child in $(cat "/proc/${pid}/task/${pid}/children" 2>/dev/null); do
+        job_descendants "$child"
+        printf '%s\n' "$child"
+    done
+}
+
+job_cancel() {
+    local id="$1" pid child descendants direct_child
+    case "$id" in ''|*[!0-9]*) return 2 ;; esac
+    pid=$(cat "/tmp/z2k-job-${id}.pid" 2>/dev/null) || return 1
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    kill -0 "$pid" 2>/dev/null || return 1
+    : > "/tmp/z2k-job-${id}.cancel"
+    direct_child=$(cat "/tmp/z2k-job-${id}.child" 2>/dev/null)
+    descendants="$direct_child $(job_descendants "$pid")"
+    for child in $descendants; do kill "$child" 2>/dev/null; done
+    # Let a detector handle SIGTERM and write its typed CANCELLED JSON.  Only
+    # terminate the shell supervisor after its children had a short cleanup
+    # window; killing it first would orphan the probe and lose .exit.
+    for _wait in 1 2 3 4 5; do
+        _alive=0
+        for child in $descendants; do job_pid_alive "$child" && _alive=1; done
+        [ "$_alive" = 0 ] && break
+        sleep 1
+    done
+    # A detector that ignores TERM must still be killed, but let the shell
+    # supervisor observe that child exit and write .exit itself.
+    for child in $descendants; do job_pid_alive "$child" && kill -KILL "$child" 2>/dev/null; done
+    for _wait in 1 2 3 4 5; do
+        job_pid_alive "$pid" || break
+        sleep 1
+    done
+    job_pid_alive "$pid" && kill -KILL "$pid" 2>/dev/null || true
+    return 0
 }
 
 # --- toggles ---
@@ -3346,6 +3398,10 @@ strategy_pick_run() {
     local tcp_out="/tmp/z2k-strategy-pick-tcp.$$"
     local quic_out="/tmp/z2k-strategy-pick-quic.$$"
     local voice_out="/tmp/z2k-strategy-pick-voice.$$"
+    local progress_out="/tmp/z2k-strategy-pick-progress.$$"
+    local child_pid_file=""
+    [ -n "$Z2K_JOB_ID" ] && child_pid_file="/tmp/z2k-job-${Z2K_JOB_ID}.child"
+    rm -f "$tcp_out" "$quic_out" "$voice_out" "$progress_out"
 
     # РЕЖИМ ВЫБИРАЕТ ЧЕЛОВЕК, А НЕ МЫ ЗА НЕГО.
     #
@@ -3357,51 +3413,54 @@ strategy_pick_run() {
     #
     # GODEBUG — тот же, что у службы: без него Go-бинарники падают на MIPS от
     # асинхронного вытеснения.
-    local tcp_pid= quic_pid= voice_pid= limit=300
+    local tcp_pid= quic_pid= voice_pid= limit=150 forced=0 overall_rc=0 progress_seen=0
     case "$mode" in
         tcp13)
             echo "Замеряю $domain по TCP для современных устройств — браузеры, телефоны."
             echo "Это занимает до двух минут."
-            GODEBUG=asyncpreemptoff=1 "$bin" classify -json -hello modern "${domain}:443" \
+            GODEBUG=asyncpreemptoff=1 "$bin" classify -json -hello modern -deadline 120s -progress-file "$progress_out" "${domain}:443" \
                 > "$tcp_out" 2>/dev/null &
             tcp_pid=$!
+            [ -n "$child_pid_file" ] && printf '%s\n' "$tcp_pid" > "$child_pid_file"
             ;;
         tcp12)
             echo "Замеряю $domain по TCP для старых устройств — телевизоры, приставки."
             echo "Это занимает до двух минут."
-            GODEBUG=asyncpreemptoff=1 "$bin" classify -json -hello legacy "${domain}:443" \
+            GODEBUG=asyncpreemptoff=1 "$bin" classify -json -hello legacy -deadline 120s -progress-file "$progress_out" "${domain}:443" \
                 > "$tcp_out" 2>/dev/null &
             tcp_pid=$!
+            [ -n "$child_pid_file" ] && printf '%s\n' "$tcp_pid" > "$child_pid_file"
             ;;
         mixed)
             echo "Замеряю $domain по TCP и подбираю приём, который возьмёт И современные"
             echo "устройства, И старые. Это занимает 3-5 минут: сперва ищем приём на одном"
             echo "приветствии, потом проверяем каждую находку на втором."
-            limit=420
-            GODEBUG=asyncpreemptoff=1 "$bin" classify -json -hello both "${domain}:443" \
+            limit=450
+            GODEBUG=asyncpreemptoff=1 "$bin" classify -json -hello both -deadline 420s -progress-file "$progress_out" "${domain}:443" \
                 > "$tcp_out" 2>/dev/null &
             tcp_pid=$!
+            [ -n "$child_pid_file" ] && printf '%s\n' "$tcp_pid" > "$child_pid_file"
             ;;
         quic)
             echo "Замеряю $domain по QUIC — так ходят браузеры по HTTP/3."
             echo "Это занимает около минуты."
-            GODEBUG=asyncpreemptoff=1 "$bin" quic -json "$domain" > "$quic_out" 2>/dev/null &
+            GODEBUG=asyncpreemptoff=1 "$bin" quic -json -deadline 120s "$domain" > "$quic_out" 2>/dev/null &
             quic_pid=$!
+            [ -n "$child_pid_file" ] && printf '%s\n' "$quic_pid" > "$child_pid_file"
             ;;
         voice)
             echo "Замеряю голос Дискорда. Адрес беру из ИДУЩЕГО разговора: у голоса нет"
             echo "имени, которое можно вписать, сервер выдаётся на сессию."
             echo "Если разговор не начат — замер это честно скажет."
-            limit=120
-            GODEBUG=asyncpreemptoff=1 "$bin" voice -json > "$voice_out" 2>/dev/null &
+            limit=150
+            GODEBUG=asyncpreemptoff=1 "$bin" voice -json -deadline 120s > "$voice_out" 2>/dev/null &
             voice_pid=$!
+            [ -n "$child_pid_file" ] && printf '%s\n' "$voice_pid" > "$child_pid_file"
             ;;
     esac
 
     local i=0
-    while { [ -n "$tcp_pid" ] && kill -0 "$tcp_pid" 2>/dev/null; } ||
-          { [ -n "$quic_pid" ] && kill -0 "$quic_pid" 2>/dev/null; } ||
-          { [ -n "$voice_pid" ] && kill -0 "$voice_pid" 2>/dev/null; }; do
+    while job_pid_alive "$tcp_pid" || job_pid_alive "$quic_pid" || job_pid_alive "$voice_pid"; do
         i=$((i + 1))
         # Потолок свой на режим: смешанный честно дороже остальных, и общий
         # потолок либо резал бы его, либо был бы бессмысленно велик для прочих.
@@ -3411,25 +3470,42 @@ strategy_pick_run() {
             # не даёт, и правило остаётся висеть в OUTPUT. Даём процессу
             # секунду на уборку и только потом добиваем.
             for _p in $tcp_pid $quic_pid $voice_pid; do kill "$_p" 2>/dev/null; done
-            sleep 1
+            forced=1
+            for _wait in 1 2 3 4 5; do
+                sleep 1
+                { ! job_pid_alive "$tcp_pid"; } &&
+                { ! job_pid_alive "$quic_pid"; } &&
+                { ! job_pid_alive "$voice_pid"; } && break
+            done
             [ -n "$tcp_pid" ] && kill -9 "$tcp_pid" 2>/dev/null
             [ -n "$quic_pid" ] && kill -9 "$quic_pid" 2>/dev/null
             [ -n "$voice_pid" ] && kill -9 "$voice_pid" 2>/dev/null
-            rm -f "$tcp_out" "$quic_out" "$voice_out"
-            echo "замер не уложился в отведённое время" >&2
-            return 4
+            echo "замер остановлен по общему дедлайну; частичный результат сохранён" >&2
+            break
+        fi
+        if [ -s "$progress_out" ]; then
+            _n=$(wc -l < "$progress_out" 2>/dev/null)
+            [ "${_n:-0}" -gt "$progress_seen" ] && sed -n "$((progress_seen + 1)),${_n}p" "$progress_out" | sed 's/^/  /'
+            progress_seen=${_n:-$progress_seen}
         fi
         [ $((i % 15)) = 0 ] && echo "  идёт замер, ${i} с"
         sleep 1
     done
-    [ -n "$tcp_pid" ] && wait "$tcp_pid" 2>/dev/null
-    [ -n "$quic_pid" ] && wait "$quic_pid" 2>/dev/null
-    [ -n "$voice_pid" ] && wait "$voice_pid" 2>/dev/null
+    if [ -n "$tcp_pid" ]; then wait "$tcp_pid" 2>/dev/null || overall_rc=4; fi
+    if [ -n "$quic_pid" ]; then wait "$quic_pid" 2>/dev/null || overall_rc=4; fi
+    if [ -n "$voice_pid" ]; then wait "$voice_pid" 2>/dev/null || overall_rc=4; fi
 
     if [ ! -s "$tcp_out" ] && [ ! -s "$quic_out" ] && [ ! -s "$voice_out" ]; then
-        rm -f "$tcp_out" "$quic_out" "$voice_out"
-        echo "замер не дал результата" >&2
-        return 5
+        _last=$(tail -n 1 "$progress_out" 2>/dev/null)
+        _candidates=$(printf '%s\n' "$_last" | sed -n 's/.*candidates=\([0-9]*\).*/\1/p')
+        _elapsed=$(printf '%s\n' "$_last" | sed -n 's/.*elapsed_ms=\([0-9]*\).*/\1/p')
+        _stage=$(printf '%s\n' "$_last" | sed -n 's/^stage=\([^ ]*\).*/\1/p')
+        _candidate=$(printf '%s\n' "$_last" | sed -n 's/.*candidate=\([^ ]*\).*/\1/p')
+        _code=ALL_STRATEGIES_FAILED
+        [ "$forced" = 1 ] && _code=GLOBAL_TIMEOUT
+        [ -n "$Z2K_JOB_ID" ] && [ -f "/tmp/z2k-job-${Z2K_JOB_ID}.cancel" ] && _code=CANCELLED
+        printf '%s\n' "{\"error_code\":\"$_code\",\"failure_stage\":\"${_stage:-supervisor}\",\"candidates_tested\":${_candidates:-0},\"last_candidate\":\"${_candidate:-none}\",\"duration_ms\":${_elapsed:-0},\"reason\":\"picker produced no result\"}" > "$tcp_out"
+        overall_rc=4
     fi
 
     # Форма ответа одна на все режимы: половина, которую не мерили, остаётся
@@ -3450,10 +3526,26 @@ strategy_pick_run() {
     printf ',"voice":' >> "$all"
     if [ -s "$voice_out" ]; then cat "$voice_out" >> "$all"; else printf 'null' >> "$all"; fi
     printf '}\n' >> "$all"
-    rm -f "$tcp_out" "$quic_out" "$voice_out"
+    # Финальная строка повторяет typed-контекст в коротком виде, чтобы журнал
+    # был самодостаточным даже без открытия «Подробностей замера».
+    _report="$tcp_out"
+    [ -s "$_report" ] || _report="$quic_out"
+    [ -s "$_report" ] || _report="$voice_out"
+    _err_code=$(sed -n 's/.*"error_code"[[:space:]]*:[[:space:]]*"\([A-Z_]*\)".*/\1/p' "$_report" 2>/dev/null | head -1)
+    _stage=$(sed -n 's/.*"failure_stage"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_report" 2>/dev/null | head -1)
+    _candidates=$(sed -n 's/.*"candidates_tested"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "$_report" 2>/dev/null | head -1)
+    _last=$(sed -n 's/.*"last_candidate"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_report" 2>/dev/null | head -1)
+    _elapsed=$(sed -n 's/.*"duration_ms"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "$_report" 2>/dev/null | head -1)
+    if [ -n "$_err_code" ]; then
+        echo "Итог: причина=$_err_code stage=${_stage:-unknown} candidates=${_candidates:-0} last=${_last:-none} elapsed_ms=${_elapsed:-0}"
+    else
+        echo "Итог: результат получен; candidates=${_candidates:-0} elapsed_ms=${_elapsed:-0}"
+    fi
+    rm -f "$tcp_out" "$quic_out" "$voice_out" "$progress_out" "$child_pid_file"
     mv -f "$all" "$STRATEGY_PICK_OUT"
     echo "Замер закончен за ${i} с."
-    return 0
+    [ "$forced" = 1 ] && overall_rc=4
+    return "$overall_rc"
 }
 
 # Последний результат замера. Пусто — ни разу не запускали.

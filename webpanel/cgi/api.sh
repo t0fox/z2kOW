@@ -1125,6 +1125,16 @@ case "$method $path" in
         exit 0
         ;;
 
+    "POST /job/cancel")
+        body=$(read_body)
+        id=$(form_value "$body" "id")
+        case "$id" in ''|*[!0-9]*) json_fail "400 Bad Request" "bad id" ;; esac
+        job_cancel "$id" || json_fail "409 Conflict" "задача уже завершена или не найдена"
+        json_header
+        printf '{"ok":true,"cancelled":'; json_string "$id"; printf '}\n'
+        exit 0
+        ;;
+
     # ---------- DIAG (Phase 3) ----------
     "GET /diag")
         diag_content=$(diag_run); diag_rc=$?

@@ -166,14 +166,16 @@ type Step struct {
 
 // Result — что показал прогон.
 type Result struct {
-	Target   string  `json:"target"`
-	Addr     string  `json:"addr"`
-	Verdict  Verdict `json:"verdict"`
-	Reason   string  `json:"reason"`
-	Repeats  int     `json:"repeats"`
-	Probes   int     `json:"probes"`
-	Duration string  `json:"duration"`
-	RTTMS    int64   `json:"rtt_ms,omitempty"`
+	Target     string  `json:"target"`
+	Addr       string  `json:"addr"`
+	Verdict    Verdict `json:"verdict"`
+	Reason     string  `json:"reason"`
+	Repeats    int     `json:"repeats"`
+	Probes     int     `json:"probes"`
+	Duration   string  `json:"duration"`
+	DurationMS int64   `json:"duration_ms,omitempty"`
+	ErrorCode  string  `json:"error_code,omitempty"`
+	RTTMS      int64   `json:"rtt_ms,omitempty"`
 
 	Props Properties `json:"props"`
 	// Strategy — строка для --lua-desync, если нашёлся приём, который наш
@@ -249,7 +251,15 @@ func Run(ctx context.Context, host string, opt Options) Result {
 	}
 	finish := func(v Verdict, reason string) Result {
 		res.Verdict, res.Reason = v, reason
-		res.Duration = time.Since(started).Round(time.Millisecond).String()
+		elapsed := time.Since(started)
+		res.Duration = elapsed.Round(time.Millisecond).String()
+		res.DurationMS = elapsed.Milliseconds()
+		if ctx.Err() == context.DeadlineExceeded {
+			res.ErrorCode = "GLOBAL_TIMEOUT"
+		}
+		if ctx.Err() == context.Canceled {
+			res.ErrorCode = "CANCELLED"
+		}
 		return res
 	}
 
@@ -374,6 +384,13 @@ func Run(ctx context.Context, host string, opt Options) Result {
 	compose(&res)
 
 	res.Duration = time.Since(started).Round(time.Millisecond).String()
+	res.DurationMS = time.Since(started).Milliseconds()
+	if ctx.Err() == context.DeadlineExceeded {
+		res.ErrorCode = "GLOBAL_TIMEOUT"
+	}
+	if ctx.Err() == context.Canceled {
+		res.ErrorCode = "CANCELLED"
+	}
 	if res.Reason == "" {
 		res.Reason = "имя режут по содержимому: контроль на тот же адрес отвечает, это имя — нет"
 	}

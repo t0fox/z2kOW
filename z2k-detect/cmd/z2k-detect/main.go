@@ -106,12 +106,14 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	defer classify.CleanupRSTRules()
+	exitCode := 0
 
 	switch args[0] {
 	case "probe":
 		probeCmd(ctx, args[1:])
 	case "classify":
-		classifyCmd(ctx, args[1:])
+		exitCode = classifyCmd(ctx, args[1:])
 	case "quic":
 		quicCmd(ctx, args[1:])
 	case "voice":
@@ -125,13 +127,17 @@ func main() {
 	default:
 		fatal("unknown command: %s", args[0])
 	}
+	if exitCode != 0 {
+		classify.CleanupRSTRules()
+		os.Exit(exitCode)
+	}
 }
 
 // classifyCmd измеряет функцию решения DPI и печатает вердикт со стратегией.
 //
 // Отличие от probe: probe отвечает «работает или нет», classify — «чем именно
 // режут и что с этим делать». Состояния не трогает, в списки не пишет.
-func classifyCmd(ctx context.Context, rest []string) {
+func classifyCmd(ctx context.Context, rest []string) int {
 	fs := flag.NewFlagSet("classify", flag.ExitOnError)
 	sni := fs.String("sni", "", "собрать триггер как ClientHello с этим именем")
 	raw := fs.String("raw", "", "триггер шестнадцатеричной строкой (для не-TLS протоколов)")
@@ -146,6 +152,8 @@ func classifyCmd(ctx context.Context, rest []string) {
 			"legacy (1.2, телевизоры и приставки), both (искать приём под оба, 3-5 минут)")
 	jointBudget := fs.Duration("joint-budget", 0,
 		"потолок поиска приёма, общего для TLS 1.3 и 1.2; ноль — умолчание (90с, под сторож панели)")
+	deadline := fs.Duration("deadline", 0, "общий потолок измерения; ноль — без потолка")
+	progressFile := fs.String("progress-file", "", "файл для построчного прогресса кандидатов")
 	asJSON := fs.Bool("json", false, "выдать Result как JSON")
 	_ = fs.Parse(rest)
 	if fs.NArg() < 1 {
@@ -190,11 +198,32 @@ func classifyCmd(ctx context.Context, rest []string) {
 	if err != nil {
 		fatal("%v", err)
 	}
+	if *deadline > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, *deadline)
+		defer cancel()
+	}
+	var progress *os.File
+	if *progressFile != "" {
+		var err error
+		progress, err = os.OpenFile(*progressFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if err != nil {
+			fatal("classify: progress-file: %v", err)
+		}
+		defer progress.Close()
+	}
 
 	// Контроль собираем всегда, когда он вообще собирается: без него вердикт
 	// «непрозрачно» склеивает два разных мира — пересборку и блок по адресу.
 	opts := classify.Options{Repeats: *repeats, Timeout: *timeout, Only: *only,
 		JointBudget: *jointBudget, CrossCheckTLS12: *hello == "both"}
+	if progress != nil {
+		opts.Progress = func(ev classify.ProgressEvent) {
+			_, _ = fmt.Fprintf(progress, "stage=%s candidate=%s candidates=%d probes=%d elapsed_ms=%d pass=%d fail=%d\n",
+				ev.Stage, ev.Candidate, ev.CandidatesTested, ev.Probes, ev.Elapsed.Milliseconds(), ev.Pass, ev.Fail)
+			_ = progress.Sync()
+		}
+	}
 	// Контроль тем же именем, что и триггер, — не контроль вовсе: если имя под
 	// блокировкой, молчать будут оба, и вердикт «режут адрес» получится из
 	// собственной ошибки ввода.
@@ -226,14 +255,14 @@ func classifyCmd(ctx context.Context, rest []string) {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
 			_ = enc.Encode(tr)
-			return
+			return 0
 		}
 		fmt.Printf("Цель:     %s (%s)\n", tr.Host, tr.Addr)
 		fmt.Printf("Вердикт:  %s — %s\n", tr.Verdict, tr.Reason)
 		fmt.Printf("Ответ:    код %d, объявлено %d, получено тела %d, всего %d байт за %d мс\n",
 			tr.Status, tr.ContentLength, tr.BodyBytes, tr.TotalBytes, tr.DurationMS)
 		fmt.Printf("Закрытие: %v\n", tr.ClosedByPeer)
-		return
+		return 0
 	}
 	if *echo {
 		ok, err := classify.RawEcho(ctx, addr, tr, *timeout)
@@ -245,7 +274,7 @@ func classifyCmd(ctx context.Context, rest []string) {
 		} else {
 			fmt.Println("raw-echo: тишина — либо цель под блокировкой, либо сервер не берёт наши сегменты")
 		}
-		return
+		return 0
 	}
 	res := classify.Run(ctx, addr, tr, opts)
 
@@ -253,7 +282,10 @@ func classifyCmd(ctx context.Context, rest []string) {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(res)
-		return
+		if res.ErrorCode != "" {
+			return 4
+		}
+		return 0
 	}
 	fmt.Printf("Цель:     %s\n", res.Target)
 	fmt.Printf("Триггер:  %s (%d байт)\n", tr.Name, res.TriggerLen)
@@ -317,6 +349,12 @@ func classifyCmd(ctx context.Context, rest []string) {
 		fmt.Printf("  %-11s cuts=%-8s пауза=%dмс  прошло=%d не прошло=%d %s\n",
 			o.Probe, cuts, o.DelayM, o.Pass, o.Fail, o.Err)
 	}
+	if res.ErrorCode != "" {
+		fmt.Printf("Ошибка:   %s (stage=%s, candidates=%d, last=%s, elapsed=%dмс)\n",
+			res.ErrorCode, res.FailureStage, res.CandidatesTested, res.LastCandidate, res.DurationMS)
+		return 4
+	}
+	return 0
 }
 
 // probeCmd runs a one-shot probe + prints a z2k-friendly verdict line.

@@ -78,14 +78,14 @@ exit 0
 EOF
 chmod +x "$T/bin/nft"
 # Package/version provenance fixture.  The payload is already p-84.26 while
-# the adapter packages are r24: the panel must report the payload truth and expose
+# the adapter packages are r25: the panel must report the payload truth and expose
 # the package release separately instead of presenting the seed/tag mismatch
 # as an installed upstream version.
 cat > "$T/bin/apk" <<'EOF'
 #!/bin/sh
 case "$*" in
-    *z2k-adapter*) echo 'z2k-adapter-0.1.0-r24 aarch64_cortex-a53 [installed]' ;;
-    *z2k-webpanel*) echo 'z2k-webpanel-0.1.0-r24 aarch64_cortex-a53 [installed]' ;;
+    *z2k-adapter*) echo 'z2k-adapter-0.1.0-r25 aarch64_cortex-a53 [installed]' ;;
+    *z2k-webpanel*) echo 'z2k-webpanel-0.1.0-r25 aarch64_cortex-a53 [installed]' ;;
     *z2k-zapret2-runtime*) echo 'z2k-zapret2-runtime-1.0.5.1-r4 aarch64_cortex-a53 [installed]' ;;
 esac
 EOF
@@ -277,8 +277,8 @@ RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "update: installed payload truth" "p-84.26" "$(_jget "$OUT" 'd["installed"]')"
 assert_eq "update: payload" "p-84.26" "$(_jget "$OUT" 'd["payload"]')"
 assert_eq "update: seed" "p-84.26" "$(_jget "$OUT" 'd["seed"]')"
-assert_eq "update: adapter release stays explicit" "z2k-adapter-0.1.0-r24" "$(_jget "$OUT" 'd["adapter_package"]')"
-assert_eq "update: webpanel release stays explicit" "z2k-webpanel-0.1.0-r24" "$(_jget "$OUT" 'd["webpanel_package"]')"
+assert_eq "update: adapter release stays explicit" "z2k-adapter-0.1.0-r25" "$(_jget "$OUT" 'd["adapter_package"]')"
+assert_eq "update: webpanel release stays explicit" "z2k-webpanel-0.1.0-r25" "$(_jget "$OUT" 'd["webpanel_package"]')"
 assert_eq "update: runtime release stays explicit" "z2k-zapret2-runtime-1.0.5.1-r4" "$(_jget "$OUT" 'd["runtime_package"]')"
 assert_eq "update: available" "p-84.26" "$(_jget "$OUT" 'd["available"]')"
 

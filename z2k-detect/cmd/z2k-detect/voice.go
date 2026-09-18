@@ -23,8 +23,14 @@ func voiceCmd(ctx context.Context, rest []string) {
 	timeout := fs.Duration("timeout", 3*time.Second, "сколько ждать ответа")
 	target := fs.String("addr", "", "мерить этот адрес вместо поиска живого разговора")
 	control := fs.String("control", "", "публичный сервер STUN для проверки, что UDP на канале ходит")
+	deadline := fs.Duration("deadline", 0, "общий потолок измерения; ноль — без потолка")
 	asJSON := fs.Bool("json", false, "выдать результат как JSON")
 	_ = fs.Parse(rest)
+	if *deadline > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, *deadline)
+		defer cancel()
+	}
 
 	res := voiceprobe.Run(ctx, voiceprobe.Options{
 		Repeats: *repeats, Timeout: *timeout, Target: *target, ControlServer: *control,

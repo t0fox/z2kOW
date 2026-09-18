@@ -123,7 +123,8 @@ async function run(input, btn) {
 
   const title = mode === "voice" ? "Замеряю голос Дискорда" : `Подбираю стратегию для ${domain}`;
   openJobModal(title, resp.job, {
-    onDone: (d) => {
+    cancelable: true,
+    onDone: async (d) => {
       btn.disabled = false;
       btn.textContent = label;
       const outcome = jobOutcome(d);
@@ -133,7 +134,9 @@ async function run(input, btn) {
         return;
       }
       if (outcome === JOB_FAIL) {
-        toast("Замер не прошёл — причина в журнале выше", "bad");
+        await loadLast();
+        const typed = document.querySelector("#pick-result .pick-outcome");
+        toast(typed ? typed.textContent : "Замер не прошёл — причина в журнале выше", "bad");
         return;
       }
       loadLast();
@@ -260,6 +263,14 @@ function protoBlock(name, res) {
         ${warn}`,
     };
   }
+  if (res.error_code) {
+    return {
+      hasLine: false,
+      html: `
+        <div class="pick-proto">по ${escapeHtml(name)}</div>
+        <p class="desc pick-outcome">${escapeHtml(typedFailureText(res))}</p>`,
+    };
+  }
   return {
     hasLine: false,
     html: `
@@ -268,12 +279,33 @@ function protoBlock(name, res) {
   };
 }
 
+function typedFailureText(res) {
+  const labels = {
+    DNS_FAILED: "DNS не разрешил домен",
+    NO_TARGET_IP: "для домена не найден адрес IPv4",
+    PROBE_PROCESS_FAILED: "инструмент зондирования не смог подготовить сырой TCP-путь",
+    NFQUEUE_NOT_BOUND: "очередь NFQUEUE не подключена",
+    TLS_NO_RESPONSE: "TLS-сервер не ответил",
+    ALL_STRATEGIES_FAILED: "подходящая стратегия не найдена",
+    GLOBAL_TIMEOUT: "общий дедлайн измерения истёк",
+    CANCELLED: "замер отменён",
+    SUPERSEDED: "замер заменён новым запуском",
+  };
+  const parts = [labels[res.error_code] || "замер завершился с ошибкой"];
+  if (res.failure_stage) parts.push(`этап: ${res.failure_stage}`);
+  if (Number.isFinite(res.candidates_tested)) parts.push(`кандидатов: ${res.candidates_tested}`);
+  if (res.last_candidate) parts.push(`последний: ${res.last_candidate}`);
+  if (Number.isFinite(res.duration_ms)) parts.push(`время: ${Math.round(res.duration_ms / 1000)} с`);
+  return parts.join(" · ");
+}
+
 // outcomeText — вердикт замера человеческими словами.
 //
 // Названий вердиктов человеку не показываем принципиально: слово «poisonable»
 // или «no_quic» ничего ему не говорит и только провоцирует спор о терминах.
 // Показываем то, что из вердикта следует для него.
 function outcomeText(name, res) {
+  if (res.error_code) return typedFailureText(res);
   switch (res.verdict) {
     case "clear":
       return `открывается и без обхода — подбирать нечего.`;

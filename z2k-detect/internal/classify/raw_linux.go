@@ -20,12 +20,14 @@
 package classify
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -135,6 +137,17 @@ var sourcePortCounter atomic.Uint32
 // один отказ уже делает отрицательные результаты сырых зондов недостоверными.
 var rstRuleFailed atomic.Bool
 
+// nftTableName is deliberately scoped to this process.  A timeout supervisor
+// may SIGKILL us before defer runs; the next process removes tables whose PID
+// is no longer alive without touching another active detector.
+const nftTablePrefix = "z2k_probe_"
+
+var (
+	nftMu       sync.Mutex
+	nftTable    string
+	nftTableSet bool
+)
+
 // RawRSTRuleFailed — сообщить наружу, что подавление ядерного RST не работает.
 func RawRSTRuleFailed() bool { return rstRuleFailed.Load() }
 
@@ -158,18 +171,53 @@ func nextSourcePort() uint16 {
 // Снимаем только своё: точная форма правила и порт из нашего диапазона.
 // Чужие правила с флагом RST — не наша забота, и трогать их нельзя.
 func sweepStaleRSTRules() {
-	out, err := exec.Command("iptables", "-S", "OUTPUT").Output()
-	if err != nil {
-		return
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		port, ok := parseStaleRSTRule(line)
-		if !ok {
-			continue
+	if out, err := exec.Command("iptables", "-S", "OUTPUT").Output(); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			port, ok := parseStaleRSTRule(line)
+			if !ok {
+				continue
+			}
+			_ = exec.Command("iptables", "-D", "OUTPUT", "-p", "tcp", "--sport",
+				fmt.Sprint(port), "--tcp-flags", "RST", "RST", "-j", "DROP").Run()
 		}
-		_ = exec.Command("iptables", "-D", "OUTPUT", "-p", "tcp", "--sport",
-			fmt.Sprint(port), "--tcp-flags", "RST", "RST", "-j", "DROP").Run()
 	}
+	// nft has no portable "is this PID alive" primitive, so enumerate our
+	// process-scoped tables and remove only tables whose owner has exited.
+	if out, err := exec.Command("nft", "list", "tables", "inet").Output(); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) != 3 || fields[0] != "table" || fields[1] != "inet" || !strings.HasPrefix(fields[2], nftTablePrefix) {
+				continue
+			}
+			pid := strings.TrimPrefix(fields[2], nftTablePrefix)
+			owner := parsePID(pid)
+			if owner <= 1 {
+				continue
+			}
+			if owner == os.Getpid() || func() bool {
+				p, err := os.FindProcess(owner)
+				return err == nil && !processAlive(p)
+			}() {
+				_ = exec.Command("nft", "delete", "table", "inet", fields[2]).Run()
+			}
+		}
+	}
+}
+
+func parsePID(s string) int {
+	var pid int
+	_, _ = fmt.Sscan(s, &pid)
+	return pid
+}
+
+func processAlive(p *os.Process) bool {
+	if p == nil {
+		return false
+	}
+	// Signal 0 is not exposed by os.Process portably; on Linux a nil error
+	// from Kill(0) is the standard existence check and EPERM still means alive.
+	err := p.Signal(syscall.Signal(0))
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // suppressKernelRST закрывает ядру рот на время зонда и возвращает уборщика.
@@ -179,27 +227,69 @@ func sweepStaleRSTRules() {
 // 1.4.22. С «-w 5» вставка падает с «Bad argument `5'», правило не встаёт,
 // каждый зонд получает RST от собственного ядра и читается как блокировка.
 // Замер 04.09: весь классификатор вырождался в вердикт opaque с полным
-// перебором в 303 зонда на любом домене. Отказ здесь молчаливый по замыслу
-// (см. ниже), поэтому поломка выглядела как свойство сети.
+// перебором в 303 зонда на любом домене. Если ни один backend не встал,
+// прогон теперь останавливается с PROBE_PROCESS_FAILED.
 func suppressKernelRST(sport uint16) func() {
 	args := []string{"-I", "OUTPUT", "-p", "tcp", "--sport", fmt.Sprint(sport),
 		"--tcp-flags", "RST", "RST", "-j", "DROP"}
-	if err := exec.Command("iptables", args...).Run(); err != nil {
-		// Мерить продолжаем: без правила зонд иногда всё равно успевает
-		// отработать — ядерный RST прилетает после SYN-ACK, а мы к тому моменту
-		// уже пишем данные. Но МОЛЧАТЬ нельзя.
-		//
-		// Замер 04.09 стоил часа разбора: с «-w 5» вставка падала на iptables
-		// 1.4.21, правило не вставало, каждый зонд получал RST от своего ядра и
-		// читался как блокировка. Классификатор вырождался в opaque с полным
-		// перебором на любом домене, и выглядело это как свойство сети, а не
-		// как своя поломка. Теперь факт отказа доезжает до вердикта.
-		rstRuleFailed.Store(true)
-		return func() {}
+	if err := exec.Command("iptables", args...).Run(); err == nil {
+		return func() {
+			del := append([]string{"-D", "OUTPUT"}, args[2:]...)
+			_ = exec.Command("iptables", del...).Run()
+		}
 	}
+	if cleanup, ok := suppressKernelRSTNFT(sport); ok {
+		return cleanup
+	}
+	// Без правила отрицательные исходы сырых зондов недостоверны. Раньше
+	// классификатор продолжал полный перебор и превращал этот сбой в
+	// пятиминутное ожидание с ложным сетевым вердиктом; теперь он завершает
+	// прогон typed PROBE_PROCESS_FAILED.
+	rstRuleFailed.Store(true)
+	return func() {}
+}
+
+// suppressKernelRSTNFT is the OpenWrt path.  OpenWrt 25.x ships nftables and
+// deliberately omits the iptables compatibility command.  Keep one process
+// table and add one narrow source-port rule per raw connection; cleanup of the
+// rule is local, while the table is removed when the last connection closes.
+func suppressKernelRSTNFT(sport uint16) (func(), bool) {
+	nftMu.Lock()
+	defer nftMu.Unlock()
+	if nftTable == "" {
+		nftTable = fmt.Sprintf("%s%d", nftTablePrefix, os.Getpid())
+	}
+	rule := fmt.Sprintf("add rule inet %s output tcp sport %d tcp flags & (rst) == rst drop\n", nftTable, sport)
+	if !nftTableSet {
+		rule = fmt.Sprintf("add table inet %s\nadd chain inet %s output { type filter hook output priority -310; policy accept; }\n%s", nftTable, nftTable, rule)
+	}
+	cmd := exec.Command("nft", "-f", "-")
+	cmd.Stdin = bytes.NewBufferString(rule)
+	if err := cmd.Run(); err != nil {
+		return nil, false
+	}
+	nftTableSet = true
 	return func() {
-		del := append([]string{"-D", "OUTPUT"}, args[2:]...)
-		_ = exec.Command("iptables", del...).Run()
+		nftMu.Lock()
+		defer nftMu.Unlock()
+		// The classifier is intentionally sequential.  Removing the process
+		// table as a unit avoids nft handle parsing and guarantees no rule leaks
+		// after a normal probe close; the next probe recreates its own table.
+		if nftTableSet {
+			_ = exec.Command("nft", "delete", "table", "inet", nftTable).Run()
+			nftTableSet = false
+		}
+	}, true
+}
+
+// CleanupRSTRules is called by main on every normal detector exit.  SIGKILL
+// is covered by sweepStaleRSTRules at the next start.
+func CleanupRSTRules() {
+	nftMu.Lock()
+	defer nftMu.Unlock()
+	if nftTableSet && nftTable != "" {
+		_ = exec.Command("nft", "delete", "table", "inet", nftTable).Run()
+		nftTableSet = false
 	}
 }
 

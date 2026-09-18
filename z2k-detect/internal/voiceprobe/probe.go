@@ -39,12 +39,14 @@ type Step struct {
 
 // Result — что показал прогон.
 type Result struct {
-	Target   string  `json:"target"`
-	Verdict  Verdict `json:"verdict"`
-	Reason   string  `json:"reason"`
-	Repeats  int     `json:"repeats"`
-	Probes   int     `json:"probes"`
-	Duration string  `json:"duration"`
+	Target     string  `json:"target"`
+	Verdict    Verdict `json:"verdict"`
+	Reason     string  `json:"reason"`
+	Repeats    int     `json:"repeats"`
+	Probes     int     `json:"probes"`
+	Duration   string  `json:"duration"`
+	DurationMS int64   `json:"duration_ms,omitempty"`
+	ErrorCode  string  `json:"error_code,omitempty"`
 	// Marked — удалось ли пометить сокет. Без метки зонд идёт через наш же
 	// обход и меряет его, а не коробку провайдера: на голосовых портах наш
 	// профиль стоит ровно там же.
@@ -97,7 +99,15 @@ func Run(ctx context.Context, opt Options) Result {
 	res := Result{Repeats: opt.Repeats, Marked: markSupported()}
 	finish := func(v Verdict, reason string) Result {
 		res.Verdict, res.Reason = v, reason
-		res.Duration = time.Since(started).Round(time.Millisecond).String()
+		elapsed := time.Since(started)
+		res.Duration = elapsed.Round(time.Millisecond).String()
+		res.DurationMS = elapsed.Milliseconds()
+		if ctx.Err() == context.DeadlineExceeded {
+			res.ErrorCode = "GLOBAL_TIMEOUT"
+		}
+		if ctx.Err() == context.Canceled {
+			res.ErrorCode = "CANCELLED"
+		}
 		return res
 	}
 	if !res.Marked {
@@ -152,6 +162,13 @@ func Run(ctx context.Context, opt Options) Result {
 		"UDP ходит, режут именно этот поток"
 	askVoiceArms(ctx, addr, opt, ask, &res)
 	res.Duration = time.Since(started).Round(time.Millisecond).String()
+	res.DurationMS = time.Since(started).Milliseconds()
+	if ctx.Err() == context.DeadlineExceeded {
+		res.ErrorCode = "GLOBAL_TIMEOUT"
+	}
+	if ctx.Err() == context.Canceled {
+		res.ErrorCode = "CANCELLED"
+	}
 	return res
 }
 

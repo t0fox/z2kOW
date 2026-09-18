@@ -103,12 +103,19 @@ const (
 
 // Result — что показал прогон.
 type Result struct {
-	Target   string  `json:"target"`
-	Verdict  Verdict `json:"verdict"`
-	Reason   string  `json:"reason"`
-	Repeats  int     `json:"repeats"`
-	Probes   int     `json:"probes"`
-	Duration string  `json:"duration"`
+	Target               string  `json:"target"`
+	Verdict              Verdict `json:"verdict"`
+	Reason               string  `json:"reason"`
+	Repeats              int     `json:"repeats"`
+	Probes               int     `json:"probes"`
+	Duration             string  `json:"duration"`
+	DurationMS           int64   `json:"duration_ms"`
+	ErrorCode            string  `json:"error_code,omitempty"`
+	FailureStage         string  `json:"failure_stage,omitempty"`
+	CandidatesTested     int     `json:"candidates_tested"`
+	TimeToFirstProbeMS   int64   `json:"time_to_first_probe_ms,omitempty"`
+	TimeToFirstSuccessMS int64   `json:"time_to_first_success_ms,omitempty"`
+	LastCandidate        string  `json:"last_candidate,omitempty"`
 
 	// TriggerLen — длина триггера в байтах.
 	TriggerLen int `json:"trigger_len"`
@@ -160,7 +167,8 @@ type Result struct {
 
 	// Trace — сырые наблюдения, по одной строке на зонд. Нужны, чтобы вердикт
 	// можно было перепроверить руками, а не верить на слово.
-	Trace []Observation `json:"trace"`
+	Trace     []Observation `json:"trace"`
+	startedAt time.Time
 }
 
 // Properties — что удалось узнать о самой коробке. nil в булевых полях
@@ -197,6 +205,18 @@ type Observation struct {
 	Pass   int    `json:"pass"`
 	Fail   int    `json:"fail"`
 	Err    string `json:"err,omitempty"`
+}
+
+// ProgressEvent is emitted after each completed candidate without exposing
+// packet payloads or any additional sensitive data.
+type ProgressEvent struct {
+	Stage            string
+	Candidate        string
+	CandidatesTested int
+	Probes           int
+	Elapsed          time.Duration
+	Pass             int
+	Fail             int
 }
 
 // Trigger — что шлём и как понимаем, что ответ пришёл.
@@ -270,6 +290,8 @@ type Options struct {
 	Control Trigger
 	// Dialer позволяет подменить установку соединения в тестах.
 	Dialer func(ctx context.Context, addr string) (net.Conn, error)
+	// Progress receives one event after each completed candidate.
+	Progress func(ProgressEvent)
 }
 
 func (o *Options) withDefaults() {
@@ -307,8 +329,26 @@ func Run(ctx context.Context, addr string, tr Trigger, opt Options) (res Result)
 		Target:     addr,
 		Repeats:    opt.Repeats,
 		TriggerLen: len(tr.Payload),
+		startedAt:  start,
 	}
-	defer func() { res.Duration = time.Since(start).Round(time.Millisecond).String() }()
+	defer func() {
+		elapsed := time.Since(start)
+		res.Duration = elapsed.Round(time.Millisecond).String()
+		res.DurationMS = elapsed.Milliseconds()
+		res.CandidatesTested = len(res.Trace)
+		switch ctx.Err() {
+		case context.DeadlineExceeded:
+			res.ErrorCode = "GLOBAL_TIMEOUT"
+			if res.FailureStage == "" {
+				res.FailureStage = "global-deadline"
+			}
+		case context.Canceled:
+			res.ErrorCode = "CANCELLED"
+			if res.FailureStage == "" {
+				res.FailureStage = "cancel"
+			}
+		}
+	}()
 
 	// Цель проверяем ДО зондов. Пустой или неразобранный адрес давал уверенный
 	// вердикт «режут по адресу» — на пустоте молчит всё, и инструмент честно
@@ -321,6 +361,24 @@ func Run(ctx context.Context, addr string, tr Trigger, opt Options) (res Result)
 		res.Verdict = VerdictFlaky
 		res.Reason = "цель указывает на localhost — мерить нечего, проверь как резолвится имя"
 		return res
+	} else if net.ParseIP(h) == nil {
+		ips, lookupErr := net.DefaultResolver.LookupIP(ctx, "ip", h)
+		if lookupErr != nil {
+			res.Verdict = VerdictUnreachable
+			res.Reason = "DNS не разрешил цель: " + lookupErr.Error()
+			if ctx.Err() == nil {
+				res.ErrorCode, res.FailureStage = "DNS_FAILED", "dns"
+			}
+			return res
+		}
+		if len(ips) == 0 {
+			res.Verdict = VerdictUnreachable
+			res.Reason = "DNS не вернул адрес для цели"
+			if ctx.Err() == nil {
+				res.ErrorCode, res.FailureStage = "NO_TARGET_IP", "dns"
+			}
+			return res
+		}
 	}
 	if len(tr.Payload) < 2 {
 		res.Verdict = VerdictFlaky
@@ -331,10 +389,18 @@ func Run(ctx context.Context, addr string, tr Trigger, opt Options) (res Result)
 	// 1. БАЗА. Триггер целиком, одной записью. Если проходит — блокировки по
 	// содержимому нет, и всё остальное дерево не имеет смысла.
 	base := measure(ctx, addr, tr, opt, "whole", nil, opt.WriteGap, &res)
+	if ctx.Err() != nil {
+		res.Verdict = VerdictFlaky
+		res.Reason = "измерение прервано до получения базового ответа"
+		return res
+	}
 	switch {
 	case base.err != nil && base.pass == 0:
 		res.Verdict = VerdictUnreachable
 		res.Reason = "нет TCP до цели: " + base.err.Error()
+		if ctx.Err() == nil {
+			res.ErrorCode, res.FailureStage = "TLS_NO_RESPONSE", "tcp-connect"
+		}
 		return res
 	case base.pass == opt.Repeats:
 		// Запрос проходит. Но это ещё не «обходить нечего»: у TLS 1.2
@@ -369,6 +435,11 @@ func Run(ctx context.Context, addr string, tr Trigger, opt Options) (res Result)
 	// проходит, никакая точка разреза не пройдёт тем более, и дальше искать
 	// границу бессмысленно.
 	one := measure(ctx, addr, tr, opt, "split", []int{1}, opt.WriteGap, &res)
+	if ctx.Err() != nil {
+		res.Verdict = VerdictFlaky
+		res.Reason = "измерение прервано на проверке разреза"
+		return res
+	}
 	if one.pass == 0 {
 		// 2а. КОНТРОЛЬ. Разрез не спас — но прежде чем говорить «пересборка»,
 		// надо исключить, что содержимое вообще ни при чём. Шлём на ту же цель
@@ -406,6 +477,9 @@ func Run(ctx context.Context, addr string, tr Trigger, opt Options) (res Result)
 				res.Reason = "поток пересобирается, но буфер травится: коробка глотает «" + hit.name + "», сервер выбрасывает"
 				crossCheckTLS12(ctx, addr, tr, opt, &res, hit.name)
 				return res
+			}
+			if res.ErrorCode == "" && ctx.Err() == nil {
+				res.ErrorCode, res.FailureStage = "ALL_STRATEGIES_FAILED", "candidate-search"
 			}
 		}
 		if !controlOK {
@@ -713,10 +787,16 @@ func RawEcho(ctx context.Context, addr string, tr Trigger, timeout time.Duration
 func sweepPoisons(ctx context.Context, addr string, tr Trigger, opt Options, res *Result) (poison, bool) {
 	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
+		res.ErrorCode, res.FailureStage = "NO_TARGET_IP", "target"
 		return poison{}, false
 	}
 	ips, err := net.LookupIP(host)
-	if err != nil || len(ips) == 0 {
+	if err != nil {
+		res.ErrorCode, res.FailureStage = "DNS_FAILED", "dns"
+		return poison{}, false
+	}
+	if len(ips) == 0 {
+		res.ErrorCode, res.FailureStage = "NO_TARGET_IP", "dns"
 		return poison{}, false
 	}
 	var ip net.IP
@@ -727,10 +807,12 @@ func sweepPoisons(ctx context.Context, addr string, tr Trigger, opt Options, res
 		}
 	}
 	if ip == nil {
+		res.ErrorCode, res.FailureStage = "NO_TARGET_IP", "dns"
 		return poison{}, false
 	}
 	var port int
 	if _, e := fmt.Sscanf(portStr, "%d", &port); e != nil || port <= 0 {
+		res.ErrorCode, res.FailureStage = "PROBE_PROCESS_FAILED", "target"
 		return poison{}, false
 	}
 
@@ -757,9 +839,12 @@ func sweepPoisons(ctx context.Context, addr string, tr Trigger, opt Options, res
 				obs.Fail++
 			}
 		}
-		res.Trace = append(res.Trace, obs)
+		recordObservation(res, opt, obs)
 		if obs.Pass == 0 {
 			res.RawUsable = false
+			if res.ErrorCode == "" {
+				res.ErrorCode, res.FailureStage = "PROBE_PROCESS_FAILED", "raw-selftest"
+			}
 			return poison{}, false
 		}
 	}
@@ -768,10 +853,12 @@ func sweepPoisons(ctx context.Context, addr string, tr Trigger, opt Options, res
 	// сырых зондов ничего не значат: RST мог прилететь от нашего же ядра.
 	// Сказать об этом обязаны — иначе своя поломка читается как свойство сети.
 	if RawRSTRuleFailed() {
-		res.Trace = append(res.Trace, Observation{
+		recordObservation(res, opt, Observation{
 			Probe: "внимание:правило подавления RST не встало",
-			Err:   "iptables отверг вставку; отрицательные исходы сырых зондов недостоверны",
+			Err:   "не удалось установить ни iptables, ни nft правило подавления RST; отрицательные исходы сырых зондов недостоверны",
 		})
+		res.ErrorCode, res.FailureStage = "PROBE_PROCESS_FAILED", "raw-rst-suppression"
+		return poison{}, false
 	}
 
 	// СВОЙСТВА СПЕРВА, СТРАТЕГИЯ — ИЗ НИХ.
@@ -804,7 +891,7 @@ func sweepPoisons(ctx context.Context, addr string, tr Trigger, opt Options, res
 				}
 			}
 			obs.Pass, obs.Fail = pass, opt.Repeats-pass
-			res.Trace = append(res.Trace, obs)
+			recordObservation(res, opt, obs)
 			if pass == opt.Repeats {
 				if opt.acceptable(cand) {
 					res.Composed, res.Path = true, "собрано"
@@ -849,7 +936,7 @@ func sweepPoisons(ctx context.Context, addr string, tr Trigger, opt Options, res
 				obs.Fail++
 			}
 		}
-		res.Trace = append(res.Trace, obs)
+		recordObservation(res, opt, obs)
 		// Единогласие обязательно: одна случайная удача назначила бы
 		// стратегией то, что не работает.
 		if obs.Pass == opt.Repeats {
@@ -1078,6 +1165,32 @@ type tally struct {
 	err        error
 }
 
+func recordObservation(res *Result, opt Options, obs Observation) {
+	res.Trace = append(res.Trace, obs)
+	res.CandidatesTested = len(res.Trace)
+	res.LastCandidate = obs.Probe
+	if res.startedAt.IsZero() {
+		res.startedAt = time.Now()
+	}
+	elapsed := time.Since(res.startedAt)
+	if res.TimeToFirstProbeMS == 0 {
+		res.TimeToFirstProbeMS = elapsed.Milliseconds()
+	}
+	if res.TimeToFirstSuccessMS == 0 && obs.Pass > 0 {
+		res.TimeToFirstSuccessMS = elapsed.Milliseconds()
+	}
+	if opt.Progress != nil {
+		stage := obs.Probe
+		if i := strings.IndexByte(stage, ':'); i > 0 {
+			stage = stage[:i]
+		}
+		opt.Progress(ProgressEvent{
+			Stage: stage, Candidate: obs.Probe, CandidatesTested: len(res.Trace),
+			Probes: res.Probes, Elapsed: elapsed, Pass: obs.Pass, Fail: obs.Fail,
+		})
+	}
+}
+
 // measure гоняет один зонд Repeats раз и записывает наблюдение в трассу.
 func measure(ctx context.Context, addr string, tr Trigger, opt Options, name string, cuts []int, gap time.Duration, res *Result) tally {
 	var t tally
@@ -1102,7 +1215,7 @@ func measure(ctx context.Context, addr string, tr Trigger, opt Options, name str
 		}
 	}
 	obs.Pass, obs.Fail = t.pass, t.fail
-	res.Trace = append(res.Trace, obs)
+	recordObservation(res, opt, obs)
 	return t
 }
 

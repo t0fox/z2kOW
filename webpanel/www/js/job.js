@@ -1,5 +1,6 @@
 import { apiGet, isRefusal } from "./core/api.js";
 import { _icons, escapeHtml } from "./core/dom.js";
+import { apiPost } from "./core/api.js";
 import { toast } from "./core/toast.js";
 
 // Registry of currently-running jobs. Each entry survives modal close
@@ -404,6 +405,7 @@ export function openJobModal(title, jobId, opts = {}) {
       ${warning}
       <pre class="log" id="job-log">${escapeHtml(poller.lastLog || "Запуск…")}</pre>
       <div class="modal-footer">
+        ${opts.cancelable ? '<button class="btn btn-danger" id="job-cancel">Отменить</button>' : ""}
         <button class="btn" id="job-close">Скрыть</button>
       </div>
     </div>
@@ -411,6 +413,7 @@ export function openJobModal(title, jobId, opts = {}) {
   document.body.appendChild(backdrop);
   const logEl = backdrop.querySelector("#job-log");
   const closeBtn = backdrop.querySelector("#job-close");
+  const cancelBtn = backdrop.querySelector("#job-cancel");
   logEl.scrollTop = logEl.scrollHeight;
 
   // Модалка — подписчик на background poller. На done меняет текст
@@ -442,6 +445,20 @@ export function openJobModal(title, jobId, opts = {}) {
     poller.attachers.delete(onTick);
     backdrop.remove();
   });
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", async () => {
+      cancelBtn.disabled = true;
+      cancelBtn.textContent = "Отменяю…";
+      try {
+        await apiPost("/job/cancel", { id: jobId });
+        cancelBtn.textContent = "Отмена отправлена";
+      } catch (e) {
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = "Отменить";
+        if (e && e.message) toast(e.message, "bad");
+      }
+    });
+  }
 }
 
 // Подтверждение со своими подписями кнопок. Нативный confirm() тут не

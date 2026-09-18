@@ -23,3 +23,5 @@ func probeRawHandshake(context.Context, net.IP, uint16, time.Duration) (bool, er
 
 // Вне Linux сырых зондов нет, и подавлять нечего.
 func RawRSTRuleFailed() bool { return false }
+
+func CleanupRSTRules() {}
