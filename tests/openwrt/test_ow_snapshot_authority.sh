@@ -9,8 +9,9 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-snapauth.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 
-mkdir -p "$T/root/share" "$T/bin"
-export Z2K_ROOT="$T/root" Z2K_BIN="$T/bin" Z2K_TMP="$T/tmp"
+mkdir -p "$T/root/share" "$T/bin" "$T/etc"
+export Z2K_ROOT="$T/root" Z2K_BIN="$T/bin" Z2K_TMP="$T/tmp" \
+    Z2K_ETC="$T/etc" Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
 export Z2K_AU_TMP_DIR="$T/tmp/update"
 mkdir -p "$T/bin" "$T/tmp/update"
 # shellcheck disable=SC1090,SC1091
@@ -20,6 +21,10 @@ mkdir -p "$T/bin" "$T/tmp/update"
 . "$REPO/platform/openwrt/binaries.sh" || exit 1
 # shellcheck disable=SC1090,SC1091
 . "$REPO/lib/utils.sh" || exit 1
+# The payload updater must consume the same embedded snapshot authority as the
+# binary bootstrap path.
+# shellcheck disable=SC1090,SC1091
+. "$REPO/lib/auto_update.sh" || exit 1
 
 # Настоящий au недоступен изолированно — стабы именно точек ветвления:
 # fetch (канал) обязан НЕ вызываться; platform_ok и refresh — вызываются.
@@ -42,6 +47,13 @@ printf '{"current":"p-84.17","platform":"openwrt","snapshot":true,"install_map":
 printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' > "$T/root/share/snapshot-commit"
 
 : > "$T/calls"
+au_fetch_manifest >/dev/null 2>&1
+assert_eq "payload fetch uses embedded snapshot" "0" "$?"
+assert_eq "payload target ref uses full snapshot commit" \
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "$Z2K_AU_TARGET_REF"
+assert_eq "payload ref override stays immutable" \
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+    "$(au_manifest_ref "$T/tmp/update/UPDATES.json" p-84.17)"
 z2k_ow_ensure_binaries >/dev/null 2>&1
 assert_eq "ensure rc" "0" "$?"
 if grep -q "FETCH-CALLED" "$T/calls"; then

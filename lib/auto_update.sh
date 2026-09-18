@@ -268,6 +268,23 @@ au_fetch_manifest() {
     mkdir -p "$Z2K_AU_TMP_DIR"
     local out="$Z2K_AU_TMP_DIR/UPDATES.json"
     local sig="${out}.sig"
+    # An embedded platform snapshot is authoritative for that package. Return
+    # 125 from the hook when no snapshot is present so the ordinary signed
+    # production-channel path below remains unchanged. Any other hook failure
+    # is fail-closed: a partial snapshot must not fall back to a moving channel.
+    if command -v z2k_platform_fetch_manifest >/dev/null 2>&1; then
+        local _platform_rc=0
+        z2k_platform_fetch_manifest || _platform_rc=$?
+        case "$_platform_rc" in
+            0) return 0 ;;
+            125) ;;
+            *)
+                au_log "platform manifest preparation failed — refusing channel fallback"
+                rm -f "$out" "$sig"
+                return 1
+                ;;
+        esac
+    fi
     # Подпись тянется рядом, тем же транспортом. Её отсутствие — не сетевой
     # сбой, а состояние, которое разбирается ниже вместе с храповиком.
     au_fetch_pair "$Z2K_AU_MANIFEST_URL" "$Z2K_AU_SIG_URL" "$out" "$sig" || return 1
@@ -423,6 +440,15 @@ au_entry_changed_files() {
 au_manifest_ref() {
     local manifest="$1" tag="$2"
     [ -f "$manifest" ] || return 0
+    # Platform adapters may provide an immutable ref for an embedded snapshot.
+    if command -v z2k_platform_manifest_ref >/dev/null 2>&1; then
+        local _platform_ref
+        _platform_ref=$(z2k_platform_manifest_ref "$manifest" "$tag" 2>/dev/null || true)
+        if [ -n "$_platform_ref" ]; then
+            printf '%s\n' "$_platform_ref"
+            return 0
+        fi
+    fi
     grep '^[[:space:]]*{"v":' "$manifest" 2>/dev/null \
         | sed -n "s/.*\"v\"[[:space:]]*:[[:space:]]*\"${tag}\".*\"ref\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" \
         | head -1

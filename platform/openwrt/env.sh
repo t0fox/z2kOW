@@ -128,6 +128,37 @@ export Z2K_AU_INSTALLED_TAG_FILE Z2K_AU_TRUST_PIN Z2K_AU_LOCK_FILE Z2K_AU_LOG_FI
 Z2K_AU_FAILS_FILE="${Z2K_AU_FAILS_FILE:-$Z2K_STATE/au-delivery-fails}"
 Z2K_AU_DIRTY_TREE_FILE="${Z2K_AU_DIRTY_TREE_FILE:-$Z2K_STATE/dirty-tree}"
 export Z2K_AU_FAILS_FILE Z2K_AU_DIRTY_TREE_FILE
+
+# Embedded CI snapshot authority. 125 means "no snapshot, continue with the
+# common path"; every other non-zero result is a malformed/failed snapshot and
+# therefore fails closed.
+z2k_platform_fetch_manifest() {
+    [ "${Z2K_PLATFORM:-}" = "openwrt" ] || return 125
+    local _d="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
+    [ -r "$_d/manifest.sh" ] || return 125
+    # shellcheck disable=SC1090
+    . "$_d/manifest.sh" || return 2
+    z2k_ow_manifest_snapshot_mode
+    case "$?" in
+        1) return 125 ;;
+        0|2)
+            z2k_ow_manifest_prepare "${Z2K_AU_TMP_DIR:-${Z2K_TMP:-/tmp/z2k}/update}/UPDATES.json" \
+                || return 2
+            return 0
+            ;;
+        *) return 2 ;;
+    esac
+}
+
+# A snapshot's separate full commit pin outranks the history's human release
+# ref, which may be a tag absent from the adapter fork. Production manifests
+# continue through au_manifest_ref unchanged.
+z2k_platform_manifest_ref() {
+    [ "${Z2K_PLATFORM:-}" = "openwrt" ] || return 0
+    [ "${Z2K_OW_MANIFEST_MODE:-}" = snapshot ] || return 0
+    [ -n "${Z2K_AU_TARGET_REF:-}" ] || return 0
+    printf '%s\n' "$Z2K_AU_TARGET_REF"
+}
 # PUBKEY/VERIFY_BIN не задаём: их дефолты уже идут через ZAPRET2_DIR/Z2K_AU_SBIN
 # (${Z2K_ROOT}/etc/z2k-update-pub.pem и ${Z2K_BIN}/z2k-verify) — тест сверяет.
 
