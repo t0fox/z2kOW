@@ -151,6 +151,55 @@ print_platform() {
     printf 'loadavg            : %s\n' "$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
 }
 
+print_offload() {
+    local rules flowtable flowadd uci_flow hw_nat fastroute modules backend conclusion
+    rules=$(nft list ruleset 2>/dev/null || true)
+    flowtable=$(printf '%s\n' "$rules" | grep -ciE '(^|[[:space:]])flowtable([[:space:]]|\{|$)' || true)
+    flowadd=$(printf '%s\n' "$rules" | grep -ciE '(^|[[:space:]])flow[[:space:]]+add([[:space:]]|$)' || true)
+    uci_flow=0
+    if command -v uci >/dev/null 2>&1; then
+        if uci -q get firewall.@defaults[0].flow_offloading 2>/dev/null | grep -qx '1'; then
+            uci_flow=1
+        fi
+        if uci -q get firewall.@defaults[0].flow_offloading_hw 2>/dev/null | grep -qx '1'; then
+            uci_flow=1
+        fi
+    fi
+    if [ -r /proc/driver/hw_nat ]; then
+        hw_nat=present
+    else
+        hw_nat=absent
+    fi
+    if [ -e /proc/sys/net/netfilter/nf_conntrack_fastroute ]; then
+        fastroute=$(cat /proc/sys/net/netfilter/nf_conntrack_fastroute 2>/dev/null || echo unreadable)
+    else
+        fastroute=absent
+    fi
+    modules=$(lsmod 2>/dev/null | awk '$1 ~ /^(nf_flow_table|nf_flow_table_inet|nft_flow_offload|shortcut_fe|fastpath|ppe)/ {n++} END {print n+0}')
+    [ -n "$modules" ] || modules=0
+
+    backend=BACKEND_UNKNOWN
+    if [ "$hw_nat" = present ]; then
+        backend=HARDWARE_NAT
+    elif [ "$flowtable" -gt 0 ] || [ "$flowadd" -gt 0 ] || [ "$uci_flow" -eq 1 ]; then
+        backend=NFT_FLOWTABLE
+    fi
+    conclusion=OFFLOAD_NOT_ACTIVE
+    if [ "$flowtable" -gt 0 ] || [ "$flowadd" -gt 0 ] || [ "$uci_flow" -eq 1 ] || [ "$hw_nat" = present ]; then
+        conclusion=OFFLOAD_CONFIGURED
+    fi
+
+    printf '\n=== offload ===\n'
+    printf 'software modules   : %s (nf_flow_table/nft_flow_offload)\n' "$modules"
+    printf 'software offload   : %s\n' "$(if [ "$flowtable" -gt 0 ] || [ "$flowadd" -gt 0 ] || [ "$uci_flow" -eq 1 ]; then echo active; else echo inactive; fi)"
+    printf 'hardware offload   : %s\n' "$hw_nat"
+    printf 'nft flowtable      : declarations=%s flow_add=%s\n' "$flowtable" "$flowadd"
+    printf 'nf_conntrack_fastroute: %s\n' "$fastroute"
+    printf 'backend            : %s\n' "$backend"
+    printf 'visibility         : %s\n' "$conclusion"
+    printf 'conclusion         : %s\n' "$conclusion"
+}
+
 print_lists() {
     local d f n label user
     d=${Z2K_EXTRA_STRATS_DIR:-}
@@ -205,6 +254,7 @@ case "$1" in
     tunnel) print_tunnel ;;
     warp) print_warp ;;
     platform) print_platform ;;
+    offload) print_offload ;;
     lists) print_lists ;;
     netpath) print_netpath ;;
     *) exit 2 ;;

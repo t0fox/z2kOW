@@ -1467,6 +1467,25 @@ print_platform() {
 }
 
 # =============================================================================
+# SECTION: acceleration/offload — OpenWrt backend truth, not Keenetic folklore
+# =============================================================================
+# The p-85 fastroute change is meaningful only when the target firmware exposes
+# a real acceleration backend.  OpenWrt devices use different combinations of
+# nft flowtables, hardware NAT and vendor PPEs; copying Keenetic sysctls here
+# would create a toggle which changes nothing.  The platform hook owns the
+# probe, while the common script keeps the section and the typed fallback stable
+# for non-OpenWrt platforms.
+print_offload() {
+    if z2k_diag_hook; then
+        "$Z2K_DIAG_HOOK" offload
+        return $?
+    fi
+    printf '\n=== offload ===\n'
+    printf 'backend            : unknown (platform adapter unavailable)\n'
+    printf 'conclusion         : BACKEND_UNKNOWN\n'
+}
+
+# =============================================================================
 # SECTION: списки доменов
 # =============================================================================
 # Раздел «Geosite» в вебпанели снят 2026-08-04: он показывал одну справочную
@@ -2078,6 +2097,7 @@ case "$MODE" in
         print_service
         print_iptables
         print_platform
+        print_offload
         print_netpath
         print_lists
         print_tunnel
