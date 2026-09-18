@@ -533,6 +533,33 @@ _z2k_whitelist_keenetic()
 	return 0
 }
 
+# ДОЗАПИСЬ ТЕКУЩИХ ДОМЕНОВ TIKTOK В БЕЛЫЙ СПИСОК (18.09.2026).
+#
+# Приложение давно ходит не на tiktok.com, а на tiktokv.us и tiktokcdn-us.com.
+# Оба лежат в списке РКН из geosite как ложные срабатывания, а секция TikTok в
+# белом списке знала только старые имена — и десинк ложился на живой сервис.
+# Замер на роутере владельца: 165 TLS-потоков телефона к этим именам, у всех
+# одно — ClientHello подтверждён, edge CDN молчит, ротатор отказа не видит:
+# ни ретрансмиссий, ни RST, ловить нечего, стратегия 1 стоит вечно.
+#
+# Здесь по той же причине, что и домены Keenetic выше: create_base_config
+# зовёт только полная установка. Сторож — по tiktokcdn-us.com: старая секция
+# TikTok у всех уже есть, по ней дозапись не сработала бы. Снял человек эти
+# строки руками — не возвращаем.
+_z2k_whitelist_tiktok()
+{
+	local wl="${LISTS_DIR:-$ZAPRET_BASE/lists}/whitelist.txt"
+	[ -f "$wl" ] || return 0
+	grep -q '^tiktokcdn-us\.com$' "$wl" 2>/dev/null && return 0
+	# Файл читает демон по mtime, поэтому дописываем ДО его старта.
+	{
+		printf '\n# === TikTok: текущие домены приложения ===\n'
+		printf 'tiktokv.us\ntiktokcdn-us.com\n'
+	} >> "$wl" 2>/dev/null \
+		&& echo "whitelist: добавлены текущие домены TikTok"
+	return 0
+}
+
 repair_autocircular_files_after_daemon_start()
 {
 	# nfqws2 can touch autocircular files very early during boot/restart.
@@ -2658,6 +2685,7 @@ start()
     # безусловно печаталось «service started» + return 0 — отсюда зелёная панель
     # при мёртвом обходе.
     _z2k_whitelist_keenetic
+    _z2k_whitelist_tiktok
 
     # Перенос ключа пула QUIC — строго ДО подъёма демона: он читает state.tsv
     # при старте, и правка файла под работающим демоном была бы гонкой с его

@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "branch": "z2k-enhanced",
-  "seq": 106,
-  "current": "p-84.26",
+  "seq": 107,
+  "current": "p-84.27",
   "install_map": {
   "files/000-zapret2.sh": ["/opt/etc/ndm/netfilter.d/000-zapret2.sh"],
   "files/S99zapret2.new": ["/opt/etc/init.d/S99zapret2"],
@@ -138,7 +138,7 @@
   },
   "files_sha256": {
   "files/000-zapret2.sh": "b256194eacf0f89b247cb4f4c467d552afe03ebbc4879b79308eed5f914d385d",
-  "files/S99zapret2.new": "480d4d9622f9d867f73c0b05147bcca8f9b7195e02916ca88d3f6077a2c26010",
+  "files/S99zapret2.new": "a88034b720689c99f369aee09624b334f1ec691427b8f6d93608a802b950f81b",
   "files/etc/z2k-roots.pem": "a6cf5a695274d4f36b401cc62183895af11e68b02417638a070465c77f4caf00",
   "files/etc/z2k-update-pub.pem": "1041720fa0dff53e2babbf547a705c2f43c30bca2c6ca2ddf7144cfe3b470a01",
   "files/fake/quic_1.bin": "f4589c57749f956bb30538197a521d7005f8b0a8723b4707e72405e51ddac50a",
@@ -215,10 +215,10 @@
   "files/z2k-update-lists.sh": "e936aa3afbef29ba991a1d51b9d051860a1a9ae453ffe5adbd7292c81d5bb893",
   "files/z2k-warp.sh": "07310933a32a3dff4e4a791a7cf27043ca65686b56bd2d0a7b639d251ff584dd",
   "lib/auto_update.sh": "1a15906af21409bcab432c843dbf3f7a22899f51e760aa26c9fb9810dc18f572",
-  "lib/config.sh": "750faefd3ceab1ca7d4c3b9e2e2a972c156931bb4fbc3f0dbf2c43de453d63ae",
+  "lib/config.sh": "e1203016155fab62a7ee0351663014a1663b0dfd3cd4b5d8c5f9a2cb35813ab3",
   "lib/config_official.sh": "c3a48339235b2248f325e20c6ef3fb604e0542786b3591a565c345b9a65f940e",
   "lib/install.sh": "d548a2d7149e085fc35b341018a57ff01f75c1ef89e0746175dba55a7840db9a",
-  "lib/menu.sh": "2697e95ba91efbe5c1c02359a0365682a412123e9ae5a697181562b6e3c67880",
+  "lib/menu.sh": "8ea172193b764a2eba847b13fb828c36522d7f30fbefb1b42e42e93a860e389e",
   "lib/strategies.sh": "5c1186493aeba1581e668246e4a23b9e0d5497905015c8dec5b8458683408c2d",
   "lib/utils.sh": "6d5e860317fd0ad78decc60314de228a2dc0ed8db6b2ca96857d892a17b1da8b",
   "lib/webpanel.sh": "7e44a9f94e442d87f67bce091548dc482c921fad49014face9af53e8ed3e9504",
@@ -261,7 +261,7 @@
   "webpanel/www/fonts/FiraSans-600-latin.woff2": "f3cc7b2756c566cf8172bfd269d805c4a1eb953f6b6ce8bf2b2ddf49c5422189",
   "webpanel/www/fonts/FiraSans-700-cyrillic.woff2": "42a8013e902099b563e434d3ccb3bed87ff6d6af8d80fe51ff203f2ac487673b",
   "webpanel/www/fonts/FiraSans-700-latin.woff2": "811e73619cc2909792e8fa134c8d1ed714b898310dd4cc218fc29e40a5dc2890",
-  "webpanel/www/index.html": "04890998169772c70448211897df081a266c785ea3b7d7da1e904f9669e5dfd9",
+  "webpanel/www/index.html": "bdfd63a28e58cf9789b130ba4b166669106179f4270c27e081920dd2c2251035",
   "webpanel/www/js/chrome.js": "3e2217758cde6d87f4809aaf65c4aafca582b936d9c53b19abb4adac1479fdef",
   "webpanel/www/js/core/api.js": "eaa798b49c02373a1cffcdee447587f9969194323dd5471ac74a07d4af7b235f",
   "webpanel/www/js/core/auth.js": "7afe5b139737783402f45fb654b9383b24d68779aae93a0f5f1847608252ad8c",
@@ -563,6 +563,7 @@
 {"v": "p-84.23", "type": "patch", "ts": "2026-09-16T10:49:37Z", "ref": "p-84.23", "desc": "QUIC теперь обходится не только на ютубе: тем же профилем идут все заблокированные сайты — instagram, facebook, whatsapp и остальные домены из списков, включая найденные автохостлистом; накопленный подбор стратегий при этом сохраняется. На странице «Режимы» появился выбор часа ночного обновления, а под ним честно написано окно запуска: разброс уменьшен с полутора часов до одного. Исправлено: выключенное автообновление всё равно срабатывало ночью, если в конфиге у ключа оказывался комментарий, лишний пробел, перевод строки из Windows или слово export; теперь любая запись «выключено» останавливает ночную установку. Пункт меню «Проверить обновления» больше не обещает ночное обновление тем, у кого оно выключено. В веб-панели: история версий прямо из баннера обновлений (спасибо AlMinoOj), ссылки на GitHub и чат в боковом меню, а также возврат адресов Instagram и WhatsApp, если записи на роутере пропали. Даниил этим обновлением создал Битубисаса.", "changed_files": ["files/S99zapret2.new", "files/lua/z2k-modern-core.lua", "files/lua/z2k-quic-silence.lua", "files/lua/z2k-state-persist.lua", "files/z2k-auto-update.sh", "files/z2k-insta-ip-refresh.sh", "files/z2k-ppe-deoffload.sh", "files/z2k-scheduler.sh", "files/z2k-stats-upload.sh", "lib/config_official.sh", "lib/install.sh", "lib/menu.sh", "lib/strategies.sh", "lib/utils.sh", "quic_strats.ini", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/index.html", "webpanel/www/js/pages/credits.js", "webpanel/www/js/pages/telemetry.js", "webpanel/www/js/pages/toggles.js", "webpanel/www/js/pages/update.js", "webpanel/www/style.css", "UPDATES.json"], "steps": ["regen-strategies", "regen-config", "validate-config", "restart-service"], "full_install": false},
 {"v": "p-84.24", "type": "patch", "ts": "2026-09-16T18:18:04Z", "ref": "p-84.24", "desc": "Подкасты Apple снова играют: страница открывалась, а звук шёл с сервера в сети, которую провайдер режет на 16 КБ. Для этой сети подобрано проходящее имя, а сам перебор расширен с 187 имён до 2310 — это весь опубликованный белый список, так что другие такие же сети роутер теперь разбирает сам, и ночной подбор больше не начинает каждый раз с нуля. Переустановка на остановленном сервисе больше не откатывается: раньше, если сервис был остановлен вами, установщик считал это поломкой и отменял всю работу — теперь он оставляет сервис остановленным и говорит об этом. В проверке DNS вернулись миллисекунды у обычных серверов: их меряет наш собственный инструмент, отдельный пакет dig для этого больше не нужен. В исключения добавлены домены Keenetic — keenetic.name, mykeenetic.com, mykeenetic.net, mykeenetic.ru, netcraze.net и crazedns.ru: по ним заходят в веб-интерфейс роутера, обход там только мешал, а веб-панель на этих адресах больше не отвечает отказом на каждое действие. Полная очистка перестала оставлять хвосты: адрес панели, регистрацию WARP, журнал обновлений, забытые init-скрипты и хуки NDM, и заодно возвращает штатный lighttpd, если мы его выключали. Безопасность: транспорт MASQUE у WARP больше не соединяется без проверки ключа сервера из регистрации.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "files/lists/extra-domains.txt", "files/lists/sni_wl_candidates.txt", "files/lists/tcp16_targets.txt", "files/z2k-dns-check.sh", "files/z2k-tcp16-probe.sh", "lib/config.sh", "lib/strategies.sh", "webpanel/cgi/auth.sh", "z2k-detect/builds/z2k-detect-linux-386", "z2k-detect/builds/z2k-detect-linux-amd64", "z2k-detect/builds/z2k-detect-linux-arm", "z2k-detect/builds/z2k-detect-linux-arm64", "z2k-detect/builds/z2k-detect-linux-mips", "z2k-detect/builds/z2k-detect-linux-mips64le", "z2k-detect/builds/z2k-detect-linux-mipsle", "z2k-detect/builds/z2k-detect-linux-ppc64", "z2k-detect/builds/z2k-detect-linux-riscv64", "z2k-warpd/builds/z2k-warpd-linux-amd64", "z2k-warpd/builds/z2k-warpd-linux-arm", "z2k-warpd/builds/z2k-warpd-linux-arm64", "z2k-warpd/builds/z2k-warpd-linux-mips", "z2k-warpd/builds/z2k-warpd-linux-mips64el", "z2k-warpd/builds/z2k-warpd-linux-mipsel", "z2k-warpd/builds/z2k-warpd-linux-mipsle", "z2k-warpd/builds/z2k-warpd-linux-ppc64", "z2k-warpd/builds/z2k-warpd-linux-riscv64", "z2k-warpd/builds/z2k-warpd-linux-x86", "UPDATES.json"], "steps": ["regen-strategies", "regen-config", "validate-config", "refresh-binaries", "restart-service"], "full_install": false},
 {"v": "p-84.25", "type": "patch", "ts": "2026-09-16T19:46:31Z", "ref": "p-84.25", "desc": "В ротаторе появились групповые действия: в шапке группы доменов теперь можно одним нажатием сбросить подбор для всей группы или заморозить её целиком на текущих стратегиях — раньше это делалось по одной строке, а у крупных групп их бывает под сотню. Заморозка закрепляет каждую строку на её собственной стратегии: общей у группы нет. Сама группировка стала точнее: один домен в разных профилях (например googlevideo в QUIC и в видео-TCP) теперь две отдельные группы, потому что наборы стратегий у профилей разные и сводка по смеси вводила в заблуждение. Сортировка по домену при этом осталась сортировкой по домену.", "changed_files": ["webpanel/www/index.html", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/pages/strategies.js", "UPDATES.json"], "steps": [], "full_install": false},
-{"v": "p-84.26", "type": "patch", "ts": "2026-09-17T16:10:47Z", "ref": "p-84.26", "desc": "В веб-панели на телефоне вернулась кнопка «сбросить подбор» в шапке группы доменов: на узком экране показывался только замок заморозки, а кнопка сброса была лишь на компьютере.", "changed_files": ["webpanel/www/index.html", "webpanel/www/style.css", "UPDATES.json"], "steps": [], "full_install": false}
+{"v": "p-84.26", "type": "patch", "ts": "2026-09-17T16:10:47Z", "ref": "p-84.26", "desc": "В веб-панели на телефоне вернулась кнопка «сбросить подбор» в шапке группы доменов: на узком экране показывался только замок заморозки, а кнопка сброса была лишь на компьютере.", "changed_files": ["webpanel/www/index.html", "webpanel/www/style.css", "UPDATES.json"], "steps": [], "full_install": false},
+{"v": "p-84.27", "type": "patch", "ts": "2026-09-18T06:17:23Z", "ref": "p-84.27", "desc": "TikTok больше не ломается обходом: приложение давно ходит на tiktokv.us и tiktokcdn-us.com, а в исключениях были только старые имена, и на каждое соединение ложился десинк, после которого сервер молчал. Оба домена добавлены в белый список, у уже установленных дозаписываются при перезапуске сервиса.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "lib/config.sh", "lib/menu.sh", "UPDATES.json"], "steps": ["restart-service"], "full_install": false}
   ]
 }

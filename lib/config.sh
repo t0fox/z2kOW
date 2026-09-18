@@ -576,6 +576,8 @@ ae.com
 tiktok.com
 tiktokcdn.com
 tiktokv.com
+tiktokv.us
+tiktokcdn-us.com
 muscdn.com
 byteoversea.com
 ibytedtos.com
@@ -700,6 +702,23 @@ netcraze.net
 crazedns.ru
 KEEN2
             print_info "Добавлены остальные домены Keenetic/KeenDNS в whitelist"
+        fi
+
+        # TikTok: приложение давно ходит не на tiktok.com, а на tiktokv.us и
+        # tiktokcdn-us.com; оба лежат в списке РКН из geosite как ложные
+        # срабатывания. Замер 18.09.2026 на роутере владельца: 165 TLS-потоков
+        # телефона к ним, у всех одно — ClientHello подтверждён, сервер молчит,
+        # ротатор отказа не видит (нет ни ретрансмиссий, ни RST). Сторож — по
+        # tiktokcdn-us.com: старая секция TikTok у всех уже есть, по ней дозапись
+        # не сработала бы.
+        if ! grep -q "^tiktokcdn-us\.com$" "$whitelist" 2>/dev/null; then
+            cat >> "$whitelist" <<'TIKTOK2'
+
+# === TikTok: текущие домены приложения ===
+tiktokv.us
+tiktokcdn-us.com
+TIKTOK2
+            print_info "Добавлены текущие домены TikTok в whitelist"
         fi
 
         # Дозаписать netcraze (новый бренд KeenDNS в РФ, та же инфраструктура)

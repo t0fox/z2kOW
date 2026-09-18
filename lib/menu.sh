@@ -1865,6 +1865,8 @@ ae.com
 tiktok.com
 tiktokcdn.com
 tiktokv.com
+tiktokv.us
+tiktokcdn-us.com
 muscdn.com
 byteoversea.com
 ibytedtos.com
