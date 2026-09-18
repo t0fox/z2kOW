@@ -187,6 +187,18 @@ assert_contains "valid: /8 разрешён" "$T/valid.log" "3.0.0.0/8"
 for _bad in '10.9.9.9' '0.0.0.0/0' '018.1.1.1'; do
     if grep -qxF "$_bad" "$T/valid.log"; then _t_bad "valid пропустил $_bad"; else _t_ok; fi
 done
+# CIDR feeds may contain a broad block together with a narrower child.  nft's
+# interval sets reject that pair; the adapter must merge it before the atomic
+# batch rather than return a false-success with an empty live set.
+printf '155.133.224.0/22\n155.133.224.0/19\n' > "$T/root/lists/warp/games/overlap.txt"
+printf 'steam\noverlap\n' > "$T/etc/user-lists/warp/.enabled"
+warp_validated_dst > "$T/overlap.log"
+assert_contains "overlap: broad block kept" "$T/overlap.log" "155.133.224.0/19"
+if grep -qxF '155.133.224.0/22' "$T/overlap.log"; then
+    _t_bad "overlap: narrower child leaked into nft set"
+else
+    _t_ok
+fi
 # devices: MAC через neigh
 printf 'AA-BB-CC-DD-EE-FF\n192.168.1.50\n8.8.8.8\n' > "$T/etc/user-lists/warp/devices.txt"
 printf '192.168.1.50 dev br-lan lladdr aa:bb:cc:dd:ee:ff REACHABLE\n' > "$T/neigh"

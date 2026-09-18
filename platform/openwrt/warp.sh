@@ -239,8 +239,47 @@ function z2k_warp_addr_ok(s,   ip, h, o) {
 # --- end z2k warp address filter ---
     {
         sub(/\r$/, ""); gsub(/^[ \t]+|[ \t]+$/, "")
-        if (z2k_warp_addr_ok($0)) print $0
-    }'
+        if (!z2k_warp_addr_ok($0)) next
+        split($0, p, "/")
+        split(p[1], o, ".")
+        ip = (((o[1] * 256 + o[2]) * 256 + o[3]) * 256 + o[4])
+        plen = (p[2] != "" ? p[2] + 0 : 32)
+        block = 2 ^ (32 - plen)
+        start = int(ip / block) * block
+        print start, start + block - 1
+    }' | sort -n -k1,1 -k2,2r | awk '
+# nft interval sets reject overlapping CIDRs even when every individual line
+# is valid.  Gaming feeds occasionally contain a broad network together with
+# one of its narrower children; merge the numeric intervals first, then emit
+# the smallest aligned CIDR cover.  This keeps the live set atomic and avoids
+# hiding a failed `nft -f` behind a successful API response.
+function ip4(n, a) {
+    a[1] = int(n / 16777216); n -= a[1] * 16777216
+    a[2] = int(n / 65536);    n -= a[2] * 65536
+    a[3] = int(n / 256);      a[4] = n - a[3] * 256
+    return a[1] "." a[2] "." a[3] "." a[4]
+}
+function emit_range(lo, hi, size, plen) {
+    while (lo <= hi) {
+        for (plen = 0; plen <= 32; plen++) {
+            size = 2 ^ (32 - plen)
+            if ((lo % size) == 0 && lo + size - 1 <= hi) break
+        }
+        printf "%s/%d\n", ip4(lo), plen
+        lo += size
+    }
+}
+{
+    lo = $1 + 0; hi = $2 + 0
+    if (!have) { cur_lo = lo; cur_hi = hi; have = 1; next }
+    if (lo <= cur_hi + 1) {
+        if (hi > cur_hi) cur_hi = hi
+        next
+    }
+    emit_range(cur_lo, cur_hi)
+    cur_lo = lo; cur_hi = hi
+}
+END { if (have) emit_range(cur_lo, cur_hi) }'
 }
 
 # CSV для `add element { ... }` (пусто = валидно пусто, вызывающий решает).
