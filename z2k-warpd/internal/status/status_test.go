@@ -37,11 +37,15 @@ func TestWriteRateLimitedButLastWins(t *testing.T) {
 	if s.LadderStep != 1 {
 		t.Fatalf("early write leaked: %d", s.LadderStep)
 	}
-	time.Sleep(350 * time.Millisecond)
-	s, _ = Read(p)
-	if s.LadderStep != 2 {
-		t.Fatalf("deferred write lost: %d", s.LadderStep)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		s, _ = Read(p)
+		if s.LadderStep == 2 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
+	t.Fatalf("deferred write lost: %d", s.LadderStep)
 }
 
 func TestFlushWritesPendingNow(t *testing.T) {

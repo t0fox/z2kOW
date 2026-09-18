@@ -59,7 +59,10 @@ if [ "\$1" = "list" ] && [ "\$2" = "table" ]; then
 fi
 if [ "\$1" = "list" ] && [ "\$2" = "set" ]; then
     # Defect 6: сета нет (таблицу снесли) — честный провал для set-ensure.
-    [ -f "$T/nft-set-\$5" ] && { cat "$T/nft-set-\$5"; exit 0; }
+    [ -f "$T/nft-set-\$5" ] && {
+        # nft prints a host element without the implicit /32 mask.
+        sed 's#/32##g' "$T/nft-set-\$5"; exit 0;
+    }
     exit 1
 fi
 if [ "\$1" = "list" ] && [ "\$2" = "chain" ]; then
