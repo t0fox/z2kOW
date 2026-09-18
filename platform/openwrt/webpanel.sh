@@ -17,9 +17,13 @@ z2k_ow_meta_value() {
 z2k_ow_payload_tag() { z2k_ow_meta_value "${Z2K_ROOT:-/usr/lib/z2k}/share/payload.meta" tag; }
 z2k_ow_seed_tag() { z2k_ow_meta_value "${Z2K_ROOT:-/usr/lib/z2k}/share/seed.meta" tag; }
 z2k_ow_package_version() {
-    local _pkg="$1" _line
-    command -v apk >/dev/null 2>&1 || return 1
-    _line=$(apk list --installed "$_pkg" 2>/dev/null | grep -m1 "^${_pkg}-" || true)
+    local _pkg="$1" _line _apk="${Z2K_APK_BIN:-apk}"
+    if [ "$_apk" = "apk" ]; then
+        command -v apk >/dev/null 2>&1 || return 1
+    else
+        [ -x "$_apk" ] || return 1
+    fi
+    _line=$("$_apk" list --installed "$_pkg" 2>/dev/null | grep -m1 "^${_pkg}-" || true)
     [ -n "$_line" ] || return 1
     printf '%s' "${_line%% *}"
 }
