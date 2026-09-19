@@ -106,25 +106,20 @@ done
 printf 'p-85.2|patch|snapshot-ref|webpanel/cgi/actions.sh,webpanel/cgi/platform.sh||false|false\n' \
     | lc_manifest p-85.2
 python3 - "$LC_ORIGIN/manifest.json" <<'PYEOF'
-import json, sys
+import sys
 p = sys.argv[1]
-d = json.load(open(p, encoding='utf-8'))
-d['files_sha256']['z2k-warpd/builds/z2k-warpd-linux-arm64'] = '0' * 64
-open(p, 'w', encoding='utf-8').write(json.dumps(d) + '\n')
+with open(p, encoding='utf-8') as f:
+    s = f.read()
+needle = '  "files_sha256": {\n'
+entry = '    "z2k-warpd/builds/z2k-warpd-linux-arm64": "' + ('0' * 64) + '",\n'
+if needle not in s:
+    raise SystemExit('files_sha256 block is not in production format')
+with open(p, 'w', encoding='utf-8') as f:
+    f.write(s.replace(needle, needle + entry, 1))
 PYEOF
 cp -f "$LC_ORIGIN/manifest.json" "$Z2K_ROOT/share/snapshot-manifest.json"
 printf '0123456789abcdef0123456789abcdef01234567\n' > "$Z2K_ROOT/share/snapshot-commit"
 _out="$(z2k_ow_panel_payload_sync 2>&1)"; _rc=$?
-if [ "$_rc" != "0" ]; then
-    printf '%s\n' "$_out" | while IFS= read -r _r5_line; do
-        printf 'FAIL[R5-debug]: %s\n' "$_r5_line" >&2
-    done
-    if [ -f "$Z2K_AU_LOG_FILE" ]; then
-        tail -80 "$Z2K_AU_LOG_FILE" | while IFS= read -r _r5_line; do
-            printf 'FAIL[R5-log]: %s\n' "$_r5_line" >&2
-        done
-    fi
-fi
 assert_eq "R5 snapshot repair rc" "0" "$_rc"
 assert_contains "R5 marker restored" "$Z2K_ROOT/webpanel/cgi/actions.sh" 'Z2K_OPENWRT_PANEL_CONTRACT=1'
 assert_contains "R5 canonical engine restored" "$Z2K_ROOT/webpanel/cgi/actions.sh" 'Z2K_NFQWS2'
