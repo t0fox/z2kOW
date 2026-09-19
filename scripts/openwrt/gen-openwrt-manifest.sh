@@ -8,8 +8,9 @@
 #
 # Что делает:
 #   install_map: ключи common-манифеста ∩ openwrt-dests (Z2K_PLATFORM=openwrt,
-#     z2k_install_paths). Keenetic-only (S99/ndm//opt-цели) отваливаются сами:
-#     у них пусто по построению. Package-owned dests — отказ сборки.
+#     z2k_install_paths), плюс явные OpenWrt-only updater seams, которых нет в
+#     upstream UPDATES.json. Keenetic-only (S99/ndm//opt-цели) отваливаются
+#     сами: у них пусто по построению. Package-owned dests — отказ сборки.
 #   files_sha256: те же эталоны, ПЛЮС сверка с байтами дерева (dirty/mismatch
 #     ловятся здесь, а не на роутере). Исключение — явный --refresh-stale-hashes
 #     (только CI snapshot: дерево новее подписанного snapshot'а, и кандидат
@@ -185,6 +186,31 @@ for key in man['install_map'].keys():
     owmap[key] = dests
     kept += 1
 
+# OpenWrt owns a tiny platform seam in the updater-delivered panel. It is
+# intentionally absent from the common upstream manifest because Keenetic
+# does not ship this file. Leaving it out here is unsafe: a package upgrade
+# can update actions.sh while the updater-owned platform.sh remains stale.
+# Keep this list explicit and small; it is not a second manifest or a seed
+# extraction shortcut. The normal install_map/files_sha256 verifier still
+# pins the exact tree bytes and the existing reinstall path delivers them.
+for key in ('webpanel/cgi/platform.sh',):
+    if key in owmap:
+        continue
+    dests = ow_dests(key)
+    if not dests:
+        fail('нет OpenWrt destination для обязательного updater seam %s' % key)
+    for d in dests:
+        if d.startswith('/opt'):
+            fail('keenetic-цель в OpenWrt updater seam: %s -> %s' % (key, d))
+        if pkg_owned(d):
+            fail('package-owned цель в OpenWrt updater seam: %s -> %s' % (key, d))
+    got = tree_sha(key)
+    if got is None:
+        fail('нет файла дерева для обязательного updater seam %s' % key)
+    owmap[key] = dests
+    owshas[key] = got
+    kept += 1
+
 # Architecture-specific adapter binaries are intentionally absent from
 # install_map entirely; refresh their candidate digests in a separate pass so
 # the snapshot pins the binaries that the standalone adapter fetches.  This is
@@ -232,8 +258,13 @@ for i, (k, dests) in enumerate(items):
     lines.append('  %s: [%s]%s' % (js(k), ', '.join(js(d) for d in dests), comma))
 lines.append('  },')
 lines.append('  "files_sha256": {')
-# refreshed-ключи едут с правдой дерева (CI snapshot); остальные — как в источнике.
+# refreshed-ключи едут с правдой дерева (CI snapshot); остальные — как в
+# источнике. OpenWrt-only updater seams добавлены в owshas отдельным проходом.
 shas = sorted(((k, owshas.get(k, v)) for k, v in man['files_sha256'].items()))
+for k, v in owshas.items():
+    if k not in man['files_sha256']:
+        shas.append((k, v))
+shas.sort()
 for i, (k, v) in enumerate(shas):
     comma = ',' if i < len(shas) - 1 else ''
     lines.append('  %s: %s%s' % (js(k), js(v), comma))

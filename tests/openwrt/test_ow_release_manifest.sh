@@ -16,6 +16,7 @@ ln -s "$REPO/package/openwrt/ownership.map" "$T/tree/package/openwrt/ownership.m
 printf '#!/bin/sh\n# fixture lib\n' > "$T/tree/lib/a.sh"
 printf '# keenetic only\n' > "$T/tree/files/S99probe.new"
 printf '#!/bin/sh\n# fixture cgi\n' > "$T/tree/webpanel/cgi/probe.sh"
+printf '#!/bin/sh\n# OpenWrt-only panel seam\n' > "$T/tree/webpanel/cgi/platform.sh"
 mkdir -p "$T/tree/z2k-warpd/builds"
 printf 'warp fixture\n' > "$T/tree/z2k-warpd/builds/z2k-warpd-linux-arm64"
 _sha_a="$(sha256sum "$T/tree/lib/a.sh" | awk '{print $1}')"
@@ -82,6 +83,17 @@ case "$_gotw" in
     *"/usr/lib/z2k/webpanel/cgi/probe.sh"*) _t_ok ;;
     *) _t_bad "gen: webpanel cgi не в openwrt-dest: $_gotw" ;;
 esac
+# OpenWrt-only platform seam отсутствует в common UPDATES.json, но обязан
+# присутствовать в updater manifest, иначе package upgrade оставляет старый
+# executable CGI рядом с обновлённым actions.sh.
+_gotp="$(sed -n 's/^  "webpanel\/cgi\/platform.sh": \[\(.*\)\],*$/\1/p' "$T/out.json" | head -1)"
+case "$_gotp" in
+    *"/usr/lib/z2k/webpanel/cgi/platform.sh"*) _t_ok ;;
+    *) _t_bad "gen: OpenWrt-only platform seam не в install_map: $_gotp" ;;
+esac
+_shap="$(sha256sum "$T/tree/webpanel/cgi/platform.sh" | awk '{print $1}')"
+assert_eq "gen platform seam sha" "$_shap" \
+    "$(sed -n 's/^  "webpanel\/cgi\/platform.sh": "\([0-9a-f]*\)",\?$/\1/p' "$T/out.json" | head -1)"
 # api stamp: только current-запись
 assert_eq "gen api current" "2" \
     "$(grep '"v": "p-2"' "$T/out.json" | sed -n 's/.*"openwrt_adapter_api_min"[[:space:]]*:[[:space:]]*"\([0-9]*\)".*/\1/p' | head -1)"
