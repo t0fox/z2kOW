@@ -604,13 +604,15 @@ T2="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wpfresh.XXXXXX")" || exit 1
 trap 'rm -rf "$T" "$T2"; for _j in $JOB_IDS; do rm -f "/tmp/z2k-job-$_j.log" "/tmp/z2k-job-$_j.pid" "/tmp/z2k-job-$_j.exit"; done' EXIT INT TERM
 mkdir -p "$T2/bin" "$T2/root/platform/openwrt" "$T2/root/bin" "$T2/root/lib" \
          "$T2/etc" "$T2/tmp/z2k/runtime"
-for _f in paths.sh env.sh warp.sh tg.sh rt.sh firewall.sh uci.sh schedule.sh uninstall.sh webpanel.sh; do
+for _f in paths.sh env.sh warp.sh tg.sh rt.sh firewall.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T2/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T2/root/platform/openwrt/warp-proc.sh" 2>/dev/null
-mkdir -p "$T2/cgi"
+mkdir -p "$T2/cgi" "$T2/root/webpanel/cgi" "$T2/root/share"
 cp "$REPO/webpanel/cgi/api.sh" "$REPO/webpanel/cgi/auth.sh" \
    "$REPO/webpanel/cgi/actions.sh" "$REPO/webpanel/cgi/platform.sh" "$T2/cgi/"
+cp "$REPO/webpanel/cgi/actions.sh" "$REPO/webpanel/cgi/platform.sh" "$T2/root/webpanel/cgi/"
+cp "$REPO/package/openwrt/PANEL_API" "$T2/root/share/panel.api"
 printf '#!/bin/sh\nsafe_config_read() { return 1; }\n' > "$T2/root/lib/utils.sh"
 cat > "$T2/mock-init" <<EOF
 #!/bin/sh

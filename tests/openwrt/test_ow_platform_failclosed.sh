@@ -41,10 +41,12 @@ case "$_j" in
 esac
 
 # --- 2. здоровый адаптер (симлинки на настоящее): ok ---
-mkdir -p "$T/okroot/platform/openwrt" "$T/oketc" "$T/oktmp"
-for _f in paths.sh env.sh webpanel.sh; do
+mkdir -p "$T/okroot/platform/openwrt" "$T/okroot/webpanel/cgi" "$T/okroot/share" "$T/oketc" "$T/oktmp"
+for _f in paths.sh env.sh webpanel.sh panel.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/okroot/platform/openwrt/$_f"
 done
+cp "$REPO/webpanel/cgi/actions.sh" "$REPO/webpanel/cgi/platform.sh" "$T/okroot/webpanel/cgi/"
+cp "$REPO/package/openwrt/PANEL_API" "$T/okroot/share/panel.api"
 mkdir -p "$T/okroot/bin"
 ln -s "$REPO/platform/openwrt/tg.sh" "$T/okroot/platform/openwrt/tg.sh"
 export Z2K_ROOT="$T/okroot" Z2K_ETC="$T/oketc" Z2K_TMP="$T/oktmp"

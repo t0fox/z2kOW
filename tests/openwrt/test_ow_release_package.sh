@@ -115,6 +115,9 @@ PYEOF
 cp -f "$LC_ORIGIN/manifest.json" "$Z2K_ROOT/share/snapshot-manifest.json"
 printf '0123456789abcdef0123456789abcdef01234567\n' > "$Z2K_ROOT/share/snapshot-commit"
 _out="$(z2k_ow_panel_payload_sync 2>&1)"; _rc=$?
+if [ "$_rc" != "0" ]; then
+    printf 'R5 snapshot repair output: %s\n' "$_out" >&2
+fi
 assert_eq "R5 snapshot repair rc" "0" "$_rc"
 assert_contains "R5 marker restored" "$Z2K_ROOT/webpanel/cgi/actions.sh" 'Z2K_OPENWRT_PANEL_CONTRACT=1'
 assert_contains "R5 canonical engine restored" "$Z2K_ROOT/webpanel/cgi/actions.sh" 'Z2K_NFQWS2'
