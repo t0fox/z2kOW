@@ -78,14 +78,14 @@ exit 0
 EOF
 chmod +x "$T/bin/nft"
 # Package/version provenance fixture.  The payload is already p-84.26 while
-# the adapter packages are r27: the panel must report the payload truth and expose
+# the adapter packages are r28: the panel must report the payload truth and expose
 # the package release separately instead of presenting the seed/tag mismatch
 # as an installed upstream version.
 cat > "$T/bin/apk" <<'EOF'
 #!/bin/sh
 case "$*" in
-    *z2k-adapter*) echo 'z2k-adapter-0.1.0-r27 aarch64_cortex-a53 [installed]' ;;
-    *z2k-webpanel*) echo 'z2k-webpanel-0.1.0-r27 aarch64_cortex-a53 [installed]' ;;
+    *z2k-adapter*) echo 'z2k-adapter-0.1.0-r28 aarch64_cortex-a53 [installed]' ;;
+    *z2k-webpanel*) echo 'z2k-webpanel-0.1.0-r28 aarch64_cortex-a53 [installed]' ;;
     *z2k-zapret2-runtime*) echo 'z2k-zapret2-runtime-1.0.5.1-r4 aarch64_cortex-a53 [installed]' ;;
 esac
 EOF
@@ -193,6 +193,7 @@ assert_eq "status: platform" "openwrt" "$(_jget "$OUT" 'd["platform"]')"
 assert_eq "status: policy false" "false" "$(_jget "$OUT" 'd["capabilities"]["policy"]')"
 assert_eq "status: ppe false" "false" "$(_jget "$OUT" 'd["capabilities"]["ppe"]')"
 assert_eq "status: fastroute false" "false" "$(_jget "$OUT" 'd["capabilities"]["fastroute"]')"
+assert_eq "status: fastroute backend" "Программный fastpath недоступен на OpenWrt: backend не обнаружен." "$(_jget "$OUT" 'd["toggles"]["fastroute_status"]')"
 assert_eq "status: tcp16 false" "false" "$(_jget "$OUT" 'd["capabilities"]["tcp16"]')"
 assert_eq "status: diag false" "false" "$(_jget "$OUT" 'd["capabilities"]["diag"]')"
 assert_eq "status: warp true" "true" "$(_jget "$OUT" 'd["capabilities"]["warp"]')"
@@ -278,8 +279,8 @@ RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "update: installed payload truth" "p-84.26" "$(_jget "$OUT" 'd["installed"]')"
 assert_eq "update: payload" "p-84.26" "$(_jget "$OUT" 'd["payload"]')"
 assert_eq "update: seed" "p-84.26" "$(_jget "$OUT" 'd["seed"]')"
-assert_eq "update: adapter release stays explicit" "z2k-adapter-0.1.0-r27" "$(_jget "$OUT" 'd["adapter_package"]')"
-assert_eq "update: webpanel release stays explicit" "z2k-webpanel-0.1.0-r27" "$(_jget "$OUT" 'd["webpanel_package"]')"
+assert_eq "update: adapter release stays explicit" "z2k-adapter-0.1.0-r28" "$(_jget "$OUT" 'd["adapter_package"]')"
+assert_eq "update: webpanel release stays explicit" "z2k-webpanel-0.1.0-r28" "$(_jget "$OUT" 'd["webpanel_package"]')"
 assert_eq "update: runtime release stays explicit" "z2k-zapret2-runtime-1.0.5.1-r4" "$(_jget "$OUT" 'd["runtime_package"]')"
 assert_eq "update: available" "p-84.26" "$(_jget "$OUT" 'd["available"]')"
 

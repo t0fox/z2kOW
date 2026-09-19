@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "branch": "z2k-enhanced",
-  "seq": 108,
-  "current": "p-85.0",
+  "seq": 109,
+  "current": "p-85.1",
   "install_map": {
   "files/000-zapret2.sh": ["/opt/etc/ndm/netfilter.d/000-zapret2.sh"],
   "files/S99zapret2.new": ["/opt/etc/init.d/S99zapret2"],
@@ -204,7 +204,7 @@
   "files/z2k-dns-check.sh": "8248396c3289e4ae315d73aed7512ba8cb3660fe8bad04355753010a9b3722a4",
   "files/z2k-fix-tg-watchdog.sh": "95a063051c86b11fe96aa5b39349306500a54b1b25601b38184046cfedcd161e",
   "files/z2k-geosite.sh": "690a1f98afad41a4fb6452c789a08c3928939bf8a96c33547d07dad0790fde00",
-  "files/z2k-insta-ip-refresh.sh": "42b523c072c1827776ddc73d14a991f743befbcaa80fc34d0418369295670e9a",
+  "files/z2k-insta-ip-refresh.sh": "ec3ef7c0504ec557a76a70d23048e8f0dd5576791fb648ba7cb8dafe11014780",
   "files/z2k-nfqueue-selfheal.sh": "52b6596604f25b45667355ccaac827e0a2970b7320da12fe1f470c42622d2b00",
   "files/z2k-ppe-deoffload.sh": "db87ce41b7ee1de8db66dfe58d66253f53c8d8d1cd509ee3a6019306683d1a26",
   "files/z2k-scheduler.sh": "904070a0d763751b293f58c4afbf64656a66e9317929098547c1f77c5ba15ff5",
@@ -217,7 +217,7 @@
   "lib/auto_update.sh": "1a15906af21409bcab432c843dbf3f7a22899f51e760aa26c9fb9810dc18f572",
   "lib/config.sh": "e1203016155fab62a7ee0351663014a1663b0dfd3cd4b5d8c5f9a2cb35813ab3",
   "lib/config_official.sh": "414bff36b2070b77e349400026d41b68be5df7e53de64a3e10221b0eeaad1ed6",
-  "lib/install.sh": "d548a2d7149e085fc35b341018a57ff01f75c1ef89e0746175dba55a7840db9a",
+  "lib/install.sh": "fbd7043b55ee7b754ff6376cc92964fad5942366df2354517a20faf5a92a63b4",
   "lib/menu.sh": "8ea172193b764a2eba847b13fb828c36522d7f30fbefb1b42e42e93a860e389e",
   "lib/strategies.sh": "5c1186493aeba1581e668246e4a23b9e0d5497905015c8dec5b8458683408c2d",
   "lib/utils.sh": "6d5e860317fd0ad78decc60314de228a2dc0ed8db6b2ca96857d892a17b1da8b",
@@ -242,8 +242,8 @@
   "mtproxy-client/builds/z2k-rt-proxy-linux-mipsle": "efb5e2a526d1078a4878d38f54aa050fa7107227cc0964f008eb026f11a11b39",
   "quic_strats.ini": "f5c74157344b29cd28e05d967e947c3f6c2e88ef15c211971b6cbd7e501b9836",
   "strats_new2.txt": "576ce4ffa56529a8b39cebf09e4b7249ac9c77bef211769899c4b657b9160289",
-  "webpanel/cgi/actions.sh": "0fc23b8166d891e88c065189f32311d3076c28fc311b15565493e37008bd7b60",
-  "webpanel/cgi/api.sh": "c8514bfa5d9e4d63febee7efd7e928bb03dc506de8891506858594457b324895",
+  "webpanel/cgi/actions.sh": "a990fcf77960a28994d9344a0ff1932f8704a9b6960fb74f2576de893e48a7c7",
+  "webpanel/cgi/api.sh": "b5b3d9b71d3342e8c5c820b835dfe8cfaa9dd5b6ea42ea913574991ed577d518",
   "webpanel/cgi/auth.sh": "37e5597493724a6b79a0b25b5d52d42effefc221b8a1f64425de39e5beaf0c19",
   "webpanel/init.d/S96z2k-webpanel": "8dd6c8192cd680c3fbabc4827be392525a585344231cd659d3f8b10f0292a1f3",
   "webpanel/install.sh": "4261945565de76f5ce0cbcc2c715461c16ab9873499c831a0989e586d83da32b",
@@ -261,7 +261,7 @@
   "webpanel/www/fonts/FiraSans-600-latin.woff2": "f3cc7b2756c566cf8172bfd269d805c4a1eb953f6b6ce8bf2b2ddf49c5422189",
   "webpanel/www/fonts/FiraSans-700-cyrillic.woff2": "42a8013e902099b563e434d3ccb3bed87ff6d6af8d80fe51ff203f2ac487673b",
   "webpanel/www/fonts/FiraSans-700-latin.woff2": "811e73619cc2909792e8fa134c8d1ed714b898310dd4cc218fc29e40a5dc2890",
-  "webpanel/www/index.html": "ca6728e51430e420da8b30614401dc5900d94c52ee216b58f02c4698d00fd727",
+  "webpanel/www/index.html": "e52334086177ebe8fa21ff7a7ec946135b59241f0787642a8e788c194ef2a61f",
   "webpanel/www/js/chrome.js": "3e2217758cde6d87f4809aaf65c4aafca582b936d9c53b19abb4adac1479fdef",
   "webpanel/www/js/core/api.js": "eaa798b49c02373a1cffcdee447587f9969194323dd5471ac74a07d4af7b235f",
   "webpanel/www/js/core/auth.js": "7afe5b139737783402f45fb654b9383b24d68779aae93a0f5f1847608252ad8c",
@@ -279,8 +279,8 @@
   "webpanel/www/js/pages/strategies.js": "bf1e8ce27ef7b14b905ab83d8de214847be59d3905ac45a6102dfc07364f4fab",
   "webpanel/www/js/pages/strategy-pick.js": "ea84a2f9a20e743c2fddd4dcd8d66899f8675dcc7f56332f2709a09aa44c070e",
   "webpanel/www/js/pages/telemetry.js": "3e250c7715ad46e7e5e442209fbf46ef97b282bd6d03bfa6638a09ea93acba8f",
-  "webpanel/www/js/pages/toggles.js": "d41ed21fb310695b121843ea4db52909fbf9d746393b8c951dae953f0601d834",
-  "webpanel/www/js/pages/update.js": "0a3ce9b159f1f1ba8eebc117627c7661f4cf0b4f893758aee99739b35fcb83e9",
+  "webpanel/www/js/pages/toggles.js": "a5d572c2ecc61c839458caec6a5c5e069cc0310558f14033fc452ba9631339dd",
+  "webpanel/www/js/pages/update.js": "b010b5e5658e79341693f2b64c09fafb28c7504a8909df49e908955c30131b32",
   "webpanel/www/js/pages/warp.js": "9efa7fb1b601f731a14e8fca906bdb31fc272626bd06602ab2d8c061ac7354e1",
   "webpanel/www/js/router.js": "3bae8e6ec636585c1a1904c146262d4a384700d319e6653117d95825f5544a57",
   "webpanel/www/js/state-model.js": "83cc26a26bd50467a229deeb711911793c3c60053e744e65d5d67454b51b0062",
@@ -565,6 +565,7 @@
 {"v": "p-84.25", "type": "patch", "ts": "2026-09-16T19:46:31Z", "ref": "p-84.25", "desc": "В ротаторе появились групповые действия: в шапке группы доменов теперь можно одним нажатием сбросить подбор для всей группы или заморозить её целиком на текущих стратегиях — раньше это делалось по одной строке, а у крупных групп их бывает под сотню. Заморозка закрепляет каждую строку на её собственной стратегии: общей у группы нет. Сама группировка стала точнее: один домен в разных профилях (например googlevideo в QUIC и в видео-TCP) теперь две отдельные группы, потому что наборы стратегий у профилей разные и сводка по смеси вводила в заблуждение. Сортировка по домену при этом осталась сортировкой по домену.", "changed_files": ["webpanel/www/index.html", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/pages/strategies.js", "UPDATES.json"], "steps": [], "full_install": false},
 {"v": "p-84.26", "type": "patch", "ts": "2026-09-17T16:10:47Z", "ref": "p-84.26", "desc": "В веб-панели на телефоне вернулась кнопка «сбросить подбор» в шапке группы доменов: на узком экране показывался только замок заморозки, а кнопка сброса была лишь на компьютере.", "changed_files": ["webpanel/www/index.html", "webpanel/www/style.css", "UPDATES.json"], "steps": [], "full_install": false},
 {"v": "p-84.27", "type": "patch", "ts": "2026-09-18T06:17:23Z", "ref": "p-84.27", "desc": "TikTok больше не ломается обходом: приложение давно ходит на tiktokv.us и tiktokcdn-us.com, а в исключениях были только старые имена, и на каждое соединение ложился десинк, после которого сервер молчал. Оба домена добавлены в белый список, у уже установленных дозаписываются при перезапуске сервиса.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "lib/config.sh", "lib/menu.sh", "UPDATES.json"], "steps": ["restart-service"], "full_install": false},
-{"v": "p-85.0", "type": "patch", "ts": "2026-09-18T16:14:17Z", "ref": "p-85.0", "desc": "Обход заработал на роутерах с прошивкой Keenetic, перенесённой на другое железо (Cudy WR3000 и подобные): там нет аппаратного ускорителя, и программный кэш прошивки уводил соединение сразу после рукопожатия, из-за чего подбор стратегий не видел отказов и всё стояло на первой стратегии, а работал только YouTube. Теперь на таких платах этот кэш выключается вместе с остальным ускорением; на обычных Keenetic ничего не меняется. В панели на вкладке «Режимы» появился переключатель на случай, если кэш нужно оставить. Диагностика показывает, штатная прошивка или портированная, есть ли аппаратный NAT и состояние кэша.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "files/z2k-diag.sh", "lib/config_official.sh", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/pages/toggles.js", "UPDATES.json"], "steps": ["regen-config", "validate-config", "restart-service"], "full_install": false}
+{"v": "p-85.0", "type": "patch", "ts": "2026-09-18T16:14:17Z", "ref": "p-85.0", "desc": "Обход заработал на роутерах с прошивкой Keenetic, перенесённой на другое железо (Cudy WR3000 и подобные): там нет аппаратного ускорителя, и программный кэш прошивки уводил соединение сразу после рукопожатия, из-за чего подбор стратегий не видел отказов и всё стояло на первой стратегии, а работал только YouTube. Теперь на таких платах этот кэш выключается вместе с остальным ускорением; на обычных Keenetic ничего не меняется. В панели на вкладке «Режимы» появился переключатель на случай, если кэш нужно оставить. Диагностика показывает, штатная прошивка или портированная, есть ли аппаратный NAT и состояние кэша.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "files/z2k-diag.sh", "lib/config_official.sh", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/pages/toggles.js", "UPDATES.json"], "steps": ["regen-config", "validate-config", "restart-service"], "full_install": false},
+{"v": "p-85.1", "type": "patch", "ts": "2026-09-19T08:48:58Z", "ref": "p-85.1", "desc": "Переключатель программного ускорения показывает фактическое состояние и сообщает, если изменение не применилось. Исправлено обновление адреса Instagram, который раньше ошибочно считался недоступным. Кнопка «Что нового» показывает только ещё не установленные выпуски, с переходом ко всей истории.", "changed_files": ["webpanel/www/index.html", "files/z2k-insta-ip-refresh.sh", "lib/install.sh", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/pages/toggles.js", "webpanel/www/js/pages/update.js", "UPDATES.json"], "steps": [], "full_install": false}
   ]
 }

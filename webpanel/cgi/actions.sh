@@ -1082,20 +1082,64 @@ toggle_ppe() {
     fi
 }
 
+fastroute_status() {
+    local d="${Z2K_NF_SYSCTL:-/proc/sys/net/netfilter}" value
+    value=$(cat "$d/nf_conntrack_fastroute" 2>/dev/null)
+    case "$value" in
+        0) printf 'Маршрутный кэш сейчас выключен.' ;;
+        1) printf 'Маршрутный кэш сейчас включён.' ;;
+        *) printf 'Состояние маршрутного кэша недоступно.' ;;
+    esac
+    if [ -d "${Z2K_HWNAT_DIR:-/proc/driver/hw_nat}" ]; then
+        printf ' Обнаружен каталог драйвера аппаратного NAT: опция здесь не применяется. Активность ускорителя не проверяется.'
+    elif ! is_running; then
+        printf ' Обход остановлен: настройка применится при его запуске.'
+    fi
+}
+
+fastroute_write() {
+    local f="$1" value="$2" actual
+    if ! echo "$value" > "$f"; then
+        echo "Не удалось изменить состояние маршрутного кэша." >&2
+        return 1
+    fi
+    actual=$(cat "$f" 2>/dev/null)
+    [ "$actual" = "$value" ] || {
+        echo "Ядро не подтвердило изменение маршрутного кэша." >&2
+        return 1
+    }
+}
+
 toggle_fastroute() {
-    # Z2K_FASTROUTE_OFF — гасить программный маршрутный кэш nf_conntrack_fastroute
-    # там, где нет драйвера аппаратного NAT (портированная KeeneticOS на Cudy и
-    # т.п.): без этого fastpath уводит поток после рукопожатия и ротатор не видит
-    # отказов. Живёт в S99 z2k_conntrack_tune_start; здесь флаг плюс применение
-    # на лету, перезапуск сервиса не нужен. Где железный NAT есть, флаг ничего
-    # не меняет — сисктл там не трогается в обе стороны.
-    local want="$1"
-    set_flag "Z2K_FASTROUTE_OFF" "$want" "$CONFIG_FILE" || return 1
-    local f=/proc/sys/net/netfilter/nf_conntrack_fastroute
-    [ -w "$f" ] || return 0
-    [ -d /proc/driver/hw_nat ] && return 0
-    if [ "$want" = "0" ]; then echo 1 > "$f" 2>/dev/null; else echo 0 > "$f" 2>/dev/null; fi
-    return 0
+    local want="$1" f="${Z2K_NF_SYSCTL:-/proc/sys/net/netfilter}/nf_conntrack_fastroute"
+    local previous target
+    case "$want" in 0|1) ;; *) return 1 ;; esac
+    # На остановленном обходе сохраняем намерение, не отключая ускорение сети.
+    if [ -d "${Z2K_HWNAT_DIR:-/proc/driver/hw_nat}" ] || ! is_running; then
+        set_flag "Z2K_FASTROUTE_OFF" "$want" "$CONFIG_FILE" || return 1
+        fastroute_status
+        return 0
+    fi
+    previous=$(cat "$f" 2>/dev/null)
+    case "$previous" in 0|1) ;; *)
+        echo "Маршрутный кэш недоступен: настройка не изменена." >&2
+        return 1 ;;
+    esac
+    [ -w "$f" ] || { echo "Нет доступа к изменению маршрутного кэша." >&2; return 1; }
+    target=0
+    [ "$want" = "0" ] && target=1
+    # Флаг сохраняем только после подтверждения ядра. При отказе возвращаем
+    # прежнее состояние; ошибка восстановления также остаётся в журнале.
+    if ! fastroute_write "$f" "$target"; then
+        fastroute_write "$f" "$previous" || echo "Не удалось восстановить прежнее состояние кэша." >&2
+        return 1
+    fi
+    if ! set_flag "Z2K_FASTROUTE_OFF" "$want" "$CONFIG_FILE"; then
+        fastroute_write "$f" "$previous" || echo "Не удалось восстановить прежнее состояние кэша." >&2
+        echo "Не удалось сохранить настройку." >&2
+        return 1
+    fi
+    fastroute_status
 }
 
 # --- policy access (Keenetic NDM ip policy filter) ---

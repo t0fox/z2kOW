@@ -3721,7 +3721,14 @@ z2k_instagram_dns_add_fallback() {
     LD_LIBRARY_PATH= ndmc -c "ip host www.instagram.com 157.240.9.174" 2>/dev/null
     LD_LIBRARY_PATH= ndmc -c "ip host graph.instagram.com 157.240.0.63" 2>/dev/null
     LD_LIBRARY_PATH= ndmc -c "ip host api.instagram.com 157.240.253.63" 2>/dev/null
-    LD_LIBRARY_PATH= ndmc -c "ip host instagram.c10r.instagram.com 157.240.214.63" 2>/dev/null
+    # 157.240.214.63 стоял здесь до 16.09.2026 и к тому времени умер: с узла
+    # не отвечает ни ICMP, ни TCP 80/443, при живых соседях по затравке. Держался
+    # он потому, что рефреш не мог его заменить (см. probe_ip_alive в
+    # z2k-insta-ip-refresh.sh — проверка сертификата на этом имени не проходит
+    # никогда). Теперь рефреш это имя обновляет, а затравка ведёт на тот же узел,
+    # что и api.instagram.com: c10r резолвится в те же адреса, и адрес замерен
+    # живым (404 за 16 мс).
+    LD_LIBRARY_PATH= ndmc -c "ip host instagram.c10r.instagram.com 157.240.253.63" 2>/dev/null
     LD_LIBRARY_PATH= ndmc -c "ip host static.cdninstagram.com 57.144.112.192" 2>/dev/null
     LD_LIBRARY_PATH= ndmc -c "ip host scontent.cdninstagram.com 57.144.112.192" 2>/dev/null
     LD_LIBRARY_PATH= ndmc -c "system configuration save" 2>/dev/null

@@ -315,6 +315,55 @@ const SCENARIOS = {
     },
   },
 
+  // «Что нового» и «история версий» — РАЗНЫЕ вопросы: pending уже пришёл
+  // вместе со статусом, полная история загружается только по явному переходу.
+  update_whats_new: {
+    hash: "#/dashboard",
+    setup() {
+      ROUTER = async (p) => {
+        if (p === "/update/status") return {
+          ok: true, installed: "p-84.22", available: "p-84.25", behind: 3, last_check: 0,
+          pending: [
+            { v: "p-84.23", type: "patch", ts: "2026-09-16T10:00:00Z", desc: "первый" },
+            { v: "p-84.24", type: "patch", ts: "2026-09-16T12:00:00Z", desc: "второй" },
+            { v: "p-84.25", type: "patch", ts: "2026-09-16T14:00:00Z", desc: "третий" },
+          ],
+        };
+        if (p === "/update/history") return { ok: true, total: 250, history: [
+          { v: "r-1", type: "patch", ts: "2026-01-01T00:00:00Z", desc: "древность" },
+        ]};
+        return STATUS;
+      };
+    },
+    async run() {
+      await sleep(160);
+      q("#upd-changelog-btn").fire("click");
+      await sleep(120);
+      const bd = document.body.children.find(c => c.className === "modal-backdrop");
+      check("модалка «что нового» открылась", !!bd, "нет .modal-backdrop");
+      const list = q("#hist-modal-list");
+      const html = list ? list.innerHTML : "";
+      check("показаны все pending-выпуски",
+            /p-84\.23/.test(html) && /p-84\.24/.test(html) && /p-84\.25/.test(html), html.slice(0, 200));
+      check("чужая история сюда не попала", html.indexOf("r-1") < 0 && html.indexOf("древность") < 0,
+            html.slice(0, 200));
+      check("за pending-списком в сеть не ходили", !CALLS["/update/history"],
+            "запросов: " + CALLS["/update/history"]);
+      check("свежий выпуск сверху",
+            html.indexOf("p-84.25") < html.indexOf("p-84.23"), html.slice(0, 200));
+      check("заголовок называет диапазон",
+            (q("#hist-modal-title").textContent || "").indexOf("p-84.22") >= 0, q("#hist-modal-title").textContent);
+      const allBtn = q("#hist-all-btn");
+      check("есть переход ко всей истории", !!allBtn && allBtn.hidden === false, String(allBtn && allBtn.hidden));
+      allBtn.fire("click");
+      await sleep(120);
+      check("переход подтянул историю", CALLS["/update/history"] === 1,
+            "запросов: " + CALLS["/update/history"]);
+      check("заголовок сменился", (q("#hist-modal-title").textContent || "").indexOf("История") >= 0,
+            q("#hist-modal-title").textContent);
+    },
+  },
+
   // Тот же ответ, но уже под работающим поллером: он обязан остановиться,
   // разлочить UI и сказать юзеру, что задачи нет.
   poller_gone: {
@@ -519,8 +568,8 @@ const SCENARIOS = {
       await sleep(150);
       const bd = document.body.children.find(c => c.className === "modal-backdrop");
       check("модалка открылась с заголовком «История версий»",
-            bd && bd.innerHTML.indexOf("История версий") >= 0,
-            "bd=" + (bd && bd.innerHTML.slice(0, 100)));
+            !!bd && (q("#hist-modal-title").textContent || "").indexOf("История версий") >= 0,
+            "title=" + (q("#hist-modal-title").textContent || ""));
       const list = q("#hist-modal-list");
       check("записи истории отображены", list && list.innerHTML.indexOf("p-84.22") >= 0,
             list && list.innerHTML.slice(0, 160));
@@ -1129,6 +1178,7 @@ run_scen() {
 # Счётчики внутри while-пайпа теряются (subshell), поэтому считаем по выводу.
 for scen in stale_apply poller_gone outage job_refused state_race state_resort_race \
             update_check_failed update_history_modal update_history_empty update_history_failed \
+            update_whats_new \
             toggles_status_failed toggles_left_page \
             warp_left_page \
             autohostlist_warn autohostlist_accept autohostlist_escape \

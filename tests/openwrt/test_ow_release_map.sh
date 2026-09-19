@@ -82,6 +82,7 @@ assert_eq "adapter без шагов" "" "$(z2k_steps_for platform/openwrt/paths
 # keenetic-only на openwrt пусты (не теряются молча — их держит drift-тест)
 assert_eq "S99 без маппинга" "" "$(_ow files/S99zapret2.new)"
 assert_eq "ndm без маппинга" "" "$(_ow files/ndm/90-z2k-tg-redirect.sh)"
+assert_eq "Keenetic installer без маппинга" "" "$(_ow lib/install.sh)"
 
 # --- 3. fail-safe: неизвестная платформа — пусто ---
 [ -z "$(z2k_install_paths_for mars platform/openwrt/paths.sh 2>/dev/null)" ] \

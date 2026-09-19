@@ -325,10 +325,19 @@ PROBE_TIMEOUT="${Z2K_IP_PROBE_TIMEOUT:-3}"
 PROBE_MAX_TRY="${Z2K_IP_PROBE_MAX_TRY:-4}"
 PROBE_KEEP="${Z2K_IP_PROBE_KEEP:-2}"
 
+# У c10r сертификат *.instagram.com не покрывает две метки перед доменом.
+# Только для этого имени проверяем доступность без проверки сертификата,
+# и только при наличии списка Meta, через который адреса уже отфильтрованы.
+# Для остальных имён и загрузки ответа резолвера проверка TLS остаётся строгой.
 probe_ip_alive() {   # host ip -> 0 если реально ответил
     [ "${Z2K_IP_PROBE:-1}" = "1" ] || return 0
-    code=$(curl -s -o /dev/null -w '%{http_code}' -m "$PROBE_TIMEOUT" \
-           --resolve "$1:443:$2" "https://$1/" 2>/dev/null)
+    local host="$1" ip="$2"
+    shift 2
+    if [ "$host" = "instagram.c10r.instagram.com" ] && [ -s "$META_RANGES" ]; then
+        set -- -k
+    fi
+    code=$(curl -s "$@" -o /dev/null -w '%{http_code}' -m "$PROBE_TIMEOUT" \
+           --resolve "$host:443:$ip" "https://$host/" 2>/dev/null)
     [ -n "$code" ] && [ "$code" != "000" ]
 }
 

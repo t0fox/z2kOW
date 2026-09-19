@@ -126,6 +126,7 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #   tests/test_strategy_pick_typed_failure.sh: regression test for that shared
 #     contract; it runs against the canonical CGI action.
 ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh files/z2k-diag.sh files/z2k-dns-check.sh files/z2k-update-lists.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go z2k-warpd/builds/* webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/js/pages/telemetry.js webpanel/www/js/router.js webpanel/www/app.js webpanel/www/js/pages/warp.js webpanel/www/js/job.js webpanel/www/js/pages/strategy-pick.js tests/test_strategy_pick_typed_failure.sh z2k-detect/builds/* z2k-detect/cmd/z2k-detect/main.go z2k-detect/cmd/z2k-detect/quic.go z2k-detect/cmd/z2k-detect/voice.go z2k-detect/internal/classify/classify.go z2k-detect/internal/classify/compose.go z2k-detect/internal/classify/observability_test.go z2k-detect/internal/classify/raw_linux.go z2k-detect/internal/classify/raw_other.go z2k-detect/internal/quicprobe/probe.go z2k-detect/internal/voiceprobe/probe.go docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md docs/openwrt-adapter-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh scripts/openwrt/verify-runtime.sh .github/workflows/ci.yml scripts/rehearse_update.sh tests/test_manifest_signature.sh tests/test_webpanel_api_contract.sh tests/panel_harness.js tests/test_release_tooling.sh lib/strategies.sh z2k.sh tests/test_au_compat.sh README.md"
+ALLOWLIST="$ALLOWLIST lib/install.sh files/z2k-insta-ip-refresh.sh webpanel/www/index.html webpanel/www/js/pages/update.js tests/test_insta_refresh_cert_mismatch.sh tests/test_fastroute_no_hwnat.sh UPDATES.json.sig"
 
 # Граница меряется от production-ветки, когда она видна: то, что уже
 # опубликовано production-релизом (манифест, подпись, index.html...), —
@@ -141,7 +142,10 @@ if git -c safe.directory="$REPO" -C "$REPO" merge-base --is-ancestor \
     "$BASELINE" origin/z2k-enhanced >/dev/null 2>&1; then
     _REF="origin/z2k-enhanced"
 fi
-_changed="$($_g diff --name-only "$_REF"...HEAD 2>/dev/null)"
+# BASELINE is a tree-sync boundary, not necessarily an ancestor of this
+# adapter branch. Compare snapshots directly so a p-85.1 sync is not mistaken
+# for an adapter seam merely because the branch started from a local commit.
+_changed="$($_g diff --name-only "$_REF" HEAD 2>/dev/null)"
 # --ignore-cr-at-eol: на Windows-чекаутах (autocrlf) весь worktree выглядит
 # изменённым; флаг гасит чисто-CRLF шум, настоящие правки остаются видны.
 _staged="$($_g diff --ignore-cr-at-eol --name-only --cached 2>/dev/null)"
@@ -176,7 +180,7 @@ else
     # .gitattributes: только чистое добавление eol=lf-строк.
     _attr_ok=""
     if printf '%s\n' "$_bad" | grep -qx '.gitattributes'; then
-        _attr_all="$( { $_g diff "$_REF"...HEAD -- .gitattributes 2>/dev/null; \
+        _attr_all="$( { $_g diff "$_REF" HEAD -- .gitattributes 2>/dev/null; \
                         $_g diff --cached -- .gitattributes 2>/dev/null; } \
             | grep -E '^[+-]' | grep -vE '^[+-]{3}' || true)"
         _attr_removed="$(printf '%s\n' "$_attr_all" | grep -E '^-' || true)"
@@ -191,6 +195,7 @@ else
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
             tests/test_strategy_pick_typed_failure.sh|webpanel/www/js/job.js|webpanel/www/js/pages/strategy-pick.js|z2k-detect/builds/*|z2k-detect/cmd/z2k-detect/main.go|z2k-detect/cmd/z2k-detect/quic.go|z2k-detect/cmd/z2k-detect/voice.go|z2k-detect/internal/classify/classify.go|z2k-detect/internal/classify/compose.go|z2k-detect/internal/classify/observability_test.go|z2k-detect/internal/classify/raw_linux.go|z2k-detect/internal/classify/raw_other.go|z2k-detect/internal/quicprobe/probe.go|z2k-detect/internal/voiceprobe/probe.go) continue ;;
+            lib/install.sh|files/z2k-insta-ip-refresh.sh|webpanel/www/index.html|webpanel/www/js/pages/update.js|tests/test_insta_refresh_cert_mismatch.sh|tests/test_fastroute_no_hwnat.sh|UPDATES.json.sig) continue ;;
             lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|files/z2k-diag.sh|files/z2k-dns-check.sh|files/z2k-update-lists.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|z2k-warpd/builds/*|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/js/pages/telemetry.js|webpanel/www/js/router.js|webpanel/www/app.js|webpanel/www/js/pages/warp.js|tests/test_panel_frontend_contract.sh|docs/openwrt-webpanel-contract.md|docs/openwrt-release-contract.md|docs/openwrt-adapter-contract.md|scripts/openwrt/gen-openwrt-manifest.sh|scripts/openwrt/build-release.sh|scripts/openwrt/write-provenance.sh|scripts/openwrt/verify-runtime.sh|.github/workflows/ci.yml|scripts/rehearse_update.sh|tests/test_manifest_signature.sh|tests/test_webpanel_api_contract.sh|tests/panel_harness.js|tests/test_release_tooling.sh|lib/strategies.sh|z2k.sh|tests/test_au_compat.sh|README.md) continue ;;
             UPDATES.json)
                 # Манифест следует за деревом: разрешены hash-обновления
@@ -201,7 +206,7 @@ else
                 # feature-ветке, удаления/изменения существующих map-назначений.
                 # --ignore-cr-at-eol на worktree-диффах: Windows-чекаут красит
                 # весь файл в CRLF-шум (см. шапку файла).
-                _umd="$( { $_g diff "$_REF"...HEAD -- UPDATES.json 2>/dev/null; \
+                _umd="$( { $_g diff "$_REF" HEAD -- UPDATES.json 2>/dev/null; \
                             $_g diff --cached -- UPDATES.json 2>/dev/null; \
                             $_g diff --ignore-cr-at-eol -- UPDATES.json 2>/dev/null; } \
                     | grep -E '^[+-]' | grep -vE '^[+-]{3}' || true)"

@@ -317,6 +317,7 @@ case "$method $path" in
         printf ',"stats_ack":';              json_string "${stats_ack:-1}"
         printf ',"ppe":';                    json_string "${ppe:-1}"
         printf ',"fastroute":';              json_string "${fastroute:-1}"
+        printf ',"fastroute_status":';        json_string "$(fastroute_status)"
         printf ',"auto_update":';            json_string "${auto_update:-1}"
         printf ',"au_hour":';                json_string "${au_hour:-02}"
         printf ',"autohostlist":';           json_string "${autohostlist:-0}"

@@ -141,6 +141,10 @@ toggle_fastroute() {
     return 1
 }
 
+fastroute_status() {
+    printf 'Программный fastpath недоступен на OpenWrt: backend не обнаружен.'
+}
+
 policy_status() {
     printf 'name=|exclude=0|exists=0\n'
 }

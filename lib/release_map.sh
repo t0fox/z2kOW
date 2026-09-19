@@ -196,6 +196,8 @@ _z2k_install_paths_openwrt() {
             : ;; # package-owned: ставит opkg, не updater
         lib/release_map.sh)
             : ;; # как и на keenetic: карта едет данными, а не кодом
+        lib/install.sh)
+            : ;; # Keenetic installer: OpenWrt uses opkg/bootstrap, not ndmc
         lib/*)
             echo "${or}/lib/${repo_path#lib/}" ;;
         files/lua/*)

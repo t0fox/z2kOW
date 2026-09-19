@@ -13,6 +13,8 @@ _mapped="$(Z2K_PLATFORM=openwrt z2k_install_paths files/z2k-insta-ip-refresh.sh 
 [ -z "$_mapped" ] && _t_ok || _t_bad "Keenetic insta helper получил OpenWrt target: $_mapped"
 _mapped="$(Z2K_PLATFORM=openwrt z2k_install_paths files/z2k-update-lists.sh 2>/dev/null)"
 assert_eq "WARP list refresher доставляется в OpenWrt payload" "/usr/lib/z2k/z2k-update-lists.sh" "$_mapped"
+_mapped="$(Z2K_PLATFORM=openwrt z2k_install_paths lib/install.sh 2>/dev/null)"
+assert_eq "Keenetic installer не доставляется в OpenWrt payload" "" "$_mapped"
 
 # Package and OpenWrt-owned lifecycle files contain no direct invocation or
 # install recipe for the helper.  The only source caller remains upstream.

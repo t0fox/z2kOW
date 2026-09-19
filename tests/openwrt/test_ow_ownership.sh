@@ -50,8 +50,10 @@ assert_eq "detect command ровно один" "1" "$(printf '%s' "$_n" | tr -d 
 code | grep -qE 'table inet z2k|add table|create table' \
     && _t_bad "адаптер создаёт свою nft-таблицу" || _t_ok
 
-# 3. своих offload-правил нет (делегировано zapret2 через FLOWOFFLOAD конфига)
-code | grep -qE 'FLOWOFFLOAD=|flowtable|-j FLOWOFFLOAD|nft.*offload' \
+# 3. своих offload-правил нет (делегировано zapret2 через FLOWOFFLOAD конфига).
+# FLOWOFFLOAD= в generate.sh — только сохранение/передача выбранного режима;
+# запрещаем именно создание flowtable/правил самим адаптером.
+code | grep -qE 'flowtable|-j FLOWOFFLOAD|nft.*offload' \
     && _t_bad "адаптер пишет offload-правила" || _t_ok
 
 # 4. QNUM/marks/ports не назначаются кодом — только читаются из конфига
@@ -127,7 +129,9 @@ grep -q '_z2k_ow_rt_table_ok' "$REPO/platform/openwrt/rt.sh" \
     && _t_ok || _t_bad "rt.sh пишет без проверки таблицы"
 grep -q '_z2k_ow_warp_table_ok' "$REPO/platform/openwrt/warp.sh" \
     && _t_ok || _t_bad "warp.sh пишет без проверки таблицы"
-code | grep -qE '(^|[[:space:];])(iptables[[:space:]]+(-A|-I)|fw3|fw4)([[:space:]]|$)' \
+# Штатный /etc/init.d/firewall reload для fw4 допускается; запрещены команды
+# второго firewall-фреймворка и прямой запуск fw4/iptables-правил.
+code | grep -qE '(^|[;&|][[:space:]]*)(iptables[[:space:]]+(-A|-I)|(/usr/)?(sbin/)?fw3|(/usr/)?(sbin/)?fw4)([[:space:]]|$)' \
     && _t_bad "адаптер использует чужой firewall-фреймворк" || _t_ok
 # offload уже покрыт пунктом 3; здесь — явное отсутствие второго владельца:
 # writer-код слоя не упоминает flowtable (read-only diag исключён выше).
