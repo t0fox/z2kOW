@@ -34,7 +34,10 @@ WARP_REG_STAMP="${WARP_REG_STAMP:-${Z2K_TMP:-/tmp/z2k}/warp/register.stamp}"
 # после reboot записи нет, и это корректно (PBR тоже нет).
 WARP_PBR_OWNER="${WARP_PBR_OWNER:-${Z2K_TMP:-/tmp/z2k}/warp/pbr.owner}"
 WARP_LISTS_DIR="${WARP_LISTS_DIR:-${Z2K_ETC:-/etc/z2k}/user-lists/warp}"
-WARP_GAMES_DIR="${WARP_GAMES_DIR:-${Z2K_LISTS_DIR}/games}"
+# The updater owns the per-game tree under the shipped WARP namespace.  Keep
+# the runtime default aligned with z2k-update-lists.sh and the package layout;
+# tests may still override WARP_GAMES_DIR for isolated fixtures.
+WARP_GAMES_DIR="${WARP_GAMES_DIR:-${Z2K_LISTS_DIR}/warp/games}"
 WARP_ENABLED_FILE="${WARP_ENABLED_FILE:-$WARP_LISTS_DIR/.enabled}"
 WARP_DEVICES_FILE="${WARP_DEVICES_FILE:-$WARP_LISTS_DIR/devices.txt}"
 WARP_ENDPOINTS="${WARP_ENDPOINTS:-${Z2K_LISTS_DIR:-/usr/lib/z2k/lists}/warp-endpoints.txt}"
