@@ -94,6 +94,7 @@ sed -i 's/^Z2K_OPENWRT_PANEL_CONTRACT=1$/# old updater-owned payload/' \
 sed -i 's/local engine="${Z2K_NFQWS2:-\$ZAPRET2_DIR\/nfq2\/nfqws2}"/local engine="\$ZAPRET2_DIR\/nfq2\/nfqws2"/' \
     "$Z2K_ROOT/webpanel/cgi/actions.sh"
 sed -i '/^Z2K_NFQWS2=/d' "$Z2K_ROOT/webpanel/cgi/platform.sh"
+_stale_actions="$(sha256sum "$Z2K_ROOT/webpanel/cgi/actions.sh" | awk '{print $1}')"
 if z2k_ow_panel_payload_compatible; then _t_bad "R5 old panel was accepted"; else _t_ok; fi
 
 # Origin contains only the two updater-owned bytes needed to repair this
@@ -123,7 +124,7 @@ _out="$(z2k_ow_panel_payload_sync 2>&1)"; _rc=$?
 assert_eq "R5 snapshot repair rc" "0" "$_rc"
 assert_contains "R5 marker restored" "$Z2K_ROOT/webpanel/cgi/actions.sh" 'Z2K_OPENWRT_PANEL_CONTRACT=1'
 assert_contains "R5 canonical engine restored" "$Z2K_ROOT/webpanel/cgi/actions.sh" 'Z2K_NFQWS2'
-assert_eq "R5 panel payload changed" "0" "$([ "$_old_actions" = "$(sha256sum "$Z2K_ROOT/webpanel/cgi/actions.sh" | awk '{print $1}')" ] && echo 1 || echo 0)"
+assert_eq "R5 panel payload changed" "0" "$([ "$_stale_actions" = "$(sha256sum "$Z2K_ROOT/webpanel/cgi/actions.sh" | awk '{print $1}')" ] && echo 1 || echo 0)"
 
 # No embedded snapshot: production delivery is the signed updater's job, so
 # package postinst reports an incompatibility and preserves stale executable.
