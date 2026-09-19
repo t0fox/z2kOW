@@ -2997,6 +2997,22 @@ update_refresh_manifest() {
             fi
         fi
     fi
+    # OpenWrt CI snapshots carry an immutable, already-verified manifest.
+    # Resolve that authority before the common mirror fetch so a cold dashboard
+    # does not block on an unavailable production channel (and report a fake
+    # 500 to the browser).  Production OpenWrt keeps the same hook: without a
+    # snapshot it performs the signed channel fetch and falls through only on
+    # a real failure.
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] \
+        && command -v z2k_platform_fetch_manifest >/dev/null 2>&1; then
+        if z2k_platform_fetch_manifest; then
+            if [ -s "$AU_MANIFEST_CACHE" ] && _update_manifest_sane "$AU_MANIFEST_CACHE"; then
+                rm -f "$AU_MANIFEST_FAIL_STAMP"
+                return 0
+            fi
+            rm -f "$AU_MANIFEST_CACHE"
+        fi
+    fi
     # Канал — из frozen updater environment (Stage 6 seam): на Keenetic
     # дефолт ниже, на OpenWrt его перекрывает platform.sh из Z2K_AU_REPO_RAW.
     url="${Z2K_AU_MANIFEST_URL:-https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json}"
