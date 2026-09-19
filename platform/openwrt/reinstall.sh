@@ -113,6 +113,46 @@ z2k_ow_adapter_gate() {
     return 1
 }
 
+# Converge an initialized updater-owned panel when a newer package carries an
+# embedded CI snapshot. This is not a second updater: manifest resolution,
+# immutable ref selection, hash verification, atomic delivery, rollback and
+# metadata writes are delegated to the existing common/reinstall path.
+# A production package has no snapshot pair and therefore fails closed rather
+# than extracting seed.tar.gz over executable panel files.
+z2k_ow_panel_payload_sync() {
+    local _tagfile="${Z2K_AU_INSTALLED_TAG_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-tag}"
+    local _tag _mrc=0
+    z2k_ow_panel_payload_compatible 2>/dev/null && return 0
+    [ -f "${Z2K_PAYLOAD_MARKER:-${Z2K_ETC:-/etc/z2k}/.payload-initialized}" ] || {
+        echo "z2k-openwrt: PANEL_PAYLOAD_MISMATCH: initialized payload marker is missing" >&2
+        return 1
+    }
+    command -v z2k_platform_fetch_manifest >/dev/null 2>&1 || {
+        echo "z2k-openwrt: PANEL_PAYLOAD_MISMATCH: manifest authority is unavailable" >&2
+        return 1
+    }
+    z2k_platform_fetch_manifest || _mrc=$?
+    if [ "$_mrc" != "0" ] || [ "${Z2K_OW_MANIFEST_MODE:-}" != "snapshot" ]; then
+        echo "z2k-openwrt: PANEL_PAYLOAD_MISMATCH: this APK has no usable CI snapshot; signed production updater delivery is required" >&2
+        return 1
+    fi
+    _tag=$(tr -d ' \t\r\n' < "$_tagfile" 2>/dev/null)
+    [ -n "$_tag" ] || {
+        echo "z2k-openwrt: PANEL_PAYLOAD_MISMATCH: installed payload tag is missing" >&2
+        return 1
+    }
+    au_log "panel payload mismatch: converging updater-owned payload from embedded CI snapshot ref ${Z2K_AU_TARGET_REF}"
+    z2k_ow_payload_reinstall "$_tag" "" || {
+        echo "z2k-openwrt: PANEL_PAYLOAD_MISMATCH: verified snapshot delivery failed; payload was rolled back or marked dirty" >&2
+        return 1
+    }
+    z2k_ow_panel_payload_compatible || {
+        echo "z2k-openwrt: PANEL_PAYLOAD_MISMATCH: verified delivery completed but executable panel contract is still stale" >&2
+        return 1
+    }
+    return 0
+}
+
 # --- full payload reinstall --------------------------------------------------
 # Исполнитель для Z2K_AU_REINSTALL_EXECUTOR. Контекст вызова (au_apply_reinstall):
 # манифест уже verified+fetched ($Z2K_AU_TMP_DIR/UPDATES.json), lock держится
@@ -125,14 +165,14 @@ z2k_ow_adapter_gate() {
 
 # z2k_ow_reinstall_dest_ok <repo-path> <dest> — 0 если dest разрешён для
 # payload-перезаписи: под /usr/lib/z2k/, кроме package-owned
-# share/seed.tar.gz и share/adapter.api; плюс merge-цель extra-domains
+# share/seed.tar.gz, share/adapter.api и share/panel.api; плюс merge-цель extra-domains
 # (её пишет au_merge_extra_domains 3-way-merge'ом, не blind-overwrite).
 z2k_ow_reinstall_dest_ok() {
     # Корни — ЖИВЫЕ ($Z2K_ROOT/$Z2K_ETC), не литералы: тесты релоцируют
     # production-абсолюты в sysroot, в проде значения те же самые.
     local _root="${Z2K_ROOT:-/usr/lib/z2k}" _etc="${Z2K_ETC:-/etc/z2k}"
     case "$2" in
-        "$_root"/share/seed.tar.gz|"$_root"/share/adapter.api)
+        "$_root"/share/seed.tar.gz|"$_root"/share/adapter.api|"$_root"/share/panel.api)
             return 1 ;;
         "$_root"/*)
             return 0 ;;

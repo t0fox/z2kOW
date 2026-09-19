@@ -5,6 +5,11 @@
 # Sourced from api.sh. All functions return 0 on success, non-zero on error
 # and write a single-line error to stderr (captured by the caller into JSON).
 
+# Package/update delivery seam. The byte payload remains updater-owned; this
+# marker lets the OpenWrt package refuse a stale executable CGI instead of
+# reporting a false-success install.
+Z2K_OPENWRT_PANEL_CONTRACT=1
+
 ZAPRET2_DIR="${ZAPRET2_DIR:-/opt/zapret2}"
 CONFIG_DIR="${CONFIG_DIR:-/opt/etc/zapret2}"
 LISTS_DIR="${LISTS_DIR:-$ZAPRET2_DIR/lists}"

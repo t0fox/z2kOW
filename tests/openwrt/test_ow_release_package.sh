@@ -79,6 +79,58 @@ assert_eq "R4 tag цел" "$_tag_before" "$(lc_tag)"
 assert_eq "R4 payload байт-в-байт" "$_before" "$_after"
 lc_invariant "R4" || _t_bad "R4 invariant"
 
+# --- R5: old updater-owned panel + new package snapshot ----------------------
+# Reproduce the live defect: package files are new, but an initialized payload
+# still has the old executable CGI. The CI snapshot must use the existing
+# verified reinstall path; without a snapshot the package must fail closed and
+# leave the old CGI untouched.
+lc_fresh_sysroot || exit 1
+cp -f "$REPO/package/openwrt/PANEL_API" "$Z2K_ROOT/share/panel.api" || exit 1
+. "$Z2K_ROOT/platform/openwrt/webpanel.sh" || exit 1
+. "$Z2K_ROOT/platform/openwrt/reinstall.sh" || exit 1
+_old_actions="$(sha256sum "$Z2K_ROOT/webpanel/cgi/actions.sh" | awk '{print $1}')"
+sed -i 's/^Z2K_OPENWRT_PANEL_CONTRACT=1$/# old updater-owned payload/' \
+    "$Z2K_ROOT/webpanel/cgi/actions.sh"
+sed -i 's/local engine="${Z2K_NFQWS2:-\$ZAPRET2_DIR\/nfq2\/nfqws2}"/local engine="\$ZAPRET2_DIR\/nfq2\/nfqws2"/' \
+    "$Z2K_ROOT/webpanel/cgi/actions.sh"
+sed -i '/^Z2K_NFQWS2=/d' "$Z2K_ROOT/webpanel/cgi/platform.sh"
+if z2k_ow_panel_payload_compatible; then _t_bad "R5 old panel was accepted"; else _t_ok; fi
+
+# Origin contains only the two updater-owned bytes needed to repair this
+# regression. The real full manifest format is still parsed by common
+# reinstall code; the WARP digest is a structural snapshot witness.
+for _f in webpanel/cgi/actions.sh webpanel/cgi/platform.sh; do
+    mkdir -p "$LC_ORIGIN/files/$(dirname "$_f")"
+    cp -f "$REPO/$_f" "$LC_ORIGIN/files/$_f" || exit 1
+done
+printf 'p-85.2|patch|snapshot-ref|webpanel/cgi/actions.sh,webpanel/cgi/platform.sh||false|false\n' \
+    | lc_manifest p-85.2
+python3 - "$LC_ORIGIN/manifest.json" <<'PYEOF'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p, encoding='utf-8'))
+d['files_sha256']['z2k-warpd/builds/z2k-warpd-linux-arm64'] = '0' * 64
+open(p, 'w', encoding='utf-8').write(json.dumps(d) + '\n')
+PYEOF
+cp -f "$LC_ORIGIN/manifest.json" "$Z2K_ROOT/share/snapshot-manifest.json"
+printf '0123456789abcdef0123456789abcdef01234567\n' > "$Z2K_ROOT/share/snapshot-commit"
+_out="$(z2k_ow_panel_payload_sync 2>&1)"; _rc=$?
+assert_eq "R5 snapshot repair rc" "0" "$_rc"
+assert_contains "R5 marker restored" "$Z2K_ROOT/webpanel/cgi/actions.sh" 'Z2K_OPENWRT_PANEL_CONTRACT=1'
+assert_contains "R5 canonical engine restored" "$Z2K_ROOT/webpanel/cgi/actions.sh" 'Z2K_NFQWS2'
+assert_eq "R5 panel payload changed" "0" "$([ "$_old_actions" = "$(sha256sum "$Z2K_ROOT/webpanel/cgi/actions.sh" | awk '{print $1}')" ] && echo 1 || echo 0)"
+
+# No embedded snapshot: production delivery is the signed updater's job, so
+# package postinst reports an incompatibility and preserves stale executable.
+sed -i 's/^Z2K_OPENWRT_PANEL_CONTRACT=1$/# old updater-owned payload/' \
+    "$Z2K_ROOT/webpanel/cgi/actions.sh"
+rm -f "$Z2K_ROOT/share/snapshot-manifest.json" "$Z2K_ROOT/share/snapshot-commit"
+_stale_after="$(sha256sum "$Z2K_ROOT/webpanel/cgi/actions.sh" | awk '{print $1}')"
+_out="$(z2k_ow_panel_payload_sync 2>&1)"; _rc=$?
+assert_eq "R5 production mismatch rc" "1" "$_rc"
+case "$_out" in *PANEL_PAYLOAD_MISMATCH*) _t_ok ;; *) _t_bad "R5 mismatch message" ;; esac
+assert_eq "R5 stale payload preserved" "$_stale_after" "$(sha256sum "$Z2K_ROOT/webpanel/cgi/actions.sh" | awk '{print $1}')"
+
 # --- R16: uninstall/reinstall — данные целы, дубликатов нет ---
 lc_fresh_sysroot || exit 1
 SEEDTAG="$(sed -n 's/^tag=//p' "$Z2K_ROOT/share/seed.meta" | head -1)"

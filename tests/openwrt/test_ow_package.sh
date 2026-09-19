@@ -48,6 +48,9 @@ assert_contains "uninstall purges tmp" "$REPO/platform/openwrt/uninstall.sh" 'rm
 assert_contains "seed builder" "$MK" "make-seed.sh"
 assert_contains "materialize in seed" "$REPO/package/openwrt/make-seed.sh" "z2k_ow_materialize"
 assert_contains "postinst seed-guard" "$MK" "z2k_ow_seed_ensure"
+assert_contains "panel contract source" "$REPO/package/openwrt/PANEL_API" "1"
+assert_contains "panel contract install" "$MK" "share/panel.api"
+assert_contains "panel mismatch is explicit" "$MK" "PANEL_PAYLOAD_MISMATCH"
 
 # TCP tuning (parity step_tcp_tuning): package-owned sysctl.d + best-effort apply.
 SYSCTL="$REPO/package/openwrt/files/etc/sysctl.d/99-z2k.conf"

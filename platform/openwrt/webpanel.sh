@@ -16,6 +16,12 @@ z2k_ow_meta_value() {
 }
 z2k_ow_payload_tag() { z2k_ow_meta_value "${Z2K_ROOT:-/usr/lib/z2k}/share/payload.meta" tag; }
 z2k_ow_seed_tag() { z2k_ow_meta_value "${Z2K_ROOT:-/usr/lib/z2k}/share/seed.meta" tag; }
+
+# The contract helper is package-owned; common CGI/static bytes remain
+# updater-owned and are checked by it before package success is reported.
+[ -f "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/panel.sh" ] && \
+    . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/panel.sh"
+
 z2k_ow_package_version() {
     local _pkg="$1" _line _apk="${Z2K_APK_BIN:-apk}"
     if [ "$_apk" = "apk" ]; then

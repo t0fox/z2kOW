@@ -174,13 +174,15 @@ uninstall_async() {
 }
 
 wp_capabilities_json() {
-    local _ready=false _degraded=false _running=false
+    local _ready=false _degraded=false _running=false _payload_compatible=true
     is_running >/dev/null 2>&1 && _running=true
     command -v z2k_ow_core_ready >/dev/null 2>&1 && \
         z2k_ow_core_ready >/dev/null 2>&1 && _ready=true
+    z2k_ow_panel_payload_compatible || _payload_compatible=false
+    [ "$_payload_compatible" = "true" ] || { _ready=false; _degraded=true; }
     { [ "$_running" = "true" ] && [ "$_ready" = "false" ]; } && _degraded=true
-    printf '"platform":"openwrt","ready":%s,"degraded":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":false,"diag":false,"customd":false,"warp":true,"telegram":true,"uninstall":false}' \
-        "$_ready" "$_degraded"
+    printf '"platform":"openwrt","ready":%s,"degraded":%s,"payload_compatible":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":false,"diag":false,"customd":false,"warp":true,"telegram":true,"uninstall":false}' \
+        "$_ready" "$_degraded" "$_payload_compatible"
 }
 
 if [ "$Z2K_PLATFORM_STATUS" != "ok" ]; then

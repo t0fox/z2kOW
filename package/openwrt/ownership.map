@@ -59,6 +59,9 @@
 # Adapter API (Stage 7 §6): ставит пакет из package/openwrt/ADAPTER_API;
 # updater/installer/reinstall его НИКОГДА не пишут.
 /usr/lib/z2k/share/adapter.api package
+# Package-owned expectation for the updater-owned CGI/static payload. This is
+# a contract marker, not a second copy of the panel.
+/usr/lib/z2k/share/panel.api package
 # Snapshot truth сборки (manifest+commit для fresh-provisioning без канала):
 # кладёт Build/Prepare пакета, updater не пишет, читает ensure-binaries.
 /usr/lib/z2k/share/snapshot-manifest.json package

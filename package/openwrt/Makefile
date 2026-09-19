@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=30
+PKG_RELEASE:=31
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -64,6 +64,9 @@ PKG_RELEASE:=30
 # daemon state during upgrade.
 # RELEASE 30: close OpenWrt runtime-path/health boundaries and make the
 # webpanel postinst fail closed unless its service is actually running.
+# RELEASE 31: converge stale updater-owned panel payload from an embedded CI
+# snapshot through the existing verified reinstall path; production packages
+# fail closed with an explicit panel-payload incompatibility.
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
 # lists/strats/webpanel; z2k-owned TG/RT/WARP/manual z2k-detect едут updater binary
 # flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
@@ -183,6 +186,9 @@ define Package/z2k-adapter/install
 	# Adapter API (Stage 7 §6): package-owned source of truth; updater его
 	# никогда не перезаписывает. Абсолютный путь через Z2K_TREE (как seed).
 	$(INSTALL_DATA) $(Z2K_TREE)/package/openwrt/ADAPTER_API $(1)/usr/lib/z2k/share/adapter.api
+	# Panel contract is package-owned evidence for the updater-owned CGI. It is
+	# never a replacement for the CGI/static payload itself.
+	$(INSTALL_DATA) $(Z2K_TREE)/package/openwrt/PANEL_API $(1)/usr/lib/z2k/share/panel.api
 	# Snapshot-манифест сборки + commit (готовит Build/Prepare выше, только
 	# если build-release.sh их передал; dev-сборки без них — файлов нет,
 	# ensure тогда работает только через канал).
@@ -232,12 +238,26 @@ z2k_ow_seed_ensure || exit 1
 # env.sh обязателен здесь (postinst иначе не выставляет Z2K_PLATFORM/
 # канал/состояние апдейтера, и platform-gate манифеста увидел бы keenetic).
 if . "$$Z2K_ROOT/platform/openwrt/env.sh" 2>/dev/null \
+    && . "$$Z2K_ROOT/platform/openwrt/webpanel.sh" 2>/dev/null \
+    && . "$$Z2K_ROOT/platform/openwrt/reinstall.sh" 2>/dev/null \
     && . "$$Z2K_ROOT/platform/openwrt/binaries.sh" 2>/dev/null \
     && . "$$Z2K_ROOT/lib/utils.sh" 2>/dev/null \
     && . "$$Z2K_ROOT/lib/auto_update.sh" 2>/dev/null; then
+    # A package upgrade is allowed to update updater-owned panel bytes only
+    # through the same verified install_map/hash/immutable-ref path as the
+    # updater. A production APK without an embedded snapshot must not guess
+    # or extract seed.tar.gz over an initialized payload.
+    if ! z2k_ow_panel_payload_compatible >/dev/null 2>&1; then
+        z2k_ow_panel_payload_sync || exit 1
+    fi
+    z2k_ow_panel_payload_compatible || {
+        echo "z2k-openwrt: PANEL_PAYLOAD_MISMATCH: executable webpanel payload is incompatible with this adapter; signed updater delivery is required" >&2
+        exit 1
+    }
     z2k_ow_ensure_binaries 2>&1 || echo "z2k-openwrt: postinst: binaries доставит обновление (см. лог выше)" >&2
 else
-    echo "z2k-openwrt: postinst: нет libs для ensure-binaries (доставит обновление)" >&2
+    echo "z2k-openwrt: PANEL_PAYLOAD_MISMATCH: нет updater libs для проверки executable webpanel; установка остановлена" >&2
+    exit 1
 fi
 # Ежесуточный updater через cron (строка с маркером, идемпотентно).
 . "$$Z2K_ROOT/platform/openwrt/schedule.sh"

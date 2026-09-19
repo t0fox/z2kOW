@@ -10,12 +10,12 @@ trap 'rm -rf "$T"; for _j in $JOB_IDS; do rm -f "/tmp/z2k-job-$_j.log" "/tmp/z2k
 JOB_IDS=""
 
 mkdir -p "$T/bin" "$T/root/platform/openwrt" "$T/root/bin" "$T/root/lib" \
-         "$T/root/webpanel" "$T/etc/user-lists/warp" "$T/etc/state/warp" \
+         "$T/root/webpanel/cgi" "$T/root/webpanel" "$T/etc/user-lists/warp" "$T/etc/state/warp" \
          "$T/etc/webpanel" "$T/tmp/z2k/runtime" "$T/proc/7777"
 export PATH="$T/bin:/usr/bin:/bin"
 
 # --- adapter farm (настоящие файлы слоя) ---
-for _f in paths.sh env.sh warp.sh tg.sh rt.sh firewall.sh uci.sh schedule.sh uninstall.sh webpanel.sh; do
+for _f in paths.sh env.sh warp.sh tg.sh rt.sh firewall.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
@@ -23,6 +23,10 @@ ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.
 mkdir -p "$T/cgi"
 cp "$REPO/webpanel/cgi/api.sh" "$REPO/webpanel/cgi/auth.sh" \
    "$REPO/webpanel/cgi/actions.sh" "$REPO/webpanel/cgi/platform.sh" "$T/cgi/"
+cp "$REPO/webpanel/cgi/actions.sh" "$REPO/webpanel/cgi/platform.sh" "$T/root/webpanel/cgi/"
+cp "$REPO/package/openwrt/PANEL_API" "$T/root/share.panel.api"
+mkdir -p "$T/root/share"
+mv "$T/root/share.panel.api" "$T/root/share/panel.api"
 # --- stub lib (генератор/утилиты — как keenetic-сьют; сам CGI настоящий) ---
 # Стаб пишет многострочный NFQWS2_OPT: strategy_validate вырезает опции
 # sed-диапазоном /^NFQWS2_OPT="/,/^"$/, однострочник дал бы пустой opt.
@@ -191,6 +195,7 @@ _poll_job_fail() { # $1 jobid, $2 ожидаемый фрагмент лога
 RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "status: HTTP 200" "Status: 200 OK" "$(printf '%s\n' "$RAW" | _cgi_status)"
 assert_eq "status: platform" "openwrt" "$(_jget "$OUT" 'd["platform"]')"
+assert_eq "status: panel payload compatible" "true" "$(_jget "$OUT" 'd["payload_compatible"]')"
 assert_eq "status: policy false" "false" "$(_jget "$OUT" 'd["capabilities"]["policy"]')"
 assert_eq "status: ppe false" "false" "$(_jget "$OUT" 'd["capabilities"]["ppe"]')"
 assert_eq "status: fastroute false" "false" "$(_jget "$OUT" 'd["capabilities"]["fastroute"]')"

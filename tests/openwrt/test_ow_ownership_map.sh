@@ -46,6 +46,7 @@ while IFS= read -r _line; do
         /usr/lib/z2k/z2k-diag.sh) _src="files/z2k-diag.sh" ;;
         /usr/lib/z2k/share/seed.tar.gz) _src="package/openwrt/make-seed.sh" ;;
         /usr/lib/z2k/share/adapter.api) _src="package/openwrt/ADAPTER_API" ;;
+        /usr/lib/z2k/share/panel.api) _src="package/openwrt/PANEL_API" ;;
         # snapshot truth: build-generated (Build/Prepare из manifests/commit),
         # источник — рецепт, его создающий.
         /usr/lib/z2k/share/snapshot-manifest.json) _src="package/openwrt/Makefile" ;;
