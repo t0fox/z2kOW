@@ -10,7 +10,6 @@ export ZAPRET2_DIR="$TMP/install"
 mkdir -p "$ZAPRET2_DIR/lua" "$ZAPRET2_DIR/lists" "$ZAPRET2_DIR/extra_strats"
 cp -R files/lists/extra_strats/TCP files/lists/extra_strats/UDP "$ZAPRET2_DIR/extra_strats/"
 cp files/lua/*.lua "$ZAPRET2_DIR/lua/"
-: > "$ZAPRET2_DIR/lists/discovered-domains.txt"
 for spec in 'rkn RKN' 'yt YT' 'gv YT_GV'; do
     set -- "${spec% *}" "${spec#* }"
     awk -v prefix="manual_autocircular_$1 " 'index($0,prefix)==1 {sub(/^.* : nfqws2 /, ""); print; exit}' strats_new2.txt > "$ZAPRET2_DIR/extra_strats/TCP/$2/Strategy.txt"

@@ -1949,7 +1949,6 @@ Z2K_DIAG_LOGS="/opt/var/log/z2k-auto-update.log /opt/var/log/z2k-scheduler.log
 /opt/zapret2/update-lists.log /tmp/z2k-log/tg-tunnel.log
 /tmp/z2k-warp/warpd.log /tmp/z2k-log/z2k-rt-proxy.log /tmp/z2k-log/z2k-http-tunnel.log
 /tmp/z2k-log/z2k-insta-refresh.log /tmp/z2k-log/z2k-webpanel-error.log
-/var/log/z2k-detect.log /opt/var/log/z2k-detect-watchdog.log
 /tmp/z2k-log/z2k-webpanel-sup.log /tmp/z2k-log/z2k-webpanel-startcheck.log
 /tmp/z2k-log/z2k-webpanel-wait.log"
 

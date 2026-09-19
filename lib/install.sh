@@ -1429,6 +1429,7 @@ step_build_zapret2() {
     # см. step_prefetch_hostlists — там же объяснено, почему шов проходит
     # именно здесь.
     step_prefetch_hostlists || return 1
+    z2k_retire_discovery || return 1
 
 
     # Спасти настройки из недостроенной прошлой установки.
@@ -1462,7 +1463,7 @@ step_build_zapret2() {
             local _item
             for _item in config lists/whitelist.txt lists/extra-domains.txt \
                          lists/custom-strategies lists/warp \
-                         lists/autohostlist-domains.txt lists/discovered-domains.txt \
+                         lists/autohostlist-domains.txt \
                          ipset/zapret-hosts-user-exclude.txt \
                          webpanel/port webpanel/bind webpanel/bind6 \
                          extra_strats/cache/autocircular/state.tsv .z2k-relay-id; do
@@ -1618,21 +1619,8 @@ step_build_zapret2() {
             mkdir -p "$backup_tmp/custom-strategies" 2>/dev/null
             cp -f "$ZAPRET2_DIR/lists/custom-strategies/"*.txt "$backup_tmp/custom-strategies/" 2>/dev/null
         fi
-        # Домены, найденные автоматикой на ЭТОМ устройстве, а не человеком:
-        # lists/autohostlist-domains.txt — след автохостлиста движка,
-        # lists/discovered-domains.txt — публикации демона z2k-detect.
-        #
-        # Оба видны в панели отдельными категориями (webpanel/cgi/actions.sh,
-        # _domain_lists_catalog), оба копятся неделями и оба до этой правки
-        # переустановку не переживали: первый не бэкапился вовсе, второй ниже
-        # по коду пересоздавался ПУСТЫМ. Обновление у нас — это reinstall,
-        # то есть терялось на каждой обнове, и незаметно: панель показывала
-        # те же категории, просто пустые — «пока ничего не нашлось».
-        #
-        # Восстановить их нечем: они не выводятся ни из shipped-файлов, ни из
-        # апстрима — только повторным наблюдением за трафиком. Поэтому тот же
-        # fail-closed, что у whitelist: abort ДО удаления текущего дерева.
-        for _acc in autohostlist-domains discovered-domains; do
+        # Only the independent nfqws2 accumulator remains in this path.
+        for _acc in autohostlist-domains; do
             [ -f "$ZAPRET2_DIR/lists/${_acc}.txt" ] || continue
             cp -f "$ZAPRET2_DIR/lists/${_acc}.txt" "$backup_tmp/${_acc}.txt" || \
                 die "Не удалось сохранить ${_acc}.txt в бэкап — установка прервана, чтобы не потерять найденные автоматически домены."
@@ -2401,14 +2389,6 @@ TMPJUNK
     # Copy IP lists (Roblox, Telegram) + extra-domains.txt (shipped extras
     # from files/lists/ that z2k curates on top of runetfreedom RKN list).
     mkdir -p "${ZAPRET2_DIR}/lists"
-    # z2k-detect daemon-managed hostlist. We touch it here — BEFORE
-    # config_official.sh generates NFQWS2_OPT — so config_official's
-    # `[ -e ] && add --hostlist=` guard sees the file and wires it into
-    # nfqws2's command line. Otherwise on fresh install the daemon (which
-    # is installed later, ~line 2204) would publish to a file that nfqws2
-    # never reads, and Hot verdicts would silently fail to activate bypass.
-    [ -e "${ZAPRET2_DIR}/lists/discovered-domains.txt" ] || \
-        : > "${ZAPRET2_DIR}/lists/discovered-domains.txt"
     # game-warp-ips.txt намеренно отсутствует: legacy-агрегат на 14297 записей
     # (15% IPv4, включая приватные сети и LAN пользователя) удалён из проекта.
     # WARP теперь работает на пер-игровых списках, выбираемых в панели.
@@ -2613,11 +2593,7 @@ TMPJUNK
         cp -f "$backup_tmp/custom-strategies/"*.txt "${ZAPRET2_DIR}/lists/custom-strategies/" 2>/dev/null
         print_info "Восстановлены пользовательские стратегии"
     fi
-    # Найденные автоматикой домены — обратно на место (бэкап см. backup_tmp).
-    # Идёт ПОСЛЕ пустышки discovered-domains.txt выше и ДО генерации
-    # NFQWS2_OPT, поэтому в командную строку nfqws2 попадает уже наполненный
-    # файл, а не пустой.
-    for _acc in autohostlist-domains discovered-domains; do
+    for _acc in autohostlist-domains; do
         [ -f "$backup_tmp/${_acc}.txt" ] || continue
         if cp -f "$backup_tmp/${_acc}.txt" "${ZAPRET2_DIR}/lists/${_acc}.txt" 2>/dev/null; then
             chmod 644 "${ZAPRET2_DIR}/lists/${_acc}.txt" 2>/dev/null || true
@@ -4242,10 +4218,6 @@ step_finalize() {
     # Soft deploy — a missing self-heal only loses the safety net, not core bypass.
     deploy_critical_file "files/z2k-nfqueue-selfheal.sh"          "/opt/zapret2/z2k-nfqueue-selfheal.sh" || print_warning "nfq-selfheal: deploy failed (NFQUEUE auto-recovery disabled)"
 
-    # Сторож детектора блокировок. Планировщик дёргает его раз в минуту. Мягкий
-    # деплой: без сторожа теряется только страховка, обход от detect не зависит.
-    deploy_critical_file "files/z2k-detect-watchdog.sh"           "/opt/zapret2/z2k-detect-watchdog.sh" || print_warning "detect-watchdog: deploy failed (автоподъём детектора отключён)"
-
     # tpws youtube layer REMOVED as a feature (2026-06-08): with fastnat=0 the
     # native nfqws2 bypass works on offloaded flows. Sweep any tpws left over
     # from a previous version so an update leaves no zombie (rules/files/binary).
@@ -4361,11 +4333,9 @@ step_finalize() {
         fi
     fi
 
-    # z2k-detect — reactive DPI-discovery daemon.
-    # See z2k-detect/README. Replacement for the broken Active Probe /
-    # Classify pair that was deleted in r-15.
+    # One-shot network diagnostics; no background discovery service.
     if true; then
-        print_info "Установка/обновление z2k-detect (anti-DPI engine)..."
+        print_info "Установка/обновление z2k-detect (проверка домена)..."
         local zd_arch=""
         local zd_hw
         zd_hw=$(get_arch 2>/dev/null || uname -m)
@@ -4411,41 +4381,13 @@ step_finalize() {
             fi
             if $zd_valid; then
                 # Возврат снапшота проверяется — см. пояснение у tg-mtproxy-client
-                # выше и готовый образец семью строками ниже (S98z2k-detect).
+                # выше: отказ снапшота сохраняет рабочий бинарник.
                 if ! z2k_snapshot_external "$zd_dest"; then
                     rm -f "$zd_tmp"
                     print_warning "Снапшот z2k-detect не удался — оставлен текущий рабочий бинарник"
                 else
                 mv -f "$zd_tmp" "$zd_dest" && chmod +x "$zd_dest"
                 print_success "z2k-detect установлен ($zd_arch)"
-                # Демон stateless — никаких отдельных state-файлов на диске.
-                # init.d: per [[reference_cron_path_entware]] PATH must
-                # be exported inside the script — already done. Install
-                # the canonical S98z2k-detect alongside S98tg-tunnel.
-                # detect daemon non-critical: если снапшот для отката не
-                # удался (disk-full) — НЕ перезаписываем, warn и пропускаем
-                # (vs abort всего finalize ради необязательного демона).
-                if [ -f "${WORK_DIR}/files/init.d/S98z2k-detect" ]; then
-                    if z2k_snapshot_external /opt/etc/init.d/S98z2k-detect; then
-                        cp -f "${WORK_DIR}/files/init.d/S98z2k-detect" \
-                              /opt/etc/init.d/S98z2k-detect
-                        chmod +x /opt/etc/init.d/S98z2k-detect
-                    else
-                        print_warning "Снапшот S98z2k-detect не удался — пропускаю обновление detect-демона (необязательный)"
-                    fi
-                fi
-                # Feature flag: Z2K_DISCOVER default OFF — автодетекция
-                # выключена пока не обкатана. Юзер включает руками в
-                # меню [Y] когда хочет попробовать. Config file —
-                # /opt/zapret2/config (плоский файл, не директория).
-                if ! grep -q "^Z2K_DISCOVER=" /opt/zapret2/config 2>/dev/null; then
-                    echo "Z2K_DISCOVER=0" >> /opt/zapret2/config
-                fi
-                # Stateless daemon: no init-db, no deny-list generation.
-                # Skip-list paths are baked into the binary's defaults
-                # (engine.Defaults() reads RKN/extra/whitelist on
-                # startup + every 5min). Restart picks up new binary.
-                /opt/etc/init.d/S98z2k-detect restart >/dev/null 2>&1 || true
                 fi   # снапшот z2k-detect удался
             else
                 # Невалидная загрузка — удаляем ТОЛЬКО temp, рабочий бинарник
@@ -5060,7 +5002,6 @@ rollback_to_snapshot() {
 _rollback_service_for_binary() {
     case "$1" in
         z2k-rt-proxy)      echo "/opt/etc/init.d/S96z2k-rt-proxy" ;;
-        z2k-detect)        echo "/opt/etc/init.d/S98z2k-detect" ;;
         z2k-warpd)         echo "/opt/etc/init.d/S51z2k-warp" ;;
         tg-mtproxy-client) echo "/opt/etc/init.d/S98tg-tunnel /opt/etc/init.d/S97z2k-http-tunnel" ;;
         *)                 echo "" ;;

@@ -910,8 +910,7 @@ LUA_Z2K_MODERN_CORE="$ZAPRET_BASE/lua/z2k-modern-core.lua"
 LUA_Z2K_STATE_PERSIST="$ZAPRET_BASE/lua/z2k-state-persist.lua"
 [ -f "$LUA_Z2K_STATE_PERSIST" ] && LUAOPT="$LUAOPT --lua-init=@$LUA_Z2K_STATE_PERSIST"
 # z2k-dynamic-strategy.lua removed in r-15 Phase 1 — was a handler for
-# the z2k-classify generator which is itself gone. New per-domain
-# feedback lives in /opt/zapret2/lists/discovered-domains.txt (Phase 3).
+# the z2k-classify generator which is itself gone.
 #
 # --bind-fix4/6: bind each raw-socket fake to the NFQUEUE-reported outgoing
 # interface. Without it, on Keenetic with policy-based routing (NDM
@@ -1215,8 +1214,7 @@ z2k_covering_lists()
 		"${ZAPRET_BASE}/extra_strats/TCP/YT_GV/List.txt" \
 		"${ZAPRET_BASE}/extra_strats/UDP/YT/List.txt" \
 		"${ZAPRET_BASE}/extra_strats/TCP_Discord.txt" \
-		"${ZAPRET_BASE}/lists/autohostlist-domains.txt" \
-		"${ZAPRET_BASE}/lists/discovered-domains.txt"
+		"${ZAPRET_BASE}/lists/autohostlist-domains.txt"
 }
 
 # Убрать из «доп доменов» то, что уже покрыто другими списками.

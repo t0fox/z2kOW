@@ -43,7 +43,6 @@ printf 'user-domain.example\n' >> "$Z2K_ETC/user-lists/whitelist.txt"
 printf 'user-domain.example\n' >> "$Z2K_ETC/user-lists/extra-domains.txt"
 _c0="$(cksum "$Z2K_ETC/config")"; _w0="$(cksum "$Z2K_ETC/user-lists/whitelist.txt")"
 _e0="$(cksum "$Z2K_ETC/user-lists/extra-domains.txt")"
-_s0="$(cksum "$Z2K_ETC/state/discovered-domains.txt")"
 # update с regen-config шагом (трогает конфиг!) + merge extra-domains
 lc_origin_put "lib/utils.sh" <<'EOF'
 #!/bin/sh

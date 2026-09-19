@@ -80,8 +80,7 @@ z2k_install_paths_for() {
             echo "${zd}/etc/${repo_path#files/etc/}"
             ;;
         files/init.d/S98z2k-detect)
-            # z2k-detect daemon init script — install.sh copies to
-            # /opt/etc/init.d (Entware standard), not into $ZAPRET2_DIR.
+            # Legacy target retained so patch deletion reaches the old launcher.
             echo "/opt/etc/init.d/S98z2k-detect"
             ;;
         files/init.d/S96z2k-rt-proxy)

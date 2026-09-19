@@ -1,21 +1,4 @@
-// z2k-detect — DPI-discovery daemon for z2k.
-//
-// Watches DNS queries from dnsmasq's log, probes domains the client just
-// asked about, and on a Hot verdict appends the hostname to
-// /opt/zapret2/lists/discovered-domains.txt. nfqws2 picks the file up
-// via inotify and applies bypass to subsequent client requests, usually
-// within seconds of the first failed connection.
-//
-// State is intentionally ephemeral: no SQLite, no TSV state machine,
-// no Hot/Cache promotion ceremony. The discovered-domains.txt file is
-// the canonical "we already added this" record; daemon reloads it on
-// start. Operators manage cleanup the same way they always have —
-// webpanel "Доп. домены" or direct edit + nfqws2 inotify.
-//
-// Subcommands:
-//
-//	probe <domain>   — one-shot diagnostic (no state touched)
-//	run <logfile>    — daemon mode (tail + probe + append)
+// z2k-detect — on-demand network diagnostics. Never publishes domain lists.
 //
 // # Почему ниже прибит GODEBUG
 //
@@ -76,8 +59,6 @@ import (
 
 	"github.com/necronicle/z2k/z2k-detect/internal/classify"
 	"github.com/necronicle/z2k/z2k-detect/internal/decision"
-	"github.com/necronicle/z2k/z2k-detect/internal/dnssrc"
-	"github.com/necronicle/z2k/z2k-detect/internal/engine"
 	"github.com/necronicle/z2k/z2k-detect/internal/prober"
 )
 
@@ -90,8 +71,7 @@ commands:
   quic <domain>             то же для QUIC/UDP: чем режут датаграммы
   voice                     голос Дискорда; адрес берётся из ИДУЩЕГО разговора
   tcp16 [-asn N] [-scan F]  проба на блок по объёму соединения; -scan ищет проходящее имя
-  dnsms -server IP           время обычного UDP-запроса к DNS, в миллисекундах
-  run [-dns-source SRC]     start daemon. SRC: agh|dnsmasq|pkt (default: auto)`)
+  dnsms -server IP           время обычного UDP-запроса к DNS, в миллисекундах`)
 }
 
 func main() {
@@ -122,8 +102,6 @@ func main() {
 		tcp16Cmd(ctx, args[1:])
 	case "dnsms":
 		dnsmsCmd(ctx, args[1:])
-	case "run":
-		runCmd(ctx, args[1:])
 	default:
 		fatal("unknown command: %s", args[0])
 	}
@@ -359,7 +337,7 @@ func classifyCmd(ctx context.Context, rest []string) int {
 
 // probeCmd runs a one-shot probe + prints a z2k-friendly verdict line.
 // Stateless: never opens the daemon's runtime state, never writes to
-// discovered-domains.txt. Used by menu [Y] and operator triage.
+// persistent state. Used by menu [Y] and operator triage.
 func probeCmd(ctx context.Context, rest []string) {
 	fs := flag.NewFlagSet("probe", flag.ExitOnError)
 	asJSON := fs.Bool("json", false, "emit raw probe Result as JSON")
@@ -463,32 +441,6 @@ func probeCmd(ctx context.Context, rest []string) {
 
 // runCmd starts the engine daemon. Returns cleanly on SIGTERM/SIGINT
 // (context.Canceled), non-zero on any other error.
-func runCmd(ctx context.Context, rest []string) {
-	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	dnsSrc := fs.String("dns-source", "", "DNS observation source: agh|dnsmasq|pkt. Empty = auto-detect (AGH → dnsmasq → AF_PACKET sniff)")
-	publishPath := fs.String("publish", "/opt/zapret2/lists/discovered-domains.txt", "where to append HOT-verdict hostnames")
-	_ = fs.Parse(rest)
-
-	cfg := engine.Defaults()
-	cfg.PublishPath = *publishPath
-	if *dnsSrc != "" {
-		src, err := dnssrc.Detect(*dnsSrc)
-		if err != nil {
-			fatal("%v", err)
-		}
-		cfg.DNSSource = src
-	}
-
-	err := engine.Run(ctx, cfg)
-	// SIGTERM from init.d arrives as context cancellation — engine.Run
-	// returns ctx.Err() (== context.Canceled). That's not a fatal; let
-	// the process exit zero so the supervisor sees a clean stop.
-	if err != nil && err != context.Canceled {
-		fatal("engine: %v", err)
-	}
-	fmt.Fprintln(os.Stderr, "engine: stopped")
-}
-
 func okStr(b *bool) string {
 	if b == nil {
 		return "skip"

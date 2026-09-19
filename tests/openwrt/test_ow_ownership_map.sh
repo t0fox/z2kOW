@@ -39,7 +39,6 @@ while IFS= read -r _line; do
     case "$1" in
         /etc/init.d/z2k) _src="package/openwrt/files/etc/init.d/z2k" ;;
         /etc/init.d/z2k-webpanel) _src="package/openwrt/files/etc/init.d/z2k-webpanel" ;;
-        /etc/init.d/z2k-detect) _src="package/openwrt/files/etc/init.d/z2k-detect" ;;
         /etc/sysctl.d/99-z2k.conf) _src="package/openwrt/files/etc/sysctl.d/99-z2k.conf" ;;
         /etc/hotplug.d/iface/90-z2k) _src="package/openwrt/files/etc/hotplug.d/iface/90-z2k" ;;
         /usr/lib/z2k/platform/openwrt/*) _src="platform/openwrt/$(basename "$1")" ;;

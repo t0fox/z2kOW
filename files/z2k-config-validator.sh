@@ -303,7 +303,7 @@ check_hostlist_files() {
                     # не нашла. Ругаться на это — учить человека не читать
                     # предупреждения.
                     case "${_path##*/}" in
-                        zapret-hosts-auto.txt|autohostlist-domains.txt|discovered-domains.txt) : ;;
+                        zapret-hosts-auto.txt|autohostlist-domains.txt) : ;;
                         *) _empty="$_empty $_path" ;;
                     esac
                 fi

@@ -84,7 +84,6 @@ for _path in \
     "$Z2K_EXTRA_STRATS_DIR/UDP/YT/List.txt" \
     "$Z2K_EXTRA_STRATS_DIR/TCP/RKN/List.txt" \
     "$Z2K_LISTS_DIR/extra-domains.txt" \
-    "$Z2K_LISTS_DIR/discovered-domains.txt" \
     "$Z2K_ROOT/ipset/zapret-hosts-auto.txt"; do
     printf '%s\n' "$_quic_line" | grep -qF -- "--hostlist=$_path" && _t_ok || _t_bad "QUIC profile missing hostlist $_path"
 done

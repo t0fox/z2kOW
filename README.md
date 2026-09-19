@@ -1443,7 +1443,7 @@ z2k/
 │   ├── z2k-tg-watchdog.sh      # Telegram tunnel health watchdog
 │   └── z2k-fix-tg-watchdog.sh  # TG watchdog hotfix
 ├── webpanel/                   # Веб-панель (установщик, CGI-бэкенд, фронтенд)
-├── z2k-detect/                 # Демон автодетекции блокировок (Go)
+├── z2k-detect/                 # Проверки домена и протоколов (Go)
 ├── rt-proxy/                   # Прокси для RuTracker (Go)
 ├── vps-relay/                  # Серверный релей туннелей (Go)
 ├── vps-stats/                  # Приём и агрегация анонимной статистики

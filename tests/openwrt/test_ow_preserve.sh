@@ -25,22 +25,22 @@ z2k_ow_bootstrap >/dev/null 2>&1 || exit 1
 # пользователь меняет config и кладёт своё в state/user-lists
 printf '\nZ2K_DYNAMIC_TTL=0\n' >>"$Z2K_CONFIG"
 echo "my whitelisted domain" >"$Z2K_USER_LISTS/whitelist.txt"
-echo "custom state" >"$Z2K_STATE/discovered-domains.txt"
+echo "custom state" >"$Z2K_STATE/tcp16_sni.txt"
 _sum_cfg="$(cksum "$Z2K_CONFIG")"
 _sum_wl="$(cksum "$Z2K_USER_LISTS/whitelist.txt")"
-_sum_st="$(cksum "$Z2K_STATE/discovered-domains.txt")"
+_sum_st="$(cksum "$Z2K_STATE/tcp16_sni.txt")"
 
 # повторный bootstrap (upgrade/reboot) — руки прочь от пользовательского
 z2k_ow_bootstrap >/dev/null 2>&1 || { echo "FAIL[ow-preserve]: re-bootstrap" >&2; exit 1; }
 assert_eq "config не перезаписан" "$_sum_cfg" "$(cksum "$Z2K_CONFIG")"
 assert_eq "whitelist цел" "$_sum_wl" "$(cksum "$Z2K_USER_LISTS/whitelist.txt")"
-assert_eq "state цел" "$_sum_st" "$(cksum "$Z2K_STATE/discovered-domains.txt")"
+assert_eq "tcp16 state цел" "$_sum_st" "$(cksum "$Z2K_STATE/tcp16_sni.txt")"
 
 # generate сохраняет флаг (saved_Z2K_DYNAMIC_TTL) и не трогает чужие файлы
 z2k_ow_generate >/dev/null 2>&1 || { echo "FAIL[ow-preserve]: generate" >&2; exit 1; }
 assert_contains "флаг пережил генерацию" "$Z2K_CONFIG" "Z2K_DYNAMIC_TTL=0"
 assert_eq "whitelist цел после generate" "$_sum_wl" "$(cksum "$Z2K_USER_LISTS/whitelist.txt")"
-assert_eq "state цел после generate" "$_sum_st" "$(cksum "$Z2K_STATE/discovered-domains.txt")"
+assert_eq "tcp16 state цел после generate" "$_sum_st" "$(cksum "$Z2K_STATE/tcp16_sni.txt")"
 
 # init/hotplug — package-owned код БЕЗ conffiles: при upgrade пакет их
 # заменяет (менеджеру нечего сохранять); user-config пакет не поставляет

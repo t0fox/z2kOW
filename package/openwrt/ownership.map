@@ -16,14 +16,13 @@
 #              dirty/fails), иначе они утверждали бы ложь о снесённом payload.
 #   trust    — TOFU канала (публичный pin первого verified fetch). Пишет
 #              updater; переживает uninstall (ослаблять ratchet нельзя).
-#   daemon-state — публикует демон (+ правит человек): autocircular state,
-#              discovered/sni/tcp16 карты. Переживает всё (upgrade/update/
+#   daemon-state — публикует runtime (+ правит человек): autocircular state,
+#              sni/tcp16 карты. Переживает всё (upgrade/update/
 #              uninstall); purge — только вручную.
 # Допускаются glob-суффиксы /* (поддерево целиком).
 # Конфликт package∩updater (точные пути) = PACKAGE_UPDATER_OWNERSHIP_CONFLICT,
 # сторожит tests/openwrt/test_ow_ownership_map.sh.
 /etc/init.d/z2k package
-/etc/init.d/z2k-detect package
 /etc/hotplug.d/iface/90-z2k package
 /etc/sysctl.d/99-z2k.conf package
 /usr/lib/z2k/platform/openwrt/paths.sh package
@@ -80,7 +79,6 @@
 /etc/z2k/state/quic-pool-key-migrated install-meta
 /etc/z2k/.trust/pinned trust
 /etc/z2k/state/state.tsv daemon-state
-/etc/z2k/state/discovered-domains.txt daemon-state
 /etc/z2k/state/tcp16_asn.txt daemon-state
 /etc/z2k/state/tcp16_sni.txt daemon-state
 # WARP device identity (Stage 5): пишет register/binary; переживает

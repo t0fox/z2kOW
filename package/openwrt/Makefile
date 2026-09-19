@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=28
+PKG_RELEASE:=29
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -59,8 +59,11 @@ PKG_RELEASE:=28
 # RELEASE 26: p-84.27 upstream seed and payload sync.
 # RELEASE 28: p-85.1 common webpanel sync with explicit OpenWrt boundaries;
 # pending-vs-full update history, no Keenetic installer/helper in OpenWrt.
+# RELEASE 29 (p-85.2): retire the package-owned background discovery daemon;
+# keep z2k-detect only as an on-demand diagnostic binary and remove its stale
+# daemon state during upgrade.
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
-# lists/strats/webpanel; z2k-owned TG/RT/WARP/z2k-detect едут updater binary
+# lists/strats/webpanel; z2k-owned TG/RT/WARP/manual z2k-detect едут updater binary
 # flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
 # Внешний pinned dataplane — отдельный пакет package/z2k-runtime
 # (arch-specific, свои PKGARCH/VERSION).
@@ -117,7 +120,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r28)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r29)
 endef
 
 define Package/z2k-webpanel/description
@@ -172,7 +175,6 @@ define Package/z2k-adapter/install
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/platform/openwrt/custom.d
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/share
 	$(INSTALL_BIN) ./files/etc/init.d/z2k $(1)/etc/init.d/z2k
-	$(INSTALL_BIN) ./files/etc/init.d/z2k-detect $(1)/etc/init.d/z2k-detect
 	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/90-z2k $(1)/etc/hotplug.d/iface/90-z2k
 	$(INSTALL_BIN) $(Z2K_TREE)/files/z2k-diag.sh $(1)/usr/lib/z2k/z2k-diag.sh
 	$(INSTALL_DATA) ./files/etc/z2k/config.default $(1)/usr/lib/z2k/share/config.default
@@ -216,8 +218,12 @@ Z2K_OW_WAS_FRESH=0
 . "$$Z2K_ROOT/platform/openwrt/paths.sh"
 [ -f "$${Z2K_ETC:-/etc/z2k}/.payload-initialized" ] || Z2K_OW_WAS_FRESH=1
 . "$$Z2K_ROOT/platform/openwrt/bootstrap.sh"
+z2k_ow_retire_discovery || {
+    echo "z2k-openwrt: postinst: не удалось безопасно удалить старую автодетекцию" >&2
+    exit 1
+}
 z2k_ow_seed_ensure || exit 1
-# z2k-owned binaries (TG/RT/detect): fresh-install provisioning best-effort
+# z2k-owned binaries (TG/RT/manual detect): fresh-install provisioning best-effort
 # (platform/openwrt/binaries.sh reuses au_step_refresh_binaries: manifest
 # hashes + atomic replace, но БЕЗ owner bounce). Транзакцию НЕ роняем: без
 # сети отказ здесь штатен, enforcement — в start preflight (fail loudly).
@@ -258,10 +264,6 @@ sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1 || true
 if [ "$Z2K_OW_WAS_FRESH" = "1" ]; then
     /etc/init.d/z2k enable >/dev/null 2>&1 \
         || echo "z2k-openwrt: postinst: enable не удался" >&2
-    # detect-сервис ставим включённым (parity S98): сам демон self-gated
-    # флагом Z2K_DISCOVER (default OFF) и дормантен до включения.
-    /etc/init.d/z2k-detect enable >/dev/null 2>&1 \
-        || echo "z2k-openwrt: postinst: detect enable не удался" >&2
     if /etc/init.d/z2k start 2>&1; then
         sleep 2
         if /etc/init.d/z2k running >/dev/null 2>&1; then

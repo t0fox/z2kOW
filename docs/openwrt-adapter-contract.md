@@ -47,7 +47,7 @@ p-84.7, ветка `feat/openwrt-adapter`). Правило: сначала adapt
   `${ZAPRET2_DIR}/config` внутри `generate_*` (иначе флаги из /etc молча
   заменялись бы дефолтами — доказано тестом на `Z2K_NFQWS2_TEMPLATES=0`);
 - `lists/whitelist.txt -> /etc/z2k/user-lists/whitelist.txt` (user-owned);
-- `lists/discovered-domains.txt -> /etc/z2k/state/discovered-domains.txt`.
+- retired discovery state is removed during upgrade; no discovered-list bridge exists.
 
 Strategy.txt прематериализованы СБОРКОЙ (`materialize.sh`: манифесты ->
 `strategies.conf` -> `Strategy.txt`); в boot-пути только fail-closed

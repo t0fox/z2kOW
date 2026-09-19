@@ -204,9 +204,7 @@ menu_diagnose_domain() {
     clear_screen
     print_header "[Y] Diagnose domain / z2k-detect"
 
-    local z2k_detect="/opt/sbin/z2k-detect"
-    local cfg=/opt/zapret2/config
-    local pidfile=/var/run/z2k-detect.pid
+    local z2k_detect="${Z2K_DETECT_BIN:-/opt/sbin/z2k-detect}"
 
     if [ ! -x "$z2k_detect" ]; then
         print_error "z2k-detect не установлен: $z2k_detect"
@@ -215,46 +213,13 @@ menu_diagnose_domain() {
         return
     fi
 
-    # Daemon status + Z2K_DISCOVER flag — operator's at-a-glance summary.
-    #
-    # УМОЛЧАНИЕ — 0, КАК У ДВИЖКА. Здесь стояла единица, и при отсутствующем
-    # ключе меню показывало «Автодетекция: 1», тогда как init и генератор
-    # конфига в этом же случае считают её ВЫКЛЮЧЕННОЙ. Человек читал «включено»
-    # при фактически выключенном демоне и не понимал, работает оно или нет
-    # (issue #44).
-    local flag="0"
-    if [ -f "$cfg" ]; then
-        local _v
-        _v=$(grep -E "^Z2K_DISCOVER=" "$cfg" 2>/dev/null | tail -1 | cut -d= -f2 | tr -d '" ')
-        [ -n "$_v" ] && flag="$_v"
-    fi
-    local running="нет"
-    if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null; then
-        running="да (PID $(cat "$pidfile"))"
-    fi
-    printf "Автодетекция:   %s\n" "$flag"
-    printf "Демон запущен:  %s\n" "$running"
-    print_separator
     print_info "[D] Проверить домен"
-    print_info "[T] Переключить автодетекцию (текущее: $flag) — опытная, по умолчанию выключена"
     print_info "[Enter] Выход"
     printf "> "
     local action
     read_input action
 
     case "$action" in
-        t|T)
-            local new_flag
-            if [ "$flag" = "1" ]; then new_flag="0"; else new_flag="1"; fi
-            touch "$cfg" 2>/dev/null
-            set_flag Z2K_DISCOVER "$new_flag" "$cfg"
-            print_success "Автодетекция: $new_flag"
-            if [ -x /opt/etc/init.d/S98z2k-detect ]; then
-                /opt/etc/init.d/S98z2k-detect restart >/dev/null 2>&1 || true
-            fi
-            pause
-            return
-            ;;
         d|D|"")
             ;;
         *)
@@ -289,10 +254,7 @@ menu_diagnose_domain() {
     print_separator
     "$z2k_detect" probe "$domain"
     print_separator
-    # No --apply prompt — CLI pinning would race with daemon's in-memory
-    # store (двойной writer на один TSV). Если по выводу видно HOT и юзер
-    # хочет добавить вручную — есть webpanel «Доп. домены» или прямое
-    # редактирование /opt/zapret2/lists/extra-domains.txt, путь без race'а.
+    # Проверка ничего не добавляет; пользователь управляет «Доп. доменами» сам.
     pause
 }
 
@@ -467,6 +429,19 @@ menu_instagram_dns() {
 # ПОДМЕНЮ: УСТАНОВКА
 # ==============================================================================
 
+# Refresh temporary module/panel inputs before reinstall so a stale /tmp/z2k
+# tree cannot put an older webpanel back over freshly updated files.
+menu_install_fresh() (
+    z2k_fetch_manifest_hashes || return 1
+    download_modules || return 1
+    source_modules || return 1
+    download_strategies_source || return 1
+    download_fake_blobs || return 1
+    download_init_script || return 1
+    generate_strategies_database || return 1
+    run_full_install
+)
+
 menu_install() {
     clear_screen
     print_header "[1] Установка/Переустановка zapret2"
@@ -478,14 +453,14 @@ menu_install() {
 
         case "$answer" in
             [Yy]|[Yy][Ee][Ss])
-                run_full_install
+                menu_install_fresh
                 ;;
             *)
                 print_info "Установка отменена"
                 ;;
         esac
     else
-        run_full_install
+        menu_install_fresh
     fi
 
     pause

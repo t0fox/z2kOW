@@ -55,7 +55,6 @@ grep -oE -- '--blob=[A-Za-z_][A-Za-z0-9_]*:@[^ "]+' "$DIR/files/S99zapret2.new" 
         [ -n "$_f" ] && printf 'x' > "$SB/files/fake/$_f"
     done
 # Хостлисты, которые генератор объявляет безусловно.
-: > "$SB/lists/discovered-domains.txt"
 : > "$SB/lists/extra-domains.txt"
 printf '#!/bin/sh\nexit 0\n' > "$SB/nfq2/nfqws2"; chmod +x "$SB/nfq2/nfqws2"
 

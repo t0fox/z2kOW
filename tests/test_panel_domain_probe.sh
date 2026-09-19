@@ -198,5 +198,24 @@ done
 [ -z "$_missing" ] && ok "стили результата на месте" \
                    || no "стили результата" "все классы" "нет:$_missing"
 
+# CLI [Y] remains a one-shot probe and no longer exposes daemon controls.
+(
+    . "$ROOT/lib/utils.sh"
+    . "$ROOT/lib/menu.sh"
+    Z2K_DETECT_BIN="$TMP/fake-detect"
+    clear_screen() { :; }; pause() { :; }
+    read_input() { case "$1" in action) action=d ;; domain) domain=example.com ;; esac; }
+    menu_diagnose_domain
+) > "$TMP/menu-out"
+_menu_out=$(cat "$TMP/menu-out")
+case "$_menu_out" in
+    *"argv: probe example.com"*) ok "меню запускает ручную проверку" ;;
+    *) no "ручная проверка из меню" "probe example.com" "$_menu_out" ;;
+esac
+case "$_menu_out" in
+    *"[T]"*|*"Автодетекция:"*|*"Демон запущен:"*) no "автодетекция удалена из меню" "absent" "$_menu_out" ;;
+    *) ok "меню не предлагает автодетекцию" ;;
+esac
+
 printf '\nPASSED: %d\nFAILED: %d\nSKIPPED: %d\n' "$PASS" "$FAIL" "$SKIP"
 [ "$FAIL" -eq 0 ]

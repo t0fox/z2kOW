@@ -1424,7 +1424,7 @@ download_init_script() {
     # z2k-dynamic-strategy.lua removed in r-15 Phase 1 (slot in
     # rkn_tcp removed alongside, see lib/config_official.sh).
     # The handler depended on the dead z2k-classify producer; new
-    # discovery feedback in Phase 3 lives in discovered-domains.txt.
+    # Experimental background discovery has been retired; checks are manual.
 
     # Snapshot domain lists used by local install flow (no external list repos)
     local list_file
@@ -1614,8 +1614,7 @@ handle_arguments() {
         # probe / classify CLI handlers removed in r-15 (Phase 1 of the
         # detection stack). Replaced by the server-active
         # taxonomy жила в z2k-detectors.lua (удалён 2026-08-26)
-        # and, when Phase 3 lands, by the z2k-detect daemon's reactive
-        # discovery + cross-vantage probe. See lib/menu.sh notice for
+        # and by manual z2k-detect probes. See lib/menu.sh notice for
         # rationale.
         help|h|-h|--help)
             show_help

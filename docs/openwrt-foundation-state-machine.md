@@ -38,7 +38,7 @@ RUNTIME (tmpfs), EXTERNAL_ZAPRET2 (чужой runtime, только вызыва
 | `/etc/z2k/config` | USER (bootstrap — только если отсутствует; generator — saved_*-merge) | regen (preserving), flags-reapply | never by package/updater (только purge вручную) | upgrade/update/rollback |
 | install-meta: `.payload-initialized`, `state/installed-tag`, `state/dirty-tree`, `state/au-delivery-fails` | bootstrap (marker/tag) + updater (tag/dirty/fails) | tag/dirty/fails по своим путям | uninstall (active metadata — иначе ложь о снесённом payload) | upgrade (без re-seed не трогаем) |
 | trust: `.trust/pinned` | updater (pin on first verify) | never | NEVER (TOFU переживает reinstall) | — |
-| daemon-state: `state.tsv`, `discovered-domains.txt`, `tcp16_*.txt` | daemon (+ человек) | never | never (кроме purge) | — |
+| daemon-state: `state.tsv`, `tcp16_*.txt` | runtime (+ человек) | never | never (кроме purge) | — |
 | `/etc/z2k/user-lists/*` | USER (+ merge extra-domains: shipped ∪ user) | merge only | never | — |
 | `/etc/crontabs/root` (строка `# z2k-updater`) | PACKAGE postinst/prerm (по маркеру, атомарно) | never | prerm (только своя строка) | чужие строки (byte-preserved) |
 | `/tmp/z2k/*` | RUNTIME (locks/logs/update/downloads/generated) | свои подкаталоги | reboot / prerm | — (не обязан) |

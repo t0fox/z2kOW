@@ -950,9 +950,7 @@ generate_nfqws2_opt_from_strategies() {
     # /opt/zapret2/lists/z2k-classify-*.tsv DBs and
     # /tmp/z2k-classify-dynparams transient params. classify is gone,
     # producer DBs are not written by anyone, and the handler quietly
-    # no-op'd every flow. Phase 3 (z2k-detect daemon) feeds back
-    # through discovered-domains.txt / whitelist.txt — a different
-    # per-domain mechanism, not a per-flow dynamic-params one.
+    # no-op'd every flow. The experimental discovery daemon is also retired.
 
     discord_udp=$(strip_dead_range_args "$discord_udp")
 
@@ -1433,13 +1431,6 @@ generate_nfqws2_opt_from_strategies() {
     # Shipped extras curated on top of runetfreedom RKN — domains users
     # reported missing (fast-torrent.ru etc). Refreshed on every install.
     [ -s "${lists_dir}/extra-domains.txt" ] && rkn_lists_tail="$rkn_lists_tail --hostlist=${lists_dir}/extra-domains.txt"
-    # z2k-detect daemon-managed hostlist. Populated reactively from probe
-    # verdicts (hot ∪ cache → discovered-domains.txt). Wired unconditionally
-    # — install.sh touches the file early (step_build_zapret2) so the path
-    # is always valid by the time NFQWS2_OPT is generated. Dropping the
-    # `[ -e ]` guard makes the wiring static against static analysis and
-    # eliminates a "fresh install timing" foot-gun.
-    rkn_lists_tail="$rkn_lists_tail --hostlist=${lists_dir}/discovered-domains.txt"
     # Автохостлист (Z2K_AUTOHOSTLIST=1): домены, которые движок нашёл сам,
     # подхватываются ЭТИМИ профилями — со всем арсеналом и ротацией РКН.
     # Профиль-детектор (в хвосте, см. ниже) только НАХОДИТ и дописывает имя в
@@ -1822,6 +1813,41 @@ z2k_reply_pkt_cap() {
     echo 10
 }
 
+# Retire the experimental discovery daemon, not the on-demand probe binary.
+# OpenWrt supplies its own exact-path migration; Keenetic keeps the upstream
+# /opt layout. Neither path may delete user-owned lists by filename match.
+z2k_retire_discovery() {
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+        command -v z2k_ow_retire_discovery >/dev/null 2>&1 || return 0
+        z2k_ow_retire_discovery
+        return $?
+    fi
+    local zd="${ZAPRET2_DIR:-/opt/zapret2}" prefix proc pid args n
+    prefix=${zd%/*}
+    rm -f "$prefix/etc/init.d/S98z2k-detect" \
+        "$zd/z2k-detect-watchdog.sh" "$zd/files/z2k-detect-watchdog.sh" \
+        "$zd/files/init.d/S98z2k-detect" || return 1
+    for proc in "${Z2K_DISCOVERY_PROC_ROOT:-/proc}"/[0-9]*; do
+        [ -r "$proc/cmdline" ] || continue
+        args=$(tr '\000' '\n' 2>/dev/null < "$proc/cmdline" | head -2)
+        [ "$args" = "$(printf '%s\nrun' "$prefix/sbin/z2k-detect")" ] || continue
+        pid=${proc##*/}
+        kill "$pid" 2>/dev/null || { [ ! -d "$proc" ] || return 1; }
+        n=0
+        while [ -r "$proc/cmdline" ] && [ "$n" -lt 5 ]; do
+            args=$(tr '\000' '\n' 2>/dev/null < "$proc/cmdline" | head -2)
+            [ "$args" = "$(printf '%s\nrun' "$prefix/sbin/z2k-detect")" ] || break
+            sleep 1
+            n=$((n + 1))
+        done
+        args=$(tr '\000' '\n' 2>/dev/null < "$proc/cmdline" | head -2)
+        [ "$args" != "$(printf '%s\nrun' "$prefix/sbin/z2k-detect")" ] || return 1
+    done
+    rm -f "$zd/lists/discovered-domains.txt" \
+        "$zd/lists/discovered-domains.txt.etag" \
+        "$zd/files/lists/discovered-domains.txt" || return 1
+}
+
 create_official_config() {
     # $1 - путь к config файлу (обычно /opt/zapret2/config)
 
@@ -1958,7 +1984,6 @@ create_official_config() {
     local saved_Z2K_PADENCAP="1"
     local saved_Z2K_NFQWS2_TEMPLATES="1"
     local saved_Z2K_INJECT_TLS_MODS="0"
-    local saved_Z2K_DISCOVER="0"
     local saved_Z2K_DYNAMIC_TTL="1"
     local saved_Z2K_INSTA_DNS="1"
     local saved_Z2K_STATS="1"
@@ -2015,11 +2040,6 @@ create_official_config() {
         saved_Z2K_PADENCAP=$(safe_config_read "Z2K_PADENCAP" "$config_file" "1")
         saved_Z2K_NFQWS2_TEMPLATES=$(safe_config_read "Z2K_NFQWS2_TEMPLATES" "$config_file" "1")
         saved_Z2K_INJECT_TLS_MODS=$(safe_config_read "Z2K_INJECT_TLS_MODS" "$config_file" "0")
-        # Z2K_DISCOVER — умолчание 0, и ключ обязан ПЕРЕЖИВАТЬ перегенерацию.
-        # Его тут не было вовсе: генератор ключ не сохранял, установка потом
-        # дописывала «Z2K_DISCOVER=0», и включённая вручную автодетекция
-        # сбрасывалась при каждом обновлении (issue #44).
-        saved_Z2K_DISCOVER=$(safe_config_read "Z2K_DISCOVER" "$config_file" "0")
         # Z2K_AUTOHOSTLIST — default 0, deliberately against the "new flags come
         # on" rule. It does not improve behaviour, it swaps the filtering mode
         # for ALL traffic: nfqws2 starts deciding for itself which hosts are
@@ -2139,12 +2159,6 @@ ENABLED=${saved_ENABLED}
 # in S99zapret2), appending what it finds to the RKN list.
 MODE_FILTER=${z2k_mode_filter}
 Z2K_AUTOHOSTLIST=${saved_Z2K_AUTOHOSTLIST}
-
-# Автодетекция блокировок (демон z2k-detect, пункт [Y] в меню).
-# ФУНКЦИЯ ОПЫТНАЯ, по умолчанию выключена и на эксплуатацию не рассчитана.
-# Ключ сохраняется между перегенерациями: включённый вручную режим не должен
-# сбрасываться обновлением.
-Z2K_DISCOVER=${saved_Z2K_DISCOVER}
 
 # Пороги детектора автохостлиста. Действуют только при Z2K_AUTOHOSTLIST=1.
 # Закомментировано = значение по умолчанию самого движка (показано справа).
@@ -2514,6 +2528,8 @@ EOF
         return 1
     fi
     config_file="$_cfg_target"
+
+    z2k_retire_discovery || { print_error "Не удалось удалить старую автодетекцию"; return 1; }
 
     print_success "Config файл создан: $config_file"
     return 0

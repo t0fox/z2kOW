@@ -11,8 +11,7 @@ import (
 // pretty-printed "found in: <file>" message — the first match wins.
 //
 // Paths are absolute to /opt/zapret2/lists/ — z2k's canonical install
-// prefix. If the file is missing it's silently skipped (fresh install
-// might lack discovered-domains.txt; that's normal).
+// prefix. If a file is missing it is silently skipped.
 var z2kHostlists = []struct {
 	Path  string
 	Label string
@@ -32,7 +31,6 @@ var z2kHostlists = []struct {
 	{"/opt/zapret2/extra_strats/TCP/YT_GV/List.txt", "YouTube googlevideo list (shipped)"},
 	{"/opt/zapret2/extra_strats/UDP/YT/List.txt", "YouTube QUIC list (shipped)"},
 	{"/opt/zapret2/lists/extra-domains.txt", "z2k community extras"},
-	{"/opt/zapret2/lists/discovered-domains.txt", "z2k-detect auto-discovered"},
 	{"/opt/zapret2/lists/whitelist.txt", "operator whitelist (no-bypass)"},
 }
 
