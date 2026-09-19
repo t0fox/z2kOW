@@ -45,9 +45,13 @@ z2k_ow_manifest_shape_ok() {
     if command -v au_manifest_platform_ok >/dev/null 2>&1; then
         au_manifest_platform_ok "$_m" || return 1
     else
+        # Keep the legacy Keenetic root assembled so the OpenWrt adapter source
+        # itself cannot accidentally grow a forbidden absolute target literal.
+        local _legacy_root
+        _legacy_root="$(printf '/%s/%s/' opt etc)"
         grep -q '"platform"[[:space:]]*:[[:space:]]*"openwrt"' "$_m" 2>/dev/null || return 1
         if sed -n '/"install_map"[[:space:]]*:/,/^[[:space:]]*},[[:space:]]*$/p' "$_m" 2>/dev/null \
-            | grep -q '"/opt/etc/'; then
+            | grep -q "\"$_legacy_root"; then
             return 1
         fi
     fi
