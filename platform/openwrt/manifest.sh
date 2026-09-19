@@ -36,8 +36,21 @@ z2k_ow_manifest_file_sha() {
 z2k_ow_manifest_shape_ok() {
     local _m="$1"
     [ -s "$_m" ] || return 1
-    command -v au_manifest_platform_ok >/dev/null 2>&1 || return 1
-    au_manifest_platform_ok "$_m" || return 1
+    # The cron updater loads lib/auto_update.sh before this seam, while the
+    # webpanel CGI intentionally keeps a smaller source graph.  Keep the
+    # canonical helper when it is present, but do not make a valid embedded
+    # snapshot fail merely because the CGI did not load the whole updater.
+    # The fallback repeats the helper's two structural OpenWrt guards and
+    # remains fail-closed for foreign/keenetic manifests.
+    if command -v au_manifest_platform_ok >/dev/null 2>&1; then
+        au_manifest_platform_ok "$_m" || return 1
+    else
+        grep -q '"platform"[[:space:]]*:[[:space:]]*"openwrt"' "$_m" 2>/dev/null || return 1
+        if sed -n '/"install_map"[[:space:]]*:/,/^[[:space:]]*},[[:space:]]*$/p' "$_m" 2>/dev/null \
+            | grep -q '"/opt/etc/'; then
+            return 1
+        fi
+    fi
     grep -q '"current"' "$_m" 2>/dev/null || return 1
     grep -q '"install_map"' "$_m" 2>/dev/null || return 1
     grep -q '"files_sha256"' "$_m" 2>/dev/null || return 1
