@@ -1620,11 +1620,11 @@ step_build_zapret2() {
             cp -f "$ZAPRET2_DIR/lists/custom-strategies/"*.txt "$backup_tmp/custom-strategies/" 2>/dev/null
         fi
         # Only the independent nfqws2 accumulator remains in this path.
-        for _acc in autohostlist-domains; do
-            [ -f "$ZAPRET2_DIR/lists/${_acc}.txt" ] || continue
+        _acc=autohostlist-domains
+        if [ -f "$ZAPRET2_DIR/lists/${_acc}.txt" ]; then
             cp -f "$ZAPRET2_DIR/lists/${_acc}.txt" "$backup_tmp/${_acc}.txt" || \
                 die "Не удалось сохранить ${_acc}.txt в бэкап — установка прервана, чтобы не потерять найденные автоматически домены."
-        done
+        fi
         # Autocircular state (найденные рабочие стратегии) — recoverable
         # (autocircular переподберёт стратегии заново), поэтому НЕ fatal:
         # warn и продолжаем, не блокируя установку ради cache.
@@ -2593,8 +2593,8 @@ TMPJUNK
         cp -f "$backup_tmp/custom-strategies/"*.txt "${ZAPRET2_DIR}/lists/custom-strategies/" 2>/dev/null
         print_info "Восстановлены пользовательские стратегии"
     fi
-    for _acc in autohostlist-domains; do
-        [ -f "$backup_tmp/${_acc}.txt" ] || continue
+    _acc=autohostlist-domains
+    if [ -f "$backup_tmp/${_acc}.txt" ]; then
         if cp -f "$backup_tmp/${_acc}.txt" "${ZAPRET2_DIR}/lists/${_acc}.txt" 2>/dev/null; then
             chmod 644 "${ZAPRET2_DIR}/lists/${_acc}.txt" 2>/dev/null || true
             print_info "Восстановлен ${_acc}.txt ($(grep -cvE '^[[:space:]]*(#|$)' "${ZAPRET2_DIR}/lists/${_acc}.txt" 2>/dev/null || echo 0) домен(ов))"
@@ -2605,7 +2605,7 @@ TMPJUNK
             cp -f "$backup_tmp/${_acc}.txt" "/tmp/z2k-${_acc}.txt" 2>/dev/null
             print_warning "Не удалось восстановить ${_acc}.txt — копия в /tmp/z2k-${_acc}.txt (до перезагрузки)"
         fi
-    done
+    fi
     # NB: shipped-снимка игровых списков нет — z2k-update-lists.sh тянет их
     # пер-игровыми файлами в lists/warp/games/ и владеет ими целиком. Здесь они
     # не РАЗВОРАЧИВАЮТСЯ, а переносятся из прошлой установки (см. блок

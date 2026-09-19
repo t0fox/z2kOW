@@ -8,7 +8,7 @@ no() { FAIL=$((FAIL + 1)); printf '[FAIL] %s (want=%s got=%s)\n' "$1" "$2" "$3";
 
 INST="$ROOT/lib/install.sh"
 [ -f "$INST" ] || { no "installer exists" yes no; exit 1; }
-if [ "$(grep -c 'for _acc in autohostlist-domains; do' "$INST")" = 2 ] &&
+if [ "$(grep -c '^ *_acc=autohostlist-domains$' "$INST")" = 2 ] &&
    ! grep -q 'discovered-domains.txt' "$INST"; then
     ok "installer keeps only autohostlist and no discovery state"
 else
@@ -25,7 +25,7 @@ printf 'user\n' > "$TREE/lists/extra-domains.txt"
 printf 'user\n' > "$TREE/lists/whitelist.txt"
 mkdir -p "$TMP/opt/etc/init.d"
 touch "$TMP/opt/etc/init.d/S98z2k-detect" "$TREE/z2k-detect-watchdog.sh"
-kill() { echo "$1" >> "$TMP/killed"; rm -rf "$PROC/$1"; }
+kill() { echo "$1" >> "$TMP/killed"; rm -rf -- "${PROC:?}/$1"; }
 
 # Only the process-control boundary is mocked; the migration is production code.
 . "$ROOT/lib/config_official.sh"
