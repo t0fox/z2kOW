@@ -178,16 +178,10 @@ wp_capabilities_json() {
     is_running >/dev/null 2>&1 && _running=true
     command -v z2k_ow_core_ready >/dev/null 2>&1 && \
         z2k_ow_core_ready >/dev/null 2>&1 && _ready=true
-    # The contract helper is package-owned.  A deliberately empty/fresh
-    # fixture has no initialized payload yet, so it is not a mismatch and must
-    # not emit a shell error.  Once an OpenWrt payload exists, absence of the
-    # helper is itself an incompatible adapter/payload state.
-    if [ "$Z2K_PLATFORM_STATUS" = "ok" ]; then
-        if command -v z2k_ow_panel_payload_compatible >/dev/null 2>&1; then
-            z2k_ow_panel_payload_compatible || _payload_compatible=false
-        elif [ -f "$Z2K_PAYLOAD_MARKER" ]; then
-            _payload_compatible=false
-        fi
+    if [ "$Z2K_PLATFORM_STATUS" = "ok" ] && command -v z2k_ow_panel_payload_compatible >/dev/null 2>&1; then
+        z2k_ow_panel_payload_compatible || _payload_compatible=false
+    elif [ "$Z2K_PLATFORM_STATUS" = "ok" ] && [ -f "$Z2K_PAYLOAD_MARKER" ]; then
+        _payload_compatible=false
     fi
     [ "$_payload_compatible" = "true" ] || { _ready=false; _degraded=true; }
     { [ "$_running" = "true" ] && [ "$_ready" = "false" ]; } && _degraded=true
