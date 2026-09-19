@@ -12,6 +12,11 @@ TPL="$REPO/webpanel/lighttpd.conf"
 PINIT="$REPO/package/openwrt/files/etc/init.d/z2k-webpanel"
 WPADAPT="$REPO/platform/openwrt/webpanel.sh"
 
+assert_contains "webpanel postinst exists" "$MK" 'define Package/z2k-webpanel/postinst'
+assert_contains "webpanel postinst enables init" "$MK" '/etc/init.d/z2k-webpanel enable'
+assert_contains "webpanel postinst starts init" "$MK" '/etc/init.d/z2k-webpanel start'
+assert_contains "webpanel postinst verifies running" "$MK" '/etc/init.d/z2k-webpanel running'
+
 # --- 1. точные DEPENDS z2k-webpanel (mod_cgi/mod_setenv — live-доказанные,
 # Stage 8: без них postinst/старт валятся; угадывать имена запрещено) ---
 _dep="$(sed -n '/^define Package\/z2k-webpanel$/,/^endef$/p' "$MK" 2>/dev/null | grep -E '^  DEPENDS:=')"

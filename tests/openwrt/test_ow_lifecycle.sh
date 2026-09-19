@@ -30,5 +30,6 @@ assert_contains "service: START" "$SVC" "START=22"
 assert_contains "service: core bounded respawn" "$SVC" "procd_set_param respawn 3600 5 5"
 assert_contains "service: shared NFQUEUE owner check" "$SVC" "z2k_ow_nfqws_consumer_ready"
 assert_contains "service: intentional stop fence" "$SVC" "stopping"
+assert_contains "panel: ready is not marker-only" "$REPO/webpanel/cgi/platform.sh" "z2k_ow_core_ready"
 
 _t_done

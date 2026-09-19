@@ -124,6 +124,7 @@ export function applyCapabilities(s) {
   if (caps.policy === false) hide("#policy-card");
   if (caps.ppe === false) hide('[data-key="ppe"]');
   if (caps.fastroute === false) hide('[data-key="fastroute"]');
+  if (caps.customd === false) hide('[data-key="customd"]');
   if (caps.tcp16 === false) hide("#tcp16-card");
   if (caps.uninstall === false) hide("#uninstall-card");
   // Вкладка браузера не должна представляться Keenetic на OpenWrt: стартовый

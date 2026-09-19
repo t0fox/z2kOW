@@ -59,11 +59,12 @@ else _t_bad "мутация не доехала в UDP/YT/Strategy.txt"; fi
 
 # 4. Custom strategy compatibility: canonical quic.txt wins over legacy
 # yt_quic.txt; when canonical is absent, the legacy file remains usable.
-mkdir -p "$Z2K_ROOT/lists/custom-strategies" || exit 1
+mkdir -p "$Z2K_EXTRA_STRATEGIES_RUNTIME" || exit 1
 printf '%s\n' '--lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=91:strategy=1' \
-    > "$Z2K_ROOT/lists/custom-strategies/quic.txt"
+    > "$Z2K_EXTRA_STRATEGIES_RUNTIME/quic.txt"
 printf '%s\n' '--lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=88:strategy=1' \
-    > "$Z2K_ROOT/lists/custom-strategies/yt_quic.txt"
+    > "$Z2K_EXTRA_STRATEGIES_RUNTIME/yt_quic.txt"
+printf '%s\n' 'fixture-extra.example' > "$Z2K_EXTRA_DOMAINS_RUNTIME"
 # The generator reads supplementary flags through $ZAPRET2_DIR/config. Keep
 # this test independent from the filesystem's symlink capability (the
 # production bridge itself is covered by test_ow_generate on Linux/CI).
@@ -77,14 +78,14 @@ _nfq="$(cat "$T/gen-ah.out")"
 _quic_line="$(printf '%s\n' "$_nfq" | grep -m1 -- '--hostlist=.*UDP/YT/List.txt' || true)"
 printf '%s\n' "$_quic_line" | grep -q 'repeats=91' && _t_ok || _t_bad "quic.txt не имеет приоритета над yt_quic.txt"
 printf '%s\n' "$_quic_line" | grep -q 'repeats=88' && _t_bad "legacy yt_quic.txt ошибочно перекрыл quic.txt" || _t_ok
-rm -f "$Z2K_ROOT/lists/custom-strategies/quic.txt"
+rm -f "$Z2K_EXTRA_STRATEGIES_RUNTIME/quic.txt"
 _legacy="$(z2k_custom_strategy yt_quic 2>/dev/null || true)"
 printf '%s\n' "$_legacy" | grep -q 'repeats=88' && _t_ok || _t_bad "legacy yt_quic.txt не применяется как fallback"
 for _path in \
     "$Z2K_EXTRA_STRATS_DIR/UDP/YT/List.txt" \
     "$Z2K_EXTRA_STRATS_DIR/TCP/RKN/List.txt" \
-    "$Z2K_LISTS_DIR/extra-domains.txt" \
-    "$Z2K_ROOT/ipset/zapret-hosts-auto.txt"; do
+    "$Z2K_EXTRA_DOMAINS_RUNTIME" \
+    "$Z2K_AUTOHOSTLIST_FILE"; do
     printf '%s\n' "$_quic_line" | grep -qF -- "--hostlist=$_path" && _t_ok || _t_bad "QUIC profile missing hostlist $_path"
 done
 printf '%s\n' "$_quic_line" | grep -q 'TCP_Discord.txt' && _t_bad "Discord hostlist попал в общий QUIC профиль" || _t_ok

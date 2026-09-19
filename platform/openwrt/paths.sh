@@ -59,6 +59,17 @@ export Z2K_FW4_OFFLOAD_STATE Z2K_FW4_RELOAD
 # init.d/openwrt/functions, lua/zapret-{lib,antidpi,auto}.lua.
 Z2K_ZAPRET2_RUNTIME="${Z2K_ZAPRET2_RUNTIME:-/opt/zapret2}"
 Z2K_NFQWS2="${Z2K_NFQWS2:-$Z2K_ZAPRET2_RUNTIME/nfq2/nfqws2}"
+# User-owned runtime sources.  The payload tree is immutable on OpenWrt, so
+# panel state must never be read from /usr/lib/z2k/lists or written below the
+# foreign zapret2 installation.
+Z2K_EXTRA_STRATEGIES_RUNTIME="${Z2K_EXTRA_STRATEGIES_RUNTIME:-$Z2K_USER_LISTS/custom-strategies}"
+Z2K_AUTOHOSTLIST_FILE="${Z2K_AUTOHOSTLIST_FILE:-$Z2K_STATE/zapret-hosts-auto.txt}"
+Z2K_AUTOHOSTLIST_DEBUG_FILE="${Z2K_AUTOHOSTLIST_DEBUG_FILE:-$Z2K_STATE/zapret-hosts-auto-debug.log}"
+export Z2K_ETC Z2K_CONFIG Z2K_STATE Z2K_USER_LISTS Z2K_CONF_DIR \
+    Z2K_ROOT Z2K_BIN Z2K_LIB Z2K_LUA_DIR Z2K_FAKE_DIR Z2K_LISTS_DIR \
+    Z2K_EXTRA_STRATS_DIR Z2K_ZAPRET2_RUNTIME Z2K_NFQWS2 \
+    Z2K_EXTRA_STRATEGIES_RUNTIME Z2K_AUTOHOSTLIST_FILE \
+    Z2K_AUTOHOSTLIST_DEBUG_FILE Z2K_RUN Z2K_CORE_READY
 
 # z2k_ow_paths_check — провалиться, если обязательные каталогы отсутствуют.
 # $1 — режим: "payload" (ro-ветка) или "all" (включая persistent/tmp).

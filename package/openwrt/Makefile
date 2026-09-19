@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=29
+PKG_RELEASE:=30
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -62,6 +62,8 @@ PKG_RELEASE:=29
 # RELEASE 29 (p-85.2): retire the package-owned background discovery daemon;
 # keep z2k-detect only as an on-demand diagnostic binary and remove its stale
 # daemon state during upgrade.
+# RELEASE 30: close OpenWrt runtime-path/health boundaries and make the
+# webpanel postinst fail closed unless its service is actually running.
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
 # lists/strats/webpanel; z2k-owned TG/RT/WARP/manual z2k-detect едут updater binary
 # flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
@@ -120,7 +122,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r29)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r30)
 endef
 
 define Package/z2k-webpanel/description
@@ -296,6 +298,21 @@ endef
 define Package/z2k-webpanel/install
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/etc/init.d/z2k-webpanel $(1)/etc/init.d/z2k-webpanel
+endef
+
+define Package/z2k-webpanel/postinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+/etc/init.d/z2k-webpanel enable || exit 1
+if /etc/init.d/z2k-webpanel running >/dev/null 2>&1; then
+    exit 0
+fi
+/etc/init.d/z2k-webpanel start || exit 1
+/etc/init.d/z2k-webpanel running >/dev/null 2>&1 || {
+    echo "z2k-openwrt: webpanel postinst: service is not running" >&2
+    exit 1
+}
+exit 0
 endef
 
 $(eval $(call BuildPackage,z2k-adapter))

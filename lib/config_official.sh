@@ -27,6 +27,7 @@ generate_nfqws2_opt_from_strategies() {
     # нет: /opt/etc/zapret2 нужен был только ветке Austerus, снятой 2026-08-04.
     local extra_strats_dir="${ZAPRET2_DIR:-/opt/zapret2}/extra_strats"
     local lists_dir="${ZAPRET2_DIR:-/opt/zapret2}/lists"
+    local custom_strats_dir="${Z2K_EXTRA_STRATEGIES_RUNTIME:-$lists_dir/custom-strategies}"
 
     # Режим Austerusj (all_tcp443.conf) СНЯТ 2026-08-04. Пункт меню, которым его
     # включали, убрали ещё 2026-04-15 (96c24a9), а ветку в генераторе оставили —
@@ -112,7 +113,7 @@ generate_nfqws2_opt_from_strategies() {
 
     z2k_custom_strategy() {
         # z2k_custom_strategy <pool> -> печатает строку пользователя, если она есть
-        local _cs_dir="${ZAPRET2_DIR:-/opt/zapret2}/lists/custom-strategies"
+        local _cs_dir="${Z2K_EXTRA_STRATEGIES_RUNTIME:-${ZAPRET2_DIR:-/opt/zapret2}/lists/custom-strategies}"
         local _cs_file="$_cs_dir/$1.txt"
         [ -s "$_cs_file" ] || return 1
         # Комментарии и пустые строки выкинуть, остальное склеить в одну строку:
@@ -1430,7 +1431,8 @@ generate_nfqws2_opt_from_strategies() {
     local rkn_lists_tail=""
     # Shipped extras curated on top of runetfreedom RKN — domains users
     # reported missing (fast-torrent.ru etc). Refreshed on every install.
-    [ -s "${lists_dir}/extra-domains.txt" ] && rkn_lists_tail="$rkn_lists_tail --hostlist=${lists_dir}/extra-domains.txt"
+    local extra_domains_file="${Z2K_EXTRA_DOMAINS_RUNTIME:-$lists_dir/extra-domains.txt}"
+    [ -s "$extra_domains_file" ] && rkn_lists_tail="$rkn_lists_tail --hostlist=${extra_domains_file}"
     # Автохостлист (Z2K_AUTOHOSTLIST=1): домены, которые движок нашёл сам,
     # подхватываются ЭТИМИ профилями — со всем арсеналом и ротацией РКН.
     # Профиль-детектор (в хвосте, см. ниже) только НАХОДИТ и дописывает имя в
@@ -1439,14 +1441,14 @@ generate_nfqws2_opt_from_strategies() {
     # найденного домена включается через секунды и без рестарта.
     local z2k_autohostlist autohostlist_file
     z2k_autohostlist=$(safe_config_read "Z2K_AUTOHOSTLIST" "${ZAPRET2_DIR:-/opt/zapret2}/config" "0")
-    autohostlist_file="${ZAPRET2_DIR:-/opt/zapret2}/ipset/zapret-hosts-auto.txt"
+    autohostlist_file="${Z2K_AUTOHOSTLIST_FILE:-${ZAPRET2_DIR:-/opt/zapret2}/ipset/zapret-hosts-auto.txt}"
     if [ "$z2k_autohostlist" = "1" ]; then
         # Файл обязан существовать К МОМЕНТУ СТАРТА демона: путь объявлен в
         # аргументах, а движок резолвит его при разборе и без файла не
         # стартует вовсе — это была бы не «автолист не работает», а «обход не
         # поднялся». Создаём здесь же, где объявляем, чтобы порядок вызовов в
         # init-скрипте не был единственной гарантией.
-        mkdir -p "${ZAPRET2_DIR:-/opt/zapret2}/ipset" 2>/dev/null
+        mkdir -p "$(dirname "$autohostlist_file")" 2>/dev/null
         [ -e "$autohostlist_file" ] || : > "$autohostlist_file"
         rkn_lists_tail="$rkn_lists_tail --hostlist=${autohostlist_file}"
     fi
@@ -1767,7 +1769,7 @@ generate_nfqws2_opt_from_strategies() {
         # Отладочный лог движка — параметр глобальный, не профильный. Наружу
         # не выставлен намеренно: включаем его мы, разбирая конкретный тикет.
         if [ "$(safe_config_read "AUTOHOSTLIST_DEBUGLOG" "${ZAPRET2_DIR:-/opt/zapret2}/config" "0")" = "1" ]; then
-            ah_tune="$ah_tune --hostlist-auto-debug=${ZAPRET2_DIR:-/opt/zapret2}/ipset/zapret-hosts-auto-debug.log"
+            ah_tune="$ah_tune --hostlist-auto-debug=${Z2K_AUTOHOSTLIST_DEBUG_FILE:-${ZAPRET2_DIR:-/opt/zapret2}/ipset/zapret-hosts-auto-debug.log}"
         fi
 
         nfqws2_opt_lines="$nfqws2_opt_lines--filter-tcp=${ah_ports} --filter-l7=tls $wl_excl --hostlist-auto=${autohostlist_file}${ah_tune} --new\\n"
@@ -1884,7 +1886,7 @@ create_official_config() {
 
         # Установить временно NFQWS2_OPT для проверки
         export NFQWS2_OPT="$nfqws2_opt_value"
-        export NFQWS2="/opt/zapret2/nfq2/nfqws2"
+        export NFQWS2="${Z2K_NFQWS2:-/opt/zapret2/nfq2/nfqws2}"
 
         # Проверить опции (dry_run может ложно падать если lua/blob файлы
         # ещё не установлены — это нормально при первой установке)

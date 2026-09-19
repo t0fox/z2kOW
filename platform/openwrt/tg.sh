@@ -103,6 +103,18 @@ z2k_ow_tg_pids() {
     return 0
 }
 
+z2k_ow_tg_socket_listening() {
+    local _port="$(printf '%04X' "$1" 2>/dev/null)"
+    [ -n "$_port" ] || return 1
+    awk -v p="$_port" '$2 ~ (":" p "$") && $4 == "0A" {ok=1} END {exit !ok}' \
+        "$Z2K_PROC_ROOT/net/tcp" "$Z2K_PROC_ROOT/net/tcp6" 2>/dev/null
+}
+
+z2k_ow_tg_listeners_ready() {
+    z2k_ow_tg_socket_listening "$Z2K_TG_PORT" && \
+        z2k_ow_tg_socket_listening "$Z2K_TG_CDN_PORT"
+}
+
 z2k_ow_tg_running() { [ -n "$(z2k_ow_tg_pids)" ]; }
 
 # --- nft ---

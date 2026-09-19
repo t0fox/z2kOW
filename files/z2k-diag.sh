@@ -265,7 +265,7 @@ print_version_host() {
             "$(grep '^Z2K_FASTROUTE_OFF=' "${ZAPRET2_DIR}/config" 2>/dev/null | tail -1 | cut -d= -f2 | tr -dc 0-9 | grep . || echo 1)"
     fi
 
-    local nfqws_bin="${ZAPRET2_DIR}/nfq2/nfqws2"
+    local nfqws_bin="${Z2K_NFQWS2:-${ZAPRET2_DIR}/nfq2/nfqws2}"
     local nfqws_ver
     if [ -x "$nfqws_bin" ]; then
         nfqws_ver=$("$nfqws_bin" --version 2>&1 | head -1 || true)
@@ -415,7 +415,7 @@ nfqws_first_packets_state() {
 # списках РКН это заметная разовая память; если демон работает, конфигурация
 # заведомо разобралась, и платить за это нечем.
 print_nfqws_start_failure() {
-    local _bin="${ZAPRET2_DIR}/nfq2/nfqws2"
+    local _bin="${Z2K_NFQWS2:-${ZAPRET2_DIR}/nfq2/nfqws2}"
     # САМЫЙ СВЕЖИЙ файл, а не первый по алфавиту. Глоб отдаёт имена
     # лексикографически, и при нескольких попытках старта диагностика брала
     # старейший — то есть причину ПРОШЛОГО отказа, а не текущего. `ls -t` есть и

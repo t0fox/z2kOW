@@ -15,12 +15,8 @@ fi
 # PLATFORM_UNAVAILABLE (fail-closed audit I). Молчаливый fallback в Keenetic
 # defaults запрещён: мутации тогда действовали бы на чужие пути с success.
 Z2K_PLATFORM_STATUS="ok"
-# --- пути: замороженный адаптер, затем панельный домен (никакого
-# дублирования канальных дефолтов и никакого /opt-symlink костыля) ---
 Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
 export Z2K_ROOT
-# -f guard ОБЯЗАТЕЛЕН: `.` по отсутствующему файлу — фатален для dash
-# (роняет CGI без ответа, `||` не спасает — тот же класс, что чинили в api.sh).
 # shellcheck disable=SC1090,SC1091
 if [ -f "$Z2K_ROOT/platform/openwrt/paths.sh" ]; then
     . "$Z2K_ROOT/platform/openwrt/paths.sh" 2>/dev/null || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
@@ -33,12 +29,22 @@ if [ -f "$Z2K_ROOT/platform/openwrt/env.sh" ]; then
 else
     Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
 fi
+if [ -f "$Z2K_ROOT/platform/openwrt/tg.sh" ]; then
+    . "$Z2K_ROOT/platform/openwrt/tg.sh" 2>/dev/null || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+else
+    z2k_ow_tg_pids() { return 1; }
+    z2k_ow_tg_listeners_ready() { return 1; }
+fi
+# Reassert persistent list root after the platform env map.  This keeps the
+# panel safe in mixed-version sysroots where an older env.sh exported it empty.
+Z2K_USER_LISTS="${Z2K_USER_LISTS:-$Z2K_ETC/user-lists}"
+export Z2K_USER_LISTS
+Z2K_NFQWS2="${Z2K_NFQWS2:-${Z2K_ZAPRET2_RUNTIME:-/opt/zapret2}/nfq2/nfqws2}"
+export Z2K_NFQWS2
 [ -f "$Z2K_ROOT/platform/openwrt/paths.sh" ] || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
 [ -f "$Z2K_ROOT/platform/openwrt/env.sh" ] || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
 [ -f "$Z2K_ROOT/platform/openwrt/webpanel.sh" ] || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
 
-# Панельные пути поверх адаптерных (панельный домен; env.sh их не знает).
-# Updater-owned и user-owned списки не смешиваются никогда (§5 контракта).
 CONFIG_FILE="${CONFIG_FILE:-$Z2K_CONFIG}"
 WHITELIST_FILE="${WHITELIST_FILE:-$Z2K_USER_LISTS/whitelist.txt}"
 EXTRA_DOMAINS_FILE="${EXTRA_DOMAINS_FILE:-$Z2K_USER_LISTS/extra-domains.txt}"
@@ -56,21 +62,20 @@ Z2K_DETECT_BIN="${Z2K_DETECT_BIN:-$Z2K_BIN/z2k-detect}"
 AU_TAG_FILE="${AU_TAG_FILE:-$Z2K_STATE/installed-tag}"
 AU_SCRIPT="${AU_SCRIPT:-$Z2K_ROOT/platform/openwrt/update.sh}"
 DEBUG_FLAG_FILE="${DEBUG_FLAG_FILE:-${Z2K_TMP}/debug.flag}"
+AUTOHOSTLIST_DOMAINS_FILE="${AUTOHOSTLIST_DOMAINS_FILE:-$Z2K_STATE/autohostlist-domains.txt}"
 Z2K_PANEL_CONFIG="${Z2K_PANEL_CONFIG:-$Z2K_CONFIG}"
 Z2K_PANEL_DIR="${Z2K_PANEL_DIR:-$Z2K_ETC/webpanel}"
 Z2K_PAYLOAD_MARKER="${Z2K_PAYLOAD_MARKER:-$Z2K_ETC/.payload-initialized}"
 Z2K_AU_MANIFEST_URL="${Z2K_AU_MANIFEST_URL:-$Z2K_AU_REPO_RAW/UPDATES.json}"
-# Keep the panel's cache on the same OpenWrt tmpfs namespace as the updater.
-# actions.sh is sourced afterwards, so its :- default cannot select a
-# Keenetic-era /tmp file or later fall back to an /opt manifest.
 AU_MANIFEST_CACHE="${AU_MANIFEST_CACHE:-${Z2K_AU_TMP_DIR:-$Z2K_TMP}/UPDATES.json}"
 Z2K_INIT="${Z2K_INIT:-/etc/init.d/z2k}"
-INIT_SCRIPT="${INIT_SCRIPT:-/etc/init.d/z2k}"
+INIT_SCRIPT="${INIT_SCRIPT:-${Z2K_INIT:-/etc/init.d/z2k}}"
 export CONFIG_FILE WHITELIST_FILE EXTRA_DOMAINS_FILE EXCLUDE_FILE \
     CUSTOM_STRAT_DIR WARP_SCRIPT WARP_LISTS_DIR WARP_GAMES_DIR WARP_DEVICE \
     WARP_INIT STATE_FILE DNS_CHECK_SCRIPT DNS_CHECK_OWN Z2K_DETECT_BIN \
     AU_TAG_FILE AU_SCRIPT Z2K_PANEL_CONFIG Z2K_PANEL_DIR Z2K_PAYLOAD_MARKER \
-    Z2K_AU_MANIFEST_URL AU_MANIFEST_CACHE Z2K_INIT INIT_SCRIPT DEBUG_FLAG_FILE
+    Z2K_AU_MANIFEST_URL AU_MANIFEST_CACHE Z2K_INIT INIT_SCRIPT DEBUG_FLAG_FILE \
+    AUTOHOSTLIST_DOMAINS_FILE
 
 # sbin — вперёд при отсутствии (как update.sh): операторский PATH не сносим.
 case ":$PATH:" in
@@ -102,9 +107,6 @@ is_installed() {
     [ -f "${Z2K_PAYLOAD_MARKER:-/etc/z2k/.payload-initialized}" ]
 }
 
-# TG: тот же TG_PROXY_USER_DISABLED-флаг; вместо S98/S97 — converge
-# существующего z2k/procd (instance владеет Stage 3). Демона из CGI
-# не стартуем/не убиваем, nft не пишем.
 tunnel_enable() {
     local cfg="${CONFIG_FILE:-/etc/z2k/config}" _init="${Z2K_INIT:-/etc/init.d/z2k}"
     if grep -q '^TG_PROXY_USER_DISABLED=' "$cfg" 2>/dev/null; then
@@ -127,18 +129,26 @@ tunnel_disable() {
     "$_init" reload 2>&1
 }
 
-# Keenetic-only: честный отказ вместо молчаливой пустышки.
 toggle_ppe() {
     echo "PPE toggle недоступен на OpenWrt (offload владеет zapret2 runtime)" >&2
     return 1
 }
 
-# p-85's fastroute switch is a Keenetic-only control. OpenWrt has no
-# nf_conntrack_fastroute or hw_nat backend on the supported target; exposing a
-# config-only switch would report success while changing no dataplane state.
 toggle_fastroute() {
     echo "Программный fastpath недоступен на OpenWrt: backend не обнаружен" >&2
     return 1
+}
+
+toggle_customd() {
+    echo "custom.d недоступен на OpenWrt: каталог адаптера пуст" >&2
+    return 1
+}
+
+tunnel_pid() {
+    local _p
+    _p=$(z2k_ow_tg_pids 2>/dev/null | head -1)
+    [ -n "$_p" ] && z2k_ow_tg_listeners_ready || return 1
+    printf '%s\n' "$_p"
 }
 
 fastroute_status() {
@@ -154,36 +164,25 @@ policy_save() {
     return 1
 }
 
-# Соседи: провайдер платформы вместо ndmc (тот же \037 TSV).
 warp_neighbors() {
     wp_neighbors
 }
 
-# Full z2k uninstall из браузера запрещён: package ownership уважается.
 uninstall_async() {
     echo "удаление z2k на OpenWrt — через пакетный менеджер роутера" >&2
     return 1
 }
 
-# Capability JSON для /status (только openwrt; Keenetic ответы не меняются).
-# Health model (N): running (процесс) и ready (dataplane) — разные факты.
-# ready = маркер core-ready (создаёт start_service последним, снимает первым
-# stop/failed start). running=true + ready=false = degraded, а не healthy.
-# Фронт пока не рисует degraded отдельно — данные exposed для него и для soak.
 wp_capabilities_json() {
     local _ready=false _degraded=false _running=false
     is_running >/dev/null 2>&1 && _running=true
-    [ -f "${Z2K_CORE_READY:-${Z2K_RUN:-/tmp/z2k/runtime}/core-ready}" ] && _ready=true
+    command -v z2k_ow_core_ready >/dev/null 2>&1 && \
+        z2k_ow_core_ready >/dev/null 2>&1 && _ready=true
     { [ "$_running" = "true" ] && [ "$_ready" = "false" ]; } && _degraded=true
-    printf '"platform":"openwrt","ready":%s,"degraded":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":false,"diag":false,"warp":true,"telegram":true,"uninstall":false}' \
+    printf '"platform":"openwrt","ready":%s,"degraded":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":false,"diag":false,"customd":false,"warp":true,"telegram":true,"uninstall":false}' \
         "$_ready" "$_degraded"
 }
 
-# Fail-closed мутации при битом адаптере (только explicit openwrt + broken;
-# Keenetic/здоровый OW не задеты). Блок — ПОСЛЕ обычных override выше, иначе
-# они перезатёрли бы его. /status при этом отдаёт installed:false (деградация
-# видна, а не маскируется); все мутации — громкий отказ, никакого Keenetic
-# fallback на чужие пути.
 if [ "$Z2K_PLATFORM_STATUS" != "ok" ]; then
     is_installed() { return 1; }
     svc_start() { echo "PLATFORM_UNAVAILABLE: повреждён OpenWrt-адаптер" >&2; return 1; }

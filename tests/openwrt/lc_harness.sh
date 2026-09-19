@@ -182,6 +182,10 @@ EOF
     . "$Z2K_LIB/strategies.sh" >/dev/null 2>&1 || return 1
     . "$Z2K_LIB/config_official.sh" >/dev/null 2>&1 || return 1
     . "$Z2K_LIB/auto_update.sh" >/dev/null 2>&1 || return 1
+    # Model the OpenWrt platform seam at the harness boundary.  The real
+    # predicate checks PID+NFQUEUE ownership; this fixture has no kernel queue,
+    # so the daemon-alive marker is its controlled equivalent.
+    z2k_platform_nfqws_alive() { [ -f "$LC_T/daemon-alive" ]; }
     au_manifest_verify() { return ${LC_VERIFY_RC:-0}; }
     return 0
 }

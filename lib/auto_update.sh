@@ -41,6 +41,17 @@ Z2K_AU_TMP_DIR="${Z2K_AU_TMP_DIR:-/tmp/z2k_au}"
 Z2K_AU_HEALTH_TIMEOUT="${Z2K_AU_HEALTH_TIMEOUT:-5}"
 Z2K_AU_HEALTH_GH_URL="${Z2K_AU_HEALTH_GH_URL:-https://github.com}"
 
+# OpenWrt supplies a stronger predicate (PID file plus the NFQUEUE owner).  A
+# plain process-name match is retained only for Keenetic, whose environment
+# never defines this hook.
+au_nfqws_alive() {
+    if command -v z2k_platform_nfqws_alive >/dev/null 2>&1; then
+        z2k_platform_nfqws_alive
+    else
+        pgrep -f nfqws2 >/dev/null 2>&1
+    fi
+}
+
 # ----------------------------------------------------------- logger / lock ---
 
 au_log() {
@@ -2269,7 +2280,7 @@ au_health_check() {
     # nfqws2 was already confirmed up and queue-bound by the restart itself.
     # Failing here therefore does not mean "too slow to start" — it means the
     # daemon came up and then died, which is a genuine reason to roll back.
-    if ! pgrep -f nfqws2 >/dev/null 2>&1; then
+    if ! au_nfqws_alive; then
         # Сравниваем с тем, что было ДО обновления. Если nfqws2 не работал и
         # раньше, патч ни при чём: откатывать его бессмысленно, а главное —
         # вредно. Раньше этой проверки не было, и на роутере, где сервис не
@@ -3002,7 +3013,7 @@ au_run_apply() {
             else
                 au_log "обновление $installed -> $target_tag; после доставки делать ничего не нужно"
             fi
-            if pgrep -f nfqws2 >/dev/null 2>&1; then
+            if au_nfqws_alive; then
                 Z2K_AU_NFQWS_WAS_ALIVE=1
             else
                 Z2K_AU_NFQWS_WAS_ALIVE=0
@@ -3037,7 +3048,7 @@ au_run_apply() {
             au_log "starting patch: $installed -> $target_tag"
             # Состояние сервиса ДО патча — чтобы health-check не назначал
             # виноватым обновление за то, что было сломано и без него.
-            if pgrep -f nfqws2 >/dev/null 2>&1; then
+            if au_nfqws_alive; then
                 Z2K_AU_NFQWS_WAS_ALIVE=1
             else
                 Z2K_AU_NFQWS_WAS_ALIVE=0
@@ -3078,7 +3089,7 @@ au_run_apply() {
             au_log "starting reinstall: $installed -> $target_tag (reset_state=${reset_state:-no})"
             # То же, что и для патча: health-check не должен винить обновление
             # за сервис, который не работал и до него.
-            if pgrep -f nfqws2 >/dev/null 2>&1; then
+            if au_nfqws_alive; then
                 Z2K_AU_NFQWS_WAS_ALIVE=1
             else
                 Z2K_AU_NFQWS_WAS_ALIVE=0

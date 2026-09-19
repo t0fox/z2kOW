@@ -45,6 +45,8 @@ mkdir -p "$T/okroot/platform/openwrt" "$T/oketc" "$T/oktmp"
 for _f in paths.sh env.sh webpanel.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/okroot/platform/openwrt/$_f"
 done
+mkdir -p "$T/okroot/bin"
+ln -s "$REPO/platform/openwrt/tg.sh" "$T/okroot/platform/openwrt/tg.sh"
 export Z2K_ROOT="$T/okroot" Z2K_ETC="$T/oketc" Z2K_TMP="$T/oktmp"
 unset Z2K_CONFIG CONFIG_FILE Z2K_CORE_READY Z2K_RUN Z2K_PLATFORM_STATUS
 unset Z2K_PAYLOAD_MARKER Z2K_PANEL_DIR Z2K_PANEL_CONFIG Z2K_STATE STATE_FILE
@@ -67,6 +69,9 @@ esac
 # running + ready = healthy.
 mkdir -p "$Z2K_RUN" 2>/dev/null
 : > "$Z2K_RUN/core-ready"
+printf '%s\n' "$$" > "$Z2K_RUN/nfqws2.pid"
+printf '200 %s 0 0\n' "$$" > "$T/nfqueue"
+export Z2K_NFQUEUE_PROC="$T/nfqueue"
 _j="$(wp_capabilities_json)"
 case "$_j" in
     *'"ready":true'*'"degraded":false'*) _t_ok ;;

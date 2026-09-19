@@ -511,7 +511,7 @@ strategy_validate() {
     local pool="$1"
     strategy_pool_ok "$pool" || { echo "unknown pool"; return 1; }
 
-    local engine="$ZAPRET2_DIR/nfq2/nfqws2"
+    local engine="${Z2K_NFQWS2:-$ZAPRET2_DIR/nfq2/nfqws2}"
     [ -x "$engine" ] || { echo "движок не найден: $engine"; return 1; }
 
     local shadow="/tmp/z2k-strat-shadow.$$"
@@ -557,7 +557,8 @@ strategy_validate() {
 
     local tmpcfg="/tmp/z2k-strategy-check.$$"
     local rc=0 opt="" err=""
-    if ( ZAPRET2_DIR="$shadow"; export ZAPRET2_DIR; regenerate_config_to "$tmpcfg" ); then
+    if ( ZAPRET2_DIR="$shadow"; Z2K_EXTRA_STRATEGIES_RUNTIME="$shadow/lists/custom-strategies";
+         export ZAPRET2_DIR Z2K_EXTRA_STRATEGIES_RUNTIME; regenerate_config_to "$tmpcfg" ); then
         opt=$(sed -n '/^NFQWS2_OPT="/,/^"$/{ /^NFQWS2_OPT="/d; /^"$/d; p; }' "$tmpcfg")
     else
         rc=1; err="не удалось собрать конфиг с этой строкой"
@@ -1670,7 +1671,7 @@ extra_domains_list() {
 # Домены, которые автохостлист подобрал сам. Файл ведёт сервис
 # (sync_autohostlist_to_rkn): туда попадает всё найденное, и оттуда же оно
 # восстанавливается после обновления РКН-списка с апстрима.
-AUTOHOSTLIST_DOMAINS_FILE="${AUTOHOSTLIST_DOMAINS_FILE:-$LISTS_DIR/autohostlist-domains.txt}"
+    AUTOHOSTLIST_DOMAINS_FILE="${AUTOHOSTLIST_DOMAINS_FILE:-${Z2K_STATE:-$LISTS_DIR}/autohostlist-domains.txt}"
 
 autohostlist_domains_list() {
     [ -f "$AUTOHOSTLIST_DOMAINS_FILE" ] || { echo ""; return 0; }
@@ -1700,7 +1701,7 @@ autohostlist_domains_delete() {
     # Третий файл — живой автолист движка. Пока его тут не было, удаление
     # работало только до следующего слива: домен лежал в ipset/zapret-hosts-auto.txt,
     # и старт сервиса возвращал его и в накопленное, и в РКН-список.
-    local auto_live="${ZAPRET2_DIR}/ipset/zapret-hosts-auto.txt"
+    local auto_live="${Z2K_AUTOHOSTLIST_FILE:-${ZAPRET2_DIR}/ipset/zapret-hosts-auto.txt}"
     for f in "$AUTOHOSTLIST_DOMAINS_FILE" "$auto_live" "$rkn"; do
         [ -f "$f" ] || continue
         _list_lock "$f" || { echo "список занят, повторите" >&2; return 1; }

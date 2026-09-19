@@ -68,6 +68,33 @@ Z2K_FORCE_CONFIG_REGEN=1 z2k_ow_generate >"$T/gen-offload-regenerate.log" 2>&1 \
     || { echo "FAIL[ow-generate]: offload regenerate:"; tail -5 "$T/gen-offload-regenerate.log" >&2; exit 1; }
 assert_contains "FLOWOFFLOAD пережил регенерацию" "$CFG" "FLOWOFFLOAD=software"
 
+# --- user-owned strategy/list sources are the sources the generator consumes ---
+# A strategy written by the panel must change the generated NFQWS2_OPT, not
+# merely exist under /etc/z2k/user-lists.
+mkdir -p "$Z2K_EXTRA_STRATS_DIR/unused" "$Z2K_USER_LISTS/custom-strategies"
+cp "$Z2K_EXTRA_STRATS_DIR/TCP/RKN/Strategy.txt" "$T/rkn-strategy.txt"
+printf '%s\n' '--dpi-desync-ttl=11' >> "$T/rkn-strategy.txt"
+cp "$T/rkn-strategy.txt" "$Z2K_USER_LISTS/custom-strategies/rkn_tcp.txt"
+Z2K_FORCE_CONFIG_REGEN=1 z2k_ow_generate >"$T/gen-user-strategy.log" 2>&1 \
+    || { echo "FAIL[ow-generate]: user strategy:"; tail -10 "$T/gen-user-strategy.log" >&2; exit 1; }
+assert_contains "user strategy reaches generated config" "$CFG" "--dpi-desync-ttl=11"
+
+# Extra domains are user-owned and must be the hostlist consumed by the
+# generated config; shipped baseline is not a substitute for the user's file.
+printf '%s\n' 'user-only.example' > "$Z2K_EXTRA_DOMAINS_RUNTIME"
+Z2K_FORCE_CONFIG_REGEN=1 z2k_ow_generate >"$T/gen-user-domains.log" 2>&1 \
+    || { echo "FAIL[ow-generate]: user domains:"; tail -10 "$T/gen-user-domains.log" >&2; exit 1; }
+assert_contains "user domains path reaches generated config" "$CFG" "--hostlist=$Z2K_EXTRA_DOMAINS_RUNTIME"
+assert_contains "user domain is persisted" "$Z2K_EXTRA_DOMAINS_RUNTIME" "user-only.example"
+
+# AutoHostList writes to persistent adapter state, never into the read-only
+# payload tree. The same path must be present in the generated daemon args.
+sed -i 's/^Z2K_AUTOHOSTLIST=.*/Z2K_AUTOHOSTLIST=1/' "$CFG"
+Z2K_FORCE_CONFIG_REGEN=1 z2k_ow_generate >"$T/gen-autohostlist.log" 2>&1 \
+    || { echo "FAIL[ow-generate]: autohostlist:"; tail -10 "$T/gen-autohostlist.log" >&2; exit 1; }
+assert_contains "autohostlist uses persistent state" "$CFG" "--hostlist=$Z2K_AUTOHOSTLIST_FILE"
+[ -f "$Z2K_AUTOHOSTLIST_FILE" ] && _t_ok || _t_bad "autohostlist state file не создан"
+
 # --- мост ${ZAPRET2_DIR}/config работает: флаг из /etc читается генератором ---
 # Z2K_NFQWS2_TEMPLATES читается generate_* через ${ZAPRET2_DIR}/config (симлинк).
 grep -q -- '--template=' "$CFG" && _t_ok || _t_bad "дефолт: нет --template (ожидался templates=1)"

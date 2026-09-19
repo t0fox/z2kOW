@@ -53,4 +53,8 @@ else
     _t_bad "VERIFY_BIN дефолт не через ZAPRET2_DIR/bin"
 fi
 
+assert_contains "OpenWrt updater has platform nfqws predicate" "$REPO/platform/openwrt/env.sh" 'z2k_platform_nfqws_alive'
+assert_contains "common updater calls platform predicate" "$REPO/lib/auto_update.sh" 'au_nfqws_alive'
+assert_contains "Keenetic fallback stays isolated" "$REPO/lib/auto_update.sh" 'pgrep -f nfqws2'
+
 _t_done

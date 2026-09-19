@@ -12,6 +12,9 @@ fi
 if [ -f "$_root/platform/openwrt/env.sh" ]; then
     . "$_root/platform/openwrt/env.sh" 2>/dev/null || true
 fi
+if [ -f "$_root/platform/openwrt/tg.sh" ]; then
+    . "$_root/platform/openwrt/tg.sh" 2>/dev/null || true
+fi
 
 _cfg=${Z2K_CONFIG:-}
 _init=${Z2K_INIT:-}
@@ -47,7 +50,7 @@ print_health() {
     if ! "$_init" running >/dev/null 2>&1; then
         _add "сервис z2k не запущен"
     fi
-    [ -f "$_run/core-ready" ] || _add "dataplane не готов: отсутствует core-ready"
+    z2k_ow_core_ready || _add "dataplane не готов: PID/NFQUEUE owner или procd не подтверждены"
     [ -x "$_nfq" ] || _add "nfqws2 binary missing at $_nfq"
     nfq=$(_count_process '[/]nfqws2')
     [ -n "$nfq" ] || nfq=0
@@ -105,7 +108,9 @@ print_tunnel() {
     pid=$(_count_process 'tg-mtproxy-client.*--listen=:1443')
     [ -n "$pid" ] || pid=0
     printf 'process :1443      : %s\n' "$pid"
-    listeners=$(netstat -lnpt 2>/dev/null | grep -cE ':1443|:1444' || true)
+    listeners=0
+    z2k_ow_tg_socket_listening "$Z2K_TG_PORT" && listeners=$((listeners + 1))
+    z2k_ow_tg_socket_listening "$Z2K_TG_CDN_PORT" && listeners=$((listeners + 1))
     [ -n "$listeners" ] || listeners=0
     printf 'listeners :1443/44  : %s\n' "$listeners"
     if _tg_disabled; then
@@ -161,7 +166,7 @@ print_offload() {
     ft_add=$(printf '%s\n' "$rules" | grep -ciE '(^|[[:space:]])flow[[:space:]]+add([[:space:]]|$)' || true)
     tab=${Z2K_ZAPRET_NFT_TABLE:-zapret2}
     mode=$(sed -n 's/^[[:space:]]*FLOWOFFLOAD[[:space:]]*=[[:space:]]*//p' "$_cfg" 2>/dev/null \
-        | tail -1 | tr -d "[:space:]'\"")
+        | tail -1 | sed "s/[\"']//g" | tr -d ' \t\r\n')
     [ -n "$mode" ] || mode=unknown
 
     # Query the table and chains owned by the stock zapret2 runtime directly.
@@ -199,7 +204,7 @@ print_offload() {
     core_running=0
     core_ready=0
     "$_init" running >/dev/null 2>&1 && core_running=1
-    [ -f "$_run/core-ready" ] && core_ready=1
+    z2k_ow_core_ready >/dev/null 2>&1 && core_ready=1
 
     if [ -r /proc/driver/hw_nat ]; then
         hw_nat=present

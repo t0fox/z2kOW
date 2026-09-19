@@ -128,7 +128,8 @@ EOF
 chmod +x "$T/zapret2/nfq2/nfqws2"
 export Z2K_PLATFORM=openwrt Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc" Z2K_INIT="$T/mock-init"
-export Z2K_BIN="$T/root/bin" INIT_SCRIPT="$T/mock-init" ZAPRET2_DIR="$T/zapret2"
+export Z2K_BIN="$T/root/bin" INIT_SCRIPT="$T/mock-init" ZAPRET2_DIR="$T/zapret2" \
+       Z2K_ZAPRET2_RUNTIME="$T/zapret2"
 export Z2K_APK_BIN="$T/bin/apk"
 export Z2K_CRON_TAB="$T/etc/crontabs/root"
 export WP_IP_BIN="$T/bin/ip"
@@ -348,16 +349,14 @@ printf 'confirm=X' > "$T/body.txt"
 RAW="$(_cgi POST /uninstall "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "uninstall: отказ без package manager" "false" "$(_jget "$OUT" 'd["ok"]')"
 
-# --- customd toggle end-to-end (WP8): флаг + генератор + рестарт ---
+# --- customd is not an OpenWrt feature: async route fails closed ---
 printf 'value=1' > "$T/body.txt"
 RAW="$(_cgi POST /toggle/customd "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "toggle: job выдан" "true" "$(_jget "$OUT" 'd["ok"]')"
 _jid="$(_jget "$OUT" 'd["job"]')"
 JOB_IDS="$JOB_IDS $_jid"
-_jo="$(_poll_job "$_jid")" || _t_bad "toggle: job не завершился"
-assert_eq "toggle: job done" "true" "$(_jget "$_jo" 'd["done"]')"
-assert_eq "toggle: job rc 0" "0" "$(_jget "$_jo" 'd["exit"]')"
-assert_eq "toggle: флаг в конфиге" "0" "$(grep -m1 '^DISABLE_CUSTOM=' "$T/etc/config" | cut -d= -f2)"
+_poll_job_fail "$_jid" "customd toggle: unsupported"
+[ -z "$(grep -m1 '^DISABLE_CUSTOM=' "$T/etc/config" 2>/dev/null)" ] && _t_ok || _t_bad "customd: config mutated"
 
 # --- strategy pool save (WP9) ---
 mkdir -p "$T/etc/user-lists/custom-strategies"
