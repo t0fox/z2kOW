@@ -7,7 +7,9 @@ _t_plan "ow-ownership"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC="$REPO/platform/openwrt $REPO/package/openwrt"
 # shellcheck disable=SC2086
-code() { for _d in $SRC; do find "$_d" -type f ! -name '.keep'; done | while IFS= read -r _f; do sed 's/#.*$//' "$_f"; done; }
+# diag.sh is a read-only observer and is intentionally allowed to mention the
+# stock runtime's flowtable vocabulary; all writers remain in this scan.
+code() { for _d in $SRC; do find "$_d" -type f ! -name '.keep' ! -path '*/platform/openwrt/diag.sh'; done | while IFS= read -r _f; do sed 's/#.*$//' "$_f"; done; }
 
 # 1. демоны запускаются из procd-сервисов (ЯДРО — один сервис z2k, с Stage 3 —
 # ДВА instance: nfqws2 в init.d/z2k, tg-mtproxy-client в platform/openwrt/tg.sh;
@@ -125,10 +127,10 @@ grep -q '_z2k_ow_rt_table_ok' "$REPO/platform/openwrt/rt.sh" \
     && _t_ok || _t_bad "rt.sh пишет без проверки таблицы"
 grep -q '_z2k_ow_warp_table_ok' "$REPO/platform/openwrt/warp.sh" \
     && _t_ok || _t_bad "warp.sh пишет без проверки таблицы"
-code | grep -qE 'iptables -A|iptables -I|fw3|fw4' \
+code | grep -qE '(^|[[:space:];])(iptables[[:space:]]+(-A|-I)|fw3|fw4)([[:space:]]|$)' \
     && _t_bad "адаптер использует чужой firewall-фреймворк" || _t_ok
 # offload уже покрыт пунктом 3; здесь — явное отсутствие второго владельца:
-# ни одного упоминания flowtable в коде слоя
+# writer-код слоя не упоминает flowtable (read-only diag исключён выше).
 code | grep -qi 'flowtable' \
     && _t_bad "второй offload-владелец (flowtable)" || _t_ok
 

@@ -27,5 +27,8 @@ assert_contains "service: custom.d на стопе" "$SVC" "z2k_ow_custom_daemon
 assert_contains "service: master-гейт ENABLED" "$SVC" "ENABLED"
 assert_contains "service: procd" "$SVC" "USE_PROCD=1"
 assert_contains "service: START" "$SVC" "START=22"
+assert_contains "service: core bounded respawn" "$SVC" "procd_set_param respawn 3600 5 5"
+assert_contains "service: shared NFQUEUE owner check" "$SVC" "z2k_ow_nfqws_consumer_ready"
+assert_contains "service: intentional stop fence" "$SVC" "stopping"
 
 _t_done

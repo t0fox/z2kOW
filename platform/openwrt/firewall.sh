@@ -33,6 +33,86 @@ z2k_ow_fw_apply() { z2k_ow_fw_source || return 1; zapret_apply_firewall; }
 z2k_ow_fw_remove() { z2k_ow_fw_source || return 1; zapret_unapply_firewall; }
 z2k_ow_fw_reload_ifsets() { z2k_ow_fw_source || return 1; zapret_reload_ifsets; }
 
+# fw4 global flow offload and zapret2 selective offload cannot own the same
+# dataplane simultaneously: fw4 may shortcut a flow before NFQUEUE sees it.
+# Keep the user values (including an option that was absent) in persistent
+# state, disable both global switches while this service owns NFQUEUE, and
+# restore the exact UCI shape after zapret2 has removed its own rules.
+_z2k_ow_fw4_uci_get() {
+    command -v uci >/dev/null 2>&1 || return 127
+    uci -q get "firewall.@defaults[0].$1" 2>/dev/null
+}
+
+_z2k_ow_fw4_has_global_offload() {
+    local _key _value
+    for _key in flow_offloading flow_offloading_hw; do
+        _value="$(_z2k_ow_fw4_uci_get "$_key")" || continue
+        [ "$_value" = "1" ] && return 0
+    done
+    return 1
+}
+
+_z2k_ow_fw4_snapshot() {
+    local _state _tmp _key _value _present
+    _state="${Z2K_FW4_OFFLOAD_STATE:-${Z2K_STATE:-/etc/z2k/state}/fw4-offload.state}"
+    _tmp="${_state}.tmp.$$"
+    [ -f "$_state" ] && return 0
+    mkdir -p "$(dirname "$_state")" 2>/dev/null || return 1
+    : > "$_tmp" || return 1
+    for _key in flow_offloading flow_offloading_hw; do
+        _present=0; _value=""
+        if _value="$(_z2k_ow_fw4_uci_get "$_key")"; then
+            _present=1
+        fi
+        printf '%s\t%s\t%s\n' "$_key" "$_present" "$_value" >> "$_tmp" || {
+            rm -f "$_tmp"; return 1;
+        }
+    done
+    mv -f "$_tmp" "$_state" 2>/dev/null || {
+        rm -f "$_tmp"; return 1;
+    }
+}
+
+_z2k_ow_fw4_reload() {
+    local _reload="${Z2K_FW4_RELOAD:-/etc/init.d/firewall}"
+    [ -x "$_reload" ] || {
+        echo "z2k-openwrt: fw4 reload helper missing: $_reload" >&2
+        return 1
+    }
+    "$_reload" reload >/dev/null 2>&1
+}
+
+z2k_ow_offload_prepare() {
+    [ "${INIT_APPLY_FW:-1}" = "1" ] || return 0
+    command -v uci >/dev/null 2>&1 || return 0
+    _z2k_ow_fw4_has_global_offload || return 0
+    _z2k_ow_fw4_snapshot || return 1
+    uci -q set firewall.@defaults[0].flow_offloading=0 || return 1
+    uci -q set firewall.@defaults[0].flow_offloading_hw=0 || return 1
+    uci -q commit firewall || return 1
+    _z2k_ow_fw4_reload
+}
+
+z2k_ow_offload_restore() {
+    local _state _key _present _value _changed=0
+    _state="${Z2K_FW4_OFFLOAD_STATE:-${Z2K_STATE:-/etc/z2k/state}/fw4-offload.state}"
+    [ -f "$_state" ] || return 0
+    command -v uci >/dev/null 2>&1 || return 1
+    while IFS="$(printf '\t')" read -r _key _present _value; do
+        [ -n "$_key" ] || continue
+        if [ "$_present" = "1" ]; then
+            uci -q set "firewall.@defaults[0].$_key=$_value" || return 1
+        else
+            uci -q delete "firewall.@defaults[0].$_key" || return 1
+        fi
+        _changed=1
+    done < "$_state"
+    [ "$_changed" = "1" ] || return 1
+    uci -q commit firewall || return 1
+    _z2k_ow_fw4_reload || return 1
+    rm -f "$_state"
+}
+
 # z2k_ow_fw_check — periodic convergence (cron, p-84.20 parity): сверяет
 # КАЖДЫЙ required invariant через fw_verify (не count), при дрейфе — ОДНА
 # попытка re-apply + повторная сверка. Упорный провал = снять ready
@@ -41,13 +121,41 @@ z2k_ow_fw_reload_ifsets() { z2k_ow_fw_source || return 1; zapret_reload_ifsets; 
 # (воскрешать нечего и нельзя). INIT_APPLY_FW=0 = чужой fw, скип.
 z2k_ow_fw_check() {
     [ "${INIT_APPLY_FW:-1}" = "1" ] || return 0
-    if command -v z2k_ow_core_ready >/dev/null 2>&1; then
-        z2k_ow_core_ready || return 0
+    local _ready="${Z2K_CORE_READY:-${Z2K_RUN:-/tmp/z2k/runtime}/core-ready}"
+    # A clean stop wins over a race with cron while procd is still tearing
+    # down the instance.  Crash recovery has no stopping fence and can pass
+    # through the same consumer predicate after procd respawns the process.
+    if [ -f "${Z2K_RUN:-/tmp/z2k/runtime}/stopping" ]; then
+        rm -f "$_ready" 2>/dev/null
+        return 0
     fi
-    z2k_ow_fw_verify >/dev/null 2>&1 && return 0
+    "${INIT_SCRIPT:-/etc/init.d/z2k}" running >/dev/null 2>&1 || {
+        rm -f "$_ready" 2>/dev/null
+        return 0
+    }
+    if command -v z2k_ow_nfqws_consumer_ready >/dev/null 2>&1; then
+        z2k_ow_nfqws_consumer_ready || {
+            rm -f "$_ready" 2>/dev/null
+            return 0
+        }
+    fi
+    # Do not race service_started while the initial procd transaction is
+    # waiting for its post-commit consumer check.
+    [ ! -f "${Z2K_RUN:-/tmp/z2k/runtime}/starting" ] || return 0
+    z2k_ow_offload_prepare >/dev/null 2>&1 || {
+        rm -f "$_ready" 2>/dev/null
+        return 0
+    }
+    z2k_ow_fw_verify >/dev/null 2>&1 && {
+        : > "$_ready" 2>/dev/null
+        return 0
+    }
     z2k_ow_fw_apply >/dev/null 2>&1 || return 0
-    z2k_ow_fw_verify >/dev/null 2>&1 && return 0
-    rm -f "${Z2K_CORE_READY:-${Z2K_RUN:-/tmp/z2k/runtime}/core-ready}" 2>/dev/null
+    z2k_ow_fw_verify >/dev/null 2>&1 && {
+        : > "$_ready" 2>/dev/null
+        return 0
+    }
+    rm -f "$_ready" 2>/dev/null
     echo "z2k-openwrt: fw_check: инварианты не сошлись после re-apply — ready снят (degraded)" >&2
     return 0
 }

@@ -62,6 +62,9 @@ export INIT_SCRIPT="$T/init-stub"
 : > "$T/run/core-ready"
 # apply-стаб: чинит дрейф (убирает флаг), считает вызовы.
 z2k_ow_fw_apply() { echo "fw:apply" >> "$T/calls"; rm -f "$T/drop-prenat"; return 0; }
+# This test isolates firewall convergence; consumer ownership is covered by
+# test_ow_recovery.sh and is deliberately controlled here.
+z2k_ow_nfqws_consumer_ready() { return 0; }
 
 # --- 1. healthy: rc 0, apply не звали ---
 z2k_ow_fw_check >/dev/null 2>&1
@@ -89,10 +92,12 @@ rm -f "$T/drop-prenat"
 
 # --- 4. no-ready: немедленный возврат, nft не трогаем ---
 rm -f "$T/run/core-ready"
+: > "$T/run/stopping"
 : > "$T/calls"
 z2k_ow_fw_check >/dev/null 2>&1
 assert_eq "no-ready rc" "0" "$?"
 grep -q '^nft:' "$T/calls" && _t_bad "no-ready: полезли в nft" || _t_ok
+rm -f "$T/run/stopping"
 
 # --- 5. INIT_APPLY_FW=0: чужой fw, скип ---
 : > "$T/run/core-ready"

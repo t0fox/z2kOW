@@ -52,6 +52,9 @@ export Z2K_BIN="$T/root/bin" Z2K_TG_BIN="$T/root/bin/tg-mtproxy-client" Z2K_RT_B
 . "$REPO/platform/openwrt/env.sh" || exit 1
 . "$REPO/platform/openwrt/tg.sh" || exit 1
 . "$REPO/platform/openwrt/rt.sh" || exit 1
+# This test exercises feature rule gates; consumer ownership is covered by the
+# dedicated recovery test and is stubbed here so the fixture stays minimal.
+z2k_ow_nfqws_consumer_ready() { return 0; }
 
 _mutations() { grep -cE '^(nft:(add|insert|delete|flush)|uci:(set|delete|commit))' "$T/calls" 2>/dev/null || true; }
 

@@ -25,7 +25,7 @@ p-84.7, ветка `feat/openwrt-adapter`). Правило: сначала adapt
 | процесс nfqws2 | z2k procd-сервис | OPT_BASE stock zapret2-init зашит в скрипте без z2k lua-init/--blob/--bind-fix — через конфиг не инжектится |
 | nft-таблица zapret, ifsets | zapret2 (`zapret_apply/remove/reload_ifsets`) | не строим второй firewall-фреймворк |
 | QNUM/marks/ports | ОБЩИЕ: один файл `/etc/z2k/config`, демон и firewall читают его же | тест сверяет равенство |
-| flow offload | zapret2 (`FLOWOFFLOAD` из того же конфига) | своих offload-правил у адаптера нет |
+| flow offload | zapret2 (`FLOWOFFLOAD` из того же конфига) | своих offload-правил у адаптера нет; global fw4 switches are snapshotted, disabled while NFQUEUE is owned, and restored exactly on stop/rollback |
 | custom.d | РАЗДЕЛЬНО: zapret2 — runtime'а; z2k — свой раннер (`z2k_custom_daemons`) | будущие TG/RT/WARP-хуки |
 | сервис zapret2 | DISABLED | его daemon-половина не используется, firewall-функции вызываются напрямую |
 
@@ -57,11 +57,22 @@ Strategy.txt прематериализованы СБОРКОЙ (`materialize.s
 
 ```text
 /etc/z2k/config
-  -> create_official_config (upstream, без правок) -> NFQWS2_OPT + QNUM/marks/ports
+  -> create_official_config -> NFQWS2_OPT + QNUM/marks/ports/FLOWOFFLOAD (explicit env wins; otherwise the selected config mode is fed back by the OpenWrt generator)
   -> optbase.sh (LUAOPT/blobs/bind-fix — порт блока S99, это init-логика)
   -> procd nfqws2 --qnum=$QNUM $OPT_BASE $NFQWS2_OPT
-  -> zapret_apply_firewall (тот же конфиг) -> nft/NFQUEUE
+  -> zapret_apply_firewall (тот же конфиг; stock zapret2 selective offload only) -> nft/NFQUEUE
 ```
+
+`FLOWOFFLOAD=software|hardware` is not proof that packets reached NFQUEUE or
+that circular is working. The adapter diagnostic queries the zapret2 flowtable,
+its direct-flow exemptions, the fw4 global state, and owner conflicts separately;
+packet visibility and circular remain `UNKNOWN` until runtime evidence exists.
+
+The core instance uses bounded procd respawn (`3600 5 5`). The existing
+`fw-check` schedule reuses the PID + NFQUEUE-owner predicate: after a crash it
+removes `core-ready`, and after procd recovery it recreates it only after the
+static firewall check succeeds. A `stopping` fence prevents an intentional stop
+from being resurrected by the same scheduled convergence path.
 
 WAN-события: hotplug `90-z2k` дёргает только `reload_ifsets`, демон не
 трогаем (NFQUEUE от имён интерфейсов не зависит). UCI: своей схемы нет,

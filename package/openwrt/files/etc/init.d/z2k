@@ -70,18 +70,10 @@ _z2k_ow_before_deadline() {
 # (после commit в procd): внутри start_service процессов ещё нет — procd
 # спавнит их после возврата. Таймаут переопределяем для тестов.
 _z2k_ow_wait_consumer() {
-    local _deadline _pid _q="${QNUM:-200}" _owner
+    local _deadline
     _deadline="$(_z2k_ow_deadline "${Z2K_START_CONSUMER_TIMEOUT:-30}")"
     while :; do
-        _pid="$(cat "$Z2K_RUN/nfqws2.pid" 2>/dev/null)"
-        if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null; then
-            # nfnetlink_queue column 2 is the netlink peer portid. Match it
-            # together with the queue number so another nfqws2 instance cannot
-            # make this daemon look ready.
-            while read -r _qnum _owner _rest; do
-                [ "$_qnum" = "$_q" ] && [ "$_owner" = "$_pid" ] && return 0
-            done < "${Z2K_NFQUEUE_PROC:-/proc/net/netfilter/nfnetlink_queue}" 2>/dev/null
-        fi
+        z2k_ow_nfqws_consumer_ready && return 0
         _z2k_ow_before_deadline "$_deadline" || break
         _z2k_ow_poll_sleep
     done
@@ -118,7 +110,11 @@ z2k_ow_start_rollback() {
     z2k_ow_tg 0 >/dev/null 2>&1
     z2k_ow_rt 0 >/dev/null 2>&1
     z2k_ow_warp 0 >/dev/null 2>&1
-    [ "${INIT_APPLY_FW:-1}" = "1" ] && z2k_ow_fw_remove >/dev/null 2>&1
+    if [ "${INIT_APPLY_FW:-1}" = "1" ]; then
+        if z2k_ow_fw_remove >/dev/null 2>&1; then
+            z2k_ow_offload_restore >/dev/null 2>&1
+        fi
+    fi
     return 0
 }
 
@@ -147,7 +143,7 @@ start_service() {
 
     # core-ready снимаем ПЕРВЫМ: дальше — либо новый ready в самом конце,
     # либо его отсутствие при любом провале (деградация видна /status).
-    rm -f "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" 2>/dev/null
+    rm -f "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" "$Z2K_RUN/stopping" 2>/dev/null
 
     local _base _qnum
     _base="$(z2k_ow_optbase)" || return 1
@@ -159,6 +155,9 @@ start_service() {
     # shellcheck disable=SC2086
     procd_set_param command "$Z2K_NFQWS2" --qnum="$_qnum" $_base $NFQWS2_OPT
     procd_set_param pidfile "$Z2K_RUN/nfqws2.pid"
+    # Bounded recovery belongs to procd, not a second shell watchdog.  Five
+    # crashes in one hour open the circuit until an explicit start/restart.
+    procd_set_param respawn 3600 5 5
     procd_close_instance
 
     # Транзакция pre-spawn (порядок E): preflight → rm ready → instance →
@@ -168,6 +167,7 @@ start_service() {
     # service_started ниже (post-commit). Любой required-провал здесь:
     # rollback + return 1 (ничего не заспавнено — откат дешёвый).
     if [ "${INIT_APPLY_FW:-1}" = "1" ]; then
+        z2k_ow_offload_prepare || { z2k_ow_start_rollback; return 1; }
         z2k_ow_fw_apply && z2k_ow_fw_verify || { z2k_ow_start_rollback; return 1; }
     fi
     z2k_ow_custom_daemons 1
@@ -228,6 +228,7 @@ stop_service() {
     # core-ready FIRST: с этого момента гейты видят not-ready, resurrection
     # запрещена даже если teardown ниже частично провалится. Заодно снимаем
     # starting-маркер (зависший старт + stop = чисто).
+    : > "$Z2K_RUN/stopping" 2>/dev/null || _rc=1
     rm -f "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" "$Z2K_RUN/starting" 2>/dev/null
     # Агрегируем ошибки (каждый шаг best-effort, но итог честный): молчаливый
     # частичный стоп хуже громкого.
@@ -242,8 +243,15 @@ stop_service() {
     # INIT_APPLY_FW=0: fw не наш — ни снимать, ни проверять нечего, и это НЕ
     # провал (иначе внешний fw давал бы ложный nonzero стопа).
     if [ "${INIT_APPLY_FW:-1}" = "1" ]; then
-        z2k_ow_fw_remove || _rc=1
-        z2k_ow_stop_verify || _rc=1
+        if z2k_ow_fw_remove; then
+            if z2k_ow_stop_verify; then
+                z2k_ow_offload_restore || _rc=1
+            else
+                _rc=1
+            fi
+        else
+            _rc=1
+        fi
     fi
     return $_rc
 }

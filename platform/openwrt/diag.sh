@@ -152,20 +152,55 @@ print_platform() {
 }
 
 print_offload() {
-    local rules ft_decl ft_add uci_flow hw_nat fastroute modules backend conclusion
+    local rules ft_decl ft_add uci_flow uci_soft uci_hw hw_nat fastroute modules
+    local backend conclusion mode tab selective_table selective_rules selective_add
+    local exemptions fw4_rules fw4_flowtables owner_conflict core_running core_ready _v _chain
     rules=$(nft list ruleset 2>/dev/null || true)
     _ft_word=$(printf 'flow%s' 'table')
     ft_decl=$(printf '%s\n' "$rules" | grep -ciE "(^|[[:space:]])${_ft_word}([[:space:]]|\{|$)" || true)
     ft_add=$(printf '%s\n' "$rules" | grep -ciE '(^|[[:space:]])flow[[:space:]]+add([[:space:]]|$)' || true)
+    tab=${Z2K_ZAPRET_NFT_TABLE:-zapret2}
+    mode=$(sed -n 's/^[[:space:]]*FLOWOFFLOAD[[:space:]]*=[[:space:]]*//p' "$_cfg" 2>/dev/null \
+        | tail -1 | tr -d "[:space:]'\"")
+    [ -n "$mode" ] || mode=unknown
+
+    # Query the table and chains owned by the stock zapret2 runtime directly.
+    # No adapter rule is created here: this is observation only.
+    selective_table=absent
+    nft list flowtable inet "$tab" ft >/dev/null 2>&1 && selective_table=present
+    selective_rules=$(
+        for _chain in flow_offload flow_offload_zapret flow_offload_always \
+                      forward_hook input_hook output_hook; do
+            nft list chain inet "$tab" "$_chain" 2>/dev/null || true
+        done
+    )
+    selective_add=$(printf '%s\n' "$selective_rules" | grep -ciE '(^|[[:space:]])flow[[:space:]]+add[[:space:]]+@ft([[:space:]]|$)' || true)
+    exemptions=$(nft list chain inet "$tab" flow_offload_zapret 2>/dev/null \
+        | grep -ci 'direct flow offloading exemption' || true)
+
     uci_flow=0
+    uci_soft=unset
+    uci_hw=unset
     if command -v uci >/dev/null 2>&1; then
-        if uci -q get firewall.@defaults[0].flow_offloading 2>/dev/null | grep -qx '1'; then
+        _v=$(uci -q get firewall.@defaults[0].flow_offloading 2>/dev/null || true)
+        [ -n "$_v" ] && uci_soft=$_v
+        if [ "$_v" = 1 ]; then
             uci_flow=1
         fi
-        if uci -q get firewall.@defaults[0].flow_offloading_hw 2>/dev/null | grep -qx '1'; then
+        _v=$(uci -q get firewall.@defaults[0].flow_offloading_hw 2>/dev/null || true)
+        [ -n "$_v" ] && uci_hw=$_v
+        if [ "$_v" = 1 ]; then
             uci_flow=1
         fi
     fi
+    fw4_rules=$(nft list table inet fw4 2>/dev/null || true)
+    fw4_flowtables=$(printf '%s\n' "$fw4_rules" \
+        | grep -ciE '^[[:space:]]*flowtable[[:space:]]' || true)
+    core_running=0
+    core_ready=0
+    "$_init" running >/dev/null 2>&1 && core_running=1
+    [ -f "$_run/core-ready" ] && core_ready=1
+
     if [ -r /proc/driver/hw_nat ]; then
         hw_nat=present
     else
@@ -182,23 +217,41 @@ print_offload() {
     backend=BACKEND_UNKNOWN
     if [ "$hw_nat" = present ]; then
         backend=HARDWARE_NAT
-    elif [ "$ft_decl" -gt 0 ] || [ "$ft_add" -gt 0 ] || [ "$uci_flow" -eq 1 ]; then
+    elif [ "$selective_table" = present ] || [ "$fw4_flowtables" -gt 0 ]; then
         backend=NFT_FLOW_TABLE
     fi
     conclusion=OFFLOAD_NOT_ACTIVE
-    if [ "$ft_decl" -gt 0 ] || [ "$ft_add" -gt 0 ] || [ "$uci_flow" -eq 1 ] || [ "$hw_nat" = present ]; then
+    if [ "$selective_table" = present ] || [ "$hw_nat" = present ]; then
         conclusion=OFFLOAD_CONFIGURED
+    fi
+    owner_conflict=none
+    if [ "$uci_flow" -eq 1 ] || [ "$fw4_flowtables" -gt 0 ]; then
+        if [ "$selective_table" = present ] || [ "$mode" = software ] || [ "$mode" = hardware ]; then
+            owner_conflict=global_fw4+zapret2
+        elif [ "$core_running" = 1 ] && [ "$core_ready" = 1 ]; then
+            owner_conflict=global_fw4+nfqueue
+        else
+            owner_conflict=global_fw4_only
+        fi
     fi
 
     printf '\n=== offload ===\n'
+    printf 'flowoffload mode   : %s\n' "$mode"
+    printf 'zapret2 flowtable  : %s\n' "$selective_table"
+    printf 'zapret2 flow add   : %s\n' "$selective_add"
+    printf 'zapret2 exemptions  : %s\n' "$exemptions"
+    printf 'fw4 global UCI     : software=%s hardware=%s\n' "$uci_soft" "$uci_hw"
+    printf 'fw4 nft flowtables : %s\n' "$fw4_flowtables"
+    printf 'owner conflict     : %s\n' "$owner_conflict"
     printf 'software modules   : %s (nf_flow_table family)\n' "$modules"
-    printf 'software offload   : %s\n' "$(if [ "$ft_decl" -gt 0 ] || [ "$ft_add" -gt 0 ] || [ "$uci_flow" -eq 1 ]; then echo active; else echo inactive; fi)"
+    printf 'software offload   : %s\n' "$(if [ "$selective_table" = present ]; then echo active; else echo inactive; fi)"
     printf 'hardware offload   : %s\n' "$hw_nat"
     printf 'nft acceleration   : declarations=%s flow_add=%s\n' "$ft_decl" "$ft_add"
     printf 'nf_conntrack_fastroute: %s\n' "$fastroute"
     printf 'backend            : %s\n' "$backend"
-    printf 'visibility         : %s\n' "$conclusion"
-    printf 'conclusion         : %s\n' "$conclusion"
+    printf 'offload state      : %s\n' "$conclusion"
+    printf 'packet visibility  : UNKNOWN (offload config is not packet evidence)\n'
+    printf 'circular           : UNKNOWN (requires nfqws2/runtime evidence)\n'
 }
 
 print_lists() {

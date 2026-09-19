@@ -120,6 +120,21 @@ z2k_ow_generate() {
         printf '%s\n' "$_fp" > "$Z2K_CONFIG_GENERATION_MARKER" || return 1
         return 0
     fi
+    # create_official_config intentionally consumes FLOWOFFLOAD from its
+    # environment.  On OpenWrt the selected mode is also a persisted config
+    # value, so feed it back only when the caller did not provide an explicit
+    # override.  Keep the variable local: one generation must not contaminate
+    # a later operation in the long-lived init shell.
+    local _flowoffload_env_set=0 _flowoffload
+    [ "${FLOWOFFLOAD+x}" = x ] && _flowoffload_env_set=1
+    local FLOWOFFLOAD="${FLOWOFFLOAD-}"
+    if [ "$_flowoffload_env_set" = "0" ] && [ -f "$Z2K_CONFIG" ]; then
+        _flowoffload=$(sed -n 's/^[[:space:]]*FLOWOFFLOAD[[:space:]]*=[[:space:]]*//p' \
+            "$Z2K_CONFIG" 2>/dev/null | tail -1 | tr -d "[:space:]'\"")
+        case "$_flowoffload" in
+            none|software|hardware|donttouch) FLOWOFFLOAD="$_flowoffload" ;;
+        esac
+    fi
     create_official_config "$Z2K_CONFIG" || return 1
     mkdir -p "$(dirname "$Z2K_CONFIG_GENERATION_MARKER")" 2>/dev/null || return 1
     printf '%s\n' "$_fp" > "$Z2K_CONFIG_GENERATION_MARKER" || return 1

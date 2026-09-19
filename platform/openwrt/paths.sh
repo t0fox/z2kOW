@@ -48,6 +48,11 @@ Z2K_GENERATED="${Z2K_GENERATED:-$Z2K_TMP/generated}"
 # прошли), снимается ПЕРВЫМ в stop и при любом failed start. /status и
 # health-гейты различают по нему running-процесс от готового dataplane.
 Z2K_CORE_READY="${Z2K_CORE_READY:-$Z2K_RUN/core-ready}"
+# fw4's user acceleration settings are snapshotted only while z2k owns the
+# dataplane and restored verbatim on a clean stop/rollback.
+Z2K_FW4_OFFLOAD_STATE="${Z2K_FW4_OFFLOAD_STATE:-$Z2K_STATE/fw4-offload.state}"
+Z2K_FW4_RELOAD="${Z2K_FW4_RELOAD:-/etc/init.d/firewall}"
+export Z2K_FW4_OFFLOAD_STATE Z2K_FW4_RELOAD
 
 # --- zapret2 runtime (чужое дерево, только читаем) ---
 # Каталог установки zapret2-z2k OpenWrt runtime: nfq2/nfqws2, common/*.sh,

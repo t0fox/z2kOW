@@ -57,6 +57,17 @@ assert_contains "MODE_FILTER=hostlist" "$CFG" "MODE_FILTER=hostlist"
 assert_contains "INIT_APPLY_FW=1" "$CFG" "INIT_APPLY_FW=1"
 assert_contains "master-гейт ENABLED" "$CFG" "ENABLED=1"
 
+# --- FLOWOFFLOAD сохраняется по цепочке env -> generate -> config ---
+# Первая генерация получает выбор из окружения; следующая уже без override
+# обязана сохранить тот же выбор из боевого конфига.
+Z2K_FORCE_CONFIG_REGEN=1 FLOWOFFLOAD=software z2k_ow_generate >"$T/gen-offload.log" 2>&1 \
+    || { echo "FAIL[ow-generate]: offload generate:"; tail -5 "$T/gen-offload.log" >&2; exit 1; }
+assert_contains "FLOWOFFLOAD выбран из env" "$CFG" "FLOWOFFLOAD=software"
+unset FLOWOFFLOAD
+Z2K_FORCE_CONFIG_REGEN=1 z2k_ow_generate >"$T/gen-offload-regenerate.log" 2>&1 \
+    || { echo "FAIL[ow-generate]: offload regenerate:"; tail -5 "$T/gen-offload-regenerate.log" >&2; exit 1; }
+assert_contains "FLOWOFFLOAD пережил регенерацию" "$CFG" "FLOWOFFLOAD=software"
+
 # --- мост ${ZAPRET2_DIR}/config работает: флаг из /etc читается генератором ---
 # Z2K_NFQWS2_TEMPLATES читается generate_* через ${ZAPRET2_DIR}/config (симлинк).
 grep -q -- '--template=' "$CFG" && _t_ok || _t_bad "дефолт: нет --template (ожидался templates=1)"

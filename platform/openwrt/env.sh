@@ -198,12 +198,27 @@ export Z2K_HOSTLIST_EXCLUDE_EXTRA
 Z2K_DIAG_HOOK="${Z2K_DIAG_HOOK:-$Z2K_ADAPTER_DIR/diag.sh}"
 export Z2K_DIAG_HOOK
 
-# z2k_ow_core_ready — предикат "dataplane готов": маркер core-ready СУЩЕСТВУЕТ
-# (его создаёт start_service последним и снимает первым stop/failed start)
-# И сервис running. Reconvergence (hotplug/cron check/rules) разрешена только
-# при ready — иначе manual stop/failed start воскресали бы правилами.
+# Shared one-shot consumer predicate.  service_started wraps this in the
+# existing bounded wait; health/recovery callers use it once.  The PID and
+# NFQUEUE owner must match, so a different nfqws2 cannot make z2k ready.
+z2k_ow_nfqws_consumer_ready() {
+    local _pid _q="${QNUM:-200}" _qnum _owner _rest
+    _pid="$(cat "${Z2K_RUN:-/tmp/z2k/runtime}/nfqws2.pid" 2>/dev/null)"
+    [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null || return 1
+    while read -r _qnum _owner _rest; do
+        [ "$_qnum" = "$_q" ] && [ "$_owner" = "$_pid" ] && return 0
+    done < "${Z2K_NFQUEUE_PROC:-/proc/net/netfilter/nfnetlink_queue}" 2>/dev/null
+    return 1
+}
+
+# z2k_ow_core_ready — предикат "dataplane готов": marker + running service +
+# the same PID/NFQUEUE owner check as startup.  Reconvergence is allowed only
+# for a live consumer; a crash therefore becomes degraded until procd's
+# bounded respawn produces a new owner.
 # INIT_SCRIPT переопределяем для тестов (на роутере — /etc/init.d/z2k).
 z2k_ow_core_ready() {
     [ -f "${Z2K_CORE_READY:-${Z2K_RUN:-/tmp/z2k/runtime}/core-ready}" ] || return 1
-    "${INIT_SCRIPT:-/etc/init.d/z2k}" running >/dev/null 2>&1
+    [ ! -f "${Z2K_RUN:-/tmp/z2k/runtime}/stopping" ] || return 1
+    "${INIT_SCRIPT:-/etc/init.d/z2k}" running >/dev/null 2>&1 || return 1
+    z2k_ow_nfqws_consumer_ready
 }

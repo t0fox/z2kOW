@@ -92,6 +92,8 @@ export Z2K_NFQUEUE_PROC="$T/nfqueue" Z2K_START_CONSUMER_TIMEOUT=3
 # Стабы тяжёлого (порядок/гейты настоящие: preflight/fw_apply/fw_verify/procd):
 z2k_load_adapter() {
     # shellcheck disable=SC1090,SC1091
+    . "$REPO/platform/openwrt/paths.sh" || return 1
+    . "$REPO/platform/openwrt/env.sh" || return 1
     . "$REPO/platform/openwrt/firewall.sh" || return 1
     return 0
 }

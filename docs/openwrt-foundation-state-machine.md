@@ -42,6 +42,7 @@ RUNTIME (tmpfs), EXTERNAL_ZAPRET2 (чужой runtime, только вызыва
 | `/etc/z2k/user-lists/*` | USER (+ merge extra-domains: shipped ∪ user) | merge only | never | — |
 | `/etc/crontabs/root` (строка `# z2k-updater`) | PACKAGE postinst/prerm (по маркеру, атомарно) | never | prerm (только своя строка) | чужие строки (byte-preserved) |
 | `/tmp/z2k/*` | RUNTIME (locks/logs/update/downloads/generated) | свои подкаталоги | reboot / prerm | — (не обязан) |
+| `/etc/z2k/state/fw4-offload.state` | ADAPTER (temporary ownership snapshot) | adapter only | successful stop/rollback | exact UCI presence/value restored |
 | nft table/ifsets/flowtable/NFQUEUE | EXTERNAL_ZAPRET2 (apply/remove/reload) | — (z2k только вызывает) | stop/uninstall | reboot (ядро) |
 
 Два writer на один путь = BUG. Seed — НЕ owner (транспорт UPDATER-файлов).
