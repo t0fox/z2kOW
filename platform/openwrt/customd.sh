@@ -163,3 +163,46 @@ z2k_ow_custom_daemons() {
     }
     custom_runner zapret_custom_daemons "$_action"
 }
+
+# Webpanel seam: the API uses the upstream positive value (1 = enabled), while
+# zapret2 persists the inverse DISABLE_CUSTOM flag.
+toggle_customd() {
+    z2k_ow_customd_available || {
+        echo "custom.d недоступен на OpenWrt: обязательные файлы или runtime отсутствуют" >&2
+        return 1
+    }
+    local want="$1" _running=0
+    if [ "$want" = "0" ]; then
+        # Stop first while DISABLE_CUSTOM is still 0, otherwise zapret2 skips
+        # its own nft teardown and leaves qnum 65300/65301 orphaned.
+        ensure_init_exec
+        is_running && _running=1
+        if [ "$_running" = "1" ]; then
+            "$INIT_SCRIPT" stop 2>&1 || return 1
+        fi
+        set_flag "DISABLE_CUSTOM" "1" "$CONFIG_FILE" || return 1
+        if [ "$_running" = "1" ]; then
+            "$INIT_SCRIPT" start 2>&1 || return 1
+        fi
+        return 0
+    fi
+    set_flag "DISABLE_CUSTOM" "0" "$CONFIG_FILE" || return 1
+    restart_service_if_running
+}
+
+wp_capabilities_json() {
+    local _ready=false _degraded=false _running=false _payload_compatible=true _customd=false
+    is_running >/dev/null 2>&1 && _running=true
+    command -v z2k_ow_core_ready >/dev/null 2>&1 && \
+        z2k_ow_core_ready >/dev/null 2>&1 && _ready=true
+    if [ "$Z2K_PLATFORM_STATUS" = "ok" ] && command -v z2k_ow_panel_payload_compatible >/dev/null 2>&1; then
+        z2k_ow_panel_payload_compatible || _payload_compatible=false
+    elif [ "$Z2K_PLATFORM_STATUS" = "ok" ] && [ -f "$Z2K_PAYLOAD_MARKER" ]; then
+        _payload_compatible=false
+    fi
+    [ "$_payload_compatible" = "true" ] || { _ready=false; _degraded=true; }
+    { [ "$_running" = "true" ] && [ "$_ready" = "false" ]; } && _degraded=true
+    z2k_ow_customd_available >/dev/null 2>&1 && _customd=true
+    printf '"platform":"openwrt","ready":%s,"degraded":%s,"payload_compatible":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":false,"diag":false,"customd":%s,"warp":true,"telegram":true,"uninstall":false}' \
+        "$_ready" "$_degraded" "$_payload_compatible" "$_customd"
+}

@@ -85,6 +85,7 @@ EOF
 z2k_load_adapter() {
     # shellcheck disable=SC1090,SC1091
     . "$REPO/platform/openwrt/firewall.sh" || return 1
+    . "$REPO/platform/openwrt/customd.sh" || return 1
     . "$REPO/platform/openwrt/tg.sh" || return 1
     . "$REPO/platform/openwrt/rt.sh" || return 1
     Z2K_WARP_SOURCE_ONLY=1; export Z2K_WARP_SOURCE_ONLY

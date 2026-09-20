@@ -19,7 +19,7 @@ code() { for _d in $SRC; do find "$_d" -type f ! -name '.keep' ! -path '*/platfo
 # ВТОРОЙ сервис: панель z2k-webpanel (свой instance, независимый lifecycle);
 # z2k-detect is a manual diagnostic tool only; it has no package-owned daemon.
 _n="$(grep -rl 'procd_set_param command' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | wc -l)"
-assert_eq "пять command-определений (init + tg.sh + rt.sh + warp.sh + init панели)" "5" "$(printf '%s' "$_n" | tr -d ' ')"
+assert_eq "шесть command-определений (init + customd + tg.sh + rt.sh + warp.sh + init панели)" "6" "$(printf '%s' "$_n" | tr -d ' ')"
 grep -rl 'procd_set_param command' "$REPO/package/openwrt/files/etc/init.d/z2k" >/dev/null 2>&1 \
     && _t_ok || _t_bad "владелец nfqws2 — не init.d/z2k"
 grep -rl 'procd_set_param command' "$REPO/platform/openwrt/tg.sh" >/dev/null 2>&1 \
@@ -71,7 +71,7 @@ code | grep -q 'standard_mode_daemons' \
 
 # 7. сборка OPT_BASE — в одном месте, вызывается из одного места
 _n="$(grep -rl 'z2k_ow_optbase' "$REPO/platform/openwrt" "$REPO/package/openwrt" | wc -l)"
-assert_eq "optbase: 1 определение + 1 вызов" "2" "$(printf '%s' "$_n" | tr -d ' ')"
+assert_eq "optbase: 1 определение + 2 вызова (core + customd)" "3" "$(printf '%s' "$_n" | tr -d ' ')"
 
 # 8. §10 lifecycle invariants: ровно один владелец у каждого ресурса.
 #   nfqws2 process .... z2k procd adapter (/etc/init.d/z2k)
@@ -87,7 +87,7 @@ assert_eq "optbase: 1 определение + 1 вызов" "2" "$(printf '%s' 
 _n="$(ls "$REPO"/package/openwrt/files/etc/init.d/ 2>/dev/null | wc -l)"
 assert_eq "два procd-сервиса (ядро + панель)" "2" "$(printf '%s' "$_n" | tr -d ' ')"
 _n="$(grep -rl 'procd_open_instance' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | wc -l)"
-assert_eq "пять instance (4 ядра + 1 панели)" "5" "$(printf '%s' "$_n" | tr -d ' ')"
+assert_eq "шесть instance (4 ядра + customd + 1 панели)" "6" "$(printf '%s' "$_n" | tr -d ' ')"
 # ifsets: единственный писатель — zapret2 (мы только вызываем reload).
 # fw_verify ЧИТАЕТ wanif (nft list set — существование/заселённость), но не
 # пишет: исключаем read-only list-линии из скана (запись — add/create/flush).

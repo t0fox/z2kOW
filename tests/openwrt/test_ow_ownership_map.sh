@@ -41,7 +41,7 @@ while IFS= read -r _line; do
         /etc/init.d/z2k-webpanel) _src="package/openwrt/files/etc/init.d/z2k-webpanel" ;;
         /etc/sysctl.d/99-z2k.conf) _src="package/openwrt/files/etc/sysctl.d/99-z2k.conf" ;;
         /etc/hotplug.d/iface/90-z2k) _src="package/openwrt/files/etc/hotplug.d/iface/90-z2k" ;;
-        /usr/lib/z2k/platform/openwrt/custom.d/*) _src="platform/openwrt/custom.d/$(basename "$1")" ;;
+        /usr/lib/z2k/platform/openwrt/custom.d/*) _src="platform/openwrt/custom.d" ;;
         /usr/lib/z2k/platform/openwrt/*) _src="platform/openwrt/$(basename "$1")" ;;
         /usr/lib/z2k/share/config.default) _src="package/openwrt/files/etc/z2k/config.default" ;;
         /usr/lib/z2k/z2k-diag.sh) _src="files/z2k-diag.sh" ;;
@@ -55,7 +55,7 @@ while IFS= read -r _line; do
         /opt/zapret2/*) _src="package/z2k-runtime/Makefile" ;;
         *) _src="" ;;
     esac
-    { [ -n "$_src" ] && [ -f "$REPO/$_src" ]; } || _miss="$_miss $1"
+    { [ -n "$_src" ] && { [ -f "$REPO/$_src" ] || [ -d "$REPO/$_src" ]; }; } || _miss="$_miss $1"
 done <<EOF
 $(sed 's/#.*$//' "$MAP" | grep -v '^[[:space:]]*$')
 EOF
