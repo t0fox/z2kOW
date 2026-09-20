@@ -1,5 +1,5 @@
 import { apiGet, apiPost, errHtml, errMsg, toastErr } from "../core/api.js";
-import { $app } from "../core/dom.js";
+import { $app, escapeHtml } from "../core/dom.js";
 import { _newLoad, _stale, applyCapabilities, refreshStatus } from "../core/loadorder.js";
 import { toast } from "../core/toast.js";
 import { JOB_FAIL, _updateGlobalUILock, confirmModal, jobOutcome, jobUnresolved, openJobModal, setLockAware, unresolvedMsg } from "../job.js";
@@ -138,18 +138,152 @@ const DYNAMIC_TTL_DESC_OPENWRT =
   "тогда счётчик всё равно переписывается дальше по тракту, и наша правка только тратит процессор.";
 
 const FLOWOFFLOAD_OPTIONS = [
-  ["none", "none — выключен"],
-  ["software", "software — программный selective offload"],
-  ["hardware", "hardware — аппаратный selective offload"],
-  ["donttouch", "donttouch — сохранён вне панели"],
+  ["none", "Выключено"],
+  ["software", "Программное ускорение"],
+  ["hardware", "Аппаратное ускорение"],
+  // Служебный режим остаётся частью существующего контракта, но не становится
+  // новой пользовательской возможностью: его можно только увидеть, выбрать нельзя.
+  ["donttouch", "Сохранено вне панели"],
 ];
+
+const FLOWOFFLOAD_MODE_LABELS = Object.fromEntries(FLOWOFFLOAD_OPTIONS);
+
+function flowoffloadModeLabel(mode) {
+  return FLOWOFFLOAD_MODE_LABELS[mode] || "Не проверено";
+}
+
+function flowoffloadFacts(raw) {
+  const facts = {};
+  String(raw || "").split(";").forEach(part => {
+    const i = part.indexOf("=");
+    if (i < 0) return;
+    const key = part.slice(0, i).trim();
+    if (key) facts[key] = part.slice(i + 1).trim() || "unknown";
+  });
+  return facts;
+}
+
+function flowoffloadFactLabel(key, value) {
+  const maps = {
+    flowtable: { present: "Есть", absent: "Нет", unknown: "Не проверено" },
+    flags: { offload: "Аппаратные флаги", software: "Программные флаги", none: "Нет", unknown: "Не проверено" },
+    actual: { software: "Программное ускорение подтверждено", hardware: "Аппаратное ускорение подтверждено", "not-observed": "Не подтверждено", unknown: "Не проверено" },
+    hardware: { observed: "Обнаружено", requested: "Запрошено", available: "Доступно", "not-observed": "Не проверено", unknown: "Не проверено" },
+    owner: { none: "Нет конфликта", unknown: "Не проверено" },
+    packet_visibility: { unknown: "Не проверено" },
+    circular: { unknown: "Не проверено" },
+  };
+  if (key === "exemptions") return /^\d+$/.test(String(value)) ? String(value) : "Не проверено";
+  if (key === "mode") return flowoffloadModeLabel(value);
+  if (maps[key] && maps[key][value]) return maps[key][value];
+  if (key === "owner" && value) {
+    const ownerLabels = {
+      "global_fw4+nfqueue": "fw4 и NFQUEUE одновременно",
+      "global_fw4+zapret2": "fw4 и zapret2 одновременно",
+      global_fw4_only: "только глобальный fw4",
+    };
+    return ownerLabels[value] || (value === "none" ? "Нет конфликта" : "Обнаружен конфликт владельцев");
+  }
+  return value || "Не проверено";
+}
+
+function flowoffloadFactMarkup(key, label, facts) {
+  const raw = facts[key] || "unknown";
+  return `<div class="flow-fact">
+    <span class="flow-fact-label">${label}</span>
+    <span class="flow-fact-value"><span>${escapeHtml(flowoffloadFactLabel(key, raw))}</span><code>${escapeHtml(raw)}</code></span>
+  </div>`;
+}
+
+function flowoffloadTechnicalMarkup(facts) {
+  return `<details class="flow-technical disclosure" id="flowoffload-technical">
+    <summary>Техническая диагностика <span>(Selective FLOWOFFLOAD)</span></summary>
+    <div class="disclosure-body"><div class="flow-technical-body">
+      <div class="flow-facts">
+        ${flowoffloadFactMarkup("mode", "Выбранный режим", facts)}
+        ${flowoffloadFactMarkup("flowtable", "Flowtable", facts)}
+        ${flowoffloadFactMarkup("flags", "Флаги ускорения", facts)}
+        ${flowoffloadFactMarkup("exemptions", "Правила исключений", facts)}
+        ${flowoffloadFactMarkup("actual", "Фактическое ускорение", facts)}
+        ${flowoffloadFactMarkup("hardware", "Аппаратное состояние", facts)}
+        ${flowoffloadFactMarkup("owner", "Владелец/конфликт", facts)}
+      </div>
+      <div class="flow-traffic-diagnostics">
+        <div class="flow-traffic-title">Диагностика обработки трафика</div>
+        <div class="flow-facts">
+          ${flowoffloadFactMarkup("packet_visibility", "Видимость пакетов", facts)}
+          ${flowoffloadFactMarkup("circular", "Circular", facts)}
+        </div>
+      </div>
+    </div></div>
+  </details>`;
+}
+
+function flowoffloadApplicationMarkup(selected, raw) {
+  const facts = flowoffloadFacts(raw);
+  const reported = facts.mode || "unknown";
+  const flowtable = facts.flowtable || "unknown";
+  const actual = facts.actual || "unknown";
+  const owner = facts.owner || "none";
+  const selectedLabel = flowoffloadModeLabel(selected);
+  const warnings = [];
+  let kind = "good";
+  let title = "Режим применён";
+  let copy;
+
+  if (reported !== "unknown" && reported !== selected) {
+    kind = "warn";
+    title = "Проверьте применение";
+    warnings.push(`Выбрано «${selectedLabel}», но текущая конфигурация сообщает «${flowoffloadModeLabel(reported)}».`);
+  }
+
+  if (selected === "none") {
+    if (flowtable === "absent" && actual !== "software" && actual !== "hardware") {
+      copy = "Ускорение отключено. Правила ускорения отсутствуют.";
+    } else if (flowtable === "unknown") {
+      kind = "warn";
+      title = "Режим выбран";
+      copy = "Ускорение отключено. Состояние правил не проверено.";
+    } else {
+      kind = "warn";
+      title = "Проверьте применение";
+      copy = "Ускорение выключено, но правила или фактическое ускорение ещё обнаружены.";
+    }
+  } else if (flowtable === "absent") {
+    kind = "warn";
+    title = "Проверьте применение";
+    copy = `Выбрано «${selectedLabel}», но правила ускорения отсутствуют.`;
+  } else if (actual === "software" || actual === "hardware") {
+    if (actual !== selected) {
+      kind = "warn";
+      title = "Проверьте применение";
+      copy = `Выбрано «${selectedLabel}», но фактически наблюдается «${flowoffloadModeLabel(actual)}».`;
+    } else {
+      copy = `Выбрано «${selectedLabel}». Фактическое ускорение подтверждено по runtime-наблюдению.`;
+    }
+  } else {
+    copy = `Выбрано «${selectedLabel}». Фактическое ускорение не подтверждено.`;
+  }
+
+  if (owner !== "none" && owner !== "unknown") {
+    kind = "warn";
+    warnings.push(`Обнаружен конфликт владельцев: ${flowoffloadFactLabel("owner", owner)}.`);
+  }
+
+  return `<div class="flow-application" data-kind="${kind}">
+    <div class="flow-application-title">${escapeHtml(title)}</div>
+    <div class="flow-application-copy">${escapeHtml(copy)}</div>
+  </div>
+  ${warnings.map(w => `<div class="flow-warning" role="note">${escapeHtml(w)}</div>`).join("")}
+  ${flowoffloadTechnicalMarkup(facts)}`;
+}
 
 function flowoffloadSync(s, select, state, error) {
   const mode = s && s.toggles && s.toggles.flowoffload;
   if (!select || !state || !mode) return;
   select.value = mode;
   select.dataset.saved = mode;
-  state.textContent = s.toggles.flowoffload_status || "Фактическое состояние selective offload недоступно.";
+  state.innerHTML = flowoffloadApplicationMarkup(mode, s.toggles.flowoffload_status);
   if (error) { error.hidden = true; error.textContent = ""; }
 }
 
@@ -211,13 +345,13 @@ export async function renderToggles() {
       `).join("")}
     </div>
     <div class="card" id="openwrt-offload-card" hidden>
-      <h3>Selective FLOWOFFLOAD</h3>
-      <p class="desc">Управляет только штатным selective offload zapret2. Глобальный ускоритель fw4 панель не переписывает; ниже показывается наблюдаемое состояние, а не доказательство видимости пакетов или circular.</p>
-      <label class="field">
+      <h3>Ускорение трафика</h3>
+      <p class="desc">Управление ускорением соединений через zapret2</p>
+      <label class="field flow-mode-field">
         <span class="field-label">Режим</span>
         <select class="t-sub-select" id="flowoffload-mode"></select>
       </label>
-      <div class="t-desc" id="flowoffload-status" role="status"></div>
+      <div id="flowoffload-status" role="status" aria-live="polite"></div>
       <div class="t-desc" id="flowoffload-error" role="alert" hidden></div>
     </div>
     <div class="card">

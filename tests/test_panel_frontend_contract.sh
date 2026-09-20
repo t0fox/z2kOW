@@ -258,6 +258,19 @@ global.fetch = async (url, init) => {
 };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+const FLOW_CAPABILITIES = {
+  policy:false, ppe:false, fastroute:false, tcp16:false, diag:false,
+  customd:true, offload:true, warp:true, telegram:true, uninstall:false,
+};
+function flowStatus(mode, raw) {
+  return {
+    ...STATUS,
+    platform: "openwrt",
+    capabilities: { ...FLOW_CAPABILITIES },
+    toggles: { ...STATUS.toggles, flowoffload: mode, flowoffload_status: raw },
+  };
+}
+
 const OUT = [];
 const check = (name, cond, detail) => OUT.push((cond ? "OK " : "BAD ") + name + (cond ? "" : "  :: " + String(detail || "")));
 
@@ -292,6 +305,114 @@ const postedValue = (p) => {
 };
 
 const SCENARIOS = {
+  flowoffload_none: {
+    hash: "#/toggles",
+    setup() {
+      ROUTER = async () => flowStatus("none",
+        "mode=none; flowtable=absent; flags=none; exemptions=0; actual=not-observed; hardware=not-observed; owner=none; packet_visibility=unknown; circular=unknown");
+    },
+    async run() {
+      await sleep(120);
+      const card = q("#openwrt-offload-card");
+      const html = q("#flowoffload-status").innerHTML;
+      check("none: карточка видима", card.hidden === false, String(card.hidden));
+      check("none: понятный статус применения", html.indexOf("Режим применён") >= 0, html);
+      check("none: ускорение честно описано как отключённое",
+            html.indexOf("Ускорение отключено. Правила ускорения отсутствуют.") >= 0, html);
+      check("none: raw-строка не попала в основной статус", html.indexOf("mode=none;") < 0, html);
+    },
+  },
+
+  flowoffload_unconfirmed: {
+    hash: "#/toggles",
+    setup() {
+      ROUTER = async () => flowStatus("software",
+        "mode=software; flowtable=present; flags=software; exemptions=0; actual=not-observed; hardware=not-observed; owner=none; packet_visibility=unknown; circular=unknown");
+    },
+    async run() {
+      await sleep(120);
+      const html = q("#flowoffload-status").innerHTML;
+      check("software: режим применён отдельно от доказательства работы", html.indexOf("Режим применён") >= 0, html);
+      check("software: отсутствие dataplane-доказательства явно показано",
+            html.indexOf("Фактическое ускорение не подтверждено") >= 0, html);
+      check("software: flowtable не выдаётся за Работает", html.indexOf("Работает") < 0, html);
+    },
+  },
+
+  flowoffload_hardware: {
+    hash: "#/toggles",
+    setup() {
+      ROUTER = async () => flowStatus("hardware",
+        "mode=hardware; flowtable=present; flags=offload; exemptions=0; actual=not-observed; hardware=requested; owner=none; packet_visibility=unknown; circular=unknown");
+    },
+    async run() {
+      await sleep(120);
+      const html = q("#flowoffload-status").innerHTML;
+      check("hardware: пользовательское название режима", html.indexOf("Аппаратное ускорение") >= 0, html);
+      check("hardware: requested не превращается в подтверждённую работу",
+            html.indexOf("Фактическое ускорение не подтверждено") >= 0, html);
+    },
+  },
+
+  flowoffload_mismatch: {
+    hash: "#/toggles",
+    setup() {
+      ROUTER = async () => flowStatus("software",
+        "mode=software; flowtable=absent; flags=none; exemptions=0; actual=not-observed; hardware=not-observed; owner=global_fw4+nfqueue; packet_visibility=unknown; circular=unknown");
+    },
+    async run() {
+      await sleep(120);
+      const html = q("#flowoffload-status").innerHTML;
+      check("mismatch: отдельное предупреждение", html.indexOf("Проверьте применение") >= 0, html);
+      check("mismatch: причина называет отсутствующие правила",
+            html.indexOf("правила ускорения отсутствуют") >= 0, html);
+      check("mismatch: конфликт владельцев объяснён",
+            html.indexOf("fw4 и NFQUEUE одновременно") >= 0, html);
+    },
+  },
+
+  flowoffload_mode_mismatch: {
+    hash: "#/toggles",
+    setup() {
+      ROUTER = async () => flowStatus("software",
+        "mode=none; flowtable=absent; flags=none; exemptions=0; actual=not-observed; hardware=not-observed; owner=none; packet_visibility=unknown; circular=unknown");
+    },
+    async run() {
+      await sleep(120);
+      const html = q("#flowoffload-status").innerHTML;
+      check("mode mismatch: выбранный режим отделён от ответа runtime",
+            html.indexOf("Выбрано «Программное ускорение», но текущая конфигурация сообщает «Выключено».") >= 0, html);
+    },
+  },
+
+  flowoffload_switch: {
+    hash: "#/toggles",
+    setup() {
+      let applied = false;
+      ROUTER = async (p) => {
+        if (p === "/offload") { applied = true; return { ok:true, job:"91" }; }
+        if (p === "/job") return { ok:true, done:true, exit:0, log:"готово" };
+        if (p === "/status") {
+          return applied
+            ? flowStatus("software", "mode=software; flowtable=present; flags=software; exemptions=0; actual=not-observed; hardware=not-observed; owner=none; packet_visibility=unknown; circular=unknown")
+            : flowStatus("none", "mode=none; flowtable=absent; flags=none; exemptions=0; actual=not-observed; hardware=not-observed; owner=none; packet_visibility=unknown; circular=unknown");
+        }
+        return flowStatus("none", "mode=none; flowtable=absent; flags=none; exemptions=0; actual=not-observed; hardware=not-observed; owner=none; packet_visibility=unknown; circular=unknown");
+      };
+    },
+    async run() {
+      await sleep(120);
+      const select = q("#flowoffload-mode");
+      select.value = "software";
+      select.fire("change");
+      await sleep(500);
+      const body = (BODIES["/offload"] || [])[0] || "";
+      check("switch: существующий API получил software", new URLSearchParams(body).get("mode") === "software", body);
+      check("switch: состояние перечитано после job", q("#flowoffload-status").innerHTML.indexOf("Программное ускорение") >= 0,
+            q("#flowoffload-status").innerHTML);
+    },
+  },
+
   // Джоб, о котором роутер уже ничего не знает: файлы подчистил job_reap или
   // роутер перезагрузился посреди обновления. Бекенд отвечает УСПЕШНО, поэтому
   // счётчик сетевых ошибок такой ответ не поймает.
@@ -1176,7 +1297,9 @@ run_scen() {
 }
 
 # Счётчики внутри while-пайпа теряются (subshell), поэтому считаем по выводу.
-for scen in stale_apply poller_gone outage job_refused state_race state_resort_race \
+for scen in flowoffload_none flowoffload_unconfirmed flowoffload_hardware \
+            flowoffload_mismatch flowoffload_mode_mismatch flowoffload_switch \
+            stale_apply poller_gone outage job_refused state_race state_resort_race \
             update_check_failed update_history_modal update_history_empty update_history_failed \
             update_whats_new \
             toggles_status_failed toggles_left_page \
@@ -1216,6 +1339,9 @@ meta "пересортировка снова считается новой за
 meta "отказ панели снова неотличим от обрыва связи" job_refused 's/typeof e\.httpStatus === "number"/false/'
 meta "кнопки туннеля снова живы при непрочитанном статусе" toggles_status_failed '/"#tg-enable"), true);/d; /"#tg-disable"), true);/d'
 meta "ответ после ухода со страницы снова роняет страницу" toggles_left_page '/if (!badge) return;/d'
+meta "none снова выдаётся за неизвестный сбой" flowoffload_none 's/Ускорение отключено\. Правила ускорения отсутствуют\./Неизвестный сбой/'
+meta "неподтверждённое ускорение снова называется Работает" flowoffload_unconfirmed 's/Фактическое ускорение не подтверждено/Работает/'
+meta "отсутствующие правила больше не предупреждают" flowoffload_mismatch 's/} else if (flowtable === "absent")/} else if (false)/'
 meta "ответ WARP после ухода со страницы снова роняет страницу" warp_left_page '/if (!grid\.isConnected) return;/d'
 meta "упавшая проверка обновлений снова прячет весь блок" update_check_failed 's/^      err = e;$/      banner.hidden = true; return;/'
 meta "Escape перестал закрывать историю версий" update_history_modal 's/if (e\.key === "Escape") {/if (false) {/'

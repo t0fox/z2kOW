@@ -1845,6 +1845,108 @@ input[type=text]:focus, input[type=password]:focus {
   letter-spacing: 0.02em;
 }
 
+/* ---------- SELECTIVE FLOWOFFLOAD APPLICATION CARD ----------
+   Настройка и наблюдаемое состояние разделены: наличие flowtable само по
+   себе не означает, что ускорение реально подтверждено dataplane. Блок
+   остаётся в плотности обычной карточки и использует те же токены, что и
+   соседние статусы/раскрывающиеся подсказки. */
+.flow-mode-field {
+  max-width: 360px;
+}
+.flow-mode-field select {
+  width: 100%;
+}
+.flow-application {
+  margin-top: var(--space-12);
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-subtle);
+}
+.flow-application[data-kind="good"] { border-color: rgba(63, 185, 80, 0.45); }
+.flow-application[data-kind="warn"] { border-color: rgba(210, 153, 34, 0.55); }
+.flow-application-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.flow-application[data-kind="good"] .flow-application-title { color: var(--good); }
+.flow-application[data-kind="warn"] .flow-application-title { color: var(--warn); }
+.flow-application-copy {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.flow-warning {
+  margin-top: var(--space-8);
+  padding: var(--space-8) var(--space-12);
+  border-left: 3px solid var(--warn);
+  border-radius: 6px;
+  background: var(--warn-alpha-soft);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.flow-technical {
+  margin-top: var(--space-12);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-8);
+}
+.flow-technical summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12px;
+  user-select: none;
+}
+.flow-technical summary:hover { color: var(--text); }
+.flow-technical summary span {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+}
+.flow-technical-body { padding-top: var(--space-8); }
+.flow-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+}
+.flow-fact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  font-size: 12px;
+}
+.flow-fact-label { color: var(--text-muted); }
+.flow-fact-value {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+  text-align: right;
+}
+.flow-fact-value > span {
+  overflow-wrap: anywhere;
+}
+.flow-fact-value code {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.flow-traffic-diagnostics {
+  margin-top: var(--space-12);
+  padding-top: var(--space-8);
+  border-top: 1px solid var(--border);
+}
+.flow-traffic-title {
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 /* hidden — значит скрыт. Авторские display у .btn, .switch и прочих перебивали
    UA-правило [hidden]{display:none} по специфичности; это ловилось уже трижды
    точечно (.tg-state-badge, .job-link, кнопки дашборда через style.display)
@@ -2459,6 +2561,10 @@ body[data-page="strategies"] #app { max-width: none; }
   .update-banner { flex-direction: column; align-items: stretch; }
   .update-banner-actions { justify-content: flex-end; }
   .wl-add { flex-direction: column; align-items: stretch; }
+  .flow-mode-field { max-width: none; }
+  .flow-facts { grid-template-columns: 1fr; }
+  .flow-fact { align-items: flex-start; }
+  .flow-fact-value { flex-direction: column; align-items: flex-end; gap: 1px; }
 
   /* State table → card layout (Skill rule: table-handling — card layout
      preferred over horizontal scroll on narrow screens). Each row becomes
