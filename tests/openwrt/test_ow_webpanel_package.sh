@@ -17,6 +17,12 @@ assert_contains "webpanel postinst enables init" "$MK" '/etc/init.d/z2k-webpanel
 assert_contains "webpanel postinst starts init" "$MK" '/etc/init.d/z2k-webpanel start'
 assert_contains "webpanel postinst verifies running" "$MK" '/etc/init.d/z2k-webpanel running'
 
+# The CGI dispatcher is the lighttpd entrypoint. A readable 0644 api.sh makes
+# the HTML load while every /cgi-bin/api/* request fails; keep the mode in git
+# and make the package contract test this boundary explicitly.
+if [ -x "$REPO/webpanel/cgi/api.sh" ]; then _t_ok
+else _t_bad "webpanel CGI dispatcher api.sh is not executable"; fi
+
 # --- 1. точные DEPENDS z2k-webpanel (mod_cgi/mod_setenv — live-доказанные,
 # Stage 8: без них postinst/старт валятся; угадывать имена запрещено) ---
 _dep="$(sed -n '/^define Package\/z2k-webpanel$/,/^endef$/p' "$MK" 2>/dev/null | grep -E '^  DEPENDS:=')"
