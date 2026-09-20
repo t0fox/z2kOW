@@ -240,8 +240,11 @@ z2k_platform_nfqws_alive() {
 # rule, or fw4 replacement of their own.
 z2k_ow_flowoffload_mode() {
     local _cfg="${CONFIG_FILE:-${Z2K_CONFIG:-/etc/z2k/config}}" _mode
+    # BusyBox tr treats [:space:] as literal characters in this invocation;
+    # use the same portable trim as the rest of the OpenWrt adapter, after
+    # removing optional config quotes separately.
     _mode=$(sed -n 's/^[[:space:]]*FLOWOFFLOAD[[:space:]]*=[[:space:]]*//p' \
-        "$_cfg" 2>/dev/null | tail -1 | tr -d "[:space:]'\"")
+        "$_cfg" 2>/dev/null | tail -1 | sed "s/[\"']//g" | tr -d ' \t\r\n')
     case "$_mode" in
         none|software|hardware|donttouch) printf '%s\n' "$_mode" ;;
         *) printf '%s\n' none ;;

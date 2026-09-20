@@ -68,6 +68,13 @@ Z2K_FORCE_CONFIG_REGEN=1 z2k_ow_generate >"$T/gen-offload-regenerate.log" 2>&1 \
     || { echo "FAIL[ow-generate]: offload regenerate:"; tail -5 "$T/gen-offload-regenerate.log" >&2; exit 1; }
 assert_contains "FLOWOFFLOAD пережил регенерацию" "$CFG" "FLOWOFFLOAD=software"
 
+# OpenWrt ships BusyBox tr.  The character-class form `tr -d "[:space:]"`
+# is not portable there and turns `software` into `oftwr`; the persisted mode
+# must remain readable by both the generator and the panel after another
+# service lifecycle.
+assert_eq "FLOWOFFLOAD mode reader is BusyBox-safe" "software" \
+    "$(z2k_ow_flowoffload_mode)"
+
 # --- user-owned strategy/list sources are the sources the generator consumes ---
 # A strategy written by the panel must change the generated NFQWS2_OPT, not
 # merely exist under /etc/z2k/user-lists.

@@ -42,7 +42,8 @@ assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapre
 # capability probe therefore must ship behind a newer adapter release, not
 # merely as different bytes under 0.1.0-r35.
 if grep -q 'nounset must not abort this probe' "$REPO/platform/openwrt/customd.sh" \
-    && [ "${_arel:-0}" -ge 36 ]; then
+    && grep -q 'BusyBox-safe' "$REPO/platform/openwrt/env.sh" \
+    && [ "${_arel:-0}" -ge 37 ]; then
     _t_ok
 else
     _t_bad "nounset CGI fix без package release bump"

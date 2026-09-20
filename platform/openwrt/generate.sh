@@ -130,7 +130,7 @@ z2k_ow_generate() {
     local FLOWOFFLOAD="${FLOWOFFLOAD-}"
     if [ "$_flowoffload_env_set" = "0" ] && [ -f "$Z2K_CONFIG" ]; then
         _flowoffload=$(sed -n 's/^[[:space:]]*FLOWOFFLOAD[[:space:]]*=[[:space:]]*//p' \
-            "$Z2K_CONFIG" 2>/dev/null | tail -1 | tr -d "[:space:]'\"")
+            "$Z2K_CONFIG" 2>/dev/null | tail -1 | sed "s/[\"']//g" | tr -d ' \t\r\n')
         case "$_flowoffload" in
             none|software|hardware|donttouch) FLOWOFFLOAD="$_flowoffload" ;;
         esac

@@ -249,6 +249,7 @@ assert_eq "offload: software job done" "true" "$(_jget "$_JO" 'd["done"]')"
 assert_eq "offload: software applied" "software" "$(grep '^FLOWOFFLOAD=' "$T/etc/config" | tail -1 | cut -d= -f2-)"
 RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "offload: status follows config" "software" "$(_jget "$OUT" 'd["toggles"]["flowoffload"]')"
+assert_contains "offload: diagnostics report the selected mode" "$OUT" "mode=software"
 
 printf 'mode=invalid' > "$T/body.txt"
 RAW="$(_cgi POST /offload "" "$T/body.txt")"

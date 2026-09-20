@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=36
+PKG_RELEASE:=37
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -67,6 +67,8 @@ PKG_RELEASE:=36
 # RELEASE 32: include the OpenWrt-only platform CGI seam in the updater
 # manifest so a CI package upgrade converges all executable panel payload,
 # not just common upstream CGI files.
+# RELEASE 37: use BusyBox-safe FLOWOFFLOAD trimming so software/hardware mode
+# survives every subsequent config regeneration and is reported honestly.
 # RELEASE 31: converge stale updater-owned panel payload from an embedded CI
 # snapshot through the existing verified reinstall path; production packages
 # fail closed with an explicit panel-payload incompatibility.
