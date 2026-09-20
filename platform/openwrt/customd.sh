@@ -32,8 +32,19 @@ _z2k_ow_customd_source_runtime() {
         # The panel has not loaded firewall.sh, so source the same zapret2
         # functions file here only to verify the runner component.  The init
         # path still sources it through z2k_ow_fw_source before any mutation.
+        # api.sh runs with `set -u`.  The stock functions file is an
+        # executable-oriented shell library and reads optional variables
+        # while it is being sourced; nounset must not abort this probe in a
+        # command substitution before the caller can serialize capabilities.
+        # Preserve the caller's shell option after the source operation.
+        local _had_nounset=0 _source_rc
+        case "$-" in *u*) _had_nounset=1 ;; esac
+        set +u
         . "${Z2K_ZAPRET2_RUNTIME:-/opt/zapret2}/init.d/openwrt/functions" \
-            >/dev/null 2>&1 || return 1
+            >/dev/null 2>&1
+        _source_rc=$?
+        [ "$_had_nounset" = 1 ] && set -u
+        [ "$_source_rc" = 0 ] || return 1
     fi
     command -v custom_runner >/dev/null 2>&1
 }

@@ -128,7 +128,11 @@ mkdir -p "$T/zapret2/lib" "$T/zapret2/nfq2" "$T/zapret2/init.d/openwrt" "$T/root
 cp "$REPO/platform/openwrt/custom.d/50-stun4all" "$REPO/platform/openwrt/custom.d/50-discord-media" \
    "$T/root/platform/openwrt/custom.d/"
 chmod +x "$T/root/platform/openwrt/custom.d"/*
-printf '#!/bin/sh\ncustom_runner() { :; }\n' > "$T/zapret2/init.d/openwrt/functions"
+# The real zapret2 library is sourced by the OpenWrt capability probe while
+# api.sh has set -u.  Keep an optional runtime variable here so this test
+# catches a nounset abort inside the command substitution, not just a missing
+# runner symbol.
+printf '#!/bin/sh\n: "${Z2K_OPTIONAL_RUNTIME_VALUE}"\ncustom_runner() { :; }\n' > "$T/zapret2/init.d/openwrt/functions"
 cat > "$T/zapret2/lib/utils.sh" <<'EOF'
 #!/bin/sh
 safe_config_read() { return 1; }
@@ -214,6 +218,8 @@ _poll_job_fail() { # $1 jobid, $2 ожидаемый фрагмент лога
 # --- /status: форма + capabilities (WP19/WP20-контекст) ---
 RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "status: HTTP 200" "Status: 200 OK" "$(printf '%s\n' "$RAW" | _cgi_status)"
+_status_json_ok=$(printf '%s\n' "$OUT" | python3 -c 'import json,sys; json.load(sys.stdin); print("true")' 2>/dev/null || printf 'false')
+assert_eq "status: valid JSON with runtime probe" "true" "$_status_json_ok"
 assert_eq "status: platform" "openwrt" "$(_jget "$OUT" 'd["platform"]')"
 assert_eq "status: panel payload compatible" "true" "$(_jget "$OUT" 'd["payload_compatible"]')"
 assert_eq "status: policy false" "false" "$(_jget "$OUT" 'd["capabilities"]["policy"]')"
