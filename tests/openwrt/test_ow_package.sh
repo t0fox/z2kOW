@@ -38,6 +38,15 @@ _rver="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$REPO/package/z2k-runtime/Makefil
 _rrel="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$REPO/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
 assert_contains "webpanel dep == adapter version" "$MK" "EXTRA_DEPENDS:=z2k-adapter (>=${_aver}-r${_arel})"
 assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapret2-runtime (>=${_rver}-r${_rrel})"
+# A same-version APK is not an upgrade on OpenWrt.  The nounset-safe CGI
+# capability probe therefore must ship behind a newer adapter release, not
+# merely as different bytes under 0.1.0-r35.
+if grep -q 'nounset must not abort this probe' "$REPO/platform/openwrt/customd.sh" \
+    && [ "${_arel:-0}" -ge 36 ]; then
+    _t_ok
+else
+    _t_bad "nounset CGI fix без package release bump"
+fi
 # Каноническая грамматика FormatDepends (два провала доказали оба края):
 # "name (>=ver)" — пробел только между именем и скобкой. Проверяем форму
 # строго, чтобы правка не вернула ни "pkg>=ver", ни "(>= ver)".

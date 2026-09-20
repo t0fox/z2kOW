@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=35
+PKG_RELEASE:=36
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -77,6 +77,8 @@ PKG_RELEASE:=35
 # regenerate the user config during package post-upgrade.
 # RELEASE 35: restore the upstream 50-stun4all and 50-discord-media custom.d
 # behavior on OpenWrt through zapret2's own custom_runner/nft lifecycle.
+# RELEASE 36: keep the nounset-safe webpanel capability probe deliverable as a
+# real apk upgrade; same-version package bytes are not an apk upgrade.
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
 # lists/strats/webpanel; z2k-owned TG/RT/WARP/manual z2k-detect едут updater binary
 # flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
@@ -135,7 +137,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r35)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r36)
 endef
 
 define Package/z2k-webpanel/description
