@@ -38,14 +38,34 @@ start_service() {
     procd_set_param stdout 1
     procd_set_param stderr 1
     procd_close_instance
-    # Громкая проверка: жив через секунду (иначе старт формально «прошёл»,
-    # а слушать некому — см. WP21).
-    sleep 1
-    wp_panel_running || {
-        echo "z2k-webpanel: не поднялся (см. лог lighttpd)" >&2
-        return 1
-    }
+    # procd спавнит instance ПОСЛЕ возврата из start_service. Проверка здесь
+    # всегда гонка: она могла ложно ругнуться за секунду до фактического spawn.
+    # Маркер передаёт post-commit readiness в service_started, как у core.
+    : > "$WP_RUN_DIR/starting" || return 1
     return 0
+}
+
+service_started() {
+    # Проверяем только post-commit instance этого сервиса; до marker
+    # start_service провалился и ждать/переобувать чужой процесс нельзя.
+    # shellcheck disable=SC1090,SC1091
+    . "$Z2K_ROOT/platform/openwrt/webpanel.sh" || return 1
+    local _marker="$WP_RUN_DIR/starting" _timeout="${Z2K_WEBPANEL_START_TIMEOUT:-15}"
+    local _now _deadline
+    [ -f "$_marker" ] || return 1
+    rm -f "$_marker" 2>/dev/null
+    _now=$(date +%s 2>/dev/null || echo 0)
+    case "$_now" in ''|*[!0-9]*) _now=0 ;; esac
+    _deadline=$((_now + _timeout))
+    while [ "$_now" -lt "$_deadline" ]; do
+        wp_panel_running && return 0
+        sleep 1
+        _now=$(date +%s 2>/dev/null || echo 0)
+        case "$_now" in ''|*[!0-9]*) _now="$_deadline" ;; esac
+    done
+    wp_panel_running && return 0
+    echo "z2k-webpanel: не поднялся за ${_timeout}s (см. лог lighttpd)" >&2
+    return 1
 }
 
 status() {

@@ -74,7 +74,9 @@ assert_contains "postinst fresh marker" "$MK" "Z2K_OW_WAS_FRESH"
 assert_contains "postinst enable fresh" "$MK" "/etc/init.d/z2k enable"
 assert_contains "postinst start fresh" "$MK" "/etc/init.d/z2k start"
 assert_contains "postinst running check" "$MK" "/etc/init.d/z2k running"
-if grep -q 'Z2K_OW_WAS_FRESH" = "1"' "$MK"; then _t_ok
+assert_contains "postinst preserves fresh variable through make" "$MK" \
+    'if [ "$${Z2K_OW_WAS_FRESH}" = "1" ]; then'
+if grep -q 'Z2K_OW_WAS_FRESH}" = "1"' "$MK"; then _t_ok
 else _t_bad "postinst: autostart без WAS_FRESH-гейта (тронет upgrade)"; fi
 
 # conffiles НЕТ осознанно: init/hotplug — package-owned код, обновляется

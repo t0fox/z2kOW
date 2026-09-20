@@ -124,6 +124,9 @@ done
 assert_contains "init: procd instance" "$PINIT" 'procd_open_instance "z2k-webpanel"'
 assert_contains "init: bounded respawn" "$PINIT" 'procd_set_param respawn 3600 5 5'
 assert_contains "init: dedicated lighttpd" "$PINIT" 'lighttpd -D -f'
+assert_contains "init: post-commit readiness hook" "$PINIT" 'service_started()'
+assert_contains "init: readiness checks after procd commit" "$PINIT" 'wp_panel_running && return 0'
+assert_contains "init: bounded readiness deadline" "$PINIT" 'Z2K_WEBPANEL_START_TIMEOUT'
 if grep -qE 'while :|/etc/init.d/lighttpd|/etc/config/lighttpd' "$PINIT" 2>/dev/null; then
     _t_bad "init: супервизор или чужой lighttpd"
 else

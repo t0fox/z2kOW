@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=32
+PKG_RELEASE:=33
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -70,6 +70,8 @@ PKG_RELEASE:=32
 # RELEASE 31: converge stale updater-owned panel payload from an embedded CI
 # snapshot through the existing verified reinstall path; production packages
 # fail closed with an explicit panel-payload incompatibility.
+# RELEASE 33: preserve the fresh-install gate through GNU make expansion and
+# move webpanel readiness to rc.common's post-procd service_started hook.
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
 # lists/strats/webpanel; z2k-owned TG/RT/WARP/manual z2k-detect едут updater binary
 # flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
@@ -286,7 +288,7 @@ sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1 || true
 # установки). ТОЛЬКО fresh (см. Z2K_OW_WAS_FRESH выше): upgrade running-сервис
 # не трогает. Best-effort: preflight объяснит отказ громко, транзакцию не
 # роняем — offline-установка валидна, старт позже вручную/кнопкой.
-if [ "$Z2K_OW_WAS_FRESH" = "1" ]; then
+if [ "$${Z2K_OW_WAS_FRESH}" = "1" ]; then
     /etc/init.d/z2k enable >/dev/null 2>&1 \
         || echo "z2k-openwrt: postinst: enable не удался" >&2
     if /etc/init.d/z2k start 2>&1; then
