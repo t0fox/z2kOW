@@ -101,6 +101,24 @@ if [ -f "$Z2K_ROOT/platform/openwrt/schedule.sh" ]; then
 fi
 export Z2K_PLATFORM_STATUS
 
+# Status is owned by the panel seam: it combines the canonical core-ready
+# predicate with the package-owned custom.d capability and payload contract.
+wp_capabilities_json() {
+    local _ready=false _degraded=false _running=false _payload_compatible=true _customd=false
+    is_running >/dev/null 2>&1 && _running=true
+    command -v z2k_ow_core_ready >/dev/null 2>&1 && z2k_ow_core_ready >/dev/null 2>&1 && _ready=true
+    if [ "$Z2K_PLATFORM_STATUS" = "ok" ] && command -v z2k_ow_panel_payload_compatible >/dev/null 2>&1; then
+        z2k_ow_panel_payload_compatible || _payload_compatible=false
+    elif [ "$Z2K_PLATFORM_STATUS" = "ok" ] && [ -f "$Z2K_PAYLOAD_MARKER" ]; then
+        _payload_compatible=false
+    fi
+    [ "$_payload_compatible" = "true" ] || { _ready=false; _degraded=true; }
+    { [ "$_running" = "true" ] && [ "$_ready" = "false" ]; } && _degraded=true
+    z2k_ow_customd_available >/dev/null 2>&1 && _customd=true
+    printf '"platform":"openwrt","ready":%s,"degraded":%s,"payload_compatible":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":false,"diag":false,"customd":%s,"warp":true,"telegram":true,"uninstall":false}' \
+        "$_ready" "$_degraded" "$_payload_compatible" "$_customd"
+}
+
 # --- overrides: те же имена, OS-эффект через замороженные адаптеры ---
 
 # Core service state: реальный procd (не pgrep; класс ошибки Stage 5).
