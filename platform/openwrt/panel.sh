@@ -11,6 +11,69 @@ z2k_ow_panel_contract_version() {
     printf '%s' "$_v"
 }
 
+z2k_ow_panel_file_sha() {
+    local _file="$1"
+    [ -f "$_file" ] || return 1
+    if command -v z2k_sha256_file >/dev/null 2>&1; then
+        z2k_sha256_file "$_file"
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$_file" 2>/dev/null | awk '{print $1}'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$_file" 2>/dev/null | awk '{print $NF}'
+    else
+        return 1
+    fi
+}
+
+z2k_ow_panel_snapshot_sha() {
+    local _manifest="$1" _path="$2" _sha
+    [ -r "$_manifest" ] || return 1
+    # The updater's parser is canonical when the full updater is loaded (for
+    # example by package postinst).  CGI has a deliberately smaller source
+    # graph, so retain a local read-only fallback for the same flat map.
+    if command -v au_manifest_file_sha >/dev/null 2>&1; then
+        _sha=$(au_manifest_file_sha "$_manifest" "$_path" 2>/dev/null)
+    else
+        _sha=$(awk -v key="$_path" '
+            index($0, "\"" key "\"") {
+                line=$0
+                sub(".*\"" key "\"[[:space:]]*:[[:space:]]*\"", "", line)
+                sub("\".*", "", line)
+                if (length(line) == 64 && line !~ /[^0-9A-Fa-f]/) print line
+                exit
+            }
+        ' "$_manifest" 2>/dev/null)
+    fi
+    _sha=$(printf '%s' "$_sha" | tr -d ' \t\r\n' | tr 'A-F' 'a-f')
+    printf '%s' "$_sha" | grep -Eq '^[0-9a-f]{64}$' || return 1
+    printf '%s' "$_sha"
+}
+
+z2k_ow_panel_snapshot_check() {
+    local _root="${Z2K_ROOT:-/usr/lib/z2k}" _manifest="$_root/share/snapshot-manifest.json"
+    local _path _dest _want _got
+    # Production packages do not carry a snapshot.  Their existing signed
+    # updater path remains authoritative; only an embedded CI snapshot can
+    # make a local byte-for-byte payload claim.
+    [ -s "$_manifest" ] || return 0
+    for _path in webpanel/cgi/actions.sh webpanel/cgi/platform.sh; do
+        _dest="$_root/$_path"
+        _want=$(z2k_ow_panel_snapshot_sha "$_manifest" "$_path") || {
+            echo "snapshot manifest has no hash for $_path" >&2
+            return 1
+        }
+        _got=$(z2k_ow_panel_file_sha "$_dest" | tr -d ' \t\r\n' | tr 'A-F' 'a-f') || {
+            echo "cannot hash installed panel payload $_path" >&2
+            return 1
+        }
+        [ "$_got" = "$_want" ] || {
+            echo "installed panel payload is stale: $_path" >&2
+            return 1
+        }
+    done
+    return 0
+}
+
 z2k_ow_panel_payload_check() {
     local _root="${Z2K_ROOT:-/usr/lib/z2k}" _v _actions _platform
     _v=$(z2k_ow_panel_contract_version) || {
@@ -33,6 +96,7 @@ z2k_ow_panel_payload_check() {
         echo "webpanel platform.sh has no OpenWrt nfqws2 seam" >&2
         return 1
     }
+    z2k_ow_panel_snapshot_check || return 1
     return 0
 }
 

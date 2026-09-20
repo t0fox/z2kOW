@@ -120,6 +120,12 @@ with open(p, 'w', encoding='utf-8') as f:
 PYEOF
 cp -f "$LC_ORIGIN/manifest.json" "$Z2K_ROOT/share/snapshot-manifest.json"
 printf '0123456789abcdef0123456789abcdef01234567\n' > "$Z2K_ROOT/share/snapshot-commit"
+# A stale initialized payload may still carry every structural marker.  The
+# embedded snapshot must reject its changed bytes before reinstall is attempted.
+cp -f "$REPO/webpanel/cgi/actions.sh" "$Z2K_ROOT/webpanel/cgi/actions.sh"
+cp -f "$REPO/webpanel/cgi/platform.sh" "$Z2K_ROOT/webpanel/cgi/platform.sh"
+printf '\n# stale initialized panel payload\n' >> "$Z2K_ROOT/webpanel/cgi/actions.sh"
+if z2k_ow_panel_payload_compatible; then _t_bad "R5 hash-stale panel was accepted"; else _t_ok; fi
 _out="$(z2k_ow_panel_payload_sync 2>&1)"; _rc=$?
 assert_eq "R5 snapshot repair rc" "0" "$_rc"
 assert_contains "R5 marker restored" "$Z2K_ROOT/webpanel/cgi/actions.sh" 'Z2K_OPENWRT_PANEL_CONTRACT=1'
