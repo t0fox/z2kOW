@@ -34,6 +34,7 @@
 /usr/lib/z2k/platform/openwrt/state.sh package
 /usr/lib/z2k/platform/openwrt/materialize.sh package
 /usr/lib/z2k/platform/openwrt/firewall.sh package
+/usr/lib/z2k/platform/openwrt/customd.sh package
 /usr/lib/z2k/platform/openwrt/fw-check.sh package
 /usr/lib/z2k/platform/openwrt/uci.sh package
 /usr/lib/z2k/platform/openwrt/arch.sh package
@@ -95,6 +96,9 @@
 /usr/lib/z2k/webpanel/* updater
 /usr/lib/z2k/www/* updater
 /etc/z2k/webpanel/* user
+# The package also owns the immutable upstream custom.d examples; the adapter
+# shell files remain listed individually above.
+/usr/lib/z2k/platform/openwrt/custom.d/* package
 # zapret2 dataplane (runtime closure): ставит ПАКЕТ z2k-zapret2-runtime
 # (package/z2k-runtime), класс package — apk-owned, updater эти пути НЕ пишет
 # никогда (обновляются только вместе с runtime-пакетом; conffiles нет:

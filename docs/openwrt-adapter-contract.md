@@ -26,7 +26,7 @@ p-84.7, ветка `feat/openwrt-adapter`). Правило: сначала adapt
 | nft-таблица zapret, ifsets | zapret2 (`zapret_apply/remove/reload_ifsets`) | не строим второй firewall-фреймворк |
 | QNUM/marks/ports | ОБЩИЕ: один файл `/etc/z2k/config`, демон и firewall читают его же | тест сверяет равенство |
 | flow offload | zapret2 (`FLOWOFFLOAD` из того же конфига) | своих offload-правил у адаптера нет; global fw4 switches are snapshotted, disabled while NFQUEUE is owned, and restored exactly on stop/rollback |
-| custom.d | РАЗДЕЛЬНО: zapret2 — runtime'а; z2k — свой раннер (`z2k_custom_daemons`) | будущие TG/RT/WARP-хуки |
+| custom.d | package-owned upstream `50-stun4all`/`50-discord-media`; zapret2 runtime owns `custom_runner`, nft rules and NFQUEUE lifecycle; z2k procd owns the extra nfqws2 instances | queues 65300/65301; `DISABLE_CUSTOM` inverse toggle |
 | сервис zapret2 | DISABLED | его daemon-половина не используется, firewall-функции вызываются напрямую |
 
 ## Filesystem

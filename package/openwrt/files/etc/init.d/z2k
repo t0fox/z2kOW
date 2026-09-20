@@ -27,6 +27,7 @@ z2k_load_adapter() {
     . "$Z2K_ROOT/platform/openwrt/state.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/optbase.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/firewall.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/customd.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/tg.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/rt.sh" || return 1
     Z2K_WARP_SOURCE_ONLY=1; export Z2K_WARP_SOURCE_ONLY
@@ -107,6 +108,7 @@ z2k_ow_start_rollback() {
     local _pid
     _pid="$(cat "$Z2K_RUN/nfqws2.pid" 2>/dev/null)"
     [ -n "$_pid" ] && kill "$_pid" 2>/dev/null
+    z2k_ow_customd_stop_instances 2>/dev/null || true
     z2k_ow_tg 0 >/dev/null 2>&1
     z2k_ow_rt 0 >/dev/null 2>&1
     z2k_ow_warp 0 >/dev/null 2>&1
@@ -170,7 +172,7 @@ start_service() {
         z2k_ow_offload_prepare || { z2k_ow_start_rollback; return 1; }
         z2k_ow_fw_apply && z2k_ow_fw_verify || { z2k_ow_start_rollback; return 1; }
     fi
-    z2k_ow_custom_daemons 1
+    z2k_ow_custom_daemons 1 || { z2k_ow_start_rollback; return 1; }
     # TG/CDN tunnel (Stage 3): второй procd instance + nft в runtime-таблице.
     # Прямой вызов (НЕ через custom.d-раннер): DISABLE_CUSTOM не должен
     # гасить first-class feature. procd останавливает instance сам.
@@ -210,6 +212,9 @@ service_started() {
     fi
     rm -f "$Z2K_RUN/starting" 2>/dev/null
     _z2k_ow_wait_consumer || { z2k_ow_start_rollback; return 1; }
+    if z2k_ow_customd_wanted 2>/dev/null; then
+        z2k_ow_customd_runtime_ready || { z2k_ow_start_rollback; return 1; }
+    fi
     if z2k_ow_tg_wanted 2>/dev/null; then
         _z2k_ow_wait_feature tg && z2k_ow_tg_verify || { z2k_ow_start_rollback; return 1; }
     fi
@@ -233,6 +238,9 @@ stop_service() {
     # Агрегируем ошибки (каждый шаг best-effort, но итог честный): молчаливый
     # частичный стоп хуже громкого.
     z2k_ow_custom_daemons 0 || _rc=1
+    if command -v z2k_ow_customd_stop_instances >/dev/null 2>&1; then
+        z2k_ow_customd_stop_instances 2>/dev/null || _rc=1
+    fi
     # TG chains снять (sets оставить); демона останавливает сам procd.
     z2k_ow_tg 0 || _rc=1
     # RT full stop: redirect/guard + DNS-пины снять (процесс — через procd).

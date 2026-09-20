@@ -35,6 +35,11 @@ else
     z2k_ow_tg_pids() { return 1; }
     z2k_ow_tg_listeners_ready() { return 1; }
 fi
+if [ -f "$Z2K_ROOT/platform/openwrt/customd.sh" ]; then
+    . "$Z2K_ROOT/platform/openwrt/customd.sh" 2>/dev/null || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+else
+    Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+fi
 # Reassert persistent list root after the platform env map.  This keeps the
 # panel safe in mixed-version sysroots where an older env.sh exported it empty.
 Z2K_USER_LISTS="${Z2K_USER_LISTS:-$Z2K_ETC/user-lists}"
@@ -140,8 +145,28 @@ toggle_fastroute() {
 }
 
 toggle_customd() {
-    echo "custom.d недоступен на OpenWrt: каталог адаптера пуст" >&2
-    return 1
+    z2k_ow_customd_available || {
+        echo "custom.d недоступен на OpenWrt: обязательные файлы или runtime отсутствуют" >&2
+        return 1
+    }
+    # Note: 1 = ENABLED, 0 = DISABLED in our API; DISABLE_CUSTOM is inverse.
+    local want="$1" _running=0
+    if [ "$want" = "0" ]; then
+        # Remove the nft rules while the runner is still enabled; changing the
+        # inverse flag first would make zapret2 skip its own teardown.
+        ensure_init_exec
+        is_running && _running=1
+        if [ "$_running" = "1" ]; then
+            "$INIT_SCRIPT" stop 2>&1 || return 1
+        fi
+        set_flag "DISABLE_CUSTOM" "1" "$CONFIG_FILE" || return 1
+        if [ "$_running" = "1" ]; then
+            "$INIT_SCRIPT" start 2>&1 || return 1
+        fi
+        return 0
+    fi
+    set_flag "DISABLE_CUSTOM" "0" "$CONFIG_FILE" || return 1
+    restart_service_if_running
 }
 
 tunnel_pid() {
@@ -174,7 +199,7 @@ uninstall_async() {
 }
 
 wp_capabilities_json() {
-    local _ready=false _degraded=false _running=false _payload_compatible=true
+    local _ready=false _degraded=false _running=false _payload_compatible=true _customd=false
     is_running >/dev/null 2>&1 && _running=true
     command -v z2k_ow_core_ready >/dev/null 2>&1 && \
         z2k_ow_core_ready >/dev/null 2>&1 && _ready=true
@@ -185,8 +210,9 @@ wp_capabilities_json() {
     fi
     [ "$_payload_compatible" = "true" ] || { _ready=false; _degraded=true; }
     { [ "$_running" = "true" ] && [ "$_ready" = "false" ]; } && _degraded=true
-    printf '"platform":"openwrt","ready":%s,"degraded":%s,"payload_compatible":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":false,"diag":false,"customd":false,"warp":true,"telegram":true,"uninstall":false}' \
-        "$_ready" "$_degraded" "$_payload_compatible"
+    z2k_ow_customd_available >/dev/null 2>&1 && _customd=true
+    printf '"platform":"openwrt","ready":%s,"degraded":%s,"payload_compatible":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":false,"diag":false,"customd":%s,"warp":true,"telegram":true,"uninstall":false}' \
+        "$_ready" "$_degraded" "$_payload_compatible" "$_customd"
 }
 
 if [ "$Z2K_PLATFORM_STATUS" != "ok" ]; then

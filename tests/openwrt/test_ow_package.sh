@@ -12,6 +12,12 @@ assert_contains "PKG_NAME" "$MK" "PKG_NAME:=z2k-adapter"
 assert_contains "BuildPackage" "$MK" "BuildPackage,z2k-adapter"
 assert_contains "init.d install" "$MK" "files/etc/init.d/z2k"
 assert_contains "hotplug install" "$MK" "files/etc/hotplug.d/iface/90-z2k"
+assert_contains "customd bridge install" "$MK" "platform/openwrt/*.sh"
+assert_contains "upstream STUN helper install" "$MK" "custom.d/50-stun4all"
+assert_contains "upstream Discord helper install" "$MK" "custom.d/50-discord-media"
+assert_file "customd bridge source exists" "$REPO/platform/openwrt/customd.sh"
+assert_file "upstream STUN helper source exists" "$REPO/platform/openwrt/custom.d/50-stun4all"
+assert_file "upstream Discord helper source exists" "$REPO/platform/openwrt/custom.d/50-discord-media"
 assert_file "diagnostics source exists" "$REPO/files/z2k-diag.sh"
 assert_contains "adapter installs diagnostics helper at runtime lookup path" "$MK" \
     '$(Z2K_TREE)/files/z2k-diag.sh $(1)/usr/lib/z2k/z2k-diag.sh'

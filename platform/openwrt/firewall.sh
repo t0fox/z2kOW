@@ -11,8 +11,8 @@
 #     читают один файл (тест сверяет равенство).
 #   flow offload ............. zapret2 runtime (FLOWOFFLOAD из того же конфига;
 #     своих offload-правил адаптер НЕ создаёт — см. тест ownership).
-#   custom.d ................. РАЗДЕЛЬНО: zapret2/custom.d — runtime'а (пуст
-#     upstream); z2k/custom.d — наш раннер ниже (будущие TG/RT/WARP-хуки).
+#   custom.d ................. штатные zapret2 custom.d-примеры в package-owned
+#     каталоге адаптера, запускаемые тем же custom_runner и nft lifecycle.
 #
 # Делегирование — вызовом РЕАЛЬНЫХ функций zapret2 (functions сорсится лениво
 # здесь; на тестах без runtime — только раннер custom.d, он автономен).
@@ -25,6 +25,12 @@ z2k_ow_fw_source() {
     [ -f "$_f" ] || { echo "z2k-openwrt: нет zapret2 runtime: $_f" >&2; return 1; }
     # shellcheck disable=SC1090
     . "$_f" || return 1
+    # The adapter owns the immutable examples; the zapret2 runtime still owns
+    # their runner and every rule it emits.  Point only CUSTOM_DIR at the
+    # package-owned parent so the runtime does not write into /opt.
+    local _custom_dir="${Z2K_CUSTOM_DIR:-${Z2K_ADAPTER_DIR:-/usr/lib/z2k/platform/openwrt}/custom.d}"
+    CUSTOM_DIR="${_custom_dir%/custom.d}"
+    export CUSTOM_DIR
     _Z2K_OW_FW_SOURCED=1
 }
 
@@ -139,6 +145,12 @@ z2k_ow_fw_check() {
             return 0
         }
     fi
+    if command -v z2k_ow_customd_runtime_ready >/dev/null 2>&1; then
+        z2k_ow_customd_runtime_ready || {
+            rm -f "$_ready" 2>/dev/null
+            return 0
+        }
+    fi
     # Do not race service_started while the initial procd transaction is
     # waiting for its post-commit consumer check.
     [ ! -f "${Z2K_RUN:-/tmp/z2k/runtime}/starting" ] || return 0
@@ -147,11 +159,17 @@ z2k_ow_fw_check() {
         return 0
     }
     z2k_ow_fw_verify >/dev/null 2>&1 && {
+        if command -v z2k_ow_customd_runtime_ready >/dev/null 2>&1; then
+            z2k_ow_customd_runtime_ready || { rm -f "$_ready" 2>/dev/null; return 0; }
+        fi
         : > "$_ready" 2>/dev/null
         return 0
     }
     z2k_ow_fw_apply >/dev/null 2>&1 || return 0
     z2k_ow_fw_verify >/dev/null 2>&1 && {
+        if command -v z2k_ow_customd_runtime_ready >/dev/null 2>&1; then
+            z2k_ow_customd_runtime_ready || { rm -f "$_ready" 2>/dev/null; return 0; }
+        fi
         : > "$_ready" 2>/dev/null
         return 0
     }
@@ -273,31 +291,5 @@ z2k_ow_runtime_preflight() {
             }
         fi
     fi
-    return 0
-}
-
-# --- z2k custom.d: точка расширения для будущих RT/WARP-демонов ---
-# Контракт повторяет zapret2 custom_runner, отдельный неймспейс:
-# каждый $Z2K_CUSTOM_DIR/*.sh может определить z2k_custom_daemons(),
-# которая вызывается с $1=1 (start) / 0 (stop). DISABLE_CUSTOM=1 (дефолт
-# upstream) раннер гасит целиком.
-#
-# TG (Stage 3) через этот раннер НЕ идёт осознанно: DISABLE_CUSTOM не должен
-# гасить first-class feature — tg.sh вызывается из init.d/z2k напрямую.
-Z2K_CUSTOM_DIR="${Z2K_CUSTOM_DIR:-$Z2K_ADAPTER_DIR/custom.d}"
-
-z2k_ow_custom_daemons() {
-    [ "${DISABLE_CUSTOM:-1}" = "1" ] && return 0
-    [ -d "$Z2K_CUSTOM_DIR" ] || return 0
-    local _script
-    for _script in "$Z2K_CUSTOM_DIR"/*.sh; do
-        [ -f "$_script" ] || continue
-        unset -f z2k_custom_daemons
-        # shellcheck disable=SC1090
-        . "$_script"
-        if command -v z2k_custom_daemons >/dev/null 2>&1; then
-            z2k_custom_daemons "$1" || return 1
-        fi
-    done
     return 0
 }

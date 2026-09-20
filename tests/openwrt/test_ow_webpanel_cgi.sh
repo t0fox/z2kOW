@@ -15,7 +15,7 @@ mkdir -p "$T/bin" "$T/root/platform/openwrt" "$T/root/bin" "$T/root/lib" \
 export PATH="$T/bin:/usr/bin:/bin"
 
 # --- adapter farm (настоящие файлы слоя) ---
-for _f in paths.sh env.sh warp.sh tg.sh rt.sh firewall.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
+for _f in paths.sh env.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
@@ -116,7 +116,11 @@ EOF
 chmod +x "$T/root/bin/z2k-warpd"
 # --- mock zapret2 runtime для strategy dry-run (WP9): движок-mock всегда
 # парсит успешно; lib-стабы те же, что выше (теневая сборка их симлинчит) ---
-mkdir -p "$T/zapret2/lib" "$T/zapret2/nfq2"
+mkdir -p "$T/zapret2/lib" "$T/zapret2/nfq2" "$T/zapret2/init.d/openwrt" "$T/root/platform/openwrt/custom.d"
+cp "$REPO/platform/openwrt/custom.d/50-stun4all" "$REPO/platform/openwrt/custom.d/50-discord-media" \
+   "$T/root/platform/openwrt/custom.d/"
+chmod +x "$T/root/platform/openwrt/custom.d"/*
+printf '#!/bin/sh\ncustom_runner() { :; }\n' > "$T/zapret2/init.d/openwrt/functions"
 cat > "$T/zapret2/lib/utils.sh" <<'EOF'
 #!/bin/sh
 safe_config_read() { return 1; }
@@ -202,6 +206,7 @@ assert_eq "status: fastroute false" "false" "$(_jget "$OUT" 'd["capabilities"]["
 assert_eq "status: fastroute backend" "Программный fastpath недоступен на OpenWrt: backend не обнаружен." "$(_jget "$OUT" 'd["toggles"]["fastroute_status"]')"
 assert_eq "status: tcp16 false" "false" "$(_jget "$OUT" 'd["capabilities"]["tcp16"]')"
 assert_eq "status: diag false" "false" "$(_jget "$OUT" 'd["capabilities"]["diag"]')"
+assert_eq "status: customd true" "true" "$(_jget "$OUT" 'd["capabilities"]["customd"]')"
 assert_eq "status: warp true" "true" "$(_jget "$OUT" 'd["capabilities"]["warp"]')"
 assert_eq "status: telegram true" "true" "$(_jget "$OUT" 'd["capabilities"]["telegram"]')"
 assert_eq "status: uninstall false" "false" "$(_jget "$OUT" 'd["capabilities"]["uninstall"]')"
@@ -354,14 +359,24 @@ printf 'confirm=X' > "$T/body.txt"
 RAW="$(_cgi POST /uninstall "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "uninstall: отказ без package manager" "false" "$(_jget "$OUT" 'd["ok"]')"
 
-# --- customd is not an OpenWrt feature: async route fails closed ---
+# --- customd parity: async enable/disable route mutates the inverse flag ---
 printf 'value=1' > "$T/body.txt"
 RAW="$(_cgi POST /toggle/customd "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "toggle: job выдан" "true" "$(_jget "$OUT" 'd["ok"]')"
 _jid="$(_jget "$OUT" 'd["job"]')"
 JOB_IDS="$JOB_IDS $_jid"
-_poll_job_fail "$_jid" "customd toggle: unsupported"
-[ -z "$(grep -m1 '^DISABLE_CUSTOM=' "$T/etc/config" 2>/dev/null)" ] && _t_ok || _t_bad "customd: config mutated"
+_jo="$(_poll_job "$_jid")" || _t_bad "customd enable: job timeout"
+assert_eq "customd enable: job success" "0" "$(_jget "$_jo" 'd["exit"]')"
+assert_eq "customd enable: inverse flag" "0" "$(grep -m1 '^DISABLE_CUSTOM=' "$T/etc/config" | cut -d= -f2)"
+assert_contains "customd enable: service restart" "$T/init.log" "restart"
+printf 'value=0' > "$T/body.txt"
+RAW="$(_cgi POST /toggle/customd "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_jid="$(_jget "$OUT" 'd["job"]')"
+JOB_IDS="$JOB_IDS $_jid"
+_jo="$(_poll_job "$_jid")" || _t_bad "customd disable: job timeout"
+assert_eq "customd disable: job success" "0" "$(_jget "$_jo" 'd["exit"]')"
+assert_eq "customd disable: inverse flag" "1" "$(grep -m1 '^DISABLE_CUSTOM=' "$T/etc/config" | cut -d= -f2)"
+assert_contains "customd disable: clean stop" "$T/init.log" "stop"
 
 # --- strategy pool save (WP9) ---
 mkdir -p "$T/etc/user-lists/custom-strategies"
@@ -412,7 +427,7 @@ assert_eq "toggles: game_warp из конфига" "0" "$(_jget "$OUT" 'd["game_
 printf 'GAME_WARP_ENABLED=0\nENABLED=1\nZ2K_STATS_ACK=0\n' > "$T/etc/config"
 OUT="$(_mg "toggles ack=0" /toggles)"
 assert_eq "toggles: stats_ack=0 доезжает (telemetry)" "0" "$(_jget "$OUT" 'd["stats_ack"]')"
-printf 'GAME_WARP_ENABLED=0\nENABLED=1\n' > "$T/etc/config"
+printf 'GAME_WARP_ENABLED=0\nENABLED=1\nDISABLE_CUSTOM=1\n' > "$T/etc/config"
 
 # Остальные frontend GET: статус + по одному ключевому полю shape.
 OUT="$(_mg "exclude" /exclude)"
@@ -604,7 +619,7 @@ T2="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wpfresh.XXXXXX")" || exit 1
 trap 'rm -rf "$T" "$T2"; for _j in $JOB_IDS; do rm -f "/tmp/z2k-job-$_j.log" "/tmp/z2k-job-$_j.pid" "/tmp/z2k-job-$_j.exit"; done' EXIT INT TERM
 mkdir -p "$T2/bin" "$T2/root/platform/openwrt" "$T2/root/bin" "$T2/root/lib" \
          "$T2/etc" "$T2/tmp/z2k/runtime"
-for _f in paths.sh env.sh warp.sh tg.sh rt.sh firewall.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
+for _f in paths.sh env.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T2/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T2/root/platform/openwrt/warp-proc.sh" 2>/dev/null

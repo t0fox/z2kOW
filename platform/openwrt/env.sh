@@ -223,7 +223,9 @@ z2k_ow_core_ready() {
     [ -f "${Z2K_CORE_READY:-${Z2K_RUN:-/tmp/z2k/runtime}/core-ready}" ] || return 1
     [ ! -f "${Z2K_RUN:-/tmp/z2k/runtime}/stopping" ] || return 1
     "${INIT_SCRIPT:-${Z2K_INIT:-/etc/init.d/z2k}}" running >/dev/null 2>&1 || return 1
-    z2k_ow_nfqws_consumer_ready
+    z2k_ow_nfqws_consumer_ready || return 1
+    command -v z2k_ow_customd_runtime_ready >/dev/null 2>&1 || return 0
+    z2k_ow_customd_runtime_ready
 }
 
 # Updater health snapshots must use the same canonical PID+NFQUEUE-owner
