@@ -45,7 +45,7 @@ assert_eq "adapter release bumped for BusyBox offload fix" "37" "$_arel"
 assert_contains "nounset CGI probe remains guarded" "$REPO/platform/openwrt/customd.sh" \
     'nounset must not abort this probe'
 assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwrt/env.sh" \
-    'BusyBox-safe'
+    'BusyBox tr treats'
 # Каноническая грамматика FormatDepends (два провала доказали оба края):
 # "name (>=ver)" — пробел только между именем и скобкой. Проверяем форму
 # строго, чтобы правка не вернула ни "pkg>=ver", ни "(>= ver)".
