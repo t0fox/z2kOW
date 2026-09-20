@@ -1088,19 +1088,36 @@ toggle_ppe() {
     fi
 }
 
-fastroute_status() {
+# UI describes the current action, never the saved start-up preference.
+# This is the p-85.4 common contract; OpenWrt overrides it with an explicit
+# unavailable backend snapshot in webpanel/cgi/platform.sh.
+fastroute_snapshot() {
     local d="${Z2K_NF_SYSCTL:-/proc/sys/net/netfilter}" value
+    fastroute=0
+    fastroute_available=0
     value=$(cat "$d/nf_conntrack_fastroute" 2>/dev/null)
     case "$value" in
-        0) printf 'Маршрутный кэш сейчас выключен.' ;;
-        1) printf 'Маршрутный кэш сейчас включён.' ;;
-        *) printf 'Состояние маршрутного кэша недоступно.' ;;
+        0) fastroute_message='Маршрутный кэш сейчас выключен.' ;;
+        1) fastroute_message='Маршрутный кэш сейчас включён.' ;;
+        *) fastroute_message='Состояние маршрутного кэша недоступно.'; return ;;
     esac
     if [ -d "${Z2K_HWNAT_DIR:-/proc/driver/hw_nat}" ]; then
-        printf ' Обнаружен каталог драйвера аппаратного NAT: опция здесь не применяется. Активность ускорителя не проверяется.'
+        fastroute_message="Не применяется: обнаружен драйвер аппаратного NAT. $fastroute_message"
     elif ! is_running; then
-        printf ' Обход остановлен: настройка применится при его запуске.'
+        fastroute_message="Недоступно: обход остановлен. $fastroute_message"
+    else
+        [ "$value" = 0 ] && fastroute=1
+        if [ -w "$d/nf_conntrack_fastroute" ]; then
+            fastroute_available=1
+        else
+            fastroute_message="$fastroute_message Нет доступа к изменению."
+        fi
     fi
+}
+
+fastroute_status() {
+    fastroute_snapshot
+    printf '%s' "$fastroute_message"
 }
 
 fastroute_write() {
@@ -1120,11 +1137,11 @@ toggle_fastroute() {
     local want="$1" f="${Z2K_NF_SYSCTL:-/proc/sys/net/netfilter}/nf_conntrack_fastroute"
     local previous target
     case "$want" in 0|1) ;; *) return 1 ;; esac
-    # На остановленном обходе сохраняем намерение, не отключая ускорение сети.
-    if [ -d "${Z2K_HWNAT_DIR:-/proc/driver/hw_nat}" ] || ! is_running; then
-        set_flag "Z2K_FASTROUTE_OFF" "$want" "$CONFIG_FILE" || return 1
-        fastroute_status
-        return 0
+    # A stale page must not silently save an inapplicable future preference.
+    fastroute_snapshot
+    if [ "$fastroute_available" != 1 ]; then
+        printf '%s\n' "$fastroute_message" >&2
+        return 1
     fi
     previous=$(cat "$f" 2>/dev/null)
     case "$previous" in 0|1) ;; *)

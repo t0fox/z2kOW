@@ -125,6 +125,24 @@ const TOGGLE_API_NAME = {
   autohostlist: "autohostlist",
 };
 
+function syncFastroute(box, toggles) {
+  box.checked = toggles.fastroute === "1";
+  setLockAware(box, toggles.fastroute_available !== "1");
+  const state = $app.querySelector("#fastroute-status");
+  if (state) state.textContent = toggles.fastroute_status || "Состояние маршрутного кэша недоступно.";
+}
+
+async function refreshFastroute(box) {
+  setLockAware(box, true);
+  try {
+    const s = await apiGet("/status");
+    if (box.isConnected) syncFastroute(box, s.toggles);
+  } catch (_) {
+    const state = $app.querySelector("#fastroute-status");
+    if (state) state.textContent = "Не удалось проверить состояние маршрутного кэша.";
+  }
+}
+
 // OpenWrt-вариант описания dynamic_ttl: TTL-fix Keenetic там не существует,
 // и совет «выключайте, если включён TTL-fix Keenetic» вводит в заблуждение.
 // Первые два предложения — те же, что в общем тексте выше; меняется только

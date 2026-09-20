@@ -14,8 +14,12 @@
 # On Entware all standard tools live in /opt/{bin,sbin,usr/bin,usr/sbin} and
 # system tools in /bin:/sbin. Set an explicit PATH so cut/grep/sed/awk/cat/dd
 # etc. all resolve, otherwise they silently fail with "command not found" and
-# our handlers return empty JSON.
-export PATH="/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/sbin:/usr/sbin:/bin:/usr/bin"
+# our handlers return empty JSON.  A caller may prepend a controlled integration
+# path (the OpenWrt CGI contract tests use this for nft/uci stubs); production
+# lighttpd leaves it unset.
+_panel_extra_path="${Z2K_PANEL_EXTRA_PATH:-}"
+export PATH="${_panel_extra_path:+${_panel_extra_path}:}/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/sbin:/usr/sbin:/bin:/usr/bin"
+unset _panel_extra_path
 
 set -u
 

@@ -13,6 +13,7 @@ mkdir -p "$T/bin" "$T/root/platform/openwrt" "$T/root/bin" "$T/root/lib" \
          "$T/root/webpanel/cgi" "$T/root/webpanel" "$T/etc/user-lists/warp" "$T/etc/state/warp" \
          "$T/etc/webpanel" "$T/tmp/z2k/runtime" "$T/proc/7777"
 export PATH="$T/bin:/usr/bin:/bin"
+export Z2K_PANEL_EXTRA_PATH="$T/bin"
 
 # --- adapter farm (настоящие файлы слоя) ---
 for _f in paths.sh env.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do

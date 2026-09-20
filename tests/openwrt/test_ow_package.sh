@@ -41,7 +41,7 @@ assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapre
 # A same-version APK is not an upgrade on OpenWrt.  Both fixes therefore
 # require a real adapter release bump, and the webpanel must require that same
 # release rather than silently retaining an older adapter.
-assert_eq "adapter release bumped for autohostlist lifecycle" "41" "$_arel"
+assert_eq "adapter release bumped for p-85.4/UI sync" "42" "$_arel"
 assert_contains "nounset CGI probe remains guarded" "$REPO/platform/openwrt/customd.sh" \
     'nounset must not abort this probe'
 assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwrt/env.sh" \

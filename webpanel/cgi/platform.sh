@@ -151,7 +151,6 @@ tunnel_disable() {
     [ -x "$_init" ] || { echo "нет $_init" >&2; return 1; }
     "$_init" reload 2>&1
 }
-
 toggle_ppe() {
     echo "PPE toggle недоступен на OpenWrt (offload владеет zapret2 runtime)" >&2
     return 1
@@ -162,6 +161,7 @@ toggle_fastroute() {
     return 1
 }
 
+fastroute_snapshot() { fastroute=0; fastroute_available=0; fastroute_message='Программный fastpath недоступен на OpenWrt: backend не обнаружен.'; }
 tunnel_pid() {
     local _p
     _p=$(z2k_ow_tg_pids 2>/dev/null | head -1)
