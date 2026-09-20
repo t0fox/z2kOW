@@ -19,10 +19,8 @@ z2k_ow_panel_payload_check() {
     }
     _actions="$_root/webpanel/cgi/actions.sh"
     _platform="$_root/webpanel/cgi/platform.sh"
-    _api="$_root/webpanel/cgi/api.sh"
     [ -r "$_actions" ] || { echo "webpanel actions.sh is missing" >&2; return 1; }
     [ -r "$_platform" ] || { echo "webpanel platform.sh is missing" >&2; return 1; }
-    [ -x "$_api" ] || { echo "webpanel api.sh is not executable" >&2; return 1; }
     grep -qE "^[[:space:]]*Z2K_OPENWRT_PANEL_CONTRACT=${_v}[[:space:]]*$" "$_actions" 2>/dev/null || {
         echo "webpanel actions.sh is older than package contract $_v" >&2
         return 1

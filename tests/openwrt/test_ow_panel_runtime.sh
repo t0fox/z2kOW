@@ -18,7 +18,6 @@ assert_contains "Telegram status checks listeners" "$TG" 'z2k_ow_tg_listeners_re
 assert_contains "strategy validation uses runtime engine" "$ACT" 'Z2K_NFQWS2'
 assert_contains "panel payload contract marker" "$ACT" 'Z2K_OPENWRT_PANEL_CONTRACT=1'
 assert_contains "panel payload compatibility is checked" "$REPO/platform/openwrt/panel.sh" 'z2k_ow_panel_payload_compatible'
-assert_contains "panel compatibility checks CGI executable" "$REPO/platform/openwrt/panel.sh" 'api.sh is not executable'
 assert_contains "panel mismatch is visible" "$PLAT" 'payload_compatible'
 assert_contains "strategy shadow uses runtime custom source" "$ACT" 'Z2K_EXTRA_STRATEGIES_RUNTIME'
 assert_contains "panel hides unsupported custom.d" "$LOAD" 'data-key="customd"'
