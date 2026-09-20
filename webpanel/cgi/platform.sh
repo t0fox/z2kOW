@@ -190,7 +190,6 @@ uninstall_async() {
     echo "удаление z2k на OpenWrt — через пакетный менеджер роутера" >&2
     return 1
 }
-
 if [ "$Z2K_PLATFORM_STATUS" != "ok" ]; then
     is_installed() { return 1; }
     svc_start() { echo "PLATFORM_UNAVAILABLE: повреждён OpenWrt-адаптер" >&2; return 1; }

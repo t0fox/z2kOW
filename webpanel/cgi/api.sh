@@ -37,7 +37,6 @@ fi
 # идемпотентен. Guard -f: потребители, копирующие api.sh без platform.sh
 # (юнит-стенды), не должны умирать на missing source — `.` с несуществующим
 # файлом роняет неинтерактивный shell молча и без ответа.
-# shellcheck source=platform.sh
 [ -f "$SELF_DIR/platform.sh" ] && . "$SELF_DIR/platform.sh"
 # shellcheck source=actions.sh
 . "$SELF_DIR/actions.sh"
@@ -296,7 +295,9 @@ case "$method $path" in
         au_hour=$(read_flag "Z2K_AU_HOUR" "$CONFIG_FILE" "02")
         case "$au_hour" in [01][0-9]|2[0-3]) ;; *) au_hour=02 ;; esac
         autohostlist=$(read_flag "Z2K_AUTOHOSTLIST" "$CONFIG_FILE" "0")
-        if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+        ow_flow=0
+        [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && ow_flow=1
+        if [ "$ow_flow" = 1 ]; then
             flowoffload=$(z2k_ow_flowoffload_mode)
             flowoffload_status=$(z2k_ow_flowoffload_status)
         fi
@@ -325,7 +326,7 @@ case "$method $path" in
         printf ',"auto_update":';            json_string "${auto_update:-1}"
         printf ',"au_hour":';                json_string "${au_hour:-02}"
         printf ',"autohostlist":';           json_string "${autohostlist:-0}"
-        if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+        if [ "$ow_flow" = 1 ]; then
             printf ',"flowoffload":';         json_string "${flowoffload:-none}"
             printf ',"flowoffload_status":';  json_string "${flowoffload_status:-unavailable}"
         fi

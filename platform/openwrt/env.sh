@@ -261,7 +261,7 @@ z2k_ow_flowoffload_available() {
 }
 
 z2k_ow_flowoffload_status() {
-    local _mode _tab _ft _chain _exemptions _flags _uci_flow _uci_soft _uci_hw
+    local _mode _tab _ft _flowtable _chain _exemptions _flags _uci_flow _uci_soft _uci_hw
     local _fw4 _fw4_flowtables _owner _ct _actual _hardware _running _v
     _mode=$(z2k_ow_flowoffload_mode)
     _tab="${Z2K_ZAPRET_NFT_TABLE:-zapret2}"

@@ -133,9 +133,16 @@ cat > "$T/zapret2/lib/utils.sh" <<'EOF'
 #!/bin/sh
 safe_config_read() { return 1; }
 EOF
-cat > "$T/zapret2/lib/config_official.sh" <<'EOF'
+cat > "$T/zapret2/lib/config_official.sh" <<EOF
 #!/bin/sh
-create_official_config() { printf 'NFQWS2_OPT="\n--filter-tcp=80 --dpi-desync=fake\n"\n' >> "$1"; return 0; }
+create_official_config() {
+    if [ -f "$T/regen-fail" ]; then
+        rm -f "$T/regen-fail"
+        return 1
+    fi
+    printf 'NFQWS2_OPT="\n--filter-tcp=80 --dpi-desync=fake\n"\n' >> "\$1"
+    return 0
+}
 EOF
 cat > "$T/zapret2/nfq2/nfqws2" <<'EOF'
 #!/bin/sh
@@ -215,8 +222,9 @@ assert_eq "status: fastroute false" "false" "$(_jget "$OUT" 'd["capabilities"]["
 assert_eq "status: fastroute backend" "Программный fastpath недоступен на OpenWrt: backend не обнаружен." "$(_jget "$OUT" 'd["toggles"]["fastroute_status"]')"
 assert_eq "status: stock offload capability" "true" "$(_jget "$OUT" 'd["capabilities"]["offload"]')"
 assert_eq "status: stock offload mode" "none" "$(_jget "$OUT" 'd["toggles"]["flowoffload"]')"
-assert_contains "status: offload facts stay explicit" "$OUT" "flowtable=absent"
-assert_contains "status: packet proof stays unknown" "$OUT" "packet_visibility=unknown"
+printf '%s\n' "$OUT" > "$T/status-output"
+assert_contains "status: offload facts stay explicit" "$T/status-output" "flowtable=absent"
+assert_contains "status: packet proof stays unknown" "$T/status-output" "packet_visibility=unknown"
 assert_eq "status: tcp16 false" "false" "$(_jget "$OUT" 'd["capabilities"]["tcp16"]')"
 assert_eq "status: diag false" "false" "$(_jget "$OUT" 'd["capabilities"]["diag"]')"
 assert_eq "status: customd true" "true" "$(_jget "$OUT" 'd["capabilities"]["customd"]')"

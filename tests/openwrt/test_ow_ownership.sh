@@ -46,9 +46,9 @@ code | grep -qE 'table inet z2k|add table|create table' \
     && _t_bad "адаптер создаёт свою nft-таблицу" || _t_ok
 
 # 3. своих offload-правил нет (делегировано zapret2 через FLOWOFFLOAD конфига).
-# FLOWOFFLOAD= в generate.sh — только сохранение/передача выбранного режима;
-# запрещаем именно создание flowtable/правил самим адаптером.
-code | grep -qE 'flowtable|-j FLOWOFFLOAD|nft.*offload' \
+# FLOWOFFLOAD= и `nft list ... flowtable` в адаптере могут только сохранять
+# режим или наблюдать штатный runtime. Запрещаем именно команды записи.
+code | grep -qiE 'nft[[:space:]]+(add|insert|replace|delete|flush|create)[[:space:]].*(flowtable|offload)|(^|[;&|[:space:]])-j[[:space:]]+FLOWOFFLOAD' \
     && _t_bad "адаптер пишет offload-правила" || _t_ok
 
 # 4. QNUM/marks/ports не назначаются кодом — только читаются из конфига
@@ -127,8 +127,8 @@ grep -q '_z2k_ow_warp_table_ok' "$REPO/platform/openwrt/warp.sh" \
 code | grep -qE '(^|[;&|][[:space:]]*)(iptables[[:space:]]+(-A|-I)|(/usr/)?(sbin/)?fw3|(/usr/)?(sbin/)?fw4)([[:space:]]|$)' \
     && _t_bad "адаптер использует чужой firewall-фреймворк" || _t_ok
 # offload уже покрыт пунктом 3; здесь — явное отсутствие второго владельца:
-# writer-код слоя не упоминает flowtable (read-only diag исключён выше).
-code | grep -qi 'flowtable' \
+# writer-код слоя не содержит команд записи flowtable/offload.
+code | grep -qiE 'nft[[:space:]]+(add|insert|replace|delete|flush|create)[[:space:]].*(flowtable|offload)|(^|[;&|[:space:]])-j[[:space:]]+FLOWOFFLOAD' \
     && _t_bad "второй offload-владелец (flowtable)" || _t_ok
 
 _t_done
