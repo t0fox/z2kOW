@@ -31,6 +31,8 @@ assert_eq "Z2K_AU_SBIN payload bin" "$T/root/bin" "$Z2K_AU_SBIN"
 assert_eq "STATE_FILE persistent" "$T/etc/state/state.tsv" "$STATE_FILE"
 assert_eq "merge shipped payload" "$T/root/lists/extra-domains.txt" "$Z2K_EXTRA_DOMAINS_SHIPPED"
 assert_eq "merge runtime user-lists" "$T/etc/user-lists/extra-domains.txt" "$Z2K_EXTRA_DOMAINS_RUNTIME"
+assert_eq "autohostlist ledger is persistent state" "$T/etc/state/autohostlist-domains.txt" "$AUTOHOSTLIST_DOMAINS_FILE"
+assert_eq "autohostlist engine file is separate" "$T/etc/state/zapret-hosts-auto.txt" "$Z2K_AUTOHOSTLIST_FILE"
 
 # §15: manifest repo == payload repo — один origin везде, без necronicle
 assert_eq "BRANCH production" "z2k-enhanced-openwrt" "$Z2K_AU_BRANCH"

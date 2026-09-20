@@ -25,6 +25,8 @@ assert_contains "adapter hook uses canonical core-ready predicate" "$AD" 'z2k_ow
 assert_contains "adapter hook checks nft NFQUEUE" "$AD" 'queue flags bypass to 200'
 assert_contains "adapter hook uses OpenWrt nfq path" "$AD" 'Z2K_NFQWS2'
 assert_contains "common diagnostic uses canonical nfq path" "$DIAG" 'Z2K_NFQWS2:-'
+assert_contains "direct OpenWrt diagnostic bootstraps platform env" "$DIAG" 'platform/openwrt/paths.sh'
+assert_contains "direct OpenWrt diagnostic loads hook" "$DIAG" 'platform/openwrt/env.sh'
 assert_contains "canonical nfq path is exported" "$ENV" 'export Z2K_NFQWS2'
 assert_contains "adapter hook uses package TG path" "$AD" '$_bin/tg-mtproxy-client'
 assert_contains "adapter hook uses package WARP path" "$AD" '$_bin/z2k-warpd'

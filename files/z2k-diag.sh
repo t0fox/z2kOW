@@ -36,6 +36,21 @@
 #   0 — diagnostics printed (even if some sub-probes failed)
 #   1 — fatal: cannot even locate /opt/zapret2
 
+# OpenWrt invokes this file directly from /usr/lib/z2k as well as through the
+# CGI.  CGI already sources platform.sh, but a direct CLI invocation has no
+# environment from lighttpd.  Bootstrap only when the OpenWrt package markers
+# are present; Keenetic keeps the historical defaults byte-for-byte.
+if [ -f "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/paths.sh" ] \
+   && [ -d /etc/z2k ] && [ "${Z2K_PLATFORM:-}" != openwrt ]; then
+    Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
+    Z2K_PLATFORM=openwrt
+    export Z2K_ROOT Z2K_PLATFORM
+fi
+if [ "${Z2K_PLATFORM:-}" = openwrt ] && [ -n "${Z2K_ROOT:-}" ]; then
+    [ -f "$Z2K_ROOT/platform/openwrt/paths.sh" ] && . "$Z2K_ROOT/platform/openwrt/paths.sh"
+    [ -f "$Z2K_ROOT/platform/openwrt/env.sh" ] && . "$Z2K_ROOT/platform/openwrt/env.sh"
+fi
+
 set -u
 
 ZAPRET2_DIR="${ZAPRET2_DIR:-/opt/zapret2}"

@@ -83,6 +83,9 @@
 /etc/z2k/state/quic-pool-key-migrated install-meta
 /etc/z2k/.trust/pinned trust
 /etc/z2k/state/state.tsv daemon-state
+/etc/z2k/state/autohostlist-domains.txt daemon-state
+/etc/z2k/state/zapret-hosts-auto.txt daemon-state
+/etc/z2k/state/zapret-hosts-auto-debug.log daemon-state
 /etc/z2k/state/tcp16_asn.txt daemon-state
 /etc/z2k/state/tcp16_sni.txt daemon-state
 # WARP device identity (Stage 5): пишет register/binary; переживает

@@ -103,6 +103,14 @@ WEBPANEL_KEEP_DIR=/etc/z2k/webpanel (port/bind/hosts, USER)
 Updater-owned vs user-owned lists never remix (§5): shipped game lists stay
 under `/usr/lib/z2k/lists`, user lists under `/etc/z2k/user-lists`.
 
+OpenWrt сохраняет найденные `--hostlist-auto` домены при штатном stop и
+восстанавливает их перед следующей генерацией/запуском через
+`platform/openwrt/autohostlist.sh`. Слив выполняется атомарным rename live-файла
+в drain, поэтому панельный ledger не зависит от payload
+`/usr/lib/z2k/lists/autohostlist-domains.txt`, а рабочий файл движка не является
+источником duplicate-check в WebUI. При выключенном `Z2K_AUTOHOSTLIST` ledger
+сохраняется, но новый engine-файл не создаётся.
+
 ## 5. Ownership (→ ownership.map, tests)
 
 ```text
