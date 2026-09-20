@@ -16,7 +16,7 @@ CLASS: COMMON (тот же код), PLATFORM_IO (тонкий перевод), K
 | strategy editor/pools/custom/validate/save/reset | COMMON | env paths only; common generator |
 | whitelist add/delete/import/list | COMMON | `WHITELIST_FILE=/etc/z2k/user-lists/whitelist.txt` |
 | extra-domains add/delete/list | COMMON | `EXTRA_DOMAINS_FILE` → user-lists |
-| autohostlist view/delete | COMMON | `LISTS_DIR`-derived |
+| autohostlist view/delete | COMMON | `AUTOHOSTLIST_DOMAINS_FILE` → `/etc/z2k/state/autohostlist-domains.txt`; live `Z2K_AUTOHOSTLIST_FILE` is a separate nfqws2 working file |
 | exclusions add/delete/list | COMMON (file) | `EXCLUDE_FILE` → user-lists/exclude.txt; live nft apply unavailable (no ipset impl; graceful no-op precedent) |
 | rotator state view/edit/clear | COMMON | `STATE_FILE` → /etc/z2k/state/state.tsv |
 | config flags (все тумблеры кроме PPE) | COMMON | `CONFIG_FILE` → /etc/z2k/config + common generator + init restart |
@@ -89,6 +89,8 @@ WARP_SCRIPT=/usr/lib/z2k/platform/openwrt/warp.sh
 WARP_LISTS_DIR=/etc/z2k/user-lists/warp
 WARP_GAMES_DIR=/usr/lib/z2k/lists/warp/games   (UPDATER wholesale refresh)
 STATE_FILE=/etc/z2k/state/state.tsv
+AUTOHOSTLIST_DOMAINS_FILE=/etc/z2k/state/autohostlist-domains.txt
+Z2K_AUTOHOSTLIST_FILE=/etc/z2k/state/zapret-hosts-auto.txt (nfqws2 live file)
 DNS_CHECK_SCRIPT=/usr/lib/z2k/z2k-dns-check.sh
 DNS_CHECK_OWN=/etc/z2k/user-lists/dns-check.txt
 Z2K_DETECT_BIN=/usr/lib/z2k/bin/z2k-detect

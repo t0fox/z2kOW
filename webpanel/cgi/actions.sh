@@ -1612,6 +1612,11 @@ _domain_lists_catalog() {
     # <метка>|<путь>. Порядок = порядок проверки; первым идёт то, что человеку
     # понятнее увидеть в ответе.
     local _discord_list="${ZAPRET2_DIR}/extra_strats/TCP_Discord.txt"
+    # OpenWrt separates the persistent discovered-domain ledger from the live
+    # nfqws2 --hostlist-auto file.  AUTOHOSTLIST_DOMAINS_FILE is the former and
+    # is also the source consumed by autohostlist_domains_list(); using
+    # LISTS_DIR here made duplicate detection inspect an unrelated payload path.
+    local _autohostlist="${AUTOHOSTLIST_DOMAINS_FILE:-${Z2K_STATE:-$LISTS_DIR}/autohostlist-domains.txt}"
     [ -s "$_discord_list" ] || _discord_list="${ZAPRET2_DIR}/extra_strats/TCP/RKN/Discord.txt"
     cat <<CATALOG
 исключения|${LISTS_DIR}/whitelist.txt
@@ -1620,7 +1625,7 @@ YouTube|${ZAPRET2_DIR}/extra_strats/TCP/YT/List.txt
 YouTube (видео)|${ZAPRET2_DIR}/extra_strats/TCP/YT_GV/List.txt
 YouTube (QUIC)|${ZAPRET2_DIR}/extra_strats/UDP/YT/List.txt
 Discord|$_discord_list
-автохостлист|${LISTS_DIR}/autohostlist-domains.txt
+автохостлист|$_autohostlist
 CATALOG
 }
 

@@ -116,6 +116,30 @@ assert_eq "FLOWOFFLOAD mode reader is BusyBox-safe" "software" \
 # A strategy written by the panel must change the generated NFQWS2_OPT, not
 # merely exist under /etc/z2k/user-lists.
 mkdir -p "$Z2K_EXTRA_STRATS_DIR/unused" "$Z2K_USER_LISTS/custom-strategies"
+
+# The preflight must validate the user-owned files that z2k_custom_strategy()
+# actually consumes.  A damaged file in any of the five pools must fail closed
+# before create_official_config() can publish a new config.  This is deliberately
+# exercised without a payload-side custom-strategies directory: the old check
+# looked there and silently missed every OpenWrt user file.
+_bad_cfg_sum="$(cksum "$CFG")"
+_bad_cfg_marker="$(cat "$Z2K_CONFIG_GENERATION_MARKER" 2>/dev/null || true)"
+for _bad_pool in yt_tcp gv_tcp rkn_tcp quic discord_udp; do
+    printf '\377\377\377\n' > "$Z2K_USER_LISTS/custom-strategies/${_bad_pool}.txt"
+    if Z2K_FORCE_CONFIG_REGEN=1 z2k_ow_generate >"$T/gen-bad-${_bad_pool}.log" 2>&1; then
+        _t_bad "повреждённый user strategy $_bad_pool не остановил генерацию"
+    else
+        _t_ok
+    fi
+    assert_eq "повреждённый user strategy $_bad_pool сохранил config" \
+        "$_bad_cfg_sum" "$(cksum "$CFG")"
+    assert_eq "повреждённый user strategy $_bad_pool сохранил marker" \
+        "$_bad_cfg_marker" "$(cat "$Z2K_CONFIG_GENERATION_MARKER" 2>/dev/null || true)"
+    [ ! -e "$Z2K_CONFIG.new.$$" ] && _t_ok || _t_bad \
+        "после отказа $_bad_pool остался временный config"
+    rm -f "$Z2K_USER_LISTS/custom-strategies/${_bad_pool}.txt"
+done
+
 cp "$Z2K_EXTRA_STRATS_DIR/TCP/RKN/Strategy.txt" "$T/rkn-strategy.txt"
 printf '%s\n' '--dpi-desync-ttl=11' >> "$T/rkn-strategy.txt"
 cp "$T/rkn-strategy.txt" "$Z2K_USER_LISTS/custom-strategies/rkn_tcp.txt"

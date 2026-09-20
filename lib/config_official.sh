@@ -142,7 +142,11 @@ generate_nfqws2_opt_from_strategies() {
     # Проверяем их все разом ДО первого использования — так отказ один и тот же
     # (fail-closed), а не «часть пулов подхватилась, часть нет».
     for _cs_pool in yt_tcp gv_tcp rkn_tcp quic discord_udp; do
-        _cs_check="${ZAPRET2_DIR:-/opt/zapret2}/lists/custom-strategies/${_cs_pool}.txt"
+        # Проверяем ровно тот же каталог, из которого z2k_custom_strategy()
+        # читает override. На OpenWrt это user-owned /etc, а не immutable
+        # payload /usr/lib/z2k/lists; оставлять здесь второй путь означает
+        # пропускать повреждённые пользовательские стратегии.
+        _cs_check="$custom_strats_dir/${_cs_pool}.txt"
         [ -s "$_cs_check" ] || continue
         if ! _z2k_file_sane "$_cs_check"; then
             print_error "Пользовательский файл стратегий повреждён (бинарный мусор вместо опций): $_cs_check"
