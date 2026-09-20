@@ -617,8 +617,9 @@ printf 'found-by-autohostlist.example\n' > "$T/etc/state/autohostlist-domains.tx
 printf 'engine-only.example\n' > "$T/etc/state/zapret-hosts-auto.txt"
 printf 'payload-only.example\n' > "$T/root/lists/autohostlist-domains.txt"
 OUT="$(_mg "autohostlist effective state" /autohostlist-domains)"
+printf '%s\n' "$OUT" > "$T/autohostlist-effective-response"
 assert_contains "autohostlist state survives a new CGI process" \
-    "$T/etc/state/autohostlist-domains.txt" "found-by-autohostlist.example"
+    "$T/autohostlist-effective-response" "found-by-autohostlist.example"
 printf 'domain=found-by-autohostlist.example' > "$T/body.txt"
 RAW="$(_cgi POST /extra-domains/add "" "$T/body.txt")"
 assert_eq "extra-domains effective autohostlist: 400" \
@@ -644,8 +645,9 @@ done
 # persistent ledger remains visible, while the engine-only file is still not a
 # duplicate source.
 OUT="$(_mg "autohostlist persistent re-read" /autohostlist-domains)"
+printf '%s\n' "$OUT" > "$T/autohostlist-reread-response"
 assert_contains "autohostlist persistent ledger" \
-    "$T/etc/state/autohostlist-domains.txt" "found-by-autohostlist.example"
+    "$T/autohostlist-reread-response" "found-by-autohostlist.example"
 
 # WARP install/remove — через стаб (сеть не трогаем); reregister — без
 # device-файла быстрый rc 0 по коду («и так отсутствует»).
