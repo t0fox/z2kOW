@@ -1884,7 +1884,29 @@ create_official_config() {
 
     # Получить FWTYPE и FLOWOFFLOAD из окружения (если установлены)
     local fwtype_value="${FWTYPE:-iptables}"
-    local flowoffload_value="${FLOWOFFLOAD:-none}"
+    local flowoffload_value="${FLOWOFFLOAD:-}"
+    # FLOWOFFLOAD is a user-selected runtime mode on OpenWrt.  The updater can
+    # call this common generator directly while the old tree is temporarily
+    # parked as ${ZAPRET2_DIR}.old.*; in that path there is no OpenWrt wrapper
+    # left to feed the selected value back through the environment.  Falling
+    # back to the current/previous config keeps the mode across a verified
+    # reinstall without changing the fresh-install default (none).
+    if [ -z "$flowoffload_value" ] && [ -f "$config_file" ]; then
+        flowoffload_value=$(safe_config_read "FLOWOFFLOAD" "$config_file" "")
+    fi
+    if [ -z "$flowoffload_value" ]; then
+        local _flowoffload_root="${ZAPRET2_DIR:-/opt/zapret2}" _flowoffload_cfg
+        # shellcheck disable=SC2045,SC2086
+        for _flowoffload_cfg in "$_flowoffload_root/config" $(ls -dt "${_flowoffload_root}".old.*/config 2>/dev/null); do
+            [ -f "$_flowoffload_cfg" ] || continue
+            flowoffload_value=$(safe_config_read "FLOWOFFLOAD" "$_flowoffload_cfg" "")
+            [ -n "$flowoffload_value" ] && break
+        done
+    fi
+    case "$flowoffload_value" in
+        none|software|hardware|donttouch) ;;
+        *) flowoffload_value=none ;;
+    esac
     local tmpdir_value="${TMPDIR:-}"
 
     # ==============================================================================

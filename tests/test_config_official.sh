@@ -424,6 +424,44 @@ assert_contains "reinstall: DISABLE_IPV6=1 recovered from .old backup (hand-disa
 DI6_OUT=$(test_disable_ipv6_reinstall "old0" "0")
 assert_contains "reinstall: DISABLE_IPV6=0 recovered from .old backup (not re-autodetected)" "DISABLE_IPV6=0" "$DI6_OUT"
 
+printf "\n--- FLOWOFFLOAD: selected mode survives direct updater regeneration ---\n"
+
+# Regression: an OpenWrt package upgrade can invoke the common generator
+# directly while the previous payload is parked in ZAPRET2_DIR.old.*.  The
+# adapter wrapper is not on that call path, so an unset FLOWOFFLOAD environment
+# used to silently rewrite a user-selected software/hardware mode to none.
+test_flowoffload_preserve() {
+    local tag="$1" old_val="$2" source="$3"
+    local root="${MOCK_DIR}/flowoffload-${tag}"
+    rm -rf "$root" "${root}".old.* 2>/dev/null
+    mkdir -p "$root/extra_strats/TCP/YT" "$root/extra_strats/TCP/YT_GV" \
+        "$root/extra_strats/TCP/RKN" "$root/extra_strats/UDP/YT" "$root/lists"
+    echo "youtube.com"     > "$root/extra_strats/TCP/YT/List.txt"
+    echo "googlevideo.com" > "$root/extra_strats/TCP/YT_GV/List.txt"
+    echo "youtube.com"     > "$root/extra_strats/UDP/YT/List.txt"
+    echo "rutracker.org"   > "$root/extra_strats/TCP/RKN/List.txt"
+    echo "whitelisted.example.com" > "$root/lists/whitelist.txt"
+    echo "--filter-tcp=443 --filter-l7=tls --lua-desync=circular:fails=3:time=60:key=rkn_tcp --lua-desync=fake:strategy=1" \
+        > "$root/extra_strats/TCP/RKN/Strategy.txt"
+    if [ "$source" = "file" ]; then
+        printf 'ENABLED=1\nFLOWOFFLOAD=%s\n' "$old_val" > "$root/config"
+    else
+        printf 'ENABLED=1\n' > "$root/config"
+        mkdir -p "${root}.old.999"
+        printf 'ENABLED=1\nFLOWOFFLOAD=%s\n' "$old_val" > "${root}.old.999/config"
+    fi
+    ( unset FLOWOFFLOAD; ZAPRET2_DIR="$root" create_official_config "$root/config" >/dev/null 2>&1 )
+    grep -E '^FLOWOFFLOAD=' "$root/config" | head -1
+    rm -rf "$root" "${root}".old.* 2>/dev/null
+}
+
+FLOW_OUT=$(test_flowoffload_preserve "live-software" "software" "file")
+assert_contains "FLOWOFFLOAD=software survives direct regeneration" "FLOWOFFLOAD=software" "$FLOW_OUT"
+FLOW_OUT=$(test_flowoffload_preserve "live-hardware" "hardware" "file")
+assert_contains "FLOWOFFLOAD=hardware survives direct regeneration" "FLOWOFFLOAD=hardware" "$FLOW_OUT"
+FLOW_OUT=$(test_flowoffload_preserve "reinstall" "software" "old")
+assert_contains "reinstall: FLOWOFFLOAD recovered from .old backup" "FLOWOFFLOAD=software" "$FLOW_OUT"
+
 printf "\n--- Z2K_PPE_DEOFFLOAD: webpanel offload toggle persists across regen ---\n"
 
 # Regression: the Keenetic per-flow hardware-offload exclusion toggle
