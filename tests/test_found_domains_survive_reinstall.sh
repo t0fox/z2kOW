@@ -21,6 +21,7 @@ TREE="$TMP/opt/zapret2"; PROC="$TMP/proc"; mkdir -p "$TREE/lists" "$PROC/321" "$
 printf '%s\000run\000' "$TMP/opt/sbin/z2k-detect" > "$PROC/321/cmdline"
 printf '%s\000probe\000example.com\000' "$TMP/opt/sbin/z2k-detect" > "$PROC/322/cmdline"
 printf 'old\n' > "$TREE/lists/discovered-domains.txt"
+printf 'found.example\n' > "$TREE/lists/autohostlist-domains.txt"
 printf 'user\n' > "$TREE/lists/extra-domains.txt"
 printf 'user\n' > "$TREE/lists/whitelist.txt"
 mkdir -p "$TMP/opt/etc/init.d"
@@ -70,10 +71,12 @@ mkdir -p "$TMP/opt/etc/init.d" "$Z2K_DISCOVERY_PROC_ROOT/321" "$Z2K_DISCOVERY_PR
 printf '%s\000run\000' "$TMP/opt/sbin/z2k-detect" > "$Z2K_DISCOVERY_PROC_ROOT/321/cmdline"
 printf '%s\000probe\000www.google.com\000' "$TMP/opt/sbin/z2k-detect" > "$Z2K_DISCOVERY_PROC_ROOT/322/cmdline"
 printf 'www.google.com\n' > "$TREE/lists/discovered-domains.txt"
+printf 'found.example\n' > "$TREE/lists/autohostlist-domains.txt"
 printf 'www.google.com\n' > "$TREE/lists/extra-domains.txt"
 printf 'google.com\n' > "$TREE/lists/whitelist.txt"
 touch "$TMP/opt/etc/init.d/S98z2k-detect" "$TREE/z2k-detect-watchdog.sh"
 # Only the process-control boundary is mocked; migration logic is production code.
+: > "$TMP/killed"
 kill() { echo "$1" >> "$TMP/killed"; rm -rf "${Z2K_DISCOVERY_PROC_ROOT:?}/${1:?}"; }
 z2k_retire_discovery
 _rc=$?
