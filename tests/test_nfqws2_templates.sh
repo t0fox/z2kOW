@@ -71,13 +71,13 @@ gen() {   # $1 — Z2K_NFQWS2_TEMPLATES, $2 — «empty-rkn» чтобы обн�
 gen 1 > "$TMP/tpl.txt"
 gen 0 > "$TMP/flat.txt"
 
-# --- 1. Один шаблон, оба профиля его импортируют -----------------------------
+# --- 1. Один шаблон, профиль РКН его импортирует -----------------------------
 _n_tpl=$(grep -c -- '--template=z2k_rkn_arsenal' "$TMP/tpl.txt")
 _n_imp=$(grep -c -- '--import=z2k_rkn_arsenal' "$TMP/tpl.txt")
 [ "$_n_tpl" = "1" ] && ok "шаблон объявлен ровно один раз" \
     || no "один шаблон" "1" "$_n_tpl"
-[ "$_n_imp" = "2" ] && ok "импортируют оба профиля (rkn_tcp и cf_extra)" \
-    || no "два импорта" "2" "$_n_imp"
+[ "$_n_imp" = "1" ] && ok "импортирует только rkn_tcp" \
+    || no "один импорт" "1" "$_n_imp"
 
 # --- 2. Объявление раньше импорта -------------------------------------------
 _ln_tpl=$(grep -n -- '--template=' "$TMP/tpl.txt" | head -1 | cut -d: -f1)
@@ -118,15 +118,14 @@ done < "$TMP/flat.txt" 3< "$TMP/tpl_flat.txt"
 [ "$_diffs" = "0" ] && ok "у каждого профиля тот же набор токенов, что в плоской форме" \
     || no "эквивалентность" "0 расхождений" "$_diffs"
 
-# --- 5. Выигрыш в длине ------------------------------------------------------
-_sz_flat=$(wc -c < "$TMP/flat.txt" | tr -d ' ')
-_sz_tpl=$(wc -c < "$TMP/tpl.txt" | tr -d ' ')
-_saved=$((_sz_flat - _sz_tpl))
-if [ "$_saved" -gt 10000 ]; then
-    ok "строка короче на $_saved байт ($_sz_flat → $_sz_tpl)"
-else
-    no "выигрыш в длине" ">10000 байт" "$_saved (шаблон перестал экономить — проверьте, что импортируют оба профиля)"
-fi
+# --- 5. Legacy enabled flag cannot resurrect the subnet-wide profile --------
+for form in tpl flat; do
+    if grep -qE 'key=cf_extra|--ipset=.*cf_extra_check_ips' "$TMP/$form.txt"; then
+        no "cf_extra removed ($form, saved flag=1)" "no profile" "present"
+    else
+        ok "cf_extra removed ($form, saved flag=1)"
+    fi
+done
 
 # --- 6. Аварийный выключатель ------------------------------------------------
 if grep -q -- '--template\|--import' "$TMP/flat.txt"; then
@@ -137,10 +136,7 @@ fi
 
 # --- 7. Некому импортировать — нет и шаблона ---------------------------------
 #
-# Пустой РКН-список выкидывает профили rkn_tcp и http_rkn; cf_extra при этом
-# эмитится и импорт сохраняет, поэтому шаблон обязан остаться. Проверяем
-# обратное свойство на выключенном cf_extra и пустом РКН — не остаётся ни
-# одного импортёра.
+# Пустой РКН-список не оставляет импортёров шаблона.
 _root="$TMP/r2"; rm -rf "$_root"
 mkdir -p "$_root/extra_strats/TCP/YT" "$_root/extra_strats/TCP/YT_GV" \
          "$_root/extra_strats/TCP/RKN" "$_root/extra_strats/UDP/YT" "$_root/lists" "$_root/ipset"

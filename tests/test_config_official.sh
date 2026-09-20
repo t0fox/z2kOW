@@ -617,8 +617,12 @@ assert_eq "ручной Strategy.txt: retrans не задвоен" "1" "$_dups"
 # NFQWS2_TCP_PKT_IN — окно входящих в пакетах — 10: детектору успеха нужно
 # inseq=4096 + пакет, десять — двойной запас; прежние 50 кормили сторож обрыва.
 _root_pkt="${MOCK_DIR}/pkt-in"; rm -rf "$_root_pkt"; mkdir -p "$_root_pkt/lists"
-printf 'ENABLED=1\n' > "$_root_pkt/config"
+printf 'ENABLED=1\nZ2K_DISCOVER=1\n' > "$_root_pkt/config"
+printf 'www.google.com\n' > "$_root_pkt/lists/discovered-domains.txt"
 ( ZAPRET2_DIR="$_root_pkt" create_official_config "$_root_pkt/config" >/dev/null 2>&1 )
+assert_not_contains "снятая автодетекция не сохраняется в конфиге" "Z2K_DISCOVER=" "$(cat "$_root_pkt/config")"
+assert_not_contains "discovered не подключается ни к одному профилю" "discovered-domains.txt" "$(cat "$_root_pkt/config")"
+assert_eq "регенерация удаляет старую публикацию" "no" "$([ -e "$_root_pkt/lists/discovered-domains.txt" ] && echo yes || echo no)"
 assert_eq "NFQWS2_TCP_PKT_IN=10 в конфиге" 'NFQWS2_TCP_PKT_IN="10"' "$(grep -E '^NFQWS2_TCP_PKT_IN=' "$_root_pkt/config" | head -1)"
 assert_eq "Z2K_CIRCULAR_RESET переживает регенерацию (умолчание 1)" 'Z2K_CIRCULAR_RESET=1' "$(grep -E '^Z2K_CIRCULAR_RESET=' "$_root_pkt/config" | head -1)"
 assert_eq "Discord TLS recovery defaults to enabled" 'Z2K_DISCORD_UPDATE_TLS_TIMEOUT=1' "$(grep '^Z2K_DISCORD_UPDATE_TLS_TIMEOUT=' "$_root_pkt/config")"

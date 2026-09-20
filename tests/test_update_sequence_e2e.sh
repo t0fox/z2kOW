@@ -65,7 +65,9 @@ printf '%s\n' '--filter-udp=443 --filter-l7=quic --lua-desync=circular:fails=3:t
 # Рантайм 16 КБ лежит на роутере (его везёт карта доставки), и генератор ставит
 # инстанс только при живом файле — иначе движок падал бы в error на каждом пакете.
 mkdir -p "$SB/lua" && cp files/lua/z2k-tcp16.lua "$SB/lua/"
-printf 'ENABLED=1\n' > "$SB/config"
+# Upgrade a real legacy enabled profile, not merely a fresh configuration.
+printf '104.21.0.0/17\n' > "$SB/lists/cf_extra_check_ips.txt"
+printf 'ENABLED=1\nZ2K_CF_EXTRA_CHECK=1\nNFQWS2_OPT="--filter-tcp=443 --ipset=%s/lists/cf_extra_check_ips.txt --lua-desync=circular:key=cf_extra"\n' "$SB" > "$SB/config"
 
 run_steps() {
     # Журнал апдейтера — в стенд, иначе он лезет в /opt/var/log.
@@ -88,6 +90,12 @@ grep -q 'z2k_sni_pick' "$SB/config" \
     && bad "механизм попал в конфиг, хотя линия не измерена" \
     || ok "без измерения механизма в конфиге нет"
 
+if grep -qE 'key=cf_extra|--ipset=.*cf_extra_check_ips' "$SB/config"; then
+    bad "legacy cf_extra survived update regeneration"
+else
+    ok "update removes active legacy cf_extra even with saved flag=1"
+fi
+
 # --- 2. Механизм ВКЛЮЧЁН — ровно случай r-81.1 ------------------------------
 printf '1\n' > "$SB/state/tcp16.flag"
 OUT=$(run_steps); RC=$?
@@ -101,6 +109,56 @@ if [ "$RC" = 0 ]; then
 else
     bad "ВЕТО: цепочка встала (код $RC) — обновление откатится. $(printf '%s' "$OUT" | grep -i 'FAIL' | head -2 | tr '\n' ' ')"
 fi
+
+if grep -qE 'key=cf_extra|--ipset=.*cf_extra_check_ips' "$SB/config"; then
+    bad "measured TCP16 block resurrected cf_extra"
+else
+    ok "TCP16 works independently without cf_extra"
+fi
+
+# Both snapshots are loaded by the rotator. Preserve other pools byte-for-byte,
+# including a different pool containing the same host and similarly named keys.
+eval "$(sed -n '/^_z2k_retire_cf_extra_state()/,/^}/p' "$DIR/files/S99zapret2.new")"
+ZAPRET_BASE="$SB"
+Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE="$SB/fallback"
+mkdir -p "$Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE"
+primary="$ES/cache/autocircular/state.tsv"
+fallback="$Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE/z2k-autocircular-state.tsv"
+printf '# header\nrkn_tcp\tshared.example\t7\t123\tfrozen\ncf_extra_other\tother.example\t2\t125\tauto\n' > "$SB/expected"
+for f in "$primary" "$fallback"; do
+    cat "$SB/expected" > "$f"
+    printf 'cf_extra\tshared.example\t5\t130\tfrozen\ncf_extra\tonly.example\t1\t140\tauto\n' >> "$f"
+    chmod 640 "$f"
+done
+_z2k_retire_cf_extra_state >/dev/null
+for f in "$primary" "$fallback"; do
+    cmp -s "$SB/expected" "$f" && ok "only retired pool removed: ${f##*/}" || bad "unrelated state changed: $f"
+done
+cp -p "$primary" "$SB/once"
+_z2k_retire_cf_extra_state >/dev/null
+cmp -s "$SB/once" "$primary" && ok "cleanup idempotent" || bad "cleanup not idempotent"
+printf 'cf_extra\trestored.example\t4\t200\tauto\n' >> "$fallback"
+printf '1' > "$fallback.lock"
+_z2k_retire_cf_extra_state >/dev/null
+cmp -s "$SB/expected" "$fallback" && ok "restored fallback cleaned despite stale lock" || bad "fallback resurrected retired pool"
+# A snapshot containing only the retired pool must become empty, not survive.
+printf 'cf_extra\tonly.example\t1\t140\tauto\n' > "$fallback"
+_z2k_retire_cf_extra_state >/dev/null
+[ ! -s "$fallback" ] && ok "all-retired snapshot becomes empty" || bad "retired-only snapshot retained"
+
+# Failed replacement must leave the old snapshot intact and release the lock.
+printf 'cf_extra\tfailure.example\t3\t140\tauto\n' >> "$primary"
+cp -p "$primary" "$SB/before-failure"
+if ( mv() { return 1; }; _z2k_retire_cf_extra_state >/dev/null ); then
+    bad "failed replacement reported success"
+else
+    cmp -s "$primary" "$SB/before-failure" && ok "failed replacement preserves snapshot" || bad "failed replacement lost state"
+fi
+[ ! -f "$primary.lock" ] && ok "failure releases state lock" || bad "failure leaks state lock"
+_before_mode=$(ls -ln "$primary" | awk '{ print $1, $3, $4 }')
+_z2k_retire_cf_extra_state >/dev/null
+_after_mode=$(ls -ln "$primary" | awk '{ print $1, $3, $4 }')
+[ "$_before_mode" = "$_after_mode" ] && ok "cleanup preserves permissions and ownership" || bad "snapshot permissions changed"
 
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] && exit 0 || exit 1

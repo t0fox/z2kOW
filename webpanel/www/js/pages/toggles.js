@@ -778,13 +778,15 @@ async function toggleClick(key, box) {
   sw.classList.add("loading");
   box.disabled = true; // блок UI до завершения, не даём кликать ещё
   const restarts = TOGGLES_RESTART_SERVICE[key] === 1;
-  const verb = wanted === "1" ? "Включаю" : "Отключаю";
+  const verb = key === "fastroute"
+    ? (wanted === "1" ? "Отключаю" : "Включаю")
+    : (wanted === "1" ? "Включаю" : "Отключаю");
   const niceName = {
     customd: "custom.d",
     dynamic_ttl: "Динамический TTL",
     stats: "Сбор статистики",
     ppe: "PPE de-offload",
-    fastroute: "Программный fastpath",
+    fastroute: "Маршрутный кэш",
     auto_update: "Автообновление",
     autohostlist: "Автохостлист",
   }[key] || key;
@@ -797,6 +799,7 @@ async function toggleClick(key, box) {
     box.disabled = false;
     sw.classList.remove("loading");
     toastErr("Ошибка: ", e);
+    if (key === "fastroute") refreshFastroute(box);
     return;
   }
   // Backend async — открываем модалку с live-логом. Состояние switch'а
@@ -822,7 +825,7 @@ async function toggleClick(key, box) {
         // трогаем чекбокс и не обещаем, что вернули как было.
         const m = unresolvedMsg(outcome);
         if (m) toast(m, "bad");
-        resyncToggle(key, box);
+        if (key !== "fastroute") resyncToggle(key, box);
       } else {
         toast(key === "fastroute" ? "Настройка сохранена" : (wanted === "1" ? "Включено" : "Выключено"));
       }

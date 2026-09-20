@@ -42,6 +42,7 @@ LOGBUF="$TMP/log.txt"; : > "$LOGBUF"
 log() { printf '%s\n' "$*" >> "$LOGBUF"; }
 
 # Настоящее тело функции из отгружаемого скрипта.
+eval "$(sed -n '/^filter_google_domains() {/,/^}/p' "$GEOSITE")"
 eval "$(sed -n '/^apply_new_list() {/,/^}/p' "$GEOSITE")"
 
 TARGET="$TMP/List.txt"

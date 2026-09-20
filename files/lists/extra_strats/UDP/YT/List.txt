@@ -3,7 +3,6 @@ yt.be
 youtu.be
 youtubekids.com
 googlevideo.com
-video.google.com
 gvt1.com
 ytimg.com
 ggpht.com
@@ -12,6 +11,5 @@ googleadservices.com
 youtubeembeddedplayer.googleapis.com
 youtube.googleapis.com
 youtubei.googleapis.com
-accounts.google.com
 accounts.youtube.com
 oauth2.googleapis.com

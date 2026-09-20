@@ -165,7 +165,7 @@ chmod +x "$TMP/bin/curl"
 # z2k_connfail) живут в том же файле и без них цикл Layer 0 в песочнице
 # получает пустое число попыток — то есть краснеет харнесс, а не проверяемый
 # код. Новый общий помощник обязан появиться и здесь.
-awk '/^(fetch_to_tmp|fetch_asset|apply_new_list|_z2k_geosite_reject|z2k_uint|z2k_connfail)\(\) \{/,/^\}/' "$GEO" > "$TMP/geo_fns.sh"
+awk '/^(filter_google_domains|fetch_to_tmp|fetch_asset|apply_new_list|_z2k_geosite_reject|z2k_uint|z2k_connfail)\(\) \{/,/^\}/' "$GEO" > "$TMP/geo_fns.sh"
 if grep -q '^fetch_asset() {' "$TMP/geo_fns.sh" && grep -q '^fetch_to_tmp() {' "$TMP/geo_fns.sh"; then
     ok "fetch_to_tmp/fetch_asset извлечены из z2k-geosite.sh"
 else

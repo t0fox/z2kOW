@@ -62,5 +62,52 @@ else
     no "live writer" "nonzero and publication preserved" "missing"
 fi
 
+# Execute the real migration, including a running legacy writer and a manual probe.
+. "$ROOT/lib/config_official.sh"
+ZAPRET2_DIR="$TREE"
+Z2K_DISCOVERY_PROC_ROOT="$TMP/proc"
+mkdir -p "$TMP/opt/etc/init.d" "$Z2K_DISCOVERY_PROC_ROOT/321" "$Z2K_DISCOVERY_PROC_ROOT/322"
+printf '%s\000run\000' "$TMP/opt/sbin/z2k-detect" > "$Z2K_DISCOVERY_PROC_ROOT/321/cmdline"
+printf '%s\000probe\000www.google.com\000' "$TMP/opt/sbin/z2k-detect" > "$Z2K_DISCOVERY_PROC_ROOT/322/cmdline"
+printf 'www.google.com\n' > "$TREE/lists/discovered-domains.txt"
+printf 'www.google.com\n' > "$TREE/lists/extra-domains.txt"
+printf 'google.com\n' > "$TREE/lists/whitelist.txt"
+touch "$TMP/opt/etc/init.d/S98z2k-detect" "$TREE/z2k-detect-watchdog.sh"
+# Only the process-control boundary is mocked; migration logic is production code.
+kill() { echo "$1" >> "$TMP/killed"; rm -rf "${Z2K_DISCOVERY_PROC_ROOT:?}/${1:?}"; }
+z2k_retire_discovery
+_rc=$?
+if [ "$_rc" = 0 ] && [ ! -e "$TREE/lists/discovered-domains.txt" ] &&
+   [ ! -e "$TMP/opt/etc/init.d/S98z2k-detect" ] && [ ! -e "$TREE/z2k-detect-watchdog.sh" ]; then
+    ok "миграция удаляет публикацию и оба пути автозапуска"
+else
+    no "миграция" "deleted, rc=0" "rc=$_rc"
+fi
+if [ "$(cat "$TMP/killed")" = 321 ] && [ -f "$Z2K_DISCOVERY_PROC_ROOT/322/cmdline" ]; then
+    ok "остановлен только run, ручная проба не тронута"
+else
+    no "выбор процесса" "321 only" "$(cat "$TMP/killed")"
+fi
+if [ "$(cat "$TREE/lists/extra-domains.txt")" = www.google.com ] &&
+   [ "$(cat "$TREE/lists/whitelist.txt")" = google.com ] &&
+   [ -s "$TREE/lists/autohostlist-domains.txt" ]; then
+    ok "ручные списки и отдельный автохостлист сохранены"
+else
+    no "чужие списки" "preserved" "changed"
+fi
+z2k_retire_discovery && ok "повторная миграция идемпотентна" || no "повтор" 0 "$?"
+
+# A still-running writer must veto deleting its publication.
+mkdir -p "$Z2K_DISCOVERY_PROC_ROOT/321"
+printf '%s\000run\000' "$TMP/opt/sbin/z2k-detect" > "$Z2K_DISCOVERY_PROC_ROOT/321/cmdline"
+printf 'www.google.com\n' > "$TREE/lists/discovered-domains.txt"
+kill() { return 1; }
+if z2k_retire_discovery; then
+    no "отказ остановки виден вызывающему" "nonzero" 0
+else
+    ok "отказ остановки виден вызывающему"
+fi
+[ -s "$TREE/lists/discovered-domains.txt" ] && ok "при живом writer публикация не удаляется" || no "writer" "preserved" "deleted"
+
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -287,7 +287,7 @@ case "$method $path" in
         # до этого аплоадер молчит (files/z2k-stats-upload.sh).
         stats_ack=$(read_flag "Z2K_STATS_ACK" "$CONFIG_FILE" "1")
         ppe=$(read_flag "Z2K_PPE_DEOFFLOAD" "$CONFIG_FILE" "1")
-        fastroute=$(read_flag "Z2K_FASTROUTE_OFF" "$CONFIG_FILE" "1")
+        fastroute_snapshot
         auto_update=$(read_flag "Z2K_AUTO_UPDATE_ENABLED" "$CONFIG_FILE" "1")
         # Час ночного обновления. Нормализуем здесь, а не в панели: конфиг
         # правят и руками, а селектор без совпадающего варианта показал бы

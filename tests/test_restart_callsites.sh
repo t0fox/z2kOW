@@ -532,6 +532,7 @@ export FNS_REPAIR
 cat > "$TMP/c_repair.sh" <<'EOF'
 . "$FNS_REPAIR"
 LOG="$TMP/ensure.log"; : > "$LOG"
+_z2k_retire_cf_extra_state() { return 0; }
 ensure_autocircular_files() { printf 'pass\n' >> "$LOG"; }
 t0=$(date +%s)
 repair_autocircular_files_after_daemon_start; rc=$?

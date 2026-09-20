@@ -1368,13 +1368,8 @@ generate_nfqws2_opt_from_strategies() {
     # ШАБЛОН ДВИЖКА: арсенал РКН объявляется один раз
     # --------------------------------------------------------------------------
     #
-    # Профиль cf_extra — это ДОСЛОВНАЯ копия арсенала rkn_tcp, отличающаяся
-    # ровно одним словом (key= у circular). Замерено на боевых пулах: 13 154
-    # байта совпадают побайтно, а весь профиль — 30% всей строки NFQWS2_OPT.
-    # Копия делалась `sed s/key=rkn_tcp/key=cf_extra/` по готовой строке, то
-    # есть любая правка арсенала уезжала в оба места молча — и длина
-    # командной строки платилась дважды. Длина здесь не абстракция: разбор
-    # 29 КБ строки шеллом уже стоил 17 из 25 секунд рестарта.
+    # Keep the established template/flat contract for the RKN arsenal.
+    # The former second consumer (cf_extra) has been retired.
     #
     # Движок умеет объявить набор один раз (--template=имя) и подставить его в
     # профиль (--import=имя). Правила слияния (проверены прогоном движка):
@@ -1561,35 +1556,9 @@ generate_nfqws2_opt_from_strategies() {
     # из Strategy.txt пробивал CF лучше чем 8 curated cdn_tls strategies).
     # CF возвращается под rkn_tcp как было до Variant A.
 
-    # CF extra-check fallback (104.21.0.0/17). Подтверждённый wigeance
-    # (ntc.party/t/726/9019, 2025-07): «На подсети 104.21.х.х CF у меня на
-    # ТСПУ помимо 16кб, есть доп. проверка аналогичная *.googlevideo.com,
-    # соответственно и обходится она аналогично». Профиль перехватывает
-    # ВЕСЬ TLS-трафик на эту подсеть после rkn_tcp, чтобы покрыть CF-домены
-    # которые НЕ в RKN-листе (random subdomains, обскурные сайты на CF Pro).
-    # Whitelist юзера всё равно exclude. Использует тот же arsenal что rkn_tcp,
-    # но с собственным circular key=cf_extra (отдельный nstrategy state, чтобы
-    # не размывать выбор стратегии для основного rkn_tcp по другим доменам).
-    # Live test 2026-05-08 (тестовый router): rkn_tcp probe rutracker.org →
-    # 22/48 стратегий пробивают (≥240 kbps), значит arsenal достаточен.
-    local Z2K_CF_EXTRA_CHECK
-    Z2K_CF_EXTRA_CHECK=$(safe_config_read "Z2K_CF_EXTRA_CHECK" "${ZAPRET2_DIR:-/opt/zapret2}/config" "1")
-    if [ "$Z2K_CF_EXTRA_CHECK" = "1" ] && [ -s "${lists_dir}/cf_extra_check_ips.txt" ]; then
-        if [ -n "$rkn_circ" ]; then
-            # Копируется ТОЛЬКО circular-токен (в нём и есть отличие — key=),
-            # арсенал приезжает импортом. Голова профиля повторяет голову
-            # rkn_tcp намеренно: сегодня cf_extra наследует её из копии тела и
-            # ловит все шесть портов, а не один 443 — убрать это здесь значило
-            # бы тихо сузить профиль под видом рефакторинга.
-            local cf_circ
-            cf_circ=$(printf '%s' "$rkn_circ" | sed 's/key=rkn_tcp/key=cf_extra/')
-            nfqws2_opt_lines="$nfqws2_opt_lines--filter-tcp=443 --filter-l7=tls --ipset=${lists_dir}/cf_extra_check_ips.txt $wl_excl $rkn_head $cf_circ --import=$rkn_tpl --new\\n"
-        else
-            local cf_extra_strategies
-            cf_extra_strategies=$(printf '%s' "$rkn_tcp" | sed 's/key=rkn_tcp/key=cf_extra/')
-            nfqws2_opt_lines="$nfqws2_opt_lines--filter-tcp=443 --filter-l7=tls --ipset=${lists_dir}/cf_extra_check_ips.txt $wl_excl $cf_extra_strategies --new\\n"
-        fi
-    fi
+    # Retired cf_extra: subnet-wide interception must not bypass domain lists.
+    # Legacy Z2K_CF_EXTRA_CHECK values are intentionally ignored. TCP16 uses
+    # the measured-line gate and z2k_sni_pick above, independently of this.
 
     # Phase 3 merge: YouTube + googlevideo collapsed to a single google_tls
     # profile. Hostlist triggers OR — hostlist=YT/List.txt ∪ hostlist-domains=

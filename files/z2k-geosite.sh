@@ -49,6 +49,7 @@
 # Usage:
 #   z2k-geosite.sh fetch                fetch all, replace production lists
 #   z2k-geosite.sh show <asset>         fetch one asset to stdout (no write)
+#   z2k-geosite.sh clean-google        clean existing inclusion lists offline
 #   z2k-geosite.sh status               show current production line counts
 #   z2k-geosite.sh --help
 #
@@ -570,6 +571,45 @@ _z2k_geosite_reject() {
     return 0
 }
 
+# Google account, translation and connectivity endpoints must not enter bypass
+# hostlists. Keep only Meet; googlevideo/googleapis are separate domains.
+filter_google_domains() {
+    awk '
+        {
+            d = tolower($1)
+            sub(/\r$/, "", d)
+            sub(/\.$/, "", d)
+            if ((d == "google.com" || d ~ /\.google\.com$/) && d != "meet.google.com") next
+            print
+        }
+    ' "$1"
+}
+
+# Also run offline, before daemon startup: a 304 or failed download must not
+# preserve bad entries from an older installation. Only inclusion lists belong
+# here, never exclusions, fake SNI candidates or strategy files.
+clean_google_domains() {
+    local list tmp failed=0
+    for list in "$EXTRA"/*/*/List.txt "$EXTRA/TCP/RKN/Discord.txt" \
+                "$EXTRA/TCP_Discord.txt" \
+                "$ZAPRET2_DIR/lists/extra-domains.txt" \
+                "$ZAPRET2_DIR/lists/autohostlist-domains.txt"; do
+        [ -f "$list" ] || continue
+        tmp=$(mktemp "${list}.google.XXXXXX") || { failed=1; continue; }
+        if ! filter_google_domains "$list" > "$tmp"; then
+            rm -f "$tmp"; failed=1; continue
+        fi
+        if cmp -s "$list" "$tmp"; then
+            rm -f "$tmp"
+        elif chmod 644 "$tmp" && mv -f "$tmp" "$list"; then
+            log "Removed Google domains (except Meet) from $list"
+        else
+            rm -f "$tmp"; failed=1
+        fi
+    done
+    return "$failed"
+}
+
 apply_new_list() {
     local newf="$1"
     local target="$2"
@@ -717,7 +757,7 @@ apply_new_list() {
     # reader to worry about — but we still want to avoid torn writes
     # if the install script is killed mid-copy.
     local target_tmp="${target}.probe"
-    cp "$final" "$target_tmp" && mv "$target_tmp" "$target" \
+    filter_google_domains "$final" > "$target_tmp" && mv "$target_tmp" "$target" \
         || { log "  $asset: failed to write $target"
              _z2k_geosite_reject "$asset"
              return 1; }
@@ -786,15 +826,9 @@ subtract_googlevideo_from_yt() {
 
 # --- Inject sign-in endpoints upstream youtube.txt omits -------------------
 #
-# runetfreedom's youtube.txt does NOT carry the YouTube / Apple-TV account
-# sign-in endpoints (oauth2.googleapis.com = the device-login OAuth poll,
-# accounts.google.com / accounts.youtube.com = the sign-in itself). The
-# set-top login rides these over BOTH TLS and HTTP/3 (QUIC). Without them in
-# the YT lists the login flow gets ZERO nfqws2 treatment and sign-in hangs on
-# offload routers. The shipped snapshot carries them, but fetch_asset
-# overwrites the LIVE list from upstream — so we re-inject them here, into both
-# the TCP and the QUIC YT lists, on every fetch (idempotent, suffix-safe dedup).
-YT_LOGIN_DOMAINS="accounts.google.com accounts.youtube.com oauth2.googleapis.com"
+# Retain the YouTube-specific device-login endpoints omitted upstream.
+# accounts.google.com deliberately stays out: bypassing it breaks Google login.
+YT_LOGIN_DOMAINS="accounts.youtube.com oauth2.googleapis.com"
 
 inject_yt_login_domains() {
     local list d added
@@ -805,30 +839,6 @@ inject_yt_login_domains() {
             grep -qxF "$d" "$list" 2>/dev/null || { printf '%s\n' "$d" >> "$list"; added=$((added+1)); }
         done
         [ "$added" -gt 0 ] && log "YT login: injected $added sign-in domain(s) into ${list#"$EXTRA"/}"
-    done
-    return 0
-}
-
-# Video-serving Google domains that ride the googlevideo profiles (gv_tcp over
-# TLS, QUIC YT profile over UDP) but that upstream youtube.txt omits. Paired
-# with googlevideo.com — same handling. Injected ONLY into the lists that carry
-# googlevideo (TCP/YT_GV + UDP/YT), NOT TCP/YT (yt_tcp), where googlevideo is
-# intentionally stripped (subtract_googlevideo_from_yt) — keeping these out of
-# yt_tcp so the gv_tcp profile (first-match by its own hostlist) handles them.
-# UDP/YT is overwritten by the youtube.txt fetch, so re-add post-fetch;
-# TCP/YT_GV is static but injected too for durability across list-only updates
-# (where a full reinstall hasn't redeployed the shipped file). Idempotent.
-YT_VIDEO_DOMAINS="video.google.com"
-
-inject_yt_video_domains() {
-    local list d added
-    for list in "$EXTRA/TCP/YT_GV/List.txt" "$EXTRA/UDP/YT/List.txt"; do
-        [ -f "$list" ] || continue
-        added=0
-        for d in $YT_VIDEO_DOMAINS; do
-            grep -qxF "$d" "$list" 2>/dev/null || { printf '%s\n' "$d" >> "$list"; added=$((added+1)); }
-        done
-        [ "$added" -gt 0 ] && log "YT video: injected $added video domain(s) into ${list#"$EXTRA"/}"
     done
     return 0
 }
@@ -1188,10 +1198,8 @@ fetch_all() {
     # not RKN. Idempotent.
     inject_yt_login_domains || log "YT login inject: non-fatal failure, continuing"
 
-    # Re-add video.google.com to the googlevideo-carrying lists (TCP/YT_GV +
-    # UDP/YT) — survives the youtube.txt overwrite. Before the RKN subtract so
-    # it lands in the YT/GV profiles, not RKN. Idempotent.
-    inject_yt_video_domains || log "YT video inject: non-fatal failure, continuing"
+    # Includes 304/offline runs and old static or learned inclusion lists.
+    clean_google_domains || return 1
 
     # Strip YT + googlevideo overlaps from RKN list (enhanced branch only).
     # Runs unconditionally — even on all-304 runs an older on-disk RKN list
@@ -1281,6 +1289,7 @@ case "$cmd" in
         ;;
     show)                    show_asset "$@" ;;
     status)                  status_report ;;
+    clean-google)            clean_google_domains ;;
     -h|--help|help)          usage ;;
     *)                       die "unknown command: $cmd" ;;
 esac

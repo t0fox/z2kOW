@@ -277,13 +277,6 @@ menu_diag() {
     pause
 }
 
-# menu_probe() / menu_classify() removed in r-15 (Phase 1 cleanup of the
-# detection stack). z2k-probe.sh + z2k-classify were
-# never wired into the live circular pipeline — purely manual debug
-# tools that produced non-actionable verdicts. Replaced by the new
-# server_active_reject taxonomy in z2k-detectors.lua and (Phase 3) by
-# the z2k-detect daemon doing live reactive discovery.
-
 # ==============================================================================
 # ПОДМЕНЮ: INSTAGRAM DNS (убрать / вернуть)
 # ==============================================================================

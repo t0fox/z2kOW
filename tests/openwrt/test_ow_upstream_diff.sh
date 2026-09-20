@@ -147,7 +147,7 @@ if git -c safe.directory="$REPO" -C "$REPO" merge-base --is-ancestor \
     _REF="origin/z2k-enhanced"
 fi
 # BASELINE is a tree-sync boundary, not necessarily an ancestor of this
-# adapter branch. Compare snapshots directly so a p-85.2 sync is not mistaken
+# adapter branch. Compare snapshots directly so a p-85.4 sync is not mistaken
 # for an adapter seam merely because the branch started from a local commit.
 _changed="$($_g diff --name-only "$_REF" HEAD 2>/dev/null)"
 # --ignore-cr-at-eol: на Windows-чекаутах (autocrlf) весь worktree выглядит

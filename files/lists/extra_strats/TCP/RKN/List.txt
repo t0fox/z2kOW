@@ -74891,7 +74891,6 @@ news-ua.com
 news.bg
 news.blog
 news.dn.ua
-news.google.com
 news.i.ua
 news.pn
 news.ua
@@ -83048,7 +83047,6 @@ platzdarm.org
 plausibility.cloud
 plavapoliklinika.ba
 plavsksosh4.ru
-play.google.com
 play.md
 play1gocasyno40.ru
 play1gocasyno51.ru
@@ -125441,11 +125439,5 @@ samsungcloud.com
 
 # Google Meet
 meetings.googleapis.com
-stream.meet.google.com
 workspace.turns.goog
 meet.turns.goog
-stun.l.google.com
-stun1.l.google.com
-stun2.l.google.com
-stun3.l.google.com
-stun4.l.google.com

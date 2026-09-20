@@ -117,9 +117,9 @@ ok "код опубликованной ревизии извлечён ($PUB �
 # Перечень имён, а не префикс: общие помощники транспорта (z2k_uint,
 # z2k_connfail) живут в тех же файлах, и без них цикл Layer 0 в песочнице
 # получает пустое число попыток — краснел бы харнесс, а не проверяемый код.
-awk '/^(fetch_to_tmp|fetch_asset|apply_new_list|z2k_uint|z2k_connfail)\(\) \{/,/^\}/' \
+awk '/^(filter_google_domains|fetch_to_tmp|fetch_asset|apply_new_list|z2k_uint|z2k_connfail)\(\) \{/,/^\}/' \
     "$PUB_GEO" > "$TMP/pub_geo_fns.sh"
-awk '/^(fetch_to_tmp|fetch_asset|apply_new_list|_z2k_geosite_reject|z2k_uint|z2k_connfail)\(\) \{/,/^\}/' \
+awk '/^(filter_google_domains|fetch_to_tmp|fetch_asset|apply_new_list|_z2k_geosite_reject|z2k_uint|z2k_connfail)\(\) \{/,/^\}/' \
     "$GEO" > "$TMP/head_geo_fns.sh"
 awk '/^z2k_mark_shipped_fallback\(\) \{/,/^\}/' "$PUB_CFG" > "$TMP/pub_cfg_fns.sh"
 awk '/^z2k_sha256_file\(\) \{/,/^\}/' "$UTILS" > "$TMP/sha_fn.sh"

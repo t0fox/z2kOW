@@ -129,5 +129,56 @@ else
        "нет — приехавший неполным комплект пройдёт: пересчёт src/dst против него бессилен"
 fi
 
+# Exercise the real menu action and bootstrap artifact downloader against an
+# old /tmp cache. Network and the destructive install are the only boundaries.
+TMP=$(mktemp -d) || exit 1
+trap 'rm -rf "$TMP"' EXIT INT TERM
+WORK_DIR="$TMP/work"; GITHUB_RAW="https://fixture.invalid/repo"
+mkdir -p "$WORK_DIR/webpanel/www/js/pages"
+printf 'OLD_PANEL\n' > "$WORK_DIR/webpanel/www/js/pages/toggles.js"
+extract() { awk -v n="$1" '$0 ~ "^"n"\\(\\)" {p=1} p {print} p && /^[})]$/ {exit}' "$2"; }
+eval "$(extract menu_install_fresh "$ROOT/lib/menu.sh")"
+eval "$(extract menu_install "$ROOT/lib/menu.sh")"
+eval "$(extract download_init_script "$Z2K")"
+print_info() { :; }; print_success() { :; }; print_warning() { :; }
+eval "$(extract print_header "$ROOT/lib/utils.sh")"
+clear_screen() { :; }; pause() { :; }
+die() { exit 1; }
+z2k_fetch_manifest_hashes() { :; }
+download_modules() { :; }; source_modules() { :; }
+download_strategies_source() { :; }; download_fake_blobs() { :; }
+generate_strategies_database() { :; }
+z2k_fetch() {
+    local rel="${1#"$GITHUB_RAW/"}"
+    if [ "$rel" = webpanel/www/js/pages/toggles.js ] && [ "${FAIL_FETCH:-0}" = 1 ]; then return 1; fi
+    mkdir -p "$(dirname "$2")"
+    if [ -f "$ROOT/$rel" ]; then cp "$ROOT/$rel" "$2"; else printf 'fixture\n' > "$2"; fi
+}
+run_full_install() { cp "$WORK_DIR/webpanel/www/js/pages/toggles.js" "$TMP/installed.js"; }
+eval "$(extract is_zapret2_installed "$ROOT/lib/utils.sh")"
+ZAPRET2_DIR="$TMP/installed"
+mkdir -p "$ZAPRET2_DIR/nfq2"
+touch "$ZAPRET2_DIR/nfq2/nfqws2"
+chmod +x "$ZAPRET2_DIR/nfq2/nfqws2"
+read_input() { answer=y; }
+menu_install >/dev/null 2>&1
+if cmp -s "$TMP/installed.js" "$ROOT/webpanel/www/js/pages/toggles.js"; then
+    ok "menu reinstall replaces stale cached panel with fresh sources"
+else
+    no "menu reinstall uses fresh panel" "current toggles.js" "stale cache copied"
+fi
+printf 'KEEP_INSTALLED\n' > "$TMP/installed.js"
+FAIL_FETCH=1
+if menu_install_fresh >/dev/null 2>&1; then
+    no "failed refresh aborts reinstall" "non-zero" "success"
+else
+    ok "failed refresh aborts reinstall"
+fi
+if grep -qx KEEP_INSTALLED "$TMP/installed.js"; then
+    ok "failed refresh preserves installed panel"
+else
+    no "failed refresh preserves installed panel" "unchanged" "overwritten"
+fi
+
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
