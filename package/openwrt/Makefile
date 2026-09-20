@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=33
+PKG_RELEASE:=34
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -72,6 +72,9 @@ PKG_RELEASE:=33
 # fail closed with an explicit panel-payload incompatibility.
 # RELEASE 33: preserve the fresh-install gate through GNU make expansion and
 # move webpanel readiness to rc.common's post-procd service_started hook.
+# RELEASE 34: an older adapter can have a valid installed payload/tag but no
+# .payload-initialized marker; do not mistake that upgrade state for fresh and
+# regenerate the user config during package post-upgrade.
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
 # lists/strats/webpanel; z2k-owned TG/RT/WARP/manual z2k-detect едут updater binary
 # flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
@@ -130,7 +133,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r33)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r34)
 endef
 
 define Package/z2k-webpanel/description
@@ -229,7 +232,16 @@ Z2K_OW_WAS_FRESH=0
 # Seed — ТОЛЬКО для неинициализированной установки (marker-правило внутри):
 # package upgrade при целом payload ничего не извлекает (Model A).
 . "$$Z2K_ROOT/platform/openwrt/paths.sh"
-[ -f "$${Z2K_ETC:-/etc/z2k}/.payload-initialized" ] || Z2K_OW_WAS_FRESH=1
+if [ ! -f "$${Z2K_ETC:-/etc/z2k}/.payload-initialized" ]; then
+    # Pre-r34 installs may have a complete payload and installed-tag but lack
+    # the marker (the marker is install-meta, not user config). Such a state
+    # is an upgrade/recovery, never a fresh install: starting z2k here would
+    # regenerate /etc/z2k/config and violate the package's user-config rule.
+    if [ ! -f "$${Z2K_AU_INSTALLED_TAG_FILE:-$${Z2K_STATE:-/etc/z2k/state}/installed-tag}" ] \
+       && [ ! -f "$${Z2K_ROOT}/share/payload.meta" ]; then
+        Z2K_OW_WAS_FRESH=1
+    fi
+fi
 . "$$Z2K_ROOT/platform/openwrt/bootstrap.sh"
 z2k_ow_retire_discovery || {
     echo "z2k-openwrt: postinst: не удалось безопасно удалить старую автодетекцию" >&2

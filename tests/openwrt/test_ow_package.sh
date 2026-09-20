@@ -76,6 +76,10 @@ assert_contains "postinst start fresh" "$MK" "/etc/init.d/z2k start"
 assert_contains "postinst running check" "$MK" "/etc/init.d/z2k running"
 assert_contains "postinst preserves fresh variable through make" "$MK" \
     'if [ "$${Z2K_OW_WAS_FRESH}" = "1" ]; then'
+assert_contains "postinst treats existing installed tag as upgrade" "$MK" \
+    'Z2K_AU_INSTALLED_TAG_FILE:-$${Z2K_STATE:-/etc/z2k/state}/installed-tag'
+assert_contains "postinst treats existing payload meta as upgrade" "$MK" \
+    'Z2K_ROOT}/share/payload.meta'
 if grep -q 'Z2K_OW_WAS_FRESH}" = "1"' "$MK"; then _t_ok
 else _t_bad "postinst: autostart без WAS_FRESH-гейта (тронет upgrade)"; fi
 
