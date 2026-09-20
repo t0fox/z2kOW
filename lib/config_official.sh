@@ -1454,8 +1454,14 @@ generate_nfqws2_opt_from_strategies() {
     fi
     # Единственное отличие TLS-профиля: Discord-домены живут на 443 и на 80-м
     # порту не встречаются.
+    # Keenetic/upstream historically materializes a compatibility mirror at
+    # TCP_Discord.txt.  OpenWrt keeps the canonical shipped list under
+    # TCP/RKN/Discord.txt and does not write into its read-only payload during
+    # bootstrap, so resolve the effective source without requiring a duplicate.
+    local discord_tcp_hostlist="${extra_strats_dir}/TCP_Discord.txt"
+    [ -s "$discord_tcp_hostlist" ] || discord_tcp_hostlist="${extra_strats_dir}/TCP/RKN/Discord.txt"
     local rkn_hostlists="$rkn_lists_head"
-    [ -s "${extra_strats_dir}/TCP_Discord.txt" ] && rkn_hostlists="$rkn_hostlists --hostlist=${extra_strats_dir}/TCP_Discord.txt"
+    [ -s "$discord_tcp_hostlist" ] && rkn_hostlists="$rkn_hostlists --hostlist=$discord_tcp_hostlist"
     rkn_hostlists="$rkn_hostlists$rkn_lists_tail"
     # ПОДСТАНОВКА ПОДОБРАННОГО ИМЕНИ В ФЕЙКОВЫЙ ClientHello.
     #
@@ -1634,7 +1640,7 @@ generate_nfqws2_opt_from_strategies() {
 
     # Discord TCP: currently disabled for autocircular profile set.
     if [ -n "$discord_tcp_block" ]; then
-        add_hostlist_line "${extra_strats_dir}/TCP_Discord.txt" "$discord_tcp_block"
+        add_hostlist_line "$discord_tcp_hostlist" "$discord_tcp_block"
     fi
 
     # Discord UDP (no hostlist - STUN has no hostname, uses filter-l7=discord,stun

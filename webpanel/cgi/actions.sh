@@ -1611,13 +1611,15 @@ _whitelist_delete_locked() {
 _domain_lists_catalog() {
     # <метка>|<путь>. Порядок = порядок проверки; первым идёт то, что человеку
     # понятнее увидеть в ответе.
+    local _discord_list="${ZAPRET2_DIR}/extra_strats/TCP_Discord.txt"
+    [ -s "$_discord_list" ] || _discord_list="${ZAPRET2_DIR}/extra_strats/TCP/RKN/Discord.txt"
     cat <<CATALOG
 исключения|${LISTS_DIR}/whitelist.txt
 РКН|${ZAPRET2_DIR}/extra_strats/TCP/RKN/List.txt
 YouTube|${ZAPRET2_DIR}/extra_strats/TCP/YT/List.txt
 YouTube (видео)|${ZAPRET2_DIR}/extra_strats/TCP/YT_GV/List.txt
 YouTube (QUIC)|${ZAPRET2_DIR}/extra_strats/UDP/YT/List.txt
-Discord|${ZAPRET2_DIR}/extra_strats/TCP_Discord.txt
+Discord|$_discord_list
 автохостлист|${LISTS_DIR}/autohostlist-domains.txt
 CATALOG
 }

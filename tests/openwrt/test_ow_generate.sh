@@ -49,6 +49,43 @@ echo "$NFQWS" | grep -qF -- "--hostlist-exclude=$T/root/lists/whitelist.txt" \
 echo "$NFQWS" | grep -qF -- "$T/root/extra_strats/TCP/RKN/List.txt" \
     && _t_ok || _t_bad "RKN-пул не из фикстуры"
 
+# OpenWrt ships the canonical Discord list under TCP/RKN.  The upstream
+# generator also accepts the legacy mirror TCP_Discord.txt, but a clean
+# OpenWrt payload has no reason to carry a second copy.  The effective TCP
+# profile must therefore consume the canonical list instead of silently
+# dropping Discord.
+if [ -e "$Z2K_EXTRA_STRATS_DIR/TCP_Discord.txt" ]; then
+    _t_bad "чистая OpenWrt-фикстура неожиданно содержит TCP_Discord.txt"
+else
+    _t_ok
+fi
+assert_contains "Discord hostlist reaches TCP profile" "$CFG" \
+    "--hostlist=$Z2K_EXTRA_STRATS_DIR/TCP/RKN/Discord.txt"
+_tcp443_line="$(printf '%s\n' "$NFQWS" | grep -m1 -- '--filter-tcp=443' || true)"
+printf '%s\n' "$_tcp443_line" | grep -qF -- \
+    "--hostlist=$Z2K_EXTRA_STRATS_DIR/TCP/RKN/Discord.txt" \
+    && _t_ok || _t_bad "Discord hostlist не попал именно в TCP/443 профиль"
+_quic_line="$(printf '%s\n' "$NFQWS" | grep -m1 -- '--filter-udp=443' || true)"
+printf '%s\n' "$_quic_line" | grep -qF -- \
+    "--hostlist=$Z2K_EXTRA_STRATS_DIR/TCP/RKN/Discord.txt" \
+    && _t_bad "Discord hostlist ошибочно попал в QUIC профиль" || _t_ok
+
+# Preserve upstream precedence when the compatibility mirror is present.
+printf '%s\n' 'legacy-discord.example' > "$Z2K_EXTRA_STRATS_DIR/TCP_Discord.txt"
+Z2K_FORCE_CONFIG_REGEN=1 z2k_ow_generate >"$T/gen-discord-mirror.log" 2>&1 \
+    || { echo "FAIL[ow-generate]: Discord mirror generate:"; tail -5 "$T/gen-discord-mirror.log" >&2; exit 1; }
+NFQWS="$(sed -n '/^NFQWS2_OPT="/,/^"$/p' "$CFG")"
+_tcp443_line="$(printf '%s\n' "$NFQWS" | grep -m1 -- '--filter-tcp=443' || true)"
+printf '%s\n' "$_tcp443_line" | grep -qF -- \
+    "--hostlist=$Z2K_EXTRA_STRATS_DIR/TCP_Discord.txt" \
+    && _t_ok || _t_bad "legacy TCP_Discord.txt mirror не имеет приоритета"
+printf '%s\n' "$_tcp443_line" | grep -qF -- \
+    "--hostlist=$Z2K_EXTRA_STRATS_DIR/TCP/RKN/Discord.txt" \
+    && _t_bad "legacy mirror и canonical Discord list обработаны одновременно" || _t_ok
+rm -f "$Z2K_EXTRA_STRATS_DIR/TCP_Discord.txt"
+Z2K_FORCE_CONFIG_REGEN=1 z2k_ow_generate >"$T/gen-discord-canonical.log" 2>&1 \
+    || { echo "FAIL[ow-generate]: Discord canonical restore:"; tail -5 "$T/gen-discord-canonical.log" >&2; exit 1; }
+
 # --- z2k-специфика конфига ---
 assert_contains "QNUM=200" "$CFG" "QNUM=200"
 assert_contains "desync mark" "$CFG" "DESYNC_MARK=0x40000000"

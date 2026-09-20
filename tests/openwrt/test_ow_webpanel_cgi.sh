@@ -592,6 +592,21 @@ RAW="$(_cgi POST /stats/ack)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "stats ack: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
 assert_eq "stats ack: флаг 1" "1" "$(grep -m1 '^Z2K_STATS_ACK=' "$T/etc/config" | cut -d= -f2)"
 
+# The clean OpenWrt payload has only the canonical Discord list.  The panel's
+# duplicate-domain check must inspect that effective source, not require the
+# Keenetic compatibility mirror TCP_Discord.txt.
+mkdir -p "$T/zapret2/extra_strats/TCP/RKN"
+printf 'discord.com\n' > "$T/zapret2/extra_strats/TCP/RKN/Discord.txt"
+rm -f "$T/zapret2/extra_strats/TCP_Discord.txt"
+printf 'domain=discord.com' > "$T/body.txt"
+RAW="$(_cgi POST /extra-domains/add "" "$T/body.txt")"
+assert_eq "extra-domains canonical Discord: 400" "Status: 400 Bad Request" \
+    "$(printf '%s\n' "$RAW" | _cgi_status)"
+OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+printf '%s\n' "$OUT" > "$T/canonical-discord-response"
+assert_contains "extra-domains canonical Discord: named source" \
+    "$T/canonical-discord-response" "Discord"
+
 # WARP install/remove — через стаб (сеть не трогаем); reregister — без
 # device-файла быстрый rc 0 по коду («и так отсутствует»).
 cat > "$T/warp-stub.sh" <<EOF
