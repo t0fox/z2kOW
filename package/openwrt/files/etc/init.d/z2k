@@ -126,7 +126,9 @@ start_service() {
     OPENWRT_LAN="$(z2k_ow_lan)"
     export OPENWRT_LAN
     z2k_ow_bootstrap || return 1
-    z2k_ow_autohostlist_prepare || return 1
+    if command -v z2k_ow_autohostlist_prepare >/dev/null 2>&1; then
+        z2k_ow_autohostlist_prepare || return 1
+    fi
     z2k_ow_generate || return 1
     # shellcheck disable=SC1090
     . "$Z2K_CONFIG" || return 1
@@ -239,7 +241,9 @@ stop_service() {
     rm -f "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" "$Z2K_RUN/starting" 2>/dev/null
     # Drain the engine-owned live file before teardown; a second pass below
     # catches an append racing the first pass while procd is stopping nfqws2.
-    z2k_ow_autohostlist_sync || _rc=1
+    if command -v z2k_ow_autohostlist_sync >/dev/null 2>&1; then
+        z2k_ow_autohostlist_sync || _rc=1
+    fi
     # Агрегируем ошибки (каждый шаг best-effort, но итог честный): молчаливый
     # частичный стоп хуже громкого.
     z2k_ow_custom_daemons 0 || _rc=1
@@ -266,7 +270,9 @@ stop_service() {
             _rc=1
         fi
     fi
-    z2k_ow_autohostlist_sync || _rc=1
+    if command -v z2k_ow_autohostlist_sync >/dev/null 2>&1; then
+        z2k_ow_autohostlist_sync || _rc=1
+    fi
     return $_rc
 }
 
