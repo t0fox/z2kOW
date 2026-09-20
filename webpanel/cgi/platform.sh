@@ -101,8 +101,7 @@ if [ -f "$Z2K_ROOT/platform/openwrt/schedule.sh" ]; then
 fi
 export Z2K_PLATFORM_STATUS
 
-# Status is owned by the panel seam: it combines the canonical core-ready
-# predicate with the package-owned custom.d capability and payload contract.
+# Panel status combines canonical core-ready, custom.d capability and payload contract.
 wp_capabilities_json() {
     local _ready=false _degraded=false _running=false _payload_compatible=true _customd=false
     is_running >/dev/null 2>&1 && _running=true
