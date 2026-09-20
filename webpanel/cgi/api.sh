@@ -296,6 +296,10 @@ case "$method $path" in
         au_hour=$(read_flag "Z2K_AU_HOUR" "$CONFIG_FILE" "02")
         case "$au_hour" in [01][0-9]|2[0-3]) ;; *) au_hour=02 ;; esac
         autohostlist=$(read_flag "Z2K_AUTOHOSTLIST" "$CONFIG_FILE" "0")
+        if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+            flowoffload=$(z2k_ow_flowoffload_mode)
+            flowoffload_status=$(z2k_ow_flowoffload_status)
+        fi
         tpid=$(tunnel_pid 2>/dev/null)
         tunnel_running=false
         [ -n "$tpid" ] && tunnel_running=true
@@ -321,6 +325,10 @@ case "$method $path" in
         printf ',"auto_update":';            json_string "${auto_update:-1}"
         printf ',"au_hour":';                json_string "${au_hour:-02}"
         printf ',"autohostlist":';           json_string "${autohostlist:-0}"
+        if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+            printf ',"flowoffload":';         json_string "${flowoffload:-none}"
+            printf ',"flowoffload_status":';  json_string "${flowoffload_status:-unavailable}"
+        fi
         printf '},"tunnel":{"running":%s}' "${tunnel_running:-false}"
         # OpenWrt capability visibility (§18): только openwrt, Keenetic-байты
         # не меняются. shapes preserved, ключи аддитивны (фрагмент уже
@@ -396,6 +404,23 @@ case "$method $path" in
         printf ',"auto_update":';             json_string "${auto_update:-1}"
         printf ',"autohostlist":';            json_string "${autohostlist:-0}"
         printf '}\n'
+        exit 0
+        ;;
+
+    # ---------- STOCK OPENWRT SELECTIVE FLOWOFFLOAD ----------
+    "POST /offload")
+        require_method POST
+        body=$(read_body)
+        flow_mode=$(form_value "$body" "mode")
+        [ -z "$flow_mode" ] && flow_mode=$(form_value "${QUERY_STRING:-}" "mode")
+        case "$flow_mode" in
+            none|software|hardware) ;;
+            *) json_fail "400 Bad Request" "mode must be none, software, or hardware" ;;
+        esac
+        z2k_ow_flowoffload_available || json_fail "503 Service Unavailable" "selective FLOWOFFLOAD недоступен"
+        job_id=$(svc_action_async "Переключаю selective FLOWOFFLOAD на $flow_mode" "toggle_flowoffload $flow_mode")
+        json_header
+        printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
         exit 0
         ;;
 

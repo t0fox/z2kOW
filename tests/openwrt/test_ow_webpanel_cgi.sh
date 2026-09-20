@@ -32,7 +32,15 @@ mv "$T/root/share.panel.api" "$T/root/share/panel.api"
 # sed-диапазоном /^NFQWS2_OPT="/,/^"$/, однострочник дал бы пустой opt.
 cat > "$T/root/lib/config_official.sh" <<'EOF'
 #!/bin/sh
-create_official_config() { printf 'NFQWS2_OPT="\n--filter-tcp=80 --dpi-desync=fake\n"\n' >> "$1"; echo "regen:$1" >> "${T_CGI_LOG:-/dev/null}"; return 0; }
+create_official_config() {
+    if [ -f "${OW_TEST_ROOT:-}/regen-fail" ]; then
+        rm -f "${OW_TEST_ROOT}/regen-fail"
+        return 1
+    fi
+    printf 'NFQWS2_OPT="\n--filter-tcp=80 --dpi-desync=fake\n"\n' >> "$1"
+    echo "regen:$1" >> "${T_CGI_LOG:-/dev/null}"
+    return 0
+}
 EOF
 cat > "$T/root/lib/utils.sh" <<'EOF'
 #!/bin/sh
@@ -143,6 +151,7 @@ export Z2K_CRON_TAB="$T/etc/crontabs/root"
 export WP_IP_BIN="$T/bin/ip"
 export WARP_STATUS="$T/tmp/z2k/warp-status.json"
 export WP_DHCP_LEASES="$T/leases" WP_ARP_PATH="$T/arp-empty"
+export OW_TEST_ROOT="$T"
 
 # --- CGI caller (как lighttpd; HTTP_X_Z2K_PANEL обязателен) ---
 _cgi() { # <METHOD> <PATH> [QUERY] [bodyfile]
@@ -204,6 +213,10 @@ assert_eq "status: policy false" "false" "$(_jget "$OUT" 'd["capabilities"]["pol
 assert_eq "status: ppe false" "false" "$(_jget "$OUT" 'd["capabilities"]["ppe"]')"
 assert_eq "status: fastroute false" "false" "$(_jget "$OUT" 'd["capabilities"]["fastroute"]')"
 assert_eq "status: fastroute backend" "Программный fastpath недоступен на OpenWrt: backend не обнаружен." "$(_jget "$OUT" 'd["toggles"]["fastroute_status"]')"
+assert_eq "status: stock offload capability" "true" "$(_jget "$OUT" 'd["capabilities"]["offload"]')"
+assert_eq "status: stock offload mode" "none" "$(_jget "$OUT" 'd["toggles"]["flowoffload"]')"
+assert_contains "status: offload facts stay explicit" "$OUT" "flowtable=absent"
+assert_contains "status: packet proof stays unknown" "$OUT" "packet_visibility=unknown"
 assert_eq "status: tcp16 false" "false" "$(_jget "$OUT" 'd["capabilities"]["tcp16"]')"
 assert_eq "status: diag false" "false" "$(_jget "$OUT" 'd["capabilities"]["diag"]')"
 assert_eq "status: customd true" "true" "$(_jget "$OUT" 'd["capabilities"]["customd"]')"
@@ -211,6 +224,30 @@ assert_eq "status: warp true" "true" "$(_jget "$OUT" 'd["capabilities"]["warp"]'
 assert_eq "status: telegram true" "true" "$(_jget "$OUT" 'd["capabilities"]["telegram"]')"
 assert_eq "status: uninstall false" "false" "$(_jget "$OUT" 'd["capabilities"]["uninstall"]')"
 assert_eq "status: core running via init" "true" "$(_jget "$OUT" 'd["running"]')"
+
+# --- Stock selective FLOWOFFLOAD selector: no adapter flowtable/PPE ---
+printf 'mode=software' > "$T/body.txt"
+RAW="$(_cgi POST /offload "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "offload: POST accepted" "true" "$(_jget "$OUT" 'd["ok"]')"
+JOB_IDS="$JOB_IDS $(_jget "$OUT" 'd["job"]')"
+_JO="$(_poll_job "$(_jget "$OUT" 'd["job"]')")"
+assert_eq "offload: software job done" "true" "$(_jget "$_JO" 'd["done"]')"
+assert_eq "offload: software applied" "software" "$(grep '^FLOWOFFLOAD=' "$T/etc/config" | tail -1 | cut -d= -f2-)"
+RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "offload: status follows config" "software" "$(_jget "$OUT" 'd["toggles"]["flowoffload"]')"
+
+printf 'mode=invalid' > "$T/body.txt"
+RAW="$(_cgi POST /offload "" "$T/body.txt")"
+assert_eq "offload: invalid mode rejected" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+
+# A failed regeneration must restore the prior mode; the one-shot failure lets
+# the rollback regeneration succeed and proves this is not just a UI revert.
+touch "$T/regen-fail"
+printf 'mode=hardware' > "$T/body.txt"
+RAW="$(_cgi POST /offload "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+JOB_IDS="$JOB_IDS $(_jget "$OUT" 'd["job"]')"
+_poll_job_fail "$(_jget "$OUT" 'd["job"]')" "offload: failed apply rollback"
+assert_eq "offload: failed apply restored software" "software" "$(grep '^FLOWOFFLOAD=' "$T/etc/config" | tail -1 | cut -d= -f2-)"
 
 # --- Host allowlist с LAN bind (WP25-контекст) ---
 RAW="$(env REQUEST_METHOD="GET" PATH_INFO="/status" QUERY_STRING="" \

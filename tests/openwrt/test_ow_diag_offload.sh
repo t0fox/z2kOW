@@ -37,6 +37,15 @@ fi
 exit 1
 EOF
 chmod +x "$T/bin/nft"
+cat > "$T/bin/conntrack" <<'EOF'
+#!/bin/sh
+if grep -q '^FLOWOFFLOAD=hardware' "${Z2K_CONFIG:-}" 2>/dev/null; then
+    printf 'tcp 6 100 ESTABLISHED src=192.0.2.10 dst=198.51.100.10 [HW_OFFLOAD]\n'
+else
+    printf 'tcp 6 100 ESTABLISHED src=192.0.2.10 dst=198.51.100.10 [OFFLOAD]\n'
+fi
+EOF
+chmod +x "$T/bin/conntrack"
 cat > "$T/bin/uci" <<'EOF'
 #!/bin/sh
 case "$*" in
@@ -53,7 +62,14 @@ assert_contains "actual selected mode" "$T/output" "flowoffload mode   : softwar
 assert_contains "actual selective table" "$T/output" "zapret2 flowtable  : present"
 assert_contains "actual exemptions" "$T/output" "zapret2 exemptions  : 1"
 assert_contains "global/selective conflict" "$T/output" "owner conflict     : global_fw4+zapret2"
+assert_contains "software dataplane observed" "$T/output" "observed dataplane : software"
 assert_contains "visibility remains unknown" "$T/output" "packet visibility  : UNKNOWN"
 assert_contains "circular remains unknown" "$T/output" "circular           : UNKNOWN"
+
+printf 'FLOWOFFLOAD=hardware\n' > "$T/config"
+_out="$($REPO/platform/openwrt/diag.sh offload 2>&1)"
+printf '%s\n' "$_out" > "$T/output-hardware"
+assert_contains "hardware dataplane observed" "$T/output-hardware" "hardware offload   : observed"
+assert_contains "hardware dataplane fact" "$T/output-hardware" "observed dataplane : hardware"
 
 _t_done

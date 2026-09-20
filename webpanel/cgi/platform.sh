@@ -103,7 +103,7 @@ export Z2K_PLATFORM_STATUS
 
 # Panel status combines canonical core-ready, custom.d capability and payload contract.
 wp_capabilities_json() {
-    local _ready=false _degraded=false _running=false _payload_compatible=true _customd=false
+    local _ready=false _degraded=false _running=false _payload_compatible=true _customd=false _offload=false
     is_running >/dev/null 2>&1 && _running=true
     command -v z2k_ow_core_ready >/dev/null 2>&1 && z2k_ow_core_ready >/dev/null 2>&1 && _ready=true
     if [ "$Z2K_PLATFORM_STATUS" = "ok" ] && command -v z2k_ow_panel_payload_compatible >/dev/null 2>&1; then
@@ -114,8 +114,9 @@ wp_capabilities_json() {
     [ "$_payload_compatible" = "true" ] || { _ready=false; _degraded=true; }
     { [ "$_running" = "true" ] && [ "$_ready" = "false" ]; } && _degraded=true
     z2k_ow_customd_available >/dev/null 2>&1 && _customd=true
-    printf '"platform":"openwrt","ready":%s,"degraded":%s,"payload_compatible":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":false,"diag":false,"customd":%s,"warp":true,"telegram":true,"uninstall":false}' \
-        "$_ready" "$_degraded" "$_payload_compatible" "$_customd"
+    z2k_ow_flowoffload_available >/dev/null 2>&1 && _offload=true
+    printf '"platform":"openwrt","ready":%s,"degraded":%s,"payload_compatible":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":false,"diag":false,"customd":%s,"offload":%s,"warp":true,"telegram":true,"uninstall":false}' \
+        "$_ready" "$_degraded" "$_payload_compatible" "$_customd" "$_offload"
 }
 
 # --- overrides: те же имена, OS-эффект через замороженные адаптеры ---

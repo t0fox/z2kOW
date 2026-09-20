@@ -160,6 +160,7 @@ print_offload() {
     local rules ft_decl ft_add uci_flow uci_soft uci_hw hw_nat fastroute modules
     local backend conclusion mode tab selective_table selective_rules selective_add
     local exemptions fw4_rules fw4_flowtables owner_conflict core_running core_ready _v _chain
+    local conntrack actual hardware_fact
     rules=$(nft list ruleset 2>/dev/null || true)
     _ft_word=$(printf 'flow%s' 'table')
     ft_decl=$(printf '%s\n' "$rules" | grep -ciE "(^|[[:space:]])${_ft_word}([[:space:]]|\{|$)" || true)
@@ -219,6 +220,30 @@ print_offload() {
     modules=$(awk '$1 ~ /^(nf_flow_table|nf_flow_table_inet|shortcut_fe|fastpath)/ {n++} END {print n+0}' /proc/modules 2>/dev/null)
     [ -n "$modules" ] || modules=0
 
+    # A flowtable declaration is not a dataplane observation.  When conntrack
+    # exposes its offload markers, report the observed path separately; when it
+    # does not, keep the answer explicitly unknown instead of inferring packets
+    # or circular rotation from configuration alone.
+    conntrack=""
+    if command -v conntrack >/dev/null 2>&1; then
+        conntrack=$(conntrack -L 2>/dev/null || true)
+    elif [ -r /proc/net/nf_conntrack ]; then
+        conntrack=$(cat /proc/net/nf_conntrack 2>/dev/null || true)
+    fi
+    actual=not-observed
+    hardware_fact=not-observed
+    if printf '%s\n' "$conntrack" | grep -qF '[HW_OFFLOAD]'; then
+        actual=hardware
+        hardware_fact=observed
+    elif printf '%s\n' "$conntrack" | grep -qF '[OFFLOAD]'; then
+        actual=software
+    elif [ "$selective_table" = present ] && printf '%s\n' "$rules" \
+         | grep -qE 'flags[[:space:]]+offload'; then
+        hardware_fact=requested
+    elif [ "$hw_nat" = present ]; then
+        hardware_fact=available
+    fi
+
     backend=BACKEND_UNKNOWN
     if [ "$hw_nat" = present ]; then
         backend=HARDWARE_NAT
@@ -250,7 +275,8 @@ print_offload() {
     printf 'owner conflict     : %s\n' "$owner_conflict"
     printf 'software modules   : %s (nf_flow_table family)\n' "$modules"
     printf 'software offload   : %s\n' "$(if [ "$selective_table" = present ]; then echo active; else echo inactive; fi)"
-    printf 'hardware offload   : %s\n' "$hw_nat"
+    printf 'hardware offload   : %s\n' "$hardware_fact"
+    printf 'observed dataplane : %s\n' "$actual"
     printf 'nft acceleration   : declarations=%s flow_add=%s\n' "$ft_decl" "$ft_add"
     printf 'nf_conntrack_fastroute: %s\n' "$fastroute"
     printf 'backend            : %s\n' "$backend"

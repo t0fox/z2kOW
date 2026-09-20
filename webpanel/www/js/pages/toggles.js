@@ -137,6 +137,60 @@ const DYNAMIC_TTL_DESC_OPENWRT =
   "Выключайте, если на роутере настроена своя подмена TTL (например, для раздачи мобильного интернета): " +
   "тогда счётчик всё равно переписывается дальше по тракту, и наша правка только тратит процессор.";
 
+const FLOWOFFLOAD_OPTIONS = [
+  ["none", "none — выключен"],
+  ["software", "software — программный selective offload"],
+  ["hardware", "hardware — аппаратный selective offload"],
+  ["donttouch", "donttouch — сохранён вне панели"],
+];
+
+function flowoffloadSync(s, select, state, error) {
+  const mode = s && s.toggles && s.toggles.flowoffload;
+  if (!select || !state || !mode) return;
+  select.value = mode;
+  select.dataset.saved = mode;
+  state.textContent = s.toggles.flowoffload_status || "Фактическое состояние selective offload недоступно.";
+  if (error) { error.hidden = true; error.textContent = ""; }
+}
+
+function flowoffloadReload(select, state, error) {
+  apiGet("/status").then(s => flowoffloadSync(s, select, state, error)).catch(() => {
+    if (state) state.textContent = "Не удалось проверить фактическое состояние FLOWOFFLOAD.";
+  });
+}
+
+async function saveFlowoffload(select, state, error) {
+  const wanted = select.value;
+  const previous = select.dataset.saved || "none";
+  if (wanted === previous || wanted === "donttouch") return;
+  select.disabled = true;
+  if (error) { error.hidden = true; error.textContent = ""; }
+  let resp;
+  try {
+    resp = await apiPost("/offload", { mode: wanted });
+  } catch (e) {
+    select.value = previous;
+    select.disabled = false;
+    if (error) { error.hidden = false; error.textContent = "Не удалось применить: " + errMsg(e); }
+    toastErr("FLOWOFFLOAD: ", e);
+    return;
+  }
+  openJobModal("Переключение selective FLOWOFFLOAD", resp.job, {
+    tolerateOutage: true,
+    onDone: (d) => {
+      select.disabled = false;
+      const outcome = jobOutcome(d);
+      if (outcome === JOB_FAIL) {
+        if (error) { error.hidden = false; error.textContent = "Режим не применён; проверяю откат по конфигу."; }
+        toast("FLOWOFFLOAD не применён — состояние проверяется", "bad");
+      } else if (!jobUnresolved(outcome)) {
+        toast("FLOWOFFLOAD: " + wanted);
+      }
+      flowoffloadReload(select, state, error);
+    },
+  });
+}
+
 export async function renderToggles() {
   $app.innerHTML = `
     <h1 class="page-title">Режимы</h1>
@@ -155,6 +209,16 @@ export async function renderToggles() {
           </label>
         </div>
       `).join("")}
+    </div>
+    <div class="card" id="openwrt-offload-card" hidden>
+      <h3>Selective FLOWOFFLOAD</h3>
+      <p class="desc">Управляет только штатным selective offload zapret2. Глобальный ускоритель fw4 панель не переписывает; ниже показывается наблюдаемое состояние, а не доказательство видимости пакетов или circular.</p>
+      <label class="field">
+        <span class="field-label">Режим</span>
+        <select class="t-sub-select" id="flowoffload-mode"></select>
+      </label>
+      <div class="t-desc" id="flowoffload-status" role="status"></div>
+      <div class="t-desc" id="flowoffload-error" role="alert" hidden></div>
     </div>
     <div class="card">
       <h3>Telegram туннель <span class="tg-state-badge" id="tg-state-badge" hidden></span></h3>
@@ -276,6 +340,7 @@ export async function renderToggles() {
       // Селектор времени — тот же класс: не зная состояния, панель не знает
       // и текущего часа, а запись вслепую затёрла бы выбранный.
       setLockAware($app.querySelector("#au-hour"), true);
+      setLockAware($app.querySelector("#flowoffload-mode"), true);
       errBox.hidden = false;
       errBox.innerHTML = `
         <p class="desc" style="color:var(--bad)">Не удалось прочитать состояние: ${errHtml(e)}.
@@ -307,6 +372,30 @@ export async function renderToggles() {
     const badge = $app.querySelector("#tg-state-badge");
     if (!badge) return;
     if (errBox) { errBox.hidden = true; errBox.innerHTML = ""; }
+    const flowCard = $app.querySelector("#openwrt-offload-card");
+    const flowSelect = $app.querySelector("#flowoffload-mode");
+    const flowState = $app.querySelector("#flowoffload-status");
+    const flowError = $app.querySelector("#flowoffload-error");
+    if (flowSelect && !flowSelect.children.length) {
+      FLOWOFFLOAD_OPTIONS.forEach(([value, label]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        if (value === "donttouch") option.disabled = true;
+        flowSelect.appendChild(option);
+      });
+    }
+    const flowVisible = s.platform === "openwrt" && s.capabilities &&
+      s.capabilities.offload === true && !!s.toggles.flowoffload;
+    if (flowCard) flowCard.hidden = !flowVisible;
+    if (flowVisible && flowSelect) {
+      flowoffloadSync(s, flowSelect, flowState, flowError);
+      setLockAware(flowSelect, false);
+      if (!flowSelect.dataset.wired) {
+        flowSelect.dataset.wired = "1";
+        flowSelect.addEventListener("change", () => saveFlowoffload(flowSelect, flowState, flowError));
+      }
+    }
     // Чекбокс автообновления ловим здесь же: строка с временем ходит за ним,
     // и искать его вторым, другим селектором — способ однажды поехать врозь.
     let auBox = null;
