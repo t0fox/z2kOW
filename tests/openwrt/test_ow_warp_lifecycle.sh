@@ -111,16 +111,21 @@ if [ "\$1" = "rule" ] && [ "\$2" = "show" ]; then
     cat "$T/ip-rules" 2>/dev/null; exit 0
 fi
 if [ "\$1" = "rule" ] && [ "\$2" = "add" ]; then
-    _pref=""; _fm=""; _tb=""; _prev=""
+    _pref=""; _fm=""; _tb=""; _from=""; _prev=""
     for _a in "\$@"; do
         case "\$_prev" in
             pref) _pref="\$_a" ;;
             fwmark) _fm="\$_a" ;;
+            from) _from="\$_a" ;;
             table|lookup) _tb="\$_a" ;;
         esac
         _prev="\$_a"
     done
-    printf '%s: from all fwmark %s lookup %s\n' "\$_pref" "\$_fm" "\$_tb" >> "$T/ip-rules"
+    if [ -n "\$_from" ]; then
+        printf '%s: from %s lookup %s\n' "\$_pref" "\$_from" "\$_tb" >> "$T/ip-rules"
+    else
+        printf '%s: from all fwmark %s lookup %s\n' "\$_pref" "\$_fm" "\$_tb" >> "$T/ip-rules"
+    fi
     exit 0
 fi
 if [ "\$1" = "rule" ] && [ "\$2" = "del" ]; then
@@ -215,7 +220,7 @@ echo "warpd:\$*" >> "$T/warpd.log"
 case "\$1" in
     register)
         if [ "\${WARP_MOCK_REGISTER_RC:-0}" = "0" ]; then
-            [ -s "$T/etc/state/warp/device.json" ] || printf '{"id":"mock-id","addr":"172.16.9.9"}\n' > "$T/etc/state/warp/device.json"
+            [ -s "$T/etc/state/warp/device.json" ] || printf '{"id":"mock-id","addr":"172.16.9.9","addr_v4":"172.16.9.9"}\n' > "$T/etc/state/warp/device.json"
             echo "device ok mock-id"
             exit 0
         fi
@@ -284,6 +289,7 @@ _reset() {
     mkdir -p "$T/etc/user-lists/warp/games"
     # Owner по умолчанию — штатный путь (W38 временно подменяет; сброс здесь).
     WARP_PBR_OWNER="$T/tmp/warp/pbr.owner"; export WARP_PBR_OWNER
+    WARP_PROBE_OWNER="$T/tmp/warp/probe-route.owner"; export WARP_PROBE_OWNER
     _mock_bin
 }
 _ready_fixture() {
@@ -291,13 +297,13 @@ _ready_fixture() {
     printf '7777\n' > "$T/pidof.out"
     mkdir -p "$T/proc/7777"
     printf 'z2k-warpd run --device x' | tr ' ' '\0' > "$T/proc/7777/cmdline"
-    printf '{"ready":true,"iface":"z2ktun0","transport":"wg"}\n' > "$T/tmp/warp/status.json"
+    printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg"}\n' > "$T/tmp/warp/status.json"
     # mtime В БУДУЩЕМ: wait-ready требует статус новее старта wait'а
     # (anti-corpse после kill -9; живой движок переписывает каждый тик).
     # Без этого — флак на границе wall-clock секунды между фикстурой и wait'ом.
     touch -d '+120 seconds' "$T/tmp/warp/status.json" 2>/dev/null || touch "$T/tmp/warp/status.json"
     : > "$T/link-z2ktun0"
-    printf '{"id":"mock-id","addr":"172.16.9.9"}\n' > "$T/etc/state/warp/device.json"
+    printf '{"id":"mock-id","addr":"172.16.9.9","addr_v4":"172.16.9.9"}\n' > "$T/etc/state/warp/device.json"
 }
 _good_stub() {
     # Успешный fetch-стаб (register rc 0, id stub-id — как движок в проде).

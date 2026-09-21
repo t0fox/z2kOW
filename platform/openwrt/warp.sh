@@ -33,6 +33,7 @@ WARP_REG_STAMP="${WARP_REG_STAMP:-${Z2K_TMP:-/tmp/z2k}/warp/register.stamp}"
 # pbr_down для proof route-ownership; убирается после teardown. Tmpfs —
 # после reboot записи нет, и это корректно (PBR тоже нет).
 WARP_PBR_OWNER="${WARP_PBR_OWNER:-${Z2K_TMP:-/tmp/z2k}/warp/pbr.owner}"
+WARP_PROBE_OWNER="${WARP_PROBE_OWNER:-${Z2K_TMP:-/tmp/z2k}/warp/probe-route.owner}"
 WARP_LISTS_DIR="${WARP_LISTS_DIR:-${Z2K_ETC:-/etc/z2k}/user-lists/warp}"
 # The updater owns the per-game tree under the shipped WARP namespace.  Keep
 # the runtime default aligned with z2k-update-lists.sh and the package layout;
@@ -47,6 +48,11 @@ WARP_TABLE="${WARP_TABLE:-989}"
 WARP_MARK="${WARP_MARK:-0x80000000}"
 WARP_MASK="${WARP_MASK:-0x80000000}"
 WARP_RULE_PREF="${WARP_RULE_PREF:-500}"
+# Local z2k-warpd probes are bound to z2ktun0 but otherwise unmarked.  The
+# external OpenWrt backend keeps the tunnel route in the mark-selected table,
+# so give that one source address its own exact rule before readiness can be
+# proven.  This is separate from user-traffic marking and is fail-open removed.
+WARP_PROBE_RULE_PREF="${WARP_PROBE_RULE_PREF:-499}"
 WARP_READY_WAIT="${WARP_READY_WAIT:-120}"
 WARP_CHAIN_MARK="${WARP_CHAIN_MARK:-z2k_warp_mark}"
 WARP_CHAIN_MSS="${WARP_CHAIN_MSS:-z2k_warp_mss}"
@@ -525,6 +531,15 @@ warp_nft_remove() {
 
 # iface из ЖИВОГО status (не device.json — там прошлый запуск).
 _warp_live_iface() { _json_str "$WARP_STATUS" iface; }
+_warp_probe_addr() {
+    local _addr
+    _addr="$(_json_str "$WARP_STATUS" addr)"
+    [ -n "$_addr" ] || _addr="$(_json_str "$WARP_DEVICE" addr_v4)"
+    case "$_addr" in
+        ''|*[!0-9.]*) return 1 ;;
+    esac
+    printf '%s\n' "$_addr"
+}
 _warp_iface_valid() {
     case "$1" in
         z2ktun[0-9]|z2ktun[0-9][0-9]) ;;
@@ -549,7 +564,7 @@ _warp_proven_ready() {
 # Чужие rules/routes НЕ трогаем никогда. При конфликте взводим
 # _WARP_CONFLICT=1, чтобы enable вернул 1 (hard fail), а не 2.
 _warp_pbr_check() {
-    local _iface="$1" _line _mv _mm _mt _ov _pline
+    local _iface="$1" _line _mv _mm _mt _ov _pline _probe_addr _probe_line
     _WARP_CONFLICT=0
     # Точное наше правило не освобождает от скана: чужой конфликт рядом
     # с нашим = тоже отказ (трафик уже уводят). Нашу exact-строку пропускаем.
@@ -595,6 +610,23 @@ EOF_RULES
             _WARP_CONFLICT=1; return 1
         fi
     fi
+    # The local health-probe rule has its own preference.  It is allowed only
+    # in its exact form; a foreign rule there makes readiness ambiguous.
+    _probe_addr="$(_warp_probe_addr 2>/dev/null || true)"
+    [ -n "$_probe_addr" ] || {
+        echo "z2k-openwrt: warp: адрес probe неизвестен — не трогаю" >&2
+        _WARP_CONFLICT=1; return 1; }
+    _probe_line="$(ip rule show 2>/dev/null | grep -E "^$WARP_PROBE_RULE_PREF:" || true)"
+    if [ -n "$_probe_line" ]; then
+        if [ "$(printf '%s\n' "$_probe_line" | grep -c .)" -gt 1 ]; then
+            echo "z2k-openwrt: warp: probe-pref $WARP_PROBE_RULE_PREF дублирован — не трогаю" >&2
+            _WARP_CONFLICT=1; return 1
+        fi
+        if printf '%s\n' "$_probe_line" | grep -qvE "from $_probe_addr(/32)? lookup $WARP_TABLE"; then
+            echo "z2k-openwrt: warp: probe-pref $WARP_PROBE_RULE_PREF занят чужим правилом — не трогаю" >&2
+            _WARP_CONFLICT=1; return 1
+        fi
+    fi
     # Таблица: пусто (норма) или ровно наш default на живой iface (adopt).
     # BusyBox ip may leave padding before the newline (the live router emits
     # `default dev z2ktun0 scope link `).  Route ownership is textual, so
@@ -612,11 +644,104 @@ EOF_RULES
     return 0
 }
 
+# Install only the route needed by z2k-warpd's local health probe.  This runs
+# before the daemon can prove readiness; installing full WARP PBR earlier
+# would send user traffic through an unproven tunnel.  No nft rules are added
+# here.  The exact source rule is removed by warp_pbr_down().
+warp_probe_route_up() {
+    local _iface _addr _route _probe _route_added=0 _probe_added=0
+    _iface="$(_warp_live_iface)"
+    _warp_iface_valid "$_iface" || return 1
+    _addr="$(_warp_probe_addr)" || return 1
+    _warp_pbr_check "$_iface" || return 1
+    _route="$(ip route show table "$WARP_TABLE" 2>/dev/null | sed 's/[[:space:]]*$//')"
+    if [ -n "$_route" ]; then
+        case "$_route" in
+            "default dev $_iface"|"default dev $_iface scope link") ;;
+            *) return 1 ;;
+        esac
+    else
+        ip route replace default dev "$_iface" table "$WARP_TABLE" 2>/dev/null || return 1
+        _route_added=1
+    fi
+    _probe="$(ip rule show 2>/dev/null | grep -E "^$WARP_PROBE_RULE_PREF:" || true)"
+    if [ -n "$_probe" ]; then
+        printf '%s\n' "$_probe" | grep -qE "from $_addr(/32)? lookup $WARP_TABLE" || return 1
+    else
+        ip rule add pref "$WARP_PROBE_RULE_PREF" from "$_addr/32" table "$WARP_TABLE" 2>/dev/null || {
+            [ "$_route_added" = "1" ] && ip route del default table "$WARP_TABLE" 2>/dev/null || true
+            return 1
+        }
+        _probe_added=1
+        _probe="$(ip rule show 2>/dev/null | grep -E "^$WARP_PROBE_RULE_PREF:" || true)"
+        printf '%s\n' "$_probe" | grep -qE "from $_addr(/32)? lookup $WARP_TABLE" || {
+            ip rule del pref "$WARP_PROBE_RULE_PREF" from "$_addr/32" table "$WARP_TABLE" 2>/dev/null || true
+            [ "$_route_added" = "1" ] && ip route del default table "$WARP_TABLE" 2>/dev/null || true
+            return 1
+        }
+    fi
+    mkdir -p "$(dirname "$WARP_PROBE_OWNER")" 2>/dev/null || {
+        [ "$_probe_added" = "1" ] && ip rule del pref "$WARP_PROBE_RULE_PREF" from "$_addr/32" table "$WARP_TABLE" 2>/dev/null || true
+        [ "$_route_added" = "1" ] && ip route del default table "$WARP_TABLE" 2>/dev/null || true
+        return 1
+    }
+    printf 'iface=%s\naddr=%s\n' "$_iface" "$_addr" > "$WARP_PROBE_OWNER.new.$$" 2>/dev/null || {
+        rm -f "$WARP_PROBE_OWNER.new.$$" 2>/dev/null
+        [ "$_probe_added" = "1" ] && ip rule del pref "$WARP_PROBE_RULE_PREF" from "$_addr/32" table "$WARP_TABLE" 2>/dev/null || true
+        [ "$_route_added" = "1" ] && ip route del default table "$WARP_TABLE" 2>/dev/null || true
+        return 1
+    }
+    chmod 600 "$WARP_PROBE_OWNER.new.$$" 2>/dev/null || {
+        rm -f "$WARP_PROBE_OWNER.new.$$" 2>/dev/null
+        [ "$_probe_added" = "1" ] && ip rule del pref "$WARP_PROBE_RULE_PREF" from "$_addr/32" table "$WARP_TABLE" 2>/dev/null || true
+        [ "$_route_added" = "1" ] && ip route del default table "$WARP_TABLE" 2>/dev/null || true
+        return 1; }
+    mv -f "$WARP_PROBE_OWNER.new.$$" "$WARP_PROBE_OWNER" 2>/dev/null || {
+        rm -f "$WARP_PROBE_OWNER.new.$$" 2>/dev/null
+        [ "$_probe_added" = "1" ] && ip rule del pref "$WARP_PROBE_RULE_PREF" from "$_addr/32" table "$WARP_TABLE" 2>/dev/null || true
+        [ "$_route_added" = "1" ] && ip route del default table "$WARP_TABLE" 2>/dev/null || true
+        return 1; }
+    return 0
+}
+
+_warp_probe_rule_delete_exact() {
+    local _n=0 _addr
+    _addr="$(_warp_probe_addr 2>/dev/null || true)"
+    [ -n "$_addr" ] || return 0
+    while [ "$_n" -lt 8 ]; do
+        ip rule show 2>/dev/null | grep -qE "^$WARP_PROBE_RULE_PREF:.*from $_addr(/32)? lookup $WARP_TABLE" || return 0
+        ip rule del pref "$WARP_PROBE_RULE_PREF" from "$_addr/32" table "$WARP_TABLE" 2>/dev/null || return 0
+        _n=$((_n + 1))
+    done
+    return 0
+}
+
+_warp_probe_route_down() {
+    local _iface _cur
+    _warp_probe_rule_delete_exact || true
+    [ -s "$WARP_PBR_OWNER" ] && {
+        rm -f "$WARP_PROBE_OWNER" "$WARP_PROBE_OWNER".new.* 2>/dev/null
+        return 0
+    }
+    _iface="$(sed -n 's/^iface=//p' "$WARP_PROBE_OWNER" 2>/dev/null | head -1)"
+    case "$_iface" in
+        z2ktun[0-9]|z2ktun[0-9][0-9]) ;;
+        *) rm -f "$WARP_PROBE_OWNER" "$WARP_PROBE_OWNER".new.* 2>/dev/null; return 0 ;;
+    esac
+    _cur="$(ip route show table "$WARP_TABLE" 2>/dev/null | sed 's/[[:space:]]*$//')"
+    if [ -n "$_cur" ] && ! printf '%s\n' "$_cur" | grep -qvE "^default dev $_iface( scope link)?\$"; then
+        ip route del default table "$WARP_TABLE" 2>/dev/null || true
+    fi
+    rm -f "$WARP_PROBE_OWNER" "$WARP_PROBE_OWNER".new.* 2>/dev/null
+    return 0
+}
+
 warp_pbr_down() {
     # Route+rule ПЕРВЫМИ (мгновенный fail-open), затем тишина.
     # Rule: ТОЛЬКО exact owned delete (pref+mark/mask+table, bounded от
     # дубликатов) — чужое не трогаем (defect 4). Legacy unmasked-формы нет:
     # на OpenWrt наше правило всегда ставилось с pref+masked mark.
+    _warp_probe_route_down || true
     _warp_rule_delete_exact || true
     _warp_route_release_owned || true
     rm -f "$WARP_PBR_OWNER" "$WARP_PBR_OWNER".new.* 2>/dev/null
@@ -902,6 +1027,13 @@ _warp_wait_ready() {
     local _waited=0 _t0 _mt
     _t0=$(date +%s 2>/dev/null || echo 0)
     while [ "$_waited" -lt "${1:-$WARP_READY_WAIT}" ]; do
+        if warp_running; then
+            # z2k-warpd cannot pass its own probe until the external platform
+            # gives the local socket a route into table 989.  This helper is
+            # intentionally before the ready gate and does not add nft/user
+            # traffic rules.
+            warp_probe_route_up >/dev/null 2>&1 || true
+        fi
         if [ "${2:-}" != "internal" ]; then
             warp_op_current || { warp_op_superseded; return 3; }
         fi
@@ -925,6 +1057,7 @@ warp_pbr_up() {
     _warp_proven_ready || return 1
     _iface="$(_warp_live_iface)"
     _warp_pbr_check "$_iface" || return 1
+    warp_probe_route_up || return 1
     if [ "$_mode" = "repair" ]; then
         warp_nft_tun_verify "$_iface" >/dev/null 2>&1 || warp_nft_tun_apply "$_iface" || return 1
     else
@@ -959,6 +1092,7 @@ warp_pbr_up() {
 _warp_pbr_rollback() {
     local _iface="$1" _cur=""
     [ -n "$_iface" ] || return 0
+    _warp_probe_rule_delete_exact || true
     _warp_rule_delete_exact || true
     _cur="$(ip route show table "$WARP_TABLE" 2>/dev/null)"
     if [ -n "$_cur" ] && ! printf '%s\n' "$_cur" | grep -qvE "^default dev $_iface( scope link)?\$"; then
@@ -1500,11 +1634,14 @@ _z2k_ow_warp_dispatch() {
 # PBR present-and-valid? Ровно одна exact rule (defect 4: дубликат exact —
 # тоже invalid, verify=false), плюс route на живой iface.
 warp_pbr_verify() {
-    local _iface _n
+    local _iface _addr _n _pn
     _iface="$(_warp_live_iface)"
     [ -n "$_iface" ] || return 1
+    _addr="$(_warp_probe_addr)" || return 1
     _n="$(ip rule show 2>/dev/null | grep -E "^$WARP_RULE_PREF:.*fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE" | grep -c . || true)"
     [ "$_n" = "1" ] || return 1
+    _pn="$(ip rule show 2>/dev/null | grep -E "^$WARP_PROBE_RULE_PREF:.*from $_addr(/32)? lookup $WARP_TABLE" | grep -c . || true)"
+    [ "$_pn" = "1" ] || return 1
     ip route show table "$WARP_TABLE" 2>/dev/null | grep -qF "default dev $_iface" || return 1
     return 0
 }

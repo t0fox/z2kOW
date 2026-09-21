@@ -16,7 +16,7 @@ export Z2K_BIN="$T/root/bin" Z2K_STATE="$T/etc/state" Z2K_LISTS_DIR="$T/root/lis
 export CONFIG_FILE="$T/etc/config" WARP_BIN="$T/root/bin/z2k-warpd"
 export WARP_DEVICE="$T/etc/state/warp/device.json"
 export WARP_STATUS="$T/tmp/warp/status.json" WARP_LOG="$T/tmp/warp/warpd.log"
-export WARP_PBR_OWNER="$T/tmp/warp/pbr.owner" Z2K_PROC_ROOT="$T/proc"
+export WARP_PBR_OWNER="$T/tmp/warp/pbr.owner" WARP_PROBE_OWNER="$T/tmp/warp/probe-route.owner" Z2K_PROC_ROOT="$T/proc"
 export WARP_LISTS_DIR="$T/etc/user-lists/warp" WARP_GAMES_DIR="$T/root/lists/warp"
 export WARP_ENABLED_FILE="$T/etc/user-lists/warp/.enabled"
 export WARP_DEVICES_FILE="$T/etc/user-lists/warp/devices.txt"
@@ -112,7 +112,7 @@ assert_contains "engine error is preserved" "$T/status-engine-error.log" "error=
 assert_contains "engine error is not connecting" "$T/status-engine-error.log" "state=error"
 
 # Transport readiness without platform routing is a distinct state.
-printf '{"ready":true,"iface":"z2ktun0","transport":"wg"}\n' > "$WARP_STATUS"
+printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg"}\n' > "$WARP_STATUS"
 : > "$WARP_LOG"
 printf '7777\n' > "$T/pidof.out"
 : > "$T/link-z2ktun0"
@@ -126,7 +126,7 @@ assert_contains "missing routing is not ready" "$T/status-no-route.log" "state=t
 
 # Full platform proof requires the live interface, nft TUN chains, exact PBR
 # rule/route, and the adapter ownership record together.
-printf '500: from all fwmark 0x80000000/0x80000000 lookup 989\n' > "$T/ip-rules"
+printf '499: from 172.16.9.9/32 lookup 989\n500: from all fwmark 0x80000000/0x80000000 lookup 989\n' > "$T/ip-rules"
 printf 'default dev z2ktun0\n' > "$T/ip-route-989"
 cat > "$WARP_PBR_OWNER" <<'EOF'
 mark=0x80000000

@@ -7,7 +7,7 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-warpf.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 
-mkdir -p "$T/bin" "$T/root/bin" "$T/etc" "$T/etc/state/warp" "$T/etc/user-lists/warp/games" "$T/root/lists/warp/games" "$T/tmp" "$T/proc"
+mkdir -p "$T/bin" "$T/root/bin" "$T/etc" "$T/etc/state/warp" "$T/etc/user-lists/warp/games" "$T/root/lists/warp/games" "$T/tmp/warp" "$T/proc"
 export PATH="$T/bin:$PATH"
 
 cat > "$T/bin/nft" <<EOF
@@ -39,16 +39,21 @@ if [ "\$1" = "rule" ] && [ "\$2" = "show" ]; then
     cat "$T/ip-rules" 2>/dev/null; exit 0
 fi
 if [ "\$1" = "rule" ] && [ "\$2" = "add" ]; then
-    _pref=""; _fm=""; _tb=""; _prev=""
+    _pref=""; _fm=""; _tb=""; _from=""; _prev=""
     for _a in "\$@"; do
         case "\$_prev" in
             pref) _pref="\$_a" ;;
             fwmark) _fm="\$_a" ;;
+            from) _from="\$_a" ;;
             table|lookup) _tb="\$_a" ;;
         esac
         _prev="\$_a"
     done
-    printf '%s: from all fwmark %s lookup %s\n' "\$_pref" "\$_fm" "\$_tb" >> "$T/ip-rules"
+    if [ -n "\$_from" ]; then
+        printf '%s: from %s lookup %s\n' "\$_pref" "\$_from" "\$_tb" >> "$T/ip-rules"
+    else
+        printf '%s: from all fwmark %s lookup %s\n' "\$_pref" "\$_fm" "\$_tb" >> "$T/ip-rules"
+    fi
     exit 0
 fi
 if [ "\$1" = "rule" ] && [ "\$2" = "del" ]; then
@@ -129,8 +134,9 @@ EOF
 chmod +x "$T/root/bin/z2k-warpd"
 
 printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
-printf '{"id":"mock-id","addr":"172.16.9.9"}\n' > "$T/etc/state/warp/device.json"
-printf '{"ready":true,"iface":"z2ktun0","transport":"wg"}\n' > "$T/tmp/status.json"
+printf '{"id":"mock-id","addr":"172.16.9.9","addr_v4":"172.16.9.9"}\n' > "$T/etc/state/warp/device.json"
+printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg"}\n' > "$T/tmp/warp/status.json"
+touch "$T/link-z2ktun0"
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_BIN="$T/root/bin" Z2K_RUN="$T/tmp/runtime" Z2K_STATE="$T/etc/state"
@@ -154,6 +160,18 @@ assert_contains "status transient" "$T/argv.log" "--status $T/tmp/warp/status.js
 assert_contains "backend external" "$T/argv.log" "--net-backend=external"
 if grep -q -- '-v' "$T/argv.log"; then _t_bad "argv: лишний -v"; else _t_ok; fi
 assert_eq "builder молчит" "" "$_out$(cat "$T/argv.err")"
+
+# --- local health probe route: it must exist before daemon ready ---
+: > "$T/ip-rules"
+rm -f "$T/ip-route-989" "$T/tmp/warp/probe-route.owner"
+printf '{"ready":false,"iface":"z2ktun0","addr":"172.16.9.9"}\n' > "$T/tmp/warp/status.json"
+warp_probe_route_up || _t_bad "probe route up"
+assert_contains "probe source rule" "$T/ip-rules" "499: from 172.16.9.9/32 lookup 989"
+assert_contains "probe route" "$T/ip-route-989" "default dev z2ktun0"
+warp_pbr_down || _t_bad "probe route down"
+if grep -q '^499:' "$T/ip-rules" 2>/dev/null; then _t_bad "probe source rule cleanup"; else _t_ok; fi
+if [ -e "$T/ip-route-989" ]; then _t_bad "probe route cleanup"; else _t_ok; fi
+printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg"}\n' > "$T/tmp/warp/status.json"
 
 # --- wanted-матрица ---
 warp_wanted_boot && _t_ok || _t_bad "wanted при всём хорошем"
@@ -245,7 +263,7 @@ if grep -q '999.1.1.1' "$T/nft.log"; then _t_bad "битый IP уехал в se
 # --- PBR: install idempotent + конфликты ---
 # proven-ready фикстура: status ready + живой процесс + link
 mkdir -p "$T/tmp/warp" "$T/proc/4242"
-printf '{"ready":true,"iface":"z2ktun0","transport":"wg"}\n' > "$T/tmp/warp/status.json"
+printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg"}\n' > "$T/tmp/warp/status.json"
 printf 'z2k-warpd run --device x\n' | tr ' ' '\0' > "$T/proc/4242/cmdline"
 printf '4242\n' > "$T/pidof.out"
 export WARP_STATUS="$T/tmp/warp/status.json" Z2K_PROC_ROOT="$T/proc"

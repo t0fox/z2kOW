@@ -22,7 +22,16 @@ cat > "$T/bin/ip" <<'EOF'
 echo "ip:$*" >> "$CALLS"
 if [ "$1" = "rule" ] && [ "$2" = "show" ]; then
     # have-pbr: существующее exact-наше правило (для pbr_down-пути).
+    [ -f "$HAVE_PROBE" ] && echo '499: from 172.16.9.9/32 lookup 989'
     [ -f "$HAVE_PBR" ] && echo '500: from all fwmark 0x80000000/0x80000000 lookup 989'
+    exit 0
+fi
+if [ "$1" = "rule" ] && [ "$2" = "add" ]; then
+    case "$*" in *' from '*) touch "$HAVE_PROBE" ;; esac
+    exit 0
+fi
+if [ "$1" = "rule" ] && [ "$2" = "del" ]; then
+    case "$*" in *' pref 499 '*) rm -f "$HAVE_PROBE" ;; esac
     exit 0
 fi
 if [ "$1" = "route" ] && [ "$2" = "show" ]; then
@@ -36,6 +45,7 @@ exit 0
 EOF
 chmod +x "$T/bin/ip"
 export HAVE_PBR="$T/have-pbr"
+export HAVE_PROBE="$T/have-probe"
 cat > "$T/bin/pidof" <<'EOF'
 #!/bin/sh
 cat "$PIDOF_OUT" 2>/dev/null
@@ -88,7 +98,7 @@ mkdir -p "$T/proc/4242"
 printf 'z2k-warpd run' | tr ' ' '\0' > "$T/proc/4242/cmdline"
 printf '4242\n' > "$T/pidof.out"
 export Z2K_PROC_ROOT="$T/proc"
-printf '{"ready":true,"transport":"auto","iface":"z2ktun0"}\n' > "$T/tmp/warp-status.json"
+printf '{"ready":true,"transport":"auto","iface":"z2ktun0","addr":"172.16.9.9"}\n' > "$T/tmp/warp-status.json"
 export WARP_STATUS="$T/tmp/warp-status.json"
 _z2k_ow_warp_kill() { echo "kill:$*" >> "$T/calls"; return 0; }
 : > "$T/calls"
