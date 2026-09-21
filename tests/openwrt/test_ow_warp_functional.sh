@@ -28,6 +28,31 @@ if [ "\$1" = "list" ] && [ "\$2" = "table" ]; then
     [ -f "$T/no-table" ] && exit 1
     exit 0
 fi
+if [ "\$1" = "list" ] && [ "\$2" = "chain" ] && \
+   [ "\$4" = fw4 ] && [ "\$5" = forward ]; then
+    [ -f "$T/fw4-forward" ] && cat "$T/fw4-forward"
+    exit 0
+fi
+if [ "\$1" = "-a" ] && [ "\$2" = "list" ] && [ "\$3" = "chain" ] && \
+   [ "\$5" = fw4 ] && [ "\$6" = forward ]; then
+    [ -f "$T/fw4-forward" ] && cat "$T/fw4-forward"
+    exit 0
+fi
+if [ "\$1" = "insert" ] && [ "\$2" = "rule" ] && \
+   [ "\$4" = fw4 ] && [ "\$5" = forward ]; then
+    _prev=""; _iface=""
+    for _arg in "\$@"; do
+        [ "\$_prev" = oifname ] && _iface="\$_arg"
+        _prev="\$_arg"
+    done
+    printf 'meta mark & 0x80000000 == 0x80000000 oifname "%s" accept comment "!z2k: WARP forwarded traffic" # handle 91\n' "\$_iface" > "$T/fw4-forward"
+    exit 0
+fi
+if [ "\$1" = "delete" ] && [ "\$2" = "rule" ] && \
+   [ "\$4" = fw4 ] && [ "\$5" = forward ]; then
+    rm -f "$T/fw4-forward"
+    exit 0
+fi
 exit 0
 EOF
 chmod +x "$T/bin/nft"

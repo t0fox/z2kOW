@@ -1,0 +1,6 @@
+## z2k WARP forwarded traffic.
+##
+## This is a standard firewall4 chain-pre include, not a firewall4 fork. It is
+## inert unless z2k's reserved mark has already selected a z2ktun* route.
+## WARP removes that mark/PBR before disable or not-ready convergence.
+meta mark & 0x80000000 == 0x80000000 oifname "z2ktun*" accept comment "!z2k: WARP forwarded traffic"

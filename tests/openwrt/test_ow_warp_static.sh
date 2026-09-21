@@ -16,10 +16,14 @@ MK="$REPO/package/openwrt/Makefile"
 MAP="$REPO/package/openwrt/ownership.map"
 AU="$REPO/lib/auto_update.sh"
 S96="$REPO/files/z2k-warp.sh"
+FW4="$REPO/package/openwrt/files/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft"
 
 assert_file "warp.sh существует" "$WARP"
 assert_file "warp-proc.sh существует" "$WARPP"
 assert_file "warp-check.sh существует" "$WARPC"
+assert_file "fw4 WARP chain-pre include существует" "$FW4"
+assert_contains "fw4 WARP include is mark-scoped" "$FW4" \
+    'meta mark & 0x80000000 == 0x80000000 oifname "z2ktun*" accept'
 
 # Tripwire класса heredoc-backtick: dash ПАРСИТ backquotes внутри unquoted
 # heredoc (и выполняет их при сборке моков) — однажды это молча роняло весь
@@ -107,6 +111,8 @@ assert_contains "warp.sh: table 989" "$WARP" 'WARP_TABLE="${WARP_TABLE:-989}"'
 assert_contains "warp.sh: pref 500" "$WARP" 'WARP_RULE_PREF="${WARP_RULE_PREF:-500}"'
 # masked op, не blind set-mark:
 assert_contains "warp.sh: masked mark op" "$WARP" "meta mark set mark '&' 0x7fffffff '^' 0x80000000"
+assert_contains "warp.sh: verifies final fw4 forward policy" "$WARP" '_warp_fw4_forward_verify'
+assert_contains "warp.sh: runtime fw4 fallback is exact" "$WARP" 'nft insert rule "$WARP_FW4_FAMILY"'
 if grep -qE 'meta mark set 0x' "$_WCODE"; then
     _t_bad "warp.sh: blind mark-assign (чужие биты не выживут)"
 else
@@ -178,6 +184,10 @@ assert_contains "ownership: warp.sh package" "$MAP" '/usr/lib/z2k/platform/openw
 assert_contains "ownership: warp-proc.sh package" "$MAP" '/usr/lib/z2k/platform/openwrt/warp-proc.sh package'
 assert_contains "ownership: warp-check.sh package" "$MAP" '/usr/lib/z2k/platform/openwrt/warp-check.sh package'
 assert_contains "ownership: device daemon-state" "$MAP" '/etc/z2k/state/warp/device.json daemon-state'
+assert_contains "ownership: fw4 include package" "$MAP" \
+    '/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft package'
+assert_contains "Makefile: fw4 include install" "$MK" \
+    'files/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft'
 
 # --- COMMON_HOOK в au_service_for_binary + Makefile BIN modes ---
 assert_contains "au: warp openwrt-ветка" "$AU" 'warp-proc.sh'

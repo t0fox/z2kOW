@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=48
+PKG_RELEASE:=49
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -94,6 +94,9 @@ PKG_RELEASE:=48
 # OpenWrt WARP table before transport readiness is proven.
 # RELEASE 47: bind the OpenWrt health probe to the TUN IPv4 source so the
 # source-policy route is actually selected by z2k-warpd's socket.
+# RELEASE 49: admit marked forwarded WARP traffic through the final fw4 policy
+# using the standard chain-pre include, with an exact runtime fallback for an
+# already-rendered firewall. No flowtable/PPE/offload ownership is added.
 # RELEASE 31: converge stale updater-owned panel payload from an embedded CI
 # snapshot through the existing verified reinstall path; production packages
 # fail closed with an explicit panel-payload incompatibility.
@@ -164,7 +167,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r48)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r49)
 endef
 
 define Package/z2k-webpanel/description
@@ -214,6 +217,8 @@ Z2K_TREE:=$(abspath $(CURDIR)/../..)
 # config-шаблон, seed (собирается make-seed.sh из этого же дерева).
 define Package/z2k-adapter/install
 	$(INSTALL_DIR) $(1)/etc/init.d $(1)/etc/hotplug.d/iface
+	$(INSTALL_DIR) $(1)/etc/nftables.d/chain-pre/forward
+	$(INSTALL_DATA) ./files/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft $(1)/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft
 	$(INSTALL_DIR) $(1)/etc/sysctl.d
 	$(INSTALL_DATA) ./files/etc/sysctl.d/99-z2k.conf $(1)/etc/sysctl.d/99-z2k.conf
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/platform/openwrt/custom.d

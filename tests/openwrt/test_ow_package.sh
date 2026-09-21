@@ -41,12 +41,14 @@ assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapre
 # A same-version APK is not an upgrade on OpenWrt.  Both fixes therefore
 # require a real adapter release bump, and the webpanel must require that same
 # release rather than silently retaining an older adapter.
-assert_eq "adapter release bumped for WARP probe source dependency" "48" "$_arel"
+assert_eq "adapter release bumped for WARP fw4 forwarding admission" "49" "$_arel"
 assert_contains "nounset CGI probe remains guarded" "$REPO/platform/openwrt/customd.sh" \
     'nounset must not abort this probe'
 assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwrt/env.sh" \
     'BusyBox tr treats'
 assert_file "autohostlist lifecycle source exists" "$REPO/platform/openwrt/autohostlist.sh"
+assert_file "WARP fw4 chain-pre include exists" \
+    "$REPO/package/openwrt/files/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft"
 assert_contains "init loads autohostlist lifecycle" "$REPO/package/openwrt/files/etc/init.d/z2k" \
     'platform/openwrt/autohostlist.sh'
 # Каноническая грамматика FormatDepends (два провала доказали оба края):

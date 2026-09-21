@@ -61,6 +61,15 @@ WARP_CHAIN_NAT="${WARP_CHAIN_NAT:-z2k_warp_nat}"
 Z2K_WARP_NFT_FAMILY="${Z2K_WARP_NFT_FAMILY:-inet}"
 # Дефолт таблицы — как у TG (см. tg.sh): дефолт pinned runtime.
 Z2K_WARP_NFT_TABLE="${Z2K_WARP_NFT_TABLE:-zapret2}"
+# fw4 owns the final forward policy. The zapret2 hook below cannot override a
+# later fw4 reject, so the package also installs a narrow standard fw4
+# chain-pre admission and the runtime fallback below. This is not a second
+# firewall or an offload mechanism: it requires our reserved mark and a
+# z2ktun* egress interface.
+WARP_FW4_FAMILY="${WARP_FW4_FAMILY:-inet}"
+WARP_FW4_TABLE="${WARP_FW4_TABLE:-fw4}"
+WARP_FW4_CHAIN="${WARP_FW4_CHAIN:-forward}"
+WARP_FW4_RULE_COMMENT="${WARP_FW4_RULE_COMMENT:-!z2k: WARP forwarded traffic}"
 # Релей для API/регистрации, если напрямую заблокирован (как S51/z2k-warp.sh;
 # дефолт продублирован — равенство трёх копий сторожит parity-тест).
 # Секрет релей НЕ логируем никогда (см. warp_register).
@@ -430,6 +439,65 @@ warp_nft_rules_verify() {
     return 0
 }
 
+_warp_fw4_forward_line() {
+    local _iface="$1"
+    printf 'meta mark & %s == %s oifname "%s" accept comment "%s"' \
+        "$WARP_MASK" "$WARP_MARK" "$_iface" "$WARP_FW4_RULE_COMMENT"
+}
+
+_warp_fw4_forward_verify() {
+    local _iface="$1" _out _exact _include
+    [ -n "$_iface" ] || return 1
+    _out="$(nft list chain "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" 2>/dev/null)" || return 1
+    _exact="$(_warp_fw4_forward_line "$_iface")"
+    _include="$(_warp_fw4_forward_line 'z2ktun*')"
+    printf '%s\n' "$_out" | grep -qF "$_exact" && return 0
+    printf '%s\n' "$_out" | grep -qF "$_include"
+}
+
+_warp_fw4_forward_apply() {
+    local _iface="$1" _out _marker _line
+    [ -n "$_iface" ] || return 1
+    _warp_fw4_forward_verify "$_iface" >/dev/null 2>&1 && return 0
+    _out="$(nft list chain "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" 2>/dev/null)" || return 1
+    _marker="comment \"$WARP_FW4_RULE_COMMENT\""
+    _line="$(_warp_fw4_forward_line "$_iface")"
+    # A marker with a different expression/interface is not ours to repair.
+    # Refuse to stack another rule on top of it and let the caller fail open.
+    if printf '%s\n' "$_out" | grep -qF "$_marker" && \
+       ! printf '%s\n' "$_out" | grep -qF "$_line"; then
+        echo "z2k-openwrt: warp: fw4 WARP forward rule ownership conflict" >&2
+        _WARP_CONFLICT=1
+        return 1
+    fi
+    nft insert rule "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" \
+        meta mark \& "$WARP_MASK" == "$WARP_MARK" oifname "$_iface" accept \
+        comment "$WARP_FW4_RULE_COMMENT" || return 1
+    _warp_fw4_forward_verify "$_iface"
+}
+
+_warp_fw4_forward_remove_runtime() {
+    local _out _line _handle
+    _out="$(nft -a list chain "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" 2>/dev/null)" || return 0
+    while IFS= read -r _line; do
+        case "$_line" in
+            *"comment \"$WARP_FW4_RULE_COMMENT\""*"# handle "*) ;;
+            *) continue ;;
+        esac
+        # Keep the package-owned wildcard include. Only exact z2ktunN rules
+        # are runtime fallbacks and may be removed by lifecycle teardown.
+        case "$_line" in *'oifname "z2ktun*"'*) continue ;; esac
+        case "$_line" in *'oifname "z2ktun'*) ;; *) continue ;; esac
+        _handle="$(printf '%s\n' "$_line" | sed -n 's/.*# handle \([0-9][0-9]*\).*/\1/p')"
+        [ -n "$_handle" ] || continue
+        nft delete rule "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" \
+            handle "$_handle" 2>/dev/null || true
+    done <<EOF_FW4
+$_out
+EOF_FW4
+    return 0
+}
+
 warp_nft_tun_verify() {
     local _iface="$1" _out
     [ -n "$_iface" ] || return 1
@@ -444,6 +512,7 @@ warp_nft_tun_verify() {
     printf '%s\n' "$_out" | grep -q "oifname .*$_iface.* accept" || return 1
     _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_NAT" 2>/dev/null)
     printf '%s\n' "$_out" | grep -q "oifname .*$_iface.* masquerade" || return 1
+    _warp_fw4_forward_verify "$_iface" || return 1
     return 0
 }
 
@@ -487,6 +556,10 @@ warp_nft_tun_apply() {
         printf 'add rule %s %s %s oifname %s masquerade\n' \
             "$_fam" "$_tab" "$WARP_CHAIN_NAT" "$_iface"
     } | nft -f - || return 1
+    _warp_fw4_forward_apply "$_iface" || {
+        _warp_tun_clear >/dev/null 2>&1 || true
+        return 1
+    }
     _z2k_ow_warp_mut "NFT_CREATED: tun $WARP_CHAIN_MSS/$WARP_CHAIN_FWD/$WARP_CHAIN_NAT $_iface"
     return 0
 }
@@ -494,6 +567,7 @@ warp_nft_tun_apply() {
 # Dynamic TUN plumbing в off (no-ready/disable): chains пустые, правил нет.
 _warp_tun_clear() {
     local _c
+    _warp_fw4_forward_remove_runtime
     _z2k_ow_warp_table_ok || return 0
     for _c in "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
         nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_c" 2>/dev/null || true
@@ -513,6 +587,7 @@ _warp_mark_clear() {
 warp_nft_remove() {
     # $1: "full" — снести и sets (remove/uninstall); иначе только chains.
     local _full="${1:-}" _c _s
+    _warp_fw4_forward_remove_runtime
     _z2k_ow_warp_table_ok || return 0
     for _c in "$WARP_CHAIN_MARK" "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
         nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_c" 2>/dev/null || true

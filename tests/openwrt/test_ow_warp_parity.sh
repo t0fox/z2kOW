@@ -14,6 +14,31 @@ export PATH="$T/bin:/usr/bin:/bin"
 cat > "$T/bin/nft" <<'EOF'
 #!/bin/sh
 echo "nft:$*" >> "$CALLS"
+if [ "$1" = "list" ] && [ "$2" = "chain" ] && \
+   [ "$4" = fw4 ] && [ "$5" = forward ]; then
+    [ -f "$FW4_RULE" ] && cat "$FW4_RULE"
+    exit 0
+fi
+if [ "$1" = "-a" ] && [ "$2" = "list" ] && [ "$3" = "chain" ] && \
+   [ "$5" = fw4 ] && [ "$6" = forward ]; then
+    [ -f "$FW4_RULE" ] && cat "$FW4_RULE"
+    exit 0
+fi
+if [ "$1" = "insert" ] && [ "$2" = "rule" ] && \
+   [ "$4" = fw4 ] && [ "$5" = forward ]; then
+    _prev=""; _iface=""
+    for _arg in "$@"; do
+        [ "$_prev" = oifname ] && _iface="$_arg"
+        _prev="$_arg"
+    done
+    printf 'meta mark & 0x80000000 == 0x80000000 oifname "%s" accept comment "!z2k: WARP forwarded traffic" # handle 91\n' "$_iface" > "$FW4_RULE"
+    exit 0
+fi
+if [ "$1" = "delete" ] && [ "$2" = "rule" ] && \
+   [ "$4" = fw4 ] && [ "$5" = forward ]; then
+    rm -f "$FW4_RULE"
+    exit 0
+fi
 exit 0
 EOF
 chmod +x "$T/bin/nft"
@@ -53,7 +78,7 @@ exit 0
 EOF
 chmod +x "$T/bin/pidof"
 : > "$T/pidof.out"
-export CALLS="$T/calls" PIDOF_OUT="$T/pidof.out"
+export CALLS="$T/calls" PIDOF_OUT="$T/pidof.out" FW4_RULE="$T/fw4-rule"
 : > "$T/calls"
 
 export Z2K_ROOT="$REPO" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp" Z2K_STATE="$T/etc/state"

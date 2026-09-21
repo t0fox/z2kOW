@@ -61,6 +61,10 @@ if [ "\$1" = list ] && [ "\$2" = table ]; then exit 0; fi
 if [ "\$1" = list ] && [ "\$2" = set ]; then exit 0; fi
 if [ "\$1" = list ] && [ "\$2" = chain ]; then
     [ "\${HAVE_NFT:-0}" = 1 ] || exit 0
+    if [ "\$4" = fw4 ] && [ "\$5" = forward ]; then
+        printf '%s\n' 'meta mark & 0x80000000 == 0x80000000 oifname "z2ktun*" accept comment "!z2k: WARP forwarded traffic"'
+        exit 0
+    fi
     cat <<'RULES'
 oifname z2ktun0 tcp flags syn tcp option maxseg size set rt mtu
 iifname z2ktun0 tcp flags syn tcp option maxseg size set 1240

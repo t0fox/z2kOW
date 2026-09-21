@@ -66,8 +66,17 @@ if [ "\$1" = "list" ] && [ "\$2" = "set" ]; then
     exit 1
 fi
 if [ "\$1" = "list" ] && [ "\$2" = "chain" ]; then
+    if [ "\$4" = fw4 ] && [ "\$5" = forward ]; then
+        [ -f "$T/nft-fw4-forward" ] && { cat "$T/nft-fw4-forward"; exit 0; }
+        exit 0
+    fi
     [ -f "$T/nft-chain-\$5" ] && { cat "$T/nft-chain-\$5"; exit 0; }
     exit 1
+fi
+if [ "\$1" = "-a" ] && [ "\$2" = "list" ] && [ "\$3" = "chain" ] && \
+   [ "\$5" = fw4 ] && [ "\$6" = forward ]; then
+    [ -f "$T/nft-fw4-forward" ] && cat "$T/nft-fw4-forward"
+    exit 0
 fi
 # set-state для W19 (live set переживает corrupt-refresh): как настоящий
 # nft, «add set» существующего сета — no-op (контент НЕ трогаем).
@@ -95,6 +104,25 @@ if [ "\$1" = "flush" ] && [ "\$2" = "chain" ]; then
 fi
 if [ "\$1" = "add" ] && [ "\$2" = "rule" ]; then
     printf '%s\n' "\$*" >> "$T/nft-chain-\$5"
+    exit 0
+fi
+if [ "\$1" = "insert" ] && [ "\$2" = "rule" ] && \
+   [ "\$4" = fw4 ] && [ "\$5" = forward ]; then
+    _prev=""; _iface=""
+    for _arg in "\$@"; do
+        [ "\$_prev" = oifname ] && _iface="\$_arg"
+        _prev="\$_arg"
+    done
+    {
+        printf 'meta mark & 0x80000000 == 0x80000000 oifname "%s" accept comment "!z2k: WARP forwarded traffic" # handle 91\n' "\$_iface"
+        cat "$T/nft-fw4-forward" 2>/dev/null
+    } > "$T/nft-fw4-forward.new"
+    mv -f "$T/nft-fw4-forward.new" "$T/nft-fw4-forward"
+    exit 0
+fi
+if [ "\$1" = "delete" ] && [ "\$2" = "rule" ] && \
+   [ "\$4" = fw4 ] && [ "\$5" = forward ]; then
+    sed -i '/!z2k: WARP forwarded traffic.*handle 91/d' "$T/nft-fw4-forward" 2>/dev/null || true
     exit 0
 fi
 if [ "\$1" = "delete" ] && [ "\$2" = "chain" ]; then
@@ -278,7 +306,7 @@ _reset() {
     # Сервис по умолчанию АКТИВЕН (как на живом роутере); остановку
     # симулирует конкретный тест (W46) удалением service-active.
     : > "$T/service-active"
-    rm -f "$T"/nft-set-* "$T"/nft-chain-*
+    rm -f "$T"/nft-set-* "$T"/nft-chain-* "$T/nft-fw4-forward"
     rm -rf "$T/tmp/warp" "$T/proc" "$T/link-z2ktun0"
     mkdir -p "$T/tmp/warp" "$T/proc"
     rm -f "$T/no-table"

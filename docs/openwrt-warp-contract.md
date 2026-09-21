@@ -174,6 +174,22 @@ set z2k_warp_dst4 { type ipv4_addr; flags interval; }
 set z2k_warp_src4 { type ipv4_addr; flags interval; }
 ```
 
+fw4 has its own final `forward` policy after the adapter's `inet zapret2`
+hook. Therefore the package also ships the standard firewall4
+`/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft` include:
+
+```text
+meta mark & 0x80000000 == 0x80000000 oifname "z2ktun*" accept
+```
+
+This is a narrow admission for already-marked, already-routed WARP traffic,
+not a second firewall or an offload mechanism. While the include is not yet
+loaded in an already-rendered fw4 ruleset, the lifecycle adds one exact
+`oifname <live-iface>` fallback rule with the same mark predicate; that rule
+is removed on not-ready, disable, stop and cleanup. A marker with a foreign
+expression is a hard ownership conflict. `warp_status_routing_ready` verifies
+the zapret2 TUN rules, the fw4 admission, PBR and owner record together.
+
 - Mark ТОЛЬКО PREROUTING (router-local никогда в WARP — upstream инвариант
   после удаления OUTPUT; тесты запрещают OUTPUT-mark).
 - MSS 1240 = engine.MTU(1280)-40, тест держит coupling с Go-константой;
