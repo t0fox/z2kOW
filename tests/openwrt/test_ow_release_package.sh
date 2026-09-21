@@ -50,7 +50,7 @@ PYEOF
 # --- §58: metadata статика ---
 assert_contains "pkg postinst" "$MK" "Package/z2k-adapter/postinst"
 assert_contains "pkg prerm" "$MK" "Package/z2k-adapter/prerm"
-assert_contains "pkg core deps" "$MK" "DEPENDS:=+kmod-nft-queue +conntrack"
+assert_contains "pkg core deps" "$MK" "DEPENDS:=+kmod-nft-queue +kmod-tun +conntrack"
 assert_contains "pkg webpanel deps" "$MK" "DEPENDS:=z2k-adapter +lighttpd"
 assert_contains "pkg seed stanza" "$MK" "seed.tar.gz"
 assert_contains "pkg adapter.api stanza" "$MK" "share/adapter.api"
