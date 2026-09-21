@@ -458,14 +458,12 @@ async function loadWarpStatus() {
     grid.innerHTML = "";
     return;
   }
-  // Туннель — три состояния. ready = движок доказал, что трафик ходит
-  // (handshake + счётчики + при сомнении сквозная проба), а не «интерфейс
-  // есть». При включённом режиме и не-ready показываем причину кодом → текст.
+  // `ready` — доказательство транспорта движком, а `route_ready` — отдельное
+  // доказательство platform-owned nft/TUN/PBR. Наличие только интерфейса или
+  // правил не превращается в «работает».
   let tunnelValue, tunnelKind;
-  if (d.ready) {
-    tunnelValue = "работает" + (d.addr ? " · " + d.addr : "");
-    tunnelKind = "good";
-  } else if (!enabled) {
+  const routeReady = d.route_ready === true;
+  if (!enabled) {
     tunnelValue = "выключен";
     tunnelKind = "";
   } else if (d.error === "no_endpoint" && _warpMode !== "auto") {
@@ -476,8 +474,17 @@ async function loadWarpStatus() {
   } else if (d.error) {
     tunnelValue = WARP_ERRORS[d.error] || d.error;
     tunnelKind = "bad";
+  } else if (d.ready && routeReady) {
+    tunnelValue = "работает" + (d.addr ? " · " + d.addr : "");
+    tunnelKind = "good";
+  } else if (d.ready) {
+    tunnelValue = "туннель готов, маршрутизация не подтверждена";
+    tunnelKind = "warn";
+  } else if (d.state === "recovering" || d.running === false) {
+    tunnelValue = "соединение потеряно, восстанавливается";
+    tunnelKind = "warn";
   } else {
-    tunnelValue = "поднимается";
+    tunnelValue = "подключается";
     tunnelKind = "";
   }
   const transport = d.transport === "wg" ? "WireGuard" : d.transport === "h2" ? "MASQUE (TCP 443)" : "—";
@@ -486,7 +493,7 @@ async function loadWarpStatus() {
   const cells = [
     { label: "Туннель", value: tunnelValue, kind: tunnelKind },
     { label: "Транспорт", value: d.ready ? transport + (d.endpoint ? " · " + d.endpoint : "") : "—",
-      kind: d.ready ? "good" : "" },
+      kind: d.ready && routeReady ? "good" : d.ready ? "warn" : "" },
   ];
   // Память движка — только пока он запущен. Растёт с трафиком, не со списком;
   // после правки буферов норма 20–40 МБ. Выше 96 МБ — предупреждение: на

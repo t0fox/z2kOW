@@ -23,8 +23,8 @@ assert_contains "adapter installs diagnostics helper at runtime lookup path" "$M
     '$(Z2K_TREE)/files/z2k-diag.sh $(1)/usr/lib/z2k/z2k-diag.sh'
 assert_contains "diagnostics helper has one package owner" "$REPO/package/openwrt/ownership.map" \
     "/usr/lib/z2k/z2k-diag.sh package"
-assert_contains "adapter resolves OpenSSL for signed manifest verification" "$MK" \
-    "DEPENDS:=+kmod-nft-queue +conntrack +openssl-util +z2k-zapret2-runtime"
+assert_contains "adapter resolves TUN and OpenSSL dependencies" "$MK" \
+    "DEPENDS:=+kmod-nft-queue +kmod-tun +conntrack +openssl-util +z2k-zapret2-runtime"
 # Stage 6: опциональный сабпакет панели (зависимость + свой init, без payload).
 assert_contains "webpanel subpackage" "$MK" "Package/z2k-webpanel"
 assert_contains "webpanel BuildPackage" "$MK" "BuildPackage,z2k-webpanel"
@@ -41,7 +41,7 @@ assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapre
 # A same-version APK is not an upgrade on OpenWrt.  Both fixes therefore
 # require a real adapter release bump, and the webpanel must require that same
 # release rather than silently retaining an older adapter.
-assert_eq "adapter release bumped for panel health fix" "44" "$_arel"
+assert_eq "adapter release bumped for WARP TUN dependency" "45" "$_arel"
 assert_contains "nounset CGI probe remains guarded" "$REPO/platform/openwrt/customd.sh" \
     'nounset must not abort this probe'
 assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwrt/env.sh" \

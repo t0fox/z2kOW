@@ -34,6 +34,9 @@ done
 assert_eq "no usque wording"                 "0" "$(grep -ci 'usque' "$J")"
 assert_eq "no opkgtun wording"               "0" "$(grep -ci 'opkgtun' "$J")"
 assert_eq "status uses ready, not tunnel_up" "0" "$(count 'tunnel_up')"
+assert_eq "status separates routing proof" "2" "$(count 'route_ready')"
+assert_eq "UI does not call ready alone fully working" "1" "$(count 'маршрутизация не подтверждена')"
+assert_eq "UI names recovery state" "1" "$(count 'соединение потеряно, восстанавливается')"
 
 if command -v node >/dev/null 2>&1; then
     JS=$(sh "$ROOT/tests/lib/panel_js.sh")

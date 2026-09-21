@@ -683,10 +683,13 @@ case "$method $path" in
         _wf() { printf '%s' "$result" | sed -n "s/.*$1=\([^ ]*\).*/\1/p" | head -1; }
         w_enabled=$(printf '%s' "$result" | sed -n 's/.*enabled=\(.*\)$/\1/p')
         w_inst_j=false;  [ "$(_wf installed)" = "1" ] && w_inst_j=true
+        w_running_j=false; [ "$(_wf running)" = "1" ] && w_running_j=true
         w_ready_j=false; [ "$(_wf ready)" = "1" ] && w_ready_j=true
+        w_route_j=false; [ "$(_wf route_ready)" = "1" ] && w_route_j=true
         json_header
         printf '{"ok":true,"enabled":'; json_string "${w_enabled:-0}"
-        printf ',"installed":%s,"ready":%s,"transport":' "$w_inst_j" "$w_ready_j"; json_string "$(_wf transport)"
+        printf ',"installed":%s,"running":%s,"ready":%s,"route_ready":%s,"state":' "$w_inst_j" "$w_running_j" "$w_ready_j" "$w_route_j"; json_string "$(_wf state)"
+        printf ',"transport":'; json_string "$(_wf transport)"
         printf ',"endpoint":'; json_string "$(_wf endpoint)"
         printf ',"iface":';    json_string "$(_wf iface)"
         printf ',"addr":';     json_string "$(_wf addr)"

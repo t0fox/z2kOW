@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=44
+PKG_RELEASE:=45
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -87,6 +87,9 @@ PKG_RELEASE:=44
 # RELEASE 44: make the CGI snapshot fallback read files_sha256 rather than the
 # earlier install_map occurrence, so a valid p-85.4 payload is not reported as
 # incompatible when the common updater parser is not loaded.
+# RELEASE 45: WARP's external OpenWrt backend creates a Linux TUN device;
+# pull the matching kernel module so a fresh install cannot enter a procd
+# crash-loop before z2k-warpd has a device to open.
 # RELEASE 31: converge stale updater-owned panel payload from an embedded CI
 # snapshot through the existing verified reinstall path; production packages
 # fail closed with an explicit panel-payload incompatibility.
@@ -131,7 +134,7 @@ define Package/z2k-adapter
   # live-урок p-84.17 — apk upgrade НЕ co-upgrade'ит уже установленный dep
   # без constraint'а. Нижняя граница = текущий runtime APK; консистентность
   # с package/z2k-runtime/Makefile сторожит тест. Lockstep: snapshot бампит все.
-  DEPENDS:=+kmod-nft-queue +conntrack +openssl-util +z2k-zapret2-runtime
+  DEPENDS:=+kmod-nft-queue +kmod-tun +conntrack +openssl-util +z2k-zapret2-runtime
   EXTRA_DEPENDS:=z2k-zapret2-runtime (>=1.0.5.1-r4)
 endef
 
@@ -157,7 +160,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r44)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r45)
 endef
 
 define Package/z2k-webpanel/description

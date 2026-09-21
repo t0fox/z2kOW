@@ -93,6 +93,29 @@ warp_transport() {
 _json_str() { sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$1" 2>/dev/null | head -1; }
 _json_raw() { sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\([a-z0-9.-]*\).*/\1/p" "$1" 2>/dev/null | head -1; }
 
+# A fatal start removes status.json in z2k-warpd's defer, so a failed OpenWrt
+# instance otherwise looks exactly like a still-starting one. Keep the daemon
+# writer contract untouched and recover only the current failure code from the
+# latest daemon attempt in the OpenWrt log. Resetting the accumulator on each
+# `starting` line prevents an old crash from poisoning a later attempt.
+_warp_log_error() {
+    [ -s "$WARP_LOG" ] || return 1
+    awk '
+        /z2k-warpd .* starting/ { err="" }
+        /fatal:.*\/dev\/net\/tun does not exist/ { err="tun_failed" }
+        /fatal:.*device\.json:/ { err="register_blocked" }
+        END { if (err != "") print err; else exit 1 }
+    ' "$WARP_LOG" 2>/dev/null
+}
+
+warp_last_error() {
+    local _error=""
+    [ "$(warp_flag)" = "1" ] || return 0
+    _error=$(_json_str "$WARP_STATUS" last_error)
+    [ -n "$_error" ] && { printf '%s' "$_error"; return 0; }
+    _warp_log_error 2>/dev/null || true
+}
+
 # wanted: global ENABLED=1 + флаг=1 + бинарь +x + ключ -s.
 # (Единая точка для всех путей: init смотрит ENABLED раньше сам,
 # но cron/hotplug идут мимо него.)
@@ -1332,9 +1355,26 @@ warp_selfheal() {
 # --- status (key=value для будущей панели/CLI) ---
 
 warp_status() {
-    local _installed=0 _ready=0 _entries=0 _devices=0
+    local _installed=0 _running=0 _ready=0 _route_ready=0
+    local _entries=0 _devices=0 _error="" _state="off"
     [ -x "$WARP_BIN" ] && _installed=1
+    warp_running && _running=1
     _warp_proven_ready >/dev/null 2>&1 && _ready=1
+    warp_status_routing_ready >/dev/null 2>&1 && _route_ready=1
+    _error="$(warp_last_error)"
+    if [ "$(warp_flag)" = "1" ]; then
+        if [ -n "$_error" ]; then
+            _state=error
+        elif [ "$_ready" = "1" ] && [ "$_route_ready" = "1" ]; then
+            _state=ready
+        elif [ "$_ready" = "1" ]; then
+            _state=tunnel
+        elif [ "$_running" = "1" ]; then
+            _state=connecting
+        else
+            _state=recovering
+        fi
+    fi
     _entries=$(nft list set "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_SET" 2>/dev/null | grep -cE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || true)
     _devices=$(nft list set "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_SET_SRC" 2>/dev/null | grep -cE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || true)
     # plan/license — из daemon-sidecars (пишет z2k-warpd license, читаем
@@ -1346,11 +1386,11 @@ warp_status() {
     case "$_plan" in *[!a-z_]*) _plan="" ;; esac
     [ -n "$(_json_str "$_acct" error)" ] && _plan_err=1
     [ -s "$(dirname "$WARP_DEVICE")/license" ] && _lic=1
-    printf 'installed=%s enabled=%s ready=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s\n' \
-        "$_installed" "$(warp_flag)" "$_ready" \
+    printf 'installed=%s enabled=%s running=%s ready=%s route_ready=%s state=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s\n' \
+        "$_installed" "$(warp_flag)" "$_running" "$_ready" "$_route_ready" "$_state" \
         "$(_json_str "$WARP_STATUS" transport)" "$(_json_str "$WARP_STATUS" endpoint)" \
         "$(_json_str "$WARP_STATUS" iface)" "$(_json_str "$WARP_STATUS" addr)" \
-        "$_entries" "$_devices" "$(_json_str "$WARP_STATUS" last_error)" \
+        "$_entries" "$_devices" "$_error" \
         "$(_json_raw "$WARP_STATUS" mem_kb)" "$_plan" "$_plan_err" "$_lic"
 }
 
@@ -1466,6 +1506,19 @@ warp_pbr_verify() {
     _n="$(ip rule show 2>/dev/null | grep -E "^$WARP_RULE_PREF:.*fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE" | grep -c . || true)"
     [ "$_n" = "1" ] || return 1
     ip route show table "$WARP_TABLE" 2>/dev/null | grep -qF "default dev $_iface" || return 1
+    return 0
+}
+
+# Read-only proof used by the status projection. `ready=true` is the daemon's
+# transport proof; this second predicate proves the platform-owned nft/TUN/PBR
+# plumbing plus the exact route and owner record are present together.
+warp_status_routing_ready() {
+    local _iface
+    _warp_proven_ready || return 1
+    _iface="$(_warp_live_iface)"
+    warp_nft_tun_verify "$_iface" >/dev/null 2>&1 || return 1
+    warp_pbr_verify >/dev/null 2>&1 || return 1
+    warp_pbr_owner_verify "$_iface" >/dev/null 2>&1 || return 1
     return 0
 }
 
