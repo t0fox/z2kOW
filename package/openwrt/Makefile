@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=46
+PKG_RELEASE:=47
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -92,6 +92,8 @@ PKG_RELEASE:=46
 # crash-loop before z2k-warpd has a device to open.
 # RELEASE 46: route the z2k-warpd local health probe through the external
 # OpenWrt WARP table before transport readiness is proven.
+# RELEASE 47: bind the OpenWrt health probe to the TUN IPv4 source so the
+# source-policy route is actually selected by z2k-warpd's socket.
 # RELEASE 31: converge stale updater-owned panel payload from an embedded CI
 # snapshot through the existing verified reinstall path; production packages
 # fail closed with an explicit panel-payload incompatibility.
@@ -162,7 +164,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r46)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r47)
 endef
 
 define Package/z2k-webpanel/description

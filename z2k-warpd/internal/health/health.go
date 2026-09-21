@@ -16,6 +16,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -178,6 +179,14 @@ func TraceProbe(timeout time.Duration) Prober {
 			return errors.New("probe: no interface")
 		}
 		d := &net.Dialer{Timeout: timeout, Control: bindToDevice(iface)}
+		// OpenWrt routes the external TUN through a source policy rule.  The
+		// SO_BINDTODEVICE socket option prevents WAN leakage, but does not bind
+		// a source address, so Linux may complete policy lookup through the main
+		// table before the TUN address is selected.  Opt in only from the
+		// OpenWrt adapter; Keenetic keeps its existing networking path.
+		if local := probeLocalAddr(iface); local != nil {
+			d.LocalAddr = local
+		}
 		c := &http.Client{
 			Timeout: timeout,
 			Transport: &http.Transport{
@@ -204,4 +213,34 @@ func TraceProbe(timeout time.Duration) Prober {
 		}
 		return nil
 	}
+}
+
+// probeLocalAddr returns the first IPv4 address on iface only for the
+// platform that owns an external WARP routing table.  Without the explicit
+// opt-in the shared daemon remains byte/behaviour compatible with Keenetic.
+func probeLocalAddr(iface string) net.Addr {
+	if os.Getenv("Z2K_WARP_PROBE_SOURCE") != "1" {
+		return nil
+	}
+	ni, err := net.InterfaceByName(iface)
+	if err != nil {
+		return nil
+	}
+	addrs, err := ni.Addrs()
+	if err != nil {
+		return nil
+	}
+	for _, addr := range addrs {
+		var ip net.IP
+		switch v := addr.(type) {
+		case *net.IPNet:
+			ip = v.IP
+		case *net.IPAddr:
+			ip = v.IP
+		}
+		if ip4 := ip.To4(); ip4 != nil {
+			return &net.TCPAddr{IP: append(net.IP(nil), ip4...)}
+		}
+	}
+	return nil
 }

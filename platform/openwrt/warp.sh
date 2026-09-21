@@ -805,11 +805,13 @@ warp_start_instance() {
     if [ -n "$_proxy" ]; then
         procd_set_param env \
             GODEBUG=asyncpreemptoff=1 \
+            Z2K_WARP_PROBE_SOURCE=1 \
             "Z2K_WARP_TRANSPORT=$(warp_transport)" \
             "Z2K_WARP_VPS_PROXY=$_proxy"
     else
         procd_set_param env \
             GODEBUG=asyncpreemptoff=1 \
+            Z2K_WARP_PROBE_SOURCE=1 \
             "Z2K_WARP_TRANSPORT=$(warp_transport)"
     fi
     procd_set_param pidfile "${Z2K_RUN:-/tmp/z2k/runtime}/warpd.pid"

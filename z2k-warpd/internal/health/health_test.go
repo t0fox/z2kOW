@@ -3,11 +3,32 @@ package health
 import (
 	"context"
 	"errors"
+	"net"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/necronicle/z2k/z2k-warpd/internal/transport"
 )
+
+func TestProbeLocalAddrIsOpenWrtOptIn(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the OpenWrt source-policy path is Linux-specific")
+	}
+	t.Setenv("Z2K_WARP_PROBE_SOURCE", "1")
+	got := probeLocalAddr("lo")
+	addr, ok := got.(*net.TCPAddr)
+	if !ok || addr.IP.To4() == nil {
+		t.Fatalf("probeLocalAddr(lo) = %T %v, want IPv4 TCP address", got, got)
+	}
+}
+
+func TestProbeLocalAddrDisabledByDefault(t *testing.T) {
+	t.Setenv("Z2K_WARP_PROBE_SOURCE", "")
+	if got := probeLocalAddr("lo"); got != nil {
+		t.Fatalf("probeLocalAddr without adapter opt-in = %v, want nil", got)
+	}
+}
 
 func mon(probeErr error, calls *int) *Monitor {
 	return &Monitor{
