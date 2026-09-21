@@ -34,8 +34,15 @@ z2k_ow_panel_snapshot_sha() {
     if command -v au_manifest_file_sha >/dev/null 2>&1; then
         _sha=$(au_manifest_file_sha "$_manifest" "$_path" 2>/dev/null)
     else
+        # The same repository path appears first in install_map and later in
+        # files_sha256.  CGI does not source lib/auto_update.sh, so this local
+        # fallback must enter the digest object before looking up the key;
+        # matching the first occurrence returns the install target array and
+        # falsely reports a missing digest on a valid snapshot.
         _sha=$(awk -v key="$_path" '
-            index($0, "\"" key "\"") {
+            /"files_sha256"[[:space:]]*:/ { in_sha=1; next }
+            in_sha && /^[[:space:]]*}[,]?[[:space:]]*$/ { exit }
+            in_sha && index($0, "\"" key "\"") {
                 line=$0
                 sub(".*\"" key "\"[[:space:]]*:[[:space:]]*\"", "", line)
                 sub("\".*", "", line)

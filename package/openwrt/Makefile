@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=43
+PKG_RELEASE:=44
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -84,6 +84,9 @@ PKG_RELEASE:=43
 # unchanged.
 # RELEASE 43: preserve the selected FLOWOFFLOAD mode when the common updater
 # regenerates the config directly during a verified payload convergence.
+# RELEASE 44: make the CGI snapshot fallback read files_sha256 rather than the
+# earlier install_map occurrence, so a valid p-85.4 payload is not reported as
+# incompatible when the common updater parser is not loaded.
 # RELEASE 31: converge stale updater-owned panel payload from an embedded CI
 # snapshot through the existing verified reinstall path; production packages
 # fail closed with an explicit panel-payload incompatibility.
@@ -154,7 +157,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r43)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r44)
 endef
 
 define Package/z2k-webpanel/description
