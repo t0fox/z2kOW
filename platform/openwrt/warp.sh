@@ -1581,8 +1581,12 @@ _z2k_ow_warp_dispatch() {
                         warp_pbr_up >/dev/null 2>&1 || true
                     }
                 else
-                    _warp_tun_clear >/dev/null 2>&1 || true
-                    warp_pbr_down >/dev/null 2>&1 || true
+                    if warp_running; then
+                        _warp_converge_off_keep_probe
+                    else
+                        _warp_tun_clear >/dev/null 2>&1 || true
+                        warp_pbr_down >/dev/null 2>&1 || true
+                    fi
                 fi
             else
                 warp_pbr_down >/dev/null 2>&1 || true
@@ -1685,6 +1689,23 @@ _warp_converge_off() {
     return 0
 }
 
+# A live daemon needs one route before it can prove readiness: its health
+# probe is bound to the tunnel source address.  Keep only that local probe
+# route while the daemon is alive and not ready; user traffic must remain
+# fail-open until _warp_proven_ready succeeds.  If the interface disappears,
+# fall back to the normal teardown so a stale route cannot survive a crash.
+_warp_converge_off_keep_probe() {
+    _warp_rule_delete_exact || true
+    _warp_route_release_owned || true
+    rm -f "$WARP_PBR_OWNER" "$WARP_PBR_OWNER.new."* 2>/dev/null
+    if warp_probe_route_up >/dev/null 2>&1; then
+        _warp_tun_clear >/dev/null 2>&1 || true
+        return 0
+    fi
+    _warp_converge_off keep
+    return 0
+}
+
 z2k_ow_warp_check() {
     mkdir -p "${Z2K_TMP:-/tmp/z2k}/warp" 2>/dev/null || return 0
     # Graduated gates (НЕ один wanted: устройству без ключа нужен
@@ -1731,7 +1752,7 @@ z2k_ow_warp_check() {
             warp_pbr_verify >/dev/null 2>&1 && \
             warp_pbr_owner_verify "$_iface" >/dev/null 2>&1 || _warp_converge_off keep
     else
-        _warp_converge_off keep
+        _warp_converge_off_keep_probe
     fi
     return 0
 }

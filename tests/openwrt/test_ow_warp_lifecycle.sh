@@ -415,6 +415,31 @@ assert_eq "W4b: флаг 1 (desired сохранён)" "1" "$(warp_flag)"
 assert_eq "W4b: правила нет" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
 _w_inv "W4b"
 
+# --- W4c: running but not-ready: keep only the health probe route ---
+# The daemon must be able to reach its external readiness probe before it is
+# allowed to install user PBR/nft rules.  A normal service restart reaches the
+# self-heal path directly, so this reproduces the route-removal deadlock.
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+sed 's/"ready":true/"ready":false/' "$T/tmp/warp/status.json" > "$T/tmp/warp/status.json.new"
+mv -f "$T/tmp/warp/status.json.new" "$T/tmp/warp/status.json"
+z2k_ow_warp check >/dev/null 2>&1
+assert_contains "W4c: source probe rule kept" "$T/ip-rules" "499: from 172.16.9.9/32 lookup 989"
+assert_contains "W4c: probe route kept" "$T/ip-route-989" "default dev z2ktun0"
+assert_eq "W4c: user PBR absent" "0" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "W4c: PBR owner absent" "0" "$([ -f "$T/tmp/warp/pbr.owner" ] && echo 1 || echo 0)"
+z2k_ow_warp rules >/dev/null 2>&1
+assert_contains "W4c: hotplug keeps source probe rule" "$T/ip-rules" "499: from 172.16.9.9/32 lookup 989"
+assert_contains "W4c: hotplug keeps probe route" "$T/ip-route-989" "default dev z2ktun0"
+assert_eq "W4c: hotplug user PBR absent" "0" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules" 2>/dev/null || true)"
+printf '\n' > "$T/pidof.out"
+rm -rf "$T/proc/7777"
+z2k_ow_warp check >/dev/null 2>&1
+assert_eq "W4c: probe rule removed after stop" "0" "$(grep -c '499: from 172.16.9.9/32 lookup 989' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "W4c: probe route removed after stop" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
+_w_inv "W4c"
+
 # --- W5: ready: sets + mark + rule + default + NAT/FWD/MSS ---
 _reset
 printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
