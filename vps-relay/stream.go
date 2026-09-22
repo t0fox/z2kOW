@@ -62,7 +62,7 @@ func (s *session) newStream(id uint16, target string) *stream {
 	}
 	st := &stream{
 		id: id, s: s, target: target, opened: time.Now(), window: win,
-		upq: newByteQueue(upCap), outq: newByteQueue(outCap), creditWake: make(chan struct{}, 1),
+		upq: newByteQueue(upCap), outq: newBudgetByteQueue(outCap, budget), creditWake: make(chan struct{}, 1),
 	}
 	st.creditToClient.Store(win)
 	return st
@@ -189,7 +189,6 @@ func (st *stream) eof() {
 			st.s.writer.control(frame) // очередь полна — пусть уйдёт вне очереди
 			return
 		}
-		budget.add(int64(len(frame)))
 		st.s.writer.wake(st)
 	})
 }
@@ -204,7 +203,6 @@ func (st *stream) teardown() {
 	}
 	st.connMu.Unlock()
 	st.upq.close()
-	budget.add(-st.outq.queued())
 	st.outq.close()
 	select {
 	case st.creditWake <- struct{}{}:

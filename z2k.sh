@@ -109,7 +109,7 @@ _z2k_vps_gh_resolve() {
 }
 
 # Список модулей для загрузки
-MODULES="utils install strategies config config_official webpanel menu auto_update"
+MODULES="utils install strategies config config_official webpanel menu auto_update wan"
 
 # ==============================================================================
 # ВСТРОЕННЫЕ FALLBACK ФУНКЦИИ
@@ -1271,6 +1271,8 @@ download_init_script() {
         www/js/core/clipboard.js \
         www/js/core/dom.js \
         www/js/core/loadorder.js \
+        www/js/core/whitelist.js \
+        www/js/core/domain-list-editor.js \
         www/js/core/toast.js \
         www/js/job.js \
         www/js/pages/credits.js \

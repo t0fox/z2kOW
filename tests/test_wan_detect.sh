@@ -50,13 +50,17 @@ cat > "$BIN/ip" <<EOF
 #!/bin/sh
 case " \$* " in
     *" -6 "*) cat "$TMP/route6" 2>/dev/null ;;
-    *)        cat "$TMP/route4" 2>/dev/null ;;
+    *)
+        case " \$* " in
+            *" table all "*) cat "$TMP/route4" 2>/dev/null ;;
+            *) if [ -f "$TMP/route4main" ]; then cat "$TMP/route4main"; else cat "$TMP/route4"; fi ;;
+        esac ;;
 esac
 exit 0
 EOF
 chmod +x "$BIN/ip"
 
-{ extract_fn get_default_ifaces4 "$INIT"; echo; extract_fn get_default_ifaces6 "$INIT"; } > "$TMP/fns.sh"
+{ printf ' . "%s/lib/wan.sh"\n' "$HERE"; extract_fn get_default_ifaces4 "$INIT"; echo; extract_fn get_default_ifaces6 "$INIT"; } > "$TMP/fns.sh"
 grep -q '^get_default_ifaces4()' "$TMP/fns.sh" || { printf '[FAIL] get_default_ifaces4 not found\n'; exit 1; }
 
 run4() { PATH="$BIN:$PATH" sh -c ". '$TMP/fns.sh'; exists() { command -v \"\$1\" >/dev/null 2>&1; }; get_default_ifaces4"; }
@@ -117,6 +121,56 @@ printf '::/0 via fe80::1 dev wan6 \nfe80::/64 dev br0 \n' > "$TMP/route6"
 got=$(run6)
 [ "$got" = "wan6" ] && ok "v6: ::/0 spelling is recognised" \
                     || no "v6: ::/0 spelling is recognised" "wan6" "$got"
+
+# Policy tables, duplicate defaults, internal tunnels and unreachable routes.
+printf 'default dev eth3\n' > "$TMP/route4main"
+cat > "$TMP/route4" <<'EOF'
+default via 10.0.0.1 dev eth3
+default via 192.168.8.1 dev usb0 table 16400
+default via 10.0.0.1 dev eth3 table 16394
+default dev z2ktg0 table 988
+default dev z2ktun0 table 989
+unreachable default dev lo table 16401
+default dev br0 table 16402
+default dev deadwan table 16403 linkdown
+192.168.1.0/24 dev br0
+EOF
+got=$(run4)
+[ "$got" = 'eth3 usb0' ] && ok 'policy WAN included once; LAN, tunnel and failed routes excluded' || no 'policy WAN' 'eth3 usb0' "$got"
+cat > "$TMP/route4" <<'EOF'
+default metric 10
+    nexthop via 10.0.0.1 dev eth3 weight 1
+    nexthop via 192.168.8.1 dev usb0 weight 1
+192.168.1.0/24
+    nexthop dev br0 weight 1
+blackhole default table 16401
+    nexthop dev deadwan weight 1
+EOF
+got=$(run4)
+[ "$got" = 'eth3 usb0' ] && ok 'ECMP continuation nexthops only belong to default route' || no 'ECMP' 'eth3 usb0' "$got"
+printf 'default nexthop via 10.0.0.1 dev eth3 weight 1 nexthop via 192.168.8.1 dev usb0 weight 1 linkdown\n' > "$TMP/route4"
+got=$(run4)
+[ "$got" = 'eth3' ] && ok 'failed ECMP nexthop does not hide healthy sibling' || no 'ECMP linkdown' 'eth3' "$got"
+cat > "$TMP/route6" <<'EOF'
+default via fe80::1 dev ppp0
+default via fe80::2 dev usb0 table 16400
+default dev z2ktg0 table 988
+unreachable default dev lo
+EOF
+got=$(run6)
+[ "$got" = 'ppp0 usb0' ] && ok 'IPv6 policy WAN discovery excludes relay' || no 'IPv6 policy WAN' 'ppp0 usb0' "$got"
+. "$HERE/lib/wan.sh"
+got=$(z2k_wan_ifaces -4 'usb0,eth3 usb0')
+[ "$got" = 'usb0 eth3' ] && ok 'explicit WAN list wins and is deduplicated' || no 'override' 'usb0 eth3' "$got"
+rm -f "$TMP/route4main"
+# A failed all-table dump falls back to main; an empty successful dump does not.
+cat > "$BIN/ip" <<'EOF'
+#!/bin/sh
+case "$*" in *'table all'*) exit 1 ;; esac
+echo 'default dev ppp0'
+EOF
+got=$(run4)
+[ "$got" = 'ppp0' ] && ok 'old ip without table-all support retains main WAN' || no 'fallback' 'ppp0' "$got"
 
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"
 [ "$FAIL" = 0 ]

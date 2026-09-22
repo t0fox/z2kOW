@@ -235,6 +235,17 @@ run_generator() {
     rm -rf "$root"
 }
 
+# Every circular voice arm must transmit the real discovery datagram after
+# its decoys. Untagged send/drop is silently skipped by circular(), so checking
+# just the presence of a send token does not protect the live path.
+_voice_generated=$(run_generator voice-original 'NFQWS2_ENABLE=1' '')
+_voice_line=$(printf '%s\n' "$_voice_generated" | awk -f "$SCRIPT_DIR/tests/lib/nfqws2_flatten.awk" | grep -F 'key=discord_udp:')
+assert_contains "voice: discovery-only cutoff" '--out-range=-d4 --payload=discord_ip_discovery,stun' "$_voice_line"
+for _voice_arm in 1 2 3 4 5 6; do
+    assert_contains "voice: real datagram sent in circular arm $_voice_arm" \
+        "--lua-desync=send:dir=out:strategy=$_voice_arm --lua-desync=drop:dir=out:strategy=$_voice_arm" "$_voice_line"
+done
+
 # Helper: extract the rkn_tcp TLS arm (filter-l7=tls + key=rkn_tcp).
 # http_rkn lives on a separate line (filter-tcp=80, key=http_rkn) and
 # is filtered out by the key match.
@@ -377,6 +388,7 @@ test_disable_ipv6() {
         ( ZAPRET2_DIR="$root" create_official_config "$root/config" >/dev/null 2>&1 )
     fi
     grep -E '^DISABLE_IPV6=' "$root/config" | head -1
+    grep -E '^Z2K_TG_UDP_RELAY=' "$root/config"
     rm -rf "$root"
 }
 
@@ -388,6 +400,12 @@ assert_contains "env DISABLE_IPV6=0 overrides saved file =1" "DISABLE_IPV6=0" "$
 
 DI6_OUT=$(test_disable_ipv6 "absent" "" "")
 assert_contains "absent in file -> autodetect still emits a DISABLE_IPV6 line" "DISABLE_IPV6=" "$DI6_OUT"
+
+UDP_OUT=$(test_disable_ipv6 "udp1" "Z2K_TG_UDP_RELAY=1" "")
+assert_contains "Telegram UDP opt-in survives config regeneration" "Z2K_TG_UDP_RELAY=1" "$UDP_OUT"
+UDP_OUT=$(test_disable_ipv6 "udp0" "Z2K_TG_UDP_RELAY=0" "")
+assert_contains "Telegram UDP disabled survives config regeneration" "Z2K_TG_UDP_RELAY=0" "$UDP_OUT"
+assert_contains "Telegram UDP defaults on in existing configs" "Z2K_TG_UDP_RELAY=1" "$DI6_OUT"
 
 # Auto-update reinstall: config_file is built FRESH (step_build_zapret2 moved
 # the old tree to .old.$$ BEFORE config gen), so config_file carries no

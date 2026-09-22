@@ -21,7 +21,13 @@ type ctrlItem struct {
 // ctrl — приоритетная очередь (HELLO_ACK, INFO, CONNECT_OK/FAIL, CLOSE по
 // abort, WINDOW). Данные — по кругу стримов, по одному кадру за проход:
 // один стрим не монополизирует канал.
+type udpQueued struct {
+	frame []byte
+	at    time.Time
+}
+
 type wsWriter struct {
+	datagrams chan udpQueued
 	s         *session
 	ctrl      chan ctrlItem
 	ready     chan *stream
@@ -76,7 +82,6 @@ func (w *wsWriter) data(st *stream, frame []byte) bool {
 	if !st.outq.push(frame) {
 		return false
 	}
-	budget.add(int64(len(frame)))
 	w.wake(st)
 	return true
 }
@@ -139,13 +144,21 @@ func (w *wsWriter) run() {
 			if !w.writeCtrl(it) {
 				return
 			}
+		case d := <-w.datagrams:
+			if time.Since(d.at) > 200*time.Millisecond {
+				continue
+			}
+			_ = w.s.ws.SetWriteDeadline(time.Now().Add(time.Second))
+			if err := w.s.ws.WriteMessage(websocket.BinaryMessage, d.frame); err != nil {
+				w.s.killWith("udp_write")
+				return
+			}
 		case st := <-w.ready:
 			st.inRing.Store(false)
 			f, ok := st.outq.pop()
 			if !ok {
 				continue
 			}
-			budget.add(-int64(len(f)))
 			if st.isClosed() && !st.flushOnClose.Load() {
 				continue // abort: хвост данных выбрасывается
 			}

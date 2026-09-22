@@ -1,0 +1,8 @@
+[Unit]
+Description=z2k: switch relay with drain if RSS exceeds threshold
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/z2k-vps/bin/relay-recycle.sh
+TimeoutStartSec=300

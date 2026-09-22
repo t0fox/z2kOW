@@ -1,0 +1,10 @@
+[Unit]
+Description=z2k: nightly relay memory check
+
+[Timer]
+OnCalendar=*-*-* 00:00:00
+Persistent=true
+AccuracySec=1m
+
+[Install]
+WantedBy=timers.target

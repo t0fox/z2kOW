@@ -12,11 +12,20 @@ type byteQueue struct {
 	bytes  int64
 	capB   int64
 	closed bool
+	budget *memBudget
 }
 
 func newByteQueue(capBytes int64) *byteQueue {
 	q := &byteQueue{capB: capBytes}
 	q.cond = sync.NewCond(&q.mu)
+	return q
+}
+
+// Учёт меняется под тем же mutex, что и содержимое очереди: pop и close
+// не могут списать один кадр дважды, а push виден вместе с его байтами.
+func newBudgetByteQueue(capBytes int64, b *memBudget) *byteQueue {
+	q := newByteQueue(capBytes)
+	q.budget = b
 	return q
 }
 
@@ -28,6 +37,9 @@ func (q *byteQueue) push(f []byte) bool {
 	}
 	q.frames = append(q.frames, f)
 	q.bytes += int64(len(f))
+	if q.budget != nil {
+		q.budget.add(int64(len(f)))
+	}
 	q.cond.Signal()
 	return true
 }
@@ -42,6 +54,9 @@ func (q *byteQueue) pop() ([]byte, bool) {
 	q.frames[0] = nil
 	q.frames = q.frames[1:]
 	q.bytes -= int64(len(f))
+	if q.budget != nil {
+		q.budget.add(-int64(len(f)))
+	}
 	if len(q.frames) == 0 {
 		q.frames = nil // отдать хвост массива сборщику
 	}
@@ -79,6 +94,9 @@ func (q *byteQueue) close() {
 	q.mu.Lock()
 	q.closed = true
 	q.frames = nil
+	if q.budget != nil {
+		q.budget.add(-q.bytes)
+	}
 	q.bytes = 0
 	q.cond.Broadcast()
 	q.mu.Unlock()

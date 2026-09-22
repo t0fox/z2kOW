@@ -27,8 +27,15 @@ config/sysctl.d/99-z2k-relay.conf:/etc/sysctl.d/99-z2k-relay.conf
 config/sysctl.d/99-z2k-tcp.conf:/etc/sysctl.d/99-z2k-tcp.conf
 config/sysctl.conf:/etc/sysctl.conf
 config/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf
-config/systemd/z2k-relay.service:/etc/systemd/system/z2k-relay.service
-config/systemd/z2k-relay.service.d/10-require-per-install.conf:/etc/systemd/system/z2k-relay.service.d/10-require-per-install.conf
+config/systemd/z2k-relay@.service:/etc/systemd/system/z2k-relay@.service
+config/systemd/z2k-relay@.service.d/extra-flags.conf:/etc/systemd/system/z2k-relay@.service.d/extra-flags.conf
+config/z2k/relay-a.env:/etc/z2k/relay-a.env
+config/z2k/relay-b.env:/etc/z2k/relay-b.env
+bin/relay-switch.sh:/opt/z2k-vps/bin/relay-switch.sh
+bin/relay-recycle.sh:/opt/z2k-vps/bin/relay-recycle.sh
+config/systemd/z2k-wavecap.service:/etc/systemd/system/z2k-wavecap.service
+config/systemd/z2k-relay-recycle.service:/etc/systemd/system/z2k-relay-recycle.service
+config/systemd/z2k-relay-recycle.timer:/etc/systemd/system/z2k-relay-recycle.timer
 config/systemd/z2k-stats-collector.service:/etc/systemd/system/z2k-stats-collector.service
 config/systemd/z2k-net-tuning.service:/etc/systemd/system/z2k-net-tuning.service
 bin/net-tuning.sh:/opt/z2k-vps/bin/net-tuning.sh
@@ -210,7 +217,12 @@ fi
 printf '\n=== экземпляры релея и TLS\n'
 act=$($SSH "for i in a b; do systemctl is-active --quiet z2k-relay@\$i && printf '%s ' \$i; done")
 case "$(echo $act)" in
-    a|b) printf '  один активен %s\n' "z2k-relay@$(echo $act)" ;;
+    a|b) printf '  один активен %s\n' "z2k-relay@$(echo $act)"
+         if $SSH "systemctl is-enabled --quiet z2k-relay@$(echo $act)"; then
+             printf '  автозапуск   активный экземпляр включён на загрузку\n'
+         else
+             printf '  НЕТ АВТОЗАПУСКА активного экземпляра\n'; drift=$((drift+1))
+         fi ;;
     "") if $SSH "systemctl is-active --quiet z2k-relay.service"; then
             printf '  прежняя схема z2k-relay.service (до первого relay-switch.sh)\n'
         else

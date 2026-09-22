@@ -17,7 +17,8 @@ import (
 )
 
 var telegramUDP = flag.Bool("telegram-udp", false, "Telegram server UDP through a separate authenticated WSS/TUN (Linux)")
-const udpReadyPath = "/tmp/z2k-log/tg-udp.ready"
+
+const udpReady = "/tmp/z2k-log/tg-udp.ready"
 
 type udpClientFlow struct {
 	tuple udpTuple
@@ -139,14 +140,14 @@ func udpRoute(ctx context.Context, action string) error {
 	return exec.CommandContext(cctx, "/opt/bin/sh", "-c", `. /opt/zapret2/z2k-tg-redirect.sh; "z2k_tg_udp_$1"`, "sh", action).Run()
 }
 func (tc *tunnelClient) runUDP() {
-	_ = os.Remove(udpReadyPath)
+	_ = os.Remove(udpReady)
 	tun, e := openUDPTun("z2ktg0")
 	if e != nil {
 		log.Printf("[udp] disabled: %v", e)
 		return
 	}
 	defer tun.Close()
-	tc.runUDPTransport(tun, udpReadyPath, udpRoute, tc.dialUDP)
+	tc.runUDPTransport(tun, udpReady, udpRoute, tc.dialUDP)
 }
 
 // The transport owns readiness and routing; privileged operations stay at its boundary.

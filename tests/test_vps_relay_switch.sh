@@ -20,7 +20,8 @@ case "\$1" in
   is-active) u="\$3"; [ -f "$ST/\$u" ] ;;
   start) touch "$ST/\$2" ;;
   stop) rm -f "$ST/\$2" ;;
-  disable) rm -f "$ST/\$3" ;;
+  enable) touch "$ST/enabled-\$2" ;;
+  disable) if [ "\$2" = --now ]; then rm -f "$ST/\$3" "$ST/enabled-\$3"; else rm -f "$ST/enabled-\$2"; fi ;;
 esac
 EOF
 # Подставной curl: отвечает только портам из файла healthy.
@@ -32,6 +33,7 @@ exit 22
 EOF
 chmod 755 "$TMP/systemctl" "$TMP/curl"
 export SYSTEMCTL="$TMP/systemctl" CURL="$TMP/curl"
+export Z2K_SWITCH_LOCK="$TMP/switch.lock"
 
 # 1. С нуля: поднимается a.
 rm -f "$ST"/*; echo 9098 > "$TMP/healthy"; : > "$LOG"
@@ -40,14 +42,17 @@ if sh "$SW" >/dev/null 2>&1 && [ -f "$ST/z2k-relay@a" ] && [ ! -f "$ST/z2k-relay
 else
     bad "с нуля поднимается a" "$(cat "$LOG" | tr '\n' ';')"
 fi
+[ -f "$ST/enabled-z2k-relay@a" ] && ok "новый экземпляр включён на загрузку" || bad "автозапуск a" "не включён"
 
 # 2. Активен a → поднят b, a остановлен; прежний одиночный юнит выключен.
-rm -f "$ST"/*; touch "$ST/z2k-relay@a" "$ST/z2k-relay.service"; echo 9097 > "$TMP/healthy"; : > "$LOG"
+rm -f "$ST"/*; touch "$ST/z2k-relay@a" "$ST/enabled-z2k-relay@a" "$ST/z2k-relay.service"; echo 9097 > "$TMP/healthy"; : > "$LOG"
 if sh "$SW" >/dev/null 2>&1 && [ -f "$ST/z2k-relay@b" ] && [ ! -f "$ST/z2k-relay@a" ] && [ ! -f "$ST/z2k-relay.service" ]; then
     ok "a → b, a и прежний юнит остановлены"
 else
     bad "a → b" "$(ls "$ST" | tr '\n' ' ') :: $(cat "$LOG" | tr '\n' ';')"
 fi
+[ -f "$ST/enabled-z2k-relay@b" ] && [ ! -f "$ST/enabled-z2k-relay@a" ] \
+    && ok "автозапуск перенесён a → b" || bad "автозапуск b" "не переключён"
 grep -q "^start z2k-relay@b" "$LOG" && grep -q "^stop z2k-relay@a" "$LOG" \
     && [ "$(grep -n '^start z2k-relay@b' "$LOG" | cut -d: -f1)" -lt "$(grep -n '^stop z2k-relay@a' "$LOG" | cut -d: -f1)" ] \
     && ok "сначала старт нового, потом стоп старого" || bad "порядок старт/стоп" "$(cat "$LOG" | tr '\n' ';')"

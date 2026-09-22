@@ -739,7 +739,12 @@ func handleWS(parentCtx context.Context, w http.ResponseWriter, r *http.Request)
 	}
 	defer releaseSession()
 
-	ws, err := upgrader.Upgrade(w, r, nil)
+	udpMode := r.URL.Query().Get("transport") == "udp-v1"
+	upg := upgrader
+	if udpMode {
+		upg.Subprotocols = []string{"z2k-udp-v1"}
+	}
+	ws, err := upg.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("upgrade err: %v", err)
 		return
@@ -750,6 +755,7 @@ func handleWS(parentCtx context.Context, w http.ResponseWriter, r *http.Request)
 	ip := resolveRemoteIP(r)
 	log.Printf("[%s] WS accepted from %s", sid, ip)
 	s := newSession(ws, sid, ip, parentCtx)
+	s.udpMode = udpMode
 	started := time.Now()
 	s.run()
 

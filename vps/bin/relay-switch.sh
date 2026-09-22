@@ -7,6 +7,12 @@
 set -eu
 SYSTEMCTL="${SYSTEMCTL:-systemctl}"
 CURL="${CURL:-curl}"
+# Сериализовать ночную проверку и ручную раскатку. В тестах flock отсутствует
+# на macOS; на VPS используется штатный util-linux flock.
+if command -v flock >/dev/null 2>&1; then
+    exec 9>"${Z2K_SWITCH_LOCK:-/run/lock/z2k-relay-switch.lock}"
+    flock -n 9 || { echo "переключение уже выполняется" >&2; exit 2; }
+fi
 active=""
 idle=""
 for i in a b; do
@@ -37,9 +43,12 @@ until $CURL -fsS --max-time 2 "http://127.0.0.1:$port/metrics" 2>/dev/null | gre
     sleep 1
 done
 echo "z2k-relay@$next отвечает: $($CURL -fsS --max-time 2 "http://127.0.0.1:$port/metrics" | grep '^relay_build_info')"
+# Сначала закрепить здоровый экземпляр на следующую загрузку, потом drain.
+$SYSTEMCTL enable "z2k-relay@$next"
 for old in $active; do
     echo "останавливаю z2k-relay@$old (drain)"
     $SYSTEMCTL stop "z2k-relay@$old"
+    $SYSTEMCTL disable "z2k-relay@$old"
 done
 # Одиночный юнит прежней схемы: после первого переключения он больше не нужен.
 if $SYSTEMCTL is-active --quiet z2k-relay.service; then

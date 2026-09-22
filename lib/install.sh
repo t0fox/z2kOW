@@ -2300,7 +2300,7 @@ TMPJUNK
     # future restructure operate on correct data.
     mkdir -p "${ZAPRET2_DIR}/lib"
     local _module _src _dst _copied=0
-    for _module in utils install strategies config config_official webpanel menu auto_update; do
+    for _module in utils install strategies config config_official webpanel menu auto_update wan; do
         _src="${WORK_DIR}/lib/${_module}.sh"
         _dst="${ZAPRET2_DIR}/lib/${_module}.sh"
         if [ -f "$_src" ]; then

@@ -92,7 +92,7 @@ run() {  # env: NFQ, NFQ6 (def NFQ), PIDOF_OK, ROUTE_OK (v4 def 1), ROUTE6_OK (v
     env NFQ="${NFQ:-0}" NFQ6="${NFQ6:-${NFQ:-0}}" RULES="${RULES:-}" PIDOF_OK="${PIDOF_OK:-1}" \
         ROUTE_OK="${ROUTE_OK:-1}" ROUTE6_OK="${ROUTE6_OK:-0}" IPT_FAIL="${IPT_FAIL:-0}" RULES6="${RULES6:-}" \
         PATH="$BIN:/opt/sbin:/opt/bin:$PATH" \
-        INIT_SCRIPT="$INIT" ZAPRET_CONFIG="$CFG" \
+        INIT_SCRIPT="$INIT" ZAPRET_CONFIG="$CFG" Z2K_WAN_LIB="$HERE/lib/wan.sh" \
         RESTART_FW_LOCK="$LOCK" RESTART_FW_LAST="$LAST" \
         MIN_INTERVAL="${MI:-15}" LOCK_STALE="${LS:-60}" SELFHEAL_LOG="$LOG" \
         Z2K_TEST_NOW_SHIFT="${Z2K_TEST_NOW_SHIFT:-}" \
@@ -258,7 +258,8 @@ cat > "$BIN/ip6tables" <<'EOF6'
 #!/bin/sh
 for r in ${RULES6:-}; do
     c=${r%%:*}; p=${r#*:}
-    echo "-A $c -o eth3 -p $p -m set --match-set zport6_$p dst -j NFQUEUE --queue-num 200 --queue-bypass"
+    case "$c" in POSTROUTING) d=-o ;; *) d=-i ;; esac
+    echo "-A $c $d eth3 -p $p -m set --match-set zport6_$p dst -j NFQUEUE --queue-num 200 --queue-bypass"
 done
 exit 0
 EOF6
@@ -269,6 +270,33 @@ reset; RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" RULES6="POSTROUTING:tcp INP
 n=$(count); [ "$n" = "0" ] && ok "v6: полный набор -> no-op" || no "v6 полный набор" "0" "$n"
 unset RULES6
 printf 'ENABLED=1\n' > "$CFG"
+
+# An intact primary WAN must not hide a missing policy WAN. Replay real route
+# dumps (the same discovery used by start_fw) and then cover both devices.
+cat > "$BIN/ip" <<'EOF'
+#!/bin/sh
+[ "$1" = -6 ] && exit 0
+echo 'default dev eth3'
+case "$*" in *'table all'*) echo 'default dev usb0 table 16400' ;; esac
+echo 'default dev z2ktg0 table 988'
+EOF
+printf 'ENABLED=1\nNFQWS2_PORTS_TCP=443\nNFQWS2_TCP_PKT_OUT=9\nNFQWS2_TCP_PKT_IN=10\n' > "$CFG"
+reset; RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" run
+n=$(count); [ "$n" = 1 ] && ok 'new policy WAN without rules triggers repair despite intact primary' || no 'missing second WAN' 1 "$n"
+grep -q 'на usb0' "$LOG" && ok 'repair identifies missing WAN' || no 'WAN diagnosis' usb0 missing
+cp "$BIN/iptables" "$BIN/iptables-original"
+cat > "$BIN/iptables" <<EOF
+#!/bin/sh
+"$BIN/iptables-original" "\$@"
+"$BIN/iptables-original" "\$@" | sed 's/eth3/usb0/g'
+EOF
+chmod +x "$BIN/iptables"
+reset; RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" run
+n=$(count); [ "$n" = 0 ] && ok 'both WANs covered: no repeated repair; relay excluded' || no 'both WANs' 0 "$n"
+printf 'ENABLED=1\nDISABLE_IPV6=1\nWAN_IFACE=eth3\nNFQWS2_PORTS_TCP=443\nNFQWS2_TCP_PKT_OUT=9\nNFQWS2_TCP_PKT_IN=10\n' > "$CFG"
+mv "$BIN/iptables-original" "$BIN/iptables"
+reset; RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" run
+n=$(count); [ "$n" = 0 ] && ok 'manual override does not demand other policy WANs' || no 'override' 0 "$n"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

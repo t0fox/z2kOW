@@ -259,7 +259,7 @@ panel_auth_gate
 # Крупные загрузки (списки, своя стратегия) идут через read_body_raw и свои
 # собственные потолки в мегабайтах — их это ограничение не касается.
 case "$PATH_INFO" in
-    /warp/list/save|/warp/devices/save|/whitelist/import|/whitelist/save|/extra-domains/save|/strategy/pool/save|/strategy/pool/validate|/state/bulk) ;;
+    /warp/list/save|/warp/devices/save|/whitelist/import|/strategy/pool/save|/strategy/pool/validate|/state/bulk|/whitelist/save|/extra-domains/save) ;;
     *)
         if [ "${CONTENT_LENGTH:-0}" -gt "$Z2K_MAX_BODY" ] 2>/dev/null; then
             json_fail "413 Payload Too Large" "запрос слишком большой"
@@ -688,19 +688,6 @@ case "$method $path" in
         ;;
 
     # ---------- EXTRA DOMAINS (live hostlist для autocircular) ----------
-    "GET /extra-domains")
-        json_header
-        printf '{"ok":true,"domains":['
-        first=1
-        extra_domains_list | while IFS= read -r d; do
-            [ -z "$d" ] && continue
-            if [ "$first" = "1" ]; then first=0; else printf ','; fi
-            json_string "$d"
-        done
-        printf ']}\n'
-        exit 0
-        ;;
-
     "GET /autohostlist-domains")
         json_header
         printf '{"ok":true,"domains":['

@@ -1,0 +1,15 @@
+[Unit]
+Description=z2k: bounded TCP handshake capture (24 x 20 MB)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/install -d -o tcpdump -g tcpdump -m 0750 /var/tmp/z2k-cap
+# -C + -W overwrites a fixed set of files. Do not add -G: it changes -W semantics.
+ExecStart=/usr/bin/tcpdump -i ens3 -n -s 96 -C 20 -W 24 -w /var/tmp/z2k-cap/ring.pcap "port 443 and tcp[tcpflags] & (tcp-syn|tcp-fin|tcp-rst) != 0"
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

@@ -42,6 +42,8 @@ config/sysctl.d/99-z2k-relay.conf:/etc/sysctl.d/99-z2k-relay.conf:sysctl
 config/sysctl.d/99-z2k-tcp.conf:/etc/sysctl.d/99-z2k-tcp.conf:sysctl
 config/systemd/z2k-net-tuning.service:/etc/systemd/system/z2k-net-tuning.service:systemd
 bin/net-tuning.sh:/opt/z2k-vps/bin/net-tuning.sh:script
+bin/telegram-udp-firewall.sh:/opt/z2k-vps/bin/telegram-udp-firewall.sh:firewall
+config/z2k/telegram-udp-cidrs.txt:/etc/z2k/telegram-udp-cidrs.txt:firewall
 config/systemd/z2k-relay.service.d/10-require-per-install.conf:/etc/systemd/system/z2k-relay.service.d/10-require-per-install.conf:systemd
 config/journald.conf.d/z2k.conf:/etc/systemd/journald.conf.d/z2k.conf:journald
 config/systemd/z2k-asn-update.service:/etc/systemd/system/z2k-asn-update.service:systemd
@@ -51,16 +53,21 @@ config/systemd/z2k-alert.timer:/etc/systemd/system/z2k-alert.timer:timer
 observability/asn-update.sh:/opt/z2k-vps/observability/asn-update.sh:script
 observability/alert.sh:/opt/z2k-vps/observability/alert.sh:script
 config/systemd/z2k-relay@.service:/etc/systemd/system/z2k-relay@.service:systemd
+config/systemd/z2k-relay@.service.d/extra-flags.conf:/etc/systemd/system/z2k-relay@.service.d/extra-flags.conf:systemd
+config/systemd/z2k-wavecap.service:/etc/systemd/system/z2k-wavecap.service:systemd
+config/systemd/z2k-relay-recycle.service:/etc/systemd/system/z2k-relay-recycle.service:systemd
+config/systemd/z2k-relay-recycle.timer:/etc/systemd/system/z2k-relay-recycle.timer:systemd
 config/z2k/relay-a.env:/etc/z2k/relay-a.env:env
 config/z2k/relay-b.env:/etc/z2k/relay-b.env:env
 bin/relay-switch.sh:/opt/z2k-vps/bin/relay-switch.sh:script
+bin/relay-recycle.sh:/opt/z2k-vps/bin/relay-recycle.sh:script
 bin/acme-import-from-caddy.sh:/opt/z2k-vps/bin/acme-import-from-caddy.sh:script
 config/nginx-http-z2k.conf:/etc/nginx/z2k-http/z2k.conf:nginx
 "
 
 [ "$APPLY" = 1 ] || printf 'РЕЖИМ ПРОСМОТРА. Ничего не меняется. Для раскатки: --apply\n\n'
 
-changed_nginx=0; changed_sysctl=0; changed_systemd=0; changed_journald=0; changed_timer=0; changed=0
+changed_firewall=0; changed_nginx=0; changed_sysctl=0; changed_systemd=0; changed_journald=0; changed_timer=0; changed=0
 for p in $PAIRS; do
     [ -z "$p" ] && continue
     rel="${p%%:*}"; rest="${p#*:}"; remote_f="${rest%%:*}"; kind="${rest##*:}"
@@ -89,10 +96,11 @@ for p in $PAIRS; do
     $SCP "$local_f" "root@$HOST:$remote_f.new" >/dev/null
     $SSH "mv '$remote_f.new' '$remote_f'"
     case "$kind" in
-        script) $SSH "chmod +x '$remote_f'" ;;
+        script|firewall) $SSH "chmod +x '$remote_f'" ;;
         env)    $SSH "chmod 600 '$remote_f'" ;;
     esac
     case "$kind" in
+        firewall) changed_firewall=1 ;;
         nginx)  changed_nginx=1 ;;
         sysctl) changed_sysctl=1 ;;
         systemd) changed_systemd=1 ;;
@@ -107,6 +115,10 @@ if [ "$APPLY" != 1 ]; then
 fi
 
 printf '\n=== применение\n'
+
+if [ "$changed_firewall" = 1 ]; then
+    $SSH "sh /opt/z2k-vps/bin/telegram-udp-firewall.sh --apply"
+fi
 
 if [ "$changed_nginx" = 1 ]; then
     if $SSH "nginx -t" 2>&1 | grep -q "test is successful"; then

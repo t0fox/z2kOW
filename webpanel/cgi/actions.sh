@@ -3692,9 +3692,9 @@ uninstall_async() {
 }
 
 # Compare-and-swap editor contract shared by whitelist and extra-domains.
-# The panel keeps the revision returned by GET and cannot overwrite a newer
-# edit from another tab. The candidate is validated before the live inode is
-# replaced, so a malformed request leaves the running dataplane's list intact.
+# Existing add/import/delete share this lock; a stale browser cannot overwrite
+# another tab's later edit. Validate the whole candidate before replacing the
+# live inode so malformed input leaves the active dataplane list intact.
 domain_list_revision() {
     local target="$1"
     if [ -f "$target" ]; then
@@ -3716,6 +3716,8 @@ domain_list_save() (
     trap 'rm -f "$raw" "$tmp"; [ "$locked" = 0 ] || _list_unlock "$target"' EXIT
     head -c 1048577 > "$raw" || exit 1
     [ "$(wc -c < "$raw")" -le 1048576 ] || { echo "Список больше 1 МБ." >&2; exit 2; }
+    # Validate the entire candidate before touching the live file. Keep comments
+    # and blank lines; normalize only domain records, deduplicating case-insensitively.
     LC_ALL=C awk '
         {
             sub(/\r$/, ""); line=$0
@@ -3756,6 +3758,9 @@ whitelist_save() { domain_list_save "$WHITELIST_FILE" "$1"; }
 extra_domains_revision() { domain_list_revision "$EXTRA_DOMAINS_FILE"; }
 extra_domains_save() { domain_list_save "$EXTRA_DOMAINS_FILE" "$1" 1; }
 
+# Check only newly added records; retaining/removing an existing record remains
+# possible after other lists have changed. Read each large catalogue once, not
+# once per imported domain. The target list lock is already held by the caller.
 _extra_domains_validate_file() {
     local candidate="$1" old="$2" label path
     [ -f "$old" ] || old=/dev/null

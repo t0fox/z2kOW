@@ -866,6 +866,7 @@ sh scripts/openwrt/gen-openwrt-manifest.sh ...
 - **BloodKnife39**
 - **SIGogelon**
 - **yozh**
+- **Altaec**
 
 **Windows:** если на iPhone или Mac сайты открываются, а на компьютере с Windows висят — [включите метки времени TCP одной командой](#4-windows-если-сайты-висят-и-не-открываются).
 

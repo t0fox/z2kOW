@@ -18,7 +18,10 @@
 # truncates state.tsv, touches no iptables) — but it is what users click when
 # bypass is already dead, so the two got conflated. This heals the real cause.
 #
-# Idempotent: acts ONLY when rules are genuinely absent AND the WAN is present
+# A newly connected policy WAN can lack rules even while the primary is fully
+# covered. Check the expected chain/protocol/interface tuple, not just counts.
+#
+# Idempotent: acts ONLY when required rules are absent AND the WAN is present
 # (so restart_fw can actually apply them — no restart storm while WAN is down),
 # and no-ops the moment rules exist. Coalesced with the netfilter.d hook via the
 # SHARED restart-fw mutex + debounce so the two never run restart_fw at once.
@@ -90,8 +93,10 @@ is_nfqws2_running() {
 }
 is_nfqws2_running || exit 0
 
-# WAN_IFACE is shared by both families (get_wan_ifaces4/6 both read it).
-wan_iface="$(sed -n 's/^WAN_IFACE=//p' "$ZAPRET_CONFIG" 2>/dev/null | tr -d '"' | head -1)"
+# Use exactly the same discovery as start_fw (including policy-table WANs).
+# shellcheck source=lib/wan.sh
+. "${Z2K_WAN_LIB:-/opt/zapret2/lib/wan.sh}"
+wan_iface="$(sed -n 's/^WAN_IFACE=//p' "$ZAPRET_CONFIG" 2>/dev/null | tail -n 1 | tr -d "\"'")"
 
 # A family (v4/v6) is BROKEN == its NFQUEUE rules are gone WHILE ITS WAN IS UP.
 # The WAN gate is essential and per-family: a family with no WAN legitimately has
@@ -99,7 +104,7 @@ wan_iface="$(sed -n 's/^WAN_IFACE=//p' "$ZAPRET_CONFIG" 2>/dev/null | tr -d '"' 
 # get_wan_ifaces6 is empty and fw_nfqws_post6 correctly skips. Without this gate
 # EVERY v6-enabled-but-v6-less Keenetic (a huge share) would restart_fw every
 # minute forever. Mirrors get_wan_ifaces4/6: WAN_IFACE wins, else the family's
-# own default route. Count via -S (rule dump); on Keenetic -L can trip on NDM's
+# defaults across routing tables. Count via -S; on Keenetic -L can trip on NDM's
 # ndmmark rules, -S does not.
 #
 # FALSE-DROP guard: the dump MUST use -w and its exit code MUST be honoured.
@@ -110,9 +115,9 @@ wan_iface="$(sed -n 's/^WAN_IFACE=//p' "$ZAPRET_CONFIG" 2>/dev/null | tr -d '"' 
 # storm. Now: -w waits for the lock instead of failing; if the dump STILL errors,
 # the table state is UNKNOWN → treat as NOT missing (return 1) rather than firing.
 nfq_missing() {   # $1 = iptables|ip6tables ; $2 = -4|-6
-    if [ -z "$wan_iface" ]; then
-        ip "$2" route show default 2>/dev/null | grep -q ' dev ' || return 1  # no WAN -> not broken
-    fi
+    local _wan _iface _dir
+    _wan=$(z2k_wan_ifaces "$2" "$wan_iface")
+    [ -n "$_wan" ] || return 1
     # A dump that fails even WITH -w is not lock contention (that -w waits out) —
     # it's structural (broken iptables / -w unsupported / missing kmod). Treat as
     # UNKNOWN (skip, NOT "0 rules"), but LOG it: otherwise a permanently-broken
@@ -147,11 +152,25 @@ nfq_missing() {   # $1 = iptables|ip6tables ; $2 = -4|-6
     # PKT_IN, а пустой PKT_IN берёт значение PKT_OUT (так же в S99zapret2). Чего
     # конфиг не требует, того и не ждём — иначе вечный re-apply на законно
     # урезанном наборе.
-    for _p in tcp udp; do
-        for _c in $(nfq_expected_chains "$_p"); do
-            printf '%s\n' "$_dump" | grep NFQUEUE | grep -- "-A $_c " | grep -q -- " -p $_p " && continue
-            nfq_why="$2: нет правила $_c $_p"
-            return 0
+    for _iface in $_wan; do
+        for _p in tcp udp; do
+            for _c in $(nfq_expected_chains "$_p"); do
+                case "$_c" in POSTROUTING) _dir=-o ;; *) _dir=-i ;; esac
+                if printf '%s\n' "$_dump" | awk -v c="$_c" -v p="$_p" -v d="$_dir" -v iface="$_iface" '
+                    $1=="-A" && $2==c {
+                        proto=0; dev=0; queue=0
+                        for(i=3;i<NF;i++) {
+                            if($i=="-p" && $(i+1)==p) proto=1
+                            if($i==d && $(i+1)==iface) dev=1
+                            if($i=="-j" && $(i+1)=="NFQUEUE") queue=1
+                        }
+                        if(proto && dev && queue) found=1
+                    }
+                    END {exit !found}
+                '; then continue; fi
+                nfq_why="$2: нет правила $_c $_p на $_iface"
+                return 0
+            done
         done
     done
     return 1

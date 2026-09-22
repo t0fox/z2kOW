@@ -278,6 +278,15 @@ export function renderCredits() {
           оплачивает именно эту гонку.
         </p>
       </div>
+      <div class="card credits-card sponsor-card">
+        <div class="credits-badge sponsor-badge">${_icons.heart} Спонсор проекта</div>
+        <div class="credits-name">Altaec</div>
+        <p class="desc">
+          Спасибо, Altaec, за поддержку z2k. Она помогает оплачивать серверы,
+          проверять изменения на роутерах и выпускать обновления для всех,
+          кто пользуется проектом.
+        </p>
+      </div>
     </div>
   `;
 }
