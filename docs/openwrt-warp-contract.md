@@ -188,7 +188,9 @@ loaded in an already-rendered fw4 ruleset, the lifecycle adds one exact
 `oifname <live-iface>` fallback rule with the same mark predicate; that rule
 is removed on not-ready, disable, stop and cleanup. A marker with a foreign
 expression is a hard ownership conflict. `warp_status_routing_ready` verifies
-the zapret2 TUN rules, the fw4 admission, PBR and owner record together.
+the zapret2 TUN rules, the fw4 admission, PBR and owner record together. The
+runtime fallback passes the comment as a quoted nft literal because the nft
+CLI parses comment arguments as nft syntax.
 
 - Mark ТОЛЬКО PREROUTING (router-local никогда в WARP — upstream инвариант
   после удаления OUTPUT; тесты запрещают OUTPUT-mark).

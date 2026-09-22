@@ -27,11 +27,16 @@ if [ "\$1" = "list" ] && [ "\$2" = "chain" ]; then
     exit 0
 fi
 if [ "\$1" = "insert" ] && [ "\$2" = "rule" ]; then
-    _prev=""; _iface=""
+    _prev=""; _iface=""; _comment=""
     for _arg in "\$@"; do
         [ "\$_prev" = oifname ] && _iface="\$_arg"
+        [ "\$_prev" = comment ] && _comment="\$_arg"
         _prev="\$_arg"
     done
+    [ "\$_comment" = '"!z2k: WARP forwarded traffic"' ] || {
+        echo "unquoted comment" >&2
+        exit 1
+    }
     {
         printf 'meta mark & %s == %s oifname "%s" accept comment "!z2k: WARP forwarded traffic" # handle 91\n' \\
             "0x80000000" "0x80000000" "\$_iface"

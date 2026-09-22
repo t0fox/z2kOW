@@ -470,9 +470,12 @@ _warp_fw4_forward_apply() {
         _WARP_CONFLICT=1
         return 1
     fi
+    # nft's CLI parses the comment value as nft syntax, not as an opaque argv
+    # string. Preserve the quotes inside the argument so comments containing
+    # spaces and `!` are accepted by the real nft parser.
     nft insert rule "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" \
         meta mark \& "$WARP_MASK" == "$WARP_MARK" oifname "$_iface" accept \
-        comment "$WARP_FW4_RULE_COMMENT" || return 1
+        comment "\"$WARP_FW4_RULE_COMMENT\"" || return 1
     _warp_fw4_forward_verify "$_iface"
 }
 
