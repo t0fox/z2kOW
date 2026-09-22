@@ -25,7 +25,7 @@
 /etc/init.d/z2k package
 /etc/hotplug.d/iface/90-z2k package
 /etc/sysctl.d/99-z2k.conf package
-/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft package
+/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft package
 /usr/lib/z2k/platform/openwrt/paths.sh package
 /usr/lib/z2k/platform/openwrt/env.sh package
 /usr/lib/z2k/platform/openwrt/manifest.sh package

@@ -176,7 +176,7 @@ set z2k_warp_src4 { type ipv4_addr; flags interval; }
 
 fw4 has its own final `forward` policy after the adapter's `inet zapret2`
 hook. Therefore the package also ships the standard firewall4
-`/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft` include:
+`/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft` include:
 
 ```text
 meta mark & 0x80000000 == 0x80000000 oifname "z2ktun*" accept

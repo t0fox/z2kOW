@@ -16,7 +16,7 @@ MK="$REPO/package/openwrt/Makefile"
 MAP="$REPO/package/openwrt/ownership.map"
 AU="$REPO/lib/auto_update.sh"
 S96="$REPO/files/z2k-warp.sh"
-FW4="$REPO/package/openwrt/files/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft"
+FW4="$REPO/package/openwrt/files/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft"
 
 assert_file "warp.sh существует" "$WARP"
 assert_file "warp-proc.sh существует" "$WARPP"
@@ -185,9 +185,9 @@ assert_contains "ownership: warp-proc.sh package" "$MAP" '/usr/lib/z2k/platform/
 assert_contains "ownership: warp-check.sh package" "$MAP" '/usr/lib/z2k/platform/openwrt/warp-check.sh package'
 assert_contains "ownership: device daemon-state" "$MAP" '/etc/z2k/state/warp/device.json daemon-state'
 assert_contains "ownership: fw4 include package" "$MAP" \
-    '/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft package'
+    '/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft package'
 assert_contains "Makefile: fw4 include install" "$MK" \
-    'files/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft'
+    'files/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft'
 
 # --- COMMON_HOOK в au_service_for_binary + Makefile BIN modes ---
 assert_contains "au: warp openwrt-ветка" "$AU" 'warp-proc.sh'
