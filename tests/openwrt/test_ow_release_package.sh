@@ -97,14 +97,16 @@ sed -i '/^Z2K_NFQWS2=/d' "$Z2K_ROOT/webpanel/cgi/platform.sh"
 _stale_actions="$(sha256sum "$Z2K_ROOT/webpanel/cgi/actions.sh" | awk '{print $1}')"
 if z2k_ow_panel_payload_compatible; then _t_bad "R5 old panel was accepted"; else _t_ok; fi
 
-# Origin contains only the two updater-owned bytes needed to repair this
-# regression. The real full manifest format is still parsed by common
-# reinstall code; the WARP digest is a structural snapshot witness.
-for _f in webpanel/cgi/actions.sh webpanel/cgi/platform.sh; do
+# Origin contains the updater-owned bytes needed to repair this regression,
+# including the API and renderer that make WARP readiness observable. The real
+# full manifest format is still parsed by common reinstall code; the WARP
+# digest is a structural snapshot witness.
+for _f in webpanel/cgi/actions.sh webpanel/cgi/platform.sh \
+          webpanel/cgi/api.sh webpanel/www/js/pages/warp.js; do
     mkdir -p "$LC_ORIGIN/files/$(dirname "$_f")"
     cp -f "$REPO/$_f" "$LC_ORIGIN/files/$_f" || exit 1
 done
-printf 'p-85.2|patch|snapshot-ref|webpanel/cgi/actions.sh,webpanel/cgi/platform.sh||false|false\n' \
+printf 'p-85.2|patch|snapshot-ref|webpanel/cgi/actions.sh,webpanel/cgi/platform.sh,webpanel/cgi/api.sh,webpanel/www/js/pages/warp.js||false|false\n' \
     | lc_manifest p-85.2
 python3 - "$LC_ORIGIN/manifest.json" <<'PYEOF'
 import sys

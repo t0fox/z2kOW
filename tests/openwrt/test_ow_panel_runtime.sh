@@ -20,6 +20,8 @@ assert_contains "panel payload contract marker" "$ACT" 'Z2K_OPENWRT_PANEL_CONTRA
 assert_contains "panel payload compatibility is checked" "$REPO/platform/openwrt/panel.sh" 'z2k_ow_panel_payload_compatible'
 assert_contains "snapshot panel payload is hash checked" "$REPO/platform/openwrt/panel.sh" 'z2k_ow_panel_snapshot_check'
 assert_contains "snapshot panel hash uses manifest" "$REPO/platform/openwrt/panel.sh" 'snapshot-manifest.json'
+assert_contains "WARP API is part of panel snapshot contract" "$REPO/platform/openwrt/panel.sh" 'webpanel/cgi/api.sh'
+assert_contains "WARP renderer is part of panel snapshot contract" "$REPO/platform/openwrt/panel.sh" 'webpanel/www/js/pages/warp.js'
 assert_contains "panel mismatch is visible" "$PLAT" 'payload_compatible'
 assert_contains "strategy shadow uses runtime custom source" "$ACT" 'Z2K_EXTRA_STRATEGIES_RUNTIME'
 assert_contains "panel hides unsupported custom.d" "$LOAD" 'data-key="customd"'

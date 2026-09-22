@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=51
+PKG_RELEASE:=52
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -101,6 +101,9 @@ PKG_RELEASE:=51
 # (/usr/share/nftables.d) rather than the documentation-only /etc path.
 # RELEASE 51: quote the runtime fw4 comment as nft syntax; the real nft CLI
 # rejects the unquoted marker when the fallback is needed.
+# RELEASE 52: include the OpenWrt WARP API and renderer in the embedded panel
+# compatibility witness; stale updater-owned WebUI bytes must not hide
+# route_ready/state behind an apparently compatible payload.
 # RELEASE 31: converge stale updater-owned panel payload from an embedded CI
 # snapshot through the existing verified reinstall path; production packages
 # fail closed with an explicit panel-payload incompatibility.
@@ -171,7 +174,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r51)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r52)
 endef
 
 define Package/z2k-webpanel/description

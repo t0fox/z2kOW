@@ -63,8 +63,20 @@ z2k_ow_panel_snapshot_check() {
     # updater path remains authoritative; only an embedded CI snapshot can
     # make a local byte-for-byte payload claim.
     [ -s "$_manifest" ] || return 0
-    for _path in webpanel/cgi/actions.sh webpanel/cgi/platform.sh; do
-        _dest="$_root/$_path"
+    # The platform seam alone is not enough for WARP health: the API schema
+    # and the page renderer must come from the same snapshot.  Otherwise an
+    # older api.sh silently drops route_ready/state and an older warp.js
+    # falls back to the indefinite "connecting" presentation while the
+    # adapter/runtime are already current.
+    for _path in webpanel/cgi/actions.sh webpanel/cgi/platform.sh \
+                 webpanel/cgi/api.sh webpanel/www/js/pages/warp.js; do
+        # The common install map deliberately flattens webpanel/www into the
+        # document root (`/usr/lib/z2k/www`) on OpenWrt; CGI stays under the
+        # dedicated `/usr/lib/z2k/webpanel/cgi` directory.
+        case "$_path" in
+            webpanel/www/*) _dest="$_root/www/${_path#webpanel/www/}" ;;
+            *) _dest="$_root/$_path" ;;
+        esac
         _want=$(z2k_ow_panel_snapshot_sha "$_manifest" "$_path") || {
             echo "snapshot manifest has no hash for $_path" >&2
             return 1
