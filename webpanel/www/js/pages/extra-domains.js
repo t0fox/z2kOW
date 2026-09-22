@@ -1,3 +1,4 @@
+import { renderDomainList } from "../core/domain-list-editor.js";
 import { apiGet, apiPost, errHtml, toastErr } from "../core/api.js";
 import { $app, _icons, escapeHtml, skeletonLines } from "../core/dom.js";
 import { _newLoad, _stale } from "../core/loadorder.js";
@@ -89,76 +90,11 @@ async function ahDelete(domain) {
 }
 
 export async function renderExtraDomains() {
-  $app.innerHTML = await extraShell("own", `
-    <div class="card">
-      <h3>Живой список доменов</h3>
-      <p class="desc">
-        Здесь — домены, которые z2k будет обрабатывать в дополнение к стандартным RKN/YouTube/Discord-спискам.
-        Подбор рабочей стратегии происходит автоматически из существующего пула (~47 стратегий для TCP, 12+ для QUIC),
-        результат закрепляется в state.tsv после первого успеха.
-        <b>Изменения подхватываются сервисом без перезапуска</b> через несколько секунд.
-      </p>
-      <div class="wl-add">
-        <label class="field">
-          <span class="field-label">Новый домен</span>
-          <input id="ed-input" type="text" placeholder="example.com"
-                 inputmode="url" autocomplete="off" autocapitalize="off"
-                 spellcheck="false" autocorrect="off">
-        </label>
-        <button class="btn btn-primary" id="ed-add-btn">Добавить</button>
-      </div>
-      <ul class="wl-list" id="ed-list">${skeletonLines(5)}</ul>
-    </div>
-  `);
-  document.getElementById("ed-add-btn").addEventListener("click", edAdd);
-  document.getElementById("ed-input").addEventListener("keydown", e => {
-    if (e.key === "Enter") edAdd();
+  await renderDomainList({
+    endpoint: "/extra-domains",
+    shell: html => extraShell("own", html),
+    title: "Обрабатывать эти сайты",
+    description: 'Добавьте сайты, которым нужен обход блокировок в дополнение к основным спискам. <code>example.com</code> включает все поддомены. Домены, уже покрытые другими списками, повторно добавлять не нужно.',
+    deleteHint: "Эти сайты будут удалены из дополнительного списка. Обработка по другим спискам сохранится.",
   });
-  loadExtraDomains();
-}
-
-async function loadExtraDomains() {
-  const list = document.getElementById("ed-list");
-  const seq = _newLoad("extraDomains");
-  try {
-    const d = await apiGet("/extra-domains");
-    if (_stale("extraDomains", seq)) return;
-    if (!d.domains.length) {
-      list.innerHTML = `<li style="color:var(--text-muted)">(пусто)</li>`;
-      return;
-    }
-    list.innerHTML = d.domains.map(dom => `
-      <li><span>${escapeHtml(dom)}</span><button class="btn-icon" title="Удалить" aria-label="Удалить ${escapeHtml(dom)}" data-del="${escapeHtml(dom)}">${_icons.close}</button></li>
-    `).join("");
-    list.querySelectorAll("button[data-del]").forEach(btn => {
-      btn.addEventListener("click", () => edDelete(btn.dataset.del));
-    });
-  } catch (e) {
-    if (_stale("extraDomains", seq)) return;
-    list.innerHTML = `<li style="color:var(--bad)">${errHtml(e)}</li>`;
-  }
-}
-
-async function edAdd() {
-  const inp = document.getElementById("ed-input");
-  const domain = inp.value.trim();
-  if (!domain) return;
-  try {
-    await apiPost("/extra-domains/add", { domain });
-    inp.value = "";
-    toast("Добавлено");
-    loadExtraDomains();
-  } catch (e) {
-    toastErr("Ошибка: ", e);
-  }
-}
-
-async function edDelete(domain) {
-  try {
-    await apiPost("/extra-domains/delete", { domain });
-    toast("Удалено");
-    loadExtraDomains();
-  } catch (e) {
-    toastErr("Ошибка: ", e);
-  }
 }

@@ -259,7 +259,7 @@ panel_auth_gate
 # Крупные загрузки (списки, своя стратегия) идут через read_body_raw и свои
 # собственные потолки в мегабайтах — их это ограничение не касается.
 case "$PATH_INFO" in
-    /warp/list/save|/warp/devices/save|/whitelist/import|/strategy/pool/save|/strategy/pool/validate|/state/bulk) ;;
+    /warp/list/save|/warp/devices/save|/whitelist/import|/whitelist/save|/extra-domains/save|/strategy/pool/save|/strategy/pool/validate|/state/bulk) ;;
     *)
         if [ "${CONTENT_LENGTH:-0}" -gt "$Z2K_MAX_BODY" ] 2>/dev/null; then
             json_fail "413 Payload Too Large" "запрос слишком большой"
@@ -305,6 +305,16 @@ case "$method $path" in
             flowoffload=$(z2k_ow_flowoffload_mode)
             flowoffload_status=$(z2k_ow_flowoffload_status)
         fi
+        tg_udp_enabled=false
+        tg_udp_ready=false
+        tg_udp_state=disabled
+        if [ "$ow_flow" = 1 ] && command -v z2k_ow_tg_cfg >/dev/null 2>&1; then
+            [ "$(z2k_ow_tg_cfg Z2K_TG_UDP_RELAY 1)" = "1" ] && tg_udp_enabled=true
+            if command -v z2k_ow_tg_udp_state >/dev/null 2>&1; then
+                tg_udp_state=$(z2k_ow_tg_udp_state)
+                [ "$tg_udp_state" = "ready" ] && tg_udp_ready=true
+            fi
+        fi
         tpid=$(tunnel_pid 2>/dev/null)
         tunnel_running=false
         [ -n "$tpid" ] && tunnel_running=true
@@ -334,7 +344,14 @@ case "$method $path" in
             printf ',"flowoffload":';         json_string "${flowoffload:-none}"
             printf ',"flowoffload_status":';  json_string "${flowoffload_status:-unavailable}"
         fi
-        printf '},"tunnel":{"running":%s}' "${tunnel_running:-false}"
+        if [ "$ow_flow" = 1 ]; then
+            printf '},"tunnel":{"running":%s,"udp":{"enabled":%s,"ready":%s,"state":' \
+                "${tunnel_running:-false}" "$tg_udp_enabled" "$tg_udp_ready"
+            json_string "$tg_udp_state"
+            printf '}}'
+        else
+            printf '},"tunnel":{"running":%s}' "${tunnel_running:-false}"
+        fi
         # OpenWrt capability visibility (§18): только openwrt, Keenetic-байты
         # не меняются. shapes preserved, ключи аддитивны (фрагмент уже
         # в кавычках — добавляем только запятую).
@@ -576,17 +593,61 @@ case "$method $path" in
         json_ok
         ;;
 
-    "GET /whitelist")
+    "GET /whitelist"|"GET /extra-domains")
+        case "$path" in
+            /extra-domains) wl_file="$EXTRA_DOMAINS_FILE"; wl_revision=extra_domains_revision ;;
+            *) wl_file="$WHITELIST_FILE"; wl_revision=whitelist_revision ;;
+        esac
+        mkdir -p "$(dirname "$wl_file")" || json_fail "500 Internal Server Error" "не удалось открыть список"
+        _list_lock "$wl_file" || json_fail "409 Conflict" "список занят, повторите"
+        wl_rev=$("$wl_revision")
+        wl_text=$(cat "$wl_file" 2>/dev/null) || wl_text=""
+        _list_unlock "$wl_file"
+        [ -n "$wl_rev" ] || json_fail "500 Internal Server Error" "не удалось прочитать версию списка"
         json_header
-        printf '{"ok":true,"domains":['
+        printf '{"ok":true,"revision":'
+        json_string "$wl_rev"
+        printf ',"text":'
+        json_string "$wl_text"
+        printf ',"domains":['
         first=1
-        whitelist_list | while IFS= read -r d; do
+        printf '%s\n' "$wl_text" | while IFS= read -r d; do
             [ -z "$d" ] && continue
+            case "$d" in \#*) continue ;; esac
             if [ "$first" = "1" ]; then first=0; else printf ','; fi
             json_string "$d"
         done
         printf ']}\n'
         exit 0
+        ;;
+
+    "POST /whitelist/save"|"POST /extra-domains/save")
+        case "$path" in
+            /extra-domains/save) wl_save=extra_domains_save ;;
+            *) wl_save=whitelist_save ;;
+        esac
+        [ "${CONTENT_LENGTH:-0}" -le 1048576 ] 2>/dev/null || \
+            json_fail "413 Payload Too Large" "список больше 1 МБ"
+        wl_rev=$(form_value "${QUERY_STRING:-}" revision)
+        [ -n "$wl_rev" ] || json_fail "400 Bad Request" "revision required"
+        wl_errfile=$(mktemp) || json_fail "500 Internal Server Error" "не удалось создать временный файл"
+        if wl_result=$(read_body_raw | "$wl_save" "$wl_rev" 2>"$wl_errfile"); then
+            rm -f "$wl_errfile"
+            json_header
+            printf '{"ok":true,"revision":'
+            json_string "$wl_result"
+            printf '}\n'
+            exit 0
+        else
+            wl_rc=$?
+            wl_error=$(cat "$wl_errfile")
+            rm -f "$wl_errfile"
+            case "$wl_rc" in
+                2) json_fail "400 Bad Request" "${wl_error:-invalid list}" ;;
+                3) json_fail "409 Conflict" "${wl_error:-list changed; reload}" ;;
+                *) json_fail "500 Internal Server Error" "${wl_error:-save failed}" ;;
+            esac
+        fi
         ;;
 
     "POST /whitelist/add"|"POST /whitelist/delete")

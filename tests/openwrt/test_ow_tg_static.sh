@@ -87,7 +87,12 @@ assert_contains "tg.sh: проверка таблицы до записей" "$T
 # dnat-accept guard'а (уже проверен выше построчно); -j ACCEPT и голых
 # accept-вердиктов вне guard'а быть не должно.
 assert_not_contains "tg.sh: нет -j ACCEPT" "$_TGCODE" '\-j ACCEPT'
-_tg_accepts="$(grep -n 'accept' "$_TGCODE" | grep -v 'ct status dnat accept' || true)"
+# UDP's four forward accepts are deliberately scoped to the dedicated TUN and
+# the Telegram address sets; they are the OpenWrt equivalent of upstream's
+# FORWARD accepts and are not an input-port opening.
+_tg_accepts="$(grep -n 'accept' "$_TGCODE" \
+    | grep -v 'ct status dnat accept' \
+    | grep -vE 'oifname "\$Z2K_TG_UDP_IF"|iifname "\$Z2K_TG_UDP_IF"' || true)"
 if [ -z "$_tg_accepts" ]; then
     _t_ok
 else

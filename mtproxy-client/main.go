@@ -26,7 +26,9 @@ var buildVersion = "dev"
 var (
 	listenAddrs  listenList
 	tunnelURL    = flag.String("tunnel-url", "wss://213.176.74.63.nip.io/ws", "Tunnel relay WebSocket URL")
-	tunnelSecret = flag.String("tunnel-secret", defaultTunnelSecret, "Shared secret for tunnel auth (build-injected; override with --tunnel-secret)")
+	// Never use the build-injected secret as the flag default: Go's standard
+	// help renderer prints every non-empty default. Apply it only after Parse.
+	tunnelSecret = flag.String("tunnel-secret", "", "Shared secret for tunnel auth (build-injected; override with --tunnel-secret)")
 	verbose      = flag.Bool("v", false, "Verbose logging")
 	connTimeout  = flag.Duration("timeout", 15*time.Minute, "Idle connection timeout")
 	maxConns     = flag.Int("max-conns", 1024, "Maximum concurrent connections")
@@ -63,8 +65,16 @@ func init() {
 
 func main() {
 	flag.Parse()
+	*tunnelSecret = resolvedTunnelSecret(*tunnelSecret, defaultTunnelSecret)
 
 	if err := runTunnel(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func resolvedTunnelSecret(override, builtIn string) string {
+	if override != "" {
+		return override
+	}
+	return builtIn
 }

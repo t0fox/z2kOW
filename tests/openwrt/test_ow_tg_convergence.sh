@@ -13,7 +13,7 @@ cat > "$T/root/bin/tg-mtproxy-client" <<'EOF'
 exit 0
 EOF
 chmod +x "$T/root/bin/tg-mtproxy-client"
-printf 'ENABLED=1\n' > "$T/etc/config"
+printf 'ENABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
 
 cat > "$T/bin/nft" <<EOF
 #!/bin/sh
@@ -24,6 +24,7 @@ case "\$1 \$2" in
     case "\$5" in
       z2k_tg_dc6) printf 'set \$5 { type ipv6_addr; elements = { 2001:67c:4e8::/48, 2001:b28:f23c::/47, 2001:b28:f23f::/48, 2a0a:f280:203::/48 } }\n' ;;
       z2k_tg_cdn4) printf 'set \$5 { type ipv4_addr; elements = { 168.119.95.238 } }\n' ;;
+      z2k_tg_udp_dc4|z2k_tg_udp_dc6) exit 1 ;;
       *) printf 'set \$5 { type ipv4_addr; elements = { 149.154.160.0/20, 91.108.4.0/22, 91.108.8.0/22, 91.108.12.0/22, 91.108.16.0/22, 91.108.20.0/22, 91.108.56.0/22, 91.105.192.0/23, 95.161.64.0/20, 185.76.151.0/24 } }\n' ;;
     esac
     exit 0 ;;
@@ -33,6 +34,7 @@ case "\$1 \$2" in
       z2k_tg_dst_pre|z2k_tg_dst_out) printf 'tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443\ntcp dport 80 ip daddr @z2k_tg_cdn4 redirect to :1444\n' ;;
       z2k_tg_flt_fwd|z2k_tg_flt_out) printf 'ip6 daddr @z2k_tg_dc6 tcp dport { 80, 443 } reject with icmpv6 port-unreachable\n' ;;
       z2k_tg_flt_in) printf 'tcp dport { 1443, 1444 } ct status dnat accept\ntcp dport { 1443, 1444 } drop\n' ;;
+      z2k_tg_udp_mark|z2k_tg_udp_fwd) exit 1 ;;
     esac
     exit 0 ;;
 esac

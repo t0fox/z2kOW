@@ -26,6 +26,7 @@
 /etc/hotplug.d/iface/90-z2k package
 /etc/sysctl.d/99-z2k.conf package
 /usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft package
+/usr/share/nftables.d/chain-pre/forward/90-z2k-tg-udp.nft package
 /usr/lib/z2k/platform/openwrt/paths.sh package
 /usr/lib/z2k/platform/openwrt/env.sh package
 /usr/lib/z2k/platform/openwrt/manifest.sh package
@@ -45,6 +46,7 @@
 /usr/lib/z2k/platform/openwrt/uninstall.sh package
 /usr/lib/z2k/platform/openwrt/tg.sh package
 /usr/lib/z2k/platform/openwrt/tg-check.sh package
+/usr/lib/z2k/platform/openwrt/tg-udp-route.sh package
 /usr/lib/z2k/platform/openwrt/rt.sh package
 /usr/lib/z2k/platform/openwrt/rt-proc.sh package
 /usr/lib/z2k/platform/openwrt/rt-check.sh package

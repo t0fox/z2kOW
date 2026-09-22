@@ -3690,3 +3690,98 @@ uninstall_async() {
     echo "$!" > "/tmp/z2k-job-$job_id.pid"
     printf '%s' "$job_id"
 }
+
+# Compare-and-swap editor contract shared by whitelist and extra-domains.
+# The panel keeps the revision returned by GET and cannot overwrite a newer
+# edit from another tab. The candidate is validated before the live inode is
+# replaced, so a malformed request leaves the running dataplane's list intact.
+domain_list_revision() {
+    local target="$1"
+    if [ -f "$target" ]; then
+        sha256sum "$target" 2>/dev/null | cut -d' ' -f1
+    else
+        printf '' | sha256sum | cut -d' ' -f1
+    fi
+}
+
+domain_list_save() (
+    local target="$1" expected="$2" check_coverage="${3:-0}" raw tmp locked=0 current
+    case "$expected" in
+        ''|*[!a-f0-9]*) echo "Неизвестная версия списка. Обновите список." >&2; exit 2 ;;
+    esac
+    [ "${#expected}" = 64 ] || { echo "Неизвестная версия списка. Обновите список." >&2; exit 2; }
+    mkdir -p "$LISTS_DIR" || exit 1
+    raw=$(mktemp "$target.raw.XXXXXX") || exit 1
+    tmp=$(mktemp "$target.edit.XXXXXX") || { rm -f "$raw"; exit 1; }
+    trap 'rm -f "$raw" "$tmp"; [ "$locked" = 0 ] || _list_unlock "$target"' EXIT
+    head -c 1048577 > "$raw" || exit 1
+    [ "$(wc -c < "$raw")" -le 1048576 ] || { echo "Список больше 1 МБ." >&2; exit 2; }
+    LC_ALL=C awk '
+        {
+            sub(/\r$/, ""); line=$0
+            sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "")
+            if ($0 == "" || substr($0, 1, 1) == "#") { print line; next }
+            d=tolower($0); valid=1
+            if (length(d)>253 || d !~ /^[a-z0-9.-]+$/ || d ~ /^[0-9.]+$/) valid=0
+            n=split(d, labels, ".")
+            for (i=1; i<=n; i++)
+                if (length(labels[i])<1 || length(labels[i])>63 || labels[i] ~ /^-/ || labels[i] ~ /-$/) valid=0
+            if (!valid) {
+                printf "Некорректный домен в строке %d. Укажите имя сайта без адреса, протокола и пути.\n", NR > "/dev/stderr"
+                bad=1; next
+            }
+            if (!seen[d]++) print d
+        }
+        END { exit bad ? 2 : 0 }
+    ' "$raw" > "$tmp" || exit 2
+    _list_lock "$target" || { echo "Список занят. Повторите сохранение." >&2; exit 1; }
+    locked=1
+    current=$(domain_list_revision "$target")
+    [ "$current" = "$expected" ] || {
+        echo "Список уже изменён в другой вкладке. Обновите список перед повторным сохранением." >&2
+        exit 3
+    }
+    if [ "$check_coverage" = 1 ]; then
+        _extra_domains_validate_file "$tmp" "$target" || exit 2
+    fi
+    chmod 644 "$tmp" && mv -f "$tmp" "$target" || {
+        echo "Не удалось сохранить список." >&2
+        exit 1
+    }
+    domain_list_revision "$target"
+)
+
+whitelist_revision() { domain_list_revision "$WHITELIST_FILE"; }
+whitelist_save() { domain_list_save "$WHITELIST_FILE" "$1"; }
+extra_domains_revision() { domain_list_revision "$EXTRA_DOMAINS_FILE"; }
+extra_domains_save() { domain_list_save "$EXTRA_DOMAINS_FILE" "$1" 1; }
+
+_extra_domains_validate_file() {
+    local candidate="$1" old="$2" label path
+    [ -f "$old" ] || old=/dev/null
+    while IFS='|' read -r label path; do
+        [ -s "$path" ] || continue
+        LC_ALL=C awk -v old="$old" -v covered="$path" -v label="$label" '
+            {
+                sub(/\r$/, ""); sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "")
+                $0=tolower($0)
+            }
+            FILENAME == old { previous[$0]=1; next }
+            FILENAME == covered { if ($0 != "" && $0 !~ /^#/) have[$0]=1; next }
+            $0 == "" || $0 ~ /^#/ || previous[$0] { next }
+            {
+                domain=$0; suffix=domain
+                while (index(suffix, ".")) {
+                    if (have[suffix]) {
+                        printf "Домен %s уже покрыт записью %s в списке «%s». Список не изменён.\n", domain, suffix, label > "/dev/stderr"
+                        exit 2
+                    }
+                    sub(/^[^.]+\./, "", suffix)
+                }
+            }
+        ' "$old" "$path" "$candidate" || return 2
+    done <<CATALOG
+$(_domain_lists_catalog)
+CATALOG
+    return 0
+}

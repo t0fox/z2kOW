@@ -1,6 +1,7 @@
-import { PANEL_HDR, apiGet, apiPost, errHtml, toastErr } from "../core/api.js";
-import { $app, API, _icons, escapeHtml, skeletonLines } from "../core/dom.js";
+import { apiGet, apiPost, errHtml, toastErr } from "../core/api.js";
+import { $app, _icons, escapeHtml, skeletonLines } from "../core/dom.js";
 import { _newLoad, _stale } from "../core/loadorder.js";
+import { renderDomainList } from "../core/domain-list-editor.js";
 import { toast } from "../core/toast.js";
 
 //
@@ -152,119 +153,11 @@ async function exDelete(entry) {
 }
 
 export async function renderExcludeDomains() {
-  $app.innerHTML = excludeShell("domains", `
-    <div class="card">
-      <h3>Не трогать эти сайты</h3>
-      <p class="desc">
-        Всё, что идёт на перечисленные здесь сайты, z2k пропускает как есть.
-        Так исключают то, что ломается от вмешательства в трафик: банки и
-        госуслуги, рабочие сервисы, магазины игр. Достаточно одного имени —
-        <code>example.com</code> закрывает и все его поддомены.
-      </p>
-      <p class="desc">
-        <b>Изменения вступают в силу за несколько секунд, перезапускать
-        сервис не нужно.</b> Имя работает там, где оно видно в запросе; если
-        приложение ходит без имени — камеры, домофоны, звонки — исключать его
-        нужно на вкладке <a href="#/exclude">«Адреса»</a>.
-      </p>
-      <div class="wl-add">
-        <label class="field">
-          <span class="field-label">Новый сайт</span>
-          <input id="wl-input" type="text" placeholder="example.com"
-                 inputmode="url" autocomplete="off" autocapitalize="off"
-                 spellcheck="false" autocorrect="off">
-        </label>
-        <button class="btn btn-primary" id="wl-add-btn">Добавить</button>
-        <button class="btn" id="wl-import-btn" title="Импорт списка из текстового файла (одна строка — один домен)">Импорт из файла</button>
-        <input type="file" id="wl-import-file" accept=".txt,text/plain" hidden>
-      </div>
-      <ul class="wl-list" id="wl-list">${skeletonLines(5)}</ul>
-    </div>
-  `);
-  document.getElementById("wl-add-btn").addEventListener("click", wlAdd);
-  document.getElementById("wl-input").addEventListener("keydown", e => {
-    if (e.key === "Enter") wlAdd();
+  await renderDomainList({
+    endpoint: "/whitelist",
+    shell: html => excludeShell("domains", html),
+    title: "Не трогать эти сайты",
+    description: 'z2k пропускает эти сайты без обработки. <code>example.com</code> включает все его поддомены. Для IP-адресов используйте вкладку <a href="#/exclude">«Адреса»</a>.',
+    deleteHint: "Эти сайты перестанут исключаться из обработки z2k.",
   });
-  document.getElementById("wl-import-btn").addEventListener("click", () => {
-    document.getElementById("wl-import-file").click();
-  });
-  document.getElementById("wl-import-file").addEventListener("change", wlImport);
-  loadWhitelist();
-}
-
-async function wlImport(e) {
-  const file = e.target.files && e.target.files[0];
-  e.target.value = ""; // allow re-select same file
-  if (!file) return;
-  // Safeguard: lighttpd default body limit ~ 2 MB; держим запас.
-  if (file.size > 1024 * 1024) {
-    toast("Файл слишком большой (>1 МБ)", "bad");
-    return;
-  }
-  let text;
-  try { text = await file.text(); }
-  catch (err) { toast("Не удалось прочитать файл: " + err.message, "bad"); return; }
-  try {
-    const r = await fetch(API + "/whitelist/import", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { ...PANEL_HDR, "Content-Type": "text/plain;charset=utf-8" },
-      body: text,
-    });
-    const data = await r.json().catch(() => ({ ok: false, error: `${r.status}` }));
-    if (!r.ok || !data.ok) throw new Error(data.error || `${r.status}`);
-    const parts = [`+${data.added}`];
-    if (data.skipped_duplicate > 0) parts.push(`дублей: ${data.skipped_duplicate}`);
-    if (data.skipped_invalid > 0) parts.push(`невалидных: ${data.skipped_invalid}`);
-    toast("Импорт: " + parts.join(", "));
-    loadWhitelist();
-  } catch (err) {
-    toast("Ошибка импорта: " + err.message, "bad");
-  }
-}
-
-async function loadWhitelist() {
-  const list = document.getElementById("wl-list");
-  const seq = _newLoad("whitelist");
-  try {
-    const d = await apiGet("/whitelist");
-    if (_stale("whitelist", seq)) return;
-    if (!d.domains.length) {
-      list.innerHTML = `<li style="color:var(--text-muted)">(пусто)</li>`;
-      return;
-    }
-    list.innerHTML = d.domains.map(dom => `
-      <li><span>${escapeHtml(dom)}</span><button class="btn-icon" title="Удалить" aria-label="Удалить ${escapeHtml(dom)}" data-del="${escapeHtml(dom)}">${_icons.close}</button></li>
-    `).join("");
-    list.querySelectorAll("button[data-del]").forEach(btn => {
-      btn.addEventListener("click", () => wlDelete(btn.dataset.del));
-    });
-  } catch (e) {
-    if (_stale("whitelist", seq)) return;
-    list.innerHTML = `<li style="color:var(--bad)">${errHtml(e)}</li>`;
-  }
-}
-
-async function wlAdd() {
-  const inp = document.getElementById("wl-input");
-  const domain = inp.value.trim();
-  if (!domain) return;
-  try {
-    await apiPost("/whitelist/add", { domain });
-    inp.value = "";
-    toast("Добавлено");
-    loadWhitelist();
-  } catch (e) {
-    toastErr("Ошибка: ", e);
-  }
-}
-
-async function wlDelete(domain) {
-  try {
-    await apiPost("/whitelist/delete", { domain });
-    toast("Удалено");
-    loadWhitelist();
-  } catch (e) {
-    toastErr("Ошибка: ", e);
-  }
 }

@@ -41,7 +41,7 @@ assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapre
 # A same-version APK is not an upgrade on OpenWrt.  Both fixes therefore
 # require a real adapter release bump, and the webpanel must require that same
 # release rather than silently retaining an older adapter.
-assert_eq "adapter release bumped for WARP panel compatibility witness" "52" "$_arel"
+assert_eq "adapter release bumped for p-85.8 integration" "53" "$_arel"
 assert_contains "nounset CGI probe remains guarded" "$REPO/platform/openwrt/customd.sh" \
     'nounset must not abort this probe'
 assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwrt/env.sh" \
@@ -49,6 +49,10 @@ assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwr
 assert_file "autohostlist lifecycle source exists" "$REPO/platform/openwrt/autohostlist.sh"
 assert_file "WARP fw4 chain-pre include exists" \
     "$REPO/package/openwrt/files/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft"
+assert_file "Telegram UDP fw4 chain-pre include exists" \
+    "$REPO/package/openwrt/files/usr/share/nftables.d/chain-pre/forward/90-z2k-tg-udp.nft"
+assert_contains "adapter installs Telegram UDP fw4 chain-pre include" "$MK" \
+    '90-z2k-tg-udp.nft'
 assert_not_contains "WARP fw4 include does not use ignored /etc tree" "$MK" \
     'files/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft'
 assert_contains "init loads autohostlist lifecycle" "$REPO/package/openwrt/files/etc/init.d/z2k" \
@@ -69,6 +73,8 @@ assert_contains "uninstall purges tmp" "$REPO/platform/openwrt/uninstall.sh" 'rm
 assert_contains "seed builder" "$MK" "make-seed.sh"
 assert_contains "materialize in seed" "$REPO/package/openwrt/make-seed.sh" "z2k_ow_materialize"
 assert_contains "postinst seed-guard" "$MK" "z2k_ow_seed_ensure"
+assert_contains "Telegram UDP route helper is installed executable" "$MK" "tg-udp-route.sh"
+assert_contains "Telegram UDP route helper is passed to the client" "$REPO/platform/openwrt/tg.sh" "Z2K_TG_UDP_ROUTE_HELPER="
 assert_contains "panel contract source" "$REPO/package/openwrt/PANEL_API" "1"
 assert_contains "panel contract install" "$MK" "share/panel.api"
 assert_contains "panel mismatch is explicit" "$MK" "PANEL_PAYLOAD_MISMATCH"

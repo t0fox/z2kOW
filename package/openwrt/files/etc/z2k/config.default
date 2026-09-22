@@ -9,5 +9,8 @@
 # Master-гейт сервиса (читает init.d/z2k; переживает регенерацию).
 ENABLED=1
 
+# Telegram server UDP leg (the TCP tunnel remains enabled independently).
+Z2K_TG_UDP_RELAY=1
+
 # Пример: несколько LAN-сетей для zapret2 ifsets (по умолчанию "lan").
 #OPENWRT_LAN="lan lan2"

@@ -39,12 +39,16 @@ _tg_disabled() {
         | cut -d= -f2 | tr -d '" ' | grep -qx '1'
 }
 
+_tg_udp_enabled() {
+    [ "$(z2k_ow_tg_cfg Z2K_TG_UDP_RELAY 1 2>/dev/null)" = "1" ]
+}
+
 _json_field() {
     sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" "$2" 2>/dev/null | head -1
 }
 
 print_health() {
-    local issues="" nfq rules warp_on tg_pid
+    local issues="" nfq rules warp_on tg_pid tg_udp_state
     _add() { issues="$issues  [!] $1
 "; }
     if ! "$_init" running >/dev/null 2>&1; then
@@ -62,6 +66,10 @@ print_health() {
     [ -n "$tg_pid" ] || tg_pid=0
     if ! _tg_disabled && [ "$tg_pid" -lt 1 ] 2>/dev/null; then
         _add "Telegram tunnel: процесс :1443 не запущен"
+    fi
+    if _tg_udp_enabled; then
+        tg_udp_state=$(z2k_ow_tg_udp_state 2>/dev/null || printf 'unknown')
+        [ "$tg_udp_state" = "ready" ] || _add "Telegram UDP: состояние $tg_udp_state (трафик через UDP не подтверждён)"
     fi
     warp_on=$(_warp_enabled)
     if [ "$warp_on" = "1" ]; then
@@ -97,7 +105,7 @@ print_firewall() {
 }
 
 print_tunnel() {
-    local tg pid listeners
+    local tg pid listeners udp_state udp_pid marker pbr4 pbr6 nft_mark nft_fwd
     tg=$_bin/tg-mtproxy-client
     printf '\n=== telegram tunnel ===\n'
     if [ -x "$tg" ]; then
@@ -119,6 +127,34 @@ print_tunnel() {
         printf 'state              : ready\n'
     else
         printf 'state              : down\n'
+    fi
+    if _tg_udp_enabled; then
+        printf 'udp config         : enabled (Z2K_TG_UDP_RELAY=1)\n'
+        udp_state=$(z2k_ow_tg_udp_state 2>/dev/null || printf 'unknown')
+        udp_pid=$(_count_process 'tg-mtproxy-client.*--telegram-udp')
+        [ -n "$udp_pid" ] || udp_pid=0
+        printf 'udp process flag    : %s\n' "$udp_pid"
+        marker=absent
+        [ -f "$Z2K_TG_UDP_READY" ] && marker=present
+        printf 'udp ready marker    : %s (%s)\n' "$marker" "$Z2K_TG_UDP_READY"
+        if ip link show "$Z2K_TG_UDP_IF" >/dev/null 2>&1; then
+            printf 'udp interface       : %s (present)\n' "$Z2K_TG_UDP_IF"
+        else
+            printf 'udp interface       : %s (missing)\n' "$Z2K_TG_UDP_IF"
+        fi
+        pbr4=missing; pbr6=missing
+        _z2k_ow_tg_udp_rule_exact -4 2>/dev/null && pbr4=exact
+        _z2k_ow_tg_udp_rule_exact -6 2>/dev/null && pbr6=exact
+        printf 'udp PBR rules       : ipv4=%s ipv6=%s pref=%s mark=%s table=%s\n' \
+            "$pbr4" "$pbr6" "$Z2K_TG_UDP_PREF" "$Z2K_TG_UDP_MARK" "$Z2K_TG_UDP_TABLE"
+        nft_mark=absent; nft_fwd=absent
+        nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_mark >/dev/null 2>&1 && nft_mark=present
+        nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_fwd >/dev/null 2>&1 && nft_fwd=present
+        printf 'udp nft chains      : mark=%s forward=%s\n' "$nft_mark" "$nft_fwd"
+        printf 'udp state           : %s (ready means route/runtime observed; data transfer is not proven)\n' "$udp_state"
+    else
+        printf 'udp config         : disabled (Z2K_TG_UDP_RELAY!=1)\n'
+        printf 'udp state           : disabled\n'
     fi
 }
 

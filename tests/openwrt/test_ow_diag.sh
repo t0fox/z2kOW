@@ -43,7 +43,8 @@ assert_contains "adapter hook checks fastroute presence" "$AD" 'nf_conntrack_fas
 assert_contains "adapter hook uses canonical WARP status" "$AD" 'warp/status.json'
 assert_not_contains "adapter hook never prints WARP key" "$AD" 'WARP_PLUS_KEY'
 assert_not_contains "adapter hook never prints private key" "$AD" 'private_key'
-assert_contains "Makefile installs executable diag hook" "$MK" 'platform/openwrt/diag.sh $(1)/usr/lib/z2k/platform/openwrt/'
+assert_contains "Makefile installs executable diag hook from tree" "$MK" '$(Z2K_TREE)/platform/openwrt/diag.sh'
+assert_contains "Makefile installs diag hook into adapter path" "$MK" '$(1)/usr/lib/z2k/platform/openwrt/'
 assert_contains "ownership map has diag hook" "$OWN" '/usr/lib/z2k/platform/openwrt/diag.sh package'
 
 _t_done

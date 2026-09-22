@@ -21,6 +21,7 @@ if [ "\$1" = "list" ] && [ "\$2" = "set" ]; then
     case "\$5" in
         z2k_tg_dc6) echo 'set z2k_tg_dc6 { elements = { 2001:67c:4e8::/48, 2001:b28:f23c::/47, 2001:b28:f23f::/48, 2a0a:f280:203::/48 } }' ;;
         z2k_tg_cdn4) echo 'set z2k_tg_cdn4 { elements = { 168.119.95.238 } }' ;;
+        z2k_tg_udp_dc4|z2k_tg_udp_dc6) exit 1 ;;
         *) echo 'set z2k_tg_dc4 { elements = { 149.154.160.0/20, 91.108.4.0/22, 91.108.8.0/22, 91.108.12.0/22, 91.108.16.0/22, 91.108.20.0/22, 91.108.56.0/22, 91.105.192.0/23, 95.161.64.0/20, 185.76.151.0/24 } }' ;;
     esac
     exit 0
@@ -30,6 +31,7 @@ if [ "\$1" = "list" ] && [ "\$2" = "chain" ]; then
         z2k_tg_dst_pre|z2k_tg_dst_out) echo 'tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443'; echo 'tcp dport 80 ip daddr @z2k_tg_cdn4 redirect to :1444' ;;
         z2k_tg_flt_fwd|z2k_tg_flt_out) echo 'ip6 daddr @z2k_tg_dc6 tcp dport { 80, 443 } reject with icmpv6 port-unreachable' ;;
         z2k_tg_flt_in) echo 'tcp dport { 1443, 1444 } ct status dnat accept'; echo 'tcp dport { 1443, 1444 } drop' ;;
+        z2k_tg_udp_mark|z2k_tg_udp_fwd) exit 1 ;;
     esac
     exit 0
 fi
@@ -61,7 +63,7 @@ exit 0
 EOF
 chmod +x "$T/root/bin/tg-mtproxy-client"
 printf 'x\n' > "$T/root/etc/z2k-roots.pem"
-printf 'ENABLED=1\n' > "$T/etc/config"
+printf 'ENABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_BIN="$T/root/bin" Z2K_RUN="$T/tmp/runtime" Z2K_LOG="$T/tmp/logs"
@@ -80,7 +82,7 @@ _z2k_ow_tg_kill() { echo "kill:$*" >> "$T/kill.log"; return 0; }
 _reset() {
     : > "$T/nft.log"; : > "$T/conntrack.log"; : > "$T/procd.log"
     : > "$T/kill.log"; : > "$T/curl.log"
-    printf 'ENABLED=1\n' > "$T/etc/config"
+    printf 'ENABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
     rm -f "$T/no-table"; rm -rf "$T/tmp/tg-health"
     printf '\n' > "$T/pidof.out"; printf '0\n' > "$T/curl.rc"
     chmod +x "$T/root/bin/tg-mtproxy-client"
@@ -98,7 +100,7 @@ assert_eq "TG1: сетов 3" "3" "$(grep -c '^nft:add element' "$T/nft.log")"
 
 # --- TG2: user-disable: нет процесса, нет правил ---
 _reset
-printf 'ENABLED=1\nTG_PROXY_USER_DISABLED=1\n' > "$T/etc/config"
+printf 'ENABLED=1\nTG_PROXY_USER_DISABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
 z2k_ow_tg 1
 assert_eq "TG2: instance нет" "0" "$(grep -c '^instance:' "$T/procd.log")"
 assert_eq "TG2: правил нет" "0" "$(grep -c '^nft:add rule' "$T/nft.log")"
@@ -199,7 +201,7 @@ assert_eq "TG14: успех чистит fails" "0" "$([ -f "$T/tmp/tg-health/fa
 _reset
 printf '4242\n' > "$T/pidof.out"
 z2k_ow_tg check >/dev/null 2>&1
-printf 'ENABLED=1\nTG_PROXY_USER_DISABLED=1\n' > "$T/etc/config"
+printf 'ENABLED=1\nTG_PROXY_USER_DISABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
 z2k_ow_tg check
 assert_contains "TG15: процесс добит" "$T/kill.log" "kill:4242"
 assert_contains "TG15: chains сняты" "$T/nft.log" "delete chain inet zapret2 z2k_tg_dst_pre"

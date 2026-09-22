@@ -717,6 +717,16 @@ jobs:
           [ "$fail" = "0" ] || exit 1
           echo "mtproxy-client: сборка детерминирована (сверка с реальным отгруженным секретом всё ещё не идёт — решение об Actions secret за владельцем)"
 
+      - name: mtproxy-client — help does not reveal an injected secret
+        run: |
+          set -eu
+          # Build-time credentials must never become flag defaults: Go prints
+          # non-empty defaults in --help. A harmless sentinel proves the path
+          # without placing a real credential in CI logs.
+          cd mtproxy-client
+          go test -count=1 -run '^TestBuildInjectedTunnelSecretIsNotPrintedInHelp$' \
+            -ldflags='-X main.defaultTunnelSecret=z2k-ci-secret-help-canary' .
+
   lua-check:
     name: Luacheck
     runs-on: ubuntu-latest

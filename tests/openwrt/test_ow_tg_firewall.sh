@@ -45,7 +45,7 @@ exit 0
 EOF
 chmod +x "$T/root/bin/tg-mtproxy-client"
 printf 'x\n' > "$T/root/etc/z2k-roots.pem"
-printf 'ENABLED=1\n' > "$T/etc/config"
+printf 'ENABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_BIN="$T/root/bin" Z2K_RUN="$T/tmp/runtime" Z2K_LOG="$T/tmp/logs"
@@ -58,11 +58,12 @@ export Z2K_TG_HEALTH_DIR="$T/tmp/tg-health"
 z2k_ow_tg_wanted && _t_ok || _t_bad "wanted при всём хорошем"
 printf 'ENABLED=0\n' > "$T/etc/config"
 z2k_ow_tg_wanted && _t_bad "wanted при ENABLED=0" || _t_ok
-printf 'ENABLED=1\nTG_PROXY_USER_DISABLED=1\n' > "$T/etc/config"
+printf 'ENABLED=1\nTG_PROXY_USER_DISABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
 z2k_ow_tg_wanted && _t_bad "wanted при user-disable" || _t_ok
-printf 'ENABLED=1\n' > "$T/etc/config"
-chmod -x "$T/root/bin/tg-mtproxy-client"
+printf 'ENABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
+rm -f "$T/root/bin/tg-mtproxy-client"
 z2k_ow_tg_wanted && _t_bad "wanted без бинарника" || _t_ok
+printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/tg-mtproxy-client"
 chmod +x "$T/root/bin/tg-mtproxy-client"
 
 # --- nft apply: точные shapes ---
@@ -169,14 +170,14 @@ if grep -q 'tunnel-secret' "$T/argv.log"; then
 else
     _t_ok
 fi
-printf 'ENABLED=1\nZ2K_RELAY_SECRET=abc123\nZ2K_RELAY_URL=wss://example.test/ws\n' > "$T/etc/config"
+printf 'ENABLED=1\nZ2K_TG_UDP_RELAY=0\nZ2K_RELAY_SECRET=abc123\nZ2K_RELAY_URL=wss://example.test/ws\n' > "$T/etc/config"
 : > "$T/argv.log"
 _out="$(z2k_ow_tg_with_argv _rec 2>"$T/argv.err")"
 assert_contains "override secret" "$T/argv.log" "--tunnel-secret=abc123"
 assert_contains "override url" "$T/argv.log" "--tunnel-url=wss://example.test/ws"
 assert_eq "builder молчит в stdout" "" "$_out"
 assert_eq "builder молчит в stderr" "" "$(cat "$T/argv.err")"
-printf 'ENABLED=1\n' > "$T/etc/config"
+printf 'ENABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
 
 # --- TLS env через stub-procd ---
 procd_open_instance() { echo "instance:$1" >> "$T/procd.log"; }

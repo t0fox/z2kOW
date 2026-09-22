@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=52
+PKG_RELEASE:=53
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -104,6 +104,9 @@ PKG_RELEASE:=52
 # RELEASE 52: include the OpenWrt WARP API and renderer in the embedded panel
 # compatibility witness; stale updater-owned WebUI bytes must not hide
 # route_ready/state behind an apparently compatible payload.
+# RELEASE 53: p-85.8 Telegram UDP-v1 transport on OpenWrt: the common client
+# owns the authenticated WSS/TUN session; this package owns only the nft/PBR
+# route-helper seam and persistent UDP feature default.
 # RELEASE 31: converge stale updater-owned panel payload from an embedded CI
 # snapshot through the existing verified reinstall path; production packages
 # fail closed with an explicit panel-payload incompatibility.
@@ -174,7 +177,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r52)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r53)
 endef
 
 define Package/z2k-webpanel/description
@@ -226,6 +229,7 @@ define Package/z2k-adapter/install
 	$(INSTALL_DIR) $(1)/etc/init.d $(1)/etc/hotplug.d/iface
 	$(INSTALL_DIR) $(1)/usr/share/nftables.d/chain-pre/forward
 	$(INSTALL_DATA) ./files/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft $(1)/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft
+	$(INSTALL_DATA) ./files/usr/share/nftables.d/chain-pre/forward/90-z2k-tg-udp.nft $(1)/usr/share/nftables.d/chain-pre/forward/90-z2k-tg-udp.nft
 	$(INSTALL_DIR) $(1)/etc/sysctl.d
 	$(INSTALL_DATA) ./files/etc/sysctl.d/99-z2k.conf $(1)/etc/sysctl.d/99-z2k.conf
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/platform/openwrt/custom.d
@@ -262,7 +266,8 @@ define Package/z2k-adapter/install
 		$(Z2K_TREE)/platform/openwrt/rt-check.sh $(Z2K_TREE)/platform/openwrt/rt-proc.sh \
 		$(Z2K_TREE)/platform/openwrt/warp.sh $(Z2K_TREE)/platform/openwrt/warp-proc.sh \
 		$(Z2K_TREE)/platform/openwrt/warp-check.sh $(Z2K_TREE)/platform/openwrt/fw-check.sh \
-		$(Z2K_TREE)/platform/openwrt/diag.sh $(1)/usr/lib/z2k/platform/openwrt/
+		$(Z2K_TREE)/platform/openwrt/diag.sh $(Z2K_TREE)/platform/openwrt/tg-udp-route.sh \
+		$(1)/usr/lib/z2k/platform/openwrt/
 	sh $(Z2K_TREE)/package/openwrt/make-seed.sh $(Z2K_TREE) $(PKG_BUILD_DIR)/seed.tar.gz
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/seed.tar.gz $(1)/usr/lib/z2k/share/seed.tar.gz
 endef

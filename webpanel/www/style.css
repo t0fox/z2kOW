@@ -2763,6 +2763,50 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 select option { background-color: var(--bg-card); color: var(--text); }
 /* Raw checkboxes (the .switch toggles hide their own, so this is a noop there). */
 input[type="checkbox"] { accent-color: var(--accent); }
+
+/* Whitelist/extra-domains: compact bulk editor. Keep selection separate from
+   destructive actions and text edits, while using the same panel tokens. */
+#wl-card > h3 { margin-bottom: 6px; }
+#wl-card > .desc { margin-bottom: 6px; }
+#wl-card > .wl-add { margin-top: 6px; }
+.wl-tools, .wl-selection, .wl-actions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+}
+.wl-tools { margin-top: 10px; align-items: end; }
+.wl-search { flex: 1; min-width: 180px; }
+.wl-search input { width: 100%; max-width: none; }
+.wl-selection { margin-top: 8px; padding: 6px 0; border-top: 1px solid var(--border); }
+.wl-selection [role="status"] { color: var(--text-muted); font-size: 13px; margin-left: auto; }
+.wl-actions .wl-danger { color: var(--bad); }
+.wl-bulk-list .wl-row { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; cursor: pointer; padding: 4px 0; }
+.wl-row span { overflow-wrap: anywhere; min-width: 0; }
+.wl-row input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--accent); margin: 0; }
+.wl-bulk-list li:has(input:checked) { background: var(--accent-alpha-soft, rgba(45,212,191,.08)); }
+.wl-bulk-list button { min-width: 36px; min-height: 36px; }
+.wl-tip { margin-top: 8px; font-size: 12px; }
+.wl-empty { color: var(--text-muted); }
+.wl-error { color: var(--bad); overflow-wrap: anywhere; margin: 12px 0; }
+.wl-editor { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.wl-editor textarea { width: 100%; max-width: none; min-height: 240px; resize: vertical; font-family: var(--font-mono); font-size: 14px; line-height: 1.6; }
+.wl-editor .wl-actions { margin-top: 12px; }
+@media (max-width: 600px) {
+  .wl-tools { align-items: stretch; }
+  .wl-search { flex-basis: 100%; }
+  .wl-tools .btn, .wl-actions .btn { flex: 1 1 auto; min-height: 44px; }
+  .wl-selection [role="status"] { flex-basis: 100%; margin-left: 0; }
+  .wl-bulk-list .wl-row { min-height: 36px; }
+}
+.wl-search input, .wl-editor textarea {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px 12px;
+}
+.wl-search input { font-family: inherit; font-size: 14px; line-height: normal; min-height: 0; padding: 8px 12px; }
+.wl-search input:focus-visible, .wl-editor textarea:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+@media (max-width: 600px) {
+  .wl-search input, .wl-editor textarea { font-size: 16px; }
+}
 /* Rotator «Стратегия» select: same width on every row regardless of value. */
 .state-strat-sel { min-width: 58px; }
 

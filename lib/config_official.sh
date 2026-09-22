@@ -1981,6 +1981,7 @@ create_official_config() {
     # Сохранить пользовательские настройки из существующего конфига
     local saved_GAME_WARP_ENABLED="0"
     local saved_TG_PROXY_USER_DISABLED="0"
+    local saved_Z2K_TG_UDP_RELAY="1"
     local saved_ENABLED="1"
     local saved_Z2K_CIRCULAR_RESET="1"
     local saved_Z2K_DISCORD_UPDATE_TLS_TIMEOUT="1"
@@ -2029,6 +2030,7 @@ create_official_config() {
     if [ -f "$config_file" ]; then
         saved_GAME_WARP_ENABLED=$(safe_config_read "GAME_WARP_ENABLED" "$config_file" "0")
         saved_TG_PROXY_USER_DISABLED=$(safe_config_read "TG_PROXY_USER_DISABLED" "$config_file" "0")
+        saved_Z2K_TG_UDP_RELAY=$(safe_config_read "Z2K_TG_UDP_RELAY" "$config_file" "1")
         # ENABLED — master service on/off gate (read by S99zapret2.new start()).
         # Was hardcoded =1 below and NOT preserved, so a user who stopped the
         # service (ENABLED=0) saw it resurrected by the next config regen
@@ -2400,6 +2402,10 @@ GAME_WARP_ENABLED=${saved_GAME_WARP_ENABLED}
 # Preserved across reinstall так что step_finalize autostart не воскрешал
 # daemon, который юзер явно остановил.
 TG_PROXY_USER_DISABLED=${saved_TG_PROXY_USER_DISABLED}
+
+# Telegram server UDP forwarding through the separate authenticated WSS/TUN.
+# 0 disables only the UDP leg; the existing TCP tunnel remains independent.
+Z2K_TG_UDP_RELAY=${saved_Z2K_TG_UDP_RELAY}
 
 # RST ретрансмиттеру после фиксации неудачи ротатором (аргумент reset у
 # circular, документация nfqws2). 1 — включено; 0 — откат, если на линии

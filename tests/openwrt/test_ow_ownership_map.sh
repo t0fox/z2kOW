@@ -41,6 +41,7 @@ while IFS= read -r _line; do
         /etc/init.d/z2k-webpanel) _src="package/openwrt/files/etc/init.d/z2k-webpanel" ;;
         /etc/sysctl.d/99-z2k.conf) _src="package/openwrt/files/etc/sysctl.d/99-z2k.conf" ;;
         /usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft) _src="package/openwrt/files/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft" ;;
+        /usr/share/nftables.d/chain-pre/forward/90-z2k-tg-udp.nft) _src="package/openwrt/files/usr/share/nftables.d/chain-pre/forward/90-z2k-tg-udp.nft" ;;
         /etc/hotplug.d/iface/90-z2k) _src="package/openwrt/files/etc/hotplug.d/iface/90-z2k" ;;
         /usr/lib/z2k/platform/openwrt/custom.d/*) _src="platform/openwrt/custom.d" ;;
         /usr/lib/z2k/platform/openwrt/*) _src="platform/openwrt/$(basename "$1")" ;;
