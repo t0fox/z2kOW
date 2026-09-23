@@ -24,8 +24,8 @@ var defaultTunnelSecret = ""
 var buildVersion = "dev"
 
 var (
-	listenAddrs  listenList
-	tunnelURL    = flag.String("tunnel-url", "wss://213.176.74.63.nip.io/ws", "Tunnel relay WebSocket URL")
+	listenAddrs listenList
+	tunnelURL   = flag.String("tunnel-url", "wss://213.176.74.63.nip.io/ws", "Tunnel relay WebSocket URL")
 	// Never use the build-injected secret as the flag default: Go's standard
 	// help renderer prints every non-empty default. Apply it only after Parse.
 	tunnelSecret = flag.String("tunnel-secret", "", "Shared secret for tunnel auth (build-injected; override with --tunnel-secret)")
