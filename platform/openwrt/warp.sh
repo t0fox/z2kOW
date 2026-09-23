@@ -34,6 +34,9 @@ WARP_REG_STAMP="${WARP_REG_STAMP:-${Z2K_TMP:-/tmp/z2k}/warp/register.stamp}"
 # после reboot записи нет, и это корректно (PBR тоже нет).
 WARP_PBR_OWNER="${WARP_PBR_OWNER:-${Z2K_TMP:-/tmp/z2k}/warp/pbr.owner}"
 WARP_PROBE_OWNER="${WARP_PROBE_OWNER:-${Z2K_TMP:-/tmp/z2k}/warp/probe-route.owner}"
+WARP_PROCD_INSTANCE_FILE="${WARP_PROCD_INSTANCE_FILE:-${Z2K_TMP:-/tmp/z2k}/warp/procd-instance}"
+WARP_PROCD_RECOVERY_FILE="${WARP_PROCD_RECOVERY_FILE:-${Z2K_TMP:-/tmp/z2k}/warp/procd-recovery-attempt}"
+WARP_PROCD_REBUILD_FILE="${WARP_PROCD_REBUILD_FILE:-${Z2K_TMP:-/tmp/z2k}/warp/procd-rebuild-in-progress}"
 WARP_LISTS_DIR="${WARP_LISTS_DIR:-${Z2K_ETC:-/etc/z2k}/user-lists/warp}"
 # The updater owns the per-game tree under the shipped WARP namespace.  Keep
 # the runtime default aligned with z2k-update-lists.sh and the package layout;
@@ -870,7 +873,7 @@ warp_start_instance() {
         echo "z2k-openwrt: warp: нет procd-контекста (только из start_service)" >&2
         return 1
     }
-    local _proxy
+    local _proxy _regtmp
     _proxy="$(warp_cfg Z2K_WARP_VPS_PROXY "")"
     [ -n "$_proxy" ] || _proxy="$WARP_VPS_PROXY_DEFAULT"
     procd_open_instance "z2k-warp"
@@ -899,6 +902,18 @@ warp_start_instance() {
     procd_set_param stdout 1
     procd_set_param stderr 1
     procd_close_instance
+    # Remember that this boot registered the optional procd instance. If the
+    # startup mutation lock prevented this call, the existing WARP tick can
+    # distinguish that case from a process crash (which procd respawns itself).
+    _regtmp="${WARP_PROCD_INSTANCE_FILE}.new.$$"
+    if mkdir -p "$(dirname "$WARP_PROCD_INSTANCE_FILE")" 2>/dev/null &&
+        printf 'registered\n' > "$_regtmp" 2>/dev/null &&
+        mv -f "$_regtmp" "$WARP_PROCD_INSTANCE_FILE" 2>/dev/null; then
+        rm -f "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null
+    else
+        rm -f "$_regtmp" 2>/dev/null
+        _wlog "не удалось записать маркер регистрации procd WARP"
+    fi
     _z2k_ow_warp_mut "PROCESS_ACTION: instance z2k-warp opened"
     return 0
 }
@@ -1347,6 +1362,7 @@ _z2k_ow_service_running() {
 warp_enable() {
     local _was_enabled _need_rebuild
     warp_op_current || { warp_op_superseded; return 3; }
+    rm -f "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null
     _was_enabled="$(warp_flag)"
     warp_set_flag 1
     warp_unpin_legacy
@@ -1403,12 +1419,18 @@ _z2k_ow_warp_service_reload() {
 # z2k_ow_warp lifecycle calls can acquire it; the caller regains ownership
 # before it proceeds to readiness/PBR checks.
 _z2k_ow_warp_service_rebuild() {
-    local _held=0 _owner=""
+    local _held=0 _owner="" _recovery_rebuild=0
     _z2k_ow_service_running || return 0
     _owner=$(cat "$WARP_LOCK_DIR/pid" 2>/dev/null)
     [ "$_owner" = "$$" ] && _held=1
     [ "$_held" = "1" ] && _z2k_ow_warp_unlock
+    [ -e "$WARP_PROCD_RECOVERY_FILE" ] && _recovery_rebuild=1
+    if [ "$_recovery_rebuild" = "1" ]; then
+        mkdir -p "$(dirname "$WARP_PROCD_REBUILD_FILE")" 2>/dev/null || true
+        : > "$WARP_PROCD_REBUILD_FILE" 2>/dev/null || true
+    fi
     _z2k_ow_warp_service_restart
+    [ "$_recovery_rebuild" = "1" ] && rm -f "$WARP_PROCD_REBUILD_FILE" 2>/dev/null
     if [ "$_held" = "1" ]; then
         _z2k_ow_warp_lock "${WARP_LOCK_WAIT:-30}" || return 1
         warp_op_current || { warp_op_superseded; return 3; }
@@ -1421,6 +1443,7 @@ warp_disable() {
     # Порядок (defect 1): PBR down ПЕРВЫМ -> clears -> flag 0 -> reconcile.
     # Reload при flag=1 пересоздал бы instance (окно "выключен, но работает").
     warp_op_current || { warp_op_superseded; return 3; }
+    rm -f "$WARP_PROCD_INSTANCE_FILE" "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null
     warp_unpin_legacy
     _was_running=0
     warp_running && _was_running=1
@@ -1454,6 +1477,7 @@ warp_restart() {
     if [ "$(warp_flag)" != "1" ]; then
         return 0
     fi
+    rm -f "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null
     warp_pbr_down >/dev/null 2>&1 || true
     if warp_running; then
         for _p in $(warp_pids); do _z2k_ow_warp_kill "$_p"; done
@@ -1626,7 +1650,10 @@ _z2k_ow_warp_dispatch() {
             # Boot converge: sets + instance; PBR — только если proven ready
             # (на старте почти surely нет; tick доведёт). Boot никогда не
             # валит сервис: sets-load провален -> тихо, tick повторит.
-            warp_wanted_boot || return 0
+            if ! warp_wanted_boot; then
+                rm -f "$WARP_PROCD_INSTANCE_FILE" "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null
+                return 0
+            fi
             warp_nft_sets_load >/dev/null 2>&1 || return 0
             warp_nft_rules_apply >/dev/null 2>&1 || return 0
             warp_start_instance >/dev/null 2>&1 || return 0
@@ -1636,6 +1663,10 @@ _z2k_ow_warp_dispatch() {
             ;;
         0)
             # Full stop: PBR down ПЕРВЫМ, затем chains; процесс — через procd.
+            rm -f "$WARP_PROCD_INSTANCE_FILE" 2>/dev/null
+            # Keep the one-shot latch only while this stop belongs to the
+            # automatic recovery restart; an ordinary stop/start starts fresh.
+            [ -e "$WARP_PROCD_REBUILD_FILE" ] || rm -f "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null
             warp_pbr_down >/dev/null 2>&1 || true
             warp_nft_remove >/dev/null 2>&1 || true
             ;;
@@ -1804,6 +1835,24 @@ z2k_ow_warp_check() {
     if ! warp_running; then
         warp_note_death
         _warp_converge_off keep
+        # A registered process crash is procd's bounded-respawn domain. Only
+        # repair a missing instance registration, and latch the single repair
+        # attempt before releasing our mutation lock for init restart. This
+        # cannot become a second watchdog or resurrect an intentionally
+        # stopped service: both desired state and owning-service activity are
+        # required, and explicit stop clears the registration marker.
+        if [ ! -e "$WARP_PROCD_INSTANCE_FILE" ] &&
+            [ ! -e "$WARP_PROCD_RECOVERY_FILE" ] &&
+            _z2k_ow_service_running; then
+            mkdir -p "$(dirname "$WARP_PROCD_RECOVERY_FILE")" 2>/dev/null || return 0
+            printf 'attempted %s\n' "$(date +%s 2>/dev/null || echo 0)" > "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null || return 0
+            _wlog "нет регистрации z2k-warp в procd — одна попытка восстановления сервиса"
+            if _z2k_ow_warp_service_rebuild && [ -e "$WARP_PROCD_INSTANCE_FILE" ]; then
+                _warp_wait_and_pbr >/dev/null 2>&1 || true
+            else
+                _wlog "восстановление регистрации z2k-warp не подтверждено; повторов до явного restart нет"
+            fi
+        fi
         return 0
     fi
     if _warp_proven_ready; then

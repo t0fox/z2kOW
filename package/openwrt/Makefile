@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=54
+PKG_RELEASE:=55
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -109,6 +109,9 @@ PKG_RELEASE:=54
 # route-helper seam and persistent UDP feature default.
 # RELEASE 54: pass the Telegram UDP route helper and readiness marker through
 # one complete procd environment block so the negotiated tunnel reaches ready.
+# RELEASE 55: recover one missing WARP procd-instance registration through
+# the existing bounded lifecycle tick without adding another watchdog or
+# disturbing procd's bounded respawn for registered crashes.
 # RELEASE 31: converge stale updater-owned panel payload from an embedded CI
 # snapshot through the existing verified reinstall path; production packages
 # fail closed with an explicit panel-payload incompatibility.
@@ -179,7 +182,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r54)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r55)
 endef
 
 define Package/z2k-webpanel/description
