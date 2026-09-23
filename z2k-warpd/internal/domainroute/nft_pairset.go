@@ -103,6 +103,11 @@ func (s *nftPairSet) update(changes []Change, now time.Time, replace bool) error
 			operations[key] = operation{delete: true}
 			continue
 		}
+		if expiry, ok := current[key]; ok && expiry.After(now) && expiry.Equal(change.Expiry) {
+			// Repeated observation of the same still-live mapping must not
+			// delete and re-add an identical nft element.
+			continue
+		}
 		next[key] = change.Expiry
 		operations[key] = operation{expiry: change.Expiry}
 	}

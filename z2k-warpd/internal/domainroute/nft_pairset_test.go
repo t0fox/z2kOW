@@ -127,7 +127,7 @@ func TestOpenWrtNFTPairSetEnvironmentFailsClosedAndDispatches(t *testing.T) {
 	t.Setenv("Z2K_WARP_DOMAIN_NFT_TABLE", "zapret2")
 	t.Setenv("Z2K_WARP_DOMAIN_NFT_SET", "z2k_warp_domain4")
 	log := filepath.Join(t.TempDir(), "nft-input.log")
-	stub := "#!/bin/sh\nif [ \"$1\" = list ]; then printf 'set z2k_warp_domain4 comment \\\"z2k WARP DNS pairs\\\"\\n'; exit 0; fi\ncat >> \"$NFT_CAPTURE\"\n"
+	stub := "#!/bin/sh\nif [ \"$1\" = list ]; then printf 'set z2k_warp_domain4 comment \"z2k WARP DNS pairs\"\\n'; exit 0; fi\ncat >> \"$NFT_CAPTURE\"\n"
 	if err := os.WriteFile(os.Getenv("Z2K_WARP_DOMAIN_NFT"), []byte(stub), 0700); err != nil {
 		t.Fatal(err)
 	}

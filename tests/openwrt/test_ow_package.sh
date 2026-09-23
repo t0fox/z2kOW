@@ -25,6 +25,11 @@ assert_contains "diagnostics helper has one package owner" "$REPO/package/openwr
     "/usr/lib/z2k/z2k-diag.sh package"
 assert_contains "adapter resolves TUN and OpenSSL dependencies" "$MK" \
     "DEPENDS:=+kmod-nft-queue +kmod-tun +kmod-nfnetlink-log +conntrack +openssl-util +z2k-zapret2-runtime +z2k-warp-runtime"
+WARP_MK="$REPO/package/z2k-warp-runtime/Makefile"
+assert_contains "WARP runtime stages its local WireGuard replacement" "$WARP_MK" \
+    '$(CP) -a $(Z2K_TREE)/z2k-warpd/third_party $(PKG_BUILD_DIR)/src/'
+assert_file "WARP local WireGuard replacement has its module file" \
+    "$REPO/z2k-warpd/third_party/wireguard/go.mod"
 # Stage 6: опциональный сабпакет панели (зависимость + свой init, без payload).
 assert_contains "webpanel subpackage" "$MK" "Package/z2k-webpanel"
 assert_contains "webpanel BuildPackage" "$MK" "BuildPackage,z2k-webpanel"

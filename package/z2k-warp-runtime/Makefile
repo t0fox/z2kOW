@@ -34,6 +34,7 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)/src/openwrt-overlay
 	$(CP) $(Z2K_TREE)/z2k-warpd/go.mod $(Z2K_TREE)/z2k-warpd/go.sum $(PKG_BUILD_DIR)/src/
 	$(CP) -a $(Z2K_TREE)/z2k-warpd/cmd $(Z2K_TREE)/z2k-warpd/internal $(PKG_BUILD_DIR)/src/
+	$(CP) -a $(Z2K_TREE)/z2k-warpd/third_party $(PKG_BUILD_DIR)/src/
 	$(CP) $(Z2K_TREE)/z2k-warpd/openwrt-overlay/overlay.json $(Z2K_TREE)/z2k-warpd/openwrt-overlay/go.mod $(PKG_BUILD_DIR)/src/openwrt-overlay/
 	$(CP) $(Z2K_TREE)/z2k-warpd/openwrt-overlay/ipset.go $(PKG_BUILD_DIR)/src/openwrt-overlay/
 endef
