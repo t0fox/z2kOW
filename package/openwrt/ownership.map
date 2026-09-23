@@ -19,6 +19,9 @@
 #   daemon-state — публикует runtime (+ правит человек): autocircular state,
 #              sni/tcp16 карты. Переживает всё (upgrade/update/
 #              uninstall); purge — только вручную.
+#   runtime — воспроизводимый OpenWrt compatibility entrypoint, создаваемый
+#              только пока нужная внешняя legacy ABI активна; uninstall
+#              удаляет его только при точном совпадении с package source.
 # Допускаются glob-суффиксы /* (поддерево целиком).
 # Конфликт package∩updater (точные пути) = PACKAGE_UPDATER_OWNERSHIP_CONFLICT,
 # сторожит tests/openwrt/test_ow_ownership_map.sh.
@@ -47,6 +50,9 @@
 /usr/lib/z2k/platform/openwrt/tg.sh package
 /usr/lib/z2k/platform/openwrt/tg-check.sh package
 /usr/lib/z2k/platform/openwrt/tg-udp-route.sh package
+/usr/lib/z2k/platform/openwrt/tg-udp-legacy-shell package
+/opt/bin/sh runtime
+/opt/bin/.z2k-tg-udp-legacy-shell-dir-owned runtime
 /usr/lib/z2k/platform/openwrt/rt.sh package
 /usr/lib/z2k/platform/openwrt/rt-proc.sh package
 /usr/lib/z2k/platform/openwrt/rt-check.sh package

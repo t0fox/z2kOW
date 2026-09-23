@@ -67,6 +67,8 @@ Z2K_TG_UDP_PREF="${Z2K_TG_UDP_PREF:-89}"
 # adapter and watchdog consume the same marker; do not pass private CLI flags
 # which are not present in the released binary.
 Z2K_TG_UDP_READY="${Z2K_TG_UDP_READY:-/tmp/z2k-log/tg-udp.ready}"
+Z2K_TG_UDP_LEGACY_SHELL="${Z2K_TG_UDP_LEGACY_SHELL:-/opt/bin/sh}"
+Z2K_TG_UDP_LEGACY_SOURCE="${Z2K_TG_UDP_LEGACY_SOURCE:-${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/tg-udp-legacy-shell}"
 
 # Чтение флага из $Z2K_CONFIG без сорсинга (cron/hotplug-контексты).
 # $1 key, $2 default.
@@ -537,6 +539,85 @@ z2k_ow_tg_udp_state() {
     fi
 }
 
+# p-85.8 ships a secret-bearing client binary whose UDP route fallback is
+# hard-coded to /opt/bin/sh. Newer source supports Z2K_TG_UDP_ROUTE_HELPER,
+# but the installed artifact may predate that seam. Materialize the narrow
+# compatibility shell only when the binary lacks the env-override string;
+# never overwrite an existing path and remove only byte-identical owned files.
+z2k_ow_tg_legacy_abi_install() {
+    local _source="$Z2K_TG_UDP_LEGACY_SOURCE" _target="$Z2K_TG_UDP_LEGACY_SHELL"
+    local _parent="${Z2K_TG_UDP_LEGACY_SHELL%/*}" _marker _tmp _made_parent=0
+    [ -x "$_source" ] || {
+        echo "z2k-openwrt: Telegram UDP legacy helper is missing" >&2
+        return 1
+    }
+    if [ -e "$_target" ] || [ -L "$_target" ]; then
+        if [ -f "$_target" ] && [ ! -L "$_target" ] && cmp -s "$_source" "$_target"; then
+            return 0
+        fi
+        echo "z2k-openwrt: refusing to replace existing $_target" >&2
+        return 1
+    fi
+    if [ -L "$_parent" ] || { [ -e "$_parent" ] && [ ! -d "$_parent" ]; }; then
+        echo "z2k-openwrt: refusing non-directory Telegram legacy shell parent $_parent" >&2
+        return 1
+    fi
+    if [ ! -d "$_parent" ]; then
+        mkdir -p "$_parent" || return 1
+        _made_parent=1
+        _marker="$_parent/.z2k-tg-udp-legacy-shell-dir-owned"
+        printf '%s\n' 'z2k-openwrt: created for Telegram UDP legacy ABI' > "$_marker" || {
+            rmdir "$_parent" 2>/dev/null || true
+            return 1
+        }
+    else
+        _marker="$_parent/.z2k-tg-udp-legacy-shell-dir-owned"
+    fi
+    _tmp="$_parent/.z2k-tg-udp-legacy-shell.$$"
+    if [ -e "$_tmp" ] || [ -L "$_tmp" ] || ! install -m 0755 "$_source" "$_tmp"; then
+        [ "$_made_parent" = 1 ] && { rm -f "$_marker"; rmdir "$_parent" 2>/dev/null || true; }
+        return 1
+    fi
+    # Hard-link creation is atomic and fails rather than replacing a file that
+    # appeared concurrently after the initial ownership check.
+    if ln "$_tmp" "$_target" 2>/dev/null; then
+        rm -f "$_tmp"
+        return 0
+    fi
+    rm -f "$_tmp"
+    if [ -f "$_target" ] && [ ! -L "$_target" ] && cmp -s "$_source" "$_target"; then
+        return 0
+    fi
+    [ "$_made_parent" = 1 ] && { rm -f "$_marker"; rmdir "$_parent" 2>/dev/null || true; }
+    echo "z2k-openwrt: Telegram legacy shell path was claimed concurrently" >&2
+    return 1
+}
+
+z2k_ow_tg_legacy_abi_remove() {
+    local _source="$Z2K_TG_UDP_LEGACY_SOURCE" _target="$Z2K_TG_UDP_LEGACY_SHELL"
+    local _parent="${Z2K_TG_UDP_LEGACY_SHELL%/*}" _marker
+    _marker="$_parent/.z2k-tg-udp-legacy-shell-dir-owned"
+    if [ -e "$_target" ] || [ -L "$_target" ]; then
+        if [ ! -f "$_target" ] || [ -L "$_target" ] || ! cmp -s "$_source" "$_target"; then
+            echo "z2k-openwrt: preserving non-owned Telegram legacy shell $_target" >&2
+            return 0
+        fi
+        rm -f "$_target" || return 1
+    fi
+    if [ -f "$_marker" ] && grep -Fxq 'z2k-openwrt: created for Telegram UDP legacy ABI' "$_marker"; then
+        rm -f "$_marker"
+        rmdir "$_parent" 2>/dev/null || true
+    fi
+    return 0
+}
+
+z2k_ow_tg_legacy_abi_prepare() {
+    if grep -aFq 'Z2K_TG_UDP_ROUTE_HELPER' "$Z2K_TG_BIN" 2>/dev/null; then
+        return 0
+    fi
+    z2k_ow_tg_legacy_abi_install
+}
+
 # Executed by the Go client's route helper. Keeping this as a separate
 # executable seam makes the common UDP transport testable without a router and
 # keeps all privileged OpenWrt operations in this adapter.
@@ -609,7 +690,18 @@ z2k_ow_tg_start_instance() {
 z2k_ow_tg() {
     case "${1:-}" in
         1)
-            z2k_ow_tg_wanted || return 0
+            if ! z2k_ow_tg_wanted; then
+                z2k_ow_tg_legacy_abi_remove || return 1
+                return 0
+            fi
+            if z2k_ow_tg_udp_wanted; then
+                z2k_ow_tg_legacy_abi_prepare || return 1
+            else
+                # The legacy entrypoint is needed only by the enabled UDP
+                # client. A service restart after toggling UDP off removes
+                # our exact runtime copy while preserving any foreign path.
+                z2k_ow_tg_legacy_abi_remove || return 1
+            fi
             z2k_ow_tg_nft_apply || return 1
             z2k_ow_tg_conntrack_flush
             z2k_ow_tg_start_instance || return 1
@@ -633,6 +725,7 @@ z2k_ow_tg() {
             # uninstall: всё убрать, никогда не валить удаление.
             z2k_ow_tg_udp_down || true
             z2k_ow_tg_nft_remove full || true
+            z2k_ow_tg_legacy_abi_remove || true
             return 0
             ;;
         check)

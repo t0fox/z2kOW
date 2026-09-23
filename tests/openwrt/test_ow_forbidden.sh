@@ -32,10 +32,13 @@ for _f in "$REPO"/platform/openwrt/*.sh \
           "$REPO"/package/openwrt/files/etc/init.d/z2k \
           "$REPO"/package/openwrt/files/etc/init.d/z2k-webpanel \
           "$REPO"/package/openwrt/files/etc/hotplug.d/iface/90-z2k; do
-    # Исключение: дефолт Z2K_ZAPRET2_RUNTIME=/opt/zapret2 — canonical base
-    # самого zapret2 (совпадает с его ZAPRET_BASE-дефолтом), не Keenetic-
-    # предположение; переопределяется окружением. Всё остальное /opt/* — баг.
-    _h="$(sed 's/#.*$//' "$_f" | grep -v 'Z2K_ZAPRET2_RUNTIME.*:-/opt/zapret2' \
+    # Узкие исключения: /opt/zapret2 — canonical runtime base самого
+    # zapret2; /opt/bin/sh — exact legacy ABI для установленного p-85.8
+    # клиента, создаётся только runtime при включённом UDP и никогда не
+    # кладётся APK прямо в /opt (это отдельно проверяет package test).
+    _h="$(sed 's/#.*$//' "$_f" \
+        | grep -v 'Z2K_ZAPRET2_RUNTIME.*:-/opt/zapret2' \
+        | grep -v 'Z2K_TG_UDP_LEGACY_SHELL=.*:-/opt/bin/sh}' \
         | grep -inE 'keenetic|S99|(^|[^a-zA-Z])PPE([^a-zA-Z]|$)|watchdog|tcp16-probe|Entware|/opt/|(^|[^a-zA-Z_])ndm([^a-zA-Z_]|$)' || true)"
     [ -n "$_h" ] && _bad="$_bad $(basename "$_f"):$_h"
 done

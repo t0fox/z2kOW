@@ -141,6 +141,53 @@ _default_marker=$( (
 assert_eq "watchdog default follows upstream readiness marker" "/tmp/z2k-log/tg-udp.ready" "$_default_marker"
 assert_contains "Go client accepts OpenWrt route-helper override" "$REPO/mtproxy-client/udp.go" 'os.Getenv("Z2K_TG_UDP_ROUTE_HELPER")'
 assert_contains "procd supplies OpenWrt route helper" "$REPO/platform/openwrt/tg.sh" 'Z2K_TG_UDP_ROUTE_HELPER=$Z2K_ROOT/platform/openwrt/tg-udp-route.sh'
+
+# The router's installed p-85.8 client predates the source-level env override
+# and falls back to the exact Keenetic /opt/bin/sh ABI. Exercise installation,
+# exact dispatch, foreign-path preservation and removal in a temporary root.
+_legacy_source="$REPO/platform/openwrt/tg-udp-legacy-shell"
+_legacy_shell="$T/opt/bin/sh"
+export Z2K_TG_UDP_LEGACY_SOURCE="$_legacy_source"
+export Z2K_TG_UDP_LEGACY_SHELL="$_legacy_shell"
+[ -x "$_legacy_source" ] && _t_ok || _t_bad "legacy Telegram UDP shell ABI source is executable"
+z2k_ow_tg_legacy_abi_prepare || _t_bad "legacy ABI prepare"
+[ -x "$_legacy_shell" ] && _t_ok || _t_bad "legacy ABI installed executable"
+assert_eq "legacy ABI directory marker" \
+    "z2k-openwrt: created for Telegram UDP legacy ABI" \
+    "$(cat "$T/opt/bin/.z2k-tg-udp-legacy-shell-dir-owned" 2>/dev/null)"
+z2k_ow_tg_legacy_abi_prepare || _t_bad "legacy ABI idempotent prepare"
+assert_eq "legacy ABI stays byte-identical" \
+    "$(sha256sum "$_legacy_source" | awk '{print $1}')" \
+    "$(sha256sum "$_legacy_shell" | awk '{print $1}')"
+cat > "$T/bin/legacy-route-helper" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$Z2K_TG_LEGACY_ROUTE_LOG"
+EOF
+chmod +x "$T/bin/legacy-route-helper"
+export Z2K_TG_UDP_ROUTE_HELPER="$T/bin/legacy-route-helper"
+export Z2K_TG_LEGACY_ROUTE_LOG="$T/legacy-route.log"
+_legacy_cmd='. /opt/zapret2/z2k-tg-redirect.sh; "z2k_tg_udp_$1"'
+"$_legacy_shell" -c "$_legacy_cmd" sh up || _t_bad "legacy ABI up dispatch"
+"$_legacy_shell" -c "$_legacy_cmd" sh down || _t_bad "legacy ABI down dispatch"
+assert_eq "legacy up maps to adapter ensure" "ensure" "$(sed -n '1p' "$T/legacy-route.log")"
+assert_eq "legacy down maps to adapter down" "down" "$(sed -n '2p' "$T/legacy-route.log")"
+_legacy_fallback=$("$_legacy_shell" -c 'printf "%s" "$1"' sh ordinary)
+assert_eq "legacy shell keeps ordinary -c semantics" "ordinary" "$_legacy_fallback"
+z2k_ow_tg_legacy_abi_remove || _t_bad "legacy ABI remove"
+assert_eq "legacy ABI owned shell removed" "0" "$([ -e "$_legacy_shell" ] && echo 1 || echo 0)"
+assert_eq "legacy ABI owned empty directory removed" "0" "$([ -d "$T/opt/bin" ] && echo 1 || echo 0)"
+
+# Never overwrite or delete a foreign shell at the historical path.
+mkdir -p "$T/foreign/opt/bin"
+printf '#!/bin/sh\nprintf foreign\n' > "$T/foreign/opt/bin/sh"
+chmod +x "$T/foreign/opt/bin/sh"
+Z2K_TG_UDP_LEGACY_SHELL="$T/foreign/opt/bin/sh" z2k_ow_tg_legacy_abi_install \
+    && _t_bad "legacy ABI overwrote a foreign shell" || _t_ok
+assert_eq "foreign shell content preserved" "foreign" \
+    "$("$T/foreign/opt/bin/sh")"
+Z2K_TG_UDP_LEGACY_SHELL="$T/foreign/opt/bin/sh" z2k_ow_tg_legacy_abi_remove || _t_bad "foreign shell cleanup"
+assert_eq "foreign shell survives cleanup" "1" "$([ -f "$T/foreign/opt/bin/sh" ] && echo 1 || echo 0)"
+
 printf 'ENABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
 : > "$T/argv.log"
 z2k_ow_tg_with_argv _argv

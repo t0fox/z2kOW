@@ -1,6 +1,7 @@
 #!/bin/sh
 # tests/openwrt/test_ow_tg_static.sh - Stage 3 Layer A: статика TG glue.
-# Никаких /opt, iptables/ipset/NDM, shell-supervisor'а, второго сервиса;
+# Никаких Keenetic /opt/* путей (кроме узкого p-85.8 ABI ниже),
+# iptables/ipset/NDM, shell-supervisor'а, второго сервиса;
 # один процесс на оба порта; ownership disjoint; секреты не печатаются.
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-tg-static"
@@ -19,11 +20,16 @@ assert_file "tg.sh существует" "$TG"
 assert_file "tg-check.sh существует" "$TGC"
 
 # Запреты проверяем по коду БЕЗ комментариев (в rationale можно упоминать
-# iptables/set -x словами; исполнять — нельзя).
+# iptables/set -x словами; исполнять — нельзя). Разрешаем ровно один путь:
+# установленный p-85.8 UDP-клиент жёстко вызывает /opt/bin/sh. Runtime shim
+# реализует этот ABI безопасно; APK сам в /opt ничего не устанавливает.
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-tgs.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 _TGCODE="$T/tg.code"; _TGCCODE="$T/tgc.code"
-sed 's/#.*$//' "$TG" > "$_TGCODE"
+assert_contains "legacy ABI default is the exact upstream path" "$TG" \
+    'Z2K_TG_UDP_LEGACY_SHELL="${Z2K_TG_UDP_LEGACY_SHELL:-/opt/bin/sh}"'
+sed '/^Z2K_TG_UDP_LEGACY_SHELL="${Z2K_TG_UDP_LEGACY_SHELL:-\/opt\/bin\/sh}"$/d; s/#.*$//' \
+    "$TG" > "$_TGCODE"
 sed 's/#.*$//' "$TGC" > "$_TGCCODE"
 
 # --- нет keenetic-путей и чужого firewall-стека в glue ---

@@ -37,8 +37,9 @@ chmod +x "$Z2K_CUSTOM_DIR/50-discord-media"
 # Execute the upstream runner contract with small test doubles.  This proves
 # the helpers preserve their own queues/options and nft predicates, rather
 # than merely existing in the package.
-alloc_dnum() { case "$1" in DNUM_STUN4ALL) eval "$1=2000" ;; DNUM_DISCORD_MEDIA) eval "$1=2001" ;; esac; }
-alloc_qnum() { case "$1" in QNUM_STUN4ALL) eval "$1=65300" ;; QNUM_DISCORD_MEDIA) eval "$1=65301" ;; esac; }
+# Mirror stock custom_runner's lexical glob order: Discord is first, then STUN.
+alloc_dnum() { case "$1" in DNUM_DISCORD_MEDIA) eval "$1=2000" ;; DNUM_STUN4ALL) eval "$1=2001" ;; esac; }
+alloc_qnum() { case "$1" in QNUM_DISCORD_MEDIA) eval "$1=65300" ;; QNUM_STUN4ALL) eval "$1=65301" ;; esac; }
 do_nfqws() { printf 'daemon:%s:%s:%s\n' "$1" "$2" "$3" >> "$T/calls"; }
 replace_char() { _a="$1"; _b="$2"; shift 2; printf '%s\n' "$@" | tr "$_a" "$_b"; }
 fw_nfqws_post() { printf 'ipt:%s:%s:%s:%s\n' "$1" "$2" "$3" "$4" >> "$T/calls"; }
@@ -97,5 +98,90 @@ assert_contains "customd health gates ready" "$REPO/platform/openwrt/env.sh" "z2
 assert_contains "customd rollback cleanup" "$REPO/package/openwrt/files/etc/init.d/z2k" "z2k_ow_customd_stop_instances"
 assert_contains "customd package install" "$REPO/package/openwrt/Makefile" "custom.d/50-stun4all"
 assert_contains "customd flag survives config regeneration" "$REPO/lib/config_official.sh" "saved_DISABLE_CUSTOM"
+
+# Live r55 acceptance reproduced a Discord discovery datagram being queued to
+# both custom.d's NFQUEUE and the generic core UDP queue.  The live runtime
+# emits Discord IPv4 and STUN IPv4/IPv6 rules in postnat only. Model its parsed
+# nft output and run the adapter firewall apply path.
+. "$AD/firewall.sh"
+z2k_ow_fw_source() { :; }
+_rebuild_fixture=1
+zapret_apply_firewall() {
+    [ "$_rebuild_fixture" = 1 ] || return 0
+    cp "$T/nft.postnat.before" "$T/nft.postnat"
+}
+nft() {
+    case "$1 $2 $3 $4 $5 $6" in
+        "-a list chain inet zapret2 postnat") cat "$T/nft.postnat" ;;
+        "insert rule inet zapret2 postnat position")
+            _chain="$5"
+            _pos="$7"
+            shift 7
+            _new=$(printf '%s ' "$@" | sed \
+                's/ comment z2k-openwrt: customd overlap guard $/ comment "z2k-openwrt: customd overlap guard"/')
+            _mock_handle=$((100 + $(wc -l < "$T/nft.calls" | tr -d ' ')))
+            _new=" $_new # handle $_mock_handle"
+            printf '%s\n' "$_chain|$*" >> "$T/nft.calls"
+            awk -v pos="# handle $_pos" -v new="$_new" \
+                'index($0,pos) { print new; inserted=1 } { print }
+                 END { if (!inserted) exit 1 }' "$T/nft.$_chain" > "$T/nft.next" \
+                && mv "$T/nft.next" "$T/nft.$_chain"
+            ;;
+        "delete rule inet zapret2 postnat handle")
+            _handle="$7"
+            awk -v h="# handle $_handle" 'index($0,h) { next } { print }' \
+                "$T/nft.postnat" > "$T/nft.next" && mv "$T/nft.next" "$T/nft.postnat"
+            ;;
+        *) echo "unexpected nft invocation: $*" >&2; return 1 ;;
+    esac
+}
+cat > "$T/nft.postnat.before" <<'EOF'
+table inet zapret2 {
+ chain postnat {
+  meta nfproto ipv6 udp length >= 28 @ih,32,32 0x2112a442 @ih,0,8 & 0xc0 == 0x0 @ih,30,2 0x0 meta mark set meta mark | 0x20000000 queue flags bypass to 65301 # handle 41
+  meta nfproto ipv4 udp length >= 28 @ih,32,32 0x2112a442 @ih,0,8 & 0xc0 == 0x0 @ih,30,2 0x0 meta mark set meta mark | 0x20000000 queue flags bypass to 65301 # handle 42
+  meta nfproto ipv4 udp dport { 19294-19344, 50000-50099 } udp length 82 @ih,0,32 0x10046 @ih,64,128 0x0 @ih,192,128 0x0 @ih,320,128 0x0 @ih,448,128 0x0 meta mark set meta mark | 0x20000000 queue flags bypass to 65300 # handle 43
+  meta nfproto ipv6 udp dport { 443, 1400, 3478-3481, 5349, 19294-19344, 50000-50099 } ct original packets 0-8 meta mark set meta mark | 0x20000000 queue flags bypass to 200 # handle 44
+  meta nfproto ipv4 udp dport { 443, 1400, 3478-3481, 5349, 19294-19344, 50000-50099 } ct original packets 0-8 meta mark set meta mark | 0x20000000 queue flags bypass to 200 # handle 45
+ }
+}
+EOF
+: > "$T/nft.calls"
+DISABLE_CUSTOM=0; export DISABLE_CUSTOM
+z2k_ow_fw_apply && _t_ok || _t_bad "custom.d guards applied with stock firewall"
+_discord_guard=$(grep -nF '@ih,0,32 0x10046' "$T/nft.postnat" | grep -F 'customd overlap guard' | cut -d: -f1 | head -1)
+_discord_core=$(grep -nF 'ct original packets 0-8' "$T/nft.postnat" | cut -d: -f1 | head -1)
+[ -n "$_discord_guard" ] && [ -n "$_discord_core" ] && [ "$_discord_guard" -lt "$_discord_core" ] \
+    && _t_ok || _t_bad "Discord exact return follows custom queue and precedes core queue"
+_stun_out=$(grep -nF 'udp length >= 28 @ih,32,32 0x2112a442' "$T/nft.postnat" | grep -F 'customd overlap guard' | cut -d: -f1 | head -1)
+_stun_out_core=$(grep -nF 'ct original packets 0-8' "$T/nft.postnat" | cut -d: -f1 | head -1)
+[ -n "$_stun_out" ] && [ -n "$_stun_out_core" ] && [ "$_stun_out" -lt "$_stun_out_core" ] \
+    && _t_ok || _t_bad "STUN outbound exact return precedes core queue"
+_guard_pairs=$(awk '
+    index($0,"queue flags bypass to 65300") && index($0,"@ih,0,32 0x10046") { pending="@ih,0,32 0x10046"; q++; next }
+    index($0,"queue flags bypass to 65301") && index($0,"@ih,32,32 0x2112a442") { pending="@ih,32,32 0x2112a442"; q++; next }
+    pending != "" {
+        if (index($0,"customd overlap guard") && index($0,pending) && index($0," return")) ok++
+        pending=""
+    }
+    END { if (q == 3 && ok == 3) print "3/3" }
+' "$T/nft.postnat")
+assert_eq "every Discord/STUN family queue has exact following return" "3/3" "$_guard_pairs"
+assert_eq "three customd exact guards installed" "3" "$(grep -c 'customd overlap guard' "$T/nft.postnat")"
+
+# Applying the same adapter path without a firewall rebuild is idempotent.
+_rebuild_fixture=0
+z2k_ow_fw_apply && _t_ok || _t_bad "custom.d guard reapply"
+assert_eq "guard reapply adds no duplicate rules" "3" "$(grep -c 'customd overlap guard' "$T/nft.postnat")"
+
+# With the user toggle off, remove adapter-owned guards without touching core
+# UDP queue rules, even if the surrounding zapret2 table was not rebuilt.
+_rebuild_fixture=0
+DISABLE_CUSTOM=1; export DISABLE_CUSTOM
+z2k_ow_fw_apply && _t_ok || _t_bad "disabled custom.d leaves stock firewall intact"
+! grep -q 'customd overlap guard' "$T/nft.postnat" \
+    && _t_ok || _t_bad "disabled custom.d removes adapter guards"
+grep -q 'queue flags bypass to 200' "$T/nft.postnat" \
+    && _t_ok || _t_bad "disabled custom.d preserves core UDP NFQUEUE"
 
 _t_done

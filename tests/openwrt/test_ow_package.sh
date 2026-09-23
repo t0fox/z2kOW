@@ -41,7 +41,7 @@ assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapre
 # A same-version APK is not an upgrade on OpenWrt.  Both fixes therefore
 # require a real adapter release bump, and the webpanel must require that same
 # release rather than silently retaining an older adapter.
-assert_eq "adapter release bumped for WARP procd recovery" "55" "$_arel"
+assert_eq "adapter release bumped for Telegram legacy route ABI" "57" "$_arel"
 assert_contains "nounset CGI probe remains guarded" "$REPO/platform/openwrt/customd.sh" \
     'nounset must not abort this probe'
 assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwrt/env.sh" \
@@ -53,6 +53,10 @@ assert_file "Telegram UDP fw4 chain-pre include exists" \
     "$REPO/package/openwrt/files/usr/share/nftables.d/chain-pre/forward/90-z2k-tg-udp.nft"
 assert_contains "adapter installs Telegram UDP fw4 chain-pre include" "$MK" \
     '90-z2k-tg-udp.nft'
+assert_contains "adapter installs Telegram legacy ABI helper under package root" "$MK" \
+    'platform/openwrt/tg-udp-legacy-shell'
+assert_contains "legacy shell helper has one package owner" "$REPO/package/openwrt/ownership.map" \
+    "/usr/lib/z2k/platform/openwrt/tg-udp-legacy-shell package"
 assert_not_contains "WARP fw4 include does not use ignored /etc tree" "$MK" \
     'files/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft'
 assert_contains "init loads autohostlist lifecycle" "$REPO/package/openwrt/files/etc/init.d/z2k" \

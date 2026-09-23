@@ -10,10 +10,12 @@
 Z2K_CUSTOM_DIR="${Z2K_CUSTOM_DIR:-${Z2K_ADAPTER_DIR:-/usr/lib/z2k/platform/openwrt}/custom.d}"
 Z2K_CUSTOM_PID_DIR="${Z2K_CUSTOM_PID_DIR:-${Z2K_RUN:-/tmp/z2k/runtime}/customd}"
 Z2K_CUSTOM_NFQWS2="${Z2K_CUSTOM_NFQWS2:-${Z2K_NFQWS2:-${Z2K_ZAPRET2_RUNTIME:-/opt/zapret2}/nfq2/nfqws2}}"
-Z2K_CUSTOM_NFQWS2_Q_STUN="${Z2K_CUSTOM_NFQWS2_Q_STUN:-65300}"
-Z2K_CUSTOM_NFQWS2_Q_DISCORD="${Z2K_CUSTOM_NFQWS2_Q_DISCORD:-65301}"
-Z2K_CUSTOM_NFQWS2_D_STUN="${Z2K_CUSTOM_NFQWS2_D_STUN:-2000}"
-Z2K_CUSTOM_NFQWS2_D_DISCORD="${Z2K_CUSTOM_NFQWS2_D_DISCORD:-2001}"
+# custom_runner allocates IDs in lexical filename order: 50-discord-media,
+# then 50-stun4all. Keep names aligned with the actual queue/daemon owners.
+Z2K_CUSTOM_NFQWS2_Q_DISCORD="${Z2K_CUSTOM_NFQWS2_Q_DISCORD:-65300}"
+Z2K_CUSTOM_NFQWS2_Q_STUN="${Z2K_CUSTOM_NFQWS2_Q_STUN:-65301}"
+Z2K_CUSTOM_NFQWS2_D_DISCORD="${Z2K_CUSTOM_NFQWS2_D_DISCORD:-2000}"
+Z2K_CUSTOM_NFQWS2_D_STUN="${Z2K_CUSTOM_NFQWS2_D_STUN:-2001}"
 export Z2K_CUSTOM_DIR Z2K_CUSTOM_PID_DIR Z2K_CUSTOM_NFQWS2
 
 z2k_ow_customd_available() {
@@ -56,6 +58,108 @@ z2k_ow_customd_wanted() {
             2>/dev/null | tail -1 | sed 's/^"//;s/"$//' | tr -d ' \t\r\n')
     fi
     [ "${_v:-1}" = "0" ]
+}
+
+# The upstream custom.d rules and the generic zapret2 UDP rules share the
+# postnat/prenat chains.  NFQUEUE ACCEPT resumes at the next rule, so a packet
+# already handled by one of these narrow helpers would otherwise be queued a
+# second time to the core qnum 200.  Derive each guard's selector from the
+# actual custom rule and place its RETURN immediately after that rule; this
+# keeps future port/family changes in the upstream predicate authoritative.
+_z2k_ow_customd_guard_specs() {
+    local _chain="$1" _qnum="$2" _signature="$3" _dump _specs
+    _dump=$(nft -a list chain inet zapret2 "$_chain" 2>/dev/null) || return 1
+    _specs=$(printf '%s\n' "$_dump" | awk -v q="queue flags bypass to $_qnum" \
+        -v sig="$_signature" '
+        index($0, q) && index($0, sig) {
+            line=$0
+            handle=line
+            if (!match(handle, /#[[:space:]]*handle[[:space:]]+[0-9]+/)) next
+            sub(/^.*#[[:space:]]*handle[[:space:]]+/, "", handle)
+            sub(/[^0-9].*$/, "", handle)
+            rule=line
+            sub(/^[[:space:]]+/, "", rule)
+            sub(/[[:space:]]*#[[:space:]]*handle[[:space:]]+[0-9]+.*$/, "", rule)
+            sub(/[[:space:]]+queue flags bypass to [0-9]+[[:space:]]*$/, "", rule)
+            # Queue setup may set the zapret2 mark before the verdict.  Keep the
+            # guard to packet predicates only; the preceding custom queue has
+            # already performed the mark update.
+            sub(/[[:space:]]+meta mark set meta mark [|] 0x[[:xdigit:]]+$/, "", rule)
+            if (handle != "" && rule != "") print handle "|" rule
+        }')
+    [ -n "$_specs" ] || {
+        echo "z2k-openwrt: custom.d qnum $_qnum has no expected $_chain nft rule" >&2
+        return 1
+    }
+
+    local _handle _selector _next _has_guard
+    while IFS='|' read -r _handle _selector; do
+        [ -n "$_handle" ] && [ -n "$_selector" ] || return 1
+        _dump=$(nft -a list chain inet zapret2 "$_chain" 2>/dev/null) || return 1
+        _has_guard=$(printf '%s\n' "$_dump" | awk -v h="$_handle" \
+            -v m='comment "z2k-openwrt: customd overlap guard"' \
+            -v s="$_selector" '
+            index($0, "# handle " h) { after=1; next }
+            after {
+                if (index($0, m) && index($0, s) && index($0, " return")) ok=1
+                exit
+            }
+            END { if (ok) print "yes" }
+        ')
+        [ "$_has_guard" = yes ] && continue
+        _next=$(printf '%s\n' "$_dump" | awk -v h="$_handle" '
+            index($0, "# handle " h) { after=1; next }
+            after && match($0, /#[[:space:]]*handle[[:space:]]+[0-9]+/) {
+                value=substr($0, RSTART, RLENGTH)
+                gsub(/[^0-9]/, "", value)
+                print value
+                exit
+            }
+        ')
+        if [ -n "$_next" ]; then
+            # The selector comes only from nft's own parsed rule. Expanded
+            # metacharacters stay argv data (they are not reparsed by the shell);
+            # word splitting reconstructs nft argv.
+            # shellcheck disable=SC2086
+            nft insert rule inet zapret2 "$_chain" position "$_next" \
+                $_selector return comment "z2k-openwrt: customd overlap guard" || return 1
+        else
+            # A custom queue at the end of a chain still needs its exact guard.
+            # shellcheck disable=SC2086
+            nft add rule inet zapret2 "$_chain" \
+                $_selector return comment "z2k-openwrt: customd overlap guard" || return 1
+        fi
+    done <<EOF
+$_specs
+EOF
+    return 0
+}
+
+_z2k_ow_customd_guards_remove() {
+    local _chain="$1" _dump _handles _handle
+    _dump=$(nft -a list chain inet zapret2 "$_chain" 2>/dev/null) || return 0
+    _handles=$(printf '%s\n' "$_dump" | sed -n \
+        '/comment "z2k-openwrt: customd overlap guard"/s/.*# handle \([0-9][0-9]*\).*/\1/p')
+    while IFS= read -r _handle; do
+        [ -n "$_handle" ] || continue
+        nft delete rule inet zapret2 "$_chain" handle "$_handle" || return 1
+    done <<EOF
+$_handles
+EOF
+    return 0
+}
+
+z2k_ow_customd_firewall_guards_apply() {
+    [ "${INIT_APPLY_FW:-1}" = 1 ] || return 0
+    if ! z2k_ow_customd_wanted; then
+        _z2k_ow_customd_guards_remove postnat || return 1
+        return 0
+    fi
+    _z2k_ow_customd_guard_specs postnat "$Z2K_CUSTOM_NFQWS2_Q_DISCORD" \
+        '@ih,0,32 0x10046' || return 1
+    _z2k_ow_customd_guard_specs postnat "$Z2K_CUSTOM_NFQWS2_Q_STUN" \
+        '@ih,32,32 0x2112a442' || return 1
+    return 0
 }
 
 z2k_ow_customd_pidfile() {

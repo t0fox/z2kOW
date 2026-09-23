@@ -35,7 +35,19 @@ z2k_ow_fw_source() {
 }
 
 # Применить/снять firewall zapret2 (читает $ZAPRET_CONFIG=/etc/z2k/config).
-z2k_ow_fw_apply() { z2k_ow_fw_source || return 1; zapret_apply_firewall; }
+z2k_ow_fw_apply() {
+    z2k_ow_fw_source || return 1
+    zapret_apply_firewall || return 1
+    # This also runs from the standalone firewall-health cron, which sources
+    # firewall.sh but not customd.sh.  Load the one adapter-owned bridge here
+    # so every firewall rebuild re-establishes the exact custom/core queue
+    # boundaries after zapret2 has recreated its table.
+    if ! command -v z2k_ow_customd_firewall_guards_apply >/dev/null 2>&1; then
+        . "${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/customd.sh" \
+            || return 1
+    fi
+    z2k_ow_customd_firewall_guards_apply
+}
 z2k_ow_fw_remove() { z2k_ow_fw_source || return 1; zapret_unapply_firewall; }
 z2k_ow_fw_reload_ifsets() { z2k_ow_fw_source || return 1; zapret_reload_ifsets; }
 

@@ -11,7 +11,7 @@ MAP="$REPO/package/openwrt/ownership.map"
 
 # карта корректна: "<абс-путь> <owner из 6 классов>", без дублей
 # (user/install-meta/trust/daemon-state допускают glob-суффикс /*).
-_bad="$(sed 's/#.*$//' "$MAP" | grep -v '^[[:space:]]*$' | grep -vE '^/[^[:space:]]+ (package|updater|user|install-meta|trust|daemon-state)$' || true)"
+_bad="$(sed 's/#.*$//' "$MAP" | grep -v '^[[:space:]]*$' | grep -vE '^/[^[:space:]]+ (package|updater|user|install-meta|trust|daemon-state|runtime)$' || true)"
 [ -z "$_bad" ] && _t_ok || _t_bad "битые строки карты: $_bad"
 _dups="$(sed 's/#.*$//' "$MAP" | grep -v '^[[:space:]]*$' | awk '{print $1}' | sort | uniq -d)"
 [ -z "$_dups" ] && _t_ok || _t_bad "дубли в карте: $_dups"
@@ -35,7 +35,7 @@ fi
 _miss=""
 while IFS= read -r _line; do
     set -- $_line
-    [ "${2:-}" = "package" ] || continue
+    [ "${2:-}" = "package" ] || [ "${2:-}" = "runtime" ] || continue
     case "$1" in
         /etc/init.d/z2k) _src="package/openwrt/files/etc/init.d/z2k" ;;
         /etc/init.d/z2k-webpanel) _src="package/openwrt/files/etc/init.d/z2k-webpanel" ;;
@@ -55,6 +55,7 @@ while IFS= read -r _line; do
         /usr/lib/z2k/share/snapshot-manifest.json) _src="package/openwrt/Makefile" ;;
         /usr/lib/z2k/share/snapshot-commit) _src="package/openwrt/Makefile" ;;
         /opt/zapret2/*) _src="package/z2k-runtime/Makefile" ;;
+        /opt/bin/sh|/opt/bin/.z2k-tg-udp-legacy-shell-dir-owned) _src="platform/openwrt/tg-udp-legacy-shell" ;;
         *) _src="" ;;
     esac
     { [ -n "$_src" ] && { [ -f "$REPO/$_src" ] || [ -d "$REPO/$_src" ]; }; } || _miss="$_miss $1"

@@ -95,8 +95,8 @@ code | grep -vE 'nft list set' | grep -qE 'lanif|wanif|nft_fill_ifsets|add_eleme
     && _t_bad "адаптер пишет interface sets" || _t_ok
 grep -q 'zapret_reload_ifsets' "$REPO/platform/openwrt/firewall.sh" \
     && _t_ok || _t_bad "нет делегирования ifsets в zapret2"
-# firewall: builder — zapret2, ЕДИНСТВЕННОЕ исключение — TG/RT/WARP glue
-# (свои chains/sets в ЧУЖОЙ runtime-таблице; таблицу не создаёт, см. 8b).
+# firewall: builder — zapret2; narrow adapter hooks are custom.d return guards
+# plus TG/RT/WARP glue (chains/sets in zapret2's table, never a new table).
 # ifsets: единственный писатель — zapret2 (мы только вызываем reload;
 # read-only list-исключение — см. выше).
 code | grep -vE 'nft list set' | grep -qE 'lanif|wanif|nft_fill_ifsets|add_element|create_set' \
@@ -104,7 +104,7 @@ code | grep -vE 'nft list set' | grep -qE 'lanif|wanif|nft_fill_ifsets|add_eleme
 grep -q 'zapret_reload_ifsets' "$REPO/platform/openwrt/firewall.sh" \
     && _t_ok || _t_bad "нет делегирования ifsets в zapret2"
 _nftbuilders="$(grep -rlE 'nft add|nft create' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
-_expected="$REPO/platform/openwrt/rt.sh $REPO/platform/openwrt/tg.sh $REPO/platform/openwrt/warp.sh "
+_expected="$REPO/platform/openwrt/customd.sh $REPO/platform/openwrt/rt.sh $REPO/platform/openwrt/tg.sh $REPO/platform/openwrt/warp.sh "
 if [ -z "$_nftbuilders" ]; then
     _t_bad "нет TG/RT/WARP builder'ов (ожидались tg.sh rt.sh warp.sh)"
 elif [ "$_nftbuilders" = "$_expected" ]; then
