@@ -117,8 +117,22 @@ nft() {
             _chain="$5"
             _pos="$7"
             shift 7
-            _new=$(printf '%s ' "$@" | sed \
-                's/ comment z2k-openwrt: customd overlap guard $/ comment "z2k-openwrt: customd overlap guard"/')
+            # nft argv mode reparses arguments as nft syntax, so shell quoting
+            # is not enough: the comment's double quotes must survive in argv.
+            _comment_value=
+            _want_comment=0
+            for _arg in "$@"; do
+                if [ "$_want_comment" = 1 ]; then
+                    _comment_value="$_arg"
+                    break
+                fi
+                [ "$_arg" = comment ] && _want_comment=1
+            done
+            [ "$_comment_value" = '"z2k-openwrt: customd overlap guard"' ] || {
+                echo "Error: nft comment string was not quoted in argv: $_comment_value" >&2
+                return 1
+            }
+            _new=$(printf '%s ' "$@")
             _mock_handle=$((100 + $(wc -l < "$T/nft.calls" | tr -d ' ')))
             _new=" $_new # handle $_mock_handle"
             printf '%s\n' "$_chain|$*" >> "$T/nft.calls"
@@ -126,6 +140,28 @@ nft() {
                 'index($0,pos) { print new; inserted=1 } { print }
                  END { if (!inserted) exit 1 }' "$T/nft.$_chain" > "$T/nft.next" \
                 && mv "$T/nft.next" "$T/nft.$_chain"
+            ;;
+        "add rule inet zapret2 postnat "*)
+            _chain="$5"
+            shift 5
+            _comment_value=
+            _want_comment=0
+            for _arg in "$@"; do
+                if [ "$_want_comment" = 1 ]; then
+                    _comment_value="$_arg"
+                    break
+                fi
+                [ "$_arg" = comment ] && _want_comment=1
+            done
+            [ "$_comment_value" = '"z2k-openwrt: customd overlap guard"' ] || {
+                echo "Error: nft comment string was not quoted in argv: $_comment_value" >&2
+                return 1
+            }
+            _new=$(printf '%s ' "$@")
+            _mock_handle=$((100 + $(wc -l < "$T/nft.calls" | tr -d ' ')))
+            _new=" $_new # handle $_mock_handle"
+            printf '%s\n' "$_chain|$*" >> "$T/nft.calls"
+            printf '%s\n' "$_new" >> "$T/nft.$_chain"
             ;;
         "delete rule inet zapret2 postnat handle")
             _handle="$7"
@@ -183,5 +219,19 @@ z2k_ow_fw_apply && _t_ok || _t_bad "disabled custom.d leaves stock firewall inta
     && _t_ok || _t_bad "disabled custom.d removes adapter guards"
 grep -q 'queue flags bypass to 200' "$T/nft.postnat" \
     && _t_ok || _t_bad "disabled custom.d preserves core UDP NFQUEUE"
+
+# The end-of-chain fallback uses nft add rather than insert, but must preserve
+# the same nft-language comment quoting in its argv.
+cat > "$T/nft.postnat" <<'EOF'
+table inet zapret2 {
+ chain postnat {
+  meta nfproto ipv4 udp length >= 28 @ih,32,32 0x2112a442 @ih,0,8 & 0xc0 == 0x0 @ih,30,2 0x0 queue flags bypass to 65301 # handle 77
+ }
+}
+EOF
+_z2k_ow_customd_guard_specs postnat 65301 '@ih,32,32 0x2112a442' \
+    && _t_ok || _t_bad "tail custom.d rule gets nft-parser-safe guard"
+grep -Fq 'comment "z2k-openwrt: customd overlap guard"' "$T/nft.postnat" \
+    && _t_ok || _t_bad "tail guard keeps exact quoted nft comment"
 
 _t_done

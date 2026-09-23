@@ -122,12 +122,12 @@ _z2k_ow_customd_guard_specs() {
             # word splitting reconstructs nft argv.
             # shellcheck disable=SC2086
             nft insert rule inet zapret2 "$_chain" position "$_next" \
-                $_selector return comment "z2k-openwrt: customd overlap guard" || return 1
+                $_selector return comment "\"z2k-openwrt: customd overlap guard\"" || return 1
         else
             # A custom queue at the end of a chain still needs its exact guard.
             # shellcheck disable=SC2086
             nft add rule inet zapret2 "$_chain" \
-                $_selector return comment "z2k-openwrt: customd overlap guard" || return 1
+                $_selector return comment "\"z2k-openwrt: customd overlap guard\"" || return 1
         fi
     done <<EOF
 $_specs
