@@ -20,7 +20,10 @@ CNT="$TMP/count"; : > "$CNT"
 INIT="$TMP/S99zapret2"
 cat > "$INIT" <<EOF
 #!/bin/sh
-[ "\$1" = start_fw ] && echo x >> "$CNT"
+[ "\$1" = start_fw ] && {
+    echo x >> "$CNT"
+    [ -n "\${REPAIR_MARKER:-}" ] && : > "\$REPAIR_MARKER"
+}
 exit 0
 EOF
 chmod +x "$INIT"
@@ -63,10 +66,19 @@ exit 0
 EOF
 cat > "$BIN/ip" <<'EOF'
 #!/bin/sh
-# "ip -4 route show default" / "ip -6 route show default"
-case "$1" in
-  -6) [ "${ROUTE6_OK:-0}" = 1 ] && echo "default via fe80::1 dev eth3" ;;
-  *)  [ "${ROUTE_OK:-1}" = 1 ] && echo "default via 10.0.0.1 dev eth3" ;;
+# Main-table reads can be supplied independently from the old default-selector
+# fallback. This catches accidental policy-table discovery and failed-read storms.
+case "$1" in -6) fam=6 ;; *) fam=4 ;; esac
+eval fail=\${ROUTE${fam}_FAIL:-0}
+[ "$fail" = 1 ] && exit 1
+case "$*" in
+    *'route show table main'*) eval file=\${ROUTE${fam}_MAIN_FILE:-} ;;
+    *) eval file=\${ROUTE${fam}_DEFAULT_FILE:-} ;;
+esac
+if [ -n "$file" ]; then cat "$file"; exit 0; fi
+case "$fam" in
+  6) [ "${ROUTE6_OK:-0}" = 1 ] && echo "default via fe80::1 dev eth3" ;;
+  *) [ "${ROUTE_OK:-1}" = 1 ] && echo "default via 10.0.0.1 dev eth3" ;;
 esac
 exit 0
 EOF
@@ -91,6 +103,10 @@ LOCK="$TMP/lock"; LAST="$TMP/last"; LOG="$TMP/log"
 run() {  # env: NFQ, NFQ6 (def NFQ), PIDOF_OK, ROUTE_OK (v4 def 1), ROUTE6_OK (v6 def 0)
     env NFQ="${NFQ:-0}" NFQ6="${NFQ6:-${NFQ:-0}}" RULES="${RULES:-}" PIDOF_OK="${PIDOF_OK:-1}" \
         ROUTE_OK="${ROUTE_OK:-1}" ROUTE6_OK="${ROUTE6_OK:-0}" IPT_FAIL="${IPT_FAIL:-0}" RULES6="${RULES6:-}" \
+        ROUTE4_FAIL="${ROUTE4_FAIL:-0}" ROUTE6_FAIL="${ROUTE6_FAIL:-0}" \
+        ROUTE4_MAIN_FILE="${ROUTE4_MAIN_FILE:-}" ROUTE4_DEFAULT_FILE="${ROUTE4_DEFAULT_FILE:-}" \
+        ROUTE6_MAIN_FILE="${ROUTE6_MAIN_FILE:-}" ROUTE6_DEFAULT_FILE="${ROUTE6_DEFAULT_FILE:-}" \
+        REPAIR_MARKER="${REPAIR_MARKER:-}" \
         PATH="$BIN:/opt/sbin:/opt/bin:$PATH" \
         INIT_SCRIPT="$INIT" ZAPRET_CONFIG="$CFG" Z2K_WAN_LIB="$HERE/lib/wan.sh" \
         RESTART_FW_LOCK="$LOCK" RESTART_FW_LAST="$LAST" \
@@ -104,7 +120,7 @@ count() { wc -l < "$CNT" | tr -d ' '; }
 # Hermetic: a var-assignment PREFIX on a function call persists in the shell
 # (POSIX behaviour) — e.g. `IPT_FAIL=1 run` would leak into the next test. Clear
 # every toggle so each case starts from run()'s documented defaults.
-reset() { : > "$CNT"; rm -rf "$LOCK"; rm -f "$LAST"; rm -f "$LOG"; unset NFQ NFQ6 RULES PIDOF_OK ROUTE_OK ROUTE6_OK IPT_FAIL MI LS CS; }
+reset() { : > "$CNT"; rm -rf "$LOCK"; rm -f "$LAST"; rm -f "$LOG" "$TMP/repaired"; unset NFQ NFQ6 RULES PIDOF_OK ROUTE_OK ROUTE6_OK ROUTE4_FAIL ROUTE6_FAIL ROUTE4_MAIN_FILE ROUTE4_DEFAULT_FILE ROUTE6_MAIN_FILE ROUTE6_DEFAULT_FILE REPAIR_MARKER IPT_FAIL MI LS CS; }
 
 # --- 1) the bug condition: nfqws2 up, WAN up, enabled, 0 NFQUEUE -> restart_fw
 reset; NFQ=0 PIDOF_OK=1 ROUTE_OK=1 run
@@ -271,30 +287,53 @@ n=$(count); [ "$n" = "0" ] && ok "v6: полный набор -> no-op" || no "v
 unset RULES6
 printf 'ENABLED=1\n' > "$CFG"
 
-# An intact primary WAN must not hide a missing policy WAN. Replay real route
-# dumps (the same discovery used by start_fw) and then cover both devices.
-cat > "$BIN/ip" <<'EOF'
-#!/bin/sh
-[ "$1" = -6 ] && exit 0
-echo 'default dev eth3'
-case "$*" in *'table all'*) echo 'default dev usb0 table 16400' ;; esac
-echo 'default dev z2ktg0 table 988'
+# Main-table topology is the source of truth for repair. Two main defaults must
+# both be covered, while policy-only modem/VPN routes must not trigger repair.
+cat > "$TMP/main-two" <<'EOF'
+default dev eth3
+default dev usb0
 EOF
+cp "$TMP/main-two" "$TMP/default-two"
 printf 'ENABLED=1\nNFQWS2_PORTS_TCP=443\nNFQWS2_TCP_PKT_OUT=9\nNFQWS2_TCP_PKT_IN=10\n' > "$CFG"
-reset; RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" run
-n=$(count); [ "$n" = 1 ] && ok 'new policy WAN without rules triggers repair despite intact primary' || no 'missing second WAN' 1 "$n"
+reset; ROUTE4_MAIN_FILE="$TMP/main-two"; ROUTE4_DEFAULT_FILE="$TMP/default-two"; RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" run
+n=$(count); [ "$n" = 1 ] && ok 'second main-table WAN without rules triggers repair' || no 'missing second main WAN' 1 "$n"
 grep -q 'на usb0' "$LOG" && ok 'repair identifies missing WAN' || no 'WAN diagnosis' usb0 missing
-cp "$BIN/iptables" "$BIN/iptables-original"
+
+cat > "$TMP/main-primary" <<'EOF'
+default dev eth3
+EOF
+cat > "$TMP/default-policy" <<'EOF'
+default dev eth3
+default dev usb0 table 16400
+default dev arbitrary-vpn table 16401
+EOF
+reset; ROUTE4_MAIN_FILE="$TMP/main-primary"; ROUTE4_DEFAULT_FILE="$TMP/default-policy"; RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" run
+n=$(count); [ "$n" = 0 ] && ok 'policy-only modem and arbitrary VPN do not trigger repair' || no 'policy-only WAN ignored' 0 "$n"
+
+# The first tick repairs the missing main-table leg. The init stub marks that
+# side effect; with debounce disabled, the next tick independently sees full coverage.
 cat > "$BIN/iptables" <<EOF
 #!/bin/sh
-"$BIN/iptables-original" "\$@"
-"$BIN/iptables-original" "\$@" | sed 's/eth3/usb0/g'
+for r in \${RULES:-}; do
+    c=\${r%%:*}; p=\${r#*:}
+    case "\$c" in POSTROUTING) d=-o ;; *) d=-i ;; esac
+    echo "-A \$c \$d eth3 -p \$p -j NFQUEUE --queue-num 200 --queue-bypass"
+    [ -f "$TMP/repaired" ] && echo "-A \$c \$d usb0 -p \$p -j NFQUEUE --queue-num 200 --queue-bypass"
+done
+exit 0
 EOF
 chmod +x "$BIN/iptables"
-reset; RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" run
-n=$(count); [ "$n" = 0 ] && ok 'both WANs covered: no repeated repair; relay excluded' || no 'both WANs' 0 "$n"
+reset; MI=0; REPAIR_MARKER="$TMP/repaired"; ROUTE4_MAIN_FILE="$TMP/main-two"; ROUTE4_DEFAULT_FILE="$TMP/default-two"; RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" run
+RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" run
+n=$(count); [ "$n" = 1 ] && ok 'repaired second main WAN is idle on the next tick' || no 'post-repair idle' 1 "$n"
+
+# Empty and failed IPv6 route reads are both non-actionable and cannot storm.
+reset; RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" ROUTE_OK=1 ROUTE6_OK=0 run
+n=$(count); [ "$n" = 0 ] && ok 'empty IPv6 main table does not storm' || no 'empty IPv6 no storm' 0 "$n"
+reset; RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" ROUTE_OK=1 ROUTE6_FAIL=1 run
+n=$(count); [ "$n" = 0 ] && ok 'failed IPv6 route read does not storm' || no 'failed IPv6 no storm' 0 "$n"
+
 printf 'ENABLED=1\nDISABLE_IPV6=1\nWAN_IFACE=eth3\nNFQWS2_PORTS_TCP=443\nNFQWS2_TCP_PKT_OUT=9\nNFQWS2_TCP_PKT_IN=10\n' > "$CFG"
-mv "$BIN/iptables-original" "$BIN/iptables"
 reset; RULES="POSTROUTING:tcp INPUT:tcp FORWARD:tcp" run
 n=$(count); [ "$n" = 0 ] && ok 'manual override does not demand other policy WANs' || no 'override' 0 "$n"
 

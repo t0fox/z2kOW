@@ -1311,7 +1311,7 @@ z2k_seed_user_exclusions()
 # KEENETIC FIREWALL FUNCTIONS (замена OpenWrt network.sh зависимостей)
 # ==============================================================================
 
-# Shared with the self-healer so secondary policy WANs receive the same rules.
+# Shared with the self-healer so every selected main-table WAN gets the same rules.
 # shellcheck source=lib/wan.sh
 . "$ZAPRET_BASE/lib/wan.sh"
 
@@ -1328,11 +1328,7 @@ get_default_ifaces6()
 get_wan_ifaces4()
 {
 	local ifaces
-	if [ -n "$WAN_IFACE" ]; then
-		ifaces="$(echo "$WAN_IFACE" | tr ',' ' ')"
-	else
-		ifaces="$(get_default_ifaces4)"
-	fi
+	ifaces="$(z2k_wan_ifaces -4 "${WAN_IFACE:-}")" || return 1
 	ifaces="$(echo "$ifaces" | xargs)"
 	if [ -n "$ifaces" ] && exists ip; then
 		local i
@@ -1347,11 +1343,7 @@ get_wan_ifaces4()
 get_wan_ifaces6()
 {
 	local ifaces
-	if [ -n "$WAN_IFACE" ]; then
-		ifaces="$(echo "$WAN_IFACE" | tr ',' ' ')"
-	else
-		ifaces="$(get_default_ifaces6)"
-	fi
+	ifaces="$(z2k_wan_ifaces -6 "${WAN_IFACE:-}")" || return 1
 	ifaces="$(echo "$ifaces" | xargs)"
 	if [ -n "$ifaces" ] && exists ip; then
 		local i
@@ -2184,24 +2176,6 @@ z2k_policy_connmark_stop()
     done
 }
 
-# Telegram UDP is owned by the transparent relay (or goes directly while it
-# reconnects). Do not apply generic Discord/STUN desync to it. A predicate on
-# NFQUEUE preserves all NDM chains and device policies; no broad ACCEPT rules.
-z2k_tg_nfq_exclude()
-{
-    [ "$TG_PROXY_USER_DISABLED" = 1 ] && return 0
-    case " $2 " in *" -p udp "*) ;; *) return 0 ;; esac
-    local lib="${ZAPRET_BASE:-/opt/zapret2}/z2k-tg-redirect.sh" set
-    [ -r "$lib" ] || return 0
-    . "$lib"
-    case "$1" in
-        4) set="$Z2K_TG_SET"; z2k_tg_ensure_ipset || return 0 ;;
-        6) set="$Z2K_TG_SET6"; z2k_tg_ensure_ipset6 || return 0 ;;
-        *) return 0 ;;
-    esac
-    printf '%s' "-m set ! --match-set $set $3"
-}
-
 # Override zapret2 iptables NFQUEUE rule builders to respect connmark exclusion.
 # This keeps rule semantics identical to upstream, adding only "-m connmark ! --mark $Z2K_CONNMARK_EXCLUDE".
 _fw_nfqws_post4()
@@ -2217,7 +2191,7 @@ _fw_nfqws_post4()
 
         [ "$Z2K_CONNMARK_OK4" = "1" ] && connchk="-m connmark ! --mark $Z2K_CONNMARK_EXCLUDE"
 
-        rule="$(ipt_mark_filter) $connchk -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK $2 $IPSET_EXCLUDE dst $(z2k_tg_nfq_exclude 4 "$2" dst) -j NFQUEUE --queue-num $3 --queue-bypass"
+        rule="$(ipt_mark_filter) $connchk -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK $2 $IPSET_EXCLUDE dst -j NFQUEUE --queue-num $3 --queue-bypass"
         if [ -n "$4" ] ; then
             for i in $4; do
                 ipt_add_del $1 POSTROUTING -t mangle -o $i $rule
@@ -2241,7 +2215,7 @@ _fw_nfqws_post6()
 
         [ "$Z2K_CONNMARK_OK6" = "1" ] && connchk="-m connmark ! --mark $Z2K_CONNMARK_EXCLUDE"
 
-        rule="$(ipt_mark_filter) $connchk -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK $2 $IPSET_EXCLUDE6 dst $(z2k_tg_nfq_exclude 6 "$2" dst) -j NFQUEUE --queue-num $3 --queue-bypass"
+        rule="$(ipt_mark_filter) $connchk -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK $2 $IPSET_EXCLUDE6 dst -j NFQUEUE --queue-num $3 --queue-bypass"
         if [ -n "$4" ] ; then
             for i in $4; do
                 ipt6_add_del $1 POSTROUTING -t mangle -o $i $rule
@@ -2271,7 +2245,7 @@ _fw_nfqws_pre4()
         # rotates). Device-policy exclusion is enforced on the OUTGOING (post)
         # rule, which is sufficient. connchk stays "" here on purpose.
 
-        rule="$connchk $2 $IPSET_EXCLUDE src $(z2k_tg_nfq_exclude 4 "$2" src) -j NFQUEUE --queue-num $3 --queue-bypass"
+        rule="$connchk $2 $IPSET_EXCLUDE src -j NFQUEUE --queue-num $3 --queue-bypass"
         if [ -n "$4" ] ; then
             for i in $4; do
                 # iptables PREROUTING chain is before NAT. not possible to have DNATed ip's there
@@ -2300,7 +2274,7 @@ _fw_nfqws_pre6()
         # bit collides with DESYNC_MARK_POSTNAT/NDM and would drop the incoming
         # RST of bypass targets). connchk stays "" here on purpose.
 
-        rule="$connchk $2 $IPSET_EXCLUDE6 src $(z2k_tg_nfq_exclude 6 "$2" src) -j NFQUEUE --queue-num $3 --queue-bypass"
+        rule="$connchk $2 $IPSET_EXCLUDE6 src -j NFQUEUE --queue-num $3 --queue-bypass"
         if [ -n "$4" ] ; then
             for i in $4; do
                 # iptables PREROUTING chain is before NAT. not possible to have DNATed ip's there
@@ -2470,6 +2444,7 @@ start_fw()
     # Использовать официальную функцию из common/linux_fw.sh
     z2k_connmark_init
     z2k_conntrack_tune_start
+    z2k_sweep_stale_wan_nfqueue
     zapret_apply_firewall
     # Локалка — мимо десинка всегда (см. коммент у z2k_seed_local_exclusions).
     # После apply_firewall: сеты к этому моменту созданы апстримом, а `-exist`
@@ -2543,13 +2518,47 @@ stop_fw()
 # Sweep them by OUR queue number only. --queue-num $QNUM is z2k's own; other
 # software's NFQUEUE rules use different numbers and are left alone. Rules are
 # turned from `-A` into `-D` and fed back, which is exact - no pattern guessing.
+# Additive NDM/self-heal starts remove rules bound to WANs no longer selected by
+# the same main-table discovery used to add them. A successful nonempty route
+# read is required; unknown or empty state is never grounds for deletion.
+z2k_sweep_stale_wan_nfqueue()
+{
+    local qn="${QNUM:-200}" save restore fam rule dev selected chain dir
+    for fam in 4 6; do
+        selected=$(z2k_wan_ifaces "-$fam" "${WAN_IFACE:-}") || continue
+        [ -n "$selected" ] || continue
+        if [ "$fam" = 4 ]; then save=iptables-save; restore=iptables; else save=ip6tables-save; restore=ip6tables; fi
+        command -v "$save" >/dev/null 2>&1 || continue
+        "$save" -t mangle 2>/dev/null | awk -v q="$qn" '
+            $1=="-A" {for(i=1;i<NF;i++) if($i=="--queue-num" && $(i+1)==q) {print; break}}
+        ' | while IFS= read -r rule; do
+            chain=$(printf '%s\n' "$rule" | awk '{print $2}')
+            case "$chain" in
+                POSTROUTING) dir=-o ;;
+                INPUT|FORWARD) dir=-i ;;
+                *) continue ;;
+            esac
+            dev=$(printf '%s\n' "$rule" | awk -v d="$dir" '{for(i=3;i<NF;i++) if($i==d) {print $(i+1); exit}}')
+            [ -n "$dev" ] || continue
+            case " $selected " in *" $dev "*) continue ;; esac
+            # Rule text originates from iptables-save, not user input.
+            # shellcheck disable=SC2086
+            "$restore" -w -t mangle -D ${rule#-A } 2>/dev/null ||
+                "$restore" -t mangle -D ${rule#-A } 2>/dev/null || true
+        done
+    done
+    return 0
+}
+
 z2k_sweep_orphan_nfqueue()
 {
     local qn="${QNUM:-200}" save restore fam
     for fam in 4 6; do
         if [ "$fam" = 4 ]; then save=iptables-save; restore=iptables; else save=ip6tables-save; restore=ip6tables; fi
         command -v "$save" >/dev/null 2>&1 || continue
-        "$save" -t mangle 2>/dev/null | grep -- "--queue-num $qn" | while IFS= read -r rule; do
+        "$save" -t mangle 2>/dev/null | awk -v q="$qn" '
+            $1=="-A" {for(i=1;i<NF;i++) if($i=="--queue-num" && $(i+1)==q) {print; break}}
+        ' | while IFS= read -r rule; do
             case "$rule" in
                 -A*) ;;
                 *)   continue ;;

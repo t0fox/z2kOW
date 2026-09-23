@@ -13,7 +13,7 @@ cat > "$T/root/bin/tg-mtproxy-client" <<'EOF'
 exit 0
 EOF
 chmod +x "$T/root/bin/tg-mtproxy-client"
-printf 'ENABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
+printf 'ENABLED=1\n' > "$T/etc/config"
 
 cat > "$T/bin/nft" <<EOF
 #!/bin/sh

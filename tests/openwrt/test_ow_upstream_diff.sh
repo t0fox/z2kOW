@@ -8,7 +8,9 @@
 #     (Stage 5: WARP contracts, docs, не код)
 #   z2k-warpd external-backend seam (Stage 5: engine/main + health opt-in,
 #   см. ALLOWLIST)
-# плюс allowlisted common-хуки (см. ALLOWLIST ниже). Иначе — провал с
+# плюс allowlisted common-хуки (см. ALLOWLIST ниже). WARP OpenWrt backend
+# ограничен build-tagged реализацией и Go overlay; p-85.10 shared source
+# остаётся неизменным. Иначе — провал с
 # категорией seam'а: будущий upstream merge, задевший наш seam, виден сразу.
 #
 # После каждого принятого upstream sync BASELINE сдвигается на новый upstream
@@ -145,6 +147,7 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     helper command remains unchanged.
  ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh files/z2k-diag.sh files/z2k-dns-check.sh files/z2k-update-lists.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go z2k-warpd/internal/health/health.go z2k-warpd/internal/health/health_test.go z2k-warpd/builds/* webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/js/pages/telemetry.js webpanel/www/js/router.js webpanel/www/app.js webpanel/www/js/pages/warp.js webpanel/www/js/job.js webpanel/www/js/pages/strategy-pick.js tests/test_strategy_pick_typed_failure.sh z2k-detect/builds/* z2k-detect/cmd/z2k-detect/main.go z2k-detect/cmd/z2k-detect/quic.go z2k-detect/cmd/z2k-detect/voice.go z2k-detect/internal/classify/classify.go z2k-detect/internal/classify/compose.go z2k-detect/internal/classify/observability_test.go z2k-detect/internal/classify/raw_linux.go z2k-detect/internal/classify/raw_other.go z2k-detect/internal/quicprobe/probe.go z2k-detect/internal/voiceprobe/probe.go docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md docs/openwrt-adapter-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh scripts/openwrt/verify-runtime.sh .github/workflows/ci.yml scripts/rehearse_update.sh tests/test_manifest_signature.sh tests/test_webpanel_api_contract.sh tests/panel_harness.js tests/test_release_tooling.sh lib/strategies.sh z2k.sh tests/test_au_compat.sh README.md"
 ALLOWLIST="$ALLOWLIST lib/install.sh lib/menu.sh files/z2k-insta-ip-refresh.sh webpanel/www/index.html webpanel/www/js/pages/update.js webpanel/www/style.css tests/test_panel_toggle_texts.sh tests/test_panel_warp_ui.sh tests/test_insta_refresh_cert_mismatch.sh tests/test_fastroute_no_hwnat.sh tests/test_config_official.sh tests/test_found_domains_survive_reinstall.sh tests/test_panel_domain_probe.sh tests/test_profile_observation.sh tests/test_quic_pool_general.sh tests/test_update_sequence_e2e.sh tests/test_update_jitter.sh z2k-detect/cmd/z2k-detect/z2k_hostlists.go z2k-detect/go.mod z2k-detect/go.sum z2k-detect/internal/decision/decision.go mtproxy-client/main.go mtproxy-client/main_secret_test.go mtproxy-client/udp.go mtproxy-client/udp_route_test.go"
+ALLOWLIST="$ALLOWLIST z2k-warpd/internal/domainroute/nft_pairset.go z2k-warpd/internal/domainroute/nft_pairset_test.go z2k-warpd/openwrt-overlay/overlay.json z2k-warpd/openwrt-overlay/ipset.go z2k-warpd/openwrt-overlay/go.mod"
 
 # Граница меряется от закреплённой upstream-синхронизации BASELINE. То, что
 # было включено в этот release snapshot (манифест, подпись, index.html...), —
@@ -154,14 +157,10 @@ _REF="$BASELINE"
 # BASELINE is a tree-sync boundary, not necessarily an ancestor of this
 # adapter branch. Compare snapshots directly so a pinned release is not
 # mistaken for an adapter seam merely because origin/z2k-enhanced has advanced.
-_changed="$($_g diff --name-only "$_REF" HEAD 2>/dev/null)"
-# --ignore-cr-at-eol: на Windows-чекаутах (autocrlf) весь worktree выглядит
-# изменённым; флаг гасит чисто-CRLF шум, настоящие правки остаются видны.
-_staged="$($_g diff --ignore-cr-at-eol --name-only --cached 2>/dev/null)"
-_unstaged="$($_g diff --ignore-cr-at-eol --name-only 2>/dev/null)"
+_changed="$($_g diff --ignore-cr-at-eol --name-only "$_REF" -- 2>/dev/null)"
 # -uall: новые каталоги раскрывать пофайлово, иначе guard слеп к составу.
 _untracked="$($_g status --porcelain -uall 2>/dev/null | sed -n 's/^?? //p')"
-_all="$(printf '%s\n%s\n%s\n%s' "$_changed" "$_staged" "$_unstaged" "$_untracked" | sed '/^[[:space:]]*$/d' | sort -u)"
+_all="$(printf '%s\n%s\n' "$_changed" "$_untracked" | sed '/^[[:space:]]*$/d' | sort -u)"
 
 echo "UPSTREAM_ADAPTER_BOUNDARY:"
 echo "COMMON_UPSTREAM_DIFF:"
@@ -185,12 +184,11 @@ if [ -z "$_all" ]; then
     echo "none"
     _t_ok
 else
-    _bad="$(printf '%s\n' "$_all" | grep -vE '^(platform/|package/|tests/openwrt/|docs/openwrt-adapter-contract\.md$)' || true)"
+    _bad="$(printf '%s\n' "$_all" | grep -vE '^(platform/|package/|tests/openwrt/|docs/openwrt-adapter-contract\.md$|z2k-warpd/internal/domainroute/nft_pairset(_test)?\.go$|z2k-warpd/openwrt-overlay/)' || true)"
     # .gitattributes: только чистое добавление eol=lf-строк.
     _attr_ok=""
     if printf '%s\n' "$_bad" | grep -qx '.gitattributes'; then
-        _attr_all="$( { $_g diff "$_REF" HEAD -- .gitattributes 2>/dev/null; \
-                        $_g diff --cached -- .gitattributes 2>/dev/null; } \
+        _attr_all="$( $_g diff --ignore-cr-at-eol "$_REF" -- .gitattributes 2>/dev/null \
             | grep -E '^[+-]' | grep -vE '^[+-]{3}' || true)"
         _attr_removed="$(printf '%s\n' "$_attr_all" | grep -E '^-' || true)"
         _attr_added="$(printf '%s\n' "$_attr_all" | grep -E '^\+' || true)"
@@ -203,6 +201,7 @@ else
     for _f in $_bad; do
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
+            z2k-warpd/internal/domainroute/nft_pairset.go|z2k-warpd/internal/domainroute/nft_pairset_test.go|z2k-warpd/openwrt-overlay/overlay.json|z2k-warpd/openwrt-overlay/ipset.go|z2k-warpd/openwrt-overlay/go.mod) continue ;;
             tests/test_strategy_pick_typed_failure.sh|webpanel/www/js/job.js|webpanel/www/js/pages/strategy-pick.js|z2k-detect/builds/*|z2k-detect/cmd/z2k-detect/main.go|z2k-detect/cmd/z2k-detect/quic.go|z2k-detect/cmd/z2k-detect/voice.go|z2k-detect/internal/classify/classify.go|z2k-detect/internal/classify/compose.go|z2k-detect/internal/classify/observability_test.go|z2k-detect/internal/classify/raw_linux.go|z2k-detect/internal/classify/raw_other.go|z2k-detect/internal/quicprobe/probe.go|z2k-detect/internal/voiceprobe/probe.go) continue ;;
             lib/install.sh|files/z2k-insta-ip-refresh.sh|webpanel/www/index.html|webpanel/www/js/pages/update.js|tests/test_insta_refresh_cert_mismatch.sh|tests/test_fastroute_no_hwnat.sh) continue ;;
             lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|lib/menu.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|files/z2k-diag.sh|files/z2k-dns-check.sh|files/z2k-update-lists.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|z2k-warpd/internal/health/health.go|z2k-warpd/internal/health/health_test.go|z2k-warpd/builds/*|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/js/pages/telemetry.js|webpanel/www/js/router.js|webpanel/www/app.js|webpanel/www/js/pages/warp.js|tests/test_panel_frontend_contract.sh|docs/openwrt-webpanel-contract.md|docs/openwrt-release-contract.md|docs/openwrt-adapter-contract.md|scripts/openwrt/gen-openwrt-manifest.sh|scripts/openwrt/build-release.sh|scripts/openwrt/write-provenance.sh|scripts/openwrt/verify-runtime.sh|.github/workflows/ci.yml|scripts/rehearse_update.sh|tests/test_manifest_signature.sh|tests/test_webpanel_api_contract.sh|tests/panel_harness.js|tests/test_release_tooling.sh|lib/strategies.sh|z2k.sh|tests/test_au_compat.sh|README.md) continue ;;

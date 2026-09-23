@@ -1027,11 +1027,6 @@ func runTunnel() error {
 	// a transient registration failure never blocks the tunnel.
 	tc.registerURL = deriveRegisterURL(*tunnelURL)
 	go tc.identityLoop()
-	if *telegramUDP {
-		udpDone := make(chan struct{})
-		go func() { defer close(udpDone); tc.runUDP() }()
-		defer func() { tc.cancel(); <-udpDone }()
-	}
 
 	go tc.run()
 

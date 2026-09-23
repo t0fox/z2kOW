@@ -61,7 +61,10 @@ warp_ipset_all() { return 0; }
 warp_ipset_src_load() { return 0; }
 ipset() { case "$*" in list*) echo "Members:"; return 0 ;; esac; return 0; }
 ip() { return 0; }
-iptables() { return 0; }
+iptables() {
+    case " $* " in *' -C '*) return 1 ;; esac
+    return 0
+}
 
 status_json() { # $1 = true|false, $2 = last_error
     printf '{"ready":%s,"transport":"wg","endpoint":"8.6.112.0:2408","iface":"z2ktun0","addr":"172.16.0.2","last_error":"%s"}\n' "$1" "${2:-}" > "$WARP_STATUS"

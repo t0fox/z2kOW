@@ -80,6 +80,7 @@ TG_REDIR_LIB="/opt/zapret2/z2k-tg-redirect.sh"
 [ -r "$TG_REDIR_LIB" ] && . "$TG_REDIR_LIB"
 
 start() {
+    z2k_tg_udp_down
     [ -x "$BIN" ] || exit 0
     # Honor TG_PROXY_USER_DISABLED — if user explicitly stopped the tunnel
     # via menu/webpanel, don't autostart on boot (otherwise it'd come back
@@ -139,15 +140,11 @@ start() {
     # us rotate the tunnel secret or repoint the relay without rebuilding the
     # client. Absent (the normal case) => the compiled-in default is used.
     TUNNEL_FLAGS=""
-    rm -f /tmp/z2k-log/tg-udp.ready
     if [ -f "/opt/zapret2/config" ]; then
         _rs=$(awk -F= '/^Z2K_RELAY_SECRET=/ {gsub(/[" ]/,"",$2); print $2; exit}' /opt/zapret2/config)
         _ru=$(awk -F= '/^Z2K_RELAY_URL=/ {gsub(/[" ]/,"",$2); print $2; exit}' /opt/zapret2/config)
         [ -n "$_rs" ] && TUNNEL_FLAGS="$TUNNEL_FLAGS --tunnel-secret=$_rs"
         [ -n "$_ru" ] && TUNNEL_FLAGS="$TUNNEL_FLAGS --tunnel-url=$_ru"
-    fi
-    if z2k_tg_udp_enabled; then
-        TUNNEL_FLAGS="$TUNNEL_FLAGS --telegram-udp"
     fi
     _sup_gen="$(date +%s 2>/dev/null || echo 0).$$"
     echo "$_sup_gen" > "$GENFILE" 2>/dev/null
@@ -183,7 +180,6 @@ start() {
             GODEBUG=asyncpreemptoff=1 $BIN --listen=:1443 --listen=:$CDN_PORT --timeout=15m $TUNNEL_FLAGS -v </dev/null >> "$LOG" 2>&1 &
             child=$!
             wait "$child"
-            z2k_tg_udp_down
             t1=$(date +%s 2>/dev/null || echo 0)
             if [ $((t1 - t0)) -ge 60 ]; then
                 backoff=1
@@ -242,7 +238,6 @@ stop() {
             fi
         done
     fi
-    z2k_tg_udp_down
     cdn_rules_del
     rm -f "$PIDFILE" "$GENFILE"
     # ОСИРОТЕВШИЕ НАДЗИРАТЕЛИ. До правки 05.09.2026 их могло накопиться

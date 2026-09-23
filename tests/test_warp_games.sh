@@ -54,6 +54,7 @@ LOG_FILE="$SB/update-lists.log"
 WDIR="$ZAPRET2_DIR/lists/warp"
 GDIR="$WDIR/games"
 mkdir -p "$GDIR"
+cp "$SCRIPT_DIR/files/z2k-warp-list-filter.awk" "$ZAPRET2_DIR/z2k-warp-list-filter.awk"
 
 # --- stubs -------------------------------------------------------------------
 # z2k_fetch serves the index; update_list serves per-game files and returns the
@@ -62,10 +63,13 @@ INDEX="$SB/sources.json"
 z2k_fetch() { cp -f "$INDEX" "$2" 2>/dev/null; }
 FETCHED="$SB/fetched.log"
 : > "$FETCHED"
+CACHE_SEEN="$SB/cache-seen.log"
+: > "$CACHE_SEEN"
 update_list() {
     _name="$1"; _url="$2"; _dest="$3"
     printf '%s\n' "$_url" >> "$FETCHED"
     _game=${_url##*/}; _game=${_game%.txt}
+    [ -f "$_dest" ] && printf '%s=1\n' "$_game" >> "$CACHE_SEEN" || printf '%s=0\n' "$_game" >> "$CACHE_SEEN"
     if [ -f "$SB/up/$_game.txt" ]; then
         cp -f "$SB/up/$_game.txt" "$_dest"; return 2
     fi
@@ -90,12 +94,20 @@ printf "\n--- refresh: which lists get fetched ---\n"
 printf '5.6.7.8\n9.9.9.9\n'  > "$SB/up/Steam.txt"
 printf '1.1.1.1\n'           > "$SB/up/Roblox.txt"
 printf '2.2.2.2\n'           > "$SB/up/Other_Games.txt"
+printf 'old upstream body\n' > "$GDIR/.Steam.raw"
+printf '"old-etag"\n' > "$GDIR/.Steam.raw.etag"
+printf 'Steam\n' > "$WDIR/.enabled"
 # NotPublishedYet goes FIRST on purpose: if a 404 aborted the loop instead of
 # skipping one game, everything after it would be missing — which is invisible
 # when the unavailable game is processed last.
 write_index NotPublishedYet Steam Roblox Other_Games
 update_warp_game_list >/dev/null 2>&1
 assert_eq "Steam fetched"                "1" "$(grep -c '/games/Steam.txt$'  "$FETCHED")"
+assert_eq "new upstream URL" "1" "$(grep -c '^https://raw.githubusercontent.com/YOZH3G/ru-gaming-blocklist/main/games/Steam.txt$' "$FETCHED")"
+assert_eq "old source cache cleared before fetch" "Steam=0" "$(grep '^Steam=' "$CACHE_SEEN" | head -1)"
+assert_eq "old ETag discarded" "0" "$([ -f "$GDIR/.Steam.raw.etag" ] && echo 1 || echo 0)"
+assert_eq "source marker saved" "https://raw.githubusercontent.com/YOZH3G/ru-gaming-blocklist/main" "$(cat "$WDIR/.games-source" 2>/dev/null)"
+assert_eq "selected game survives source switch" "Steam" "$(cat "$WDIR/.enabled")"
 assert_eq "Roblox fetched"               "1" "$(grep -c '/games/Roblox.txt$' "$FETCHED")"
 assert_eq "Other_Games NEVER fetched"    "0" "$(grep -c 'Other_Games'        "$FETCHED")"
 assert_eq "Steam list written"           "5.6.7.8,9.9.9.9," "$(setof "$GDIR/Steam.txt")"
@@ -105,6 +117,8 @@ assert_eq "Other_Games list absent"      "0" "$([ -f "$GDIR/Other_Games.txt" ] &
 # per-game loop, and upstream lists three such games right now.
 assert_eq "missing upstream game skipped, others survive" "1" \
           "$([ -f "$GDIR/Steam.txt" ] && [ ! -f "$GDIR/NotPublishedYet.txt" ] && echo 1 || echo 0)"
+update_warp_game_list >/dev/null 2>&1
+assert_eq "new source cache reused on next refresh" "Steam=1" "$(grep '^Steam=' "$CACHE_SEEN" | sed -n '2p')"
 
 printf "\n--- refresh: the address filter applies to upstream data too ---\n"
 printf '10.0.0.1\n127.0.0.1\n192.168.1.1\n172.16.0.5\n0.0.0.0/0\n3.0.0.0/8\n8.8.8.8\n2a00:1450::1\n' > "$SB/up/Steam.txt"
@@ -113,6 +127,9 @@ update_warp_game_list >/dev/null 2>&1
 # 3.0.0.0/8 остаётся: это Amazon, а не мусор. Отсеиваются только
 # нероутируемые и служебные.
 assert_eq "остаются только маршрутизируемые" "3.0.0.0/8,8.8.8.8," "$(setof "$GDIR/Steam.txt")"
+printf 'Example.COM\n*.game.example\n10.0.0.1\n' > "$SB/up/Steam.txt"
+update_warp_game_list >/dev/null 2>&1
+assert_eq "upstream domains survive and normalize" '*.game.example,example.com,' "$(setof "$GDIR/Steam.txt")"
 
 printf "\n--- refresh: an all-junk list leaves no file ---\n"
 # Better no list than an empty one the panel would offer as a switch.
@@ -202,6 +219,10 @@ assert_eq "install.sh backs the choice up" "1" \
           "$(grep -c 'cp -f "\$ZAPRET2_DIR/lists/warp/\.enabled" "\$backup_tmp' "$SCRIPT_DIR/lib/install.sh")"
 assert_eq "install.sh restores the choice" "1" \
           "$(grep -c 'cp -f "\$backup_tmp/warp-lists/\.enabled"' "$SCRIPT_DIR/lib/install.sh")"
+assert_eq "install.sh backs the source marker up" "1" \
+          "$(grep -c 'cp -f "\$ZAPRET2_DIR/lists/warp/\.games-source" "\$backup_tmp' "$SCRIPT_DIR/lib/install.sh")"
+assert_eq "install.sh restores the source marker" "1" \
+          "$(grep -c 'cp -f "\$backup_tmp/warp-lists/\.games-source"' "$SCRIPT_DIR/lib/install.sh")"
 
 printf "\n--- games/ survives the reinstall (the contract that changed) ---\n"
 # Обе половины, как и у .enabled: бэкап без возврата означал бы, что перенос

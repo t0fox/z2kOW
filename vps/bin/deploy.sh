@@ -43,7 +43,6 @@ config/sysctl.d/99-z2k-tcp.conf:/etc/sysctl.d/99-z2k-tcp.conf:sysctl
 config/systemd/z2k-net-tuning.service:/etc/systemd/system/z2k-net-tuning.service:systemd
 bin/net-tuning.sh:/opt/z2k-vps/bin/net-tuning.sh:script
 bin/telegram-udp-firewall.sh:/opt/z2k-vps/bin/telegram-udp-firewall.sh:firewall
-config/z2k/telegram-udp-cidrs.txt:/etc/z2k/telegram-udp-cidrs.txt:firewall
 config/systemd/z2k-relay.service.d/10-require-per-install.conf:/etc/systemd/system/z2k-relay.service.d/10-require-per-install.conf:systemd
 config/journald.conf.d/z2k.conf:/etc/systemd/journald.conf.d/z2k.conf:journald
 config/systemd/z2k-asn-update.service:/etc/systemd/system/z2k-asn-update.service:systemd

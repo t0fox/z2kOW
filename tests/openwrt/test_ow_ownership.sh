@@ -41,9 +41,19 @@ assert_eq "warp command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' 
 _n="$(grep -c 'procd_set_param command' "$REPO/package/openwrt/files/etc/init.d/z2k-webpanel" 2>/dev/null)"
 assert_eq "panel command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
 
-# 2. своей nft-таблицы нет (не строим второй firewall-фреймворк)
-code | grep -qE 'table inet z2k|add table|create table' \
-    && _t_bad "адаптер создаёт свою nft-таблицу" || _t_ok
+# 2. The only adapter-owned nft table is the narrowly scoped passive DNS
+# observer. It may only log ordinary DNS replies (no verdict/redirect/queue),
+# and is guarded by an exact ownership comment before any mutation.
+_table_writers="$(grep -rlE 'nft[[:space:]]+(add|create)[[:space:]]+table' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
+assert_eq "единственная nft-table — passive DNS observer" "$REPO/platform/openwrt/warp-domain.sh " "$_table_writers"
+assert_contains "observer table has exact owner marker" "$REPO/platform/openwrt/warp-domain.sh" 'comment "z2k WARP passive DNS observer"'
+assert_contains "observer refuses unowned table" "$REPO/platform/openwrt/warp-domain.sh" 'nft-observer-table-conflict'
+if code | grep -qiE 'nft[[:space:]]+(add|insert|replace|delete)[[:space:]].*(accept|drop|reject|redirect|dnat|snat|masquerade|queue)'; then
+    _t_bad "observer принимает решение о firewall-трафике"
+else
+    _t_ok
+fi
+assert_contains "observer logs DNS responses only" "$REPO/platform/openwrt/warp-domain.sh" 'th sport 53 counter log group'
 
 # 3. своих offload-правил нет (делегировано zapret2 через FLOWOFFLOAD конфига).
 # FLOWOFFLOAD= и `nft list ... flowtable` в адаптере могут только сохранять
@@ -78,8 +88,8 @@ assert_eq "optbase: 1 определение + 2 вызова (core + customd)" 
 #   tg process ........ platform/openwrt/tg.sh (instance того же сервиса)
 #   rt process ........ platform/openwrt/rt.sh (instance того же сервиса)
 #   warp process ...... platform/openwrt/warp.sh (instance того же сервиса)
-#   nft/firewall ...... zapret2 (делегирование) + TG/RT/WARP chains/sets в ЕГО таблице
-#                       (единственное исключение, см. пункт 8b)
+#   nft/firewall ...... zapret2 (делегирование) + TG/RT/WARP chains/sets в ЕГО таблице;
+#                       warp-domain.sh owns one comment-guarded NFLOG-only table.
 #   interface sets .... zapret2 (reload_ifsets; hotplug только зовёт)
 #   selective offload . zapret2 (FLOWOFFLOAD из конфига; своих правил нет)
 # ровно два procd-СЕРВИСА в слое: z2k (ядро) + z2k-webpanel (панель,
@@ -104,7 +114,7 @@ code | grep -vE 'nft list set' | grep -qE 'lanif|wanif|nft_fill_ifsets|add_eleme
 grep -q 'zapret_reload_ifsets' "$REPO/platform/openwrt/firewall.sh" \
     && _t_ok || _t_bad "нет делегирования ifsets в zapret2"
 _nftbuilders="$(grep -rlE 'nft add|nft create' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
-_expected="$REPO/platform/openwrt/customd.sh $REPO/platform/openwrt/rt.sh $REPO/platform/openwrt/tg.sh $REPO/platform/openwrt/warp.sh "
+_expected="$REPO/platform/openwrt/customd.sh $REPO/platform/openwrt/rt.sh $REPO/platform/openwrt/tg.sh $REPO/platform/openwrt/warp-domain.sh $REPO/platform/openwrt/warp.sh "
 if [ -z "$_nftbuilders" ]; then
     _t_bad "нет TG/RT/WARP builder'ов (ожидались tg.sh rt.sh warp.sh)"
 elif [ "$_nftbuilders" = "$_expected" ]; then
@@ -112,10 +122,9 @@ elif [ "$_nftbuilders" = "$_expected" ]; then
 else
     _t_bad "firewall строят не только tg.sh+rt.sh+warp.sh: $_nftbuilders"
 fi
-# 8b. TG/RT/WARP-исключение обусловлено: таблицу создаём НЕ мы (только runtime),
-# перед записями — проверка её наличия; второго фреймворка нет.
-code | grep -qE 'add table|create table' \
-    && _t_bad "адаптер создаёт nft-таблицу" || _t_ok
+# 8b. TG/RT/WARP rules mutate only the zapret2 runtime table; the passive DNS
+# observer exception is isolated from forwarding verdicts (checked above).
+assert_contains "zapret2 table is verified before WARP writes" "$REPO/platform/openwrt/warp.sh" '_z2k_ow_warp_table_ok'
 grep -q '_z2k_ow_tg_table_ok' "$REPO/platform/openwrt/tg.sh" \
     && _t_ok || _t_bad "tg.sh пишет без проверки таблицы"
 grep -q '_z2k_ow_rt_table_ok' "$REPO/platform/openwrt/rt.sh" \

@@ -24,6 +24,13 @@ function noteRendered(html) {
 }
 const mkEl = () => {
   const el = {
+    // value ОБЯЗАН быть, и обязан быть строкой. У настоящего поля ввода он
+    // есть всегда, поэтому код, читающий его при ОТРИСОВКЕ (а не в
+    // обработчике события, куда харнесс не заходит), в браузере работает, а
+    // здесь падал на `.trim() of undefined`. Наружу это выходило как
+    // «страница не отрисовалась: Cannot read propert» — сообщение, по
+    // которому до причины ещё надо докопаться, хотя ломался мок, а не панель.
+    value: "",
     _h: "", style: {}, dataset: {}, classList: { add(){}, remove(){}, toggle(){}, contains(){return false} },
     children: [], attributes: {},
     // Все mock-узлы считаются живыми (isConnected): telemetry-guard

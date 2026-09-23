@@ -7,6 +7,7 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-games-flow.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 mkdir -p "$T/root" "$T/etc" "$T/bin"
+cp "$REPO/files/z2k-warp-list-filter.awk" "$T/root/z2k-warp-list-filter.awk" || exit 1
 printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
 cat > "$T/index.json" <<'EOF'
 {"game_map":{"Steam":[],"Other_Games":[]}}

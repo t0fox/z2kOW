@@ -1559,6 +1559,10 @@ step_build_zapret2() {
             # переустановки все они молча включались бы обратно.
             [ -f "$ZAPRET2_DIR/lists/warp/.disabled" ] && \
                 cp -f "$ZAPRET2_DIR/lists/warp/.disabled" "$backup_tmp/warp-lists/.disabled" 2>/dev/null
+            # Source identity belongs with the cached game files. Without it,
+            # the next refresh mistakes a restored cache for the previous fork.
+            [ -f "$ZAPRET2_DIR/lists/warp/.games-source" ] && \
+                cp -f "$ZAPRET2_DIR/lists/warp/.games-source" "$backup_tmp/warp-lists/.games-source" 2>/dev/null
             # Игровые списки (games/*.txt) — апстрим-данные, и раньше их
             # намеренно не сохраняли: «пере-скачаются». Пере-скачивались они
             # каждый раз и в ПЕРЕДНЕМ плане: шаг, который сам себя подписывает
@@ -2279,6 +2283,8 @@ TMPJUNK
             print_warning "${tool_script}: не удалось развернуть ни из кэша, ни с GitHub — установленная копия могла остаться старой"
         fi
     done
+    deploy_critical_file "files/z2k-warp-list-filter.awk" "${ZAPRET2_DIR}/z2k-warp-list-filter.awk" 644 \
+        || print_warning "WARP: не удалось установить фильтр адресов и доменов"
 
     # Install ALL lib/*.sh modules to persistent ${ZAPRET2_DIR}/lib/.
     # Background: z2k.sh sources modules from $WORK_DIR/lib (tmpfs) which
@@ -2468,6 +2474,8 @@ TMPJUNK
             cp -f "$backup_tmp/warp-lists/.enabled" "${ZAPRET2_DIR}/lists/warp/.enabled" 2>/dev/null
         [ -f "$backup_tmp/warp-lists/.disabled" ] && \
             cp -f "$backup_tmp/warp-lists/.disabled" "${ZAPRET2_DIR}/lists/warp/.disabled" 2>/dev/null
+        [ -f "$backup_tmp/warp-lists/.games-source" ] && \
+            cp -f "$backup_tmp/warp-lists/.games-source" "${ZAPRET2_DIR}/lists/warp/.games-source" 2>/dev/null
         # Отчёт о переносе — здесь, а не в чужом блоке.
         #
         # Стояла эта строка внутри восстановления custom-strategies, то есть

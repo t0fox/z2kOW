@@ -28,6 +28,10 @@ assert_eq "devices: per-device toggle"       "1" "$(count '"/warp/devices/toggle
 assert_eq "own lists: toggle endpoint"       "1" "$(count '"/warp/list/toggle"')"
 assert_eq "own lists: toggles under games"   "1" "$(count 'id="warp-own-list"')"
 assert_eq "no «адрес(ов)» wording"           "0" "$(count 'адрес(ов)')"
+assert_eq "destination editor names domains" "1" "$(count 'Списки адресов и доменов')"
+assert_eq "game list source is visible"     "1" "$(count 'YOZH3G/ru-gaming-blocklist')"
+assert_eq "wildcard guidance visible"        "yes" "$([ "$(count '\*.example.com')" -gt 0 ] && echo yes || echo no)"
+assert_eq "router DNS visibility explained" "1" "$(count 'DNS роутера')"
 for code in register_blocked device_revoked no_endpoint tun_failed no_transit; do
     assert_eq "error text for $code"         "1" "$(count "$code:")"
 done

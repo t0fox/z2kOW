@@ -48,6 +48,21 @@ case "$table" in
             ipt -t mangle -C PREROUTING -m set --match-set $set -j MARK --set-xmark "$WARP_MARK/$WARP_MARK" \
                 || ipt -t mangle -A PREROUTING -m set --match-set $set -j MARK --set-xmark "$WARP_MARK/$WARP_MARK"
         done
+        ipset list -n 2>/dev/null | awk '
+            /^z2kd_/ {
+                c=substr($0,6)
+                if (split(c,o,".") != 4) next
+                bad=0
+                for (i=1;i<=4;i++) if (o[i] !~ /^[0-9]+$/ || length(o[i])>3 || o[i]>255 ||
+                                        (length(o[i])>1 && substr(o[i],1,1)=="0")) bad=1
+                if (bad) next
+                if (!(o[1]==10 || (o[1]==172 && o[2]>=16 && o[2]<=31) ||
+                      (o[1]==192 && o[2]==168) || (o[1]==100 && o[2]>=64 && o[2]<=127))) next
+                print $0, c
+            }' | while read -r set client; do
+            ipt -t mangle -C PREROUTING -s "$client/32" -m set --match-set "$set" dst -j MARK --set-xmark "$WARP_MARK/$WARP_MARK" \
+                || ipt -t mangle -A PREROUTING -s "$client/32" -m set --match-set "$set" dst -j MARK --set-xmark "$WARP_MARK/$WARP_MARK"
+        done
         # MSS ЗАЖИМАЕМ В ОБЕ СТОРОНЫ, и второе правило не зеркально первому.
         #
         # Замер на роутере владельца 2026-08-25, живой трафик телефона:
@@ -74,6 +89,19 @@ case "$table" in
             || ipt -t nat -A POSTROUTING -o "$iface" -j MASQUERADE
         ;;
     filter)
+        # Insert before NDM's early ESTABLISHED/RELATED ACCEPT. Appending here
+        # would never see most forwarded DNS replies.
+        for ch in OUTPUT FORWARD; do
+            for proto in udp tcp; do
+                if [ "$ch" = FORWARD ]; then
+                    ipt -t filter -C "$ch" -o br+ -p "$proto" --sport 53 -m conntrack --ctstate ESTABLISHED -j NFLOG --nflog-group 189 --nflog-range 4096 \
+                        || ipt -t filter -I "$ch" -o br+ -p "$proto" --sport 53 -m conntrack --ctstate ESTABLISHED -j NFLOG --nflog-group 189 --nflog-range 4096
+                else
+                    ipt -t filter -C "$ch" -o br+ -p "$proto" --sport 53 -j NFLOG --nflog-group 189 --nflog-range 4096 \
+                        || ipt -t filter -I "$ch" -o br+ -p "$proto" --sport 53 -j NFLOG --nflog-group 189 --nflog-range 4096
+                fi
+            done
+        done
         ipt -t filter -C FORWARD -o "$iface" -j ACCEPT \
             || ipt -t filter -A FORWARD -o "$iface" -j ACCEPT
         ;;

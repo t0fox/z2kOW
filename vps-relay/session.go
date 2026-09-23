@@ -20,7 +20,6 @@ import (
 var sessionDialFn dialAttemptFunc = (&net.Dialer{}).DialContext
 
 type session struct {
-	udpMode  bool
 	id       string
 	relayID  string
 	clientIP string
@@ -78,24 +77,10 @@ func (s *session) setProto(p proto) { s.prV.Store(&protoHolder{p: p}) }
 func (s *session) run() {
 	registerLiveSession(s)
 	defer unregisterLiveSession(s)
-	if s.udpMode {
-		s.writer.datagrams = make(chan udpQueued, 64)
-	}
 	go s.writer.run()
 	defer s.kill()
 	if !s.handshake() {
 		return
-	}
-	if s.udpMode {
-		if !s.proto().windows() || s.relayID == "" || s.ws.Subprotocol() != "z2k-udp-v1" {
-			s.killWith("udp_protocol")
-			return
-		}
-		if !acquireUDPInstall(s) {
-			s.killWith("udp_install_limit")
-			return
-		}
-		defer releaseUDPInstall(s)
 	}
 	emitEvent(Event{Ev: "session_open", SID: s.id, IP: s.clientIP, ASN: asnLookup(s.clientIP), Proto: s.proto().name(), Install: s.relayID})
 	if s.relayID != "" {
@@ -128,10 +113,6 @@ func (s *session) run() {
 		if f := s.proto().info(infoClockSkew, uint32(int32(adv)), ""); f != nil {
 			s.writer.control(f)
 		}
-	}
-	if s.udpMode {
-		s.readUDPLoop()
-		return
 	}
 	s.readLoop()
 }

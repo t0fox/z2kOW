@@ -47,10 +47,10 @@ sed 's/#.*$//' "$WARPC" > "$_WCCODE"
 # сканирует и этот файл, исключая только себя) ---
 for _f in "$_WCODE" "$_WPCODE" "$_WCCODE"; do
     assert_not_contains "glue: нет iptables" "$_f" 'iptables'
-    # Узкое исключение Stage 6: верб `ipset` (имя требует контракт панели,
-    # как keenetic files/z2k-warp.sh) + его определение + usage-строки;
-    # реализация — тот же atomic sets_load, инструмента ipset в коде нет.
-    if grep -v 'warp_ipset\|ipset[)|]' "$_f" | grep -q 'ipset'; then
+    # OpenWrt uses the upstream-named shell function for compatibility, and
+    # `mode=ipset` selects the shared parser; neither is an ipset executable.
+    # Reject actual command invocations rather than the word in an awk option.
+    if grep -qE '(^|[;&|[:space:]])(busybox[[:space:]]+)?ipset[[:space:]]+(create|add|del|delete|destroy|flush|list|restore|save|test)([[:space:]]|$)' "$_f"; then
         _t_bad "glue: ipset вне ipset-верба в $(basename "$_f")"
     else
         _t_ok
@@ -133,14 +133,11 @@ assert_not_contains "warp.sh: нет mark в output-цепочках" "$_WCODE" 
 assert_not_contains "seed: нет warpd" "$REPO/package/openwrt/make-seed.sh" 'warpd'
 assert_contains "генератор: флаг дефолт 0" "$REPO/lib/config_official.sh" 'saved_GAME_WARP_ENABLED="0"'
 
-# --- канонические фильтры байт-в-байт (маркеры сами пропускаем: счётчик
-# копий в них устаревает, тело обязано совпадать; upstream-тройка сверяется
-# своим тестом целиком) ---
-_addr_of() { awk '/^# --- z2k warp address filter/,/^# --- end z2k warp address filter/' "$1" | grep -v '^# ---' | sed 's/^[[:space:]]*//'; }
+# --- OpenWrt uses the shared upstream parser; static routing still has a
+# bounded fallback if the optional domain parser is missing. ---
 _src_of() { awk '/^# --- z2k warp SOURCE filter/,/^# --- end z2k warp SOURCE filter/' "$1" | grep -v '^# ---' | sed 's/^[[:space:]]*//'; }
-_canon_addr="$(_addr_of "$S96")"
-assert_eq "addr-фильтр непуст" "1" "$([ -n "$_canon_addr" ] && echo 1 || echo 0)"
-assert_eq "addr-фильтр identical" "$_canon_addr" "$(_addr_of "$WARP")"
+assert_contains "OpenWrt destination list uses shared parser" "$WARP" 'awk -v mode=ipset -f "$WARP_DOMAIN_FILTER"'
+assert_contains "OpenWrt keeps static-only parser fallback" "$WARP" 'Static WARP destination fallback'
 _canon_src="$(_src_of "$S96")"
 assert_eq "source-фильтр identical" "$_canon_src" "$(_src_of "$WARP")"
 

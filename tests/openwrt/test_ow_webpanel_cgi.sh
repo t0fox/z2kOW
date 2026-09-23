@@ -126,6 +126,7 @@ chmod +x "$T/root/bin/z2k-warpd"
 # --- mock zapret2 runtime для strategy dry-run (WP9): движок-mock всегда
 # парсит успешно; lib-стабы те же, что выше (теневая сборка их симлинчит) ---
 mkdir -p "$T/zapret2/lib" "$T/zapret2/nfq2" "$T/zapret2/init.d/openwrt" "$T/root/platform/openwrt/custom.d"
+cp "$REPO/files/z2k-warp-list-filter.awk" "$T/zapret2/z2k-warp-list-filter.awk"
 cp "$REPO/platform/openwrt/custom.d/50-stun4all" "$REPO/platform/openwrt/custom.d/50-discord-media" \
    "$T/root/platform/openwrt/custom.d/"
 chmod +x "$T/root/platform/openwrt/custom.d"/*
@@ -233,6 +234,7 @@ printf '%s\n' "$OUT" > "$T/status-output"
 assert_contains "status: offload facts stay explicit" "$T/status-output" "flowtable=absent"
 assert_contains "status: packet proof stays unknown" "$T/status-output" "packet_visibility=unknown"
 assert_eq "status: tcp16 false" "false" "$(_jget "$OUT" 'd["capabilities"]["tcp16"]')"
+assert_eq "status: Telegram TCP tunnel reports its own matching process probe" "false" "$(_jget "$OUT" 'd["tunnel"]["running"]')"
 assert_eq "status: diag false" "false" "$(_jget "$OUT" 'd["capabilities"]["diag"]')"
 assert_eq "status: customd true" "true" "$(_jget "$OUT" 'd["capabilities"]["customd"]')"
 assert_eq "status: warp true" "true" "$(_jget "$OUT" 'd["capabilities"]["warp"]')"

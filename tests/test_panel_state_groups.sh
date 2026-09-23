@@ -117,7 +117,16 @@ function mkEl(key) {
       toggle(c, on) { if (on === undefined ? !cls.has(c) : on) cls.add(c); else cls.delete(c); },
       contains(c) { return cls.has(c); },
     },
-    set innerHTML(v) { this._h = String(v); }, get innerHTML() { return this._h; },
+    // Перерисовка УНИЧТОЖАЕТ потомков вместе с их обработчиками — в браузере
+    // старые узлы просто исчезают. Заглушка же раздаёт один и тот же объект
+    // на каждый запрос селектора и без этой строки копила подписки: после
+    // трёх отрисовок один клик звал три обработчика, переключатель щёлкал
+    // трижды, и проверка зеленела по чётности, а не по делу.
+    set innerHTML(v) {
+      for (const [k, el] of REG) if (k.startsWith(this._sel + ">")) el.listeners = {};
+      this._h = String(v);
+    },
+    get innerHTML() { return this._h; },
     set textContent(v) { this._h = String(v); }, get textContent() { return this._h; },
     addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); },
     removeEventListener() {}, appendChild() {}, removeChild() {}, remove() {},
@@ -180,13 +189,26 @@ const ENTRIES = [
 ];
 const CALLS = {};
 const REQS = [];
+// Сценарии про холодный кэш и про ошибку задают эти два рычага в setup():
+// __stateDelay — сколько /state «едет» (на роутере это ~2.4 с шелл-CGI),
+// __failStateAfter — с какого по счёту вызова /state отвечать отказом.
+global.__stateDelay = 0;
+global.__failStateAfter = 0;
 global.fetch = async (url, init) => {
   const full = String(url).replace(/^.*\/cgi-bin\/api/, "");
   const p = full.split("?")[0];
   CALLS[p] = (CALLS[p] || 0) + 1;
   REQS.push({ path: p, url: full, body: init && init.body ? String(init.body) : "" });
   let body = { ok: true };
-  if (p === "/state") body = { ok: true, entries: ENTRIES };
+  if (p === "/state") {
+    if (global.__stateDelay) await new Promise(r => setTimeout(r, global.__stateDelay));
+    if (global.__failStateAfter && CALLS[p] >= global.__failStateAfter) {
+      return { ok: false, status: 500, statusText: "Internal Server Error",
+               json: async () => ({ ok: false, error: "движок не отвечает" }),
+               text: async () => '{"ok":false,"error":"движок не отвечает"}' };
+    }
+    body = { ok: true, entries: ENTRIES };
+  }
   if (p === "/pools") body = { ok: true, pools: { rkn_tcp: 50 } };
   return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
 };
@@ -200,11 +222,11 @@ function blocks(html) {
   let m;
   while ((m = re.exec(html))) {
     const attrs = m[1];
-    // data-group с 16.09.2026 — СОСТАВНОЙ ключ «пул\u0000домен»: один и тот же
+    // data-group с 16.09.2026 — СОСТАВНОЙ ключ «пул|домен»: один и тот же
     // домен в разных пулах это разные группы (номера стратегий у пулов свои).
     // Раскладываем, чтобы проверки ниже оставались про домен.
     const graw = (attrs.match(/data-group="([^"]*)"/) || [])[1] || "";
-    const gparts = graw.split("\u0000");
+    const gparts = graw.split("|");
     const g = gparts.length > 1 ? gparts[1] : graw;
     const gpool = gparts.length > 1 ? gparts[0] : "";
     const cls = (attrs.match(/class="([^"]*)"/) || [])[1] || "";
@@ -231,7 +253,7 @@ const SC = {
       // Кнопки пакетных действий: адресуются составным ключом, иначе действие
       // уедет в группу того же домена из соседнего пула.
       check("в шапке есть сброс группы с составным ключом",
-            dm && /class="btn btn-danger btn-icon sg-reset"[\s\S]*?data-gkey="rkn_tcp&#0;discord\.media"/.test(dm.head)
+            dm && /class="btn btn-danger btn-icon sg-reset"[\s\S]*?data-gkey="rkn_tcp\|discord\.media"/.test(dm.head)
                || (dm && dm.head.indexOf('sg-reset') >= 0 && dm.head.indexOf(dm.raw) >= 0),
             dm && dm.head.replace(/\s+/g, " ").slice(0, 300));
       check("в шапке есть заморозка группы",
@@ -259,6 +281,15 @@ const SC = {
       check("адреса не группируются", !b.some(x => /1\.2\.3\.4|2a00|3\.4/.test(x.group)),
             JSON.stringify(b.map(x => x.group)));
       check("запись без имени (Discord-войс) в таблицу не попала", html.indexOf('data-host="nohost"') < 0, "nohost в таблице");
+      // КЛЮЧ ГРУППЫ ОБЯЗАН ПЕРЕЖИВАТЬ РАЗБОР HTML. Он уезжает в data-group и
+      // читается обратно из DOM, а стандарт велит заменить U+0000 в значении
+      // атрибута на U+FFFD (проверено на parse5). С разделителем U+0000 ключ
+      // переставал совпадать сам с собой, и память о раскрытии не работала
+      // вовсе. Заглушка DOM этого не видит — она присваивает dataset.group
+      // руками, минуя разбор, — поэтому смотрим на САМУ разметку.
+      check("в ключе группы нет символов, которые разбор HTML подменяет",
+            !/(data-group|data-gkey)="[^"]*[\u0000�]/.test(html),
+            JSON.stringify((html.match(/data-group="[^"]*"/) || [])[0] || ""));
       const order = b.flatMap(x => x.group ? ["[" + x.group + "]"] : x.hosts);
       // Две группы discord.media подряд: домен первый ключ, пул второй —
       // quic перед rkn_tcp по алфавиту пула.
@@ -280,10 +311,10 @@ const SC = {
     },
   },
   remembered: {
-    // Ключ памяти с 16.09.2026 составной: «пул\u0000домен». Старые записи от
+    // Ключ памяти с 16.09.2026 составной: «пул|домен». Старые записи от
     // прежних версий просто не совпадут, и группа отрисуется свёрнутой — это
     // разовая косметика, состояние ротации к ней отношения не имеет.
-    setup() { localStorage.setItem("z2k-state-open-groups", JSON.stringify(["rkn_tcp\u0000discord.media"])); },
+    setup() { localStorage.setItem("z2k-state-open-groups", JSON.stringify(["rkn_tcp|discord.media"])); },
     async run() {
       const b = blocks(sel("#state-body").innerHTML);
       const dm = b.find(x => x.group === "discord.media" && x.pool === "rkn_tcp");
@@ -314,6 +345,149 @@ const SC = {
             localStorage.getItem("z2k-state-open-groups"));
     },
   },
+  // ПОИСК ПО ДОМЕНУ. Таблица на роутере — это сотни строк (у владельца 109,
+  // из них до сотни поддоменов одного discord.media), и поле поиска здесь не
+  // украшение, а единственный способ найти нужный сайт. Проверяется не только
+  // «фильтрует», но и три решения, принятые вокруг фильтра.
+  search: {
+    // Раскрытие, поставленное ДО поиска: выдача не должна его ни потерять,
+    // ни подменить собой.
+    setup() { localStorage.setItem("z2k-state-open-groups", JSON.stringify(["rkn_tcp|discord.media"])); },
+    async run() {
+      const input = sel("#state-search");
+      const type = async (v) => { input.value = v; input.fire("input"); await sleep(40); };
+      const before = CALLS["/state"] || 0;
+      const memory = () => localStorage.getItem("z2k-state-open-groups") || "";
+      const seeded = memory();
+
+      // Карточка Discord-войса стоит ВЫШЕ таблицы и живёт своей жизнью: в ней
+      // выбирают стратегию и ставят галочку «заморозить», а применяют кнопкой.
+      // Перерисовка по кэшу её данных не меняет, зато стирает невыбранное —
+      // и поиск дёргал бы перерисовку на каждую букву. Метка переживает
+      // отрисовку таблицы ровно тогда, когда карточку не трогали.
+      sel("#discord-voice-controls").innerHTML = "SENTINEL";
+
+      await type("discord.media");
+      check("панель Discord-войса не перерисовывается на каждую букву",
+            sel("#discord-voice-controls").innerHTML === "SENTINEL",
+            sel("#discord-voice-controls").innerHTML.slice(0, 120));
+      let html = sel("#state-body").innerHTML;
+      let b = blocks(html);
+      check("непопавшие строки убраны",
+            !/chatgpt\.com|bbc\.co\.uk|1\.2\.3\.4|discordapp\.com/.test(html),
+            html.replace(/\s+/g, " ").slice(0, 300));
+      const dm = b.find(x => x.group === "discord.media" && x.pool === "rkn_tcp");
+      const dmq = b.find(x => x.group === "discord.media" && x.pool === "quic");
+      check("совпавшие группы сохранили состав",
+            !!dm && !!dmq && dm.members === 3 && dmq.members === 2,
+            JSON.stringify(b.map(x => x.raw + ":" + x.members)));
+      // Найденное обязано быть ВИДНО. Иначе поиск сообщает, что совпадение
+      // где-то есть, вместо того чтобы показать саму строку.
+      check("во время поиска группы раскрыты",
+            dm && dmq && !/\bsg-closed\b/.test(dm.cls) && !/\bsg-closed\b/.test(dmq.cls),
+            JSON.stringify([dm && dm.cls, dmq && dmq.cls]));
+      // Раскрытие живёт в localStorage и переживает перезагрузку страницы.
+      // Одна отфильтрованная выдача не должна ни оставить полтысячи строк
+      // развёрнутыми навсегда, ни стереть раскрытие, поставленное до поиска.
+      // quic-группа в памяти НЕ значится и всё равно раскрыта — значит
+      // раскрыл её поиск, а не память.
+      check("поиск не переписал постоянную память", memory() === seeded, memory());
+      // Весь набор уже в браузере. На роутере /state стоит секунды, и запрос
+      // на каждую букву сделал бы поле непригодным.
+      check("поиск не ходит в сеть", (CALLS["/state"] || 0) === before,
+            "запросов /state: " + (CALLS["/state"] || 0) + ", было " + before);
+
+      // Суффикс семейства — служебная часть ключа, в поле его никто не наберёт.
+      await type("|4");
+      check("суффикс семейства в поиск не попадает",
+            /Ничего не найдено/.test(sel("#state-body").innerHTML),
+            sel("#state-body").innerHTML.replace(/\s+/g, " ").slice(0, 200));
+
+      await type("такого.домена.нет");
+      check("пустая выдача сообщает об этом, а не молчит",
+            /Ничего не найдено/.test(sel("#state-body").innerHTML),
+            sel("#state-body").innerHTML.replace(/\s+/g, " ").slice(0, 200));
+
+      // СВЁРНУТЬ ГРУППУ ПРЯМО В ВЫДАЧЕ. Раскрытие поиском не должно означать
+      // «и не смей сворачивать»: строк в группе бывают сотни, и человек
+      // схлопывает лишнюю, чтобы добраться до соседней.
+      await type("discord.media");
+      const tb = sel("#state-body>tbody.sg");
+      tb.dataset.group = "quic|discord.media";
+      tb.classList.remove("sg-closed");
+      sel("#state-body>tbody.sg>.sg-head").fire("click");
+      await sleep(20);
+      check("в выдаче группа сворачивается с первого клика",
+            tb.classList.contains("sg-closed"), "sg-closed не появился");
+      check("свёртывание в выдаче не трогает постоянную память",
+            memory() === seeded, memory());
+      // Перерисовка случается на каждой букве, а ещё после заморозки и
+      // удаления. Если раскрытие форсировать, свернуть группу нельзя вовсе.
+      await type("discord.media");
+      b = blocks(sel("#state-body").innerHTML);
+      const dmq2 = b.find(x => x.group === "discord.media" && x.pool === "quic");
+      check("свёрнутое в выдаче переживает перерисовку",
+            dmq2 && /\bsg-closed\b/.test(dmq2.cls), dmq2 && dmq2.cls);
+
+      await type("");
+      html = sel("#state-body").innerHTML;
+      b = blocks(html);
+      check("очистка поля возвращает все строки",
+            /chatgpt\.com/.test(html) && /bbc\.co\.uk/.test(html) && /discordapp\.com/.test(html),
+            html.replace(/\s+/g, " ").slice(0, 300));
+      // Свёрнутое внутри поиска забыто, а раскрытое ДО поиска — на месте.
+      const dmAfter = b.find(x => x.group === "discord.media" && x.pool === "rkn_tcp");
+      const restAfter = b.filter(x => x.group && !(x.pool === "rkn_tcp" && x.group === "discord.media"));
+      check("после очистки вернулось раскрытие, бывшее до поиска",
+            dmAfter && !/\bsg-closed\b/.test(dmAfter.cls), dmAfter && dmAfter.cls);
+      check("после очистки остальные группы свёрнуты",
+            restAfter.every(x => /\bsg-closed\b/.test(x.cls)),
+            JSON.stringify(restAfter.map(x => x.raw + ":" + x.cls)));
+    },
+  },
+  // ПЕЧАТЬ ДО ПЕРВОГО ОТВЕТА. Поле поиска доступно сразу, а /state на роутере
+  // едет ~2.4 с. Пока перерисовка по кэшу безусловно проваливалась в сетевую
+  // ветку, каждая буква отменяла летящий запрос и пускала новый — таблица
+  // оставалась скелетом всю очередь нажатий.
+  coldtype: {
+    setup() { global.__stateDelay = 400; },
+    async run() {
+      const before = CALLS["/state"] || 0;
+      const input = sel("#state-search");
+      for (const v of ["d", "di", "dis", "disc"]) { input.value = v; input.fire("input"); await sleep(10); }
+      check("печать до первого ответа не порождает запросов",
+            (CALLS["/state"] || 0) === before,
+            "было " + before + ", стало " + (CALLS["/state"] || 0));
+      // Ответ приходит и рисуется УЖЕ отфильтрованным: и запрос, и сортировка
+      // читаются в момент отрисовки, поэтому терять нечего.
+      await sleep(600);
+      const html = sel("#state-body").innerHTML;
+      check("пришедший ответ нарисован с учётом набранного",
+            html.indexOf("discord") >= 0 && !/chatgpt\.com|bbc\.co\.uk/.test(html),
+            html.replace(/\s+/g, " ").slice(0, 300));
+    },
+  },
+  // ОШИБКА ЗАГРУЗКИ И УСТАРЕВШИЙ КЭШ. Поле поиска лежит СНАРУЖИ #state-body и
+  // переживает отрисованную ошибку — то есть даёт путь к перерисовке по кэшу,
+  // которого раньше не было (кнопка сортировки исчезала вместе с таблицей).
+  errorstale: {
+    setup() { global.__failStateAfter = 2; },
+    async run() {
+      // Первая загрузка удалась, кэш тёплый. Теперь «Обновить» падает.
+      sel("#state-refresh").fire("click");
+      await sleep(80);
+      const err = sel("#state-body").innerHTML;
+      check("провал загрузки показан", /var\(--bad\)/.test(err), err.slice(0, 200));
+      const input = sel("#state-search");
+      input.value = "discord";
+      input.fire("input");
+      await sleep(60);
+      const after = sel("#state-body").innerHTML;
+      check("поиск не подменяет ошибку устаревшими строками",
+            !/state-strat-sel/.test(after) && /var\(--bad\)/.test(after),
+            after.replace(/\s+/g, " ").slice(0, 300));
+    },
+  },
 };
 
 (async () => {
@@ -339,7 +513,7 @@ run_scen() {
         esac
     done
 }
-for scen in render tiebreak remembered toggle; do
+for scen in render tiebreak remembered toggle search coldtype errorstale; do
     out=$(run_scen "$JS" "$scen")
     printf '%s\n' "$out"
     PASS=$((PASS + $(printf '%s\n' "$out" | grep -c '^\[PASS\]')))
@@ -369,8 +543,17 @@ meta "зоны второго уровня не учитываются" render '
 meta "группы раскрыты по умолчанию" render 's/<tbody class="sg\${open ? "" : " sg-closed"}"/<tbody class="sg"/'
 meta "сортировка по домену без родителя" render 's/case "host":     av = meta\.get(a)\.group + "\\u0000" + String(a\.key || "") + "\\u0000" + /case "host":     av = /'
 meta "равные строки снова в порядке файла" tiebreak 's/return ah < bh ? -1 : ah > bh ? 1 : 0;/return 0;/'
-meta "раскрытие не запоминается" remembered 's/const open = stateOpenGroups\.has(b\.gkey);/const open = false;/'
+meta "раскрытие не запоминается" remembered 's/const open = query ? !searchCollapsed\.has(b\.gkey) : stateOpenGroups\.has(b\.gkey);/const open = false;/'
 meta "клик не сохраняет раскрытие" toggle 's/^ *saveOpenGroups();$//'
+meta "поиск ничего не фильтрует" search 's/? all\.filter(e => splitFamily(e\.host)\.name\.toLowerCase()\.includes(query))/? all/'
+meta "найденное прячется в свёрнутой группе" search 's/const open = query ? !searchCollapsed\.has(b\.gkey) : stateOpenGroups\.has(b\.gkey);/const open = stateOpenGroups.has(b.gkey);/'
+meta "поиск идёт по ключу вместе с суффиксом семейства" search 's/splitFamily(e\.host)\.name\.toLowerCase()\.includes(query)/String(e.host).toLowerCase().includes(query)/'
+meta "раскрытие форсируется и свернуть в выдаче нельзя" search 's/const open = query ? !searchCollapsed\.has(b\.gkey) : stateOpenGroups\.has(b\.gkey);/const open = query ? true : stateOpenGroups.has(b.gkey);/'
+meta "свёртывание в выдаче пишется в постоянную память" search 's/if (open) searchCollapsed\.delete(g); else searchCollapsed\.add(g);/if (open) stateOpenGroups.add(g); else stateOpenGroups.delete(g); saveOpenGroups();/'
+meta "поиск до первого ответа бьёт в сеть" coldtype 's/function resortState() { return stateCache ? loadState(true) : Promise.resolve(); }/function resortState() { return loadState(true); }/'
+meta "ошибка подменяется устаревшим кэшем" errorstale 's/^ *stateCache = null;$//'
+meta "ключ группы снова с U+0000 и не переживает разбор" render 's/const GKEY_SEP = "|";/const GKEY_SEP = "\\u0000";/'
+meta "панель Discord-войса перерисовывается на каждую букву" search 's/if (!useCache) renderDiscordVoicePanel(entries);/renderDiscordVoicePanel(entries);/'
 
 printf '\nPASSED: %d\nFAILED: %d\nSKIPPED: %d\n' "$PASS" "$FAIL" "$SKIP"
 [ "$FAIL" = 0 ]

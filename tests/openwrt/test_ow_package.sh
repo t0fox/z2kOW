@@ -24,7 +24,7 @@ assert_contains "adapter installs diagnostics helper at runtime lookup path" "$M
 assert_contains "diagnostics helper has one package owner" "$REPO/package/openwrt/ownership.map" \
     "/usr/lib/z2k/z2k-diag.sh package"
 assert_contains "adapter resolves TUN and OpenSSL dependencies" "$MK" \
-    "DEPENDS:=+kmod-nft-queue +kmod-tun +conntrack +openssl-util +z2k-zapret2-runtime"
+    "DEPENDS:=+kmod-nft-queue +kmod-tun +kmod-nfnetlink-log +conntrack +openssl-util +z2k-zapret2-runtime +z2k-warp-runtime"
 # Stage 6: опциональный сабпакет панели (зависимость + свой init, без payload).
 assert_contains "webpanel subpackage" "$MK" "Package/z2k-webpanel"
 assert_contains "webpanel BuildPackage" "$MK" "BuildPackage,z2k-webpanel"
@@ -36,12 +36,14 @@ _aver="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$MK" | head -1 | tr -d ' \t\r\n')
 _arel="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$MK" | head -1 | tr -d ' \t\r\n')"
 _rver="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$REPO/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
 _rrel="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$REPO/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
+_wrver="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$REPO/package/z2k-warp-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
+_wrrel="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$REPO/package/z2k-warp-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
 assert_contains "webpanel dep == adapter version" "$MK" "EXTRA_DEPENDS:=z2k-adapter (>=${_aver}-r${_arel})"
 assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapret2-runtime (>=${_rver}-r${_rrel})"
-# A same-version APK is not an upgrade on OpenWrt. The UDP LAN selector fix
-# therefore requires a real adapter release bump, and the webpanel must
-# require that same release rather than silently retaining an older adapter.
-assert_eq "adapter release bumped for Telegram UDP LAN selector" "62" "$_arel"
+assert_contains "adapter dep == WARP runtime version" "$MK" "z2k-warp-runtime (>=${_wrver}-r${_wrrel})"
+# p-85.10 package bump delivers both the retirement migration and OpenWrt WARP
+# target runtime through normal apk dependency resolution.
+assert_eq "adapter release bumped for p-85.10 WARP runtime" "65" "$_arel"
 assert_contains "nounset CGI probe remains guarded" "$REPO/platform/openwrt/customd.sh" \
     'nounset must not abort this probe'
 assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwrt/env.sh" \
@@ -49,14 +51,12 @@ assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwr
 assert_file "autohostlist lifecycle source exists" "$REPO/platform/openwrt/autohostlist.sh"
 assert_file "WARP fw4 chain-pre include exists" \
     "$REPO/package/openwrt/files/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft"
-assert_file "Telegram UDP fw4 chain-pre include exists" \
-    "$REPO/package/openwrt/files/usr/share/nftables.d/chain-pre/forward/90-z2k-tg-udp.nft"
-assert_contains "adapter installs Telegram UDP fw4 chain-pre include" "$MK" \
+assert_not_contains "retired Telegram UDP fw4 include is not packaged" "$MK" \
     '90-z2k-tg-udp.nft'
-assert_contains "adapter installs Telegram legacy ABI helper under package root" "$MK" \
-    'platform/openwrt/tg-udp-legacy-shell'
-assert_contains "legacy shell helper has one package owner" "$REPO/package/openwrt/ownership.map" \
-    "/usr/lib/z2k/platform/openwrt/tg-udp-legacy-shell package"
+assert_not_contains "retired Telegram UDP include is absent" "$REPO/package/openwrt/ownership.map" \
+    '90-z2k-tg-udp.nft'
+assert_contains "upgrade runs ownership-checked Telegram UDP retirement" \
+    "$REPO/package/openwrt/Makefile" 'tg-retire-udp.sh'
 assert_not_contains "WARP fw4 include does not use ignored /etc tree" "$MK" \
     'files/etc/nftables.d/chain-pre/forward/90-z2k-warp.nft'
 assert_contains "init loads autohostlist lifecycle" "$REPO/package/openwrt/files/etc/init.d/z2k" \
@@ -64,7 +64,8 @@ assert_contains "init loads autohostlist lifecycle" "$REPO/package/openwrt/files
 # Каноническая грамматика FormatDepends (два провала доказали оба края):
 # "name (>=ver)" — пробел только между именем и скобкой. Проверяем форму
 # строго, чтобы правка не вернула ни "pkg>=ver", ни "(>= ver)".
-for _dep in "z2k-adapter (>=${_aver}-r${_arel})" "z2k-zapret2-runtime (>=${_rver}-r${_rrel})"; do
+for _dep in "z2k-adapter (>=${_aver}-r${_arel})" "z2k-zapret2-runtime (>=${_rver}-r${_rrel})" \
+            "z2k-warp-runtime (>=${_wrver}-r${_wrrel})"; do
     if printf '%s' "$_dep" | grep -qE '^[A-Za-z0-9+._-]+ \(([<>=!]+[^ )]+)\)$'; then _t_ok
     else _t_bad "dep не в канонической форме: [$_dep]"; fi
 done
@@ -77,8 +78,7 @@ assert_contains "uninstall purges tmp" "$REPO/platform/openwrt/uninstall.sh" 'rm
 assert_contains "seed builder" "$MK" "make-seed.sh"
 assert_contains "materialize in seed" "$REPO/package/openwrt/make-seed.sh" "z2k_ow_materialize"
 assert_contains "postinst seed-guard" "$MK" "z2k_ow_seed_ensure"
-assert_contains "Telegram UDP route helper is installed executable" "$MK" "tg-udp-route.sh"
-assert_contains "Telegram UDP route helper is passed to the client" "$REPO/platform/openwrt/tg.sh" "Z2K_TG_UDP_ROUTE_HELPER="
+assert_not_contains "Telegram TCP service has no legacy UDP route helper" "$REPO/platform/openwrt/tg.sh" "tg-udp-route.sh|Z2K_TG_UDP_ROUTE_HELPER"
 assert_contains "panel contract source" "$REPO/package/openwrt/PANEL_API" "1"
 assert_contains "panel contract install" "$MK" "share/panel.api"
 assert_contains "panel mismatch is explicit" "$MK" "PANEL_PAYLOAD_MISMATCH"

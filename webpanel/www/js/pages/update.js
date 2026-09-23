@@ -69,10 +69,7 @@ export async function refreshUpdateBanner(opts = {}) {
   }
 
   if (!unknown && behind > 0) {
-    // Что именно приедет, бекенд уже посчитал и прислал: записи новее
-    // установленной версии. Модалке «Что нового» этого достаточно, в сеть за
-    // ними ходить не нужно.
-    const pending = Array.isArray(d && d.pending) ? d.pending : [];
+    const pending = Array.isArray(d.pending) ? d.pending : [];
     banner.hidden = false;
     banner.className = "update-banner";
     banner.innerHTML = `
@@ -82,17 +79,28 @@ export async function refreshUpdateBanner(opts = {}) {
       </div>
       <div class="update-banner-actions">
         <button class="btn btn-primary" id="upd-apply">Обновить</button>
-        <button class="btn" id="upd-changelog-btn">Что нового</button>
+        ${pending.length > 0 ? `<button class="btn btn-disclosure" id="upd-changelog-btn" aria-expanded="false"><span>Что нового</span>${_icons.chevronDown}</button>` : ""}
+        <button class="btn" id="upd-history-link" type="button">История версий</button>
         <button class="btn" id="upd-recheck">Проверить ещё раз</button>
       </div>
+      ${pending.length > 0 ? `
+        <div class="update-banner-body" id="upd-changelog" hidden>
+          <div class="upd-changelog">
+            ${pending.map(e => renderChangelogEntry(e, false)).join("")}
+          </div>
+        </div>
+      ` : ""}
     `;
     const clBtn = document.getElementById("upd-changelog-btn");
-    // Список того, что приедет, уже пришёл в ответе /update/status — модалке
-    // сеть не нужна вовсе. И это РАЗНЫЕ вопросы: «что мне привезут» и «что
-    // было за три года»; одна кнопка на оба ответа была ошибкой.
-    if (clBtn) clBtn.addEventListener("click", () => openHistoryModal({
-      installed, behind, mode: "pending", pending, available,
-    }));
+    const clBox = document.getElementById("upd-changelog");
+    if (clBtn && clBox) {
+      clBtn.addEventListener("click", () => {
+        const open = !clBox.hidden;
+        clBox.hidden = open;
+        clBtn.setAttribute("aria-expanded", open ? "false" : "true");
+        clBtn.classList.toggle("is-open", !open);
+      });
+    }
   } else if (unknown) {
     const why = err ? escapeHtml(err.message) : "список версий не скачался";
     const known = installed !== "?" ? `установлена ${escapeHtml(installed)} · ` : "";
@@ -101,9 +109,10 @@ export async function refreshUpdateBanner(opts = {}) {
     banner.innerHTML = `
       <div class="update-banner-text">
         <strong>Не удалось проверить обновления</strong>
-        <span class="update-banner-meta">${known}${why} · последняя удачная проверка ${ago} · <button type="button" class="upd-history-link" id="upd-history-link">история версий</button></span>
+        <span class="update-banner-meta">${known}${why} · последняя удачная проверка ${ago}</span>
       </div>
       <div class="update-banner-actions">
+        <button class="btn" id="upd-history-link" type="button">История версий</button>
         <button class="btn" id="upd-recheck">Проверить ещё раз</button>
       </div>
     `;
@@ -118,9 +127,10 @@ export async function refreshUpdateBanner(opts = {}) {
     banner.innerHTML = `
       <div class="update-banner-text">
         <strong>Обновления не проверяются</strong>
-        <span class="update-banner-meta">установлена ${escapeHtml(installed)} · список версий не удаётся скачать уже ${escapeHtml(staleFor)} · показано по устаревшим данным · <button type="button" class="upd-history-link" id="upd-history-link">история версий</button></span>
+        <span class="update-banner-meta">установлена ${escapeHtml(installed)} · список версий не удаётся скачать уже ${escapeHtml(staleFor)} · показано по устаревшим данным</span>
       </div>
       <div class="update-banner-actions">
+        <button class="btn" id="upd-history-link" type="button">История версий</button>
         <button class="btn" id="upd-recheck">Проверить ещё раз</button>
       </div>
     `;
@@ -130,16 +140,17 @@ export async function refreshUpdateBanner(opts = {}) {
     banner.innerHTML = `
       <div class="update-banner-text">
         <span>Установлена последняя версия (${escapeHtml(installed)})</span>
-        <span class="update-banner-meta">проверено ${ago}${auNote} · <button type="button" class="upd-history-link" id="upd-history-link">история версий</button></span>
+        <span class="update-banner-meta">проверено ${ago}${auNote}</span>
       </div>
       <div class="update-banner-actions">
+        <button class="btn" id="upd-history-link" type="button">История версий</button>
         <button class="btn" id="upd-recheck">Проверить</button>
       </div>
     `;
   }
 
   const histLink = document.getElementById("upd-history-link");
-  if (histLink) histLink.addEventListener("click", () => openHistoryModal({ installed, behind, mode: "all" }));
+  if (histLink) histLink.addEventListener("click", () => openHistoryModal({ installed, behind }));
 
   const applyBtn = document.getElementById("upd-apply");
   if (applyBtn) applyBtn.addEventListener("click", () => applyUpdateFlow(available));
@@ -298,23 +309,10 @@ function renderChangelogEntry(e, isUninstalled) {
   `;
 }
 
-// Одна модалка на два РАЗНЫХ вопроса, и режим решает, на какой она отвечает:
-//   pending — «что мне сейчас привезут»: записи новее установленной версии,
-//             они уже пришли в ответе /update/status, сеть не нужна;
-//   all     — «что было за всё время»: ленивый список с бекенда.
-//
-// Раньше обе двери вели в полную историю, и человек, нажавший «Что нового»,
-// получал двести пятьдесят выпусков вместо трёх своих (жалоба владельца
-// 16.09.2026).
+// Полный архив открывается только отдельной кнопкой «История версий».
 async function openHistoryModal(ctx = {}) {
   const installed = (ctx && ctx.installed) || "";
   const behind = Number((ctx && ctx.behind) || 0);
-  const available = (ctx && ctx.available) || "";
-  const pendingRows = Array.isArray(ctx && ctx.pending) ? ctx.pending : [];
-  // Режим «что нового» без списка бессмыслен — падаем в полную историю, а не
-  // показываем пустую модалку.
-  let mode = (ctx && ctx.mode === "pending" && pendingRows.length) ? "pending" : "all";
-
   const prevFocus = document.activeElement;
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
@@ -328,7 +326,6 @@ async function openHistoryModal(ctx = {}) {
         <div class="upd-history-loading">Загрузка…</div>
       </div>
       <div class="modal-footer">
-        <button class="btn" id="hist-all-btn" type="button" hidden>Вся история версий</button>
         <button class="btn" id="hist-close-btn" type="button">Закрыть</button>
       </div>
     </div>
@@ -340,7 +337,6 @@ async function openHistoryModal(ctx = {}) {
   const closeX = backdrop.querySelector("#hist-modal-close");
   const closeBtn = backdrop.querySelector("#hist-close-btn");
   const titleEl = backdrop.querySelector("#hist-modal-title");
-  const allBtn = backdrop.querySelector("#hist-all-btn");
 
   let closed = false;
   function closeModal() {
@@ -374,35 +370,6 @@ async function openHistoryModal(ctx = {}) {
   let total = 0;
   let lastMonthKey = "";
   let foundInstalled = false;
-
-  // «Что нового»: рисуем то, что уже на руках. Порядок как в истории — свежее
-  // сверху, — иначе два списка одних и тех же записей читались бы в разные
-  // стороны. Каждая запись помечена «не установлено»: это и есть ответ на
-  // вопрос, ради которого кнопку нажали.
-  function renderPending() {
-    if (titleEl) {
-      titleEl.textContent = available && installed
-        ? `Что нового: ${installed} → ${available}`
-        : "Что нового";
-    }
-    if (allBtn) allBtn.hidden = false;
-    const rows = pendingRows.slice().reverse();
-    listEl.innerHTML = rows.map(e => renderChangelogEntry(e, true)).join("");
-    listEl.scrollTop = 0;
-  }
-
-  // Переход «показать всё» из режима «что нового»: та же модалка, другой
-  // вопрос. Закрывать и открывать заново незачем.
-  function switchToAll() {
-    mode = "all";
-    offset = 0;
-    lastMonthKey = "";
-    foundInstalled = false;
-    if (allBtn) allBtn.hidden = true;
-    if (titleEl) titleEl.textContent = "История версий";
-    listEl.innerHTML = '<div class="upd-history-loading">Загрузка…</div>';
-    loadMore();
-  }
 
   function bindRetry() {
     const recheckBtn = listEl.querySelector("#hist-recheck-btn");
@@ -495,22 +462,13 @@ async function openHistoryModal(ctx = {}) {
     return inFlight;
   }
 
-  if (allBtn) allBtn.addEventListener("click", switchToAll);
-
   listEl.addEventListener("scroll", () => {
-    // В режиме «что нового» подгружать нечего: список целиком на руках, а
-    // догрузка истории подменила бы ответ на вопрос прямо под рукой человека.
-    if (mode !== "all") return;
     if (inFlight || offset >= total) return;
     if (listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 80) {
       loadMore();
     }
   });
 
-  if (mode === "pending") {
-    renderPending();
-  } else {
-    if (titleEl) titleEl.textContent = "История версий";
-    await loadMore();
-  }
+  if (titleEl) titleEl.textContent = "История версий";
+  await loadMore();
 }

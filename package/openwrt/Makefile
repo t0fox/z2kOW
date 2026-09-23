@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=62
+PKG_RELEASE:=65
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -104,25 +104,25 @@ PKG_RELEASE:=62
 # RELEASE 52: include the OpenWrt WARP API and renderer in the embedded panel
 # compatibility witness; stale updater-owned WebUI bytes must not hide
 # route_ready/state behind an apparently compatible payload.
-# RELEASE 53: p-85.8 Telegram UDP-v1 transport on OpenWrt: the common client
-# owns the authenticated WSS/TUN session; this package owns only the nft/PBR
-# route-helper seam and persistent UDP feature default.
-# RELEASE 54: pass the Telegram UDP route helper and readiness marker through
-# one complete procd environment block so the negotiated tunnel reaches ready.
+# RELEASE 53-54: p-85.8 Telegram UDP-v1 experiment (retired by p-85.9).
 # RELEASE 55: recover one missing WARP procd-instance registration through
 # the existing bounded lifecycle tick without adding another watchdog or
 # disturbing procd's bounded respawn for registered crashes.
 # RELEASE 56: align custom.d daemon/queue names with stock lexical allocation
 # and add exact post-queue returns so STUN/Discord discovery is not also sent
 # through the core NFQUEUE profile.
-# RELEASE 57: bridge the shipped p-85.8 Telegram UDP helper ABI to the OpenWrt
-# route helper without extracting or rebuilding the secret-bearing client.
-# RELEASE 58: make the legacy helper BusyBox-safe and accept observed ensure/down
-# route actions from the installed p-85.8 client.
+# RELEASE 57-58: compatibility bridge for the retired p-85.8 Telegram UDP ABI.
 # RELEASE 59: preserve nft-language quotes in argv for custom.d overlap guard
 # comments; nft otherwise parses the comment text as syntax and rejects colons.
 # RELEASE 62: resolve logical OpenWrt LAN network names through UCI to the
-# actual kernel ingress device before installing Telegram UDP nft selectors.
+# actual kernel ingress device for the then-experimental Telegram UDP path.
+# RELEASE 63 (p-85.10): retire that path with an ownership-checked upgrade
+# migration and package the OpenWrt WARP DNS observer runtime.
+# RELEASE 64: compile the p-85.10 WARP nft PairSet backend as a package-owned
+# target runtime; keep the upstream signed Keenetic binaries and ipset path
+# untouched, and co-upgrade the runtime with the adapter.
+# RELEASE 65: compile the OpenWrt-only PairSet source through a Go overlay;
+# the upstream source tree and byte-for-byte Keenetic binaries remain exact.
 # RELEASE 31: converge stale updater-owned panel payload from an embedded CI
 # snapshot through the existing verified reinstall path; production packages
 # fail closed with an explicit panel-payload incompatibility.
@@ -167,8 +167,8 @@ define Package/z2k-adapter
   # live-урок p-84.17 — apk upgrade НЕ co-upgrade'ит уже установленный dep
   # без constraint'а. Нижняя граница = текущий runtime APK; консистентность
   # с package/z2k-runtime/Makefile сторожит тест. Lockstep: snapshot бампит все.
-  DEPENDS:=+kmod-nft-queue +kmod-tun +conntrack +openssl-util +z2k-zapret2-runtime
-  EXTRA_DEPENDS:=z2k-zapret2-runtime (>=1.0.5.1-r4)
+  DEPENDS:=+kmod-nft-queue +kmod-tun +kmod-nfnetlink-log +conntrack +openssl-util +z2k-zapret2-runtime +z2k-warp-runtime
+  EXTRA_DEPENDS:=z2k-zapret2-runtime (>=1.0.5.1-r4) z2k-warp-runtime (>=85.10.0-r1)
 endef
 
 define Package/z2k-adapter/description
@@ -193,7 +193,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r62)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r65)
 endef
 
 define Package/z2k-webpanel/description
@@ -245,7 +245,6 @@ define Package/z2k-adapter/install
 	$(INSTALL_DIR) $(1)/etc/init.d $(1)/etc/hotplug.d/iface
 	$(INSTALL_DIR) $(1)/usr/share/nftables.d/chain-pre/forward
 	$(INSTALL_DATA) ./files/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft $(1)/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft
-	$(INSTALL_DATA) ./files/usr/share/nftables.d/chain-pre/forward/90-z2k-tg-udp.nft $(1)/usr/share/nftables.d/chain-pre/forward/90-z2k-tg-udp.nft
 	$(INSTALL_DIR) $(1)/etc/sysctl.d
 	$(INSTALL_DATA) ./files/etc/sysctl.d/99-z2k.conf $(1)/etc/sysctl.d/99-z2k.conf
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/platform/openwrt/custom.d
@@ -253,6 +252,7 @@ define Package/z2k-adapter/install
 		$(Z2K_TREE)/platform/openwrt/custom.d/50-discord-media \
 		$(1)/usr/lib/z2k/platform/openwrt/custom.d/
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/share
+	$(INSTALL_DATA) $(Z2K_TREE)/files/z2k-warp-list-filter.awk $(1)/usr/lib/z2k/z2k-warp-list-filter.awk
 	$(INSTALL_BIN) ./files/etc/init.d/z2k $(1)/etc/init.d/z2k
 	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/90-z2k $(1)/etc/hotplug.d/iface/90-z2k
 	$(INSTALL_BIN) $(Z2K_TREE)/files/z2k-diag.sh $(1)/usr/lib/z2k/z2k-diag.sh
@@ -282,8 +282,7 @@ define Package/z2k-adapter/install
 		$(Z2K_TREE)/platform/openwrt/rt-check.sh $(Z2K_TREE)/platform/openwrt/rt-proc.sh \
 		$(Z2K_TREE)/platform/openwrt/warp.sh $(Z2K_TREE)/platform/openwrt/warp-proc.sh \
 		$(Z2K_TREE)/platform/openwrt/warp-check.sh $(Z2K_TREE)/platform/openwrt/fw-check.sh \
-		$(Z2K_TREE)/platform/openwrt/diag.sh $(Z2K_TREE)/platform/openwrt/tg-udp-route.sh \
-		$(Z2K_TREE)/platform/openwrt/tg-udp-legacy-shell \
+		$(Z2K_TREE)/platform/openwrt/diag.sh \
 		$(1)/usr/lib/z2k/platform/openwrt/
 	sh $(Z2K_TREE)/package/openwrt/make-seed.sh $(Z2K_TREE) $(PKG_BUILD_DIR)/seed.tar.gz
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/seed.tar.gz $(1)/usr/lib/z2k/share/seed.tar.gz
@@ -364,6 +363,10 @@ fi
 # остаётся cubic. Не персистим: строка bbr в sysctl.d шумела бы в boot-лог
 # на ядрах без модуля; rmem-ключи выше — всегда валидны.
 sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1 || true
+# p-85.9 retired the experimental Telegram UDP transport. Converge its exact
+# process/routes/nft/config leftovers only after payload and package updates.
+. "$$Z2K_ROOT/platform/openwrt/tg-retire-udp.sh" || exit 1
+z2k_ow_tg_retire_udp || exit 1
 # Fresh-install autostart (parity: upstream finalize поднимает сервис в конце
 # установки). ТОЛЬКО fresh (см. Z2K_OW_WAS_FRESH выше): upgrade running-сервис
 # не трогает. Best-effort: preflight объяснит отказ громко, транзакцию не

@@ -21,13 +21,7 @@ type ctrlItem struct {
 // ctrl — приоритетная очередь (HELLO_ACK, INFO, CONNECT_OK/FAIL, CLOSE по
 // abort, WINDOW). Данные — по кругу стримов, по одному кадру за проход:
 // один стрим не монополизирует канал.
-type udpQueued struct {
-	frame []byte
-	at    time.Time
-}
-
 type wsWriter struct {
-	datagrams chan udpQueued
 	s         *session
 	ctrl      chan ctrlItem
 	ready     chan *stream
@@ -142,15 +136,6 @@ func (w *wsWriter) run() {
 		select {
 		case it := <-w.ctrl:
 			if !w.writeCtrl(it) {
-				return
-			}
-		case d := <-w.datagrams:
-			if time.Since(d.at) > 200*time.Millisecond {
-				continue
-			}
-			_ = w.s.ws.SetWriteDeadline(time.Now().Add(time.Second))
-			if err := w.s.ws.WriteMessage(websocket.BinaryMessage, d.frame); err != nil {
-				w.s.killWith("udp_write")
 				return
 			}
 		case st := <-w.ready:

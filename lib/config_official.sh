@@ -244,12 +244,7 @@ generate_nfqws2_opt_from_strategies() {
     # вместо per-IP фрагментации стокового host_ip fallback'а (иначе Discord
     # voice холодно стартует на каждом новом DC-IP). Нативная замена archived
     # allow_nohost (z2k-autocircular) — алгоритм ротации остаётся circular().
-    # Keenetic field test 2026-09-21: fake-only lost the original STUN packet
-    # after POSTROUTING/NFQUEUE; explicit send+drop restored matching replies.
-    # Tag send+drop in EACH circular arm (untagged actions are not executed),
-    # inside the existing d4/payload cutoff.
-    # Only discovery/STUN is resent; media packets retain the normal path.
-    discord_udp="--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --in-range=a --out-range=a --payload=all --lua-desync=circular:fails=3:time=60:udp_in=1:udp_out=4:key=discord_udp:hostkey=z2k_nohost_key --in-range=x --out-range=-d4 --payload=discord_ip_discovery,stun --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=10:strategy=1 --lua-desync=send:dir=out:strategy=1 --lua-desync=drop:dir=out:strategy=1 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=3:strategy=2 --lua-desync=send:dir=out:strategy=2 --lua-desync=drop:dir=out:strategy=2 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=6:strategy=3 --lua-desync=send:dir=out:strategy=3 --lua-desync=drop:dir=out:strategy=3 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=6:ip_autottl=-2,3-20:strategy=4 --lua-desync=send:dir=out:strategy=4 --lua-desync=drop:dir=out:strategy=4 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=4:strategy=5 --lua-desync=send:dir=out:strategy=5 --lua-desync=drop:dir=out:strategy=5 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=5:strategy=6 --lua-desync=send:dir=out:strategy=6 --lua-desync=drop:dir=out:strategy=6"
+    discord_udp="--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --in-range=a --out-range=a --payload=all --lua-desync=circular:fails=3:time=60:udp_in=1:udp_out=4:key=discord_udp:hostkey=z2k_nohost_key --in-range=x --out-range=-d4 --payload=discord_ip_discovery,stun --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=10:strategy=1 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=3:strategy=2 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=6:strategy=3 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=6:ip_autottl=-2,3-20:strategy=4 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=4:strategy=5 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=5:strategy=6"
 
     # Дефолт для пула, чей Strategy.txt пуст или нечитаем.
     #
@@ -1986,7 +1981,6 @@ create_official_config() {
     # Сохранить пользовательские настройки из существующего конфига
     local saved_GAME_WARP_ENABLED="0"
     local saved_TG_PROXY_USER_DISABLED="0"
-    local saved_Z2K_TG_UDP_RELAY="1"
     local saved_ENABLED="1"
     local saved_Z2K_CIRCULAR_RESET="1"
     local saved_Z2K_DISCORD_UPDATE_TLS_TIMEOUT="1"
@@ -2035,7 +2029,6 @@ create_official_config() {
     if [ -f "$config_file" ]; then
         saved_GAME_WARP_ENABLED=$(safe_config_read "GAME_WARP_ENABLED" "$config_file" "0")
         saved_TG_PROXY_USER_DISABLED=$(safe_config_read "TG_PROXY_USER_DISABLED" "$config_file" "0")
-        saved_Z2K_TG_UDP_RELAY=$(safe_config_read "Z2K_TG_UDP_RELAY" "$config_file" "1")
         # ENABLED — master service on/off gate (read by S99zapret2.new start()).
         # Was hardcoded =1 below and NOT preserved, so a user who stopped the
         # service (ENABLED=0) saw it resurrected by the next config regen
@@ -2407,8 +2400,6 @@ GAME_WARP_ENABLED=${saved_GAME_WARP_ENABLED}
 # Preserved across reinstall так что step_finalize autostart не воскрешал
 # daemon, который юзер явно остановил.
 TG_PROXY_USER_DISABLED=${saved_TG_PROXY_USER_DISABLED}
-# UDP forwarding for Telegram server calls through our VPS; 0 disables it.
-Z2K_TG_UDP_RELAY=${saved_Z2K_TG_UDP_RELAY}
 
 # Telegram server UDP forwarding through the separate authenticated WSS/TUN.
 # 0 disables only the UDP leg; the existing TCP tunnel remains independent.

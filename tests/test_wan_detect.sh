@@ -1,176 +1,169 @@
 #!/bin/sh
-# tests/test_wan_detect.sh
-#
-# get_default_ifaces4/6 must return ONLY interfaces carrying a default route.
-#
-# The bug this guards: BusyBox `ip` IGNORES the `default` selector and prints the
-# whole routing table, so the original awk (which took `dev` from every line)
-# returned every LAN bridge as a WAN. Measured on a live Keenetic:
-#
-#     ip route show default
-#         default dev ppp0 scope link  metric 1000
-#         10.1.30.0/24 dev br1 scope link  src 10.1.30.1
-#         192.168.1.0/24 dev br0 scope link  src 192.168.1.1
-#     old parse -> "ppp0 ppp0 br1 ppp0 ppp0 br0"      new parse -> "ppp0"
-#
-# Consequence on that router: 18 v4 NFQUEUE rules instead of 6, and LAN-to-LAN
-# traffic queued into nfqws2 for nothing. After the fix: 18 -> 6, bypass verified
-# unaffected from a client sitting on br0 (rutracker 301, youtube 200,
-# instagram 301, discord 200, nnmclub 200).
-#
-# iproute2 honours the selector, so the extra filtering is a no-op there - which
-# is exactly why this went unnoticed: it only misbehaves on the target platform.
-#
-# POSIX sh.
+# Main-table-only WAN discovery contract. The target BusyBox ip may ignore a
+# `default` selector, so lib/wan.sh must still parse the returned routes itself.
+set -u
 
-HERE=$(cd "$(dirname "$0")/.." && pwd)
-INIT="$HERE/files/S99zapret2.new"
+ROOT=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/wan.XXXXXX") || exit 1
-trap 'rm -rf "$TMP"' EXIT
+trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 
 PASS=0; FAIL=0
 ok() { PASS=$((PASS+1)); printf '[PASS] %s\n' "$1"; }
 no() { FAIL=$((FAIL+1)); printf '[FAIL] %s (want=%s got=%s)\n' "$1" "$2" "$3"; }
 
-[ -f "$INIT" ] || { printf '[FAIL] init script not found: %s\n' "$INIT"; exit 1; }
-
-extract_fn() {
-    awk -v fn="$1" '
-        $0 ~ "^"fn"\\(\\)[ \t]*$" { inf=1 }
-        inf { print }
-        inf && /^}/ { exit }
-    ' "$2"
-}
-
 BIN="$TMP/bin"; mkdir -p "$BIN"
-# Mock `ip`: replays a fixture verbatim, exactly as BusyBox does - i.e. it
-# IGNORES the selector it was given. That is the whole point; a mock that
-# honoured `default` would make the old code look correct.
-cat > "$BIN/ip" <<EOF
+cat > "$BIN/ip" <<'EOF'
 #!/bin/sh
-case " \$* " in
-    *" -6 "*) cat "$TMP/route6" 2>/dev/null ;;
-    *)
-        case " \$* " in
-            *" table all "*) cat "$TMP/route4" 2>/dev/null ;;
-            *) if [ -f "$TMP/route4main" ]; then cat "$TMP/route4main"; else cat "$TMP/route4"; fi ;;
-        esac ;;
+printf '%s\n' "$*" >> "$IP_LOG"
+case "$1" in -6) family=6 ;; *) family=4 ;; esac
+case "$*" in
+    *'route show table main'*) mode=main ;;
+    *'route show default'*) mode=fallback ;;
+    *) mode=unexpected ;;
 esac
+eval fail=\${IP_${family}_${mode}_FAIL:-0}
+[ "$fail" = 1 ] && exit 1
+eval file=\${IP_${family}_${mode}_FILE:-}
+[ -n "$file" ] && cat "$file"
 exit 0
 EOF
 chmod +x "$BIN/ip"
 
-{ printf ' . "%s/lib/wan.sh"\n' "$HERE"; extract_fn get_default_ifaces4 "$INIT"; echo; extract_fn get_default_ifaces6 "$INIT"; } > "$TMP/fns.sh"
-grep -q '^get_default_ifaces4()' "$TMP/fns.sh" || { printf '[FAIL] get_default_ifaces4 not found\n'; exit 1; }
+IP_LOG="$TMP/ip.log"; export IP_LOG
+PATH="$BIN:$PATH"; export PATH
+. "$ROOT/lib/wan.sh"
 
-run4() { PATH="$BIN:$PATH" sh -c ". '$TMP/fns.sh'; exists() { command -v \"\$1\" >/dev/null 2>&1; }; get_default_ifaces4"; }
-run6() { PATH="$BIN:$PATH" sh -c ". '$TMP/fns.sh'; exists() { command -v \"\$1\" >/dev/null 2>&1; }; get_default_ifaces6"; }
+clear_ip() {
+    : > "$IP_LOG"
+    unset IP_4_main_FILE IP_4_fallback_FILE IP_6_main_FILE IP_6_fallback_FILE
+    unset IP_4_main_FAIL IP_4_fallback_FAIL IP_6_main_FAIL IP_6_fallback_FAIL
+}
+run_capture() {
+    family=$1
+    set +e
+    RESULT=$(z2k_wan_ifaces "$family")
+    STATUS=$?
+    set -e
+}
+assert_no_all() {
+    if grep -q 'table all' "$IP_LOG"; then
+        no "$1" 'no table all query' "$(tr '\n' ';' < "$IP_LOG")"
+    else
+        ok "$1"
+    fi
+}
 
-# --- 1. the exact table from the live router --------------------------------
-cat > "$TMP/route4" <<'EOF'
-default dev ppp0 scope link  metric 1000
-5.3.3.3 dev ppp0 scope link  metric 1000
-10.1.30.0/24 dev br1 scope link  src 10.1.30.1
-88.87.64.6 dev ppp0 scope link  metric 1000
-178.78.39.254 dev ppp0 scope link  src 88.87.93.11
-192.168.1.0/24 dev br0 scope link  src 192.168.1.1
-EOF
-got=$(run4)
-[ "$got" = "ppp0" ] && ok "live Keenetic table -> only the default-route device" \
-                    || no "live Keenetic table -> only the default-route device" "ppp0" "$got"
-case "$got" in
-    *br0*|*br1*) no "LAN bridges are never reported as WAN" "no br0/br1" "$got" ;;
-    *)           ok "LAN bridges are never reported as WAN" ;;
-esac
-
-# --- 2. `via` form, and a second default (multi-WAN) -------------------------
-cat > "$TMP/route4" <<'EOF'
-default via 192.168.100.1 dev eth3
-192.168.1.0/24 dev br0 scope link  src 192.168.1.1
-default via 10.0.0.1 dev usb0 metric 20
-EOF
-got=$(run4)
-case "$got" in
-    "eth3 usb0"|"usb0 eth3") ok "multi-WAN: both default devices, no LAN" ;;
-    *) no "multi-WAN: both default devices, no LAN" "eth3 usb0" "$got" ;;
-esac
-
-# --- 3. 0.0.0.0/0 spelling (some stacks print it that way) -------------------
-printf '0.0.0.0/0 via 10.1.1.1 dev wan0 \n172.16.0.0/24 dev br5 scope link \n' > "$TMP/route4"
-got=$(run4)
-[ "$got" = "wan0" ] && ok "0.0.0.0/0 spelling is recognised as a default route" \
-                    || no "0.0.0.0/0 spelling is recognised as a default route" "wan0" "$got"
-
-# --- 4. no default route at all -> empty, not the whole table ---------------
-printf '192.168.1.0/24 dev br0 scope link \n10.1.30.0/24 dev br1 scope link \n' > "$TMP/route4"
-got=$(run4)
-[ -z "$got" ] && ok "no default route -> empty result (never a LAN device)" \
-              || no "no default route -> empty result (never a LAN device)" "" "$got"
-
-# --- 5. v6 ------------------------------------------------------------------
-cat > "$TMP/route6" <<'EOF'
-fe80::/64 dev br0  metric 256
-default via fe80::1 dev ppp0  metric 1024
-2a02:100::/64 dev br1  metric 256
-EOF
-got=$(run6)
-[ "$got" = "ppp0" ] && ok "v6: only the default-route device" \
-                    || no "v6: only the default-route device" "ppp0" "$got"
-
-printf '::/0 via fe80::1 dev wan6 \nfe80::/64 dev br0 \n' > "$TMP/route6"
-got=$(run6)
-[ "$got" = "wan6" ] && ok "v6: ::/0 spelling is recognised" \
-                    || no "v6: ::/0 spelling is recognised" "wan6" "$got"
-
-# Policy tables, duplicate defaults, internal tunnels and unreachable routes.
-printf 'default dev eth3\n' > "$TMP/route4main"
-cat > "$TMP/route4" <<'EOF'
+# Two defaults in main are both real WANs. Policy-only routes never participate,
+# regardless of whether their device looks like a modem or an arbitrary VPN.
+clear_ip
+cat > "$TMP/main4" <<'EOF'
 default via 10.0.0.1 dev eth3
-default via 192.168.8.1 dev usb0 table 16400
-default via 10.0.0.1 dev eth3 table 16394
-default dev z2ktg0 table 988
-default dev z2ktun0 table 989
-unreachable default dev lo table 16401
-default dev br0 table 16402
-default dev deadwan table 16403 linkdown
-192.168.1.0/24 dev br0
+default via 192.0.2.1 dev ppp0 metric 20
+192.168.1.0/24 dev br0 scope link
 EOF
-got=$(run4)
-[ "$got" = 'eth3 usb0' ] && ok 'policy WAN included once; LAN, tunnel and failed routes excluded' || no 'policy WAN' 'eth3 usb0' "$got"
-cat > "$TMP/route4" <<'EOF'
+cat > "$TMP/fallback4" <<'EOF'
+default via 10.0.0.1 dev eth3
+default via 192.0.2.1 dev ppp0 metric 20
+default via 192.168.8.1 dev usb0 table 16400
+default dev mystery-vpn table 16401
+EOF
+IP_4_main_FILE="$TMP/main4" IP_4_fallback_FILE="$TMP/fallback4"; export IP_4_main_FILE IP_4_fallback_FILE
+run_capture -4
+[ "$STATUS:$RESULT" = '0:eth3 ppp0' ] && ok 'main table retains both ISP defaults only' || no 'main table defaults' '0:eth3 ppp0' "$STATUS:$RESULT"
+[ "$(wc -l < "$IP_LOG" | tr -d ' ')" = 1 ] && ok 'successful main read does not query fallback' || no 'main read count' 1 "$(wc -l < "$IP_LOG" | tr -d ' ')"
+assert_no_all 'automatic discovery never queries table all'
+
+# A named VPN is a valid WAN when the operator put its default in main. Device
+# names and sysfs link types are not provider classifiers.
+clear_ip
+mkdir -p "$TMP/net/custom-tap"
+: > "$TMP/net/custom-tap/tun_flags"
+printf 'default dev nwg0\ndefault dev custom-tap\n' > "$TMP/main4"
+Z2K_NET_CLASS="$TMP/net"; export Z2K_NET_CLASS
+IP_4_main_FILE="$TMP/main4"; export IP_4_main_FILE
+run_capture -4
+[ "$STATUS:$RESULT" = '0:nwg0 custom-tap' ] && ok 'named and sysfs-typed VPNs carrying main defaults are accepted' || no 'main VPN' '0:nwg0 custom-tap' "$STATUS:$RESULT"
+unset Z2K_NET_CLASS
+
+# The parser accepts only default spellings, rejects annotations for other
+# tables, accepts explicit main/254, and filters lo/bridge devices.
+clear_ip
+cat > "$TMP/main4" <<'EOF'
+0.0.0.0/0 dev wan0 table main
+default dev wan1 table 254
+default dev policy0 table 100
+default dev lo
+default dev br7
+10.0.0.0/8 dev lan0
+EOF
+mkdir -p "$TMP/net/br7/bridge"
+Z2K_NET_CLASS="$TMP/net"; export Z2K_NET_CLASS
+IP_4_main_FILE="$TMP/main4"; export IP_4_main_FILE
+run_capture -4
+[ "$STATUS:$RESULT" = '0:wan0 wan1' ] && ok 'default spellings and main annotations are filtered exactly' || no 'main annotations' '0:wan0 wan1' "$STATUS:$RESULT"
+unset Z2K_NET_CLASS
+
+# ECMP works in both iproute2 layouts. A dead/linkdown hop is suppressed without
+# hiding a healthy sibling, and duplicate devices are emitted once.
+clear_ip
+cat > "$TMP/main4" <<'EOF'
 default metric 10
     nexthop via 10.0.0.1 dev eth3 weight 1
-    nexthop via 192.168.8.1 dev usb0 weight 1
-192.168.1.0/24
-    nexthop dev br0 weight 1
-blackhole default table 16401
-    nexthop dev deadwan weight 1
+    nexthop via 192.0.2.1 dev usb0 weight 1
+default nexthop via 203.0.113.1 dev dead0 weight 1 dead nexthop via 10.0.0.2 dev eth3 weight 1 nexthop via 198.51.100.1 dev bad0 weight 1 linkdown
 EOF
-got=$(run4)
-[ "$got" = 'eth3 usb0' ] && ok 'ECMP continuation nexthops only belong to default route' || no 'ECMP' 'eth3 usb0' "$got"
-printf 'default nexthop via 10.0.0.1 dev eth3 weight 1 nexthop via 192.168.8.1 dev usb0 weight 1 linkdown\n' > "$TMP/route4"
-got=$(run4)
-[ "$got" = 'eth3' ] && ok 'failed ECMP nexthop does not hide healthy sibling' || no 'ECMP linkdown' 'eth3' "$got"
-cat > "$TMP/route6" <<'EOF'
-default via fe80::1 dev ppp0
-default via fe80::2 dev usb0 table 16400
-default dev z2ktg0 table 988
-unreachable default dev lo
+IP_4_main_FILE="$TMP/main4"; export IP_4_main_FILE
+run_capture -4
+[ "$STATUS:$RESULT" = '0:eth3 usb0' ] && ok 'one-line/multiline ECMP retains healthy hops and isolates dead siblings' || no 'ECMP health' '0:eth3 usb0' "$STATUS:$RESULT"
+
+# IPv6 uses the identical main-table contract.
+clear_ip
+cat > "$TMP/main6" <<'EOF'
+::/0 via fe80::1 dev wan6
+default via fe80::2 dev wan6b table main
+default via fe80::3 dev policy6 table 16400
+fe80::/64 dev br0
 EOF
-got=$(run6)
-[ "$got" = 'ppp0 usb0' ] && ok 'IPv6 policy WAN discovery excludes relay' || no 'IPv6 policy WAN' 'ppp0 usb0' "$got"
-. "$HERE/lib/wan.sh"
-got=$(z2k_wan_ifaces -4 'usb0,eth3 usb0')
-[ "$got" = 'usb0 eth3' ] && ok 'explicit WAN list wins and is deduplicated' || no 'override' 'usb0 eth3' "$got"
-rm -f "$TMP/route4main"
-# A failed all-table dump falls back to main; an empty successful dump does not.
-cat > "$BIN/ip" <<'EOF'
-#!/bin/sh
-case "$*" in *'table all'*) exit 1 ;; esac
-echo 'default dev ppp0'
+IP_6_main_FILE="$TMP/main6"; export IP_6_main_FILE
+run_capture -6
+[ "$STATUS:$RESULT" = '0:wan6 wan6b' ] && ok 'IPv6 retains only main defaults' || no 'IPv6 main defaults' '0:wan6 wan6b' "$STATUS:$RESULT"
+
+# BusyBox may ignore `show default` and dump connected routes. That fallback is
+# used only when the main-table command fails, and parsing still excludes LAN.
+clear_ip
+IP_4_main_FAIL=1; export IP_4_main_FAIL
+cat > "$TMP/fallback4" <<'EOF'
+default dev ppp0
+192.168.1.0/24 dev br0
+10.10.0.0/16 dev lan0
 EOF
-got=$(run4)
-[ "$got" = 'ppp0' ] && ok 'old ip without table-all support retains main WAN' || no 'fallback' 'ppp0' "$got"
+IP_4_fallback_FILE="$TMP/fallback4"; export IP_4_fallback_FILE
+run_capture -4
+[ "$STATUS:$RESULT" = '0:ppp0' ] && ok 'failed main read falls back safely despite BusyBox selector bug' || no 'BusyBox fallback' '0:ppp0' "$STATUS:$RESULT"
+[ "$(wc -l < "$IP_LOG" | tr -d ' ')" = 2 ] && ok 'fallback is attempted only after main read failure' || no 'fallback count' 2 "$(wc -l < "$IP_LOG" | tr -d ' ')"
+assert_no_all 'fallback path never queries table all'
+
+# Empty is known state and succeeds without fallback; two command failures are
+# unknown state and must propagate failure to callers such as self-heal.
+clear_ip
+run_capture -4
+[ "$STATUS:$RESULT" = '0:' ] && ok 'successful empty main table remains empty success' || no 'empty main' '0:' "$STATUS:$RESULT"
+[ "$(wc -l < "$IP_LOG" | tr -d ' ')" = 1 ] && ok 'empty success does not trigger fallback' || no 'empty fallback count' 1 "$(wc -l < "$IP_LOG" | tr -d ' ')"
+
+clear_ip
+IP_4_main_FAIL=1 IP_4_fallback_FAIL=1; export IP_4_main_FAIL IP_4_fallback_FAIL
+run_capture -4
+[ "$STATUS:$RESULT" = '1:' ] && ok 'both route reads failing returns failure' || no 'route failure status' '1:' "$STATUS:$RESULT"
+
+# Explicit override is authoritative, normalized and deduplicated without any
+# route query, including explicit VPN devices.
+clear_ip
+set +e
+RESULT=$(z2k_wan_ifaces -4 ' nwg0,eth3  nwg0,usb0 ')
+STATUS=$?
+set -e
+[ "$STATUS:$RESULT" = '0:nwg0 eth3 usb0' ] && ok 'explicit WAN list wins and is deduplicated' || no 'override' '0:nwg0 eth3 usb0' "$STATUS:$RESULT"
+[ ! -s "$IP_LOG" ] && ok 'explicit WAN list performs no ip call' || no 'override ip calls' none "$(cat "$IP_LOG")"
 
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"
 [ "$FAIL" = 0 ]

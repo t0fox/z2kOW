@@ -1,0 +1,5 @@
+{
+  "Replace": {
+    "internal/domainroute/ipset.go": "openwrt-overlay/ipset.go"
+  }
+}

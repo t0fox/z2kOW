@@ -265,11 +265,7 @@ fi
 TG_REDIR_LIB="/opt/zapret2/z2k-tg-redirect.sh"
 if [ -r "$TG_REDIR_LIB" ]; then
     . "$TG_REDIR_LIB"
-    z2k_tg_udp_ensure || logger -t tg-watchdog "Telegram UDP route could not be restored"
-    # IPv6 filter can disappear independently while both IPv4 NAT rules live.
-    if ! z2k_tg_rule6_present FORWARD || ! z2k_tg_rule6_present OUTPUT; then
-        z2k_tg_ensure_rules6 || logger -t tg-watchdog "IPv6 Telegram fallback rules could not be restored"
-    fi
+    z2k_tg_udp_down
     if ! z2k_tg_rule_present PREROUTING || ! z2k_tg_rule_present OUTPUT; then
         logger -t tg-watchdog "REDIRECT rules missing — re-inserting (ipset, -w) + flushing conntrack"
         z2k_tg_remove_legacy_rules

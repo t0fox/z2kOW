@@ -117,6 +117,8 @@ function plural(n, one, few, many) {
   return `${n} ${many}`;
 }
 const addrs = n => plural(n, "адрес", "адреса", "адресов");
+const warpEntries = n => plural(n, "запись", "записи", "записей");
+const warpDomains = n => plural(n, "домен", "домена", "доменов");
 
 function fmtSize(b) {
   b = Number(b) || 0;
@@ -170,10 +172,12 @@ export async function renderWarp() {
     <div class="card">
       <h3>Игровые списки</h3>
       <p class="desc">
-        Готовые списки адресов по играм и сервисам, обновляются автоматически.
+        Готовые списки доменов и адресов по играм и сервисам из
+        <a href="https://github.com/YOZH3G/ru-gaming-blocklist" target="_blank" rel="noopener noreferrer">YOZH3G/ru-gaming-blocklist</a>,
+        обновляются автоматически.
         <b>По умолчанию не включён ни один</b> — включайте только то, что вам нужно:
-        чем меньше адресов в туннеле, тем меньше на него завязано. Списки только для
-        чтения; свои адреса добавляйте ниже, отдельным списком.
+        чем меньше направлений в туннеле, тем меньше на него завязано. Списки только для
+        чтения; свои домены и адреса добавляйте ниже, отдельным списком.
       </p>
       <div id="warp-games" class="warp-games">${skeletonBlocks(3)}</div>
       <div class="warp-own" id="warp-own" hidden>
@@ -199,26 +203,32 @@ export async function renderWarp() {
       </details>
     </div>
     <div class="card">
-      <h3>Списки адресов</h3>
+      <h3>Списки адресов и доменов</h3>
       <p class="desc">
-        Каждый список — текстовый файл: один IPv4-адрес или CIDR-подсеть на строку
-        (<code>203.0.113.7</code> или <code>203.0.113.0/24</code>; строки с <code>#</code> —
-        комментарии). Через WARP идёт трафик ко всем адресам из включённых списков;
+        Каждый список — текстовый файл: один IPv4-адрес, CIDR-подсеть или домен на строку
+        (<code>8.8.8.8</code>, <code>8.8.8.0/24</code>, <code>example.com</code> или
+        <code>*.example.com</code>; строки с <code>#</code> — комментарии).
+        <code>*.example.com</code> охватывает поддомены, но не сам <code>example.com</code>.
+        Через WARP идёт трафик к адресам из включённых списков;
         включают и выключают их тумблеры в карточке выше.
-        <b>Изменения применяются сразу</b>, без перезапуска, и переживают
-        переустановку z2k.
+        <b>Изменения применяются сразу</b>, без перезапуска, и переживают переустановку z2k.
       </p>
+      <p class="desc">Для доменов устройство должно получать обычные DNS-ответы через DNS роутера
+        или через роутер. DoH/DoT и IPv6 здесь не перехватываются; международные имена вводите
+        в ASCII/Punycode. Если несколько сайтов делят один IP, другое соединение этого же
+        устройства к нему тоже может пройти через WARP.</p>
+      <p class="desc" id="warp-domain-state"></p>
       <div class="btn-row" style="margin-bottom:10px">
         <button class="btn btn-primary" id="warp-new-btn">Новый список</button>
-        <button class="btn" id="warp-import-btn" title="Загрузить список из текстового файла (одна строка — один адрес/CIDR)">Импорт из txt</button>
+        <button class="btn" id="warp-import-btn" title="Загрузить список адресов и доменов из текстового файла">Импорт из txt</button>
         <input type="file" id="warp-import-file" accept=".txt,text/plain" hidden>
       </div>
       <ul class="wl-list" id="warp-lists">${skeletonLines(3)}</ul>
     </div>
     <div class="card" id="warp-editor-card" hidden>
       <h3 id="warp-editor-title"></h3>
-      <p class="desc">Один адрес или подсеть на строку. Невалидные строки (в т.ч. IPv6 —
-        туннель ходит только по IPv4) при сохранении отбрасываются, счётчик покажет сколько.</p>
+      <p class="desc">Один IPv4-адрес, подсеть или домен на строку. IPv6 и невалидные строки
+        отбрасываются; после сохранения покажем их количество.</p>
       <textarea id="warp-editor" class="warp-editor" spellcheck="false"
                 autocomplete="off" autocapitalize="off" autocorrect="off"
                 placeholder="203.0.113.0/24"></textarea>
@@ -356,7 +366,7 @@ async function loadWarpGames() {
       <div class="toggle-row" data-game="${escapeHtml(g.name)}">
         <div class="t-text">
           <div class="t-name" title="${escapeHtml(g.name)}">${escapeHtml(g.name.replace(/_/g, " "))}</div>
-          <div class="t-desc">${addrs(g.entries)}</div>
+          <div class="t-desc">${warpEntries(g.entries)}</div>
         </div>
         <label class="switch">
           <input type="checkbox" ${(g.enabled === 1 || g.enabled === "1") ? "checked" : ""}>
@@ -404,6 +414,12 @@ async function loadWarpStatus() {
   if (!grid.isConnected) return;
   const enabled = d.enabled === "1";
   const installed = !!d.installed;
+  const domainState = document.getElementById("warp-domain-state");
+  if (domainState) {
+    domainState.textContent = !enabled ? "Доменные правила выключены вместе с WARP."
+      : d.domain_active ? `Доменные правила: ${Number(d.domain_rules) || 0}; активных пар устройство/IP: ${Number(d.domain_pairs) || 0}.`
+      : "Доменные правила сейчас недоступны; адреса и устройства продолжают работать.";
+  }
 
   // Три состояния раздела — из одного ответа. Не установлен: одна кнопка, без
   // тумблера и статуса (нечего показывать). Установлен: тумблер + статус +
@@ -763,7 +779,7 @@ async function loadWarpLists() {
       <li>
         <span class="warp-item">
           <span class="warp-item-name">${escapeHtml(l.name)}.txt</span>
-          <span class="warp-item-meta">${addrs(l.entries)} · ${fmtSize(l.size)}${Number(l.mtime) > 0 ? " · изменён " + humanAgo(Number(l.mtime)) : ""}${listOn(l) ? "" : " · выключен"}</span>
+          <span class="warp-item-meta">${warpEntries(l.entries)} · ${fmtSize(l.size)}${Number(l.mtime) > 0 ? " · изменён " + humanAgo(Number(l.mtime)) : ""}${listOn(l) ? "" : " · выключен"}</span>
         </span>
         <span class="warp-item-actions">
           <button class="btn-icon" title="Редактировать" aria-label="Редактировать ${escapeHtml(l.name)}" data-edit="${escapeHtml(l.name)}">${_icons.edit}</button>
@@ -803,7 +819,7 @@ function renderOwnToggles(lists) {
       <div class="toggle-row" data-own="${escapeHtml(l.name)}">
         <div class="t-text">
           <div class="t-name" title="${escapeHtml(l.name)}">${escapeHtml(l.name)}</div>
-          <div class="t-desc">${addrs(l.entries)}</div>
+          <div class="t-desc">${warpEntries(l.entries)}</div>
         </div>
         <label class="switch">
           <input type="checkbox" ${listOn(l) ? "checked" : ""} aria-label="Список ${escapeHtml(l.name)} через WARP">
@@ -877,7 +893,7 @@ async function warpEditorSave() {
   try {
     const d = await apiPostText("/warp/list/save?name=" + encodeURIComponent(name) + "&mode=" + mode,
       document.getElementById("warp-editor").value);
-    let msg = "Сохранено, адресов: " + d.saved;
+    let msg = `Сохранено: ${addrs(d.saved_ip ?? d.saved)}, ${warpDomains(d.saved_domain || 0)}`;
     if (d.skipped_invalid > 0) msg += " (отброшено невалидных строк: " + d.skipped_invalid + ")";
     toast(msg);
     card.hidden = true;
@@ -950,7 +966,7 @@ async function warpImport(e) {
     // после явного confirm, иначе create (сервер откажет, если имя заняли).
     const mode = exists ? "replace" : "create";
     const d = await apiPostText("/warp/list/save?name=" + encodeURIComponent(name) + "&mode=" + mode, text);
-    let msg = "Импортировано адресов: " + d.saved;
+    let msg = `Импортировано: ${addrs(d.saved_ip ?? d.saved)}, ${warpDomains(d.saved_domain || 0)}`;
     if (d.skipped_invalid > 0) msg += " (невалидных строк: " + d.skipped_invalid + ")";
     toast(msg);
     loadWarpLists();

@@ -7,8 +7,10 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-warpf.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 
-mkdir -p "$T/bin" "$T/root/bin" "$T/etc" "$T/etc/state/warp" "$T/etc/user-lists/warp/games" "$T/root/lists/warp/games" "$T/tmp/warp" "$T/proc"
+mkdir -p "$T/bin" "$T/root/bin" "$T/root/platform/openwrt" "$T/etc" "$T/etc/state/warp" "$T/etc/user-lists/warp/games" "$T/root/lists/warp/games" "$T/tmp/warp" "$T/proc"
 export PATH="$T/bin:$PATH"
+ln -s "$REPO/platform/openwrt/warp-domain.sh" "$T/root/platform/openwrt/warp-domain.sh"
+cp "$REPO/files/z2k-warp-list-filter.awk" "$T/root/z2k-warp-list-filter.awk"
 
 cat > "$T/bin/nft" <<EOF
 #!/bin/sh
@@ -25,7 +27,17 @@ if [ "\$1" = "-f" ]; then
     exit 0
 fi
 if [ "\$1" = "list" ] && [ "\$2" = "table" ]; then
+    if [ "\$4" = "z2k_warp_dns" ]; then
+        [ -f "$T/nft-domain-table" ] || exit 1
+        cat "$T/nft-domain-table"
+        exit 0
+    fi
     [ -f "$T/no-table" ] && exit 1
+    exit 0
+fi
+if [ "\$1" = "list" ] && [ "\$2" = "set" ] && [ "\$5" = "z2k_warp_domain4" ]; then
+    [ -f "$T/nft-domain-set" ] || exit 1
+    cat "$T/nft-domain-set"
     exit 0
 fi
 if [ "\$1" = "list" ] && [ "\$2" = "chain" ] && \
@@ -230,6 +242,13 @@ assert_contains "valid: /8 разрешён" "$T/valid.log" "3.0.0.0/8"
 for _bad in '10.9.9.9' '0.0.0.0/0' '018.1.1.1'; do
     if grep -qxF "$_bad" "$T/valid.log"; then _t_bad "valid пропустил $_bad"; else _t_ok; fi
 done
+# Domain support is optional for older/incomplete payloads: a missing parser
+# must not make the established static IP/CIDR WARP path disappear.
+_saved_filter="$WARP_DOMAIN_FILTER"
+WARP_DOMAIN_FILTER="$T/missing-domain-filter.awk"
+warp_validated_dst > "$T/valid-without-domain-filter.log"
+assert_contains "missing domain parser keeps static destination" "$T/valid-without-domain-filter.log" "1.2.3.4"
+WARP_DOMAIN_FILTER="$_saved_filter"
 # CIDR feeds may contain a broad block together with a narrower child.  nft's
 # interval sets reject that pair; the adapter must merge it before the atomic
 # batch rather than return a false-success with an empty live set.
@@ -273,6 +292,13 @@ else
 fi
 if grep -Ei 'flowtable|flow add|offload|PPE' "$T/nft.log" >/dev/null 2>&1; then
     _t_bad "offload-конструкции"
+else
+    _t_ok
+fi
+# No selected domains means no observer table, pair set, or NFLOG hook. A
+# passive observer is opt-in to the domain list, not a permanent firewall hook.
+if grep -qE 'nft:add table inet z2k_warp_dns|nft:add set inet zapret2 z2k_warp_domain4|nft-batch:.*log group 189' "$T/nft.log"; then
+    _t_bad "observer created without selected domains"
 else
     _t_ok
 fi
@@ -368,5 +394,17 @@ warp_register >/dev/null 2>"$T/reg.err" || _t_bad "register rc"
 assert_contains "register вызван" "$T/warpd.log" "register --device $T/etc/state/warp/device.json"
 if grep -q 'z2kW4rpR3g2026' "$T/reg.err"; then _t_bad "секрет релея в логе"; else _t_ok; fi
 assert_eq "device 600" "600" "$(stat -c %a "$T/etc/state/warp/device.json" 2>/dev/null || echo 600)"
+
+# A full WARP cleanup may delete only the adapter-owned domain pair set. A
+# foreign set with the same name must survive even though generic WARP chains
+# are torn down.
+printf 'set z2k_warp_domain4 { type ipv4_addr . ipv4_addr; comment "someone else"; }\n' > "$T/nft-domain-set"
+: > "$T/nft.log"
+warp_nft_remove full
+if grep -q 'nft:delete set inet zapret2 z2k_warp_domain4' "$T/nft.log"; then
+    _t_bad "full cleanup deletes foreign WARP domain set"
+else
+    _t_ok
+fi
 
 _t_done

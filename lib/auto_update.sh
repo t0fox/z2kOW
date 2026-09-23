@@ -1842,7 +1842,7 @@ au_merge_extra_domains() {
 }
 
 # NB: WARP lists are not merged here. The per-game lists are pulled live from
-# medvedeff-true/ru-gaming-blocklist by z2k-update-lists.sh
+# YOZH3G/ru-gaming-blocklist by z2k-update-lists.sh
 # (update_warp_game_list) into lists/warp/games/, which the daily refresh owns
 # outright; the user's own lists next to it are never touched by an update.
 

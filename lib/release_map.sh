@@ -126,7 +126,7 @@ z2k_install_paths_for() {
         files/S99zapret2.new)
             echo "/opt/etc/init.d/S99zapret2"
             ;;
-        files/*.sh|files/*.lua)
+        files/*.sh|files/*.lua|files/*.awk)
             echo "${zd}/${repo_path#files/}"
             ;;
         lib/*)
@@ -243,6 +243,8 @@ _z2k_install_paths_openwrt() {
             # list refresh. Its warp-games entrypoint is platform-neutral;
             # Keenetic-only full-cycle helpers remain gated out of OW cron.
             echo "${or}/z2k-update-lists.sh" ;;
+        files/z2k-warp-list-filter.awk)
+            : ;; # OpenWrt-пакет владеет helper'ом; updater не заменяет package-owned файл
         tests/*)
             : # как keenetic: тесты — dev/CI, на роутер не едут
             ;;

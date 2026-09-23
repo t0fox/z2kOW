@@ -26,7 +26,11 @@ echo "\$*" >> "$SB/ipt.log"
 case "\$*" in *" -C "*) exit 1 ;; esac
 exit 0
 EOF
-printf '#!/bin/sh\nexit 0\n' > "$SB/bin/ipset"
+cat > "$SB/bin/ipset" <<'EOF'
+#!/bin/sh
+if [ "$1 $2" = 'list -n' ] && [ -z "$3" ]; then echo z2kd_192.168.1.10; fi
+exit 0
+EOF
 chmod +x "$SB/bin/iptables" "$SB/bin/ipset"
 
 printf 'GAME_WARP_ENABLED=1\n' > "$SB/z2k/config"
@@ -44,6 +48,8 @@ assert_eq "mangle: MARK for z2k_warp dst, xmark with mask" "1" \
     "$(grep -c -- '-w -t mangle -A PREROUTING -m set --match-set z2k_warp dst -j MARK --set-xmark 0x989/0x989' "$SB/ipt.log")"
 assert_eq "mangle: MARK for z2k_warp_src src" "1" \
     "$(grep -c -- '-w -t mangle -A PREROUTING -m set --match-set z2k_warp_src src -j MARK --set-xmark 0x989/0x989' "$SB/ipt.log")"
+assert_eq "mangle: MARK for client-scoped DNS set" "1" \
+    "$(grep -c -- '-w -t mangle -A PREROUTING -s 192.168.1.10/32 -m set --match-set z2kd_192.168.1.10 dst -j MARK --set-xmark 0x989/0x989' "$SB/ipt.log")"
 assert_eq "mangle: MSS clamp on z2ktun3" "1" \
     "$(grep -c -- '-w -t mangle -A FORWARD -o z2ktun3 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu' "$SB/ipt.log")"
 assert_eq "mangle: no legacy --set-mark form" "0" "$(grep -c -- '--set-mark ' "$SB/ipt.log")"
@@ -55,6 +61,8 @@ assert_eq "nat: no mangle rules" "0" "$(grep -c -- '-t mangle' "$SB/ipt.log")"
 
 run iptables filter
 assert_eq "filter: FORWARD accept on z2ktun3" "1" "$(grep -c -- '-w -t filter -A FORWARD -o z2ktun3 -j ACCEPT' "$SB/ipt.log")"
+assert_eq "filter: established forwarded DNS copied before ACCEPT" "2" "$(grep -c -- '-I FORWARD .*--sport 53.*--ctstate ESTABLISHED.*-j NFLOG' "$SB/ipt.log")"
+assert_eq "filter: router DNS copied" "2" "$(grep -c -- '-I OUTPUT .*--sport 53.*-j NFLOG' "$SB/ipt.log")"
 assert_eq "filter: nothing else" "0" "$(grep -vc -- "-t filter" "$SB/ipt.log")"
 
 run ip6tables mangle

@@ -897,6 +897,43 @@ body[data-sidebar="collapsed"] { padding-left: var(--sidebar-w-collapsed); }
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+/* Search is the primary control for the domain table. */
+.state-voice > summary { cursor: pointer; font-weight: 500; }
+.state-voice > summary span { float: right; color: var(--text-muted); font-size: 13px; font-weight: 400; }
+.state-voice[open] > summary { margin-bottom: var(--space-12); }
+.state-help { margin: -4px 0 var(--space-16); }
+.state-help > summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+.state-help[open] > summary { margin-bottom: var(--space-8); }
+.state-search-label { display: block; font-size: 14px; font-weight: 500; margin-bottom: var(--space-8); }
+.state-search-wrap { position: relative; }
+.state-search {
+  display: block; width: 100%; max-width: none; min-width: 0;
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; font-family: inherit; font-size: 14px;
+  line-height: 20px; padding: 10px 44px 10px 12px;
+}
+.state-search::-webkit-search-cancel-button { appearance: none; }
+.state-search-clear {
+  position: absolute; right: 2px; top: 2px; width: 38px; height: 38px;
+  border: 0; background: transparent; color: var(--text-muted);
+  cursor: pointer; font-size: 22px; border-radius: 4px;
+}
+.state-search-clear[hidden] { display: none; }
+.state-search-clear:hover { color: var(--text); background: var(--bg-card-hover); }
+.state-search:focus-visible, .state-search-clear:focus-visible,
+.state-help > summary:focus-visible, .state-voice > summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.state-tools { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-8); margin: var(--space-12) 0; }
+#state-search-count { color: var(--text-muted); font-size: 13px; }
+.state-tools .btn-row { margin: 0; }
+@media (max-width: 600px) {
+  .state-search { font-size: 16px; }
+  .state-voice > summary span { float: none; display: block; margin: 4px 0 0 16px; }
+  .state-tools > .btn-row { width: 100%; }
+}
+
 .state-table {
   width: 100%;
   border-collapse: collapse;
@@ -2186,14 +2223,8 @@ pre.log {
   border: 1px solid var(--warn);
   background: var(--warn-alpha-soft);
 }
-/* Переходы в подписи баннера: час автообновления и история версий. Правило
-   ОДНО на обе — это соседи в одной строке, и разный пунктир под ними читался
-   бы как разный тип перехода. Теги при этом РАЗНЫЕ и намеренно: час уводит на
-   страницу «Режимы», это настоящая ссылка <a href="#/toggles">; история
-   открывается модалкой и никуда не ведёт, поэтому <button> — <a href="#">
-   соврал бы и мыши, и скринридеру. */
-.upd-au-link,
-.upd-history-link {
+/* Час автообновления ведёт к настройкам расписания. */
+.upd-au-link {
   background: transparent;
   border: 0;
   padding: 0;
@@ -2203,8 +2234,7 @@ pre.log {
   text-decoration: underline dashed;
   text-underline-offset: 3px;
 }
-.upd-au-link:hover,
-.upd-history-link:hover {
+.upd-au-link:hover {
   color: var(--text);
 }
 
@@ -2274,6 +2304,7 @@ pre.log {
 }
 .update-banner-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .update-banner-body {
@@ -2281,7 +2312,7 @@ pre.log {
   width: 100%;
   margin-top: 4px;
 }
-.upd-changelog[hidden] { display: none; }
+.update-banner-body[hidden] { display: none; }
 .upd-changelog {
   margin-top: 10px;
   padding-top: 10px;
@@ -2295,10 +2326,12 @@ pre.log {
 .upd-entry {
   display: flex;
   flex-direction: column;
+}
+.upd-history-list .upd-entry {
   padding: 10px 0;
   border-bottom: 1px solid var(--border);
 }
-.upd-entry:last-child {
+.upd-history-list .upd-entry:last-child {
   border-bottom: 0;
 }
 .upd-details {

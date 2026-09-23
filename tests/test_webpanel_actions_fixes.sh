@@ -102,6 +102,7 @@ PATH="$BIN:$PATH"; export PATH
 ZD="$TMP/opt/zapret2"
 mkdir -p "$ZD/lists/custom-strategies" "$ZD/nfq2" "$ZD/lib" "$ZD/extra_strats" "$ZD/ipset"
 mkdir -p "$ZD/lists/warp"
+cp "$HERE/files/z2k-warp-list-filter.awk" "$ZD/z2k-warp-list-filter.awk"
 : > "$ZD/lists/warp/.legacy-aggregate-purged"
 printf 'ENABLED=1\n' > "$ZD/config"
 

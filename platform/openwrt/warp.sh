@@ -23,7 +23,10 @@
 # PROCESS_ACTION:/PBR_UP:/PBR_DOWN: на stdout (тихо при Z2K_WARP_QUIET=1).
 
 CONFIG_FILE="${CONFIG_FILE:-${Z2K_ETC:-/etc/z2k}/config}"
-WARP_BIN="${WARP_BIN:-${Z2K_BIN:-/usr/lib/z2k/bin}/z2k-warpd}"
+WARP_DOMAIN_RUNTIME_BIN="${WARP_DOMAIN_RUNTIME_BIN:-${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/bin/z2k-warpd}"
+_warp_default_bin="${Z2K_BIN:-/usr/lib/z2k/bin}/z2k-warpd"
+[ -x "$WARP_DOMAIN_RUNTIME_BIN" ] && _warp_default_bin="$WARP_DOMAIN_RUNTIME_BIN"
+WARP_BIN="${WARP_BIN:-$_warp_default_bin}"
 WARP_DEVICE="${WARP_DEVICE:-${Z2K_STATE:-/etc/z2k/state}/warp/device.json}"
 WARP_STATUS="${WARP_STATUS:-${Z2K_TMP:-/tmp/z2k}/warp/status.json}"
 WARP_LOG="${WARP_LOG:-${Z2K_TMP:-/tmp/z2k}/warp/warpd.log}"
@@ -73,6 +76,8 @@ WARP_FW4_FAMILY="${WARP_FW4_FAMILY:-inet}"
 WARP_FW4_TABLE="${WARP_FW4_TABLE:-fw4}"
 WARP_FW4_CHAIN="${WARP_FW4_CHAIN:-forward}"
 WARP_FW4_RULE_COMMENT="${WARP_FW4_RULE_COMMENT:-!z2k: WARP forwarded traffic}"
+WARP_DOMAIN_HELPER="${WARP_DOMAIN_HELPER:-${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/warp-domain.sh}"
+[ -r "$WARP_DOMAIN_HELPER" ] && . "$WARP_DOMAIN_HELPER"
 # Релей для API/регистрации, если напрямую заблокирован (как S51/z2k-warp.sh;
 # дефолт продублирован — равенство трёх копий сторожит parity-тест).
 # Секрет релей НЕ логируем никогда (см. warp_register).
@@ -257,16 +262,20 @@ warp_devices_ips() {
 
 # Валидированные элементы dst: по строке (пустые/комменты/CRLF/пробелы — мимо).
 warp_validated_dst() {
-    warp_active_lists | while IFS= read -r _wl; do cat "$_wl" 2>/dev/null; done | awk '
-# --- z2k warp address filter (canonical; keep byte-identical in all 4 copies) ---
+    if [ -r "$WARP_DOMAIN_FILTER" ]; then
+        warp_active_lists | while IFS= read -r _wl; do cat "$_wl" 2>/dev/null; done | \
+            awk -v mode=ipset -f "$WARP_DOMAIN_FILTER"
+    else
+        # Domain observation is optional. Keep the established IP/CIDR route
+        # path operational on an older/incomplete payload if its new parser
+        # has not arrived yet; only domain routing reports the missing helper.
+        warp_active_lists | while IFS= read -r _wl; do cat "$_wl" 2>/dev/null; done | awk '
+# Static WARP destination fallback; this is the pre-domain parser, deliberately
+# retained only for installations where the optional shared parser is absent.
 function z2k_warp_addr_ok(s,   ip, h, o) {
     if (s !~ /^[1-9][0-9]{0,2}(\.(0|[1-9][0-9]{0,2})){3}(\/([1-9]|[12][0-9]|3[0-2]))?$/) return 0
     ip = s
     if (split(s, h, "/") == 2) ip = h[1]
-    # No width cap. There was one at /10, on the reasoning that no game lives on
-    # a /8 — but the blocks it cut are 3.0.0.0/8 and 15.0.0.0/8, i.e. Amazon,
-    # which is exactly what people switch WARP on for. /0 is still impossible:
-    # the grammar above only accepts prefixes 1-32.
     split(ip, o, ".")
     if (o[1] > 255 || o[2] > 255 || o[3] > 255 || o[4] > 255) return 0
     if (o[1] == 10 || o[1] == 127 || o[1] >= 224) return 0
@@ -280,10 +289,11 @@ function z2k_warp_addr_ok(s,   ip, h, o) {
     if (o[1] == 203 && o[2] == 0 && o[3] == 113) return 0
     return 1
 }
-# --- end z2k warp address filter ---
+{ sub(/\r$/, ""); gsub(/^[ \t]+|[ \t]+$/, ""); if (z2k_warp_addr_ok($0)) print }
+'
+    fi | awk '
     {
         sub(/\r$/, ""); gsub(/^[ \t]+|[ \t]+$/, "")
-        if (!z2k_warp_addr_ok($0)) next
         split($0, p, "/")
         split(p[1], o, ".")
         ip = (((o[1] * 256 + o[2]) * 256 + o[3]) * 256 + o[4])
@@ -372,10 +382,11 @@ _warp_nft_sets_commit() {
 # Источники пусты (W18, пользователь всё удалил) = валидно пусто -> заливаем
 # пустоту. Возврат 0 = live-состояние корректно.
 warp_nft_sets_load() {
-    local _dst _src
+    local _dst _src _domains
     _dst="$(warp_validated_dst)"
     _src="$(warp_devices_ips)"
-    if [ -z "$_dst" ] && [ -z "$_src" ] && _warp_lists_have_content; then
+    _domains="$(warp_validated_domains 2>/dev/null)"
+    if [ -z "$_dst" ] && [ -z "$_src" ] && [ -z "$_domains" ] && _warp_lists_have_content; then
         _wlog "источники непусты, а валидных ноль — corrupt? live set цел"
         return 1
     fi
@@ -390,6 +401,7 @@ warp_nft_sets_load() {
     done
     # ОДНА транзакция на оба сета (flush+add обоих): всё или ничего.
     _warp_nft_sets_commit "$_dst" "$_src" || return 1
+    command -v warp_domain_rules_load >/dev/null 2>&1 && warp_domain_rules_load >/dev/null 2>&1 || true
     _z2k_ow_warp_mut "NFT_CREATED: sets $WARP_SET/$WARP_SET_SRC"
     return 0
 }
@@ -405,6 +417,7 @@ _warp_sets_ensure_live() {
 # --- nft chains/rules (свои chains в ЧУЖОЙ runtime-таблице) ---
 
 warp_nft_rules_apply() {
+    local _domain_set=0 _domain_rules=""
     _z2k_ow_warp_table_ok || {
         echo "z2k-openwrt: warp: нет таблицы ${Z2K_WARP_NFT_FAMILY} ${Z2K_WARP_NFT_TABLE}" >&2
         return 1
@@ -426,11 +439,28 @@ warp_nft_rules_apply() {
         ip daddr "@$WARP_SET" meta mark set mark '&' 0x7fffffff '^' 0x80000000 || return 1
     nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
         ip saddr "@$WARP_SET_SRC" meta mark set mark '&' 0x7fffffff '^' 0x80000000 || return 1
+    _domain_rules=$(warp_validated_domains 2>/dev/null)
+    if [ -n "$_domain_rules" ] && command -v warp_domain_set_ensure >/dev/null 2>&1 && warp_domain_set_ensure; then
+        _domain_set=1
+        nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
+            ip saddr . ip daddr "@$WARP_DOMAIN_SET" meta mark set mark '&' 0x7fffffff '^' 0x80000000 || {
+            warp_domain_error_set nft-domain-mark-rule-failed
+            _domain_set=0
+        }
+    fi
+    if [ "$_domain_set" = "1" ] && command -v warp_domain_observer_rules_apply >/dev/null 2>&1; then
+        warp_domain_observer_rules_apply || true
+    elif [ -z "$_domain_rules" ] && command -v warp_domain_nft_remove >/dev/null 2>&1; then
+        # Reconfiguration to an empty domain list removes the passive hooks
+        # and flushes only our owned learned-pair set; base IP/CIDR/device WARP
+        # sets and rules remain intact.
+        warp_domain_nft_remove >/dev/null 2>&1 || true
+    fi
     return 0
 }
 
 warp_nft_rules_verify() {
-    local _c _out
+    local _c _out _domain_set
     _z2k_ow_warp_table_ok || return 1
     for _c in "$WARP_CHAIN_MARK" "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
         _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$_c" 2>/dev/null) || return 1
@@ -439,6 +469,10 @@ warp_nft_rules_verify() {
     _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_MARK" 2>/dev/null)
     printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip daddr @$WARP_SET meta mark set" || return 1
     printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip saddr @$WARP_SET_SRC meta mark set" || return 1
+    _domain_set=$(nft list set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" 2>/dev/null)
+    if [ -n "$_domain_set" ] && printf '%s\n' "$_domain_set" | grep -qF 'comment "z2k WARP DNS pairs"'; then
+        printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip saddr . ip daddr @$WARP_DOMAIN_SET meta mark set" || return 1
+    fi
     return 0
 }
 
@@ -594,6 +628,7 @@ warp_nft_remove() {
     # $1: "full" — снести и sets (remove/uninstall); иначе только chains.
     local _full="${1:-}" _c _s
     _warp_fw4_forward_remove_runtime
+    command -v warp_domain_nft_remove >/dev/null 2>&1 && warp_domain_nft_remove "$_full" || true
     _z2k_ow_warp_table_ok || return 0
     for _c in "$WARP_CHAIN_MARK" "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
         nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_c" 2>/dev/null || true
@@ -890,18 +925,26 @@ warp_start_instance() {
     # выбранный транспорт и релей должны попасть в одну запись. Транспорт
     # остаётся env-параметром: старое бинарное не знает --transport и упадёт
     # на разборе такого флага.
-    if [ -n "$_proxy" ]; then
-        procd_set_param env \
-            GODEBUG=asyncpreemptoff=1 \
-            Z2K_WARP_PROBE_SOURCE=1 \
-            "Z2K_WARP_TRANSPORT=$(warp_transport)" \
-            "Z2K_WARP_VPS_PROXY=$_proxy"
+    set -- \
+        GODEBUG=asyncpreemptoff=1 \
+        Z2K_WARP_PROBE_SOURCE=1 \
+        Z2K_WARP_OPENWRT=1 \
+        "Z2K_WARP_TRANSPORT=$(warp_transport)" \
+        "Z2K_WARP_DOMAIN_RULES=$WARP_DOMAIN_RULES" \
+        "Z2K_WARP_DOMAIN_SNAPSHOT=$WARP_DOMAIN_SNAPSHOT" \
+        "Z2K_WARP_DOMAIN_STATUS=$WARP_DOMAIN_STATUS"
+    [ -z "$_proxy" ] || set -- "$@" "Z2K_WARP_VPS_PROXY=$_proxy"
+    if command -v warp_domain_observer_procd_ready >/dev/null 2>&1 && warp_domain_observer_procd_ready; then
+        set -- "$@" \
+            Z2K_WARP_DOMAIN_NFT=nft \
+            "Z2K_WARP_DOMAIN_NFT_FAMILY=$Z2K_WARP_NFT_FAMILY" \
+            "Z2K_WARP_DOMAIN_NFT_TABLE=$Z2K_WARP_NFT_TABLE" \
+            "Z2K_WARP_DOMAIN_NFT_SET=$WARP_DOMAIN_SET"
+        [ -n "$(warp_validated_domains 2>/dev/null)" ] || set -- "$@" Z2K_WARP_DOMAIN_NFT_LAZY=1
     else
-        procd_set_param env \
-            GODEBUG=asyncpreemptoff=1 \
-            Z2K_WARP_PROBE_SOURCE=1 \
-            "Z2K_WARP_TRANSPORT=$(warp_transport)"
+        set -- "$@" Z2K_WARP_DOMAIN_DISABLED=1
     fi
+    procd_set_param env "$@"
     procd_set_param pidfile "${Z2K_RUN:-/tmp/z2k/runtime}/warpd.pid"
     # Bounded respawn как TG/RT (доказательство: procd/service/instance.c):
     # threshold 3600 / timeout 5 / retry 5; crash-loop halt'ится, не штормит.
@@ -955,6 +998,10 @@ _z2k_ow_manifest_helper_load() {
 warp_fetch_engine() {
     # WARP_FETCH_STUB — тесты: вместо сети копируется готовый файл.
     local _arch="$1" _tmp="$WARP_BIN.new.$$" _want="" _have=""
+    [ "$WARP_BIN" != "$WARP_DOMAIN_RUNTIME_BIN" ] || {
+        _wlog "package-managed OpenWrt WARP runtime cannot be overwritten by the feature installer"
+        return 1
+    }
     rm -f "$_tmp"
     if [ -n "$WARP_FETCH_STUB" ]; then
         cp "$WARP_FETCH_STUB" "$_tmp"
@@ -1090,9 +1137,16 @@ warp_register_due() {
 warp_install() {
     warp_op_current || { warp_op_superseded; return 3; }
     warp_lists_migrate || return 1
-    local _arch
-    _arch=$(warp_arch) || { _wlog "unsupported architecture"; return 1; }
-    warp_fetch_engine "$_arch" || return 1
+    if [ "$WARP_BIN" = "$WARP_DOMAIN_RUNTIME_BIN" ]; then
+        "$WARP_BIN" version >/dev/null 2>&1 || {
+            _wlog "package-managed OpenWrt WARP runtime is unavailable or incompatible"
+            return 1
+        }
+    else
+        local _arch
+        _arch=$(warp_arch) || { _wlog "unsupported architecture"; return 1; }
+        warp_fetch_engine "$_arch" || return 1
+    fi
     # Ничего не запускается: только движок на диск и ключ устройства.
     warp_register || return 1
     return 0
@@ -1457,6 +1511,7 @@ warp_disable() {
     warp_pbr_down
     _warp_tun_clear
     _warp_mark_clear
+    command -v warp_domain_nft_remove >/dev/null 2>&1 && warp_domain_nft_remove || true
     warp_set_flag 0
     if [ "$_was_running" = "1" ] && _z2k_ow_service_running; then
         _z2k_ow_warp_service_rebuild || return $?
@@ -1519,7 +1574,9 @@ warp_remove() {
     # remove, бинарь цел (W51).
     warp_op_current || { warp_op_superseded; return 3; }
     warp_disable || return 1
-    rm -f "$WARP_BIN" "$WARP_BIN".new.* 2>/dev/null
+    if [ "$WARP_BIN" != "$WARP_DOMAIN_RUNTIME_BIN" ]; then
+        rm -f "$WARP_BIN" "$WARP_BIN".new.* 2>/dev/null
+    fi
     warp_nft_remove full
     _wlog "движок удалён; ключ устройства и списки сохранены"
     return 0
@@ -1602,6 +1659,7 @@ warp_selfheal() {
 warp_status() {
     local _installed=0 _running=0 _ready=0 _route_ready=0
     local _entries=0 _devices=0 _error="" _state="off"
+    local _domain_active=0 _domain_rules=0 _domain_pairs=0 _domain_skipped=0 _domain_overflow=0 _domain_error=""
     [ -x "$WARP_BIN" ] && _installed=1
     warp_running && _running=1
     _warp_proven_ready >/dev/null 2>&1 && _ready=1
@@ -1631,12 +1689,38 @@ warp_status() {
     case "$_plan" in *[!a-z_]*) _plan="" ;; esac
     [ -n "$(_json_str "$_acct" error)" ] && _plan_err=1
     [ -s "$(dirname "$WARP_DEVICE")/license" ] && _lic=1
-    printf 'installed=%s enabled=%s running=%s ready=%s route_ready=%s state=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s\n' \
+    [ "$(_json_raw "$WARP_DOMAIN_STATUS" active)" = true ] && _domain_active=1
+    _domain_rules=$(_json_raw "$WARP_DOMAIN_STATUS" rules)
+    _domain_pairs=$(_json_raw "$WARP_DOMAIN_STATUS" pairs)
+    _domain_skipped=$(_json_raw "$WARP_DOMAIN_STATUS" skipped)
+    _domain_overflow=$(_json_raw "$WARP_DOMAIN_STATUS" overflow)
+    _domain_error=$(_json_str "$WARP_DOMAIN_STATUS" error)
+    if [ -s "$WARP_DOMAIN_ERROR" ]; then
+        _domain_error=$(cat "$WARP_DOMAIN_ERROR" 2>/dev/null)
+        _domain_active=0
+    elif [ ! -f "$WARP_DOMAIN_STATUS" ] && [ "$(warp_flag)" = "1" ]; then
+        _domain_error=observer-unavailable
+    fi
+    [ -f "$WARP_DOMAIN_RULES" ] && _domain_rules=$(awk 'END { print NR > 0 ? NR - 1 : 0 }' "$WARP_DOMAIN_RULES" 2>/dev/null)
+    case "$_domain_rules" in ''|*[!0-9]*) _domain_rules=0 ;; esac
+    case "$_domain_pairs" in ''|*[!0-9]*) _domain_pairs=0 ;; esac
+    case "$_domain_skipped" in ''|*[!0-9]*) _domain_skipped=0 ;; esac
+    case "$_domain_overflow" in ''|*[!0-9]*) _domain_overflow=0 ;; esac
+    if [ "$_domain_rules" = "0" ]; then
+        # No active user domains means an observer with an empty rules file is
+        # idle, not unavailable; do not surface a stale daemon error from a
+        # previous list configuration as a current routing failure.
+        _domain_active=0
+        [ -s "$WARP_DOMAIN_ERROR" ] || _domain_error=""
+    fi
+    _domain_error=$(printf '%s' "$_domain_error" | tr ' \t\r\n' '_' | cut -c1-120)
+    printf 'installed=%s enabled=%s running=%s ready=%s route_ready=%s state=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s domain_active=%s domain_rules=%s domain_pairs=%s domain_skipped=%s domain_overflow=%s domain_error=%s\n' \
         "$_installed" "$(warp_flag)" "$_running" "$_ready" "$_route_ready" "$_state" \
         "$(_json_str "$WARP_STATUS" transport)" "$(_json_str "$WARP_STATUS" endpoint)" \
         "$(_json_str "$WARP_STATUS" iface)" "$(_json_str "$WARP_STATUS" addr)" \
         "$_entries" "$_devices" "$_error" \
-        "$(_json_raw "$WARP_STATUS" mem_kb)" "$_plan" "$_plan_err" "$_lic"
+        "$(_json_raw "$WARP_STATUS" mem_kb)" "$_plan" "$_plan_err" "$_lic" \
+        "$_domain_active" "$_domain_rules" "$_domain_pairs" "$_domain_skipped" "$_domain_overflow" "$_domain_error"
 }
 
 # --- топология lifecycle ---

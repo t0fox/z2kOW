@@ -45,13 +45,12 @@ exit 0
 EOF
 chmod +x "$T/root/bin/tg-mtproxy-client"
 printf 'x\n' > "$T/root/etc/z2k-roots.pem"
-printf 'ENABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
+printf 'ENABLED=1\n' > "$T/etc/config"
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_BIN="$T/root/bin" Z2K_RUN="$T/tmp/runtime" Z2K_LOG="$T/tmp/logs"
 export Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc"
 export Z2K_TG_HEALTH_DIR="$T/tmp/tg-health"
-export Z2K_TG_UDP_READY="$T/tmp/tg-udp/tg-udp.ready"
 # shellcheck disable=SC1090,SC1091
 . "$REPO/platform/openwrt/tg.sh" || { echo "FAIL[ow-tg-firewall]: source tg.sh" >&2; exit 1; }
 
@@ -59,9 +58,9 @@ export Z2K_TG_UDP_READY="$T/tmp/tg-udp/tg-udp.ready"
 z2k_ow_tg_wanted && _t_ok || _t_bad "wanted при всём хорошем"
 printf 'ENABLED=0\n' > "$T/etc/config"
 z2k_ow_tg_wanted && _t_bad "wanted при ENABLED=0" || _t_ok
-printf 'ENABLED=1\nTG_PROXY_USER_DISABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
+printf 'ENABLED=1\nTG_PROXY_USER_DISABLED=1\n' > "$T/etc/config"
 z2k_ow_tg_wanted && _t_bad "wanted при user-disable" || _t_ok
-printf 'ENABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
+printf 'ENABLED=1\n' > "$T/etc/config"
 rm -f "$T/root/bin/tg-mtproxy-client"
 z2k_ow_tg_wanted && _t_bad "wanted без бинарника" || _t_ok
 printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/tg-mtproxy-client"
@@ -171,18 +170,17 @@ if grep -q 'tunnel-secret' "$T/argv.log"; then
 else
     _t_ok
 fi
-printf 'ENABLED=1\nZ2K_TG_UDP_RELAY=0\nZ2K_RELAY_SECRET=abc123\nZ2K_RELAY_URL=wss://example.test/ws\n' > "$T/etc/config"
+printf 'ENABLED=1\nZ2K_RELAY_SECRET=abc123\nZ2K_RELAY_URL=wss://example.test/ws\n' > "$T/etc/config"
 : > "$T/argv.log"
 _out="$(z2k_ow_tg_with_argv _rec 2>"$T/argv.err")"
 assert_contains "override secret" "$T/argv.log" "--tunnel-secret=abc123"
 assert_contains "override url" "$T/argv.log" "--tunnel-url=wss://example.test/ws"
 assert_eq "builder молчит в stdout" "" "$_out"
 assert_eq "builder молчит в stderr" "" "$(cat "$T/argv.err")"
-printf 'ENABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
+printf 'ENABLED=1\n' > "$T/etc/config"
 
 # --- TLS env через stub-procd ---
 procd_open_instance() {
-    [ -d "${Z2K_TG_UDP_READY%/*}" ] && echo "ready-parent:present" >> "$T/procd.log" || echo "ready-parent:missing" >> "$T/procd.log"
     echo "instance:$1" >> "$T/procd.log"
 }
 procd_set_param() {
@@ -202,11 +200,9 @@ assert_contains "instance z2k-tg" "$T/procd.log" "instance:z2k-tg"
 assert_contains "GODEBUG" "$T/procd.log" "param:command "
 assert_contains "GODEBUG env" "$T/procd.log" "param:env GODEBUG=asyncpreemptoff=1"
 assert_contains "roots exported in combined env table" "$T/procd.log" "SSL_CERT_FILE=$T/root/etc/z2k-roots.pem"
-assert_contains "final procd environment retains route helper" "$T/procd.env" "Z2K_TG_UDP_ROUTE_HELPER=$T/root/platform/openwrt/tg-udp-route.sh"
 assert_contains "final procd environment retains GODEBUG" "$T/procd.env" "GODEBUG=asyncpreemptoff=1"
 assert_eq "all variables fit one procd env table" "1" "$(grep -c '^param:env ' "$T/procd.log")"
-assert_contains "ready-marker parent exists before instance launch" "$T/procd.log" "ready-parent:present"
-if [ -d "${Z2K_TG_UDP_READY%/*}" ]; then _t_ok; else _t_bad "ready-marker parent directory was not created"; fi
+assert_not_contains "retired Telegram UDP env is not passed to TCP client" "$T/procd.env" 'Z2K_TG_UDP|UDP_ROUTE'
 assert_contains "respawn bounded" "$T/procd.log" "param:respawn 3600 5 5"
 assert_contains "instance closed" "$T/procd.log" "close"
 # корней нет -> env пропущен (пул Go не пустеет)

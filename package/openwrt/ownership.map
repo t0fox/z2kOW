@@ -19,9 +19,9 @@
 #   daemon-state — публикует runtime (+ правит человек): autocircular state,
 #              sni/tcp16 карты. Переживает всё (upgrade/update/
 #              uninstall); purge — только вручную.
-#   runtime — воспроизводимый OpenWrt compatibility entrypoint, создаваемый
-#              только пока нужная внешняя legacy ABI активна; uninstall
-#              удаляет его только при точном совпадении с package source.
+#   runtime — воспроизводимый OpenWrt compatibility entrypoint, если он
+#              необходим старой внешней ABI; uninstall удаляет его только при
+#              точном совпадении с package source. Активного TG UDP ABI нет.
 # Допускаются glob-суффиксы /* (поддерево целиком).
 # Конфликт package∩updater (точные пути) = PACKAGE_UPDATER_OWNERSHIP_CONFLICT,
 # сторожит tests/openwrt/test_ow_ownership_map.sh.
@@ -29,7 +29,6 @@
 /etc/hotplug.d/iface/90-z2k package
 /etc/sysctl.d/99-z2k.conf package
 /usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft package
-/usr/share/nftables.d/chain-pre/forward/90-z2k-tg-udp.nft package
 /usr/lib/z2k/platform/openwrt/paths.sh package
 /usr/lib/z2k/platform/openwrt/env.sh package
 /usr/lib/z2k/platform/openwrt/manifest.sh package
@@ -49,14 +48,13 @@
 /usr/lib/z2k/platform/openwrt/uninstall.sh package
 /usr/lib/z2k/platform/openwrt/tg.sh package
 /usr/lib/z2k/platform/openwrt/tg-check.sh package
-/usr/lib/z2k/platform/openwrt/tg-udp-route.sh package
-/usr/lib/z2k/platform/openwrt/tg-udp-legacy-shell package
-/opt/bin/sh runtime
-/opt/bin/.z2k-tg-udp-legacy-shell-dir-owned runtime
+/usr/lib/z2k/platform/openwrt/tg-retire-udp.sh package
+/usr/lib/z2k/z2k-warp-list-filter.awk package
 /usr/lib/z2k/platform/openwrt/rt.sh package
 /usr/lib/z2k/platform/openwrt/rt-proc.sh package
 /usr/lib/z2k/platform/openwrt/rt-check.sh package
 /usr/lib/z2k/platform/openwrt/warp.sh package
+/usr/lib/z2k/platform/openwrt/warp-domain.sh package
 /usr/lib/z2k/platform/openwrt/warp-proc.sh package
 /usr/lib/z2k/platform/openwrt/warp-check.sh package
 /usr/lib/z2k/platform/openwrt/diag.sh package
@@ -116,3 +114,6 @@
 # никогда (обновляются только вместе с runtime-пакетом; conffiles нет:
 # пользовательских настроек внутри нет, конфиг демона — /etc/z2k/config).
 /opt/zapret2/* package
+# Target-arch Go daemon with OpenWrt nft backend; user WARP identity/lists
+# remain outside this package-owned executable tree.
+/usr/lib/z2k/platform/openwrt/bin/z2k-warpd package

@@ -685,13 +685,11 @@ const SCENARIOS = {
     },
   },
 
-  // «Что нового» и «история версий» — РАЗНЫЕ вопросы, и модалка обязана
-  // отвечать на тот, который задали. До 16.09.2026 обе кнопки открывали полную
-  // историю, и человек с тремя непоставленными выпусками получал двести
-  // пятьдесят чужих (жалоба владельца).
+  // Ожидающие обновления раскрываются в баннере; архив открывается отдельно.
   update_whats_new: {
     hash: "#/dashboard",
     setup() {
+      sel("#upd-changelog").hidden = true;
       ROUTER = async (p) => {
         if (p === "/update/status") return {
           ok: true, installed: "p-84.22", available: "p-84.25", behind: 3, last_check: 0,
@@ -709,30 +707,22 @@ const SCENARIOS = {
     },
     async run() {
       await sleep(160);
+      const box = q("#upd-changelog");
+      check("описание изначально свёрнуто", /id="upd-changelog" hidden/.test(q("#update-banner").innerHTML), "hidden markup");
       q("#upd-changelog-btn").fire("click");
       await sleep(120);
-      const bd = document.body.children.find(c => c.className === "modal-backdrop");
-      check("модалка «что нового» открылась", !!bd, "нет .modal-backdrop");
-      const list = q("#hist-modal-list");
-      const html = list ? list.innerHTML : "";
-      check("показаны все три непоставленных выпуска",
-            /p-84\.23/.test(html) && /p-84\.24/.test(html) && /p-84\.25/.test(html), html.slice(0, 200));
-      check("чужая история сюда не попала", html.indexOf("r-1") < 0 && html.indexOf("древность") < 0,
-            html.slice(0, 200));
-      check("за историей в сеть не ходили", !CALLS["/update/history"],
-            "запросов: " + CALLS["/update/history"]);
-      check("свежий выпуск сверху",
-            html.indexOf("p-84.25") < html.indexOf("p-84.23"), html.slice(0, 200));
-      check("заголовок называет диапазон",
-            (q("#hist-modal-title").textContent || "").indexOf("p-84.22") >= 0, q("#hist-modal-title").textContent);
-      // Переход к полной истории — из той же модалки, без переоткрытия.
-      const allBtn = q("#hist-all-btn");
-      check("есть переход ко всей истории", !!allBtn && allBtn.hidden === false, String(allBtn && allBtn.hidden));
-      allBtn.fire("click");
+      check("описание раскрывается в баннере", box.hidden === false, String(box.hidden));
+      check("что нового не открывает модалку", !document.body.children.find(c => c.className === "modal-backdrop"), "modal");
+      const html = q("#update-banner").innerHTML;
+      check("показаны ожидающие выпуски", /p-84\.23/.test(html) && /p-84\.25/.test(html), html);
+      check("за историей в сеть не ходили", !CALLS["/update/history"], String(CALLS["/update/history"]));
+      q("#upd-changelog-btn").fire("click");
+      check("повторный клик сворачивает описание", box.hidden === true, String(box.hidden));
+      q("#upd-history-link").fire("click");
       await sleep(120);
-      check("переход подтянул историю", CALLS["/update/history"] === 1, "запросов: " + CALLS["/update/history"]);
-      check("заголовок сменился", (q("#hist-modal-title").textContent || "").indexOf("История") >= 0,
-            q("#hist-modal-title").textContent);
+      check("отдельная кнопка загружает историю", CALLS["/update/history"] === 1, String(CALLS["/update/history"]));
+      check("открылась история", !!document.body.children.find(c => c.className === "modal-backdrop"), "modal");
+
     },
   },
 
@@ -765,8 +755,7 @@ const SCENARIOS = {
       link.fire("click");
       await sleep(150);
       const bd = document.body.children.find(c => c.className === "modal-backdrop");
-      // Заголовок с 16.09.2026 ставится кодом (у модалки два режима), поэтому
-      // спрашиваем элемент, а не разметку подложки.
+      // Заголовок ставится кодом: проверяем элемент, а не разметку подложки.
       check("модалка открылась с заголовком «История версий»",
             !!bd && (q("#hist-modal-title").textContent || "").indexOf("История версий") >= 0,
             "title=" + (q("#hist-modal-title").textContent || ""));

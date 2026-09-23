@@ -305,16 +305,10 @@ case "$method $path" in
             flowoffload=$(z2k_ow_flowoffload_mode)
             flowoffload_status=$(z2k_ow_flowoffload_status)
         fi
-        tg_udp_enabled=false
-        tg_udp_ready=false
-        tg_udp_state=disabled
-        if [ "$ow_flow" = 1 ] && command -v z2k_ow_tg_cfg >/dev/null 2>&1; then
-            [ "$(z2k_ow_tg_cfg Z2K_TG_UDP_RELAY 1)" = "1" ] && tg_udp_enabled=true
-            if command -v z2k_ow_tg_udp_state >/dev/null 2>&1; then
-                tg_udp_state=$(z2k_ow_tg_udp_state)
-                [ "$tg_udp_state" = "ready" ] && tg_udp_ready=true
-            fi
-        fi
+
+        # The TCP tunnel status is independent of the retired OpenWrt-only
+        # Telegram UDP transport. Keep the existing response field populated
+        # on both platforms rather than relying on a removed UDP probe branch.
         tpid=$(tunnel_pid 2>/dev/null)
         tunnel_running=false
         [ -n "$tpid" ] && tunnel_running=true
@@ -344,14 +338,7 @@ case "$method $path" in
             printf ',"flowoffload":';         json_string "${flowoffload:-none}"
             printf ',"flowoffload_status":';  json_string "${flowoffload_status:-unavailable}"
         fi
-        if [ "$ow_flow" = 1 ]; then
-            printf '},"tunnel":{"running":%s,"udp":{"enabled":%s,"ready":%s,"state":' \
-                "${tunnel_running:-false}" "$tg_udp_enabled" "$tg_udp_ready"
-            json_string "$tg_udp_state"
-            printf '}}'
-        else
-            printf '},"tunnel":{"running":%s}' "${tunnel_running:-false}"
-        fi
+        printf '},"tunnel":{"running":%s}' "${tunnel_running:-false}"
         # OpenWrt capability visibility (§18): только openwrt, Keenetic-байты
         # не меняются. shapes preserved, ключи аддитивны (фрагмент уже
         # в кавычках — добавляем только запятую).
@@ -748,6 +735,10 @@ case "$method $path" in
         w_pe=false; [ "$(_wf plan_err)" = "1" ] && w_pe=true
         w_lic=false; [ "$(_wf license)" = "1" ] && w_lic=true
         printf ',"plan_error":%s,"license":%s' "$w_pe" "$w_lic"
+        w_domain_active=false; [ "$(_wf domain_active)" = "1" ] && w_domain_active=true
+        printf ',"domain_active":%s,"domain_rules":%s,"domain_pairs":%s,"domain_error":' \
+            "$w_domain_active" "$(_wf domain_rules | grep -E '^[0-9]+$' || echo 0)" "$(_wf domain_pairs | grep -E '^[0-9]+$' || echo 0)"
+        json_string "$(_wf domain_error)"
         # Выбор человека, а не то, на чём движок стоит сейчас (это transport
         # выше). Мусор в конфиге показываем автоматом — так его и прочтёт
         # init-скрипт.
@@ -1133,9 +1124,12 @@ case "$method $path" in
         result=$(read_body_raw | warp_list_save "$w_name" "$w_mode") || \
             json_fail "400 Bad Request" "save failed"
         w_saved=$(printf '%s' "$result" | sed -n 's/.*saved=\([0-9]*\).*/\1/p')
+        w_saved_ip=$(printf '%s' "$result" | sed -n 's/.*saved_ip=\([0-9]*\).*/\1/p')
+        w_saved_domain=$(printf '%s' "$result" | sed -n 's/.*saved_domain=\([0-9]*\).*/\1/p')
         w_inv=$(printf '%s' "$result" | sed -n 's/.*skipped_invalid=\([0-9]*\).*/\1/p')
         json_header
-        printf '{"ok":true,"saved":%d,"skipped_invalid":%d}\n' "${w_saved:-0}" "${w_inv:-0}"
+        printf '{"ok":true,"saved":%d,"saved_ip":%d,"saved_domain":%d,"skipped_invalid":%d}\n' \
+            "${w_saved:-0}" "${w_saved_ip:-0}" "${w_saved_domain:-0}" "${w_inv:-0}"
         exit 0
         ;;
 

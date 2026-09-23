@@ -18,8 +18,8 @@
 # truncates state.tsv, touches no iptables) — but it is what users click when
 # bypass is already dead, so the two got conflated. This heals the real cause.
 #
-# A newly connected policy WAN can lack rules even while the primary is fully
-# covered. Check the expected chain/protocol/interface tuple, not just counts.
+# A newly connected main-table WAN can lack rules even while the primary is
+# fully covered. Check the expected chain/protocol/interface tuple, not counts.
 #
 # Idempotent: acts ONLY when required rules are absent AND the WAN is present
 # (so restart_fw can actually apply them — no restart storm while WAN is down),
@@ -93,7 +93,7 @@ is_nfqws2_running() {
 }
 is_nfqws2_running || exit 0
 
-# Use exactly the same discovery as start_fw (including policy-table WANs).
+# Use exactly the same main-table discovery as start_fw.
 # shellcheck source=lib/wan.sh
 . "${Z2K_WAN_LIB:-/opt/zapret2/lib/wan.sh}"
 wan_iface="$(sed -n 's/^WAN_IFACE=//p' "$ZAPRET_CONFIG" 2>/dev/null | tail -n 1 | tr -d "\"'")"
@@ -104,8 +104,8 @@ wan_iface="$(sed -n 's/^WAN_IFACE=//p' "$ZAPRET_CONFIG" 2>/dev/null | tail -n 1 
 # get_wan_ifaces6 is empty and fw_nfqws_post6 correctly skips. Without this gate
 # EVERY v6-enabled-but-v6-less Keenetic (a huge share) would restart_fw every
 # minute forever. Mirrors get_wan_ifaces4/6: WAN_IFACE wins, else the family's
-# defaults across routing tables. Count via -S; on Keenetic -L can trip on NDM's
-# ndmmark rules, -S does not.
+# main-table defaults. A failed route read is unknown state and skips the family
+# for this tick. Count via -S; on Keenetic -L can trip on NDM's ndmmark rules.
 #
 # FALSE-DROP guard: the dump MUST use -w and its exit code MUST be honoured.
 # NDM churns iptables constantly; a bare `iptables -t mangle -S` racing an NDM op
@@ -116,7 +116,7 @@ wan_iface="$(sed -n 's/^WAN_IFACE=//p' "$ZAPRET_CONFIG" 2>/dev/null | tail -n 1 
 # the table state is UNKNOWN → treat as NOT missing (return 1) rather than firing.
 nfq_missing() {   # $1 = iptables|ip6tables ; $2 = -4|-6
     local _wan _iface _dir
-    _wan=$(z2k_wan_ifaces "$2" "$wan_iface")
+    _wan=$(z2k_wan_ifaces "$2" "$wan_iface") || return 1
     [ -n "$_wan" ] || return 1
     # A dump that fails even WITH -w is not lock contention (that -w waits out) —
     # it's structural (broken iptables / -w unsupported / missing kmod). Treat as

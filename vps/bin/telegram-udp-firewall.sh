@@ -1,41 +1,42 @@
 #!/bin/sh
-# Permit our nobody-owned relay to reach Telegram UDP/443, ahead of the
-# existing general QUIC block. Preserve every unrelated live/persistent rule.
+# Retire only the UDP experiment's tagged exceptions. Keep the normal QUIC
+# policy and every unrelated live/persistent rule unchanged.
 set -eu
 [ "${1:-}" = --apply ] || { echo "usage: $0 --apply" >&2; exit 2; }
-CIDRS_FILE=${CIDRS_FILE:-/etc/z2k/telegram-udp-cidrs.txt}
 RULES_FILE=${RULES_FILE:-/etc/iptables/rules.v4}
 IPTABLES=${IPTABLES:-iptables}
 IPTABLES_RESTORE=${IPTABLES_RESTORE:-iptables-restore}
-RELAY_UID=${RELAY_UID:-$(id -u nobody)}
 tmp=$(mktemp "${RULES_FILE}.udp.XXXXXX")
 trap 'rm -f "$tmp"' EXIT HUP INT TERM
-python3 - "$RULES_FILE" "$CIDRS_FILE" "$RELAY_UID" "$tmp" <<'PY'
-import ipaddress,sys
+python3 - "$RULES_FILE" "$tmp" <<'PY'
+import shlex,sys
 from pathlib import Path
-rules,cidrs,uid,out=sys.argv[1:]
-assert uid.isdecimal(), 'non-numeric relay UID'
-prefixes=[str(ipaddress.IPv4Network(s)) for s in Path(cidrs).read_text().split()]
-assert prefixes and len(set(prefixes))==len(prefixes)
-lines=Path(rules).read_text().splitlines()
-anchor='-A OUTPUT -p udp -m udp --dport 443 -j DROP'
-assert lines.count(anchor)==1, 'expected exactly one existing UDP/443 block'
-lines=[s for s in lines if '--comment z2k-telegram-udp ' not in s]
-i=lines.index(anchor)
-extra=[f'-A OUTPUT -d {p} -p udp -m udp --dport 443 -m owner --uid-owner {uid} -m comment --comment z2k-telegram-udp -j ACCEPT' for p in prefixes]
-lines[i:i]=extra
-Path(out).write_text('\n'.join(lines)+'\n')
+src,out=map(Path,sys.argv[1:])
+def owned(line):
+    words=shlex.split(line)
+    return any(words[i:i+2]==['--comment','z2k-telegram-udp'] for i in range(len(words)-1))
+out.write_text('\n'.join(s for s in src.read_text().splitlines() if not owned(s))+'\n')
 PY
 "$IPTABLES_RESTORE" --test < "$tmp"
-while IFS= read -r cidr; do
-    [ -n "$cidr" ] || continue
-    "$IPTABLES" -w -C OUTPUT -d "$cidr" -p udp --dport 443 -m owner --uid-owner "$RELAY_UID" -m comment --comment z2k-telegram-udp -j ACCEPT 2>/dev/null || \
-        "$IPTABLES" -w -I OUTPUT 1 -d "$cidr" -p udp --dport 443 -m owner --uid-owner "$RELAY_UID" -m comment --comment z2k-telegram-udp -j ACCEPT
-done < "$CIDRS_FILE"
+# Parse save output as arguments, never eval shell text from a rule.
+python3 - "$IPTABLES" <<'PY'
+import shlex,subprocess,sys
+ipt=sys.argv[1]
+for line in subprocess.check_output([ipt,'-w','-S','OUTPUT'],text=True).splitlines():
+    words=shlex.split(line)
+    if words[:2]!=['-A','OUTPUT']: continue
+    if not any(words[i:i+2]==['--comment','z2k-telegram-udp'] for i in range(len(words)-1)): continue
+    subprocess.run([ipt,'-w','-D',*words[1:]],check=True)
+PY
 if ! cmp -s "$tmp" "$RULES_FILE"; then
-    [ -e "$RULES_FILE.z2k-udp.bak" ] || cp -p "$RULES_FILE" "$RULES_FILE.z2k-udp.bak"
-    chmod --reference="$RULES_FILE" "$tmp"
-    chown --reference="$RULES_FILE" "$tmp"
+    [ -e "$RULES_FILE.z2k-udp-retired.bak" ] || cp -p "$RULES_FILE" "$RULES_FILE.z2k-udp-retired.bak"
+    python3 - "$RULES_FILE" "$tmp" <<'PYMODE'
+import os,stat,sys
+src,dst=sys.argv[1:]
+s=os.stat(src)
+os.chmod(dst,stat.S_IMODE(s.st_mode))
+os.chown(dst,s.st_uid,s.st_gid)
+PYMODE
     mv "$tmp" "$RULES_FILE"
 fi
-echo 'Telegram UDP/443: scoped relay exception installed and persisted'
+echo 'Retired Telegram UDP exceptions removed'

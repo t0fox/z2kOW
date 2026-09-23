@@ -580,6 +580,11 @@ jobs:
               go test -race -count=1 -cover ./... ;;
           esac
 
+      - name: OpenWrt nft overlay tests
+        if: matrix.module == 'z2k-warpd'
+        working-directory: z2k-warpd
+        run: go test -race -count=1 -tags openwrt -overlay openwrt-overlay/overlay.json ./...
+
       - name: Cross-compile
         working-directory: ${{ matrix.module }}
         env:
@@ -838,6 +843,13 @@ jobs:
           # панели (test_ow_webpanel_config.sh; без него — громкий SKIP).
           sudo apt-get install -y zstd lighttpd
 
+      - name: Set up Go for the OpenWrt WARP runtime
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: z2k-warpd/go.sum
+
       # Cache-hit всё равно сверяет identity receipt (§7 closure):
       # каталогу из кеша без чека не доверяем.
       - name: Verify cached SDK identity
@@ -939,7 +951,7 @@ jobs:
       - name: Inspect APK metadata (apk v3 adbdump)
         run: |
           set -eu -o pipefail
-          ls -la "$RUNNER_TEMP/dist"/z2k-adapter-*.apk "$RUNNER_TEMP/dist"/z2k-webpanel-*.apk "$RUNNER_TEMP/dist"/z2k-zapret2-runtime-*.apk
+          ls -la "$RUNNER_TEMP/dist"/z2k-adapter-*.apk "$RUNNER_TEMP/dist"/z2k-webpanel-*.apk "$RUNNER_TEMP/dist"/z2k-zapret2-runtime-*.apk "$RUNNER_TEMP/dist"/z2k-warp-runtime-*.apk
           echo "=== METADATA.txt (adbdump) ==="
           cat "$RUNNER_TEMP/dist/METADATA.txt"
           # Arch-assert — следующим коммитом, когда увидим поле arch в
@@ -991,7 +1003,7 @@ jobs:
           mv -f packages.adb.orig packages.adb
           shred -u feed-test.key feed-wrong.key
 
-      # Minimal signed feed (§2-§4 closure): ТОЛЬКО publish-APK (3 шт.),
+      # Minimal signed feed (§2-§4 closure): ТОЛЬКО publish-APK (4 шт.),
       # индекс пересобран mkndx и подписан нативным apk-механизмом.
       # Ключ — ephemeral EC P-256 (как BUILD_KEY_SDK; production-ключа здесь
       # нет и быть не должно). Приват уничтожается до upload, pub едет
@@ -1003,8 +1015,8 @@ jobs:
           test -x "$apkbin"
           feed="$RUNNER_TEMP/dist/feed"
           mkdir -p "$feed"
-          cp -f "$RUNNER_TEMP/dist"/z2k-adapter-*.apk "$RUNNER_TEMP/dist"/z2k-webpanel-*.apk "$RUNNER_TEMP/dist"/z2k-zapret2-runtime-*.apk "$feed/"
-          test "$(ls "$feed"/*.apk | wc -l)" = "3"
+          cp -f "$RUNNER_TEMP/dist"/z2k-adapter-*.apk "$RUNNER_TEMP/dist"/z2k-webpanel-*.apk "$RUNNER_TEMP/dist"/z2k-zapret2-runtime-*.apk "$RUNNER_TEMP/dist"/z2k-warp-runtime-*.apk "$feed/"
+          test "$(ls "$feed"/*.apk | wc -l)" = "4"
           openssl ecparam -name prime256v1 -genkey -noout -out "$feed/feed-apk.key"
           openssl ec -in "$feed/feed-apk.key" -pubout -out "$feed/feed.pub"
           (cd "$feed" && "$apkbin" mkndx --root "$feed" --keys-dir "$feed" --allow-untrusted --sign "$feed/feed-apk.key" --output packages.adb z2k-*.apk)
@@ -1080,6 +1092,9 @@ jobs:
           "$apkbin" --root "$RUNNER_TEMP/approot" --arch aarch64_cortex-a53 --allow-untrusted \
             --repository "http://127.0.0.1:$FEED_PORT/packages.adb" \
             search z2k-zapret2-runtime | grep -q z2k-zapret2-runtime
+          "$apkbin" --root "$RUNNER_TEMP/approot" --arch aarch64_cortex-a53 --allow-untrusted \
+            --repository "http://127.0.0.1:$FEED_PORT/packages.adb" \
+            search z2k-warp-runtime | grep -q z2k-warp-runtime
           test -f "$RUNNER_TEMP/approot/usr/lib/z2k/platform/openwrt/update.sh"
           test -f "$RUNNER_TEMP/approot/etc/init.d/z2k"
           test -f "$RUNNER_TEMP/approot/etc/init.d/z2k-webpanel"
@@ -1089,6 +1104,7 @@ jobs:
           test -f "$RUNNER_TEMP/approot/opt/zapret2/nfq2/nfqws2"
           test -f "$RUNNER_TEMP/approot/opt/zapret2/init.d/openwrt/functions"
           test -f "$RUNNER_TEMP/approot/opt/zapret2/lua/zapret-lib.lua"
+          test -x "$RUNNER_TEMP/approot/usr/lib/z2k/platform/openwrt/bin/z2k-warpd"
           # Mode contract на реальном approot (live-урок §12: create_ipset.sh
           # уехал 0644 — датаплейн умер при живом процессе; unit-уровень ловит
           # test_ow_runtime_modes, здесь — установленный бит в готовом корне).
@@ -1166,11 +1182,13 @@ jobs:
           _exp_w="$("$apkbin" adbdump "$RUNNER_TEMP/dist/feed/packages.adb" 2>/dev/null | grep -A2 '^  - name: z2k-webpanel$' | sed -n 's/^ *version: //p' | head -1 || true)"
           _exp_a="$("$apkbin" adbdump "$RUNNER_TEMP/dist/feed/packages.adb" 2>/dev/null | grep -A2 '^  - name: z2k-adapter$' | sed -n 's/^ *version: //p' | head -1 || true)"
           _exp_r="$("$apkbin" adbdump "$RUNNER_TEMP/dist/feed/packages.adb" 2>/dev/null | grep -A2 '^  - name: z2k-zapret2-runtime$' | sed -n 's/^ *version: //p' | head -1 || true)"
-          [ -n "$_exp_w" ] && [ -n "$_exp_a" ] && [ -n "$_exp_r" ] || { echo "версии из нового фида не прочитались" >&2; exit 1; }
-          echo "expected from new feed: $_exp_w / $_exp_a / $_exp_r"
+          _exp_wr="$("$apkbin" adbdump "$RUNNER_TEMP/dist/feed/packages.adb" 2>/dev/null | grep -A2 '^  - name: z2k-warp-runtime$' | sed -n 's/^ *version: //p' | head -1 || true)"
+          [ -n "$_exp_w" ] && [ -n "$_exp_a" ] && [ -n "$_exp_r" ] && [ -n "$_exp_wr" ] || { echo "версии из нового фида не прочитались" >&2; exit 1; }
+          echo "expected from new feed: $_exp_w / $_exp_a / $_exp_r / $_exp_wr"
           printf '%s\n' "$_v" | grep -qx "z2k-webpanel-$_exp_w" || { echo "webpanel не $_exp_w" >&2; exit 1; }
           printf '%s\n' "$_v" | grep -qx "z2k-adapter-$_exp_a" || { echo "adapter не $_exp_a (EXTRA_DEPENDS не сработал)" >&2; exit 1; }
           printf '%s\n' "$_v" | grep -qx "z2k-zapret2-runtime-$_exp_r" || { echo "runtime не $_exp_r (resolver не дотянул)" >&2; exit 1; }
+          printf '%s\n' "$_v" | grep -qx "z2k-warp-runtime-$_exp_wr" || { echo "WARP runtime не $_exp_wr (resolver не дотянул)" >&2; exit 1; }
           echo "upgrade одной операцией до версий фида: OK"
 
       - name: Upload CI snapshot artifact
@@ -1181,6 +1199,7 @@ jobs:
             ${{ runner.temp }}/dist/z2k-adapter-*.apk
             ${{ runner.temp }}/dist/z2k-webpanel-*.apk
             ${{ runner.temp }}/dist/z2k-zapret2-runtime-*.apk
+            ${{ runner.temp }}/dist/z2k-warp-runtime-*.apk
             ${{ runner.temp }}/dist/feed/packages.adb
             ${{ runner.temp }}/dist/feed/feed.pub
             ${{ runner.temp }}/dist/packages.adb

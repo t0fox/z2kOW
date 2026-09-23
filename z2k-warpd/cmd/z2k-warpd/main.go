@@ -29,6 +29,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/necronicle/z2k/z2k-warpd/internal/account"
+	"github.com/necronicle/z2k/z2k-warpd/internal/domainroute"
 	"github.com/necronicle/z2k/z2k-warpd/internal/engine"
 	"github.com/necronicle/z2k/z2k-warpd/internal/ladder"
 	"github.com/necronicle/z2k/z2k-warpd/internal/logrot"
@@ -356,7 +357,13 @@ func cmdRun(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	if err := engine.Run(ctx, cfg); err != nil {
+	rules, _ := domainroute.ParseRules([]byte("v1\n"))
+	observer := domainroute.NewObserver(rules)
+	options := domainroute.Options{
+		DomainPath: "/tmp/z2k-warp/domains.v1", SnapshotPath: "/tmp/z2k-warp/domain-pairs.v1",
+		StatusPath: "/tmp/z2k-warp/domain-status.json", PairSet: domainroute.PairSet{},
+	}
+	if err := runEngineAndObserver(ctx, func(c context.Context) error { return engine.Run(c, cfg) }, func(c context.Context) error { return observer.Run(c, options) }); err != nil {
 		// Другой экземпляр уже держит туннель — это нормальный исход гонки
 		// (selfheal и enable могут стартовать одновременно), а не сбой.
 		if errors.Is(err, engine.ErrAlreadyRunning) {

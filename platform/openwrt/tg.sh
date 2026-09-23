@@ -22,11 +22,6 @@ Z2K_TG_CDN_PORT="${Z2K_TG_CDN_PORT:-1444}"
 Z2K_TG_TIMEOUT="${Z2K_TG_TIMEOUT:-15m}"
 Z2K_TG_CIDRS="${Z2K_TG_CIDRS:-149.154.160.0/20 91.108.4.0/22 91.108.8.0/22 91.108.12.0/22 91.108.16.0/22 91.108.20.0/22 91.108.56.0/22 91.105.192.0/23 95.161.64.0/20 185.76.151.0/24}"
 Z2K_TG_CIDRS6="${Z2K_TG_CIDRS6:-2001:67c:4e8::/48 2001:b28:f23c::/47 2001:b28:f23f::/48 2a0a:f280:203::/48}"
-# p-85.8 UDP transport covers the complete announced 2a0a:f280::/32. Keep
-# dedicated sets/routes so this UDP expansion does not change the existing
-# TCP IPv6 reject set above.
-Z2K_TG_UDP_CIDRS="${Z2K_TG_UDP_CIDRS:-$Z2K_TG_CIDRS}"
-Z2K_TG_UDP_CIDRS6="${Z2K_TG_UDP_CIDRS6:-2001:67c:4e8::/48 2001:b28:f23c::/47 2001:b28:f23f::/48 2a0a:f280::/32}"
 Z2K_TG_CDN_CIDRS="${Z2K_TG_CDN_CIDRS:-168.119.95.238/32}"
 Z2K_TG_PROBE_URL="${Z2K_TG_PROBE_URL:-https://core.telegram.org/}"
 Z2K_TG_PROBE_RESOLVE_IP="${Z2K_TG_PROBE_RESOLVE_IP:-149.154.167.99}"
@@ -40,8 +35,6 @@ Z2K_TG_NFT_TABLE="${Z2K_TG_NFT_TABLE:-zapret2}"
 Z2K_TG_SET4="${Z2K_TG_SET4:-z2k_tg_dc4}"
 Z2K_TG_SET6="${Z2K_TG_SET6:-z2k_tg_dc6}"
 Z2K_TG_SETCDN="${Z2K_TG_SETCDN:-z2k_tg_cdn4}"
-Z2K_TG_UDP_SET4="${Z2K_TG_UDP_SET4:-z2k_tg_udp_dc4}"
-Z2K_TG_UDP_SET6="${Z2K_TG_UDP_SET6:-z2k_tg_udp_dc6}"
 Z2K_TG_CHAIN_PRE="${Z2K_TG_CHAIN_PRE:-z2k_tg_dst_pre}"
 Z2K_TG_CHAIN_OUT="${Z2K_TG_CHAIN_OUT:-z2k_tg_dst_out}"
 Z2K_TG_CHAIN_FWD="${Z2K_TG_CHAIN_FWD:-z2k_tg_flt_fwd}"
@@ -54,21 +47,6 @@ Z2K_TG_PIDFILE="${Z2K_TG_PIDFILE:-${Z2K_RUN:-/tmp/z2k/runtime}/tg-tunnel.pid}"
 Z2K_TG_HEALTH_DIR="${Z2K_TG_HEALTH_DIR:-${Z2K_TMP:-/tmp/z2k}/tg-health}"
 # Корень /proc (тестам — фикстура; прод всегда настоящий /proc).
 Z2K_PROC_ROOT="${Z2K_PROC_ROOT:-/proc}"
-
-# Telegram server UDP is a separate authenticated WSS/TUN transport.  The
-# OpenWrt boundary owns only these nft/PBR hooks; the Go client owns the TUN
-# and the ready/withdraw lifecycle.  The table/mark are deliberately separate
-# from WARP (989/0x80000000) and are rejected if another owner occupies them.
-Z2K_TG_UDP_IF="${Z2K_TG_UDP_IF:-z2ktg0}"
-Z2K_TG_UDP_MARK="${Z2K_TG_UDP_MARK:-0x08000000}"
-Z2K_TG_UDP_TABLE="${Z2K_TG_UDP_TABLE:-988}"
-Z2K_TG_UDP_PREF="${Z2K_TG_UDP_PREF:-89}"
-# p-85.8's shipped mtproxy-client binary owns this fixed readiness ABI.  The
-# adapter and watchdog consume the same marker; do not pass private CLI flags
-# which are not present in the released binary.
-Z2K_TG_UDP_READY="${Z2K_TG_UDP_READY:-/tmp/z2k-log/tg-udp.ready}"
-Z2K_TG_UDP_LEGACY_SHELL="${Z2K_TG_UDP_LEGACY_SHELL:-/opt/bin/sh}"
-Z2K_TG_UDP_LEGACY_SOURCE="${Z2K_TG_UDP_LEGACY_SOURCE:-${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/tg-udp-legacy-shell}"
 
 # Чтение флага из $Z2K_CONFIG без сорсинга (cron/hotplug-контексты).
 # $1 key, $2 default.
@@ -88,11 +66,6 @@ z2k_ow_tg_wanted() {
     return 0
 }
 
-z2k_ow_tg_udp_wanted() {
-    z2k_ow_tg_wanted || return 1
-    [ "$(z2k_ow_tg_cfg Z2K_TG_UDP_RELAY 1)" = "1" ]
-}
-
 # Собрать argv демона и выполнить $1 как команду с этим argv.
 # Секрет из конфига (override) или скомпилированный дефолт бинарника.
 # Использование: z2k_ow_tg_with_argv _cb (ровно одно слово — см. ниже).
@@ -105,9 +78,6 @@ z2k_ow_tg_with_argv() {
            "--timeout=$Z2K_TG_TIMEOUT"
     [ -n "$_rs" ] && set -- "$@" "--tunnel-secret=$_rs"
     [ -n "$_ru" ] && set -- "$@" "--tunnel-url=$_ru"
-    if z2k_ow_tg_udp_wanted; then
-        set -- "$@" "--telegram-udp"
-    fi
     "$_cb" "$@"
 }
 
@@ -146,22 +116,6 @@ z2k_ow_tg_listeners_ready() {
 }
 
 z2k_ow_tg_running() { [ -n "$(z2k_ow_tg_pids)" ]; }
-
-# The TCP/CDN listener is shared by the optional UDP worker.  A stale UDP
-# ready marker after SIGKILL must not make status report ready just because
-# that TCP process still owns :1443; reuse the existing verified PID set and
-# look for the explicit worker flag in its cmdline.
-z2k_ow_tg_udp_worker_running() {
-    local _p _cl
-    for _p in $(z2k_ow_tg_pids); do
-        [ -r "$Z2K_PROC_ROOT/$_p/cmdline" ] || continue
-        _cl=$(tr '\0' ' ' < "$Z2K_PROC_ROOT/$_p/cmdline" 2>/dev/null)
-        case " $_cl " in
-            *" --telegram-udp "*) return 0 ;;
-        esac
-    done
-    return 1
-}
 
 # --- nft ---
 
@@ -272,410 +226,6 @@ z2k_ow_tg_nft_remove() {
     return 0
 }
 
-# --- Telegram UDP-v1 OpenWrt boundary ---------------------------------------
-#
-# The upstream client writes an opaque IP packet to z2ktg0.  Only packets
-# arriving from a configured LAN device, addressed to Telegram DC ranges and
-# using UDP are marked into the private table.  Router-originated UDP, other
-# destinations (including STUN/P2P/QUIC/game traffic), and packets with an
-# existing policy mark retain their original routing owner.
-
-z2k_ow_tg_udp_lan_ifaces() {
-    local _raw _net _dev _if _name _seen=" "
-    set --
-    _raw="$(z2k_ow_tg_cfg Z2K_TG_LAN_IFACES "${OPENWRT_LAN:-lan}")"
-    for _net in $_raw; do
-        # OPENWRT_LAN is a logical UCI interface name (e.g. "lan"), while
-        # nft `iifname` matches the kernel netdev (e.g. "br-lan"). Resolve
-        # UCI first; treating every lan* token as a device silently installs
-        # a rule that can never match on DSA/bridge-based OpenWrt systems.
-        _dev=""
-        if command -v uci >/dev/null 2>&1; then
-            _dev="$(uci -q get "network.$_net.device" 2>/dev/null)"
-            [ -n "$_dev" ] || _dev="$(uci -q get "network.$_net.ifname" 2>/dev/null)"
-            case "$_dev" in
-                @*)
-                    _name="${_dev#@}"
-                    _dev="$(uci -q get "network.$_name.name" 2>/dev/null)"
-                    ;;
-            esac
-        fi
-        if [ -z "$_dev" ]; then
-            if ip link show "$_net" >/dev/null 2>&1; then
-                _dev="$_net"
-            elif ip link show "br-$_net" >/dev/null 2>&1; then
-                _dev="br-$_net"
-            else
-                echo "z2k-openwrt: tg UDP: cannot resolve LAN network $_net to a device" >&2
-                return 1
-            fi
-        fi
-        # Older UCI `ifname` may list more than one device. Preserve each
-        # resolved ingress and deduplicate bridge devices shared by LAN nets.
-        for _if in $_dev; do
-            case "$_seen" in *" $_if "*) continue ;; esac
-            _seen="$_seen$_if "
-            set -- "$@" "$_if"
-        done
-    done
-    [ "$#" -gt 0 ] || return 1
-    printf '%s\n' "$@"
-}
-
-_z2k_ow_tg_udp_rule_exact() {
-    local _fam="$1" _out
-    _out="$(ip "$_fam" rule show 2>/dev/null | awk -v p="${Z2K_TG_UDP_PREF}:" -v m="$Z2K_TG_UDP_MARK" -v t="$Z2K_TG_UDP_TABLE" '
-        $1 == p {
-            fw=0; tab=0
-            for (i=2; i<=NF; i++) {
-                if ($i == "fwmark" && (($(i+1) == m) || ($(i+1) == m "/0xffffffff"))) fw=1
-                if ($i == "lookup" && $(i+1) == t) tab=1
-            }
-            if (fw && tab) print
-        }')"
-    [ -n "$_out" ]
-}
-
-_z2k_ow_tg_udp_rule_conflict() {
-    local _fam="$1" _out
-    _out="$(ip "$_fam" rule show 2>/dev/null | awk -v p="${Z2K_TG_UDP_PREF}:" '$1 == p {print}')"
-    [ -z "$_out" ] && return 1
-    _z2k_ow_tg_udp_rule_exact "$_fam" && return 1
-    printf '%s\n' "$_out"
-    return 0
-}
-
-_z2k_ow_tg_udp_routes_up() {
-    local _fam="$1" _cidrs _c _conflict
-    _conflict="$(_z2k_ow_tg_udp_rule_conflict "$_fam")"
-    [ -n "$_conflict" ] && {
-        echo "z2k-openwrt: tg UDP PBR owner conflict at pref $Z2K_TG_UDP_PREF ($_conflict)" >&2
-        return 1
-    }
-    case "$_fam" in
-        -4) _cidrs="$Z2K_TG_UDP_CIDRS" ;;
-        -6) _cidrs="$Z2K_TG_UDP_CIDRS6" ;;
-        *) return 1 ;;
-    esac
-    # A throw default is mandatory: the table must not become a catch-all for
-    # marks belonging to another service if a later rule is misconfigured.
-    ip "$_fam" route replace throw default table "$Z2K_TG_UDP_TABLE" || return 1
-    for _c in $_cidrs; do
-        ip "$_fam" route replace "$_c" dev "$Z2K_TG_UDP_IF" table "$Z2K_TG_UDP_TABLE" || return 1
-    done
-    if ! _z2k_ow_tg_udp_rule_exact "$_fam"; then
-        ip "$_fam" rule add pref "$Z2K_TG_UDP_PREF" fwmark "$Z2K_TG_UDP_MARK/0xffffffff" table "$Z2K_TG_UDP_TABLE" || return 1
-    fi
-    _z2k_ow_tg_udp_rule_exact "$_fam"
-}
-
-_z2k_ow_tg_udp_routes_down() {
-    local _fam="$1" _cidrs _c
-    case "$_fam" in
-        -4) _cidrs="$Z2K_TG_UDP_CIDRS" ;;
-        -6) _cidrs="$Z2K_TG_UDP_CIDRS6" ;;
-        *) return 0 ;;
-    esac
-    while _z2k_ow_tg_udp_rule_exact "$_fam"; do
-        ip "$_fam" rule del pref "$Z2K_TG_UDP_PREF" fwmark "$Z2K_TG_UDP_MARK/0xffffffff" table "$Z2K_TG_UDP_TABLE" 2>/dev/null || break
-    done
-    for _c in $_cidrs; do
-        ip "$_fam" route del "$_c" dev "$Z2K_TG_UDP_IF" table "$Z2K_TG_UDP_TABLE" 2>/dev/null || true
-    done
-    ip "$_fam" route del throw default table "$Z2K_TG_UDP_TABLE" 2>/dev/null || true
-}
-
-z2k_ow_tg_udp_nft_remove() {
-    local _failed=0 _spec _set _type _dump
-    _z2k_ow_tg_table_ok || return 0
-    _z2k_ow_tg_udp_nfqueue_remove
-    for _c in z2k_tg_udp_mark z2k_tg_udp_fwd; do
-        nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_c" >/dev/null 2>&1 || continue
-        nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_c" 2>/dev/null || true
-        nft delete chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_c" 2>/dev/null || true
-    done
-    while IFS='|' read -r _set _type; do
-        [ -n "$_set" ] || continue
-        _dump=$(nft list set "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_set" 2>/dev/null) || continue
-        if ! _z2k_ow_tg_udp_set_owned "$_dump" "$_type"; then
-            echo "z2k-openwrt: tg UDP set owner conflict: $_set" >&2
-            _failed=1
-            continue
-        fi
-        nft delete set "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_set" 2>/dev/null || _failed=1
-    done <<EOF
-$Z2K_TG_UDP_SET4|ipv4_addr
-$Z2K_TG_UDP_SET6|ipv6_addr
-EOF
-    return "$_failed"
-}
-
-_z2k_ow_tg_udp_set_owned() {
-    local _dump="$1" _type="$2"
-    printf '%s\n' "$_dump" | grep -qF "type $_type" && \
-        printf '%s\n' "$_dump" | grep -qF 'comment "z2k-openwrt: Telegram UDP"'
-}
-
-_z2k_ow_tg_udp_set_elements() {
-    awk '
-        /elements[[:space:]]*=/ {
-            inside = 1
-            sub(/^.*elements[[:space:]]*=[[:space:]]*[{]/, "")
-        }
-        inside {
-            line = $0
-            if (sub(/[}].*/, "", line)) { print line; exit }
-            print line
-        }
-    ' | tr ', ' '\n\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' | LC_ALL=C sort -u
-}
-
-_z2k_ow_tg_udp_set_sync() {
-    local _set="$1" _type="$2" _cidrs="$3" _dump _actual _expected _item _exists=0
-    if _dump=$(nft list set "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_set" 2>/dev/null); then
-        _exists=1
-        _z2k_ow_tg_udp_set_owned "$_dump" "$_type" || {
-            echo "z2k-openwrt: tg UDP set owner conflict: $_set" >&2
-            return 1
-        }
-    else
-        nft add set "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_set" \
-            "{ type $_type; flags interval; auto-merge; comment \"z2k-openwrt: Telegram UDP\"; }" || return 1
-        _dump=""
-    fi
-    _actual=$(printf '%s\n' "$_dump" | _z2k_ow_tg_udp_set_elements)
-    _expected=$(printf '%s\n' "$_cidrs" | tr ' ' '\n' | sed '/^$/d' | LC_ALL=C sort -u)
-    [ "$_actual" = "$_expected" ] && return 0
-    if [ "$_exists" = 1 ]; then
-        nft flush set "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_set" || return 1
-    fi
-    for _item in $_cidrs; do
-        nft add element "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_set" "{ $_item }" || return 1
-    done
-    return 0
-}
-
-# zapret2's normal NFQUEUE hooks are runtime-owned chains. The OpenWrt
-# adapter does not replace them; it installs exact return rules in those
-# existing hooks while the authenticated UDP worker is ready. Only UDP to
-# Telegram DC ranges (and replies from those ranges) skips NFQUEUE. Other UDP
-# traffic, including STUN, QUIC, Discord and games, remains zapret2-owned.
-_z2k_ow_tg_udp_nfqueue_rules() {
-    printf '%s\n' \
-        "postnat|ip daddr @$Z2K_TG_UDP_SET4 meta l4proto udp return" \
-        "postnat|ip6 daddr @$Z2K_TG_UDP_SET6 meta l4proto udp return" \
-        "prenat|ip saddr @$Z2K_TG_UDP_SET4 meta l4proto udp return" \
-        "prenat|ip6 saddr @$Z2K_TG_UDP_SET6 meta l4proto udp return"
-}
-
-_z2k_ow_tg_udp_nfqueue_apply() {
-    local _row _chain _rule _existing
-    _z2k_ow_tg_table_ok || return 1
-    while IFS='|' read -r _chain _rule; do
-        [ -n "$_chain" ] || continue
-        nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_chain" >/dev/null 2>&1 || return 1
-        _existing=$(nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_chain" 2>/dev/null || true)
-        printf '%s\n' "$_existing" | tr -s ' ' | grep -qF "$_rule" && continue
-        # Insert before the existing jump to zapret2's NFQUEUE chain; do not
-        # replace that chain or alter its queue number.
-        nft insert rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_chain" $_rule || return 1
-    done <<EOF
-$(_z2k_ow_tg_udp_nfqueue_rules)
-EOF
-    return 0
-}
-
-_z2k_ow_tg_udp_nfqueue_remove() {
-    local _chain _rule _dump _handle
-    _z2k_ow_tg_table_ok || return 0
-    while IFS='|' read -r _chain _rule; do
-        [ -n "$_chain" ] || continue
-        _handle=present
-        while [ -n "$_handle" ]; do
-            _dump=$(nft -a list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_chain" 2>/dev/null || true)
-            _handle=$(printf '%s\n' "$_dump" | tr -s ' ' | sed -n "s/.*$_rule.*# handle \\([0-9][0-9]*\\).*/\\1/p" | head -1)
-            [ -n "$_handle" ] || break
-            nft delete rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_chain" handle "$_handle" 2>/dev/null || break
-        done
-    done <<EOF
-$(_z2k_ow_tg_udp_nfqueue_rules)
-EOF
-    return 0
-}
-
-z2k_ow_tg_udp_nft_apply() {
-    local _if _lan _ifs _out
-    _z2k_ow_tg_table_ok || return 1
-    _ifs="$(z2k_ow_tg_udp_lan_ifaces)"
-    [ -n "$_ifs" ] || { echo "z2k-openwrt: tg UDP: no LAN devices" >&2; return 1; }
-    _z2k_ow_tg_udp_set_sync "$Z2K_TG_UDP_SET4" ipv4_addr "$Z2K_TG_UDP_CIDRS" || return 1
-    _z2k_ow_tg_udp_set_sync "$Z2K_TG_UDP_SET6" ipv6_addr "$Z2K_TG_UDP_CIDRS6" || return 1
-    nft add chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_mark \
-        '{ type filter hook prerouting priority -150; }' 2>/dev/null || true
-    nft add chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_fwd \
-        '{ type filter hook forward priority -2; }' 2>/dev/null || true
-    nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_mark || return 1
-    nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_fwd || return 1
-    for _if in $_ifs; do
-        nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_mark \
-            iifname "$_if" meta l4proto udp ip daddr "@$Z2K_TG_UDP_SET4" meta mark == 0 meta mark set "$Z2K_TG_UDP_MARK" || return 1
-        nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_mark \
-            iifname "$_if" meta l4proto udp ip6 daddr "@$Z2K_TG_UDP_SET6" meta mark == 0 meta mark set "$Z2K_TG_UDP_MARK" || return 1
-    done
-    nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_fwd \
-        oifname "$Z2K_TG_UDP_IF" meta l4proto udp ip daddr "@$Z2K_TG_UDP_SET4" accept || return 1
-    nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_fwd \
-        iifname "$Z2K_TG_UDP_IF" meta l4proto udp ip saddr "@$Z2K_TG_UDP_SET4" accept || return 1
-    nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_fwd \
-        oifname "$Z2K_TG_UDP_IF" meta l4proto udp ip6 daddr "@$Z2K_TG_UDP_SET6" accept || return 1
-    nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_fwd \
-        iifname "$Z2K_TG_UDP_IF" meta l4proto udp ip6 saddr "@$Z2K_TG_UDP_SET6" accept || return 1
-    _z2k_ow_tg_udp_nfqueue_apply || return 1
-    return 0
-}
-
-z2k_ow_tg_udp_up() {
-    z2k_ow_tg_udp_wanted || { z2k_ow_tg_udp_down; return 0; }
-    [ -f "$Z2K_TG_UDP_READY" ] || return 0
-    ip link show "$Z2K_TG_UDP_IF" >/dev/null 2>&1 || return 1
-    ip link set "$Z2K_TG_UDP_IF" mtu 1500 up || return 1
-    [ ! -e "/proc/sys/net/ipv4/conf/$Z2K_TG_UDP_IF/rp_filter" ] || \
-        echo 0 > "/proc/sys/net/ipv4/conf/$Z2K_TG_UDP_IF/rp_filter"
-    _z2k_ow_tg_udp_routes_up -4 && _z2k_ow_tg_udp_routes_up -6 && \
-        z2k_ow_tg_udp_nft_apply && return 0
-    z2k_ow_tg_udp_down
-    return 1
-}
-
-z2k_ow_tg_udp_down() {
-    z2k_ow_tg_udp_nft_remove || true
-    _z2k_ow_tg_udp_routes_down -4
-    _z2k_ow_tg_udp_routes_down -6
-    rm -f "$Z2K_TG_UDP_READY" 2>/dev/null || true
-    return 0
-}
-
-z2k_ow_tg_udp_ready() {
-    [ -f "$Z2K_TG_UDP_READY" ] || return 1
-    z2k_ow_tg_udp_wanted || return 1
-    z2k_ow_tg_udp_worker_running || return 1
-    ip link show "$Z2K_TG_UDP_IF" >/dev/null 2>&1 || return 1
-    _z2k_ow_tg_udp_rule_exact -4 && _z2k_ow_tg_udp_rule_exact -6 || return 1
-    nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_mark >/dev/null 2>&1 || return 1
-    nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_fwd >/dev/null 2>&1 || return 1
-    _z2k_ow_tg_udp_nfqueue_apply
-}
-
-# Human/API state for the UDP leg. "ready" means that the authenticated
-# worker published its marker and the adapter observed both PBR rules and both
-# nft chains. It is deliberately not a traffic proof: counters and an actual
-# Telegram call are a separate acceptance gate.
-z2k_ow_tg_udp_state() {
-    if [ "$(z2k_ow_tg_cfg Z2K_TG_UDP_RELAY 1)" != "1" ]; then
-        printf 'disabled'
-    elif z2k_ow_tg_udp_ready; then
-        printf 'ready'
-    elif [ -f "$Z2K_TG_UDP_READY" ]; then
-        printf 'degraded'
-    else
-        printf 'starting'
-    fi
-}
-
-# p-85.8 ships a secret-bearing client binary whose UDP route fallback is
-# hard-coded to /opt/bin/sh. Newer source supports Z2K_TG_UDP_ROUTE_HELPER,
-# but the installed artifact may predate that seam. Materialize the narrow
-# compatibility shell only when the binary lacks the env-override string;
-# never overwrite an existing path and remove only byte-identical owned files.
-z2k_ow_tg_legacy_abi_install() {
-    local _source="$Z2K_TG_UDP_LEGACY_SOURCE" _target="$Z2K_TG_UDP_LEGACY_SHELL"
-    local _parent="${Z2K_TG_UDP_LEGACY_SHELL%/*}" _marker _tmp _made_parent=0
-    [ -x "$_source" ] || {
-        echo "z2k-openwrt: Telegram UDP legacy helper is missing" >&2
-        return 1
-    }
-    if [ -e "$_target" ] || [ -L "$_target" ]; then
-        if [ -f "$_target" ] && [ ! -L "$_target" ] && cmp -s "$_source" "$_target"; then
-            return 0
-        fi
-        echo "z2k-openwrt: refusing to replace existing $_target" >&2
-        return 1
-    fi
-    if [ -L "$_parent" ] || { [ -e "$_parent" ] && [ ! -d "$_parent" ]; }; then
-        echo "z2k-openwrt: refusing non-directory Telegram legacy shell parent $_parent" >&2
-        return 1
-    fi
-    if [ ! -d "$_parent" ]; then
-        mkdir -p "$_parent" || return 1
-        _made_parent=1
-        _marker="$_parent/.z2k-tg-udp-legacy-shell-dir-owned"
-        printf '%s\n' 'z2k-openwrt: created for Telegram UDP legacy ABI' > "$_marker" || {
-            rmdir "$_parent" 2>/dev/null || true
-            return 1
-        }
-    else
-        _marker="$_parent/.z2k-tg-udp-legacy-shell-dir-owned"
-    fi
-    _tmp="$_parent/.z2k-tg-udp-legacy-shell.$$"
-    # BusyBox on supported OpenWrt images does not necessarily include the
-    # coreutils `install` applet. Copy to a private sibling, set its mode, then
-    # publish with the no-clobber hard link below.
-    if [ -e "$_tmp" ] || [ -L "$_tmp" ] || ! cp "$_source" "$_tmp" || ! chmod 0755 "$_tmp"; then
-        rm -f "$_tmp"
-        [ "$_made_parent" = 1 ] && { rm -f "$_marker"; rmdir "$_parent" 2>/dev/null || true; }
-        return 1
-    fi
-    # Hard-link creation is atomic and fails rather than replacing a file that
-    # appeared concurrently after the initial ownership check.
-    if ln "$_tmp" "$_target" 2>/dev/null; then
-        rm -f "$_tmp"
-        return 0
-    fi
-    rm -f "$_tmp"
-    if [ -f "$_target" ] && [ ! -L "$_target" ] && cmp -s "$_source" "$_target"; then
-        return 0
-    fi
-    [ "$_made_parent" = 1 ] && { rm -f "$_marker"; rmdir "$_parent" 2>/dev/null || true; }
-    echo "z2k-openwrt: Telegram legacy shell path was claimed concurrently" >&2
-    return 1
-}
-
-z2k_ow_tg_legacy_abi_remove() {
-    local _source="$Z2K_TG_UDP_LEGACY_SOURCE" _target="$Z2K_TG_UDP_LEGACY_SHELL"
-    local _parent="${Z2K_TG_UDP_LEGACY_SHELL%/*}" _marker
-    _marker="$_parent/.z2k-tg-udp-legacy-shell-dir-owned"
-    if [ -e "$_target" ] || [ -L "$_target" ]; then
-        if [ ! -f "$_target" ] || [ -L "$_target" ] || ! cmp -s "$_source" "$_target"; then
-            echo "z2k-openwrt: preserving non-owned Telegram legacy shell $_target" >&2
-            return 0
-        fi
-        rm -f "$_target" || return 1
-    fi
-    if [ -f "$_marker" ] && grep -Fxq 'z2k-openwrt: created for Telegram UDP legacy ABI' "$_marker"; then
-        rm -f "$_marker"
-        rmdir "$_parent" 2>/dev/null || true
-    fi
-    return 0
-}
-
-z2k_ow_tg_legacy_abi_prepare() {
-    if grep -aFq 'Z2K_TG_UDP_ROUTE_HELPER' "$Z2K_TG_BIN" 2>/dev/null; then
-        return 0
-    fi
-    z2k_ow_tg_legacy_abi_install
-}
-
-# Executed by the Go client's route helper. Keeping this as a separate
-# executable seam makes the common UDP transport testable without a router and
-# keeps all privileged OpenWrt operations in this adapter.
-z2k_ow_tg_udp_route() {
-    case "${1:-}" in
-        ensure) z2k_ow_tg_udp_up ;;
-        down) z2k_ow_tg_udp_down ;;
-        *) echo "usage: tg udp-route {ensure|down}" >&2; return 2 ;;
-    esac
-}
-
 # Только TG/CDN записи (CIDR целиком, как upstream). conntrack может
 # отсутствовать — тогда best-effort пропуск (см. DEPENDS +conntrack).
 z2k_ow_tg_conntrack_flush() {
@@ -694,19 +244,11 @@ z2k_ow_tg_start_instance() {
         return 1
     }
     local _roots="${Z2K_TG_TLS_BUNDLE:-$Z2K_ROOT/etc/z2k-roots.pem}"
-    local _ready_dir="${Z2K_TG_UDP_READY%/*}"
-    [ "$_ready_dir" = "$Z2K_TG_UDP_READY" ] && _ready_dir=.
-    mkdir -p "$_ready_dir" || {
-        echo "z2k-openwrt: tg: не удалось создать каталог UDP readiness" >&2
-        return 1
-    }
     procd_open_instance "z2k-tg"
     z2k_ow_tg_with_argv _z2k_ow_tg_procd_command
-    # procd serializes env as one JSON object; a subsequent env call replaces
-    # that object rather than merging it. Build the complete environment once
-    # so the OpenWrt route helper survives alongside TLS/runtime settings.
-    set -- GODEBUG=asyncpreemptoff=1 \
-        "Z2K_TG_UDP_ROUTE_HELPER=$Z2K_ROOT/platform/openwrt/tg-udp-route.sh"
+    # procd serializes env as one JSON object; build the complete environment
+    # once so TLS/runtime settings are not replaced by a later env call.
+    set -- GODEBUG=asyncpreemptoff=1
     # TLS trust: наш bundle + системный store, каждый — только если существует.
     # SSL_CERT_FILE на отсутствующий файл опустошил бы пул Go (см. тест корней).
     [ -f "$_roots" ] && set -- "$@" "SSL_CERT_FILE=$_roots"
@@ -737,24 +279,12 @@ z2k_ow_tg_start_instance() {
 z2k_ow_tg() {
     case "${1:-}" in
         1)
-            if ! z2k_ow_tg_wanted; then
-                z2k_ow_tg_legacy_abi_remove || return 1
-                return 0
-            fi
-            if z2k_ow_tg_udp_wanted; then
-                z2k_ow_tg_legacy_abi_prepare || return 1
-            else
-                # The legacy entrypoint is needed only by the enabled UDP
-                # client. A service restart after toggling UDP off removes
-                # our exact runtime copy while preserving any foreign path.
-                z2k_ow_tg_legacy_abi_remove || return 1
-            fi
+            z2k_ow_tg_wanted || return 0
             z2k_ow_tg_nft_apply || return 1
             z2k_ow_tg_conntrack_flush
             z2k_ow_tg_start_instance || return 1
             ;;
         0)
-            z2k_ow_tg_udp_down
             z2k_ow_tg_nft_remove
             ;;
         rules)
@@ -764,15 +294,12 @@ z2k_ow_tg() {
             if command -v z2k_ow_core_ready >/dev/null 2>&1; then
                 z2k_ow_core_ready || return 0
             fi
-            z2k_ow_tg_wanted || { z2k_ow_tg_udp_down; z2k_ow_tg_nft_remove; return 0; }
+            z2k_ow_tg_wanted || { z2k_ow_tg_nft_remove; return 0; }
             z2k_ow_tg_nft_apply || return 1
-            [ -f "$Z2K_TG_UDP_READY" ] && z2k_ow_tg_udp_up || true
             ;;
         cleanup)
             # uninstall: всё убрать, никогда не валить удаление.
-            z2k_ow_tg_udp_down || true
             z2k_ow_tg_nft_remove full || true
-            z2k_ow_tg_legacy_abi_remove || true
             return 0
             ;;
         check)
@@ -905,14 +432,6 @@ z2k_ow_tg_check() {
             z2k_ow_tg_conntrack_flush
         fi
         z2k_ow_tg_nft_verify >/dev/null 2>&1 || return 0
-    fi
-    # The UDP worker owns readiness; this is a bounded route/nft convergence
-    # pass only. It never starts a process and never recreates a missing ready
-    # marker, so a dead/disconnected worker cannot leave a live PBR route.
-    if [ -f "$Z2K_TG_UDP_READY" ]; then
-        z2k_ow_tg_udp_up || logger -t z2k-tg "UDP route convergence failed" 2>/dev/null || true
-    else
-        z2k_ow_tg_udp_down
     fi
     # procd поднимет упавший сам; убиваем только ЗАВИСШИЙ живой (probe).
     if ! z2k_ow_tg_running; then

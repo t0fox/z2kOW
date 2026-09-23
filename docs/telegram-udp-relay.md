@@ -1,3 +1,5 @@
+> Historical experiment, retired by the 2026-09-22 rollback. See [rollback scope](rollback-telegram-multiwan-2026-09-22.md).
+
 # Telegram server UDP relay
 
 Release p-85.6 enables Telegram server UDP forwarding by default through

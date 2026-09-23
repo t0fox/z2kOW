@@ -1,6 +1,6 @@
 #!/bin/sh
 # tests/openwrt/test_ow_tg_static.sh - Stage 3 Layer A: статика TG glue.
-# Никаких Keenetic /opt/* путей (кроме узкого p-85.8 ABI ниже),
+# Никаких Keenetic /opt/* путей (кроме read-only migration cleanup ниже),
 # iptables/ipset/NDM, shell-supervisor'а, второго сервиса;
 # один процесс на оба порта; ownership disjoint; секреты не печатаются.
 . "$(dirname "$0")/helper.sh"
@@ -19,18 +19,25 @@ AU="$REPO/lib/auto_update.sh"
 assert_file "tg.sh существует" "$TG"
 assert_file "tg-check.sh существует" "$TGC"
 
-# Запреты проверяем по коду БЕЗ комментариев (в rationale можно упоминать
-# iptables/set -x словами; исполнять — нельзя). Разрешаем ровно один путь:
-# установленный p-85.8 UDP-клиент жёстко вызывает /opt/bin/sh. Runtime shim
-# реализует этот ABI безопасно; APK сам в /opt ничего не устанавливает.
+# Запреты проверяем по коду БЕЗ комментариев. UDP-путь p-85.8 больше не
+# запускается: только migration helper может упоминать его точный старый path
+# для checksum-guarded удаления.
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-tgs.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
-_TGCODE="$T/tg.code"; _TGCCODE="$T/tgc.code"
-assert_contains "legacy ABI default is the exact upstream path" "$TG" \
-    'Z2K_TG_UDP_LEGACY_SHELL="${Z2K_TG_UDP_LEGACY_SHELL:-/opt/bin/sh}"'
-sed '/^Z2K_TG_UDP_LEGACY_SHELL="${Z2K_TG_UDP_LEGACY_SHELL:-\/opt\/bin\/sh}"$/d; s/#.*$//' \
-    "$TG" > "$_TGCODE"
+_TGCODE="$T/tg.code"; _TGCCODE="$T/tgc.code"; _RETIRE="$REPO/platform/openwrt/tg-retire-udp.sh"
+sed 's/#.*$//' "$TG" > "$_TGCODE"
 sed 's/#.*$//' "$TGC" > "$_TGCCODE"
+assert_contains "legacy path used only by one-shot migration" "$_RETIRE" \
+    'Z2K_OW_LEGACY_SHELL="${Z2K_OW_LEGACY_SHELL:-/opt/bin/sh}"'
+assert_contains "legacy migration verifies exact helper bytes" "$_RETIRE" \
+    'sha256sum "$Z2K_OW_LEGACY_SHELL"'
+assert_contains "legacy migration removes only checksum-matched helper" "$_RETIRE" \
+    'rm -f "$Z2K_OW_LEGACY_SHELL"'
+if sed 's/#.*$//' "$_RETIRE" | grep -qE '^[[:space:]]*"\$Z2K_OW_LEGACY_SHELL"([[:space:]]|$)'; then
+    _t_bad "migration executes the retired legacy shell"
+else
+    _t_ok
+fi
 
 # --- нет keenetic-путей и чужого firewall-стека в glue ---
 for _f in "$_TGCODE" "$_TGCCODE"; do
@@ -56,6 +63,7 @@ for _pat in 'while :' '(^|[^_A-Za-z0-9])PIDFILE=' '(^|[^_A-Za-z0-9])GENFILE=' 's
     assert_not_contains "tg.sh: нет supervisor-признака ($_pat)" "$_TGCODE" "$_pat"
 done
 assert_contains "tg.sh: respawn через procd" "$TG" 'procd_set_param respawn 3600 5 5'
+assert_not_contains "Telegram TCP lifecycle has no UDP transport" "$_TGCODE" 'telegram-udp|UDP_ROUTE|UDP_READY|Z2K_TG_UDP_RELAY'
 # голого respawn (неявные дефолты) и retry=0 (бесконечный шторм) быть не должно
 if grep -qE 'procd_set_param respawn[[:space:]]*$' "$TG"; then
     _t_bad "tg.sh: голый respawn без explicit параметров"

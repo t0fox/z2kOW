@@ -32,14 +32,17 @@ for _f in "$REPO"/platform/openwrt/*.sh \
           "$REPO"/package/openwrt/files/etc/init.d/z2k \
           "$REPO"/package/openwrt/files/etc/init.d/z2k-webpanel \
           "$REPO"/package/openwrt/files/etc/hotplug.d/iface/90-z2k; do
-    # Узкие исключения: /opt/zapret2 — canonical runtime base самого
-    # zapret2; /opt/bin/sh — exact legacy ABI для установленного p-85.8
-    # клиента, создаётся только runtime при включённом UDP и никогда не
-    # кладётся APK прямо в /opt (это отдельно проверяет package test).
+    # Узкое исключение для /opt/zapret2 — canonical runtime base самого
+    # zapret2. Старый /opt/bin/sh ABI больше не исполняется; checksum-guarded
+    # one-shot cleanup в tg-retire-udp.sh проверяется отдельно.
     _h="$(sed 's/#.*$//' "$_f" \
         | grep -v 'Z2K_ZAPRET2_RUNTIME.*:-/opt/zapret2' \
-        | grep -v 'Z2K_TG_UDP_LEGACY_SHELL=.*:-/opt/bin/sh}' \
         | grep -inE 'keenetic|S99|(^|[^a-zA-Z])PPE([^a-zA-Z]|$)|watchdog|tcp16-probe|Entware|/opt/|(^|[^a-zA-Z_])ndm([^a-zA-Z_]|$)' || true)"
+    if [ "$(basename "$_f")" = "tg-retire-udp.sh" ]; then
+        _h="$(printf '%s\n' "$_h" \
+            | grep -v 'Z2K_OW_LEGACY_SHELL=.*:-/opt/bin/sh}' \
+            | grep -vF 'Telegram UDP retirement left modified /opt/bin/sh untouched' || true)"
+    fi
     [ -n "$_h" ] && _bad="$_bad $(basename "$_f"):$_h"
 done
 [ -z "$_bad" ] && _t_ok || _t_bad "багаж в коде:$_bad"

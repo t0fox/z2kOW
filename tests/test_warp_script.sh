@@ -25,6 +25,7 @@ SB="$(mktemp -d)"
 trap 'rm -rf "$SB"' EXIT
 mkdir -p "$SB/bin" "$SB/z2k/lists/warp/games" "$SB/etc" "$SB/sbin" "$SB/tmp"
 cp "$SCRIPT_DIR/files/z2k-warp.sh" "$SB/z2k/z2k-warp.sh"
+cp "$SCRIPT_DIR/files/z2k-warp-list-filter.awk" "$SB/z2k/z2k-warp-list-filter.awk"
 
 # --- стабы ---
 # iptables с памятью: -A добавляет правило в ipt.rules, -D убирает, -C проверяет.
@@ -34,7 +35,7 @@ echo "\$*" >> "$SB/ipt.log"
 rule=\$(echo "\$*" | sed 's/ -[ACD] / /')
 case "\$*" in
     *" -C "*) grep -qxF -- "\$rule" "$SB/ipt.rules" 2>/dev/null; exit \$? ;;
-    *" -A "*) echo "\$rule" >> "$SB/ipt.rules" ;;
+    *" -A "*|*" -I "*) echo "\$rule" >> "$SB/ipt.rules" ;;
     *" -D "*) grep -vxF -- "\$rule" "$SB/ipt.rules" > "$SB/ipt.rules.n" 2>/dev/null; mv -f "$SB/ipt.rules.n" "$SB/ipt.rules" ;;
 esac
 exit 0
@@ -55,7 +56,10 @@ cat > "$SB/bin/ipset" <<EOF
 echo "\$*" >> "$SB/ipset.log"
 case "\$1" in
     restore) cat >> "$SB/ipset.log" ;;
-    list) case "\$*" in *z2k_warp*|*nozapret*) echo "Members:"; exit 0 ;; esac; exit 1 ;;
+    list)
+        [ "\$2" = -n ] && [ -z "\$3" ] && { [ -f "$SB/client-set" ] && echo z2kd_192.168.1.10; exit 0; }
+        case "\$*" in *z2k_warp*|*nozapret*) echo "Members:"; exit 0 ;; esac
+        exit 1 ;;
 esac
 exit 0
 EOF
@@ -118,6 +122,7 @@ rm -f "$SB/reg.fail"
 printf '{"iface":"z2ktun0","id":"dev","endpoint":{"v4":"8.6.112.0","h2":"162.159.198.2"}}\n' > "$SB/etc/device.json"
 
 # ---------- enable (ready) ----------
+touch "$SB/client-set"
 clearlogs; ready true ""
 rc=0; W enable >/dev/null 2>&1 || rc=$?
 assert_eq "enable ready: rc 0" "0" "$rc"
@@ -127,6 +132,10 @@ assert_eq "enable: ip rule pref 90 fwmark mask table 989" "1" "$(grep -c 'rule a
 assert_eq "enable: route default dev z2ktun0 table 989" "1" "$(grep -c 'route replace default dev z2ktun0 table 989' "$SB/ip.log")"
 assert_eq "enable: MARK dst xmark" "1" "$(grep -c -- '-A PREROUTING -m set --match-set z2k_warp dst -j MARK --set-xmark 0x989/0x989' "$SB/ipt.log")"
 assert_eq "enable: MARK src xmark" "1" "$(grep -c -- '-A PREROUTING -m set --match-set z2k_warp_src src -j MARK --set-xmark 0x989/0x989' "$SB/ipt.log")"
+assert_eq "enable: unsupported pair set not created" "0" "$(grep -c 'hash:net,net' "$SB/ipset.log")"
+assert_eq "enable: DNS client set marked only in PREROUTING" "1" "$(grep -c -- '-A PREROUTING -s 192.168.1.10/32 -m set --match-set z2kd_192.168.1.10 dst -j MARK --set-xmark 0x989/0x989' "$SB/ipt.log")"
+assert_eq "enable: router DNS copies to NFLOG" "2" "$(grep -c -- '-I OUTPUT .*--sport 53.*-j NFLOG --nflog-group 189 --nflog-range 4096' "$SB/ipt.log")"
+assert_eq "enable: forwarded DNS copies require established flow" "2" "$(grep -c -- '-I FORWARD .*--sport 53.*--ctstate ESTABLISHED.*-j NFLOG --nflog-group 189' "$SB/ipt.log")"
 assert_eq "enable: ipset loaded from user list" "1" "$(grep -c 'add z2k_warp_new 1.2.3.0/24' "$SB/ipset.log")"
 assert_eq "enable: MASQUE-эндпоинт НЕ исключается из десинка (измерено: без десинка туннель не несёт трафик)" "0" "$(grep -c 'nozapret' "$SB/ipset.log")"
 # СОЗДАВАТЬ правила в OUTPUT нельзя — это единственный способ увести пакеты
@@ -135,8 +144,8 @@ assert_eq "enable: MASQUE-эндпоинт НЕ исключается из де
 # снимались только при выключении WARP, то есть на живом туннеле не снимались
 # никогда. Поэтому сторожим то, что и должно сторожиться, — отсутствие -A/-I,
 # а не всякое упоминание цепочки.
-assert_eq "enable: ничего НЕ создаётся в OUTPUT" "0" \
-    "$(grep -cE -- '-(A|I) OUTPUT ' "$SB/ipt.log")"
+assert_eq "enable: no route MARK in OUTPUT" "0" \
+    "$(grep -Ec -- '-(A|I) OUTPUT .* -j MARK' "$SB/ipt.log")"
 assert_eq "enable: реликтовые правила в OUTPUT проверяются на снятие" "1" \
     "$([ "$(grep -cE -- '-C OUTPUT .*z2k_warp' "$SB/ipt.log")" -gt 0 ] && echo 1 || echo 0)"
 
@@ -146,7 +155,7 @@ rc=0; out=$(W enable 2>&1) || rc=$?
 assert_eq "enable not-ready: rc 2" "2" "$rc"
 assert_eq "enable not-ready: flag stays 1" "1" "$(flag)"
 assert_eq "enable not-ready: reason code on stderr" "1" "$(printf '%s' "$out" | grep -c no_endpoint)"
-assert_eq "enable not-ready: no MARK rules" "0" "$(grep -c -- '-A PREROUTING' "$SB/ipt.log" 2>/dev/null || echo 0)"
+assert_eq "enable not-ready: no MARK rules" "0" "$(grep -c -- '-A PREROUTING' "$SB/ipt.log" 2>/dev/null)"
 
 # ---------- новое действие перебивает зависшее ----------
 # Включение ждёт готовности до WARP_READY_WAIT. Пока оно висело, выключить WARP
@@ -230,9 +239,9 @@ W disable >/dev/null 2>&1
 assert_eq "disable: S51 stop" "1" "$(grep -c '^stop' "$SB/s51.log")"
 assert_eq "disable: flag 0" "0" "$(flag)"
 assert_eq "disable: MARK xmark deleted" "1" "$(grep -c -- '-D PREROUTING -m set --match-set z2k_warp dst -j MARK --set-xmark' "$SB/ipt.log")"
-assert_eq "disable: legacy --set-mark form checked too" "1" "$(grep -c -- '-C PREROUTING -m set --match-set z2k_warp dst -j MARK --set-mark 0x989' "$SB/ipt.log")"
-assert_eq "disable: table 989 flushed" "1" "$(grep -c 'route flush table 989' "$SB/ip.log")"
-assert_eq "disable: rule removed" "1" "$(grep -c 'rule del fwmark 0x989/0x989 table 989' "$SB/ip.log")"
+assert_eq "disable: legacy --set-mark form checked twice" "2" "$(grep -c -- '-C PREROUTING -m set --match-set z2k_warp dst -j MARK --set-mark 0x989' "$SB/ipt.log")"
+assert_eq "disable: table 989 flushed twice" "2" "$(grep -c 'route flush table 989' "$SB/ip.log")"
+assert_eq "disable: rule removed twice" "2" "$(grep -c 'rule del fwmark 0x989/0x989 table 989' "$SB/ip.log")"
 
 # ---------- selfheal ----------
 printf 'GAME_WARP_ENABLED=1\n' > "$SB/z2k/config"; touch "$SB/s51.running"; clearlogs
@@ -273,7 +282,8 @@ assert_eq "remove: binary gone" "no" "$([ -e "$SB/sbin/z2k-warpd" ] && echo yes 
 assert_eq "remove: device.json kept" "yes" "$([ -s "$SB/etc/device.json" ] && echo yes || echo no)"
 assert_eq "remove: flag 0" "0" "$(flag)"
 assert_eq "remove: S51 stopped" "1" "$(grep -c '^stop' "$SB/s51.log")"
-assert_eq "remove: ipsets destroyed" "2" "$(grep -c '^destroy z2k_warp' "$SB/ipset.log")"
+assert_eq "remove: static ipsets destroyed" "2" "$(grep -c '^destroy z2k_warp' "$SB/ipset.log")"
+assert_eq "remove: client DNS set destroyed" "1" "$(grep -c '^destroy z2kd_192.168.1.10' "$SB/ipset.log")"
 
 # ---------- migrate: зачистка usque — наше всегда, чужое никогда ----------
 # Наши следы по имени (z2k-usque, session.conf в нашем каталоге, стампы)

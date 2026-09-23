@@ -51,6 +51,7 @@ WARP_BIN="${WARP_BIN:-/opt/sbin/z2k-warpd}"
 WARP_INIT="${WARP_INIT:-/opt/etc/init.d/S51z2k-warp}"
 WARP_DEVICE="${WARP_DEVICE:-/opt/etc/z2k-warp/device.json}"
 WARP_STATUS="${WARP_STATUS:-/tmp/z2k-warp/status.json}"
+WARP_DOMAIN_STATUS="${WARP_DOMAIN_STATUS:-/tmp/z2k-warp/domain-status.json}"
 WARP_LOG="${WARP_LOG:-/tmp/z2k-warp/warpd.log}"
 # Повтор регистрации из selfheal: не чаще раза в 10 минут, чтобы
 # заблокированный API Cloudflare не долбить каждые 25 секунд.
@@ -60,6 +61,8 @@ WARP_LISTS_DIR="${WARP_LISTS_DIR:-$ZAPRET2_DIR/lists/warp}"
 WARP_DEVICES_FILE="${WARP_DEVICES_FILE:-$WARP_LISTS_DIR/devices.txt}"
 WARP_IPSET="${WARP_IPSET:-z2k_warp}"
 WARP_IPSET_SRC="${WARP_IPSET_SRC:-z2k_warp_src}"
+WARP_FILTER="${WARP_FILTER:-$ZAPRET2_DIR/z2k-warp-list-filter.awk}"
+WARP_DOMAINS="${WARP_DOMAINS:-/tmp/z2k-warp/domains.v1}"
 WARP_TABLE="${WARP_TABLE:-989}"
 WARP_MARK="${WARP_MARK:-0x989}"
 WARP_RULE_PREF="${WARP_RULE_PREF:-90}"
@@ -182,6 +185,7 @@ warp_ipset_count() {
 }
 
 warp_ipset_load() {
+    [ -r "$WARP_FILTER" ] || { _wlog "missing WARP destination filter $WARP_FILTER"; return 1; }
     warp_lists_migrate
     ipset create "$WARP_IPSET" hash:net family inet 2>/dev/null
     ipset list "$WARP_IPSET" >/dev/null 2>&1 || { _wlog "cannot create ipset $WARP_IPSET"; return 1; }
@@ -200,35 +204,10 @@ warp_ipset_load() {
     ipset destroy "$tmpset" 2>/dev/null
     ipset create "$tmpset" hash:net family inet 2>/dev/null
     ipset list "$tmpset" >/dev/null 2>&1 || { _wlog "cannot create temp ipset $tmpset"; return 1; }
-    if warp_active_lists | while IFS= read -r _wl; do cat "$_wl" 2>/dev/null; done | awk -v set="$tmpset" '
-# --- z2k warp address filter (canonical; keep byte-identical in all 3 copies) ---
-function z2k_warp_addr_ok(s,   ip, h, o) {
-    if (s !~ /^[1-9][0-9]{0,2}(\.(0|[1-9][0-9]{0,2})){3}(\/([1-9]|[12][0-9]|3[0-2]))?$/) return 0
-    ip = s
-    if (split(s, h, "/") == 2) ip = h[1]
-    # No width cap. There was one at /10, on the reasoning that no game lives on
-    # a /8 — but the blocks it cut are 3.0.0.0/8 and 15.0.0.0/8, i.e. Amazon,
-    # which is exactly what people switch WARP on for. /0 is still impossible:
-    # the grammar above only accepts prefixes 1-32.
-    split(ip, o, ".")
-    if (o[1] > 255 || o[2] > 255 || o[3] > 255 || o[4] > 255) return 0
-    if (o[1] == 10 || o[1] == 127 || o[1] >= 224) return 0
-    if (o[1] == 100 && o[2] >= 64 && o[2] <= 127) return 0
-    if (o[1] == 169 && o[2] == 254) return 0
-    if (o[1] == 172 && o[2] >= 16 && o[2] <= 31) return 0
-    if (o[1] == 192 && o[2] == 168) return 0
-    if (o[1] == 192 && o[2] == 0 && (o[3] == 0 || o[3] == 2)) return 0
-    if (o[1] == 198 && (o[2] == 18 || o[2] == 19)) return 0
-    if (o[1] == 198 && o[2] == 51 && o[3] == 100) return 0
-    if (o[1] == 203 && o[2] == 0 && o[3] == 113) return 0
-    return 1
-}
-# --- end z2k warp address filter ---
-        {
-            sub(/\r$/, ""); gsub(/^[ \t]+|[ \t]+$/, "")
-            if (!z2k_warp_addr_ok($0)) next
-            print "add " set " " $0 " -exist"
-        }' | ipset restore -exist 2>/dev/null; then
+    if warp_active_lists | while IFS= read -r _wl; do cat "$_wl" 2>/dev/null; done \
+        | awk -v mode=ipset -f "$WARP_FILTER" \
+        | awk -v set="$tmpset" '{ print "add " set " " $0 " -exist" }' \
+        | ipset restore -exist 2>/dev/null; then
         ipset swap "$tmpset" "$WARP_IPSET" 2>/dev/null \
             || { _wlog "ipset swap failed — keeping previous set"; ipset destroy "$tmpset" 2>/dev/null; return 1; }
         ipset destroy "$tmpset" 2>/dev/null
@@ -299,7 +278,82 @@ warp_ipset_src_load() {
     return 0
 }
 
-warp_ipset_all() { warp_ipset_load; warp_ipset_src_load; }
+warp_domains_load() {
+    local tmp="${WARP_DOMAINS}.new.$$" count
+    [ -r "$WARP_FILTER" ] || { _wlog "missing WARP destination filter $WARP_FILTER"; return 1; }
+    mkdir -p "$(dirname "$WARP_DOMAINS")" || return 1
+    { printf 'v1\n'; warp_active_lists | while IFS= read -r _wl; do cat "$_wl" 2>/dev/null; done \
+        | awk -v mode=domains -f "$WARP_FILTER" | LC_ALL=C sort -u; } > "$tmp" || { rm -f "$tmp"; return 1; }
+    count=$(awk 'END { print NR - 1 }' "$tmp")
+    if [ "$count" -gt 4096 ]; then
+        _wlog "too many WARP domain rules: $count; domain routing disabled, static routes preserved"
+        printf 'v1\n' > "$tmp" || { rm -f "$tmp"; return 1; }
+    fi
+    mv -f "$tmp" "$WARP_DOMAINS"
+}
+
+warp_ipset_all() {
+    warp_ipset_load || return 1
+    warp_domains_load || return 1
+    warp_ipset_src_load
+}
+
+# The target Keenetic kernel does not support hash:net,net. The observer uses
+# one timeout hash:ip set per LAN client; only canonical private/CGNAT names
+# are considered ours when restoring or removing policy rules.
+warp_dns_client_sets() {
+    ipset list -n 2>/dev/null | awk '
+        /^z2kd_/ {
+            client = substr($0, 6)
+            if (split(client, o, ".") != 4) next
+            bad=0
+            for (i=1;i<=4;i++) if (o[i] !~ /^[0-9]+$/ || length(o[i])>3 || o[i]>255 ||
+                                    (length(o[i])>1 && substr(o[i],1,1)=="0")) bad=1
+            if (bad) next
+            if (!(o[1]==10 || (o[1]==172 && o[2]>=16 && o[2]<=31) ||
+                  (o[1]==192 && o[2]==168) || (o[1]==100 && o[2]>=64 && o[2]<=127))) next
+            print $0, client
+        }'
+}
+
+warp_dns_sets_destroy() {
+    warp_dns_client_sets | while read -r set client; do
+        ipset destroy "$set" 2>/dev/null
+    done
+}
+
+# DNS copies only. NFLOG has no verdict and cannot interrupt DNS delivery.
+warp_dns_capture_up() {
+    local ch proto
+    for ch in OUTPUT FORWARD; do
+        for proto in udp tcp; do
+            if [ "$ch" = FORWARD ]; then
+                iptables -w -t filter -C "$ch" -o br+ -p "$proto" --sport 53 -m conntrack --ctstate ESTABLISHED -j NFLOG --nflog-group 189 --nflog-range 4096 2>/dev/null \
+                    || iptables -w -t filter -I "$ch" -o br+ -p "$proto" --sport 53 -m conntrack --ctstate ESTABLISHED -j NFLOG --nflog-group 189 --nflog-range 4096 2>/dev/null
+            else
+                iptables -w -t filter -C "$ch" -o br+ -p "$proto" --sport 53 -j NFLOG --nflog-group 189 --nflog-range 4096 2>/dev/null \
+                    || iptables -w -t filter -I "$ch" -o br+ -p "$proto" --sport 53 -j NFLOG --nflog-group 189 --nflog-range 4096 2>/dev/null
+            fi
+        done
+    done
+}
+
+warp_dns_capture_down() {
+    local ch proto
+    for ch in OUTPUT FORWARD; do
+        for proto in udp tcp; do
+            if [ "$ch" = FORWARD ]; then
+                while iptables -w -t filter -C "$ch" -o br+ -p "$proto" --sport 53 -m conntrack --ctstate ESTABLISHED -j NFLOG --nflog-group 189 --nflog-range 4096 2>/dev/null; do
+                    iptables -w -t filter -D "$ch" -o br+ -p "$proto" --sport 53 -m conntrack --ctstate ESTABLISHED -j NFLOG --nflog-group 189 --nflog-range 4096 2>/dev/null || break
+                done
+            else
+                while iptables -w -t filter -C "$ch" -o br+ -p "$proto" --sport 53 -j NFLOG --nflog-group 189 --nflog-range 4096 2>/dev/null; do
+                    iptables -w -t filter -D "$ch" -o br+ -p "$proto" --sport 53 -j NFLOG --nflog-group 189 --nflog-range 4096 2>/dev/null || break
+                done
+            fi
+        done
+    done
+}
 
 # ---- маршрутизация --------------------------------------------------------------
 # Снять правила в OUTPUT — ОТДЕЛЬНО И БЕЗУСЛОВНО.
@@ -341,6 +395,10 @@ warp_pbr_up() {
         iptables -w -t mangle -C PREROUTING -m set --match-set $set -j MARK --set-xmark "$WARP_MARK/$WARP_MARK" 2>/dev/null \
             || iptables -w -t mangle -A PREROUTING -m set --match-set $set -j MARK --set-xmark "$WARP_MARK/$WARP_MARK" 2>/dev/null
     done
+    warp_dns_client_sets | while read -r set client; do
+        iptables -w -t mangle -C PREROUTING -s "$client/32" -m set --match-set "$set" dst -j MARK --set-xmark "$WARP_MARK/$WARP_MARK" 2>/dev/null \
+            || iptables -w -t mangle -A PREROUTING -s "$client/32" -m set --match-set "$set" dst -j MARK --set-xmark "$WARP_MARK/$WARP_MARK" 2>/dev/null
+    done
     return 0
 }
 
@@ -357,6 +415,11 @@ warp_pbr_down() {
                     iptables -w -t mangle -D "$ch" -m set --match-set $set -j MARK $mk 2>/dev/null || break
                 done
             done
+        done
+    done
+    warp_dns_client_sets | while read -r set client; do
+        while iptables -w -t mangle -C PREROUTING -s "$client/32" -m set --match-set "$set" dst -j MARK --set-xmark "$WARP_MARK/$WARP_MARK" 2>/dev/null; do
+            iptables -w -t mangle -D PREROUTING -s "$client/32" -m set --match-set "$set" dst -j MARK --set-xmark "$WARP_MARK/$WARP_MARK" 2>/dev/null || break
         done
     done
     ip rule del fwmark "$WARP_MARK/$WARP_MARK" table "$WARP_TABLE" 2>/dev/null
@@ -593,8 +656,9 @@ warp_enable() {
     warp_set_flag 1
     warp_unpin_legacy
     [ -x "$WARP_BIN" ] || { _wlog "движок не установлен — нажмите «Установить»"; warp_set_flag 0; warp_op_unlock; return 1; }
-    warp_ipset_all
+    warp_ipset_all || { _wlog "WARP destination sets unavailable"; warp_set_flag 0; warp_op_unlock; return 1; }
     ipset list -n "$WARP_IPSET" >/dev/null 2>&1 || { _wlog "cannot create ipset $WARP_IPSET"; warp_set_flag 0; warp_op_unlock; return 1; }
+    warp_dns_capture_up
     warp_daemon_running || sh "$WARP_INIT" start >/dev/null 2>&1
     warp_op_unlock
     local waited=0
@@ -628,7 +692,12 @@ warp_disable() {
     warp_op_current || { warp_op_unlock; warp_op_superseded; return 3; }
     warp_unpin_legacy
     warp_pbr_down
+    warp_dns_capture_down
     [ -x "$WARP_INIT" ] && sh "$WARP_INIT" stop >/dev/null 2>&1
+    # The observer may have learned a last answer during stop; remove any
+    # client rule it added after the first fail-open teardown.
+    warp_pbr_down
+    warp_dns_sets_destroy
     warp_set_flag 0
     warp_op_unlock
     return 0
@@ -683,6 +752,7 @@ warp_remove() {
 warp_selfheal() {
     [ "$(warp_flag)" = "1" ] || return 0
     [ -x "$WARP_BIN" ] || return 0
+    warp_dns_capture_up
     # НЕТ КЛЮЧА УСТРОЙСТВА — ПЕРЕЗАПУСКАТЬ БЕСПОЛЕЗНО.
     #
     # Движок без device.json падает на старте всегда: «fatal: device.json ...
@@ -752,12 +822,20 @@ warp_status() {
     case "$plan" in *[!a-z_]*) plan="" ;; esac
     [ -n "$(_json_str "$acct" error)" ] && plan_err=1
     [ -s "$(dirname "$WARP_DEVICE")/license" ] && lic=1
-    printf 'installed=%s enabled=%s ready=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s\n' \
+    local domain_active=0 domain_rules domain_pairs domain_error
+    [ "$(_json_raw "$WARP_DOMAIN_STATUS" active)" = true ] && domain_active=1
+    domain_rules=$(_json_raw "$WARP_DOMAIN_STATUS" rules)
+    domain_pairs=$(_json_raw "$WARP_DOMAIN_STATUS" pairs)
+    domain_error=$(_json_str "$WARP_DOMAIN_STATUS" error)
+    [ -f "$WARP_DOMAIN_STATUS" ] || domain_error=unavailable
+    domain_error=$(printf '%s' "$domain_error" | tr ' \t\r\n' '_' | cut -c1-120)
+    printf 'installed=%s enabled=%s ready=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s domain_active=%s domain_rules=%s domain_pairs=%s domain_error=%s\n' \
         "$installed" "${GAME_WARP_ENABLED_OVERRIDE:-$(warp_flag)}" "$ready" \
         "$(_json_str "$WARP_STATUS" transport)" "$(_json_str "$WARP_STATUS" endpoint)" \
         "$(_json_str "$WARP_STATUS" iface)" "$(_json_str "$WARP_STATUS" addr)" \
         "${entries:-0}" "${devices:-0}" "$(_json_str "$WARP_STATUS" last_error)" \
-        "$(_json_raw "$WARP_STATUS" mem_kb)" "$plan" "$plan_err" "$lic"
+        "$(_json_raw "$WARP_STATUS" mem_kb)" "$plan" "$plan_err" "$lic" \
+        "$domain_active" "${domain_rules:-0}" "${domain_pairs:-0}" "$domain_error"
 }
 
 # Зачистка usque-эпохи — по уликам, а не по имени, и пакет — один раз.

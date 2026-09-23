@@ -17,6 +17,7 @@ SB="$(mktemp -d)"
 trap 'rm -rf "$SB"' EXIT
 mkdir -p "$SB/bin" "$SB/z2k/lists/warp/games" "$SB/etc"
 cp "$SCRIPT_DIR/files/z2k-warp.sh" "$SB/z2k/z2k-warp.sh"
+cp "$SCRIPT_DIR/files/z2k-warp-list-filter.awk" "$SB/z2k/z2k-warp-list-filter.awk"
 
 cat > "$SB/bin/ip" <<EOF
 #!/bin/sh
@@ -50,7 +51,7 @@ bad
 213.176.74.63
 EOF
 
-Z2K_STUB_PATH="$SB/bin" ZAPRET2_DIR="$SB/z2k" WARP_LISTS_DIR="$SB/z2k/lists/warp" WARP_DEVICE="$SB/etc/device.json" \
+Z2K_STUB_PATH="$SB/bin" ZAPRET2_DIR="$SB/z2k" WARP_LISTS_DIR="$SB/z2k/lists/warp" WARP_DEVICE="$SB/etc/device.json" WARP_DOMAINS="$SB/domains.v1" \
     sh "$SB/z2k/z2k-warp.sh" ipset >/dev/null 2>&1
 
 assert_eq "plain IPv4 loaded" "1" "$(grep -c '^add z2k_warp_src_new 192.168.1.50 ' "$SB/ipset.log")"

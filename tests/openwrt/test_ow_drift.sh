@@ -24,6 +24,7 @@ files/S99zapret2.new|Keenetic init (openwrt: /etc/init.d/z2k из пакета)
 files/init.d/S*|Keenetic S-сервисы (TG/RT/WARP/detect/scheduler — будущие слои)
 files/ndm/*|NDM-хуки (redirect/deoffload/watchdog — будущие слои)
 files/z2k-*.sh|Keenetic service-скрипты (scheduler/diag/warp/... — будущие слои)
+files/z2k-warp-list-filter.awk|OpenWrt helper поставляется адаптер-пакетом; updater не владеет package-owned файлом
 webpanel/*|вебпанель целиком — будущий слой (out of scope этапа)
 lib/install.sh|Keenetic-установщик (openwrt: opkg + bootstrap)
 lib/menu.sh|Keenetic-меню (не доставляется и не исполняется на openwrt)

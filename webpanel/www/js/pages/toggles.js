@@ -375,7 +375,6 @@ export async function renderToggles() {
     <div class="card">
       <h3>Telegram туннель <span class="tg-state-badge" id="tg-state-badge" hidden></span></h3>
       <p class="desc">Прозрачный mux-прокси к Telegram DC через выделенный VPS-relay.</p>
-      <p class="t-desc" id="tg-udp-status" role="status" aria-live="polite"></p>
       <div class="btn-row">
         <button class="btn btn-primary" id="tg-enable">Включить</button>
         <button class="btn btn-danger" id="tg-disable">Отключить</button>
@@ -584,19 +583,6 @@ export async function renderToggles() {
     badge.className = "tg-state-badge " + (tgRunning ? "tg-state-on" : "tg-state-off");
     const enableBtn = $app.querySelector("#tg-enable");
     const disableBtn = $app.querySelector("#tg-disable");
-    const udpStatus = $app.querySelector("#tg-udp-status");
-    const udp = s.tunnel && s.tunnel.udp;
-    if (udpStatus) {
-      if (!udp || udp.enabled !== true) {
-        udpStatus.textContent = "UDP-транспорт выключен.";
-      } else if (udp.state === "ready") {
-        udpStatus.textContent = "UDP-транспорт готов. Передача данных не подтверждена.";
-      } else if (udp.state === "degraded") {
-        udpStatus.textContent = "UDP-транспорт обнаружен, но маршрут или nft-состояние не готовы.";
-      } else {
-        udpStatus.textContent = "UDP-транспорт поднимается.";
-      }
-    }
     setLockAware(enableBtn, tgRunning);
     setLockAware(disableBtn, !tgRunning);
     if (enableBtn) enableBtn.title = tgRunning ? "Туннель уже запущен" : "";

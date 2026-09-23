@@ -1,3 +1,5 @@
+> Historical experiment, retired by the 2026-09-22 rollback. See [rollback scope](rollback-telegram-multiwan-2026-09-22.md).
+
 # Telegram UDP recovery, 2026-09-22
 
 ## Scope and findings

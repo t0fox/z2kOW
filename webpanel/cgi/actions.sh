@@ -2155,7 +2155,7 @@ warp_lists() {
         [ -f "$f" ] || continue
         name=$(basename "$f" .txt)
         [ "$name" = "devices" ] && continue   # устройства — своя карточка, не список адресов
-        entries=$(awk '{sub(/\r$/,""); gsub(/^[ \t]+|[ \t]+$/,"")} /^([0-9]{1,3}\.){3}[0-9]{1,3}(\/[0-9]{1,2})?$/{n++} END{print n+0}' "$f")
+        entries=$(_warp_destination_count "$f")
         size=$(wc -c < "$f" | tr -d ' ')
         # busybox: date -r (no stat -c), see update_status_string
         mtime=$(date -r "$f" +%s 2>/dev/null)
@@ -2165,7 +2165,7 @@ warp_lists() {
 }
 
 # ---- upstream per-game lists (read-only) -------------------------------------
-# These come from medvedeff-true/ru-gaming-blocklist, one file per game, and are
+# These come from YOZH3G/ru-gaming-blocklist, one file per game, and are
 # refreshed wholesale by z2k-update-lists.sh. The panel may switch them on and
 # off but must never edit them: the next refresh would overwrite the edit, and a
 # setting that silently reverts is worse than no setting.
@@ -2180,6 +2180,11 @@ warp_game_enabled() {
     grep -qxF "$1" "$WARP_ENABLED_FILE" 2>/dev/null
 }
 
+_warp_destination_count() {
+    awk -v mode=save -f "$ZAPRET2_DIR/z2k-warp-list-filter.awk" "$1" 2>/dev/null \
+        | awk '$0 !~ /^#/ && NF { n++ } END { print n+0 }'
+}
+
 warp_games() {
     # TSV: name<TAB>entries<TAB>enabled(0|1)
     warp_lists_ensure_dir
@@ -2187,7 +2192,7 @@ warp_games() {
     for f in "$WARP_GAMES_DIR"/*.txt; do
         [ -f "$f" ] || continue
         name=$(basename "$f" .txt)
-        entries=$(awk '{sub(/\r$/,""); gsub(/^[ \t]+|[ \t]+$/,"")} /^([0-9]{1,3}\.){3}[0-9]{1,3}(\/[0-9]{1,2})?$/{n++} END{print n+0}' "$f")
+        entries=$(_warp_destination_count "$f")
         printf '%s\t%s\t%s\n' "$name" "${entries:-0}" "$(warp_game_enabled "$name" && echo 1 || echo 0)"
     done
 }
@@ -2270,38 +2275,13 @@ warp_list_save() {
     local raw="$file.z2k-raw.$$" tmp="$file.z2k-new.$$"
 
     cat > "$raw" || { rm -f "$raw"; _warp_create_abort "$mode" "$file"; echo "read body failed" >&2; return 1; }
-    awk '
-# --- z2k warp address filter (canonical; keep byte-identical in all 3 copies) ---
-function z2k_warp_addr_ok(s,   ip, h, o) {
-    if (s !~ /^[1-9][0-9]{0,2}(\.(0|[1-9][0-9]{0,2})){3}(\/([1-9]|[12][0-9]|3[0-2]))?$/) return 0
-    ip = s
-    if (split(s, h, "/") == 2) ip = h[1]
-    # No width cap. There was one at /10, on the reasoning that no game lives on
-    # a /8 — but the blocks it cut are 3.0.0.0/8 and 15.0.0.0/8, i.e. Amazon,
-    # which is exactly what people switch WARP on for. /0 is still impossible:
-    # the grammar above only accepts prefixes 1-32.
-    split(ip, o, ".")
-    if (o[1] > 255 || o[2] > 255 || o[3] > 255 || o[4] > 255) return 0
-    if (o[1] == 10 || o[1] == 127 || o[1] >= 224) return 0
-    if (o[1] == 100 && o[2] >= 64 && o[2] <= 127) return 0
-    if (o[1] == 169 && o[2] == 254) return 0
-    if (o[1] == 172 && o[2] >= 16 && o[2] <= 31) return 0
-    if (o[1] == 192 && o[2] == 168) return 0
-    if (o[1] == 192 && o[2] == 0 && (o[3] == 0 || o[3] == 2)) return 0
-    if (o[1] == 198 && (o[2] == 18 || o[2] == 19)) return 0
-    if (o[1] == 198 && o[2] == 51 && o[3] == 100) return 0
-    if (o[1] == 203 && o[2] == 0 && o[3] == 113) return 0
-    return 1
-}
-# --- end z2k warp address filter ---
-        {
-            sub(/\r$/, ""); gsub(/^[ \t]+|[ \t]+$/, "")
-            if ($0 == "") next
-            if ($0 ~ /^#/) { print; next }
-            if (z2k_warp_addr_ok($0)) print
-        }' "$raw" > "$tmp" || { rm -f "$raw" "$tmp"; _warp_create_abort "$mode" "$file"; echo "sanitize failed" >&2; return 1; }
+    local filter="$ZAPRET2_DIR/z2k-warp-list-filter.awk"
+    awk -v mode=save -f "$filter" "$raw" > "$tmp" || { rm -f "$raw" "$tmp"; _warp_create_abort "$mode" "$file"; echo "sanitize failed" >&2; return 1; }
 
-    local total saved skipped
+    local total saved skipped saved_ip saved_domain counts
+    counts=$(awk -v mode=count -f "$filter" "$raw")
+    saved_ip=$(printf '%s\n' "$counts" | sed -n 's/.*ip=\([0-9]*\).*/\1/p')
+    saved_domain=$(printf '%s\n' "$counts" | sed -n 's/.*domain=\([0-9]*\).*/\1/p')
     total=$(awk '{sub(/\r$/,""); gsub(/^[ \t]+|[ \t]+$/,"")} $0 != "" && $0 !~ /^#/ {n++} END{print n+0}' "$raw")
     saved=$(awk '$0 !~ /^#/ && $0 != "" {n++} END{print n+0}' "$tmp")
     skipped=$((total - saved))
@@ -2327,7 +2307,8 @@ function z2k_warp_addr_ok(s,   ip, h, o) {
     rm -f "$tmp"
     chmod 644 "$file" 2>/dev/null || true
     warp_ipset_reload_if_enabled
-    printf 'saved=%d skipped_invalid=%d\n' "${saved:-0}" "${skipped:-0}"
+    printf 'saved=%d saved_ip=%d saved_domain=%d skipped_invalid=%d\n' \
+        "${saved:-0}" "${saved_ip:-0}" "${saved_domain:-0}" "${skipped:-0}"
 }
 
 _warp_create_abort() {
@@ -2616,7 +2597,18 @@ state_read() {
     awk -F'\t' '!/^#/ && NF>=3 {
         k=$1 FS $2; t=($4=="")?0:$4+0
         if (!(k in seen) || t>=ts[k]) { ts[k]=t; seen[k]=1; row[k]=$0 }
-    } END { for (k in row) print row[k] }' $pf $ff 2>/dev/null
+    } END {
+        for (k in row) {
+            split(row[k], field, FS)
+            host=field[2]
+            # Old per-host TCP rows are rollback data once the shared row
+            # exists. Keep them visible until migration actually creates it.
+            if (field[1] == "yt_tcp" && host ~ /[.]youtube[.]com[|][46]$/ &&
+                host !~ /^ads[.]youtube[.]com[|][46]$/ &&
+                (("yt_tcp" FS "youtube.com|" substr(host, length(host), 1)) in row)) continue
+            print row[k]
+        }
+    }' $pf $ff 2>/dev/null
 }
 
 # Return 0 if $1 contains ONLY characters from the tr-set $2, else 1.
@@ -2641,10 +2633,33 @@ _state_delete_one_file() {
     # hosts that differ only by punctuation.
     local tmp="$file.z2k-new.$$"
     awk -F'\t' -v key="$key" -v host="$host" '
+        BEGIN {
+            cascade = key == "yt_tcp" && host ~ /^youtube[.]com[|][46]$/
+            family = substr(host, length(host), 1)
+        }
         ($1 == key && $2 == host) { next }
+        ($1 == key && cascade && $2 ~ ("[.]youtube[.]com[|]" family "$") &&
+            $2 !~ ("^ads[.]youtube[.]com[|]" family "$")) { next }
         { print }
     ' "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
     _file_replace "$file" "$tmp"
+}
+
+# When the operator edits a shared YouTube row, it must outrank legacy pins
+# even if a read-only primary file keeps an older per-host row. The legacy rows
+# can remain there for rollback; the shared row gets a strictly newer stamp.
+_state_yt_legacy_max_ts() {
+    local family="$1" pf='' ff=''
+    [ -f "$STATE_FILE" ] && pf="$STATE_FILE"
+    [ -f "$STATE_FILE_FALLBACK" ] && ff="$STATE_FILE_FALLBACK"
+    [ -n "$pf$ff" ] || { printf '0\n'; return; }
+    awk -F'\t' -v family="$family" '
+        $1 == "yt_tcp" && $2 ~ ("[.]youtube[.]com[|]" family "$") &&
+        $2 !~ ("^ads[.]youtube[.]com[|]" family "$") {
+            if ($4 + 0 > max) max = $4 + 0
+        }
+        END { print max + 0 }
+    ' $pf $ff 2>/dev/null
 }
 
 # Delete one row by host+key. Host and key together uniquely identify a row.
@@ -2719,7 +2734,11 @@ state_bulk() {
     fi
 
     _state_lock "$STATE_FILE" || { rm -f "$hosts"; echo "state busy" >&2; return 1; }
-    local done_n=0 _f _tmp
+    local done_n=0 _f _tmp _yt4=0 _yt6=0
+    if [ "$key" = yt_tcp ] && [ "$action" != delete ]; then
+        _yt4=$(_state_yt_legacy_max_ts 4)
+        _yt6=$(_state_yt_legacy_max_ts 6)
+    fi
     # Считаем по ОСНОВНОМУ файлу: он же и показывается в панели.
     if [ -f "$STATE_FILE" ]; then
         done_n=$(awk -F'\t' -v key="$key" '
@@ -2731,11 +2750,26 @@ state_bulk() {
     for _f in "$STATE_FILE" "$STATE_FILE_FALLBACK"; do
         [ -f "$_f" ] || continue
         _tmp="$_f.z2k-bulk.$$"
-        if ! awk -F'\t' -v OFS='\t' -v key="$key" -v act="$action" '
-            NR == FNR { want[$0] = 1; next }
+        if ! awk -F'\t' -v OFS='\t' -v key="$key" -v act="$action" -v yt4="$_yt4" -v yt6="$_yt6" '
+            NR == FNR {
+                want[$0] = 1
+                if ($0 ~ /^youtube[.]com[|][46]$/) cascade[substr($0, length($0), 1)] = 1
+                next
+            }
+            $1 == "yt_tcp" && $2 ~ /[.]youtube[.]com[|][46]$/ &&
+                $2 !~ /^ads[.]youtube[.]com[|][46]$/ &&
+                (substr($2, length($2), 1) in cascade) { next }
             $1 != key || !($2 in want) { print; next }
             act == "delete" { next }
-            { $5 = (act == "freeze" ? "frozen" : "auto"); print }
+            {
+                $5 = (act == "freeze" ? "frozen" : "auto")
+                if ($1 == "yt_tcp" && $2 ~ /^youtube[.]com[|][46]$/) {
+                    family = substr($2, length($2), 1)
+                    threshold = (family == "4" ? yt4 : yt6)
+                    if (threshold > 0 && $4 + 0 <= threshold) $4 = threshold + 1
+                }
+                print
+            }
         ' "$hosts" "$_f" > "$_tmp" 2>/dev/null; then
             rm -f "$_tmp"
             _state_unlock "$STATE_FILE"; rm -f "$hosts"
@@ -2796,8 +2830,14 @@ _state_set_one_file() {
     # стратегии стирал бы находку, и перебор — до двух десятков неудачных
     # загрузок у человека на глазах — начинался бы заново.
     awk -F'\t' -v key="$key" -v host="$host" -v strat="$strat" -v mode="$mode" -v ts="$ts" '
-        BEGIN { OFS="\t"; sni = "" }
+        BEGIN {
+            OFS="\t"; sni = ""
+            cascade = key == "yt_tcp" && host ~ /^youtube[.]com[|][46]$/
+            family = substr(host, length(host), 1)
+        }
         ($1 == key && $2 == host) { if ($6 != "") sni = $6; next }  # drop prior row, keep its name
+        ($1 == key && cascade && $2 ~ ("[.]youtube[.]com[|]" family "$") &&
+            $2 !~ ("^ads[.]youtube[.]com[|]" family "$")) { next }
         { print }
         END { if (sni != "") print key, host, strat, ts, mode, sni
               else            print key, host, strat, ts, mode }
@@ -2854,12 +2894,16 @@ state_set() {
     [ "$strat" -ge 1 ] 2>/dev/null || { echo "strategy must be >=1" >&2; return 1; }
     case "$mode" in auto|frozen) ;; *) echo "bad mode" >&2; return 1 ;; esac
     # Метку сохраняем, если стратегия та же — см. _state_prev_ts выше.
-    local ts; ts=$(_state_prev_ts "$key" "$host" "$strat")
-    [ -n "$ts" ] || ts=$(date +%s 2>/dev/null || echo 0)
-    local ok=1
+    local ts ok=1 _legacy_ts=0
     # Тот же общий с Lua замок: пин и заморозка — это как раз то намерение
     # оператора, которое проигранная гонка стирает молча.
     _state_lock "$STATE_FILE" || { echo "state busy" >&2; return 1; }
+    ts=$(_state_prev_ts "$key" "$host" "$strat")
+    [ -n "$ts" ] || ts=$(date +%s 2>/dev/null || echo 0)
+    if [ "$key" = yt_tcp ] && { [ "$host" = 'youtube.com|4' ] || [ "$host" = 'youtube.com|6' ]; }; then
+        _legacy_ts=$(_state_yt_legacy_max_ts "${host##*|}")
+        [ "$ts" -gt "$_legacy_ts" ] 2>/dev/null || ts=$((_legacy_ts + 1))
+    fi
     _state_set_one_file "$STATE_FILE" "$key" "$host" "$strat" "$mode" "$ts" && ok=0
     _state_set_one_file "$STATE_FILE_FALLBACK" "$key" "$host" "$strat" "$mode" "$ts" && ok=0
     _state_unlock "$STATE_FILE"
