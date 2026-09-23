@@ -9,6 +9,16 @@ trap 'rm -rf "$T"' EXIT INT TERM
 mkdir -p "$T/bin" "$T/root/bin" "$T/root/etc" "$T/etc" "$T/tmp/runtime" "$T/proc"
 export PATH="$T/bin:$PATH"
 
+# BusyBox on the live WBR3000UAX has no `install` applet. Keep this test
+# environment honest: the legacy ABI materializer must use available cp/chmod
+# primitives instead of depending on GNU coreutils.
+cat > "$T/bin/install" <<'EOF'
+#!/bin/sh
+echo "simulated BusyBox: install applet unavailable" >&2
+exit 127
+EOF
+chmod +x "$T/bin/install"
+
 cat > "$T/root/bin/tg-mtproxy-client" <<'EOF'
 #!/bin/sh
 exit 0
@@ -167,10 +177,15 @@ chmod +x "$T/bin/legacy-route-helper"
 export Z2K_TG_UDP_ROUTE_HELPER="$T/bin/legacy-route-helper"
 export Z2K_TG_LEGACY_ROUTE_LOG="$T/legacy-route.log"
 _legacy_cmd='. /opt/zapret2/z2k-tg-redirect.sh; "z2k_tg_udp_$1"'
-"$_legacy_shell" -c "$_legacy_cmd" sh up || _t_bad "legacy ABI up dispatch"
+# Current client invokes udpRoute("ensure"/"down"). On the live p-85.8
+# binary ensure currently reached the legacy shell, whose wrapper rejected it
+# with exit 64; exercise that exact observed ABI, not just an invented `up`.
+"$_legacy_shell" -c "$_legacy_cmd" sh ensure || _t_bad "legacy ABI ensure dispatch"
 "$_legacy_shell" -c "$_legacy_cmd" sh down || _t_bad "legacy ABI down dispatch"
-assert_eq "legacy up maps to adapter ensure" "ensure" "$(sed -n '1p' "$T/legacy-route.log")"
+assert_eq "legacy ensure maps to adapter ensure" "ensure" "$(sed -n '1p' "$T/legacy-route.log")"
 assert_eq "legacy down maps to adapter down" "down" "$(sed -n '2p' "$T/legacy-route.log")"
+"$_legacy_shell" -c "$_legacy_cmd" sh up || _t_bad "legacy ABI historical up dispatch"
+assert_eq "legacy historical up maps to adapter ensure" "ensure" "$(sed -n '3p' "$T/legacy-route.log")"
 _legacy_fallback=$("$_legacy_shell" -c 'printf "%s" "$1"' sh ordinary)
 assert_eq "legacy shell keeps ordinary -c semantics" "ordinary" "$_legacy_fallback"
 z2k_ow_tg_legacy_abi_remove || _t_bad "legacy ABI remove"

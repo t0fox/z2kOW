@@ -574,7 +574,11 @@ z2k_ow_tg_legacy_abi_install() {
         _marker="$_parent/.z2k-tg-udp-legacy-shell-dir-owned"
     fi
     _tmp="$_parent/.z2k-tg-udp-legacy-shell.$$"
-    if [ -e "$_tmp" ] || [ -L "$_tmp" ] || ! install -m 0755 "$_source" "$_tmp"; then
+    # BusyBox on supported OpenWrt images does not necessarily include the
+    # coreutils `install` applet. Copy to a private sibling, set its mode, then
+    # publish with the no-clobber hard link below.
+    if [ -e "$_tmp" ] || [ -L "$_tmp" ] || ! cp "$_source" "$_tmp" || ! chmod 0755 "$_tmp"; then
+        rm -f "$_tmp"
         [ "$_made_parent" = 1 ] && { rm -f "$_marker"; rmdir "$_parent" 2>/dev/null || true; }
         return 1
     fi

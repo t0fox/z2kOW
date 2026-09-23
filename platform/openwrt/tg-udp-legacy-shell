@@ -10,7 +10,7 @@ if [ "${1:-}" = "-c" ] && \
    [ "${3:-}" = "sh" ]; then
     _z2k_tg_route_helper="${Z2K_TG_UDP_ROUTE_HELPER:-/usr/lib/z2k/platform/openwrt/tg-udp-route.sh}"
     case "${4:-}" in
-        up) exec "$_z2k_tg_route_helper" ensure ;;
+        ensure|up) exec "$_z2k_tg_route_helper" ensure ;;
         down) exec "$_z2k_tg_route_helper" down ;;
         *) echo "z2k-openwrt: unsupported Telegram UDP route action" >&2; exit 64 ;;
     esac
