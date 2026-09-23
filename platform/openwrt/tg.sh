@@ -281,21 +281,45 @@ z2k_ow_tg_nft_remove() {
 # existing policy mark retain their original routing owner.
 
 z2k_ow_tg_udp_lan_ifaces() {
-    local _raw _net _dev
+    local _raw _net _dev _if _name _seen=" "
+    set --
     _raw="$(z2k_ow_tg_cfg Z2K_TG_LAN_IFACES "${OPENWRT_LAN:-lan}")"
     for _net in $_raw; do
-        _dev="$_net"
-        case "$_net" in
-            br-*|eth*|wan*|wlan*|lan*) ;;
-            *)
-                if command -v uci >/dev/null 2>&1; then
-                    _dev="$(uci -q get "network.$_net.device" 2>/dev/null)"
-                fi
-                [ -n "$_dev" ] || _dev="br-$_net"
-                ;;
-        esac
-        printf '%s\n' "$_dev"
-    done | awk 'NF && !seen[$0]++'
+        # OPENWRT_LAN is a logical UCI interface name (e.g. "lan"), while
+        # nft `iifname` matches the kernel netdev (e.g. "br-lan"). Resolve
+        # UCI first; treating every lan* token as a device silently installs
+        # a rule that can never match on DSA/bridge-based OpenWrt systems.
+        _dev=""
+        if command -v uci >/dev/null 2>&1; then
+            _dev="$(uci -q get "network.$_net.device" 2>/dev/null)"
+            [ -n "$_dev" ] || _dev="$(uci -q get "network.$_net.ifname" 2>/dev/null)"
+            case "$_dev" in
+                @*)
+                    _name="${_dev#@}"
+                    _dev="$(uci -q get "network.$_name.name" 2>/dev/null)"
+                    ;;
+            esac
+        fi
+        if [ -z "$_dev" ]; then
+            if ip link show "$_net" >/dev/null 2>&1; then
+                _dev="$_net"
+            elif ip link show "br-$_net" >/dev/null 2>&1; then
+                _dev="br-$_net"
+            else
+                echo "z2k-openwrt: tg UDP: cannot resolve LAN network $_net to a device" >&2
+                return 1
+            fi
+        fi
+        # Older UCI `ifname` may list more than one device. Preserve each
+        # resolved ingress and deduplicate bridge devices shared by LAN nets.
+        for _if in $_dev; do
+            case "$_seen" in *" $_if "*) continue ;; esac
+            _seen="$_seen$_if "
+            set -- "$@" "$_if"
+        done
+    done
+    [ "$#" -gt 0 ] || return 1
+    printf '%s\n' "$@"
 }
 
 _z2k_ow_tg_udp_rule_exact() {

@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=61
+PKG_RELEASE:=62
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -121,6 +121,8 @@ PKG_RELEASE:=61
 # route actions from the installed p-85.8 client.
 # RELEASE 59: preserve nft-language quotes in argv for custom.d overlap guard
 # comments; nft otherwise parses the comment text as syntax and rejects colons.
+# RELEASE 62: resolve logical OpenWrt LAN network names through UCI to the
+# actual kernel ingress device before installing Telegram UDP nft selectors.
 # RELEASE 31: converge stale updater-owned panel payload from an embedded CI
 # snapshot through the existing verified reinstall path; production packages
 # fail closed with an explicit panel-payload incompatibility.
@@ -191,7 +193,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r61)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r62)
 endef
 
 define Package/z2k-webpanel/description

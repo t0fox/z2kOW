@@ -145,11 +145,33 @@ EOF
 chmod +x "$T/bin/ip"
 : > "$T/ip.log"
 
+cat > "$T/bin/uci" <<'EOF'
+#!/bin/sh
+[ "$1" = -q ] && shift
+[ "$1" = get ] && shift
+case "$1" in
+  network.lan.device) printf 'br-lan\n' ;;
+  network.lan2.device) printf 'br-lan\n' ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$T/bin/uci"
+touch "$T/link-br-lan"
+
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_BIN="$T/root/bin" Z2K_RUN="$T/tmp/runtime" Z2K_CONFIG="$T/etc/config"
 export Z2K_ADAPTER_DIR="$REPO/platform/openwrt" Z2K_TG_LAN_IFACES=br-lan
 export Z2K_TG_UDP_READY="$T/tmp/runtime/tg-udp.ready"
 . "$REPO/platform/openwrt/tg.sh" || { _t_bad "source tg.sh"; _t_done; exit 1; }
+
+# OPENWRT_LAN is a list of logical UCI network names (the normal package path),
+# not Linux netdev names. Resolve it before building nft `iifname` selectors.
+unset Z2K_TG_LAN_IFACES
+OPENWRT_LAN='lan lan2'
+assert_eq "logical LAN names resolve and deduplicate to the bridge device" \
+    "br-lan" "$(z2k_ow_tg_udp_lan_ifaces)"
+Z2K_TG_LAN_IFACES=br-lan
+export Z2K_TG_LAN_IFACES
 
 _argv() { printf 'argv:%s\n' "$*" >> "$T/argv.log"; }
 : > "$T/argv.log"
@@ -230,6 +252,17 @@ cp "$T/nft.log" "$T/tcp-nft.log"
 assert_contains "TCP IPv6 range remains unchanged" "$T/tcp-nft.log" "2a0a:f280:203::/48"
 assert_not_contains "TCP set does not inherit UDP /32" "$T/tcp-nft.log" "2a0a:f280::/32"
 : > "$T/nft.log"
+
+# Exercise the normal logical-network configuration all the way through nft.
+unset Z2K_TG_LAN_IFACES
+OPENWRT_LAN='lan lan2'
+z2k_ow_tg_udp_nft_apply || _t_bad "UDP nft apply from logical LAN settings"
+assert_contains "nft ingress selector uses the kernel bridge" "$T/nft.log" \
+    'iifname br-lan meta l4proto udp ip daddr @z2k_tg_udp_dc4'
+assert_not_contains "logical name never becomes an nft ingress device" "$T/nft.log" \
+    'iifname lan meta l4proto udp'
+Z2K_TG_LAN_IFACES=br-lan
+export Z2K_TG_LAN_IFACES
 
 # No readiness marker means the route helper is a no-op: no speculative PBR.
 rm -f "$Z2K_TG_UDP_READY"
