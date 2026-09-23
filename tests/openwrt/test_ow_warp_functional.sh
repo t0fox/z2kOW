@@ -307,9 +307,26 @@ sed 's/$/ /' "$T/ip-route-989" > "$T/ip-route-989.padded"
 mv -f "$T/ip-route-989.padded" "$T/ip-route-989"
 warp_pbr_up || _t_bad "pbr_up: padded route output"
 assert_contains "padded route accepted" "$T/ip-rules" "fwmark 0x80000000/0x80000000 lookup 989"
+# iproute2 omits the default full-width mask when rendering `fwmark`.
+# Telegram UDP owns bit 27; that rule is disjoint from WARP's bit 31 and
+# must coexist rather than being misparsed as a mask equal to its mark value.
+warp_pbr_down >/dev/null 2>&1
+printf '89: from all fwmark 0x08000000 lookup 988\n' > "$T/ip-rules"
+: > "$T/ip-route-989"
+warp_pbr_up >/dev/null 2>&1 && _t_ok || _t_bad "unmasked disjoint Telegram fwmark rejected"
+assert_contains "unmasked Telegram rule preserved" "$T/ip-rules" "89: from all fwmark 0x08000000 lookup 988"
+assert_contains "WARP rule coexists with Telegram" "$T/ip-rules" "fwmark 0x80000000/0x80000000 lookup 989"
+warp_pbr_down >/dev/null 2>&1
+assert_contains "WARP teardown preserves Telegram" "$T/ip-rules" "89: from all fwmark 0x08000000 lookup 988"
+: > "$T/ip-rules"
 # конфликт mark:
 printf '400: from all fwmark 0x80000000/0xffffffff lookup 100\n' > "$T/ip-rules"
 warp_pbr_up >/dev/null 2>&1 && _t_bad "mark-конфликт принят" || _t_ok
+: > "$T/ip-rules"
+# An unmasked rule has the same implicit full-width mask and must still be
+# rejected when it positively matches WARP's bit 31.
+printf '400: from all fwmark 0x80000000 lookup 100\n' > "$T/ip-rules"
+warp_pbr_up >/dev/null 2>&1 && _t_bad "unmasked overlapping mark-конфликт принят" || _t_ok
 : > "$T/ip-rules"
 # конфликт table:
 printf 'default dev eth0 table 989\n' > "$T/ip-route-989"

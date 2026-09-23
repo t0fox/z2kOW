@@ -655,7 +655,14 @@ _warp_pbr_check() {
             *"fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE"*) continue ;;
         esac
             _mv=$(printf '%s' "$_line" | sed -n 's/.*fwmark \([^ ]*\).*/\1/p' | head -1)
-            _mm="${_mv##*/}"; _mv="${_mv%%/*}"
+            # iproute2 omits the implicit full-width mask in `ip rule show`.
+            # With no slash, `${value##*/}` is the value itself, not empty;
+            # treating it as the mask falsely conflicts disjoint marks (e.g.
+            # Telegram bit 27 with WARP bit 31).
+            case "$_mv" in
+                */*) _mm="${_mv#*/}"; _mv="${_mv%%/*}" ;;
+                *) _mm="0xffffffff" ;;
+            esac
             [ -n "$_mm" ] || _mm="0xffffffff"
             # Числа обязаны парситься (0x понимает и shell); мусор = конфликт
             # (неизвестное не трогаем, но и рядом не встаём).
