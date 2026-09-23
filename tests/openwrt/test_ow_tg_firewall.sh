@@ -51,6 +51,7 @@ export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_BIN="$T/root/bin" Z2K_RUN="$T/tmp/runtime" Z2K_LOG="$T/tmp/logs"
 export Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc"
 export Z2K_TG_HEALTH_DIR="$T/tmp/tg-health"
+export Z2K_TG_UDP_READY="$T/tmp/tg-udp/tg-udp.ready"
 # shellcheck disable=SC1090,SC1091
 . "$REPO/platform/openwrt/tg.sh" || { echo "FAIL[ow-tg-firewall]: source tg.sh" >&2; exit 1; }
 
@@ -180,15 +181,32 @@ assert_eq "builder молчит в stderr" "" "$(cat "$T/argv.err")"
 printf 'ENABLED=1\nZ2K_TG_UDP_RELAY=0\n' > "$T/etc/config"
 
 # --- TLS env через stub-procd ---
-procd_open_instance() { echo "instance:$1" >> "$T/procd.log"; }
-procd_set_param() { printf 'param:%s\n' "$*" >> "$T/procd.log"; }
+procd_open_instance() {
+    [ -d "${Z2K_TG_UDP_READY%/*}" ] && echo "ready-parent:present" >> "$T/procd.log" || echo "ready-parent:missing" >> "$T/procd.log"
+    echo "instance:$1" >> "$T/procd.log"
+}
+procd_set_param() {
+    printf 'param:%s\n' "$*" >> "$T/procd.log"
+    # OpenWrt procd's env parameter is a JSON object: each new env call
+    # replaces the previous object. Model that behavior so split env calls
+    # cannot pass a misleading trace-only test.
+    if [ "$1" = env ]; then
+        shift
+        printf '%s\n' "$@" > "$T/procd.env"
+    fi
+}
 procd_close_instance() { echo "close" >> "$T/procd.log"; }
 : > "$T/procd.log"
 z2k_ow_tg_start_instance || _t_bad "start_instance rc"
 assert_contains "instance z2k-tg" "$T/procd.log" "instance:z2k-tg"
 assert_contains "GODEBUG" "$T/procd.log" "param:command "
 assert_contains "GODEBUG env" "$T/procd.log" "param:env GODEBUG=asyncpreemptoff=1"
-assert_contains "roots exported" "$T/procd.log" "param:env SSL_CERT_FILE=$T/root/etc/z2k-roots.pem"
+assert_contains "roots exported in combined env table" "$T/procd.log" "SSL_CERT_FILE=$T/root/etc/z2k-roots.pem"
+assert_contains "final procd environment retains route helper" "$T/procd.env" "Z2K_TG_UDP_ROUTE_HELPER=$T/root/platform/openwrt/tg-udp-route.sh"
+assert_contains "final procd environment retains GODEBUG" "$T/procd.env" "GODEBUG=asyncpreemptoff=1"
+assert_eq "all variables fit one procd env table" "1" "$(grep -c '^param:env ' "$T/procd.log")"
+assert_contains "ready-marker parent exists before instance launch" "$T/procd.log" "ready-parent:present"
+if [ -d "${Z2K_TG_UDP_READY%/*}" ]; then _t_ok; else _t_bad "ready-marker parent directory was not created"; fi
 assert_contains "respawn bounded" "$T/procd.log" "param:respawn 3600 5 5"
 assert_contains "instance closed" "$T/procd.log" "close"
 # корней нет -> env пропущен (пул Go не пустеет)

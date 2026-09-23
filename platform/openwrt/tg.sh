@@ -566,14 +566,24 @@ z2k_ow_tg_start_instance() {
         return 1
     }
     local _roots="${Z2K_TG_TLS_BUNDLE:-$Z2K_ROOT/etc/z2k-roots.pem}"
+    local _ready_dir="${Z2K_TG_UDP_READY%/*}"
+    [ "$_ready_dir" = "$Z2K_TG_UDP_READY" ] && _ready_dir=.
+    mkdir -p "$_ready_dir" || {
+        echo "z2k-openwrt: tg: не удалось создать каталог UDP readiness" >&2
+        return 1
+    }
     procd_open_instance "z2k-tg"
     z2k_ow_tg_with_argv _z2k_ow_tg_procd_command
-    procd_set_param env GODEBUG=asyncpreemptoff=1
-    procd_set_param env "Z2K_TG_UDP_ROUTE_HELPER=$Z2K_ROOT/platform/openwrt/tg-udp-route.sh"
+    # procd serializes env as one JSON object; a subsequent env call replaces
+    # that object rather than merging it. Build the complete environment once
+    # so the OpenWrt route helper survives alongside TLS/runtime settings.
+    set -- GODEBUG=asyncpreemptoff=1 \
+        "Z2K_TG_UDP_ROUTE_HELPER=$Z2K_ROOT/platform/openwrt/tg-udp-route.sh"
     # TLS trust: наш bundle + системный store, каждый — только если существует.
     # SSL_CERT_FILE на отсутствующий файл опустошил бы пул Go (см. тест корней).
-    [ -f "$_roots" ] && procd_set_param env "SSL_CERT_FILE=$_roots"
-    [ -d /etc/ssl/certs ] && procd_set_param env "SSL_CERT_DIR=/etc/ssl/certs"
+    [ -f "$_roots" ] && set -- "$@" "SSL_CERT_FILE=$_roots"
+    [ -d /etc/ssl/certs ] && set -- "$@" SSL_CERT_DIR=/etc/ssl/certs
+    procd_set_param env "$@"
     procd_set_param pidfile "$Z2K_TG_PIDFILE"
     # Respawn EXPLICIT bounded (НЕ голый `respawn` и НЕ retry=0):
     #   threshold 3600s — прожил дольше: счётчик сбрасывается, падения
