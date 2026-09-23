@@ -11,8 +11,12 @@
 # плюс allowlisted common-хуки (см. ALLOWLIST ниже). Иначе — провал с
 # категорией seam'а: будущий upstream merge, задевший наш seam, виден сразу.
 #
-# После каждого upstream sync BASELINE сдвигается на новый upstream HEAD
-# (иначе легитимные upstream-изменения вечно краснят guard).
+# После каждого принятого upstream sync BASELINE сдвигается на новый upstream
+# HEAD (иначе легитимные upstream-изменения вечно краснят guard). Remote branch
+# намеренно НЕ является baseline: он может уже содержать следующий релиз,
+# который этот адаптер ещё не принял (например, p-85.9 снимает UDP-туннель,
+# оставленный в pinned p-85.8). Движущаяся remote-tracking ссылка не должна
+# превращать такой независимый upstream-релиз в тысячи ложных adapter-diff'ов.
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-upstream-diff"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -142,23 +146,14 @@ _g="git -c safe.directory=$REPO -C $REPO"
  ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh files/z2k-diag.sh files/z2k-dns-check.sh files/z2k-update-lists.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go z2k-warpd/internal/health/health.go z2k-warpd/internal/health/health_test.go z2k-warpd/builds/* webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/js/pages/telemetry.js webpanel/www/js/router.js webpanel/www/app.js webpanel/www/js/pages/warp.js webpanel/www/js/job.js webpanel/www/js/pages/strategy-pick.js tests/test_strategy_pick_typed_failure.sh z2k-detect/builds/* z2k-detect/cmd/z2k-detect/main.go z2k-detect/cmd/z2k-detect/quic.go z2k-detect/cmd/z2k-detect/voice.go z2k-detect/internal/classify/classify.go z2k-detect/internal/classify/compose.go z2k-detect/internal/classify/observability_test.go z2k-detect/internal/classify/raw_linux.go z2k-detect/internal/classify/raw_other.go z2k-detect/internal/quicprobe/probe.go z2k-detect/internal/voiceprobe/probe.go docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md docs/openwrt-adapter-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh scripts/openwrt/verify-runtime.sh .github/workflows/ci.yml scripts/rehearse_update.sh tests/test_manifest_signature.sh tests/test_webpanel_api_contract.sh tests/panel_harness.js tests/test_release_tooling.sh lib/strategies.sh z2k.sh tests/test_au_compat.sh README.md"
 ALLOWLIST="$ALLOWLIST lib/install.sh lib/menu.sh files/z2k-insta-ip-refresh.sh webpanel/www/index.html webpanel/www/js/pages/update.js webpanel/www/style.css tests/test_panel_toggle_texts.sh tests/test_panel_warp_ui.sh tests/test_insta_refresh_cert_mismatch.sh tests/test_fastroute_no_hwnat.sh tests/test_config_official.sh tests/test_found_domains_survive_reinstall.sh tests/test_panel_domain_probe.sh tests/test_profile_observation.sh tests/test_quic_pool_general.sh tests/test_update_sequence_e2e.sh tests/test_update_jitter.sh z2k-detect/cmd/z2k-detect/z2k_hostlists.go z2k-detect/go.mod z2k-detect/go.sum z2k-detect/internal/decision/decision.go mtproxy-client/main.go mtproxy-client/main_secret_test.go mtproxy-client/udp.go mtproxy-client/udp_route_test.go"
 
-# Граница меряется от production-ветки, когда она видна: то, что уже
-# опубликовано production-релизом (манифест, подпись, index.html...), —
+# Граница меряется от закреплённой upstream-синхронизации BASELINE. То, что
+# было включено в этот release snapshot (манифест, подпись, index.html...), —
 # не наш seam (closure §1: published snapshot не трогаем, свежесть манифеста
-# — свойство релиза). Без origin — строгий fallback на BASELINE.
+# — свойство релиза). BASELINE двигается только вместе с принятым sync.
 _REF="$BASELINE"
-# origin/z2k-enhanced is a published snapshot only while it includes the
-# declared upstream BASELINE. Immediately after an upstream sync a local
-# checkout can still have the previous remote-tracking snapshot; measuring
-# from that stale ref would misclassify every accepted upstream file as an
-# adapter seam. BASELINE is the authoritative sync boundary in that case.
-if git -c safe.directory="$REPO" -C "$REPO" merge-base --is-ancestor \
-    "$BASELINE" origin/z2k-enhanced >/dev/null 2>&1; then
-    _REF="origin/z2k-enhanced"
-fi
 # BASELINE is a tree-sync boundary, not necessarily an ancestor of this
-# adapter branch. Compare snapshots directly so a p-85.8 sync is not mistaken
-# for an adapter seam merely because the branch started from a local commit.
+# adapter branch. Compare snapshots directly so a pinned release is not
+# mistaken for an adapter seam merely because origin/z2k-enhanced has advanced.
 _changed="$($_g diff --name-only "$_REF" HEAD 2>/dev/null)"
 # --ignore-cr-at-eol: на Windows-чекаутах (autocrlf) весь worktree выглядит
 # изменённым; флаг гасит чисто-CRLF шум, настоящие правки остаются видны.
