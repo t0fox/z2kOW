@@ -9,6 +9,20 @@ trap 'rm -rf "$T"' EXIT INT TERM
 mkdir -p "$T/bin" "$T/root/bin" "$T/root/etc" "$T/etc" "$T/tmp/runtime" "$T/proc"
 export PATH="$T/bin:$PATH"
 
+# Exercise the production PID/cmdline ownership check without depending on
+# host processes. TCP/CDN shares the listener, but UDP has its own flag.
+cat > "$T/bin/pidof" <<'EOF'
+#!/bin/sh
+[ "$1" = tg-mtproxy-client ] && [ -f "$Z2K_TEST_PIDFILE" ] && cat "$Z2K_TEST_PIDFILE"
+exit 1
+EOF
+chmod +x "$T/bin/pidof"
+mkdir -p "$T/proc/4242"
+printf '/usr/lib/z2k/bin/tg-mtproxy-client\0--listen=:1443\0--telegram-udp\0' > "$T/proc/4242/cmdline"
+printf '4242\n' > "$T/pidof.state"
+export Z2K_TEST_PIDFILE="$T/pidof.state"
+export Z2K_PROC_ROOT="$T/proc"
+
 # BusyBox on the live WBR3000UAX has no `install` applet. Keep this test
 # environment honest: the legacy ABI materializer must use available cp/chmod
 # primitives instead of depending on GNU coreutils.
@@ -240,6 +254,19 @@ assert_contains "IPv6 NFQUEUE exemption uses UDP set" "$T/nft.state" 'postnat|ip
 assert_not_contains "UDP marking does not reuse TCP IPv6 set" "$T/nft.log" 'z2k_tg_udp_mark.*@z2k_tg_dc6'
 assert_not_contains "exemption is not blanket UDP" "$T/nft.state" '^(postnat|prenat)\\|meta l4proto udp return$'
 assert_eq "ready requires route+nft" "ready" "$(z2k_ow_tg_udp_state)"
+
+# A stale ready marker and route/nft state after a worker crash are not ready
+# when either the TUN interface or the UDP worker is gone.
+: > "$T/pidof.state"
+assert_eq "stale marker without client PID is degraded" "degraded" "$(z2k_ow_tg_udp_state)"
+printf '4242\n' > "$T/pidof.state"
+rm -f "$T/link-z2ktg0"
+assert_eq "stale marker without TUN is degraded" "degraded" "$(z2k_ow_tg_udp_state)"
+touch "$T/link-z2ktg0"
+printf '/usr/lib/z2k/bin/tg-mtproxy-client\0--listen=:1443\0' > "$T/proc/4242/cmdline"
+assert_eq "stale marker without UDP worker is degraded" "degraded" "$(z2k_ow_tg_udp_state)"
+printf '/usr/lib/z2k/bin/tg-mtproxy-client\0--listen=:1443\0--telegram-udp\0' > "$T/proc/4242/cmdline"
+assert_eq "live UDP worker and TUN restore ready" "ready" "$(z2k_ow_tg_udp_state)"
 
 # Re-applying must not duplicate the four existing exemptions.
 : > "$T/nft.log"

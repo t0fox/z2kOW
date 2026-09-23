@@ -147,6 +147,22 @@ z2k_ow_tg_listeners_ready() {
 
 z2k_ow_tg_running() { [ -n "$(z2k_ow_tg_pids)" ]; }
 
+# The TCP/CDN listener is shared by the optional UDP worker.  A stale UDP
+# ready marker after SIGKILL must not make status report ready just because
+# that TCP process still owns :1443; reuse the existing verified PID set and
+# look for the explicit worker flag in its cmdline.
+z2k_ow_tg_udp_worker_running() {
+    local _p _cl
+    for _p in $(z2k_ow_tg_pids); do
+        [ -r "$Z2K_PROC_ROOT/$_p/cmdline" ] || continue
+        _cl=$(tr '\0' ' ' < "$Z2K_PROC_ROOT/$_p/cmdline" 2>/dev/null)
+        case " $_cl " in
+            *" --telegram-udp "*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
 # --- nft ---
 
 # Таблица обязана существовать (её создаёт zapret2 runtime через fw_apply).
@@ -517,6 +533,9 @@ z2k_ow_tg_udp_down() {
 
 z2k_ow_tg_udp_ready() {
     [ -f "$Z2K_TG_UDP_READY" ] || return 1
+    z2k_ow_tg_udp_wanted || return 1
+    z2k_ow_tg_udp_worker_running || return 1
+    ip link show "$Z2K_TG_UDP_IF" >/dev/null 2>&1 || return 1
     _z2k_ow_tg_udp_rule_exact -4 && _z2k_ow_tg_udp_rule_exact -6 || return 1
     nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_mark >/dev/null 2>&1 || return 1
     nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" z2k_tg_udp_fwd >/dev/null 2>&1 || return 1

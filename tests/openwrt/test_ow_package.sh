@@ -38,10 +38,10 @@ _rver="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$REPO/package/z2k-runtime/Makefil
 _rrel="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$REPO/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
 assert_contains "webpanel dep == adapter version" "$MK" "EXTRA_DEPENDS:=z2k-adapter (>=${_aver}-r${_arel})"
 assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapret2-runtime (>=${_rver}-r${_rrel})"
-# A same-version APK is not an upgrade on OpenWrt.  Both fixes therefore
-# require a real adapter release bump, and the webpanel must require that same
-# release rather than silently retaining an older adapter.
-assert_eq "adapter release bumped for WARP implicit fwmark mask fix" "60" "$_arel"
+# A same-version APK is not an upgrade on OpenWrt.  The UDP readiness fix
+# therefore requires a real adapter release bump, and the webpanel must
+# require that same release rather than silently retaining an older adapter.
+assert_eq "adapter release bumped for Telegram UDP readiness validation" "61" "$_arel"
 assert_contains "nounset CGI probe remains guarded" "$REPO/platform/openwrt/customd.sh" \
     'nounset must not abort this probe'
 assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwrt/env.sh" \
