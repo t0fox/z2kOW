@@ -6,6 +6,7 @@
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-warp-parity"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$REPO/tests/lib/common.sh"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wpar.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 
@@ -127,22 +128,26 @@ export Z2K_PROC_ROOT="$T/proc"
 printf '{"ready":true,"transport":"auto","iface":"z2ktun0","addr":"172.16.9.9"}\n' > "$T/tmp/warp-status.json"
 export WARP_STATUS="$T/tmp/warp-status.json"
 _z2k_ow_warp_kill() { echo "kill:$*" >> "$T/calls"; return 0; }
+z2k_write_date_stub "$T/bin/date"
 # A pre-existing ready marker must not prove a post-restart daemon is ready.
 # Keep this explicit and bounded; otherwise the default 120s wait can hide a
 # stale-marker regression behind a slow CI failure.
 WARP_READY_WAIT=4
-touch -t 200001010000 "$WARP_STATUS"
+Z2K_TEST_NOW_SHIFT=120; export Z2K_TEST_NOW_SHIFT
 if _warp_wait_ready 2 >/dev/null 2>&1; then
     _t_bad "stale ready status accepted"
 else
     [ "$?" = "1" ] && _t_ok || _t_bad "stale ready status returned unexpected rc"
 fi
+unset Z2K_TEST_NOW_SHIFT
 # Successful restart fixtures model a status published by the new daemon,
-# after the wait begins. A future mtime avoids the one-second stat/date race.
-touch -d '+120 seconds' "$WARP_STATUS" 2>/dev/null || touch "$WARP_STATUS"
+# Advance the wait's clock backwards rather than relying on unsupported
+# touch timestamp options or a wall-clock second boundary.
+Z2K_TEST_NOW_SHIFT=-120; export Z2K_TEST_NOW_SHIFT
 : > "$T/calls"
 : > "$T/have-pbr"
 warp_restart >/dev/null 2>&1
+unset Z2K_TEST_NOW_SHIFT
 assert_eq "restart enabled rc" "0" "$?"
 # PBR down раньше kill (fail open: сначала снять маршрут).
 _pb="$(grep -n 'ip:rule del\|ip:route del' "$T/calls" | head -1 | cut -d: -f1)"
@@ -155,9 +160,11 @@ else _t_bad "restart: PBR down не первым (pbr=$_pb kill=$_kill)"; fi
 # захват feature-lock остаются реальными.
 WARP_READY_WAIT=4
 _z2k_ow_service_running() { return 0; }
-_z2k_ow_warp_service_restart() { touch -d '+120 seconds' "$WARP_STATUS" 2>/dev/null || touch "$WARP_STATUS"; echo "service-restart" >> "$T/calls"; return 0; }
+_z2k_ow_warp_service_restart() { touch "$WARP_STATUS"; echo "service-restart" >> "$T/calls"; return 0; }
+Z2K_TEST_NOW_SHIFT=-120; export Z2K_TEST_NOW_SHIFT
 : > "$T/calls"
 warp_restart >/dev/null 2>&1
+unset Z2K_TEST_NOW_SHIFT
 assert_eq "restart active service rc" "0" "$?"
 assert_contains "restart rebuilds procd instance" "$T/calls" "service-restart"
 
