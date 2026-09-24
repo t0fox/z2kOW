@@ -40,6 +40,30 @@ if [ "\$1" = "list" ] && [ "\$2" = "set" ] && [ "\$5" = "z2k_warp_domain4" ]; th
     cat "$T/nft-domain-set"
     exit 0
 fi
+if [ "\$1" = "list" ] && [ "\$2" = "chain" ] && [ "\$4" = "z2k_warp_dns" ]; then
+    case "\$5" in
+        z2k_dns_output|z2k_dns_forward)
+            [ -f "$T/nft-domain-chain-\$5" ] || exit 1
+            cat "$T/nft-domain-chain-\$5"
+            exit 0 ;;
+    esac
+fi
+if [ "\$1" = "add" ] && [ "\$2" = "table" ] && [ "\$4" = "z2k_warp_dns" ]; then
+    printf 'table inet z2k_warp_dns { comment "z2k WARP passive DNS observer"; }\n' > "$T/nft-domain-table"
+    exit 0
+fi
+if [ "\$1" = "add" ] && [ "\$2" = "chain" ] && [ "\$4" = "z2k_warp_dns" ]; then
+    printf 'chain %s { comment "z2k WARP passive DNS observer chain %s"; }\n' "\$5" "\$5" > "$T/nft-domain-chain-\$5"
+    exit 0
+fi
+if [ "\$1" = "add" ] && [ "\$2" = "set" ] && [ "\$5" = "z2k_warp_domain4" ]; then
+    printf 'set z2k_warp_domain4 { type ipv4_addr . ipv4_addr; comment "z2k WARP DNS pairs"; }\n' > "$T/nft-domain-set"
+    exit 0
+fi
+if [ "\$1" = "delete" ] && [ "\$2" = "table" ] && [ "\$4" = "z2k_warp_dns" ]; then
+    rm -f "$T/nft-domain-table" "$T/nft-domain-chain-z2k_dns_output" "$T/nft-domain-chain-z2k_dns_forward"
+    exit 0
+fi
 if [ "\$1" = "list" ] && [ "\$2" = "chain" ] && \
    [ "\$4" = fw4 ] && [ "\$5" = forward ]; then
     [ -f "$T/fw4-forward" ] && cat "$T/fw4-forward"
@@ -310,6 +334,30 @@ assert_contains "dst element 1.2.3.4" "$T/nft.log" 'add element inet zapret2 z2k
 assert_contains "dst element из game" "$T/nft.log" '5.5.5.5'
 if grep -q '10.0.0.5' "$T/nft.log"; then _t_bad "приват уехал в set"; else _t_ok; fi
 if grep -q '999.1.1.1' "$T/nft.log"; then _t_bad "битый IP уехал в set"; else _t_ok; fi
+
+# A WebUI domain-list save calls the `ipset` live-reload verb.  That verb must
+# also converge the existing WARP mark/observer rules, otherwise DNS answers
+# never reach z2k-warpd and the newly selected domain silently stays direct.
+# IP-only lists retain the previous path and do not flush/rebuild WARP chains.
+: > "$T/nft.log"
+warp_ipset || _t_bad "IP-only live list reload rc"
+if grep -q 'nft:add chain inet zapret2 z2k_warp_mark' "$T/nft.log"; then
+    _t_bad "IP-only live list reload rebuilt WARP rules"
+else
+    _t_ok
+fi
+printf 'www.cloudflare.com\n' > "$T/etc/user-lists/warp/mine.txt"
+export Z2K_WARP_DOMAIN_LAN_DEVICES=br-lan
+: > "$T/nft.log"
+warp_ipset || _t_bad "live list reload rc"
+assert_contains "live domain reload: client-pair mark rule" "$T/nft.log" \
+    'nft:add rule inet zapret2 z2k_warp_mark ip saddr . ip daddr @z2k_warp_domain4'
+assert_contains "live domain reload: observer table" "$T/nft.log" \
+    'nft:add table inet z2k_warp_dns'
+assert_contains "live domain reload: passive DNS NFLOG hook" "$T/nft.log" \
+    'nft-batch:add rule inet z2k_warp_dns z2k_dns_output oifname "br-lan" ip protocol { tcp, udp } th sport 53 counter log group 189'
+assert_contains "live domain reload: domain rules published" "$T/tmp/warp/domains.v1" \
+    'www.cloudflare.com'
 
 # --- PBR: install idempotent + конфликты ---
 # proven-ready фикстура: status ready + живой процесс + link

@@ -1641,6 +1641,18 @@ warp_reload_lists() {
 warp_ipset() {
     [ "$(warp_flag)" = "1" ] || return 0
     warp_nft_sets_load || return 1
+    # WebUI calls this after any live list save/toggle.  Domain additions and
+    # removals also change the client-pair mark rule and passive DNS hooks, not
+    # just the static destination/source sets.  Reconcile the canonical rules
+    # path only while domains or their owned nft objects exist; ordinary IP-only
+    # list edits keep the existing fast path and do not flush WARP chains.
+    local _domain_rules
+    _domain_rules="$(warp_validated_domains 2>/dev/null)"
+    if [ -n "$_domain_rules" ] || \
+       nft list table "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" >/dev/null 2>&1 || \
+       nft list set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" >/dev/null 2>&1; then
+        warp_nft_rules_apply || return 1
+    fi
     return 0
 }
 
