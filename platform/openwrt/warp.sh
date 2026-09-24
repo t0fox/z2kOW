@@ -1420,6 +1420,23 @@ _z2k_ow_service_running() {
     "$_init" running >/dev/null 2>&1
 }
 
+# The local marker records that start_service once registered WARP, but the
+# owning procd service can be rebuilt while teardown is blocked on the WARP
+# mutation lock. In that case procd drops the instance while the stale marker
+# survives. Query the live registry before delegating a missing-process case
+# to procd's bounded respawn. Return 2 when ubus cannot answer so uncertainty
+# never triggers a service restart.
+_z2k_ow_warp_procd_instance_registered() {
+    local _ubus _services
+    for _ubus in ubus /sbin/ubus /usr/sbin/ubus; do
+        command -v "$_ubus" >/dev/null 2>&1 || continue
+        _services=$("$_ubus" -S call service list 2>/dev/null) || return 2
+        printf '%s\n' "$_services" | grep -Eq '"z2k-warp"[[:space:]]*:'
+        return $?
+    done
+    return 2
+}
+
 warp_enable() {
     local _was_enabled _need_rebuild
     warp_op_current || { warp_op_superseded; return 3; }
@@ -1919,6 +1936,7 @@ _warp_converge_off_keep_probe() {
 }
 
 z2k_ow_warp_check() {
+    local _procd_instance_rc
     mkdir -p "${Z2K_TMP:-/tmp/z2k}/warp" 2>/dev/null || return 0
     # Graduated gates (НЕ один wanted: устройству без ключа нужен
     # register-recovery, а не молчаливый converge-to-off).
@@ -1938,13 +1956,14 @@ z2k_ow_warp_check() {
     if ! warp_running; then
         warp_note_death
         _warp_converge_off keep
-        # A registered process crash is procd's bounded-respawn domain. Only
-        # repair a missing instance registration, and latch the single repair
-        # attempt before releasing our mutation lock for init restart. This
-        # cannot become a second watchdog or resurrect an intentionally
-        # stopped service: both desired state and owning-service activity are
-        # required, and explicit stop clears the registration marker.
-        if [ ! -e "$WARP_PROCD_INSTANCE_FILE" ] &&
+        # A registered process crash is procd's bounded-respawn domain. Trust
+        # the live procd registry, not our marker: a service restart can drop
+        # the instance while a lock-blocked stop leaves that marker stale.
+        # Latch one repair before releasing the feature lock for init restart;
+        # explicit stop/config/core-ready gates still prevent resurrection.
+        _z2k_ow_warp_procd_instance_registered
+        _procd_instance_rc=$?
+        if [ "$_procd_instance_rc" = "1" ] &&
             [ ! -e "$WARP_PROCD_RECOVERY_FILE" ] &&
             _z2k_ow_service_running; then
             mkdir -p "$(dirname "$WARP_PROCD_RECOVERY_FILE")" 2>/dev/null || return 0

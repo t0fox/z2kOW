@@ -19,6 +19,7 @@ export WARP_READY_WAIT=1 WARP_LOCK_WAIT=2 WARP_LOCK_DIR="$T/tmp/warp/mutate.lock
 export WARP_PROCD_INSTANCE_FILE="$T/tmp/warp/procd-instance"
 export WARP_PROCD_RECOVERY_FILE="$T/tmp/warp/procd-recovery-attempt"
 export WARP_PROCD_REBUILD_FILE="$T/tmp/warp/procd-rebuild-in-progress"
+export PROCD_WARP_PRESENT_FILE="$T/tmp/warp/procd-warp-present"
 export CALLS="$T/calls"
 
 cat > "$T/bin/pidof" <<'EOF'
@@ -30,6 +31,16 @@ cat > "$WARP_BIN" <<'EOF'
 exit 0
 EOF
 chmod +x "$T/bin/pidof" "$WARP_BIN"
+cat > "$T/bin/ubus" <<'EOF'
+#!/bin/sh
+[ "$1" = "-S" ] && [ "$2" = "call" ] && [ "$3" = "service" ] && [ "$4" = "list" ] || exit 2
+if [ -e "$PROCD_WARP_PRESENT_FILE" ]; then
+    printf '%s\n' '{"z2k":{"instances":{"z2k":{"running":true},"z2k-warp":{"running":false}}}}'
+else
+    printf '%s\n' '{"z2k":{"instances":{"z2k":{"running":true}}}}'
+fi
+EOF
+chmod +x "$T/bin/ubus"
 printf 'GAME_WARP_ENABLED=1\n' > "$Z2K_CONFIG"
 printf '{"id":"mock-device","addr":"172.16.9.9"}\n' > "$WARP_DEVICE"
 printf '{"ready":false}\n' > "$WARP_STATUS"
@@ -48,7 +59,7 @@ _warp_converge_off_keep_probe() { echo fail-open >> "$CALLS"; return 0; }
 _z2k_ow_service_running() { return 0; }
 procd_open_instance() { echo "procd:$1" >> "$CALLS"; }
 procd_set_param() { :; }
-procd_close_instance() { :; }
+procd_close_instance() { : > "$PROCD_WARP_PRESENT_FILE"; }
 _z2k_ow_warp_service_restart() {
     echo restart >> "$CALLS"
     # Model the owning init service's stop phase: the retry latch must survive
@@ -62,7 +73,9 @@ warp_pbr_down() { return 0; }
 warp_nft_remove() { return 0; }
 
 # No process and no procd registration: one bounded owner-service rebuild is
-# needed. Without the regression fix, check only leaves the feature fail-open.
+# needed. The local marker is stale from an earlier registration and must not
+# be trusted over the live procd registry.
+printf 'registered\n' > "$WARP_PROCD_INSTANCE_FILE"
 z2k_ow_warp check >/dev/null 2>&1
 assert_eq "missing procd instance is re-registered once" "1" "$(grep -c '^restart$' "$CALLS" 2>/dev/null || true)"
 assert_eq "internal restart preserves one-shot latch until registration" "1" "$(grep -c '^recovery-preserved$' "$CALLS" 2>/dev/null || true)"
@@ -77,7 +90,7 @@ assert_eq "registered instance is left to procd" "1" "$(grep -c '^restart$' "$CA
 
 # Missing registration is not enough to restart an owning service which is
 # itself stopped; this protects intentional stop from resurrection.
-rm -f "$WARP_PROCD_INSTANCE_FILE" "$WARP_PROCD_RECOVERY_FILE"
+rm -f "$WARP_PROCD_INSTANCE_FILE" "$WARP_PROCD_RECOVERY_FILE" "$PROCD_WARP_PRESENT_FILE"
 _z2k_ow_service_running() { return 1; }
 z2k_ow_warp check >/dev/null 2>&1
 assert_eq "inactive owner service is not resurrected" "1" "$(grep -c '^restart$' "$CALLS" 2>/dev/null || true)"
