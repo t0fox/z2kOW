@@ -77,9 +77,9 @@ _wrrel="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$REPO/package/z2k-warp-runtime/M
 assert_contains "webpanel dep == adapter version" "$MK" "EXTRA_DEPENDS:=z2k-adapter (>=${_aver}-r${_arel})"
 assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapret2-runtime (>=${_rver}-r${_rrel})"
 assert_contains "adapter dep == WARP runtime version" "$MK" "z2k-warp-runtime (>=${_wrver}-r${_wrrel})"
-# The p-85.10 live WARP-list repair must be installable over the previous
+# The live WARP observer-path repair must be installable over the previous
 # snapshot using ordinary version ordering, not a same-EVR reinstall.
-assert_eq "adapter release bumped for stale WARP procd marker recovery" "67" "$_arel"
+assert_eq "adapter release bumped for WARP observer runtime paths" "68" "$_arel"
 assert_contains "nounset CGI probe remains guarded" "$REPO/platform/openwrt/customd.sh" \
     'nounset must not abort this probe'
 assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwrt/env.sh" \

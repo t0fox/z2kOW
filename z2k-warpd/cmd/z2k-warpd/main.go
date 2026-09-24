@@ -227,6 +227,25 @@ func repairBadEndpoint(devPath, proxy string, logf func(string, ...any)) {
 	}
 }
 
+func warpDomainObserverOptions() domainroute.Options {
+	domainPath := os.Getenv("Z2K_WARP_DOMAIN_RULES")
+	if domainPath == "" {
+		domainPath = "/tmp/z2k-warp/domains.v1"
+	}
+	snapshotPath := os.Getenv("Z2K_WARP_DOMAIN_SNAPSHOT")
+	if snapshotPath == "" {
+		snapshotPath = "/tmp/z2k-warp/domain-pairs.v1"
+	}
+	statusPath := os.Getenv("Z2K_WARP_DOMAIN_STATUS")
+	if statusPath == "" {
+		statusPath = "/tmp/z2k-warp/domain-status.json"
+	}
+	return domainroute.Options{
+		DomainPath: domainPath, SnapshotPath: snapshotPath,
+		StatusPath: statusPath, PairSet: domainroute.PairSet{},
+	}
+}
+
 // readEndpoints — по адресу на строку, «#» комментарий. Мусор пропускаем
 // молча: файл правят руками, и одна кривая строка не должна лишать роутера
 // всех запасных адресов.
@@ -359,10 +378,7 @@ func cmdRun(args []string) int {
 	defer stop()
 	rules, _ := domainroute.ParseRules([]byte("v1\n"))
 	observer := domainroute.NewObserver(rules)
-	options := domainroute.Options{
-		DomainPath: "/tmp/z2k-warp/domains.v1", SnapshotPath: "/tmp/z2k-warp/domain-pairs.v1",
-		StatusPath: "/tmp/z2k-warp/domain-status.json", PairSet: domainroute.PairSet{},
-	}
+	options := warpDomainObserverOptions()
 	if err := runEngineAndObserver(ctx, func(c context.Context) error { return engine.Run(c, cfg) }, func(c context.Context) error { return observer.Run(c, options) }); err != nil {
 		// Другой экземпляр уже держит туннель — это нормальный исход гонки
 		// (selfheal и enable могут стартовать одновременно), а не сбой.
