@@ -460,7 +460,7 @@ warp_nft_rules_apply() {
 }
 
 warp_nft_rules_verify() {
-    local _c _out _domain_set
+    local _c _out _domain_set _domain_rules
     _z2k_ow_warp_table_ok || return 1
     for _c in "$WARP_CHAIN_MARK" "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
         _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$_c" 2>/dev/null) || return 1
@@ -469,8 +469,10 @@ warp_nft_rules_verify() {
     _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_MARK" 2>/dev/null)
     printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip daddr @$WARP_SET meta mark set" || return 1
     printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip saddr @$WARP_SET_SRC meta mark set" || return 1
-    _domain_set=$(nft list set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" 2>/dev/null)
-    if [ -n "$_domain_set" ] && printf '%s\n' "$_domain_set" | grep -qF 'comment "z2k WARP DNS pairs"'; then
+    _domain_rules=$(warp_validated_domains 2>/dev/null)
+    if [ -n "$_domain_rules" ]; then
+        _domain_set=$(nft list set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" 2>/dev/null) || return 1
+        printf '%s\n' "$_domain_set" | grep -qF 'comment "z2k WARP DNS pairs"' || return 1
         printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip saddr . ip daddr @$WARP_DOMAIN_SET meta mark set" || return 1
     fi
     return 0

@@ -74,6 +74,11 @@ if [ "\$1" = "-a" ] && [ "\$2" = "list" ] && [ "\$3" = "chain" ] && \
     [ -f "$T/fw4-forward" ] && cat "$T/fw4-forward"
     exit 0
 fi
+if [ "\$1" = "list" ] && [ "\$2" = "chain" ] && [ "\$3" = inet ] && [ "\$4" = zapret2 ]; then
+    [ -f "$T/nft-chain-\$5" ] || exit 1
+    cat "$T/nft-chain-\$5"
+    exit 0
+fi
 if [ "\$1" = "insert" ] && [ "\$2" = "rule" ] && \
    [ "\$4" = fw4 ] && [ "\$5" = forward ]; then
     _prev=""; _iface=""
@@ -458,5 +463,29 @@ if grep -q 'nft:delete set inet zapret2 z2k_warp_domain4' "$T/nft.log"; then
 else
     _t_ok
 fi
+
+# A previous domain selection can leave the owned, now-empty pair set behind.
+# The verifier must not require a domain mark rule when there are no selected
+# domains, or its repair loop tears down otherwise-healthy WARP PBR. Conversely,
+# active domains require both the owned set and the mark rule.
+printf 'chain z2k_warp_mark {\n ip daddr @z2k_warp_dst4 meta mark set\n ip saddr @z2k_warp_src4 meta mark set\n}\n' \
+    > "$T/nft-chain-z2k_warp_mark"
+for _c in z2k_warp_mss z2k_warp_fwd z2k_warp_nat; do
+    printf 'chain %s { }\n' "$_c" > "$T/nft-chain-$_c"
+done
+printf 'set z2k_warp_domain4 { type ipv4_addr . ipv4_addr; comment "z2k WARP DNS pairs"; }\n' \
+    > "$T/nft-domain-set"
+: > "$T/etc/user-lists/warp/mine.txt"
+warp_nft_rules_verify && _t_ok || _t_bad "empty retained pair set rejects valid base WARP rules"
+
+printf 'www.cloudflare.com\n' > "$T/etc/user-lists/warp/mine.txt"
+rm -f "$T/nft-domain-set"
+warp_nft_rules_verify && _t_bad "active domains accepted without owned pair set" || _t_ok
+printf 'set z2k_warp_domain4 { type ipv4_addr . ipv4_addr; comment "z2k WARP DNS pairs"; }\n' \
+    > "$T/nft-domain-set"
+warp_nft_rules_verify && _t_bad "active domains accepted without domain mark rule" || _t_ok
+printf ' ip saddr . ip daddr @z2k_warp_domain4 meta mark set\n' \
+    >> "$T/nft-chain-z2k_warp_mark"
+warp_nft_rules_verify && _t_ok || _t_bad "valid active-domain mark rule rejected"
 
 _t_done
