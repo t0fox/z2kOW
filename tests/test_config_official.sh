@@ -243,6 +243,21 @@ get_rkn_tcp_arm_line() {
         | grep -F 'key=rkn_tcp' | head -1
 }
 
+# Discord voice regression: the real discovery/STUN datagram must still reach
+# the server after its decoys. `circular` ignores untagged actions, so assert
+# send+drop inside every selected strategy arm in the generated configuration.
+_voice_generated=$(run_generator voice-original 'NFQWS2_ENABLE=1' '')
+_voice_line=$(printf '%s\n' "$_voice_generated" \
+    | awk -f "$SCRIPT_DIR/tests/lib/nfqws2_flatten.awk" \
+    | grep -F 'key=discord_udp:' | head -1)
+assert_contains "voice: discovery-only cutoff" \
+    '--out-range=-d4 --payload=discord_ip_discovery,stun' "$_voice_line"
+for _voice_arm in 1 2 3 4 5 6; do
+    assert_contains "voice: real datagram sent in circular arm $_voice_arm" \
+        "--lua-desync=send:dir=out:strategy=$_voice_arm --lua-desync=drop:dir=out:strategy=$_voice_arm" \
+        "$_voice_line"
+done
+
 # Профиль ЦЕЛИКОМ из готового config-файла.
 #
 # Арсенал РКН объявляется в конфиге один раз (--template) и подставляется в

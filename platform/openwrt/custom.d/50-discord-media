@@ -2,7 +2,10 @@
 # NOTE: @ih requires nft 1.0.1+ and updated kernel version. it's confirmed to work on 5.15 (openwrt 23) and not work on 5.10 (openwrt 22)
 
 # can override in config :
-NFQWS_OPT_DESYNC_DISCORD_MEDIA="${NFQWS_OPT_DESYNC_DISCORD_MEDIA:---payload=discord_ip_discovery --lua-desync=fake:blob=0x00000000000000000000000000000000:repeats=2}"
+# This OpenWrt postrouting NFQUEUE owns discovery packets ahead of qnum 200.
+# Preserve the original request after the decoy; dropping only the queued copy
+# avoids losing the Discord IP-discovery handshake on this hook.
+NFQWS_OPT_DESYNC_DISCORD_MEDIA="${NFQWS_OPT_DESYNC_DISCORD_MEDIA:---payload=discord_ip_discovery --lua-desync=fake:blob=0x00000000000000000000000000000000:repeats=2 --lua-desync=send:dir=out --lua-desync=drop:dir=out}"
 DISCORD_MEDIA_PORT_RANGE="${DISCORD_MEDIA_PORT_RANGE:-50000-50099,19294-19344}"
 
 alloc_dnum DNUM_DISCORD_MEDIA

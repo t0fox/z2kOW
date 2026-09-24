@@ -58,6 +58,10 @@ custom_runner zapret_custom_daemons 1
 custom_runner zapret_custom_firewall_nft 1
 assert_contains "STUN queue/options" "$T/calls" 'daemon:1:2000:--qnum=65300'
 assert_contains "Discord queue/options" "$T/calls" 'daemon:1:2001:--qnum=65301'
+assert_contains "Discord discovery: decoy followed by original datagram" "$T/calls" \
+    'daemon:1:2000:--qnum=65300 --payload=discord_ip_discovery --lua-desync=fake:blob=0x00000000000000000000000000000000:repeats=2 --lua-desync=send:dir=out --lua-desync=drop:dir=out'
+assert_contains "STUN: decoy followed by original datagram" "$T/calls" \
+    'daemon:1:2001:--qnum=65301 --payload=stun --lua-desync=fake:blob=0x00000000000000000000000000000000:repeats=2 --lua-desync=send:dir=out --lua-desync=drop:dir=out'
 assert_contains "STUN magic predicate" "$T/calls" '0x2112A442'
 assert_contains "Discord media predicate" "$T/calls" '0x00010046'
 assert_contains "Discord media port range" "$T/calls" '50000-50099,19294-19344'
