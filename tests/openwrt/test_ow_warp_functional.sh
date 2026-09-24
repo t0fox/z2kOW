@@ -200,6 +200,10 @@ printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg"}\n'
 touch "$T/link-z2ktun0"
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
+export WARP_DOMAIN_RULES="$T/tmp/warp/domains.v1"
+export WARP_DOMAIN_SNAPSHOT="$T/tmp/warp/domain-pairs.v1"
+export WARP_DOMAIN_STATUS="$T/tmp/warp/domain-status.json"
+export WARP_DOMAIN_ERROR="$T/tmp/warp/domain-setup-error"
 export Z2K_BIN="$T/root/bin" Z2K_RUN="$T/tmp/runtime" Z2K_STATE="$T/etc/state"
 export Z2K_CONFIG="$T/etc/config" Z2K_LISTS_DIR="$T/root/lists"
 export Z2K_PROC_ROOT="$T/proc"
