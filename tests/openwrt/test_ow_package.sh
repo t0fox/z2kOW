@@ -79,7 +79,7 @@ assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapre
 assert_contains "adapter dep == WARP runtime version" "$MK" "z2k-warp-runtime (>=${_wrver}-r${_wrrel})"
 # The corrected OpenWrt-only WARP observer-path repair must be installable
 # over the earlier candidate using ordinary version ordering.
-assert_eq "adapter release bumped for WARP observer runtime paths" "69" "$_arel"
+assert_eq "adapter release bumped for WARP observer status fix" "70" "$_arel"
 assert_contains "nounset CGI probe remains guarded" "$REPO/platform/openwrt/customd.sh" \
     'nounset must not abort this probe'
 assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwrt/env.sh" \

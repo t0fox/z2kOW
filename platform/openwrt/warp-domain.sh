@@ -50,7 +50,7 @@ warp_domain_rules_load() {
         warp_domain_error_set domain-rules-write-failed
         return 1
     }
-    _count=$(awk 'END { print NR > 0 ? NR - 1 : 0 }' "$_tmp")
+    _count=$(awk 'END { print (NR > 0 ? NR - 1 : 0) }' "$_tmp")
     if [ "$_count" -gt 4096 ]; then
         printf 'v1\n' > "$_tmp" || { rm -f "$_tmp"; return 1; }
         warp_domain_error_set domain-rule-limit-exceeded

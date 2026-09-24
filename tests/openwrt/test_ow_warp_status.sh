@@ -149,4 +149,16 @@ printf '%s\n' "$_out" > "$T/status-ready.log"
 assert_contains "routing proof is true" "$T/status-ready.log" "route_ready=1"
 assert_contains "complete state is ready" "$T/status-ready.log" "state=ready"
 
+# The observer's JSON is authoritative for activity, but the rules.v1 file is
+# also consulted to avoid reporting stale daemon state after its rule file is
+# emptied. BusyBox awk parses an unparenthesized `print NR > 0 ? ...` as output
+# redirection and returns no count; exercise the actual status path with one
+# active domain so the panel cannot silently downgrade it to zero.
+printf 'v1\nexample.test\n' > "$WARP_DOMAIN_RULES"
+printf '{"active":true,"rules":1,"pairs":0,"skipped":0,"overflow":0}\n' > "$WARP_DOMAIN_STATUS"
+_out="$(warp_status)"
+printf '%s\n' "$_out" > "$T/status-domain-active.log"
+assert_contains "observer rule count survives status projection" "$T/status-domain-active.log" "domain_rules=1"
+assert_contains "active observer is not reported unavailable" "$T/status-domain-active.log" "domain_active=1"
+
 _t_done

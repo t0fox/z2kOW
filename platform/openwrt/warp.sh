@@ -1730,7 +1730,7 @@ warp_status() {
     elif [ ! -f "$WARP_DOMAIN_STATUS" ] && [ "$(warp_flag)" = "1" ]; then
         _domain_error=observer-unavailable
     fi
-    [ -f "$WARP_DOMAIN_RULES" ] && _domain_rules=$(awk 'END { print NR > 0 ? NR - 1 : 0 }' "$WARP_DOMAIN_RULES" 2>/dev/null)
+    [ -f "$WARP_DOMAIN_RULES" ] && _domain_rules=$(awk 'END { print (NR > 0 ? NR - 1 : 0) }' "$WARP_DOMAIN_RULES" 2>/dev/null)
     case "$_domain_rules" in ''|*[!0-9]*) _domain_rules=0 ;; esac
     case "$_domain_pairs" in ''|*[!0-9]*) _domain_pairs=0 ;; esac
     case "$_domain_skipped" in ''|*[!0-9]*) _domain_skipped=0 ;; esac
