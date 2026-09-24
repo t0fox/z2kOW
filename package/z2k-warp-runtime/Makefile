@@ -3,6 +3,10 @@
 # compiles the same p-85.10 source for the router and installs it at a
 # package-owned path so the WARP feature updater cannot overwrite it.
 
+# Capture MAKEFILE_LIST before rules.mk adds SDK files to it. Resolve the
+# package Makefile symlink itself before walking to the repository root.
+Z2K_TREE:=$(realpath $(dir $(realpath $(lastword $(MAKEFILE_LIST))))/../..)
+
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-warp-runtime
@@ -13,8 +17,6 @@ PKG_MAINTAINER:=z2k contributors
 PKG_LICENSE:=Unknown
 
 include $(INCLUDE_DIR)/package.mk
-
-Z2K_TREE:=$(realpath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 
 define Package/z2k-warp-runtime
   SECTION:=net

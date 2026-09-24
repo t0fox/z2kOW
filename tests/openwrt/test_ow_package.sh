@@ -30,6 +30,37 @@ assert_contains "WARP runtime stages its local WireGuard replacement" "$WARP_MK"
     '$(CP) -a $(Z2K_TREE)/z2k-warpd/third_party $(PKG_BUILD_DIR)/src/'
 assert_file "WARP local WireGuard replacement has its module file" \
     "$REPO/z2k-warpd/third_party/wireguard/go.mod"
+
+# The canonical builder links this package into SDK/package. Resolve the actual
+# Makefile before walking to the repository root; walking up from the SDK-side
+# symlink can otherwise select the runner's /home/runner and lose go.mod.
+if command -v make >/dev/null 2>&1; then
+    _sdk_probe="$(mktemp -d "${TMPDIR:-/tmp}/z2k-warp-root.XXXXXX")" || _sdk_probe=""
+    if [ -n "$_sdk_probe" ]; then
+        mkdir -p "$_sdk_probe/package" "$_sdk_probe/include"
+        ln -s "$REPO/package/z2k-warp-runtime" "$_sdk_probe/package/z2k-warp-runtime"
+        : > "$_sdk_probe/rules.mk"
+        printf 'BuildPackage =\n' > "$_sdk_probe/include/package.mk"
+        _warp_root="$(make -s -C "$_sdk_probe" \
+            -f "$_sdk_probe/package/z2k-warp-runtime/Makefile" -f - \
+            print-z2k-tree TOPDIR="$_sdk_probe" INCLUDE_DIR="$_sdk_probe/include" <<'EOF'
+print-z2k-tree:
+	@printf '%s\n' '$(Z2K_TREE)'
+EOF
+        )"
+        if [ "$_warp_root" = "$REPO" ] && [ -f "$_warp_root/z2k-warpd/go.mod" ]; then
+            _t_ok
+        else
+            _t_bad "WARP package root resolves to [$_warp_root], expected [$REPO]"
+        fi
+        rm -rf -- "$_sdk_probe"
+    else
+        _t_bad "не удалось создать временный SDK probe для WARP source root"
+    fi
+else
+    _t_bad "make недоступен для проверки WARP source root через SDK symlink"
+fi
+
 # Stage 6: опциональный сабпакет панели (зависимость + свой init, без payload).
 assert_contains "webpanel subpackage" "$MK" "Package/z2k-webpanel"
 assert_contains "webpanel BuildPackage" "$MK" "BuildPackage,z2k-webpanel"
