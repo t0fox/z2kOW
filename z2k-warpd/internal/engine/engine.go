@@ -40,17 +40,17 @@ type TransportFactory func(step account.Step, dev tun.Device, d *account.Device)
 
 // Config — зависимости движка.
 type Config struct {
-	DevicePath     string
-	StatusPath     string
-	LockPath       string        // пусто = рядом со status.json
-	ForceStep      *account.Step // --force-transport: лестница из одного шага
-	Mode           string        // --transport: ladder.ModeAuto / ModeWG / ModeH2
-	Logf           func(string, ...any)
+	DevicePath string
+	StatusPath string
+	LockPath   string        // пусто = рядом со status.json
+	ForceStep  *account.Step // --force-transport: лестница из одного шага
+	Mode       string        // --transport: ladder.ModeAuto / ModeWG / ModeH2
+	Logf       func(string, ...any)
 	// SkipNetSetup — платформой владеет FORWARD/MASQUERADE/MSS (OpenWrt,
 	// --net-backend=external): TUN/create/address/transport/health/status
 	// работают как раньше, nat.Ensure/Remove не вызываются вовсе.
 	// Default false = Keenetic iptables как сейчас, побайтово.
-	SkipNetSetup bool
+	SkipNetSetup   bool
 	EdgeCandidates []account.Step
 	EdgeCachePath  string
 	GeoProbe       func(context.Context, string) (edgepick.Meta, time.Duration, int, error)
