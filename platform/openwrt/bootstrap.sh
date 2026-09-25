@@ -33,26 +33,35 @@ Z2K_SEED_PAYLOAD_ROOT="${Z2K_SEED_PAYLOAD_ROOT:-usr/lib/z2k}"
 #
 # Требует выставленных путей (env.sh).
 
-# p-85.2 migration: the old package-owned daemon used this exact init path and
-# exact argv pair. Remove only that service and its publication. A manual
-# probe/classify/tcp16/voice invocation uses a different argv and is preserved;
-# foreign runtime paths (notably /opt/zapret2) are never touched.
+# p-85.2 migration: retire only the exact historical package-owned daemon.
+# A path/name match is not ownership evidence; unknown or symlinked init files
+# are preserved and never executed. Manual diagnostics use different argv.
 z2k_ow_retire_discovery() {
     local _init="${Z2K_OW_LEGACY_DETECT_INIT:-/etc/init.d/z2k-detect}"
     local _proc_root="${Z2K_OW_PROC_ROOT:-/proc}" _proc _pid _args _n
     local _det="${Z2K_DETECT_BIN:-$Z2K_BIN/z2k-detect}"
+    local _owned_init=0 _retired=0
 
-    if [ -x "$_init" ]; then
-        "$_init" stop >/dev/null 2>&1 || return 1
-        rm -f "$_init" || return 1
-    else
-        rm -f "$_init" || return 1
+    if [ -e "$_init" ] || [ -L "$_init" ]; then
+        if [ -L "$_init" ] || [ ! -f "$_init" ] \
+           || ! grep -Fqx '# /etc/init.d/z2k-detect - reactive DPI-discovery daemon (parity S98z2k-detect).' "$_init" 2>/dev/null \
+           || ! grep -Fqx '# PACKAGE-owned.' "$_init" 2>/dev/null \
+           || ! grep -Fqx 'START=98' "$_init" 2>/dev/null; then
+            echo "z2k-openwrt: preserving unrecognized legacy init path $_init" >&2
+        else
+            _owned_init=1
+            if [ -x "$_init" ]; then
+                "$_init" stop >/dev/null 2>&1 || return 1
+            fi
+            _retired=1
+        fi
     fi
 
     for _proc in "$_proc_root"/[0-9]*; do
         [ -r "$_proc/cmdline" ] || continue
         _args=$(tr '\000' '\n' 2>/dev/null <"$_proc/cmdline" | head -2)
         [ "$_args" = "$(printf '%s\nrun' "$_det")" ] || continue
+        _retired=1
         _pid=${_proc##*/}
         if [ -n "${Z2K_OW_KILL_CMD:-}" ]; then
             "$Z2K_OW_KILL_CMD" "$_pid" || { [ ! -d "$_proc" ] || return 1; }
@@ -70,10 +79,12 @@ z2k_ow_retire_discovery() {
         [ "$_args" != "$(printf '%s\nrun' "$_det")" ] || return 1
     done
 
+    [ "$_retired" = "1" ] || return 0
     rm -f "$Z2K_LISTS_DIR/discovered-domains.txt" \
         "$Z2K_LISTS_DIR/discovered-domains.txt.etag" \
         "$Z2K_STATE/discovered-domains.txt" \
         "$Z2K_STATE/discovered-domains.txt.etag" || return 1
+    [ "$_owned_init" = "0" ] || rm -f "$_init" || return 1
     return 0
 }
 

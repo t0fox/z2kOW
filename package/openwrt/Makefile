@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=72
+PKG_RELEASE:=73
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -144,6 +144,8 @@ PKG_RELEASE:=72
 # domain routing is active.
 # RELEASE 72: preserve original Discord discovery/STUN datagrams after decoys
 # in the OpenWrt custom.d queues and every circular Discord strategy arm.
+# RELEASE 73: retire the legacy discovery init only with exact package-owned
+# markers, preserving unknown files and running migration after seed extraction.
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
 # lists/strats/webpanel; z2k-owned TG/RT/WARP/manual z2k-detect едут updater binary
 # flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
@@ -202,7 +204,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r72)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r73)
 endef
 
 define Package/z2k-webpanel/description
@@ -319,11 +321,8 @@ if [ ! -f "$${Z2K_ETC:-/etc/z2k}/.payload-initialized" ]; then
     fi
 fi
 . "$$Z2K_ROOT/platform/openwrt/bootstrap.sh"
-z2k_ow_retire_discovery || {
-    echo "z2k-openwrt: postinst: не удалось безопасно удалить старую автодетекцию" >&2
-    exit 1
-}
 z2k_ow_seed_ensure || exit 1
+z2k_ow_retire_discovery || exit 1
 # z2k-owned binaries (TG/RT/manual detect): fresh-install provisioning best-effort
 # (platform/openwrt/binaries.sh reuses au_step_refresh_binaries: manifest
 # hashes + atomic replace, но БЕЗ owner bounce). Транзакцию НЕ роняем: без
