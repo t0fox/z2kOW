@@ -627,6 +627,12 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
 
+      - name: Verify frozen upstream WARP binaries
+        run: |
+          set -eu
+          sh scripts/openwrt/verify-upstream-tags.sh
+          git diff --exit-code r-85.12 -- z2k-warpd/builds
+
       - name: Пересобрать и сверить байт-в-байт
         run: |
           set -eu
@@ -652,6 +658,10 @@ jobs:
             # Z2K_TUNNEL_SECRET через -X, и без секрета байты не воспроизвести.
             # Пробел осознанный и назван вслух, а не забыт.
             [ "$mod" = "mtproxy-client" ] && continue
+            # z2k-warpd/builds are signed upstream Keenetic binaries, pinned
+            # above to r-85.12. OpenWrt compiles its adapted runtime from source
+            # with the nft overlay in the OpenWrt package job below.
+            [ "$mod" = "z2k-warpd" ] && continue
             want="$bdir/$prefix-linux-$sfx"
             if [ ! -f "$want" ]; then
               echo "::error::нет отгружаемого $want"; fail=1; continue

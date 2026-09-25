@@ -117,5 +117,16 @@ else
     no "CI читает build-matrix.tsv" "ссылка на файл" "у CI собственный список"
 fi
 
+# --- 6. Frozen Keenetic WARP blobs are checked against their signed source tag,
+# not rebuilt from the OpenWrt-adapted working tree ---------------------------
+if grep -Fq 'git diff --exit-code r-85.12 -- z2k-warpd/builds' "$CI" \
+   && grep -Fq 'sh scripts/openwrt/verify-upstream-tags.sh' "$CI" \
+   && grep -Fq '[ "$mod" = "z2k-warpd" ] && continue' "$CI"; then
+    ok "CI keeps upstream WARP blobs pinned to r-85.12 and skips the adapted-source rebuild"
+else
+    no "CI keeps upstream WARP blobs pinned to r-85.12 and skips the adapted-source rebuild" \
+       "signed r-85.12 blob check plus z2k-warpd rebuild exclusion" "contract missing"
+fi
+
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
