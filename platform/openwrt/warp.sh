@@ -47,6 +47,7 @@ WARP_LISTS_DIR="${WARP_LISTS_DIR:-${Z2K_ETC:-/etc/z2k}/user-lists/warp}"
 WARP_GAMES_DIR="${WARP_GAMES_DIR:-${Z2K_LISTS_DIR}/warp/games}"
 WARP_ENABLED_FILE="${WARP_ENABLED_FILE:-$WARP_LISTS_DIR/.enabled}"
 WARP_DEVICES_FILE="${WARP_DEVICES_FILE:-$WARP_LISTS_DIR/devices.txt}"
+WARP_DHCP_LEASES="${WARP_DHCP_LEASES:-/tmp/dhcp.leases}"
 WARP_ENDPOINTS="${WARP_ENDPOINTS:-${Z2K_LISTS_DIR:-/usr/lib/z2k/lists}/warp-endpoints.txt}"
 WARP_SET="${WARP_SET:-z2k_warp_dst4}"
 WARP_SET_SRC="${WARP_SET_SRC:-z2k_warp_src4}"
@@ -231,14 +232,82 @@ warp_active_lists() {
     return 0
 }
 
-# Устройства-источники: IPv4 из LAN/private/CGNAT или MAC через neigh.
-# MAC офлайн — скип сейчас (подхват позже). Публичный IP — reject.
+# Resolve one selected MAC only when OpenWrt confirms an authorized active
+# hostapd association and dnsmasq has a current IPv4 lease for that MAC.
+# The association check prevents a leftover lease from routing an offline host.
+_warp_openwrt_active_client_ip() {
+    local _mac _now _obj _json _assoc _authorized _ip
+    _mac=$(printf '%s' "$1" | tr 'A-F-' 'a-f:')
+    case "$_mac" in
+        [0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]) ;;
+        *) return 0 ;;
+    esac
+    command -v ubus >/dev/null 2>&1 || return 0
+    command -v jsonfilter >/dev/null 2>&1 || return 0
+    [ -r "$WARP_DHCP_LEASES" ] || return 0
+    _now=$(date +%s 2>/dev/null)
+    case "$_now" in ''|*[!0-9]*) return 0 ;; esac
+
+    for _obj in $(ubus list 2>/dev/null | awk '/^hostapd\.[A-Za-z0-9_.-]+$/ { print }'); do
+        _json=$(ubus call "$_obj" get_clients 2>/dev/null) || continue
+        _assoc=$(printf '%s' "$_json" | jsonfilter -s "$_json" -e "@.clients['$_mac'].assoc" 2>/dev/null)
+        [ "$_assoc" = true ] || continue
+        _authorized=$(printf '%s' "$_json" | jsonfilter -s "$_json" -e "@.clients['$_mac'].authorized" 2>/dev/null)
+        [ "$_authorized" = true ] || continue
+
+        _ip=$(awk -v want="$_mac" -v now="$_now" '
+            function canon_mac(s) { s = tolower(s); gsub(/-/, ":", s); return s }
+            function valid_ip(s, a, n) {
+                if (s !~ /^[0-9]+(\.[0-9]+){3}$/) return 0
+                n = split(s, a, ".")
+                if (n != 4) return 0
+                for (i = 1; i <= 4; i++)
+                    if (a[i] !~ /^[0-9]+$/ || a[i] + 0 > 255) return 0
+                return 1
+            }
+            NF >= 3 && canon_mac($2) == want && valid_ip($3) {
+                if ($1 !~ /^[0-9]+$/) next
+                expiry = $1 + 0
+                if (expiry != 0 && expiry < now) next
+                rank = expiry == 0 ? 2147483647 : expiry
+                if (rank > best_rank) { best_rank = rank; best = $3 }
+            }
+            END { if (best != "") print best }
+        ' "$WARP_DHCP_LEASES" 2>/dev/null)
+        if [ -n "$_ip" ]; then
+            printf '%s\n' "$_ip"
+            return 0
+        fi
+    done
+    return 0
+}
+
+# Устройства-источники: private/CGNAT IPv4 напрямую, затем активный MAC-клиент.
+# Сосед из kernel neighbour table имеет приоритет над lease fallback;
+# публичный IPv4 и IPv6 всегда отбрасываются.
 warp_devices_ips() {
     [ -s "$WARP_DEVICES_FILE" ] || return 0
-    local _neigh
+    local _neigh _clients
     _neigh=$(ip -4 neigh show 2>/dev/null | awk '$0 ~ /lladdr/ {for (i=1;i<=NF;i++) if ($i=="lladdr") printf "%s %s;", tolower($(i+1)), $1}')
-    awk -v neigh="$_neigh" '
-    BEGIN { n = split(neigh, lines, ";"); for (i = 1; i <= n; i++) { split(lines[i], f, " "); if (f[1] != "") mac[f[1]] = f[2] } }
+    _clients=$(
+        awk '
+            {
+                sub(/\r$/, ""); s = tolower($0); gsub(/-/, ":", s)
+                if (s ~ /^([0-9a-f][0-9a-f]:){5}[0-9a-f][0-9a-f]$/ && !seen[s]++) print s
+            }
+        ' "$WARP_DEVICES_FILE" |
+        while IFS= read -r _mac; do
+            _ip=$(_warp_openwrt_active_client_ip "$_mac")
+            [ -n "$_ip" ] && printf '%s %s;' "$_mac" "$_ip"
+        done
+    )
+    awk -v neigh="$_neigh" -v clients="$_clients" '
+    BEGIN {
+        n = split(clients, lines, ";")
+        for (i = 1; i <= n; i++) { split(lines[i], f, " "); if (f[1] != "") mac[f[1]] = f[2] }
+        n = split(neigh, lines, ";")
+        for (i = 1; i <= n; i++) { split(lines[i], f, " "); if (f[1] != "") mac[f[1]] = f[2] }
+    }
     # --- z2k warp SOURCE filter (canonical; keep byte-identical in all 3 copies) ---
     function ip_ok(s,  o) {
         if (s !~ /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/) return 0
@@ -255,8 +324,8 @@ warp_devices_ips() {
         sub(/\r$/, ""); gsub(/^[ \t]+|[ \t]+$/, "")
         if ($0 == "" || $0 ~ /^#/) next
         s = tolower($0); gsub(/-/, ":", s)
-        if (s ~ /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/) { if ((s in mac) && ip_ok(mac[s])) print mac[s]; next }
-        if (ip_ok($0)) print $0
+        if (s ~ /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/) { if ((s in mac) && ip_ok(mac[s]) && !emitted[mac[s]]++) print mac[s]; next }
+        if (ip_ok($0) && !emitted[$0]++) print $0
     }' "$WARP_DEVICES_FILE"
 }
 

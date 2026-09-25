@@ -187,6 +187,44 @@ EOF
 chmod +x "$T/bin/pidof"
 : > "$T/pidof.out"
 
+# OpenWrt's active Wi-Fi association and dnsmasq lease state stand in for the
+# conservative MAC fallback used when the IPv4 neighbour cache has a gap.
+cat > "$T/bin/ubus" <<EOF
+#!/bin/sh
+case "\$1" in
+    list) printf 'hostapd.wlan0\nhostapd.wlan1\n'; exit 0 ;;
+    call)
+        [ "\$3" = get_clients ] || exit 1
+        cat "$T/hostapd-clients.json"
+        exit 0 ;;
+esac
+exit 1
+EOF
+chmod +x "$T/bin/ubus"
+cat > "$T/bin/jsonfilter" <<EOF
+#!/bin/sh
+expr=""
+while [ \$# -gt 0 ]; do
+    case "\$1" in
+        -s|-i) shift 2 ;;
+        -e) expr="\$2"; shift 2 ;;
+        -q|-a|-t) shift ;;
+        *) shift ;;
+    esac
+done
+mac=\$(printf '%s' "\$expr" | sed -n "s/.*clients.*\\['\\([0-9a-f:]*\\)'\\].*/\\1/p")
+field=\${expr##*.}
+[ -n "\$mac" ] || exit 1
+awk -v want="\$mac" -v field="\$field" '
+    \$1 == want { if (field == "assoc") print \$2; else if (field == "authorized") print \$3; found=1; exit }
+    END { if (!found) print "false" }
+' "$T/hostapd-active.tsv"
+EOF
+chmod +x "$T/bin/jsonfilter"
+: > "$T/hostapd-active.tsv"
+: > "$T/hostapd-clients.json"
+: > "$T/dhcp.leases"
+
 cat > "$T/root/bin/z2k-warpd" <<EOF
 #!/bin/sh
 # mock binary: пишет argv, register/status/version отвечают canned
@@ -211,6 +249,7 @@ export WARP_DOMAIN_STATUS="$T/tmp/warp/domain-status.json"
 export WARP_DOMAIN_ERROR="$T/tmp/warp/domain-setup-error"
 export Z2K_BIN="$T/root/bin" Z2K_RUN="$T/tmp/runtime" Z2K_STATE="$T/etc/state"
 export Z2K_CONFIG="$T/etc/config" Z2K_LISTS_DIR="$T/root/lists"
+export WARP_DHCP_LEASES="$T/dhcp.leases"
 export Z2K_PROC_ROOT="$T/proc"
 export Z2K_WARP_SOURCE_ONLY=1
 # shellcheck disable=SC1090,SC1091
@@ -294,15 +333,60 @@ if grep -qxF '155.133.224.0/22' "$T/overlap.log"; then
 else
     _t_ok
 fi
-# devices: MAC через neigh
-printf 'AA-BB-CC-DD-EE-FF\n192.168.1.50\n8.8.8.8\n' > "$T/etc/user-lists/warp/devices.txt"
-printf '192.168.1.50 dev br-lan lladdr aa:bb:cc:dd:ee:ff REACHABLE\n' > "$T/neigh"
+# p-85.13 devices: direct IPv4, neighbour priority, and active OpenWrt client DB.
+printf '%s\n' \
+    'AA-BB-CC-DD-EE-FF' \
+    '192.168.1.50' \
+    '8.8.8.8' \
+    '22-33-44-55-66-77' \
+    '33:44:55:66:77:88' \
+    '44:55:66:77:88:99' \
+    '55:66:77:88:99:AA' \
+    '66:77:88:99:AA:BB' \
+    '77:88:99:AA:BB:CC' \
+    > "$T/etc/user-lists/warp/devices.txt"
+printf '192.168.1.77 dev br-lan lladdr aa:bb:cc:dd:ee:ff REACHABLE\n' > "$T/neigh"
+_lease_expiry=$(($(date +%s) + 3600))
+cat > "$T/dhcp.leases" <<EOF
+$_lease_expiry aa:bb:cc:dd:ee:ff 192.168.1.200 neighbour-conflict *
+$_lease_expiry 22:33:44:55:66:77 192.168.1.107 laptop *
+$_lease_expiry 33:44:55:66:77:88 192.168.1.108 offline *
+1 44:55:66:77:88:99 192.168.1.109 expired *
+0 55:66:77:88:99:aa 8.8.8.9 public *
+0 66:77:88:99:aa:bb 2001:db8::1 ipv6 *
+$_lease_expiry 77:88:99:aa:bb:cc 192.168.1.110 unknown *
+EOF
+cat > "$T/hostapd-active.tsv" <<'EOF'
+aa:bb:cc:dd:ee:ff true true
+22:33:44:55:66:77 true true
+33:44:55:66:77:88 false false
+44:55:66:77:88:99 true true
+55:66:77:88:99:aa true true
+66:77:88:99:aa:bb true true
+EOF
+cat > "$T/hostapd-clients.json" <<'EOF'
+{"clients":{"aa:bb:cc:dd:ee:ff":{"assoc":true,"authorized":true},"22:33:44:55:66:77":{"assoc":true,"authorized":true}}}
+EOF
 _devs="$(warp_devices_ips)"
 printf '%s' "$_devs" > "$T/devs.log"
-assert_contains "devices: MAC->IP" "$T/devs.log" "192.168.1.50"
-if grep -q '8.8.8.8' "$T/devs.log"; then _t_bad "публичный source принят"; else _t_ok; fi
+assert_contains "devices: direct IPv4" "$T/devs.log" "192.168.1.50"
+assert_contains "devices: neighbour MAC wins over client DB" "$T/devs.log" "192.168.1.77"
+if grep -q '192.168.1.200' "$T/devs.log"; then _t_bad "stale client DB replaced neighbour"; else _t_ok; fi
+assert_contains "devices: active OpenWrt client fallback" "$T/devs.log" "192.168.1.107"
+if grep -q '192.168.1.108\|192.168.1.109\|192.168.1.110' "$T/devs.log"; then
+    _t_bad "offline, expired, or unknown client lease was routed"
+else
+    _t_ok
+fi
+if grep -q '8\.8\.8\.8\|8\.8\.8\.9\|2001:db8' "$T/devs.log"; then
+    _t_bad "public or IPv6 source reached the IPv4 set"
+else
+    _t_ok
+fi
 printf '11:22:33:44:55:66\n' > "$T/etc/user-lists/warp/devices.txt"
-assert_eq "devices: офлайн-MAC скип" "" "$(warp_devices_ips)"
+warp_devices_ips > "$T/offline.log"; _offline_rc=$?
+assert_eq "devices: offline MAC is nonfatal" "0" "$_offline_rc"
+assert_eq "devices: offline MAC is skipped" "" "$(cat "$T/offline.log")"
 printf '1.1.1.1\n' > "$T/etc/user-lists/warp/devices.txt"
 
 # --- nft shapes: mark/mss/fwd/nat, приоритеты, exact mark-op ---
