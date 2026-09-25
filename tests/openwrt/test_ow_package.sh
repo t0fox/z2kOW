@@ -77,8 +77,8 @@ _wrrel="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$REPO/package/z2k-warp-runtime/M
 assert_contains "webpanel dep == adapter version" "$MK" "EXTRA_DEPENDS:=z2k-adapter (>=${_aver}-r${_arel})"
 assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapret2-runtime (>=${_rver}-r${_rrel})"
 assert_contains "adapter dep == WARP runtime version" "$MK" "z2k-warp-runtime (>=${_wrver}-r${_wrrel})"
-# The ownership-safe legacy discovery retirement must be installable over r72.
-assert_eq "adapter release bumped for ownership-safe discovery retirement" "73" "$_arel"
+# The p-85.13 snapshot and r-85.12 runtime change must upgrade the previous adapter.
+assert_eq "adapter release bumped for p-85.13/r-85.12 sync" "74" "$_arel"
 assert_contains "nounset CGI probe remains guarded" "$REPO/platform/openwrt/customd.sh" \
     'nounset must not abort this probe'
 assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwrt/env.sh" \

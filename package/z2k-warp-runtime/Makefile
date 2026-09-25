@@ -1,6 +1,6 @@
 # OpenWrt-only z2k-warpd build with the nft PairSet backend.
 # The upstream prebuilt binaries retain Keenetic's ipset backend; this package
-# compiles the same p-85.10 source for the router and installs it at a
+# compiles the same r-85.12 source for the router and installs it at a
 # package-owned path so the WARP feature updater cannot overwrite it.
 
 # Capture MAKEFILE_LIST before rules.mk adds SDK files to it. Resolve the
@@ -10,7 +10,7 @@ Z2K_TREE:=$(realpath $(dir $(realpath $(lastword $(MAKEFILE_LIST))))/../..)
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-warp-runtime
-PKG_VERSION:=85.10.0
+PKG_VERSION:=85.12.0
 PKG_RELEASE:=1
 PKGARCH:=aarch64_cortex-a53
 PKG_MAINTAINER:=z2k contributors
@@ -27,7 +27,7 @@ define Package/z2k-warp-runtime
 endef
 
 define Package/z2k-warp-runtime/description
-OpenWrt-target z2k-warpd built from the signed p-85.10 source tree. The
+OpenWrt-target z2k-warpd built from the signed r-85.12 source tree. The
 package enables passive IPv4 DNS observation and client-scoped nft routing;
 the upstream Keenetic binary remains unchanged and keeps its ipset backend.
 endef
@@ -49,7 +49,7 @@ define Build/Compile
 	cd $(PKG_BUILD_DIR)/src && go test -tags openwrt -overlay openwrt-overlay/overlay.json ./...
 	cd $(PKG_BUILD_DIR)/src && GOTOOLCHAIN=local GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
 		go build -tags openwrt -overlay openwrt-overlay/overlay.json -trimpath -buildvcs=false \
-		-ldflags="-s -w -X main.version=p-85.10-openwrt" \
+		-ldflags="-s -w -X main.version=r-85.12-openwrt" \
 		-o $(PKG_BUILD_DIR)/z2k-warpd ./cmd/z2k-warpd
 endef
 

@@ -434,6 +434,9 @@ jobs:
           # проверка вырождается в skip, то есть в отсутствие защиты.
           fetch-depth: 0
 
+      - name: Fetch and verify pinned upstream WARP tags
+        run: sh scripts/openwrt/verify-upstream-tags.sh
+
       - name: Install lua
         # test_tcp16_lua.sh гоняет lua-харнесс. Без lua набор молча
         # пропускает его (штатная деградация для разработчика без lua) — то
@@ -817,6 +820,9 @@ jobs:
           # Полная история: release/build tooling сверяет ref'ы и regen.
           fetch-depth: 0
 
+      - name: Fetch and verify pinned upstream WARP tags
+        run: sh scripts/openwrt/verify-upstream-tags.sh
+
       # Пин — из скрипта, а не из YAML (§3 closure, single source of truth).
       - name: Resolve SDK pin
         id: sdk
@@ -922,11 +928,12 @@ jobs:
       - name: Generate OpenWrt candidate manifest (temp artifact, not committed)
         run: |
           set -eu -o pipefail
+          git show p-85.13:UPDATES.json > "$RUNNER_TEMP/p-85.13-UPDATES.json"
           # --refresh-stale-hashes: дерево feature-ветки новее подписанного
           # snapshot'а; кандидат несёт правду дерева (имена — в provenance
           # через ci_snapshot, production-путь этот флаг не ставит).
           sh scripts/openwrt/gen-openwrt-manifest.sh \
-            --source-manifest UPDATES.json --tree "$GITHUB_WORKSPACE" \
+            --source-manifest "$RUNNER_TEMP/p-85.13-UPDATES.json" --tree "$GITHUB_WORKSPACE" \
             --ref "$(git rev-parse --short HEAD)" \
             --api-min "$(grep -E '^[[:space:]]*[0-9]+' package/openwrt/ADAPTER_API | tr -d '[:space:]')" \
             --refresh-stale-hashes \

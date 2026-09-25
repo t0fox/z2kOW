@@ -66,7 +66,7 @@ WARP_DOMAINS="${WARP_DOMAINS:-/tmp/z2k-warp/domains.v1}"
 WARP_TABLE="${WARP_TABLE:-989}"
 WARP_MARK="${WARP_MARK:-0x989}"
 WARP_RULE_PREF="${WARP_RULE_PREF:-90}"
-WARP_READY_WAIT="${WARP_READY_WAIT:-120}"     # сколько enable ждёт ready, секунд
+WARP_READY_WAIT="${WARP_READY_WAIT:-180}"     # первый поиск узла до 60 с плюс обычный подъём туннеля
 WARP_LEGACY_LIST="${WARP_LEGACY_LIST:-$ZAPRET2_DIR/lists/game-warp-ips.txt}"
 # Остатки usque-эпохи — только для migrate.
 WARP_LEGACY_BIN="${WARP_LEGACY_BIN:-/opt/sbin/z2k-usque}"
@@ -221,9 +221,8 @@ warp_ipset_load() {
 
 
 # ---- устройства «всё в WARP» (B) ------------------------------------------------
-# devices.txt: IPv4 или MAC по строке. MAC → IP через таблицу соседей; офлайн-
-# устройство просто пропускается и подхватится следующим selfheal. Hostname —
-# нет: это DNS-слой, которого у нас нет по решению владельца.
+# devices.txt: IPv4 или MAC по строке. MAC → IP через таблицу соседей либо
+# активную запись Keenetic; офлайн-устройство пропускается до selfheal.
 warp_devices_ips() {
     [ -s "$WARP_DEVICES_FILE" ] || return 0
     # Таблица соседей — переменной, не временным файлом: каталог для файла
@@ -231,13 +230,31 @@ warp_devices_ips() {
     # весь список устройств молча терялся (ловилось CI, не глазами).
     # Одной строкой через «;»: многострочное значение в awk -v — ошибка
     # «newline in string» и у BSD awk, и у mawk.
-    local neigh
+    local neigh hotspot ndmc_bin="${WARP_NDMC:-ndmc}"
     # Только IPv4: `ip neigh` без -4 отдаёт и fe80::… с тем же MAC, запись
     # перекрывала IPv4, в restore уезжал IPv6 для hash:ip inet — и весь поток
     # отвергался, сет оставался пустым («устройств: 0» при записанном MAC).
     neigh=$(ip -4 neigh show 2>/dev/null | awk '$0 ~ /lladdr/ {for (i=1;i<=NF;i++) if ($i=="lladdr") printf "%s %s;", tolower($(i+1)), $1}')
-    awk -v neigh="$neigh" '
-    BEGIN { n = split(neigh, lines, ";"); for (i = 1; i <= n; i++) { split(lines[i], f, " "); if (f[1] != "") mac[f[1]] = f[2] } }
+    [ -x /bin/ndmc ] && [ -z "${WARP_NDMC:-}" ] && ndmc_bin=/bin/ndmc
+    if command -v "$ndmc_bin" >/dev/null 2>&1; then
+        # The panel gets its device list from this same Keenetic database.
+        # Its active IPv4 survives gaps in the Linux neighbour cache. Never
+        # use an offline registration: its old IP may now belong to someone else.
+        hotspot=$(LD_LIBRARY_PATH= "$ndmc_bin" -c "show ip hotspot" 2>/dev/null | awk '
+        function flush() { if (active && mac != "" && ip != "") printf "%s %s;", tolower(mac), ip }
+        {
+            sub(/^[ \t]+/, ""); k=$1; sub(/^[^:]*:[ \t]*/, ""); v=$0
+            if (k == "mac:") { flush(); mac=v; ip=""; active=0 }
+            else if (k == "ip:") ip=v
+            else if (k == "active:") active=(v == "yes")
+        }
+        END { flush() }')
+    fi
+    awk -v neigh="$neigh" -v hotspot="$hotspot" '
+    BEGIN {
+        n = split(hotspot, lines, ";"); for (i = 1; i <= n; i++) { split(lines[i], f, " "); if (f[1] != "") mac[f[1]] = f[2] }
+        n = split(neigh, lines, ";"); for (i = 1; i <= n; i++) { split(lines[i], f, " "); if (f[1] != "") mac[f[1]] = f[2] }
+    }
     # --- z2k warp SOURCE filter (canonical; keep byte-identical in both copies) ---
     # Поле означает УСТРОЙСТВО В ЛОКАЛЬНОЙ СЕТИ, и фильтр обязан это отражать.
     # Раньше принималось всё с первым октетом 1-255 — включая 127.0.0.1 и любой
@@ -505,8 +522,8 @@ warp_fetch_engine() {
     return 0
 }
 
-# Регистрация устройства у Cloudflare: напрямую (десинк nfqws2 пробивает
-# cloudflareclient.com), затем через VPS-релей. Есть device.json — движок его
+# Регистрация устройства у Cloudflare: напрямую, если доступно, затем через
+# VPS-релей. Есть device.json — движок его
 # проверяет, новое устройство не заводится.
 #
 # Вынесено из warp_install ОТДЕЛЬНОЙ функцией, потому что регистрация нужна не
@@ -829,13 +846,16 @@ warp_status() {
     domain_error=$(_json_str "$WARP_DOMAIN_STATUS" error)
     [ -f "$WARP_DOMAIN_STATUS" ] || domain_error=unavailable
     domain_error=$(printf '%s' "$domain_error" | tr ' \t\r\n' '_' | cut -c1-120)
-    printf 'installed=%s enabled=%s ready=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s domain_active=%s domain_rules=%s domain_pairs=%s domain_error=%s\n' \
+    printf 'installed=%s enabled=%s ready=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s domain_active=%s domain_rules=%s domain_pairs=%s domain_error=%s edge_colo=%s edge_country=%s edge_rtt_ms=%s edge_checked_at=%s edge_selection=%s\n' \
         "$installed" "${GAME_WARP_ENABLED_OVERRIDE:-$(warp_flag)}" "$ready" \
         "$(_json_str "$WARP_STATUS" transport)" "$(_json_str "$WARP_STATUS" endpoint)" \
         "$(_json_str "$WARP_STATUS" iface)" "$(_json_str "$WARP_STATUS" addr)" \
         "${entries:-0}" "${devices:-0}" "$(_json_str "$WARP_STATUS" last_error)" \
         "$(_json_raw "$WARP_STATUS" mem_kb)" "$plan" "$plan_err" "$lic" \
-        "$domain_active" "${domain_rules:-0}" "${domain_pairs:-0}" "$domain_error"
+        "$domain_active" "${domain_rules:-0}" "${domain_pairs:-0}" "$domain_error" \
+        "$(_json_str "$WARP_STATUS" edge_colo)" "$(_json_str "$WARP_STATUS" edge_country)" \
+        "$(_json_raw "$WARP_STATUS" edge_rtt_ms)" "$(_json_raw "$WARP_STATUS" edge_checked_at)" \
+        "$(_json_str "$WARP_STATUS" edge_selection)"
 }
 
 # Зачистка usque-эпохи — по уликам, а не по имени, и пакет — один раз.

@@ -73,7 +73,17 @@ grep -q 'run_task warp-games-seed' "$SCHED" \
     || no "сид запускается через run_task" "run_task" "иначе"
 
 # --- 2. the browser must be made to load the new panel ----------------------
-cur=$(sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$MAN" | head -1)
+payload_manifest() {
+    _payload_sha="$(tr -d '\r' < "$HERE/tests/openwrt/BASELINE" 2>/dev/null)"
+    if [ -n "$_payload_sha" ] \
+       && git -C "$HERE" cat-file -e "$_payload_sha:UPDATES.json" 2>/dev/null; then
+        git -C "$HERE" show "$_payload_sha:UPDATES.json"
+    else
+        cat "$MAN"
+    fi
+}
+_manifest="$(payload_manifest)"
+cur="$(printf '%s\n' "$_manifest" | sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
 [ -n "$cur" ] && ok "текущий релиз читается из манифеста ($cur)" \
               || no "текущий релиз читается из манифеста" "тег" "пусто"
 

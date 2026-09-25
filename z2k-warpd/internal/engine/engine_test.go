@@ -14,9 +14,191 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/necronicle/z2k/z2k-warpd/internal/account"
+	"github.com/necronicle/z2k/z2k-warpd/internal/edgepick"
 	"github.com/necronicle/z2k/z2k-warpd/internal/status"
 	"github.com/necronicle/z2k/z2k-warpd/internal/transport"
 )
+
+func TestForeignEdgeSelectedBeforeFasterDomestic(t *testing.T) {
+	h := newHarness(t, baseDevice(), map[string]bool{"wg:2408": true})
+	ru := account.Step{Transport: "wg", Host: "8.6.112.1", Port: 2408}
+	fi := account.Step{Transport: "wg", Host: "188.114.96.23", Port: 2408}
+	cfg := h.config()
+	cfg.EdgeCandidates = []account.Step{ru, fi}
+	cfg.EdgeCachePath = filepath.Join(h.dir, "edge-cache.json")
+	cfg.EdgeWAN = func(string) (string, error) { return "usb0|192.0.2.2", nil }
+	cfg.GeoProbe = func(context.Context, string) (edgepick.Meta, time.Duration, int, error) {
+		h.mu.Lock()
+		host := h.made[len(h.made)-1].step.Host
+		h.mu.Unlock()
+		if host == fi.Host {
+			return edgepick.Meta{Colo: "HEL", Country: "FI"}, 40 * time.Millisecond, 0, nil
+		}
+		return edgepick.Meta{Colo: "DME", Country: "RU"}, 5 * time.Millisecond, 0, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = Run(ctx, cfg); close(done) }()
+	waitFor(t, "foreign edge ready", func() bool {
+		s := readStatus(h)
+		if s == nil || !s.Ready {
+			return false
+		}
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return len(h.made) >= 3 && h.made[len(h.made)-1].step.Host == fi.Host
+	})
+	if s := readStatus(h); s.EdgeColo != "HEL" || s.EdgeCountry != "FI" || s.EdgeRTTMs != 40 || s.EdgeSelection != "foreign" {
+		t.Fatalf("selected edge status: %+v", s)
+	}
+	h.mu.Lock()
+	now := h.now
+	h.mu.Unlock()
+	if got := edgepick.LoadCache(cfg.EdgeCachePath, "usb0|192.0.2.2", now); len(got) != 2 || got[0].Country != "RU" || got[1].Country != "FI" {
+		t.Fatalf("verified cache: %+v", got)
+	}
+	cancel()
+	<-done
+}
+
+func TestForeignScanCancellationLeavesNoCacheOrReadyRoute(t *testing.T) {
+	h := newHarness(t, baseDevice(), map[string]bool{"wg:2408": true})
+	cfg := h.config()
+	cfg.EdgeCandidates = []account.Step{{Transport: "wg", Host: "8.6.112.1", Port: 2408}}
+	cfg.EdgeCachePath = filepath.Join(h.dir, "edge-cache.json")
+	cfg.EdgeWAN = func(string) (string, error) { return "usb0|192.0.2.2", nil }
+	started := make(chan struct{})
+	cfg.GeoProbe = func(ctx context.Context, _ string) (edgepick.Meta, time.Duration, int, error) {
+		close(started)
+		<-ctx.Done()
+		return edgepick.Meta{}, 0, 100, ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = Run(ctx, cfg); close(done) }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("scan did not start")
+	}
+	if s := readStatus(h); s == nil || s.Ready {
+		t.Fatalf("scan marked ready: %+v", s)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelled scan did not stop")
+	}
+	if _, err := os.Stat(cfg.EdgeCachePath); !os.IsNotExist(err) {
+		t.Fatalf("partial cache left after cancel: %v", err)
+	}
+}
+
+func TestForeignEdgeFailureFallsThroughToDomestic(t *testing.T) {
+	h := newHarness(t, baseDevice(), map[string]bool{"wg:2408": true})
+	fi := account.Step{Transport: "wg", Host: "188.114.96.23", Port: 2408}
+	ru := account.Step{Transport: "wg", Host: "8.6.112.1", Port: 2408}
+	cfg := h.config()
+	cfg.EdgeCandidates = []account.Step{fi, ru}
+	cfg.EdgeCachePath = filepath.Join(h.dir, "edge-cache.json")
+	cfg.EdgeWAN = func(string) (string, error) { return "usb0|192.0.2.2", nil }
+	cfg.GeoProbe = func(context.Context, string) (edgepick.Meta, time.Duration, int, error) {
+		h.mu.Lock()
+		host := h.made[len(h.made)-1].step.Host
+		h.mu.Unlock()
+		if host == fi.Host {
+			return edgepick.Meta{Colo: "HEL", Country: "FI"}, 30 * time.Millisecond, 0, nil
+		}
+		return edgepick.Meta{Colo: "DME", Country: "RU"}, 10 * time.Millisecond, 0, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = Run(ctx, cfg); close(done) }()
+	waitFor(t, "foreign ready", func() bool { s := readStatus(h); return s != nil && s.Ready && s.EdgeSelection == "foreign" })
+	h.mu.Lock()
+	foreignTransport := h.made[len(h.made)-1]
+	h.mu.Unlock()
+	foreignTransport.die()
+	waitFor(t, "domestic fallback ready", func() bool { s := readStatus(h); return s != nil && s.Ready && s.EdgeSelection == "domestic" })
+	cancel()
+	<-done
+}
+
+func TestUnlocatedEdgeIsNotPreferredOverLocatedDomestic(t *testing.T) {
+	h := newHarness(t, baseDevice(), map[string]bool{"wg:2408": true})
+	unknown := account.Step{Transport: "wg", Host: "8.6.112.1", Port: 2408}
+	ru := account.Step{Transport: "wg", Host: "188.114.96.23", Port: 2408}
+	cfg := h.config()
+	cfg.EdgeCandidates = []account.Step{unknown, ru}
+	cfg.EdgeCachePath = filepath.Join(h.dir, "edge-cache.json")
+	cfg.EdgeWAN = func(string) (string, error) { return "usb0|192.0.2.2", nil }
+	cfg.GeoProbe = func(context.Context, string) (edgepick.Meta, time.Duration, int, error) {
+		h.mu.Lock()
+		host := h.made[len(h.made)-1].step.Host
+		h.mu.Unlock()
+		if host == unknown.Host {
+			return edgepick.Meta{}, 0, 100, errors.New("meta HTTPS timeout")
+		}
+		return edgepick.Meta{Colo: "DME", Country: "RU"}, 20 * time.Millisecond, 0, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = Run(ctx, cfg); close(done) }()
+	waitFor(t, "located domestic ready", func() bool {
+		s := readStatus(h)
+		return s != nil && s.Ready && s.EdgeSelection == "domestic"
+	})
+	h.mu.Lock()
+	selected := h.made[len(h.made)-1].step.Host
+	h.mu.Unlock()
+	if selected != ru.Host {
+		t.Fatalf("selected unlocated endpoint %s", selected)
+	}
+	h.mu.Lock()
+	now := h.now
+	h.mu.Unlock()
+	if got := edgepick.LoadCache(cfg.EdgeCachePath, "usb0|192.0.2.2", now); len(got) != 1 || got[0].Step != ru {
+		t.Fatalf("unlocated endpoint entered preferred cache: %+v", got)
+	}
+	cancel()
+	<-done
+}
+
+func TestCachedForeignEdgeRecheckedOnlyOnMatchingWAN(t *testing.T) {
+	for _, tc := range []struct{ name, wan, firstHost string }{
+		{"same WAN", "usb0|192.0.2.2", "188.114.96.23"},
+		{"changed WAN", "wifi0|198.51.100.3", "8.6.112.1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, baseDevice(), map[string]bool{"wg:2408": true})
+			fi := account.Step{Transport: "wg", Host: "188.114.96.23", Port: 2408}
+			ru := account.Step{Transport: "wg", Host: "8.6.112.1", Port: 2408}
+			cfg := h.config()
+			cfg.EdgeCandidates = []account.Step{ru, fi}
+			cfg.EdgeCachePath = filepath.Join(h.dir, "edge-cache.json")
+			if err := edgepick.SaveCache(context.Background(), cfg.EdgeCachePath, "usb0|192.0.2.2", []edgepick.Result{{Step: fi, Country: "FI", Colo: "HEL", CheckedAt: h.now}}); err != nil {
+				t.Fatal(err)
+			}
+			cfg.EdgeWAN = func(string) (string, error) { return tc.wan, nil }
+			cfg.GeoProbe = func(context.Context, string) (edgepick.Meta, time.Duration, int, error) {
+				return edgepick.Meta{Colo: "HEL", Country: "FI"}, 30 * time.Millisecond, 0, nil
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan struct{})
+			go func() { _ = Run(ctx, cfg); close(done) }()
+			waitFor(t, "ready after cache decision", func() bool { s := readStatus(h); return s != nil && s.Ready })
+			h.mu.Lock()
+			first := h.made[0].step.Host
+			h.mu.Unlock()
+			if first != tc.firstHost {
+				t.Fatalf("first scanned host %s, want %s", first, tc.firstHost)
+			}
+			cancel()
+			<-done
+		})
+	}
+}
 
 // fakeTransport — Open удаётся по таблице; Health управляется тестом.
 type fakeTransport struct {
@@ -103,13 +285,16 @@ func (h *harness) config() Config {
 			h.cmds = append(h.cmds, name+" "+strings.Join(args, " "))
 			if name == "iptables" && len(args) > 4 {
 				key := strings.Join(args[4:], " ")
+				if args[3] == "-I" && len(args) > 5 && args[5] == "1" {
+					key = args[4] + " " + strings.Join(args[6:], " ")
+				}
 				switch args[3] {
 				case "-C":
 					if h.rules[key] {
 						return "", nil
 					}
 					return "", errors.New("no rule")
-				case "-A":
+				case "-A", "-I":
 					h.rules[key] = true
 				case "-D":
 					delete(h.rules, key)
@@ -205,7 +390,7 @@ func TestFirstFailsSecondWorksAndRemembersLastGood(t *testing.T) {
 		t.Fatal("status.json must be removed on exit")
 	}
 	joined := strings.Join(h.cmds, "\n")
-	for _, want := range []string{"ip addr add 172.16.0.2/32 dev z2ktun0", "-A FORWARD -o z2ktun0 -j ACCEPT", "-A POSTROUTING -o z2ktun0 -j MASQUERADE", "-D POSTROUTING -o z2ktun0 -j MASQUERADE", "-D FORWARD -o z2ktun0 -j ACCEPT", "ip link set dev z2ktun0 down"} {
+	for _, want := range []string{"ip addr add 172.16.0.2/32 dev z2ktun0", "-I FORWARD 1 -o z2ktun0 -m mark --mark 0x989/0x989 -j ACCEPT", "-I FORWARD 1 -i z2ktun0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT", "-A POSTROUTING -o z2ktun0 -j MASQUERADE", "-D POSTROUTING -o z2ktun0 -j MASQUERADE", "-D FORWARD -o z2ktun0 -m mark --mark 0x989/0x989 -j ACCEPT", "-D FORWARD -i z2ktun0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT", "ip link set dev z2ktun0 down"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing %q in\n%s", want, joined)
 		}

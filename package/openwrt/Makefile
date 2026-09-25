@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=73
+PKG_RELEASE:=74
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -144,6 +144,9 @@ PKG_RELEASE:=73
 # domain routing is active.
 # RELEASE 72: preserve original Discord discovery/STUN datagrams after decoys
 # in the OpenWrt custom.d queues and every circular Discord strategy arm.
+# RELEASE 74 (p-85.13 payload / r-85.12 WARP runtime): sync upstream's
+# foreign-edge selection and active-client payload while keeping the OpenWrt
+# nft PairSet backend and compiling the runtime from its own pinned source.
 # RELEASE 73: retire the legacy discovery init only with exact package-owned
 # markers, preserving unknown files and running migration after seed extraction.
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
@@ -179,7 +182,7 @@ define Package/z2k-adapter
   # без constraint'а. Нижняя граница = текущий runtime APK; консистентность
   # с package/z2k-runtime/Makefile сторожит тест. Lockstep: snapshot бампит все.
   DEPENDS:=+kmod-nft-queue +kmod-tun +kmod-nfnetlink-log +conntrack +openssl-util +z2k-zapret2-runtime +z2k-warp-runtime
-  EXTRA_DEPENDS:=z2k-zapret2-runtime (>=1.0.5.1-r4) z2k-warp-runtime (>=85.10.0-r1)
+  EXTRA_DEPENDS:=z2k-zapret2-runtime (>=1.0.5.1-r4) z2k-warp-runtime (>=85.12.0-r1)
 endef
 
 define Package/z2k-adapter/description
@@ -204,7 +207,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r73)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r74)
 endef
 
 define Package/z2k-webpanel/description

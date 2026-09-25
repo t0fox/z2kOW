@@ -22,14 +22,13 @@
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 GEN="$ROOT/scripts/gen_file_hashes.sh"
-MANIFEST="$ROOT/UPDATES.json"
 IDX="$ROOT/webpanel/www/index.html"
 
 PASS=0; FAIL=0
 ok() { PASS=$((PASS+1)); printf '[PASS] %s\n' "$1"; }
 no() { FAIL=$((FAIL+1)); printf '[FAIL] %s\n      %s\n' "$1" "$2"; }
 
-for f in "$GEN" "$MANIFEST" "$IDX"; do
+for f in "$GEN" "$IDX" "$ROOT/UPDATES.json"; do
     [ -f "$f" ] || { no "файлы на месте" "нет $f"; printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"; exit 1; }
 done
 
@@ -41,9 +40,23 @@ else
        "в scripts/gen_file_hashes.sh нет дописывания в changed_files — грабли вернутся"
 fi
 
-# 2) Кеш-бастер в index.html совпадает с current. Если разошлись — генератор
-#    не запускали после смены версии, и людям уедет старый кеш.
-cur=$(sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$MANIFEST" | head -1)
+# The adapter keeps its signed integration manifest frozen while the candidate
+# payload advances. Compare the panel cache-buster to the pinned payload source
+# when that baseline is available, falling back to the published manifest.
+payload_manifest() {
+    _payload_sha="$(tr -d '\r' < "$ROOT/tests/openwrt/BASELINE" 2>/dev/null)"
+    if [ -n "$_payload_sha" ] \
+       && git -C "$ROOT" cat-file -e "$_payload_sha:UPDATES.json" 2>/dev/null; then
+        git -C "$ROOT" show "$_payload_sha:UPDATES.json"
+    else
+        cat "$ROOT/UPDATES.json"
+    fi
+}
+_manifest="$(payload_manifest)"
+
+# 2) Кеш-бастер в index.html совпадает с current payload. Если разошлись —
+#    генератор не запускали после смены версии, и людям уедет старый кеш.
+cur="$(printf '%s\n' "$_manifest" | sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
 idx=$(sed -n 's/.*app\.js?v=\([A-Za-z0-9._-]*\)".*/\1/p' "$IDX" | head -1)
 if [ -n "$cur" ] && [ "$cur" = "$idx" ]; then
     ok "кеш-бастер панели совпадает с current ($cur)"
@@ -53,7 +66,7 @@ fi
 
 # 3) index.html объявлен в changed_files последней записи. Пропускаем, если он
 #    в этом релизе и правда не менялся — тогда объявлять нечего.
-last=$(grep '^{"v":' "$MANIFEST" | tail -1)
+last="$(printf '%s\n' "$_manifest" | grep '^{"v":' | tail -1)"
 if printf '%s' "$last" | grep -q '"webpanel/www/index.html"'; then
     ok "index.html объявлен в changed_files последнего релиза"
 else

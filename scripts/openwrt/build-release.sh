@@ -108,7 +108,7 @@ MANIFEST_CURRENT="$(sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/
 [ -n "$MANIFEST_CURRENT" ] || die "в манифесте нет current"
 # seed собираем ТУТ же, из ЭТОГО дерева (не из артефакта): состав обязан
 # совпасть с тем, что поедет в пакет.
-sh "$ROOT/package/openwrt/make-seed.sh" "$ROOT" "$SEED_TMP/seed.tar.gz" >/dev/null 2>&1 \
+Z2K_SEED_TAG="$MANIFEST_CURRENT" sh "$ROOT/package/openwrt/make-seed.sh" "$ROOT" "$SEED_TMP/seed.tar.gz" >/dev/null 2>&1 \
     || die "make-seed.sh упал"
 SEED_TAG="$(tar -xzOf "$SEED_TMP/seed.tar.gz" usr/lib/z2k/share/seed.meta 2>/dev/null | sed -n 's/^tag=//p' | head -1)"
 SEED_REF="$(tar -xzOf "$SEED_TMP/seed.tar.gz" usr/lib/z2k/share/seed.meta 2>/dev/null | sed -n 's/^ref=//p' | head -1)"
@@ -278,6 +278,11 @@ note "dist: $(ls "$OUT" | tr '\n' ' ')"
 export OW_RELEASE SDK_URL SDK_SHA256
 export SDK_DIR="$SDK" TARGET ARCH SRC_COMMIT PKG_VERSION PKG_RELEASE
 export ADAPTER_API SEED_TAG SEED_REF VERIFIED_REMOTE MANIFEST_CURRENT
+UPSTREAM_PAYLOAD_SHA="$(tr -d ' \t\r\n' < "$ROOT/tests/openwrt/BASELINE")"
+WARP_RUNTIME_SOURCE_SHA="$(tr -d ' \t\r\n' < "$ROOT/tests/openwrt/WARP_RUNTIME_BASELINE")"
+[ -n "$UPSTREAM_PAYLOAD_SHA" ] && [ -n "$WARP_RUNTIME_SOURCE_SHA" ] \
+    || die "upstream payload/runtime source baseline отсутствует"
+export UPSTREAM_PAYLOAD_SHA WARP_RUNTIME_SOURCE_SHA
 # Runtime pin — из его Makefile (единственное место правды, §3).
 # TAG — из Z2K_RT_TAG (PKG_VERSION несёт только upstream digits: APK-грамматика
 # запрещает дефисы, а repack идёт счётчиком PKG_RELEASE).

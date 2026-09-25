@@ -94,6 +94,16 @@ case "$_seed_ref" in
 esac
 git -C "$REPO" cat-file -e "${_seed_ref}^{commit}" 2>/dev/null \
     && _t_ok || _t_bad "seed.ref нет локально: $_seed_ref"
+# CI may build a signed upstream payload snapshot while the adapter's
+# published UPDATES.json remains frozen; seed.tag must follow that candidate.
+_payload_sha="$(tr -d '\r' < "$REPO/tests/openwrt/BASELINE")"
+_payload_cur="$(git -C "$REPO" show "$_payload_sha:UPDATES.json" 2>/dev/null \
+    | sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+Z2K_SEED_TAG="$_payload_cur" sh "$REPO/package/openwrt/make-seed.sh" "$REPO" "$T/seed-snapshot.tar.gz" \
+    >/dev/null 2>&1 || { echo "FAIL[ow-release-build]: candidate make-seed" >&2; exit 1; }
+_snapshot_tag="$(tar -xzOf "$T/seed-snapshot.tar.gz" usr/lib/z2k/share/seed.meta 2>/dev/null \
+    | sed -n 's/^tag=//p' | head -1)"
+assert_eq "seed follows candidate payload current" "$_payload_cur" "$_snapshot_tag"
 # seed.meta внутри tarball — та же, что стартует payload (payload.meta копия)
 _seed_meta="$(tar -xzOf "$T/seed.tar.gz" usr/lib/z2k/share/seed.meta 2>/dev/null)"
 _pay_meta="$(tar -xzOf "$T/seed.tar.gz" usr/lib/z2k/share/payload.meta 2>/dev/null)"
@@ -123,12 +133,15 @@ SRC_COMMIT="abc123" PKG_VERSION="0.1.0" PKG_RELEASE="1" ADAPTER_API="1"
 SEED_TAG="p-2" SEED_REF="p-2" VERIFIED_REMOTE="false" MANIFEST_CURRENT="p-2"
 CI_SNAPSHOT="true" PRODUCTION_RELEASE="false" VERIFIED_SDK="true"
 RUNTIME_TAG="v9.9-test" RUNTIME_URL="https://example.com/rt.tar.gz" RUNTIME_SHA256="TESTHASH"
+UPSTREAM_PAYLOAD_SHA="53cd74466094c60219b875073efbee50d058ddf3"
+WARP_RUNTIME_SOURCE_SHA="0cc9207fde8aa60ba0b170a918f66643af7e364b"
 OUT="$T/provenance.json"
 export OW_RELEASE SDK_URL SDK_SHA256 SDK_DIR TARGET ARCH SRC_COMMIT
 export PKG_VERSION PKG_RELEASE ADAPTER_API SEED_TAG SEED_REF
 export VERIFIED_REMOTE MANIFEST_CURRENT OUT
 export CI_SNAPSHOT PRODUCTION_RELEASE VERIFIED_SDK
 export RUNTIME_TAG RUNTIME_URL RUNTIME_SHA256
+export UPSTREAM_PAYLOAD_SHA WARP_RUNTIME_SOURCE_SHA
 sh "$REPO/scripts/openwrt/write-provenance.sh" >/dev/null 2>&1
 assert_eq "provenance rc" "0" "$?"
 python3 - "$T/provenance.json" <<'PYEOF'
@@ -138,7 +151,8 @@ need = ('openwrt_release sdk_url sdk_sha256 sdk_dir target arch source_commit '
         'package_version package_release adapter_api seed_tag seed_ref '
         'seed_ref_verified_remote manifest_current built_at_utc '
         'ci_snapshot production_release verified_sdk '
-        'runtime_tag runtime_url runtime_sha256').split()
+        'runtime_tag runtime_url runtime_sha256 upstream_payload_sha '
+        'warp_runtime_source_sha').split()
 miss = [k for k in need if k not in d or d[k] in (None, '')]
 if miss:
     sys.stderr.write('MISSING: %s\n' % ' '.join(miss))
@@ -146,6 +160,8 @@ if miss:
 assert d['seed_ref_verified_remote'] is False, 'bool, not string'
 assert d['ci_snapshot'] is True and d['production_release'] is False
 assert d['verified_sdk'] is True
+assert d['upstream_payload_sha'] == '53cd74466094c60219b875073efbee50d058ddf3'
+assert d['warp_runtime_source_sha'] == '0cc9207fde8aa60ba0b170a918f66643af7e364b'
 assert d['adapter_api'] == '1' and d['arch'] == 'aarch64_cortex-a53'
 print('provenance shape ok')
 PYEOF

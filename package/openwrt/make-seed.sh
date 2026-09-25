@@ -83,7 +83,7 @@ rm -rf "$_tmpconf"
 # seed_ensure пишет installed-tag из meta только при ОТСУТСТВИИ tag
 # (существующий tag не трогает никогда — иначе package upgrade со старым
 # seed откатил бы версию).
-_seed_tag="$(sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$TREE/UPDATES.json" | head -1)"
+_seed_tag="${Z2K_SEED_TAG:-$(sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$TREE/UPDATES.json" | head -1)}"
 [ -n "$_seed_tag" ] || { echo "make-seed: нет current в $TREE/UPDATES.json" >&2; exit 1; }
 _seed_ref="$(git -C "$TREE" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
 mkdir -p "$STAGE/usr/lib/z2k/share" || exit 1

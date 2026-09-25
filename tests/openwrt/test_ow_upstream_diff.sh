@@ -9,7 +9,7 @@
 #   z2k-warpd external-backend seam (Stage 5: engine/main + health opt-in,
 #   см. ALLOWLIST)
 # плюс allowlisted common-хуки (см. ALLOWLIST ниже). WARP OpenWrt backend
-# ограничен build-tagged реализацией и Go overlay; p-85.10 shared source
+# ограничен build-tagged реализацией и Go overlay; p-85.13 shared source
 # остаётся неизменным. Иначе — провал с
 # категорией seam'а: будущий upstream merge, задевший наш seam, виден сразу.
 #
@@ -23,6 +23,7 @@
 _t_plan "ow-upstream-diff"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 BASELINE="$(tr -d '\r' < "$REPO/tests/openwrt/BASELINE")"
+MANIFEST_BASELINE="$(tr -d '\r' < "$REPO/tests/openwrt/MANIFEST_BASELINE")"
 export GIT_CONFIG_NOSYSTEM=1
 _g="git -c safe.directory=$REPO -C $REPO"
 
@@ -40,7 +41,8 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     keenetic-реген байт-идентичен — сторожит channel-тест)
 #   files/z2k-config-validator.sh: FAKE_DIR + lua EXTRA хуки (freeze audit:
 #     без них validate ветирует любой OpenWrt-конфиг)
-#   UPDATES.json: ТОЛЬКО files_sha256 hash-обновления allowlisted lib-файлов
+#   UPDATES.json + signature: published p-85.10 bytes stay frozen across
+#     the separately synchronized p-85.13 payload baseline.
 #   docs/openwrt-foundation-state-machine.md: модель аудита (docs, не код)
 #   docs/openwrt-telegram-contract.md: TG contract Stage 3 (docs, не код)
 #   docs/openwrt-rt-proxy-contract.md: RT contract Stage 4 (docs, не код)
@@ -139,13 +141,16 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     contract (typed failure rendering and explicit cancellation action).
 #   tests/test_strategy_pick_typed_failure.sh: regression test for that shared
 #     contract; it runs against the canonical CGI action.
+#   tests/test_cachebuster_declared.sh + tests/test_release_reaches_users.sh:
+#     cache-buster follows the verified payload baseline while UPDATES.json
+#     remains frozen at the last published integration snapshot.
 #   mtproxy-client/main.go + main_secret_test.go: keep the build-injected
 #     Telegram secret out of Go's generated --help output; explicit overrides
 #     and runtime fallback are covered by the unit tests.
 #   mtproxy-client/udp.go + udp_route_test.go: OpenWrt may provide its privileged
 #     route helper by environment; absent that variable, the original Keenetic
 #     helper command remains unchanged.
- ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh files/z2k-diag.sh files/z2k-dns-check.sh files/z2k-update-lists.sh UPDATES.json docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go z2k-warpd/internal/health/health.go z2k-warpd/internal/health/health_test.go z2k-warpd/builds/* webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/js/pages/telemetry.js webpanel/www/js/router.js webpanel/www/app.js webpanel/www/js/pages/warp.js webpanel/www/js/job.js webpanel/www/js/pages/strategy-pick.js tests/test_strategy_pick_typed_failure.sh z2k-detect/builds/* z2k-detect/cmd/z2k-detect/main.go z2k-detect/cmd/z2k-detect/quic.go z2k-detect/cmd/z2k-detect/voice.go z2k-detect/internal/classify/classify.go z2k-detect/internal/classify/compose.go z2k-detect/internal/classify/observability_test.go z2k-detect/internal/classify/raw_linux.go z2k-detect/internal/classify/raw_other.go z2k-detect/internal/quicprobe/probe.go z2k-detect/internal/voiceprobe/probe.go docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md docs/openwrt-adapter-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh scripts/openwrt/verify-runtime.sh .github/workflows/ci.yml scripts/rehearse_update.sh tests/test_manifest_signature.sh tests/test_webpanel_api_contract.sh tests/panel_harness.js tests/test_release_tooling.sh lib/strategies.sh z2k.sh tests/test_au_compat.sh README.md"
+ ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh files/z2k-diag.sh files/z2k-dns-check.sh files/z2k-update-lists.sh UPDATES.json UPDATES.json.sig docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/engine/netsetup_test.go z2k-warpd/internal/health/health.go z2k-warpd/internal/health/health_test.go z2k-warpd/builds/* webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/js/pages/telemetry.js webpanel/www/js/router.js webpanel/www/app.js webpanel/www/js/pages/warp.js webpanel/www/js/job.js webpanel/www/js/pages/strategy-pick.js tests/test_strategy_pick_typed_failure.sh tests/test_cachebuster_declared.sh tests/test_release_reaches_users.sh z2k-detect/builds/* z2k-detect/cmd/z2k-detect/main.go z2k-detect/cmd/z2k-detect/quic.go z2k-detect/cmd/z2k-detect/voice.go z2k-detect/internal/classify/classify.go z2k-detect/internal/classify/compose.go z2k-detect/internal/classify/observability_test.go z2k-detect/internal/classify/raw_linux.go z2k-detect/internal/classify/raw_other.go z2k-detect/internal/quicprobe/probe.go z2k-detect/internal/voiceprobe/probe.go docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md docs/openwrt-adapter-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh scripts/openwrt/verify-runtime.sh scripts/openwrt/verify-upstream-tags.sh .github/workflows/ci.yml scripts/rehearse_update.sh tests/test_manifest_signature.sh tests/test_webpanel_api_contract.sh tests/panel_harness.js tests/test_release_tooling.sh lib/strategies.sh z2k.sh tests/test_au_compat.sh README.md"
 ALLOWLIST="$ALLOWLIST lib/install.sh lib/menu.sh files/z2k-insta-ip-refresh.sh webpanel/www/index.html webpanel/www/js/pages/update.js webpanel/www/style.css tests/test_panel_toggle_texts.sh tests/test_panel_warp_ui.sh tests/test_insta_refresh_cert_mismatch.sh tests/test_fastroute_no_hwnat.sh tests/test_config_official.sh tests/test_found_domains_survive_reinstall.sh tests/test_panel_domain_probe.sh tests/test_profile_observation.sh tests/test_quic_pool_general.sh tests/test_update_sequence_e2e.sh tests/test_update_jitter.sh z2k-detect/cmd/z2k-detect/z2k_hostlists.go z2k-detect/go.mod z2k-detect/go.sum z2k-detect/internal/decision/decision.go mtproxy-client/main.go mtproxy-client/main_secret_test.go mtproxy-client/udp.go mtproxy-client/udp_route_test.go"
 ALLOWLIST="$ALLOWLIST z2k-warpd/internal/domainroute/nft_pairset.go z2k-warpd/internal/domainroute/nft_pairset_test.go z2k-warpd/openwrt-overlay/overlay.json z2k-warpd/openwrt-overlay/ipset.go z2k-warpd/openwrt-overlay/go.mod"
 
@@ -202,27 +207,17 @@ else
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
             z2k-warpd/internal/domainroute/nft_pairset.go|z2k-warpd/internal/domainroute/nft_pairset_test.go|z2k-warpd/openwrt-overlay/overlay.json|z2k-warpd/openwrt-overlay/ipset.go|z2k-warpd/openwrt-overlay/go.mod) continue ;;
-            tests/test_strategy_pick_typed_failure.sh|webpanel/www/js/job.js|webpanel/www/js/pages/strategy-pick.js|z2k-detect/builds/*|z2k-detect/cmd/z2k-detect/main.go|z2k-detect/cmd/z2k-detect/quic.go|z2k-detect/cmd/z2k-detect/voice.go|z2k-detect/internal/classify/classify.go|z2k-detect/internal/classify/compose.go|z2k-detect/internal/classify/observability_test.go|z2k-detect/internal/classify/raw_linux.go|z2k-detect/internal/classify/raw_other.go|z2k-detect/internal/quicprobe/probe.go|z2k-detect/internal/voiceprobe/probe.go) continue ;;
+            tests/test_strategy_pick_typed_failure.sh|tests/test_cachebuster_declared.sh|tests/test_release_reaches_users.sh|webpanel/www/js/job.js|webpanel/www/js/pages/strategy-pick.js|z2k-detect/builds/*|z2k-detect/cmd/z2k-detect/main.go|z2k-detect/cmd/z2k-detect/quic.go|z2k-detect/cmd/z2k-detect/voice.go|z2k-detect/internal/classify/classify.go|z2k-detect/internal/classify/compose.go|z2k-detect/internal/classify/observability_test.go|z2k-detect/internal/classify/raw_linux.go|z2k-detect/internal/classify/raw_other.go|z2k-detect/internal/quicprobe/probe.go|z2k-detect/internal/voiceprobe/probe.go) continue ;;
             lib/install.sh|files/z2k-insta-ip-refresh.sh|webpanel/www/index.html|webpanel/www/js/pages/update.js|tests/test_insta_refresh_cert_mismatch.sh|tests/test_fastroute_no_hwnat.sh) continue ;;
-            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|lib/menu.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|files/z2k-diag.sh|files/z2k-dns-check.sh|files/z2k-update-lists.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|z2k-warpd/internal/health/health.go|z2k-warpd/internal/health/health_test.go|z2k-warpd/builds/*|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/js/pages/telemetry.js|webpanel/www/js/router.js|webpanel/www/app.js|webpanel/www/js/pages/warp.js|tests/test_panel_frontend_contract.sh|docs/openwrt-webpanel-contract.md|docs/openwrt-release-contract.md|docs/openwrt-adapter-contract.md|scripts/openwrt/gen-openwrt-manifest.sh|scripts/openwrt/build-release.sh|scripts/openwrt/write-provenance.sh|scripts/openwrt/verify-runtime.sh|.github/workflows/ci.yml|scripts/rehearse_update.sh|tests/test_manifest_signature.sh|tests/test_webpanel_api_contract.sh|tests/panel_harness.js|tests/test_release_tooling.sh|lib/strategies.sh|z2k.sh|tests/test_au_compat.sh|README.md) continue ;;
+            lib/config_official.sh|lib/release_map.sh|lib/auto_update.sh|lib/menu.sh|scripts/gen_file_hashes.sh|files/z2k-config-validator.sh|files/z2k-diag.sh|files/z2k-dns-check.sh|files/z2k-update-lists.sh|docs/openwrt-foundation-state-machine.md|docs/openwrt-telegram-contract.md|docs/openwrt-rt-proxy-contract.md|docs/openwrt-warp-contract.md|docs/openwrt-mark-allocation.md|z2k-warpd/cmd/z2k-warpd/main.go|z2k-warpd/internal/engine/engine.go|z2k-warpd/internal/engine/netsetup_test.go|z2k-warpd/internal/health/health.go|z2k-warpd/internal/health/health_test.go|z2k-warpd/builds/*|webpanel/cgi/platform.sh|webpanel/cgi/api.sh|webpanel/cgi/actions.sh|webpanel/cgi/auth.sh|webpanel/install.sh|webpanel/lighttpd.conf|webpanel/www/js/core/loadorder.js|webpanel/www/js/pages/toggles.js|webpanel/www/js/pages/telemetry.js|webpanel/www/js/router.js|webpanel/www/app.js|webpanel/www/js/pages/warp.js|tests/test_panel_frontend_contract.sh|docs/openwrt-webpanel-contract.md|docs/openwrt-release-contract.md|docs/openwrt-adapter-contract.md|scripts/openwrt/gen-openwrt-manifest.sh|scripts/openwrt/build-release.sh|scripts/openwrt/write-provenance.sh|scripts/openwrt/verify-runtime.sh|scripts/openwrt/verify-upstream-tags.sh|.github/workflows/ci.yml|scripts/rehearse_update.sh|tests/test_manifest_signature.sh|tests/test_webpanel_api_contract.sh|tests/panel_harness.js|tests/test_release_tooling.sh|lib/strategies.sh|z2k.sh|tests/test_au_compat.sh|README.md) continue ;;
             tests/test_config_official.sh|tests/test_found_domains_survive_reinstall.sh|tests/test_panel_domain_probe.sh|tests/test_panel_modules_delivered.sh|tests/test_panel_toggle_texts.sh|tests/test_panel_warp_ui.sh|tests/test_profile_observation.sh|tests/test_quic_pool_general.sh|tests/test_update_sequence_e2e.sh|tests/test_update_jitter.sh|webpanel/www/style.css|z2k-detect/cmd/z2k-detect/z2k_hostlists.go|z2k-detect/internal/decision/decision.go|mtproxy-client/main.go|mtproxy-client/main_secret_test.go|mtproxy-client/udp.go|mtproxy-client/udp_route_test.go) continue ;;
-            UPDATES.json)
-                # Манифест следует за деревом: разрешены hash-обновления
-                # файлов, чьи правки сами allowlisted (хеш следует за
-                # контентом — связку доказывает channel-тест побайтово),
-                # плюс ДОБАВЛЕНИЯ install_map для allowlisted файлов.
-                # Запрещены всегда: current/seq/branch/history-правки на
-                # feature-ветке, удаления/изменения существующих map-назначений.
-                # --ignore-cr-at-eol на worktree-диффах: Windows-чекаут красит
-                # весь файл в CRLF-шум (см. шапку файла).
-                _umd="$( { $_g diff "$_REF" HEAD -- UPDATES.json 2>/dev/null; \
-                            $_g diff --cached -- UPDATES.json 2>/dev/null; \
-                            $_g diff --ignore-cr-at-eol -- UPDATES.json 2>/dev/null; } \
-                    | grep -E '^[+-]' | grep -vE '^[+-]{3}' || true)"
-                _umd_bad="$(printf '%s\n' "$_umd" \
-                    | grep -vE '^[+-]  "(lib/(config_official|release_map|auto_update)\.sh|files/(z2k-config-validator|z2k-diag)\.sh|webpanel/(cgi/(platform|api|actions|auth)\.sh|install\.sh|lighttpd\.conf|www/(app\.js|js/core/loadorder\.js|js/pages/(toggles|telemetry)\.js|js/router\.js)))": "[0-9a-f]{64}",?$' \
-                    | grep -vE '^[+]  "webpanel/cgi/platform\.sh": \[' || true)"
-                [ -z "$_umd_bad" ] && continue ;;
+            UPDATES.json|UPDATES.json.sig)
+                # p-85.13 payload source is synced independently from the
+                # published OpenWrt integration manifest. Keep both manifest
+                # bytes and their existing signature pinned to p-85.10.
+                [ -n "$MANIFEST_BASELINE" ] \
+                    && $_g diff --quiet "$MANIFEST_BASELINE" -- "$_f" 2>/dev/null \
+                    && continue ;;
         esac
         _unallowed="$_unallowed $_f:$(_seam_of "$_f")"
     done
