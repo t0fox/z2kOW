@@ -103,6 +103,15 @@ tr-idiom Stage 8: замена GNU-классов явными наборами,
 scenario; common frontend behavior, no OpenWrt fork),
 `README.md` (deliberate owner rewrite под адаптер; семантику подсказки
 держит test_exclude_hint_truthful, не этот guard).
+Отдельно allowlisted common lifecycle/test-audit set:
+`files/z2k-warp.sh` (fail-visible ownership migration),
+`files/z2k-scheduler.sh` (bounded WARP selfheal dispatch),
+`tests/test_warp_install_hooks.sh`, `tests/test_stale_binaries_cleanup.sh`,
+`tests/test_warp_mss_both_ways.sh`, `tests/test_au_converge.sh` and
+`tests/test_alert_detector_wiring.sh`. Эти точечные файлы нужны общему
+repository QA/audit; они не подменяют OpenWrt-native runtime из
+`platform/openwrt/warp.sh`, а WARP manager/scheduler-файлы не входят в APK.
+`docs/UPSTREAM-TEST-SUITES.tsv` дополняет inventory существующих harnesses.
 Нарушение seam'а печатается
 с категорией (lua/detectors/strategies/webpanel/update-system/warp).
 После каждого upstream sync BASELINE сдвигается на новый upstream HEAD.

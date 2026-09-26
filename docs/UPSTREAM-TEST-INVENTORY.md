@@ -1,6 +1,6 @@
 # Upstream QA and suite inventory
 
-This records how the p-85.16 doctrine audit maps onto the repository test
+This records how the p-86 upstream-doctrine audit maps onto the repository test
 architecture. Counts compare the audit baseline `f19a2087e2f238f912b08b556d744dbdbd3f6dcd`
 with the current worktree; the final GitHub Actions result is authoritative for
 the committed candidate.
@@ -25,6 +25,17 @@ consolidating domainroute and edgepick tests. The OpenWrt sync fixture adds one
 shell suite. The five added Go test functions cover two health regressions, two
 handshake behaviors, and the vendored WireGuard drift contract.
 
+The full file-level inventory is [`docs/UPSTREAM-TEST-SUITES.tsv`](UPSTREAM-TEST-SUITES.tsv):
+457 rows, comprising 445 current suites/harnesses and 12 baseline-only files
+that were merged. Its columns are runtime, subject, harness, named
+properties/cases, overlap assessment and KEEP/MERGE action. The 445 current
+entries break down to 328 POSIX shell suites, 102 Go test files, 10 Lua suites,
+one Lua support harness, three JavaScript harnesses and one BDD feature.
+`properties_or_cases` records assertion labels where available and otherwise
+points to suite comments/fixtures; it indexes executable tests rather than
+replacing them. MERGE appears on both retired source and surviving destination
+rows so the consolidation history is auditable.
+
 Baseline CI run `36193710584` on the baseline SHA passed all 14 workflow jobs.
 Its shell runner reported 226 suites, 4254 passed, 0 failed, and 1 skip; its
 mutation job killed 18 mutants with 0 survivors and 0 stale anchors. The
@@ -38,6 +49,10 @@ separate direct run with those refs present reported 4 passed, 0 failed, and
 0 skipped. The mutation job killed 21 mutants with 0 survivors and 0 stale
 anchors.
 
+Run `36257219152` is intermediate evidence from before the final test-quality
+edits below. The exact-HEAD CI run linked in the final audit report is the
+authoritative verdict for the committed state.
+
 The same CI run passed Go formatting, vet, race tests, cross-compilation and
 the OpenWrt-tagged WireGuard overlay. Its OpenWrt 25.12.5
 `mediatek/filogic` SDK job built real APKs, generated `packages.adb` with SDK
@@ -48,8 +63,9 @@ The uploaded CI snapshot artifact was
 SHA-256 `54daea99210f3fcb0471651bef775451ccb6caacc6973b0194ad2d821dfb6653`.
 This is CI candidate evidence, not a production feed publication.
 
-Current local OpenWrt shell verification reports 3180 passed and 0 failed. It
-skips checks that require a committed tree, the pinned runtime tarball, or host
+The earlier local OpenWrt shell verification at the inventory checkpoint
+reported 3180 passed and 0 failed. It skipped checks that require a committed
+tree, the pinned runtime tarball, or host
 `lighttpd`/`curl`; repository CI supplies those inputs and runs with strict
 skip handling. A separate local root-shell run reports 224 suites, 3991
 assertions passed, 0 assertion failures, 11 skipped, and four suite process
@@ -71,6 +87,67 @@ visible in its GitHub Actions run.
 | Domain routing | 6 ordinary files / 19 tests, plus 1 OpenWrt-tagged file / 5 tests | `domainroute_test.go` / 19 tests, plus unchanged `nft_pairset_test.go` / 5 tests | DNS parsing, packet decode, observation, cache, expiry, client PairSet, and rules share the package fixtures. The tagged nft overlay remains separate because it runs under a different build constraint. | MERGE; tagged suite KEEP |
 | Edge selection | 3 files / 12 tests | `edgepick_test.go` / 12 tests | WAN-scoped cache, probe/metadata, and candidate ranking use one package and test server/filesystem harness. | MERGE |
 | Package delivery | Existing package/static suites | Remain separate from runtime suites | Artifact membership, SDK pins, package metadata, modes, and feed closure are static/package properties, not substitutes for runtime behavior. | KEEP |
+
+## Behavioral checks and static contracts
+
+The four suites changed in this pass had 14 implementation-shape checks
+removed: four updater-convergence greps, one AU wiring grep, two detector
+source-inspection checks, and seven MSS source/literal checks. They now have
+zero such checks. This is a scoped before/after count for those four reviewed
+suites, not a repository-wide grep count. The MSS suite retains one legitimate
+cross-language configuration invariant (`MTU 1280` implies `MSS 1240`) and
+executes the real NDM hook with isolated iptables/ipset stubs to inspect the
+commands it issues. AU convergence injects an actual replace failure and
+checks both the refusal result and preservation of old bytes; AU compatibility
+executes `au_run_apply` for an addressable patch with `reset_state=true` and
+checks that the reset step runs before the version advances. Detector
+packet/state behavior is exercised by the production Lua harness in CI; the
+wiring suite keeps delivery and configuration checks only.
+
+The WARP installer suite went from 22 grep-shaped assertions to 35 assertions,
+with 16 old implementation checks removed and six static delivery/ownership
+guards retained. Refresh, uninstall and scheduler behavior execute production
+helpers in temporary directories: installed-engine gating and migration order,
+failure propagation into rollback, preservation of recovery controls after a
+failed remove, stale download ownership, and the 25-second selfheal cadence.
+The fixture also extracts and executes the real refresh, uninstall and scheduler
+dispatch statements, so deleting a production call site fails the suite. The existing
+`test_warp_script.sh` also exercises migration through both the explicit migrate
+command and the ipset refresh path, including injected list, NDM, package and
+filesystem failures. These cases share their established WARP subject and
+fixture; no per-bug test files were added.
+
+The retained static guards protect properties whose truth is source/package
+structure: ownership and forbidden-file maps, package membership/exclusions,
+immutable refs and dependency/version pins, release-workflow wiring, secret
+absence, install destinations and architecture mappings. Tests that extract a
+production function and execute it against fixtures are behavioral checks,
+even when `sed`/`awk` isolates the function. A raw count of `grep`, `[ -f ]` or
+`sed` occurrences is not an implementation-check metric: many inspect fixture
+output or a genuinely static packaging contract.
+
+Targeted local shell verification after these edits:
+
+| Suite | Result |
+|---|---:|
+| `test_au_converge.sh` | 22 passed, 0 failed |
+| `test_au_compat.sh` | 23 passed, 0 failed |
+| `test_alert_detector_wiring.sh` | 16 passed, 0 failed |
+| `test_warp_mss_both_ways.sh` | 5 passed, 0 failed |
+| `tests/openwrt/test_ow_env.sh` | 25 passed, 0 failed |
+| `tests/openwrt/test_ow_restart.sh` | 6 passed, 0 failed |
+| `tests/openwrt/test_ow_source_order.sh` | 2 passed, 0 failed |
+| `tests/openwrt/test_ow_lc_update.sh` | 22 passed, 0 failed |
+| `test_warp_script.sh` | 124 passed, 0 failed |
+| `test_warp_install_hooks.sh` | 35 passed, 0 failed |
+| `test_stale_binaries_cleanup.sh` | 12 passed, 0 failed |
+| `test_scheduler_supervisor.sh` | 7 passed, 0 failed |
+| `test_panel_uninstall.sh` | 27 passed, 0 failed |
+| `test_install_completeness.sh` | 4 passed, 0 failed |
+| `test_http_classifier.sh` | skipped locally because Lua is unavailable; CI is authoritative |
+
+No local Go tests or package/release builds were run. Those results must come
+only from repository CI.
 
 ## Auto-update suite review
 
@@ -95,14 +172,15 @@ state-machine lifecycle, and sandbox.
 
 ## Mutation map
 
-CI mutation coverage grows from 18 to 21 mutants. Each mutant is paired with
+CI mutation coverage grows from 18 to 32 mutants. Each mutant is paired with
 the behavioral suite that must fail; package and release builds remain in the
 repository workflow only.
 
 | Mutant group | Count | Behavioral suite |
 |---|---:|---|
 | RuTracker proxy record parsing, demotion, selection, and body proof | 8 | `rt-proxy` Go tests |
-| Keenetic WARP fail-open/readiness/key/mark/selfheal/install | 7 | `tests/test_warp_script.sh` |
+| Keenetic WARP fail-open/readiness/key/mark/selfheal/install and migration propagation | 10 | `tests/test_warp_script.sh` |
+| WARP refresh gating, rollback propagation, uninstall recovery, stale downloads, scheduler cadence and dispatch wiring | 8 | `tests/test_warp_install_hooks.sh`, `tests/test_stale_binaries_cleanup.sh` |
 | Keenetic WARP init missing-engine, duplicate-start, MIPS guard | 3 | `tests/test_warp_init_thin.sh` |
 | p-85.16 one-success readiness and periodic probe hidden by RX growth | 2 | `z2k-warpd/internal/health` Go tests via source overlay |
 | p-85.16 handshake without obfuscation preamble | 1 | `z2k-warpd/internal/transport/wg` Go tests via source overlay |
