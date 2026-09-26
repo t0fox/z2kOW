@@ -437,6 +437,29 @@ jobs:
       - name: Fetch and verify pinned upstream WARP tags
         run: sh scripts/openwrt/verify-upstream-tags.sh
 
+      - name: Fetch release refs for changed_files completeness
+        run: |
+          set -eu
+          refs="$(python3 -c 'import json; h=json.load(open("UPDATES.json", encoding="utf-8"))["history"]; print("\n".join(str(x["ref"]) for x in h[-2:]))')"
+          while IFS= read -r ref; do
+            [ -n "$ref" ] || continue
+            if git cat-file -e "${ref}^{commit}" 2>/dev/null; then
+              continue
+            fi
+            case "$ref" in
+              p-*|r-*)
+                git fetch --no-tags https://github.com/necronicle/z2k.git \
+                  "refs/tags/${ref}:refs/tags/${ref}"
+                ;;
+              *)
+                echo "::error::release ref is unavailable and is not an upstream tag: $ref" >&2
+                exit 1
+                ;;
+            esac
+          done <<EOF
+          $refs
+          EOF
+
       - name: Install lua
         # test_tcp16_lua.sh гоняет lua-харнесс. Без lua набор молча
         # пропускает его (штатная деградация для разработчика без lua) — то

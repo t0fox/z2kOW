@@ -107,6 +107,14 @@ scenario; common frontend behavior, no OpenWrt fork),
 с категорией (lua/detectors/strategies/webpanel/update-system/warp).
 После каждого upstream sync BASELINE сдвигается на новый upstream HEAD.
 
+Для аудита изменений upstream-доктрины используйте отдельный blob-bound
+ledger: `docs/UPSTREAM-SYNC.md` и
+`scripts/openwrt/audit-upstream-docs.sh <base-ref> <target-ref>`. В аудите
+поведенческие контракты сверены с `p-85.16` относительно зафиксированной
+границы `p-85.13`; это сравнение не меняет pinned OpenWrt payload, WARP
+runtime или release snapshot. Перед следующим sync выбираются актуальные
+refs, а изменённые нормативные документы получают классификацию в TSV.
+
 ## Известные щели (не чиним на этом этапе, зафиксированы осознанно)
 
 1. ~~`lib/config_official.sh:65`~~ ЗАКРЫТА (§2): чтение через `${ZAPRET2_DIR}`.

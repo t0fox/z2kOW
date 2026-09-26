@@ -83,7 +83,7 @@ OpenWrt compatibility adapter
 | Live Cudy WR3000 v1 | **PENDING** |
 | Production feed/signing | **PENDING** |
 
-Последний полностью зелёный CI: commit `dca297c`.
+Вердикт CI проверяйте в GitHub Actions по точному SHA коммита.
 
 ---
 

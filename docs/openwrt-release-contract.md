@@ -187,6 +187,9 @@ Core: только то, что реально используется кодо
   manifest/seed coherence, exact SDK (URL+sha256 зафиксированы; SDK
   отсутствует → громкий отказ, не mock), build package(s), артефакты,
   inspect metadata, checksums.
+- В этом аудите build/package и Go compile/test выполняются только GitHub
+  Actions из checkout репозитория. Локальные проверки ограничены shell,
+  fixture и статическим анализом; CI snapshot не является публикацией релиза.
 - Provenance (machine-readable, `dist/provenance.json`): OpenWrt release,
   SDK URL/sha256, target, arch, source commit, package version, adapter API,
   seed tag/ref. `dist/` НЕ коммитится в source branch (§63).
@@ -200,9 +203,14 @@ Core: только то, что реально используется кодо
   Production private APK key: НЕ в git/логах/фикстурах/артефактах (§65).
 - CI/Actions production-приватный ключ НЕ держат (§28): build/test/unsigned
   candidate/verify — да; подпись — офлайн у оператора.
-- Тесты — ephemeral-ключ: packages/sha256sums sign → accept правильным,
-  reject чужим/подменённым (§29/§59-уровень примитива; настоящий packages.adb
-  без `apk`-тулчейна — PARTIAL, не fake-PASS §30).
+- Repository CI builds the real `.apk` files with the pinned SDK, creates the
+  real `packages.adb` through SDK index tooling, signs and verifies that index
+  with an ephemeral APK key, and checks package resolution/install in an
+  isolated root. A successful exact-HEAD CI run is evidence for these
+  candidate-artifact contracts; it does not publish to the production feed.
+- CI also signs the candidate checksum manifest with an ephemeral Ed25519 key
+  and proves correct-key acceptance plus wrong-key/tamper rejection. The
+  production APK private key remains offline and outside CI (§28–§30).
 
 ## §15. Bootstrap и lifecycle (§31–§38, §50–§52)
 
@@ -247,17 +255,18 @@ R10 bad signature / R11 bad hash / R12 API-too-old → reinstall/release
 тесты (package-only diff — пустой deliverable-набор; common-only —
 манифест без API bump; combined — ordering gate). R16 uninstall/reinstall /
 R17 WARP absent / R18 webpanel independence → lifecycle tests. R19/R20 feed
-sign/verify → ephemeral-key tests (примитив; настоящий adb — PARTIAL).
+sign/verify → repository CI builds and checks the real SDK index, verifies its
+native APK signature, exercises isolated-root dependency resolution/install,
+and tests checksum-manifest correct-key/wrong-key/tamper behavior.
 
 ## §18. PARTIAL-реестр (честно, не fake-PASS)
 
-1. Real `.apk` из SDK (§23/§68) — нет сети/SDK в песочнице.
-2. Точные имена 25.12-зависимостей по живому фиду (§21/§22) — allowlist в
+1. Точные имена 25.12-зависимостей по живому фиду (§21/§22) — allowlist в
    тесте, сверка в Stage 8.
-3. Настоящий `packages.adb` + index tooling (§26/§59) — примитив подписи
-   доказан на sha256sums; adb-формат без `apk(1)` не подделываем.
-4. Production APK private key (§30/§65) — нет материала; процедура offline.
-5. Live router acceptance (§69) — это Stage 8.
+2. Production APK private key (§30/§65) — ключ намеренно offline и вне
+   checkout/CI; публикационный процесс этим аудитом не запускается.
+3. Live router acceptance (§69) — это Stage 8; CI не доказывает поведение
+   реального kernel/netifd/fw4, WAN-трафик или длительный soak.
 
 ## §19. Common diff budget (Stage 7)
 
