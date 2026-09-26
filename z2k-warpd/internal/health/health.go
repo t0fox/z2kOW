@@ -101,7 +101,8 @@ func (m *Monitor) Proven() bool { return m.proven }
 
 // Reset — после переоткрытия транспорта счётчики начинаются заново.
 func (m *Monitor) Reset() {
-	*m = Monitor{Probe: m.Probe, Doubt: m.Doubt, Fails: m.Fails, ProveEvery: m.ProveEvery}
+	*m = Monitor{Probe: m.Probe, Doubt: m.Doubt, Fails: m.Fails, ProveEvery: m.ProveEvery,
+		ConfirmSuccesses: m.ConfirmSuccesses, CheckEvery: m.CheckEvery}
 }
 
 // Assess оценивает снимок h в момент now. src — имя интерфейса для пробы.
@@ -128,9 +129,14 @@ func (m *Monitor) Assess(ctx context.Context, h transport.Health, now time.Time,
 	rxGrew := h.Rx > m.lastRx
 	txGrew := h.Tx > m.lastTx
 	m.lastRx, m.lastTx = h.Rx, h.Tx
+	if m.CheckEvery > 0 && now.Sub(m.lastProbe) >= m.CheckEvery {
+		return m.probe(ctx, now, src)
+	}
 	if rxGrew {
 		m.rxLastMoved = now
-		m.fails = 0
+		if m.CheckEvery <= 0 {
+			m.fails = 0
+		}
 		return Alive
 	}
 	if !txGrew {
@@ -153,6 +159,8 @@ func (m *Monitor) probe(ctx context.Context, now time.Time, src string) Verdict 
 		if every <= 0 {
 			every = 3 * time.Second
 		}
+	} else if m.CheckEvery > 0 {
+		every = m.CheckEvery
 	}
 	if !m.lastProbe.IsZero() && now.Sub(m.lastProbe) < every {
 		if m.fails >= m.Fails {
@@ -166,9 +174,14 @@ func (m *Monitor) probe(ctx context.Context, now time.Time, src string) Verdict 
 	if err == nil {
 		m.fails = 0
 		m.rxLastMoved = now
-		m.proven = true
-		return Alive
+		m.successes++
+		if m.ConfirmSuccesses <= 1 || m.successes >= m.ConfirmSuccesses {
+			m.proven = true
+			return Alive
+		}
+		return Doubtful
 	}
+	m.successes = 0
 	m.fails++
 	if m.fails >= m.Fails {
 		return Dead

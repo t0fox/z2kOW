@@ -57,13 +57,20 @@ if [ "$1" = "rule" ] && [ "$2" = "add" ]; then
     exit 0
 fi
 if [ "$1" = "rule" ] && [ "$2" = "del" ]; then
-    case "$*" in *' pref 499 '*) rm -f "$HAVE_PROBE" ;; esac
+    case "$*" in
+        *' pref 499 '*) rm -f "$HAVE_PROBE" ;;
+        *' pref 500 '*) rm -f "$HAVE_PBR" ;;
+    esac
     exit 0
 fi
 if [ "$1" = "route" ] && [ "$2" = "show" ]; then
     case "$*" in
-        *'table 989'*) echo "default dev z2ktun0" ;;
+        *'table 989'*) [ -f "$HAVE_ROUTE" ] && echo "default dev z2ktun0" ;;
     esac
+    exit 0
+fi
+if [ "$1" = "route" ] && [ "$2" = "del" ] && [ "$3" = "default" ]; then
+    rm -f "$HAVE_ROUTE"
     exit 0
 fi
 if [ "$1" = "link" ]; then exit 0; fi
@@ -72,6 +79,7 @@ EOF
 chmod +x "$T/bin/ip"
 export HAVE_PBR="$T/have-pbr"
 export HAVE_PROBE="$T/have-probe"
+export HAVE_ROUTE="$T/have-route"
 cat > "$T/bin/pidof" <<'EOF'
 #!/bin/sh
 cat "$PIDOF_OUT" 2>/dev/null
@@ -88,6 +96,7 @@ export WARP_DOMAIN_SNAPSHOT="$T/tmp/warp/domain-pairs.v1"
 export WARP_DOMAIN_STATUS="$T/tmp/warp/domain-status.json"
 export WARP_DOMAIN_ERROR="$T/tmp/warp/domain-setup-error"
 export Z2K_BIN="$T/root/bin" Z2K_LISTS_DIR="$T/root/lists"
+export WARP_PBR_OWNER="$T/tmp/warp/pbr.owner" WARP_PROBE_OWNER="$T/tmp/warp/probe-route.owner"
 mkdir -p "$T/etc/state/warp" "$T/root/lists" "$T/etc/user-lists/warp"
 printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
 export CONFIG_FILE="$T/etc/config"
@@ -150,9 +159,12 @@ unset Z2K_TEST_NOW_SHIFT
 Z2K_TEST_NOW_SHIFT=-120; export Z2K_TEST_NOW_SHIFT
 : > "$T/calls"
 : > "$T/have-pbr"
+: > "$T/have-route"
+printf 'mark=0x80000000\nmask=0x80000000\npref=500\ntable=989\niface=z2ktun0\n' > "$WARP_PBR_OWNER"
 warp_restart >/dev/null 2>&1
+_restart_rc=$?
 unset Z2K_TEST_NOW_SHIFT
-assert_eq "restart enabled rc" "0" "$?"
+assert_eq "restart enabled rc" "0" "$_restart_rc"
 # PBR down раньше kill (fail open: сначала снять маршрут).
 _pb="$(grep -n 'ip:rule del\|ip:route del' "$T/calls" | head -1 | cut -d: -f1)"
 _kill="$(grep -n '^kill:' "$T/calls" | head -1 | cut -d: -f1)"
@@ -167,9 +179,13 @@ _z2k_ow_service_running() { return 0; }
 _z2k_ow_warp_service_restart() { touch "$WARP_STATUS"; echo "service-restart" >> "$T/calls"; return 0; }
 Z2K_TEST_NOW_SHIFT=-120; export Z2K_TEST_NOW_SHIFT
 : > "$T/calls"
+: > "$T/have-pbr"
+: > "$T/have-route"
+printf 'mark=0x80000000\nmask=0x80000000\npref=500\ntable=989\niface=z2ktun0\n' > "$WARP_PBR_OWNER"
 warp_restart >/dev/null 2>&1
+_restart_rc=$?
 unset Z2K_TEST_NOW_SHIFT
-assert_eq "restart active service rc" "0" "$?"
+assert_eq "restart active service rc" "0" "$_restart_rc"
 assert_contains "restart rebuilds procd instance" "$T/calls" "service-restart"
 
 # --- 3. license: rc-контракт + ключ не в логах ---

@@ -29,7 +29,6 @@ local last_written = {}     -- last_written[askey][hostn] = { strategy = N, ts =
 local last_write = 0
 local write_interval = 2    -- seconds (debounce window for flash-friendly writes)
 local write_state
-local youtube_migration_pending = false
 
 -- ---------------------------------------------------------------------------
 -- helpers
@@ -151,48 +150,6 @@ local function snapshot_strategies(src)
   return out
 end
 
--- The yt_tcp hostkey now maps *.youtube.com (except ads) to youtube.com.
--- Keep legacy rows on disk for rollback, but seed the shared row from a pin
--- rather than silently falling back to an unrelated automatic strategy.
-local function migrate_youtube_state()
-  local hosts = state.yt_tcp
-  if not hosts then return false end
-  local changed = false
-  for _, family in ipairs({"4", "6"}) do
-    local root_key, www_key = "youtube.com|" .. family, "www.youtube.com|" .. family
-    local root, www = hosts[root_key], hosts[www_key]
-    local other_pin, latest_legacy = nil, 0
-    for host, rec in pairs(hosts) do
-      if host:match("%.youtube%.com|" .. family .. "$") and host ~= "ads.youtube.com|" .. family then
-        latest_legacy = math.max(latest_legacy, tonumber(rec.ts) or 0)
-        if host ~= www_key and rec.mode == "frozen" and
-           (not other_pin or (tonumber(rec.ts) or 0) > (tonumber(other_pin.ts) or 0)) then
-          other_pin = rec
-        end
-      end
-    end
-    local selected
-    if root and root.mode == "frozen" then
-      selected = root
-    elseif root and (tonumber(root.ts) or 0) > latest_legacy then
-      selected = root -- a newer edit to the shared row supersedes legacy pins
-    elseif www and www.mode == "frozen" then
-      selected = www
-    elseif other_pin then
-      selected = other_pin
-    else
-      selected = root or www
-    end
-    if selected and selected ~= root then
-      hosts[root_key] = { strategy = selected.strategy,
-                          ts = math.max(now_t(), latest_legacy + 1),
-                          mode = selected.mode }
-      changed = true
-    end
-  end
-  return changed
-end
-
 local function load_state()
   if loaded then return end
   loaded = true
@@ -207,10 +164,6 @@ local function load_state()
   -- circular accumulated before the first debounced write). Priming makes the
   -- first reconcile a no-op for untouched rows.
   last_written = snapshot_strategies(state)
-  if migrate_youtube_state() then
-    youtube_migration_pending = true
-    write_state()
-  end
 end
 
 -- ---------------------------------------------------------------------------
@@ -343,7 +296,6 @@ write_state = function()
     -- Record exactly what is now on disk, so the external-edit reconcile can
     -- tell OUR own writes apart from outside edits (webpanel × / manual edit).
     last_written = snapshot_strategies(merged)
-    youtube_migration_pending = false
   end
   release_lock(lockfile)
   return written and true or false
@@ -447,7 +399,6 @@ local function persist_if_changed(askey, hostn, hrec)
   -- номер плеча нельзя: у обхода 16 КБ плечо как раз стоит на месте, а меняется
   -- имя — с прежним условием шестая колонка не записалась бы никогда.
   if prev == n and prev_sni == sni then
-    if youtube_migration_pending then write_state() end
     return false
   end
   -- Preserve any operator-set mode (frozen) across an engine-driven save: a row
@@ -798,5 +749,5 @@ z2k_state_persist = {
   state_file = function() return STATE_FILE_PRIMARY end,
   _state = function() return state end,
   _set_interval = function(n) write_interval = tonumber(n) or write_interval end,
-  _reset = function() if type(timer_del) == "function" then timer_del("z2k_state_flush") end; flush_pending = false; loaded = false; state = {}; last_write = 0; last_written = {}; last_reconcile = 0; youtube_migration_pending = false end,
+  _reset = function() if type(timer_del) == "function" then timer_del("z2k_state_flush") end; flush_pending = false; loaded = false; state = {}; last_write = 0; last_written = {}; last_reconcile = 0 end,
 }

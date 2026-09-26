@@ -186,35 +186,29 @@ fi
 drift=0; checked=0; gone=0
 for f in $(sed -n 's/^[[:space:]]*"\([^"]*\)":[[:space:]]*"[0-9a-f]\{64\}",\{0,1\}$/\1/p' "$MAN"); do
     checked=$((checked+1))
-    if [ ! -f "$HERE/$f" ]; then
-        # Запись на удалённый файл так же ядовита: роутер пойдёт его качать,
-        # получит 404 и упрётся в проверку содержимого.
+    if [ -n "$_rel_commit" ] && git -C "$HERE" cat-file -e "$_rel_commit:$f" 2>/dev/null; then
+        # Проверяем ровно тот опубликованный срез, который описывает манифест.
+        r=$(git -C "$HERE" show "$_rel_commit:$f" 2>/dev/null | sha_stdin)
+    elif [ -n "$_rel_commit" ]; then
+        # Запись, которой не было в релизном дереве, ядовита: роутер получит 404.
+        gone=$((gone+1)); printf '       в релизной карте нет файла: %s\n' "$f"
+        continue
+    elif [ -f "$HERE/$f" ]; then
+        # Без git-истории сохраняем прежнюю проверку текущего дерева.
+        r=$(sha_of "$HERE/$f")
+    else
         gone=$((gone+1)); printf '       в карте есть, на диске нет: %s\n' "$f"
         continue
     fi
-    m=$(lookup "$MAN" "$f"); r=$(sha_of "$HERE/$f")
+    m=$(lookup "$MAN" "$f")
     [ "$m" = "$r" ] || { drift=$((drift+1)); printf '       рассинхрон: %s\n' "$f"; }
 done
 [ "$checked" -gt 50 ] \
     && ok "проверена вся карта, а не выборка ($checked записей)" \
     || no "проверена вся карта" ">50 записей" "$checked"
 [ "$checked" -gt 0 ] && [ "$drift" = 0 ] && [ "$gone" = 0 ] \
-    && ok "манифест синхронен с деревом ($checked файлов проверено)" \
-    || {
-        # Между релизами манифест НЕ пересобирается: он описывает последний
-        # выпущенный срез, а не рабочую копию. Карту и подпись пересобирает
-        # только release.sh — иначе подпись перестала бы сходиться на каждом
-        # рабочем коммите (см. ci.yml, гейт «манифест»). Поэтому расхождение
-        # здесь — ошибка ТОЛЬКО на релизном коммите.
-        _pub=$(git -C "$HERE" show origin/z2k-enhanced:UPDATES.json 2>/dev/null \
-               | sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
-        _cur=$(sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$HERE/UPDATES.json" | head -1)
-        if [ -n "$_pub" ] && [ "$_pub" = "$_cur" ]; then
-            ok "манифест описывает выпущенный срез, а не рабочую копию (расхождений $drift — это норма между релизами)"
-        else
-            no "манифест синхронен с деревом" "0 расхождений" "drift=$drift gone=$gone"
-        fi
-    }
+    && ok "манифест совпадает с деревом последнего релиза ($checked файлов проверено)" \
+    || no "манифест совпадает с деревом последнего релиза" "0 расхождений" "drift=$drift gone=$gone"
 
 # --- 6b. the map must be ordered deterministically ---------------------------
 # The generator runs on a developer's machine AND on the CI runner, and CI

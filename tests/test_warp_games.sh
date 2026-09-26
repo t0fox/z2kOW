@@ -238,5 +238,37 @@ assert_eq "install.sh restores games/"     "1" \
 assert_eq "install.sh carries the .raw cache too" "1" \
           "$([ "$(grep -c '"\$backup_tmp/warp-games/"\.\*\.raw' "$SCRIPT_DIR/lib/install.sh")" -ge 1 ] && echo 1 || echo 0)"
 
+# Keep the missing-upstream regression in this game-list suite: it shares the
+# updater, temporary list tree, source index, and refresh lifecycle. Earlier
+# cases use a recording stub for update_list; re-source production behavior.
+printf "\n--- unavailable upstream game is an advisory, not a failed refresh ---\n"
+unset -f update_list
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/files/z2k-update-lists.sh"
+z2k_fetch() {
+    Z2K_FETCH_ALL_404=0
+    Z2K_FETCH_AUTH_404=0
+    case "$1" in
+        *sources.json) cp -f "$INDEX" "$2" 2>/dev/null; return 0 ;;
+        *) return 1 ;;
+    esac
+}
+printf '{\n "output": {"games_dir": "games"},\n "game_map": {\n  "GearsOfWar": ["hint"],\n  "Steam": ["hint"]\n },\n "domain_game_hints": {}\n}\n' > "$INDEX"
+: > "$LOG_FILE"
+update_warp_game_list >/dev/null 2>&1
+assert_eq "missing games are not logged as failed downloads" "0" \
+          "$(grep -c 'FAIL: download warp-game' "$LOG_FILE")"
+assert_eq "missing games produce one advisory each" "2" \
+          "$(grep -c 'у апстрима нет или недоступен, пропускаю' "$LOG_FILE")"
+: > "$LOG_FILE"
+update_list "rkn-list" "https://example.invalid/list.txt" "$SB/rkn.txt" >/dev/null 2>&1
+assert_eq "ordinary list download failure remains visible" "1" \
+          "$(grep -c 'FAIL: download rkn-list' "$LOG_FILE")"
+: > "$LOG_FILE"
+update_warp_game_list >/dev/null 2>&1
+update_list "rkn-list" "https://example.invalid/list.txt" "$SB/rkn.txt" >/dev/null 2>&1
+assert_eq "game advisory does not leak to other downloads" "1" \
+          "$(grep -c 'FAIL: download rkn-list' "$LOG_FILE")"
+
 printf "\nPASSED: %d\nFAILED: %d\n" "$TESTS_PASSED" "$TESTS_FAILED"
 [ "$TESTS_FAILED" = 0 ]

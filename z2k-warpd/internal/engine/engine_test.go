@@ -423,6 +423,40 @@ func TestAllFailSetsNoEndpointAndCoolsDown(t *testing.T) {
 	<-done
 }
 
+// TestExternalBackendOwnsNoNetworkPlumbing covers the full adapter seam:
+// transport and health become ready, while firewall and policy routing remain
+// platform-owned; shutdown closes transport and removes transient status.
+func TestExternalBackendOwnsNoNetworkPlumbing(t *testing.T) {
+	h := newHarness(t, baseDevice(), map[string]bool{"wg:854": true})
+	cfg := h.config()
+	cfg.SkipNetSetup = true
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { Run(ctx, cfg); close(done) }()
+	waitFor(t, "ready", func() bool {
+		s := readStatus(h)
+		return s != nil && s.Ready
+	})
+	cancel()
+	<-done
+
+	joined := strings.Join(h.cmds, "\n")
+	for _, owned := range []string{"iptables", "nft ", "ip rule", "ip route"} {
+		if strings.Contains(joined, owned) {
+			t.Fatalf("external backend must leave firewall/PBR to the platform; found %q in:\n%s", owned, joined)
+		}
+	}
+	if !strings.Contains(joined, "ip addr add 172.16.0.2/32 dev z2ktun0") {
+		t.Fatalf("external backend must still configure its TUN address, got:\n%s", joined)
+	}
+	if len(h.made) != 1 || !h.made[0].closed {
+		t.Fatalf("transport lifecycle: made=%d closed=%v", len(h.made), len(h.made) == 1 && h.made[0].closed)
+	}
+	if _, err := os.Stat(h.stat); !os.IsNotExist(err) {
+		t.Fatal("status.json must be removed on shutdown")
+	}
+}
+
 func TestDeadTransportIsClosedAndLadderMoves(t *testing.T) {
 	h := newHarness(t, baseDevice(), map[string]bool{"wg:2408": true, "wg:854": true})
 	ctx, cancel := context.WithCancel(context.Background())

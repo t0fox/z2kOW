@@ -106,6 +106,42 @@ PY
     ) &
 }
 
+# Go source mutants run through an overlay: the checkout stays untouched and
+# each mutant exercises the real package tests in the repository CI module.
+go_overlay_mutant() {
+    desc="$1"; source_rel="$2"; from="$3"; to="$4"; package="$5"
+    _mut_start; _id="$MUT_SEQ"; _dir="$WORK/go-overlay.$_id"
+    (
+        mkdir -p "$_dir"
+        python3 - "$ROOT/$source_rel" "$_dir/mutated.go" "$_dir/overlay.json" "$from" "$to" <<'PY'
+import json, os, sys
+source, mutated, overlay, old, new = sys.argv[1:]
+with open(source, encoding="utf-8") as f:
+    text = f.read()
+if old not in text:
+    with open(overlay + ".stale", "w", encoding="utf-8") as f:
+        f.write("anchor not found")
+    raise SystemExit(0)
+changed = text.replace(old, new, 1)
+if changed == text:
+    raise SystemExit("mutation did not change source")
+with open(mutated, "w", encoding="utf-8") as f:
+    f.write(changed)
+with open(overlay, "w", encoding="utf-8") as f:
+    json.dump({"Replace": {os.path.abspath(source): os.path.abspath(mutated)}}, f)
+PY
+        if [ -f "$_dir/overlay.json.stale" ]; then
+            printf 'stale\t%s (якорь не найден — мутант протух)\n' "$desc" > "$VERD/$_id"
+            exit 0
+        fi
+        if (cd "$ROOT/z2k-warpd" && GOWORK=off "$GO" test -overlay "$_dir/overlay.json" -count=1 "$package" >/dev/null 2>&1); then
+            printf 'fail\tgo-overlay: %s\n' "$desc" > "$VERD/$_id"
+        else
+            printf 'pass\tgo-overlay: %s\n' "$desc" > "$VERD/$_id"
+        fi
+    ) &
+}
+
 printf '\n=== Go mutants (rt-proxy) ===\n'
 
 # The regression that hung RuTracker on a fresh browser start: accept after ONE record.
@@ -175,6 +211,31 @@ PY
         fi
     ) &
 }
+
+_drain
+
+printf '\n=== Go overlay mutants (p-85.16 WARP contracts) ===\n'
+
+# One e2e success is insufficient to publish Ready.
+go_overlay_mutant "single transit success marks Ready" \
+    z2k-warpd/internal/health/health.go \
+    'if m.ConfirmSuccesses <= 1 || m.successes >= m.ConfirmSuccesses {' \
+    'if true {' \
+    ./internal/health
+
+# WG RX/keepalive growth must not bypass scheduled transit checks.
+go_overlay_mutant "growing RX bypasses periodic transit proof" \
+    z2k-warpd/internal/health/health.go \
+    'if m.CheckEvery > 0 && now.Sub(m.lastProbe) >= m.CheckEvery {' \
+    'if m.CheckEvery < 0 && now.Sub(m.lastProbe) >= m.CheckEvery {' \
+    ./internal/health
+
+# A first WireGuard initiation must carry the seven-datagram disguise preamble.
+go_overlay_mutant "WireGuard initiation omits disguise preamble" \
+    z2k-warpd/internal/transport/wg/bind.go \
+    'out = append(out, preamble...)' \
+    '_ = preamble' \
+    ./internal/transport/wg
 
 _drain
 

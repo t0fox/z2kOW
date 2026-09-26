@@ -218,25 +218,33 @@ warp_domain_observer_procd_ready() {
 }
 
 warp_domain_nft_remove() {
-    local _full="${1:-}" _table _set _conflict=0
-    _table=$(nft list table "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" 2>/dev/null)
-    if [ -z "$_table" ] || printf '%s\n' "$_table" | grep -qF "comment \"$WARP_DOMAIN_TABLE_COMMENT\""; then
-        nft delete table "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" >/dev/null 2>&1 || true
-    else
-        _conflict=1
-        warp_domain_error_set nft-observer-table-conflict
-    fi
-    _set=$(nft list set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" 2>/dev/null)
-    if [ -n "$_set" ] && printf '%s\n' "$_set" | grep -qF 'comment "z2k WARP DNS pairs"'; then
-        if [ "$_full" = full ]; then
-            nft delete set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" >/dev/null 2>&1 || true
+    local _full="${1:-}" _tables _table _main_table _conflict=0 _rc=0
+    _tables=$(nft list tables 2>/dev/null) || return 1
+    if printf '%s\n' "$_tables" | grep -qxF "table $WARP_DOMAIN_NFT_FAMILY $WARP_DOMAIN_NFT_TABLE"; then
+        _table=$(nft list table "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" 2>/dev/null) || return 1
+        if printf '%s\n' "$_table" | grep -qF "comment \"$WARP_DOMAIN_TABLE_COMMENT\""; then
+            nft delete table "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" >/dev/null 2>&1 || _rc=1
         else
-            nft flush set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" >/dev/null 2>&1 || true
+            _conflict=1
+            warp_domain_error_set nft-observer-table-conflict
         fi
-    elif [ -n "$_set" ]; then
-        _conflict=1
-        warp_domain_error_set nft-pair-set-conflict
     fi
-    [ "$_conflict" = "1" ] || warp_domain_error_set ""
-    return 0
+    if printf '%s\n' "$_tables" | grep -qxF "table $Z2K_WARP_NFT_FAMILY $Z2K_WARP_NFT_TABLE"; then
+        _main_table=$(nft list table "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" 2>/dev/null) || return 1
+        if printf '%s\n' "$_main_table" | grep -Eq "^[[:space:]]*set[[:space:]]+$WARP_DOMAIN_SET[[:space:]]*\{"; then
+            if printf '%s\n' "$_main_table" | grep -qF 'comment "z2k WARP DNS pairs"'; then
+                if [ "$_full" = full ]; then
+                    nft delete set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" >/dev/null 2>&1 || _rc=1
+                else
+                    nft flush set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" >/dev/null 2>&1 || _rc=1
+                fi
+            else
+                _conflict=1
+                warp_domain_error_set nft-pair-set-conflict
+            fi
+        fi
+    fi
+    if [ "$_conflict" = "1" ]; then return 1; fi
+    [ "$_rc" = "0" ] && warp_domain_error_set ""
+    return "$_rc"
 }

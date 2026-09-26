@@ -21,6 +21,7 @@ for _f in paths.sh env.sh warp.sh tg.sh firewall.sh schedule.sh uninstall.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
+ln -s "$REPO/platform/openwrt/warp-domain.sh" "$T/root/platform/openwrt/warp-domain.sh" 2>/dev/null
 ln -s "$REPO/platform/openwrt/warp-check.sh" "$T/root/platform/openwrt/warp-check.sh" 2>/dev/null
 
 cat > "$T/bin/nft" <<EOF
@@ -53,11 +54,31 @@ if [ "\$1" = "-f" ]; then
     done < "\$_bin"
     exit 0
 fi
+if [ "\$1" = "list" ] && [ "\$2" = "tables" ]; then
+    [ -f "$T/fail-nft-list-tables" ] && exit 1
+    [ -f "$T/no-table" ] || printf 'table inet zapret2\ntable inet fw4\n'
+    [ -f "$T/nft-domain-table" ] && printf 'table inet z2k_warp_dns\n'
+    exit 0
+fi
 if [ "\$1" = "list" ] && [ "\$2" = "table" ]; then
+    if [ "\$4" = "z2k_warp_dns" ]; then
+        [ -f "$T/nft-domain-table" ] && { cat "$T/nft-domain-table"; exit 0; }
+        exit 1
+    fi
     [ -f "$T/no-table" ] && exit 1
+    [ -f "$T/fail-nft-table-read" ] && exit 1
     for _cf in "$T"/nft-chain-*; do
         [ -f "\$_cf" ] || continue
         printf 'chain %s {\n' "\${_cf##*/nft-chain-}"
+    done
+    for _sf in "$T"/nft-set-*; do
+        [ -f "\$_sf" ] || continue
+        _sn="\${_sf##*/nft-set-}"
+        if [ "\$_sn" = "z2k_warp_domain4" ]; then
+            printf 'set %s { comment "z2k WARP DNS pairs"; }\n' "\$_sn"
+        else
+            printf 'set %s {\n' "\$_sn"
+        fi
     done
     exit 0
 fi
@@ -89,7 +110,14 @@ if [ "\$1" = "add" ] && [ "\$2" = "set" ]; then
     [ -f "$T/nft-set-\$5" ] || : > "$T/nft-set-\$5"
     exit 0
 fi
+if [ "\$1" = "add" ] && [ "\$2" = "chain" ]; then
+    [ -f "$T/fail-nft-chain-add" ] && [ "\$5" = "z2k_warp_mark" ] && exit 1
+    [ -f "$T/nft-chain-\$5" ] && exit 1
+    : > "$T/nft-chain-\$5"
+    exit 0
+fi
 if [ "\$1" = "flush" ] && [ "\$2" = "set" ]; then
+    [ -f "$T/fail-nft-domain-set-flush" ] && [ "\$5" = "z2k_warp_domain4" ] && exit 1
     : > "$T/nft-set-\$5"
     exit 0
 fi
@@ -98,6 +126,8 @@ if [ "\$1" = "add" ] && [ "\$2" = "element" ]; then
     exit 0
 fi
 if [ "\$1" = "delete" ] && [ "\$2" = "set" ]; then
+    [ -f "$T/fail-nft-set-delete" ] && [ "\$5" = "z2k_warp_dst4" ] && exit 1
+    [ -f "$T/fail-nft-domain-set-delete" ] && [ "\$5" = "z2k_warp_domain4" ] && exit 1
     rm -f "$T/nft-set-\$5"
     exit 0
 fi
@@ -105,6 +135,7 @@ fi
 # Имя чейна — \$5: flush|add|delete (chain|rule) <fam> <tab> <CHAIN> ... .
 if [ "\$1" = "flush" ] && [ "\$2" = "chain" ]; then
     [ -f "$T/fail-nft-flush" ] && [ "\$5" = "z2k_warp_mss" ] && exit 1
+    [ -f "$T/fail-nft-mark-flush" ] && [ "\$5" = "z2k_warp_mark" ] && exit 1
     : > "$T/nft-chain-\$5"
     exit 0
 fi
@@ -133,7 +164,13 @@ if [ "\$1" = "delete" ] && [ "\$2" = "rule" ] && \
     exit 0
 fi
 if [ "\$1" = "delete" ] && [ "\$2" = "chain" ]; then
+    [ -f "$T/fail-nft-chain-delete" ] && [ "\$5" = "z2k_warp_mark" ] && exit 1
     rm -f "$T/nft-chain-\$5"
+    exit 0
+fi
+if [ "\$1" = "delete" ] && [ "\$2" = "table" ] && [ "\$4" = "z2k_warp_dns" ]; then
+    [ -f "$T/fail-nft-domain-table-delete" ] && exit 1
+    rm -f "$T/nft-domain-table"
     exit 0
 fi
 exit 0
@@ -188,6 +225,8 @@ if [ "\$1" = "rule" ] && [ "\$2" = "del" ]; then
     exit 0
 fi
 if [ "\$1" = "route" ] && [ "\$2" = "show" ]; then
+    [ -f "$T/fail-route-show" ] && exit 1
+    [ -f "$T/empty-route-show" ] && exit 0
     cat "$T/ip-route-\$4" 2>/dev/null; exit 0
 fi
 if [ "\$1" = "route" ] && [ "\$2" = "replace" ]; then
@@ -276,6 +315,7 @@ export WARP_DOMAIN_RULES="$T/tmp/warp/domains.v1"
 export WARP_DOMAIN_SNAPSHOT="$T/tmp/warp/domain-pairs.v1"
 export WARP_DOMAIN_STATUS="$T/tmp/warp/domain-status.json"
 export WARP_DOMAIN_ERROR="$T/tmp/warp/domain-setup-error"
+export WARP_DOMAIN_HELPER="$T/root/platform/openwrt/warp-domain.sh"
 export Z2K_BIN="$T/root/bin" Z2K_RUN="$T/tmp/runtime" Z2K_STATE="$T/etc/state"
 export Z2K_CONFIG="$T/etc/config" Z2K_LISTS_DIR="$T/root/lists"
 export Z2K_PROC_ROOT="$T/proc"
@@ -312,6 +352,7 @@ EOF
 }
 
 _reset() {
+    rm -f "$T"/fail-*
     rm -f "$T"/ip-route-*
     : > "$T/ip-rules"
     : > "$T/nft.log"; : > "$T/ip.log"; : > "$T/procd.log"; : > "$T/kill.log"; : > "$T/warpd.log"
@@ -1449,5 +1490,274 @@ z2k_ow_warp_check >/dev/null 2>&1
 assert_eq "W59: fw4 delete retry succeeds" "0" "$?"
 assert_eq "W59: retry removes fw4 rule" "0" "$(grep -c 'handle 91' "$T/nft-fw4-forward" 2>/dev/null || true)"
 _w_inv "W59"
+
+# --- W60: WARP config writes share the canonical serialized writer -----------
+_reset
+printf 'GAME_WARP_ENABLED=1\nOTHER_FEATURE=preserve-me\n' > "$T/etc/config"
+mkdir -p "$T/etc/config.z2k-flaglock"
+cat > "$T/bin/usleep" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$T/bin/usleep"
+warp_set_flag 0 >/dev/null 2>&1
+assert_eq "W60: WARP writer reports a busy canonical config lock" "1" "$?"
+assert_contains "W60: busy lock preserves WARP intent" "$T/etc/config" "GAME_WARP_ENABLED=1"
+rmdir "$T/etc/config.z2k-flaglock"
+warp_set_flag 0 >/dev/null 2>&1
+assert_eq "W60: canonical writer applies WARP flag" "0" "$?"
+assert_contains "W60: canonical writer preserves unrelated config keys" "$T/etc/config" "OTHER_FEATURE=preserve-me"
+assert_contains "W60: canonical writer writes the plain boolean form" "$T/etc/config" "GAME_WARP_ENABLED=0"
+_w_inv "W60"
+
+# --- W61: enable stops before side effects if the shared config lock is busy -
+_reset
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+mkdir -p "$T/etc/config.z2k-flaglock"
+: > "$T/calls"
+_z2k_ow_service_running() { return 1; }
+warp_nft_sets_load() { echo sets >> "$T/calls"; return 0; }
+warp_nft_rules_apply() { echo rules >> "$T/calls"; return 0; }
+_warp_wait_and_pbr() { echo wait >> "$T/calls"; return 0; }
+z2k_ow_warp enable >/dev/null 2>&1
+assert_eq "W61: enable reports failed intent write" "1" "$?"
+assert_contains "W61: failed intent write preserves disabled config" "$T/etc/config" "GAME_WARP_ENABLED=0"
+assert_eq "W61: failed intent write starts no WARP side effects" "0" "$(wc -l < "$T/calls" | tr -d ' ')"
+rmdir "$T/etc/config.z2k-flaglock"
+_w_inv "W61"
+
+# --- W62: failed service reload does not count as applied WARP enable --------
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+: > "$T/calls"
+_z2k_ow_service_running() { return 0; }
+warp_running() { return 0; }
+warp_nft_sets_load() { return 0; }
+warp_nft_rules_apply() { return 0; }
+_z2k_ow_warp_service_reload() { echo reload >> "$T/calls"; return 1; }
+_warp_wait_and_pbr() { echo wait >> "$T/calls"; return 0; }
+z2k_ow_warp enable >/dev/null 2>&1
+assert_eq "W62: enable reports failed service reload" "1" "$?"
+assert_eq "W62: reload was attempted once" "1" "$(grep -c '^reload$' "$T/calls" 2>/dev/null || true)"
+assert_eq "W62: ready wait does not run after failed reload" "0" "$(grep -c '^wait$' "$T/calls" 2>/dev/null || true)"
+_w_inv "W62"
+
+# --- W63: registration does not claim success if device chmod fails ----------
+_reset
+export CHMOD_FAIL=1
+warp_register >/dev/null 2>&1
+assert_eq "W63: failed device permission hardening is reported" "1" "$?"
+unset CHMOD_FAIL
+assert_eq "W63: registration produced the mocked device file" "1" "$([ -s "$T/etc/state/warp/device.json" ] && echo 1 || echo 0)"
+_w_inv "W63"
+
+# --- W64: restart stops before service bounce when PBR cannot be removed -----
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+: > "$T/calls"
+warp_pbr_down() { echo pbr-down >> "$T/calls"; return 1; }
+warp_running() { return 0; }
+warp_pids() { echo 7777; }
+_z2k_ow_warp_kill() { echo kill >> "$T/calls"; return 0; }
+_z2k_ow_warp_service_rebuild() { echo rebuild >> "$T/calls"; return 0; }
+_warp_wait_and_pbr() { echo wait >> "$T/calls"; return 0; }
+z2k_ow_warp restart >/dev/null 2>&1
+assert_eq "W64: restart reports failed PBR teardown" "1" "$?"
+assert_eq "W64: failed PBR teardown prevents process bounce" "0" "$(grep -Ec '^(kill|rebuild|wait)$' "$T/calls" 2>/dev/null || true)"
+_w_inv "W64"
+# Restore production definitions after this test's function-level injections.
+# shellcheck disable=SC1090,SC1091
+. "$REPO/platform/openwrt/warp.sh"
+
+# --- W65: remove reports failed full nft cleanup and keeps the runtime -------
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W65: enable rc"
+: > "$T/fail-nft-set-delete"
+z2k_ow_warp remove >/dev/null 2>&1
+assert_eq "W65: remove reports failed owned set deletion" "1" "$?"
+assert_eq "W65: runtime binary remains available for cleanup retry" "1" "$([ -x "$T/root/bin/z2k-warpd" ] && echo 1 || echo 0)"
+assert_eq "W65: failed owned set remains for cleanup retry" "1" "$([ -f "$T/nft-set-z2k_warp_dst4" ] && echo 1 || echo 0)"
+rm -f "$T/fail-nft-set-delete"
+z2k_ow_warp remove >/dev/null 2>&1
+assert_eq "W65: remove retry succeeds" "0" "$?"
+assert_eq "W65: successful retry removes runtime binary" "0" "$([ -x "$T/root/bin/z2k-warpd" ] && echo 1 || echo 0)"
+_w_inv "W65"
+
+# --- W66: stop and uninstall cleanup expose teardown errors ------------------
+_reset
+warp_pbr_down() { return 1; }
+warp_nft_remove() { return 0; }
+z2k_ow_warp 0 >/dev/null 2>&1
+assert_eq "W66: init stop reports failed PBR teardown" "1" "$?"
+z2k_ow_warp cleanup >/dev/null 2>&1
+assert_eq "W66: uninstall cleanup reports failed PBR teardown" "1" "$?"
+_w_inv "W66"
+
+# --- W67: observer-table delete failures remain retryable -------------------
+# Restore production definitions after W66's function-level injections.
+# shellcheck disable=SC1090,SC1091
+. "$REPO/platform/openwrt/warp.sh"
+_reset
+printf 'table inet z2k_warp_dns { comment "z2k WARP passive DNS observer"; }\n' > "$T/nft-domain-table"
+: > "$T/fail-nft-domain-table-delete"
+warp_domain_nft_remove full >/dev/null 2>&1
+assert_eq "W67: observer-table delete failure is reported" "1" "$?"
+assert_eq "W67: owned observer table remains for retry" "1" "$([ -f "$T/nft-domain-table" ] && echo 1 || echo 0)"
+rm -f "$T/fail-nft-domain-table-delete"
+warp_domain_nft_remove full >/dev/null 2>&1
+assert_eq "W67: observer-table cleanup retry succeeds" "0" "$?"
+assert_eq "W67: successful retry removes observer table" "0" "$([ -f "$T/nft-domain-table" ] && echo 1 || echo 0)"
+_w_inv "W67"
+
+# --- W68: learned pair-set cleanup failures propagate and retry --------------
+_reset
+: > "$T/nft-set-z2k_warp_domain4"
+: > "$T/fail-nft-domain-set-flush"
+warp_domain_nft_remove >/dev/null 2>&1
+assert_eq "W68: learned pair-set flush failure is reported" "1" "$?"
+assert_eq "W68: failed flush keeps the owned pair set" "1" "$([ -f "$T/nft-set-z2k_warp_domain4" ] && echo 1 || echo 0)"
+rm -f "$T/fail-nft-domain-set-flush"
+warp_domain_nft_remove >/dev/null 2>&1
+assert_eq "W68: pair-set cleanup retry succeeds" "0" "$?"
+_w_inv "W68"
+
+# --- W69: owned base-chain delete failures are retryable --------------------
+_reset
+: > "$T/nft-chain-z2k_warp_mark"
+: > "$T/fail-nft-chain-delete"
+warp_nft_remove >/dev/null 2>&1
+assert_eq "W69: owned chain delete failure is reported" "1" "$?"
+assert_eq "W69: failed owned chain remains for retry" "1" "$([ -f "$T/nft-chain-z2k_warp_mark" ] && echo 1 || echo 0)"
+rm -f "$T/fail-nft-chain-delete"
+warp_nft_remove >/dev/null 2>&1
+assert_eq "W69: owned chain cleanup retry succeeds" "0" "$?"
+assert_eq "W69: successful retry removes owned chain" "0" "$([ -f "$T/nft-chain-z2k_warp_mark" ] && echo 1 || echo 0)"
+_w_inv "W69"
+
+# --- W70: nft inventory and table-read errors are not treated as absence ------
+_reset
+: > "$T/fail-nft-list-tables"
+warp_nft_remove full >/dev/null 2>&1
+assert_eq "W70: failed nft table inventory is reported" "1" "$?"
+rm -f "$T/fail-nft-list-tables"
+: > "$T/fail-nft-table-read"
+warp_nft_remove full >/dev/null 2>&1
+assert_eq "W70: listed-table read failure is reported" "1" "$?"
+_w_inv "W70"
+
+# --- W71: base nft chain creation and flush failures stop reconciliation ------
+_reset
+: > "$T/fail-nft-chain-add"
+warp_nft_rules_apply >/dev/null 2>&1
+assert_eq "W71: base chain creation failure is reported" "1" "$?"
+rm -f "$T/fail-nft-chain-add"
+_reset
+: > "$T/fail-nft-mark-flush"
+warp_nft_rules_apply >/dev/null 2>&1
+assert_eq "W71: base chain flush failure is reported" "1" "$?"
+_w_inv "W71"
+
+# --- W73: firewall rules dispatcher reports disabled-state teardown failures --
+_reset
+warp_pbr_down() { return 1; }
+warp_nft_remove() { return 0; }
+z2k_ow_core_ready() { return 0; }
+z2k_ow_warp rules >/dev/null 2>&1
+assert_eq "W73: disabled rules reconcile reports failed PBR teardown" "1" "$?"
+# shellcheck disable=SC1090,SC1091
+. "$REPO/platform/openwrt/warp.sh"
+_w_inv "W73"
+
+# --- W74: ready rules repair failure fails open and reports the error --------
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+z2k_ow_core_ready() { return 0; }
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W74: enable rc"
+warp_nft_sets_reload_if_changed() { return 0; }
+warp_nft_tun_apply() { return 1; }
+z2k_ow_warp rules >/dev/null 2>&1
+assert_eq "W74: failed TUN repair is reported" "1" "$?"
+assert_eq "W74: failed repair removes the PBR rule" "0" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules" 2>/dev/null || true)"
+# shellcheck disable=SC1090,SC1091
+. "$REPO/platform/openwrt/warp.sh"
+_w_inv "W74"
+
+# --- W75: boot dispatcher reports a soft-fail for the init caller ------------
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+printf '{"id":"boot-mock"}\n' > "$T/etc/state/warp/device.json"
+warp_nft_sets_load() { return 1; }
+z2k_ow_warp 1 >/dev/null 2>&1
+assert_eq "W75: failed boot set load is reported to init soft-fail logger" "1" "$?"
+# shellcheck disable=SC1090,SC1091
+. "$REPO/platform/openwrt/warp.sh"
+_w_inv "W75"
+
+# --- W72: failed binary unlink prevents a successful remove ------------------
+_reset
+warp_disable() { return 0; }
+warp_nft_remove() { return 0; }
+rm() {
+    case " $* " in
+        *" $WARP_BIN "*) return 1 ;;
+        *) command rm "$@" ;;
+    esac
+}
+z2k_ow_warp remove >/dev/null 2>&1
+assert_eq "W72: failed runtime unlink is reported" "1" "$?"
+assert_eq "W72: runtime binary remains after failed unlink" "1" "$([ -x "$WARP_BIN" ] && echo 1 || echo 0)"
+_w_inv "W72"
+
+# --- W76: absent hash-cache directory preserves the healthy no-write path -----
+_reset
+warp_nft_sets_load >/dev/null 2>&1 || _t_bad "W76: seed live sets"
+_before="$(grep -Ec '^nft:(-f|flush |add |delete )' "$T/nft.log" 2>/dev/null || true)"
+mkdir() {
+    case " $* " in
+        *"$T/tmp/warp"*) return 1 ;;
+        *) command mkdir "$@" ;;
+    esac
+}
+warp_nft_sets_reload_if_changed >/dev/null 2>&1
+assert_eq "W76: healthy sets pass without writable cache directory" "0" "$?"
+assert_eq "W76: healthy sets remain read-only when cache is unavailable" "$_before" "$(grep -Ec '^nft:(-f|flush |add |delete )' "$T/nft.log" 2>/dev/null || true)"
+unset -f mkdir
+_w_inv "W76"
+
+# --- W77: route query failure cannot masquerade as an empty table ------------
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+printf 'default dev eth9\n' > "$T/ip-route-989"
+: > "$T/fail-route-show"
+warp_pbr_up >/dev/null 2>&1
+assert_eq "W77: failed route query rejects PBR activation" "1" "$?"
+assert_eq "W77: unrelated route survives failed query" "default dev eth9" "$(cat "$T/ip-route-989")"
+assert_eq "W77: no route replace follows failed query" "0" "$(grep -c '^ip:route replace ' "$T/ip.log" 2>/dev/null || true)"
+_w_inv "W77"
+
+# --- W78: empty cleanup query never deletes a route it cannot see ------------
+_reset
+printf 'default dev eth9\n' > "$T/ip-route-989"
+printf 'iface=z2ktun0\nmark=0x80000000\nmask=0x80000000\npref=90\ntable=989\n' > "$WARP_PBR_OWNER"+: > "$T/empty-route-show"
+warp_pbr_down >/dev/null 2>&1
+assert_eq "W78: empty route query does not delete unrelated route" "default dev eth9" "$(cat "$T/ip-route-989")"
+assert_eq "W78: empty query does not issue route delete" "0" "$(grep -c '^ip:route del ' "$T/ip.log" 2>/dev/null || true)"
+_w_inv "W78"
+
+# --- W79: rollback query failure keeps ownership available for retry ----------
+_reset
+printf 'iface=z2ktun0\nmark=0x80000000\nmask=0x80000000\npref=90\ntable=989\n' > "$WARP_PBR_OWNER"
+printf 'default dev z2ktun0\n' > "$T/ip-route-989"
+: > "$T/fail-route-show"
+_warp_pbr_rollback z2ktun0 >/dev/null 2>&1
+assert_eq "W79: rollback reports failed route query" "1" "$?"
+assert_eq "W79: rollback keeps route ownership for retry" "1" "$([ -s "$WARP_PBR_OWNER" ] && echo 1 || echo 0)"
+assert_eq "W79: rollback preserves owned route when unreadable" "default dev z2ktun0" "$(cat "$T/ip-route-989")"
+_w_inv "W79"
 
 _t_done

@@ -100,6 +100,7 @@ W() { # запуск скрипта с окружением песочницы
     WARP_BIN="$SB/sbin/z2k-warpd" WARP_INIT="$SB/bin/S51" WARP_DEVICE="$SB/etc/device.json" \
     WARP_STATUS="$SB/tmp/status.json" WARP_LISTS_DIR="$SB/z2k/lists/warp" WARP_READY_WAIT="${RW:-1}" \
     WARP_OP_LOCK_WAIT="${LW:-5}" \
+    WARP_REG_STAMP="$SB/tmp/register.stamp" WARP_REG_RETRY="${REG_RETRY:-600}" \
     WARP_LOG="$SB/tmp/engine.log" \
     WARP_FETCH_STUB="$SB/bin/z2k-warpd-stub" \
     sh "$SB/z2k/z2k-warp.sh" "$@"
@@ -264,6 +265,59 @@ clearlogs; rm -f "$SB/s51.running"
 printf '2026-09-02 13:57:18 ladder: wg:8.6.112.0:2408 ok\n2026-09-02 14:00:00 stopped\n' > "$SB/tmp/engine.log"
 W selfheal >/dev/null 2>&1
 assert_eq "selfheal: штатный stop → следа нет" "0" "$(grep -c 'исчез без остановки' "$SB/tmp/engine.log")"
+
+# ---------- selfheal: registration retry shares this lifecycle harness ----------
+# A failed first registration is logged, rate-limited, and retried only after
+# the configured window. The same stub/init state proves it never starts a
+# daemon without the device identity.
+printf 'GAME_WARP_ENABLED=1\n' > "$SB/z2k/config"
+rm -f "$SB/etc/device.json" "$SB/tmp/register.stamp"
+touch "$SB/reg.fail"
+rm -f "$SB/s51.running"
+clearlogs
+: > "$SB/tmp/engine.log"
+: > "$SB/warpd.log"; : > "$SB/s51.log"
+W selfheal >/dev/null 2>&1
+assert_eq "selfheal missing key: direct and relay registration attempted" "2" "$(grep -c '^register ' "$SB/warpd.log")"
+assert_eq "selfheal missing key: relay is the second attempt" "1" "$(grep -c '^register .*--proxy' "$SB/warpd.log")"
+assert_eq "selfheal missing key: daemon is not started after failed registration" "0" "$(grep -c '^start' "$SB/s51.log" 2>/dev/null || true)"
+assert_eq "selfheal missing key: registration reason is logged" "1" "$(grep -c 'нет ключа устройства — пробую зарегистрировать' "$SB/tmp/engine.log")"
+assert_eq "selfheal missing key: retry timestamp is recorded" "1" "$([ -s "$SB/tmp/register.stamp" ] && echo 1 || echo 0)"
+
+clearlogs
+: > "$SB/warpd.log"; : > "$SB/s51.log"
+W selfheal >/dev/null 2>&1
+assert_eq "selfheal registration: retry inside the window is suppressed" "0" "$(grep -c '^register ' "$SB/warpd.log" 2>/dev/null || true)"
+assert_eq "selfheal registration: no daemon start inside the window" "0" "$(grep -c '^start' "$SB/s51.log" 2>/dev/null || true)"
+
+rm -f "$SB/reg.fail"
+REG_RETRY=0
+clearlogs
+W selfheal >/dev/null 2>&1
+assert_eq "selfheal registration: retry after the window succeeds" "1" "$(grep -c '^register ' "$SB/warpd.log")"
+assert_eq "selfheal registration: daemon starts after device creation" "1" "$(grep -c '^start' "$SB/s51.log")"
+assert_eq "selfheal registration: device identity is present" "1" "$([ -s "$SB/etc/device.json" ] && echo 1 || echo 0)"
+unset REG_RETRY
+
+clearlogs
+rm -f "$SB/tmp/register.stamp"
+rm -f "$SB/s51.running"
+: > "$SB/warpd.log"; : > "$SB/s51.log"
+W selfheal >/dev/null 2>&1
+assert_eq "selfheal registration: existing device skips registration" "0" "$(grep -c '^register ' "$SB/warpd.log" 2>/dev/null || true)"
+assert_eq "selfheal registration: existing device follows normal start path" "1" "$(grep -c '^start' "$SB/s51.log")"
+
+printf 'GAME_WARP_ENABLED=0\n' > "$SB/z2k/config"
+rm -f "$SB/etc/device.json" "$SB/tmp/register.stamp"
+clearlogs
+: > "$SB/warpd.log"; : > "$SB/s51.log"
+W selfheal >/dev/null 2>&1
+assert_eq "selfheal registration: disabled WARP performs no registration or start" "0" "$(cat "$SB/warpd.log" "$SB/s51.log" 2>/dev/null | grep -Ec '^(register |start$)' || true)"
+assert_eq "selfheal registration: shared helper is defined once" "1" "$(grep -c '^warp_register() {' "$SB/z2k/z2k-warp.sh")"
+assert_eq "selfheal registration: register invocations stay centralized" "2" "$(grep -c '"\$WARP_BIN" register' "$SB/z2k/z2k-warp.sh")"
+assert_eq "selfheal registration: selfheal checks device identity" "1" "$(sed -n '/^warp_selfheal() {/,/^}/p' "$SB/z2k/z2k-warp.sh" | grep -c 'WARP_DEVICE')"
+printf 'GAME_WARP_ENABLED=1\n' > "$SB/z2k/config"
+printf '{"iface":"z2ktun0","id":"dev","endpoint":{"v4":"8.6.112.0","h2":"162.159.198.2"}}\n' > "$SB/etc/device.json"
 
 # ---------- status ----------
 printf 'GAME_WARP_ENABLED=1\n' > "$SB/z2k/config"; ready true ""
