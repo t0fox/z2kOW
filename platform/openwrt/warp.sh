@@ -414,6 +414,10 @@ _z2k_ow_warp_table_ok() {
     nft list table "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" >/dev/null 2>&1
 }
 
+_warp_table_contains_chain() {
+    printf '%s\n' "$1" | grep -Eq "^[[:space:]]*chain[[:space:]]+$2[[:space:]]*\\{"
+}
+
 # W19 helper: есть ли вообще входной материал (файлы с содержимым)?
 _warp_lists_have_content() {
     local _wl
@@ -590,8 +594,8 @@ _warp_fw4_forward_apply() {
 }
 
 _warp_fw4_forward_remove_runtime() {
-    local _out _line _handle
-    _out="$(nft -a list chain "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" 2>/dev/null)" || return 0
+    local _out _line _handle _rc=0
+    _out="$(nft -a list chain "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" 2>/dev/null)" || return 1
     while IFS= read -r _line; do
         case "$_line" in
             *"comment \"$WARP_FW4_RULE_COMMENT\""*"# handle "*) ;;
@@ -604,11 +608,11 @@ _warp_fw4_forward_remove_runtime() {
         _handle="$(printf '%s\n' "$_line" | sed -n 's/.*# handle \([0-9][0-9]*\).*/\1/p')"
         [ -n "$_handle" ] || continue
         nft delete rule "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" \
-            handle "$_handle" 2>/dev/null || true
+            handle "$_handle" 2>/dev/null || _rc=1
     done <<EOF_FW4
 $_out
 EOF_FW4
-    return 0
+    return "$_rc"
 }
 
 warp_nft_tun_verify() {
@@ -679,22 +683,24 @@ warp_nft_tun_apply() {
 
 # Dynamic TUN plumbing в off (no-ready/disable): chains пустые, правил нет.
 _warp_tun_clear() {
-    local _c
-    _warp_fw4_forward_remove_runtime
-    _z2k_ow_warp_table_ok || return 0
+    local _c _table _rc=0
+    _warp_fw4_forward_remove_runtime || _rc=1
+    _table="$(nft list table "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" 2>/dev/null)" || return "$_rc"
     for _c in "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
-        nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_c" 2>/dev/null || true
+        _warp_table_contains_chain "$_table" "$_c" || continue
+        nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_c" 2>/dev/null || _rc=1
     done
-    return 0
+    return "$_rc"
 }
 
 # Marking side effect в off (disable, defect 7/W42): MARK chain пуст —
 # пакетная маркировка остановлена. Sets сохраняем как cache, chains —
 # для быстрого re-enable (удаляет их только полный stop/remove).
 _warp_mark_clear() {
-    _z2k_ow_warp_table_ok || return 0
-    nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" 2>/dev/null || true
-    return 0
+    local _table
+    _table="$(nft list table "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" 2>/dev/null)" || return 0
+    _warp_table_contains_chain "$_table" "$WARP_CHAIN_MARK" || return 0
+    nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" 2>/dev/null
 }
 
 warp_nft_remove() {
@@ -1599,8 +1605,7 @@ _warp_wait_and_pbr() {
 # записан, конвергенция — на старте; весь z2k сам НЕ стартуем (W46).
 _z2k_ow_warp_service_reload() {
     _z2k_ow_service_running || return 0
-    "${Z2K_INIT:-/etc/init.d/z2k}" reload >/dev/null 2>&1 || true
-    return 0
+    "${Z2K_INIT:-/etc/init.d/z2k}" reload >/dev/null 2>&1
 }
 
 # Rebuild the owning procd service when the WARP instance must be created or
@@ -1608,7 +1613,7 @@ _z2k_ow_warp_service_reload() {
 # z2k_ow_warp lifecycle calls can acquire it; the caller regains ownership
 # before it proceeds to readiness/PBR checks.
 _z2k_ow_warp_service_rebuild() {
-    local _held=0 _owner="" _recovery_rebuild=0
+    local _held=0 _owner="" _recovery_rebuild=0 _restart_rc=0
     _z2k_ow_service_running || return 0
     _owner=$(cat "$WARP_LOCK_DIR/pid" 2>/dev/null)
     [ "$_owner" = "$$" ] && _held=1
@@ -1618,13 +1623,15 @@ _z2k_ow_warp_service_rebuild() {
         mkdir -p "$(dirname "$WARP_PROCD_REBUILD_FILE")" 2>/dev/null || true
         : > "$WARP_PROCD_REBUILD_FILE" 2>/dev/null || true
     fi
-    _z2k_ow_warp_service_restart
-    [ "$_recovery_rebuild" = "1" ] && rm -f "$WARP_PROCD_REBUILD_FILE" 2>/dev/null
+    _z2k_ow_warp_service_restart || _restart_rc=$?
+    if [ "$_recovery_rebuild" = "1" ]; then
+        rm -f "$WARP_PROCD_REBUILD_FILE" 2>/dev/null || [ "$_restart_rc" != "0" ] || _restart_rc=1
+    fi
     if [ "$_held" = "1" ]; then
         _z2k_ow_warp_lock "${WARP_LOCK_WAIT:-30}" || return 1
         warp_op_current || { warp_op_superseded; return 3; }
     fi
-    return 0
+    return "$_restart_rc"
 }
 
 warp_disable() {
@@ -1950,9 +1957,11 @@ _z2k_ow_warp_dispatch() {
             ;;
         check)
             if command -v z2k_ow_core_ready >/dev/null 2>&1; then
-                z2k_ow_core_ready || return 0
+                # A skipped readiness check is not a successful health result.
+                z2k_ow_core_ready || return 1
             fi
             z2k_ow_warp_check
+            return $?
             ;;
         # CLI-глаголы — явный мэппинг + propagation rc (дефисный reload-lists
         # через "warp_$1" не вызовется; хвостовой return 0 глотал бы rc).
@@ -2025,10 +2034,13 @@ warp_pbr_owner_verify() {
 # "full" (disabled: маркировки нет вовсе) или "keep" (not-ready: desired-слой
 # инертен — bit31 без WARP ip-rule route не меняет, см. контракт §8).
 _warp_converge_off() {
-    warp_pbr_down >/dev/null 2>&1 || true
-    _warp_tun_clear >/dev/null 2>&1 || true
-    [ "${1:-keep}" = "full" ] && _warp_mark_clear >/dev/null 2>&1
-    return 0
+    local _rc=0
+    warp_pbr_down >/dev/null 2>&1 || _rc=1
+    _warp_tun_clear >/dev/null 2>&1 || _rc=1
+    if [ "${1:-keep}" = "full" ]; then
+        _warp_mark_clear >/dev/null 2>&1 || _rc=1
+    fi
+    return "$_rc"
 }
 
 # A live daemon needs one route before it can prove readiness: its health
@@ -2037,38 +2049,41 @@ _warp_converge_off() {
 # fail-open until _warp_proven_ready succeeds.  If the interface disappears,
 # fall back to the normal teardown so a stale route cannot survive a crash.
 _warp_converge_off_keep_probe() {
-    _warp_rule_delete_exact || true
-    _warp_route_release_owned || true
-    rm -f "$WARP_PBR_OWNER" "$WARP_PBR_OWNER.new."* 2>/dev/null
-    if warp_probe_route_up >/dev/null 2>&1; then
-        _warp_tun_clear >/dev/null 2>&1 || true
-        return 0
+    local _rc=0
+    _warp_rule_delete_exact >/dev/null 2>&1 || _rc=1
+    _warp_route_release_owned >/dev/null 2>&1 || _rc=1
+    if [ "$_rc" = "0" ]; then
+        rm -f "$WARP_PBR_OWNER" "$WARP_PBR_OWNER.new."* 2>/dev/null || _rc=1
     fi
-    _warp_converge_off keep
-    return 0
+    if warp_probe_route_up >/dev/null 2>&1; then
+        _warp_tun_clear >/dev/null 2>&1 || _rc=1
+        return "$_rc"
+    fi
+    _warp_converge_off keep >/dev/null 2>&1 || _rc=1
+    return "$_rc"
 }
 
 z2k_ow_warp_check() {
-    local _procd_instance_rc
-    mkdir -p "${Z2K_TMP:-/tmp/z2k}/warp" 2>/dev/null || return 0
+    local _procd_instance_rc _rc=0
+    mkdir -p "${Z2K_TMP:-/tmp/z2k}/warp" 2>/dev/null || return 1
     # Graduated gates (НЕ один wanted: устройству без ключа нужен
     # register-recovery, а не молчаливый converge-to-off).
-    [ "$(warp_cfg ENABLED 1)" = "1" ] || { _warp_converge_off full; return 0; }
-    [ "$(warp_flag)" = "1" ] || { _warp_converge_off full; return 0; }
-    [ -x "$WARP_BIN" ] || { _warp_converge_off keep; return 0; }
+    [ "$(warp_cfg ENABLED 1)" = "1" ] || { _warp_converge_off full; return $?; }
+    [ "$(warp_flag)" = "1" ] || { _warp_converge_off full; return $?; }
+    [ -x "$WARP_BIN" ] || { _warp_converge_off keep; return $?; }
     if [ ! -s "$WARP_DEVICE" ]; then
-        _warp_converge_off keep
+        _warp_converge_off keep >/dev/null 2>&1 || return 1
         if warp_register_due; then
-            mkdir -p "$(dirname "$WARP_REG_STAMP")" 2>/dev/null
-            date +%s > "$WARP_REG_STAMP" 2>/dev/null
-            { _wlog "нет ключа — регистрирую"; warp_register; } >>"$WARP_LOG" 2>&1 \
-                && _z2k_ow_warp_service_restart
+            mkdir -p "$(dirname "$WARP_REG_STAMP")" 2>/dev/null || return 1
+            date +%s > "$WARP_REG_STAMP" 2>/dev/null || return 1
+            { _wlog "нет ключа — регистрирую"; warp_register; } >>"$WARP_LOG" 2>&1 || return 1
+            _z2k_ow_warp_service_restart || return 1
         fi
         return 0
     fi
     if ! warp_running; then
         warp_note_death
-        _warp_converge_off keep
+        _warp_converge_off keep >/dev/null 2>&1 || return 1
         # A registered process crash is procd's bounded-respawn domain. Trust
         # the live procd registry, not our marker: a service restart can drop
         # the instance while a lock-blocked stop leaves that marker stale.
@@ -2079,14 +2094,17 @@ z2k_ow_warp_check() {
         if [ "$_procd_instance_rc" = "1" ] &&
             [ ! -e "$WARP_PROCD_RECOVERY_FILE" ] &&
             _z2k_ow_service_running; then
-            mkdir -p "$(dirname "$WARP_PROCD_RECOVERY_FILE")" 2>/dev/null || return 0
-            printf 'attempted %s\n' "$(date +%s 2>/dev/null || echo 0)" > "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null || return 0
+            mkdir -p "$(dirname "$WARP_PROCD_RECOVERY_FILE")" 2>/dev/null || return 1
+            printf 'attempted %s\n' "$(date +%s 2>/dev/null || echo 0)" > "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null || return 1
             _wlog "нет регистрации z2k-warp в procd — одна попытка восстановления сервиса"
             if _z2k_ow_warp_service_rebuild && [ -e "$WARP_PROCD_INSTANCE_FILE" ]; then
-                _warp_wait_and_pbr >/dev/null 2>&1 || true
+                _warp_wait_and_pbr >/dev/null 2>&1 || return 1
             else
                 _wlog "восстановление регистрации z2k-warp не подтверждено; повторов до явного restart нет"
+                return 1
             fi
+        elif [ "$_procd_instance_rc" = "2" ]; then
+            return 1
         fi
         return 0
     fi
@@ -2096,34 +2114,33 @@ z2k_ow_warp_check() {
         # Read-only probes first.  Every repair is tied to the failed layer;
         # healthy MARK/TUN/PBR/owner state performs zero nft/ip/filesystem
         # mutations, even when the tick runs every minute.
-        warp_nft_sets_reload_if_changed >/dev/null 2>&1 || true
+        warp_nft_sets_reload_if_changed >/dev/null 2>&1 || { _warp_converge_off keep; return 1; }
         if ! warp_nft_rules_verify >/dev/null 2>&1; then
-            warp_nft_rules_apply >/dev/null 2>&1 || { _warp_converge_off keep; return 0; }
+            warp_nft_rules_apply >/dev/null 2>&1 || { _warp_converge_off keep; return 1; }
         fi
         if ! warp_nft_tun_verify "$_iface" >/dev/null 2>&1; then
-            warp_nft_tun_apply "$_iface" >/dev/null 2>&1 || { _warp_converge_off keep; return 0; }
+            warp_nft_tun_apply "$_iface" >/dev/null 2>&1 || { _warp_converge_off keep; return 1; }
         fi
         if ! warp_pbr_verify >/dev/null 2>&1; then
-            warp_pbr_up repair >/dev/null 2>&1 || _warp_converge_off keep
+            warp_pbr_up repair >/dev/null 2>&1 || { _warp_converge_off keep; return 1; }
         elif ! warp_pbr_owner_verify "$_iface" >/dev/null 2>&1; then
-            _warp_owner_write "$_iface" >/dev/null 2>&1 || _warp_converge_off keep
+            _warp_owner_write "$_iface" >/dev/null 2>&1 || { _warp_converge_off keep; return 1; }
         fi
         warp_nft_sets_verify >/dev/null 2>&1 && \
             warp_nft_rules_verify >/dev/null 2>&1 && \
             warp_nft_tun_verify "$_iface" >/dev/null 2>&1 && \
             warp_pbr_verify >/dev/null 2>&1 && \
-            warp_pbr_owner_verify "$_iface" >/dev/null 2>&1 || _warp_converge_off keep
+            warp_pbr_owner_verify "$_iface" >/dev/null 2>&1 || { _warp_converge_off keep; return 1; }
     else
-        _warp_converge_off_keep_probe
+        _warp_converge_off_keep_probe || return 1
     fi
-    return 0
+    return "$_rc"
 }
 
 _z2k_ow_warp_service_restart() {
     # Как reload: только при активном сервисе (defect 2 — не pidof nfqws2).
     _z2k_ow_service_running || return 0
-    "${Z2K_INIT:-/etc/init.d/z2k}" restart >/dev/null 2>&1 || true
-    return 0
+    "${Z2K_INIT:-/etc/init.d/z2k}" restart >/dev/null 2>&1
 }
 
 # Sourced by tests to exercise the functions with stubs — skip the dispatch.

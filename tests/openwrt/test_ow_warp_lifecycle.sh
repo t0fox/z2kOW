@@ -55,6 +55,10 @@ if [ "\$1" = "-f" ]; then
 fi
 if [ "\$1" = "list" ] && [ "\$2" = "table" ]; then
     [ -f "$T/no-table" ] && exit 1
+    for _cf in "$T"/nft-chain-*; do
+        [ -f "\$_cf" ] || continue
+        printf 'chain %s {\n' "\${_cf##*/nft-chain-}"
+    done
     exit 0
 fi
 if [ "\$1" = "list" ] && [ "\$2" = "set" ]; then
@@ -75,6 +79,7 @@ if [ "\$1" = "list" ] && [ "\$2" = "chain" ]; then
 fi
 if [ "\$1" = "-a" ] && [ "\$2" = "list" ] && [ "\$3" = "chain" ] && \
    [ "\$5" = fw4 ] && [ "\$6" = forward ]; then
+    [ -f "$T/fail-nft-fw4-list" ] && exit 1
     [ -f "$T/nft-fw4-forward" ] && cat "$T/nft-fw4-forward"
     exit 0
 fi
@@ -99,6 +104,7 @@ fi
 # chain-state для W40/W42 (dynamic TUN cardinality, disable converge-to-off).
 # Имя чейна — \$5: flush|add|delete (chain|rule) <fam> <tab> <CHAIN> ... .
 if [ "\$1" = "flush" ] && [ "\$2" = "chain" ]; then
+    [ -f "$T/fail-nft-flush" ] && [ "\$5" = "z2k_warp_mss" ] && exit 1
     : > "$T/nft-chain-\$5"
     exit 0
 fi
@@ -122,6 +128,7 @@ if [ "\$1" = "insert" ] && [ "\$2" = "rule" ] && \
 fi
 if [ "\$1" = "delete" ] && [ "\$2" = "rule" ] && \
    [ "\$4" = fw4 ] && [ "\$5" = forward ]; then
+    [ -f "$T/fail-nft-fw4-delete" ] && exit 1
     sed -i '/!z2k: WARP forwarded traffic.*handle 91/d' "$T/nft-fw4-forward" 2>/dev/null || true
     exit 0
 fi
@@ -1359,5 +1366,88 @@ assert_eq "W55: probe rule retry succeeds" "0" "$?"
 assert_eq "W55: probe rule removed" "0" "$(grep -c '499: from 172.16.9.9/32 lookup 989' "$T/ip-rules" 2>/dev/null || true)"
 assert_eq "W55: probe owner removed after cleanup" "0" "$([ -f "$WARP_PROBE_OWNER" ] && echo 1 || echo 0)"
 _w_inv "W55"
+
+# --- W56: health check and cron entrypoint expose failed fail-open cleanup ----
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W56: enable rc"
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+# The health entrypoint intentionally defers before zapret's consumer is ready.
+# Supply the same PID/NFQUEUE ownership proof that the real service publishes.
+mkdir -p "$Z2K_RUN" "$(dirname "$T/proc/net/netfilter/nfnetlink_queue")"
+: > "$Z2K_RUN/core-ready"
+rm -f "$Z2K_RUN/stopping"
+printf '%s\n' "$$" > "$Z2K_RUN/nfqws2.pid"
+printf '200 %s\n' "$$" > "$T/proc/net/netfilter/nfnetlink_queue"
+Z2K_NFQUEUE_PROC="$T/proc/net/netfilter/nfnetlink_queue"; export Z2K_NFQUEUE_PROC
+INIT_SCRIPT="$T/mock-init"; export INIT_SCRIPT
+# Load the same OpenWrt prerequisite predicate as the cron wrapper.
+# shellcheck disable=SC1090,SC1091
+. "$REPO/platform/openwrt/paths.sh"
+# shellcheck disable=SC1090,SC1091
+. "$REPO/platform/openwrt/env.sh"
+z2k_ow_core_ready >/dev/null 2>&1
+assert_eq "W56: health fixture satisfies the core-ready gate" "0" "$?"
+: > "$T/fail-rule-delete"
+z2k_ow_warp_check >/dev/null 2>&1
+assert_eq "W56: health check reports teardown failure" "1" "$?"
+assert_contains "W56: failed rule remains visible" "$T/ip-rules" "fwmark 0x80000000/0x80000000 lookup 989"
+assert_eq "W56: failed teardown keeps owner for retry" "1" "$([ -f "$WARP_PBR_OWNER" ] && echo 1 || echo 0)"
+z2k_ow_core_ready >/dev/null 2>&1
+assert_eq "W56: teardown failure leaves core-ready proof intact" "0" "$?"
+_z2k_ow_warp_dispatch check >/dev/null 2>&1
+assert_eq "W56: dispatcher preserves failed reconciliation" "1" "$?"
+_warp_locked _z2k_ow_warp_dispatch check >/dev/null 2>&1
+assert_eq "W56: lock wrapper preserves failed reconciliation" "1" "$?"
+z2k_ow_warp check >/dev/null 2>&1
+assert_eq "W56: public check command preserves failure" "1" "$?"
+_rc=0
+"$REPO/platform/openwrt/warp-check.sh" check >/dev/null 2>&1 || _rc=$?
+assert_eq "W56: cron entrypoint propagates health failure" "1" "$_rc"
+rm -f "$T/fail-rule-delete"
+z2k_ow_warp check >/dev/null 2>&1
+assert_eq "W56: retry reports successful cleanup" "0" "$?"
+assert_eq "W56: retry removes rule" "0" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "W56: retry removes ownership marker" "0" "$([ -f "$WARP_PBR_OWNER" ] && echo 1 || echo 0)"
+_w_inv "W56"
+
+# --- W57: failed nft cleanup is not reported as a successful converge --------
+_reset
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+: > "$T/nft-chain-z2k_warp_mss"
+: > "$T/fail-nft-flush"
+z2k_ow_warp_check >/dev/null 2>&1
+assert_eq "W57: failed TUN-chain flush is reported" "1" "$?"
+rm -f "$T/fail-nft-flush"
+z2k_ow_warp_check >/dev/null 2>&1
+assert_eq "W57: retry reports successful nft cleanup" "0" "$?"
+_w_inv "W57"
+
+# --- W58: fw4 runtime cleanup query failures are visible ----------------------
+_reset
+printf 'meta mark & 0x80000000 == 0x80000000 oifname "z2ktun0" accept comment "!z2k: WARP forwarded traffic" # handle 91\n' > "$T/nft-fw4-forward"
+: > "$T/fail-nft-fw4-list"
+z2k_ow_warp_check >/dev/null 2>&1
+assert_eq "W58: fw4 rule query failure is reported" "1" "$?"
+assert_contains "W58: unverified fw4 rule remains visible" "$T/nft-fw4-forward" "handle 91"
+rm -f "$T/fail-nft-fw4-list"
+z2k_ow_warp_check >/dev/null 2>&1
+assert_eq "W58: fw4 rule cleanup retry succeeds" "0" "$?"
+assert_eq "W58: retry removes the owned fw4 rule" "0" "$(grep -c 'handle 91' "$T/nft-fw4-forward" 2>/dev/null || true)"
+_w_inv "W58"
+
+# --- W59: fw4 runtime rule deletion failures are visible and retryable --------
+_reset
+printf 'meta mark & 0x80000000 == 0x80000000 oifname "z2ktun0" accept comment "!z2k: WARP forwarded traffic" # handle 91\n' > "$T/nft-fw4-forward"
+: > "$T/fail-nft-fw4-delete"
+z2k_ow_warp_check >/dev/null 2>&1
+assert_eq "W59: fw4 rule deletion failure is reported" "1" "$?"
+assert_contains "W59: failed fw4 deletion leaves rule for retry" "$T/nft-fw4-forward" "handle 91"
+rm -f "$T/fail-nft-fw4-delete"
+z2k_ow_warp_check >/dev/null 2>&1
+assert_eq "W59: fw4 delete retry succeeds" "0" "$?"
+assert_eq "W59: retry removes fw4 rule" "0" "$(grep -c 'handle 91' "$T/nft-fw4-forward" 2>/dev/null || true)"
+_w_inv "W59"
 
 _t_done
