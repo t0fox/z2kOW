@@ -167,6 +167,21 @@ mark_fired_in() {
     mv "${file}.tmp" "$file"
 }
 
+# Run WARP's fail-open reconciler at most once per 25 seconds. The scheduler
+# loop and state operations stay here; exposing this one function boundary lets
+# the same cadence and marker behavior run in a bounded fixture.
+z2k_scheduler_warp_selfheal_tick() {
+    local warp_script="$1" state_file="$2" now_epoch="$3" last_warp
+    [ -r "$warp_script" ] || return 0
+    last_warp=$(last_fired_in "$state_file" warp-selfheal-epoch)
+    case "$last_warp" in ''|*[!0-9]*) last_warp=0 ;; esac
+    if [ "$((now_epoch - last_warp))" -ge 25 ]; then
+        mark_fired_in "$state_file" warp-selfheal-epoch "$now_epoch" || return 1
+        sh "$warp_script" selfheal >/dev/null 2>&1 &
+    fi
+    return 0
+}
+
 # Час ночного автообновления (issue #60: «нет возможности выбрать время»).
 #
 # Читаем из конфига КАЖДЫЙ РАЗ, а не один раз при старте: человек меняет час в
@@ -499,14 +514,7 @@ while true; do
     # движка z2k-warpd (fail open: мёртвый туннель = трафик напрямую, а не в
     # чёрную дыру) и поднимает демон, если он не запущен. No-op при
     # GAME_WARP_ENABLED=0 или без установленного движка.
-    if [ -r "${ZAPRET2_DIR}/z2k-warp.sh" ]; then
-        last_warp=$(last_fired_in "$TMP_STATE" warp-selfheal-epoch)
-        case "$last_warp" in ''|*[!0-9]*) last_warp=0 ;; esac
-        if [ "$((now_epoch - last_warp))" -ge 25 ]; then
-            mark_fired_in "$TMP_STATE" warp-selfheal-epoch "$now_epoch"
-            sh "${ZAPRET2_DIR}/z2k-warp.sh" selfheal >/dev/null 2>&1 &
-        fi
-    fi
+    z2k_scheduler_warp_selfheal_tick "${ZAPRET2_DIR}/z2k-warp.sh" "$TMP_STATE" "$now_epoch"
 
     # Rotate logs occasionally (cheap, only every minute boundary).
     if [ "$(date +%S)" -lt 30 ]; then

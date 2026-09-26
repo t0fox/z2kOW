@@ -57,14 +57,8 @@ else
     no "init грузит детектор" "--lua-init=@\$LUA_Z2K_ALERT" "нет"
 fi
 
-# Обёртка обязана делегировать штатному, а не подменять его: иначе теряются
-# входящий RST и исходящие ретрансмиссии в пределах штатного окна.
-if grep -q 'standard_failure_detector' "$LUA"; then
-    ok "обёртка делегирует standard_failure_detector"
-else
-    no "делегирование штатному" "вызов standard_failure_detector" "нет"
-fi
-# Detailed packet/state behavior is tested with the production engine in Lua.
+# Подробное поведение обёртки выполняется через production Lua harness в
+# test_http_classifier.lua; здесь оставлены только delivery/config properties.
 # These dangerous decision paths must not return to the shipped wrapper.
 if grep -qE 'z2k_ok_n|z2k_srv_ttl|incoming_retrans_failure' "$LUA"; then
     no "ненадёжные гварды удалены" "нет veto/stall" "старый гвард найден"
@@ -204,8 +198,7 @@ esac
 
 # --- 3. Окно входящих ----------------------------------------------------------
 # Окно должно позволять достичь штатного порога успеха.
-_pkt_in=$(sed -n '/^z2k_reply_pkt_cap()/,/^}/p' "$ROOT/lib/config_official.sh" \
-          | grep -oE 'echo [0-9]+' | head -1 | grep -oE '[0-9]+')
+_pkt_in=$(z2k_reply_pkt_cap)
 if [ "$_pkt_in" = "10" ]; then
     ok "NFQWS2_TCP_PKT_IN = 10 (окно inseq 4096 + запас)"
 else

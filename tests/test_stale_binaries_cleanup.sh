@@ -28,57 +28,61 @@ ok() { PASS=$((PASS+1)); printf '[PASS] %s\n' "$1"; }
 no() { FAIL=$((FAIL+1)); printf '[FAIL] %s\n      %s\n' "$1" "$2"; }
 
 [ -f "$INST" ] || { no "lib/install.sh найден" "нет файла"; printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"; exit 1; }
+. "$INST"
+print_info() { :; }
+print_error() { :; }
 
-# 1) Механизм на месте.
-if grep -q 'z2k-rt-proxy\.new\.\*' "$INST" && grep -q 'tg-mtproxy-client\.new\.\*' "$INST"; then
-    ok "уборка недокачанных бинарников присутствует"
-else
-    no "уборка недокачанных бинарников присутствует" \
-       "шаблонов .new.* нет — сироты снова копятся без предела"
-fi
-
-# 2) Она идёт ДО того, как установка займёт место. Иначе смысла нет: место
-#    нужно освободить раньше, чем оно понадобится.
-_clean=$(grep -n 'недокачанных бинарников' "$INST" | head -1 | cut -d: -f1)
-_mv=$(grep -n 'Сохранение старой установки для отката' "$INST" | head -1 | cut -d: -f1)
-if [ -n "$_clean" ] && [ -n "$_mv" ] && [ "$_clean" -lt "$_mv" ]; then
-    ok "уборка выполняется до занятия места (строка $_clean < $_mv)"
-else
-    no "уборка выполняется до занятия места" "уборка=$_clean, mv=$_mv"
-fi
-
-# 3) Поведение целиком, на настоящем каталоге: чужое убрать, своё сохранить.
+# Поведение целиком на настоящем временном каталоге: чужие загрузки убрать,
+# свой .new.<pid> и рабочие файлы сохранить. Список берётся из production helper.
 T=$(mktemp -d) || exit 1
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/sbin"
 for f in tg-mtproxy-client.new.2988 z2k-rt-proxy.new.2988 z2k-detect.new.777 \
-         z2k-usque.new.1 tg-mtproxy-client z2k-rt-proxy; do
+         z2k-warpd.new.2988 z2k-usque.new.1 tg-mtproxy-client \
+         z2k-rt-proxy z2k-warpd; do
     echo payload > "$T/sbin/$f"
 done
 MYPID=4242
 echo payload > "$T/sbin/tg-mtproxy-client.new.$MYPID"
-
-( cd "$T" || exit 1
-  for _stale in sbin/tg-mtproxy-client.new.* sbin/z2k-rt-proxy.new.* \
-                sbin/z2k-detect.new.* sbin/z2k-usque.new.*; do
-      [ -f "$_stale" ] || continue
-      [ "$_stale" = "${_stale%.new.$MYPID}" ] || continue
-      rm -f "$_stale"
-  done )
-
-left=$(ls "$T/sbin" | sort | tr '\n' ' ')
-want="tg-mtproxy-client tg-mtproxy-client.new.$MYPID z2k-rt-proxy "
-if [ "$left" = "$want" ]; then
-    ok "чужие сироты убраны, свой .new и рабочие бинарники целы"
+echo payload > "$T/sbin/z2k-warpd.new.$MYPID"
+_rc=0; z2k_cleanup_stale_binary_downloads "$T/sbin" "$MYPID" || _rc=$?
+if [ "$_rc" = "0" ]; then
+    ok "уборка завершилась успешно"
 else
-    no "чужие сироты убраны, свой .new цел" "осталось: [$left], ожидалось: [$want]"
+    no "уборка завершилась успешно" "helper вернул $_rc"
 fi
+for f in tg-mtproxy-client.new.2988 z2k-rt-proxy.new.2988 z2k-detect.new.777 z2k-warpd.new.2988; do
+    [ ! -e "$T/sbin/$f" ] \
+        && ok "чужая загрузка $f удалена" \
+        || no "чужая загрузка $f удалена" "файл остался"
+done
+for f in tg-mtproxy-client.new.$MYPID z2k-warpd.new.$MYPID tg-mtproxy-client \
+         z2k-rt-proxy z2k-warpd z2k-usque.new.1; do
+    [ -f "$T/sbin/$f" ] \
+        && ok "сохранён принадлежащий установке файл $f" \
+        || no "сохранён принадлежащий установке файл $f" "файл удалён"
+done
 
-# 4) Отдельно и прямо: рабочий бинарник не должен пострадать ни при каких
-#    условиях — он и есть то, ради чего всё это работает.
-[ -f "$T/sbin/tg-mtproxy-client" ] \
-    && ok "рабочий бинарник не тронут" \
-    || no "рабочий бинарник не тронут" "удалён — это отказ обхода целиком"
+# Failure to free a stale file is part of the install result: the caller must
+# stop before replacing the tree instead of reporting cleanup as successful.
+mkdir -p "$T/bin"
+cat > "$T/bin/rm" <<EOF
+#!/bin/sh
+case "\$*" in *z2k-detect.new.blocked*) exit 1 ;; esac
+exec /bin/rm "\$@"
+EOF
+chmod +x "$T/bin/rm"
+echo payload > "$T/sbin/z2k-detect.new.blocked"
+_saved_path=$PATH
+PATH="$T/bin:$PATH"; export PATH
+_rc=0; z2k_cleanup_stale_binary_downloads "$T/sbin" "$MYPID" || _rc=$?
+PATH=$_saved_path; export PATH
+if [ "$_rc" != "0" ] && [ -f "$T/sbin/z2k-detect.new.blocked" ]; then
+    ok "ошибка удаления сироты возвращается вызывающему установщику"
+else
+    no "ошибка удаления сироты возвращается вызывающему установщику" \
+       "rc=$_rc, файл=$([ -f "$T/sbin/z2k-detect.new.blocked" ] && echo present || echo missing)"
+fi
 
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"
 [ "$FAIL" = "0" ]

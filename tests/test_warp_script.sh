@@ -414,5 +414,129 @@ touch "$SB/sbin/z2k-usque"
 MIG
 assert_eq "migrate(after purge): z2k-usque binary still removed" "no" "$([ -e "$SB/sbin/z2k-usque" ] && echo yes || echo no)"
 
+# The aggregate-list purge is a state-changing migration. If its storage cannot
+# be prepared, the command must report failure and leave legacy ownership for a
+# later retry; running only the usque cleanup and returning success would hide
+# a partially completed migration from the install transaction.
+echo blocked > "$SB/not-a-directory"
+mkdir -p "$SB/sbin" "$SB/initd" "$SB/etc/z2k-warp-legacy"
+touch "$SB/sbin/z2k-usque" "$SB/initd/S51usque" \
+      "$SB/etc/z2k-warp-legacy/session.conf"
+chmod -x "$SB/initd/S51usque"
+_rc=0
+Z2K_STUB_PATH="$SB/bin" ZAPRET2_DIR="$SB/z2k" \
+    WARP_LISTS_DIR="$SB/not-a-directory/lists" WARP_DEVICE="$SB/etc/device.json" \
+    WARP_LEGACY_BIN="$SB/sbin/z2k-usque" WARP_LEGACY_INIT="$SB/initd/S51usque" \
+    WARP_LEGACY_DIR="$SB/etc/z2k-warp-legacy" \
+    sh "$SB/z2k/z2k-warp.sh" migrate >/dev/null 2>&1 || _rc=$?
+assert_eq "migrate(list storage failure): returns failure" "1" "$_rc"
+assert_eq "migrate(list storage failure): legacy cleanup is deferred" "yes" \
+    "$([ -e "$SB/sbin/z2k-usque" ] && [ -e "$SB/etc/z2k-warp-legacy/session.conf" ] && echo yes || echo no)"
+
+# The same failed list migration must block the ipset refresh path. Otherwise
+# an enable/reload could proceed with incomplete list ownership migration and
+# report success even though the shared migration helper refused its work.
+rm -f "$SB/ipset.log"
+_rc=0
+Z2K_STUB_PATH="$SB/bin" ZAPRET2_DIR="$SB/z2k" CONFIG_FILE="$SB/z2k/config" \
+    WARP_BIN="$SB/sbin/z2k-warpd" WARP_INIT="$SB/bin/S51" WARP_DEVICE="$SB/etc/device.json" \
+    WARP_STATUS="$SB/tmp/status.json" WARP_LISTS_DIR="$SB/not-a-directory/lists" \
+    WARP_FILTER="$SB/z2k/z2k-warp-list-filter.awk" \
+    WARP_REG_STAMP="$SB/tmp/register.stamp" WARP_LOG="$SB/tmp/engine.log" \
+    WARP_FETCH_STUB="$SB/bin/z2k-warpd-stub" \
+    sh "$SB/z2k/z2k-warp.sh" ipset >/dev/null 2>&1 || _rc=$?
+assert_eq "ipset refresh(list migration failure): returns failure" 1 "$_rc"
+assert_eq "ipset refresh(list migration failure): performs no set mutation" 0 \
+    "$(grep -c '^create ' "$SB/ipset.log" 2>/dev/null || echo 0)"
+
+# A detected owned legacy runtime must not be reported migrated when its
+# binary cannot be removed. This injects the failure at rm, below the migration
+# call, and verifies the evidence remains for a retry.
+cat > "$SB/bin/rm" <<EOF
+#!/bin/sh
+for _arg do
+    [ "\$_arg" = "$SB/sbin/z2k-usque" ] && exit 1
+done
+exec /bin/rm "\$@"
+EOF
+chmod +x "$SB/bin/rm"
+touch "$SB/sbin/z2k-usque" "$SB/etc/z2k-warp-legacy/session.conf"
+_rc=0
+Z2K_STUB_PATH="$SB/bin" ZAPRET2_DIR="$SB/z2k" \
+    WARP_LISTS_DIR="$SB/z2k/lists/warp" WARP_DEVICE="$SB/etc/device.json" \
+    WARP_LEGACY_BIN="$SB/sbin/z2k-usque" WARP_LEGACY_INIT="$SB/initd/S51usque" \
+    WARP_LEGACY_DIR="$SB/etc/z2k-warp-legacy" \
+    sh "$SB/z2k/z2k-warp.sh" migrate >/dev/null 2>&1 || _rc=$?
+assert_eq "migrate(legacy file removal failure): returns failure" "1" "$_rc"
+assert_eq "migrate(legacy file removal failure): evidence remains" "yes" \
+    "$([ -e "$SB/sbin/z2k-usque" ] && [ -e "$SB/etc/z2k-warp-legacy/session.conf" ] && echo yes || echo no)"
+
+# Package removal is the other ownership-changing stage. A failed opkg remove
+# must retain the old evidence and must happen before mutating the recorded NDM
+# interface, so a retry starts from the same external state.
+cat > "$SB/bin/opkg" <<EOF
+#!/bin/sh
+case "\$1" in
+    list-installed) echo 'usque-keenetic - 1.0' ;;
+    remove) echo "\$*" >> "$SB/opkg-fail.log"; exit 1 ;;
+esac
+exit 0
+EOF
+chmod +x "$SB/bin/opkg"
+touch "$SB/initd/S51usque" "$SB/etc/z2k-warp-legacy/session.conf"
+chmod -x "$SB/initd/S51usque"
+echo opkgtun9 > "$SB/etc/z2k-warp-legacy/iface"
+rm -f "$SB/ndmc.log"
+: > "$SB/ndmc.log"
+_rc=0
+Z2K_STUB_PATH="$SB/bin" ZAPRET2_DIR="$SB/z2k" \
+    WARP_LISTS_DIR="$SB/z2k/lists/warp" WARP_DEVICE="$SB/etc/device.json" \
+    WARP_LEGACY_BIN="$SB/sbin/z2k-usque" WARP_LEGACY_INIT="$SB/initd/S51usque" \
+    WARP_LEGACY_DIR="$SB/etc/z2k-warp-legacy" \
+    sh "$SB/z2k/z2k-warp.sh" migrate >/dev/null 2>&1 || _rc=$?
+assert_eq "migrate(opkg removal failure): returns failure" "1" "$_rc"
+assert_eq "migrate(opkg removal failure): ownership evidence remains" "yes" \
+    "$([ -e "$SB/initd/S51usque" ] && [ -e "$SB/etc/z2k-warp-legacy/session.conf" ] && echo yes || echo no)"
+assert_eq "migrate(opkg removal failure): NDM interface is not mutated" "0" \
+    "$(awk '/^no interface / { n++ } END { print n+0 }' "$SB/ndmc.log" 2>/dev/null)"
+
+# Removing the recorded NDM interface mutates live router state. A failed
+# command must leave iface evidence in place and must not continue cleanup.
+cat > "$SB/bin/ndmc" <<'NDMCFAIL'
+#!/bin/sh
+exit 1
+NDMCFAIL
+chmod +x "$SB/bin/ndmc"
+echo opkgtun2 > "$SB/etc/z2k-warp-legacy/iface"
+_rc=0
+Z2K_STUB_PATH="$SB/bin" ZAPRET2_DIR="$SB/z2k" \
+    WARP_LISTS_DIR="$SB/z2k/lists/warp" WARP_DEVICE="$SB/etc/device.json" \
+    WARP_LEGACY_BIN="$SB/sbin/z2k-usque" WARP_LEGACY_INIT="$SB/initd/S51usque" \
+    WARP_LEGACY_DIR="$SB/etc/z2k-warp-legacy" \
+    sh "$SB/z2k/z2k-warp.sh" migrate >/dev/null 2>&1 || _rc=$?
+assert_eq "migrate(NDM removal failure): returns failure" "1" "$_rc"
+assert_eq "migrate(NDM removal failure): retains interface evidence" opkgtun2 \
+    "$(cat "$SB/etc/z2k-warp-legacy/iface")"
+
+# A recorded interface also cannot be silently forgotten when ndmc itself is
+# unavailable; the next attempt needs the original interface name.
+mkdir -p "$SB/no-ndmc"
+cat > "$SB/no-ndmc/opkg" <<'OPKG_NO_USQUE'
+#!/bin/sh
+[ "$1" = list-installed ] && exit 0
+exit 1
+OPKG_NO_USQUE
+chmod +x "$SB/no-ndmc/opkg"
+echo opkgtun3 > "$SB/etc/z2k-warp-legacy/iface"
+_rc=0
+Z2K_STUB_PATH="$SB/no-ndmc" ZAPRET2_DIR="$SB/z2k" \
+    WARP_LISTS_DIR="$SB/z2k/lists/warp" WARP_DEVICE="$SB/etc/device.json" \
+    WARP_LEGACY_BIN="$SB/sbin/z2k-usque" WARP_LEGACY_INIT="$SB/initd/S51usque" \
+    WARP_LEGACY_DIR="$SB/etc/z2k-warp-legacy" \
+    sh "$SB/z2k/z2k-warp.sh" migrate >/dev/null 2>&1 || _rc=$?
+assert_eq "migrate(missing NDM client): returns failure" "1" "$_rc"
+assert_eq "migrate(missing NDM client): retains interface evidence" opkgtun3 \
+    "$(cat "$SB/etc/z2k-warp-legacy/iface")"
+
 printf "\nPASSED: %d\nFAILED: %d\n" "$TESTS_PASSED" "$TESTS_FAILED"
 [ "$TESTS_FAILED" -eq 0 ]

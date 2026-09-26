@@ -193,6 +193,7 @@ sh_mutant() {
     (
         mkdir -p "$_dir/files" "$_dir/tests"
         cp "$ROOT/files/z2k-warp.sh" "$_dir/files/"
+        cp "$ROOT/files/z2k-warp-list-filter.awk" "$_dir/files/"
         cp "$ROOT/tests/test_warp_script.sh" "$_dir/tests/"
         if ! grep -qF "$from" "$_dir/files/z2k-warp.sh"; then
             printf 'stale\t%s (якорь не найден — мутант протух)\n' "$desc" > "$VERD/$_id"
@@ -281,6 +282,108 @@ sh_mutant "install starts the daemon" \
         _wlog "$out"; return 0' \
     '    if out=$("$WARP_BIN" register --device "$WARP_DEVICE" 2>&1); then
         _wlog "$out"; sh "$WARP_INIT" start >/dev/null 2>&1; return 0'
+
+# A failed list migration must stop the usque cleanup and reach install rollback.
+sh_mutant "WARP migration ignores list migration failure" \
+    '    migrate)  warp_lists_migrate && warp_migrate_usque ;;' \
+    '    migrate)  warp_lists_migrate; warp_migrate_usque ;;'
+
+# An enable/reload must also stop before touching the live set if list migration fails.
+sh_mutant "WARP ipset refresh ignores list migration failure" \
+    '    warp_lists_migrate || return 1' \
+    '    warp_lists_migrate'
+
+# A failed package removal must not mutate the recorded NDM interface afterward.
+sh_mutant "WARP migration mutates NDM after package removal failure" \
+    '            _wlog "cannot remove owned usque package"
+            return 1' \
+    '            _wlog "cannot remove owned usque package"
+            :'
+
+# ---------------------------------------------------------------------------
+# Installer/scheduler mutants — execute source helpers in their existing suites
+# ---------------------------------------------------------------------------
+installer_mutant() {
+    desc="$1"; source_rel="$2"; from="$3"; to="$4"
+    _mut_start; _id="$MUT_SEQ"; _dir="$WORK/installer.$_id"
+    (
+        mkdir -p "$_dir/lib" "$_dir/files" "$_dir/tests"
+        cp "$ROOT/lib/install.sh" "$_dir/lib/"
+        cp "$ROOT/files/z2k-scheduler.sh" "$_dir/files/"
+        cp "$ROOT/z2k_cleanup.sh" "$_dir/"
+        cp "$ROOT/tests/test_warp_install_hooks.sh" "$ROOT/tests/test_stale_binaries_cleanup.sh" "$_dir/tests/"
+        case "$source_rel" in
+            lib/install.sh) _mutated="$_dir/lib/install.sh" ;;
+            files/z2k-scheduler.sh) _mutated="$_dir/files/z2k-scheduler.sh" ;;
+            *) printf 'stale\t%s (unknown target %s)\n' "$desc" "$source_rel" > "$VERD/$_id"; exit 0 ;;
+        esac
+        if ! grep -qF "$from" "$_mutated"; then
+            printf 'stale\t%s (anchor not found)\n' "$desc" > "$VERD/$_id"
+            exit 0
+        fi
+        python3 - "$_mutated" "$from" "$to" <<'PY3'
+import sys
+path, old, new = sys.argv[1:]
+with open(path, encoding='utf-8') as f:
+    source = f.read()
+with open(path, 'w', encoding='utf-8') as f:
+    f.write(source.replace(old, new, 1))
+PY3
+        if sh "$_dir/tests/test_warp_install_hooks.sh" >/dev/null 2>&1 \
+           && sh "$_dir/tests/test_stale_binaries_cleanup.sh" >/dev/null 2>&1; then
+            printf 'fail\tinstaller/scheduler: %s\n' "$desc" > "$VERD/$_id"
+        else
+            printf 'pass\tinstaller/scheduler: %s\n' "$desc" > "$VERD/$_id"
+        fi
+    ) &
+}
+
+# A user without WARP installed must not have the engine fetched during a base install.
+installer_mutant "refresh path installs an unrequested WARP engine" \
+    lib/install.sh \
+    '    [ -x "$warp_binary" ] || return 0' \
+    '    :'
+
+# A partially completed migration must not be reported as an install success.
+installer_mutant "failed WARP migration is swallowed by installer" \
+    lib/install.sh \
+    '    if ! sh "$warp_script" migrate >/dev/null 2>&1; then' \
+    '    if false && ! sh "$warp_script" migrate >/dev/null 2>&1; then'
+
+# Do not delete the recovery controls while the engine refused removal.
+installer_mutant "uninstall deletes WARP controls after remove failure" \
+    lib/install.sh \
+    '        if ! sh "$warp_script" remove >/dev/null 2>&1; then' \
+    '        if false && ! sh "$warp_script" remove >/dev/null 2>&1; then'
+
+# WARP's abandoned downloads belong to the same cleanup list as other engines.
+installer_mutant "stale WARP engine download is not reclaimed" \
+    lib/install.sh \
+    '                  "$sbin_dir"/z2k-warpd.new.*; do' \
+    '                  "$sbin_dir"/z2k-warpd.untracked.*; do'
+
+# The WARP self-heal cadence must not fire before 25 seconds.
+installer_mutant "scheduler self-heal fires before its 25-second interval" \
+    files/z2k-scheduler.sh \
+    '    if [ "$((now_epoch - last_warp))" -ge 25 ]; then' \
+    '    if [ "$((now_epoch - last_warp))" -ge 24 ]; then'
+
+# The existing suite extracts and executes the exact production dispatches;
+# removing a caller or swallowing its failure must therefore make it red.
+installer_mutant "installer no longer dispatches installed-WARP refresh" \
+    lib/install.sh \
+    '    z2k_refresh_installed_warp "$ZAPRET2_DIR/z2k-warp.sh" /opt/sbin/z2k-warpd || return 1' \
+    '    : # WARP refresh dispatch removed'
+
+installer_mutant "uninstall swallows WARP remove-dispatch failure" \
+    lib/install.sh \
+    '        /var/run/z2k-warpd.pid /tmp/z2k-warp /opt/sbin/z2k-warpd || return 1' \
+    '        /var/run/z2k-warpd.pid /tmp/z2k-warp /opt/sbin/z2k-warpd || :'
+
+installer_mutant "scheduler no longer dispatches WARP selfheal" \
+    files/z2k-scheduler.sh \
+    '    z2k_scheduler_warp_selfheal_tick "${ZAPRET2_DIR}/z2k-warp.sh" "$TMP_STATE" "$now_epoch"' \
+    '    : # WARP selfheal dispatch removed'
 
 # ---------------------------------------------------------------------------
 # Init-script mutants — files/init.d/S51z2k-warp against tests/test_warp_init_thin.sh

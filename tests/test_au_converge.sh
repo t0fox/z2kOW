@@ -161,20 +161,36 @@ au_snapshot_for_patch "$(printf 'files/lua/a.lua\nfiles/lua/b.lua\n')"
 assert_eq "и из списка через перевод строки" "2" \
     "$(find "$Z2K_AU_TMP_DIR/pre-apply" -type f 2>/dev/null | awk 'END {print NR+0}')"
 
-# Цена снимка не должна расти с числом файлов кратно проходам по манифесту:
-# один проход на весь список, а не вызов на каждый путь.
-assert_eq "снимок ищет цели одним проходом" "1" \
-    "$(grep -c 'au_targets_bulk "$Z2K_AU_TMP_DIR/UPDATES.json"' "$ROOT/lib/auto_update.sh")"
-# И раскладка тоже: поиск на каждый файл давал полминуты молчания между
-# последней скачанной строкой и первым шагом на большом обновлении.
-assert_eq "раскладка ищет цели одним проходом" "1" \
-    "$(grep -c 'au_targets_bulk "$manifest" "$plan"' "$ROOT/lib/auto_update.sh")"
-assert_eq "поиска на каждый файл не осталось" "0" \
-    "$(grep -c 'au_manifest_install_targets "$manifest" "$_ca_path"' "$ROOT/lib/auto_update.sh")"
-# Провал раскладки обязан вернуться провалом: цикл идёт за пайпом, и rc из
-# подоболочки наружу не переживает — отсюда файл-маркер.
-assert_eq "осечка за пайпом не теряется" "1" \
-    "$(grep -c 'converge.fail' "$ROOT/lib/auto_update.sh" | awk '{print ($1>0)?1:0}')"
+# Ошибка раскладки должна выйти из цикла за пайпом как отказ, а целевой файл
+# должен остаться целым. Подменяем только копирование во временное имя цели;
+# загрузка и проверка контрольной суммы проходят обычным путём.
+mkdir -p "$SB/zd/lua" "$SB/repo/files/lua"
+printf 'новая цель\n' > "$SB/repo/files/lua/copy-fail.lua"
+printf 'старая цель\n' > "$SB/zd/lua/copy-fail.lua"
+cat > "$SB/m5.json" <<EOF
+{
+  "install_map": { "files/lua/copy-fail.lua": ["$SB/zd/lua/copy-fail.lua"] },
+  "files_sha256": { "files/lua/copy-fail.lua": "$(sha "$SB/repo/files/lua/copy-fail.lua")" }
+}
+EOF
+printf 'files/lua/copy-fail.lua\n' > "$SB/plan6.txt"
+mkdir -p "$SB/bin"
+_mv_real=$(command -v mv)
+cat > "$SB/bin/mv" <<EOF
+#!/bin/sh
+case "\$3" in
+    "$SB/zd/lua/copy-fail.lua") exit 1 ;;
+esac
+exec "$_mv_real" "\$@"
+EOF
+chmod +x "$SB/bin/mv"
+_path_before_fail="$PATH"
+PATH="$SB/bin:$PATH"; export PATH
+assert_eq "ошибка раскладки возвращается отказом" "1" \
+    "$(au_converge_apply "$SB/m5.json" "$SB/plan6.txt" >/dev/null 2>&1; echo $?)"
+PATH="$_path_before_fail"; export PATH
+assert_eq "при отказе раскладки старая цель цела" "старая цель" \
+    "$(cat "$SB/zd/lua/copy-fail.lua")"
 
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

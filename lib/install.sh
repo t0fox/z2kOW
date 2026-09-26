@@ -19,6 +19,85 @@ z2k_fix_cron_perms() {
     fi
 }
 
+# Remove only abandoned binary downloads from earlier install processes. The
+# current pid's .new file can still be in use by an active atomic replacement.
+z2k_cleanup_stale_binary_downloads() {
+    local sbin_dir="${1:-/opt/sbin}" current_pid="${2:-$$}"
+    local _stale _sfreed=0
+    for _stale in "$sbin_dir"/tg-mtproxy-client.new.* \
+                  "$sbin_dir"/z2k-rt-proxy.new.* \
+                  "$sbin_dir"/z2k-detect.new.* \
+                  "$sbin_dir"/z2k-warpd.new.*; do
+        [ -f "$_stale" ] || continue
+        [ "$_stale" = "${_stale%.new.$current_pid}" ] || continue
+        if rm -f "$_stale" 2>/dev/null; then
+            _sfreed=$((_sfreed + 1))
+        else
+            print_error "Не удалось удалить незавершённую загрузку $_stale"
+            return 1
+        fi
+    done
+    [ "$_sfreed" -gt 0 ] && print_info "Убрано недокачанных бинарников от прошлых установок: ${_sfreed}"
+    return 0
+}
+
+# Update WARP only when its engine was already installed. Migration and an
+# installed-engine refresh are inside the enclosing install transaction, so a
+# failure must reach step_finalize and trigger rollback before version commit.
+z2k_refresh_installed_warp() {
+    local warp_script="$1" warp_binary="$2"
+    if [ ! -x "$warp_script" ]; then
+        if [ -x "$warp_binary" ]; then
+            print_error "WARP engine is installed but its manager is unavailable"
+            return 1
+        fi
+        return 0
+    fi
+    if ! sh "$warp_script" migrate >/dev/null 2>&1; then
+        print_error "WARP migration failed; install transaction must roll back"
+        return 1
+    fi
+    [ -x "$warp_binary" ] || return 0
+
+    print_info "WARP: обновляю установленный движок z2k-warpd..."
+    if sh "$warp_script" install >/dev/null 2>&1; then
+        print_success "WARP: движок актуален"
+        return 0
+    fi
+    print_error "WARP engine refresh failed; install transaction must roll back"
+    return 1
+}
+
+# Stop/remove the engine before deleting its service hooks. On a failed remove,
+# preserve the control files so the operator can recover the runtime. Identity
+# and user state live outside these runtime paths and are intentionally kept.
+z2k_remove_warp_installation() {
+    local warp_script="$1" init_script="$2" ndm_hook="$3"
+    local pid_file="$4" runtime_tmp="$5" warp_binary="$6"
+    if [ -r "$warp_script" ]; then
+        if ! sh "$warp_script" remove >/dev/null 2>&1; then
+            print_error "WARP engine removal failed; preserving service files"
+            return 1
+        fi
+    elif [ -x "$warp_binary" ]; then
+        print_error "WARP engine is installed but its manager is unavailable"
+        return 1
+    fi
+    if ! rm -f "$init_script" "$ndm_hook"; then
+        print_error "WARP service files could not be removed"
+        return 1
+    fi
+    if ! rm -f "$pid_file" 2>/dev/null; then
+        print_error "WARP pid file could not be removed"
+        return 1
+    fi
+    if ! rm -rf "$runtime_tmp" 2>/dev/null; then
+        print_error "WARP runtime state could not be removed"
+        return 1
+    fi
+    return 0
+}
+
 # ==============================================================================
 # HELPER: deploy a critical file with self-healing fallback to direct GitHub fetch
 # ==============================================================================
@@ -1812,14 +1891,7 @@ step_build_zapret2() {
         #
         # Чистим ДО того, как установка начнёт занимать место. Свой файл (pid
         # текущего процесса) не трогаем — он ещё понадобится.
-        local _stale _sfreed=0
-        for _stale in /opt/sbin/tg-mtproxy-client.new.* /opt/sbin/z2k-rt-proxy.new.* \
-                      /opt/sbin/z2k-detect.new.* /opt/sbin/z2k-warpd.new.*; do
-            [ -f "$_stale" ] || continue
-            [ "$_stale" = "${_stale%.new.$$}" ] || continue
-            rm -f "$_stale" 2>/dev/null && _sfreed=$((_sfreed + 1))
-        done
-        [ "$_sfreed" -gt 0 ] && print_info "Убрано недокачанных бинарников от прошлых установок: ${_sfreed}"
+        z2k_cleanup_stale_binary_downloads /opt/sbin "$$" || return 1
 
         # Сироты временных файлов ВНУТРИ дерева — тот же класс, что .old.* и
         # .new.<pid> выше, поэтому и убираются здесь же: до того, как установка
@@ -4602,17 +4674,7 @@ step_finalize() {
     # две вещи: разовая зачистка usque-эпохи (migrate) и обновление УЖЕ
     # установленного движка: бинарь лежит вне /opt/zapret2 и сам не обновится,
     # а новый релиз может нести новую версию. Нет бинаря — ничего не качаем.
-    if [ -x "$ZAPRET2_DIR/z2k-warp.sh" ]; then
-        sh "$ZAPRET2_DIR/z2k-warp.sh" migrate >/dev/null 2>&1 || true
-    fi
-    if [ -x /opt/sbin/z2k-warpd ]; then
-        print_info "WARP: обновляю установленный движок z2k-warpd..."
-        if sh "$ZAPRET2_DIR/z2k-warp.sh" install >/dev/null 2>&1; then
-            print_success "WARP: движок актуален"
-        else
-            print_warning "WARP: движок не обновился — оставлен текущий"
-        fi
-    fi
+    z2k_refresh_installed_warp "$ZAPRET2_DIR/z2k-warp.sh" /opt/sbin/z2k-warpd || return 1
 
     # Final cleanup of user-data backup — нужен был на протяжении всей
     # установки (step_install_zapret2 → step_finalize) для webpanel-restore
@@ -5395,12 +5457,9 @@ uninstall_zapret2() {
     # ipset'ы (ДО общей зачистки ipset'ов ниже — иначе «set in use»). device.json
     # в /opt/etc/z2k-warp остаётся намеренно: повторная установка не должна
     # регистрировать новое устройство у Cloudflare.
-    if [ -r "${ZAPRET2_DIR:-/opt/zapret2}/z2k-warp.sh" ]; then
-        sh "${ZAPRET2_DIR:-/opt/zapret2}/z2k-warp.sh" remove >/dev/null 2>&1 || true
-    fi
-    rm -f /opt/etc/init.d/S51z2k-warp /opt/etc/ndm/netfilter.d/93-z2k-warp.sh
-    rm -f /var/run/z2k-warpd.pid 2>/dev/null || true
-    rm -rf /tmp/z2k-warp 2>/dev/null || true
+    z2k_remove_warp_installation "${ZAPRET2_DIR:-/opt/zapret2}/z2k-warp.sh" \
+        /opt/etc/init.d/S51z2k-warp /opt/etc/ndm/netfilter.d/93-z2k-warp.sh \
+        /var/run/z2k-warpd.pid /tmp/z2k-warp /opt/sbin/z2k-warpd || return 1
 
     # Tear down the tpws youtube layer (removed as a feature). Same sweep as
     # install/update — destroys the ipsets BEFORE the generic z2k-ipset destroy

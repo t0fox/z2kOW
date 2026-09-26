@@ -129,7 +129,8 @@ WARP_USER_OFF_FILE="${WARP_USER_OFF_FILE:-$WARP_LISTS_DIR/.disabled}"
 warp_lists_migrate() {
     [ -d "$WARP_LISTS_DIR" ] || mkdir -p "$WARP_LISTS_DIR" || {
         _wlog "cannot create $WARP_LISTS_DIR"; return 1; }
-    mkdir -p "$WARP_GAMES_DIR" 2>/dev/null
+    mkdir -p "$WARP_GAMES_DIR" 2>/dev/null || {
+        _wlog "cannot create $WARP_GAMES_DIR"; return 1; }
 
     # One-shot purge of the legacy aggregate. It was 14297 entries covering 15%
     # of IPv4 — private space and the user's own LAN included — and it is what
@@ -142,9 +143,12 @@ warp_lists_migrate() {
               "$WARP_LISTS_DIR/.game-warp-ips.base" \
               "$WARP_LISTS_DIR/.game-warp-ips.upstream" \
               "$WARP_LISTS_DIR/.game-warp-ips.removed" \
-              "$WARP_LISTS_DIR/.game-warp-ips.san" 2>/dev/null
-        rm -f "$WARP_LEGACY_LIST" 2>/dev/null
-        touch "$WARP_LISTS_DIR/.legacy-aggregate-purged" 2>/dev/null || true
+              "$WARP_LISTS_DIR/.game-warp-ips.san" 2>/dev/null || {
+            _wlog "cannot remove legacy aggregate lists"; return 1; }
+        rm -f "$WARP_LEGACY_LIST" 2>/dev/null || {
+            _wlog "cannot remove $WARP_LEGACY_LIST"; return 1; }
+        touch "$WARP_LISTS_DIR/.legacy-aggregate-purged" 2>/dev/null || {
+            _wlog "cannot record legacy list migration"; return 1; }
         _wlog "legacy aggregate list removed — pick per-game lists in the panel"
     fi
 
@@ -186,7 +190,7 @@ warp_ipset_count() {
 
 warp_ipset_load() {
     [ -r "$WARP_FILTER" ] || { _wlog "missing WARP destination filter $WARP_FILTER"; return 1; }
-    warp_lists_migrate
+    warp_lists_migrate || return 1
     ipset create "$WARP_IPSET" hash:net family inet 2>/dev/null
     ipset list "$WARP_IPSET" >/dev/null 2>&1 || { _wlog "cannot create ipset $WARP_IPSET"; return 1; }
     # Lists are user-edited now, so validate STRICTLY (mirrors the webpanel
@@ -879,37 +883,77 @@ warp_migrate_usque() {
     [ -e "$WARP_LEGACY_DIR/session.conf" ] || [ -e "$WARP_LEGACY_DIR/iface" ] && ours=1
     ls "$ZAPRET2_DIR"/.z2k-warp-* >/dev/null 2>&1 && ours=1
     [ -d "$ZAPRET2_DIR/warp" ] && ours=1
+    # A legacy init with its execute bit removed is an ownership marker too.
+    if [ -e "$WARP_LEGACY_INIT" ] && [ ! -x "$WARP_LEGACY_INIT" ]; then
+        ours=1
+    fi
+    # Чужой установленный пакет без наших улик никогда не трогаем.
+    [ "$ours" = "1" ] || return 0
+
     # NDM-интерфейс старого туннеля (OpkgTunN с 172.16.x.x, `ip global`) живёт
-    # в конфигурации Keenetic и переживает любую зачистку файлов. Имя наш
-    # старый init записывал в iface — по нему и снимаем, чужие OpkgTunN не
-    # трогаем. Сначала NDM, потом файл: иначе улика уйдёт раньше интерфейса.
+    # в конфигурации Keenetic и переживает зачистку файлов. Имя наш старый init
+    # записывал в iface — по нему и снимаем, чужие OpkgTunN не трогаем. Сначала
+    # проверяем, что NDM-клиент доступен, затем удаляем пакет, и только после
+    # успешного удаления меняем NDM: отказ opkg не должен частично менять
+    # внешнее состояние.
     local legacy_if
     legacy_if=$(tr -d ' \n' < "$WARP_LEGACY_DIR/iface" 2>/dev/null)
     case "$legacy_if" in
         opkgtun[0-9]*)
-            if command -v ndmc >/dev/null 2>&1; then
-                LD_LIBRARY_PATH= ndmc -c "no interface $(echo "$legacy_if" | sed 's/^opkg/Opkg/; s/tun/Tun/')" >/dev/null 2>&1
-                LD_LIBRARY_PATH= ndmc -c "system configuration save" >/dev/null 2>&1
-                _wlog "NDM-интерфейс прежнего туннеля снят: $legacy_if"
+            if ! command -v ndmc >/dev/null 2>&1; then
+                _wlog "ndmc unavailable while removing owned interface $legacy_if"
+                return 1
             fi
             ;;
     esac
-    # Класс 1 — всегда.
-    [ -e "$WARP_LEGACY_BIN" ] && killall z2k-usque 2>/dev/null
-    rm -f "$WARP_LEGACY_BIN" 2>/dev/null
+
+    # Remove the package before consuming ownership evidence. If opkg fails,
+    # the next migration run must still be able to prove that this is ours.
+    if ! command -v opkg >/dev/null 2>&1; then
+        _wlog "opkg unavailable while removing owned usque package"
+        return 1
+    fi
+    local installed
+    installed=$(opkg list-installed 2>/dev/null) || {
+        _wlog "cannot inspect installed packages during usque migration"; return 1; }
+    if printf '%s\n' "$installed" | grep -q '^usque'; then
+        if ! opkg remove usque-keenetic >/dev/null 2>&1 \
+           && ! opkg remove usque >/dev/null 2>&1; then
+            _wlog "cannot remove owned usque package"
+            return 1
+        fi
+    fi
+
+    case "$legacy_if" in
+        opkgtun[0-9]*)
+            if ! LD_LIBRARY_PATH= ndmc -c "no interface $(echo "$legacy_if" | sed 's/^opkg/Opkg/; s/tun/Tun/')" >/dev/null 2>&1; then
+                _wlog "cannot remove owned NDM interface $legacy_if"
+                return 1
+            fi
+            if ! LD_LIBRARY_PATH= ndmc -c "system configuration save" >/dev/null 2>&1; then
+                _wlog "cannot save NDM configuration after removing $legacy_if"
+                return 1
+            fi
+            _wlog "NDM-интерфейс прежнего туннеля снят: $legacy_if"
+            ;;
+    esac
+
+    # Класс 1 — наши по имени; удаление каждого объекта должно выполниться,
+    # иначе migration возвращает ошибку и caller сохранит install rollback.
+    if [ -e "$WARP_LEGACY_BIN" ]; then
+        killall z2k-usque 2>/dev/null || true
+        rm -f "$WARP_LEGACY_BIN" 2>/dev/null || {
+            _wlog "cannot remove $WARP_LEGACY_BIN"; return 1; }
+    fi
     rm -f "$WARP_LEGACY_DIR/session.conf" "$WARP_LEGACY_DIR/session.conf.prev" "$WARP_LEGACY_DIR/session.alt.conf" \
-          "$WARP_LEGACY_DIR/iface" "$WARP_LEGACY_DIR/addr" 2>/dev/null
-    rm -f "$ZAPRET2_DIR"/.z2k-warp-* 2>/dev/null
-    rm -rf "$ZAPRET2_DIR/warp" 2>/dev/null
-    # Класс 2 — только по уликам.
-    if [ -e "$WARP_LEGACY_INIT" ] && [ ! -x "$WARP_LEGACY_INIT" ]; then
-        ours=1    # бит снимал наш старый init
-    fi
-    [ "$ours" = "1" ] || return 0
-    rm -f "$WARP_LEGACY_INIT" 2>/dev/null
-    if command -v opkg >/dev/null 2>&1 && opkg list-installed 2>/dev/null | grep -q '^usque'; then
-        opkg remove usque-keenetic >/dev/null 2>&1 || opkg remove usque >/dev/null 2>&1
-    fi
+          "$WARP_LEGACY_DIR/iface" "$WARP_LEGACY_DIR/addr" 2>/dev/null || {
+        _wlog "cannot remove legacy usque state"; return 1; }
+    rm -f "$ZAPRET2_DIR"/.z2k-warp-* 2>/dev/null || {
+        _wlog "cannot remove legacy WARP stamps"; return 1; }
+    rm -rf "$ZAPRET2_DIR/warp" 2>/dev/null || {
+        _wlog "cannot remove legacy WARP directory"; return 1; }
+    rm -f "$WARP_LEGACY_INIT" 2>/dev/null || {
+        _wlog "cannot remove $WARP_LEGACY_INIT"; return 1; }
     _wlog "остатки прежнего WARP (usque) убраны"
     return 0
 }
@@ -927,6 +971,6 @@ case "$1" in
     ipset)    warp_ipset_all ;;
     selfheal) warp_selfheal ;;
     status)   warp_status ;;
-    migrate)  warp_lists_migrate; warp_migrate_usque ;;
+    migrate)  warp_lists_migrate && warp_migrate_usque ;;
     *) echo "usage: $0 {install|enable|disable|restart|license|remove|ipset|selfheal|status|migrate}" >&2; exit 1 ;;
 esac

@@ -95,6 +95,12 @@ lc_mutlog s13-before s13-after "S13 replace fail + dirty"
 lc_invariant "S13" || _t_bad "S13 invariant"
 fi
 # (sysroot одноразовый: следующий сценарий делает свой fresh)
+# S13 makes the mocked user-list directory read-only to inject the failed
+# replace. Restore the fixture's original writable mode before lc_fresh_sysroot
+# removes it; otherwise the suite passes but leaks its temporary tree.
+if [ -d "$Z2K_ETC/user-lists" ]; then
+    chmod 755 "$Z2K_ETC/user-lists" 2>/dev/null || _t_bad "S13 fixture mode restored"
+fi
 
 # --- S14: health-fail (restart убивает демона) -> rollback корректен ---
 lc_fresh_sysroot || { echo "FAIL[ow-lc-update]: sysroot s14" >&2; exit 1; }

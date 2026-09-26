@@ -45,11 +45,14 @@ case "$Z2K_AU_REPO_RAW $Z2K_AU_RAW_BASE $GITHUB_RAW" in
 esac
 
 # предвыставленное окружение не затирается
-( ZAPRET2_DIR=/keep CONFIG_DIR=/keep2 LISTS_DIR=/keep3 OPENWRT_LAN="lan9"
+( ZAPRET2_DIR=/keep CONFIG_DIR=/keep2 LISTS_DIR=/keep3 \
+  INIT_SCRIPT=/keep4 CATEGORY_STRATEGIES_CONF=/keep5 OPENWRT_LAN="lan9"
   Z2K_ROOT=/y Z2K_ETC=/x Z2K_TMP=/t
   . "$AD/paths.sh" >/dev/null; . "$AD/env.sh" >/dev/null
+  . "$REPO/lib/utils.sh" >/dev/null 2>&1
   [ "$ZAPRET2_DIR" = "/keep" ] && [ "$CONFIG_DIR" = "/keep2" ] && \
-  [ "$LISTS_DIR" = "/keep3" ] && [ "$OPENWRT_LAN" = "lan9" ] ) \
+  [ "$LISTS_DIR" = "/keep3" ] && [ "$INIT_SCRIPT" = "/keep4" ] && \
+  [ "$CATEGORY_STRATEGIES_CONF" = "/keep5" ] && [ "$OPENWRT_LAN" = "lan9" ] ) \
     && _t_ok || _t_bad "env.sh затирает предвыставленные переменные"
 
 _t_done

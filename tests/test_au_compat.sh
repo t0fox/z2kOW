@@ -99,17 +99,44 @@ rm -f "$SB/sick"
 assert_eq "неизвестный шаг — rc 2" "2" "$(au_apply_converge p-5 шаг-из-будущего; echo $?)"
 assert_eq "неизвестный шаг: версия НЕ сдвинулась" "p-4" "$(cat "$SB/tag" | tr -d ' \t\r\n')"
 
-# Старый флаг релиза «reset_state»: он появился до каталога шагов и раньше
-# работал только через полную переустановку. Новый путь обязан его уважать —
-# иначе релиз со сдвигом нумерации пулов приедет, а накопленная статистика
-# останется указывать не на те стратегии.
-_e3='{"v": "p-7", "type": "patch", "reset_state": true, "steps": ["restart-service"], "changed_files": []}'
-assert_eq "reset_state читается" "true" "$(au_entry_bool "$_e3" reset_state)"
-if grep -q 'au_entry_bool "$_e" reset_state' "$ROOT/lib/auto_update.sh"; then
-    ok "новый путь смотрит на reset_state"
-else
-    no "новый путь смотрит на reset_state" "проверка флага" "не найдена — сброс состояния потеряется"
-fi
+# Старый release-level reset_state остаётся значимым и на адресном пути:
+# прогоняем реальный au_run_apply на patch-entry с install_map и проверяем,
+# что reset-state дошёл до исполнителя шагов. Сам destructive filesystem step
+# отдельно покрыт au_step_reset_state/OpenWrt lifecycle suites.
+mkdir -p "$SB/zd/lua"
+printf 'уже актуально\n' > "$SB/zd/lua/a.lua"
+_sha_current=$(z2k_sha256_file "$SB/zd/lua/a.lua")
+cat > "$Z2K_AU_TMP_DIR/UPDATES.json" <<EOF
+{
+  "current": "p-7",
+  "install_map": { "files/lua/a.lua": ["$SB/zd/lua/a.lua"] },
+  "files_sha256": { "files/lua/a.lua": "$_sha_current" },
+  "history": [
+    {"v": "p-6", "type": "patch", "changed_files": [], "steps": []},
+    {"v": "p-7", "type": "patch", "reset_state": true, "changed_files": [], "steps": []}
+  ]
+}
+EOF
+printf 'p-6\n' > "$SB/compat-tag"
+Z2K_AU_INSTALLED_TAG_FILE="$SB/compat-tag"
+export Z2K_AU_INSTALLED_TAG_FILE
+: > "$SB/reset-actions.log"
+au_fetch_manifest() { [ -s "$Z2K_AU_TMP_DIR/UPDATES.json" ]; }
+au_lock_acquire() { return 0; }
+au_lock_release() { :; }
+au_nfqws_alive() { return 1; }
+au_snapshot_services() { :; }
+au_step_reset_state() { printf 'reset-state\n' >> "$SB/reset-actions.log"; }
+au_apply_converge() {
+    local _tag="$1"; shift
+    au_run_steps "$@" || return $?
+    au_write_installed_tag "$_tag"
+}
+au_step_cleanup_ip_hosts() { :; }
+au_ensure_cli_link() { :; }
+assert_eq "адресный patch с reset_state доходит до шага" "0" "$(au_run_apply >/dev/null 2>&1; echo $?)"
+assert_eq "адресный patch исполнил reset-state" "reset-state" "$(cat "$SB/reset-actions.log")"
+assert_eq "версия отмечена после шага" "p-7" "$(tr -d ' \t\r\n' < "$SB/compat-tag")"
 
 # Контракт манифеста репозитория: у каждого шага в истории есть исполнитель.
 unknown=""
