@@ -715,7 +715,7 @@ case "$method $path" in
     # ---------- WARP (webpanel «WARP» section) ----------
     "GET /warp/status")
         result=$(warp_status_info)
-        _wf() { printf '%s' "$result" | sed -n "s/.*$1=\([^ ]*\).*/\1/p" | head -1; }
+        _wf() { printf ' %s ' "$result" | sed -n "s/.*[[:space:]]$1=\([^ ]*\).*/\1/p" | head -1; }
         w_enabled=$(printf '%s' "$result" | sed -n 's/.*enabled=\(.*\)$/\1/p')
         w_inst_j=false;  [ "$(_wf installed)" = "1" ] && w_inst_j=true
         w_running_j=false; [ "$(_wf running)" = "1" ] && w_running_j=true

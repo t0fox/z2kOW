@@ -223,7 +223,7 @@ WARP_SCRIPT="$SB/warp-stub.sh"; export WARP_SCRIPT
 cat > "$WARP_SCRIPT" <<'WSTUB'
 #!/bin/sh
 case "$1" in
-    status) echo 'installed=1 enabled=1 ready=1 transport=wg endpoint=8.6.112.0:2408 iface=z2ktun0 addr=172.16.0.2 entries=12 devices=2 error= mem=27136 plan=unlimited plan_err=0 license=1 edge_colo=FRA edge_country=DE edge_rtt_ms=28 edge_checked_at=1790337600 edge_selection=foreign' ;;
+    status) echo 'installed=1 enabled=1 running=1 ready=1 route_ready=0 state=tunnel transport=wg endpoint=8.6.112.0:2408 iface=z2ktun0 addr=172.16.0.2 entries=12 devices=2 error= mem=27136 plan=unlimited plan_err=0 license=1 edge_colo=FRA edge_country=DE edge_rtt_ms=28 edge_checked_at=1790337600 edge_selection=foreign' ;;
     license) cat > "$LICENSE_GOT" ;;
     ipset)  : ;;
     migrate) mkdir -p "$WARP_LISTS_DIR"; touch "$WARP_LISTS_DIR/.legacy-aggregate-purged" ;;
@@ -235,6 +235,8 @@ OUT=$(cgi GET /warp/status "" | cgi_body)
 assert_eq "warp/status — валидный JSON"          "1"               "$(json_ok_p "$OUT")"
 assert_eq "warp/status — installed из скрипта"   "true"            "$(jget "$OUT" 'd["installed"]')"
 assert_eq "warp/status — ready"                  "true"            "$(jget "$OUT" 'd["ready"]')"
+assert_eq "warp/status — route_ready отдельно от ready" "false"       "$(jget "$OUT" 'd["route_ready"]')"
+assert_eq "warp/status — промежуточный state"     "tunnel"           "$(jget "$OUT" 'd["state"]')"
 assert_eq "warp/status — transport"              "wg"              "$(jget "$OUT" 'd["transport"]')"
 assert_eq "warp/status — endpoint"               "8.6.112.0:2408"  "$(jget "$OUT" 'd["endpoint"]')"
 assert_eq "warp/status — страна узла"            "DE"              "$(jget "$OUT" 'd["edge_country"]')"
