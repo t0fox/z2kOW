@@ -56,6 +56,7 @@ Z2K_WARP_SOURCE_ONLY=1
 z2k_ow_core_ready() { return 0; }
 warp_note_death() { :; }
 _warp_converge_off_keep_probe() { echo fail-open >> "$CALLS"; return 0; }
+_warp_converge_off() { echo converge-off >> "$CALLS"; return 0; }
 _z2k_ow_service_running() { return 0; }
 procd_open_instance() { echo "procd:$1" >> "$CALLS"; }
 procd_set_param() { :; }
