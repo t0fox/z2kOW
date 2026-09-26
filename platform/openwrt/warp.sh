@@ -49,6 +49,7 @@ WARP_ENABLED_FILE="${WARP_ENABLED_FILE:-$WARP_LISTS_DIR/.enabled}"
 WARP_DEVICES_FILE="${WARP_DEVICES_FILE:-$WARP_LISTS_DIR/devices.txt}"
 WARP_DHCP_LEASES="${WARP_DHCP_LEASES:-/tmp/dhcp.leases}"
 WARP_ENDPOINTS="${WARP_ENDPOINTS:-${Z2K_LISTS_DIR:-/usr/lib/z2k/lists}/warp-endpoints.txt}"
+WARP_SCAN_POOLS="${WARP_SCAN_POOLS:-${Z2K_LISTS_DIR:-/usr/lib/z2k/lists}/warp-scan-pools.txt}"
 WARP_SET="${WARP_SET:-z2k_warp_dst4}"
 WARP_SET_SRC="${WARP_SET_SRC:-z2k_warp_src4}"
 WARP_TABLE="${WARP_TABLE:-989}"
@@ -177,6 +178,7 @@ warp_with_argv() {
         --status "$WARP_STATUS" \
         --log "$WARP_LOG" \
         --endpoints "$WARP_ENDPOINTS" \
+        --scan-pools "$WARP_SCAN_POOLS" \
         --net-backend=external
     "$_cb" "$@"
 }

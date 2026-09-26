@@ -266,6 +266,7 @@ _out="$(warp_with_argv _rec 2>"$T/argv.err")"
 assert_contains "binary run" "$T/argv.log" "$T/root/bin/z2k-warpd run"
 assert_contains "device persistent" "$T/argv.log" "--device $T/etc/state/warp/device.json"
 assert_contains "status transient" "$T/argv.log" "--status $T/tmp/warp/status.json"
+assert_contains "scan pools use the shipped OpenWrt list" "$T/argv.log" "--scan-pools $T/root/lists/warp-scan-pools.txt"
 assert_contains "backend external" "$T/argv.log" "--net-backend=external"
 if grep -q -- '-v' "$T/argv.log"; then _t_bad "argv: лишний -v"; else _t_ok; fi
 assert_eq "builder молчит" "" "$_out$(cat "$T/argv.err")"
