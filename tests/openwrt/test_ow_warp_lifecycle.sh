@@ -157,6 +157,7 @@ if [ "\$1" = "rule" ] && [ "\$2" = "add" ]; then
     exit 0
 fi
 if [ "\$1" = "rule" ] && [ "\$2" = "del" ]; then
+    [ -f "$T/fail-rule-delete" ] && exit 1
     # Exact-match delete (defect 4): снимается только строка, совпадающая
     # со ВСЕМИ переданными селекторами (pref + fwmark + table).
     _pref=""; _fm=""; _tb=""; _prev=""
@@ -195,6 +196,7 @@ if [ "\$1" = "route" ] && [ "\$2" = "replace" ]; then
     exit 0
 fi
 if [ "\$1" = "route" ] && [ "\$2" = "del" ]; then
+    [ -f "$T/fail-route-delete" ] && exit 1
     _tb=""; _prev=""
     for _a in "\$@"; do
         case "\$_prev" in table) _tb="\$_a" ;; esac
@@ -1301,5 +1303,61 @@ assert_eq "W52: правила нет" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/
 assert_eq "W52: route нет" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
 assert_eq "W52: owner нет" "0" "$(_c=0; for _f in "$T/tmp/warp/pbr.owner" "$T/tmp/warp/pbr.owner.new."*; do [ -e "$_f" ] 2>/dev/null && _c=$((_c + 1)); done; printf '%s' "$_c")"
 _w_inv "W52"
+
+# --- W53: disable reports failed PBR teardown and retains retry ownership ---
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W53: enable rc"
+: > "$T/fail-rule-delete"
+z2k_ow_warp disable >/dev/null 2>&1
+assert_eq "W53: failed exact rule delete is reported" "1" "$?"
+assert_contains "W53: failed rule remains visible" "$T/ip-rules" "fwmark 0x80000000/0x80000000 lookup 989"
+assert_eq "W53: owner remains for retry" "1" "$([ -f "$T/tmp/warp/pbr.owner" ] && echo 1 || echo 0)"
+rm -f "$T/fail-rule-delete"
+z2k_ow_warp disable >/dev/null 2>&1
+assert_eq "W53: retry succeeds after rule delete recovers" "0" "$?"
+assert_eq "W53: retry removes exact rule" "0" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "W53: retry removes owner" "0" "$([ -f "$T/tmp/warp/pbr.owner" ] && echo 1 || echo 0)"
+_w_inv "W53"
+
+# --- W54: failed owned route delete is reported and remains retryable --------
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W54: enable rc"
+: > "$T/fail-route-delete"
+z2k_ow_warp disable >/dev/null 2>&1
+assert_eq "W54: failed owned route delete is reported" "1" "$?"
+assert_eq "W54: exact rule is still removed fail-open" "0" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules" 2>/dev/null || true)"
+assert_contains "W54: owned route remains visible" "$T/ip-route-989" "default dev z2ktun0"
+assert_eq "W54: owner remains for retry" "1" "$([ -f "$T/tmp/warp/pbr.owner" ] && echo 1 || echo 0)"
+rm -f "$T/fail-route-delete"
+z2k_ow_warp disable >/dev/null 2>&1
+assert_eq "W54: retry succeeds after route delete recovers" "0" "$?"
+assert_eq "W54: retry removes route" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
+assert_eq "W54: retry removes owner" "0" "$([ -f "$T/tmp/warp/pbr.owner" ] && echo 1 || echo 0)"
+_w_inv "W54"
+
+# --- W55: failed source-probe rule delete retains its owner for retry ---------
+_reset
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+_ready_fixture
+WARP_PROBE_OWNER="$T/tmp/warp/probe.owner"; export WARP_PROBE_OWNER
+printf 'iface=z2ktun0\naddr=172.16.9.9\n' > "$WARP_PROBE_OWNER"
+printf '499: from 172.16.9.9/32 lookup 989\n' > "$T/ip-rules"
+printf 'default dev z2ktun0\n' > "$T/ip-route-989"
+: > "$T/fail-rule-delete"
+warp_pbr_down >/dev/null 2>&1
+assert_eq "W55: failed probe rule delete is reported" "1" "$?"
+assert_contains "W55: failed probe rule remains visible" "$T/ip-rules" "499: from 172.16.9.9/32 lookup 989"
+assert_eq "W55: probe owner remains for retry" "1" "$([ -f "$WARP_PROBE_OWNER" ] && echo 1 || echo 0)"
+assert_eq "W55: probe route removed to fail open" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
+rm -f "$T/fail-rule-delete"
+warp_pbr_down >/dev/null 2>&1
+assert_eq "W55: probe rule retry succeeds" "0" "$?"
+assert_eq "W55: probe rule removed" "0" "$(grep -c '499: from 172.16.9.9/32 lookup 989' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "W55: probe owner removed after cleanup" "0" "$([ -f "$WARP_PROBE_OWNER" ] && echo 1 || echo 0)"
+_w_inv "W55"
 
 _t_done

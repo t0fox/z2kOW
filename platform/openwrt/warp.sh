@@ -901,48 +901,72 @@ warp_probe_route_up() {
 }
 
 _warp_probe_rule_delete_exact() {
-    local _n=0 _addr
-    _addr="$(_warp_probe_addr 2>/dev/null || true)"
-    [ -n "$_addr" ] || return 0
+    local _n=0 _addr _rules
+    _addr="$(sed -n 's/^addr=//p' "$WARP_PROBE_OWNER" 2>/dev/null | head -1)"
+    [ -n "$_addr" ] || _addr="$(_warp_probe_addr 2>/dev/null || true)"
+    if [ -z "$_addr" ]; then
+        [ -s "$WARP_PROBE_OWNER" ] && return 1
+        return 0
+    fi
     while [ "$_n" -lt 8 ]; do
-        ip rule show 2>/dev/null | grep -qE "^$WARP_PROBE_RULE_PREF:.*from $_addr(/32)? lookup $WARP_TABLE" || return 0
-        ip rule del pref "$WARP_PROBE_RULE_PREF" from "$_addr/32" table "$WARP_TABLE" 2>/dev/null || return 0
+        _rules="$(ip rule show 2>/dev/null)" || return 1
+        printf '%s\n' "$_rules" | grep -qE "^$WARP_PROBE_RULE_PREF:.*from $_addr(/32)? lookup $WARP_TABLE" || return 0
+        if ! ip rule del pref "$WARP_PROBE_RULE_PREF" from "$_addr/32" table "$WARP_TABLE" 2>/dev/null; then
+            _rules="$(ip rule show 2>/dev/null)" || return 1
+            printf '%s\n' "$_rules" | grep -qE "^$WARP_PROBE_RULE_PREF:.*from $_addr(/32)? lookup $WARP_TABLE" && return 1
+            return 0
+        fi
         _n=$((_n + 1))
     done
+    _rules="$(ip rule show 2>/dev/null)" || return 1
+    printf '%s\n' "$_rules" | grep -qE "^$WARP_PROBE_RULE_PREF:.*from $_addr(/32)? lookup $WARP_TABLE" && return 1
     return 0
 }
 
 _warp_probe_route_down() {
-    local _iface _cur
-    _warp_probe_rule_delete_exact || true
+    local _iface _cur _rc=0
+    _warp_probe_rule_delete_exact || _rc=1
     [ -s "$WARP_PBR_OWNER" ] && {
-        rm -f "$WARP_PROBE_OWNER" "$WARP_PROBE_OWNER".new.* 2>/dev/null
-        return 0
+        if [ "$_rc" = "0" ]; then
+            rm -f "$WARP_PROBE_OWNER" "$WARP_PROBE_OWNER".new.* 2>/dev/null || _rc=1
+        fi
+        return "$_rc"
     }
+    [ -e "$WARP_PROBE_OWNER" ] || return "$_rc"
     _iface="$(sed -n 's/^iface=//p' "$WARP_PROBE_OWNER" 2>/dev/null | head -1)"
     case "$_iface" in
         z2ktun[0-9]|z2ktun[0-9][0-9]) ;;
-        *) rm -f "$WARP_PROBE_OWNER" "$WARP_PROBE_OWNER".new.* 2>/dev/null; return 0 ;;
+        *) return 1 ;;
     esac
-    _cur="$(ip route show table "$WARP_TABLE" 2>/dev/null | sed 's/[[:space:]]*$//')"
-    if [ -n "$_cur" ] && ! printf '%s\n' "$_cur" | grep -qvE "^default dev $_iface( scope link)?\$"; then
-        ip route del default table "$WARP_TABLE" 2>/dev/null || true
+    _cur="$(ip route show table "$WARP_TABLE" 2>/dev/null)" || return 1
+    _cur="$(printf '%s\n' "$_cur" | sed 's/[[:space:]]*$//')"
+    if [ -n "$_cur" ] && printf '%s\n' "$_cur" | grep -qvE "^default dev $_iface( scope link)?\$"; then
+        printf '%s\n' "$_cur" | grep -qE "^default dev $_iface( scope link)?\$" && _rc=1
+    elif [ -n "$_cur" ]; then
+        ip route del default table "$WARP_TABLE" 2>/dev/null || _rc=1
+        _cur="$(ip route show table "$WARP_TABLE" 2>/dev/null)" || return 1
+        printf '%s\n' "$_cur" | grep -qE "^default dev $_iface( scope link)?\$" && _rc=1
     fi
-    rm -f "$WARP_PROBE_OWNER" "$WARP_PROBE_OWNER".new.* 2>/dev/null
-    return 0
+    if [ "$_rc" = "0" ]; then
+        rm -f "$WARP_PROBE_OWNER" "$WARP_PROBE_OWNER".new.* 2>/dev/null || _rc=1
+    fi
+    return "$_rc"
 }
 
 warp_pbr_down() {
+    local _rc=0
     # Route+rule ПЕРВЫМИ (мгновенный fail-open), затем тишина.
     # Rule: ТОЛЬКО exact owned delete (pref+mark/mask+table, bounded от
     # дубликатов) — чужое не трогаем (defect 4). Legacy unmasked-формы нет:
     # на OpenWrt наше правило всегда ставилось с pref+masked mark.
-    _warp_probe_route_down || true
-    _warp_rule_delete_exact || true
-    _warp_route_release_owned || true
-    rm -f "$WARP_PBR_OWNER" "$WARP_PBR_OWNER".new.* 2>/dev/null
+    _warp_probe_route_down || _rc=1
+    _warp_rule_delete_exact || _rc=1
+    _warp_route_release_owned || _rc=1
+    if [ "$_rc" = "0" ]; then
+        rm -f "$WARP_PBR_OWNER" "$WARP_PBR_OWNER".new.* 2>/dev/null || _rc=1
+    fi
     _z2k_ow_warp_mut "PBR_DOWN"
-    return 0
+    return "$_rc"
 }
 
 # Route delete ТОЛЬКО при доказанном ownership (defect 5, подход A):
@@ -958,10 +982,9 @@ _warp_route_release_owned() {
     _oiface="$(sed -n 's/^iface=//p' "$WARP_PBR_OWNER" 2>/dev/null | head -1)"
     case "$_oiface" in
         z2ktun[0-9]|z2ktun[0-9][0-9]) ;;
-        *) return 0 ;;
+        *) return 1 ;;
     esac
     _warp_route_release_iface "$_oiface"
-    return 0
 }
 
 # Доказательство "текущий default таблицы — ровно наш $1": все строки —
@@ -972,12 +995,20 @@ _warp_route_release_iface() {
         z2ktun[0-9]|z2ktun[0-9][0-9]) ;;
         *) return 0 ;;
     esac
-    _cur="$(ip route show table "$WARP_TABLE" 2>/dev/null | sed 's/[[:space:]]*$//')"
+    _cur="$(ip route show table "$WARP_TABLE" 2>/dev/null)" || return 1
+    _cur="$(printf '%s\n' "$_cur" | sed 's/[[:space:]]*$//')"
     [ -n "$_cur" ] || return 0
     if printf '%s\n' "$_cur" | grep -qvE "^default dev $_iface( scope link)?\$"; then
+        printf '%s\n' "$_cur" | grep -qE "^default dev $_iface( scope link)?\$" && return 1
         return 0
     fi
-    ip route del default table "$WARP_TABLE" 2>/dev/null || true
+    ip route del default table "$WARP_TABLE" 2>/dev/null || {
+        _cur="$(ip route show table "$WARP_TABLE" 2>/dev/null)" || return 1
+        printf '%s\n' "$_cur" | grep -qE "^default dev $_iface( scope link)?\$" && return 1
+        return 0
+    }
+    _cur="$(ip route show table "$WARP_TABLE" 2>/dev/null)" || return 1
+    printf '%s\n' "$_cur" | grep -qE "^default dev $_iface( scope link)?\$" && return 1
     return 0
 }
 
@@ -1334,12 +1365,19 @@ _warp_pbr_rollback() {
 # Bounded-delete всех exact-duplicates нашего tuple (defect 4): ip rule del
 # снимает по одному совпадению; >8 — уже не дубликаты, а патология стоим.
 _warp_rule_delete_exact() {
-    local _n=0
+    local _n=0 _rules=""
     while [ "$_n" -lt 8 ]; do
-        ip rule show 2>/dev/null | grep -qE "^$WARP_RULE_PREF:.*fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE" || return 0
-        ip rule del pref "$WARP_RULE_PREF" fwmark "$WARP_MARK/$WARP_MASK" table "$WARP_TABLE" 2>/dev/null || return 0
+        _rules="$(ip rule show 2>/dev/null)" || return 1
+        printf '%s\n' "$_rules" | grep -qE "^$WARP_RULE_PREF:.*fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE" || return 0
+        if ! ip rule del pref "$WARP_RULE_PREF" fwmark "$WARP_MARK/$WARP_MASK" table "$WARP_TABLE" 2>/dev/null; then
+            _rules="$(ip rule show 2>/dev/null)" || return 1
+            printf '%s\n' "$_rules" | grep -qE "^$WARP_RULE_PREF:.*fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE" && return 1
+            return 0
+        fi
         _n=$((_n + 1))
     done
+    _rules="$(ip rule show 2>/dev/null)" || return 1
+    printf '%s\n' "$_rules" | grep -qE "^$WARP_RULE_PREF:.*fwmark $WARP_MARK/$WARP_MASK lookup $WARP_TABLE" && return 1
     return 0
 }
 
@@ -1590,7 +1628,7 @@ _z2k_ow_warp_service_rebuild() {
 }
 
 warp_disable() {
-    local _was_running
+    local _was_running _rc=0
     # Порядок (defect 1): PBR down ПЕРВЫМ -> clears -> flag 0 -> reconcile.
     # Reload при flag=1 пересоздал бы instance (окно "выключен, но работает").
     warp_op_current || { warp_op_superseded; return 3; }
@@ -1598,22 +1636,24 @@ warp_disable() {
     warp_unpin_legacy
     _was_running=0
     warp_running && _was_running=1
-    warp_pbr_down
-    _warp_tun_clear
-    _warp_mark_clear
-    command -v warp_domain_nft_remove >/dev/null 2>&1 && warp_domain_nft_remove || true
-    warp_set_flag 0
+    warp_pbr_down || _rc=1
+    _warp_tun_clear || _rc=1
+    _warp_mark_clear || _rc=1
+    if command -v warp_domain_nft_remove >/dev/null 2>&1; then
+        warp_domain_nft_remove || _rc=1
+    fi
+    warp_set_flag 0 || _rc=1
     if [ "$_was_running" = "1" ] && _z2k_ow_service_running; then
         _z2k_ow_warp_service_rebuild || return $?
     else
-        _z2k_ow_warp_service_reload
+        _z2k_ow_warp_service_reload || return $?
     fi
     # Invariant: успех disable => процесса нет (а не только flag=0).
     if warp_running; then
         _wlog "disable: процесс всё ещё жив после reconcile"
         return 1
     fi
-    return 0
+    return "$_rc"
 }
 
 # Перезапуск движка со сменой транспорта (панель; контракт как upstream
