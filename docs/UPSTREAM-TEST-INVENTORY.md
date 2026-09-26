@@ -38,30 +38,33 @@ rows so the consolidation history is auditable.
 
 Baseline CI run `36193710584` on the baseline SHA passed all 14 workflow jobs.
 Its shell runner reported 226 suites, 4254 passed, 0 failed, and 1 skip; its
-mutation job killed 18 mutants with 0 survivors and 0 stale anchors. The
-implementation-candidate CI run `36257219152` on
-`34c1a375b4b713d7514497e8449d58c1d7797327` passed all 14 jobs. Its shell
-runner reported 224 suites, 4255 passed, 0 failed, and 1 skip. The skipped
-`test_release_manifest_complete.sh` lacked upstream p-85.9/p-85.10 history
-refs in that checkout; this audit adds a bounded fetch of those signed tags to
-the shell-test workflow so that the release-history suite can run in CI. A
-separate direct run with those refs present reported 4 passed, 0 failed, and
-0 skipped. The mutation job killed 21 mutants with 0 survivors and 0 stale
-anchors.
+mutation job killed 18 mutants with 0 survivors and 0 stale anchors. The first
+implementation candidate, run `36257219152` on
+`34c1a375b4b713d7514497e8449d58c1d7797327`, passed all 14 jobs and reported
+224 shell suites, 4255 passed, 0 failed, and 1 skipped; mutation coverage was
+21 killed, 0 survived, and 0 stale. That skip was
+`test_release_manifest_complete.sh`, which lacked upstream p-85.9/p-85.10
+history refs. The workflow now fetches those signed tags, and the final audit
+candidate below ran with strict skip handling and no skips.
 
-Run `36257219152` is intermediate evidence from before the final test-quality
-edits below. The exact-HEAD CI run linked in the final audit report is the
-authoritative verdict for the committed state.
+CI run `36277663748` validated the final implementation candidate at exact
+`HEAD` `11519dd47f8580d46144514b494d235b7f85e09b`: all 14 jobs passed. The
+shell runner reported 224 suites, 4288 passed, 0 failed, and 0 skipped. The
+mutation job killed all 32 planned mutants, with 0 survivors and 0 stale
+anchors. This includes the new WARP migration ordering and installer,
+uninstaller, and scheduler dispatch mutations.
 
-The same CI run passed Go formatting, vet, race tests, cross-compilation and
-the OpenWrt-tagged WireGuard overlay. Its OpenWrt 25.12.5
+The same exact-HEAD CI run passed Go formatting, vet, race tests,
+cross-compilation and the OpenWrt-tagged WireGuard overlay. Its OpenWrt 25.12.5
 `mediatek/filogic` SDK job built real APKs, generated `packages.adb` with SDK
 tools, checked ephemeral feed-signature acceptance/rejection, resolved and
 installed packages in an isolated root, and upgraded the pinned snapshot.
 The uploaded CI snapshot artifact was
-`z2k-openwrt-CI-SNAPSHOT-34c1a375b4b713d7514497e8449d58c1d7797327.zip`,
-SHA-256 `54daea99210f3fcb0471651bef775451ccb6caacc6973b0194ad2d821dfb6653`.
-This is CI candidate evidence, not a production feed publication.
+`z2k-openwrt-CI-SNAPSHOT-11519dd47f8580d46144514b494d235b7f85e09b.zip`,
+SHA-256 `57fe700c7f0167a1beadd5e098ba6f3a0294af4675e87fd53205cc73c4a213d3`.
+This is CI candidate evidence, not a production feed publication. A subsequent
+docs-only commit records these results; its own exact-HEAD CI run is the final
+repository verdict.
 
 The earlier local OpenWrt shell verification at the inventory checkpoint
 reported 3180 passed and 0 failed. It skipped checks that require a committed
