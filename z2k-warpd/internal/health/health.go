@@ -57,6 +57,12 @@ type Monitor struct {
 	// стоит на нём, а человек без WARP. Ждать полминуты на каждой мёртвой
 	// ступени значит превратить перебор в вечность. Ноль — 3 с.
 	ProveEvery time.Duration
+	// ConfirmSuccesses requires independent, spaced e2e successes before Ready.
+	// Zero keeps the historical one-probe behavior for existing callers.
+	ConfirmSuccesses int
+	// CheckEvery periodically reproves transit even while WG RX grows. Handshake
+	// and keepalive bytes alone do not prove that client TCP still passes.
+	CheckEvery time.Duration
 
 	lastRx, lastTx uint64
 	rxLastMoved    time.Time // когда rx в последний раз рос (или первый замер)
@@ -64,6 +70,7 @@ type Monitor struct {
 	fails          int
 	seen           bool
 	proven         bool
+	successes      int
 	lastErr        error // почему провалилась последняя проба
 }
 
