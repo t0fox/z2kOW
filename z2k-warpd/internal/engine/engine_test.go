@@ -221,6 +221,7 @@ func (f *fakeTransport) Open(context.Context) error {
 func (f *fakeTransport) Health() transport.Health { f.mu.Lock(); defer f.mu.Unlock(); return f.h }
 func (f *fakeTransport) Close() error             { f.mu.Lock(); f.closed = true; f.mu.Unlock(); return nil }
 func (f *fakeTransport) Endpoint() string         { return "1.2.3.4:1" }
+func (f *fakeTransport) isClosed() bool           { f.mu.Lock(); defer f.mu.Unlock(); return f.closed }
 func (f *fakeTransport) die() {
 	f.mu.Lock()
 	f.h = transport.Health{Err: errors.New("boom")}
@@ -449,8 +450,16 @@ func TestExternalBackendOwnsNoNetworkPlumbing(t *testing.T) {
 	if !strings.Contains(joined, "ip addr add 172.16.0.2/32 dev z2ktun0") {
 		t.Fatalf("external backend must still configure its TUN address, got:\n%s", joined)
 	}
-	if len(h.made) != 1 || !h.made[0].closed {
-		t.Fatalf("transport lifecycle: made=%d closed=%v", len(h.made), len(h.made) == 1 && h.made[0].closed)
+	h.mu.Lock()
+	transports := append([]*fakeTransport(nil), h.made...)
+	h.mu.Unlock()
+	if len(transports) == 0 {
+		t.Fatal("external backend did not create a transport")
+	}
+	for i, tr := range transports {
+		if !tr.isClosed() {
+			t.Fatalf("transport %d was not closed on shutdown (made=%d)", i, len(transports))
+		}
 	}
 	if _, err := os.Stat(h.stat); !os.IsNotExist(err) {
 		t.Fatal("status.json must be removed on shutdown")

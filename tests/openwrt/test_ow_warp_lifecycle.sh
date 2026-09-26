@@ -1,4 +1,9 @@
 #!/bin/sh
+# shellcheck disable=SC2218
+# Failure-injection functions (rm, mkdir, and adapter callbacks) are declared
+# beside the scenarios that activate them. ShellCheck scans declarations
+# globally and otherwise treats earlier top-level fixture setup as calling the
+# later stubs before their definitions execute.
 # tests/openwrt/test_ow_warp_lifecycle.sh - Stage 5 Layer C/D: W1-W32 + invariants.
 # Mock'и: nft, ip (stateful), pidof, /proc, procd, warpd-binary, au (для W27-map).
 # Реальный warp.sh in-process (+ настоящий warp-proc.sh для W7/W27).
@@ -1743,7 +1748,8 @@ _w_inv "W77"
 # --- W78: empty cleanup query never deletes a route it cannot see ------------
 _reset
 printf 'default dev eth9\n' > "$T/ip-route-989"
-printf 'iface=z2ktun0\nmark=0x80000000\nmask=0x80000000\npref=90\ntable=989\n' > "$WARP_PBR_OWNER"+: > "$T/empty-route-show"
+printf 'iface=z2ktun0\nmark=0x80000000\nmask=0x80000000\npref=90\ntable=989\n' > "$WARP_PBR_OWNER"
+: > "$T/empty-route-show"
 warp_pbr_down >/dev/null 2>&1
 assert_eq "W78: empty route query does not delete unrelated route" "default dev eth9" "$(cat "$T/ip-route-989")"
 assert_eq "W78: empty query does not issue route delete" "0" "$(grep -c '^ip:route del ' "$T/ip.log" 2>/dev/null || true)"
