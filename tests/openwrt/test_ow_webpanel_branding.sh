@@ -57,10 +57,31 @@ if sed 's|http://www.w3.org/2000/svg||g' \
 else
     _t_ok
 fi
-for _token in '--bg:' '--bg-card:' '--border:' '--text:' '--accent:'; do
-    grep -qF -- "$_token" "$REPO/platform/openwrt/webpanel-brand/theme.css" \
-        && _t_ok || _t_bad "OpenWrt palette token $_token"
-done
+if node - "$REPO/platform/openwrt/webpanel-brand/theme.css" <<'NODE'
+const fs = require("fs");
+const css = fs.readFileSync(process.argv[2], "utf8");
+function value(selector, token) {
+  const start = css.indexOf(selector);
+  const open = css.indexOf("{", start);
+  const close = css.indexOf("}", open);
+  if (start < 0 || open < 0 || close < 0) return null;
+  const declaration = css.slice(open + 1, close).split(";")
+    .map((part) => part.trim()).find((part) => part.startsWith(token + ":"));
+  return declaration ? declaration.slice(token.length + 1).trim().toUpperCase() : null;
+}
+const themes = [
+  [":root", "#51DCCB", "#8B7CFF"],
+  [":root[data-theme=\"light\"]", "#087F78", "#6554CE"],
+];
+for (const [selector, primary, secondary] of themes) {
+  if (value(selector, "--accent") !== primary || value(selector, "--brand-accent-alt") !== secondary) process.exit(1);
+}
+NODE
+then
+    _t_ok
+else
+    _t_bad "OpenWrt cyan primary and violet secondary accents apply in dark and light themes"
+fi
 
 # Common UI code travels in the signed updater snapshot; adapter artwork stays
 # out of that seed/update map and is refreshed only by the adapter APK.
