@@ -4,7 +4,7 @@
 
 <p><strong>z2k для OpenWrt через тонкий platform adapter</strong></p>
 
-[![CI](https://github.com/t0fox/z2kOW/actions/workflows/ci.yml/badge.svg?branch=feat/openwrt-adapter)](https://github.com/t0fox/z2kOW/actions/workflows/ci.yml)
+[![CI](https://github.com/t0fox/z2kOW/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/t0fox/z2kOW/actions/workflows/ci.yml)
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-25.12.5-58A6FF?logo=openwrt&logoColor=white)](https://openwrt.org/)
 [![Target](https://img.shields.io/badge/target-mediatek%2Ffilogic-665BFF)](./docs/openwrt-adapter-contract.md)
 [![Package](https://img.shields.io/badge/package-APK-22C55E)](./package/openwrt/)
@@ -29,7 +29,7 @@
 
 ## Что это
 
-**z2kOW** — OpenWrt-адаптация [necronicle/z2k](https://github.com/necronicle/z2k), сделанная не как отдельный форк, а как слой совместимости платформы.
+**z2kOW** — самостоятельная OpenWrt-адаптация [necronicle/z2k](https://github.com/necronicle/z2k). Upstream z2k используется как источник общей логики, а OpenWrt-порт развивается как отдельный продуктовый контур с собственным lifecycle, CI и platform adapter.
 
 Общая логика z2k остаётся общей:
 
