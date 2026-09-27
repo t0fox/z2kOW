@@ -18,6 +18,8 @@ printf '# keenetic only\n' > "$T/tree/files/S99probe.new"
 printf '#!/bin/sh\n# fixture cgi\n' > "$T/tree/webpanel/cgi/probe.sh"
 printf '#!/bin/sh\n# OpenWrt-only panel seam\n' > "$T/tree/webpanel/cgi/platform.sh"
 mkdir -p "$T/tree/z2k-warpd/builds"
+mkdir -p "$T/tree/webpanel/www/js/core"
+printf branding-loader-fixture > "$T/tree/webpanel/www/js/core/branding.js"
 printf 'warp fixture\n' > "$T/tree/z2k-warpd/builds/z2k-warpd-linux-arm64"
 _sha_a="$(sha256sum "$T/tree/lib/a.sh" | awk '{print $1}')"
 _sha_s="$(sha256sum "$T/tree/files/S99probe.new" | awk '{print $1}')"
@@ -94,6 +96,15 @@ esac
 _shap="$(sha256sum "$T/tree/webpanel/cgi/platform.sh" | awk '{print $1}')"
 assert_eq "gen platform seam sha" "$_shap" \
     "$(sed -n 's/^  "webpanel\/cgi\/platform.sh": "\([0-9a-f]*\)",\?$/\1/p' "$T/out.json" | head -1)"
+_sha_branding="$(sha256sum "$T/tree/webpanel/www/js/core/branding.js" | awk '{print $1}')"
+python3 - "$T/out.json" "$_sha_branding" <<'PYEOF'
+import json, sys
+m = json.load(open(sys.argv[1], encoding='utf-8'))
+k = 'webpanel/www/js/core/branding.js'
+assert m['install_map'][k] == ['/usr/lib/z2k/www/js/core/branding.js']
+assert m['files_sha256'][k] == sys.argv[2]
+PYEOF
+[ "$?" = "0" ] && _t_ok || _t_bad "gen branding seam destination/SHA"
 # api stamp: только current-запись
 assert_eq "gen api current" "2" \
     "$(grep '"v": "p-2"' "$T/out.json" | sed -n 's/.*"openwrt_adapter_api_min"[[:space:]]*:[[:space:]]*"\([0-9]*\)".*/\1/p' | head -1)"
