@@ -100,7 +100,7 @@ if [ -x "$APK_BIN" ]; then
     _head_version="$_snap_version-r$_snap_release"
     if [ "$_head_epoch" -gt "$_parent_epoch" ] 2>/dev/null; then
         _cmp="$("$APK_BIN" version -t "$_parent_version" "$_head_version" 2>/dev/null)"
-        assert_eq "later source commit sorts newer under apk-tools" ">" "$_cmp"
+        assert_eq "later source commit sorts newer under apk-tools" "<" "$_cmp"
     else
         _t_bad "test fixture requires HEAD committer timestamp later than its parent"
     fi

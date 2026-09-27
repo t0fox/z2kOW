@@ -860,8 +860,10 @@ const SCENARIOS = {
       NULL_SEL.push("#tg-state-badge", "#tg-enable", "#tg-disable",
                     "#policy-name", "#policy-status", "#policy-mode", "#policy-save-btn");
       await sleep(500);
+      const fatal = q("#app").innerHTML.indexOf('data-ui-fatal') >= 0;
       check("ответ, пришедший после ухода со страницы, ничего не уронил",
-            UNHANDLED.length === 0, UNHANDLED.join(" | "));
+            UNHANDLED.length === 0 && !fatal,
+            UNHANDLED.join(" | ") || (fatal ? "отображён fatal route screen" : ""));
     },
   },
 

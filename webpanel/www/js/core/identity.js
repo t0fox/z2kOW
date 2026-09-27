@@ -16,7 +16,7 @@ function _label(value) {
 function _asset(value, extension) {
   if (typeof value !== "string" || value.length > 160) return "";
   if (!value.startsWith("/assets/") || value.includes("..") || value.includes("\\")
-      || /[\\s?#]/.test(value)) return "";
+      || /[\s?#]/.test(value)) return "";
   return new RegExp("^/assets/[A-Za-z0-9/_-]+\\." + extension + "$").test(value) ? value : "";
 }
 
