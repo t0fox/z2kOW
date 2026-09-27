@@ -68,6 +68,24 @@ This is CI candidate evidence, not a production feed publication. A subsequent
 docs-only commit records these results; its own exact-HEAD CI run is the final
 repository verdict.
 
+The first post-fix run, `36313882801` on
+`9b078addd9fdff332a0f8d8b40c243f67af87ceb`, passed shell tests, mutation
+testing, and the OpenWrt SDK package job. Its only failure was the expected
+detector binary drift: all nine checked-in `z2k-detect` blobs differed from
+the repository build. CI uploaded those nine repository-built files as
+`z2k-detect-builds-9b078addd9fdff332a0f8d8b40c243f67af87ceb`; they were
+committed without running a local build.
+
+CI run `36315559922` then validated exact `HEAD`
+`bfeaeae6b525f43149bd559194cb43ba5fbfc1e5`: all 14 workflow jobs passed.
+The shell runner reported 225 suites, 4374 passed, 0 failed, and 0 skipped.
+Mutation testing killed all 35 planned mutants, with 0 survivors and 0 stale
+anchors. Detector binary reproducibility passed, as did Go race/cross-compile
+checks and the OpenWrt 25.12.5 SDK package, APK metadata, ephemeral feed
+signing, isolated feed resolution, and pinned-snapshot upgrade checks. This
+run validates the implementation and CI-built detector payload; the following
+docs-only commit still requires its own exact-HEAD CI verdict.
+
 The earlier local OpenWrt shell verification at the inventory checkpoint
 reported 3180 passed and 0 failed. It skipped checks that require a committed
 tree, the pinned runtime tarball, or host
