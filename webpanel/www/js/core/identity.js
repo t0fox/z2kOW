@@ -1,6 +1,5 @@
-// Common brand profile projection. Platform-specific values arrive through
-// /status; this module only accepts local, typed assets and never branches on
-// a platform name.
+// Optional visual identity projection. The app loads this as a separate
+// module script so a content blocker cannot stop the core ES-module graph.
 let _brandName = "Z2K";
 
 function _label(value) {
@@ -16,9 +15,9 @@ function _label(value) {
 
 function _asset(value, extension) {
   if (typeof value !== "string" || value.length > 160) return "";
-  if (!value.startsWith("/brand/") || value.includes("..") || value.includes("\\")
-      || /[\s?#]/.test(value)) return "";
-  return new RegExp(`^/brand/[A-Za-z0-9/_-]+\\.${extension}$`).test(value) ? value : "";
+  if (!value.startsWith("/assets/") || value.includes("..") || value.includes("\\")
+      || /[\\s?#]/.test(value)) return "";
+  return new RegExp("^/assets/[A-Za-z0-9/_-]+\\." + extension + "$").test(value) ? value : "";
 }
 
 export function currentBrandName() { return _brandName; }
@@ -44,7 +43,7 @@ export function applyBranding(status) {
   image.setAttribute("src", logo);
   image.hidden = false;
   fallback.hidden = true;
-  brand.setAttribute("aria-label", `${name} — ${subtitle}`);
+  brand.setAttribute("aria-label", name + " — " + subtitle);
   icon.setAttribute("href", favicon);
   mask.setAttribute("href", favicon);
 
@@ -57,5 +56,17 @@ export function applyBranding(status) {
   }
   themeLink.setAttribute("href", theme);
   _brandName = name;
+  if (typeof window !== "undefined" && typeof window.__z2kSetRouteBrandName === "function") {
+    window.__z2kSetRouteBrandName(name);
+  }
   return true;
+}
+
+// The optional module may arrive before or after /status. Neither branch owns
+// first paint: index.html loads the package profile independently.
+if (typeof window !== "undefined") {
+  window.__z2kApplyBranding = applyBranding;
+  if (window.__z2kBrandStatus) {
+    try { applyBranding(window.__z2kBrandStatus); } catch (_) { /* optional */ }
+  }
 }

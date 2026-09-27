@@ -1,6 +1,5 @@
 import { closeNavMore } from "./chrome.js";
-import { currentBrandName } from "./core/branding.js";
-import { $app, $nav } from "./core/dom.js";
+import { $app, $nav, escapeHtml } from "./core/dom.js";
 import { renderCredits, renderStrategies } from "./pages/credits.js";
 import { renderDashboard } from "./pages/dashboard.js";
 import { renderDiag } from "./pages/diag.js";
@@ -44,8 +43,7 @@ const ROUTE_TITLES = {
   whitelist:       "Исключения",
   exclude:         "Исключения",
   "extra-domains": "Доп. домены",
-  // Подвкладка «Автохостлист» — тот же раздел (без ключа падал в fallback
-  // "antiDPI для Keenetic" во вкладке браузера на обеих платформах).
+  // Подвкладка «Автохостлист» использует заголовок того же раздела.
   autohostlist:   "Доп. домены",
   // «Стратегии» — одна дверь, два вида внутри. Маршрут `state` остался жив
   // ради старых ссылок и закладок: он открывает ту же страницу на вкладке
@@ -68,18 +66,43 @@ const NAV_OF_ROUTE = {
 };
 
 let _activeRoute = "dashboard";
+let _navigationToken = 0;
 
 // Route titles have one owner; the suffix follows the active common brand
 // profile and defaults to the upstream Z2K identity.
 export function refreshRouteTitle() {
-  const pageTitle = ROUTE_TITLES[_activeRoute] || "antiDPI для Keenetic";
-  document.title = `${pageTitle} · ${currentBrandName()}`;
+  const pageTitle = ROUTE_TITLES[_activeRoute] || "Z2K";
+  const brandName = window.__z2kBrandName || "Z2K";
+  document.title = pageTitle + " · " + brandName;
+}
+
+export function setRouteBrandName(name) {
+  const value = typeof name === "string" ? name.trim() : "";
+  const hasControlCharacter = Array.from(value).some(character => {
+    const code = character.charCodeAt(0);
+    return code <= 31 || code === 127;
+  });
+  if (value && value.length <= 64 && !hasControlCharacter) {
+    window.__z2kBrandName = value;
+  } else {
+    window.__z2kBrandName = "Z2K";
+  }
+  refreshRouteTitle();
+}
+
+function showRouteFailure(error, token) {
+  if (token !== _navigationToken) return;
+  const detail = error && error.message ? error.message : String(error || "unknown error");
+  $app.innerHTML = '<section class="card" data-ui-fatal role="alert">' +
+    '<h1 class="page-title">Не удалось загрузить страницу</h1>' +
+    '<p class="desc">Обновите страницу. Подробность: ' + escapeHtml(detail) + '</p></section>';
 }
 
 export function navigate() {
   const hash = location.hash.replace(/^#\//, "") || "dashboard";
   const name = routes[hash] ? hash : "dashboard";
   _activeRoute = name;
+  const token = ++_navigationToken;
   // Маршрутов больше, чем пунктов меню: подвкладка — тоже адрес, но своего
   // пункта у неё нет. Без подмены переход на такой адрес не подсвечивал бы
   // в меню ничего.
@@ -93,8 +116,15 @@ export function navigate() {
   document.body.setAttribute("data-page", name);
   refreshRouteTitle();
   closeNavMore();
-  $app.innerHTML = "";
-  routes[name]();
+  $app.innerHTML = '<section class="card" aria-live="polite">Загрузка…</section>';
+  try {
+    const result = routes[name]();
+    if (result && typeof result.catch === "function") {
+      result.catch(error => showRouteFailure(error, token));
+    }
+  } catch (error) {
+    showRouteFailure(error, token);
+  }
 }
 
 window.addEventListener("hashchange", navigate);

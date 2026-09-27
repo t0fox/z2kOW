@@ -11,32 +11,33 @@ import { toast } from "../core/toast.js";
 // Состояние тумблера берём из /status, а не из адреса: страницу открывают по
 // прямой ссылке, и вкладка обязана быть честной сразу, без промежуточного
 // «есть/нет».
-async function extraShell(activeId, bodyHtml) {
-  let autoOn = false;
-  try {
-    const st = await apiGet("/status");
-    autoOn = String(st?.toggles?.autohostlist || "0") === "1";
-  } catch (e) { autoOn = activeId === "auto"; }
-  const tabs = [
-    { id: "own", route: "extra-domains", label: "Свои",
-      hint: "Домены, которые вы добавили вручную" },
-  ];
-  if (autoOn || activeId === "auto") {
-    tabs.push({ id: "auto", route: "autohostlist", label: "Автохостлист",
-      hint: "Домены, которые автохостлист определил как заблокированные сам" });
-  }
-  const active = tabs.find(t => t.id === activeId) || tabs[0];
-  const tabsHtml = tabs.map(t => `
-    <a href="#/${t.route}" class="strat-tab${t.id === activeId ? " active" : ""}"
-       role="tab" aria-selected="${t.id === activeId}" title="${escapeHtml(t.hint)}">
-      ${escapeHtml(t.label)}
-    </a>`).join("");
-  return `
-    <h1 class="page-title">Дополнительные домены</h1>
-    ${tabs.length > 1 ? `<div class="strat-tabs" role="tablist" aria-label="Виды доменов">${tabsHtml}</div>
-    <p class="desc strat-tabhint">${escapeHtml(active.hint)}</p>` : ""}
-    ${bodyHtml}
-  `;
+function extraTabs(activeId) {
+  return '<div class="strat-tabs" role="tablist" aria-label="Виды доменов">' +
+    '<a href="#/extra-domains" class="strat-tab' + (activeId === "own" ? " active" : "") +
+      '" role="tab" aria-selected="' + (activeId === "own") + '" title="Домены, которые вы добавили вручную">Свои</a>' +
+    '<a href="#/autohostlist" class="strat-tab' + (activeId === "auto" ? " active" : "") +
+      '" role="tab" aria-selected="' + (activeId === "auto") +
+      '" title="Домены, которые автохостлист определил как заблокированные сам">Автохостлист</a>' +
+    '</div>';
+}
+
+function extraShell(activeId, bodyHtml, autoOn) {
+  const showTabs = Boolean(autoOn || activeId === "auto");
+  return '<h1 class="page-title">Дополнительные домены</h1>' +
+    '<div id="extra-domain-tabs-slot">' + (showTabs ? extraTabs(activeId) : "") + '</div>' +
+    '<p class="desc strat-tabhint" id="extra-domain-tab-hint"' + (showTabs ? "" : " hidden") + '>' +
+      (activeId === "auto"
+        ? "Домены, которые автохостлист определил как заблокированные сам"
+        : "Домены, которые вы добавили вручную") + '</p>' +
+    bodyHtml;
+}
+
+function showExtraDomainTabs(activeId) {
+  const slot = document.getElementById("extra-domain-tabs-slot");
+  const hint = document.getElementById("extra-domain-tab-hint");
+  if (!slot || !hint) return;
+  slot.innerHTML = extraTabs(activeId);
+  hint.hidden = false;
 }
 
 export async function renderAutohostlistDomains() {
@@ -89,12 +90,16 @@ async function ahDelete(domain) {
   }
 }
 
-export async function renderExtraDomains() {
-  await renderDomainList({
+export function renderExtraDomains() {
+  const render = renderDomainList({
     endpoint: "/extra-domains",
-    shell: html => extraShell("own", html),
+    shell: html => extraShell("own", html, false),
     title: "Обрабатывать эти сайты",
     description: 'Добавьте сайты, которым нужен обход блокировок в дополнение к основным спискам. <code>example.com</code> включает все поддомены. Домены, уже покрытые другими списками, повторно добавлять не нужно.',
     deleteHint: "Эти сайты будут удалены из дополнительного списка. Обработка по другим спискам сохранится.",
   });
+  apiGet("/status").then(status => {
+    if (String(status?.toggles?.autohostlist || "0") === "1") showExtraDomainTabs("own");
+  }).catch(() => {});
+  return render;
 }

@@ -55,7 +55,7 @@ function mockNode(id, properties) {
   const el = mkEl(); el.id = id; Object.assign(el, properties || {}); domById.set(id, el); return el;
 }
 if (BRAND_CASE) {
-  mockNode("panel-brand", { attributes: { "aria-label": "z2k — antiDPI для Keenetic" } });
+  mockNode("panel-brand", { attributes: { "aria-label": "Z2K" } });
   mockNode("brand-default-logo", { hidden: false });
   mockNode("brand-profile-logo", { hidden: true, src: "" });
   mockNode("brand-favicon", { href: "/favicon.svg?v=p-86.1" });
@@ -64,7 +64,7 @@ if (BRAND_CASE) {
 const head = mkEl();
 global.document = {
   documentElement: mkEl(), body: mkEl(), head,
-  title: "Z2K — antiDPI для Keenetic",
+  title: "Z2K",
   getElementById(id){
     if (id === "brand-profile-theme") return domById.get(id) || null;
     return domById.get(id) || mkEl();
@@ -135,8 +135,8 @@ const statusFixture = (process.env.Z2K_OW_CAPS === "1")
                  stats:"1",ppe:"1",auto_update:"1",autohostlist:"0"}, tunnel:{running:true} };
 if (BRAND_CASE === "openwrt") {
   statusFixture.brand = { name:"z2kOW", subtitle:"OpenWrt edition",
-    logo:"/brand/openwrt/wordmark.svg", favicon:"/brand/openwrt/favicon.svg",
-    theme:"/brand/openwrt/theme.css" };
+    logo:"/assets/openwrt/wordmark.svg", favicon:"/assets/openwrt/favicon.svg",
+    theme:"/assets/openwrt/theme.css" };
 } else if (BRAND_CASE === "unsafe") {
   statusFixture.brand = { name:"z2kOW", subtitle:"OpenWrt edition",
     logo:"https://evil.example/wordmark.svg", favicon:"//evil.example/favicon.svg",
@@ -211,11 +211,11 @@ catch (e) { console.log("ЗАГРУЗКА УПАЛА: " + e.message); process.ex
     const mask = domById.get("brand-mask-icon");
     const theme = domById.get("brand-profile-theme");
     if (profile) {
-      expect(profileLogo && profileLogo.hidden === false && profileLogo.src === "/brand/openwrt/wordmark.svg", "OpenWrt profile shows its same-origin wordmark");
+      expect(profileLogo && profileLogo.hidden === false && profileLogo.src === "/assets/openwrt/wordmark.svg", "OpenWrt profile shows its same-origin wordmark");
       expect(defaultLogo && defaultLogo.hidden === true, "OpenWrt profile hides the default wordmark");
       expect(brandLink && brandLink.getAttribute("aria-label") === "z2kOW — OpenWrt edition", "brand name and subtitle are accessible");
-      expect(favicon && favicon.href === "/brand/openwrt/favicon.svg" && mask && mask.href === "/brand/openwrt/favicon.svg", "favicon and mask icon use the profile asset");
-      expect(theme && theme.href === "/brand/openwrt/theme.css", "profile theme loads from a same-origin stylesheet");
+      expect(favicon && favicon.href === "/assets/openwrt/favicon.svg" && mask && mask.href === "/assets/openwrt/favicon.svg", "favicon and mask icon use the profile asset");
+      expect(theme && theme.href === "/assets/openwrt/theme.css", "profile theme loads from a same-origin stylesheet");
       for (const [route, title] of [["dashboard","Дашборд"],["strategies","Стратегии"],["warp","WARP"]]) {
         global.location.hash = "#/" + route; global.__nav && global.__nav();
         expect(global.document.title === `${title} · z2kOW`, `route title for #/${route} uses the profile name`);

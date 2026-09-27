@@ -79,7 +79,7 @@ assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapre
 assert_contains "adapter dep == WARP runtime version" "$MK" "z2k-warp-runtime (>=${_wrver}-r${_wrrel})"
 # The branding profile ships in the adapter APK, so package bytes need a new
 # release number to upgrade over an already-installed adapter.
-assert_eq "adapter release bumped for package-owned brand profile" "78" "$_arel"
+assert_eq "adapter release bumped for blocker-safe brand profile" "79" "$_arel"
 assert_contains "nounset CGI probe remains guarded" "$REPO/platform/openwrt/customd.sh" \
     'nounset must not abort this probe'
 assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwrt/env.sh" \

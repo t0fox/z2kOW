@@ -155,8 +155,8 @@ fi
 assert_contains "js: caps helper" "$REPO/webpanel/www/js/core/loadorder.js" "applyCapabilities"
 assert_contains "js: toggles hook" "$REPO/webpanel/www/js/pages/toggles.js" "applyCapabilities"
 assert_contains "js: boot hook" "$REPO/webpanel/www/app.js" "applyCapabilities"
-assert_contains "js: generic branding module" "$REPO/webpanel/www/js/core/branding.js" "applyBranding"
-assert_contains "js: boot branding hook" "$REPO/webpanel/www/app.js" "applyBranding"
+assert_contains "js: optional identity module" "$REPO/webpanel/www/js/core/identity.js" "applyBranding"
+assert_contains "js: optional identity hook" "$REPO/webpanel/www/app.js" "optionalPanelModule"
 if grep -rlE 'openwrt|PLATFORM|capabilit' "$REPO/webpanel/www/js" 2>/dev/null \
     | grep -vE 'loadorder\.js|toggles\.js|app\.js|router\.js' | grep -q .; then
     _t_bad "js: capability-логика вне allowlisted файлов"
@@ -165,14 +165,21 @@ else
 fi
 # router.js owns the route suffix and remains platform-neutral.
 assert_contains "js: autohostlist title" "$REPO/webpanel/www/js/router.js" 'autohostlist:'
-assert_contains "js: profile-derived title suffix" "$REPO/webpanel/www/js/router.js" 'currentBrandName()'
+assert_contains "js: profile-derived title suffix" "$REPO/webpanel/www/js/router.js" 'window.__z2kBrandName'
 if grep -n 'openwrt\|PLATFORM\|capabilit' "$REPO/webpanel/www/js/router.js" 2>/dev/null | grep -q .; then
     _t_bad "js: router.js с platform-логикой (разрешён только title)"
 else
     _t_ok
 fi
-if grep -n 'openwrt\|PLATFORM' "$REPO/webpanel/www/js/core/branding.js" 2>/dev/null | grep -q .; then
-    _t_bad "js: branding.js знает конкретную платформу"
+if grep -n 'openwrt\|PLATFORM' "$REPO/webpanel/www/js/core/identity.js" 2>/dev/null | grep -q .; then
+    _t_bad "js: identity.js знает конкретную платформу"
+else
+    _t_ok
+fi
+assert_contains "static identity does not depend on /status" "$REPO/webpanel/www/index.html" 'fetch("/assets/openwrt/profile.json"'
+assert_contains "boot catches required module-graph failure" "$REPO/webpanel/www/index.html" 'data-ui-fatal'
+if grep -nE '^import .*core/identity\.js' "$REPO/webpanel/www/app.js" "$REPO/webpanel/www/js/router.js" 2>/dev/null | grep -q .; then
+    _t_bad "js: optional identity is a static module dependency"
 else
     _t_ok
 fi

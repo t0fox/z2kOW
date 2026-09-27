@@ -72,7 +72,7 @@ CLASS: COMMON (тот же код), PLATFORM_IO (тонкий перевод), K
   shared.
 - OpenWrt supplies `z2kOW` / `OpenWrt edition` from the package-owned adapter.
   Its wordmark, favicon, and theme live in
-  `/usr/lib/z2k/www/brand/openwrt/`; the adapter APK explicitly installs these
+  `/usr/lib/z2k/www/assets/openwrt/`; the adapter APK explicitly installs these
   files over older bytes during upgrade. Their stable URLs are served by the
   existing no-cache lighttpd document root. The generic UI module and common
   hooks travel through the signed snapshot updater; adapter assets stay out of

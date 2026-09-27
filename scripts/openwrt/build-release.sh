@@ -14,8 +14,8 @@
 # Использование:
 #   build-release.sh --sdk DIR|auto --target mediatek/filogic --arch aarch64_cortex-a53
 #     --manifest openwrt-UPDATES.json --out dist/ [--dev] [--skip-tests]
-# Версия пакета — из package/openwrt/Makefile (package-only релиз =
-# version-bump commit, §19/§53). dist/ НЕ коммитится (§63).
+#   CI: --ci-snapshot; product release: --release --product-version X.Y.Z
+# Stable version defaults to package/openwrt/Makefile. dist/ НЕ коммитится (§63).
 #
 # POSIX sh + python3. Сеть нужна только для ls-remote ref-проверки (без сети —
 # отказ, кроме --dev, где фиксируется verified_remote=false).
@@ -27,6 +27,7 @@ die() { printf 'build-release: %s\n' "$1" >&2; exit 1; }
 note() { printf 'build-release: %s\n' "$1"; }
 
 SDK="auto"; TARGET=""; ARCH=""; MANIFEST=""; OUT=""; DEV=0; SKIP_TESTS=0; CI_SNAPSHOT=0
+RELEASE_MODE=0; PRODUCT_VERSION=""; PACKAGE_VERSION_MODE=0; PIN_MODE=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --sdk) SDK="$2"; shift 2 ;;
@@ -37,33 +38,72 @@ while [ $# -gt 0 ]; do
         --dev) DEV=1; shift ;;
         --skip-tests) SKIP_TESTS=1; shift ;;
         --ci-snapshot) CI_SNAPSHOT=1; shift ;;
-        --print-sdk-pin) _pin_mode=1; shift ;;
+        --release) RELEASE_MODE=1; shift ;;
+        --product-version) [ "$#" -ge 2 ] || die "--product-version требует X.Y.Z"; PRODUCT_VERSION="$2"; shift 2 ;;
+        --print-package-version) PACKAGE_VERSION_MODE=1; shift ;;
+        --print-sdk-pin) PIN_MODE=1; shift ;;
         *) die "неизвестный флаг $1" ;;
     esac
 done
+
+if [ "$RELEASE_MODE" = "1" ]; then
+    [ "$CI_SNAPSHOT" = "0" ] || die "--release несовместим с --ci-snapshot"
+    [ -n "$PRODUCT_VERSION" ] || die "--release требует --product-version X.Y.Z"
+elif [ -n "$PRODUCT_VERSION" ]; then
+    die "--product-version допустим только вместе с --release"
+fi
 
 [ -n "$TARGET" ] || die "--target обязателен (например mediatek/filogic)"
 # --- 0. SDK pin query: раньше всех остальных гейтов (ему нужен только target).
 _sdk_pin_url() { _t="$1"; _f="$(printf '%s' "$_t" | tr '/' '-')"; printf 'https://downloads.openwrt.org/releases/25.12.5/targets/%s/openwrt-sdk-25.12.5-%s_gcc-14.3.0_musl.Linux-x86_64.tar.zst' "$_t" "$_f"; }
 _sdk_pin_sha() { printf 'ff4a38a397caa2cfe1c39e18f84ddede14878221b3593c3f2c4cfe24e3ec4c25'; }
-if [ "${_pin_mode:-0}" = "1" ]; then
+if [ "$PIN_MODE" = "1" ] && [ "$PACKAGE_VERSION_MODE" = "1" ]; then
+    die "--print-sdk-pin и --print-package-version несовместимы"
+fi
+if [ "$PIN_MODE" = "1" ]; then
     printf '%s|%s\n' "$(_sdk_pin_url "$TARGET")" "$(_sdk_pin_sha)"
     exit 0
 fi
-[ -n "$ARCH" ] || die "--arch обязателен явно, угадывать запрещено (§20)"
-[ -n "$MANIFEST" ] && [ -f "$MANIFEST" ] || die "--manifest: нужен OpenWrt-манифест релиза"
-[ -n "$OUT" ] || die "--out: нужен каталог dist"
+if [ "$PACKAGE_VERSION_MODE" != "1" ]; then
+    [ -n "$ARCH" ] || die "--arch обязателен явно, угадывать запрещено (§20)"
+    [ -n "$MANIFEST" ] && [ -f "$MANIFEST" ] || die "--manifest: нужен OpenWrt-манифест релиза"
+    [ -n "$OUT" ] || die "--out: нужен каталог dist"
+fi
 command -v python3 >/dev/null 2>&1 || die "нужен python3"
+
+_select_package_version() {
+    _version_mode=stable
+    if [ "$CI_SNAPSHOT" = "1" ]; then
+        _version_mode=snapshot
+    elif [ "$RELEASE_MODE" = "1" ]; then
+        _version_mode=release
+    fi
+    if [ "$_version_mode" = "release" ]; then
+        _version_pair="$(sh "$ROOT/scripts/openwrt/package-version.sh" \
+            "$_version_mode" "$ROOT" "$SRC_COMMIT" "$PRODUCT_VERSION")" \
+            || die "не удалось выбрать product package version"
+    else
+        _version_pair="$(sh "$ROOT/scripts/openwrt/package-version.sh" \
+            "$_version_mode" "$ROOT" "$SRC_COMMIT")" \
+            || die "не удалось выбрать package version"
+    fi
+    case "$_version_pair" in
+        *'|'*) PKG_VERSION="${_version_pair%%|*}"; PKG_RELEASE="${_version_pair#*|}" ;;
+        *) die "неверный результат package-version.sh: [$_version_pair]" ;;
+    esac
+    [ -n "$PKG_VERSION" ] && [ -n "$PKG_RELEASE" ] || die "пустая package version/release"
+}
+
+if [ "$PACKAGE_VERSION_MODE" = "1" ]; then
+    SRC_COMMIT="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)" || die "не git-репозиторий"
+    _select_package_version
+    printf '%s-r%s|%s\n' "$PKG_VERSION" "$PKG_RELEASE" "$SRC_COMMIT"
+    exit 0
+fi
 # SEED_TMP — рано: нужен уже секции Stage-тестов (лог сьюта), а не только
 # секции seed coherence. Один mktemp на весь прогон, trap — один.
 SEED_TMP="$(mktemp -d)" || exit 1
 trap 'rm -rf "$SEED_TMP"' EXIT INT TERM
-# Версия — один источник: Makefile (package-only релиз = version-bump commit).
-PKG_VERSION="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$ROOT/package/openwrt/Makefile" | head -1 | tr -d ' \t\r\n')"
-PKG_RELEASE="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$ROOT/package/openwrt/Makefile" | head -1 | tr -d ' \t\r\n')"
-[ -n "$PKG_VERSION" ] && [ -n "$PKG_RELEASE" ] || die "нет PKG_VERSION/PKG_RELEASE в package/openwrt/Makefile"
-note "package version: $PKG_VERSION-$PKG_RELEASE"
-
 # --- 1. clean tree (R2) -------------------------------------------------------
 # Сравнение — контентное (--ignore-cr-at-eol): stat-кэш dual-git окружения
 # даёт фантомную грязь, CRLF-шум — не грязь. Настоящую грязь ловит diff.
@@ -85,6 +125,9 @@ if _tree_dirty; then
 fi
 SRC_COMMIT="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)" || die "не git-репозиторий"
 note "source commit: $SRC_COMMIT"
+
+_select_package_version
+note "package version: $PKG_VERSION-$PKG_RELEASE"
 
 # --- 2. Stage-тесты ------------------------------------------------------------
 # Лог сьюта — в артефакт (не в /dev/null: иначе падение в CI недиагностируемо;
@@ -218,7 +261,8 @@ fi
 note "make package/z2k/compile + package/z2k-runtime/compile + package/z2k-warp-runtime/compile ..."
 # Цели — ДИРЕКТОРИИ пакетов (наши симлинки), НЕ имена пакетов:
 # package/z2k-adapter/compile правила не существует (поймано реальным CI).
-if ! make -C "$SDK" "package/z2k/compile" "package/z2k-runtime/compile" "package/z2k-warp-runtime/compile" V=s >"$SDK_LOG" 2>&1; then
+if ! make -C "$SDK" "Z2K_OW_PACKAGE_VERSION=$PKG_VERSION" "Z2K_OW_PACKAGE_RELEASE=$PKG_RELEASE" \
+    "package/z2k/compile" "package/z2k-runtime/compile" "package/z2k-warp-runtime/compile" V=s >"$SDK_LOG" 2>&1; then
     # Порядок важен: сначала stdout->stderr, глушение — только для tail'а.
     tail -50 "$SDK_LOG" >&2 || true
     die "сборка в SDK упала, лог: $SDK_LOG"

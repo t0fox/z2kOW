@@ -17,8 +17,7 @@
 // обращений в ядро против 92 между фичами), слои идут только вниз, граф
 // ациклический. Точка входа зависит от оболочки и маршрутизатора — и всё.
 import { initDrawer, initSidebar, initTheme } from "./js/chrome.js";
-import { navigate, refreshRouteTitle } from "./js/router.js";
-import { applyBranding } from "./js/core/branding.js";
+import { navigate, refreshRouteTitle, setRouteBrandName } from "./js/router.js";
 import { apiGet } from "./js/core/api.js";
 import { applyCapabilities } from "./js/core/loadorder.js";
 
@@ -26,13 +25,27 @@ initTheme();
 initSidebar();
 initDrawer();
 
+window.__z2kRefreshRouteTitle = refreshRouteTitle;
+window.__z2kSetRouteBrandName = setRouteBrandName;
 if (!location.hash) location.hash = "#/dashboard";
 navigate();
 
-// Platform capabilities для nav (Stage 6): один boot-запрос; без сессии
-// (Keenetic с включённым auth) — молча пропускаем, всё остаётся видимым.
+// Visual identity is optional. A content blocker may reject this separate
+// module script; the static profile bootstrap in index.html and route graph
+// continue independently.
+const identityScript = document.createElement("script");
+identityScript.type = "module";
+identityScript.src = "/js/core/identity.js?v=p-86.1";
+identityScript.dataset.optionalPanelModule = "true";
+identityScript.onerror = () => {};
+document.head.appendChild(identityScript);
+
+// Platform capabilities для nav (Stage 6): status is an enhancement, never a
+// prerequisite for the first route or OpenWrt identity.
 apiGet("/status").then((s) => {
   applyCapabilities(s);
-  applyBranding(s);
-  refreshRouteTitle();
+  window.__z2kBrandStatus = s;
+  try {
+    if (typeof window.__z2kApplyBranding === "function") window.__z2kApplyBranding(s);
+  } catch (_) { /* optional visual identity must not affect route rendering */ }
 }).catch(() => {});

@@ -187,14 +187,14 @@ for key in man['install_map'].keys():
     kept += 1
 
 # OpenWrt candidate manifests need explicit updater seams that are absent from
-# the pinned common snapshot. platform.sh is OpenWrt-only; branding.js is a
-# common UI module added after that snapshot. Leaving branding.js out lets an
-# update refresh index.html while the referenced loader stays missing on an
-# installed panel. Keep this list explicit and small; it is not a second
+# the pinned common snapshot. platform.sh is OpenWrt-only; identity.js is an
+# optional common UI enhancement added after that snapshot. Keep it aligned
+# with index.html even though static identity and route rendering work when a
+# blocker rejects it. Keep this list explicit and small; it is not a second
 # manifest or a seed extraction shortcut. The normal install_map/files_sha256
 # verifier still pins the exact tree bytes and the existing reinstall path
 # delivers them.
-for key in ('webpanel/cgi/platform.sh', 'webpanel/www/js/core/branding.js'):
+for key in ('webpanel/cgi/platform.sh', 'webpanel/www/js/core/identity.js'):
     if key in owmap:
         continue
     dests = ow_dests(key)

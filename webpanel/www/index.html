@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Z2K — antiDPI для Keenetic</title>
+<title>Z2K</title>
 <script>
   /* No-FOUC theme bootstrap — runs before style.css загружается.
      Без него юзер с сохранённой светлой темой увидит мигание тёмной
@@ -35,7 +35,7 @@
 </head>
 <body>
 <header class="topbar">
-  <a id="panel-brand" href="#/dashboard" class="brand" aria-label="z2k — antiDPI для Keenetic">
+  <a id="panel-brand" href="#/dashboard" class="brand" aria-label="Z2K">
     <svg id="brand-default-logo" viewBox="100 20 460 110" width="200" height="48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <!-- mark (фирменный квадрат с Z-маршрутом) -->
       <g transform="translate(157, 27)">
@@ -64,7 +64,7 @@
         <polygon points="14,21 14,35 46,56 46,42"/>
       </g>
       <!-- tagline — text-muted -->
-      <text x="278" y="112" class="brand-tagline" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="500" letter-spacing="2.6">ANTIDPI · KEENETIC</text>
+      <text x="278" y="112" class="brand-tagline" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="500" letter-spacing="2.6">ANTIDPI · Z2K</text>
     </svg>
     <img id="brand-profile-logo" class="brand-profile-logo" alt="" hidden>
   </a>
@@ -150,6 +150,67 @@
 <div class="menu-backdrop" id="menu-backdrop" hidden></div>
 <main id="app"></main>
 <div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
+<script>
+  // Package-owned static profile is the OpenWrt identity source of first
+  // paint. It is independent of /status and falls back to neutral Z2K.
+  (function () {
+    window.__z2kBrandName = "Z2K";
+    function label(value) {
+      return typeof value === "string" && value.trim().length > 0
+        && value.trim().length <= 64 && !/[\u0000-\u001f\u007f]/.test(value)
+        ? value.trim() : "";
+    }
+    function asset(value, extension) {
+      return typeof value === "string" && value.length <= 160
+        && new RegExp("^/assets/[A-Za-z0-9/_-]+\\." + extension + "$").test(value)
+        && !value.includes("..") && !value.includes("\\") && !/[\s?#]/.test(value)
+        ? value : "";
+    }
+    fetch("/assets/openwrt/profile.json", { credentials: "same-origin", cache: "no-cache" })
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (profile) {
+        if (!profile) return;
+        var name = label(profile.name), subtitle = label(profile.subtitle);
+        var logo = asset(profile.logo, "svg"), favicon = asset(profile.favicon, "svg");
+        var theme = asset(profile.theme, "css");
+        if (!name || !subtitle || !logo || !favicon || !theme) return;
+        var brand = document.getElementById("panel-brand");
+        var fallback = document.getElementById("brand-default-logo");
+        var image = document.getElementById("brand-profile-logo");
+        var icon = document.getElementById("brand-favicon");
+        var mask = document.getElementById("brand-mask-icon");
+        if (!brand || !fallback || !image || !icon || !mask) return;
+        image.src = logo;
+        image.hidden = false;
+        fallback.hidden = true;
+        brand.setAttribute("aria-label", name + " — " + subtitle);
+        icon.href = favicon;
+        mask.href = favicon;
+        var themeLink = document.getElementById("brand-profile-theme");
+        if (!themeLink) {
+          themeLink = document.createElement("link");
+          themeLink.id = "brand-profile-theme";
+          themeLink.rel = "stylesheet";
+          document.head.appendChild(themeLink);
+        }
+        themeLink.href = theme;
+        window.__z2kBrandName = name;
+        if (typeof window.__z2kRefreshRouteTitle === "function") window.__z2kRefreshRouteTitle();
+      })
+      .catch(function () { /* profile is optional; neutral Z2K remains usable */ });
+  })();
+  window.addEventListener("error", function (event) {
+    var target = event.target;
+    if (target && target.tagName === "SCRIPT" && target.dataset
+        && target.dataset.optionalPanelModule === "true") return;
+    if (!target || target.tagName !== "SCRIPT" || target.type === "module") {
+      var app = document.getElementById("app");
+      if (app && !app.querySelector("[data-ui-fatal]")) {
+        app.innerHTML = '<section class="card" data-ui-fatal role="alert"><h1 class="page-title">Не удалось загрузить интерфейс</h1><p class="desc">Обновите страницу. Проверьте, не блокирует ли браузер обязательный файл интерфейса.</p></section>';
+      }
+    }
+  }, true);
+</script>
 <!-- Точка входа — ES-модуль. Вся работа в js/, разложена по слоям; связность
      мерена по AST, граф ациклический (см. шапку app.js).
      Модуль откладывается до разбора разметки, как и прежний тег в конце body. -->
