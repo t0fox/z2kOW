@@ -229,6 +229,17 @@ The mutation runner treats a missing source anchor and a missing verdict as a
 failure. The new Go mutants use `go test -overlay` in CI so they exercise the
 real module test harness without editing the checkout.
 
+## WEB-LUCI-01 panel isolation
+
+The existing WebPanel suite now exercises the production start_service
+preflight with real lighttpd listeners: a foreign listener on another specific
+IPv4 coexists at the same numeric port, while exact-address and IPv4-wildcard
+collisions fail before procd and leave the foreign process/configuration intact.
+Static isolation guards cover package install/update/remove sources. These
+fixtures do not prove live uhttpd ownership or router lifecycle behavior;
+WEB-LUCI-01 stays PARTIAL until before/after router snapshots and client
+probes complete.
+
 ## Evidence boundaries
 
 The test inventory does not claim packet-level return-path proof, live router

@@ -17,11 +17,7 @@ z2k_ow_meta_value() {
 z2k_ow_payload_tag() { z2k_ow_meta_value "${Z2K_ROOT:-/usr/lib/z2k}/share/payload.meta" tag; }
 z2k_ow_seed_tag() { z2k_ow_meta_value "${Z2K_ROOT:-/usr/lib/z2k}/share/seed.meta" tag; }
 
-# Platform-neutral values projected by the common webpanel branding module.
-# The asset URLs are served from the package-owned OpenWrt adapter directory.
-wp_brand_json() {
-    printf '"brand":{"name":"z2kOW","subtitle":"OpenWrt edition","logo":"/brand/openwrt/wordmark.svg","favicon":"/brand/openwrt/favicon.svg","theme":"/brand/openwrt/theme.css"}'
-}
+wp_brand_json() { printf '"brand":{"name":"z2kOW","subtitle":"OpenWrt edition","logo":"/brand/openwrt/wordmark.svg","favicon":"/brand/openwrt/favicon.svg","theme":"/brand/openwrt/theme.css"}'; }
 
 # The contract helper is package-owned; common CGI/static bytes remain
 # updater-owned and are checked by it before package success is reported.
@@ -163,25 +159,54 @@ wp_panel_running() {
     return 1
 }
 
-# Порт свободен ИЛИ занят нашим процессом (WP21: чужого не kill'им,
-# конфиг его не трогаем — старт просто громко падает).
+# Проверяет пересечение listener с конкретными bind панели: local IPv4
+# addresses may share one numeric port; wildcard sockets overlap.
 wp_port_free_or_ours() {
-    local port="$1" _pid=""
+    local port="$1" bind="$2" bind6="$3" _ss="" _hex="" _v6only="0"
     [ -n "$port" ] || return 1
-    if [ -f "${WP_PIDFILE:-/var/run/z2k-webpanel.pid}" ]; then
-        _pid=$(cat "${WP_PIDFILE:-/var/run/z2k-webpanel.pid}" 2>/dev/null)
-        if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null; then
-            return 0
+    wp_panel_running && return 0
+    [ -n "$bind" ] || bind=$(cat "$WP_SETTINGS_DIR/bind" 2>/dev/null | tr -d ' \t\r\n')
+    [ -n "$bind" ] || bind=$(wp_lan_ip) || return 1
+    _wp_is_ipv4 "$bind" || return 1
+    [ -n "$bind6" ] || bind6=$(cat "$WP_SETTINGS_DIR/bind6" 2>/dev/null | tr -d ' \t\r\n')
+    bind6=$(printf '%s' "$bind6" | sed 's/^\[//;s/\]$//')
+    _v6only=$(cat /proc/sys/net/ipv6/bindv6only 2>/dev/null)
+    case "$_v6only" in 0|1) ;; *) _v6only=0 ;; esac
+    command -v ss >/dev/null 2>&1 && _ss=$(ss -ltn 2>/dev/null)
+    if [ -n "$_ss" ]; then
+        if printf '%s\n' "$_ss" | awk -v p="$port" -v bind="$bind" \
+            -v bind6="$bind6" -v v6only="$_v6only" '
+            $1 != "LISTEN" { next }
+            {
+                a = $4
+                if (a !~ (":" p "$")) next
+                sub(":" p "$", "", a)
+                if (a ~ /^\[/) { sub(/^\[/, "", a); sub(/\]$/, "", a) }
+                sub(/%.*/, "", a)
+                if (a == "*" || a == "0.0.0.0" || a == bind) used = 1
+                else if (index(a, ":")) {
+                    if (a == "::" && (bind6 != "" || v6only == "0")) used = 1
+                    if (bind6 != "" && tolower(a) == tolower(bind6)) used = 1
+                    if (bind6 == "::") used = 1
+                    if (v6only == "0" && a ~ /^::ffff:/ && substr(a, 8) == bind) used = 1
+                } else if (bind6 == "::" && v6only == "0") used = 1
+            }
+            END { exit (used ? 0 : 1) }
+        '; then
+            return 1
         fi
-    fi
-    if command -v ss >/dev/null 2>&1; then
-        ss -ltn 2>/dev/null | grep -q ":$port " && return 1
         return 0
     fi
-    # Без ss — по /proc/net/tcp{,6}: порт hex, слушается (0A).
-    awk -v p="$port" 'BEGIN { want = sprintf("%04X", p) }
-        FNR > 1 && $4 == "0A" { split($2, a, ":"); if (a[2] == want) found = 1 }
-        END { exit (found ? 0 : 1) }' /proc/net/tcp /proc/net/tcp6 2>/dev/null && return 1
+    _hex=$(printf '%s\n' "$bind" | awk -F. \
+        'NF == 4 { printf "%02X%02X%02X%02X", $4, $3, $2, $1 }')
+    [ -n "$_hex" ] || return 1
+    awk -v p="$(printf '%04X' "$port")" -v ip="$_hex" '
+        FNR > 1 && $4 == "0A" {
+            split($2, a, ":")
+            if (a[2] == p && (a[1] == "00000000" || a[1] == ip)) found = 1
+        }
+        END { exit (found ? 0 : 1) }
+    ' /proc/net/tcp 2>/dev/null && return 1
     return 0
 }
 

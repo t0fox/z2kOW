@@ -147,6 +147,35 @@ printf 'LISTEN 0 128 *:18099 *:* users:(("foreign",pid=1,fd=3))\n'
 EOF
 chmod +x "$T/bin/ss"
 wp_port_free_or_ours 18099 >/dev/null 2>&1 && _t_bad "port: чужой пропущен" || _t_ok
+# Адресный конфликт: чужой сокет на том же числовом порту, но только на
+# другом IPv4, не мешает конкретному LAN bind панели. Старый глобальный grep
+# ошибочно запрещал старт и на адресе, который ядро разрешает.
+printf '192.168.7.1\n' > "$T/etc/z2k/webpanel/bind"
+cat > "$T/bin/ss" <<'EOF'
+#!/bin/sh
+printf 'State Recv-Q Send-Q Local Address:Port Peer Address:Port\n'
+printf 'LISTEN 0 128 10.20.30.40:18099 0.0.0.0:*\n'
+EOF
+chmod +x "$T/bin/ss"
+if wp_port_free_or_ours 18099 >/dev/null 2>&1; then
+    _t_ok
+else
+    _t_bad "port: listener на другом IPv4 ошибочно конфликтует"
+fi
+cat > "$T/bin/ss" <<'EOF'
+#!/bin/sh
+printf 'State Recv-Q Send-Q Local Address:Port Peer Address:Port\n'
+printf 'LISTEN 0 128 192.168.7.1:18099 0.0.0.0:*\n'
+EOF
+chmod +x "$T/bin/ss"
+wp_port_free_or_ours 18099 >/dev/null 2>&1 && _t_bad "port: точный bind конфликт пропущен" || _t_ok
+cat > "$T/bin/ss" <<'EOF'
+#!/bin/sh
+printf 'State Recv-Q Send-Q Local Address:Port Peer Address:Port\n'
+printf 'LISTEN 0 128 0.0.0.0:18099 0.0.0.0:*\n'
+EOF
+chmod +x "$T/bin/ss"
+wp_port_free_or_ours 18099 >/dev/null 2>&1 && _t_bad "port: IPv4 wildcard конфликт пропущен" || _t_ok
 rm -f "$T/bin/ss"
 unset WP_PIDFILE
 

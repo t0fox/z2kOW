@@ -56,6 +56,21 @@ for _f in "$CPSH" "$WPSH" "$PINIT"; do
     done
 done
 
+# LuCI/uhttpd is outside the panel ownership graph. Check all production
+# install/update/remove/restart sources, not just the thin CGI adapter.
+for _f in "$REPO/webpanel/install.sh" "$REPO/lib/install.sh" "$AU" "$RM" \
+          "$REPO/platform/openwrt/update.sh" "$REPO/package/openwrt/Makefile" \
+          "$PINIT" "$WPSH"; do
+    [ -f "$_f" ] || continue
+    _code="$(sed 's/#.*$//' "$_f")"
+    if printf '%s\n' "$_code" | grep -Eiq \
+        '(/etc/config/uhttpd|/etc/init.d/uhttpd|uci([[:space:]]+-[a-z]+[[:space:]]+)*[[:space:]]+(set|delete|add|commit)[[:space:]]+uhttpd\.|(kill|killall)[[:space:]].*uhttpd|service[[:space:]]+uhttpd|/www/cgi-bin/luci|(^|[[:space:]])(chown|chmod|rm|mv|cp|install|ln)[^[:cntrl:]]*[[:space:]]"?/www([/[:space:]\"]|$)|server\.(document-root|root)[[:space:]]*=[[:space:]]*\"?/www)'; then
+        _t_bad "LuCI/uhttpd ownership mutation in $(basename "$_f")"
+    else
+        _t_ok
+    fi
+done
+
 # Template: ровно известные плейсхолдеры (PLATFORM_ENV — единственный новый).
 for _ph in WWW_DIR PORT BIND IPV6_SOCKET PLATFORM_ENV; do
     assert_contains "template: @$PH@" "$TPL" "@${_ph}@"

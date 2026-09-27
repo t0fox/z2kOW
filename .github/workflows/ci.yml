@@ -215,6 +215,15 @@ jobs:
 
       - name: Манифест — либо ровно опубликованный, либо новый и подписанный
         run: |
+          # The OpenWrt product branch retains a signed upstream snapshot at
+          # MANIFEST_BASELINE; its adapted source has a separate package manifest.
+          # Keep the legacy z2k-staging release gate isolated to that release path.
+          if [ "${GITHUB_REF_NAME:-}" != "z2k-staging" ] \
+             && [ -s tests/openwrt/MANIFEST_BASELINE ]; then
+            sh scripts/openwrt/verify-upstream-manifest.sh
+            exit 0
+          fi
+
           # ДВА СОСТОЯНИЯ, И ТРЕТЬЕГО БЫТЬ НЕ ДОЛЖНО.
           #
           # Манифест подписан офлайн-ключом, и подпись покрывает ВЕСЬ файл,
