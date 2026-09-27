@@ -429,8 +429,8 @@ installer_mutant "scheduler no longer dispatches WARP selfheal" \
     '    : # WARP selfheal dispatch removed'
 
 ow_warp_proc_mutant "binary replacement starts before old WARP daemon exits" \
-    'warp_wait_pids_stopped "${WARP_PROC_STOP_WAIT:-5}" "$@" || {' \
-    'warp_wait_pids_stopped 0 || {'
+    'if [ "$#" -gt 0 ] && ! warp_wait_pids_stopped "${WARP_PROC_STOP_WAIT:-5}" "$@"; then' \
+    'if false; then'
 
 # ---------------------------------------------------------------------------
 # Init-script mutants — files/init.d/S51z2k-warp against tests/test_warp_init_thin.sh

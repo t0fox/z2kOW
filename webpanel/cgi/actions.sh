@@ -3751,6 +3751,7 @@ strategy_pick_run() {
     # GODEBUG — тот же, что у службы: без него Go-бинарники падают на MIPS от
     # асинхронного вытеснения.
     local tcp_pid= quic_pid= voice_pid= limit=300
+    local tcp_rc=0 quic_rc=0 voice_rc=0
     case "$mode" in
         tcp13)
             echo "Замеряю $domain по TCP для современных устройств — браузеры, телефоны."
@@ -3839,9 +3840,15 @@ strategy_pick_run() {
         [ $((i % 15)) = 0 ] && echo "  идёт замер, ${i} с"
         sleep 1
     done
-    [ -n "$tcp_pid" ] && wait "$tcp_pid" 2>/dev/null
-    [ -n "$quic_pid" ] && wait "$quic_pid" 2>/dev/null
-    [ -n "$voice_pid" ] && wait "$voice_pid" 2>/dev/null
+    if [ -n "$tcp_pid" ]; then
+        wait "$tcp_pid" 2>/dev/null || tcp_rc=$?
+    fi
+    if [ -n "$quic_pid" ]; then
+        wait "$quic_pid" 2>/dev/null || quic_rc=$?
+    fi
+    if [ -n "$voice_pid" ]; then
+        wait "$voice_pid" 2>/dev/null || voice_rc=$?
+    fi
 
     if [ ! -s "$tcp_out" ] && [ ! -s "$quic_out" ] && [ ! -s "$voice_out" ]; then
         rm -f "$tcp_out" "$quic_out" "$voice_out"
@@ -3857,6 +3864,12 @@ strategy_pick_run() {
     # бинарниками, и переписывать их шеллом значило бы завести второй формат,
     # который поедет вслед за первым.
     local all="/tmp/z2k-strategy-pick-all.$$"
+    local result_rc="$tcp_rc" result_source="$tcp_out" typed_error
+    case "$mode" in
+        quic) result_rc="$quic_rc"; result_source="$quic_out" ;;
+        voice) result_rc="$voice_rc"; result_source="$voice_out" ;;
+    esac
+    typed_error="$(sed -n 's/.*"error_code"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$result_source" | head -n 1)"
     # Режим кладём в ответ: страница читает ПОСЛЕДНИЙ результат и без этого не
     # знала бы, что именно мерили, — подписала бы замер под старые устройства
     # как обычный TCP.
@@ -3869,6 +3882,14 @@ strategy_pick_run() {
     printf '}\n' >> "$all"
     rm -f "$tcp_out" "$quic_out" "$voice_out"
     mv -f "$all" "$STRATEGY_PICK_OUT"
+    if [ "$result_rc" -ne 0 ]; then
+        if [ -n "$typed_error" ]; then
+            echo "Итог: причина=$typed_error"
+        else
+            echo "Итог: код=$result_rc"
+        fi
+        return "$result_rc"
+    fi
     echo "Замер закончен за ${i} с."
     return 0
 }

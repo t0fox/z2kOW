@@ -673,6 +673,8 @@ jobs:
           # вшивается Z2K_TUNNEL_SECRET через -X, и без секрета байты не
           # воспроизвести. Это осознанный пробел, а не забывчивость — решение,
           # класть ли секрет в Actions, за владельцем.
+          candidate_dir="$RUNNER_TEMP/z2k-detect-builds"
+          mkdir -p "$candidate_dir"
           fail=0
           while IFS="$(printf '\t')" read -r mod pkg bdir prefix goarch sfx extra; do
             case "$mod" in ''|\#*) continue ;; esac
@@ -694,6 +696,10 @@ jobs:
             ( cd "$mod" && env CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" $extra \
                 go build -ldflags="-s -w" -trimpath -buildvcs=false -o /tmp/rebuilt "$pkg" ) || {
               echo "::error::$mod/$goarch не собирается"; fail=1; continue; }
+            if [ "$mod" = "z2k-detect" ]; then
+              cp /tmp/rebuilt "$candidate_dir/$prefix-linux-$sfx"
+              chmod 755 "$candidate_dir/$prefix-linux-$sfx"
+            fi
             a=$(sha256sum /tmp/rebuilt | cut -d" " -f1)
             b=$(sha256sum "$want" | cut -d" " -f1)
             if [ "$a" = "$b" ]; then
@@ -709,6 +715,15 @@ jobs:
             exit 1
           fi
           echo "все проверенные бинарники собираются из этого исходника"
+
+      - name: Upload repository-built detector artifacts when source drift is found
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: z2k-detect-builds-${{ github.sha }}
+          path: ${{ runner.temp }}/z2k-detect-builds/
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: mtproxy-client — хотя бы сама сборка воспроизводима
         run: |
