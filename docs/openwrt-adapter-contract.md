@@ -103,6 +103,10 @@ tr-idiom Stage 8: замена GNU-классов явными наборами,
 scenario; common frontend behavior, no OpenWrt fork),
 `README.md` (deliberate owner rewrite под адаптер; семантику подсказки
 держит test_exclude_hint_truthful, не этот guard).
+`UPSTREAM.json` + `UPSTREAM.md` + `.github/workflows/sync-upstream.yml` +
+`tools/sync-upstream.sh` (repository-governance standalone z2kOW: machine-readable
+upstream baseline, human contract, manual GitHub sync button and local helper;
+exact-path allowlist, в runtime/APK не входят и OpenWrt/Keenetic поведение не меняют).
 Отдельно allowlisted common lifecycle/test-audit set:
 `files/z2k-warp.sh` (fail-visible ownership migration),
 `files/z2k-scheduler.sh` (bounded WARP selfheal dispatch),

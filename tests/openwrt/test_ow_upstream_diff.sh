@@ -30,7 +30,7 @@ _g="git -c safe.directory=$REPO -C $REPO"
 
 # Разрешённые common-модификации (файл: зачем). Расширять — только с записью
 # сюда и в contract § sync invariant.
-#   .gitattributes: только +eol=lf (проверяется отдельно ниже)
+#   .github/workflows/sync-upstream.yml + UPSTREAM.json + UPSTREAM.md +\n#     tools/sync-upstream.sh: repository-governance для standalone z2kOW;\n#     только controlled upstream sync, в runtime/APK не входят; exact-path only\n#   .gitattributes: только +eol=lf (проверяется отдельно ниже)
 #   lib/config_official.sh: PHASE3-чтение через ${ZAPRET2_DIR} (§2)
 #   lib/release_map.sh: platform-диспетчер + openwrt-таблица (§3)
 #   lib/auto_update.sh: targetless fail-safe, Z2K_CONFIG_FILE/merge хуки,
@@ -195,6 +195,7 @@ ALLOWLIST="$ALLOWLIST files/lua/z2k-modern-core.lua files/lua/z2k-state-persist.
 ALLOWLIST="$ALLOWLIST files/z2k-scheduler.sh files/z2k-warp.sh tests/test_alert_detector_wiring.sh tests/test_au_converge.sh tests/test_stale_binaries_cleanup.sh tests/test_warp_install_hooks.sh tests/test_warp_mss_both_ways.sh docs/UPSTREAM-TEST-SUITES.tsv"
 ALLOWLIST="$ALLOWLIST tests/test_unique_strategy_set.sh z2k-detect/cmd/z2k-detect/common_targets_test.go z2k-detect/internal/classify/classify_test.go"
 ALLOWLIST="$ALLOWLIST docs/superpowers/specs/2026-09-26-unique-strategy-set-design.md files/init.d/S51z2k-warp files/ndm/90-z2k-tg-redirect.sh files/ndm/91-z2k-http-tunnel-redirect.sh files/ndm/93-z2k-warp.sh files/ndm/94-z2k-ppe-deoffload.sh files/ndm/95-z2k-scheduler-watchdog.sh lib/utils.sh tests/test_panel_auth.sh tests/test_release_map.sh tests/test_shell_review_fixes.sh tests/test_warp_init_thin.sh tests/test_warp_ndm_hook.sh"
+ALLOWLIST="$ALLOWLIST .github/workflows/sync-upstream.yml UPSTREAM.json UPSTREAM.md tools/sync-upstream.sh"
 
 # Граница меряется от закреплённой upstream-синхронизации BASELINE. То, что
 # было включено в этот release snapshot (манифест, подпись, index.html...), —
@@ -260,6 +261,7 @@ else
             files/z2k-scheduler.sh|files/z2k-warp.sh|tests/test_alert_detector_wiring.sh|tests/test_au_converge.sh|tests/test_stale_binaries_cleanup.sh|tests/test_warp_install_hooks.sh|tests/test_warp_mss_both_ways.sh|docs/UPSTREAM-TEST-SUITES.tsv) continue ;;
             tests/test_build_matrix.sh|tests/test_update_content_verification.sh|tests/test_unique_strategy_set.sh|tests/test_warp_games.sh|tests/test_warp_script.sh|tests/test_warp_missing_not_an_error.sh|tests/test_warp_register_retry.sh|z2k-warpd/internal/engine/engine_test.go|z2k-warpd/internal/transport/wg/memory_test.go|z2k-warpd/internal/transport/wg/bind_test.go) continue ;;
             docs/superpowers/specs/2026-09-26-unique-strategy-set-design.md|files/init.d/S51z2k-warp|files/ndm/90-z2k-tg-redirect.sh|files/ndm/91-z2k-http-tunnel-redirect.sh|files/ndm/93-z2k-warp.sh|files/ndm/94-z2k-ppe-deoffload.sh|files/ndm/95-z2k-scheduler-watchdog.sh|lib/utils.sh|tests/test_panel_auth.sh|tests/test_release_map.sh|tests/test_shell_review_fixes.sh|tests/test_warp_init_thin.sh|tests/test_warp_ndm_hook.sh) continue ;;
+            .github/workflows/sync-upstream.yml|UPSTREAM.json|UPSTREAM.md|tools/sync-upstream.sh) continue ;;
             UPDATES.json|UPDATES.json.sig)
                 # p-86.1 source sync is independent from the published OpenWrt
                 # integration manifest. Keep its bytes/signature pinned to the
