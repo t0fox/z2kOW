@@ -109,7 +109,7 @@ PY
 # Go source mutants run through an overlay: the checkout stays untouched and
 # each mutant exercises the real package tests in the repository CI module.
 go_overlay_mutant() {
-    desc="$1"; source_rel="$2"; from="$3"; to="$4"; package="$5"
+    desc="$1"; source_rel="$2"; from="$3"; to="$4"; package="$5"; module="${6:-z2k-warpd}"
     _mut_start; _id="$MUT_SEQ"; _dir="$WORK/go-overlay.$_id"
     (
         mkdir -p "$_dir"
@@ -134,7 +134,7 @@ PY
             printf 'stale\t%s (якорь не найден — мутант протух)\n' "$desc" > "$VERD/$_id"
             exit 0
         fi
-        if (cd "$ROOT/z2k-warpd" && GOWORK=off "$GO" test -overlay "$_dir/overlay.json" -count=1 "$package" >/dev/null 2>&1); then
+        if (cd "$ROOT/$module" && GOWORK=off "$GO" test -overlay "$_dir/overlay.json" -count=1 "$package" >/dev/null 2>&1); then
             printf 'fail\tgo-overlay: %s\n' "$desc" > "$VERD/$_id"
         else
             printf 'pass\tgo-overlay: %s\n' "$desc" > "$VERD/$_id"
@@ -238,6 +238,20 @@ go_overlay_mutant "WireGuard initiation omits disguise preamble" \
     '_ = preamble' \
     ./internal/transport/wg
 
+# A normal WireGuard data packet must not receive the handshake disguise.
+go_overlay_mutant "ordinary WireGuard data receives disguise preamble" \
+    z2k-warpd/internal/transport/wg/bind.go \
+    'if len(p) == 148 && p[0] == 1 {' \
+    'if len(p) >= 4 {' \
+    ./internal/transport/wg
+
+# A common strategy candidate must pass the entire pinned-IP matrix.
+go_overlay_mutant "multi-IP strategy candidate ignores a failed target" \
+    z2k-detect/internal/classify/classify.go \
+    'if ip == nil || !verifyPoisonTarget(ctx, ip, port, tr, opt, candidate, res) {' \
+    'if ip == nil || false {' \
+    ./internal/classify z2k-detect
+
 _drain
 
 printf '\n=== Shell mutants (z2k-warp.sh) ===\n'
@@ -338,6 +352,35 @@ PY3
     ) &
 }
 
+# OpenWrt WARP refresh uses a separate process-only procd hook. Mutate its
+# stop wait in isolation, then run the existing lifecycle fixture against that
+# copy so it proves replace cannot pass a still-live old PID.
+ow_warp_proc_mutant() {
+    desc="$1"; from="$2"; to="$3"
+    _mut_start; _id="$MUT_SEQ"; _dir="$WORK/ow-warp-proc.$_id"
+    (
+        mkdir -p "$_dir"
+        cp "$ROOT/platform/openwrt/warp-proc.sh" "$_dir/warp-proc.sh"
+        if ! grep -qF "$from" "$_dir/warp-proc.sh"; then
+            printf 'stale\t%s (anchor not found)\n' "$desc" > "$VERD/$_id"
+            exit 0
+        fi
+        python3 - "$_dir/warp-proc.sh" "$from" "$to" <<'PY'
+import sys
+path, old, new = sys.argv[1:]
+with open(path, encoding='utf-8') as f:
+    source = f.read()
+with open(path, 'w', encoding='utf-8') as f:
+    f.write(source.replace(old, new, 1))
+PY
+        if WARP_PROC_SOURCE="$_dir/warp-proc.sh" sh "$ROOT/tests/openwrt/test_ow_warp_lifecycle.sh" >/dev/null 2>&1; then
+            printf 'fail\tOpenWrt WARP process hook: %s\n' "$desc" > "$VERD/$_id"
+        else
+            printf 'pass\tOpenWrt WARP process hook: %s\n' "$desc" > "$VERD/$_id"
+        fi
+    ) &
+}
+
 # A user without WARP installed must not have the engine fetched during a base install.
 installer_mutant "refresh path installs an unrequested WARP engine" \
     lib/install.sh \
@@ -384,6 +427,10 @@ installer_mutant "scheduler no longer dispatches WARP selfheal" \
     files/z2k-scheduler.sh \
     '    z2k_scheduler_warp_selfheal_tick "${ZAPRET2_DIR}/z2k-warp.sh" "$TMP_STATE" "$now_epoch"' \
     '    : # WARP selfheal dispatch removed'
+
+ow_warp_proc_mutant "binary replacement starts before old WARP daemon exits" \
+    'warp_wait_pids_stopped "${WARP_PROC_STOP_WAIT:-5}" "$@" || {' \
+    'warp_wait_pids_stopped 0 || {'
 
 # ---------------------------------------------------------------------------
 # Init-script mutants — files/init.d/S51z2k-warp against tests/test_warp_init_thin.sh

@@ -133,8 +133,8 @@ SRC_COMMIT="abc123" PKG_VERSION="0.1.0" PKG_RELEASE="1" ADAPTER_API="1"
 SEED_TAG="p-2" SEED_REF="p-2" VERIFIED_REMOTE="false" MANIFEST_CURRENT="p-2"
 CI_SNAPSHOT="true" PRODUCTION_RELEASE="false" VERIFIED_SDK="true"
 RUNTIME_TAG="v9.9-test" RUNTIME_URL="https://example.com/rt.tar.gz" RUNTIME_SHA256="TESTHASH"
-UPSTREAM_PAYLOAD_SHA="53cd74466094c60219b875073efbee50d058ddf3"
-WARP_RUNTIME_SOURCE_SHA="0cc9207fde8aa60ba0b170a918f66643af7e364b"
+UPSTREAM_PAYLOAD_SHA="950928ee615431f3442640b08a9a1cb877641900"
+WARP_RUNTIME_SOURCE_SHA="2c1dc58d961e51d1845039c6741e4629f4e77be6"
 OUT="$T/provenance.json"
 export OW_RELEASE SDK_URL SDK_SHA256 SDK_DIR TARGET ARCH SRC_COMMIT
 export PKG_VERSION PKG_RELEASE ADAPTER_API SEED_TAG SEED_REF
@@ -160,8 +160,8 @@ if miss:
 assert d['seed_ref_verified_remote'] is False, 'bool, not string'
 assert d['ci_snapshot'] is True and d['production_release'] is False
 assert d['verified_sdk'] is True
-assert d['upstream_payload_sha'] == '53cd74466094c60219b875073efbee50d058ddf3'
-assert d['warp_runtime_source_sha'] == '0cc9207fde8aa60ba0b170a918f66643af7e364b'
+assert d['upstream_payload_sha'] == '950928ee615431f3442640b08a9a1cb877641900'
+assert d['warp_runtime_source_sha'] == '2c1dc58d961e51d1845039c6741e4629f4e77be6'
 assert d['adapter_api'] == '1' and d['arch'] == 'aarch64_cortex-a53'
 print('provenance shape ok')
 PYEOF

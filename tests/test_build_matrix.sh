@@ -117,15 +117,18 @@ else
     no "CI читает build-matrix.tsv" "ссылка на файл" "у CI собственный список"
 fi
 
-# --- 6. Frozen Keenetic WARP blobs are checked against their signed source tag,
-# not rebuilt from the OpenWrt-adapted working tree ---------------------------
+# --- 6. Frozen Keenetic WARP blobs stay pinned while the OpenWrt runtime is
+# compiled from the p-85.16 repository source in the SDK package job ---------
 if grep -Fq 'git diff --exit-code r-85.12 -- z2k-warpd/builds' "$CI" \
    && grep -Fq 'sh scripts/openwrt/verify-upstream-tags.sh' "$CI" \
-   && grep -Fq '[ "$mod" = "z2k-warpd" ] && continue' "$CI"; then
-    ok "CI keeps upstream WARP blobs pinned to r-85.12 and skips the adapted-source rebuild"
+   && grep -Fq 'go test -tags openwrt -overlay openwrt-overlay/overlay.json ./...' "$ROOT/package/z2k-warp-runtime/Makefile" \
+   && grep -Fq 'go build -tags openwrt -overlay openwrt-overlay/overlay.json' "$ROOT/package/z2k-warp-runtime/Makefile" \
+   && grep -Fq 'main.version=p-85.16-openwrt' "$ROOT/package/z2k-warp-runtime/Makefile" \
+   && grep -Fq 'z2k-warp-runtime' "$CI"; then
+    ok "CI pins signed Keenetic WARP blobs to r-85.12 and builds OpenWrt p-85.16 source through the SDK package"
 else
-    no "CI keeps upstream WARP blobs pinned to r-85.12 and skips the adapted-source rebuild" \
-       "signed r-85.12 blob check plus z2k-warpd rebuild exclusion" "contract missing"
+    no "CI pins signed Keenetic WARP blobs and builds OpenWrt p-85.16 source through the SDK package" \
+       "r-85.12 blob guard plus repository-source test/build in the OpenWrt runtime package" "contract missing"
 fi
 
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"

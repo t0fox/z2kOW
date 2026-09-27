@@ -10,6 +10,7 @@
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-warp-lifecycle"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+WARP_PROC_SOURCE="${WARP_PROC_SOURCE:-$REPO/platform/openwrt/warp-proc.sh}"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-warplc.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 
@@ -25,7 +26,7 @@ chmod() {
 for _f in paths.sh env.sh warp.sh tg.sh firewall.sh schedule.sh uninstall.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
-ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
+ln -s "$WARP_PROC_SOURCE" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
 ln -s "$REPO/platform/openwrt/warp-domain.sh" "$T/root/platform/openwrt/warp-domain.sh" 2>/dev/null
 ln -s "$REPO/platform/openwrt/warp-check.sh" "$T/root/platform/openwrt/warp-check.sh" 2>/dev/null
 
@@ -806,6 +807,56 @@ Z2K_PLATFORM=openwrt; export Z2K_PLATFORM
 assert_eq "W27: owner openwrt" "$T/root/platform/openwrt/warp-proc.sh" "$(au_service_for_binary z2k-warpd)"
 unset Z2K_PLATFORM
 assert_eq "W27: owner keenetic" "/opt/etc/init.d/S51z2k-warp" "$(au_service_for_binary z2k-warpd)"
+
+# The process-only updater hook must not return to the atomic replacement until
+# each PID it signalled has actually exited.  Execute the exact production stop
+# function with temp-state callbacks so delayed shutdown and timeout are both
+# deterministic and bounded.
+_warp_proc_stop_fn=$(awk '/^warp_proc_stop\(\)/,/^}/' "$WARP_PROC_SOURCE")
+if [ -n "$_warp_proc_stop_fn" ]; then
+    eval "$_warp_proc_stop_fn"
+    _t_ok
+else
+    _t_bad "W27c: production stop helper is extractable"
+fi
+if command -v warp_proc_stop >/dev/null 2>&1; then
+    : > "$T/replace-order.log"
+    WARP_PROC_STOP_WAIT=5
+    _stop_polls=0
+    _stop_waits=0
+    _z2k_ow_warp_lock() { echo lock >> "$T/replace-order.log"; return 0; }
+    _z2k_ow_warp_unlock() { echo unlock >> "$T/replace-order.log"; }
+    warp_pbr_down() { echo pbr-down >> "$T/replace-order.log"; return 0; }
+    warp_pids() { echo 7777; }
+    _z2k_ow_warp_kill() { echo "term:$1" >> "$T/replace-order.log"; return 0; }
+    _z2k_ow_warp_pid_alive() {
+        _stop_polls=$((_stop_polls + 1))
+        echo "poll:$_stop_polls" >> "$T/replace-order.log"
+        [ "$_stop_polls" -lt 3 ]
+    }
+    _z2k_ow_warp_wait_tick() { _stop_waits=$((_stop_waits + 1)); echo wait >> "$T/replace-order.log"; }
+    _rc=0; warp_proc_stop || _rc=$?
+    [ "$_rc" = 0 ] && echo replace >> "$T/replace-order.log"
+    assert_eq "W27c: delayed daemon exit is awaited before replacement" 0 "$_rc"
+    _poll_line=$(grep -n '^poll:3$' "$T/replace-order.log" | cut -d: -f1)
+    _replace_line=$(grep -n '^replace$' "$T/replace-order.log" | cut -d: -f1)
+    [ -n "$_poll_line" ] && [ -n "$_replace_line" ] && [ "$_poll_line" -lt "$_replace_line" ] \
+        && _t_ok || _t_bad "W27c: replacement began before the original PID exited"
+    assert_eq "W27c: stop waited only for required polls" 2 "$_stop_waits"
+
+    : > "$T/replace-order.log"
+    _stop_polls=0
+    _stop_waits=0
+    _z2k_ow_warp_pid_alive() { _stop_polls=$((_stop_polls + 1)); echo "poll:$_stop_polls" >> "$T/replace-order.log"; return 0; }
+    WARP_PROC_STOP_WAIT=2
+    _rc=0; warp_proc_stop || _rc=$?
+    assert_eq "W27c: daemon that ignores TERM aborts replacement" 1 "$_rc"
+    assert_eq "W27c: timeout never reaches binary replacement" 0 "$(grep -c '^replace$' "$T/replace-order.log" 2>/dev/null || true)"
+    assert_eq "W27c: timeout remains bounded" 2 "$_stop_waits"
+    . "$REPO/platform/openwrt/warp.sh"
+else
+    _t_bad "W27c: production stop dispatch is callable"
+fi
 _w_inv "W27"
 
 # --- W28: updater НЕ ставит отсутствующий optional (настоящий шаг) ---

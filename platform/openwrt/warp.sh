@@ -169,6 +169,31 @@ warp_pids() {
 }
 warp_running() { [ -n "$(warp_pids)" ]; }
 
+# Process replacement must wait for every exact PID captured before TERM. A
+# signal request is asynchronous; returning early lets the updater rename the
+# binary while that process is still closing its TUN. Keep the wait bounded so
+# an unresponsive daemon fails the refresh instead of blocking the device.
+_z2k_ow_warp_pid_alive() { kill -0 "$1" 2>/dev/null; }
+_z2k_ow_warp_wait_tick() { sleep 1; }
+warp_wait_pids_stopped() {
+    local _timeout="${1:-5}" _waited=0 _pid _alive
+    shift 2>/dev/null || :
+    case "$_timeout" in ''|*[!0-9]*) _timeout=5 ;; esac
+    while [ "$_waited" -le "$_timeout" ]; do
+        _alive=0
+        for _pid in "$@"; do
+            _z2k_ow_warp_pid_alive "$_pid" && _alive=1
+        done
+        [ "$_alive" = 0 ] && return 0
+        if [ "$_waited" -ge "$_timeout" ]; then
+            _wlog "binary refresh: WARP daemon did not exit within ${_timeout}s"
+            return 1
+        fi
+        _z2k_ow_warp_wait_tick || return 1
+        _waited=$((_waited + 1))
+    done
+}
+
 # Собрать argv и выполнить $1 как команду (ровно одно слово-колбэк).
 warp_with_argv() {
     local _cb="$1"

@@ -60,6 +60,14 @@ func TestHandshakeSendsObfuscatedPreambleBeforeWireGuard(t *testing.T) {
 	if len(fb.sent) != 8 {
 		t.Fatalf("want one disguise, six junk packets and handshake; got %d datagrams", len(fb.sent))
 	}
+	if len(fb.sent[0]) < 4 || fb.sent[0][2] != 0x85 || fb.sent[0][3] != 0x80 {
+		t.Fatalf("first datagram is not DNS-like: %x", fb.sent[0])
+	}
+	for i, pkt := range fb.sent[1:7] {
+		if len(pkt) < 10 || len(pkt) > 50 {
+			t.Fatalf("junk datagram %d has unexpected size %d", i+1, len(pkt))
+		}
+	}
 	if got := fb.sent[7]; len(got) != 148 || got[0] != 1 || got[1] != 0x32 || got[2] != 0xfd || got[3] != 0x2c {
 		t.Fatalf("WireGuard handshake changed: %x", got[:4])
 	}

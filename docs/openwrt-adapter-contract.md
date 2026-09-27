@@ -118,11 +118,13 @@ repository QA/audit; они не подменяют OpenWrt-native runtime из
 
 Для аудита изменений upstream-доктрины используйте отдельный blob-bound
 ledger: `docs/UPSTREAM-SYNC.md` и
-`scripts/openwrt/audit-upstream-docs.sh <base-ref> <target-ref>`. В аудите
-поведенческие контракты сверены с `p-85.16` относительно зафиксированной
-границы `p-85.13`; это сравнение не меняет pinned OpenWrt payload, WARP
-runtime или release snapshot. Перед следующим sync выбираются актуальные
-refs, а изменённые нормативные документы получают классификацию в TSV.
+`scripts/openwrt/audit-upstream-docs.sh <base-ref> <target-ref>`. Текущая
+upstream source-sync граница — p-86.1 в `tests/openwrt/BASELINE`; общий WARP
+runtime, который собирает OpenWrt, основан на p-85.16 и отдельно закреплён в
+`tests/openwrt/WARP_RUNTIME_BASELINE`. Опубликованный манифест/подпись имеют
+собственный неизменяемый ref в `tests/openwrt/MANIFEST_BASELINE`. Эти refs не
+подменяют друг друга. Для перехода p-85.13 → p-86.1 изменённые нормативные
+документы получили blob-bound классификацию в TSV.
 
 ## Известные щели (не чиним на этом этапе, зафиксированы осознанно)
 

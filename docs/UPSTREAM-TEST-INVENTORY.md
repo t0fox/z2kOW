@@ -1,6 +1,6 @@
 # Upstream QA and suite inventory
 
-This records how the p-86 upstream-doctrine audit maps onto the repository test
+This records how the p-86.1 upstream-doctrine audit maps onto the repository test
 architecture. Counts compare the audit baseline `f19a2087e2f238f912b08b556d744dbdbd3f6dcd`
 with the current worktree; the final GitHub Actions result is authoritative for
 the committed candidate.
@@ -9,27 +9,29 @@ the committed candidate.
 
 | Inventory | Baseline | Current | Change |
 |---|---:|---:|---:|
-| Root shell suites (`tests/test_*.sh`) | 225 | 223 | -2 |
+| Root shell suites (`tests/test_*.sh`) | 225 | 224 | -1 |
 | OpenWrt shell suites (`tests/openwrt/test_ow_*.sh`) | 104 | 105 | +1 |
-| Go `*_test.go` files | 110 | 102 | -8 |
-| Counted shell and Go test files | 439 | 430 | -9 |
-| Go `Test*` functions | 506 | 511 | +5 |
+| Go `*_test.go` files | 110 | 103 | -7 |
+| Counted shell and Go test files | 439 | 432 | -7 |
+| Go `Test*` functions | 506 | 519 | +13 |
 | Lua test/support files | 11 | 11 | 0 |
 | JavaScript harness files | 3 | 3 | 0 |
 | BDD feature files | 1 | 1 | 0 |
 
 The shell/Go file counts exclude Lua, JavaScript, and BDD files, shown
-separately. The nine-file reduction comes from deleting two same-harness WARP
+separately. The seven-file reduction comes from deleting two same-harness WARP
 files, moving the external-backend test into its owning engine suite, and
-consolidating domainroute and edgepick tests. The OpenWrt sync fixture adds one
-shell suite. The five added Go test functions cover two health regressions, two
-handshake behaviors, and the vendored WireGuard drift contract.
+consolidating domainroute and edgepick tests; the unique-strategy workflow adds
+one root shell suite. The OpenWrt sync fixture adds one shell suite. The 13 Go
+test functions above baseline include the health/readiness and handshake cases,
+vendored WireGuard drift guard, multi-IP detector tests, and common-target flag
+tests.
 
 The full file-level inventory is [`docs/UPSTREAM-TEST-SUITES.tsv`](UPSTREAM-TEST-SUITES.tsv):
-457 rows, comprising 445 current suites/harnesses and 12 baseline-only files
+459 rows, comprising 447 current suites/harnesses and 12 baseline-only files
 that were merged. Its columns are runtime, subject, harness, named
-properties/cases, overlap assessment and KEEP/MERGE action. The 445 current
-entries break down to 328 POSIX shell suites, 102 Go test files, 10 Lua suites,
+properties/cases, overlap assessment and KEEP/MERGE action. The 447 current
+entries break down to 329 POSIX shell suites, 103 Go test files, 10 Lua suites,
 one Lua support harness, three JavaScript harnesses and one BDD feature.
 `properties_or_cases` records assertion labels where available and otherwise
 points to suite comments/fixtures; it indexes executable tests rather than
@@ -147,6 +149,21 @@ Targeted local shell verification after these edits:
 | `test_scheduler_supervisor.sh` | 7 passed, 0 failed |
 | `test_panel_uninstall.sh` | 27 passed, 0 failed |
 | `test_install_completeness.sh` | 4 passed, 0 failed |
+| `tests/test_shell_review_fixes.sh` | 15 passed, 0 failed |
+| `tests/test_unique_strategy_set.sh` | 73 passed, 0 failed |
+| `tests/test_strategy_pick_modes.sh` | 20 passed, 0 failed |
+| `tests/test_custom_strategies.sh` | 39 passed, 0 failed |
+| `tests/test_panel_auth.sh` | 82 passed, 0 failed (WSL) |
+| `tests/test_webpanel_api_contract.sh` | 185 passed, 0 failed |
+| `tests/test_panel_frontend_contract.sh` | 220 passed, 0 failed |
+| `tests/openwrt/test_ow_warp_lifecycle.sh` | 386 passed, 0 failed |
+| `tests/openwrt/test_ow_warp_functional.sh` | 84 passed, 0 failed |
+| `tests/openwrt/test_ow_warp_parity.sh` | 35 passed, 0 failed |
+| `tests/test_warp_install_hooks.sh` | 35 passed, 0 failed |
+| `tests/openwrt/test_ow_warp_static.sh` | 94 passed, 0 failed |
+| `tests/openwrt/test_ow_package.sh` | 77 passed, 0 failed |
+| `tests/openwrt/test_ow_upstream_docs_sync.sh` | 9 passed, 0 failed |
+| `tests/openwrt/test_ow_upstream_diff.sh` | 1 passed, 0 failed |
 | `test_http_classifier.sh` | skipped locally because Lua is unavailable; CI is authoritative |
 
 No local Go tests or package/release builds were run. Those results must come
@@ -175,7 +192,7 @@ state-machine lifecycle, and sandbox.
 
 ## Mutation map
 
-CI mutation coverage grows from 18 to 32 mutants. Each mutant is paired with
+CI mutation coverage grows from 18 to 35 mutants. Each mutant is paired with
 the behavioral suite that must fail; package and release builds remain in the
 repository workflow only.
 
@@ -183,10 +200,12 @@ repository workflow only.
 |---|---:|---|
 | RuTracker proxy record parsing, demotion, selection, and body proof | 8 | `rt-proxy` Go tests |
 | Keenetic WARP fail-open/readiness/key/mark/selfheal/install and migration propagation | 10 | `tests/test_warp_script.sh` |
-| WARP refresh gating, rollback propagation, uninstall recovery, stale downloads, scheduler cadence and dispatch wiring | 8 | `tests/test_warp_install_hooks.sh`, `tests/test_stale_binaries_cleanup.sh` |
+| WARP refresh gating, rollback propagation, uninstall recovery, stale downloads, scheduler cadence, dispatch wiring and bounded process replacement | 9 | `tests/test_warp_install_hooks.sh`, `tests/test_stale_binaries_cleanup.sh`, `tests/openwrt/test_ow_warp_lifecycle.sh` |
 | Keenetic WARP init missing-engine, duplicate-start, MIPS guard | 3 | `tests/test_warp_init_thin.sh` |
 | p-85.16 one-success readiness and periodic probe hidden by RX growth | 2 | `z2k-warpd/internal/health` Go tests via source overlay |
-| p-85.16 handshake without obfuscation preamble | 1 | `z2k-warpd/internal/transport/wg` Go tests via source overlay |
+| p-85.16 handshake/data preamble boundaries | 2 | `z2k-warpd/internal/transport/wg` Go tests via source overlay |
+| p-86 common strategy candidate must pass every pinned IP | 1 | `z2k-detect/internal/classify` Go tests via source overlay |
+| OpenWrt WARP replacement skips bounded process wait | 1 | `tests/openwrt/test_ow_warp_lifecycle.sh` |
 
 The mutation runner treats a missing source anchor and a missing verdict as a
 failure. The new Go mutants use `go test -overlay` in CI so they exercise the

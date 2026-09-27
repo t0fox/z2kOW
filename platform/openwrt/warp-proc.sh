@@ -23,19 +23,30 @@ Z2K_WARP_SOURCE_ONLY=1; export Z2K_WARP_SOURCE_ONLY
 # shellcheck disable=SC1090,SC1091
 . "$Z2K_ROOT/platform/openwrt/warp.sh" || exit 1
 
+warp_proc_stop() {
+    # Lock contention and an unresponsive daemon both fail closed: AU will not
+    # replace the binary when this OpenWrt process hook returns non-zero.
+    _z2k_ow_warp_lock "${WARP_LOCK_WAIT:-30}" 2>/dev/null || {
+        echo "warp-proc.sh: mutation lock busy, stop отложен" >&2; return 1; }
+    warp_pbr_down 2>/dev/null || true
+    # Capture before TERM so the readiness test tracks the exact old process,
+    # not a later procd respawn. The delay is bounded inside this helper.
+    # shellcheck disable=SC2046
+    set -- $(warp_pids)
+    for _p in "$@"; do _z2k_ow_warp_kill "$_p"; done
+    if [ "$#" -gt 0 ] && ! warp_wait_pids_stopped "${WARP_PROC_STOP_WAIT:-5}" "$@"; then
+        _z2k_ow_warp_unlock
+        echo "warp-proc.sh: старый z2k-warpd не завершился; бинарь не заменён" >&2
+        return 1
+    fi
+    _z2k_ow_warp_unlock
+    return 0
+}
+
 case "${1:-}" in
     stop)
-        # Под mutation lock (defect 8): updater против cron — сериализованы.
-        # Lock-fail -> exit 1 (updater rc хуков игнорирует и продолжает
-        # replace; PBR доведёт start/cron — fail-open сохранён).
-        _z2k_ow_warp_lock "${WARP_LOCK_WAIT:-30}" 2>/dev/null || {
-            echo "warp-proc.sh: mutation lock busy, stop отложен" >&2; exit 1; }
-        warp_pbr_down 2>/dev/null || true
-        if warp_running; then
-            for _p in $(warp_pids); do _z2k_ow_warp_kill "$_p"; done
-        fi
-        _z2k_ow_warp_unlock
-        exit 0
+        warp_proc_stop
+        exit $?
         ;;
     start)
         # Lock-fail -> exit 1 (не путать с not-ready rc 0: здесь даже не

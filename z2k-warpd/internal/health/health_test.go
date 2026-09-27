@@ -302,3 +302,20 @@ func TestGrowingRxCannotHideDeadClientTransit(t *testing.T) {
 		t.Fatalf("growing RX hid failed transit: verdict=%v calls=%d", v, calls)
 	}
 }
+
+func TestSuccessfulPeriodicProofKeepsTunnelHealthy(t *testing.T) {
+	calls := 0
+	m := &Monitor{Probe: func(context.Context, string) error { calls++; return nil },
+		Doubt: 30 * time.Second, Fails: 2, ProveEvery: 3 * time.Second,
+		ConfirmSuccesses: 2, CheckEvery: 20 * time.Second}
+	t0 := time.Unix(1000, 0)
+	if v := m.Assess(context.Background(), conn(10, 10), t0, "z2ktun0"); v != Doubtful || m.Proven() {
+		t.Fatalf("first proof must stay unready: verdict=%v proven=%v", v, m.Proven())
+	}
+	if v := m.Assess(context.Background(), conn(20, 20), t0.Add(3*time.Second), "z2ktun0"); v != Alive || !m.Proven() {
+		t.Fatalf("second spaced proof must establish readiness: verdict=%v proven=%v", v, m.Proven())
+	}
+	if v := m.Assess(context.Background(), conn(30, 30), t0.Add(23*time.Second), "z2ktun0"); v != Alive || !m.Proven() || calls != 3 {
+		t.Fatalf("successful periodic proof must keep transit ready: verdict=%v proven=%v calls=%d", v, m.Proven(), calls)
+	}
+}

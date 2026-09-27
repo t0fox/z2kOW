@@ -60,6 +60,39 @@ run() {
     Z2K_AUTH="$AUTH" Z2K_CMD="$*" sh -c '. "$Z2K_AUTH" 2>/dev/null; eval "$Z2K_CMD"' 2>&1
 }
 
+ttl_run() {
+    Z2K_PANEL_CONFIG="$TMP/config" \
+    Z2K_PANEL_SESS_TTL_FILE="$TMP/session-ttl" \
+    Z2K_AUTH="$AUTH" sh -c '. "$Z2K_AUTH" 2>/dev/null; panel_session_ttl_current' 2>&1
+}
+
+# --- Срок сессии: только разрешённые значения, постоянная настройка ----------
+[ "$(ttl_run)" = "86400" ] && ok "срок веб-сессии по умолчанию — 24 часа" \
+                            || no "срок по умолчанию" 86400 "$(ttl_run)"
+printf '604800\n' > "$TMP/session-ttl"
+[ "$(ttl_run)" = "604800" ] && ok "срок веб-сессии читается из постоянной настройки" \
+                               || no "чтение срока" 604800 "$(ttl_run)"
+printf '999999999\n' > "$TMP/session-ttl"
+[ "$(ttl_run)" = "86400" ] && ok "недопустимый сохранённый срок безопасно сбрасывается к умолчанию" \
+                            || no "недопустимый срок" 86400 "$(ttl_run)"
+_state_ttl=$(Z2K_ETC="$TMP/state" Z2K_AUTH="$AUTH" sh -c \
+    '. "$Z2K_AUTH" 2>/dev/null; panel_session_ttl_set 43200 && panel_session_ttl_current')
+[ "$_state_ttl" = 43200 ] && [ "$(cat "$TMP/state/webpanel/session-ttl" 2>/dev/null)" = 43200 ] \
+    && ok "OpenWrt сохраняет срок в persistent state directory" \
+    || no "путь состояния OpenWrt" 43200 "$_state_ttl"
+for ttl in 7200 43200 86400 604800; do
+    _saved=$(Z2K_PANEL_CONFIG="$TMP/config" Z2K_PANEL_SESS_TTL_FILE="$TMP/session-ttl" \
+        Z2K_AUTH="$AUTH" TTL_VALUE="$ttl" sh -c '. "$Z2K_AUTH" 2>/dev/null; panel_session_ttl_set "$TTL_VALUE" && panel_session_ttl_current')
+    [ "$_saved" = "$ttl" ] && ok "разрешённый срок сохраняется: ${ttl}s" \
+                            || no "сохранение срока ${ttl}s" "$ttl" "$_saved"
+done
+_before_ttl=$(cat "$TMP/session-ttl")
+_bad_ttl=$(Z2K_PANEL_CONFIG="$TMP/config" Z2K_PANEL_SESS_TTL_FILE="$TMP/session-ttl" \
+    Z2K_AUTH="$AUTH" sh -c '. "$Z2K_AUTH" 2>/dev/null; panel_session_ttl_set 600')
+[ "$?" -ne 0 ] && [ "$(cat "$TMP/session-ttl")" = "$_before_ttl" ] \
+    && ok "произвольный срок отвергается без изменения настройки" \
+    || no "проверка срока" "отказ и прежнее значение" "$_bad_ttl / $(cat "$TMP/session-ttl")"
+
 # --- 1. Выключено по умолчанию -------------------------------------------------
 : > "$TMP/config"
 [ "$(run 'panel_auth_enabled && echo on || echo off')" = "off" ] \
@@ -88,9 +121,23 @@ case "$SID" in
 esac
 [ "${#SID}" -ge 16 ] && ok "токен не короче 16 символов" \
                      || no "длина токена" ">=16" "${#SID}"
+[ "$(sed -n '4p' "$TMP/sess/$SID")" = "43200" ] \
+    && ok "сессия запоминает выбранный срок входа" \
+    || no "срок записан в сессию" 43200 "$(sed -n '4p' "$TMP/sess/$SID")"
 
 COOKIE="z2kpsid=$SID" run 'panel_session_valid && echo yes || echo no' | grep -qx yes \
     && ok "свежая сессия принимается" || no "свежая сессия" "yes" "no"
+
+# Changing the selected TTL affects only later logins. Existing sessions use
+# their fourth field; pre-change three-line sessions retain the old two hours.
+SID_LONG=$(TTL=604800 run 'panel_session_create admin')
+printf '%s\nadmin\n?\n604800\n' "$(( $(date +%s) - 8000 ))" > "$TMP/sess/$SID_LONG"
+COOKIE="z2kpsid=$SID_LONG" TTL=7200 run 'panel_session_valid && echo yes || echo no' | grep -qx yes \
+    && ok "уже открытая сессия сохраняет TTL входа" || no "TTL открытой сессии" yes no
+SID_LEGACY=$(run 'panel_session_create admin')
+printf '%s\nadmin\n?\n' "$(( $(date +%s) - 8000 ))" > "$TMP/sess/$SID_LEGACY"
+COOKIE="z2kpsid=$SID_LEGACY" run 'panel_session_valid && echo yes || echo no' | grep -qx no \
+    && ok "старый формат сессии сохраняет прежний лимит 2 часа" || no "legacy TTL" no yes
 
 # Чужой/выдуманный токен — мимо.
 COOKIE="z2kpsid=deadbeefdeadbeefdeadbeef" run 'panel_session_valid && echo yes || echo no' | grep -qx no \
@@ -132,7 +179,7 @@ for p in /auth/challenge /auth/login /auth/state; do
         *) no "доступ к $p" "пропущен" "закрыт" ;;
     esac
 done
-for p in /status /service/restart /uninstall; do
+for p in /auth/session-ttl /status /service/restart /uninstall; do
     out=$(PINFO="$p" run 'panel_auth_gate; echo PASSED')
     case "$out" in
         *PASSED*) no "закрыт без входа: $p" "401" "пропущен" ;;

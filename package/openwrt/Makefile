@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=76
+PKG_RELEASE:=77
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -149,6 +149,9 @@ PKG_RELEASE:=76
 # nft PairSet backend and compiling the runtime from its own pinned source.
 # RELEASE 73: retire the legacy discovery init only with exact package-owned
 # markers, preserving unknown files and running migration after seed extraction.
+# RELEASE 77 (p-85.16 WARP runtime / p-86.1 upstream baseline): compile the
+# handshake disguise, two-proof readiness, transit rechecks and bounded daemon
+# replacement from repository source through the OpenWrt SDK CI package path.
 # PKGARCH:=all: ADAPTER-пакет везёт только shell/data (seed — lib/lua/fake/
 # lists/strats/webpanel; z2k-owned TG/RT/WARP/manual z2k-detect едут updater binary
 # flow, НЕ в APK — иначе каждый апстрим-бинер требовал бы пересборки, §52).
@@ -182,7 +185,7 @@ define Package/z2k-adapter
   # без constraint'а. Нижняя граница = текущий runtime APK; консистентность
   # с package/z2k-runtime/Makefile сторожит тест. Lockstep: snapshot бампит все.
   DEPENDS:=+kmod-nft-queue +kmod-tun +kmod-nfnetlink-log +conntrack +openssl-util +z2k-zapret2-runtime +z2k-warp-runtime
-  EXTRA_DEPENDS:=z2k-zapret2-runtime (>=1.0.5.1-r4) z2k-warp-runtime (>=85.12.0-r1)
+  EXTRA_DEPENDS:=z2k-zapret2-runtime (>=1.0.5.1-r4) z2k-warp-runtime (>=85.16.0-r1)
 endef
 
 define Package/z2k-adapter/description
@@ -207,7 +210,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r76)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r77)
 endef
 
 define Package/z2k-webpanel/description
