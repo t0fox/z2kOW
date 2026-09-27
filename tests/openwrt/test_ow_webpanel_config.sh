@@ -9,8 +9,9 @@
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-webpanel-config"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+PINIT="$REPO/package/openwrt/files/etc/init.d/z2k-webpanel"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wcfg.XXXXXX")" || exit 1
-trap 'kill ${_srvpid:-} 2>/dev/null; rm -rf "$T"' EXIT INT TERM
+trap 'for _p in ${_srvpid:-} ${_panel_pid:-} ${_foreign_pid:-}; do [ -n "$_p" ] && kill "$_p" 2>/dev/null; done; rm -rf "$T"' EXIT INT TERM
 
 mkdir -p "$T/etc/z2k/webpanel" "$T/tmp/z2k/runtime" "$T/root/platform/openwrt" "$T/root/www" "$T/bin"
 export PATH="$T/bin:$PATH"
@@ -110,7 +111,7 @@ _srv_stop() {
         _t_ok
     fi
 }
-trap 'kill ${_srvpid:-} 2>/dev/null; rm -rf "$T"' EXIT INT TERM
+trap 'for _p in ${_srvpid:-} ${_panel_pid:-} ${_foreign_pid:-}; do [ -n "$_p" ] && kill "$_p" 2>/dev/null; done; rm -rf "$T"' EXIT INT TERM
 if ! _srv_start "$T/live.conf" 18080; then
     _t_bad "live lighttpd не встал (лог: $(tail -5 "$T/httplog/error.log" 2>/dev/null | tr '\n' '|'))"
 else
@@ -156,4 +157,116 @@ else
     _srv_stop
 fi
 _srvpid=""
+
+# --- LuCI ownership + address-aware port ownership (real kernel sockets) ---
+# Start actual lighttpd listeners on high test ports. A foreign listener on a
+# different specific IPv4 may coexist with the panel; same-address and
+# wildcard listeners must make the production start_service fail before procd.
+mkdir -p "$T/srv/www" "$T/httplog"
+printf 'Z2K-PANEL-LISTENER\n' > "$T/root/www/index.html"
+printf 'FOREIGN-LISTENER\n' > "$T/srv/www/index.html"
+sed -i "s|/tmp/z2k/logs/z2k-webpanel-error.log|$T/httplog/panel-error.log|" "$T/tpl.conf"
+sed -i "s|/var/run/z2k-webpanel.pid|$T/httplog/panel.pid|" "$T/tpl.conf"
+WP_LOG_DIR="$T/httplog"
+WP_PIDFILE="$T/httplog/panel.pid"
+_make_listener_conf() {
+    _bind="$1" _port="$2" _name="$3"
+    sed -e "s|^server.bind .*|server.bind = \"$_bind\"|" \
+        -e "s|^server.port .*|server.port = $_port|" \
+        -e "s|^server.errorlog .*|server.errorlog = \"$T/httplog/$_name-error.log\"|" \
+        -e "s|^server.pid-file .*|server.pid-file = \"$T/httplog/$_name.pid\"|" \
+        -e "s|^server.document-root .*|server.document-root = \"$T/srv/www\"|" \
+        "$_out" > "$T/$_name.conf"
+}
+_wait_marker() {
+    _addr="$1" _port="$2" _marker="$3" _try=0
+    while [ "$_try" -lt 5 ]; do
+        _code="$(curl -sS --noproxy '*' -o "$T/probe.body" -w '%{http_code}' \
+            --max-time 3 "http://$_addr:$_port/" 2>/dev/null)" || _code=""
+        if [ "$_code" = "200" ] && grep -qF "$_marker" "$T/probe.body"; then return 0; fi
+        sleep 1
+        _try=$((_try + 1))
+    done
+    return 1
+}
+_make_listener_conf 127.0.0.2 18082 foreign-split
+lighttpd -D -f "$T/foreign-split.conf" > "$T/httplog/foreign-split.out" 2>&1 &
+_foreign_pid=$!
+if _wait_marker 127.0.0.2 18082 FOREIGN-LISTENER; then
+    _foreign_sum="$(cksum "$T/foreign-split.conf" | awk '{print $1 ":" $2}')"
+    printf '127.0.0.1\n' > "$WP_SETTINGS_DIR/bind"
+    printf '18082\n' > "$WP_SETTINGS_DIR/port"
+    . "$PINIT" 2>/dev/null || _t_bad "init source for port lifecycle"
+    procd_open_instance() { _procd_open=$((_procd_open + 1)); }
+    procd_set_param() {
+        if [ "$1" = command ]; then _panel_cfg="$5"; fi
+        return 0
+    }
+    procd_close_instance() { return 0; }
+    _procd_open=0 _panel_cfg=""
+    start_service > "$T/split-start.out" 2>&1
+    _start_rc=$?
+    if [ "$_start_rc" = 0 ] && [ "$_procd_open" = 1 ] && [ -n "$_panel_cfg" ]; then _t_ok
+    else _t_bad "different-IPv4 listener rejected by production start_service: $(cat "$T/split-start.out")"; fi
+    if [ "$_start_rc" = 0 ] && [ -n "$_panel_cfg" ]; then
+        lighttpd -D -f "$_panel_cfg" > "$T/httplog/panel-split.out" 2>&1 &
+        _panel_pid=$!
+        _srvpid=$_panel_pid
+        if _wait_marker 127.0.0.1 18082 Z2K-PANEL-LISTENER; then _t_ok
+        else _t_bad "panel failed to bind same port on a distinct IPv4: $(cat "$T/httplog/panel-split.out")"; fi
+        if _wait_marker 127.0.0.2 18082 FOREIGN-LISTENER && kill -0 "$_foreign_pid" 2>/dev/null; then _t_ok
+        else _t_bad "foreign listener changed when panel used same numeric port"; fi
+        kill "$_panel_pid" 2>/dev/null
+        wait "$_panel_pid" 2>/dev/null
+        _panel_pid="" _srvpid=""
+        if _wait_marker 127.0.0.2 18082 FOREIGN-LISTENER \
+            && [ "$_foreign_sum" = "$(cksum "$T/foreign-split.conf" | awk '{print $1 ":" $2}')" ]; then _t_ok
+        else _t_bad "panel stop changed foreign listener or config"; fi
+    fi
+    kill "$_foreign_pid" 2>/dev/null
+    wait "$_foreign_pid" 2>/dev/null
+    _foreign_pid=""
+else
+    _t_bad "could not start foreign listener on 127.0.0.2:18082"
+    kill "$_foreign_pid" 2>/dev/null
+    wait "$_foreign_pid" 2>/dev/null
+    _foreign_pid=""
+fi
+
+# Same-address and IPv4 wildcard conflicts fail before procd without touching
+# the real foreign process or its configuration.
+_assert_foreign_conflict() {
+    _foreign_bind="$1" _panel_bind="$2" _port="$3" _name="$4" _probe="$5"
+    _make_listener_conf "$_foreign_bind" "$_port" "$_name"
+    lighttpd -D -f "$T/$_name.conf" > "$T/httplog/$_name.out" 2>&1 &
+    _foreign_pid=$!
+    if ! _wait_marker "$_probe" "$_port" FOREIGN-LISTENER; then
+        _t_bad "$_name foreign listener did not start"
+        kill "$_foreign_pid" 2>/dev/null
+        wait "$_foreign_pid" 2>/dev/null
+        _foreign_pid=""
+        return
+    fi
+    _foreign_sum="$(cksum "$T/$_name.conf" | awk '{print $1 ":" $2}')"
+    printf '%s\n' "$_panel_bind" > "$WP_SETTINGS_DIR/bind"
+    printf '%s\n' "$_port" > "$WP_SETTINGS_DIR/port"
+    : > "$T/procd.log"
+    _procd_open=0 _panel_cfg=""
+    start_service > "$T/$_name-start.out" 2>&1
+    _start_rc=$?
+    if [ "$_start_rc" != 0 ] && grep -q "порт $_port занят чужим процессом" "$T/$_name-start.out"; then _t_ok
+    else _t_bad "$_name conflict did not fail loudly: $(cat "$T/$_name-start.out")"; fi
+    if [ "$_procd_open" = 0 ] && [ -z "$_panel_cfg" ]; then _t_ok
+    else _t_bad "$_name conflict reached procd"; fi
+    if kill -0 "$_foreign_pid" 2>/dev/null \
+        && _wait_marker "$_probe" "$_port" FOREIGN-LISTENER \
+        && [ "$_foreign_sum" = "$(cksum "$T/$_name.conf" | awk '{print $1 ":" $2}')" ]; then _t_ok
+    else _t_bad "$_name conflict changed foreign listener or config"; fi
+    kill "$_foreign_pid" 2>/dev/null
+    wait "$_foreign_pid" 2>/dev/null
+    _foreign_pid=""
+}
+_assert_foreign_conflict 127.0.0.1 127.0.0.1 18083 foreign-exact 127.0.0.1
+_assert_foreign_conflict 0.0.0.0 127.0.0.1 18084 foreign-wildcard 127.0.0.1
+
 _t_done

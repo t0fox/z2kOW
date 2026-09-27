@@ -129,12 +129,22 @@ Dormant assets on disk ≠ panel enabled (no updater special-casing).
   `/tmp/z2k/runtime/webpanel/lighttpd.conf` from template + settings,
   validates (`lighttpd -tt`), opens instance `lighttpd -D -f`, bounded
   respawn (no shell supervisor). Never touches stock lighttpd/service.
+- LuCI/uhttpd is independent: do not edit /etc/config/uhttpd, restart its
+  service, change its firewall access or take ownership of /www/LuCI CGI.
+- Default bind is LAN_IP:8088. Collision checks compare the requested local
+  bind address and wildcard overlap; a listener on another specific IPv4 may
+  share the numeric port when the kernel permits it.
 - Stopping core MUST NOT kill panel and vice versa (separate services).
 - Port conflict: foreign listener → FAIL LOUDLY (no kill, no reconfig).
-- Bind default: canonical LAN via `z2k_ow_lan` (no second detector);
-  one LAN IPv4 socket; IPv6 off unless configured; never 0.0.0.0/WAN auto.
+- Bind default: current LAN IPv4 from UCI `network.lan.ipaddr`, with CIDR
+  suffix removal and strict validation; IPv6 off unless configured; never
+  0.0.0.0/WAN auto.
 - Settings created only if absent; update preserves port/bind/hosts.
 - Template update → render + panel-only reload/restart; core PID unchanged.
+- WEB-LUCI-01 remains PARTIAL until router before/after snapshots identify
+  :80/:443 owners and repeat HTTP/HTTPS LuCI probes across start, restart,
+  update, stop and removal. An HTTP 403 means a listener answered; it is not
+  evidence of a closed port.
 
 ## 7. Updater integration (same step names)
 
