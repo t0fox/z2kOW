@@ -186,14 +186,15 @@ for key in man['install_map'].keys():
     owmap[key] = dests
     kept += 1
 
-# OpenWrt owns a tiny platform seam in the updater-delivered panel. It is
-# intentionally absent from the common upstream manifest because Keenetic
-# does not ship this file. Leaving it out here is unsafe: a package upgrade
-# can update actions.sh while the updater-owned platform.sh remains stale.
-# Keep this list explicit and small; it is not a second manifest or a seed
-# extraction shortcut. The normal install_map/files_sha256 verifier still
-# pins the exact tree bytes and the existing reinstall path delivers them.
-for key in ('webpanel/cgi/platform.sh',):
+# OpenWrt candidate manifests need explicit updater seams that are absent from
+# the pinned common snapshot. platform.sh is OpenWrt-only; branding.js is a
+# common UI module added after that snapshot. Leaving branding.js out lets an
+# update refresh index.html while the referenced loader stays missing on an
+# installed panel. Keep this list explicit and small; it is not a second
+# manifest or a seed extraction shortcut. The normal install_map/files_sha256
+# verifier still pins the exact tree bytes and the existing reinstall path
+# delivers them.
+for key in ('webpanel/cgi/platform.sh', 'webpanel/www/js/core/branding.js'):
     if key in owmap:
         continue
     dests = ow_dests(key)

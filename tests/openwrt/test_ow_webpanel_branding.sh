@@ -102,6 +102,35 @@ for _asset in wordmark.svg favicon.svg theme.css; do
         "$_stage/usr/lib/z2k/www/brand/openwrt/$_asset" \
         && _t_ok || _t_bad "upgrade refreshes installed $_asset bytes"
 done
+
+if sh "$REPO/scripts/openwrt/gen-openwrt-manifest.sh" \
+    --source-manifest "$REPO/UPDATES.json" --tree "$REPO" \
+    --ref branding-ci-test --api-min 1 --allow-dirty --refresh-stale-hashes \
+    --out "$_stage/openwrt-UPDATES.json" >"$_stage/manifest.log" 2>&1; then
+    if python3 - "$REPO" "$_stage/openwrt-UPDATES.json" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+manifest = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+source = "webpanel/www/js/core/branding.js"
+if manifest["install_map"].get(source) != ["/usr/lib/z2k/www/js/core/branding.js"]:
+    sys.exit(1)
+expected = hashlib.sha256((root / source).read_bytes()).hexdigest()
+if manifest["files_sha256"].get(source) != expected:
+    sys.exit(1)
+PY
+    then
+        _t_ok
+    else
+        _t_bad "candidate update snapshot delivers branding.js with exact source bytes"
+    fi
+else
+    _t_bad "OpenWrt candidate update snapshot generates"
+fi
+
 rm -rf "$_stage"
 
 _t_done
