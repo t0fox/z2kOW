@@ -10,6 +10,15 @@ on:
   # у workflow не было ручки. Релиз уехал юзерам без единого прогона CI и
   # валидировался вручную постфактум. workflow_dispatch — та самая ручка.
   workflow_dispatch:
+    inputs:
+      package_mode:
+        description: OpenWrt package version mode
+        required: true
+        type: choice
+        default: ci-snapshot
+        options:
+          - ci-snapshot
+          - router-update
 
 # GITHUB_TOKEN по умолчанию умеет писать в репозиторий. Ни одной джобе здесь
 # запись не нужна, а z2k-enhanced — это ветка, с которой роутеры тянут
@@ -1020,15 +1029,25 @@ jobs:
             --out "$RUNNER_TEMP/openwrt-UPDATES.json"
 
       # Вся сборка — каноническим скриптом (§4/§25 closure): логика НЕ
-      # дублируется в YAML. Snapshot маркируется в provenance, публикации нет.
+      # дублируется в YAML. Обычный CI собирает snapshot; ручной router-update
+      # собирает stable package version и сохраняет артефакт без публикации релиза.
       # OW_STRICT=1: любой SKIP в run.sh — FAIL (аудит, пункт 12). Z2K_RT_TARBALL
       # уже выставлен шагом Fetch выше — tarball-gated тесты идут динамически.
-      - name: Build packages (canonical builder, CI snapshot)
+      - name: Build packages (canonical builder)
         env:
           OW_STRICT: "1"
+          PACKAGE_MODE: ${{ inputs.package_mode || 'ci-snapshot' }}
         run: |
           set -eu -o pipefail
-          sh scripts/openwrt/build-release.sh --ci-snapshot \
+          if [ "$PACKAGE_MODE" = "router-update" ]; then
+            package_mode_args=()
+          elif [ "$PACKAGE_MODE" = "ci-snapshot" ]; then
+            package_mode_args=(--ci-snapshot)
+          else
+            echo "unknown package mode: $PACKAGE_MODE" >&2
+            exit 1
+          fi
+          sh scripts/openwrt/build-release.sh "${package_mode_args[@]}" \
             --sdk ~/openwrt-sdk-25.12.5-mediatek-filogic \
             --target mediatek/filogic --arch aarch64_cortex-a53 \
             --manifest "$RUNNER_TEMP/openwrt-UPDATES.json" \
@@ -1278,10 +1297,10 @@ jobs:
           printf '%s\n' "$_v" | grep -qx "z2k-warp-runtime-$_exp_wr" || { echo "WARP runtime не $_exp_wr (resolver не дотянул)" >&2; exit 1; }
           echo "upgrade одной операцией до версий фида: OK"
 
-      - name: Upload CI snapshot artifact
+      - name: Upload OpenWrt package artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: z2k-openwrt-CI-SNAPSHOT-${{ github.sha }}
+          name: z2k-openwrt-${{ inputs.package_mode || 'CI-SNAPSHOT' }}-${{ github.sha }}
           path: |
             ${{ runner.temp }}/dist/z2k-adapter-*.apk
             ${{ runner.temp }}/dist/z2k-webpanel-*.apk
