@@ -127,13 +127,6 @@ export function applyCapabilities(s) {
   if (caps.customd === false) hide('[data-key="customd"]');
   if (caps.tcp16 === false) hide("#tcp16-card");
   if (caps.uninstall === false) hide("#uninstall-card");
-  // Вкладка браузера не должна представляться Keenetic на OpenWrt: стартовый
-  // <title> из index.html живёт до первого navigate(), а тот для известных
-  // маршрутов Keenetic не упоминает. На Keenetic ключа platform нет — no-op.
-  if (s && s.platform === "openwrt" && typeof document !== "undefined"
-      && /для Keenetic/.test(document.title || "")) {
-    document.title = (document.title || "").replace("для Keenetic", "для OpenWrt");
-  }
 }
 
 function fmtSvc(s) {

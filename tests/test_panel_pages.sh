@@ -14,6 +14,7 @@
 # список пулов приходит пустым, .map() не запускается, и та самая строка не
 # выполняется — первая версия этой заглушки ровно так поломку и пропустила.
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+JS=$(sh "$(dirname "$0")/lib/panel_js.sh")
 PASS=0; FAIL=0
 ok() { PASS=$((PASS+1)); printf '[PASS] %s\n' "$1"; }
 no() { FAIL=$((FAIL+1)); printf '[FAIL] %s\n' "$1"; }
@@ -72,6 +73,21 @@ meta_case() {
 }
 meta_case "константа вне try/catch (регрессия r-71.1)" "const STRATEGY_POOL_NAMES = " strategies
 meta_case "константа ВНУТРИ try/catch (ошибка отрисована, не брошена)" "const STATE_SORT_LABELS = " state
+
+# Branding is an additive /status profile. Execute the common frontend with
+# the default response, the OpenWrt profile, and hostile asset URLs. This
+# observes DOM changes and route titles, so a matching string in a source file
+# cannot make the test pass by itself.
+for _brand_case in default openwrt unsafe; do
+    _brand_out=$(Z2K_BRAND_CASE="$_brand_case" node "$ROOT/tests/panel_harness.js" "$JS" dashboard 2>&1)
+    _brand_rc=$?
+    printf '%s\n' "$_brand_out" | sed 's/^/    /'
+    if [ "$_brand_rc" -eq 0 ]; then
+        ok "поведение бренда: $_brand_case"
+    else
+        no "поведение бренда: $_brand_case" "успешный DOM-сценарий" "rc=$_brand_rc"
+    fi
+done
 
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"
 [ "$FAIL" = "0" ]

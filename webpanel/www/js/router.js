@@ -1,4 +1,5 @@
 import { closeNavMore } from "./chrome.js";
+import { currentBrandName } from "./core/branding.js";
 import { $app, $nav } from "./core/dom.js";
 import { renderCredits, renderStrategies } from "./pages/credits.js";
 import { renderDashboard } from "./pages/dashboard.js";
@@ -66,9 +67,19 @@ const NAV_OF_ROUTE = {
   whitelist: "exclude",
 };
 
+let _activeRoute = "dashboard";
+
+// Route titles have one owner; the suffix follows the active common brand
+// profile and defaults to the upstream Z2K identity.
+export function refreshRouteTitle() {
+  const pageTitle = ROUTE_TITLES[_activeRoute] || "antiDPI для Keenetic";
+  document.title = `${pageTitle} · ${currentBrandName()}`;
+}
+
 export function navigate() {
   const hash = location.hash.replace(/^#\//, "") || "dashboard";
   const name = routes[hash] ? hash : "dashboard";
+  _activeRoute = name;
   // Маршрутов больше, чем пунктов меню: подвкладка — тоже адрес, но своего
   // пункта у неё нет. Без подмены переход на такой адрес не подсвечивал бы
   // в меню ничего.
@@ -80,8 +91,7 @@ export function navigate() {
   // ровно одному правилу — экран стратегий снимает кап ширины, потому что
   // это таблица на сотни строк, а не текст.
   document.body.setAttribute("data-page", name);
-  const pageTitle = ROUTE_TITLES[name] || "antiDPI для Keenetic";
-  document.title = `${pageTitle} · Z2K`;
+  refreshRouteTitle();
   closeNavMore();
   $app.innerHTML = "";
   routes[name]();

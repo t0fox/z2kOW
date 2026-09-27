@@ -79,12 +79,13 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     знать новый плейсхолдер, иначе уходит в конфиг как есть)
 #   webpanel/lighttpd.conf: @PLATFORM_ENV@ Stage 6 (единственный новый
 #     плейсхолдер шаблона)
-#   webpanel/www/js/core/loadorder.js + webpanel/www/js/pages/toggles.js +
+#   webpanel/www/js/core/loadorder.js + webpanel/www/js/core/branding.js +
+#     webpanel/www/js/pages/toggles.js +
 #     webpanel/www/js/pages/telemetry.js + webpanel/www/app.js +
 #     webpanel/www/js/router.js: applyCapabilities Stage 6 (только visibility;
 #     capability-логика вне этих файлов запрещена) + Stage 8: OW-текст
 #     dynamic_ttl (TTL-fix Keenetic там не существует), <title> вкладки через
-#     тот же capabilities-сигнал, недостающий ROUTE_TITLES.autohostlist
+#     brand profile через generic-модуль, недостающий ROUTE_TITLES.autohostlist
 #     (fallback врал на обеих платформах) и guard навигационной гонки в
 #     renderStatsNotice (TypeError после ухода со страницы — обе платформы);
 #     upstream-тексты и поведение 1-в-1
@@ -111,8 +112,9 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #   tests/test_webpanel_api_contract.sh: блок GET /toggles (common fix выше;
 #     плоская проекция, Keenetic-дефолт; без него Keenetic-регрессии слепы
 #     к новому маршруту)
-#   tests/panel_harness.js: Z2K_OW_CAPS-ветка фикстур (inert по умолчанию:
-#     без env — Keenetic 1-в-1; исполняет OW-ветки фронта в OW pages-тесте)
+#   tests/panel_harness.js + tests/test_panel_pages.sh: реалистичный /status
+#     profile mock и исполняемая проверка default/OpenWrt/unsafe asset URL;
+#     без env — Keenetic 1-в-1
 #   tests/test_release_tooling.sh: fixture-теги предыдущих релизов (closure;
 #     hermetic вместо ambient remote state — форк без тегов)
 #   tests/test_panel_frontend_contract.sh: regression scenario for the common
@@ -189,7 +191,7 @@ _g="git -c safe.directory=$REPO -C $REPO"
 #     OpenWrt package; PROC-01/HOOK-01/WDTT-01 record their semantic treatment.
 #   The p-86 unique-set spec is audit input, not a shipped upstream doc copy.
 ALLOWLIST=".gitattributes lib/config_official.sh lib/release_map.sh lib/auto_update.sh scripts/gen_file_hashes.sh files/z2k-config-validator.sh files/z2k-diag.sh files/z2k-dns-check.sh files/z2k-update-lists.sh UPDATES.json UPDATES.json.sig docs/openwrt-foundation-state-machine.md docs/openwrt-telegram-contract.md docs/openwrt-rt-proxy-contract.md docs/openwrt-warp-contract.md docs/openwrt-mark-allocation.md z2k-warpd/cmd/z2k-warpd/main.go z2k-warpd/internal/engine/engine.go z2k-warpd/internal/health/health.go z2k-warpd/internal/health/health_test.go z2k-warpd/builds/* webpanel/cgi/platform.sh webpanel/cgi/api.sh webpanel/cgi/actions.sh webpanel/cgi/auth.sh webpanel/install.sh webpanel/lighttpd.conf webpanel/www/js/core/loadorder.js webpanel/www/js/pages/toggles.js webpanel/www/js/pages/telemetry.js webpanel/www/js/router.js webpanel/www/app.js webpanel/www/js/pages/warp.js webpanel/www/js/job.js webpanel/www/js/pages/strategy-pick.js tests/test_strategy_pick_typed_failure.sh tests/test_cachebuster_declared.sh tests/test_release_reaches_users.sh z2k-detect/builds/* z2k-detect/cmd/z2k-detect/main.go z2k-detect/cmd/z2k-detect/quic.go z2k-detect/cmd/z2k-detect/voice.go z2k-detect/internal/classify/classify.go z2k-detect/internal/classify/compose.go z2k-detect/internal/classify/observability_test.go z2k-detect/internal/classify/raw_linux.go z2k-detect/internal/classify/raw_other.go z2k-detect/internal/quicprobe/probe.go z2k-detect/internal/voiceprobe/probe.go docs/openwrt-webpanel-contract.md docs/openwrt-release-contract.md docs/openwrt-adapter-contract.md scripts/openwrt/gen-openwrt-manifest.sh scripts/openwrt/build-release.sh scripts/openwrt/write-provenance.sh scripts/openwrt/verify-runtime.sh scripts/openwrt/verify-upstream-tags.sh .github/workflows/ci.yml scripts/rehearse_update.sh tests/test_manifest_signature.sh tests/test_webpanel_api_contract.sh tests/panel_harness.js tests/test_release_tooling.sh lib/strategies.sh z2k.sh tests/test_au_compat.sh README.md"
-ALLOWLIST="$ALLOWLIST lib/install.sh lib/menu.sh files/z2k-insta-ip-refresh.sh webpanel/www/index.html webpanel/www/js/pages/update.js webpanel/www/style.css tests/test_panel_toggle_texts.sh tests/test_panel_warp_ui.sh tests/test_insta_refresh_cert_mismatch.sh tests/test_fastroute_no_hwnat.sh tests/test_config_official.sh tests/test_found_domains_survive_reinstall.sh tests/test_panel_domain_probe.sh tests/test_profile_observation.sh tests/test_quic_pool_general.sh tests/test_update_sequence_e2e.sh tests/test_update_jitter.sh z2k-detect/cmd/z2k-detect/z2k_hostlists.go z2k-detect/go.mod z2k-detect/go.sum z2k-detect/internal/decision/decision.go mtproxy-client/main.go mtproxy-client/main_secret_test.go mtproxy-client/udp.go mtproxy-client/udp_route_test.go"
+ALLOWLIST="$ALLOWLIST lib/install.sh lib/menu.sh files/z2k-insta-ip-refresh.sh webpanel/www/index.html webpanel/www/js/core/branding.js webpanel/www/js/pages/update.js webpanel/www/style.css tests/test_panel_toggle_texts.sh tests/test_panel_pages.sh tests/test_panel_warp_ui.sh tests/test_insta_refresh_cert_mismatch.sh tests/test_fastroute_no_hwnat.sh tests/test_config_official.sh tests/test_found_domains_survive_reinstall.sh tests/test_panel_domain_probe.sh tests/test_profile_observation.sh tests/test_quic_pool_general.sh tests/test_update_sequence_e2e.sh tests/test_update_jitter.sh z2k-detect/cmd/z2k-detect/z2k_hostlists.go z2k-detect/go.mod z2k-detect/go.sum z2k-detect/internal/decision/decision.go mtproxy-client/main.go mtproxy-client/main_secret_test.go mtproxy-client/udp.go mtproxy-client/udp_route_test.go"
 ALLOWLIST="$ALLOWLIST z2k-warpd/internal/domainroute/nft_pairset.go z2k-warpd/internal/domainroute/nft_pairset_test.go z2k-warpd/openwrt-overlay/overlay.json z2k-warpd/openwrt-overlay/ipset.go z2k-warpd/openwrt-overlay/go.mod tests/test_build_matrix.sh tests/test_update_content_verification.sh tests/test_warp_games.sh tests/test_warp_script.sh z2k-warpd/internal/engine/engine_test.go z2k-warpd/internal/transport/wg/memory_test.go z2k-warpd/internal/transport/wg/bind_test.go"
 ALLOWLIST="$ALLOWLIST files/lua/z2k-modern-core.lua files/lua/z2k-state-persist.lua tests/test_webpanel_state.sh tests/mutation.sh z2k-warpd/internal/transport/wg/bind.go z2k-warpd/internal/engine/netsetup_test.go z2k-warpd/internal/domainroute/*_test.go z2k-warpd/internal/edgepick/*_test.go docs/UPSTREAM-CONTRACTS.md docs/UPSTREAM-SYNC.md docs/UPSTREAM-SYNC.tsv docs/UPSTREAM-TEST-INVENTORY.md scripts/openwrt/audit-upstream-docs.sh tests/openwrt/test_ow_upstream_docs_sync.sh"
 ALLOWLIST="$ALLOWLIST files/z2k-scheduler.sh files/z2k-warp.sh tests/test_alert_detector_wiring.sh tests/test_au_converge.sh tests/test_stale_binaries_cleanup.sh tests/test_warp_install_hooks.sh tests/test_warp_mss_both_ways.sh docs/UPSTREAM-TEST-SUITES.tsv"

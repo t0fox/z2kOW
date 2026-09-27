@@ -136,21 +136,28 @@ else
     _t_ok
 fi
 
-# Frontend: только capability visibility (allowlisted файлы + loadorder helper).
+# Frontend: common capability visibility and generic brand projection.
 assert_contains "js: caps helper" "$REPO/webpanel/www/js/core/loadorder.js" "applyCapabilities"
 assert_contains "js: toggles hook" "$REPO/webpanel/www/js/pages/toggles.js" "applyCapabilities"
 assert_contains "js: boot hook" "$REPO/webpanel/www/app.js" "applyCapabilities"
+assert_contains "js: generic branding module" "$REPO/webpanel/www/js/core/branding.js" "applyBranding"
+assert_contains "js: boot branding hook" "$REPO/webpanel/www/app.js" "applyBranding"
 if grep -rlE 'openwrt|PLATFORM|capabilit' "$REPO/webpanel/www/js" 2>/dev/null \
     | grep -vE 'loadorder\.js|toggles\.js|app\.js|router\.js' | grep -q .; then
     _t_bad "js: capability-логика вне allowlisted файлов"
 else
     _t_ok
 fi
-# router.js — только недостающий ROUTE_TITLES.autohostlist, никакой
-# platform-логики (см. проверку выше: слова openwrt там быть не должно).
+# router.js owns the route suffix and remains platform-neutral.
 assert_contains "js: autohostlist title" "$REPO/webpanel/www/js/router.js" 'autohostlist:'
+assert_contains "js: profile-derived title suffix" "$REPO/webpanel/www/js/router.js" 'currentBrandName()'
 if grep -n 'openwrt\|PLATFORM\|capabilit' "$REPO/webpanel/www/js/router.js" 2>/dev/null | grep -q .; then
     _t_bad "js: router.js с platform-логикой (разрешён только title)"
+else
+    _t_ok
+fi
+if grep -n 'openwrt\|PLATFORM' "$REPO/webpanel/www/js/core/branding.js" 2>/dev/null | grep -q .; then
+    _t_bad "js: branding.js знает конкретную платформу"
 else
     _t_ok
 fi
@@ -169,7 +176,11 @@ fi
 assert_contains "js: OW dynamic_ttl desc" "$REPO/webpanel/www/js/pages/toggles.js" "DYNAMIC_TTL_DESC_OPENWRT"
 assert_contains "js: OW desc за platform" "$REPO/webpanel/www/js/pages/toggles.js" 's.platform === "openwrt"'
 assert_contains "js: upstream TTL-fix текст цел" "$REPO/webpanel/www/js/pages/toggles.js" "TTL-fix Keenetic"
-assert_contains "js: OW title guard" "$REPO/webpanel/www/js/core/loadorder.js" 'для OpenWrt'
+if grep -n 'document\.title.*replace\|для OpenWrt' "$REPO/webpanel/www/js/core/loadorder.js" 2>/dev/null | grep -q .; then
+    _t_bad "js: title ownership остался в capability helper"
+else
+    _t_ok
+fi
 assert_contains "js: telemetry nav-guard" "$REPO/webpanel/www/js/pages/telemetry.js" 'host.isConnected === false'
 
 _t_done

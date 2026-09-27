@@ -1268,6 +1268,7 @@ download_init_script() {
         www/js/chrome.js \
         www/js/core/api.js \
         www/js/core/auth.js \
+        www/js/core/branding.js \
         www/js/core/clipboard.js \
         www/js/core/dom.js \
         www/js/core/loadorder.js \

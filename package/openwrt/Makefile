@@ -19,7 +19,9 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=77
+PKG_RELEASE:=78
+# RELEASE 78: common webpanel branding seam plus package-owned OpenWrt
+# wordmark/favicon/theme; versioned adapter upgrade refreshes stable asset URLs.
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
 # RELEASE 8 (p-84.22 sync): новый seed (amazonaws/cloudfront в extra-domains);
 # состав seed — часть package content, тот же релиз под новым деревом давал
@@ -210,7 +212,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r77)
+  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r78)
 endef
 
 define Package/z2k-webpanel/description
@@ -289,6 +291,13 @@ define Package/z2k-adapter/install
 	# (./files/... ниже — package-local, им префикс не нужен). Относительный
 	# ./platform/... здесь указывал в никуда (поймано реальным CI-раном).
 	$(INSTALL_DATA) $(Z2K_TREE)/platform/openwrt/*.sh $(1)/usr/lib/z2k/platform/openwrt/
+	# OpenWrt brand assets are package-owned and sit under the existing
+	# lighttpd docroot. Common webpanel updates never map these source paths.
+	$(INSTALL_DIR) $(1)/usr/lib/z2k/www/brand/openwrt
+	$(INSTALL_DATA) $(Z2K_TREE)/platform/openwrt/webpanel-brand/wordmark.svg \
+		$(Z2K_TREE)/platform/openwrt/webpanel-brand/favicon.svg \
+		$(Z2K_TREE)/platform/openwrt/webpanel-brand/theme.css \
+		$(1)/usr/lib/z2k/www/brand/openwrt/
 	# Entrypoints исполняются напрямую (cron exec, updater [ -x ]) —
 	# им нужен +x и в пакете, и в seed. INSTALL_BIN ставит 0755 сам;
 	# 7 entrypoints лежат в git-индексе как 100755 (держит warp-static

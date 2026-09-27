@@ -30,13 +30,13 @@
      Сама Fira никуда не делась — она отгружается вместе с панелью и
      объявлена через @font-face в style.css (webpanel/www/fonts/). -->
 <link rel="stylesheet" href="style.css?v=p-86.1">
-<link rel="icon" href="favicon.svg?v=p-86.1" type="image/svg+xml" sizes="any">
-<link rel="mask-icon" href="favicon.svg?v=p-86.1" color="#1AC3B4">
+<link id="brand-favicon" rel="icon" href="favicon.svg?v=p-86.1" type="image/svg+xml" sizes="any">
+<link id="brand-mask-icon" rel="mask-icon" href="favicon.svg?v=p-86.1" color="#1AC3B4">
 </head>
 <body>
 <header class="topbar">
-  <a href="#/dashboard" class="brand" aria-label="z2k — antiDPI для Keenetic">
-    <svg viewBox="100 20 460 110" width="200" height="48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <a id="panel-brand" href="#/dashboard" class="brand" aria-label="z2k — antiDPI для Keenetic">
+    <svg id="brand-default-logo" viewBox="100 20 460 110" width="200" height="48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <!-- mark (фирменный квадрат с Z-маршрутом) -->
       <g transform="translate(157, 27)">
         <rect width="96" height="96" rx="22" fill="#1AC3B4"/>
@@ -66,6 +66,7 @@
       <!-- tagline — text-muted -->
       <text x="278" y="112" class="brand-tagline" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="500" letter-spacing="2.6">ANTIDPI · KEENETIC</text>
     </svg>
+    <img id="brand-profile-logo" class="brand-profile-logo" alt="" hidden>
   </a>
   <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Открыть меню" aria-expanded="false" aria-controls="nav">
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>

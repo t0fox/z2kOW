@@ -344,6 +344,11 @@ case "$method $path" in
         # в кавычках — добавляем только запятую).
         if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
             printf ',%s' "$(wp_capabilities_json)"
+            # During a mixed-version upgrade, common CGI can arrive before
+            # the package-owned profile helper; keep /status valid without it.
+            if command -v wp_brand_json >/dev/null 2>&1; then
+                printf ',%s' "$(wp_brand_json)"
+            fi
         fi
         printf '}\n'
         exit 0

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 124" role="img" aria-labelledby="title desc">
+  <title id="title">z2kOW — OpenWrt edition</title>
+  <desc id="desc">z2kOW OpenWrt webpanel</desc>
+  <rect x="4" y="8" width="104" height="104" rx="26" fill="#8B7CFF"/>
+  <path d="M31 36h51v13L49 82h33v13H30V82l33-33H31z" fill="#101522"/>
+  <text x="132" y="78" fill="#EDF1FA" font-family="sans-serif" font-size="70" font-weight="700" letter-spacing="-5">z2k</text>
+  <text x="264" y="78" fill="#51DCCB" font-family="sans-serif" font-size="70" font-weight="700" letter-spacing="-4">OW</text>
+  <text x="135" y="106" fill="#A7B2C8" font-family="sans-serif" font-size="17" font-weight="600" letter-spacing="3.2">OPENWRT EDITION</text>
+</svg>

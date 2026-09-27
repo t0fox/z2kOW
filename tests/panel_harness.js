@@ -4,8 +4,10 @@
 const fs = require("fs");
 const path = process.argv[2];
 const routes = process.argv.slice(3);
+const BRAND_CASE = process.env.Z2K_BRAND_CASE || "";
 
 const errors = [];
+const domById = new Map();
 
 // Ловим ошибки, которые код ПОЙМАЛ и отрисовал вместо того, чтобы бросить.
 // Без этого харнесс защищал ровно один маршрут из девяти: почти каждый
@@ -31,7 +33,7 @@ const mkEl = () => {
     // «страница не отрисовалась: Cannot read propert» — сообщение, по
     // которому до причины ещё надо докопаться, хотя ломался мок, а не панель.
     value: "",
-    _h: "", style: {}, dataset: {}, classList: { add(){}, remove(){}, toggle(){}, contains(){return false} },
+    _h: "", style: { setProperty(k,v){ this[k]=String(v); }, getPropertyValue(k){ return this[k] || ""; } }, dataset: {}, classList: { add(){}, remove(){}, toggle(){}, contains(){return false} },
     children: [], attributes: {},
     // Все mock-узлы считаются живыми (isConnected): telemetry-guard
     // host.isConnected === false обязан пропускать их, иначе карточка
@@ -41,20 +43,45 @@ const mkEl = () => {
     get innerHTML(){ return this._h; },
     set textContent(v){ this._h = String(v); noteRendered(this._h); },
     get textContent(){ return this._h; },
-    addEventListener(){}, removeEventListener(){}, appendChild(){}, removeChild(){},
-    setAttribute(k,v){ this.attributes[k]=v; }, getAttribute(k){ return this.attributes[k]; },
+    addEventListener(){}, removeEventListener(){}, appendChild(child){ this.children.push(child); if (child && child.id) domById.set(child.id, child); return child; }, removeChild(child){ this.children = this.children.filter(x => x !== child); },
+    setAttribute(k,v){ this.attributes[k]=String(v); this[k]=String(v); if (k === "id" && BRAND_CASE) domById.set(String(v), this); }, getAttribute(k){ return this.attributes[k]; },
     removeAttribute(){}, querySelector(){ return mkEl(); }, querySelectorAll(){ return []; },
     closest(){ return null; }, focus(){}, blur(){}, click(){}, insertAdjacentHTML(){},
     scrollIntoView(){}, remove(){},
   };
   return el;
 };
+function mockNode(id, properties) {
+  const el = mkEl(); el.id = id; Object.assign(el, properties || {}); domById.set(id, el); return el;
+}
+if (BRAND_CASE) {
+  mockNode("panel-brand", { attributes: { "aria-label": "z2k — antiDPI для Keenetic" } });
+  mockNode("brand-default-logo", { hidden: false });
+  mockNode("brand-profile-logo", { hidden: true, src: "" });
+  mockNode("brand-favicon", { href: "/favicon.svg?v=p-86.1" });
+  mockNode("brand-mask-icon", { href: "/favicon.svg?v=p-86.1" });
+}
+const head = mkEl();
 global.document = {
-  documentElement: mkEl(), body: mkEl(), head: mkEl(),
-  getElementById(){ return mkEl(); },
-  querySelector(){ return mkEl(); }, querySelectorAll(){ return []; },
-  createElement(){ return mkEl(); }, addEventListener(){}, removeEventListener(){},
+  documentElement: mkEl(), body: mkEl(), head,
+  title: "Z2K — antiDPI для Keenetic",
+  getElementById(id){
+    if (id === "brand-profile-theme") return domById.get(id) || null;
+    return domById.get(id) || mkEl();
+  },
+  querySelector(selector){
+    const byId = /^#([A-Za-z0-9_-]+)$/.exec(selector);
+    if (byId) return domById.get(byId[1]) || mkEl();
+    const rel = /^link\[rel=["']?([^"'\]]+)["']?\]$/.exec(selector);
+    if (rel) return Array.from(domById.values()).find(el => el.rel === rel[1]) || mkEl();
+    return mkEl();
+  }, querySelectorAll(){ return []; },
+  createElement(tag){ const el=mkEl(); el.tagName=String(tag).toUpperCase(); return el; }, addEventListener(){}, removeEventListener(){},
 };
+if (BRAND_CASE) {
+  const favicon = domById.get("brand-favicon"); favicon.rel = "icon";
+  const mask = domById.get("brand-mask-icon"); mask.rel = "mask-icon";
+}
 global.location = { hash: "#/dashboard", href: "http://r/", reload(){} };
 global.history = { replaceState(){}, pushState(){} };
 // Заглушки задаются ЯВНО и перекрывают хостовые, даже если node их предоставляет.
@@ -96,11 +123,7 @@ global.navigator = { clipboard: { writeText: async () => {} }, userAgent: "node"
 // список пулов приходит пустым, .map() не выполняется, и обращение к
 // STRATEGY_POOL_NAMES внутри него никогда не происходит — ровно поэтому первая
 // версия этой заглушки пропустила реальную поломку страницы «Свои стратегии».
-const FIXTURES = {
-  // Z2K_OW_CAPS=1 — OpenWrt-форма /status (platform + capabilities) для
-  // tests/openwrt/test_ow_webpanel_pages.sh: исполняет OW-ветки фронта
-  // (applyCapabilities, OW-текст dynamic_ttl, title). Дефолт — Keenetic 1-в-1.
-  "/status": (process.env.Z2K_OW_CAPS === "1")
+const statusFixture = (process.env.Z2K_OW_CAPS === "1")
     ? { ok:true, installed:true, running:true, service:"active",
         toggles:{game_warp:"0",customd:"0",dynamic_ttl:"1",
                  stats:"1",stats_ack:"0",ppe:"1",auto_update:"1",autohostlist:"0"},
@@ -109,7 +132,21 @@ const FIXTURES = {
                       warp:true,telegram:true,uninstall:false} }
     : { ok:true, installed:"r-71.1", running:true, service:"running",
         toggles:{game_warp:"0",customd:"0",dynamic_ttl:"1",
-                 stats:"1",ppe:"1",auto_update:"1",autohostlist:"0"}, tunnel:{running:true} },
+                 stats:"1",ppe:"1",auto_update:"1",autohostlist:"0"}, tunnel:{running:true} };
+if (BRAND_CASE === "openwrt") {
+  statusFixture.brand = { name:"z2kOW", subtitle:"OpenWrt edition",
+    logo:"/brand/openwrt/wordmark.svg", favicon:"/brand/openwrt/favicon.svg",
+    theme:"/brand/openwrt/theme.css" };
+} else if (BRAND_CASE === "unsafe") {
+  statusFixture.brand = { name:"z2kOW", subtitle:"OpenWrt edition",
+    logo:"https://evil.example/wordmark.svg", favicon:"//evil.example/favicon.svg",
+    theme:"/../outside.css" };
+}
+const FIXTURES = {
+  // Z2K_OW_CAPS=1 — OpenWrt-форма /status (platform + capabilities) для
+  // tests/openwrt/test_ow_webpanel_pages.sh: исполняет OW-ветки фронта
+  // (applyCapabilities, OW-текст dynamic_ttl, title). Дефолт — Keenetic 1-в-1.
+  "/status": statusFixture,
   "/toggles": { ok:true, game_warp:"0",customd:"0",dynamic_ttl:"1",
                 stats:"1",stats_ack:"0",ppe:"1",auto_update:"1",autohostlist:"0" },
   "/strategy/pools": { ok:true, pools:[
@@ -159,6 +196,43 @@ catch (e) { console.log("ЗАГРУЗКА УПАЛА: " + e.message); process.ex
     catch (e) { errors.push(r + ": " + e.message); }
     const bad = errors.slice(before);
     console.log(`  ${bad.length ? "ПАДАЕТ" : "ok    "}  #/${r}${bad.length ? "  — " + bad[0] : ""}`);
+  }
+  if (BRAND_CASE) {
+    const expect = (condition, label) => {
+      if (condition) console.log("  brand ok    " + label);
+      else { console.log("  brand FAIL  " + label); errors.push("branding: " + label); }
+    };
+    const profile = BRAND_CASE === "openwrt";
+    const unsafe = BRAND_CASE === "unsafe";
+    const brandLink = domById.get("panel-brand");
+    const defaultLogo = domById.get("brand-default-logo");
+    const profileLogo = domById.get("brand-profile-logo");
+    const favicon = domById.get("brand-favicon");
+    const mask = domById.get("brand-mask-icon");
+    const theme = domById.get("brand-profile-theme");
+    if (profile) {
+      expect(profileLogo && profileLogo.hidden === false && profileLogo.src === "/brand/openwrt/wordmark.svg", "OpenWrt profile shows its same-origin wordmark");
+      expect(defaultLogo && defaultLogo.hidden === true, "OpenWrt profile hides the default wordmark");
+      expect(brandLink && brandLink.getAttribute("aria-label") === "z2kOW — OpenWrt edition", "brand name and subtitle are accessible");
+      expect(favicon && favicon.href === "/brand/openwrt/favicon.svg" && mask && mask.href === "/brand/openwrt/favicon.svg", "favicon and mask icon use the profile asset");
+      expect(theme && theme.href === "/brand/openwrt/theme.css", "profile theme loads from a same-origin stylesheet");
+      for (const [route, title] of [["dashboard","Дашборд"],["strategies","Стратегии"],["warp","WARP"]]) {
+        global.location.hash = "#/" + route; global.__nav && global.__nav();
+        expect(global.document.title === `${title} · z2kOW`, `route title for #/${route} uses the profile name`);
+      }
+    } else if (unsafe) {
+      expect(profileLogo && profileLogo.hidden === true, "unsafe profile keeps the default wordmark");
+      expect(favicon && favicon.href === "/favicon.svg?v=p-86.1" && mask && mask.href === "/favicon.svg?v=p-86.1", "unsafe profile cannot replace local icons");
+      expect(!theme, "unsafe profile cannot load a non-local theme");
+      global.location.hash = "#/strategies"; global.__nav && global.__nav();
+      expect(global.document.title === "Стратегии · Z2K", "rejected profile keeps the default route suffix");
+    } else {
+      expect(defaultLogo && defaultLogo.hidden === false && profileLogo && profileLogo.hidden === true, "missing profile preserves default wordmark");
+      expect(favicon && favicon.href === "/favicon.svg?v=p-86.1" && mask && mask.href === "/favicon.svg?v=p-86.1", "missing profile preserves default icons");
+      expect(!theme, "missing profile does not add a theme stylesheet");
+      global.location.hash = "#/strategies"; global.__nav && global.__nav();
+      expect(global.document.title === "Стратегии · Z2K", "missing profile keeps the default route suffix");
+    }
   }
   process.exit(errors.length ? 1 : 0);
 })();

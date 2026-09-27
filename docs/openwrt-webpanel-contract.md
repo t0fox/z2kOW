@@ -60,10 +60,23 @@ CLASS: COMMON (тот же код), PLATFORM_IO (тонкий перевод), K
   `wp_neighbors`, `wp_service_running`.
 - No `actions-openwrt.sh` / `api-openwrt.sh` / `app-openwrt.js` forks.
 - `api.sh` additions: source platform.sh; append `platform` +
-  `capabilities{policy,ppe,tcp16,diag,warp,telegram,uninstall}` to /status
-  on openwrt only (Keenetic bytes identical). GET stays GET, shapes preserved.
-- Frontend: only capability visibility (hide policy card/PPE toggle/tcp16
-  card/diag nav/uninstall button on openwrt). No redesign, no new pages.
+  `capabilities{policy,ppe,tcp16,diag,warp,telegram,uninstall}` and the
+  optional `brand{name,subtitle,logo,favicon,theme}` profile to `/status` on
+  OpenWrt only (Keenetic bytes identical). GET stays GET, shapes preserved.
+- Frontend: capability visibility and a platform-neutral brand projection.
+  The common app does not identify OpenWrt to choose assets: an absent profile
+  keeps the embedded z2k wordmark, favicon, stylesheet, and `Z2K` title suffix.
+  A profile carries its name, subtitle, same-origin SVG assets, and local CSS.
+  The common branding module validates those paths; route titles remain owned
+  by `router.js` and use the active brand name. Layout and business logic stay
+  shared.
+- OpenWrt supplies `z2kOW` / `OpenWrt edition` from the package-owned adapter.
+  Its wordmark, favicon, and theme live in
+  `/usr/lib/z2k/www/brand/openwrt/`; the adapter APK explicitly installs these
+  files over older bytes during upgrade. Their stable URLs are served by the
+  existing no-cache lighttpd document root. The generic UI module and common
+  hooks travel through the signed snapshot updater; adapter assets stay out of
+  that mapping and are never seeded as a second owner.
 
 ## 3. CGI must not know (frozen Stages 1-5 own it)
 

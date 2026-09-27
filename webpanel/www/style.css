@@ -343,6 +343,9 @@ body {
 }
 .brand:hover { transform: translateY(-1px); }
 .brand svg { display: block; }
+.brand svg[hidden] { display: none; }
+.brand-profile-logo { display: block; width: 200px; height: 48px; object-fit: contain; }
+.brand-profile-logo[hidden] { display: none; }
 /* "2" glyph — accent цвет (текущий теal/любой выбранный --accent) */
 .brand-accent-glyph { fill: var(--accent); }
 /* "ANTIDPI · KEENETIC" tagline — muted, читается без давления */

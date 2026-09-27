@@ -17,7 +17,8 @@
 // обращений в ядро против 92 между фичами), слои идут только вниз, граф
 // ациклический. Точка входа зависит от оболочки и маршрутизатора — и всё.
 import { initDrawer, initSidebar, initTheme } from "./js/chrome.js";
-import { navigate } from "./js/router.js";
+import { navigate, refreshRouteTitle } from "./js/router.js";
+import { applyBranding } from "./js/core/branding.js";
 import { apiGet } from "./js/core/api.js";
 import { applyCapabilities } from "./js/core/loadorder.js";
 
@@ -30,4 +31,8 @@ navigate();
 
 // Platform capabilities для nav (Stage 6): один boot-запрос; без сессии
 // (Keenetic с включённым auth) — молча пропускаем, всё остаётся видимым.
-apiGet("/status").then(applyCapabilities).catch(() => {});
+apiGet("/status").then((s) => {
+  applyCapabilities(s);
+  applyBranding(s);
+  refreshRouteTitle();
+}).catch(() => {});

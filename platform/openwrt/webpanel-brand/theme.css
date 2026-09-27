@@ -1,0 +1,32 @@
+/* OpenWrt identity palette. Components keep the shared layout and use tokens. */
+:root {
+  --bg: #0b1020;
+  --bg-card: #111a2b;
+  --bg-card-hover: #18243a;
+  --bg-subtle: rgba(146, 132, 255, 0.055);
+  --border: #293650;
+  --text: #edf1fa;
+  --text-muted: #9ba9c1;
+  --accent: #a394ff;
+  --accent-dim: #8170ed;
+  --good: #59d9a1;
+  --warn: #f0bd67;
+  --bad: #f07886;
+  --brand-accent-alt: #51dccb;
+}
+
+:root[data-theme="light"] {
+  --bg: #f3f5fb;
+  --bg-card: #ffffff;
+  --bg-card-hover: #edf0f8;
+  --bg-subtle: rgba(111, 93, 220, 0.045);
+  --border: #d8deeb;
+  --text: #1b2539;
+  --text-muted: #64718a;
+  --accent: #6554ce;
+  --accent-dim: #5041b5;
+  --good: #16895d;
+  --warn: #986008;
+  --bad: #c43e53;
+  --brand-accent-alt: #087f78;
+}

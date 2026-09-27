@@ -2,6 +2,8 @@
 
 `z2kOW` — OpenWrt-адаптация [z2k](https://github.com/necronicle/z2k) с нативным lifecycle, firewall/routing-интеграцией, пакетами и webpanel для OpenWrt.
 
+Панель использует общий интерфейс z2k; OpenWrt-адаптер передаёт локальный профиль бренда `z2kOW` / `OpenWrt edition`.
+
 Статус: **Beta**
 
 ```text
