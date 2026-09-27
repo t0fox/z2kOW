@@ -9,6 +9,12 @@ T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-rman.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 GEN="$REPO/scripts/openwrt/gen-openwrt-manifest.sh"
 
+# The GitHub CI release-manifest gate must call the behavioral pin verifier for
+# the standalone product branch; runtime behavior is exercised in the fixture
+# below, while this assertion protects workflow delivery.
+grep -q 'sh scripts/openwrt/verify-upstream-manifest.sh' "$REPO/.github/workflows/ci.yml" \
+    && _t_ok || _t_bad "CI must execute the upstream manifest pin verifier"
+
 # --- фиктивное дерево релиза (таблица и ownership — настоящие) ---
 mkdir -p "$T/tree/lib" "$T/tree/files" "$T/tree/webpanel/cgi" "$T/tree/package/openwrt"
 ln -s "$REPO/lib/release_map.sh" "$T/tree/lib/release_map.sh" || exit 1
@@ -198,5 +204,38 @@ if bad:
 print('install_map shape ok: %d keys' % len(mp))
 PYEOF
 [ "$?" = "0" ] && _t_ok || _t_bad "install_map shape"
+
+# --- immutable upstream manifest is independent from the adapted payload ---
+# The product branch intentionally keeps the signed upstream manifest pinned
+# while common source files move forward. This fixture has no origin/z2k-enhanced
+# remote, matching the standalone z2kOW repository on GitHub.
+MFIX="$T/upstream-manifest"
+mkdir -p "$MFIX/files/etc" "$MFIX/tests/openwrt" "$MFIX/scripts/openwrt"
+cp "$REPO/UPDATES.json" "$MFIX/UPDATES.json"
+cp "$REPO/UPDATES.json.sig" "$MFIX/UPDATES.json.sig"
+cp "$REPO/files/etc/z2k-update-pub.pem" "$MFIX/files/etc/z2k-update-pub.pem"
+cp "$REPO/scripts/openwrt/verify-upstream-manifest.sh" "$MFIX/scripts/openwrt/verify-upstream-manifest.sh"
+printf 'payload from pinned source\n' > "$MFIX/payload.txt"
+git -C "$MFIX" init -q
+git -C "$MFIX" config user.email test@example.invalid
+git -C "$MFIX" config user.name fixture
+git -C "$MFIX" add UPDATES.json UPDATES.json.sig files/etc/z2k-update-pub.pem payload.txt
+git -C "$MFIX" commit -qm 'pinned upstream manifest'
+MF_BASE=$(git -C "$MFIX" rev-parse HEAD)
+printf '%s\n' "$MF_BASE" > "$MFIX/tests/openwrt/MANIFEST_BASELINE"
+git -C "$MFIX" add tests/openwrt/MANIFEST_BASELINE scripts/openwrt/verify-upstream-manifest.sh
+git -C "$MFIX" commit -qm 'record product manifest baseline'
+printf 'adapted OpenWrt payload\n' > "$MFIX/payload.txt"
+git -C "$MFIX" commit -qam 'advance adapted payload without changing upstream manifest'
+Z2K_MANIFEST_ROOT="$MFIX" sh "$MFIX/scripts/openwrt/verify-upstream-manifest.sh" >/dev/null 2>&1
+assert_eq "frozen signed upstream manifest survives adapted source changes without legacy remote" "0" "$?"
+
+printf '\n# tampered\n' >> "$MFIX/UPDATES.json"
+Z2K_MANIFEST_ROOT="$MFIX" sh "$MFIX/scripts/openwrt/verify-upstream-manifest.sh" >/dev/null 2>&1
+assert_eq "changed upstream manifest is rejected" "1" "$?"
+git -C "$MFIX" show "$MF_BASE:UPDATES.json" > "$MFIX/UPDATES.json"
+printf '\n# tampered\n' >> "$MFIX/UPDATES.json.sig"
+Z2K_MANIFEST_ROOT="$MFIX" sh "$MFIX/scripts/openwrt/verify-upstream-manifest.sh" >/dev/null 2>&1
+assert_eq "changed upstream signature is rejected" "1" "$?"
 
 _t_done

@@ -38,8 +38,8 @@ count=0
 while IFS= read -r path; do
     [ -n "$path" ] || continue
     count=$((count + 1))
-    base_blob=$(git -C "$repo" rev-parse "$base:$path" 2>/dev/null || printf '%s' '-')
-    head_blob=$(git -C "$repo" rev-parse "$target:$path" 2>/dev/null || printf '%s' '-')
+    base_blob=$(git -C "$repo" rev-parse --verify "$base:$path" 2>/dev/null || printf '%s' '-')
+    head_blob=$(git -C "$repo" rev-parse --verify "$target:$path" 2>/dev/null || printf '%s' '-')
     result=$(awk -F '\t' -v p="$path" -v b="$base_blob" -v h="$head_blob" '
         $0 ~ /^#/ || NF == 0 { next }
         $1 == p && $2 == b && $3 == h {

@@ -61,4 +61,20 @@ UPSTREAM_SYNC_REPO="$FIX" UPSTREAM_SYNC_LEDGER="$LEDGER" sh "$SCRIPT" "$CODE_ONL
 assert_eq "source-only diff needs no doc classification" "0" "$?"
 grep -q 'no normative files changed' "$T/code-only.out" && _t_ok || _t_bad "source-only summary missing"
 
+printf 'new normative contract\n' > "$FIX/docs/ADDED.md"
+git -C "$FIX" add docs/ADDED.md
+git -C "$FIX" commit -qm added-normative-file
+ADDED_HEAD=$(git -C "$FIX" rev-parse HEAD)
+ADDED_BLOB=$(git -C "$FIX" rev-parse "$ADDED_HEAD:docs/ADDED.md")
+set +e
+UPSTREAM_SYNC_REPO="$FIX" UPSTREAM_SYNC_LEDGER="$LEDGER" sh "$SCRIPT" "$CODE_HEAD" "$ADDED_HEAD" > "$T/added-unclassified.out" 2>&1
+rc=$?
+set -e
+assert_eq "added normative file needs explicit classification" "1" "$rc"
+grep -q "^UNCLASSIFIED: docs/ADDED.md base=- head=$ADDED_BLOB" "$T/added-unclassified.out" && _t_ok || _t_bad "added-file blob identity was not reported"
+printf 'docs/ADDED.md\t-\t%s\tOPENWRT RELEVANT\tnew normative contract has OpenWrt behavior\n' "$ADDED_BLOB" >> "$LEDGER"
+UPSTREAM_SYNC_REPO="$FIX" UPSTREAM_SYNC_LEDGER="$LEDGER" sh "$SCRIPT" "$CODE_HEAD" "$ADDED_HEAD" > "$T/added-classified.out" 2>&1
+assert_eq "added normative file exact classification passes" "0" "$?"
+grep -q 'UPSTREAM_DOC_SYNC: classified 1 normative file(s)' "$T/added-classified.out" && _t_ok || _t_bad "added-file classified summary missing"
+
 _t_done

@@ -1,3 +1,3 @@
 # path<TAB>base_blob<TAB>head_blob<TAB>classification<TAB>rationale
 README.md	ece5d49a0a0382deb1faa3f9cf77b943ceba4672	c781a1fa9797d918d1f4e1d3ad5980dc7d99380f	OPENWRT RELEVANT	README describes the unique strategy-set panel and detector workflow ported to OpenWrt.
-docs/superpowers/specs/2026-09-26-unique-strategy-set-design.md	p-85.13:docs/superpowers/specs/2026-09-26-unique-strategy-set-design.md	6bf410b7348bdf0eb5fbd2ff7cefbdf33192314a	OPENWRT RELEVANT	The feature's staged pool and multi-IP contracts are implemented in common CGI and detector paths; stale measurement details stay recorded in DOC-02.
+docs/superpowers/specs/2026-09-26-unique-strategy-set-design.md	-	6bf410b7348bdf0eb5fbd2ff7cefbdf33192314a	OPENWRT RELEVANT	The feature's staged pool and multi-IP contracts are implemented in common CGI and detector paths; stale measurement details stay recorded in DOC-02.
