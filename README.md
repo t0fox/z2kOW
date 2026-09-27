@@ -17,6 +17,8 @@
   ·
   <a href="./docs/openwrt-adapter-contract.md"><strong>Архитектура</strong></a>
   ·
+  <a href="./UPSTREAM.md"><strong>Upstream sync</strong></a>
+  ·
   <a href="https://github.com/t0fox/z2kOW/actions/workflows/ci.yml"><strong>CI</strong></a>
 </p>
 
@@ -107,7 +109,7 @@ OpenWrt compatibility adapter
 
 ## 2. Скачай CI artifact
 
-Открой зелёный workflow **CI** для `feat/openwrt-adapter` и скачай artifact вида:
+Открой зелёный workflow **CI** для `main` и скачай artifact вида:
 
 ```text
 z2k-openwrt-CI-SNAPSHOT-<commit>
