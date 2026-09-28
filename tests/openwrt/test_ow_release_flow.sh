@@ -102,7 +102,7 @@ _reset_fixture() {
 _run_preflight() {
     _reset_fixture
     python3 "$PREFLIGHT" --version "$_VERSION" --target-sha "$_TARGET_SHA" \
-        --confirm "RELEASE v$_VERSION" --repository owner/repo --dry-run true "$@" \
+        --confirm "RELEASE v$_VERSION" --repository owner/repo --dry-run true \
         >"$T/output" 2>&1
     _RUN_RC=$?
 }
