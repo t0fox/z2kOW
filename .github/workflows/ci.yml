@@ -1223,12 +1223,12 @@ jobs:
           test ! -x "$RUNNER_TEMP/approot/opt/zapret2/lua/zapret-lib.lua"
 
       # Upgrade-регрессия K (live-урок: unversioned DEPENDS не co-upgrade'ит).
-      # Phase 1: предыдущий snapshot ставится в чистый approot2.
-      # Phase 2: ОДНА canonical user-операция `apk upgrade z2k-webpanel`
-      # против нового фида обязана дотянуть всё до версий НОВОГО фида
-      # (adapter — versioned EXTRA_DEPENDS, runtime — dependency resolver,
-      # его никто не называет).
-      - name: Upgrade pinned snapshot to feed versions via single action
+      # Выполняется только для router-update: CI snapshot имеет APK prerelease
+      # version и корректно сортируется ниже уже установленного stable r6.
+      # Snapshot dependency closure проверяется шагом Feed resolution выше;
+      # этот шаг доказывает естественный upgrade stable r6 -> stable r80.
+      - name: Upgrade previous stable packages to router-update feed in one action
+        if: ${{ inputs.package_mode == 'router-update' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
