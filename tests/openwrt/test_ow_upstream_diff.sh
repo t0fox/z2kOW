@@ -199,10 +199,15 @@ ALLOWLIST="$ALLOWLIST tests/test_unique_strategy_set.sh z2k-detect/cmd/z2k-detec
 ALLOWLIST="$ALLOWLIST docs/superpowers/specs/2026-09-26-unique-strategy-set-design.md files/init.d/S51z2k-warp files/ndm/90-z2k-tg-redirect.sh files/ndm/91-z2k-http-tunnel-redirect.sh files/ndm/93-z2k-warp.sh files/ndm/94-z2k-ppe-deoffload.sh files/ndm/95-z2k-scheduler-watchdog.sh lib/utils.sh tests/test_panel_auth.sh tests/test_release_map.sh tests/test_shell_review_fixes.sh tests/test_warp_init_thin.sh tests/test_warp_ndm_hook.sh"
 ALLOWLIST="$ALLOWLIST .github/workflows/sync-upstream.yml UPSTREAM.json UPSTREAM.md tools/sync-upstream.sh"
 ALLOWLIST="$ALLOWLIST scripts/openwrt/package-version.sh tests/openwrt/test_ow_package_version.sh"
+# Stage 9 production release path: dispatch-only build/preflight, offline
+# asset signing, operator runbook, pending live-gate record, and version notes.
+ALLOWLIST="$ALLOWLIST .github/workflows/release-openwrt.yml CHANGELOG.md docs/openwrt-release-acceptance.json docs/openwrt-release-operations.md scripts/openwrt/release-assets.py scripts/openwrt/release-preflight.py"
 # WEB-BLOCKER-01: keep the isolated browser regression and its pinned tooling
 # outside product runtime dependencies; extra-domains renders its route shell
 # before optional status enrichment can complete.
 ALLOWLIST="$ALLOWLIST package.json package-lock.json tests/browser/openwrt-panel.mjs webpanel/www/js/pages/extra-domains.js"
+# Generated Python bytecode is local-only output from the release helpers.
+ALLOWLIST="$ALLOWLIST .gitignore"
 
 # Граница меряется от закреплённой upstream-синхронизации BASELINE. То, что
 # было включено в этот release snapshot (манифест, подпись, index.html...), —
@@ -271,6 +276,8 @@ else
             tests/test_build_matrix.sh|tests/test_update_content_verification.sh|tests/test_unique_strategy_set.sh|tests/test_warp_games.sh|tests/test_warp_script.sh|tests/test_warp_missing_not_an_error.sh|tests/test_warp_register_retry.sh|z2k-warpd/internal/engine/engine_test.go|z2k-warpd/internal/transport/wg/memory_test.go|z2k-warpd/internal/transport/wg/bind_test.go) continue ;;
             docs/superpowers/specs/2026-09-26-unique-strategy-set-design.md|files/init.d/S51z2k-warp|files/ndm/90-z2k-tg-redirect.sh|files/ndm/91-z2k-http-tunnel-redirect.sh|files/ndm/93-z2k-warp.sh|files/ndm/94-z2k-ppe-deoffload.sh|files/ndm/95-z2k-scheduler-watchdog.sh|lib/utils.sh|tests/test_panel_auth.sh|tests/test_release_map.sh|tests/test_shell_review_fixes.sh|tests/test_warp_init_thin.sh|tests/test_warp_ndm_hook.sh) continue ;;
             .github/workflows/sync-upstream.yml|UPSTREAM.json|UPSTREAM.md|tools/sync-upstream.sh) continue ;;
+            .github/workflows/release-openwrt.yml|CHANGELOG.md|docs/openwrt-release-acceptance.json|docs/openwrt-release-operations.md|scripts/openwrt/release-assets.py|scripts/openwrt/release-preflight.py) continue ;;
+            .gitignore) continue ;;
             UPDATES.json|UPDATES.json.sig)
                 # p-86.1 source sync is independent from the published OpenWrt
                 # integration manifest. Keep its bytes/signature pinned to the

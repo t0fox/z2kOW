@@ -41,7 +41,7 @@ case "$MODE" in
     release)
         [ -n "$PRODUCT_VERSION" ] || die 'release mode требует product version X.Y.Z'
         command -v python3 >/dev/null 2>&1 || die 'нужен python3 для проверки product version'
-        python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", sys.argv[1]) else 1)' "$PRODUCT_VERSION" \
+        python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", sys.argv[1]) else 1)' "$PRODUCT_VERSION" \
             || die "product version должна иметь форму X.Y.Z: [$PRODUCT_VERSION]"
         _version="$PRODUCT_VERSION"
         _release=1

@@ -43,6 +43,26 @@ if cmp -s "$T/adapter-api.orig" "$REPO/package/openwrt/ADAPTER_API"; then
 else
     _t_bad "R2 tracked: файл не возвращён побайтово"
 fi
+# Staged-only changes also alter the source tree that a release would package.
+# Run the production _tree_dirty function against an isolated temporary repo:
+# the checkout running this test may itself have unrelated local edits.
+mkdir -p "$T/staged-only"
+git -C "$T/staged-only" init -q || exit 1
+git -C "$T/staged-only" config user.name "OpenWrt test"
+git -C "$T/staged-only" config user.email "openwrt-test@example.invalid"
+printf 'baseline\n' > "$T/staged-only/tracked.txt"
+git -C "$T/staged-only" add tracked.txt
+git -C "$T/staged-only" commit -qm baseline || exit 1
+printf 'staged source change\n' >> "$T/staged-only/tracked.txt"
+git -C "$T/staged-only" add tracked.txt
+sed -n '/^_tree_dirty() {/,/^}/p' "$BUILD" > "$T/tree-dirty.sh"
+if [ ! -s "$T/tree-dirty.sh" ]; then
+    _t_bad "R2 staged: could not load production _tree_dirty function"
+else
+    ROOT="$T/staged-only" sh -c '. "$1"; _tree_dirty' sh "$T/tree-dirty.sh" >/dev/null 2>&1
+    _staged_rc=$?
+    assert_eq "R2 staged-only rc (dirty returns 0)" "0" "$_staged_rc"
+fi
 # --dev проходит МИМО dirty-гейта дальше (до следующего гейта, не в прод)
 _out="$(sh "$BUILD" --dev --skip-tests --sdk "$T/no-sdk" --target mediatek/filogic \
     --arch aarch64_cortex-a53 --manifest "$REPO/UPDATES.json" --out "$T/dist" 2>&1)"

@@ -48,6 +48,8 @@ assert_eq "release mode emits product version with release 1" \
     "$_product_version|1" "$(_release_version "$_sha" "$_product_version")"
 _bad_release="$( _release_version "$_sha" '1.2' )"
 if [ -z "$_bad_release" ]; then _t_ok; else _t_bad "release helper accepted a non-X.Y.Z product version"; fi
+_bad_leading_zero_release="$( _release_version "$_sha" '01.2.3' )"
+if [ -z "$_bad_leading_zero_release" ]; then _t_ok; else _t_bad "release helper accepted a SemVer component with a leading zero"; fi
 
 # Exercise the canonical builder's read-only version query, which selects the
 # same helper/mode as a build without traversing manifest/seed/SDK work.
@@ -79,6 +81,10 @@ assert_contains "canonical make call passes scoped adapter version" \
     "$BUILD" 'Z2K_OW_PACKAGE_VERSION=$PKG_VERSION'
 assert_contains "canonical make call passes scoped adapter release" \
     "$BUILD" 'Z2K_OW_PACKAGE_RELEASE=$PKG_RELEASE'
+# The webpanel must require the adapter build selected by this invocation,
+# whether the canonical builder selected stable, snapshot, or release versions.
+assert_contains "webpanel adapter floor follows selected package mode" \
+    "$REPO/package/openwrt/Makefile" 'EXTRA_DEPENDS:=z2k-adapter (>=$(PKG_VERSION)-r$(PKG_RELEASE))'
 assert_not_contains "runtime Makefile does not consume adapter version override" \
     "$REPO/package/z2k-runtime/Makefile" 'Z2K_OW_PACKAGE_VERSION|Z2K_OW_PACKAGE_RELEASE'
 assert_not_contains "WARP runtime Makefile does not consume adapter version override" \

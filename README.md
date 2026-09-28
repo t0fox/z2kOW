@@ -68,9 +68,9 @@ z2kOW adapter
 
 ## Установка
 
-Пока используется CI snapshot.
+Стабильные версии будут публиковаться в [GitHub Releases](https://github.com/t0fox/z2kOW/releases). На текущем `main` первого production-релиза ещё нет: для проверки устройства доступен только CI snapshot из зелёного workflow **CI** для точного коммита `main`.
 
-Откройте зелёный workflow **CI** для ветки `main` и скачайте OpenWrt artifact. В нём находятся APK, индекс пакетов, checksums и provenance.
+CI snapshot — временная сборка для тестирования. Она не является стабильным обновлением и устанавливается с `--allow-untrusted`; не используйте её как production feed.
 
 Установка core:
 
@@ -104,6 +104,8 @@ nft list table inet zapret
 
 > [!NOTE]
 > CI snapshot использует `--allow-untrusted`. Это не финальная схема production feed/signing.
+
+Когда появится стабильный релиз, скачивайте APK только из соответствующей версии GitHub Release и сверяйте `SHA256SUMS` и `release-manifest.json`. Production-установка будет опираться на подписанный индекс пакетов и закреплённый публичный ключ; эти артефакты пока не опубликованы.
 
 ## Использование
 
@@ -262,6 +264,7 @@ main
 - [RT proxy contract](./docs/openwrt-rt-proxy-contract.md)
 - [WARP contract](./docs/openwrt-warp-contract.md)
 - [Release contract](./docs/openwrt-release-contract.md)
+- [Release operations](./docs/openwrt-release-operations.md)
 - [Upstream contracts](./docs/UPSTREAM-CONTRACTS.md)
 - [Upstream sync](./docs/UPSTREAM-SYNC.md)
 
