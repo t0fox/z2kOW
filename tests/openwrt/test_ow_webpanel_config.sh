@@ -190,20 +190,20 @@ _wait_marker() {
     return 1
 }
 _make_listener_conf 127.0.0.2 18082 foreign-split
+. "$PINIT" 2>/dev/null || { echo "FAIL[ow-webpanel-config]: init source for port lifecycle" >&2; exit 1; }
+procd_open_instance() { _procd_open=$((_procd_open + 1)); }
+procd_set_param() {
+    if [ "$1" = command ]; then _panel_cfg="$5"; fi
+    return 0
+}
+procd_close_instance() { return 0; }
+_procd_open=0 _panel_cfg=""
 lighttpd -D -f "$T/foreign-split.conf" > "$T/httplog/foreign-split.out" 2>&1 &
 _foreign_pid=$!
 if _wait_marker 127.0.0.2 18082 FOREIGN-LISTENER; then
     _foreign_sum="$(cksum "$T/foreign-split.conf" | awk '{print $1 ":" $2}')"
     printf '127.0.0.1\n' > "$WP_SETTINGS_DIR/bind"
     printf '18082\n' > "$WP_SETTINGS_DIR/port"
-    . "$PINIT" 2>/dev/null || _t_bad "init source for port lifecycle"
-    procd_open_instance() { _procd_open=$((_procd_open + 1)); }
-    procd_set_param() {
-        if [ "$1" = command ]; then _panel_cfg="$5"; fi
-        return 0
-    }
-    procd_close_instance() { return 0; }
-    _procd_open=0 _panel_cfg=""
     start_service > "$T/split-start.out" 2>&1
     _start_rc=$?
     if [ "$_start_rc" = 0 ] && [ "$_procd_open" = 1 ] && [ -n "$_panel_cfg" ]; then _t_ok
@@ -227,7 +227,7 @@ if _wait_marker 127.0.0.2 18082 FOREIGN-LISTENER; then
     wait "$_foreign_pid" 2>/dev/null
     _foreign_pid=""
 else
-    _t_bad "could not start foreign listener on 127.0.0.2:18082"
+    _t_bad "could not start foreign listener on 127.0.0.2:18082: $(cat "$T/httplog/foreign-split.out" 2>/dev/null | tr '\n' '|')"
     kill "$_foreign_pid" 2>/dev/null
     wait "$_foreign_pid" 2>/dev/null
     _foreign_pid=""

@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "router_model": "Cudy WBR3000UAX v1",
+  "package_upgrade_baseline": {
+    "captured_at": "2026-09-28",
+    "method": "read-only SSH package version query",
+    "adapter": "z2k-adapter-0.1.0-r79",
+    "webpanel": "z2k-webpanel-0.1.0-r79",
+    "first_upgrade_safe_product_semver": "0.1.1"
+  },
+  "cudy_live_acceptance": {
+    "status": "pending",
+    "evidence": [],
+    "accepted_limitations": []
+  },
+  "web_luci_01": {
+    "status": "pending",
+    "evidence": []
+  },
+  "web_blocker_01": {
+    "status": "pending",
+    "evidence": [
+      "2026-09-28: user confirmed a live check: disabling the active browser blocker restored the working webpanel, confirming client-side resource blocking; the exact extension and filter rule were not captured.",
+      "2026-09-28: tests/browser/openwrt-panel.mjs passed in Chromium; request interception blocked /js/core/identity.js and /assets/openwrt/**, all 12 routes rendered. Live extension-enabled browser profile remains pending."
+    ]
+  }
+}

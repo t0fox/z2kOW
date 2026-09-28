@@ -4,7 +4,7 @@ set -eu
 
 die() { printf 'package-version: %s\n' "$1" >&2; exit 1; }
 
-[ "$#" -ge 3 ] || die 'usage: package-version.sh stable|snapshot|release REPO SOURCE_SHA [PRODUCT_VERSION]'
+[ "$#" -ge 3 ] || die 'usage: package-version.sh snapshot|release REPO SOURCE_SHA [PRODUCT_VERSION]'
 MODE="$1"
 ROOT="$2"
 SOURCE_SHA="$3"
@@ -22,27 +22,35 @@ _base_release="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$MAKEFILE" | head -1 | tr
 case "$_base_release" in ''|*[!0-9]*) die "PKG_RELEASE не целое: [$_base_release]" ;; esac
 
 case "$MODE" in
-    stable)
-        [ -z "$PRODUCT_VERSION" ] || die 'product version допустима только в release mode'
-        _version="$_base_version"
-        _release="$_base_release"
-        ;;
     snapshot)
         [ -z "$PRODUCT_VERSION" ] || die 'product version недопустима для snapshot'
         _epoch="$(git -C "$ROOT" show -s --format=%ct "$_resolved" 2>/dev/null)" \
             || die "нет committer timestamp для $_resolved"
         case "$_epoch" in ''|*[!0-9]*) die "неверный committer timestamp: [$_epoch]" ;; esac
         command -v python3 >/dev/null 2>&1 || die 'нужен python3 для UTC timestamp'
+        _snapshot_base_version="$(python3 - "$_base_version" <<'PY'
+import re
+import sys
+match = re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", sys.argv[1])
+if not match:
+    raise SystemExit(1)
+major, minor, patch = (int(part) for part in match.groups())
+print(f"{major}.{minor}.{patch + 1}")
+PY
+)" || die "PKG_VERSION must be SemVer for CI snapshots: [$_base_version]"
         _stamp="$(python3 -c 'import datetime,sys; print(datetime.datetime.fromtimestamp(int(sys.argv[1]), datetime.timezone.utc).strftime("%Y%m%d%H%M%S"))' "$_epoch")" \
             || die 'не удалось форматировать UTC timestamp'
-        _version="${_base_version}_alpha${_stamp}~${_resolved}"
-        _release="$_base_release"
+        _version="${_snapshot_base_version}_alpha${_stamp}~${_resolved}"
+        _release=1
         ;;
     release)
         [ -n "$PRODUCT_VERSION" ] || die 'release mode требует product version X.Y.Z'
         command -v python3 >/dev/null 2>&1 || die 'нужен python3 для проверки product version'
-        python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", sys.argv[1]) else 1)' "$PRODUCT_VERSION" \
+        python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", sys.argv[1]) else 1)' "$PRODUCT_VERSION" \
             || die "product version должна иметь форму X.Y.Z: [$PRODUCT_VERSION]"
+        python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", sys.argv[2]) and tuple(map(int,sys.argv[1].split("."))) > tuple(map(int,sys.argv[2].split("."))) else 1)' \
+            "$PRODUCT_VERSION" "$_base_version" \
+            || die "product version must be newer than legacy package baseline $_base_version because production release resets PKG_RELEASE to 1"
         _version="$PRODUCT_VERSION"
         _release=1
         ;;

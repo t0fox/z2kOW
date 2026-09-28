@@ -1,0 +1,387 @@
+name: OpenWrt production release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Product SemVer (X.Y.Z)
+        required: true
+        type: string
+      target_sha:
+        description: Full 40-character commit SHA; must be the current main HEAD
+        required: true
+        type: string
+      confirm:
+        description: Type exactly RELEASE vX.Y.Z
+        required: true
+        type: string
+      dry_run:
+        description: Build and verify a candidate without creating a tag or Release
+        required: true
+        default: true
+        type: boolean
+      candidate_run_id:
+        description: Successful dry-run workflow run whose candidate artifact will be signed offline (publish only)
+        required: false
+        type: string
+      signature_bundle_b64:
+        description: Base64 tar.gz from the offline signer with exactly packages.adb, release-manifest.json, SHA256SUMS, and SHA256SUMS.sig (publish only; max 48 KiB decoded)
+        required: false
+        type: string
+
+# A production release is an explicit, serialized operator action. The first
+# dispatch builds one candidate. After offline signing, a second dispatch
+# points at that exact successful candidate run and supplies the signed overlay.
+concurrency:
+  group: z2kow-production-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    name: Build unsigned release candidate
+    if: inputs.dry_run
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+      TARGET_SHA: ${{ inputs.target_sha }}
+      CONFIRM: ${{ inputs.confirm }}
+    steps:
+      - name: Check out requested main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.target_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate exact main, confirmation, and successful CI
+        id: preflight
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main || { echo "dispatch ref must be refs/heads/main" >&2; exit 1; }
+          python3 scripts/openwrt/release-preflight.py \
+            --version "$VERSION" --target-sha "$TARGET_SHA" --confirm "$CONFIRM" \
+            --repository "$GITHUB_REPOSITORY" --dry-run true | tee "$RUNNER_TEMP/preflight.txt"
+          target_sha="$(sed -n 's/^target_sha=//p' "$RUNNER_TEMP/preflight.txt")"
+          test "$(git rev-parse HEAD)" = "$target_sha" || { echo "checkout does not match requested SHA" >&2; exit 1; }
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+          ci_run_id="$(sed -n 's/^ci_run_id=//p' "$RUNNER_TEMP/preflight.txt")"
+          [[ "$ci_run_id" =~ ^[0-9]+$ ]] || { echo "preflight omitted CI run id" >&2; exit 1; }
+          echo "ci_run_id=$ci_run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Verify upstream release pins
+        run: |
+          set -euo pipefail
+          sh scripts/openwrt/verify-upstream-manifest.sh
+          sh scripts/openwrt/verify-upstream-tags.sh
+
+      - name: Resolve pinned OpenWrt SDK
+        id: sdk
+        run: |
+          set -euo pipefail
+          pin="$(sh scripts/openwrt/build-release.sh --print-sdk-pin --target mediatek/filogic)"
+          echo "url=${pin%%|*}" >> "$GITHUB_OUTPUT"
+          echo "sha=${pin##*|}" >> "$GITHUB_OUTPUT"
+
+      - name: Install build host tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y zstd lighttpd
+
+      - name: Set up pinned Go toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.25.13
+          cache: true
+          cache-dependency-path: z2k-warpd/go.sum
+
+      - name: Download and verify pinned SDK
+        run: |
+          set -euo pipefail
+          sdk="$HOME/openwrt-sdk-25.12.5-mediatek-filogic"
+          mkdir -p "$RUNNER_TEMP/sdk-download" "$sdk"
+          curl -fSL --retry 3 --retry-all-errors \
+            -o "$RUNNER_TEMP/sdk-download/sdk.tar.zst" '${{ steps.sdk.outputs.url }}'
+          printf '%s  %s\n' '${{ steps.sdk.outputs.sha }}' "$RUNNER_TEMP/sdk-download/sdk.tar.zst" | sha256sum -c -
+          tar --zstd -xf "$RUNNER_TEMP/sdk-download/sdk.tar.zst" -C "$sdk" --strip-components=1
+          printf '%s\n' '${{ steps.sdk.outputs.sha }}' > "$sdk/.sdk-sha256-verified"
+
+      - name: Fetch and verify pinned runtime source
+        run: |
+          set -euo pipefail
+          url="$(sed -n 's|^PKG_SOURCE_URL:=\(.*\)|\1|p' package/z2k-runtime/Makefile | head -1 | tr -d ' \t\r')"
+          file="$(sed -n 's/^PKG_SOURCE:=\(.*\)/\1/p' package/z2k-runtime/Makefile | head -1 | tr -d ' \t\r')"
+          test -n "$url" && test -n "$file"
+          curl -fSL --retry 3 --retry-all-errors -o "$RUNNER_TEMP/$file" "$url$file"
+          sh scripts/openwrt/verify-runtime.sh --tarball "$RUNNER_TEMP/$file"
+          echo "Z2K_RT_TARBALL=$RUNNER_TEMP/$file" >> "$GITHUB_ENV"
+
+      - name: Generate OpenWrt manifest from this commit
+        env:
+          TARGET_SHA: ${{ steps.preflight.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          api_min="$(grep -E '^[[:space:]]*[0-9]+' package/openwrt/ADAPTER_API | tr -d '[:space:]')"
+          test -n "$api_min"
+          sh scripts/openwrt/gen-openwrt-manifest.sh \
+            --source-manifest UPDATES.json --tree "$GITHUB_WORKSPACE" \
+            --ref "$TARGET_SHA" --api-min "$api_min" \
+            --out "$RUNNER_TEMP/openwrt-UPDATES.json"
+
+      - name: Build release packages once with the canonical builder
+        env:
+          OW_STRICT: "1"
+          TARGET_SHA: ${{ steps.preflight.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          sh scripts/openwrt/build-release.sh \
+            --release --product-version "$VERSION" \
+            --sdk "$HOME/openwrt-sdk-25.12.5-mediatek-filogic" \
+            --target mediatek/filogic --arch aarch64_cortex-a53 \
+            --manifest "$RUNNER_TEMP/openwrt-UPDATES.json" \
+            --out "$RUNNER_TEMP/dist" 2>&1 | tee "$RUNNER_TEMP/build-release.log"
+
+      - name: Assemble exact candidate assets and release-note preview
+        env:
+          TARGET_SHA: ${{ steps.preflight.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/build-release.log" "$RUNNER_TEMP/dist/build-release.log"
+          apkbin="$HOME/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk"
+          python3 scripts/openwrt/release-assets.py prepare \
+            --dist "$RUNNER_TEMP/dist" --out "$RUNNER_TEMP/candidate" \
+            --version "$VERSION" --source-sha "$TARGET_SHA" \
+            --ci-run-id '${{ steps.preflight.outputs.ci_run_id }}' \
+            --changelog CHANGELOG.md --apk-tool "$apkbin"
+          python3 scripts/openwrt/release-assets.py verify \
+            --bundle "$RUNNER_TEMP/candidate" --version "$VERSION" \
+            --source-sha "$TARGET_SHA" --apk-tool "$apkbin"
+
+      - name: Upload unsigned candidate for offline signing
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: z2k-openwrt-release-candidate-v${{ inputs.version }}-${{ steps.preflight.outputs.target_sha }}
+          path: ${{ runner.temp }}/candidate/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Verify offline signatures and publish immutable Release
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production-release
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+      TARGET_SHA: ${{ inputs.target_sha }}
+      CONFIRM: ${{ inputs.confirm }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      SIGNATURE_BUNDLE_B64: ${{ inputs.signature_bundle_b64 }}
+    steps:
+      - name: Check out requested main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.target_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Recheck live gates, exact main, CI, and unused release names
+        id: preflight
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main || { echo "dispatch ref must be refs/heads/main" >&2; exit 1; }
+          python3 scripts/openwrt/release-preflight.py \
+            --version "$VERSION" --target-sha "$TARGET_SHA" --confirm "$CONFIRM" \
+            --repository "$GITHUB_REPOSITORY" --dry-run false --require-live-gates \
+            | tee "$RUNNER_TEMP/preflight.txt"
+          target_sha="$(sed -n 's/^target_sha=//p' "$RUNNER_TEMP/preflight.txt")"
+          test "$(git rev-parse HEAD)" = "$target_sha" || { echo "checkout does not match requested SHA" >&2; exit 1; }
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+          ci_run_id="$(sed -n 's/^ci_run_id=//p' "$RUNNER_TEMP/preflight.txt")"
+          [[ "$ci_run_id" =~ ^[0-9]+$ ]] || { echo "preflight omitted CI run id" >&2; exit 1; }
+          echo "ci_run_id=$ci_run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Require candidate and offline signature inputs
+        env:
+          TARGET_SHA: ${{ steps.preflight.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo "candidate_run_id is required and must be a positive run id" >&2; exit 1; }
+          test -n "$SIGNATURE_BUNDLE_B64" || { echo "offline signature bundle is required; no private key is stored in Actions" >&2; exit 1; }
+          test "${#SIGNATURE_BUNDLE_B64}" -le 60000 || { echo "encoded signature bundle exceeds dispatch input limit" >&2; exit 1; }
+          test -s package/openwrt/keys/z2k-feed.pem || { echo "pinned production APK feed public key is missing" >&2; exit 1; }
+
+      - name: Verify candidate run identity and its exact artifact
+        env:
+          CI_RUN_ID: ${{ steps.preflight.outputs.ci_run_id }}
+          TARGET_SHA: ${{ steps.preflight.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          candidate="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID")"
+          jq -e --arg path '.github/workflows/release-openwrt.yml' \
+            --arg repo "$GITHUB_REPOSITORY" --arg sha "$TARGET_SHA" \
+            '.path == $path and .event == "workflow_dispatch" and .head_branch == "main" and .head_sha == $sha and .status == "completed" and .conclusion == "success" and .head_repository.full_name == $repo' \
+            <<<"$candidate" >/dev/null || { echo "candidate must be a successful release-openwrt workflow_dispatch on exact main SHA" >&2; exit 1; }
+          artifact_name="z2k-openwrt-release-candidate-v${VERSION}-${TARGET_SHA}"
+          artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID/artifacts?per_page=100")"
+          jq -e --arg name "$artifact_name" '.artifacts | any(.[]; .name == $name and .expired == false)' \
+            <<<"$artifacts" >/dev/null || { echo "exact candidate artifact is missing or expired" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/candidate"
+          gh run download "$CANDIDATE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "$artifact_name" --dir "$RUNNER_TEMP/candidate"
+          python3 scripts/openwrt/release-assets.py verify \
+            --bundle "$RUNNER_TEMP/candidate" --version "$VERSION" \
+            --source-sha "$TARGET_SHA"
+          jq -e --arg version "$VERSION" --arg sha "$TARGET_SHA" --arg ci "$CI_RUN_ID" \
+            '.version == $version and .source_sha == $sha and (.ci_run_id | tostring) == $ci' \
+            "$RUNNER_TEMP/candidate/release-manifest.json" >/dev/null \
+            || { echo "candidate manifest does not match this version, SHA, and exact-SHA CI run" >&2; exit 1; }
+
+      - name: Validate and unpack the four-file offline signing overlay
+        env:
+          TARGET_SHA: ${{ steps.preflight.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/signature-overlay"
+          printf '%s' "$SIGNATURE_BUNDLE_B64" | base64 --decode > "$RUNNER_TEMP/signature-overlay.tar.gz"
+          python3 - "$RUNNER_TEMP/signature-overlay.tar.gz" "$RUNNER_TEMP/signature-overlay" <<'PY'
+          import gzip, io, pathlib, sys, tarfile
+
+          archive_path, output = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+          allowed = {"packages.adb", "release-manifest.json", "SHA256SUMS", "SHA256SUMS.sig"}
+          if archive_path.stat().st_size > 48 * 1024:
+              raise SystemExit("offline signature bundle exceeds 48 KiB")
+          try:
+              with gzip.open(archive_path, "rb") as compressed:
+                  raw_tar = compressed.read(64 * 1024 + 1)
+              if len(raw_tar) > 64 * 1024:
+                  raise SystemExit("expanded offline signature archive exceeds 64 KiB")
+              with tarfile.open(fileobj=io.BytesIO(raw_tar), mode="r:") as archive:
+                  members = archive.getmembers()
+                  names = [member.name for member in members]
+                  if len(names) != len(allowed) or set(names) != allowed:
+                      raise SystemExit("offline signature bundle must contain exactly the four documented files")
+                  if any(not member.isfile() or member.size < 1 for member in members):
+                      raise SystemExit("offline signature bundle contains a non-regular or empty entry")
+                  if sum(member.size for member in members) > 48 * 1024:
+                      raise SystemExit("expanded offline signature bundle exceeds 48 KiB")
+                  for member in members:
+                      if pathlib.PurePosixPath(member.name).name != member.name:
+                          raise SystemExit("offline signature bundle paths must be flat basenames")
+                      extracted = archive.extractfile(member)
+                      if extracted is None:
+                          raise SystemExit("could not read offline signature bundle entry")
+                      (output / member.name).write_bytes(extracted.read())
+          except (OSError, tarfile.TarError) as exc:
+              raise SystemExit(f"invalid offline signature bundle: {exc}")
+          PY
+
+      - name: Resolve and download the pinned SDK verifier
+        id: sdk
+        env:
+          TARGET_SHA: ${{ steps.preflight.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          pin="$(sh scripts/openwrt/build-release.sh --print-sdk-pin --target mediatek/filogic)"
+          echo "url=${pin%%|*}" >> "$GITHUB_OUTPUT"
+          echo "sha=${pin##*|}" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify the pinned SDK verifier
+        env:
+          SDK_URL: ${{ steps.sdk.outputs.url }}
+          SDK_SHA: ${{ steps.sdk.outputs.sha }}
+        run: |
+          set -euo pipefail
+          sdk="$HOME/openwrt-sdk-25.12.5-mediatek-filogic"
+          mkdir -p "$RUNNER_TEMP/sdk-download" "$sdk"
+          curl -fSL --retry 3 --retry-all-errors -o "$RUNNER_TEMP/sdk-download/sdk.tar.zst" "$SDK_URL"
+          printf '%s  %s\n' "$SDK_SHA" "$RUNNER_TEMP/sdk-download/sdk.tar.zst" | sha256sum -c -
+          tar --zstd -xf "$RUNNER_TEMP/sdk-download/sdk.tar.zst" -C "$sdk" --strip-components=1
+
+      - name: Overlay signatures and verify all release bytes and trust pins
+        env:
+          TARGET_SHA: ${{ steps.preflight.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          candidate="$RUNNER_TEMP/candidate"
+          overlay="$RUNNER_TEMP/signature-overlay"
+          cp "$overlay/packages.adb" "$overlay/release-manifest.json" "$overlay/SHA256SUMS" "$overlay/SHA256SUMS.sig" "$candidate/"
+          apkbin="$HOME/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk"
+          python3 scripts/openwrt/release-assets.py verify \
+            --bundle "$candidate" --version "$VERSION" --source-sha "$TARGET_SHA" \
+            --apk-tool "$apkbin" --final --public-key package/openwrt/keys/z2k-feed.pem \
+            --apk-key-dir package/openwrt/keys
+          openssl dgst -sha256 -verify package/openwrt/keys/z2k-feed.pem \
+            -signature "$candidate/SHA256SUMS.sig" "$candidate/SHA256SUMS"
+          cp package/openwrt/keys/z2k-feed.pem "$candidate/z2k-feed.pem"
+
+      - name: Create immutable version tag at the requested commit
+        env:
+          TARGET_SHA: ${{ steps.preflight.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$tag" -f "sha=$TARGET_SHA"
+          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.sha')"
+          test "$tag_sha" = "$TARGET_SHA" || { echo "created release tag does not point at requested SHA" >&2; exit 1; }
+
+      - name: Create GitHub Release from the version changelog section
+        env:
+          TARGET_SHA: ${{ steps.preflight.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          candidate="$RUNNER_TEMP/candidate"
+          release_json="$RUNNER_TEMP/release.json"
+          jq -n --arg tag "v${VERSION}" --arg sha "$TARGET_SHA" \
+            --arg name "z2kOW v${VERSION}" --rawfile body "$candidate/RELEASE_NOTES.md" \
+            '{tag_name:$tag,target_commitish:$sha,name:$name,body:$body,draft:true,prerelease:false}' \
+            > "$release_json"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/releases" --input "$release_json"
+          gh release upload "v${VERSION}" \
+            "$candidate"/z2k-*.apk "$candidate/packages.adb" \
+            "$candidate/SHA256SUMS" "$candidate/SHA256SUMS.sig" \
+            "$candidate/release-manifest.json" "$candidate/z2k-feed.pem" \
+            --repo "$GITHUB_REPOSITORY"
+
+      - name: Verify complete draft assets, then publish the Release
+        env:
+          TARGET_SHA: ${{ steps.preflight.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          candidate="$RUNNER_TEMP/candidate"
+          tag="v${VERSION}"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.sha')" = "$TARGET_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" \
+            --jq '[.tag_name, (.draft|tostring), (.prerelease|tostring)] | @tsv' \
+            | grep -Fx "$tag$(printf '\t')true$(printf '\t')false"
+          release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '.id')"
+          remote_assets="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '[.assets[].name] | sort | join("\n")')"
+          expected_assets="$(printf '%s\n' \
+            "$candidate"/z2k-*.apk "$candidate/packages.adb" "$candidate/SHA256SUMS" \
+            "$candidate/SHA256SUMS.sig" "$candidate/release-manifest.json" "$candidate/z2k-feed.pem" \
+            | sed 's|.*/||' | LC_ALL=C sort | tr '\n' '|' )"
+          actual_assets="$(printf '%s\n' "$remote_assets" | LC_ALL=C sort | tr '\n' '|')"
+          test "$actual_assets" = "$expected_assets" || { echo "published Release asset set differs from verified bundle" >&2; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '.assets' \
+            > "$RUNNER_TEMP/release-assets.json"
+          python3 scripts/openwrt/release-assets.py verify-remote \
+            --bundle "$candidate" --remote-assets "$RUNNER_TEMP/release-assets.json"
+          jq -n '{draft:false}' > "$RUNNER_TEMP/publish-release.json"
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            --input "$RUNNER_TEMP/publish-release.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" \
+            --jq '[.tag_name, (.draft|tostring), (.prerelease|tostring)] | @tsv' \
+            | grep -Fx "$tag$(printf '\t')false$(printf '\t')false"

@@ -1,10 +1,10 @@
 # Design review: OpenWrt webpanel
 
-**Status:** Visual implementation is on `codex/openwrt-visual-redesign`; exact-HEAD CI and package installation/live verification are pending. **Source baseline:** `origin/main` at `39c554510d8551bcd16ab2de88556321ec8501db`. **Live baseline:** Cudy WBR3000UAX v1, OpenWrt 25.12.5, adapter `0.1.0-r79`; the Strategies screen showed 140 rows at 1392 × 1104.
+**Status:** Visual implementation is merged with the current OpenWrt release/versioning work; exact-HEAD CI and package installation/live verification are pending. **Source baseline:** `origin/main` at `92a1bc3500e515807540a32e41e5ebec18bc5777`. **Live baseline:** Cudy WBR3000UAX v1, OpenWrt 25.12.5, adapter and webpanel `0.1.1_alpha20260928021846~92a1bc3500e515807540a32e41e5ebec18bc5777-r1`; the installed profile, theme, and wordmark still match the prior unredesigned assets. The Strategies screen showed 140 rows at 1392 × 1104.
 
 ### Summary
 
-**Rating: Good, pending live verification.** The panel now reads as a calm router control surface whose signature is one open route-ribbon mark beside the HTML wordmark `z2kOW`. The source and local Chromium review cover every primary route in both appearances; router installation and a fresh live visual review remain open.
+**Rating: Good, pending live verification.** The panel now reads as a calm router control surface whose signature is one open route-ribbon mark beside the HTML wordmark `z2kOW`. The source and local Chromium review cover every primary route in both appearances; a current-HEAD CI snapshot and fresh live visual review remain open.
 
 ### Critical
 
@@ -12,7 +12,7 @@ No active accessibility or navigation blocker was found in the local Chromium re
 
 ### Improvements
 
-No unresolved source-level High or Medium design finding remains from the first-pass audit. Before calling the delivery accepted, run exact-HEAD CI, install package `r80` through the supported package path, and repeat the visual review from fresh live responses.
+No unresolved source-level High or Medium design finding remains from the first-pass audit. Before calling the delivery accepted, run exact-HEAD CI, install its newer snapshot package through the supported package path, and repeat the visual review from fresh live responses.
 
 ### Craft notes
 
@@ -174,7 +174,7 @@ Use no ambient or looping motion. Limit any transition to direct state changes (
 - Keep all font, logo, favicon, theme, and supporting UI assets local so the panel works offline.
 - Add regression coverage for one lockup, exact HTML wordmark, curved/local SVG identity, favicon without text, no raster/remote references, no competing legacy identity, and fallback when identity assets or their optional loader are blocked.
 - Browser coverage must render Дашборд, Режимы, Стратегии, WARP, Исключения, Доп. домены, Диагностика, and Благодарности in both dark and light appearance; assert the theme and single identity; check visible keyboard focus and usable zoom/text scaling; capture console errors; and prove a failed branding asset does not blank route content. Verify visual density and responsive behavior on representative narrow and desktop widths.
-- Run the requested CI on the exact implementation HEAD and record its run/result separately from browser evidence. Only after CI is green, deploy through the whole package/update path to the Cudy WBR3000UAX v1 running OpenWrt 25.12.5 at `192.168.1.1:8088`; do not manually copy CSS/SVG. Leave LuCI untouched.
+- Run the requested CI on the exact implementation HEAD and record its run/result separately from browser evidence. Only after CI is green, deploy its newer CI snapshot through the whole package/update path to the Cudy WBR3000UAX v1 running OpenWrt 25.12.5 at `192.168.1.1:8088`; do not manually copy CSS/SVG. Leave LuCI untouched.
 - Capture before and after screenshots from the same live route and viewport when practical, and inspect all eight routes in both appearances. Separate source tests, browser checks, CI, package deployment, live browser, traffic, and soak evidence; report gaps explicitly.
 - Do not publish a release solely for the theme. Record the implementation under `[Unreleased]` in `CHANGELOG.md`.
 
@@ -190,7 +190,7 @@ Use no ambient or looping motion. Limit any transition to direct state changes (
 - [x] Zoom-equivalent viewport, accessible names, visible keyboard focus, and mobile targets verified in Chromium.
 - [x] Route/API/RPC/backend/persistence source remains unchanged; local route and branding-blocker regression coverage passes.
 - [x] Browser and asset regression coverage renders all primary routes in both appearances and covers focus, console, responsive, and blocker cases.
-- [ ] Exact HEAD CI is green; package is installed through the supported path on the specified Cudy router; LuCI is unchanged.
+- [ ] Exact HEAD CI is green; its package is installed through the supported path on the specified Cudy router; LuCI is unchanged.
 - [ ] Comparable live before/after screenshots captured; traffic and soak status stated separately.
 - [x] `[Unreleased]` updated; no theme-only release published.
 

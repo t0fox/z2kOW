@@ -19,12 +19,12 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=z2k-adapter
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=80
+PKG_RELEASE:=79
 # CI snapshots and explicit product releases override only this package file;
 # with no scoped override, the stable package version/release above remain the source.
 PKG_VERSION:=$(if $(Z2K_OW_PACKAGE_VERSION),$(Z2K_OW_PACKAGE_VERSION),$(PKG_VERSION))
 PKG_RELEASE:=$(if $(Z2K_OW_PACKAGE_RELEASE),$(Z2K_OW_PACKAGE_RELEASE),$(PKG_RELEASE))
-# RELEASE 80: single OpenWrt lockup and complete package-owned panel theme.
+# Full OpenWrt panel theme and lockup ship in the selected snapshot or release package.
 # RELEASE 79: blocker-safe optional identity module and neutral static profile.
 # RELEASE 78: common webpanel identity seam plus package-owned local profile assets.
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.

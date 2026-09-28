@@ -5,20 +5,7 @@ on:
     branches: ["**"]
   pull_request:
     branches: ["**"]
-  # Ручной запуск. 2026-08-06 релиз p-73 был запушен ровно в окно сбоя GitHub
-  # Actions: ни одного рана не создалось вовсе — и перезапустить было НЕЧЕГО,
-  # у workflow не было ручки. Релиз уехал юзерам без единого прогона CI и
-  # валидировался вручную постфактум. workflow_dispatch — та самая ручка.
   workflow_dispatch:
-    inputs:
-      package_mode:
-        description: OpenWrt package version mode
-        required: true
-        type: choice
-        default: ci-snapshot
-        options:
-          - ci-snapshot
-          - router-update
 
 # GITHUB_TOKEN по умолчанию умеет писать в репозиторий. Ни одной джобе здесь
 # запись не нужна, а z2k-enhanced — это ветка, с которой роутеры тянут
@@ -1028,26 +1015,17 @@ jobs:
             --refresh-stale-hashes \
             --out "$RUNNER_TEMP/openwrt-UPDATES.json"
 
-      # Вся сборка — каноническим скриптом (§4/§25 closure): логика НЕ
-      # дублируется в YAML. Обычный CI собирает snapshot; ручной router-update
-      # собирает stable package version и сохраняет артефакт без публикации релиза.
+      # Вся сборка — каноническим скриптом (§4/§25 closure): CI всегда создаёт
+      # только временный snapshot. Stable package identity живёт исключительно
+      # в release-openwrt.yml, после exact-SHA CI и ручных release gates.
       # OW_STRICT=1: любой SKIP в run.sh — FAIL (аудит, пункт 12). Z2K_RT_TARBALL
       # уже выставлен шагом Fetch выше — tarball-gated тесты идут динамически.
       - name: Build packages (canonical builder)
         env:
           OW_STRICT: "1"
-          PACKAGE_MODE: ${{ inputs.package_mode || 'ci-snapshot' }}
         run: |
           set -eu -o pipefail
-          if [ "$PACKAGE_MODE" = "router-update" ]; then
-            package_mode_args=()
-          elif [ "$PACKAGE_MODE" = "ci-snapshot" ]; then
-            package_mode_args=(--ci-snapshot)
-          else
-            echo "unknown package mode: $PACKAGE_MODE" >&2
-            exit 1
-          fi
-          sh scripts/openwrt/build-release.sh "${package_mode_args[@]}" \
+          sh scripts/openwrt/build-release.sh --ci-snapshot \
             --sdk ~/openwrt-sdk-25.12.5-mediatek-filogic \
             --target mediatek/filogic --arch aarch64_cortex-a53 \
             --manifest "$RUNNER_TEMP/openwrt-UPDATES.json" \
@@ -1223,12 +1201,10 @@ jobs:
           test ! -x "$RUNNER_TEMP/approot/opt/zapret2/lua/zapret-lib.lua"
 
       # Upgrade-регрессия K (live-урок: unversioned DEPENDS не co-upgrade'ит).
-      # Выполняется только для router-update: CI snapshot имеет APK prerelease
-      # version и корректно сортируется ниже уже установленного stable r6.
-      # Snapshot dependency closure проверяется шагом Feed resolution выше;
-      # этот шаг доказывает естественный upgrade stable r6 -> stable r80.
-      - name: Upgrade previous stable packages to router-update feed in one action
-        if: ${{ inputs.package_mode == 'router-update' }}
+      # Исторический stable baseline 0.1.0-r6 обновляется до текущего CI
+      # snapshot (следующая patch prerelease 0.1.1_alpha); обычный apk upgrade
+      # доказывает co-upgrade зависимостей без принудительного downgrade.
+      - name: Upgrade previous stable packages to CI snapshot feed in one action
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1300,7 +1276,7 @@ jobs:
       - name: Upload OpenWrt package artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: z2k-openwrt-${{ inputs.package_mode || 'CI-SNAPSHOT' }}-${{ github.sha }}
+          name: z2k-openwrt-snapshot-${{ github.sha }}
           path: |
             ${{ runner.temp }}/dist/z2k-adapter-*.apk
             ${{ runner.temp }}/dist/z2k-webpanel-*.apk

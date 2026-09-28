@@ -68,18 +68,18 @@ assert_contains "webpanel depends adapter" "$MK" "DEPENDS:=z2k-adapter +lighttpd
 # Versioned DEPENDS (live-урок p-84.17 §12): constraint'ы обязаны равняться
 # текущим версиям пакетов — иначе lockstep дрейфует молча.
 # adapter: PKG_VERSION-PKG_RELEASE этого же файла; runtime: из его Makefile.
-_aver="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$MK" | head -1 | tr -d ' \t\r\n')"
 _arel="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$MK" | head -1 | tr -d ' \t\r\n')"
 _rver="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$REPO/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
 _rrel="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$REPO/package/z2k-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
 _wrver="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$REPO/package/z2k-warp-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
 _wrrel="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$REPO/package/z2k-warp-runtime/Makefile" | head -1 | tr -d ' \t\r\n')"
-assert_contains "webpanel dep follows selected adapter version" "$MK" 'EXTRA_DEPENDS:=z2k-adapter (>=$(PKG_VERSION)-r$(PKG_RELEASE))'
+assert_contains "webpanel dep == adapter version" "$MK" \
+    'EXTRA_DEPENDS:=z2k-adapter (>=$(PKG_VERSION)-r$(PKG_RELEASE))'
 assert_contains "adapter dep == runtime version" "$MK" "EXTRA_DEPENDS:=z2k-zapret2-runtime (>=${_rver}-r${_rrel})"
 assert_contains "adapter dep == WARP runtime version" "$MK" "z2k-warp-runtime (>=${_wrver}-r${_wrrel})"
-# The branding profile ships in the adapter APK, so package bytes need a new
-# release number to upgrade over an already-installed adapter.
-assert_eq "adapter release bumped for complete OpenWrt panel theme" "80" "$_arel"
+# Product CI/release modes select their own version; preserve the legacy
+# package baseline until the separately gated production release is approved.
+assert_eq "legacy adapter package release baseline" "79" "$_arel"
 assert_contains "nounset CGI probe remains guarded" "$REPO/platform/openwrt/customd.sh" \
     'nounset must not abort this probe'
 assert_contains "BusyBox-safe FLOWOFFLOAD reader shipped" "$REPO/platform/openwrt/env.sh" \
