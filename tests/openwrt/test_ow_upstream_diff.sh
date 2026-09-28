@@ -268,7 +268,7 @@ else
     for _f in $_bad; do
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
-            .agents/skills/apple-design/*|skills-lock.json|CHANGELOG.md|docs/openwrt-webpanel-redesign-spec.md|webpanel/www/js/chrome.js|webpanel/www/js/pages/strategies.js) continue ;;
+            .agents/skills/apple-design/*|skills-lock.json|CHANGELOG.md|docs/openwrt-webpanel-redesign-spec.md|webpanel/www/js/chrome.js|webpanel/www/js/pages/strategies.js|.github/workflows/release-openwrt.yml|docs/openwrt-release-acceptance.json|docs/openwrt-release-operations.md|scripts/openwrt/release-assets.py|scripts/openwrt/release-preflight.py) continue ;;
             scripts/openwrt/package-version.sh) continue ;;
             package.json|package-lock.json|tests/browser/openwrt-panel.mjs|webpanel/www/js/pages/extra-domains.js) continue ;;
             z2k-warpd/internal/domainroute/nft_pairset.go|z2k-warpd/internal/domainroute/nft_pairset_test.go|z2k-warpd/openwrt-overlay/overlay.json|z2k-warpd/openwrt-overlay/ipset.go|z2k-warpd/openwrt-overlay/go.mod) continue ;;
@@ -282,7 +282,6 @@ else
             tests/test_build_matrix.sh|tests/test_update_content_verification.sh|tests/test_unique_strategy_set.sh|tests/test_warp_games.sh|tests/test_warp_script.sh|tests/test_warp_missing_not_an_error.sh|tests/test_warp_register_retry.sh|z2k-warpd/internal/engine/engine_test.go|z2k-warpd/internal/transport/wg/memory_test.go|z2k-warpd/internal/transport/wg/bind_test.go) continue ;;
             docs/superpowers/specs/2026-09-26-unique-strategy-set-design.md|files/init.d/S51z2k-warp|files/ndm/90-z2k-tg-redirect.sh|files/ndm/91-z2k-http-tunnel-redirect.sh|files/ndm/93-z2k-warp.sh|files/ndm/94-z2k-ppe-deoffload.sh|files/ndm/95-z2k-scheduler-watchdog.sh|lib/utils.sh|tests/test_panel_auth.sh|tests/test_release_map.sh|tests/test_shell_review_fixes.sh|tests/test_warp_init_thin.sh|tests/test_warp_ndm_hook.sh) continue ;;
             .github/workflows/sync-upstream.yml|UPSTREAM.json|UPSTREAM.md|tools/sync-upstream.sh) continue ;;
-            .github/workflows/release-openwrt.yml|CHANGELOG.md|docs/openwrt-release-acceptance.json|docs/openwrt-release-operations.md|scripts/openwrt/release-assets.py|scripts/openwrt/release-preflight.py) continue ;;
             .gitignore) continue ;;
             UPDATES.json|UPDATES.json.sig)
                 # p-86.1 source sync is independent from the published OpenWrt
