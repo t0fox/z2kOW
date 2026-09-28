@@ -92,12 +92,12 @@ export function strategiesShell(activeId, bodyHtml) {
 export async function renderState() {
   $app.innerHTML = strategiesShell("live", `
     <section class="card unique-set-card" aria-labelledby="unique-set-title">
-      <div class="unique-set-topline"><span class="unique-set-badge">ЭКСПЕРИМЕНТАЛЬНО!!!</span></div>
+      <div class="unique-set-topline"><span class="unique-set-badge">Экспериментальная функция</span></div>
       <h3 id="unique-set-title">Уникальный набор стратегий</h3>
       <p class="desc">Стратегии будут подобраны и применены специально для вашего провайдера.</p>
       <div class="btn-row">
         <button class="btn btn-primary" id="unique-set-start" type="button">Создать уникальный набор</button>
-        <button class="btn btn-danger" id="unique-set-reset-all" type="button">Вернуть все категории к автоматике</button>
+        <button class="btn btn-secondary" id="unique-set-reset-all" type="button">Вернуть все категории к автоматике</button>
       </div>
       <p class="desc unique-set-status" id="unique-set-status" role="status" aria-live="polite"></p>
     </section>

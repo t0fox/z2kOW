@@ -336,20 +336,15 @@ body {
 .brand {
   display: inline-flex;
   align-items: center;
+  gap: 10px;
   flex-shrink: 0;
   text-decoration: none;
   color: var(--text);
-  transition: transform var(--dur-micro) var(--spring-snappy);
+  transition: color var(--dur-micro) var(--spring-smooth);
 }
-.brand:hover { transform: translateY(-1px); }
-.brand svg { display: block; }
-.brand svg[hidden] { display: none; }
-.brand-profile-logo { display: block; width: 200px; height: 48px; object-fit: contain; }
-.brand-profile-logo[hidden] { display: none; }
-/* "2" glyph — accent цвет (текущий теal/любой выбранный --accent) */
-.brand-accent-glyph { fill: var(--accent); }
-/* "ANTIDPI · KEENETIC" tagline — muted, читается без давления */
-.brand-tagline { fill: var(--text-muted); }
+.brand:hover { color: var(--text); }
+.brand-profile-logo { display: block; width: 34px; height: 34px; object-fit: contain; flex: 0 0 34px; }
+.brand-wordmark { display: block; color: inherit; font-size: 18px; font-weight: 650; line-height: 1; letter-spacing: -0.04em; }
 
 /* Default (desktop) — sidebar layout. Mobile media query overrides ниже. */
 #nav {

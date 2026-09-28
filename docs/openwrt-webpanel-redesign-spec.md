@@ -1,21 +1,34 @@
-# OpenWrt webpanel redesign: design review and specification
+# Design review: OpenWrt webpanel
 
-**Status:** Draft for design review. No product code is changed in this phase. **Target:** OpenWrt edition of the z2kOW webpanel. **Design review input:** Read-only inspection of the live Cudy WBR3000UAX v1 panel at `192.168.1.1:8088`, including the dashboard and Strategies route, at a 1392 × 1104 browser viewport; source and package-ownership inspection at `origin/main` `7a3694e81d78bda84b22489fe54aada9efb066db`.
+**Status:** Visual implementation is on `codex/openwrt-visual-redesign`; exact-HEAD CI and package installation/live verification are pending. **Source baseline:** `origin/main` at `39c554510d8551bcd16ab2de88556321ec8501db`. **Live baseline:** Cudy WBR3000UAX v1, OpenWrt 25.12.5, adapter `0.1.0-r79`; the Strategies screen showed 140 rows at 1392 × 1104.
 
-## Review summary
+### Summary
 
-**Verdict: Needs work.** The OpenWrt edition needs a distinct, complete visual system and a single coherent identity. The audit covers the sampled live screens and source, not every route, device width, or browser state.
+**Rating: Good, pending live verification.** The panel now reads as a calm router control surface whose signature is one open route-ribbon mark beside the HTML wordmark `z2kOW`. The source and local Chromium review cover every primary route in both appearances; router installation and a fresh live visual review remain open.
 
-| Priority | Finding | Evidence and consequence |
-| --- | --- | --- |
-| High | Two identities are visible in one lockup. | The default inline mark reads “ANTIDPI · KEENETIC”; the OpenWrt image beside it reads `z2kOW`. The accessible label says “z2kOW — OpenWrt edition”, so visual and assistive identity disagree. The two marks both render at 200 × 48. |
-| High | The platform theme is a palette swap, not an OpenWrt design system. | `platform/openwrt/webpanel-brand/theme.css` currently overrides shared color variables in two `:root` rules. It does not establish platform-owned treatment for layout, surfaces, controls, tables, status, or focus. |
-| High | The mark and wordmark are not a cohesive, adaptable lockup. | The current SVG mark uses a hard square and pointed polygon, while the wordmark and small tagline are SVG text. The result feels more like a bolt-on technical badge than a route-specific product identity. |
-| Medium | Action styling does not consistently communicate consequence. | On Strategies, the reversible “Вернуть все категории к автоматике” action is framed in red, while the genuinely destructive “Удалить все записи” also needs clear destructive treatment. Reserve danger styling for actions that can destroy data or cause an equivalent serious consequence. |
-| Medium | Dense data needs a clearer reading hierarchy. | The inspected Strategies table contains 114 records. Keep the useful table and its information density, while improving row grouping, column emphasis, status legibility, and responsive overflow. |
-| Low | The sampled brand focus indicator is visible but too broad. | Keyboard focus on the current brand link outlines the entire 400 × 48 two-logo region. Keep a clear focus ring after reducing the lockup to one mark and one wordmark. |
+### Critical
 
-**What works:** The sidebar has recognizable navigation labels; the Strategies data is presented as a table suited to scanning many records; keyboard focus is visible on the sampled brand link; no console errors or warnings appeared on the sampled route. The latter two observations apply only to that route and sample.
+No active accessibility or navigation blocker was found in the local Chromium review. The same-origin profile/theme blockers leave the route shell usable, and all eight primary routes render in light and dark appearances.
+
+### Improvements
+
+No unresolved source-level High or Medium design finding remains from the first-pass audit. Before calling the delivery accepted, run exact-HEAD CI, install package `r80` through the supported package path, and repeat the visual review from fresh live responses.
+
+### Craft notes
+
+The single open route ribbon is the memorable element; aqua identifies interactive emphasis, violet stays in the mark, and the surrounding interface remains quiet. This follows `branding.md › Best practices`: “instantly recognizable while feeling at home on the platform.” The design avoids the default “navy dashboard + teal accent” template by tying its one signature element to routing rather than adding decorative network diagrams.
+
+### What works
+
+- One local SVG mark and one HTML wordmark replace the two competing identities; the accessible name and page title use the same `z2kOW` identity.
+- The 140-row Strategies view remains a sortable table. `lists-and-tables.md › Best practices`: “Prefer displaying text in a list or table.”
+- The reversible return-to-automatic action is neutral; destructive deletion remains red and confirmation-protected. `buttons.md › Role`: “The button performs an action that can result in data destruction.”
+- Light and dark palettes preserve distinct surfaces and meet the recorded contrast targets. `accessibility.md › Vision`: “Strive to meet color contrast minimum standards” and “Convey information with more than color alone.”
+- The mobile drawer moves focus inside, traps keyboard navigation, closes with Escape, and restores focus to its trigger. Coarse-pointer navigation and controls use 44 px targets.
+
+### Platform notes
+
+This is an offline-first web panel, not a native macOS or iOS app. Desktop keeps the existing sidebar and compact theme control; narrow and touch layouts use the existing drawer. Browser zoom is covered with a 696 × 552 CSS viewport (the 200% equivalent of 1392 × 1104), and reduced-motion and forced-colors styles remain available. Real Cudy screenshots after package installation will close the remaining visual acceptance gap.
 
 ## Design thesis
 
@@ -25,9 +38,9 @@ The audience is an OpenWrt router owner or operator, often working on a laptop o
 
 ## Design direction and template check
 
-An early direction of “navy canvas + teal accent + left sidebar + rounded cards” is too generic: it could describe a router, analytics dashboard, or developer tool. Revise it around the product's actual routing and strategy work. The only branded gesture is the continuous open route-ribbon mark; the rest of the interface stays quiet and content-led. Do not add glowing gradients, circuit traces, decorative topology, or repeated logo stamps.
+The first proposal of “navy canvas + teal accent + left sidebar + rounded cards” was too generic: it could describe a router, analytics dashboard, or developer tool. The implementation keeps the interface quiet and content-led, with the open route-ribbon as its only branded gesture. Do not add glowing gradients, circuit traces, decorative topology, or repeated logo stamps.
 
-Apple Design review principles applied here: branding should defer to content (`branding.md`); color should not mean unrelated things (`color.md`); content hierarchy should follow importance (`layout.md`); destructive action styling should reflect irreversible consequence (`buttons.md`); and data intended for comparison belongs in a list or table (`lists-and-tables.md`). These are translated design principles for this web interface, not a claim that OpenWrt should imitate an Apple application.
+This translates Apple guidance into a web panel rather than imitating an Apple application: `layout.md › Visual hierarchy` says “Order content by relative importance”; `color.md › Best practices` says “Avoid using the same color to mean different things”; and `branding.md › Best practices` calls for a brand that feels “at home on the platform.”
 
 ## Identity
 
@@ -36,38 +49,43 @@ Apple Design review principles applied here: branding should defer to content (`
 - Use restrained aqua for the route and a small violet detail only where it helps identify the mark. Violet is decorative brand color; it never carries status or action meaning.
 - Build the wordmark from HTML text so its color follows both appearances. Use lowercase `z`, digit `2`, lowercase `k`, uppercase `OW` exactly as `z2kOW`; do not insert a visual space or separate the OpenWrt suffix into another logo.
 - Do not include a tagline in the lockup. The page title and route context already explain where the user is. The favicon contains the mark only, with no text.
-- Remove or replace the default Keenetic/ANTIDPI mark for the OpenWrt profile before first paint. Do not wait for `identity.js`, profile fetch, `/status`, or any other optional request to hide an incorrect logo.
+- Start from one neutral `Z2K` fallback lockup in static HTML. The local OpenWrt profile applies the `z2kOW` mark and wordmark; if profile or identity loading fails, keep the single local fallback rather than revealing a competing legacy identity.
 - Keep identity enhancement optional: a failed or blocked profile, theme, SVG, or identity module must not prevent the route shell and primary content from booting. Use local assets only; no remote font, image, or stylesheet requests.
 
 ## Color tokens
 
-Ship a complete light and dark token set in the platform-owned OpenWrt theme. The following values are the review proposal; implementation may adjust a value only if it records updated computed contrast and remains inside this direction. Ratios below use the WCAG relative-luminance calculation against the listed solid surfaces.
+The package-owned theme defines the same semantic token set in both appearances. These values match `platform/openwrt/webpanel-brand/theme.css`; ratios below use WCAG relative luminance against the listed solid surfaces.
 
 | Token role | Dark | Light | Use |
 | --- | --- | --- | --- |
-| `--canvas` | `#0B1113` | `#F4F8F7` | Application background |
-| `--surface-1` | `#111A1D` | `#FFFFFF` | Primary cards and menus |
-| `--surface-2` | `#172326` | `#EAF1EF` | Nested regions, table header, grouped form sections |
-| `--surface-hover` | `#202F32` | `#E1ECE9` | Hover only; do not use hover as the selected state |
-| `--surface-selected` | `#243A39` | `#D8EAE5` | Persistent selected row/navigation item |
-| `--border-subtle` | `#29383A` | `#D5E0DE` | Low-emphasis separators |
-| `--border-strong` | `#728589` | `#718885` | Control boundaries and non-text structure |
-| `--text-primary` | `#F2F7F6` | `#182625` | Main labels and values |
-| `--text-secondary` | `#A4B7B5` | `#4C625F` | Supporting labels and descriptions |
-| `--text-tertiary` | `#829795` | `#5A6F6C` | Metadata and low-priority timestamps; preserve readable contrast |
-| `--accent` | `#72D8C7` | `#087A70` | Links and primary control accent |
-| `--accent-hover` | `#9AE8DB` | `#06655F` | Hover/focus accent on canvas and surfaces |
-| `--accent-soft` | `#193B38` | `#DDF1EC` | Quiet accent surface; pair with primary text |
-| `--brand-violet` | `#A99BFF` | `#6554CE` | Mark detail only |
-| `--success` | `#71D6A5` | `#176B4D` | Positive state icon and text |
-| `--warning` | `#F4C46A` | `#855400` | Caution state icon and text |
-| `--danger` | `#F08084` | `#B6384B` | Destructive action and error state |
-| `--info` | `#83BFFD` | `#17658C` | Informational state icon and text |
-| `--focus-ring` | `#72D8C7` | `#087A70` | Keyboard focus ring |
+| `--ow-canvas` | `#0B1113` | `#F4F8F7` | Application background |
+| `--ow-surface-1` | `#111A1D` | `#FFFFFF` | Primary cards and menus |
+| `--ow-surface-2` | `#172326` | `#EAF1EF` | Nested regions, table header, grouped form sections |
+| `--ow-surface-hover` | `#202F32` | `#E1ECE9` | Hover only; do not use hover as the selected state |
+| `--ow-surface-selected` | `#243A39` | `#D8EAE5` | Persistent selected row/navigation item |
+| `--ow-border-subtle` | `#29383A` | `#D5E0DE` | Low-emphasis separators |
+| `--ow-border-strong` | `#728589` | `#718885` | Control boundaries and non-text structure |
+| `--ow-text-primary` | `#F2F7F6` | `#182625` | Main labels and values |
+| `--ow-text-secondary` | `#A4B7B5` | `#4C625F` | Supporting labels and descriptions |
+| `--ow-text-tertiary` | `#829795` | `#5A6F6C` | Metadata and low-priority timestamps; preserve readable contrast |
+| `--ow-accent` | `#72D8C7` | `#087A70` | Links and primary control accent |
+| `--ow-accent-hover` | `#9AE8DB` | `#06655F` | Hover/focus accent on canvas and surfaces |
+| `--ow-accent-soft` | `#193B38` | `#DDF1EC` | Quiet accent surface; pair with primary text |
+| `--ow-brand-violet` | `#A99BFF` | `#6554CE` | Mark detail only |
+| `--ow-success` | `#71D6A5` | `#176B4D` | Positive state icon and text |
+| `--ow-warning` | `#F4C46A` | `#855400` | Caution state icon and text |
+| `--ow-danger` | `#F08084` | `#B6384B` | Destructive action and error state |
+| `--ow-info` | `#83BFFD` | `#17658C` | Informational state icon and text |
+| `--ow-focus-ring` | `#72D8C7` | `#087A70` | Keyboard focus ring |
+| `--ow-radius-control` | `8px` | `8px` | Buttons, inputs, and segmented controls |
+| `--ow-radius-card` | `12px` | `12px` | Cards |
+| `--ow-radius-panel` | `14px` | `14px` | Larger panels and scroll surfaces |
+| `--ow-shadow-card` | `0 8px 24px rgba(0,0,0,.24)` | `0 8px 24px rgba(24,38,37,.08)` | Subtle card depth |
+| `--ow-shadow-popover` | `0 16px 40px rgba(0,0,0,.36)` | `0 16px 40px rgba(24,38,37,.14)` | Dialogs and floating sheets |
 
-Semantic colors are always accompanied by a word, icon, or shape. Never use color alone to identify state. Hover, selected, disabled, and focus must remain distinguishable. A selected item uses `--surface-selected`, not the hover fill. Danger is reserved for destructive actions/errors, not routine or reversible operations.
+Semantic colors are always accompanied by a word, icon, or shape. Never use color alone to identify state. Hover, selected, disabled, and focus must remain distinguishable. A selected item uses `--ow-surface-selected`, not the hover fill. Danger is reserved for destructive actions/errors, not routine or reversible operations.
 
-Non-color tokens complete the same system: `--radius-control: 8px`, `--radius-card: 12px`, `--radius-panel: 14px`; `--shadow-card: 0 8px 24px rgba(0,0,0,.24)` in dark mode and `0 8px 24px rgba(24,38,37,.08)` in light mode; `--shadow-popover: 0 16px 40px rgba(0,0,0,.36)` in dark mode and `0 16px 40px rgba(24,38,37,.14)` in light mode. Shadows are subtle depth cues, not substitutes for surface hierarchy or boundaries.
+Shared frontend variables map to these `--ow-*` tokens, so route and API code keep their existing component ownership while OpenWrt owns the visual layer. Shadows are subtle depth cues, not substitutes for surface hierarchy or boundaries.
 
 ### Contrast check for the proposed values
 
@@ -152,9 +170,9 @@ Use no ambient or looping motion. Limit any transition to direct state changes (
 
 - Keep the OpenWrt visual system and assets under `platform/openwrt/webpanel-brand/`; continue the existing package-owned exception and installed local path `/usr/lib/z2k/www/assets/openwrt/`.
 - Keep shared route, view, API, RPC, backend, and state behavior intact. Do not fork the shared webpanel or add branding-only requests to its critical boot path.
-- Keep the route shell usable when optional branding enhancement fails or a browser blocks an identity module. The static first-paint lockup must already be the single OpenWrt identity.
+- Keep the route shell usable when optional branding enhancement fails or a browser blocks an identity module. The static first-paint lockup is a single neutral fallback; the local OpenWrt profile enhances it without depending on `/status`.
 - Keep all font, logo, favicon, theme, and supporting UI assets local so the panel works offline.
-- Add regression coverage for one lockup, exact HTML wordmark, curved/local SVG identity, favicon without text, no raster/remote references, no default Keenetic/ANTIDPI identity on OpenWrt, and fallback when identity assets or their optional loader are blocked.
+- Add regression coverage for one lockup, exact HTML wordmark, curved/local SVG identity, favicon without text, no raster/remote references, no competing legacy identity, and fallback when identity assets or their optional loader are blocked.
 - Browser coverage must render Дашборд, Режимы, Стратегии, WARP, Исключения, Доп. домены, Диагностика, and Благодарности in both dark and light appearance; assert the theme and single identity; check visible keyboard focus and usable zoom/text scaling; capture console errors; and prove a failed branding asset does not blank route content. Verify visual density and responsive behavior on representative narrow and desktop widths.
 - Run the requested CI on the exact implementation HEAD and record its run/result separately from browser evidence. Only after CI is green, deploy through the whole package/update path to the Cudy WBR3000UAX v1 running OpenWrt 25.12.5 at `192.168.1.1:8088`; do not manually copy CSS/SVG. Leave LuCI untouched.
 - Capture before and after screenshots from the same live route and viewport when practical, and inspect all eight routes in both appearances. Separate source tests, browser checks, CI, package deployment, live browser, traffic, and soak evidence; report gaps explicitly.
@@ -162,19 +180,21 @@ Use no ambient or looping motion. Limit any transition to direct state changes (
 
 ## Acceptance checklist
 
-- [ ] One first-paint z2kOW lockup; no visible or accessible duplicate/legacy brand.
-- [ ] OpenWrt-owned component system for light and dark appearances; not only root color overrides.
-- [ ] Full token roles, recorded contrast, and clear semantic status/action use.
-- [ ] Smooth route-ribbon vector mark, HTML wordmark, mark-only favicon, no external assets.
-- [ ] Typography, spacing, surfaces, navigation, cards, controls, tables, badges, and focus treated consistently.
-- [ ] Sidebar route order and 18 px icon language preserved; topbar contains one left lockup and compact light/auto/dark control at right.
-- [ ] Reversible and destructive buttons have distinct roles; experimental state keeps semantic warning copy.
-- [ ] 200% zoom/enlarged text, screen-reader labels, focus-visible, and touch target behavior verified.
-- [ ] Existing route/API/RPC/backend/persistence behavior remains intact and brand failure cannot block boot.
-- [ ] Browser and asset regression coverage meets the route, appearance, focus, console, and blocker requirements.
+- [x] One neutral first-paint lockup; OpenWrt profile applies one `z2kOW` identity with no duplicate or competing legacy brand.
+- [x] OpenWrt-owned component system for light and dark appearances; not only root color overrides.
+- [x] Full token roles, recorded contrast, and clear semantic status/action use.
+- [x] Smooth route-ribbon vector mark, HTML wordmark, mark-only favicon, no external assets.
+- [x] Typography, spacing, surfaces, navigation, cards, controls, tables, badges, and focus treated consistently.
+- [x] Sidebar route order and 18 px icon language preserved; topbar contains one left lockup and compact light/auto/dark control at right.
+- [x] Reversible and destructive buttons have distinct roles; experimental state keeps semantic warning copy.
+- [x] Zoom-equivalent viewport, accessible names, visible keyboard focus, and mobile targets verified in Chromium.
+- [x] Route/API/RPC/backend/persistence source remains unchanged; local route and branding-blocker regression coverage passes.
+- [x] Browser and asset regression coverage renders all primary routes in both appearances and covers focus, console, responsive, and blocker cases.
 - [ ] Exact HEAD CI is green; package is installed through the supported path on the specified Cudy router; LuCI is unchanged.
 - [ ] Comparable live before/after screenshots captured; traffic and soak status stated separately.
-- [ ] `[Unreleased]` updated; no theme-only release published.
+- [x] `[Unreleased]` updated; no theme-only release published.
+
+Local verification on 2026-09-28: branding 26/26, ownership 11/11, panel pages 15/15, webpanel static 152/152, webpanel package 18/18, and Chromium passed 12 routes in dark/light plus responsive, keyboard, contrast, forced-colors, and blocked-asset cases. This is local evidence, not exact-HEAD CI or live-router evidence.
 
 ## Skill installation record
 

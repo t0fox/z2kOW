@@ -1,7 +1,7 @@
 {
   "name": "z2kOW",
   "subtitle": "OpenWrt edition",
-  "logo": "/assets/openwrt/wordmark.svg",
+  "logo": "/assets/openwrt/mark.svg",
   "favicon": "/assets/openwrt/favicon.svg",
   "theme": "/assets/openwrt/theme.css"
 }

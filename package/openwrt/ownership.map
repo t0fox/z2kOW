@@ -107,7 +107,7 @@
 /usr/lib/z2k/www/* updater
 # Exact profile asset paths are PACKAGE-owned exceptions under www/*; the
 # common updater has no source mapping for platform/openwrt/webpanel-brand.
-/usr/lib/z2k/www/assets/openwrt/wordmark.svg package
+/usr/lib/z2k/www/assets/openwrt/mark.svg package
 /usr/lib/z2k/www/assets/openwrt/favicon.svg package
 /usr/lib/z2k/www/assets/openwrt/theme.css package
 /usr/lib/z2k/www/assets/openwrt/profile.json package

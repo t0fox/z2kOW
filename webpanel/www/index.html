@@ -36,37 +36,8 @@
 <body>
 <header class="topbar">
   <a id="panel-brand" href="#/dashboard" class="brand" aria-label="Z2K">
-    <svg id="brand-default-logo" viewBox="100 20 460 110" width="200" height="48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <!-- mark (фирменный квадрат с Z-маршрутом) -->
-      <g transform="translate(157, 27)">
-        <rect width="96" height="96" rx="22" fill="#1AC3B4"/>
-        <rect x="26" y="26" width="44" height="12" fill="#0C1820"/>
-        <rect x="26" y="58" width="44" height="12" fill="#0C1820"/>
-        <polygon points="56,26 70,26 40,70 26,70" fill="#0C1820"/>
-      </g>
-      <!-- Z — currentColor (наследует --text от .brand) -->
-      <g transform="translate(277, 37)" fill="currentColor">
-        <rect width="48" height="14"/>
-        <rect y="42" width="48" height="14"/>
-        <polygon points="32,0 48,0 16,56 0,56"/>
-      </g>
-      <!-- 2 — accent teal (брендовая «2k» из лого) -->
-      <g transform="translate(339, 37)" class="brand-accent-glyph">
-        <rect width="44" height="14"/>
-        <rect x="30" width="14" height="30"/>
-        <polygon points="30,28 44,28 14,56 0,56"/>
-        <rect y="42" width="44" height="14"/>
-      </g>
-      <!-- K — currentColor -->
-      <g transform="translate(397, 37)" fill="currentColor">
-        <rect width="14" height="56"/>
-        <polygon points="14,35 14,21 46,0 46,14"/>
-        <polygon points="14,21 14,35 46,56 46,42"/>
-      </g>
-      <!-- tagline — text-muted -->
-      <text x="278" y="112" class="brand-tagline" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="500" letter-spacing="2.6">ANTIDPI · Z2K</text>
-    </svg>
-    <img id="brand-profile-logo" class="brand-profile-logo" alt="" hidden>
+    <img id="brand-profile-logo" class="brand-profile-logo" src="favicon.svg?v=p-86.1" width="34" height="34" alt="">
+    <span id="brand-wordmark" class="brand-wordmark">Z2K</span>
   </a>
   <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Открыть меню" aria-expanded="false" aria-controls="nav">
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
@@ -175,14 +146,13 @@
         var theme = asset(profile.theme, "css");
         if (!name || !subtitle || !logo || !favicon || !theme) return;
         var brand = document.getElementById("panel-brand");
-        var fallback = document.getElementById("brand-default-logo");
         var image = document.getElementById("brand-profile-logo");
+        var wordmark = document.getElementById("brand-wordmark");
         var icon = document.getElementById("brand-favicon");
         var mask = document.getElementById("brand-mask-icon");
-        if (!brand || !fallback || !image || !icon || !mask) return;
+        if (!brand || !image || !wordmark || !icon || !mask) return;
         image.src = logo;
-        image.hidden = false;
-        fallback.hidden = true;
+        wordmark.textContent = name;
         brand.setAttribute("aria-label", name + " — " + subtitle);
         icon.href = favicon;
         mask.href = favicon;
