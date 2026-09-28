@@ -4,18 +4,27 @@
   "package_upgrade_baseline": {
     "captured_at": "2026-09-28",
     "method": "read-only SSH package version query",
-    "adapter": "z2k-adapter-0.1.0-r79",
-    "webpanel": "z2k-webpanel-0.1.0-r79",
+    "adapter": "z2k-adapter-0.1.1_alpha20260928021846~92a1bc3500e515807540a32e41e5ebec18bc5777-r1",
+    "webpanel": "z2k-webpanel-0.1.1_alpha20260928021846~92a1bc3500e515807540a32e41e5ebec18bc5777-r1",
     "first_upgrade_safe_product_semver": "0.1.1"
   },
   "cudy_live_acceptance": {
     "status": "pending",
-    "evidence": [],
+    "evidence": [
+      "2026-09-28: CI run 36379257220 (https://github.com/t0fox/z2kOW/actions/runs/36379257220) completed successfully for implementation HEAD 551c31a6ba80a80ba9955281ce1258c3c19db5ba; its OpenWrt 25.12.5 SDK package job built the CI snapshot and passed package/feed/upgrade checks.",
+      "2026-09-28: downloaded CI artifact ci-artifact-551c31a6; provenance identifies source_commit and snapshot_commit 551c31a6ba80a80ba9955281ce1258c3c19db5ba, verified_sdk=true, target mediatek/filogic, and production_release=false.",
+      "2026-09-28: installed z2k-adapter and z2k-webpanel 0.1.1_alpha20260928043358~551c31a6ba80a80ba9955281ce1258c3c19db5ba-r1 on Cudy WBR3000UAX v1 / OpenWrt 25.12.5 from the signed CI snapshot feed. The package's snapshot payload-sync helper converged 102 updater-owned files from the immutable source commit; installed update tag remains p-85.13 because the manifest has no later release steps. Runtime packages remained z2k-warp-runtime-85.16.0-r1 and z2k-zapret2-runtime-1.0.5.1-r4.",
+      "2026-09-28: fresh live Chromium review captured all eight primary routes in dark and light at 1392x1104 (16 screenshots). Every capture reported brand z2kOW, loaded local theme and mark, zero page/console errors, and no horizontal overflow; Strategies State retained 140 rows. Before contact sheet: C:/Users/Kirill/.codex/visualizations/2026/09/27/01a0e4a9-c770-7753-a692-b31f31788ea1/openwrt-redesign/live-before-settled/contact-sheet.png. After contact sheet: C:/Users/Kirill/.codex/visualizations/2026/09/27/01a0e4a9-c770-7753-a692-b31f31788ea1/openwrt-redesign/live-after-synced/contact-sheet.png.",
+      "2026-09-28: /etc/z2k/config and /etc/crontabs/root hashes remained unchanged, TCP congestion remained cubic, and lighttpd/uhttpd/nfqws2 process IDs did not change. /etc/apk/world changed only the adapter and webpanel selectors to the installed snapshot versions; its other 143 entries were preserved.",
+      "2026-09-28: live traffic inspection and a post-deployment soak were not run; these acceptance gates remain pending."
+    ],
     "accepted_limitations": []
   },
   "web_luci_01": {
     "status": "pending",
-    "evidence": []
+    "evidence": [
+      "2026-09-28: package installation and payload synchronization did not restart LuCI services or modify LuCI configuration; a direct live LuCI route/authentication check has not been performed."
+    ]
   },
   "web_blocker_01": {
     "status": "pending",

@@ -1,10 +1,10 @@
 # Design review: OpenWrt webpanel
 
-**Status:** Visual implementation is merged with the current OpenWrt release/versioning work; exact-HEAD CI and package installation/live verification are pending. **Source baseline:** `origin/main` at `92a1bc3500e515807540a32e41e5ebec18bc5777`. **Live baseline:** Cudy WBR3000UAX v1, OpenWrt 25.12.5, adapter and webpanel `0.1.1_alpha20260928021846~92a1bc3500e515807540a32e41e5ebec18bc5777-r1`; the installed profile, theme, and wordmark still match the prior unredesigned assets. The Strategies screen showed 140 rows at 1392 × 1104.
+**Status:** The visual implementation is complete on `codex/openwrt-visual-redesign` at `551c31a6ba80a80ba9955281ce1258c3c19db5ba`. Exact implementation-HEAD CI passed (run [36379257220](https://github.com/t0fox/z2kOW/actions/runs/36379257220)); its OpenWrt 25.12.5 snapshot was installed on the Cudy router, and all eight primary routes were reviewed live in both appearances. Overall router acceptance remains pending: live LuCI and extension-enabled blocker checks, traffic inspection, and post-deployment soak have not been completed. **Source baseline:** `origin/main` at `92a1bc3500e515807540a32e41e5ebec18bc5777`. **Live baseline:** Cudy WBR3000UAX v1, OpenWrt 25.12.5, adapter and webpanel `0.1.1_alpha20260928021846~92a1bc3500e515807540a32e41e5ebec18bc5777-r1`; the installed profile, theme, and wordmark still matched the prior unredesigned assets. The Strategies screen showed 140 rows at 1392 × 1104.
 
 ### Summary
 
-**Rating: Good, pending live verification.** The panel now reads as a calm router control surface whose signature is one open route-ribbon mark beside the HTML wordmark `z2kOW`. The source and local Chromium review cover every primary route in both appearances; a current-HEAD CI snapshot and fresh live visual review remain open.
+**Rating: Good.** The panel now reads as a calm router control surface whose signature is one open route-ribbon mark beside the HTML wordmark `z2kOW`. Source review, exact implementation-HEAD CI, snapshot installation, and a fresh live visual review are complete. Operational acceptance remains open for the separately listed live checks and runtime observation.
 
 ### Critical
 
@@ -12,7 +12,7 @@ No active accessibility or navigation blocker was found in the local Chromium re
 
 ### Improvements
 
-No unresolved source-level High or Medium design finding remains from the first-pass audit. Before calling the delivery accepted, run exact-HEAD CI, install its newer snapshot package through the supported package path, and repeat the visual review from fresh live responses.
+No unresolved source-level High or Medium design finding remains from the first-pass audit. The exact implementation-HEAD CI snapshot is installed and the live visual review is complete. The acceptance record keeps traffic inspection, soak, direct live LuCI, and extension-enabled blocker verification open until those checks have evidence.
 
 ### Craft notes
 
@@ -190,12 +190,14 @@ Use no ambient or looping motion. Limit any transition to direct state changes (
 - [x] Zoom-equivalent viewport, accessible names, visible keyboard focus, and mobile targets verified in Chromium.
 - [x] Route/API/RPC/backend/persistence source remains unchanged; local route and branding-blocker regression coverage passes.
 - [x] Browser and asset regression coverage renders all primary routes in both appearances and covers focus, console, responsive, and blocker cases.
-- [ ] Exact HEAD CI is green; its package is installed through the supported path on the specified Cudy router; LuCI is unchanged.
-- [ ] Comparable live before/after screenshots captured; traffic and soak status stated separately.
+- [x] Exact implementation HEAD `551c31a6ba80a80ba9955281ce1258c3c19db5ba` passed CI run `36379257220`; its CI snapshot packages were installed on the specified Cudy router and the updater-owned payload was synchronized from that immutable commit. Package versions, provenance, and router state are in `docs/openwrt-release-acceptance.json`.
+- [x] Comparable live before/after contact sheets captured; all eight primary routes reviewed in dark and light at 1392 × 1104, with zero page/console errors and no horizontal overflow.
+- [ ] Direct live LuCI route/authentication check and extension-enabled blocker profile check remain pending. Deployment did not restart LuCI services or modify LuCI configuration.
+- [ ] Live traffic inspection and post-deployment soak were not run; these runtime acceptance gates remain pending.
 - [x] `[Unreleased]` updated; no theme-only release published.
 
-Local verification on 2026-09-28: branding 26/26, ownership 11/11, panel pages 15/15, webpanel static 152/152, webpanel package 18/18, adapter package consistency 77/77, release package lifecycle 41/41, common panel contract 221/221, and upstream boundary 1/1. Chromium passed 12 routes in dark/light plus responsive, keyboard, contrast, forced-colors, and blocked-asset cases. This is local evidence, not exact-HEAD CI or live-router evidence.
+Local verification on 2026-09-28: branding 26/26, ownership 11/11, panel pages 15/15, webpanel static 152/152, webpanel package 18/18, adapter package consistency 77/77, release package lifecycle 41/41, common panel contract 221/221, and upstream boundary 1/1. Local Chromium passed 12 routes in dark/light plus responsive, keyboard, contrast, forced-colors, and blocked-asset cases. Separately, exact implementation-HEAD CI run `36379257220` passed, including the OpenWrt SDK package job. The installed snapshot was reviewed from fresh live responses across eight primary routes × two appearances (16 captures); all reported the `z2kOW` brand, loaded theme and mark, zero page/console errors, no horizontal overflow, and 140 Strategies State rows. Comparable contact sheets are in `C:/Users/Kirill/.codex/visualizations/2026/09/27/01a0e4a9-c770-7753-a692-b31f31788ea1/openwrt-redesign/live-before-settled/contact-sheet.png` and `C:/Users/Kirill/.codex/visualizations/2026/09/27/01a0e4a9-c770-7753-a692-b31f31788ea1/openwrt-redesign/live-after-synced/contact-sheet.png`. The full local OpenWrt suite had one WSL listener failure on `127.0.0.2:18082`; the exact-head CI Shell tests passed. Live traffic, soak, LuCI route/authentication, and extension-enabled blocker evidence remain pending.
 
 ## Skill installation record
 
-Apple Design Skill is installed project-locally at `.agents/skills/apple-design` and pinned in `skills-lock.json` from `dickwu/apple-design-skill`. The repository `HEAD` resolved during this review is `39ea3fbab3011e0798c076dbeabf4917001499da`; the lock's `computedHash` (`1d50548823a11269581e27242f9cdad2e01be9097680e861cca45abbc2ce6ca5`) identifies installed contents and is distinct from that Git commit SHA.
+At the time of the initial design review, Apple Design Skill was present in the project at `.agents/skills/apple-design` and pinned in `skills-lock.json` from `dickwu/apple-design-skill`. The review recorded project `HEAD` `39ea3fbab3011e0798c076dbeabf4917001499da` and lock `computedHash` `1d50548823a11269581e27242f9cdad2e01be9097680e861cca45abbc2ce6ca5`; these identify that historical project pin, not the current branch HEAD.
