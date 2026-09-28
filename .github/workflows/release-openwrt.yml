@@ -29,8 +29,8 @@ on:
         required: false
         type: string
 
-# A production release is an explicit, serialized operator action. The first
-# dispatch builds one candidate. After offline signing, a second dispatch
+# The maintenance agent dispatches this workflow through the Actions API. The
+# first dispatch builds one candidate; after offline signing, a second dispatch
 # points at that exact successful candidate run and supplies the signed overlay.
 concurrency:
   group: z2kow-production-release
@@ -177,8 +177,6 @@ jobs:
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment:
-      name: production-release
     permissions:
       actions: read
       contents: write

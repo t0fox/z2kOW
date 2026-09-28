@@ -252,6 +252,14 @@ else
     ' "$WORKFLOW" && _t_ok || _t_bad "release workflow triggers must contain only workflow_dispatch"
 fi
 
+# The agent is the API dispatcher. A protected GitHub Environment can add a
+# reviewer hold after every valid dispatch, reintroducing routine UI approval.
+if grep -Eq '^[[:space:]]*environment:' "$WORKFLOW"; then
+    _t_bad "agent-driven production dispatch must not pause for environment reviewer approval"
+else
+    _t_ok
+fi
+
 # The ordinary CI workflow can only publish versioned snapshots. Stable package
 # identity belongs to the separate, gated release workflow.
 if grep -Fq 'sh scripts/openwrt/build-release.sh --ci-snapshot' "$CI_WORKFLOW" \

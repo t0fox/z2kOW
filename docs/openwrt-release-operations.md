@@ -1,8 +1,48 @@
 # z2kOW OpenWrt release operations
 
-The production release entrypoint is `.github/workflows/release-openwrt.yml` with `workflow_dispatch`. Pushes, pull requests, upstream syncs, and green CI runs build or validate development snapshots only; they never create a stable tag or Release.
+The production release entrypoint is `.github/workflows/release-openwrt.yml` with `workflow_dispatch`. The maintenance agent invokes that workflow through the GitHub Actions API; no one has to publish from the GitHub UI. Pushes, pull requests, upstream syncs, and green CI runs build or validate development snapshots only; they never create a stable tag or Release.
 
 The canonical builder requires an explicit `--ci-snapshot` or `--release --product-version X.Y.Z` mode. The old Makefile-backed stable revision path is disabled so a normal build cannot emit a misleading `0.1.0-r79` package. The live router reports `z2k-adapter-0.1.0-r79` and `z2k-webpanel-0.1.0-r79`; because production packages reset their revision to `r1`, the first upgrade-safe product version is `0.1.1`. CI snapshots also use the next patch prerelease with revision `r1`, so an installed `0.1.0-r79` can accept a test update while the final `0.1.1-r1` production package still sorts above it. Release preflight and the canonical version helper reject `0.1.0` and any lower SemVer.
+
+## Agent-owned release lifecycle
+
+`CHANGELOG.md` is the canonical queue of user- and operator-visible changes. Add those changes under `## [Unreleased]`; omit tests-only work, refactors with no operator effect, CI plumbing, and package revision bumps. The agent batches entries and releases only when the batch is worth shipping. A green CI run by itself never starts a release.
+
+The agent chooses the next SemVer from the accumulated changes: breaking behavior or API changes require a major bump, backward-compatible capabilities use a minor bump, and user- or operator-facing fixes use a patch bump. If there are no meaningful product changes, it waits. The first production bundle is `0.1.1` because it must upgrade the router's installed `0.1.0-r79` packages.
+
+Before preparing a release commit, the agent checks the live acceptance record, the production signing key, upstream manifest pins, and other known release gates. When ready, it moves the accumulated notes into a dated version section and leaves a fresh `Unreleased` section at the top:
+
+```sh
+python3 scripts/openwrt/changelog-release.py promote \
+  --changelog CHANGELOG.md --version "$VERSION" --date "$(date -u +%F)"
+git add CHANGELOG.md
+git commit -m "Prepare z2kOW v$VERSION release"
+```
+
+That release-preparation commit is pushed to `main`; its exact SHA must then have a completed successful CI run. The agent dispatches the unsigned candidate directly through the GitHub API, for example:
+
+```sh
+jq -n --arg version "$VERSION" --arg sha "$TARGET_SHA" \
+  '{ref:"main",inputs:{version:$version,target_sha:$sha,confirm:("RELEASE v"+$version),dry_run:"true"}}' |
+  gh api --method POST \
+    repos/t0fox/z2kOW/actions/workflows/release-openwrt.yml/dispatches \
+    --input -
+```
+
+After verifying and signing that exact candidate with the offline key, the agent sends a second API dispatch with `dry_run:"false"`, its `candidate_run_id`, and the base64 signature overlay. The publish job has no reviewer-gated GitHub Environment, so a valid API dispatch does not pause for routine UI approval:
+
+```sh
+signature_bundle_b64="$(base64 < z2k-release-signatures.tar.gz | tr -d '\n')"
+jq -n --arg version "$VERSION" --arg sha "$TARGET_SHA" \
+  --arg candidate "$CANDIDATE_RUN_ID" --arg signatures "$signature_bundle_b64" \
+  '{ref:"main",inputs:{version:$version,target_sha:$sha,confirm:("RELEASE v"+$version),dry_run:"false",candidate_run_id:$candidate,signature_bundle_b64:$signatures}}' |
+  gh api --method POST \
+    repos/t0fox/z2kOW/actions/workflows/release-openwrt.yml/dispatches \
+    --input -
+unset signature_bundle_b64
+```
+
+`release-preflight.py` and the workflow both fail closed on stale SHAs, non-green exact-SHA CI, existing tags/releases, missing live evidence, missing key pins, invalid signatures, or incomplete assets. The agent records the resulting workflow run and verifies the final tag, Release, asset set, manifest, and checksums. It does not create a release for every commit, green CI run, or upstream sync.
 
 ## Dry run
 
@@ -10,7 +50,7 @@ Dispatch with a SemVer product version, the full commit SHA currently at `main`,
 
 ## Offline signing and production dispatch
 
-The Actions workflow must never receive a private signing key. The offline operator downloads the candidate artifact and uses the pinned OpenWrt SDK's `apk` tool plus the private feed key stored outside the checkout:
+The Actions workflow must never receive a private signing key. The agent's offline signing step downloads the candidate artifact and uses the pinned OpenWrt SDK's `apk` tool plus the private feed key stored outside the checkout:
 
 ```sh
 python3 scripts/openwrt/release-assets.py sign \

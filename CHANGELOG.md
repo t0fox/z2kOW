@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+### Добавлено
+
+- Первый самостоятельный OpenWrt bundle z2kOW: adapter, необязательная
+  webpanel, zapret2 runtime и WARP runtime.
+- Provenance и checksums для неизменяемого набора package assets.
+
 ### Исправлено
 
 - Webpanel продолжает запускать маршруты, если браузерный блокировщик
@@ -23,14 +29,6 @@
 - CI snapshot использует следующую patch prerelease-версию и revision `r1`:
   она обновляет установленный `0.1.0-r79`, а production `0.1.1-r1`
   остаётся новее snapshot.
-
-## [0.1.1]
-
-### Добавлено
-
-- Первый самостоятельный OpenWrt bundle z2kOW: adapter, необязательная
-  webpanel, zapret2 runtime и WARP runtime.
-- Provenance и checksums для неизменяемого набора package assets.
 
 ### Обновление с предыдущих сборок
 
