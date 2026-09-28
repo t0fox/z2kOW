@@ -217,7 +217,7 @@ define Package/z2k-webpanel
   # constraint'а upgrade webpanel оставляет старый adapter). Граница =
   # текущий adapter APK (версия/релиз этого же файла; тест сверяет побуквенно).
   DEPENDS:=z2k-adapter +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-alias
-  EXTRA_DEPENDS:=z2k-adapter (>=0.1.0-r80)
+  EXTRA_DEPENDS:=z2k-adapter (>=$(PKG_VERSION)-r$(PKG_RELEASE))
 endef
 
 define Package/z2k-webpanel/description
