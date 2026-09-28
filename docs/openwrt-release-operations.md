@@ -2,7 +2,7 @@
 
 The production release entrypoint is `.github/workflows/release-openwrt.yml` with `workflow_dispatch`. Pushes, pull requests, upstream syncs, and green CI runs build or validate development snapshots only; they never create a stable tag or Release.
 
-The canonical builder requires an explicit `--ci-snapshot` or `--release --product-version X.Y.Z` mode. The old Makefile-backed stable revision path is disabled so a normal build cannot emit a misleading `0.1.0-r79` package. The live router reports `z2k-adapter-0.1.0-r79` and `z2k-webpanel-0.1.0-r79`; because production packages reset their revision to `r1`, the first upgrade-safe product version is `0.1.1`. Release preflight and the canonical version helper reject `0.1.0` and any lower SemVer.
+The canonical builder requires an explicit `--ci-snapshot` or `--release --product-version X.Y.Z` mode. The old Makefile-backed stable revision path is disabled so a normal build cannot emit a misleading `0.1.0-r79` package. The live router reports `z2k-adapter-0.1.0-r79` and `z2k-webpanel-0.1.0-r79`; because production packages reset their revision to `r1`, the first upgrade-safe product version is `0.1.1`. CI snapshots also use the next patch prerelease with revision `r1`, so an installed `0.1.0-r79` can accept a test update while the final `0.1.1-r1` production package still sorts above it. Release preflight and the canonical version helper reject `0.1.0` and any lower SemVer.
 
 ## Dry run
 

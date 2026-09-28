@@ -28,10 +28,20 @@ case "$MODE" in
             || die "нет committer timestamp для $_resolved"
         case "$_epoch" in ''|*[!0-9]*) die "неверный committer timestamp: [$_epoch]" ;; esac
         command -v python3 >/dev/null 2>&1 || die 'нужен python3 для UTC timestamp'
+        _snapshot_base_version="$(python3 - "$_base_version" <<'PY'
+import re
+import sys
+match = re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", sys.argv[1])
+if not match:
+    raise SystemExit(1)
+major, minor, patch = (int(part) for part in match.groups())
+print(f"{major}.{minor}.{patch + 1}")
+PY
+)" || die "PKG_VERSION must be SemVer for CI snapshots: [$_base_version]"
         _stamp="$(python3 -c 'import datetime,sys; print(datetime.datetime.fromtimestamp(int(sys.argv[1]), datetime.timezone.utc).strftime("%Y%m%d%H%M%S"))' "$_epoch")" \
             || die 'не удалось форматировать UTC timestamp'
-        _version="${_base_version}_alpha${_stamp}~${_resolved}"
-        _release="$_base_release"
+        _version="${_snapshot_base_version}_alpha${_stamp}~${_resolved}"
+        _release=1
         ;;
     release)
         [ -n "$PRODUCT_VERSION" ] || die 'release mode требует product version X.Y.Z'

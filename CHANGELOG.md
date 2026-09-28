@@ -20,6 +20,9 @@
 - Product package version проверяется как SemVer без ведущих нулей.
 - Canonical builder больше не выдаёт legacy stable package revision `rXX`;
   сборке требуется явно выбрать CI snapshot или product release.
+- CI snapshot использует следующую patch prerelease-версию и revision `r1`:
+  она обновляет установленный `0.1.0-r79`, а production `0.1.1-r1`
+  остаётся новее snapshot.
 
 ## [0.1.1]
 

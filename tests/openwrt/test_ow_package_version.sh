@@ -10,6 +10,12 @@ _sha="$(git -C "$REPO" rev-parse HEAD 2>/dev/null)"
 _parent="$(git -C "$REPO" rev-parse HEAD^ 2>/dev/null)"
 _base_version="$(sed -n 's/^PKG_VERSION:=\(.*\)/\1/p' "$REPO/package/openwrt/Makefile" | head -1 | tr -d ' \t\r\n')"
 _base_release="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$REPO/package/openwrt/Makefile" | head -1 | tr -d ' \t\r\n')"
+_snap_base_version="$(python3 - "$_base_version" <<'PY'
+import sys
+major, minor, patch = (int(part) for part in sys.argv[1].split("."))
+print(f"{major}.{minor}.{patch + 1}")
+PY
+)"
 _snapshot_version() {
     [ -f "$VERSION_TOOL" ] || return 1
     sh "$VERSION_TOOL" snapshot "$REPO" "$1" 2>/dev/null
@@ -35,10 +41,10 @@ assert_eq "same source SHA reproduces snapshot version" "$_snap" "$_snap_repeat"
 _snap_version="$(printf '%s' "$_snap" | cut -d'|' -f1)"
 _snap_release="$(printf '%s' "$_snap" | cut -d'|' -f2)"
 case "$_snap_version" in
-    "${_base_version}_alpha"??????????????"~${_sha}") _t_ok ;;
-    *) _t_bad "snapshot version must include UTC commit timestamp and full SHA: [$_snap_version]" ;;
+    "${_snap_base_version}_alpha"??????????????"~${_sha}") _t_ok ;;
+    *) _t_bad "snapshot version must use next product patch and include UTC timestamp/full SHA: [$_snap_version]" ;;
 esac
-assert_eq "snapshot retains adapter internal package counter" "$_base_release" "$_snap_release"
+assert_eq "snapshot starts at package revision 1" "1" "$_snap_release"
 _parent_snap="$( _snapshot_version "$_parent" )"
 if [ -n "$_snap_version" ] && [ -n "$_parent_snap" ] && \
    [ "$_snap_version" != "$(printf '%s' "$_parent_snap" | cut -d'|' -f1)" ]; then
@@ -131,8 +137,8 @@ if [ -x "$APK_BIN" ]; then
     _release_pkg="$(printf '%s' "$_release" | sed 's/|/-r/')"
     _cmp="$("$APK_BIN" version -t "$_snap_version-r$_snap_release" "$_release_pkg" 2>/dev/null)"
     assert_eq "snapshot sorts below product release under apk-tools" "<" "$_cmp"
-    _cmp="$("$APK_BIN" version -t "$_snap_version-r$_snap_release" "$_makefile_stable" 2>/dev/null)"
-    assert_eq "snapshot sorts below Makefile stable package under apk-tools" "<" "$_cmp"
+    _cmp="$("$APK_BIN" version -t "$_makefile_stable" "$_snap_version-r$_snap_release" 2>/dev/null)"
+    assert_eq "snapshot sorts above installed legacy stable package under apk-tools" "<" "$_cmp"
     _cmp="$("$APK_BIN" version -t "$_makefile_stable" "$_release_pkg" 2>/dev/null)"
     assert_eq "first product release sorts above installed legacy r79" "<" "$_cmp"
     if "$APK_BIN" version -c "$_snap_version-r$_snap_release" "$_release_pkg" >/dev/null 2>&1; then
