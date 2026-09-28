@@ -23,7 +23,7 @@
   "web_luci_01": {
     "status": "pending",
     "evidence": [
-      "2026-09-28: package installation and payload synchronization did not restart LuCI services or modify LuCI configuration; a direct live LuCI route/authentication check has not been performed."
+      "2026-09-28: package installation and payload synchronization did not restart LuCI services or modify LuCI configuration. Direct unauthenticated GET /cgi-bin/luci/ returned 403 Forbidden with x-luci-login-required: yes, and the browser showed the Authorization Required login form. No credentials were submitted, so authenticated post-login UI verification remains pending."
     ]
   },
   "web_blocker_01": {
