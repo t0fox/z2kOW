@@ -194,7 +194,7 @@ Use no ambient or looping motion. Limit any transition to direct state changes (
 - [ ] Comparable live before/after screenshots captured; traffic and soak status stated separately.
 - [x] `[Unreleased]` updated; no theme-only release published.
 
-Local verification on 2026-09-28: branding 26/26, ownership 11/11, panel pages 15/15, webpanel static 152/152, webpanel package 18/18, and Chromium passed 12 routes in dark/light plus responsive, keyboard, contrast, forced-colors, and blocked-asset cases. This is local evidence, not exact-HEAD CI or live-router evidence.
+Local verification on 2026-09-28: branding 26/26, ownership 11/11, panel pages 15/15, webpanel static 152/152, webpanel package 18/18, adapter package consistency 77/77, release package lifecycle 41/41, common panel contract 221/221, and upstream boundary 1/1. Chromium passed 12 routes in dark/light plus responsive, keyboard, contrast, forced-colors, and blocked-asset cases. This is local evidence, not exact-HEAD CI or live-router evidence.
 
 ## Skill installation record
 

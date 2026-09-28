@@ -199,6 +199,11 @@ ALLOWLIST="$ALLOWLIST tests/test_unique_strategy_set.sh z2k-detect/cmd/z2k-detec
 ALLOWLIST="$ALLOWLIST docs/superpowers/specs/2026-09-26-unique-strategy-set-design.md files/init.d/S51z2k-warp files/ndm/90-z2k-tg-redirect.sh files/ndm/91-z2k-http-tunnel-redirect.sh files/ndm/93-z2k-warp.sh files/ndm/94-z2k-ppe-deoffload.sh files/ndm/95-z2k-scheduler-watchdog.sh lib/utils.sh tests/test_panel_auth.sh tests/test_release_map.sh tests/test_shell_review_fixes.sh tests/test_warp_init_thin.sh tests/test_warp_ndm_hook.sh"
 ALLOWLIST="$ALLOWLIST .github/workflows/sync-upstream.yml UPSTREAM.json UPSTREAM.md tools/sync-upstream.sh"
 ALLOWLIST="$ALLOWLIST scripts/openwrt/package-version.sh tests/openwrt/test_ow_package_version.sh"
+# OpenWrt panel visual refresh: the common UI changes below are presentation
+# only; exact design docs and the requested project-local Apple design skill
+# are development inputs and never enter the package or runtime payload.
+ALLOWLIST="$ALLOWLIST webpanel/www/js/chrome.js webpanel/www/js/pages/strategies.js CHANGELOG.md docs/openwrt-webpanel-redesign-spec.md skills-lock.json"
+ALLOWLIST="$ALLOWLIST .agents/skills/apple-design/*"
 # WEB-BLOCKER-01: keep the isolated browser regression and its pinned tooling
 # outside product runtime dependencies; extra-domains renders its route shell
 # before optional status enrichment can complete.
@@ -258,6 +263,7 @@ else
     for _f in $_bad; do
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
+            .agents/skills/apple-design/*|skills-lock.json|CHANGELOG.md|docs/openwrt-webpanel-redesign-spec.md|webpanel/www/js/chrome.js|webpanel/www/js/pages/strategies.js) continue ;;
             scripts/openwrt/package-version.sh) continue ;;
             package.json|package-lock.json|tests/browser/openwrt-panel.mjs|webpanel/www/js/pages/extra-domains.js) continue ;;
             z2k-warpd/internal/domainroute/nft_pairset.go|z2k-warpd/internal/domainroute/nft_pairset_test.go|z2k-warpd/openwrt-overlay/overlay.json|z2k-warpd/openwrt-overlay/ipset.go|z2k-warpd/openwrt-overlay/go.mod) continue ;;
