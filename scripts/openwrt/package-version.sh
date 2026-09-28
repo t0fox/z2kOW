@@ -4,7 +4,7 @@ set -eu
 
 die() { printf 'package-version: %s\n' "$1" >&2; exit 1; }
 
-[ "$#" -ge 3 ] || die 'usage: package-version.sh stable|snapshot|release REPO SOURCE_SHA [PRODUCT_VERSION]'
+[ "$#" -ge 3 ] || die 'usage: package-version.sh snapshot|release REPO SOURCE_SHA [PRODUCT_VERSION]'
 MODE="$1"
 ROOT="$2"
 SOURCE_SHA="$3"
@@ -22,11 +22,6 @@ _base_release="$(sed -n 's/^PKG_RELEASE:=\(.*\)/\1/p' "$MAKEFILE" | head -1 | tr
 case "$_base_release" in ''|*[!0-9]*) die "PKG_RELEASE не целое: [$_base_release]" ;; esac
 
 case "$MODE" in
-    stable)
-        [ -z "$PRODUCT_VERSION" ] || die 'product version допустима только в release mode'
-        _version="$_base_version"
-        _release="$_base_release"
-        ;;
     snapshot)
         [ -z "$PRODUCT_VERSION" ] || die 'product version недопустима для snapshot'
         _epoch="$(git -C "$ROOT" show -s --format=%ct "$_resolved" 2>/dev/null)" \

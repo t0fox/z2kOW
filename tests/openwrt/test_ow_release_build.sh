@@ -16,7 +16,7 @@ BUILD="$REPO/scripts/openwrt/build-release.sh"
 # --- R2: dirty tree -> production-отказ (детерминированно, быстро) ---
 # Ветка 1: untracked-мусор (git diff его НЕ видит — ловит ??-ветка гейта).
 printf 'stage7-dirty-probe\n' > "$REPO/.stage7-dirty-probe"
-_out="$(sh "$BUILD" --sdk "$T/no-sdk" --target mediatek/filogic --arch aarch64_cortex-a53 \
+_out="$(sh "$BUILD" --ci-snapshot --sdk "$T/no-sdk" --target mediatek/filogic --arch aarch64_cortex-a53 \
     --manifest "$REPO/UPDATES.json" --out "$T/dist" 2>&1)"
 _rc=$?
 rm -f "$REPO/.stage7-dirty-probe"
@@ -29,7 +29,7 @@ esac
 # побайтово: гейт обязан сработать, дерево — остаться нетронутым.
 cp -f "$REPO/package/openwrt/ADAPTER_API" "$T/adapter-api.orig" || exit 1
 printf '# stage7-dirty-probe\n' >> "$REPO/package/openwrt/ADAPTER_API"
-_out="$(sh "$BUILD" --sdk "$T/no-sdk" --target mediatek/filogic --arch aarch64_cortex-a53 \
+_out="$(sh "$BUILD" --ci-snapshot --sdk "$T/no-sdk" --target mediatek/filogic --arch aarch64_cortex-a53 \
     --manifest "$REPO/UPDATES.json" --out "$T/dist" 2>&1)"
 _rc=$?
 cp -f "$T/adapter-api.orig" "$REPO/package/openwrt/ADAPTER_API"
@@ -64,7 +64,7 @@ else
     assert_eq "R2 staged-only rc (dirty returns 0)" "0" "$_staged_rc"
 fi
 # --dev проходит МИМО dirty-гейта дальше (до следующего гейта, не в прод)
-_out="$(sh "$BUILD" --dev --skip-tests --sdk "$T/no-sdk" --target mediatek/filogic \
+_out="$(sh "$BUILD" --dev --ci-snapshot --skip-tests --sdk "$T/no-sdk" --target mediatek/filogic \
     --arch aarch64_cortex-a53 --manifest "$REPO/UPDATES.json" --out "$T/dist" 2>&1)"
 _rc=$?
 assert_eq "R2 dev идёт дальше dirty" "1" "$_rc"
@@ -74,10 +74,10 @@ case "$_out" in
 esac
 
 # --- arg-гейты (dev+skip, чтобы не гнать сьют) ---
-sh "$BUILD" --dev --skip-tests --target mediatek/filogic \
+sh "$BUILD" --dev --ci-snapshot --skip-tests --target mediatek/filogic \
     --manifest "$REPO/UPDATES.json" --out "$T/dist" >/dev/null 2>&1
 assert_eq "arch обязателен" "1" "$?"
-sh "$BUILD" --dev --skip-tests --sdk "$T/no-sdk" --target mediatek/filogic \
+sh "$BUILD" --dev --ci-snapshot --skip-tests --sdk "$T/no-sdk" --target mediatek/filogic \
     --arch aarch64_cortex-a53 --out "$T/dist" >/dev/null 2>&1
 assert_eq "manifest обязателен" "1" "$?"
 
@@ -87,7 +87,7 @@ assert_eq "manifest обязателен" "1" "$?"
 _tree_cur="$(sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO/UPDATES.json" | head -1)"
 printf '{\n"current": "%s",\n"platform": "openwrt",\n"install_map": {\n},\n"files_sha256": {\n},\n"history": [\n]\n}\n' \
     "$_tree_cur" > "$T/manifest.json"
-_out="$(sh "$BUILD" --dev --skip-tests --sdk "$T/no-sdk" --target mediatek/filogic \
+_out="$(sh "$BUILD" --dev --ci-snapshot --skip-tests --sdk "$T/no-sdk" --target mediatek/filogic \
     --arch aarch64_cortex-a53 --manifest "$T/manifest.json" --out "$T/dist" 2>&1)"
 _rc=$?
 assert_eq "SDK-missing rc" "1" "$_rc"
@@ -97,7 +97,7 @@ case "$_out" in
 esac
 # bogus-SDK (каталог без rules.mk/staging_dir) — тоже отказ
 mkdir -p "$T/fake-sdk"
-_out="$(sh "$BUILD" --dev --skip-tests --sdk "$T/fake-sdk" --target mediatek/filogic \
+_out="$(sh "$BUILD" --dev --ci-snapshot --skip-tests --sdk "$T/fake-sdk" --target mediatek/filogic \
     --arch aarch64_cortex-a53 --manifest "$T/manifest.json" --out "$T/dist" 2>&1)"
 assert_eq "bogus-SDK rc" "1" "$?"
 

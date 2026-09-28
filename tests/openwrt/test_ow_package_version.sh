@@ -14,7 +14,7 @@ _snapshot_version() {
     [ -f "$VERSION_TOOL" ] || return 1
     sh "$VERSION_TOOL" snapshot "$REPO" "$1" 2>/dev/null
 }
-_stable_version() {
+_legacy_stable_version() {
     [ -f "$VERSION_TOOL" ] || return 1
     sh "$VERSION_TOOL" stable "$REPO" "$1" 2>/dev/null
 }
@@ -24,7 +24,11 @@ _release_version() {
 }
 
 assert_file "package version helper exists" "$VERSION_TOOL"
-assert_eq "stable version remains Makefile-owned" "$_base_version|$_base_release" "$(_stable_version "$_sha")"
+if _legacy_stable_version "$_sha" >/dev/null; then
+    _t_bad "package-version helper must reject the legacy stable rXX mode"
+else
+    _t_ok
+fi
 _snap="$( _snapshot_version "$_sha" )"
 _snap_repeat="$( _snapshot_version "$_sha" )"
 assert_eq "same source SHA reproduces snapshot version" "$_snap" "$_snap_repeat"
@@ -53,12 +57,11 @@ if [ -z "$_bad_leading_zero_release" ]; then _t_ok; else _t_bad "release helper 
 
 # Exercise the canonical builder's read-only version query, which selects the
 # same helper/mode as a build without traversing manifest/seed/SDK work.
-_builder_stable="$(sh "$BUILD" --print-package-version --target mediatek/filogic 2>/dev/null)"
-_builder_stable_pkg="$(printf '%s' "$_builder_stable" | cut -d'|' -f1)"
-_builder_stable_sha="$(printf '%s' "$_builder_stable" | cut -d'|' -f2)"
-assert_eq "canonical builder defaults to Makefile stable version" \
-    "$_base_version-r$_base_release" "$_builder_stable_pkg"
-assert_eq "stable query preserves exact source SHA" "$_sha" "$_builder_stable_sha"
+if sh "$BUILD" --print-package-version --target mediatek/filogic >/dev/null 2>&1; then
+    _t_bad "canonical builder must require snapshot or release mode"
+else
+    _t_ok
+fi
 _builder_snapshot="$(sh "$BUILD" --print-package-version --ci-snapshot --target mediatek/filogic 2>/dev/null)"
 _builder_snapshot_pkg="$(printf '%s' "$_builder_snapshot" | cut -d'|' -f1)"
 _builder_snapshot_sha="$(printf '%s' "$_builder_snapshot" | cut -d'|' -f2)"
@@ -82,7 +85,7 @@ assert_contains "canonical make call passes scoped adapter version" \
 assert_contains "canonical make call passes scoped adapter release" \
     "$BUILD" 'Z2K_OW_PACKAGE_RELEASE=$PKG_RELEASE'
 # The webpanel must require the adapter build selected by this invocation,
-# whether the canonical builder selected stable, snapshot, or release versions.
+# whether the canonical builder selected snapshot or release versions.
 assert_contains "webpanel adapter floor follows selected package mode" \
     "$REPO/package/openwrt/Makefile" 'EXTRA_DEPENDS:=z2k-adapter (>=$(PKG_VERSION)-r$(PKG_RELEASE))'
 assert_not_contains "runtime Makefile does not consume adapter version override" \

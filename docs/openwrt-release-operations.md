@@ -2,6 +2,8 @@
 
 The production release entrypoint is `.github/workflows/release-openwrt.yml` with `workflow_dispatch`. Pushes, pull requests, upstream syncs, and green CI runs build or validate development snapshots only; they never create a stable tag or Release.
 
+The canonical builder requires an explicit `--ci-snapshot` or `--release --product-version X.Y.Z` mode. The old Makefile-backed stable revision path is disabled so a normal build cannot emit a misleading `0.1.0-r79` package. Before choosing a production SemVer, inspect the adapter version installed on the target router: an installed `0.1.0-r79` cannot be upgraded by `0.1.0-r1`; the release SemVer must be increased so APK orders the production package above the legacy revision.
+
 ## Dry run
 
 Dispatch with a SemVer product version, the full commit SHA currently at `main`, the exact confirmation `RELEASE vX.Y.Z`, and `dry_run=true`. The workflow checks that the target is still current `main` and has a completed successful `CI` run for the exact SHA. It then invokes `scripts/openwrt/build-release.sh --release --product-version X.Y.Z`, prepares the four-package bundle, validates its manifest and checksums, extracts only the matching section from `CHANGELOG.md`, and uploads a short-retention Actions candidate artifact. A dry run creates no tag, GitHub Release, or stable assets.
@@ -36,5 +38,7 @@ The current acceptance record keeps these gates pending. The report that disabli
 ## Immutable publication rules
 
 The publish job requires an absent `vX.Y.Z` tag and Release, exact current-main SHA, exact-SHA green CI, passing live gates, the pinned public key, signed `packages.adb`, signed checksums, and a complete exact artifact set. It creates the tag at the requested SHA and creates `z2kOW vX.Y.Z` with the corresponding version section from `CHANGELOG.md`. Existing version names are never overwritten. A package fix after publication requires a new product version.
+
+If tag creation or draft asset upload fails, the version is reserved and cannot be retried by this workflow. Keep the failed draft unpublished, inspect its tag and uploaded assets against the exact candidate artifact, and record the failed run. Do not publish a partial draft or reuse the version; resolve the cause and prepare a new candidate under the next product SemVer.
 
 The legacy `publish.yml` upstream promotion workflow is not the OpenWrt release path and is not called by this workflow.

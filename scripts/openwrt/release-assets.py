@@ -430,6 +430,46 @@ def verify(args: argparse.Namespace) -> None:
     print(f"source_sha={manifest['source_sha']}")
 
 
+def verify_remote(args: argparse.Namespace) -> None:
+    bundle = args.bundle.resolve()
+    try:
+        remote_assets = json.loads(args.remote_assets.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"cannot read GitHub release asset metadata: {exc}")
+    if not bundle.is_dir() or not isinstance(remote_assets, list):
+        fail("bundle directory and a JSON array of GitHub assets are required")
+
+    apk_paths = sorted(bundle.glob("z2k-*.apk"))
+    if len(apk_paths) != 4:
+        fail(f"expected four candidate APKs, found {len(apk_paths)}")
+    fixed_names = (
+        "packages.adb", "SHA256SUMS", "SHA256SUMS.sig",
+        "release-manifest.json", "z2k-feed.pem",
+    )
+    local_paths = [*apk_paths, *(bundle / name for name in fixed_names)]
+    missing = [path.name for path in local_paths if not path.is_file()]
+    if missing:
+        fail(f"candidate is missing release assets: {', '.join(missing)}")
+
+    remote_by_name: dict[str, dict[str, object]] = {}
+    for item in remote_assets:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            fail("GitHub returned a malformed release asset")
+        name = item["name"]
+        if name in remote_by_name:
+            fail(f"GitHub returned duplicate release asset: {name}")
+        remote_by_name[name] = item
+    if set(remote_by_name) != {path.name for path in local_paths}:
+        fail("uploaded release asset names do not match the verified candidate")
+
+    for path in local_paths:
+        expected = f"sha256:{sha256(path)}"
+        actual = remote_by_name[path.name].get("digest")
+        if actual != expected:
+            fail(f"uploaded release asset digest mismatch: {path.name}")
+    print(f"verified_remote={len(local_paths)} assets")
+
+
 def sign_candidate(args: argparse.Namespace) -> None:
     bundle = args.bundle.resolve()
     private_key = args.private_key.resolve()
@@ -537,6 +577,10 @@ def parser() -> argparse.ArgumentParser:
     check.add_argument("--public-key", type=Path)
     check.add_argument("--apk-key-dir", type=Path)
     check.set_defaults(func=verify)
+    remote = commands.add_parser("verify-remote", help="compare GitHub asset digests with the verified candidate")
+    remote.add_argument("--bundle", type=Path, required=True)
+    remote.add_argument("--remote-assets", type=Path, required=True)
+    remote.set_defaults(func=verify_remote)
     signer = commands.add_parser("sign", help="sign a candidate bundle offline and emit a small overlay")
     signer.add_argument("--bundle", type=Path, required=True)
     signer.add_argument("--apk-tool", required=True)

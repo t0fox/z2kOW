@@ -15,7 +15,8 @@
 #   build-release.sh --sdk DIR|auto --target mediatek/filogic --arch aarch64_cortex-a53
 #     --manifest openwrt-UPDATES.json --out dist/ [--dev] [--skip-tests]
 #   CI: --ci-snapshot; product release: --release --product-version X.Y.Z
-# Stable version defaults to package/openwrt/Makefile. dist/ НЕ коммитится (§63).
+# Snapshot or product release mode is required; legacy rXX stable builds are disabled.
+# dist/ НЕ коммитится (§63).
 #
 # POSIX sh + python3. Сеть нужна только для ls-remote ref-проверки (без сети —
 # отказ, кроме --dev, где фиксируется verified_remote=false).
@@ -46,13 +47,6 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-if [ "$RELEASE_MODE" = "1" ]; then
-    [ "$CI_SNAPSHOT" = "0" ] || die "--release несовместим с --ci-snapshot"
-    [ -n "$PRODUCT_VERSION" ] || die "--release требует --product-version X.Y.Z"
-elif [ -n "$PRODUCT_VERSION" ]; then
-    die "--product-version допустим только вместе с --release"
-fi
-
 [ -n "$TARGET" ] || die "--target обязателен (например mediatek/filogic)"
 # --- 0. SDK pin query: раньше всех остальных гейтов (ему нужен только target).
 _sdk_pin_url() { _t="$1"; _f="$(printf '%s' "$_t" | tr '/' '-')"; printf 'https://downloads.openwrt.org/releases/25.12.5/targets/%s/openwrt-sdk-25.12.5-%s_gcc-14.3.0_musl.Linux-x86_64.tar.zst' "$_t" "$_f"; }
@@ -64,6 +58,13 @@ if [ "$PIN_MODE" = "1" ]; then
     printf '%s|%s\n' "$(_sdk_pin_url "$TARGET")" "$(_sdk_pin_sha)"
     exit 0
 fi
+if [ "$RELEASE_MODE" = "1" ]; then
+    [ "$CI_SNAPSHOT" = "0" ] || die "--release несовместим с --ci-snapshot"
+    [ -n "$PRODUCT_VERSION" ] || die "--release требует --product-version X.Y.Z"
+else
+    [ "$CI_SNAPSHOT" = "1" ] || die "укажите --ci-snapshot или --release --product-version X.Y.Z"
+    [ -z "$PRODUCT_VERSION" ] || die "--product-version допустим только вместе с --release"
+fi
 if [ "$PACKAGE_VERSION_MODE" != "1" ]; then
     [ -n "$ARCH" ] || die "--arch обязателен явно, угадывать запрещено (§20)"
     [ -n "$MANIFEST" ] && [ -f "$MANIFEST" ] || die "--manifest: нужен OpenWrt-манифест релиза"
@@ -72,7 +73,7 @@ fi
 command -v python3 >/dev/null 2>&1 || die "нужен python3"
 
 _select_package_version() {
-    _version_mode=stable
+    _version_mode=snapshot
     if [ "$CI_SNAPSHOT" = "1" ]; then
         _version_mode=snapshot
     elif [ "$RELEASE_MODE" = "1" ]; then

@@ -249,4 +249,11 @@ else
     _t_bad "CI must build only SHA-named snapshots, with no stable router-update mode"
 fi
 
+if grep -Fq 'release-assets.py verify-remote' "$WORKFLOW" \
+    && grep -Fq -- "--jq '.assets'" "$WORKFLOW"; then
+    _t_ok
+else
+    _t_bad "production release must compare every uploaded asset digest with the verified candidate"
+fi
+
 _t_done

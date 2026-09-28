@@ -173,6 +173,26 @@ assert_eq "offline signer produces verified overlay" 0 "$_sign_rc"
 assert_file "offline signer emits bounded overlay" "$T/signature-overlay.tar.gz"
 final_verify "$T/keys/z2k-feed.pem" >/dev/null 2>&1
 assert_eq "accept pinned release checksum signature" 0 "$?"
+cp "$T/keys/z2k-feed.pem" "$T/bundle/z2k-feed.pem"
+python3 - "$T/bundle" "$T/remote-assets.json" <<'PY'
+import hashlib, json, pathlib, sys
+bundle = pathlib.Path(sys.argv[1])
+files = sorted([*bundle.glob("z2k-*.apk"), *(bundle / name for name in (
+    "packages.adb", "SHA256SUMS", "SHA256SUMS.sig", "release-manifest.json", "z2k-feed.pem"
+))])
+json.dump([{"name": path.name, "digest": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()}
+           for path in files], open(sys.argv[2], "w", encoding="utf-8"))
+PY
+run verify-remote --bundle "$T/bundle" --remote-assets "$T/remote-assets.json" >/dev/null 2>&1
+assert_eq "verify uploaded release asset digests" 0 "$?"
+python3 - "$T/remote-assets.json" <<'PY'
+import json, sys
+assets = json.load(open(sys.argv[1], encoding="utf-8"))
+assets[0]["digest"] = "sha256:" + "0" * 64
+json.dump(assets, open(sys.argv[1], "w", encoding="utf-8"))
+PY
+run verify-remote --bundle "$T/bundle" --remote-assets "$T/remote-assets.json" >/dev/null 2>&1
+assert_eq "reject uploaded asset with mismatched digest" 1 "$?"
 mkdir -p "$T/wrong-keys"
 final_verify "$T/keys/z2k-feed.pem" "$T/wrong-keys" >/dev/null 2>&1
 assert_eq "reject untrusted APK index signature" 1 "$?"

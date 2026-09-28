@@ -375,6 +375,10 @@ jobs:
             | sed 's|.*/||' | LC_ALL=C sort | tr '\n' '|' )"
           actual_assets="$(printf '%s\n' "$remote_assets" | LC_ALL=C sort | tr '\n' '|')"
           test "$actual_assets" = "$expected_assets" || { echo "published Release asset set differs from verified bundle" >&2; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '.assets' \
+            > "$RUNNER_TEMP/release-assets.json"
+          python3 scripts/openwrt/release-assets.py verify-remote \
+            --bundle "$candidate" --remote-assets "$RUNNER_TEMP/release-assets.json"
           jq -n '{draft:false}' > "$RUNNER_TEMP/publish-release.json"
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
             --input "$RUNNER_TEMP/publish-release.json"

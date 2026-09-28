@@ -18,6 +18,8 @@
 - Сборщик release отказывает при любых незакоммиченных изменениях, включая
   staged-файлы.
 - Product package version проверяется как SemVer без ведущих нулей.
+- Canonical builder больше не выдаёт legacy stable package revision `rXX`;
+  сборке требуется явно выбрать CI snapshot или product release.
 
 ## [0.1.0]
 
