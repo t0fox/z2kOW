@@ -17,7 +17,7 @@ z2k_ow_meta_value() {
 z2k_ow_payload_tag() { z2k_ow_meta_value "${Z2K_ROOT:-/usr/lib/z2k}/share/payload.meta" tag; }
 z2k_ow_seed_tag() { z2k_ow_meta_value "${Z2K_ROOT:-/usr/lib/z2k}/share/seed.meta" tag; }
 
-wp_brand_json() { printf '"brand":{"name":"z2kOW","subtitle":"OpenWrt edition","logo":"/assets/openwrt/wordmark.svg","favicon":"/assets/openwrt/favicon.svg","theme":"/assets/openwrt/theme.css"}'; }
+wp_brand_json() { printf '"brand":{"name":"z2kOW","subtitle":"OpenWrt edition","logo":"/assets/openwrt/mark.svg","favicon":"/assets/openwrt/favicon.svg","theme":"/assets/openwrt/theme.css"}'; }
 
 # The contract helper is package-owned; common CGI/static bytes remain
 # updater-owned and are checked by it before package success is reported.

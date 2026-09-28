@@ -86,21 +86,39 @@ export function initDrawer() {
   const theme = document.querySelector(".topbar > .theme-toggle");
   if (!btn || !nav || !backdrop) return;
 
+  function drawerFocusables() {
+    const insideNav = Array.from(nav.querySelectorAll("a[href], button:not([disabled])"));
+    const themeButtons = theme ? Array.from(theme.querySelectorAll("button:not([disabled])")) : [];
+    return insideNav.concat(themeButtons).filter(node => !node.hidden && node.getClientRects().length > 0);
+  }
+  function focusPageHeading() {
+    const target = document.querySelector("#app .page-title, #app h1, #app h2, #app h3")
+      || document.getElementById("app");
+    if (!target) return;
+    if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+    target.focus();
+  }
+
   function openDrawer() {
     nav.classList.add("menu-open");
     if (theme) theme.classList.add("menu-open");
     backdrop.hidden = false;
-    requestAnimationFrame(() => backdrop.classList.add("menu-open"));
+    requestAnimationFrame(() => {
+      backdrop.classList.add("menu-open");
+      const first = drawerFocusables()[0];
+      if (first) first.focus();
+    });
     btn.setAttribute("aria-expanded", "true");
     document.body.style.overflow = "hidden";
   }
-  function closeDrawer() {
+  function closeDrawer({ restoreFocus = true } = {}) {
     nav.classList.remove("menu-open");
     if (theme) theme.classList.remove("menu-open");
     backdrop.classList.remove("menu-open");
     btn.setAttribute("aria-expanded", "false");
     document.body.style.overflow = "";
     setTimeout(() => { backdrop.hidden = true; }, 220);
+    if (restoreFocus) requestAnimationFrame(() => btn.focus());
   }
 
   btn.addEventListener("click", () => {
@@ -113,10 +131,29 @@ export function initDrawer() {
   if (xBtn) xBtn.addEventListener("click", closeDrawer);
   // Close on nav link click (mobile UX: kbgo куда нажал)
   nav.addEventListener("click", (e) => {
-    if (e.target.closest("a[data-route]")) closeDrawer();
+    if (e.target.closest("a[data-route]")) {
+      closeDrawer({ restoreFocus: false });
+      requestAnimationFrame(focusPageHeading);
+    }
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && nav.classList.contains("menu-open")) closeDrawer();
+    if (!nav.classList.contains("menu-open")) return;
+    if (e.key === "Escape") {
+      closeDrawer();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const items = drawerFocusables();
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (e.shiftKey && (document.activeElement === first || !nav.contains(document.activeElement))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (document.activeElement === last || !nav.contains(document.activeElement) && !theme?.contains(document.activeElement))) {
+      e.preventDefault();
+      first.focus();
+    }
   });
 }
 

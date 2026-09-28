@@ -1436,8 +1436,9 @@ const SCENARIOS = {
       await sleep(60);
       check("показывается длительность последнего подбора", /20 мин/.test(q("#unique-set-status").textContent), q("#unique-set-status").textContent);
       check("последний результат запрашивается для длительности", CALLS["/strategy/unique-set"] === 1, CALLS["/strategy/unique-set"]);
-      check("есть только экспериментальная пометка", /ЭКСПЕРИМЕНТАЛЬНО!!!/.test(html), html.slice(0, 500));
+      check("экспериментальная пометка сформулирована спокойно", /Экспериментальная функция/.test(html), html.slice(0, 500));
       check("кнопка массового возврата к автоматике показана", /unique-set-reset-all/.test(html), html.slice(0, 800));
+      check("обратимое массовое действие оформлено нейтрально", /class="btn btn-secondary" id="unique-set-reset-all"/.test(html), html.slice(0, 800));
       q("#unique-set-start").fire("click");
       await sleep(30);
       const first = confirmBox();

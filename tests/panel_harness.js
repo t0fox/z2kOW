@@ -56,8 +56,8 @@ function mockNode(id, properties) {
 }
 if (BRAND_CASE) {
   mockNode("panel-brand", { attributes: { "aria-label": "Z2K" } });
-  mockNode("brand-default-logo", { hidden: false });
-  mockNode("brand-profile-logo", { hidden: true, src: "" });
+  mockNode("brand-profile-logo", { hidden: false, src: "/favicon.svg?v=p-86.1" });
+  mockNode("brand-wordmark", { textContent: "Z2K" });
   mockNode("brand-favicon", { href: "/favicon.svg?v=p-86.1" });
   mockNode("brand-mask-icon", { href: "/favicon.svg?v=p-86.1" });
 }
@@ -135,11 +135,11 @@ const statusFixture = (process.env.Z2K_OW_CAPS === "1")
                  stats:"1",ppe:"1",auto_update:"1",autohostlist:"0"}, tunnel:{running:true} };
 if (BRAND_CASE === "openwrt") {
   statusFixture.brand = { name:"z2kOW", subtitle:"OpenWrt edition",
-    logo:"/assets/openwrt/wordmark.svg", favicon:"/assets/openwrt/favicon.svg",
+    logo:"/assets/openwrt/mark.svg", favicon:"/assets/openwrt/favicon.svg",
     theme:"/assets/openwrt/theme.css" };
 } else if (BRAND_CASE === "unsafe") {
   statusFixture.brand = { name:"z2kOW", subtitle:"OpenWrt edition",
-    logo:"https://evil.example/wordmark.svg", favicon:"//evil.example/favicon.svg",
+    logo:"https://evil.example/mark.svg", favicon:"//evil.example/favicon.svg",
     theme:"/../outside.css" };
 }
 const FIXTURES = {
@@ -205,14 +205,14 @@ catch (e) { console.log("ЗАГРУЗКА УПАЛА: " + e.message); process.ex
     const profile = BRAND_CASE === "openwrt";
     const unsafe = BRAND_CASE === "unsafe";
     const brandLink = domById.get("panel-brand");
-    const defaultLogo = domById.get("brand-default-logo");
     const profileLogo = domById.get("brand-profile-logo");
+    const wordmark = domById.get("brand-wordmark");
     const favicon = domById.get("brand-favicon");
     const mask = domById.get("brand-mask-icon");
     const theme = domById.get("brand-profile-theme");
     if (profile) {
-      expect(profileLogo && profileLogo.hidden === false && profileLogo.src === "/assets/openwrt/wordmark.svg", "OpenWrt profile shows its same-origin wordmark");
-      expect(defaultLogo && defaultLogo.hidden === true, "OpenWrt profile hides the default wordmark");
+      expect(profileLogo && profileLogo.hidden === false && profileLogo.src === "/assets/openwrt/mark.svg", "OpenWrt profile updates the single same-origin mark");
+      expect(wordmark && wordmark.textContent === "z2kOW", "OpenWrt profile updates the HTML wordmark");
       expect(brandLink && brandLink.getAttribute("aria-label") === "z2kOW — OpenWrt edition", "brand name and subtitle are accessible");
       expect(favicon && favicon.href === "/assets/openwrt/favicon.svg" && mask && mask.href === "/assets/openwrt/favicon.svg", "favicon and mask icon use the profile asset");
       expect(theme && theme.href === "/assets/openwrt/theme.css", "profile theme loads from a same-origin stylesheet");
@@ -221,13 +221,14 @@ catch (e) { console.log("ЗАГРУЗКА УПАЛА: " + e.message); process.ex
         expect(global.document.title === `${title} · z2kOW`, `route title for #/${route} uses the profile name`);
       }
     } else if (unsafe) {
-      expect(profileLogo && profileLogo.hidden === true, "unsafe profile keeps the default wordmark");
+      expect(profileLogo && profileLogo.src === "/favicon.svg?v=p-86.1", "unsafe profile keeps the local default mark");
+      expect(wordmark && wordmark.textContent === "Z2K", "unsafe profile keeps the default HTML wordmark");
       expect(favicon && favicon.href === "/favicon.svg?v=p-86.1" && mask && mask.href === "/favicon.svg?v=p-86.1", "unsafe profile cannot replace local icons");
       expect(!theme, "unsafe profile cannot load a non-local theme");
       global.location.hash = "#/strategies"; global.__nav && global.__nav();
       expect(global.document.title === "Стратегии · Z2K", "rejected profile keeps the default route suffix");
     } else {
-      expect(defaultLogo && defaultLogo.hidden === false && profileLogo && profileLogo.hidden === true, "missing profile preserves default wordmark");
+      expect(profileLogo && profileLogo.src === "/favicon.svg?v=p-86.1" && wordmark && wordmark.textContent === "Z2K", "missing profile preserves the single default lockup");
       expect(favicon && favicon.href === "/favicon.svg?v=p-86.1" && mask && mask.href === "/favicon.svg?v=p-86.1", "missing profile preserves default icons");
       expect(!theme, "missing profile does not add a theme stylesheet");
       global.location.hash = "#/strategies"; global.__nav && global.__nav();

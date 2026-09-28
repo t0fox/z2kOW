@@ -202,6 +202,11 @@ ALLOWLIST="$ALLOWLIST scripts/openwrt/package-version.sh tests/openwrt/test_ow_p
 # Stage 9 production release path: dispatch-only build/preflight, offline
 # asset signing, agent runbook, pending live-gate record, and version notes.
 ALLOWLIST="$ALLOWLIST .github/workflows/release-openwrt.yml CHANGELOG.md docs/openwrt-release-acceptance.json docs/openwrt-release-operations.md scripts/openwrt/changelog-release.py scripts/openwrt/release-assets.py scripts/openwrt/release-preflight.py"
+# OpenWrt panel visual refresh: presentation changes to shared UI are isolated;
+# design notes and the requested project-local Apple design skill are inputs,
+# not package or runtime payload.
+ALLOWLIST="$ALLOWLIST webpanel/www/js/chrome.js webpanel/www/js/pages/strategies.js docs/openwrt-webpanel-redesign-spec.md skills-lock.json"
+ALLOWLIST="$ALLOWLIST .agents/skills/apple-design/*"
 # WEB-BLOCKER-01: keep the isolated browser regression and its pinned tooling
 # outside product runtime dependencies; extra-domains renders its route shell
 # before optional status enrichment can complete.
@@ -263,6 +268,7 @@ else
     for _f in $_bad; do
         case "$_f" in
             .gitattributes) [ -n "$_attr_ok" ] && continue ;;
+            .agents/skills/apple-design/*|skills-lock.json|CHANGELOG.md|docs/openwrt-webpanel-redesign-spec.md|webpanel/www/js/chrome.js|webpanel/www/js/pages/strategies.js|.github/workflows/release-openwrt.yml|docs/openwrt-release-acceptance.json|docs/openwrt-release-operations.md|scripts/openwrt/release-assets.py|scripts/openwrt/release-preflight.py) continue ;;
             scripts/openwrt/package-version.sh) continue ;;
             package.json|package-lock.json|tests/browser/openwrt-panel.mjs|webpanel/www/js/pages/extra-domains.js) continue ;;
             z2k-warpd/internal/domainroute/nft_pairset.go|z2k-warpd/internal/domainroute/nft_pairset_test.go|z2k-warpd/openwrt-overlay/overlay.json|z2k-warpd/openwrt-overlay/ipset.go|z2k-warpd/openwrt-overlay/go.mod) continue ;;

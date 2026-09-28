@@ -24,6 +24,7 @@ PKG_RELEASE:=79
 # with no scoped override, the stable package version/release above remain the source.
 PKG_VERSION:=$(if $(Z2K_OW_PACKAGE_VERSION),$(Z2K_OW_PACKAGE_VERSION),$(PKG_VERSION))
 PKG_RELEASE:=$(if $(Z2K_OW_PACKAGE_RELEASE),$(Z2K_OW_PACKAGE_RELEASE),$(PKG_RELEASE))
+# Full OpenWrt panel theme and lockup ship in the selected snapshot or release package.
 # RELEASE 79: blocker-safe optional identity module and neutral static profile.
 # RELEASE 78: common webpanel identity seam plus package-owned local profile assets.
 # RELEASE 7 (p-84.21 sync): WARP parity, fw-check, soundcloud proof.
@@ -298,7 +299,7 @@ define Package/z2k-adapter/install
 	# OpenWrt brand assets are package-owned and sit under the existing
 	# lighttpd docroot. Common webpanel updates never map these source paths.
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/www/assets/openwrt
-	$(INSTALL_DATA) $(Z2K_TREE)/platform/openwrt/webpanel-brand/wordmark.svg \
+	$(INSTALL_DATA) $(Z2K_TREE)/platform/openwrt/webpanel-brand/mark.svg \
 		$(Z2K_TREE)/platform/openwrt/webpanel-brand/favicon.svg \
 		$(Z2K_TREE)/platform/openwrt/webpanel-brand/theme.css \
 		$(Z2K_TREE)/platform/openwrt/webpanel-brand/profile.json \

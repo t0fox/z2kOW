@@ -34,15 +34,14 @@ export function applyBranding(status) {
   if (!name || !subtitle || !logo || !favicon || !theme) return false;
 
   const brand = document.getElementById("panel-brand");
-  const fallback = document.getElementById("brand-default-logo");
   const image = document.getElementById("brand-profile-logo");
+  const wordmark = document.getElementById("brand-wordmark");
   const icon = document.getElementById("brand-favicon");
   const mask = document.getElementById("brand-mask-icon");
-  if (!brand || !fallback || !image || !icon || !mask) return false;
+  if (!brand || !image || !wordmark || !icon || !mask) return false;
 
   image.setAttribute("src", logo);
-  image.hidden = false;
-  fallback.hidden = true;
+  wordmark.textContent = name;
   brand.setAttribute("aria-label", name + " — " + subtitle);
   icon.setAttribute("href", favicon);
   mask.setAttribute("href", favicon);
