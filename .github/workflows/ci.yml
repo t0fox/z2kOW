@@ -1004,12 +1004,12 @@ jobs:
       - name: Generate OpenWrt candidate manifest (temp artifact, not committed)
         run: |
           set -eu -o pipefail
-          git show p-85.13:UPDATES.json > "$RUNNER_TEMP/p-85.13-UPDATES.json"
+          git show p-86.1:UPDATES.json > "$RUNNER_TEMP/p-86.1-UPDATES.json"
           # --refresh-stale-hashes: дерево feature-ветки новее подписанного
           # snapshot'а; кандидат несёт правду дерева (имена — в provenance
           # через ci_snapshot, production-путь этот флаг не ставит).
           sh scripts/openwrt/gen-openwrt-manifest.sh \
-            --source-manifest "$RUNNER_TEMP/p-85.13-UPDATES.json" --tree "$GITHUB_WORKSPACE" \
+            --source-manifest "$RUNNER_TEMP/p-86.1-UPDATES.json" --tree "$GITHUB_WORKSPACE" \
             --ref "$(git rev-parse --short HEAD)" \
             --api-min "$(grep -E '^[[:space:]]*[0-9]+' package/openwrt/ADAPTER_API | tr -d '[:space:]')" \
             --refresh-stale-hashes \
