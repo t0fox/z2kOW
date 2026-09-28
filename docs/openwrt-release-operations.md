@@ -2,7 +2,7 @@
 
 The production release entrypoint is `.github/workflows/release-openwrt.yml` with `workflow_dispatch`. Pushes, pull requests, upstream syncs, and green CI runs build or validate development snapshots only; they never create a stable tag or Release.
 
-The canonical builder requires an explicit `--ci-snapshot` or `--release --product-version X.Y.Z` mode. The old Makefile-backed stable revision path is disabled so a normal build cannot emit a misleading `0.1.0-r79` package. Before choosing a production SemVer, inspect the adapter version installed on the target router: an installed `0.1.0-r79` cannot be upgraded by `0.1.0-r1`; the release SemVer must be increased so APK orders the production package above the legacy revision.
+The canonical builder requires an explicit `--ci-snapshot` or `--release --product-version X.Y.Z` mode. The old Makefile-backed stable revision path is disabled so a normal build cannot emit a misleading `0.1.0-r79` package. The live router reports `z2k-adapter-0.1.0-r79` and `z2k-webpanel-0.1.0-r79`; because production packages reset their revision to `r1`, the first upgrade-safe product version is `0.1.1`. Release preflight and the canonical version helper reject `0.1.0` and any lower SemVer.
 
 ## Dry run
 
@@ -25,7 +25,7 @@ The command refuses a key stored inside the repository or a private key that doe
 
 The release helper expects the production public key at `package/openwrt/keys/z2k-feed.pem`. No public or private production key is currently present in this checkout. Until the public key is pinned and its private counterpart is provisioned offline, production signing and publication fail closed. Never substitute `~/.z2k-signing/z2k-update.key`: that key belongs to the payload updater trust domain.
 
-## Live gates for v0.1.0
+## Live gates for v0.1.1
 
 Before `dry_run=false` may publish the first release, record evidence in `docs/openwrt-release-acceptance.json` for:
 

@@ -47,7 +47,17 @@ else
     _t_bad "different source SHAs produced the same/empty snapshot version"
 fi
 
-_product_version="$_base_version"
+if _release_version "$_sha" "$_base_version" >/dev/null; then
+    _t_bad "release helper must reject a SemVer equal to the legacy stable baseline"
+else
+    _t_ok
+fi
+_product_version="$(python3 - "$_base_version" <<'PY'
+import sys
+major, minor, patch = (int(part) for part in sys.argv[1].split("."))
+print(f"{major}.{minor}.{patch + 1}")
+PY
+)"
 assert_eq "release mode emits product version with release 1" \
     "$_product_version|1" "$(_release_version "$_sha" "$_product_version")"
 _bad_release="$( _release_version "$_sha" '1.2' )"
@@ -113,14 +123,19 @@ if [ -x "$APK_BIN" ]; then
     else
         _t_bad "test fixture requires HEAD committer timestamp later than its parent"
     fi
-    _stable="$( _release_version "$_sha" "$_product_version" )"
-    _stable_pkg="$(printf '%s' "$_stable" | sed 's/|/-r/')"
-    _cmp="$("$APK_BIN" version -t "$_snap_version-r$_snap_release" "$_stable_pkg" 2>/dev/null)"
-    assert_eq "snapshot sorts below stable release under apk-tools" "<" "$_cmp"
     _makefile_stable="$_base_version-r$_base_release"
+    _same_semver_r1="$_base_version-r1"
+    _cmp="$("$APK_BIN" version -t "$_same_semver_r1" "$_makefile_stable" 2>/dev/null)"
+    assert_eq "same SemVer r1 sorts below legacy r79" "<" "$_cmp"
+    _release="$( _release_version "$_sha" "$_product_version" )"
+    _release_pkg="$(printf '%s' "$_release" | sed 's/|/-r/')"
+    _cmp="$("$APK_BIN" version -t "$_snap_version-r$_snap_release" "$_release_pkg" 2>/dev/null)"
+    assert_eq "snapshot sorts below product release under apk-tools" "<" "$_cmp"
     _cmp="$("$APK_BIN" version -t "$_snap_version-r$_snap_release" "$_makefile_stable" 2>/dev/null)"
     assert_eq "snapshot sorts below Makefile stable package under apk-tools" "<" "$_cmp"
-    if "$APK_BIN" version -c "$_snap_version-r$_snap_release" "$_stable_pkg" >/dev/null 2>&1; then
+    _cmp="$("$APK_BIN" version -t "$_makefile_stable" "$_release_pkg" 2>/dev/null)"
+    assert_eq "first product release sorts above installed legacy r79" "<" "$_cmp"
+    if "$APK_BIN" version -c "$_snap_version-r$_snap_release" "$_release_pkg" >/dev/null 2>&1; then
         _t_ok
     else
         _t_bad "apk-tools 3.0.5 rejected generated package version syntax"

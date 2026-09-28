@@ -21,13 +21,19 @@
 - Canonical builder больше не выдаёт legacy stable package revision `rXX`;
   сборке требуется явно выбрать CI snapshot или product release.
 
-## [0.1.0]
+## [0.1.1]
 
 ### Добавлено
 
 - Первый самостоятельный OpenWrt bundle z2kOW: adapter, необязательная
   webpanel, zapret2 runtime и WARP runtime.
 - Provenance и checksums для неизменяемого набора package assets.
+
+### Обновление с предыдущих сборок
+
+- Версия первого production-релиза повышена до `0.1.1`: на роутере уже
+  установлены `z2k-adapter-0.1.0-r79` и `z2k-webpanel-0.1.0-r79`, а новый
+  production bundle начинает с package revision `r1`.
 
 ### Совместимость
 

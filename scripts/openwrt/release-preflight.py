@@ -20,6 +20,23 @@ CI_PATH = ".github/workflows/ci.yml"
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def legacy_package_version() -> str:
+    path = ROOT / "package/openwrt/Makefile"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise PreflightError(f"cannot read legacy package version baseline: {exc}") from exc
+    match = re.search(r"(?m)^PKG_VERSION:=([^\s]+)\s*$", text)
+    if not match or not SEMVER_RE.fullmatch(match.group(1)):
+        raise PreflightError("legacy package version baseline is missing or malformed")
+    return match.group(1)
+
+
+def semver_tuple(version: str) -> tuple[int, int, int]:
+    major, minor, patch = (int(part) for part in version.split("."))
+    return major, minor, patch
+
+
 class PreflightError(Exception):
     pass
 
@@ -198,6 +215,11 @@ def main() -> int:
     args = parse_args()
     if not SEMVER_RE.fullmatch(args.version):
         raise PreflightError("version must be SemVer X.Y.Z without leading zeroes")
+    legacy_version = legacy_package_version()
+    if semver_tuple(args.version) <= semver_tuple(legacy_version):
+        raise PreflightError(
+            f"release version must be newer than legacy package baseline {legacy_version}"
+        )
     if not SHA_RE.fullmatch(args.target_sha):
         raise PreflightError("target_sha must be a full 40-character commit SHA")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repository):

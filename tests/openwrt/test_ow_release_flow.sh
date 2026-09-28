@@ -14,7 +14,8 @@ mkdir -p "$T/bin"
 GH_LOG="$T/gh.log"
 _TARGET_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 _OTHER_SHA=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-_VERSION=1.2.3
+_VERSION=0.1.1
+_VERSION_RE="$(printf '%s' "$_VERSION" | sed 's/\\./\\\\./g')"
 
 # This fake models only the read endpoints needed by preflight. It logs the
 # method and route so every case can prove that validation is read-only.
@@ -119,9 +120,9 @@ grep -Eq '^GET repos/owner/repo/(git/ref/heads/main|git/refs/heads/main|commits/
     && _t_ok || _t_bad "preflight did not read current main SHA through GitHub API"
 grep -Eq '^GET repos/owner/repo/actions/runs\?' "$GH_LOG" \
     && _t_ok || _t_bad "preflight did not query CI runs through GitHub API"
-grep -Eq '^GET repos/owner/repo/git/refs?/tags/v1\.2\.3$' "$GH_LOG" \
+grep -Eq "^GET repos/owner/repo/git/refs?/tags/v${_VERSION_RE}$" "$GH_LOG" \
     && _t_ok || _t_bad "preflight did not check the version tag through GitHub API"
-grep -Eq '^GET repos/owner/repo/releases/tags/v1\.2\.3$' "$GH_LOG" \
+grep -Eq "^GET repos/owner/repo/releases/tags/v${_VERSION_RE}$" "$GH_LOG" \
     && _t_ok || _t_bad "preflight did not check the version release through GitHub API"
 
 # Input validation must reject malformed product versions and confirmation
@@ -132,6 +133,18 @@ python3 "$PREFLIGHT" --version 1.2 --target-sha "$_TARGET_SHA" \
 _rc=$?
 assert_eq "malformed SemVer rejected" "1" "$( [ "$_rc" -ne 0 ] && echo 1 || echo 0 )"
 assert_eq "malformed SemVer cannot write" "0" "$(_write_count)"
+_reset_fixture
+python3 "$PREFLIGHT" --version 0.1.0 --target-sha "$_TARGET_SHA" \
+    --confirm 'RELEASE v0.1.0' --repository owner/repo --dry-run true >"$T/output" 2>&1
+_rc=$?
+assert_eq "legacy 0.1.0 release rejected before CI or tag checks" "1" "$( [ "$_rc" -ne 0 ] && echo 1 || echo 0 )"
+if grep -Fq "must be newer than legacy package baseline 0.1.0" "$T/output"; then
+    _t_ok
+else
+    _t_bad "legacy version rejection must explain r79-to-r1 upgrade safety"
+fi
+assert_eq "legacy SemVer release rejection performs no GitHub API reads" "" "$(cat "$GH_LOG")"
+assert_eq "legacy SemVer release rejection cannot write" "0" "$(_write_count)"
 _reset_fixture
 python3 "$PREFLIGHT" --version 01.2.3 --target-sha "$_TARGET_SHA" \
     --confirm 'RELEASE v01.2.3' --repository owner/repo --dry-run true >"$T/output" 2>&1

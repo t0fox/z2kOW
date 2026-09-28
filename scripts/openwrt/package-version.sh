@@ -38,6 +38,9 @@ case "$MODE" in
         command -v python3 >/dev/null 2>&1 || die 'нужен python3 для проверки product version'
         python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", sys.argv[1]) else 1)' "$PRODUCT_VERSION" \
             || die "product version должна иметь форму X.Y.Z: [$PRODUCT_VERSION]"
+        python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", sys.argv[2]) and tuple(map(int,sys.argv[1].split("."))) > tuple(map(int,sys.argv[2].split("."))) else 1)' \
+            "$PRODUCT_VERSION" "$_base_version" \
+            || die "product version must be newer than legacy package baseline $_base_version because production release resets PKG_RELEASE to 1"
         _version="$PRODUCT_VERSION"
         _release=1
         ;;
