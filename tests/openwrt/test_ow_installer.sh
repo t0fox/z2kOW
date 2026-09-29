@@ -62,8 +62,17 @@ case "$1" in
     add)
         [ "${Z2K_TEST_APK_ADD_FAIL:-0}" = 0 ] || exit 1
         shift
+        upgrade=0
+        if [ "${1:-}" = --upgrade ]; then
+            upgrade=1
+            shift
+        fi
         for pkg in "$@"; do
-            grep -q "^$pkg|" "$Z2K_TEST_INSTALLED" || printf '%s|0.1.1-r1\n' "$pkg" >> "$Z2K_TEST_INSTALLED"
+            if grep -q "^$pkg|" "$Z2K_TEST_INSTALLED"; then
+                [ "$upgrade" = 1 ] && sed -i "s/^$pkg|.*/$pkg|0.1.1-r1/" "$Z2K_TEST_INSTALLED"
+            else
+                printf '%s|0.1.1-r1\n' "$pkg" >> "$Z2K_TEST_INSTALLED"
+            fi
         done
         exit 0 ;;
     upgrade)
@@ -167,7 +176,7 @@ cp "$KEY" "$SYS/etc/apk/keys/z2k-feed.pem"
 printf '%s\n' 'https://github.com/t0fox/z2kOW/releases/latest/download' > "$SYS/etc/apk/repositories.d/z2kow.list"
 before_key="$(sha256sum "$SYS/etc/apk/keys/z2k-feed.pem" | awk '{print $1}')"
 if _run; then _t_ok; else _t_bad "repeat install failed: $(cat "$T/out")"; fi
-assert_eq "repeat install upgrades only the two product packages" 'upgrade z2k-adapter z2k-webpanel' "$(grep '^upgrade ' "$T/apk.log" | tail -1)"
+assert_eq "repeat install upgrades only the two product packages" 'add --upgrade z2k-adapter z2k-webpanel' "$(grep '^add --upgrade ' "$T/apk.log" | tail -1)"
 assert_eq "repeat install leaves one feed entry" '1' "$(grep -c '^https://github.com/t0fox/z2kOW/releases/latest/download$' "$SYS/etc/apk/repositories.d/z2kow.list")"
 assert_eq "repeat install leaves correct key bytes unchanged" "$before_key" "$(sha256sum "$SYS/etc/apk/keys/z2k-feed.pem" | awk '{print $1}')"
 
@@ -175,6 +184,7 @@ _reset
 printf 'user extra data\n' > "$SYS/etc/z2k/config"
 printf 'z2k-adapter|0.1.0-r79\nz2k-webpanel|0.1.0-r79\n' > "$T/installed"
 if _run; then _t_ok; else _t_bad "legacy package upgrade failed: $(cat "$T/out")"; fi
+assert_eq "legacy package upgrade uses the package-scoped add operation" 'add --upgrade z2k-adapter z2k-webpanel' "$(grep '^add --upgrade ' "$T/apk.log" | tail -1)"
 assert_eq "legacy 0.1.0-r79 upgrades to product 0.1.1" 'z2k-adapter|0.1.1-r1' "$(grep '^z2k-adapter|' "$T/installed")"
 assert_eq "legacy upgrade preserves user config" 'user extra data' "$(cat "$SYS/etc/z2k/config")"
 

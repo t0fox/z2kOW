@@ -103,7 +103,7 @@ fi
 apk update || die "apk update завершился ошибкой; пакеты не установлены"
 if apk info -e z2k-adapter >/dev/null 2>&1 \
    && apk info -e z2k-webpanel >/dev/null 2>&1; then
-    apk upgrade z2k-adapter z2k-webpanel \
+    apk add --upgrade z2k-adapter z2k-webpanel \
         || die "не удалось обновить z2k-adapter и z2k-webpanel"
 else
     apk add z2k-adapter z2k-webpanel \

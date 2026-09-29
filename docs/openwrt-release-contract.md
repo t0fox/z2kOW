@@ -225,7 +225,7 @@ Core: только то, что реально используется кодо
 
 - First install: pinned feed key → owned feed URL idempotently → `apk update` →
   `apk add z2k-adapter z2k-webpanel`; repeat install uses a package-scoped
-  `apk upgrade z2k-adapter z2k-webpanel`. `distfeeds.list` НЕ трогаем; никакого blanket
+  `apk add --upgrade z2k-adapter z2k-webpanel`. `distfeeds.list` НЕ трогаем; никакого blanket
   `apk upgrade`; никакого `--allow-untrusted` в проде (только явные
   dev-тесты артефактов).
 - `/etc/apk/keys/<z2k>.pem` + `/etc/apk/repositories.d/<z2k>.list` владеет
