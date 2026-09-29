@@ -11,6 +11,8 @@
 - Первый самостоятельный OpenWrt bundle z2kOW: adapter, необязательная
   webpanel, zapret2 runtime и WARP runtime.
 - Provenance и checksums для неизменяемого набора package assets.
+- Release bundle включает одно-командный bootstrap installer с закреплённым
+  feed key, установкой из signed APK feed и проверкой сервисов.
 
 ### Исправлено
 

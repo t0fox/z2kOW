@@ -6,7 +6,8 @@
     "method": "read-only SSH package version query",
     "adapter": "z2k-adapter-0.1.1_alpha20260929173842~5dedad94aa22f78b9c65e322887265b8c0d1ff6e-r1",
     "webpanel": "z2k-webpanel-0.1.1_alpha20260929173842~5dedad94aa22f78b9c65e322887265b8c0d1ff6e-r1",
-    "first_upgrade_safe_product_semver": "0.1.1"
+    "first_upgrade_safe_product_semver": "0.1.1",
+    "version_order_verified_with": "live OpenWrt apk-tools 3.0.5 on Cudy WBR3000UAX v1"
   },
   "cudy_live_acceptance": {
     "status": "pending",
@@ -17,6 +18,7 @@
       "2026-09-28: fresh live Chromium review captured all eight primary routes in dark and light at 1392x1104 (16 screenshots). Every capture reported brand z2kOW, loaded local theme and mark, zero page/console errors, and no horizontal overflow; Strategies State retained 140 rows. Before contact sheet: C:/Users/Kirill/.codex/visualizations/2026/09/27/01a0e4a9-c770-7753-a692-b31f31788ea1/openwrt-redesign/live-before-settled/contact-sheet.png. After contact sheet: C:/Users/Kirill/.codex/visualizations/2026/09/27/01a0e4a9-c770-7753-a692-b31f31788ea1/openwrt-redesign/live-after-synced/contact-sheet.png.",
       "2026-09-28: /etc/z2k/config and /etc/crontabs/root hashes remained unchanged, TCP congestion remained cubic, and lighttpd/uhttpd/nfqws2 process IDs did not change. /etc/apk/world changed only the adapter and webpanel selectors to the installed snapshot versions; its other 143 entries were preserved.",
       "2026-09-29: read-only live probe on Cudy WBR3000UAX v1 reports OpenWrt 25.12.5, mediatek/filogic, aarch64_cortex-a53; installed adapter and webpanel are 0.1.1_alpha20260929173842~5dedad94aa22f78b9c65e322887265b8c0d1ff6e-r1, with z2k-warp-runtime-85.16.0-r1 and z2k-zapret2-runtime-1.0.5.1-r4. `/etc/init.d/z2k status` and `/etc/init.d/z2k-webpanel running` report running; port 8088 listens on 192.168.1.1 and a host HTTP GET returned 200.",
+      "2026-09-29: live apk-tools 3.0.5 version comparison returned `<` for 0.1.0-r79 vs 0.1.1-r1, 0.1.0-r79 vs the installed CI snapshot, and the CI snapshot vs 0.1.1-r1; `apk version -c` accepted the snapshot/release pair. This confirms 0.1.1 is the first production upgrade-safe SemVer.",
       "2026-09-29: this read-only service/HTTP probe did not exercise WAN traffic, reboot recovery, or a post-deployment soak. Those Cudy acceptance gates remain pending."
     ],
     "accepted_limitations": []
@@ -35,9 +37,9 @@
     ]
   },
   "immutable_releases": {
-    "status": "pending",
+    "status": "pass",
     "evidence": [
-      "2026-09-29: GitHub repository immutable-releases API returned enabled=false; first production publication must stay blocked until the owner enables it."
+      "2026-09-29: enabled repository immutable Releases with the GitHub REST API; follow-up GET repos/t0fox/z2kOW/immutable-releases returned enabled=true. No Release or tag was created."
     ]
   }
 }

@@ -47,14 +47,18 @@ fi
 # Run the production _tree_dirty function against an isolated temporary repo:
 # the checkout running this test may itself have unrelated local edits.
 mkdir -p "$T/staged-only"
-git -C "$T/staged-only" init -q || exit 1
-git -C "$T/staged-only" config user.name "OpenWrt test"
-git -C "$T/staged-only" config user.email "openwrt-test@example.invalid"
+_git_fixture() (
+    unset GIT_DIR GIT_WORK_TREE
+    git -C "$T/staged-only" "$@"
+)
+_git_fixture init -q || exit 1
+_git_fixture config user.name "OpenWrt test"
+_git_fixture config user.email "openwrt-test@example.invalid"
 printf 'baseline\n' > "$T/staged-only/tracked.txt"
-git -C "$T/staged-only" add tracked.txt
-git -C "$T/staged-only" commit -qm baseline || exit 1
+_git_fixture add tracked.txt
+_git_fixture commit -qm baseline || exit 1
 printf 'staged source change\n' >> "$T/staged-only/tracked.txt"
-git -C "$T/staged-only" add tracked.txt
+_git_fixture add tracked.txt
 sed -n '/^_tree_dirty() {/,/^}/p' "$BUILD" > "$T/tree-dirty.sh"
 if [ ! -s "$T/tree-dirty.sh" ]; then
     _t_bad "R2 staged: could not load production _tree_dirty function"

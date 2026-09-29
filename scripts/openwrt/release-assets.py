@@ -193,8 +193,8 @@ def prepare(args: argparse.Namespace) -> None:
        or provenance.get("arch") != "aarch64_cortex-a53":
         fail("builder provenance target does not match the pinned production target")
     public_key = args.public_key.resolve()
-    key_der = public_key_der(public_key)
-    key_fingerprint = hashlib.sha256(key_der).hexdigest()
+    public_key_der(public_key)  # validate the pinned key before rendering assets
+    key_fingerprint = sha256(public_key)
     installer_text = rendered_installer(args.installer_template.resolve(), args.source_sha, key_fingerprint)
 
     apks = sorted(dist.glob("z2k-*.apk"), key=lambda p: p.name)
@@ -375,7 +375,8 @@ def verify(args: argparse.Namespace) -> None:
        or provenance.get("arch") != "aarch64_cortex-a53":
         fail("bundle provenance target is not the pinned production target")
 
-    key_fingerprint = hashlib.sha256(public_key_der(bundle / "z2k-feed.pem")).hexdigest()
+    public_key_der(bundle / "z2k-feed.pem")  # validate the bundled key encoding
+    key_fingerprint = sha256(bundle / "z2k-feed.pem")
     try:
         installer_text = (bundle / "install.sh").read_text(encoding="utf-8")
     except OSError as exc:

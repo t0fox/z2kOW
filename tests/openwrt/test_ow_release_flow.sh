@@ -215,11 +215,11 @@ if python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8"))
 else
     _t_bad "live-gate fixture must have pending Cudy and WEB-LUCI-01 acceptance"
 fi
-if python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); sys.exit(0 if d["immutable_releases"]["status"] == "pending" and d["immutable_releases"]["evidence"] else 1)' \
+if python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); r=d["immutable_releases"]; sys.exit(0 if r["status"] == "pass" and any("enabled=true" in x for x in r["evidence"]) else 1)' \
     "$_acceptance" >/dev/null 2>&1; then
     _t_ok
 else
-    _t_bad "repository immutability must remain pending until enabled and evidenced"
+    _t_bad "repository immutability must be pass only after enabled=true evidence"
 fi
 if python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); sys.exit(0 if d["web_blocker_01"]["status"] == "pending" and any("Chromium" in x for x in d["web_blocker_01"]["evidence"]) else 1)' \
     "$_acceptance" >/dev/null 2>&1; then

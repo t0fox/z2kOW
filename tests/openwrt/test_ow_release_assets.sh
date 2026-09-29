@@ -123,7 +123,7 @@ assert {"packages.adb", "provenance.json", "install.sh", "z2k-feed.pem"} <= {
 }
 PY
 assert_eq "manifest artifact/provenance fields" 0 "$?"
-_key_fp="$(openssl pkey -pubin -in "$T/keys/z2k-feed.pem" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
+_key_fp="$(sha256sum "$T/keys/z2k-feed.pem" | awk '{print $1}')"
 assert_contains "installer embeds the pinned production key fingerprint" "$T/bundle/install.sh" "EXPECTED_FEED_KEY_SHA256=\"$_key_fp\""
 assert_contains "installer pins the candidate commit for key retrieval" "$T/bundle/install.sh" "$SHA"
 assert_not_contains "installer has no unrendered key marker" "$T/bundle/install.sh" '@Z2K_'
