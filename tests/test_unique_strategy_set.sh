@@ -11,6 +11,9 @@ export UNIQUE_SET_DIR="$SB/stages"
 export CUSTOM_STRAT_DIR="$SB/custom"
 export CALL_LOG="$SB/calls.log"
 export SAVE_LOG="$SB/save.log"
+export Z2K_DETECT_BIN="$SB/z2k-detect"
+printf '#!/bin/sh\nexit 0\n' > "$Z2K_DETECT_BIN"
+chmod +x "$Z2K_DETECT_BIN"
 is_running() { return 1; }
 eval "$(awk '/^json_escape\(\)/,/^}/; /^json_string\(\)/,/^}/' "$ROOT/webpanel/cgi/api.sh")"
 
@@ -60,9 +63,33 @@ strategy_pick_run() {
 
 nslookup() {
     [ "${DNS_ONE_IP:-0}" = 1 ] && {
-        printf 'Name: %s\nAddress 1: 142.250.74.14 edge-a\n' "$1"
+        printf 'Server: 127.0.0.1\nAddress: 127.0.0.1:53\n\nName: %s\nAddress: 142.250.74.14\n' "$1"
         return 0
     }
+    case "${DNS_FORMAT:-legacy}" in
+        modern)
+            cat <<'DNS'
+Server: 127.0.0.1
+Address: 127.0.0.1:53
+
+Name: i.ytimg.com
+Address: 142.250.74.182
+Name: i.ytimg.com
+Address: 142.250.74.214
+DNS
+            ;;
+        unsupported)
+            cat <<'DNS'
+Server: 127.0.0.1
+Address: 127.0.0.1:53
+
+Name: i.ytimg.com
+A: 142.250.74.182
+Name: i.ytimg.com
+A: 142.250.74.214
+DNS
+            ;;
+        *)
     cat <<'DNS'
 Server: 127.0.0.1
 Address 1: 127.0.0.1 localhost
@@ -71,6 +98,8 @@ Address 1: 142.250.74.14 edge-a
 Address 2: 142.250.74.46 edge-b
 Address 3: 142.250.74.14 edge-a
 DNS
+            ;;
+    esac
 }
 
 strategy_complete_line() {
@@ -90,7 +119,7 @@ strategy_pool_save_batch() {
 
 # Load the production orchestration functions. A missing function is the
 # expected RED failure before implementation.
-eval "$(awk '/^strategy_unique_set_(strategy|normalize|measure|ipv4_valid|parse_ips|ips|consensus|lock_acquire|lock_release|result_write|stage|stage_multi_ip|run)\(\)/,/^}/' "$ROOT/webpanel/cgi/actions.sh")"
+eval "$(awk '/^strategy_unique_set_(strategy|normalize|measure|ipv4_valid|parse_ips|ips|consensus|preflight|lock_acquire|lock_release|result_write|result_failure_write|stage|stage_multi_ip|run|worker|worker_cleanup)\(\)/,/^}/' "$ROOT/webpanel/cgi/actions.sh")"
 
 PASS=0 FAIL=0
 ok() { PASS=$((PASS + 1)); printf '[OK]   %s\n' "$1"; }
@@ -103,7 +132,8 @@ expect_calls() {
 run_case() {
     UNIQUE_CASE=$1; export UNIQUE_CASE
     UNIQUE_FAIL_STAGE=; UNIQUE_MISSING_STAGE=; UNIQUE_EDGE_MISMATCH=; DNS_ONE_IP=0
-    export UNIQUE_FAIL_STAGE UNIQUE_MISSING_STAGE UNIQUE_EDGE_MISMATCH DNS_ONE_IP
+    DNS_FORMAT="${DNS_FORMAT:-legacy}"
+    export UNIQUE_FAIL_STAGE UNIQUE_MISSING_STAGE UNIQUE_EDGE_MISMATCH DNS_ONE_IP DNS_FORMAT
     : > "$CALL_LOG"; : > "$SAVE_LOG"; rm -f "$STRATEGY_PICK_OUT" "$STRATEGY_UNIQUE_RESULT_FILE"
     rm -f "$UNIQUE_SET_DIR"/*
     strategy_unique_set_run > "$SB/run.log" 2>&1 || { cat "$SB/run.log"; return 1; }
@@ -116,9 +146,103 @@ fi
 
 all_calls=$(printf 'i.ytimg.com mixed 142.250.74.14 142.250.74.46\ngooglevideo.com mixed 142.250.74.14 142.250.74.46\ninstagram.com quic - -\ndiscord.com tcp13 - -\ninstagram.com tcp13 - -\nrutor.org tcp13 - -')
 
-[ "$(printf 'Address 1: 127.0.0.1 localhost\nAddress 1: 142.1.2.3 edge\nAddress 2: 142.1.2.3 duplicate\nAddress 3: 8.8.8.8 edge\nAddress 4: 999.1.1.1 bad\n' | strategy_unique_set_parse_ips)" = "$(printf '142.1.2.3\n8.8.8.8')" ] && ok 'DNS-парсер берёт два уникальных IPv4 и отбрасывает loopback/мусор' || bad 'DNS-парсер некорректен'
+dns_fixture() {
+    case "$1" in
+        modern)
+            cat <<'DNS'
+Server: 127.0.0.1
+Address: 127.0.0.1:53
+
+Name: i.ytimg.com
+Address: 142.250.74.182
+Name: i.ytimg.com
+Address: 142.250.74.214
+DNS
+            ;;
+        legacy)
+            cat <<'DNS'
+Server: 127.0.0.1
+Address 1: 127.0.0.1
+
+Name: i.ytimg.com
+Address 1: 142.250.74.182
+Address 2: 142.250.74.214
+DNS
+            ;;
+        ipv6-mixed)
+            cat <<'DNS'
+Name: i.ytimg.com
+Address: 2a00:1450:4001::1
+Address: 142.250.74.182
+Name: i.ytimg.com
+Address: fe80::1
+Address: 142.250.74.214
+DNS
+            ;;
+        duplicate)
+            cat <<'DNS'
+Name: i.ytimg.com
+Address: 142.250.74.182
+Name: i.ytimg.com
+Address: 142.250.74.182
+DNS
+            ;;
+        resolver-and-junk)
+            cat <<'DNS'
+Server: 127.0.0.1
+Address: 127.0.0.1:53
+Address: 192.168.1.1#53
+
+Name: i.ytimg.com
+Address: 127.0.0.1
+Address: 0.0.0.0
+Address: 256.1.2.3
+Address: 1.2.3.4:443
+Address: 1.2.3.4suffix
+Address: 1.2.3.4
+Address: 5.6.7.8
+DNS
+            ;;
+        unsupported)
+            cat <<'DNS'
+Name: i.ytimg.com
+A: 142.250.74.182
+Name: i.ytimg.com
+A: 142.250.74.214
+DNS
+            ;;
+    esac
+}
+
+assert_dns_parse() {
+    label=$1 expected=$2 fixture=$3
+    actual=$(dns_fixture "$fixture" | strategy_unique_set_parse_ips)
+    if [ "$actual" = "$expected" ]; then
+        ok "$label"
+    else
+        bad "$label: ожидалось [$expected], получено [$actual]"
+    fi
+}
+
+assert_dns_parse 'новый BusyBox Address: возвращает первые два IPv4' "$(printf '142.250.74.182\n142.250.74.214')" modern
+assert_dns_parse 'старый Address N: сохраняет первые два IPv4' "$(printf '142.250.74.182\n142.250.74.214')" legacy
+assert_dns_parse 'IPv6 между A-записями игнорируется' "$(printf '142.250.74.182\n142.250.74.214')" ipv6-mixed
+assert_dns_parse 'одинаковые IPv4 дедуплицируются' '142.250.74.182' duplicate
+assert_dns_parse 'resolver, loopback, нулевой и некорректные адреса отбрасываются' "$(printf '1.2.3.4\n5.6.7.8')" resolver-and-junk
+[ "$(dns_fixture unsupported | strategy_unique_set_parse_ips --stats)" = '2 0' ] && ok 'diagnostics считают IP независимо от незнакомого синтаксиса' || bad 'DNS parser stats не отделяют пришедшие IPv4 от распознанных'
 strategy_unique_set_ipv4_valid 142.250.74.14 && ok 'IPv4 для pinned-зонда валидируется' || bad 'корректный IPv4 отвергнут'
 strategy_unique_set_ipv4_valid 999.1.1.1 >/dev/null 2>&1 && bad 'некорректный IPv4 принят' || ok 'некорректный IPv4 отклонён'
+
+Z2K_NSLOOKUP_BIN="$SB/missing-nslookup"; Z2K_DETECT_BIN="$SB/z2k-detect"
+export Z2K_NSLOOKUP_BIN Z2K_DETECT_BIN
+if strategy_unique_set_preflight > "$SB/preflight-nslookup.log" 2>&1; then bad 'preflight принимает отсутствующий nslookup'; else ok 'preflight обнаруживает отсутствующий nslookup'; fi
+grep -Fq "$SB/missing-nslookup" "$SB/preflight-nslookup.log" && ok 'ошибка preflight называет отсутствующий nslookup' || bad 'ошибка preflight не называет nslookup'
+Z2K_NSLOOKUP_BIN=nslookup; Z2K_DETECT_BIN=/usr/lib/z2k/bin/z2k-detect
+export Z2K_NSLOOKUP_BIN Z2K_DETECT_BIN
+if strategy_unique_set_preflight > "$SB/preflight-detector.log" 2>&1; then bad 'preflight принимает отсутствующий OpenWrt detector'; else ok 'preflight обнаруживает отсутствующий OpenWrt detector'; fi
+grep -Fq '/usr/lib/z2k/bin/z2k-detect' "$SB/preflight-detector.log" && ok 'ошибка preflight показывает OpenWrt путь detector' || bad 'ошибка preflight скрывает путь detector'
+Z2K_NSLOOKUP_BIN=nslookup; Z2K_DETECT_BIN="$SB/z2k-detect"
+export Z2K_NSLOOKUP_BIN Z2K_DETECT_BIN
 
 run_case common || bad 'общий результат 3/3 должен примениться'
 expect_calls "$all_calls"
@@ -127,6 +251,13 @@ grep -q '"coverage":"3/3"' "$STRATEGY_UNIQUE_RESULT_FILE" && ok 'в итог з�
 for pool in yt_tcp gv_tcp quic rkn_tcp; do
     grep -q "^$pool=complete:$pool:" "$SAVE_LOG" && ok "$pool получает свой замер" || bad "$pool не получил свой замер"
 done
+
+modern_calls=$(printf 'i.ytimg.com mixed 142.250.74.182 142.250.74.214\ngooglevideo.com mixed 142.250.74.182 142.250.74.214\ninstagram.com quic - -\ndiscord.com tcp13 - -\ninstagram.com tcp13 - -\nrutor.org tcp13 - -')
+DNS_FORMAT=modern; export DNS_FORMAT
+run_case common || bad 'современный BusyBox DNS должен пройти до полного набора'
+expect_calls "$modern_calls"
+grep -q 'Этап: i.ytimg.com (mixed), ищу от 142.250.74.182 и проверяю кандидаты на всех адресах' "$SB/run.log" && ok 'современный nslookup доходит до первого общего замера' || bad 'современный nslookup завершился до strategy_pick_run'
+DNS_FORMAT=legacy; export DNS_FORMAT
 
 UNIQUE_CDN_SHARED=googlevideo.com; export UNIQUE_CDN_SHARED
 : > "$CALL_LOG"; : > "$SAVE_LOG"; rm -f "$STRATEGY_PICK_OUT" "$STRATEGY_UNIQUE_RESULT_FILE" "$UNIQUE_SET_DIR"/*
@@ -138,8 +269,20 @@ UNIQUE_CDN_SHARED=; export UNIQUE_CDN_SHARED
 
 DNS_ONE_IP=1; export DNS_ONE_IP
 : > "$CALL_LOG"; : > "$SAVE_LOG"; rm -f "$STRATEGY_PICK_OUT" "$STRATEGY_UNIQUE_RESULT_FILE" "$UNIQUE_SET_DIR"/*
-if strategy_unique_set_run > "$SB/one-ip.log" 2>&1; then bad 'один CDN-IP принят'; else ok 'одного CDN-IP недостаточно'; fi
+if strategy_unique_set_worker > "$SB/one-ip.log" 2>&1; then bad 'один CDN-IP принят'; else ok 'одного CDN-IP недостаточно'; fi
 [ ! -s "$SAVE_LOG" ] && ok 'при одном IP пулы не меняются' || bad 'при одном IP вызван batch save'
+[ ! -s "$CALL_LOG" ] && ok 'при одном IP detector не запускается' || bad 'при одном IP detector был запущен'
+grep -q 'найден только один уникальный IPv4' "$SB/one-ip.log" && ok 'один IP получает конкретную причину отказа' || bad 'причина отказа для одного IP не указана'
+grep -Fq '"ok":false' "$STRATEGY_UNIQUE_RESULT_FILE" && grep -q 'найден только один уникальный IPv4' "$STRATEGY_UNIQUE_RESULT_FILE" && ok 'результат задачи сохраняет ошибку одного IP' || bad 'результат задачи не содержит причину одного IP'
+
+DNS_ONE_IP=0; DNS_FORMAT=unsupported
+export DNS_ONE_IP DNS_FORMAT
+: > "$CALL_LOG"; : > "$SAVE_LOG"; rm -f "$STRATEGY_PICK_OUT" "$STRATEGY_UNIQUE_RESULT_FILE" "$UNIQUE_SET_DIR"/*
+if strategy_unique_set_worker > "$SB/unparsed-dns.log" 2>&1; then bad 'неизвестный DNS формат принят'; else ok 'неизвестный DNS формат остановил набор'; fi
+grep -q 'i.ytimg.com: DNS вернул 2 IPv4, parser распознал 0' "$SB/unparsed-dns.log" && ok 'job log объясняет разницу DNS/parser' || bad 'job log не показывает причину несовпадения parser'
+grep -Fq '"error":"i.ytimg.com: DNS вернул 2 IPv4, parser распознал 0"' "$STRATEGY_UNIQUE_RESULT_FILE" && ok 'result сохраняет краткую DNS-диагностику' || bad 'result не сохраняет DNS-диагностику'
+[ ! -s "$CALL_LOG" ] && [ ! -s "$SAVE_LOG" ] && ok 'ошибка DNS не запускает detector и batch save' || bad 'ошибка DNS вызвала замер или запись пулов'
+DNS_FORMAT=legacy; export DNS_FORMAT
 
 run_case mismatch || bad 'Discord fallback должен примениться'
 grep -q '^rkn_tcp=complete:rkn_tcp:discord-rkn$' "$SAVE_LOG" && ok 'несовпадение включает Discord-fallback' || bad 'при несовпадении нет Discord-fallback'
@@ -172,6 +315,40 @@ for target in 'i.ytimg.com mixed' 'googlevideo.com mixed' 'instagram.com quic' '
     if strategy_unique_set_run >/dev/null 2>&1; then bad "$target: техническая ошибка принята"; else ok "$target: техническая ошибка остановила набор"; fi
     [ ! -s "$SAVE_LOG" ] && ok "$target: ошибка не запустила batch save" || bad "$target: ошибка вызвала batch save"
 done
+
+# Exercise the production strategy_pick_run with a detector stub. This checks
+# the exact argv boundary, stdout JSON, and bounded stderr diagnostics.
+DETECT_ARGS_FILE="$SB/detector-args"; export DETECT_ARGS_FILE
+cat > "$SB/detect-stub" <<'DETECT'
+#!/bin/sh
+printf '%s\n' "$@" > "$DETECT_ARGS_FILE"
+printf '%s\n' '{"strategy":"detected"}'
+[ -z "${DETECT_STDERR_TEXT:-}" ] || printf '%s\n' "$DETECT_STDERR_TEXT" >&2
+exit "${DETECT_EXIT:-0}"
+DETECT
+chmod +x "$SB/detect-stub"
+Z2K_DETECT_BIN="$SB/detect-stub"; DETECT_EXIT=0; DETECT_STDERR_TEXT=
+export Z2K_DETECT_BIN DETECT_EXIT DETECT_STDERR_TEXT
+eval "$(awk '/^strategy_pick_run\(\)/,/^}/' "$ROOT/webpanel/cgi/actions.sh")"
+if strategy_unique_set_measure i.ytimg.com mixed "$SB/measure.json" 142.250.74.182 142.250.74.214 > "$SB/detector-success.log" 2>&1; then ok 'multi-IP замер успешно проходит через production strategy_pick_run'; else bad 'multi-IP замер production strategy_pick_run завершился ошибкой'; fi
+[ "$(grep -c '^-also-test-ip$' "$DETECT_ARGS_FILE")" = 1 ] && grep -Fqx '142.250.74.214' "$DETECT_ARGS_FILE" && grep -Fqx '142.250.74.182:443' "$DETECT_ARGS_FILE" && ok 'z2k-detect получает второй IP через also-test-ip и один pinned IP' || bad 'z2k-detect args не содержат pinned/also-test-ip контракт'
+grep -Fq '"tcp":{"strategy":"detected"}' "$SB/measure.json" && ! grep -q 'detector stderr' "$SB/measure.json" && ok 'stdout z2k-detect остаётся чистым JSON' || bad 'stderr смешан с JSON stdout'
+
+DETECT_EXIT=42
+DETECT_STDERR_TEXT="detector stderr: $(awk 'BEGIN { for (i=0; i<900; i++) printf "x"; print "" }')"
+export DETECT_EXIT DETECT_STDERR_TEXT
+STRATEGY_PICK_OUT="$SB/detector-failure.json"; export STRATEGY_PICK_OUT
+if strategy_pick_run i.ytimg.com mixed 142.250.74.182 142.250.74.214 > "$SB/detector-failure.log" 2>&1; then bad 'ошибка z2k-detect принята'; else DETECTOR_RC=$?; [ "$DETECTOR_RC" = 42 ] && ok 'strategy_pick_run возвращает код ошибки detector' || bad 'strategy_pick_run потерял код ошибки detector'; fi
+grep -q 'detector stderr:' "$SB/detector-failure.log" && ok 'stderr detector записан в журнал задачи' || bad 'stderr detector потерян'
+awk 'length($0) > 300 { bad=1 } END { exit bad }' "$SB/detector-failure.log" && ok 'диагностика detector ограничена по длине' || bad 'в журнал попал неограниченный stderr'
+grep -Fq '"tcp":{"strategy":"detected"}' "$STRATEGY_PICK_OUT" && ! grep -q 'detector stderr' "$STRATEGY_PICK_OUT" && ok 'stderr detector не попадает в JSON файл' || bad 'stderr detector загрязнил JSON файл'
+DETECT_EXIT=0; DETECT_STDERR_TEXT=; export DETECT_EXIT DETECT_STDERR_TEXT
+if strategy_pick_run i.ytimg.com mixed 142.250.74.182 142.250.74.214 >/dev/null 2>&1 \
+    && [ -z "$STRATEGY_PICK_FAILURE_REASON" ]; then
+    ok 'успешный повтор очищает старую причину z2k-detect'
+else
+    bad 'успешный повтор оставил старую причину z2k-detect'
+fi
 
 # The real transaction helper is loaded after runner assertions, leaving the
 # network-facing orchestration test independent from filesystem stubs.
@@ -257,6 +434,7 @@ grep -q 'yt_tcp.*gv_tcp.*quic.*rkn_tcp' "$ROOT/README.md" || bad 'README omits t
 grep -q 'i.ytimg.com.*googlevideo.com' "$ROOT/README.md" || bad 'README omits updated YouTube targets'
 grep -q 'два IPv4-адреса' "$ROOT/README.md" && grep -q 'общий кандидат не найден' "$ROOT/README.md" || bad 'README omits CDN common-candidate/no-apply rule'
 grep -q 'специально для вашего провайдера' "$ROOT/webpanel/www/js/pages/strategies.js" && ok 'UI сохраняет согласованное короткое описание' || bad 'UI description changed unexpectedly'
+grep -q 'Последний набор не применён' "$ROOT/webpanel/www/js/pages/strategies.js" && grep -q 'Причина:' "$ROOT/webpanel/www/js/pages/strategies.js" && grep -q 'result.error' "$ROOT/webpanel/www/js/pages/strategies.js" && ok 'UI показывает сохранённую краткую причину отказа' || bad 'UI продолжает скрывать причину отказа'
 sed -n '/^\.unique-set-badge {/,/^}/p' "$ROOT/webpanel/www/style.css" | grep -q 'background: #c62828' && ok 'экспериментальная пометка выделена красным' || bad 'экспериментальная пометка не выделена красным'
 
 printf '\nPASSED: %s\nFAILED: %s\n' "$PASS" "$FAIL"

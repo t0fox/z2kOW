@@ -204,6 +204,10 @@ async function loadUniqueStrategySetResult() {
   try {
     const response = await apiGet("/strategy/unique-set");
     const result = response && response.result;
+    if (result && result.ok === false && typeof result.error === "string" && !status.textContent.trim()) {
+      status.textContent = `Последний набор не применён. Причина: ${result.error.slice(0, 240)}`;
+      return;
+    }
     const duration = result && result.ok && formatUniqueSetDuration(result.elapsed_seconds);
     if (duration && !status.textContent.trim()) status.textContent = `Последний подбор занял ${duration}.`;
   } catch (_) {
@@ -245,7 +249,13 @@ async function startUniqueStrategySet(btn) {
           return;
         }
         if (outcome === JOB_FAIL) {
-          if (status) status.textContent = `Набор не применён. Подбор занял ${clientDuration}. Причина указана в журнале задачи.`;
+          let reason = "";
+          try {
+            const saved = await apiGet("/strategy/unique-set");
+            const result = saved && saved.result;
+            if (result && result.ok === false && typeof result.error === "string") reason = result.error.slice(0, 240);
+          } catch (_) {}
+          if (status) status.textContent = `Набор не применён. Подбор занял ${clientDuration}. ${reason ? `Причина: ${reason}` : "Причина указана в журнале задачи."}`;
           return;
         }
         let duration = clientDuration;

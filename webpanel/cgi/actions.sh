@@ -3702,6 +3702,7 @@ STRATEGY_PICK_OUT="${STRATEGY_PICK_OUT:-/tmp/z2k-strategy-pick.json}"
 # человек смотрит в журнал задачи, чтобы понять, что работа идёт. Поэтому
 # отбиваем такт сами.
 strategy_pick_run() {
+    STRATEGY_PICK_FAILURE_REASON=""
     local domain="$1" mode="${2:-tcp13}" pinned_ip="${3:-}" also_test_ips="${4:-}" extra_ip target_addr
     # Прочерк — это «домена нет», его ставит вызывающий, чтобы позиция
     # аргументов не зависела от пустоты значения.
@@ -3739,6 +3740,9 @@ strategy_pick_run() {
     local tcp_out="/tmp/z2k-strategy-pick-tcp.$$"
     local quic_out="/tmp/z2k-strategy-pick-quic.$$"
     local voice_out="/tmp/z2k-strategy-pick-voice.$$"
+    local tcp_err="/tmp/z2k-strategy-pick-tcp-err.$$"
+    local quic_err="/tmp/z2k-strategy-pick-quic-err.$$"
+    local voice_err="/tmp/z2k-strategy-pick-voice-err.$$"
 
     # РЕЖИМ ВЫБИРАЕТ ЧЕЛОВЕК, А НЕ МЫ ЗА НЕГО.
     #
@@ -3765,7 +3769,7 @@ strategy_pick_run() {
             fi
             for extra_ip in $also_test_ips; do set -- "$@" -also-test-ip "$extra_ip"; done
             set -- "$@" "$target_addr"
-            GODEBUG=asyncpreemptoff=1 "$bin" "$@" > "$tcp_out" 2>/dev/null &
+            GODEBUG=asyncpreemptoff=1 "$bin" "$@" > "$tcp_out" 2>"$tcp_err" &
             tcp_pid=$!
             ;;
         tcp12)
@@ -3780,7 +3784,7 @@ strategy_pick_run() {
             fi
             for extra_ip in $also_test_ips; do set -- "$@" -also-test-ip "$extra_ip"; done
             set -- "$@" "$target_addr"
-            GODEBUG=asyncpreemptoff=1 "$bin" "$@" > "$tcp_out" 2>/dev/null &
+            GODEBUG=asyncpreemptoff=1 "$bin" "$@" > "$tcp_out" 2>"$tcp_err" &
             tcp_pid=$!
             ;;
         mixed)
@@ -3797,13 +3801,13 @@ strategy_pick_run() {
             fi
             for extra_ip in $also_test_ips; do set -- "$@" -also-test-ip "$extra_ip"; done
             set -- "$@" "$target_addr"
-            GODEBUG=asyncpreemptoff=1 "$bin" "$@" > "$tcp_out" 2>/dev/null &
+            GODEBUG=asyncpreemptoff=1 "$bin" "$@" > "$tcp_out" 2>"$tcp_err" &
             tcp_pid=$!
             ;;
         quic)
             echo "Замеряю $domain по QUIC — так ходят браузеры по HTTP/3."
             echo "Это занимает около минуты."
-            GODEBUG=asyncpreemptoff=1 "$bin" quic -json "$domain" > "$quic_out" 2>/dev/null &
+            GODEBUG=asyncpreemptoff=1 "$bin" quic -json "$domain" > "$quic_out" 2>"$quic_err" &
             quic_pid=$!
             ;;
         voice)
@@ -3811,7 +3815,7 @@ strategy_pick_run() {
             echo "имени, которое можно вписать, сервер выдаётся на сессию."
             echo "Если разговор не начат — замер это честно скажет."
             limit=120
-            GODEBUG=asyncpreemptoff=1 "$bin" voice -json > "$voice_out" 2>/dev/null &
+            GODEBUG=asyncpreemptoff=1 "$bin" voice -json > "$voice_out" 2>"$voice_err" &
             voice_pid=$!
             ;;
     esac
@@ -3833,8 +3837,9 @@ strategy_pick_run() {
             [ -n "$tcp_pid" ] && kill -9 "$tcp_pid" 2>/dev/null
             [ -n "$quic_pid" ] && kill -9 "$quic_pid" 2>/dev/null
             [ -n "$voice_pid" ] && kill -9 "$voice_pid" 2>/dev/null
-            rm -f "$tcp_out" "$quic_out" "$voice_out"
-            echo "замер не уложился в отведённое время" >&2
+            rm -f "$tcp_out" "$quic_out" "$voice_out" "$tcp_err" "$quic_err" "$voice_err"
+            STRATEGY_PICK_FAILURE_REASON="замер не уложился в отведённое время"
+            echo "$STRATEGY_PICK_FAILURE_REASON" >&2
             return 4
         fi
         [ $((i % 15)) = 0 ] && echo "  идёт замер, ${i} с"
@@ -3851,8 +3856,17 @@ strategy_pick_run() {
     fi
 
     if [ ! -s "$tcp_out" ] && [ ! -s "$quic_out" ] && [ ! -s "$voice_out" ]; then
-        rm -f "$tcp_out" "$quic_out" "$voice_out"
-        echo "замер не дал результата" >&2
+        local error_source="$tcp_err"
+        [ "$mode" = quic ] && error_source="$quic_err"
+        [ "$mode" = voice ] && error_source="$voice_err"
+        STRATEGY_PICK_FAILURE_REASON="замер не дал результата"
+        if [ -s "$error_source" ]; then
+            local detail
+            detail=$(awk 'NR == 1 { gsub(/[[:cntrl:]]/, " "); print substr($0, 1, 160); exit }' "$error_source")
+            [ -z "$detail" ] || STRATEGY_PICK_FAILURE_REASON="$STRATEGY_PICK_FAILURE_REASON: $detail"
+        fi
+        rm -f "$tcp_out" "$quic_out" "$voice_out" "$tcp_err" "$quic_err" "$voice_err"
+        echo "$STRATEGY_PICK_FAILURE_REASON" >&2
         return 5
     fi
 
@@ -3864,12 +3878,12 @@ strategy_pick_run() {
     # бинарниками, и переписывать их шеллом значило бы завести второй формат,
     # который поедет вслед за первым.
     local all="/tmp/z2k-strategy-pick-all.$$"
-    local result_rc="$tcp_rc" result_source="$tcp_out" typed_error
+    local result_rc="$tcp_rc" result_source="$tcp_out" result_err="$tcp_err" typed_error
     case "$mode" in
-        quic) result_rc="$quic_rc"; result_source="$quic_out" ;;
-        voice) result_rc="$voice_rc"; result_source="$voice_out" ;;
+        quic) result_rc="$quic_rc"; result_source="$quic_out"; result_err="$quic_err" ;;
+        voice) result_rc="$voice_rc"; result_source="$voice_out"; result_err="$voice_err" ;;
     esac
-    typed_error="$(sed -n 's/.*"error_code"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$result_source" | head -n 1)"
+    typed_error="$(sed -n 's/.*"error_code"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$result_source" | head -n 1 | cut -c1-100)"
     # Режим кладём в ответ: страница читает ПОСЛЕДНИЙ результат и без этого не
     # знала бы, что именно мерили, — подписала бы замер под старые устройства
     # как обычный TCP.
@@ -3883,13 +3897,19 @@ strategy_pick_run() {
     rm -f "$tcp_out" "$quic_out" "$voice_out"
     mv -f "$all" "$STRATEGY_PICK_OUT"
     if [ "$result_rc" -ne 0 ]; then
+        local detail
+        detail=$(awk 'NR == 1 { gsub(/[[:cntrl:]]/, " "); print substr($0, 1, 160); exit }' "$result_err" 2>/dev/null)
         if [ -n "$typed_error" ]; then
-            echo "Итог: причина=$typed_error"
+            STRATEGY_PICK_FAILURE_REASON="z2k-detect: $typed_error"
         else
-            echo "Итог: код=$result_rc"
+            STRATEGY_PICK_FAILURE_REASON="z2k-detect завершился с кодом $result_rc"
         fi
+        [ -z "$detail" ] || STRATEGY_PICK_FAILURE_REASON="$STRATEGY_PICK_FAILURE_REASON; stderr: $detail"
+        echo "Итог: $STRATEGY_PICK_FAILURE_REASON"
+        rm -f "$tcp_err" "$quic_err" "$voice_err"
         return "$result_rc"
     fi
+    rm -f "$tcp_err" "$quic_err" "$voice_err"
     echo "Замер закончен за ${i} с."
     return 0
 }
@@ -3918,30 +3938,80 @@ EOF
 }
 
 strategy_unique_set_parse_ips() {
-    awk '
-        function valid(ip, a, n, i) {
+    awk -v stats="${1:-}" '
+        function ipv4(ip, a, n, i) {
             n = split(ip, a, "."); if (n != 4) return 0
             for (i = 1; i <= 4; i++) {
                 if (a[i] !~ /^[0-9]+$/ || a[i] + 0 > 255 || (a[i] != "0" && a[i] ~ /^0/)) return 0
             }
-            return ip != "127.0.0.1" && ip != "0.0.0.0"
+            return 1
         }
         {
+            if ($1 == "Name:") { in_answers = 1; next }
+            if (!in_answers) next
             for (i = 1; i <= NF; i++) {
-                if ($i == "Address" && $(i+1) ~ /^[0-9]+:$/) {
-                    ip = $(i+2)
-                    if (valid(ip) && !seen[ip]++) { print ip; count++; if (count == 2) exit }
-                }
+                if (ipv4($i) && !raw_seen[$i]++) raw_count++
+            }
+            if ($1 == "Address:") {
+                ip = $2
+            } else if ($1 == "Address" && $2 ~ /^[0-9]+:$/) {
+                ip = $3
+            } else {
+                next
+            }
+            if (ipv4(ip) && ip != "127.0.0.1" && ip != "0.0.0.0" && !seen[ip]++) {
+                parsed[++parsed_count] = ip
+            }
+        }
+        END {
+            if (stats == "--stats") {
+                print raw_count + 0, parsed_count + 0
+            } else {
+                for (i = 1; i <= parsed_count && i <= 2; i++) print parsed[i]
             }
         }
     '
 }
 
+strategy_unique_set_preflight() {
+    local resolver="${Z2K_NSLOOKUP_BIN:-nslookup}" detector="${Z2K_DETECT_BIN:-/opt/sbin/z2k-detect}"
+    if ! command -v "$resolver" >/dev/null 2>&1; then
+        STRATEGY_UNIQUE_FAILURE_REASON="Не найден nslookup: $resolver"
+        echo "$STRATEGY_UNIQUE_FAILURE_REASON" >&2
+        return 1
+    fi
+    if [ ! -x "$detector" ]; then
+        STRATEGY_UNIQUE_FAILURE_REASON="Не найден или не исполняемый z2k-detect: $detector"
+        echo "$STRATEGY_UNIQUE_FAILURE_REASON" >&2
+        return 1
+    fi
+    return 0
+}
+
 strategy_unique_set_ips() {
-    local domain="$1" resolver="${Z2K_NSLOOKUP_BIN:-nslookup}" output
-    command -v "$resolver" >/dev/null 2>&1 || { echo "nslookup не найден" >&2; return 1; }
-    output=$("$resolver" "$domain" 2>/dev/null) || { echo "DNS-резолв $domain завершился ошибкой" >&2; return 1; }
-    printf '%s\n' "$output" | strategy_unique_set_parse_ips
+    local domain="$1" resolver="${Z2K_NSLOOKUP_BIN:-nslookup}" output stats raw_count parsed_count
+    STRATEGY_UNIQUE_DNS_IPS=""
+    output=$("$resolver" "$domain" 2>/dev/null) || {
+        STRATEGY_UNIQUE_FAILURE_REASON="$domain: DNS-резолв завершился ошибкой"
+        echo "$STRATEGY_UNIQUE_FAILURE_REASON" >&2
+        return 1
+    }
+    STRATEGY_UNIQUE_DNS_IPS=$(printf '%s\n' "$output" | strategy_unique_set_parse_ips)
+    stats=$(printf '%s\n' "$output" | strategy_unique_set_parse_ips --stats)
+    raw_count=${stats%% *}
+    parsed_count=${stats#* }
+    if [ "$parsed_count" -lt 2 ]; then
+        if [ "$raw_count" -ge 2 ]; then
+            STRATEGY_UNIQUE_FAILURE_REASON="$domain: DNS вернул $raw_count IPv4, parser распознал $parsed_count"
+        elif [ "$parsed_count" = 1 ]; then
+            STRATEGY_UNIQUE_FAILURE_REASON="$domain: DNS вернул $raw_count IPv4; найден только один уникальный IPv4, нужны два для проверки"
+        else
+            STRATEGY_UNIQUE_FAILURE_REASON="$domain: DNS вернул $raw_count IPv4, parser распознал $parsed_count; нужны два разных IPv4 для проверки"
+        fi
+        echo "$STRATEGY_UNIQUE_FAILURE_REASON" >&2
+        return 1
+    fi
+    return 0
 }
 
 strategy_unique_set_measure() {
@@ -3950,8 +4020,11 @@ strategy_unique_set_measure() {
     strategy_pick_run "$domain" "$mode" "$pinned_ip" "$also_test_ips"
     rc=$?
     STRATEGY_PICK_OUT="$previous_out"
-    [ "$rc" = 0 ] || return "$rc"
-    [ -s "$out" ] || { echo "замер $domain не создал результат" >&2; return 1; }
+    if [ "$rc" != 0 ]; then
+        [ -z "${STRATEGY_PICK_FAILURE_REASON:-}" ] || STRATEGY_UNIQUE_FAILURE_REASON="$STRATEGY_PICK_FAILURE_REASON"
+        return "$rc"
+    fi
+    [ -s "$out" ] || { STRATEGY_UNIQUE_FAILURE_REASON="Замер $domain не создал результат"; echo "$STRATEGY_UNIQUE_FAILURE_REASON" >&2; return 1; }
     return 0
 }
 
@@ -4000,6 +4073,17 @@ strategy_unique_set_result_write() {
     return 0
 }
 
+strategy_unique_set_result_failure_write() {
+    local error="$1" elapsed="$2"
+    local result="${STRATEGY_UNIQUE_RESULT_FILE:-/tmp/z2k-unique-set-result.json}" tmp
+    tmp="$result.$$"
+    {
+        printf '{"ok":false,"error":'; json_string "$error"
+        printf ',"elapsed_seconds":%s}\n' "$elapsed"
+    } > "$tmp" || { rm -f "$tmp"; return 1; }
+    mv -f "$tmp" "$result" || { rm -f "$tmp"; return 1; }
+}
+
 strategy_unique_set_stage() {
     local domain="$1" mode="$2" name="$3" pool="$4" json
     json="$UNIQUE_SET_DIR/$name.json"
@@ -4019,7 +4103,8 @@ strategy_unique_set_stage() {
 
 strategy_unique_set_stage_multi_ip() {
     local domain="$1" mode="$2" name="$3" pool="$4" ips anchor additional found complete out attempt=0
-    ips=$(strategy_unique_set_ips "$domain") || return 1
+    strategy_unique_set_ips "$domain" || return 1
+    ips="$STRATEGY_UNIQUE_DNS_IPS"
     [ "$(printf '%s\n' "$ips" | awk 'NF {n++} END {print n+0}')" = 2 ] || {
         echo "$domain: нужны два разных IPv4-адреса DNS для проверки, найдено меньше двух" >&2; return 1;
     }
@@ -4049,6 +4134,8 @@ EOF
 strategy_unique_set_run() {
     local previous_out="${STRATEGY_PICK_OUT:-}" started ended discord instagram rutor selected coverage reason rc
     local own_dir=0
+    STRATEGY_UNIQUE_FAILURE_REASON=""
+    strategy_unique_set_preflight || return 1
     if [ -z "${UNIQUE_SET_DIR:-}" ]; then
         UNIQUE_SET_DIR="/tmp/z2k-unique-set.$$"
         own_dir=1
@@ -4106,8 +4193,19 @@ strategy_unique_set_run() {
 }
 
 strategy_unique_set_worker() {
+    local started ended rc error
     trap 'strategy_unique_set_worker_cleanup' 0
+    started=$(date +%s)
     strategy_unique_set_run
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        ended=$(date +%s)
+        error="${STRATEGY_UNIQUE_FAILURE_REASON:-Набор не применён (код $rc); подробности в журнале задачи}"
+        strategy_unique_set_result_failure_write "$error" "$((ended - started))" || {
+            echo "Не удалось сохранить причину отказа набора" >&2
+        }
+    fi
+    return "$rc"
 }
 
 strategy_unique_set_worker_cleanup() {
