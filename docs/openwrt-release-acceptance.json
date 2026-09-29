@@ -2,10 +2,10 @@
   "schema_version": 1,
   "router_model": "Cudy WBR3000UAX v1",
   "package_upgrade_baseline": {
-    "captured_at": "2026-09-28",
+    "captured_at": "2026-09-29",
     "method": "read-only SSH package version query",
-    "adapter": "z2k-adapter-0.1.1_alpha20260928021846~92a1bc3500e515807540a32e41e5ebec18bc5777-r1",
-    "webpanel": "z2k-webpanel-0.1.1_alpha20260928021846~92a1bc3500e515807540a32e41e5ebec18bc5777-r1",
+    "adapter": "z2k-adapter-0.1.1_alpha20260929173842~5dedad94aa22f78b9c65e322887265b8c0d1ff6e-r1",
+    "webpanel": "z2k-webpanel-0.1.1_alpha20260929173842~5dedad94aa22f78b9c65e322887265b8c0d1ff6e-r1",
     "first_upgrade_safe_product_semver": "0.1.1"
   },
   "cudy_live_acceptance": {
@@ -16,7 +16,8 @@
       "2026-09-28: installed z2k-adapter and z2k-webpanel 0.1.1_alpha20260928043358~551c31a6ba80a80ba9955281ce1258c3c19db5ba-r1 on Cudy WBR3000UAX v1 / OpenWrt 25.12.5 from the signed CI snapshot feed. The package's snapshot payload-sync helper converged 102 updater-owned files from the immutable source commit; installed update tag remains p-85.13 because the manifest has no later release steps. Runtime packages remained z2k-warp-runtime-85.16.0-r1 and z2k-zapret2-runtime-1.0.5.1-r4.",
       "2026-09-28: fresh live Chromium review captured all eight primary routes in dark and light at 1392x1104 (16 screenshots). Every capture reported brand z2kOW, loaded local theme and mark, zero page/console errors, and no horizontal overflow; Strategies State retained 140 rows. Before contact sheet: C:/Users/Kirill/.codex/visualizations/2026/09/27/01a0e4a9-c770-7753-a692-b31f31788ea1/openwrt-redesign/live-before-settled/contact-sheet.png. After contact sheet: C:/Users/Kirill/.codex/visualizations/2026/09/27/01a0e4a9-c770-7753-a692-b31f31788ea1/openwrt-redesign/live-after-synced/contact-sheet.png.",
       "2026-09-28: /etc/z2k/config and /etc/crontabs/root hashes remained unchanged, TCP congestion remained cubic, and lighttpd/uhttpd/nfqws2 process IDs did not change. /etc/apk/world changed only the adapter and webpanel selectors to the installed snapshot versions; its other 143 entries were preserved.",
-      "2026-09-28: live traffic inspection and a post-deployment soak were not run; these acceptance gates remain pending."
+      "2026-09-29: read-only live probe on Cudy WBR3000UAX v1 reports OpenWrt 25.12.5, mediatek/filogic, aarch64_cortex-a53; installed adapter and webpanel are 0.1.1_alpha20260929173842~5dedad94aa22f78b9c65e322887265b8c0d1ff6e-r1, with z2k-warp-runtime-85.16.0-r1 and z2k-zapret2-runtime-1.0.5.1-r4. `/etc/init.d/z2k status` and `/etc/init.d/z2k-webpanel running` report running; port 8088 listens on 192.168.1.1 and a host HTTP GET returned 200.",
+      "2026-09-29: this read-only service/HTTP probe did not exercise WAN traffic, reboot recovery, or a post-deployment soak. Those Cudy acceptance gates remain pending."
     ],
     "accepted_limitations": []
   },
@@ -31,6 +32,12 @@
     "evidence": [
       "2026-09-28: user confirmed a live check: disabling the active browser blocker restored the working webpanel, confirming client-side resource blocking; the exact extension and filter rule were not captured.",
       "2026-09-28: tests/browser/openwrt-panel.mjs passed in Chromium; request interception blocked /js/core/identity.js and /assets/openwrt/**, all 12 routes rendered. Live extension-enabled browser profile remains pending."
+    ]
+  },
+  "immutable_releases": {
+    "status": "pending",
+    "evidence": [
+      "2026-09-29: GitHub repository immutable-releases API returned enabled=false; first production publication must stay blocked until the owner enables it."
     ]
   }
 }

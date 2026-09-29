@@ -215,6 +215,12 @@ if python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8"))
 else
     _t_bad "live-gate fixture must have pending Cudy and WEB-LUCI-01 acceptance"
 fi
+if python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); sys.exit(0 if d["immutable_releases"]["status"] == "pending" and d["immutable_releases"]["evidence"] else 1)' \
+    "$_acceptance" >/dev/null 2>&1; then
+    _t_ok
+else
+    _t_bad "repository immutability must remain pending until enabled and evidenced"
+fi
 if python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); sys.exit(0 if d["web_blocker_01"]["status"] == "pending" and any("Chromium" in x for x in d["web_blocker_01"]["evidence"]) else 1)' \
     "$_acceptance" >/dev/null 2>&1; then
     _t_ok
@@ -275,6 +281,26 @@ if grep -Fq 'release-assets.py verify-remote' "$WORKFLOW" \
     _t_ok
 else
     _t_bad "production release must compare every uploaded asset digest with the verified candidate"
+fi
+
+_candidate_and_release_asset_refs="$(grep -Fc '"$candidate/provenance.json" "$candidate/install.sh"' "$WORKFLOW")"
+if grep -Fq -- '--installer-template scripts/openwrt/install.sh' "$WORKFLOW" \
+    && grep -Fq -- '--public-key package/openwrt/keys/z2k-feed.pem' "$WORKFLOW" \
+    && [ "$_candidate_and_release_asset_refs" -ge 2 ]; then
+    _t_ok
+else
+    _t_bad "candidate and GitHub Release must carry the pinned installer and builder provenance"
+fi
+
+_preflight_gate_line="$(grep -n 'Recheck live gates, exact main, CI, and unused release names' "$WORKFLOW" | cut -d: -f1)"
+_tag_creation_line="$(grep -n 'Create immutable version tag at the requested commit' "$WORKFLOW" | cut -d: -f1)"
+if [ -n "$_preflight_gate_line" ] && [ -n "$_tag_creation_line" ] \
+    && [ "$_preflight_gate_line" -lt "$_tag_creation_line" ] \
+    && grep -Fq 'immutable Releases setting needs evidence' "$REPO/scripts/openwrt/release-preflight.py" \
+    && grep -Fq -- "--jq '.immutable'" "$WORKFLOW"; then
+    _t_ok
+else
+    _t_bad "immutable Releases must be enabled before tag creation and verified after publication"
 fi
 
 _t_done

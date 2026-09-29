@@ -159,7 +159,9 @@ jobs:
             --dist "$RUNNER_TEMP/dist" --out "$RUNNER_TEMP/candidate" \
             --version "$VERSION" --source-sha "$TARGET_SHA" \
             --ci-run-id '${{ steps.preflight.outputs.ci_run_id }}' \
-            --changelog CHANGELOG.md --apk-tool "$apkbin"
+            --changelog CHANGELOG.md --apk-tool "$apkbin" \
+            --public-key package/openwrt/keys/z2k-feed.pem \
+            --installer-template scripts/openwrt/install.sh
           python3 scripts/openwrt/release-assets.py verify \
             --bundle "$RUNNER_TEMP/candidate" --version "$VERSION" \
             --source-sha "$TARGET_SHA" --apk-tool "$apkbin"
@@ -323,7 +325,6 @@ jobs:
             --apk-key-dir package/openwrt/keys
           openssl dgst -sha256 -verify package/openwrt/keys/z2k-feed.pem \
             -signature "$candidate/SHA256SUMS.sig" "$candidate/SHA256SUMS"
-          cp package/openwrt/keys/z2k-feed.pem "$candidate/z2k-feed.pem"
 
       - name: Create immutable version tag at the requested commit
         env:
@@ -352,6 +353,7 @@ jobs:
             "$candidate"/z2k-*.apk "$candidate/packages.adb" \
             "$candidate/SHA256SUMS" "$candidate/SHA256SUMS.sig" \
             "$candidate/release-manifest.json" "$candidate/z2k-feed.pem" \
+            "$candidate/provenance.json" "$candidate/install.sh" \
             --repo "$GITHUB_REPOSITORY"
 
       - name: Verify complete draft assets, then publish the Release
@@ -370,6 +372,7 @@ jobs:
           expected_assets="$(printf '%s\n' \
             "$candidate"/z2k-*.apk "$candidate/packages.adb" "$candidate/SHA256SUMS" \
             "$candidate/SHA256SUMS.sig" "$candidate/release-manifest.json" "$candidate/z2k-feed.pem" \
+            "$candidate/provenance.json" "$candidate/install.sh" \
             | sed 's|.*/||' | LC_ALL=C sort | tr '\n' '|' )"
           actual_assets="$(printf '%s\n' "$remote_assets" | LC_ALL=C sort | tr '\n' '|')"
           test "$actual_assets" = "$expected_assets" || { echo "published Release asset set differs from verified bundle" >&2; exit 1; }
@@ -383,3 +386,5 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" \
             --jq '[.tag_name, (.draft|tostring), (.prerelease|tostring)] | @tsv' \
             | grep -Fx "$tag$(printf '\t')false$(printf '\t')false"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" \
+            --jq '.immutable' | grep -Fx true

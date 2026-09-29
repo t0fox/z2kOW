@@ -196,9 +196,12 @@ Core: только то, что реально используется кодо
 
 ## §14. Feed и подпись (§26–§30)
 
-- Feed layout — обычные APK-семантики: `z2k-adapter-*.apk`,
-  `[z2k-webpanel-*.apk]`, `packages.adb`, `sha256sums`, provenance. Никаких
-  JSON-фидов. Один канонический HTTPS-путь (§64), не пять зеркал.
+- Feed layout — обычные APK-семантики: четыре production APK, `packages.adb`,
+  signed `SHA256SUMS`, `release-manifest.json`, `provenance.json`, pinned
+  `z2k-feed.pem`, и rendered `install.sh`. Release notes идут в теле GitHub
+  Release. `scripts/openwrt/release-assets.py` владеет exact set, checksums,
+  manifest coverage, and GitHub digest verification. Никаких JSON-фидов. Один
+  канонический HTTPS feed root (§64), не пять зеркал.
 - Trust domains разделены: APK feed key ≠ z2k payload manifest key (§27).
   Production private APK key: НЕ в git/логах/фикстурах/артефактах (§65).
 - CI/Actions production-приватный ключ НЕ держат (§28): build/test/unsigned
@@ -211,11 +214,18 @@ Core: только то, что реально используется кодо
 - CI also signs the candidate checksum manifest with an ephemeral Ed25519 key
   and proves correct-key acceptance plus wrong-key/tamper rejection. The
   production APK private key remains offline and outside CI (§28–§30).
+- Production bootstrap command is `wget -qO- https://github.com/t0fox/z2kOW/releases/latest/download/install.sh | sh`.
+  The Release's installer accepts only OpenWrt 25.12.5 on
+  `mediatek/filogic` / `aarch64_cortex-a53`, fetches the public key from the
+  exact source commit embedded in the installer, and checks its DER SPKI
+  fingerprint before writing the owned repository entry or installing signed
+  packages. Production installation never uses `--allow-untrusted`.
 
 ## §15. Bootstrap и lifecycle (§31–§38, §50–§52)
 
-- First install:feed-ключ → feed-URL идемпотентно → `apk update` →
-  `apk add z2k-adapter`. `distfeeds.list` НЕ трогаем; никакого blanket
+- First install: pinned feed key → owned feed URL idempotently → `apk update` →
+  `apk add z2k-adapter z2k-webpanel`; repeat install uses a package-scoped
+  `apk upgrade z2k-adapter z2k-webpanel`. `distfeeds.list` НЕ трогаем; никакого blanket
   `apk upgrade`; никакого `--allow-untrusted` в проде (только явные
   dev-тесты артефактов).
 - `/etc/apk/keys/<z2k>.pem` + `/etc/apk/repositories.d/<z2k>.list` владеет

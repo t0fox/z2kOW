@@ -192,6 +192,12 @@ def require_live_acceptance() -> None:
     if blocker_status != "pass" or not blocker_evidence:
         raise PreflightError("pending live acceptance: WEB-BLOCKER-01 needs evidence")
 
+    immutable = data.get("immutable_releases", {}) if isinstance(data, dict) else {}
+    immutable_status = immutable.get("status") if isinstance(immutable, dict) else None
+    immutable_evidence = immutable.get("evidence") if isinstance(immutable, dict) else None
+    if immutable_status != "pass" or not immutable_evidence:
+        raise PreflightError("pending live acceptance: GitHub immutable Releases setting needs evidence")
+
     pinned_key = ROOT / "package/openwrt/keys/z2k-feed.pem"
     if not pinned_key.is_file():
         raise PreflightError(

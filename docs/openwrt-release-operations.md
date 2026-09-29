@@ -2,7 +2,7 @@
 
 The production release entrypoint is `.github/workflows/release-openwrt.yml` with `workflow_dispatch`. The maintenance agent invokes that workflow through the GitHub Actions API; no one has to publish from the GitHub UI. Pushes, pull requests, upstream syncs, and green CI runs build or validate development snapshots only; they never create a stable tag or Release.
 
-The canonical builder requires an explicit `--ci-snapshot` or `--release --product-version X.Y.Z` mode. The old Makefile-backed stable revision path is disabled so a normal build cannot emit a misleading `0.1.0-r79` package. The live router reports `z2k-adapter-0.1.0-r79` and `z2k-webpanel-0.1.0-r79`; because production packages reset their revision to `r1`, the first upgrade-safe product version is `0.1.1`. CI snapshots also use the next patch prerelease with revision `r1`, so an installed `0.1.0-r79` can accept a test update while the final `0.1.1-r1` production package still sorts above it. Release preflight and the canonical version helper reject `0.1.0` and any lower SemVer.
+The canonical builder requires an explicit `--ci-snapshot` or `--release --product-version X.Y.Z` mode. The old Makefile-backed stable revision path is disabled so a normal build cannot emit a misleading `0.1.0-r79` package. The live router currently runs `z2k-adapter` and `z2k-webpanel` CI snapshot packages derived from `0.1.1`; because production packages reset their revision to `r1`, the first upgrade-safe product version is `0.1.1`. CI snapshots also use the next patch prerelease with revision `r1`, so an installed `0.1.0-r79` can accept a test update while the final `0.1.1-r1` production package still sorts above it. Release preflight and the canonical version helper reject `0.1.0` and any lower SemVer.
 
 ## Agent-owned release lifecycle
 
@@ -28,6 +28,8 @@ jq -n --arg version "$VERSION" --arg sha "$TARGET_SHA" \
     repos/t0fox/z2kOW/actions/workflows/release-openwrt.yml/dispatches \
     --input -
 ```
+
+The candidate contains the four APKs, `packages.adb`, `release-manifest.json`, `provenance.json`, the rendered `install.sh`, the pinned `z2k-feed.pem`, checksums, and the release-note preview. `release-assets.py verify` checks the exact set, every digest, production provenance, and the installer's embedded key fingerprint/source commit.
 
 After verifying and signing that exact candidate with the offline key, the agent sends a second API dispatch with `dry_run:"false"`, its `candidate_run_id`, and the base64 signature overlay. The publish job has no reviewer-gated GitHub Environment, so a valid API dispatch does not pause for routine UI approval:
 
@@ -63,7 +65,13 @@ python3 scripts/openwrt/release-assets.py sign \
 
 The command refuses a key stored inside the repository or a private key that does not match the committed public-key pin. It signs the package index with OpenWrt APK tooling, updates the index hash in the release manifest and `SHA256SUMS`, signs `SHA256SUMS` with the same offline key, verifies both signatures, and emits an overlay containing only the four small finalized metadata files. The production dispatch supplies that overlay as `signature_bundle_b64` and the candidate run id as `candidate_run_id`; the workflow verifies its exact file list and size, restores the signed metadata over the exact-SHA candidate, and reruns all checks before creating the tag and Release.
 
-The release helper expects the production public key at `package/openwrt/keys/z2k-feed.pem`. No public or private production key is currently present in this checkout. Until the public key is pinned and its private counterpart is provisioned offline, production signing and publication fail closed. Never substitute `~/.z2k-signing/z2k-update.key`: that key belongs to the payload updater trust domain.
+The release helper expects the production public key at `package/openwrt/keys/z2k-feed.pem`. No production key is currently present in this checkout. The owner-side key setup command is one PowerShell invocation from the repository root, and it writes the private key outside Git while placing only the public key in the repository:
+
+```powershell
+.\scripts\openwrt\create-feed-key.ps1
+```
+
+It creates the P-256 private key at `%USERPROFILE%\.z2k-signing\z2k-feed.key`, restricts its Windows ACL to the current user, writes `package/openwrt/keys/z2k-feed.pem`, and prints the DER SPKI SHA-256 fingerprint. Run it on the offline signing host; transfer/commit only `z2k-feed.pem`. Never substitute `~/.z2k-signing/z2k-update.key`: that key belongs to the payload updater trust domain. Do not put the feed private key in Git, CI artifacts, or Actions secrets.
 
 ## Live gates for v0.1.1
 
@@ -75,9 +83,21 @@ Before `dry_run=false` may publish the first release, record evidence in `docs/o
 
 The current acceptance record keeps these gates pending. The report that disabling a browser blocker made the live interface work confirms the client-side failure mechanism, but it does not replace the blocker-enabled Chromium regression or the remaining router acceptance evidence.
 
+### Minimal live acceptance actions
+
+Run these against the exact post-change CI snapshot on the Cudy test router, then add dated command output/screenshots to `docs/openwrt-release-acceptance.json`. Do not change a status to `pass` until every listed result is observed.
+
+| Gate | Action | Pass evidence |
+|---|---|---|
+| Cudy WBR3000UAX v1 | Over SSH run `ubus call system board`, `apk info z2k-adapter z2k-webpanel z2k-warp-runtime z2k-zapret2-runtime`, `/etc/init.d/z2k status`, `pidof nfqws2`, `/etc/init.d/z2k-webpanel running`, and `nft -a list table inet zapret`. Reboot once, reconnect, and repeat the service/runtime/table checks. From a LAN client exercise normal WAN traffic and the configured z2k test destinations; capture the nft counter output before and after. Leave the router under ordinary use for at least 60 minutes after reboot, then repeat the checks. | Model/release/architecture, package versions, both services and runtime healthy after reboot, expected nft table present, WAN and test traffic work with relevant counters changing, and no service/config regression during the 60-minute soak. If any subgate is deliberately waived, record the exact limitation and evidence instead of claiming a full pass. |
+| WEB-LUCI-01 | From a browser on the LAN open `http://<router-LAN-IP>/cgi-bin/luci/`, authenticate with the router's own account, then open the LuCI status page and one configuration page. | Authenticated pages load and navigation works; attach timestamped screenshots. Never place router credentials in the record. |
+| WEB-BLOCKER-01 | In Chromium, use the profile and blocker extension that previously blocked the panel resources. Open the panel on port 8088, inspect the identity and theme requests in DevTools Network, then visit all primary panel routes. | The blocker is enabled, the exact extension/profile is identified, identity and theme assets load, all primary routes render, and the console has no relevant errors. Record any filter rule that had to be changed. |
+
+Keep the statuses `pending` until those actions have real evidence. The current read-only service/HTTP probe is useful baseline evidence, not traffic, reboot, soak, authenticated-LuCI, or blocker-enabled proof.
+
 ## Immutable publication rules
 
-The publish job requires an absent `vX.Y.Z` tag and Release, exact current-main SHA, exact-SHA green CI, passing live gates, the pinned public key, signed `packages.adb`, signed checksums, and a complete exact artifact set. It creates the tag at the requested SHA and creates `z2kOW vX.Y.Z` with the corresponding version section from `CHANGELOG.md`. Existing version names are never overwritten. A package fix after publication requires a new product version.
+Before a publish dispatch, enable repository-level immutable Releases in GitHub Settings and verify `gh api repos/t0fox/z2kOW/immutable-releases --jq '.enabled'` returns `true`. Record the date and output in `immutable_releases.evidence` and set that record's status to `pass`; `release-preflight.py` requires this evidence before the workflow can create a tag. The publish job also requires an absent `vX.Y.Z` tag and Release, exact current-main SHA, exact-SHA green CI, passing live gates, the pinned public key, signed `packages.adb`, signed checksums, and the complete exact asset set: four APKs, `packages.adb`, `SHA256SUMS`, `SHA256SUMS.sig`, `release-manifest.json`, `provenance.json`, `z2k-feed.pem`, and `install.sh`. It creates the tag at the requested SHA and creates `z2kOW vX.Y.Z` with the corresponding version section from `CHANGELOG.md`. Before publication it compares the remote asset names and GitHub SHA-256 digests with the verified candidate; after publication it requires the Release API's `.immutable` field to be true. Existing version names are never overwritten. A package fix after publication requires a new product version.
 
 If tag creation or draft asset upload fails, the version is reserved and cannot be retried by this workflow. Keep the failed draft unpublished, inspect its tag and uploaded assets against the exact candidate artifact, and record the failed run. Do not publish a partial draft or reuse the version; resolve the cause and prepare a new candidate under the next product SemVer.
 

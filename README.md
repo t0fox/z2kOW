@@ -5,7 +5,7 @@
 Панель использует общий интерфейс z2k; OpenWrt-адаптер передаёт локальный профиль бренда `z2kOW` / `OpenWrt edition`.
 Поддержка и обсуждение: [Telegram-группа @zapret2keenetic](https://t.me/zapret2keenetic).
 
-Статус: **Beta**
+Статус: **Beta; первый production-релиз ещё не опубликован**
 
 ```text
 client traffic
@@ -68,44 +68,34 @@ z2kOW adapter
 
 ## Установка
 
-Стабильные версии будут публиковаться в [GitHub Releases](https://github.com/t0fox/z2kOW/releases). На текущем `main` первого production-релиза ещё нет: для проверки устройства доступен только CI snapshot из зелёного workflow **CI** для точного коммита `main`.
-
-CI snapshot — временная сборка для тестирования. Она не является стабильным обновлением и устанавливается с `--allow-untrusted`; не используйте её как production feed.
-
-Установка core:
+Первый production-релиз пока не опубликован, поэтому production-установка ещё недоступна. После закрытия release acceptance и настройки production signing key установите z2kOW одной командой по SSH на поддерживаемом OpenWrt:
 
 ```sh
-apk add --allow-untrusted ./z2k-adapter-*.apk
-/etc/init.d/z2k enable
-/etc/init.d/z2k start
+wget -qO- https://github.com/t0fox/z2kOW/releases/latest/download/install.sh | sh
 ```
 
-Установка webpanel:
+Installer проверяет OpenWrt 25.12.5, target `mediatek/filogic`, APK architecture и закреплённый fingerprint production-ключа. Он добавляет отдельный feed, устанавливает `z2k-adapter` и `z2k-webpanel` из подписанного APK feed, а затем проверяет core и панель. Ключ и repository entry повторно используются; `distfeeds.list` не меняется. Package lifecycle сам включает и запускает службы.
+
+После установки панель доступна по адресу `http://<IP роутера>:8088`.
+
+Удаление пакетов сохраняет конфигурацию и пользовательские данные:
 
 ```sh
-apk add --allow-untrusted ./z2k-webpanel-*.apk
-/etc/init.d/z2k-webpanel enable
-/etc/init.d/z2k-webpanel start
+apk del z2k-webpanel z2k-adapter
+rm -f /etc/apk/repositories.d/z2kow.list /etc/apk/keys/z2k-feed.pem
 ```
 
-Панель по умолчанию доступна по адресу:
+Для полного удаления конфигурации добавьте отдельную явную команду `rm -rf /etc/z2k`; без неё package uninstall оставляет `/etc/z2k/config`, persistent state и пользовательские списки.
 
-```text
-http://<LAN-IP>:8088
-```
+### Development / Testing
 
-Быстрая проверка:
+CI snapshots предназначены только для тестового устройства и не являются production feed. Установите APK из artifact одного зелёного CI run точного SHA:
 
 ```sh
-/etc/init.d/z2k status
-ubus call service list '{"name":"z2k"}'
-nft list table inet zapret
+apk add --allow-untrusted ./z2k-adapter-*.apk ./z2k-webpanel-*.apk
 ```
 
-> [!NOTE]
-> CI snapshot использует `--allow-untrusted`. Это не финальная схема production feed/signing.
-
-Когда появится стабильный релиз, скачивайте APK только из соответствующей версии GitHub Release и сверяйте `SHA256SUMS` и `release-manifest.json`. Production-установка будет опираться на подписанный индекс пакетов и закреплённый публичный ключ; эти артефакты пока не опубликованы.
+У snapshot-пакетов может быть отдельный временный feed key. Не используйте snapshot для обычного обновления и не копируйте эту команду в production-инструкции.
 
 ## Использование
 

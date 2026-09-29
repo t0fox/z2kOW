@@ -95,59 +95,71 @@ def baseline(filename: str) -> str:
     return value.lower()
 
 
-def pinned_value(path: Path, pattern: str, label: str) -> str:
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        fail(f"cannot read {label}: {exc}")
-    match = re.search(pattern, text, re.M)
-    if not match:
-        fail(f"cannot extract {label} from {path.relative_to(ROOT)}")
-    return match.group(1).strip()
-
-
-def default_provenance() -> dict[str, object]:
-    runtime_make = ROOT / "package/z2k-runtime/Makefile"
-    warp_make = ROOT / "package/z2k-warp-runtime/Makefile"
-    adapter_api = ROOT / "package/openwrt/ADAPTER_API"
-    try:
-        adapter_api_value = next(
-            line.strip() for line in adapter_api.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        )
-    except (OSError, StopIteration) as exc:
-        fail(f"cannot read adapter API version: {exc}")
-    if not adapter_api_value.isdecimal():
-        fail("package/openwrt/ADAPTER_API must contain a decimal integer")
-    try:
-        manifest_current = json.loads((ROOT / "UPDATES.json").read_text(encoding="utf-8")).get("current")
-    except (OSError, json.JSONDecodeError, AttributeError):
-        manifest_current = None
-    return {
-        "openwrt_release": "25.12.5",
-        "target": "mediatek/filogic",
-        "arch": "aarch64_cortex-a53",
-        "upstream_payload_sha": baseline("BASELINE"),
-        "warp_runtime_source_sha": baseline("WARP_RUNTIME_BASELINE"),
-        "manifest_current": manifest_current,
-        "runtime_tag": pinned_value(runtime_make, r"^Z2K_RT_TAG:=([^\s]+)", "zapret2 tag"),
-        "adapter_api": adapter_api_value,
-        "warp_runtime_package_version": pinned_value(warp_make, r"^PKG_VERSION:=([^\s]+)", "WARP package version"),
-        "zapret2_package_version": pinned_value(runtime_make, r"^PKG_VERSION:=([^\s]+)", "zapret2 package version"),
-    }
-
-
 def load_provenance(dist: Path) -> dict[str, object]:
     path = dist / "provenance.json"
-    if not path.exists():
-        return default_provenance()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         fail(f"cannot read builder provenance: {exc}")
     if not isinstance(data, dict) or data.get("production_release") is not True or data.get("ci_snapshot") is not False:
         fail("builder provenance must identify a non-snapshot production release")
+    if data.get("verified_sdk") is not True or data.get("seed_ref_verified_remote") is not True:
+        fail("production provenance must confirm the pinned SDK and remote seed ref")
     return data
+
+
+def public_key_der(path: Path) -> bytes:
+    if not path.is_file():
+        fail(f"pinned feed public key does not exist: {path}")
+    try:
+        pem = path.read_text(encoding="ascii")
+    except (OSError, UnicodeError) as exc:
+        fail(f"cannot read pinned feed public key: {exc}")
+    if "-----BEGIN PUBLIC KEY-----" not in pem or "PRIVATE KEY" in pem:
+        fail("pinned feed key must be a public SubjectPublicKeyInfo PEM")
+    try:
+        result = subprocess.run(
+            ["openssl", "pkey", "-pubin", "-in", str(path), "-outform", "DER"],
+            check=False, capture_output=True,
+        )
+    except OSError as exc:
+        fail(f"cannot run openssl to read pinned feed key: {exc}")
+    if result.returncode != 0 or not result.stdout:
+        fail("pinned feed public key is not a valid OpenSSL public key")
+    return result.stdout
+
+
+def rendered_installer(template: Path, source_sha: str, key_fingerprint: str) -> str:
+    try:
+        text = template.read_text(encoding="utf-8")
+    except OSError as exc:
+        fail(f"cannot read production installer template: {exc}")
+    replacements = {
+        "@Z2K_FEED_KEY_SHA256@": key_fingerprint,
+        "@Z2K_KEY_SOURCE_SHA@": source_sha.lower(),
+    }
+    for marker, value in replacements.items():
+        if text.count(marker) != 1:
+            fail(f"installer template must contain {marker} exactly once")
+        text = text.replace(marker, value)
+    if "@Z2K_" in text:
+        fail("installer template contains an unresolved production marker")
+    return text
+
+
+def artifact_record(path: Path, package: str, version: str | None = None) -> dict[str, object]:
+    return {
+        "filename": path.name,
+        "package": package,
+        "version": version,
+        "sha256": sha256(path),
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def checksum_names(bundle: Path) -> list[str]:
+    excluded = {"SHA256SUMS", "SHA256SUMS.sig", "RELEASE_NOTES.md"}
+    return sorted(path.name for path in bundle.iterdir() if path.is_file() and path.name not in excluded)
 
 
 def package_version_string(metadata: dict[str, str]) -> str:
@@ -171,6 +183,19 @@ def prepare(args: argparse.Namespace) -> None:
         if not output.is_dir() or any(output.iterdir()):
             fail(f"bundle output must be a new or empty directory: {output}")
     output.mkdir(parents=True, exist_ok=True)
+
+    provenance = load_provenance(dist)
+    if str(provenance.get("source_commit", "")).lower() != args.source_sha.lower():
+        fail("builder provenance source commit does not match requested source SHA")
+    if provenance.get("package_version") != args.version or str(provenance.get("package_release")) != "1":
+        fail("builder provenance package identity does not match product version-r1")
+    if provenance.get("openwrt_release") != "25.12.5" or provenance.get("target") != "mediatek/filogic" \
+       or provenance.get("arch") != "aarch64_cortex-a53":
+        fail("builder provenance target does not match the pinned production target")
+    public_key = args.public_key.resolve()
+    key_der = public_key_der(public_key)
+    key_fingerprint = hashlib.sha256(key_der).hexdigest()
+    installer_text = rendered_installer(args.installer_template.resolve(), args.source_sha, key_fingerprint)
 
     apks = sorted(dist.glob("z2k-*.apk"), key=lambda p: p.name)
     metadata = {entry["name"]: entry for entry in (package_metadata(args.apk_tool, apk) for apk in apks)}
@@ -199,30 +224,23 @@ def prepare(args: argparse.Namespace) -> None:
     if not index.is_file() or index.stat().st_size == 0:
         fail("apk mkndx did not create a non-empty packages.adb")
 
-    provenance = load_provenance(dist)
-    if dist.joinpath("provenance.json").exists():
-        if str(provenance.get("source_commit", "")).lower() != args.source_sha.lower():
-            fail("builder provenance source commit does not match requested source SHA")
-        if provenance.get("package_version") != args.version or str(provenance.get("package_release")) != "1":
-            fail("builder provenance package identity does not match product version-r1")
+    provenance_copy = output / "provenance.json"
+    shutil.copyfile(dist / "provenance.json", provenance_copy)
+    key_copy = output / "z2k-feed.pem"
+    shutil.copyfile(public_key, key_copy)
+    installer_path = output / "install.sh"
+    installer_path.write_text(installer_text, encoding="utf-8", newline="\n")
+    installer_path.chmod(0o755)
     versions = {name: package_version_string(meta) for name, meta in sorted(metadata.items())}
-    artifacts = [
-        {
-            "filename": path.name,
-            "package": metadata[package_metadata(args.apk_tool, path)["name"]]["name"],
-            "version": metadata[package_metadata(args.apk_tool, path)["name"]]["version"],
-            "sha256": sha256(path),
-            "size_bytes": path.stat().st_size,
-        }
-        for path in copied
-    ]
-    artifacts.append({
-        "filename": index.name,
-        "package": "apk-index",
-        "version": None,
-        "sha256": sha256(index),
-        "size_bytes": index.stat().st_size,
-    })
+    artifacts = [artifact_record(path, metadata[package_metadata(args.apk_tool, path)["name"]]["name"],
+                                 metadata[package_metadata(args.apk_tool, path)["name"]]["version"])
+                 for path in copied]
+    artifacts.extend([
+        artifact_record(index, "apk-index"),
+        artifact_record(provenance_copy, "build-provenance"),
+        artifact_record(installer_path, "production-installer"),
+        artifact_record(key_copy, "apk-feed-public-key"),
+    ])
     manifest = {
         "product": "z2kOW",
         "version": args.version,
@@ -276,9 +294,8 @@ def prepare(args: argparse.Namespace) -> None:
         + f"CI run: {args.ci_run_id}\nSource: {args.source_sha.lower()}\n"
     )
     (output / "RELEASE_NOTES.md").write_text(release_notes, encoding="utf-8")
-    checksum_files = sorted([*copied, index, manifest_path], key=lambda p: p.name)
     (output / "SHA256SUMS").write_text(
-        "".join(f"{sha256(path)}  {path.name}\n" for path in checksum_files), encoding="ascii"
+        "".join(f"{sha256(output / name)}  {name}\n" for name in checksum_names(output)), encoding="ascii"
     )
     print(f"prepared={output}")
     print(f"version={args.version}")
@@ -287,7 +304,10 @@ def prepare(args: argparse.Namespace) -> None:
 
 def expected_files(bundle: Path, final: bool) -> set[str]:
     apks = {p.name for p in bundle.glob("z2k-*.apk")}
-    required = apks | {"packages.adb", "release-manifest.json", "SHA256SUMS", "RELEASE_NOTES.md"}
+    required = apks | {
+        "packages.adb", "release-manifest.json", "SHA256SUMS", "RELEASE_NOTES.md",
+        "provenance.json", "install.sh", "z2k-feed.pem",
+    }
     if final:
         required.add("SHA256SUMS.sig")
     return required
@@ -305,7 +325,7 @@ def verify_checksums(bundle: Path) -> None:
         if not match or match.group(2) in expected:
             fail("SHA256SUMS has an invalid or duplicate entry")
         expected[match.group(2)] = match.group(1)
-    actual_names = {p.name for p in bundle.iterdir() if p.is_file() and p.name not in {"SHA256SUMS", "RELEASE_NOTES.md", "SHA256SUMS.sig"}}
+    actual_names = set(checksum_names(bundle))
     if set(expected) != actual_names:
         fail(f"SHA256SUMS file set mismatch (listed={sorted(expected)}, actual={sorted(actual_names)})")
     for filename, digest in expected.items():
@@ -338,6 +358,34 @@ def verify(args: argparse.Namespace) -> None:
     if set(files) != required:
         fail(f"bundle file set mismatch (expected={sorted(required)}, actual={files})")
     verify_checksums(bundle)
+
+    provenance_path = bundle / "provenance.json"
+    try:
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"cannot read bundled production provenance: {exc}")
+    if not isinstance(provenance, dict) or provenance.get("production_release") is not True \
+       or provenance.get("ci_snapshot") is not False or provenance.get("verified_sdk") is not True \
+       or provenance.get("seed_ref_verified_remote") is not True:
+        fail("bundle provenance is not verified production provenance")
+    if str(provenance.get("source_commit", "")).lower() != str(manifest.get("source_sha", "")).lower() \
+       or provenance.get("package_version") != manifest.get("version") or str(provenance.get("package_release")) != "1":
+        fail("bundle provenance source or package identity does not match the release manifest")
+    if provenance.get("openwrt_release") != "25.12.5" or provenance.get("target") != "mediatek/filogic" \
+       or provenance.get("arch") != "aarch64_cortex-a53":
+        fail("bundle provenance target is not the pinned production target")
+
+    key_fingerprint = hashlib.sha256(public_key_der(bundle / "z2k-feed.pem")).hexdigest()
+    try:
+        installer_text = (bundle / "install.sh").read_text(encoding="utf-8")
+    except OSError as exc:
+        fail(f"cannot read bundled production installer: {exc}")
+    if f'EXPECTED_FEED_KEY_SHA256="{key_fingerprint}"' not in installer_text:
+        fail("production installer fingerprint does not match bundled APK feed key")
+    if f'KEY_SOURCE_SHA="{manifest["source_sha"]}"' not in installer_text:
+        fail("production installer does not pin the manifest source commit for key retrieval")
+    if "@Z2K_" in installer_text:
+        fail("production installer contains an unresolved template marker")
 
     artifact_items = manifest.get("artifacts")
     if not isinstance(artifact_items, list):
@@ -389,8 +437,11 @@ def verify(args: argparse.Namespace) -> None:
         if indexed != PACKAGE_NAMES:
             fail(f"packages.adb package set is invalid: {sorted(indexed)}")
     declared_apks = {name: item for name, item in declared.items() if name.endswith(".apk")}
-    if set(declared_apks) != {p.name for p in apk_paths} or "packages.adb" not in declared:
-        fail("manifest artifact set does not cover the four APKs and packages.adb")
+    required_artifacts = {p.name for p in apk_paths} | {
+        "packages.adb", "provenance.json", "install.sh", "z2k-feed.pem",
+    }
+    if set(declared) != required_artifacts:
+        fail("manifest artifact set does not cover the exact release payload")
     for name, item in metadata.items():
         artifact = declared_apks.get(next((p.name for p in apk_paths if p.name.startswith(name + "-")), ""))
         if not artifact or artifact.get("package") != name or artifact.get("version") != item["version"]:
@@ -408,6 +459,8 @@ def verify(args: argparse.Namespace) -> None:
     if args.final:
         if not args.public_key or not args.apk_tool or not args.apk_key_dir:
             fail("--final requires --public-key, --apk-tool, and --apk-key-dir")
+        if public_key_der(args.public_key) != public_key_der(bundle / "z2k-feed.pem"):
+            fail("final verifier key does not match the bundled/pinned feed public key")
         signature = bundle / "SHA256SUMS.sig"
         result = subprocess.run(
             ["openssl", "dgst", "-sha256", "-verify", str(args.public_key),
@@ -444,7 +497,7 @@ def verify_remote(args: argparse.Namespace) -> None:
         fail(f"expected four candidate APKs, found {len(apk_paths)}")
     fixed_names = (
         "packages.adb", "SHA256SUMS", "SHA256SUMS.sig",
-        "release-manifest.json", "z2k-feed.pem",
+        "release-manifest.json", "z2k-feed.pem", "provenance.json", "install.sh",
     )
     local_paths = [*apk_paths, *(bundle / name for name in fixed_names)]
     missing = [path.name for path in local_paths if not path.is_file()]
@@ -527,9 +580,9 @@ def sign_candidate(args: argparse.Namespace) -> None:
     index_entries[0]["size_bytes"] = index_size
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
-    checksum_names = sorted([*apk_names, "packages.adb", "release-manifest.json"])
+    checksum_file_names = checksum_names(bundle)
     sums_path = bundle / "SHA256SUMS"
-    sums_path.write_text("".join(f"{sha256(bundle / name)}  {name}\n" for name in checksum_names), encoding="ascii")
+    sums_path.write_text("".join(f"{sha256(bundle / name)}  {name}\n" for name in checksum_file_names), encoding="ascii")
     signature_path = bundle / "SHA256SUMS.sig"
     sign_result = subprocess.run(
         ["openssl", "dgst", "-sha256", "-sign", str(private_key), "-out", str(signature_path), str(sums_path)],
@@ -567,6 +620,8 @@ def parser() -> argparse.ArgumentParser:
     prep.add_argument("--ci-run-id", required=True)
     prep.add_argument("--changelog", type=Path, required=True)
     prep.add_argument("--apk-tool", required=True)
+    prep.add_argument("--public-key", type=Path, required=True)
+    prep.add_argument("--installer-template", type=Path, required=True)
     prep.set_defaults(func=prepare)
     check = commands.add_parser("verify", help="verify bundle hashes and optional final signature")
     check.add_argument("--bundle", type=Path, default=Path("."))
