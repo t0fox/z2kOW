@@ -3901,11 +3901,15 @@ strategy_pick_run() {
         detail=$(awk 'NR == 1 { gsub(/[[:cntrl:]]/, " "); print substr($0, 1, 160); exit }' "$result_err" 2>/dev/null)
         if [ -n "$typed_error" ]; then
             STRATEGY_PICK_FAILURE_REASON="z2k-detect: $typed_error"
+            echo "Итог: причина=$typed_error"
         else
             STRATEGY_PICK_FAILURE_REASON="z2k-detect завершился с кодом $result_rc"
+            echo "Итог: $STRATEGY_PICK_FAILURE_REASON"
         fi
-        [ -z "$detail" ] || STRATEGY_PICK_FAILURE_REASON="$STRATEGY_PICK_FAILURE_REASON; stderr: $detail"
-        echo "Итог: $STRATEGY_PICK_FAILURE_REASON"
+        if [ -n "$detail" ]; then
+            STRATEGY_PICK_FAILURE_REASON="$STRATEGY_PICK_FAILURE_REASON; stderr: $detail"
+            echo "Диагностика stderr z2k-detect: $detail"
+        fi
         rm -f "$tcp_err" "$quic_err" "$voice_err"
         return "$result_rc"
     fi
