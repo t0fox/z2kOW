@@ -24,7 +24,7 @@ assert_contains "adapter installs diagnostics helper at runtime lookup path" "$M
 assert_contains "diagnostics helper has one package owner" "$REPO/package/openwrt/ownership.map" \
     "/usr/lib/z2k/z2k-diag.sh package"
 assert_contains "adapter resolves TUN and OpenSSL dependencies" "$MK" \
-    "DEPENDS:=+kmod-nft-queue +kmod-tun +kmod-nfnetlink-log +conntrack +openssl-util +z2k-zapret2-runtime +z2k-warp-runtime"
+    "DEPENDS:=+kmod-nft-queue +kmod-tun +kmod-nfnetlink-log +conntrack +openssl-util +jsonfilter +z2k-zapret2-runtime +z2k-warp-runtime"
 WARP_MK="$REPO/package/z2k-warp-runtime/Makefile"
 assert_contains "WARP runtime stages its local WireGuard replacement" "$WARP_MK" \
     '$(CP) -a $(Z2K_TREE)/z2k-warpd/third_party $(PKG_BUILD_DIR)/src/'

@@ -13,6 +13,10 @@ mkdir -p "$SYS/etc/apk/keys" "$SYS/etc/apk/repositories.d" \
     "$SYS/etc/z2k/state" "$SYS/etc/init.d" "$SYS/usr/lib/z2k/share" \
     "$SYS/var/lock" "$BIN" "$FIX/latest" "$FIX/v0.1.2" "$T/tmp"
 export Z2K_PRODUCT_SYSROOT="$SYS" TMPDIR="$T/tmp"
+export Z2K_ROOT="$SYS/usr/lib/z2k" Z2K_ETC="$SYS/etc/z2k" Z2K_STATE="$SYS/etc/z2k/state"
+export Z2K_PRODUCT_TAG_FILE="$Z2K_STATE/product-tag"
+export Z2K_PRODUCT_UPDATE_STATUS_FILE="$Z2K_STATE/product-update.status"
+export Z2K_FEED_PUBLIC_KEY="$Z2K_ROOT/share/z2k-feed.pem"
 export Z2K_TEST_INSTALLED="$T/installed" Z2K_TEST_APK_LOG="$T/apk.log"
 export Z2K_TEST_RELEASE_FIXTURES="$FIX"
 

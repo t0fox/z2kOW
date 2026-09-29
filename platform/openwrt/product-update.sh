@@ -7,10 +7,11 @@ set -u
 SYSROOT="${Z2K_PRODUCT_SYSROOT:-/}"
 RELEASE_BASE="https://github.com/t0fox/z2kOW/releases/latest/download"
 PRODUCT="z2kOW"
-STATE_DIR="${SYSROOT%/}/etc/z2k/state"
-PRODUCT_TAG_FILE="$STATE_DIR/product-tag"
-STATUS_FILE="$STATE_DIR/product-update.status"
-PINNED_KEY="${SYSROOT%/}/usr/lib/z2k/share/z2k-feed.pem"
+STATE_DIR="${Z2K_STATE:-}/"
+STATE_DIR="${STATE_DIR%/}"
+PRODUCT_TAG_FILE="${Z2K_PRODUCT_TAG_FILE:-$STATE_DIR/product-tag}"
+STATUS_FILE="${Z2K_PRODUCT_UPDATE_STATUS_FILE:-$STATE_DIR/product-update.status}"
+PINNED_KEY="${Z2K_FEED_PUBLIC_KEY:-$Z2K_ROOT/share/z2k-feed.pem}"
 APK_KEY="${SYSROOT%/}/etc/apk/keys/z2k-feed.pem"
 TMP_DIR=""
 
@@ -20,6 +21,9 @@ die() {
     printf 'z2kow: %s\n' "$*" >&2
     return 1
 }
+
+[ -n "${Z2K_STATE:-}" ] && [ -n "${Z2K_ETC:-}" ] && [ -n "${Z2K_ROOT:-}" ] \
+    || { die "OpenWrt paths contract was not loaded"; exit 1; }
 
 cleanup() {
     [ -z "$TMP_DIR" ] || rm -rf "$TMP_DIR"
@@ -389,7 +393,7 @@ usage() {
   info               вывести проверенный cumulative release manifest (JSON)
   version            показать установленную product/package version
   diag               запустить диагностику z2kOW
-  uninstall [--purge] удалить пакеты; --purge дополнительно удаляет /etc/z2k
+  uninstall [--purge] удалить пакеты; --purge дополнительно удаляет config и persistent state
 EOF
 }
 
@@ -424,7 +428,7 @@ case "$command_name" in
         printf 'product=%s\nadapter=%s\nwebpanel=%s\n' "$_tag" "$_adapter" "$_panel"
         ;;
     diag)
-        exec "$(path /usr/lib/z2k/z2k-diag.sh)" "${2:-}"
+        exec "$Z2K_ROOT/z2k-diag.sh" "${2:-}"
         ;;
     uninstall)
         [ "$(id -u 2>/dev/null || echo 1)" = 0 ] || { die "uninstall требует root"; exit 1; }
@@ -443,7 +447,7 @@ case "$command_name" in
         [ "$_remove_repo" = 0 ] || rm -f "$_owned_repo"
         [ "$_remove_key" = 0 ] || rm -f "$APK_KEY"
         if [ "${2:-}" = "--purge" ]; then
-            rm -rf "$(path /etc/z2k)"
+            rm -rf "$Z2K_ETC"
         else
             rm -f "$PRODUCT_TAG_FILE" "$STATUS_FILE"
         fi

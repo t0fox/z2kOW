@@ -2,6 +2,7 @@
 # Stable public CLI entrypoint installed by z2k-adapter.
 set -eu
 Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
+. "$Z2K_ROOT/platform/openwrt/paths.sh"
 ENGINE="$Z2K_ROOT/platform/openwrt/product-update.sh"
 [ -r "$ENGINE" ] || { echo "z2kow: product updater is missing" >&2; exit 1; }
 _command="${1:-status}"
