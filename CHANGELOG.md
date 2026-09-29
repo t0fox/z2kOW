@@ -8,6 +8,9 @@
 
 ### Добавлено
 
+- Управление product-релизами из CLI `z2kow` и карточки обновления webpanel;
+  cumulative история читается из canonical release manifest, а состояние и
+  журнал операции доступны через product update API.
 - Первый самостоятельный OpenWrt bundle z2kOW: adapter, необязательная
   webpanel, zapret2 runtime и WARP runtime.
 - Provenance и checksums для неизменяемого набора package assets.

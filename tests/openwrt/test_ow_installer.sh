@@ -138,7 +138,14 @@ CORE
 [ "${Z2K_TEST_PANEL_FAIL:-0}" = 0 ] || exit 1
 echo running
 PANEL
+    mkdir -p "$SYS/usr/bin"
+    cat > "$SYS/usr/bin/z2kow" <<'CLI'
+#!/bin/sh
+[ "$1" = record ] || exit 2
+printf '%s\n' 'record product-tag' >> "$Z2K_TEST_APK_LOG"
+CLI
     chmod +x "$BIN/id" "$BIN/apk" "$BIN/wget" "$BIN/ip" "$BIN/pidof" "$BIN/sleep" "$BIN/base64" \
+        "$SYS/usr/bin/z2kow" \
         "$SYS/etc/init.d/z2k" "$SYS/etc/init.d/z2k-webpanel"
     cp "$KEY" "$T/test-key.pem"
     export Z2K_TEST_KEY_FILE="$T/test-key.pem"
@@ -159,9 +166,10 @@ printf 'stock feeds stay\n' > "$SYS/etc/apk/distfeeds.list"
 if _run; then _t_ok; else _t_bad "fresh install failed: $(cat "$T/out")"; fi
 assert_eq "fresh install uses apk add for the two packages" 'add z2k-adapter z2k-webpanel' "$(grep '^add ' "$T/apk.log" | tail -1)"
 assert_file "fresh install adds the pinned key" "$SYS/etc/apk/keys/z2k-feed.pem"
-assert_eq "fresh install writes a separate release feed" 'https://github.com/t0fox/z2kOW/releases/latest/download' "$(cat "$SYS/etc/apk/repositories.d/z2kow.list" 2>/dev/null)"
+assert_eq "fresh install writes the signed release index as a separate feed" 'ndx https://github.com/t0fox/z2kOW/releases/latest/download/packages.adb' "$(cat "$SYS/etc/apk/repositories.d/z2kow.list" 2>/dev/null)"
 assert_contains "fresh install reports LAN panel URL" "$T/out" 'http://192.0.2.1:8088'
 assert_contains "fresh install reports product version" "$T/out" 'версия: 0.1.1-r1'
+assert_contains "fresh install records stable product version after health checks" "$T/apk.log" 'record product-tag'
 assert_eq "fresh install preserves stock repositories" 'stock feeds stay' "$(cat "$SYS/etc/apk/distfeeds.list")"
 assert_eq "fresh install preserves user config" 'user-owned configuration' "$(cat "$SYS/etc/z2k/config")"
 if grep -Eq '(^|[[:space:]])(enable|start)([[:space:]]|$)' "$T/apk.log"; then
@@ -173,11 +181,11 @@ fi
 _reset
 printf 'z2k-adapter|0.1.1-r1\nz2k-webpanel|0.1.1-r1\n' > "$T/installed"
 cp "$KEY" "$SYS/etc/apk/keys/z2k-feed.pem"
-printf '%s\n' 'https://github.com/t0fox/z2kOW/releases/latest/download' > "$SYS/etc/apk/repositories.d/z2kow.list"
+printf '%s\n' 'ndx https://github.com/t0fox/z2kOW/releases/latest/download/packages.adb' > "$SYS/etc/apk/repositories.d/z2kow.list"
 before_key="$(sha256sum "$SYS/etc/apk/keys/z2k-feed.pem" | awk '{print $1}')"
 if _run; then _t_ok; else _t_bad "repeat install failed: $(cat "$T/out")"; fi
 assert_eq "repeat install upgrades only the two product packages" 'add --upgrade z2k-adapter z2k-webpanel' "$(grep '^add --upgrade ' "$T/apk.log" | tail -1)"
-assert_eq "repeat install leaves one feed entry" '1' "$(grep -c '^https://github.com/t0fox/z2kOW/releases/latest/download$' "$SYS/etc/apk/repositories.d/z2kow.list")"
+assert_eq "repeat install leaves one feed entry" '1' "$(grep -c '^ndx https://github.com/t0fox/z2kOW/releases/latest/download/packages.adb$' "$SYS/etc/apk/repositories.d/z2kow.list")"
 assert_eq "repeat install leaves correct key bytes unchanged" "$before_key" "$(sha256sum "$SYS/etc/apk/keys/z2k-feed.pem" | awk '{print $1}')"
 
 _reset

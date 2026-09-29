@@ -191,7 +191,7 @@ define Package/z2k-adapter
   # live-урок p-84.17 — apk upgrade НЕ co-upgrade'ит уже установленный dep
   # без constraint'а. Нижняя граница = текущий runtime APK; консистентность
   # с package/z2k-runtime/Makefile сторожит тест. Lockstep: snapshot бампит все.
-  DEPENDS:=+kmod-nft-queue +kmod-tun +kmod-nfnetlink-log +conntrack +openssl-util +z2k-zapret2-runtime +z2k-warp-runtime
+  DEPENDS:=+kmod-nft-queue +kmod-tun +kmod-nfnetlink-log +conntrack +openssl-util +jsonfilter +z2k-zapret2-runtime +z2k-warp-runtime
   EXTRA_DEPENDS:=z2k-zapret2-runtime (>=1.0.5.1-r4) z2k-warp-runtime (>=85.16.0-r1)
 endef
 
@@ -267,6 +267,8 @@ Z2K_TREE:=$(abspath $(CURDIR)/../..)
 # config-шаблон, seed (собирается make-seed.sh из этого же дерева).
 define Package/z2k-adapter/install
 	$(INSTALL_DIR) $(1)/etc/init.d $(1)/etc/hotplug.d/iface
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(Z2K_TREE)/platform/openwrt/z2kow.sh $(1)/usr/bin/z2kow
 	$(INSTALL_DIR) $(1)/usr/share/nftables.d/chain-pre/forward
 	$(INSTALL_DATA) ./files/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft $(1)/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft
 	$(INSTALL_DIR) $(1)/etc/sysctl.d
@@ -276,6 +278,7 @@ define Package/z2k-adapter/install
 		$(Z2K_TREE)/platform/openwrt/custom.d/50-discord-media \
 		$(1)/usr/lib/z2k/platform/openwrt/custom.d/
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/share
+	if [ -s $(Z2K_TREE)/package/openwrt/keys/z2k-feed.pem ]; then $(INSTALL_DATA) $(Z2K_TREE)/package/openwrt/keys/z2k-feed.pem $(1)/usr/lib/z2k/share/z2k-feed.pem; fi
 	$(INSTALL_DATA) $(Z2K_TREE)/files/z2k-warp-list-filter.awk $(1)/usr/lib/z2k/z2k-warp-list-filter.awk
 	$(INSTALL_BIN) ./files/etc/init.d/z2k $(1)/etc/init.d/z2k
 	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/90-z2k $(1)/etc/hotplug.d/iface/90-z2k

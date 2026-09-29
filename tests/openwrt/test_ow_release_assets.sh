@@ -193,7 +193,7 @@ import hashlib, json, pathlib, sys
 bundle = pathlib.Path(sys.argv[1])
 files = sorted([*bundle.glob("z2k-*.apk"), *(bundle / name for name in (
     "packages.adb", "SHA256SUMS", "SHA256SUMS.sig", "release-manifest.json",
-    "provenance.json", "install.sh", "z2k-feed.pem"
+    "provenance.json", "install.sh", "z2kow.sh", "z2k-feed.pem"
 ))])
 json.dump([{"name": path.name, "digest": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()}
            for path in files], open(sys.argv[2], "w", encoding="utf-8"))

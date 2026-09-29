@@ -20,6 +20,8 @@ _dups="$(sed 's/#.*$//' "$MAP" | grep -v '^[[:space:]]*$' | awk '{print $1}' | s
 for _u in "/etc/z2k/config user" "/etc/z2k/user-lists/* user" \
           "/etc/z2k/.payload-initialized install-meta" \
           "/etc/z2k/state/installed-tag install-meta" \
+          "/etc/z2k/state/product-tag install-meta" \
+          "/etc/z2k/state/product-update.status install-meta" \
           "/etc/z2k/.trust/pinned trust" \
           "/etc/z2k/state/state.tsv daemon-state"; do
     grep -qxF "$_u" "$MAP" 2>/dev/null && _t_ok || _t_bad "в карте нет: $_u"
@@ -38,6 +40,7 @@ while IFS= read -r _line; do
     [ "${2:-}" = "package" ] || [ "${2:-}" = "runtime" ] || continue
     case "$1" in
         /etc/init.d/z2k) _src="package/openwrt/files/etc/init.d/z2k" ;;
+        /usr/bin/z2kow) _src="platform/openwrt/z2kow.sh" ;;
         /etc/init.d/z2k-webpanel) _src="package/openwrt/files/etc/init.d/z2k-webpanel" ;;
         /etc/sysctl.d/99-z2k.conf) _src="package/openwrt/files/etc/sysctl.d/99-z2k.conf" ;;
         /usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft) _src="package/openwrt/files/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft" ;;
@@ -55,6 +58,7 @@ while IFS= read -r _line; do
         /usr/lib/z2k/share/seed.tar.gz) _src="package/openwrt/make-seed.sh" ;;
         /usr/lib/z2k/share/adapter.api) _src="package/openwrt/ADAPTER_API" ;;
         /usr/lib/z2k/share/panel.api) _src="package/openwrt/PANEL_API" ;;
+        /usr/lib/z2k/share/z2k-feed.pem) _src="package/openwrt/Makefile" ;;
         # snapshot truth: build-generated (Build/Prepare из manifests/commit),
         # источник — рецепт, его создающий.
         /usr/lib/z2k/share/snapshot-manifest.json) _src="package/openwrt/Makefile" ;;

@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+from datetime import date
 import tarfile
 from pathlib import Path
 
@@ -85,6 +86,84 @@ def changelog_section(path: Path, version: str) -> str:
     return body + "\n"
 
 
+def parse_changelog_history(path: Path) -> list[dict[str, object]]:
+    """Parse published release sections from the canonical CHANGELOG.md."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        fail(f"cannot read changelog: {exc}")
+
+    heading = re.compile(r"^##\s+\[([^]]+)\]\s+-\s+(\S+)\s*$")
+    section_indexes = [i for i, line in enumerate(lines) if line.startswith("## ")]
+    releases: list[dict[str, object]] = []
+    seen: set[str] = set()
+    aliases = {
+        "новое": "new", "добавлено": "new", "добавления": "new",
+        "исправлено": "fixed", "исправления": "fixed",
+        "изменено": "changed", "изменения": "changed", "доступность": "changed",
+        "важно": "important", "важные замечания": "important",
+        "совместимость": "important", "обновление с предыдущих сборок": "important",
+    }
+    for position, start in enumerate(section_indexes):
+        match = heading.fullmatch(lines[start])
+        if not match:
+            continue
+        version, published_at = match.groups()
+        if not SEMVER_RE.fullmatch(version):
+            fail(f"CHANGELOG.md release version is not SemVer: {version}")
+        if version in seen:
+            fail(f"CHANGELOG.md contains duplicate release version: {version}")
+        seen.add(version)
+        try:
+            date.fromisoformat(published_at)
+        except ValueError:
+            fail(f"CHANGELOG.md release date is invalid for {version}: {published_at}")
+        end = section_indexes[position + 1] if position + 1 < len(section_indexes) else len(lines)
+        changelog: dict[str, list[str]] = {"new": [], "fixed": [], "changed": [], "important": []}
+        category = "changed"
+        last_item: tuple[str, int] | None = None
+        for line in lines[start + 1 : end]:
+            if line.startswith("### "):
+                category = aliases.get(line[4:].strip().casefold(), "changed")
+                last_item = None
+                continue
+            item = re.match(r"^\s*[-*]\s+(\S.*)$", line)
+            if item:
+                changelog[category].append(item.group(1).strip())
+                last_item = (category, len(changelog[category]) - 1)
+                continue
+            if last_item and line.startswith(("  ", "\t")) and line.strip():
+                cat, index = last_item
+                changelog[cat][index] += " " + line.strip()
+            elif line.strip():
+                last_item = None
+        if not any(changelog.values()):
+            fail(f"CHANGELOG.md release section [{version}] is empty")
+        releases.append({
+            "version": version,
+            "tag": f"v{version}",
+            "published_at": published_at,
+            "release_url": f"https://github.com/t0fox/z2kOW/releases/tag/v{version}",
+            "changelog": changelog,
+        })
+
+    for newer, older in zip(releases, releases[1:]):
+        newer_version = tuple(int(part) for part in str(newer["version"]).split("."))
+        older_version = tuple(int(part) for part in str(older["version"]).split("."))
+        if newer_version <= older_version:
+            fail("CHANGELOG.md release sections must be in strictly descending SemVer order")
+    return releases
+
+
+def validate_product_history(history: list[dict[str, object]], version: str) -> None:
+    if not history:
+        fail("CHANGELOG.md has no published product release history")
+    if history[0].get("version") != version:
+        fail("candidate version must be the newest published CHANGELOG.md section")
+    if sum(item.get("version") == version for item in history) != 1:
+        fail(f"CHANGELOG.md must contain exactly one section for [{version}]")
+
+
 def baseline(filename: str) -> str:
     try:
         value = (ROOT / "tests/openwrt" / filename).read_text(encoding="ascii").strip()
@@ -144,6 +223,25 @@ def rendered_installer(template: Path, source_sha: str, key_fingerprint: str) ->
         text = text.replace(marker, value)
     if "@Z2K_" in text:
         fail("installer template contains an unresolved production marker")
+    return text
+
+
+def rendered_bootstrap(template: Path, key_fingerprint: str) -> str:
+    try:
+        text = template.read_text(encoding="utf-8")
+    except OSError as exc:
+        fail(f"cannot read z2kow bootstrap: {exc}")
+    assignment = re.compile(r'(?m)^EXPECTED_FEED_KEY_SHA256="([^"]*)"$')
+    matches = list(assignment.finditer(text))
+    if len(matches) != 1:
+        fail("z2kow.sh must define EXPECTED_FEED_KEY_SHA256 exactly once")
+    current = matches[0].group(1)
+    if current == "@Z2K_FEED_KEY_SHA256@":
+        text = text.replace(current, key_fingerprint)
+    elif current.lower() != key_fingerprint.lower():
+        fail("z2kow.sh pinned feed key fingerprint does not match package/openwrt/keys/z2k-feed.pem")
+    if "@Z2K_" in text:
+        fail("z2kow.sh contains an unresolved production marker")
     return text
 
 
@@ -231,6 +329,11 @@ def prepare(args: argparse.Namespace) -> None:
     installer_path = output / "install.sh"
     installer_path.write_text(installer_text, encoding="utf-8", newline="\n")
     installer_path.chmod(0o755)
+    bootstrap_path = output / "z2kow.sh"
+    bootstrap_path.write_text(
+        rendered_bootstrap(ROOT / "z2kow.sh", key_fingerprint), encoding="utf-8", newline="\n"
+    )
+    bootstrap_path.chmod(0o755)
     versions = {name: package_version_string(meta) for name, meta in sorted(metadata.items())}
     artifacts = [artifact_record(path, metadata[package_metadata(args.apk_tool, path)["name"]]["name"],
                                  metadata[package_metadata(args.apk_tool, path)["name"]]["version"])
@@ -240,12 +343,26 @@ def prepare(args: argparse.Namespace) -> None:
         artifact_record(provenance_copy, "build-provenance"),
         artifact_record(installer_path, "production-installer"),
         artifact_record(key_copy, "apk-feed-public-key"),
+        artifact_record(bootstrap_path, "product-bootstrap"),
     ])
+    release_url = f"https://github.com/t0fox/z2kOW/releases/download/v{args.version}"
+    for artifact in artifacts:
+        artifact["url"] = f"{release_url}/{artifact['filename']}"
+    history = parse_changelog_history(args.changelog)
+    validate_product_history(history, args.version)
     manifest = {
+        "schema": 2,
         "product": "z2kOW",
+        "channel": "stable",
         "version": args.version,
         "product_version": args.version,
         "tag": f"v{args.version}",
+        "published_at": history[0]["published_at"],
+        "minimum_openwrt": provenance.get("minimum_openwrt", "25.12.5"),
+        "supported_architectures": [next(iter(arches))],
+        "release_url": release_url,
+        "changelog": history[0]["changelog"],
+        "history": history,
         "source_sha": args.source_sha.lower(),
         "ci_run_id": args.ci_run_id,
         "openwrt": {
@@ -306,7 +423,7 @@ def expected_files(bundle: Path, final: bool) -> set[str]:
     apks = {p.name for p in bundle.glob("z2k-*.apk")}
     required = apks | {
         "packages.adb", "release-manifest.json", "SHA256SUMS", "RELEASE_NOTES.md",
-        "provenance.json", "install.sh", "z2k-feed.pem",
+        "provenance.json", "install.sh", "z2kow.sh", "z2k-feed.pem",
     }
     if final:
         required.add("SHA256SUMS.sig")
@@ -353,6 +470,28 @@ def verify(args: argparse.Namespace) -> None:
         fail("release manifest product or tag is invalid")
     if not SEMVER_RE.fullmatch(str(manifest.get("version", ""))) or not SHA_RE.fullmatch(str(manifest.get("source_sha", ""))):
         fail("release manifest version/source SHA is malformed")
+    if manifest.get("schema") != 2 or manifest.get("channel") != "stable":
+        fail("release manifest schema or product channel is invalid")
+    if manifest.get("product_version") != manifest.get("version"):
+        fail("release manifest product version is inconsistent")
+    release_url = f"https://github.com/t0fox/z2kOW/releases/download/{manifest['tag']}"
+    if manifest.get("release_url") != release_url:
+        fail("release manifest URL is not the immutable t0fox/z2kOW release")
+    history = manifest.get("history")
+    if not isinstance(history, list) or any(not isinstance(item, dict) for item in history):
+        fail("release manifest history is malformed")
+    validate_product_history(history, str(manifest["version"]))
+    if history[0].get("tag") != manifest.get("tag") or history[0].get("release_url") != f"https://github.com/t0fox/z2kOW/releases/tag/{manifest['tag']}":
+        fail("release manifest latest history identity is inconsistent")
+    if history[0].get("changelog") != manifest.get("changelog") or history[0].get("published_at") != manifest.get("published_at"):
+        fail("release manifest latest changelog identity is inconsistent")
+    if manifest.get("supported_architectures") != ["aarch64_cortex-a53"]:
+        fail("release manifest supported architecture is not the pinned production target")
+    manifest_openwrt = manifest.get("openwrt")
+    if not isinstance(manifest_openwrt, dict):
+        fail("release manifest OpenWrt target is malformed")
+    if manifest_openwrt.get("release") != manifest.get("minimum_openwrt"):
+        fail("release manifest minimum OpenWrt does not match the package target")
     files = sorted(p.name for p in bundle.iterdir() if p.is_file())
     required = expected_files(bundle, args.final)
     if set(files) != required:
@@ -388,6 +527,14 @@ def verify(args: argparse.Namespace) -> None:
     if "@Z2K_" in installer_text:
         fail("production installer contains an unresolved template marker")
 
+    bootstrap_path = bundle / "z2kow.sh"
+    try:
+        bootstrap_text = bootstrap_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        fail(f"cannot read bundled z2kow bootstrap: {exc}")
+    if f'EXPECTED_FEED_KEY_SHA256="{key_fingerprint}"' not in bootstrap_text or "@Z2K_" in bootstrap_text:
+        fail("bundled z2kow bootstrap does not pin the bundled production key")
+
     artifact_items = manifest.get("artifacts")
     if not isinstance(artifact_items, list):
         fail("release manifest has no artifacts list")
@@ -398,6 +545,8 @@ def verify(args: argparse.Namespace) -> None:
         filename = item["filename"]
         if filename in declared:
             fail(f"duplicate artifact entry: {filename}")
+        if item.get("url") != f"{release_url}/{filename}":
+            fail(f"artifact URL is not pinned to the t0fox release: {filename}")
         declared[filename] = item
         artifact_path = bundle / filename
         if not artifact_path.is_file() or item.get("sha256") != sha256(artifact_path):
@@ -439,7 +588,7 @@ def verify(args: argparse.Namespace) -> None:
             fail(f"packages.adb package set is invalid: {sorted(indexed)}")
     declared_apks = {name: item for name, item in declared.items() if name.endswith(".apk")}
     required_artifacts = {p.name for p in apk_paths} | {
-        "packages.adb", "provenance.json", "install.sh", "z2k-feed.pem",
+        "packages.adb", "provenance.json", "install.sh", "z2kow.sh", "z2k-feed.pem",
     }
     if set(declared) != required_artifacts:
         fail("manifest artifact set does not cover the exact release payload")
@@ -498,7 +647,7 @@ def verify_remote(args: argparse.Namespace) -> None:
         fail(f"expected four candidate APKs, found {len(apk_paths)}")
     fixed_names = (
         "packages.adb", "SHA256SUMS", "SHA256SUMS.sig",
-        "release-manifest.json", "z2k-feed.pem", "provenance.json", "install.sh",
+        "release-manifest.json", "z2k-feed.pem", "provenance.json", "install.sh", "z2kow.sh",
     )
     local_paths = [*apk_paths, *(bundle / name for name in fixed_names)]
     missing = [path.name for path in local_paths if not path.is_file()]

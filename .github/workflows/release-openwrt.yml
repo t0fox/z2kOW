@@ -353,7 +353,7 @@ jobs:
             "$candidate"/z2k-*.apk "$candidate/packages.adb" \
             "$candidate/SHA256SUMS" "$candidate/SHA256SUMS.sig" \
             "$candidate/release-manifest.json" "$candidate/z2k-feed.pem" \
-            "$candidate/provenance.json" "$candidate/install.sh" \
+            "$candidate/provenance.json" "$candidate/install.sh" "$candidate/z2kow.sh" \
             --repo "$GITHUB_REPOSITORY"
 
       - name: Verify complete draft assets, then publish the Release
@@ -372,7 +372,7 @@ jobs:
           expected_assets="$(printf '%s\n' \
             "$candidate"/z2k-*.apk "$candidate/packages.adb" "$candidate/SHA256SUMS" \
             "$candidate/SHA256SUMS.sig" "$candidate/release-manifest.json" "$candidate/z2k-feed.pem" \
-            "$candidate/provenance.json" "$candidate/install.sh" \
+            "$candidate/provenance.json" "$candidate/install.sh" "$candidate/z2kow.sh" \
             | sed 's|.*/||' | LC_ALL=C sort | tr '\n' '|' )"
           actual_assets="$(printf '%s\n' "$remote_assets" | LC_ALL=C sort | tr '\n' '|')"
           test "$actual_assets" = "$expected_assets" || { echo "published Release asset set differs from verified bundle" >&2; exit 1; }

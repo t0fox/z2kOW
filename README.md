@@ -78,14 +78,19 @@ Installer проверяет OpenWrt 25.12.5, target `mediatek/filogic`, APK arc
 
 После установки панель доступна по адресу `http://<IP роутера>:8088`.
 
-Удаление пакетов сохраняет конфигурацию и пользовательские данные:
+Обновляйте production-пакеты одной командой CLI или с карточки обновления в webpanel:
 
 ```sh
-apk del z2k-webpanel z2k-adapter
-rm -f /etc/apk/repositories.d/z2kow.list /etc/apk/keys/z2k-feed.pem
+z2kow update
 ```
 
-Для полного удаления конфигурации добавьте отдельную явную команду `rm -rf /etc/z2k`; без неё package uninstall оставляет `/etc/z2k/config`, persistent state и пользовательские списки.
+Удаление пакетов сохраняет конфигурацию и persistent state:
+
+```sh
+z2kow uninstall
+```
+
+Для полного удаления конфигурации используйте явный opt-in `z2kow uninstall --purge`; обычное удаление оставляет `/etc/z2k/config`, WARP identity, persistent state и пользовательские списки.
 
 ### Development / Testing
 

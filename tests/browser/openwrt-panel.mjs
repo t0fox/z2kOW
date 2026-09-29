@@ -79,6 +79,18 @@ const server = http.createServer((req, res) => {
             ? { ok: true, result: null }
             : endpoint === 'update/status'
               ? { ok: true, installed: 'p-86.1', available: 'p-86.1', behind: 0, last_check: Math.floor(Date.now() / 1000), pending: [] }
+              : endpoint === 'product/update/status'
+                ? { ok: true, state: 'update-available', installed: 'v0.1.1', latest: 'v0.1.3', message: '' }
+                : endpoint === 'product/update/check'
+                  ? { ok: true, installed: 'v0.1.1', latest: 'v0.1.3', update_available: true, skipped_releases: 2 }
+                  : endpoint === 'product/update/info'
+                    ? { product: 'z2kOW', schema: 2, channel: 'stable', version: '0.1.3', history: [{
+                      tag: 'v0.1.3', changelog: { new: ['Подписанное обновление продукта'], fixed: ['Rollback после сбоя'], changed: [] },
+                    }, {
+                      tag: 'v0.1.2', changelog: { new: [], fixed: ['Исправление из пропущенного выпуска'], changed: [] },
+                    }, {
+                      tag: 'v0.1.1', changelog: { new: ['Уже установленный выпуск'], fixed: [], changed: [] },
+                    }] }
               : endpoint === 'auth/session-ttl'
                 ? { ok: true, seconds: 86400 }
                 : endpoint === 'policy/status'
@@ -203,6 +215,22 @@ try {
     }
 
     const lockup = page.locator('#panel-brand');
+    const productCard = page.locator('#product-update-card');
+    await productCard.waitFor({ state: 'visible', timeout: 2000 });
+    await page.waitForFunction(() => document.querySelector('#product-update-start')?.disabled === false,
+      null, { timeout: 2000 });
+    assert.match(await productCard.innerText(), /v0\.1\.1.*v0\.1\.3/s,
+      'product update card shows installed and available stable releases');
+    assert.match(await productCard.innerText(), /пропущено выпусков: 2/,
+      'product update card reports skipped product releases');
+    assert.match(await productCard.innerText(), /Подписанное обновление продукта/,
+      'product update card renders cumulative changelog entries');
+    assert.match(await productCard.innerText(), /Исправление из пропущенного выпуска/,
+      'product update card includes notes from every skipped release');
+    assert.doesNotMatch(await productCard.innerText(), /Уже установленный выпуск/,
+      'product update card excludes release notes at or below the installed product tag');
+    assert.equal(await page.locator('#product-update-start').isEnabled(), true,
+      'a verified newer product release enables the update action');
     assert.equal(await page.title(), 'Дашборд · z2kOW');
     assert.equal(await lockup.getAttribute('aria-label'), 'z2kOW — OpenWrt edition');
     assert.equal(await lockup.locator('.brand-profile-logo').count(), 1, 'exactly one mark element exists');

@@ -7,7 +7,8 @@ ROOT_SYS="/"
 # images need sha256sum but do not necessarily include base64 or OpenSSL.
 EXPECTED_FEED_KEY_SHA256="@Z2K_FEED_KEY_SHA256@"
 KEY_SOURCE_SHA="@Z2K_KEY_SOURCE_SHA@"
-FEED_URL="https://github.com/t0fox/z2kOW/releases/latest/download"
+FEED_URL="https://github.com/t0fox/z2kOW/releases/latest/download/packages.adb"
+FEED_ENTRY="ndx $FEED_URL"
 KEY_URL="https://raw.githubusercontent.com/t0fox/z2kOW/$KEY_SOURCE_SHA/package/openwrt/keys/z2k-feed.pem"
 KEY_PATH="$ROOT_SYS/etc/apk/keys/z2k-feed.pem"
 REPOSITORY_PATH="$ROOT_SYS/etc/apk/repositories.d/z2kow.list"
@@ -80,13 +81,13 @@ else
 fi
 
 if [ -e "$REPOSITORY_PATH" ]; then
-    if grep -qxF "$FEED_URL" "$REPOSITORY_PATH"; then
+    if grep -qxF "$FEED_ENTRY" "$REPOSITORY_PATH"; then
         [ "$(wc -l < "$REPOSITORY_PATH" | tr -d ' \t\r\n')" = "1" ] \
             || die "$REPOSITORY_PATH содержит дополнительные записи; файл оставлен без изменений"
     elif [ -s "$REPOSITORY_PATH" ]; then
         die "$REPOSITORY_PATH уже содержит другую конфигурацию; файл оставлен без изменений"
     else
-        printf '%s\n' "$FEED_URL" > "$TMP_DIR/z2kow.list" \
+        printf '%s\n' "$FEED_ENTRY" > "$TMP_DIR/z2kow.list" \
             || die "не удалось подготовить repository entry"
         mv "$TMP_DIR/z2kow.list" "$REPOSITORY_PATH" \
             || die "не удалось записать repository entry"
@@ -94,7 +95,7 @@ if [ -e "$REPOSITORY_PATH" ]; then
 else
     mkdir -p "$ROOT_SYS/etc/apk/repositories.d" \
         || die "не удалось создать каталог repositories.d"
-    printf '%s\n' "$FEED_URL" > "$TMP_DIR/z2kow.list" \
+    printf '%s\n' "$FEED_ENTRY" > "$TMP_DIR/z2kow.list" \
         || die "не удалось подготовить repository entry"
     mv "$TMP_DIR/z2kow.list" "$REPOSITORY_PATH" \
         || die "не удалось записать repository entry"
@@ -144,6 +145,9 @@ while [ "$attempt" -lt 10 ]; do
     [ "$attempt" -lt 10 ] && sleep 1
 done
 [ "$PANEL_OK" = "1" ] || die "webpanel service или HTTP health check на порту 8088 не прошёл"
+
+[ -x "$ROOT_SYS/usr/bin/z2kow" ] || die "package не установил /usr/bin/z2kow"
+"$ROOT_SYS/usr/bin/z2kow" record || die "не удалось записать product-tag после успешной health check"
 
 package_version() {
     _line="$(apk list --installed "$1" 2>/dev/null | head -1)"

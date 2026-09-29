@@ -3621,6 +3621,29 @@ update_apply_async() {
     printf '%s' "$job_id"
 }
 
+# z2kOW product packages are a separate release lane from the shared signed
+# zapret2 payload updater above. The CLI owns signature checking, the product
+# tag, package-scoped APK transaction and post-update rollback.
+product_update_status() {
+    [ -x /usr/bin/z2kow ] || { echo "z2kow CLI is not installed" >&2; return 1; }
+    /usr/bin/z2kow status --json
+}
+
+product_update_check() {
+    [ -x /usr/bin/z2kow ] || { echo "z2kow CLI is not installed" >&2; return 1; }
+    /usr/bin/z2kow check --json
+}
+
+product_update_info() {
+    [ -x /usr/bin/z2kow ] || { echo "z2kow CLI is not installed" >&2; return 1; }
+    /usr/bin/z2kow info --json
+}
+
+product_update_async() {
+    [ -x /usr/bin/z2kow ] || { echo "z2kow CLI is not installed" >&2; return 1; }
+    svc_action_async "Обновление z2kOW" "/usr/bin/z2kow update --non-interactive"
+}
+
 # Проверка одного домена — то же, что пункт [Y] в терминальном меню.
 #
 # ЧТО ЭТО. z2k-detect probe делает одну пробу домена мимо нашего обхода

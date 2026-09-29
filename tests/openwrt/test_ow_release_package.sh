@@ -51,7 +51,7 @@ PYEOF
 assert_contains "pkg postinst" "$MK" "Package/z2k-adapter/postinst"
 assert_contains "pkg prerm" "$MK" "Package/z2k-adapter/prerm"
 assert_contains "pkg core and WARP runtime deps" "$MK" \
-    "DEPENDS:=+kmod-nft-queue +kmod-tun +kmod-nfnetlink-log +conntrack +openssl-util +z2k-zapret2-runtime +z2k-warp-runtime"
+    "DEPENDS:=+kmod-nft-queue +kmod-tun +kmod-nfnetlink-log +conntrack +openssl-util +jsonfilter +z2k-zapret2-runtime +z2k-warp-runtime"
 assert_contains "pkg webpanel deps" "$MK" "DEPENDS:=z2k-adapter +lighttpd"
 assert_contains "pkg seed stanza" "$MK" "seed.tar.gz"
 assert_contains "pkg adapter.api stanza" "$MK" "share/adapter.api"

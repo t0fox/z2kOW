@@ -1619,6 +1619,39 @@ case "$method $path" in
         ;;
 
     # ---------- AUTO-UPDATE ----------
+    "GET /product/update/status")
+        product_json=$(product_update_status 2>&1) \
+            || json_fail "503 Service Unavailable" "$product_json"
+        json_header
+        printf '%s\n' "$product_json"
+        exit 0
+        ;;
+
+    "GET /product/update/check")
+        product_json=$(product_update_check 2>&1) \
+            || json_fail "503 Service Unavailable" "$product_json"
+        json_header
+        printf '%s\n' "$product_json"
+        exit 0
+        ;;
+
+    "GET /product/update/info")
+        product_json=$(product_update_info 2>&1) \
+            || json_fail "503 Service Unavailable" "$product_json"
+        json_header
+        printf '%s\n' "$product_json"
+        exit 0
+        ;;
+
+    "POST /product/update/start")
+        job_id=$(product_update_async) || json_fail "500 Internal Server Error" "product update launch failed"
+        json_header
+        printf '{"ok":true,"job":'
+        json_string "$job_id"
+        printf '}\n'
+        exit 0
+        ;;
+
     "GET /update/status")
         # GET → may refresh the cache opportunistically (TTL guarded).
         update_refresh_manifest 0 2>/dev/null || true

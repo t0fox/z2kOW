@@ -15,6 +15,15 @@ export async function renderDashboard() {
       <h3>Состояние</h3>
       <div class="status-grid" id="status-grid">${skeletonBlocks(7)}</div>
     </div>
+    <div class="card" id="product-update-card">
+      <h3>Обновление z2kOW</h3>
+      <div id="product-update-state" class="desc">Проверяю подписанный выпуск…</div>
+      <div id="product-update-release"></div>
+      <div class="btn-row">
+        <button class="btn" id="product-update-check">Проверить</button>
+        <button class="btn btn-primary" id="product-update-start" disabled>Обновить z2kOW</button>
+      </div>
+    </div>
     <div class="card">
       <h3>Управление сервисом</h3>
       <p class="desc">Запуск, остановка и перезапуск nfqws2.</p>
@@ -168,8 +177,99 @@ export async function renderDashboard() {
 
   refreshStatus();
   refreshUpdateBanner();
+  refreshProductUpdate();
   renderStatsNotice();
   _updateGlobalUILock();
+}
+
+const productStateText = {
+  checking: "Проверяю подпись выпуска…",
+  "update-available": "Доступен подписанный выпуск",
+  "up-to-date": "Установлен последний выпуск",
+  updating: "APK обновляет пакеты z2kOW…",
+  "health-check": "Проверяю core и webpanel…",
+  rollback: "Проверка не прошла, возвращаю предыдущий выпуск…",
+  "rolled-back": "Обновление отменено: восстановлен предыдущий выпуск",
+  updated: "Обновление установлено и проверено",
+  failed: "Обновление завершилось ошибкой",
+};
+
+function productReleaseSummary(manifest, installedTag) {
+  const history = Array.isArray(manifest?.history) ? manifest.history : [];
+  if (!history.length) return "История выпусков пока недоступна.";
+  const installedIndex = history.findIndex(release => release.tag === installedTag);
+  const releases = installedIndex < 0
+    ? history
+    : installedIndex > 0 ? history.slice(0, installedIndex) : [history[0]];
+  const categories = [["new", "Новое"], ["fixed", "Исправлено"], ["changed", "Изменено"]];
+  return releases.map(release => {
+    const changelog = release.changelog || {};
+    const notes = categories.map(([key, title]) => {
+      const values = Array.isArray(changelog[key]) ? changelog[key] : [];
+      if (!values.length) return "";
+      return `<p><strong>${title}</strong></p><ul>${values.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+    }).join("");
+    return `<section class="product-release-notes"><p><strong>${escapeHtml(release.tag || "")}</strong></p>${notes}</section>`;
+  }).join("");
+}
+
+async function refreshProductUpdate() {
+  const stateEl = document.getElementById("product-update-state");
+  const releaseEl = document.getElementById("product-update-release");
+  const updateBtn = document.getElementById("product-update-start");
+  const checkBtn = document.getElementById("product-update-check");
+  if (!stateEl || !releaseEl || !updateBtn) return;
+
+  const load = async () => {
+    stateEl.textContent = "Проверяю подписанный выпуск…";
+    updateBtn.disabled = true;
+    try {
+      const [status, check, manifest] = await Promise.all([
+        apiGet("/product/update/status"),
+        apiGet("/product/update/check"),
+        apiGet("/product/update/info"),
+      ]);
+      const state = !status.state || ["unknown", "checking"].includes(status.state)
+        ? (check.update_available ? "update-available" : "up-to-date")
+        : status.state;
+      const label = productStateText[state] || status.message || "Состояние выпуска проверено";
+      const current = check.installed || status.installed || "не записан";
+      const latest = check.latest || status.latest || "неизвестен";
+      const skipped = Number.isInteger(check.skipped_releases) ? check.skipped_releases : null;
+      const tail = skipped == null ? "" : ` · пропущено выпусков: ${skipped}`;
+      const reason = state === "failed" || state === "rolled-back" ? (status.message || "") : "";
+      stateEl.textContent = `Установлен ${current} → доступен ${latest}. ${label}${tail}${reason ? ` — ${reason}` : ""}`;
+      releaseEl.innerHTML = productReleaseSummary(manifest, current);
+      updateBtn.disabled = !check.update_available || ["updating", "health-check", "rollback"].includes(state);
+    } catch (error) {
+      stateEl.textContent = `Состояние выпуска недоступно: ${error?.message || error}`;
+      releaseEl.textContent = "Подписанный release manifest не удалось проверить.";
+    }
+  };
+
+  checkBtn?.addEventListener("click", () => load());
+  updateBtn.addEventListener("click", async () => {
+    if (updateBtn.disabled) return;
+    updateBtn.disabled = true;
+    let response;
+    try {
+      response = await apiPost("/product/update/start");
+    } catch (error) {
+      updateBtn.disabled = false;
+      toastErr("Не удалось запустить обновление z2kOW: ", error);
+      return;
+    }
+    openJobModal("Обновление z2kOW", response.job, {
+      tolerateOutage: true,
+      onDone: (details) => {
+        if (jobOutcome(details) === JOB_FAIL) toast("Обновление z2kOW не прошло; смотрите причину в журнале", "bad");
+        const refresh = () => { refreshStatus(); load(); };
+        if (jobUnresolved(jobOutcome(details))) awaitPanelBack().then(refresh);
+        else setTimeout(refresh, 500);
+      },
+    });
+  });
+  await load();
 }
 
 // Карточка «Обрыв на 16 КБ»: одна строка состояния из файлов пробы, а не

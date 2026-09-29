@@ -26,6 +26,7 @@
 # Конфликт package∩updater (точные пути) = PACKAGE_UPDATER_OWNERSHIP_CONFLICT,
 # сторожит tests/openwrt/test_ow_ownership_map.sh.
 /etc/init.d/z2k package
+/usr/bin/z2kow package
 /etc/hotplug.d/iface/90-z2k package
 /etc/sysctl.d/99-z2k.conf package
 /usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft package
@@ -60,6 +61,8 @@
 /usr/lib/z2k/platform/openwrt/diag.sh package
 /usr/lib/z2k/platform/openwrt/webpanel.sh package
 /usr/lib/z2k/platform/openwrt/reinstall.sh package
+/usr/lib/z2k/platform/openwrt/product-update.sh package
+/usr/lib/z2k/platform/openwrt/z2kow.sh package
 /etc/init.d/z2k-webpanel package
 /usr/lib/z2k/share/config.default package
 /usr/lib/z2k/z2k-diag.sh package
@@ -70,6 +73,9 @@
 # Package-owned expectation for the updater-owned CGI/static payload. This is
 # a contract marker, not a second copy of the panel.
 /usr/lib/z2k/share/panel.api package
+# Conditional production feed trust anchor (the release gate supplies this
+# source before any stable candidate can be built).
+/usr/lib/z2k/share/z2k-feed.pem package
 # Snapshot truth сборки (manifest+commit для fresh-provisioning без канала):
 # кладёт Build/Prepare пакета, updater не пишет, читает ensure-binaries.
 /usr/lib/z2k/share/snapshot-manifest.json package
@@ -88,6 +94,8 @@
 /etc/z2k/state/dirty-tree install-meta
 /etc/z2k/state/au-delivery-fails install-meta
 /etc/z2k/state/quic-pool-key-migrated install-meta
+/etc/z2k/state/product-tag install-meta
+/etc/z2k/state/product-update.status install-meta
 /etc/z2k/.trust/pinned trust
 /etc/z2k/state/state.tsv daemon-state
 /etc/z2k/state/autohostlist-domains.txt daemon-state
