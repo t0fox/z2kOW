@@ -245,6 +245,8 @@ endef
 # bootstrap-данные (ownership.map).
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
+	rm -f $(PKG_BUILD_DIR)/product-build-commit
+	[ -z "$(Z2K_OW_BUILD_COMMIT)" ] || printf '%s\n' "$(Z2K_OW_BUILD_COMMIT)" > $(PKG_BUILD_DIR)/product-build-commit
 	[ -z "$(Z2K_OW_SNAPSHOT_MANIFEST)" ] || cp -f "$(Z2K_OW_SNAPSHOT_MANIFEST)" $(PKG_BUILD_DIR)/snapshot-manifest.json
 	[ -z "$(Z2K_OW_SNAPSHOT_COMMIT)" ] || printf '%s\n' "$(Z2K_OW_SNAPSHOT_COMMIT)" > $(PKG_BUILD_DIR)/snapshot-commit
 endef
@@ -278,6 +280,7 @@ define Package/z2k-adapter/install
 		$(Z2K_TREE)/platform/openwrt/custom.d/50-discord-media \
 		$(1)/usr/lib/z2k/platform/openwrt/custom.d/
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/share
+	if [ -f $(PKG_BUILD_DIR)/product-build-commit ]; then $(INSTALL_DATA) $(PKG_BUILD_DIR)/product-build-commit $(1)/usr/lib/z2k/share/product-build-commit; fi
 	if [ -s $(Z2K_TREE)/package/openwrt/keys/z2k-feed.pem ]; then $(INSTALL_DATA) $(Z2K_TREE)/package/openwrt/keys/z2k-feed.pem $(1)/usr/lib/z2k/share/z2k-feed.pem; fi
 	$(INSTALL_DATA) $(Z2K_TREE)/files/z2k-warp-list-filter.awk $(1)/usr/lib/z2k/z2k-warp-list-filter.awk
 	$(INSTALL_BIN) ./files/etc/init.d/z2k $(1)/etc/init.d/z2k

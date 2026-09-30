@@ -47,4 +47,32 @@ assert_contains "Makefile installs executable diag hook from tree" "$MK" '$(Z2K_
 assert_contains "Makefile installs diag hook into adapter path" "$MK" '$(1)/usr/lib/z2k/platform/openwrt/'
 assert_contains "ownership map has diag hook" "$OWN" '/usr/lib/z2k/platform/openwrt/diag.sh package'
 
+T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-diag-version.XXXXXX")" || exit 1
+trap 'rm -rf "$T"' EXIT INT TERM
+mkdir -p "$T/root" "$T/etc/z2k/state" "$T/bin"
+cat > "$T/bin/z2kow" <<'CLI'
+#!/bin/sh
+cat <<'VERSION'
+product=SNAPSHOT fcaca952
+build=fcaca952e3cd9926db84b7c0440960909956b8fd
+engine=p-86.1
+adapter=0.1.1_alpha20260929234704~fcaca952e3cd9926db84b7c0440960909956b8fd-r1
+webpanel=0.1.1_alpha20260929234704~fcaca952e3cd9926db84b7c0440960909956b8fd-r1
+VERSION
+CLI
+chmod +x "$T/bin/z2kow"
+_diag=$(Z2K_PLATFORM=openwrt Z2K_ROOT="$T/root" Z2K_ETC="$T/etc/z2k" \
+    Z2K_STATE="$T/etc/z2k/state" Z2K_PRODUCT_CLI="$T/bin/z2kow" \
+    ZAPRET2_DIR="$T/root" sh "$DIAG" --short 2>/dev/null)
+printf '%s\n' "$_diag" > "$T/diag-short.txt"
+assert_contains "short OpenWrt diagnostics separates product engine and build" \
+    "$T/diag-short.txt" 'z2kOW=SNAPSHOT fcaca952 engine=p-86.1 build=fcaca952e3cd9926db84b7c0440960909956b8fd'
+_diag_json=$(Z2K_PLATFORM=openwrt Z2K_ROOT="$T/root" Z2K_ETC="$T/etc/z2k" \
+    Z2K_STATE="$T/etc/z2k/state" Z2K_PRODUCT_CLI="$T/bin/z2kow" \
+    ZAPRET2_DIR="$T/root" sh "$DIAG" --json 2>/dev/null)
+printf '%s\n' "$_diag_json" > "$T/diag.json"
+assert_contains "JSON diagnostics includes product release axis" "$T/diag.json" '"product":"SNAPSHOT fcaca952"'
+assert_contains "JSON diagnostics includes immutable build axis" "$T/diag.json" '"build":"fcaca952e3cd9926db84b7c0440960909956b8fd"'
+assert_contains "JSON diagnostics includes engine axis" "$T/diag.json" '"engine":"p-86.1"'
+
 _t_done

@@ -235,7 +235,7 @@ assert_contains "status: offload facts stay explicit" "$T/status-output" "flowta
 assert_contains "status: packet proof stays unknown" "$T/status-output" "packet_visibility=unknown"
 assert_eq "status: tcp16 false" "false" "$(_jget "$OUT" 'd["capabilities"]["tcp16"]')"
 assert_eq "status: Telegram TCP tunnel reports its own matching process probe" "false" "$(_jget "$OUT" 'd["tunnel"]["running"]')"
-assert_eq "status: diag false" "false" "$(_jget "$OUT" 'd["capabilities"]["diag"]')"
+assert_eq "status: diagnostics capability" "true" "$(_jget "$OUT" 'd["capabilities"]["diag"]')"
 assert_eq "status: customd true" "true" "$(_jget "$OUT" 'd["capabilities"]["customd"]')"
 assert_eq "status: warp true" "true" "$(_jget "$OUT" 'd["capabilities"]["warp"]')"
 assert_eq "status: telegram true" "true" "$(_jget "$OUT" 'd["capabilities"]["telegram"]')"

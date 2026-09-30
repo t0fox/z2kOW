@@ -63,6 +63,7 @@ while IFS= read -r _line; do
         # источник — рецепт, его создающий.
         /usr/lib/z2k/share/snapshot-manifest.json) _src="package/openwrt/Makefile" ;;
         /usr/lib/z2k/share/snapshot-commit) _src="package/openwrt/Makefile" ;;
+        /usr/lib/z2k/share/product-build-commit) _src="package/openwrt/Makefile" ;;
         /opt/zapret2/*) _src="package/z2k-runtime/Makefile" ;;
         *) _src="" ;;
     esac

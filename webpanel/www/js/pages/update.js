@@ -28,8 +28,8 @@ export async function refreshUpdateBanner(opts = {}) {
   const auEnabled = !d || d.au_enabled !== "0";
   const auHour = /^([01][0-9]|2[0-3])$/.test(String((d && d.au_hour) || "")) ? d.au_hour : "02";
   const auNote = auEnabled
-    ? ` · <a class="upd-au-link" href="#/toggles">автообновление в ${auHour}:00</a>`
-    : ` · <a class="upd-au-link" href="#/toggles">автообновление выключено</a>`;
+    ? ` · <a class="upd-au-link" href="#/toggles">автообновление движка zapret2 в ${auHour}:00</a>`
+    : ` · <a class="upd-au-link" href="#/toggles">автообновление движка zapret2 выключено</a>`;
   // Манифест мог не скачаться (нет интернета, GH лежит) — тогда бекенд
   // отдаёт пустое available. Неизвестно ≠ «последняя версия»: утверждать
   // второе на основании отсутствия данных нельзя.
@@ -56,8 +56,8 @@ export async function refreshUpdateBanner(opts = {}) {
     banner.className = "update-banner";
     banner.innerHTML = `
       <div class="update-banner-text">
-        <strong>Обновление до ${escapeHtml(activeJob.target)} в процессе</strong>
-        <span class="update-banner-meta">фоновый apply, клик для просмотра лога</span>
+        <strong>Обновление движка zapret2 до ${escapeHtml(activeJob.target)} в процессе</strong>
+        <span class="update-banner-meta">фоновое обновление payload, клик для просмотра лога</span>
       </div>
       <div class="update-banner-actions">
         <button class="btn btn-primary" id="upd-resume">Показать лог</button>
@@ -74,13 +74,13 @@ export async function refreshUpdateBanner(opts = {}) {
     banner.className = "update-banner";
     banner.innerHTML = `
       <div class="update-banner-text">
-        <strong>Доступно обновление: ${escapeHtml(available)}</strong>
-        <span class="update-banner-meta">установлена ${escapeHtml(installed)} · отстаёт на ${behind} · проверено ${ago}${auNote}</span>
+        <strong>Доступно обновление движка zapret2: ${escapeHtml(available)}</strong>
+        <span class="update-banner-meta">установлен движок ${escapeHtml(installed)} · отстаёт на ${behind} · проверено ${ago}${auNote}</span>
       </div>
       <div class="update-banner-actions">
         <button class="btn btn-primary" id="upd-apply">Обновить</button>
         ${pending.length > 0 ? `<button class="btn btn-disclosure" id="upd-changelog-btn" aria-expanded="false"><span>Что нового</span>${_icons.chevronDown}</button>` : ""}
-        <button class="btn" id="upd-history-link" type="button">История версий</button>
+        <button class="btn" id="upd-history-link" type="button">История движка</button>
         <button class="btn" id="upd-recheck">Проверить ещё раз</button>
       </div>
       ${pending.length > 0 ? `
@@ -108,11 +108,11 @@ export async function refreshUpdateBanner(opts = {}) {
     banner.className = "update-banner";
     banner.innerHTML = `
       <div class="update-banner-text">
-        <strong>Не удалось проверить обновления</strong>
+        <strong>Не удалось проверить обновления движка zapret2</strong>
         <span class="update-banner-meta">${known}${why} · последняя удачная проверка ${ago}</span>
       </div>
       <div class="update-banner-actions">
-        <button class="btn" id="upd-history-link" type="button">История версий</button>
+        <button class="btn" id="upd-history-link" type="button">История движка</button>
         <button class="btn" id="upd-recheck">Проверить ещё раз</button>
       </div>
     `;
@@ -126,11 +126,11 @@ export async function refreshUpdateBanner(opts = {}) {
     banner.className = "update-banner";
     banner.innerHTML = `
       <div class="update-banner-text">
-        <strong>Обновления не проверяются</strong>
-        <span class="update-banner-meta">установлена ${escapeHtml(installed)} · список версий не удаётся скачать уже ${escapeHtml(staleFor)} · показано по устаревшим данным</span>
+        <strong>Обновления движка zapret2 не проверяются</strong>
+        <span class="update-banner-meta">установлен движок ${escapeHtml(installed)} · список версий не удаётся скачать уже ${escapeHtml(staleFor)} · показано по устаревшим данным</span>
       </div>
       <div class="update-banner-actions">
-        <button class="btn" id="upd-history-link" type="button">История версий</button>
+        <button class="btn" id="upd-history-link" type="button">История движка</button>
         <button class="btn" id="upd-recheck">Проверить ещё раз</button>
       </div>
     `;
@@ -139,11 +139,11 @@ export async function refreshUpdateBanner(opts = {}) {
     banner.className = "update-banner update-banner-ok";
     banner.innerHTML = `
       <div class="update-banner-text">
-        <span>Установлена последняя версия (${escapeHtml(installed)})</span>
+        <span>Движок zapret2 ${escapeHtml(installed)} актуален</span>
         <span class="update-banner-meta">проверено ${ago}${auNote}</span>
       </div>
       <div class="update-banner-actions">
-        <button class="btn" id="upd-history-link" type="button">История версий</button>
+        <button class="btn" id="upd-history-link" type="button">История движка</button>
         <button class="btn" id="upd-recheck">Проверить</button>
       </div>
     `;
@@ -174,7 +174,7 @@ export async function refreshUpdateBanner(opts = {}) {
 }
 
 async function applyUpdateFlow(target) {
-  const msg = `Применить обновление до ${target}?\n\n` +
+  const msg = `Применить обновление движка zapret2 до ${target}?\n\n` +
               `Сервис nfqws2 перезапустится. Связь с веб-панелью может ` +
               `пропасть на 5–15 секунд во время рестарта lighttpd — это нормально, ` +
               `обнови страницу если зависнет.`;
@@ -197,7 +197,7 @@ async function applyUpdateFlow(target) {
 }
 
 function openApplyModal(jobId, target) {
-  openJobModal("Обновление до " + target, jobId, {
+  openJobModal("Обновление движка zapret2 до " + target, jobId, {
     warning: "Можно скрыть — обновление продолжит идти в фоне. При reinstall'е возможен короткий обрыв соединения с панелью — опрос лога продолжится автоматически.",
     tolerateOutage: true,
     onDone: () => {
@@ -469,6 +469,6 @@ async function openHistoryModal(ctx = {}) {
     }
   });
 
-  if (titleEl) titleEl.textContent = "История версий";
+  if (titleEl) titleEl.textContent = "История движка zapret2";
   await loadMore();
 }

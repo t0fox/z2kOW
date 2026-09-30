@@ -30,6 +30,13 @@ skip() { SKIP=$((SKIP+1)); printf '[SKIP] %s (%s)\n' "$1" "$2"; }
 
 [ -f "$JS" ] && [ -f "$CSS" ] || { printf '[FAIL] missing panel sources\n'; exit 1; }
 
+snapshot_release_copy='Канал production-обновлений недоступен для CI snapshot; наличие стабильного выпуска не проверено.'
+if grep -Fq "$snapshot_release_copy" "$JS" && ! grep -Fq 'пока не опубликован' "$JS"; then
+    ok "CI snapshot does not claim stable release publication state"
+else
+    no "CI snapshot release status is honest" "$snapshot_release_copy" "copy is missing or claims no release is published"
+fi
+
 # ---------------------------------------------------------------------------
 # Статика: контракты, которые обязаны держаться в КАЖДОМ месте файла.
 # ---------------------------------------------------------------------------
@@ -756,8 +763,8 @@ const SCENARIOS = {
       await sleep(150);
       const bd = document.body.children.find(c => c.className === "modal-backdrop");
       // Заголовок ставится кодом: проверяем элемент, а не разметку подложки.
-      check("модалка открылась с заголовком «История версий»",
-            !!bd && (q("#hist-modal-title").textContent || "").indexOf("История версий") >= 0,
+      check("модалка открылась с заголовком «История движка zapret2»",
+            !!bd && (q("#hist-modal-title").textContent || "").indexOf("История движка zapret2") >= 0,
             "title=" + (q("#hist-modal-title").textContent || ""));
       const list = q("#hist-modal-list");
       check("записи истории отображены", list && list.innerHTML.indexOf("p-84.22") >= 0,

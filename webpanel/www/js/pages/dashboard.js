@@ -183,6 +183,8 @@ export async function renderDashboard() {
 }
 
 const productStateText = {
+  snapshot: "Production channel is not activated for CI snapshots",
+  "snapshot-inconsistent": "Snapshot package build IDs do not match; product update is disabled",
   checking: "Проверяю подпись выпуска…",
   "update-available": "Доступен подписанный выпуск",
   "up-to-date": "Установлен последний выпуск",
@@ -224,8 +226,18 @@ async function refreshProductUpdate() {
     stateEl.textContent = "Проверяю подписанный выпуск…";
     updateBtn.disabled = true;
     try {
-      const [status, check, manifest] = await Promise.all([
-        apiGet("/product/update/status"),
+      const status = await apiGet("/product/update/status");
+      if (["snapshot", "snapshot-inconsistent"].includes(status.state)) {
+        const build = typeof status.build === "string" && status.build ? status.build.slice(0, 8) : "";
+        const product = build ? `SNAPSHOT ${build}` : "SNAPSHOT";
+        const engine = status.engine || "unknown";
+        const label = productStateText[status.state];
+        stateEl.textContent = `z2kOW ${product} · engine ${engine}. ${label}`;
+        releaseEl.textContent = "Канал production-обновлений недоступен для CI snapshot; наличие стабильного выпуска не проверено.";
+        updateBtn.disabled = true;
+        return;
+      }
+      const [check, manifest] = await Promise.all([
         apiGet("/product/update/check"),
         apiGet("/product/update/info"),
       ]);

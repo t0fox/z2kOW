@@ -115,7 +115,7 @@ wp_capabilities_json() {
     { [ "$_running" = "true" ] && [ "$_ready" = "false" ]; } && _degraded=true
     z2k_ow_customd_available >/dev/null 2>&1 && _customd=true
     z2k_ow_flowoffload_available >/dev/null 2>&1 && _offload=true
-    printf '"platform":"openwrt","ready":%s,"degraded":%s,"payload_compatible":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":false,"diag":false,"customd":%s,"offload":%s,"warp":true,"telegram":true,"uninstall":false}' \
+    printf '"platform":"openwrt","ready":%s,"degraded":%s,"payload_compatible":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":false,"diag":true,"customd":%s,"offload":%s,"warp":true,"telegram":true,"uninstall":false}' \
         "$_ready" "$_degraded" "$_payload_compatible" "$_customd" "$_offload"
 }
 

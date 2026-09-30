@@ -73,6 +73,8 @@
 # Package-owned expectation for the updater-owned CGI/static payload. This is
 # a contract marker, not a second copy of the panel.
 /usr/lib/z2k/share/panel.api package
+# Exact source commit baked by the canonical APK builder for diagnostics/version.
+/usr/lib/z2k/share/product-build-commit package
 # Conditional production feed trust anchor (the release gate supplies this
 # source before any stable candidate can be built).
 /usr/lib/z2k/share/z2k-feed.pem package

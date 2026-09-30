@@ -11,6 +11,8 @@ STATE_DIR="${Z2K_STATE:-}/"
 STATE_DIR="${STATE_DIR%/}"
 PRODUCT_TAG_FILE="${Z2K_PRODUCT_TAG_FILE:-$STATE_DIR/product-tag}"
 STATUS_FILE="${Z2K_PRODUCT_UPDATE_STATUS_FILE:-$STATE_DIR/product-update.status}"
+ENGINE_TAG_FILE="${Z2K_ENGINE_TAG_FILE:-$STATE_DIR/installed-tag}"
+PRODUCT_BUILD_COMMIT_FILE="${Z2K_PRODUCT_BUILD_COMMIT_FILE:-$Z2K_ROOT/share/product-build-commit}"
 PINNED_KEY="${Z2K_FEED_PUBLIC_KEY:-$Z2K_ROOT/share/z2k-feed.pem}"
 APK_KEY="${SYSROOT%/}/etc/apk/keys/z2k-feed.pem"
 TMP_DIR=""
@@ -116,12 +118,94 @@ package_version() {
     esac
 }
 
+snapshot_sha_from_version() {
+    printf '%s\n' "$1" | sed -n 's/^[0-9][0-9.]*_alpha[0-9]\{14\}~\([0-9a-f]\{40\}\)-r1$/\1/p'
+}
+
+# Return 0 for a coherent CI snapshot, 2 for a mixed snapshot/release pair,
+# and 1 when both package versions are production-style or unavailable.
+product_snapshot_status() {
+    _adapter_version=$(package_version z2k-adapter 2>/dev/null || true)
+    _panel_version=$(package_version z2k-webpanel 2>/dev/null || true)
+    _adapter_sha=$(snapshot_sha_from_version "$_adapter_version")
+    _panel_sha=$(snapshot_sha_from_version "$_panel_version")
+    PRODUCT_SNAPSHOT_SHA=""
+    if [ -n "$_adapter_sha" ] || [ -n "$_panel_sha" ]; then
+        if [ -n "$_adapter_sha" ] && [ "$_adapter_sha" = "$_panel_sha" ]; then
+            PRODUCT_SNAPSHOT_SHA="$_adapter_sha"
+            return 0
+        fi
+        return 2
+    fi
+    return 1
+}
+
+engine_tag() {
+    _tag=""
+    [ -r "$ENGINE_TAG_FILE" ] && _tag=$(tr -d ' \t\r\n' < "$ENGINE_TAG_FILE" 2>/dev/null || true)
+    case "$_tag" in p-[0-9]*.[0-9]*) printf '%s\n' "$_tag" ;; *) printf '%s\n' unknown ;; esac
+}
+
+emit_snapshot_json() {
+    _mode="${1:-status}" _channel_state=snapshot _installed=SNAPSHOT _build="$PRODUCT_SNAPSHOT_SHA"
+    _adapter_version=$(package_version z2k-adapter 2>/dev/null || echo unknown)
+    _panel_version=$(package_version z2k-webpanel 2>/dev/null || echo unknown)
+    _engine=$(engine_tag)
+    if [ -z "$_build" ]; then
+        _channel_state=snapshot-inconsistent
+        _installed="SNAPSHOT (package mismatch)"
+        _message="Установлены snapshot-пакеты с несовпадающими build SHA; production channel заблокирован"
+    else
+        _message="Production channel is not activated for CI snapshots"
+    fi
+    case "$_mode" in
+        info)
+            printf '{"ok":true,"channel":"snapshot","state":'; json_string "$_channel_state"
+            printf ',"installed":'; json_string "$_installed"
+            printf ',"latest":null,"build":'; json_string "$_build"
+            printf ',"engine":'; json_string "$_engine"
+            printf ',"adapter":'; json_string "$_adapter_version"
+            printf ',"webpanel":'; json_string "$_panel_version"
+            printf ',"production_channel_active":false,"history":[],"message":'; json_string "$_message"
+            printf '}\n'
+            ;;
+        *)
+            printf '{"ok":true,"state":'; json_string "$_channel_state"
+            printf ',"installed":'; json_string "$_installed"
+            printf ',"latest":null,"update_available":false,"skipped_releases":null,"build":'; json_string "$_build"
+            printf ',"engine":'; json_string "$_engine"
+            printf ',"adapter":'; json_string "$_adapter_version"
+            printf ',"webpanel":'; json_string "$_panel_version"
+            printf ',"production_channel_active":false,"message":'; json_string "$_message"
+            printf '}\n'
+            ;;
+    esac
+}
+
 current_product_tag() {
     _tag=""
     if [ -r "$PRODUCT_TAG_FILE" ]; then
         IFS= read -r _tag < "$PRODUCT_TAG_FILE" || true
     fi
     case "$_tag" in v[0-9]*.[0-9]*.[0-9]*) printf '%s\n' "$_tag" ;; *) printf '%s\n' unknown ;; esac
+}
+
+installed_release_tag() {
+    _adapter=$(package_version z2k-adapter 2>/dev/null) || return 1
+    _panel=$(package_version z2k-webpanel 2>/dev/null) || return 1
+    [ "$_panel" = "$_adapter" ] || return 1
+    case "$_adapter" in *-r1) _version=${_adapter%-r1} ;; *) return 1 ;; esac
+    valid_semver "$_version" || return 1
+    printf 'v%s\n' "$_version"
+}
+
+previous_product_tag() {
+    _tag=$(current_product_tag)
+    if [ "$_tag" != unknown ]; then
+        printf '%s\n' "$_tag"
+        return 0
+    fi
+    installed_release_tag || printf 'unknown\n'
 }
 
 verify_release_files() {
@@ -193,6 +277,12 @@ count_skipped_releases() {
 }
 
 emit_status_json() {
+    _snapshot_rc=0
+    product_snapshot_status || _snapshot_rc=$?
+    if [ "$_snapshot_rc" -eq 0 ] || [ "$_snapshot_rc" -eq 2 ]; then
+        emit_snapshot_json status
+        return 0
+    fi
     _state=$(state_get state); _installed=$(state_get installed); _latest=$(state_get latest)
     _message=$(state_get message); _updated=$(state_get updated_at)
     [ -n "$_state" ] || _state=unknown
@@ -317,6 +407,12 @@ rollback_to_tag() {
 }
 
 run_check() {
+    _snapshot_rc=0
+    product_snapshot_status || _snapshot_rc=$?
+    if [ "$_snapshot_rc" -eq 0 ] || [ "$_snapshot_rc" -eq 2 ]; then
+        emit_snapshot_json check
+        return 0
+    fi
     _current=$(current_product_tag)
     state_write checking "$_current" unknown "Проверяю подпись production release manifest"
     if ! load_latest_manifest; then
@@ -328,18 +424,26 @@ run_check() {
 }
 
 run_update() {
+    _snapshot_rc=0
+    product_snapshot_status || _snapshot_rc=$?
+    if [ "$_snapshot_rc" -eq 0 ] || [ "$_snapshot_rc" -eq 2 ]; then
+        _snapshot_reason="CI snapshot не входит в production update channel; дождитесь подписанного product release"
+        [ "$_snapshot_rc" -eq 0 ] || _snapshot_reason="snapshot-пакеты имеют разные build SHA; production update остановлен"
+        die "$_snapshot_reason"
+        return 1
+    fi
     [ "$(id -u 2>/dev/null || echo 1)" = 0 ] || { die "update требует root"; return 1; }
     _lock="$(path /var/lock)/z2kow-product-update.lock"
     mkdir -p "$(dirname "$_lock")" || return 1
     mkdir "$_lock" 2>/dev/null || { die "product update уже выполняется"; return 1; }
     trap 'rmdir "$_lock" 2>/dev/null; cleanup' EXIT HUP INT TERM
-    _previous=$(current_product_tag)
+    _previous=$(previous_product_tag)
     state_write checking "$_previous" unknown "Проверяю подпись stable release и целевую версию"
     if ! load_latest_manifest; then
         state_write failed "$_previous" unknown "Проверка production release завершилась ошибкой"
         return 1
     fi
-    _previous=$(current_product_tag)
+    _previous=$(previous_product_tag)
     _latest_tag="v$_latest"
     if [ "$_previous" = "$_latest_tag" ]; then
         state_write up-to-date "$_previous" "$_latest_tag" "Установлена последняя product release"
@@ -353,8 +457,21 @@ run_update() {
         return 1
     fi
     if ! apk add --upgrade z2k-adapter z2k-webpanel; then
-        state_write failed "$_previous" "$_latest_tag" "Package-scoped APK transaction failed; product-tag was not advanced"
-        die "APK package transaction завершилась ошибкой; product-tag не изменён"
+        _reason="APK package transaction failed; package files may have changed"
+        state_write rollback "$_previous" "$_latest_tag" "$_reason; пытаюсь восстановить previous signed release"
+        case "$_previous" in
+            v[0-9]*.[0-9]*.[0-9]*)
+                if rollback_to_tag "$_previous"; then
+                    if record_installed_version "${_previous#v}"; then
+                        state_write rolled-back "$_previous" "$_latest_tag" "$_reason; previous immutable release restored"
+                        die "APK package transaction завершилась ошибкой; восстановлен $_previous"
+                        return 1
+                    fi
+                fi
+                ;;
+        esac
+        state_write failed "$_previous" "$_latest_tag" "$_reason; rollback unavailable, failed, or package versions did not match; product-tag was not advanced"
+        die "APK package transaction завершилась ошибкой; rollback недоступен или завершился ошибкой"
         return 1
     fi
     state_write health-check "$_previous" "$_latest_tag" "Проверяю core, nfqws2 и webpanel после APK transaction"
@@ -372,7 +489,7 @@ run_update() {
     state_write rollback "$_previous" "$_latest_tag" "$_reason; пытаюсь восстановить previous signed release"
     case "$_previous" in
         v[0-9]*.[0-9]*.[0-9]*)
-            if rollback_to_tag "$_previous"; then
+            if rollback_to_tag "$_previous" && record_installed_version "${_previous#v}"; then
                 state_write rolled-back "$_previous" "$_latest_tag" "$_reason; previous immutable release restored"
                 printf 'Обновление не прошло; восстановлена %s\n' "$_previous" >&2
                 return 1
@@ -400,7 +517,11 @@ EOF
 command_name="${1:-status}"
 case "$command_name" in
     check)
-        if load_latest_manifest; then
+        _snapshot_rc=0
+        product_snapshot_status || _snapshot_rc=$?
+        if [ "$_snapshot_rc" -eq 0 ] || [ "$_snapshot_rc" -eq 2 ]; then
+            emit_snapshot_json check
+        elif load_latest_manifest; then
             _current=$(current_product_tag)
             emit_check_json "$_current" "$_latest"
         else
@@ -409,8 +530,14 @@ case "$command_name" in
         fi
         ;;
     info)
-        load_latest_manifest || exit 1
-        cat "$_manifest"
+        _snapshot_rc=0
+        product_snapshot_status || _snapshot_rc=$?
+        if [ "$_snapshot_rc" -eq 0 ] || [ "$_snapshot_rc" -eq 2 ]; then
+            emit_snapshot_json info
+        else
+            load_latest_manifest || exit 1
+            cat "$_manifest"
+        fi
         ;;
     status)
         emit_status_json
@@ -422,10 +549,21 @@ case "$command_name" in
         run_update || exit $?
         ;;
     version)
+        _snapshot_rc=0
+        product_snapshot_status || _snapshot_rc=$?
         _tag=$(current_product_tag)
         _adapter=$(package_version z2k-adapter 2>/dev/null || echo unknown)
         _panel=$(package_version z2k-webpanel 2>/dev/null || echo unknown)
-        printf 'product=%s\nadapter=%s\nwebpanel=%s\n' "$_tag" "$_adapter" "$_panel"
+        if [ "$_snapshot_rc" -eq 0 ]; then
+            printf 'product=SNAPSHOT %s\nbuild=%s\n' "$(printf '%s' "$PRODUCT_SNAPSHOT_SHA" | cut -c1-8)" "$PRODUCT_SNAPSHOT_SHA"
+        elif [ "$_snapshot_rc" -eq 2 ]; then
+            printf 'product=SNAPSHOT INCONSISTENT\nbuild=unknown\n'
+        else
+            _build=$(tr -d ' \t\r\n' < "$PRODUCT_BUILD_COMMIT_FILE" 2>/dev/null || true)
+            printf '%s' "$_build" | grep -Eq '^[0-9a-f]{40}$' || _build=unknown
+            printf 'product=%s\nbuild=%s\n' "$_tag" "$_build"
+        fi
+        printf 'engine=%s\nadapter=%s\nwebpanel=%s\n' "$(engine_tag)" "$_adapter" "$_panel"
         ;;
     diag)
         exec "$Z2K_ROOT/z2k-diag.sh" "${2:-}"

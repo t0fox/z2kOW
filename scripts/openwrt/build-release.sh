@@ -264,6 +264,7 @@ note "make package/z2k/compile + package/z2k-runtime/compile + package/z2k-warp-
 # Цели — ДИРЕКТОРИИ пакетов (наши симлинки), НЕ имена пакетов:
 # package/z2k-adapter/compile правила не существует (поймано реальным CI).
 if ! make -C "$SDK" "Z2K_OW_PACKAGE_VERSION=$PKG_VERSION" "Z2K_OW_PACKAGE_RELEASE=$PKG_RELEASE" \
+    "Z2K_OW_BUILD_COMMIT=$SRC_COMMIT" \
     "package/z2k/compile" "package/z2k-runtime/compile" "package/z2k-warp-runtime/compile" V=s >"$SDK_LOG" 2>&1; then
     # Порядок важен: сначала stdout->stderr, глушение — только для tail'а.
     tail -50 "$SDK_LOG" >&2 || true

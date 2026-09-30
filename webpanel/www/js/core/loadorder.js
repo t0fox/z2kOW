@@ -64,7 +64,7 @@ function renderStatusGrid(s) {
     { label: "Сервис", value: fmtSvc(s.service), kind: s.service === "active" ? "good" : (s.service === "stopped" ? "warn" : "bad") },
     { label: "Туннель ТГ", value: s.tunnel?.running ? "работает" : "остановлен", kind: s.tunnel?.running ? "good" : "warn" },
     { label: "WARP", value: bool(s.toggles.game_warp), kind: s.toggles.game_warp === "1" ? "good" : "" },
-    { label: "Автообновление", value: bool(s.toggles.auto_update), kind: s.toggles.auto_update === "1" ? "good" : "warn" },
+    { label: "Автообновление движка zapret2", value: bool(s.toggles.auto_update), kind: s.toggles.auto_update === "1" ? "good" : "warn" },
     // kind вычисляется, а не зашит: плитка с зашитым "" не получала ни иконки,
     // ни цвета и выглядела сломанной рядом с соседями при том же значении
     // «Вкл» (скриншот с роутера 01.09.2026). Семантика как у WARP, а не как у

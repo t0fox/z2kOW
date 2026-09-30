@@ -35,7 +35,7 @@ CLASS: COMMON (тот же код), PLATFORM_IO (тонкий перевод), K
 | full uninstall | KEENETIC_ONLY | capability false (message: package manager) |
 | Keenetic policy | KEENETIC_ONLY | capability false (no mwan3/PBR substitute) |
 | PPE toggle | KEENETIC_ONLY | capability false (HFO owned by zapret2 runtime) |
-| diagnostics /diag | KEENETIC_ONLY | capability false (diag.sh Keenetic-path-bound; don't deliver) |
+| diagnostics /diag, /diag/download | PLATFORM_IO | capability true; common diagnostic delegates OpenWrt service/firewall/runtime probes through package-owned `platform/openwrt/diag.sh`; the panel can show and download the report |
 | tcp16 card/probe | KEENETIC_ONLY | capability false (probe not delivered; card hidden) |
 | domain probe/pick | COMMON* | works iff z2k-detect present (manifest delivers); else existing graceful error |
 | dns check | PLATFORM_IO | deliver z2k-dns-check.sh via release_map; `DNS_CHECK_OWN` → user-lists |

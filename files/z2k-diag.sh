@@ -99,14 +99,26 @@ safe_read() {
     printf '%s' "$val"
 }
 
-# z2k version — read the installed RELEASE TAG (e.g. p-59.1), the SAME source
-# the webpanel shows, so every surface (menu / diag / webpanel) reports one
-# consistent version. Falls back to the product constant in the persistent lib
-# only if the tag file isn't present yet (very old / pre-versioning install).
-# The install-time /tmp/z2k dir is wiped on every reboot, so it is NOT a source
-# here — reading it used to show "unknown" after every restart (pure cosmetic).
+# On OpenWrt, ask the canonical product CLI for all three version axes. The
+# engine tag is not the z2kOW product version, and the CLI owns snapshot parsing.
+# Keenetic retains its historical installed-tag behavior below.
+z2k_product_version_metadata() {
+    "${Z2K_PRODUCT_CLI:-/usr/bin/z2kow}" version 2>/dev/null
+}
+
+z2k_product_version_field() {
+    _field="$1"
+    z2k_product_version_metadata | awk -F= -v key="$_field" \
+        '$1 == key { sub(/^[^=]*=/, ""); print; exit }'
+}
+
 z2k_version_read() {
     local v
+    if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+        v=$(z2k_product_version_field product)
+        printf '%s' "${v:-unknown}"
+        return
+    fi
     v=$(head -1 "${ZAPRET2_DIR}/.z2k-installed-tag" 2>/dev/null | tr -d ' \r\n')
     [ -z "$v" ] && v=$(safe_read "Z2K_VERSION" "${ZAPRET2_DIR}/lib/utils.sh" "")
     printf '%s' "${v:-unknown}"
@@ -248,7 +260,15 @@ print_version_host() {
     printf '=== z2k diag / %s ===\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo now)"
     local version
     version=$(z2k_version_read)
-    printf 'z2k version       : %s\n' "$version"
+    if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+        _z2kow_build=$(z2k_product_version_field build)
+        _z2kow_engine=$(z2k_product_version_field engine)
+        printf 'z2kOW product     : %s\n' "$version"
+        printf 'engine/upstream   : %s\n' "${_z2kow_engine:-unknown}"
+        printf 'source build      : %s\n' "${_z2kow_build:-unknown}"
+    else
+        printf 'z2k version       : %s\n' "$version"
+    fi
 
     local kernel
     kernel=$(uname -rsm 2>/dev/null)
@@ -2105,8 +2125,15 @@ print_short() {
     else
         svc="down"
     fi
-    printf 'z2k=%s arch=%s lan=%s service=%s\n' \
-        "$version" "$entw" "$lan_ip" "$svc"
+    if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+        _z2kow_build=$(z2k_product_version_field build)
+        _z2kow_engine=$(z2k_product_version_field engine)
+        printf 'z2kOW=%s engine=%s build=%s arch=%s lan=%s service=%s\n' \
+            "$version" "${_z2kow_engine:-unknown}" "${_z2kow_build:-unknown}" "$entw" "$lan_ip" "$svc"
+    else
+        printf 'z2k=%s arch=%s lan=%s service=%s\n' \
+            "$version" "$entw" "$lan_ip" "$svc"
+    fi
 }
 
 # =============================================================================
@@ -2123,8 +2150,16 @@ print_json() {
     else
         svc="down"
     fi
-    printf '{"version":"%s","service":"%s","lan_ip":"%s","arch":"%s"}\n' \
-        "$version" "$svc" "$(get_lan_ip)" "$(get_entware_arch)"
+    if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+        _z2kow_build=$(z2k_product_version_field build)
+        _z2kow_engine=$(z2k_product_version_field engine)
+        printf '{"product":"%s","version":"%s","build":"%s","engine":"%s","service":"%s","lan_ip":"%s","arch":"%s"}\n' \
+            "$version" "$version" "${_z2kow_build:-unknown}" "${_z2kow_engine:-unknown}" \
+            "$svc" "$(get_lan_ip)" "$(get_entware_arch)"
+    else
+        printf '{"version":"%s","service":"%s","lan_ip":"%s","arch":"%s"}\n' \
+            "$version" "$svc" "$(get_lan_ip)" "$(get_entware_arch)"
+    fi
 }
 
 # =============================================================================

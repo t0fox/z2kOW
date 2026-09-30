@@ -100,6 +100,10 @@ assert_contains "canonical make call passes scoped adapter version" \
     "$BUILD" 'Z2K_OW_PACKAGE_VERSION=$PKG_VERSION'
 assert_contains "canonical make call passes scoped adapter release" \
     "$BUILD" 'Z2K_OW_PACKAGE_RELEASE=$PKG_RELEASE'
+assert_contains "canonical make call embeds exact source commit in adapter" \
+    "$BUILD" 'Z2K_OW_BUILD_COMMIT=$SRC_COMMIT'
+assert_contains "adapter installs product build commit metadata" \
+    "$REPO/package/openwrt/Makefile" 'share/product-build-commit'
 # The webpanel must require the adapter build selected by this invocation,
 # whether the canonical builder selected snapshot or release versions.
 assert_contains "webpanel adapter floor follows selected package mode" \
