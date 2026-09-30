@@ -4016,29 +4016,45 @@ strategy_unique_set_preflight() {
 }
 
 strategy_unique_set_ips() {
-    local domain="$1" resolver="${Z2K_NSLOOKUP_BIN:-nslookup}" output stats raw_count parsed_count
+    local domain="$1" resolver="${Z2K_NSLOOKUP_BIN:-nslookup}" output stats raw_count parsed_count attempt=0 max_attempts=3
     STRATEGY_UNIQUE_DNS_IPS=""
-    output=$("$resolver" "$domain" 2>/dev/null) || {
-        STRATEGY_UNIQUE_FAILURE_REASON="$domain: DNS-резолв завершился ошибкой"
-        echo "$STRATEGY_UNIQUE_FAILURE_REASON" >&2
-        return 1
-    }
-    STRATEGY_UNIQUE_DNS_IPS=$(printf '%s\n' "$output" | strategy_unique_set_parse_ips)
-    stats=$(printf '%s\n' "$output" | strategy_unique_set_parse_ips --stats)
-    raw_count=${stats%% *}
-    parsed_count=${stats#* }
-    if [ "$parsed_count" -lt 2 ]; then
+    while [ "$attempt" -lt "$max_attempts" ]; do
+        attempt=$((attempt + 1))
+        output=$("$resolver" "$domain" 2>/dev/null) || {
+            STRATEGY_UNIQUE_FAILURE_REASON="$domain: DNS-резолв завершился ошибкой"
+            echo "$STRATEGY_UNIQUE_FAILURE_REASON" >&2
+            return 1
+        }
+        STRATEGY_UNIQUE_DNS_IPS=$(printf '%s\n' "$output" | strategy_unique_set_parse_ips)
+        stats=$(printf '%s\n' "$output" | strategy_unique_set_parse_ips --stats)
+        raw_count=${stats%% *}
+        parsed_count=${stats#* }
+        if [ "$parsed_count" -ge 2 ]; then
+            STRATEGY_UNIQUE_FAILURE_REASON=""
+            return 0
+        fi
+
+        # Multiple raw IPv4 addresses that the parser cannot recognize indicate
+        # a format regression, not a transient empty/undersized DNS answer.
         if [ "$raw_count" -ge 2 ]; then
             STRATEGY_UNIQUE_FAILURE_REASON="$domain: DNS вернул $raw_count IPv4, parser распознал $parsed_count"
-        elif [ "$parsed_count" = 1 ]; then
+            echo "$STRATEGY_UNIQUE_FAILURE_REASON" >&2
+            return 1
+        fi
+        if [ "$attempt" -lt "$max_attempts" ]; then
+            echo "$domain: DNS вернул $raw_count IPv4; повтор $((attempt + 1))/$max_attempts через 1 с, нужны два разных IPv4" >&2
+            sleep 1
+            continue
+        fi
+        if [ "$parsed_count" = 1 ]; then
             STRATEGY_UNIQUE_FAILURE_REASON="$domain: DNS вернул $raw_count IPv4; найден только один уникальный IPv4, нужны два для проверки"
         else
             STRATEGY_UNIQUE_FAILURE_REASON="$domain: DNS вернул $raw_count IPv4, parser распознал $parsed_count; нужны два разных IPv4 для проверки"
         fi
         echo "$STRATEGY_UNIQUE_FAILURE_REASON" >&2
         return 1
-    fi
-    return 0
+    done
+    return 1
 }
 
 strategy_unique_set_measure() {

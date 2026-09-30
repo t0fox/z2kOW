@@ -277,6 +277,44 @@ grep -Fq '"ok":false' "$STRATEGY_UNIQUE_RESULT_FILE" && grep -q 'найден т
 
 DNS_ONE_IP=0; DNS_FORMAT=unsupported
 export DNS_ONE_IP DNS_FORMAT
+
+DNS_CALL_COUNTER="$SB/dns-calls"; export DNS_CALL_COUNTER
+cat > "$SB/transient-nslookup" <<'DNS'
+#!/bin/sh
+count=0
+[ ! -f "$DNS_CALL_COUNTER" ] || count=$(cat "$DNS_CALL_COUNTER")
+count=$((count + 1))
+printf '%s\n' "$count" > "$DNS_CALL_COUNTER"
+if [ "$count" -eq 1 ]; then
+    printf 'Server: 127.0.0.1\nAddress: 127.0.0.1:53\n\nName: %s\n' "$1"
+else
+    printf 'Server: 127.0.0.1\nAddress: 127.0.0.1:53\n\nName: %s\nAddress: 142.250.74.182\nName: %s\nAddress: 142.250.74.214\n' "$1" "$1"
+fi
+DNS
+chmod +x "$SB/transient-nslookup"
+Z2K_NSLOOKUP_BIN="$SB/transient-nslookup"; export Z2K_NSLOOKUP_BIN
+rm -f "$DNS_CALL_COUNTER"
+STRATEGY_UNIQUE_FAILURE_REASON='stale DNS failure'
+if strategy_unique_set_ips i.ytimg.com > "$SB/transient-dns.log" 2>&1; then ok 'пустой DNS-ответ повторяется и восстанавливается'; else bad 'после пустого DNS-ответа не выполнен успешный повтор'; fi
+[ "$(cat "$DNS_CALL_COUNTER")" = 2 ] && ok 'для восстановления выполнено ровно два запроса' || bad 'число запросов при восстановлении не равно двум'
+[ "$STRATEGY_UNIQUE_DNS_IPS" = "$(printf '142.250.74.182\n142.250.74.214')" ] && ok 'повтор сохранил два разных IPv4' || bad 'повтор не сохранил два разных IPv4'
+[ -z "$STRATEGY_UNIQUE_FAILURE_REASON" ] && ok 'успешный DNS-повтор очищает прежнюю ошибку' || bad 'успешный DNS-повтор сохранил устаревшую ошибку'
+
+cat > "$SB/empty-nslookup" <<'DNS'
+#!/bin/sh
+count=0
+[ ! -f "$DNS_CALL_COUNTER" ] || count=$(cat "$DNS_CALL_COUNTER")
+count=$((count + 1))
+printf '%s\n' "$count" > "$DNS_CALL_COUNTER"
+printf 'Server: 127.0.0.1\nAddress: 127.0.0.1:53\n\nName: %s\n' "$1"
+DNS
+chmod +x "$SB/empty-nslookup"
+Z2K_NSLOOKUP_BIN="$SB/empty-nslookup"; export Z2K_NSLOOKUP_BIN
+rm -f "$DNS_CALL_COUNTER"
+if strategy_unique_set_ips i.ytimg.com > "$SB/empty-dns.log" 2>&1; then bad 'три пустых DNS-ответа приняты'; else ok 'после трёх пустых DNS-ответов операция завершается'; fi
+[ "$(cat "$DNS_CALL_COUNTER")" = 3 ] && ok 'пустой DNS ограничен тремя попытками' || bad 'число пустых DNS-попыток не ограничено тремя'
+unset Z2K_NSLOOKUP_BIN
+
 : > "$CALL_LOG"; : > "$SAVE_LOG"; rm -f "$STRATEGY_PICK_OUT" "$STRATEGY_UNIQUE_RESULT_FILE" "$UNIQUE_SET_DIR"/*
 if strategy_unique_set_worker > "$SB/unparsed-dns.log" 2>&1; then bad 'неизвестный DNS формат принят'; else ok 'неизвестный DNS формат остановил набор'; fi
 grep -q 'i.ytimg.com: DNS вернул 2 IPv4, parser распознал 0' "$SB/unparsed-dns.log" && ok 'job log объясняет разницу DNS/parser' || bad 'job log не показывает причину несовпадения parser'
