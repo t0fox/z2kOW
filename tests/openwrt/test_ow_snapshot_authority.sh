@@ -1,8 +1,6 @@
 #!/bin/sh
-# tests/openwrt/test_ow_snapshot_authority.sh - audit L: snapshot-пакет ставит
-# embedded immutable truth ДАЖЕ если production channel онлайн и новее.
-# Фикстура: embedded snapshot (commit a) + "канал", отдающий манифест новее (b).
-# au_fetch_manifest стаб: зовут — пишем вызов (его звать НЕ должны).
+# tests/openwrt/test_ow_snapshot_authority.sh - snapshots stay internal to
+# provisioning; ordinary update check/apply uses the signed upstream release.
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-snapshot-authority"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -11,7 +9,7 @@ trap 'rm -rf "$T"' EXIT INT TERM
 
 mkdir -p "$T/root/share" "$T/bin" "$T/etc"
 export Z2K_ROOT="$T/root" Z2K_BIN="$T/bin" Z2K_TMP="$T/tmp" \
-    Z2K_ETC="$T/etc" Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
+    Z2K_ETC="$T/etc" Z2K_ADAPTER_DIR="$REPO/platform/openwrt" Z2K_PLATFORM=openwrt
 export Z2K_AU_TMP_DIR="$T/tmp/update"
 mkdir -p "$T/bin" "$T/tmp/update"
 # shellcheck disable=SC1090,SC1091
@@ -21,13 +19,12 @@ mkdir -p "$T/bin" "$T/tmp/update"
 . "$REPO/platform/openwrt/binaries.sh" || exit 1
 # shellcheck disable=SC1090,SC1091
 . "$REPO/lib/utils.sh" || exit 1
-# The payload updater must consume the same embedded snapshot authority as the
-# binary bootstrap path.
+# The ordinary updater must use the signed channel even when a CI snapshot is
+# embedded. Provisioning continues to use that immutable snapshot internally.
 # shellcheck disable=SC1090,SC1091
 . "$REPO/lib/auto_update.sh" || exit 1
 
-# Настоящий au недоступен изолированно — стабы именно точек ветвления:
-# fetch (канал) обязан НЕ вызываться; platform_ok и refresh — вызываются.
+# Настоящий au недоступен изолированно — стабы точек ветвления.
 au_fetch_pair() {
     echo "FETCH-PAIR-CALLED" >> "$T/calls"
     printf '{"current":"p-99.99","platform":"openwrt","install_map":{},"files_sha256":{"z2k-warpd/builds/z2k-warpd-linux-arm64":"%s"}}\n' \
@@ -48,22 +45,23 @@ printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' > "$T/root/share/snapshot-co
 
 : > "$T/calls"
 au_fetch_manifest >/dev/null 2>&1
-assert_eq "payload fetch uses embedded snapshot" "0" "$?"
-assert_eq "payload target ref uses full snapshot commit" \
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "$Z2K_AU_TARGET_REF"
-assert_eq "payload ref override stays immutable" \
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-    "$(au_manifest_ref "$T/tmp/update/UPDATES.json" p-84.17)"
+assert_eq "ordinary update manifest fetch succeeds" "0" "$?"
+assert_contains "ordinary updater fetches signed channel" "$T/calls" "FETCH-PAIR-CALLED"
+assert_contains "ordinary updater verifies signature" "$T/calls" "VERIFY-CALLED"
+assert_eq "ordinary updater selects upstream release" "p-99.99" "$(sed -n 's/.*\"current\":\"\([^\"]*\)\".*/\1/p' "$T/tmp/update/UPDATES.json")"
+assert_eq "ordinary updater does not pin CI commit" "" "${Z2K_AU_TARGET_REF:-}"
+
+: > "$T/calls"
 z2k_ow_ensure_binaries >/dev/null 2>&1
 assert_eq "ensure rc" "0" "$?"
-if grep -q "FETCH-CALLED" "$T/calls"; then
-    _t_bad "канал опрошен при наличии snapshot (reproducibility нарушена)"
+if grep -q "FETCH-PAIR-CALLED" "$T/calls"; then
+    _t_bad "provisioning stopped using its embedded snapshot"
 else
     _t_ok
 fi
-assert_contains "TMP манифест == snapshot" "$T/tmp/update/UPDATES.json" '"snapshot":true'
-assert_eq "TARGET_REF == snapshot-commit" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "$Z2K_AU_TARGET_REF"
-assert_contains "refresh вызван" "$T/calls" "refresh"
+assert_contains "provisioning manifest remains embedded snapshot" "$T/tmp/update/UPDATES.json" '"snapshot":true'
+assert_eq "provisioning target ref keeps internal pin" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "$Z2K_AU_TARGET_REF"
+assert_contains "provisioning refresh called" "$T/calls" "refresh"
 
 # Без embedded snapshot — production path fetches and verifies the signed pair.
 rm -f "$T/root/share/snapshot-manifest.json" "$T/root/share/snapshot-commit"

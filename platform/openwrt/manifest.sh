@@ -1,10 +1,9 @@
 #!/bin/sh
 # platform/openwrt/manifest.sh - one manifest authority for OpenWrt.
 #
-# A CI snapshot package carries its own immutable manifest and source commit.
-# That pair is the authority for fresh provisioning, including optional WARP;
-# the production channel is never consulted in that mode.  Without the pair,
-# the normal production channel is used, but only after a real signature check.
+# The signed production channel is the authority for normal updates.
+# An embedded CI snapshot is available only to explicit internal provisioning
+# and development panel-convergence paths.
 #
 # The helper deliberately does not implement a second updater.  It only
 # resolves the manifest, source mode, immutable target ref, and file URL so
@@ -64,6 +63,51 @@ z2k_ow_manifest_shape_ok() {
     grep -Eq '"z2k-warpd/builds/z2k-warpd-linux-[A-Za-z0-9_-]+"[[:space:]]*:[[:space:]]*"[0-9a-fA-F]{64}"' "$_m" 2>/dev/null
 }
 
+# Resolve only the signed stable production channel. Ordinary update checks and
+# applies use this entrypoint even when the package contains a CI snapshot.
+z2k_ow_manifest_prepare_production() {
+    local _out="${1:-${Z2K_AU_TMP_DIR:-/tmp/z2k/update}/UPDATES.json}"
+    local _sig="${_out}.sig" _arch="${2:-}" _want
+    mkdir -p "$(dirname "$_out")" 2>/dev/null || return 1
+    rm -f "$_out" "$_sig"
+    # Production mode is intentionally stricter than au_fetch_manifest's
+    # pre-pin compatibility path: WARP provisioning must always have a signed
+    # channel manifest.  Missing verifier, missing signature, or bad signature
+    # all fail closed.
+    command -v au_fetch_pair >/dev/null 2>&1 || return 1
+    command -v au_manifest_verify >/dev/null 2>&1 || return 1
+    local _base="${Z2K_AU_REPO_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/z2k-enhanced-openwrt}"
+    au_fetch_pair "$_base/UPDATES.json" "$_base/UPDATES.json.sig" "$_out" "$_sig" || {
+        echo "z2k-openwrt: production manifest fetch failed" >&2
+        rm -f "$_out" "$_sig"
+        return 1
+    }
+    [ -s "$_sig" ] && au_manifest_verify "$_out" "$_sig" || {
+        echo "z2k-openwrt: production manifest signature invalid or missing" >&2
+        rm -f "$_out" "$_sig"
+        return 1
+    }
+    z2k_ow_manifest_shape_ok "$_out" || {
+        echo "z2k-openwrt: production manifest не прошёл OpenWrt/WARP-проверку" >&2
+        rm -f "$_out" "$_sig"
+        return 1
+    }
+    if [ -n "$_arch" ]; then
+        _want=$(z2k_ow_manifest_file_sha "$_out" "z2k-warpd/builds/z2k-warpd-linux-$_arch" | tr 'A-F' 'a-f')
+        printf '%s' "$_want" | grep -Eq '^[0-9a-f]{64}$' || {
+            echo "z2k-openwrt: production manifest has no WARP hash for $_arch" >&2
+            rm -f "$_out" "$_sig"
+            return 1
+        }
+    fi
+    unset Z2K_AU_TARGET_REF
+    Z2K_OW_MANIFEST_MODE=production
+    Z2K_OW_MANIFEST_PATH="$_out"
+    export Z2K_OW_MANIFEST_MODE Z2K_OW_MANIFEST_PATH
+    rm -f "$_sig"
+    return 0
+}
+
 z2k_ow_manifest_prepare() {
     # $1 = destination manifest path; $2 = optional WARP arch to require.
     local _out="${1:-${Z2K_AU_TMP_DIR:-/tmp/z2k/update}/UPDATES.json}"
@@ -115,42 +159,8 @@ z2k_ow_manifest_prepare() {
         return 0
     fi
 
-    # Production mode is intentionally stricter than au_fetch_manifest's
-    # pre-pin compatibility path: WARP provisioning must always have a signed
-    # channel manifest.  Missing verifier, missing signature, or bad signature
-    # all fail closed.
-    command -v au_fetch_pair >/dev/null 2>&1 || return 1
-    command -v au_manifest_verify >/dev/null 2>&1 || return 1
-    local _base="${Z2K_AU_REPO_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/z2k-enhanced-openwrt}"
-    au_fetch_pair "$_base/UPDATES.json" "$_base/UPDATES.json.sig" "$_out" "$_sig" || {
-        echo "z2k-openwrt: production manifest fetch failed" >&2
-        rm -f "$_out" "$_sig"
-        return 1
-    }
-    [ -s "$_sig" ] && au_manifest_verify "$_out" "$_sig" || {
-        echo "z2k-openwrt: production manifest signature invalid or missing" >&2
-        rm -f "$_out" "$_sig"
-        return 1
-    }
-    z2k_ow_manifest_shape_ok "$_out" || {
-        echo "z2k-openwrt: production manifest не прошёл OpenWrt/WARP-проверку" >&2
-        rm -f "$_out" "$_sig"
-        return 1
-    }
-    if [ -n "$_arch" ]; then
-        _want=$(z2k_ow_manifest_file_sha "$_out" "z2k-warpd/builds/z2k-warpd-linux-$_arch" | tr 'A-F' 'a-f')
-        printf '%s' "$_want" | grep -Eq '^[0-9a-f]{64}$' || {
-            echo "z2k-openwrt: production manifest has no WARP hash for $_arch" >&2
-            rm -f "$_out" "$_sig"
-            return 1
-        }
-    fi
-    unset Z2K_AU_TARGET_REF
-    Z2K_OW_MANIFEST_MODE=production
-    Z2K_OW_MANIFEST_PATH="$_out"
-    export Z2K_OW_MANIFEST_MODE Z2K_OW_MANIFEST_PATH
-    rm -f "$_sig"
-    return 0
+    z2k_ow_manifest_prepare_production "$_out" "$_arch"
+    return $?
 }
 
 z2k_ow_manifest_file_url() {

@@ -1618,67 +1618,23 @@ case "$method $path" in
         json_ok
         ;;
 
-    # ---------- AUTO-UPDATE ----------
-    "GET /product/update/status")
-        product_json=$(product_update_status 2>&1) \
-            || json_fail "503 Service Unavailable" "$product_json"
-        json_header
-        printf '%s\n' "$product_json"
-        exit 0
-        ;;
-
-    "GET /product/update/check")
-        product_json=$(product_update_check 2>&1) \
-            || json_fail "503 Service Unavailable" "$product_json"
-        json_header
-        printf '%s\n' "$product_json"
-        exit 0
-        ;;
-
-    "GET /product/update/info")
-        product_json=$(product_update_info 2>&1) \
-            || json_fail "503 Service Unavailable" "$product_json"
-        json_header
-        printf '%s\n' "$product_json"
-        exit 0
-        ;;
-
-    "POST /product/update/start")
-        job_id=$(product_update_async) || json_fail "500 Internal Server Error" "product update launch failed"
-        json_header
-        printf '{"ok":true,"job":'
-        json_string "$job_id"
-        printf '}\n'
-        exit 0
-        ;;
-
+    # ---------- UNIFIED UPSTREAM UPDATE ----------
     "GET /update/status")
         # GET → may refresh the cache opportunistically (TTL guarded).
         update_refresh_manifest 0 2>/dev/null || true
         installed=$(update_installed_tag)
-        payload_tag=$(update_payload_tag)
-        seed_tag=$(update_seed_tag)
-        adapter_package=$(update_package_version z2k-adapter)
-        webpanel_package=$(update_package_version z2k-webpanel)
-        runtime_package=$(update_package_version z2k-zapret2-runtime)
         available=$(update_manifest_current)
         behind=$(update_behind_count "$installed")
         last_check=$(update_last_check_ts)
         fetch_failed=$(update_last_fetch_failed)
         check_age=$(update_last_check_age)
-        pending=$(update_pending_entries "$installed")
         json_header
         printf '{"ok":true,"installed":'
         json_string "$installed"
         printf ',"available":'
         json_string "$available"
-        printf ',"payload":'; json_string "${payload_tag:-$installed}"
-        printf ',"seed":'; json_string "${seed_tag:-}"
-        printf ',"adapter_package":'; json_string "${adapter_package:-}"
-        printf ',"webpanel_package":'; json_string "${webpanel_package:-}"
-        printf ',"runtime_package":'; json_string "${runtime_package:-}"
-        printf ',"behind":%s,"last_check":%s,"fetch_failed":%s,"check_age":%s,"pending":%s' \
-            "${behind:-0}" "${last_check:-0}" "${fetch_failed:-false}" "${check_age:--1}" "${pending:-[]}"
+        printf ',"behind":%s,"last_check":%s,"fetch_failed":%s,"check_age":%s' \
+            "${behind:-0}" "${last_check:-0}" "${fetch_failed:-false}" "${check_age:--1}"
         au_schedule_json
         printf '}\n'
         exit 0
@@ -1687,29 +1643,18 @@ case "$method $path" in
     "POST /update/check")
         update_refresh_manifest 1 2>/dev/null
         installed=$(update_installed_tag)
-        payload_tag=$(update_payload_tag)
-        seed_tag=$(update_seed_tag)
-        adapter_package=$(update_package_version z2k-adapter)
-        webpanel_package=$(update_package_version z2k-webpanel)
-        runtime_package=$(update_package_version z2k-zapret2-runtime)
         available=$(update_manifest_current)
         behind=$(update_behind_count "$installed")
         last_check=$(update_last_check_ts)
         fetch_failed=$(update_last_fetch_failed)
         check_age=$(update_last_check_age)
-        pending=$(update_pending_entries "$installed")
         json_header
         printf '{"ok":true,"installed":'
         json_string "$installed"
         printf ',"available":'
         json_string "$available"
-        printf ',"payload":'; json_string "${payload_tag:-$installed}"
-        printf ',"seed":'; json_string "${seed_tag:-}"
-        printf ',"adapter_package":'; json_string "${adapter_package:-}"
-        printf ',"webpanel_package":'; json_string "${webpanel_package:-}"
-        printf ',"runtime_package":'; json_string "${runtime_package:-}"
-        printf ',"behind":%s,"last_check":%s,"fetch_failed":%s,"check_age":%s,"pending":%s' \
-            "${behind:-0}" "${last_check:-0}" "${fetch_failed:-false}" "${check_age:--1}" "${pending:-[]}"
+        printf ',"behind":%s,"last_check":%s,"fetch_failed":%s,"check_age":%s' \
+            "${behind:-0}" "${last_check:-0}" "${fetch_failed:-false}" "${check_age:--1}"
         au_schedule_json
         printf '}\n'
         exit 0

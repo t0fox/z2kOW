@@ -210,9 +210,8 @@ ALLOWLIST="$ALLOWLIST webpanel/www/js/pages/dashboard.js z2kow.sh"
 # design notes and the requested project-local Apple design skill are inputs,
 # not package or runtime payload.
 ALLOWLIST="$ALLOWLIST webpanel/www/js/chrome.js webpanel/www/js/pages/strategies.js docs/openwrt-webpanel-redesign-spec.md skills-lock.json"
-# The shared status tile now names the legacy payload scheduler as the
-# zapret2 engine updater, matching the OpenWrt product-update card. Keep its
-# cross-platform wording regression under the same explicit common-UI seam.
+# Unified update UX removes the separate product card and delegates package
+# application behind the single upstream engine update banner.
 ALLOWLIST="$ALLOWLIST tests/test_panel_status_tiles.sh"
 ALLOWLIST="$ALLOWLIST .agents/skills/apple-design/*"
 # WEB-BLOCKER-01: keep the isolated browser regression and its pinned tooling

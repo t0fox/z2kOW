@@ -70,14 +70,38 @@ lc_init() {
     LC_ORIGIN="$LC_T/origin"
     LC_BIN="$LC_T/bin"
     mkdir -p "$LC_T/snaps" "$LC_ORIGIN/files" "$LC_BIN" || return 1
+    if command -v openssl >/dev/null 2>&1 && \
+        openssl genpkey -algorithm ed25519 -out "$LC_T/signing.key" >/dev/null 2>&1 && \
+        openssl pkey -in "$LC_T/signing.key" -pubout -out "$LC_T/signing.pub" >/dev/null 2>&1; then
+        LC_SIGNING_AVAILABLE=1
+    else
+        LC_SIGNING_AVAILABLE=0
+    fi
+    export LC_SIGNING_AVAILABLE
     export PATH="$LC_BIN:/usr/bin:/bin"
+    cat > "$LC_BIN/z2kow" <<'EOF'
+#!/bin/sh
+[ "$1" = "status" ] && [ "$2" = "--json" ] || exit 97
+printf '%s\n' '{"ok":true,"state":"snapshot","build":"internal"}'
+EOF
+    chmod +x "$LC_BIN/z2kow"
+    export Z2K_PRODUCT_UPDATE_BIN="$LC_BIN/z2kow"
+    # update.sh re-sources auto_update.sh in a child shell, so the in-process
+    # au_manifest_verify function stub cannot cross that boundary. Preserve
+    # the same narrow test seam through its supported verifier executable.
+    cat > "$LC_BIN/z2k-verify" <<'EOF'
+#!/bin/sh
+exit "${LC_VERIFY_RC:-0}"
+EOF
+    chmod +x "$LC_BIN/z2k-verify"
+    export Z2K_AU_VERIFY_BIN="$LC_BIN/z2k-verify"
     # настоящий seed из дерева (один на файл; переиспользуем если уже есть)
     if [ -z "${LC_SEED_TARBALL:-}" ] || [ ! -f "$LC_SEED_TARBALL" ]; then
         LC_SEED_TARBALL="$LC_T/seed.tar.gz"
         # явный sh: индекс хранит 100644 (см. drift-тест) — прямой запуск
         # в Linux-чекауте падает Permission denied и роняет весь lc-каскад
         sh "$LC_REPO/package/openwrt/make-seed.sh" "$LC_REPO" "$LC_SEED_TARBALL" \
-            >/dev/null 2>&1 || return 1
+            >"$LC_T/seed-build.log" 2>&1 || { cat "$LC_T/seed-build.log" >&2; return 1; }
     fi
     export LC_SEED_TARBALL
     # stub pgrep: nfqws2 — по alive-файлу, остальное — настоящий pgrep
@@ -138,6 +162,11 @@ lc_fresh_sysroot() {
     # нет — seed не содержит adapter: берём adapter из РЕПО как "установленный
     # пакетом" (роль opkg), payload приедет из seed).
     mkdir -p "$Z2K_ROOT/platform/openwrt" "$Z2K_ROOT/share"
+    if [ "${LC_SIGNING_AVAILABLE:-0}" = 1 ]; then
+        mkdir -p "$Z2K_ROOT/etc" || return 1
+        cp -f "$LC_T/signing.pub" "$Z2K_ROOT/etc/z2k-update-pub.pem" || return 1
+        export Z2K_AU_PUBKEY="$Z2K_ROOT/etc/z2k-update-pub.pem"
+    fi
     for _f in "$LC_REPO"/platform/openwrt/*.sh; do
         cp -f "$_f" "$Z2K_ROOT/platform/openwrt/" || return 1
     done
@@ -242,6 +271,11 @@ lc_manifest() {
       sed '$ s/,$//' "$_map" 2>/dev/null
       printf '  },\n  "files_sha256": {\n'
       sed '$ s/,$//' "$_sha" 2>/dev/null
+      # The production OpenWrt manifest contract requires a pinned WARP
+      # artifact digest even when a lifecycle scenario changes only payload
+      # files.  A deterministic fixture digest is sufficient here because
+      # these tests stub the signature verifier and never provision WARP.
+      printf '    "z2k-warpd/builds/z2k-warpd-linux-test": "%064d",\n' 0
       printf '  },\n  "history": [\n'
       cat "$_hist"
       printf '  ]}\n'
@@ -250,6 +284,10 @@ lc_manifest() {
     # копию в files/ (настоящий au_fetch_pair + настоящий z2k_fetch их найдут).
     mkdir -p "$LC_ORIGIN/files" || return 1
     cp -f "$LC_ORIGIN/manifest.json" "$LC_ORIGIN/files/UPDATES.json" || return 1
+    # Production update checks fetch a signed manifest pair. Lifecycle tests
+    # provide a placeholder signature and keep verification at the harness
+    # boundary (the E2E release test supplies a real Ed25519 signature).
+    printf 'lifecycle-signature-fixture\n' > "$LC_ORIGIN/files/UPDATES.json.sig" || return 1
     # Релокация назначений в sysroot: production-манифест несёт абсолютные
     # /usr/lib/z2k + /etc/z2k (проверено drift-тестом); фикстура меняет ТОЛЬКО
     # корневой префикс, относительная структура и контент — как в проде.
@@ -261,13 +299,19 @@ lc_manifest() {
         mv -f "$LC_ORIGIN/manifest.json.new" "$LC_ORIGIN/manifest.json" || return 1
         cp -f "$LC_ORIGIN/manifest.json" "$LC_ORIGIN/files/UPDATES.json" || return 1
     fi
+    if [ "${LC_SIGNING_AVAILABLE:-0}" = 1 ]; then
+        openssl pkeyutl -sign -rawin -inkey "$LC_T/signing.key" \
+            -in "$LC_ORIGIN/files/UPDATES.json" \
+            -out "$LC_ORIGIN/files/UPDATES.json.sig" 2>/dev/null || return 1
+    fi
 }
 
 # --- apply + postinst/prerm-эквиваленты + снимки ---------------------------------------
 lc_apply() {
     : > "$LC_T/calls-init"
-    au_run_apply >/dev/null 2>&1
+    au_run_apply >"$LC_T/au-run-apply.log" 2>&1
     LC_RC=$?
+    [ "${LC_DEBUG:-0}" != 1 ] || cat "$LC_T/au-run-apply.log" >&2
 }
 lc_postinst() {
     z2k_ow_seed_ensure >/dev/null 2>&1 || return 1

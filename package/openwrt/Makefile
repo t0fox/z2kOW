@@ -316,7 +316,7 @@ define Package/z2k-adapter/install
 	# тест), plain cp переносит +x в seed сам. Остальные .sh в индексе
 	# 644 — их прямой запуск из дерева в Linux-чекауте падает Permission
 	# denied, поэтому везде явный `sh`.
-	$(INSTALL_BIN) $(Z2K_TREE)/platform/openwrt/update.sh $(Z2K_TREE)/platform/openwrt/tg-check.sh \
+	$(INSTALL_BIN) $(Z2K_TREE)/platform/openwrt/update.sh $(Z2K_TREE)/platform/openwrt/stack-update.sh $(Z2K_TREE)/platform/openwrt/tg-check.sh \
 		$(Z2K_TREE)/platform/openwrt/rt-check.sh $(Z2K_TREE)/platform/openwrt/rt-proc.sh \
 		$(Z2K_TREE)/platform/openwrt/warp.sh $(Z2K_TREE)/platform/openwrt/warp-proc.sh \
 		$(Z2K_TREE)/platform/openwrt/warp-check.sh $(Z2K_TREE)/platform/openwrt/fw-check.sh \

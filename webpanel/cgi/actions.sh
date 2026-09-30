@@ -3251,24 +3251,6 @@ update_installed_tag() {
     fi
 }
 
-update_payload_tag() {
-    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && command -v z2k_ow_payload_tag >/dev/null 2>&1; then
-        z2k_ow_payload_tag 2>/dev/null || true
-    fi
-}
-
-update_seed_tag() {
-    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && command -v z2k_ow_seed_tag >/dev/null 2>&1; then
-        z2k_ow_seed_tag 2>/dev/null || true
-    fi
-}
-
-update_package_version() {
-    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && command -v z2k_ow_package_version >/dev/null 2>&1; then
-        z2k_ow_package_version "$1" 2>/dev/null || true
-    fi
-}
-
 # Get mtime of a file as a Unix timestamp. BusyBox `stat -c` doesn't exist
 # on Entware (even /opt/bin/stat is BusyBox), but `date -r FILE +%s` does.
 file_mtime() {
@@ -3279,15 +3261,51 @@ file_mtime() {
 # Refresh /tmp manifest cache when older than TTL (or force=1).
 update_refresh_manifest() {
     local force="${1:-0}" age now mtime url tmp
+    local authority_file="${AU_MANIFEST_AUTHORITY_FILE:-${AU_MANIFEST_CACHE}.authority}"
+    local openwrt=0
+    [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && openwrt=1
     now=$(date +%s 2>/dev/null || echo 0)
+
+    if [ "$openwrt" = "1" ]; then
+        # Old cache entries from older builds lack this signature-verified marker.
+        if [ ! -s "$AU_MANIFEST_CACHE" ] || [ "$(head -1 "$authority_file" 2>/dev/null)" != "production" ] || ! _update_manifest_sane "$AU_MANIFEST_CACHE"; then
+            rm -f "$AU_MANIFEST_CACHE" "$authority_file"
+        fi
+        if [ "$force" != "1" ] && [ -s "$AU_MANIFEST_CACHE" ]; then
+            mtime=$(file_mtime "$AU_MANIFEST_CACHE")
+            age=$((now - mtime))
+            [ "$age" -lt "$AU_MANIFEST_CACHE_TTL" ] && return 0
+        fi
+        if [ "$force" != "1" ] && [ -f "$AU_MANIFEST_FAIL_STAMP" ]; then
+            mtime=$(file_mtime "$AU_MANIFEST_FAIL_STAMP")
+            age=$((now - mtime))
+            if [ "$age" -lt "$AU_MANIFEST_FAIL_TTL" ]; then
+                [ -s "$AU_MANIFEST_CACHE" ] && [ "$(head -1 "$authority_file" 2>/dev/null)" = "production" ] && return 0
+                return 1
+            fi
+        fi
+        if command -v z2k_platform_fetch_manifest >/dev/null 2>&1 && z2k_platform_fetch_manifest && [ -s "$AU_MANIFEST_CACHE" ] && _update_manifest_sane "$AU_MANIFEST_CACHE"; then
+            tmp="${authority_file}.new.$$"
+            if printf 'production\n' > "$tmp" && mv -f "$tmp" "$authority_file"; then
+                rm -f "$AU_MANIFEST_FAIL_STAMP"
+                return 0
+            fi
+            rm -f "$tmp"
+        fi
+        : > "$AU_MANIFEST_FAIL_STAMP" 2>/dev/null
+        if [ -s "$AU_MANIFEST_CACHE" ] && [ "$(head -1 "$authority_file" 2>/dev/null)" = "production" ] && _update_manifest_sane "$AU_MANIFEST_CACHE"; then
+            return 0
+        fi
+        rm -f "$AU_MANIFEST_CACHE" "$authority_file"
+        return 1
+    fi
+
     if [ "$force" != "1" ]; then
         if [ -s "$AU_MANIFEST_CACHE" ]; then
             mtime=$(file_mtime "$AU_MANIFEST_CACHE")
             age=$((now - mtime))
             [ "$age" -lt "$AU_MANIFEST_CACHE_TTL" ] && return 0
         fi
-        # Недавняя неудача — в сеть не идём вовсе. Ручная кнопка «проверить»
-        # (force=1) этот гейт минует: человек ждёт результата и знает, чего ждёт.
         if [ -f "$AU_MANIFEST_FAIL_STAMP" ]; then
             mtime=$(file_mtime "$AU_MANIFEST_FAIL_STAMP")
             age=$((now - mtime))
@@ -3297,27 +3315,7 @@ update_refresh_manifest() {
             fi
         fi
     fi
-    # OpenWrt CI snapshots carry an immutable, already-verified manifest.
-    # Resolve that authority before the common mirror fetch so a cold dashboard
-    # does not block on an unavailable production channel (and report a fake
-    # 500 to the browser).  Production OpenWrt keeps the same hook: without a
-    # snapshot it performs the signed channel fetch and falls through only on
-    # a real failure.
-    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] \
-        && command -v z2k_platform_fetch_manifest >/dev/null 2>&1; then
-        if z2k_platform_fetch_manifest; then
-            if [ -s "$AU_MANIFEST_CACHE" ] && _update_manifest_sane "$AU_MANIFEST_CACHE"; then
-                rm -f "$AU_MANIFEST_FAIL_STAMP"
-                return 0
-            fi
-            rm -f "$AU_MANIFEST_CACHE"
-        fi
-    fi
-    # Канал — из frozen updater environment (Stage 6 seam): на Keenetic
-    # дефолт ниже, на OpenWrt его перекрывает platform.sh из Z2K_AU_REPO_RAW.
     url="${Z2K_AU_MANIFEST_URL:-https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json}"
-    # $$ в имени: mod_cgi выполняет запросы параллельно, общий temp двух
-    # одновременных проверок — это подмена тела на полпути.
     tmp="${AU_MANIFEST_CACHE}.new.$$"
     if _update_fetch_manifest "$url" "$tmp" && _update_manifest_sane "$tmp"; then
         mv -f "$tmp" "$AU_MANIFEST_CACHE"
@@ -3326,11 +3324,9 @@ update_refresh_manifest() {
     fi
     rm -f "$tmp" "$tmp.etag"
     : > "$AU_MANIFEST_FAIL_STAMP" 2>/dev/null
-    # Cache fallback — keep stale file if the fetch failed.
     [ -s "$AU_MANIFEST_CACHE" ] && return 0
     return 1
 }
-
 # Чем тянули манифест в последний раз: mirrors | curl | пусто (не пробовали).
 # Для api.sh — единственный способ показать деградацию: stderr обработчиков он
 # уводит в /dev/null.
@@ -3619,29 +3615,6 @@ update_apply_async() {
     ) </dev/null >/dev/null 2>&1 &
     echo "$!" > "/tmp/z2k-job-$job_id.pid"
     printf '%s' "$job_id"
-}
-
-# z2kOW product packages are a separate release lane from the shared signed
-# zapret2 payload updater above. The CLI owns signature checking, the product
-# tag, package-scoped APK transaction and post-update rollback.
-product_update_status() {
-    [ -x /usr/bin/z2kow ] || { echo "z2kow CLI is not installed" >&2; return 1; }
-    /usr/bin/z2kow status --json
-}
-
-product_update_check() {
-    [ -x /usr/bin/z2kow ] || { echo "z2kow CLI is not installed" >&2; return 1; }
-    /usr/bin/z2kow check --json
-}
-
-product_update_info() {
-    [ -x /usr/bin/z2kow ] || { echo "z2kow CLI is not installed" >&2; return 1; }
-    /usr/bin/z2kow info --json
-}
-
-product_update_async() {
-    [ -x /usr/bin/z2kow ] || { echo "z2kow CLI is not installed" >&2; return 1; }
-    svc_action_async "Обновление z2kOW" "/usr/bin/z2kow update --non-interactive"
 }
 
 # Проверка одного домена — то же, что пункт [Y] в терминальном меню.

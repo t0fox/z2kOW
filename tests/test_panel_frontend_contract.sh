@@ -31,10 +31,10 @@ skip() { SKIP=$((SKIP+1)); printf '[SKIP] %s (%s)\n' "$1" "$2"; }
 [ -f "$JS" ] && [ -f "$CSS" ] || { printf '[FAIL] missing panel sources\n'; exit 1; }
 
 snapshot_release_copy='Канал production-обновлений недоступен для CI snapshot; наличие стабильного выпуска не проверено.'
-if grep -Fq "$snapshot_release_copy" "$JS" && ! grep -Fq 'пока не опубликован' "$JS"; then
-    ok "CI snapshot does not claim stable release publication state"
+if grep -Fq "$snapshot_release_copy" "$JS" || grep -Eq 'SNAPSHOT|build SHA|production channel' "$JS"; then
+    no "production update UI hides CI snapshot metadata" "no snapshot/SHA/channel copy" "snapshot metadata remains"
 else
-    no "CI snapshot release status is honest" "$snapshot_release_copy" "copy is missing or claims no release is published"
+    ok "production update UI hides CI snapshot metadata"
 fi
 
 # ---------------------------------------------------------------------------
@@ -443,293 +443,51 @@ const SCENARIOS = {
     },
   },
 
-  // «Что нового» и «история версий» — РАЗНЫЕ вопросы: pending уже пришёл
-  // вместе со статусом, полная история загружается только по явному переходу.
-  update_whats_new: {
+  // Dashboard exposes exactly one upstream update surface. Product packages
+  // are applied behind the same OpenWrt job and never queried as a second lane.
+  update_single_surface: {
     hash: "#/dashboard",
     setup() {
       ROUTER = async (p) => {
         if (p === "/update/status") return {
-          ok: true, installed: "p-84.22", available: "p-84.25", behind: 3, last_check: 0,
-          pending: [
-            { v: "p-84.23", type: "patch", ts: "2026-09-16T10:00:00Z", desc: "первый" },
-            { v: "p-84.24", type: "patch", ts: "2026-09-16T12:00:00Z", desc: "второй" },
-            { v: "p-84.25", type: "patch", ts: "2026-09-16T14:00:00Z", desc: "третий" },
-          ],
+          ok: true, installed: "p-86.1", available: "p-86.2", behind: 1, last_check: 0,
         };
-        if (p === "/update/history") return { ok: true, total: 250, history: [
+        if (p === "/update/history") return { ok: true, total: 1, history: [
           { v: "r-1", type: "patch", ts: "2026-01-01T00:00:00Z", desc: "древность" },
         ]};
+        if (p.indexOf("/product/update") === 0) throw new Error("second product updater was called");
         return STATUS;
       };
     },
     async run() {
       await sleep(160);
-      q("#upd-changelog-btn").fire("click");
-      await sleep(120);
-      const bd = document.body.children.find(c => c.className === "modal-backdrop");
-      check("модалка «что нового» открылась", !!bd, "нет .modal-backdrop");
-      const list = q("#hist-modal-list");
-      const html = list ? list.innerHTML : "";
-      check("показаны все pending-выпуски",
-            /p-84\.23/.test(html) && /p-84\.24/.test(html) && /p-84\.25/.test(html), html.slice(0, 200));
-      check("чужая история сюда не попала", html.indexOf("r-1") < 0 && html.indexOf("древность") < 0,
-            html.slice(0, 200));
-      check("за pending-списком в сеть не ходили", !CALLS["/update/history"],
-            "запросов: " + CALLS["/update/history"]);
-      check("свежий выпуск сверху",
-            html.indexOf("p-84.25") < html.indexOf("p-84.23"), html.slice(0, 200));
-      check("заголовок называет диапазон",
-            (q("#hist-modal-title").textContent || "").indexOf("p-84.22") >= 0, q("#hist-modal-title").textContent);
-      const allBtn = q("#hist-all-btn");
-      check("есть переход ко всей истории", !!allBtn && allBtn.hidden === false, String(allBtn && allBtn.hidden));
-      allBtn.fire("click");
-      await sleep(120);
-      check("переход подтянул историю", CALLS["/update/history"] === 1,
-            "запросов: " + CALLS["/update/history"]);
-      check("заголовок сменился", (q("#hist-modal-title").textContent || "").indexOf("История") >= 0,
-            q("#hist-modal-title").textContent);
-    },
-  },
-
-  // Тот же ответ, но уже под работающим поллером: он обязан остановиться,
-  // разлочить UI и сказать юзеру, что задачи нет.
-  poller_gone: {
-    hash: "#/dashboard",
-    setup() {
-      ROUTER = async (p) => {
-        if (p === "/job") return { ok: true, status: "unknown", done: false, exit: null, log: "" };
-        if (p === "/service/restart") return { ok: true, job: "7" };
-        if (p === "/update/status") return UPD_OK;
-        return STATUS;
-      };
-    },
-    async run() {
-      await sleep(60);
-      const btn = q("#app>[data-svc]");
-      btn.dataset.svc = "restart";
-      btn.fire("click");
-      await sleep(2600);
-      check("поллер остановился, а не опрашивает вечно", (CALLS["/job"] || 0) <= 2, "запросов /job: " + CALLS["/job"]);
-      check("UI разлочен после исчезнувшей задачи", !q(".card").classList.contains("card-locked"), "card-locked висит");
-      check("юзеру сказали, что задача не найдена", TOASTS.some(t => /не найдена/.test(t)), TOASTS.join(" | "));
-    },
-  },
-
-  // Связь с панелью пропала на середине переключения. Ничего в конфиге не
-  // откатывалось — значит «вернул как было» это ложь.
-  fastroute_not_applicable: {
-    hash: "#/toggles",
-    setup() {
-      STATUS.toggles.fastroute = "0";
-      STATUS.toggles.fastroute_available = "0";
-      STATUS.toggles.fastroute_status = "Не применяется: обнаружен драйвер аппаратного NAT.";
-      ROUTER = async () => STATUS;
-    },
-    async run() {
-      await sleep(80);
-      const box = q('#app>[data-key="fastroute"]>input');
-      check("hardware NAT: тумблер выключен", box.checked === false, "checked=" + box.checked);
-      check("hardware NAT: тумблер недоступен", box.disabled === true, "disabled=" + box.disabled);
-      check("причина недоступности показана", q("#fastroute-status").textContent.includes("Не применяется"), q("#fastroute-status").textContent);
-    },
-  },
-  fastroute_actual: {
-    hash: "#/toggles",
-    setup() { ROUTER = async () => STATUS; },
-    async run() {
-      await sleep(80);
-      const box = q('#app>[data-key="fastroute"]>input');
-      check("без hardware NAT: отключение кэша показано включённым", box.checked === true, "checked=" + box.checked);
-      check("применимый тумблер доступен", box.disabled === false, "disabled=" + box.disabled);
-    },
-  },
-  outage: {
-    hash: "#/toggles",
-    setup() {
-      ROUTER = async (p) => {
-        if (p === "/job") throw new Error("Failed to fetch");
-        if (p === "/toggle/stats") return { ok: true, job: "11" };
-        return STATUS;
-      };
-    },
-    async run() {
-      await sleep(80);
-      const box = q('#app>[data-key="stats"]>input');
-      check("тумблер включился после успешного /status", box.disabled === false, "disabled=" + box.disabled);
-      box.checked = false;
-      box.fire("change");
-      await sleep(7000);
-      check("панель не врёт про откат", !TOASTS.some(t => /вернул как было/.test(t)), TOASTS.join(" | "));
-      // «Результат неизвестен» человеку больше НЕ сообщается. Раньше это был
-      // единственный ответ на обрыв, и он же выпадал каждому при штатной
-      // переустановке. Вместо догадки панель показывает ФАКТ: дождавшись
-      // связи, перечитывает состояние с роутера и говорит, как есть.
-      check("панель не рассуждает о том, чего не знает",
-            !TOASTS.some(t => /неизвестно|ответила ошибкой/.test(t)), TOASTS.join(" | "));
-      check("состояние перечитано с роутера, когда связь вернулась",
-            TOASTS.some(t => /фактически/.test(t)), TOASTS.join(" | "));
-    },
-  },
-
-  // Панель ОТВЕТИЛА отказом — например 403 от origin-стража вкладке со старым
-  // закэшированным app.js. Это определённый ответ, а не потеря связи: терпеть
-  // его как обрыв значит держать весь UI залоченным MAX_ERRORS × 2 с, то есть
-  // около десяти минут.
-  job_refused: {
-    hash: "#/dashboard",
-    setup() {
-      ROUTER = async (p) => {
-        if (p === "/job") return { __status: 403, ok: false, error: "forbidden" };
-        if (p === "/service/restart") return { ok: true, job: "7" };
-        if (p === "/update/status") return UPD_OK;
-        return STATUS;
-      };
-    },
-    async run() {
-      await sleep(60);
-      const btn = q("#app>[data-svc]");
-      btn.dataset.svc = "restart";
-      btn.fire("click");
-      await sleep(60);
-      check("пока задача идёт, UI заблокирован", q(".card").classList.contains("card-locked"), "лока не было вообще");
-      await sleep(6200);
-      check("определённый отказ не держит UI залоченным",
-            !q(".card").classList.contains("card-locked"), "card-locked висит, запросов /job: " + CALLS["/job"]);
-      check("опрос прекращён, а не продолжается", (CALLS["/job"] || 0) <= 3, "запросов /job: " + CALLS["/job"]);
-      // Ни жалоб на связь, ни жалоб на отказ: и то и другое человеку ничего
-      // не даёт, а при переустановке выпадало всем подряд. UI разлочен, и
-      // состояние перечитывается — этого достаточно.
-      check("панель ни на что не жалуется",
-            !TOASTS.some(t => /Связь с панелью пропала|ответила ошибкой|неизвестно/.test(t)),
-            TOASTS.join(" | "));
-    },
-  },
-
-  // Два loadState в полёте: первый (медленный) обязан молчать, когда его
-  // обогнал второй. Иначе удалённая строка «воскресает» после тоста «Удалено».
-  state_race: {
-    hash: "#/state",
-    setup() {
-      let n = 0;
-      ROUTER = async (p) => {
-        if (p === "/state") {
-          n++;
-          const host = n === 1 ? "old.example" : "new.example";
-          if (n === 1) await sleep(300);
-          return { ok: true, entries: [{ key: "rkn_tcp", host, strategy: "1", ts: 1, mode: "auto" }] };
-        }
-        if (p === "/pools") return { ok: true, pools: { rkn_tcp: 5 } };
-        return STATUS;
-      };
-    },
-    async run() {
-      q("#state-refresh").fire("click");
-      await sleep(700);
-      const html = q("#state-body").innerHTML;
-      check("отрисован свежий ответ", html.indexOf("new.example") >= 0, html.slice(0, 200));
-      check("устаревший ответ не перезаписал таблицу", html.indexOf("old.example") < 0, html.slice(0, 200));
-    },
-  },
-
-  // Пересортировка — операция ВИДА: строки уже в браузере, в сеть она не идёт.
-  // Считать её новой загрузкой нельзя — так она отменяет летящий /state и
-  // выбрасывает его ответ. Ровно тот баг, ради которого гейт вводился: удалил
-  // строку, кликнул по заголовку колонки — удалённая строка снова на экране.
-  state_resort_race: {
-    hash: "#/state",
-    setup() {
-      let n = 0;
-      ROUTER = async (p) => {
-        if (p === "/state") {
-          n++;
-          if (n > 1) await sleep(400);   // перезагрузка после правки — медленная
-          const host = n === 1 ? "before.example" : "after.example";
-          return { ok: true, entries: [{ key: "rkn_tcp", host, strategy: "1", ts: 1, mode: "auto" }] };
-        }
-        if (p === "/pools") return { ok: true, pools: { rkn_tcp: 5 } };
-        return STATUS;
-      };
-    },
-    async run() {
-      await sleep(80);
-      check("первая загрузка отрисована", q("#state-body").innerHTML.indexOf("before.example") >= 0,
-            q("#state-body").innerHTML.slice(0, 120));
-      q("#state-refresh").fire("click");            // сеть: как после удаления строки
-      await sleep(60);
-      q("#state-body>th.sortable").fire("click");   // пересортировка, пока ответ в полёте
-      await sleep(700);
-      const html = q("#state-body").innerHTML;
-      check("пересортировка не отменила сетевую загрузку", html.indexOf("after.example") >= 0, html.slice(0, 200));
-      q("#state-body>th.sortable").fire("click");   // ещё раз — теперь точно из кэша
-      await sleep(50);
-      const again = q("#state-body").innerHTML;
-      check("кэш обновлён свежим ответом, а не остался прежним",
-            again.indexOf("after.example") >= 0 && again.indexOf("before.example") < 0, again.slice(0, 200));
-    },
-  },
-
-  // Проверка обновлений упала — блок обязан остаться на месте вместе с
-  // кнопкой, которой её и запускают, и не объявлять «последнюю версию».
-  update_check_failed: {
-    hash: "#/dashboard",
-    setup() {
-      // В разметке блок объявлен hidden — заглушка обязана стартовать так же,
-      // иначе «не спрятан» выполняется само собой и ничего не проверяет.
-      sel("#update-banner").hidden = true;
-      ROUTER = async (p) => {
-        if (p === "/update/status") throw new Error("Failed to fetch");
-        return STATUS;
-      };
-    },
-    async run() {
-      await sleep(250);
-      const b = q("#update-banner");
-      check("блок обновления не спрятан", b.hidden === false, "hidden=" + b.hidden);
-      check("кнопка повторной проверки на месте", b.innerHTML.indexOf("upd-recheck") >= 0, b.innerHTML.slice(0, 160));
-      check("панель не выдаёт незнание за «последнюю версию»",
-            b.innerHTML.indexOf("последняя версия") < 0, b.innerHTML.slice(0, 160));
-    },
-  },
-
-  // Ожидающие обновления раскрываются в баннере; архив открывается отдельно.
-  update_whats_new: {
-    hash: "#/dashboard",
-    setup() {
-      sel("#upd-changelog").hidden = true;
-      ROUTER = async (p) => {
-        if (p === "/update/status") return {
-          ok: true, installed: "p-84.22", available: "p-84.25", behind: 3, last_check: 0,
-          pending: [
-            { v: "p-84.23", type: "patch", ts: "2026-09-16T10:00:00Z", desc: "первый" },
-            { v: "p-84.24", type: "patch", ts: "2026-09-16T12:00:00Z", desc: "второй" },
-            { v: "p-84.25", type: "patch", ts: "2026-09-16T14:00:00Z", desc: "третий" },
-          ],
-        };
-        if (p === "/update/history") return { ok: true, total: 250, history: [
-          { v: "r-1", type: "patch", ts: "2026-01-01T00:00:00Z", desc: "древность" },
-        ]};
-        return STATUS;
-      };
-    },
-    async run() {
-      await sleep(160);
-      const box = q("#upd-changelog");
-      check("описание изначально свёрнуто", /id="upd-changelog" hidden/.test(q("#update-banner").innerHTML), "hidden markup");
-      q("#upd-changelog-btn").fire("click");
-      await sleep(120);
-      check("описание раскрывается в баннере", box.hidden === false, String(box.hidden));
-      check("что нового не открывает модалку", !document.body.children.find(c => c.className === "modal-backdrop"), "modal");
       const html = q("#update-banner").innerHTML;
-      check("показаны ожидающие выпуски", /p-84\.23/.test(html) && /p-84\.25/.test(html), html);
-      check("за историей в сеть не ходили", !CALLS["/update/history"], String(CALLS["/update/history"]));
-      q("#upd-changelog-btn").fire("click");
-      check("повторный клик сворачивает описание", box.hidden === true, String(box.hidden));
-      q("#upd-history-link").fire("click");
-      await sleep(120);
-      check("отдельная кнопка загружает историю", CALLS["/update/history"] === 1, String(CALLS["/update/history"]));
-      check("открылась история", !!document.body.children.find(c => c.className === "modal-backdrop"), "modal");
+      check("нет отдельной карточки z2kOW", !q("#app").innerHTML.includes('id="product-update-card"'), "product card exists");
+      check("available copy uses upstream tag only", html.indexOf("Доступно обновление p-86.2") >= 0, html);
+      check("history action has requested label", html.indexOf("История обновлений") >= 0, html);
+      check("update is the only apply/check action", html.includes('id="upd-apply"') && !html.includes('id="upd-recheck"') && !html.includes('id="upd-changelog-btn"'), html);
+      check("no second product update endpoint was called", !CALLS["/product/update/status"] && !CALLS["/product/update/check"], JSON.stringify(CALLS));
+    },
+  },
 
+  // No update keeps the upstream p-tag as the only visible version and offers
+  // exactly history plus one manual check.
+  update_current_surface: {
+    hash: "#/dashboard",
+    setup() {
+      ROUTER = async (p) => {
+        if (p === "/update/status") return { ok: true, installed: "p-86.1", available: "p-86.1", behind: 0, last_check: 0 };
+        if (p.indexOf("/product/update") === 0) throw new Error("second product updater was called");
+        return STATUS;
+      };
+    },
+    async run() {
+      await sleep(160);
+      const html = q("#update-banner").innerHTML;
+      check("current copy names upstream p-tag", html.indexOf("Движок zapret2 p-86.1 актуален") >= 0, html);
+      check("history action has requested label", html.indexOf("История обновлений") >= 0, html);
+      check("manual check is the only second action", html.includes('id="upd-recheck"') && !html.includes('id="upd-apply"'), html);
+      check("no separate product update endpoint was called", !CALLS["/product/update/status"] && !CALLS["/product/update/check"], JSON.stringify(CALLS));
     },
   },
 
@@ -763,8 +521,8 @@ const SCENARIOS = {
       await sleep(150);
       const bd = document.body.children.find(c => c.className === "modal-backdrop");
       // Заголовок ставится кодом: проверяем элемент, а не разметку подложки.
-      check("модалка открылась с заголовком «История движка zapret2»",
-            !!bd && (q("#hist-modal-title").textContent || "").indexOf("История движка zapret2") >= 0,
+      check("модалка открылась с заголовком «История обновлений»",
+            !!bd && (q("#hist-modal-title").textContent || "").indexOf("История обновлений") >= 0,
             "title=" + (q("#hist-modal-title").textContent || ""));
       const list = q("#hist-modal-list");
       check("записи истории отображены", list && list.innerHTML.indexOf("p-84.22") >= 0,
@@ -1527,9 +1285,8 @@ run_scen() {
 # Счётчики внутри while-пайпа теряются (subshell), поэтому считаем по выводу.
 for scen in flowoffload_none flowoffload_unconfirmed flowoffload_hardware \
             flowoffload_mismatch flowoffload_mode_mismatch flowoffload_switch \
-            stale_apply poller_gone outage job_refused state_race state_resort_race \
-            update_check_failed update_history_modal update_history_empty update_history_failed \
-            update_whats_new \
+            stale_apply update_history_modal update_history_empty update_history_failed \
+            update_single_surface update_current_surface \
             toggles_status_failed toggles_left_page \
             warp_left_page \
             autohostlist_warn autohostlist_accept autohostlist_escape \

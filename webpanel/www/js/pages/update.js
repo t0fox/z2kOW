@@ -12,7 +12,7 @@ export async function refreshUpdateBanner(opts = {}) {
     const path = opts.force ? "/update/check" : "/update/status";
     d = opts.force ? await apiPost(path) : await apiGet(path);
   } catch (e) {
-    // Прятать весь блок нельзя: кнопку «Проверить ещё раз» жмут именно
+    // Прятать весь блок нельзя: кнопку «Проверить» жмут именно
     // отсюда, и вместе с баннером она пропадала до перезагрузки страницы.
     err = e;
   }
@@ -69,38 +69,18 @@ export async function refreshUpdateBanner(opts = {}) {
   }
 
   if (!unknown && behind > 0) {
-    const pending = Array.isArray(d.pending) ? d.pending : [];
     banner.hidden = false;
     banner.className = "update-banner";
     banner.innerHTML = `
       <div class="update-banner-text">
-        <strong>Доступно обновление движка zapret2: ${escapeHtml(available)}</strong>
+        <strong>Доступно обновление ${escapeHtml(available)}</strong>
         <span class="update-banner-meta">установлен движок ${escapeHtml(installed)} · отстаёт на ${behind} · проверено ${ago}${auNote}</span>
       </div>
       <div class="update-banner-actions">
+        <button class="btn" id="upd-history-link" type="button">История обновлений</button>
         <button class="btn btn-primary" id="upd-apply">Обновить</button>
-        ${pending.length > 0 ? `<button class="btn btn-disclosure" id="upd-changelog-btn" aria-expanded="false"><span>Что нового</span>${_icons.chevronDown}</button>` : ""}
-        <button class="btn" id="upd-history-link" type="button">История движка</button>
-        <button class="btn" id="upd-recheck">Проверить ещё раз</button>
       </div>
-      ${pending.length > 0 ? `
-        <div class="update-banner-body" id="upd-changelog" hidden>
-          <div class="upd-changelog">
-            ${pending.map(e => renderChangelogEntry(e, false)).join("")}
-          </div>
-        </div>
-      ` : ""}
     `;
-    const clBtn = document.getElementById("upd-changelog-btn");
-    const clBox = document.getElementById("upd-changelog");
-    if (clBtn && clBox) {
-      clBtn.addEventListener("click", () => {
-        const open = !clBox.hidden;
-        clBox.hidden = open;
-        clBtn.setAttribute("aria-expanded", open ? "false" : "true");
-        clBtn.classList.toggle("is-open", !open);
-      });
-    }
   } else if (unknown) {
     const why = err ? escapeHtml(err.message) : "список версий не скачался";
     const known = installed !== "?" ? `установлена ${escapeHtml(installed)} · ` : "";
@@ -112,8 +92,8 @@ export async function refreshUpdateBanner(opts = {}) {
         <span class="update-banner-meta">${known}${why} · последняя удачная проверка ${ago}</span>
       </div>
       <div class="update-banner-actions">
-        <button class="btn" id="upd-history-link" type="button">История движка</button>
-        <button class="btn" id="upd-recheck">Проверить ещё раз</button>
+        <button class="btn" id="upd-history-link" type="button">История обновлений</button>
+        <button class="btn" id="upd-recheck">Проверить</button>
       </div>
     `;
   } else if (channelDead) {
@@ -130,8 +110,8 @@ export async function refreshUpdateBanner(opts = {}) {
         <span class="update-banner-meta">установлен движок ${escapeHtml(installed)} · список версий не удаётся скачать уже ${escapeHtml(staleFor)} · показано по устаревшим данным</span>
       </div>
       <div class="update-banner-actions">
-        <button class="btn" id="upd-history-link" type="button">История движка</button>
-        <button class="btn" id="upd-recheck">Проверить ещё раз</button>
+        <button class="btn" id="upd-history-link" type="button">История обновлений</button>
+        <button class="btn" id="upd-recheck">Проверить</button>
       </div>
     `;
   } else {
@@ -139,11 +119,11 @@ export async function refreshUpdateBanner(opts = {}) {
     banner.className = "update-banner update-banner-ok";
     banner.innerHTML = `
       <div class="update-banner-text">
-        <span>Движок zapret2 ${escapeHtml(installed)} актуален</span>
+        <strong>Движок zapret2 ${escapeHtml(installed)} актуален</strong>
         <span class="update-banner-meta">проверено ${ago}${auNote}</span>
       </div>
       <div class="update-banner-actions">
-        <button class="btn" id="upd-history-link" type="button">История движка</button>
+        <button class="btn" id="upd-history-link" type="button">История обновлений</button>
         <button class="btn" id="upd-recheck">Проверить</button>
       </div>
     `;
@@ -469,6 +449,6 @@ async function openHistoryModal(ctx = {}) {
     }
   });
 
-  if (titleEl) titleEl.textContent = "История движка zapret2";
+  if (titleEl) titleEl.textContent = "История обновлений";
   await loadMore();
 }

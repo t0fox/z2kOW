@@ -6,7 +6,7 @@ ok() { PASS=$((PASS + 1)); printf 'ok - %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL - %s: %s\n' "$1" "$2"; }
 contains() { grep -Fq -- "$2" "$1" 2>/dev/null; }
 
-for f in "$ROOT/z2kow.sh" "$ROOT/platform/openwrt/z2kow.sh" "$ROOT/platform/openwrt/product-update.sh"; do
+for f in "$ROOT/z2kow.sh" "$ROOT/platform/openwrt/z2kow.sh" "$ROOT/platform/openwrt/product-update.sh" "$ROOT/platform/openwrt/stack-update.sh"; do
     [ -s "$f" ] && ok "exists: ${f#$ROOT/}" || bad "exists: ${f#$ROOT/}" "missing"
 done
 contains "$ROOT/z2kow.sh" 'raw.githubusercontent.com/t0fox/z2kOW/' \
@@ -39,18 +39,14 @@ contains "$ROOT/platform/openwrt/product-update.sh" 'product-tag' \
     && ok 'product tag has one canonical storage path' || bad 'product tag has no canonical path' 'missing product-tag'
 contains "$ROOT/package/openwrt/Makefile" '/usr/bin/z2kow' \
     && ok 'APK installs /usr/bin/z2kow' || bad 'APK installs /usr/bin/z2kow' 'missing package recipe'
-contains "$ROOT/webpanel/cgi/api.sh" 'GET /product/update/check' \
-    && ok 'web API exposes product update check' || bad 'web API exposes product update check' 'missing route'
-contains "$ROOT/webpanel/cgi/api.sh" 'POST /product/update/start' \
-    && ok 'web API starts product update asynchronously' || bad 'web API starts product update asynchronously' 'missing route'
-contains "$ROOT/webpanel/cgi/api.sh" 'GET /product/update/status' \
-    && ok 'web API exposes product update state' || bad 'web API exposes product update state' 'missing route'
-contains "$ROOT/webpanel/cgi/api.sh" 'GET /product/update/info' \
-    && ok 'web API exposes cumulative release history' || bad 'web API exposes cumulative release history' 'missing route'
-contains "$ROOT/webpanel/cgi/actions.sh" 'z2kow update --non-interactive' \
-    && ok 'web and CLI invoke the same engine' || bad 'web and CLI invoke the same engine' 'missing shared CLI invocation'
-contains "$ROOT/webpanel/www/js/pages/dashboard.js" 'product-update-card' \
-    && ok 'dashboard has product update card' || bad 'dashboard has product update card' 'missing card'
+! grep -Fq '/product/update/' "$ROOT/webpanel/cgi/api.sh" \
+    && ok 'product updater is not exposed as a second panel API' || bad 'product updater is not exposed as a second panel API' 'product routes remain'
+contains "$ROOT/platform/openwrt/stack-update.sh" 'update --non-interactive' \
+    && ok 'unified OpenWrt apply delegates package installation to signed updater' || bad 'unified OpenWrt apply delegates package installation to signed updater' 'missing backend delegation'
+! grep -Fq 'product-update-card' "$ROOT/webpanel/www/js/pages/dashboard.js" \
+    && ok 'dashboard has one update surface' || bad 'dashboard has one update surface' 'second card remains'
+! grep -Fq 'product/update' "$ROOT/webpanel/www/js/pages/dashboard.js" \
+    && ok 'dashboard does not query product update state' || bad 'dashboard does not query product update state' 'separate check remains'
 contains "$ROOT/scripts/openwrt/release-assets.py" 'parse_changelog_history' \
     && ok 'release bundle builds history from CHANGELOG.md' || bad 'release bundle builds history from CHANGELOG.md' 'missing history generator'
 contains "$ROOT/.github/workflows/release-openwrt.yml" 'z2kow.sh' \

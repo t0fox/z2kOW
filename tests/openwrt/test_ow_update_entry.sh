@@ -21,7 +21,7 @@ if grep -qE '^(au_run_apply|au_repo_base|au_apply_reinstall|au_run_step)\(\)' "$
 else
     _t_ok
 fi
-assert_contains "launcher зовёт au_run_apply" "$UPD" "au_run_apply"
+assert_contains "launcher prepares the unified OpenWrt stack" "$UPD" "z2k_ow_prepare_stack_apply"
 assert_contains "launcher зовёт au_run_check" "$UPD" "au_run_check"
 if _code | grep -q 'z2k-branch'; then
     _t_bad "branch-file gate притащен на OpenWrt"
@@ -42,10 +42,16 @@ fi
 # --- функционально на stub-lib ---
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-entry.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
-mkdir -p "$T/root/lib" "$T/root/platform/openwrt" "$T/etc"
-for _f in paths.sh env.sh bootstrap.sh update.sh schedule.sh reinstall.sh; do
+mkdir -p "$T/root/lib" "$T/root/platform/openwrt" "$T/etc" "$T/bin"
+for _f in paths.sh env.sh bootstrap.sh update.sh stack-update.sh schedule.sh reinstall.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f"
 done
+cat > "$T/bin/z2kow" <<'EOF'
+#!/bin/sh
+[ "$1" = "status" ] && [ "$2" = "--json" ] || exit 97
+printf '%s\n' '{"ok":true,"state":"snapshot","build":"internal"}'
+EOF
+chmod +x "$T/bin/z2kow"
 cat > "$T/root/lib/utils.sh" <<'EOF'
 #!/bin/sh
 safe_config_read() {
@@ -67,6 +73,7 @@ au_fetch_manifest() {
     mkdir -p "\$Z2K_AU_TMP_DIR" 2>/dev/null || return 1
     printf '{"current": "p-84.7", "history": []}\n' > "\$Z2K_AU_TMP_DIR/UPDATES.json" 2>/dev/null
 }
+au_decide() { [ "\$1" = "p-84.7" ] && echo none || echo 'patch p-84.7'; }
 EOF
 # config_official/strategies сорсятся launcher'ом? нет, но оба — в
 # Z2K_PAYLOAD_REQUIRED: без них payload_ok ложен и seed_ensure не пустит.
@@ -103,7 +110,7 @@ _call() {
     local _action="$1"; shift
     : > "$T/calls"
     ( unset Z2K_AU_MANUAL Z2K_AU_NO_JITTER
-      export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
+      export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp" Z2K_PRODUCT_UPDATE_BIN="$T/bin/z2kow"
       # Имена намеренно динамические (VAR=val из "$@"; :? роняет пустое вслух).
       _v=; for _v in "$@"; do export "${_v?}"; done
       < /dev/null sh "$T/root/platform/openwrt/update.sh" "$_action" >/dev/null 2>&1

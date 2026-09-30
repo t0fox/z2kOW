@@ -61,9 +61,8 @@ lc_invariant "S3" || _t_bad "S3 invariant"
 # --- S17: tag-missing -> restore из meta + настоящий launcher in-process ---
 # Отдельный свежий sysroot: trust-pin от прошлых сценариев иначе упрётся в
 # ratchet (верное security-поведение, но не то, что проверяем здесь).
-# update.sh пере-сорсит lib'ы: z2k_fetch уцелел (upstream command -v guard),
-# au_manifest_verify — настоящий, поэтому PUBKEY в никуда: идём легальной
-# no-key веткой (rc 2, храповик не защёлкнут — как первая установка).
+# update.sh пере-сорсит lib'ы. Production manifest path теперь всегда требует
+# валидную подпись, поэтому lifecycle harness подписывает fixture Ed25519-ключом.
 lc_fresh_sysroot || { echo "FAIL[ow-lc-install]: sysroot s17" >&2; exit 1; }
 SEEDTAG="$(sed -n 's/^tag=//p' "$Z2K_ROOT/share/seed.meta" | head -1)"
 printf 'p-84.0|patch|ref840|lib/utils.sh||false|false\n%s|patch|ref847|lib/utils.sh||false|false\n' \
@@ -71,11 +70,12 @@ printf 'p-84.0|patch|ref840|lib/utils.sh||false|false\n%s|patch|ref847|lib/utils
 rm -f "$Z2K_AU_INSTALLED_TAG_FILE"
 lc_begin; lc_snap s17-before
 ( export Z2K_ROOT Z2K_ETC Z2K_TMP Z2K_AU_MANUAL=1 Z2K_AU_NO_JITTER=1
-  export Z2K_AU_PUBKEY=/nonexistent-pubkey.pem
   # SC2240: аргументы через $@ (dot с аргументами — не POSIX): update.sh читает $1.
   set -- apply
-  < /dev/null . "$Z2K_ROOT/platform/openwrt/update.sh" >/dev/null 2>&1 )
-assert_eq "S17 launcher rc" "0" "$?"
+  < /dev/null . "$Z2K_ROOT/platform/openwrt/update.sh" ) >"$LC_T/launcher.log" 2>&1
+_launcher_rc=$?
+[ "${LC_DEBUG:-0}" != 1 ] || cat "$LC_T/launcher.log" >&2
+assert_eq "S17 launcher rc" "0" "$_launcher_rc"
 assert_eq "S17 tag восстановлен" "$SEEDTAG" "$(lc_tag)"
 lc_snap s17-after
 lc_mutlog s17-before s17-after "S17 missing-tag restore"

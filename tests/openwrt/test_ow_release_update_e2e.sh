@@ -43,6 +43,7 @@ export Z2K_AU_MANIFEST_URL="http://127.0.0.1:$_srv_port/UPDATES.json"
 export Z2K_AU_SIG_URL="http://127.0.0.1:$_srv_port/UPDATES.json.sig"
 export Z2K_AU_MANUAL=1
 export PATH="/usr/bin:/bin"
+unset Z2K_AU_VERIFY_BIN
 _resign() {
     openssl pkeyutl -sign -rawin -inkey "$T/upd.key" \
         -in "$LC_ORIGIN/files/UPDATES.json" \

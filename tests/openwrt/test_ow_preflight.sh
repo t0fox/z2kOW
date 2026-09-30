@@ -15,6 +15,12 @@ trap 'rm -rf "$T"' EXIT INT TERM
 mkdir -p "$T/bin"
 printf '#!/bin/sh\necho "sleep:$*" >> "%s/calls"\n' "$T" > "$T/bin/sleep"
 chmod +x "$T/bin/sleep"
+cat > "$T/bin/z2kow" <<'EOF'
+#!/bin/sh
+[ "$1" = "status" ] && [ "$2" = "--json" ] || exit 97
+printf '%s\n' '{"ok":true,"state":"snapshot","build":"internal"}'
+EOF
+chmod +x "$T/bin/z2kow"
 unset Z2K_AU_MANUAL Z2K_AU_NO_JITTER
 export PATH="$T/bin:$PATH"
 
@@ -27,7 +33,7 @@ _mkpayload() {
              "$Z2K_ROOT/extra_strats/TCP/YT_GV" "$Z2K_ROOT/extra_strats/UDP/YT" \
              "$Z2K_ROOT/share" "$Z2K_ROOT/lists" \
              "$Z2K_ROOT/platform/openwrt" "$Z2K_ETC/state" "$Z2K_TMP"
-    for _f in paths.sh env.sh bootstrap.sh update.sh reinstall.sh; do
+    for _f in paths.sh env.sh bootstrap.sh update.sh stack-update.sh reinstall.sh; do
         ln -s "$REPO/platform/openwrt/$_f" "$Z2K_ROOT/platform/openwrt/$_f"
     done
     cat > "$Z2K_ROOT/lib/utils.sh" <<'EOF'
@@ -51,6 +57,7 @@ au_fetch_manifest() {
     mkdir -p "\$Z2K_AU_TMP_DIR" 2>/dev/null || return 1
     printf '{"current": "p-84.7", "history": []}\n' > "\$Z2K_AU_TMP_DIR/UPDATES.json" 2>/dev/null
 }
+au_decide() { [ "\$1" = "p-84.7" ] && echo none || echo 'patch p-84.7'; }
 EOF
     printf '#!/bin/sh\n# stub\n' > "$Z2K_ROOT/lib/config_official.sh"
     printf '#!/bin/sh\n# stub\n' > "$Z2K_ROOT/lib/strategies.sh"
@@ -68,7 +75,7 @@ _call() {
     local _action="$1"; shift
     : > "$T/calls"
     ( unset Z2K_AU_MANUAL Z2K_AU_NO_JITTER
-      export Z2K_ROOT Z2K_ETC Z2K_TMP
+      export Z2K_ROOT Z2K_ETC Z2K_TMP Z2K_PRODUCT_UPDATE_BIN="$T/bin/z2kow"
       # Имена намеренно динамические (VAR=val из "$@"; :? роняет пустое вслух).
       _v=; for _v in "$@"; do export "${_v?}"; done
       < /dev/null sh "$Z2K_ROOT/platform/openwrt/update.sh" "$_action" >/dev/null 2>&1

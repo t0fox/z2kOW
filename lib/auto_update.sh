@@ -279,10 +279,10 @@ au_fetch_manifest() {
     mkdir -p "$Z2K_AU_TMP_DIR"
     local out="$Z2K_AU_TMP_DIR/UPDATES.json"
     local sig="${out}.sig"
-    # An embedded platform snapshot is authoritative for that package. Return
-    # 125 from the hook when no snapshot is present so the ordinary signed
-    # production-channel path below remains unchanged. Any other hook failure
-    # is fail-closed: a partial snapshot must not fall back to a moving channel.
+    # OpenWrt's platform hook resolves and verifies its signed production
+    # manifest. Return 125 only for platforms without that hook; any OpenWrt
+    # preparation failure is fail-closed and never falls back to an unsigned
+    # mirror or an embedded CI snapshot.
     if command -v z2k_platform_fetch_manifest >/dev/null 2>&1; then
         local _platform_rc=0
         z2k_platform_fetch_manifest || _platform_rc=$?

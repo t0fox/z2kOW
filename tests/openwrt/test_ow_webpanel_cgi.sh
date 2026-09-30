@@ -337,6 +337,7 @@ cat > "$T/manifest.json" <<'EOF'
 {"current":"p-84.26","platform":"openwrt","install_map":{},"files_sha256":{},"history":[]}
 EOF
 export AU_MANIFEST_CACHE="$T/manifest.json"
+printf 'production\n' > "$AU_MANIFEST_CACHE.authority"
 mkdir -p "$T/root/share"
 printf 'platform=openwrt\ntag=p-84.26\nref=f161e1d\n' > "$T/root/share/seed.meta"
 printf 'platform=openwrt\ntag=p-84.26\nref=f161e1d\n' > "$T/root/share/payload.meta"
@@ -344,11 +345,8 @@ printf 'p-84.23\n' > "$T/etc/state/installed-tag"
 export AU_TAG_FILE="$T/etc/state/installed-tag"
 RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "update: installed payload truth" "p-84.26" "$(_jget "$OUT" 'd["installed"]')"
-assert_eq "update: payload" "p-84.26" "$(_jget "$OUT" 'd["payload"]')"
-assert_eq "update: seed" "p-84.26" "$(_jget "$OUT" 'd["seed"]')"
-assert_eq "update: adapter release stays explicit" "z2k-adapter-0.1.0-r28" "$(_jget "$OUT" 'd["adapter_package"]')"
-assert_eq "update: webpanel release stays explicit" "z2k-webpanel-0.1.0-r28" "$(_jget "$OUT" 'd["webpanel_package"]')"
-assert_eq "update: runtime release stays explicit" "z2k-zapret2-runtime-1.0.5.1-r4" "$(_jget "$OUT" 'd["runtime_package"]')"
+assert_not_contains "update: no package/snapshot versions leak into the single upstream API" "$OUT" "_package"
+assert_not_contains "update: payload/seed metadata is not a user update version" "$OUT" '"seed"'
 assert_eq "update: available" "p-84.26" "$(_jget "$OUT" 'd["available"]')"
 
 # /update/history is bound to the OpenWrt channel.  A payload manifest may be

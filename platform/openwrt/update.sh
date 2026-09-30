@@ -29,6 +29,7 @@ export PATH="/usr/sbin:/sbin:$PATH"
 
 # shellcheck disable=SC1090,SC1091
 . "$Z2K_ROOT/platform/openwrt/reinstall.sh" || exit 1
+. "$Z2K_ROOT/platform/openwrt/stack-update.sh" || exit 1
 
 # Platform reinstall policy: full verified payload reinstall
 # (z2k_ow_payload_reinstall, контракт §9). Keenetic z2k.sh под root здесь
@@ -91,30 +92,45 @@ fi
 # (common first-run resync тем самым недостижим — никакого false-current).
 z2k_ow_seed_ensure || exit 1
 
-# Adapter API gate (Stage 7 §7): ПОСЛЕ seed_ensure, ДО au_run_apply.
-# Порядок осознанный: seed_ensure не трогает байты payload (на целом —
-# чистый noop, I5), но восстанавливает tag (healed install), а гейту tag
-# нужен всегда — иначе установка с потерянным тегом обходила бы проверку
-# окна (fresh install закрыт coherence seed на сборке, §10 контракта).
-# apply + too old → rc 1; check + too old → ADAPTER_UPDATE_REQUIRED, rc 2.
-# Ничего из нового манифеста до гейта не применяется.
-_grc=0
-z2k_ow_adapter_gate "$ACTION" || _grc=$?
-if [ "$_grc" != "0" ]; then exit "$_grc"; fi
-
 case "$ACTION" in
     apply)
         # Разброс 0..60 мин — только плановому пути (под cron stdin не tty).
         # Ручной (Z2K_AU_MANUAL=1) не ждёт и БЕЗ отдельного NO_JITTER:
         # manual сам по себе означает no jitter (см. contract §14).
-        if [ ! -t 0 ] && [ "$AU_NO_JITTER" != "1" ] && [ "$AU_MANUAL" != "1" ]; then
+        if [ "${Z2K_OW_PACKAGE_STAGE_DONE:-0}" != 1 ] \
+            && [ ! -t 0 ] && [ "$AU_NO_JITTER" != "1" ] && [ "$AU_MANUAL" != "1" ]; then
             JITTER=$(z2k_host_jitter 3600)
             au_log "ночной разброс: жду ${JITTER}с"
             sleep "$JITTER"
         fi
+        # For production installs, apply the existing signed OpenWrt package
+        # transaction first. A successful transaction requests one launcher
+        # re-exec, so the subsequent API gate and payload updater use the newly
+        # installed adapter implementation. CI snapshots remain internal and
+        # skip this production-only package updater.
+        _src=0
+        z2k_ow_prepare_stack_apply || _src=$?
+        if [ "$_src" = 10 ]; then
+            export Z2K_OW_PACKAGE_STAGE_DONE=1
+            export Z2K_AU_MANUAL="$AU_MANUAL" Z2K_AU_NO_JITTER="$AU_NO_JITTER"
+            exec /bin/sh "$Z2K_ROOT/platform/openwrt/update.sh" apply
+        fi
+        [ "$_src" = 0 ] || exit "$_src"
+
+        # The package updater has now had the chance to advance the OpenWrt
+        # adapter API. Refuse the payload transition before any mutation when
+        # the installed adapter still cannot support its required window.
+        _grc=0
+        z2k_ow_adapter_gate apply || _grc=$?
+        [ "$_grc" = 0 ] || exit "$_grc"
         au_run_apply
         ;;
     check)
+        # A check never mutates packages; it only gates the signed upstream
+        # release window and reports the user-facing p-tag result.
+        _grc=0
+        z2k_ow_adapter_gate check || _grc=$?
+        [ "$_grc" = 0 ] || exit "$_grc"
         au_run_check
         ;;
     *)

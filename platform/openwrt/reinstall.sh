@@ -127,11 +127,11 @@ z2k_ow_panel_payload_sync() {
         echo "z2k-openwrt: PANEL_PAYLOAD_MISMATCH: initialized payload marker is missing" >&2
         return 1
     }
-    command -v z2k_platform_fetch_manifest >/dev/null 2>&1 || {
+    command -v z2k_platform_fetch_snapshot_manifest >/dev/null 2>&1 || {
         echo "z2k-openwrt: PANEL_PAYLOAD_MISMATCH: manifest authority is unavailable" >&2
         return 1
     }
-    z2k_platform_fetch_manifest || _mrc=$?
+    z2k_platform_fetch_snapshot_manifest || _mrc=$?
     if [ "$_mrc" != "0" ] || [ "${Z2K_OW_MANIFEST_MODE:-}" != "snapshot" ]; then
         echo "z2k-openwrt: PANEL_PAYLOAD_MISMATCH: this APK has no usable CI snapshot; signed production updater delivery is required" >&2
         return 1

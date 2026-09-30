@@ -215,31 +215,17 @@ try {
     }
 
     const lockup = page.locator('#panel-brand');
-    const productCard = page.locator('#product-update-card');
-    await productCard.waitFor({ state: 'visible', timeout: 2000 });
     const payloadUpdateBanner = page.locator('#update-banner');
     await page.waitForFunction(() => document.querySelector('#update-banner')?.innerText.includes('p-86.1'),
       null, { timeout: 2000 });
-    assert.match(await payloadUpdateBanner.innerText(), /Движок zapret2.*p-86\.1/s,
-      'payload updater labels p-86.1 as the zapret2 engine version');
-    assert.doesNotMatch(await payloadUpdateBanner.innerText(), /последняя версия \(p-86\.1\)/,
-      'payload updater does not present the engine tag as the z2kOW product version');
-    assert.equal(await page.locator('a[data-route="diag"]').isVisible(), true,
-      'OpenWrt exposes the working diagnostics route');
-    await page.waitForFunction(() => document.querySelector('#product-update-start')?.disabled === false,
-      null, { timeout: 2000 });
-    assert.match(await productCard.innerText(), /v0\.1\.1.*v0\.1\.3/s,
-      'product update card shows installed and available stable releases');
-    assert.match(await productCard.innerText(), /пропущено выпусков: 2/,
-      'product update card reports skipped product releases');
-    assert.match(await productCard.innerText(), /Подписанное обновление продукта/,
-      'product update card renders cumulative changelog entries');
-    assert.match(await productCard.innerText(), /Исправление из пропущенного выпуска/,
-      'product update card includes notes from every skipped release');
-    assert.doesNotMatch(await productCard.innerText(), /Уже установленный выпуск/,
-      'product update card excludes release notes at or below the installed product tag');
-    assert.equal(await page.locator('#product-update-start').isEnabled(), true,
-      'a verified newer product release enables the update action');
+    assert.match(await payloadUpdateBanner.innerText(), /Движок zapret2 p-86\.1 актуален/,
+      'the single update banner shows the upstream engine release');
+    assert.equal(await page.locator('#product-update-card').count(), 0,
+      'the dashboard has no separate z2kOW update card');
+    assert.equal(await page.locator('#upd-history-link').innerText(), 'История обновлений');
+    assert.equal(await page.locator('#upd-recheck').innerText(), 'Проверить');
+    assert.equal(await page.locator('#upd-apply').count(), 0,
+      'current release exposes a check action, not a second update system');
     assert.equal(await page.title(), 'Дашборд · z2kOW');
     assert.equal(await lockup.getAttribute('aria-label'), 'z2kOW — OpenWrt edition');
     assert.equal(await lockup.locator('.brand-profile-logo').count(), 1, 'exactly one mark element exists');
@@ -341,38 +327,23 @@ try {
 
   const snapshotPage = await browser.newPage({ viewport: { width: 1392, height: 1104 } });
   const snapshotRequests = [];
-  const snapshotStatus = {
-    ok: true, state: 'snapshot', installed: 'SNAPSHOT', latest: null,
-    build: 'fcaca952e3cd9926db84b7c0440960909956b8fd', engine: 'p-86.1',
-    production_channel_active: false,
-    message: 'Production channel is not activated for CI snapshots',
-  };
-  await snapshotPage.route('**/cgi-bin/api/product/update/status*', async route => {
-    snapshotRequests.push('status');
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(snapshotStatus) });
+  await snapshotPage.route('**/cgi-bin/api/product/update/**', async route => {
+    snapshotRequests.push(route.request().url());
+    await route.fulfill({ status: 599, contentType: 'application/json', body: '{}' });
   });
-  for (const endpoint of ['check', 'info']) {
-    await snapshotPage.route(`**/cgi-bin/api/product/update/${endpoint}*`, async route => {
-      snapshotRequests.push(endpoint);
-      await route.fulfill({ status: 599, contentType: 'application/json', body: '{}' });
-    });
-  }
   await snapshotPage.goto(`${base}/#/dashboard`);
   await waitForRenderedRoute(snapshotPage, 'dashboard');
-  const snapshotCard = snapshotPage.locator('#product-update-card');
-  await snapshotPage.waitForFunction(() => document.querySelector('#product-update-state')?.textContent.includes('SNAPSHOT fcaca952'), null, { timeout: 2000 });
-  assert.match(await snapshotCard.innerText(), /engine p-86\.1/i,
-    'snapshot card displays the engine payload version separately');
-  assert.match(await snapshotCard.innerText(), /Production channel is not activated/i,
-    'snapshot card explains that production updates are not activated');
-  assert.match(await snapshotCard.innerText(), /наличие стабильного выпуска не проверено/i,
-    'snapshot card does not infer whether a stable release exists');
-  assert.equal(await snapshotPage.locator('#product-update-start').isEnabled(), false,
-    'snapshot packages cannot start production update');
-  await snapshotPage.locator('#product-update-check').click();
-  await snapshotPage.waitForTimeout(100);
-  assert.deepEqual(snapshotRequests, ['status', 'status'],
-    'snapshot initial load and manual check read status only, without fetching stable manifest');
+  await snapshotPage.waitForFunction(() => document.querySelector('#update-banner')?.innerText.includes('p-86.1'),
+    null, { timeout: 2000 });
+  const unifiedBanner = await snapshotPage.locator('#update-banner').innerText();
+  assert.match(unifiedBanner, /Движок zapret2 p-86\.1 актуален/,
+    'a CI package still uses the upstream release version in the single banner');
+  assert.doesNotMatch(unifiedBanner, /SNAPSHOT|[0-9a-f]{40}|production channel|v0\.1\.[0-9]/i,
+    'the production update banner hides CI and product-channel details');
+  assert.equal(await snapshotPage.locator('#product-update-card').count(), 0,
+    'CI packages have no second production update card');
+  assert.deepEqual(snapshotRequests, [],
+    'the Dashboard update-check path never queries product release endpoints');
   await snapshotPage.close();
 
   // The optional identity module can be blocked while the package profile,

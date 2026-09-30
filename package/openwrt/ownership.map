@@ -45,6 +45,7 @@
 /usr/lib/z2k/platform/openwrt/arch.sh package
 /usr/lib/z2k/platform/openwrt/pkg.sh package
 /usr/lib/z2k/platform/openwrt/update.sh package
+/usr/lib/z2k/platform/openwrt/stack-update.sh package
 /usr/lib/z2k/platform/openwrt/schedule.sh package
 /usr/lib/z2k/platform/openwrt/uninstall.sh package
 /usr/lib/z2k/platform/openwrt/tg.sh package

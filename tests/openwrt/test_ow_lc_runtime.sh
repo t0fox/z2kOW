@@ -28,11 +28,12 @@ rm -f "$LC_T/daemon-alive"
 : > "$LC_T/calls-init"
 lc_begin; lc_snap s15-before
 ( export Z2K_ROOT Z2K_ETC Z2K_TMP Z2K_AU_MANUAL=1 Z2K_AU_NO_JITTER=1
-  export Z2K_AU_PUBKEY=/nonexistent-pubkey.pem
   # SC2240: аргументы через $@ (dot с аргументами — не POSIX): update.sh читает $1.
   set -- apply
-  < /dev/null . "$Z2K_ROOT/platform/openwrt/update.sh" >/dev/null 2>&1 )
-assert_eq "S15 launcher rc" "0" "$?"
+  < /dev/null . "$Z2K_ROOT/platform/openwrt/update.sh" ) >"$LC_T/launcher.log" 2>&1
+_launcher_rc=$?
+[ "${LC_DEBUG:-0}" != 1 ] || cat "$LC_T/launcher.log" >&2
+assert_eq "S15 launcher rc" "0" "$_launcher_rc"
 assert_eq "S15 tag двинулся" "$SEEDTAG" "$(lc_tag)"
 assert_contains "S15 payload новый" "$Z2K_ROOT/lib/utils.sh" "Z2K_LC_S15B=1"
 assert_eq "S15 демон не поднят" "0" "$([ -f "$LC_T/daemon-alive" ] && echo 1 || echo 0)"

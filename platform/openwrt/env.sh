@@ -135,25 +135,34 @@ Z2K_AU_FAILS_FILE="${Z2K_AU_FAILS_FILE:-$Z2K_STATE/au-delivery-fails}"
 Z2K_AU_DIRTY_TREE_FILE="${Z2K_AU_DIRTY_TREE_FILE:-$Z2K_STATE/dirty-tree}"
 export Z2K_AU_FAILS_FILE Z2K_AU_DIRTY_TREE_FILE
 
-# Embedded CI snapshot authority. 125 means "no snapshot, continue with the
-# common path"; every other non-zero result is a malformed/failed snapshot and
-# therefore fails closed.
+# Normal update traffic is always bound to the signed production manifest.
+# Embedded snapshots remain available only to explicitly internal provisioning
+# and panel-payload convergence paths.
 z2k_platform_fetch_manifest() {
     [ "${Z2K_PLATFORM:-}" = "openwrt" ] || return 125
     local _d="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
-    [ -r "$_d/manifest.sh" ] || return 125
+    local _out="${Z2K_AU_TMP_DIR:-${Z2K_TMP:-/tmp/z2k}/update}/UPDATES.json"
+    local _tmp="${_out}.production.$$"
+    [ -r "$_d/manifest.sh" ] || return 2
     # shellcheck disable=SC1090
     . "$_d/manifest.sh" || return 2
-    z2k_ow_manifest_snapshot_mode
-    case "$?" in
-        1) return 125 ;;
-        0|2)
-            z2k_ow_manifest_prepare "${Z2K_AU_TMP_DIR:-${Z2K_TMP:-/tmp/z2k}/update}/UPDATES.json" \
-                || return 2
-            return 0
-            ;;
-        *) return 2 ;;
-    esac
+    z2k_ow_manifest_prepare_production "$_tmp" || { rm -f "$_tmp" "$_tmp.sig"; return 2; }
+    mv -f "$_tmp" "$_out" || { rm -f "$_tmp" "$_tmp.sig"; return 2; }
+    Z2K_OW_MANIFEST_PATH="$_out"
+    export Z2K_OW_MANIFEST_PATH
+}
+
+z2k_platform_fetch_snapshot_manifest() {
+    [ "${Z2K_PLATFORM:-}" = "openwrt" ] || return 1
+    local _d="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
+    [ -r "$_d/manifest.sh" ] || return 1
+    # shellcheck disable=SC1090
+    . "$_d/manifest.sh" || return 1
+    z2k_ow_manifest_prepare "${Z2K_AU_TMP_DIR:-${Z2K_TMP:-/tmp/z2k}/update}/UPDATES.json" || return 1
+    [ "${Z2K_OW_MANIFEST_MODE:-}" = "snapshot" ] || {
+        echo "z2k-openwrt: внутренней snapshot-пары нет" >&2
+        return 1
+    }
 }
 
 # A snapshot's separate full commit pin outranks the history's human release
