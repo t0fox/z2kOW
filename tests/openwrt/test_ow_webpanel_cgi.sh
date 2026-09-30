@@ -138,7 +138,19 @@ printf '#!/bin/sh\n: "${Z2K_OPTIONAL_RUNTIME_VALUE}"\ncustom_runner() { :; }\n' 
 cat > "$T/zapret2/lib/utils.sh" <<'EOF'
 #!/bin/sh
 safe_config_read() { return 1; }
+z2k_fetch() {
+    printf '%s\n' "$1" >> "$OW_TEST_FETCH_LOG"
+    [ ! -f "$OW_TEST_FETCH_FAIL" ] || return 1
+    case "$1" in
+        https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json)
+            cp "$OW_TEST_UPDATES" "$2" ;;
+        https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json.sig)
+            cp "$OW_TEST_UPDATES_SIG" "$2" ;;
+        *) return 1 ;;
+    esac
+}
 EOF
+cp "$REPO/lib/auto_update.sh" "$T/zapret2/lib/auto_update.sh"
 cat > "$T/zapret2/lib/config_official.sh" <<EOF
 #!/bin/sh
 create_official_config() {
@@ -332,48 +344,68 @@ RAW="$(_cgi GET /warp/neighbors)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "neighbors: mac виден" "aa:bb:cc:dd:ee:ff" "$(_jget "$OUT" 'd["devices"][0]["mac"]')"
 assert_eq "neighbors: on=1" "true" "$(_jget "$OUT" 'd["devices"][0]["on"]')"
 
-# --- update status с OpenWrt-канала (WP17) ---
-cat > "$T/manifest.json" <<'EOF'
-{"current":"p-84.26","platform":"openwrt","install_map":{},"files_sha256":{},"history":[]}
+# --- update status использует upstream release manifest и его подпись (WP17) ---
+cat > "$T/upstream-UPDATES.json" <<'EOF'
+{"schema":1,"branch":"z2k-enhanced","seq":1,"current":"p-86.1","install_map":{},"files_sha256":{},"history":[{"v":"p-86.1","type":"release","ts":"2026-09-30T00:00:00Z","desc":"upstream"}]}
 EOF
+openssl genpkey -algorithm ed25519 -out "$T/upstream-test.key"
+openssl pkey -in "$T/upstream-test.key" -pubout -out "$T/upstream-test.pub"
+openssl pkeyutl -sign -rawin -inkey "$T/upstream-test.key" -in "$T/upstream-UPDATES.json" -out "$T/upstream-UPDATES.json.sig"
+export OW_TEST_FETCH_LOG="$T/update-fetch.log"
+export OW_TEST_FETCH_FAIL="$T/fail-upstream-fetch"
+export OW_TEST_UPDATES="$T/upstream-UPDATES.json"
+export OW_TEST_UPDATES_SIG="$T/upstream-UPDATES.json.sig"
+export Z2K_AU_PUBKEY="$T/upstream-test.pub"
 export AU_MANIFEST_CACHE="$T/manifest.json"
-printf 'production\n' > "$AU_MANIFEST_CACHE.authority"
 mkdir -p "$T/root/share"
-printf 'platform=openwrt\ntag=p-84.26\nref=f161e1d\n' > "$T/root/share/seed.meta"
-printf 'platform=openwrt\ntag=p-84.26\nref=f161e1d\n' > "$T/root/share/payload.meta"
-printf 'p-84.23\n' > "$T/etc/state/installed-tag"
+printf 'platform=openwrt\ntag=p-86.1\nref=f161e1d\n' > "$T/root/share/seed.meta"
+printf 'platform=openwrt\ntag=p-86.1\nref=f161e1d\n' > "$T/root/share/payload.meta"
+printf 'p-86.1\n' > "$T/etc/state/installed-tag"
 export AU_TAG_FILE="$T/etc/state/installed-tag"
 RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
-assert_eq "update: installed payload truth" "p-84.26" "$(_jget "$OUT" 'd["installed"]')"
+assert_eq "update: installed payload truth" "p-86.1" "$(_jget "$OUT" 'd["installed"]')"
 assert_not_contains "update: no package/snapshot versions leak into the single upstream API" "$OUT" "_package"
 assert_not_contains "update: payload/seed metadata is not a user update version" "$OUT" '"seed"'
-assert_eq "update: available" "p-84.26" "$(_jget "$OUT" 'd["available"]')"
+assert_eq "update: available comes from signed upstream release" "p-86.1" "$(_jget "$OUT" 'd["available"]')"
+assert_eq "update: signed manifest is cached with upstream authority" "upstream" "$(cat "$AU_MANIFEST_CACHE.authority")"
+assert_eq "update: no fetch failure for valid upstream signature" "false" "$(_jget "$OUT" 'd["fetch_failed"]')"
+assert_contains "update: requests upstream manifest" "$T/update-fetch.log" "https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json"
+assert_contains "update: requests upstream signature" "$T/update-fetch.log" "https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json.sig"
+cp "$T/upstream-UPDATES.json.sig" "$T/upstream-UPDATES.valid.sig"
+printf 'invalid signature\n' > "$T/upstream-UPDATES.json.sig"
+rm -f "$AU_MANIFEST_CACHE" "$AU_MANIFEST_CACHE.authority" "$AU_MANIFEST_FAIL_STAMP"
+RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "update: invalid upstream signature is not available" "" "$(_jget "$OUT" 'd["available"]')"
+assert_eq "update: invalid upstream signature is a fetch failure" "true" "$(_jget "$OUT" 'd["fetch_failed"]')"
+[ ! -e "$AU_MANIFEST_CACHE.authority" ] && _t_ok || _t_bad "update: invalid signature must not gain upstream cache authority"
+mv -f "$T/upstream-UPDATES.valid.sig" "$T/upstream-UPDATES.json.sig"
 
-# /update/history is bound to the OpenWrt channel.  A payload manifest may be
-# used as the cold-cache fallback, but a similarly present Keenetic /opt
-# manifest must never become the source.
+# /update/history is the same upstream release history as the Dashboard banner.
 cat > "$T/root/UPDATES.json" <<'EOF'
 {
-  "current": "ow-payload",
+  "current": "payload-snapshot-leak",
   "history": [
-    {"v": "ow-payload", "type": "patch", "ts": "2026-09-16T01:00:00Z", "desc": "openwrt"}
+    {"v": "payload-snapshot-leak", "type": "patch", "ts": "2026-09-16T01:00:00Z", "desc": "must not surface"}
   ]
 }
 EOF
 cat > "$T/manifest.json" <<'EOF'
 {
-  "current": "ow-cache",
+  "current": "p-86.1",
   "history": [
-    {"v": "ow-cache-1", "type": "patch", "ts": "2026-09-16T02:00:00Z", "desc": "cache"},
-    {"v": "ow-cache-2", "type": "patch", "ts": "2026-09-16T03:00:00Z", "desc": "cache-new"}
+    {"v": "p-86.0", "type": "patch", "ts": "2026-09-16T02:00:00Z", "desc": "previous"},
+    {"v": "p-86.1", "type": "release", "ts": "2026-09-16T03:00:00Z", "desc": "current"}
   ]
 }
 EOF
+printf 'upstream\n' > "$AU_MANIFEST_CACHE.authority"
 RAW="$(_cgi GET /update/history "offset=0&limit=1")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
-assert_eq "history: cache newest first" "ow-cache-2" "$(_jget "$OUT" 'd["history"][0]["v"]')"
-rm -f "$T/manifest.json"
+assert_eq "history: upstream newest first" "p-86.1" "$(_jget "$OUT" 'd["history"][0]["v"]')"
+rm -f "$T/manifest.json" "$AU_MANIFEST_CACHE.authority"
+touch "$OW_TEST_FETCH_FAIL"
 RAW="$(_cgi GET /update/history "offset=0&limit=1")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
-assert_eq "history: payload fallback" "ow-payload" "$(_jget "$OUT" 'd["history"][0]["v"]')"
+assert_eq "history: no snapshot payload fallback" "0" "$(_jget "$OUT" 'd["total"]')"
+assert_not_contains "history: snapshot payload entry stays hidden" "$OUT" "payload-snapshot-leak"
 [ ! -e "$REPO/webpanel/cgi/api-openwrt.sh" ] && _t_ok || _t_bad "forbidden api-openwrt.sh exists"
 [ ! -e "$REPO/webpanel/cgi/update-openwrt.js" ] && _t_ok || _t_bad "forbidden update-openwrt.js exists"
 

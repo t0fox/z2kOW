@@ -107,6 +107,12 @@ Z2K_AU_BRANCH="${Z2K_AU_BRANCH:-z2k-enhanced-openwrt}"
 Z2K_AU_REPO_RAW="${Z2K_AU_REPO_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/${Z2K_AU_BRANCH}}"
 export Z2K_AU_BRANCH Z2K_AU_REPO_RAW
 
+# Dashboard status/history follow the upstream z2k release model. OpenWrt
+# apply continues to resolve its platform-specific manifest through the
+# package-owned updater backend.
+Z2K_AU_UPSTREAM_MANIFEST_URL="${Z2K_AU_UPSTREAM_MANIFEST_URL:-https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json}"
+export Z2K_AU_UPSTREAM_MANIFEST_URL
+
 # Та же линия для списков/бинарников (z2k_fetch через GITHUB_RAW; utils.sh
 # уважает предустановку) и для Z2K_GITHUB_RAW-пина в генерируемом конфиге.
 GITHUB_RAW="${GITHUB_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/${Z2K_AU_BRANCH}}"

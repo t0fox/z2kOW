@@ -3267,8 +3267,10 @@ update_refresh_manifest() {
     now=$(date +%s 2>/dev/null || echo 0)
 
     if [ "$openwrt" = "1" ]; then
-        # Old cache entries from older builds lack this signature-verified marker.
-        if [ ! -s "$AU_MANIFEST_CACHE" ] || [ "$(head -1 "$authority_file" 2>/dev/null)" != "production" ] || ! _update_manifest_sane "$AU_MANIFEST_CACHE"; then
+        mkdir -p "$(dirname "$AU_MANIFEST_CACHE")" 2>/dev/null || return 1
+        # Dashboard versions and history follow upstream z2k releases. Do not
+        # expose the OpenWrt package/payload manifest or CI snapshots here.
+        if [ ! -s "$AU_MANIFEST_CACHE" ] || [ "$(head -1 "$authority_file" 2>/dev/null)" != "upstream" ] || ! _update_manifest_sane "$AU_MANIFEST_CACHE"; then
             rm -f "$AU_MANIFEST_CACHE" "$authority_file"
         fi
         if [ "$force" != "1" ] && [ -s "$AU_MANIFEST_CACHE" ]; then
@@ -3280,20 +3282,25 @@ update_refresh_manifest() {
             mtime=$(file_mtime "$AU_MANIFEST_FAIL_STAMP")
             age=$((now - mtime))
             if [ "$age" -lt "$AU_MANIFEST_FAIL_TTL" ]; then
-                [ -s "$AU_MANIFEST_CACHE" ] && [ "$(head -1 "$authority_file" 2>/dev/null)" = "production" ] && return 0
+                [ -s "$AU_MANIFEST_CACHE" ] && [ "$(head -1 "$authority_file" 2>/dev/null)" = "upstream" ] && return 0
                 return 1
             fi
         fi
-        if command -v z2k_platform_fetch_manifest >/dev/null 2>&1 && z2k_platform_fetch_manifest && [ -s "$AU_MANIFEST_CACHE" ] && _update_manifest_sane "$AU_MANIFEST_CACHE"; then
-            tmp="${authority_file}.new.$$"
-            if printf 'production\n' > "$tmp" && mv -f "$tmp" "$authority_file"; then
-                rm -f "$AU_MANIFEST_FAIL_STAMP"
-                return 0
+        url="${Z2K_AU_UPSTREAM_MANIFEST_URL:-https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json}"
+        tmp="${AU_MANIFEST_CACHE}.new.$$"
+        if _update_fetch_manifest "$url" "$tmp" && _update_fetch_manifest "${url}.sig" "${tmp}.sig" && _update_manifest_sane "$tmp" && _update_manifest_signature_valid "$tmp" "${tmp}.sig"; then
+            if mv -f "$tmp" "$AU_MANIFEST_CACHE"; then
+                rm -f "${tmp}.sig"
+                tmp="${authority_file}.new.$$"
+                if printf 'upstream\n' > "$tmp" && mv -f "$tmp" "$authority_file"; then
+                    rm -f "$AU_MANIFEST_FAIL_STAMP"
+                    return 0
+                fi
             fi
-            rm -f "$tmp"
         fi
+        rm -f "$tmp" "${tmp}.sig"
         : > "$AU_MANIFEST_FAIL_STAMP" 2>/dev/null
-        if [ -s "$AU_MANIFEST_CACHE" ] && [ "$(head -1 "$authority_file" 2>/dev/null)" = "production" ] && _update_manifest_sane "$AU_MANIFEST_CACHE"; then
+        if [ -s "$AU_MANIFEST_CACHE" ] && [ "$(head -1 "$authority_file" 2>/dev/null)" = "upstream" ] && _update_manifest_sane "$AU_MANIFEST_CACHE"; then
             return 0
         fi
         rm -f "$AU_MANIFEST_CACHE" "$authority_file"
@@ -3326,6 +3333,23 @@ update_refresh_manifest() {
     : > "$AU_MANIFEST_FAIL_STAMP" 2>/dev/null
     [ -s "$AU_MANIFEST_CACHE" ] && return 0
     return 1
+}
+
+# Reuse the common updater's Ed25519 verifier rather than adding a second
+# trust path for Dashboard release metadata. A subshell keeps the updater's
+# normal apply configuration from changing the CGI request's globals.
+_update_manifest_signature_valid() {
+    local manifest="$1" signature="$2" verifier=""
+    for verifier in "${Z2K_AU_VERIFY_LIB:-}" "${Z2K_ROOT:-}/lib/auto_update.sh" "${ZAPRET2_DIR:-}/lib/auto_update.sh"; do
+        [ -n "$verifier" ] && [ -f "$verifier" ] && break
+        verifier=""
+    done
+    [ -n "$verifier" ] || return 1
+    (
+        # shellcheck disable=SC1090
+        . "$verifier" || exit 1
+        au_manifest_verify "$manifest" "$signature"
+    )
 }
 # Чем тянули манифест в последний раз: mirrors | curl | пусто (не пробовали).
 # Для api.sh — единственный способ показать деградацию: stderr обработчиков он
@@ -3518,12 +3542,15 @@ update_history_entries() {
     local offset="${1:-0}"
     local limit="${2:-20}"
     local src=""
-    # OpenWrt has its own signed channel/cache and must never display a
-    # Keenetic manifest when that cache is cold.  Preserve the legacy fallback
-    # chain byte-for-byte for Keenetic callers.
+    # OpenWrt history is read only from the verified upstream cache. Never
+    # expose payload/snapshot history when that cache is cold. Preserve the
+    # legacy fallback chain byte-for-byte for Keenetic callers.
     if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
-        _history_candidates="$AU_MANIFEST_CACHE
-$Z2K_ROOT/UPDATES.json"
+        if [ -s "$AU_MANIFEST_CACHE" ] && [ "$(head -1 "${AU_MANIFEST_AUTHORITY_FILE:-${AU_MANIFEST_CACHE}.authority}" 2>/dev/null)" = "upstream" ]; then
+            _history_candidates="$AU_MANIFEST_CACHE"
+        else
+            _history_candidates=""
+        fi
     else
         _history_candidates="$AU_MANIFEST_CACHE
 $ZAPRET2_DIR/UPDATES.json
