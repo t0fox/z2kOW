@@ -148,6 +148,7 @@ z2k_fetch() {
             cp "$OW_TEST_UPDATES_SIG" "$2" ;;
         *) return 1 ;;
     esac
+    printf 'etag\n' > "$2.etag"
 }
 EOF
 cp "$REPO/lib/auto_update.sh" "$T/zapret2/lib/auto_update.sh"
@@ -371,6 +372,7 @@ assert_eq "update: signed manifest is cached with upstream authority" "upstream"
 assert_eq "update: no fetch failure for valid upstream signature" "false" "$(_jget "$OUT" 'd["fetch_failed"]')"
 assert_contains "update: requests upstream manifest" "$T/update-fetch.log" "https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json"
 assert_contains "update: requests upstream signature" "$T/update-fetch.log" "https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json.sig"
+assert_eq "update: temporary etag sidecars are removed" "" "$(find "$T" -name '*.etag' -print -quit)"
 cp "$T/upstream-UPDATES.json.sig" "$T/upstream-UPDATES.valid.sig"
 printf 'invalid signature\n' > "$T/upstream-UPDATES.json.sig"
 rm -f "$AU_MANIFEST_CACHE" "$AU_MANIFEST_CACHE.authority" "$AU_MANIFEST_FAIL_STAMP"

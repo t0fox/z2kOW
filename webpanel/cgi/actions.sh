@@ -3260,7 +3260,7 @@ file_mtime() {
 
 # Refresh /tmp manifest cache when older than TTL (or force=1).
 update_refresh_manifest() {
-    local force="${1:-0}" age now mtime url tmp
+    local force="${1:-0}" age now mtime url tmp sig authority_tmp
     local authority_file="${AU_MANIFEST_AUTHORITY_FILE:-${AU_MANIFEST_CACHE}.authority}"
     local openwrt=0
     [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && openwrt=1
@@ -3288,17 +3288,18 @@ update_refresh_manifest() {
         fi
         url="${Z2K_AU_UPSTREAM_MANIFEST_URL:-https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json}"
         tmp="${AU_MANIFEST_CACHE}.new.$$"
-        if _update_fetch_manifest "$url" "$tmp" && _update_fetch_manifest "${url}.sig" "${tmp}.sig" && _update_manifest_sane "$tmp" && _update_manifest_signature_valid "$tmp" "${tmp}.sig"; then
+        sig="${tmp}.sig"
+        authority_tmp="${authority_file}.new.$$"
+        if _update_fetch_manifest "$url" "$tmp" && _update_fetch_manifest "${url}.sig" "$sig" && _update_manifest_sane "$tmp" && _update_manifest_signature_valid "$tmp" "$sig"; then
             if mv -f "$tmp" "$AU_MANIFEST_CACHE"; then
-                rm -f "${tmp}.sig"
-                tmp="${authority_file}.new.$$"
-                if printf 'upstream\n' > "$tmp" && mv -f "$tmp" "$authority_file"; then
+                if printf 'upstream\n' > "$authority_tmp" && mv -f "$authority_tmp" "$authority_file"; then
                     rm -f "$AU_MANIFEST_FAIL_STAMP"
+                    rm -f "$sig" "$tmp.etag" "$sig.etag"
                     return 0
                 fi
             fi
         fi
-        rm -f "$tmp" "${tmp}.sig"
+        rm -f "$tmp" "$sig" "$tmp.etag" "$sig.etag" "$authority_tmp"
         : > "$AU_MANIFEST_FAIL_STAMP" 2>/dev/null
         if [ -s "$AU_MANIFEST_CACHE" ] && [ "$(head -1 "$authority_file" 2>/dev/null)" = "upstream" ] && _update_manifest_sane "$AU_MANIFEST_CACHE"; then
             return 0
