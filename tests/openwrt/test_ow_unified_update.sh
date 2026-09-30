@@ -72,7 +72,8 @@ assert_eq "re-entry does not call package updater again" "" "$(cat "$STACK_CALLS
 # CI snapshots do not enter the production package channel.
 : > "$STACK_CALLS"
 unset Z2K_OW_PACKAGE_STAGE_DONE
-export STACK_PRODUCT_STATUS='{"ok":true,"state":"snapshot","build":"private"}'
+STACK_PRODUCT_STATUS=$(printf '%s' '{"ok":true,"state":"snapshot","build":"private"}')
+export STACK_PRODUCT_STATUS
 _run_stage
 assert_eq "internal snapshot skips production package stage" "0" "$_rc"
 assert_eq "snapshot only reads local package state" "upstream status" "$(tr '\n' ' ' < "$STACK_CALLS" | sed 's/ $//')"
@@ -81,7 +82,8 @@ assert_not_contains "snapshot status stays out of updater output" "$T/output" 's
 
 # A broken snapshot pair is rejected before payload apply can begin.
 : > "$STACK_CALLS"
-export STACK_PRODUCT_STATUS='{"ok":true,"state":"snapshot-inconsistent","build":"private"}'
+STACK_PRODUCT_STATUS=$(printf '%s' '{"ok":true,"state":"snapshot-inconsistent","build":"private"}')
+export STACK_PRODUCT_STATUS
 _run_stage
 assert_eq "inconsistent snapshot fails closed" "1" "$_rc"
 assert_eq "inconsistent snapshot never enters package updater" "upstream status" "$(tr '\n' ' ' < "$STACK_CALLS" | sed 's/ $//')"
