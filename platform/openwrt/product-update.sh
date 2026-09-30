@@ -502,7 +502,7 @@ run_update() {
 
 usage() {
     cat <<'EOF'
-Использование: z2kow {install|update|check|status|info|version|diag|uninstall}
+Использование: z2kow {install|update|check|status|restart|info|version|diag|uninstall}
 
   install, update    обновить только z2k-adapter и z2k-webpanel из signed APK feed
   check              проверить latest stable release и подпись metadata

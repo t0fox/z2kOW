@@ -10,6 +10,10 @@ case "$_command" in
     update|u) shift 2>/dev/null || true; exec sh "$ENGINE" update "$@" ;;
     install|i) shift 2>/dev/null || true; exec sh "$ENGINE" install "$@" ;;
     status|s) shift 2>/dev/null || true; exec sh "$ENGINE" status "$@" ;;
+    restart|r)
+        [ "$#" -eq 1 ] || { echo "z2kow: restart does not accept arguments" >&2; exit 2; }
+        exec "${Z2K_INIT:-/etc/init.d/z2k}" restart
+        ;;
     check) shift; exec sh "$ENGINE" check "$@" ;;
     info) shift; exec sh "$ENGINE" info "$@" ;;
     version|v) shift 2>/dev/null || true; exec sh "$ENGINE" version "$@" ;;

@@ -17,6 +17,8 @@ contains "$ROOT/platform/openwrt/z2kow.sh" 'update|u)' \
     && ok 'CLI exposes update' || bad 'CLI exposes update' 'missing dispatcher'
 contains "$ROOT/platform/openwrt/z2kow.sh" 'status|s)' \
     && ok 'CLI exposes status' || bad 'CLI exposes status' 'missing dispatcher'
+contains "$ROOT/platform/openwrt/z2kow.sh" 'restart|r)' \
+    && ok 'CLI exposes native service restart' || bad 'CLI exposes native service restart' 'missing dispatcher'
 contains "$ROOT/platform/openwrt/z2kow.sh" 'version|v)' \
     && ok 'CLI exposes version' || bad 'CLI exposes version' 'missing dispatcher'
 contains "$ROOT/platform/openwrt/z2kow.sh" 'diag|d)' \
