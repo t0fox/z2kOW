@@ -12,7 +12,7 @@ This pass applies the user's clarified requirement: match Lolz.team's measured p
 ## Type and controls
 
 - Locally bundled Inter 400/500/600 supplies the same font files and weights referenced by Lolz's public stylesheet. `webpanel/www/fonts/README.md` records their source URLs and `Inter-OFL.txt` carries the license.
-- Body text is 14 px with 17.92 px line-height. Navigation rows are 36 px; buttons 34 px with 10 px corners and a 100 ms `ease-in-out` response; text fields are 30 px, borderless and 10 px radius; selects are 36 px. Cards use 12 px radius and no floating shadow.
+- Body text is 14 px with 17.92 px line-height. Navigation rows are 36 px; buttons 34 px with 10 px corners and a 100 ms `ease-in-out` response; text fields are 30 px, borderless and 10 px radius; standard selects are 36 px, and the strategy-table selector matches the measured 220×36 px control. Cards use 12 px radius and no floating shadow.
 - The light appearance maps the same structure to legible light surfaces and text; it retains z2kOW's existing theme control.
 
 ## Menu and motion

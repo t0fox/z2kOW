@@ -342,6 +342,11 @@ input[type="text"], input[type="password"], input[type="search"], input[type="nu
 }
 textarea { min-height: 30px; padding: 8px 10px; }
 select { height: 36px; min-height: 36px; padding: 0 10px; }
+textarea.warp-editor, .strategy-text, .wl-editor textarea, .dns-own textarea {
+  border: 0;
+  border-radius: var(--ow-radius-control);
+  background-color: var(--ow-surface-2);
+}
 input::placeholder, textarea::placeholder { color: var(--ow-text-tertiary); opacity: 1; }
 input:hover, textarea:hover, select:hover { background-color: var(--ow-surface-hover); }
 input:focus, textarea:focus, select:focus { outline: 2px solid var(--ow-focus-ring); outline-offset: 1px; }
@@ -370,7 +375,16 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ow-accent); }
 .state-table tbody tr[data-selected="true"],
 .state-table tbody tr[data-frozen="true"] { background: var(--ow-surface-selected); }
 .state-table .state-age, .state-table .state-host, .state-table .sg-leaf { color: var(--ow-text-secondary); }
-.state-table select { border-radius: 7px; }
+.state-table select {
+  width: 220px;
+  min-width: 220px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 10px;
+  line-height: 36px;
+  background-position: right 10px center;
+  border-radius: var(--ow-radius-control);
+}
 
 .unique-set-card { border-left: 1px solid var(--ow-border-subtle); }
 .unique-set-topline { margin-bottom: 10px; }

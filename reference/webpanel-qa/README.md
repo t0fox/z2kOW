@@ -10,6 +10,7 @@ The checked-in screenshots are representative review points. Dark/light coverage
 |---|---|
 | Full HD, 1920×1080, dark | `screenshots/dark-1920-dashboard.png`, `screenshots/dark-1920-strategies.png` |
 | Full HD card hover, dark | `screenshots/dark-1920-card-hover.png` |
+| Full HD strategy table, 1920×1080 | `screenshots/dark-1920-state.png`, `screenshots/light-1920-state.png` |
 | Full HD, 1920×1080, light | `screenshots/light-1920-dashboard.png`, `screenshots/light-1920-strategies.png` |
 | Narrow, 390×844, dark | `screenshots/dark-390-dashboard.png`, `screenshots/dark-390-strategies.png`, `screenshots/dark-390-drawer.png` |
 | Narrow, 390×844, light | `screenshots/light-390-dashboard.png`, `screenshots/light-390-strategies.png`, `screenshots/light-390-drawer.png` |

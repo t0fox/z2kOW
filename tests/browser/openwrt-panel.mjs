@@ -174,7 +174,7 @@ try {
 
   const routes = ['dashboard', 'toggles', 'strategies', 'warp', 'whitelist', 'exclude', 'extra-domains', 'diag', 'credits', 'state', 'pick', 'autohostlist'];
   const primaryRoutes = ['dashboard', 'toggles', 'state', 'warp', 'whitelist', 'extra-domains', 'diag', 'credits'];
-  const screenshotRoutes = ['dashboard', 'toggles', 'strategies', 'warp', 'exclude', 'diag'];
+  const screenshotRoutes = ['dashboard', 'toggles', 'strategies', 'warp', 'exclude', 'diag', 'state'];
   const requiredTokens = ['--ow-canvas', '--ow-surface-1', '--ow-surface-2', '--ow-surface-hover',
     '--ow-surface-selected', '--ow-border-subtle', '--ow-border-strong', '--ow-text-primary',
     '--ow-text-secondary', '--ow-text-tertiary', '--ow-accent', '--ow-accent-hover',
@@ -419,6 +419,10 @@ try {
     for (const route of routes) {
       await page.evaluate(name => { location.hash = '#/' + name; }, route);
       await waitForRenderedRoute(page, route);
+      const expectedNavRoute = ({ state: 'strategies', pick: 'strategies', whitelist: 'exclude', exclude: 'exclude',
+        autohostlist: 'extra-domains' })[route] || route;
+      const activeNavRoutes = await page.locator('#nav a.active').evaluateAll(nodes => nodes.map(node => node.dataset.route));
+      assert.deepEqual(activeNavRoutes, [expectedNavRoute], `${appearance}: /${route} highlights its matching navigation item`);
       if (route === 'toggles') {
         const control = page.locator('#au-hour');
         assert.equal(await control.evaluate(node => getComputedStyle(node).minHeight), '36px',
@@ -441,6 +445,18 @@ try {
           ? 'rgb(24, 30, 28)' : 'rgb(234, 241, 239)',
         'text controls use the measured dark surface or its light-theme surface');
       }
+      if (route === 'diag') {
+        const editorStyle = await page.locator('#dns-own-text').evaluate(node => {
+          const style = getComputedStyle(node);
+          return { borderWidth: style.borderTopWidth, radius: style.borderRadius,
+            background: style.backgroundColor, minHeight: style.minHeight };
+        });
+        assert.equal(editorStyle.borderWidth, '0px', 'specialized text editors keep Lolz borderless controls');
+        assert.equal(editorStyle.radius, '10px', 'specialized text editors use the reference radius');
+        assert.equal(editorStyle.background, appearance === 'dark'
+          ? 'rgb(24, 30, 28)' : 'rgb(234, 241, 239)', 'specialized text editors use the theme control surface');
+        assert.equal(editorStyle.minHeight, '76px', 'the diagnostics editor retains its task-specific working area');
+      }
       await page.waitForFunction(() => {
         const title = document.querySelector('#app .page-title');
         return title && Number.parseFloat(getComputedStyle(title).opacity) >= 0.99;
@@ -452,6 +468,13 @@ try {
       if (route === 'state') {
         await page.locator('.state-table').waitFor({ state: 'visible', timeout: 2000 });
         await page.waitForFunction(() => document.querySelectorAll('.state-table tbody tr').length >= 100, null, { timeout: 2000 });
+        const strategyControl = await page.locator('.state-table select').first().evaluate(node => {
+          const style = getComputedStyle(node);
+          const rect = node.getBoundingClientRect();
+          return { width: rect.width, height: rect.height, radius: style.borderRadius };
+        });
+        assert.deepEqual(strategyControl, { width: 220, height: 36, radius: '10px' },
+          'strategy selectors match the measured Lolz 220×36 control geometry');
       }
       assert.equal(await lockup.locator('.brand-profile-logo').count(), 1, `${appearance}: single mark on #/${route}`);
       if (screenshotDir && screenshotRoutes.includes(route)) {
@@ -480,6 +503,10 @@ try {
       for (const route of routes) {
         await page.evaluate(name => { location.hash = '#/' + name; }, route);
         await waitForRenderedRoute(page, route);
+        if (route === 'state') {
+          await page.locator('.state-table').waitFor({ state: 'visible', timeout: 1500 });
+          await page.waitForFunction(() => document.querySelectorAll('.state-table tbody tr').length >= 100, null, { timeout: 2000 });
+        }
         assert.equal(await page.locator('#app [data-ui-fatal]').count(), 0, `${appearance}/${width}: ${route}`);
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
           `${appearance}/${width}: ${route} has no page horizontal overflow`);

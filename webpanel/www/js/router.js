@@ -63,6 +63,7 @@ const NAV_OF_ROUTE = {
   state: "strategies",
   pick: "strategies",
   whitelist: "exclude",
+  autohostlist: "extra-domains",
 };
 
 let _activeRoute = "dashboard";
