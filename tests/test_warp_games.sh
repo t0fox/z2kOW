@@ -38,7 +38,7 @@ assert_eq() {
         TESTS_FAILED=$((TESTS_FAILED + 1)); printf "[FAIL] %s: expected [%s] got [%s]\n" "$1" "$2" "$3"
     fi
 }
-setof() { grep -vE '^[[:space:]]*(#|$)' "$1" 2>/dev/null | sort | tr '\n' ',' ; }
+setof() { grep -vE '^[[:space:]]*(#|$)' "$1" 2>/dev/null | LC_ALL=C sort | tr '\n' ',' ; }
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SB="$(mktemp -d)"

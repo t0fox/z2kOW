@@ -9,6 +9,7 @@ MK="$REPO/package/openwrt/Makefile"
 TPL="$REPO/webpanel/lighttpd.conf"
 PINIT="$REPO/package/openwrt/files/etc/init.d/z2k-webpanel"
 WPADAPT="$REPO/platform/openwrt/webpanel.sh"
+INSTALLER="$REPO/scripts/openwrt/install.sh"
 
 assert_contains "webpanel postinst exists" "$MK" 'define Package/z2k-webpanel/postinst'
 assert_contains "webpanel postinst enables init" "$MK" '/etc/init.d/z2k-webpanel enable'
@@ -18,6 +19,24 @@ assert_not_contains "postinst never manages stock HTTP services" "$MK" 'wp_panel
 assert_not_contains "panel init never manages stock HTTP services" "$PINIT" 'wp_panel_reconcile_http_listener|/etc/init.d/(lighttpd|uhttpd)|/etc/config/uhttpd'
 assert_not_contains "panel adapter does not load stock service lifecycle code" "$WPADAPT" 'webpanel-lifecycle\.sh'
 [ ! -e "$REPO/platform/openwrt/webpanel-lifecycle.sh" ] && _t_ok || _t_bad "stock lighttpd/uhttpd lifecycle helper must not exist"
+
+# OpenWrt APK runs a newly-installed package's /etc/init.d hooks by default.
+# Lighttpd is a runtime dependency for the private :8088 instance, so its
+# dependency closure is staged without scripts before the normal z2k install.
+assert_contains "installer stages Lighttpd dependencies without package hooks" "$INSTALLER" 'apk --no-scripts add --virtual "$WEBPANEL_DEP_SEED"'
+assert_contains "installer stages the exact Lighttpd dependency set" "$INSTALLER" 'lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias'
+assert_contains "normal z2k package install still runs its hooks" "$INSTALLER" 'apk add z2k-adapter z2k-webpanel'
+assert_contains "normal z2k package upgrade still runs its hooks" "$INSTALLER" 'apk add --upgrade z2k-adapter z2k-webpanel'
+_seed_line=$(grep -nF 'apk --no-scripts add --virtual "$WEBPANEL_DEP_SEED"' "$INSTALLER" | head -1 | cut -d: -f1)
+_fresh_line=$(grep -nF 'apk add z2k-adapter z2k-webpanel' "$INSTALLER" | head -1 | cut -d: -f1)
+_upgrade_line=$(grep -nF 'apk add --upgrade z2k-adapter z2k-webpanel' "$INSTALLER" | head -1 | cut -d: -f1)
+if [ -n "$_seed_line" ] && [ -n "$_fresh_line" ] && [ -n "$_upgrade_line" ] \
+   && [ "$_seed_line" -lt "$_fresh_line" ] && [ "$_seed_line" -lt "$_upgrade_line" ]; then
+    _t_ok
+else
+    _t_bad "dependency hooks are suppressed before both normal z2k transactions"
+fi
+assert_contains "temporary APK virtual dependency root is removed" "$INSTALLER" 'apk del "$WEBPANEL_DEP_SEED"'
 
 # --- 1. exact webpanel dependencies and shipped lighttpd modules ---
 _dep="$(sed -n '/^define Package\/z2k-webpanel$/,/^endef$/p' "$MK" 2>/dev/null | grep -E '^  DEPENDS:=')"
@@ -46,8 +65,13 @@ export WP_TEMPLATE="$T/tpl.conf" WP_LOG_DIR="$T/tmp/z2k-log" WP_PORT_DEFAULT=808
 cp "$TPL" "$T/tpl.conf"
 # shellcheck disable=SC1090,SC1091
 . "$T/root/platform/openwrt/webpanel.sh" || { echo "FAIL[ow-webpanel-package]: source" >&2; exit 1; }
-_out="$(wp_panel_render)" || _t_bad "render rc"
-printf '%s\n' "$_out" > "$T/render.conf"
+_rendered="$(wp_panel_render)" || { _t_bad "render rc"; _rendered=""; }
+if [ -n "$_rendered" ] && [ -f "$_rendered" ]; then
+    cp "$_rendered" "$T/render.conf"
+else
+    : > "$T/render.conf"
+    _t_bad "render: config file missing"
+fi
 assert_contains "render: docroot" "$T/render.conf" "$T/root/www"
 assert_contains "render: dedicated port" "$T/render.conf" 'server.port                 = 8088'
 assert_not_contains "render: never claims LuCI ports" "$T/render.conf" 'server.port[[:space:]]*=[[:space:]]*(80|443)([^0-9]|$)'

@@ -416,11 +416,31 @@ try {
       'buttons use the measured 100 ms Lolz transition');
     assert.ok(buttonStyle.transitionProperty.includes('all'), 'buttons retain the source transition shorthand');
     const referenceCard = page.locator('#app > .card').filter({ has: page.locator('h3') }).first();
+    const staticCardBefore = await referenceCard.evaluate(node => {
+      const style = getComputedStyle(node);
+      return { background: style.backgroundColor, border: style.borderColor, boxShadow: style.boxShadow };
+    });
     await referenceCard.hover();
+    const staticCardAfter = await referenceCard.evaluate(node => {
+      const style = getComputedStyle(node);
+      return { background: style.backgroundColor, border: style.borderColor, boxShadow: style.boxShadow };
+    });
+    assert.deepEqual(staticCardAfter, staticCardBefore,
+      'non-interactive information cards do not react to hover');
+    await page.evaluate(() => {
+      const fixture = document.createElement('section');
+      fixture.className = 'card is-interactive';
+      fixture.dataset.qaCardMotion = 'true';
+      fixture.innerHTML = '<h3>Interactive card</h3>';
+      fixture.style.cssText = 'position:fixed;top:0;left:80px;width:260px;height:100px;z-index:10000;';
+      document.body.appendChild(fixture);
+    });
+    const interactiveCard = page.locator('[data-qa-card-motion="true"]');
+    await interactiveCard.hover();
     const expectedCardHover = appearance === 'dark' ? 'rgb(24, 30, 28)' : 'rgb(225, 236, 233)';
-    await page.waitForFunction(expected => getComputedStyle(document.querySelector('#app > .card h3')?.closest('.card')).backgroundColor === expected,
+    await page.waitForFunction(expected => getComputedStyle(document.querySelector('[data-qa-card-motion="true"]')).backgroundColor === expected,
       expectedCardHover);
-    const cardHover = await referenceCard.evaluate(node => ({
+    const cardHover = await interactiveCard.evaluate(node => ({
       background: getComputedStyle(node).backgroundColor,
       border: getComputedStyle(node).borderColor,
       heading: getComputedStyle(node.querySelector('h3')).color,
@@ -433,6 +453,7 @@ try {
     assert.ok(ratio(appearance === 'dark' ? '#D6D6D6' : '#182625',
       appearance === 'dark' ? '#181E1C' : '#E1ECE9') >= 4.5, 'hover card headings remain readable');
     assert.ok(cardHover.duration.split(',').includes('0.15s'), 'cards ease their hover state over 150 ms');
+    await interactiveCard.evaluate(node => node.remove());
     await page.mouse.move(1, 1);
     await page.evaluate(() => { location.hash = '#/state'; });
     await waitForRenderedRoute(page, 'state');
@@ -638,8 +659,16 @@ try {
         })), null, 2));
       }
     }
-    for (const width of [1920, 1366, 1280, 1079, 1024, 800, 768]) {
-      const height = width === 1920 ? 1080 : 1104;
+    for (const { width, height } of [
+      { width: 1920, height: 1080 },
+      { width: 1440, height: 900 },
+      { width: 1366, height: 768 },
+      { width: 1280, height: 720 },
+      { width: 1079, height: 900 },
+      { width: 1024, height: 900 },
+      { width: 800, height: 900 },
+      { width: 768, height: 900 },
+    ]) {
       await page.setViewportSize({ width, height });
       if (width >= 768 && width <= 1079) {
         const tabletFrame = await page.evaluate(() => ({
@@ -672,13 +701,6 @@ try {
           await page.mouse.move(width - 1, height - 1);
           await waitForNavSettled(page);
           await page.screenshot({ path: path.join(screenshotDir, `${appearance}-${width}-${route}.png`) });
-        }
-        if (screenshotDir && appearance === 'dark' && width === 1920 && route === 'dashboard') {
-          const hoverCard = page.locator('#app > .card').filter({ has: page.locator('h3') }).first();
-          await hoverCard.hover();
-          await page.waitForFunction(() => getComputedStyle(document.querySelector('#app > .card h3')?.closest('.card')).backgroundColor === 'rgb(24, 30, 28)');
-          await page.screenshot({ path: path.join(screenshotDir, 'dark-1920-card-hover.png') });
-          await page.mouse.move(width - 1, height - 1);
         }
       }
     }

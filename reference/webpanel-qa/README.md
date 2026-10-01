@@ -8,7 +8,6 @@ Chromium QA for the OpenWrt document root. The browser test renders all 12 route
 |---|---|
 | Full HD, 1920×1080, dark | `screenshots/dark-1920-dashboard.png`, `screenshots/dark-1920-toggles.png`, `screenshots/dark-1920-strategies.png`, `screenshots/dark-1920-warp.png`, `screenshots/dark-1920-exclude.png`, `screenshots/dark-1920-diag.png` |
 | Full HD login, 1920×1080, dark | `screenshots/dark-1920-login.png` |
-| Full HD card hover, dark | `screenshots/dark-1920-card-hover.png` |
 | Full HD state table, 1920×1080 | `screenshots/dark-1920-state.png`, `screenshots/light-1920-state.png` |
 | Full HD, 1920×1080, light | `screenshots/light-1920-dashboard.png`, `screenshots/light-1920-strategies.png` |
 | Narrow, 390×844, dark | `screenshots/dark-390-dashboard.png`, `screenshots/dark-390-strategies.png`, `screenshots/dark-390-drawer.png` |

@@ -60,7 +60,15 @@ key_fingerprint() {
 
 TMP_DIR="${TMPDIR:-/tmp}/z2kow-install.$$"
 (umask 077 && mkdir "$TMP_DIR") || die "не удалось создать временный каталог"
-trap 'rm -rf "$TMP_DIR"' EXIT HUP INT TERM
+WEBPANEL_DEP_SEED=".z2k-webpanel-bootstrap-deps"
+WEBPANEL_DEP_SEED_ACTIVE=0
+cleanup() {
+    if [ "$WEBPANEL_DEP_SEED_ACTIVE" = "1" ]; then
+        apk del "$WEBPANEL_DEP_SEED" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT HUP INT TERM
 DOWNLOADED_KEY="$TMP_DIR/z2k-feed.pem"
 download "$KEY_URL" "$DOWNLOADED_KEY" \
     || die "не удалось скачать production public key с immutable GitHub commit"
@@ -102,6 +110,14 @@ else
 fi
 
 apk update || die "apk update завершился ошибкой; пакеты не установлены"
+# Lighttpd is used only as the private :8088 runtime. OpenWrt's APK default
+# post-install hook starts every newly installed /etc/init.d service, including
+# stock lighttpd on :80. Install its runtime dependency closure without package
+# scripts, then let the regular z2k package transaction run its own hooks.
+WEBPANEL_DEP_SEED_ACTIVE=1
+apk --no-scripts add --virtual "$WEBPANEL_DEP_SEED" \
+    lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias \
+    || die "не удалось подготовить Lighttpd runtime без запуска штатного сервиса"
 if apk info -e z2k-adapter >/dev/null 2>&1 \
    && apk info -e z2k-webpanel >/dev/null 2>&1; then
     apk add --upgrade z2k-adapter z2k-webpanel \

@@ -110,7 +110,10 @@ function canon(s) {
 function mkEl(key) {
   const cls = new Set();
   return {
-    _sel: key, _h: "", style: {}, dataset: {}, attributes: {}, children: [],
+    _sel: key, _h: "", style: {
+      setProperty(k, v) { this[k] = String(v); },
+      getPropertyValue(k) { return this[k] || ""; },
+    }, dataset: {}, attributes: {}, children: [],
     hidden: false, disabled: false, value: "", listeners: {},
     classList: {
       add(...c) { c.forEach(x => cls.add(x)); }, remove(...c) { c.forEach(x => cls.delete(x)); },
@@ -160,6 +163,12 @@ global.window = {
   matchMedia() { return { matches: false, addEventListener() {}, addListener() {} }; },
   location: global.location, localStorage: global.localStorage, sessionStorage: global.sessionStorage,
   document: global.document,
+};
+global.MutationObserver = class {
+  constructor(callback) { this.callback = callback; }
+  observe() {}
+  disconnect() {}
+  takeRecords() { return []; }
 };
 global.requestAnimationFrame = fn => setTimeout(fn, 0);
 global.cancelAnimationFrame = id => clearTimeout(id);

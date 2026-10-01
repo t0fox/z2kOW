@@ -298,9 +298,13 @@ body[data-page="login"] #app {
   box-shadow: var(--ow-shadow-card);
   padding: 16px;
   margin-bottom: 14px;
+  transition: none;
+}
+.card.is-interactive {
+  cursor: pointer;
   transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
 }
-.card:not(.card-danger):hover {
+.card.is-interactive:hover {
   background: var(--ow-card-hover-surface);
   border-color: var(--ow-card-hover-border);
   box-shadow: inset 0 0 0 1px var(--ow-card-hover-border);

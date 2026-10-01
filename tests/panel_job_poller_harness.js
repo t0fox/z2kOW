@@ -57,6 +57,13 @@ global.window = {
   location: global.location, localStorage: global.localStorage,
   sessionStorage: global.sessionStorage, document: global.document,
 };
+// Page rendering uses this browser API; the harness targets job polling.
+global.MutationObserver = class {
+  constructor(callback) { this.callback = callback; }
+  observe() {}
+  disconnect() {}
+  takeRecords() { return []; }
+};
 global.requestAnimationFrame = fn => setTimeout(fn, 0);
 global.cancelAnimationFrame = id => clearTimeout(id);
 global.getComputedStyle = () => ({ getPropertyValue: () => "" });

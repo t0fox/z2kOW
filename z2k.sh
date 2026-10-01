@@ -1272,6 +1272,7 @@ download_init_script() {
         www/js/core/clipboard.js \
         www/js/core/dom.js \
         www/js/core/loadorder.js \
+        www/js/core/modal.js \
         www/js/core/whitelist.js \
         www/js/core/domain-list-editor.js \
         www/js/core/toast.js \

@@ -148,7 +148,10 @@ function mkEl(key) {
   const cls = new Set();
   const el = {
     _sel: key || "?", _h: "", _parent: null,
-    style: {}, dataset: {}, attributes: {}, children: [],
+    style: {
+      setProperty(k, v) { this[k] = String(v); },
+      getPropertyValue(k) { return this[k] || ""; },
+    }, dataset: {}, attributes: {}, children: [],
     hidden: false, disabled: false, checked: false, value: "", isConnected: true,
     listeners: {},
     classList: {
@@ -231,8 +234,18 @@ if (typeof global.Blob !== "function") { global.Blob = class { constructor() {} 
 global.window = {
   addEventListener(t, fn) { if (t === "hashchange") global.__nav = fn; },
   removeEventListener() {}, matchMedia() { return { matches: false, addEventListener() {}, addListener() {} }; },
+  setTimeout(...args) { return global.setTimeout(...args); },
+  clearTimeout(...args) { return global.clearTimeout(...args); },
   location: global.location, localStorage: global.localStorage,
   sessionStorage: global.sessionStorage, document: global.document,
+};
+// This VM checks page behavior without a browser DOM. Mutation delivery itself
+// is covered by the Chromium acceptance suite.
+global.MutationObserver = class {
+  constructor(callback) { this.callback = callback; }
+  observe() {}
+  disconnect() {}
+  takeRecords() { return []; }
 };
 global.requestAnimationFrame = fn => setTimeout(fn, 0);
 global.cancelAnimationFrame = id => clearTimeout(id);
@@ -536,7 +549,7 @@ const SCENARIOS = {
       check("скролл догрузил следующую порцию", list && list.innerHTML.indexOf("p-84.20") >= 0,
             list && list.innerHTML.slice(0, 240));
       document.fire("keydown", { key: "Escape", preventDefault() {} });
-      await sleep(50);
+      await sleep(250); // modal.js removes the backdrop after its 200 ms exit transition
       const left = document.body.children.find(c => c.className === "modal-backdrop");
       check("Escape закрыл модалку истории версий", !left, "backdrop висит");
     },
@@ -703,7 +716,7 @@ const SCENARIOS = {
       // который ничего не показывает.
       const focusMoved = document.activeElement !== box;
       q("#confirm-cancel").fire("click");
-      await sleep(60);
+      await sleep(250); // let the real modal exit transition and afterClose callback finish
       check("«Не включать» — запроса так и не было",
             !CALLS["/toggle/autohostlist"], "запросов: " + CALLS["/toggle/autohostlist"]);
       check("«Не включать» — галочка снята", box.checked === false, "checked=" + box.checked);
@@ -738,7 +751,7 @@ const SCENARIOS = {
       check("подтверждение показано, и до него сеть не трогали",
             shown && before === 0, "модалка=" + shown + " запросов=" + before);
       q("#confirm-ok").fire("click");
-      await sleep(80);
+      await sleep(250); // acceptance runs after the modal's 200 ms exit transition
       const after = CALLS["/toggle/autohostlist"] || 0;
       check("«Включать» — ровно один запрос, только после ответа, value=1",
             before === 0 && after === 1 && postedValue("/toggle/autohostlist") === "1",
@@ -771,7 +784,7 @@ const SCENARIOS = {
       check("до Escape запросов не было",
             !CALLS["/toggle/autohostlist"], "запросов: " + CALLS["/toggle/autohostlist"]);
       document.fire("keydown", { key: "Escape" });
-      await sleep(60);
+      await sleep(250); // Escape resolves the confirmation after the exit transition
       check("Escape = отказ: запроса нет",
             !CALLS["/toggle/autohostlist"], "запросов: " + CALLS["/toggle/autohostlist"]);
       check("Escape = отказ: галочка снята", box.checked === false, "checked=" + box.checked);
@@ -861,7 +874,7 @@ const SCENARIOS = {
       // для её обработчика. Клик по внутреннему узлу напрямую этот обработчик
       // не задел бы вовсе, и мутант «закрываться от любого клика» прошёл бы.
       bd.fire("click", { target: q("#confirm-title") });
-      await sleep(30);
+      await sleep(250); // observe whether the click started a delayed modal exit
       check("клик внутри окна ничего не закрывает",
             confirmBox() !== null, "диалог исчез от клика по своему же заголовку");
       check("клик внутри окна не ушёл на бекенд",
@@ -869,7 +882,7 @@ const SCENARIOS = {
 
       // Клик по подложке = отказ.
       bd.fire("click", { target: bd });
-      await sleep(40);
+      await sleep(250); // backdrop dismissal also follows modal.js's exit transition
       check("клик по подложке закрыл диалог", confirmBox() === null, "диалог на месте");
       check("клик по подложке = отказ: запроса нет",
             !CALLS["/toggle/autohostlist"], "запросов: " + CALLS["/toggle/autohostlist"]);
@@ -1212,7 +1225,7 @@ const SCENARIOS = {
             first !== null && /yt_tcp/.test(first.innerHTML) && /quic/.test(first.innerHTML) && /целиком/.test(first.innerHTML),
             first && first.innerHTML);
       if (first) q("#confirm-cancel").fire("click");
-      await sleep(30);
+      await sleep(250); // wait before reopening the next confirmation
       check("отмена не запускает задачу", !CALLS["/strategy/unique-set"] || CALLS["/strategy/unique-set"] === 1,
             CALLS["/strategy/unique-set"]);
       check("отмена не запускает подбор", !(BODIES["/strategy/unique-set"] || []).length,
@@ -1221,7 +1234,7 @@ const SCENARIOS = {
       q("#unique-set-start").fire("click");
       await sleep(30);
       q("#confirm-ok").fire("click");
-      await sleep(30);
+      await sleep(250); // the job starts only after confirmation's exit transition
       check("job modal открыта", document.body.children.some(c => c.className === "modal-backdrop" && c.dataset.jobId === "unique-7"), "нет job modal");
       global.finishUniqueJob();
       await sleep(1300);
@@ -1237,13 +1250,13 @@ const SCENARIOS = {
             resetConfirm !== null && /всех/.test(resetConfirm.innerHTML) && /Discord/.test(resetConfirm.innerHTML),
             resetConfirm && resetConfirm.innerHTML);
       if (resetConfirm) q("#confirm-cancel").fire("click");
-      await sleep(30);
+      await sleep(250); // allow the cancelled modal to leave before the next one opens
       check("отмена массового возврата ничего не отправляет", !(BODIES["/strategy/pools/reset-all"] || []).length,
             (BODIES["/strategy/pools/reset-all"] || []).length);
       q("#unique-set-reset-all").fire("click");
       await sleep(30);
       q("#confirm-ok").fire("click");
-      await sleep(60);
+      await sleep(250); // reset request is dispatched from the confirmation callback
       check("подтверждённый массовый возврат отправляет один запрос",
             (BODIES["/strategy/pools/reset-all"] || []).length === 1,
             (BODIES["/strategy/pools/reset-all"] || []).length);
