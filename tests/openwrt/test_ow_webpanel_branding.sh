@@ -107,7 +107,7 @@ function value(selector, token) {
   return declaration ? declaration.slice(token.length + 1).trim().toUpperCase() : null;
 }
 const themes = [
-  [":root", "#0B1113", "#72D8C7"],
+  [":root", "#0C0F0E", "#00BA78"],
   [":root[data-theme=\"light\"]", "#F4F8F7", "#087A70"],
 ];
 const required = ["--ow-canvas", "--ow-surface-1", "--ow-surface-2", "--ow-surface-hover",
