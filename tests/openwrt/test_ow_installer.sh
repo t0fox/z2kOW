@@ -87,10 +87,18 @@ case "$1" in
             exit 1
         fi
         for pkg in "$@"; do
+            changed=0
             if grep -q "^$pkg|" "$Z2K_TEST_INSTALLED"; then
-                [ "$upgrade" = 1 ] && sed -i "s/^$pkg|.*/$pkg|0.1.1-r1/" "$Z2K_TEST_INSTALLED"
+                if [ "$upgrade" = 1 ]; then
+                    sed -i "s/^$pkg|.*/$pkg|0.1.1-r1/" "$Z2K_TEST_INSTALLED"
+                    changed=1
+                fi
             else
                 printf '%s|0.1.1-r1\n' "$pkg" >> "$Z2K_TEST_INSTALLED"
+                changed=1
+            fi
+            if [ "$pkg" = lighttpd ] && [ "$changed" = 1 ] && [ "$no_scripts" = 0 ]; then
+                printf '%s\n' 'hook start stock-lighttpd' >> "$Z2K_TEST_APK_LOG"
             fi
         done
         if [ -n "$virtual_seed" ]; then
@@ -109,6 +117,9 @@ case "$1" in
         [ "${1:-}" = .z2k-webpanel-bootstrap-deps ] || exit 2
         sed -i '/^\.z2k-webpanel-bootstrap-deps|/d' "$Z2K_TEST_INSTALLED"
         if ! grep -Eq '^z2k-(adapter|webpanel)\|' "$Z2K_TEST_INSTALLED"; then
+            if grep -q '^lighttpd|' "$Z2K_TEST_INSTALLED"; then
+                printf '%s\n' 'hook post-deinstall stock-lighttpd' >> "$Z2K_TEST_APK_LOG"
+            fi
             sed -i '/^lighttpd\(-mod-[^|]*\)\?|/d' "$Z2K_TEST_INSTALLED"
         fi
         exit 0 ;;
@@ -205,6 +216,7 @@ if _run; then _t_ok; else _t_bad "fresh install failed: $(cat "$T/out")"; fi
 assert_eq "Lighttpd dependencies use no-script upgrade staging" \
     '--no-scripts add --upgrade --virtual .z2k-webpanel-bootstrap-deps lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias' \
     "$(grep '^--no-scripts add ' "$T/apk.log" | head -1)"
+assert_eq "fresh install suppresses stock Lighttpd post-install hook" '' "$(grep '^hook start stock-lighttpd$' "$T/apk.log" || true)"
 assert_eq "fresh install uses apk add for the two packages" 'add z2k-adapter z2k-webpanel' "$(grep '^add ' "$T/apk.log" | tail -1)"
 assert_file "fresh install adds the pinned key" "$SYS/etc/apk/keys/z2k-feed.pem"
 assert_eq "fresh install writes the signed release index as a separate feed" 'ndx https://github.com/t0fox/z2kOW/releases/latest/download/packages.adb' "$(cat "$SYS/etc/apk/repositories.d/z2kow.list" 2>/dev/null)"
@@ -230,6 +242,7 @@ assert_eq "repeat install stages Lighttpd upgrades without package scripts" \
     "$(grep '^--no-scripts add ' "$T/apk.log" | head -1)"
 assert_eq "repeat install upgrades an old Lighttpd dependency in the no-script stage" \
     'lighttpd|0.1.1-r1' "$(grep '^lighttpd|' "$T/installed")"
+assert_eq "repeat install suppresses stock Lighttpd upgrade hook" '' "$(grep '^hook start stock-lighttpd$' "$T/apk.log" || true)"
 assert_eq "repeat install upgrades only the two product packages" 'add --upgrade z2k-adapter z2k-webpanel' "$(grep '^add --upgrade ' "$T/apk.log" | tail -1)"
 assert_eq "repeat install leaves one feed entry" '1' "$(grep -c '^ndx https://github.com/t0fox/z2kOW/releases/latest/download/packages.adb$' "$SYS/etc/apk/repositories.d/z2kow.list")"
 assert_eq "repeat install leaves correct key bytes unchanged" "$before_key" "$(sha256sum "$SYS/etc/apk/keys/z2k-feed.pem" | awk '{print $1}')"
