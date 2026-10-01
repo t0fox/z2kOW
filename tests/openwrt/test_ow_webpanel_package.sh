@@ -23,11 +23,11 @@ assert_not_contains "panel adapter does not load stock service lifecycle code" "
 # OpenWrt APK runs a newly-installed package's /etc/init.d hooks by default.
 # Lighttpd is a runtime dependency for the private :8088 instance, so its
 # dependency closure is staged without scripts before the normal z2k install.
-assert_contains "installer stages Lighttpd dependencies without package hooks" "$INSTALLER" 'apk --no-scripts add --virtual "$WEBPANEL_DEP_SEED"'
+assert_contains "installer stages Lighttpd dependencies and upgrades without package hooks" "$INSTALLER" 'apk --no-scripts add --upgrade --virtual "$WEBPANEL_DEP_SEED"'
 assert_contains "installer stages the exact Lighttpd dependency set" "$INSTALLER" 'lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias'
 assert_contains "normal z2k package install still runs its hooks" "$INSTALLER" 'apk add z2k-adapter z2k-webpanel'
 assert_contains "normal z2k package upgrade still runs its hooks" "$INSTALLER" 'apk add --upgrade z2k-adapter z2k-webpanel'
-_seed_line=$(grep -nF 'apk --no-scripts add --virtual "$WEBPANEL_DEP_SEED"' "$INSTALLER" | head -1 | cut -d: -f1)
+_seed_line=$(grep -nF 'apk --no-scripts add --upgrade --virtual "$WEBPANEL_DEP_SEED"' "$INSTALLER" | head -1 | cut -d: -f1)
 _fresh_line=$(grep -nF 'apk add z2k-adapter z2k-webpanel' "$INSTALLER" | head -1 | cut -d: -f1)
 _upgrade_line=$(grep -nF 'apk add --upgrade z2k-adapter z2k-webpanel' "$INSTALLER" | head -1 | cut -d: -f1)
 if [ -n "$_seed_line" ] && [ -n "$_fresh_line" ] && [ -n "$_upgrade_line" ] \

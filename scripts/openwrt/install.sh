@@ -59,16 +59,23 @@ key_fingerprint() {
 }
 
 TMP_DIR="${TMPDIR:-/tmp}/z2kow-install.$$"
-(umask 077 && mkdir "$TMP_DIR") || die "не удалось создать временный каталог"
 WEBPANEL_DEP_SEED=".z2k-webpanel-bootstrap-deps"
 WEBPANEL_DEP_SEED_ACTIVE=0
+CLEANUP_DONE=0
 cleanup() {
+    [ "$CLEANUP_DONE" = "0" ] || return 0
+    CLEANUP_DONE=1
+    trap '' HUP INT TERM
     if [ "$WEBPANEL_DEP_SEED_ACTIVE" = "1" ]; then
         apk del "$WEBPANEL_DEP_SEED" >/dev/null 2>&1 || true
     fi
     rm -rf "$TMP_DIR"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+(umask 077 && mkdir "$TMP_DIR") || die "не удалось создать временный каталог"
 DOWNLOADED_KEY="$TMP_DIR/z2k-feed.pem"
 download "$KEY_URL" "$DOWNLOADED_KEY" \
     || die "не удалось скачать production public key с immutable GitHub commit"
@@ -115,7 +122,7 @@ apk update || die "apk update завершился ошибкой; пакеты 
 # stock lighttpd on :80. Install its runtime dependency closure without package
 # scripts, then let the regular z2k package transaction run its own hooks.
 WEBPANEL_DEP_SEED_ACTIVE=1
-apk --no-scripts add --virtual "$WEBPANEL_DEP_SEED" \
+apk --no-scripts add --upgrade --virtual "$WEBPANEL_DEP_SEED" \
     lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias \
     || die "не удалось подготовить Lighttpd runtime без запуска штатного сервиса"
 if apk info -e z2k-adapter >/dev/null 2>&1 \

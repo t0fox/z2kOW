@@ -45,6 +45,11 @@ ID
     cat > "$BIN/apk" <<'APK'
 #!/bin/sh
 printf '%s\n' "$*" >> "$Z2K_TEST_APK_LOG"
+no_scripts=0
+if [ "${1:-}" = --no-scripts ]; then
+    no_scripts=1
+    shift
+fi
 case "$1" in
     --version) echo 'apk-tools 3.0.5'; exit 0 ;;
     info)
@@ -63,9 +68,23 @@ case "$1" in
         [ "${Z2K_TEST_APK_ADD_FAIL:-0}" = 0 ] || exit 1
         shift
         upgrade=0
-        if [ "${1:-}" = --upgrade ]; then
-            upgrade=1
-            shift
+        virtual_seed=
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                --upgrade) upgrade=1; shift ;;
+                --virtual)
+                    [ "$#" -ge 2 ] || exit 2
+                    virtual_seed="$2"
+                    shift 2
+                    ;;
+                *) break ;;
+            esac
+        done
+        if [ "$no_scripts" = 1 ] && [ "${Z2K_TEST_APK_STAGE_FAIL:-0}" = 1 ]; then
+            exit 1
+        fi
+        if [ "$no_scripts" = 0 ] && [ "${Z2K_TEST_APK_PRODUCT_FAIL:-0}" = 1 ]; then
+            exit 1
         fi
         for pkg in "$@"; do
             if grep -q "^$pkg|" "$Z2K_TEST_INSTALLED"; then
@@ -74,6 +93,24 @@ case "$1" in
                 printf '%s|0.1.1-r1\n' "$pkg" >> "$Z2K_TEST_INSTALLED"
             fi
         done
+        if [ -n "$virtual_seed" ]; then
+            if grep -q "^$virtual_seed|" "$Z2K_TEST_INSTALLED"; then
+                sed -i "s/^$virtual_seed|.*/$virtual_seed|0.1.1-r1/" "$Z2K_TEST_INSTALLED"
+            else
+                printf '%s|0.1.1-r1\n' "$virtual_seed" >> "$Z2K_TEST_INSTALLED"
+            fi
+        fi
+        if [ "$no_scripts" = 1 ] && [ "${Z2K_TEST_SIGNAL_STAGE:-}" = TERM ]; then
+            kill -TERM "$PPID"
+        fi
+        exit 0 ;;
+    del)
+        shift
+        [ "${1:-}" = .z2k-webpanel-bootstrap-deps ] || exit 2
+        sed -i '/^\.z2k-webpanel-bootstrap-deps|/d' "$Z2K_TEST_INSTALLED"
+        if ! grep -Eq '^z2k-(adapter|webpanel)\|' "$Z2K_TEST_INSTALLED"; then
+            sed -i '/^lighttpd\(-mod-[^|]*\)\?|/d' "$Z2K_TEST_INSTALLED"
+        fi
         exit 0 ;;
     upgrade)
         [ "${Z2K_TEST_APK_UPGRADE_FAIL:-0}" = 0 ] || exit 1
@@ -153,7 +190,8 @@ CLI
     export PATH="$BIN:/usr/bin:/bin" TMPDIR="$T/tmp"
     unset Z2K_TEST_UID Z2K_TEST_DOWNLOAD_FAIL Z2K_TEST_APK_UPDATE_FAIL \
         Z2K_TEST_APK_ADD_FAIL Z2K_TEST_APK_UPGRADE_FAIL Z2K_TEST_PANEL_FAIL \
-        Z2K_TEST_CORE_FAIL Z2K_TEST_CORE_RUNTIME_FAIL Z2K_TEST_PANEL_HTTP_FAIL
+        Z2K_TEST_CORE_FAIL Z2K_TEST_CORE_RUNTIME_FAIL Z2K_TEST_PANEL_HTTP_FAIL \
+        Z2K_TEST_APK_STAGE_FAIL Z2K_TEST_APK_PRODUCT_FAIL Z2K_TEST_SIGNAL_STAGE
     _render || return 1
 }
 
@@ -164,6 +202,9 @@ _reset
 printf 'user-owned configuration\n' > "$SYS/etc/z2k/config"
 printf 'stock feeds stay\n' > "$SYS/etc/apk/distfeeds.list"
 if _run; then _t_ok; else _t_bad "fresh install failed: $(cat "$T/out")"; fi
+assert_eq "Lighttpd dependencies use no-script upgrade staging" \
+    '--no-scripts add --upgrade --virtual .z2k-webpanel-bootstrap-deps lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias' \
+    "$(grep '^--no-scripts add ' "$T/apk.log" | head -1)"
 assert_eq "fresh install uses apk add for the two packages" 'add z2k-adapter z2k-webpanel' "$(grep '^add ' "$T/apk.log" | tail -1)"
 assert_file "fresh install adds the pinned key" "$SYS/etc/apk/keys/z2k-feed.pem"
 assert_eq "fresh install writes the signed release index as a separate feed" 'ndx https://github.com/t0fox/z2kOW/releases/latest/download/packages.adb' "$(cat "$SYS/etc/apk/repositories.d/z2kow.list" 2>/dev/null)"
@@ -179,11 +220,16 @@ else
 fi
 
 _reset
-printf 'z2k-adapter|0.1.1-r1\nz2k-webpanel|0.1.1-r1\n' > "$T/installed"
+printf 'z2k-adapter|0.1.1-r1\nz2k-webpanel|0.1.1-r1\nlighttpd|0.1.0-r1\nlighttpd-mod-cgi|0.1.0-r1\nlighttpd-mod-setenv|0.1.0-r1\nlighttpd-mod-alias|0.1.0-r1\n' > "$T/installed"
 cp "$KEY" "$SYS/etc/apk/keys/z2k-feed.pem"
 printf '%s\n' 'ndx https://github.com/t0fox/z2kOW/releases/latest/download/packages.adb' > "$SYS/etc/apk/repositories.d/z2kow.list"
 before_key="$(sha256sum "$SYS/etc/apk/keys/z2k-feed.pem" | awk '{print $1}')"
 if _run; then _t_ok; else _t_bad "repeat install failed: $(cat "$T/out")"; fi
+assert_eq "repeat install stages Lighttpd upgrades without package scripts" \
+    '--no-scripts add --upgrade --virtual .z2k-webpanel-bootstrap-deps lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias' \
+    "$(grep '^--no-scripts add ' "$T/apk.log" | head -1)"
+assert_eq "repeat install upgrades an old Lighttpd dependency in the no-script stage" \
+    'lighttpd|0.1.1-r1' "$(grep '^lighttpd|' "$T/installed")"
 assert_eq "repeat install upgrades only the two product packages" 'add --upgrade z2k-adapter z2k-webpanel' "$(grep '^add --upgrade ' "$T/apk.log" | tail -1)"
 assert_eq "repeat install leaves one feed entry" '1' "$(grep -c '^ndx https://github.com/t0fox/z2kOW/releases/latest/download/packages.adb$' "$SYS/etc/apk/repositories.d/z2kow.list")"
 assert_eq "repeat install leaves correct key bytes unchanged" "$before_key" "$(sha256sum "$SYS/etc/apk/keys/z2k-feed.pem" | awk '{print $1}')"
@@ -232,6 +278,24 @@ assert_eq "apk update failure does not add packages" '0' "$(grep -c '^add ' "$T/
 _reset
 Z2K_TEST_APK_ADD_FAIL=1 _run
 assert_eq "package installation failure stops install" '1' "$?"
+
+_reset
+Z2K_TEST_APK_STAGE_FAIL=1 _run
+assert_eq "Lighttpd staging failure stops install" '1' "$?"
+assert_eq "Lighttpd staging failure never starts the product transaction" '0' "$(grep -c '^add z2k-adapter z2k-webpanel$' "$T/apk.log" || true)"
+
+_reset
+Z2K_TEST_APK_PRODUCT_FAIL=1 _run
+assert_eq "product transaction failure stops install" '1' "$?"
+assert_contains "product transaction failure removes temporary dependency root" "$T/apk.log" 'del .z2k-webpanel-bootstrap-deps'
+assert_eq "product transaction failure removes newly staged Lighttpd packages" '0' "$(grep -Ec '^lighttpd(-mod-[^|]*)?\|' "$T/installed" || true)"
+
+_reset
+Z2K_TEST_SIGNAL_STAGE=TERM _run
+assert_eq "TERM during Lighttpd staging exits with signal status" '143' "$?"
+assert_contains "TERM during Lighttpd staging runs cleanup" "$T/apk.log" 'del .z2k-webpanel-bootstrap-deps'
+assert_eq "TERM during Lighttpd staging never starts the product transaction" '0' "$(grep -c '^add z2k-adapter z2k-webpanel$' "$T/apk.log" || true)"
+assert_eq "TERM during Lighttpd staging removes staged dependencies" '0' "$(grep -Ec '^lighttpd(-mod-[^|]*)?\|' "$T/installed" || true)"
 
 _reset
 sed -i "s/DISTRIB_RELEASE='25.12.5'/DISTRIB_RELEASE='24.10.8'/" "$SYS/etc/openwrt_release"
