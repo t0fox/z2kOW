@@ -1,0 +1,189 @@
+try {
+  let e =
+      typeof window < `u`
+        ? window
+        : typeof global < `u`
+          ? global
+          : typeof globalThis < `u`
+            ? globalThis
+            : typeof self < `u`
+              ? self
+              : {},
+    t = new e.Error().stack;
+  t &&
+    ((e._sentryDebugIds = e._sentryDebugIds || {}),
+    (e._sentryDebugIds[t] = `85cc982f-436f-4175-86ed-cbbeb53e8120`),
+    (e._sentryDebugIdIdentifier = `sentry-dbid-85cc982f-436f-4175-86ed-cbbeb53e8120`));
+} catch (e) {}
+import { __esmMin as e } from "./rolldown-runtime-MtAR-uS5.js";
+import { init___sentry_release_injection_file as t } from "./_sentry-release-injection-file-cFDhJ3-B.js";
+import { init_xenforo as n, xenforo_default as r } from "./xenforo-CUkDrBQD.js";
+import {
+  confetti_module_default as i,
+  init_confetti_module as a,
+} from "./canvas-confetti-dist-BhZaCPDF.js";
+function o(e, t) {
+  return (
+    S.has(e) ||
+      (S.size >= b && S.delete(S.keys().next().value),
+      S.set(
+        e,
+        t().catch(() => null),
+      )),
+    S.get(e)
+  );
+}
+function s(e) {
+  let t = document.createElement(`span`);
+  ((t.className = `NodeSvgIcon nodeIcon${e}`),
+    (t.style.cssText = `position:fixed;left:-9999px;top:0;visibility:hidden;pointer-events:none`),
+    document.body.appendChild(t));
+  let n = getComputedStyle(t, `::before`),
+    r = n.content,
+    i = n.color || getComputedStyle(t).color;
+  t.remove();
+  let a = /^["'](.+)["']$/.exec(r || ``);
+  return a ? { glyph: a[1], color: i } : null;
+}
+async function c(e) {
+  let t = s(e);
+  if (!t) return null;
+  try {
+    await document.fonts.load(`${10 * g}px ${h}`, t.glyph);
+  } catch (e) {}
+  return i.shapeFromText({
+    text: t.glyph,
+    scalar: g,
+    fontFamily: h,
+    color: t.color,
+  });
+}
+function l(e) {
+  let t = e.closest(`[data-node-id]`);
+  if (t) {
+    let e = t.getAttribute(`data-node-id`);
+    if (e && e !== `0`) return e;
+  }
+  let n = e.closest(`.discussionListItem, .message, .messageSimple`),
+    r = n && n.querySelector(`[class*="nodeIconThread"], [class*="nodeIcon"]`),
+    i = r && /\bnodeIcon(?:Thread)?(\d+)\b/.exec(r.className);
+  return i ? i[1] : null;
+}
+function u(e) {
+  let t = e.closest(
+    `li.comment, .messageSimple, .message, .discussionListItem`,
+  );
+  if (!t) return null;
+  let n = t.querySelectorAll(
+    `.avatarHolder a.avatar, .avatarHolder span.avatar, a.avatar, span.avatar`,
+  );
+  for (let e of n) {
+    if (e.closest(`.messageText, article`)) continue;
+    let t = e.querySelector(`img`);
+    if (t && t.src) return t.src;
+    let n = e.querySelector(`.img`) || e,
+      r = getComputedStyle(n).backgroundImage,
+      i = /url\((["']?)(.+?)\1\)/.exec(r || ``);
+    if (i && i[2]) return i[2];
+  }
+  return null;
+}
+async function d(e) {
+  let t = new Image();
+  ((t.crossOrigin = `anonymous`),
+    (t.decoding = `async`),
+    (t.src = e),
+    await t.decode());
+  let n = Math.round(10 * g * v * y),
+    r = new OffscreenCanvas(n, n),
+    i = r.getContext(`2d`);
+  (i.beginPath(),
+    i.arc(n / 2, n / 2, n / 2, 0, Math.PI * 2),
+    i.clip(),
+    i.drawImage(t, 0, 0, n, n));
+  let a = 1 / (g * y);
+  return {
+    type: `bitmap`,
+    bitmap: r.transferToImageBitmap(),
+    matrix: [a, 0, 0, a, (-n * a) / 2, (-n * a) / 2],
+  };
+}
+function f(e) {
+  let t = l(e);
+  if (t) return o(`node:` + t, () => c(t));
+  let n = u(e);
+  return n ? o(`avatar:` + n, () => d(n)) : Promise.resolve(null);
+}
+async function p(e) {
+  let t = Date.now();
+  if (t - x < _) return;
+  x = t;
+  let n = await f(e),
+    r = e.getBoundingClientRect(),
+    a = {
+      particleCount: 8,
+      angle: 90,
+      spread: 32,
+      startVelocity: 12,
+      gravity: 1.1,
+      decay: 0.9,
+      ticks: 45,
+      flat: !0,
+      useWorker: !0,
+      zIndex: 6666,
+      disableForReducedMotion: !0,
+      origin: {
+        x: (r.left + r.width / 2) / window.innerWidth,
+        y: (r.top + r.height / 2) / window.innerHeight,
+      },
+    };
+  (n
+    ? ((a.shapes = [n]), (a.scalar = g))
+    : ((a.colors = [`#00ba78`, `#228E5D`, `#ffffff`]), (a.scalar = 0.9)),
+    i(a));
+}
+var m,
+  h,
+  g,
+  _,
+  v,
+  y,
+  b,
+  x,
+  S,
+  C = e(() => {
+    (a(),
+      n(),
+      t(),
+      (m = `OffscreenCanvas` in window),
+      (h = `lztIcons`),
+      (g = 1.6),
+      (_ = 250),
+      (v = 1.4),
+      (y = 2),
+      (b = 40),
+      (x = 0),
+      (S = new Map()),
+      (r.LikeBurst = function (e) {
+        if (!m) return;
+        let t = e[0],
+          n = l(t);
+        (n && o(`node:` + n, () => c(n)),
+          t.addEventListener(`pointerdown`, () => f(t), {
+            passive: !0,
+            capture: !0,
+          }),
+          t.addEventListener(
+            `click`,
+            function () {
+              t.classList.contains(`like`) &&
+                (t.classList.add(`LikeBurstPop`),
+                setTimeout(() => t.classList.remove(`LikeBurstPop`), 400),
+                p(t));
+            },
+            { capture: !0 },
+          ));
+      }),
+      r.register(`a.LikeLink`, `XenForo.LikeBurst`));
+  });
+export { C as init_like_burst };

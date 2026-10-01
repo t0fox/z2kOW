@@ -1,0 +1,6920 @@
+{
+  "pageUrl": "https://lolz.team/",
+  "capturedAt": "2026-10-01",
+  "cdnBuild": "7280435c04428cb2232439a10753600f57a32faa",
+  "scope": "Public homepage resources in the Codex in-app browser; CSS keyframes and animation/transition declarations only.",
+  "sources": [
+    {
+      "file": "public-base.css",
+      "url": "https://lolz.team/css.php?css=public:font,public:xenforo,public:form,public:public&s=52&l=2&d=1790855897",
+      "bytes": 903511,
+      "sha256": "93f4a54d3540c325df4cd0fd73c9556feb34539569a0b646df4c7a7acc931161",
+      "keyframes": [
+        {
+          "name": "fa-spin",
+          "offset": 3987
+        },
+        {
+          "name": "shine",
+          "offset": 101269
+        },
+        {
+          "name": "chosenDropBelow",
+          "offset": 113901
+        },
+        {
+          "name": "chosenDropUpwards",
+          "offset": 114182
+        },
+        {
+          "name": "openConversation",
+          "offset": 616711
+        },
+        {
+          "name": "move-bg",
+          "offset": 618145
+        },
+        {
+          "name": "rainbow",
+          "offset": 618237
+        },
+        {
+          "name": "likeBurstPop",
+          "offset": 622407
+        },
+        {
+          "name": "skeleton-loading",
+          "offset": 708941
+        },
+        {
+          "name": "gradientLolzteamMove",
+          "offset": 738629
+        },
+        {
+          "name": "UltraFast",
+          "offset": 741201
+        },
+        {
+          "name": "UltraFast",
+          "offset": 741326
+        },
+        {
+          "name": "UltraFast",
+          "offset": 741448
+        },
+        {
+          "name": "bounce",
+          "offset": 770387
+        },
+        {
+          "name": "bounce",
+          "offset": 771104
+        },
+        {
+          "name": "flash",
+          "offset": 771943
+        },
+        {
+          "name": "flash",
+          "offset": 772009
+        },
+        {
+          "name": "pulse",
+          "offset": 772124
+        },
+        {
+          "name": "pulse",
+          "offset": 772354
+        },
+        {
+          "name": "rubberBand",
+          "offset": 772633
+        },
+        {
+          "name": "rubberBand",
+          "offset": 773148
+        },
+        {
+          "name": "shake",
+          "offset": 773727
+        },
+        {
+          "name": "shake",
+          "offset": 774009
+        },
+        {
+          "name": "headShake",
+          "offset": 774340
+        },
+        {
+          "name": "headShake",
+          "offset": 774872
+        },
+        {
+          "name": "swing",
+          "offset": 775549
+        },
+        {
+          "name": "swing",
+          "offset": 775952
+        },
+        {
+          "name": "tada",
+          "offset": 776468
+        },
+        {
+          "name": "tada",
+          "offset": 776987
+        },
+        {
+          "name": "wobble",
+          "offset": 777552
+        },
+        {
+          "name": "wobble",
+          "offset": 778309
+        },
+        {
+          "name": "jello",
+          "offset": 779118
+        },
+        {
+          "name": "jello",
+          "offset": 779958
+        },
+        {
+          "name": "heartBeat",
+          "offset": 780903
+        },
+        {
+          "name": "heartBeat",
+          "offset": 781190
+        },
+        {
+          "name": "bounceIn",
+          "offset": 781678
+        },
+        {
+          "name": "bounceIn",
+          "offset": 782305
+        },
+        {
+          "name": "bounceInDown",
+          "offset": 783048
+        },
+        {
+          "name": "bounceInDown",
+          "offset": 783619
+        },
+        {
+          "name": "bounceInLeft",
+          "offset": 784260
+        },
+        {
+          "name": "bounceInLeft",
+          "offset": 784831
+        },
+        {
+          "name": "bounceInRight",
+          "offset": 785472
+        },
+        {
+          "name": "bounceInRight",
+          "offset": 786046
+        },
+        {
+          "name": "bounceInUp",
+          "offset": 786693
+        },
+        {
+          "name": "bounceInUp",
+          "offset": 787264
+        },
+        {
+          "name": "bounceOut",
+          "offset": 787899
+        },
+        {
+          "name": "bounceOut",
+          "offset": 788162
+        },
+        {
+          "name": "bounceOutDown",
+          "offset": 788544
+        },
+        {
+          "name": "bounceOutDown",
+          "offset": 788835
+        },
+        {
+          "name": "bounceOutLeft",
+          "offset": 789199
+        },
+        {
+          "name": "bounceOutLeft",
+          "offset": 789410
+        },
+        {
+          "name": "bounceOutRight",
+          "offset": 789694
+        },
+        {
+          "name": "bounceOutRight",
+          "offset": 789906
+        },
+        {
+          "name": "bounceOutUp",
+          "offset": 790194
+        },
+        {
+          "name": "bounceOutUp",
+          "offset": 790485
+        },
+        {
+          "name": "fadeIn",
+          "offset": 790843
+        },
+        {
+          "name": "fadeIn",
+          "offset": 790898
+        },
+        {
+          "name": "fadeInDown",
+          "offset": 791005
+        },
+        {
+          "name": "fadeInDown",
+          "offset": 791204
+        },
+        {
+          "name": "fadeInDownBig",
+          "offset": 791467
+        },
+        {
+          "name": "fadeInDownBig",
+          "offset": 791673
+        },
+        {
+          "name": "fadeInLeft",
+          "offset": 791952
+        },
+        {
+          "name": "fadeInLeft",
+          "offset": 792151
+        },
+        {
+          "name": "fadeInLeftBig",
+          "offset": 792414
+        },
+        {
+          "name": "fadeInLeftBig",
+          "offset": 792620
+        },
+        {
+          "name": "fadeInRight",
+          "offset": 792899
+        },
+        {
+          "name": "fadeInRight",
+          "offset": 793097
+        },
+        {
+          "name": "fadeInRightBig",
+          "offset": 793362
+        },
+        {
+          "name": "fadeInRightBig",
+          "offset": 793567
+        },
+        {
+          "name": "fadeInUp",
+          "offset": 793848
+        },
+        {
+          "name": "fadeInUp",
+          "offset": 794043
+        },
+        {
+          "name": "fadeInUpBig",
+          "offset": 794296
+        },
+        {
+          "name": "fadeInUpBig",
+          "offset": 794498
+        },
+        {
+          "name": "fadeOut",
+          "offset": 794767
+        },
+        {
+          "name": "fadeOut",
+          "offset": 794823
+        },
+        {
+          "name": "fadeOutDown",
+          "offset": 794934
+        },
+        {
+          "name": "fadeOutDown",
+          "offset": 795066
+        },
+        {
+          "name": "fadeOutDownBig",
+          "offset": 795265
+        },
+        {
+          "name": "fadeOutDownBig",
+          "offset": 795404
+        },
+        {
+          "name": "fadeOutLeft",
+          "offset": 795619
+        },
+        {
+          "name": "fadeOutLeft",
+          "offset": 795753
+        },
+        {
+          "name": "fadeOutLeftBig",
+          "offset": 795954
+        },
+        {
+          "name": "fadeOutLeftBig",
+          "offset": 796095
+        },
+        {
+          "name": "fadeOutRight",
+          "offset": 796312
+        },
+        {
+          "name": "fadeOutRight",
+          "offset": 796445
+        },
+        {
+          "name": "fadeOutRightBig",
+          "offset": 796648
+        },
+        {
+          "name": "fadeOutRightBig",
+          "offset": 796788
+        },
+        {
+          "name": "fadeOutUp",
+          "offset": 797007
+        },
+        {
+          "name": "fadeOutUp",
+          "offset": 797139
+        },
+        {
+          "name": "fadeOutUpBig",
+          "offset": 797332
+        },
+        {
+          "name": "fadeOutUpBig",
+          "offset": 797471
+        },
+        {
+          "name": "flip",
+          "offset": 797680
+        },
+        {
+          "name": "flip",
+          "offset": 799035
+        },
+        {
+          "name": "flipInX",
+          "offset": 800509
+        },
+        {
+          "name": "flipInX",
+          "offset": 801237
+        },
+        {
+          "name": "flipInY",
+          "offset": 802104
+        },
+        {
+          "name": "flipInY",
+          "offset": 802832
+        },
+        {
+          "name": "flipOutX",
+          "offset": 803699
+        },
+        {
+          "name": "flipOutX",
+          "offset": 804048
+        },
+        {
+          "name": "flipOutY",
+          "offset": 804597
+        },
+        {
+          "name": "flipOutY",
+          "offset": 804946
+        },
+        {
+          "name": "lightSpeedIn",
+          "offset": 805495
+        },
+        {
+          "name": "lightSpeedIn",
+          "offset": 805838
+        },
+        {
+          "name": "lightSpeedOut",
+          "offset": 806329
+        },
+        {
+          "name": "lightSpeedOut",
+          "offset": 806489
+        },
+        {
+          "name": "rotateIn",
+          "offset": 806798
+        },
+        {
+          "name": "rotateIn",
+          "offset": 807109
+        },
+        {
+          "name": "rotateInDownLeft",
+          "offset": 807478
+        },
+        {
+          "name": "rotateInDownLeft",
+          "offset": 807815
+        },
+        {
+          "name": "rotateInDownRight",
+          "offset": 808234
+        },
+        {
+          "name": "rotateInDownRight",
+          "offset": 808574
+        },
+        {
+          "name": "rotateInUpLeft",
+          "offset": 808999
+        },
+        {
+          "name": "rotateInUpLeft",
+          "offset": 809332
+        },
+        {
+          "name": "rotateInUpRight",
+          "offset": 809741
+        },
+        {
+          "name": "rotateInUpRight",
+          "offset": 810081
+        },
+        {
+          "name": "rotateOut",
+          "offset": 810500
+        },
+        {
+          "name": "rotateOut",
+          "offset": 810744
+        },
+        {
+          "name": "rotateOutDownLeft",
+          "offset": 811049
+        },
+        {
+          "name": "rotateOutDownLeft",
+          "offset": 811319
+        },
+        {
+          "name": "rotateOutDownRight",
+          "offset": 811674
+        },
+        {
+          "name": "rotateOutDownRight",
+          "offset": 811951
+        },
+        {
+          "name": "rotateOutUpLeft",
+          "offset": 812316
+        },
+        {
+          "name": "rotateOutUpLeft",
+          "offset": 812586
+        },
+        {
+          "name": "rotateOutUpRight",
+          "offset": 812935
+        },
+        {
+          "name": "rotateOutUpRight",
+          "offset": 813208
+        },
+        {
+          "name": "hinge",
+          "offset": 813563
+        },
+        {
+          "name": "hinge",
+          "offset": 814281
+        },
+        {
+          "name": "jackInTheBox",
+          "offset": 815100
+        },
+        {
+          "name": "jackInTheBox",
+          "offset": 815473
+        },
+        {
+          "name": "rollIn",
+          "offset": 815916
+        },
+        {
+          "name": "rollIn",
+          "offset": 816159
+        },
+        {
+          "name": "rollOut",
+          "offset": 816454
+        },
+        {
+          "name": "rollOut",
+          "offset": 816628
+        },
+        {
+          "name": "zoomIn",
+          "offset": 816759
+        },
+        {
+          "name": "zoomIn",
+          "offset": 816835
+        },
+        {
+          "name": "zoomInDown",
+          "offset": 816971
+        },
+        {
+          "name": "zoomInDown",
+          "offset": 817509
+        },
+        {
+          "name": "zoomInLeft",
+          "offset": 818111
+        },
+        {
+          "name": "zoomInLeft",
+          "offset": 818649
+        },
+        {
+          "name": "zoomInRight",
+          "offset": 819251
+        },
+        {
+          "name": "zoomInRight",
+          "offset": 819790
+        },
+        {
+          "name": "zoomInUp",
+          "offset": 820396
+        },
+        {
+          "name": "zoomInUp",
+          "offset": 820932
+        },
+        {
+          "name": "zoomOut",
+          "offset": 821526
+        },
+        {
+          "name": "zoomOut",
+          "offset": 821654
+        },
+        {
+          "name": "zoomOutDown",
+          "offset": 821837
+        },
+        {
+          "name": "zoomOutDown",
+          "offset": 822444
+        },
+        {
+          "name": "zoomOutLeft",
+          "offset": 823118
+        },
+        {
+          "name": "zoomOutLeft",
+          "offset": 823461
+        },
+        {
+          "name": "zoomOutRight",
+          "offset": 823871
+        },
+        {
+          "name": "zoomOutRight",
+          "offset": 824217
+        },
+        {
+          "name": "zoomOutUp",
+          "offset": 824633
+        },
+        {
+          "name": "zoomOutUp",
+          "offset": 825238
+        },
+        {
+          "name": "slideInDown",
+          "offset": 825904
+        },
+        {
+          "name": "slideInDown",
+          "offset": 826103
+        },
+        {
+          "name": "slideInLeft",
+          "offset": 826369
+        },
+        {
+          "name": "slideInLeft",
+          "offset": 826568
+        },
+        {
+          "name": "slideInRight",
+          "offset": 826834
+        },
+        {
+          "name": "slideInRight",
+          "offset": 827032
+        },
+        {
+          "name": "slideInUp",
+          "offset": 827300
+        },
+        {
+          "name": "slideInUp",
+          "offset": 827495
+        },
+        {
+          "name": "slideOutDown",
+          "offset": 827751
+        },
+        {
+          "name": "slideOutDown",
+          "offset": 827948
+        },
+        {
+          "name": "slideOutLeft",
+          "offset": 828215
+        },
+        {
+          "name": "slideOutLeft",
+          "offset": 828414
+        },
+        {
+          "name": "slideOutRight",
+          "offset": 828683
+        },
+        {
+          "name": "slideOutRight",
+          "offset": 828881
+        },
+        {
+          "name": "slideOutUp",
+          "offset": 829152
+        },
+        {
+          "name": "slideOutUp",
+          "offset": 829349
+        },
+        {
+          "name": "animateElement",
+          "offset": 837264
+        },
+        {
+          "name": "animateElement2",
+          "offset": 837372
+        },
+        {
+          "name": "masked-animation",
+          "offset": 861690
+        },
+        {
+          "name": "sk-bouncedelay",
+          "offset": 865443
+        },
+        {
+          "name": "sk-bouncedelay",
+          "offset": 865548
+        },
+        {
+          "name": "bth-icon-spin360",
+          "offset": 879168
+        }
+      ],
+      "declarations": [
+        {
+          "context": [
+            ".fa-spin"
+          ],
+          "property": "animation",
+          "value": "fa-spin 2s infinite linear"
+        },
+        {
+          "context": [
+            ".fa-pulse"
+          ],
+          "property": "animation",
+          "value": "fa-spin 1s infinite steps(8)"
+        },
+        {
+          "context": [
+            "#ChosenContent>input.loading"
+          ],
+          "property": "animation",
+          "value": "1.5s shine linear infinite"
+        },
+        {
+          "context": [
+            ".chosen-container-single .chosen-single div b:before"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".chosen-container .chosen-results li"
+          ],
+          "property": "transition",
+          "value": "all .2s"
+        },
+        {
+          "context": [
+            ".chosen-responsive.active"
+          ],
+          "property": "transition",
+          "value": "height 0.4s ease-in-out"
+        },
+        {
+          "context": [
+            ".chosen-container-active .chosen-drop"
+          ],
+          "property": "transition",
+          "value": "opacity 0.2s ease-out"
+        },
+        {
+          "context": [
+            ".chosen-with-drop.chosen-container-active .chosen-drop:not(.chosen-drop-upwards)"
+          ],
+          "property": "animation",
+          "value": "chosenDropBelow 0.2s cubic-bezier(.5,0,0,1.25) forwards"
+        },
+        {
+          "context": [
+            ".chosen-with-drop.chosen-container-active .chosen-drop.chosen-drop-upwards"
+          ],
+          "property": "animation",
+          "value": "chosenDropUpwards 0.2s cubic-bezier(.5,0,0,1.25) forwards"
+        },
+        {
+          "context": [
+            ".NodeSvgIcon::before,.NodeSvgIcon::after"
+          ],
+          "property": "transition",
+          "value": "opacity .2s ease,color .2s ease"
+        },
+        {
+          "context": [
+            ".unfurl_title"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".unfurl_thread-add-block"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".unfurl_thread-add-block:hover .unfurl_title"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".unfurl_thread-add-block:hover"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".embed-link-wrapper"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".bbCodeSpoilerContainer .bbCodeSpoilerButton .arrowWidget"
+          ],
+          "property": "transition",
+          "value": ".2s"
+        },
+        {
+          "context": [
+            ".bbCodeBlock-grip"
+          ],
+          "property": "transition",
+          "value": "color .2s"
+        },
+        {
+          "context": [
+            ".copyButton--withCheck>.fa-clone,.copyButton--withCheck>.fa-check"
+          ],
+          "property": "transition",
+          "value": "opacity 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".market_index .UpdateFeedButtonIcon"
+          ],
+          "property": "transition",
+          "value": ".2s"
+        },
+        {
+          "context": [
+            ".market_index .UpdateFeedButtonIcon .svgIconLink svg"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".searchBarForm--Filter .wrapper .filterTitle.Tooltip.PopupTooltip::after"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".marketMyPayments .svgIcon--externalLink:hover::before"
+          ],
+          "property": "transition",
+          "value": ".2s"
+        },
+        {
+          "context": [
+            ".categoryLinks .link"
+          ],
+          "property": "transition",
+          "value": "300ms ease"
+        },
+        {
+          "context": [
+            ".searchBarForm--orderByRadioContainer label"
+          ],
+          "property": "transition",
+          "value": ".1s cubic-bezier(0,0,.2,1)"
+        },
+        {
+          "context": [
+            ".market--titleBar--info .autoBuyButton"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".market--titleBar--info .autoBuyButton:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".market--titleBar--info .autoBuyButton:active"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".searchBarForm--searchHistoryContainer .item"
+          ],
+          "property": "transition",
+          "value": "box-shadow 300ms ease,transform 300ms ease"
+        },
+        {
+          "context": [
+            ".searchBarForm--searchHistory:hover"
+          ],
+          "property": "transition",
+          "value": ".15s ease-out"
+        },
+        {
+          "context": [
+            ".button-last-search"
+          ],
+          "property": "transition",
+          "value": "0.4s"
+        },
+        {
+          "context": [
+            "a.fa.fa-clone.OverlayTrigger.copyButton"
+          ],
+          "property": "transition",
+          "value": "background 0.8s"
+        },
+        {
+          "context": [
+            "a.fa.fa-minus-circle.OverlayTrigger"
+          ],
+          "property": "transition",
+          "value": "background 0.8s"
+        },
+        {
+          "context": [
+            ".MarketScrollResizer"
+          ],
+          "property": "transition",
+          "value": "all 0.2s"
+        },
+        {
+          "context": [
+            ".payment_block_data_users"
+          ],
+          "property": "transition",
+          "value": "margin-bottom 0.3s ease"
+        },
+        {
+          "context": [
+            ".SidebarPaymentsWallets .PaymentWalletItem"
+          ],
+          "property": "transition",
+          "value": ".1s"
+        },
+        {
+          "context": [
+            ".SidebarPaymentsWallets .PaymentWalletItem:hover"
+          ],
+          "property": "transition",
+          "value": ".1s"
+        },
+        {
+          "context": [
+            ".SidebarPaymentsWallets .PaymentWalletItem .text .SvgIcon svg"
+          ],
+          "property": "transition",
+          "value": ".1s"
+        },
+        {
+          "context": [
+            ".SidebarPaymentsWallets .PaymentWalletItem:hover .text .SvgIcon svg"
+          ],
+          "property": "transition",
+          "value": ".1s"
+        },
+        {
+          "context": [
+            ".SidebarPaymentsWallets .PaymentWalletItem:hover .title"
+          ],
+          "property": "transition",
+          "value": ".1s"
+        },
+        {
+          "context": [
+            ".SidebarPaymentsWallets .PaymentWalletItem .title"
+          ],
+          "property": "transition",
+          "value": ".1s"
+        },
+        {
+          "context": [
+            ".SidebarPaymentsWallets .PaymentWalletItem:hover .sum,.SidebarPaymentsWallets .PaymentWalletItem:hover .sum span::before"
+          ],
+          "property": "transition",
+          "value": ".1s"
+        },
+        {
+          "context": [
+            ".SidebarPaymentsWallets .PaymentWalletItem .leftBlock .buttonIcon svg"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".SidebarPaymentsWallets .PaymentWalletItem .leftBlock .buttonIcon:hover svg"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".SidebarPaymentsWallets .PaymentWalletItem .leftBlock .buttonIcon:active svg"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".marketSidebarTopPanel .balanceValueContainer .balance-value.opened .expandHoldPaymentsIcon,.marketSidebarTopPanel .balanceValueContainer .balanceValueHold.opened .expandHoldPaymentsIcon"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".marketSidebarTopPanel .balanceValueContainer .balance-value .expandHoldPaymentsIcon,.marketSidebarTopPanel .balanceValueContainer .balanceValueHold .expandHoldPaymentsIcon"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".marketSidebarTopPanel .balance-value"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".marketSidebarTopPanel .balance-value.BalanceHidden"
+          ],
+          "property": "transition",
+          "value": "none"
+        },
+        {
+          "context": [
+            ".marketSidebarTopPanel .user-hold-container"
+          ],
+          "property": "transition",
+          "value": ".1s"
+        },
+        {
+          "context": [
+            ".marketSidebarTopPanel .user-hold-container:hover"
+          ],
+          "property": "transition",
+          "value": ".1s"
+        },
+        {
+          "context": [
+            ".marketSidebarTopPanel .user-hold-container.opened .expandHoldPaymentsIcon"
+          ],
+          "property": "transition",
+          "value": ".2s"
+        },
+        {
+          "context": [
+            ".marketSidebarTopPanel .user-hold-container .expandHoldPaymentsIcon"
+          ],
+          "property": "transition",
+          "value": ".2s"
+        },
+        {
+          "context": [
+            ".marketSidebarTopPanel .holdPayment.list-count"
+          ],
+          "property": "transition",
+          "value": ".1s"
+        },
+        {
+          "context": [
+            ".marketSidebarTopPanel .holdPayment.list-count:hover"
+          ],
+          "property": "transition",
+          "value": ".1s"
+        },
+        {
+          "context": [
+            ".spoiler_in_sidebar.opened .arrowWidget"
+          ],
+          "property": "transition",
+          "value": ".2s"
+        },
+        {
+          "context": [
+            ".spoiler_in_sidebar .arrowWidget"
+          ],
+          "property": "transition",
+          "value": ".2s"
+        },
+        {
+          "context": [
+            ".li-watch-list:hover"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".li-watch-list"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".queue_reset"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".SaveSearchPopup .settingsIcon"
+          ],
+          "property": "transition",
+          "value": "all .1s ease-in-out"
+        },
+        {
+          "context": [
+            ".marketSidebarTopPanel .balance-value.BalanceHidden,.marketSidebarTopPanel .balanceValueHold.BalanceHidden"
+          ],
+          "property": "transition",
+          "value": "none"
+        },
+        {
+          "context": [
+            ".market-about-block"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            "#title-id-layout"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".market-about-block:hover #title-id-layout"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".market-about-block:hover"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".unfurlContainer",
+            "&.shorted"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".unfurlContainer",
+            "&.shorted",
+            "&:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".unfurlContainer",
+            "&.shorted",
+            "&:hover",
+            ".text",
+            ".SvgIcon",
+            "svg"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".unfurlContainer",
+            "&.shorted",
+            "&:active"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".unfurlContainer",
+            "&.shorted",
+            ".text",
+            ".SvgIcon",
+            "svg"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".cd-top"
+          ],
+          "property": "transition",
+          "value": "opacity .3s 0s,visibility 0s .3s"
+        },
+        {
+          "context": [
+            ".cd-top.cd-is-visible,.cd-top.cd-fade-out,.no-touch .cd-top:hover"
+          ],
+          "property": "transition",
+          "value": "opacity .2s 0s,visibility 0s 0s"
+        },
+        {
+          "context": [
+            ".Tabs::after"
+          ],
+          "property": "transition",
+          "value": "opacity 0.2s,left 0.35s cubic-bezier(.4,0,.2,1),width 0.35s cubic-bezier(.4,0,.2,1),top 0.35s"
+        },
+        {
+          "context": [
+            ".Popup .PopupControl:not(.dottesStyle) .arrowWidget,.Popup .NoPopupGadget .arrowWidget"
+          ],
+          "property": "transition",
+          "value": ".2s"
+        },
+        {
+          "context": [
+            ".textCtrl.Popup .PopupControl:not(.dottesStyle) .arrowWidget:before"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".Popup .PopupControl .arrowWidget::before"
+          ],
+          "property": "transition",
+          "value": "all .2s ease-in-out"
+        },
+        {
+          "context": [
+            ".Menu"
+          ],
+          "property": "transition",
+          "value": "opacity 100ms linear,transform 100ms linear,visibility 100ms linear"
+        },
+        {
+          "context": [
+            ".xenOverlay a.close:hover"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".xenOverlay a.close.OverlayCloser:before"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".xenOverlay a.close:hover.OverlayCloser:before"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".modal"
+          ],
+          "property": "transition",
+          "value": "transform .2s ease-out,opacity .15s"
+        },
+        {
+          "context": [
+            ".modal-backdrop"
+          ],
+          "property": "transition",
+          "value": "opacity .15s"
+        },
+        {
+          "context": [
+            ".alertLikeButton .publicIconSvg svg .colored,.alertLikeButton:hover .publicIconSvg svg .nocolored,.alertLikeButton.liked .publicIconSvg svg .nocolored"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".alertLikeButton:hover .publicIconSvg svg .colored,.alertLikeButton.liked .publicIconSvg svg .colored,.alertLikeButton:hover .publicIconSvg svg"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".Alert .alertDonation"
+          ],
+          "property": "transition",
+          "value": "all .2s"
+        },
+        {
+          "context": [
+            ".memberListItem .userStatCounters .counter"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".memberListItem .userStatCounters .counter.selectedType"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".memberListItem .userStatCounters .counter.selectedType:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".memberListItem .userStatCounters .counter:not(.selectedType):hover"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".memberListItem .userStatCounters .counter:active"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".memberListItem .userStatCounters .counter:not(.selectedType):hover .counterSvgIcon svg"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".DismissParent .DismissCtrl"
+          ],
+          "property": "-webkit-transition",
+          "value": "opacity 0.3s ease-in-out"
+        },
+        {
+          "context": [
+            ".DismissParent .DismissCtrl"
+          ],
+          "property": "-moz-transition",
+          "value": "opacity 0.3s ease-in-out"
+        },
+        {
+          "context": [
+            ".DismissParent .DismissCtrl"
+          ],
+          "property": "transition",
+          "value": "opacity 0.3s ease-in-out"
+        },
+        {
+          "context": [
+            ".FloatingContainer .floatingItem .DismissCtrl"
+          ],
+          "property": "transition",
+          "value": "all .1s ease-in-out"
+        },
+        {
+          "context": [
+            ".CensorSpoiler"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".CensorSpoiler:hover"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "span.internalNodeLink"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            "a.internalNodeLink::before"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".conversationList.conversationListShown+.conversationViewContainer"
+          ],
+          "property": "animation",
+          "value": "openConversation 0.25s ease reverse"
+        },
+        {
+          "context": [
+            ".conversationList.conversationListHidden+.conversationViewContainer"
+          ],
+          "property": "animation",
+          "value": "openConversation 0.25s ease"
+        },
+        {
+          "context": [
+            ".MobileSmilieBox"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".petushBanner"
+          ],
+          "property": "animation",
+          "value": "move-bg 5000s linear infinite,rainbow 2.5s linear infinite"
+        },
+        {
+          "context": [
+            "a.mention:not(.alertAction)"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".messageText .SkeletonTextBlock"
+          ],
+          "property": "transition",
+          "value": "all .2s ease-in-out"
+        },
+        {
+          "context": [
+            ".messageText.SkeletonText .SkeletonTextBlock"
+          ],
+          "property": "transition",
+          "value": "all .2s ease-in-out"
+        },
+        {
+          "context": [
+            ".messageText.SkeletonText .SkeletonTextBlock::after"
+          ],
+          "property": "animation",
+          "value": "skeleton-loading 1.5s infinite"
+        },
+        {
+          "context": [
+            ".LikeLink.LikeBurstPop .icon"
+          ],
+          "property": "animation",
+          "value": "likeBurstPop .4s cubic-bezier(.2,.9,.3,1.4)"
+        },
+        {
+          "context": [
+            "@media (prefers-reduced-motion:reduce)",
+            ".LikeLink.LikeBurstPop .icon"
+          ],
+          "property": "animation",
+          "value": "none"
+        },
+        {
+          "context": [
+            ".button"
+          ],
+          "property": "transition",
+          "value": "all .1s ease-in-out"
+        },
+        {
+          "context": [
+            ".button.primary"
+          ],
+          "property": "transition",
+          "value": "color 0.25s"
+        },
+        {
+          "context": [
+            ".button.primary::before"
+          ],
+          "property": "transition",
+          "value": "opacity 0.3s ease"
+        },
+        {
+          "context": [
+            ".button.primary::after"
+          ],
+          "property": "transition",
+          "value": "opacity 0.15s ease"
+        },
+        {
+          "context": [
+            ".button.loading::before,.loadingIcon::before"
+          ],
+          "property": "animation",
+          "value": "fa-spin 1s infinite linear"
+        },
+        {
+          "context": [
+            ".button.primary:active"
+          ],
+          "property": "transition",
+          "value": "background 0s"
+        },
+        {
+          "context": [
+            ".button:not(.disabled):active"
+          ],
+          "property": "transition",
+          "value": "all .1s ease-in-out"
+        },
+        {
+          "context": [
+            ".ctrlUnit.submitUnit dt.InProgress::before"
+          ],
+          "property": "animation",
+          "value": "fa-spin 1s infinite linear"
+        },
+        {
+          "context": [
+            ".sub-forums__category-item"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".sub-forums__category-item:hover"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".sub-forums__category-item:active"
+          ],
+          "property": "transition",
+          "value": "0.1s"
+        },
+        {
+          "context": [
+            "#MarketBalanceSwitcher::before"
+          ],
+          "property": "transition",
+          "value": "all .1s ease-in-out"
+        },
+        {
+          "context": [
+            ".balanceLabel.balanceAmount.BalanceHidden"
+          ],
+          "property": "transition",
+          "value": "none"
+        },
+        {
+          "context": [
+            ".navPopup li.conversationItem"
+          ],
+          "property": "transition",
+          "value": "all .1s ease-in-out"
+        },
+        {
+          "context": [
+            ".navTabs .navTab.selected .PopupControl .arrowWidget::before"
+          ],
+          "property": "transition",
+          "value": "all .2s ease-in-out"
+        },
+        {
+          "context": [
+            ".QuickSearchClear"
+          ],
+          "property": "transition",
+          "value": ".1s opacity"
+        },
+        {
+          "context": [
+            "input[type=\"radio\"]:before,input[type=\"radio\"]:after"
+          ],
+          "property": "transition",
+          "value": "all 0.15s ease"
+        },
+        {
+          "context": [
+            ".sidebar .section.visitorPanel .userStatCounters .counter"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".sidebar .section.visitorPanel .userStatCounters .counter .count"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".tagEditStyle"
+          ],
+          "property": "transition",
+          "value": "0.4s"
+        },
+        {
+          "context": [
+            ".tagEditStyle:hover"
+          ],
+          "property": "transition",
+          "value": "0.4s"
+        },
+        {
+          "context": [
+            ".tagList .tag"
+          ],
+          "property": "transition",
+          "value": "0.4s"
+        },
+        {
+          "context": [
+            ".tagList .tag:hover"
+          ],
+          "property": "transition",
+          "value": "0.4s"
+        },
+        {
+          "context": [
+            ".prefix.lolzteam"
+          ],
+          "property": "animation",
+          "value": "gradientLolzteamMove 6s ease infinite"
+        },
+        {
+          "context": [
+            ".prefix.ultra_fast_contest"
+          ],
+          "property": "-webkit-animation",
+          "value": "UltraFast 3s ease infinite"
+        },
+        {
+          "context": [
+            ".prefix.ultra_fast_contest"
+          ],
+          "property": "-moz-animation",
+          "value": "UltraFast 3s ease infinite"
+        },
+        {
+          "context": [
+            ".prefix.ultra_fast_contest"
+          ],
+          "property": "animation",
+          "value": "UltraFast 3s ease infinite"
+        },
+        {
+          "context": [
+            ".userBanner.curator .Popup .PopupControl:not(.dottesStyle) .arrowWidget_badge,.Popup .NoPopupGadget .arrowWidget_badge"
+          ],
+          "property": "transition",
+          "value": ".2s"
+        },
+        {
+          "context": [
+            ".scrollbar-macosx>.scroll-element .scroll-bar"
+          ],
+          "property": "-webkit-transition",
+          "value": "opacity 0.2s linear"
+        },
+        {
+          "context": [
+            ".scrollbar-macosx>.scroll-element .scroll-bar"
+          ],
+          "property": "-moz-transition",
+          "value": "opacity 0.2s linear"
+        },
+        {
+          "context": [
+            ".scrollbar-macosx>.scroll-element .scroll-bar"
+          ],
+          "property": "-o-transition",
+          "value": "opacity 0.2s linear"
+        },
+        {
+          "context": [
+            ".scrollbar-macosx>.scroll-element .scroll-bar"
+          ],
+          "property": "transition",
+          "value": "opacity 0.2s linear"
+        },
+        {
+          "context": [
+            ".scrollbar-dynamic>.scroll-element .scroll-element_size"
+          ],
+          "property": "-webkit-transition",
+          "value": "opacity 0.1s"
+        },
+        {
+          "context": [
+            ".scrollbar-dynamic>.scroll-element .scroll-element_size"
+          ],
+          "property": "-moz-transition",
+          "value": "opacity 0.1s"
+        },
+        {
+          "context": [
+            ".scrollbar-dynamic>.scroll-element .scroll-element_size"
+          ],
+          "property": "-o-transition",
+          "value": "opacity 0.1s"
+        },
+        {
+          "context": [
+            ".scrollbar-dynamic>.scroll-element .scroll-element_size"
+          ],
+          "property": "transition",
+          "value": "opacity 0.1s"
+        },
+        {
+          "context": [
+            ".scrollbar-dynamic>.scroll-element.scroll-x .scroll-element_outer"
+          ],
+          "property": "-webkit-transition",
+          "value": "height 0.1s"
+        },
+        {
+          "context": [
+            ".scrollbar-dynamic>.scroll-element.scroll-x .scroll-element_outer"
+          ],
+          "property": "-moz-transition",
+          "value": "height 0.1s"
+        },
+        {
+          "context": [
+            ".scrollbar-dynamic>.scroll-element.scroll-x .scroll-element_outer"
+          ],
+          "property": "-o-transition",
+          "value": "height 0.1s"
+        },
+        {
+          "context": [
+            ".scrollbar-dynamic>.scroll-element.scroll-x .scroll-element_outer"
+          ],
+          "property": "transition",
+          "value": "height 0.1s"
+        },
+        {
+          "context": [
+            ".scrollbar-dynamic>.scroll-element.scroll-y .scroll-element_outer"
+          ],
+          "property": "-webkit-transition",
+          "value": "width 0.1s"
+        },
+        {
+          "context": [
+            ".scrollbar-dynamic>.scroll-element.scroll-y .scroll-element_outer"
+          ],
+          "property": "-moz-transition",
+          "value": "width 0.1s"
+        },
+        {
+          "context": [
+            ".scrollbar-dynamic>.scroll-element.scroll-y .scroll-element_outer"
+          ],
+          "property": "-o-transition",
+          "value": "width 0.1s"
+        },
+        {
+          "context": [
+            ".scrollbar-dynamic>.scroll-element.scroll-y .scroll-element_outer"
+          ],
+          "property": "transition",
+          "value": "width 0.1s"
+        },
+        {
+          "context": [
+            ".tippy-box"
+          ],
+          "property": "transition-property",
+          "value": "transform,visibility,opacity"
+        },
+        {
+          "context": [
+            ".tippy-box[data-inertia][data-state=visible]"
+          ],
+          "property": "transition-timing-function",
+          "value": "cubic-bezier(.54,1.5,.38,1.11)"
+        },
+        {
+          "context": [
+            ".tippy-backdrop"
+          ],
+          "property": "transition",
+          "value": "all cubic-bezier(.46,.1,.52,.98)"
+        },
+        {
+          "context": [
+            ".tippy-backdrop+.tippy-content"
+          ],
+          "property": "transition-property",
+          "value": "opacity"
+        },
+        {
+          "context": [
+            ".tippy-box[data-inertia][data-state=\"visible\"]"
+          ],
+          "property": "transition-timing-function",
+          "value": "cubic-bezier(.54,1.5,.38,1.11)"
+        },
+        {
+          "context": [
+            ".tippy-box[data-inertia][data-state=\"hidden\"]"
+          ],
+          "property": "transition-timing-function",
+          "value": "ease"
+        },
+        {
+          "context": [
+            "/*!\n * animate.css -https://daneden.github.io/animate.css/\n * Version - 3.7.2\n * Licensed under the MIT license - http://opensource.org/licenses/MIT\n *\n * Copyright (c) 2019 Daniel Eden\n */\n @-webkit-keyframes bounce",
+            "from,20%,53%,80%,to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "/*!\n * animate.css -https://daneden.github.io/animate.css/\n * Version - 3.7.2\n * Licensed under the MIT license - http://opensource.org/licenses/MIT\n *\n * Copyright (c) 2019 Daniel Eden\n */\n @-webkit-keyframes bounce",
+            "from,20%,53%,80%,to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "/*!\n * animate.css -https://daneden.github.io/animate.css/\n * Version - 3.7.2\n * Licensed under the MIT license - http://opensource.org/licenses/MIT\n *\n * Copyright (c) 2019 Daniel Eden\n */\n @-webkit-keyframes bounce",
+            "40%,43%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.755,.05,.855,.06)"
+        },
+        {
+          "context": [
+            "/*!\n * animate.css -https://daneden.github.io/animate.css/\n * Version - 3.7.2\n * Licensed under the MIT license - http://opensource.org/licenses/MIT\n *\n * Copyright (c) 2019 Daniel Eden\n */\n @-webkit-keyframes bounce",
+            "40%,43%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.755,.05,.855,.06)"
+        },
+        {
+          "context": [
+            "/*!\n * animate.css -https://daneden.github.io/animate.css/\n * Version - 3.7.2\n * Licensed under the MIT license - http://opensource.org/licenses/MIT\n *\n * Copyright (c) 2019 Daniel Eden\n */\n @-webkit-keyframes bounce",
+            "70%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.755,.05,.855,.06)"
+        },
+        {
+          "context": [
+            "/*!\n * animate.css -https://daneden.github.io/animate.css/\n * Version - 3.7.2\n * Licensed under the MIT license - http://opensource.org/licenses/MIT\n *\n * Copyright (c) 2019 Daniel Eden\n */\n @-webkit-keyframes bounce",
+            "70%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.755,.05,.855,.06)"
+        },
+        {
+          "context": [
+            "@keyframes bounce",
+            "from,20%,53%,80%,to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@keyframes bounce",
+            "from,20%,53%,80%,to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@keyframes bounce",
+            "40%,43%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.755,.05,.855,.06)"
+        },
+        {
+          "context": [
+            "@keyframes bounce",
+            "40%,43%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.755,.05,.855,.06)"
+        },
+        {
+          "context": [
+            "@keyframes bounce",
+            "70%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.755,.05,.855,.06)"
+        },
+        {
+          "context": [
+            "@keyframes bounce",
+            "70%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.755,.05,.855,.06)"
+        },
+        {
+          "context": [
+            ".bounce"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "bounce"
+        },
+        {
+          "context": [
+            ".bounce"
+          ],
+          "property": "animation-name",
+          "value": "bounce"
+        },
+        {
+          "context": [
+            ".flash"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "flash"
+        },
+        {
+          "context": [
+            ".flash"
+          ],
+          "property": "animation-name",
+          "value": "flash"
+        },
+        {
+          "context": [
+            ".pulse"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "pulse"
+        },
+        {
+          "context": [
+            ".pulse"
+          ],
+          "property": "animation-name",
+          "value": "pulse"
+        },
+        {
+          "context": [
+            ".rubberBand"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "rubberBand"
+        },
+        {
+          "context": [
+            ".rubberBand"
+          ],
+          "property": "animation-name",
+          "value": "rubberBand"
+        },
+        {
+          "context": [
+            ".shake"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "shake"
+        },
+        {
+          "context": [
+            ".shake"
+          ],
+          "property": "animation-name",
+          "value": "shake"
+        },
+        {
+          "context": [
+            ".headShake"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            ".headShake"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            ".headShake"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "headShake"
+        },
+        {
+          "context": [
+            ".headShake"
+          ],
+          "property": "animation-name",
+          "value": "headShake"
+        },
+        {
+          "context": [
+            ".swing"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "swing"
+        },
+        {
+          "context": [
+            ".swing"
+          ],
+          "property": "animation-name",
+          "value": "swing"
+        },
+        {
+          "context": [
+            ".tada"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "tada"
+        },
+        {
+          "context": [
+            ".tada"
+          ],
+          "property": "animation-name",
+          "value": "tada"
+        },
+        {
+          "context": [
+            ".wobble"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "wobble"
+        },
+        {
+          "context": [
+            ".wobble"
+          ],
+          "property": "animation-name",
+          "value": "wobble"
+        },
+        {
+          "context": [
+            ".jello"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "jello"
+        },
+        {
+          "context": [
+            ".jello"
+          ],
+          "property": "animation-name",
+          "value": "jello"
+        },
+        {
+          "context": [
+            ".heartBeat"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "heartBeat"
+        },
+        {
+          "context": [
+            ".heartBeat"
+          ],
+          "property": "animation-name",
+          "value": "heartBeat"
+        },
+        {
+          "context": [
+            ".heartBeat"
+          ],
+          "property": "-webkit-animation-duration",
+          "value": "1.3s"
+        },
+        {
+          "context": [
+            ".heartBeat"
+          ],
+          "property": "animation-duration",
+          "value": "1.3s"
+        },
+        {
+          "context": [
+            ".heartBeat"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            ".heartBeat"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes bounceIn",
+            "from,20%,40%,60%,80%,to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes bounceIn",
+            "from,20%,40%,60%,80%,to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@keyframes bounceIn",
+            "from,20%,40%,60%,80%,to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@keyframes bounceIn",
+            "from,20%,40%,60%,80%,to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            ".bounceIn"
+          ],
+          "property": "-webkit-animation-duration",
+          "value": "0.75s"
+        },
+        {
+          "context": [
+            ".bounceIn"
+          ],
+          "property": "animation-duration",
+          "value": "0.75s"
+        },
+        {
+          "context": [
+            ".bounceIn"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "bounceIn"
+        },
+        {
+          "context": [
+            ".bounceIn"
+          ],
+          "property": "animation-name",
+          "value": "bounceIn"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes bounceInDown",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes bounceInDown",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@keyframes bounceInDown",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@keyframes bounceInDown",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            ".bounceInDown"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "bounceInDown"
+        },
+        {
+          "context": [
+            ".bounceInDown"
+          ],
+          "property": "animation-name",
+          "value": "bounceInDown"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes bounceInLeft",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes bounceInLeft",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@keyframes bounceInLeft",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@keyframes bounceInLeft",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            ".bounceInLeft"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "bounceInLeft"
+        },
+        {
+          "context": [
+            ".bounceInLeft"
+          ],
+          "property": "animation-name",
+          "value": "bounceInLeft"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes bounceInRight",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes bounceInRight",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@keyframes bounceInRight",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@keyframes bounceInRight",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            ".bounceInRight"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "bounceInRight"
+        },
+        {
+          "context": [
+            ".bounceInRight"
+          ],
+          "property": "animation-name",
+          "value": "bounceInRight"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes bounceInUp",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes bounceInUp",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@keyframes bounceInUp",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            "@keyframes bounceInUp",
+            "from,60%,75%,90%,to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.215,.61,.355,1)"
+        },
+        {
+          "context": [
+            ".bounceInUp"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "bounceInUp"
+        },
+        {
+          "context": [
+            ".bounceInUp"
+          ],
+          "property": "animation-name",
+          "value": "bounceInUp"
+        },
+        {
+          "context": [
+            ".bounceOut"
+          ],
+          "property": "-webkit-animation-duration",
+          "value": "0.75s"
+        },
+        {
+          "context": [
+            ".bounceOut"
+          ],
+          "property": "animation-duration",
+          "value": "0.75s"
+        },
+        {
+          "context": [
+            ".bounceOut"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "bounceOut"
+        },
+        {
+          "context": [
+            ".bounceOut"
+          ],
+          "property": "animation-name",
+          "value": "bounceOut"
+        },
+        {
+          "context": [
+            ".bounceOutDown"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "bounceOutDown"
+        },
+        {
+          "context": [
+            ".bounceOutDown"
+          ],
+          "property": "animation-name",
+          "value": "bounceOutDown"
+        },
+        {
+          "context": [
+            ".bounceOutLeft"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "bounceOutLeft"
+        },
+        {
+          "context": [
+            ".bounceOutLeft"
+          ],
+          "property": "animation-name",
+          "value": "bounceOutLeft"
+        },
+        {
+          "context": [
+            ".bounceOutRight"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "bounceOutRight"
+        },
+        {
+          "context": [
+            ".bounceOutRight"
+          ],
+          "property": "animation-name",
+          "value": "bounceOutRight"
+        },
+        {
+          "context": [
+            ".bounceOutUp"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "bounceOutUp"
+        },
+        {
+          "context": [
+            ".bounceOutUp"
+          ],
+          "property": "animation-name",
+          "value": "bounceOutUp"
+        },
+        {
+          "context": [
+            ".fadeIn"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeIn"
+        },
+        {
+          "context": [
+            ".fadeIn"
+          ],
+          "property": "animation-name",
+          "value": "fadeIn"
+        },
+        {
+          "context": [
+            ".fadeInDown"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeInDown"
+        },
+        {
+          "context": [
+            ".fadeInDown"
+          ],
+          "property": "animation-name",
+          "value": "fadeInDown"
+        },
+        {
+          "context": [
+            ".fadeInDownBig"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeInDownBig"
+        },
+        {
+          "context": [
+            ".fadeInDownBig"
+          ],
+          "property": "animation-name",
+          "value": "fadeInDownBig"
+        },
+        {
+          "context": [
+            ".fadeInLeft"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeInLeft"
+        },
+        {
+          "context": [
+            ".fadeInLeft"
+          ],
+          "property": "animation-name",
+          "value": "fadeInLeft"
+        },
+        {
+          "context": [
+            ".fadeInLeftBig"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeInLeftBig"
+        },
+        {
+          "context": [
+            ".fadeInLeftBig"
+          ],
+          "property": "animation-name",
+          "value": "fadeInLeftBig"
+        },
+        {
+          "context": [
+            ".fadeInRight"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeInRight"
+        },
+        {
+          "context": [
+            ".fadeInRight"
+          ],
+          "property": "animation-name",
+          "value": "fadeInRight"
+        },
+        {
+          "context": [
+            ".fadeInRightBig"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeInRightBig"
+        },
+        {
+          "context": [
+            ".fadeInRightBig"
+          ],
+          "property": "animation-name",
+          "value": "fadeInRightBig"
+        },
+        {
+          "context": [
+            ".fadeInUp"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeInUp"
+        },
+        {
+          "context": [
+            ".fadeInUp"
+          ],
+          "property": "animation-name",
+          "value": "fadeInUp"
+        },
+        {
+          "context": [
+            ".fadeInUpBig"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeInUpBig"
+        },
+        {
+          "context": [
+            ".fadeInUpBig"
+          ],
+          "property": "animation-name",
+          "value": "fadeInUpBig"
+        },
+        {
+          "context": [
+            ".fadeOut"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeOut"
+        },
+        {
+          "context": [
+            ".fadeOut"
+          ],
+          "property": "animation-name",
+          "value": "fadeOut"
+        },
+        {
+          "context": [
+            ".fadeOutDown"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeOutDown"
+        },
+        {
+          "context": [
+            ".fadeOutDown"
+          ],
+          "property": "animation-name",
+          "value": "fadeOutDown"
+        },
+        {
+          "context": [
+            ".fadeOutDownBig"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeOutDownBig"
+        },
+        {
+          "context": [
+            ".fadeOutDownBig"
+          ],
+          "property": "animation-name",
+          "value": "fadeOutDownBig"
+        },
+        {
+          "context": [
+            ".fadeOutLeft"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeOutLeft"
+        },
+        {
+          "context": [
+            ".fadeOutLeft"
+          ],
+          "property": "animation-name",
+          "value": "fadeOutLeft"
+        },
+        {
+          "context": [
+            ".fadeOutLeftBig"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeOutLeftBig"
+        },
+        {
+          "context": [
+            ".fadeOutLeftBig"
+          ],
+          "property": "animation-name",
+          "value": "fadeOutLeftBig"
+        },
+        {
+          "context": [
+            ".fadeOutRight"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeOutRight"
+        },
+        {
+          "context": [
+            ".fadeOutRight"
+          ],
+          "property": "animation-name",
+          "value": "fadeOutRight"
+        },
+        {
+          "context": [
+            ".fadeOutRightBig"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeOutRightBig"
+        },
+        {
+          "context": [
+            ".fadeOutRightBig"
+          ],
+          "property": "animation-name",
+          "value": "fadeOutRightBig"
+        },
+        {
+          "context": [
+            ".fadeOutUp"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeOutUp"
+        },
+        {
+          "context": [
+            ".fadeOutUp"
+          ],
+          "property": "animation-name",
+          "value": "fadeOutUp"
+        },
+        {
+          "context": [
+            ".fadeOutUpBig"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "fadeOutUpBig"
+        },
+        {
+          "context": [
+            ".fadeOutUpBig"
+          ],
+          "property": "animation-name",
+          "value": "fadeOutUpBig"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flip",
+            "from"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-out"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flip",
+            "from"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-out"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flip",
+            "40%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-out"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flip",
+            "40%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-out"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flip",
+            "50%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flip",
+            "50%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flip",
+            "80%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flip",
+            "80%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flip",
+            "to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flip",
+            "to"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@keyframes flip",
+            "from"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-out"
+        },
+        {
+          "context": [
+            "@keyframes flip",
+            "from"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-out"
+        },
+        {
+          "context": [
+            "@keyframes flip",
+            "40%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-out"
+        },
+        {
+          "context": [
+            "@keyframes flip",
+            "40%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-out"
+        },
+        {
+          "context": [
+            "@keyframes flip",
+            "50%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@keyframes flip",
+            "50%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@keyframes flip",
+            "80%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@keyframes flip",
+            "80%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@keyframes flip",
+            "to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@keyframes flip",
+            "to"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            ".animated.flip"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "flip"
+        },
+        {
+          "context": [
+            ".animated.flip"
+          ],
+          "property": "animation-name",
+          "value": "flip"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flipInX",
+            "from"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flipInX",
+            "from"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flipInX",
+            "40%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flipInX",
+            "40%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@keyframes flipInX",
+            "from"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@keyframes flipInX",
+            "from"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@keyframes flipInX",
+            "40%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@keyframes flipInX",
+            "40%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            ".flipInX"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "flipInX"
+        },
+        {
+          "context": [
+            ".flipInX"
+          ],
+          "property": "animation-name",
+          "value": "flipInX"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flipInY",
+            "from"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flipInY",
+            "from"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flipInY",
+            "40%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes flipInY",
+            "40%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@keyframes flipInY",
+            "from"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@keyframes flipInY",
+            "from"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@keyframes flipInY",
+            "40%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            "@keyframes flipInY",
+            "40%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            ".flipInY"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "flipInY"
+        },
+        {
+          "context": [
+            ".flipInY"
+          ],
+          "property": "animation-name",
+          "value": "flipInY"
+        },
+        {
+          "context": [
+            ".flipOutX"
+          ],
+          "property": "-webkit-animation-duration",
+          "value": "0.75s"
+        },
+        {
+          "context": [
+            ".flipOutX"
+          ],
+          "property": "animation-duration",
+          "value": "0.75s"
+        },
+        {
+          "context": [
+            ".flipOutX"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "flipOutX"
+        },
+        {
+          "context": [
+            ".flipOutX"
+          ],
+          "property": "animation-name",
+          "value": "flipOutX"
+        },
+        {
+          "context": [
+            ".flipOutY"
+          ],
+          "property": "-webkit-animation-duration",
+          "value": "0.75s"
+        },
+        {
+          "context": [
+            ".flipOutY"
+          ],
+          "property": "animation-duration",
+          "value": "0.75s"
+        },
+        {
+          "context": [
+            ".flipOutY"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "flipOutY"
+        },
+        {
+          "context": [
+            ".flipOutY"
+          ],
+          "property": "animation-name",
+          "value": "flipOutY"
+        },
+        {
+          "context": [
+            ".lightSpeedIn"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "lightSpeedIn"
+        },
+        {
+          "context": [
+            ".lightSpeedIn"
+          ],
+          "property": "animation-name",
+          "value": "lightSpeedIn"
+        },
+        {
+          "context": [
+            ".lightSpeedIn"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-out"
+        },
+        {
+          "context": [
+            ".lightSpeedIn"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-out"
+        },
+        {
+          "context": [
+            ".lightSpeedOut"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "lightSpeedOut"
+        },
+        {
+          "context": [
+            ".lightSpeedOut"
+          ],
+          "property": "animation-name",
+          "value": "lightSpeedOut"
+        },
+        {
+          "context": [
+            ".lightSpeedOut"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            ".lightSpeedOut"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in"
+        },
+        {
+          "context": [
+            ".rotateIn"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "rotateIn"
+        },
+        {
+          "context": [
+            ".rotateIn"
+          ],
+          "property": "animation-name",
+          "value": "rotateIn"
+        },
+        {
+          "context": [
+            ".rotateInDownLeft"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "rotateInDownLeft"
+        },
+        {
+          "context": [
+            ".rotateInDownLeft"
+          ],
+          "property": "animation-name",
+          "value": "rotateInDownLeft"
+        },
+        {
+          "context": [
+            ".rotateInDownRight"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "rotateInDownRight"
+        },
+        {
+          "context": [
+            ".rotateInDownRight"
+          ],
+          "property": "animation-name",
+          "value": "rotateInDownRight"
+        },
+        {
+          "context": [
+            ".rotateInUpLeft"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "rotateInUpLeft"
+        },
+        {
+          "context": [
+            ".rotateInUpLeft"
+          ],
+          "property": "animation-name",
+          "value": "rotateInUpLeft"
+        },
+        {
+          "context": [
+            ".rotateInUpRight"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "rotateInUpRight"
+        },
+        {
+          "context": [
+            ".rotateInUpRight"
+          ],
+          "property": "animation-name",
+          "value": "rotateInUpRight"
+        },
+        {
+          "context": [
+            ".rotateOut"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "rotateOut"
+        },
+        {
+          "context": [
+            ".rotateOut"
+          ],
+          "property": "animation-name",
+          "value": "rotateOut"
+        },
+        {
+          "context": [
+            ".rotateOutDownLeft"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "rotateOutDownLeft"
+        },
+        {
+          "context": [
+            ".rotateOutDownLeft"
+          ],
+          "property": "animation-name",
+          "value": "rotateOutDownLeft"
+        },
+        {
+          "context": [
+            ".rotateOutDownRight"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "rotateOutDownRight"
+        },
+        {
+          "context": [
+            ".rotateOutDownRight"
+          ],
+          "property": "animation-name",
+          "value": "rotateOutDownRight"
+        },
+        {
+          "context": [
+            ".rotateOutUpLeft"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "rotateOutUpLeft"
+        },
+        {
+          "context": [
+            ".rotateOutUpLeft"
+          ],
+          "property": "animation-name",
+          "value": "rotateOutUpLeft"
+        },
+        {
+          "context": [
+            ".rotateOutUpRight"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "rotateOutUpRight"
+        },
+        {
+          "context": [
+            ".rotateOutUpRight"
+          ],
+          "property": "animation-name",
+          "value": "rotateOutUpRight"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes hinge",
+            "0%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes hinge",
+            "0%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes hinge",
+            "20%,60%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes hinge",
+            "20%,60%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes hinge",
+            "40%,80%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes hinge",
+            "40%,80%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            "@keyframes hinge",
+            "0%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            "@keyframes hinge",
+            "0%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            "@keyframes hinge",
+            "20%,60%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            "@keyframes hinge",
+            "20%,60%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            "@keyframes hinge",
+            "40%,80%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            "@keyframes hinge",
+            "40%,80%"
+          ],
+          "property": "animation-timing-function",
+          "value": "ease-in-out"
+        },
+        {
+          "context": [
+            ".hinge"
+          ],
+          "property": "-webkit-animation-duration",
+          "value": "2s"
+        },
+        {
+          "context": [
+            ".hinge"
+          ],
+          "property": "animation-duration",
+          "value": "2s"
+        },
+        {
+          "context": [
+            ".hinge"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "hinge"
+        },
+        {
+          "context": [
+            ".hinge"
+          ],
+          "property": "animation-name",
+          "value": "hinge"
+        },
+        {
+          "context": [
+            ".jackInTheBox"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "jackInTheBox"
+        },
+        {
+          "context": [
+            ".jackInTheBox"
+          ],
+          "property": "animation-name",
+          "value": "jackInTheBox"
+        },
+        {
+          "context": [
+            ".rollIn"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "rollIn"
+        },
+        {
+          "context": [
+            ".rollIn"
+          ],
+          "property": "animation-name",
+          "value": "rollIn"
+        },
+        {
+          "context": [
+            ".rollOut"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "rollOut"
+        },
+        {
+          "context": [
+            ".rollOut"
+          ],
+          "property": "animation-name",
+          "value": "rollOut"
+        },
+        {
+          "context": [
+            ".zoomIn"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "zoomIn"
+        },
+        {
+          "context": [
+            ".zoomIn"
+          ],
+          "property": "animation-name",
+          "value": "zoomIn"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInDown",
+            "from"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInDown",
+            "from"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInDown",
+            "60%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInDown",
+            "60%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInDown",
+            "from"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInDown",
+            "from"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInDown",
+            "60%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInDown",
+            "60%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            ".zoomInDown"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "zoomInDown"
+        },
+        {
+          "context": [
+            ".zoomInDown"
+          ],
+          "property": "animation-name",
+          "value": "zoomInDown"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInLeft",
+            "from"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInLeft",
+            "from"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInLeft",
+            "60%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInLeft",
+            "60%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInLeft",
+            "from"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInLeft",
+            "from"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInLeft",
+            "60%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInLeft",
+            "60%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            ".zoomInLeft"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "zoomInLeft"
+        },
+        {
+          "context": [
+            ".zoomInLeft"
+          ],
+          "property": "animation-name",
+          "value": "zoomInLeft"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInRight",
+            "from"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInRight",
+            "from"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInRight",
+            "60%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInRight",
+            "60%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInRight",
+            "from"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInRight",
+            "from"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInRight",
+            "60%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInRight",
+            "60%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            ".zoomInRight"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "zoomInRight"
+        },
+        {
+          "context": [
+            ".zoomInRight"
+          ],
+          "property": "animation-name",
+          "value": "zoomInRight"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInUp",
+            "from"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInUp",
+            "from"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInUp",
+            "60%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomInUp",
+            "60%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInUp",
+            "from"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInUp",
+            "from"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInUp",
+            "60%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@keyframes zoomInUp",
+            "60%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            ".zoomInUp"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "zoomInUp"
+        },
+        {
+          "context": [
+            ".zoomInUp"
+          ],
+          "property": "animation-name",
+          "value": "zoomInUp"
+        },
+        {
+          "context": [
+            ".zoomOut"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "zoomOut"
+        },
+        {
+          "context": [
+            ".zoomOut"
+          ],
+          "property": "animation-name",
+          "value": "zoomOut"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomOutDown",
+            "40%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomOutDown",
+            "40%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomOutDown",
+            "to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomOutDown",
+            "to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@keyframes zoomOutDown",
+            "40%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@keyframes zoomOutDown",
+            "40%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@keyframes zoomOutDown",
+            "to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@keyframes zoomOutDown",
+            "to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            ".zoomOutDown"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "zoomOutDown"
+        },
+        {
+          "context": [
+            ".zoomOutDown"
+          ],
+          "property": "animation-name",
+          "value": "zoomOutDown"
+        },
+        {
+          "context": [
+            ".zoomOutLeft"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "zoomOutLeft"
+        },
+        {
+          "context": [
+            ".zoomOutLeft"
+          ],
+          "property": "animation-name",
+          "value": "zoomOutLeft"
+        },
+        {
+          "context": [
+            ".zoomOutRight"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "zoomOutRight"
+        },
+        {
+          "context": [
+            ".zoomOutRight"
+          ],
+          "property": "animation-name",
+          "value": "zoomOutRight"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomOutUp",
+            "40%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomOutUp",
+            "40%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomOutUp",
+            "to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@-webkit-keyframes zoomOutUp",
+            "to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@keyframes zoomOutUp",
+            "40%"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@keyframes zoomOutUp",
+            "40%"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.55,.055,.675,.19)"
+        },
+        {
+          "context": [
+            "@keyframes zoomOutUp",
+            "to"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            "@keyframes zoomOutUp",
+            "to"
+          ],
+          "property": "animation-timing-function",
+          "value": "cubic-bezier(.175,.885,.32,1)"
+        },
+        {
+          "context": [
+            ".zoomOutUp"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "zoomOutUp"
+        },
+        {
+          "context": [
+            ".zoomOutUp"
+          ],
+          "property": "animation-name",
+          "value": "zoomOutUp"
+        },
+        {
+          "context": [
+            ".slideInDown"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "slideInDown"
+        },
+        {
+          "context": [
+            ".slideInDown"
+          ],
+          "property": "animation-name",
+          "value": "slideInDown"
+        },
+        {
+          "context": [
+            ".slideInLeft"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "slideInLeft"
+        },
+        {
+          "context": [
+            ".slideInLeft"
+          ],
+          "property": "animation-name",
+          "value": "slideInLeft"
+        },
+        {
+          "context": [
+            ".slideInRight"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "slideInRight"
+        },
+        {
+          "context": [
+            ".slideInRight"
+          ],
+          "property": "animation-name",
+          "value": "slideInRight"
+        },
+        {
+          "context": [
+            ".slideInUp"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "slideInUp"
+        },
+        {
+          "context": [
+            ".slideInUp"
+          ],
+          "property": "animation-name",
+          "value": "slideInUp"
+        },
+        {
+          "context": [
+            ".slideOutDown"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "slideOutDown"
+        },
+        {
+          "context": [
+            ".slideOutDown"
+          ],
+          "property": "animation-name",
+          "value": "slideOutDown"
+        },
+        {
+          "context": [
+            ".slideOutLeft"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "slideOutLeft"
+        },
+        {
+          "context": [
+            ".slideOutLeft"
+          ],
+          "property": "animation-name",
+          "value": "slideOutLeft"
+        },
+        {
+          "context": [
+            ".slideOutRight"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "slideOutRight"
+        },
+        {
+          "context": [
+            ".slideOutRight"
+          ],
+          "property": "animation-name",
+          "value": "slideOutRight"
+        },
+        {
+          "context": [
+            ".slideOutUp"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "slideOutUp"
+        },
+        {
+          "context": [
+            ".slideOutUp"
+          ],
+          "property": "animation-name",
+          "value": "slideOutUp"
+        },
+        {
+          "context": [
+            ".animated"
+          ],
+          "property": "-webkit-animation-duration",
+          "value": "1s"
+        },
+        {
+          "context": [
+            ".animated"
+          ],
+          "property": "animation-duration",
+          "value": "1s"
+        },
+        {
+          "context": [
+            ".animated"
+          ],
+          "property": "-webkit-animation-fill-mode",
+          "value": "both"
+        },
+        {
+          "context": [
+            ".animated"
+          ],
+          "property": "animation-fill-mode",
+          "value": "both"
+        },
+        {
+          "context": [
+            ".animated.infinite"
+          ],
+          "property": "-webkit-animation-iteration-count",
+          "value": "infinite"
+        },
+        {
+          "context": [
+            ".animated.infinite"
+          ],
+          "property": "animation-iteration-count",
+          "value": "infinite"
+        },
+        {
+          "context": [
+            ".animated.delay-1s"
+          ],
+          "property": "-webkit-animation-delay",
+          "value": "1s"
+        },
+        {
+          "context": [
+            ".animated.delay-1s"
+          ],
+          "property": "animation-delay",
+          "value": "1s"
+        },
+        {
+          "context": [
+            ".animated.delay-2s"
+          ],
+          "property": "-webkit-animation-delay",
+          "value": "2s"
+        },
+        {
+          "context": [
+            ".animated.delay-2s"
+          ],
+          "property": "animation-delay",
+          "value": "2s"
+        },
+        {
+          "context": [
+            ".animated.delay-3s"
+          ],
+          "property": "-webkit-animation-delay",
+          "value": "3s"
+        },
+        {
+          "context": [
+            ".animated.delay-3s"
+          ],
+          "property": "animation-delay",
+          "value": "3s"
+        },
+        {
+          "context": [
+            ".animated.delay-4s"
+          ],
+          "property": "-webkit-animation-delay",
+          "value": "4s"
+        },
+        {
+          "context": [
+            ".animated.delay-4s"
+          ],
+          "property": "animation-delay",
+          "value": "4s"
+        },
+        {
+          "context": [
+            ".animated.delay-5s"
+          ],
+          "property": "-webkit-animation-delay",
+          "value": "5s"
+        },
+        {
+          "context": [
+            ".animated.delay-5s"
+          ],
+          "property": "animation-delay",
+          "value": "5s"
+        },
+        {
+          "context": [
+            ".animated.fast"
+          ],
+          "property": "-webkit-animation-duration",
+          "value": "800ms"
+        },
+        {
+          "context": [
+            ".animated.fast"
+          ],
+          "property": "animation-duration",
+          "value": "800ms"
+        },
+        {
+          "context": [
+            ".animated.faster"
+          ],
+          "property": "-webkit-animation-duration",
+          "value": "400ms"
+        },
+        {
+          "context": [
+            ".animated.faster"
+          ],
+          "property": "animation-duration",
+          "value": "400ms"
+        },
+        {
+          "context": [
+            ".animated.slow"
+          ],
+          "property": "-webkit-animation-duration",
+          "value": "2s"
+        },
+        {
+          "context": [
+            ".animated.slow"
+          ],
+          "property": "animation-duration",
+          "value": "2s"
+        },
+        {
+          "context": [
+            ".animated.slower"
+          ],
+          "property": "-webkit-animation-duration",
+          "value": "3s"
+        },
+        {
+          "context": [
+            ".animated.slower"
+          ],
+          "property": "animation-duration",
+          "value": "3s"
+        },
+        {
+          "context": [
+            "@media (print),(prefers-reduced-motion:reduce)",
+            ".animated"
+          ],
+          "property": "-webkit-animation-duration",
+          "value": "1ms!important"
+        },
+        {
+          "context": [
+            "@media (print),(prefers-reduced-motion:reduce)",
+            ".animated"
+          ],
+          "property": "animation-duration",
+          "value": "1ms!important"
+        },
+        {
+          "context": [
+            "@media (print),(prefers-reduced-motion:reduce)",
+            ".animated"
+          ],
+          "property": "-webkit-transition-duration",
+          "value": "1ms!important"
+        },
+        {
+          "context": [
+            "@media (print),(prefers-reduced-motion:reduce)",
+            ".animated"
+          ],
+          "property": "transition-duration",
+          "value": "1ms!important"
+        },
+        {
+          "context": [
+            "@media (print),(prefers-reduced-motion:reduce)",
+            ".animated"
+          ],
+          "property": "-webkit-animation-iteration-count",
+          "value": "1!important"
+        },
+        {
+          "context": [
+            "@media (print),(prefers-reduced-motion:reduce)",
+            ".animated"
+          ],
+          "property": "animation-iteration-count",
+          "value": "1!important"
+        },
+        {
+          "context": [
+            ".bubbleAnimation"
+          ],
+          "property": "animation",
+          "value": "animateElement linear .3s"
+        },
+        {
+          "context": [
+            ".bubbleAnimation"
+          ],
+          "property": "animation-iteration-count",
+          "value": "1"
+        },
+        {
+          "context": [
+            ".bubbleAnimation2"
+          ],
+          "property": "animation",
+          "value": "animateElement2 linear .3s"
+        },
+        {
+          "context": [
+            ".bubbleAnimation2"
+          ],
+          "property": "animation-iteration-count",
+          "value": "1"
+        },
+        {
+          "context": [
+            ".radio-group.buttonStyle label:hover"
+          ],
+          "property": "transition",
+          "value": ".2s"
+        },
+        {
+          "context": [
+            "#chatboxSmilies .smilies-nav .Smilie,#chatboxSmilies .smilies-nav .smilie"
+          ],
+          "property": "transition",
+          "value": "background .15s"
+        },
+        {
+          "context": [
+            ".contact"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".xenOverlay .formOverlay .explain a"
+          ],
+          "property": "transition",
+          "value": "0.5s"
+        },
+        {
+          "context": [
+            ".userText em.status34945,.userText em.status44968,.userText em.status40687,.userText em.status41486,.userText em.status36466,.userText em.status40465,.userText em.status40808,.userText em.status41987,.userText em.status43788,.userText em.status41382,.userText em.status33655,.userText em.status39994,.userText em.status26121,.userText em.status32748,.userText em.status25754,.userText em.status1501,.userText em.status36383,.userText em.status47576,.userText em.status51640,.userText em.status17152,.userText em.status45226,.userText em.status31917,.userText em.status66381,.userText em.status73769,.userText em.status59523,.userText em.status62937,.userText em.status120010,.userText em.status37643"
+          ],
+          "property": "-webkit-animation-name",
+          "value": "masked-animation"
+        },
+        {
+          "context": [
+            ".userText em.status34945,.userText em.status44968,.userText em.status40687,.userText em.status41486,.userText em.status36466,.userText em.status40465,.userText em.status40808,.userText em.status41987,.userText em.status43788,.userText em.status41382,.userText em.status33655,.userText em.status39994,.userText em.status26121,.userText em.status32748,.userText em.status25754,.userText em.status1501,.userText em.status36383,.userText em.status47576,.userText em.status51640,.userText em.status17152,.userText em.status45226,.userText em.status31917,.userText em.status66381,.userText em.status73769,.userText em.status59523,.userText em.status62937,.userText em.status120010,.userText em.status37643"
+          ],
+          "property": "-webkit-animation-duration",
+          "value": "40s"
+        },
+        {
+          "context": [
+            ".userText em.status34945,.userText em.status44968,.userText em.status40687,.userText em.status41486,.userText em.status36466,.userText em.status40465,.userText em.status40808,.userText em.status41987,.userText em.status43788,.userText em.status41382,.userText em.status33655,.userText em.status39994,.userText em.status26121,.userText em.status32748,.userText em.status25754,.userText em.status1501,.userText em.status36383,.userText em.status47576,.userText em.status51640,.userText em.status17152,.userText em.status45226,.userText em.status31917,.userText em.status66381,.userText em.status73769,.userText em.status59523,.userText em.status62937,.userText em.status120010,.userText em.status37643"
+          ],
+          "property": "-webkit-animation-iteration-count",
+          "value": "infinite"
+        },
+        {
+          "context": [
+            ".userText em.status34945,.userText em.status44968,.userText em.status40687,.userText em.status41486,.userText em.status36466,.userText em.status40465,.userText em.status40808,.userText em.status41987,.userText em.status43788,.userText em.status41382,.userText em.status33655,.userText em.status39994,.userText em.status26121,.userText em.status32748,.userText em.status25754,.userText em.status1501,.userText em.status36383,.userText em.status47576,.userText em.status51640,.userText em.status17152,.userText em.status45226,.userText em.status31917,.userText em.status66381,.userText em.status73769,.userText em.status59523,.userText em.status62937,.userText em.status120010,.userText em.status37643"
+          ],
+          "property": "-webkit-animation-timing-function",
+          "value": "linear"
+        },
+        {
+          "context": [
+            ".spinner>.bounce,.spinner>div"
+          ],
+          "property": "-webkit-animation",
+          "value": "sk-bouncedelay 1.4s infinite ease-in-out both"
+        },
+        {
+          "context": [
+            ".spinner>.bounce,.spinner>div"
+          ],
+          "property": "animation",
+          "value": "sk-bouncedelay 1.4s infinite ease-in-out both"
+        },
+        {
+          "context": [
+            ".spinner .bounce1"
+          ],
+          "property": "-webkit-animation-delay",
+          "value": "-0.32s"
+        },
+        {
+          "context": [
+            ".spinner .bounce1"
+          ],
+          "property": "animation-delay",
+          "value": "-0.32s"
+        },
+        {
+          "context": [
+            ".spinner .bounce2"
+          ],
+          "property": "-webkit-animation-delay",
+          "value": "-0.16s"
+        },
+        {
+          "context": [
+            ".spinner .bounce2"
+          ],
+          "property": "animation-delay",
+          "value": "-0.16s"
+        },
+        {
+          "context": [
+            "input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus textarea:-webkit-autofill,textarea:-webkit-autofill:hover textarea:-webkit-autofill:focus,select:-webkit-autofill,select:-webkit-autofill:hover,select:-webkit-autofill:focus"
+          ],
+          "property": "transition",
+          "value": "background-color 5000s ease-in-out 0s!important"
+        },
+        {
+          "context": [
+            ".button.btn-with-icon .btn-icon.spin-animation.spin-icon"
+          ],
+          "property": "animation",
+          "value": "bth-icon-spin360 0.6s ease-out"
+        },
+        {
+          "context": [
+            ".button.loading-right::after"
+          ],
+          "property": "animation",
+          "value": "fa-spin 1s infinite linear"
+        },
+        {
+          "context": [
+            ".button.loading-left::before,.loadingIcon::before"
+          ],
+          "property": "animation",
+          "value": "fa-spin 1s infinite linear"
+        },
+        {
+          "context": [
+            ".InfiniteScrollSpinner"
+          ],
+          "property": "transition",
+          "value": "all 0.2s cubic-bezier(.25,0,.25,1)"
+        }
+      ]
+    },
+    {
+      "file": "public-homepage.css",
+      "url": "https://lolz.team/css.php?css=public%3Abb_code%2Cpublic%3Alzt_unfurl_telegram.scss%2Cpublic%3AEWRporta2_Global%2Cpublic%3Anode_list%2Cpublic%3Anode_list.scss%2Cpublic%3Anode_category%2Cpublic%3Atitle_prefix_edit%2Cpublic%3Adiscussion_list%2Cpublic%3Alzt_text_ads.scss%2Cpublic%3Ahot_threads.scss%2Cpublic%3Anewmainpage%2Cpublic%3Adiscussion_list_icon%2Cpublic%3Aquick_reply%2Cpublic%3Alzt_fe_editor%2Cpublic%3Alzt_fe_editor_simple%2Cpublic%3Alzt_fe_editor_smilies%2Cpublic%3Alztng_photoshop%2Cpublic%3Alzt_fe_conversation_templates%2Cpublic%3Anode_notify.scss%2Cpublic%3Alztng_core%2Cpublic%3Alztng_liveAlerts%2Cpublic%3Aunfurl.scss%2Cpublic%3Acounter_icons.scss%2Cpublic%3Ammenu_all_v3%2Cpublic%3Alive_header_search_results_user.scss%2Cpublic%3Anav_tab_mobile%2Cpublic%3Anavigation_visitor.scss%2Cpublic%3Alzt_recent_pages.scss%2Cpublic%3Anoticepush.scss&s=52&l=2&d=1790855897&k=c3c486fd1989e62e2e0fa2d3a8f12b9aed2c64aa",
+      "bytes": 411490,
+      "sha256": "818c7bc878295410b14b4a6c14207ccbf2740524d65d6b42f1550158506a33c6",
+      "keyframes": [
+        {
+          "name": "lztSkeletonShimmer",
+          "offset": 9095
+        },
+        {
+          "name": "comefromtop",
+          "offset": 35504
+        },
+        {
+          "name": "pushdown",
+          "offset": 35632
+        },
+        {
+          "name": "shine",
+          "offset": 37585
+        },
+        {
+          "name": "chosenDropBelow",
+          "offset": 50217
+        },
+        {
+          "name": "chosenDropUpwards",
+          "offset": 50498
+        },
+        {
+          "name": "loading",
+          "offset": 207930
+        },
+        {
+          "name": "loading",
+          "offset": 207978
+        },
+        {
+          "name": "loading",
+          "offset": 208034
+        },
+        {
+          "name": "loading",
+          "offset": 208087
+        },
+        {
+          "name": "loading",
+          "offset": 208138
+        },
+        {
+          "name": "spin",
+          "offset": 208981
+        },
+        {
+          "name": "spin",
+          "offset": 209078
+        },
+        {
+          "name": "loading",
+          "offset": 213574
+        },
+        {
+          "name": "loading",
+          "offset": 213630
+        },
+        {
+          "name": "loading",
+          "offset": 213683
+        },
+        {
+          "name": "loading",
+          "offset": 213734
+        },
+        {
+          "name": "loading",
+          "offset": 238494
+        },
+        {
+          "name": "loading",
+          "offset": 238550
+        },
+        {
+          "name": "loading",
+          "offset": 238603
+        },
+        {
+          "name": "loading",
+          "offset": 238654
+        },
+        {
+          "name": "spin",
+          "offset": 253709
+        },
+        {
+          "name": "spin",
+          "offset": 253806
+        },
+        {
+          "name": "lztng-u62i62-lztui-spinner-bounce",
+          "offset": 345884
+        }
+      ],
+      "declarations": [
+        {
+          "context": [
+            ".lztTgPost-skeleton span::after"
+          ],
+          "property": "animation",
+          "value": "lztSkeletonShimmer 1.4s infinite"
+        },
+        {
+          "context": [
+            ".lztTgPost-skeleton span:nth-child(2)::after"
+          ],
+          "property": "animation-delay",
+          "value": "0.12s"
+        },
+        {
+          "context": [
+            ".lztTgPost-skeleton span:nth-child(3)::after"
+          ],
+          "property": "animation-delay",
+          "value": "0.24s"
+        },
+        {
+          "context": [
+            "@media (prefers-reduced-motion:reduce)",
+            ".lztTgPost-skeleton span::after"
+          ],
+          "property": "animation",
+          "value": "none"
+        },
+        {
+          "context": [
+            ".bbCodeSpoilerContainer .bbCodeSpoilerButton .arrowWidget"
+          ],
+          "property": "transition",
+          "value": ".2s"
+        },
+        {
+          "context": [
+            ".bbCodeBlock-grip"
+          ],
+          "property": "transition",
+          "value": "color .2s"
+        },
+        {
+          "context": [
+            ".section .NoPermissionToCreateThread"
+          ],
+          "property": "transition",
+          "value": "all ease-in-out 0.2s"
+        },
+        {
+          "context": [
+            ".nodeList .generalTabs .ForumSearch::before"
+          ],
+          "property": "transition",
+          "value": "color 0.2s"
+        },
+        {
+          "context": [
+            ".nodeList .generalTabs .ForumSearch_active::before"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .generalTabs .ForumSearch-close"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .generalTabs .ForumSearch-close:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node.current .ForumSearch::before"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node.current .nodeTitle .forumTitleBlock .NodeSvgIcon svg"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .nodeText .nodeTitle:not(.subNodeTitle)"
+          ],
+          "property": "transition",
+          "value": "background 0.2s"
+        },
+        {
+          "context": [
+            ".nodeList .node .nodeText .nodeTitle a"
+          ],
+          "property": "transition",
+          "value": "background 0.2s"
+        },
+        {
+          "context": [
+            ".nodeList .node.personalTab .tabActionEdit"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".nodeList .node .nodeTitle .expandSubForumList"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node13 .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node128 .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node967 .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node790 .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node914 .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node981 .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node125 .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node990 .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node1010 .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node8 .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node767 .forumTitleBlock .NodeSvgIcon svg .colored"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node13 .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node128 .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node967 .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node790 .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node914 .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node981 .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node125 .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node990 .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node1010 .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node8 .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node767 .forumTitleBlock .NodeSvgIcon svg .nocolored"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node13.current .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node128.current .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node967.current .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node790.current .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node914.current .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node981.current .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node125.current .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node990.current .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node1010.current .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node8.current .forumTitleBlock .NodeSvgIcon svg .nocolored,.nodeList .node .node767.current .forumTitleBlock .NodeSvgIcon svg .nocolored"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node13.current .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node128.current .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node967.current .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node790.current .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node914.current .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node981.current .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node125.current .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node990.current .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node1010.current .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node8.current .forumTitleBlock .NodeSvgIcon svg .colored,.nodeList .node .node767.current .forumTitleBlock .NodeSvgIcon svg .colored"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node13 .nodeTitle:hover .NodeSvgIcon svg .nocolored,.nodeList .node .node128 .nodeTitle:hover .NodeSvgIcon svg .nocolored,.nodeList .node .node967 .nodeTitle:hover .NodeSvgIcon svg .nocolored,.nodeList .node .node790 .nodeTitle:hover .NodeSvgIcon svg .nocolored,.nodeList .node .node914 .nodeTitle:hover .NodeSvgIcon svg .nocolored,.nodeList .node .node981 .nodeTitle:hover .NodeSvgIcon svg .nocolored,.nodeList .node .node125 .nodeTitle:hover .NodeSvgIcon svg .nocolored,.nodeList .node .node990 .nodeTitle:hover .NodeSvgIcon svg .nocolored,.nodeList .node .node1010 .nodeTitle:hover .NodeSvgIcon svg .nocolored,.nodeList .node .node8 .nodeTitle:hover .NodeSvgIcon svg .nocolored,.nodeList .node .node767 .nodeTitle:hover .NodeSvgIcon svg .nocolored"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node13 .nodeTitle:hover .NodeSvgIcon svg .colored,.nodeList .node .node128 .nodeTitle:hover .NodeSvgIcon svg .colored,.nodeList .node .node967 .nodeTitle:hover .NodeSvgIcon svg .colored,.nodeList .node .node790 .nodeTitle:hover .NodeSvgIcon svg .colored,.nodeList .node .node914 .nodeTitle:hover .NodeSvgIcon svg .colored,.nodeList .node .node981 .nodeTitle:hover .NodeSvgIcon svg .colored,.nodeList .node .node125 .nodeTitle:hover .NodeSvgIcon svg .colored,.nodeList .node .node990 .nodeTitle:hover .NodeSvgIcon svg .colored,.nodeList .node .node1010 .nodeTitle:hover .NodeSvgIcon svg .colored,.nodeList .node .node8 .nodeTitle:hover .NodeSvgIcon svg .colored,.nodeList .node .node767 .nodeTitle:hover .NodeSvgIcon svg .colored"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node767.current .nodeText .nodeTitle a"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node767.current .nodeText .nodeTitle:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node13.current .nodeText .nodeTitle a"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node13.current .nodeText .nodeTitle:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node128.current .nodeText .nodeTitle a"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node128.current .nodeText .nodeTitle:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node967.current .nodeText .nodeTitle a"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node967.current .nodeText .nodeTitle:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node790.current .nodeText .nodeTitle a"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node790.current .nodeText .nodeTitle:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node914.current .nodeText .nodeTitle a"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node914.current .nodeText .nodeTitle:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node981.current .nodeText .nodeTitle a"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node981.current .nodeText .nodeTitle:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node125.current .nodeText .nodeTitle a"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node125.current .nodeText .nodeTitle:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node990.current .nodeText .nodeTitle a"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node990.current .nodeText .nodeTitle:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node1010.current .nodeText .nodeTitle a"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node1010.current .nodeText .nodeTitle:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node8.current .nodeText .nodeTitle a"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".nodeList .node .node8.current .nodeText .nodeTitle:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.2s ease-in-out"
+        },
+        {
+          "context": [
+            ".comefromtop"
+          ],
+          "property": "animation",
+          "value": "comefromtop 0.5s"
+        },
+        {
+          "context": [
+            ".pushdown"
+          ],
+          "property": "animation",
+          "value": "pushdown 0.5s"
+        },
+        {
+          "context": [
+            "#ChosenContent>input.loading"
+          ],
+          "property": "animation",
+          "value": "1.5s shine linear infinite"
+        },
+        {
+          "context": [
+            ".chosen-container-single .chosen-single div b:before"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".chosen-container .chosen-results li"
+          ],
+          "property": "transition",
+          "value": "all .2s"
+        },
+        {
+          "context": [
+            ".chosen-responsive.active"
+          ],
+          "property": "transition",
+          "value": "height 0.4s ease-in-out"
+        },
+        {
+          "context": [
+            ".chosen-container-active .chosen-drop"
+          ],
+          "property": "transition",
+          "value": "opacity 0.2s ease-out"
+        },
+        {
+          "context": [
+            ".chosen-with-drop.chosen-container-active .chosen-drop:not(.chosen-drop-upwards)"
+          ],
+          "property": "animation",
+          "value": "chosenDropBelow 0.2s cubic-bezier(.5,0,0,1.25) forwards"
+        },
+        {
+          "context": [
+            ".chosen-with-drop.chosen-container-active .chosen-drop.chosen-drop-upwards"
+          ],
+          "property": "animation",
+          "value": "chosenDropUpwards 0.2s cubic-bezier(.5,0,0,1.25) forwards"
+        },
+        {
+          "context": [
+            ".SelectExcludedForumsLink,.UpdateFeedButtonIcon"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".UpdateFeedButtonIcon .svgIconLink svg,.SelectExcludedForumsLink .svgIconLink svg"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".UpdateFeedButtonIcon:hover .svgIconLink svg,.SelectExcludedForumsLink:hover .svgIconLink svg"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".discussionListItem.newLoaded"
+          ],
+          "property": "transition",
+          "value": "background 1s"
+        },
+        {
+          "context": [
+            ".discussionListItem"
+          ],
+          "property": "transition",
+          "value": "background .15s,transform .15s"
+        },
+        {
+          "context": [
+            ".discussionListMainPage .discussionListItem .controls"
+          ],
+          "property": "transition",
+          "value": "unset"
+        },
+        {
+          "context": [
+            ".discussionListMainPage .discussionListItem .controls"
+          ],
+          "property": "transition",
+          "value": ".15s"
+        },
+        {
+          "context": [
+            ".discussionListItem--Wrapper:hover .controls"
+          ],
+          "property": "transition",
+          "value": ".15s"
+        },
+        {
+          "context": [
+            ".forum_view .discussionListItems .discussionListItem.InlineModChecked .controls,.forum_view .discussionListItems .discussionListItem.InlineModChecked:hover .controls"
+          ],
+          "property": "transition",
+          "value": "none"
+        },
+        {
+          "context": [
+            ".discussionListItem .controls"
+          ],
+          "property": "transition",
+          "value": ".15s"
+        },
+        {
+          "context": [
+            ".discussionListMainPage .threadCounters .like:active"
+          ],
+          "property": "transition",
+          "value": "0.15s"
+        },
+        {
+          "context": [
+            ".discussionListMainPage .threadCounters .MainPageReply:active"
+          ],
+          "property": "transition",
+          "value": "0.15s"
+        },
+        {
+          "context": [
+            ".discussionListMainPage .threadCounters .counter"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".discussionListMainPage .discussionListItem:hover .threadHeaderTitle a"
+          ],
+          "property": "transition",
+          "value": ".15s"
+        },
+        {
+          "context": [
+            ".discussionListMainPage .discussionListItem:hover .threadMessage .bbCodeSpoilerContainer"
+          ],
+          "property": "transition",
+          "value": "background .15s"
+        },
+        {
+          "context": [
+            ".discussionListMainPage .discussionListItem:hover .threadMessage .bbCodeSpoilerContainer .bbCodeSpoilerButton"
+          ],
+          "property": "transition",
+          "value": "background .15s"
+        },
+        {
+          "context": [
+            ".discussionListMainPage .discussionListItem .threadMessage .bbCodeSpoilerContainer"
+          ],
+          "property": "transition",
+          "value": "background .15s"
+        },
+        {
+          "context": [
+            ".discussionListMainPage .discussionListItem .threadMessage .bbCodeSpoilerContainer .bbCodeSpoilerButton"
+          ],
+          "property": "transition",
+          "value": "background .15s"
+        },
+        {
+          "context": [
+            ".discussionListMainPage .discussionListItem:hover .threadMessage .bbCodeHide.bbCodeQuote:not(.noQuote)"
+          ],
+          "property": "transition",
+          "value": ".15s"
+        },
+        {
+          "context": [
+            ".discussionListMainPage .discussionListItem:hover .threadMessage .bbCodeHide .attribution"
+          ],
+          "property": "transition",
+          "value": "background .15s"
+        },
+        {
+          "context": [
+            ".discussionListMainPage .discussionListItem .threadMessage .bbCodeHide.bbCodeQuote:not(.noQuote)"
+          ],
+          "property": "transition",
+          "value": ".15s"
+        },
+        {
+          "context": [
+            ".discussionListMainPage .discussionListItem .threadMessage .bbCodeHide .attribution"
+          ],
+          "property": "transition",
+          "value": "background .15s"
+        },
+        {
+          "context": [
+            ".pinnedLinksBlock .pinnedLinks .pinnedLink"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".pinnedLinksBlock .pinnedLinks .pinnedLink svg"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".hotThreadsContainer .threadsList .threadItem"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".hotThreadsContainer .threadsList .threadItem:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".hotThreadsContainer .threadsList .threadItem:active"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".fr-resizer"
+          ],
+          "property": "transition",
+          "value": "all 0.2s"
+        },
+        {
+          "context": [
+            ".fr-box a.fr-floating-btn"
+          ],
+          "property": "-webkit-transition",
+          "value": "background 0.2s ease 0s,color 0.2s ease 0s,transform 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-box a.fr-floating-btn"
+          ],
+          "property": "-moz-transition",
+          "value": "background 0.2s ease 0s,color 0.2s ease 0s,transform 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-box a.fr-floating-btn"
+          ],
+          "property": "-o-transition",
+          "value": "background 0.2s ease 0s,color 0.2s ease 0s,transform 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-box a.fr-floating-btn svg"
+          ],
+          "property": "-webkit-transition",
+          "value": "transform 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-box a.fr-floating-btn svg"
+          ],
+          "property": "-moz-transition",
+          "value": "transform 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-box a.fr-floating-btn svg"
+          ],
+          "property": "-o-transition",
+          "value": "transform 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-tooltip"
+          ],
+          "property": "-webkit-transition",
+          "value": "opacity 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-tooltip"
+          ],
+          "property": "-moz-transition",
+          "value": "opacity 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-tooltip"
+          ],
+          "property": "-o-transition",
+          "value": "opacity 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-command.fr-btn,.fr-popup .fr-command.fr-btn,.fr-modal .fr-command.fr-btn"
+          ],
+          "property": "-webkit-transition",
+          "value": "all 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-command.fr-btn,.fr-popup .fr-command.fr-btn,.fr-modal .fr-command.fr-btn"
+          ],
+          "property": "-moz-transition",
+          "value": "all 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-command.fr-btn,.fr-popup .fr-command.fr-btn,.fr-modal .fr-command.fr-btn"
+          ],
+          "property": "-o-transition",
+          "value": "all 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-command.fr-btn svg path,.fr-popup .fr-command.fr-btn svg path,.fr-modal .fr-command.fr-btn svg path"
+          ],
+          "property": "-webkit-transition",
+          "value": "all 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-command.fr-btn svg path,.fr-popup .fr-command.fr-btn svg path,.fr-modal .fr-command.fr-btn svg path"
+          ],
+          "property": "-moz-transition",
+          "value": "all 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-command.fr-btn svg path,.fr-popup .fr-command.fr-btn svg path,.fr-modal .fr-command.fr-btn svg path"
+          ],
+          "property": "-o-transition",
+          "value": "all 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-command.fr-btn.fr-dropdown:after,.fr-popup .fr-command.fr-btn.fr-dropdown:after,.fr-modal .fr-command.fr-btn.fr-dropdown:after"
+          ],
+          "property": "-webkit-transition",
+          "value": "all 0.3s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-command.fr-btn.fr-dropdown:after,.fr-popup .fr-command.fr-btn.fr-dropdown:after,.fr-modal .fr-command.fr-btn.fr-dropdown:after"
+          ],
+          "property": "-moz-transition",
+          "value": "all 0.3s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-command.fr-btn.fr-dropdown:after,.fr-popup .fr-command.fr-btn.fr-dropdown:after,.fr-modal .fr-command.fr-btn.fr-dropdown:after"
+          ],
+          "property": "-o-transition",
+          "value": "all 0.3s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-command.fr-btn.fr-dropdown.fr-active,.fr-popup .fr-command.fr-btn.fr-dropdown.fr-active,.fr-modal .fr-command.fr-btn.fr-dropdown.fr-active"
+          ],
+          "property": "-webkit-transition",
+          "value": "0.5s ease"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-command.fr-btn.fr-dropdown.fr-active,.fr-popup .fr-command.fr-btn.fr-dropdown.fr-active,.fr-modal .fr-command.fr-btn.fr-dropdown.fr-active"
+          ],
+          "property": "-moz-transition",
+          "value": "0.5s ease"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-command.fr-btn.fr-dropdown.fr-active,.fr-popup .fr-command.fr-btn.fr-dropdown.fr-active,.fr-modal .fr-command.fr-btn.fr-dropdown.fr-active"
+          ],
+          "property": "-o-transition",
+          "value": "0.5s ease"
+        },
+        {
+          "context": [
+            ".fr-command.fr-btn.fr-options.fr-btn-hover,.fr-command.fr-btn.fr-options:hover,.fr-command.fr-btn.fr-options:focus"
+          ],
+          "property": "-webkit-transition",
+          "value": "border-left 0s,background-color 0.5s"
+        },
+        {
+          "context": [
+            ".fr-command.fr-btn.fr-options.fr-btn-hover,.fr-command.fr-btn.fr-options:hover,.fr-command.fr-btn.fr-options:focus"
+          ],
+          "property": "-moz-transition",
+          "value": "border-left 0s,background-color 0.5s"
+        },
+        {
+          "context": [
+            ".fr-command.fr-btn.fr-options.fr-btn-hover,.fr-command.fr-btn.fr-options:hover,.fr-command.fr-btn.fr-options:focus"
+          ],
+          "property": "-o-transition",
+          "value": "border-left 0s,background-color 0.5s"
+        },
+        {
+          "context": [
+            ".fr-command.fr-btn+.fr-dropdown-menu.test-height .fr-dropdown-wrapper"
+          ],
+          "property": "-webkit-transition",
+          "value": "none"
+        },
+        {
+          "context": [
+            ".fr-command.fr-btn+.fr-dropdown-menu.test-height .fr-dropdown-wrapper"
+          ],
+          "property": "-moz-transition",
+          "value": "none"
+        },
+        {
+          "context": [
+            ".fr-command.fr-btn+.fr-dropdown-menu.test-height .fr-dropdown-wrapper"
+          ],
+          "property": "-o-transition",
+          "value": "none"
+        },
+        {
+          "context": [
+            ".fr-command.fr-btn+.fr-dropdown-menu .fr-dropdown-wrapper"
+          ],
+          "property": "-webkit-transition",
+          "value": "height 0.3s"
+        },
+        {
+          "context": [
+            ".fr-command.fr-btn+.fr-dropdown-menu .fr-dropdown-wrapper"
+          ],
+          "property": "-moz-transition",
+          "value": "height 0.3s"
+        },
+        {
+          "context": [
+            ".fr-command.fr-btn+.fr-dropdown-menu .fr-dropdown-wrapper"
+          ],
+          "property": "-o-transition",
+          "value": "height 0.3s"
+        },
+        {
+          "context": [
+            ".fr-modal .fr-modal-wrapper .fr-modal-head"
+          ],
+          "property": "-webkit-transition",
+          "value": "all 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-modal .fr-modal-wrapper .fr-modal-head"
+          ],
+          "property": "-moz-transition",
+          "value": "all 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-modal .fr-modal-wrapper .fr-modal-head"
+          ],
+          "property": "-o-transition",
+          "value": "all 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-modal .fr-modal-wrapper div.fr-modal-body button.fr-command"
+          ],
+          "property": "-webkit-transition",
+          "value": "background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-modal .fr-modal-wrapper div.fr-modal-body button.fr-command"
+          ],
+          "property": "-moz-transition",
+          "value": "background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-modal .fr-modal-wrapper div.fr-modal-body button.fr-command"
+          ],
+          "property": "-o-transition",
+          "value": "background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-input-line input[type=\"text\"],.fr-popup .fr-input-line input[type=\"number\"],.fr-popup .fr-input-line textarea"
+          ],
+          "property": "-webkit-transition",
+          "value": "border 0.5s,padding 0.5s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-input-line input[type=\"text\"],.fr-popup .fr-input-line input[type=\"number\"],.fr-popup .fr-input-line textarea"
+          ],
+          "property": "-moz-transition",
+          "value": "border 0.5s,padding 0.5s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-input-line input[type=\"text\"],.fr-popup .fr-input-line input[type=\"number\"],.fr-popup .fr-input-line textarea"
+          ],
+          "property": "-o-transition",
+          "value": "border 0.5s,padding 0.5s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-input-line input+label,.fr-popup .fr-input-line textarea+label"
+          ],
+          "property": "-webkit-transition",
+          "value": "all 0.5s ease"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-input-line input+label,.fr-popup .fr-input-line textarea+label"
+          ],
+          "property": "-moz-transition",
+          "value": "all 0.5s ease"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-input-line input+label,.fr-popup .fr-input-line textarea+label"
+          ],
+          "property": "-o-transition",
+          "value": "all 0.5s ease"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-action-buttons button.fr-command"
+          ],
+          "property": "-webkit-transition",
+          "value": "background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-action-buttons button.fr-command"
+          ],
+          "property": "-moz-transition",
+          "value": "background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-action-buttons button.fr-command"
+          ],
+          "property": "-o-transition",
+          "value": "background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-checkbox span"
+          ],
+          "property": "-webkit-transition",
+          "value": "background 0.2s ease 0s,border-color 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-checkbox span"
+          ],
+          "property": "-moz-transition",
+          "value": "background 0.2s ease 0s,border-color 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-checkbox span"
+          ],
+          "property": "-o-transition",
+          "value": "background 0.2s ease 0s,border-color 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-toolbar"
+          ],
+          "property": "-webkit-transition",
+          "value": "padding-bottom 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar"
+          ],
+          "property": "-moz-transition",
+          "value": "padding-bottom 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar"
+          ],
+          "property": "-o-transition",
+          "value": "padding-bottom 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-newline"
+          ],
+          "property": "-webkit-transition",
+          "value": "height 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-newline"
+          ],
+          "property": "-moz-transition",
+          "value": "height 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-newline"
+          ],
+          "property": "-o-transition",
+          "value": "height 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-more-toolbar"
+          ],
+          "property": "-webkit-transition",
+          "value": "height 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-more-toolbar"
+          ],
+          "property": "-moz-transition",
+          "value": "height 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-more-toolbar"
+          ],
+          "property": "-o-transition",
+          "value": "height 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar.fr-bottom .fr-newline"
+          ],
+          "property": "-webkit-transition",
+          "value": "padding-top 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar.fr-bottom .fr-newline"
+          ],
+          "property": "-moz-transition",
+          "value": "padding-top 0.5s"
+        },
+        {
+          "context": [
+            ".fr-toolbar.fr-bottom .fr-newline"
+          ],
+          "property": "-o-transition",
+          "value": "padding-top 0.5s"
+        },
+        {
+          "context": [
+            "#fr-logo>span"
+          ],
+          "property": "-webkit-transition",
+          "value": "color 0.3s"
+        },
+        {
+          "context": [
+            "#fr-logo>span"
+          ],
+          "property": "-moz-transition",
+          "value": "color 0.3s"
+        },
+        {
+          "context": [
+            "#fr-logo>span"
+          ],
+          "property": "-o-transition",
+          "value": "color 0.3s"
+        },
+        {
+          "context": [
+            "#fr-logo>svg *"
+          ],
+          "property": "-webkit-transition",
+          "value": "fill 0.3s"
+        },
+        {
+          "context": [
+            "#fr-logo>svg *"
+          ],
+          "property": "-moz-transition",
+          "value": "fill 0.3s"
+        },
+        {
+          "context": [
+            "#fr-logo>svg *"
+          ],
+          "property": "-o-transition",
+          "value": "fill 0.3s"
+        },
+        {
+          "context": [
+            ".fr-box.fr-inline .fr-command.fr-btn.html-switch"
+          ],
+          "property": "-webkit-transition",
+          "value": "background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-box.fr-inline .fr-command.fr-btn.html-switch"
+          ],
+          "property": "-moz-transition",
+          "value": "background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-box.fr-inline .fr-command.fr-btn.html-switch"
+          ],
+          "property": "-o-transition",
+          "value": "background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-file-progress-bar-layer>div.fr-loader span"
+          ],
+          "property": "-webkit-transition",
+          "value": "width 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-file-progress-bar-layer>div.fr-loader span"
+          ],
+          "property": "-moz-transition",
+          "value": "width 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-file-progress-bar-layer>div.fr-loader span"
+          ],
+          "property": "-o-transition",
+          "value": "width 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-file-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "-webkit-animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-file-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "-moz-animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-file-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "-o-animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-file-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-file-loader"
+          ],
+          "property": "-webkit-animation",
+          "value": "spin 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-file-loader"
+          ],
+          "property": "animation",
+          "value": "spin 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-files-progress-bar-layer>div.fr-loader span"
+          ],
+          "property": "-webkit-transition",
+          "value": "width 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-files-progress-bar-layer>div.fr-loader span"
+          ],
+          "property": "-moz-transition",
+          "value": "width 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-files-progress-bar-layer>div.fr-loader span"
+          ],
+          "property": "-o-transition",
+          "value": "width 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-files-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "-webkit-animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-files-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "-moz-animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-files-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "-o-animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-files-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-files-checkbox span"
+          ],
+          "property": "-webkit-transition",
+          "value": "background 0.2s ease 0s,border-color 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-files-checkbox span"
+          ],
+          "property": "-moz-transition",
+          "value": "background 0.2s ease 0s,border-color 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-files-checkbox span"
+          ],
+          "property": "-o-transition",
+          "value": "background 0.2s ease 0s,border-color 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-checkbox-disabled span"
+          ],
+          "property": "-webkit-transition",
+          "value": "background 0.2s ease 0s,border-color 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-checkbox-disabled span"
+          ],
+          "property": "-moz-transition",
+          "value": "background 0.2s ease 0s,border-color 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-checkbox-disabled span"
+          ],
+          "property": "-o-transition",
+          "value": "background 0.2s ease 0s,border-color 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".file-item-thumbnail-hover"
+          ],
+          "property": "transition",
+          "value": "transform .2s"
+        },
+        {
+          "context": [
+            ".fr-file-view-close"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-image-progress-bar-layer>div.fr-loader span"
+          ],
+          "property": "-webkit-transition",
+          "value": "width 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-image-progress-bar-layer>div.fr-loader span"
+          ],
+          "property": "-moz-transition",
+          "value": "width 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-image-progress-bar-layer>div.fr-loader span"
+          ],
+          "property": "-o-transition",
+          "value": "width 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-image-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "-webkit-animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-image-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "-moz-animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-image-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "-o-animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-image-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-modal .fr-modal-head .fr-modal-tags a"
+          ],
+          "property": "-webkit-transition",
+          "value": "opacity 0.2s ease 0s,background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-modal .fr-modal-head .fr-modal-tags a"
+          ],
+          "property": "-moz-transition",
+          "value": "opacity 0.2s ease 0s,background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-modal .fr-modal-head .fr-modal-tags a"
+          ],
+          "property": "-o-transition",
+          "value": "opacity 0.2s ease 0s,background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            "div.fr-modal-body"
+          ],
+          "property": "-webkit-transition",
+          "value": "background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            "div.fr-modal-body"
+          ],
+          "property": "-moz-transition",
+          "value": "background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            "div.fr-modal-body"
+          ],
+          "property": "-o-transition",
+          "value": "background 0.2s ease 0s"
+        },
+        {
+          "context": [
+            "div.fr-modal-body div.fr-image-list div.fr-image-container.fr-image-deleting::after"
+          ],
+          "property": "-webkit-transition",
+          "value": "opacity 0.2s ease 0s"
+        },
+        {
+          "context": [
+            "div.fr-modal-body div.fr-image-list div.fr-image-container.fr-image-deleting::after"
+          ],
+          "property": "-moz-transition",
+          "value": "opacity 0.2s ease 0s"
+        },
+        {
+          "context": [
+            "div.fr-modal-body div.fr-image-list div.fr-image-container.fr-image-deleting::after"
+          ],
+          "property": "-o-transition",
+          "value": "opacity 0.2s ease 0s"
+        },
+        {
+          "context": [
+            "div.fr-modal-body div.fr-image-list div.fr-image-container img"
+          ],
+          "property": "-webkit-transition",
+          "value": "opacity 0.2s ease 0s,filter 0.2s ease 0s"
+        },
+        {
+          "context": [
+            "div.fr-modal-body div.fr-image-list div.fr-image-container img"
+          ],
+          "property": "-moz-transition",
+          "value": "opacity 0.2s ease 0s,filter 0.2s ease 0s"
+        },
+        {
+          "context": [
+            "div.fr-modal-body div.fr-image-list div.fr-image-container img"
+          ],
+          "property": "-o-transition",
+          "value": "opacity 0.2s ease 0s,filter 0.2s ease 0s"
+        },
+        {
+          "context": [
+            "div.fr-modal-body div.fr-image-list div.fr-image-container .fr-delete-img,div.fr-modal-body div.fr-image-list div.fr-image-container .fr-insert-img"
+          ],
+          "property": "-webkit-transition",
+          "value": "background 0.2s ease 0s,color 0.2s ease 0s"
+        },
+        {
+          "context": [
+            "div.fr-modal-body div.fr-image-list div.fr-image-container .fr-delete-img,div.fr-modal-body div.fr-image-list div.fr-image-container .fr-insert-img"
+          ],
+          "property": "-moz-transition",
+          "value": "background 0.2s ease 0s,color 0.2s ease 0s"
+        },
+        {
+          "context": [
+            "div.fr-modal-body div.fr-image-list div.fr-image-container .fr-delete-img,div.fr-modal-body div.fr-image-list div.fr-image-container .fr-insert-img"
+          ],
+          "property": "-o-transition",
+          "value": "background 0.2s ease 0s,color 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-file-loader"
+          ],
+          "property": "-webkit-animation",
+          "value": "spin 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-file-loader"
+          ],
+          "property": "animation",
+          "value": "spin 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-video-progress-bar-layer>div.fr-loader span"
+          ],
+          "property": "-webkit-transition",
+          "value": "width 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-video-progress-bar-layer>div.fr-loader span"
+          ],
+          "property": "-moz-transition",
+          "value": "width 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-video-progress-bar-layer>div.fr-loader span"
+          ],
+          "property": "-o-transition",
+          "value": "width 0.2s ease 0s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-video-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "-webkit-animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-video-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "-moz-animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-video-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "-o-animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-video-progress-bar-layer>div.fr-loader.fr-indeterminate span"
+          ],
+          "property": "animation",
+          "value": "loading 2s linear infinite"
+        },
+        {
+          "context": [
+            ".lztAiEnhanceSkeleton .lztAiEnhanceSkeletonBlock::after"
+          ],
+          "property": "animation",
+          "value": "skeleton-loading 1.5s infinite"
+        },
+        {
+          "context": [
+            ".editorDraftIndicator"
+          ],
+          "property": "transition",
+          "value": "all 0.25s ease"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-action-buttons button.fr-command:not(.fr-btn)"
+          ],
+          "property": "transition",
+          "value": "background 0.8s"
+        },
+        {
+          "context": [
+            ".fr-popup .fr-action-buttons button.fr-command:not(.fr-btn):active"
+          ],
+          "property": "transition",
+          "value": "background 0s"
+        },
+        {
+          "context": [
+            "body .fr-popup .fr-input-line input[type=\"text\"],body .fr-popup .fr-input-line input[type=\"number\"],body .fr-popup .fr-input-line textarea"
+          ],
+          "property": "transition",
+          "value": "border 0.5s,padding 0.5s,box-shadow 0.5s"
+        },
+        {
+          "context": [
+            ".mask.UploadMask .inner .icon.cancel-upload::before"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".UploadMask .cancel-upload"
+          ],
+          "property": "transition",
+          "value": "0.1s"
+        },
+        {
+          "context": [
+            ".UploadMask .cancel-upload:hover"
+          ],
+          "property": "transition",
+          "value": "0.1s"
+        },
+        {
+          "context": [
+            ".UploadMask .cancel-upload:hover::before"
+          ],
+          "property": "transition",
+          "value": "0.3s!important"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-command.fr-btn svg path,.fr-popup .fr-command.fr-btn svg path,.fr-modal .fr-command.fr-btn svg path"
+          ],
+          "property": "-webkit-transition",
+          "value": "none .25s ease"
+        },
+        {
+          "context": [
+            ".fr-toolbar .fr-command.fr-btn svg path,.fr-popup .fr-command.fr-btn svg path,.fr-modal .fr-command.fr-btn svg path"
+          ],
+          "property": "transition",
+          "value": "none .25s ease"
+        },
+        {
+          "context": [
+            ".tui-image-editor-container .tui-image-editor-help-menu>.tui-image-editor-item.active,.tui-image-editor-container .tui-image-editor-menu>.tui-image-editor-item.active"
+          ],
+          "property": "transition",
+          "value": "all .3s ease"
+        },
+        {
+          "context": [
+            ".tui-image-editor-container .tui-image-editor-main.tui-image-editor-menu-flip .tui-image-editor,.tui-image-editor-container .tui-image-editor-main.tui-image-editor-menu-rotate .tui-image-editor"
+          ],
+          "property": "transition",
+          "value": "none"
+        },
+        {
+          "context": [
+            ".nodeNotify.newYear .nodeBlock"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".scrollable-x.lztng-pe368u,.scrollable-y.lztng-pe368u"
+          ],
+          "property": "transition",
+          "value": "opacity 0.2s linear,width 0.1s,height 0.1s"
+        },
+        {
+          "context": [
+            ".lztui-spinner-bounce.lztng-u62i62"
+          ],
+          "property": "animation",
+          "value": "sk-bouncedelay 1.4s infinite ease-in-out both"
+        },
+        {
+          "context": [
+            ".lztui-spinner-bounce1.lztng-u62i62"
+          ],
+          "property": "animation-delay",
+          "value": "-0.32s"
+        },
+        {
+          "context": [
+            ".lztui-spinner-bounce2.lztng-u62i62"
+          ],
+          "property": "animation-delay",
+          "value": "-0.16s"
+        },
+        {
+          "context": [
+            ".date-time-picker.lztng-w239uu"
+          ],
+          "property": "transition",
+          "value": "all 80ms cubic-bezier(.4,0,.2,1)"
+        },
+        {
+          "context": [
+            "select.lztng-w239uu"
+          ],
+          "property": "transition",
+          "value": "all 80ms cubic-bezier(.4,0,.2,1)"
+        },
+        {
+          "context": [
+            "input.lztng-1vabmef"
+          ],
+          "property": "transition",
+          "value": "all 80ms cubic-bezier(.4,0,.2,1)"
+        },
+        {
+          "context": [
+            "/********* public:unfurl.scss ********/\n.unfurlContainer.shorted"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".unfurlContainer.shorted:hover"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".unfurlContainer.shorted:hover .text .SvgIcon svg"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".unfurlContainer.shorted:active"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".unfurlContainer.shorted .text .SvgIcon svg"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            "#nav-icon4"
+          ],
+          "property": "-webkit-transition",
+          "value": ".5s ease-in-out"
+        },
+        {
+          "context": [
+            "#nav-icon4"
+          ],
+          "property": "-moz-transition",
+          "value": ".5s ease-in-out"
+        },
+        {
+          "context": [
+            "#nav-icon4"
+          ],
+          "property": "-o-transition",
+          "value": ".5s ease-in-out"
+        },
+        {
+          "context": [
+            "#nav-icon4"
+          ],
+          "property": "transition",
+          "value": ".5s ease-in-out"
+        },
+        {
+          "context": [
+            "#nav-icon4 span"
+          ],
+          "property": "-webkit-transition",
+          "value": ".25s ease-in-out"
+        },
+        {
+          "context": [
+            "#nav-icon4 span"
+          ],
+          "property": "-moz-transition",
+          "value": ".25s ease-in-out"
+        },
+        {
+          "context": [
+            "#nav-icon4 span"
+          ],
+          "property": "-o-transition",
+          "value": ".25s ease-in-out"
+        },
+        {
+          "context": [
+            "#nav-icon4 span"
+          ],
+          "property": "transition",
+          "value": ".25s ease-in-out"
+        },
+        {
+          "context": [
+            ".burger__link"
+          ],
+          "property": "transition",
+          "value": "0.1s background-color linear"
+        },
+        {
+          "context": [
+            ".burger__link-cont .burgerFontIcon"
+          ],
+          "property": "transition",
+          "value": "all .1s ease-in-out"
+        },
+        {
+          "context": [
+            ".mm-ocd"
+          ],
+          "property": "-webkit-transition-property",
+          "value": "bottom,background-color"
+        },
+        {
+          "context": [
+            ".mm-ocd"
+          ],
+          "property": "-o-transition-property",
+          "value": "bottom,background-color"
+        },
+        {
+          "context": [
+            ".mm-ocd"
+          ],
+          "property": "transition-property",
+          "value": "bottom,background-color"
+        },
+        {
+          "context": [
+            ".mm-ocd"
+          ],
+          "property": "-webkit-transition-duration",
+          "value": "0s,.3s"
+        },
+        {
+          "context": [
+            ".mm-ocd"
+          ],
+          "property": "-o-transition-duration",
+          "value": "0s,.3s"
+        },
+        {
+          "context": [
+            ".mm-ocd"
+          ],
+          "property": "transition-duration",
+          "value": "0s,.3s"
+        },
+        {
+          "context": [
+            ".mm-ocd"
+          ],
+          "property": "-webkit-transition-timing-function",
+          "value": "ease"
+        },
+        {
+          "context": [
+            ".mm-ocd"
+          ],
+          "property": "-o-transition-timing-function",
+          "value": "ease"
+        },
+        {
+          "context": [
+            ".mm-ocd"
+          ],
+          "property": "transition-timing-function",
+          "value": "ease"
+        },
+        {
+          "context": [
+            ".mm-ocd"
+          ],
+          "property": "-webkit-transition-delay",
+          "value": ".45s,.15s"
+        },
+        {
+          "context": [
+            ".mm-ocd"
+          ],
+          "property": "-o-transition-delay",
+          "value": ".45s,.15s"
+        },
+        {
+          "context": [
+            ".mm-ocd"
+          ],
+          "property": "transition-delay",
+          "value": ".45s,.15s"
+        },
+        {
+          "context": [
+            ".mm-ocd--open"
+          ],
+          "property": "-webkit-transition-delay",
+          "value": "0s"
+        },
+        {
+          "context": [
+            ".mm-ocd--open"
+          ],
+          "property": "-o-transition-delay",
+          "value": "0s"
+        },
+        {
+          "context": [
+            ".mm-ocd--open"
+          ],
+          "property": "transition-delay",
+          "value": "0s"
+        },
+        {
+          "context": [
+            ".mm-ocd__content"
+          ],
+          "property": "-webkit-transition-property",
+          "value": "-webkit-transform"
+        },
+        {
+          "context": [
+            ".mm-ocd__content"
+          ],
+          "property": "transition-property",
+          "value": "-webkit-transform"
+        },
+        {
+          "context": [
+            ".mm-ocd__content"
+          ],
+          "property": "-o-transition-property",
+          "value": "transform"
+        },
+        {
+          "context": [
+            ".mm-ocd__content"
+          ],
+          "property": "transition-property",
+          "value": "transform"
+        },
+        {
+          "context": [
+            ".mm-ocd__content"
+          ],
+          "property": "transition-property",
+          "value": "transform,-webkit-transform"
+        },
+        {
+          "context": [
+            ".mm-ocd__content"
+          ],
+          "property": "-webkit-transition-duration",
+          "value": ".3s"
+        },
+        {
+          "context": [
+            ".mm-ocd__content"
+          ],
+          "property": "-o-transition-duration",
+          "value": ".3s"
+        },
+        {
+          "context": [
+            ".mm-ocd__content"
+          ],
+          "property": "transition-duration",
+          "value": ".3s"
+        },
+        {
+          "context": [
+            ".mm-ocd__content"
+          ],
+          "property": "-webkit-transition-timing-function",
+          "value": "ease"
+        },
+        {
+          "context": [
+            ".mm-ocd__content"
+          ],
+          "property": "-o-transition-timing-function",
+          "value": "ease"
+        },
+        {
+          "context": [
+            ".mm-ocd__content"
+          ],
+          "property": "transition-timing-function",
+          "value": "ease"
+        },
+        {
+          "context": [
+            ".mm-spn ul"
+          ],
+          "property": "-webkit-transition",
+          "value": "left .3s ease 0s"
+        },
+        {
+          "context": [
+            ".mm-spn ul"
+          ],
+          "property": "-o-transition",
+          "value": "left .3s ease 0s"
+        },
+        {
+          "context": [
+            ".mm-spn ul"
+          ],
+          "property": "transition",
+          "value": "left .3s ease 0s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .footer-container .footer-block .footer-item"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .footer-container .footer-block .footer-item:hover"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .footer-container .footer-block .footer-item:hover .SvgIcon svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .footer-container .footer-block .footer-item.red:hover"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .footer-container .footer-block .footer-item.red:hover .SvgIcon svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .footer-container .footer-block .footer-item.red"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .footer-container .footer-block .footer-item.red .SvgIcon svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .footer-container .footer-block .footer-item span"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .footer-container .footer-block .footer-item:active"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .balance-block .balanceLabel.hold-label.BalanceHidden"
+          ],
+          "property": "transition",
+          "value": "none"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .manage-container .manage-items .manage-item"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .manage-container .manage-items .manage-item span"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .manage-container .manage-items .manage-item .SvgIcon:not(.duotone):not(.line) svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .manage-container .manage-items .manage-item .SvgIcon.duotone svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .manage-container .manage-items .manage-item .SvgIcon.line svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .manage-container .manage-items .manage-item:hover"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .manage-container .manage-items .manage-item:hover span"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .manage-container .manage-items .manage-item:hover .SvgIcon:not(.duotone):not(.line) svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .manage-container .manage-items .manage-item:hover .SvgIcon.duotone svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .manage-container .manage-items .manage-item:hover .SvgIcon.line svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .manage-container .manage-items .manage-item:active"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .profileSwtich-block .profile-item"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .profileSwtich-block .profile-item:hover"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .profileSwtich-block .profile-item:active"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .profile-block .controls-block .control-item"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .profile-block .controls-block .control-item:active"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .profile-block .controls-block .control-item .SvgIcon svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .profile-block .controls-block .control-item:hover"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .profile-block .controls-block .control-item:hover .SvgIcon svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .profile-block .controls-block .control-item:active"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            "/********* public:nav_tab_mobile.css ********/\n@media(max-width:480px)",
+            ".mobile-switch-menu .avatarGroup .addAccount"
+          ],
+          "property": "transition",
+          "value": "all .1s ease-in-out"
+        },
+        {
+          "context": [
+            ".menuBlock .profileBackground .imageBlock .avatarGroup .addAccount"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        },
+        {
+          "context": [
+            ".menuBlock .balanceBlock .amountBlock:hover .balanceLabel.balanceAmount .balanceValue"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".menuBlock .balanceBlock .amountBlock:hover .balanceLabel.balanceAmount span"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".menuBlock .balanceBlock .amountBlock:hover .balanceLabel.hold-label .balanceValue"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".menuBlock .balanceBlock .amountBlock:hover .balanceLabel.hold-label span"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".menuBlock .balanceBlock .amountBlock .amount .balanceLabel"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".menuBlock .balanceBlock .amountBlock .amount .balanceLabel.BalanceHidden"
+          ],
+          "property": "transition",
+          "value": "none"
+        },
+        {
+          "context": [
+            ".menuBlock .manageItems .manageItem"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".menuBlock .manageItems .manageItem:hover"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".menuBlock .manageItems .manageItem:hover span"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".menuBlock .manageItems .manageItem:hover .SvgIcon.duotone svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".menuBlock .manageItems .manageItem:hover .SvgIcon.line svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".menuBlock .manageItems .manageItem:hover .SvgIcon svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".menuBlock .manageItems .manageItem .SvgIcon.duotone svg"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".menuBlock .manageItems .manageItem .SvgIcon.line svg"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".menuBlock .manageItems .manageItem .SvgIcon svg"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".menuBlock .manageItems .manageItem span"
+          ],
+          "property": "transition",
+          "value": "0.2s"
+        },
+        {
+          "context": [
+            ".menuBlock .profileSwitchBlock .profileContainer .profileItem"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".menuBlock .profileSwitchBlock .profileContainer .profileItem:hover"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".menuBlock .footerBlock .footerItem"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".menuBlock .footerBlock .footerItem:hover"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".menuBlock .footerBlock .footerItem.red"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".menuBlock .footerBlock .footerItem.red:hover"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".menuBlock .footerBlock .footerItem.red .SvgIcon svg"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".menuBlock .footerBlock .footerItem.gray"
+          ],
+          "property": "transition",
+          "value": "0.3s"
+        },
+        {
+          "context": [
+            ".lztRecentPages-skeletonItem::after"
+          ],
+          "property": "animation",
+          "value": "skeleton-loading 1.5s infinite"
+        },
+        {
+          "context": [
+            ".notice.js-pushCta .noticeContainer .notice-dismiss,.notice.notice--bottom .noticeContainer .notice-dismiss"
+          ],
+          "property": "transition",
+          "value": "all 0.1s ease-in-out"
+        }
+      ]
+    }
+  ]
+}

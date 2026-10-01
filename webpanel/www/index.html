@@ -42,6 +42,8 @@
   <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Открыть меню" aria-expanded="false" aria-controls="nav">
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
   </button>
+  <div id="menu-shell" class="mm-ocd mm-ocd--left">
+    <div class="mm-ocd__content">
   <nav id="nav" aria-label="Основная навигация">
     <div class="nav-drawer-header">
       <span class="nav-drawer-title">Меню</span>
@@ -106,6 +108,9 @@
       <span class="nav-label">Свернуть</span>
     </button>
   </nav>
+    </div>
+    <div class="menu-backdrop mm-ocd__backdrop" id="menu-backdrop" hidden></div>
+  </div>
   <div class="theme-toggle" role="group" aria-label="Тема">
     <button data-theme-btn="light" type="button" aria-label="Светлая тема" title="Светлая">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
@@ -118,7 +123,6 @@
     </button>
   </div>
 </header>
-<div class="menu-backdrop" id="menu-backdrop" hidden></div>
 <main id="app"></main>
 <div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
 <script>

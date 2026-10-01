@@ -1,0 +1,79 @@
+/*
+ * Source-derived extraction of Lolz.team's left off-canvas menu transition.
+ * Values and selectors are taken from the captured public-homepage.css files.
+ * This is a reference extraction, not wired into z2kOW.
+ */
+:root {
+	--mm-ocd-width: 80%;
+	--mm-ocd-min-width: 200px;
+	--mm-ocd-max-width: 440px;
+}
+
+body.mm-ocd-opened {
+	-ms-scroll-chaining: none;
+	overscroll-behavior: none;
+}
+
+.mm-ocd {
+	position: fixed;
+	top: 0;
+	right: 0;
+	bottom: 100%;
+	left: 0;
+	z-index: 9999;
+	overflow: hidden;
+	-ms-scroll-chaining: none;
+	overscroll-behavior: contain;
+	background: #fff0;
+	transition-property: bottom, background-color;
+	transition-duration: 0s, .3s;
+	transition-timing-function: ease;
+	transition-delay: .45s, .15s;
+}
+
+.mm-ocd--open {
+	bottom: 0;
+	background: rgb(0 0 0 / .25);
+	transition-delay: 0s;
+}
+
+.mm-ocd__content {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	z-index: 2;
+	width: var(--mm-ocd-width);
+	min-width: var(--mm-ocd-min-width);
+	max-width: var(--mm-ocd-max-width);
+	background: #111615 !important;
+	overflow: scroll;
+	transition-property: transform, -webkit-transform;
+	transition-duration: .3s;
+	transition-timing-function: ease;
+}
+
+.mm-ocd--left .mm-ocd__content {
+	left: 0;
+	transform: translate3d(-100%, 0, 0);
+}
+
+.mm-ocd--open .mm-ocd__content {
+	transform: translate3d(0, 0, 0);
+}
+
+.mm-ocd__backdrop {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	z-index: 3;
+	width: clamp(
+		calc(100% - var(--mm-ocd-max-width)),
+		calc(100% - var(--mm-ocd-width)),
+		calc(100% - var(--mm-ocd-min-width))
+	);
+	background: #fff0;
+}
+
+.mm-ocd--left .mm-ocd__backdrop {
+	right: 0;
+}

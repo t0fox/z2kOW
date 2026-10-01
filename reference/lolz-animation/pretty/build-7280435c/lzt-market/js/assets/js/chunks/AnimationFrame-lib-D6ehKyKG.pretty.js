@@ -1,0 +1,1082 @@
+try {
+  let e =
+      typeof window < `u`
+        ? window
+        : typeof global < `u`
+          ? global
+          : typeof globalThis < `u`
+            ? globalThis
+            : typeof self < `u`
+              ? self
+              : {},
+    t = new e.Error().stack;
+  t &&
+    ((e._sentryDebugIds = e._sentryDebugIds || {}),
+    (e._sentryDebugIds[t] = `6118860a-6492-444d-bca5-b616b810273f`),
+    (e._sentryDebugIdIdentifier = `sentry-dbid-6118860a-6492-444d-bca5-b616b810273f`));
+} catch (e) {}
+import { __commonJSMin as e } from "./rolldown-runtime-MtAR-uS5.js";
+var t = e((exports, t) => {
+  (function (n, r) {
+    typeof exports == `object` && typeof t == `object`
+      ? (t.exports = r())
+      : typeof define == `function` && define.amd
+        ? define(`AnimationFrame`, [], r)
+        : typeof exports == `object`
+          ? (exports.AnimationFrame = r())
+          : (n.AnimationFrame = r());
+  })(void 0, function () {
+    return (function (e) {
+      function t(r) {
+        if (n[r]) return n[r].exports;
+        var i = (n[r] = { i: r, l: !1, exports: {} });
+        return (e[r].call(i.exports, i, i.exports, t), (i.l = !0), i.exports);
+      }
+      var n = {};
+      return (
+        (t.m = e),
+        (t.c = n),
+        (t.i = function (e) {
+          return e;
+        }),
+        (t.d = function (e, n, r) {
+          t.o(e, n) ||
+            Object.defineProperty(e, n, {
+              configurable: !1,
+              enumerable: !0,
+              get: r,
+            });
+        }),
+        (t.n = function (e) {
+          var n =
+            e && e.__esModule
+              ? function () {
+                  return e.default;
+                }
+              : function () {
+                  return e;
+                };
+          return (t.d(n, `a`, n), n);
+        }),
+        (t.o = function (e, t) {
+          return Object.prototype.hasOwnProperty.call(e, t);
+        }),
+        (t.p = ``),
+        t((t.s = 15))
+      );
+    })([
+      function (e, t) {
+        var n;
+        n = (function () {
+          return this;
+        })();
+        try {
+          n = n || Function(`return this`)() || (0, eval)(`this`);
+        } catch (e) {
+          typeof window == `object` && (n = window);
+        }
+        e.exports = n;
+      },
+      function (e, t, n) {
+        "use strict";
+        function r(e) {
+          return e && e.__esModule ? e : { default: e };
+        }
+        function i(e, t) {
+          if (!(e instanceof t))
+            throw TypeError(`Cannot call a class as a function`);
+        }
+        function a(e, t) {
+          if (typeof e == `string` && typeof t == `string`) {
+            ((e = e.trim().split(`.`)), (t = t.trim().split(`.`)));
+            for (var n = 0; n < e.length; n++) {
+              if (((e[n] = e[n] || 0), (t[n] = t[n] || 0), e[n] > t[n]))
+                return !1;
+              if (e[n] < t[n]) return !0;
+            }
+          }
+          return !1;
+        }
+        Object.defineProperty(t, `__esModule`, { value: !0 });
+        var o =
+            typeof Symbol == `function` && typeof Symbol.iterator == `symbol`
+              ? function (e) {
+                  return typeof e;
+                }
+              : function (e) {
+                  return e &&
+                    typeof Symbol == `function` &&
+                    e.constructor === Symbol &&
+                    e !== Symbol.prototype
+                    ? `symbol`
+                    : typeof e;
+                },
+          s = (function () {
+            function e(e, t) {
+              for (var n = 0; n < t.length; n++) {
+                var r = t[n];
+                ((r.enumerable = r.enumerable || !1),
+                  (r.configurable = !0),
+                  `value` in r && (r.writable = !0),
+                  Object.defineProperty(e, r.key, r));
+              }
+            }
+            return function (t, n, r) {
+              return (n && e(t.prototype, n), r && e(t, r), t);
+            };
+          })(),
+          c = n(2),
+          l = r(c),
+          u = n(3),
+          d = r(u),
+          f = l.default.version,
+          p = (function () {
+            function e() {
+              (i(this, e),
+                (this.version = f),
+                (this.serialID = 0),
+                (this.parallelStack = {}),
+                (this.serialStack = {}),
+                (this.stack = this.parallelStack),
+                (this.errorHandler = null),
+                this.watch());
+            }
+            return (
+              s(e, [
+                {
+                  key: `subscribe`,
+                  value: function () {
+                    var e =
+                        arguments.length > 0 && arguments[0] !== void 0
+                          ? arguments[0]
+                          : d.default,
+                      t =
+                        arguments.length > 1 && arguments[1] !== void 0
+                          ? arguments[1]
+                          : function () {
+                              return null;
+                            },
+                      n =
+                        arguments.length > 2 && arguments[2] !== void 0
+                          ? arguments[2]
+                          : [],
+                      r = arguments[3];
+                    try {
+                      return this.parallelSubscribe({
+                        context: e,
+                        callback: t,
+                        params: n,
+                        ID: r,
+                      });
+                    } catch (i) {
+                      this._errorHandler(i);
+                      try {
+                        return d.default._AnimationFrame.parallelSubscribe({
+                          context: e,
+                          callback: t,
+                          params: n,
+                          ID: r,
+                        });
+                      } catch (e) {
+                        return (this._errorHandler(e), !1);
+                      }
+                    }
+                  },
+                },
+                {
+                  key: `parallelSubscribe`,
+                  value: function (e) {
+                    try {
+                      var t = this.prepareParams(e);
+                      return (
+                        !!t &&
+                        ((this.parallelStack[t.ID] = {
+                          callback: t.callback,
+                          context: t.context,
+                          params: t.params,
+                        }),
+                        t.ID)
+                      );
+                    } catch (t) {
+                      this._errorHandler(t);
+                      try {
+                        return d.default._AnimationFrame.parallelSubscribe(e);
+                      } catch (e) {
+                        return (this._errorHandler(e), !1);
+                      }
+                    }
+                  },
+                },
+                {
+                  key: `serialSubscribe`,
+                  value: function (e) {
+                    try {
+                      var t = this.prepareParams(e);
+                      return (
+                        !!t &&
+                        ((this.serialStack[t.ID] = {
+                          callback: t.callback,
+                          context: t.context,
+                          params: t.params,
+                        }),
+                        t.ID)
+                      );
+                    } catch (t) {
+                      this._errorHandler(t);
+                      try {
+                        return d.default._AnimationFrame.serialSubscribe(e);
+                      } catch (e) {
+                        return (this._errorHandler(e), !1);
+                      }
+                    }
+                  },
+                },
+                {
+                  key: `unsubscribe`,
+                  value: function (e) {
+                    try {
+                      return this.parallelUnsubscribe(e);
+                    } catch (t) {
+                      this._errorHandler(t);
+                      try {
+                        return d.default._AnimationFrame.parallelUnsubscribe(e);
+                      } catch (e) {
+                        return (this._errorHandler(e), !1);
+                      }
+                    }
+                  },
+                },
+                {
+                  key: `parallelUnsubscribe`,
+                  value: function (e) {
+                    try {
+                      return (
+                        !(typeof e != `string` || !this.parallelStack[e]) &&
+                        ((this.parallelStack[e] = !1),
+                        delete this.parallelStack[e],
+                        !0)
+                      );
+                    } catch (t) {
+                      this._errorHandler(t);
+                      try {
+                        return d.default._AnimationFrame.parallelUnsubscribe(e);
+                      } catch (e) {
+                        return (this._errorHandler(e), !1);
+                      }
+                    }
+                  },
+                },
+                {
+                  key: `serialUnsubscribe`,
+                  value: function (e) {
+                    try {
+                      return (
+                        !(typeof e != `string` || !this.serialStack[e]) &&
+                        ((this.serialStack[e] = !1),
+                        delete this.serialStack[e],
+                        !0)
+                      );
+                    } catch (t) {
+                      this._errorHandler(t);
+                      try {
+                        return d.default._AnimationFrame.serialUnsubscribe(e);
+                      } catch (e) {
+                        return (this._errorHandler(e), !1);
+                      }
+                    }
+                  },
+                },
+                {
+                  key: `getID`,
+                  value: function () {
+                    return (
+                      `x-` +
+                      new Date().getTime() +
+                      `-` +
+                      Math.round(1e6 * Math.random())
+                    );
+                  },
+                },
+                {
+                  key: `prepareParams`,
+                  value: function (e) {
+                    return (
+                      (e === void 0 ? `undefined` : o(e)) === `object` &&
+                      ((e.context = e.context || d.default),
+                      (e.callback =
+                        e.callback ||
+                        function () {
+                          return null;
+                        }),
+                      (e.params = e.params || []),
+                      (e.ID = e.ID || this.getID()),
+                      !(
+                        o(e.context) !== `object` ||
+                        typeof e.callback != `function` ||
+                        o(e.params) !== `object` ||
+                        !Array.isArray(e.params) ||
+                        typeof e.ID != `string`
+                      ) && e)
+                    );
+                  },
+                },
+                {
+                  key: `watch`,
+                  value: function () {
+                    try {
+                      try {
+                        this.parallelWatch();
+                      } catch (e) {
+                        this._errorHandler(e);
+                      }
+                      try {
+                        this.serialWatch();
+                      } catch (e) {
+                        this._errorHandler(e);
+                      }
+                      d.default.requestAnimationFrame(this.watch.bind(this));
+                    } catch (e) {
+                      this._errorHandler(e);
+                    }
+                  },
+                },
+                {
+                  key: `parallelWatch`,
+                  value: function () {
+                    try {
+                      if (
+                        this.parallelStack &&
+                        o(this.parallelStack) === `object` &&
+                        Object.keys(this.parallelStack).length > 0
+                      ) {
+                        for (var e in this.parallelStack)
+                          if (this.parallelStack.hasOwnProperty(e))
+                            try {
+                              if (e && typeof e == `string`) {
+                                var t = this.parallelStack[e];
+                                t &&
+                                  (t === void 0 ? `undefined` : o(t)) ===
+                                    `object` &&
+                                  t.context &&
+                                  t.callback &&
+                                  t.params &&
+                                  o(t.context) === `object` &&
+                                  typeof t.callback == `function` &&
+                                  Array.isArray(t.params) &&
+                                  t.callback.apply(t.context, t.params);
+                              }
+                            } catch (e) {
+                              this._errorHandler(e);
+                            }
+                      }
+                    } catch (e) {
+                      this._errorHandler(e);
+                    }
+                  },
+                },
+                {
+                  key: `serialWatch`,
+                  value: function () {
+                    try {
+                      if (
+                        this.serialStack &&
+                        o(this.serialStack) === `object`
+                      ) {
+                        var e = Object.keys(this.serialStack);
+                        if (e && e.length > 0) {
+                          this.serialID >= e.length && (this.serialID = 0);
+                          var t = e[this.serialID];
+                          if (
+                            (this.serialID++,
+                            this.serialStack.hasOwnProperty(t) &&
+                              t &&
+                              typeof t == `string`)
+                          ) {
+                            var n = this.serialStack[t];
+                            n &&
+                              (n === void 0 ? `undefined` : o(n)) ===
+                                `object` &&
+                              n.context &&
+                              n.callback &&
+                              n.params &&
+                              o(n.context) === `object` &&
+                              typeof n.callback == `function` &&
+                              Array.isArray(n.params) &&
+                              n.callback.apply(n.context, n.params);
+                          }
+                        }
+                      }
+                    } catch (e) {
+                      this._errorHandler(e);
+                    }
+                  },
+                },
+                {
+                  key: `_errorHandler`,
+                  value: function (e) {
+                    this.errorHandler && this.errorHandler(e);
+                  },
+                },
+              ]),
+              e
+            );
+          })();
+        ((d.default.AnimationFrame &&
+          d.default.AnimationFrame.version &&
+          !a(d.default.AnimationFrame.version, f)) ||
+          Object.defineProperty(d.default, `AnimationFrame`, {
+            configurable: !0,
+            enumerable: !1,
+            get: function () {
+              return (
+                (d.default._AnimationFrame =
+                  d.default._AnimationFrame || new p()),
+                d.default._AnimationFrame
+              );
+            },
+            set: function (e) {
+              if (d.default._AnimationFrame) {
+                if (
+                  !d.default._AnimationFrame.version ||
+                  a(d.default._AnimationFrame.version, e.version)
+                ) {
+                  if (
+                    ((d.default._oldAnimationFrame = d.default._AnimationFrame),
+                    (d.default._oldAnimationFrame.parallelWatch =
+                      function () {}),
+                    (d.default._oldAnimationFrame.serialWatch = function () {}),
+                    (d.default._oldAnimationFrame.watch = function () {}),
+                    (d.default._oldAnimationFrame.subscribe = e.subscribe),
+                    (d.default._oldAnimationFrame.parallelSubscribe =
+                      e.parallelSubscribe),
+                    (d.default._oldAnimationFrame.serialSubscribe =
+                      e.serialSubscribe),
+                    d.default._oldAnimationFrame.parallelStack &&
+                      Object.preventExtensions(
+                        d.default._oldAnimationFrame.parallelStack,
+                      ),
+                    d.default._oldAnimationFrame.stack &&
+                      Object.preventExtensions(
+                        d.default._oldAnimationFrame.stack,
+                      ),
+                    d.default._oldAnimationFrame.serialStack &&
+                      Object.preventExtensions(
+                        d.default._oldAnimationFrame.serialStack,
+                      ),
+                    (d.default._AnimationFrame = e),
+                    o(d.default._oldAnimationFrame.parallelStack) === `object`)
+                  )
+                    for (var t in d.default._oldAnimationFrame.parallelStack)
+                      d.default._oldAnimationFrame.parallelStack.hasOwnProperty(
+                        t,
+                      ) &&
+                        (d.default._AnimationFrame.parallelSubscribe({
+                          callback:
+                            d.default._oldAnimationFrame.parallelStack[t]
+                              .callback,
+                          context:
+                            d.default._oldAnimationFrame.parallelStack[t]
+                              .context,
+                          params:
+                            d.default._oldAnimationFrame.parallelStack[t]
+                              .params,
+                          ID: t,
+                        }),
+                        d.default._oldAnimationFrame.parallelUnsubscribe(t),
+                        delete d.default._oldAnimationFrame.parallelStack[t]);
+                  else if (o(d.default._oldAnimationFrame.stack) === `object`)
+                    for (var n in d.default._oldAnimationFrame.stack)
+                      d.default._oldAnimationFrame.stack.hasOwnProperty(n) &&
+                        (d.default._AnimationFrame.subscribe(
+                          d.default._oldAnimationFrame.stack[n].context,
+                          d.default._oldAnimationFrame.stack[n].callback,
+                          d.default._oldAnimationFrame.stack[n].params,
+                          d.default._oldAnimationFrame.stack[n].ID,
+                        ),
+                        d.default._oldAnimationFrame.unsubscribe(n),
+                        delete d.default._oldAnimationFrame.stack[n]);
+                  if (o(d.default._oldAnimationFrame.serialStack) === `object`)
+                    for (var r in d.default._oldAnimationFrame.serialStack)
+                      d.default._oldAnimationFrame.serialStack.hasOwnProperty(
+                        r,
+                      ) &&
+                        (d.default._AnimationFrame.serialSubscribe({
+                          callback:
+                            d.default._oldAnimationFrame.serialStack[r]
+                              .callback,
+                          context:
+                            d.default._oldAnimationFrame.serialStack[r].context,
+                          params:
+                            d.default._oldAnimationFrame.serialStack[r].params,
+                          ID: r,
+                        }),
+                        d.default._oldAnimationFrame.serialUnsubscribe(r),
+                        delete d.default._oldAnimationFrame.serialStack[r]);
+                }
+              } else d.default._AnimationFrame = e;
+            },
+          }),
+          (d.default.AnimationFrame = new p()));
+        var m = d.default.AnimationFrame;
+        ((t.default = m), (e.exports = m));
+      },
+      function (e, t, n) {
+        "use strict";
+        Object.defineProperty(t, `__esModule`, { value: !0 });
+        var r = { name: `AnimationFrame`, version: `1.0.52` };
+        ((t.default = r), (e.exports = r));
+      },
+      function (e, t, n) {
+        "use strict";
+        (function (e) {
+          function r(e, t) {
+            if (!(e instanceof t))
+              throw TypeError(`Cannot call a class as a function`);
+          }
+          function i(e) {
+            function t() {}
+            function n() {
+              return a.apply(
+                this instanceof t ? this : e || s,
+                i.concat(r.call(arguments)),
+              );
+            }
+            if (typeof this != `function`)
+              throw TypeError(
+                `Function.prototype.bind - what is trying to be bound is not callable`,
+              );
+            var r = Array.prototype.slice,
+              i = r.call(arguments, 1),
+              a = this;
+            return ((t.prototype = this.prototype), (n.prototype = new t()), n);
+          }
+          Object.defineProperty(t, `__esModule`, { value: !0 });
+          var a =
+              typeof Symbol == `function` && typeof Symbol.iterator == `symbol`
+                ? function (e) {
+                    return typeof e;
+                  }
+                : function (e) {
+                    return e &&
+                      typeof Symbol == `function` &&
+                      e.constructor === Symbol &&
+                      e !== Symbol.prototype
+                      ? `symbol`
+                      : typeof e;
+                  },
+            o = function e() {
+              r(this, e);
+            },
+            s = void 0;
+          ((s = typeof window > `u` ? (e === void 0 ? new o() : e) : window),
+            s.Promise || (s.Promise = n(5)),
+            (s.requestAnimationFrame = (function () {
+              return (
+                (s !== void 0 &&
+                  (s.requestAnimationFrame ||
+                    s.webkitRequestAnimationFrame ||
+                    s.mozRequestAnimationFrame ||
+                    s.oRequestAnimationFrame ||
+                    s.msRequestAnimationFrame)) ||
+                function (e) {
+                  s.setTimeout(e, 1e3 / 60);
+                }
+              );
+            })()),
+            (Function.prototype.bind = Function.prototype.bind || i),
+            (Object.keys =
+              Object.keys ||
+              (function () {
+                var e = !{ toString: null }.propertyIsEnumerable(`toString`),
+                  t = [
+                    `toString`,
+                    `toLocaleString`,
+                    `valueOf`,
+                    `hasOwnProperty`,
+                    `isPrototypeOf`,
+                    `propertyIsEnumerable`,
+                    `constructor`,
+                  ],
+                  n = t.length;
+                return function (r) {
+                  if (
+                    (r === void 0 ? `undefined` : a(r)) !== `object` &&
+                    (typeof r != `function` || r === null)
+                  )
+                    throw TypeError(`Object.keys called on non-object`);
+                  var i = [];
+                  for (var o in r)
+                    Object.prototype.hasOwnProperty.call(r, o) && i.push(o);
+                  if (e)
+                    for (var s = 0; s < n; s++)
+                      Object.prototype.hasOwnProperty.call(r, t[s]) &&
+                        i.push(t[s]);
+                  return i;
+                };
+              })()),
+            (t.default = s));
+        }).call(t, n(0));
+      },
+      function (e, t) {
+        function n() {
+          throw Error(`setTimeout has not been defined`);
+        }
+        function r() {
+          throw Error(`clearTimeout has not been defined`);
+        }
+        function i(e) {
+          if (u === setTimeout) return setTimeout(e, 0);
+          if ((u === n || !u) && setTimeout)
+            return ((u = setTimeout), setTimeout(e, 0));
+          try {
+            return u(e, 0);
+          } catch (t) {
+            try {
+              return u.call(null, e, 0);
+            } catch (t) {
+              return u.call(this, e, 0);
+            }
+          }
+        }
+        function a(e) {
+          if (d === clearTimeout) return clearTimeout(e);
+          if ((d === r || !d) && clearTimeout)
+            return ((d = clearTimeout), clearTimeout(e));
+          try {
+            return d(e);
+          } catch (t) {
+            try {
+              return d.call(null, e);
+            } catch (t) {
+              return d.call(this, e);
+            }
+          }
+        }
+        function o() {
+          h &&
+            p &&
+            ((h = !1),
+            p.length ? (m = p.concat(m)) : (g = -1),
+            m.length && s());
+        }
+        function s() {
+          if (!h) {
+            var e = i(o);
+            h = !0;
+            for (var t = m.length; t; ) {
+              for (p = m, m = []; ++g < t; ) p && p[g].run();
+              ((g = -1), (t = m.length));
+            }
+            ((p = null), (h = !1), a(e));
+          }
+        }
+        function c(e, t) {
+          ((this.fun = e), (this.array = t));
+        }
+        function l() {}
+        var u,
+          d,
+          f = (e.exports = {});
+        (function () {
+          try {
+            u = typeof setTimeout == `function` ? setTimeout : n;
+          } catch (e) {
+            u = n;
+          }
+          try {
+            d = typeof clearTimeout == `function` ? clearTimeout : r;
+          } catch (e) {
+            d = r;
+          }
+        })();
+        var p,
+          m = [],
+          h = !1,
+          g = -1;
+        ((f.nextTick = function (e) {
+          var t = Array(arguments.length - 1);
+          if (arguments.length > 1)
+            for (var n = 1; n < arguments.length; n++) t[n - 1] = arguments[n];
+          (m.push(new c(e, t)), m.length !== 1 || h || i(s));
+        }),
+          (c.prototype.run = function () {
+            this.fun.apply(null, this.array);
+          }),
+          (f.title = `browser`),
+          (f.browser = !0),
+          (f.env = {}),
+          (f.argv = []),
+          (f.version = ``),
+          (f.versions = {}),
+          (f.on = l),
+          (f.addListener = l),
+          (f.once = l),
+          (f.off = l),
+          (f.removeListener = l),
+          (f.removeAllListeners = l),
+          (f.emit = l),
+          (f.prependListener = l),
+          (f.prependOnceListener = l),
+          (f.listeners = function (e) {
+            return [];
+          }),
+          (f.binding = function (e) {
+            throw Error(`process.binding is not supported`);
+          }),
+          (f.cwd = function () {
+            return `/`;
+          }),
+          (f.chdir = function (e) {
+            throw Error(`process.chdir is not supported`);
+          }),
+          (f.umask = function () {
+            return 0;
+          }));
+      },
+      function (e, t, n) {
+        (function (t) {
+          (function (n) {
+            function r() {}
+            function i(e, t) {
+              return function () {
+                e.apply(t, arguments);
+              };
+            }
+            function a(e) {
+              if (typeof this != `object`)
+                throw TypeError(`Promises must be constructed via new`);
+              if (typeof e != `function`) throw TypeError(`not a function`);
+              ((this._state = 0),
+                (this._handled = !1),
+                (this._value = void 0),
+                (this._deferreds = []),
+                d(e, this));
+            }
+            function o(e, t) {
+              for (; e._state === 3; ) e = e._value;
+              if (e._state === 0) return void e._deferreds.push(t);
+              ((e._handled = !0),
+                a._immediateFn(function () {
+                  var n = e._state === 1 ? t.onFulfilled : t.onRejected;
+                  if (n === null)
+                    return void (e._state === 1 ? s : c)(t.promise, e._value);
+                  var r;
+                  try {
+                    r = n(e._value);
+                  } catch (e) {
+                    return void c(t.promise, e);
+                  }
+                  s(t.promise, r);
+                }));
+            }
+            function s(e, t) {
+              try {
+                if (t === e)
+                  throw TypeError(`A promise cannot be resolved with itself.`);
+                if (t && (typeof t == `object` || typeof t == `function`)) {
+                  var n = t.then;
+                  if (t instanceof a)
+                    return ((e._state = 3), (e._value = t), void l(e));
+                  if (typeof n == `function`) return void d(i(n, t), e);
+                }
+                ((e._state = 1), (e._value = t), l(e));
+              } catch (t) {
+                c(e, t);
+              }
+            }
+            function c(e, t) {
+              ((e._state = 2), (e._value = t), l(e));
+            }
+            function l(e) {
+              e._state === 2 &&
+                e._deferreds.length === 0 &&
+                a._immediateFn(function () {
+                  e._handled || a._unhandledRejectionFn(e._value);
+                });
+              for (var t = 0, n = e._deferreds.length; t < n; t++)
+                o(e, e._deferreds[t]);
+              e._deferreds = null;
+            }
+            function u(e, t, n) {
+              ((this.onFulfilled = typeof e == `function` ? e : null),
+                (this.onRejected = typeof t == `function` ? t : null),
+                (this.promise = n));
+            }
+            function d(e, t) {
+              var n = !1;
+              try {
+                e(
+                  function (e) {
+                    n || ((n = !0), s(t, e));
+                  },
+                  function (e) {
+                    n || ((n = !0), c(t, e));
+                  },
+                );
+              } catch (e) {
+                if (n) return;
+                ((n = !0), c(t, e));
+              }
+            }
+            var f = setTimeout;
+            ((a.prototype.catch = function (e) {
+              return this.then(null, e);
+            }),
+              (a.prototype.then = function (e, t) {
+                var n = new this.constructor(r);
+                return (o(this, new u(e, t, n)), n);
+              }),
+              (a.all = function (e) {
+                var t = Array.prototype.slice.call(e);
+                return new a(function (e, n) {
+                  function r(a, o) {
+                    try {
+                      if (
+                        o &&
+                        (typeof o == `object` || typeof o == `function`)
+                      ) {
+                        var s = o.then;
+                        if (typeof s == `function`)
+                          return void s.call(
+                            o,
+                            function (e) {
+                              r(a, e);
+                            },
+                            n,
+                          );
+                      }
+                      ((t[a] = o), --i == 0 && e(t));
+                    } catch (e) {
+                      n(e);
+                    }
+                  }
+                  if (t.length === 0) return e([]);
+                  for (var i = t.length, a = 0; a < t.length; a++) r(a, t[a]);
+                });
+              }),
+              (a.resolve = function (e) {
+                return e && typeof e == `object` && e.constructor === a
+                  ? e
+                  : new a(function (t) {
+                      t(e);
+                    });
+              }),
+              (a.reject = function (e) {
+                return new a(function (t, n) {
+                  n(e);
+                });
+              }),
+              (a.race = function (e) {
+                return new a(function (t, n) {
+                  for (var r = 0, i = e.length; r < i; r++) e[r].then(t, n);
+                });
+              }),
+              (a._immediateFn =
+                (typeof t == `function` &&
+                  function (e) {
+                    t(e);
+                  }) ||
+                function (e) {
+                  f(e, 0);
+                }),
+              (a._unhandledRejectionFn = function (e) {
+                typeof console < `u` &&
+                  console &&
+                  console.warn(`Possible Unhandled Promise Rejection:`, e);
+              }),
+              (a._setImmediateFn = function (e) {
+                a._immediateFn = e;
+              }),
+              (a._setUnhandledRejectionFn = function (e) {
+                a._unhandledRejectionFn = e;
+              }),
+              e !== void 0 && e.exports
+                ? (e.exports = a)
+                : n.Promise || (n.Promise = a));
+          })(this);
+        }).call(t, n(7).setImmediate);
+      },
+      function (e, t, n) {
+        (function (e, t) {
+          (function (e, n) {
+            "use strict";
+            function r(e) {
+              typeof e != `function` && (e = Function(`` + e));
+              for (
+                var t = Array(arguments.length - 1), n = 0;
+                n < t.length;
+                n++
+              )
+                t[n] = arguments[n + 1];
+              var r = { callback: e, args: t };
+              return ((l[c] = r), s(c), c++);
+            }
+            function i(e) {
+              delete l[e];
+            }
+            function a(e) {
+              var t = e.callback,
+                r = e.args;
+              switch (r.length) {
+                case 0:
+                  t();
+                  break;
+                case 1:
+                  t(r[0]);
+                  break;
+                case 2:
+                  t(r[0], r[1]);
+                  break;
+                case 3:
+                  t(r[0], r[1], r[2]);
+                  break;
+                default:
+                  t.apply(n, r);
+              }
+            }
+            function o(e) {
+              if (u) setTimeout(o, 0, e);
+              else {
+                var t = l[e];
+                if (t) {
+                  u = !0;
+                  try {
+                    a(t);
+                  } finally {
+                    (i(e), (u = !1));
+                  }
+                }
+              }
+            }
+            if (!e.setImmediate) {
+              var s,
+                c = 1,
+                l = {},
+                u = !1,
+                d = e.document,
+                f = Object.getPrototypeOf && Object.getPrototypeOf(e);
+              ((f = f && f.setTimeout ? f : e),
+                {}.toString.call(e.process) === `[object process]`
+                  ? (function () {
+                      s = function (e) {
+                        t.nextTick(function () {
+                          o(e);
+                        });
+                      };
+                    })()
+                  : (function () {
+                        if (e.postMessage && !e.importScripts) {
+                          var t = !0,
+                            n = e.onmessage;
+                          return (
+                            (e.onmessage = function () {
+                              t = !1;
+                            }),
+                            e.postMessage(``, `*`),
+                            (e.onmessage = n),
+                            t
+                          );
+                        }
+                      })()
+                    ? (function () {
+                        var t = `setImmediate$` + Math.random() + `$`,
+                          n = function (n) {
+                            n.source === e &&
+                              typeof n.data == `string` &&
+                              n.data.indexOf(t) === 0 &&
+                              o(+n.data.slice(t.length));
+                          };
+                        (e.addEventListener
+                          ? e.addEventListener(`message`, n, !1)
+                          : e.attachEvent(`onmessage`, n),
+                          (s = function (n) {
+                            e.postMessage(t + n, `*`);
+                          }));
+                      })()
+                    : e.MessageChannel
+                      ? (function () {
+                          var e = new MessageChannel();
+                          ((e.port1.onmessage = function (e) {
+                            o(e.data);
+                          }),
+                            (s = function (t) {
+                              e.port2.postMessage(t);
+                            }));
+                        })()
+                      : d && `onreadystatechange` in d.createElement(`script`)
+                        ? (function () {
+                            var e = d.documentElement;
+                            s = function (t) {
+                              var n = d.createElement(`script`);
+                              ((n.onreadystatechange = function () {
+                                (o(t),
+                                  (n.onreadystatechange = null),
+                                  e.removeChild(n),
+                                  (n = null));
+                              }),
+                                e.appendChild(n));
+                            };
+                          })()
+                        : (function () {
+                            s = function (e) {
+                              setTimeout(o, 0, e);
+                            };
+                          })(),
+                (f.setImmediate = r),
+                (f.clearImmediate = i));
+            }
+          })(typeof self > `u` ? (e === void 0 ? this : e) : self);
+        }).call(t, n(0), n(4));
+      },
+      function (e, t, n) {
+        function r(e, t) {
+          ((this._id = e), (this._clearFn = t));
+        }
+        var i = Function.prototype.apply;
+        ((t.setTimeout = function () {
+          return new r(i.call(setTimeout, window, arguments), clearTimeout);
+        }),
+          (t.setInterval = function () {
+            return new r(i.call(setInterval, window, arguments), clearInterval);
+          }),
+          (t.clearTimeout = t.clearInterval =
+            function (e) {
+              e && e.close();
+            }),
+          (r.prototype.unref = r.prototype.ref = function () {}),
+          (r.prototype.close = function () {
+            this._clearFn.call(window, this._id);
+          }),
+          (t.enroll = function (e, t) {
+            (clearTimeout(e._idleTimeoutId), (e._idleTimeout = t));
+          }),
+          (t.unenroll = function (e) {
+            (clearTimeout(e._idleTimeoutId), (e._idleTimeout = -1));
+          }),
+          (t._unrefActive = t.active =
+            function (e) {
+              clearTimeout(e._idleTimeoutId);
+              var t = e._idleTimeout;
+              t >= 0 &&
+                (e._idleTimeoutId = setTimeout(function () {
+                  e._onTimeout && e._onTimeout();
+                }, t));
+            }),
+          n(6),
+          (t.setImmediate = setImmediate),
+          (t.clearImmediate = clearImmediate));
+      },
+      ,
+      ,
+      ,
+      ,
+      ,
+      ,
+      ,
+      function (e, t, n) {
+        e.exports = n(1);
+      },
+    ]);
+  });
+});
+export { t as require_AnimationFrame };

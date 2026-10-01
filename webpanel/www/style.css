@@ -314,7 +314,7 @@ body {
 /* ---------- LAYOUT: SIDEBAR + TOPBAR (DESKTOP) ----------
    Desktop = left sidebar (240px / 56px collapsed) + topbar справа от него
    + main контент справа. Industry standard для admin tools.
-   Mobile/landscape = sidebar collapse в drawer (см. media query ниже). */
+   Narrow viewport = sidebar moves into the left drawer (media query below). */
 :root { --sidebar-w: 240px; --sidebar-w-collapsed: 56px; }
 .topbar {
   display: flex;
@@ -468,8 +468,7 @@ body[data-sidebar="collapsed"] { padding-left: var(--sidebar-w-collapsed); }
 }
 
 /* ---------- HAMBURGER DRAWER (mobile only) ---------- */
-/* Industry-standard pattern: на мобиле topbar = [z2k] _ [☰], клик —
-   slide-in drawer справа со всеми nav пунктами и theme-toggle внутри. */
+/* На узком экране topbar = [☰] [z2k]; меню выезжает слева, как в референсе. */
 .menu-toggle {
   display: none;
   background: transparent;
@@ -624,7 +623,7 @@ body[data-sidebar="collapsed"] { padding-left: var(--sidebar-w-collapsed); }
 .sheet-option.active { color: var(--accent); font-weight: 600; }
 .sheet-option-arrow { display: inline-flex; align-items: center; }
 
-@media (max-width: 767.98px), (max-height: 500px) {
+@media (max-width: 767.98px) {
   /* Cancel desktop sidebar layout — body не reserve'ит place под sidebar */
   body { padding-left: 0; }
   body[data-sidebar="collapsed"] { padding-left: 0; }
@@ -637,20 +636,23 @@ body[data-sidebar="collapsed"] { padding-left: var(--sidebar-w-collapsed); }
      body[data-sidebar="collapsed"] #nav имеют специфичность (1,1,1) против
      (1,0,0) у здешнего #nav — медиазапрос специфичности не добавляет, поэтому
      побеждали они.
-     Итог был такой: свернул панель на настольном браузере, сузил окно (или
-     просто сделал его невысоким — эта ветка включается ещё и по max-height:
-     500px, то есть на обычном ноутбуке) — и выдвижное меню открывается
+     Итог был такой: свернул панель на настольном браузере, сузил окно — и
+     выдвижное меню открывается
      шириной 56 пикселей и без подписей, одними значками.
      Возвращаем ветке её значения явно, с той же специфичностью. */
   body[data-sidebar="collapsed"] #nav { width: 280px; max-width: 85vw; }
   body[data-sidebar="collapsed"] #nav .nav-label { display: revert; }
   body[data-sidebar="collapsed"] #nav a { justify-content: flex-start; }
 
-  .menu-toggle { display: inline-flex; }
+  .menu-toggle {
+    display: inline-flex;
+    order: -1;
+    margin-left: 0;
+  }
 
   /* Drawer header: "Меню" + X (Skill rule: modal-escape / escape-routes
      — sheets must offer visible close affordance) */
-  .topbar > #nav .nav-drawer-header {
+  .topbar #nav .nav-drawer-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -658,14 +660,14 @@ body[data-sidebar="collapsed"] { padding-left: var(--sidebar-w-collapsed); }
     border-bottom: 1px solid var(--border);
     margin-bottom: 8px;
   }
-  .topbar > #nav .nav-drawer-title {
+  .topbar #nav .nav-drawer-title {
     font-size: 13px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.6px;
     color: var(--text-muted);
   }
-  .topbar > #nav .nav-drawer-close {
+  .topbar #nav .nav-drawer-close {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -679,23 +681,23 @@ body[data-sidebar="collapsed"] { padding-left: var(--sidebar-w-collapsed); }
     padding: 0;
     transition: background var(--dur-micro) var(--spring-smooth), color var(--dur-micro) var(--spring-smooth);
   }
-  .topbar > #nav .nav-drawer-close:hover {
+  .topbar #nav .nav-drawer-close:hover {
     background: var(--bg-card-hover);
     color: var(--text);
   }
 
-  /* Override default sidebar position → drawer справа на мобиле */
+  /* Keep the navigation drawer on the reference's left edge. */
   #nav {
-    left: auto;
-    right: 0;
+    left: 0;
+    right: auto;
     top: 0;
     bottom: 0;
     width: 280px;
     max-width: 85vw;
-    border-right: 0;
-    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    border-left: 0;
     box-shadow: var(--shadow-lg);
-    transform: translateX(100%);
+    transform: translateX(-100%);
     transition: transform var(--dur-large) var(--ease-emphasized);
     will-change: transform;
     z-index: 110;
@@ -714,13 +716,14 @@ body[data-sidebar="collapsed"] { padding-left: var(--sidebar-w-collapsed); }
   }
   #nav a.active { border-radius: 0; }
 
-  /* theme-toggle = footer drawer (fixed bottom-right, синхронно slide'ит) */
+  /* Keep the theme switcher in the bottom-left drawer footer. */
   .topbar > .theme-toggle {
     position: fixed;
     bottom: 16px;
-    right: 16px;
+    left: 16px;
+    right: auto;
     margin: 0;
-    transform: translateX(calc(100% + 32px));
+    transform: translateX(calc(-100% - 32px));
     transition: transform var(--dur-large) var(--ease-emphasized);
     will-change: transform;
     z-index: 111;
@@ -1097,7 +1100,7 @@ body[data-page="login"] {
   transition: none;
 }
 body[data-page="login"] #nav,
-body[data-page="login"] .topbar > #nav { display: none; }
+body[data-page="login"] .topbar #nav { display: none; }
 body[data-page="login"] #app { max-width: none; }
 
 /* ПРОВЕРКА ДОМЕНА на странице «Диагностика».
@@ -2601,9 +2604,9 @@ body[data-page="strategies"] #app { max-width: none; }
   #app { max-width: 1200px; }
 }
 
-/* Phone (≤767px) + landscape короткий — content layout consistent
-   с drawer pattern. */
-@media (max-width: 767.98px), (max-height: 500px) {
+/* Narrow viewport — content layout changes at the same width breakpoint as
+   the mobile drawer. Short desktop windows keep the desktop navigation. */
+@media (max-width: 767.98px) {
   .topbar { padding: 0 var(--space-16); gap: 12px; }
   #app { padding: var(--space-16) var(--space-16) var(--space-64); }
   .status-grid { grid-template-columns: repeat(2, 1fr); }
@@ -2959,9 +2962,9 @@ input[type="checkbox"] { accent-color: var(--accent); }
   .theme-toggle button { width: 44px; height: 44px; }
   .sheet-close { width: 44px; height: 44px; }
   /* Селектор длинный не для красоты: сама кнопка объявлена как
-     `.topbar > #nav .nav-drawer-close` (специфичность 0,2,1), и короткое
+     `.topbar #nav .nav-drawer-close` (специфичность 0,2,1), и короткое
      правило её бы не перебило независимо от порядка в файле. */
-  .topbar > #nav .nav-drawer-close { width: 44px; height: 44px; }
+  .topbar #nav .nav-drawer-close { width: 44px; height: 44px; }
   /* Сам переключатель остаётся 40×22 (это его вид), но кликабельная область
      строки дотягивается до 44px по вертикали. */
   .switch { min-height: 44px; }

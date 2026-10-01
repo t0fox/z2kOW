@@ -76,15 +76,17 @@ export function initTheme() {
   _applyTheme();
 }
 
-// На мобиле topbar = [z2k] _ [☰]. Клик — open right-slide drawer.
+// На узком экране topbar = [☰] [z2k]. Клик открывает левую выдвижную панель.
 // Содержит все nav links + theme-toggle. Closes на: click outside,
 // click backdrop, click nav link, Escape.
 export function initDrawer() {
   const btn = document.getElementById("menu-toggle");
   const nav = document.getElementById("nav");
+  const shell = document.getElementById("menu-shell");
   const backdrop = document.getElementById("menu-backdrop");
   const theme = document.querySelector(".topbar > .theme-toggle");
-  if (!btn || !nav || !backdrop) return;
+  if (!btn || !nav || !shell || !backdrop) return;
+  let backdropHideTimer = 0;
 
   function drawerFocusables() {
     const insideNav = Array.from(nav.querySelectorAll("a[href], button:not([disabled])"));
@@ -100,6 +102,9 @@ export function initDrawer() {
   }
 
   function openDrawer() {
+    clearTimeout(backdropHideTimer);
+    shell.classList.add("mm-ocd--open");
+    document.body.classList.add("mm-ocd-opened");
     nav.classList.add("menu-open");
     if (theme) theme.classList.add("menu-open");
     backdrop.hidden = false;
@@ -112,12 +117,15 @@ export function initDrawer() {
     document.body.style.overflow = "hidden";
   }
   function closeDrawer({ restoreFocus = true } = {}) {
+    shell.classList.remove("mm-ocd--open");
+    document.body.classList.remove("mm-ocd-opened");
     nav.classList.remove("menu-open");
     if (theme) theme.classList.remove("menu-open");
     backdrop.classList.remove("menu-open");
     btn.setAttribute("aria-expanded", "false");
     document.body.style.overflow = "";
-    setTimeout(() => { backdrop.hidden = true; }, 220);
+    clearTimeout(backdropHideTimer);
+    backdropHideTimer = setTimeout(() => { backdrop.hidden = true; }, 450);
     if (restoreFocus) requestAnimationFrame(() => btn.focus());
   }
 

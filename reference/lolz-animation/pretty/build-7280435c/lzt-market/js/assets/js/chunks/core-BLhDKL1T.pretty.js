@@ -1,0 +1,4629 @@
+try {
+  let e =
+      typeof window < `u`
+        ? window
+        : typeof global < `u`
+          ? global
+          : typeof globalThis < `u`
+            ? globalThis
+            : typeof self < `u`
+              ? self
+              : {},
+    t = new e.Error().stack;
+  t &&
+    ((e._sentryDebugIds = e._sentryDebugIds || {}),
+    (e._sentryDebugIds[t] = `ece1b233-7f97-4b68-96be-1e36331d8a76`),
+    (e._sentryDebugIdIdentifier = `sentry-dbid-ece1b233-7f97-4b68-96be-1e36331d8a76`));
+} catch (e) {}
+import { __esmMin as e } from "./rolldown-runtime-MtAR-uS5.js";
+import {
+  init_jquery_xenforo_rollup as t,
+  jquery_xenforo_rollup_default as n,
+} from "./jquery-Csqho11y.js";
+import { init___sentry_release_injection_file as r } from "./_sentry-release-injection-file-DU9EORvB.js";
+import {
+  init_xenforo as i,
+  init_xf as a,
+  locale as o,
+  phrase as s,
+  xenforo_default as c,
+} from "./xenforo-CkeKFsFe.js";
+import {
+  append as l,
+  append_styles as u,
+  bind_value as d,
+  child as f,
+  comment as p,
+  create_custom_element as m,
+  delegate as h,
+  delegated as g,
+  first_child as _,
+  flushSync as v,
+  from_html as y,
+  get$1 as b,
+  if_block as x,
+  init_client as S,
+  init_disclose_version as C,
+  init_index_client$2 as w,
+  mount as T,
+  only_child as E,
+  pop as D,
+  prop as O,
+  proxy as k,
+  push as A,
+  remove_input_defaults as j,
+  reset as M,
+  set as N,
+  set_attribute as P,
+  set_class as F,
+  set_text as I,
+  sibling as L,
+  state as R,
+  template_effect as z,
+  text as B,
+} from "./svelte-src-DujwBjvd.js";
+import {
+  init_sortable_esm as ee,
+  sortable_esm_default as te,
+} from "./sortablejs-modular-B2JIdjR3.js";
+import {
+  init_mount as V,
+  mountDateRangePicker as H,
+} from "./mount-DBDdWZ1K.js";
+import { init_moment as U, moment_default as W } from "./moment-RSjls90c.js";
+import {
+  buildAppleLineChartOptions as ne,
+  buildLineDataset as G,
+  createGradient as re,
+  getChartColor as K,
+  getDateFormatters as q,
+  init_charts as J,
+  legendMarginPlugin as Y,
+  loadChartJs as X,
+  verticalLinePlugin as ie,
+} from "./charts-CuYR1IiX.js";
+function ae(e, t) {
+  (A(t, !0), u(e, Z));
+  let n = O(t, `searchCallback`, 7),
+    r = R(`censor`),
+    i = R(null);
+  function a() {
+    b(r) === `censor` &&
+      (N(r, `skeleton`),
+      n()((e) => {
+        (N(i, e, !0), N(r, ``));
+      }));
+  }
+  function c(e) {
+    return e.toLocaleString(o.code);
+  }
+  var d = {
+      get searchCallback() {
+        return n();
+      },
+      set searchCallback(e) {
+        (n(e), v());
+      },
+    },
+    p = se(),
+    m = f(p),
+    h = f(m),
+    _ = f(h),
+    y = E(_),
+    S = L(_, 2),
+    C = E(S, !0);
+  M(h);
+  var w = L(h, 2),
+    T = f(w),
+    k = f(T),
+    j = f(k),
+    P = f(j),
+    ee = (e) => {
+      var t = B();
+      (z(
+        (e, n) => I(t, `${e == null ? `` : e} ${n == null ? `` : n}.`),
+        [() => (b(i) ? c(b(i)[`1d`]) : `000`), () => s(`market_accounts_pt`)],
+      ),
+        l(e, t));
+    };
+  (x(P, (e) => {
+    b(r) !== `skeleton` && e(ee);
+  }),
+    M(j),
+    M(k));
+  var te = L(k, 2),
+    V = E(te);
+  M(T);
+  var H = L(T, 2),
+    U = f(H),
+    W = f(U),
+    ne = f(W),
+    G = (e) => {
+      var t = B();
+      (z(
+        (e, n) => I(t, `${e == null ? `` : e} ${n == null ? `` : n}.`),
+        [() => (b(i) ? c(b(i)[`7d`]) : `000`), () => s(`market_accounts_pt`)],
+      ),
+        l(e, t));
+    };
+  (x(ne, (e) => {
+    b(r) !== `skeleton` && e(G);
+  }),
+    M(W),
+    M(U));
+  var re = L(U, 2),
+    K = E(re);
+  M(H);
+  var q = L(H, 2),
+    J = f(q),
+    Y = f(J),
+    X = f(Y),
+    ie = (e) => {
+      var t = B();
+      (z(
+        (e, n) => I(t, `${e == null ? `` : e} ${n == null ? `` : n}.`),
+        [() => (b(i) ? c(b(i)[`14d`]) : `000`), () => s(`market_accounts_pt`)],
+      ),
+        l(e, t));
+    };
+  (x(X, (e) => {
+    b(r) !== `skeleton` && e(ie);
+  }),
+    M(Y),
+    M(J));
+  var ae = L(J, 2),
+    ce = E(ae);
+  (M(q), M(w), M(m));
+  var Q = L(m, 2),
+    le = (e) => {
+      var t = oe(),
+        n = E(t, !0);
+      (z((e) => I(n, e), [() => s(`market_auto_buy_check`)]),
+        g(`click`, t, a),
+        l(e, t));
+    };
+  return (
+    x(Q, (e) => {
+      b(r) === `censor` && e(le);
+    }),
+    M(p),
+    z(
+      (e, t, n, i, a) => {
+        var o, s, c;
+        (I(y, `${e == null ? `` : e}:`),
+          I(C, t),
+          F(j, 1, `textCount ${(o = b(r)) == null ? `` : o}`, `lztng-10cz8ce`),
+          I(V, `1 ${n == null ? `` : n}.`),
+          F(W, 1, `textCount ${(s = b(r)) == null ? `` : s}`, `lztng-10cz8ce`),
+          I(K, `7 ${i == null ? `` : i}.`),
+          F(Y, 1, `textCount ${(c = b(r)) == null ? `` : c}`, `lztng-10cz8ce`),
+          I(ce, `14 ${a == null ? `` : a}.`));
+      },
+      [
+        () => s(`market_sold_accounts`),
+        () => s(`market_auto_buy_feature`),
+        () => s(`market_auto_buy_day`),
+        () => s(`market_auto_buy_day`),
+        () => s(`market_auto_buy_day`),
+      ],
+    ),
+    l(e, p),
+    D(d)
+  );
+}
+var oe,
+  se,
+  Z,
+  ce = e(() => {
+    (C(),
+      S(),
+      a(),
+      (oe = y(`<button class="button primary lztng-10cz8ce"> </button>`)),
+      (se = y(
+        `<div class="container lztng-10cz8ce"><div class="aboutBlock lztng-10cz8ce"><div class="textGroup lztng-10cz8ce"><span class="text muted lztng-10cz8ce"> </span> <a class="textAutoBuy lztng-10cz8ce" href="/auto-buy" target="_blank"> </a></div> <div class="aboutGroup lztng-10cz8ce"><div class="aboutItem lztng-10cz8ce"><div class="countBlock lztng-10cz8ce"><span><!></span></div> <span class="dateCount lztng-10cz8ce"> </span></div> <div class="aboutItem lztng-10cz8ce"><div class="countBlock lztng-10cz8ce"><span><!></span></div> <span class="dateCount lztng-10cz8ce"> </span></div> <div class="aboutItem lztng-10cz8ce"><div class="countBlock lztng-10cz8ce"><span><!></span></div> <span class="dateCount lztng-10cz8ce"> </span></div></div></div> <!></div>`,
+      )),
+      (Z = {
+        hash: `lztng-10cz8ce`,
+        code: `.container.lztng-10cz8ce {background-color:var(--contentBackground);padding:16px 20px;border-radius:10px;display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap;align-items:center;position:relative;margin-bottom:15px;.aboutBlock:where(.lztng-10cz8ce) {display:flex;align-items:center;flex-wrap:wrap;gap:16px;.textGroup:where(.lztng-10cz8ce) {display:flex;flex-direction:column;gap:6px;.textAutoBuy:where(.lztng-10cz8ce) {padding:2px 5px;background-color:#1c6e49;border-radius:6px;font-weight:bold;width:fit-content;}}.aboutGroup:where(.lztng-10cz8ce) {display:flex;align-items:center;gap:8px;.aboutItem:where(.lztng-10cz8ce) {position:relative;.countBlock:where(.lztng-10cz8ce) {padding:4px 8px;line-height:20px;font-weight:bold;background-color:var(--primaryDarker);border:1px solid var(--primaryDark);border-radius:8px;.textCount:where(.lztng-10cz8ce) {border-radius:6px;height:20px;line-height:20px;display:block;min-width:36px;&.skeleton {width:60px;position:relative;overflow:hidden;background:linear-gradient(90deg, #ffffff16 0%, #ffffff0d 100%);}&.skeleton::after {content:'';position:absolute;top:0;left:-150px;width:150px;height:100%;background:linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+								animation: lztng-10cz8ce-skeleton-loading 1.5s infinite;}&.censor {filter:blur(4px);}}}.dateCount:where(.lztng-10cz8ce) {position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:12px;line-height:16px;color:var(--mutedTextColor);background-color:var(--primaryDark);border:1px solid var(--contentBackground);padding:0 4px;border-radius:56px;text-wrap:nowrap;}}}}}
+
+	@keyframes lztng-10cz8ce-skeleton-loading {
+		0% {
+			left: -150px;
+		}
+		50% {
+			left: 100%;
+		}
+		100% {
+			left: 100%;
+		}
+	}`,
+      }),
+      h([`click`]),
+      m(ae, { searchCallback: {} }, [], [], { mode: `open` }));
+  }),
+  Q,
+  le = e(() => {
+    (r(),
+      (Q =
+        `` +
+        new URL(`../../other/telegram.parser-BBAUP--M.js`, import.meta.url)
+          .href));
+  }),
+  ue,
+  de = e(() => {
+    (r(),
+      (ue =
+        `` + new URL(`../../other/cookie-BmdItnDB.js`, import.meta.url).href));
+  });
+function fe(e, t) {
+  A(t, !0);
+  let n = O(t, `elementId`, 7),
+    r = O(t, `elementName`, 7),
+    i = O(t, `title`, 7),
+    a = O(t, `change`, 7),
+    o = O(t, `floating`, 7, !1),
+    c = R(``),
+    u = R(``);
+  var m = {
+      get elementId() {
+        return n();
+      },
+      set elementId(e) {
+        (n(e), v());
+      },
+      get elementName() {
+        return r();
+      },
+      set elementName(e) {
+        (r(e), v());
+      },
+      get title() {
+        return i();
+      },
+      set title(e) {
+        (i(e), v());
+      },
+      get change() {
+        return a();
+      },
+      set change(e) {
+        (a(e), v());
+      },
+      get floating() {
+        return o();
+      },
+      set floating(e = !1) {
+        (o(e), v());
+      },
+    },
+    h = p(),
+    y = _(h),
+    S = (e) => {
+      var t = pe(),
+        o = f(t),
+        p = E(o, !0),
+        m = L(o, 2),
+        h = f(m),
+        _ = f(h),
+        v = E(_, !0),
+        y = L(_, 2);
+      j(y);
+      var x = L(y, 2);
+      M(h);
+      var S = L(h, 2),
+        C = f(S),
+        w = E(C, !0),
+        T = L(C, 2);
+      j(T);
+      var D = L(T, 2);
+      (M(S),
+        M(m),
+        M(t),
+        z(
+          (e, a) => {
+            var o, s, c, l, u, d;
+            (P(
+              t,
+              `id`,
+              `additionalInput-${(o = r()) == null ? `` : o}-${(s = n()) == null ? `` : s}`,
+            ),
+              I(p, i()),
+              I(v, e),
+              P(
+                y,
+                `name`,
+                `${(c = r()) == null ? `` : c}[${(l = n()) == null ? `` : l}]`,
+              ),
+              I(w, a),
+              P(
+                T,
+                `name`,
+                `${(u = r()) == null ? `` : u}_max[${(d = n()) == null ? `` : d}]`,
+              ));
+          },
+          [() => s(`market_from`), () => s(`market_up_to`)],
+        ),
+        g(`change`, y, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        d(
+          y,
+          () => b(c),
+          (e) => N(c, e),
+        ),
+        g(`click`, x, () => {
+          (N(c, ``), a()());
+        }),
+        g(`change`, T, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        d(
+          T,
+          () => b(u),
+          (e) => N(u, e),
+        ),
+        g(`click`, D, () => {
+          (N(u, ``), a()());
+        }),
+        l(e, t));
+    },
+    C = (e) => {
+      var t = me(),
+        o = f(t),
+        c = E(o, !0),
+        u = L(o, 2),
+        d = f(u),
+        p = L(d, 2);
+      (M(u),
+        M(t),
+        z(
+          (e, a) => {
+            var o, s, l, u, f, m;
+            (P(
+              t,
+              `id`,
+              `additionalInput-${(o = r()) == null ? `` : o}-${(s = n()) == null ? `` : s}`,
+            ),
+              I(c, i()),
+              P(
+                d,
+                `name`,
+                `${(l = r()) == null ? `` : l}[${(u = n()) == null ? `` : u}]`,
+              ),
+              P(d, `placeholder`, e),
+              P(
+                p,
+                `name`,
+                `${(f = r()) == null ? `` : f}_max[${(m = n()) == null ? `` : m}]`,
+              ),
+              P(p, `placeholder`, a));
+          },
+          [() => s(`market_from`), () => s(`market_up_to`)],
+        ),
+        g(`change`, d, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        g(`change`, p, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        l(e, t));
+    };
+  return (
+    x(y, (e) => {
+      o() ? e(S) : e(C, -1);
+    }),
+    l(e, h),
+    D(m)
+  );
+}
+var pe,
+  me,
+  he = e(() => {
+    (C(),
+      S(),
+      a(),
+      (pe = y(
+        `<div class="FloatingWrapper bubbleAnimation hoursPlayedRow wrapper"><div class="FloatingWrapperTitle"> </div> <div class="FloatingInputGroup"><label class="FloatingInput"><span class="FloatingInputTitle"> </span> <input class="FloatingInputItem" placeholder=" "/>  <div class="FloatingInputClear"></div></label> <label class="FloatingInput"><span class="FloatingInputTitle"> </span> <input class="FloatingInputItem" placeholder=" "/>  <div class="FloatingInputClear"></div></label></div></div>`,
+      )),
+      (me = y(
+        `<div class="bubbleAnimation hoursPlayedRow wrapper"><div class="filterTitle"> </div> <div class="searchBarForm--Filter-Price"><input class="textCtrl searchBarForm--Filter--PriceInput"/> <input class="textCtrl searchBarForm--Filter--PriceInput"/></div></div>`,
+      )),
+      h([`change`, `click`]),
+      m(
+        fe,
+        { elementId: {}, elementName: {}, title: {}, change: {}, floating: {} },
+        [],
+        [],
+        { mode: `open` },
+      ));
+  });
+function ge(e, t) {
+  A(t, !0);
+  let n = O(t, `elementId`, 7),
+    r = O(t, `elementName`, 7),
+    i = O(t, `brawlerName`, 7),
+    a = O(t, `change`, 7),
+    o = O(t, `floating`, 7, !1),
+    c = R(``),
+    u = R(``),
+    m = R(``),
+    h = R(``),
+    y = R(``),
+    S = R(``);
+  var C = {
+      get elementId() {
+        return n();
+      },
+      set elementId(e) {
+        (n(e), v());
+      },
+      get elementName() {
+        return r();
+      },
+      set elementName(e) {
+        (r(e), v());
+      },
+      get brawlerName() {
+        return i();
+      },
+      set brawlerName(e) {
+        (i(e), v());
+      },
+      get change() {
+        return a();
+      },
+      set change(e) {
+        (a(e), v());
+      },
+      get floating() {
+        return o();
+      },
+      set floating(e = !1) {
+        (o(e), v());
+      },
+    },
+    w = p(),
+    T = _(w),
+    k = (e) => {
+      var t = _e(),
+        o = f(t),
+        p = E(o, !0),
+        _ = L(o, 2),
+        v = f(_),
+        x = f(v),
+        C = E(x),
+        w = L(x, 2);
+      j(w);
+      var T = L(w, 2);
+      M(v);
+      var D = L(v, 2),
+        O = f(D),
+        k = E(O),
+        A = L(O, 2);
+      j(A);
+      var F = L(A, 2);
+      (M(D), M(_));
+      var R = L(_, 2),
+        B = f(R),
+        ee = f(B),
+        te = E(ee),
+        V = L(ee, 2);
+      j(V);
+      var H = L(V, 2);
+      M(B);
+      var U = L(B, 2),
+        W = f(U),
+        ne = E(W),
+        G = L(W, 2);
+      j(G);
+      var re = L(G, 2);
+      (M(U), M(R));
+      var K = L(R, 2),
+        q = f(K),
+        J = f(q),
+        Y = E(J),
+        X = L(J, 2);
+      j(X);
+      var ie = L(X, 2);
+      M(q);
+      var ae = L(q, 2),
+        oe = f(ae),
+        se = E(oe),
+        Z = L(oe, 2);
+      j(Z);
+      var ce = L(Z, 2);
+      (M(ae),
+        M(K),
+        M(t),
+        z(
+          (e, a, o, s, c, l, u, d, f, m, h, g) => {
+            var _, v, y, b, x, S, T, E;
+            (P(
+              t,
+              `id`,
+              `additionalInput-${(_ = r()) == null ? `` : _}-${(v = n()) == null ? `` : v}`,
+            ),
+              I(p, i()),
+              I(C, `${e == null ? `` : e} ${a == null ? `` : a}`),
+              P(w, `name`, `brawler_rank[${(y = n()) == null ? `` : y}]`),
+              I(k, `${o == null ? `` : o} ${s == null ? `` : s}`),
+              P(A, `name`, `brawler_rank_max[${(b = n()) == null ? `` : b}]`),
+              I(te, `${c == null ? `` : c} ${l == null ? `` : l}`),
+              P(V, `name`, `brawler_power[${(x = n()) == null ? `` : x}]`),
+              I(ne, `${u == null ? `` : u} ${d == null ? `` : d}`),
+              P(G, `name`, `brawler_power_max[${(S = n()) == null ? `` : S}]`),
+              I(Y, `${f == null ? `` : f} ${m == null ? `` : m}`),
+              P(X, `name`, `brawler_trophies[${(T = n()) == null ? `` : T}]`),
+              I(se, `${h == null ? `` : h} ${g == null ? `` : g}`),
+              P(
+                Z,
+                `name`,
+                `brawler_trophies_max[${(E = n()) == null ? `` : E}]`,
+              ));
+          },
+          [
+            () => s(`market_rank`),
+            () => s(`market_from`),
+            () => s(`market_rank`),
+            () => s(`market_up_to`),
+            () => s(`market_supercell_power`),
+            () => s(`market_from`),
+            () => s(`market_supercell_power`),
+            () => s(`market_up_to`),
+            () => s(`market_supercell_trophies`),
+            () => s(`market_from`),
+            () => s(`market_supercell_trophies`),
+            () => s(`market_up_to`),
+          ],
+        ),
+        g(`change`, w, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        d(
+          w,
+          () => b(c),
+          (e) => N(c, e),
+        ),
+        g(`click`, T, () => {
+          (N(c, ``), a()());
+        }),
+        g(`change`, A, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        d(
+          A,
+          () => b(u),
+          (e) => N(u, e),
+        ),
+        g(`click`, F, () => {
+          (N(u, ``), a()());
+        }),
+        g(`change`, V, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        d(
+          V,
+          () => b(m),
+          (e) => N(m, e),
+        ),
+        g(`click`, H, () => {
+          (N(m, ``), a()());
+        }),
+        g(`change`, G, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        d(
+          G,
+          () => b(h),
+          (e) => N(h, e),
+        ),
+        g(`click`, re, () => {
+          (N(h, ``), a()());
+        }),
+        g(`change`, X, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        d(
+          X,
+          () => b(y),
+          (e) => N(y, e),
+        ),
+        g(`click`, ie, () => {
+          (N(y, ``), a()());
+        }),
+        g(`change`, Z, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        d(
+          Z,
+          () => b(S),
+          (e) => N(S, e),
+        ),
+        g(`click`, ce, () => {
+          (N(S, ``), a()());
+        }),
+        l(e, t));
+    },
+    F = (e) => {
+      var t = ve(),
+        o = f(t),
+        c = E(o, !0),
+        u = L(o, 2),
+        d = f(u),
+        p = L(d, 2);
+      M(u);
+      var m = L(u, 2),
+        h = f(m),
+        _ = L(h, 2);
+      M(m);
+      var v = L(m, 2),
+        y = f(v),
+        b = L(y, 2);
+      (M(v),
+        M(t),
+        z(
+          (e, a, o, s, l, u, f, m, g) => {
+            var v, x, S, C, w, T, E, D;
+            (P(
+              t,
+              `id`,
+              `additionalInput-${(v = r()) == null ? `` : v}-${(x = n()) == null ? `` : x}`,
+            ),
+              I(c, i()),
+              P(d, `name`, `brawler_rank[${(S = n()) == null ? `` : S}]`),
+              P(
+                d,
+                `placeholder`,
+                `${e == null ? `` : e} ${a == null ? `` : a}`,
+              ),
+              P(p, `name`, `brawler_rank_max[${(C = n()) == null ? `` : C}]`),
+              P(p, `placeholder`, o),
+              P(h, `name`, `brawler_power[${(w = n()) == null ? `` : w}]`),
+              P(
+                h,
+                `placeholder`,
+                `${s == null ? `` : s} ${l == null ? `` : l}`,
+              ),
+              P(_, `name`, `brawler_power_max[${(T = n()) == null ? `` : T}]`),
+              P(_, `placeholder`, u),
+              P(y, `name`, `brawler_trophies[${(E = n()) == null ? `` : E}]`),
+              P(
+                y,
+                `placeholder`,
+                `${f == null ? `` : f} ${m == null ? `` : m}`,
+              ),
+              P(
+                b,
+                `name`,
+                `brawler_trophies_max[${(D = n()) == null ? `` : D}]`,
+              ),
+              P(b, `placeholder`, g));
+          },
+          [
+            () => s(`market_rank`),
+            () => s(`market_from`),
+            () => s(`market_up_to`),
+            () => s(`market_supercell_power`),
+            () => s(`market_from`),
+            () => s(`market_up_to`),
+            () => s(`market_supercell_trophies`),
+            () => s(`market_from`),
+            () => s(`market_up_to`),
+          ],
+        ),
+        g(`change`, d, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        g(`change`, p, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        g(`change`, h, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        g(`change`, _, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        g(`change`, y, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        g(`change`, b, function (...e) {
+          var t;
+          (t = a()) == null || t.apply(this, e);
+        }),
+        l(e, t));
+    };
+  return (
+    x(T, (e) => {
+      o() ? e(k) : e(F, -1);
+    }),
+    l(e, w),
+    D(C)
+  );
+}
+var _e,
+  ve,
+  ye = e(() => {
+    (C(),
+      S(),
+      a(),
+      (_e = y(
+        `<div class="FloatingWrapper bubbleAnimation hoursPlayedRow wrapper"><div class="FloatingWrapperTitle"> </div> <div class="FloatingInputGroup"><label class="FloatingInput"><span class="FloatingInputTitle"> </span> <input class="FloatingInputItem" placeholder=" "/>  <div class="FloatingInputClear"></div></label> <label class="FloatingInput"><span class="FloatingInputTitle"> </span> <input class="FloatingInputItem" placeholder=" "/>  <div class="FloatingInputClear"></div></label></div> <div class="FloatingInputGroup"><label class="FloatingInput"><span class="FloatingInputTitle"> </span> <input class="FloatingInputItem" placeholder=" "/>  <div class="FloatingInputClear"></div></label> <label class="FloatingInput"><span class="FloatingInputTitle"> </span> <input class="FloatingInputItem" placeholder=" "/>  <div class="FloatingInputClear"></div></label></div> <div class="FloatingInputGroup"><label class="FloatingInput"><span class="FloatingInputTitle"> </span> <input class="FloatingInputItem" placeholder=" "/>  <div class="FloatingInputClear"></div></label> <label class="FloatingInput"><span class="FloatingInputTitle"> </span> <input class="FloatingInputItem" placeholder=" "/>  <div class="FloatingInputClear"></div></label></div></div>`,
+      )),
+      (ve = y(
+        `<div class="bubbleAnimation hoursPlayedRow wrapper"><div class="filterTitle"> </div> <div class="searchBarForm--Filter-Price"><input class="textCtrl searchBarForm--Filter--PriceInput"/> <input class="textCtrl searchBarForm--Filter--PriceInput"/></div> <div class="searchBarForm--Filter-Price"><input class="textCtrl searchBarForm--Filter--PriceInput"/> <input class="textCtrl searchBarForm--Filter--PriceInput"/></div> <div class="searchBarForm--Filter-Price"><input class="textCtrl searchBarForm--Filter--PriceInput"/> <input class="textCtrl searchBarForm--Filter--PriceInput"/></div></div>`,
+      )),
+      h([`change`, `click`]),
+      m(
+        ge,
+        {
+          elementId: {},
+          elementName: {},
+          brawlerName: {},
+          change: {},
+          floating: {},
+        },
+        [],
+        [],
+        { mode: `open` },
+      ));
+  });
+function be() {
+  let e =
+      document.querySelector(`#CategorySearchBar .ExpandParams`) ||
+      document.querySelector(`.ExpandParams`),
+    t = parseInt(
+      e == null ? void 0 : e.getAttribute(`data-active-filters-count`),
+      10,
+    );
+  return Number.isNaN(t) ? 0 : t;
+}
+function xe() {
+  we.count = be();
+}
+function Se(e) {
+  let t = Number(e);
+  Number.isFinite(t) &&
+    (document
+      .querySelectorAll(`.ExpandParams`)
+      .forEach((e) => e.setAttribute(`data-active-filters-count`, String(t))),
+    (we.count = t));
+}
+function Ce() {
+  (xe(),
+    !Te &&
+      ((Te = !0),
+      n(document).on(`market:pageUrlUpdated.filterCount`, xe),
+      n(window).on(`popstate.filterCount`, xe)));
+}
+var we,
+  Te,
+  Ee = e(() => {
+    (S(), t(), r(), (we = k({ count: be() })), (Te = !1));
+  });
+function De() {
+  var e;
+  let t,
+    n = location.pathname.replace(`/market/`, `/`),
+    r = (e = n.match(/\/?(\w*)/i)) == null ? void 0 : e[1];
+  if (r === `user`) {
+    var i;
+    r = (i = n.match(/(\w*)\/?$/i)) == null ? void 0 : i[1];
+  }
+  return ([`cart`, `fave`, `orders`].includes(r) && (t = r), t);
+}
+function Oe(e) {
+  return new URLSearchParams(new FormData(e)).toString();
+}
+function ke(e, t) {
+  if (!e) return;
+  let n = e.querySelector(`.DeferredModButtonHelper`),
+    r = document.getElementById(`MarketSearchBar--itemCount`);
+  c.ajax(
+    n == null ? void 0 : n.getAttribute(`href`),
+    {
+      deferred: !0,
+      search: Oe(e),
+      destination: De(),
+      _itemCount: r == null ? void 0 : r.value,
+      ...t,
+    },
+    (e) => {
+      if (c.hasResponseError(e)) return !1;
+      if (c.hasTemplateHtml(e)) {
+        let t = { title: e.title || e.h1, noCache: !0 };
+        new c.ExtLoader(e, function () {
+          c.createOverlay(``, e.templateHtml, t).load();
+        });
+      } else e._redirectTarget && c.redirect(e._redirectTarget);
+    },
+  );
+}
+function Ae(e, t) {
+  if (!(!t || !t.length)) {
+    if (t.length === 1) {
+      ke(e, { a: t[0] });
+      return;
+    }
+    ke(e, { a: `batch`, batch_actions: t, batch_total: t.length });
+  }
+}
+var je = e(() => {
+  (i(), r());
+});
+function Me(e) {
+  n(`<link />`).attr(`rel`, `next`).attr(`href`, e).appendTo(document.head);
+}
+function Ne(e) {
+  var t = n(`link[rel="next"]`);
+  t.length ? t.attr(`href`, e) : Me(e);
+}
+function Pe() {
+  n(`link[rel="next"]`).remove();
+}
+function Fe() {
+  return n(`link[rel="next"]`).attr(`href`);
+}
+function Ie(e) {
+  (e.data(`infiniteScroll`) && e.infiniteScroll(`destroy`),
+    e.off(`load.infiniteScroll`),
+    n(`.MarketViewMoreButton`).hide());
+}
+function Le(e) {
+  Ie(e);
+  var t = n(`.MarketItemsInsertHelper`),
+    r = {
+      path: function () {
+        let e = Fe();
+        if (e)
+          return (
+            e[0] !== `/` && e[0] !== `h` && (e = `/` + e),
+            e +
+              `&_xfResponseType=json&_xfToken=` +
+              c._csrfToken +
+              ($.extraData || ``)
+          );
+      },
+      fetchOptions: { headers: { "x-requested-with": `XMLHttpRequest` } },
+      responseBody: `json`,
+      append: !1,
+      history: !1,
+      debug: !1,
+      scrollThreshold: 800,
+      mainContent: `.marketIndex--itemsContainer`,
+    };
+  (c.isTouchBrowser() &&
+    ((r.button = `.MarketViewMoreButton`),
+    n(r.button).css(`display`, `block`),
+    (r.scrollThreshold = !1)),
+    e.infiniteScroll(r));
+  var i = function (e) {
+      var t = n(`.MarketItemsPageNav`);
+      (t.html(e || ``),
+        e &&
+          (t.xfActivate(), n(`.marketMainContainer`).trigger(`createAjaxNav`)));
+    },
+    a = function (e) {
+      e.templateHtml &&
+        n(e.templateHtml)
+          .filter(function () {
+            let e = n(this).attr(`id`);
+            return !e || !n(`#` + e).length;
+          })
+          .xfInsert(`insertBefore`, t, `show`, 0);
+    };
+  (e.on(`load.infiniteScroll`, function (t, n) {
+    if (n.error && n.error[0] === `market_captcha_required`) {
+      (e.infiniteScroll(`ignorePageLoad`),
+        c.handleHatCaptcha(n.captcha, (t) => {
+          (($.extraData = `&hatCaptchaToken=` + encodeURIComponent(t)),
+            e.infiniteScroll(`allowPageLoad`),
+            e.infiniteScroll(`loadNextPage`));
+        }));
+      return;
+    }
+    c.hasResponseError(n) ||
+      (n.nextPageHref ? Ne(n.nextPageHref) : (Ie(e), Pe(n.nextPageHref)),
+      i(n.pageNav),
+      a(n));
+  }),
+    t.on(`lzt:page-nav-load`, function (e, t) {
+      let r = [];
+      for (let e = 1; e != t + 1; e++) {
+        let t = new URL(
+          window.location.origin +
+            `/` +
+            n(`.PageNav:first`).find(`a[rel="start"]`).attr(`href`),
+        );
+        (t.searchParams.set(`page`, e), r.push({ link: t, i: e }));
+      }
+      r.sort((e, t) => e.i - t.i);
+      let i = Promise.resolve();
+      r.forEach((e) => {
+        i = i.then(
+          () =>
+            new Promise((t) => {
+              c.ajax(e.link.href, {}, function (e) {
+                (a(e), t());
+              });
+            }),
+        );
+      });
+    }));
+}
+function Re() {
+  var e, t, r, i;
+  return (
+    (((e = n(`.expandParamsContainer`)[0]) == null ||
+    (e = e.getBoundingClientRect()) == null
+      ? void 0
+      : e.bottom) <= window.innerHeight &&
+      ((t = n(`.expandParamsContainer`)[0]) == null ||
+      (t = t.getBoundingClientRect()) == null
+        ? void 0
+        : t.bottom) -
+        window.innerHeight <
+        -2) ||
+    (((r = n(`.searchBar`)[0]) == null ||
+    (r = r.getBoundingClientRect()) == null
+      ? void 0
+      : r.top) >= window.innerHeight &&
+      ((i = n(`.searchBar`)[0]) == null ||
+      (i = i.getBoundingClientRect()) == null
+        ? void 0
+        : i.top) > 0)
+  );
+}
+var $,
+  ze,
+  Be = e(() => {
+    (a(),
+      J(),
+      ee(),
+      V(),
+      U(),
+      t(),
+      i(),
+      ce(),
+      w(),
+      le(),
+      de(),
+      he(),
+      ye(),
+      Ee(),
+      je(),
+      r(),
+      ($ = {}),
+      ($.extraData = ``),
+      Object.defineProperty(Array.prototype, `compare`, {
+        value: function (e) {
+          if (!e || this.length !== e.length) return !1;
+          for (var t = 0, n = this.length; t < n; t++)
+            if (this[t] instanceof Array && e[t] instanceof Array) {
+              if (!this[t].compare(e[t])) return !1;
+            } else if (this[t] !== e[t]) return !1;
+          return !0;
+        },
+      }),
+      ($.LoadingItems = function (e) {
+        e.is(`.marketMyPayments`) || (n(`link[rel="next"]`).length && Le(e));
+      }),
+      ($.NoticeTrigger = function (e) {
+        e.trigger(`click`);
+      }),
+      ($.InsertIntoEditor = function (e) {
+        e.on(`click`, function () {
+          var t = n(e.data(`target`)),
+            r = c.getEditorInForm(t);
+          if (!r) return !1;
+          var i = e.children().html();
+          return (r.html.insert(i), !1);
+        });
+      }),
+      ($.AutoMassBuy = function (e) {
+        e.on(`change`, function () {
+          n.setCookie(`market_auto_start`, this.checked ? 1 : 0);
+        });
+      }),
+      ($.CalculateAmountText = function (e) {
+        e.on(`keyup`, function () {
+          var t = n(`.method.selected`).data(`fee`),
+            r = n(`.subMethods .method.selected`).data(`fee`),
+            i = c.getRawFromFloat(e.closest(`form`).find(`.AmountInput`).val());
+          i && t
+            ? c.updateAmountFromForm(e.closest(`form`))
+            : n(`.MarketRefillBalance--PayAmount`).hide();
+        });
+      }),
+      ($.CalculateAmount = function (e) {
+        (e.on(`click`, () => {
+          let t = e.data(`fee`),
+            n = c.getRawFromFloat(e.closest(`form`).find(`.AmountInput`).val()),
+            r = e.hasClass(`HasSubMethods`);
+          n && !r && c.updateAmountFromForm(e.closest(`form`));
+        }),
+          e.hasClass(`selected`) && setTimeout(() => e.trigger(`click`), 1));
+      }),
+      ($.ToFavouritesButton = function (e) {
+        var t = function (t) {
+          c.hasResponseError(t) ||
+            (e.attr(`href`, t.url),
+            e.addClass(t.cssClasses).removeClass(t.removeCssClasses));
+        };
+        e.on(`click`, function (n) {
+          (n.preventDefault(), c.ajax(e.attr(`href`), {}, t));
+        });
+      }),
+      ($.ToCartButton = function (e) {
+        function t(e) {
+          (c.balloonCounterUpdate(n(`#MarketCart_Counter`), e),
+            e !== 0 && n(`#MarketCart_Counter`).removeClass(`empty`));
+        }
+        function r({ phraseTotalItems: e, phraseTotalItemsPrice: t }) {
+          let r = n(`.StickyPriceMobileBlock_2`),
+            i = r.find(`.CartItems`),
+            a = r.find(`.CartTotalPrice`);
+          (i.text(e), a.text(t));
+        }
+        function i(e) {
+          let t = n(`.StickyPriceMobileBlock`),
+            r = n(`.StickyPriceMobileBlock_2`),
+            i = r.outerHeight();
+          (r.stop(),
+            r.is(`:visible`) ||
+              r.animate({ translateY: i }, 0).css(`display`, ``),
+            r.animate(
+              { translateY: e ? 0 : i },
+              {
+                duration: c.speed.slow,
+                step: function (e) {
+                  this.style.transform = `translate3d(0px, ${e}px, 0px)`;
+                },
+                complete: function () {
+                  r.css(`display`, e ? `` : `none`);
+                },
+              },
+            ));
+          let a = t.css(`border-radius`),
+            o = e ? 0 : +a.split(` `).at(-1).replace(`px`, ``);
+          t.stop().animate(
+            { borderTopLeftRadius: o, borderTopRightRadius: o },
+            c.speed.slow,
+          );
+        }
+        var a = function (a) {
+          if (c.hasResponseError(a)) return;
+          let {
+            count: o,
+            phraseTotalItems: s,
+            phraseTotalItemsPrice: l,
+            cssClasses: u,
+            message: d,
+            value: f,
+          } = a;
+          (e[u.includes(`added`) ? `addClass` : `removeClass`](`added`),
+            t(o),
+            r({ phraseTotalItems: s, phraseTotalItemsPrice: l }));
+          let p = n(`.StickyPriceMobileBlock`);
+          (p.length && i(o),
+            c.alert(d, ``, 5e3, null, `success`),
+            e.text().trim() !== `` && e.text(f));
+        };
+        e.on(`click`, function (t) {
+          (t.preventDefault(), c.ajax(e.attr(`href`), {}, a));
+        });
+      }),
+      ($.IgnoreUser = function (e) {
+        var t = function (t, r) {
+          t.error
+            ? c.hasResponseError(t, r)
+            : (e.closest(`.Menu`).removeClass(`MenuOpened`),
+              n(
+                `.marketIndexItem[data-user-id="` + t.user_id + `"]`,
+              ).xfRemove(),
+              e.closest(`.xenOverlay`).length &&
+                e.closest(`.xenOverlay`).data(`overlay`).close());
+        };
+        e.on(`submit`, function (n) {
+          (n.preventDefault(), c.ajax(e.attr(`action`), e.serializeArray(), t));
+        });
+      }),
+      ($.chunkedFetch = async function (e, t, n, r) {
+        let i = t.is(`input`),
+          a = t.find(`.ChunkedFetchLabel`),
+          o = !i && a.length > 0,
+          l = i ? t.val() : o ? a.text() : t.text(),
+          u = (e) => (i ? t.val(e) : o ? a.text(e) : t.text(e));
+        t.prop(`disabled`, !0);
+        try {
+          let t = r,
+            i = await c.ajaxAsync(e, {}, {}),
+            a = Math.ceil(i.count / i.paginate);
+          for (let r = 0; r < a; r++) {
+            u(l + ` (${s(`downloading`)} ${r + 1} / ${a})`);
+            let o = await fetch(e + `&starting_index=` + r * i.paginate);
+            t = await n(o, t);
+          }
+          return { info: i, data: t };
+        } catch (e) {
+          return { info: {}, data: { accounts: [] } };
+        } finally {
+          (u(l), t.prop(`disabled`, !1));
+        }
+      }),
+      ($.SearchBar = function (e) {
+        this.__construct(e);
+      }),
+      ($.SearchBar.prototype = {
+        __construct: function (e) {
+          ((this.$form = e),
+            (this.$destination = n(`.MarketItems`)),
+            (this.$searchBarButtons = n(`.MarketSearchBarButtons`)),
+            (this.$searchInput = this.$form.find(`#MarketSearchInput`)),
+            this.setSearchBarButtonsEvents(),
+            (this.skipNextSearchInputBlurCount = !1),
+            (this.searchInputDebounceTimeout = null),
+            (this.loadButton = !1),
+            (this.countXhr = null),
+            (this.countItemsCalledAfterSubmit = !1),
+            this.updateSelectors(!1, !0),
+            this.$form
+              .find(
+                `input.textCtrl:not(.userInput-input):not(.ChosenAutoComplete)`,
+              )
+              .on(`change`, function () {
+                n(this).attr(`value`, n(this).val());
+              }),
+            this.$form.on(`countItems`, n.context(this, `countItems`)),
+            n(`.UpdateFeedButton`).on(`click`, (e) => {
+              e.target.classList.contains(`disabled`) ||
+                (this.submit(), n(e.target).addClass(`disabled`));
+            }),
+            this.createAjaxNav(),
+            n(`.marketMainContainer`)
+              .off(`createAjaxNav`)
+              .on(`createAjaxNav`, () => {
+                this.createAjaxNav();
+              }),
+            /^((?!chrome|android).)*safari/i.test(navigator.userAgent) ||
+              n(window)
+                .off(`popstate`)
+                .on(
+                  `popstate`,
+                  function (e) {
+                    c.preservePopstate ||
+                      ((
+                        e.target.location.pathname + e.target.location.search
+                      ).substring(1)
+                        ? this.resetFromNavigationCache(
+                            (
+                              e.target.location.pathname +
+                              e.target.location.search
+                            ).substring(1),
+                          )
+                        : this.resetFromNavigationCache(`/`),
+                      this.$form
+                        .find(`select:not(.Lzt-PrettySelect)`)
+                        .each(function () {
+                          c.create(`XenForo.PrettyMarketSelect`, n(this));
+                        }),
+                      this.$form
+                        .find(`input[type="radio"]`)
+                        .on(`change`, n.context(this, `countItems`)),
+                      this.$form
+                        .find(`.OrderByContainer input[type="radio"]`)
+                        .off(`change`)
+                        .on(`change`, n.context(this, `submit`)),
+                      this.$form
+                        .find(
+                          `input.textCtrl:not(.userInput-input):not(.ChosenAutoComplete)`,
+                        )
+                        .on(`change`, function () {
+                          n(this).attr(`value`, n(this).val());
+                        }),
+                      this.createAjaxNav());
+                  }.bind(this),
+                ),
+            this.checkHistorySupport());
+          let t = n(`.marketIndexView--captcha`);
+          (t.length &&
+            c.handleHatCaptcha(JSON.parse(t.attr(`data-params`)), (e) => {
+              (this.$form.append(
+                n(
+                  `<input type="hidden" name="hatCaptchaToken" class="removeAfterRequest">`,
+                ).val(e),
+              ),
+                this.$form.append(
+                  n(
+                    `<input type="hidden" name="page" class="removeAfterRequest">`,
+                  ).val(t.attr(`data-page`)),
+                ),
+                this.submit());
+            }),
+            this.checkFilters(),
+            this.bindAutoBuyContainer(),
+            this.initDateRangePickerFilters());
+        },
+        bindAutoBuyContainer: function () {
+          if (
+            this.$form.attr(`action`) === `/` ||
+            !this.$form.closest(`.searchBarContainer`).hasClass(`HasAutoBuy`)
+          )
+            return !1;
+          n(`.paidItemsContainer`).remove();
+          let e = n(`<div class="paidItemsContainer"></div>`);
+          (this.$form.closest(`.searchBarContainer`).after(e),
+            T(ae, {
+              target: e[0],
+              props: {
+                searchCallback: (e) =>
+                  this.countItems(this.$form, e, { countPaidItems: !0 }, !1),
+              },
+            }));
+        },
+        initDateRangePickerFilters: function () {
+          this.$form.find(`.dateRangePickerDiv`).each(function () {
+            let e = n(this),
+              t = e.find(`input[type="checkbox"]`).first(),
+              r = e.find(`input[type="hidden"]`);
+            if (!t.length || !r.length) return;
+            let i = () => {
+              let e = t.is(`:checked`);
+              r.prop(`disabled`, !e);
+            };
+            (t.on(`change`, i), i());
+          });
+        },
+        resetDateRangePickerFilters: function () {
+          this.$form.find(`.dateRangePickerDiv`).each(function () {
+            let e = n(this),
+              t = e.find(`input[type="checkbox"]`).first(),
+              r = e.find(`input[type="hidden"]`),
+              i = e.find(`.dateRangePickerInput .title`);
+            (t.prop(`checked`, !1), r.prop(`disabled`, !0));
+          });
+        },
+        createAjaxNav: function () {
+          (n(`.PageNavPrev, .PageNavNext`)
+            .off(`click.pageNav`)
+            .on(`click.pageNav`, () => {
+              this.createAjaxNav();
+            }),
+            n(`.PageNav a[href]`)
+              .off(`click.pageNav`)
+              .on(`click.pageNav`, (e) => {
+                if ((e && e.preventDefault(), e.shiftKey)) return;
+                let t = n(e.target).closest(`a`);
+                (n(`.currentPage`).removeClass(`currentPage`),
+                  t.addClass(`currentPage`));
+                let r = n(`#MarketSearchBar`),
+                  i = n(`.marketMask`),
+                  a = r.serializeArray();
+                if (t.closest(`.PageNav--cursor`).length) {
+                  let e = new URL(
+                    t.attr(`href`),
+                    window.location.origin,
+                  ).searchParams.get(`after`);
+                  e && a.push({ name: `after`, value: e });
+                } else a.push({ name: `page`, value: t.text() });
+                (i.addClass(`hidden`),
+                  this.sendRequest(a),
+                  i.removeClass(`hidden`));
+              }));
+        },
+        addAutoBuyLink: async function (e) {
+          let t = this.$form.serialize().replace(/[^=&]+=(&|$)/g, ``);
+          n(e.currentTarget).data(`as-new`) &&
+            (t = t
+              .split(`&`)
+              .filter((e) => e.indexOf(`auto_buy_link_id=`) !== 0)
+              .join(`&`));
+          let r = new c.OverlayLoader(
+            n(`<a href="/market/auto-buy/add" />`),
+            !1,
+            { data: t },
+          );
+          r.show();
+        },
+        downloadAccountsButton: async function (e) {
+          var t;
+          let r = this.$form.find(`.DownloadAccountsButtonHelper`),
+            i = this.$form.serialize().replace(/[^=&]+=(&|$)/g, ``),
+            a = n(e.target);
+          if (
+            ((i += `&format=` + a.data(`format`)),
+            a.data(`custom_account_download_format`) &&
+              (i +=
+                `&custom_account_download_format=` +
+                a.data(`custom_account_download_format`)),
+            r.attr(`href`, a.data(`href`) + `?` + i),
+            (t = a.data(`format`)) != null &&
+              t.toString().startsWith(`mfa_file`))
+          ) {
+            window.location = r.attr(`href`);
+            return;
+          }
+          let o = [
+            `{temp_email_password}`,
+            `{mfa_file}`,
+            `{shared_secret}`,
+            `{steam_mfa_shared_secret}`,
+            `{steam_mfa_file}`,
+            `{identity_secret}`,
+            `{2fa}`,
+          ];
+          if (o.some((e) => r.attr(`href`).includes(e))) {
+            let e = new c.OverlayLoader(
+              n(`<a href="/market/confirm-download" />`),
+              !1,
+              { data: { href: r.attr(`href`) } },
+            );
+            e.show();
+          } else if (
+            a.data(`format`) === `custom` &&
+            !a.data(`custom_account_download_format`)
+          ) {
+            let e = new c.OverlayLoader(r, !1, {});
+            e.show();
+          } else await this.chunkedDownload(r.attr(`href`), a);
+        },
+        chunkedDownload: async function (e, t) {
+          let { info: n, data: r } = await $.chunkedFetch(
+            e,
+            t,
+            async (e, t) => t + (await e.text()),
+            ``,
+          );
+          this.saveFile(r, n.filename);
+        },
+        saveFile: function (e, t) {
+          let n = document.createElement(`a`);
+          document.body.appendChild(n);
+          let r = window.URL.createObjectURL(
+            new Blob([e], { type: `text/plain` }),
+          );
+          ((n.href = r),
+            (n.download = t),
+            n.click(),
+            setTimeout(() => {
+              (window.URL.revokeObjectURL(r), document.body.removeChild(n));
+            }, 0));
+        },
+        massBuyButtonClick: function () {
+          var e = this.$form.find(`.MassBuyButtonHelper`),
+            t = this.$form.serialize().replace(/[^=&]+=(&|$)/g, ``);
+          (t.slice(-1) == `&` && (t = t.slice(0, -1)),
+            e.attr(`href`, this.$massBuyButton.data(`href`) + `?` + t),
+            e[0].click());
+        },
+        deferredModButtonClick: function (e) {
+          Ae(this.$form[0], [e.target.getAttribute(`value`)]);
+        },
+        saveSearch: function (e) {
+          (e.preventDefault(),
+            this.$saveSearchButton.data(`defaultLink`) ||
+              this.$saveSearchButton.data(
+                `defaultLink`,
+                this.$saveSearchButton.attr(`href`),
+              ),
+            c.ajax(
+              this.$saveSearchButton.attr(`href`),
+              {},
+              n.context(this, `saveSearchCallback`),
+            ));
+        },
+        saveSearchCallback: function (e) {
+          (e != null && e.error) || this.fixSaveSearchButton(e);
+        },
+        fixSaveSearchButton: function (e, t) {
+          let r = this.$saveSearchButton.hasClass(`Saved`),
+            i = !!(e.searchSaved || e.savedSearchId);
+          if (
+            (i
+              ? this.$saveSearchButton
+                  .addClass(`Saved`)
+                  .children(`.text`)
+                  .text(this.$saveSearchButton.data(`delete-phr`))
+              : this.$saveSearchButton
+                  .removeClass(`Saved`)
+                  .children(`.text`)
+                  .text(this.$saveSearchButton.data(`save-phr`)),
+            r !== i)
+          ) {
+            let e = this.$saveSearchButton.find(`.settingsIcon`),
+              t = e.get(0);
+            t &&
+              (i
+                ? (e.removeClass(`hidden`),
+                  animateCSS(t, [`slideInRight`, `faster`]))
+                : animateCSS(t, [`slideOutRight`, `faster`], () => {
+                    e.addClass(`hidden`);
+                  }));
+          }
+          (t &&
+            (!e.searchUrl || e.searchUrl === `/market/`
+              ? this.$saveSearchButton.addClass(`hidden`)
+              : this.$saveSearchButton.removeClass(`hidden`)),
+            this.$saveSearchButton.attr(`href`, e.saveSearchUrl));
+          let a = n(`.SaveSearchMenu`),
+            o = a.find(`.SaveSearchNotifyCheckbox`);
+          (o.attr(`data-search-id`, e.savedSearchId || 0),
+            e.savedSearchId || o.prop(`checked`, !1),
+            a.toggleClass(`hidden`, !e.savedSearchId),
+            n(document).trigger(`market:searchSaved`));
+        },
+        saveSearchNotify: function (e) {
+          let t = n(e.currentTarget),
+            r = parseInt(t.attr(`data-search-id`), 10);
+          if (!r) {
+            t.prop(`checked`, !t.prop(`checked`));
+            return;
+          }
+          (t.prop(`disabled`, !0),
+            c.ajax(t.data(`url`), { search_id: r }, function (e) {
+              (t.prop(`disabled`, !1),
+                c.hasResponseError(e),
+                ((e != null && e.error) || (e != null && e.errors)) &&
+                  t.prop(`checked`, !t.prop(`checked`)));
+            }));
+        },
+        updateSelectors: function (e, t = !1) {
+          (e ||
+            (this.bindCategorySelected(),
+            (this.$categorySearchBar = n(`#CategorySearchBar`))),
+            t &&
+              this.$form.find(`.InstantLoadSelect li`).on(
+                `click`,
+                function (e) {
+                  let t = n(e.target).closest(`li`).data(`state`);
+                  (n(e.target)
+                    .closest(`.InstantLoadSelect`)
+                    .find(`input`)
+                    .val(t),
+                    n(`#MarketSearchBar--itemCount`).val(``),
+                    n(`#MarketSearchBar--totalItemsPrice`).val(``),
+                    (this.submitted = !1),
+                    this.submit(e));
+                }.bind(this),
+              ),
+            this.$form.on(`submit`, n.context(this, `submit`)));
+          let r,
+            i = this,
+            a = this.$form.find(
+              `input:not(.CountItemsIgnore):not(.chosen-search-input):not([type="radio"]),select`,
+            );
+          (a.on(`change blur`, n.context(this, `countItems`)),
+            a
+              .filter(`input:not([type="checkbox"])`)
+              .on(`input textInput`, function () {
+                (clearTimeout(r),
+                  (r = setTimeout(
+                    function () {
+                      i.timeout || n(this).trigger(`change`);
+                    }.bind(this),
+                    300,
+                  )));
+              }),
+            this.$form
+              .find(`input[type="radio"]`)
+              .on(`change`, n.context(this, `countItems`)),
+            this.$form
+              .find(`.PaidInput`)
+              .on(`change`, n.context(this, `countItems`)),
+            this.$searchInput.length &&
+              this.$searchInput.off(`input`).on(`input`, (e) => {
+                (clearTimeout(this.searchInputDebounceTimeout),
+                  (this.searchInputDebounceTimeout = setTimeout(() => {
+                    ((this.skipNextSearchInputBlurCount = !0),
+                      this.countItems(e));
+                  }, 300)));
+              }),
+            this.$form
+              .find(`.OrderByContainer input[type="radio"]`)
+              .off(`change`)
+              .on(`change`, n.context(this, `submit`)),
+            this.additionalChosenInputInit(),
+            this.bindFilterCascades(),
+            this.initDateRangePickerFilters());
+        },
+        bindCategorySelected: function () {
+          var e = this;
+          ((this.$selectCategory = n(`#MarketCategoryId`)),
+            this.$selectCategory.on(`change`, function () {
+              if (!this.xhr) {
+                var t = n(this).val();
+                e.categorySelected(t);
+              }
+            }));
+        },
+        submit: function (e) {
+          if (
+            (e && e.preventDefault(),
+            $.isMobileFiltersViewport && $.isMobileFiltersViewport())
+          ) {
+            if (!$.FiltersOverlay.isOpen()) {
+              let e = n(`.ExpandParams`).data(`marketHideFilters`);
+              typeof e == `function` && e();
+            }
+            this.scrollToItemsAfterResponse = !0;
+          }
+          (this.xhr &&
+            (this.submitted || n(`#SubmitSearchButton`).hasClass(`hidden`)) &&
+            (this.xhr.abort(), (this.xhr = null), (this.submitted = !1)),
+            n(`#SubmitSearchButton`).addClass(`hidden`),
+            n(`#SubmitSearchButtonLoading`).removeClass(`hidden`),
+            n(`#MarketLoadingItemsMask`).removeClass(`hidden`),
+            (this.submitted = !0));
+          let t = this.$form.serializeArray().filter((e) => e.value);
+          (t.push({ name: `_formSubmitted`, value: !0 }),
+            this.xhr
+              ? (this.xhrInterval = setInterval(
+                  function () {
+                    this.xhr ||
+                      (clearInterval(this.xhrInterval), this.sendRequest(t));
+                  }.bind(this),
+                  100,
+                ))
+              : this.sendRequest(t));
+        },
+        sendRequest: function (e) {
+          ((this.loadButton = !0),
+            this.countXhr && (this.countXhr.abort(), (this.countXhr = null)),
+            this.xhr && (this.xhr.abort(), (this.xhr = null)),
+            n(`#SubmitSearchButton`).addClass(`hidden`),
+            n(`#SubmitSearchButtonLoading`).removeClass(`hidden`),
+            (this.requestSeq = (this.requestSeq || 0) + 1));
+          var t = this.requestSeq,
+            r = this;
+          this.xhr = c.ajax(
+            this.$form.attr(`action`),
+            e,
+            function (e) {
+              t === r.requestSeq && ((r.xhr = null), r.handleResponse(e));
+            },
+            { type: `GET`, timeout: 6e4 },
+          );
+        },
+        countItems: function (e, t, r = {}, i = !0) {
+          var a;
+          if (
+            (this.timeout && clearTimeout(this.timeout),
+            (e == null ? void 0 : e.type) === `blur` &&
+              (a = this.$searchInput) != null &&
+              a.length &&
+              e.target === this.$searchInput[0] &&
+              this.skipNextSearchInputBlurCount)
+          ) {
+            this.skipNextSearchInputBlurCount = !1;
+            return;
+          }
+          (t || (t = n.context(this, `handleCountItemsResponse`)),
+            (this.timeout = 1));
+          var o = n(e.target);
+          if (
+            (o.attr(`type`) === `radio` && o.removeData(`lastVal`),
+            !(
+              o.attr(`type`) !== `checkbox` &&
+              o.attr(`name`) &&
+              !(o.attr(`type`) === `radio` && !o.is(`:checked`)) &&
+              ((!o.data(`lastVal`) &&
+                (new URLSearchParams(window.location.search).get(
+                  o.attr(`name`),
+                ) || ``) === o.val()) ||
+                o.val() === o.data(`lastVal`))
+            ) &&
+              !(
+                o.attr(`name`) === `order_by` ||
+                o.attr(`name`) === `category_id` ||
+                (o.hasClass(`DontCountItems`) &&
+                  !n(`input[name=inv_min]`).val() &&
+                  !n(`input[name=inv_max]`).val())
+              ))
+          ) {
+            if (o.attr(`name`) === `game[]` && o.val()) {
+              var s = n(`#searchFilter--mm_ban--nomatter`);
+              ((o.val().indexOf(`730`) !== -1 ||
+                o.val().indexOf(`7301`) !== -1) &&
+                (s = n(`#searchFilter--mm_ban--no`)),
+                s.parent().find(`:checked`).prop(`checked`, !1),
+                s.prop(`checked`, !0));
+            }
+            (i &&
+              ((this.submitted = !1),
+              n(`#SubmitSearchButton`).removeClass(`hidden`),
+              n(`#SubmitSearchButtonLoading`).addClass(`hidden`)),
+              (this.timeout = setTimeout(
+                function () {
+                  if (((this.timeout = null), this.loadButton)) return;
+                  let e = this.$form.serializeArray().filter((e) => e.value);
+                  for (let t in (e.push({ name: `_formSubmitted`, value: !0 }),
+                  e.push({ name: `countItemsOnly`, value: !0 }),
+                  e.push({ name: `_itemCount`, value: `` }),
+                  r))
+                    e.push({ name: t, value: r[t] });
+                  i &&
+                    (n(`#SubmitSearchButton`).addClass(`hidden`),
+                    n(`#SubmitSearchButtonLoading`).removeClass(`hidden`),
+                    n(`#MarketLoadingItemsMask`).removeClass(`hidden`),
+                    n(`#MarketSearchBar--itemCount`).val(``),
+                    n(`#MarketSearchBar--totalItemsPrice`).val(),
+                    this.xhr && (this.countItemsCalledAfterSubmit = !0),
+                    o.data(`lastVal`, o.val()));
+                  let a = this.$form
+                    .serializeArray()
+                    .filter((e) => e.name === `game[]`);
+                  (n(`.hoursPlayedRow`).each(function () {
+                    let e = n(this),
+                      t = e.prop(`id`).split(`--`)[1];
+                    t && (a.find((e) => e.value === t) || e.remove());
+                  }),
+                    this.countXhr &&
+                      (this.countXhr.abort(), (this.countXhr = null)));
+                  let s = c.ajax(
+                    this.$form.attr(`action`),
+                    e,
+                    (e) => {
+                      s === this.countXhr && ((this.countXhr = null), t(e));
+                    },
+                    { type: `GET`, timeout: 6e4 },
+                  );
+                  this.countXhr = s;
+                }.bind(this),
+                200,
+              )));
+          }
+        },
+        handleCountItemsResponse: function (e) {
+          (this.bindAutoBuyContainer(),
+            n(`#SubmitSearchButtonLoading`).addClass(`hidden`),
+            n(`#MarketLoadingItemsMask`).addClass(`hidden`),
+            n(`#SubmitSearchButton`).removeClass(`hidden`),
+            (this.countItemsCalledAfterSubmit = !1),
+            c.hasResponseError(e) ||
+              (e.categoryIconClass &&
+                n(`.MarketTitlePageCategoryIcon`).attr(
+                  `class`,
+                  e.categoryIconClass,
+                ),
+              n(`#SubmitSearchButton:not([class="primary"])`)
+                .text(e.totalItemsPhrase)
+                .addClass(`primary`)
+                .removeAttr(`disabled`),
+              n(`#MarketSearchBar--itemCount`).val(e.totalItems),
+              e.totalItemsPrice &&
+                n(`#MarketSearchBar--totalItemsPrice`).val(e.totalItemsPrice),
+              Se(e.activeFiltersCount),
+              e.searchUrl &&
+                (this.setPageUrl(e.searchUrl),
+                this.$form.attr(
+                  `action`,
+                  new URL(e.searchUrl, document.location.origin).pathname,
+                ))));
+        },
+        categorySelected: function (e) {
+          (this.countXhr && (this.countXhr.abort(), (this.countXhr = null)),
+            n(`#MarketSearchBar--itemCount`).val(``),
+            n(`#MarketSearchBar--totalItemsPrice`).val(``),
+            this.bindAutoBuyContainer(),
+            this.resetDateRangePickerFilters());
+          let t = n(`select.tagChooser`);
+          t.each((e, t) => {
+            let r = n(t),
+              i = r.data(`chosen`);
+            i &&
+              (r.val([]).trigger(`chosen:updated`),
+              i.active_field && i.close_field());
+          });
+          let r = [
+            { name: `category_id`, value: e },
+            { name: `user_id`, value: n(`#MarketUserId`).val() },
+            { name: `_loadSearchBar`, value: !0 },
+          ];
+          (this.$searchInput.length &&
+            r.push(
+              { name: `title`, value: this.$searchInput.val() },
+              { name: `pmin`, value: n(`input[name="pmin"]`).val() },
+              { name: `pmax`, value: n(`input[name="pmax"]`).val() },
+              {
+                name: `order_by`,
+                value: n(`input[name="order_by"]:checked`).val(),
+              },
+            ),
+            (r = Object.assign(
+              n(`#MarketSearchBar--Base`)
+                .find(`input.textCtrl`)
+                .serializeArray(),
+              r,
+            )),
+            n(`#SubmitSearchButton`).addClass(`hidden`),
+            n(`#SubmitSearchButtonLoading`).removeClass(`hidden`),
+            n(`#MarketLoadingItemsMask`).removeClass(`hidden`),
+            (this.countItemsCalledAfterSubmit = !1),
+            (this.selectedCategoryId = this.$selectCategory.val()),
+            (this.requestSeq = (this.requestSeq || 0) + 1));
+          var i = this.requestSeq,
+            a = this;
+          this.xhr = c.ajax(
+            this.$form.attr(`action`),
+            r,
+            function (e) {
+              i === a.requestSeq && ((a.xhr = null), a.handleResponse(e));
+            },
+            { type: `GET`, timeout: 6e4 },
+          );
+        },
+        updateBreadcrumb: function (e) {
+          n(e).xfInsert(
+            `replaceAll`,
+            n(`fieldset.breadcrumb`).parent(),
+            `show`,
+            0,
+          );
+        },
+        setSeoAttributes: function (e) {
+          ((document.title = e.title),
+            n(`meta[name="description"]`).attr(`content`, e.description),
+            e.h1 && n(`h1`).html(e.h1));
+        },
+        resetFromNavigationCache: function (e) {
+          if (e in $.SBNavigationCache) {
+            (this.cleanupPopups(),
+              this.updateBreadcrumb($.SBNavigationCache[e].breadcrumb),
+              n(`.marketMainContainer`).html($.SBNavigationCache[e].content),
+              n(`.searchBarContainer`)
+                .html($.SBNavigationCache[e].searchBar)
+                .xfShow(),
+              n(`.MarketItems`).xfShow());
+            let r = n(`#MarketTopQueries`),
+              i = n(`#MarketTopSellers`),
+              a = r.add(i);
+            (a.xfFadeUp(c.speed.fast),
+              r.html($.SBNavigationCache[e].topq),
+              i.html($.SBNavigationCache[e].topSellers),
+              a.xfActivate().xfFadeDown(c.speed.fast),
+              n(`title`).html($.SBNavigationCache[e].title));
+            let o = $.SBNavigationCache[e].category;
+            (o.length
+              ? n(o).trigger(`click`)
+              : n(`.SelectCategoryLink.selected`).removeClass(`selected`),
+              this.updateSelectors(!0),
+              n(`.searchBarContainer`).xfActivate(),
+              n(`.MenuContainer`).xfActivate(),
+              n(`.marketMainContainer`).xfActivate(),
+              n(`.MarketItemsPageNav`).xfActivate());
+            var t = $.SBNavigationCache[e].data;
+            (this.fixNextPage(t.nextPageHref),
+              (this.xhr = null),
+              (this.submitted = !1),
+              (this.loadButton = !1));
+          }
+        },
+        addToNavigationCache: function (e, t = ``) {
+          var r, i;
+          $.SBNavigationCache[e] = {
+            breadcrumb: n(`.breadBoxTop .pageWidth`).html(),
+            content: n(`.marketMainContainer`).html(),
+            searchBar: n(`.searchBarContainer`).html(),
+            category: n(`.SelectCategoryLink.selected`),
+            topq: (r = n(`#MarketTopQueries`).html()) == null ? `` : r,
+            topSellers: (i = n(`#MarketTopSellers`).html()) == null ? `` : i,
+            title: n(`title`).html(),
+            data: t,
+          };
+        },
+        createNavigationCache: function () {
+          $.SBNavigationCache || ($.SBNavigationCache = {});
+          var e = this.deleteStartSlash(
+            window.location.pathname + window.location.search,
+          );
+          this.addToNavigationCache(e);
+        },
+        deleteStartSlash: function (e) {
+          return e[0] === `/` && e.length > 1 ? e.substr(1) : e;
+        },
+        setStateHandler: function () {},
+        setPageUrl: function (e) {
+          (history.pushState(
+            {
+              page: e,
+              type: `page`,
+              title: document.title,
+              description: n(`meta[name="description"]`).text(),
+            },
+            document.title,
+            e,
+          ),
+            n(document).trigger(`market:pageUrlUpdated`));
+        },
+        checkHistorySupport: function () {
+          history.pushState &&
+            (this.setStateHandler(), this.createNavigationCache());
+        },
+        animateSearchBar: function () {
+          animateCSS(this.$categorySearchBar.get(0), [`fadeIn`]);
+        },
+        setSearchBarButtonsEvents: function () {
+          ((this.$saveSearchButton = this.$form.find(`.SaveSearch`)),
+            this.$saveSearchButton.on(`click`, n.context(this, `saveSearch`)),
+            this.$saveSearchButton
+              .off(`click.lztSaveSearchSettings`, `.settingsIcon`)
+              .on(`click.lztSaveSearchSettings`, `.settingsIcon`, (e) => {
+                e.stopPropagation();
+              }),
+            n(document)
+              .off(`change.lztSaveSearchNotify`, `.SaveSearchNotifyCheckbox`)
+              .on(
+                `change.lztSaveSearchNotify`,
+                `.SaveSearchNotifyCheckbox`,
+                n.context(this, `saveSearchNotify`),
+              ),
+            (this.$massBuyButton = this.$form.find(`.MassBuyButton`)),
+            this.$massBuyButton.on(
+              `click`,
+              n.context(this, `massBuyButtonClick`),
+            ),
+            n(`.deferredModItem`)
+              .off(`click`)
+              .on(`click`, n.context(this, `deferredModButtonClick`)),
+            n(`.DownloadAccountsButton`)
+              .off(`click`)
+              .on(`click`, n.context(this, `downloadAccountsButton`)),
+            this.$form
+              .find(`.MarketSearchBarButtons`)
+              .data(`downloadFunction`, n.context(this, `chunkedDownload`)),
+            this.$form
+              .find(`.AddAutoBuyLink`)
+              .on(`click`, n.context(this, `addAutoBuyLink`)));
+        },
+        handleResponse: function (e) {
+          if (
+            (n(`.UpdateFeedButton`).removeClass(`disabled`),
+            n(`.removeAfterRequest`).remove(),
+            c.hasResponseError(e))
+          ) {
+            ((this.scrollToItemsAfterResponse = !1),
+              (this.xhr = null),
+              (this.submitted = !1));
+            return;
+          }
+          if (e._redirectTarget) {
+            c.redirect(e._redirectTarget);
+            return;
+          }
+          (this.scrollToItemsAfterResponse &&
+            $.FiltersOverlay.isOpen() &&
+            $.FiltersOverlay.close({ skipScroll: !0 }),
+            e.searchBar &&
+              (this.$categorySearchBar.html(e.searchBar).xfActivate(),
+              this.animateSearchBar(),
+              this.updateSelectors(!0),
+              this.$searchInput.parent().find(`.FloatingInputTitle`).length
+                ? this.$searchInput
+                    .parent()
+                    .find(`.FloatingInputTitle`)
+                    .text(e.inputPlaceholder)
+                : this.$searchInput.attr(`placeholder`, e.inputPlaceholder)),
+            n(`#MarketTopQueries`).length && `topQueries` in e
+              ? (n(`#MarketTopQueries`).xfFadeUp(c.speed.fast),
+                n(e.topQueries).xfInsert(
+                  `replaceAll`,
+                  n(`#MarketTopQueries`),
+                  `xfFadeDown`,
+                  c.speed.fast,
+                ))
+              : n(e.topQueries).xfInsert(`insertBefore`, `.searchBarContainer`),
+            n(`#MarketTopSellers`).length && `topSellers` in e
+              ? (n(`#MarketTopSellers`).xfFadeUp(c.speed.fast),
+                n(e.topSellers).xfInsert(
+                  `replaceAll`,
+                  n(`#MarketTopSellers`),
+                  `xfFadeDown`,
+                  c.speed.fast,
+                ))
+              : n(e.topSellers).xfInsert(`insertBefore`, `.searchBarContainer`),
+            this.fixNextPage(e.nextPageHref),
+            this.cleanupPopups());
+          var t =
+            typeof e.templateHtml == `string`
+              ? e.templateHtml.trim()
+              : e.templateHtml;
+          if (t || e.initialItemsCount > 0) {
+            var r = n(`body`)
+              .find(`.marketMainContainer`)
+              .find(`.MarketItemsInsertHelper`);
+            (r.prevAll(`[id^="marketItem--"]`).remove(),
+              r.before(t),
+              this.fixInlineModForm(e),
+              new c.ExtLoader(
+                e,
+                function () {
+                  (n(`.marketIndexView--nothingFound`).addClass(`hidden`),
+                    this.$destination.xfActivate());
+                }.bind(this),
+              ));
+          } else {
+            var i = n(`body`)
+              .find(`.marketMainContainer`)
+              .find(`.MarketItemsInsertHelper`);
+            (i.length && i.prevAll(`[id^="marketItem--"]`).remove(),
+              n(`.marketIndexView--nothingFound`).removeClass(`hidden`));
+          }
+          if (
+            (e.pageNav
+              ? (n(`.MarketItemsPageNav`).html(e.pageNav).xfActivate(),
+                this.createAjaxNav())
+              : n(`.MarketItemsPageNav`).html(``),
+            e.buttonsTemplateHtml &&
+              (this.$searchBarButtons.html(e.buttonsTemplateHtml),
+              this.setSearchBarButtonsEvents(),
+              this.$searchBarButtons.xfActivate()),
+            e.setSeoAttributes && this.setSeoAttributes(e),
+            e.breadcrumb && this.updateBreadcrumb(e.breadcrumb),
+            e.categoryIconClass &&
+              n(`.MarketTitlePageCategoryIcon`).attr(
+                `class`,
+                e.categoryIconClass,
+              ),
+            e.feedbackContainer &&
+              (n(`.market_block_reviews`).replaceWith(e.feedbackContainer),
+              n(`.market_block_reviews`).xfActivate()),
+            e.upHeaderHtml)
+          ) {
+            var a = n(`.Market_Up_Header.PageContainer`);
+            (a.length > 1 && a.slice(1).remove(),
+              a.first().replaceWith(e.upHeaderHtml),
+              n(`.Market_Up_Header.PageContainer`).xfActivate());
+          }
+          if (
+            (e.buttons && e.buttons.deleteReasonInput
+              ? n(`.DeleteReasonInput`)
+                  .removeClass(`hidden`)
+                  .xfShow(c.speed.fast)
+              : n(`.DeleteReasonInput`).xfHide(c.speed.fast),
+            e.buttons && e.buttons.paidInput
+              ? n(`.PaidInput`).xfShow(c.speed.fast, function () {
+                  n(`.PaidInput`).css(`display`, `inline-block`);
+                })
+              : n(`.PaidInput`).xfHide(c.speed.fast),
+            e.h1 && n(`.marketIndex--titleContainer h1`).html(e.h1),
+            window.Market.StickyTopBarComponent &&
+              window.Market.StickyTopBarComponent.updateSearch({
+                title: e.h1,
+                count: e.shownTotalItemsPhrase,
+              }),
+            this.countItemsCalledAfterSubmit ||
+              (n(`#SubmitSearchButtonLoading`).addClass(`hidden`),
+              n(`#MarketLoadingItemsMask`).addClass(`hidden`),
+              n(`#SubmitSearchButton`)
+                .text(e.shownTotalItemsPhrase)
+                .removeClass(`hidden`)
+                .removeClass(`primary`)
+                .attr(`disabled`, `disabled`),
+              n(`.DownloadAccountsButton--Value`).text(e.accountsPhrase),
+              n(`#MarketSearchBar--itemCount`).val(e.totalItems),
+              e.totalItemsPrice &&
+                n(`#MarketSearchBar--totalItemsPrice`).val(e.totalItemsPrice),
+              (this.countItemsCalledAfterSubmit = !1)),
+            this.updateUserItemStates(
+              e.userItemStates,
+              e.currentUserItemsState,
+            ),
+            Se(e.activeFiltersCount),
+            e.searchUrl &&
+              (this.setPageUrl(e.searchUrl),
+              this.$form.attr(
+                `action`,
+                new URL(e.searchUrl, document.location.origin).pathname,
+              ),
+              this.addToNavigationCache(this.deleteStartSlash(e.searchUrl), e)),
+            (this.xhr = null),
+            (this.submitted = !1),
+            (this.loadButton = !1),
+            this.countItemsCalledAfterSubmit ||
+              (n(`#SubmitSearchButtonLoading`).addClass(`hidden`),
+              n(`#SubmitSearchButton`).removeClass(`hidden`)),
+            this.checkFilters(),
+            typeof $._overlayResetScrollTop == `number`)
+          ) {
+            let e = $._overlayResetScrollTop;
+            (($._overlayResetScrollTop = null),
+              setTimeout(() => n(`html,body`).stop(!0).scrollTop(e)));
+            return;
+          }
+          let o = e.searchBar ? n(`#MarketTopQueries`) : n(`#title`);
+          if (this.scrollToItemsAfterResponse) {
+            this.scrollToItemsAfterResponse = !1;
+            let e = n(`.MarketItems`),
+              t = n(`.marketIndexView--nothingFound`);
+            e.length && !e.hasClass(`hidden`)
+              ? (o = n(`#title`))
+              : t.length && !t.hasClass(`hidden`) && (o = t);
+          }
+          o.length && setTimeout(() => $.ScrollToElement(o));
+        },
+        removePopupsFromDOM: function (e) {
+          n.each(e.find(`[rel="Menu"]`), function () {
+            var e;
+            let t = n(this),
+              r = (e = t.data(`XenForo.PopupMenu`)) == null ? void 0 : e.$menu;
+            (r && r.remove(), t.removeData(`XenForo.PopupMenu`));
+          });
+        },
+        cleanupPopups: function () {
+          let e = this.$destination.find(`.marketIndexItem`);
+          (this.removePopupsFromDOM(e),
+            e.remove(),
+            this.removePopupsFromDOM(this.$searchBarButtons),
+            this.$searchBarButtons.children().remove());
+        },
+        updateUserItemStates: function (e, t) {
+          e &&
+            (Object.keys(e).forEach(function (r) {
+              var i = e[r],
+                a = n(`#itemState--` + r);
+              (a.hasClass(`hidden`) && i.item_count
+                ? a.removeClass(`hidden`)
+                : !a.hasClass(`hidden`) &&
+                  !i.item_count &&
+                  i.item_state !== `active` &&
+                  r !== t &&
+                  (a.addClass(`hidden`), a.removeClass(`active`)),
+                a.find(`.Value`).text(i.item_count));
+            }),
+            t !== void 0 &&
+              (n(`.UserItemStates li.active`).removeClass(`active`),
+              n(`#itemState--` + (t || `active`)).addClass(`active`)));
+        },
+        fixInlineModForm: function (e) {
+          if (c.hasTemplateHtml(e, `inlineModOptionsTemplateHtml`)) {
+            var t = this.$destination.find(`.InlineModForm`);
+            (t.data(`InlineModForm`) && t.removeData(),
+              n(`#InlineModOverlay`).remove(),
+              n(`body`)
+                .find(`.marketMainContainer`)
+                .find(`.MarketItemsInsertHelper`)
+                .before(e.inlineModOptionsTemplateHtml));
+          }
+        },
+        fixNextPage: function (e) {
+          e && n(`html`).hasClass(`LoggedIn`)
+            ? (Ne(e), Le(n(`body`).find(`.MarketItems`)))
+            : (Pe(e), Ie(n(`body`).find(`.MarketItems`)));
+        },
+        checkFilters: function () {
+          let e = this.$categorySearchBar
+            .find(`.flexContainer`)
+            .children().length;
+          e
+            ? (n(`#CategoryWrapper`).removeClass(`hidden`),
+              this.$categorySearchBar.find(`.element`).removeClass(`hidden`))
+            : (n(`#CategoryWrapper`).addClass(`hidden`),
+              this.$categorySearchBar.find(`.element`).addClass(`hidden`));
+        },
+        additionalChosenInputInit: function () {
+          ((this.selectedElementsIds = {}),
+            this.$form.find(`.SelectGame[data-name]`).each((e, t) => {
+              let r = n(t),
+                i = r.attr(`data-name`);
+              (r.find(`:selected`).map(
+                function (e, t) {
+                  (Object.hasOwn(this.selectedElementsIds, i) ||
+                    (this.selectedElementsIds[i] = {}),
+                    (this.selectedElementsIds[i][n(t).val()] = {
+                      selected: 1,
+                    }));
+                }.bind(this),
+              ),
+                r.on(`change`, n.context(this, `additionalInputSelected`)));
+            }));
+        },
+        additionalInputSelected: function (e) {
+          let t = n(e.target),
+            r = t.attr(`data-name`),
+            i = (e, t, n) =>
+              e
+                ? Object.keys(e).reduce(
+                    (r, i) => (e[i][t] === n ? r : { ...r, [i]: e[i] }),
+                    {},
+                  )
+                : {};
+          (this.selectedElementsIds[r] &&
+            n.each(this.selectedElementsIds[r], (e) => {
+              this.selectedElementsIds[r][e].selected = 0;
+            }),
+            t.find(`:selected`).map((e, i) => {
+              let a = n(i).val();
+              (Object.hasOwn(this.selectedElementsIds, r) ||
+                (this.selectedElementsIds[r] = {}),
+                Object.hasOwn(this.selectedElementsIds[r], a) ||
+                  (this.selectedElementsIds[r][a] = {}));
+              let o = n(`#additionalInput-` + r + `-` + a);
+              if (!o.length) {
+                let e = n(`.PlayedHoursInsertHelper.` + r),
+                  o =
+                    e.hasClass(`FloatingFiltersBlock`) ||
+                    e.closest(`.FloatingFilters`).length > 0,
+                  s = t.attr(`data-component`);
+                s === `brawler`
+                  ? T(ge, {
+                      target: e[0],
+                      props: {
+                        elementId: a,
+                        elementName: r,
+                        brawlerName: n(i).text(),
+                        change: () => this.$form.trigger(`countItems`),
+                        floating: o,
+                      },
+                    })
+                  : T(fe, {
+                      target: e[0],
+                      props: {
+                        elementId: a,
+                        elementName: r,
+                        title: t.attr(`data-phrase`) + ` ` + n(i).text(),
+                        change: () => this.$form.trigger(`countItems`),
+                        floating: o,
+                      },
+                    });
+              }
+              this.selectedElementsIds[r][a].selected = 1;
+            }));
+          let a = i(this.selectedElementsIds[r], `selected`, 1);
+          (n.each(a, (e) => {
+            let t = n(`#additionalInput-` + r + `-` + e);
+            t.length &&
+              t.xfRemove(
+                `xfSlideUp`,
+                () => this.$form.trigger(`countItems`),
+                100,
+              );
+          }),
+            (this.selectedElementsIds[r] = i(
+              this.selectedElementsIds[r],
+              `selected`,
+              0,
+            )));
+          let o = this;
+          n(`.PlayedHoursInsertHelper.` + r)
+            .children()
+            .each(function () {
+              var e;
+              let t = n(this),
+                i = (e = t.attr(`id`)) == null ? void 0 : e.split(`-`);
+              if ((i == null ? void 0 : i.length) === 3) {
+                var a, s;
+                let e = i == null ? void 0 : i[2];
+                Object.hasOwn(
+                  (a = (s = o.selectedElementsIds) == null ? void 0 : s[r]) ==
+                    null
+                    ? {}
+                    : a,
+                  e,
+                ) ||
+                  t.xfRemove(
+                    `xfSlideUp`,
+                    () => o.$form.trigger(`countItems`),
+                    100,
+                  );
+              }
+            });
+        },
+        bindFilterCascades: function () {
+          this.$form.find(`select[data-filter-by]`).each((e, t) => {
+            let r = n(t),
+              i = r.attr(`data-filter-by`),
+              a = this.$form.find(`select[name="${i}[]"]`),
+              o = this.$form.find(`select[name="not_${i}[]"]`),
+              s = () => this.applyFilterCascade(r, a, o);
+            (a.off(`change.cascade`).on(`change.cascade`, s),
+              o.off(`change.cascade`).on(`change.cascade`, s),
+              s());
+          });
+        },
+        applyFilterCascade: function (e, t, n) {
+          let r = (t.val() || []).filter(Boolean),
+            i = (n.val() || []).filter(Boolean);
+          if (r.length === 0) {
+            e.prop(`disabled`, !0).trigger(`chosen:updated`);
+            return;
+          }
+          e.prop(`disabled`, !1);
+          let a = !1;
+          (e.find(`option[data-filter-tag]`).each((e, t) => {
+            let n = (t.dataset.filterTag || ``).split(/\s+/).filter(Boolean),
+              o = n.some((e) => r.includes(e)),
+              s = !n.some((e) => i.includes(e)),
+              c = o && s;
+            ((t.hidden = !c),
+              (t.disabled = !c),
+              !c && t.selected && ((t.selected = !1), (a = !0)));
+          }),
+            e.trigger(`chosen:updated`),
+            a && e.trigger(`change`));
+        },
+      }),
+      ($.BuyAfterPageLoading = function (e) {
+        e.trigger(`click`);
+      }),
+      ($.SortableGames = function (e) {
+        this.__construct(e);
+      }),
+      ($.SortableGames.prototype = {
+        __construct: function (e) {
+          let t = function () {
+              let t = [];
+              return (
+                e.find(`.item`).each(function () {
+                  t.push(n(this).data(`id`));
+                }),
+                t
+              );
+            },
+            r = function () {
+              let n = e.data(`key`);
+              n || (n = `game_order`);
+              let r = { [n]: t() };
+              c.ajax(e.data(`save-url`), r, function (e) {
+                c.hasResponseError(e) ||
+                  c.alert(e._redirectMessage, ``, 5e3, null, `success`);
+              });
+            },
+            i = function (t) {
+              c.ajax(
+                e.data(`save-url`),
+                { deleteGame: n(t).attr(`data-id`) },
+                function (e) {
+                  c.hasResponseError(e) ||
+                    (n(t).xfHide(c.speed.normal),
+                    c.alert(e._redirectMessage, ``, 5e3, null, `success`));
+                },
+              );
+            },
+            a = c.isTouchBrowser(),
+            o = new te(e.get(0), {
+              disabled: !0,
+              ghostClass: `sortable-holding-item`,
+              scroll: a,
+              forceFallback: !a,
+              scrollSensitivity: 100,
+              scrollSpeed: 100,
+              onEnd: function (t) {
+                let n = e.get(0),
+                  i = function (e) {
+                    (e.preventDefault(), e.stopPropagation());
+                  };
+                (n.addEventListener(`click`, i, !0),
+                  setTimeout(function () {
+                    n.removeEventListener(`click`, i, !0);
+                  }, 0),
+                  t.newDraggableIndex !== t.oldDraggableIndex && r());
+              },
+            });
+          e.addClass(`locked`);
+          let l = e.prev(`h4.title`);
+          l.length || (l = e.parents().prev(`div:has(h4), h4`).first());
+          let u = n(`<div class="market-sortable-games-header"></div>`),
+            d = n(`<div class="market-sortable-games-header_icons"></div>`),
+            f = n(
+              `<span class="market-sortable-games-lock-icon locked"></span>`,
+            ).appendTo(d);
+          (l.find(`a`).detach().appendTo(d),
+            l.wrap(u),
+            l.after(d),
+            f.on(`click`, () => {
+              let e = o.option(`disabled`);
+              (o.option(`disabled`, !e), y(), v());
+            }));
+          let p = e.find(`li`);
+          for (let e of p) {
+            let t = n(e).find(`.bottomContainer`),
+              r = n(
+                `<div class="market-sortable-games-item-mask" draggable="true" data-tooltip-trigger="manual"></div>`,
+              );
+            (r.attr(`title`, s(`sortable_games_mask_title`)),
+              t.after(r),
+              c.create(`XenForo.Tooltip`, r));
+            let i = () => {
+                var e;
+                (tippy.hideAll(), (e = r.get(0)._tippy) == null || e.show());
+              },
+              a;
+            r.on(`pointerdown`, (e) => {
+              if (e.pointerType === `touch`) {
+                a = setTimeout(i, 500);
+                return;
+              }
+              i();
+            }).on(`pointerup pointercancel`, () => clearTimeout(a));
+          }
+          let m = [
+              { t: [0, 0], r: -0.014 },
+              { t: [0.852, 0.425], r: 0.014 },
+              { t: [0, 0], r: -0.014 },
+              { t: [0.852, -0.425], r: 0.014 },
+              { t: [0, 0], r: -0.014 },
+            ],
+            h = m.map((e) => ({
+              transform: `translate3d(${e.t[0]}px, ${e.t[1]}px, 0) rotate(${e.r}rad)`,
+            })),
+            g = new Map(),
+            _;
+          function v() {
+            if (o.option(`disabled`)) {
+              _ && (_.disconnect(), (_ = void 0));
+              for (let [, e] of g) e.cancel();
+              g.clear();
+              return;
+            }
+            _ = new IntersectionObserver((e) => {
+              for (let t of e) {
+                let e = t.target;
+                if (!t.isIntersecting) {
+                  let t = g.get(e);
+                  t && (t.cancel(), g.delete(e));
+                  continue;
+                }
+                if (g.has(e)) continue;
+                let n = 680 + 100 * (Math.random() - 0.5) * 2,
+                  r = e.animate(h, { duration: n, iterations: 1 / 0 });
+                g.set(e, r);
+              }
+            });
+            for (let e of p) _.observe(e);
+          }
+          function y() {
+            o.option(`disabled`)
+              ? e.add(f).addClass(`locked`)
+              : e.add(f).removeClass(`locked`);
+          }
+          p.each(function (t, c) {
+            let l = n(`<a href="#"/>`)
+              .text(s(`market_push_to_top`))
+              .on(
+                `click`,
+                function (t) {
+                  (t.preventDefault(),
+                    n(c).prependTo(e),
+                    c._tippy && c._tippy.hide(),
+                    n(c).find(`img`).length &&
+                      n(c).find(`img`).get(0)._tippy &&
+                      n(c).find(`img`).get(0)._tippy.hide(),
+                    r());
+                }.bind(this),
+              );
+            if (e.hasClass(`Removable`)) {
+              let e = n(`<a href="#"/>`)
+                .text(s(`market_remove_game_from_list`))
+                .on(
+                  `click`,
+                  function (e) {
+                    (e.preventDefault(),
+                      c._tippy && c._tippy.hide(),
+                      n(c).find(`img`).length &&
+                        n(c).find(`img`).get(0)._tippy &&
+                        n(c).find(`img`).get(0)._tippy.hide(),
+                      i(c));
+                  }.bind(this),
+                );
+              l = n(`<div />`).append(e).append(n(`<p1> - <p1>`)).append(l);
+            }
+            if (
+              (n(c)
+                .find(`a`)
+                .on(`click`, (e) => {
+                  !o.option(`disabled`) && a && e.preventDefault();
+                }),
+              c._tippy !== void 0)
+            ) {
+              let e = n(c._tippy.popper).find(`.tippy-content`).html(),
+                t = n(`<div />`)
+                  .append(n(`<p1>${e} - <p1>`))
+                  .append(l);
+              c._tippy.setContent(t.get(0));
+            } else
+              tippy(n(c).find(`img`).get(0), {
+                content: l.get(0),
+                interactive: !0,
+                arrow: !0,
+                animation: `shift-away`,
+                trigger: a ? `click` : `mouseenter focus`,
+                hideOnClick: a,
+                zIndex: 99999,
+                appendTo: document.body,
+              });
+          });
+        },
+      }),
+      ($.Scrollbar = function (e) {
+        let t = e.height();
+        e.scrollbar();
+        let r,
+          i,
+          a = e.height(),
+          o = e.prop(`scrollHeight`);
+        if (
+          e.closest(`.marketItemView--sameItemsContainer`).length ||
+          e.find(`.dataTable`).length ||
+          e.closest(`.MarketMassActions`).length ||
+          o - t < 200
+        )
+          return;
+        let s = e
+            .closest(`.scroll-wrapper`)
+            .after(`<div class="MarketScrollResizer">`),
+          c = s.children(0);
+        s.css(`max-height`, `unset`);
+        function l(e) {
+          if (i === null) return;
+          let t = r + (e.pageY - i);
+          (t >= o && (t = o),
+            t <= a && (t = a),
+            s.css(`height`, t),
+            c.css(`max-height`, t));
+        }
+        n(window)
+          .on(`mousemove`, l)
+          .on(`mouseup`, function () {
+            (i !== null &&
+              (u.removeClass(`moving`), n(`body`).css(`cursor`, ``)),
+              (i = null));
+          });
+        let u = e
+          .closest(`.scroll-wrapper`)
+          .next(`.MarketScrollResizer`)
+          .on(`mousedown`, function (t) {
+            (t.preventDefault(),
+              (r = parseInt(e.height())),
+              (i = t.pageY),
+              n(`body`).css(`cursor`, `pointer`),
+              u.addClass(`moving`));
+          });
+      }),
+      ($.SelectCategoryLink = function (e) {
+        e.on(`click`, function (t) {
+          t.preventDefault();
+          let r = e.get(0)._tippy,
+            i = n(`#MarketSearchBar`),
+            a = [`itemsInCategory`, `latestItems`];
+          (a.includes(i.data(`page-action`)) &&
+            n(`#MarketSearchBar`).attr(`action`, e.attr(`href`)),
+            r && r.hide(),
+            t.originalEvent && n(`#MarketSearchInput`).val(``),
+            n(`#MarketCategoryId`).val(e.data(`category-id`)).trigger(`change`),
+            n(`.SelectCategoryLink.selected`).removeClass(`selected`),
+            e.addClass(`selected`),
+            n(`.Menu_search-bar`).removeClass(`MenuOpened`));
+        });
+      }),
+      ($.isMobileFiltersViewport = function () {
+        return (
+          typeof window.matchMedia == `function` &&
+          window.matchMedia(`(max-width: 800px)`).matches
+        );
+      }),
+      ($.FiltersOverlay = (function () {
+        let e = null,
+          t = null,
+          r = !1,
+          i = null,
+          a = null;
+        function o() {
+          e ||
+            ((e = n(`<div class="MarketFiltersOverlay--backdrop"></div>`)
+              .hide()
+              .appendTo(`body`)),
+            (t = n(
+              `<div class="MarketFiltersOverlay--header"><div class="MarketFiltersOverlay--header--left"><span class="MarketFiltersOverlay--close" role="button" aria-label="close">&#x2715;</span></div><div class="MarketFiltersOverlay--header--center"><span class="MarketFiltersOverlay--title"></span></div><div class="MarketFiltersOverlay--header--right"><span class="MarketFiltersOverlay--reset" role="button"></span></div></div>`,
+            )
+              .hide()
+              .appendTo(`body`)),
+            t.find(`.MarketFiltersOverlay--title`).text(s(`filters`)),
+            t.find(`.MarketFiltersOverlay--reset`).text(s(`reset`)),
+            e.on(`click`, d),
+            t.on(`click`, `.MarketFiltersOverlay--close`, d),
+            t.on(`click`, `.MarketFiltersOverlay--reset`, function () {
+              let e = n(`#CategorySearchBar .ResetParams`);
+              e.length &&
+                (a !== null && ($._overlayResetScrollTop = a),
+                e.trigger(`click`),
+                d({ skipScroll: !0 }));
+            }),
+            n(window).on(`resize.marketFiltersOverlay`, function () {
+              r && !$.isMobileFiltersViewport() && d();
+            }));
+        }
+        function c() {
+          let e = n(`#MarketSearchBar--Base`);
+          if (!e.length || e.data(`marketOverlayMoved`)) return;
+          let t = n(
+            `<span class="MarketFiltersOverlay--baseAnchor" style="display:none"></span>`,
+          ).insertAfter(e);
+          e.data(`marketOverlayMoved`, t);
+          let r = n(`#CategoryWrapper`);
+          r.length && r.prepend(e);
+        }
+        function l() {
+          let e = n(`#MarketSearchBar--Base`),
+            t = e.data(`marketOverlayMoved`);
+          !t ||
+            !t.length ||
+            (e.insertBefore(t), t.remove(), e.removeData(`marketOverlayMoved`));
+        }
+        function u(s, l) {
+          var u;
+          o();
+          let d = n(`#CategorySearchBar`);
+          d.length &&
+            ((i = s || null),
+            (a =
+              (u = l == null ? void 0 : l.savedScrollTop) == null
+                ? window.scrollY
+                : u),
+            d.addClass(`MarketFiltersOverlay--target`),
+            n(`html`).addClass(`MarketFiltersOverlay--open`),
+            c(),
+            e.show(),
+            t && t.show(),
+            (r = !0));
+        }
+        function d(o) {
+          if (!r) return;
+          (l(),
+            n(`#CategorySearchBar`).removeClass(`MarketFiltersOverlay--target`),
+            n(`html`).removeClass(`MarketFiltersOverlay--open`),
+            e && e.hide(),
+            t && t.hide(),
+            (r = !1));
+          let s = i;
+          if (((i = null), s && s.length)) {
+            let e = s.data(`marketHideFilters`);
+            typeof e == `function` && e();
+          }
+          if (!(o && o.skipScroll))
+            if (a !== null) n(`html,body`).scrollTop(a);
+            else {
+              let e = n(`#MarketTopQueries`);
+              e.length &&
+                n(`html,body`).animate(
+                  { scrollTop: e.offset().top - n(`#header`).height() },
+                  100,
+                );
+            }
+          a = null;
+        }
+        return {
+          open: u,
+          close: d,
+          isOpen: function () {
+            return r;
+          },
+        };
+      })()),
+      ($.ExpandParams = function (e) {
+        let t = n(`#CategorySearchBar`),
+          r = t.find(`.HiddenFilters`).addClass(`Expanded`),
+          i = t.find(`#CategoryWrapper`),
+          a = !1;
+        i.hide();
+        let o = function () {
+            let t = e.closest(`.expandParamsContainer`);
+            if ($.isMobileFiltersViewport && $.isMobileFiltersViewport()) {
+              t.removeClass(`fixed`);
+              return;
+            }
+            t.toggleClass(`fixed`, !Re());
+          },
+          s = function () {
+            ((a = !0),
+              i.show(),
+              o(),
+              e.find(`.expand`).addClass(`hidden`),
+              e.find(`.hide`).removeClass(`hidden`),
+              animateCSS(i.get(0), [`fadeIn`, `faster`]));
+          },
+          c = function () {
+            ((a = !1),
+              o(),
+              e.find(`.expand`).removeClass(`hidden`),
+              e.find(`.hide`).addClass(`hidden`),
+              i.xfHide(0));
+          };
+        (e.data(`marketHideFilters`, function () {
+          a && c();
+        }),
+          e.off(`.expandParams`).on(`click.expandParams`, function () {
+            if ($.isMobileFiltersViewport()) {
+              if ($.FiltersOverlay.isOpen()) $.FiltersOverlay.close();
+              else {
+                let t =
+                  window.pageYOffset || document.documentElement.scrollTop || 0;
+                (a || s(), $.FiltersOverlay.open(e, { savedScrollTop: t }));
+              }
+              return;
+            }
+            a ? c() : s();
+          }),
+          n(window).off(`.expandParams`).on(`scroll.expandParams`, o));
+      }),
+      ($.ResetParams = function (e) {
+        e.on(`click`, function () {
+          (n(`form[id="MarketSearchBar"]`).find(`input:visible`).val(``),
+            n(`span[data-tooltip-id="market_expand_params"]`)
+              .find(`.expand`)
+              .hasClass(`hidden`) &&
+              localStorage.setItem(`market_clear_filters`, `1`),
+            n(`.SelectCategoryLink.selected`).trigger(`click`));
+        });
+      }),
+      ($.LowerPriceButton = function (e) {
+        e.on(`click`, function () {
+          c.ajax(e.data(`href`), {}, function (t) {
+            (e.find(`.Value`).text(t.value),
+              e.removeClass(`overpricedItem`),
+              animateCSS(e.get(0), [`animated`, `fadeIn`]));
+          });
+        });
+      }),
+      ($.MarketScrollToPanel = function (e) {
+        e.on(`click`, function () {
+          $.ScrollToElement(n(`.marketSidebar`), 0, 100);
+        });
+      }),
+      ($.ScrollToElement = function (e, t = 10, r = c.speed.normal) {
+        let i = n(`#header`).height() || 0,
+          a = e.offset().top - i - t,
+          o = n(`.searchBarContainer`),
+          s = n(`.MarketStickyTop`).outerHeight() || 0;
+        if (o.length && s) {
+          let e = o.offset().top + o.outerHeight();
+          e - a <= i && (a -= s);
+        }
+        n(`html,body`).animate({ scrollTop: Math.max(0, a) }, r);
+      }),
+      ($.ItemPublicTagChooser = function (e) {
+        let t = null,
+          r = function (r) {
+            if ((t && t.removeData(`clicked`), c.hasResponseError(r))) return;
+            let i = r.itemId
+                ? `#itemPublicTags--` + r.itemId
+                : `#itemPublicTags`,
+              a = n(i);
+            if (
+              (r.deleteTags &&
+                (r.deleteTags.forEach(function (t) {
+                  (e
+                    .find(`.tag` + t)
+                    .closest(`a`)
+                    .removeClass(`selected`),
+                    a.find(`.tag` + t).remove(),
+                    n(`input[value="${t}"]`).remove());
+                }),
+                e.find(`.selected`).length ||
+                  a.find(`.setTag`).removeClass(`hidden`)),
+              r.addedTagId)
+            ) {
+              (a.find(`.PopupControl .tag`).not(`.setTag`).remove(),
+                n(
+                  `.UploadPublicTags input[name="public_tag_id[]"], .UploadPublicTags input[name="add_public_tag_id[]"]`,
+                ).remove(),
+                a.find(`.setTag`).addClass(`hidden`),
+                t && t.addClass(`selected`),
+                n(r.templateHtml).xfInsert(`prependTo`, i + ` .PopupControl`));
+              let e = n(`#MassBuyStartForm`).length
+                ? `add_public_tag_id`
+                : `public_tag_id`;
+              n(`.UploadPublicTags`).append(
+                n(
+                  `<input name="${e}[]" type="hidden" value="${r.addedTagId[0]}">`,
+                ),
+              );
+            }
+          };
+        e.find(`a`).on(`click`, function (i) {
+          ((t = n(this)), i.preventDefault());
+          let a = t.hasClass(`selected`)
+            ? t.data(`delete-href`)
+            : n(this).attr(`href`);
+          if (t.data(`clicked`) !== `true`) {
+            if (!t.hasClass(`selected`)) {
+              let i = e.find(`a.selected`);
+              if (i.length > 0) {
+                let e = [];
+                (i.each(function () {
+                  e.push(n(this).data(`tag-id`));
+                }),
+                  r({ deleteTags: e, itemId: t.data(`item-id`) }));
+              }
+            }
+            a
+              ? (t.data(`clicked`, `true`), c.ajax(a, {}, r))
+              : r({
+                  [t.hasClass(`selected`) ? `deleteTags` : `addedTagId`]: [
+                    t.data(`tag-id`),
+                  ],
+                  templateHtml: t
+                    .find(`.singleTag`)
+                    .clone()
+                    .removeClass(`singleTag`)
+                    .addClass(`tag`)
+                    .get(0).outerHTML,
+                  itemId: t.data(`item-id`),
+                });
+          }
+        });
+      }),
+      ($.ItemTagChooser = function (e) {
+        let t = null,
+          r = function (t) {
+            let r = n(t),
+              i = e.find(`a.selected`).length,
+              a = r.find(`#tag-counters`);
+            if (i > 3) {
+              let e = i - 3;
+              (a.length
+                ? a.text(`+${e}`)
+                : ((a = n(`<span id="tag-counters" class="tag">+${e}</span>`)),
+                  a.appendTo(r.find(`.PopupControl`))),
+                r
+                  .find(`.tag`)
+                  .not(`#tag-counters`)
+                  .each(function (e) {
+                    e >= 3 ? n(this).hide() : n(this).show();
+                  }));
+            } else
+              (a.length && a.remove(),
+                r.find(`.tag`).not(`#tag-counters`).show());
+          },
+          i = function (i) {
+            if ((t.removeData(`clicked`), c.hasResponseError(i))) return;
+            let a = i.itemId ? `#itemTags--` + i.itemId : `#itemTags`,
+              o = n(a);
+            if (
+              (i.deleteTags &&
+                (i.deleteTags.forEach(function (t) {
+                  (e
+                    .find(`.tag` + t)
+                    .closest(`a`)
+                    .removeClass(`selected`),
+                    o.find(`.tag` + t).remove(),
+                    n(`input[value="${t}"]`).remove());
+                }),
+                e.find(`.selected`).length ||
+                  o.find(`.setTag`).removeClass(`hidden`),
+                r(a)),
+              i.addedTagId)
+            ) {
+              (o.find(`.setTag`).addClass(`hidden`),
+                t.addClass(`selected`),
+                n(i.templateHtml).xfInsert(`prependTo`, a + ` .PopupControl`));
+              let e = n(`#MassBuyStartForm`).length ? `add_tag_id` : `tag_id`;
+              (n(`.UploadTags`).append(
+                n(
+                  `<input name="${e}[]" type="hidden" value="${i.addedTagId[0]}">`,
+                ),
+              ),
+                r(a));
+            }
+          };
+        e.find(`a`).on(`click`, function (e) {
+          ((t = n(this)), e.preventDefault());
+          let r = t.hasClass(`selected`)
+            ? t.data(`delete-href`)
+            : n(this).attr(`href`);
+          t.data(`clicked`) !== `true` &&
+            (r
+              ? (t.data(`clicked`, `true`), c.ajax(r, {}, i))
+              : i({
+                  [t.hasClass(`selected`) ? `deleteTags` : `addedTagId`]: [
+                    t.data(`tag-id`),
+                  ],
+                  templateHtml: t
+                    .find(`.singleTag`)
+                    .clone()
+                    .removeClass(`singleTag`)
+                    .addClass(`tag`)
+                    .get(0).outerHTML,
+                }));
+        });
+        let a = `#itemTags`;
+        r(a);
+      }),
+      ($.HoldTooltip = function (e) {
+        if (c.isTouchBrowser()) return;
+        var t = window.localStorage.getItem(`disabled_tooltips`);
+        let r = e.data(`tooltip-id`);
+        var i = t ? t.split(`,`).indexOf(r) === -1 : !0;
+        if (i) {
+          var a = e.attr(`title`);
+          if (
+            (e.attr(`title`, ``),
+            !c.htmlspecialchars(a).trim() ||
+              (r === `market_expand_params` &&
+                localStorage.getItem(`market_always_show`)))
+          )
+            return;
+          let i = c.tippy(e.get(), {
+            arrow: !0,
+            animation: `shift-toward`,
+            delay: [500, 0],
+            maxWidth: 250,
+            theme: `popup`,
+            trigger: `manual`,
+            interactive: !0,
+            placement: e.data(`placement`) || `top`,
+            content:
+              c.htmlspecialchars(a) +
+              `<br><button class="TooltipHideButton button smallButton">${s(`market_understood`)}</button>`,
+          });
+          i[0].show();
+          var o = i[0].popper.getElementsByClassName(`TooltipHideButton`)[0];
+          n(o).on(`click`, () => {
+            (i[0].destroy(),
+              t
+                ? window.localStorage.setItem(
+                    `disabled_tooltips`,
+                    [r, ...t.split(`,`)].join(`,`),
+                  )
+                : window.localStorage.setItem(`disabled_tooltips`, r));
+          });
+        } else c.create(`XenForo.Tooltip`, e);
+      }),
+      ($.Editable = function (e) {
+        let t = `textCtrl extraLarge`;
+        e.data(`inputcssclass`) && (t += ` ` + e.data(`inputcssclass`));
+        let r = e.closest(`.marketIndexItem`),
+          i = r.hasClass(`sticky`),
+          a = !1,
+          o = e.data(`value`),
+          l = e.is(`[data-key-as-value]`);
+        e.editable(e.data(`save-url`), {
+          id: `key`,
+          inputcssclass: t,
+          placeholder: e.data(`phrase`) || e.attr(`placeholder`),
+          tooltip: ``,
+          style: `display: inline;`,
+          width: e.data(`width`),
+          trigger: e.parent(),
+          submitdata: function (t, n, r) {
+            let i = e.data(`key`);
+            ((o = r.value),
+              l
+                ? ((r[i] = r.value), delete r.key, delete r.value)
+                : (r.key = i));
+          },
+          intercept: function (e) {
+            var t;
+            let i = JSON.parse(e);
+            if (c.hasResponseError(i)) return n(this).data(`value`);
+            var a;
+            if (
+              (n(this).data(
+                `value`,
+                c.htmlEntityDecode((a = i.value) == null ? o : a),
+              ),
+              c.alert(s(`changes_saved`), ``, 5e3),
+              i.key === `price`)
+            ) {
+              var l;
+              n(`[id="MarketItemExtraPrices"]`).html(
+                n(i.extraTemplateHtml).html(),
+              );
+              let { priceWithSellerFee: e } = i.item;
+              (n(this).data(`fee-value`, e),
+                (l = i.item) != null &&
+                  l.price &&
+                  n(this).attr(`data-value`, i.item.price));
+              let t = r.find(`.price_your_account_commission .Value`);
+              t.text(e);
+            }
+            return (t = i.value) == null ? n(this).data(`value`) : t;
+          },
+          onedit: function (e, t, n) {
+            if ((i && r.removeClass(`sticky`), n.key === `Escape`)) return !1;
+          },
+          onblur: function () {
+            return (i && r.addClass(`sticky`), !1);
+          },
+          callback: function () {
+            i && r.addClass(`sticky`);
+          },
+          onsubmit: function () {
+            let e = n(this);
+            return (
+              a ||
+                setTimeout(function () {
+                  ((a = !0), e.trigger(`submit`), (a = !1));
+                }, 100),
+              a
+            );
+          },
+          showfn: function () {
+            let t = e.find(`input`);
+            e.find(`form`).show();
+            let n = e.data(`value`);
+            n && t.val(n);
+          },
+          onerror: function (e, t, r) {
+            try {
+              let e = JSON.parse(r.responseText);
+              if (c.hasResponseError(e)) {
+                n(this).data(`value`);
+                return;
+              }
+            } catch (e) {}
+          },
+        });
+      }),
+      ($.EditableStatus = function (e) {
+        var t;
+        n.editable.types.textPlaceholderFix = {
+          element: function (t) {
+            var r = n(`<input />`).attr({
+              autocomplete: `off`,
+              list: t.list,
+              maxlength: parseInt(e.data(`maxlength`)) || t.maxlength,
+              pattern: t.pattern,
+              placeholder: t.placeholderText,
+              style: t.inputStyle,
+              tooltip: t.tooltip,
+              type: `text`,
+            });
+            return (
+              t.width !== `none` && r.css(`width`, t.width),
+              t.height !== `none` && r.css(`height`, t.height),
+              t.size && r.attr(`size`, t.size),
+              (parseInt(e.data(`maxlength`)) || t.maxlength) &&
+                r.attr(
+                  `maxlength`,
+                  parseInt(e.data(`maxlength`)) || t.maxlength,
+                ),
+              n(this).append(r),
+              r
+            );
+          },
+        };
+        let r = (t = e.data(`title-params-key`)) == null ? `custom_title` : t,
+          i = e.is(`[data-inline]`),
+          a = e.text().trim();
+        e.editable(
+          function (t, n, o) {
+            let l = new URL(e.data(`editUrl`), location.origin);
+            (i && l.searchParams.set(r, t),
+              c.ajax(l.href, i ? {} : { [r]: t }, function (n) {
+                (e.parent().removeAttr(`style`),
+                  e.find(`a`).on(`click`, function (e) {
+                    (e.stopPropagation(), e.stopImmediatePropagation());
+                  }),
+                  c.hasResponseError(n) ||
+                    ((a = i ? t : n == null ? void 0 : n.renderedNewStatus),
+                    c.alert(s(`changes_saved`), ``, 5e3)),
+                  o(a, !0));
+              }));
+          },
+          {
+            inputcssclass: `textCtrl`,
+            style: `display: inline;`,
+            placeholder:
+              `<span class="muted">` +
+              c.htmlspecialchars(e.data(`phrase`)) +
+              `</span>`,
+            placeholderText: e.data(`phrase`),
+            onblur: function () {
+              (e.parent().removeAttr(`style`), e.children().trigger(`submit`));
+            },
+            tooltip: ``,
+            type: `textPlaceholderFix`,
+            width: `100%`,
+            onedit: function () {
+              i || e.parent().css(`padding`, `2px`);
+            },
+            maxlength: `50`,
+          },
+        );
+      }),
+      ($.DateRangePickerLabel = function (e) {
+        let t = e.siblings(`.DateRangePicker`);
+        t.length &&
+          e.find(`input`).on(`change`, function () {
+            if (n(this).is(`:checked`)) {
+              var e;
+              (e = t.data(`daterangepicker`)) == null || e.show();
+            }
+          });
+      }),
+      ($.DateRangePicker = function (e) {
+        var t = n(e.data(`startdate`)),
+          r = n(e.data(`enddate`)),
+          i = n(e.data(`periodlabel`)),
+          a = !1;
+        function o(e, t) {
+          return Object.keys(e).find((n) => e[n] === t);
+        }
+        function l(l, u, d) {
+          e.find(`span`).html(
+            s(`date_range_from`) +
+              ` ` +
+              l.format(`D.MM.YY`) +
+              ` ` +
+              s(`to`).toLowerCase() +
+              ` ` +
+              u.format(`D.MM.YY`),
+          );
+          let f = o(c.phrases, d);
+          if ((f && i.val(f), t.val(W(l).format()), r.val(W(u).format()), a)) {
+            var p = e
+              .closest(`.dateRangePickerDiv`)
+              .find(`input[type="checkbox"]`);
+            (p.length
+              ? p.prop(`checked`, f !== `all_the_time`).trigger(`change`)
+              : e.closest(`form`).trigger(`submit`),
+              n(`#MarketSearchBar--itemCount`).val(``));
+          }
+          a = !0;
+        }
+        let u, d;
+        parseInt(e.data(`def-time`))
+          ? ((u = W().subtract(1, `month`).startOf(`month`)),
+            (d = W().endOf(`month`)))
+          : ((u = W(t.val())), (d = W(r.val())));
+        let f = [
+            {
+              key: `all_the_time`,
+              start: W(`05.09.2017`, `DD.MM.YYYY`),
+              end: W().endOf(`day`),
+            },
+            { key: `today`, start: W().startOf(`day`), end: W().endOf(`day`) },
+            {
+              key: `yesterday`,
+              start: W().subtract(1, `days`).startOf(`day`),
+              end: W().subtract(1, `days`).endOf(`day`),
+            },
+            { key: `last_7_days`, start: W().subtract(6, `days`), end: W() },
+            { key: `last_30_days`, start: W().subtract(29, `days`), end: W() },
+            {
+              key: `this_month`,
+              start: W().startOf(`month`),
+              end: W().endOf(`month`),
+            },
+            {
+              key: `past_month`,
+              start: W().subtract(1, `month`).startOf(`month`),
+              end: W().subtract(1, `month`).endOf(`month`),
+            },
+            {
+              key: `this_year`,
+              start: W().startOf(`year`),
+              end: W().endOf(`day`),
+            },
+            {
+              key: `past_year`,
+              start: W().subtract(1, `year`).startOf(`year`),
+              end: W().subtract(1, `year`).endOf(`year`),
+            },
+          ],
+          p = H(e, {
+            start: u.toDate(),
+            end: d.toDate(),
+            minYear: 2017,
+            maxYear: new Date().getFullYear(),
+            timePicker: !0,
+            locale: c.visitor.language_id === 1 ? `en` : `ru`,
+            labels: {
+              apply: s(`apply`),
+              cancel: s(`cancel`),
+              reset: s(`reset`),
+              from: s(`market_from`),
+              to: s(`date_range_to`).toLowerCase(),
+              customRange: s(`other_period`),
+              goTo: s(`go_to`),
+              calendar: s(`calendar`),
+            },
+            presets: f.map((e) => ({
+              key: e.key,
+              label: s(e.key),
+              start: e.start.toDate(),
+              end: e.end.toDate(),
+            })),
+            resetPresetKey: `all_the_time`,
+            onApply: function (e, t, n) {
+              l(W(e), W(t), n);
+            },
+            onReset: function () {
+              var a = f.find(function (e) {
+                return e.key === `all_the_time`;
+              });
+              (e
+                .find(`span`)
+                .html(
+                  s(`market_from`) +
+                    ` ` +
+                    a.start.format(`D.MM.YY`) +
+                    ` ` +
+                    s(`to`).toLowerCase() +
+                    ` ` +
+                    a.end.format(`D.MM.YY`),
+                ),
+                t.val(``),
+                r.val(``),
+                i.val(``),
+                n(`#MarketSearchBar--itemCount`).val(``));
+              var o = e
+                .closest(`.dateRangePickerDiv`)
+                .find(`input[type="checkbox"]`);
+              o.length
+                ? o.prop(`checked`, !1).trigger(`change`)
+                : e.closest(`form`).trigger(`submit`);
+            },
+          });
+        (e.data(`daterangepicker`, p), l(W(t.val()), W(r.val()), i.val()));
+      }),
+      ($.CurrentRotator = function (e) {
+        setInterval(() => {
+          let t = e.find(`.active`).index(),
+            n = e.children().length;
+          (e
+            .children()
+            .eq(t % n)
+            .removeClass(`active`)
+            .addClass(`hidden`),
+            e
+              .children()
+              .eq((t + 1) % n)
+              .addClass(`active`)
+              .removeClass(`hidden`));
+        }, 5e3);
+      }),
+      ($.EditNoteButton = function (e) {
+        e.on(`click`, function () {
+          let t = n(e.data(`dest`));
+          t.is(`:visible`)
+            ? t.xfHide(200)
+            : t.xfShow(200, function () {
+                t.find(`input[name="text"]`).trigger(`focus`);
+              });
+        });
+      }),
+      ($.LoginDataSpoiler = function (e) {
+        let t = n(e.data(`target`)),
+          r = e.closest(`.bbCodeSpoilerContainer`),
+          i = !1;
+        function a() {
+          t.is(`:visible`)
+            ? (r.removeClass(`open`), t.xfHide(c.speed.fast))
+            : (r.addClass(`open`), t.xfShow(c.speed.fast));
+        }
+        e.on(`click`, function (r) {
+          if ((r.preventDefault(), e.data(`loaded`))) {
+            a();
+            return;
+          }
+          i ||
+            ((i = !0),
+            e.addClass(`loading`),
+            c.ajax(e.data(`href`), {}, function (r) {
+              ((i = !1),
+                e.removeClass(`loading`),
+                !(c.hasResponseError(r) || !r.templateHtml) &&
+                  new c.ExtLoader(r, function () {
+                    (t.empty(),
+                      n(r.templateHtml).xfInsert(`appendTo`, t, `show`, 0),
+                      e.data(`loaded`, !0),
+                      a());
+                  }));
+            }));
+        });
+      }),
+      ($.EditNote = function (e) {
+        let t;
+        function n() {
+          e.find(`input[name="text"]`).data(`save`) !==
+            e.find(`input[name="text"]`).val() &&
+            (e
+              .find(`input[name="text"]`)
+              .data(`save`, e.find(`input[name="text"]`).val()),
+            c.ajax(
+              e.attr(`action`),
+              e.find(`input[name]`).serializeArray(),
+              function (e) {
+                c.hasResponseError(e) ||
+                  c.alert(e.message, ``, 1e3, null, `success`);
+              },
+            ));
+        }
+        (e
+          .find(`input[name="text"]`)
+          .data(`save`, e.find(`input[name="text"]`).val()),
+          e
+            .find(`input[name="text"]`)
+            .on(`keydown`, function (r) {
+              if ((t && clearTimeout(t), r.keyCode === 13))
+                return (
+                  r.preventDefault(),
+                  r.stopPropagation(),
+                  r.stopImmediatePropagation(),
+                  e.find(`input[name="text"]`).trigger(`blur`)
+                );
+              t = setTimeout(() => {
+                n();
+              }, 5e3);
+            })
+            .on(`blur`, function () {
+              (t && clearTimeout(t), n());
+            }));
+      }),
+      ($.CancelDiscountRequest = function (e) {
+        if (!e.parent().hasClass(`disabled`)) return;
+        let t = n(`<a href="#"/>`)
+          .text(s(`market_cancel_discount`))
+          .on(
+            `click`,
+            function (e) {
+              (e.preventDefault(),
+                c.ajax(
+                  n(`.AddNoteForm`)
+                    .attr(`action`)
+                    .replace(`note-save`, `discount/cancel`),
+                  {},
+                  function (e) {
+                    c.hasResponseError(e) ||
+                      (e._redirectTarget &&
+                        (window.location = e._redirectTarget));
+                  },
+                ));
+            }.bind(this),
+          );
+        tippy(e.parent().get(0), {
+          content: t.get(0),
+          interactive: !0,
+          arrow: !0,
+          animation: `shift-away`,
+          hideOnClick: !1,
+          zIndex: 99999,
+        });
+      }),
+      ($.Telegram = function (e) {
+        (async () => {
+          this.__construct(e, await import(Q));
+        })();
+      }),
+      ($.Telegram.prototype = {
+        __construct: function (e, t) {
+          let r = new t.default();
+          (n(`.TelegramLoadTData`).on(`click`, async (t) => {
+            t.preventDefault();
+            try {
+              await r.loadDirectory();
+            } catch (e) {
+              if (e && e.name === `AbortError`) return;
+              throw e;
+            }
+            let i = await r.getTDataDirectories(),
+              a = await r.parseTelegramTDataDirectory(i[0]);
+            if (!a || !a.length)
+              return c.alert(s(`market_telegram_no_accounts_found`));
+            if (a.length === 1)
+              (e.addClass(`hidden`),
+                n(`._addGoodsContainer input[name="login"]`).val(a[0].authKey),
+                n(`._addGoodsContainer input[name="password"]`).val(a[0].dcId));
+            else if (a.length > 1) {
+              (e.find(`select,.chosen-container`).remove(),
+                e.removeClass(`hidden`));
+              var o = n(
+                `<select class="textCtrl extraLarge dropdown mn-15-0-0"/>`,
+              );
+              for (let e = 0; e < a.length; e++)
+                o.append(
+                  n(`<option>`, {
+                    value: a[e].authKey + `:` + a[e].dcId,
+                    text: a[e].accountId + 1 + `. ` + a[e].userId,
+                  }),
+                );
+              (e.append(o),
+                o.val(``),
+                o.chosen({
+                  search_contains: 1,
+                  inherit_select_classes: 1,
+                  enable_split_word_search: 1,
+                  disable_search: 1,
+                  placeholder_text_single: s(`market_telegram_select_account`),
+                }),
+                o.on(`change`, function () {
+                  let e, t;
+                  (([e, t] = o.val().split(`:`)),
+                    n(`._addGoodsContainer input[name="login"]`).val(e),
+                    n(`._addGoodsContainer input[name="password"]`).val(t));
+                }));
+            }
+          }),
+            n(`.TelegramLoadSession`).on(`click`, async (e) => {
+              e.preventDefault();
+              let t = await r.parseTelegramSessionFile();
+              (n(`._addGoodsContainer input[name="login"]`).val(t.authKey),
+                n(`._addGoodsContainer input[name="password"]`).val(t.dcId));
+            }));
+        },
+      }),
+      ($.TelegramExport = function (e) {
+        (async () => {
+          this.__construct(e, await import(Q));
+        })();
+      }),
+      ($.TelegramExport.prototype = {
+        __construct: function (e, t) {
+          let n = new t.default(),
+            r = {
+              accountId: 0,
+              userId: parseInt(e.attr(`data-userId`)),
+              dcId: parseInt(e.attr(`data-dcID`)),
+              authKey: e.attr(`data-authKey`),
+            },
+            i = e.attr(`data-itemId`);
+          (e.find(`.ExportTData`).on(`click`, async function () {
+            await n.exportTData(r, i + `_tdata.zip`);
+          }),
+            e.find(`.ExportSessionTelethon`).on(`click`, async function () {
+              await n.exportSession(r, `telethon`, i + `_telethon.session`);
+            }),
+            e.find(`.ExportSessionPyrogram`).on(`click`, async function () {
+              await n.exportSession(r, `pyrogram`, i + `_pyrogram.session`);
+            }),
+            e.find(`.ExportSessionJson`).on(`click`, async function () {
+              let t = window.document.createElement(`a`);
+              ((t.href = window.URL.createObjectURL(
+                new Blob([JSON.stringify(JSON.parse(e.attr(`data-json`)))], {
+                  type: `application/json`,
+                }),
+              )),
+                (t.download = i + `.json`),
+                document.body.appendChild(t),
+                t.click(),
+                document.body.removeChild(t));
+            }));
+        },
+      }),
+      ($.TelegramMassUpload = function (e) {
+        (async () => {
+          this.__construct(e, await import(Q));
+        })();
+      }),
+      ($.TelegramMassUpload.prototype = {
+        __construct: function (e, t) {
+          let r = new t.default();
+          (e.find(`.TelegramMassTData`).on(`click`, async (e) => {
+            e.preventDefault();
+            let t = [];
+            try {
+              await r.loadDirectory();
+            } catch (e) {
+              if (e && e.name === `AbortError`) return;
+              throw e;
+            }
+            let i = await r.getTDataDirectories();
+            for (let e of i) {
+              let n = await r.parseTelegramTDataDirectory(e);
+              if (!n) continue;
+              for (let e of n) t.push(e.authKey + `:` + e.dcId);
+            }
+            n(`textarea[name="raw_data"]`).val(
+              t.join(`
+`),
+            );
+          }),
+            e.find(`.TelegramMassSession`).on(`click`, async (e) => {
+              e.preventDefault();
+              let t = [],
+                i = await r.parseTelegramSessionFiles();
+              for (let e of i) t.push(e.authKey + `:` + e.dcId);
+              n(`textarea[name="raw_data"]`).val(
+                t.join(`
+`),
+              );
+            }));
+        },
+      }),
+      ($.TelegramDownload = function (e) {
+        (async () => {
+          this.__construct(e, await import(Q));
+        })();
+      }),
+      ($.TelegramDownload.prototype = {
+        __construct: function (e, t) {
+          e.find(`[type="submit"]`).on(`click`, async (r) => {
+            (r.preventDefault(), r.stopPropagation());
+            let i = n(r.currentTarget),
+              a = e
+                .find(`.threeChoices`)
+                .first()
+                .find(`:checked`)
+                .attr(`value`),
+              o = this.getDownloadHref(e),
+              { info: l, data: u } = await $.chunkedFetch(
+                o,
+                i,
+                async (e, t) => t.concat((await e.json()).accounts || []),
+                [],
+              ),
+              d = u.length ? u : l.accounts || [];
+            if (!d.length)
+              return c.alert(s(`market_telegram_no_accounts_found`));
+            let f = new t.default();
+            switch (a) {
+              case `pyrogram`:
+              case `telethon`:
+                await f.exportMultipleSession(d, a, `sessions.zip`);
+                break;
+              default:
+                await f.exportMultipleTData(d, `tdata.zip`);
+            }
+          });
+        },
+        getDownloadHref: function (e) {
+          let t = e.attr(`action`),
+            r = `format=telegram&` + e.serialize().replace(/[^=&]+=(&|$)/g, ``);
+          return t
+            ? t + `?` + r
+            : n(`.DownloadAccountsButton`).first().data(`href`) +
+                `?` +
+                n(`#MarketSearchBar`)
+                  .serialize()
+                  .replace(/[^=&]+=(&|$)/g, ``) +
+                `&` +
+                r;
+        },
+      }),
+      ($.CookieDownload = function (e) {
+        (async () => {
+          this.__construct(e, await import(ue));
+        })();
+      }),
+      ($.CookieDownload.prototype = {
+        __construct: function (e, t) {
+          e.find(`[type="submit"]`).on(`click`, async (r) => {
+            (r.preventDefault(), r.stopPropagation());
+            let i = n(r.currentTarget),
+              a = e
+                .find(`.threeChoices`)
+                .first()
+                .find(`:checked`)
+                .attr(`value`),
+              o = this.getDownloadHref(e),
+              { info: l, data: u } = await $.chunkedFetch(
+                o,
+                i,
+                async (e, t) => t.concat((await e.json()).accounts || []),
+                [],
+              ),
+              d = u.length ? u : l.accounts || [];
+            if (!d.length) return c.alert(s(`market_cookie_no_accounts_found`));
+            let f = new t.default();
+            switch (a) {
+              case `json`:
+                await f.downloadCookies(d, `json`, `cookies.zip`);
+                break;
+              case `netscape`:
+                await f.downloadCookies(d, `netscape`, `cookies.zip`);
+                break;
+              case `mafile`:
+                await f.downloadMaFiles(d, `mafiles.zip`);
+                break;
+            }
+          });
+        },
+        getDownloadHref: function (e) {
+          let t = e.attr(`action`),
+            r = e.attr(`format`),
+            i =
+              `format=` + r + `&` + e.serialize().replace(/[^=&]+=(&|$)/g, ``);
+          return t
+            ? t + `?` + i
+            : n(`.DownloadAccountsButton`).first().data(`href`) +
+                `?` +
+                n(`#MarketSearchBar`)
+                  .serialize()
+                  .replace(/[^=&]+=(&|$)/g, ``) +
+                `&` +
+                i;
+        },
+      }),
+      ($.DownloadNamingLabel = function (e) {
+        let t = e.find(`.SelectedDownloadOption`);
+        if (!t.length) return;
+        let n = () => {
+          let n = e.find(`input[name="name"]:checked`);
+          t.text(
+            n.length
+              ? n.closest(`.radio-button-label`).find(`.title`).text().trim()
+              : ``,
+          );
+        };
+        (e.on(`change`, `input[name="name"]`, n), n());
+      }),
+      ($.IgnoreForm = function (e) {
+        (e.on(`AutoValidationComplete`, function () {
+          let t = e.find(`.ChosenAutoComplete`).parent();
+          (t.find(`select`).val([]),
+            t.find(`select`).trigger(`change`),
+            t.find(`.userInput-removeUser`).trigger(`click`),
+            t.find(`input[type=hidden]`).val(``));
+        }),
+          e.on(`submit`, function () {
+            e.find(`.FollowList`).length ||
+              n(`.textHeading`).after(`<div class="FollowList"></div>`);
+          }));
+      }),
+      ($.NumericInput = function (e) {
+        var t, n;
+        let r = (t = e.data(`min`)) == null ? null : t,
+          i = (n = e.data(`max`)) == null ? null : n,
+          a = e.hasClass(`AllowNegative`) && (r === null || r < 0),
+          o = RegExp(
+            `^(${a ? `-` : ``})?\\D*(\\d+)?[^\\d.,]*([.,](?=(\\d+|.|$)))?\\D*(\\d*).*$`,
+          );
+        function s() {
+          let t = e
+            .val()
+            .replace(/[kк]/g, `000`)
+            .replace(/[mм]/g, `000000`)
+            .replace(/\s/g, ``)
+            .replace(o, `$1$2$3$5`);
+          (+t && i !== null && (t = Math.min(t, i)),
+            +t && r !== null && (t = Math.max(t, r)),
+            (t = String(t).split(/[.,]/)),
+            Math.abs(parseInt(t[0])) > 9999 &&
+              (t[0] = t[0].replace(/\B(?=(\d{3})+(?!\d))/g, ` `)),
+            e.val(t[0] + (t.length > 1 ? `.` + t[1].slice(0, 2) : ``)));
+        }
+        (e.on(`input`, s), s());
+      }),
+      ($.OrderByContainer = function (e) {
+        (e.find(`input`).on(`click`, function () {
+          n(this).prop(`checked`) &&
+            !n(this).hasClass(`popup`) &&
+            (n(`.OrderByPopupChooser .selected`).removeClass(`selected`),
+            n(`.OrderByPopupClicker.selected`)
+              .removeClass(`selected`)
+              .find(`.Extra`)
+              .addClass(`hidden`));
+        }),
+          n(`.OrderByPopupChooser`)
+            .find(`label`)
+            .on(`click`, function () {
+              let e = `#` + n(this).attr(`rel`);
+              (n(e).trigger(`click`),
+                n(`.OrderByContainer .selected`)
+                  .removeClass(`selected`)
+                  .find(`.Extra`)
+                  .addClass(`hidden`),
+                n(`.OrderByPopupChooser .selected`).removeClass(`selected`),
+                n(this).addClass(`selected`));
+              let t = n(
+                `#` + n(this).closest(`.OrderByPopupChooser`).data(`parent`),
+              );
+              t.addClass(`selected`)
+                .find(`.Extra`)
+                .removeClass(`hidden`)
+                .find(`.Text`)
+                .text(n(this).text());
+            }),
+          e.find(`input`).on(`change`, function () {
+            if (
+              n(this).val() === `exp_auctions` ||
+              n(this).val() === `bid_count`
+            )
+              return n(`#searchFilter--auction--yes`).trigger(`click`);
+          }));
+      }),
+      ($.MobilePriceBlock = function (e) {
+        let t = n(`.AfterPurchaseContainer .ToCartButton`);
+        e.hasClass(`StickyPriceMobileBlock_2`) && e.find(`.svgCurIcon`).empty();
+        let r = () => {
+          if (e.is(`:animated`)) return;
+          let r = n(window).scrollTop(),
+            i = t.length && r < t.offset().top,
+            a = r + n(window).height() > n(document).height() * 0.9,
+            o = i || a;
+          (o && !e.is(`:visible`)) ||
+            (e.css(`pointer-events`, o ? `none` : `auto`),
+            e.animate({ opacity: o ? 0 : 1 }, c.speed.fast));
+        };
+        n(window).on(`scroll`, r);
+      }),
+      ($.CartButton = function (e) {
+        function t(t) {
+          if (
+            n(window).scrollTop() + n(window).height() >
+            n(document).height() * 0.9
+          ) {
+            if (!e.is(`:visible`)) return;
+            if (t) return e.hide();
+            animateCSS(e.get(0), [`slideOutUp`, `mainc`], function () {
+              e.hide();
+            });
+          } else {
+            if (e.is(`:visible`)) return;
+            if (t) return e.show();
+            (e.show(), animateCSS(e.get(0), [`slideInDown`, `mainc`]));
+          }
+        }
+        (t(!0), n(window).on(`scroll`, () => t(!1)));
+      }),
+      ($.BinInfo = function (e) {
+        let t,
+          n = e.parent().find(`.bankLogo`),
+          r = n.find(`.logo`);
+        (n.xfFadeOut(0),
+          e.on(`input`, function () {
+            (t && clearTimeout(t),
+              (t = setTimeout(() => {
+                let e = this.value.replaceAll(` `, ``);
+                if (e.length < 6) {
+                  n.xfFadeOut(300);
+                  return;
+                }
+                ((t = null),
+                  c.ajax(`/bin-info`, { card: e }, function (e) {
+                    if (!e.color) {
+                      n.xfFadeOut(300);
+                      return;
+                    }
+                    (n.css(`background-color`, e.color),
+                      r.css(`background-image`, `url(${e.image})`),
+                      e.color !== `#ffffff` &&
+                        r.css(
+                          `filter`,
+                          `drop-shadow(${e.color} 0px 0px 0.5px) drop-shadow(${e.color} 0px 0px 0.5px)`,
+                        ),
+                      n.xfFadeIn(300).css(`display`, ``));
+                  }));
+              }, 250)));
+          }));
+      }),
+      ($.WalletName = function (e) {
+        let t,
+          n = e.closest(`.methodContainer`).find(`#NameInputWallet`);
+        n.length || (n = e.parent().find(`#NameInputWallet`));
+        let r = (e) => {
+          if (e.replaceAll(` `, ``) === ``) {
+            n.text(``);
+            return;
+          }
+          c.ajax(`/balance/wallet-name`, { wallet: e }, function (e) {
+            n.text(e && e.walletName ? e.walletName : ``);
+          });
+        };
+        (e.on(`input`, function () {
+          t && clearTimeout(t);
+          let e = this.value;
+          t = setTimeout(() => {
+            ((t = null), r(e));
+          }, 250);
+        }),
+          e.val() && r(e.val()));
+      }),
+      ($.RemoveAccount = function (e) {
+        var t;
+        let r = (t = e.attr(`action`)) == null ? void 0 : t.split(`/`)[0];
+        r &&
+          (e.off(`submit`),
+          e.on(`submit`, function (t) {
+            let i = n(`#marketItem--${r}`);
+            i.length &&
+              (t.preventDefault(),
+              t.stopPropagation(),
+              t.stopImmediatePropagation(),
+              c.ajax(e.attr(`action`), e.serializeArray(), function () {
+                (i.xfRemove(`xfFadeOut`),
+                  e.closest(`.xenOverlay`).length &&
+                    e.closest(`.xenOverlay`).data(`overlay`).close());
+              }));
+          }));
+      }),
+      ($.DeleteHistoryContainer = function (e) {
+        let t = () =>
+          e
+            .closest(`.SearchHistoryList, .SavedSearchesList`)
+            .xfRemove(`xfFadeUp`);
+        if (e.hasClass(`SavedSearchesClear`)) {
+          e.on(`click`, function () {
+            let r = e.attr(`href`) || ``,
+              i = function (a) {
+                var o, s;
+                let l = a.$form,
+                  u = (l == null ? void 0 : l.attr(`action`)) || ``;
+                if (!r || !u.includes(r)) return;
+                let d = l.closest(`.xenOverlay`).data(`overlay`);
+                !d ||
+                  !e.is((o = d.getTrigger) == null ? void 0 : o.call(d)) ||
+                  (n(document).off(`AutoValidationComplete`, i),
+                  a.preventDefault(),
+                  setTimeout(() => d.close(), 0),
+                  t(),
+                  (s = a.ajaxData) != null &&
+                    s.message &&
+                    c.alert(a.ajaxData.message, ``, 4e3, null, `success`));
+              };
+            n(document).on(`AutoValidationComplete`, i);
+          });
+          return;
+        }
+        (e.on(`BeforeOverlayTrigger`, function (e) {
+          e.preventDefault();
+        }),
+          e.on(`click`, function (n) {
+            (n.preventDefault(),
+              c.ajax(e.attr(`href`), {}, function (e) {
+                (t(),
+                  e &&
+                    e.message &&
+                    c.alert(e.message, ``, 4e3, null, `success`));
+              }));
+          }));
+      }),
+      ($.DeletableSavedSearches = function (e) {
+        let t = e.data(`remove-tooltip-text`),
+          r = e.find(`.savedSearchesItemsBlock`);
+        r.find(`.savedSearchesItemDelete`).each(function () {
+          let i = n(this);
+          if (i.data(`inlineDeleteBound`)) return;
+          i.data(`inlineDeleteBound`, !0);
+          let a = i.attr(`title`) || i.attr(`data-cachedtitle`) || t;
+          (i.removeAttr(`title`).removeAttr(`data-cachedtitle`),
+            a &&
+              !i.get(0)._tippy &&
+              tippy(i.get(0), {
+                content: a,
+                placement: `top`,
+                arrow: !0,
+                animation: `shift-toward`,
+                delay: [200, 0],
+                appendTo: document.body,
+              }),
+            i.on(`click`, function (t) {
+              (t.preventDefault(),
+                t.stopImmediatePropagation(),
+                i.get(0)._tippy && i.get(0)._tippy.hide());
+              let n = i.closest(`.savedSearchesButton`);
+              c.ajax(i.attr(`href`), {}, function (t) {
+                (r.find(`.savedSearchesButton`).length <= 1
+                  ? e.xfRemove(`xfFadeUp`)
+                  : n.xfRemove(),
+                  t &&
+                    t.message &&
+                    c.alert(t.message, ``, 5e3, null, `success`));
+              });
+            }));
+        });
+      }),
+      ($.ScrollBlockButtons = function (e) {
+        let t = e.parent().find(`.MarketScrollBar`).last();
+        if (!t.length) return;
+        let n = () => {
+          let n = t.data(`scrollbar`);
+          n && e.toggleClass(`NotScrolling`, !n.scrollx.isVisible);
+        };
+        (t.on(`scrollbar-updated`, n), n());
+      }),
+      ($.DeletableHistoryItems = function (e) {
+        let t = e.data(`remove-tooltip-text`),
+          r = e.find(`.searchBarForm--searchHistoryContainer`);
+        r.find(`.searchHistoryItemDelete`).each(function () {
+          let i = n(this);
+          if (i.data(`inlineDeleteBound`)) return;
+          i.data(`inlineDeleteBound`, !0);
+          let a = i.attr(`title`) || i.attr(`data-cachedtitle`) || t;
+          (i.removeAttr(`title`).removeAttr(`data-cachedtitle`),
+            a &&
+              !i.get(0)._tippy &&
+              tippy(i.get(0), {
+                content: a,
+                placement: `top`,
+                arrow: !0,
+                animation: `shift-toward`,
+                delay: [200, 0],
+                appendTo: document.body,
+              }),
+            i.on(`click`, function (t) {
+              (t.preventDefault(),
+                t.stopImmediatePropagation(),
+                i.get(0)._tippy && i.get(0)._tippy.hide());
+              let n = i.closest(`.searchHistoryButton`),
+                a = n.closest(`.searchHistoryItem`);
+              c.ajax(i.attr(`href`), {}, function (t) {
+                (r.find(`.searchHistoryButton`).length <= 1
+                  ? e.xfRemove(`xfFadeUp`)
+                  : (a.xfRemove(`xfFadeOut`), n.xfHide(c.speed.normal)),
+                  t &&
+                    t.message &&
+                    c.alert(t.message, ``, 5e3, null, `success`));
+              });
+            }));
+        });
+      }),
+      ($.CustomDownloadOverlay = function (e) {
+        e.on(`submit`, (t) => {
+          let r = e.attr(`action`);
+          if (!r || n(`.MarketMassUpload`).length) return;
+          (t.preventDefault(), t.stopPropagation());
+          let i = e.serialize().replace(/[^=&]+=(&|$)/g, ``),
+            a;
+          a = i ? (r.includes(`?`) ? r + `&` + i : r + `?` + i) : r;
+          let o = n(`.MarketSearchBarButtons`).data(`downloadFunction`);
+          typeof o == `function`
+            ? (n(`.downloadAccountsButton`).trigger(`click`),
+              o(a, n(`.DownloadAccountsButton.MenuCloser`)))
+            : (window.location = a);
+        });
+      }),
+      ($.AutoBuyContainer = function (e) {
+        let t = e.find(`.toggleBigDesign`),
+          r = e.find(`.toggleSmallDesign`),
+          i = (t) => {
+            (e.attr(`data-design-size`, t ? `big` : `small`),
+              t
+                ? n.deleteCookie(`autobuy_small`)
+                : n.setCookie(`autobuy_small`, `1`),
+              location.reload());
+          };
+        (t.on(`click`, () => i(!0)), r.on(`click`, () => i(!1)));
+        let a = (t) => {
+          (t.preventDefault(), t.stopPropagation());
+          let r = n(t.currentTarget).attr(`href`),
+            i = r.includes(`action=disable`) ? `disable` : `enable`,
+            a = e.find(`.autoBuyItem`);
+          c.ajax(
+            `${r}&_xfResponseType=json&_xfToken=${c._csrfToken}`,
+            {},
+            function (e) {
+              if ((c.hasResponseError(e), c.hasTemplateHtml(e))) {
+                c.createOverlay(null, e.templateHtml, e).load();
+                return;
+              }
+              e.status === `ok` &&
+                a.each(function () {
+                  let e = n(this),
+                    t = e.data(`setItemState`);
+                  t(i);
+                });
+            },
+          );
+        };
+        e.find(`.header .toggleDisable, .header .toggleEnable`).on(`click`, a);
+      }),
+      ($.AutoBuyItem = function (e) {
+        let t = e.find(`.queue_toggle`),
+          n = (n) => {
+            let r = e.find(`.statsContainer .status`),
+              i = t.get(0)._tippy;
+            n === `enable`
+              ? (t.removeClass(`queueDisabled`).addClass(`queueEnabled`),
+                i && i.setContent(s(`market_auto_buy_table_stop`)),
+                r.removeClass(`stopped`).addClass(`active`),
+                r.find(`.title`).text(s(`auto_buy_state_active`)))
+              : (t.removeClass(`queueEnabled`).addClass(`queueDisabled`),
+                i && i.setContent(s(`market_auto_buy_table_start`)),
+                r.removeClass(`active`).addClass(`stopped`),
+                r.find(`.title`).text(s(`auto_buy_state_stopped`)));
+          };
+        (e.data(`setItemState`, n),
+          e.find(`.EditableStatus`).attr(`data-null-value`, 0),
+          t.on(`click`, (r) => {
+            (r.preventDefault(), r.stopPropagation());
+            let i = t.hasClass(`queueDisabled`) ? `enable` : `disable`,
+              a = e.data(`link-id`);
+            c.ajax(
+              `/market/auto-buy/toggle?action=${i}&link_id=${a}&_xfResponseType=json&_xfToken=${c._csrfToken}`,
+              {},
+              function (e) {
+                if ((c.hasResponseError(e), c.hasTemplateHtml(e))) {
+                  c.createOverlay(null, e.templateHtml, e).load();
+                  return;
+                }
+                e.status === `ok` && n(i);
+              },
+            );
+          }));
+      }),
+      ($.AutoBuySortable = function (e) {
+        let t = new te(e.get(0), {
+          animation: 150,
+          delay: 150,
+          delayOnTouchOnly: !0,
+          ghostClass: `sortable-holding-item`,
+          draggable: `.autoBuyItem`,
+          dataIdAttr: `data-link-id`,
+          handle: `.draggableIcon`,
+          onEnd: function (t) {
+            t.oldIndex !== t.newIndex &&
+              c.ajax(
+                e.data(`modify-url`),
+                { links: this.toArray() },
+                function (e) {
+                  c.hasResponseError(e);
+                },
+              );
+          },
+        });
+      }),
+      ($.AutoBuyActions = function (e) {
+        e.on(`click`, (t) => {
+          (t.preventDefault(), t.stopPropagation());
+          let r = e.data(`link-id`),
+            i = new c.OverlayLoader(
+              n(`<a />`).attr(`href`, e.data(`href`)),
+              !1,
+              { data: { link_id: r } },
+            );
+          i.show();
+        });
+      }),
+      ($.RobloxSort = function (e) {
+        let t = n(`.RobloxSortHeaders`),
+          r = t.find(`th`),
+          i = (e, t) => {
+            let n = e.textContent || e.innerText;
+            if (t) {
+              let e = parseFloat(n.replace(/,/g, ``));
+              return isNaN(e) ? n.toLowerCase() : e;
+            }
+            return n.toLowerCase();
+          },
+          a = (t) => {
+            let a = n(t.originalEvent.target);
+            a = a.is(`th`) ? a : a.parent(`th`);
+            let s = r.index(a),
+              c = a.find(`span`);
+            if (!c.length) {
+              let e = n(`<span></span`);
+              (e.addClass(`sortable-icon`), a.append(e));
+            }
+            let l, u, d, f, p, m;
+            u = !0;
+            let h = n(r[s]).attr(`class`) === `asc` ? `desc` : `asc`;
+            for (; u; ) {
+              for (u = !1, l = e.find(`tr`), d = 0; d < l.length - 1; d++) {
+                m = !1;
+                let e = n(l[d]).find(`td`)[s],
+                  t = n(l[d + 1]).find(`td`)[s],
+                  r = s === 1;
+                if (
+                  ((f = i(e, r)),
+                  (p = i(t, r)),
+                  (h === `asc` && f > p) || (h === `desc` && f < p))
+                ) {
+                  m = !0;
+                  break;
+                }
+              }
+              m && (n(l[d]).before(l[d + 1]), (u = !0));
+            }
+            o(s, h);
+          },
+          o = (e, t) => {
+            (r.removeClass(`asc desc`), n(r[e]).addClass(t));
+          };
+        r.on(`click`, a);
+      }),
+      ($.MarketSuggestion = function (e) {
+        let t = (e) => e.text().replace(/\s+/g, ` `).trim(),
+          r = (e, r) => {
+            let i = c.getEditorInForm(e);
+            if (i) {
+              if (i.jquery) {
+                t(n(`<div />`).text(i.val())) === t(r) && i.val(``);
+                return;
+              }
+              t(n(`<div />`).html(i.html.get())) === t(r) && i.html.set(``);
+            }
+          };
+        e.find(`.MarketRemoveSuggestion`).on(`click`, () => {
+          let t = e.find(`.InsertIntoEditor`),
+            i = e.find(`.hidden`);
+          c.ajax(
+            t.data(`remove-link`),
+            { key: t.data(`type`), value: i.attr(`data-content`) },
+            (a) => {
+              c.hasResponseError(a) ||
+                (r(n(t.data(`target`)), i), e.xfSlideUp());
+            },
+          );
+        });
+      }),
+      ($.CookieMassUpload = function (e) {
+        (async () => {
+          this.__construct(e, await import(ue));
+        })();
+      }),
+      ($.CookieMassUpload.prototype = {
+        __construct: function (e, t) {
+          let r = n(`textarea[name="raw_data"]`);
+          (e.find(`.LoadCookieMassUpload`).on(`click`, async (r) => {
+            r.preventDefault();
+            let i = new t.default();
+            try {
+              n(r.target).attr(`data-files`)
+                ? await i.loadFiles()
+                : await i.loadDirectory();
+            } catch (e) {
+              if (e && e.name === `AbortError`) return;
+              throw e;
+            }
+            let a = await i.getCookieFiles();
+            for (let t of a) {
+              let r = n(`.block_result_group:visible`).length;
+              if (r > (e.attr(`data-max-count`) || 100)) break;
+              let a = await i.parseCookiesFromFile(
+                t,
+                e.data(`domain`),
+                e.data(`cookie`),
+              );
+              if (a.length) {
+                let i = n(`.CookieElementTemplate`).children().clone();
+                (i.find(`.CookieTitle`).text(r + 1 + `. ` + t),
+                  i.data(`cookies`, a),
+                  i.find(`.CookieRemove`).on(`click`, () => {
+                    i.xfFadeDown(
+                      50,
+                      () => {
+                        (i.remove(), this.updateCookieInput());
+                      },
+                      !1,
+                    );
+                  }),
+                  i.find(`input`).on(`change`, () => this.updateCookieInput()),
+                  r === 0
+                    ? i.insertAfter(e)
+                    : i.insertAfter(n(`.block_result_group:visible:last`)));
+              }
+            }
+            this.updateCookieInput();
+          }),
+            e.find(`.LoadMfaFileMassUpload`).on(`click`, async (i) => {
+              i.preventDefault();
+              let a = new t.default();
+              try {
+                n(i.target).attr(`data-files`)
+                  ? await a.loadFiles()
+                  : await a.loadDirectory();
+              } catch (e) {
+                if (e && e.name === `AbortError`) return;
+                throw e;
+              }
+              let o = await a.getCookieFiles(),
+                s = r.val().split(`
+`);
+              for (let t of o) {
+                let i = n(`.block_result_group:visible`).length;
+                if (i > (e.attr(`data-max-count`) || 100)) break;
+                let o = await a.parseMaFileFromFile(t);
+                if (o.identity_secret) {
+                  let a = n(`.CookieElementTemplate`).children().clone();
+                  (a.find(`.CookieTitle`).text(i + 1 + `. ` + t),
+                    a.data(`mfa_file`, o),
+                    a.find(`.CookieRemove`).on(`click`, () => {
+                      a.xfFadeDown(
+                        50,
+                        () => {
+                          (a.remove(), this.updateCookieInput());
+                        },
+                        !1,
+                      );
+                    }));
+                  let c = s.find((e) => e.includes(o.account_name));
+                  (a.find(`input`).on(`change`, () => this.updateCookieInput()),
+                    i === 0
+                      ? a.insertAfter(e)
+                      : a.insertAfter(n(`.block_result_group:visible:last`)),
+                    c &&
+                      (a.find(`input`).val(c),
+                      r.val(
+                        s.filter((e) => !e.includes(o.account_name)).join(`
+`),
+                      )));
+                }
+              }
+              this.updateCookieInput();
+            }));
+        },
+        updateCookieInput: function () {
+          let e = [];
+          for (let t of n(`.block_result_group:visible`))
+            e.push({
+              credentials: n(t).find(`input`).val(),
+              cookies: n(t).data(`cookies`),
+              mfa_file: n(t).data(`mfa_file`),
+            });
+          n(`input[name="cookie_upload"]`).val(JSON.stringify(e));
+        },
+      }),
+      ($.LastPasswordEdit = function (e) {
+        e.find(`input[name="password"], input[name="login_password"]`).on(
+          `keydown keypress keyup paste`,
+          () => {
+            e.find(`input[name="extra[last_password_change]"]`).val(
+              Date.now() / 1e3,
+            );
+          },
+        );
+      }),
+      ($.AlwaysShow = function (e) {
+        let t = e.closest(`.searchBar`),
+          r = t.find(`.HiddenFilters`),
+          i = t.find(`.ExpandParams`),
+          a = t.find(`#CategoryWrapper`);
+        $.isMobileFiltersViewport && $.isMobileFiltersViewport() && e.hide();
+        let o = function () {
+            let e = i.closest(`.expandParamsContainer`);
+            if ($.isMobileFiltersViewport && $.isMobileFiltersViewport()) {
+              e.removeClass(`fixed`);
+              return;
+            }
+            Re() ? e.removeClass(`fixed`) : e.addClass(`fixed`);
+          },
+          c = !1;
+        (a.hide(),
+          (localStorage.getItem(`market_always_show`) ||
+            localStorage.getItem(`market_clear_filters`)) &&
+            !($.isMobileFiltersViewport && $.isMobileFiltersViewport()) &&
+            (localStorage.removeItem(`market_clear_filters`),
+            r.addClass(`Expanded`),
+            e.text(s(`always_hide_params`)),
+            i.find(`.expand`).addClass(`hidden`),
+            i.find(`.hide`).removeClass(`hidden`),
+            a.show(),
+            o(),
+            (c = !0)),
+          i.off(`.marketAlwaysShow`).on(`click.marketAlwaysShow`, function () {
+            c
+              ? a.xfHide(0, function () {
+                  (o(),
+                    i.find(`.expand`).removeClass(`hidden`),
+                    i.find(`.hide`).addClass(`hidden`),
+                    (c = !1));
+                })
+              : (a.show(),
+                animateCSS(a.get(0), [`fadeIn`, `faster`], function () {
+                  (o(),
+                    i.find(`.expand`).addClass(`hidden`),
+                    i.find(`.hide`).removeClass(`hidden`),
+                    (c = !0));
+                }));
+          }),
+          e.off(`.marketAlwaysShow`).on(`click.marketAlwaysShow`, function () {
+            localStorage.getItem(`market_always_show`)
+              ? (localStorage.removeItem(`market_always_show`),
+                e.text(s(`always_show_params`)))
+              : (localStorage.setItem(`market_always_show`, `1`),
+                e.text(s(`always_hide_params`)));
+          }),
+          n(window).off(`.marketAlwaysShow`).on(`scroll.marketAlwaysShow`, o));
+      }),
+      ($.SearchClickHistory = function (e) {
+        function t() {
+          (i.hide(), i.removeClass(`search_shown`));
+        }
+        function r() {
+          (i.show(), i.addClass(`search_shown`));
+        }
+        let i = e
+            .closest(`.input-bar_groups_container`)
+            .find(`.last_search_block`),
+          a = i.find(`.last_search_history_block`);
+        (i.hide(),
+          e.on(`focus`, function () {
+            if (!a.children().length) return;
+            r();
+            let e = n(`.Menu_SB-Categoty-Button`);
+            e.find(`.PopupOpen`).length &&
+              e.find(`.PopupOpen`).trigger(`click`);
+          }));
+        function o() {
+          c.ajax(
+            i.find(`.last_search_clear_all`).attr(`href`),
+            {},
+            function () {
+              (a.children().remove(), t());
+            },
+          );
+        }
+        (i.find(`.last_search_history_item`).on(`click`, function (e) {
+          let r = n(e.target);
+          if (!r.is(`.last_search_clear_item`)) return;
+          e.preventDefault();
+          let i = r.parents(`.last_search_history_item`),
+            o = i.data(`remove-url`);
+          c.ajax(o, {}, function () {
+            (i.remove(), a.children().length || t());
+          });
+        }),
+          i.find(`.last_search_clear_all`).on(`focus`, function (e) {
+            (e.preventDefault(), o());
+          }),
+          e.on(`blur`, function (e) {
+            let r = n(e.relatedTarget);
+            if (
+              r
+                .parent()
+                .is(
+                  `.last_search_history_block,.last_search_header_text_group,.input-bar_groups_container`,
+                )
+            ) {
+              r.is(`.last_search_clear_all`) && o();
+              return;
+            }
+            t();
+          }),
+          e.on(`keydown`, function (e) {
+            e.key === `Escape` && i.is(`:visible`) && t();
+          }));
+      }),
+      ($.ProxySelector = function (e) {
+        e.chosen({
+          search_contains: 1,
+          inherit_select_classes: 1,
+          enable_split_word_search: 1,
+          max_shown_results: 1e3,
+        });
+      }),
+      ($.MarketChart = function (e) {
+        (async () => {
+          var t;
+          let n = await X(),
+            r = JSON.parse(e.attr(`data-chart`)),
+            i = [...new Set(r.map((e) => e.view_day))].sort(),
+            a = [...new Set(r.map((e) => e.source))],
+            o = {};
+          a.forEach((e) => {
+            ((o[e] = {}),
+              r.forEach((t) => {
+                t.source === e && (o[e][t.view_day] = t.view_count);
+              }));
+          });
+          let c = i.length === 1;
+          if (c) {
+            let [e, t, n] = i[0].split(`-`).map(Number),
+              r = new Date(e, t - 1, n),
+              a = (e) => {
+                let t = new Date(r);
+                t.setDate(t.getDate() + e);
+                let n = String(t.getMonth() + 1).padStart(2, `0`),
+                  i = String(t.getDate()).padStart(2, `0`);
+                return t.getFullYear() + `-` + n + `-` + i;
+              };
+            i = [a(-1), i[0], a(1)];
+          }
+          let l = q(),
+            u = (e) => {
+              let [t, n, r] = e.split(`-`).map(Number);
+              return new Date(t, n - 1, r);
+            },
+            d = i.map((e) => l.monthDay.format(u(e))),
+            f = i.map((e) => l.fullWeekday.format(u(e))),
+            p = document.getElementById(
+              `dailyViewsChart--` + e.attr(`data-item-id`),
+            ),
+            m = p.getContext(`2d`);
+          (t = n.getChart(p)) == null || t.destroy();
+          let h = a.map((e) => {
+            let t = K(e),
+              n = re(m, p, t),
+              r = G(
+                s(`market_views_` + e),
+                i.map((t) =>
+                  Object.prototype.hasOwnProperty.call(o[e], t)
+                    ? o[e][t]
+                    : null,
+                ),
+                t,
+                n,
+              );
+            return (
+              c &&
+                ((r.pointRadius = 4),
+                (r.pointBackgroundColor = t.line),
+                (r.pointBorderColor = `#fff`),
+                (r.pointBorderWidth = 2),
+                (r.spanGaps = !1)),
+              r
+            );
+          });
+          new n(m, {
+            type: `line`,
+            data: { labels: d, datasets: h },
+            plugins: [ie, Y],
+            options: ne({ tooltipTitle: (e) => f[e[0].dataIndex] }),
+          });
+        })();
+      }),
+      ($.PriceChart = function (e) {
+        (async () => {
+          var t;
+          let n = await X(),
+            r = JSON.parse(e.attr(`data-chart`)),
+            i = (e) => {
+              let t = parseInt(e);
+              if (isNaN(t)) return null;
+              let n = new Date(t * 1e3);
+              return (
+                isNaN(n.getTime()) && (n = new Date(t)),
+                isNaN(n.getTime()) ? null : n
+              );
+            },
+            a = Object.values(r)
+              .map((e) => {
+                let t = i(e.edit_date);
+                return t
+                  ? { dateObj: t, value: parseFloat(e.new_value) }
+                  : null;
+              })
+              .filter((e) => e !== null)
+              .sort((e, t) => e.dateObj - t.dateObj),
+            o = a.length === 1;
+          if (o) {
+            let e = a[0],
+              t = new Date(e.dateObj);
+            t.setDate(t.getDate() - 1);
+            let n = new Date(e.dateObj);
+            (n.setDate(n.getDate() + 1),
+              a.unshift({ dateObj: t, value: null }),
+              a.push({ dateObj: n, value: null }));
+          }
+          let l = q(),
+            u = a.map((e) => l.monthDay.format(e.dateObj)),
+            d = a.map((e) => l.fullWeekdayWithYear.format(e.dateObj)),
+            f = a.map((e) => e.value),
+            p = document.getElementById(
+              `priceChart--` + e.attr(`data-item-id`),
+            ),
+            m = p.getContext(`2d`);
+          (t = n.getChart(p)) == null || t.destroy();
+          let h = K(`price`),
+            g = re(m, p, h),
+            _ = G(
+              s(`market_price_history`, {
+                currency: c.locale.currency,
+                currencyPhrase: c.locale.currencyPhrase,
+              }),
+              f,
+              h,
+              g,
+            );
+          o &&
+            ((_.pointRadius = 4),
+            (_.pointBackgroundColor = h.line),
+            (_.pointBorderColor = `#fff`),
+            (_.pointBorderWidth = 2),
+            (_.spanGaps = !1));
+          let v = [_];
+          new n(m, {
+            type: `line`,
+            data: { labels: u, datasets: v },
+            plugins: [ie, Y],
+            options: ne({
+              tooltipTitle: (e) => d[e[0].dataIndex],
+              yStepSize: void 0,
+              yPrecision: 2,
+            }),
+          });
+        })();
+      }),
+      ($.InlineModPriceInPercents = function (e) {
+        let t = e.closest(`.InlineModActionForm`),
+          n = t.find(`input[name=price]`),
+          r = t.find(`input[name=percents_price]`),
+          i = t.find(`.PriceAfterPercentsContainer`);
+        (n.on(`keyup`, a),
+          r.on(`keyup`, a),
+          e.on(`DisablerDisabled`, () => o(!1)),
+          e.on(`DisablerEnabled`, () => o(!0)));
+        function a() {
+          let e = Number(n.val()) || 0,
+            t = Number(r.val()) || 0;
+          if (isNaN(e) || isNaN(t) || e < 0 || t < 0) {
+            i.find(`span`).text(`0.00`);
+            return;
+          }
+          let a = e * (t / 100);
+          i.find(`span`).text(a.toFixed(2));
+        }
+        function o(e = !1) {
+          (i[e ? `addClass` : `removeClass`](`hidden`), a());
+        }
+      }),
+      ($.CurrencyChange = function (e) {
+        (e.find(`.Cancel`).on(`click`, function () {
+          (n.setCookie(
+            `market_currency_ignore_` + e.attr(`data-currency`),
+            1,
+            new Date(Date.now() + 365 * 24 * 3600 * 1e3),
+          ),
+            e.parent().xfFadeOut());
+        }),
+          e.find(`.Confirm`).on(`click`, function () {
+            c.ajax(
+              `/user/currency`,
+              { currency: e.attr(`data-currency`) },
+              () => {
+                document.location.reload();
+              },
+            );
+          }));
+      }),
+      ($.LanguageChange = function (e) {
+        (e.find(`.Cancel`).on(`click`, function () {
+          (n.setCookie(
+            `market_language_ignore_` + e.attr(`data-language`),
+            1,
+            new Date(Date.now() + 365 * 24 * 3600 * 1e3),
+          ),
+            e.parent().xfFadeOut());
+        }),
+          e.find(`.Confirm`).on(`click`, function () {
+            c.ajax(
+              `misc/language`,
+              { language_id: e.attr(`data-language`) },
+              () => {
+                document.location.reload();
+              },
+            );
+          }));
+      }),
+      ($.FloatingLabel = function (e) {
+        if (!e || !e.length) return;
+        e.find(`.search-field label`).append(function () {
+          let e = n(this).find(`input`);
+          if (e.length)
+            return n(`<span />`, {
+              class: `topLabel`,
+              text: e.attr(`value`) || ``,
+            });
+        });
+        let t = e.closest(`.chosen-container`).prev(`select`);
+        if (t.length) {
+          let r = t.data(`placeholder`) || ``;
+          e.find(`.chosen-single`).prepend(function () {
+            return n(`<div />`, { class: `topLabel`, text: r });
+          });
+          function i() {
+            e.find(`.topLabel`).text(r);
+          }
+          t.on(`change chosen:updated`, i);
+        }
+      }),
+      ($.FloatingInputClear = function (e) {
+        !e ||
+          !e.length ||
+          e.on(`click`, function (e) {
+            (e.preventDefault(), e.stopPropagation());
+            let t = n(this)
+              .closest(`label.FloatingInput`)
+              .find(`.FloatingInputItem`);
+            t.length && (t.val(``), t.trigger(`input`));
+          });
+      }),
+      ($.CookieServiceSwitcher = function (e) {
+        e.on(`change`, () => {
+          let t = e.find(`:selected`),
+            n = e.closest(`.settings_labeled_text`).find(`.CookieMassUpload`);
+          (n.attr(`data-domain`, t.data(`domain`)),
+            n.attr(`data-cookie`, t.data(`cookie`)),
+            n.data(`domain`, t.data(`domain`)),
+            n.data(`cookie`, t.data(`cookie`)));
+        });
+      }),
+      c.registerClass(`Market`, $),
+      c.register(`.StickyCartButton`, `Market.CartButton`),
+      c.register(
+        `.StickyPriceMobileBlock, .StickyPriceMobileBlock_2`,
+        `Market.MobilePriceBlock`,
+      ),
+      c.register(`.OrderByContainer`, `Market.OrderByContainer`),
+      c.register(
+        `.searchBarForm--Filter--PriceInput input.textCtrl, input.textCtrl.searchBarForm--Filter--PriceInput`,
+        `Market.NumericInput`,
+      ),
+      c.register(`.DateRangePicker`, `Market.DateRangePicker`),
+      c.register(`.dateRangePickerDiv--label`, `Market.DateRangePickerLabel`),
+      c.register(`._noticeTrigger`, `Market.NoticeTrigger`),
+      c.register(`#MarketSearchBar`, `Market.SearchBar`),
+      c.register(`.SelectCategoryLink`, `Market.SelectCategoryLink`),
+      c.register(`.NoTouch .DelayedTooltip`, `XenForo.DelayedTooltip`),
+      c.register(`.ExpandParams`, `Market.ExpandParams`),
+      c.register(`.ResetParams`, `Market.ResetParams`),
+      c.register(`#MassAutoStartCheckbox`, `Market.AutoMassBuy`),
+      c.register(`.method`, `Market.CalculateAmount`),
+      c.register(`.AmountInput`, `Market.CalculateAmountText`),
+      c.register(`.SearchHistoryList`, `Market.DeletableHistoryItems`),
+      c.register(`.SavedSearchesList`, `Market.DeletableSavedSearches`),
+      c.register(`.SearchHistoryClear`, `Market.DeleteHistoryContainer`),
+      c.register(`.SavedSearchesClear`, `Market.DeleteHistoryContainer`),
+      c.register(
+        `.searchHistoryScrollButtons, .marketQueriesScrollButtons, .topCategory_scroll_block-buttons`,
+        `Market.ScrollBlockButtons`,
+      ),
+      c.register(`.RobloxSort`, `Market.RobloxSort`),
+      c.register(`.MarketScrollBar`, `Market.Scrollbar`),
+      c.register(`.AlwaysShowParams`, `Market.AlwaysShow`),
+      c.register(`.MarketChart`, `Market.MarketChart`),
+      c.register(`.priceHistory`, `Market.PriceChart`),
+      c.register(`.currency-content`, `Market.CurrencyChange`),
+      c.register(`.language-content`, `Market.LanguageChange`),
+      c.register(`.FloatingLabel`, `Market.FloatingLabel`),
+      c.register(`.FloatingInputClear`, `Market.FloatingInputClear`),
+      n(`html`).hasClass(`LoggedIn`) &&
+        (c.register(`.PurseInput.CardInput`, `Market.BinInfo`),
+        c.register(`.PurseInput`, `Market.WalletName`),
+        c.register(`.InsertIntoEditor`, `Market.InsertIntoEditor`),
+        c.register(`.ToFavouritesButton`, `Market.ToFavouritesButton`),
+        c.register(`.ToCartButton`, `Market.ToCartButton`),
+        c.register(`.MarketIgnoreUser`, `Market.IgnoreUser`),
+        c.register(`.MarketSortableGames`, `Market.SortableGames`),
+        c.register(`.BuyAfterPageLoading`, `Market.BuyAfterPageLoading`),
+        c.register(`.LowerPriceButton`, `Market.LowerPriceButton`),
+        c.register(`#MarketScrollToPanel`, `Market.MarketScrollToPanel`),
+        c.register(`.ItemTagChooser`, `Market.ItemTagChooser`),
+        c.register(`.ItemPublicTagChooser`, `Market.ItemPublicTagChooser`),
+        c.register(`.HoldTooltip`, `Market.HoldTooltip`),
+        c.register(`.EditableStatus`, `Market.EditableStatus`),
+        c.register(`.EditableValue`, `Market.Editable`),
+        c.register(`.CurrentStepPhrase`, `Market.CurrentRotator`),
+        c.register(`.AddNoteForm`, `Market.EditNote`),
+        c.register(`.EditNoteButton`, `Market.EditNoteButton`),
+        c.register(`.ShowLoginDataButton`, `Market.LoginDataSpoiler`),
+        c.register(`.discountRequestedIcon`, `Market.CancelDiscountRequest`),
+        c.register(`.TelegramLoadTDataContainer`, `Market.Telegram`),
+        c.register(`.TDataExport`, `Market.TelegramExport`),
+        c.register(`.TelegramMassUpload`, `Market.TelegramMassUpload`),
+        c.register(`.TelegramDownloadForm`, `Market.TelegramDownload`),
+        c.register(`.CookieDownloadForm`, `Market.CookieDownload`),
+        c.register(
+          `.TelegramDownloadForm, .CookieDownloadForm`,
+          `Market.DownloadNamingLabel`,
+        ),
+        c.register(`.buyerIgnoreForm`, `Market.IgnoreForm`),
+        c.register(`.MarketItems`, `Market.LoadingItems`),
+        c.register(`.formDeleteItem`, `Market.RemoveAccount`),
+        c.register(`.CustomDownloadOverlay`, `Market.CustomDownloadOverlay`),
+        c.register(`.autoBuyContainer`, `Market.AutoBuyContainer`),
+        c.register(`.autoBuyItem`, `Market.AutoBuyItem`),
+        c.register(`.actionsItem.queue_overlay`, `Market.AutoBuyActions`),
+        c.register(`.MarketSuggestion`, `Market.MarketSuggestion`),
+        c.register(`.CookieMassUpload`, `Market.CookieMassUpload`),
+        c.register(`.CheckingAccountContainer`, `Market.LastPasswordEdit`),
+        c.register(
+          `#MarketSearchInput.input-bar_market`,
+          `Market.SearchClickHistory`,
+        ),
+        c.register(`.ProxySelector`, `Market.ProxySelector`),
+        c.register(`.autoBuyGroup`, `Market.AutoBuySortable`),
+        c.register(
+          `#changePriceinPercents_Disabler`,
+          `Market.InlineModPriceInPercents`,
+        ),
+        c.register(`.CookieServiceSwitcher`, `Market.CookieServiceSwitcher`)),
+      n(`html.DEBUG`) && (window.Market = $),
+      (ze = $));
+  });
+export {
+  Ce as bindFilterCount,
+  ze as core_default,
+  we as filterCountState,
+  Be as init_core,
+  je as init_deferredMod,
+  Ee as init_filterCount_svelte,
+  Ae as runDeferredModActions,
+};

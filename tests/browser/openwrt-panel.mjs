@@ -24,7 +24,7 @@ for (const name of ['mark.svg', 'favicon.svg', 'theme.css', 'profile.json']) {
 const mime = {
   '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml', '.woff2': 'font/woff2',
+  '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
 };
 const apiRequests = [];
 let statusResponsesCompleted = 0;
@@ -148,6 +148,16 @@ async function waitForRenderedRoute(page, route) {
     .every(node => Number.parseFloat(getComputedStyle(node).opacity) >= 0.99), null, { timeout: 2000 });
 }
 
+async function waitForDrawerSettled(page, open) {
+  await page.waitForFunction(expectedOpen => {
+    const nav = document.querySelector('#nav');
+    const shell = document.querySelector('#menu-shell');
+    return nav.classList.contains('menu-open') === expectedOpen
+      && shell.classList.contains('mm-ocd--open') === expectedOpen
+      && shell.getAnimations({ subtree: true }).every(animation => animation.playState !== 'running');
+  }, open, { timeout: 1200 });
+}
+
 try {
   // The old URL is a representative filter-list match. The renamed URL must
   // never be requested as a required bootstrap dependency.
@@ -205,6 +215,12 @@ try {
       const theme = document.querySelector('#brand-profile-theme');
       return theme && theme.sheet && theme.sheet.cssRules.length > 0;
     }, null, { timeout: 1500 });
+    await page.waitForFunction(() => Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 260) < 1,
+      null, { timeout: 1200 });
+    assert.equal(await page.locator('#menu-shell.mm-ocd.mm-ocd--left > .mm-ocd__content > #nav').count(), 1,
+      'navigation uses the observed Lolz off-canvas shell/content structure');
+    assert.equal(await page.locator('#menu-shell > #menu-backdrop.mm-ocd__backdrop').count(), 1,
+      'the dismiss surface belongs to the off-canvas shell');
     if (appearance === 'dark') {
       assert.ok(apiRequests.some(request => request.endpoint === 'status' && request.marker === '1'),
         'status fixture must receive the panel request marker');
@@ -241,6 +257,8 @@ try {
     assert.equal(await page.locator('#brand-profile-theme').getAttribute('href'), '/assets/openwrt/theme.css');
     assert.equal(await page.locator('[data-theme-btn="' + appearance + '"]').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.getByRole('group', { name: 'Тема' }).count(), 1);
+    assert.equal(await page.locator('#menu-toggle').isVisible(), false,
+      `${appearance}: Full HD desktop uses the persistent sidebar, not the mobile menu button`);
 
     const tokens = await page.evaluate(names => {
       const style = getComputedStyle(document.documentElement);
@@ -259,12 +277,110 @@ try {
       assert.equal(tokens['--ow-accent'], '#087A70', 'preserve the light accent');
     }
     assert.equal(await page.evaluate(() => getComputedStyle(document.body).fontSize), '14px', 'compact body type');
+    assert.equal(await page.evaluate(() => getComputedStyle(document.body).lineHeight), '17.92px',
+      'body leading matches the measured Lolz 14 px / 17.92 px rhythm');
     assert.equal(await page.locator('.topbar').evaluate(node => node.getBoundingClientRect().height), 44,
       'desktop topbar uses the compact reference height');
+    const headerStyle = await page.locator('.topbar').evaluate(node => {
+      const style = getComputedStyle(node);
+      const effect = getComputedStyle(node, '::before');
+      return { position: style.position, background: style.backgroundColor,
+        effectBackground: effect.backgroundColor, blur: effect.backdropFilter,
+        borderBottomWidth: style.borderBottomWidth };
+    });
+    assert.equal(headerStyle.position, 'fixed', 'the page header follows the fixed Lolz shell geometry');
+    assert.equal(headerStyle.background, 'rgba(0, 0, 0, 0)', 'the header itself does not clip fixed drawer descendants');
+    assert.equal(headerStyle.effectBackground, appearance === 'dark'
+      ? 'rgba(12, 15, 14, 0.62)' : 'rgba(244, 248, 247, 0.82)',
+    'the header uses the measured dark surface or a matching frosted light surface');
+    assert.equal(headerStyle.blur, 'blur(10px)', 'the header uses the measured 10 px backdrop blur');
+    assert.equal(headerStyle.borderBottomWidth, '0px', 'the header has no extra separator line');
     assert.ok(await page.locator('#nav a[data-route="dashboard"]').evaluate(node => {
       const height = node.getBoundingClientRect().height;
       return height >= 36 && height <= 42;
     }), 'desktop navigation stays between 36 and 42 px');
+    const desktopSidebarWidth = await page.locator('#nav').evaluate(node => node.getBoundingClientRect().width);
+    assert.ok(Math.abs(desktopSidebarWidth - 260) < 1,
+      `desktop sidebar matches the compact reference width (${desktopSidebarWidth}px)`);
+    const desktopFrame = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      navX: document.querySelector('#nav').getBoundingClientRect().x,
+      appX: document.querySelector('#app').getBoundingClientRect().x,
+      appY: document.querySelector('#app').getBoundingClientRect().y,
+      appWidth: document.querySelector('#app').getBoundingClientRect().width,
+      brandX: document.querySelector('#panel-brand').getBoundingClientRect().x,
+    }));
+    assert.ok(Math.abs(desktopFrame.navX - (desktopFrame.viewport / 2 - 535)) < 1,
+      `Lolz measured 1081 px shell places the 261 px rail 5 px inside the wrapper (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(desktopFrame.appX - (desktopFrame.viewport / 2 - 260)) < 1,
+      `the main column begins after the 260 px rail and 20 px gap (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(desktopFrame.appWidth - 800) < 1,
+      `the main column matches the measured 800 px reference (${desktopFrame.appWidth}px)`);
+    assert.ok(Math.abs(desktopFrame.appY - 44) < 1,
+      `the main column starts below the fixed 44 px header (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(desktopFrame.brandX - desktopFrame.navX) < 1,
+      `the z2kOW wordmark aligns with the left edge of the centered page shell (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(await page.locator('#nav .nav-ico').first().evaluate(node => node.getBoundingClientRect().width) - 20) < 1,
+      'sidebar icons match the reference size');
+    assert.ok(await page.locator('#app').evaluate(node => node.getBoundingClientRect().width === 800),
+      'all desktop routes use the reference 800 px content column');
+    const surfaces = await page.evaluate(() => ({
+      topbarShadow: getComputedStyle(document.querySelector('.topbar')).boxShadow,
+      cardShadow: getComputedStyle(document.querySelector('#app .card')).boxShadow,
+      cardRadius: getComputedStyle(document.querySelector('#app .card')).borderRadius,
+      titleAnimation: getComputedStyle(document.querySelector('#app .page-title')).animationName,
+      cardAnimation: getComputedStyle(document.querySelector('#app > .card')).animationName,
+    }));
+    assert.equal(surfaces.topbarShadow, 'none', 'the reference header has no decorative drop shadow');
+    assert.equal(surfaces.cardShadow, 'none', 'cards use a border instead of a floating shadow');
+    assert.equal(surfaces.cardRadius, '12px');
+    assert.equal(await page.locator('#app .card .desc').first().evaluate(node => getComputedStyle(node).lineHeight), '17.92px',
+      'card descriptions use the measured 14 px / 17.92 px Lolz rhythm');
+    assert.equal(surfaces.titleAnimation, 'none', 'route changes do not add an unverified fade-slide effect');
+    assert.equal(surfaces.cardAnimation, 'none', 'route changes do not stagger cards');
+    const buttonStyle = await page.locator('#app .btn').first().evaluate(node => {
+      const style = getComputedStyle(node);
+      return { height: node.getBoundingClientRect().height, radius: style.borderRadius,
+        color: style.color, background: style.backgroundColor,
+        transitionDuration: style.transitionDuration, transitionProperty: style.transitionProperty };
+    });
+    assert.ok(buttonStyle.height >= 34 && buttonStyle.height <= 38, 'desktop buttons stay 34–38 px tall');
+    assert.equal(buttonStyle.radius, '10px', 'desktop buttons match the reference control radius');
+    assert.equal(buttonStyle.color, appearance === 'dark' ? 'rgb(214, 214, 214)' : 'rgb(24, 38, 37)',
+      'button text follows the selected theme');
+    assert.equal(buttonStyle.background, appearance === 'dark' ? 'rgb(30, 39, 37)' : 'rgb(234, 241, 239)',
+      'button surfaces follow the selected theme');
+    assert.ok(buttonStyle.transitionDuration.split(',').every(value => value.trim() === '0.1s'),
+      'buttons use the measured 100 ms Lolz transition');
+    assert.doesNotMatch(buttonStyle.transitionProperty, /transform/, 'buttons do not scale on press');
+    const referenceCard = page.locator('#app > .card').filter({ has: page.locator('h3') }).first();
+    await referenceCard.hover();
+    const expectedCardHover = appearance === 'dark' ? 'rgb(24, 30, 28)' : 'rgb(225, 236, 233)';
+    await page.waitForFunction(expected => getComputedStyle(document.querySelector('#app > .card h3')?.closest('.card')).backgroundColor === expected,
+      expectedCardHover);
+    const cardHover = await referenceCard.evaluate(node => ({
+      background: getComputedStyle(node).backgroundColor,
+      border: getComputedStyle(node).borderColor,
+      heading: getComputedStyle(node.querySelector('h3')).color,
+      duration: getComputedStyle(node).transitionDuration,
+    }));
+    assert.equal(cardHover.background, appearance === 'dark' ? 'rgb(24, 30, 28)' : 'rgb(225, 236, 233)',
+      'hovered cards use the measured Lolz surface or its light-theme equivalent');
+    assert.equal(cardHover.border, appearance === 'dark' ? 'rgb(36, 47, 43)' : 'rgb(213, 224, 222)',
+      'hovered cards use the measured edge color or its light-theme equivalent');
+    assert.ok(ratio(appearance === 'dark' ? '#D6D6D6' : '#182625',
+      appearance === 'dark' ? '#181E1C' : '#E1ECE9') >= 4.5, 'hover card headings remain readable');
+    assert.ok(cardHover.duration.split(',').includes('0.15s'), 'cards ease their hover state over 150 ms');
+    await page.mouse.move(1, 1);
+    const primaryStyle = await page.locator('#app .btn-primary').first().evaluate(node => ({
+      backgroundImage: getComputedStyle(node).backgroundImage,
+      text: getComputedStyle(document.documentElement).getPropertyValue('--btn-primary-text').trim(),
+      stops: ['--ow-button-start', '--ow-button-mid'].map(name =>
+        getComputedStyle(document.documentElement).getPropertyValue(name).trim()),
+    }));
+    assert.match(primaryStyle.backgroundImage, /linear-gradient/, 'primary actions use the reference green gradient');
+    for (const stop of primaryStyle.stops) assert.ok(ratio(primaryStyle.text, stop) >= 4.5,
+      `primary button text has readable contrast over ${stop}`);
     assert.ok(ratio(tokens['--ow-text-primary'], tokens['--ow-surface-1']) >= 4.5);
     assert.ok(ratio(tokens['--ow-text-secondary'], tokens['--ow-surface-2']) >= 4.5);
     assert.ok(ratio(tokens['--ow-text-tertiary'], tokens['--ow-surface-2']) >= 4.5);
@@ -274,9 +390,11 @@ try {
       assert.ok(ratio(tokens[name], tokens['--ow-surface-1']) >= 4.5, `${appearance}: ${name} text contrast`);
       assert.ok(ratio(tokens[name], tokens['--ow-surface-2']) >= 4.5, `${appearance}: ${name} nested text contrast`);
     }
-    const primaryText = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--btn-primary-text').trim());
-    assert.ok(ratio(primaryText, tokens['--ow-accent']) >= 4.5, `${appearance}: primary button label contrast`);
-    assert.equal(await page.evaluate(() => getComputedStyle(document.body).fontFamily.startsWith('system-ui')), true);
+    const localInter = await page.evaluate(() => document.fonts.load('400 14px Inter')
+      .then(faces => faces.some(face => face.family === 'Inter' && face.status === 'loaded')));
+    assert.equal(localInter, true, 'the locally bundled Lolz reference font is available without a CDN');
+    assert.match(await page.evaluate(() => getComputedStyle(document.body).fontFamily), /^Inter,/,
+      'body typography uses the observed Inter-first font stack');
 
     await page.keyboard.press('Tab');
     const focus = await page.evaluate(() => ({
@@ -288,10 +406,41 @@ try {
     assert.equal(focus.width, '2px');
     assert.equal(focus.style, 'solid');
     await page.evaluate(() => document.activeElement.blur());
+    const button = page.locator('#app .btn').first();
+    const buttonBox = await button.boundingBox();
+    await page.mouse.move(buttonBox.x + buttonBox.width / 2, buttonBox.y + buttonBox.height / 2);
+    await page.mouse.down();
+    assert.equal(await button.evaluate(node => getComputedStyle(node).transform), 'none',
+      'press feedback does not scale controls');
+    await page.mouse.move(1, 1);
+    await page.mouse.up();
+    await page.evaluate(() => document.activeElement.blur());
 
     for (const route of routes) {
       await page.evaluate(name => { location.hash = '#/' + name; }, route);
       await waitForRenderedRoute(page, route);
+      if (route === 'toggles') {
+        const control = page.locator('#au-hour');
+        assert.equal(await control.evaluate(node => getComputedStyle(node).minHeight), '36px',
+          'desktop form controls match the 36 px reference height');
+        assert.equal(await control.evaluate(node => getComputedStyle(node).borderRadius), '10px',
+          'desktop form controls match the 10 px reference radius');
+        assert.equal(await page.locator('.segmented .seg-btn.seg-on').evaluate(node => getComputedStyle(node).boxShadow), 'none',
+          'selected segmented controls use a flat surface');
+      }
+      if (route === 'warp') {
+        const fieldStyle = await page.locator('#warp-plus-key').evaluate(node => {
+          const style = getComputedStyle(node);
+          return { height: node.getBoundingClientRect().height, borderWidth: style.borderTopWidth,
+            radius: style.borderRadius, background: style.backgroundColor };
+        });
+        assert.equal(fieldStyle.height, 30, 'Lolz text controls use a compact 30 px field height');
+        assert.equal(fieldStyle.borderWidth, '0px', 'Lolz text controls have no visible outline border');
+        assert.equal(fieldStyle.radius, '10px', 'Lolz text controls use 10 px corners');
+        assert.equal(fieldStyle.background, appearance === 'dark'
+          ? 'rgb(24, 30, 28)' : 'rgb(234, 241, 239)',
+        'text controls use the measured dark surface or its light-theme surface');
+      }
       await page.waitForFunction(() => {
         const title = document.querySelector('#app .page-title');
         return title && Number.parseFloat(getComputedStyle(title).opacity) >= 0.99;
@@ -327,7 +476,7 @@ try {
       }
     }
     for (const width of [1920, 1366, 1280]) {
-      await page.setViewportSize({ width, height: 1104 });
+      await page.setViewportSize({ width, height: width === 1920 ? 1080 : 1104 });
       for (const route of routes) {
         await page.evaluate(name => { location.hash = '#/' + name; }, route);
         await waitForRenderedRoute(page, route);
@@ -336,6 +485,13 @@ try {
           `${appearance}/${width}: ${route} has no page horizontal overflow`);
         if (screenshotDir && screenshotRoutes.includes(route)) {
           await page.screenshot({ path: path.join(screenshotDir, `${appearance}-${width}-${route}.png`) });
+        }
+        if (screenshotDir && appearance === 'dark' && width === 1920 && route === 'dashboard') {
+          const hoverCard = page.locator('#app > .card').filter({ has: page.locator('h3') }).first();
+          await hoverCard.hover();
+          await page.waitForFunction(() => getComputedStyle(document.querySelector('#app > .card h3')?.closest('.card')).backgroundColor === 'rgb(24, 30, 28)');
+          await page.screenshot({ path: path.join(screenshotDir, 'dark-1920-card-hover.png') });
+          await page.mouse.move(1, 1);
         }
       }
     }
@@ -360,6 +516,21 @@ try {
     totalModuleResponses += moduleResponses.length;
     await page.close();
   }
+
+  const fullHdShort = await browser.newPage({ viewport: { width: 1920, height: 480 } });
+  await fullHdShort.goto(base + '/#/dashboard');
+  await waitForRenderedRoute(fullHdShort, 'dashboard');
+  await fullHdShort.waitForFunction(() => {
+    const theme = document.querySelector('#brand-profile-theme');
+    return theme && theme.sheet && theme.sheet.cssRules.length > 0;
+  }, null, { timeout: 1500 });
+  await fullHdShort.waitForFunction(() => Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 260) < 1,
+    null, { timeout: 1200 });
+  assert.equal(await fullHdShort.locator('#menu-toggle').isVisible(), false,
+    'a short Full HD browser window keeps the desktop sidebar');
+  assert.ok(Math.abs(await fullHdShort.locator('#nav').evaluate(node => node.getBoundingClientRect().width) - 260) < 1,
+    'a short Full HD browser window retains the desktop sidebar width');
+  await fullHdShort.close();
 
   const snapshotPage = await browser.newPage({ viewport: { width: 1392, height: 1104 } });
   const snapshotRequests = [];
@@ -441,20 +612,58 @@ try {
   assert.deepEqual(themeErrors, []);
   await themeBlocked.close();
 
-  const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: 'dark', hasTouch: true });
+  const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: 'dark', isMobile: true, hasTouch: true });
   await mobile.goto(base + '/#/dashboard');
   await waitForRenderedRoute(mobile, 'dashboard');
   assert.equal(await mobile.locator('#menu-toggle').isVisible(), true);
+  const mobileTriggerBox = await mobile.locator('#menu-toggle').boundingBox();
+  const mobileBrandBox = await mobile.locator('#panel-brand').boundingBox();
+  assert.ok(mobileTriggerBox.x < mobileBrandBox.x, 'the mobile menu button sits to the left of the z2kOW wordmark');
   assert.ok(await mobile.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
     'compact layout must not create page-level horizontal overflow');
   await mobile.locator('#menu-toggle').click();
   assert.equal(await mobile.locator('#menu-toggle').getAttribute('aria-expanded'), 'true');
+  assert.equal(await mobile.locator('#menu-shell').evaluate(node => node.classList.contains('mm-ocd--open')), true,
+    'opening applies the observed MmenuLight shell state');
+  assert.equal(await mobile.locator('body').evaluate(node => node.classList.contains('mm-ocd-opened')), true,
+    'opening applies the observed body scroll-state class');
+  const drawerMotion = await mobile.evaluate(() => ({
+    duration: getComputedStyle(document.querySelector('#menu-shell .mm-ocd__content')).transitionDuration,
+    easing: getComputedStyle(document.querySelector('#menu-shell .mm-ocd__content')).transitionTimingFunction,
+    width: document.querySelector('#menu-shell .mm-ocd__content').getBoundingClientRect().width,
+    shellWidth: document.querySelector('#menu-shell').getBoundingClientRect().width,
+    shellDuration: getComputedStyle(document.querySelector('#menu-shell')).transitionDuration,
+    shellDelay: getComputedStyle(document.querySelector('#menu-shell')).transitionDelay,
+  }));
+  assert.equal(drawerMotion.duration, '0.3s', 'the Lolz drawer slides for 300 ms');
+  assert.equal(drawerMotion.easing, 'ease', 'the drawer uses the measured ease curve');
+  assert.ok(Math.abs(drawerMotion.width / drawerMotion.shellWidth - 0.8) < 0.005,
+    `the drawer is 80% of the browser's content viewport (${drawerMotion.width}/${drawerMotion.shellWidth}px)`);
+  assert.ok(drawerMotion.shellDuration.split(',').some(value => value.trim() === '0.3s' || value.trim() === '300ms'),
+    `the shell fades for 300 ms (${drawerMotion.shellDuration})`);
+  assert.ok(drawerMotion.shellDelay.split(',').every(value => value.trim() === '0s'),
+    'opening removes both shell transition delays');
+  await waitForDrawerSettled(mobile, true);
+  const openDrawerBox = await mobile.locator('#nav').boundingBox();
+  assert.ok(Math.abs(openDrawerBox.x) < 1, 'the mobile drawer opens from the left edge');
+  if (screenshotDir) await mobile.screenshot({ path: path.join(screenshotDir, 'dark-390-drawer.png'), fullPage: true });
   await mobile.waitForFunction(() => document.activeElement.closest('#nav') !== null);
-  assert.ok(await mobile.locator('#menu-toggle').evaluate(node => node.getBoundingClientRect().height >= 44));
+  const touchTrigger = await mobile.locator('#menu-toggle').evaluate(node => ({
+    height: node.getBoundingClientRect().height, minHeight: getComputedStyle(node).minHeight,
+    coarse: matchMedia('(pointer: coarse)').matches, viewport: [innerWidth, innerHeight],
+  }));
+  assert.ok(touchTrigger.height >= 44, `narrow-screen menu trigger hit area is at least 44 px: ${JSON.stringify(touchTrigger)}`);
   assert.ok(await mobile.locator('#nav a[data-route="dashboard"]').evaluate(node => node.getBoundingClientRect().height >= 44),
     'coarse-pointer navigation links meet the 44 px touch target');
   await mobile.keyboard.press('Escape');
   assert.equal(await mobile.locator('#menu-toggle').getAttribute('aria-expanded'), 'false');
+  assert.equal(await mobile.locator('#menu-shell').evaluate(node => node.classList.contains('mm-ocd--open')), false);
+  assert.equal(await mobile.locator('body').evaluate(node => node.classList.contains('mm-ocd-opened')), false);
+  const closingDelay = await mobile.locator('#menu-shell').evaluate(node => getComputedStyle(node).transitionDelay);
+  assert.ok(closingDelay.split(',').some(value => value.trim() === '0.15s'),
+    'closing delays the shell fade by the measured 150 ms');
+  await waitForDrawerSettled(mobile, false);
+  await mobile.waitForFunction(() => document.querySelector('#menu-backdrop').hidden, null, { timeout: 1000 });
   await mobile.waitForFunction(() => document.activeElement.id === 'menu-toggle', null, { timeout: 1000 });
   assert.equal(await mobile.evaluate(() => document.activeElement.id), 'menu-toggle', 'Escape restores focus to the drawer trigger');
   for (const route of routes) {
@@ -467,8 +676,27 @@ try {
       await mobile.screenshot({ path: path.join(screenshotDir, `dark-390-${route}.png`), fullPage: true });
     }
   }
+  // Exercise and capture the real mobile light-theme control while the drawer
+  // exposes its footer switcher, then check every route in that appearance.
+  await mobile.locator('#menu-toggle').click();
+  await mobile.locator('[data-theme-btn="light"]').click();
+  assert.equal(await mobile.locator('[data-theme-btn="light"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await mobile.locator('#menu-toggle').getAttribute('aria-expanded'), 'true');
+  await waitForDrawerSettled(mobile, true);
+  if (screenshotDir) await mobile.screenshot({ path: path.join(screenshotDir, 'light-390-drawer.png'), fullPage: true });
+  await mobile.keyboard.press('Escape');
+  assert.equal(await mobile.locator('#menu-toggle').getAttribute('aria-expanded'), 'false');
+  await waitForDrawerSettled(mobile, false);
+  for (const route of routes) {
+    await mobile.evaluate(name => { location.hash = '#/' + name; }, route);
+    await waitForRenderedRoute(mobile, route);
+    assert.equal(await mobile.locator('#app [data-ui-fatal]').count(), 0, `mobile light: ${route}`);
+    assert.ok(await mobile.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+      `390px light: ${route} has no page horizontal overflow`);
+    if (screenshotDir) await mobile.screenshot({ path: path.join(screenshotDir, `light-390-${route}.png`), fullPage: true });
+  }
   await mobile.emulateMedia({ reducedMotion: 'reduce' });
-  assert.equal(await mobile.locator('#nav').evaluate(node => getComputedStyle(node).transitionDuration), '0s',
+  assert.equal(await mobile.locator('#menu-shell .mm-ocd__content').evaluate(node => getComputedStyle(node).transitionDuration), '0s',
     'reduced motion disables drawer transitions');
   await mobile.close();
 
