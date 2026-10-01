@@ -1,6 +1,7 @@
 #!/bin/sh
 # Transaction-level product updater tests with an isolated OpenWrt root and APK/network mocks.
 . "$(dirname "$0")/helper.sh"
+. "$(dirname "$0")/luci_fixture.sh"
 _t_plan "ow-product-update"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 ENGINE="$REPO/platform/openwrt/product-update.sh"
@@ -12,12 +13,15 @@ FIX="$T/releases"
 mkdir -p "$SYS/etc/apk/keys" "$SYS/etc/apk/repositories.d" \
     "$SYS/etc/z2k/state" "$SYS/etc/init.d" "$SYS/usr/lib/z2k/share" \
     "$SYS/var/lock" "$BIN" "$FIX/latest" "$FIX/v0.1.2" "$T/tmp"
+if ! luci_fixture_seed "$SYS"; then _t_bad "cannot seed LuCI fixture"; exit 1; fi
+_luci_before="$(luci_fixture_state "$SYS")" || exit 1
 export Z2K_PRODUCT_SYSROOT="$SYS" TMPDIR="$T/tmp"
 export Z2K_ROOT="$SYS/usr/lib/z2k" Z2K_ETC="$SYS/etc/z2k" Z2K_STATE="$SYS/etc/z2k/state"
 export Z2K_PRODUCT_TAG_FILE="$Z2K_STATE/product-tag"
 export Z2K_PRODUCT_UPDATE_STATUS_FILE="$Z2K_STATE/product-update.status"
 export Z2K_FEED_PUBLIC_KEY="$Z2K_ROOT/share/z2k-feed.pem"
 export Z2K_TEST_INSTALLED="$T/installed" Z2K_TEST_APK_LOG="$T/apk.log"
+export Z2K_TEST_LIGHTTPD_STAGE_FILE="$T/lighttpd-staged"
 export Z2K_TEST_FETCH_LOG="$T/fetch.log"
 export Z2K_TEST_RELEASE_FIXTURES="$FIX"
 
@@ -149,6 +153,8 @@ if [ "${1:-}" = --repositories-file ]; then
             ;;
     esac
 fi
+no_scripts=0
+if [ "${1:-}" = --no-scripts ]; then no_scripts=1; shift; fi
 case "${1:-}" in
     list)
         [ "${2:-}" = --installed ] || exit 2
@@ -156,10 +162,32 @@ case "${1:-}" in
         [ -n "$ver" ] && printf '%s-%s aarch64_cortex-a53 {fixture} (MIT) [installed]\n' "$pkg" "$ver"
         exit 0
         ;;
-    update) exit 0 ;;
-    del) exit 0 ;;
+    update) rm -f "$Z2K_TEST_LIGHTTPD_STAGE_FILE"; exit 0 ;;
+    del)
+        [ "${2:-}" != "${Z2K_TEST_WEBPANEL_SEED:-}" ] || rm -f "$Z2K_TEST_LIGHTTPD_STAGE_FILE"
+        exit 0
+        ;;
     add)
-        [ "${2:-}" = --upgrade ] || exit 2
+        shift
+        upgrade=0 virtual_seed=
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                --upgrade) upgrade=1; shift ;;
+                --virtual) virtual_seed="$2"; shift 2 ;;
+                *) break ;;
+            esac
+        done
+        if [ -n "$virtual_seed" ]; then
+            [ "$no_scripts" = 1 ] || exit 2
+            : > "$Z2K_TEST_LIGHTTPD_STAGE_FILE"
+            exit 0
+        fi
+        [ "$upgrade" = 1 ] || exit 2
+        if [ "$no_scripts" = 0 ] \
+           && [ "${Z2K_TEST_LIGHTTPD_HOOK:-0}" = 1 ] \
+           && [ ! -e "$Z2K_TEST_LIGHTTPD_STAGE_FILE" ]; then
+            printf '%s\n' 'hook start stock-lighttpd' >> "$Z2K_TEST_APK_LOG"
+        fi
         if [ "${Z2K_TEST_APK_ADD_PARTIAL_FAIL:-0}" = 1 ]; then
             sed -i 's/^z2k-adapter|.*/z2k-adapter|0.1.3-r1/; s/^z2k-webpanel|.*/z2k-webpanel|0.1.3-r1/' "$Z2K_TEST_INSTALLED"
             exit 1
@@ -184,6 +212,7 @@ exit 0
 PANEL
 chmod +x "$BIN"/* "$SYS/etc/init.d/"*
 export PATH="$BIN:$PATH" Z2K_TEST_ROLLBACK_REPOS="$T/rollback-repos"
+export Z2K_TEST_WEBPANEL_SEED=.z2k-webpanel-product-update-deps
 printf 'z2k-adapter|0.1.2-r1\nz2k-webpanel|0.1.2-r1\n' > "$Z2K_TEST_INSTALLED"
 printf 'user-config=keep-me\n' > "$SYS/etc/z2k/config"
 printf 'v0.1.2\n' > "$SYS/etc/z2k/state/product-tag"
@@ -239,6 +268,7 @@ fi
 printf 'z2k-adapter|0.1.2-r1\nz2k-webpanel|0.1.2-r1\n' > "$Z2K_TEST_INSTALLED"
 printf 'v0.1.2\n' > "$SYS/etc/z2k/state/product-tag"
 rm -f "$SYS/etc/z2k/state/product-update.status"
+export Z2K_TEST_LIGHTTPD_HOOK=1
 
 # A failed package transaction must leave the installed product tag and config untouched.
 if Z2K_TEST_APK_ADD_FAIL=1 sh "$ENGINE" update >"$T/failed.log" 2>&1; then
@@ -249,6 +279,16 @@ else
     grep -q '^user-config=keep-me$' "$SYS/etc/z2k/config" \
         && _t_ok || _t_bad "failed package transaction preserves config" "config changed"
 fi
+luci_fixture_assert_unchanged "$SYS" "$_luci_before" "failed product update preserves LuCI and uhttpd state"
+grep -qF -- '--no-scripts add --upgrade --virtual .z2k-webpanel-product-update-deps lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias' "$Z2K_TEST_APK_LOG" \
+    && _t_ok || _t_bad "product update stages Lighttpd dependencies without package scripts" "no-script dependency stage was not run"
+if grep -qx 'hook start stock-lighttpd' "$Z2K_TEST_APK_LOG"; then
+    _t_bad "product update does not start stock Lighttpd" "stock hook ran on port 80"
+else
+    _t_ok
+fi
+assert_eq "product update retains normal z2k package hooks" '1' "$(grep -c '^add --upgrade z2k-adapter z2k-webpanel$' "$Z2K_TEST_APK_LOG")"
+assert_eq "product update removes its temporary dependency seed" '1' "$(grep -c '^del .z2k-webpanel-product-update-deps$' "$Z2K_TEST_APK_LOG")"
 
 # APK can report failure after changing one or both package files. In that
 # case the old signed release must be restored before update exits.
@@ -335,6 +375,7 @@ printf 'v0.1.2\n' > "$SYS/etc/z2k/state/product-tag"
 if Z2K_TEST_HEALTH_ALWAYS=1 sh "$ENGINE" update >"$T/success.log" 2>&1; then
     grep -q '^v0.1.3$' "$SYS/etc/z2k/state/product-tag" \
         && _t_ok || _t_bad "healthy update advances product tag" "new version was not recorded"
+    luci_fixture_assert_unchanged "$SYS" "$_luci_before" "successful product update preserves LuCI and uhttpd state"
 else
     cat "$T/success.log" >&2
     _t_bad "healthy update advances product tag" "update failed before recording the new version"
@@ -364,6 +405,7 @@ sh "$ENGINE" uninstall >"$T/uninstall.log" 2>&1 \
     && [ -f "$SYS/etc/apk/repositories" ] \
     && grep -q '^user-config=keep-me$' "$SYS/etc/z2k/config" \
     && grep -q 'warp-id-keep' "$SYS/etc/z2k/state/warp/device.json" \
+    && [ "$(luci_fixture_state "$SYS")" = "$_luci_before" ] \
     && _t_ok || _t_bad "documented uninstall removes only owned trust/meta" "foreign feeds or user state changed"
 
 _t_done

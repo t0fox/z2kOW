@@ -27,7 +27,8 @@
   "web_luci_01": {
     "status": "pending",
     "evidence": [
-      "2026-09-28: package installation and payload synchronization did not restart LuCI services or modify LuCI configuration. Direct unauthenticated GET /cgi-bin/luci/ returned 403 Forbidden with x-luci-login-required: yes, and the browser showed the Authorization Required login form. No credentials were submitted, so authenticated post-login UI verification remains pending."
+      "2026-09-28: package installation and payload synchronization did not restart LuCI services or modify LuCI configuration. Direct unauthenticated GET /cgi-bin/luci/ returned 403 Forbidden with x-luci-login-required: yes, and the browser showed the Authorization Required login form. No credentials were submitted, so authenticated post-login UI verification remains pending.",
+      "2026-10-01: direct unauthenticated GET http://192.168.1.1/ returned 200 from lighttpd/1.4.85 and served the stock LuCI redirect to /cgi-bin/luci/. GET http://192.168.1.1/cgi-bin/luci/ returned 403 from lighttpd/1.4.85 with a 158-byte generic HTML error body and no x-luci-login-required header. GET http://192.168.1.1:8088/ returned 200 from z2k-panel. The user confirms the router currently shows a white 403 stub before login, with no login form. These responses confirm that Lighttpd serves the port-80 LuCI path, while the panel remains available on its separate port; the listening PID and operation that started Lighttpd were not available, so the exact process owner and operation remain unverified. Authenticated post-login LuCI availability remains pending."
     ]
   },
   "web_blocker_01": {

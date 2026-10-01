@@ -61,6 +61,7 @@ done
 # install/update/remove/restart sources, not just the thin CGI adapter.
 for _f in "$REPO/webpanel/install.sh" "$REPO/lib/install.sh" "$AU" "$RM" \
           "$REPO/platform/openwrt/update.sh" "$REPO/package/openwrt/Makefile" \
+          "$REPO/platform/openwrt/product-update.sh" "$REPO/platform/openwrt/uninstall.sh" \
           "$PINIT" "$WPSH"; do
     [ -f "$_f" ] || continue
     _code="$(sed 's/#.*$//' "$_f")"

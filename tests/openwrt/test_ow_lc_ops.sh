@@ -4,6 +4,7 @@
 # payload -> никакого rollback; S9/S18 uninstall (cron/payload/tmp vs /etc);
 # S16 user-data сквозь install->update->upgrade.
 . "$(dirname "$0")/helper.sh"
+. "$(dirname "$0")/luci_fixture.sh"
 _t_plan "ow-lc-ops"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 LC_REPO="$REPO"; export LC_REPO
@@ -74,6 +75,8 @@ lc_invariant "S16" || _t_bad "S16 invariant"
 
 # --- S9/S18: uninstall (cron/payload/tmp vs /etc) + reinstall ---
 lc_fresh_sysroot || { echo "FAIL[ow-lc-ops]: sysroot s9" >&2; exit 1; }
+if ! luci_fixture_seed "$LC_SYS"; then _t_bad "cannot seed LuCI fixture"; exit 1; fi
+_luci_before="$(luci_fixture_state "$LC_SYS")" || exit 1
 printf 'FOREIGN-LINE\n' >> "$Z2K_CRON_TAB"
 printf 'user-config-value=1\n' >> "$Z2K_ETC/config"
 # сохраняем package-owned для симуляции opkg-reinstall позже
@@ -88,6 +91,7 @@ sed 's/^tag=.*/tag=p-99.99/' "$Z2K_ROOT/share/payload.meta" > "$Z2K_ROOT/share/p
 lc_begin; lc_snap s9-before
 lc_prerm
 assert_eq "S9 prerm rc" "0" "$?"
+luci_fixture_assert_unchanged "$LC_SYS" "$_luci_before" "uninstall preserves LuCI and uhttpd state"
 assert_eq "S9 cron наш убран" "0" "$(grep -c 'z2k-updater' "$Z2K_CRON_TAB" || true)"
 assert_contains "S9 cron чужой цел" "$Z2K_CRON_TAB" "FOREIGN-LINE"
 assert_eq "S9 payload снесён" "0" "$([ -e "$Z2K_ROOT/lib/utils.sh" ] && echo 1 || echo 0)"
@@ -110,6 +114,7 @@ cp -f "$LC_T/config.default-keep" "$Z2K_ROOT/share/config.default"
 export Z2K_SEED_TARBALL="$Z2K_ROOT/share/seed.tar.gz"
 lc_postinst
 assert_eq "S18 reinstall rc" "0" "$?"
+luci_fixture_assert_unchanged "$LC_SYS" "$_luci_before" "reinstall preserves LuCI and uhttpd state"
 assert_eq "S18 payload вернулся" "1" "$([ -f "$Z2K_ROOT/lib/utils.sh" ] && echo 1 || echo 0)"
 assert_eq "S18 config пережил" "1" "$(grep -q 'user-config-value=1' "$Z2K_ETC/config" && echo 1 || echo 0)"
 assert_eq "S18 tag стал seed (не preserved p-99.99)" "$SEEDTAG" "$(cat "$Z2K_AU_INSTALLED_TAG_FILE" 2>/dev/null)"

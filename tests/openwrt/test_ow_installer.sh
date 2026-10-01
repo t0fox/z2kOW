@@ -1,6 +1,7 @@
 #!/bin/sh
 # Production bootstrap behavior in an isolated OpenWrt-like filesystem.
 . "$(dirname "$0")/helper.sh"
+. "$(dirname "$0")/luci_fixture.sh"
 _t_plan "ow-installer"
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -210,9 +211,12 @@ _run() { sh "$T/install.sh" > "$T/out" 2>&1; }
 
 assert_file "production installer template exists" "$INSTALLER"
 _reset
+if ! luci_fixture_seed "$SYS"; then _t_bad "cannot seed LuCI fixture"; exit 1; fi
+_luci_before="$(luci_fixture_state "$SYS")" || exit 1
 printf 'user-owned configuration\n' > "$SYS/etc/z2k/config"
 printf 'stock feeds stay\n' > "$SYS/etc/apk/distfeeds.list"
 if _run; then _t_ok; else _t_bad "fresh install failed: $(cat "$T/out")"; fi
+luci_fixture_assert_unchanged "$SYS" "$_luci_before" "fresh install preserves LuCI and uhttpd state"
 assert_eq "Lighttpd dependencies use no-script upgrade staging" \
     '--no-scripts add --upgrade --virtual .z2k-webpanel-bootstrap-deps lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias' \
     "$(grep '^--no-scripts add ' "$T/apk.log" | head -1)"
@@ -232,11 +236,14 @@ else
 fi
 
 _reset
+if ! luci_fixture_seed "$SYS"; then _t_bad "cannot seed LuCI fixture"; exit 1; fi
+_luci_before="$(luci_fixture_state "$SYS")" || exit 1
 printf 'z2k-adapter|0.1.1-r1\nz2k-webpanel|0.1.1-r1\nlighttpd|0.1.0-r1\nlighttpd-mod-cgi|0.1.0-r1\nlighttpd-mod-setenv|0.1.0-r1\nlighttpd-mod-alias|0.1.0-r1\n' > "$T/installed"
 cp "$KEY" "$SYS/etc/apk/keys/z2k-feed.pem"
 printf '%s\n' 'ndx https://github.com/t0fox/z2kOW/releases/latest/download/packages.adb' > "$SYS/etc/apk/repositories.d/z2kow.list"
 before_key="$(sha256sum "$SYS/etc/apk/keys/z2k-feed.pem" | awk '{print $1}')"
 if _run; then _t_ok; else _t_bad "repeat install failed: $(cat "$T/out")"; fi
+luci_fixture_assert_unchanged "$SYS" "$_luci_before" "repeat install preserves LuCI and uhttpd state"
 assert_eq "repeat install stages Lighttpd upgrades without package scripts" \
     '--no-scripts add --upgrade --virtual .z2k-webpanel-bootstrap-deps lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias' \
     "$(grep '^--no-scripts add ' "$T/apk.log" | head -1)"
@@ -248,9 +255,12 @@ assert_eq "repeat install leaves one feed entry" '1' "$(grep -c '^ndx https://gi
 assert_eq "repeat install leaves correct key bytes unchanged" "$before_key" "$(sha256sum "$SYS/etc/apk/keys/z2k-feed.pem" | awk '{print $1}')"
 
 _reset
+if ! luci_fixture_seed "$SYS"; then _t_bad "cannot seed LuCI fixture"; exit 1; fi
+_luci_before="$(luci_fixture_state "$SYS")" || exit 1
 printf 'user extra data\n' > "$SYS/etc/z2k/config"
 printf 'z2k-adapter|0.1.0-r79\nz2k-webpanel|0.1.0-r79\n' > "$T/installed"
 if _run; then _t_ok; else _t_bad "legacy package upgrade failed: $(cat "$T/out")"; fi
+luci_fixture_assert_unchanged "$SYS" "$_luci_before" "legacy package upgrade preserves LuCI and uhttpd state"
 assert_eq "legacy package upgrade uses the package-scoped add operation" 'add --upgrade z2k-adapter z2k-webpanel' "$(grep '^add --upgrade ' "$T/apk.log" | tail -1)"
 assert_eq "legacy 0.1.0-r79 upgrades to product 0.1.1" 'z2k-adapter|0.1.1-r1' "$(grep '^z2k-adapter|' "$T/installed")"
 assert_eq "legacy upgrade preserves user config" 'user extra data' "$(cat "$SYS/etc/z2k/config")"

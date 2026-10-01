@@ -4,6 +4,7 @@
 # R12 API-too-old, reset_state 0/1, crash-order (§9/§44/§45). Harness:
 # lc (file://-транспорт, настоящий converge/steps/rollback/tag).
 . "$(dirname "$0")/helper.sh"
+. "$(dirname "$0")/luci_fixture.sh"
 . "$(dirname "$0")/lc_harness.sh"
 _t_plan "ow-release-reinstall"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -21,6 +22,8 @@ _new_sysroot() {
 
 # --- R8: full reinstall доставляет ВЕСЬ план, шаги, meta, tag LAST ---
 _new_sysroot
+if ! luci_fixture_seed "$LC_SYS"; then _t_bad "cannot seed LuCI fixture"; exit 1; fi
+_luci_before="$(luci_fixture_state "$LC_SYS")" || exit 1
 lc_origin_put "lib/utils.sh" <<'EOF'
 #!/bin/sh
 # R8 witness
@@ -35,6 +38,7 @@ lc_set_version "p-84.0" || exit 1
 lc_begin
 au_run_apply >/dev/null 2>&1
 assert_eq "R8 rc" "0" "$?"
+luci_fixture_assert_unchanged "$LC_SYS" "$_luci_before" "update-like deployment preserves LuCI and uhttpd state"
 assert_eq "R8 tag" "$SEEDTAG" "$(lc_tag)"
 assert_eq "R8 meta" "$SEEDTAG" "$(sed -n 's/^tag=//p' "$Z2K_ROOT/share/payload.meta" | head -1)"
 assert_contains "R8 utils новый" "$Z2K_ROOT/lib/utils.sh" "R8_UTILS=1"

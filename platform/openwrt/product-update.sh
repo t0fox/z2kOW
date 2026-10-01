@@ -16,6 +16,8 @@ PRODUCT_BUILD_COMMIT_FILE="${Z2K_PRODUCT_BUILD_COMMIT_FILE:-$Z2K_ROOT/share/prod
 PINNED_KEY="${Z2K_FEED_PUBLIC_KEY:-$Z2K_ROOT/share/z2k-feed.pem}"
 APK_KEY="${SYSROOT%/}/etc/apk/keys/z2k-feed.pem"
 TMP_DIR=""
+WEBPANEL_DEP_SEED=".z2k-webpanel-product-update-deps"
+WEBPANEL_DEP_SEED_ACTIVE=0
 
 path() { printf '%s%s' "${SYSROOT%/}" "$1"; }
 
@@ -28,6 +30,10 @@ die() {
     || { die "OpenWrt paths contract was not loaded"; exit 1; }
 
 cleanup() {
+    if [ "$WEBPANEL_DEP_SEED_ACTIVE" = "1" ]; then
+        WEBPANEL_DEP_SEED_ACTIVE=0
+        apk del "$WEBPANEL_DEP_SEED" >/dev/null 2>&1 || true
+    fi
     [ -z "$TMP_DIR" ] || rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT HUP INT TERM
@@ -450,10 +456,21 @@ run_update() {
         printf 'z2kOW %s уже актуален\n' "$_latest_tag"
         return 0
     fi
-    state_write updating "$_previous" "$_latest_tag" "APK обновляет только z2k-adapter и z2k-webpanel"
+    state_write updating "$_previous" "$_latest_tag" "Обновляю подписанные пакеты z2kOW"
     if ! apk update; then
         state_write failed "$_previous" "$_latest_tag" "Signed APK index update failed; package transaction did not start"
         die "apk update завершился ошибкой; packages не менялись"
+        return 1
+    fi
+    # Lighttpd serves only the private panel port. The APK default service
+    # hook can start its stock instance on :80, replacing uhttpd's LuCI path.
+    # Stage dependency upgrades without scripts, then keep hooks enabled for
+    # the z2k packages themselves.
+    WEBPANEL_DEP_SEED_ACTIVE=1
+    if ! apk --no-scripts add --upgrade --virtual "$WEBPANEL_DEP_SEED" \
+        lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias; then
+        state_write failed "$_previous" "$_latest_tag" "Lighttpd dependency staging failed; product transaction did not start"
+        die "не удалось обновить Lighttpd dependencies без запуска штатного сервиса"
         return 1
     fi
     if ! apk add --upgrade z2k-adapter z2k-webpanel; then
