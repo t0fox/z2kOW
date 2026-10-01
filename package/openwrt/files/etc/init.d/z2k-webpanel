@@ -3,8 +3,9 @@
 #
 # Собственный lighttpd поверх НЕИЗМЕННОГО upstream frontend/CGI через тонкий
 # platform adapter. Жизненный цикл НЕЗАВИСИМ от core z2k: остановка ядра
-# панель не убивает и наоборот (WP6/WP23/WP24). Stock lighttpd/конфиг системы
-# не трогаем. Супервизора-цикла нет — только procd bounded respawn (WP22/§30).
+# панель не убивает и наоборот (WP6/WP23/WP24). Пользовательская конфигурация
+# stock lighttpd не меняется. Супервизора-цикла нет — только procd bounded
+# respawn (WP22/§30).
 
 USE_PROCD=1
 START=95
@@ -14,7 +15,13 @@ Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
 start_service() {
     # shellcheck disable=SC1090,SC1091
     . "$Z2K_ROOT/platform/openwrt/webpanel.sh" || return 1
-    local _cfg="" _port=""
+    local _cfg="" _port="" _http_rc=0
+    wp_panel_reconcile_http_listener
+    _http_rc=$?
+    case "$_http_rc" in
+        0|2) ;;
+        *) return 1 ;;
+    esac
     # Render transient config (настройки создаются, только если отсутствуют).
     _cfg="$(wp_panel_render)" || return 1
     # Точную ошибку валидации — наружу, а не в /dev/null: немая "конфиг

@@ -2,29 +2,29 @@
 :root {
   color-scheme: dark;
 
-  --ow-canvas: #0B1113;
-  --ow-surface-1: #111A1D;
-  --ow-surface-2: #172326;
-  --ow-surface-hover: #202F32;
-  --ow-surface-selected: #243A39;
-  --ow-border-subtle: #29383A;
+  --ow-canvas: #0C0F0E;
+  --ow-surface-1: #111615;
+  --ow-surface-2: #181E1C;
+  --ow-surface-hover: #1E2725;
+  --ow-surface-selected: #102B21;
+  --ow-border-subtle: #1E2725;
   --ow-border-strong: #728589;
-  --ow-text-primary: #F2F7F6;
-  --ow-text-secondary: #A4B7B5;
-  --ow-text-tertiary: #829795;
-  --ow-accent: #72D8C7;
-  --ow-accent-hover: #9AE8DB;
-  --ow-accent-soft: #193B38;
+  --ow-text-primary: #D6D6D6;
+  --ow-text-secondary: #8CA29A;
+  --ow-text-tertiary: #82978D;
+  --ow-accent: #00BA78;
+  --ow-accent-hover: #27CD92;
+  --ow-accent-soft: #102B21;
   --ow-brand-violet: #A99BFF;
   --ow-success: #71D6A5;
   --ow-warning: #F4C46A;
   --ow-danger: #F08084;
   --ow-info: #83BFFD;
-  --ow-focus-ring: #72D8C7;
-  --ow-radius-control: 8px;
+  --ow-focus-ring: #00BA78;
+  --ow-radius-control: 10px;
   --ow-radius-card: 12px;
-  --ow-radius-panel: 14px;
-  --ow-shadow-card: 0 8px 24px rgba(0, 0, 0, 0.24);
+  --ow-radius-panel: 12px;
+  --ow-shadow-card: none;
   --ow-shadow-popover: 0 16px 40px rgba(0, 0, 0, 0.36);
 
   /* Bridge the established common components to this platform-owned palette. */
@@ -42,7 +42,7 @@
   --bad: var(--ow-danger);
   --btn-primary-text: #05201C;
   --radius: var(--ow-radius-control);
-  --topbar-h: 58px;
+  --topbar-h: 44px;
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --spring-snappy: cubic-bezier(0.2, 0, 0, 1);
   --spring-smooth: cubic-bezier(0.2, 0, 0, 1);
@@ -52,8 +52,8 @@
   --dur-large: 240ms;
   --switch-track: #445457;
   --slider-thumb: #F2F7F6;
-  --log-bg: #0C1315;
-  --log-text: #D5E2E0;
+  --log-bg: #0C0F0E;
+  --log-text: #D6D6D6;
   --scrim-modal: rgba(4, 10, 11, 0.62);
   --scrim-pill: rgba(4, 10, 11, 0.82);
   --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.18);
@@ -66,7 +66,7 @@
   --bad-alpha-mid: rgba(240, 128, 132, 0.14);
   --bad-alpha-strong: rgba(240, 128, 132, 0.48);
   --bad-alpha-reset: rgba(240, 128, 132, 0.10);
-  --accent-alpha-soft: rgba(114, 216, 199, 0.12);
+  --accent-alpha-soft: rgba(0, 186, 120, 0.12);
   --skel-c1: rgba(242, 247, 246, 0.035);
   --skel-c2: rgba(242, 247, 246, 0.08);
 }
@@ -122,7 +122,7 @@
 }
 
 html, body { background: var(--ow-canvas); color: var(--ow-text-primary); }
-body { font-family: var(--font-sans); font-size: 16px; line-height: 1.5; }
+body { font-family: var(--font-sans); font-size: 14px; line-height: 1.5; }
 
 .topbar {
   height: var(--topbar-h);
@@ -133,10 +133,10 @@ body { font-family: var(--font-sans); font-size: 16px; line-height: 1.5; }
   padding-right: 20px;
 }
 :root[data-theme="light"] .topbar { box-shadow: 0 2px 10px rgba(24, 38, 37, 0.04); }
-.brand { gap: 9px; min-height: 44px; color: var(--ow-text-primary); transform: none; }
+.brand { gap: 8px; min-height: 36px; color: var(--ow-text-primary); transform: none; }
 .brand:hover { transform: none; }
-.brand-profile-logo { width: 34px; height: 34px; flex-basis: 34px; }
-.brand-wordmark { font-size: 18px; font-weight: 650; letter-spacing: -0.035em; }
+.brand-profile-logo { width: 28px; height: 28px; flex-basis: 28px; }
+.brand-wordmark { font-size: 17px; font-weight: 650; letter-spacing: -0.025em; }
 
 #nav {
   background: var(--ow-surface-1);
@@ -146,9 +146,9 @@ body { font-family: var(--font-sans); font-size: 16px; line-height: 1.5; }
   padding-right: 10px;
 }
 #nav a, #nav .sidebar-collapse {
-  min-height: 42px;
-  padding: 9px 12px;
-  border-radius: 9px;
+  min-height: 36px;
+  padding: 7px 12px;
+  border-radius: 10px;
   color: var(--ow-text-secondary);
   font-size: 14px;
   font-weight: 500;
@@ -160,8 +160,8 @@ body { font-family: var(--font-sans); font-size: 16px; line-height: 1.5; }
 }
 #nav a.active {
   background: var(--ow-surface-selected);
-  color: var(--ow-text-primary);
-  box-shadow: inset 3px 0 0 var(--ow-accent);
+  color: var(--ow-accent);
+  box-shadow: none;
 }
 #nav a.nav-highlight, #nav a.nav-highlight:hover, #nav a.nav-highlight.active { color: inherit; }
 #nav .nav-ico { width: 18px; height: 18px; stroke-linecap: round; stroke-linejoin: round; }
@@ -190,29 +190,29 @@ body { font-family: var(--font-sans); font-size: 16px; line-height: 1.5; }
 .menu-toggle { color: var(--ow-text-secondary); border-radius: 8px; }
 .menu-toggle:hover { color: var(--ow-text-primary); background: var(--ow-surface-hover); }
 
-#app { max-width: 1320px; padding: 28px 32px 64px; }
+#app { max-width: 1320px; padding: 20px 24px 56px; }
 body[data-page="strategies"] #app { max-width: none; }
-.page-title { color: var(--ow-text-primary); font-size: 24px; line-height: 1.34; font-weight: 650; margin-bottom: 20px; }
+.page-title { color: var(--ow-text-primary); font-size: 22px; line-height: 1.34; font-weight: 650; margin-bottom: 16px; }
 .card {
   background: var(--ow-surface-1);
   border: 1px solid var(--ow-border-subtle);
   border-radius: var(--ow-radius-card);
   box-shadow: var(--ow-shadow-card);
-  padding: 20px;
-  margin-bottom: 16px;
+  padding: 16px;
+  margin-bottom: 14px;
 }
-.card h3 { color: var(--ow-text-primary); font-size: 18px; line-height: 1.34; font-weight: 620; margin-bottom: 8px; }
+.card h3 { color: var(--ow-text-primary); font-size: 17px; line-height: 1.34; font-weight: 620; margin-bottom: 8px; }
 .card .desc { color: var(--ow-text-secondary); font-size: 14px; line-height: 1.5; }
 .card-danger { border-color: var(--ow-danger); box-shadow: none; }
 
 .btn {
-  min-height: 40px;
-  padding: 8px 14px;
+  min-height: 36px;
+  padding: 7px 12px;
   border-radius: var(--ow-radius-control);
   border-color: var(--ow-border-strong);
-  background: var(--ow-surface-1);
+  background: var(--ow-surface-2);
   color: var(--ow-text-primary);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 560;
   transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
 }
@@ -227,10 +227,10 @@ body[data-page="strategies"] #app { max-width: none; }
 
 input[type="text"], input[type="password"], input[type="search"], input[type="number"],
 input[type="url"], textarea, select {
-  min-height: 40px;
+  min-height: 36px;
   border: 1px solid var(--ow-border-strong);
   border-radius: var(--ow-radius-control);
-  background-color: var(--ow-surface-1);
+  background-color: var(--ow-surface-2);
   color: var(--ow-text-primary);
   font: inherit;
 }
@@ -292,7 +292,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ow-accent); }
   .topbar { padding-left: 14px; padding-right: 14px; }
   #app { padding: 20px 16px 56px; }
   .page-title { font-size: 22px; line-height: 1.36; margin-bottom: 16px; }
-  .card { padding: 16px; border-radius: 11px; }
+  .card { padding: 16px; border-radius: var(--ow-radius-card); }
+  .topbar { height: 56px; }
   .theme-toggle button { width: 44px; height: 44px; }
 }
 

@@ -4,7 +4,7 @@
 # Только OS effects. Никаких вторых TG/RT/WARP/firewall/updater/config
 # реализаций — везде делегация замороженным адаптерам Stages 1-5.
 # Вызывается из webpanel/cgi/platform.sh (override-функции).
-
+[ ! -r "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/webpanel-lifecycle.sh" ] || . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/webpanel-lifecycle.sh"
 # Read-only provenance helpers.  The panel reports the payload bytes served
 # today separately from the package seed and installed APK versions.
 z2k_ow_meta_value() {

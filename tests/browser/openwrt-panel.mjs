@@ -144,6 +144,8 @@ async function waitForRenderedRoute(page, route) {
   const content = (await page.locator("#app").innerText()).trim();
   assert.ok(content, route + " must render visible content");
   assert.notEqual(content, "Загрузка…", route + " must leave the initial loading state");
+  await page.waitForFunction(() => [...document.querySelectorAll('#app .page-title, #app > .card')]
+    .every(node => Number.parseFloat(getComputedStyle(node).opacity) >= 0.99), null, { timeout: 2000 });
 }
 
 try {
@@ -162,6 +164,7 @@ try {
 
   const routes = ['dashboard', 'toggles', 'strategies', 'warp', 'whitelist', 'exclude', 'extra-domains', 'diag', 'credits', 'state', 'pick', 'autohostlist'];
   const primaryRoutes = ['dashboard', 'toggles', 'state', 'warp', 'whitelist', 'extra-domains', 'diag', 'credits'];
+  const screenshotRoutes = ['dashboard', 'toggles', 'strategies', 'warp', 'exclude', 'diag'];
   const requiredTokens = ['--ow-canvas', '--ow-surface-1', '--ow-surface-2', '--ow-surface-hover',
     '--ow-surface-selected', '--ow-border-subtle', '--ow-border-strong', '--ow-text-primary',
     '--ow-text-secondary', '--ow-text-tertiary', '--ow-accent', '--ow-accent-hover',
@@ -182,7 +185,7 @@ try {
   let totalModuleResponses = 0;
 
   for (const appearance of ['dark', 'light']) {
-    const page = await browser.newPage({ viewport: { width: 1392, height: 1104 }, colorScheme: appearance });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1104 }, colorScheme: appearance });
     const pageErrors = [];
     const consoleErrors = [];
     const moduleResponses = [];
@@ -244,6 +247,24 @@ try {
       return Object.fromEntries(names.map(name => [name, style.getPropertyValue(name).trim()]));
     }, requiredTokens);
     for (const name of requiredTokens) assert.ok(tokens[name], `${appearance}: missing ${name}`);
+    if (appearance === 'dark') {
+      for (const [name, value] of Object.entries({
+        '--ow-canvas': '#0C0F0E', '--ow-surface-1': '#111615', '--ow-surface-2': '#181E1C',
+        '--ow-border-subtle': '#1E2725', '--ow-text-primary': '#D6D6D6',
+        '--ow-text-secondary': '#8CA29A', '--ow-accent': '#00BA78', '--ow-radius-control': '10px',
+        '--ow-radius-card': '12px',
+      })) assert.equal(tokens[name].toUpperCase(), value.toUpperCase(), `dark reference token: ${name}`);
+    } else {
+      assert.equal(tokens['--ow-canvas'], '#F4F8F7', 'preserve the light canvas');
+      assert.equal(tokens['--ow-accent'], '#087A70', 'preserve the light accent');
+    }
+    assert.equal(await page.evaluate(() => getComputedStyle(document.body).fontSize), '14px', 'compact body type');
+    assert.equal(await page.locator('.topbar').evaluate(node => node.getBoundingClientRect().height), 44,
+      'desktop topbar uses the compact reference height');
+    assert.ok(await page.locator('#nav a[data-route="dashboard"]').evaluate(node => {
+      const height = node.getBoundingClientRect().height;
+      return height >= 36 && height <= 42;
+    }), 'desktop navigation stays between 36 and 42 px');
     assert.ok(ratio(tokens['--ow-text-primary'], tokens['--ow-surface-1']) >= 4.5);
     assert.ok(ratio(tokens['--ow-text-secondary'], tokens['--ow-surface-2']) >= 4.5);
     assert.ok(ratio(tokens['--ow-text-tertiary'], tokens['--ow-surface-2']) >= 4.5);
@@ -277,13 +298,15 @@ try {
       }, null, { timeout: 1500 });
       assert.equal(await page.locator('#app [data-ui-fatal]').count(), 0,
         `${appearance}: #/${route} must not render the fatal-route fallback`);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+        `${appearance}/1440: ${route} has no page horizontal overflow`);
       if (route === 'state') {
         await page.locator('.state-table').waitFor({ state: 'visible', timeout: 2000 });
         await page.waitForFunction(() => document.querySelectorAll('.state-table tbody tr').length >= 100, null, { timeout: 2000 });
       }
       assert.equal(await lockup.locator('.brand-profile-logo').count(), 1, `${appearance}: single mark on #/${route}`);
-      if (screenshotDir && primaryRoutes.includes(route)) {
-        await page.screenshot({ path: path.join(screenshotDir, `${appearance}-${route}.png`) });
+      if (screenshotDir && screenshotRoutes.includes(route)) {
+        await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-${route}.png`) });
         fs.writeFileSync(path.join(screenshotDir, `${appearance}-${route}.json`), JSON.stringify(await page.evaluate(() => ({
           route: location.hash,
           page: document.body.dataset.page,
@@ -301,6 +324,19 @@ try {
           scrollWidth: document.documentElement.scrollWidth,
           clientWidth: document.documentElement.clientWidth,
         })), null, 2));
+      }
+    }
+    for (const width of [1920, 1366, 1280]) {
+      await page.setViewportSize({ width, height: 1104 });
+      for (const route of routes) {
+        await page.evaluate(name => { location.hash = '#/' + name; }, route);
+        await waitForRenderedRoute(page, route);
+        assert.equal(await page.locator('#app [data-ui-fatal]').count(), 0, `${appearance}/${width}: ${route}`);
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+          `${appearance}/${width}: ${route} has no page horizontal overflow`);
+        if (screenshotDir && screenshotRoutes.includes(route)) {
+          await page.screenshot({ path: path.join(screenshotDir, `${appearance}-${width}-${route}.png`) });
+        }
       }
     }
     await page.evaluate(() => { location.hash = '#/state'; });
@@ -421,6 +457,19 @@ try {
   assert.equal(await mobile.locator('#menu-toggle').getAttribute('aria-expanded'), 'false');
   await mobile.waitForFunction(() => document.activeElement.id === 'menu-toggle', null, { timeout: 1000 });
   assert.equal(await mobile.evaluate(() => document.activeElement.id), 'menu-toggle', 'Escape restores focus to the drawer trigger');
+  for (const route of routes) {
+    await mobile.evaluate(name => { location.hash = '#/' + name; }, route);
+    await waitForRenderedRoute(mobile, route);
+    assert.equal(await mobile.locator('#app [data-ui-fatal]').count(), 0, `mobile: ${route}`);
+    assert.ok(await mobile.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+      `390px: ${route} has no page horizontal overflow`);
+    if (screenshotDir && ['dashboard', 'strategies'].includes(route)) {
+      await mobile.screenshot({ path: path.join(screenshotDir, `dark-390-${route}.png`), fullPage: true });
+    }
+  }
+  await mobile.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await mobile.locator('#nav').evaluate(node => getComputedStyle(node).transitionDuration), '0s',
+    'reduced motion disables drawer transitions');
   await mobile.close();
 
   // Halving the CSS viewport models a 200% browser zoom on a 1392 px display.

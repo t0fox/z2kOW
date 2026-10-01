@@ -446,6 +446,13 @@ endef
 define Package/z2k-webpanel/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
+. /usr/lib/z2k/platform/openwrt/webpanel.sh || exit 1
+wp_panel_reconcile_http_listener
+_http_rc=$$?
+case "$$_http_rc" in
+    0|2) ;;
+    *) echo "z2k-openwrt: webpanel postinst: не удалось освободить HTTP listener" >&2; exit 1 ;;
+esac
 /etc/init.d/z2k-webpanel enable || exit 1
 if /etc/init.d/z2k-webpanel running >/dev/null 2>&1; then
     exit 0
