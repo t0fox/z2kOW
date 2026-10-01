@@ -531,10 +531,9 @@ body[data-sidebar="collapsed"] { padding-left: var(--sidebar-w-collapsed); }
 .strategy-msg { margin-top: 10px; font-size: 13px; }
 
 /* ---------- SORT SHEET (mobile) ----------
-   Sorting lives in the table headers, and the mobile breakpoint hides thead
-   entirely (see .state-table thead below) — so on a phone there was no sort
-   control at all. The trigger + bottom sheet below are that control; both are
-   invisible on desktop, where the headers still do the job. */
+   Table headers remain visible inside the horizontal scroller on phones. The
+   trigger and bottom sheet stay as a touch-friendly shortcut; desktop keeps
+   the headers as its only sort control. */
 .sort-trigger {
   display: none;                     /* desktop: headers are the control */
   align-items: center;
@@ -2618,94 +2617,9 @@ body[data-page="strategies"] #app { max-width: none; }
   .flow-fact { align-items: flex-start; }
   .flow-fact-value { flex-direction: column; align-items: flex-end; gap: 1px; }
 
-  /* State table → card layout (Skill rule: table-handling — card layout
-     preferred over horizontal scroll on narrow screens). Each row becomes
-     a stacked card with labels rendered via data-label::before. */
+  /* Keep the quick sort sheet alongside the table's visible, scrollable
+     headers as a touch-friendly shortcut on narrow screens. */
   .sort-trigger { display: inline-flex; }
-  .state-table thead { display: none; }
-  .state-table, .state-table tbody { display: block; width: 100%; }
-  /* Each row is a stacked card: one field per full-width row so a long domain
-     gets the whole card width (and wraps/breaks) instead of being squeezed into
-     a narrow grid column and overflowing. */
-  .state-table tr {
-    display: block;
-    padding: 10px 12px 12px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    margin-bottom: 8px;
-    background: var(--bg);
-  }
-  .state-table tr:hover { background: var(--bg-card-hover); }
-  .state-table td {
-    border: 0;
-    padding: 3px 0;
-    /* height: auto ОБЯЗАТЕЛЕН здесь. Десктопная строка таблицы держит 40px
-       через `height` у ячейки — для настоящей табличной ячейки это минимум,
-       и содержимое её растягивает. Но на телефоне таблица превращается в
-       карточки, и та же `td` становится flex-боксом, где height — уже
-       жёсткая высота: каждое из шести полей раздувалось бы с ~24px до 40px
-       (карточка домена со 170px до 270px), а длинное имя вроде
-       rr1---sn-4g5e6nzz.googlevideo.com переносилось бы на вторую строку и
-       налезало на соседнее поле вместо того, чтобы раздвинуть бокс. */
-    height: auto;
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 2px 10px;
-    min-width: 0;
-    word-break: break-word;
-    overflow-wrap: anywhere;
-  }
-  /* Label (left) — never shrinks; value (the text node) takes the rest and
-     wraps to a new line if it can't sit beside the label. */
-  .state-table td:not(:first-child)::before {
-    content: attr(data-label);
-    flex: 0 0 auto;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-muted);
-    font-weight: 500;
-  }
-  /* Delete button — its own row across the card top, pinned right, with a
-     light separator so it reads as the card's action, not a field. */
-  .state-table td:first-child {
-    justify-content: flex-end;
-    padding: 0 0 6px;
-    margin-bottom: 4px;
-    border-bottom: 1px solid var(--border);
-  }
-  /* Заголовок группы на телефоне — карточка с именем первой строкой и без
-     подписи «Домен» над ним: имя и есть заголовок. Кнопка «сбросить подбор»
-     (ячейка sg-lead) стоит в правом верхнем углу той же строки, что и имя,
-     поверх карточки: до 16.09 ячейка была пустой и пряталась целиком, после
-     появления групповых действий прятать её значило прятать кнопку.
-     Сводка идёт парами «подпись значение» в строку с переносом, а не полем
-     на строку, как у записи: в столбик заголовок выходил ростом с саму
-     запись (~160px), и свёрнутый список на телефоне почти не сокращался.
-     Строки группы сдвинуты вправо, как на десктопе. */
-  .state-table tr.sg-head {
-    display: flex;
-    flex-wrap: wrap;
-    position: relative;
-    column-gap: var(--space-16);
-    background: var(--bg-subtle);
-  }
-  .state-table tr.sg-head td { flex: 0 0 auto; justify-content: flex-start; gap: 2px 6px; }
-  .state-table tr.sg-head td.sg-lead {
-    position: absolute;
-    top: 8px;
-    right: 10px;
-    padding: 0;
-    margin: 0;
-    border: 0;
-  }
-  .state-table tr.sg-head td.sg-title { order: -1; flex-basis: 100%; padding-bottom: 6px; padding-right: 44px; }
-  .state-table tr.sg-head td.sg-title::before { content: none; }
-  .state-table tr.sg-member { margin-left: var(--space-16); }
-  .state-table.sg-any td.state-host,
-  .state-table.sg-any td.sg-leaf { padding-left: 0; background: none; }
 }
 
 /* Small phone (≤374px) — ещё компактнее на старых iPhone SE.

@@ -30,13 +30,15 @@
      Сама Fira никуда не делась — она отгружается вместе с панелью и
      объявлена через @font-face в style.css (webpanel/www/fonts/). -->
 <link rel="stylesheet" href="style.css?v=p-86.1">
+<!-- Keep optional branding off the route boot path; apply it as soon as its local CSS is ready. -->
+<link id="brand-profile-theme" rel="stylesheet" media="print" onload="this.media='all';this.onload=null" href="/assets/openwrt/theme.css">
 <link id="brand-favicon" rel="icon" href="favicon.svg?v=p-86.1" type="image/svg+xml" sizes="any">
 <link id="brand-mask-icon" rel="mask-icon" href="favicon.svg?v=p-86.1" color="#1AC3B4">
 </head>
 <body>
 <header class="topbar">
   <a id="panel-brand" href="#/dashboard" class="brand" aria-label="Z2K">
-    <img id="brand-profile-logo" class="brand-profile-logo" src="favicon.svg?v=p-86.1" width="34" height="34" alt="">
+    <img id="brand-profile-logo" class="brand-profile-logo" src="favicon.svg?v=p-86.1" width="36" height="36" alt="">
     <span id="brand-wordmark" class="brand-wordmark">Z2K</span>
   </a>
   <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Открыть меню" aria-expanded="false" aria-controls="nav">
@@ -167,7 +169,7 @@
           themeLink.rel = "stylesheet";
           document.head.appendChild(themeLink);
         }
-        themeLink.href = theme;
+        if (themeLink.href !== new URL(theme, document.baseURI).href) themeLink.href = theme;
         window.__z2kBrandName = name;
         if (typeof window.__z2kRefreshRouteTitle === "function") window.__z2kRefreshRouteTitle();
       })

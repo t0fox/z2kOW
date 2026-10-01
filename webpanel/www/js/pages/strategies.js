@@ -555,7 +555,7 @@ async function loadState(useCache) {
       // записи для API, его резать нельзя. Делим только видимое человеку.
       // data-label attrs feed the mobile card layout (CSS pseudo-elements)
       return `
-        <tr${inGroup ? ' class="sg-member"' : ""}${frozen ? ' style="background:rgba(120,140,255,0.10)"' : ''}>
+        <tr${inGroup ? ' class="sg-member"' : ""} data-frozen="${frozen ? "true" : "false"}">
           <td data-label="">
             <button class="btn btn-danger btn-icon state-del"
                     title="Удалить запись"

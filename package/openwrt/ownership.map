@@ -61,7 +61,6 @@
 /usr/lib/z2k/platform/openwrt/warp-check.sh package
 /usr/lib/z2k/platform/openwrt/diag.sh package
 /usr/lib/z2k/platform/openwrt/webpanel.sh package
-/usr/lib/z2k/platform/openwrt/webpanel-lifecycle.sh package
 /usr/lib/z2k/platform/openwrt/reinstall.sh package
 /usr/lib/z2k/platform/openwrt/product-update.sh package
 /usr/lib/z2k/platform/openwrt/z2kow.sh package

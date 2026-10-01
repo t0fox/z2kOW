@@ -66,8 +66,79 @@ const NAV_OF_ROUTE = {
   autohostlist: "extra-domains",
 };
 
-let _activeRoute = "dashboard";
+let _activeRoute = routes[location.hash.replace(/^#\//, "")] ? location.hash.replace(/^#\//, "") : "dashboard";
 let _navigationToken = 0;
+let _previousTabPosition = null;
+const _scrollWatchedTabs = new WeakSet();
+
+
+function currentTabPosition() {
+  const tabs = $app.querySelector(".strat-tabs");
+  const active = tabs && tabs.querySelector('.strat-tab[aria-selected="true"], .strat-tab.active');
+  if (!active) return null;
+  return {
+    left: active.offsetLeft - tabs.scrollLeft,
+    top: active.offsetTop,
+    width: active.offsetWidth,
+    height: active.offsetHeight,
+  };
+}
+
+function writeTabPosition(tabs, position) {
+  tabs.style.setProperty("--tab-left", position.left + "px");
+  tabs.style.setProperty("--tab-top", position.top + "px");
+  tabs.style.setProperty("--tab-width", position.width + "px");
+  tabs.style.setProperty("--tab-height", position.height + "px");
+}
+
+function syncTabIndicator(previous, revealActive = true) {
+  const tabs = $app.querySelector(".strat-tabs");
+  const active = tabs && tabs.querySelector('.strat-tab[aria-selected="true"], .strat-tab.active');
+  if (!tabs || !active) {
+    _previousTabPosition = null;
+    return;
+  }
+  if (revealActive) {
+    const activeLeft = active.offsetLeft - tabs.scrollLeft;
+    const activeRight = activeLeft + active.offsetWidth;
+    if (activeLeft < 0) tabs.scrollLeft = active.offsetLeft;
+    else if (activeRight > tabs.clientWidth) tabs.scrollLeft = active.offsetLeft + active.offsetWidth - tabs.clientWidth;
+  }
+  if (!_scrollWatchedTabs.has(tabs)) {
+    _scrollWatchedTabs.add(tabs);
+    tabs.addEventListener("scroll", () => requestAnimationFrame(() => {
+      if (tabs.isConnected) syncTabIndicator(null, false);
+    }), { passive: true });
+  }
+  const target = {
+    left: active.offsetLeft - tabs.scrollLeft,
+    top: active.offsetTop,
+    width: active.offsetWidth,
+    height: active.offsetHeight,
+  };
+  const targetKey = Object.values(target).join(":");
+  if (tabs.dataset.tabIndicatorTarget === targetKey) return;
+  tabs.dataset.tabIndicatorTarget = targetKey;
+  if (previous && Object.values(previous).some((value, index) => value !== Object.values(target)[index])) {
+    writeTabPosition(tabs, previous);
+    requestAnimationFrame(() => {
+      if (tabs.isConnected) writeTabPosition(tabs, target);
+    });
+  } else {
+    writeTabPosition(tabs, target);
+  }
+  _previousTabPosition = target;
+}
+
+// Tabs can be rendered after an async feature-status response (for example,
+// the optional Autohostlist tab). Follow DOM insertion as the source component
+// does with a MutationObserver, and recalculate on resize.
+const _tabObserver = new MutationObserver(() => {
+  const tabs = $app.querySelector(".strat-tabs");
+  if (tabs && !tabs.dataset.tabIndicatorTarget) syncTabIndicator(_previousTabPosition);
+});
+_tabObserver.observe($app, { childList: true, subtree: true });
+window.addEventListener("resize", () => requestAnimationFrame(() => syncTabIndicator(null)));
 
 // Route titles have one owner; the suffix follows the active common brand
 // profile and defaults to the upstream Z2K identity.
@@ -102,6 +173,8 @@ function showRouteFailure(error, token) {
 export function navigate() {
   const hash = location.hash.replace(/^#\//, "") || "dashboard";
   const name = routes[hash] ? hash : "dashboard";
+  const previousTabPosition = currentTabPosition();
+  _previousTabPosition = previousTabPosition;
   _activeRoute = name;
   const token = ++_navigationToken;
   // Маршрутов больше, чем пунктов меню: подвкладка — тоже адрес, но своего
@@ -120,8 +193,11 @@ export function navigate() {
   $app.innerHTML = '<section class="card" aria-live="polite">Загрузка…</section>';
   try {
     const result = routes[name]();
+    syncTabIndicator(previousTabPosition);
     if (result && typeof result.catch === "function") {
-      result.catch(error => showRouteFailure(error, token));
+      result.then(() => {
+        if (token === _navigationToken) syncTabIndicator(previousTabPosition);
+      }).catch(error => showRouteFailure(error, token));
     }
   } catch (error) {
     showRouteFailure(error, token);

@@ -1,27 +1,29 @@
-# z2kOW WebPanel: Lolz.team visual and interaction port
+# z2kOW WebPanel: Lolz visual and interaction pass
 
-This pass applies the user's clarified requirement: match Lolz.team's measured page geometry, typography, surfaces and menu motion throughout the WebPanel. Measurements come from the captured live page and preserved public CSS/JS documented in [README.md](README.md); each local route was checked in Chromium at desktop and narrow sizes.
+This pass applies source-backed Lolz geometry, typography, surfaces, and interaction timings to z2kOW's own routes and controls. The panel keeps its z2kOW brand, data, and route behavior.
 
-## Shared page shell
+## Shared shell
 
-- At the source measurement (1440×900, document client width 1425 px), Lolz's centered `#content` is 1081 px wide: 261 px navigation rail, 15 px gap, and 800 px main column. The WebPanel uses a 260 px rail and 800 px column with the same gap and center relationship. Full HD is a tested extrapolation of that centered source geometry.
-- The 44 px page header is fixed, uses the measured `rgb(12 15 14 / 62%)` surface and 10 px backdrop blur, and leaves the page shell at the same vertical start.
-- The persistent rail and content are positioned from the shared centered shell; at widths below 768 px, the rail becomes the left drawer and the content becomes fluid. Viewport height does not switch the desktop shell into a mobile layout.
-- The product keeps its own z2kOW labels, router-specific routes and controls; these occupy Lolz's measured shell and spacing model.
+- The captured Lolz page measured a centered 1081 px content wrapper with a 261 px inner rail, 15 px gap, and 800 px main column. The WebPanel uses those same desktop dimensions. At 1920 px, the main column starts at x=693.
+- The source logo box is 36×36 px at y=3. The local header is 44 px high and contains the z2kOW mark and theme control.
+- Lolz also has header route links and a recent-pages strip. The WebPanel already has a complete side menu for its routes, so these duplicated local route lists were removed to keep navigation in one place. The main content and side rail start below the 44 px header.
+- At 390 px, the side menu becomes the existing left drawer; the compact header keeps the menu trigger, mark, and theme control. Strategy tabs use tighter horizontal spacing at this width so all labels fit without clipping.
 
-## Type and controls
+## Typography and controls
 
-- Locally bundled Inter 400/500/600 supplies the same font files and weights referenced by Lolz's public stylesheet. `webpanel/www/fonts/README.md` records their source URLs and `Inter-OFL.txt` carries the license.
-- Body text is 14 px with 17.92 px line-height. Navigation rows are 36 px; buttons 34 px with 10 px corners and a 100 ms `ease-in-out` response; text fields are 30 px, borderless and 10 px radius; standard selects are 36 px, and the strategy-table selector matches the measured 220×36 px control. Cards use 12 px radius and no floating shadow.
-- The light appearance maps the same structure to legible light surfaces and text; it retains z2kOW's existing theme control.
+- The browser rendered the source page with the system-first Inter stack, 14 px body text, and 17.92 px line-height. The WebPanel uses locally served Inter weights 400/500/600 with that body scale.
+- Cards use a 12 px radius and a flat bordered surface. Standard inputs are 30 px, selects are 36 px, and the strategy selector is 220×36 px.
+- Primary buttons use the observed 88° three-stop gradient, a 300 ms hover overlay, brightness adjustment, and the 100 ms `scale(.97)` press. Destructive buttons keep a distinct red surface.
+- Strategy tabs use the measured 2 px underline, 5 px inset, and 350 ms `cubic-bezier(.4,0,.2,1)` motion. The active indicator follows horizontal scrolling and recalculates after resize and async DOM insertion.
+- Modals use the observed `.in` state: scale `.9` to `1` over 200 ms `ease-out`, with 150 ms opacity. Skeletons use the captured 350 px shimmer and 1.5 s `skeleton-loading` keyframes. Reduced motion is respected.
+- Frozen strategy rows expose semantic `data-frozen` state and use the selected surface rather than an inline blue color.
 
-## Menu and motion
+## Product behavior and limits
 
-- The local menu has the source DOM wrapper shape: `.mm-ocd.mm-ocd--left > .mm-ocd__content > #nav` plus `.mm-ocd__backdrop`.
-- Open state adds `.mm-ocd--open` to the wrapper and `.mm-ocd-opened` to `body`. The panel moves from `translate3d(-100%, 0, 0)` to `translate3d(0, 0, 0)` over 300 ms `ease`; the shell fades over 300 ms with the measured 150 ms close delay and 450 ms closed-state delay. The panel width is 80%, clamped to 200–440 px.
-- `webpanel/www/js/chrome.js` uses the existing menu trigger event and these state classes while keeping the panel's focus return, Escape key, close button, route selection and scroll lock behavior. The extracted Lolz MmenuLight source files remain unchanged in `reference/lolz-animation/`; the WebPanel uses its local implementation, not the site's application bundle.
-- Cards use the observed 150 ms hover-color/inset-edge response. There is no named `@keyframes` for the observed drawer; it is a CSS transition, as detailed in the source capture.
+The pass does not replace the router, backend APIs, WARP operations, strategy semantics, or other z2kOW actions. It applies shared visual tokens to all 12 routes; route-specific forms and tables remain shaped around the router panel's data. Forum-only content and navigation patterns are not added.
+
+The source measurements come from the public Lolz capture documented in [the capture report](README.md). They support the shared shell and component timings; they do not establish pixel-perfect equivalence for router-specific pages.
 
 ## Verification
 
-The browser test exercises all 12 configured routes in dark and light appearance, then checks Full HD desktop geometry, narrow navigation, focus and keyboard handling, reduced motion, colors, controls and module loading. Selected screenshots are in [reference/webpanel-qa](../webpanel-qa/README.md). The latest captured command and result are recorded there.
+The Chromium suite renders all 12 routes in dark and light modes across desktop, tablet, and 390 px layouts. It checks the single side navigation, compact header, full visibility of strategy tabs, measured shell and controls, modal and drawer lifecycles, frozen rows, no-overflow, contrast, keyboard behavior, reduced motion, and local asset/module loading. Reviewed captures are listed in [the WebPanel QA report](../webpanel-qa/README.md).

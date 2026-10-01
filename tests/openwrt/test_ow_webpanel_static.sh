@@ -14,7 +14,7 @@ RM="$REPO/lib/release_map.sh"
 assert_file "контракт существует" "$REPO/docs/openwrt-webpanel-contract.md"
 assert_file "platform.sh существует" "$CPSH"
 assert_file "webpanel.sh существует" "$WPSH"
-assert_file "webpanel lifecycle helper существует" "$REPO/platform/openwrt/webpanel-lifecycle.sh"
+[ ! -e "$REPO/platform/openwrt/webpanel-lifecycle.sh" ] && _t_ok || _t_bad "stock lighttpd/uhttpd lifecycle helper must not exist"
 assert_file "init панели существует" "$PINIT"
 
 # Seam маленький: platform.sh обязан быть компактным.
@@ -131,8 +131,7 @@ assert_contains "release_map dns-check" "$RM" 'files/z2k-dns-check.sh)'
 # ownership: webpanel-классы из контракта §43.
 for _e in "/usr/lib/z2k/webpanel/* updater" "/usr/lib/z2k/www/* updater" \
           "/etc/z2k/webpanel/* user" "/etc/init.d/z2k-webpanel package" \
-          "/usr/lib/z2k/platform/openwrt/webpanel.sh package" \
-          "/usr/lib/z2k/platform/openwrt/webpanel-lifecycle.sh package"; do
+          "/usr/lib/z2k/platform/openwrt/webpanel.sh package"; do
     if grep -qxF "$_e" "$REPO/package/openwrt/ownership.map" 2>/dev/null; then
         _t_ok
     else
@@ -144,7 +143,7 @@ done
 assert_contains "init: procd instance" "$PINIT" 'procd_open_instance "z2k-webpanel"'
 assert_contains "init: bounded respawn" "$PINIT" 'procd_set_param respawn 3600 5 5'
 assert_contains "init: dedicated lighttpd" "$PINIT" 'lighttpd -D -f'
-assert_contains "init: preserves management HTTP listener" "$PINIT" 'wp_panel_reconcile_http_listener'
+assert_not_contains "init: leaves stock HTTP listener owner unchanged" "$PINIT" 'wp_panel_reconcile_http_listener|/etc/init.d/(lighttpd|uhttpd)|/etc/config/uhttpd'
 assert_contains "init: post-commit readiness hook" "$PINIT" 'service_started()'
 assert_contains "init: readiness checks after procd commit" "$PINIT" 'wp_panel_running && return 0'
 assert_contains "init: bounded readiness deadline" "$PINIT" 'Z2K_WEBPANEL_START_TIMEOUT'

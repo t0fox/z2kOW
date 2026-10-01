@@ -9,6 +9,18 @@ import { fileURLToPath } from 'node:url';
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const webpanelPackage = fs.readFileSync(path.join(repo, 'package/openwrt/Makefile'), 'utf8');
+const webpanelInit = fs.readFileSync(path.join(repo, 'package/openwrt/files/etc/init.d/z2k-webpanel'), 'utf8');
+const webpanelAdapter = fs.readFileSync(path.join(repo, 'platform/openwrt/webpanel.sh'), 'utf8');
+const webpanelListenerLifecycle = path.join(repo, 'platform/openwrt/webpanel-lifecycle.sh');
+assert.equal(/wp_panel_reconcile_http_listener/.test(webpanelPackage), false,
+  'the package hook leaves stock HTTP services under their existing owner');
+assert.equal(/wp_panel_reconcile_http_listener/.test(webpanelInit), false,
+  'the panel instance does not stop or restart stock listeners');
+assert.equal(/webpanel-lifecycle\.sh/.test(webpanelAdapter), false,
+  'panel helpers do not load stock HTTP service mutations');
+assert.equal(fs.existsSync(webpanelListenerLifecycle), false,
+  'no package helper disables stock lighttpd or restarts uhttpd');
 const screenshotDir = process.env.OPENWRT_SCREENSHOT_DIR || '';
 if (screenshotDir) fs.mkdirSync(screenshotDir, { recursive: true });
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2k-openwrt-browser-'));
@@ -148,6 +160,12 @@ async function waitForRenderedRoute(page, route) {
     .every(node => Number.parseFloat(getComputedStyle(node).opacity) >= 0.99), null, { timeout: 2000 });
 }
 
+async function waitForNavSettled(page) {
+  await page.waitForFunction(() => [...document.querySelectorAll('#nav a')]
+    .every(link => link.getAnimations().every(animation => animation.playState !== 'running')),
+  null, { timeout: 1200 });
+}
+
 async function waitForDrawerSettled(page, open) {
   await page.waitForFunction(expectedOpen => {
     const nav = document.querySelector('#nav');
@@ -156,6 +174,36 @@ async function waitForDrawerSettled(page, open) {
       && shell.classList.contains('mm-ocd--open') === expectedOpen
       && shell.getAnimations({ subtree: true }).every(animation => animation.playState !== 'running');
   }, open, { timeout: 1200 });
+}
+
+async function assertActiveStrategyTabVisible(page, label) {
+  const bounds = await page.locator('.strat-tabs').evaluate(tabs => {
+    const active = tabs.querySelector('.strat-tab.active, .strat-tab[aria-current="page"]');
+    const tab = active.getBoundingClientRect();
+    const viewport = tabs.getBoundingClientRect();
+    const tabsInView = [...tabs.querySelectorAll('.strat-tab')].map(item => {
+      const rect = item.getBoundingClientRect();
+      return { text: item.textContent.trim(), left: rect.left, right: rect.right };
+    });
+    return { tabLeft: tab.left, tabRight: tab.right, viewportLeft: viewport.left, viewportRight: viewport.right, tabsInView };
+  });
+  assert.ok(bounds.tabLeft >= bounds.viewportLeft - 1 && bounds.tabRight <= bounds.viewportRight + 1,
+    `${label}: the active strategy tab is fully visible without manual scrolling (${JSON.stringify(bounds)})`);
+  assert.ok(bounds.tabsInView.every(item => item.left >= bounds.viewportLeft - 1 && item.right <= bounds.viewportRight + 1),
+    `${label}: strategy tabs fit without clipped labels (${JSON.stringify(bounds)})`);
+}
+
+async function assertStrategyTabsAllowManualScroll(page, label) {
+  const position = await page.locator('.strat-tabs').evaluate(async tabs => {
+    const maxScroll = tabs.scrollWidth - tabs.clientWidth;
+    tabs.scrollLeft = maxScroll;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    tabs.scrollLeft = 0;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return { maxScroll, scrollLeft: tabs.scrollLeft };
+  });
+  assert.ok(position.maxScroll > 0, `${label}: narrow tab row can scroll to hidden tabs (${JSON.stringify(position)})`);
+  assert.equal(position.scrollLeft, 0, `${label}: manual scrolling stays at the user's selected position (${JSON.stringify(position)})`);
 }
 
 try {
@@ -215,7 +263,7 @@ try {
       const theme = document.querySelector('#brand-profile-theme');
       return theme && theme.sheet && theme.sheet.cssRules.length > 0;
     }, null, { timeout: 1500 });
-    await page.waitForFunction(() => Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 260) < 1,
+    await page.waitForFunction(() => Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 261) < 1,
       null, { timeout: 1200 });
     assert.equal(await page.locator('#menu-shell.mm-ocd.mm-ocd--left > .mm-ocd__content > #nav').count(), 1,
       'navigation uses the observed Lolz off-canvas shell/content structure');
@@ -300,26 +348,40 @@ try {
       return height >= 36 && height <= 42;
     }), 'desktop navigation stays between 36 and 42 px');
     const desktopSidebarWidth = await page.locator('#nav').evaluate(node => node.getBoundingClientRect().width);
-    assert.ok(Math.abs(desktopSidebarWidth - 260) < 1,
+    assert.ok(Math.abs(desktopSidebarWidth - 261) < 1,
       `desktop sidebar matches the compact reference width (${desktopSidebarWidth}px)`);
     const desktopFrame = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,
+      windowWidth: window.innerWidth,
       navX: document.querySelector('#nav').getBoundingClientRect().x,
+      navWidth: document.querySelector('#nav').getBoundingClientRect().width,
       appX: document.querySelector('#app').getBoundingClientRect().x,
       appY: document.querySelector('#app').getBoundingClientRect().y,
       appWidth: document.querySelector('#app').getBoundingClientRect().width,
       brandX: document.querySelector('#panel-brand').getBoundingClientRect().x,
+      brandY: document.querySelector('#panel-brand').getBoundingClientRect().y,
+      brandWidth: document.querySelector('#panel-brand').getBoundingClientRect().width,
+      utilityRight: document.querySelector('.theme-toggle').getBoundingClientRect().right,
+      appRight: document.querySelector('#app').getBoundingClientRect().right,
     }));
-    assert.ok(Math.abs(desktopFrame.navX - (desktopFrame.viewport / 2 - 535)) < 1,
-      `Lolz measured 1081 px shell places the 261 px rail 5 px inside the wrapper (${JSON.stringify(desktopFrame)})`);
-    assert.ok(Math.abs(desktopFrame.appX - (desktopFrame.viewport / 2 - 260)) < 1,
-      `the main column begins after the 260 px rail and 20 px gap (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(desktopFrame.navX - (desktopFrame.windowWidth / 2 - 543.3)) < 1,
+      `the 261 px rail matches its measured position inside Lolz's centered 1081 px shell (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(desktopFrame.navWidth - 261) < 1,
+      `the desktop rail matches Lolz's measured 261 px inner width (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(desktopFrame.appX - (desktopFrame.windowWidth / 2 - 267)) < 1,
+      `the main column begins at Lolz's measured centered-shell offset (${JSON.stringify(desktopFrame)})`);
     assert.ok(Math.abs(desktopFrame.appWidth - 800) < 1,
       `the main column matches the measured 800 px reference (${desktopFrame.appWidth}px)`);
     assert.ok(Math.abs(desktopFrame.appY - 44) < 1,
-      `the main column starts below the fixed 44 px header (${JSON.stringify(desktopFrame)})`);
-    assert.ok(Math.abs(desktopFrame.brandX - desktopFrame.navX) < 1,
-      `the z2kOW wordmark aligns with the left edge of the centered page shell (${JSON.stringify(desktopFrame)})`);
+      `the main column begins directly below the single 44 px header (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(desktopFrame.brandX - (desktopFrame.windowWidth / 2 - 545.5)) < 1,
+      `the z2kOW lockup starts at Lolz's measured brand position (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(desktopFrame.brandY - 3) < 1 && Math.abs(desktopFrame.brandWidth - 36) < 1,
+      `the logo occupies Lolz's measured 36×36 header box at y=3 (${JSON.stringify(desktopFrame)})`);
+    assert.equal(await page.locator('#header-nav, #route-recents').count(), 0,
+      'the header has no duplicated route-navigation rows');
+    assert.ok(Math.abs(desktopFrame.utilityRight - (desktopFrame.appRight - 98)) < 2,
+      `header controls follow Lolz's measured 98 px trailing inset within the shell (${JSON.stringify(desktopFrame)})`);
     assert.ok(Math.abs(await page.locator('#nav .nav-ico').first().evaluate(node => node.getBoundingClientRect().width) - 20) < 1,
       'sidebar icons match the reference size');
     assert.ok(await page.locator('#app').evaluate(node => node.getBoundingClientRect().width === 800),
@@ -352,7 +414,7 @@ try {
       'button surfaces follow the selected theme');
     assert.ok(buttonStyle.transitionDuration.split(',').every(value => value.trim() === '0.1s'),
       'buttons use the measured 100 ms Lolz transition');
-    assert.doesNotMatch(buttonStyle.transitionProperty, /transform/, 'buttons do not scale on press');
+    assert.ok(buttonStyle.transitionProperty.includes('all'), 'buttons retain the source transition shorthand');
     const referenceCard = page.locator('#app > .card').filter({ has: page.locator('h3') }).first();
     await referenceCard.hover();
     const expectedCardHover = appearance === 'dark' ? 'rgb(24, 30, 28)' : 'rgb(225, 236, 233)';
@@ -372,15 +434,58 @@ try {
       appearance === 'dark' ? '#181E1C' : '#E1ECE9') >= 4.5, 'hover card headings remain readable');
     assert.ok(cardHover.duration.split(',').includes('0.15s'), 'cards ease their hover state over 150 ms');
     await page.mouse.move(1, 1);
-    const primaryStyle = await page.locator('#app .btn-primary').first().evaluate(node => ({
-      backgroundImage: getComputedStyle(node).backgroundImage,
-      text: getComputedStyle(document.documentElement).getPropertyValue('--btn-primary-text').trim(),
-      stops: ['--ow-button-start', '--ow-button-mid'].map(name =>
-        getComputedStyle(document.documentElement).getPropertyValue(name).trim()),
+    await page.evaluate(() => { location.hash = '#/state'; });
+    await waitForRenderedRoute(page, 'state');
+    await page.evaluate(() => {
+      const fixture = document.createElement('button');
+      fixture.className = 'btn btn-primary';
+      fixture.dataset.qaMotion = 'true';
+      fixture.type = 'button';
+      fixture.textContent = 'QA button';
+      fixture.style.cssText = 'position:fixed;top:0;left:0;z-index:10000;';
+      document.body.appendChild(fixture);
+    });
+    const primary = page.locator('button[data-qa-motion="true"]');
+    await primary.hover();
+    await page.waitForFunction(() => {
+      const node = document.querySelector('button[data-qa-motion="true"]');
+      return node && getComputedStyle(node, '::before').opacity === '1';
+    });
+    const primaryStyle = await primary.evaluate(node => {
+      const root = getComputedStyle(document.documentElement);
+      const style = getComputedStyle(node);
+      const before = getComputedStyle(node, '::before');
+      const after = getComputedStyle(node, '::after');
+      return { backgroundImage: style.backgroundImage, filter: style.filter,
+        hoverLayer: before.backgroundImage, hoverDuration: before.transitionDuration,
+        activeLayer: after.backgroundColor, activeDuration: after.transitionDuration,
+        text: style.color,
+        stops: ['--ow-button-start', '--ow-button-mid', '--ow-button-hover-start',
+          '--ow-button-hover-mid', '--ow-button-hover-end'].map(name => root.getPropertyValue(name).trim()) };
+    });
+    assert.match(primaryStyle.backgroundImage, /linear-gradient\(88deg/,
+      `primary gradient follows the source 88 degree angle (${JSON.stringify(primaryStyle)})`);
+    assert.match(primaryStyle.backgroundImage, /42, 143, 92/, 'primary gradient uses the source #2A8F5C middle stop');
+    assert.match(primaryStyle.hoverLayer, /linear-gradient\(88deg/, 'primary hover is the source pseudo-element overlay');
+    assert.equal(primaryStyle.hoverDuration, '0.3s', 'primary hover overlay fades over the source 300 ms');
+    assert.equal(primaryStyle.filter, 'brightness(1.08)', 'primary hover uses the source brightness response');
+    assert.equal(primaryStyle.activeLayer, 'rgba(0, 0, 0, 0.18)', 'primary press overlays the source black tint');
+    assert.equal(primaryStyle.activeDuration, '0.15s', 'primary press overlay uses the source 150 ms fade');
+    assert.deepEqual(primaryStyle.stops.slice(0, 2), ['#20764E', '#2A8F5C']);
+    assert.deepEqual(primaryStyle.stops.slice(2), ['#1C6946', '#329C6C', '#1D8254']);
+    assert.equal(primaryStyle.text, 'rgb(245, 245, 245)', 'primary button text matches the source #F5F5F5');
+    const primaryBox = await primary.boundingBox();
+    await page.mouse.move(primaryBox.x + primaryBox.width / 2, primaryBox.y + primaryBox.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(160);
+    const primaryActive = await primary.evaluate(node => ({
+      scale: new DOMMatrixReadOnly(getComputedStyle(node).transform).a,
+      overlay: getComputedStyle(node, '::after').opacity,
     }));
-    assert.match(primaryStyle.backgroundImage, /linear-gradient/, 'primary actions use the reference green gradient');
-    for (const stop of primaryStyle.stops) assert.ok(ratio(primaryStyle.text, stop) >= 4.5,
-      `primary button text has readable contrast over ${stop}`);
+    assert.ok(Math.abs(primaryActive.scale - 0.97) < 0.002, 'primary press uses the source scale(.97)');
+    assert.equal(primaryActive.overlay, '1', 'primary press reaches the source black-overlay state');
+    await page.mouse.up();
+    await page.evaluate(() => document.querySelector('button[data-qa-motion="true"]').remove());
     assert.ok(ratio(tokens['--ow-text-primary'], tokens['--ow-surface-1']) >= 4.5);
     assert.ok(ratio(tokens['--ow-text-secondary'], tokens['--ow-surface-2']) >= 4.5);
     assert.ok(ratio(tokens['--ow-text-tertiary'], tokens['--ow-surface-2']) >= 4.5);
@@ -393,8 +498,8 @@ try {
     const localInter = await page.evaluate(() => document.fonts.load('400 14px Inter')
       .then(faces => faces.some(face => face.family === 'Inter' && face.status === 'loaded')));
     assert.equal(localInter, true, 'the locally bundled Lolz reference font is available without a CDN');
-    assert.match(await page.evaluate(() => getComputedStyle(document.body).fontFamily), /^Inter,/,
-      'body typography uses the observed Inter-first font stack');
+    assert.match(await page.evaluate(() => getComputedStyle(document.body).fontFamily), /^-apple-system, BlinkMacSystemFont, ?"?Inter"?/,
+      'body typography uses the observed Lolz system/Inter font stack');
 
     await page.keyboard.press('Tab');
     const focus = await page.evaluate(() => ({
@@ -406,14 +511,6 @@ try {
     assert.equal(focus.width, '2px');
     assert.equal(focus.style, 'solid');
     await page.evaluate(() => document.activeElement.blur());
-    const button = page.locator('#app .btn').first();
-    const buttonBox = await button.boundingBox();
-    await page.mouse.move(buttonBox.x + buttonBox.width / 2, buttonBox.y + buttonBox.height / 2);
-    await page.mouse.down();
-    assert.equal(await button.evaluate(node => getComputedStyle(node).transform), 'none',
-      'press feedback does not scale controls');
-    await page.mouse.move(1, 1);
-    await page.mouse.up();
     await page.evaluate(() => document.activeElement.blur());
 
     for (const route of routes) {
@@ -475,9 +572,52 @@ try {
         });
         assert.deepEqual(strategyControl, { width: 220, height: 36, radius: '10px' },
           'strategy selectors match the measured Lolz 220×36 control geometry');
+        const dangerStyle = await page.locator('#app .btn-danger').first().evaluate(node => {
+          const style = getComputedStyle(node);
+          return { background: style.backgroundColor, color: style.color, radius: style.borderRadius };
+        });
+        assert.deepEqual(dangerStyle, { background: 'rgb(139, 56, 56)', color: 'rgb(245, 245, 245)', radius: '10px' },
+          'destructive controls use the source filled red button treatment');
+      }
+      if (route === 'state' || route === 'pick') {
+        await page.waitForFunction(() => {
+          const tabs = document.querySelector('.strat-tabs');
+          return tabs && getComputedStyle(tabs, '::after').opacity === '1';
+        }, null, { timeout: 1200 });
+        const tabIndicator = await page.locator('.strat-tabs').evaluate(node => {
+          const style = getComputedStyle(node, '::after');
+          return { left: node.style.getPropertyValue('--tab-left'), width: node.style.getPropertyValue('--tab-width'),
+            opacity: style.opacity, transition: style.transition };
+        });
+        assert.notEqual(tabIndicator.width, '', `${appearance}/${route}: active-tab width is measured from the selected link`);
+        assert.equal(tabIndicator.opacity, '1', `${appearance}/${route}: source underline is visible`);
+        assert.match(tabIndicator.transition, /0\.35s cubic-bezier\(0\.4, 0, 0\.2, 1\)/,
+          `${appearance}/${route}: underline position follows Lolz easing`);
+        assert.ok(tabIndicator.left.endsWith('px'), `${appearance}/${route}: source position variable is applied`);
+        const tabScrollMotion = await page.locator('.strat-tabs').evaluate(async tabs => {
+          const active = tabs.querySelector('.strat-tab.active');
+          const spacer = document.createElement('span');
+          spacer.style.cssText = 'flex:0 0 420px;width:420px';
+          tabs.appendChild(spacer);
+          tabs.scrollLeft = 40;
+          tabs.dispatchEvent(new Event('scroll'));
+          await new Promise(requestAnimationFrame);
+          const result = { left: Number.parseFloat(tabs.style.getPropertyValue('--tab-left')),
+            expectedLeft: active.offsetLeft - tabs.scrollLeft,
+            marginLeft: getComputedStyle(tabs, '::after').marginLeft };
+          spacer.remove();
+          tabs.scrollLeft = 0;
+          tabs.dispatchEvent(new Event('scroll'));
+          return result;
+        });
+        assert.equal(tabScrollMotion.left, tabScrollMotion.expectedLeft,
+          `${appearance}/${route}: source tab indicator follows horizontal scroll (${JSON.stringify(tabScrollMotion)})`);
+        assert.equal(tabScrollMotion.marginLeft, '5px', `${appearance}/${route}: source underline has its 5 px inset`);
       }
       assert.equal(await lockup.locator('.brand-profile-logo').count(), 1, `${appearance}: single mark on #/${route}`);
       if (screenshotDir && screenshotRoutes.includes(route)) {
+        await page.mouse.move(1439, 1103);
+        await waitForNavSettled(page);
         await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-${route}.png`) });
         fs.writeFileSync(path.join(screenshotDir, `${appearance}-${route}.json`), JSON.stringify(await page.evaluate(() => ({
           route: location.hash,
@@ -498,8 +638,25 @@ try {
         })), null, 2));
       }
     }
-    for (const width of [1920, 1366, 1280]) {
-      await page.setViewportSize({ width, height: width === 1920 ? 1080 : 1104 });
+    for (const width of [1920, 1366, 1280, 1079, 1024, 800, 768]) {
+      const height = width === 1920 ? 1080 : 1104;
+      await page.setViewportSize({ width, height });
+      if (width >= 768 && width <= 1079) {
+        const tabletFrame = await page.evaluate(() => ({
+          viewport: document.documentElement.clientWidth,
+          scrollWidth: document.documentElement.scrollWidth,
+          navX: document.querySelector('#nav').getBoundingClientRect().x,
+          navWidth: document.querySelector('#nav').getBoundingClientRect().width,
+          appX: document.querySelector('#app').getBoundingClientRect().x,
+          appWidth: document.querySelector('#app').getBoundingClientRect().width,
+        }));
+        assert.ok(tabletFrame.scrollWidth <= tabletFrame.viewport,
+          `${appearance}/${width}: tablet shell has no page horizontal overflow (${JSON.stringify(tabletFrame)})`);
+        assert.ok(Math.abs(tabletFrame.navX) < 1 && Math.abs(tabletFrame.navWidth - 261) < 1,
+          `${appearance}/${width}: tablet navigation stays fully visible at 261 px (${JSON.stringify(tabletFrame)})`);
+        assert.ok(Math.abs(tabletFrame.appX - 280) < 1 && Math.abs(tabletFrame.appWidth - (width - 304)) < 1,
+          `${appearance}/${width}: tablet content fits beside the navigation with 20 px gap (${JSON.stringify(tabletFrame)})`);
+      }
       for (const route of routes) {
         await page.evaluate(name => { location.hash = '#/' + name; }, route);
         await waitForRenderedRoute(page, route);
@@ -510,7 +667,10 @@ try {
         assert.equal(await page.locator('#app [data-ui-fatal]').count(), 0, `${appearance}/${width}: ${route}`);
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
           `${appearance}/${width}: ${route} has no page horizontal overflow`);
-        if (screenshotDir && screenshotRoutes.includes(route)) {
+        if (screenshotDir && screenshotRoutes.includes(route)
+            && ([1920, 1366, 1280].includes(width) || (appearance === 'dark' && width === 1024 && route === 'dashboard'))) {
+          await page.mouse.move(width - 1, height - 1);
+          await waitForNavSettled(page);
           await page.screenshot({ path: path.join(screenshotDir, `${appearance}-${width}-${route}.png`) });
         }
         if (screenshotDir && appearance === 'dark' && width === 1920 && route === 'dashboard') {
@@ -518,14 +678,35 @@ try {
           await hoverCard.hover();
           await page.waitForFunction(() => getComputedStyle(document.querySelector('#app > .card h3')?.closest('.card')).backgroundColor === 'rgb(24, 30, 28)');
           await page.screenshot({ path: path.join(screenshotDir, 'dark-1920-card-hover.png') });
-          await page.mouse.move(1, 1);
+          await page.mouse.move(width - 1, height - 1);
         }
       }
+    }
+    for (const width of [1080, 1081, 1085, 1090, 1091, 1092]) {
+      await page.setViewportSize({ width, height: 900 });
+      const edgeFrame = await page.evaluate(() => ({
+        viewport: document.documentElement.clientWidth,
+        brand: document.querySelector('#panel-brand').getBoundingClientRect().toJSON(),
+        nav: document.querySelector('#nav').getBoundingClientRect().toJSON(),
+        app: document.querySelector('#app').getBoundingClientRect().toJSON(),
+      }));
+      assert.ok(edgeFrame.brand.left >= 0 && edgeFrame.nav.left >= 0
+        && edgeFrame.app.right <= edgeFrame.viewport,
+      `${appearance}/${width}: shell stays inside the viewport at the desktop breakpoint (${JSON.stringify(edgeFrame)})`);
     }
     await page.evaluate(() => { location.hash = '#/state'; });
     await waitForRenderedRoute(page, 'state');
     await page.locator('.state-table').waitFor({ state: 'visible', timeout: 1500 });
     assert.equal(await page.locator('.state-table').evaluate(node => node.tagName), 'TABLE', 'dense desktop data stays a table');
+    const frozenRow = await page.locator('.state-table tbody tr').filter({ has: page.locator('.state-strat-sel[data-mode="frozen"]') }).first().evaluate(row => ({
+      frozen: row.dataset.frozen,
+      inlineBackground: row.style.background,
+      background: getComputedStyle(row).backgroundColor,
+      selectedSurface: getComputedStyle(document.querySelector('#nav a.active')).backgroundColor,
+    }));
+    assert.equal(frozenRow.frozen, 'true', `frozen table state is semantic and themeable (${JSON.stringify(frozenRow)})`);
+    assert.equal(frozenRow.inlineBackground, '', 'row color comes from the shared Lolz surface token');
+    assert.equal(frozenRow.background, frozenRow.selectedSurface, 'frozen rows use the source selected surface');
     assert.equal((await page.locator('.unique-set-badge').innerText()).trim(), 'Экспериментальная функция');
     assert.equal(await page.locator('#unique-set-reset-all').evaluate(node => node.classList.contains('btn-danger')), false,
       'reversible return-to-automatic action is not destructive red');
@@ -544,6 +725,104 @@ try {
     await page.close();
   }
 
+  // Hold the OpenWrt profile response to prove the Lolz shell theme is already
+  // applied on the first rendered Full-HD dashboard, independent of identity.
+  const firstPaintPage = await browser.newPage({ viewport: { width: 1920, height: 1080 }, colorScheme: 'dark' });
+  let markProfileRequestStarted;
+  const profileRequestStarted = new Promise(resolve => { markProfileRequestStarted = resolve; });
+  let profileReleased = false;
+  let releaseProfileRequest;
+  await firstPaintPage.route('**/assets/openwrt/profile.json', route => {
+    markProfileRequestStarted();
+    return new Promise(resolve => {
+      releaseProfileRequest = async () => {
+        await route.continue();
+        profileReleased = true;
+        resolve();
+      };
+    });
+  });
+  await firstPaintPage.goto(`${base}/#/dashboard`, { waitUntil: 'domcontentloaded' });
+  await profileRequestStarted;
+  await waitForRenderedRoute(firstPaintPage, 'dashboard');
+  assert.equal(profileReleased, false, 'first-paint measurements are taken while the OpenWrt profile request is held');
+  const firstPaintTheme = await firstPaintPage.evaluate(() => ({
+    fontFamily: getComputedStyle(document.body).fontFamily,
+    fontSize: getComputedStyle(document.body).fontSize,
+    topbarHeight: `${document.querySelector('.topbar').getBoundingClientRect().height}px`,
+  }));
+  await releaseProfileRequest();
+  assert.match(firstPaintTheme.fontFamily, /^-apple-system, BlinkMacSystemFont, ?"?Inter"?/,
+    `Full-HD first paint uses the locally bundled Lolz Inter font while profile.json is held (${JSON.stringify(firstPaintTheme)})`);
+  assert.equal(firstPaintTheme.fontSize, '14px',
+    `Full-HD first paint uses the Lolz 14 px body size while profile.json is held (${JSON.stringify(firstPaintTheme)})`);
+  assert.equal(firstPaintTheme.topbarHeight, '44px',
+    `Full-HD first paint uses the Lolz 44 px topbar while profile.json is held (${JSON.stringify(firstPaintTheme)})`);
+  await firstPaintPage.close();
+
+  const motionPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+  await motionPage.goto(`${base}/#/dashboard`);
+  await waitForRenderedRoute(motionPage, 'dashboard');
+  const modalMotion = await motionPage.evaluate(async () => {
+    const { openModalBackdrop, closeModalBackdrop } = await import('/js/core/modal.js');
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.innerHTML = '<div class="modal">Lolz modal state check</div>';
+    const modal = backdrop.querySelector('.modal');
+    document.body.appendChild(backdrop);
+    const start = { backdropOpacity: getComputedStyle(backdrop).opacity,
+      modalOpacity: getComputedStyle(modal).opacity,
+      modalTransform: getComputedStyle(modal).transform,
+      transitionDuration: getComputedStyle(modal).transitionDuration,
+      transitionProperty: getComputedStyle(modal).transitionProperty };
+    openModalBackdrop(backdrop);
+    await new Promise(requestAnimationFrame);
+    await new Promise(resolve => setTimeout(resolve, 220));
+    const opened = { backdrop: backdrop.classList.contains('in'), modal: modal.classList.contains('in'),
+      backdropOpacity: getComputedStyle(backdrop).opacity,
+      modalOpacity: getComputedStyle(modal).opacity,
+      modalTransform: getComputedStyle(modal).transform };
+    closeModalBackdrop(backdrop);
+    const closing = { backdrop: backdrop.classList.contains('in'), modal: modal.classList.contains('in'),
+      closing: backdrop.dataset.modalClosing };
+    await new Promise(resolve => setTimeout(resolve, 220));
+    return { start, opened, closing, removed: !backdrop.isConnected };
+  });
+  assert.equal(modalMotion.start.modalOpacity, '0', 'Lolz modal starts transparent');
+  assert.ok(Math.abs(Number(modalMotion.start.modalTransform.match(/^matrix\(([^,]+)/)?.[1]) - 0.9) < 0.002,
+    'Lolz modal starts at scale(.9)');
+  assert.equal(modalMotion.start.transitionDuration, '0.2s, 0.15s');
+  assert.equal(modalMotion.start.transitionProperty, 'transform, opacity');
+  assert.deepEqual([modalMotion.opened.backdrop, modalMotion.opened.modal,
+    modalMotion.opened.backdropOpacity, modalMotion.opened.modalOpacity], [true, true, '1', '1']);
+  assert.equal(modalMotion.opened.modalTransform, 'matrix(1, 0, 0, 1, 0, 0)');
+  assert.deepEqual([modalMotion.closing.backdrop, modalMotion.closing.modal, modalMotion.closing.closing],
+    [false, false, 'true']);
+  assert.equal(modalMotion.removed, true, 'modal backdrop is removed after the source close transition');
+  await motionPage.close();
+
+  const loginPage = await browser.newPage({ viewport: { width: 1920, height: 1080 }, colorScheme: 'dark' });
+  await loginPage.route('**/cgi-bin/api/status', route => route.fulfill({
+    status: 401,
+    contentType: 'application/json; charset=utf-8',
+    body: JSON.stringify({ ok: false, needauth: true }),
+  }));
+  await loginPage.goto(`${base}/#/dashboard`);
+  await loginPage.locator('.login-box').waitFor({ state: 'visible', timeout: 2000 });
+  const loginFrame = await loginPage.evaluate(() => {
+    const box = document.querySelector('.login-box').getBoundingClientRect();
+    return { viewport: document.documentElement.clientWidth, x: box.x, width: box.width,
+      center: box.x + box.width / 2, page: document.body.dataset.page };
+  });
+  assert.equal(loginFrame.page, 'login', 'an unauthorized status response renders the real login state');
+  assert.ok(Math.abs(loginFrame.center - loginFrame.viewport / 2) < 1,
+    `desktop login form is centered in the viewport (${JSON.stringify(loginFrame)})`);
+  if (screenshotDir) {
+    await loginPage.mouse.move(1919, 1079);
+    await loginPage.screenshot({ path: path.join(screenshotDir, 'dark-1920-login.png') });
+  }
+  await loginPage.close();
+
   const fullHdShort = await browser.newPage({ viewport: { width: 1920, height: 480 } });
   await fullHdShort.goto(base + '/#/dashboard');
   await waitForRenderedRoute(fullHdShort, 'dashboard');
@@ -551,11 +830,11 @@ try {
     const theme = document.querySelector('#brand-profile-theme');
     return theme && theme.sheet && theme.sheet.cssRules.length > 0;
   }, null, { timeout: 1500 });
-  await fullHdShort.waitForFunction(() => Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 260) < 1,
+  await fullHdShort.waitForFunction(() => Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 261) < 1,
     null, { timeout: 1200 });
   assert.equal(await fullHdShort.locator('#menu-toggle').isVisible(), false,
     'a short Full HD browser window keeps the desktop sidebar');
-  assert.ok(Math.abs(await fullHdShort.locator('#nav').evaluate(node => node.getBoundingClientRect().width) - 260) < 1,
+  assert.ok(Math.abs(await fullHdShort.locator('#nav').evaluate(node => node.getBoundingClientRect().width) - 261) < 1,
     'a short Full HD browser window retains the desktop sidebar width');
   await fullHdShort.close();
 
@@ -639,13 +918,46 @@ try {
   assert.deepEqual(themeErrors, []);
   await themeBlocked.close();
 
+  const themeSlow = await browser.newPage();
+  let markThemeRequestStarted;
+  const themeRequestStarted = new Promise(resolve => { markThemeRequestStarted = resolve; });
+  let releaseThemeRequest;
+  await themeSlow.route('**/assets/openwrt/theme.css', route => {
+    markThemeRequestStarted();
+    return new Promise(resolve => {
+      releaseThemeRequest = async () => {
+        await route.continue();
+        resolve();
+      };
+    });
+  });
+  await themeSlow.goto(base + '/#/dashboard', { waitUntil: 'commit' });
+  await themeRequestStarted;
+  let routeRenderedBeforeTheme = false;
+  try {
+    await themeSlow.waitForFunction(() => document.querySelector('#app .page-title')?.textContent === 'Дашборд',
+      null, { timeout: 1200 });
+    routeRenderedBeforeTheme = true;
+  } catch {}
+  await releaseThemeRequest();
+  assert.equal(routeRenderedBeforeTheme, true,
+    'a slow optional brand theme never blocks the first route render');
+  await waitForRenderedRoute(themeSlow, 'dashboard');
+  await themeSlow.close();
+
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: 'dark', isMobile: true, hasTouch: true });
   await mobile.goto(base + '/#/dashboard');
   await waitForRenderedRoute(mobile, 'dashboard');
   assert.equal(await mobile.locator('#menu-toggle').isVisible(), true);
   const mobileTriggerBox = await mobile.locator('#menu-toggle').boundingBox();
   const mobileBrandBox = await mobile.locator('#panel-brand').boundingBox();
-  assert.ok(mobileTriggerBox.x < mobileBrandBox.x, 'the mobile menu button sits to the left of the z2kOW wordmark');
+  const mobileThemeBox = await mobile.locator('.theme-toggle').boundingBox();
+  assert.ok(mobileTriggerBox.x < mobileBrandBox.x, 'the mobile menu button sits to the left of the z2kOW mark');
+  assert.ok(mobileThemeBox && mobileThemeBox.x >= 0 && mobileThemeBox.x + mobileThemeBox.width <= 390
+    && mobileThemeBox.height >= 44,
+  `the mobile theme actions stay visible on the right with touch-sized controls (${JSON.stringify(mobileThemeBox)})`);
+  assert.equal(await mobile.locator('#header-nav, #route-recents').count(), 0,
+    'one route menu remains: the existing navigation drawer');
   assert.ok(await mobile.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
     'compact layout must not create page-level horizontal overflow');
   await mobile.locator('#menu-toggle').click();
@@ -699,10 +1011,49 @@ try {
     assert.equal(await mobile.locator('#app [data-ui-fatal]').count(), 0, `mobile: ${route}`);
     assert.ok(await mobile.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
       `390px: ${route} has no page horizontal overflow`);
+    if (route === 'strategies') await assertActiveStrategyTabVisible(mobile, '390px dark');
+    if (route === 'state') {
+      const stateLayout = await mobile.locator('.state-table').evaluate(table => {
+        const header = table.querySelector('thead');
+        const row = table.querySelector('tbody tr');
+        const cell = row?.querySelector('td');
+        const scroller = table.closest('.table-scroll');
+        return {
+          table: getComputedStyle(table).display,
+          header: getComputedStyle(header).display,
+          row: getComputedStyle(row).display,
+          cell: getComputedStyle(cell).display,
+          scrollClientWidth: scroller.clientWidth,
+          scrollWidth: scroller.scrollWidth,
+          pageClientWidth: document.documentElement.clientWidth,
+          pageScrollWidth: document.documentElement.scrollWidth,
+        };
+      });
+      assert.deepEqual(
+        [stateLayout.table, stateLayout.header, stateLayout.row, stateLayout.cell],
+        ['table', 'table-header-group', 'table-row', 'table-cell'],
+        `390px ${route}: dense state data retains semantic table layout (${JSON.stringify(stateLayout)})`);
+      assert.ok(stateLayout.scrollWidth > stateLayout.scrollClientWidth,
+        `390px ${route}: columns remain reachable in the local horizontal scroller (${JSON.stringify(stateLayout)})`);
+      assert.ok(stateLayout.pageScrollWidth <= stateLayout.pageClientWidth,
+        `390px ${route}: table scrolling does not create document overflow (${JSON.stringify(stateLayout)})`);
+    }
     if (screenshotDir && ['dashboard', 'strategies'].includes(route)) {
+      await mobile.mouse.move(389, 843);
+      await waitForNavSettled(mobile);
       await mobile.screenshot({ path: path.join(screenshotDir, `dark-390-${route}.png`), fullPage: true });
     }
+    if (screenshotDir && route === 'state') {
+      await mobile.mouse.move(389, 843);
+      await waitForNavSettled(mobile);
+      await mobile.screenshot({ path: path.join(screenshotDir, 'dark-390-state.png'), fullPage: true });
+    }
   }
+  await mobile.setViewportSize({ width: 320, height: 844 });
+  await mobile.evaluate(() => { location.hash = '#/strategies'; });
+  await waitForRenderedRoute(mobile, 'strategies');
+  await assertStrategyTabsAllowManualScroll(mobile, '320px dark');
+  await mobile.setViewportSize({ width: 390, height: 844 });
   // Exercise and capture the real mobile light-theme control while the drawer
   // exposes its footer switcher, then check every route in that appearance.
   await mobile.locator('#menu-toggle').click();
@@ -720,7 +1071,38 @@ try {
     assert.equal(await mobile.locator('#app [data-ui-fatal]').count(), 0, `mobile light: ${route}`);
     assert.ok(await mobile.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
       `390px light: ${route} has no page horizontal overflow`);
-    if (screenshotDir) await mobile.screenshot({ path: path.join(screenshotDir, `light-390-${route}.png`), fullPage: true });
+    if (route === 'strategies') await assertActiveStrategyTabVisible(mobile, '390px light');
+    if (route === 'state') {
+      const stateLayout = await mobile.locator('.state-table').evaluate(table => {
+        const header = table.querySelector('thead');
+        const row = table.querySelector('tbody tr');
+        const cell = row?.querySelector('td');
+        const scroller = table.closest('.table-scroll');
+        return {
+          table: getComputedStyle(table).display,
+          header: getComputedStyle(header).display,
+          row: getComputedStyle(row).display,
+          cell: getComputedStyle(cell).display,
+          scrollClientWidth: scroller.clientWidth,
+          scrollWidth: scroller.scrollWidth,
+          pageClientWidth: document.documentElement.clientWidth,
+          pageScrollWidth: document.documentElement.scrollWidth,
+        };
+      });
+      assert.deepEqual(
+        [stateLayout.table, stateLayout.header, stateLayout.row, stateLayout.cell],
+        ['table', 'table-header-group', 'table-row', 'table-cell'],
+        `390px light state: dense state data retains semantic table layout (${JSON.stringify(stateLayout)})`);
+      assert.ok(stateLayout.scrollWidth > stateLayout.scrollClientWidth,
+        `390px light state: columns remain reachable in the local horizontal scroller (${JSON.stringify(stateLayout)})`);
+      assert.ok(stateLayout.pageScrollWidth <= stateLayout.pageClientWidth,
+        `390px light state: table scrolling does not create document overflow (${JSON.stringify(stateLayout)})`);
+    }
+    if (screenshotDir) {
+      await mobile.mouse.move(389, 843);
+      await waitForNavSettled(mobile);
+      await mobile.screenshot({ path: path.join(screenshotDir, `light-390-${route}.png`), fullPage: true });
+    }
   }
   await mobile.emulateMedia({ reducedMotion: 'reduce' });
   assert.equal(await mobile.locator('#menu-shell .mm-ocd__content').evaluate(node => getComputedStyle(node).transitionDuration), '0s',

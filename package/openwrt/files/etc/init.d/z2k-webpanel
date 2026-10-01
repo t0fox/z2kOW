@@ -15,13 +15,7 @@ Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
 start_service() {
     # shellcheck disable=SC1090,SC1091
     . "$Z2K_ROOT/platform/openwrt/webpanel.sh" || return 1
-    local _cfg="" _port="" _http_rc=0
-    wp_panel_reconcile_http_listener
-    _http_rc=$?
-    case "$_http_rc" in
-        0|2) ;;
-        *) return 1 ;;
-    esac
+    local _cfg="" _port=""
     # Render transient config (настройки создаются, только если отсутствуют).
     _cfg="$(wp_panel_render)" || return 1
     # Точную ошибку валидации — наружу, а не в /dev/null: немая "конфиг

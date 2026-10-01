@@ -1,4 +1,5 @@
 import { apiGet, isRefusal } from "./core/api.js";
+import { closeModalBackdrop, openModalBackdrop } from "./core/modal.js";
 import { _icons, escapeHtml } from "./core/dom.js";
 import { apiPost } from "./core/api.js";
 import { toast } from "./core/toast.js";
@@ -411,6 +412,7 @@ export function openJobModal(title, jobId, opts = {}) {
     </div>
   `;
   document.body.appendChild(backdrop);
+  openModalBackdrop(backdrop);
   const logEl = backdrop.querySelector("#job-log");
   const closeBtn = backdrop.querySelector("#job-close");
   const cancelBtn = backdrop.querySelector("#job-cancel");
@@ -443,7 +445,7 @@ export function openJobModal(title, jobId, opts = {}) {
 
   closeBtn.addEventListener("click", () => {
     poller.attachers.delete(onTick);
-    backdrop.remove();
+    closeModalBackdrop(backdrop);
   });
   if (cancelBtn) {
     cancelBtn.addEventListener("click", async () => {
@@ -501,6 +503,7 @@ export function confirmTypedModal(title, lines, word, okLabel) {
       </div>
     `;
     document.body.appendChild(backdrop);
+    openModalBackdrop(backdrop);
     const input = backdrop.querySelector("#typed-input");
     const okBtn = backdrop.querySelector("#typed-ok");
     const cancelBtn = backdrop.querySelector("#typed-cancel");
@@ -510,9 +513,10 @@ export function confirmTypedModal(title, lines, word, okLabel) {
       if (answered) return;
       answered = true;
       document.removeEventListener("keydown", onKey);
-      backdrop.remove();
-      if (prevFocus && typeof prevFocus.focus === "function") prevFocus.focus();
-      resolve(answer);
+      closeModalBackdrop(backdrop, () => {
+        if (prevFocus && typeof prevFocus.focus === "function") prevFocus.focus();
+        resolve(answer);
+      });
     }
     // Сверяем без учёта регистра и краевых пробелов: требование — прочитать и
     // осознанно набрать, а не попасть в раскладку и Caps Lock.
@@ -575,6 +579,7 @@ export function confirmModal(title, text, okLabel, cancelLabel) {
       </div>
     `;
     document.body.appendChild(backdrop);
+    openModalBackdrop(backdrop);
     const okBtn = backdrop.querySelector("#confirm-ok");
     const cancelBtn = backdrop.querySelector("#confirm-cancel");
 
@@ -585,9 +590,10 @@ export function confirmModal(title, text, okLabel, cancelLabel) {
       if (answered) return;
       answered = true;
       document.removeEventListener("keydown", onKey);
-      backdrop.remove();
-      if (prevFocus && typeof prevFocus.focus === "function") prevFocus.focus();
-      resolve(answer);
+      closeModalBackdrop(backdrop, () => {
+        if (prevFocus && typeof prevFocus.focus === "function") prevFocus.focus();
+        resolve(answer);
+      });
     }
     // Ловушка фокуса. Подложка position:fixed останавливает мышь, но Tab
     // из неё выходит на страницу — оттуда можно было повторно дёрнуть тот же

@@ -1,4 +1,5 @@
 import { apiGet, apiPost, errHtml, toastErr } from "../core/api.js";
+import { closeModalBackdrop, openModalBackdrop } from "../core/modal.js";
 import { _icons, escapeHtml, humanAgo } from "../core/dom.js";
 import { refreshStatus } from "../core/loadorder.js";
 import { openJobModal } from "../job.js";
@@ -312,6 +313,7 @@ async function openHistoryModal(ctx = {}) {
   `;
 
   document.body.appendChild(backdrop);
+  openModalBackdrop(backdrop);
 
   const listEl = backdrop.querySelector("#hist-modal-list");
   const closeX = backdrop.querySelector("#hist-modal-close");
@@ -323,10 +325,9 @@ async function openHistoryModal(ctx = {}) {
     if (closed) return;
     closed = true;
     document.removeEventListener("keydown", onKey);
-    backdrop.remove();
-    if (prevFocus && typeof prevFocus.focus === "function") {
-      prevFocus.focus();
-    }
+    closeModalBackdrop(backdrop, () => {
+      if (prevFocus && typeof prevFocus.focus === "function") prevFocus.focus();
+    });
   }
 
   function onKey(e) {
