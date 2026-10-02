@@ -2,13 +2,14 @@
 
 This index lists every file currently saved below original/. The files are unmodified source captures; readable copies are outside this directory.
 
-SHA-256 digests for all 44 captured originals are listed in [RESOURCE-SHA256SUMS.txt](RESOURCE-SHA256SUMS.txt).
+SHA-256 digests for all 66 captured originals are listed in [RESOURCE-SHA256SUMS.txt](RESOURCE-SHA256SUMS.txt).
 
 ## Coverage
 
 - build-7280435c/: 30 files total: 18 forum files, 2 refreshed CSS captures, and 10 lzt.market resources.
 - build-fcf0e282/: 14 files.
-- Total: 44 files.
+- build-b43db6b7/: 22 directly relevant files from the 2026-10-02 active-tab refresh.
+- Total: 66 files.
 
 ## URL evidence labels
 
@@ -20,6 +21,7 @@ Full build identifiers:
 
 - build-7280435c: 7280435c04428cb2232439a10753600f57a32faa
 - build-fcf0e282: fcf0e282ef396c07d19497c15a3547a2f3d672db
+- build-b43db6b7: b43db6b749b4fa1ea4731c842ae75616b0ec0698
 
 CDN JavaScript chunks use https://nztcdn.com/js/master/<full-build-hash>/js/assets/js/chunks/<filename>.
 Page scripts use https://nztcdn.com/js/master/<full-build-hash>/js/lolzteam/<path>?_v=<full-build-hash>; core.js is under ng/core.js.
@@ -59,6 +61,28 @@ Stylesheets use https://lolz.team/css.php. The refreshed CSS URLs below are exac
 | build-7280435c/lzt-market/js/assets/js/chunks/svelte-src-DujwBjvd.js | https://nztcdn.com/js/master/7280435c04428cb2232439a10753600f57a32faa/js/assets/js/chunks/svelte-src-DujwBjvd.js — build 7280435c04428cb2232439a10753600f57a32faa | Svelte runtime dependency of market components. | Observed by CDP Network; HTTP 200. |
 | build-7280435c/lzt-market/js/market/core.min.js | https://nztcdn.com/js/master/7280435c04428cb2232439a10753600f57a32faa/js/market/core.min.js?_v=7280435c04428cb2232439a10753600f57a32faa — build 7280435c04428cb2232439a10753600f57a32faa | Market page application entry bundle. | Observed by CDP Network; HTTP 200. |
 | build-7280435c/lzt-market/js/lolzteam/ng/market/core.js | https://nztcdn.com/js/master/7280435c04428cb2232439a10753600f57a32faa/js/lolzteam/ng/market/core.js?_v=7280435c04428cb2232439a10753600f57a32faa — build 7280435c04428cb2232439a10753600f57a32faa | Market-specific core module bundle. | Observed by CDP Network; HTTP 200. |
+| build-b43db6b7/AnimationFrame-lib-D6ehKyKG.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/assets/js/chunks/AnimationFrame-lib-D6ehKyKG.js — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | AnimationFrame scheduling helper loaded with the shared UI chunks. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/canvas-confetti-dist-BhZaCPDF.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/assets/js/chunks/canvas-confetti-dist-BhZaCPDF.js — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Canvas-confetti runtime dependency for conditional celebration effects. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/confetti-D6GvLetH.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/assets/js/chunks/confetti-D6GvLetH.js — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Conditional confetti effect module. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/core.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/lolzteam/ng/core.js?_v=b43db6b749b4fa1ea4731c842ae75616b0ec0698 — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Current page core bundle; registers feature modules and motion helpers. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/discussion.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/xenforo/discussion.js?_v=b43db6b749b4fa1ea4731c842ae75616b0ec0698 — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Current discussion-page UI module. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/discussion_list.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/xenforo/discussion_list.js?_v=b43db6b749b4fa1ea4731c842ae75616b0ec0698 — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Current homepage discussion-list module. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/forum.min.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/lolzteam/forum.min.js?_v=b43db6b749b4fa1ea4731c842ae75616b0ec0698 — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Current minified forum UI/runtime support bundle. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/inter-fonts.css | https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..600;1,14..32,100..600&display=swap | Current Inter font-face CSS response; font files are not required by the extracted drawer. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/like_burst-BGiZfc0n.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/assets/js/chunks/like_burst-BGiZfc0n.js — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Current reaction burst implementation; not activated during the inspection. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/mmenu-light-esm-DZvQucl3.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/assets/js/chunks/mmenu-light-esm-DZvQucl3.js — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | MmenuLight current ESM implementation for off-canvas wrapper, backdrop, and open/close. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/mmenu-light-src-BfP3NJC5.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/assets/js/chunks/mmenu-light-src-BfP3NJC5.js — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | MmenuLight source wrapper exporting `window.MmenuLight`. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/Overlay-C5u4Gtox.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/assets/js/chunks/Overlay-C5u4Gtox.js — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Current overlay component chunk. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/Popup-Db8pPUfy.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/assets/js/chunks/Popup-Db8pPUfy.js — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Current popup component chunk. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/PopupMenu-CKRmYAuv.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/assets/js/chunks/PopupMenu-CKRmYAuv.js — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Current popup-menu component chunk. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/public-base.css | https://lolz.team/css.php?css=public:font,public:xenforo,public:form,public:public&s=52&l=2&d=1790891290 | Current shared CSS response; keyframes, controls, and shared component styles. | Observed in 2026-10-02 active-tab CDP resource tree; its readable copy uses whitespace-only formatting because Prettier rejects the source syntax. |
+| build-b43db6b7/public-homepage.css | https://lolz.team/css.php?css=public%3Abb_code%2Cpublic%3AEWRporta2_Global%2Cpublic%3Anode_list%2Cpublic%3Anode_list.scss%2Cpublic%3Anode_category%2Cpublic%3Atitle_prefix_edit%2Cpublic%3Adiscussion_list%2Cpublic%3Alzt_text_ads.scss%2Cpublic%3Ahot_threads.scss%2Cpublic%3Anewmainpage%2Cpublic%3Adiscussion_list_icon%2Cpublic%3Aquick_reply%2Cpublic%3Alzt_fe_editor%2Cpublic%3Alzt_fe_editor_simple%2Cpublic%3Alzt_fe_editor_smilies%2Cpublic%3Alztng_photoshop%2Cpublic%3Alzt_fe_conversation_templates%2Cpublic%3Anode_notify.scss%2Cpublic%3Alztng_core%2Cpublic%3Alztng_liveAlerts%2Cpublic%3Aunfurl.scss%2Cpublic%3Acounter_icons.scss%2Cpublic%3Ammenu_all_v3%2Cpublic%3Alive_header_search_results_user.scss%2Cpublic%3Anav_tab_mobile%2Cpublic%3Anavigation_visitor.scss%2Cpublic%3Alzt_recent_pages.scss%2Cpublic%3Anoticepush.scss&s=52&l=2&d=1790891290&k=60023f54592b50730d1d16c9a156d0e1f0d3c18b | Current homepage CSS; the drawer rule region matches the 2026-10-01 capture byte-for-byte. | Observed in 2026-10-02 active-tab CDP resource tree; its readable copy uses whitespace-only formatting because Prettier rejects the source syntax. |
+| build-b43db6b7/rolldown--CGnXi_bv.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/assets/js/chunks/rolldown--CGnXi_bv.js — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Current ESM loader support chunk. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/rolldown-runtime-MtAR-uS5.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/assets/js/chunks/rolldown-runtime-MtAR-uS5.js — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Current ESM runtime dependency for the MmenuLight chunks. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/script.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/lolzteam/script.js?_v=b43db6b749b4fa1ea4731c842ae75616b0ec0698 — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Current page-level script bundle supporting the public homepage. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/Spinner-DAjDL6R9.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/assets/js/chunks/Spinner-DAjDL6R9.js — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Current spinner component module for loading states. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/Tooltip-BS6lWImc.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/assets/js/chunks/Tooltip-BS6lWImc.js — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Current tooltip component module. | Observed in 2026-10-02 active-tab CDP resource tree. |
+| build-b43db6b7/xenforo-iTePVTI1.js | https://nztcdn.com/js/master/b43db6b749b4fa1ea4731c842ae75616b0ec0698/js/assets/js/chunks/xenforo-iTePVTI1.js — build b43db6b749b4fa1ea4731c842ae75616b0ec0698 | Current XenForo component chunk; includes `XenForo.MobileMenu` event wiring. | Observed in 2026-10-02 active-tab CDP resource tree. |
 | build-fcf0e282/canvas-confetti-dist-BhZaCPDF.js | https://nztcdn.com/js/master/fcf0e282ef396c07d19497c15a3547a2f3d672db/js/assets/js/chunks/canvas-confetti-dist-BhZaCPDF.js — build fcf0e282ef396c07d19497c15a3547a2f3d672db | Canvas-confetti dependency preserved from the earlier CDN build. | Reconstructed from earlier build hash and chunk route. |
 | build-fcf0e282/confetti-Becqm05Y.js | https://nztcdn.com/js/master/fcf0e282ef396c07d19497c15a3547a2f3d672db/js/assets/js/chunks/confetti-Becqm05Y.js — build fcf0e282ef396c07d19497c15a3547a2f3d672db | Earlier-build confetti effect module, preserved as historical snapshot. | Reconstructed from earlier build hash and chunk route. |
 | build-fcf0e282/core.js | https://nztcdn.com/js/master/fcf0e282ef396c07d19497c15a3547a2f3d672db/js/lolzteam/ng/core.js?_v=fcf0e282ef396c07d19497c15a3547a2f3d672db — build fcf0e282ef396c07d19497c15a3547a2f3d672db | Earlier page core bundle; preserves first-load module registration state. | Reconstructed from earlier build hash and page-script route. |
@@ -76,14 +100,14 @@ Stylesheets use https://lolz.team/css.php. The refreshed CSS URLs below are exac
 
 ## Provenance exceptions
 
-All 44 files are covered above. Exact request URLs are not recoverable from retained local evidence for three historical CSS files:
+All 66 files are covered above. Exact request URLs are not recoverable from retained local evidence for three historical CSS files:
 
 1. build-7280435c/public-homepage.css: earlier cache token d=1790855470 is recorded, but the full CSS bundle parameter and optional k value are not.
 2. build-fcf0e282/public-base.css: the initial build CSS query and cache token were not retained.
 3. build-fcf0e282/public-homepage.css: the initial CSS bundle query, cache token, and optional key were not retained.
 
-The refreshed CSS in capture-1790855897/ has exact source URLs in the table. JavaScript bundle URLs are reconstructed or observed as individually labeled.
+The refreshed CSS in capture-1790855897/ and the 2026-10-02 build have exact source URLs in the table. JavaScript bundle URLs are reconstructed or observed as individually labeled.
 
-All 44 CSS/JS originals now have separate readable copies below `pretty/`. Prettier formats 41 of them; it rejects three delivered CSS responses because the original CSS contains syntax errors. For those three files, the `.pretty.css` sibling is a whitespace-only structural formatting fallback; it does not repair declarations, and the untouched source remains under `original/`.
+All 66 CSS/JS originals now have separate readable copies below `pretty/`. Prettier formats 61 of them; it rejects five delivered CSS responses because the original CSS contains syntax errors. For those five files, the `.pretty.css` sibling is a whitespace-only structural formatting fallback; it does not repair declarations, and the untouched source remains under `original/`.
 
 No SVG, raster image, or font binary is saved under original/. The extracted drawer requires no remote asset; the hamburger glyph is inline SVG in the inspected DOM.

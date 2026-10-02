@@ -5,7 +5,7 @@ This pass applies source-backed Lolz geometry, typography, surfaces, and interac
 ## Shared shell
 
 - The captured Lolz page measured a centered 1081 px content wrapper with a 261 px inner rail, 15 px gap, and 800 px main column. The WebPanel uses those same desktop dimensions. At 1920 px, the main column starts at x=693.
-- The source logo box is 36×36 px at y=3. The local header is 44 px high and contains the z2kOW mark and theme control.
+- The source logo box is 36×36 px at y=3. The local header is 44 px high and contains the supplied z2kOW horizontal lockup, route-aware `z2kOW · <section>` browser title, mark-only favicon, and theme control. The unchanged 2508×627 lockup source is cropped into a 200×38 px desktop header window and 160×38 px mobile window; the mobile crop is contained by the brand link so it cannot cover the menu trigger.
 - Lolz also has header route links and a recent-pages strip. The WebPanel already has a complete side menu for its routes, so these duplicated local route lists were removed to keep navigation in one place. The main content and side rail start below the 44 px header.
 - At 390 px, the side menu becomes the existing left drawer; the compact header keeps the menu trigger, mark, and theme control. Strategy tabs use tighter horizontal spacing at this width so all labels fit without clipping.
 

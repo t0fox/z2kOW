@@ -2,7 +2,9 @@
 
 ## Scope and evidence labels
 
-This catalogue covers the standard and homepage CSS responses loaded by `https://lolz.team/` in the current CDP capture (`7280435c04428cb2232439a10753600f57a32faa`). It also records motion components found in the corresponding loaded JavaScript chunks. It is not a claim that every route or all code on Lolzteam has been inspected.
+This catalogue gives the detailed standard and homepage CSS analysis from the 2026-10-01 CDP capture (`7280435c04428cb2232439a10753600f57a32faa`) and motion components in its loaded JavaScript chunks. It is not a claim that every route or all code on Lolzteam has been inspected.
+
+A read-only refresh of the already-open page on 2026-10-02 captured build `b43db6b749b4fa1ea4731c842ae75616b0ec0698`. The off-canvas drawer rule region is byte-identical between these builds. The refreshed shared/homepage CSS has 99 unique keyframe names: it adds none and no longer defines `lztSkeletonShimmer`. The rest of this inventory's source offsets and animation catalog remain tied to build `7280435c...`; current originals and pretty copies are indexed in [RESOURCE-INDEX.md](RESOURCE-INDEX.md).
 
 - **Observed** means the state was activated on the page and measured in Chromium.
 - **Wired / conditional** means the loaded CSS/JS defines a trigger, but it depends on a component or state that was not activated in this inspection.
@@ -21,7 +23,7 @@ The menu's exact markup, event handler, classes, transition delays, close sequen
 
 ## CSS `@keyframes` coverage
 
-The current shared CSS has **94 unique keyframe names** (175 standard/vendor-prefixed definitions). The current homepage CSS has **9 names** (24 definitions), three of which repeat shared names. That gives **100 unique CSS keyframe names** across the two CSS responses. Vendor-prefixed duplicates are counted as one name. The JSON catalogue retains each definition's source offset.
+In build `7280435c...`, the shared CSS has **94 unique keyframe names** (175 standard/vendor-prefixed definitions). The homepage CSS has **9 names** (24 definitions), three of which repeat shared names. That gives **100 unique CSS keyframe names** across the two CSS responses. Vendor-prefixed duplicates are counted as one name. The JSON catalogue retains each definition's source offset.
 
 ### Animate.css family (78 names)
 

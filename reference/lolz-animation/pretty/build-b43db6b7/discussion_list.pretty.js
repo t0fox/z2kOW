@@ -1,0 +1,332 @@
+try {
+  let e =
+      typeof window < `u`
+        ? window
+        : typeof global < `u`
+          ? global
+          : typeof globalThis < `u`
+            ? globalThis
+            : typeof self < `u`
+              ? self
+              : {},
+    t = new e.Error().stack;
+  t &&
+    ((e._sentryDebugIds = e._sentryDebugIds || {}),
+    (e._sentryDebugIds[t] = `97516e3a-a80f-4ce0-8e36-1636a0e5af85`),
+    (e._sentryDebugIdIdentifier = `sentry-dbid-97516e3a-a80f-4ce0-8e36-1636a0e5af85`));
+} catch (e) {}
+import { __esmMin as e } from "../assets/js/chunks/rolldown-runtime-MtAR-uS5.js";
+import {
+  init_jquery_xenforo_rollup as t,
+  jquery_xenforo_rollup_default as n,
+} from "../assets/js/chunks/jquery-nYWvo6DM.js";
+import { init___sentry_release_injection_file as r } from "../assets/js/chunks/_sentry-release-injection-file-oX-AVkR8.js";
+import {
+  init_xenforo as i,
+  init_xf as a,
+  phrase as o,
+  xenforo_default as s,
+} from "../assets/js/chunks/xenforo-iTePVTI1.js";
+var c = e(() => {
+  (i(),
+    t(),
+    a(),
+    r(),
+    (s.DiscussionList = function (e) {
+      this.__construct(e);
+    }),
+    (s.DiscussionList.prototype = {
+      __construct: function (e) {
+        ((this.$form = e),
+          n(document)
+            .off(`click`, `a.EditControl`)
+            .on(`click`, `a.EditControl`, n.context(this, `editControlClick`)),
+          (this.$editor = null),
+          (this.loaderXhr = null));
+      },
+      editControlClick: function (e) {
+        if (this.loaderXhr) return !1;
+        var t = n(e.target),
+          r = t.closest(`.discussionListItem`);
+        if (this.$editor) {
+          if (this.$editor.is(`:animated`)) return !1;
+          this.$editor.xfRemove(`xfSlideUp`);
+        }
+        r.addClass(`AjaxProgress`);
+        var i = t.data(`href`);
+        return (
+          (!i || i.match(/^javascript:/)) && (i = t.attr(`href`)),
+          (this.loaderXhr = s.ajax(i, ``, n.context(this, `editorLoaded`))),
+          !1
+        );
+      },
+      editorLoaded: function (e) {
+        this.loaderXhr = null;
+        var t = n(`#thread-` + e.threadId + `.discussionListItem`);
+        if (s.hasResponseError(e)) return (t.removeClass(`AjaxProgress`), !1);
+        new s.ExtLoader(
+          e,
+          n.context(function () {
+            ((this.$editor = n(e.templateHtml)),
+              this.$editor.data(`discussionlistitemid`, t.attr(`id`)).xfInsert(
+                `insertAfter`,
+                t,
+                `xfSlideDown`,
+                s.speed.fast,
+                n.context(function () {
+                  (t.removeClass(`AjaxProgress`),
+                    this.$editor.find(`.titleField`).trigger(`focus`),
+                    n(document).trigger(`TitlePrefixRecalc`));
+                }, this),
+              ));
+          }, this),
+        );
+      },
+    }),
+    (s.DiscussionListItemEditor = function (e) {
+      this.__construct(e);
+    }),
+    (s.DiscussionListItemEditor.prototype = {
+      __construct: function (e) {
+        ((this.$editor = e),
+          (this.$saveButton = n(`input:submit`, this.$editor).on(
+            `click`,
+            n.context(this, `save`),
+          )),
+          (this.$cancelButton = n(`input:reset`, this.$editor).on(
+            `click`,
+            n.context(this, `cancel`),
+          )));
+      },
+      save: function () {
+        if (!this.saverXhr) {
+          var e = this.$editor.closest(`form`).serializeArray();
+          ((e = s.ajaxDataPush(e, `_returnDiscussionListItem`, 1)),
+            this.$editor.addClass(`InProgress`),
+            (this.saverXhr = s.ajax(
+              this.$saveButton.data(`submiturl`),
+              e,
+              n.context(this, `saveSuccess`),
+            )));
+        }
+        return !1;
+      },
+      cancel: function () {
+        return (this.removeEditor(), !1);
+      },
+      saveSuccess: function (e) {
+        if (
+          ((this.saverXhr = null),
+          this.$editor.removeClass(`InProgress`),
+          s.hasResponseError(e))
+        )
+          return !1;
+        this.removeEditor();
+        var t = n(`#thread-` + e.threadId);
+        t.fadeOut(s.speed.normal, function () {
+          (n(e.templateHtml).xfInsert(
+            `insertBefore`,
+            t,
+            `xfFadeIn`,
+            s.speed.normal,
+          ),
+            t.remove());
+        });
+      },
+      removeEditor: function () {
+        (this.$editor.parent().xfSlideUp({
+          duration: s.speed.slow,
+          easing: `easeOutBounce`,
+          complete: function () {
+            n(this).remove();
+          },
+        }),
+          (this.$editor = null));
+      },
+    }),
+    (s.DiscussionListOptions = function (e) {
+      this.__construct(e);
+    }),
+    (s.DiscussionListOptions.prototype = {
+      __construct: function (e) {
+        if (
+          ((this.$handle = e.on(`click`, n.context(this, `toggleOptions`))),
+          (this.$hiddable = n(`#HiddableFilters`)),
+          (this.$options = this.$hiddable.length
+            ? this.$hiddable
+            : n(`form.DiscussionListOptions`)),
+          (this.$titleBar = e.closest(`.titleBar`)),
+          (this.$toggle = e.filter(`.DiscussionListToggle`)),
+          this.$hiddable.length)
+        ) {
+          var t = this.$hiddable.attr(`data-hidden-filters`) !== `0`;
+          (this.$options.toggle(!t), this.syncState(t));
+        } else this.$options.hide();
+        ((this.$submit = n(`input:submit`, this.$options).on(
+          `click`,
+          n.context(this, `hideOptions`),
+        )),
+          (this.$reset = n(`input:reset`, this.$options).on(
+            `click`,
+            n.context(this, `hideOptions`),
+          )));
+      },
+      syncState: function (e) {
+        this.$hiddable.length &&
+          (this.$hiddable.attr(`data-hidden-filters`, e ? `1` : `0`),
+          this.$titleBar.add(this.$toggle).toggleClass(`FiltersIsHidden`, e),
+          this.$toggle.text(o(e ? `feed_show_filters` : `feed_hide_filters`)));
+      },
+      toggleOptions: function () {
+        return (
+          this.$options.is(`:animated`) ||
+            (this.$options.is(`:hidden`)
+              ? this.showOptions()
+              : this.hideOptions()),
+          !1
+        );
+      },
+      showOptions: function () {
+        (this.syncState(!1),
+          this.$options.xfFadeDown(s.speed.normal, function () {
+            n(this)
+              .find(`input, select, textarea, button`)
+              .filter(`:visible`)
+              .not(`.chosen-search-input`)
+              .first()
+              .trigger(`focus`);
+          }));
+      },
+      hideOptions: function () {
+        (this.syncState(!0), this.$options.xfFadeUp(s.speed.normal));
+      },
+    }),
+    (s.LztQuickReply = function (e) {
+      this.__construct(e);
+    }),
+    (s.LztQuickReply.prototype = {
+      __construct: function (e) {
+        ((this.$link = e),
+          (this.$replyArea = n(e.data(`replyarea`))),
+          (this.submitUrl = e.attr(`href`)),
+          e.on(`click`, n.context(this, `click`)),
+          (this.lock = !1),
+          (this.lock_timeout = void 0),
+          (this.isEditorInit = !1));
+      },
+      click: function (e) {
+        if ((e.preventDefault(), this.isEditorInit)) {
+          let e = s.getEditorInForm(this.$form);
+          s.EditorHelpers.focus(e, !1);
+          return;
+        }
+        this.isEditorInit = !0;
+        var t = n(`#QuickReply`).clone().attr(`id`, ``);
+        (t
+          .find(`.redactor_box`)
+          .attr(`class`, ``)
+          .html(n(`#ctrl_message_html`)[0].outerHTML),
+          t
+            .find(`textarea`)
+            .addClass(`SubmitOnEnter`)
+            .attr(`id`, ``)
+            .css(`height`, `36px`),
+          t.find(`.submitUnit`).remove(),
+          t.find(`.Tooltip`).removeClass(`Tooltip`),
+          t.find(`.fr-box`).remove(),
+          t.find(`#lzt-fe-eb-lztToggleToolbar`).css(`rotate`, `0deg`),
+          t
+            .find(`.lzt-fe-se-extraButtonsContainer.js-lzt-fe-extraButtons`)
+            .hide());
+        var r = document.createElement(`div`),
+          i = n(r).addClass(`simpleRedactor QuickReplyRedactor`).html(t.html());
+        (i.replaceAll(this.$replyArea.find(`.elements`)),
+          this.$replyArea
+            .find(`input:submit, button`)
+            .on(`click`, n.context(this, `submit`)));
+        var a = this.$replyArea.closest(`.replySubmit`);
+        (a.length || (a = this.$replyArea.closest(`form`)),
+          (this.$form = a),
+          this.$replyArea
+            .find(`textarea`)
+            .one(`lzt-editor:initDone`, () => this.init()),
+          this.$replyArea.xfActivate(),
+          s.EditorHelpers.beforeFocusIos(this.$replyArea));
+      },
+      init: function () {
+        let e = s.getEditorInForm(this.$form);
+        setTimeout(() => {
+          this.$replyArea.xfFadeDown(s.speed.fast, () => {
+            s.EditorHelpers.focus(e, !1);
+          });
+        }, 2);
+      },
+      submit: function (e) {
+        if ((e.preventDefault(), this.lock)) {
+          this.lock_timeout === void 0 &&
+            (this.lock_timeout = setTimeout(() => {
+              ((this.lock = !1), this.hideMask(), (this.lock_timeout = void 0));
+            }, 500));
+          return;
+        }
+        this.lock = !0;
+        var t = this.$replyArea.closest(`.replySubmit`);
+        (t.length || (t = this.$replyArea.closest(`form`)),
+          this.$replyArea.find(`.defEditor .Mask`).removeClass(`hidden`),
+          t.length &&
+            (t.data(`MultiSubmitDisable`) || s.MultiSubmitFix(t),
+            t.data(`MultiSubmitDisable`)()),
+          s.ajax(
+            this.submitUrl,
+            {
+              message_html: t
+                .find(`textarea`)
+                .data(`XenForo.EditorSimple`)
+                .ed.html.get(),
+              overlay: this.$replyArea.find(`input[name="overlay"]`).val(),
+              last_date: Math.round(Date.now() / 1e3) - 1,
+              last_known_date: Math.round(Date.now() / 1e3) - 1,
+            },
+            n.context(this, `submitSuccess`),
+          ));
+      },
+      submitSuccess: function (e) {
+        this.hideMask();
+        var t = this.$replyArea.closest(`form`);
+        if (
+          (t.data(`MultiSubmitEnable`) && t.data(`MultiSubmitEnable`)(),
+          s.hasResponseError(e))
+        )
+          return !1;
+        (s.alert(o(`reply_sent`), ``, 3e3),
+          e.templateHtml &&
+            n(e.templateHtml).xfInsert(
+              `insertAfter`,
+              this.$link
+                .parents(`.discussionListItem--Wrapper`)
+                .find(`.threadLastPost`)
+                .last(),
+            ),
+          e.replyCount && this.$link.find(`.value`).html(e.replyCount),
+          this.$replyArea
+            .find(`textarea`)
+            .data(`XenForo.EditorSimple`)
+            .ed.html.set(``),
+          setTimeout(() => {
+            this.lock = !1;
+          }, 500));
+      },
+      hideMask: function () {
+        (this.$replyArea.data(`processing`, 0),
+          this.$replyArea.find(`.Mask`).addClass(`hidden`));
+      },
+    }),
+    s.register(`form.DiscussionList`, `XenForo.DiscussionList`),
+    s.register(`.discussionListItemEdit`, `XenForo.DiscussionListItemEditor`),
+    s.register(
+      `#DiscussionListOptionsHandle a, .titleBar .DiscussionListToggle`,
+      `XenForo.DiscussionListOptions`,
+    ),
+    s.register(`.MainPageReply`, `XenForo.LztQuickReply`));
+});
+c();
