@@ -16,7 +16,7 @@ BASE="https://raw.githubusercontent.com/t0fox/z2kOW/main"
 # Bootstrap pins trusted production key fingerprints here. Keep old pins while
 # rotating keys so an already published release can introduce the next public
 # key into the installed keyring before that key signs a later release.
-BOOTSTRAP_TRUSTED_KEY_IDS=""
+BOOTSTRAP_TRUSTED_KEY_IDS="916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae"
 _manifest_override_set=${Z2KOW_MANIFEST_URL+x}
 _trust_override_set=${Z2KOW_TRUST_KEY+x}
 if [ "$_manifest_override_set" != "$_trust_override_set" ]; then
