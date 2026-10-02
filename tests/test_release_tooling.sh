@@ -414,18 +414,20 @@ rm -f untracked_probe.tmp
 if python3 -c "
 import json,sys
 m=json.load(open('UPDATES.json', encoding='utf-8'))
-want=['schema','branch','platform','seq','current','upstream','history','artifact']
+want=['schema','branch','platform','seq','current','upstream','history','artifact','signing']
 a=m.get('artifact',{})
+signing=m.get('signing',{})
 ok=(list(m)==want and m.get('platform')=='openwrt'
     and a.get('filename')=='openwrt-rootfs.tar.gz'
     and len(a.get('sha256',''))==64 and a.get('size_bytes',0)>0
+    and list(signing)==['key_id'] and len(signing.get('key_id',''))==64
     and not any(k in m for k in ('files_sha256','install_map','components','package_versions')))
 sys.exit(0 if ok else 1)
 " 2>/dev/null; then
     ok "controlled UPDATES.json keeps exactly one complete OpenWrt artifact"
 else
     no "controlled UPDATES.json keeps one artifact and no component maps" \
-       "schema,branch,platform,seq,current,upstream,history,artifact" \
+       "schema,branch,platform,seq,current,upstream,history,artifact,signing" \
        "$(python3 -c "import json;print(','.join(json.load(open('UPDATES.json')).keys()))" 2>/dev/null)"
 fi
 
