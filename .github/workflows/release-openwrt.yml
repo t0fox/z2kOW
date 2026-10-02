@@ -492,17 +492,19 @@ jobs:
               || { echo 'published immutable signature differs from this candidate.' >&2; exit 1; }
           fi
 
+          public_assets="$RUNNER_TEMP/public-release-assets"
+          mkdir -p "$public_assets"
           for asset in openwrt-rootfs.tar.gz UPDATES.json UPDATES.json.sig; do
             curl --fail --location --silent --show-error "$release_url/$asset?nocache=$(date +%s%N)" \
-              -o "$RUNNER_TEMP/public-$asset"
+              -o "$public_assets/$asset"
           done
-          cmp -s "$artifact" "$RUNNER_TEMP/public-openwrt-rootfs.tar.gz"
-          cmp -s "$manifest" "$RUNNER_TEMP/public-UPDATES.json"
-          cmp -s "$signature" "$RUNNER_TEMP/public-UPDATES.json.sig"
+          cmp -s "$artifact" "$public_assets/openwrt-rootfs.tar.gz"
+          cmp -s "$manifest" "$public_assets/UPDATES.json"
+          cmp -s "$signature" "$public_assets/UPDATES.json.sig"
           python3 scripts/openwrt/sign_release.py verify \
-            --manifest "$RUNNER_TEMP/public-UPDATES.json" \
-            --artifact "$RUNNER_TEMP/public-openwrt-rootfs.tar.gz" \
-            --signature "$RUNNER_TEMP/public-UPDATES.json.sig" \
+            --manifest "$public_assets/UPDATES.json" \
+            --artifact "$public_assets/openwrt-rootfs.tar.gz" \
+            --signature "$public_assets/UPDATES.json.sig" \
             --public-key "scripts/openwrt/release-keys/$RELEASE_KEY_ID.pub"
 
           cp "$manifest" UPDATES.json
@@ -534,8 +536,8 @@ jobs:
           cmp -s "$signature" "$RUNNER_TEMP/public-main-UPDATES.json.sig"
           python3 scripts/openwrt/sign_release.py verify \
             --manifest "$RUNNER_TEMP/public-main-UPDATES.json" \
-            --artifact "$RUNNER_TEMP/public-openwrt-rootfs.tar.gz" \
+            --artifact "$public_assets/openwrt-rootfs.tar.gz" \
             --signature "$RUNNER_TEMP/public-main-UPDATES.json.sig" \
             --public-key "scripts/openwrt/release-keys/$RELEASE_KEY_ID.pub"
-          sha256sum "$RUNNER_TEMP/public-openwrt-rootfs.tar.gz" >> "$GITHUB_STEP_SUMMARY"
+          sha256sum "$public_assets/openwrt-rootfs.tar.gz" >> "$GITHUB_STEP_SUMMARY"
           printf '\nPublished and verified: %s\n' "$release_url" >> "$GITHUB_STEP_SUMMARY"

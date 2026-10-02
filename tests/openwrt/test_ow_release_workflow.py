@@ -88,6 +88,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('git config user.email "t0fox@yandex.ru"', workflow)
         self.assertNotRegex(workflow, r"(?i)z2k-(?:adapter|webpanel|zapret2-runtime|warp-runtime).*\.apk")
 
+    def test_public_artifact_verification_keeps_the_canonical_filename(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        publish = workflow.split("  publish-release:", 1)[1]
+
+        self.assertIn('public_assets="$RUNNER_TEMP/public-release-assets"', publish)
+        self.assertIn('"$release_url/$asset?nocache=$(date +%s%N)"', publish)
+        self.assertIn('-o "$public_assets/$asset"', publish)
+        self.assertEqual(publish.count('--artifact "$public_assets/openwrt-rootfs.tar.gz"'), 2)
+        self.assertIn('sha256sum "$public_assets/openwrt-rootfs.tar.gz"', publish)
+
     def test_immutable_gate_uses_a_dedicated_read_token_and_preserves_api_errors(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         publish = workflow.split("  publish-release:", 1)[1]
