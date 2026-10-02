@@ -45,7 +45,10 @@
   --ow-danger: #F08084;
   --ow-info: #83BFFD;
   --ow-focus-ring: #00BA78;
-  --ow-focus-glow: 0 0 0 2px #2E614A;
+  --ow-focus-glow: 0 0 0 2px #2E614A, 0 0 12px rgb(0 186 120 / 14%);
+  --ow-accent-glow: 0 0 12px rgb(0 186 120 / 14%);
+  --ow-selected-glow: inset 0 0 0 1px rgb(0 186 120 / 18%), 0 0 10px rgb(0 186 120 / 8%);
+  --ow-button-glow: 0 0 14px rgb(0 186 120 / 16%);
   --ow-select-highlight: #1E2725;
   --ow-select-shadow: 0 5px 12px 0 rgb(0 0 0 / 24%);
   --ow-choice-border: #4A5450;
@@ -83,13 +86,17 @@
   --btn-primary-text: #FFFFFF;
   --radius: var(--ow-radius-control);
   --topbar-h: 44px;
-  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", sans-serif;
-  --spring-snappy: ease-out;
-  --spring-smooth: ease;
-  --ease-emphasized: ease;
-  --dur-micro: 150ms;
-  --dur-base: 200ms;
-  --dur-large: 200ms;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --motion-fast: 100ms;
+  --motion-normal: 180ms;
+  --ease-out: cubic-bezier(.4, 0, .2, 1);
+  --ease-spring-like: cubic-bezier(.42, 1.67, .21, .9);
+  --spring-snappy: var(--ease-spring-like);
+  --spring-smooth: var(--ease-out);
+  --ease-emphasized: var(--ease-out);
+  --dur-micro: var(--motion-fast);
+  --dur-base: var(--motion-normal);
+  --dur-large: var(--motion-normal);
   --sidebar-w: 260px;
   --sidebar-w-collapsed: 72px;
   --switch-track: #445457;
@@ -138,7 +145,10 @@
   --ow-radius-card: 12px;
   --ow-radius-panel: 14px;
   --ow-focus-ring: #087A70;
-  --ow-focus-glow: 0 0 0 2px #5D9B83;
+  --ow-focus-glow: 0 0 0 2px #5D9B83, 0 0 10px rgb(8 122 112 / 12%);
+  --ow-accent-glow: 0 0 10px rgb(8 122 112 / 12%);
+  --ow-selected-glow: inset 0 0 0 1px rgb(8 122 112 / 15%), 0 0 8px rgb(8 122 112 / 7%);
+  --ow-button-glow: 0 0 12px rgb(8 122 112 / 13%);
   --ow-select-highlight: #D5E0DE;
   --ow-select-shadow: 0 5px 12px 0 rgb(24 38 37 / 18%);
   --ow-choice-border: #728589;
@@ -175,8 +185,31 @@
 }
 
 html, body { background: var(--ow-canvas); color: var(--ow-text-primary); }
-body { font-family: var(--font-sans); font-size: 14px; line-height: 1.28; }
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.28;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
 button, input, select, textarea { font-family: var(--font-sans); }
+html {
+  scrollbar-color: #4A5450 transparent;
+  scrollbar-width: thin;
+}
+html[data-theme="light"] { scrollbar-color: #8CA29A transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--ow-canvas); }
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-color: color-mix(in srgb, var(--ow-border-strong) 62%, transparent);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--ow-accent) 62%, var(--ow-border-strong));
+}
 
 .topbar {
   position: fixed;
@@ -266,7 +299,7 @@ body {
 #nav a.active {
   background: var(--ow-surface-selected);
   color: var(--ow-accent);
-  box-shadow: none;
+  box-shadow: var(--ow-selected-glow);
 }
 #nav a.nav-highlight, #nav a.nav-highlight:hover, #nav a.nav-highlight.active { color: inherit; }
 #nav .nav-ico { width: 20px; height: 20px; stroke-linecap: round; stroke-linejoin: round; }
@@ -515,6 +548,7 @@ body[data-page="login"] #app {
   background: linear-gradient(88deg, var(--ow-button-start) 0%, var(--ow-button-mid) 50%, var(--ow-button-start) 100%);
   color: #F5F5F5;
   filter: brightness(1.08);
+  box-shadow: var(--ow-button-glow);
 }
 .btn-primary:not(:disabled):not(.disabled):hover::before { opacity: 1; }
 .btn-primary::after {
@@ -542,8 +576,19 @@ body[data-page="login"] #app {
   transition: all 100ms ease-in-out;
 }
 
-/* The source has no generic route-entry motion. Buttons use its 0.97 active press. */
-.page-title, #app > .card { animation: none; }
+/* Restore the shared route transition in this skin. A short opacity/offset
+   pass matches the captured tab motion without changing layout or route code. */
+.page-title {
+  animation: page-enter var(--dur-base) var(--ease-out) both;
+}
+#app > .card {
+  animation: page-enter var(--dur-base) var(--ease-out) 20ms both;
+}
+#app > .card ~ .card { animation-delay: 40ms; }
+#app > .card ~ .card ~ .card { animation-delay: 60ms; }
+#app > .card ~ .card ~ .card ~ .card { animation-delay: 80ms; }
+
+/* Buttons use the source's 0.97 active press. */
 .menu-toggle:active, .nav-drawer-close:active,
 .theme-toggle button:active, .job-badge:active, .brand:active, .btn-icon:active { transform: none; }
 
@@ -570,6 +615,9 @@ textarea.warp-editor, .strategy-text, .wl-editor textarea, .dns-own textarea {
 input::placeholder, textarea::placeholder { color: var(--ow-text-tertiary); opacity: 1; }
 input:hover, textarea:hover, select:hover { background-color: var(--ow-surface-hover); }
 input:focus, textarea:focus, select:focus { outline: 2px solid var(--ow-focus-ring); outline-offset: 1px; }
+#app input:focus, #app textarea:focus, #app select:focus {
+  box-shadow: var(--ow-focus-glow);
+}
 select option { background: var(--ow-surface-1); color: var(--ow-text-primary); }
 #app input[type="checkbox"],
 #app input[type="radio"] {
@@ -645,7 +693,55 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 #app input[type="radio"]:disabled { cursor: not-allowed; }
 #app input[type="radio"]:disabled:checked::after,
 #app input[type="radio"]:disabled:checked::before { background-color: var(--ow-accent); }
+
+/* Domain probe modes use even columns. Intrinsic flex widths made the options
+   wrap into uneven 1/2/2 rows; pointer focus also stacked a second bright ring
+   around the already selected card. Keep a single ring for keyboard focus. */
+#app .pick-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+#app .pick-mode {
+  display: block;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-color: var(--ow-border-subtle);
+  border-radius: var(--ow-radius-control);
+  background: var(--ow-surface-1);
+  line-height: 1.35;
+  transition: background-color var(--dur-base) ease,
+    border-color var(--dur-base) ease;
+}
+#app .pick-mode:hover {
+  border-color: var(--ow-card-hover-border);
+  background-color: var(--ow-surface-hover);
+}
+#app .pick-mode:has(input:checked) {
+  border-color: var(--ow-accent);
+  background-color: var(--ow-surface-selected);
+}
+#app .pick-mode:focus-within { outline: none; }
+#app .pick-mode:has(input:focus-visible) {
+  outline: 2px solid var(--ow-focus-ring);
+  outline-offset: 2px;
+}
+#app .pick-mode input[type="radio"]:focus { outline: none; }
+#app .pick-mode-name,
+#app .pick-mode-hint { min-width: 0; }
+#app .pick-mode-name { font-weight: 500; }
+#app .pick-mode-hint { color: var(--ow-text-tertiary); }
+
 /* Switches use a full-size transparent input over their existing track. */
+#app .switch .slider {
+  transition: background var(--dur-base) var(--spring-smooth),
+    box-shadow var(--dur-base) var(--spring-smooth);
+}
+#app .switch input[type="checkbox"]:checked + .slider {
+  box-shadow: var(--ow-accent-glow);
+}
 #app .switch input[type="checkbox"] {
   position: absolute;
   inset: 0;
@@ -776,6 +872,11 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 #unique-set-reset-all { color: var(--ow-text-primary); }
 .status-cell .label, .state-age, .metadata, .muted { color: var(--ow-text-tertiary); }
 .status-cell.good .value, .tcp16-state.good .tcp16-text { color: var(--ow-success); }
+.status-cell.good {
+  border-color: color-mix(in srgb, var(--ow-success) 32%, var(--ow-border-subtle));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ow-success) 9%, transparent),
+    0 0 12px color-mix(in srgb, var(--ow-success) 7%, transparent);
+}
 .status-cell.warn .value, .tcp16-state.warn .tcp16-text { color: var(--ow-warning); }
 .status-cell.bad .value, .tcp16-state.bad .tcp16-text { color: var(--ow-danger); }
 .status-cell.info .value { color: var(--ow-info); }
@@ -1199,4 +1300,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 @media (forced-colors: active) {
   #app .chosen-single, .chosen-drop { border: 1px solid ButtonText; }
   #app .chosen-single:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+}
+@media (max-width: 639.98px) {
+  #app .pick-modes { grid-template-columns: minmax(0, 1fr); }
 }
