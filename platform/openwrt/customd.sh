@@ -2,10 +2,9 @@
 # platform/openwrt/customd.sh - the upstream zapret2 custom.d bridge.
 #
 # The two files below are the upstream Linux examples shipped by z2k's
-# installer.  They are deliberately sourced by zapret2's own custom_runner:
-# that keeps allocation, nft/NFQUEUE rule construction, and teardown in the
-# runtime that owns the zapret2 table.  This file only supplies the OpenWrt
-# procd adapter for the extra nfqws2 instances and their health predicate.
+# installer. They run through zapret2's runner to keep allocation,
+# nft/NFQUEUE construction and teardown in the runtime that owns the table.
+# OpenWrt adds the r-86.4 category gate and a procd adapter for the instances.
 
 Z2K_CUSTOM_DIR="${Z2K_CUSTOM_DIR:-${Z2K_ADAPTER_DIR:-/usr/lib/z2k/platform/openwrt}/custom.d}"
 Z2K_CUSTOM_PID_DIR="${Z2K_CUSTOM_PID_DIR:-${Z2K_RUN:-/tmp/z2k/runtime}/customd}"
@@ -17,6 +16,31 @@ Z2K_CUSTOM_NFQWS2_Q_STUN="${Z2K_CUSTOM_NFQWS2_Q_STUN:-65301}"
 Z2K_CUSTOM_NFQWS2_D_DISCORD="${Z2K_CUSTOM_NFQWS2_D_DISCORD:-2000}"
 Z2K_CUSTOM_NFQWS2_D_STUN="${Z2K_CUSTOM_NFQWS2_D_STUN:-2001}"
 export Z2K_CUSTOM_DIR Z2K_CUSTOM_PID_DIR Z2K_CUSTOM_NFQWS2
+
+# r-86.4 gates the bundled voice helpers by category while leaving user
+# custom.d scripts available. Keep the stock runner's ordering, source, and
+# function dispatch semantics; only skip the two bundled voice scripts.
+_z2k_ow_customd_install_category_runner() {
+    CUSTOM_DIR="${Z2K_CUSTOM_DIR%/custom.d}"
+    export CUSTOM_DIR
+    custom_runner() {
+        [ "${DISABLE_CUSTOM:-}" = 1 ] && return 0
+        local script FUNC=$1
+        shift
+        [ -d "$CUSTOM_DIR/custom.d" ] || return 0
+        for script in "$CUSTOM_DIR/custom.d/"*; do
+            [ -f "$script" ] || continue
+            case "${script##*/}" in
+                50-stun4all|50-discord-media)
+                    [ "${Z2K_CATEGORY_DISCORD_VOICE:-1}" != 0 ] || continue ;;
+            esac
+            unset -f "$FUNC"
+            . "$script"
+            if existf "$FUNC"; then "$FUNC" "$@"; fi
+        done
+        return 0
+    }
+}
 
 z2k_ow_customd_available() {
     [ -d "$Z2K_CUSTOM_DIR" ] || return 1
@@ -48,6 +72,7 @@ _z2k_ow_customd_source_runtime() {
         [ "$_had_nounset" = 1 ] && set -u
         [ "$_source_rc" = 0 ] || return 1
     fi
+    _z2k_ow_customd_install_category_runner
     command -v custom_runner >/dev/null 2>&1
 }
 
@@ -151,7 +176,7 @@ EOF
 
 z2k_ow_customd_firewall_guards_apply() {
     [ "${INIT_APPLY_FW:-1}" = 1 ] || return 0
-    if ! z2k_ow_customd_wanted; then
+    if ! z2k_ow_customd_wanted || [ "${Z2K_CATEGORY_DISCORD_VOICE:-1}" = 0 ]; then
         _z2k_ow_customd_guards_remove postnat || return 1
         return 0
     fi
@@ -186,6 +211,7 @@ _z2k_ow_customd_rule_ready() {
 
 z2k_ow_customd_runtime_ready() {
     z2k_ow_customd_wanted || return 0
+    [ "${Z2K_CATEGORY_DISCORD_VOICE:-1}" != 0 ] || return 0
     z2k_ow_customd_available || return 1
     local _q _pidfile _pid
     for _q in "$Z2K_CUSTOM_NFQWS2_Q_STUN" "$Z2K_CUSTOM_NFQWS2_Q_DISCORD"; do
@@ -266,6 +292,7 @@ z2k_ow_custom_daemons() {
         return 0
     fi
     [ "${DISABLE_CUSTOM:-1}" = "1" ] && return 0
+    [ "${Z2K_CATEGORY_DISCORD_VOICE:-1}" != 0 ] || return 0
     if ! z2k_ow_customd_available; then
         [ "$_action" = "0" ] && return 0
         echo "z2k-openwrt: custom.d prerequisites are missing" >&2

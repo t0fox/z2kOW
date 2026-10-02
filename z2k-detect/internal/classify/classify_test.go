@@ -226,7 +226,14 @@ func TestWholePacketMatcher(t *testing.T) {
 
 func TestReassemblingBoxIsOpaque(t *testing.T) {
 	addr := fakeDPI(t, "reasm", 4)
-	res := Run(context.Background(), addr, trig(), fastOpts())
+	opt := fastOpts()
+	// The deterministic candidate-search seam models a DPI that rejects each
+	// poison while reassembling every legal TCP stream. A localhost server has
+	// no intermediate hop and therefore cannot model TTL-based evasion.
+	opt.probePoisonOverride = func(context.Context, net.IP, uint16, Trigger, poison, time.Duration) (bool, error) {
+		return false, nil
+	}
+	res := Run(context.Background(), addr, trig(), opt)
 	if res.Verdict != VerdictOpaque {
 		t.Fatalf("вердикт = %s (%s), ждали %s", res.Verdict, res.Reason, VerdictOpaque)
 	}
@@ -311,6 +318,11 @@ func TestTLSTriggerLooksLikeClientHello(t *testing.T) {
 func TestReassemblingBoxWithControlStaysOpaque(t *testing.T) {
 	addr := fakeDPI(t, "reasm", 4)
 	opt := fastOpts()
+	// Keep this a deterministic classification test; localhost cannot model
+	// hop-dependent TTL drops between a DPI and the destination server.
+	opt.probePoisonOverride = func(context.Context, net.IP, uint16, Trigger, poison, time.Duration) (bool, error) {
+		return false, nil
+	}
 	opt.Control = Trigger{Name: "ctl", Payload: []byte("BENIGN-CONTROL-PAYLOAD"),
 		Accept: func(b []byte) bool { return len(b) > 0 }}
 	res := Run(context.Background(), addr, trig(), opt)
@@ -333,11 +345,17 @@ func TestAddressBlockIsNotCalledOpaque(t *testing.T) {
 	// чём, и предлагать стратегию тут — врать человеку.
 	addr := fakeDPI(t, "deaf", 0)
 	opt := fastOpts()
+	opt.Timeout = 120 * time.Millisecond
 	opt.Control = Trigger{Name: "ctl", Payload: []byte("BENIGN-CONTROL-PAYLOAD"),
 		Accept: func(b []byte) bool { return len(b) > 0 }}
 	// За контрольное имя ручается оператор — только тогда молчание контроля
 	// означает блок по адресу, а не «сервер не отдаёт это имя».
 	opt.ControlVouched = true
+	// Exercise the address-verdict branch without spending minutes waiting for
+	// every network candidate against a silent localhost server.
+	opt.probePoisonOverride = func(context.Context, net.IP, uint16, Trigger, poison, time.Duration) (bool, error) {
+		return false, nil
+	}
 	res := Run(context.Background(), addr, trig(), opt)
 	if res.Verdict != VerdictAddress {
 		t.Fatalf("вердикт = %s (%s), ждали %s", res.Verdict, res.Reason, VerdictAddress)
@@ -354,8 +372,15 @@ func TestAddressBlockIsNotCalledOpaque(t *testing.T) {
 func TestAddressNeedsVouchedControl(t *testing.T) {
 	addr := fakeDPI(t, "deaf", 0)
 	opt := fastOpts()
+	opt.Timeout = 120 * time.Millisecond
 	opt.Control = Trigger{Name: "ctl", Payload: []byte("BENIGN-CONTROL-PAYLOAD"),
 		Accept: func(b []byte) bool { return len(b) > 0 }}
+	// This test covers the no-vouch verdict, not raw packet delivery. Resolve
+	// every candidate deterministically so a silent local peer does not impose
+	// the network timeout once per candidate.
+	opt.probePoisonOverride = func(context.Context, net.IP, uint16, Trigger, poison, time.Duration) (bool, error) {
+		return false, nil
+	}
 	res := Run(context.Background(), addr, trig(), opt)
 	if res.Verdict != VerdictInconclusive {
 		t.Fatalf("вердикт = %s (%s), ждали %s", res.Verdict, res.Reason, VerdictInconclusive)

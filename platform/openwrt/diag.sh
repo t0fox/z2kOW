@@ -43,10 +43,27 @@ _json_field() {
     sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" "$2" 2>/dev/null | head -1
 }
 
+tg_connect_queue_failures() {
+    local _log="${Z2K_TG_LOG_FILE:-/tmp/z2k-log/tg-tunnel.log}"
+    if [ -r "$_log" ]; then
+        tail -n 200 "$_log" 2>/dev/null | awk '/CONNECT throttled \(timeout\)/ {n++} END {print n+0}'
+    elif command -v logread >/dev/null 2>&1; then
+        logread 2>/dev/null | grep -E 'z2k-tg|tg-mtproxy-client' | tail -n 200 \
+            | awk '/CONNECT throttled \(timeout\)/ {n++} END {print n+0}'
+    else
+        printf '0\n'
+    fi
+}
+
 print_health() {
-    local issues="" nfq rules warp_on tg_pid
+    local issues="" nfq rules warp_on tg_pid _tg_queue_failures
     _add() { issues="$issues  [!] $1
 "; }
+    _tg_queue_failures=$(tg_connect_queue_failures)
+    case "$_tg_queue_failures" in ''|*[!0-9]*) _tg_queue_failures=0 ;; esac
+    if [ "$_tg_queue_failures" -gt 0 ]; then
+        _add "в последних 200 строках лога телеграм-туннеля $_tg_queue_failures отказов очереди CONNECT — соединения отброшены на роутере до отправки на VPS"
+    fi
     if ! "$_init" running >/dev/null 2>&1; then
         _add "сервис z2k не запущен"
     fi
@@ -65,8 +82,15 @@ print_health() {
     fi
     warp_on=$(_warp_enabled)
     if [ "$warp_on" = "1" ]; then
-        if [ ! -x "$_bin/z2k-warpd" ]; then
-            _add "WARP: z2k-warpd отсутствует в $_bin"
+        _warp_adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
+        if [ -r "$_warp_adapter/arch.sh" ]; then
+            . "$_warp_adapter/arch.sh"
+            _warp_bin="$(z2k_ow_warp_bin_path "$_warp_adapter")" || _warp_bin="$_warp_adapter/bin/linux-unsupported/z2k-warpd"
+        else
+            _warp_bin="$_warp_adapter/bin/linux-unsupported/z2k-warpd"
+        fi
+        if [ ! -x "$_warp_bin" ]; then
+            _add "WARP: z2k-warpd отсутствует в $_warp_bin"
         elif [ ! -s "$_warp_device" ]; then
             _add "WARP: устройство не зарегистрировано"
         elif [ ! -f "$_warp_status" ] || ! grep -q '"ready":true' "$_warp_status" 2>/dev/null; then
@@ -98,7 +122,7 @@ print_firewall() {
 
 print_tunnel() {
     local tg pid listeners
-    tg=$_bin/tg-mtproxy-client
+    tg="${Z2K_TG_BIN:-$_bin/tg-mtproxy-client}"
     printf '\n=== telegram tunnel ===\n'
     if [ -x "$tg" ]; then
         printf 'binary            : %s (%s bytes)\n' "$tg" "$(wc -c < "$tg" 2>/dev/null | tr -d ' ')"
@@ -123,8 +147,15 @@ print_tunnel() {
 }
 
 print_warp() {
-    local on bin transport endpoint ready err
-    bin=$_bin/z2k-warpd
+    local on bin transport endpoint ready err _adapter
+    _adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
+    if [ -r "$_adapter/arch.sh" ]; then
+        . "$_adapter/arch.sh"
+        bin="$(z2k_ow_warp_bin_path "$_adapter")" \
+            || bin="$_adapter/bin/linux-unsupported/z2k-warpd"
+    else
+        bin="$_adapter/bin/linux-unsupported/z2k-warpd"
+    fi
     on=$(_warp_enabled)
     transport=$(_json_field transport "$_warp_status")
     endpoint=$(_json_field endpoint "$_warp_status")

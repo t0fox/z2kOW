@@ -7,8 +7,8 @@ import { JOB_FAIL, _updateGlobalUILock, awaitPanelBack, foreignJobsActive, jobOu
 // Раздел «WARP»: туннель Cloudflare WARP на нашем движке z2k-warpd
 // (WireGuard, при полном UDP-блоке — MASQUE по TCP 443). Три действия —
 // Установить / тумблер / Удалить: без намерения юзера на роутере нет ни
-// движка, ни демона. Что идёт в туннель: адреса из списков (игровые +
-// свои) и целые устройства по IP/MAC. Всё — файлы в /opt/zapret2/lists/warp/.
+// движка, ни демона. Включённые списки применяются к выбранным устройствам;
+// без выбора — ко всей LAN. Всё — файлы в /opt/zapret2/lists/warp/.
 let _warpLists = [];
 
 // Транспорт туннеля: автомат или выбор вручную. Порядок — от умолчания к
@@ -135,7 +135,8 @@ export async function renderWarp() {
         <div class="t-text">
           <div class="t-name">WARP-туннель</div>
           <div class="t-desc">Туннель Cloudflare для игр и сервисов, заблокированных по IP.
-            В него идут адреса из списков ниже и выбранные устройства; остальной трафик — напрямую.</div>
+            Включённые списки применяются только к выбранным устройствам; если устройства не выбраны — ко всей LAN.
+            Без включённых списков трафик в WARP не отправляется.</div>
         </div>
         <label class="switch" id="warp-switch" hidden>
           <input type="checkbox" disabled>

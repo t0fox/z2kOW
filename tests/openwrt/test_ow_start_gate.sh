@@ -88,7 +88,7 @@ printf '%s\n' "$_BG" > "$T/run/nfqws2.pid"
 printf '200 %s 0 2 65531 0 0 0 1\n' "$_BG" > "$T/nfqueue"
 export Z2K_NFQUEUE_PROC="$T/nfqueue" Z2K_START_CONSUMER_TIMEOUT=3
 # shellcheck disable=SC1090,SC1091
-. "$REPO/package/openwrt/files/etc/init.d/z2k" || { echo "FAIL[ow-start-gate]: source init" >&2; exit 1; }
+. "$REPO/platform/openwrt/files/etc/init.d/z2k" || { echo "FAIL[ow-start-gate]: source init" >&2; exit 1; }
 # Стабы тяжёлого (порядок/гейты настоящие: preflight/fw_apply/fw_verify/procd):
 z2k_load_adapter() {
     # shellcheck disable=SC1090,SC1091

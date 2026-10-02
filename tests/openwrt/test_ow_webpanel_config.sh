@@ -9,7 +9,7 @@
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-webpanel-config"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-PINIT="$REPO/package/openwrt/files/etc/init.d/z2k-webpanel"
+PINIT="$REPO/platform/openwrt/files/etc/init.d/z2k-webpanel"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wcfg.XXXXXX")" || exit 1
 trap 'for _p in ${_srvpid:-} ${_panel_pid:-} ${_foreign_pid:-}; do [ -n "$_p" ] && kill "$_p" 2>/dev/null; done; rm -rf "$T"' EXIT INT TERM
 
@@ -31,10 +31,23 @@ cp "$REPO/webpanel/lighttpd.conf" "$T/tpl.conf"
 _out="$(wp_panel_render)" || { echo "FAIL[ow-webpanel-config]: render" >&2; exit 1; }
 mkdir -p "$T/root/www"
 
+# LuCI owns ports 80/443. Reject those values before generating a listener.
+for _protected_port in 80 443; do
+    printf '%s\n' "$_protected_port" > "$WP_SETTINGS_DIR/port"
+    if wp_panel_render >"$T/protected-port.out" 2>&1; then
+        _t_bad "webpanel accepted protected LuCI port $_protected_port"
+    else
+        _t_ok
+    fi
+done
+printf '8088\n' > "$WP_SETTINGS_DIR/port"
+_out="$(wp_panel_render)" || { echo "FAIL[ow-webpanel-config]: render after port guard" >&2; exit 1; }
+
 if ! command -v lighttpd >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
     echo "SKIP[ow-webpanel-config]: нет lighttpd/curl на хосте (в CI ставятся из apt)"
-    echo "SUITE[ow-webpanel-config]: pass=0 fail=0"
-    exit 0
+    _t_done
+    [ "$_T_FAIL" -eq 0 ]
+    exit "$?"
 fi
 note() { printf 'lighttpd %s\n' "$*"; }
 note "$("lighttpd" -v 2>&1 | head -1)"

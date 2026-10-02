@@ -1,40 +1,23 @@
 #!/bin/sh
-# platform/openwrt/webpanel.sh - OpenWrt panel helpers (Stage 6, PACKAGE-owned).
+# platform/openwrt/webpanel.sh - OpenWrt panel environment helpers.
 #
 # Только OS effects. Никаких вторых TG/RT/WARP/firewall/updater/config
 # реализаций — везде делегация замороженным адаптерам Stages 1-5.
 # Вызывается из webpanel/cgi/platform.sh (override-функции).
 
-# Read-only provenance helpers.  The panel reports the payload bytes served
-# today separately from the package seed and installed APK versions.
-z2k_ow_meta_value() {
-    local _file="$1" _key="$2" _value
-    [ -r "$_file" ] || return 1
-    _value=$(sed -n "s/^${_key}=//p" "$_file" 2>/dev/null | head -1 | tr -d ' \t\r\n')
-    [ -n "$_value" ] || return 1
-    printf '%s' "$_value"
+z2k_ow_payload_tag() {
+    local _state="${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}"
+    [ -r "$_state" ] || return 1
+    local _first
+    _first="$(sed -n '1p' "$_state" | tr -d '\r')"
+    case "$_first" in tag=*) printf '%s\n' "${_first#tag=}" ;; *=*) return 1 ;; *) printf '%s\n' "$_first" | tr -d ' \t\r\n' ;; esac
 }
-z2k_ow_payload_tag() { z2k_ow_meta_value "${Z2K_ROOT:-/usr/lib/z2k}/share/payload.meta" tag; }
-z2k_ow_seed_tag() { z2k_ow_meta_value "${Z2K_ROOT:-/usr/lib/z2k}/share/seed.meta" tag; }
 
 wp_brand_json() { printf '"brand":{"name":"z2kOW","subtitle":"OpenWrt edition","logo":"/assets/openwrt/mark.svg","favicon":"/assets/openwrt/favicon.svg","theme":"/assets/openwrt/theme.css"}'; }
 
-# The contract helper is package-owned; common CGI/static bytes remain
-# updater-owned and are checked by it before package success is reported.
+# The panel helper is part of the same release tree as the CGI and static bytes.
 [ -f "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/panel.sh" ] && \
     . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/panel.sh"
-
-z2k_ow_package_version() {
-    local _pkg="$1" _line _apk="${Z2K_APK_BIN:-apk}"
-    if [ "$_apk" = "apk" ]; then
-        command -v apk >/dev/null 2>&1 || return 1
-    else
-        [ -x "$_apk" ] || return 1
-    fi
-    _line=$("$_apk" list --installed "$_pkg" 2>/dev/null | grep -m1 "^${_pkg}-" || true)
-    [ -n "$_line" ] || return 1
-    printf '%s' "${_line%% *}"
-}
 
 # Канонический LAN IPv4 для server.bind (НЕ имя сети!).
 # z2k_ow_lan отдаёт ИМЯ сети ("lan") для zapret2 OPENWRT_LAN — lighttpd
@@ -106,6 +89,9 @@ wp_panel_render() {
     [ -f "$WP_TEMPLATE" ] || { echo "нет шаблона $WP_TEMPLATE" >&2; return 1; }
     port=$(cat "$WP_SETTINGS_DIR/port" 2>/dev/null | tr -dc '0-9')
     [ -n "$port" ] || port="$WP_PORT_DEFAULT"
+    case "$port" in
+        80|443) echo "порт $port принадлежит LuCI и не может использоваться панелью z2kOW" >&2; return 1 ;;
+    esac
     bind=$(cat "$WP_SETTINGS_DIR/bind" 2>/dev/null | tr -d ' \t\r\n')
     if [ -z "$bind" ]; then
         bind="$(wp_lan_ip)" || { echo "нет LAN-адреса для bind" >&2; return 1; }

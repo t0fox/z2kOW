@@ -2676,6 +2676,12 @@ au_apply_converge() {
     # ветки, которая может уехать прямо посреди раскладки (класс r-80.1:
     # манифест свежий, файл старый, sha не сходится, откат). Пустой ref
     # (старый манифест) — поведение как раньше, с ветки.
+    # r-86.3 clears inherited reinstall refs before convergence. OpenWrt's
+    # internal CI snapshot is the one exception: its immutable commit pin is
+    # supplied out-of-band by the embedded snapshot pair and must survive.
+    if [ "${Z2K_OW_MANIFEST_MODE:-}" != snapshot ]; then
+        unset Z2K_AU_TARGET_REF
+    fi
     Z2K_AU_TARGET_REF=$(au_manifest_ref "$manifest" "$target_tag")
     export Z2K_AU_TARGET_REF
     [ -n "$Z2K_AU_TARGET_REF" ] \
@@ -2912,6 +2918,18 @@ EOF
 
 # au_run_apply — main: fetch, decide, apply, health-check, rollback if bad.
 au_run_apply() {
+    # Keep the original updater entrypoint for the dashboard/menu callers,
+    # while routing OpenWrt deployment through its one full-payload installer.
+    # The patch/reinstall decision still comes from au_decide in update.sh;
+    # the Keenetic deployment engine below is never reached on OpenWrt.
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+        local _ow_update="${Z2K_OW_UPDATE_BIN:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/update.sh}"
+        [ -x "$_ow_update" ] || {
+            au_log "OpenWrt full-payload updater is unavailable: $_ow_update"
+            return 1
+        }
+        exec "$_ow_update" apply "$@"
+    fi
     if ! au_lock_acquire; then
         return 1
     fi

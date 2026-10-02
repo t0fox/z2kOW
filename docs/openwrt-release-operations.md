@@ -1,104 +1,57 @@
-# z2kOW OpenWrt release operations
+# OpenWrt release operations
 
-The production release entrypoint is `.github/workflows/release-openwrt.yml` with `workflow_dispatch`. The maintenance agent invokes that workflow through the GitHub Actions API; no one has to publish from the GitHub UI. Pushes, pull requests, upstream syncs, and green CI runs build or validate development snapshots only; they never create a stable tag or Release.
+OpenWrt users install and update the upstream z2k release selected by the one controlled `UPDATES.json` on `main`. Upstream releases are inputs to adaptation; detecting an upstream sequence does not expose it to routers.
 
-The canonical builder requires an explicit `--ci-snapshot` or `--release --product-version X.Y.Z` mode. The old Makefile-backed stable revision path is disabled so a normal build cannot emit a misleading `0.1.0-r79` package. The live router currently runs `z2k-adapter` and `z2k-webpanel` CI snapshot packages derived from `0.1.1`; because production packages reset their revision to `r1`, the first upgrade-safe product version is `0.1.1`. CI snapshots also use the next patch prerelease with revision `r1`, so an installed `0.1.0-r79` can accept a test update while the final `0.1.1-r1` production package still sorts above it. Release preflight and the canonical version helper reject `0.1.0` and any lower SemVer.
+The controlled candidate adapts upstream `p-86.12`, seq `135`; the root manifest records commit `3b1ee437cfc58c7427e5a4ccb5de312ff0f76335`.
 
-## Agent-owned release lifecycle
+## Canonical flows
 
-`CHANGELOG.md` is the canonical queue of user- and operator-visible changes. Add those changes under `## [Unreleased]`; omit tests-only work, refactors with no operator effect, CI plumbing, and package revision bumps. The agent batches entries and releases only when the batch is worth shipping. A green CI run by itself never starts a release.
-
-The agent chooses the next SemVer from the accumulated changes: breaking behavior or API changes require a major bump, backward-compatible capabilities use a minor bump, and user- or operator-facing fixes use a patch bump. If there are no meaningful product changes, it waits. The first production bundle is `0.1.1` because it must upgrade the router's installed `0.1.0-r79` packages.
-
-Before preparing a release commit, the agent checks the live acceptance record, the production signing key, upstream manifest pins, and other known release gates. When ready, it moves the accumulated notes into a dated version section and leaves a fresh `Unreleased` section at the top:
+Fresh-install bootstrap:
 
 ```sh
-python3 scripts/openwrt/changelog-release.py promote \
-  --changelog CHANGELOG.md --version "$VERSION" --date "$(date -u +%F)"
-git add CHANGELOG.md
-git commit -m "Prepare z2kOW v$VERSION release"
+curl -fsSL https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh
 ```
 
-That release-preparation commit is pushed to `main`; its exact SHA must then have a completed successful CI run. The agent dispatches the unsigned candidate directly through the GitHub API, for example:
+The bootstrap requires root on OpenWrt, uses OpenWrt `apk` only for system dependencies, verifies the signed controlled manifest, downloads the complete `openwrt-rootfs.tar.gz`, checks byte count and SHA-256, and calls the payload's `install_release <tag>` entrypoint.
+
+Canonical convergence command, used by both fresh install and update:
 
 ```sh
-jq -n --arg version "$VERSION" --arg sha "$TARGET_SHA" \
-  '{ref:"main",inputs:{version:$version,target_sha:$sha,confirm:("RELEASE v"+$version),dry_run:"true"}}' |
-  gh api --method POST \
-    repos/t0fox/z2kOW/actions/workflows/release-openwrt.yml/dispatches \
-    --input -
+install_release <upstream-tag>
 ```
 
-The candidate contains the four APKs, `packages.adb`, `release-manifest.json`, `provenance.json`, the rendered `install.sh`, the checksum-verifying `z2kow.sh` bootstrap, the pinned `z2k-feed.pem`, checksums, and the release-note preview. `release-assets.py verify` checks the exact set, every digest, production provenance, and the installer's embedded key fingerprint/source commit.
+The updater first applies upstream `au_decide` history semantics. Whether an entry says `patch` or `reinstall`, OpenWrt installs the complete approved payload through the same command. Type and `full_install` fields may inform state migrations/hooks; they never select a second deployment engine.
 
-After verifying and signing that exact candidate with the offline key, the agent sends a second API dispatch with `dry_run:"false"`, its `candidate_run_id`, and the base64 signature overlay. The publish job has no reviewer-gated GitHub Environment, so a valid API dispatch does not pause for routine UI approval:
+## Controlled manifest
 
-```sh
-signature_bundle_b64="$(base64 < z2k-release-signatures.tar.gz | tr -d '\n')"
-jq -n --arg version "$VERSION" --arg sha "$TARGET_SHA" \
-  --arg candidate "$CANDIDATE_RUN_ID" --arg signatures "$signature_bundle_b64" \
-  '{ref:"main",inputs:{version:$version,target_sha:$sha,confirm:("RELEASE v"+$version),dry_run:"false",candidate_run_id:$candidate,signature_bundle_b64:$signatures}}' |
-  gh api --method POST \
-    repos/t0fox/z2kOW/actions/workflows/release-openwrt.yml/dispatches \
-    --input -
-unset signature_bundle_b64
+The only release authority is repository-root `UPDATES.json` on `main`. Its schema is upstream-compatible history plus OpenWrt provenance:
+
+- `schema`, `branch`, `platform`, `seq`, `current`;
+- `upstream.repository`, `upstream.branch`, `upstream.tag`, `upstream.commit`;
+- append-only `history` with the original upstream release entries;
+- on a signed production release, `artifact.filename`, `artifact.url`, `artifact.sha256`, and `artifact.size_bytes` for the complete rootfs archive.
+
+The build candidate attaches artifact fields to the same manifest. There is no runtime `UPSTREAM.json`, component manifest, snapshot authority, or separate installed component version. Devices verify the manifest signature before acting. Until trusted signing and publication occur, the unsigned candidate is not installable from the production channel.
+
+`.github/workflows/sync-upstream.yml` checks the live `z2k-enhanced` branch every 15 minutes with cache-busting, resolves its immutable commit, and compares the upstream `seq` to controlled `UPDATES.json`. A newer sequence fails the check and needs adaptation/review. It is not copied to the controlled manifest automatically.
+
+## Install transaction and migration
+
+`install_release` downloads and verifies the complete transport artifact, validates archive paths and the protected LuCI boundary, stages files, journals only owned paths that it replaces, and makes same-filesystem replacements. On failure it restores the prior files and installed-release state. User config/state under `/etc/z2k` is excluded from the payload and preserved. The single local release record is `/etc/z2k/state/installed-release`:
+
+```text
+tag=<upstream-tag>
+seq=<upstream-seq>
 ```
 
-`release-preflight.py` and the workflow both fail closed on stale SHAs, non-green exact-SHA CI, existing tags/releases, missing live evidence, missing key pins, invalid signatures, or incomplete assets. The agent records the resulting workflow run and verifies the final tag, Release, asset set, manifest, and checksums. It does not create a release for every commit, green CI run, or upstream sync.
+The record is committed only after bootstrap and health checks. A second check after a successful install returns `none`. The Telegram client stores its per-install key and optional relay assignment at `/etc/z2k/state/relay-id.json`; a one-time migration copies the former `/opt/zapret2/.z2k-relay-id` there before the payload replaces that tree.
 
-## Dry run
+Legacy `z2k-adapter`, `z2k-webpanel`, runtime APKs and their feed/key entries are read only during one-time ownership migration. Before `apk del --no-scripts`, the transaction renames the owned trees and explicit integration files that the complete release replaces. Migration refuses any legacy package claiming LuCI, uhttpd, or another path outside the known z2kOW ownership boundary. A successful full-payload install removes the old package/feed ownership. No component APK/feed builder or installer remains.
 
-Dispatch with a SemVer product version, the full commit SHA currently at `main`, the exact confirmation `RELEASE vX.Y.Z`, and `dry_run=true`. The workflow checks that the target is still current `main` and has a completed successful `CI` run for the exact SHA. It then invokes `scripts/openwrt/build-release.sh --release --product-version X.Y.Z`, prepares the four-package bundle, validates its manifest and checksums, extracts only the matching section from `CHANGELOG.md`, and uploads a short-retention Actions candidate artifact. A dry run creates no tag, GitHub Release, or stable assets.
+z2kOW owns paths listed in `platform/openwrt/owned-paths.txt`. It never owns or mutates `/www/cgi-bin/luci`, `/www/luci-static`, `/etc/config/uhttpd`, or LuCI ports 80/443. The panel rejects ports 80/443.
 
-## Offline signing and production dispatch
+## Candidate verification and publication
 
-The Actions workflow must never receive a private signing key. The agent's offline signing step downloads the candidate artifact and uses the pinned OpenWrt SDK's `apk` tool plus the private feed key stored outside the checkout:
+CI runs the OpenWrt regression suite and builds one unsigned `openwrt-rootfs.tar.gz` plus its controlled manifest. The archive contains the complete product tree, including architecture-specific Telegram and WARP binaries. The candidate is an internal artifact, not a router release. Production key material is not needed for implementation or CI. A separate trusted signing/publishing operation must sign the reviewed manifest and publish the complete artifact before routers can see the release.
 
-```sh
-python3 scripts/openwrt/release-assets.py sign \
-  --bundle candidate \
-  --apk-tool /path/to/openwrt-sdk/staging_dir/host/bin/apk \
-  --private-key /secure/offline/z2k-feed.key \
-  --public-key package/openwrt/keys/z2k-feed.pem \
-  --overlay-out z2k-release-signatures.tar.gz
-```
-
-The command refuses a key stored inside the repository or a private key that does not match the committed public-key pin. It signs the package index with OpenWrt APK tooling, updates the index hash in the release manifest and `SHA256SUMS`, signs `SHA256SUMS` with the same offline key, verifies both signatures, and emits an overlay containing only the four small finalized metadata files. The production dispatch supplies that overlay as `signature_bundle_b64` and the candidate run id as `candidate_run_id`; the workflow verifies its exact file list and size, restores the signed metadata over the exact-SHA candidate, and reruns all checks before creating the tag and Release.
-
-The release helper expects the production public key at `package/openwrt/keys/z2k-feed.pem`. No production key is currently present in this checkout. The owner-side key setup command is one PowerShell invocation from the repository root, and it writes the private key outside Git while placing only the public key in the repository:
-
-```powershell
-.\scripts\openwrt\create-feed-key.ps1
-```
-
-It creates the P-256 private key at `%USERPROFILE%\.z2k-signing\z2k-feed.key`, restricts its Windows ACL to the current user, writes `package/openwrt/keys/z2k-feed.pem`, and prints both the DER SPKI SHA-256 fingerprint and the exact PEM file SHA-256. The bootstrap pins the latter so verification needs only `sha256sum`; minimal OpenWrt images need not carry `base64` or OpenSSL. Run it on the offline signing host; transfer/commit only `z2k-feed.pem`. Never substitute `~/.z2k-signing/z2k-update.key`: that key belongs to the payload updater trust domain. Do not put the feed private key in Git, CI artifacts, or Actions secrets.
-
-## Live gates for v0.1.1
-
-Before `dry_run=false` may publish the first release, record evidence in `docs/openwrt-release-acceptance.json` for:
-
-- Cudy WBR3000UAX v1 acceptance, or a clearly described and explicitly accepted limitation;
-- `WEB-LUCI-01` on the live router;
-- `WEB-BLOCKER-01` using a blocker-enabled Chromium profile, including the identity and theme block cases.
-
-The current acceptance record keeps these gates pending. The report that disabling a browser blocker made the live interface work confirms the client-side failure mechanism, but it does not replace the blocker-enabled Chromium regression or the remaining router acceptance evidence.
-
-### Minimal live acceptance actions
-
-Run these against the exact post-change CI snapshot on the Cudy test router, then add dated command output/screenshots to `docs/openwrt-release-acceptance.json`. Do not change a status to `pass` until every listed result is observed.
-
-| Gate | Action | Pass evidence |
-|---|---|---|
-| Cudy WBR3000UAX v1 | Over SSH run `ubus call system board`, `apk info z2k-adapter z2k-webpanel z2k-warp-runtime z2k-zapret2-runtime`, `/etc/init.d/z2k status`, `pidof nfqws2`, `/etc/init.d/z2k-webpanel running`, and `nft -a list table inet zapret`. Reboot once, reconnect, and repeat the service/runtime/table checks. From a LAN client exercise normal WAN traffic and the configured z2k test destinations; capture the nft counter output before and after. Leave the router under ordinary use for at least 60 minutes after reboot, then repeat the checks. | Model/release/architecture, package versions, both services and runtime healthy after reboot, expected nft table present, WAN and test traffic work with relevant counters changing, and no service/config regression during the 60-minute soak. If any subgate is deliberately waived, record the exact limitation and evidence instead of claiming a full pass. |
-| WEB-LUCI-01 | From a browser on the LAN open `http://<router-LAN-IP>/cgi-bin/luci/`, authenticate with the router's own account, then open the LuCI status page and one configuration page. | Authenticated pages load and navigation works; attach timestamped screenshots. Never place router credentials in the record. |
-| WEB-BLOCKER-01 | In Chromium, use the profile and blocker extension that previously blocked the panel resources. Open the panel on port 8088, inspect the identity and theme requests in DevTools Network, then visit all primary panel routes. | The blocker is enabled, the exact extension/profile is identified, identity and theme assets load, all primary routes render, and the console has no relevant errors. Record any filter rule that had to be changed. |
-
-Keep the statuses `pending` until those actions have real evidence. The current read-only service/HTTP probe is useful baseline evidence, not traffic, reboot, soak, authenticated-LuCI, or blocker-enabled proof.
-
-## Immutable publication rules
-
-Repository-level immutable Releases are enabled as of 2026-09-29 and recorded in `docs/openwrt-release-acceptance.json`. Before each publish dispatch, recheck `gh api repos/t0fox/z2kOW/immutable-releases --jq '.enabled'` and require `true`; `release-preflight.py` requires the passing evidence before the workflow can create a tag. The publish job also requires an absent `vX.Y.Z` tag and Release, exact current-main SHA, exact-SHA green CI, passing live gates, the pinned public key, signed `packages.adb`, signed checksums, and the complete exact asset set: four APKs, `packages.adb`, `SHA256SUMS`, `SHA256SUMS.sig`, `release-manifest.json`, `provenance.json`, `z2k-feed.pem`, `install.sh`, and `z2kow.sh`. It creates the tag at the requested SHA and creates `z2kOW vX.Y.Z` with the corresponding version section from `CHANGELOG.md`. Before publication it compares the remote asset names and GitHub SHA-256 digests with the verified candidate; after publication it requires the Release API's `.immutable` field to be true. Existing version names are never overwritten. A package fix after publication requires a new product version.
-
-If tag creation or draft asset upload fails, the version is reserved and cannot be retried by this workflow. Keep the failed draft unpublished, inspect its tag and uploaded assets against the exact candidate artifact, and record the failed run. Do not publish a partial draft or reuse the version; resolve the cause and prepare a new candidate under the next product SemVer.
-
-The legacy `publish.yml` upstream promotion workflow is not the OpenWrt release path and is not called by this workflow.
+No router is attached to this development environment. Shell fixture tests cover fresh install, legacy migration, update, hash failure, rollback, repeated check, and reboot-state simulation. Real device, traffic, and reboot acceptance must be recorded only after an actual router run.

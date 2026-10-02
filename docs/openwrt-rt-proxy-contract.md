@@ -2,7 +2,7 @@
 
 Источник истины — текущий upstream `necronicle/z2k` (`z2k-enhanced`),
 НЕ память. Foundation FROZEN; порт только в `platform/openwrt/*`,
-`package/openwrt/*`, `tests/openwrt/*`, `docs/*` (+ точечный COMMON_HOOK §13).
+`scripts/openwrt/stage-rootfs.sh`, `tests/openwrt/*`, `docs/*` (+ точечный COMMON_HOOK §13).
 
 > Target: OpenWrt 25.12.5 ships dnsmasq 2.93.
 > Do NOT assume an IPv4-only host-record suppresses AAAA forwarding:

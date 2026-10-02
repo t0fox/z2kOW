@@ -1,6 +1,6 @@
 #!/bin/sh
 # tests/openwrt/fixture.sh - сборка изолированного Z2K_ROOT из РЕАЛЬНОГО репо.
-# Симлинки на тяжёлый payload (только чтение), запись — в $T (tmpfs).
+# Изолированная копия payload; запись/миграции остаются только в $T.
 # Использование: . fixture.sh; ow_fixture_init  # выставляет Z2K_* + REPO
 # Очистка: ow_fixture_done (вызывает caller через trap).
 
@@ -16,27 +16,40 @@ ow_fixture_init() {
           Z2K_EXTRA_DOMAINS_SHIPPED Z2K_EXTRA_DOMAINS_RUNTIME
 
     mkdir -p "$Z2K_ROOT" "$Z2K_ETC" || return 1
-    # payload — симлинки на реальное дерево (read-only использование)
-    ln -s "$REPO/lib" "$Z2K_ROOT/lib" || return 1
-    ln -s "$REPO/files/lua" "$Z2K_ROOT/lua" || return 1
-    ln -s "$REPO/files/fake" "$Z2K_ROOT/fake" || return 1
+    # Copies work on Windows-hosted POSIX shells too, where creating symlinks
+    # may require an elevated developer-mode privilege.
+    cp -a "$REPO/lib" "$Z2K_ROOT/lib" || return 1
+    cp -a "$REPO/files/lua" "$Z2K_ROOT/lua" || return 1
+    cp -a "$REPO/files/fake" "$Z2K_ROOT/fake" || return 1
     mkdir -p "$Z2K_ROOT/platform/openwrt" || return 1
     for _f in "$REPO"/platform/openwrt/*.sh; do
-        ln -s "$_f" "$Z2K_ROOT/platform/openwrt/$(basename "$_f")" || return 1
+        cp -p "$_f" "$Z2K_ROOT/platform/openwrt/$(basename "$_f")" || return 1
+    done
+    # Bootstrap validates the complete release tree's pinned upstream
+    # executables. Supply architecture-correct test fixtures rather than
+    # relying on host-installed /opt/zapret2 files.
+    Z2K_ZAPRET2_RUNTIME="$T/zapret2"
+    export Z2K_ZAPRET2_RUNTIME
+    . "$Z2K_ROOT/platform/openwrt/arch.sh" || return 1
+    _ow_runtime_arch="$(z2k_ow_arch_name)" || return 1
+    mkdir -p "$Z2K_ZAPRET2_RUNTIME/binaries/linux-$_ow_runtime_arch" || return 1
+    for _name in nfqws2 ip2net mdig; do
+        printf '#!/bin/sh\nexit 0\n' > "$Z2K_ZAPRET2_RUNTIME/binaries/linux-$_ow_runtime_arch/$_name" || return 1
+        chmod +x "$Z2K_ZAPRET2_RUNTIME/binaries/linux-$_ow_runtime_arch/$_name" || return 1
     done
     mkdir -p "$Z2K_ROOT/lists" || return 1
     for _f in "$REPO"/files/lists/*.txt; do
-        ln -s "$_f" "$Z2K_ROOT/lists/$(basename "$_f")" || return 1
+        cp -p "$_f" "$Z2K_ROOT/lists/$(basename "$_f")" || return 1
     done
     mkdir -p "$Z2K_ROOT/extra_strats" || return 1
     cp -a "$REPO/files/lists/extra_strats/TCP" "$REPO/files/lists/extra_strats/UDP" \
         "$Z2K_ROOT/extra_strats/" || return 1
     chmod -R u+w "$Z2K_ROOT/extra_strats" || return 1
     # Манифесты — в КОРНЕ payload (как на Keenetic/production).
-    ln -s "$REPO/strats_new2.txt" "$Z2K_ROOT/strats_new2.txt" || return 1
-    ln -s "$REPO/quic_strats.ini" "$Z2K_ROOT/quic_strats.ini" || return 1
+    cp -p "$REPO/strats_new2.txt" "$Z2K_ROOT/strats_new2.txt" || return 1
+    cp -p "$REPO/quic_strats.ini" "$Z2K_ROOT/quic_strats.ini" || return 1
     mkdir -p "$Z2K_ROOT/share" || return 1
-    ln -s "$REPO/package/openwrt/files/etc/z2k/config.default" \
+    cp -p "$REPO/platform/openwrt/files/etc/z2k/config.default" \
         "$Z2K_ROOT/share/config.default" || return 1
     return 0
 }

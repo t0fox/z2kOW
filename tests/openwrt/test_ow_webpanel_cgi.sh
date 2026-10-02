@@ -12,11 +12,11 @@ JOB_IDS=""
 mkdir -p "$T/bin" "$T/root/platform/openwrt" "$T/root/bin" "$T/root/lib" \
          "$T/root/webpanel/cgi" "$T/root/webpanel" "$T/etc/user-lists/warp" "$T/etc/state/warp" \
          "$T/etc/webpanel" "$T/tmp/z2k/runtime" "$T/proc/7777"
-export PATH="$T/bin:/usr/bin:/bin"
+export PATH="$T/bin:$PATH"
 export Z2K_PANEL_EXTRA_PATH="$T/bin"
 
 # --- adapter farm (настоящие файлы слоя) ---
-for _f in paths.sh env.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
+for _f in paths.sh env.sh arch.sh manifest.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
@@ -24,10 +24,12 @@ ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.
 mkdir -p "$T/cgi"
 cp "$REPO/webpanel/cgi/api.sh" "$REPO/webpanel/cgi/auth.sh" \
    "$REPO/webpanel/cgi/actions.sh" "$REPO/webpanel/cgi/platform.sh" "$T/cgi/"
-cp "$REPO/webpanel/cgi/actions.sh" "$REPO/webpanel/cgi/platform.sh" "$T/root/webpanel/cgi/"
-cp "$REPO/package/openwrt/PANEL_API" "$T/root/share.panel.api"
+cp "$REPO/webpanel/cgi/actions.sh" "$REPO/webpanel/cgi/platform.sh" \
+   "$REPO/webpanel/cgi/api.sh" "$T/root/webpanel/cgi/"
 mkdir -p "$T/root/share"
-mv "$T/root/share.panel.api" "$T/root/share/panel.api"
+mkdir -p "$T/root/www"
+cp "$REPO/webpanel/www/index.html" "$T/root/www/index.html"
+cp "$REPO/webpanel/lighttpd.conf" "$T/root/webpanel/lighttpd.conf.in"
 # --- stub lib (генератор/утилиты — как keenetic-сьют; сам CGI настоящий) ---
 # Стаб пишет многострочный NFQWS2_OPT: strategy_validate вырезает опции
 # sed-диапазоном /^NFQWS2_OPT="/,/^"$/, однострочник дал бы пустой opt.
@@ -90,19 +92,27 @@ echo "nft:\$*" >> "$T/nft.log"
 exit 0
 EOF
 chmod +x "$T/bin/nft"
-# Package/version provenance fixture.  The payload is already p-84.26 while
-# the adapter packages are r28: the panel must report the payload truth and expose
-# the package release separately instead of presenting the seed/tag mismatch
-# as an installed upstream version.
-cat > "$T/bin/apk" <<'EOF'
+# BusyBox/OpenWrt jsonfilter subset for nested paths used by the CGI contract.
+cat > "$T/bin/jsonfilter" <<'EOF'
 #!/bin/sh
-case "$*" in
-    *z2k-adapter*) echo 'z2k-adapter-0.1.0-r28 aarch64_cortex-a53 [installed]' ;;
-    *z2k-webpanel*) echo 'z2k-webpanel-0.1.0-r28 aarch64_cortex-a53 [installed]' ;;
-    *z2k-zapret2-runtime*) echo 'z2k-zapret2-runtime-1.0.5.1-r4 aarch64_cortex-a53 [installed]' ;;
-esac
+exec python3 - "$@" <<'PY'
+import json, sys
+args = sys.argv[1:]
+path = None
+source = None
+while args:
+    arg = args.pop(0)
+    if arg == "-i": source = args.pop(0)
+    elif arg == "-e": path = args.pop(0).removeprefix("@.").split(".")
+    else: raise SystemExit(2)
+value = json.load(open(source, encoding="utf-8"))
+for key in path:
+    value = value[key]
+if isinstance(value, bool): print("true" if value else "false")
+elif value is not None: print(value)
+PY
 EOF
-chmod +x "$T/bin/apk"
+chmod +x "$T/bin/jsonfilter"
 # --- fixtures ---
 printf 'GAME_WARP_ENABLED=0\nENABLED=1\n' > "$T/etc/config"
 : > "$T/etc/user-lists/whitelist.txt"
@@ -118,11 +128,14 @@ printf 'aa:bb:cc:dd:ee:ff\n' > "$T/etc/user-lists/warp/devices.txt"
 printf '1721000000 aa:bb:cc:dd:ee:ff 192.168.7.50 myphone 01:aa:bb:cc:dd:ee:ff\n' > "$T/leases"
 : > "$T/arp-empty"
 printf '192.168.7.50 dev br-lan lladdr aa:bb:cc:dd:ee:ff REACHABLE\n' > "$T/ip-neigh"
-cat > "$T/root/bin/z2k-warpd" <<'EOF'
+. "$REPO/platform/openwrt/arch.sh"
+_warp_arch="$(z2k_ow_arch_name)" || exit 1
+mkdir -p "$T/root/platform/openwrt/bin/linux-$_warp_arch"
+cat > "$T/root/platform/openwrt/bin/linux-$_warp_arch/z2k-warpd" <<'EOF'
 #!/bin/sh
 exit 0
 EOF
-chmod +x "$T/root/bin/z2k-warpd"
+chmod +x "$T/root/platform/openwrt/bin/linux-$_warp_arch/z2k-warpd"
 # --- mock zapret2 runtime для strategy dry-run (WP9): движок-mock всегда
 # парсит успешно; lib-стабы те же, что выше (теневая сборка их симлинчит) ---
 mkdir -p "$T/zapret2/lib" "$T/zapret2/nfq2" "$T/zapret2/init.d/openwrt" "$T/root/platform/openwrt/custom.d"
@@ -142,9 +155,9 @@ z2k_fetch() {
     printf '%s\n' "$1" >> "$OW_TEST_FETCH_LOG"
     [ ! -f "$OW_TEST_FETCH_FAIL" ] || return 1
     case "$1" in
-        https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json)
+        https://updates.example/controlled/UPDATES.json)
             cp "$OW_TEST_UPDATES" "$2" ;;
-        https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json.sig)
+        https://updates.example/controlled/UPDATES.json.sig)
             cp "$OW_TEST_UPDATES_SIG" "$2" ;;
         *) return 1 ;;
     esac
@@ -172,7 +185,6 @@ export Z2K_PLATFORM=openwrt Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc" Z2K_INIT="$T/mock-init"
 export Z2K_BIN="$T/root/bin" INIT_SCRIPT="$T/mock-init" ZAPRET2_DIR="$T/zapret2" \
        Z2K_ZAPRET2_RUNTIME="$T/zapret2"
-export Z2K_APK_BIN="$T/bin/apk"
 export Z2K_CRON_TAB="$T/etc/crontabs/root"
 export WP_IP_BIN="$T/bin/ip"
 export WARP_STATUS="$T/tmp/z2k/warp-status.json"
@@ -345,69 +357,107 @@ RAW="$(_cgi GET /warp/neighbors)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "neighbors: mac виден" "aa:bb:cc:dd:ee:ff" "$(_jget "$OUT" 'd["devices"][0]["mac"]')"
 assert_eq "neighbors: on=1" "true" "$(_jget "$OUT" 'd["devices"][0]["on"]')"
 
-# --- update status использует upstream release manifest и его подпись (WP17) ---
-cat > "$T/upstream-UPDATES.json" <<'EOF'
-{"schema":1,"branch":"z2k-enhanced","seq":1,"current":"p-86.1","install_map":{},"files_sha256":{},"history":[{"v":"p-86.1","type":"release","ts":"2026-09-30T00:00:00Z","desc":"upstream"}]}
+# --- dashboard and apply share one signed, controlled OpenWrt manifest (WP17) ---
+cat > "$T/controlled-UPDATES.json" <<'EOF'
+{
+  "schema": 1,
+  "branch": "main",
+  "platform": "openwrt",
+  "seq": 134,
+  "current": "p-86.11",
+  "upstream": {
+    "repository": "necronicle/z2k",
+    "branch": "z2k-enhanced",
+    "tag": "p-86.11",
+    "commit": "09228b68984b6a489612608d90f63c227708fdba"
+  },
+  "history": [
+    {"v":"p-86.2","type":"patch","ts":"2026-09-30T00:00:00Z","desc":"previous release"},
+    {"v":"r-86.3","type":"reinstall","ts":"2026-09-30T01:00:00Z","desc":"release history"},
+    {"v":"r-86.4","type":"reinstall","ts":"2026-09-30T02:00:00Z","desc":"release history"},
+    {"v":"p-86.6","type":"patch","ts":"2026-09-30T03:00:00Z","desc":"release history"},
+    {"v":"p-86.11","type":"patch","ts":"2026-10-01T19:01:37Z","desc":"current release"}
+  ],
+  "artifact": {
+    "filename": "openwrt-rootfs.tar.gz",
+    "url": "https://github.com/t0fox/z2kOW/releases/download/p-86.11/openwrt-rootfs.tar.gz",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "size_bytes": 23
+  }
+}
 EOF
-openssl genpkey -algorithm ed25519 -out "$T/upstream-test.key"
-openssl pkey -in "$T/upstream-test.key" -pubout -out "$T/upstream-test.pub"
-openssl pkeyutl -sign -rawin -inkey "$T/upstream-test.key" -in "$T/upstream-UPDATES.json" -out "$T/upstream-UPDATES.json.sig"
+openssl genpkey -algorithm ed25519 -out "$T/controlled-test.key"
+openssl pkey -in "$T/controlled-test.key" -pubout -out "$T/controlled-test.pub"
+openssl pkeyutl -sign -rawin -inkey "$T/controlled-test.key" -in "$T/controlled-UPDATES.json" -out "$T/controlled-UPDATES.json.sig"
 export OW_TEST_FETCH_LOG="$T/update-fetch.log"
-export OW_TEST_FETCH_FAIL="$T/fail-upstream-fetch"
-export OW_TEST_UPDATES="$T/upstream-UPDATES.json"
-export OW_TEST_UPDATES_SIG="$T/upstream-UPDATES.json.sig"
-export Z2K_AU_PUBKEY="$T/upstream-test.pub"
+export OW_TEST_FETCH_FAIL="$T/fail-controlled-fetch"
+export OW_TEST_UPDATES="$T/controlled-UPDATES.json"
+export OW_TEST_UPDATES_SIG="$T/controlled-UPDATES.json.sig"
+export Z2K_AU_PUBKEY="$T/controlled-test.pub"
+export Z2K_AU_REPO_RAW="https://updates.example/controlled"
+export Z2K_AU_MANIFEST_URL="$Z2K_AU_REPO_RAW/UPDATES.json"
 export AU_MANIFEST_CACHE="$T/manifest.json"
-mkdir -p "$T/root/share"
-printf 'platform=openwrt\ntag=p-86.1\nref=f161e1d\n' > "$T/root/share/seed.meta"
-printf 'platform=openwrt\ntag=p-86.1\nref=f161e1d\n' > "$T/root/share/payload.meta"
-printf 'p-86.1\n' > "$T/etc/state/installed-tag"
-export AU_TAG_FILE="$T/etc/state/installed-tag"
+mkdir -p "$T/etc/state"
+printf 'tag=p-86.2\nseq=127\n' > "$T/etc/state/installed-release"
+export AU_TAG_FILE="$T/etc/state/installed-release"
 RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
-assert_eq "update: installed payload truth" "p-86.1" "$(_jget "$OUT" 'd["installed"]')"
-assert_not_contains "update: no package/snapshot versions leak into the single upstream API" "$OUT" "_package"
+assert_eq "update: installed payload truth" "p-86.2" "$(_jget "$OUT" 'd["installed"]')"
+assert_not_contains "update: no package/snapshot versions leak into the one release API" "$OUT" "_package"
 assert_not_contains "update: payload/seed metadata is not a user update version" "$OUT" '"seed"'
-assert_eq "update: available comes from signed upstream release" "p-86.1" "$(_jget "$OUT" 'd["available"]')"
-assert_eq "update: signed manifest is cached with upstream authority" "upstream" "$(cat "$AU_MANIFEST_CACHE.authority")"
-assert_eq "update: no fetch failure for valid upstream signature" "false" "$(_jget "$OUT" 'd["fetch_failed"]')"
-assert_contains "update: requests upstream manifest" "$T/update-fetch.log" "https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json"
-assert_contains "update: requests upstream signature" "$T/update-fetch.log" "https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json.sig"
+assert_eq "update: available comes from signed controlled release" "p-86.11" "$(_jget "$OUT" 'd["available"]')"
+assert_eq "update: signed manifest is cached with controlled authority" "controlled" "$(cat "$AU_MANIFEST_CACHE.authority")"
+assert_eq "update: no fetch failure for valid controlled signature" "false" "$(_jget "$OUT" 'd["fetch_failed"]')"
+assert_contains "update: requests controlled manifest" "$T/update-fetch.log" "https://updates.example/controlled/UPDATES.json"
+assert_contains "update: requests controlled signature" "$T/update-fetch.log" "https://updates.example/controlled/UPDATES.json.sig"
+printf '{"current":"p-86.12","history":[{"v":"p-86.12"}]}' > "$T/zapret2/UPDATES.json"
+assert_not_contains "update: newer upstream-only release stays hidden" "$OUT" "p-86.12"
 assert_eq "update: temporary etag sidecars are removed" "" "$(find "$T" -name '*.etag' -print -quit)"
-cp "$T/upstream-UPDATES.json.sig" "$T/upstream-UPDATES.valid.sig"
-printf 'invalid signature\n' > "$T/upstream-UPDATES.json.sig"
+cp "$T/controlled-UPDATES.json" "$T/controlled-UPDATES.complete.json"
+python3 - "$T/controlled-UPDATES.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+manifest = json.load(open(path, encoding="utf-8"))
+manifest.pop("artifact", None)
+json.dump(manifest, open(path, "w", encoding="utf-8"))
+PY
+openssl pkeyutl -sign -rawin -inkey "$T/controlled-test.key" \
+    -in "$T/controlled-UPDATES.json" -out "$T/controlled-UPDATES.json.sig"
 rm -f "$AU_MANIFEST_CACHE" "$AU_MANIFEST_CACHE.authority" "$AU_MANIFEST_FAIL_STAMP"
 RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
-assert_eq "update: invalid upstream signature is not available" "" "$(_jget "$OUT" 'd["available"]')"
-assert_eq "update: invalid upstream signature is a fetch failure" "true" "$(_jget "$OUT" 'd["fetch_failed"]')"
-[ ! -e "$AU_MANIFEST_CACHE.authority" ] && _t_ok || _t_bad "update: invalid signature must not gain upstream cache authority"
-mv -f "$T/upstream-UPDATES.valid.sig" "$T/upstream-UPDATES.json.sig"
+assert_eq "update: signed manifest without the unified rootfs asset is rejected" "" "$(_jget "$OUT" 'd["available"]')"
+assert_eq "update: missing rootfs descriptor reports fetch failure" "true" "$(_jget "$OUT" 'd["fetch_failed"]')"
+mv -f "$T/controlled-UPDATES.complete.json" "$T/controlled-UPDATES.json"
+openssl pkeyutl -sign -rawin -inkey "$T/controlled-test.key" \
+    -in "$T/controlled-UPDATES.json" -out "$T/controlled-UPDATES.json.sig"
+cp "$T/controlled-UPDATES.json.sig" "$T/controlled-UPDATES.valid.sig"
+printf 'invalid signature\n' > "$T/controlled-UPDATES.json.sig"
+rm -f "$AU_MANIFEST_CACHE" "$AU_MANIFEST_CACHE.authority" "$AU_MANIFEST_FAIL_STAMP"
+RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "update: invalid controlled signature is not available" "" "$(_jget "$OUT" 'd["available"]')"
+assert_eq "update: invalid controlled signature is a fetch failure" "true" "$(_jget "$OUT" 'd["fetch_failed"]')"
+[ ! -e "$AU_MANIFEST_CACHE.authority" ] && _t_ok || _t_bad "update: invalid signature must not gain controlled cache authority"
+mv -f "$T/controlled-UPDATES.valid.sig" "$T/controlled-UPDATES.json.sig"
 
-# /update/history is the same upstream release history as the Dashboard banner.
+# /update/history is the same controlled release history as the Dashboard banner.
 cat > "$T/root/UPDATES.json" <<'EOF'
 {
-  "current": "payload-snapshot-leak",
+  "current": "p-86.12",
   "history": [
-    {"v": "payload-snapshot-leak", "type": "patch", "ts": "2026-09-16T01:00:00Z", "desc": "must not surface"}
+    {"v": "p-86.12", "type": "patch", "ts": "2026-10-01T20:00:00Z", "desc": "upstream only, not approved"}
   ]
 }
 EOF
-cat > "$T/manifest.json" <<'EOF'
-{
-  "current": "p-86.1",
-  "history": [
-    {"v": "p-86.0", "type": "patch", "ts": "2026-09-16T02:00:00Z", "desc": "previous"},
-    {"v": "p-86.1", "type": "release", "ts": "2026-09-16T03:00:00Z", "desc": "current"}
-  ]
-}
-EOF
-printf 'upstream\n' > "$AU_MANIFEST_CACHE.authority"
+cp "$T/controlled-UPDATES.json" "$AU_MANIFEST_CACHE"
+cp "$T/controlled-UPDATES.json.sig" "$AU_MANIFEST_CACHE.sig"
+printf 'controlled\n' > "$AU_MANIFEST_CACHE.authority"
 RAW="$(_cgi GET /update/history "offset=0&limit=1")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
-assert_eq "history: upstream newest first" "p-86.1" "$(_jget "$OUT" 'd["history"][0]["v"]')"
-rm -f "$T/manifest.json" "$AU_MANIFEST_CACHE.authority"
-touch "$OW_TEST_FETCH_FAIL"
+assert_eq "history: controlled newest first" "p-86.11" "$(_jget "$OUT" 'd["history"][0]["v"]')"
+assert_not_contains "history: newer upstream-only release stays hidden" "$OUT" "p-86.12"
+rm -f "$AU_MANIFEST_CACHE" "$AU_MANIFEST_CACHE.sig" "$AU_MANIFEST_CACHE.authority"
+touch "$OW_TEST_FETCH_FAIL" "$AU_MANIFEST_FAIL_STAMP"
 RAW="$(_cgi GET /update/history "offset=0&limit=1")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "history: no snapshot payload fallback" "0" "$(_jget "$OUT" 'd["total"]')"
-assert_not_contains "history: snapshot payload entry stays hidden" "$OUT" "payload-snapshot-leak"
+assert_not_contains "history: upstream-only entry stays hidden when controlled manifest is unavailable" "$OUT" "p-86.12"
 [ ! -e "$REPO/webpanel/cgi/api-openwrt.sh" ] && _t_ok || _t_bad "forbidden api-openwrt.sh exists"
 [ ! -e "$REPO/webpanel/cgi/update-openwrt.js" ] && _t_ok || _t_bad "forbidden update-openwrt.js exists"
 
@@ -764,15 +814,18 @@ T2="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wpfresh.XXXXXX")" || exit 1
 trap 'rm -rf "$T" "$T2"; for _j in $JOB_IDS; do rm -f "/tmp/z2k-job-$_j.log" "/tmp/z2k-job-$_j.pid" "/tmp/z2k-job-$_j.exit"; done' EXIT INT TERM
 mkdir -p "$T2/bin" "$T2/root/platform/openwrt" "$T2/root/bin" "$T2/root/lib" \
          "$T2/etc" "$T2/tmp/z2k/runtime"
-for _f in paths.sh env.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
+for _f in paths.sh env.sh manifest.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T2/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T2/root/platform/openwrt/warp-proc.sh" 2>/dev/null
 mkdir -p "$T2/cgi" "$T2/root/webpanel/cgi" "$T2/root/share"
 cp "$REPO/webpanel/cgi/api.sh" "$REPO/webpanel/cgi/auth.sh" \
    "$REPO/webpanel/cgi/actions.sh" "$REPO/webpanel/cgi/platform.sh" "$T2/cgi/"
-cp "$REPO/webpanel/cgi/actions.sh" "$REPO/webpanel/cgi/platform.sh" "$T2/root/webpanel/cgi/"
-cp "$REPO/package/openwrt/PANEL_API" "$T2/root/share/panel.api"
+cp "$REPO/webpanel/cgi/actions.sh" "$REPO/webpanel/cgi/platform.sh" \
+   "$REPO/webpanel/cgi/api.sh" "$T2/root/webpanel/cgi/"
+mkdir -p "$T2/root/www"
+cp "$REPO/webpanel/www/index.html" "$T2/root/www/index.html"
+cp "$REPO/webpanel/lighttpd.conf" "$T2/root/webpanel/lighttpd.conf.in"
 printf '#!/bin/sh\nsafe_config_read() { return 1; }\n' > "$T2/root/lib/utils.sh"
 cat > "$T2/mock-init" <<EOF
 #!/bin/sh

@@ -21,11 +21,9 @@ AD="$REPO/platform/openwrt"
 
 LUA="$REPO/files/lua/z2k-state-persist.lua"
 
-# 1. seed везёт persist-слой (иначе нечего сохранять).
-_seed_list="$(sh "$REPO/package/openwrt/make-seed.sh" --list "$REPO" 2>/dev/null)"
-if printf '%s\n' "$_seed_list" | grep -qF "files/lua/z2k-state-persist.lua" \
-    && printf '%s\n' "$_seed_list" | grep -qF "/usr/lib/z2k/lua/z2k-state-persist.lua"; then _t_ok
-else _t_bad "seed не везёт files/lua/z2k-state-persist.lua"; fi
+# 1. the one full payload builder maps and stages the persistence Lua layer.
+assert_contains "common source map includes OpenWrt Lua files" "$REPO/lib/release_map.sh" 'files/lua/*)'
+assert_contains "single rootfs builder materializes mapped common files" "$REPO/scripts/openwrt/stage-common-payload.sh" 'z2k_install_paths'
 
 # 2. lua и shell смотрят в один и тот же primary-файл.
 assert_contains "lua primary override" "$LUA" 'Z2K_STATE_DIR_OVERRIDE'
@@ -38,7 +36,7 @@ assert_eq "shell fallback hook == tmp fallback file" \
 
 # 3. state persistent: выводится из $Z2K_ETC, прод-дефолт — /etc/z2k/state.
 assert_eq "Z2K_STATE derived from ETC" "$Z2K_ETC/state" "$Z2K_STATE"
-_prod_state="$(env -i sh -c '. "$0/platform/openwrt/paths.sh" >/dev/null 2>&1; printf "%s" "$Z2K_STATE"' "$REPO" 2>/dev/null)"
+_prod_state="$(env -i PATH="$PATH" sh -c '. "$0/platform/openwrt/paths.sh" >/dev/null 2>&1; printf "%s" "$Z2K_STATE"' "$REPO" 2>/dev/null)"
 assert_eq "prod Z2K_STATE" "/etc/z2k/state" "$_prod_state"
 
 # 4. regen (materialize) НЕ трогает state: подобранное живёт через пересборку.

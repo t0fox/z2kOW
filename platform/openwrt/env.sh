@@ -93,17 +93,11 @@ export INIT_SCRIPT
 Z2K_AU_SBIN="${Z2K_AU_SBIN:-$Z2K_BIN}"
 export Z2K_AU_SBIN
 
-# --- Канал обновлений: OpenWrt-line, НЕ upstream Keenetic ---
-#
-# Updater читает ИМЕННО эти переменные (lib/auto_update.sh:18-20, условные
-# присваивания — Keenetic их не выставляет и едет как раньше):
-#   Z2K_AU_BRANCH / Z2K_AU_REPO_RAW / Z2K_AU_MANIFEST_URL (последний выводится
-#   из REPO_RAW сам, его не задаём).
-# Вариант A: production-ветка z2k-enhanced-openwrt (создаётся к первому
-# OpenWrt-релизу; dev-ветки роутеры не опрашивают). upstream sync -> manifest
-# с Z2K_PLATFORM=openwrt на ней -> роутер забирает без перенастройки.
-# Всё переопределяемо окружением.
-Z2K_AU_BRANCH="${Z2K_AU_BRANCH:-z2k-enhanced-openwrt}"
+# --- Единственный controlled update source: this repository's main branch ---
+# OpenWrt's dashboard and updater both consume main/UPDATES.json. Upstream
+# releases are sync inputs only; no upstream or side-branch URL is polled by a
+# router. The common Keenetic updater does not source this platform environment.
+Z2K_AU_BRANCH="${Z2K_AU_BRANCH:-main}"
 Z2K_AU_REPO_RAW="${Z2K_AU_REPO_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/${Z2K_AU_BRANCH}}"
 export Z2K_AU_BRANCH Z2K_AU_REPO_RAW
 
@@ -119,63 +113,20 @@ export GITHUB_RAW
 Z2K_AU_RAW_BASE="${Z2K_AU_RAW_BASE:-https://raw.githubusercontent.com/t0fox/z2kOW}"
 export Z2K_AU_RAW_BASE
 
-# --- Состояние апдейтера: всё условное в common, здесь — openwrt-значения ---
-# Persistent (переживают reboot/upgrade):
-Z2K_AU_INSTALLED_TAG_FILE="${Z2K_AU_INSTALLED_TAG_FILE:-$Z2K_STATE/installed-tag}"
-Z2K_AU_TRUST_PIN="${Z2K_AU_TRUST_PIN:-$Z2K_ETC/.trust/pinned}"
-# Transient (tmpfs; locks/logs/downloads — см. storage-модель):
+# --- Release decision storage ---
+# One persistent release marker; delivery uses only full install_release(tag).
+Z2K_AU_INSTALLED_TAG_FILE="${Z2K_AU_INSTALLED_TAG_FILE:-$Z2K_OW_INSTALLED_RELEASE_FILE}"
+Z2K_AU_TMP_DIR="${Z2K_AU_TMP_DIR:-$Z2K_TMP/update}"
 Z2K_AU_LOCK_FILE="${Z2K_AU_LOCK_FILE:-$Z2K_LOCKS/update.lock}"
 Z2K_AU_LOG_FILE="${Z2K_AU_LOG_FILE:-$Z2K_LOG/z2k-auto-update.log}"
-Z2K_AU_TMP_DIR="${Z2K_AU_TMP_DIR:-$Z2K_TMP/update}"
-export Z2K_AU_INSTALLED_TAG_FILE Z2K_AU_TRUST_PIN Z2K_AU_LOCK_FILE Z2K_AU_LOG_FILE Z2K_AU_TMP_DIR
-# Счётчик delivery-неудач и dirty-маркер — persistent state (не payload!):
-# счётчик в read-only ${ZAPRET2_DIR}/state молча не пишется и 3-strikes
-# эскалация не срабатывает; dirty обязан переживать reboot.
+Z2K_AU_TRUST_PIN="${Z2K_AU_TRUST_PIN:-$Z2K_ETC/.trust/pinned}"
+Z2K_AU_PUBKEY="${Z2K_AU_PUBKEY:-$Z2K_ROOT/etc/z2k-update-pub.pem}"
 Z2K_AU_FAILS_FILE="${Z2K_AU_FAILS_FILE:-$Z2K_STATE/au-delivery-fails}"
 Z2K_AU_DIRTY_TREE_FILE="${Z2K_AU_DIRTY_TREE_FILE:-$Z2K_STATE/dirty-tree}"
-export Z2K_AU_FAILS_FILE Z2K_AU_DIRTY_TREE_FILE
-
-# Normal update traffic is always bound to the signed production manifest.
-# Embedded snapshots remain available only to explicitly internal provisioning
-# and panel-payload convergence paths.
-z2k_platform_fetch_manifest() {
-    [ "${Z2K_PLATFORM:-}" = "openwrt" ] || return 125
-    local _d="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
-    local _out="${Z2K_AU_TMP_DIR:-${Z2K_TMP:-/tmp/z2k}/update}/UPDATES.json"
-    local _tmp="${_out}.production.$$"
-    [ -r "$_d/manifest.sh" ] || return 2
-    # shellcheck disable=SC1090
-    . "$_d/manifest.sh" || return 2
-    z2k_ow_manifest_prepare_production "$_tmp" || { rm -f "$_tmp" "$_tmp.sig"; return 2; }
-    mv -f "$_tmp" "$_out" || { rm -f "$_tmp" "$_tmp.sig"; return 2; }
-    Z2K_OW_MANIFEST_PATH="$_out"
-    export Z2K_OW_MANIFEST_PATH
-}
-
-z2k_platform_fetch_snapshot_manifest() {
-    [ "${Z2K_PLATFORM:-}" = "openwrt" ] || return 1
-    local _d="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
-    [ -r "$_d/manifest.sh" ] || return 1
-    # shellcheck disable=SC1090
-    . "$_d/manifest.sh" || return 1
-    z2k_ow_manifest_prepare "${Z2K_AU_TMP_DIR:-${Z2K_TMP:-/tmp/z2k}/update}/UPDATES.json" || return 1
-    [ "${Z2K_OW_MANIFEST_MODE:-}" = "snapshot" ] || {
-        echo "z2k-openwrt: внутренней snapshot-пары нет" >&2
-        return 1
-    }
-}
-
-# A snapshot's separate full commit pin outranks the history's human release
-# ref, which may be a tag absent from the adapter fork. Production manifests
-# continue through au_manifest_ref unchanged.
-z2k_platform_manifest_ref() {
-    [ "${Z2K_PLATFORM:-}" = "openwrt" ] || return 0
-    [ "${Z2K_OW_MANIFEST_MODE:-}" = snapshot ] || return 0
-    [ -n "${Z2K_AU_TARGET_REF:-}" ] || return 0
-    printf '%s\n' "$Z2K_AU_TARGET_REF"
-}
-# PUBKEY/VERIFY_BIN не задаём: их дефолты уже идут через ZAPRET2_DIR/Z2K_AU_SBIN
-# (${Z2K_ROOT}/etc/z2k-update-pub.pem и ${Z2K_BIN}/z2k-verify) — тест сверяет.
+export Z2K_AU_INSTALLED_TAG_FILE Z2K_AU_TMP_DIR Z2K_AU_LOCK_FILE \
+    Z2K_AU_LOG_FILE Z2K_AU_TRUST_PIN Z2K_AU_PUBKEY \
+    Z2K_AU_FAILS_FILE Z2K_AU_DIRTY_TREE_FILE
+# VERIFY_BIN keeps the rootfs-selected OpenWrt runtime path in Z2K_AU_SBIN.
 
 # ZAPRET_BASE читает только валидатор (бинарник) и Keenetic S99 (не наш
 # путь): указываем на runtime. INIT_SCRIPT уже выставлен выше — валидатор

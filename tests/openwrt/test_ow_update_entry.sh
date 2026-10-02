@@ -1,207 +1,28 @@
 #!/bin/sh
-# tests/openwrt/test_ow_update_entry.sh - §1-2: тонкий launcher, не форк.
-# Статика: порядок сорсинга, отсутствие форка/branch-gate/dev-ветки.
-# Функционально (stub-lib): apply/check/manual/gates/jitter-ветки.
+# OpenWrt auto-update preserves upstream decision semantics and dispatches all
+# approved releases through the canonical full-payload installer.
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-update-entry"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 UPD="$REPO/platform/openwrt/update.sh"
+AU="$REPO/lib/auto_update.sh"
 
-# --- статика (по строкам сорсинга `. "path"`, не по упоминаниям в rationale) ---
-_code() { sed 's/#.*$//' "$UPD"; }
-_lp="$(_code | grep -n 'platform/openwrt/paths\.sh' | head -1 | cut -d: -f1)"
-_le="$(_code | grep -n 'platform/openwrt/env\.sh' | head -1 | cut -d: -f1)"
-_lu="$(_code | grep -n 'utils\.sh' | head -1 | cut -d: -f1)"
-_la="$(_code | grep -n 'auto_update\.sh' | head -1 | cut -d: -f1)"
-[ -n "$_lp" ] && [ -n "$_le" ] && [ -n "$_lu" ] && [ -n "$_la" ] \
-    && [ "$_lp" -lt "$_le" ] && [ "$_le" -lt "$_lu" ] && [ "$_lu" -lt "$_la" ] \
-    && _t_ok || _t_bad "порядок сорсинга не paths->env->utils->auto_update ($_lp,$_le,$_lu,$_la)"
-if grep -qE '^(au_run_apply|au_repo_base|au_apply_reinstall|au_run_step)\(\)' "$UPD"; then
-    _t_bad "launcher переопределяет common-функции (форк)"
-else
-    _t_ok
-fi
-assert_contains "launcher prepares the unified OpenWrt stack" "$UPD" "z2k_ow_prepare_stack_apply"
-assert_contains "launcher зовёт au_run_check" "$UPD" "au_run_check"
-if _code | grep -q 'z2k-branch'; then
-    _t_bad "branch-file gate притащен на OpenWrt"
-else
-    _t_ok
-fi
-if grep -q 'feat/' "$UPD"; then
-    _t_bad "dev-ветка захардкожена"
-else
-    _t_ok
-fi
-if _code | grep -q 'z2k\.sh'; then
-    _t_bad "launcher упоминает z2k.sh"
-else
-    _t_ok
-fi
+assert_contains "controlled manifest drives release decision" "$UPD" 'z2k_ow_release_decision'
+assert_contains "patch and reinstall both reach one installer command" "$UPD" 'install_release'
+assert_contains "update invokes the full installer with current tag" "$UPD" 'exec "${Z2K_INSTALL_RELEASE_BIN:-/usr/sbin/install_release}" "$2"'
+assert_contains "check reports the same full release without another engine" "$UPD" 'Доступен полный выпуск %s'
+assert_not_contains "OpenWrt has no second patch/reinstall deployment engine" "$UPD" 'au_apply_patch|au_apply_reinstall|stack-update|product-update'
 
-# --- функционально на stub-lib ---
-T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-entry.XXXXXX")" || exit 1
+T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-update-entry.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
-mkdir -p "$T/root/lib" "$T/root/platform/openwrt" "$T/etc" "$T/bin"
-for _f in paths.sh env.sh bootstrap.sh update.sh stack-update.sh schedule.sh reinstall.sh; do
-    ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f"
-done
-cat > "$T/bin/z2kow" <<'EOF'
+cat > "$T/update.sh" <<'EOF'
 #!/bin/sh
-[ "$1" = "status" ] && [ "$2" = "--json" ] || exit 97
-printf '%s\n' '{"ok":true,"state":"snapshot","build":"internal"}'
+printf '%s\n' "$*" >> "$OW_UPDATE_CALLS"
 EOF
-chmod +x "$T/bin/z2kow"
-cat > "$T/root/lib/utils.sh" <<'EOF'
-#!/bin/sh
-safe_config_read() {
-    if [ "$1" = "Z2K_AUTO_UPDATE_ENABLED" ]; then
-        grep -m1 '^Z2K_AUTO_UPDATE_ENABLED=' "$2" 2>/dev/null | cut -d= -f2 | tr -d ' "\047'
-        return 0
-    fi
-    printf '%s' "$3"
-}
-z2k_host_jitter() { printf '7'; }
-EOF
-cat > "$T/root/lib/auto_update.sh" <<EOF
-#!/bin/sh
-au_log() { echo "aulog:\$*" >> "$T/calls"; }
-au_run_apply() { echo "apply-called" >> "$T/calls"; }
-au_run_check() { echo "check-called" >> "$T/calls"; }
-# adapter-gate fetch: минимальный манифест без api-требований (окно=1).
-au_fetch_manifest() {
-    mkdir -p "\$Z2K_AU_TMP_DIR" 2>/dev/null || return 1
-    printf '{"current": "p-84.7", "history": []}\n' > "\$Z2K_AU_TMP_DIR/UPDATES.json" 2>/dev/null
-}
-au_decide() { [ "\$1" = "p-84.7" ] && echo none || echo 'patch p-84.7'; }
-EOF
-# config_official/strategies сорсятся launcher'ом? нет, но оба — в
-# Z2K_PAYLOAD_REQUIRED: без них payload_ok ложен и seed_ensure не пустит.
-printf '#!/bin/sh\n# stub\n' > "$T/root/lib/config_official.sh"
-printf '#!/bin/sh\n# stub\n' > "$T/root/lib/strategies.sh"
-printf 'ENABLED=1\n' > "$T/etc/config"
-mkdir -p "$T/bin"
-printf '#!/bin/sh\necho "sleep:$*" >> "%s/calls"\n' "$T" > "$T/bin/sleep"
-chmod +x "$T/bin/sleep"
-unset Z2K_AU_MANUAL Z2K_AU_NO_JITTER
-export PATH="$T/bin:$PATH"
-# pre-flight update.sh (seed_ensure) требует целый payload: добиваем stub-root
-# dummy-файлами + seed.meta/tag в согласии (payload_ok + reconcile проходят)
-mkdir -p "$T/root/lua" "$T/root/extra_strats/TCP/RKN" "$T/root/extra_strats/TCP/YT" \
-         "$T/root/extra_strats/TCP/YT_GV" "$T/root/extra_strats/UDP/YT" \
-         "$T/root/share" "$T/root/lists" "$T/etc/state"
-printf 'x\n' > "$T/root/lua/z2k-alert.lua"
-printf 'x\n' > "$T/root/lua/z2k-state-persist.lua"
-printf 'x\n' > "$T/root/strats_new2.txt"
-for _p in TCP/YT TCP/YT_GV TCP/RKN UDP/YT; do
-    printf 'x\n' > "$T/root/extra_strats/$_p/Strategy.txt"
-done
-printf 'platform=openwrt\ntag=p-84.7\nref=test\n' > "$T/root/share/seed.meta"
-printf 'platform=openwrt\ntag=p-84.7\nref=test\n' > "$T/root/share/payload.meta"
-# Existing payload fixture includes the additive helper, so this launcher test
-# stays focused on update entry gating; its migration is covered separately.
-printf '#!/bin/sh\n' > "$T/root/z2k-update-lists.sh"
-# pre-flight update.sh: marker + tag (восстановление tag — в preflight-тесте)
-: > "$T/etc/.payload-initialized"
-printf 'p-84.7\n' > "$T/etc/state/installed-tag"
-
-_call() {
-    # _call <action> [VAR=val ...]: unattended-контекст (stdin /dev/null).
-    local _action="$1"; shift
-    : > "$T/calls"
-    ( unset Z2K_AU_MANUAL Z2K_AU_NO_JITTER
-      export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp" Z2K_PRODUCT_UPDATE_BIN="$T/bin/z2kow"
-      # Имена намеренно динамические (VAR=val из "$@"; :? роняет пустое вслух).
-      _v=; for _v in "$@"; do export "${_v?}"; done
-      < /dev/null sh "$T/root/platform/openwrt/update.sh" "$_action" >/dev/null 2>&1
-      echo "rc=$?" >> "$T/calls" )
-}
-
-_call apply Z2K_AU_MANUAL=1 Z2K_AU_NO_JITTER=1
-assert_contains "manual apply идёт" "$T/calls" "apply-called"
-_call check Z2K_AU_MANUAL=1 Z2K_AU_NO_JITTER=1
-assert_contains "check идёт" "$T/calls" "check-called"
-if grep -q "^sleep:" "$T/calls"; then
-    _t_bad "manual/check спят (jitter не только плановым)"
-else
-    _t_ok
-fi
-
-printf 'Z2K_AUTO_UPDATE_ENABLED=0\n' > "$T/etc/config"
-_call apply
-assert_contains "unattended при выключенном: rc 0" "$T/calls" "rc=0"
-if grep -q "apply-called" "$T/calls"; then
-    _t_bad "выключенный unattended дошёл до apply"
-else
-    _t_ok
-fi
-_call apply Z2K_AU_MANUAL=1 Z2K_AU_NO_JITTER=1
-assert_contains "ручной при выключенном идёт" "$T/calls" "apply-called"
-
-# Fail-safe parser: every supported explicit zero disables unattended apply,
-# including spacing, export, comments, CRLF, and a conflicting later zero.
-for _cfg in \
-    '  Z2K_AUTO_UPDATE_ENABLED = 0  ' \
-    'export Z2K_AUTO_UPDATE_ENABLED=0 # comment' \
-    'Z2K_AUTO_UPDATE_ENABLED="0"' \
-    "Z2K_AUTO_UPDATE_ENABLED='0'" \
-    'Z2K_AUTO_UPDATE_ENABLED=1
-Z2K_AUTO_UPDATE_ENABLED=0'; do
-    printf '%s\n' "$_cfg" > "$T/etc/config"
-    _call apply
-    if grep -q "apply-called" "$T/calls"; then
-        _t_bad "поддерживаемая форма zero обошла unattended gate: $_cfg"
-    else
-        _t_ok
-    fi
-done
-printf 'export Z2K_AUTO_UPDATE_ENABLED=0\r\n' > "$T/etc/config"
-_call apply
-if grep -q "apply-called" "$T/calls"; then
-    _t_bad "CRLF zero обошёл unattended gate"
-else
-    _t_ok
-fi
-
-# Malformed/non-disabled forms keep the normal path available.  A non-zero
-# value, an inline suffix, and mismatched quotes are outside the grammar.
-for _cfg in \
-    'Z2K_AUTO_UPDATE_ENABLED=1' \
-    'Z2K_AUTO_UPDATE_ENABLED=0extra' \
-    'Z2K_AUTO_UPDATE_ENABLED="0' \
-    "Z2K_AUTO_UPDATE_ENABLED='0"; do
-    printf '%s\n' "$_cfg" > "$T/etc/config"
-    _call apply
-    assert_contains "не-disabled форма продолжает apply" "$T/calls" "apply-called"
-done
-
-# Reverse conflict is conservative too: any supported zero is enough.
-printf 'Z2K_AUTO_UPDATE_ENABLED=0\nZ2K_AUTO_UPDATE_ENABLED=1\n' > "$T/etc/config"
-_call apply
-if grep -q "apply-called" "$T/calls"; then
-    _t_bad "zero в конфликте не остановил unattended apply"
-else
-    _t_ok
-fi
-
-# check and manual apply remain allowed for the same disabled config.
-_call check
-assert_contains "check при disabled идёт" "$T/calls" "check-called"
-_call apply Z2K_AU_MANUAL=1
-assert_contains "manual при disabled идёт" "$T/calls" "apply-called"
-
-printf 'ENABLED=1\n' > "$T/etc/config"
-_call apply
-assert_contains "плановый apply идёт" "$T/calls" "apply-called"
-assert_contains "плановый jitter 7с" "$T/calls" "sleep:7"
-
-# MANUAL=1 сам означает no jitter (баг C): БЕЗ отдельного NO_JITTER
-_call apply Z2K_AU_MANUAL=1
-assert_contains "manual apply идёт" "$T/calls" "apply-called"
-if grep -q "^sleep:" "$T/calls"; then
-    _t_bad "MANUAL=1 спит без NO_JITTER"
-else
-    _t_ok
-fi
+chmod +x "$T/update.sh"
+export Z2K_PLATFORM=openwrt Z2K_OW_UPDATE_BIN="$T/update.sh" OW_UPDATE_CALLS="$T/calls"
+. "$AU" || exit 1
+( au_run_apply p-86.11 ) || _t_bad "OpenWrt updater dispatch failed"
+assert_eq "common updater delegates to one OpenWrt update entry" 'apply p-86.11' "$(cat "$T/calls")"
 
 _t_done

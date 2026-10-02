@@ -1,106 +1,54 @@
-# Upstream model
+# Upstream tracking
 
-z2kOW is maintained as an independent OpenWrt project derived from
-[necronicle/z2k](https://github.com/necronicle/z2k).
+z2kOW adapts [necronicle/z2k](https://github.com/necronicle/z2k) for OpenWrt.
+All project work stays on `main`; upstream release branches are read-only
+inputs and never become router update sources.
 
-The GitHub fork relationship is not required for synchronization. Upstream is
-treated as a versioned source dependency and integrated through controlled sync
-branches.
+## Release discovery and approval
 
-## Branch model
+`.github/workflows/sync-upstream.yml` checks the live `z2k-enhanced` branch
+every 15 minutes. It bypasses caches, resolves the current commit, reads the
+upstream `UPDATES.json`, and alerts when its sequence advances beyond the
+controlled z2kOW manifest.
 
-- `main` — z2kOW product branch.
-- `sync/<version>` — temporary integration branch for one upstream update.
-- `z2k-staging` / `z2k-enhanced` — retained only where the existing release
-  pipeline uses them as staging / delivery pointers. They are not the z2kOW
-  development branch.
+Discovery does not promote a release. For each new upstream release, review
+the source diff, carry over common behavior, adapt platform-specific behavior
+through the existing OpenWrt services, then run the release tests. The
+controlled manifest changes only after that work is approved. No sync branch,
+component release, or automatic publication is part of this process.
 
-## Recorded baseline
+## One release authority
 
-The machine-readable baseline lives in [UPSTREAM.json](./UPSTREAM.json).
+The repository-root [`UPDATES.json`](./UPDATES.json) on `main` is the sole
+release manifest used by routers, CI decisions, and the WebPanel. It records
+the approved upstream tag, sequence, immutable upstream commit, and append-only
+release history. A production release adds the complete OpenWrt payload's
+artifact URL, size, and SHA-256 to this same manifest.
 
-Current recorded upstream:
+The updater never reads the upstream manifest directly. Upstream metadata is
+fetched only by the sync check and the controlled release builder. There is no
+`UPSTREAM.json` file or second version authority. A newer upstream sequence
+remains invisible to devices until its OpenWrt adaptation is tested, approved,
+signed, and published.
 
-- repository: `necronicle/z2k`
-- branch: `z2k-enhanced`
-- version: `p-86.1`
-- commit: `950928ee615431f3442640b08a9a1cb877641900`
-- first z2kOW product baseline after that sync:
-  `13b22feadb7fa998bfd4f6ace08f85779fb1872a`
+## Installation
 
-## Git remotes
+Fresh install and every update use the same convergence command:
 
-A local clone should use:
-
-```text
-origin    https://github.com/t0fox/z2kOW.git
-upstream  https://github.com/necronicle/z2k.git
+```sh
+install_release <upstream-tag>
 ```
 
-Configure it once:
+The public bootstrap is
+[`scripts/openwrt/install.sh`](./scripts/openwrt/install.sh). It verifies the
+controlled manifest and full payload, then calls `install_release`. APK is
+used only for real OpenWrt system dependencies. One-time migration reads old
+z2kOW APK/feed ownership data, removes that ownership after a successful
+installation, and leaves no parallel package deployment path.
 
-```bash
-git remote add upstream https://github.com/necronicle/z2k.git
-git fetch upstream --tags
-```
+## OpenWrt boundary
 
-If `upstream` already exists:
-
-```bash
-git remote set-url upstream https://github.com/necronicle/z2k.git
-git fetch upstream --tags
-```
-
-## Normal update flow
-
-Do not merge upstream directly into `main`.
-
-The intended flow is:
-
-```text
-necronicle/z2k:z2k-enhanced
-              |
-              | fetch
-              v
-        sync/<version>
-              |
-              | audit + CI + fixes
-              v
-             main
-```
-
-The repository includes two ways to do this:
-
-1. GitHub Actions -> **Sync upstream** -> **Run workflow**
-   - `check` only reports whether upstream changed.
-   - `prepare` creates `sync/<version>`, performs a controlled merge,
-     updates `UPSTREAM.json`, pushes the branch and attempts to open a PR
-     against `main`.
-   - if Git reports merge conflicts, the workflow stops without modifying
-     `main`.
-
-2. Local helper:
-
-```bash
-./tools/sync-upstream.sh check
-./tools/sync-upstream.sh prepare
-```
-
-A clean merge is only a candidate. Existing CI remains the authority for
-whether the resulting z2kOW state is acceptable.
-
-## Why this is not a blind mirror
-
-OpenWrt-specific lifecycle, packaging, firewall integration, UCI/dnsmasq,
-procd, WebUI behavior and compatibility contracts can overlap with upstream
-changes. Therefore an upstream update is never allowed to fast-forward
-`main` automatically.
-
-The sync branch exists specifically to expose those overlaps before the product
-branch moves.
-
-## Attribution
-
-Detaching the repository from GitHub's fork network does not remove source
-history or attribution. z2kOW continues to record and link its z2k origin here,
-in the Git history and in the project README.
+Carry upstream behavior through the existing OpenWrt adapters: `procd`,
+`fw4`/nftables, hotplug, UCI, and the existing WARP, Telegram, RT proxy, and
+WebPanel services. Do not run Keenetic lifecycle scripts or mutate LuCI's
+entrypoint, static tree, `uhttpd` configuration, or ports 80/443.

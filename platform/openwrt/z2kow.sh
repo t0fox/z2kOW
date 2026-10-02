@@ -1,28 +1,31 @@
 #!/bin/sh
-# Stable public CLI entrypoint installed by z2k-adapter.
+# Small operator CLI for the single OpenWrt release installer.
 set -eu
-Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
-. "$Z2K_ROOT/platform/openwrt/paths.sh"
-ENGINE="$Z2K_ROOT/platform/openwrt/product-update.sh"
-[ -r "$ENGINE" ] || { echo "z2kow: product updater is missing" >&2; exit 1; }
 _command="${1:-status}"
 case "$_command" in
-    update|u) shift 2>/dev/null || true; exec sh "$ENGINE" update "$@" ;;
-    install|i) shift 2>/dev/null || true; exec sh "$ENGINE" install "$@" ;;
-    status|s) shift 2>/dev/null || true; exec sh "$ENGINE" status "$@" ;;
+    install|i)
+        [ "$#" -eq 2 ] || { echo "usage: z2kow install <release-tag>" >&2; exit 2; }
+        exec "${Z2K_INSTALL_RELEASE_BIN:-/usr/sbin/install_release}" "$2"
+        ;;
+    update|u) shift; exec "${Z2K_UPDATE_BIN:-/usr/lib/z2k/platform/openwrt/update.sh}" apply "$@" ;;
+    check) shift; exec "${Z2K_UPDATE_BIN:-/usr/lib/z2k/platform/openwrt/update.sh}" check "$@" ;;
     restart|r)
-        [ "$#" -eq 1 ] || { echo "z2kow: restart does not accept arguments" >&2; exit 2; }
+        [ "$#" -eq 1 ] || { echo "usage: z2kow restart" >&2; exit 2; }
         exec "${Z2K_INIT:-/etc/init.d/z2k}" restart
         ;;
-    check) shift; exec sh "$ENGINE" check "$@" ;;
-    info) shift; exec sh "$ENGINE" info "$@" ;;
-    version|v) shift 2>/dev/null || true; exec sh "$ENGINE" version "$@" ;;
-    diag|d) shift 2>/dev/null || true; exec sh "$ENGINE" diag "$@" ;;
-    uninstall|remove) shift; exec sh "$ENGINE" uninstall "$@" ;;
-    record) shift; exec sh "$ENGINE" record "$@" ;;
-    help|-h|--help) exec sh "$ENGINE" help ;;
-    *)
-        echo "z2kow: unknown command: $1" >&2
-        exec sh "$ENGINE" help
+    status|s)
+        _state="${Z2K_OW_INSTALLED_RELEASE_FILE:-/etc/z2k/state/installed-release}"
+        _first="$(sed -n '1p' "$_state" 2>/dev/null | tr -d '\r')"
+        case "$_first" in tag=*) _tag="${_first#tag=}" ;; *=*) _tag="" ;; *) _tag="$_first" ;; esac
+        _seq="$(sed -n 's/^seq=//p' "$_state" 2>/dev/null | head -1 | tr -d ' \t\r\n')"
+        printf 'installed_release=%s\n' "${_tag:-none}"
+        [ -z "$_seq" ] || printf 'installed_seq=%s\n' "$_seq"
+        if [ -x "${Z2K_INIT:-/etc/init.d/z2k}" ]; then
+            "${Z2K_INIT:-/etc/init.d/z2k}" status
+        fi
         ;;
+    help|-h|--help)
+        printf '%s\n' 'z2kow: install <tag> | check | update | status | restart'
+        ;;
+    *) echo "z2kow: unknown command: $_command" >&2; exit 2 ;;
 esac

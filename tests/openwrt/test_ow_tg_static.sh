@@ -8,12 +8,11 @@ _t_plan "ow-tg-static"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 TG="$REPO/platform/openwrt/tg.sh"
 TGC="$REPO/platform/openwrt/tg-check.sh"
-INIT="$REPO/package/openwrt/files/etc/init.d/z2k"
-HOTPLUG="$REPO/package/openwrt/files/etc/hotplug.d/iface/90-z2k"
+INIT="$REPO/platform/openwrt/files/etc/init.d/z2k"
+HOTPLUG="$REPO/platform/openwrt/files/etc/hotplug.d/iface/90-z2k"
 SCHED="$REPO/platform/openwrt/schedule.sh"
 UNINST="$REPO/platform/openwrt/uninstall.sh"
-MK="$REPO/package/openwrt/Makefile"
-MAP="$REPO/package/openwrt/ownership.map"
+BUILDER="$REPO/scripts/openwrt/stage-rootfs.sh"
 AU="$REPO/lib/auto_update.sh"
 
 assert_file "tg.sh существует" "$TG"
@@ -85,7 +84,7 @@ assert_contains "tg.sh: argv строит оба listen" "$TG" '"--listen=:$Z2K_
 assert_contains "tg.sh: timeout 15m" "$TG" '"--timeout=$Z2K_TG_TIMEOUT"'
 assert_contains "tg.sh: GODEBUG" "$TG" 'GODEBUG=asyncpreemptoff=1'
 # второго сервиса нет
-if [ -f "$REPO/package/openwrt/files/etc/init.d/z2k-tg" ]; then
+if [ -f "$REPO/platform/openwrt/files/etc/init.d/z2k-tg" ]; then
     _t_bad "второй init-сервис z2k-tg существует (должен быть один owner)"
 else
     _t_ok
@@ -132,7 +131,7 @@ assert_not_contains "tg.sh: нет set -x" "$_TGCODE" 'set -x'
 assert_not_contains "tg.sh: secret не в echo" "$_TGCODE" 'echo.*SECRET|echo.*tunnel-secret'
 assert_not_contains "tg.sh: secret не в logger" "$_TGCODE" 'logger.*SECRET|logger.*secret='
 
-# --- проводка: init / hotplug / schedule / uninstall / Makefile ---
+# --- проводка: init / hotplug / schedule / uninstall / full rootfs builder ---
 assert_contains "init: tg.sh подключён" "$INIT" 'platform/openwrt/tg.sh'
 assert_contains "init: старт зовёт tg 1" "$INIT" 'z2k_ow_tg 1'
 assert_contains "init: стоп зовёт tg 0" "$INIT" 'z2k_ow_tg 0'
@@ -143,18 +142,24 @@ assert_contains "schedule: install/remove пара" "$SCHED" 'z2k_ow_tg_cron_ins
 assert_contains "schedule: remove пара" "$SCHED" 'z2k_ow_tg_cron_remove'
 assert_contains "uninstall: tg cleanup" "$UNINST" 'z2k_ow_tg cleanup'
 assert_contains "uninstall: tg cron remove" "$UNINST" 'z2k_ow_tg_cron_remove'
-assert_contains "Makefile: conntrack dep" "$MK" '+conntrack'
-if grep -q 'iptables' "$MK"; then
-    _t_bad "Makefile тянет iptables"
-else
-    _t_ok
-fi
-assert_contains "Makefile: postinst tg cron" "$MK" 'z2k_ow_tg_cron_install'
-assert_contains "ownership: tg.sh package" "$MAP" '/usr/lib/z2k/platform/openwrt/tg.sh package'
-assert_contains "ownership: tg-check.sh package" "$MAP" '/usr/lib/z2k/platform/openwrt/tg-check.sh package'
+assert_contains "complete builder stages only real OpenWrt runtime dependencies during install" "$REPO/platform/openwrt/release.sh" 'apk add'
+assert_not_contains "full payload builder has no component APK recipe" "$BUILDER" 'apk[[:space:]]+(build|add|del)|abuild'
+assert_contains "rootfs includes TG implementation" "$BUILDER" 'platform/openwrt/*.sh'
+assert_contains "one payload stages architecture-specific TG clients" "$BUILDER" \
+    'usr/lib/z2k/bin/linux-$_arch/tg-mtproxy-client'
+assert_contains "candidate fetches TG binaries from the pinned upstream release" \
+    "$REPO/scripts/openwrt/build-release.sh" 'fetch_upstream_tg.py'
+assert_contains "TG download verifies each upstream files_sha256 digest" \
+    "$REPO/scripts/openwrt/fetch_upstream_tg.py" 'upstream TG binary SHA-256 mismatch'
+assert_contains "TG downloader pins the exact controlled upstream commit" \
+    "$REPO/scripts/openwrt/fetch_upstream_tg.py" 'provenance.get("commit")'
+assert_contains "TG route identity is stored in persistent state" "$TG" \
+    '--relay-id-file=$Z2K_RELAY_ID_FILE'
 
 # --- COMMON_HOOK в au_service_for_binary ---
 assert_contains "au: openwrt-ветка" "$AU" 'Z2K_PLATFORM:-keenetic}" = "openwrt"'
+assert_contains "firewall: runtime recovery uses unified installer" "$REPO/platform/openwrt/firewall.sh" 'install_release <tag>'
+assert_not_contains "firewall: no component APK recovery path" "$REPO/platform/openwrt/firewall.sh" 'z2k-zapret2-runtime'
 assert_contains "au: keenetic-ветка цела" "$AU" '/opt/etc/init.d/S98tg-tunnel /opt/etc/init.d/S97z2k-http-tunnel'
 
 _t_done

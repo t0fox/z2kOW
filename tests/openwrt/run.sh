@@ -15,10 +15,11 @@ SKIPPED=""
 
 # 0. синтаксис всех shell-файлов слоя (+ Stage 7 release tooling)
 for _f in platform/openwrt/*.sh platform/openwrt/custom.d/.keep \
-          package/openwrt/files/etc/init.d/z2k \
-          package/openwrt/files/etc/init.d/z2k-webpanel \
-          package/openwrt/files/etc/init.d/z2k-detect \
-          package/openwrt/files/etc/hotplug.d/iface/90-z2k \
+          platform/openwrt/bin/z2k-rt-proxy platform/openwrt/bin/z2k-detect \
+          platform/openwrt/files/etc/init.d/z2k \
+          platform/openwrt/files/etc/init.d/z2k-webpanel \
+          platform/openwrt/files/etc/init.d/z2k-detect \
+          platform/openwrt/files/etc/hotplug.d/iface/90-z2k \
           scripts/openwrt/*.sh \
           tests/openwrt/*.sh; do
     [ -f "$_f" ] || continue
@@ -44,6 +45,18 @@ for _t in tests/openwrt/test_ow_*.sh; do
     PASS=$((PASS + ${_n:-0}))
     FAIL=$((FAIL + ${_f:-1}))
     { [ "$_rc" -eq 0 ] && [ "${_f:-1}" = "0" ]; } || FAILED="$FAILED $(basename "$_t")"
+done
+
+# Python contract tests are executable release gates too (not just developer
+# helpers). Keep the unified rootfs and signed-manifest artifact checks in the
+# same OpenWrt CI suite as the shell updater tests.
+for _t in tests/openwrt/test_ow_*.py; do
+    [ -f "$_t" ] || continue
+    if python3 "$_t"; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1)); FAILED="$FAILED $(basename "$_t")"
+    fi
 done
 
 echo "OPENWRT: pass=$PASS fail=$FAIL"

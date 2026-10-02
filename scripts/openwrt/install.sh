@@ -1,168 +1,98 @@
 #!/bin/sh
-# z2kOW production bootstrap. release-assets.py renders the two pinned values.
+# Fresh-install bootstrap. It verifies the sole controlled manifest and then
+# invokes the same install_release(tag) transaction used by every update.
 set -eu
 
-ROOT_SYS="/"
-# Hash of the exact PEM file, embedded by release-assets.py. Minimal OpenWrt
-# images need sha256sum but do not necessarily include base64 or OpenSSL.
-EXPECTED_FEED_KEY_SHA256="@Z2K_FEED_KEY_SHA256@"
-KEY_SOURCE_SHA="@Z2K_KEY_SOURCE_SHA@"
-FEED_URL="https://github.com/t0fox/z2kOW/releases/latest/download/packages.adb"
-FEED_ENTRY="ndx $FEED_URL"
-KEY_URL="https://raw.githubusercontent.com/t0fox/z2kOW/$KEY_SOURCE_SHA/package/openwrt/keys/z2k-feed.pem"
-KEY_PATH="$ROOT_SYS/etc/apk/keys/z2k-feed.pem"
-REPOSITORY_PATH="$ROOT_SYS/etc/apk/repositories.d/z2kow.list"
-SUPPORTED_RELEASE="25.12.5"
-SUPPORTED_TARGET="mediatek/filogic"
-SUPPORTED_ARCH="aarch64_cortex-a53"
-
-die() {
-    printf 'z2kOW installer: %s\n' "$*" >&2
-    exit 1
-}
-
-[ "$(id -u 2>/dev/null || true)" = "0" ] || die "запустите installer от root"
-[ -s "$ROOT_SYS/etc/openwrt_release" ] || die "это не OpenWrt: нет /etc/openwrt_release"
-# shellcheck disable=SC1090
-. "$ROOT_SYS/etc/openwrt_release"
-[ "${DISTRIB_ID:-}" = "OpenWrt" ] || die "поддерживается только OpenWrt"
-[ "${DISTRIB_RELEASE:-}" = "$SUPPORTED_RELEASE" ] \
-    || die "нужен OpenWrt $SUPPORTED_RELEASE, обнаружен ${DISTRIB_RELEASE:-unknown}"
-[ "${DISTRIB_TARGET:-}" = "$SUPPORTED_TARGET" ] \
-    || die "неподдерживаемый target: ${DISTRIB_TARGET:-unknown}; нужен $SUPPORTED_TARGET"
-[ "${DISTRIB_ARCH:-}" = "$SUPPORTED_ARCH" ] \
-    || die "неподдерживаемая APK architecture: ${DISTRIB_ARCH:-unknown}; нужен $SUPPORTED_ARCH"
-
-command -v apk >/dev/null 2>&1 || die "не найден apk package manager"
-apk --version >/dev/null 2>&1 || die "apk не запускается"
-command -v sha256sum >/dev/null 2>&1 || die "нужен sha256sum для проверки pinned ключа"
-case "$EXPECTED_FEED_KEY_SHA256" in
-    ''|*@*) die "release installer не содержит production key fingerprint" ;;
-esac
-case "$KEY_SOURCE_SHA" in
-    *[!0-9a-f]*|'') die "release installer не содержит immutable source SHA" ;;
-esac
-[ "${#KEY_SOURCE_SHA}" -eq 40 ] || die "immutable key source SHA malformed"
+die() { printf 'z2kOW installer: %s\n' "$*" >&2; exit 1; }
+[ "$(id -u 2>/dev/null || echo 1)" = 0 ] || die "запустите установщик от root"
+[ -r /etc/openwrt_release ] || die "это не OpenWrt"
+. /etc/openwrt_release
+[ "${DISTRIB_ID:-}" = OpenWrt ] || die "поддерживается только OpenWrt"
+command -v apk >/dev/null 2>&1 || die "нужен OpenWrt с apk для системных зависимостей"
+apk add ca-bundle openssl-util jsonfilter || die "не удалось поставить системные средства проверки подписи"
 
 if command -v wget >/dev/null 2>&1; then
     download() { wget -q -T 30 -O "$2" "$1"; }
-    http_check() { wget -q -T 5 -O /dev/null "$1"; }
 elif command -v curl >/dev/null 2>&1; then
-    download() { curl --fail --location --silent --show-error --connect-timeout 10 --max-time 30 -o "$2" "$1"; }
-    http_check() { curl --fail --location --silent --show-error --connect-timeout 3 --max-time 5 -o /dev/null "$1"; }
+    download() { curl --fail --location --silent --show-error --connect-timeout 10 --max-time 300 -o "$2" "$1"; }
 else
-    die "нужен HTTPS downloader: wget или curl"
+    die "нужен wget или curl"
 fi
 
-key_fingerprint() {
-    sha256sum "$1" 2>/dev/null | awk '{print $1}'
-}
+TMP="${TMPDIR:-/tmp}/z2kow-bootstrap.$$"
+(umask 077 && mkdir "$TMP") || die "не удалось создать временный каталог"
+trap 'rm -rf "$TMP"' EXIT HUP INT TERM
+MANIFEST="$TMP/UPDATES.json"
+SIGNATURE="$TMP/UPDATES.json.sig"
+PUBKEY="$TMP/z2k-update-pub.pem"
+BASE="https://raw.githubusercontent.com/t0fox/z2kOW/main"
+download "$BASE/UPDATES.json" "$MANIFEST" || die "не удалось получить controlled UPDATES.json"
+download "$BASE/UPDATES.json.sig" "$SIGNATURE" || die "нет подписи controlled UPDATES.json; релиз не опубликован"
+cat > "$PUBKEY" <<'EOF'
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAHInDNbRMriWoRhLSW0t6AWkrpayIBzM9oakfZuB3/1Y=
+-----END PUBLIC KEY-----
+EOF
+openssl pkeyutl -verify -rawin -pubin -inkey "$PUBKEY" -in "$MANIFEST" -sigfile "$SIGNATURE" \
+    >/dev/null 2>&1 || die "подпись controlled UPDATES.json неверна"
 
-TMP_DIR="${TMPDIR:-/tmp}/z2kow-install.$$"
-(umask 077 && mkdir "$TMP_DIR") || die "не удалось создать временный каталог"
-trap 'rm -rf "$TMP_DIR"' EXIT HUP INT TERM
-DOWNLOADED_KEY="$TMP_DIR/z2k-feed.pem"
-download "$KEY_URL" "$DOWNLOADED_KEY" \
-    || die "не удалось скачать production public key с immutable GitHub commit"
-[ -s "$DOWNLOADED_KEY" ] || die "production public key пуст"
-DOWNLOADED_FINGERPRINT="$(key_fingerprint "$DOWNLOADED_KEY" || true)"
-[ "$DOWNLOADED_FINGERPRINT" = "$EXPECTED_FEED_KEY_SHA256" ] \
-    || die "production feed key fingerprint mismatch; установка остановлена"
+_platform="$(jsonfilter -i "$MANIFEST" -e '@.platform' 2>/dev/null | head -1)"
+_schema="$(jsonfilter -i "$MANIFEST" -e '@.schema' 2>/dev/null | head -1)"
+_branch="$(jsonfilter -i "$MANIFEST" -e '@.branch' 2>/dev/null | head -1)"
+_upstream_repo="$(jsonfilter -i "$MANIFEST" -e '@.upstream.repository' 2>/dev/null | head -1)"
+_upstream_branch="$(jsonfilter -i "$MANIFEST" -e '@.upstream.branch' 2>/dev/null | head -1)"
+_upstream_tag="$(jsonfilter -i "$MANIFEST" -e '@.upstream.tag' 2>/dev/null | head -1)"
+_upstream_commit="$(jsonfilter -i "$MANIFEST" -e '@.upstream.commit' 2>/dev/null | head -1)"
+_tag="$(jsonfilter -i "$MANIFEST" -e '@.current' 2>/dev/null | head -1)"
+_filename="$(jsonfilter -i "$MANIFEST" -e '@.artifact.filename' 2>/dev/null | head -1)"
+_url="$(jsonfilter -i "$MANIFEST" -e '@.artifact.url' 2>/dev/null | head -1)"
+_sha="$(jsonfilter -i "$MANIFEST" -e '@.artifact.sha256' 2>/dev/null | head -1 | tr 'A-F' 'a-f')"
+_size="$(jsonfilter -i "$MANIFEST" -e '@.artifact.size_bytes' 2>/dev/null | head -1)"
+printf '%s' "$_tag" | grep -Eq '^[pr]-[0-9]+(\.[0-9]+)+$' || die "current tag malformed"
+[ "$_platform" = openwrt ] || die "controlled release is not for OpenWrt"
+[ "$_schema" = 1 ] && [ "$_branch" = main ] || die "controlled manifest schema/branch is invalid"
+[ "$_upstream_repo" = necronicle/z2k ] && [ "$_upstream_branch" = z2k-enhanced ] \
+    && [ "$_upstream_tag" = "$_tag" ] || die "controlled upstream provenance is invalid"
+printf '%s' "$_upstream_commit" | grep -Eq '^[0-9a-f]{40}$' || die "controlled upstream commit is malformed"
+[ "$_filename" = openwrt-rootfs.tar.gz ] || die "controlled release has no complete rootfs artifact"
+[ "$_url" = "https://github.com/t0fox/z2kOW/releases/download/$_tag/openwrt-rootfs.tar.gz" ] \
+    || die "rootfs URL does not match current tag"
+printf '%s' "$_sha" | grep -Eq '^[0-9a-f]{64}$' || die "rootfs checksum malformed"
+printf '%s' "$_size" | grep -Eq '^[1-9][0-9]*$' || die "rootfs size malformed"
 
-if [ -e "$KEY_PATH" ]; then
-    EXISTING_FINGERPRINT="$(key_fingerprint "$KEY_PATH" || true)"
-    [ "$EXISTING_FINGERPRINT" = "$EXPECTED_FEED_KEY_SHA256" ] \
-        || die "$KEY_PATH уже содержит другой ключ; доверие не будет заменено автоматически"
-else
-    mkdir -p "$ROOT_SYS/etc/apk/keys" || die "не удалось создать каталог APK keys"
-    cp "$DOWNLOADED_KEY" "$TMP_DIR/z2k-feed.pem.new" || die "не удалось подготовить APK key"
-    chmod 0644 "$TMP_DIR/z2k-feed.pem.new" 2>/dev/null || true
-    mv "$TMP_DIR/z2k-feed.pem.new" "$KEY_PATH" || die "не удалось установить APK key"
-fi
+ARTIFACT="$TMP/openwrt-rootfs.tar.gz"
+download "$_url" "$ARTIFACT" || die "не удалось скачать rootfs для $_tag"
+[ "$(wc -c < "$ARTIFACT" | tr -d ' \t\r\n')" = "$_size" ] || die "размер rootfs не совпал"
+[ "$(sha256sum "$ARTIFACT" | awk '{print $1}')" = "$_sha" ] || die "SHA-256 rootfs не совпал"
 
-if [ -e "$REPOSITORY_PATH" ]; then
-    if grep -qxF "$FEED_ENTRY" "$REPOSITORY_PATH"; then
-        [ "$(wc -l < "$REPOSITORY_PATH" | tr -d ' \t\r\n')" = "1" ] \
-            || die "$REPOSITORY_PATH содержит дополнительные записи; файл оставлен без изменений"
-    elif [ -s "$REPOSITORY_PATH" ]; then
-        die "$REPOSITORY_PATH уже содержит другую конфигурацию; файл оставлен без изменений"
-    else
-        printf '%s\n' "$FEED_ENTRY" > "$TMP_DIR/z2kow.list" \
-            || die "не удалось подготовить repository entry"
-        mv "$TMP_DIR/z2kow.list" "$REPOSITORY_PATH" \
-            || die "не удалось записать repository entry"
-    fi
-else
-    mkdir -p "$ROOT_SYS/etc/apk/repositories.d" \
-        || die "не удалось создать каталог repositories.d"
-    printf '%s\n' "$FEED_ENTRY" > "$TMP_DIR/z2kow.list" \
-        || die "не удалось подготовить repository entry"
-    mv "$TMP_DIR/z2kow.list" "$REPOSITORY_PATH" \
-        || die "не удалось записать repository entry"
-fi
+# Extract only the installer engine needed to enter the common deployment
+# path. The actual release is applied from the complete verified archive.
+mkdir -p "$TMP/engine"
+tar -xzf "$ARTIFACT" -C "$TMP/engine" \
+    usr/lib/z2k/lib/utils.sh \
+    usr/lib/z2k/lib/auto_update.sh \
+    usr/lib/z2k/platform/openwrt/paths.sh \
+    usr/lib/z2k/platform/openwrt/env.sh \
+    usr/lib/z2k/platform/openwrt/manifest.sh \
+    usr/lib/z2k/platform/openwrt/release.sh \
+    usr/lib/z2k/platform/openwrt/bootstrap.sh \
+    usr/lib/z2k/platform/openwrt/owned-paths.txt \
+    usr/sbin/install_release \
+    opt/zapret2/etc/z2k-update-pub.pem || die "installer engine missing from complete rootfs"
 
-apk update || die "apk update завершился ошибкой; пакеты не установлены"
-if apk info -e z2k-adapter >/dev/null 2>&1 \
-   && apk info -e z2k-webpanel >/dev/null 2>&1; then
-    apk add --upgrade z2k-adapter z2k-webpanel \
-        || die "не удалось обновить z2k-adapter и z2k-webpanel"
-else
-    apk add z2k-adapter z2k-webpanel \
-        || die "не удалось установить z2k-adapter и z2k-webpanel"
-fi
-
-# Package post-install hooks own enable/start. Poll their health without
-# duplicating that lifecycle.
-CORE_OK=0
-attempt=0
-while [ "$attempt" -lt 10 ]; do
-    if "$ROOT_SYS/etc/init.d/z2k" status >/dev/null 2>&1 \
-       && pidof nfqws2 >/dev/null 2>&1; then
-        CORE_OK=1
-        break
-    fi
-    attempt=$((attempt + 1))
-    [ "$attempt" -lt 10 ] && sleep 1
-done
-[ "$CORE_OK" = "1" ] || die "core service/runtime is not running (z2k or nfqws2 health check failed)"
-
-LAN_IP="$(ip -4 -o addr show dev br-lan 2>/dev/null \
-    | awk '$3 == "inet" { sub(/\/.*/, "", $4); if ($4 != "127.0.0.1") { print $4; exit } }' || true)"
-if [ -z "$LAN_IP" ] && command -v uci >/dev/null 2>&1; then
-    LAN_IP="$(uci -q get network.lan.ipaddr 2>/dev/null || true)"
-fi
-[ -n "$LAN_IP" ] || die "не удалось определить LAN IPv4 через ip/uci"
-
-PANEL_OK=0
-attempt=0
-while [ "$attempt" -lt 10 ]; do
-    if "$ROOT_SYS/etc/init.d/z2k-webpanel" running >/dev/null 2>&1 \
-       && http_check "http://$LAN_IP:8088/"; then
-        PANEL_OK=1
-        break
-    fi
-    attempt=$((attempt + 1))
-    [ "$attempt" -lt 10 ] && sleep 1
-done
-[ "$PANEL_OK" = "1" ] || die "webpanel service или HTTP health check на порту 8088 не прошёл"
-
-[ -x "$ROOT_SYS/usr/bin/z2kow" ] || die "package не установил /usr/bin/z2kow"
-"$ROOT_SYS/usr/bin/z2kow" record || die "не удалось записать product-tag после успешной health check"
-
-package_version() {
-    _line="$(apk list --installed "$1" 2>/dev/null | head -1)"
-    case "$_line" in
-        "$1"-*) _value="${_line#"$1"-}"; printf '%s\n' "${_value%% *}" ;;
-        *) return 1 ;;
-    esac
-}
-CORE_VERSION="$(package_version z2k-adapter || true)"
-PANEL_VERSION="$(package_version z2k-webpanel || true)"
-[ -n "$CORE_VERSION" ] && [ -n "$PANEL_VERSION" ] \
-    || die "не удалось прочитать установленные package versions"
-
-printf 'z2kOW установлен\n'
-printf 'версия: %s\n' "$CORE_VERSION"
-printf 'core: running\n'
-printf 'webpanel: running\n'
-printf 'панель: http://%s:8088\n' "$LAN_IP"
+Z2K_ROOT="$TMP/engine/usr/lib/z2k"
+export Z2K_ROOT
+Z2K_ADAPTER_DIR="$Z2K_ROOT/platform/openwrt"
+Z2K_LIB="$Z2K_ROOT/lib"
+ZAPRET2_DIR="$TMP/engine/opt/zapret2"
+Z2K_AU_PUBKEY="$ZAPRET2_DIR/etc/z2k-update-pub.pem"
+Z2K_OW_BOOTSTRAP_MANIFEST="$MANIFEST"
+Z2K_OW_BOOTSTRAP_SIGNATURE="$SIGNATURE"
+Z2K_OW_BOOTSTRAP_ARTIFACT="$ARTIFACT"
+export Z2K_ADAPTER_DIR Z2K_LIB ZAPRET2_DIR Z2K_AU_PUBKEY \
+    Z2K_OW_BOOTSTRAP_MANIFEST Z2K_OW_BOOTSTRAP_SIGNATURE Z2K_OW_BOOTSTRAP_ARTIFACT
+set +e
+sh "$TMP/engine/usr/sbin/install_release" "$_tag"
+_rc=$?
+rm -rf "$TMP"
+exit "$_rc"

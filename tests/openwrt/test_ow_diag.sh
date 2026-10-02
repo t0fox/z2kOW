@@ -6,8 +6,7 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 DIAG="$REPO/files/z2k-diag.sh"
 AD="$REPO/platform/openwrt/diag.sh"
 ENV="$REPO/platform/openwrt/env.sh"
-MK="$REPO/package/openwrt/Makefile"
-OWN="$REPO/package/openwrt/ownership.map"
+STAGE="$REPO/scripts/openwrt/stage-rootfs.sh"
 
 assert_file "OpenWrt diagnostics adapter exists" "$AD"
 assert_contains "common diagnostic has neutral hook" "$DIAG" 'Z2K_DIAG_HOOK='
@@ -21,6 +20,8 @@ assert_contains "lists delegate through hook" "$DIAG" '"$Z2K_DIAG_HOOK" lists'
 assert_contains "network path delegates through hook" "$DIAG" '"$Z2K_DIAG_HOOK" netpath'
 assert_contains "adapter hook exported" "$ENV" 'Z2K_DIAG_HOOK='
 assert_contains "adapter hook reads procd state" "$AD" '"$_init" running'
+assert_contains "p-86.10 diagnostic reports queued Telegram CONNECT drops" "$AD" 'CONNECT throttled'
+assert_contains "OpenWrt diagnostic falls back to procd logread" "$AD" 'logread'
 assert_contains "adapter hook uses canonical core-ready predicate" "$AD" 'z2k_ow_core_ready'
 assert_contains "adapter hook checks nft NFQUEUE" "$AD" 'queue flags bypass to 200'
 assert_contains "adapter hook uses OpenWrt nfq path" "$AD" 'Z2K_NFQWS2'
@@ -28,8 +29,9 @@ assert_contains "common diagnostic uses canonical nfq path" "$DIAG" 'Z2K_NFQWS2:
 assert_contains "direct OpenWrt diagnostic bootstraps platform env" "$DIAG" 'platform/openwrt/paths.sh'
 assert_contains "direct OpenWrt diagnostic loads hook" "$DIAG" 'platform/openwrt/env.sh'
 assert_contains "canonical nfq path is exported" "$ENV" 'export Z2K_NFQWS2'
-assert_contains "adapter hook uses package TG path" "$AD" '$_bin/tg-mtproxy-client'
-assert_contains "adapter hook uses package WARP path" "$AD" '$_bin/z2k-warpd'
+assert_contains "adapter hook selects architecture TG binary" "$REPO/platform/openwrt/tg.sh" \
+    'z2k_ow_tg_bin_path "${Z2K_BIN:-/usr/lib/z2k/bin}"'
+assert_contains "adapter hook resolves architecture WARP runtime path" "$AD" 'z2k_ow_warp_bin_path "$_warp_adapter"'
 assert_contains "adapter hook classifies offload" "$AD" 'OFFLOAD_NOT_ACTIVE'
 assert_contains "adapter hook reports unknown backend" "$AD" 'BACKEND_UNKNOWN'
 assert_contains "adapter hook reports selected FLOWOFFLOAD" "$AD" 'flowoffload mode'
@@ -43,36 +45,25 @@ assert_contains "adapter hook checks fastroute presence" "$AD" 'nf_conntrack_fas
 assert_contains "adapter hook uses canonical WARP status" "$AD" 'warp/status.json'
 assert_not_contains "adapter hook never prints WARP key" "$AD" 'WARP_PLUS_KEY'
 assert_not_contains "adapter hook never prints private key" "$AD" 'private_key'
-assert_contains "Makefile installs executable diag hook from tree" "$MK" '$(Z2K_TREE)/platform/openwrt/diag.sh'
-assert_contains "Makefile installs diag hook into adapter path" "$MK" '$(1)/usr/lib/z2k/platform/openwrt/'
-assert_contains "ownership map has diag hook" "$OWN" '/usr/lib/z2k/platform/openwrt/diag.sh package'
+assert_contains "complete rootfs stages diagnostic hook source" "$STAGE" 'files/z2k-diag.sh" usr/lib/z2k/z2k-diag.sh'
+assert_contains "complete rootfs marks diagnostic hook executable" "$STAGE" 'usr/lib/z2k/z2k-diag.sh 0755'
+assert_contains "complete rootfs stages adapter diag hook" "$STAGE" 'platform/openwrt/*.sh'
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-diag-version.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
-mkdir -p "$T/root" "$T/etc/z2k/state" "$T/bin"
-cat > "$T/bin/z2kow" <<'CLI'
-#!/bin/sh
-cat <<'VERSION'
-product=SNAPSHOT fcaca952
-build=fcaca952e3cd9926db84b7c0440960909956b8fd
-engine=p-86.1
-adapter=0.1.1_alpha20260929234704~fcaca952e3cd9926db84b7c0440960909956b8fd-r1
-webpanel=0.1.1_alpha20260929234704~fcaca952e3cd9926db84b7c0440960909956b8fd-r1
-VERSION
-CLI
-chmod +x "$T/bin/z2kow"
+mkdir -p "$T/root" "$T/etc/z2k/state"
+printf 'tag=p-86.11\nseq=134\n' > "$T/etc/z2k/state/installed-release"
 _diag=$(Z2K_PLATFORM=openwrt Z2K_ROOT="$T/root" Z2K_ETC="$T/etc/z2k" \
-    Z2K_STATE="$T/etc/z2k/state" Z2K_PRODUCT_CLI="$T/bin/z2kow" \
+    Z2K_STATE="$T/etc/z2k/state" \
     ZAPRET2_DIR="$T/root" sh "$DIAG" --short 2>/dev/null)
 printf '%s\n' "$_diag" > "$T/diag-short.txt"
-assert_contains "short OpenWrt diagnostics separates product engine and build" \
-    "$T/diag-short.txt" 'z2kOW=SNAPSHOT fcaca952 engine=p-86.1 build=fcaca952e3cd9926db84b7c0440960909956b8fd'
+assert_contains "short OpenWrt diagnostics reads the one installed-release state" \
+    "$T/diag-short.txt" 'z2kOW=p-86.11 '
 _diag_json=$(Z2K_PLATFORM=openwrt Z2K_ROOT="$T/root" Z2K_ETC="$T/etc/z2k" \
-    Z2K_STATE="$T/etc/z2k/state" Z2K_PRODUCT_CLI="$T/bin/z2kow" \
+    Z2K_STATE="$T/etc/z2k/state" \
     ZAPRET2_DIR="$T/root" sh "$DIAG" --json 2>/dev/null)
 printf '%s\n' "$_diag_json" > "$T/diag.json"
-assert_contains "JSON diagnostics includes product release axis" "$T/diag.json" '"product":"SNAPSHOT fcaca952"'
-assert_contains "JSON diagnostics includes immutable build axis" "$T/diag.json" '"build":"fcaca952e3cd9926db84b7c0440960909956b8fd"'
-assert_contains "JSON diagnostics includes engine axis" "$T/diag.json" '"engine":"p-86.1"'
+assert_contains "JSON diagnostics includes only installed release version" "$T/diag.json" '"version":"p-86.11"'
+assert_not_contains "JSON diagnostics has no secondary version axes" "$T/diag.json" '"(engine|build|product)"'
 
 _t_done

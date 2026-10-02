@@ -1257,6 +1257,60 @@ toggle_customd() {
     fi
 }
 
+# Category changes stop the old service before changing its flags, so custom.d
+# queues and other OpenWrt procd-owned helpers are torn down against the config
+# that created them. Regenerate and validate before bringing the service back;
+# restore the original config and service if any step fails.
+toggle_category() {
+    local category="$1" want="$2" backup running=0 rc=0 validator
+    case "$category" in YOUTUBE|RKN|DISCORD_VOICE) ;; *) return 1 ;; esac
+    case "$want" in 0|1) ;; *) return 1 ;; esac
+    validator="$ZAPRET2_DIR/z2k-config-validator.sh"
+    [ -f "$validator" ] || { echo "Не найден валидатор конфигурации" >&2; return 1; }
+    backup=$(mktemp "${CONFIG_FILE}.category.XXXXXX") || return 1
+    cp -p "$CONFIG_FILE" "$backup" || { rm -f "$backup"; return 1; }
+    if is_running; then
+        running=1
+        ensure_init_exec
+        if ! "$INIT_SCRIPT" stop 2>&1; then
+            "$INIT_SCRIPT" start 2>&1 || true
+            rm -f "$backup"
+            return 1
+        fi
+    fi
+    if ! set_flag "Z2K_CATEGORY_$category" "$want" "$CONFIG_FILE" || ! regenerate_config; then
+        rc=2
+    else
+        ZAPRET_BASE="$ZAPRET2_DIR" sh "$validator" "$CONFIG_FILE" || rc=$?
+    fi
+    # Validator rc=1 is a warning; rc>=2 or an unexpected failure is fatal.
+    case "$rc" in 0|1) ;; *) rc=2 ;; esac
+    if [ "$rc" != 2 ] && [ "$running" = 1 ]; then
+        if ! "$INIT_SCRIPT" start 2>&1; then
+            "$INIT_SCRIPT" stop 2>&1 || true
+            rc=2
+        fi
+    fi
+    if [ "$rc" = 2 ]; then
+        if ! mv -f "$backup" "$CONFIG_FILE"; then
+            echo "Не удалось восстановить config; резервная копия: $backup" >&2
+            return 1
+        fi
+        if [ "$running" = 1 ]; then
+            "$INIT_SCRIPT" start 2>&1 || echo "Не удалось запустить прежнюю конфигурацию" >&2
+        fi
+        echo "Изменение категории не применено; прежняя конфигурация восстановлена" >&2
+        return 1
+    fi
+    rm -f "$backup"
+    echo "Настройка категории сохранена"
+    return 0
+}
+
+toggle_category_youtube() { toggle_category YOUTUBE "$1"; }
+toggle_category_rkn() { toggle_category RKN "$1"; }
+toggle_category_discord_voice() { toggle_category DISCORD_VOICE "$1"; }
+
 toggle_dynamic_ttl() {
     # Z2K_DYNAMIC_TTL — feature flag for NDM TTL bypass injection in
     # NFQWS2_OPT. Mobile operators (МТС/Билайн) detect tethering via TTL
@@ -3237,9 +3291,8 @@ AU_SCRIPT="${AU_SCRIPT:-$ZAPRET2_DIR/z2k-auto-update.sh}"
 AU_LOG_FILE="${AU_LOG_FILE:-/opt/var/log/z2k-auto-update.log}"
 
 update_installed_tag() {
-    # OpenWrt payload.meta is the version of the bytes actually served by the
-    # panel.  Use it when available; installed-tag remains the updater state
-    # file and is only the fallback for pre-meta/fixture environments.
+    # OpenWrt has exactly one installed release record. The panel reads that
+    # same tag the updater commits after full-payload health checks.
     if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && command -v z2k_ow_payload_tag >/dev/null 2>&1; then
         _payload_tag=$(z2k_ow_payload_tag 2>/dev/null || true)
         [ -n "$_payload_tag" ] && { printf '%s' "$_payload_tag"; return 0; }
@@ -3268,10 +3321,15 @@ update_refresh_manifest() {
 
     if [ "$openwrt" = "1" ]; then
         mkdir -p "$(dirname "$AU_MANIFEST_CACHE")" 2>/dev/null || return 1
-        # Dashboard versions and history follow upstream z2k releases. Do not
-        # expose the OpenWrt package/payload manifest or CI snapshots here.
-        if [ ! -s "$AU_MANIFEST_CACHE" ] || [ "$(head -1 "$authority_file" 2>/dev/null)" != "upstream" ] || ! _update_manifest_sane "$AU_MANIFEST_CACHE"; then
-            rm -f "$AU_MANIFEST_CACHE" "$authority_file"
+        # One controlled, signed OpenWrt manifest drives both the dashboard
+        # and apply path. Upstream releases stay invisible until this manifest
+        # has been adapted and approved for OpenWrt.
+        if [ ! -s "$AU_MANIFEST_CACHE" ] \
+            || [ "$(head -1 "$authority_file" 2>/dev/null)" != "controlled" ] \
+            || ! _update_manifest_sane "$AU_MANIFEST_CACHE" \
+            || ! _update_manifest_signature_valid "$AU_MANIFEST_CACHE" "$AU_MANIFEST_CACHE.sig" \
+            || ! z2k_ow_manifest_release_ok "$AU_MANIFEST_CACHE"; then
+            rm -f "$AU_MANIFEST_CACHE" "$AU_MANIFEST_CACHE.sig" "$authority_file"
         fi
         if [ "$force" != "1" ] && [ -s "$AU_MANIFEST_CACHE" ]; then
             mtime=$(file_mtime "$AU_MANIFEST_CACHE")
@@ -3282,17 +3340,24 @@ update_refresh_manifest() {
             mtime=$(file_mtime "$AU_MANIFEST_FAIL_STAMP")
             age=$((now - mtime))
             if [ "$age" -lt "$AU_MANIFEST_FAIL_TTL" ]; then
-                [ -s "$AU_MANIFEST_CACHE" ] && [ "$(head -1 "$authority_file" 2>/dev/null)" = "upstream" ] && return 0
+                [ -s "$AU_MANIFEST_CACHE" ] \
+                    && [ "$(head -1 "$authority_file" 2>/dev/null)" = "controlled" ] \
+                    && _update_manifest_signature_valid "$AU_MANIFEST_CACHE" "$AU_MANIFEST_CACHE.sig" \
+                    && z2k_ow_manifest_release_ok "$AU_MANIFEST_CACHE" && return 0
                 return 1
             fi
         fi
-        url="${Z2K_AU_UPSTREAM_MANIFEST_URL:-https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json}"
+        url="${Z2K_AU_MANIFEST_URL:-${Z2K_AU_REPO_RAW:-https://raw.githubusercontent.com/t0fox/z2kOW/main}/UPDATES.json}"
         tmp="${AU_MANIFEST_CACHE}.new.$$"
         sig="${tmp}.sig"
         authority_tmp="${authority_file}.new.$$"
-        if _update_fetch_manifest "$url" "$tmp" && _update_fetch_manifest "${url}.sig" "$sig" && _update_manifest_sane "$tmp" && _update_manifest_signature_valid "$tmp" "$sig"; then
-            if mv -f "$tmp" "$AU_MANIFEST_CACHE"; then
-                if printf 'upstream\n' > "$authority_tmp" && mv -f "$authority_tmp" "$authority_file"; then
+        if _update_fetch_manifest "$url" "$tmp" \
+            && _update_fetch_manifest "${url}.sig" "$sig" \
+            && _update_manifest_sane "$tmp" \
+            && _update_manifest_signature_valid "$tmp" "$sig" \
+            && z2k_ow_manifest_release_ok "$tmp"; then
+            if mv -f "$tmp" "$AU_MANIFEST_CACHE" && mv -f "$sig" "$AU_MANIFEST_CACHE.sig"; then
+                if printf 'controlled\n' > "$authority_tmp" && mv -f "$authority_tmp" "$authority_file"; then
                     rm -f "$AU_MANIFEST_FAIL_STAMP"
                     rm -f "$sig" "$tmp.etag" "$sig.etag"
                     return 0
@@ -3301,10 +3366,14 @@ update_refresh_manifest() {
         fi
         rm -f "$tmp" "$sig" "$tmp.etag" "$sig.etag" "$authority_tmp"
         : > "$AU_MANIFEST_FAIL_STAMP" 2>/dev/null
-        if [ -s "$AU_MANIFEST_CACHE" ] && [ "$(head -1 "$authority_file" 2>/dev/null)" = "upstream" ] && _update_manifest_sane "$AU_MANIFEST_CACHE"; then
+        if [ -s "$AU_MANIFEST_CACHE" ] \
+            && [ "$(head -1 "$authority_file" 2>/dev/null)" = "controlled" ] \
+            && _update_manifest_sane "$AU_MANIFEST_CACHE" \
+            && _update_manifest_signature_valid "$AU_MANIFEST_CACHE" "$AU_MANIFEST_CACHE.sig" \
+            && z2k_ow_manifest_release_ok "$AU_MANIFEST_CACHE"; then
             return 0
         fi
-        rm -f "$AU_MANIFEST_CACHE" "$authority_file"
+        rm -f "$AU_MANIFEST_CACHE" "$AU_MANIFEST_CACHE.sig" "$authority_file"
         return 1
     fi
 
@@ -3543,11 +3612,11 @@ update_history_entries() {
     local offset="${1:-0}"
     local limit="${2:-20}"
     local src=""
-    # OpenWrt history is read only from the verified upstream cache. Never
+    # OpenWrt history is read only from the verified controlled cache. Never
     # expose payload/snapshot history when that cache is cold. Preserve the
     # legacy fallback chain byte-for-byte for Keenetic callers.
     if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
-        if [ -s "$AU_MANIFEST_CACHE" ] && [ "$(head -1 "${AU_MANIFEST_AUTHORITY_FILE:-${AU_MANIFEST_CACHE}.authority}" 2>/dev/null)" = "upstream" ]; then
+        if [ -s "$AU_MANIFEST_CACHE" ] && [ "$(head -1 "${AU_MANIFEST_AUTHORITY_FILE:-${AU_MANIFEST_CACHE}.authority}" 2>/dev/null)" = "controlled" ]; then
             _history_candidates="$AU_MANIFEST_CACHE"
         else
             _history_candidates=""

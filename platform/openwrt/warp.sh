@@ -23,10 +23,20 @@
 # PROCESS_ACTION:/PBR_UP:/PBR_DOWN: на stdout (тихо при Z2K_WARP_QUIET=1).
 
 CONFIG_FILE="${CONFIG_FILE:-${Z2K_ETC:-/etc/z2k}/config}"
-WARP_DOMAIN_RUNTIME_BIN="${WARP_DOMAIN_RUNTIME_BIN:-${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/bin/z2k-warpd}"
-_warp_default_bin="${Z2K_BIN:-/usr/lib/z2k/bin}/z2k-warpd"
-[ -x "$WARP_DOMAIN_RUNTIME_BIN" ] && _warp_default_bin="$WARP_DOMAIN_RUNTIME_BIN"
-WARP_BIN="${WARP_BIN:-$_warp_default_bin}"
+_warp_adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
+_warp_root="${Z2K_ROOT:-/usr/lib/z2k}"
+if [ -z "${WARP_DOMAIN_RUNTIME_BIN:-}" ]; then
+    # Each architecture's engine ships inside the one complete release tree.
+    # A missing architecture fails closed and is repaired by install_release.
+    [ -r "$_warp_adapter/arch.sh" ] && . "$_warp_adapter/arch.sh"
+    if command -v z2k_ow_warp_bin_path >/dev/null 2>&1; then
+        WARP_DOMAIN_RUNTIME_BIN="$(z2k_ow_warp_bin_path "$_warp_adapter")" || \
+            WARP_DOMAIN_RUNTIME_BIN="$_warp_adapter/bin/linux-unsupported/z2k-warpd"
+    else
+        WARP_DOMAIN_RUNTIME_BIN="$_warp_adapter/bin/linux-unsupported/z2k-warpd"
+    fi
+fi
+WARP_BIN="${WARP_BIN:-$WARP_DOMAIN_RUNTIME_BIN}"
 WARP_DEVICE="${WARP_DEVICE:-${Z2K_STATE:-/etc/z2k/state}/warp/device.json}"
 WARP_STATUS="${WARP_STATUS:-${Z2K_TMP:-/tmp/z2k}/warp/status.json}"
 WARP_LOG="${WARP_LOG:-${Z2K_TMP:-/tmp/z2k}/warp/warpd.log}"
@@ -356,6 +366,41 @@ warp_devices_ips() {
     }' "$WARP_DEVICES_FILE"
 }
 
+# Keep selection intent separate from neighbour/lease resolution. An offline
+# selected client must not turn an empty source set into all-LAN scope.
+warp_devices_selected() {
+    [ -s "$WARP_DEVICES_FILE" ] || return 1
+    awk '
+        { line=$0; sub(/\r$/, "", line); gsub(/^[ \t]+|[ \t]+$/, "", line) }
+        line != "" && line !~ /^#/ { selected=1 }
+        END { exit (selected ? 0 : 1) }
+    ' "$WARP_DEVICES_FILE" 2>/dev/null
+}
+
+# OpenWrt exposes WireGuard server interfaces as network sections with
+# proto=wireguard and an explicit listen_port. A client tunnel without a
+# listening port is deliberately excluded. These ingress devices bypass a
+# selected LAN MAC list only for the currently enabled WARP destination lists.
+warp_wireguard_server_devices() {
+    command -v uci >/dev/null 2>&1 || return 0
+    uci show network 2>/dev/null |
+        sed -n "s/^network\.\([A-Za-z0-9_.-][A-Za-z0-9_.-]*\)\.proto='wireguard'$/\1/p" |
+        while IFS= read -r _iface; do
+            [ -n "$_iface" ] || continue
+            _port="$(uci -q get "network.$_iface.listen_port" 2>/dev/null)" || continue
+            case "$_port" in ''|*[!0-9]*) continue ;; esac
+            if [ "$_port" -le 0 ] 2>/dev/null || [ "$_port" -gt 65535 ] 2>/dev/null; then
+                continue
+            fi
+            _dev="$(uci -q get "network.$_iface.device" 2>/dev/null)"
+            [ -n "$_dev" ] || _dev="$(uci -q get "network.$_iface.ifname" 2>/dev/null)"
+            [ -n "$_dev" ] || _dev="$_iface"
+            case "$_dev" in ''|*[!A-Za-z0-9_.-]*|.*) continue ;; esac
+            [ "${#_dev}" -le 15 ] || continue
+            printf '%s\n' "$_dev"
+        done | LC_ALL=C sort -u
+}
+
 # Валидированные элементы dst: по строке (пустые/комменты/CRLF/пробелы — мимо).
 warp_validated_dst() {
     if [ -r "$WARP_DOMAIN_FILTER" ]; then
@@ -517,7 +562,9 @@ _warp_sets_ensure_live() {
 # --- nft chains/rules (свои chains в ЧУЖОЙ runtime-таблице) ---
 
 warp_nft_rules_apply() {
-    local _domain_set=0 _domain_rules=""
+    local _domain_set=0 _domain_rules="" _devices_selected=0
+    local _wg_ifaces="" _wg_iface _wg_subnet
+    warp_devices_selected && _devices_selected=1
     _z2k_ow_warp_table_ok || {
         echo "z2k-openwrt: warp: нет таблицы ${Z2K_WARP_NFT_FAMILY} ${Z2K_WARP_NFT_TABLE}" >&2
         return 1
@@ -539,18 +586,50 @@ warp_nft_rules_apply() {
     done
     # Mark ТОЛЬКО PREROUTING, ТОЛЬКО битами маски (чужие биты живут).
     # masked-mark идиома (доказана реальными правилами): (m & ~MASK) | MARK.
-    nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
-        ip daddr "@$WARP_SET" meta mark set mark '&' 0x7fffffff '^' 0x80000000 || return 1
-    nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
-        ip saddr "@$WARP_SET_SRC" meta mark set mark '&' 0x7fffffff '^' 0x80000000 || return 1
+    if [ "$_devices_selected" = 1 ]; then
+        nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
+            ip saddr "@$WARP_SET_SRC" ip daddr "@$WARP_SET" \
+            meta mark set mark '&' 0x7fffffff '^' 0x80000000 || return 1
+        _wg_ifaces="$(warp_wireguard_server_devices 2>/dev/null || true)"
+        for _wg_iface in $_wg_ifaces; do
+            for _wg_subnet in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10; do
+                nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
+                    iifname "$_wg_iface" ip saddr "$_wg_subnet" ip daddr "@$WARP_SET" \
+                    meta mark set mark '&' 0x7fffffff '^' 0x80000000 || return 1
+            done
+        done
+    else
+        nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
+            ip daddr "@$WARP_SET" meta mark set mark '&' 0x7fffffff '^' 0x80000000 || return 1
+    fi
     _domain_rules=$(warp_validated_domains 2>/dev/null)
     if [ -n "$_domain_rules" ] && command -v warp_domain_set_ensure >/dev/null 2>&1 && warp_domain_set_ensure; then
         _domain_set=1
-        nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
-            ip saddr . ip daddr "@$WARP_DOMAIN_SET" meta mark set mark '&' 0x7fffffff '^' 0x80000000 || {
-            warp_domain_error_set nft-domain-mark-rule-failed
-            _domain_set=0
-        }
+        if [ "$_devices_selected" = 1 ]; then
+            nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
+                ip saddr "@$WARP_SET_SRC" ip saddr . ip daddr "@$WARP_DOMAIN_SET" \
+                meta mark set mark '&' 0x7fffffff '^' 0x80000000 || {
+                warp_domain_error_set nft-domain-mark-rule-failed
+                _domain_set=0
+            }
+            for _wg_iface in $_wg_ifaces; do
+                for _wg_subnet in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10; do
+                    nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
+                        iifname "$_wg_iface" ip saddr "$_wg_subnet" \
+                        ip saddr . ip daddr "@$WARP_DOMAIN_SET" \
+                        meta mark set mark '&' 0x7fffffff '^' 0x80000000 || {
+                        warp_domain_error_set nft-domain-mark-rule-failed
+                        _domain_set=0
+                    }
+                done
+            done
+        else
+            nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
+                ip saddr . ip daddr "@$WARP_DOMAIN_SET" meta mark set mark '&' 0x7fffffff '^' 0x80000000 || {
+                warp_domain_error_set nft-domain-mark-rule-failed
+                _domain_set=0
+            }
+        fi
     fi
     if [ "$_domain_set" = "1" ] && command -v warp_domain_observer_rules_apply >/dev/null 2>&1; then
         warp_domain_observer_rules_apply || true
@@ -564,20 +643,48 @@ warp_nft_rules_apply() {
 }
 
 warp_nft_rules_verify() {
-    local _c _out _domain_set _domain_rules
+    local _c _out _domain_set _domain_rules _devices_selected=0
+    local _wg_ifaces="" _wg_iface _wg_subnet _needle
+    warp_devices_selected && _devices_selected=1
     _z2k_ow_warp_table_ok || return 1
     for _c in "$WARP_CHAIN_MARK" "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
         _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$_c" 2>/dev/null) || return 1
         [ -n "$_out" ] || return 1
     done
     _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_MARK" 2>/dev/null)
-    printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip daddr @$WARP_SET meta mark set" || return 1
-    printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip saddr @$WARP_SET_SRC meta mark set" || return 1
+    if [ "$_devices_selected" = 1 ]; then
+        printf '%s\n' "$_out" | tr -s ' ' | grep -qF \
+            "ip saddr @$WARP_SET_SRC ip daddr @$WARP_SET meta mark set" || return 1
+        _wg_ifaces="$(warp_wireguard_server_devices 2>/dev/null || true)"
+        for _wg_iface in $_wg_ifaces; do
+            for _wg_subnet in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10; do
+                _needle="iifname \"$_wg_iface\" ip saddr $_wg_subnet ip daddr @$WARP_SET meta mark set"
+                printf '%s\n' "$_out" | tr -s ' ' | grep -qF "$_needle" || return 1
+            done
+        done
+    else
+        printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip daddr @$WARP_SET meta mark set" || return 1
+    fi
+    if printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip saddr @$WARP_SET_SRC meta mark set"; then
+        return 1
+    fi
     _domain_rules=$(warp_validated_domains 2>/dev/null)
     if [ -n "$_domain_rules" ]; then
         _domain_set=$(nft list set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" 2>/dev/null) || return 1
         printf '%s\n' "$_domain_set" | grep -qF 'comment "z2k WARP DNS pairs"' || return 1
-        printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip saddr . ip daddr @$WARP_DOMAIN_SET meta mark set" || return 1
+        if [ "$_devices_selected" = 1 ]; then
+            printf '%s\n' "$_out" | tr -s ' ' | grep -qF \
+                "ip saddr @$WARP_SET_SRC ip saddr . ip daddr @$WARP_DOMAIN_SET meta mark set" || return 1
+            for _wg_iface in $_wg_ifaces; do
+                for _wg_subnet in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10; do
+                    _needle="iifname \"$_wg_iface\" ip saddr $_wg_subnet ip saddr . ip daddr @$WARP_DOMAIN_SET meta mark set"
+                    printf '%s\n' "$_out" | tr -s ' ' | grep -qF "$_needle" || return 1
+                done
+            done
+        else
+            printf '%s\n' "$_out" | tr -s ' ' | grep -qF \
+                "ip saddr . ip daddr @$WARP_DOMAIN_SET meta mark set" || return 1
+        fi
     fi
     return 0
 }
@@ -1133,127 +1240,21 @@ warp_start_instance() {
 WARP_VPS_PROXY_DEFAULT="http://z2kwarp:z2kW4rpR3g2026@213.176.74.63:8119"
 
 # sha256 ожидаемого артефакта из ПРОВЕРЕННОГО манифеста ($1 файл, $2 arch).
-_warp_manifest_path() {
-    printf 'z2k-warpd/builds/z2k-warpd-linux-%s' "$1"
-}
-
-_warp_manifest_sha() {
-    if command -v z2k_ow_manifest_file_sha >/dev/null 2>&1; then
-        z2k_ow_manifest_file_sha "$1" "$(_warp_manifest_path "$2")" | tr 'A-F' 'a-f'
-    else
-        return 1
+warp_arch() {
+    # Use the same OpenWrt target selector as the shipped binary wrappers.
+    local _arch_sh="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/arch.sh" _arch
+    if ! command -v z2k_ow_arch_name >/dev/null 2>&1; then
+        [ -r "$_arch_sh" ] || {
+            echo "z2k-openwrt: warp: карта архитектур arch.sh недоступна" >&2
+            return 1
+        }
+        . "$_arch_sh" 2>/dev/null || return 1
     fi
-}
-
-_z2k_ow_manifest_helper_load() {
-    command -v z2k_ow_manifest_prepare >/dev/null 2>&1 && return 0
-    local _d="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
-    [ -r "$_d/manifest.sh" ] || return 1
-    # shellcheck disable=SC1090,SC1091
-    . "$_d/manifest.sh"
-}
-
-warp_fetch_engine() {
-    # WARP_FETCH_STUB — тесты: вместо сети копируется готовый файл.
-    local _arch="$1" _tmp="$WARP_BIN.new.$$" _want="" _have=""
-    [ "$WARP_BIN" != "$WARP_DOMAIN_RUNTIME_BIN" ] || {
-        _wlog "package-managed OpenWrt WARP runtime cannot be overwritten by the feature installer"
+    _arch=$(z2k_ow_arch_name) || {
+        echo "z2k-openwrt: warp: неизвестная архитектура роутера" >&2
         return 1
     }
-    rm -f "$_tmp"
-    if [ -n "$WARP_FETCH_STUB" ]; then
-        cp "$WARP_FETCH_STUB" "$_tmp"
-    else
-        # Standalone `warp.sh install` does not pass through update.sh or
-        # webpanel's platform bootstrap. Map the package-owned paths before
-        # auto_update.sh captures defaults such as Z2K_AU_PUBKEY.
-        local _adapter_dir="${Z2K_ADAPTER_DIR:-}"
-        if [ -z "$_adapter_dir" ] || [ ! -r "$_adapter_dir/paths.sh" ] || \
-           [ ! -r "$_adapter_dir/env.sh" ]; then
-            _adapter_dir="$(CDPATH= cd "$(dirname "$0")" 2>/dev/null && pwd)" || {
-                _wlog "cannot locate OpenWrt path environment — refusing"
-                rm -f "$_tmp"
-                return 1
-            }
-        fi
-        . "$_adapter_dir/paths.sh" >/dev/null 2>&1 || {
-            _wlog "cannot load OpenWrt paths — refusing"
-            rm -f "$_tmp"
-            return 1
-        }
-        . "$_adapter_dir/env.sh" >/dev/null 2>&1 || {
-            _wlog "cannot load OpenWrt environment — refusing"
-            rm -f "$_tmp"
-            return 1
-        }
-        # Resolve the one OpenWrt manifest authority. A CI snapshot uses the
-        # package-embedded manifest and immutable commit; production uses the
-        # signed channel. The helper keeps common hash/download primitives.
-        # shellcheck disable=SC1090,SC1091
-        . "${Z2K_LIB:-/usr/lib/z2k/lib}/utils.sh" >/dev/null 2>&1 || return 1
-        # shellcheck disable=SC1090,SC1091
-        . "${Z2K_LIB:-/usr/lib/z2k/lib}/auto_update.sh" >/dev/null 2>&1 || return 1
-        _z2k_ow_manifest_helper_load || {
-            _wlog "cannot load OpenWrt manifest helper"
-            rm -f "$_tmp"
-            return 1
-        }
-        local _md="$_tmp.manifest" _sg="$_tmp.manifest.sig"
-        z2k_ow_manifest_prepare "$_md" "$_arch" || {
-            _wlog "manifest authority unavailable — refusing"
-            rm -f "$_md" "$_sg" "$_tmp"
-            return 1
-        }
-        _want="$(_warp_manifest_sha "$_md" "$_arch")"
-        [ -n "$_want" ] || { _wlog "no manifest hash for arch $_arch — refusing"; rm -f "$_md" "$_sg" "$_tmp"; return 1; }
-        local _url
-        _url=$(z2k_ow_manifest_file_url "$(_warp_manifest_path "$_arch")") || {
-            _wlog "manifest source URL unavailable — refusing"
-            rm -f "$_md" "$_sg" "$_tmp"
-            return 1
-        }
-        _wlog "скачиваю движок ($_arch, ~7 МБ)..."
-        z2k_fetch "$_url" "$_tmp" 2>/dev/null || {
-            _wlog "engine download failed"; rm -f "$_md" "$_sg" "$_tmp"; return 1; }
-        _have=$(z2k_sha256_file "$_tmp" 2>/dev/null)
-        rm -f "$_md" "$_sg"
-        [ "$_have" = "$_want" ] || { _wlog "sha256 mismatch for engine ($_arch)"; rm -f "$_tmp"; return 1; }
-    fi
-    [ -s "$_tmp" ] || { _wlog "engine download failed"; rm -f "$_tmp"; return 1; }
-    if [ -z "$WARP_FETCH_STUB" ]; then
-        head -c 4 "$_tmp" 2>/dev/null | grep -q ELF || { _wlog "engine is not an ELF"; rm -f "$_tmp"; return 1; }
-    fi
-    chmod 755 "$_tmp"
-    "$_tmp" version >/dev/null 2>&1 || { _wlog "engine does not run on this architecture"; rm -f "$_tmp"; return 1; }
-    mkdir -p "$(dirname "$WARP_BIN")" 2>/dev/null
-    mv -f "$_tmp" "$WARP_BIN" || { rm -f "$_tmp"; return 1; }
-    _wlog "движок установлен: $WARP_BIN"
-    return 0
-}
-
-warp_arch() {
-    # Та же карта, что установщик/апдейтер (map_arch_to_bin_arch -> linux-*),
-    # минус префикс: артефакты лежат как z2k-warpd-linux-<arch>.
-    # Карту НЕ дублируем: при standalone-запуске (sh warp.sh install из
-    # панели, где common utils не подсорсен) подтягиваем её оттуда
-    # best-effort. Нет карты вовсе — честный отказ с причиной, а не голое
-    # "unsupported architecture" на поддерживаемой арке (live-урок: функция
-    # отсутствовала — aarch64 выглядел неподдерживаемым).
-    local _hw _ba _ul
-    _hw=$(uname -m 2>/dev/null)
-    if ! command -v map_arch_to_bin_arch >/dev/null 2>&1; then
-        _ul="${Z2K_LIB:-${Z2K_ROOT:-/usr/lib/z2k}/lib}/utils.sh"
-        # shellcheck disable=SC1090,SC1091
-        [ -f "$_ul" ] && . "$_ul" 2>/dev/null
-    fi
-    if command -v map_arch_to_bin_arch >/dev/null 2>&1; then
-        _ba=$(map_arch_to_bin_arch "$_hw" 2>/dev/null || true)
-    else
-        echo "z2k-openwrt: warp: нет карты арок (utils.sh недоступен)" >&2
-        return 1
-    fi
-    [ -n "$_ba" ] || { echo "z2k-openwrt: warp: арка $_hw не маппится" >&2; return 1; }
-    printf '%s' "${_ba#linux-}"
+    printf '%s' "$_arch"
     return 0
 }
 
@@ -1301,16 +1302,10 @@ warp_register_due() {
 warp_install() {
     warp_op_current || { warp_op_superseded; return 3; }
     warp_lists_migrate || return 1
-    if [ "$WARP_BIN" = "$WARP_DOMAIN_RUNTIME_BIN" ]; then
-        "$WARP_BIN" version >/dev/null 2>&1 || {
-            _wlog "package-managed OpenWrt WARP runtime is unavailable or incompatible"
-            return 1
-        }
-    else
-        local _arch
-        _arch=$(warp_arch) || { _wlog "unsupported architecture"; return 1; }
-        warp_fetch_engine "$_arch" || return 1
-    fi
+    [ -x "$WARP_BIN" ] && "$WARP_BIN" version >/dev/null 2>&1 || {
+        _wlog "bundled WARP runtime is missing or incompatible; restore it with install_release <tag>"
+        return 1
+    }
     # Ничего не запускается: только движок на диск и ключ устройства.
     warp_register || return 1
     return 0

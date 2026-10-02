@@ -8,15 +8,14 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 WARP="$REPO/platform/openwrt/warp.sh"
 WARPP="$REPO/platform/openwrt/warp-proc.sh"
 WARPC="$REPO/platform/openwrt/warp-check.sh"
-INIT="$REPO/package/openwrt/files/etc/init.d/z2k"
-HOTPLUG="$REPO/package/openwrt/files/etc/hotplug.d/iface/90-z2k"
+INIT="$REPO/platform/openwrt/files/etc/init.d/z2k"
+HOTPLUG="$REPO/platform/openwrt/files/etc/hotplug.d/iface/90-z2k"
 SCHED="$REPO/platform/openwrt/schedule.sh"
 UNINST="$REPO/platform/openwrt/uninstall.sh"
-MK="$REPO/package/openwrt/Makefile"
-MAP="$REPO/package/openwrt/ownership.map"
+OWNED="$REPO/platform/openwrt/owned-paths.txt"
 AU="$REPO/lib/auto_update.sh"
 S96="$REPO/files/z2k-warp.sh"
-FW4="$REPO/package/openwrt/files/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft"
+FW4="$REPO/platform/openwrt/files/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft"
 
 assert_file "warp.sh существует" "$WARP"
 assert_file "warp-proc.sh существует" "$WARPP"
@@ -93,7 +92,7 @@ assert_contains "warp.sh: GODEBUG (mips-guard как S51)" "$WARP" 'GODEBUG=asyn
 # --- один procd instance z2k-warp, второго сервиса нет ---
 assert_contains "warp.sh: instance z2k-warp" "$WARP" 'procd_open_instance "z2k-warp"'
 assert_eq "procd_open_instance в коде один" "1" "$(grep -c 'procd_open_instance "z2k-warp"' "$_WCODE")"
-if [ -f "$REPO/package/openwrt/files/etc/init.d/z2k-warp" ]; then
+if [ -f "$REPO/platform/openwrt/files/etc/init.d/z2k-warp" ]; then
     _t_bad "второй init-сервис z2k-warp существует"
 else
     _t_ok
@@ -129,8 +128,8 @@ fi
 # forward/postrouting только. Проверяем отсутствие output-mark строго:
 assert_not_contains "warp.sh: нет mark в output-цепочках" "$_WCODE" 'hook output.*mark set'
 
-# --- opt-in: seed/пакет не ставят бинарь и флаг ---
-assert_not_contains "seed: нет warpd" "$REPO/package/openwrt/make-seed.sh" 'warpd'
+# --- opt-in: the one complete rootfs payload has no component APK ---
+assert_not_contains "stage: нет APK-компонента warpd" "$REPO/scripts/openwrt/stage-rootfs.sh" 'z2k-warp-runtime'
 assert_contains "генератор: флаг дефолт 0" "$REPO/lib/config_official.sh" 'saved_GAME_WARP_ENABLED="0"'
 
 # --- OpenWrt uses the shared upstream parser; static routing still has a
@@ -177,32 +176,23 @@ assert_contains "schedule: install пара" "$SCHED" 'z2k_ow_warp_cron_install'
 assert_contains "schedule: remove пара" "$SCHED" 'z2k_ow_warp_cron_remove'
 assert_contains "uninstall: warp cleanup" "$UNINST" 'z2k_ow_warp cleanup'
 assert_contains "uninstall: warp cron remove" "$UNINST" 'z2k_ow_warp_cron_remove'
-assert_contains "ownership: warp.sh package" "$MAP" '/usr/lib/z2k/platform/openwrt/warp.sh package'
-assert_contains "ownership: warp-proc.sh package" "$MAP" '/usr/lib/z2k/platform/openwrt/warp-proc.sh package'
-assert_contains "ownership: warp-check.sh package" "$MAP" '/usr/lib/z2k/platform/openwrt/warp-check.sh package'
-assert_contains "ownership: device daemon-state" "$MAP" '/etc/z2k/state/warp/device.json daemon-state'
-assert_contains "ownership: fw4 include package" "$MAP" \
-    '/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft package'
-assert_contains "Makefile: fw4 include install" "$MK" \
-    'files/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft'
+assert_contains "ownership: release paths" "$OWNED" '/usr/sbin/install_release'
+assert_contains "ownership: fw4 include" "$OWNED" \
+    '/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft'
 
-# --- COMMON_HOOK в au_service_for_binary + Makefile BIN modes ---
+# --- COMMON_HOOK in the common service adapter; paths belong to payload ---
 assert_contains "au: warp openwrt-ветка" "$AU" 'warp-proc.sh'
 assert_contains "au: keenetic S51 цел" "$AU" '/opt/etc/init.d/S51z2k-warp'
-# Entrypoints — в INSTALL_BIN-блоке Makefile (исполняются напрямую:
-# cron exec, updater [ -x ]); остальное может оставаться INSTALL_DATA.
-# Пути — через $(Z2K_TREE) (рецепт работает из package/openwrt/).
-_binblock="$(awk '/\$\(INSTALL_BIN\) .*platform\/openwrt\//,/usr\/lib\/z2k\/platform\/openwrt\/$/' "$MK")"
-for _e in update.sh tg-check.sh rt-check.sh rt-proc.sh warp.sh warp-proc.sh warp-check.sh; do
-    if printf '%s' "$_binblock" | grep -qF "$_e"; then _t_ok; else _t_bad "Makefile: $_e не в INSTALL_BIN"; fi
+for _e in /usr/bin/z2kow /usr/sbin/install_release /etc/init.d/z2k /etc/init.d/z2k-webpanel; do
+    if grep -qxF "$_e" "$OWNED"; then _t_ok; else _t_bad "owned-paths.txt не содержит $_e"; fi
 done
-# Истина — в git-индексе (worktree-режимы на Windows/DrvFs врут):
-for _e in update.sh tg-check.sh rt-check.sh rt-proc.sh warp.sh warp-proc.sh warp-check.sh; do
-    if git -C "$REPO" ls-files -s "platform/openwrt/$_e" 2>/dev/null | grep -q '^100755'; then
-        _t_ok
-    else
-        _t_bad "index: $_e не 755 (seed/пакет потеряют +x)"
-    fi
-done
+
+# p-86.6 semantics: selected devices scope only enabled lists. A source-only
+# rule must never route all destinations through WARP.
+assert_contains "scope detector is independent of online IP resolution" "$WARP" 'warp_devices_selected()'
+assert_contains "selected-device IP rule matches source and destination" "$WARP" 'ip saddr "@$WARP_SET_SRC" ip daddr "@$WARP_SET"'
+assert_contains "selected-device domain rule matches source and destination" "$WARP" 'ip saddr "@$WARP_SET_SRC" ip saddr . ip daddr "@$WARP_DOMAIN_SET"'
+assert_not_contains "no source-only WARP catch-all rule" "$WARP" 'ip saddr @"\$WARP_SET_SRC" meta mark set'
+assert_contains "WARP UI explains list scope" "$REPO/webpanel/www/js/pages/warp.js" 'выбранным устройствам'
 
 _t_done

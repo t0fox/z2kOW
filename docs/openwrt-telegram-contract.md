@@ -3,7 +3,7 @@
 Источник истины о поведении — текущий upstream `necronicle/z2k`
 (`z2k-enhanced`), НЕ память о старых схемах. Ниже — зафиксированный
 фактический contract и его отображение на OpenWrt. Foundation FROZEN:
-порт строится только в `platform/openwrt/*`, `package/openwrt/*`,
+порт строится только в `platform/openwrt/*`, `scripts/openwrt/stage-rootfs.sh`,
 `tests/openwrt/*`, `docs/*` (+ точечный COMMON_HOOK, см. §11).
 
 ## 1. Upstream: один процесс на оба порта
@@ -86,19 +86,22 @@ raw iptables/ipset запрещены, второй таблицы нет (`test
 - WAN outage ≠ повод для restart storm: backoff-потолок + kill-only +
   отсутствие churn'а правил на probe-пути.
 
-## 5. Binary и build secret
+## 5. Binary и persistent identity
 
-- `mtproxy-client/builds/tg-mtproxy-client-linux-arm64` (~5.8MB) — существующий
-  artifact производственной линейки (aarch64_cortex-a53 → `linux-arm64`
-  через `map_arch_to_bin_arch`, `lib/utils.sh:800-802`).
-- `Z2K_TUNNEL_SECRET` вшивается `-ldflags -X` (`mtproxy-client/Makefile:46`);
-  сборка без него успешна, но binary требует `--tunnel-secret` в runtime.
-  НЕ пересобирать production binary без секрета; секрет не логировать, не
-  хардкодить в shell, второго auth-механизма не придумывать.
-- Доставка/обновление — ТОЛЬКО `refresh-binaries` (`Z2K_AU_SBIN=$Z2K_BIN`
-  уже выставлен в `platform/openwrt/env.sh:72` — отдельный downloader
-  запрещён). Координация stop/replace/start — через COMMON_HOOK §11.
-- Бинарник живёт в `$Z2K_BIN/tg-mtproxy-client`, НЕ в `/opt/sbin`.
+- Единственный `openwrt-rootfs.tar.gz` включает Go-сборки клиента для всех
+  поддерживаемых OpenWrt архитектур под `$Z2K_BIN/linux-<arch>/`. `arch.sh`
+  выбирает бинарник; отдельного component feed/updater нет.
+- Candidate строит клиент из `mtproxy-client/` без вшитого туннельного секрета.
+  Runtime берёт `Z2K_RELAY_SECRET` из `/etc/z2k/config` и передаёт его через
+  скрытый от логов argv; секрет не хранится в репозитории или candidate.
+- OpenWrt передаёт `--relay-id-file=/etc/z2k/state/relay-id.json`. Upstream
+  p-86.8 сохраняет в этом JSON ключ install identity и подписанное relay
+  assignment, поэтому данные переживают замену `/opt/zapret2`.
+- При первом переходе старая identity из `/opt/zapret2/.z2k-relay-id`
+  атомарно копируется в persistent state до замены runtime. После успешной
+  миграции новое обновление читает только state-путь.
+- Замена и health check выполняются внутри `install_release <tag>`; Telegram
+  бинарники доставляются как часть того же полного payload.
 
 ## 6. OpenWrt firewall mapping (nft)
 
@@ -257,8 +260,8 @@ Keenetic regression proof: keenetic-ветка функции нетронута
   `|| true` остаётся). `ca-bundle` НЕ требуем: `z2k-roots.pem` + системный
   store, каждый — по existence-check; двух корней достаточно для relay
   (доказано upstream-тестом отпечатков).
-- PACKAGE: `tg.sh`, `tg-check.sh`, правки init/hotplug/schedule/uninstall/
-  Makefile/ownership.map. UPDATER: `telegram_ips.txt` (авто через
+- Complete release payload: `tg.sh`, `tg-check.sh`, init/hotplug/schedule/
+  uninstall integration. Common mapped files include `telegram_ips.txt` (через
   `files/lists/*.txt`), `z2k-roots.pem` (авто через `files/etc/*`),
   `tg-mtproxy-client` (авто через refresh-binaries + `Z2K_AU_SBIN`).
   `release_map.sh` менять НЕ нужно (drift-тест подтвердит).

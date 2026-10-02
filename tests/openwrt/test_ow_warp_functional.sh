@@ -7,10 +7,12 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-warpf.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 
-mkdir -p "$T/bin" "$T/root/bin" "$T/root/platform/openwrt" "$T/etc" "$T/etc/state/warp" "$T/etc/user-lists/warp/games" "$T/root/lists/warp/games" "$T/tmp/warp" "$T/proc"
+mkdir -p "$T/bin" "$T/root/bin" "$T/root/platform/openwrt/bin/linux-arm64" "$T/etc" "$T/etc/state/warp" "$T/etc/user-lists/warp/games" "$T/root/lists/warp/games" "$T/tmp/warp" "$T/proc"
 export PATH="$T/bin:$PATH"
 ln -s "$REPO/platform/openwrt/warp-domain.sh" "$T/root/platform/openwrt/warp-domain.sh"
+cp "$REPO/platform/openwrt/arch.sh" "$T/root/platform/openwrt/arch.sh"
 cp "$REPO/files/z2k-warp-list-filter.awk" "$T/root/z2k-warp-list-filter.awk"
+printf "DISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"
 
 cat > "$T/bin/nft" <<EOF
 #!/bin/sh
@@ -201,6 +203,29 @@ esac
 exit 1
 EOF
 chmod +x "$T/bin/ubus"
+cat > "$T/bin/uci" <<EOF
+#!/bin/sh
+if [ ! -f "$T/uci-wireguard-enabled" ]; then exit 1; fi
+if [ "\$1" = show ] && [ "\$2" = network ]; then
+    cat <<'EOF_UCI'
+network.wgserver=interface
+network.wgserver.proto='wireguard'
+network.wgserver.listen_port='51820'
+network.wgclient=interface
+network.wgclient.proto='wireguard'
+EOF_UCI
+    exit 0
+fi
+if [ "\$1" = -q ] && [ "\$2" = get ]; then
+    case "\$3" in
+        network.wgserver.listen_port) echo 51820; exit 0 ;;
+        network.wgserver.device) echo wgserver; exit 0 ;;
+        network.wgclient.listen_port) exit 1 ;;
+    esac
+fi
+exit 1
+EOF
+chmod +x "$T/bin/uci"
 cat > "$T/bin/jsonfilter" <<EOF
 #!/bin/sh
 expr=""
@@ -225,7 +250,7 @@ chmod +x "$T/bin/jsonfilter"
 : > "$T/hostapd-clients.json"
 : > "$T/dhcp.leases"
 
-cat > "$T/root/bin/z2k-warpd" <<EOF
+cat > "$T/root/platform/openwrt/bin/linux-arm64/z2k-warpd" <<EOF
 #!/bin/sh
 # mock binary: пишет argv, register/status/version отвечают canned
 echo "warpd:\$*" >> "$T/warpd.log"
@@ -235,7 +260,7 @@ case "\$1" in
 esac
 exit 0
 EOF
-chmod +x "$T/root/bin/z2k-warpd"
+chmod +x "$T/root/platform/openwrt/bin/linux-arm64/z2k-warpd"
 
 printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
 printf '{"id":"mock-id","addr":"172.16.9.9","addr_v4":"172.16.9.9"}\n' > "$T/etc/state/warp/device.json"
@@ -243,6 +268,7 @@ printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg"}\n'
 touch "$T/link-z2ktun0"
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
+export Z2K_ADAPTER_DIR="$T/root/platform/openwrt" Z2K_OW_OPENWRT_RELEASE_FILE="$T/openwrt_release"
 export WARP_DOMAIN_RULES="$T/tmp/warp/domains.v1"
 export WARP_DOMAIN_SNAPSHOT="$T/tmp/warp/domain-pairs.v1"
 export WARP_DOMAIN_STATUS="$T/tmp/warp/domain-status.json"
@@ -254,6 +280,8 @@ export Z2K_PROC_ROOT="$T/proc"
 export Z2K_WARP_SOURCE_ONLY=1
 # shellcheck disable=SC1090,SC1091
 . "$REPO/platform/openwrt/warp.sh" || { echo "FAIL[ow-warp-functional]: source" >&2; exit 1; }
+assert_eq "WARP default binary matches staged architecture-specific payload" \
+    "$T/root/platform/openwrt/bin/linux-arm64/z2k-warpd" "$WARP_BIN"
 _z2k_ow_warp_kill() { echo "kill:$*" >> "$T/kill.log"; return 0; }
 procd_open_instance() { echo "instance:$1" >> "$T/procd.log"; }
 procd_set_param() { printf 'param:%s\n' "$*" >> "$T/procd.log"; }
@@ -263,7 +291,7 @@ procd_close_instance() { echo "close" >> "$T/procd.log"; }
 _rec() { printf 'ARGV:%s\n' "$*" >> "$T/argv.log"; }
 : > "$T/argv.log"
 _out="$(warp_with_argv _rec 2>"$T/argv.err")"
-assert_contains "binary run" "$T/argv.log" "$T/root/bin/z2k-warpd run"
+assert_contains "binary run" "$T/argv.log" "$T/root/platform/openwrt/bin/linux-arm64/z2k-warpd run"
 assert_contains "device persistent" "$T/argv.log" "--device $T/etc/state/warp/device.json"
 assert_contains "status transient" "$T/argv.log" "--status $T/tmp/warp/status.json"
 assert_contains "scan pools use the shipped OpenWrt list" "$T/argv.log" "--scan-pools $T/root/lists/warp-scan-pools.txt"
@@ -288,9 +316,9 @@ warp_wanted_boot && _t_ok || _t_bad "wanted при всём хорошем"
 printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
 warp_wanted_boot && _t_bad "wanted при flag=0" || _t_ok
 printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
-chmod -x "$T/root/bin/z2k-warpd"
+chmod -x "$WARP_BIN"
 warp_wanted_boot && _t_bad "wanted без бинарника" || _t_ok
-chmod +x "$T/root/bin/z2k-warpd"
+chmod +x "$WARP_BIN"
 mv "$T/etc/state/warp/device.json" "$T/etc/state/warp/device.json.keep"
 warp_wanted_boot && _t_bad "wanted без ключа" || _t_ok
 mv "$T/etc/state/warp/device.json.keep" "$T/etc/state/warp/device.json"
@@ -395,7 +423,7 @@ printf '1.1.1.1\n' > "$T/etc/user-lists/warp/devices.txt"
 warp_nft_rules_apply || _t_bad "mark rules rc"
 warp_nft_tun_apply "z2ktun0" || _t_bad "tun rules rc"
 assert_contains "mark dst" "$T/nft.log" 'ip daddr @z2k_warp_dst4 meta mark set mark'
-assert_contains "mark src" "$T/nft.log" 'ip saddr @z2k_warp_src4 meta mark set mark'
+assert_contains "mark src and destination" "$T/nft.log" 'ip saddr @z2k_warp_src4 ip daddr @z2k_warp_dst4 meta mark set mark'
 assert_contains "masked op" "$T/nft.log" "mark & 0x7fffffff ^ 0x80000000"
 assert_contains "mss out" "$T/nft.log" 'oifname z2ktun0 tcp flags syn tcp option maxseg size set rt mtu'
 assert_contains "mss in explicit" "$T/nft.log" 'iifname z2ktun0 tcp flags syn tcp option maxseg size set 1240'
@@ -442,16 +470,29 @@ else
 fi
 printf 'www.cloudflare.com\n' > "$T/etc/user-lists/warp/mine.txt"
 export Z2K_WARP_DOMAIN_LAN_DEVICES=br-lan
+: > "$T/uci-wireguard-enabled"
 : > "$T/nft.log"
 warp_ipset || _t_bad "live list reload rc"
 assert_contains "live domain reload: client-pair mark rule" "$T/nft.log" \
-    'nft:add rule inet zapret2 z2k_warp_mark ip saddr . ip daddr @z2k_warp_domain4'
+    'nft:add rule inet zapret2 z2k_warp_mark ip saddr @z2k_warp_src4 ip saddr . ip daddr @z2k_warp_domain4'
+assert_contains "selected LAN devices do not exclude WireGuard server clients" "$T/nft.log" \
+    'nft:add rule inet zapret2 z2k_warp_mark iifname wgserver ip saddr 10.0.0.0/8 ip daddr @z2k_warp_dst4'
+assert_contains "WireGuard clients remain limited to active domain pairs" "$T/nft.log" \
+    'nft:add rule inet zapret2 z2k_warp_mark iifname wgserver ip saddr 100.64.0.0/10 ip saddr . ip daddr @z2k_warp_domain4'
+if grep 'nft:add rule .*z2k_warp_mark' "$T/nft.log" | grep -q 'wgclient'; then
+    _t_bad "client WireGuard tunnel was included as a server ingress"
+else
+    _t_ok
+fi
 assert_contains "live domain reload: observer table" "$T/nft.log" \
     'nft:add table inet z2k_warp_dns'
 assert_contains "live domain reload: passive DNS NFLOG hook" "$T/nft.log" \
     'nft-batch:add rule inet z2k_warp_dns z2k_dns_output oifname "br-lan" ip protocol { tcp, udp } th sport 53 counter log group 189'
+assert_contains "live domain reload: WireGuard DNS replies are observed" "$T/nft.log" \
+    'nft-batch:add rule inet z2k_warp_dns z2k_dns_forward oifname "wgserver" ip protocol { tcp, udp } th sport 53 counter log group 189'
 assert_contains "live domain reload: domain rules published" "$T/tmp/warp/domains.v1" \
     'www.cloudflare.com'
+rm -f "$T/uci-wireguard-enabled"
 
 # --- PBR: install idempotent + конфликты ---
 # proven-ready фикстура: status ready + живой процесс + link
@@ -553,7 +594,7 @@ fi
 # The verifier must not require a domain mark rule when there are no selected
 # domains, or its repair loop tears down otherwise-healthy WARP PBR. Conversely,
 # active domains require both the owned set and the mark rule.
-printf 'chain z2k_warp_mark {\n ip daddr @z2k_warp_dst4 meta mark set\n ip saddr @z2k_warp_src4 meta mark set\n}\n' \
+printf 'chain z2k_warp_mark {\n ip saddr @z2k_warp_src4 ip daddr @z2k_warp_dst4 meta mark set\n}\n' \
     > "$T/nft-chain-z2k_warp_mark"
 for _c in z2k_warp_mss z2k_warp_fwd z2k_warp_nat; do
     printf 'chain %s { }\n' "$_c" > "$T/nft-chain-$_c"
@@ -569,7 +610,7 @@ warp_nft_rules_verify && _t_bad "active domains accepted without owned pair set"
 printf 'set z2k_warp_domain4 { type ipv4_addr . ipv4_addr; comment "z2k WARP DNS pairs"; }\n' \
     > "$T/nft-domain-set"
 warp_nft_rules_verify && _t_bad "active domains accepted without domain mark rule" || _t_ok
-printf ' ip saddr . ip daddr @z2k_warp_domain4 meta mark set\n' \
+printf ' ip saddr @z2k_warp_src4 ip saddr . ip daddr @z2k_warp_domain4 meta mark set\n' \
     >> "$T/nft-chain-z2k_warp_mark"
 warp_nft_rules_verify && _t_ok || _t_bad "valid active-domain mark rule rejected"
 

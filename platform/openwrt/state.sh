@@ -9,6 +9,7 @@
 # tmp-file + rename writes. Keep that protocol here so the daemon never sees a
 # partially rewritten state file.
 Z2K_QUIC_STATE_MIGRATION_MARKER="${Z2K_QUIC_STATE_MIGRATION_MARKER:-${Z2K_STATE:-/etc/z2k/state}/quic-pool-key-migrated}"
+Z2K_SLD_STATE_MIGRATION_MARKER="${Z2K_SLD_STATE_MIGRATION_MARKER:-${Z2K_STATE:-/etc/z2k/state}/domain-sld-v1.done}"
 
 _z2k_ow_state_lock_acquire() {
     local _path="$1" _lock="${1}.lock" _now _stamp _age
@@ -116,4 +117,126 @@ z2k_ow_migrate_quic_state() {
         fi
     fi
     [ "$_failed" -eq 0 ]
+}
+
+# Upstream p-86.2 changes domain rotation from full hostnames to the native
+# second-level scope (nld=2). OpenWrt stores the same rotator rows in a
+# persistent primary file and one or more fallbacks, so merge them before
+# rewriting every extant copy. This runs in procd start_service before the
+# nfqws2 instance is registered; a held writer lock fails closed and retries
+# on the next service start.
+z2k_ow_migrate_sld_state() {
+    local _primary="${STATE_FILE:-${Z2K_STATE:-/etc/z2k/state}/state.tsv}"
+    local _fallback="${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-${Z2K_TMP:-/tmp/z2k}}/z2k-autocircular-state.tsv"
+    local _legacy="${Z2K_AUTOCIRCULAR_LEGACY_FALLBACK_OVERRIDE:-/tmp/z2k-autocircular-state.tsv}"
+    local _files="" _locked="" _f _seen="" _rc=0 _merged _tmp _needs=0
+
+    for _f in "$_primary" "$_fallback" "$_legacy"; do
+        case " $_seen " in *" $_f "*) continue ;; esac
+        _seen="$_seen $_f"
+        [ -s "$_f" ] || continue
+        _files="$_files $_f"
+    done
+    [ -n "$_files" ] || return 0
+
+    # Keep every source stable while selecting winners and preparing backups.
+    # The path list is limited to fixed OpenWrt state paths (no user input).
+    for _f in $_files; do
+        if ! _z2k_ow_state_lock_acquire "$_f"; then
+            echo "z2k-openwrt: domain state busy: $_f" >&2
+            _rc=1
+            break
+        fi
+        _locked="$_locked $_f"
+    done
+
+    _merged="${Z2K_TMP:-/tmp/z2k}/state.sld.$$"
+    if [ "$_rc" = 0 ]; then
+        for _f in $_files; do
+            if [ ! -f "$_f.pre-86.2" ] && ! cp -p "$_f" "$_f.pre-86.2" 2>/dev/null; then
+                _rc=1
+                break
+            fi
+        done
+    fi
+    if [ "$_rc" = 0 ]; then
+        mkdir -p "$(dirname "$_merged")" 2>/dev/null || _rc=1
+    fi
+    if [ "$_rc" = 0 ]; then
+        # Frozen rows win over automatic rows; then choose the newest row. If
+        # timestamps tie, prefer a row already stored at the canonical root,
+        # then use a stable lexical tie-break. Keep family suffixes, IPs,
+        # nohost, strategy and optional trailing columns intact.
+        # shellcheck disable=SC2086
+        awk -F '\t' 'BEGIN { OFS="\t" }
+            !/^#/ && NF >= 3 {
+                original=tolower($2); host=original; family=""
+                if (host ~ /\|[46]$/) { family=substr(host,length(host)-1); host=substr(host,1,length(host)-2) }
+                sub(/\.$/,"",host)
+                if (host != "nohost" && host !~ /:/ && host !~ /^[0-9.]+$/) {
+                    n=split(host,labels,".")
+                    if (n > 2) host=labels[n-1] "." labels[n]
+                }
+                canonical=host family; id=$1 FS canonical
+                frozen=($5 == "frozen"); stamp=$4+0; exact=(original == canonical)
+                if (!(id in row) || frozen > pin[id] ||
+                    (frozen == pin[id] && (stamp > ts[id] ||
+                    (stamp == ts[id] && (exact > root[id] ||
+                    (exact == root[id] && original < source[id])))))) {
+                    $2=canonical
+                    if ($5 == "") $5="auto"
+                    row[id]=$0; pin[id]=frozen; ts[id]=stamp
+                    root[id]=exact; source[id]=original
+                }
+            }
+            END { for (id in row) print row[id] }
+        ' $_files > "${_merged}.rows" 2>/dev/null || _rc=1
+        if [ "$_rc" = 0 ]; then
+            { printf '# z2k autocircular state: second-level domain keys (86.2)\n'
+              LC_ALL=C sort "${_merged}.rows"
+            } > "$_merged" 2>/dev/null || _rc=1
+        fi
+    fi
+
+    if [ "$_rc" = 0 ]; then
+        for _f in $_files; do
+            cmp -s "$_merged" "$_f" || _needs=1
+        done
+    fi
+
+    # Stage every output before replacing any source. If a rename fails midway,
+    # the next run re-merges the staged canonical copy with remaining old rows.
+    if [ "$_rc" = 0 ] && [ "$_needs" = 1 ]; then
+        for _f in $_files; do
+            _tmp="${_f}.sld.$$"
+            if ! cp -p "$_f" "$_tmp" 2>/dev/null || ! cat "$_merged" > "$_tmp" 2>/dev/null; then
+                _rc=1
+                break
+            fi
+        done
+    fi
+    if [ "$_rc" = 0 ] && [ "$_needs" = 1 ]; then
+        for _f in $_files; do
+            _tmp="${_f}.sld.$$"
+            if ! mv -f "$_tmp" "$_f" 2>/dev/null; then
+                _rc=1
+                break
+            fi
+        done
+    fi
+    if [ "$_rc" = 0 ]; then
+        mkdir -p "$(dirname "$Z2K_SLD_STATE_MIGRATION_MARKER")" 2>/dev/null || _rc=1
+        _tmp="${Z2K_SLD_STATE_MIGRATION_MARKER}.tmp.$$"
+        if [ "$_rc" = 0 ]; then
+            printf 'domain-sld migrated\n' > "$_tmp" 2>/dev/null || _rc=1
+            if [ "$_rc" = 0 ] && ! cmp -s "$_tmp" "$Z2K_SLD_STATE_MIGRATION_MARKER"; then
+                mv -f "$_tmp" "$Z2K_SLD_STATE_MIGRATION_MARKER" 2>/dev/null || _rc=1
+            fi
+        fi
+    fi
+
+    for _f in $_files; do rm -f "${_f}.sld.$$" 2>/dev/null || true; done
+    rm -f "$_merged" "${_merged}.rows" "${Z2K_SLD_STATE_MIGRATION_MARKER}.tmp.$$" 2>/dev/null || true
+    for _f in $_locked; do _z2k_ow_state_lock_release "$_f"; done
+    return "$_rc"
 }

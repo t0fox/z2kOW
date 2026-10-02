@@ -1,11 +1,11 @@
 #!/bin/sh
 # tests/openwrt/test_ow_ownership.sh - Step 4/6: у каждого ресурса ОДИН владелец.
-# Статический анализ platform/ + package/: кто запускает nfqws2, кто строит nft,
+# Статический анализ полного OpenWrt source tree: кто запускает nfqws2, кто строит nft,
 # откуда берутся QNUM/marks/ports, нет ли второго firewall-фреймворка.
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-ownership"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-SRC="$REPO/platform/openwrt $REPO/package/openwrt"
+SRC="$REPO/platform/openwrt"
 # shellcheck disable=SC2086
 # diag.sh is a read-only observer and is intentionally allowed to mention the
 # stock runtime's flowtable vocabulary; all writers remain in this scan.
@@ -18,9 +18,9 @@ code() { for _d in $SRC; do find "$_d" -type f ! -name '.keep' ! -path '*/platfo
 # platform/openwrt/warp.sh (instance того же сервиса); Stage 6 добавляет
 # ВТОРОЙ сервис: панель z2k-webpanel (свой instance, независимый lifecycle);
 # z2k-detect is a manual diagnostic tool only; it has no package-owned daemon.
-_n="$(grep -rl 'procd_set_param command' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | wc -l)"
+_n="$(grep -rl 'procd_set_param command' "$REPO/platform/openwrt" 2>/dev/null | wc -l)"
 assert_eq "шесть command-определений (init + customd + tg.sh + rt.sh + warp.sh + init панели)" "6" "$(printf '%s' "$_n" | tr -d ' ')"
-grep -rl 'procd_set_param command' "$REPO/package/openwrt/files/etc/init.d/z2k" >/dev/null 2>&1 \
+grep -rl 'procd_set_param command' "$REPO/platform/openwrt/files/etc/init.d/z2k" >/dev/null 2>&1 \
     && _t_ok || _t_bad "владелец nfqws2 — не init.d/z2k"
 grep -rl 'procd_set_param command' "$REPO/platform/openwrt/tg.sh" >/dev/null 2>&1 \
     && _t_ok || _t_bad "владелец tg — не platform/openwrt/tg.sh"
@@ -28,9 +28,9 @@ grep -rl 'procd_set_param command' "$REPO/platform/openwrt/rt.sh" >/dev/null 2>&
     && _t_ok || _t_bad "владелец rt — не platform/openwrt/rt.sh"
 grep -rl 'procd_set_param command' "$REPO/platform/openwrt/warp.sh" >/dev/null 2>&1 \
     && _t_ok || _t_bad "владелец warp — не platform/openwrt/warp.sh"
-grep -rl 'procd_set_param command' "$REPO/package/openwrt/files/etc/init.d/z2k-webpanel" >/dev/null 2>&1 \
+grep -rl 'procd_set_param command' "$REPO/platform/openwrt/files/etc/init.d/z2k-webpanel" >/dev/null 2>&1 \
     && _t_ok || _t_bad "владелец панели — не init.d/z2k-webpanel"
-_n="$(grep -c 'procd_set_param command' "$REPO/package/openwrt/files/etc/init.d/z2k" 2>/dev/null)"
+_n="$(grep -c 'procd_set_param command' "$REPO/platform/openwrt/files/etc/init.d/z2k" 2>/dev/null)"
 assert_eq "nfqws2 command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
 _n="$(grep -c 'procd_set_param command' "$REPO/platform/openwrt/tg.sh" 2>/dev/null)"
 assert_eq "tg command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
@@ -38,13 +38,13 @@ _n="$(grep -c 'procd_set_param command' "$REPO/platform/openwrt/rt.sh" 2>/dev/nu
 assert_eq "rt command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
 _n="$(grep -c 'procd_set_param command' "$REPO/platform/openwrt/warp.sh" 2>/dev/null)"
 assert_eq "warp command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
-_n="$(grep -c 'procd_set_param command' "$REPO/package/openwrt/files/etc/init.d/z2k-webpanel" 2>/dev/null)"
+_n="$(grep -c 'procd_set_param command' "$REPO/platform/openwrt/files/etc/init.d/z2k-webpanel" 2>/dev/null)"
 assert_eq "panel command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
 
 # 2. The only adapter-owned nft table is the narrowly scoped passive DNS
 # observer. It may only log ordinary DNS replies (no verdict/redirect/queue),
 # and is guarded by an exact ownership comment before any mutation.
-_table_writers="$(grep -rlE 'nft[[:space:]]+(add|create)[[:space:]]+table' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
+_table_writers="$(grep -rlE 'nft[[:space:]]+(add|create)[[:space:]]+table' "$REPO/platform/openwrt" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
 assert_eq "единственная nft-table — passive DNS observer" "$REPO/platform/openwrt/warp-domain.sh " "$_table_writers"
 assert_contains "observer table has exact owner marker" "$REPO/platform/openwrt/warp-domain.sh" 'comment "z2k WARP passive DNS observer"'
 assert_contains "observer refuses unowned table" "$REPO/platform/openwrt/warp-domain.sh" 'nft-observer-table-conflict'
@@ -80,7 +80,7 @@ code | grep -q 'standard_mode_daemons' \
     && _t_bad "адаптер дёргает daemon-половину zapret2-init" || _t_ok
 
 # 7. сборка OPT_BASE — в одном месте, вызывается из одного места
-_n="$(grep -rl 'z2k_ow_optbase' "$REPO/platform/openwrt" "$REPO/package/openwrt" | wc -l)"
+_n="$(grep -rl 'z2k_ow_optbase' "$REPO/platform/openwrt" | wc -l)"
 assert_eq "optbase: 1 определение + 2 вызова (core + customd)" "3" "$(printf '%s' "$_n" | tr -d ' ')"
 
 # 8. §10 lifecycle invariants: ровно один владелец у каждого ресурса.
@@ -94,9 +94,9 @@ assert_eq "optbase: 1 определение + 2 вызова (core + customd)" 
 #   selective offload . zapret2 (FLOWOFFLOAD из конфига; своих правил нет)
 # ровно два procd-СЕРВИСА в слое: z2k (ядро) + z2k-webpanel (панель,
 # Stage 6, независимый lifecycle); z2k-detect остаётся on-demand CLI.
-_n="$(ls "$REPO"/package/openwrt/files/etc/init.d/ 2>/dev/null | wc -l)"
+_n="$(ls "$REPO"/platform/openwrt/files/etc/init.d/ 2>/dev/null | wc -l)"
 assert_eq "два procd-сервиса (ядро + панель)" "2" "$(printf '%s' "$_n" | tr -d ' ')"
-_n="$(grep -rl 'procd_open_instance' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | wc -l)"
+_n="$(grep -rl 'procd_open_instance' "$REPO/platform/openwrt" 2>/dev/null | wc -l)"
 assert_eq "шесть instance (4 ядра + customd + 1 панели)" "6" "$(printf '%s' "$_n" | tr -d ' ')"
 # ifsets: единственный писатель — zapret2 (мы только вызываем reload).
 # fw_verify ЧИТАЕТ wanif (nft list set — существование/заселённость), но не
@@ -113,7 +113,7 @@ code | grep -vE 'nft list set' | grep -qE 'lanif|wanif|nft_fill_ifsets|add_eleme
     && _t_bad "адаптер пишет interface sets" || _t_ok
 grep -q 'zapret_reload_ifsets' "$REPO/platform/openwrt/firewall.sh" \
     && _t_ok || _t_bad "нет делегирования ifsets в zapret2"
-_nftbuilders="$(grep -rlE 'nft add|nft create' "$REPO/platform/openwrt" "$REPO/package/openwrt" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
+_nftbuilders="$(grep -rlE 'nft add|nft create' "$REPO/platform/openwrt" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
 _expected="$REPO/platform/openwrt/customd.sh $REPO/platform/openwrt/rt.sh $REPO/platform/openwrt/tg.sh $REPO/platform/openwrt/warp-domain.sh $REPO/platform/openwrt/warp.sh "
 if [ -z "$_nftbuilders" ]; then
     _t_bad "нет TG/RT/WARP builder'ов (ожидались tg.sh rt.sh warp.sh)"

@@ -1,11 +1,11 @@
 # z2kOW
 
-`z2kOW` — OpenWrt-адаптация [z2k](https://github.com/necronicle/z2k) с нативным lifecycle, firewall/routing-интеграцией, пакетами и webpanel для OpenWrt.
+`z2kOW` — OpenWrt-адаптация [z2k](https://github.com/necronicle/z2k). Общая логика сохраняет upstream-поведение; Keenetic-specific lifecycle заменяется существующими OpenWrt backends: procd, fw4/nftables и hotplug.
 
 Панель использует общий интерфейс z2k; OpenWrt-адаптер передаёт локальный профиль бренда `z2kOW` / `OpenWrt edition`.
 Поддержка и обсуждение: [Telegram-группа @zapret2keenetic](https://t.me/zapret2keenetic).
 
-Статус: **Beta; первый production-релиз ещё не опубликован**
+Статус: **Beta; текущий candidate ещё не подписан и не опубликован**
 
 ```text
 client traffic
@@ -24,7 +24,7 @@ z2kOW adapter
 ```
 
 > [!IMPORTANT]
-> z2kOW — отдельный OpenWrt-проект, а не слепое зеркало upstream. Общая логика z2k синхронизируется из `necronicle/z2k`, а OpenWrt-слой развивается и тестируется отдельно.
+> Пользовательская версия совпадает с upstream tag. Роутер читает только наш контролируемый `UPDATES.json`; новый upstream tag виден только после OpenWrt-адаптации, тестов и доверенной публикации.
 >
 > Список «Протестировано» ниже означает проверку текущего поведения автоматическими тестами и CI. Совместимость не привязана в README к конкретным моделям роутеров.
 
@@ -33,15 +33,15 @@ z2kOW adapter
 - стратегии z2k и `autocircular` с сохранением выбранного состояния;
 - `nftables/fw4` + NFQUEUE вместо Keenetic-specific firewall glue;
 - `procd` lifecycle для core и связанных процессов;
-- OpenWrt paths, UCI/dnsmasq integration и package lifecycle;
+- OpenWrt paths, UCI/dnsmasq integration и procd lifecycle;
 - webpanel с управлением сервисом, стратегиями, списками и диагностикой;
 - прозрачный Telegram transport и CDN redirect;
 - RuTracker RT proxy;
 - WARP с policy routing, доменными/клиентскими списками и fail-open поведением;
 - пользовательские списки, custom strategies и persistent state;
-- signed payload updater;
-- отдельные APK для adapter, webpanel и runtime;
-- controlled upstream sync через временные `sync/<version>` ветки.
+- единый подписанный release payload и один `install_release(tag)` flow;
+- миграция старых z2kOW APK/feed установок в этот payload;
+- controlled upstream-release check без автоматической публикации новых upstream tag.
 
 ## Протестировано
 
@@ -49,7 +49,7 @@ z2kOW adapter
 
 | Область | Что проверяется |
 |---|---|
-| **Package** | сборка через pinned OpenWrt SDK, APK metadata/dependencies, runtime closure, `packages.adb`, install/upgrade paths |
+| **Release** | один полный rootfs payload, SHA-256/signature gate, staging, atomic replacement, rollback и единый installed-release state |
 | **Lifecycle** | start/stop/reload, procd ownership, config convergence, restart/recovery и сохранение persistent state |
 | **Firewall** | nftables/NFQUEUE rules, marks, redirects, fw4 integration и отсутствие лишнего ownership |
 | **Strategies** | генерация конфигурации, autocircular, strategy pools, custom strategies, state persistence |
@@ -62,45 +62,35 @@ z2kOW adapter
 | **Binaries** | Go builds, reproducibility checks и соответствие исходникам |
 | **Quality gates** | ShellCheck, Luacheck, ESLint, Go tests, workflow lint и mutation tests |
 
-Основной OpenWrt suite запускается с `OW_STRICT=1`: любой нарушенный platform contract блокирует package build.
+Основной OpenWrt suite запускается с `OW_STRICT=1`: любой нарушенный platform contract блокирует candidate build.
 
 Актуальный результат смотрите в [GitHub Actions](https://github.com/t0fox/z2kOW/actions/workflows/ci.yml) для точного SHA нужного коммита.
 
 ## Установка
 
-Первый production-релиз пока не опубликован, поэтому production-установка ещё недоступна. После закрытия release acceptance и настройки production signing key установите z2kOW одной командой по SSH на поддерживаемом OpenWrt:
+Пока production-подпись отсутствует, устанавливать можно только после отдельной доверенной публикации release. Bootstrap-команда для OpenWrt:
 
 ```sh
-wget -qO- https://github.com/t0fox/z2kOW/releases/latest/download/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh
 ```
 
-Installer проверяет OpenWrt 25.12.5, target `mediatek/filogic`, APK architecture и закреплённый fingerprint production-ключа. Он добавляет отдельный feed, устанавливает `z2k-adapter` и `z2k-webpanel` из подписанного APK feed, а затем проверяет core и панель. Ключ и repository entry повторно используются; `distfeeds.list` не меняется. Package lifecycle сам включает и запускает службы.
+Bootstrap ставит через OpenWrt `apk` только системные зависимости, проверяет подпись единственного `UPDATES.json`, скачивает и сверяет полный `openwrt-rootfs.tar.gz`, затем вызывает тот же `install_release <tag>`, который используется для update. Component APK/feed пути удалены; `apk` остаётся пакетным менеджером OpenWrt и средством однократного обнаружения/удаления старого ownership.
 
 После установки панель доступна по адресу `http://<IP роутера>:8088`.
 
-Обновляйте production-пакеты одной командой CLI или с карточки обновления в webpanel:
+Проверка и обновление выполняются тем же release flow через CLI или единственную карточку WebPanel:
 
 ```sh
 z2kow update
 ```
 
-Удаление пакетов сохраняет конфигурацию и persistent state:
+Локальная canonical операция установки/сходимости:
 
 ```sh
-z2kow uninstall
+install_release <upstream-tag>
 ```
 
-Для полного удаления конфигурации используйте явный opt-in `z2kow uninstall --purge`; обычное удаление оставляет `/etc/z2k/config`, WARP identity, persistent state и пользовательские списки.
-
-### Development / Testing
-
-CI snapshots предназначены только для тестового устройства и не являются production feed. Установите APK из artifact одного зелёного CI run точного SHA:
-
-```sh
-apk add --allow-untrusted ./z2k-adapter-*.apk ./z2k-webpanel-*.apk
-```
-
-У snapshot-пакетов может быть отдельный временный feed key. Не используйте snapshot для обычного обновления и не копируйте эту команду в production-инструкции.
+Обычная установка и обновление всегда устанавливают полный payload через эту операцию. Она сохраняет `/etc/z2k` пользовательские данные и записывает `tag` + upstream `seq` после health checks.
 
 ## Использование
 
@@ -203,16 +193,16 @@ WARP используется для трафика, который должен
 
 **Payload update** — общая логика z2k, Lua, strategies, lists, webpanel assets и updater-owned binaries.
 
-Проверить:
+Проверить доступные updates:
 
 ```sh
-/usr/lib/z2k/platform/openwrt/update.sh check
+z2kow check
 ```
 
 Применить вручную:
 
 ```sh
-Z2K_AU_MANUAL=1 /usr/lib/z2k/platform/openwrt/update.sh apply
+z2kow update
 ```
 
 Отпечаток публичного ключа подписанных обновлений:
@@ -223,31 +213,20 @@ Z2K_AU_MANUAL=1 /usr/lib/z2k/platform/openwrt/update.sh apply
 
 При подтверждении замены ключа сравните показанный установщиком отпечаток с этим значением. Ошибка подписи сама по себе не требует ручной переустановки: автоматическое обновление отклоняется, установленный обход остаётся запущен.
 
-**APK update** нужен, когда меняется сам OpenWrt adapter, package metadata, init/hotplug integration или platform API.
-
 ## Upstream sync
 
 Upstream: [necronicle/z2k](https://github.com/necronicle/z2k)
 
-Текущий baseline хранится в [UPSTREAM.json](./UPSTREAM.json).
-
-Синхронизация не выполняется напрямую в `main`:
+Пользовательский runtime source of truth — только [UPDATES.json](./UPDATES.json). Его provenance содержит upstream repository, branch, tag и commit. `UPSTREAM.json` удалён. Upstream-check workflow без кеша опрашивает ветку каждые 15 минут и сигнализирует о новом seq; автоматического promotion пользователям нет.
 
 ```text
-necronicle/z2k
-      |
-      v
-sync/<version>
-      |
-      +--> merge/audit
-      +--> OpenWrt tests
-      +--> CI
-      |
-      v
-main
+necronicle/z2k release
+      -> OpenWrt adaptation and tests
+      -> one reviewed UPDATES.json on main
+      -> trusted signing and publication
 ```
 
-Для ручной синхронизации есть **Actions → Sync upstream → Run workflow**.
+Router checks only the signed controlled manifest on `main`; a newer unadapted upstream release remains invisible.
 
 Подробно: [UPSTREAM.md](./UPSTREAM.md).
 
@@ -258,7 +237,6 @@ main
 - [Telegram contract](./docs/openwrt-telegram-contract.md)
 - [RT proxy contract](./docs/openwrt-rt-proxy-contract.md)
 - [WARP contract](./docs/openwrt-warp-contract.md)
-- [Release contract](./docs/openwrt-release-contract.md)
 - [Release operations](./docs/openwrt-release-operations.md)
 - [Upstream contracts](./docs/UPSTREAM-CONTRACTS.md)
 - [Upstream sync](./docs/UPSTREAM-SYNC.md)
@@ -271,7 +249,7 @@ main
 OW_STRICT=1 sh tests/openwrt/run.sh
 ```
 
-Общий CI дополнительно проверяет shell, Lua, JavaScript, Go-компоненты, workflow-файлы, package build и reproducibility.
+Общий CI дополнительно проверяет shell, Lua, JavaScript, Go-компоненты, workflow-файлы и полный unsigned rootfs candidate build.
 
 ## Огромная благодарность спонсорам проекта
 

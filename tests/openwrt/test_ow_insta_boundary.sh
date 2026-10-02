@@ -18,15 +18,15 @@ assert_eq "Keenetic installer не доставляется в OpenWrt payload" 
 
 # Package and OpenWrt-owned lifecycle files contain no direct invocation or
 # install recipe for the helper.  The only source caller remains upstream.
-_ow_files="$(find "$REPO/platform/openwrt" "$REPO/package/openwrt" -type f -print 2>/dev/null)"
+_ow_files="$(find "$REPO/platform/openwrt" -type f -print 2>/dev/null)"
 if [ -n "$_ow_files" ] && ! grep -lF 'z2k-insta-ip-refresh.sh' $_ow_files >/dev/null 2>&1; then
     _t_ok
 else
     _t_bad "OpenWrt-owned files invoke or install insta refresh"
 fi
-assert_not_contains "package не ставит Keenetic insta helper" "$REPO/package/openwrt/Makefile" 'z2k-insta-ip-refresh\.sh'
-assert_not_contains "package не ставит Keenetic S99" "$REPO/package/openwrt/Makefile" 'S99zapret2\.new'
-assert_not_contains "package не ставит Keenetic scheduler" "$REPO/package/openwrt/Makefile" 'z2k-scheduler\.sh'
+assert_not_contains "full payload builder excludes Keenetic insta helper" "$REPO/scripts/openwrt/stage-rootfs.sh" 'z2k-insta-ip-refresh\.sh'
+assert_not_contains "full payload builder excludes Keenetic S99" "$REPO/scripts/openwrt/stage-rootfs.sh" 'S99zapret2\.new'
+assert_not_contains "full payload builder excludes Keenetic scheduler" "$REPO/scripts/openwrt/stage-rootfs.sh" 'z2k-scheduler\.sh'
 assert_contains "helper сам гейтится по ndmc" "$REPO/files/z2k-insta-ip-refresh.sh" 'ndmc not found'
 
 # The old defect was a delivery gap: OpenWrt did not ship the common helper,

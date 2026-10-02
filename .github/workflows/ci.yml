@@ -7,50 +7,9 @@ on:
     branches: ["**"]
   workflow_dispatch:
 
-# GITHUB_TOKEN по умолчанию умеет писать в репозиторий. Ни одной джобе здесь
-# запись не нужна, а z2k-enhanced — это ветка, с которой роутеры тянут
-# обновления напрямую: скомпрометированный шаг с пишущим токеном равен захвату
-# канала доставки. Least privilege, расширять точечно на уровне джобы.
 permissions:
   contents: read
 
-# Наслоившиеся раны на одной ветке гасятся новыми — КРОМЕ z2k-enhanced И
-# z2k-staging. Раньше здесь стояло исключение только для z2k-enhanced — это
-# было верно ДО перехода на текущую схему публикации (см. publish.yml),
-# когда релиз объявлялся пушем прямо в enhanced. Теперь публикацию запускает
-# workflow_run по CI, отработавшему НА STAGING (gate требует
-# conclusion == 'success' — см. publish.yml), а release.sh пишет коммит и
-# подписанный тег именно туда. cancel-in-progress: false на этих ветках нужен
-# по той же причине, что и на enhanced: вердикт CI здесь — вход CD-гейта.
-#
-# Но одного cancel-in-progress: false НЕДОСТАТОЧНО — это защищает только от
-# отмены УЖЕ ИДУЩЕГО рана, а не от очереди. У GitHub в каждой concurrency-
-# группе по умолчанию держится РОВНО один pending (ожидающий) ран: следующий
-# триггер молча отменяет и заменяет его, cancel-in-progress на это вообще не
-# влияет. Живой сценарий: коммит X ещё выполняется, релизный коммит A встаёт
-# в очередь ЗА ним (pending), затем обычный коммит B пушится в staging — его
-# ран становится новым pending и тем же движком отменяет ожидающий ран A.
-# CI(A) до выполнения не доходит, workflow_run для A не выстрелит никогда,
-# gate его не увидит; CI(B), даже успешный, не спасает — тег версии A
-# указывает на A, а не на B, и gate откажет публиковать B под чужим именем.
-# Тег A так и висит неопубликованным, и это не лечится следующим релизом —
-# та же гонка повторится для него. Эмпирически воспроизведено и проверено на
-# отдельной ветке-пробнике 2026-08-10 (см. commit history/PR для деталей):
-# идентичная последовательность (идёт / в очереди / новый триггер) стабильно
-# отменяла ожидающий ран.
-#
-# GitHub предлагает лечить это `queue: max` — но эта ветка concurrency общая
-# с обычными ветками, где нужен как раз противоположный cancel-in-progress:
-# true, а `queue: max` с `cancel-in-progress: true` в одном блоке запрещён
-# самим GitHub (workflow validation error), и `queue`, в отличие от
-# cancel-in-progress, не документирован как принимающий выражение — сделать
-# его условным по ветке нельзя. Поэтому лечим не queue, а саму группу: на
-# z2k-enhanced/z2k-staging группа включает SHA коммита, а не ref ветки —
-# каждый коммит получает СОБСТВЕННУЮ группу, делить которую с чужим раном (и
-# значит становиться за ним в очередь) физически не с кем. На обычных
-# ветках группа по-прежнему одна на ref — это и даёт cancel-in-progress: true
-# смысл (дедуп устаревших ранов подряд идущих пушей).
-# https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
 concurrency:
   group: ci-${{ github.event_name }}-${{ (github.ref == 'refs/heads/z2k-enhanced' || github.ref == 'refs/heads/z2k-staging') && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/z2k-enhanced' && github.ref != 'refs/heads/z2k-staging' }}
@@ -232,217 +191,28 @@ jobs:
           done
           exit $rc
 
-      - name: Манифест — либо ровно опубликованный, либо новый и подписанный
+      - name: Validate the one controlled release manifest
         run: |
-          # The OpenWrt product branch retains a signed upstream snapshot at
-          # MANIFEST_BASELINE; its adapted source has a separate package manifest.
-          # Keep the legacy z2k-staging release gate isolated to that release path.
-          if [ "${GITHUB_REF_NAME:-}" != "z2k-staging" ] \
-             && [ -s tests/openwrt/MANIFEST_BASELINE ]; then
-            sh scripts/openwrt/verify-upstream-manifest.sh
-            exit 0
-          fi
-
-          # ДВА СОСТОЯНИЯ, И ТРЕТЬЕГО БЫТЬ НЕ ДОЛЖНО.
-          #
-          # Манифест подписан офлайн-ключом, и подпись покрывает ВЕСЬ файл,
-          # включая карту сумм. Значит любая правка манифеста без переподписи
-          # делает подпись невалидной, а роутер с защёлкнутым храповиком такой
-          # релиз отвергает — отказ одновременный и у всех.
-          #
-          # Раньше здесь требовалось «карта сходится с деревом» на КАЖДОМ
-          # коммите. Из-за этого карту приходилось регенерировать при каждой
-          # правке доставляемого файла, подпись после этого не сходилась, и её
-          # проверку пришлось сделать пропускаемой. Пропуск и заметил ревьюер —
-          # справедливо: гейт, который сам себя выключает, не гейт.
-          #
-          # Правильное состояние проще: между релизами манифест НЕ МЕНЯЕТСЯ
-          # ВООБЩЕ. Он и так описывает последний выпущенный срез, а рабочая
-          # ветка людям не видна. Карту пересобирает release.sh — там же, где
-          # накладывает подпись, одним шагом.
-          git fetch -q origin z2k-enhanced 2>/dev/null || true
-          _pub=$(git show origin/z2k-enhanced:UPDATES.json 2>/dev/null \
-                 | sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
-          _cur=$(sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' UPDATES.json | head -1)
-
-           # A frozen integration branch may intentionally lag the published
-           # channel while carrying later commits.  If UPDATES.json and its
-           # signature are byte-identical to the commit that last changed them,
-           # this is still a working snapshot, not an unsigned release edit.
-           _manifest_commit=$(git log -1 --format=%H -- UPDATES.json)
-           _head=$(git rev-parse HEAD)
-           if [ -n "$_pub" ] && [ "$_pub" != "$_cur" ] \
-              && [ -n "$_manifest_commit" ] && [ "$_manifest_commit" != "$_head" ] \
-              && git diff --quiet "$_manifest_commit" HEAD -- UPDATES.json UPDATES.json.sig; then
-             echo "frozen integration snapshot: manifest=$_cur published=$_pub"
-             exit 0
-           fi
-
-           if [ -z "$_pub" ]; then
-            # Нет опубликованного состояния (форк, первый прогон) — сверяем то,
-            # что можем: карту с деревом.
-            echo "опубликованный манифест недоступен — сверяю карту с деревом"
-            sh scripts/gen_file_hashes.sh
-            git diff --quiet -- UPDATES.json || {
-              echo "::error::files_sha256 не соответствует дереву"
-              git --no-pager diff --stat -- UPDATES.json; exit 1; }
-            exit 0
-          fi
-
-          if [ "$_pub" = "$_cur" ]; then
-            # Рабочий коммит. Манифест и подпись обязаны быть байт-в-байт теми,
-            # что уже опубликованы: трогать их здесь нечем и незачем.
-            if ! git diff --quiet "origin/z2k-enhanced" HEAD -- UPDATES.json UPDATES.json.sig; then
-              echo "::error::манифест правлен вне релиза (current остался $_cur)."
-              echo "Карту и подпись пересобирает только scripts/release.sh — верните файлы как есть."
-              git --no-pager diff --stat "origin/z2k-enhanced" HEAD -- UPDATES.json UPDATES.json.sig
-              exit 1
-            fi
-            echo "рабочий коммит: манифест не тронут (current=$_cur)"
-            exit 0
-          fi
-
-          # Релизный коммит. Здесь карта обязана описывать ЭТО дерево, а подпись
-          # — сходиться с опубликованным ключом. Ровно те байты, что уедут людям.
-          echo "релизный коммит: $_pub -> $_cur"
-          sh scripts/gen_file_hashes.sh
-          if ! git diff --quiet -- UPDATES.json; then
-            echo "::error::files_sha256 в UPDATES.json не соответствует дереву."
-            echo "Запусти локально: sh scripts/gen_file_hashes.sh — и пересобери релиз."
-            git --no-pager diff --stat -- UPDATES.json
-            exit 1
-          fi
-          git checkout -- UPDATES.json 2>/dev/null || true
-          if [ ! -s UPDATES.json.sig ]; then
-            echo "::error::релиз без подписи — его отвергнет каждый роутер, уже принимавший подписанные"
-            exit 1
-          fi
-          if ! openssl pkeyutl -verify -rawin -pubin -inkey files/etc/z2k-update-pub.pem \
-                 -in UPDATES.json -sigfile UPDATES.json.sig >/dev/null 2>&1; then
-            echo "::error::подпись манифеста не сходится с опубликованным ключом"
-            exit 1
-          fi
-          echo "карта описывает дерево, подпись сходится"
-
-          # ПРЕФЛАЙТ ТЕГА И ИСТОРИИ — то же самое, что позже спросит publish.yml,
-          # но здесь, на staging, а не только на верхушке публикации.
-          #
-          # ЗАЧЕМ ДУБЛИРОВАТЬ. workflow_run в publish.yml берёт САМ ФАЙЛ
-          # publish.yml с ВЕТКИ ПО УМОЛЧАНИЮ (z2k-enhanced), а не со staging (см.
-          # комментарий в самом publish.yml). Проверки тега и целостности history
-          # там появились позже, чем сама схема публикации — значит первый же
-          # релиз, который их реально требует, ещё попадёт под СТАРЫЙ
-          # publish.yml, где этих проверок нет вовсе, пока кто-то не проведёт их
-          # через публикацию хотя бы раз (см. RELEASING.md про самый первый
-          # переход). До этого момента единственное место, где ошибка тега или
-          # порченной history вообще будет видна ДО публикации — вот этот шаг.
-          NEW_CUR="$_cur"
-          if ! git rev-parse -q --verify "refs/tags/$NEW_CUR" >/dev/null; then
-            echo "::error::нет тега $NEW_CUR — release.sh обязан был его поставить, а push --atomic — доставить"
-            exit 1
-          fi
-          _tgt=$(git rev-list -n 1 "refs/tags/$NEW_CUR")
-          if [ "$_tgt" != "$(git rev-parse HEAD)" ]; then
-            echo "::error::тег $NEW_CUR указывает на $_tgt, а не на этот коммит ($(git rev-parse HEAD))"
-            exit 1
-          fi
-          _ref=$(grep '^[[:space:]]*{"v":' UPDATES.json \
-                 | sed -n "s/.*\"v\"[[:space:]]*:[[:space:]]*\"${NEW_CUR}\".*\"ref\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1)
-          if [ "$_ref" != "$NEW_CUR" ]; then
-            echo "::error::ref в манифесте = '$_ref', а тег — '$NEW_CUR'"
-            exit 1
-          fi
-          # Сверка КОНКРЕТНЫМ ключом, не просто фактом наличия SSH-маркера.
-          # Голый grep на "BEGIN SSH SIGNATURE" пропустил бы тег, подписанный
-          # ЧУЖИМ (или старым, после ротации) ключом — валидная с виду
-          # SSH-подпись, просто не тем секретом. Пока bootstrap-разрыв жив
-          # (см. выше) и publish.yml может оказаться в СТАРОЙ версии без
-          # проверки тега вообще — это единственное место, которое вообще
-          # смотрит на тег до публикации, и оно обязано сверять именно то,
-          # чем действительно подписано, а не факт формы.
-          #
-          # Ключ берём из РАБОЧЕГО ДЕРЕВА (files/etc/z2k-update-pub.pem), тем
-          # же, которым выше уже проверялась подпись манифеста в этом шаге —
-          # не из origin/z2k-enhanced, как делает publish.yml. Разница
-          # осознанная: publish.yml — последняя инстанция и обязан защититься
-          # от кандидата, который принёс СВОЙ ключ и сам себя заверил; этот
-          # preflight — просто более раннее эхо того же гейта, ему достаточно
-          # той же модели доверия, что и остальным проверкам этого шага.
-          python3 - "$NEW_CUR" <<'PYEOF'
-          import base64, struct, subprocess, sys, tempfile, os
-
-          tag = sys.argv[1]
-          der = subprocess.run(["openssl", "pkey", "-pubin", "-in", "files/etc/z2k-update-pub.pem",
-                                "-outform", "DER"], capture_output=True, check=True).stdout
-
-          def s(b):
-              return struct.pack(">I", len(b)) + b
-
-          blob = s(b"ssh-ed25519") + s(der[-32:])
-          line = "z2k-release ssh-ed25519 " + base64.b64encode(blob).decode() + "\n"
-
-          fd, path = tempfile.mkstemp()
-          with os.fdopen(fd, "w") as fh:
-              fh.write(line)
-
-          rc = subprocess.run(
-              ["git", "-c", "gpg.format=ssh", "-c", f"gpg.ssh.allowedSignersFile={path}",
-               "verify-tag", tag],
-              capture_output=True, text=True,
-          )
-          os.unlink(path)
-          if rc.returncode != 0:
-              print(f"::error::подпись тега {tag} не сходится с опубликованным ключом")
-              print(rc.stdout)
-              print(rc.stderr)
-              sys.exit(1)
-          print(f"подпись тега {tag} сходится с опубликованным ключом")
-          PYEOF
-
-          python3 - "$_pub" <<'PYEOF'
-          import json, subprocess, sys
-          pub_ver = sys.argv[1]
-
-          def read(ref):
-              raw = subprocess.run(["git", "show", f"{ref}:UPDATES.json"],
-                                    capture_output=True, text=True, check=True).stdout
-              return json.loads(raw)
-
-          old = read("origin/z2k-enhanced")
-          new = read("HEAD")
-          oh, nh = old["history"], new["history"]
-
-          if nh[:len(oh)] != oh:
-              print("::error::history не является продолжением опубликованной — префикс изменён или переставлен")
-              sys.exit(1)
-          if len(nh) != len(oh) + 1:
-              print(f"::error::в history {len(nh) - len(oh)} новых записей вместо ровно одной")
-              sys.exit(1)
-          if new["current"] != nh[-1]["v"]:
-              print(f"::error::current='{new['current']}' не совпадает с последней записью history ('{nh[-1]['v']}')")
-              sys.exit(1)
-          entry = nh[-1]
-          required = {"v": str, "type": str, "ts": str, "ref": str, "desc": str, "changed_files": list}
-          for key, typ in required.items():
-              if key not in entry:
-                  print(f"::error::новая запись history без обязательного поля '{key}'")
-                  sys.exit(1)
-              if not isinstance(entry[key], typ):
-                  print(f"::error::поле '{key}' новой записи history не {typ.__name__}")
-                  sys.exit(1)
-          if entry["type"] not in ("patch", "reinstall"):
-              print(f"::error::type='{entry['type']}' — должен быть patch или reinstall")
-              sys.exit(1)
-          if not entry["changed_files"]:
-              print("::error::changed_files пуст — релиз без единого доставляемого файла")
-              sys.exit(1)
-          versions_seen = [h["v"] for h in oh]
-          if entry["v"] in versions_seen:
-              print(f"::error::версия '{entry['v']}' уже встречалась в history — номер релиза нельзя переиспользовать")
-              sys.exit(1)
-          print(f"тег/подпись/history: всё сходится, схема новой записи '{entry['v']}' полна")
-          PYEOF
-          echo "preflight тега и истории пройден (окончательное решение всё равно за publish.yml)"
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          m = json.loads(Path("UPDATES.json").read_text(encoding="utf-8"))
+          assert set(m) == {"schema", "branch", "platform", "seq", "current", "upstream", "history"}
+          assert m["schema"] == 1 and m["branch"] == "main" and m["platform"] == "openwrt"
+          assert isinstance(m["seq"], int) and m["seq"] > 0
+          assert re.fullmatch(r"[pr]-[0-9]+(?:\.[0-9]+)+", m["current"])
+          assert m["upstream"]["repository"] == "necronicle/z2k"
+          assert m["upstream"]["branch"] == "z2k-enhanced"
+          assert m["upstream"]["tag"] == m["current"]
+          assert re.fullmatch(r"[0-9a-f]{40}", m["upstream"]["commit"])
+          tags = {entry["v"] for entry in m["history"]}
+          assert {"p-86.2", "r-86.3"} <= tags
+          assert m["history"][-1]["v"] == m["current"]
+          assert all(isinstance(entry.get("v"), str) for entry in m["history"])
+          assert all("seq" not in entry for entry in m["history"])
+          assert not Path("UPSTREAM.json").exists()
+          print(f"controlled {m['current']} seq {m['seq']}; upstream {m['upstream']['commit']}")
+          PY
 
   tests:
     name: Shell tests
@@ -461,32 +231,6 @@ jobs:
           # последних релизных коммита. При shallow-клоне их просто нет, и
           # проверка вырождается в skip, то есть в отсутствие защиты.
           fetch-depth: 0
-
-      - name: Fetch and verify pinned upstream WARP tags
-        run: sh scripts/openwrt/verify-upstream-tags.sh
-
-      - name: Fetch release refs for changed_files completeness
-        run: |
-          set -eu
-          refs="$(python3 -c 'import json; h=json.load(open("UPDATES.json", encoding="utf-8"))["history"]; print("\n".join(str(x["ref"]) for x in h[-2:]))')"
-          while IFS= read -r ref; do
-            [ -n "$ref" ] || continue
-            if git cat-file -e "${ref}^{commit}" 2>/dev/null; then
-              continue
-            fi
-            case "$ref" in
-              p-*|r-*)
-                git fetch --no-tags https://github.com/necronicle/z2k.git \
-                  "refs/tags/${ref}:refs/tags/${ref}"
-                ;;
-              *)
-                echo "::error::release ref is unavailable and is not an upstream tag: $ref" >&2
-                exit 1
-                ;;
-            esac
-          done <<EOF
-          $refs
-          EOF
 
       - name: Install lua
         # test_tcp16_lua.sh гоняет lua-харнесс. Без lua набор молча
@@ -536,31 +280,9 @@ jobs:
           done < build-matrix.tsv
 
       - name: Run shell unit tests
-        # Z2K_FORK_DIR указывает на чекаут выше: тесты по умолчанию ищут форк
-        # рядом с репозиторием ($HERE/../zapret2-z2k-fork), а на раннере он
-        # лежит внутри рабочего каталога.
         env:
           Z2K_FORK_DIR: ${{ github.workspace }}/zapret2-z2k-fork
-        run: |
-          # The integration branch intentionally freezes the last released
-          # manifest while the published upstream tracking ref may advance.
-          # test_update_content_verification.sh uses that ref only to decide
-          # whether post-release hash drift is expected; point it at the
-          # immutable manifest commit for this frozen snapshot, preserving the
-          # test's byte-for-byte release-tree checks.
-          rel_commit=$(git log -1 --format=%H -- UPDATES.json)
-          rel_current=$(git show "$rel_commit:UPDATES.json" 2>/dev/null \
-            | sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-            | head -1)
-          pub_current=$(git show origin/z2k-enhanced:UPDATES.json 2>/dev/null \
-            | sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-            | head -1)
-          if [ -n "$rel_commit" ] && [ -n "$rel_current" ] \
-             && [ "$rel_commit" != "$(git rev-parse HEAD)" ] \
-             && [ "$rel_current" != "$pub_current" ]; then
-            git update-ref refs/remotes/origin/z2k-enhanced "$rel_commit"
-          fi
-          sh tests/run_all.sh
+        run: sh tests/run_all.sh
 
   go:
     name: Go ${{ matrix.module }}
@@ -678,12 +400,6 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
 
-      - name: Verify frozen upstream WARP binaries
-        run: |
-          set -eu
-          sh scripts/openwrt/verify-upstream-tags.sh
-          git diff --exit-code r-85.12 -- z2k-warpd/builds
-
       - name: Пересобрать и сверить байт-в-байт
         run: |
           set -eu
@@ -711,9 +427,9 @@ jobs:
             # Z2K_TUNNEL_SECRET через -X, и без секрета байты не воспроизвести.
             # Пробел осознанный и назван вслух, а не забыт.
             [ "$mod" = "mtproxy-client" ] && continue
-            # z2k-warpd/builds are signed upstream Keenetic binaries, pinned
-            # above to r-85.12. OpenWrt compiles its adapted runtime from source
-            # with the nft overlay in the OpenWrt package job below.
+            # z2k-warpd/builds are upstream Keenetic binaries; OpenWrt instead
+            # compiles its adapted runtime with the nft overlay in the unified
+            # full-payload candidate workflow.
             [ "$mod" = "z2k-warpd" ] && continue
             want="$bdir/$prefix-linux-$sfx"
             if [ ! -f "$want" ]; then
@@ -880,418 +596,29 @@ jobs:
       - name: Run mutants
         run: GO=go sh tests/mutation.sh
 
-  openwrt-package:
-    name: OpenWrt package (25.12.5 SDK)
+  openwrt-unified:
+    name: OpenWrt full-payload release
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    # upload-artifact + actions/cache-save need more than the global
-    # contents:read (точечное расширение только этой джобы, не всего workflow).
+    timeout-minutes: 120
     permissions:
       contents: read
-      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Полная история: release/build tooling сверяет ref'ы и regen.
-          fetch-depth: 0
-
-      - name: Fetch and verify pinned upstream WARP tags
-        run: sh scripts/openwrt/verify-upstream-tags.sh
-
-      # Пин — из скрипта, а не из YAML (§3 closure, single source of truth).
-      - name: Resolve SDK pin
-        id: sdk
-        run: |
-          set -eu -o pipefail
-          pin="$(sh scripts/openwrt/build-release.sh --print-sdk-pin --target mediatek/filogic)"
-          echo "url=${pin%%|*}" >> "$GITHUB_OUTPUT"
-          echo "sha=${pin##*|}" >> "$GITHUB_OUTPUT"
-          echo "SDK tarball: ${pin%%|*}"
-          echo "SDK sha256: ${pin##*|}"
-
-      - name: Restore SDK from cache
-        id: sdk-cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          path: ~/openwrt-sdk-25.12.5-mediatek-filogic
-          # Ключ содержит pin: смена SDK = другой ключ, старое не подхватится.
-          key: openwrt-sdk-25.12.5-mediatek-filogic-${{ steps.sdk.outputs.sha }}
-
-      - name: Install host tools
-        run: |
-          sudo apt-get update
-          # lighttpd — для настоящего `lighttpd -t` над сгенерённым конфигом
-          # панели (test_ow_webpanel_config.sh; без него — громкий SKIP).
-          sudo apt-get install -y zstd lighttpd
-
-      - name: Set up Go for the OpenWrt WARP runtime
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: 1.25.13
           cache: true
           cache-dependency-path: z2k-warpd/go.sum
-
-      # Cache-hit всё равно сверяет identity receipt (§7 closure):
-      # каталогу из кеша без чека не доверяем.
-      - name: Verify cached SDK identity
-        if: steps.sdk-cache.outputs.cache-hit == 'true'
-        run: |
-          set -eu -o pipefail
-          test -f ~/openwrt-sdk-25.12.5-mediatek-filogic/rules.mk
-          test -d ~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir
-          test "$(cat ~/openwrt-sdk-25.12.5-mediatek-filogic/.sdk-sha256-verified)" = '${{ steps.sdk.outputs.sha }}'
-
-      - name: Download and verify SDK
-        if: steps.sdk-cache.outputs.cache-hit != 'true'
-        run: |
-          set -eu -o pipefail
-          mkdir -p ~/sdk-dl ~/openwrt-sdk-25.12.5-mediatek-filogic
-          cd ~/sdk-dl || exit 1
-          curl -fSL --retry 3 --retry-all-errors -o sdk.tar.zst '${{ steps.sdk.outputs.url }}'
-          printf '%s  %s\n' '${{ steps.sdk.outputs.sha }}' sdk.tar.zst | sha256sum -c -
-          tar --zstd -xf sdk.tar.zst -C ~/openwrt-sdk-25.12.5-mediatek-filogic --strip-components=1
-          printf '%s\n' '${{ steps.sdk.outputs.sha }}' > ~/openwrt-sdk-25.12.5-mediatek-filogic/.sdk-sha256-verified
-
-      # Save — отдельным шагом с if:always(): монолитный actions/cache свой
-      # post-save на падающих джобах молча не выполняет (эмпирически: вечный
-      # cache-miss при красном Build packages), и каждый ран заново тянул
-      # 240МБ. Сохраняем то, что скачали и сверили, независимо от вердикта.
-      - name: Save SDK to cache
-        if: always()
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ~/openwrt-sdk-25.12.5-mediatek-filogic
-          key: openwrt-sdk-25.12.5-mediatek-filogic-${{ steps.sdk.outputs.sha }}
-
-      # Зависимости — по реальным метаданным SDK (§9 closure): наши claims
-      # обязаны существовать (fail closed), mod-пакеты — evidence-дамп для
-      # follow-up pin (Makefile не меняем по недоказанным именам).
-      - name: Audit dependencies against SDK feed metadata
-        run: |
-          set -eu -o pipefail
-          sdk=~/openwrt-sdk-25.12.5-mediatek-filogic
-          echo "--- declared DEPENDS must exist in feed metadata ---"
-          grep -rq "^define Package/lighttpd$" "$sdk/package" && echo "OK: lighttpd"
-          grep -rq "^define Package/conntrack$" "$sdk/package" && echo "OK: conntrack"
-          grep -rq "define KernelPackage/nft-queue" "$sdk/package" && echo "OK: kmod-nft-queue"
-          echo "--- runtime DEPENDS (z2k-zapret2-runtime closure) ---"
-          grep -rq "^define Package/nftables$" "$sdk/package" && echo "OK: nftables"
-          grep -rq "define KernelPackage/nft-nat" "$sdk/package" && echo "OK: kmod-nft-nat"
-          grep -rq "define KernelPackage/nft-offload" "$sdk/package" && echo "OK: kmod-nft-offload"
-          echo "--- lighttpd mod evidence (follow-up pin decision) ---"
-          grep -rl "^define Package/lighttpd-mod-" "$sdk/package" || echo "(no lighttpd-mod-* packages in SDK)"
-          echo "--- base tools evidence (must be base-provided, no DEPENDS) ---"
-          command -v ip ubus uci nft || true
-
-      # Runtime tarball — для sysroot-теста (Z2K_RT_TARBALL) и verify-гейта
-      # ниже. Качаем один раз: build-release скачает его сам ещё раз в SDK dl
-      # (там свой PKG_HASH-гейт), это доказательство URL+sha отдельно от сборки.
-      - name: Fetch zapret2 runtime tarball (pin proof + sysroot fixture)
-        run: |
-          set -eu -o pipefail
-          url="$(sed -n 's|^PKG_SOURCE_URL:=\(.*\)|\1|p' package/z2k-runtime/Makefile | head -1 | tr -d ' \t\r')"
-          file="$(sed -n 's/^PKG_SOURCE:=\(.*\)/\1/p' package/z2k-runtime/Makefile | head -1 | tr -d ' \t\r')"
-          test -n "$url" && test -n "$file"
-          curl -fSL --retry 3 --retry-all-errors -o "${{ runner.temp }}/$file" "$url$file"
-          echo "Z2K_RT_TARBALL=${{ runner.temp }}/$file" >> "$GITHUB_ENV"
-
-      - name: Verify zapret2 runtime tarball (hash + closure + arm64 ELF)
-        run: |
-          set -eu -o pipefail
-          sh scripts/openwrt/verify-runtime.sh --tarball "$Z2K_RT_TARBALL"
-
-      - name: Generate OpenWrt candidate manifest (temp artifact, not committed)
-        run: |
-          set -eu -o pipefail
-          git show p-86.1:UPDATES.json > "$RUNNER_TEMP/p-86.1-UPDATES.json"
-          # --refresh-stale-hashes: дерево feature-ветки новее подписанного
-          # snapshot'а; кандидат несёт правду дерева (имена — в provenance
-          # через ci_snapshot, production-путь этот флаг не ставит).
-          sh scripts/openwrt/gen-openwrt-manifest.sh \
-            --source-manifest "$RUNNER_TEMP/p-86.1-UPDATES.json" --tree "$GITHUB_WORKSPACE" \
-            --ref "$(git rev-parse --short HEAD)" \
-            --api-min "$(grep -E '^[[:space:]]*[0-9]+' package/openwrt/ADAPTER_API | tr -d '[:space:]')" \
-            --refresh-stale-hashes \
-            --out "$RUNNER_TEMP/openwrt-UPDATES.json"
-
-      # Вся сборка — каноническим скриптом (§4/§25 closure): CI всегда создаёт
-      # только временный snapshot. Stable package identity живёт исключительно
-      # в release-openwrt.yml, после exact-SHA CI и ручных release gates.
-      # OW_STRICT=1: любой SKIP в run.sh — FAIL (аудит, пункт 12). Z2K_RT_TARBALL
-      # уже выставлен шагом Fetch выше — tarball-gated тесты идут динамически.
-      - name: Build packages (canonical builder)
-        env:
-          OW_STRICT: "1"
-        run: |
-          set -eu -o pipefail
-          sh scripts/openwrt/build-release.sh --ci-snapshot \
-            --sdk ~/openwrt-sdk-25.12.5-mediatek-filogic \
-            --target mediatek/filogic --arch aarch64_cortex-a53 \
-            --manifest "$RUNNER_TEMP/openwrt-UPDATES.json" \
-            --out "$RUNNER_TEMP/dist" 2>&1 | tee "$RUNNER_TEMP/build-release.log"
-          cp "$RUNNER_TEMP/build-release.log" "$RUNNER_TEMP/dist/"
-
-      - name: Inspect APK metadata (apk v3 adbdump)
-        run: |
-          set -eu -o pipefail
-          ls -la "$RUNNER_TEMP/dist"/z2k-adapter-*.apk "$RUNNER_TEMP/dist"/z2k-webpanel-*.apk "$RUNNER_TEMP/dist"/z2k-zapret2-runtime-*.apk "$RUNNER_TEMP/dist"/z2k-warp-runtime-*.apk
-          echo "=== METADATA.txt (adbdump) ==="
-          cat "$RUNNER_TEMP/dist/METADATA.txt"
-          # Arch-assert — следующим коммитом, когда увидим поле arch в
-          # adbdump (PKGARCH:=all может дать arch=all — тогда доказательство
-          # арки = Makefile-пин + путь bin/packages/aarch64_cortex-a53/).
-
-      - name: Build feed index with SDK tooling
-        run: |
-          set -eu -o pipefail
-          sdk=~/openwrt-sdk-25.12.5-mediatek-filogic
-          make -C "$sdk" package/index V=s
-          # Индекс — из ТОЙ ЖЕ директории, где лежат наши .apk (в SDK
-          # несколько packages.adb: base/kmods/luci/...; head -1 по всему
-          # дереву мог взять чужой).
-          apkdir="$(dirname "$(find "$sdk/bin/packages" -name 'z2k-adapter-*.apk' | LC_ALL=C sort | head -1)")"
-          test -n "$apkdir"
-          adb="$apkdir/packages.adb"
-          test -f "$adb"
-          echo "packages.adb: $adb"
-          cp -f "$adb" "$RUNNER_TEMP/dist/packages.adb"
-
-      # Ephemeral-подпись поверх РЕАЛЬНЫХ байтов индекса (§11 closure):
-      # correct принимает, wrong-key и tamper — нет. Production-ключа здесь
-      # нет и быть не должно (§28 closure); приватный ключ уничтожается до upload.
-      - name: Ephemeral feed signing (correct-key / wrong-key / tamper)
-        run: |
-          set -eu -o pipefail
-          cd "$RUNNER_TEMP/dist" || exit 1
-          openssl genpkey -algorithm ed25519 -out feed-test.key
-          openssl pkey -in feed-test.key -pubout -out feed-test.pub
-          openssl genpkey -algorithm ed25519 -out feed-wrong.key
-          openssl pkey -in feed-wrong.key -pubout -out feed-wrong.pub
-          sha256sum z2k-*.apk packages.adb > sha256sums.ci
-          openssl pkeyutl -sign -rawin -inkey feed-test.key -in sha256sums.ci -out sha256sums.ci.sig
-          openssl pkeyutl -verify -rawin -pubin -inkey feed-test.pub -in sha256sums.ci -sigfile sha256sums.ci.sig
-          echo "correct-key accepted"
-          if openssl pkeyutl -verify -rawin -pubin -inkey feed-wrong.pub -in sha256sums.ci -sigfile sha256sums.ci.sig >/dev/null 2>&1; then
-            echo "wrong key accepted — FAIL" >&2
-            exit 1
-          fi
-          echo "wrong-key rejected"
-          cp packages.adb packages.adb.orig
-          printf 'TAMPER' >> packages.adb
-          if sha256sum -c sha256sums.ci >/dev/null 2>&1; then
-            echo "tamper unnoticed — FAIL" >&2
-            exit 1
-          fi
-          echo "tamper rejected"
-          mv -f packages.adb.orig packages.adb
-          shred -u feed-test.key feed-wrong.key
-
-      # Minimal signed feed (§2-§4 closure): ТОЛЬКО publish-APK (4 шт.),
-      # индекс пересобран mkndx и подписан нативным apk-механизмом.
-      # Ключ — ephemeral EC P-256 (как BUILD_KEY_SDK; production-ключа здесь
-      # нет и быть не должно). Приват уничтожается до upload, pub едет
-      # в artifact (точка доверия live-валидации: ключ в /etc/apk/keys).
-      - name: Assemble minimal signed feed (publish APKs only)
-        run: |
-          set -eu -o pipefail
-          apkbin=~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk
-          test -x "$apkbin"
-          feed="$RUNNER_TEMP/dist/feed"
-          mkdir -p "$feed"
-          cp -f "$RUNNER_TEMP/dist"/z2k-adapter-*.apk "$RUNNER_TEMP/dist"/z2k-webpanel-*.apk "$RUNNER_TEMP/dist"/z2k-zapret2-runtime-*.apk "$RUNNER_TEMP/dist"/z2k-warp-runtime-*.apk "$feed/"
-          test "$(ls "$feed"/*.apk | wc -l)" = "4"
-          openssl ecparam -name prime256v1 -genkey -noout -out "$feed/feed-apk.key"
-          openssl ec -in "$feed/feed-apk.key" -pubout -out "$feed/feed.pub"
-          (cd "$feed" && "$apkbin" mkndx --root "$feed" --keys-dir "$feed" --allow-untrusted --sign "$feed/feed-apk.key" --output packages.adb z2k-*.apk)
-          # proof: sig-блок есть; с нашим pub в keys-dir — ни одного UNTRUSTED.
-          "$apkbin" adbdump "$feed/packages.adb" | grep -q 'sig '
-          mkdir -p "$feed/keys"
-          cp -f "$feed/feed.pub" "$feed/keys/"
-          if "$apkbin" --keys-dir "$feed/keys" adbdump "$feed/packages.adb" 2>&1 | grep -q UNTRUSTED; then
-            echo "feed index signature NOT trusted by shipped pub — FAIL" >&2
-            exit 1
-          fi
-          echo "feed index signed + trusted by feed.pub"
-          shred -u "$feed/feed-apk.key"
-
-      # Resolution proof в изолированном root (§12 closure + parity flow):
-      # ставим ТОЛЬКО z2k-webpanel — adapter и runtime обязаны приехать сами
-      # по DEPENDS (никто их не перечисляет). Репозитории ДОБАВЛЯЮТСЯ флагом
-      # --repository (нормальный режим); --repositories-file ЗАПРЕЩЁН здесь —
-      # он ЗАМЕНЯЕТ normal repositories, и тест тогда доказывал бы другой режим.
-      # v3-тонкости (пойманы CI по очереди):
-      #   - lib/apk/db сам не создаётся ("Unable to lock database") — mkdir;
-      #   - пустой root надо инициализировать ("Unable to read database") —
-      #     ТОЛЬКО add --initdb это умеет, голый update — нет;
-      #   - postinst выполнять НЕЛЬЗЯ: он целится в /usr/lib/z2k раннера
-      #     (apk не ставит IPKG_INSTROOT) — ставим --no-scripts, логика
-      #     postinst покрыта ow-seed/lc функционально.
-      #   - раннер не root: создание DB только через --usermode (подсказал
-      #     сам apk: "Use --usermode to allow creating database as non-root").
-      #   - корень ЧУЖОЙ арки (aarch64 на x86_64-хосте): без явного arch ВСЕ
-      #     пакеты uniformly uninstallable (доказано логом: arch везде
-      #     aarch64_cortex-a53, хост x86_64, /etc/apk/arch пуст). apk берёт
-      #     arch из флага, файла /etc/apk/arch или uname — задаём оба.
-      #   - search/usermode-несовместимость: --initdb/--no-scripts/--usermode —
-      #     ТОЛЬКО флаги add (search их отвергает "unrecognized option").
-      #   - feed раздаём по http threaded-сервером (single-threaded
-      #     http.server роняет параллельные fetch apk: EPERM на роутере,
-      #     доказано live-сессией).
-      - name: Feed resolution in isolated root (SDK apk, http + --repository)
-        run: |
-          set -eu -o pipefail
-          apkbin=~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk
-          test -x "$apkbin"
-          "$apkbin" --version
-          mkdir -p "$RUNNER_TEMP/approot/etc/apk/keys" "$RUNNER_TEMP/approot/etc/apk/repositories.d"
-          mkdir -p "$RUNNER_TEMP/approot/lib/apk/db" "$RUNNER_TEMP/approot/tmp"
-          # Канонические репозитории — общий fragment (4 системных + z2k):
-          # тот же KABI-derivation, что в upgrade-шаге (расхождение = баг).
-          # shellcheck disable=SC1090,SC1091
-          . tests/openwrt/ci-apk-repos.sh
-          FEED_PORT=18881
-          python3 -c 'import functools,sys; from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), functools.partial(SimpleHTTPRequestHandler, directory=sys.argv[2])).serve_forever()' "$FEED_PORT" "$RUNNER_TEMP/dist/feed" &
-          FEED_SRV=$!
-          trap 'kill $FEED_SRV 2>/dev/null' EXIT
-          sleep 2
-          curl -fSLsS --max-time 10 -o /dev/null "http://127.0.0.1:$FEED_PORT/packages.adb"
-          printf '%s\n' "aarch64_cortex-a53" > "$RUNNER_TEMP/approot/etc/apk/arch"
-          # shellcheck disable=SC2086
-          SYS_REPOS="$(z2k_apk_repos "$apkbin" "$RUNNER_TEMP" "http://127.0.0.1:$FEED_PORT/packages.adb")"
-          test -n "$SYS_REPOS"
-          # Ставим ТОЛЬКО webpanel: adapter приедет по его DEPENDS, runtime —
-          # по DEPENDS адаптера. Явное перечисление троицы здесь запретило бы
-          # сам предмет проверки (parity flow).
-          # shellcheck disable=SC2086
-          "$apkbin" --root "$RUNNER_TEMP/approot" --arch aarch64_cortex-a53 --allow-untrusted \
-            $SYS_REPOS \
-            --usermode --initdb --no-scripts add z2k-webpanel
-          "$apkbin" --root "$RUNNER_TEMP/approot" --arch aarch64_cortex-a53 --allow-untrusted \
-            --repository "http://127.0.0.1:$FEED_PORT/packages.adb" \
-            search z2k-webpanel | grep -q z2k-webpanel
-          "$apkbin" --root "$RUNNER_TEMP/approot" --arch aarch64_cortex-a53 --allow-untrusted \
-            --repository "http://127.0.0.1:$FEED_PORT/packages.adb" \
-            search z2k-adapter | grep -q z2k-adapter
-          "$apkbin" --root "$RUNNER_TEMP/approot" --arch aarch64_cortex-a53 --allow-untrusted \
-            --repository "http://127.0.0.1:$FEED_PORT/packages.adb" \
-            search z2k-zapret2-runtime | grep -q z2k-zapret2-runtime
-          "$apkbin" --root "$RUNNER_TEMP/approot" --arch aarch64_cortex-a53 --allow-untrusted \
-            --repository "http://127.0.0.1:$FEED_PORT/packages.adb" \
-            search z2k-warp-runtime | grep -q z2k-warp-runtime
-          test -f "$RUNNER_TEMP/approot/usr/lib/z2k/platform/openwrt/update.sh"
-          test -f "$RUNNER_TEMP/approot/etc/init.d/z2k"
-          test -f "$RUNNER_TEMP/approot/etc/init.d/z2k-webpanel"
-          test -f "$RUNNER_TEMP/approot/usr/lib/z2k/share/seed.tar.gz"
-          # Runtime DEPENDS-resolution proof (§2): его никто не просил явно —
-          # он приехал сам как зависимость адаптера.
-          test -f "$RUNNER_TEMP/approot/opt/zapret2/nfq2/nfqws2"
-          test -f "$RUNNER_TEMP/approot/opt/zapret2/init.d/openwrt/functions"
-          test -f "$RUNNER_TEMP/approot/opt/zapret2/lua/zapret-lib.lua"
-          test -x "$RUNNER_TEMP/approot/usr/lib/z2k/platform/openwrt/bin/z2k-warpd"
-          # Mode contract на реальном approot (live-урок §12: create_ipset.sh
-          # уехал 0644 — датаплейн умер при живом процессе; unit-уровень ловит
-          # test_ow_runtime_modes, здесь — установленный бит в готовом корне).
-          test -x "$RUNNER_TEMP/approot/opt/zapret2/nfq2/nfqws2"
-          test -x "$RUNNER_TEMP/approot/opt/zapret2/ip2net/ip2net"
-          test -x "$RUNNER_TEMP/approot/opt/zapret2/mdig/mdig"
-          test -x "$RUNNER_TEMP/approot/opt/zapret2/ipset/create_ipset.sh"
-          test ! -x "$RUNNER_TEMP/approot/opt/zapret2/init.d/openwrt/functions"
-          test ! -x "$RUNNER_TEMP/approot/opt/zapret2/ipset/def.sh"
-          test ! -x "$RUNNER_TEMP/approot/opt/zapret2/lua/zapret-lib.lua"
-
-      # Upgrade-регрессия K (live-урок: unversioned DEPENDS не co-upgrade'ит).
-      # Исторический stable baseline 0.1.0-r6 обновляется до текущего CI
-      # snapshot (следующая patch prerelease 0.1.1_alpha); обычный apk upgrade
-      # доказывает co-upgrade зависимостей без принудительного downgrade.
-      - name: Upgrade previous stable packages to CI snapshot feed in one action
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -eu -o pipefail
-          apkbin=~/openwrt-sdk-25.12.5-mediatek-filogic/staging_dir/host/bin/apk
-          # shellcheck disable=SC1090,SC1091
-          . tests/openwrt/ci-apk-repos.sh
-          # Порты — ТОЛЬКО этого шага (прошлый step мёртв, его vars недоступны):
-          OLD_PORT=18882
-          NEW_PORT=18881
-          mkdir -p "$RUNNER_TEMP/oldfeed" "$RUNNER_TEMP/oldart"
-          # Предыдущий snapshot — явный пин рана (аудита ради, не latest):
-          # CI 35003245734 / HEAD 81f623e = r6/r6/r4 (последний green перед
-          # p-84.21 sync; r2-эпоха закрыта).
-          gh run download 35003245734 \
-            -n z2k-openwrt-CI-SNAPSHOT-81f623eccea1f0f59c7425f5cbaeea4a929d07a3 \
-            --dir "$RUNNER_TEMP/oldart" --repo "$GITHUB_REPOSITORY"
-          cp -f "$RUNNER_TEMP/oldart"/z2k-*.apk "$RUNNER_TEMP/oldart/feed/packages.adb" "$RUNNER_TEMP/oldfeed/"
-          ls "$RUNNER_TEMP/oldfeed/"
-          python3 -c 'import functools,sys; from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), functools.partial(SimpleHTTPRequestHandler, directory=sys.argv[2])).serve_forever()' "$OLD_PORT" "$RUNNER_TEMP/oldfeed" &
-          OLDSRV=$!
-          # Новый фид тоже поднимаем здесь же (сервер прошлого шага уже мёртв:
-          # у каждого step свой shell и свой EXIT-trap).
-          python3 -c 'import functools,sys; from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), functools.partial(SimpleHTTPRequestHandler, directory=sys.argv[2])).serve_forever()' "$NEW_PORT" "$RUNNER_TEMP/dist/feed" &
-          NEWSRV=$!
-          trap 'kill $OLDSRV $NEWSRV 2>/dev/null' EXIT
-          sleep 2
-          mkdir -p "$RUNNER_TEMP/approot2/etc/apk/keys" "$RUNNER_TEMP/approot2/etc/apk/repositories.d"
-          mkdir -p "$RUNNER_TEMP/approot2/lib/apk/db" "$RUNNER_TEMP/approot2/tmp"
-          printf '%s\n' "aarch64_cortex-a53" > "$RUNNER_TEMP/approot2/etc/apk/arch"
-          # shellcheck disable=SC2086
-          OLD_REPOS="$(z2k_apk_repos "$apkbin" "$RUNNER_TEMP" "http://127.0.0.1:$OLD_PORT/packages.adb")"
-          test -n "$OLD_REPOS"
-          # shellcheck disable=SC2086
-          "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 --allow-untrusted \
-            $OLD_REPOS \
-            --usermode --initdb --no-scripts add z2k-webpanel z2k-adapter z2k-zapret2-runtime
-          echo "--- before:"
-          "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 info -v 2>/dev/null | grep '^z2k' || \
-            "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 --allow-untrusted info 2>/dev/null | grep '^z2k'
-          # Phase 2: ОДНА canonical user-операция против нового фида.
-          # ВНИМАНИЕ: --usermode/--initdb — ТОЛЬКО флаги add (upgrade их
-          # отвергает "unrecognized option", доказано раном; --no-scripts на
-          # upgrade допустим и обязателен — postinst целится в /usr/lib/z2k).
-          # shellcheck disable=SC2086
-          NEW_REPOS="$(z2k_apk_repos "$apkbin" "$RUNNER_TEMP" "http://127.0.0.1:$NEW_PORT/packages.adb")"
-          test -n "$NEW_REPOS"
-          # shellcheck disable=SC2086
-          "$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 --allow-untrusted \
-            $NEW_REPOS \
-            --no-scripts upgrade z2k-webpanel
-          echo "--- after:"
-          _v="$("$apkbin" --root "$RUNNER_TEMP/approot2" --arch aarch64_cortex-a53 info -v 2>/dev/null | grep '^z2k' || true)"
-          printf '%s\n' "$_v"
-          # Ожидаемое — из НОВОГО фида (источник правды), не хардкод: версии
-          # бампятся, тест обязан следовать за деревом, а не наоборот.
-          _exp_w="$("$apkbin" adbdump "$RUNNER_TEMP/dist/feed/packages.adb" 2>/dev/null | grep -A2 '^  - name: z2k-webpanel$' | sed -n 's/^ *version: //p' | head -1 || true)"
-          _exp_a="$("$apkbin" adbdump "$RUNNER_TEMP/dist/feed/packages.adb" 2>/dev/null | grep -A2 '^  - name: z2k-adapter$' | sed -n 's/^ *version: //p' | head -1 || true)"
-          _exp_r="$("$apkbin" adbdump "$RUNNER_TEMP/dist/feed/packages.adb" 2>/dev/null | grep -A2 '^  - name: z2k-zapret2-runtime$' | sed -n 's/^ *version: //p' | head -1 || true)"
-          _exp_wr="$("$apkbin" adbdump "$RUNNER_TEMP/dist/feed/packages.adb" 2>/dev/null | grep -A2 '^  - name: z2k-warp-runtime$' | sed -n 's/^ *version: //p' | head -1 || true)"
-          [ -n "$_exp_w" ] && [ -n "$_exp_a" ] && [ -n "$_exp_r" ] && [ -n "$_exp_wr" ] || { echo "версии из нового фида не прочитались" >&2; exit 1; }
-          echo "expected from new feed: $_exp_w / $_exp_a / $_exp_r / $_exp_wr"
-          printf '%s\n' "$_v" | grep -qx "z2k-webpanel-$_exp_w" || { echo "webpanel не $_exp_w" >&2; exit 1; }
-          printf '%s\n' "$_v" | grep -qx "z2k-adapter-$_exp_a" || { echo "adapter не $_exp_a (EXTRA_DEPENDS не сработал)" >&2; exit 1; }
-          printf '%s\n' "$_v" | grep -qx "z2k-zapret2-runtime-$_exp_r" || { echo "runtime не $_exp_r (resolver не дотянул)" >&2; exit 1; }
-          printf '%s\n' "$_v" | grep -qx "z2k-warp-runtime-$_exp_wr" || { echo "WARP runtime не $_exp_wr (resolver не дотянул)" >&2; exit 1; }
-          echo "upgrade одной операцией до версий фида: OK"
-
-      - name: Upload OpenWrt package artifact
+      - name: Run OpenWrt regression suite
+        run: sh tests/openwrt/run.sh
+      - name: Test upstream WARP engine and build universal rootfs candidate
+        run: sh scripts/openwrt/build-release.sh --out "$RUNNER_TEMP/openwrt-candidate"
+      - name: Upload unsigned full-payload candidate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: z2k-openwrt-snapshot-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/dist/z2k-adapter-*.apk
-            ${{ runner.temp }}/dist/z2k-webpanel-*.apk
-            ${{ runner.temp }}/dist/z2k-zapret2-runtime-*.apk
-            ${{ runner.temp }}/dist/z2k-warp-runtime-*.apk
-            ${{ runner.temp }}/dist/feed/packages.adb
-            ${{ runner.temp }}/dist/feed/feed.pub
-            ${{ runner.temp }}/dist/packages.adb
-            ${{ runner.temp }}/dist/feed/packages.adb
-            ${{ runner.temp }}/dist/feed/feed.pub
-            ${{ runner.temp }}/dist/sha256sums*
-            ${{ runner.temp }}/dist/provenance.json
-            ${{ runner.temp }}/dist/METADATA.txt
-            ${{ runner.temp }}/dist/ow-tests.log
-            ${{ runner.temp }}/dist/sdk-build.log
-            ${{ runner.temp }}/dist/sdk-defconfig.log
-            ${{ runner.temp }}/dist/build-release.log
-            ${{ runner.temp }}/dist/feed-test.pub
+          name: z2kow-openwrt-unsigned-${{ github.sha }}
+          path: ${{ runner.temp }}/openwrt-candidate/
+          if-no-files-found: error
+          retention-days: 14

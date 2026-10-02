@@ -49,6 +49,7 @@ printf 'ENABLED=1\n' > "$T/etc/config"
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_BIN="$T/root/bin" Z2K_RUN="$T/tmp/runtime" Z2K_LOG="$T/tmp/logs"
+export Z2K_TG_BIN="$T/root/bin/tg-mtproxy-client"
 export Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc"
 export Z2K_TG_HEALTH_DIR="$T/tmp/tg-health"
 # shellcheck disable=SC1090,SC1091

@@ -58,6 +58,7 @@ chmod +x "$T/bin/curl"
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_BIN="$T/root/bin" Z2K_CONFIG="$T/etc/config"
+export Z2K_TG_BIN="$T/root/bin/tg-mtproxy-client"
 export Z2K_TG_HEALTH_DIR="$T/tmp/tg-health"
 . "$REPO/platform/openwrt/tg.sh" || exit 1
 z2k_ow_tg_running() { return 0; }

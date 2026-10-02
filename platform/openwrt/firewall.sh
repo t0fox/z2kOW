@@ -31,6 +31,11 @@ z2k_ow_fw_source() {
     local _custom_dir="${Z2K_CUSTOM_DIR:-${Z2K_ADAPTER_DIR:-/usr/lib/z2k/platform/openwrt}/custom.d}"
     CUSTOM_DIR="${_custom_dir%/custom.d}"
     export CUSTOM_DIR
+    if ! command -v _z2k_ow_customd_install_category_runner >/dev/null 2>&1; then
+        . "${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/customd.sh" \
+            || return 1
+    fi
+    _z2k_ow_customd_install_category_runner
     _Z2K_OW_FW_SOURCED=1
 }
 
@@ -241,10 +246,11 @@ z2k_ow_fw_verify() {
 # Сообщение — точный путь (runtime_missing: ...); rc!=0 роняет start_service
 # до создания instance, а webpanel job — в exit!=0.
 z2k_ow_runtime_preflight() {
-    local _n _rt="${Z2K_ZAPRET2_RUNTIME:-/opt/zapret2}"
+    local _n _rt_exec _rt_candidate _rtbin _rtproof _rthash
+    local _rt="${Z2K_ZAPRET2_RUNTIME:-/opt/zapret2}"
     local _nfqws2="${Z2K_NFQWS2:-$_rt/nfq2/nfqws2}"
     [ -x "$_nfqws2" ] || {
-        echo "z2k-openwrt: runtime_missing: $_nfqws2 (поставьте z2k-zapret2-runtime)" >&2
+        echo "z2k-openwrt: runtime_missing: $_nfqws2 (восстановите полный payload командой install_release <tag>)" >&2
         return 1
     }
     [ -f "$_rt/init.d/openwrt/functions" ] || {
@@ -257,14 +263,17 @@ z2k_ow_runtime_preflight() {
             return 1
         fi
     done
-    # Required z2k-owned binaries (инвариант fresh-install completeness):
-    # tg-mtproxy-client, z2k-rt-proxy, z2k-detect ставит ensure-binaries
-    # (postinst best-effort / updater); WARP — optional (кнопка), здесь
-    # не проверяется. Отсутствующий required — громкий отказ, а не
-    # молчаливый skip: silent-degraded core хуже нестартанувшего.
-    for _n in tg-mtproxy-client z2k-rt-proxy z2k-detect; do
+    # Required z2k-owned binaries are included in the one complete rootfs.
+    # The Telegram executable is selected by OpenWrt architecture; RT and the
+    # retained diagnostic detector keep their established direct paths.
+    _tg_bin="${Z2K_TG_BIN:-${Z2K_BIN:-/usr/lib/z2k/bin}/tg-mtproxy-client}"
+    if [ ! -x "$_tg_bin" ]; then
+        echo "z2k-openwrt: missing required binary: $_tg_bin (full release payload is incomplete)" >&2
+        return 1
+    fi
+    for _n in z2k-rt-proxy z2k-detect; do
         if [ ! -x "${Z2K_BIN:-/usr/lib/z2k/bin}/$_n" ]; then
-            echo "z2k-openwrt: missing required binary: ${Z2K_BIN:-/usr/lib/z2k/bin}/$_n (fresh install incomplete: нет сети для ensure?)" >&2
+            echo "z2k-openwrt: missing required binary: ${Z2K_BIN:-/usr/lib/z2k/bin}/$_n (full release payload is incomplete)" >&2
             return 1
         fi
     done
@@ -281,10 +290,18 @@ z2k_ow_runtime_preflight() {
     # The immutable binary is scanned once per content hash.  Subsequent
     # restarts compute the cheap cryptographic hash and consult the proof,
     # while a changed binary necessarily re-enters the loud capability gate.
-    if [ -x "${Z2K_BIN:-/usr/lib/z2k/bin}/z2k-rt-proxy" ]; then
-        local _rtbin="${Z2K_BIN:-/usr/lib/z2k/bin}/z2k-rt-proxy" \
-              _rtproof="${Z2K_RUNTIME_CAPABILITY_CACHE:-${Z2K_STATE:-${Z2K_ETC:-/etc/z2k}/state}/runtime-capabilities}" \
-              _rthash=""
+    _rt_exec="${Z2K_BIN:-/usr/lib/z2k/bin}/z2k-rt-proxy"
+    if ! command -v z2k_ow_arch_bin_path >/dev/null 2>&1; then
+        . "${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/arch.sh" 2>/dev/null || true
+    fi
+    if command -v z2k_ow_arch_bin_path >/dev/null 2>&1; then
+        _rt_candidate=$(z2k_ow_arch_bin_path "${Z2K_BIN:-/usr/lib/z2k/bin}" z2k-rt-proxy 2>/dev/null) || _rt_candidate=""
+        [ -x "$_rt_candidate" ] && _rt_exec="$_rt_candidate"
+    fi
+    if [ -x "$_rt_exec" ]; then
+        _rtbin="$_rt_exec"
+        _rtproof="${Z2K_RUNTIME_CAPABILITY_CACHE:-${Z2K_STATE:-${Z2K_ETC:-/etc/z2k}/state}/runtime-capabilities}"
+        _rthash=""
         if command -v sha256sum >/dev/null 2>&1; then
             _rthash=$(sha256sum "$_rtbin" 2>/dev/null | awk '{print $1}')
         else

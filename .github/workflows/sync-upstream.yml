@@ -1,214 +1,56 @@
-name: Sync upstream
+name: Check live upstream z2k releases
 
 on:
   workflow_dispatch:
-    inputs:
-      mode:
-        description: "Check upstream or prepare a sync branch + PR"
-        required: true
-        default: check
-        type: choice
-        options:
-          - check
-          - prepare
+  schedule:
+    - cron: '*/15 * * * *'
 
 permissions:
   contents: read
 
 concurrency:
-  group: upstream-sync
+  group: check-upstream-main
   cancel-in-progress: false
 
 jobs:
-  sync:
-    name: Controlled upstream sync
+  check:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: write
-      pull-requests: write
-
-    env:
-      UPSTREAM_REPOSITORY: necronicle/z2k
-      UPSTREAM_BRANCH: z2k-enhanced
-      PRODUCT_BRANCH: main
-
+    timeout-minutes: 10
     steps:
-      - name: Checkout z2kOW main
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
-          fetch-depth: 0
           persist-credentials: false
-
-      - name: Inspect upstream
-        id: upstream
+      - name: Fetch uncached upstream branch commit and UPDATES.json
+        shell: bash
         run: |
           set -euo pipefail
-
-          git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
-          git fetch --no-tags upstream "${UPSTREAM_BRANCH}"
-
-          upstream_sha=$(git rev-parse "refs/remotes/upstream/${UPSTREAM_BRANCH}")
-          upstream_version=$(git show "${upstream_sha}:UPDATES.json" |             python3 -c 'import json,sys; print(json.load(sys.stdin)["current"])')
-          recorded_sha=$(python3 -c 'import json; print(json.load(open("UPSTREAM.json", encoding="utf-8"))["upstream"]["commit"])')
-          recorded_version=$(python3 -c 'import json; print(json.load(open("UPSTREAM.json", encoding="utf-8"))["upstream"]["version"])')
-
-          if ! git cat-file -e "${recorded_sha}^{commit}" 2>/dev/null; then
-            git fetch --no-tags upstream "${recorded_sha}"
-          fi
-
-          if [ "${recorded_sha}" = "${upstream_sha}" ]; then
-            needs_sync=false
+          nonce="$(date +%s%N)"
+          curl -fsSL \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'Cache-Control: no-cache' \
+            "https://api.github.com/repos/necronicle/z2k/branches/z2k-enhanced?nocache=$nonce" \
+            -o "$RUNNER_TEMP/upstream-branch.json"
+          commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"]["sha"])' "$RUNNER_TEMP/upstream-branch.json")"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          curl -fsSL -H 'Cache-Control: no-cache' \
+            "https://raw.githubusercontent.com/necronicle/z2k/$commit/UPDATES.json?nocache=$nonce" \
+            -o "$RUNNER_TEMP/upstream-UPDATES.json"
+          printf '%s\n' "$commit" > "$RUNNER_TEMP/upstream-commit"
+      - name: Compare live release sequence to the one controlled manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(cat "$RUNNER_TEMP/upstream-commit")"
+          if python3 scripts/openwrt/controlled_release.py check-upstream \
+              --upstream "$RUNNER_TEMP/upstream-UPDATES.json" \
+              --commit "$commit" \
+              --controlled UPDATES.json; then
+            echo 'No newer upstream release.' >> "$GITHUB_STEP_SUMMARY"
           else
-            needs_sync=true
-          fi
-
-          {
-            echo "sha=${upstream_sha}"
-            echo "version=${upstream_version}"
-            echo "recorded_sha=${recorded_sha}"
-            echo "recorded_version=${recorded_version}"
-            echo "needs_sync=${needs_sync}"
-          } >> "$GITHUB_OUTPUT"
-
-          {
-            echo "## z2k upstream status"
-            echo
-            echo "| Field | Recorded | Upstream |"
-            echo "|---|---|---|"
-            echo "| Version | \`${recorded_version}\` | \`${upstream_version}\` |"
-            echo "| Commit | \`${recorded_sha:0:12}\` | \`${upstream_sha:0:12}\` |"
-            echo
-            if [ "${needs_sync}" = "false" ]; then
-              echo "✅ **z2kOW is up to date with the recorded upstream baseline.**"
-            else
-              echo "🟣 **An upstream update is available.**"
-              echo
-              echo "<details><summary>Changed upstream files</summary>"
-              echo
-              echo '~~~text'
-              git diff --name-status "${recorded_sha}" "${upstream_sha}" || true
-              echo '~~~'
-              echo "</details>"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Prepare sync branch
-        id: prepare
-        if: ${{ inputs.mode == 'prepare' && steps.upstream.outputs.needs_sync == 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          UPSTREAM_SHA: ${{ steps.upstream.outputs.sha }}
-          UPSTREAM_VERSION: ${{ steps.upstream.outputs.version }}
-        run: |
-          set -euo pipefail
-
-          safe_version=$(printf '%s' "$UPSTREAM_VERSION" | tr -c 'A-Za-z0-9._-' '-')
-          sync_branch="sync/${safe_version}"
-
-          if git ls-remote --exit-code --heads origin "${sync_branch}" >/dev/null 2>&1; then
-            echo "::error::remote branch already exists: ${sync_branch}"
+            rc=$?
+            if [ "$rc" -ne 3 ]; then exit "$rc"; fi
+            echo 'A new upstream release needs OpenWrt adaptation and review.' >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-
-          git switch -c "${sync_branch}"
-
-          set +e
-          git merge --no-ff --no-commit "${UPSTREAM_SHA}"
-          merge_rc=$?
-          set -e
-
-          if [ "$merge_rc" -ne 0 ]; then
-            {
-              echo
-              echo "### Merge conflicts"
-              echo
-              echo "Automatic preparation stopped. \`main\` was not changed."
-              echo
-              echo '~~~text'
-              git diff --name-only --diff-filter=U || true
-              echo '~~~'
-            } >> "$GITHUB_STEP_SUMMARY"
-            git merge --abort || true
-            echo "::error::upstream merge has conflicts; resolve them in a dedicated sync branch"
-            exit "$merge_rc"
-          fi
-
-          python3 - "$UPSTREAM_SHA" "$UPSTREAM_VERSION" <<'PY'
-          import datetime
-          import json
-          import sys
-
-          sha, version = sys.argv[1:]
-          path = "UPSTREAM.json"
-          with open(path, encoding="utf-8") as fh:
-              data = json.load(fh)
-
-          data["upstream"]["commit"] = sha
-          data["upstream"]["version"] = version
-          data["updated_at"] = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
-
-          with open(path, "w", encoding="utf-8") as fh:
-              json.dump(data, fh, ensure_ascii=False, indent=2)
-              fh.write("\n")
-          PY
-
-          git add UPSTREAM.json
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "sync: upstream z2k ${UPSTREAM_VERSION}"
-
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push -u origin "${sync_branch}"
-
-          echo "branch=${sync_branch}" >> "$GITHUB_OUTPUT"
-
-          {
-            echo
-            echo "### Prepared sync"
-            echo
-            echo "- Branch: \`${sync_branch}\`"
-            echo "- Upstream: \`${UPSTREAM_VERSION}\` / \`${UPSTREAM_SHA:0:12}\`"
-            echo "- Product branch \`main\` is unchanged."
-            echo "- Normal CI will run on the pushed sync branch."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Open pull request
-        if: ${{ inputs.mode == 'prepare' && steps.prepare.outputs.branch != '' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SYNC_BRANCH: ${{ steps.prepare.outputs.branch }}
-          UPSTREAM_VERSION: ${{ steps.upstream.outputs.version }}
-          UPSTREAM_SHA: ${{ steps.upstream.outputs.sha }}
-        run: |
-          set -euo pipefail
-
-          body=$(cat <<EOF
-          Controlled upstream sync for **z2k ${UPSTREAM_VERSION}**.
-
-          - Upstream: \`necronicle/z2k:${UPSTREAM_BRANCH}\`
-          - Upstream commit: \`${UPSTREAM_SHA}\`
-          - Target: \`main\`
-          - \`UPSTREAM.json\` updated by the sync workflow
-
-          This PR must not be merged until the z2kOW CI and OpenWrt compatibility checks are green.
-          EOF
-          )
-
-          if gh pr create             --base "${PRODUCT_BRANCH}"             --head "${SYNC_BRANCH}"             --title "sync: upstream z2k ${UPSTREAM_VERSION}"             --body "$body"; then
-            echo "Pull request created." >> "$GITHUB_STEP_SUMMARY"
-          else
-            compare_url="https://github.com/${GITHUB_REPOSITORY}/compare/${PRODUCT_BRANCH}...${SYNC_BRANCH}?expand=1"
-            {
-              echo
-              echo "⚠️ The sync branch was pushed, but GitHub did not allow the workflow token to create the PR."
-              echo
-              echo "Open it from: ${compare_url}"
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::warning::sync branch pushed; PR creation was not permitted"
-          fi
-
-      - name: Nothing to prepare
-        if: ${{ inputs.mode == 'prepare' && steps.upstream.outputs.needs_sync == 'false' }}
-        run: echo "No upstream changes to prepare." >> "$GITHUB_STEP_SUMMARY"
