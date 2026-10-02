@@ -27,18 +27,18 @@ class ControlledArtifactTests(unittest.TestCase):
             "schema": 1,
             "branch": "main",
             "platform": "openwrt",
-            "current": "p-86.11",
-            "seq": 134,
+            "current": "p-86.13",
+            "seq": 136,
             "upstream": {
                 "repository": "necronicle/z2k",
                 "branch": "z2k-enhanced",
-                "tag": "p-86.11",
-                "commit": "09228b68984b6a489612608d90f63c227708fdba",
+                "tag": "p-86.13",
+                "commit": "7f630a9d459052b9c9c9eded06298f1b8f7f0a22",
             },
             "history": [
                 {"v": "p-86.2", "type": "patch", "full_install": False},
                 {"v": "r-86.3", "type": "reinstall", "full_install": True},
-                {"v": "p-86.11", "type": "patch", "full_install": False},
+                {"v": "p-86.13", "type": "patch", "full_install": False},
             ],
         }
 
@@ -46,7 +46,7 @@ class ControlledArtifactTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_single_transport_artifact_hash_is_recorded_in_updates_manifest(self) -> None:
-        url = "https://github.com/t0fox/z2kOW/releases/download/p-86.11/openwrt-rootfs.tar.gz"
+        url = "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz"
 
         MODULE.attach_rootfs_artifact(self.manifest, self.artifact, url)
 
@@ -62,11 +62,11 @@ class ControlledArtifactTests(unittest.TestCase):
 
         self.assertEqual(
             self.manifest["artifact"]["url"],
-            "https://github.com/t0fox/z2kOW/releases/download/p-86.11/openwrt-rootfs.tar.gz",
+            "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz",
         )
 
     def test_manifest_cannot_carry_a_second_transport_or_component_release(self) -> None:
-        url = "https://github.com/t0fox/z2kOW/releases/download/p-86.11/openwrt-rootfs.tar.gz"
+        url = "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz"
         MODULE.attach_rootfs_artifact(self.manifest, self.artifact, url)
         self.manifest["adapter"] = {"version": "0.1.1"}
 
@@ -74,7 +74,7 @@ class ControlledArtifactTests(unittest.TestCase):
             MODULE.attach_rootfs_artifact(self.manifest, self.artifact, url)
 
     def test_artifact_must_be_an_immutable_asset_for_the_manifest_current_tag(self) -> None:
-        url = "https://github.com/t0fox/z2kOW/releases/download/r-86.3/openwrt-rootfs.tar.gz"
+        url = "https://github.com/t0fox/z2kOW/releases/download/p-86.12/openwrt-rootfs.tar.gz"
 
         with self.assertRaisesRegex(ValueError, "current tag"):
             MODULE.attach_rootfs_artifact(self.manifest, self.artifact, url)
@@ -86,7 +86,7 @@ class ControlledArtifactTests(unittest.TestCase):
             MODULE.attach_rootfs_artifact(
                 self.manifest,
                 self.artifact,
-                "https://github.com/t0fox/z2kOW/releases/download/p-86.11/openwrt-rootfs.tar.gz",
+                "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz",
             )
 
     def test_render_keeps_upstream_history_objects_one_per_line_without_seq_rewrite(self) -> None:

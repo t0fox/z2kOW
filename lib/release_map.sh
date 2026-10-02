@@ -189,7 +189,7 @@ z2k_install_paths_for() {
 _z2k_install_paths_openwrt() {
     local repo_path="$1" or="/usr/lib/z2k"
     case "$repo_path" in
-        platform/openwrt/*|package/openwrt/*)
+        platform/openwrt/*)
             : ;; # delivered only by the complete OpenWrt release payload
         lib/release_map.sh)
             : ;; # как и на keenetic: карта едет данными, а не кодом

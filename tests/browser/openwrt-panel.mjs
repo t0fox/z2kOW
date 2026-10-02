@@ -9,18 +9,12 @@ import { fileURLToPath } from 'node:url';
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const webpanelPackage = fs.readFileSync(path.join(repo, 'package/openwrt/Makefile'), 'utf8');
-const webpanelInit = fs.readFileSync(path.join(repo, 'package/openwrt/files/etc/init.d/z2k-webpanel'), 'utf8');
+const webpanelInit = fs.readFileSync(path.join(repo, 'platform/openwrt/files/etc/init.d/z2k-webpanel'), 'utf8');
 const webpanelAdapter = fs.readFileSync(path.join(repo, 'platform/openwrt/webpanel.sh'), 'utf8');
-const webpanelListenerLifecycle = path.join(repo, 'platform/openwrt/webpanel-lifecycle.sh');
-assert.equal(/wp_panel_reconcile_http_listener/.test(webpanelPackage), false,
-  'the package hook leaves stock HTTP services under their existing owner');
 assert.equal(/wp_panel_reconcile_http_listener/.test(webpanelInit), false,
   'the panel instance does not stop or restart stock listeners');
 assert.equal(/webpanel-lifecycle\.sh/.test(webpanelAdapter), false,
   'panel helpers do not load stock HTTP service mutations');
-assert.equal(fs.existsSync(webpanelListenerLifecycle), false,
-  'no package helper disables stock lighttpd or restarts uhttpd');
 const screenshotDir = process.env.OPENWRT_SCREENSHOT_DIR || '';
 if (screenshotDir) fs.mkdirSync(screenshotDir, { recursive: true });
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2k-openwrt-browser-'));
@@ -301,7 +295,7 @@ try {
     const payloadUpdateBanner = page.locator('#update-banner');
     await page.waitForFunction(() => document.querySelector('#update-banner')?.innerText.includes('p-86.1'),
       null, { timeout: 2000 });
-    assert.match(await payloadUpdateBanner.innerText(), /Движок zapret2 p-86\.1 актуален/,
+    assert.match(await payloadUpdateBanner.innerText(), /z2k p-86\.1 актуален/,
       'the single update banner shows the upstream engine release');
     assert.equal(await page.locator('#product-update-card').count(), 0,
       'the dashboard has no separate z2kOW update card');
@@ -479,8 +473,8 @@ try {
     assert.equal(surfaces.cardRadius, '12px');
     assert.equal(await page.locator('#app .card .desc').first().evaluate(node => getComputedStyle(node).lineHeight), '17.92px',
       'card descriptions use the measured 14 px / 17.92 px Lolz rhythm');
-    assert.equal(surfaces.titleAnimation, 'none', 'route changes do not add an unverified fade-slide effect');
-    assert.equal(surfaces.cardAnimation, 'none', 'route changes do not stagger cards');
+    assert.equal(surfaces.titleAnimation, 'page-enter', 'the reference route transition is applied to page titles');
+    assert.equal(surfaces.cardAnimation, 'page-enter', 'the reference route transition is applied to cards');
     const buttonStyle = await page.locator('#app .btn').first().evaluate(node => {
       const style = getComputedStyle(node);
       return { height: node.getBoundingClientRect().height, radius: style.borderRadius,
@@ -600,7 +594,7 @@ try {
     const localInter = await page.evaluate(() => document.fonts.load('400 14px Inter')
       .then(faces => faces.some(face => face.family === 'Inter' && face.status === 'loaded')));
     assert.equal(localInter, true, 'the locally bundled Lolz reference font is available without a CDN');
-    assert.match(await page.evaluate(() => getComputedStyle(document.body).fontFamily), /^-apple-system, BlinkMacSystemFont, ?"?Inter"?/,
+    assert.match(await page.evaluate(() => getComputedStyle(document.body).fontFamily), /^Inter, -apple-system, BlinkMacSystemFont/,
       'body typography uses the observed Lolz system/Inter font stack');
 
     await page.keyboard.press('Tab');
@@ -623,11 +617,22 @@ try {
       const activeNavRoutes = await page.locator('#nav a.active').evaluateAll(nodes => nodes.map(node => node.dataset.route));
       assert.deepEqual(activeNavRoutes, [expectedNavRoute], `${appearance}: /${route} highlights its matching navigation item`);
       if (route === 'toggles') {
-        const control = page.locator('#au-hour');
+        const control = page.locator('#au-hour + .chosen-single');
         assert.equal(await control.evaluate(node => getComputedStyle(node).minHeight), '36px',
           'desktop form controls match the 36 px reference height');
         assert.equal(await control.evaluate(node => getComputedStyle(node).borderRadius), '10px',
           'desktop form controls match the 10 px reference radius');
+        assert.equal(await control.getAttribute('role'), 'combobox', 'custom selects expose a combobox control');
+        const listbox = page.locator(`#${await control.getAttribute('aria-controls')}`);
+        assert.equal(await listbox.getAttribute('role'), 'listbox', 'custom select options expose a listbox');
+        await control.click();
+        assert.equal(await control.getAttribute('aria-expanded'), 'true', 'custom select opens from pointer input');
+        await listbox.waitFor({ state: 'visible' });
+        assert.equal(await listbox.isVisible(), true, 'custom select presents its options while open');
+        await page.keyboard.press('Escape');
+        assert.equal(await control.getAttribute('aria-expanded'), 'false', 'Escape closes the custom select');
+        assert.equal(await control.evaluate(node => document.activeElement === node), true,
+          'closing the custom select returns keyboard focus to its trigger');
         assert.equal(await page.locator('.segmented .seg-btn.seg-on').evaluate(node => getComputedStyle(node).boxShadow), 'none',
           'selected segmented controls use a flat surface');
       }
@@ -667,7 +672,7 @@ try {
       if (route === 'state') {
         await page.locator('.state-table').waitFor({ state: 'visible', timeout: 2000 });
         await page.waitForFunction(() => document.querySelectorAll('.state-table tbody tr').length >= 100, null, { timeout: 2000 });
-        const strategyControl = await page.locator('.state-table select').first().evaluate(node => {
+        const strategyControl = await page.locator('.state-table .chosen-single').first().evaluate(node => {
           const style = getComputedStyle(node);
           const rect = node.getBoundingClientRect();
           return { width: rect.width, height: rect.height, radius: style.borderRadius };
@@ -875,7 +880,7 @@ try {
     topbarHeight: `${document.querySelector('.topbar').getBoundingClientRect().height}px`,
   }));
   await releaseProfileRequest();
-  assert.match(firstPaintTheme.fontFamily, /^-apple-system, BlinkMacSystemFont, ?"?Inter"?/,
+  assert.match(firstPaintTheme.fontFamily, /^Inter, -apple-system, BlinkMacSystemFont/,
     `Full-HD first paint uses the locally bundled Lolz Inter font while profile.json is held (${JSON.stringify(firstPaintTheme)})`);
   assert.equal(firstPaintTheme.fontSize, '14px',
     `Full-HD first paint uses the Lolz 14 px body size while profile.json is held (${JSON.stringify(firstPaintTheme)})`);
@@ -977,7 +982,7 @@ try {
   await snapshotPage.waitForFunction(() => document.querySelector('#update-banner')?.innerText.includes('p-86.1'),
     null, { timeout: 2000 });
   const unifiedBanner = await snapshotPage.locator('#update-banner').innerText();
-  assert.match(unifiedBanner, /Движок zapret2 p-86\.1 актуален/,
+  assert.match(unifiedBanner, /z2k p-86\.1 актуален/,
     'a CI package still uses the upstream release version in the single banner');
   assert.doesNotMatch(unifiedBanner, /SNAPSHOT|[0-9a-f]{40}|production channel|v0\.1\.[0-9]/i,
     'the production update banner hides CI and product-channel details');

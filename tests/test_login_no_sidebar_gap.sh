@@ -1,5 +1,5 @@
 #!/bin/sh
-# The login route has no side navigation, so its content stays centered.
+# Login has no side navigation; the desktop sidebar can collapse elsewhere.
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CSS="$ROOT/webpanel/www/style.css"
@@ -10,7 +10,7 @@ bad() { FAIL=$((FAIL + 1)); printf '[FAIL] %s\n' "$1"; }
 
 [ -f "$CSS" ] && [ -f "$THEME" ] || { echo "нет стилей панели"; exit 1; }
 
-_login_block=$(awk '/^body\[data-page="login"\] \{/{f=1} f{print} f && /^\}/{exit}' "$THEME")
+_login_block=$(awk '/^body\[data-page="login"\] \{/{f=1} f{print} f && /^\}/{exit}' "$CSS")
 if printf '%s' "$_login_block" | grep -qE 'padding-left:[[:space:]]*0'; then
     ok "login clears the desktop sidebar offset"
 else
@@ -23,10 +23,10 @@ else
     bad "sidebar is not hidden on the login route"
 fi
 
-if grep -Eq 'sidebar-collapse|data-sidebar|sidebar-w-collapsed' "$CSS" "$THEME"; then
-    bad "obsolete collapsed-sidebar layout is still present"
+if grep -q 'sidebar-w-collapsed' "$THEME"; then
+    ok "login offset and collapsible desktop layout have independent rules"
 else
-    ok "fixed-width navigation has no collapsed state"
+    bad "login layout or collapsible desktop layout is missing"
 fi
 
 echo

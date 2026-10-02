@@ -51,7 +51,7 @@ func runH2MultiplexProbe(ctx context.Context, r *Result, reachableIPs []string, 
 	// nfqws2 — same SO_MARK trick as the TCP/TLS stage. Without this
 	// the H2 probe could see a "works" result purely because nfqws2 is
 	// already running bypass for this destination.
-	dialer := markedDialer(0)
+	dialer := newProbeDialer(0)
 	dialer.Timeout = timeout
 
 	rawConn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(ip, "443"))

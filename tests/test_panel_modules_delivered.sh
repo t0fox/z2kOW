@@ -40,6 +40,8 @@ done
 [ -d "$JSDIR" ] || { printf '[FAIL] нет каталога модулей %s\n' "$JSDIR"; exit 1; }
 
 # --- 1. Каждый модуль с диска есть в списке загрузки --------------------------
+# The approved Chosen-style select enhancement is a first-class required
+# module, just like the other files under www/js/core.
 _absent=""
 _count=0
 for _m in $(cd "$ROOT/webpanel" && find www/js -name '*.js' | sort); do

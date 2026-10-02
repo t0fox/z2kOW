@@ -40,19 +40,10 @@ else
        "в scripts/gen_file_hashes.sh нет дописывания в changed_files — грабли вернутся"
 fi
 
-# The adapter keeps its signed integration manifest frozen while the candidate
-# payload advances. Compare the panel cache-buster to the pinned payload source
-# when that baseline is available, falling back to the published manifest.
-payload_manifest() {
-    _payload_sha="$(tr -d '\r' < "$ROOT/tests/openwrt/BASELINE" 2>/dev/null)"
-    if [ -n "$_payload_sha" ] \
-       && git -C "$ROOT" cat-file -e "$_payload_sha:UPDATES.json" 2>/dev/null; then
-        git -C "$ROOT" show "$_payload_sha:UPDATES.json"
-    else
-        cat "$ROOT/UPDATES.json"
-    fi
-}
-_manifest="$(payload_manifest)"
+# UPDATES.json is the only release source of truth. A test baseline may record
+# a previous commit for history checks, but must not override the controlled
+# release version when checking the panel cache-buster.
+_manifest="$(cat "$ROOT/UPDATES.json")"
 
 # 2) Кеш-бастер в index.html совпадает с current payload. Если разошлись —
 #    генератор не запускали после смены версии, и людям уедет старый кеш.

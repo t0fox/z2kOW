@@ -212,6 +212,19 @@ global.document = {
   },
   fire(t, ev) { (this.listeners[t] || []).slice().forEach(f => f(ev || {})); },
 };
+// The approved select enhancement reads these constructors when the module
+// loads. This VM does not model form controls; Chromium covers their behavior.
+global.HTMLSelectElement = class HTMLSelectElement {
+  get value() { return this._value || ""; }
+  set value(value) { this._value = String(value); }
+  get selectedIndex() { return this._selectedIndex ?? -1; }
+  set selectedIndex(value) { this._selectedIndex = Number(value); }
+};
+global.HTMLOptGroupElement = class HTMLOptGroupElement {};
+global.HTMLOptionElement = class HTMLOptionElement {};
+const appNode = sel("#app");
+const appQuerySelectorAll = appNode.querySelectorAll.bind(appNode);
+appNode.querySelectorAll = selector => selector === "select" ? [] : appQuerySelectorAll(selector);
 global.location = { hash: "#/dashboard", href: "http://r/", reload() {} };
 global.history = { replaceState() {}, pushState() {} };
 const mkStorage = () => {
@@ -497,7 +510,7 @@ const SCENARIOS = {
     async run() {
       await sleep(160);
       const html = q("#update-banner").innerHTML;
-      check("current copy names upstream p-tag", html.indexOf("Движок zapret2 p-86.1 актуален") >= 0, html);
+      check("current copy shows the sole z2k release tag", html.indexOf("z2k p-86.1 актуален") >= 0, html);
       check("history action has requested label", html.indexOf("История обновлений") >= 0, html);
       check("manual check is the only second action", html.includes('id="upd-recheck"') && !html.includes('id="upd-apply"'), html);
       check("no separate product update endpoint was called", !CALLS["/product/update/status"] && !CALLS["/product/update/check"], JSON.stringify(CALLS));

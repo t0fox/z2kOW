@@ -54,6 +54,16 @@ const mkEl = () => {
 function mockNode(id, properties) {
   const el = mkEl(); el.id = id; Object.assign(el, properties || {}); domById.set(id, el); return el;
 }
+// app.js imports the browser select enhancement in Node-based route checks.
+// These runs have no form-control DOM; Chromium covers the real widget.
+global.HTMLSelectElement = class HTMLSelectElement {
+  get value() { return this._value || ""; }
+  set value(value) { this._value = String(value); }
+  get selectedIndex() { return this._selectedIndex ?? -1; }
+  set selectedIndex(value) { this._selectedIndex = Number(value); }
+};
+global.HTMLOptGroupElement = class HTMLOptGroupElement {};
+global.HTMLOptionElement = class HTMLOptionElement {};
 if (BRAND_CASE) {
   mockNode("panel-brand", { attributes: { "aria-label": "z2kOW" } });
   mockNode("brand-profile-logo", { hidden: false, src: "/favicon.svg?v=p-86.1" });

@@ -61,8 +61,8 @@ done
 # LuCI/uhttpd is outside the panel ownership graph. Check all production
 # install/update/remove/restart sources, not just the thin CGI adapter.
 for _f in "$REPO/webpanel/install.sh" "$REPO/lib/install.sh" "$AU" "$RM" \
-          "$REPO/platform/openwrt/update.sh" "$REPO/package/openwrt/Makefile" \
-          "$REPO/platform/openwrt/product-update.sh" "$REPO/platform/openwrt/uninstall.sh" \
+          "$REPO/platform/openwrt/update.sh" "$REPO/platform/openwrt/release.sh" \
+          "$REPO/scripts/openwrt/install.sh" "$REPO/platform/openwrt/uninstall.sh" \
           "$PINIT" "$WPSH"; do
     [ -f "$_f" ] || continue
     _code="$(sed 's/#.*$//' "$_f")"
@@ -156,16 +156,19 @@ assert_contains "js: boot hook" "$REPO/webpanel/www/app.js" "applyCapabilities"
 assert_contains "js: optional identity module" "$REPO/webpanel/www/js/core/identity.js" "applyBranding"
 assert_contains "js: optional identity hook" "$REPO/webpanel/www/app.js" "optionalPanelModule"
 if grep -rlE 'openwrt|PLATFORM|capabilit' "$REPO/webpanel/www/js" 2>/dev/null \
-    | grep -vE 'loadorder\.js|toggles\.js|app\.js|router\.js' | grep -q .; then
+    | grep -vE 'loadorder\.js|toggles\.js|app\.js|router\.js|credits-openwrt\.js|openwrt-credits\.js' | grep -q .; then
     _t_bad "js: capability-логика вне allowlisted файлов"
 else
     _t_ok
 fi
-# router.js owns the route suffix and remains platform-neutral.
+# router.js owns the route suffix and may point only the credits route at its
+# isolated OpenWrt presentation adapter. Keep all capability decisions out.
 assert_contains "js: autohostlist title" "$REPO/webpanel/www/js/router.js" 'autohostlist:'
 assert_contains "js: profile-derived title suffix" "$REPO/webpanel/www/js/router.js" 'window.__z2kBrandName'
-if grep -n 'openwrt\|PLATFORM\|capabilit' "$REPO/webpanel/www/js/router.js" 2>/dev/null | grep -q .; then
-    _t_bad "js: router.js с platform-логикой (разрешён только title)"
+assert_contains "js: isolated credits route adapter" "$REPO/webpanel/www/js/router.js" 'credits: renderCreditsPage,'
+if grep -nE 'openwrt|PLATFORM|capabilit' "$REPO/webpanel/www/js/router.js" 2>/dev/null \
+    | grep -v 'credits-openwrt.js' | grep -q .; then
+    _t_bad "js: router.js с platform-логикой вне credits adapter"
 else
     _t_ok
 fi

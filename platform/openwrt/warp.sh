@@ -377,6 +377,19 @@ warp_devices_selected() {
     ' "$WARP_DEVICES_FILE" 2>/dev/null
 }
 
+# Match upstream p-86.13: explicitly selected devices with no active WARP
+# lists use full-device mode. An enabled-but-empty list still means list mode.
+warp_full_device_mode() {
+    local _active_lists
+    warp_devices_selected || return 1
+    if awk '{ sub(/^[ \t]+/, ""); if ($0 != "" && $0 !~ /^#/) found=1 } END { exit !found }' \
+        "$WARP_ENABLED_FILE" 2>/dev/null; then
+        return 1
+    fi
+    _active_lists="$(warp_active_lists 2>/dev/null)" || return 1
+    [ -z "$_active_lists" ]
+}
+
 # OpenWrt exposes WireGuard server interfaces as network sections with
 # proto=wireguard and an explicit listen_port. A client tunnel without a
 # listening port is deliberately excluded. These ingress devices bypass a
@@ -562,9 +575,10 @@ _warp_sets_ensure_live() {
 # --- nft chains/rules (свои chains в ЧУЖОЙ runtime-таблице) ---
 
 warp_nft_rules_apply() {
-    local _domain_set=0 _domain_rules="" _devices_selected=0
+    local _domain_set=0 _domain_rules="" _devices_selected=0 _full_device_mode=0
     local _wg_ifaces="" _wg_iface _wg_subnet
     warp_devices_selected && _devices_selected=1
+    warp_full_device_mode && _full_device_mode=1
     _z2k_ow_warp_table_ok || {
         echo "z2k-openwrt: warp: нет таблицы ${Z2K_WARP_NFT_FAMILY} ${Z2K_WARP_NFT_TABLE}" >&2
         return 1
@@ -586,7 +600,15 @@ warp_nft_rules_apply() {
     done
     # Mark ТОЛЬКО PREROUTING, ТОЛЬКО битами маски (чужие биты живут).
     # masked-mark идиома (доказана реальными правилами): (m & ~MASK) | MARK.
-    if [ "$_devices_selected" = 1 ]; then
+    if [ "$_full_device_mode" = 1 ]; then
+        nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
+            ip saddr "@$WARP_SET_SRC" \
+            ip daddr != 0.0.0.0/8 ip daddr != 10.0.0.0/8 \
+            ip daddr != 100.64.0.0/10 ip daddr != 127.0.0.0/8 \
+            ip daddr != 169.254.0.0/16 ip daddr != 172.16.0.0/12 \
+            ip daddr != 192.168.0.0/16 ip daddr != 224.0.0.0/3 \
+            meta mark set mark '&' 0x7fffffff '^' 0x80000000 || return 1
+    elif [ "$_devices_selected" = 1 ]; then
         nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
             ip saddr "@$WARP_SET_SRC" ip daddr "@$WARP_SET" \
             meta mark set mark '&' 0x7fffffff '^' 0x80000000 || return 1
@@ -643,16 +665,24 @@ warp_nft_rules_apply() {
 }
 
 warp_nft_rules_verify() {
-    local _c _out _domain_set _domain_rules _devices_selected=0
-    local _wg_ifaces="" _wg_iface _wg_subnet _needle
+    local _c _out _domain_set _domain_rules _devices_selected=0 _full_device_mode=0
+    local _wg_ifaces="" _wg_iface _wg_subnet _needle _local_net
     warp_devices_selected && _devices_selected=1
+    warp_full_device_mode && _full_device_mode=1
     _z2k_ow_warp_table_ok || return 1
     for _c in "$WARP_CHAIN_MARK" "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
         _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$_c" 2>/dev/null) || return 1
         [ -n "$_out" ] || return 1
     done
     _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_MARK" 2>/dev/null)
-    if [ "$_devices_selected" = 1 ]; then
+    if [ "$_full_device_mode" = 1 ]; then
+        printf '%s\n' "$_out" | tr -s ' ' | grep -qF \
+            "ip saddr @$WARP_SET_SRC ip daddr != 0.0.0.0/8 ip daddr != 10.0.0.0/8" || return 1
+        for _local_net in 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 \
+            172.16.0.0/12 192.168.0.0/16 224.0.0.0/3; do
+            printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip daddr != $_local_net" || return 1
+        done
+    elif [ "$_devices_selected" = 1 ]; then
         printf '%s\n' "$_out" | tr -s ' ' | grep -qF \
             "ip saddr @$WARP_SET_SRC ip daddr @$WARP_SET meta mark set" || return 1
         _wg_ifaces="$(warp_wireguard_server_devices 2>/dev/null || true)"

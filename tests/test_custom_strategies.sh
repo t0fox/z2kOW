@@ -268,6 +268,9 @@ case "$_rs" in *autohostlist*) ok "и перезапускает сервис" ;
 _ui_list=$(sed -n 's/.*TOGGLES_RESTART_SERVICE = {\(.*\)};.*/\1/p' "$APPJS")
 _mismatch=""
 for _fn in $(grep -oE '^toggle_[a-z_]+\(\)' "$ACTIONS" | sed 's/()//'); do
+    # This is the shared implementation behind the three UI endpoints below,
+    # not a fourth user-facing toggle named "category".
+    [ "$_fn" = toggle_category ] && continue
     _key=${_fn#toggle_}
     _body=$(awk "/^${_fn}\(\)/,/^}/" "$ACTIONS")
     _code=нет; printf '%s' "$_body" | grep -q 'restart_service_if_running' && _code=да
@@ -284,7 +287,7 @@ done
 # Rule: anything that regenerates the LIVE config must restart the service.
 # Exempt are only the primitive itself and the two validation helpers, which write
 # to a throwaway path precisely so a candidate cannot touch a working router.
-_exempt=" regenerate_config regenerate_config_to strategy_validate "
+_exempt=" regenerate_config regenerate_config_to strategy_validate toggle_category "
 _noresta=""
 for _fn in $(grep -oE '^[a-z_]+\(\)' "$ACTIONS" | sed 's/()//'); do
     case "$_exempt" in *" $_fn "*) continue ;; esac
@@ -293,6 +296,10 @@ for _fn in $(grep -oE '^[a-z_]+\(\)' "$ACTIONS" | sed 's/()//'); do
     printf '%s' "$_body" | grep -Eq 'restart_service_if_running|\$INIT_SCRIPT" restart' \
         || _noresta="$_noresta $_fn"
 done
+[ -n "$(awk '/^toggle_category\(\)/,/^}/' "$ACTIONS" | grep -E 'INIT_SCRIPT.* stop')" ] \
+    && [ -n "$(awk '/^toggle_category\(\)/,/^}/' "$ACTIONS" | grep -E 'INIT_SCRIPT.* start')" ] \
+    && ok "категория останавливает сервис до смены config и запускает после проверки" \
+    || no "категория останавливает/запускает сервис вокруг смены config" "stop + start" "нет пары"
 [ -z "$_noresta" ] && ok "любой обработчик, пересобирающий живой конфиг, перезапускает сервис" \
                    || no "любой обработчик, пересобирающий живой конфиг, перезапускает сервис" \
                          "нет таких" "$_noresta"

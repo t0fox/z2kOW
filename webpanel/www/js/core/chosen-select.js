@@ -94,7 +94,7 @@ function syncValue(state) {
 }
 
 function renderOptions(state) {
-  const { select, list, drop } = state;
+  const { select, list } = state;
   const options = Array.from(select.options);
   state.rows = [];
   list.replaceChildren();

@@ -246,8 +246,14 @@ EOF_OWNERSHIP
         fi
     fi
 
-    apk add kmod-nft-queue kmod-tun kmod-nfnetlink-log conntrack openssl-util \
-        jsonfilter lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias || {
+    apk add kmod-nft-queue kmod-tun kmod-nfnetlink-log conntrack openssl-util jsonfilter || {
+        echo "z2k-openwrt: не удалось обеспечить системные зависимости OpenWrt" >&2
+        return 1
+    }
+    # The panel starts its own lighttpd instance on its configured port. The
+    # package hooks enable the stock lighttpd service, which binds LuCI's port
+    # 80 and returns 403 for /cgi-bin/luci; install only the server/modules.
+    apk add --no-scripts lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias || {
         echo "z2k-openwrt: не удалось обеспечить системные зависимости OpenWrt" >&2
         return 1
     }

@@ -19,7 +19,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # minimal images / some distros leave only the versioned binary —
 # fall through to lua5.3 / lua5.4 explicitly.
 LUA=""
-for candidate in lua lua5.3 lua5.4 lua5.1; do
+for candidate in lua5.3 lua5.4 lua lua5.1; do
     if command -v "$candidate" >/dev/null 2>&1; then
         LUA="$candidate"
         break

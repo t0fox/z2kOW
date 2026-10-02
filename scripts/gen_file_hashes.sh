@@ -104,10 +104,10 @@ if [ -n "$_cur" ] && [ -f webpanel/www/index.html ]; then
     fi
     [ -n "$_idx_head" ] && _idx_before="$_idx_head"
     if [ "$_idx_before" != "$_idx_after" ]; then
-        if awk '/^\{"v":/ {last=$0} END {exit (last ~ /"webpanel\/www\/index\.html"/) ? 0 : 1}' "$MANIFEST"; then
+        if awk '/^[[:space:]]*[{][[:space:]]*"v"[[:space:]]*:/ {last=$0} END {exit (last ~ /"webpanel\/www\/index\.html"/) ? 0 : 1}' "$MANIFEST"; then
             :   # уже объявлен — ничего не делаем
         else
-            _last_line=$(grep -n '^{"v":' "$MANIFEST" | tail -1 | cut -d: -f1)
+            _last_line=$(grep -n '^[[:space:]]*[{][[:space:]]*"v"[[:space:]]*:' "$MANIFEST" | tail -1 | cut -d: -f1)
             if [ -n "$_last_line" ]; then
                 # Пробуем оба написания: запись могли сериализовать и компактно,
                 # без пробела после двоеточия.
@@ -121,7 +121,7 @@ if [ -n "$_cur" ] && [ -f webpanel/www/index.html ]; then
             # сообщение об успехе при неизменённом файле. Тихий отказ в этом месте
             # стоит ровно того, ради чего весь блок и написан, — панель уедет
             # людям со старым кешем.
-            if awk '/^\{"v":/ {last=$0} END {exit (last ~ /"webpanel\/www\/index\.html"/) ? 0 : 1}' "$MANIFEST"; then
+            if awk '/^[[:space:]]*[{][[:space:]]*"v"[[:space:]]*:/ {last=$0} END {exit (last ~ /"webpanel\/www\/index\.html"/) ? 0 : 1}' "$MANIFEST"; then
                 printf 'в changed_files добавлен webpanel/www/index.html (его изменил кеш-бастер)\n'
             else
                 printf 'ОШИБКА: index.html изменён кеш-бастером, но объявить его в changed_files не удалось.\n' >&2

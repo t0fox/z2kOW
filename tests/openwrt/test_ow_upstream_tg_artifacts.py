@@ -89,7 +89,7 @@ class UpstreamTelegramArtifactTests(unittest.TestCase):
                 self.assertTrue(path.stat().st_mode & 0o111)
 
     def test_rejects_a_commit_manifest_that_does_not_match_the_controlled_release(self) -> None:
-        self.upstream["current"] = "p-86.12"
+        self.upstream["current"] = "p-86.13"
         with patch.object(MODULE.urllib.request, "urlopen", side_effect=self.opener):
             with self.assertRaisesRegex(ValueError, "pinned upstream release mismatch"):
                 MODULE.fetch_binaries(self.controlled, self.output)

@@ -25,6 +25,8 @@ _warp_status=${Z2K_TMP:-}
 _warp_status=$_warp_status/warp/status.json
 _warp_device=${Z2K_STATE:-}
 _warp_device=$_warp_device/warp/device.json
+_warp_lists=${Z2K_USER_LISTS:-/etc/z2k/user-lists}/warp
+_warp_domains="${Z2K_WARP_DOMAIN_RULES:-${Z2K_WARP_TMP:-/tmp/z2k-warp}/domains.v1}"
 
 _count_process() {
     ps w 2>/dev/null | grep -E "$1" | grep -v grep | wc -l | tr -d ' '
@@ -95,6 +97,15 @@ print_health() {
             _add "WARP: устройство не зарегистрировано"
         elif [ ! -f "$_warp_status" ] || ! grep -q '"ready":true' "$_warp_status" 2>/dev/null; then
             _add "WARP: туннель не готов (fail-open, трафик идёт напрямую)"
+        fi
+        _warp_n=$(nft list set inet zapret2 z2k_warp_dst4 2>/dev/null \
+            | grep -cE '([0-9]{1,3}\.){3}[0-9]{1,3}' || true)
+        case "$_warp_n" in ''|*[!0-9]*) _warp_n=0 ;; esac
+        if [ "$_warp_n" = 0 ] \
+            && ! awk 'NR>1 { found=1; exit } END { exit !found }' "$_warp_domains" 2>/dev/null \
+            && ! awk '{ sub(/^[ \t]+/, ""); if ($0 != "" && $0 !~ /^#/) found=1 } END { exit !found }' \
+                "$_warp_lists/devices.txt" 2>/dev/null; then
+            _add "WARP включён, но списки адресов и устройства не выбраны — в туннель не направляется трафик"
         fi
     fi
     printf '=== что не так ===\n'

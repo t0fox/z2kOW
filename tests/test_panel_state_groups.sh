@@ -148,6 +148,19 @@ global.document = {
   querySelectorAll(s) { return String(s).split(",").map(x => sel(x.trim())); },
   createElement(t) { return mkEl("new:" + t); }, addEventListener() {}, removeEventListener() {},
 };
+// The select enhancement is part of app.js now. This VM does not model form
+// controls; Chromium covers the actual widget and keyboard interaction.
+global.HTMLSelectElement = class HTMLSelectElement {
+  get value() { return this._value || ""; }
+  set value(value) { this._value = String(value); }
+  get selectedIndex() { return this._selectedIndex ?? -1; }
+  set selectedIndex(value) { this._selectedIndex = Number(value); }
+};
+global.HTMLOptGroupElement = class HTMLOptGroupElement {};
+global.HTMLOptionElement = class HTMLOptionElement {};
+const appNode = sel("#app");
+const appQuerySelectorAll = appNode.querySelectorAll.bind(appNode);
+appNode.querySelectorAll = selector => selector === "select" ? [] : appQuerySelectorAll(selector);
 global.location = { hash: "#/dashboard", href: "http://r/", reload() {} };
 global.history = { replaceState() {}, pushState() {} };
 const mkStorage = () => {

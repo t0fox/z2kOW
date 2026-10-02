@@ -197,7 +197,7 @@ jobs:
           import json, re
           from pathlib import Path
           m = json.loads(Path("UPDATES.json").read_text(encoding="utf-8"))
-          assert set(m) == {"schema", "branch", "platform", "seq", "current", "upstream", "history"}
+          assert set(m) == {"schema", "branch", "platform", "seq", "current", "upstream", "history", "artifact"}
           assert m["schema"] == 1 and m["branch"] == "main" and m["platform"] == "openwrt"
           assert isinstance(m["seq"], int) and m["seq"] > 0
           assert re.fullmatch(r"[pr]-[0-9]+(?:\.[0-9]+)+", m["current"])
@@ -205,10 +205,22 @@ jobs:
           assert m["upstream"]["branch"] == "z2k-enhanced"
           assert m["upstream"]["tag"] == m["current"]
           assert re.fullmatch(r"[0-9a-f]{40}", m["upstream"]["commit"])
-          tags = {entry["v"] for entry in m["history"]}
-          assert {"p-86.2", "r-86.3"} <= tags
+          artifact = m["artifact"]
+          assert set(artifact) == {"filename", "url", "sha256", "size_bytes"}
+          assert artifact["filename"] == "openwrt-rootfs.tar.gz"
+          assert artifact["url"] == f"https://github.com/t0fox/z2kOW/releases/download/{m['current']}/openwrt-rootfs.tar.gz"
+          assert re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"])
+          assert isinstance(artifact["size_bytes"], int) and artifact["size_bytes"] > 0
+          assert not {"adapter", "payload", "bundle", "components", "package_versions", "openwrt_release_artifact"} & set(m)
+          assert m["history"]
           assert m["history"][-1]["v"] == m["current"]
-          assert all(isinstance(entry.get("v"), str) for entry in m["history"])
+          required = {"v": str, "type": str, "ts": str, "ref": str, "desc": str, "changed_files": list}
+          versions_seen = set()
+          for entry in m["history"]:
+              assert all(isinstance(entry.get(key), kind) for key, kind in required.items())
+              assert entry["v"] not in versions_seen
+              versions_seen.add(entry["v"])
+              assert all(isinstance(path, str) for path in entry["changed_files"])
           assert all("seq" not in entry for entry in m["history"])
           assert not Path("UPSTREAM.json").exists()
           print(f"controlled {m['current']} seq {m['seq']}; upstream {m['upstream']['commit']}")
@@ -282,6 +294,7 @@ jobs:
       - name: Run shell unit tests
         env:
           Z2K_FORK_DIR: ${{ github.workspace }}/zapret2-z2k-fork
+          LUA: lua5.3
         run: sh tests/run_all.sh
 
   go:
@@ -511,6 +524,10 @@ jobs:
               echo "  ok      mtproxy-client/$goarch (два независимых прогона совпали байт-в-байт)"
             else
               echo "::error::mtproxy-client/$goarch НЕ детерминирован: два прогона с тем же секретом дали разные байты"
+              fail=1
+            fi
+            if ! strings /tmp/mt_a | grep -qx "$TESTSECRET"; then
+              echo "::error::mtproxy-client/$goarch не встроил тестовую fixture-секрет строку"
               fail=1
             fi
           done < build-matrix.tsv

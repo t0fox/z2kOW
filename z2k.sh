@@ -1245,7 +1245,8 @@ download_init_script() {
     local webpanel_dir="${WORK_DIR}/webpanel"
     mkdir -p "$webpanel_dir/cgi" "$webpanel_dir/www" "$webpanel_dir/init.d" \
              "$webpanel_dir/www/fonts" \
-             "$webpanel_dir/www/js/core" "$webpanel_dir/www/js/pages"
+             "$webpanel_dir/www/js/core" "$webpanel_dir/www/js/data" \
+             "$webpanel_dir/www/js/pages"
     # Шрифты панели тянутся сюда же. Они не роскошь: без них панель рисуется
     # системным шрифтом, и это ЗАМЕТНО. Из интернета их не берём принципиально —
     # устройство стоит ради обхода блокировок, и ждать чужой CDN на первом
@@ -1266,11 +1267,13 @@ download_init_script() {
         cgi/api.sh cgi/auth.sh cgi/actions.sh \
         www/index.html www/app.js www/style.css www/favicon.svg \
         www/js/chrome.js \
+        www/js/data/openwrt-credits.js \
         www/js/core/api.js \
         www/js/core/auth.js \
         www/js/core/identity.js \
         www/js/core/clipboard.js \
         www/js/core/dom.js \
+        www/js/core/chosen-select.js \
         www/js/core/loadorder.js \
         www/js/core/modal.js \
         www/js/core/whitelist.js \
@@ -1278,6 +1281,7 @@ download_init_script() {
         www/js/core/toast.js \
         www/js/job.js \
         www/js/pages/credits.js \
+        www/js/pages/credits-openwrt.js \
         www/js/pages/dashboard.js \
         www/js/pages/diag.js \
         www/js/pages/exclude.js \

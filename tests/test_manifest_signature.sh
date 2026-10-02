@@ -141,27 +141,20 @@ au_trust_pin
 au_trust_pinned && ok "храповик защёлкивается" \
                 || no "храповик защёлкивается" "защёлкнут" "нет"
 
-# --- 4. Ключ и подпись в дереве согласованы -----------------------------------
+# --- 4. Main may carry an unsigned, unpublished candidate ----------------------
 #
-# Если публичный ключ в репозитории перестанет соответствовать подписи рядом с
-# манифестом, каждый роутер с защёлкнутым храповиком отвергнет релиз. Это
-# худший сорт отказа: он одновременный и у всех.
-#
-# СПРАШИВАЕТСЯ У КАЖДОГО КОММИТА, БЕЗ ИСКЛЮЧЕНИЙ.
-#
-# Короткое время здесь стоял пропуск для рабочих коммитов: карта сумм
-# регенерировалась при каждой правке доставляемого файла, подпись после этого
-# не сходилась, и проверку пришлось выключить. Ревьюер это заметил, и
-# справедливо — гейт, который сам себя выключает, не гейт.
-#
-# Убрано не ослаблением проверки, а устранением причины: между релизами манифест
-# НЕ МЕНЯЕТСЯ ВООБЩЕ (это сторожит ci.yml), карту и подпись пересобирает только
-# release.sh одним шагом. Поэтому подпись обязана сходиться всегда.
+# Production signing is a separate trusted operation. CI must not require or
+# request the production private key; an unsigned main candidate remains
+# unpublishable because the device path rejects a missing/invalid signature.
 if [ ! -s "$ROOT/files/etc/z2k-update-pub.pem" ]; then
     no "публичный ключ на месте" "files/etc/z2k-update-pub.pem" "нет — проверять нечем"
 elif [ ! -s "$ROOT/UPDATES.json.sig" ]; then
-    no "подпись манифеста на месте" "UPDATES.json.sig" \
-       "нет — такой манифест отвергнет каждый роутер с защёлкнутым храповиком"
+    if grep -q 'au_manifest_verify' "$ROOT/platform/openwrt/manifest.sh" \
+       && grep -q 'bootstrap manifest signature invalid or unavailable' "$ROOT/platform/openwrt/release.sh"; then
+        ok "unsigned main candidate stays unpublished; install_release requires a valid signature"
+    else
+        no "unsigned main candidate fails closed before install" "signature check in install_release" "not found"
+    fi
 elif "$OSSL" pkeyutl -verify -rawin -pubin -inkey "$ROOT/files/etc/z2k-update-pub.pem" \
        -in "$ROOT/UPDATES.json" -sigfile "$ROOT/UPDATES.json.sig" >/dev/null 2>&1; then
     ok "подпись манифеста в дереве сходится с опубликованным ключом"

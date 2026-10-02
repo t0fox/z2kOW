@@ -23,6 +23,17 @@ const APP = process.argv[2];
 
 const toasts = [];
 
+// The frontend bundle imports the browser select enhancement even though this
+// harness only exercises job polling.
+global.HTMLSelectElement = class HTMLSelectElement {
+  get value() { return this._value || ""; }
+  set value(value) { this._value = String(value); }
+  get selectedIndex() { return this._selectedIndex ?? -1; }
+  set selectedIndex(value) { this._selectedIndex = Number(value); }
+};
+global.HTMLOptGroupElement = class HTMLOptGroupElement {};
+global.HTMLOptionElement = class HTMLOptionElement {};
+
 // --- Минимальный DOM ---------------------------------------------------------
 const mkEl = () => ({
   _h: "", style: {}, dataset: {},

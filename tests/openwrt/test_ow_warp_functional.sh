@@ -324,13 +324,29 @@ warp_wanted_boot && _t_bad "wanted без ключа" || _t_ok
 mv "$T/etc/state/warp/device.json.keep" "$T/etc/state/warp/device.json"
 
 # --- списки: user + enabled-games, валидация, migrate ---
+export WARP_LISTS_DIR="$T/etc/user-lists/warp" WARP_GAMES_DIR="$T/root/lists/warp/games"
+export WARP_ENABLED_FILE="$WARP_LISTS_DIR/.enabled" WARP_DEVICES_FILE="$WARP_LISTS_DIR/devices.txt"
+# p-86.13: explicit device selection with no list uses full-device mode, but a
+# selected yet missing game list must not silently expand to all destinations.
+printf '1.1.1.1\n' > "$WARP_DEVICES_FILE"
+if warp_full_device_mode; then _t_ok; else _t_bad "full-device mode requires selected devices and no active list"; fi
+: > "$T/nft.log"
+warp_nft_rules_apply || _t_bad "full-device rules rc"
+assert_contains "full-device mode marks selected sources" "$T/nft.log" 'ip saddr @z2k_warp_src4 ip daddr != 0.0.0.0/8'
+assert_contains "full-device mode keeps private LAN direct" "$T/nft.log" 'ip daddr != 192.168.0.0/16'
+if grep -q 'ip saddr @z2k_warp_src4 ip daddr @z2k_warp_dst4' "$T/nft.log"; then
+    _t_bad "full-device mode was incorrectly restricted to an empty destination set"
+else
+    _t_ok
+fi
+printf 'selected-list-that-is-missing\n' > "$WARP_ENABLED_FILE"
+if warp_full_device_mode; then _t_bad "missing enabled list silently expanded to full-device mode"; else _t_ok; fi
+
 printf '1.2.3.4\n10.9.9.9\n0.0.0.0/0\n018.1.1.1\n3.0.0.0/8\n# comment\n\n' > "$T/etc/user-lists/warp/mine.txt"
 printf '1.1.1.1\n' > "$T/etc/user-lists/warp/devices.txt"
 printf 'steam\n' > "$T/etc/user-lists/warp/.enabled"
 printf '5.5.5.5\n999.1.1.1\n' > "$T/root/lists/warp/games/steam.txt"
 printf '6.6.6.6\n' > "$T/root/lists/warp/games/dropped.txt"
-export WARP_LISTS_DIR="$T/etc/user-lists/warp" WARP_GAMES_DIR="$T/root/lists/warp/games"
-export WARP_ENABLED_FILE="$WARP_LISTS_DIR/.enabled" WARP_DEVICES_FILE="$WARP_LISTS_DIR/devices.txt"
 warp_active_lists > "$T/active.log"
 assert_contains "active: user list" "$T/active.log" "mine.txt"
 assert_contains "active: enabled game" "$T/active.log" "steam.txt"

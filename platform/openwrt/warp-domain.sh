@@ -6,7 +6,7 @@
 WARP_DOMAIN_SET="${WARP_DOMAIN_SET:-z2k_warp_domain4}"
 # z2k-warpd's upstream runtime contract uses /tmp/z2k-warp. Keep the OpenWrt
 # producer, observer, and API status reader on that same tmpfs directory.
-WARP_DOMAIN_RULES="${WARP_DOMAIN_RULES:-/tmp/z2k-warp/domains.v1}"
+WARP_DOMAIN_RULES="${WARP_DOMAIN_RULES:-${Z2K_WARP_DOMAIN_RULES:-${Z2K_WARP_TMP:-/tmp/z2k-warp}/domains.v1}}"
 WARP_DOMAIN_SNAPSHOT="${WARP_DOMAIN_SNAPSHOT:-/tmp/z2k-warp/domain-pairs.v1}"
 WARP_DOMAIN_STATUS="${WARP_DOMAIN_STATUS:-/tmp/z2k-warp/domain-status.json}"
 WARP_DOMAIN_ERROR="${WARP_DOMAIN_ERROR:-/tmp/z2k-warp/domain-setup-error}"

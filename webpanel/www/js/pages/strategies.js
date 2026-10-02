@@ -374,6 +374,11 @@ function updateVisibleFreezeButton() {
   button.setAttribute("aria-busy", String(stateBulkBusy));
 }
 
+function setStateBulkBusy(busy) {
+  stateBulkBusy = busy;
+  updateVisibleFreezeButton();
+}
+
 async function stateFreezeVisible() {
   if (stateBulkBusy) return;
   // Snapshot the visible records so typing during the requests cannot change
@@ -387,8 +392,7 @@ async function stateFreezeVisible() {
   if (!confirm(`${verb} ${rows.length} записей ${scope}?\n\n${action === "freeze"
     ? "Каждая запись закрепится на своей текущей стратегии."
     : "Для этих записей продолжится автоматический подбор."}`)) return;
-  stateBulkBusy = true;
-  updateVisibleFreezeButton();
+  setStateBulkBusy(true);
   let done = 0;
   try {
     const pools = new Map();
@@ -416,8 +420,7 @@ async function stateFreezeVisible() {
   } finally {
     await loadState();
     // Keep the action locked until the state refresh is complete.
-    stateBulkBusy = false;
-    updateVisibleFreezeButton();
+    setStateBulkBusy(false);
   }
 }
 

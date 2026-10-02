@@ -68,19 +68,13 @@ else
     _t_bad "static OpenWrt profile applies without /status and has a neutral fallback"
 fi
 
-# Profile assets stay package-owned and never enter the generic signed payload.
-for _pair in \
-    "/usr/lib/z2k/www/assets/openwrt/mark.svg package" \
-    "/usr/lib/z2k/www/assets/openwrt/logo.png package" \
-    "/usr/lib/z2k/www/assets/openwrt/favicon.svg package" \
-    "/usr/lib/z2k/www/assets/openwrt/theme.css package" \
-    "/usr/lib/z2k/www/assets/openwrt/profile.json package"; do
-    grep -qxF "$_pair" "$REPO/package/openwrt/ownership.map" \
-        && _t_ok || _t_bad "ownership map: $_pair"
-done
+# Profile assets are staged into the single complete rootfs with the rest of
+# the product bytes; they have no package lifecycle of their own.
+grep -q 'platform/openwrt/webpanel-brand/\*' "$REPO/scripts/openwrt/stage-rootfs.sh" \
+    && _t_ok || _t_bad "full rootfs builder stages the brand assets"
 for _src in mark.svg logo.png favicon.svg theme.css profile.json; do
-    grep -q "platform/openwrt/webpanel-brand/$_src" "$REPO/package/openwrt/Makefile" \
-        && _t_ok || _t_bad "adapter APK installs $_src"
+    [ -s "$REPO/platform/openwrt/webpanel-brand/$_src" ] \
+        && _t_ok || _t_bad "full rootfs source asset exists: $_src"
 done
 
 # All identity assets remain local SVG/CSS; no extra image is shipped.
@@ -145,12 +139,16 @@ else
     _t_bad "the complete OpenWrt token system applies in dark and light themes"
 fi
 
-# Common UI code travels in the signed updater snapshot; adapter artwork stays
-# out of that seed/update map and is refreshed only by the adapter APK.
+# UI bytes and brand assets travel together in the signed complete rootfs;
+# there is no component package or per-file release lane.
 _common_dest="$(. "$REPO/lib/release_map.sh" 2>/dev/null; Z2K_PLATFORM=openwrt z2k_install_paths webpanel/www/js/core/identity.js 2>/dev/null)"
 if [ "$_common_dest" = "/usr/lib/z2k/www/js/core/identity.js" ]; then _t_ok; else _t_bad "common branding module reaches updater path"; fi
 _package_dest="$(. "$REPO/lib/release_map.sh" 2>/dev/null; Z2K_PLATFORM=openwrt z2k_install_paths platform/openwrt/webpanel-brand/mark.svg 2>/dev/null)"
-if [ -z "$_package_dest" ]; then _t_ok; else _t_bad "adapter asset stays outside common updater mapping"; fi
+if [ -z "$_package_dest" ] && grep -q 'platform/openwrt/webpanel-brand/\*' "$REPO/scripts/openwrt/stage-rootfs.sh"; then
+    _t_ok
+else
+    _t_bad "brand asset is delivered only by the complete rootfs"
+fi
 
 # Model staging a new complete release over stale docs and compare the
 # resulting docroot with each source asset.

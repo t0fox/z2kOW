@@ -187,12 +187,16 @@ for _e in /usr/bin/z2kow /usr/sbin/install_release /etc/init.d/z2k /etc/init.d/z
     if grep -qxF "$_e" "$OWNED"; then _t_ok; else _t_bad "owned-paths.txt не содержит $_e"; fi
 done
 
-# p-86.6 semantics: selected devices scope only enabled lists. A source-only
-# rule must never route all destinations through WARP.
+# p-86.13 semantics: selected devices with no active lists use full-device mode,
+# while active lists keep source-and-destination scoping and local networks bypass.
 assert_contains "scope detector is independent of online IP resolution" "$WARP" 'warp_devices_selected()'
+assert_contains "full-device mode requires an explicit device selection" "$WARP" 'warp_full_device_mode()'
+assert_contains "full-device mode excludes the unspecified network" "$WARP" 'ip daddr != 0.0.0.0/8'
+assert_contains "full-device mode excludes private LAN destinations" "$WARP" 'ip daddr != 192.168.0.0/16'
 assert_contains "selected-device IP rule matches source and destination" "$WARP" 'ip saddr "@$WARP_SET_SRC" ip daddr "@$WARP_SET"'
 assert_contains "selected-device domain rule matches source and destination" "$WARP" 'ip saddr "@$WARP_SET_SRC" ip saddr . ip daddr "@$WARP_DOMAIN_SET"'
 assert_not_contains "no source-only WARP catch-all rule" "$WARP" 'ip saddr @"\$WARP_SET_SRC" meta mark set'
 assert_contains "WARP UI explains list scope" "$REPO/webpanel/www/js/pages/warp.js" 'выбранным устройствам'
+assert_contains "diagnostics warn when neither lists nor devices are selected" "$REPO/platform/openwrt/diag.sh" 'списки адресов и устройства не выбраны'
 
 _t_done

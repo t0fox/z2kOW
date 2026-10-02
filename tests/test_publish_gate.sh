@@ -320,39 +320,33 @@ else
     no "gate требует current == history[-1].v" 'new["current"] != nh[-1]["v"]' "не найдено"
 fi
 
-# --- 11. Тот же преflight дублируется на staging, до publish.yml -------------
-#
-# workflow_run в publish.yml берёт САМ ФАЙЛ publish.yml с ветки по умолчанию,
-# не со staging (см. комментарий в самом publish.yml). Проверки тега и history
-# появились позже схемы публикации — первый релиз, которому они реально нужны,
-# попадёт под СТАРЫЙ publish.yml, где их ещё нет. До тех пор, пока кто-то не
-# проведёт хотя бы один релиз через обновлённый publish.yml, единственная
-# защита — копия этих же проверок на staging.
-if grep -q "refs/tags/\$NEW_CUR" "$CI" && grep -q 'git rev-list -n 1 "refs/tags/\$NEW_CUR"' "$CI"; then
-    ok "CI на staging проверяет существование и цель тега (не только publish.yml)"
+# --- 11. CI validates the single controlled OpenWrt release manifest ----------
+# The main branch carries one complete artifact; production signing and publish
+# happen in a separate trusted operation. Do not require stale staging-tag
+# preflight code or a production signing key in ordinary CI.
+if grep -Fq '"history", "artifact"' "$CI" \
+    && grep -q 'artifact\["filename"\] == "openwrt-rootfs.tar.gz"' "$CI"; then
+    ok "CI validates the one complete OpenWrt rootfs artifact"
 else
-    no "CI на staging проверяет тег" 'refs/tags/$NEW_CUR + rev-list' "не найдено"
+    no "CI validates the controlled rootfs artifact" \
+       'artifact filename openwrt-rootfs.tar.gz' "not found"
 fi
 
-if grep -qE "grep -q ['\"]BEGIN SSH SIGNATURE" "$CI"; then
-    no "CI на staging проверяет КОНКРЕТНОГО подписанта, не просто маркер" \
-       "нет живого grep -q BEGIN SSH SIGNATURE" "остался — пропускает тег с чужим ключом"
+if grep -q 'artifact\["url"\] == f"https://github.com/t0fox/z2kOW/releases/download/{m\[.current.\]}/openwrt-rootfs.tar.gz"' "$CI" \
+    && grep -q 're.fullmatch(r"\[0-9a-f\]{64}", artifact\["sha256"\])' "$CI" \
+    && grep -q 'artifact\["size_bytes"\] > 0' "$CI"; then
+    ok "CI checks immutable tag URL, SHA-256, and artifact size"
 else
-    ok "CI на staging не довольствуется голым SSH-маркером подписи (только упоминание в комментарии-обосновании)"
+    no "CI checks immutable artifact identity and digest" \
+       'tag URL + sha256 + positive size' "not found"
 fi
 
-if grep -q "gpg.ssh.allowedSignersFile" "$CI" && grep -q "verify-tag" "$CI" \
-    && grep -q "z2k-update-pub.pem" "$CI"; then
-    ok "CI на staging сверяет тег с ОПУБЛИКОВАННЫМ ключом (allowed-signers), не просто фактом подписи"
+if grep -q 'assert not Path("UPSTREAM.json").exists()' "$CI" \
+    && grep -q 'not {"adapter", "payload", "bundle", "components", "package_versions", "openwrt_release_artifact"} & set(m)' "$CI"; then
+    ok "CI rejects a second manifest authority and component-version metadata"
 else
-    no "CI на staging сверяет тег с конкретным ключом" \
-       "allowedSignersFile + verify-tag + z2k-update-pub.pem" "не найдено"
-fi
-
-if grep -q 'nh\[:len(oh)\] != oh' "$CI" && grep -q 'len(nh) != len(oh) + 1' "$CI"; then
-    ok "CI на staging дублирует семантический gate history (префикс + ровно одна запись)"
-else
-    no "CI на staging дублирует gate history" "та же логика, что в publish.yml" "не найдено"
+    no "CI rejects secondary release authorities" \
+       'no UPSTREAM.json or component metadata' "not found"
 fi
 
 # --- 12. Версия не переиспользуется, новая запись полна по схеме -------------
@@ -366,10 +360,18 @@ fi
 for _f_name in "publish.yml:$PUB" "ci.yml (preflight):$CI"; do
     _label="${_f_name%%:*}"
     _f="${_f_name#*:}"
-    if grep -q "entry\['v'\] in versions_seen" "$_f" || grep -q 'entry\["v"\] in versions_seen' "$_f"; then
+    case "$_label" in
+        publish.yml)
+            _version_check='if entry["v"] in versions_seen'
+            ;;
+        *)
+            _version_check='assert entry["v"] not in versions_seen'
+            ;;
+    esac
+    if grep -Fq "$_version_check" "$_f"; then
         ok "$_label: версия проверяется на переиспользование по всей history"
     else
-        no "$_label: версия проверяется на переиспользование" "entry[\"v\"] in versions_seen" "не найдено"
+        no "$_label: версия проверяется на переиспользование" "$_version_check" "не найдено"
     fi
 
     if grep -q 'required = {"v": str, "type": str, "ts": str, "ref": str, "desc": str, "changed_files": list}' "$_f"; then

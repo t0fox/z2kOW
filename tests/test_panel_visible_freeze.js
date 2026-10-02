@@ -76,6 +76,25 @@ async function main() {
   run('stateCache = fixture'); await run('stateFreezeVisible()');
   assert(calls.length > 1); assert(calls.every(c => Buffer.byteLength(c.body) < 65536));
   assert.equal(calls.reduce((n,c) => n+c.body.trim().split('\n').length,0),600);
+
+  // The lock stays held while the post-operation state refresh is still in
+  // flight. A second click during that refresh must not submit a duplicate.
+  context.fixture = entries; run('stateCache = fixture');
+  element('state-search').value = 'disc'; calls = [];
+  let releaseRefresh;
+  const loadState = context.loadState;
+  context.loadState = () => new Promise(resolve => { releaseRefresh = resolve; });
+  const refreshing = run('stateFreezeVisible()');
+  for (let i = 0; i < 10 && !releaseRefresh; i += 1) await Promise.resolve();
+  assert.equal(typeof releaseRefresh, 'function');
+  assert.equal(element('state-freeze-visible').disabled, true);
+  const submitted = calls.length;
+  await run('stateFreezeVisible()');
+  assert.equal(calls.length, submitted);
+  releaseRefresh();
+  await refreshing;
+  assert.equal(element('state-freeze-visible').disabled, false);
+  context.loadState = loadState;
   console.log('PASS: filtering, pools, unfreeze, empty, cancellation, snapshot, busy, failure and chunking');
 }
 main().catch(e => { console.error(e); process.exitCode = 1; });

@@ -126,37 +126,21 @@ else
     printf '[SKIP] проверка .gitignore (не git-чекаут)\n'
 fi
 
-# 6) В каждом бинарнике должен быть вшит секрет туннеля.
+# 6) Публичные source builds не требуют вшитого production-секрета.
 #
-#    Секрет намеренно не лежит в исходниках — он подставляется на сборке:
-#    `make all Z2K_TUNNEL_SECRET=<hex>`. Значение по умолчанию ПУСТОЕ, поэтому
-#    обычный `make all` собирается без единой ошибки и выдаёт бинарник, который
-#    на роутере падает сразу же: «--tunnel-secret is required in tunnel mode»,
-#    супервизор крутит его в цикле, Telegram не работает вообще ни у кого.
-#
-#    Так и случилось при подъёме тулчейна 2026-08-08: пересборка прошла молча и
-#    зелено, а туннель лёг. Ни один тест этого не видел — сторожа проверяли путь
-#    сборки, набор арок и пин тулчейна, но не содержимое.
-#
-#    Проверяем наличием 64-символьной hex-строки: у сборки с секретом она есть
-#    во всех арках, у сборки без него нет ни одной.
-if [ -d "$BUILDS" ]; then
-    nosecret=""; checked=0
-    for f in "$BUILDS/$BIN-linux-"*; do
-        [ -f "$f" ] || continue
-        checked=$((checked + 1))
-        if ! strings "$f" 2>/dev/null | grep -qE '^[0-9a-f]{64}$'; then
-            nosecret="$nosecret $(basename "$f")"
-        fi
-    done
-    if [ "$checked" = "0" ]; then
-        no "секрет туннеля вшит в бинарники" "в $BUILDS нет ни одного бинарника"
-    elif [ -z "$nosecret" ]; then
-        ok "секрет туннеля вшит во все $checked бинарников"
-    else
-        no "секрет туннеля вшит в бинарники" \
-           "собрано без Z2K_TUNNEL_SECRET —$nosecret; у этих роутеров Telegram не заработает"
-    fi
+#    Пустой Z2K_TUNNEL_SECRET — штатный и безопасный режим сборки: рантайм
+#    получает секрет из конфигурации через --tunnel-secret. Вшивание относится
+#    только к доверенной production-сборке и не должно быть условием CI.
+#    GitHub CI separately builds with a harmless fixture and verifies
+#    determinism/help redaction; Go unit tests cover override and fallback.
+if grep -q 'var defaultTunnelSecret = ""' "$HERE/mtproxy-client/main.go" \
+   && grep -q 'TestResolvedTunnelSecretPrefersExplicitOverride' "$HERE/mtproxy-client/main_secret_test.go" \
+   && grep -q 'Z2K_RELAY_SECRET' "$HERE/files/init.d/S98tg-tunnel" \
+   && grep -q -- '--tunnel-secret=$_rs' "$HERE/files/init.d/S98tg-tunnel"; then
+    ok "production secret stays out of public binaries; runtime config override is wired"
+else
+    no "runtime secret contract" "empty public default, tested override, init passes config" \
+       "missing source, unit-test or init wiring"
 fi
 
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"

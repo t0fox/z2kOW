@@ -16,3 +16,5 @@ func dialContextRaw(ctx context.Context, network, address string) (net.Conn, err
 }
 
 func markedDialer(timeout int) *net.Dialer { return &net.Dialer{} }
+
+var newProbeDialer = markedDialer

@@ -177,7 +177,7 @@ func probeTCPTLS(ctx context.Context, r Result, started time.Time, timeout time.
 		targets = targets[:MaxIPsToTry]
 	}
 
-	dialer := *markedDialer(0)
+	dialer := *newProbeDialer(0)
 	dialer.Timeout = timeout
 	dialCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -361,7 +361,7 @@ func tlsHandshake(ip, port, sni string, timeout time.Duration, maxVersion uint16
 	if maxVersion != 0 {
 		cfg.MaxVersion = maxVersion
 	}
-	tlsDialer := markedDialer(0)
+	tlsDialer := newProbeDialer(0)
 	tlsDialer.Timeout = timeout
 	c, err := tls.DialWithDialer(tlsDialer,
 		"tcp", net.JoinHostPort(ip, port), cfg)

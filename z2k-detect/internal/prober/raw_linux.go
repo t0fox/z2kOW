@@ -55,6 +55,11 @@ func markedDialer(_ int) *net.Dialer {
 	}
 }
 
+// newProbeDialer keeps the Linux socket-mark policy replaceable in tests.
+// Production always uses markedDialer; unit tests replace it so they do not
+// need CAP_NET_ADMIN merely to exercise TLS/probe behavior on loopback.
+var newProbeDialer = markedDialer
+
 func dialContextRaw(ctx context.Context, network, address string) (net.Conn, error) {
-	return markedDialer(0).DialContext(ctx, network, address)
+	return newProbeDialer(0).DialContext(ctx, network, address)
 }

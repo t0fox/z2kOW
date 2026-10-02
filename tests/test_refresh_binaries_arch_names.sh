@@ -1,91 +1,68 @@
 #!/bin/sh
-# tests/test_refresh_binaries_arch_names.sh — на КАЖДОЙ арке шаг обновления
-# бинарников обязан находить в манифесте наши базовые компоненты.
-#
-# Повод: 05.09.2026. Опознание арки возвращает гошное написание (mipsle,
-# mips64le, 386), а клиент туннеля, z2k-rt-proxy и z2k-warpd названы
-# по-энтварному (mipsel, mips64el, x86). Поиск шёл по одному написанию,
-# поэтому на этих арках находился только z2k-detect, а остальное не
-# обновлялось НИКОГДА. Шаг возвращал успех: пустой список файлов ошибкой не
-# считается, в журнал не попадало ни строки.
-#
-# Наружу это выглядело как «половина флота не переходит на v2 релея»: за сутки
-# обновление спрашивали 967 роутеров, бинарник качали 26.
-#
-# Тест зовёт НАСТОЯЩИЙ поиск из lib/auto_update.sh, а не свою копию.
-# POSIX sh (busybox ash).
+# Keep the legacy Keenetic binary-name resolver covered with a synthetic map;
+# OpenWrt installs the same binaries inside its one complete rootfs artifact.
+set -eu
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MANIFEST="$ROOT/UPDATES.json"
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS + 1)); printf '[PASS] %s\n' "$1"; }
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/z2k-binary-map.XXXXXX")"
+trap 'rm -rf "$TMP"' EXIT HUP INT TERM
+FIXTURE="$TMP/legacy-binaries.json"
+PASS=0
+FAIL=0
+ok() { PASS=$((PASS + 1)); printf '[PASS] %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf '[FAIL] %s\n' "$1"; }
 
-[ -f "$MANIFEST" ] || { echo "нет $MANIFEST"; exit 1; }
-# shellcheck source=/dev/null
-. "$ROOT/lib/utils.sh" >/dev/null 2>&1
-# shellcheck source=/dev/null
-. "$ROOT/lib/auto_update.sh" >/dev/null 2>&1
-
-command -v au_bin_goarch >/dev/null 2>&1 || { echo "нет au_bin_goarch"; exit 1; }
-command -v au_bin_manifest_paths >/dev/null 2>&1 || { echo "нет au_bin_manifest_paths"; exit 1; }
-
-# Железо, которое реально встречается на флоте, по одному представителю на
-# каждую сборку, которую мы выпускаем.
-HW="aarch64 armv7l x86_64 i686 mips mipsel mips64el ppc riscv64"
-
-# Базовые компоненты — те, что кладёт сама установка. z2k-warpd сюда не
-# входит: он ставится кнопкой, и его отсутствие на арке законно.
-BASE="tg-mtproxy-client z2k-detect"
-
-for hw in $HW; do
-    goarch=$(au_bin_goarch "" 2>/dev/null)
-    # au_bin_goarch читает арку из окружения через get_arch/uname, поэтому
-    # подставляем железо тем же путём, каким его видит роутер.
-    goarch=$(sh -c '
-        . "'"$ROOT"'/lib/utils.sh" >/dev/null 2>&1
-        get_arch() { echo "'"$hw"'"; }
-        . "'"$ROOT"'/lib/auto_update.sh" >/dev/null 2>&1
-        get_arch() { echo "'"$hw"'"; }
-        au_bin_goarch')
-    if [ -z "$goarch" ]; then
-        bad "$hw: арка не опознана (au_bin_goarch пусто)"
-        continue
-    fi
-    paths=$(au_bin_manifest_paths "$MANIFEST" "$goarch")
-    if [ -z "$paths" ]; then
-        bad "$hw (goarch=$goarch): манифест не дал НИ ОДНОГО файла"
-        continue
-    fi
-    miss=""
-    for comp in $BASE; do
-        echo "$paths" | grep -q "/${comp}-linux-" || miss="$miss $comp"
+# This fixture exercises the old Keenetic name lookup without adding a second
+# binary-updater authority to OpenWrt's controlled UPDATES.json.
+{
+    printf '{\n  "files_sha256": {\n'
+    for file in "$ROOT"/mtproxy-client/builds/*-linux-* "$ROOT"/z2k-detect/builds/*-linux-*; do
+        [ -f "$file" ] || continue
+        printf '    "%s": "%064d",\n' "${file#"$ROOT"/}" 0
     done
-    if [ -n "$miss" ]; then
-        bad "$hw (goarch=$goarch): не находится:$miss"
-    else
-        ok "$hw (goarch=$goarch): базовые компоненты находятся"
-    fi
+    printf '    "sentinel": "%064d"\n  }\n}\n' 0
+} > "$FIXTURE"
+
+. "$ROOT/lib/utils.sh" >/dev/null 2>&1
+. "$ROOT/lib/auto_update.sh" >/dev/null 2>&1
+command -v au_bin_goarch >/dev/null 2>&1 || { echo "missing au_bin_goarch"; exit 1; }
+command -v au_bin_manifest_paths >/dev/null 2>&1 || { echo "missing au_bin_manifest_paths"; exit 1; }
+
+for hw in aarch64 armv7l x86_64 i686 mips mipsel mips64el ppc riscv64; do
+    goarch=$(HW="$hw" sh -c '
+        . "$1/lib/utils.sh" >/dev/null 2>&1
+        . "$1/lib/auto_update.sh" >/dev/null 2>&1
+        get_arch() { echo "$HW"; }
+        au_bin_goarch
+    ' sh "$ROOT")
+    [ -n "$goarch" ] || { bad "$hw: architecture mapping exists"; continue; }
+    paths=$(au_bin_manifest_paths "$FIXTURE" "$goarch")
+    miss=""
+    for component in tg-mtproxy-client z2k-detect; do
+        printf '%s\n' "$paths" | grep -q "/${component}-linux-" || miss="$miss $component"
+    done
+    [ -z "$miss" ] \
+        && ok "$hw (goarch=$goarch): legacy resolver finds expected binaries" \
+        || bad "$hw (goarch=$goarch): missing:$miss"
 done
 
-# Один компонент не должен приезжать дважды под двумя написаниями: цель у него
-# одна, а два скачивания — это два перезапуска владельца.
-for hw in mipsel mips64el i686; do
-    goarch=$(sh -c '
-        . "'"$ROOT"'/lib/utils.sh" >/dev/null 2>&1
-        get_arch() { echo "'"$hw"'"; }
-        . "'"$ROOT"'/lib/auto_update.sh" >/dev/null 2>&1
-        get_arch() { echo "'"$hw"'"; }
-        au_bin_goarch')
-    [ -n "$goarch" ] || continue
-    dup=$(au_bin_manifest_paths "$MANIFEST" "$goarch" \
-          | sed 's|.*/||; s|-linux-.*||' | sort | uniq -d)
-    if [ -n "$dup" ]; then
-        ok "$hw: компонент объявлен под двумя написаниями ($dup) — шаг обязан взять его один раз"
-    fi
-done
+if python3 - "$ROOT/UPDATES.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1], encoding="utf-8"))
+assert m["platform"] == "openwrt"
+assert m["artifact"]["filename"] == "openwrt-rootfs.tar.gz"
+assert not any(key in m for key in ("files_sha256", "install_map", "components", "package_versions"))
+PY
+then
+    ok "OpenWrt manifest has one full artifact and no component/file updater map"
+else
+    bad "OpenWrt manifest has one full artifact and no component/file updater map"
+fi
 
-echo
-echo "PASSED: $PASS"
-echo "FAILED: $FAIL"
+grep -q 'exec "${Z2K_INSTALL_RELEASE_BIN:-/usr/sbin/install_release}" "$2"' \
+    "$ROOT/platform/openwrt/update.sh" \
+    && ok "OpenWrt updates converge through install_release(tag)" \
+    || bad "OpenWrt updates converge through install_release(tag)"
+
+printf '\nPASSED: %s\nFAILED: %s\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

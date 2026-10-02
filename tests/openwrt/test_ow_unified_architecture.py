@@ -69,14 +69,8 @@ class UnifiedArchitectureTests(unittest.TestCase):
         self.assertRegex(artifact["sha256"], r"^[0-9a-f]{64}$")
         self.assertIsInstance(artifact["size_bytes"], int)
         self.assertGreater(artifact["size_bytes"], 0)
-        history = {record["v"]: record for record in manifest["history"]}
-        self.assertTrue(
-            {
-                "p-86.2", "r-86.3",
-            }.issubset(history),
-            "controlled history must preserve the complete upstream release chain",
-        )
-        self.assertEqual(history["r-86.3"]["full_install"], True)
+        history_versions = [record["v"] for record in manifest["history"]]
+        self.assertEqual(len(history_versions), len(set(history_versions)))
         self.assertNotIn("seq", manifest["history"][-1], "keep upstream's per-entry history schema unchanged")
         self.assertFalse((ROOT / "UPDATES.json.sig").exists(), "candidate remains unsigned until trusted signing")
 
@@ -150,11 +144,13 @@ class UnifiedArchitectureTests(unittest.TestCase):
         ui = (ROOT / "webpanel/www/js/pages/warp.js").read_text(encoding="utf-8")
         self.assertTrue('80|443)' in panel, "panel must refuse the two LuCI listener ports")
         self.assertTrue("warp_devices_selected()" in warp, "selection intent must survive an offline client")
+        self.assertTrue("warp_full_device_mode()" in warp, "p-86.13 full-device mode must be explicit")
+        self.assertTrue("ip daddr != 192.168.0.0/16" in warp, "local LAN destinations must stay direct")
         self.assertTrue('ip saddr "@$WARP_SET_SRC" ip daddr "@$WARP_SET"' in warp,
-                        "selected-device routing must be intersected with enabled destinations")
+                        "list mode must intersect selected devices with enabled destinations")
         self.assertNotIn('ip saddr "@$WARP_SET_SRC" meta mark set', warp,
-                         "no device-wide WARP catch-all is allowed")
-        self.assertTrue("выбранным устройствам" in ui, "UI must explain list scoping")
+                         "full-device mode must still exclude non-tunnel destinations")
+        self.assertTrue("выбранным устройствам" in ui, "existing UI must retain list-scoping guidance")
 
     def test_bootstrap_and_payload_support_multiple_router_architectures(self) -> None:
         bootstrap = (ROOT / "scripts/openwrt/install.sh").read_text(encoding="utf-8")

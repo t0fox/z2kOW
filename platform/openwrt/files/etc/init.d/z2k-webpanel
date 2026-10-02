@@ -1,5 +1,5 @@
 #!/bin/sh /etc/rc.common
-# /etc/init.d/z2k-webpanel - dedicated panel instance (Stage 6, PACKAGE-owned).
+# /etc/init.d/z2k-webpanel - dedicated panel instance (owned by the full release payload).
 #
 # Собственный lighttpd поверх НЕИЗМЕННОГО upstream frontend/CGI через тонкий
 # platform adapter. Жизненный цикл НЕЗАВИСИМ от core z2k: остановка ядра

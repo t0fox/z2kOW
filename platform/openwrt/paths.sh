@@ -41,6 +41,8 @@ Z2K_TG_TLS_BUNDLE="${Z2K_TG_TLS_BUNDLE:-$Z2K_ROOT/etc/z2k-roots.pem}"
 
 # --- transient (tmpfs) ---
 Z2K_TMP="${Z2K_TMP:-/tmp/z2k}"
+Z2K_WARP_TMP="${Z2K_WARP_TMP:-/tmp/z2k-warp}"
+Z2K_WARP_DOMAIN_RULES="${Z2K_WARP_DOMAIN_RULES:-$Z2K_WARP_TMP/domains.v1}"
 Z2K_RUN="${Z2K_RUN:-$Z2K_TMP/runtime}"
 Z2K_LOCKS="${Z2K_LOCKS:-$Z2K_TMP/locks}"
 Z2K_LOG="${Z2K_LOG:-$Z2K_TMP/logs}"
@@ -75,7 +77,8 @@ export Z2K_ETC Z2K_CONFIG Z2K_STATE Z2K_USER_LISTS \
     Z2K_EXTRA_STRATS_DIR Z2K_ZAPRET2_RUNTIME Z2K_NFQWS2 \
     Z2K_EXTRA_STRATEGIES_RUNTIME Z2K_AUTOHOSTLIST_FILE \
     Z2K_AUTOHOSTLIST_DOMAINS_FILE \
-    Z2K_AUTOHOSTLIST_DEBUG_FILE Z2K_RUN Z2K_CORE_READY
+    Z2K_AUTOHOSTLIST_DEBUG_FILE Z2K_RUN Z2K_CORE_READY \
+    Z2K_WARP_TMP Z2K_WARP_DOMAIN_RULES
 
 # z2k_ow_paths_check — провалиться, если обязательные каталогы отсутствуют.
 # $1 — режим: "payload" (ro-ветка) или "all" (включая persistent/tmp).

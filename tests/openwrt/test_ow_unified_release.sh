@@ -137,7 +137,10 @@ apk() {
                 *) return 2 ;;
             esac
             ;;
-        add) printf '%s\n' 'system dependency install' >> "$T/apk.log" ;;
+        add)
+            printf '%s\n' "$*" >> "$T/apk.add.log"
+            printf '%s\n' 'system dependency install' >> "$T/apk.log"
+            ;;
         del)
             shift; [ "$1" = --no-scripts ] || return 9; shift
             for _pkg in "$@"; do
@@ -174,6 +177,11 @@ if [ "$_rc" -eq 0 ] && [ "$_state_ok" = 1 ] && [ "$_identity_ok" = 1 ] && [ "$_o
     _t_ok
 else
     _t_bad "legacy p-86.2 full migration to $_CURRENT_TAG: rc=$_rc checks=$_state_ok/$_identity_ok/$_old_ok/$_version_ok/$_config_ok state=$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null) old=$(test -e "$SYS/usr/lib/z2k/legacy.txt" && echo present || echo absent) version=$(cat "$SYS/usr/lib/z2k/version.txt" 2>/dev/null) config=$(cat "$SYS/etc/z2k/config" 2>/dev/null) output=$_out"
+fi
+if grep -Eq '^add --no-scripts lighttpd([[:space:]]|$)' "$T/apk.add.log"; then
+    _t_ok
+else
+    _t_bad "lighttpd system dependency install must not enable its default LuCI-port daemon"
 fi
 if [ -f "$SYS/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client" ] \
     && [ ! -e "$SYS/usr/lib/z2k/bin/linux-x86_64/tg-mtproxy-client" ] \

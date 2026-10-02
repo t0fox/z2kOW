@@ -361,6 +361,9 @@ git init -q --bare "$TMP/pubrepo" 2>/dev/null
 # набора уходила на пересылку данных самим себе.
 printf '%s\n' "$TMP/clone/.git/objects" > "$TMP/pubrepo/objects/info/alternates" 2>/dev/null
 git push -q "$TMP/pubrepo" "$_pub_head:refs/heads/z2k-enhanced" 2>/dev/null
+# Do not let a failed synthetic push turn the intended unpublished-release
+# assertion into a generic fetch error. The fixture only needs this exact ref.
+git --git-dir="$TMP/pubrepo" update-ref refs/heads/z2k-enhanced "$_pub_head"
 out=$(sh scripts/release.sh p-9999.7 patch "тест: предыдущий релиз не опубликован" 2>&1); rc=$?
 if [ "$rc" -ne 0 ]; then
     ok "release.sh не заводит новый релиз, пока предыдущий не опубликован"
@@ -378,8 +381,11 @@ if git diff --quiet -- UPDATES.json; then
 else
     no "отклонённый релиз (предыдущий не опубликован) не трогает манифест" "без изменений" "манифест переписан"
 fi
-# Возвращаем когерентность: «опубликовано ровно то, что в дереве».
-git push -q -f "$TMP/pubrepo" "HEAD:refs/heads/z2k-enhanced" 2>/dev/null
+# Убираем сценарные коммиты и возвращаем обе стороны фикстуры к исходному
+# опубликованному состоянию. Дальнейшие проверки относятся к настоящему
+# контролируемому манифесту, а не к специально сломанному current.
+git --git-dir="$TMP/pubrepo" update-ref refs/heads/z2k-enhanced "$_pub_head"
+git reset --hard -q "$_pub_head"
 
 # Незакоммиченные НЕотслеживаемые файлы не должны блокировать релиз: в карту они
 # не попадают (git ls-files их не видит), значит и опасности не создают.
@@ -404,52 +410,42 @@ case "$out" in
 esac
 rm -f untracked_probe.tmp
 
-# --- property 2: карта пережила перезапись манифеста --------------------------
+# --- property 2: the OpenWrt manifest stays a single-artifact authority -------
 if python3 -c "
 import json,sys
-m=json.load(open('UPDATES.json'))
-sys.exit(0 if m.get('files_sha256') else 1)
+m=json.load(open('UPDATES.json', encoding='utf-8'))
+want=['schema','branch','platform','seq','current','upstream','history','artifact']
+a=m.get('artifact',{})
+ok=(list(m)==want and m.get('platform')=='openwrt'
+    and a.get('filename')=='openwrt-rootfs.tar.gz'
+    and len(a.get('sha256',''))==64 and a.get('size_bytes',0)>0
+    and not any(k in m for k in ('files_sha256','install_map','components','package_versions')))
+sys.exit(0 if ok else 1)
 " 2>/dev/null; then
-    ok "release.sh сохраняет files_sha256 в манифесте"
+    ok "controlled UPDATES.json keeps exactly one complete OpenWrt artifact"
 else
-    no "release.sh сохраняет files_sha256 в манифесте" "карта на месте" "карта потеряна"
-fi
-
-# Порядок ключей важен: генератор вставляет блоки сразу после "current", и
-# построчный awk-парсер апдейтера рассчитывает на записи истории по одной в строке.
-#
-# install_map необязателен: этот манифест — ЗАКОММИЧЕННЫЙ, а карта появляется в
-# нём только с первым релизом нового генератора. Проверяем не наличие, а место:
-# если карта есть, она обязана стоять между "current" и files_sha256.
-if python3 -c "
-import json,sys
-m=json.load(open('UPDATES.json'))
-head=['schema','branch','seq','current']
-tail=['files_sha256','history']
-want=head + (['install_map'] if 'install_map' in m else []) + tail
-sys.exit(0 if list(m.keys())==want else 1)
-" 2>/dev/null; then
-    ok "порядок ключей манифеста сохранён"
-else
-    no "порядок ключей манифеста сохранён" "schema,branch,seq,current[,install_map],files_sha256,history" \
+    no "controlled UPDATES.json keeps one artifact and no component maps" \
+       "schema,branch,platform,seq,current,upstream,history,artifact" \
        "$(python3 -c "import json;print(','.join(json.load(open('UPDATES.json')).keys()))" 2>/dev/null)"
 fi
 
-if [ "$(grep -c '^{"v":' UPDATES.json)" -gt 1 ]; then
+# History is kept as one JSON object per line for the existing history parser.
+if [ "$(grep -c '^[[:space:]]*{"v":' UPDATES.json)" -gt 1 ]; then
     ok "история осталась по одной записи на строку"
 else
-    no "история осталась по одной записи на строку" ">1 строки с записями" "$(grep -c '^{"v":' UPDATES.json)"
+    no "история осталась по одной записи на строку" ">1 строки с записями" "$(grep -c '^[[:space:]]*{"v":' UPDATES.json)"
 fi
 
-# index.html попал в changed_files свежей записи автоматически.
+# The current release agrees with the final upstream history entry.
 if python3 -c "
 import json,sys
-m=json.load(open('UPDATES.json'))
-sys.exit(0 if 'webpanel/www/index.html' in m['history'][-1]['changed_files'] else 1)
+m=json.load(open('UPDATES.json', encoding='utf-8'))
+h=m.get('history',[])
+sys.exit(0 if h and m.get('current')==h[-1].get('v') and isinstance(h[-1].get('changed_files'),list) else 1)
 " 2>/dev/null; then
-    ok "index.html объявлен в changed_files нового релиза"
+    ok "current совпадает с финальной записью полной history"
 else
-    no "index.html объявлен в changed_files нового релиза" "объявлен" "отсутствует"
+    no "current совпадает с финальной записью history" "current == history[-1].v" "расхождение"
 fi
 
 # Генератор карты ИДЕМПОТЕНТЕН: второй прогон подряд не меняет ни байта.

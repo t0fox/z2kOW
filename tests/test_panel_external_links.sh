@@ -1,6 +1,6 @@
 #!/bin/sh
 # Outbound links stay user-initiated, same-origin assets stay local, and the
-# panel footer has no redundant desktop collapse control.
+# current desktop sidebar collapse control remains inside navigation.
 
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 H="$HERE/webpanel/www/index.html"
@@ -38,9 +38,14 @@ else
     no "footer inside navigation" "between $_nav_open and $_nav_close" "$_ext_ln"
 fi
 
-eq "collapse button is removed" "0" "$(grep -c 'sidebar-collapse\|>Свернуть<' "$H")"
-eq "collapse state is removed from frontend" "0" \
-    "$(cat "$C" "$T" "$HERE/webpanel/www/js/app.js" "$HERE/webpanel/www/js/chrome.js" | grep -Ec 'sidebar-collapse|data-sidebar|z2k-sidebar|sidebar-w-collapsed')"
+eq "one collapse control stays inside navigation" "1" \
+    "$(awk '/<nav id="nav"/{inside=1} inside && /<button class="sidebar-collapse"/{n++} inside && /<\/nav>/{inside=0} END{print n+0}' "$H")"
+if grep -q 'z2k-sidebar' "$HERE/webpanel/www/js/chrome.js" \
+   && grep -q 'sidebar-w-collapsed' "$C" "$T"; then
+    ok "collapse state is handled by the panel chrome and styles"
+else
+    no "collapse state is handled by the panel chrome and styles" "state key and collapsed width" "missing"
+fi
 eq "footer remains pinned to menu bottom" "1" \
     "$(awk '/^#nav \.nav-external \{/,/^\}/' "$C" | grep -c 'margin-top: auto;')"
 
