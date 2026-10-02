@@ -1,7 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="z2k">
-  <title>z2k</title>
-  <rect x="0" y="0" width="96" height="96" rx="22" fill="#1AC3B4"/>
-  <rect x="26" y="26" width="44" height="12" fill="#0C1820"/>
-  <rect x="26" y="58" width="44" height="12" fill="#0C1820"/>
-  <polygon points="56,26 70,26 40,70 26,70" fill="#0C1820"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 96" fill="none" role="img" aria-label="z2kOW">
+  <defs>
+    <linearGradient id="z2kow" x1="18" y1="12" x2="112" y2="82" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#14F4BC"/>
+      <stop offset="1" stop-color="#00B97A"/>
+    </linearGradient>
+  </defs>
+  <path d="M34 12H119L65 62H95L79 84H10L51 44H32L43 31H65L92 20H31Z" fill="url(#z2kow)"/>
+  <path d="M29 34H39M91 65H101" stroke="url(#z2kow)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="21" cy="34" r="9" fill="url(#z2kow)"/>
+  <circle cx="21" cy="34" r="3.5" fill="#0C0F0E"/>
+  <circle cx="109" cy="65" r="9" fill="url(#z2kow)"/>
+  <circle cx="109" cy="65" r="3.5" fill="#0C0F0E"/>
 </svg>

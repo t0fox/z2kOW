@@ -28,7 +28,7 @@ const www = path.join(root, 'www');
 fs.cpSync(path.join(repo, 'webpanel/www'), www, { recursive: true });
 const profileDir = path.join(www, 'assets/openwrt');
 fs.mkdirSync(profileDir, { recursive: true });
-for (const name of ['mark.svg', 'favicon.svg', 'theme.css', 'profile.json']) {
+for (const name of ['mark.svg', 'logo.png', 'favicon.svg', 'theme.css', 'profile.json']) {
   const source = path.join(repo, 'platform/openwrt/webpanel-brand', name);
   if (fs.existsSync(source)) fs.copyFileSync(source, path.join(profileDir, name));
 }
@@ -36,7 +36,7 @@ for (const name of ['mark.svg', 'favicon.svg', 'theme.css', 'profile.json']) {
 const mime = {
   '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
 };
 const apiRequests = [];
 let statusResponsesCompleted = 0;
@@ -256,7 +256,12 @@ try {
         moduleResponses.push({ url: response.url(), status: response.status(), type: response.headers()['content-type'] || '' });
       }
     });
-    await page.addInitScript(mode => localStorage.setItem('z2k-theme', mode), appearance);
+    await page.addInitScript(mode => {
+      localStorage.setItem('z2k-theme', mode);
+      // Existing browsers may retain the old collapse preference. It must not
+      // shrink the single desktop navigation after that control is removed.
+      localStorage.setItem('z2k-sidebar', 'collapsed');
+    }, appearance);
     await page.goto(`${base}/#/dashboard`);
     await waitForRenderedRoute(page, 'dashboard');
     await page.waitForFunction(() => {
@@ -265,6 +270,12 @@ try {
     }, null, { timeout: 1500 });
     await page.waitForFunction(() => Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 261) < 1,
       null, { timeout: 1200 });
+    assert.equal(await page.locator('body').getAttribute('data-sidebar'), null,
+      `${appearance}: a legacy collapsed-sidebar preference is ignored`);
+    assert.equal(await page.locator('#sidebar-collapse').count(), 0,
+      `${appearance}: the redundant bottom collapse control is absent`);
+    assert.equal(await page.locator('#nav .nav-external a').first().getAttribute('href'),
+      'https://github.com/t0fox/z2kOW', `${appearance}: footer points to our repository`);
     assert.equal(await page.locator('#menu-shell.mm-ocd.mm-ocd--left > .mm-ocd__content > #nav').count(), 1,
       'navigation uses the observed Lolz off-canvas shell/content structure');
     assert.equal(await page.locator('#menu-shell > #menu-backdrop.mm-ocd__backdrop').count(), 1,
@@ -293,7 +304,7 @@ try {
     assert.equal(await page.locator('#upd-recheck').innerText(), 'Проверить');
     assert.equal(await page.locator('#upd-apply').count(), 0,
       'current release exposes a check action, not a second update system');
-    assert.equal(await page.title(), 'Дашборд · z2kOW');
+    assert.equal(await page.title(), 'z2kOW · Дашборд');
     assert.equal(await lockup.getAttribute('aria-label'), 'z2kOW — OpenWrt edition');
     assert.equal(await lockup.locator('.brand-profile-logo').count(), 1, 'exactly one mark element exists');
     assert.equal(await page.locator('.brand-profile-logo').count(), 1, 'the whole document contains exactly one brand mark');
@@ -301,6 +312,7 @@ try {
     assert.equal((await lockup.locator('.brand-wordmark').innerText()).replace(/\s+/g, ''), 'z2kOW');
     assert.doesNotMatch(await lockup.innerText(), /keenetic|antidpi|openwrt edition/i);
     assert.equal(await lockup.locator('.brand-profile-logo').evaluate(node => node.naturalWidth > 0), true);
+    assert.equal(await lockup.locator('.brand-profile-logo').getAttribute('src'), '/assets/openwrt/logo.png');
     assert.equal(await page.locator('#brand-favicon').getAttribute('href'), '/assets/openwrt/favicon.svg');
     assert.equal(await page.locator('#brand-profile-theme').getAttribute('href'), '/assets/openwrt/theme.css');
     assert.equal(await page.locator('[data-theme-btn="' + appearance + '"]').getAttribute('aria-pressed'), 'true');
@@ -376,8 +388,8 @@ try {
       `the main column begins directly below the single 44 px header (${JSON.stringify(desktopFrame)})`);
     assert.ok(Math.abs(desktopFrame.brandX - (desktopFrame.windowWidth / 2 - 545.5)) < 1,
       `the z2kOW lockup starts at Lolz's measured brand position (${JSON.stringify(desktopFrame)})`);
-    assert.ok(Math.abs(desktopFrame.brandY - 3) < 1 && Math.abs(desktopFrame.brandWidth - 36) < 1,
-      `the logo occupies Lolz's measured 36×36 header box at y=3 (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(desktopFrame.brandY - 3) < 1 && Math.abs(desktopFrame.brandWidth - 200) < 1,
+      `the full z2kOW logo lockup occupies the measured 200×38 header slot at y=3 (${JSON.stringify(desktopFrame)})`);
     assert.equal(await page.locator('#header-nav, #route-recents').count(), 0,
       'the header has no duplicated route-navigation rows');
     assert.ok(Math.abs(desktopFrame.utilityRight - (desktopFrame.appRight - 98)) < 2,
@@ -700,6 +712,13 @@ try {
             && ([1920, 1366, 1280].includes(width) || (appearance === 'dark' && width === 1024 && route === 'dashboard'))) {
           await page.mouse.move(width - 1, height - 1);
           await waitForNavSettled(page);
+          await page.waitForFunction(() => {
+            const tabs = document.querySelector('.strat-tabs');
+            if (!tabs) return true;
+            return tabs.getAnimations({ subtree: true })
+              .filter(animation => animation.effect?.target?.pseudoElement === '::after')
+              .every(animation => animation.playState !== 'running');
+          }, null, { timeout: 1500 });
           await page.screenshot({ path: path.join(screenshotDir, `${appearance}-${width}-${route}.png`) });
         }
       }
@@ -913,9 +932,9 @@ try {
   await blocked.route('**/assets/openwrt/**', route => route.abort('blockedbyclient'));
   await blocked.goto(base + '/#/dashboard');
   await waitForRenderedRoute(blocked, 'dashboard');
-  assert.equal(await blocked.title(), 'Дашборд · Z2K');
+  assert.equal(await blocked.title(), 'z2kOW · Дашборд');
   assert.equal(await blocked.locator('#panel-brand .brand-profile-logo').count(), 1);
-  assert.equal(await blocked.locator('#panel-brand .brand-wordmark').innerText(), 'Z2K');
+  assert.equal(await blocked.locator('#panel-brand .brand-wordmark').innerText(), 'z2kOW');
   assert.doesNotMatch(await blocked.locator('#panel-brand').innerText(), /keenetic|antidpi/i);
   assert.ok(blockedResourceFailures.some(item => item.path.endsWith('/js/core/identity.js')
     && item.error.startsWith('net::ERR_BLOCKED_BY_CLIENT')), 'identity request must be blocked by the browser');

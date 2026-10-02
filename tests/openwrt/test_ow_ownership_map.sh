@@ -48,6 +48,7 @@ while IFS= read -r _line; do
         /usr/lib/z2k/platform/openwrt/custom.d/*) _src="platform/openwrt/custom.d" ;;
         /usr/lib/z2k/platform/openwrt/bin/z2k-warpd) _src="package/z2k-warp-runtime/Makefile" ;;
         /usr/lib/z2k/www/assets/openwrt/mark.svg) _src="platform/openwrt/webpanel-brand/mark.svg" ;;
+        /usr/lib/z2k/www/assets/openwrt/logo.png) _src="platform/openwrt/webpanel-brand/logo.png" ;;
         /usr/lib/z2k/www/assets/openwrt/favicon.svg) _src="platform/openwrt/webpanel-brand/favicon.svg" ;;
         /usr/lib/z2k/www/assets/openwrt/theme.css) _src="platform/openwrt/webpanel-brand/theme.css" ;;
         /usr/lib/z2k/www/assets/openwrt/profile.json) _src="platform/openwrt/webpanel-brand/profile.json" ;;

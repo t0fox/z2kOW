@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Z2K</title>
+<title>z2kOW</title>
 <script>
   /* No-FOUC theme bootstrap — runs before style.css загружается.
      Без него юзер с сохранённой светлой темой увидит мигание тёмной
@@ -33,13 +33,13 @@
 <!-- Keep optional branding off the route boot path; apply it as soon as its local CSS is ready. -->
 <link id="brand-profile-theme" rel="stylesheet" media="print" onload="this.media='all';this.onload=null" href="/assets/openwrt/theme.css">
 <link id="brand-favicon" rel="icon" href="favicon.svg?v=p-86.1" type="image/svg+xml" sizes="any">
-<link id="brand-mask-icon" rel="mask-icon" href="favicon.svg?v=p-86.1" color="#1AC3B4">
+<link id="brand-mask-icon" rel="mask-icon" href="favicon.svg?v=p-86.1" color="#00BA78">
 </head>
 <body>
 <header class="topbar">
-  <a id="panel-brand" href="#/dashboard" class="brand" aria-label="Z2K">
+  <a id="panel-brand" href="#/dashboard" class="brand" aria-label="z2kOW">
     <img id="brand-profile-logo" class="brand-profile-logo" src="favicon.svg?v=p-86.1" width="36" height="36" alt="">
-    <span id="brand-wordmark" class="brand-wordmark">Z2K</span>
+    <span id="brand-wordmark" class="brand-wordmark">z2kOW</span>
   </a>
   <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Открыть меню" aria-expanded="false" aria-controls="nav">
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
@@ -94,7 +94,7 @@
          Значки рисуем свои: панель не тянет ни одного файла извне, и логотипы
          чужих брендов ей ни к чему. Переход — только по клику человека. -->
     <div class="nav-external">
-      <a href="https://github.com/necronicle/z2k" target="_blank" rel="noopener noreferrer">
+      <a href="https://github.com/t0fox/z2kOW" target="_blank" rel="noopener noreferrer">
         <svg class="nav-ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="9" r="3"/><path d="M6 9v6"/><path d="M18 12v1a4 4 0 0 1-4 4H9"/></svg>
         <span class="nav-label">GitHub</span>
         <svg class="nav-out" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>
@@ -105,10 +105,6 @@
         <svg class="nav-out" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>
       </a>
     </div>
-    <button class="sidebar-collapse" id="sidebar-collapse" type="button" aria-label="Свернуть боковую панель">
-      <svg class="nav-ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
-      <span class="nav-label">Свернуть</span>
-    </button>
   </nav>
     </div>
     <div class="menu-backdrop mm-ocd__backdrop" id="menu-backdrop" hidden></div>
@@ -129,9 +125,9 @@
 <div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
 <script>
   // Package-owned static profile is the OpenWrt identity source of first
-  // paint. It is independent of /status and falls back to neutral Z2K.
+  // paint. It is independent of /status and falls back to z2kOW.
   (function () {
-    window.__z2kBrandName = "Z2K";
+    window.__z2kBrandName = "z2kOW";
     function label(value) {
       return typeof value === "string" && value.trim().length > 0
         && value.trim().length <= 64 && !/[\u0000-\u001f\u007f]/.test(value)
@@ -148,7 +144,7 @@
       .then(function (profile) {
         if (!profile) return;
         var name = label(profile.name), subtitle = label(profile.subtitle);
-        var logo = asset(profile.logo, "svg"), favicon = asset(profile.favicon, "svg");
+        var logo = asset(profile.logo, "png"), favicon = asset(profile.favicon, "svg");
         var theme = asset(profile.theme, "css");
         if (!name || !subtitle || !logo || !favicon || !theme) return;
         var brand = document.getElementById("panel-brand");
@@ -173,7 +169,7 @@
         window.__z2kBrandName = name;
         if (typeof window.__z2kRefreshRouteTitle === "function") window.__z2kRefreshRouteTitle();
       })
-      .catch(function () { /* profile is optional; neutral Z2K remains usable */ });
+      .catch(function () { /* profile is optional; the z2kOW fallback remains usable */ });
   })();
   window.addEventListener("error", function (event) {
     var target = event.target;

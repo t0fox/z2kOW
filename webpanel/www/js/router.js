@@ -140,12 +140,12 @@ const _tabObserver = new MutationObserver(() => {
 _tabObserver.observe($app, { childList: true, subtree: true });
 window.addEventListener("resize", () => requestAnimationFrame(() => syncTabIndicator(null)));
 
-// Route titles have one owner; the suffix follows the active common brand
-// profile and defaults to the upstream Z2K identity.
+// Route titles have one owner; the tab starts with the active brand so it stays
+// visible when the browser shortens the title.
 export function refreshRouteTitle() {
-  const pageTitle = ROUTE_TITLES[_activeRoute] || "Z2K";
-  const brandName = window.__z2kBrandName || "Z2K";
-  document.title = pageTitle + " · " + brandName;
+  const pageTitle = ROUTE_TITLES[_activeRoute] || "z2kOW";
+  const brandName = window.__z2kBrandName || "z2kOW";
+  document.title = brandName + " · " + pageTitle;
 }
 
 export function setRouteBrandName(name) {
@@ -157,7 +157,7 @@ export function setRouteBrandName(name) {
   if (value && value.length <= 64 && !hasControlCharacter) {
     window.__z2kBrandName = value;
   } else {
-    window.__z2kBrandName = "Z2K";
+    window.__z2kBrandName = "z2kOW";
   }
   refreshRouteTitle();
 }

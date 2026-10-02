@@ -16,13 +16,12 @@
 // Порядок разрезания задан не на глаз: связность измерена по AST (378
 // обращений в ядро против 92 между фичами), слои идут только вниз, граф
 // ациклический. Точка входа зависит от оболочки и маршрутизатора — и всё.
-import { initDrawer, initSidebar, initTheme } from "./js/chrome.js";
+import { initDrawer, initTheme } from "./js/chrome.js";
 import { navigate, refreshRouteTitle, setRouteBrandName } from "./js/router.js";
 import { apiGet } from "./js/core/api.js";
 import { applyCapabilities } from "./js/core/loadorder.js";
 
 initTheme();
-initSidebar();
 initDrawer();
 
 window.__z2kRefreshRouteTitle = refreshRouteTitle;

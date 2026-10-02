@@ -2,8 +2,8 @@
 // (manual button or after delete) preserves the chosen column.
 // Defaults: profile asc — same order as the previous unsorted view.
 //
-// Persisted per browser under z2k-state-sort, next to z2k-sidebar and the
-// theme key: it is a display preference, not router configuration, and one
+// Persisted per browser under z2k-state-sort next to the theme key: it is a
+// display preference, not router configuration, and one
 // value is shared by the desktop headers and the mobile sheet — two different
 // orders on the same screen surprise more than they help.
 const STATE_SORT_KEY = "z2k-state-sort";

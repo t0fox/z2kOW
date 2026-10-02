@@ -291,8 +291,7 @@ body {
   line-height: 1.5;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
-  /* Место под фиксированный sidebar (см. секцию ниже). Ширина зависит от
-     body[data-sidebar="collapsed"], а на мобиле обнуляется в media query. */
+  /* Место под фиксированный sidebar обнуляется на мобильной ширине. */
   padding-left: var(--sidebar-w);
   transition: padding-left var(--dur-base) var(--ease-emphasized);
 }
@@ -312,10 +311,10 @@ body {
    лежит внутри .topbar, сравнивается только с соседями по .topbar. */
 
 /* ---------- LAYOUT: SIDEBAR + TOPBAR (DESKTOP) ----------
-   Desktop = left sidebar (240px / 56px collapsed) + topbar справа от него
+   Desktop = left sidebar (240px) + topbar справа от него
    + main контент справа. Industry standard для admin tools.
    Narrow viewport = sidebar moves into the left drawer (media query below). */
-:root { --sidebar-w: 240px; --sidebar-w-collapsed: 56px; }
+:root { --sidebar-w: 240px; }
 .topbar {
   display: flex;
   align-items: center;
@@ -368,7 +367,7 @@ body {
   transition: width var(--dur-base) var(--ease-emphasized);
   will-change: width;
 }
-#nav a, #nav .sidebar-collapse {
+#nav a {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -386,7 +385,7 @@ body {
   overflow: hidden;
   font-family: inherit;
 }
-#nav a:hover, #nav .sidebar-collapse:hover {
+#nav a:hover {
   background: var(--bg-card-hover);
   color: var(--text);
 }
@@ -396,9 +395,8 @@ body {
 }
 #nav .nav-ico { flex-shrink: 0; }
 #nav .nav-label { flex: 1; }
-#nav .sidebar-collapse { color: var(--text-muted); }
 
-/* Подвал меню: ссылки наружу и кнопка свёртывания. Прижат книзу (auto-отступ
+/* Подвал меню: ссылки наружу. Прижат книзу (auto-отступ
    переехал сюда с самой кнопки), отделён волосяной линией — это не разделы
    панели, а выход из неё. Значок стрелки говорит, что откроется новая вкладка;
    в свёрнутом меню он уходит вместе с подписью, чтобы строка осталась ровно
@@ -409,22 +407,6 @@ body {
   border-top: 1px solid var(--border);
 }
 #nav .nav-out { flex-shrink: 0; opacity: 0.6; }
-body[data-sidebar="collapsed"] #nav .nav-out { display: none; }
-
-/* Collapsed state — icon-only, width shrinks. */
-body[data-sidebar="collapsed"] #nav { width: var(--sidebar-w-collapsed); }
-body[data-sidebar="collapsed"] #nav .nav-label { display: none; }
-body[data-sidebar="collapsed"] #nav a,
-body[data-sidebar="collapsed"] #nav .sidebar-collapse {
-  justify-content: center;
-  padding: 10px 0;
-}
-body[data-sidebar="collapsed"] #nav .sidebar-collapse .nav-ico { transform: rotate(180deg); }
-
-/* Reserve space for sidebar — main / topbar shift right. Базовый
-   body{padding-left} задан в блоке body выше. */
-body[data-sidebar="collapsed"] { padding-left: var(--sidebar-w-collapsed); }
-
 /* Highlight для важных пунктов (Благодарности — sponsor visibility). Без
    назойливости: лёгкое подкрашивание + микро-индикатор в виде сердца уже
    стоит inline в верстке кредитов; здесь даём только мягкий accent цвет. */
@@ -625,23 +607,6 @@ body[data-sidebar="collapsed"] { padding-left: var(--sidebar-w-collapsed); }
 @media (max-width: 767.98px) {
   /* Cancel desktop sidebar layout — body не reserve'ит place под sidebar */
   body { padding-left: 0; }
-  body[data-sidebar="collapsed"] { padding-left: 0; }
-  /* Sidebar collapse button скрыт на mobile — drawer не collapse'ится */
-  #nav .sidebar-collapse { display: none; }
-
-  /* СВЁРНУТАЯ БОКОВАЯ ПАНЕЛЬ НЕ ДОЛЖНА ДОТЯГИВАТЬСЯ ДО ВЫДВИЖНОГО МЕНЮ.
-     Кнопку свёртывания здесь прячут, но САМО СОСТОЯНИЕ остаётся: атрибут
-     живёт на body и переживает изменение размера окна. А правила
-     body[data-sidebar="collapsed"] #nav имеют специфичность (1,1,1) против
-     (1,0,0) у здешнего #nav — медиазапрос специфичности не добавляет, поэтому
-     побеждали они.
-     Итог был такой: свернул панель на настольном браузере, сузил окно — и
-     выдвижное меню открывается
-     шириной 56 пикселей и без подписей, одними значками.
-     Возвращаем ветке её значения явно, с той же специфичностью. */
-  body[data-sidebar="collapsed"] #nav { width: 280px; max-width: 85vw; }
-  body[data-sidebar="collapsed"] #nav .nav-label { display: revert; }
-  body[data-sidebar="collapsed"] #nav a { justify-content: flex-start; }
 
   .menu-toggle {
     display: inline-flex;
@@ -1089,8 +1054,7 @@ input[type="text"].typed-confirm-input {
    Правим причину, а не следствие: не двигаем карточку отрицательным
    margin, а обнуляем зарезервированное место, которого больше некому
    занимать. Специфичность у этого правила та же, что у
-   body[data-sidebar="collapsed"], поэтому оно обязано стоять НИЖЕ него —
-   иначе свёрнутое меню вернуло бы свой отступ. Переход тоже снимаем: на
+   поэтому оно обнуляет базовое место, зарезервированное под меню. Переход тоже снимаем: на
    входе он дал бы беспричинный проезд страницы вбок при первой отрисовке,
    а на выходе (после успешного входа) правило уже не действует, и панель
    въезжает штатно. */
@@ -2811,7 +2775,6 @@ input[type="checkbox"] { accent-color: var(--accent); }
 .btn:active,
 .menu-toggle:active,
 .nav-drawer-close:active,
-.sidebar-collapse:active,
 .theme-toggle button:active,
 .job-badge:active,
 .brand:active,

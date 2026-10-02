@@ -1,32 +1,6 @@
 import { _icons } from "./core/dom.js";
 import { STATE_SORT_LABELS, saveStateSort, stateSort } from "./state-model.js";
 
-// localStorage key z2k-sidebar = "expanded" | "collapsed".
-// Sidebar только на desktop (≥768px / >500h height); на mobile drawer
-// показывает все items — collapse button скрыт.
-const SIDEBAR_KEY = "z2k-sidebar";
-
-export function initSidebar() {
-  const btn = document.getElementById("sidebar-collapse");
-  if (!btn) return;
-  try {
-    const saved = localStorage.getItem(SIDEBAR_KEY);
-    if (saved === "collapsed") document.body.setAttribute("data-sidebar", "collapsed");
-  } catch (_) {}
-  btn.addEventListener("click", () => {
-    const isCollapsed = document.body.getAttribute("data-sidebar") === "collapsed";
-    if (isCollapsed) {
-      document.body.removeAttribute("data-sidebar");
-      try { localStorage.setItem(SIDEBAR_KEY, "expanded"); } catch (_) {}
-      btn.setAttribute("aria-label", "Свернуть боковую панель");
-    } else {
-      document.body.setAttribute("data-sidebar", "collapsed");
-      try { localStorage.setItem(SIDEBAR_KEY, "collapsed"); } catch (_) {}
-      btn.setAttribute("aria-label", "Развернуть боковую панель");
-    }
-  });
-}
-
 // No-op stub — closeNavMore вызывается в navigate(), удалили overflow concept
 export function closeNavMore() {}
 

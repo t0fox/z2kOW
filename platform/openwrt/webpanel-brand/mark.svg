@@ -1,5 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <path d="M10 17.5h24.5c6.1 0 8.6 7.8 3.7 11.5L25.8 38.9c-4.9 3.7-2.4 11.5 3.7 11.5H51"
-        stroke="#087A70" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="51" cy="50.4" r="3.8" fill="#7164CC"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 96" fill="none" role="img" aria-label="z2kOW">
+  <defs>
+    <linearGradient id="z2kow" x1="18" y1="12" x2="112" y2="82" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#14F4BC"/>
+      <stop offset="1" stop-color="#00B97A"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="2.2" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+  <g filter="url(#glow)">
+    <path d="M34 12H119L65 62H95L79 84H10L51 44H32L42 32H65L92 20H31L34 12Z" fill="url(#z2kow)"/>
+    <path d="M29 34H39M91 65H101" stroke="url(#z2kow)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="21" cy="34" r="9" fill="url(#z2kow)"/>
+    <circle cx="21" cy="34" r="3.5" fill="#0C0F0E"/>
+    <circle cx="109" cy="65" r="9" fill="url(#z2kow)"/>
+    <circle cx="109" cy="65" r="3.5" fill="#0C0F0E"/>
+  </g>
 </svg>

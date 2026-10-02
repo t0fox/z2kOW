@@ -97,7 +97,10 @@ z2kow uninstall
 CI snapshots предназначены только для тестового устройства и не являются production feed. Установите APK из artifact одного зелёного CI run точного SHA:
 
 ```sh
+apk --no-scripts add --virtual .z2k-webpanel-test-deps \
+  lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias
 apk add --allow-untrusted ./z2k-adapter-*.apk ./z2k-webpanel-*.apk
+apk del .z2k-webpanel-test-deps
 ```
 
 У snapshot-пакетов может быть отдельный временный feed key. Не используйте snapshot для обычного обновления и не копируйте эту команду в production-инструкции.

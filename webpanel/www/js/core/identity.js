@@ -1,6 +1,6 @@
 // Optional visual identity projection. The app loads this as a separate
 // module script so a content blocker cannot stop the core ES-module graph.
-let _brandName = "Z2K";
+let _brandName = "z2kOW";
 
 function _label(value) {
   if (typeof value !== "string") return "";
@@ -28,7 +28,7 @@ export function applyBranding(status) {
 
   const name = _label(profile.name);
   const subtitle = _label(profile.subtitle);
-  const logo = _asset(profile.logo, "svg");
+  const logo = _asset(profile.logo, "png");
   const favicon = _asset(profile.favicon, "svg");
   const theme = _asset(profile.theme, "css");
   if (!name || !subtitle || !logo || !favicon || !theme) return false;

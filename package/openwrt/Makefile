@@ -306,6 +306,7 @@ define Package/z2k-adapter/install
 	# lighttpd docroot. Common webpanel updates never map these source paths.
 	$(INSTALL_DIR) $(1)/usr/lib/z2k/www/assets/openwrt
 	$(INSTALL_DATA) $(Z2K_TREE)/platform/openwrt/webpanel-brand/mark.svg \
+		$(Z2K_TREE)/platform/openwrt/webpanel-brand/logo.png \
 		$(Z2K_TREE)/platform/openwrt/webpanel-brand/favicon.svg \
 		$(Z2K_TREE)/platform/openwrt/webpanel-brand/theme.css \
 		$(Z2K_TREE)/platform/openwrt/webpanel-brand/profile.json \
