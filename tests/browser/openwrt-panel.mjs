@@ -715,9 +715,16 @@ try {
           await page.waitForFunction(() => {
             const tabs = document.querySelector('.strat-tabs');
             if (!tabs) return true;
+            const active = tabs.querySelector('.strat-tab.active, .strat-tab[aria-selected="true"]');
+            if (!active) return false;
+            const indicator = getComputedStyle(tabs, '::after');
+            const close = (actual, expected) => Math.abs(parseFloat(actual) - expected) < 1;
             return tabs.getAnimations({ subtree: true })
-              .filter(animation => animation.effect?.target?.pseudoElement === '::after')
-              .every(animation => animation.playState !== 'running');
+              .filter(animation => animation.effect?.pseudoElement === '::after')
+              .every(animation => animation.playState !== 'running')
+              && close(indicator.left, active.offsetLeft - tabs.scrollLeft)
+              && close(indicator.top, active.offsetTop + active.offsetHeight - 2)
+              && close(indicator.width, active.offsetWidth);
           }, null, { timeout: 1500 });
           await page.screenshot({ path: path.join(screenshotDir, `${appearance}-${width}-${route}.png`) });
         }

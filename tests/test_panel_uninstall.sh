@@ -200,7 +200,10 @@ else
         addEventListener() {}, removeEventListener() {},
       };
       global.escapeHtml = (s) => String(s);
-      const fn = new Function("return " + m[0].trim().replace(/^function /, "function "))();
+      // The function is normally imported from core/modal.js. This focused
+      // logic test stubs only that presentation hook and keeps the real
+      // confirmation/input handling under test.
+      const fn = new Function("openModalBackdrop", "return " + m[0].trim().replace(/^function /, "function "))(() => {});
       fn("t", ["a"], "УДАЛИТЬ", "ok");
       const input = backdrop.querySelector("#typed-input");
       const okBtn = backdrop.querySelector("#typed-ok");
