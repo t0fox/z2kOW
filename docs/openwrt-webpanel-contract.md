@@ -30,7 +30,7 @@ CLASS: COMMON (тот же код), PLATFORM_IO (тонкий перевод), K
 | TG enable/disable | PLATFORM_IO | same `TG_PROXY_USER_DISABLED` flag + `/etc/init.d/z2k reload` (override, no daemon mgmt in CGI) |
 | TG status pid | COMMON | same :1443 cmdline match (portable, no /opt) |
 | RT toggle | ABSENT | no UI toggle upstream; don't invent; restart/update/uninstall must not break RT |
-| update status/check | PLATFORM_IO | manifest URL → `Z2K_AU_REPO_RAW`/`Z2K_AU_BRANCH` seam; `AU_TAG_FILE` → install-meta |
+| update status/check | PLATFORM_IO | single controlled `UPDATES.json`; installed tag comes from `/etc/z2k/state/installed-release` |
 | update apply | PLATFORM_IO | `AU_SCRIPT` → platform update.sh (`Z2K_AU_MANUAL/NO_JITTER` honored) |
 | full uninstall | KEENETIC_ONLY | capability false (message: package manager) |
 | Keenetic policy | KEENETIC_ONLY | capability false (no mwan3/PBR substitute) |
@@ -42,7 +42,7 @@ CLASS: COMMON (тот же код), PLATFORM_IO (тонкий перевод), K
 | logs/jobs | COMMON | /tmp paths fine as-is |
 | strategy picker deps | COMMON* | `Z2K_DETECT_BIN` env |
 | auth state/challenge/login/logout | COMMON* | NDM capability false (`Z2K_PANEL_AUTH` stays 0 → required:false); origin/Host guards keep (platform-neutral) |
-| lighttpd/pkg/install | PLATFORM_IO | package-owned init + Makefile subpackage; no opkg from panel |
+| lighttpd/install | PLATFORM_IO | release-owned procd init; OpenWrt `apk` provides real system dependencies only |
 | settings port/bind/hosts | COMMON | `WEBPANEL_KEEP_DIR` → /etc/z2k/webpanel |
 | template render | PLATFORM_IO | same template + `@PLATFORM_ENV@`; OpenWrt renderer, OpenWrt values |
 
@@ -55,7 +55,7 @@ CLASS: COMMON (тот же код), PLATFORM_IO (тонкий перевод), K
   OpenWrt (`Z2K_PLATFORM=openwrt`): frozen-ownership env map (§4) + source
   `$Z2K_ROOT/platform/openwrt/webpanel.sh` (function overrides). Sourced by
   `api.sh` between auth.sh and actions.sh (one added line).
-- `platform/openwrt/webpanel.sh` — PACKAGE-owned OS-effect helpers:
+- `platform/openwrt/webpanel.sh` — complete-release-owned OS-effect helpers:
   `wp_lan_ip`, `wp_panel_render`, `wp_panel_validate`, `wp_panel_running`,
   `wp_neighbors`, `wp_service_running`.
 - No `actions-openwrt.sh` / `api-openwrt.sh` / `app-openwrt.js` forks.
@@ -70,13 +70,11 @@ CLASS: COMMON (тот же код), PLATFORM_IO (тонкий перевод), K
   The common branding module validates those paths; route titles remain owned
   by `router.js` and use the active brand name. Layout and business logic stay
   shared.
-- OpenWrt supplies `z2kOW` / `OpenWrt edition` from the package-owned adapter.
-  Its wordmark, favicon, and theme live in
-  `/usr/lib/z2k/www/assets/openwrt/`; the adapter APK explicitly installs these
-  files over older bytes during upgrade. Their stable URLs are served by the
-  existing no-cache lighttpd document root. The generic UI module and common
-  hooks travel through the signed snapshot updater; adapter assets stay out of
-  that mapping and are never seeded as a second owner.
+- OpenWrt supplies `z2kOW` / `OpenWrt edition` from the complete release
+  payload. Its wordmark, favicon, and theme live in
+  `/usr/lib/z2k/www/assets/openwrt/`; `install_release` applies them together
+  with common UI and adapter code. Their stable URLs are served by the existing
+  no-cache lighttpd document root. There is one full-payload update path.
 
 ## 3. CGI must not know (frozen Stages 1-5 own it)
 
@@ -107,7 +105,7 @@ Z2K_AUTOHOSTLIST_FILE=/etc/z2k/state/zapret-hosts-auto.txt (nfqws2 live file)
 DNS_CHECK_SCRIPT=/usr/lib/z2k/z2k-dns-check.sh
 DNS_CHECK_OWN=/etc/z2k/user-lists/dns-check.txt
 Z2K_DETECT_BIN=/usr/lib/z2k/bin/z2k-detect
-AU_TAG_FILE=/etc/z2k/state/installed-tag
+AU_TAG_FILE=/etc/z2k/state/installed-release
 AU_SCRIPT=/usr/lib/z2k/platform/openwrt/update.sh
 DEBUG_FLAG_FILE=/tmp/z2k/debug.flag (new seam, transient)
 WEBPANEL_KEEP_DIR=/etc/z2k/webpanel (port/bind/hosts, USER)
@@ -124,21 +122,22 @@ OpenWrt сохраняет найденные `--hostlist-auto` домены п�
 источником duplicate-check в WebUI. При выключенном `Z2K_AUTOHOSTLIST` ledger
 сохраняется, но новый engine-файл не создаётся.
 
-## 5. Ownership (→ ownership.map, tests)
+## 5. Ownership (→ owned-paths.txt, tests)
 
 ```text
-webpanel/cgi/*, webpanel/www/*, lighttpd.conf template → UPDATER
-platform/openwrt/webpanel.sh, package init/glue      → PACKAGE
+webpanel/cgi/*, webpanel/www/*, lighttpd.conf template → complete release
+platform/openwrt/webpanel.sh, init/glue               → complete release
 /etc/z2k/webpanel/* (port/bind/hosts)                → USER
 generated lighttpd.conf, logs, pidfiles              → TRANSIENT
 ```
 
-Upstream UI changes → signed updater; adapter changes → package upgrade.
+Upstream UI and OpenWrt adapter changes ship together in the one complete
+release payload and converge through `install_release <tag>`.
 Dormant assets on disk ≠ panel enabled (no updater special-casing).
 
 ## 6. Panel service (independent lifecycle)
 
-- `/etc/init.d/z2k-webpanel` (procd, PACKAGE): renders transient
+- `/etc/init.d/z2k-webpanel` (procd, complete release): renders transient
   `/tmp/z2k/runtime/webpanel/lighttpd.conf` from template + settings,
   validates (`lighttpd -tt`), opens instance `lighttpd -D -f`, bounded
   respawn (no shell supervisor). Never touches stock lighttpd/service.

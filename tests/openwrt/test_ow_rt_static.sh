@@ -8,11 +8,11 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 RT="$REPO/platform/openwrt/rt.sh"
 RTP="$REPO/platform/openwrt/rt-proc.sh"
 RTC="$REPO/platform/openwrt/rt-check.sh"
-INIT="$REPO/package/openwrt/files/etc/init.d/z2k"
-HOTPLUG="$REPO/package/openwrt/files/etc/hotplug.d/iface/90-z2k"
+INIT="$REPO/platform/openwrt/files/etc/init.d/z2k"
+HOTPLUG="$REPO/platform/openwrt/files/etc/hotplug.d/iface/90-z2k"
 SCHED="$REPO/platform/openwrt/schedule.sh"
 UNINST="$REPO/platform/openwrt/uninstall.sh"
-MAP="$REPO/package/openwrt/ownership.map"
+OWNED="$REPO/platform/openwrt/owned-paths.txt"
 AU="$REPO/lib/auto_update.sh"
 S96="$REPO/files/init.d/S96z2k-rt-proxy"
 
@@ -53,7 +53,7 @@ assert_contains "rt.sh: GODEBUG" "$RT" 'GODEBUG=asyncpreemptoff=1'
 # --- один procd instance z2k-rt, второго сервиса нет ---
 assert_contains "rt.sh: instance z2k-rt" "$RT" 'procd_open_instance "z2k-rt"'
 assert_eq "procd_open_instance в коде один" "1" "$(grep -c 'procd_open_instance "z2k-rt"' "$_RTCODE")"
-if [ -f "$REPO/package/openwrt/files/etc/init.d/z2k-rt" ]; then
+if [ -f "$REPO/platform/openwrt/files/etc/init.d/z2k-rt" ]; then
     _t_bad "второй init-сервис z2k-rt существует"
 else
     _t_ok
@@ -121,9 +121,8 @@ assert_contains "schedule: install пара" "$SCHED" 'z2k_ow_rt_cron_install'
 assert_contains "schedule: remove пара" "$SCHED" 'z2k_ow_rt_cron_remove'
 assert_contains "uninstall: rt cleanup" "$UNINST" 'z2k_ow_rt cleanup'
 assert_contains "uninstall: rt cron remove" "$UNINST" 'z2k_ow_rt_cron_remove'
-assert_contains "ownership: rt.sh package" "$MAP" '/usr/lib/z2k/platform/openwrt/rt.sh package'
-assert_contains "ownership: rt-proc.sh package" "$MAP" '/usr/lib/z2k/platform/openwrt/rt-proc.sh package'
-assert_contains "ownership: rt-check.sh package" "$MAP" '/usr/lib/z2k/platform/openwrt/rt-check.sh package'
+assert_contains "complete release owns OpenWrt source root" "$OWNED" '/usr/lib/z2k'
+assert_contains "rootfs builder includes RT implementation" "$REPO/scripts/openwrt/stage-rootfs.sh" 'platform/openwrt/*.sh'
 
 # --- COMMON_HOOK в au_service_for_binary ---
 assert_contains "au: rt openwrt-ветка" "$AU" 'rt-proc.sh'

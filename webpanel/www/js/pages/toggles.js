@@ -6,6 +6,12 @@ import { JOB_FAIL, _updateGlobalUILock, confirmModal, jobOutcome, jobUnresolved,
 import { AUTOHOSTLIST_WARNING, TOGGLES_RESTART_SERVICE, resyncToggle } from "./policy.js";
 
 const TOGGLE_DEFS = [
+  { key: "category_youtube", name: "YouTube",
+    desc: "Обход для YouTube и Googlevideo, включая QUIC. Выключите, чтобы эти сервисы работали напрямую." },
+  { key: "category_rkn", name: "RKN",
+    desc: "Обход сайтов из списков РКН по HTTPS, HTTP и QUIC. При выключении автоподбор новых доменов также не применяется." },
+  { key: "category_discord_voice", name: "Discord Voice / STUN",
+    desc: "Обход для голосовых соединений Discord. Выключение убирает всю штатную обработку STUN, в том числе для звонков других приложений." },
   // game_warp переехал в собственный раздел «WARP» (renderWarp) вместе с
   // управлением списками адресов — здесь его больше нет.
   { key: "customd", name: "Скрипты custom.d",
@@ -28,8 +34,8 @@ const TOGGLE_DEFS = [
     desc: "Обычно обходятся только домены из списков. С этой опцией движок сам замечает, что домен не открывается, и добавляет его — найденное попадает в основной список и подхватывается штатно. Плюс: сайты вне списков начинают работать без ручных добавлений. Минус: движок судит по поведению соединения и иногда ошибается, в список может попасть домен, который просто лежал сам по себе. Это смена принципа отбора трафика целиком, поэтому по умолчанию выключено." },
   // Час не зашит в текст: он настраивается ниже, и описание, называющее
   // «02:00» у человека, выбравшего 05:00, врало бы прямо над селектором.
-  { key: "auto_update", name: "Автообновление движка zapret2",
-    desc: "Ночью роутер проверяет подписанный payload и обновляет движок zapret2 и его файлы. Выпуск самого z2kOW (adapter и webpanel) обновляется отдельно кнопкой «Обновить z2kOW» на дашборде или командой z2kow update.",
+  { key: "auto_update", name: "Автообновление z2k",
+    desc: "Ночью роутер проверяет подпись контролируемого релиза z2k и устанавливает доступное обновление. Ручная проверка и запуск находятся в разделе «Обновление».",
     extra: `
       <div class="t-sub" id="au-hour-row" hidden>
         <label class="t-sub-label" for="au-hour">Время</label>
@@ -93,7 +99,7 @@ function auWindowText(hour) {
   if (!Number.isInteger(h) || h < 0 || h > 23) return "";
   const end = (h * 60 + AU_JITTER_MIN) % (24 * 60);
   const pad = n => String(n).padStart(2, "0");
-  return `движок zapret2 обновится между ${pad(h)}:00 и ${pad(Math.floor(end / 60))}:${pad(end % 60)} — разброс, чтобы все роутеры не пришли за обновлением одновременно`;
+  return `z2k обновится между ${pad(h)}:00 и ${pad(Math.floor(end / 60))}:${pad(end % 60)} — разброс, чтобы роутеры не запрашивали обновление одновременно`;
 }
 
 // Выбор времени имеет смысл только при включённом автообновлении, поэтому
@@ -161,6 +167,9 @@ async function saveAuHour(sel, note) {
 }
 
 const TOGGLE_API_NAME = {
+  category_youtube: "category-youtube",
+  category_rkn: "category-rkn",
+  category_discord_voice: "category-discord-voice",
   customd: "customd",
   dynamic_ttl: "dynamic-ttl",
   stats: "stats",
@@ -859,6 +868,9 @@ async function toggleClick(key, box) {
     ? (wanted === "1" ? "Отключаю" : "Включаю")
     : (wanted === "1" ? "Включаю" : "Отключаю");
   const niceName = {
+    category_youtube: "YouTube",
+    category_rkn: "RKN",
+    category_discord_voice: "Discord Voice / STUN",
     customd: "custom.d",
     dynamic_ttl: "Динамический TTL",
     stats: "Сбор статистики",

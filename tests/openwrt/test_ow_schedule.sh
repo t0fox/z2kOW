@@ -68,8 +68,8 @@ case "$_j1" in
     *) [ "$_j1" -lt 3600 ] && _t_ok || _t_bad "jitter вне окна: $_j1" ;;
 esac
 
-# Makefile wire: postinst ставит cron, prerm — через uninstall-функцию
-assert_contains "postinst cron" "$REPO/package/openwrt/Makefile" "z2k_ow_cron_install"
-assert_contains "prerm uninstall" "$REPO/package/openwrt/Makefile" "z2k_ow_uninstall"
+# Cron management is shipped inside the complete rootfs release.
+assert_contains "complete payload builder includes OpenWrt shell layer" "$REPO/scripts/openwrt/stage-rootfs.sh" 'platform/openwrt/*.sh'
+assert_contains "uninstall removes owned cron marker" "$REPO/platform/openwrt/uninstall.sh" 'z2k_ow_cron_remove'
 
 _t_done

@@ -1,0 +1,9 @@
+/usr/lib/z2k
+/opt/zapret2
+/usr/bin/z2kow
+/usr/sbin/install_release
+/etc/init.d/z2k
+/etc/init.d/z2k-webpanel
+/etc/hotplug.d/iface/90-z2k
+/etc/sysctl.d/99-z2k.conf
+/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft

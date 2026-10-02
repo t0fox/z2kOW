@@ -1,3 +1,0 @@
-# OpenWrt webpanel payload contract.
-# The package owns this expectation; common CGI/static bytes remain updater-owned.
-1

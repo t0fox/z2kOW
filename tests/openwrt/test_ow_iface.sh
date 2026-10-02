@@ -7,13 +7,13 @@
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-iface"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-HP="$REPO/package/openwrt/files/etc/hotplug.d/iface/90-z2k"
+HP="$REPO/platform/openwrt/files/etc/hotplug.d/iface/90-z2k"
 
 # ровно один hotplug-файл в нашем дереве дёргает reload_ifsets
 # (firewall.sh — определение делегата, не hotplug; считается отдельно)
-_n="$(find "$REPO/package" -path '*hotplug*' -type f | wc -l | tr -d ' ')"
+_n="$(find "$REPO/platform/openwrt/files/etc/hotplug.d" -type f | wc -l | tr -d ' ')"
 assert_eq "один hotplug-файл" "1" "$_n"
-_r="$(grep -l 'reload_ifsets' "$REPO"/package/openwrt/files/etc/hotplug.d/iface/* 2>/dev/null | wc -l | tr -d ' ')"
+_r="$(grep -l 'reload_ifsets' "$REPO"/platform/openwrt/files/etc/hotplug.d/iface/* 2>/dev/null | wc -l | tr -d ' ')"
 assert_eq "он и вызывает reload" "1" "$_r"
 
 # никакого дублирования: ни nft, ни рестартов, ни recovery в коде

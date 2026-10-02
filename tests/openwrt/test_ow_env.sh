@@ -35,10 +35,10 @@ assert_eq "autohostlist ledger is persistent state" "$T/etc/state/autohostlist-d
 assert_eq "autohostlist engine file is separate" "$T/etc/state/zapret-hosts-auto.txt" "$Z2K_AUTOHOSTLIST_FILE"
 
 # §15: manifest repo == payload repo — один origin везде, без necronicle
-assert_eq "BRANCH production" "z2k-enhanced-openwrt" "$Z2K_AU_BRANCH"
-assert_eq "REPO_RAW origin" "https://raw.githubusercontent.com/t0fox/z2kOW/z2k-enhanced-openwrt" "$Z2K_AU_REPO_RAW"
+assert_eq "BRANCH production" "main" "$Z2K_AU_BRANCH"
+assert_eq "REPO_RAW origin" "https://raw.githubusercontent.com/t0fox/z2kOW/main" "$Z2K_AU_REPO_RAW"
 assert_eq "RAW_BASE origin" "https://raw.githubusercontent.com/t0fox/z2kOW" "$Z2K_AU_RAW_BASE"
-assert_eq "GITHUB_RAW origin" "https://raw.githubusercontent.com/t0fox/z2kOW/z2k-enhanced-openwrt" "$GITHUB_RAW"
+assert_eq "GITHUB_RAW origin" "https://raw.githubusercontent.com/t0fox/z2kOW/main" "$GITHUB_RAW"
 case "$Z2K_AU_REPO_RAW $Z2K_AU_RAW_BASE $GITHUB_RAW" in
     *necronicle*) _t_bad "канал ссылается на necronicle" ;;
     *) _t_ok ;;

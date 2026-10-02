@@ -81,7 +81,7 @@ zapret_unapply_firewall() { echo "fw:remove" >> "$T/calls"; [ -f "$T/fw-remove-f
 zapret_reload_ifsets() { return 0; }
 EOF
 # shellcheck disable=SC1090,SC1091
-. "$REPO/package/openwrt/files/etc/init.d/z2k" || { echo "FAIL[ow-stop-verify]: source init" >&2; exit 1; }
+. "$REPO/platform/openwrt/files/etc/init.d/z2k" || { echo "FAIL[ow-stop-verify]: source init" >&2; exit 1; }
 z2k_load_adapter() {
     # shellcheck disable=SC1090,SC1091
     . "$REPO/platform/openwrt/firewall.sh" || return 1

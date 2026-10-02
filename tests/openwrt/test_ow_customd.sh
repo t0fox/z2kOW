@@ -99,8 +99,9 @@ wait "$_orphan_pid" 2>/dev/null || true
 assert_contains "customd bounded respawn" "$AD/customd.sh" "procd_set_param respawn 3600 5 5"
 assert_contains "customd health checks queue owner" "$AD/customd.sh" "_z2k_ow_customd_owner_ready"
 assert_contains "customd health gates ready" "$REPO/platform/openwrt/env.sh" "z2k_ow_customd_runtime_ready"
-assert_contains "customd rollback cleanup" "$REPO/package/openwrt/files/etc/init.d/z2k" "z2k_ow_customd_stop_instances"
-assert_contains "customd package install" "$REPO/package/openwrt/Makefile" "custom.d/50-stun4all"
+assert_contains "customd rollback cleanup" "$REPO/platform/openwrt/files/etc/init.d/z2k" "z2k_ow_customd_stop_instances"
+assert_contains "customd is shipped in the complete rootfs" "$REPO/scripts/openwrt/stage-rootfs.sh" \
+    'platform/openwrt/custom.d'
 assert_contains "customd flag survives config regeneration" "$REPO/lib/config_official.sh" "saved_DISABLE_CUSTOM"
 
 # Live r55 acceptance reproduced a Discord discovery datagram being queued to

@@ -1,6 +1,6 @@
 #!/bin/sh
 # tests/openwrt/test_ow_forbidden.sh - Step 14: Keenetic-зависимостям нет места.
-# Запрещены в platform/ + package/ + tests/openwrt/ (в docs/fixtures — можно):
+# Запрещены в platform/ + tests/openwrt/ (в docs/fixtures — можно):
 # ndmc, /opt/etc/ndm, kmod_ndms, Entware-инит, Keenetic-PPE, S99/keenetic в коде.
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-forbidden"
@@ -14,7 +14,7 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 # test_ow_insta_boundary.sh — boundary test intentionally names the upstream
 # helper and its ndmc guard as data; it verifies that OpenWrt never owns it.
 _hits="$(grep -rEin 'ndmc|/opt/etc/ndm|kmod_ndms|entware|-j PPE|ipset-exclude.*PPE' \
-    "$REPO/platform/openwrt" "$REPO/package/openwrt" "$REPO/tests/openwrt" \
+    "$REPO/platform/openwrt" "$REPO/tests/openwrt" \
     | grep -v -e 'test_ow_forbidden\.sh' -e 'test_ow_webpanel_static\.sh' -e 'test_ow_webpanel_package\.sh' -e 'test_ow_insta_boundary\.sh' || true)"
 [ -z "$_hits" ] && _t_ok || _t_bad "Keenetic-зависимости: $_hits"
 
@@ -29,13 +29,16 @@ _hits="$(grep -rEin 'ndmc|/opt/etc/ndm|kmod_ndms|entware|-j PPE|ipset-exclude.*P
 # (легитимный lua-state plumbing ядра).
 _bad=""
 for _f in "$REPO"/platform/openwrt/*.sh \
-          "$REPO"/package/openwrt/files/etc/init.d/z2k \
-          "$REPO"/package/openwrt/files/etc/init.d/z2k-webpanel \
-          "$REPO"/package/openwrt/files/etc/hotplug.d/iface/90-z2k; do
+          "$REPO"/platform/openwrt/files/etc/init.d/z2k \
+          "$REPO"/platform/openwrt/files/etc/init.d/z2k-webpanel \
+          "$REPO"/platform/openwrt/files/etc/hotplug.d/iface/90-z2k; do
     # Узкое исключение для /opt/zapret2 — canonical runtime base самого
     # zapret2. Старый /opt/bin/sh ABI больше не исполняется; checksum-guarded
     # one-shot cleanup в tg-retire-udp.sh проверяется отдельно.
     _h="$(sed 's/#.*$//' "$_f" \
+        | grep -v '\.z2k-installed-tag' \
+        | grep -v '\.z2k-tree-dirty' \
+        | grep -v '\.z2k-relay-id' \
         | grep -v 'Z2K_ZAPRET2_RUNTIME.*:-/opt/zapret2' \
         | grep -inE 'keenetic|S99|(^|[^a-zA-Z])PPE([^a-zA-Z]|$)|watchdog|tcp16-probe|Entware|/opt/|(^|[^a-zA-Z_])ndm([^a-zA-Z_]|$)' || true)"
     if [ "$(basename "$_f")" = "tg-retire-udp.sh" ]; then
@@ -73,7 +76,7 @@ done
 # 'A-Za-z0-9', '0-9'). sed/grep-классы ([[:space:]]) живы и разрешены —
 # запрет только на tr. NOTE: образцы ниже исключены из скана.
 _trbad="$(grep -rEn "tr +(-[cds]+ +)?'?\[:[a-z]+:\]" \
-    "$REPO/platform" "$REPO/package" "$REPO/lib" "$REPO/scripts" "$REPO/files" \
+    "$REPO/platform" "$REPO/lib" "$REPO/scripts" "$REPO/files" \
     "$REPO/vps" "$REPO/webpanel" "$REPO/z2k.sh" "$REPO/z2k_cleanup.sh" "$REPO/tests" \
     2>/dev/null | grep -v 'test_ow_forbidden\.sh' || true)"
 [ -z "$_trbad" ] && _t_ok || _t_bad "busybox-unsafe tr-класс: $_trbad"

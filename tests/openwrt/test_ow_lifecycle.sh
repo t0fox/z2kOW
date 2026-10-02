@@ -3,8 +3,8 @@
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-lifecycle"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-HP="$REPO/package/openwrt/files/etc/hotplug.d/iface/90-z2k"
-SVC="$REPO/package/openwrt/files/etc/init.d/z2k"
+HP="$REPO/platform/openwrt/files/etc/hotplug.d/iface/90-z2k"
+SVC="$REPO/platform/openwrt/files/etc/init.d/z2k"
 
 assert_contains "hotplug: ifset-reload" "$HP" "reload_ifsets"
 assert_contains "hotplug: ready-gate" "$HP" "z2k_ow_core_ready"

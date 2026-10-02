@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+_z2k_bin_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+_z2k_arch_sh="${_z2k_bin_dir%/bin}/platform/openwrt/arch.sh"
+. "$_z2k_arch_sh"
+_z2k_binary="$(z2k_ow_arch_bin_path "$_z2k_bin_dir" z2k-detect "${Z2K_OW_ARCH:-}")" \
+    || { echo "z2k-detect: unsupported OpenWrt architecture" >&2; exit 126; }
+[ -x "$_z2k_binary" ] || { echo "z2k-detect: architecture binary missing: $_z2k_binary" >&2; exit 126; }
+exec "$_z2k_binary" "$@"

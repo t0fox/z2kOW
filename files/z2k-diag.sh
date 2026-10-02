@@ -99,23 +99,16 @@ safe_read() {
     printf '%s' "$val"
 }
 
-# On OpenWrt, ask the canonical product CLI for all three version axes. The
-# engine tag is not the z2kOW product version, and the CLI owns snapshot parsing.
-# Keenetic retains its historical installed-tag behavior below.
-z2k_product_version_metadata() {
-    "${Z2K_PRODUCT_CLI:-/usr/bin/z2kow}" version 2>/dev/null
-}
-
-z2k_product_version_field() {
-    _field="$1"
-    z2k_product_version_metadata | awk -F= -v key="$_field" \
-        '$1 == key { sub(/^[^=]*=/, ""); print; exit }'
-}
-
 z2k_version_read() {
     local v
     if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
-        v=$(z2k_product_version_field product)
+        local _state="${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}" _first
+        _first=$(head -1 "$_state" 2>/dev/null | tr -d '\r')
+        case "$_first" in
+            tag=*) v="${_first#tag=}" ;;
+            *=*) v="" ;;
+            *) v="$_first" ;;
+        esac
         printf '%s' "${v:-unknown}"
         return
     fi
@@ -261,11 +254,7 @@ print_version_host() {
     local version
     version=$(z2k_version_read)
     if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
-        _z2kow_build=$(z2k_product_version_field build)
-        _z2kow_engine=$(z2k_product_version_field engine)
         printf 'z2kOW product     : %s\n' "$version"
-        printf 'engine/upstream   : %s\n' "${_z2kow_engine:-unknown}"
-        printf 'source build      : %s\n' "${_z2kow_build:-unknown}"
     else
         printf 'z2k version       : %s\n' "$version"
     fi
@@ -1127,6 +1116,18 @@ clock_skew_vs_relay() {
     printf '%s' "$((now_epoch - srv_epoch))"
 }
 
+tg_connect_queue_failures() {
+    local _log="${1:-/tmp/z2k-log/tg-tunnel.log}"
+    if [ -r "$_log" ]; then
+        tail -n 200 "$_log" 2>/dev/null | awk '/CONNECT throttled \(timeout\)/ {n++} END {print n+0}'
+    elif command -v logread >/dev/null 2>&1; then
+        logread 2>/dev/null | grep -E 'z2k-tg|tg-mtproxy-client' | tail -n 200 \
+            | awk '/CONNECT throttled \(timeout\)/ {n++} END {print n+0}'
+    else
+        printf '0\n'
+    fi
+}
+
 print_health() {
     if z2k_diag_hook; then
         "$Z2K_DIAG_HOOK" health
@@ -1135,6 +1136,13 @@ print_health() {
     local issues=""
     _add() { issues="${issues}  [!] $1
 "; }
+
+    local _tg_queue_failures
+    _tg_queue_failures=$(tg_connect_queue_failures /tmp/z2k-log/tg-tunnel.log)
+    case "$_tg_queue_failures" in ''|*[!0-9]*) _tg_queue_failures=0 ;; esac
+    if [ "$_tg_queue_failures" -gt 0 ]; then
+        _add "в последних 200 строках лога телеграм-туннеля $_tg_queue_failures отказов очереди CONNECT — соединения отброшены на роутере до отправки на VPS"
+    fi
 
     mount 2>/dev/null | grep -q ' /opt ' || \
         _add "/opt не смонтирован — Entware недоступен, лечится проверкой файловой системы (e2fsck) и перезагрузкой"
@@ -2126,10 +2134,8 @@ print_short() {
         svc="down"
     fi
     if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
-        _z2kow_build=$(z2k_product_version_field build)
-        _z2kow_engine=$(z2k_product_version_field engine)
-        printf 'z2kOW=%s engine=%s build=%s arch=%s lan=%s service=%s\n' \
-            "$version" "${_z2kow_engine:-unknown}" "${_z2kow_build:-unknown}" "$entw" "$lan_ip" "$svc"
+        printf 'z2kOW=%s arch=%s lan=%s service=%s\n' \
+            "$version" "$entw" "$lan_ip" "$svc"
     else
         printf 'z2k=%s arch=%s lan=%s service=%s\n' \
             "$version" "$entw" "$lan_ip" "$svc"
@@ -2151,10 +2157,8 @@ print_json() {
         svc="down"
     fi
     if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
-        _z2kow_build=$(z2k_product_version_field build)
-        _z2kow_engine=$(z2k_product_version_field engine)
-        printf '{"product":"%s","version":"%s","build":"%s","engine":"%s","service":"%s","lan_ip":"%s","arch":"%s"}\n' \
-            "$version" "$version" "${_z2kow_build:-unknown}" "${_z2kow_engine:-unknown}" \
+        printf '{"version":"%s","service":"%s","lan_ip":"%s","arch":"%s"}\n' \
+            "$version" \
             "$svc" "$(get_lan_ip)" "$(get_entware_arch)"
     else
         printf '{"version":"%s","service":"%s","lan_ip":"%s","arch":"%s"}\n' \

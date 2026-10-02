@@ -42,22 +42,10 @@ assert_contains "флаг пережил генерацию" "$Z2K_CONFIG" "Z2K_
 assert_eq "whitelist цел после generate" "$_sum_wl" "$(cksum "$Z2K_USER_LISTS/whitelist.txt")"
 assert_eq "tcp16 state цел после generate" "$_sum_st" "$(cksum "$Z2K_STATE/tcp16_sni.txt")"
 
-# init/hotplug — package-owned код БЕЗ conffiles: при upgrade пакет их
-# заменяет (менеджеру нечего сохранять); user-config пакет не поставляет
-# вовсе — ему нечего сохранять/затирать: ни одного $(1)/etc/z2k в install.
-# Проверяем STANZA (слово conffiles живёт в комментарии-обосновании).
-if grep -q 'define Package/z2k-adapter/conffiles' "$REPO/package/openwrt/Makefile"; then
-    _t_bad "conffiles present (init/hotplug обновляются с пакетом)"
-else
-    _t_ok
-fi
-# а /etc/z2k/* пакет НЕ поставляет (ему нечего сохранять/затирать): ни одного
-# упоминания $(1)/etc/z2k в install-цели
-if grep -A30 'define Package/z2k-adapter/install' "$REPO/package/openwrt/Makefile" \
-    | grep -q '$(1)/etc/z2k'; then
-    _t_bad "пакет ставит файлы в /etc/z2k (должен только bootstrap)"
-else
-    _t_ok
-fi
+# Configuration and persistent state stay outside the complete release tree,
+# so install_release can replace shipped files without owning user data.
+assert_not_contains "owned paths omit user config" "$REPO/platform/openwrt/owned-paths.txt" '^/etc/z2k/config$'
+assert_not_contains "owned paths omit persistent state" "$REPO/platform/openwrt/owned-paths.txt" '^/etc/z2k/state'
+assert_contains "complete rootfs builder installs release state writer" "$REPO/scripts/openwrt/stage-rootfs.sh" 'scripts/openwrt/install_release.sh'
 
 _t_done

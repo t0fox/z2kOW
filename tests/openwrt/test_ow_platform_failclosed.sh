@@ -42,11 +42,14 @@ esac
 
 # --- 2. здоровый адаптер (симлинки на настоящее): ok ---
 mkdir -p "$T/okroot/platform/openwrt" "$T/okroot/webpanel/cgi" "$T/okroot/share" "$T/oketc" "$T/oktmp"
-for _f in paths.sh env.sh webpanel.sh panel.sh customd.sh; do
+for _f in paths.sh env.sh manifest.sh webpanel.sh panel.sh customd.sh schedule.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/okroot/platform/openwrt/$_f"
 done
-cp "$REPO/webpanel/cgi/actions.sh" "$REPO/webpanel/cgi/platform.sh" "$T/okroot/webpanel/cgi/"
-cp "$REPO/package/openwrt/PANEL_API" "$T/okroot/share/panel.api"
+cp "$REPO/webpanel/cgi/actions.sh" "$REPO/webpanel/cgi/platform.sh" \
+   "$REPO/webpanel/cgi/api.sh" "$T/okroot/webpanel/cgi/"
+mkdir -p "$T/okroot/www"
+cp "$REPO/webpanel/www/index.html" "$T/okroot/www/index.html"
+cp "$REPO/webpanel/lighttpd.conf" "$T/okroot/webpanel/lighttpd.conf.in"
 mkdir -p "$T/okroot/bin"
 ln -s "$REPO/platform/openwrt/tg.sh" "$T/okroot/platform/openwrt/tg.sh"
 export Z2K_ROOT="$T/okroot" Z2K_ETC="$T/oketc" Z2K_TMP="$T/oktmp"
@@ -55,9 +58,10 @@ unset Z2K_PAYLOAD_MARKER Z2K_PANEL_DIR Z2K_PANEL_CONFIG Z2K_STATE STATE_FILE
 unset Z2K_USER_LISTS Z2K_LISTS_DIR Z2K_LUA_DIR Z2K_FAKE_DIR Z2K_BIN Z2K_STATE_DIR_OVERRIDE
 . "$REPO/webpanel/cgi/platform.sh" || { echo "FAIL[ow-platform-failclosed]: source ok" >&2; exit 1; }
 assert_eq "healthy status" "ok" "$Z2K_PLATFORM_STATUS"
-# без marker — не installed (честно), с marker — installed.
+# Без canonical release state — не installed (честно), с ним — installed.
 is_installed >/dev/null 2>&1 && _t_bad "healthy без marker: installed" || _t_ok
-: > "$Z2K_ETC/.payload-initialized"
+mkdir -p "$Z2K_ETC/state"
+printf 'tag=p-86.11\nseq=134\n' > "$Z2K_ETC/state/installed-release"
 is_installed >/dev/null 2>&1 && _t_ok || _t_bad "healthy с marker: не installed"
 
 # --- 3. N: running=true + ready absent = degraded ---

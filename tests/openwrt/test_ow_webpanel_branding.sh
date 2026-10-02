@@ -1,5 +1,5 @@
 #!/bin/sh
-# OpenWrt webpanel brand profile: backend contract, package ownership and local assets.
+# OpenWrt webpanel brand profile: backend contract and unchanged local assets.
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-webpanel-branding"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -47,7 +47,10 @@ fi
 grep -Fq '<img id="brand-profile-logo"' "$REPO/webpanel/www/index.html" \
     && grep -Fq '<span id="brand-wordmark"' "$REPO/webpanel/www/index.html" \
     && ! grep -qE 'brand-default-logo|ANTIDPI|KEENETIC|brand-tagline' "$REPO/webpanel/www/index.html" \
-    && _t_ok || _t_bad "the shared shell has one mark, one HTML wordmark, and no legacy lockup"
+    && ! grep -Fq 'brand-logo-window' "$REPO/webpanel/www/style.css" \
+    && grep -Fq '.brand-profile-logo { display: block; width: 34px; height: 34px;' "$REPO/webpanel/www/style.css" \
+    && grep -Fq '.topbar { padding: 0 var(--space-16); gap: 12px; }' "$REPO/webpanel/www/style.css" \
+    && _t_ok || _t_bad "the existing shared brand slot and favicon remain unchanged"
 
 if node - "$REPO/platform/openwrt/webpanel-brand/profile.json" "$REPO/webpanel/www/index.html" <<'NODE'
 const fs = require("fs");
@@ -80,8 +83,7 @@ for _src in mark.svg logo.png favicon.svg theme.css profile.json; do
         && _t_ok || _t_bad "adapter APK installs $_src"
 done
 
-# Every URL in the served brand is local SVG/CSS; no executable or remote
-# payload is embedded in these package assets.
+# All identity assets remain local SVG/CSS; no extra image is shipped.
 if sed 's|http://www.w3.org/2000/svg||g' \
     "$REPO/platform/openwrt/webpanel-brand/mark.svg" \
     "$REPO/platform/openwrt/webpanel-brand/favicon.svg" \
@@ -150,46 +152,20 @@ if [ "$_common_dest" = "/usr/lib/z2k/www/js/core/identity.js" ]; then _t_ok; els
 _package_dest="$(. "$REPO/lib/release_map.sh" 2>/dev/null; Z2K_PLATFORM=openwrt z2k_install_paths platform/openwrt/webpanel-brand/mark.svg 2>/dev/null)"
 if [ -z "$_package_dest" ]; then _t_ok; else _t_bad "adapter asset stays outside common updater mapping"; fi
 
-# Model an APK upgrade over stale installed bytes and compare the resulting
-# docroot with the exact source bytes named by the Makefile.
+# Model staging a new complete release over stale docs and compare the
+# resulting docroot with each source asset.
 _stage="$(mktemp -d "${TMPDIR:-/tmp}/ow-brand.XXXXXX")" || exit 1
 mkdir -p "$_stage/usr/lib/z2k/www/assets/openwrt"
 for _asset in mark.svg logo.png favicon.svg theme.css profile.json; do
     printf 'stale package bytes\n' > "$_stage/usr/lib/z2k/www/assets/openwrt/$_asset"
-    install -m 0644 "$REPO/platform/openwrt/webpanel-brand/$_asset" \
+    cp "$REPO/platform/openwrt/webpanel-brand/$_asset" \
         "$_stage/usr/lib/z2k/www/assets/openwrt/$_asset"
     cmp -s "$REPO/platform/openwrt/webpanel-brand/$_asset" \
         "$_stage/usr/lib/z2k/www/assets/openwrt/$_asset" \
         && _t_ok || _t_bad "upgrade refreshes installed $_asset bytes"
 done
 
-if sh "$REPO/scripts/openwrt/gen-openwrt-manifest.sh" \
-    --source-manifest "$REPO/UPDATES.json" --tree "$REPO" \
-    --ref branding-ci-test --api-min 1 --allow-dirty --refresh-stale-hashes \
-    --out "$_stage/openwrt-UPDATES.json" >"$_stage/manifest.log" 2>&1; then
-    if python3 - "$REPO" "$_stage/openwrt-UPDATES.json" <<'PY'
-import hashlib
-import json
-import pathlib
-import sys
-
-root = pathlib.Path(sys.argv[1])
-manifest = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
-source = "webpanel/www/js/core/identity.js"
-if manifest["install_map"].get(source) != ["/usr/lib/z2k/www/js/core/identity.js"]:
-    sys.exit(1)
-expected = hashlib.sha256((root / source).read_bytes()).hexdigest()
-if manifest["files_sha256"].get(source) != expected:
-    sys.exit(1)
-PY
-    then
-        _t_ok
-    else
-        _t_bad "candidate update snapshot delivers identity.js with exact source bytes"
-    fi
-else
-    _t_bad "OpenWrt candidate update snapshot generates"
-fi
+assert_not_contains "single controlled manifest has no component install map" "$REPO/UPDATES.json" '"install_map"'
 
 rm -rf "$_stage"
 

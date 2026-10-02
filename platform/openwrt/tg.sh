@@ -42,7 +42,15 @@ Z2K_TG_CHAIN_OUTF="${Z2K_TG_CHAIN_OUTF:-z2k_tg_flt_out}"
 # INPUT-guard против прямого WAN-доступа к wildcard-портам (см. ниже).
 Z2K_TG_CHAIN_IN="${Z2K_TG_CHAIN_IN:-z2k_tg_flt_in}"
 
-Z2K_TG_BIN="${Z2K_TG_BIN:-${Z2K_BIN:-/usr/lib/z2k/bin}/tg-mtproxy-client}"
+if [ -z "${Z2K_TG_BIN:-}" ]; then
+    _z2k_tg_adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
+    if [ -r "$_z2k_tg_adapter/arch.sh" ]; then
+        . "$_z2k_tg_adapter/arch.sh"
+        Z2K_TG_BIN="$(z2k_ow_tg_bin_path "${Z2K_BIN:-/usr/lib/z2k/bin}" 2>/dev/null)" || Z2K_TG_BIN=""
+    fi
+    Z2K_TG_BIN="${Z2K_TG_BIN:-${Z2K_BIN:-/usr/lib/z2k/bin}/tg-mtproxy-client}"
+fi
+Z2K_RELAY_ID_FILE="${Z2K_RELAY_ID_FILE:-${Z2K_STATE:-/etc/z2k/state}/relay-id.json}"
 Z2K_TG_PIDFILE="${Z2K_TG_PIDFILE:-${Z2K_RUN:-/tmp/z2k/runtime}/tg-tunnel.pid}"
 Z2K_TG_HEALTH_DIR="${Z2K_TG_HEALTH_DIR:-${Z2K_TMP:-/tmp/z2k}/tg-health}"
 # Корень /proc (тестам — фикстура; прод всегда настоящий /proc).
@@ -75,7 +83,7 @@ z2k_ow_tg_with_argv() {
     _rs=$(z2k_ow_tg_cfg Z2K_RELAY_SECRET "")
     _ru=$(z2k_ow_tg_cfg Z2K_RELAY_URL "")
     set -- "$Z2K_TG_BIN" "--listen=:$Z2K_TG_PORT" "--listen=:$Z2K_TG_CDN_PORT" \
-           "--timeout=$Z2K_TG_TIMEOUT"
+           "--timeout=$Z2K_TG_TIMEOUT" "--relay-id-file=$Z2K_RELAY_ID_FILE"
     [ -n "$_rs" ] && set -- "$@" "--tunnel-secret=$_rs"
     [ -n "$_ru" ] && set -- "$@" "--tunnel-url=$_ru"
     "$_cb" "$@"

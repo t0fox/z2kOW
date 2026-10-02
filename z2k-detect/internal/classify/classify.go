@@ -1028,7 +1028,7 @@ func sweepPoisons(ctx context.Context, addr string, tr Trigger, opt Options, res
 			obs := Observation{Probe: cand.name, DelayM: cand.gapMS}
 			pass := 0
 			for i := 0; i < opt.Repeats; i++ {
-				ok, err := probePoison(ctx, ip, uint16(port), tr, cand, opt.Timeout)
+				ok, err := runPoisonProbe(ctx, ip, uint16(port), tr, cand, opt)
 				res.Probes++
 				if err == nil && ok {
 					pass++
@@ -1066,7 +1066,7 @@ func sweepPoisons(ctx context.Context, addr string, tr Trigger, opt Options, res
 					pp.seqovl = len(opt.Control.Payload)
 				}
 			}
-			ok, err := probePoison(ctx, ip, uint16(port), tr, pp, opt.Timeout)
+			ok, err := runPoisonProbe(ctx, ip, uint16(port), tr, pp, opt)
 			res.Probes++
 			switch {
 			case err != nil:

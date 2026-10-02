@@ -29,6 +29,6 @@ _got="$( ( Z2K_ROOT=/r Z2K_ETC=/e Z2K_TMP=/t
     . "$REPO/lib/utils.sh" >/dev/null 2>&1
     . "$REPO/lib/auto_update.sh" >/dev/null 2>&1
     printf '%s' "$Z2K_AU_MANIFEST_URL" ) 2>/dev/null )"
-assert_eq "manifest URL из env-канала" "https://raw.githubusercontent.com/t0fox/z2kOW/z2k-enhanced-openwrt/UPDATES.json" "$_got"
+assert_eq "manifest URL из env-канала" "https://raw.githubusercontent.com/t0fox/z2kOW/main/UPDATES.json" "$_got"
 
 _t_done

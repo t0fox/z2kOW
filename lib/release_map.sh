@@ -183,20 +183,18 @@ z2k_install_paths_for() {
     esac
 }
 
-# Модель A (§4 ownership): platform helpers, init и hotplug — package-owned,
-# их ставит ТОЛЬКО opkg. Updater-маппингов для них НЕТ осознанно: иначе один
-# файл был бы и package-owned, и updater-overwritten (флаппинг при opkg
-# upgrade). Релиз, меняющий только адаптер, недоставляем патчем — ему нужен
-# FULL_INSTALL (opkg upgrade). Конфликт сторожит ownership-тест.
+# OpenWrt platform helpers, init, hotplug and panel assets are delivered by
+# the complete rootfs through install_release; the per-file updater is not an
+# OpenWrt deployment engine.
 _z2k_install_paths_openwrt() {
     local repo_path="$1" or="/usr/lib/z2k"
     case "$repo_path" in
         platform/openwrt/*|package/openwrt/*)
-            : ;; # package-owned: ставит opkg, не updater
+            : ;; # delivered only by the complete OpenWrt release payload
         lib/release_map.sh)
             : ;; # как и на keenetic: карта едет данными, а не кодом
         lib/install.sh)
-            : ;; # Keenetic installer: OpenWrt uses opkg/bootstrap, not ndmc
+            : ;; # Keenetic installer; OpenWrt uses install_release, not NDM
         lib/*)
             echo "${or}/lib/${repo_path#lib/}" ;;
         files/lua/*)
@@ -226,10 +224,8 @@ _z2k_install_paths_openwrt() {
             echo "${or}/z2k-config-validator.sh" ;;
         files/etc/*)
             echo "${or}/etc/${repo_path#files/etc/}" ;;
-        # Stage 6: webpanel common assets — UPDATER-owned и на OpenWrt
-        # (UI-правки едут подписанным апдейтером, не пакетом). Пути — §23
-        # контракта. install.sh/uninstall.sh/S96-init сюда НЕ входят:
-        # установка/сервис панели на OpenWrt — package-owned.
+        # Keenetic file-updater destinations. OpenWrt deployment bypasses
+        # this map and converges the controlled complete rootfs payload.
         webpanel/cgi/*.sh)
             echo "${or}/webpanel/cgi/${repo_path#webpanel/cgi/}" ;;
         webpanel/www/*)
@@ -244,7 +240,7 @@ _z2k_install_paths_openwrt() {
             # Keenetic-only full-cycle helpers remain gated out of OW cron.
             echo "${or}/z2k-update-lists.sh" ;;
         files/z2k-warp-list-filter.awk)
-            : ;; # OpenWrt-пакет владеет helper'ом; updater не заменяет package-owned файл
+            : ;; # OpenWrt complete payload owns this helper outside the file updater
         tests/*)
             : # как keenetic: тесты — dev/CI, на роутер не едут
             ;;

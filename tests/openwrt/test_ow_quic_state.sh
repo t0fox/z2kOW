@@ -77,7 +77,7 @@ if [ ! -f "$Z2K_QUIC_STATE_MIGRATION_MARKER" ]; then _t_ok; else _t_bad "marker 
 
 # Lifecycle source proof: migration is loaded and called after preflight but
 # before the first procd instance is opened.
-SVC="$REPO/package/openwrt/files/etc/init.d/z2k"
+SVC="$REPO/platform/openwrt/files/etc/init.d/z2k"
 assert_contains "state adapter loaded" "$SVC" 'platform/openwrt/state.sh'
 assert_contains "state migration called" "$SVC" 'z2k_ow_migrate_quic_state || return 1'
 _pre="$(grep -n 'z2k_ow_runtime_preflight' "$SVC" | head -1 | cut -d: -f1)"

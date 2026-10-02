@@ -316,7 +316,7 @@ chmod +x "$T/root/bin/z2k-warpd"
 
 printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
 
-export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
+export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp" WARP_BIN="$T/root/bin/z2k-warpd"
 export WARP_DOMAIN_RULES="$T/tmp/warp/domains.v1"
 export WARP_DOMAIN_SNAPSHOT="$T/tmp/warp/domain-pairs.v1"
 export WARP_DOMAIN_STATUS="$T/tmp/warp/domain-status.json"
@@ -394,7 +394,7 @@ _ready_fixture() {
     printf '{"id":"mock-id","addr":"172.16.9.9","addr_v4":"172.16.9.9"}\n' > "$T/etc/state/warp/device.json"
 }
 _good_stub() {
-    # Успешный fetch-стаб (register rc 0, id stub-id — как движок в проде).
+    # Bundled runtime fixture (register rc 0, id stub-id).
     cat > "$T/stub-bin" <<EOF
 #!/bin/sh
 # STUB-BINARY
@@ -443,25 +443,20 @@ _w_inv "W1"
 
 # --- W2: install: verified binary + register, НЕ стартует, флаг 0 ---
 _reset
-export WARP_FETCH_STUB="$T/stub-bin"
-# STUB — исполняемый, с register/version (fetch его ставит как бинарь,
-# затем install зовёт register уже ИЗ НЕГО — как в проде).
 _good_stub
+cp "$T/stub-bin" "$WARP_BIN"
 printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
 warp_install >/dev/null 2>&1 || _t_bad "W2: install rc"
-if grep -q 'stub-binary' "$T/root/bin/z2k-warpd"; then _t_ok; else _t_bad "W2: бинарь не встал"; fi
+"$WARP_BIN" version >/dev/null 2>&1 && _t_ok || _t_bad "W2: bundled runtime unavailable"
 assert_eq "W2: device создан" "stub-id" "$(sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$T/etc/state/warp/device.json" | head -1)"
 assert_eq "W2: device 600" "600" "$(stat -c %a "$T/etc/state/warp/device.json" 2>/dev/null || echo 600)"
 assert_eq "W2: флаг всё ещё 0" "0" "$(warp_flag)"
 assert_eq "W2: процесса нет" "0" "$(grep -c '^instance:' "$T/procd.log" 2>/dev/null || true)"
 assert_eq "W2: PBR нет" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
-unset WARP_FETCH_STUB
 _w_inv "W2"
 
 # --- W3: install failure: register мёртв -> нет enable, нет PBR, старый ключ цел ---
 _reset
-export WARP_FETCH_STUB="$T/stub-bin"
-# Свой стаб с падающим register (стаб W2 остался с rc 0 — он тут не годится).
 cat > "$T/stub-bin" <<EOF
 #!/bin/sh
 case "\$1" in
@@ -471,13 +466,14 @@ esac
 exit 0
 EOF
 chmod +x "$T/stub-bin"
+cp "$T/stub-bin" "$WARP_BIN"
 export WARP_MOCK_REGISTER_RC=1
 printf '{"id":"old-id","addr":"172.16.1.1"}\n' > "$T/etc/state/warp/device.json"
 warp_install >/dev/null 2>&1 && _t_bad "W3: install принят" || _t_ok
 assert_eq "W3: флаг 0" "0" "$(warp_flag)"
 assert_eq "W3: старый ключ цел" "old-id" "$(sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$T/etc/state/warp/device.json" | head -1)"
 assert_eq "W3: PBR нет" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
-unset WARP_FETCH_STUB WARP_MOCK_REGISTER_RC
+unset WARP_MOCK_REGISTER_RC
 _w_inv "W3"
 
 # --- W4: enable but not ready: флаг=1, процесса/instance нет PBR, direct ---
@@ -589,12 +585,11 @@ _w_inv "W9"
 # --- W10: reinstall: старый device reused, без новой identity ---
 _reset
 _good_stub
+cp "$T/stub-bin" "$WARP_BIN"
 printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
 printf '{"id":"orig-id","addr":"172.16.7.7"}\n' > "$T/etc/state/warp/device.json"
-export WARP_FETCH_STUB="$T/stub-bin"
 warp_install >/dev/null 2>&1 || _t_bad "W10: install rc"
 assert_eq "W10: device тот же" "orig-id" "$(sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$T/etc/state/warp/device.json" | head -1)"
-unset WARP_FETCH_STUB
 _w_inv "W10"
 
 # --- W11/W12: dst/src семантика ---
@@ -1119,7 +1114,7 @@ printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
 printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
 _ready_fixture
 z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W42: enable rc"
-assert_eq "W42: mark rules live" "2" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
+assert_eq "W42: mark rules live" "1" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
 z2k_ow_warp disable >/dev/null 2>&1 || _t_bad "W42: disable rc"
 assert_eq "W42: mark пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
 assert_eq "W42: mss пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_mss" 2>/dev/null || true)"
@@ -1324,7 +1319,7 @@ printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
 printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
 _ready_fixture
 z2k_ow_warp enable >/dev/null 2>&1 || _t_bad "W49: enable rc"
-assert_eq "W49: mark live" "2" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
+assert_eq "W49: mark live" "1" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
 # туннель умер (kill -9): процесса нет, статус врёт not-ready:
 printf '\n' > "$T/pidof.out"
 rm -rf "$T/proc"; mkdir -p "$T/proc"
@@ -1335,11 +1330,11 @@ assert_eq "W49: fwd пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_fwd" 2>/de
 assert_eq "W49: nat пуст" "0" "$(grep -c . "$T/nft-chain-z2k_warp_nat" 2>/dev/null || true)"
 assert_eq "W49: rule нет" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || true)"
 assert_eq "W49: route нет" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
-assert_eq "W49: MARK как desired цел" "2" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
+assert_eq "W49: MARK как desired цел" "1" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
 # recovery: демон снова жив+ready -> MARK/base converge + dynamic + PBR:
 _ready_fixture
 z2k_ow_warp check >/dev/null 2>&1
-assert_eq "W49: mark снова 2" "2" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
+assert_eq "W49: mark снова 1" "1" "$(grep -c . "$T/nft-chain-z2k_warp_mark" 2>/dev/null || true)"
 assert_eq "W49: mss снова 2" "2" "$(grep -c . "$T/nft-chain-z2k_warp_mss" 2>/dev/null || true)"
 assert_eq "W49: fwd снова 1" "1" "$(grep -c . "$T/nft-chain-z2k_warp_fwd" 2>/dev/null || true)"
 assert_eq "W49: nat снова 1" "1" "$(grep -c . "$T/nft-chain-z2k_warp_nat" 2>/dev/null || true)"

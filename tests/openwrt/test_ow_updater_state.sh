@@ -1,5 +1,5 @@
 #!/bin/sh
-# tests/openwrt/test_ow_updater_state.sh - §5-6: состояние updater без /opt.
+# tests/openwrt/test_ow_updater_state.sh - §5-6: OpenWrt updater paths and state.
 # env выставляет всё ДО source auto_update.sh (все дефолты там условные).
 # Проверяем и значения, и что Keenetic-дефолты без env не изменились.
 . "$(dirname "$0")/helper.sh"
@@ -19,7 +19,7 @@ _got="$( ( unset Z2K_AU_INSTALLED_TAG_FILE Z2K_AU_LOCK_FILE Z2K_AU_LOG_FILE Z2K_
     "$Z2K_AU_INSTALLED_TAG_FILE" "$Z2K_AU_LOCK_FILE" "$Z2K_AU_LOG_FILE" \
     "$Z2K_AU_TMP_DIR" "$Z2K_AU_TRUST_PIN" "$Z2K_AU_PUBKEY" \
     "$Z2K_AU_FAILS_FILE" "$Z2K_AU_DIRTY_TREE_FILE" ) 2>/dev/null )"
-assert_eq "state paths" "/e/state/installed-tag
+assert_eq "state paths" "/e/state/installed-release
 /t/locks/update.lock
 /t/logs/z2k-auto-update.log
 /t/update

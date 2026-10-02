@@ -67,7 +67,8 @@ printf 'ENABLED=1\n' > "$T/etc/config"
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_BIN="$T/root/bin" Z2K_RUN="$T/tmp/runtime" Z2K_LOG="$T/tmp/logs"
-export Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc"
+export Z2K_TG_BIN="$T/root/bin/tg-mtproxy-client"
+export Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc" Z2K_STATE="$T/etc/state"
 export Z2K_TG_HEALTH_DIR="$T/tmp/tg-health"
 # shellcheck disable=SC1090,SC1091
 . "$REPO/platform/openwrt/tg.sh" || { echo "FAIL[ow-tg-lifecycle]: source" >&2; exit 1; }
@@ -95,6 +96,8 @@ assert_eq "TG1: один instance" "1" "$(grep -c '^instance:z2k-tg$' "$T/procd.
 assert_contains "TG1: respawn bounded exact" "$T/procd.log" "param:respawn 3600 5 5"
 assert_contains "TG1: оба порта в command" "$T/procd.log" "--listen=:1443"
 assert_contains "TG1: cdn порт в command" "$T/procd.log" "--listen=:1444"
+assert_contains "TG1: relay identity is persistent across releases" "$T/procd.log" \
+    "--relay-id-file=$T/etc/state/relay-id.json"
 assert_eq "TG1: правил 8 (6 redirect/reject + 2 guard)" "8" "$(grep -c '^nft:add rule' "$T/nft.log")"
 assert_eq "TG1: сетов 3" "3" "$(grep -c '^nft:add element' "$T/nft.log")"
 

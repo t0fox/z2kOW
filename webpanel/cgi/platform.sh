@@ -29,6 +29,11 @@ if [ -f "$Z2K_ROOT/platform/openwrt/env.sh" ]; then
 else
     Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
 fi
+if [ -f "$Z2K_ROOT/platform/openwrt/manifest.sh" ]; then
+    . "$Z2K_ROOT/platform/openwrt/manifest.sh" 2>/dev/null || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+else
+    Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+fi
 if [ -f "$Z2K_ROOT/platform/openwrt/tg.sh" ]; then
     . "$Z2K_ROOT/platform/openwrt/tg.sh" 2>/dev/null || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
 else
@@ -64,13 +69,12 @@ STATE_FILE="${STATE_FILE:-$Z2K_STATE/state.tsv}"
 DNS_CHECK_SCRIPT="${DNS_CHECK_SCRIPT:-$Z2K_ROOT/z2k-dns-check.sh}"
 DNS_CHECK_OWN="${DNS_CHECK_OWN:-$Z2K_USER_LISTS/dns-check.txt}"
 Z2K_DETECT_BIN="${Z2K_DETECT_BIN:-$Z2K_BIN/z2k-detect}"
-AU_TAG_FILE="${AU_TAG_FILE:-$Z2K_STATE/installed-tag}"
+AU_TAG_FILE="${AU_TAG_FILE:-$Z2K_OW_INSTALLED_RELEASE_FILE}"
 AU_SCRIPT="${AU_SCRIPT:-$Z2K_ROOT/platform/openwrt/update.sh}"
 DEBUG_FLAG_FILE="${DEBUG_FLAG_FILE:-${Z2K_TMP}/debug.flag}"
 AUTOHOSTLIST_DOMAINS_FILE="${AUTOHOSTLIST_DOMAINS_FILE:-$Z2K_STATE/autohostlist-domains.txt}"
 Z2K_PANEL_CONFIG="${Z2K_PANEL_CONFIG:-$Z2K_CONFIG}"
 Z2K_PANEL_DIR="${Z2K_PANEL_DIR:-$Z2K_ETC/webpanel}"
-Z2K_PAYLOAD_MARKER="${Z2K_PAYLOAD_MARKER:-$Z2K_ETC/.payload-initialized}"
 Z2K_AU_MANIFEST_URL="${Z2K_AU_MANIFEST_URL:-$Z2K_AU_REPO_RAW/UPDATES.json}"
 AU_MANIFEST_CACHE="${AU_MANIFEST_CACHE:-$Z2K_TMP/dashboard-UPDATES.json}"
 Z2K_INIT="${Z2K_INIT:-/etc/init.d/z2k}"
@@ -78,7 +82,7 @@ INIT_SCRIPT="${INIT_SCRIPT:-${Z2K_INIT:-/etc/init.d/z2k}}"
 export CONFIG_FILE WHITELIST_FILE EXTRA_DOMAINS_FILE EXCLUDE_FILE \
     CUSTOM_STRAT_DIR WARP_SCRIPT WARP_LISTS_DIR WARP_GAMES_DIR WARP_DEVICE \
     WARP_INIT STATE_FILE DNS_CHECK_SCRIPT DNS_CHECK_OWN Z2K_DETECT_BIN \
-    AU_TAG_FILE AU_SCRIPT Z2K_PANEL_CONFIG Z2K_PANEL_DIR Z2K_PAYLOAD_MARKER \
+    AU_TAG_FILE AU_SCRIPT Z2K_PANEL_CONFIG Z2K_PANEL_DIR \
     Z2K_AU_MANIFEST_URL AU_MANIFEST_CACHE Z2K_INIT INIT_SCRIPT DEBUG_FLAG_FILE \
     AUTOHOSTLIST_DOMAINS_FILE
 
@@ -101,15 +105,13 @@ if [ -f "$Z2K_ROOT/platform/openwrt/schedule.sh" ]; then
 fi
 export Z2K_PLATFORM_STATUS
 
-# Panel status combines canonical core-ready, custom.d capability and payload contract.
+# Panel status combines core readiness, custom.d capability, and installed tree.
 wp_capabilities_json() {
     local _ready=false _degraded=false _running=false _payload_compatible=true _customd=false _offload=false
     is_running >/dev/null 2>&1 && _running=true
     command -v z2k_ow_core_ready >/dev/null 2>&1 && z2k_ow_core_ready >/dev/null 2>&1 && _ready=true
     if [ "$Z2K_PLATFORM_STATUS" = "ok" ] && command -v z2k_ow_panel_payload_compatible >/dev/null 2>&1; then
         z2k_ow_panel_payload_compatible || _payload_compatible=false
-    elif [ "$Z2K_PLATFORM_STATUS" = "ok" ] && [ -f "$Z2K_PAYLOAD_MARKER" ]; then
-        _payload_compatible=false
     fi
     [ "$_payload_compatible" = "true" ] || { _ready=false; _degraded=true; }
     { [ "$_running" = "true" ] && [ "$_ready" = "false" ]; } && _degraded=true
@@ -127,7 +129,7 @@ is_running() {
 }
 
 is_installed() {
-    [ -f "${Z2K_PAYLOAD_MARKER:-/etc/z2k/.payload-initialized}" ]
+    [ -s "${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}" ]
 }
 
 tunnel_enable() {

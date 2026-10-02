@@ -117,18 +117,20 @@ else
     no "CI читает build-matrix.tsv" "ссылка на файл" "у CI собственный список"
 fi
 
-# --- 6. Frozen Keenetic WARP blobs stay pinned while the OpenWrt runtime is
-# compiled from the p-85.16 repository source in the SDK package job ---------
-if grep -Fq 'git diff --exit-code r-85.12 -- z2k-warpd/builds' "$CI" \
-   && grep -Fq 'sh scripts/openwrt/verify-upstream-tags.sh' "$CI" \
-   && grep -Fq 'go test -tags openwrt -overlay openwrt-overlay/overlay.json ./...' "$ROOT/package/z2k-warp-runtime/Makefile" \
-   && grep -Fq 'go build -tags openwrt -overlay openwrt-overlay/overlay.json' "$ROOT/package/z2k-warp-runtime/Makefile" \
-   && grep -Fq 'main.version=p-85.16-openwrt' "$ROOT/package/z2k-warp-runtime/Makefile" \
-   && grep -Fq 'z2k-warp-runtime' "$CI"; then
-    ok "CI pins signed Keenetic WARP blobs to r-85.12 and builds OpenWrt p-85.16 source through the SDK package"
+# --- 6. One CI candidate builds and verifies the complete OpenWrt payload -----
+RELEASE="$ROOT/.github/workflows/release-openwrt.yml"
+BUILDER="$ROOT/scripts/openwrt/build-release.sh"
+STAGER="$ROOT/scripts/openwrt/stage-rootfs.sh"
+if grep -Fq 'sh scripts/openwrt/build-release.sh --out' "$RELEASE" \
+   && grep -Fq 'Run OpenWrt regression suite' "$RELEASE" \
+   && grep -Fq 'stage-rootfs.sh' "$BUILDER" \
+   && grep -Fq 'fetch_upstream_tg.py' "$BUILDER" \
+   && grep -Fq 'RT_DIR' "$STAGER" \
+   && grep -Fq 'DETECT_DIR' "$STAGER"; then
+    ok "CI builds one complete OpenWrt release payload after regression checks"
 else
-    no "CI pins signed Keenetic WARP blobs and builds OpenWrt p-85.16 source through the SDK package" \
-       "r-85.12 blob guard plus repository-source test/build in the OpenWrt runtime package" "contract missing"
+    no "CI builds one complete OpenWrt release payload after regression checks" \
+       "release workflow, pinned TG binaries, RT/detector and rootfs staging" "contract missing"
 fi
 
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"

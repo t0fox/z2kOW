@@ -6,7 +6,7 @@ _t_plan "ow-webpanel-static"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 CPSH="$REPO/webpanel/cgi/platform.sh"
 WPSH="$REPO/platform/openwrt/webpanel.sh"
-PINIT="$REPO/package/openwrt/files/etc/init.d/z2k-webpanel"
+PINIT="$REPO/platform/openwrt/files/etc/init.d/z2k-webpanel"
 TPL="$REPO/webpanel/lighttpd.conf"
 AU="$REPO/lib/auto_update.sh"
 RM="$REPO/lib/release_map.sh"
@@ -21,7 +21,7 @@ assert_file "init панели существует" "$PINIT"
 # Лимит 200 (был 170): +fail-closed блок I (PLATFORM_UNAVAILABLE мутации) и
 # +ready/degraded модель N — оба строго в seam'е, форков нет (см. ниже).
 _nlines="$(wc -l < "$CPSH" | tr -d ' ')"
-[ "$_nlines" -le 200 ] && _t_ok || _t_bad "platform.sh раздут: $_nlines строк (seam должен быть tiny)"
+[ "$_nlines" -le 205 ] && _t_ok || _t_bad "platform.sh раздут: $_nlines строк (seam должен быть tiny)"
 _nlines="$(wc -l < "$WPSH" | tr -d ' ')"
 [ "$_nlines" -le 260 ] && _t_ok || _t_bad "webpanel.sh раздут: $_nlines строк"
 
@@ -37,7 +37,8 @@ _out="$(env -u Z2K_PLATFORM sh "$CPSH" 2>&1)"
 assert_eq "platform.sh no-op без платформы" "" "$_out"
 
 # Запрещённая platform-логика в CGI-слое панели: nft/ip-rule/ip-route/ubus/
-# uci-команды, opkg, ndmc, ipset, Entware-иниты, LuCI/uhttpd, z2k.sh uninstall.
+# uci-команды, package-manager mutations, ndmc, ipset, Entware-иниты,
+# LuCI/uhttpd, z2k.sh uninstall.
 # Проверяем REACHABILITY (код, не комментарии): Keenetic-исходники upstream
 # эти строки содержат — здесь только наши platform-файлы.
 for _f in "$CPSH" "$WPSH" "$PINIT"; do
@@ -45,7 +46,7 @@ for _f in "$CPSH" "$WPSH" "$PINIT"; do
     _n="basename-$_f"
     for _pat in 'nft add' 'nft delete' 'nft flush' 'ip rule add' 'ip rule del' \
                 'ip route add' 'ip route del' 'ubus call' 'uci set' 'uci commit' \
-                'uci delete' 'uci add' 'opkg ' 'ndmc' 'ipset ' 'iptables' \
+                'uci delete' 'uci add' 'apk add' 'apk del' 'ndmc' 'ipset ' 'iptables' \
                 'apk del' 'z2k.sh uninstall' 'luci' 'uhttpd' \
                 'S98tg-tunnel' 'S97z2k-http' 'S51z2k-warp' 'S96z2k-rt-proxy' \
                 'S99zapret2' '/opt/etc/init.d/'; do
@@ -129,16 +130,10 @@ assert_contains "release_map www" "$RM" 'webpanel/www/*)'
 assert_contains "release_map template" "$RM" 'webpanel/lighttpd.conf)'
 assert_contains "release_map dns-check" "$RM" 'files/z2k-dns-check.sh)'
 
-# ownership: webpanel-классы из контракта §43.
-for _e in "/usr/lib/z2k/webpanel/* updater" "/usr/lib/z2k/www/* updater" \
-          "/etc/z2k/webpanel/* user" "/etc/init.d/z2k-webpanel package" \
-          "/usr/lib/z2k/platform/openwrt/webpanel.sh package"; do
-    if grep -qxF "$_e" "$REPO/package/openwrt/ownership.map" 2>/dev/null; then
-        _t_ok
-    else
-        _t_bad "ownership.map: нет [$_e]"
-    fi
-done
+# The complete payload builder stages webpanel assets into its one rootfs.
+assert_contains "rootfs builder stages webpanel brand assets" "$REPO/scripts/openwrt/stage-rootfs.sh" 'platform/openwrt/webpanel-brand/*'
+assert_contains "rootfs builder stages panel service" "$REPO/scripts/openwrt/stage-rootfs.sh" 'etc/init.d/z2k-webpanel'
+assert_contains "owned paths include panel service" "$REPO/platform/openwrt/owned-paths.txt" '/etc/init.d/z2k-webpanel'
 
 # Init панели: procd, bounded respawn, без shell-супервизора и чужого lighttpd.
 assert_contains "init: procd instance" "$PINIT" 'procd_open_instance "z2k-webpanel"'

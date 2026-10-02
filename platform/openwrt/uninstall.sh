@@ -1,10 +1,9 @@
 #!/bin/sh
-# platform/openwrt/uninstall.sh - prerm-логика пакетным удалением (S9).
-# Вынесена в функцию, чтобы lifecycle-тесты вызывали ТОТ ЖЕ код, что postinst-
-# окружение (Makefile prerm — тонкая обёртка). Никогда не валит удаление.
+# platform/openwrt/uninstall.sh - removal logic for the complete release.
+# Lifecycle tests call this same implementation directly.
 
 # z2k_ow_uninstall — остановить, снять свою cron-строку, погасить сервис,
-# снести payload-дерево целиком (updater-извлечённые файлы opkg не знает)
+# снести payload-дерево целиком (release owns this complete product tree)
 # и runtime-/tmp. Убрать ACTIVE installation metadata (marker + tag + dirty +
 # fails): после удаления payload они утверждали бы ложь (I1/I2). Сохранить:
 # /etc/z2k/config, user-lists/*, daemon-state (state.tsv/discovered/tcp16),

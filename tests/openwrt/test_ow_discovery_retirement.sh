@@ -6,28 +6,25 @@
 _t_plan "ow-discovery-retirement"
 ow_fixture_init || { echo "FAIL[ow-discovery-retirement]: fixture" >&2; exit 1; }
 trap ow_fixture_done EXIT INT TERM
+printf 'target\n' > "$T/symlink-target"
+if ! ln -s "$T/symlink-target" "$T/symlink-probe" 2>/dev/null || [ ! -L "$T/symlink-probe" ]; then
+    echo "SKIP[ow-discovery-retirement]: host cannot create the legacy symlink fixture"
+    exit 0
+fi
 
 AD="$REPO/platform/openwrt"
 . "$AD/paths.sh"
 . "$AD/env.sh"
 . "$AD/bootstrap.sh"
 
-assert_not_contains "package no longer installs discovery init" \
-    "$REPO/package/openwrt/Makefile" 'files/etc/init.d/z2k-detect'
-assert_not_contains "package no longer enables discovery init" \
-    "$REPO/package/openwrt/Makefile" '/etc/init.d/z2k-detect enable'
-assert_not_contains "OpenWrt package has no discovery init" \
-    "$REPO/package/openwrt/ownership.map" '/etc/init.d/z2k-detect package'
+assert_not_contains "complete release does not install discovery init" \
+    "$REPO/scripts/openwrt/stage-rootfs.sh" 'etc/init.d/z2k-detect'
+assert_contains "full payload ships detector as an on-demand executable" \
+    "$REPO/scripts/openwrt/stage-rootfs.sh" 'usr/lib/z2k/bin/z2k-detect 0755'
 assert_not_contains "scheduler has no discovery watchdog" \
     "$REPO/files/z2k-scheduler.sh" 'detect-watchdog'
-_POSTINST_SEED="$(grep -n 'z2k_ow_seed_ensure || exit 1' "$REPO/package/openwrt/Makefile" | sed 's/:.*//')"
-_POSTINST_RETIRE="$(grep -n 'z2k_ow_retire_discovery || exit 1' "$REPO/package/openwrt/Makefile" | sed 's/:.*//')"
-if [ -n "$_POSTINST_SEED" ] && [ -n "$_POSTINST_RETIRE" ] \
-   && [ "$_POSTINST_RETIRE" -gt "$_POSTINST_SEED" ]; then
-    _t_ok
-else
-    _t_bad "postinst retires legacy init only after payload seed"
-fi
+assert_contains "bootstrap retires discovery before starting the new service" \
+    "$REPO/platform/openwrt/bootstrap.sh" 'z2k_ow_retire_discovery || return 1'
 
 # The migration is allowed to operate on the package-owned OpenWrt paths only.
 export Z2K_OW_LEGACY_DETECT_INIT="$T/etc/init.d/z2k-detect"
@@ -62,6 +59,7 @@ assert_eq "foreign init preserved" "1" "$(test -f "$T/foreign/etc/init.d/S98z2k-
 # A name match alone is not ownership evidence: preserve and do not execute an
 # unrecognized service at the legacy path.
 printf 'user-preserved\n' > "$Z2K_STATE/discovered-domains.txt"
+rm -f "$Z2K_LISTS_DIR/discovered-domains.txt"
 ln -s "$Z2K_STATE/discovered-domains.txt" "$Z2K_LISTS_DIR/discovered-domains.txt"
 printf '#!/bin/sh\n# copied marker: # /etc/init.d/z2k-detect - reactive DPI-discovery daemon (parity S98z2k-detect).\n# copied marker: # PACKAGE-owned.\nSTART=98 # not an exact signature\necho invoked > %s\n' "$T/unrecognized-init-invoked" > "$Z2K_OW_LEGACY_DETECT_INIT"
 chmod +x "$Z2K_OW_LEGACY_DETECT_INIT"

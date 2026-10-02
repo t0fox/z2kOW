@@ -29,8 +29,8 @@ export async function refreshUpdateBanner(opts = {}) {
   const auEnabled = !d || d.au_enabled !== "0";
   const auHour = /^([01][0-9]|2[0-3])$/.test(String((d && d.au_hour) || "")) ? d.au_hour : "02";
   const auNote = auEnabled
-    ? ` · <a class="upd-au-link" href="#/toggles">автообновление движка zapret2 в ${auHour}:00</a>`
-    : ` · <a class="upd-au-link" href="#/toggles">автообновление движка zapret2 выключено</a>`;
+    ? ` · <a class="upd-au-link" href="#/toggles">автообновление z2k в ${auHour}:00</a>`
+    : ` · <a class="upd-au-link" href="#/toggles">автообновление z2k выключено</a>`;
   // Манифест мог не скачаться (нет интернета, GH лежит) — тогда бекенд
   // отдаёт пустое available. Неизвестно ≠ «последняя версия»: утверждать
   // второе на основании отсутствия данных нельзя.
@@ -57,8 +57,8 @@ export async function refreshUpdateBanner(opts = {}) {
     banner.className = "update-banner";
     banner.innerHTML = `
       <div class="update-banner-text">
-        <strong>Обновление движка zapret2 до ${escapeHtml(activeJob.target)} в процессе</strong>
-        <span class="update-banner-meta">фоновое обновление payload, клик для просмотра лога</span>
+        <strong>Обновление z2k до ${escapeHtml(activeJob.target)} в процессе</strong>
+        <span class="update-banner-meta">клик для просмотра журнала</span>
       </div>
       <div class="update-banner-actions">
         <button class="btn btn-primary" id="upd-resume">Показать лог</button>
@@ -89,7 +89,7 @@ export async function refreshUpdateBanner(opts = {}) {
     banner.className = "update-banner";
     banner.innerHTML = `
       <div class="update-banner-text">
-        <strong>Не удалось проверить обновления движка zapret2</strong>
+        <strong>Не удалось проверить обновления z2k</strong>
         <span class="update-banner-meta">${known}${why} · последняя удачная проверка ${ago}</span>
       </div>
       <div class="update-banner-actions">
@@ -107,7 +107,7 @@ export async function refreshUpdateBanner(opts = {}) {
     banner.className = "update-banner";
     banner.innerHTML = `
       <div class="update-banner-text">
-        <strong>Обновления движка zapret2 не проверяются</strong>
+        <strong>Обновления z2k не проверяются</strong>
         <span class="update-banner-meta">установлен движок ${escapeHtml(installed)} · список версий не удаётся скачать уже ${escapeHtml(staleFor)} · показано по устаревшим данным</span>
       </div>
       <div class="update-banner-actions">
@@ -120,7 +120,7 @@ export async function refreshUpdateBanner(opts = {}) {
     banner.className = "update-banner update-banner-ok";
     banner.innerHTML = `
       <div class="update-banner-text">
-        <strong>Движок zapret2 ${escapeHtml(installed)} актуален</strong>
+        <strong>z2k ${escapeHtml(installed)} актуален</strong>
         <span class="update-banner-meta">проверено ${ago}${auNote}</span>
       </div>
       <div class="update-banner-actions">
@@ -155,7 +155,7 @@ export async function refreshUpdateBanner(opts = {}) {
 }
 
 async function applyUpdateFlow(target) {
-  const msg = `Применить обновление движка zapret2 до ${target}?\n\n` +
+  const msg = `Установить z2k ${target}?\n\n` +
               `Сервис nfqws2 перезапустится. Связь с веб-панелью может ` +
               `пропасть на 5–15 секунд во время рестарта lighttpd — это нормально, ` +
               `обнови страницу если зависнет.`;
@@ -178,7 +178,7 @@ async function applyUpdateFlow(target) {
 }
 
 function openApplyModal(jobId, target) {
-  openJobModal("Обновление движка zapret2 до " + target, jobId, {
+  openJobModal("Обновление z2k до " + target, jobId, {
     warning: "Можно скрыть — обновление продолжит идти в фоне. При reinstall'е возможен короткий обрыв соединения с панелью — опрос лога продолжится автоматически.",
     tolerateOutage: true,
     onDone: () => {

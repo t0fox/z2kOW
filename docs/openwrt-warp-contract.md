@@ -2,7 +2,7 @@
 
 Источник истины — текущий upstream `necronicle/z2k` (`z2k-enhanced`),
 НЕ память и НЕ usque-архитектура. Foundation FROZEN; порт только в
-`platform/openwrt/*`, `package/openwrt/*`, `tests/openwrt/*`, `docs/*`
+`platform/openwrt/*`, `scripts/openwrt/stage-rootfs.sh`, `tests/openwrt/*`, `docs/*`
 (+ точечный COMMON_HOOK §27 и Go platform seam §4).
 
 ## 1. Upstream: цепочка и состояния
