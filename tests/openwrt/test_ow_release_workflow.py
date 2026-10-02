@@ -82,12 +82,39 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("gh release upload", workflow)
         self.assertIn("gh release edit", workflow)
         self.assertIn("raw.githubusercontent.com/$GITHUB_REPOSITORY/main", workflow)
-        self.assertIn('repos/$GITHUB_REPOSITORY/immutable-releases', workflow)
-        self.assertIn("--jq '.enabled'", workflow)
+        self.assertIn("scripts/openwrt/check_immutable_releases.py", workflow)
         self.assertIn("git add -- UPDATES.json UPDATES.json.sig", workflow)
         self.assertIn('git config user.name "t0fox"', workflow)
         self.assertIn('git config user.email "t0fox@yandex.ru"', workflow)
         self.assertNotRegex(workflow, r"(?i)z2k-(?:adapter|webpanel|zapret2-runtime|warp-runtime).*\.apk")
+
+    def test_immutable_gate_uses_a_dedicated_read_token_and_preserves_api_errors(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        publish = workflow.split("  publish-release:", 1)[1]
+
+        self.assertIn("Z2KOW_IMMUTABILITY_TOKEN", publish)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", publish)
+        self.assertIn("Z2KOW_IMMUTABILITY_TOKEN: ${{ secrets.Z2KOW_IMMUTABILITY_TOKEN }}", publish)
+        self.assertIn("scripts/openwrt/check_immutable_releases.py", publish)
+        self.assertIn("actions: read", publish)
+        self.assertIn("contents: write", publish)
+        self.assertNotRegex(publish, r"(?im)^\s+administration:\s*(?:write|read)")
+        self.assertNotIn("2>/dev/null || printf 'false'", publish)
+        self.assertNotIn("--jq '.enabled'", publish)
+
+    def test_publish_can_reuse_the_previously_approved_candidate_without_rerunning_ci(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        ci = workflow.split("  ci:", 1)[1].split("  prepare-release:", 1)[0]
+        prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
+        publish = workflow.split("  publish-release:", 1)[1]
+
+        self.assertIn("retry-publish", workflow)
+        self.assertIn("candidate_run_id", workflow)
+        self.assertIn("inputs.candidate_run_id", ci)
+        self.assertIn("inputs.candidate_run_id", prepare)
+        self.assertIn("always()", publish)
+        self.assertIn("run-id:", publish)
+        self.assertIn("actions/runs/$CANDIDATE_RUN_ID/jobs", publish)
 
 
 if __name__ == "__main__":
