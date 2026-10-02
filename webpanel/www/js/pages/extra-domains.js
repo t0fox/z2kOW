@@ -65,7 +65,7 @@ async function loadAutohostlistDomains() {
     const d = await apiGet("/autohostlist-domains");
     if (_stale("autohostDomains", seq)) return;
     if (!d.domains.length) {
-      list.innerHTML = `<li style="color:var(--text-muted)">(пока ничего не найдено)</li>`;
+      list.innerHTML = `<li class="wl-empty">(пока ничего не найдено)</li>`;
       return;
     }
     list.innerHTML = d.domains.map(dom => `

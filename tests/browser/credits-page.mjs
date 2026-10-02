@@ -77,7 +77,7 @@ try {
     }));
     assert.equal(emptyStyle.background, appearance === 'dark' ? 'rgb(24, 30, 28)' : 'rgb(234, 241, 239)',
       'the empty state uses the measured Lolz secondary surface');
-    assert.equal(emptyStyle.radius, '6px', 'the empty state uses the Lolz nested-content radius');
+    assert.equal(emptyStyle.radius, '10px', 'the empty state uses the shared Lolz control radius');
 
     const upstream = page.locator('#credits-upstream');
     assert.equal(await upstream.count(), 1, `${appearance}: separate upstream disclosure`);

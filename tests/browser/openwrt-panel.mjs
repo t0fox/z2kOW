@@ -103,19 +103,54 @@ const server = http.createServer((req, res) => {
                 : endpoint === 'policy/status'
                   ? { ok: true, enabled: false, policy: '' }
                   : endpoint === 'warp/status'
-                    ? { ok: true, enabled: '1', installed: true, ready: true, transport: 'wg', endpoint: '8.6.112.0:2408', iface: 'z2ktun0', addr: '172.16.0.2', entries: 1234, devices: 2, error: '' }
+                    ? { ok: true, enabled: '1', installed: true, ready: true, transport: 'wg', endpoint: '8.6.112.0:2408', iface: 'z2ktun0', addr: '172.16.0.2', entries: 1234, devices: 4, error: '' }
                     : endpoint === 'warp/neighbors'
-                      ? { ok: true, devices: [{ mac: 'aa:bb:cc:dd:ee:ff', ip: '192.168.1.77', label: 'PS5', net: 'Home', active: true, on: true }] }
-                      : endpoint === 'warp/games'
-                        ? { ok: true, games: [{ name: 'ApexLegends', entries: 42, on: 1 }, { name: 'Valorant', entries: 13, on: 0 }] }
-                        : endpoint === 'warp/lists'
-                          ? { ok: true, lists: [{ name: 'custom', entries: 5, size: 120, mtime: Math.floor(Date.now() / 1000) }] }
+                      ? { ok: true, devices: [
+                        { mac: 'aa:bb:cc:dd:ee:ff', ip: '192.168.1.77', label: 'PS5', net: 'Home', active: true, on: true },
+                        { mac: '11:22:33:44:55:66', ip: '192.168.1.101', label: 'Pixel 9 Pro — домашняя сеть', net: 'Home Wi-Fi', active: true, on: false },
+                        { mac: '77:88:99:aa:bb:cc', ip: '192.168.1.225', label: 'MacBook Pro рабочий', net: 'Ethernet', active: false, on: false },
+                        { mac: '00:11:22:33:44:55', ip: '192.168.1.180', label: 'Steam Deck OLED', net: 'Guest Wi-Fi', active: false, on: true },
+                      ] }
+                        : endpoint === 'warp/games'
+                          ? { ok: true, games: [
+                            { name: 'ApexLegends', entries: 42, enabled: 1 },
+                            { name: 'Valorant', entries: 13, enabled: 0 },
+                            { name: 'CounterStrike2CompetitiveCommunityServers', entries: 124, enabled: 1 },
+                            { name: 'CallOfDutyModernWarfareThreeAndWarzone', entries: 387, enabled: 0 },
+                            { name: 'WorldOfWarcraftTheWarWithinAndClassic', entries: 96, enabled: 0 },
+                          ] }
+                          : endpoint === 'warp/lists'
+                          ? { ok: true, lists: [{ name: 'custom-long-list-name-for-layout-review', entries: 5, size: 120, mtime: Math.floor(Date.now() / 1000) }] }
                           : endpoint === 'autohostlist-domains'
-                            ? { ok: true, domains: [] }
+                            ? { ok: true, domains: [
+                              'rutracker.org', 'rr1---sn-4g5e6nzz.googlevideo.com', 'cdn.long-example.invalid',
+                              'very-long-auto-discovered-domain-name-for-responsive-layout.example.net',
+                              'api.assets.example.org', 'images.cdn.example.org', 'updates.example.net',
+                            ] }
                             : endpoint === 'diag'
-                              ? { ok: true, diag: '=== что не так ===\\n  явных проблем не найдено\\n' }
-        : endpoint === 'extra-domains' || endpoint === 'whitelist'
+                              ? { ok: true, diag: [
+                                '=== Диагностика z2kOW ===',
+                                'Проверка маршрутизации и локальных сетевых служб',
+                                'Необработанная строка для проверки горизонтальной прокрутки: ' + 'abcdefghijklmnopqrstuvwxyz0123456789'.repeat(5),
+                                ...Array.from({ length: 48 }, (_, index) => `log[${String(index + 1).padStart(2, '0')}] dnsmasq[${1000 + index}]: upstream probe completed; resolver=192.0.2.${(index % 200) + 1}; elapsed=${12 + index}ms`),
+                                '=== Конец краткой сводки ===',
+                              ].join('\n') }
+        : endpoint === 'exclude'
+          ? { ok: true, entries: ['1.1.1.1', '192.0.2.10', '2001:db8:1234:5678::abcd', '203.0.113.64/27'],
+              legacy_domains: ['legacy.example.net', 'long-legacy-domain-name-for-layout-review.example.org'] }
+        : endpoint === 'whitelist'
           ? { ok: true, text: '', revision: 'fixture-r1', domains: [] }
+          : endpoint === 'extra-domains'
+            ? { ok: true, text: [
+              'example.com', 'rutracker.org', 'rr1---sn-4g5e6nzz.googlevideo.com',
+              'very-long-manually-added-domain-name-for-responsive-layout.example.net',
+              'api.assets.example.org', 'images.cdn.example.org', 'updates.example.net',
+              'subdomain.with.many.labels.for.internal.service.example.com',
+              'cdn-one.example.invalid', 'cdn-two.example.invalid', 'mirror.example.invalid',
+              'service-with-a-long-hostname.example.org', 'assets-v2.example.net',
+              'media-images-edge.example.com', 'long-name-for-table-cell-alignment.example.org',
+              'mirror-3.example.invalid',
+            ].join('\n') + '\n', revision: 'fixture-r1', domains: [] }
             : { ok: true, text: '', revision: 'fixture-r1', domains: [], rows: [], entries: [],
                 strategies: [], running: false, installed: true, platform: 'openwrt' };
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -666,6 +701,45 @@ try {
           'closing the custom select returns keyboard focus to its trigger');
         assert.equal(await page.locator('.segmented .seg-btn.seg-on').evaluate(node => getComputedStyle(node).boxShadow), 'none',
           'selected segmented controls use a flat surface');
+        const modeSwitches = await page.locator('#app .toggle-row[data-key] .switch').evaluateAll(nodes => nodes
+          .filter(node => node.getBoundingClientRect().width > 0)
+          .map(node => {
+          const track = node.getBoundingClientRect();
+          const thumb = getComputedStyle(node.querySelector('.slider'), '::before');
+          return { width: track.width, height: track.height, thumbWidth: thumb.width,
+            thumbHeight: thumb.height, checked: node.querySelector('input').checked };
+          }));
+        assert.ok(modeSwitches.length >= 8, 'the modes page exercises its full switch family');
+        assert.ok(modeSwitches.every(item => item.width === 40 && item.height === 22
+          && item.thumbWidth === '16px' && item.thumbHeight === '16px'),
+        `mode switches share one 40×22 track and 16×16 knob (${JSON.stringify(modeSwitches)})`);
+        assert.ok(modeSwitches.some(item => item.checked) && modeSwitches.some(item => !item.checked),
+          'mode switch geometry is stable in both selected states');
+      }
+      if (route === 'pick') {
+        const pickerGeometry = await page.locator('#app .pick-mode').evaluateAll(nodes => nodes.map(node => {
+          const box = node.getBoundingClientRect();
+          const radio = node.querySelector('input[type="radio"]').getBoundingClientRect();
+          return { left: box.left, top: box.top, width: box.width, height: box.height,
+            radius: getComputedStyle(node).borderRadius, radioWidth: radio.width,
+            radioHeight: radio.height, checked: node.querySelector('input').checked };
+        }));
+        assert.equal(pickerGeometry.length, 5, 'the strategy picker exposes five aligned mode cards');
+        assert.ok(pickerGeometry.every(card => card.radius === '10px'
+          && card.height >= 40 && card.radioWidth === 16 && card.radioHeight === 16),
+        `mode cards use the shared corners and radio geometry (${JSON.stringify(pickerGeometry)})`);
+        assert.ok(Math.abs(pickerGeometry[0].width - pickerGeometry[1].width) < 0.5
+          && Math.abs(pickerGeometry[2].width - pickerGeometry[3].width) < 0.5,
+        `paired mode cards share their grid widths (${JSON.stringify(pickerGeometry)})`);
+        const domainField = page.locator('#pick-domain');
+        const before = await domainField.boundingBox();
+        await page.locator('.pick-mode input[value="voice"]').check();
+        assert.equal(await domainField.isDisabled(), true, 'voice mode disables the irrelevant domain field');
+        const disabled = await domainField.boundingBox();
+        assert.deepEqual([disabled.width, disabled.height], [before.width, before.height],
+          'the domain field keeps its geometry when disabled');
+        await page.locator('.pick-mode input[value="tcp13"]').check();
+        assert.equal(await domainField.isDisabled(), false, 'a domain mode restores the field');
       }
       if (route === 'warp') {
         const fieldStyle = await page.locator('#warp-plus-key').evaluate(node => {
@@ -679,6 +753,24 @@ try {
         assert.equal(fieldStyle.background, appearance === 'dark'
           ? 'rgb(24, 30, 28)' : 'rgb(234, 241, 239)',
         'text controls use the measured dark surface or its light-theme surface');
+        await page.waitForFunction(() => document.querySelectorAll('#warp-games [data-game]').length >= 5
+          && document.querySelectorAll('#warp-neighbors > [data-mac]').length >= 3
+          && document.querySelectorAll('#warp-neighbors .warp-offline [data-mac]').length >= 1);
+        const offlineDisclosure = page.locator('#warp-neighbors .warp-offline');
+        await offlineDisclosure.locator('summary').click();
+        const switchGeometry = await page.locator('#app .switch').evaluateAll(nodes => nodes.map(node => {
+          const track = node.getBoundingClientRect();
+          const thumb = getComputedStyle(node.querySelector('.slider'), '::before');
+          return { width: track.width, height: track.height, thumbWidth: thumb.width, thumbHeight: thumb.height,
+            checked: node.querySelector('input').checked };
+        }));
+        assert.ok(switchGeometry.length >= 8, `fixture exposes WARP on/off switches (${switchGeometry.length})`);
+        assert.ok(switchGeometry.every(({ width, height, thumbWidth, thumbHeight }) =>
+          width === 40 && height === 22 && thumbWidth === '16px' && thumbHeight === '16px'),
+        `all WARP switches use one 40×22 track and 16×16 knob (${JSON.stringify(switchGeometry)})`);
+        assert.ok(switchGeometry.some(item => item.checked) && switchGeometry.some(item => !item.checked),
+          'WARP QA includes both switch states without changing track geometry');
+        await offlineDisclosure.locator('summary').click();
       }
       if (route === 'diag') {
         const editorStyle = await page.locator('#dns-own-text').evaluate(node => {
@@ -691,6 +783,53 @@ try {
         assert.equal(editorStyle.background, appearance === 'dark'
           ? 'rgb(24, 30, 28)' : 'rgb(234, 241, 239)', 'specialized text editors use the theme control surface');
         assert.equal(editorStyle.minHeight, '76px', 'the diagnostics editor retains its task-specific working area');
+        const logViewport = await page.locator('#diag-output').evaluate(node => ({
+          height: node.clientHeight, scrollHeight: node.scrollHeight,
+          overflowY: getComputedStyle(node).overflowY,
+        }));
+        assert.ok(logViewport.scrollHeight > logViewport.height && logViewport.overflowY === 'auto',
+          `long diagnostic output stays inside its own scroll container (${JSON.stringify(logViewport)})`);
+      }
+      if (route === 'exclude') {
+        await page.waitForFunction(() => document.querySelectorAll('#ex-list li button[data-del]').length >= 4);
+        const deleteColumn = await page.locator('#ex-list li button[data-del]').evaluateAll(nodes =>
+          nodes.map(node => node.getBoundingClientRect().left));
+        assert.ok(Math.max(...deleteColumn) - Math.min(...deleteColumn) < 0.5,
+          `address-list delete buttons form one vertical column (${JSON.stringify(deleteColumn)})`);
+      }
+      if (route === 'extra-domains') {
+        await page.waitForFunction(() => document.querySelectorAll('#wl-list .wl-row').length >= 8);
+        const listGeometry = await page.locator('#wl-list').evaluate(node => {
+          const actions = Array.from(node.querySelectorAll('li button[data-del]'));
+          const lefts = actions.map(action => action.getBoundingClientRect().left);
+          return { rowCount: actions.length, leftDelta: Math.max(...lefts) - Math.min(...lefts),
+            width: node.clientWidth, scrollWidth: node.scrollWidth, height: node.clientHeight,
+            scrollHeight: node.scrollHeight, maxHeight: getComputedStyle(node).maxHeight };
+        });
+        assert.equal(listGeometry.rowCount, 16, `the list fixture exercises sixteen rows (${JSON.stringify(listGeometry)})`);
+        assert.ok(listGeometry.leftDelta < 0.5, `domain delete buttons align (${JSON.stringify(listGeometry)})`);
+        assert.ok(listGeometry.scrollWidth <= listGeometry.width,
+          `long domain names stay inside the list width (${JSON.stringify(listGeometry)})`);
+        assert.ok(listGeometry.scrollHeight > listGeometry.height && listGeometry.maxHeight === '400px',
+          `long lists scroll inside their own 400 px box (${JSON.stringify(listGeometry)})`);
+      }
+      if (route === 'autohostlist') {
+        await page.waitForFunction(() => document.querySelectorAll('#ah-list li button[data-del]').length >= 7);
+        const deleteColumn = await page.locator('#ah-list li button[data-del]').evaluateAll(nodes =>
+          nodes.map(node => node.getBoundingClientRect().left));
+        assert.ok(Math.max(...deleteColumn) - Math.min(...deleteColumn) < 0.5,
+          'autohostlist delete buttons form one vertical column');
+      }
+      if (route === 'whitelist') {
+        const emptyMessage = page.locator('#app .wl-list .wl-empty').first();
+        await emptyMessage.waitFor({ state: 'visible' });
+        const emptyMessageStyle = await emptyMessage.evaluate(node => ({
+          text: node.textContent.trim(),
+          fontFamily: getComputedStyle(node).fontFamily,
+        }));
+        assert.equal(emptyMessageStyle.text, 'Список пуст. Добавьте сайт или импортируйте файл.');
+        assert.match(emptyMessageStyle.fontFamily, /^Inter, -apple-system, BlinkMacSystemFont/,
+          'user-facing empty states use the shared Lolz Inter typography');
       }
       await page.waitForFunction(() => {
         const title = document.querySelector('#app .page-title');
@@ -786,6 +925,19 @@ try {
         await page.mouse.move(1439, 899);
         await waitForNavSettled(page);
         await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-${route}.png`) });
+        if (route === 'warp') {
+          const deviceCard = page.locator('#warp-devices-card');
+          await deviceCard.scrollIntoViewIfNeeded();
+          const offlineDisclosure = page.locator('#warp-neighbors .warp-offline');
+          await offlineDisclosure.locator('summary').click();
+          await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-warp-devices.png`) });
+        }
+        if (route === 'diag') {
+          const log = page.locator('#diag-output');
+          await log.scrollIntoViewIfNeeded();
+          await log.evaluate(node => { node.scrollTop = node.scrollHeight; });
+          await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-diag-log.png`) });
+        }
         if (route === 'credits') {
           const disclosure = page.locator('#credits-upstream');
           await disclosure.locator('summary').click();
@@ -853,10 +1005,48 @@ try {
           await page.waitForFunction(() => document.querySelectorAll('.state-table tbody tr').length >= 100, null, { timeout: 2000 });
         }
         assert.equal(await page.locator('#app [data-ui-fatal]').count(), 0, `${appearance}/${width}: ${route}`);
-        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
-          `${appearance}/${width}: ${route} has no page horizontal overflow`);
+        const responsiveFrame = await page.evaluate(() => ({
+          viewport: document.documentElement.clientWidth,
+          scrollWidth: document.documentElement.scrollWidth,
+          minWidthProbe: (() => {
+            const rows = Array.from(document.querySelectorAll('#warp-games > .toggle-row'));
+            const originalValues = rows.map(row => row.style.minWidth);
+            rows.forEach(row => { row.style.minWidth = '0'; });
+            const fittedWidth = document.documentElement.scrollWidth;
+            rows.forEach((row, index) => { row.style.minWidth = originalValues[index]; });
+            return { rowCount: rows.length, fittedWidth };
+          })(),
+          overflowCandidates: Array.from(document.querySelectorAll('#app *')).map(node => {
+            const rect = node.getBoundingClientRect();
+            return { tag: node.tagName, id: node.id, className: String(node.className || ''),
+              game: node.closest('[data-game]')?.getAttribute('data-game') || '',
+              gridWidth: node.closest('.warp-games')?.getBoundingClientRect().width || 0,
+              left: Math.round(rect.left * 10) / 10, right: Math.round(rect.right * 10) / 10,
+              width: Math.round(rect.width * 10) / 10, scrollWidth: node.scrollWidth,
+              clientWidth: node.clientWidth };
+          }).filter(node => node.right > innerWidth + 1 || node.left < -1)
+            .sort((left, right) => right.right - left.right).slice(0, 8),
+        }));
+        assert.ok(responsiveFrame.scrollWidth <= responsiveFrame.viewport,
+          `${appearance}/${width}: ${route} has no page horizontal overflow (${JSON.stringify(responsiveFrame)})`);
+        if (width === 768 && route === 'warp') {
+          const warpColumns = await page.locator('#warp-games').evaluate(node => ({
+            count: getComputedStyle(node).gridTemplateColumns.trim().split(/\s+/).length,
+            names: Array.from(node.querySelectorAll('.t-name')).map(name => ({
+              overflow: getComputedStyle(name).textOverflow,
+              scrollWidth: name.scrollWidth,
+              clientWidth: name.clientWidth,
+            })),
+          }));
+          assert.equal(warpColumns.count, 2, `tablet WARP keeps its measured two-column game grid (${JSON.stringify(warpColumns)})`);
+          assert.ok(warpColumns.names.every(name => name.overflow === 'ellipsis' && name.scrollWidth >= name.clientWidth),
+            `long WARP labels truncate within their columns (${JSON.stringify(warpColumns)})`);
+        }
         if (screenshotDir && responsiveScreenshotRoutes.includes(route)
-            && ([1920, 1366, 1280].includes(width) || (appearance === 'dark' && width === 1024 && route === 'dashboard'))) {
+            && ([1920, 1366, 1280].includes(width) || (appearance === 'dark' && width === 1024 && route === 'dashboard')
+              || (width === 1079 && route === 'warp')
+              || (width === 1024 && route === 'dashboard')
+              || (width === 768 && route === 'warp'))) {
           await page.evaluate(() => window.scrollTo(0, 0));
           await page.mouse.move(width - 1, height - 1);
           await waitForNavSettled(page);
@@ -1029,6 +1219,32 @@ try {
     }
   }
   await motionPage.close();
+  if (screenshotDir) {
+    const lightMotionPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' });
+    await lightMotionPage.addInitScript(() => localStorage.setItem('z2k-theme', 'light'));
+    await lightMotionPage.goto(`${base}/#/diag`);
+    await waitForRenderedRoute(lightMotionPage, 'diag');
+    await lightMotionPage.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+    await lightMotionPage.evaluate(() => {
+      const backdrop = document.createElement('div');
+      backdrop.className = 'modal-backdrop in';
+      backdrop.dataset.qaModalScreenshot = 'true';
+      backdrop.innerHTML = '<div class="modal in"><h3>История обновлений</h3><p>Обновление проверено.</p><button class="btn btn-secondary" type="button">Закрыть</button></div>';
+      document.body.appendChild(backdrop);
+    });
+    await lightMotionPage.screenshot({ path: path.join(screenshotDir, 'light-1440-modal-open.png') });
+    await lightMotionPage.locator('[data-qa-modal-screenshot="true"]').evaluate(node => node.remove());
+    const lightPrimary = lightMotionPage.locator('#app .btn-primary:visible').first();
+    if (await lightPrimary.count()) {
+      await lightPrimary.hover();
+      await lightMotionPage.waitForFunction(() => {
+        const button = document.querySelector('#app .btn-primary:hover');
+        return button && getComputedStyle(button, '::before').opacity === '1';
+      });
+      await lightMotionPage.screenshot({ path: path.join(screenshotDir, 'light-1440-primary-button-hover.png') });
+    }
+    await lightMotionPage.close();
+  }
 
   const loginPage = await browser.newPage({ viewport: { width: 1920, height: 1080 }, colorScheme: 'dark' });
   await loginPage.route('**/cgi-bin/api/status', route => route.fulfill({
@@ -1244,6 +1460,7 @@ try {
   await mobile.waitForFunction(() => document.querySelector('#menu-backdrop').hidden, null, { timeout: 1000 });
   await mobile.waitForFunction(() => document.activeElement.id === 'menu-toggle', null, { timeout: 1000 });
   assert.equal(await mobile.evaluate(() => document.activeElement.id), 'menu-toggle', 'Escape restores focus to the drawer trigger');
+  await mobile.evaluate(() => document.activeElement.blur());
   for (const route of routes) {
     await mobile.evaluate(name => { location.hash = '#/' + name; }, route);
     await waitForRenderedRoute(mobile, route);
@@ -1291,7 +1508,8 @@ try {
       assert.ok(touchTargets.selector.height >= 44 && touchTargets.rowHeight === 66,
         `coarse-pointer selector and rows share touch geometry (${JSON.stringify(touchTargets)})`);
     }
-    if (screenshotDir && ['dashboard', 'strategies', 'warp'].includes(route)) {
+    if (screenshotDir && ['dashboard', 'strategies', 'warp', 'whitelist', 'exclude',
+      'extra-domains', 'autohostlist', 'diag'].includes(route)) {
       await mobile.evaluate(() => window.scrollTo(0, 0));
       await mobile.mouse.move(389, 843);
       await waitForNavSettled(mobile);
@@ -1335,6 +1553,7 @@ try {
   await mobile.keyboard.press('Escape');
   assert.equal(await mobile.locator('#menu-toggle').getAttribute('aria-expanded'), 'false');
   await waitForDrawerSettled(mobile, false);
+  await mobile.evaluate(() => document.activeElement.blur());
   for (const route of routes) {
     await mobile.evaluate(name => { location.hash = '#/' + name; }, route);
     await waitForRenderedRoute(mobile, route);
@@ -1368,7 +1587,8 @@ try {
       assert.ok(stateLayout.pageScrollWidth <= stateLayout.pageClientWidth,
         `390px light state: table scrolling does not create document overflow (${JSON.stringify(stateLayout)})`);
     }
-    if (screenshotDir && ['dashboard', 'strategies', 'warp', 'state'].includes(route)) {
+    if (screenshotDir && ['dashboard', 'strategies', 'warp', 'state', 'whitelist', 'exclude',
+      'extra-domains', 'autohostlist', 'diag'].includes(route)) {
       await mobile.evaluate(() => window.scrollTo(0, 0));
       await mobile.mouse.move(389, 843);
       await waitForNavSettled(mobile);

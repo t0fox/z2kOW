@@ -85,7 +85,7 @@ async function loadExclude() {
     if (_stale("exclude", seq)) return;
     const entries = d.entries || [];
     if (!entries.length) {
-      list.innerHTML = `<li style="color:var(--text-muted)">(пусто)</li>`;
+      list.innerHTML = `<li class="wl-empty">(пусто)</li>`;
     } else {
       list.innerHTML = entries.map(en => `
         <li><span>${escapeHtml(en)}</span><button class="btn-icon" title="Удалить" aria-label="Удалить ${escapeHtml(en)}" data-del="${escapeHtml(en)}">${_icons.close}</button></li>

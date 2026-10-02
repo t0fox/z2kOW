@@ -1,6 +1,6 @@
 # WebPanel visual QA
 
-Chromium QA for the OpenWrt document root. The browser test renders all 12 routes in dark and light themes and checks the compact header with one route menu, responsive layout, viewport overflow, controls, keyboard/focus behavior, reduced motion, static assets, the mobile drawer, and the unauthorized login state.
+Chromium QA for the OpenWrt document root. The browser test renders all 12 routes in dark and light themes and checks the compact header with one route menu, responsive layout, viewport overflow, controls, keyboard/focus behavior, reduced motion, static assets, the mobile drawer, and the unauthorized login state. Latest review used the real Chromium document root and fixture data with long labels, populated lists, offline WARP devices, and a long diagnostics log.
 
 ## Reviewed captures
 
@@ -15,6 +15,8 @@ Chromium QA for the OpenWrt document root. The browser test renders all 12 route
 
 The browser suite covers all configured routes in both themes. The checked-in images are selected review points; other generated captures are temporary test output.
 
+The latest screenshot run generated full-page captures for all 12 routes at 1440×900 in both themes, plus narrow 390×844 captures for the dashboard, strategies, WARP, state table, domain lists, and diagnostics. Additional captures cover 1920×1080, 1366×768, 1280×720, 1079×900, 1024×900, and 768×900; WARP device disclosure, diagnostics scrolling, open dropdown/modal, primary-button hover, and collapsed navigation were reviewed as separate states. The images use deterministic browser fixtures and do not represent a live router.
+
 ## Responsive behavior
 
 - At 1920 px, the desktop side rail is 261 px and the mobile drawer trigger is hidden. The header shows the z2kOW mark and theme control; route links appear once in the side menu.
@@ -26,6 +28,7 @@ The browser suite covers all configured routes in both themes. The checked-in im
 - At 390 px, the header keeps the drawer trigger, mark, and theme controls. The drawer enters from the left, and the strategy tab labels fit without horizontal clipping.
 - The state data grid keeps its native table header, rows, and cells at 390 px. Columns scroll inside the table wrapper without creating page-level overflow.
 - Drawer transitions complete before screenshots; the images do not capture an intermediate slide state.
+- Long WARP game names keep their switches within the existing grid/card bounds; both 2-column tablet layout and long-label ellipsis are checked. Empty list messages use the shared Inter text style rather than inheriting the monospace list-entry style.
 
 Visual review found duplicate route links in the header and a recent-routes strip above the page. Both were removed because the side menu already lists every route. Review also found clipped strategy-tab labels at 390 px; compact mobile spacing now keeps all three labels visible.
 
@@ -33,4 +36,4 @@ Visual review found duplicate route links in the header and a recent-routes stri
 
 Command: `node tests/browser/openwrt-panel.mjs`, with `PLAYWRIGHT_CHROMIUM_EXECUTABLE` set to the installed Microsoft Edge executable. Set `OPENWRT_SCREENSHOT_DIR` to capture review images.
 
-Result: **PASS** — all 12 routes rendered in dark and light themes; responsive layout, single navigation, visible strategy tabs, no-overflow, semantic state-table scrolling, contrast, focus, keyboard, reduced motion, blocked-asset behavior, unauthorized login, and ES-module loading passed. The latest run returned 54 successful module responses.
+Result: **PASS** — all 12 routes rendered in dark and light themes; responsive layout, single navigation, visible strategy tabs, no-overflow, long-list/table alignment, switch and radio geometry, contrast, focus, keyboard, reduced motion, blocked-asset behavior, unauthorized login, and ES-module loading passed. The latest run returned 60 successful module responses. The separate `node tests/browser/credits-page.mjs` run also passed in dark and light themes and retained all 27 upstream names.

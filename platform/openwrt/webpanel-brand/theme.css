@@ -762,6 +762,10 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 #app .pick-mode-name { font-weight: 500; }
 #app .pick-mode-hint { color: var(--ow-text-tertiary); }
 
+/* Long game/device names must shrink to their existing grid track so the
+   switch stays inside the card; the name itself already uses ellipsis. */
+#app .warp-games > .toggle-row { min-width: 0; }
+
 /* Switches use a full-size transparent input over their existing track. */
 #app .switch .slider {
   transition: background var(--dur-base) var(--spring-smooth),
@@ -1138,6 +1142,11 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 #app .btn-icon,
 #app .modal-close,
 #app .sheet-close { border-radius: var(--ow-radius-control); }
+#app .wl-list li.wl-empty {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.4;
+}
 
 /* Chosen single-select adapter. Geometry, palette, focus ring, popup shadow,
    and the 200 ms scale/reveal are taken from Lolz's loaded public CSS:
