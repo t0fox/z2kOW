@@ -20,10 +20,12 @@ import { initDrawer, initSidebar, initTheme } from "./js/chrome.js";
 import { navigate, refreshRouteTitle, setRouteBrandName } from "./js/router.js";
 import { apiGet } from "./js/core/api.js";
 import { applyCapabilities } from "./js/core/loadorder.js";
+import { initChosenSelects } from "./js/core/chosen-select.js";
 
 initTheme();
 initSidebar();
 initDrawer();
+initChosenSelects();
 
 window.__z2kRefreshRouteTitle = refreshRouteTitle;
 window.__z2kSetRouteBrandName = setRouteBrandName;
