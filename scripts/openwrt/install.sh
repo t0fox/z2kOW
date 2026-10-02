@@ -143,6 +143,7 @@ tar -xzf "$ARTIFACT" -C "$ENGINE" \
     usr/lib/z2k/platform/openwrt/paths.sh \
     usr/lib/z2k/platform/openwrt/env.sh \
     usr/lib/z2k/platform/openwrt/manifest.sh \
+    usr/lib/z2k/platform/openwrt/release_state.sh \
     usr/lib/z2k/platform/openwrt/release.sh \
     usr/lib/z2k/platform/openwrt/bootstrap.sh \
     usr/lib/z2k/platform/openwrt/owned-paths.txt \

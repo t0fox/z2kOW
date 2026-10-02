@@ -160,6 +160,7 @@ if (BRAND_CASE === "openwrt") {
     logo:"https://evil.example/mark.svg", favicon:"//evil.example/favicon.svg",
     theme:"/../outside.css" };
 }
+if (process.env.Z2K_TEST_UPDATE_UNKNOWN === "1") mockNode("update-banner");
 const FIXTURES = {
   // Z2K_OW_CAPS=1 — OpenWrt-форма /status (platform + capabilities) для
   // tests/openwrt/test_ow_webpanel_pages.sh: исполняет OW-ветки фронта
@@ -188,8 +189,10 @@ const FIXTURES = {
   "/warp/games": { ok:true, games:[{name:"ApexLegends",entries:42,on:1},{name:"Valorant",entries:13,on:0}] },
   "/warp/lists": { ok:true, lists:[{name:"custom",entries:5,size:120,mtime:1785830000}] },
   "/warp/list": { ok:true, name:"custom", content:"1.2.3.4\n5.6.7.8" },
-  "/update/status": { ok:true, installed:"r-71.1", available:"r-71.1", behind:0,
-    last_check:1785830000, pending:[] },
+  "/update/status": process.env.Z2K_TEST_UPDATE_UNKNOWN === "1"
+    ? { ok:true, installed:"unknown", available:"r-86.7", behind:0, last_check:1785830000, pending:[] }
+    : { ok:true, installed:"r-71.1", available:"r-71.1", behind:0,
+        last_check:1785830000, pending:[] },
   "/policy/status": { ok:true, enabled:false, policy:"" },
   "/diag": { ok:true, diag:"=== что не так ===\n  явных проблем не найдено\n" },
   "/job": { ok:true, done:true, exit:0, log:"" },
@@ -214,6 +217,11 @@ catch (e) { console.log("ЗАГРУЗКА УПАЛА: " + e.message); process.ex
     catch (e) { errors.push(r + ": " + e.message); }
     const bad = errors.slice(before);
     console.log(`  ${bad.length ? "ПАДАЕТ" : "ok    "}  #/${r}${bad.length ? "  — " + bad[0] : ""}`);
+  }
+  if (process.env.Z2K_TEST_UPDATE_UNKNOWN === "1") {
+    const banner = domById.get("update-banner").innerHTML;
+    if (banner.includes("актуален")) errors.push("unknown installed release was rendered as up to date");
+    if (!banner.includes("Не удалось проверить обновления z2k")) errors.push("unknown installed release did not render a state error");
   }
   if (BRAND_CASE) {
     const expect = (condition, label) => {

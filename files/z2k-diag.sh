@@ -267,20 +267,34 @@ print_version_host() {
     sysinfo=$(grep -iE 'system type|cpu model' /proc/cpuinfo 2>/dev/null | head -2 | paste -sd'; ' - 2>/dev/null || true)
     [ -n "$sysinfo" ] && printf 'cpu               : %s\n' "$sysinfo"
 
-    local entw
-    entw=$(get_entware_arch)
-    printf 'entware arch      : %s\n' "${entw:-unknown}"
+    if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+        local ow_release_file="${Z2K_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
+        local ow_release ow_target ow_arch
+        ow_release=${Z2K_OPENWRT_RELEASE:-$(awk -F= '$1=="DISTRIB_RELEASE" {gsub(/["\047]/, "", $2); print $2}' "$ow_release_file" 2>/dev/null)}
+        ow_target=${Z2K_OPENWRT_TARGET:-$(awk -F= '$1=="DISTRIB_TARGET" {gsub(/["\047]/, "", $2); print $2}' "$ow_release_file" 2>/dev/null)}
+        ow_arch=${Z2K_OPENWRT_ARCH:-$(opkg print-architecture 2>/dev/null | awk '$1=="arch" && $2!="all" {p=($3~/^[0-9]+$/)?$3+0:0; if(p>=max){max=p; arch=$2}} END{print arch}')}
+        [ -n "$ow_arch" ] || ow_arch=$(uname -m 2>/dev/null)
+        printf 'OpenWrt release   : %s\n' "${ow_release:-unknown}"
+        printf 'OpenWrt target    : %s\n' "${ow_target:-unknown}"
+        printf 'OpenWrt arch      : %s\n' "${ow_arch:-unknown}"
+    else
+        local entw
+        entw=$(get_entware_arch)
+        printf 'entware arch      : %s\n' "${entw:-unknown}"
+    fi
 
     # Плата по device-tree против hw_id из NDM: у настоящего Keenetic совпадают,
     # у портированной прошивки (keeneticported: Cudy, Xiaomi, Netis) образ одной
     # модели, а представляется другой. Там нет аппаратного NAT, и важен fastroute.
-    local _dt _hw
-    _dt=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null | grep -o 'KN-[0-9]*' | head -1)
-    _hw=$(LD_LIBRARY_PATH= ndmc -c "show version" 2>/dev/null | sed -n 's/^[[:space:]]*hw_id:[[:space:]]*//p' | head -1 | tr -d '\r ')
-    if [ -n "$_dt" ] && [ -n "$_hw" ] && [ "$_dt" != "$_hw" ]; then
-        printf 'прошивка          : ПОРТИРОВАННАЯ (образ %s, плата представляется %s)\n' "$_dt" "$_hw"
-    elif [ -n "$_dt" ]; then
-        printf 'прошивка          : штатная (%s)\n' "$_dt"
+    if [ "${Z2K_PLATFORM:-keenetic}" != openwrt ]; then
+        local _dt _hw
+        _dt=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null | grep -o 'KN-[0-9]*' | head -1)
+        _hw=$(LD_LIBRARY_PATH= ndmc -c "show version" 2>/dev/null | sed -n 's/^[[:space:]]*hw_id:[[:space:]]*//p' | head -1 | tr -d '\r ')
+        if [ -n "$_dt" ] && [ -n "$_hw" ] && [ "$_dt" != "$_hw" ]; then
+            printf 'прошивка          : ПОРТИРОВАННАЯ (образ %s, плата представляется %s)\n' "$_dt" "$_hw"
+        elif [ -n "$_dt" ]; then
+            printf 'прошивка          : штатная (%s)\n' "$_dt"
+        fi
     fi
     if [ -r /proc/sys/net/netfilter/nf_conntrack_fastroute ]; then
         printf 'аппаратный NAT    : %s, fastroute=%s, флаг Z2K_FASTROUTE_OFF=%s (1 = гасить fastroute там, где железа нет)\n' \
@@ -509,6 +523,10 @@ strategy_file_arms() {
 # SECTION: service state + config flags
 # =============================================================================
 print_service() {
+    if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] && z2k_diag_hook; then
+        "$Z2K_DIAG_HOOK" service
+        return $?
+    fi
     printf '\n=== service ===\n'
     local nfqws_pids
     nfqws_pids=$(pgrep -f 'nfq2/nfqws2' 2>/dev/null | tr '\n' ' ')

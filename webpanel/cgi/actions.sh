@@ -3293,9 +3293,10 @@ AU_LOG_FILE="${AU_LOG_FILE:-/opt/var/log/z2k-auto-update.log}"
 update_installed_tag() {
     # OpenWrt has exactly one installed release record. The panel reads that
     # same tag the updater commits after full-payload health checks.
-    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && command -v z2k_ow_payload_tag >/dev/null 2>&1; then
-        _payload_tag=$(z2k_ow_payload_tag 2>/dev/null || true)
-        [ -n "$_payload_tag" ] && { printf '%s' "$_payload_tag"; return 0; }
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+        command -v z2k_ow_payload_tag >/dev/null 2>&1 || return 1
+        z2k_ow_payload_tag || return 1
+        return 0
     fi
     if [ -f "$AU_TAG_FILE" ]; then
         head -1 "$AU_TAG_FILE" 2>/dev/null | tr -d ' \r\n'
@@ -3524,8 +3525,12 @@ update_manifest_current() {
 # history-order, not numeric.
 update_behind_count() {
     local installed="$1"
+    case "$installed" in ''|unknown)
+        echo "installed release version is not registered" >&2
+        return 1
+        ;;
+    esac
     [ -s "$AU_MANIFEST_CACHE" ] || { printf '0'; return; }
-    [ -z "$installed" ] || [ "$installed" = "unknown" ] && { printf '0'; return; }
     awk -v inst="$installed" '
         /"v"[[:space:]]*:[[:space:]]*"/ {
             line = $0

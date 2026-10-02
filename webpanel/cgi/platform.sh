@@ -129,7 +129,8 @@ is_running() {
 }
 
 is_installed() {
-    [ -s "${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}" ]
+    command -v z2k_ow_release_state_read >/dev/null 2>&1 || return 1
+    z2k_ow_release_state_read "${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}" >/dev/null 2>&1
 }
 
 tunnel_enable() {

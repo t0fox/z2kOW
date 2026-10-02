@@ -354,4 +354,54 @@ else
     _t_bad "retry after partial legacy retirement failed: rc=$_rc output=$_out"
 fi
 
+# A failed post-replacement health check must roll files and the prior canonical
+# release state back together; only the healthy retry may commit the target tag.
+HEALTH_SYS="$T/health-sys"
+HEALTH_STAGE="$T/health-stage"
+HEALTH_FAIL="$T/healthcheck-fails"
+mkdir -p "$HEALTH_SYS/etc/z2k/state" "$HEALTH_SYS/usr/lib/z2k" \
+    "$HEALTH_SYS/etc/init.d" "$HEALTH_SYS/usr/lib/.z2k-install"
+printf 'tag=p-86.2\nseq=127\n' > "$HEALTH_SYS/etc/z2k/state/installed-release"
+printf 'previous payload\n' > "$HEALTH_SYS/usr/lib/z2k/version.txt"
+make_artifact "$HEALTH_STAGE"
+cat > "$HEALTH_STAGE/etc/init.d/z2k" <<EOF
+#!/bin/sh
+case "\$1" in
+    restart|start|status|running) [ ! -e "$HEALTH_FAIL" ] ;;
+    *) exit 0 ;;
+esac
+EOF
+cat > "$HEALTH_STAGE/etc/init.d/z2k-webpanel" <<EOF
+#!/bin/sh
+case "\$1" in
+    restart|start|running) [ ! -e "$HEALTH_FAIL" ] ;;
+    *) exit 0 ;;
+esac
+EOF
+chmod 755 "$HEALTH_STAGE/etc/init.d/z2k" "$HEALTH_STAGE/etc/init.d/z2k-webpanel"
+mkdir -p "$T/dist"
+tar -czf "$T/dist/health-rootfs.tar.gz" -C "$HEALTH_STAGE" usr etc opt
+prepare_manifest "$T/dist/health-rootfs.tar.gz" "$T/health-UPDATES.json"
+export Z2K_OW_SYSROOT="$HEALTH_SYS" Z2K_OW_MANIFEST_PATH="$T/health-UPDATES.json"
+export Z2K_OW_ARTIFACT_PATH="$T/dist/health-rootfs.tar.gz" Z2K_OW_TEST_HEALTHCHECK=1
+touch "$HEALTH_FAIL"
+_out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -ne 0 ] \
+    && _state_is_release p-86.2 127 "$HEALTH_SYS/etc/z2k/state/installed-release" \
+    && grep -q 'previous payload' "$HEALTH_SYS/usr/lib/z2k/version.txt"; then
+    _t_ok
+else
+    _t_bad "failed health check committed release state or left target files: rc=$_rc state=$(cat "$HEALTH_SYS/etc/z2k/state/installed-release" 2>/dev/null) output=$_out"
+fi
+rm -f "$HEALTH_FAIL"
+_out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -eq 0 ] \
+    && _state_is_release "$_CURRENT_TAG" "$_CURRENT_SEQ" "$HEALTH_SYS/etc/z2k/state/installed-release" \
+    && grep -q "release tag $_CURRENT_TAG" "$HEALTH_SYS/usr/lib/z2k/version.txt"; then
+    _t_ok
+else
+    _t_bad "healthy install did not commit target state: rc=$_rc state=$(cat "$HEALTH_SYS/etc/z2k/state/installed-release" 2>/dev/null) output=$_out"
+fi
+unset Z2K_OW_SYSROOT Z2K_OW_MANIFEST_PATH Z2K_OW_ARTIFACT_PATH Z2K_OW_TEST_HEALTHCHECK
+
 _t_done

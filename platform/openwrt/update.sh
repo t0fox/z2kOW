@@ -7,6 +7,7 @@ Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
 . "$Z2K_LIB/utils.sh"
 . "$Z2K_LIB/auto_update.sh"
 . "$Z2K_ADAPTER_DIR/manifest.sh"
+. "$Z2K_ADAPTER_DIR/release_state.sh"
 . "$Z2K_ADAPTER_DIR/release.sh"
 
 ACTION="${1:-apply}"
@@ -41,19 +42,19 @@ if [ "$ACTION" = apply ] && [ ! -t 0 ] && [ "$AU_NO_JITTER" != 1 ] && [ "$AU_MAN
 fi
 
 MANIFEST="${Z2K_AU_TMP_DIR:-/tmp/z2k/update}/UPDATES.json"
-z2k_ow_manifest_prepare_production "$MANIFEST"
 STATE="$(z2k_ow_path "${Z2K_OW_INSTALLED_RELEASE_FILE:-$Z2K_STATE/installed-release}")"
+z2k_ow_release_state_read "$STATE" >/dev/null 2>&1 || {
+    echo "z2k-openwrt: $(z2k_ow_release_state_error "$STATE"); release check requires a registered installation" >&2
+    exit 1
+}
+z2k_ow_manifest_prepare_production "$MANIFEST"
 DECISION="$(z2k_ow_release_decision "$MANIFEST" "$STATE")"
 set -- $DECISION
 case "$1" in
     none) echo "Установлен актуальный выпуск: $2"; exit 0 ;;
     resync)
-        if [ "$ACTION" = apply ]; then
-            z2k_ow_release_state_write "$STATE" "$MANIFEST" \
-                || { echo "z2k-openwrt: не удалось восстановить маркер версии" >&2; exit 1; }
-        fi
-        echo "Установлен актуальный выпуск: $2"
-        exit 0
+        echo "z2k-openwrt: release metadata requires a full install_release convergence" >&2
+        exit 1
         ;;
     update)
         if [ "$ACTION" = check ]; then

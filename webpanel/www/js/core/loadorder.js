@@ -59,8 +59,12 @@ export async function refreshStatus() {
 function renderStatusGrid(s) {
   const grid = document.getElementById("status-grid");
   if (!grid) return;
+  const releaseStateError = s.installed_state === "error";
+  const releaseVersion = s.installed_release
+    ? `${s.installed_release}${s.installed_seq ? ` · seq ${s.installed_seq}` : ""}`
+    : "";
   const cells = [
-    { label: "Установлен", value: s.installed ? "Да" : "Нет", kind: s.installed ? "good" : "bad" },
+    { label: "Установлен", value: releaseStateError ? "ошибка состояния" : (s.installed ? `Да${releaseVersion ? ` · ${releaseVersion}` : ""}` : "Нет"), kind: releaseStateError ? "bad" : (s.installed ? "good" : "bad") },
     { label: "Сервис", value: fmtSvc(s.service), kind: s.service === "active" ? "good" : (s.service === "stopped" ? "warn" : "bad") },
     { label: "Туннель ТГ", value: s.tunnel?.running ? "работает" : "остановлен", kind: s.tunnel?.running ? "good" : "warn" },
     { label: "WARP", value: bool(s.toggles.game_warp), kind: s.toggles.game_warp === "1" ? "good" : "" },

@@ -5,6 +5,14 @@
 # реализаций — везде делегация замороженным адаптерам Stages 1-5.
 # Вызывается из webpanel/cgi/platform.sh (override-функции).
 # Read-only helpers for the one installed release state.
+_ow_state_lib="${Z2K_RELEASE_STATE_LIB:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/release_state.sh}"
+if [ -r "$_ow_state_lib" ]; then
+    . "$_ow_state_lib" || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+else
+    Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+fi
+unset _ow_state_lib
+
 z2k_ow_meta_value() {
     local _file="$1" _key="$2" _value
     [ -r "$_file" ] || return 1
@@ -14,13 +22,7 @@ z2k_ow_meta_value() {
 }
 
 z2k_ow_payload_tag() {
-    local _state="${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}" _tag
-    [ -r "$_state" ] || return 0
-    _tag=$(sed -n '1{s/^tag=//;p;}' "$_state" 2>/dev/null | tr -d ' \t\r\n')
-    if [ -z "$_tag" ]; then
-        _tag=$(sed -n '1p' "$_state" 2>/dev/null | tr -d ' \t\r\n')
-    fi
-    printf '%s' "$_tag"
+    z2k_ow_release_state_payload_tag "${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}"
 }
 
 wp_brand_json() { printf '"brand":{"name":"z2kOW","subtitle":"OpenWrt edition","logo":"/assets/openwrt/logo.png","favicon":"/assets/openwrt/favicon.svg","theme":"/assets/openwrt/theme.css"}'; }

@@ -10,6 +10,7 @@ trap 'rm -rf "$T"' EXIT INT TERM
 mkdir -p "$T/root/platform/openwrt" "$T/etc/z2k/webpanel" "$T/tmp/z2k/runtime" "$T/bin"
 export PATH="$T/bin:$PATH"
 cp "$REPO/platform/openwrt/webpanel.sh" "$T/root/platform/openwrt/webpanel.sh"
+cp "$REPO/platform/openwrt/release_state.sh" "$T/root/platform/openwrt/release_state.sh"
 # uci-stub: только network.lan.ipaddr (остальное — пусто/rc!=0), как настоящий.
 cat > "$T/bin/uci" <<'EOF'
 #!/bin/sh

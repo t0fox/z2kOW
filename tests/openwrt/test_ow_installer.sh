@@ -29,14 +29,15 @@ printf 'tag=%s\nseq=%s\n' "$1" 136 > "$Z2K_TEST_SYSROOT/etc/z2k/state/installed-
 ENGINE
 chmod 755 "$T/payload/usr/sbin/install_release"
 for f in utils.sh auto_update.sh; do printf '#!/bin/sh\n' > "$T/payload/usr/lib/z2k/lib/$f"; done
-for f in paths.sh env.sh manifest.sh release.sh bootstrap.sh; do
+for f in paths.sh env.sh manifest.sh release_state.sh release.sh bootstrap.sh; do
     printf '#!/bin/sh\n' > "$T/payload/usr/lib/z2k/platform/openwrt/$f"
 done
 printf '/usr/lib/z2k\n' > "$T/payload/usr/lib/z2k/platform/openwrt/owned-paths.txt"
 tar -czf "$T/openwrt-rootfs.tar.gz" -C "$T/payload" \
     usr/sbin/install_release usr/lib/z2k/lib/utils.sh usr/lib/z2k/lib/auto_update.sh \
     usr/lib/z2k/platform/openwrt/paths.sh usr/lib/z2k/platform/openwrt/env.sh \
-    usr/lib/z2k/platform/openwrt/manifest.sh usr/lib/z2k/platform/openwrt/release.sh \
+    usr/lib/z2k/platform/openwrt/manifest.sh usr/lib/z2k/platform/openwrt/release_state.sh \
+    usr/lib/z2k/platform/openwrt/release.sh \
     usr/lib/z2k/platform/openwrt/bootstrap.sh usr/lib/z2k/platform/openwrt/owned-paths.txt
 ARTIFACT_SHA="$(sha256sum "$T/openwrt-rootfs.tar.gz" | awk '{print $1}')"
 ARTIFACT_SIZE="$(wc -c < "$T/openwrt-rootfs.tar.gz" | tr -d ' \t\r\n')"

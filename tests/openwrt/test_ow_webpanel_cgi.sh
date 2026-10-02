@@ -16,7 +16,7 @@ export PATH="$T/bin:$PATH"
 export Z2K_PANEL_EXTRA_PATH="$T/bin"
 
 # --- adapter farm (настоящие файлы слоя) ---
-for _f in paths.sh env.sh arch.sh manifest.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
+for _f in paths.sh env.sh arch.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
@@ -266,6 +266,8 @@ assert_eq "status: warp true" "true" "$(_jget "$OUT" 'd["capabilities"]["warp"]'
 assert_eq "status: telegram true" "true" "$(_jget "$OUT" 'd["capabilities"]["telegram"]')"
 assert_eq "status: uninstall false" "false" "$(_jget "$OUT" 'd["capabilities"]["uninstall"]')"
 assert_eq "status: core running via init" "true" "$(_jget "$OUT" 'd["running"]')"
+assert_eq "status: running service without canonical release is not installed" "false" "$(_jget "$OUT" 'd["installed"]')"
+assert_eq "status: missing canonical release is an explicit state error" "error" "$(_jget "$OUT" 'd["installed_state"]')"
 
 # --- Stock selective FLOWOFFLOAD selector: no adapter flowtable/PPE ---
 printf 'mode=software' > "$T/body.txt"
@@ -414,6 +416,18 @@ export AU_MANIFEST_FAIL_STAMP="$T/manifest.json.fail"
 mkdir -p "$T/etc/state"
 printf 'tag=p-86.2\nseq=127\n' > "$T/etc/state/installed-release"
 export AU_TAG_FILE="$T/etc/state/installed-release"
+RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "status: canonical release state marks installed" "true" "$(_jget "$OUT" 'd["installed"]')"
+assert_eq "status: installed tag comes from canonical state" "p-86.2" "$(_jget "$OUT" 'd["installed_release"]')"
+assert_eq "status: installed seq comes from canonical state" "127" "$(_jget "$OUT" 'd["installed_seq"]')"
+_api_tag="$(_jget "$OUT" 'd["installed_release"]')"
+_api_seq="$(_jget "$OUT" 'd["installed_seq"]')"
+_cli_status="$(env Z2K_RELEASE_STATE_LIB="$REPO/platform/openwrt/release_state.sh" \
+    Z2K_OW_INSTALLED_RELEASE_FILE="$AU_TAG_FILE" Z2K_INIT="$T/mock-init" \
+    sh "$REPO/platform/openwrt/z2kow.sh" status 2>&1)"; _cli_rc=$?
+assert_eq "CLI reads the same canonical release tag as WebPanel API" "$_api_tag" "$(printf '%s\n' "$_cli_status" | sed -n 's/^installed_release=//p')"
+assert_eq "CLI reads the same canonical sequence as WebPanel API" "$_api_seq" "$(printf '%s\n' "$_cli_status" | sed -n 's/^installed_seq=//p')"
+assert_eq "CLI reads the shared API release record successfully" "0" "$_cli_rc"
 RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "update: installed payload truth" "p-86.2" "$(_jget "$OUT" 'd["installed"]')"
 assert_not_contains "update: no package/snapshot versions leak into the one release API" "$OUT" "_package"
@@ -426,6 +440,22 @@ assert_contains "update: requests controlled signature" "$T/update-fetch.log" "h
 printf '{"current":"p-86.12","history":[{"v":"p-86.12"}]}' > "$T/zapret2/UPDATES.json"
 assert_not_contains "update: newer upstream-only release stays hidden" "$OUT" "p-86.12"
 assert_eq "update: temporary etag sidecars are removed" "" "$(find "$T" -name '*.etag' -print -quit)"
+
+# An unknown/corrupt canonical record must be an explicit API error, never a zero-behind result.
+printf 'tag=unknown\nseq=127\n' > "$T/etc/state/installed-release"
+RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "status: corrupt release metadata stays uninstalled" "false" "$(_jget "$OUT" 'd["installed"]')"
+assert_eq "status: corrupt release metadata is an explicit error" "error" "$(_jget "$OUT" 'd["installed_state"]')"
+RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+printf '%s\n' "$RAW" > "$T/update-unknown.out"
+assert_eq "update: unknown installed version returns HTTP state error" "Status: 503 Service Unavailable" "$(printf '%s\n' "$RAW" | _cgi_status)"
+assert_eq "update: unknown installed version is not a successful update response" "false" "$(_jget "$OUT" 'd["ok"]')"
+assert_contains "update: unknown installed version identifies canonical state failure" "$T/update-unknown.out" "installed release metadata"
+rm -f "$T/etc/state/installed-release"
+RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "update: missing installed metadata returns HTTP state error" "Status: 503 Service Unavailable" "$(printf '%s\n' "$RAW" | _cgi_status)"
+assert_eq "update: missing installed metadata is not treated as current" "false" "$(_jget "$OUT" 'd["ok"]')"
+printf 'tag=p-86.2\nseq=127\n' > "$T/etc/state/installed-release"
 cp "$T/controlled-UPDATES.json" "$T/controlled-UPDATES.complete.json"
 python3 - "$T/controlled-UPDATES.json" <<'PY'
 import json, sys
@@ -828,7 +858,7 @@ T2="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wpfresh.XXXXXX")" || exit 1
 trap 'rm -rf "$T" "$T2"; for _j in $JOB_IDS; do rm -f "/tmp/z2k-job-$_j.log" "/tmp/z2k-job-$_j.pid" "/tmp/z2k-job-$_j.exit"; done' EXIT INT TERM
 mkdir -p "$T2/bin" "$T2/root/platform/openwrt" "$T2/root/bin" "$T2/root/lib" \
          "$T2/etc" "$T2/tmp/z2k/runtime"
-for _f in paths.sh env.sh manifest.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
+for _f in paths.sh env.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T2/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T2/root/platform/openwrt/warp-proc.sh" 2>/dev/null

@@ -33,4 +33,9 @@ for _r in $ROUTES; do
     else _t_bad "страница #/$_r под OW-caps НЕ отрисовалась"; fi
 done
 
+_unknown_out="$(Z2K_OW_CAPS=1 Z2K_TEST_UPDATE_UNKNOWN=1 node "$ROOT/tests/panel_harness.js" "$JS" dashboard 2>&1)"
+_unknown_rc=$?
+printf '%s\n' "$_unknown_out" | sed 's/^/    /'
+[ "$_unknown_rc" -eq 0 ] && _t_ok || _t_bad "unknown installed release was rendered as current"
+
 _t_done

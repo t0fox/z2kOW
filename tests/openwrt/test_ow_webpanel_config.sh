@@ -16,6 +16,7 @@ trap 'for _p in ${_srvpid:-} ${_panel_pid:-} ${_foreign_pid:-}; do [ -n "$_p" ] 
 mkdir -p "$T/etc/z2k/webpanel" "$T/tmp/z2k/runtime" "$T/root/platform/openwrt" "$T/root/www" "$T/bin"
 export PATH="$T/bin:$PATH"
 cp "$REPO/platform/openwrt/webpanel.sh" "$T/root/platform/openwrt/webpanel.sh"
+cp "$REPO/platform/openwrt/release_state.sh" "$T/root/platform/openwrt/release_state.sh"
 cat > "$T/bin/uci" <<'EOF'
 #!/bin/sh
 [ "$1 $2 $3" = "-q get network.lan.ipaddr" ] && printf '192.168.7.1'

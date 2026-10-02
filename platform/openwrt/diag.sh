@@ -116,11 +116,45 @@ print_health() {
     fi
 }
 
+print_service() {
+    local running=down ready=not-ready pid qnum
+    "$_init" running >/dev/null 2>&1 && running=running
+    pid=$(cat "${Z2K_RUN:-/tmp/z2k/runtime}/nfqws2.pid" 2>/dev/null)
+    qnum=${QNUM:-200}
+    z2k_ow_core_ready && ready=ready
+    printf '\n=== service (OpenWrt) ===\n'
+    printf 'procd service      : %s\n' "$running"
+    printf 'dataplane          : %s\n' "$ready"
+    printf 'nfqws2 PID         : %s\n' "${pid:-none}"
+    if command -v ubus >/dev/null 2>&1; then
+        printf 'ubus               : available\n'
+    else
+        printf 'ubus               : unavailable\n'
+    fi
+    if [ -x /etc/init.d/network ]; then printf 'netifd             : init script present\n'; else printf 'netifd             : init script unavailable\n'; fi
+    if command -v uci >/dev/null 2>&1; then printf 'UCI                : available\n'; else printf 'UCI                : unavailable\n'; fi
+    printf 'NFQUEUE owner      : %s\n' "$(awk -v q="$qnum" '$1==q {print $2; found=1} END {if (!found) print "absent"}' "${Z2K_NFQUEUE_PROC:-/proc/net/netfilter/nfnetlink_queue}" 2>/dev/null)"
+}
+
 print_firewall() {
-    local rules qcons chains
+    local rules qcons chains counters tg4 tg6 tgcdn persistence
     rules=$(nft list ruleset 2>/dev/null | grep -c 'queue flags bypass to 200' || true)
     qcons=$(grep -c ' 200 ' /proc/net/netfilter/nfnetlink_queue 2>/dev/null || true)
     chains=$(nft list ruleset 2>/dev/null | grep -cE 'z2k_(tg|rt|warp)_' || true)
+    counters=$(nft -a list ruleset 2>/dev/null | awk '/counter packets [0-9]+ bytes [0-9]+/ {n++} END {print n+0}')
+    tg4=missing; tg6=missing; tgcdn=missing
+    nft list set inet "${Z2K_ZAPRET_NFT_TABLE:-zapret2}" "${Z2K_TG_SET4:-z2k_tg_dc4}" >/dev/null 2>&1 && tg4=present
+    nft list set inet "${Z2K_ZAPRET_NFT_TABLE:-zapret2}" "${Z2K_TG_SET6:-z2k_tg_dc6}" >/dev/null 2>&1 && tg6=present
+    nft list set inet "${Z2K_ZAPRET_NFT_TABLE:-zapret2}" "${Z2K_TG_SETCDN:-z2k_tg_cdn4}" >/dev/null 2>&1 && tgcdn=present
+    persistence=missing
+    if [ -x "$_init" ] && [ -r "${Z2K_HOTPLUG_IFACE_FILE:-/etc/hotplug.d/iface/90-z2k}" ]; then
+        persistence=procd+netifd-hook
+    elif [ -x "$_init" ]; then
+        persistence=procd-only
+    fi
+    local fw4 tgsets
+    nft list table inet fw4 >/dev/null 2>&1 && fw4=present || fw4=missing
+    tgsets=$(nft list ruleset 2>/dev/null | grep -cE 'set z2k_tg_' || true)
     [ -n "$rules" ] || rules=0
     [ -n "$qcons" ] || qcons=0
     [ -n "$chains" ] || chains=0
@@ -128,6 +162,10 @@ print_firewall() {
     printf 'NFQUEUE queue rules: %s (expected 8)\n' "$rules"
     printf 'queue 200 consumers : %s\n' "$qcons"
     printf 'owned helper chains : %s\n' "$chains"
+    printf 'fw4 table           : %s\n' "$fw4"
+    printf 'Telegram sets       : total=%s dc4=%s dc6=%s cdn4=%s\n' "${tgsets:-0}" "$tg4" "$tg6" "$tgcdn"
+    printf 'persistence         : %s\n' "$persistence"
+    printf 'nft rule counters   : %s\n' "${counters:-0}"
     printf 'backend             : OpenWrt nftables\n'
 }
 
@@ -184,7 +222,7 @@ print_warp() {
 }
 
 print_platform() {
-    local root free
+    local root free overlay swap_total swap_free release_file release target arch
     root=${Z2K_ROOT:-}
     free=$(df -h "$root" 2>/dev/null | awk 'NR==2 {printf "%s свободно из %s (занято %s)", $4, $2, $5}')
     [ -n "$free" ] || free=неизвестно
@@ -192,9 +230,22 @@ print_platform() {
     printf 'platform           : OpenWrt\n'
     printf 'payload root       : %s\n' "$root"
     printf 'payload space      : %s\n' "$free"
+    release_file=${Z2K_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}
+    release=$(sed -n "s/^DISTRIB_RELEASE=['\"]\{0,1\}\(.*\)['\"]\{0,1\}$/\1/p" "$release_file" 2>/dev/null | head -1)
+    target=$(sed -n "s/^DISTRIB_TARGET=['\"]\{0,1\}\(.*\)['\"]\{0,1\}$/\1/p" "$release_file" 2>/dev/null | head -1)
+    arch=$(opkg print-architecture 2>/dev/null | awk '$1=="arch" && $2!="all" {p=($3~/^[0-9]+$/)?$3+0:0; if(p>=max){max=p; arch=$2}} END{print arch}')
+    [ -n "$arch" ] || arch=$(uname -m 2>/dev/null)
+    printf 'OpenWrt release   : %s\n' "${release:-unknown}"
+    printf 'OpenWrt target    : %s\n' "${target:-unknown}"
+    printf 'OpenWrt arch      : %s\n' "${arch:-unknown}"
+    overlay=$(df -h "${Z2K_OVERLAY_MOUNT:-/overlay}" 2>/dev/null | awk 'NR==2 {printf "%s free / %s (%s used)", $4,$2,$5}')
+    printf 'overlay           : %s\n' "${overlay:-unavailable}"
     if [ -r /proc/meminfo ]; then
         printf 'memory             : %s\n' "$(awk '/^MemAvailable:/{a=$2} /^MemTotal:/{t=$2} END {printf "%d МБ свободно из %d", a/1024, t/1024}' /proc/meminfo 2>/dev/null)"
     fi
+    swap_total=$(awk '/^SwapTotal:/{print $2}' /proc/meminfo 2>/dev/null)
+    swap_free=$(awk '/^SwapFree:/{print $2}' /proc/meminfo 2>/dev/null)
+    printf 'swap              : %s/%s kB used\n' "$(( ${swap_total:-0} - ${swap_free:-0} ))" "${swap_total:-0}"
     printf 'loadavg            : %s\n' "$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
 }
 
@@ -360,8 +411,10 @@ print_lists() {
 }
 
 print_netpath() {
-    local panel holders dns
-    panel=8088
+    local panel holders dns settings
+    settings=${Z2K_WEBPANEL_SETTINGS_DIR:-${Z2K_ETC:-/etc/z2k}/webpanel}
+    panel=$(tr -dc '0-9' < "$settings/port" 2>/dev/null)
+    case "$panel" in ''|*[!0-9]*) panel=${WP_PORT_DEFAULT:-8088} ;; esac
     holders=$(netstat -lntp 2>/dev/null | awk -v p=":$panel$" '$4 ~ p {print $NF; exit}')
     [ -n "$holders" ] || holders=none
     printf '\n=== network path ===\n'
@@ -377,6 +430,7 @@ print_netpath() {
 
 case "$1" in
     health) print_health ;;
+    service) print_service ;;
     firewall) print_firewall ;;
     tunnel) print_tunnel ;;
     warp) print_warp ;;

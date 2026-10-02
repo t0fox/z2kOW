@@ -34,7 +34,7 @@ export async function refreshUpdateBanner(opts = {}) {
   // Манифест мог не скачаться (нет интернета, GH лежит) — тогда бекенд
   // отдаёт пустое available. Неизвестно ≠ «последняя версия»: утверждать
   // второе на основании отсутствия данных нельзя.
-  const unknown = err !== null || available === "?" || installed === "?";
+  const unknown = err !== null || available === "?" || installed === "?" || installed === "unknown";
 
   // Случай, который до 2026-08-08 был неотличим от нормы: манифест НЕ
   // скачался, но на диске лежит протухший кэш, поэтому available непустой,
@@ -83,7 +83,10 @@ export async function refreshUpdateBanner(opts = {}) {
       </div>
     `;
   } else if (unknown) {
-    const why = err ? escapeHtml(err.message) : "список версий не скачался";
+    const why = err ? escapeHtml(err.message)
+      : installed === "unknown" || installed === "?"
+        ? "установленная версия не зарегистрирована"
+        : "список версий не скачался";
     const known = installed !== "?" ? `установлена ${escapeHtml(installed)} · ` : "";
     banner.hidden = false;
     banner.className = "update-banner";

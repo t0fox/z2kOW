@@ -15,16 +15,23 @@ z2k_ow_release_current() {
 }
 
 z2k_ow_release_state_tag() {
-    local _state="${1:-$(z2k_ow_path /etc/z2k/state/installed-release)}" _tag="" _first=""
-    if [ -r "$_state" ]; then
-        _first="$(sed -n '1p' "$_state" 2>/dev/null | tr -d '\r')"
-        case "$_first" in
-            tag=*) _tag="${_first#tag=}" ;;
-            *=*) _tag="" ;;
-            *) _tag="$_first" ;; # one-time read of the former plain-tag state
-        esac
-        _tag="$(printf '%s' "$_tag" | tr -d ' \t\r\n')"
-        [ -n "$_tag" ] && { printf '%s\n' "$_tag"; return 0; }
+    local _state="${1:-$(z2k_ow_path /etc/z2k/state/installed-release)}" _tag="" _record=""
+    . "${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/release_state.sh" || return 1
+    if [ -e "$_state" ]; then
+        _record=$(z2k_ow_release_state_read "$_state" 2>/dev/null) || {
+            # The former updater stored a single plain tag. Read that exact
+            # legacy shape only to select the one-time full migration path;
+            # malformed canonical records remain invalid and are never used
+            # as installed state by status/UI/update APIs.
+            [ "$(wc -l < "$_state" 2>/dev/null | tr -d ' \t\r\n')" = 1 ] || return 0
+            _tag=$(sed -n '1p' "$_state" | tr -d ' \t\r\n')
+            printf '%s' "$_tag" | grep -Eq '^[pr]-[0-9]+(\.[0-9]+)+$' || return 0
+            printf '%s\n' "$_tag"
+            return 0
+        }
+        _tag=$(printf '%s\n' "$_record" | sed -n 's/^tag=//p' | head -1)
+        [ -n "$_tag" ] && printf '%s\n' "$_tag"
+        return 0
     fi
     # Read the former markers only to migrate an already-installed z2kOW.
     # install_release removes these after a healthy full-payload convergence.
@@ -39,9 +46,10 @@ z2k_ow_release_state_tag() {
 }
 
 z2k_ow_release_state_seq() {
-    local _state="${1:-$(z2k_ow_path /etc/z2k/state/installed-release)}"
-    [ -r "$_state" ] || return 0
-    sed -n 's/^seq=//p' "$_state" | head -n 1 | tr -d ' \t\r\n'
+    local _state="${1:-$(z2k_ow_path /etc/z2k/state/installed-release)}" _record=""
+    . "${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/release_state.sh" || return 1
+    _record=$(z2k_ow_release_state_read "$_state" 2>/dev/null) || return 0
+    printf '%s\n' "$_record" | sed -n 's/^seq=//p' | head -1
 }
 
 z2k_ow_release_state_write() {
@@ -96,9 +104,9 @@ z2k_ow_release_decision() {
     fi
     case "$_installed" in *[!A-Za-z0-9._-]*) return 1 ;; esac
     if [ "$_installed" = "$_tag" ] && [ "$(z2k_ow_release_state_seq "$_state")" != "$_seq" ]; then
-        # Upgrade the former plain tag marker to the one canonical tag+seq
-        # record without reinstalling an already-current release.
-        printf 'resync %s\n' "$_tag"
+        # Sequence drift must pass through full convergence and health checks
+        # before the canonical state is replaced.
+        printf 'update %s\n' "$_tag"
         return 0
     fi
     command -v au_decide >/dev/null 2>&1 || {
@@ -453,6 +461,7 @@ _z2k_ow_install_release_locked() {
     _root="${Z2K_ROOT:-/usr/lib/z2k}"
     _adapter="${Z2K_ADAPTER_DIR:-$_root/platform/openwrt}"
     _lib="${Z2K_LIB:-$_root/lib}"
+    . "$_adapter/release_state.sh" || return 1
     _state="$(z2k_ow_path "${Z2K_OW_INSTALLED_RELEASE_FILE:-/etc/z2k/state/installed-release}")"
     _work="$(z2k_ow_path "${Z2K_OW_INSTALL_WORK:-/usr/lib/.z2k-install}")"
     _stage="$_work/stage"
@@ -494,12 +503,11 @@ _z2k_ow_install_release_locked() {
     }
     z2k_ow_recover_transaction "$_work" "$_state" "$_service" "$_tag" "$_panel" || return 1
     _installed="$(z2k_ow_release_state_tag "$_state")" || return 1
-    if [ "$_installed" = "$_tag" ] && ! z2k_ow_legacy_packages_present \
-        && ! z2k_ow_relay_identity_migration_needed; then
-        _seq="$(z2k_ow_json_value "$_manifest" seq)" || return 1
-        if [ "$(z2k_ow_release_state_seq "$_state")" != "$_seq" ]; then
-            z2k_ow_release_state_write "$_state" "$_manifest" || return 1
-        fi
+    _state_record="$(z2k_ow_release_state_read "$_state")" || _state_record=""
+    _seq="$(z2k_ow_json_value "$_manifest" seq)" || return 1
+    if [ -n "$_state_record" ] && [ "$_installed" = "$_tag" ] \
+        && [ "$(z2k_ow_release_state_seq "$_state")" = "$_seq" ] \
+        && ! z2k_ow_legacy_packages_present && ! z2k_ow_relay_identity_migration_needed; then
         echo "none $_tag"
         return 0
     fi
@@ -588,7 +596,7 @@ _z2k_ow_install_release_locked() {
             }
         fi
     fi
-    if [ "${Z2K_OW_TESTING:-0}" != 1 ]; then
+    if [ "${Z2K_OW_TESTING:-0}" != 1 ] || [ "${Z2K_OW_TEST_HEALTHCHECK:-0}" = 1 ]; then
         for _svc in "$_service" "$_panel"; do
             [ -x "$_svc" ] || continue
             "$_svc" enable >/dev/null 2>&1 || true

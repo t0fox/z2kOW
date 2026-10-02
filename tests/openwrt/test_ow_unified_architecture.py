@@ -143,11 +143,20 @@ class UnifiedArchitectureTests(unittest.TestCase):
         updater = (ROOT / "platform/openwrt/update.sh").read_text(encoding="utf-8")
         panel = (ROOT / "platform/openwrt/webpanel.sh").read_text(encoding="utf-8")
         cli = (ROOT / "platform/openwrt/z2kow.sh").read_text(encoding="utf-8")
+        reader = (ROOT / "platform/openwrt/release_state.sh").read_text(encoding="utf-8")
         self.assertTrue("z2k_ow_release_state_write()" in release, "installer needs one atomic state writer")
         self.assertTrue('printf \'tag=%s\\nseq=%s\\n\'' in release, "state must carry only tag and upstream seq")
-        self.assertTrue("z2k_ow_release_state_write" in updater, "resync must use the same state writer")
-        self.assertTrue("z2k_ow_payload_tag" in panel, "WebPanel must parse the canonical tag field")
-        self.assertTrue("tag=" in cli, "CLI status must parse the canonical tag field")
+        self.assertIn("z2k_ow_release_state_read", release, "installer must validate the same state format")
+        self.assertIn("z2k_ow_release_state_read \"$STATE\"", updater,
+                      "updater must refuse absent/corrupt state before comparing versions")
+        self.assertNotIn("z2k_ow_release_state_write \"$STATE\"", updater,
+                         "resync must not register an installation without full convergence")
+        self.assertIn("z2k_ow_release_state_read", reader, "canonical parser is required")
+        self.assertIn("z2k_ow_release_state_payload_tag", panel,
+                      "WebPanel update checker must read the canonical tag accessor")
+        self.assertIn("z2k_ow_release_state_read", reader,
+                      "WebPanel status and CLI must share the strict canonical parser")
+        self.assertIn("z2k_ow_release_state_read", cli, "CLI must read the same canonical record")
 
     def test_webpanel_cannot_bind_luci_ports_and_warp_scopes_selected_devices(self) -> None:
         panel = (ROOT / "platform/openwrt/webpanel.sh").read_text(encoding="utf-8")

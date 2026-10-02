@@ -35,6 +35,13 @@ fi
 
 # shellcheck source=auth.sh
 . "$SELF_DIR/auth.sh"
+# Common status projection; OpenWrt release_state.sh overrides it with the
+# same installed-release record used by its CLI and installer.
+status_installed_json() {
+    _installed=$(is_installed && echo true || echo false)
+    printf '"installed":%s' "${_installed:-false}"
+}
+update_state_error() { printf 'installed release metadata is missing or invalid'; }
 # Platform seam (Stage 6): env map ДО actions.sh (её топ-уровневые :- дефолты
 # вычисляются при сорсинге), overrides — ПОСЛЕ (иначе actions.sh перетрёт их
 # своими keenetic-определениями). На Keenetic обе строки no-op. Файл один,
@@ -278,7 +285,6 @@ case "$method $path" in
 
     # ---------- STATUS ----------
     "GET /status"|"GET /")
-        installed=$(is_installed && echo true || echo false)
         running=$(is_running   && echo true || echo false)
         svc_state=$(service_status_string)
         disable_cd=$(read_flag "DISABLE_CUSTOM" "$CONFIG_FILE" "1")
@@ -323,8 +329,9 @@ case "$method $path" in
         # (Z2K_STATS=0") отдаёт значение, которое рвёт строку JSON. Ломается при
         # этом не один тумблер: фронт не разбирает ответ целиком и весь дашборд
         # уходит в «Ошибка». Быстрый путь json_string на "0"/"1" не форкает.
-        printf '{"ok":true,"installed":%s,"running":%s,"service":' \
-            "${installed:-false}" "${running:-false}"
+        printf '{"ok":true,'
+        status_installed_json
+        printf ',"running":%s,"service":' "${running:-false}"
         json_string "${svc_state:-unknown}"
         printf ',"toggles":{"game_warp":';   json_string "${game_warp:-0}"
         printf ',"customd":';                json_string "${customd:-0}"
@@ -1639,10 +1646,13 @@ case "$method $path" in
     # ---------- UNIFIED UPSTREAM UPDATE ----------
     "GET /update/status")
         # GET → may refresh the cache opportunistically (TTL guarded).
+        if ! installed=$(update_installed_tag 2>/dev/null) \
+            || [ -z "$installed" ] || [ "$installed" = "unknown" ]; then
+            json_fail "503 Service Unavailable" "$(update_state_error)"
+        fi
         update_refresh_manifest 0 2>/dev/null || true
-        installed=$(update_installed_tag)
         available=$(update_manifest_current)
-        behind=$(update_behind_count "$installed")
+        behind=$(update_behind_count "$installed") || json_fail "503 Service Unavailable" "installed release cannot be compared with the controlled manifest"
         last_check=$(update_last_check_ts)
         fetch_failed=$(update_last_fetch_failed)
         check_age=$(update_last_check_age)
@@ -1659,10 +1669,13 @@ case "$method $path" in
         ;;
 
     "POST /update/check")
+        if ! installed=$(update_installed_tag 2>/dev/null) \
+            || [ -z "$installed" ] || [ "$installed" = "unknown" ]; then
+            json_fail "503 Service Unavailable" "$(update_state_error)"
+        fi
         update_refresh_manifest 1 2>/dev/null
-        installed=$(update_installed_tag)
         available=$(update_manifest_current)
-        behind=$(update_behind_count "$installed")
+        behind=$(update_behind_count "$installed") || json_fail "503 Service Unavailable" "installed release cannot be compared with the controlled manifest"
         last_check=$(update_last_check_ts)
         fetch_failed=$(update_last_fetch_failed)
         check_age=$(update_last_check_age)
