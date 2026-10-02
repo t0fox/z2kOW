@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   push:
     branches: ["**"]
   pull_request:
@@ -194,10 +195,11 @@ jobs:
       - name: Validate the one controlled release manifest
         run: |
           python3 - <<'PY'
-          import json, re
+          import hashlib, json, re, subprocess
           from pathlib import Path
           m = json.loads(Path("UPDATES.json").read_text(encoding="utf-8"))
-          assert set(m) == {"schema", "branch", "platform", "seq", "current", "upstream", "history", "artifact"}
+          required = {"schema", "branch", "platform", "seq", "current", "upstream", "history", "artifact"}
+          assert set(m) in (required, required | {"signing"})
           assert m["schema"] == 1 and m["branch"] == "main" and m["platform"] == "openwrt"
           assert isinstance(m["seq"], int) and m["seq"] > 0
           assert re.fullmatch(r"[pr]-[0-9]+(?:\.[0-9]+)+", m["current"])
@@ -223,6 +225,24 @@ jobs:
               assert all(isinstance(path, str) for path in entry["changed_files"])
           assert all("seq" not in entry for entry in m["history"])
           assert not Path("UPSTREAM.json").exists()
+          signature_path = Path("UPDATES.json.sig")
+          if "signing" in m:
+              signing = m["signing"]
+              assert isinstance(signing, dict) and set(signing) == {"key_id"}
+              key_id = signing["key_id"]
+              assert isinstance(key_id, str) and re.fullmatch(r"[0-9a-f]{64}", key_id)
+              public_key = Path("scripts/openwrt/release-keys") / f"{key_id}.pub"
+              assert public_key.is_file()
+              der = subprocess.check_output(["openssl", "pkey", "-pubin", "-in", str(public_key), "-outform", "DER"], stderr=subprocess.DEVNULL)
+              assert hashlib.sha256(der).hexdigest() == key_id
+              assert signature_path.is_file() and signature_path.stat().st_size == 64
+              verified = subprocess.run([
+                  "openssl", "pkeyutl", "-verify", "-rawin", "-pubin", "-inkey", str(public_key),
+                  "-in", "UPDATES.json", "-sigfile", str(signature_path),
+              ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+              assert verified.returncode == 0, "controlled UPDATES.json signature is invalid"
+          else:
+              assert not signature_path.exists(), "detached signature exists without signing.key_id"
           print(f"controlled {m['current']} seq {m['seq']}; upstream {m['upstream']['commit']}")
           PY
 

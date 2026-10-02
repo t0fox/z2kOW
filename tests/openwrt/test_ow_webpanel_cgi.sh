@@ -388,6 +388,19 @@ cat > "$T/controlled-UPDATES.json" <<'EOF'
 EOF
 openssl genpkey -algorithm ed25519 -out "$T/controlled-test.key"
 openssl pkey -in "$T/controlled-test.key" -pubout -out "$T/controlled-test.pub"
+_test_key_id="$(openssl pkey -pubin -in "$T/controlled-test.pub" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
+mkdir -p "$T/root/platform/openwrt/release-keys"
+cp "$T/controlled-test.pub" "$T/root/platform/openwrt/release-keys/$_test_key_id.pub"
+python3 - "$REPO" "$T/controlled-UPDATES.json" "$_test_key_id" <<'PY'
+import json, sys
+from pathlib import Path
+repo, path, key_id = sys.argv[1:]
+sys.path.insert(0, str(Path(repo) / "scripts" / "openwrt"))
+from controlled_release import render_manifest
+manifest = json.load(open(path, encoding="utf-8"))
+manifest["signing"] = {"key_id": key_id}
+Path(path).write_text(render_manifest(manifest), encoding="utf-8")
+PY
 openssl pkeyutl -sign -rawin -inkey "$T/controlled-test.key" -in "$T/controlled-UPDATES.json" -out "$T/controlled-UPDATES.json.sig"
 export OW_TEST_FETCH_LOG="$T/update-fetch.log"
 export OW_TEST_FETCH_FAIL="$T/fail-controlled-fetch"
@@ -397,6 +410,7 @@ export Z2K_AU_PUBKEY="$T/controlled-test.pub"
 export Z2K_AU_REPO_RAW="https://updates.example/controlled"
 export Z2K_AU_MANIFEST_URL="$Z2K_AU_REPO_RAW/UPDATES.json"
 export AU_MANIFEST_CACHE="$T/manifest.json"
+export AU_MANIFEST_FAIL_STAMP="$T/manifest.json.fail"
 mkdir -p "$T/etc/state"
 printf 'tag=p-86.2\nseq=127\n' > "$T/etc/state/installed-release"
 export AU_TAG_FILE="$T/etc/state/installed-release"

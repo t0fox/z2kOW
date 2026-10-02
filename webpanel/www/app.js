@@ -37,7 +37,7 @@ navigate();
 // continue independently.
 const identityScript = document.createElement("script");
 identityScript.type = "module";
-identityScript.src = "/js/core/identity.js?v=p-86.1";
+identityScript.src = "/js/core/identity.js?v=p-86.13";
 identityScript.dataset.optionalPanelModule = "true";
 identityScript.onerror = () => {};
 document.head.appendChild(identityScript);

@@ -76,6 +76,7 @@ class ControlledArtifactTests(unittest.TestCase):
             "sha256": "a" * 64,
             "size_bytes": 123,
         }
+        self.manifest["signing"] = {"key_id": "a" * 64}
         MODULE.write_manifest(source, self.manifest)
 
         MODULE.copy_unsigned_candidate_manifest(source, candidate)
@@ -84,8 +85,10 @@ class ControlledArtifactTests(unittest.TestCase):
         generated = json.loads(candidate.read_text(encoding="utf-8"))
         self.assertEqual(published["artifact"]["sha256"], "a" * 64)
         self.assertNotIn("artifact", generated)
+        self.assertNotIn("signing", generated)
         expected = dict(self.manifest)
         expected.pop("artifact")
+        expected.pop("signing")
         self.assertEqual(generated, expected)
 
         MODULE.attach_file(
@@ -96,6 +99,25 @@ class ControlledArtifactTests(unittest.TestCase):
         final_candidate = json.loads(candidate.read_text(encoding="utf-8"))
         self.assertEqual(final_candidate["artifact"]["sha256"], MODULE.sha256(self.artifact))
         self.assertEqual(published["artifact"]["sha256"], "a" * 64)
+
+    def test_final_manifest_attaches_the_single_signing_key_id_with_the_artifact(self) -> None:
+        candidate = self.root / "final" / "UPDATES.json"
+        candidate.parent.mkdir()
+        MODULE.write_manifest(candidate, self.manifest)
+
+        MODULE.attach_file(candidate, self.artifact, key_id="b" * 64)
+
+        final = json.loads(candidate.read_text(encoding="utf-8"))
+        self.assertEqual(final["signing"], {"key_id": "b" * 64})
+        self.assertEqual(final["artifact"]["sha256"], MODULE.sha256(self.artifact))
+
+    def test_final_manifest_rejects_malformed_signing_key_id(self) -> None:
+        candidate = self.root / "bad" / "UPDATES.json"
+        candidate.parent.mkdir()
+        MODULE.write_manifest(candidate, self.manifest)
+
+        with self.assertRaisesRegex(ValueError, "signing key id"):
+            MODULE.attach_file(candidate, self.artifact, key_id="not-a-fingerprint")
 
     def test_manifest_cannot_carry_a_second_transport_or_component_release(self) -> None:
         url = "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz"

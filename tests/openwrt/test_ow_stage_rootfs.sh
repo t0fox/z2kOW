@@ -47,10 +47,20 @@ for _arch in arm64 arm x86_64 x86 mips mipsel riscv64; do
         chmod 0755 "$T/$_kind/linux-$_arch/$_bin"
     done
 done
+mkdir -p "$T/release-keys"
+openssl genpkey -algorithm Ed25519 -out "$T/release-keys/test.key" >/dev/null 2>&1 || exit 1
+openssl pkey -in "$T/release-keys/test.key" -pubout -out "$T/release-keys/test.pub" >/dev/null 2>&1 || exit 1
+_key_id="$(openssl pkey -pubin -in "$T/release-keys/test.pub" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
+mv "$T/release-keys/test.pub" "$T/release-keys/$_key_id.pub"
 
 mkdir -p "$T/stage"
 sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$T/stage" "$T/runtime.tar.gz" \
-    "$T/warpd" "$T/tg" "$T/rt" "$T/detect" || exit 1
+    "$T/warpd" "$T/tg" "$T/rt" "$T/detect" "$T/release-keys" || exit 1
+cmp -s "$T/release-keys/$_key_id.pub" \
+    "$T/stage/usr/lib/z2k/platform/openwrt/release-keys/$_key_id.pub" \
+    && _t_ok || _t_bad "current release trust key is included in the complete payload"
+[ ! -e "$T/stage/opt/zapret2/etc/z2k-update-pub.pem" ] \
+    && _t_ok || _t_bad "obsolete generic update key is not shipped as a second authority"
 
 for _kind in tg rt detect; do
     case "$_kind" in

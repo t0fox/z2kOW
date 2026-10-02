@@ -43,10 +43,10 @@ class UnifiedArchitectureTests(unittest.TestCase):
 
     def test_root_manifest_is_the_single_current_openwrt_release_authority(self) -> None:
         manifest = json.loads((ROOT / "UPDATES.json").read_text(encoding="utf-8"))
-        self.assertEqual(
-            set(manifest),
-            {"schema", "branch", "platform", "seq", "current", "upstream", "history", "artifact"},
-        )
+        expected_fields = {"schema", "branch", "platform", "seq", "current", "upstream", "history", "artifact"}
+        if "signing" in manifest:
+            expected_fields.add("signing")
+        self.assertEqual(set(manifest), expected_fields)
         self.assertEqual(manifest["schema"], 1)
         self.assertEqual(manifest["branch"], "main")
         self.assertEqual(manifest["platform"], "openwrt")
@@ -72,7 +72,11 @@ class UnifiedArchitectureTests(unittest.TestCase):
         history_versions = [record["v"] for record in manifest["history"]]
         self.assertEqual(len(history_versions), len(set(history_versions)))
         self.assertNotIn("seq", manifest["history"][-1], "keep upstream's per-entry history schema unchanged")
-        self.assertFalse((ROOT / "UPDATES.json.sig").exists(), "candidate remains unsigned until trusted signing")
+        if "signing" in manifest:
+            self.assertRegex(manifest["signing"]["key_id"], r"^[0-9a-f]{64}$")
+            self.assertTrue((ROOT / "UPDATES.json.sig").is_file(), "published manifest must have its detached signature")
+        else:
+            self.assertFalse((ROOT / "UPDATES.json.sig").exists(), "candidate remains unsigned until trusted signing")
 
     def test_owned_paths_are_disjoint_from_luci_and_uhttpd(self) -> None:
         paths = [
@@ -106,7 +110,13 @@ class UnifiedArchitectureTests(unittest.TestCase):
         self.assertIn("openwrt-rootfs.tar.gz", builder)
         self.assertIn("copy_unsigned_candidate_manifest", builder)
         self.assertIn("openwrt-candidate/", workflow)
-        self.assertNotRegex(release, r"(?i)(create-release|gh release create|signature_bundle_b64|packages\.adb)")
+        self.assertIn("workflow_dispatch:", release)
+        self.assertIn("openwrt-production", release)
+        self.assertIn("sign_release.py", release)
+        self.assertIn("gh release create", release)
+        self.assertIn("gh release upload", release)
+        self.assertIn("UPDATES.json.sig", release)
+        self.assertNotIn("UPSTREAM.json", release)
 
     def test_openwrt_runtime_has_one_payload_update_path(self) -> None:
         runtime = (ROOT / "platform/openwrt/warp.sh").read_text(encoding="utf-8")

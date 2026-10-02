@@ -1,5 +1,13 @@
 # Как выпустить релиз z2k
 
+> Этот документ описывает унаследованный upstream-процесс выпуска Git-тегов
+> z2k (`scripts/release.sh` и `publish.yml`). Он **не** собирает и не публикует
+> OpenWrt `openwrt-rootfs.tar.gz` и не является инструкцией для установки на
+> роутер. Канонический OpenWrt runbook: [docs/openwrt-release-operations.md](docs/openwrt-release-operations.md).
+> OpenWrt/upstream расхождения зафиксированы в
+> [docs/UPSTREAM-PARITY-MATRIX.md](docs/UPSTREAM-PARITY-MATRIX.md).
+
+
 Этот документ существует, чтобы релиз мог выпустить не только автор проекта.
 Всё, что здесь описано, уже действует — это не предложение, а запись того,
 как устроено сейчас.

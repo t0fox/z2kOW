@@ -1,33 +1,20 @@
-# Upstream documentation and contract sync
+# Upstream documentation review
 
-Run the audit after selecting the upstream base and target refs:
+Use this procedure when carrying a new `necronicle/z2k` revision into z2kOW. Choose the upstream baseline and target refs first, then inspect the full source and documentation diff. The current audit snapshot and behavior gaps are in [`UPSTREAM-PARITY-MATRIX.md`](UPSTREAM-PARITY-MATRIX.md).
 
 ```sh
-sh scripts/openwrt/audit-upstream-docs.sh p-85.13 p-86.1
+sh scripts/openwrt/audit-upstream-docs.sh <base-ref> <target-ref>
 ```
 
-The audit includes every changed Markdown file (architecture, security,
-release, QA, design, runbook and vendor-patch notes), workflow files, and the
-CI/release/install lifecycle scripts named in the helper. Source-only changes
-do not require a documentation classification.
-
-Every changed normative file needs exactly one row in
-`docs/UPSTREAM-SYNC.tsv`. The key contains the path and base/head Git blob IDs,
-so an edit to already reviewed text becomes unclassified again. Use one of:
+The helper checks changed Markdown contracts/design/QA notes, workflow files and named release/lifecycle scripts. Each changed normative file needs one exact row in [`UPSTREAM-SYNC.tsv`](UPSTREAM-SYNC.tsv), keyed by path and base/head Git blob IDs. A changed blob requires a fresh review row. Accepted classifications are:
 
 - `OPENWRT RELEVANT`
 - `KEENETIC ONLY`
 - `RETIRED/HISTORICAL`
 - `DOC ONLY`
 
-Every row also needs a short rationale. Missing rows, duplicate rows, unknown
-classifications and empty rationale fail closed. The ledger is evidence of
-review, not a blanket path allowlist.
+Each row needs a short rationale. The ledger records review evidence; it is not a path allowlist and does not replace source-level behavior review.
 
-The p-85.13 → p-86.1 diff changes two normative documents: `README.md` and the
-unique-strategy-set design spec. Both are classified `OPENWRT RELEVANT` because
-the common panel/detector workflow has been ported; the audit also records the
-spec's stale measured-target description in `UPSTREAM-CONTRACTS.md`. Their
-base/head blob IDs and rationales are recorded below. The helper fixture tests
-unclassified docs and CI edits, exact blob-keyed acceptance, invalid
-classifications, and source-only changes.
+`UPSTREAM-SYNC.tsv` currently retains the historical p-85.13 → p-86.1 documentation classification. Those blob IDs are not evidence for a later audit. Add classifications for the exact refs being reviewed; do not reuse historical rows when file contents have changed.
+
+The OpenWrt user release flow is documented separately in [`openwrt-release-operations.md`](openwrt-release-operations.md). Upstream sequence discovery does not publish an OpenWrt artifact or make it visible to routers.

@@ -475,7 +475,7 @@ _z2k_ow_install_release_locked() {
         . "$_adapter/manifest.sh" || return 1
         if [ -n "${Z2K_OW_BOOTSTRAP_MANIFEST:-}" ]; then
             _sig="${Z2K_OW_BOOTSTRAP_SIGNATURE:-${Z2K_OW_BOOTSTRAP_MANIFEST}.sig}"
-            au_manifest_verify "$_manifest" "$_sig" || {
+            z2k_ow_manifest_verify_signature "$_manifest" "$_sig" || {
                 echo "z2k-openwrt: bootstrap manifest signature invalid or unavailable" >&2
                 return 1
             }

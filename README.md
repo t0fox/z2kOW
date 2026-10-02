@@ -1,6 +1,6 @@
 # z2kOW
 
-`z2kOW` — OpenWrt-адаптация [z2k](https://github.com/necronicle/z2k). Общая логика сохраняет upstream-поведение; Keenetic-specific lifecycle заменяется существующими OpenWrt backends: procd, fw4/nftables и hotplug.
+`z2kOW` — OpenWrt-адаптация [z2k](https://github.com/necronicle/z2k). Общая логика берётся из upstream, а платформенный lifecycle заменяется OpenWrt backends: procd, fw4/nftables и hotplug. Подтверждённые расхождения и зоны, где parity ещё не установлена, перечислены в [аудите](./docs/UPSTREAM-PARITY-MATRIX.md).
 
 Панель использует общий интерфейс z2k; OpenWrt-адаптер передаёт локальный профиль бренда `z2kOW` / `OpenWrt edition`.
 Поддержка и обсуждение: [Telegram-группа @zapret2keenetic](https://t.me/zapret2keenetic).
@@ -92,18 +92,9 @@ install_release <upstream-tag>
 
 Для полного удаления конфигурации используйте явный opt-in `z2kow uninstall --purge`; обычное удаление оставляет `/etc/z2k/config`, WARP identity, persistent state и пользовательские списки.
 
-### Development / Testing
+### Для разработки
 
-CI snapshots предназначены только для тестового устройства и не являются production feed. Установите APK из artifact одного зелёного CI run точного SHA:
-
-```sh
-apk --no-scripts add --virtual .z2k-webpanel-test-deps \
-  lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias
-apk add --allow-untrusted ./z2k-adapter-*.apk ./z2k-webpanel-*.apk
-apk del .z2k-webpanel-test-deps
-```
-
-У snapshot-пакетов может быть отдельный временный feed key. Не используйте snapshot для обычного обновления и не копируйте эту команду в production-инструкции.
+Автоматизированные fixtures и CI candidate не являются способом установки на роутер. Проверяйте изменения в CI для точного commit SHA; production installation доступна только через подписанный полный rootfs и описана в [руководстве по релизам OpenWrt](./docs/openwrt-release-operations.md). Производственного component APK feed нет.
 
 ## Использование
 
@@ -241,7 +232,7 @@ necronicle/z2k release
 
 Router checks only the signed controlled manifest on `main`; a newer unadapted upstream release remains invisible.
 
-Подробно: [UPSTREAM.md](./UPSTREAM.md).
+Подробно: [UPSTREAM.md](./UPSTREAM.md) и [процедура проверки upstream-документации](./docs/UPSTREAM-SYNC.md).
 
 ## Документация
 
@@ -251,7 +242,7 @@ Router checks only the signed controlled manifest on `main`; a newer unadapted u
 - [RT proxy contract](./docs/openwrt-rt-proxy-contract.md)
 - [WARP contract](./docs/openwrt-warp-contract.md)
 - [Release operations](./docs/openwrt-release-operations.md)
-- [Upstream contracts](./docs/UPSTREAM-CONTRACTS.md)
+- [Upstream parity audit](./docs/UPSTREAM-PARITY-MATRIX.md)
 - [Upstream sync](./docs/UPSTREAM-SYNC.md)
 
 ## Тесты

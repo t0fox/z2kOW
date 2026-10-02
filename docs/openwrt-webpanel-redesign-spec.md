@@ -1,5 +1,11 @@
 # Design review: OpenWrt webpanel
 
+> Historical design and acceptance record. Package/snapshot references below
+> describe the dated candidate used for that UI review; they are not current
+> install or release instructions. Use
+> [OpenWrt release operations](openwrt-release-operations.md) for the current
+> signed rootfs flow.
+
 **Status:** The visual implementation is complete on `codex/openwrt-visual-redesign` at `551c31a6ba80a80ba9955281ce1258c3c19db5ba`. Exact implementation-HEAD CI passed (run [36379257220](https://github.com/t0fox/z2kOW/actions/runs/36379257220)); its OpenWrt 25.12.5 snapshot was installed on the Cudy router, and all eight primary routes were reviewed live in both appearances. Overall router acceptance remains pending: live LuCI and extension-enabled blocker checks, traffic inspection, and post-deployment soak have not been completed. **Source baseline:** `origin/main` at `92a1bc3500e515807540a32e41e5ebec18bc5777`. **Live baseline:** Cudy WBR3000UAX v1, OpenWrt 25.12.5, adapter and webpanel `0.1.1_alpha20260928021846~92a1bc3500e515807540a32e41e5ebec18bc5777-r1`; the installed profile, theme, and wordmark still matched the prior unredesigned assets. The Strategies screen showed 140 rows at 1392 × 1104.
 
 ### Summary

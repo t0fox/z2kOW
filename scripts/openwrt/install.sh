@@ -12,6 +12,33 @@ OPENWRT_RELEASE_FILE="${Z2K_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
 [ "${DISTRIB_ID:-}" = OpenWrt ] || die "поддерживается только OpenWrt"
 command -v apk >/dev/null 2>&1 || die "нужен OpenWrt с apk для системных зависимостей"
 
+BASE="https://raw.githubusercontent.com/t0fox/z2kOW/main"
+# Bootstrap pins trusted production key fingerprints here. Keep old pins while
+# rotating keys so an already published release can introduce the next public
+# key into the installed keyring before that key signs a later release.
+BOOTSTRAP_TRUSTED_KEY_IDS=""
+_manifest_override_set=${Z2KOW_MANIFEST_URL+x}
+_trust_override_set=${Z2KOW_TRUST_KEY+x}
+if [ "$_manifest_override_set" != "$_trust_override_set" ]; then
+    die "Z2KOW_MANIFEST_URL и Z2KOW_TRUST_KEY должны задаваться вместе"
+fi
+if [ "$_manifest_override_set" = x ]; then
+    [ -n "$Z2KOW_MANIFEST_URL" ] && [ -n "$Z2KOW_TRUST_KEY" ] \
+        || die "Z2KOW_MANIFEST_URL и Z2KOW_TRUST_KEY должны задаваться вместе"
+    case "$Z2KOW_MANIFEST_URL" in
+        http://*/UPDATES.json|https://*/UPDATES.json) ;;
+        *) die "acceptance manifest URL должен оканчиваться на /UPDATES.json" ;;
+    esac
+    [ -f "$Z2KOW_TRUST_KEY" ] && [ -r "$Z2KOW_TRUST_KEY" ] \
+        || die "acceptance trust key недоступен для чтения"
+    _acceptance_source=1
+    MANIFEST_URL=$Z2KOW_MANIFEST_URL
+else
+    _acceptance_source=0
+    MANIFEST_URL="$BASE/UPDATES.json"
+fi
+SIGNATURE_URL="$MANIFEST_URL.sig"
+
 apk update || die "не удалось обновить индексы системных зависимостей"
 apk add ca-bundle openssl-util jsonfilter || die "не удалось установить системные средства проверки подписи"
 
@@ -36,23 +63,34 @@ SIGNATURE="$TMP/UPDATES.json.sig"
 PUBKEY="$TMP/z2k-update-pub.pem"
 ARTIFACT="$TMP/openwrt-rootfs.tar.gz"
 ENGINE="$TMP/engine"
-BASE="https://raw.githubusercontent.com/t0fox/z2kOW/main"
+
+value() { jsonfilter -i "$MANIFEST" -e "@.$1" 2>/dev/null | head -n 1; }
+
+download "$MANIFEST_URL" "$MANIFEST" || die "не удалось получить controlled UPDATES.json"
+_key_id=$(value signing.key_id)
+printf '%s' "$_key_id" | grep -Eq '^[0-9a-f]{64}$' \
+    || die "controlled UPDATES.json contains an invalid signing key id"
 
 # This key is pinned in the bootstrap itself. A key fetched beside the manifest
 # would let a modified manifest replace its own trust anchor.
-cat > "$PUBKEY" <<'EOF'
------BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAHInDNbRMriWoRhLSW0t6AWkrpayIBzM9oakfZuB3/1Y=
------END PUBLIC KEY-----
-EOF
+if [ "$_acceptance_source" = 1 ]; then
+    cp "$Z2KOW_TRUST_KEY" "$PUBKEY" || die "не удалось подготовить acceptance trust key"
+else
+    case " $BOOTSTRAP_TRUSTED_KEY_IDS " in
+        *" $_key_id "*) ;;
+        *) die "controlled manifest references an unpinned release key" ;;
+    esac
+    download "$BASE/scripts/openwrt/release-keys/$_key_id.pub" "$PUBKEY" \
+        || die "не удалось получить закреплённый открытый ключ выпуска"
+fi
+_actual_key_id=$(openssl pkey -pubin -in "$PUBKEY" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')
+[ "$_actual_key_id" = "$_key_id" ] || die "release key fingerprint does not match controlled UPDATES.json"
 
-download "$BASE/UPDATES.json" "$MANIFEST" || die "не удалось получить controlled UPDATES.json"
-download "$BASE/UPDATES.json.sig" "$SIGNATURE" || die "нет подписи controlled UPDATES.json; релиз не опубликован"
+download "$SIGNATURE_URL" "$SIGNATURE" || die "нет подписи controlled UPDATES.json; релиз не опубликован"
 openssl pkeyutl -verify -rawin -pubin -inkey "$PUBKEY" \
     -in "$MANIFEST" -sigfile "$SIGNATURE" >/dev/null 2>&1 \
     || die "подпись controlled UPDATES.json неверна"
 
-value() { jsonfilter -i "$MANIFEST" -e "@.$1" 2>/dev/null | head -n 1; }
 _schema=$(value schema)
 _branch=$(value branch)
 _platform=$(value platform)
@@ -77,8 +115,13 @@ printf '%s' "$_seq" | grep -Eq '^[1-9][0-9]*$' \
     || die "controlled UPDATES.json содержит некорректное upstream происхождение"
 printf '%s' "$_upstream_commit" | grep -Eq '^[0-9a-f]{40}$' \
     || die "controlled UPDATES.json содержит некорректный upstream commit"
+if [ "$_acceptance_source" = 1 ]; then
+    _expected_artifact_url="${Z2KOW_MANIFEST_URL%/UPDATES.json}/openwrt-rootfs.tar.gz"
+else
+    _expected_artifact_url="https://github.com/t0fox/z2kOW/releases/download/$_tag/openwrt-rootfs.tar.gz"
+fi
 [ "$_filename" = openwrt-rootfs.tar.gz ] \
-    && [ "$_url" = "https://github.com/t0fox/z2kOW/releases/download/$_tag/openwrt-rootfs.tar.gz" ] \
+    && [ "$_url" = "$_expected_artifact_url" ] \
     || die "controlled UPDATES.json содержит некорректный artifact URL"
 printf '%s' "$_sha" | grep -Eq '^[0-9a-f]{64}$' \
     || die "controlled UPDATES.json содержит некорректный SHA-256"
@@ -116,6 +159,8 @@ Z2K_AU_PUBKEY="$PUBKEY"
 Z2K_OW_BOOTSTRAP_MANIFEST="$MANIFEST"
 Z2K_OW_BOOTSTRAP_SIGNATURE="$SIGNATURE"
 Z2K_OW_BOOTSTRAP_ARTIFACT="$ARTIFACT"
+Z2K_OW_BOOTSTRAP_PUBLIC_KEY="$PUBKEY"
 export Z2K_ROOT Z2K_ADAPTER_DIR Z2K_LIB Z2K_AU_PUBKEY \
+    Z2K_OW_BOOTSTRAP_PUBLIC_KEY \
     Z2K_OW_BOOTSTRAP_MANIFEST Z2K_OW_BOOTSTRAP_SIGNATURE Z2K_OW_BOOTSTRAP_ARTIFACT
 "$ENGINE/usr/sbin/install_release" "$_tag"

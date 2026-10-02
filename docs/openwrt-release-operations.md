@@ -1,57 +1,49 @@
 # OpenWrt release operations
 
-OpenWrt users install and update the upstream z2k release selected by the one controlled `UPDATES.json` on `main`. Upstream releases are inputs to adaptation; detecting an upstream sequence does not expose it to routers.
+This is the operator-facing source of truth for the OpenWrt install and update path. Root `UPDATES.json` is the only release authority; an unsigned CI candidate is not a production release.
 
-The controlled candidate adapts upstream `p-86.12`, seq `135`; the root manifest records commit `3b1ee437cfc58c7427e5a4ccb5de312ff0f76335`.
+## Audited release state
 
-## Canonical flows
+The approved target is upstream `p-86.13`, sequence `136`, tag commit `7f630a9d459052b9c9c9eded06298f1b8f7f0a22`, confirmed from the live `z2k-enhanced` branch on 2026-10-02. The trusted release workflow repeats that live check immediately before CI/build and fails closed if upstream advances.
 
-Fresh-install bootstrap:
+## Device install and update
+
+The public bootstrap is [`scripts/openwrt/install.sh`](../scripts/openwrt/install.sh):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh
 ```
 
-The bootstrap requires root on OpenWrt, uses OpenWrt `apk` only for system dependencies, verifies the signed controlled manifest, downloads the complete `openwrt-rootfs.tar.gz`, checks byte count and SHA-256, and calls the payload's `install_release <tag>` entrypoint.
+It requires root on OpenWrt, installs required system tools through OpenWrt `apk`, verifies the controlled manifest signature, validates the selected release metadata, downloads the complete `openwrt-rootfs.tar.gz`, checks its size and SHA-256, and invokes `install_release <tag>`. Updates use the same full-payload convergence command. There is no production component APK feed.
 
-Canonical convergence command, used by both fresh install and update:
+The OpenWrt implementation does not apply upstream `patch` history entries as file deltas. It installs the approved complete payload for both upstream `patch` and `reinstall` entries. Do not infer a delta update from the manifest's `type`, `steps`, or `full_install` fields.
 
-```sh
-install_release <upstream-tag>
-```
+## Trust and release authority
 
-The updater first applies upstream `au_decide` history semantics. Whether an entry says `patch` or `reinstall`, OpenWrt installs the complete approved payload through the same command. Type and `full_install` fields may inform state migrations/hooks; they never select a second deployment engine.
+The repository-root [`UPDATES.json`](../UPDATES.json) on `main` is the only device-visible release authority. It preserves upstream tag, sequence, commit and append-only history, and adds one artifact record with filename, immutable release URL, byte size and SHA-256. Production publication signs this manifest; the device verifies that signature before trusting its artifact metadata. The artifact digest binds the complete rootfs, including bundled runtime binaries.
 
-## Controlled manifest
+The single [`release-openwrt.yml`](../.github/workflows/release-openwrt.yml) workflow can initialize signing and publish releases. Initialization generates an Ed25519 keypair inside GitHub Actions, stores only its public key in the repository, and stores the private key only in the protected `openwrt-production` environment secret `Z2KOW_RELEASE_PRIVATE_KEY`. The bootstrap pins public-key fingerprints; installed releases carry the public keyring for updates and rotation. Release publication validates the live upstream tag/sequence, runs full CI, builds one complete rootfs, signs and verifies the exact controlled manifest, publishes the immutable release assets, downloads them again, and verifies their public bytes before committing `UPDATES.json` and its detached signature. Only a public-environment deployment approval may require a user click; no key material is handled by the user.
 
-The only release authority is repository-root `UPDATES.json` on `main`. Its schema is upstream-compatible history plus OpenWrt provenance:
+Ordinary CI also stages an unsigned candidate through [`scripts/openwrt/build-release.sh`](../scripts/openwrt/build-release.sh) and [`scripts/openwrt/stage-rootfs.sh`](../scripts/openwrt/stage-rootfs.sh). A CI artifact or local unsigned candidate is not installable through the production trust channel.
 
-- `schema`, `branch`, `platform`, `seq`, `current`;
-- `upstream.repository`, `upstream.branch`, `upstream.tag`, `upstream.commit`;
-- append-only `history` with the original upstream release entries;
-- on a signed production release, `artifact.filename`, `artifact.url`, `artifact.sha256`, and `artifact.size_bytes` for the complete rootfs archive.
+The zapret2 runtime source is pinned by URL and SHA-256 in [`platform/openwrt/runtime-pin`](../platform/openwrt/runtime-pin); the rootfs artifact hash then covers the staged bytes. Runtime provenance is not separately recorded as version/source/hash fields in the signed manifest.
 
-The build candidate attaches artifact fields to the same manifest. There is no runtime `UPSTREAM.json`, component manifest, snapshot authority, or separate installed component version. Devices verify the manifest signature before acting. Until trusted signing and publication occur, the unsigned candidate is not installable from the production channel.
+## Ownership, preservation, and migration
 
-`.github/workflows/sync-upstream.yml` checks the live `z2k-enhanced` branch every 15 minutes with cache-busting, resolves its immutable commit, and compares the upstream `seq` to controlled `UPDATES.json`. A newer sequence fails the check and needs adaptation/review. It is not copied to the controlled manifest automatically.
+The explicit replaceable path list is [`platform/openwrt/owned-paths.txt`](../platform/openwrt/owned-paths.txt). It covers product payload, CLI/entrypoint, init, hotplug, sysctl, and nft include paths. The rootfs excludes `/etc/z2k`; configuration, state, user lists and relay identity remain persistent across an ordinary payload update. Full purge is an explicit uninstall option.
 
-## Install transaction and migration
+`install_release` verifies the archive, validates paths and target architecture, stages replacements, journals owned paths and prior release state, applies OpenWrt bootstrap/migrations, restarts the owned services, runs health checks and commits the installed tag/sequence only after success. On ordinary failure it restores journaled paths and the previous release state, then attempts to restart the prior services. Its journal is transaction recovery, not a user-facing backup/restore archive.
 
-`install_release` downloads and verifies the complete transport artifact, validates archive paths and the protected LuCI boundary, stages files, journals only owned paths that it replaces, and makes same-filesystem replacements. On failure it restores the prior files and installed-release state. User config/state under `/etc/z2k` is excluded from the payload and preserved. The single local release record is `/etc/z2k/state/installed-release`:
+The one-time migration handles ownership data from the retired z2kOW APK/feed layout and moves the former Telegram relay identity into persistent state. It removes legacy package ownership only after staging/transaction protection. These are OpenWrt migration steps, not a second ongoing package deployment path.
 
-```text
-tag=<upstream-tag>
-seq=<upstream-seq>
-```
+Local installed release state is `/etc/z2k/state/installed-release` (`tag` and `seq`). A repeated call for the current tag is a no-op except when a recognized migration or stale legacy-state reconciliation is needed.
 
-The record is committed only after bootstrap and health checks. A second check after a successful install returns `none`. The Telegram client stores its per-install key and optional relay assignment at `/etc/z2k/state/relay-id.json`; a one-time migration copies the former `/opt/zapret2/.z2k-relay-id` there before the payload replaces that tree.
+## Upstream synchronization
 
-Legacy `z2k-adapter`, `z2k-webpanel`, runtime APKs and their feed/key entries are read only during one-time ownership migration. Before `apk del --no-scripts`, the transaction renames the owned trees and explicit integration files that the complete release replaces. Migration refuses any legacy package claiming LuCI, uhttpd, or another path outside the known z2kOW ownership boundary. A successful full-payload install removes the old package/feed ownership. No component APK/feed builder or installer remains.
+The [`sync-upstream.yml`](../.github/workflows/sync-upstream.yml) workflow checks `necronicle/z2k` branch `z2k-enhanced` for a newer sequence. Discovery alerts maintainers; it does not publish or expose the new release to routers. Review common behavior, adapt platform integrations, build and review a complete candidate, then advance the controlled manifest and use the trusted signing/publication path.
 
-z2kOW owns paths listed in `platform/openwrt/owned-paths.txt`. It never owns or mutates `/www/cgi-bin/luci`, `/www/luci-static`, `/etc/config/uhttpd`, or LuCI ports 80/443. The panel rejects ports 80/443.
+The maintained documentation-diff review procedure is [`UPSTREAM-SYNC.md`](UPSTREAM-SYNC.md). Root [`ARCHITECTURE.md`](../ARCHITECTURE.md) describes the z2kOW/OpenWrt boundary. Root [`RELEASING.md`](../RELEASING.md) describes the separate inherited upstream tag/release tooling and is not the router artifact runbook.
 
-## Candidate verification and publication
+## Evidence and limits
 
-CI runs the OpenWrt regression suite and builds one unsigned `openwrt-rootfs.tar.gz` plus its controlled manifest. The archive contains the complete product tree, including architecture-specific Telegram and WARP binaries. The candidate is an internal artifact, not a router release. Production key material is not needed for implementation or CI. A separate trusted signing/publishing operation must sign the reviewed manifest and publish the complete artifact before routers can see the release.
-
-No router is attached to this development environment. Shell fixture tests cover fresh install, legacy migration, update, hash failure, rollback, repeated check, and reboot-state simulation. Real device, traffic, and reboot acceptance must be recorded only after an actual router run.
+This guide describes the audited source at the committed baseline. Source and fixture tests do not establish successful installation on a live router or every filesystem's power-loss behavior. For feature-by-feature upstream comparison and remaining gaps, consult [`UPSTREAM-PARITY-MATRIX.md`](UPSTREAM-PARITY-MATRIX.md); for supported commands, use the installed `z2kow` CLI help.

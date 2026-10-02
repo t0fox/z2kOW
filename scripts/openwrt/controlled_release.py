@@ -19,6 +19,7 @@ RELEASE_BASE = "https://github.com/t0fox/z2kOW/releases/download"
 UPSTREAM_REPOSITORY = "necronicle/z2k"
 UPSTREAM_BRANCH = "z2k-enhanced"
 COMMIT_RE = re.compile(r"[0-9a-f]{40}\Z")
+RELEASE_KEY_ID_RE = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def sha256(path: Path) -> str:
@@ -173,7 +174,12 @@ def render_manifest(manifest: dict[str, object]) -> str:
     return "\n".join(lines) + "\n}\n"
 
 
-def attach_file(manifest_path: Path, artifact_path: Path, url: str) -> None:
+def attach_file(
+    manifest_path: Path,
+    artifact_path: Path,
+    url: str | None = None,
+    key_id: str | None = None,
+) -> None:
     manifest_path = Path(manifest_path)
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -182,6 +188,11 @@ def attach_file(manifest_path: Path, artifact_path: Path, url: str) -> None:
     if not isinstance(manifest, dict):
         raise ValueError("controlled manifest root must be an object")
     attach_rootfs_artifact(manifest, artifact_path, url)
+    manifest.pop("signing", None)
+    if key_id is not None:
+        if not RELEASE_KEY_ID_RE.fullmatch(key_id):
+            raise ValueError("signing key id must be a lowercase SHA-256 fingerprint")
+        manifest["signing"] = {"key_id": key_id}
     encoded = render_manifest(manifest)
     temporary: str | None = None
     try:
@@ -244,6 +255,7 @@ def copy_unsigned_candidate_manifest(source: Path, destination: Path) -> None:
         raise ValueError("candidate manifest must be separate from the controlled source manifest")
     manifest = read_json_object(source, "controlled manifest")
     manifest.pop("artifact", None)
+    manifest.pop("signing", None)
     write_manifest(destination, manifest)
 
 
@@ -254,6 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     attach.add_argument("--manifest", required=True, type=Path)
     attach.add_argument("--artifact", required=True, type=Path)
     attach.add_argument("--url")
+    attach.add_argument("--key-id")
     sync = subparsers.add_parser("sync")
     sync.add_argument("--upstream", required=True, type=Path)
     sync.add_argument("--commit", required=True)
@@ -265,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "attach":
-            attach_file(args.manifest, args.artifact, args.url)
+            attach_file(args.manifest, args.artifact, args.url, args.key_id)
         elif args.command == "sync":
             upstream = read_json_object(args.upstream, "upstream manifest")
             write_manifest(args.output, controlled_from_upstream(upstream, args.commit))

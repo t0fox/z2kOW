@@ -9,6 +9,30 @@ z2k_ow_manifest_value() {
     jsonfilter -i "$_m" -e "@.$_key" 2>/dev/null | head -n 1
 }
 
+z2k_ow_manifest_verify_signature() {
+    _m="$1" _sig="$2"
+    [ -s "$_m" ] && [ -s "$_sig" ] || return 1
+    _key_id="$(z2k_ow_manifest_value "$_m" signing.key_id)" || return 1
+    printf '%s' "$_key_id" | grep -Eq '^[0-9a-f]{64}$' || return 1
+
+    if [ -n "${Z2K_OW_BOOTSTRAP_PUBLIC_KEY:-}" ]; then
+        _key="$Z2K_OW_BOOTSTRAP_PUBLIC_KEY"
+    else
+        _keys="${Z2K_OW_RELEASE_KEYS:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/release-keys}"
+        _key="$_keys/$_key_id.pub"
+    fi
+    [ -s "$_key" ] || return 1
+    command -v openssl >/dev/null 2>&1 || return 2
+    _actual_key_id="$(openssl pkey -pubin -in "$_key" -outform DER 2>/dev/null | sha256sum 2>/dev/null | awk '{print $1}')"
+    [ "$_actual_key_id" = "$_key_id" ] || return 1
+    command -v au_manifest_verify >/dev/null 2>&1 || return 2
+    (
+        Z2K_AU_PUBKEY="$_key"
+        export Z2K_AU_PUBKEY
+        au_manifest_verify "$_m" "$_sig"
+    )
+}
+
 z2k_ow_manifest_shape_ok() {
     _m="$1"
     [ -s "$_m" ] || return 1
@@ -31,11 +55,13 @@ z2k_ow_manifest_release_ok() {
     z2k_ow_manifest_shape_ok "$_m" || return 1
     _tag=$(z2k_ow_manifest_value "$_m" current) || return 1
     _filename=$(z2k_ow_manifest_value "$_m" artifact.filename) || return 1
+    _key_id=$(z2k_ow_manifest_value "$_m" signing.key_id) || return 1
     _url=$(z2k_ow_manifest_value "$_m" artifact.url) || return 1
     _sha=$(z2k_ow_manifest_value "$_m" artifact.sha256 | tr 'A-F' 'a-f') || return 1
     _size=$(z2k_ow_manifest_value "$_m" artifact.size_bytes) || return 1
     _expected="https://github.com/t0fox/z2kOW/releases/download/$_tag/openwrt-rootfs.tar.gz"
     [ "$_filename" = openwrt-rootfs.tar.gz ] \
+        && printf '%s' "$_key_id" | grep -Eq '^[0-9a-f]{64}$' \
         && [ "$_url" = "$_expected" ] \
         && printf '%s' "$_sha" | grep -Eq '^[0-9a-f]{64}$' \
         && printf '%s' "$_size" | grep -Eq '^[1-9][0-9]*$'
@@ -54,7 +80,7 @@ z2k_ow_manifest_prepare_production() {
         rm -f "$_out" "$_sig"
         return 1
     }
-    [ -s "$_sig" ] && au_manifest_verify "$_out" "$_sig" || {
+    [ -s "$_sig" ] && z2k_ow_manifest_verify_signature "$_out" "$_sig" || {
         echo "z2k-openwrt: controlled UPDATES.json signature invalid or missing" >&2
         rm -f "$_out" "$_sig"
         return 1

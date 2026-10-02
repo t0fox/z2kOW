@@ -3418,7 +3418,13 @@ _update_manifest_signature_valid() {
     (
         # shellcheck disable=SC1090
         . "$verifier" || exit 1
-        au_manifest_verify "$manifest" "$signature"
+        if [ -f "${Z2K_ROOT:-}/platform/openwrt/manifest.sh" ]; then
+            # shellcheck disable=SC1090
+            . "${Z2K_ROOT}/platform/openwrt/manifest.sh" || exit 1
+            z2k_ow_manifest_verify_signature "$manifest" "$signature"
+        else
+            au_manifest_verify "$manifest" "$signature"
+        fi
     )
 }
 # Чем тянули манифест в последний раз: mirrors | curl | пусто (не пробовали).

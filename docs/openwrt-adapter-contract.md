@@ -34,7 +34,7 @@ The common upstream updater supplies `au_decide` semantics. For every approved t
 install_release <upstream-tag>
 ```
 
-`patch`, `reinstall`, and `full_install` may control migration hooks or state handling. They never select a delta deployment path. A successful install advances the single local state; the next check returns `none`.
+The shared `au_decide` reads upstream history and decides whether there is an update. The OpenWrt adapter collapses both `patch` and `reinstall` decisions into the same complete-payload `install_release` path. It does not execute upstream `history[].steps` or `full_install` semantics. These fields are therefore not migration hooks in the current OpenWrt deployment path; see the [parity audit](UPSTREAM-PARITY-MATRIX.md). A successful install advances the single local state; the next check returns `none`.
 
 The transaction verifies the signature, artifact length and SHA-256, validates archive member paths, extracts to staging, and atomically replaces the owned paths. It journals the old paths with same-filesystem renames and restores them if application or health checks fail. User configuration/state is preserved. See `platform/openwrt/owned-paths.txt` for the release ownership list.
 
@@ -57,4 +57,4 @@ The WebPanel refuses 80/443. Rootfs staging, archive validation, install-path co
 
 The installed common z2k code continues to call the existing OpenWrt adapters. OpenWrt-only behavior stays in `platform/openwrt/`; common changes carry upstream semantics without importing `ndmc`, NDM hooks, Keenetic init scripts or `/opt/etc` lifecycle behavior into the router.
 
-The candidate CI job runs `tests/openwrt/run.sh`, builds the pinned zapret2 runtime plus architecture-specific Telegram and WARP binaries, stages one complete rootfs, and emits an unsigned candidate. Signing and production publication are separate trusted operations. No live router result may be claimed from fixture or CI simulation alone.
+The trusted release workflow runs full CI, builds the pinned zapret2 runtime plus architecture-specific Telegram and WARP binaries, stages one complete rootfs, signs the controlled manifest in a protected environment, and verifies the immutable public assets. The ordinary candidate CI job remains unsigned and cannot be installed through the production trust path. No live router result may be claimed from fixture or CI simulation alone.

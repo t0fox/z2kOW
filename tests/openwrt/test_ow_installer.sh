@@ -14,6 +14,7 @@ mkdir -p "$BIN" "$TMPDIR" "$SYS/etc/init.d" "$SYS/etc/z2k/state" "$SYS/www/luci-
 command -v openssl >/dev/null 2>&1 || { _t_bad "openssl unavailable"; _t_done; exit $?; }
 openssl genpkey -algorithm ED25519 -out "$T/test.key" >/dev/null 2>&1 || exit 1
 openssl pkey -in "$T/test.key" -pubout -out "$T/test.pub" >/dev/null 2>&1 || exit 1
+TEST_KEY_ID="$(openssl pkey -pubin -in "$T/test.pub" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
 
 mkdir -p "$T/payload/usr/sbin" "$T/payload/usr/lib/z2k/lib" \
     "$T/payload/usr/lib/z2k/platform/openwrt"
@@ -22,7 +23,8 @@ cat > "$T/payload/usr/sbin/install_release" <<'ENGINE'
 [ "$#" = 1 ] || exit 2
 printf '%s\n' "$1" > "$Z2K_TEST_INSTALL_CALL"
 [ -s "$Z2K_OW_BOOTSTRAP_MANIFEST" ] && [ -s "$Z2K_OW_BOOTSTRAP_SIGNATURE" ] \
-    && [ -s "$Z2K_OW_BOOTSTRAP_ARTIFACT" ] || exit 3
+    && [ -s "$Z2K_OW_BOOTSTRAP_ARTIFACT" ] \
+    && [ -s "$Z2K_OW_BOOTSTRAP_PUBLIC_KEY" ] || exit 3
 printf 'tag=%s\nseq=%s\n' "$1" 136 > "$Z2K_TEST_SYSROOT/etc/z2k/state/installed-release"
 ENGINE
 chmod 755 "$T/payload/usr/sbin/install_release"
@@ -39,23 +41,9 @@ tar -czf "$T/openwrt-rootfs.tar.gz" -C "$T/payload" \
 ARTIFACT_SHA="$(sha256sum "$T/openwrt-rootfs.tar.gz" | awk '{print $1}')"
 ARTIFACT_SIZE="$(wc -c < "$T/openwrt-rootfs.tar.gz" | tr -d ' \t\r\n')"
 cat > "$T/UPDATES.json" <<EOF
-{"schema":1,"branch":"main","platform":"openwrt","seq":136,"current":"p-86.13","upstream":{"repository":"necronicle/z2k","branch":"z2k-enhanced","tag":"p-86.13","commit":"7f630a9d459052b9c9c9eded06298f1b8f7f0a22"},"history":[{"v":"p-86.13","type":"patch","ts":"2026-10-02T06:39:48Z","ref":"p-86.13","desc":"fixture","changed_files":["files/z2k-warp.sh"]}],"artifact":{"filename":"openwrt-rootfs.tar.gz","url":"https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz","sha256":"$ARTIFACT_SHA","size_bytes":$ARTIFACT_SIZE}}
+{"schema":1,"branch":"main","platform":"openwrt","seq":136,"current":"p-86.13","upstream":{"repository":"necronicle/z2k","branch":"z2k-enhanced","tag":"p-86.13","commit":"7f630a9d459052b9c9c9eded06298f1b8f7f0a22"},"signing":{"key_id":"$TEST_KEY_ID"},"history":[{"v":"p-86.13","type":"patch","ts":"2026-10-02T06:39:48Z","ref":"p-86.13","desc":"fixture","changed_files":["files/z2k-warp.sh"]}],"artifact":{"filename":"openwrt-rootfs.tar.gz","url":"http://127.0.0.1:17777/openwrt-rootfs.tar.gz","sha256":"$ARTIFACT_SHA","size_bytes":$ARTIFACT_SIZE}}
 EOF
 openssl pkeyutl -sign -rawin -inkey "$T/test.key" -in "$T/UPDATES.json" -out "$T/UPDATES.json.sig" || exit 1
-
-# Render the installer with an isolated fixture key. Production source keeps
-# its real key pinned and has no test-key override.
-python3 - "$INSTALLER" "$T/install.sh" "$T/test.pub" <<'PY' || exit 1
-from pathlib import Path
-import sys
-source, output, fixture_key = map(Path, sys.argv[1:])
-text = source.read_text(encoding="utf-8")
-start = text.index("-----BEGIN PUBLIC KEY-----")
-end = text.index("-----END PUBLIC KEY-----", start) + len("-----END PUBLIC KEY-----")
-text = text[:start] + fixture_key.read_text(encoding="utf-8").strip() + text[end:]
-output.write_text(text, encoding="utf-8")
-PY
-chmod 755 "$T/install.sh"
 
 cat > "$BIN/id" <<'ID'
 #!/bin/sh
@@ -87,11 +75,14 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 case "$url" in
-    https://raw.githubusercontent.com/t0fox/z2kOW/main/UPDATES.json) cp "$Z2K_TEST_MANIFEST" "$dest" ;;
-    https://raw.githubusercontent.com/t0fox/z2kOW/main/UPDATES.json.sig)
+    http://127.0.0.1:17777/UPDATES.json) cp "$Z2K_TEST_MANIFEST" "$dest" ;;
+    http://127.0.0.1:17777/UPDATES.json.sig)
         if [ "${Z2K_TEST_BAD_SIGNATURE:-0}" = 1 ]; then printf 'bad-signature' > "$dest"; else cp "$Z2K_TEST_SIGNATURE" "$dest"; fi ;;
-    https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz)
-        if [ "${Z2K_TEST_BAD_ARTIFACT:-0}" = 1 ]; then printf x > "$dest"; else cp "$Z2K_TEST_ARTIFACT" "$dest"; fi ;;
+    http://127.0.0.1:17777/openwrt-rootfs.tar.gz)
+        if [ "${Z2K_TEST_BAD_ARTIFACT:-0}" = 1 ]; then
+            cp "$Z2K_TEST_ARTIFACT" "$dest"
+            printf '\001' | dd of="$dest" bs=1 seek=0 conv=notrunc 2>/dev/null
+        else cp "$Z2K_TEST_ARTIFACT" "$dest"; fi ;;
     *) echo "unexpected URL: $url" >&2; exit 19 ;;
 esac
 WGET
@@ -123,11 +114,12 @@ luci_fixture_seed "$SYS" || exit 1
 _luci_before="$(luci_fixture_state "$SYS")" || exit 1
 export PATH="$BIN:/usr/bin:/bin" TMPDIR Z2K_TEST_MANIFEST="$T/UPDATES.json" \
     Z2K_OPENWRT_RELEASE_FILE="$SYS/etc/openwrt_release" \
+    Z2KOW_MANIFEST_URL=http://127.0.0.1:17777/UPDATES.json Z2KOW_TRUST_KEY="$T/test.pub" \
     Z2K_TEST_SIGNATURE="$T/UPDATES.json.sig" Z2K_TEST_ARTIFACT="$T/openwrt-rootfs.tar.gz" \
     Z2K_TEST_INSTALL_CALL="$T/install-call" Z2K_TEST_APK_LOG="$T/apk.log" \
     Z2K_TEST_SYSROOT="$SYS"
 
-if sh "$T/install.sh" > "$T/out" 2>&1; then _t_ok; else _t_bad "fresh bootstrap failed: $(cat "$T/out")"; fi
+if sh "$INSTALLER" > "$T/out" 2>&1; then _t_ok; else _t_bad "fresh bootstrap failed: $(cat "$T/out")"; fi
 assert_eq "bootstrap enters the unified installer once with controlled tag" p-86.13 "$(cat "$T/install-call" 2>/dev/null)"
 assert_eq "fresh bootstrap writes the single installed release state" "tag=p-86.13
 seq=136" "$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null)"
@@ -135,13 +127,27 @@ assert_eq "bootstrap installs only required OpenWrt system dependencies" \
     "update
 add ca-bundle openssl-util jsonfilter" "$(cat "$T/apk.log" 2>/dev/null)"
 assert_not_contains "bootstrap contains no z2kOW APK or feed installation" "$INSTALLER" 'z2k-(adapter|webpanel|zapret2-runtime|warp-runtime)|packages\.adb|repositories\.d|apk (add|del).*z2k'
+assert_contains "production manifest default remains pinned" "$INSTALLER" 'BASE="https://raw.githubusercontent.com/t0fox/z2kOW/main"'
 luci_fixture_assert_unchanged "$SYS" "$_luci_before" "fresh bootstrap preserves LuCI and uhttpd"
+
+# Acceptance source and trust key are a single explicit override; a partial
+# override must stop before dependencies or any source request.
+rm -f "$T/apk.log" "$T/install-call"
+if Z2KOW_TRUST_KEY= sh "$INSTALLER" > "$T/partial-override.out" 2>&1; then
+    _t_bad "partial acceptance override was accepted"
+else
+    assert_contains "partial acceptance override reports paired settings" "$T/partial-override.out" "должны задаваться вместе"
+fi
+[ ! -e "$T/apk.log" ] && _t_ok || _t_bad "partial acceptance override ran apk before rejection"
+[ ! -e "$T/install-call" ] && _t_ok || _t_bad "partial acceptance override reached install_release"
 
 # A bad signature and a digest mismatch both fail before install_release is run.
 rm -f "$T/install-call" "$SYS/etc/z2k/state/installed-release"
-Z2K_TEST_BAD_SIGNATURE=1 sh "$T/install.sh" > "$T/bad-signature.out" 2>&1 && _t_bad "bad signature was accepted"
+Z2K_TEST_BAD_SIGNATURE=1 sh "$INSTALLER" > "$T/bad-signature.out" 2>&1 && _t_bad "bad signature was accepted"
 [ -f "$T/install-call" ] && _t_bad "bad signature reached install_release" || _t_ok
-Z2K_TEST_BAD_SIGNATURE=0 Z2K_TEST_BAD_ARTIFACT=1 sh "$T/install.sh" > "$T/bad-artifact.out" 2>&1 && _t_bad "bad artifact was accepted"
+assert_contains "bad signature is rejected by Ed25519 verification" "$T/bad-signature.out" "подпись controlled UPDATES.json неверна"
+Z2K_TEST_BAD_SIGNATURE=0 Z2K_TEST_BAD_ARTIFACT=1 sh "$INSTALLER" > "$T/bad-artifact.out" 2>&1 && _t_bad "bad artifact was accepted"
 [ -f "$T/install-call" ] && _t_bad "bad artifact reached install_release" || _t_ok
+assert_contains "same-size altered artifact is rejected by SHA-256" "$T/bad-artifact.out" "SHA-256 rootfs не совпал"
 
 _t_done

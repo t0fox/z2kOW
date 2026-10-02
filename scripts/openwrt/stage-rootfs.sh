@@ -10,6 +10,7 @@ WARPD_DIR="${3:-}"
 TG_DIR="${4:-}"
 RT_DIR="${5:-}"
 DETECT_DIR="${6:-}"
+RELEASE_KEYS_DIR="${7:-$ROOT/scripts/openwrt/release-keys}"
 
 die() { printf 'stage-rootfs: %s\n' "$*" >&2; exit 1; }
 copy_data() {
@@ -68,7 +69,14 @@ copy_data "$ROOT/platform/openwrt/z2kow.sh" usr/bin/z2kow 0755
 copy_data "$ROOT/scripts/openwrt/install_release.sh" usr/sbin/install_release 0755
 copy_data "$ROOT/files/z2k-warp-list-filter.awk" usr/lib/z2k/z2k-warp-list-filter.awk
 copy_data "$ROOT/files/z2k-diag.sh" usr/lib/z2k/z2k-diag.sh 0755
-copy_data "$ROOT/files/etc/z2k-update-pub.pem" opt/zapret2/etc/z2k-update-pub.pem
+for _key in "$RELEASE_KEYS_DIR"/*.pub; do
+    [ -f "$_key" ] || continue
+    _key_id=${_key##*/}
+    _key_id=${_key_id%.pub}
+    printf '%s' "$_key_id" | grep -Eq '^[0-9a-f]{64}$' \
+        || die "release public key filename must be its lowercase SHA-256 fingerprint: $_key_id"
+    copy_data "$_key" "usr/lib/z2k/platform/openwrt/release-keys/$_key_id.pub"
+done
 _warpd_count=0
 for _warpd in "$WARPD_DIR"/linux-*/z2k-warpd; do
     [ -f "$_warpd" ] || continue

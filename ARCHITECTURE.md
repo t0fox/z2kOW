@@ -1,203 +1,52 @@
-# Как устроен z2k
+# z2kOW architecture
 
-Документ для того, кто собирается вносить правку и не хочет сломать прод.
-Описывает не «что хотелось», а то, как есть на самом деле, включая места,
-где устройство неочевидно и уже стоило инцидентов.
+z2kOW adapts the shared [z2k](https://github.com/necronicle/z2k) application to OpenWrt. Common strategy, configuration, updater, runtime and WebPanel behavior stays in the shared tree where possible. Platform effects belong in `platform/openwrt/`, OpenWrt init/hotplug files, or explicit OpenWrt branches in shared integration points.
 
----
+For the audited upstream comparison and current gaps, see [`docs/UPSTREAM-PARITY-MATRIX.md`](docs/UPSTREAM-PARITY-MATRIX.md). The device install/update contract is in [`docs/openwrt-release-operations.md`](docs/openwrt-release-operations.md).
 
-## Из чего состоит
+## Runtime boundaries
 
-| Что | Где | Язык | Куда едет |
-|---|---|---|---|
-| Установщик и меню | `z2k.sh`, `lib/*.sh` | POSIX sh | роутер |
-| Рантайм-скрипты | `files/*.sh`, `files/init.d/S*` | POSIX sh | роутер |
-| Проверка подписи обновлений | `z2k-verify/` | Go | роутер |
-| Lua-детекторы | `files/lua/*.lua` | Lua (LuaJIT на роутере) | внутрь nfqws2 |
-| Вебпанель | `webpanel/` | sh (CGI) + ванильный JS | роутер |
-| Детектор блокировок | `z2k-detect/` | Go | роутер, 9 арок |
-| Клиент туннеля | `mtproxy-client/` | Go | роутер, 9 арок |
-| Мост к RuTracker | `rt-proxy/` | Go | роутер, 5 арок |
-| Релей туннеля | `vps-relay/` | Go | **VPS**, amd64 |
+| Responsibility | z2kOW location | OpenWrt owner |
+|---|---|---|
+| Common CLI, config, strategies, updater and menu | `z2k.sh`, `lib/` | Shared z2k logic with OpenWrt path/service adapters |
+| Runtime scripts and default data | `files/` | Shared behavior plus OpenWrt-specific integration files |
+| Platform paths, environment and bootstrap | `platform/openwrt/paths.sh`, `env.sh`, `bootstrap.sh` | `/etc/z2k` persistent config/state and `/usr/lib/z2k` payload |
+| Service lifecycle | `files/init.d/`, `platform/openwrt/` | procd |
+| Firewall and interface events | `platform/openwrt/firewall.sh`, `hotplug/`, `files/hotplug.d/` | fw4/nftables and netifd/hotplug |
+| WebPanel | `webpanel/`, `platform/openwrt/webpanel.sh` | CGI/lighttpd integration owned by z2kOW; LuCI/uhttpd remain outside the boundary |
+| Release payload | `scripts/openwrt/`, `platform/openwrt/release.sh` | One signed full-rootfs artifact and `install_release <tag>` |
+| Architecture-specific binaries | `platform/openwrt/arch.sh`, staged `bin/linux-*` trees | OpenWrt target metadata with fail-closed mapping |
 
-Про `mtproxy-client`: **MTProto внутри нет**. Это прозрачный мультиплексор
-TCP поверх WebSocket — перехватывает REDIRECT'нутые соединения через
-`SO_ORIGINAL_DST` и заворачивает их в один WS до релея. Имя выбрано намеренно
-и переименованию не подлежит.
+Keenetic `ndmc`, NDM hooks, Entware init/service management, and device policy APIs do not run on OpenWrt. Their user-facing purpose is retained only where an OpenWrt owner exists; the platform mechanism is supplied by procd, fw4/netifd, UCI and `/etc`/`/usr` paths.
 
----
+## Install and update flow
 
-## Граф подключения (sourcing) — здесь легче всего ошибиться
-
-```
-z2k.sh                       ← точка входа установки и меню
-  ├── определяет z2k_fetch (5 слоёв, включая DoH) и print_*, confirm, …
-  └── source_modules
-        └── lib/{utils,install,strategies,config,config_official,webpanel,menu,auto_update}.sh
-              (порядок задан переменной MODULES в z2k.sh)
-
-files/z2k-auto-update.sh     ← ночной cron, z2k.sh НЕ вызывает
-  ├── lib/utils.sh           ← z2k_fetch отсюда: 4 слоя, БЕЗ DoH
-  └── lib/auto_update.sh
-
-webpanel/cgi/api.sh          ← каждый HTTP-запрос
-  ├── webpanel/cgi/auth.sh
-  ├── webpanel/cgi/actions.sh
-  └── _gen_libs_source → lib/utils.sh + lib/config_official.sh
+```text
+controlled UPDATES.json + signature
+                 |
+                 v
+      verify metadata and artifact
+                 |
+                 v
+       stage full rootfs archive
+                 |
+                 v
+ install_release <upstream-tag>
+                 |
+                 v
+ migrate/bootstrap -> service health -> commit
+                 |
+          failure: rollback
 ```
 
-### Правила, которые надо знать
+The device bootstrap is `scripts/openwrt/install.sh`. The single device-visible manifest is repository-root `UPDATES.json`; it binds the complete `openwrt-rootfs.tar.gz` by URL, byte size and SHA-256 under its signature. CI stages an unsigned candidate; trusted signing and publication are separate. The OpenWrt install engine currently applies the full payload for both upstream `patch` and `reinstall` history entries. See the operations guide for ownership, state preservation, migration and rollback details.
 
-**Кто определён дважды — тот под гардом.** `z2k_fetch` и `_z2k_curl_etag` есть
-и в `z2k.sh`, и в `lib/utils.sh`. Версия из `z2k.sh` богаче (DoH-слой,
-chunked range-fallback), поэтому в `utils.sh` они завёрнуты в
-`if ! command -v … ; then`. Снимете гард — потеряете слой молча, без единого
-признака.
+## Persistent state and ownership
 
-**Ненадзорный путь беднее интерактивного.** Cron-обновление идёт по четырём
-слоям, меню и панель — по пяти. Это осознанно (до 2026-08 на cron-пути
-фоллбэка не было вовсе), но помните: **без человека работает именно ночной
-путь**, и отказ там некому заметить.
+The release payload does not own `/etc/z2k`. That tree holds operator config, user lists and persistent state. Replaceable integration/payload paths are listed in `platform/openwrt/owned-paths.txt`. The release engine journals paths it replaces and previous release metadata to recover from a failed or interrupted transaction. User-requested backup/restore is a separate feature and must not be inferred from that transaction journal.
 
-**Глобальные пути присваиваются условно.** `ZAPRET2_DIR`, `CONFIG_DIR`,
-`LISTS_DIR`, `INIT_SCRIPT`, `CATEGORY_STRATEGIES_CONF` в `lib/utils.sh`
-объявлены как `${VAR:-умолчание}`. Кто задал путь до подключения — тот его и
-сохраняет. Раньше присваивание было безусловным, и панели приходилось спасать
-четвёрку вокруг сорсинга вручную; костыль убран, но если вернуть безусловное
-присваивание, вернётся и он.
+Runtime inputs are pinned during the build in `platform/openwrt/runtime-pin`; the signed rootfs digest covers the final bundled bytes. The signed manifest does not currently expose a distinct runtime version/source/hash record.
 
-**Писалка конфига одна.** `set_flag` живёт в `lib/utils.sh`. Конфиг
-**исполняется** как скрипт (`. "$ZAPRET_CONFIG"` в `files/S99zapret2.new`),
-поэтому значения с пробелами и не-ASCII обязаны идти в одинарных кавычках,
-а флаги `0/1` — голыми (на `^ENABLED=1` завязаны `grep`-проверки в
-`files/000-zapret2.sh` и `z2k-nfqueue-selfheal.sh`). Не пишите `KEY=$val`
-инлайном: так уже было шесть реализаций, и меню отвергало кириллические имена
-политики, которые панель принимала.
+## Contributor rule
 
----
-
-## Установка против обновления
-
-**Критерий один: может ли патч ВОСПРОИЗВЕСТИ эффект правки.** Патч умеет ровно
-одно — положить файл по пути из `au_install_paths()` и перезапустить сервис.
-Если эффект файла производится шагом, которого у патча нет (генератор времени
-установки, шаблон времени установки, выбор архитектуры), то доставленная копия
-ничего не меняет: версия и `installed_tag` уезжают вперёд, поведение роутера
-остаётся прежним. Отсюда деление:
-
-| Что изменилось | Тип релиза |
-|---|---|
-| `files/*`, списки, lua, `webpanel/*` (кроме `lighttpd.conf`) | `patch` |
-| `lib/utils.sh`, `config.sh`, `menu.sh`, `webpanel.sh`, `auto_update.sh` | `patch` — `z2k.sh` пересобирает их в память из `${zd}/lib` на каждом запуске |
-| **`lib/install.sh`, `lib/config_official.sh`, `lib/strategies.sh`** | **`reinstall`** — их код исполняется только внутри установки |
-| **`webpanel/lighttpd.conf`** | **`reinstall`** — шаблон с подстановкой `@PORT@`/`@BIND@` |
-| **любой `*/builds/*`** | **`reinstall`** — цель зависит от архитектуры, патч разложил бы `arm64` на `mipsel` |
-| init-скрипты | `patch` — см. ниже |
-
-Эта таблица — пересказ, а не источник. Источник один: `au_reinstall_required()`
-в `lib/auto_update.sh`, и её же спрашивает `scripts/release.sh`, отказываясь
-резать `patch`, если задет reinstall-путь. Заводя файл, чей эффект производится
-шагом установки, вписывать надо туда — на текст здесь никакой гейт не смотрит
-(ровно так однажды и провалился `webpanel/lighttpd.conf`: комментарий «ship as
-reinstall» рядом с ним читать было некому).
-
-Про init-скрипты. Главный из них — `S99zapret2`: он приходит патчем из
-`files/S99zapret2.new` в `/opt/etc/init.d/S99zapret2` и перезапускается на
-КАЖДОМ патче безусловно (`restart_set` в `au_apply_patch` им инициализируется),
-потому что весь вход движка — lua, хостлисты, конфиг, fake-блобы — идёт через
-него. Остальные перезапускаются по факту своего изменения: `S98tg-tunnel`,
-`S97z2k-http-tunnel`, `S96z2k-rt-proxy`, `S51z2k-warp` (движок WARP `z2k-warpd`, модуль `z2k-warpd/`; ставится только по кнопке), `S99z2k-scheduler` (и на
-`files/z2k-scheduler.sh` тоже), `S98z2k-detect`, `S96z2k-webpanel` (на любой
-правке `webpanel/*`). Правка `files/z2k-geosite.sh` или
-`files/lists/rkn-false-positive.txt` дополнительно тянет немедленный
-geosite-refresh, иначе фильтр применился бы только на суточном тике планировщика.
-
-Новому init-скрипту нужны обе половины: цель в `au_install_paths` (иначе файл
-ляжет в `${zd}/init.d/` и до системы не доедет — так уже терялся r-59.9) и
-запись в `restart_set` (иначе новый файл лежит на месте, а работает старый
-процесс). Без них — только `reinstall`.
-
-Подробности релизного порядка — в [RELEASING.md](RELEASING.md).
-
----
-
-## Что переживает обновление, а что нет
-
-| Категория | Политика |
-|---|---|
-| `Z2K_*` в конфиге | **сохраняются и накладываются заново** (`au_save_feature_flags` → reinstall → `au_reapply_feature_flags`). Возвращаются только те флаги, что есть и в новом конфиге: для исчезнувших действует новое умолчание |
-| Штатные `Strategy.txt` и поставляемые списки | **заменяются**. Правки в них — расходный материал |
-| `lists/custom-strategies/*.txt` | **пользовательские, не трогаем** |
-| `extra-domains.txt` | **трёхстороннее слияние** |
-| `state.tsv` | восстанавливается из бэкапа, либо стирается при `reset_state` в записи релиза |
-
----
-
-## Транспорт: как файлы попадают на роутер
-
-Порядок попыток в `z2k_fetch` (первый успех выигрывает):
-
-0. **VPS SNI-passthrough** — `--resolve` на наш VPS. TLS остаётся сквозным до
-   GitHub, подменить содержимое нельзя.
-1. `raw.githubusercontent.com`
-2. `cdn.jsdelivr.net` — edge-кеш до 12 часов
-3. `gh-proxy.com` — **сторонний реверс-прокси, терминирует TLS у себя**
-4. DoH через 1.1.1.1 + пины IP *(только версия из `z2k.sh`)*
-5. Keenetic: `nslookup` через 8.8.8.8 → `ndmc ip host` → повтор 1–2
-
-**Каждый хоп сверяется с картой `files_sha256` из `UPDATES.json`**
-(`_z2k_verify_fetched`). Не совпало — файл и его etag сносятся, идём дальше.
-Дропать etag обязательно: иначе следующий хоп пошлёт `If-None-Match`, получит
-304 и примет ровно те байты, которые мы только что отвергли.
-
-Отсюда правило про `gh-proxy`: он допустим там, где есть ожидаемый дайджест
-(тогда он тупое блочное хранилище — может не отдать, но не может соврать), и
-недопустим там, где сверять не с чем.
-
----
-
-## Места, где устройство неочевидно
-
-**`nfqws2` читает опции только при старте.** Перегенерации конфига мало —
-нужен рестарт сервиса, иначе панель скажет «применено», а демон продолжит
-работать со старой стратегией.
-
-**У `state.tsv` два писателя** — Lua-персист и вебпанель. Замок общий:
-файл `<path>.lock` с меткой времени, пустой считается ничьим, старше 10 секунд
-протухшим, метка из будущего означает уехавшие часы. `flock` на Entware нет,
-атомарность даёт `set -C` в shell и `io.open(…, "wx")` в Lua.
-
-**NDM вайпает правила iptables** порядка 280 раз в сутки. Всё, что держится на
-правиле INPUT, **fails open** на десятки секунд несколько раз в день. Адрес
-бинда живёт в сокете ядра и вайпом не трогается — поэтому доступ к панели
-ограничивается биндом, а не файрволом.
-
-**Часы уезжают.** После потери питания время на Keenetic неверно до тех пор,
-пока не отработает NTP, а NTP ходит через тот же канал. Любая проверка
-«не просрочено ли» обязана это учитывать.
-
-**Go не собирается под lexra.** Это MIPS-вариант, и ни один наш Go-бинарник
-под неё не идёт — ни детектор, ни клиент туннеля, ни проверяльщик подписи.
-Движок при этом работает: его собирает апстрим своим тулчейном. Практическое
-следствие: на lexra проверка подписи манифеста ложится целиком на `openssl`,
-а если его там нет — подпись не проверяется, пока храповик доверия не
-защёлкнут. Список арок у Go-модулей и у движка НЕ совпадает, и это не
-недосмотр.
-
-**У MIPS свои грабли.** Go-бинарники требуют `GODEBUG=asyncpreemptoff=1`,
-тулчейн пиннится на `go1.25.13` (на 1.26.x ловили `_ENOSYS`), а `z2k-detect`
-дополнительно фиксирует `DefaultGODEBUG` через `//go:debug` — потому что форма
-нашего ClientHello это измерительный инструмент детектора, и её нельзя двигать
-заодно с бампом библиотеки.
-
----
-
-## Где что искать
-
-| Вопрос | Файл |
-|---|---|
-| Как выпустить релиз | [RELEASING.md](RELEASING.md) |
-| Как сообщить об уязвимости, модель угроз | [SECURITY.md](SECURITY.md) |
-| Правила правок, стиль, fail-open | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| Что видит пользователь | [README.md](README.md) |
-| Тесты | `tests/run_all.sh`, `scripts/ci_local.sh` |
+Before changing common code, compare it with the pinned upstream implementation. Keep common behavior common; add or change an adapter only for a real OpenWrt platform boundary or a documented parity gap. Keep release instructions in [`RELEASING.md`](RELEASING.md) scoped to upstream tag tooling and the OpenWrt operator runbook linked above scoped to router installation.
