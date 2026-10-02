@@ -1,7 +1,8 @@
 #!/bin/sh
 # platform/openwrt/paths.sh - единый источник OpenWrt-путей z2k.
 #
-# Единственное место, где записаны литералы /etc/z2k, /usr/lib/z2k, /tmp/z2k.
+# Единственное место, где записаны литералы /etc/z2k, /usr/lib/z2k, /tmp/z2k
+# и /tmp/z2kow-install-stage.
 # Все остальные файлы адаптера берут пути отсюда.
 # Каждая переменная переопределяема окружением — это же используют тесты.
 #
@@ -41,6 +42,7 @@ Z2K_TG_TLS_BUNDLE="${Z2K_TG_TLS_BUNDLE:-$Z2K_ROOT/etc/z2k-roots.pem}"
 
 # --- transient (tmpfs) ---
 Z2K_TMP="${Z2K_TMP:-/tmp/z2k}"
+Z2K_OW_INSTALL_TMP="${Z2K_OW_INSTALL_TMP:-/tmp/z2kow-install-stage}"
 Z2K_WARP_TMP="${Z2K_WARP_TMP:-/tmp/z2k-warp}"
 Z2K_WARP_DOMAIN_RULES="${Z2K_WARP_DOMAIN_RULES:-$Z2K_WARP_TMP/domains.v1}"
 Z2K_RUN="${Z2K_RUN:-$Z2K_TMP/runtime}"
@@ -78,7 +80,7 @@ export Z2K_ETC Z2K_CONFIG Z2K_STATE Z2K_USER_LISTS \
     Z2K_EXTRA_STRATEGIES_RUNTIME Z2K_AUTOHOSTLIST_FILE \
     Z2K_AUTOHOSTLIST_DOMAINS_FILE \
     Z2K_AUTOHOSTLIST_DEBUG_FILE Z2K_RUN Z2K_CORE_READY \
-    Z2K_WARP_TMP Z2K_WARP_DOMAIN_RULES
+    Z2K_WARP_TMP Z2K_WARP_DOMAIN_RULES Z2K_OW_INSTALL_TMP
 
 # z2k_ow_paths_check — провалиться, если обязательные каталогы отсутствуют.
 # $1 — режим: "payload" (ro-ветка) или "all" (включая persistent/tmp).

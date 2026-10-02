@@ -410,6 +410,10 @@ z2k_ow_cleanup_transaction() {
     done < "$_paths"
 }
 
+z2k_ow_cleanup_install_workspace() {
+    rm -rf "$1" "$2"
+}
+
 z2k_ow_recover_transaction() {
     _work="$1" _state="$2" _service="$3" _target="${4:-}" _panel="${5:-}"
     [ -f "$_work/transaction-active" ] || return 0
@@ -461,12 +465,28 @@ _z2k_ow_install_release_locked() {
     _root="${Z2K_ROOT:-/usr/lib/z2k}"
     _adapter="${Z2K_ADAPTER_DIR:-$_root/platform/openwrt}"
     _lib="${Z2K_LIB:-$_root/lib}"
+    . "$_adapter/paths.sh" || return 1
     . "$_adapter/release_state.sh" || return 1
     _state="$(z2k_ow_path "${Z2K_OW_INSTALLED_RELEASE_FILE:-/etc/z2k/state/installed-release}")"
     _work="$(z2k_ow_path "${Z2K_OW_INSTALL_WORK:-/usr/lib/.z2k-install}")"
-    _stage="$_work/stage"
-    _archive="$_work/openwrt-rootfs.tar.gz"
+    if [ "${Z2K_OW_TESTING:-0}" = 1 ] && [ -n "${Z2K_OW_INSTALL_TMP:-}" ]; then
+        _tmp_work="$Z2K_OW_INSTALL_TMP"
+    else
+        _tmp_work="$Z2K_OW_INSTALL_TMP"
+    fi
+    _stage="$_tmp_work/stage"
+    _archive="$_tmp_work/openwrt-rootfs.tar.gz"
     _manifest="${Z2K_OW_BOOTSTRAP_MANIFEST:-${Z2K_OW_MANIFEST_PATH:-${Z2K_AU_TMP_DIR:-/tmp/z2k/update}/UPDATES.json}}"
+    _bootstrap_artifact_url=""
+    if [ -n "${Z2K_OW_BOOTSTRAP_MANIFEST:-}" ] \
+        && [ "$_manifest" = "$Z2K_OW_BOOTSTRAP_MANIFEST" ] \
+        && [ -n "${Z2KOW_MANIFEST_URL:-}" ]; then
+        case "$Z2KOW_MANIFEST_URL" in
+            http://*/UPDATES.json|https://*/UPDATES.json)
+                _bootstrap_artifact_url="${Z2KOW_MANIFEST_URL%/UPDATES.json}/openwrt-rootfs.tar.gz"
+                ;;
+        esac
+    fi
     _paths="$_work/owned-paths"
     _old_state="$_work/installed-release.old"
     _service="$(z2k_ow_path /etc/init.d/z2k)"
@@ -477,7 +497,6 @@ _z2k_ow_install_release_locked() {
 
     if [ "${Z2K_OW_TESTING:-0}" != 1 ]; then
         [ "$(id -u 2>/dev/null || echo 1)" = 0 ] || { echo "install_release must run as root" >&2; return 1; }
-        . "$_adapter/paths.sh" || return 1
         . "$_adapter/env.sh" || return 1
         . "$_lib/utils.sh" || return 1
         . "$_lib/auto_update.sh" || return 1
@@ -488,20 +507,24 @@ _z2k_ow_install_release_locked() {
                 echo "z2k-openwrt: bootstrap manifest signature invalid or unavailable" >&2
                 return 1
             }
-            z2k_ow_manifest_release_ok "$_manifest" || return 1
+            z2k_ow_manifest_release_ok "$_manifest" "$_bootstrap_artifact_url" || return 1
         else
             z2k_ow_manifest_prepare_production "$_manifest" || return 1
         fi
     else
         . "$_adapter/manifest.sh" || return 1
     fi
-    z2k_ow_manifest_release_ok "$_manifest" || return 1
+    z2k_ow_manifest_release_ok "$_manifest" "$_bootstrap_artifact_url" || return 1
     _tag="$(z2k_ow_json_value "$_manifest" current)" || return 1
     [ "$_tag" = "$_requested" ] || {
         echo "z2k-openwrt: only controlled current release may be installed ($_tag)" >&2
         return 1
     }
     z2k_ow_recover_transaction "$_work" "$_state" "$_service" "$_tag" "$_panel" || return 1
+    # Recovery metadata and per-path backups stay persistent. The downloaded
+    # archive and target-specific extracted stage live on tmpfs so a release
+    # larger than the router's overlay can still be applied.
+    rm -rf "$_tmp_work" || return 1
     _installed="$(z2k_ow_release_state_tag "$_state")" || return 1
     _state_record="$(z2k_ow_release_state_read "$_state")" || _state_record=""
     _seq="$(z2k_ow_json_value "$_manifest" seq)" || return 1
@@ -520,33 +543,41 @@ _z2k_ow_install_release_locked() {
     case "$_size" in ''|*[!0-9]*) return 1 ;; esac
     [ "$_size" -gt 0 ] || return 1
 
-    mkdir -p "$_work" || return 1
-    rm -rf "$_stage" "$_transaction" "$_work/transaction-active" \
+    mkdir -p "$_work" "$_tmp_work" || return 1
+    rm -rf "$_transaction" "$_work/transaction-active" \
         "$_work/transaction-id" "$_work/state-was-present" \
         "$_work/state-write-started" "$_old_state"
     mkdir -p "$_stage" || return 1
     if [ -n "${Z2K_OW_BOOTSTRAP_ARTIFACT:-}" ]; then
-        cp "$Z2K_OW_BOOTSTRAP_ARTIFACT" "$_archive" || return 1
+        _archive="$Z2K_OW_BOOTSTRAP_ARTIFACT"
     elif [ "${Z2K_OW_TESTING:-0}" = 1 ] && [ -n "${Z2K_OW_ARTIFACT_PATH:-}" ]; then
-        cp "$Z2K_OW_ARTIFACT_PATH" "$_archive" || return 1
+        _archive="$Z2K_OW_ARTIFACT_PATH"
     else
-        z2k_ow_download "$_url" "$_archive" || { rm -rf "$_work"; return 1; }
+        z2k_ow_download "$_url" "$_archive" || {
+            z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1;
+        }
     fi
-    [ "$(wc -c < "$_archive" | tr -d ' \t\r\n')" = "$_size" ] || { rm -rf "$_work"; return 1; }
+    [ "$(wc -c < "$_archive" | tr -d ' \t\r\n')" = "$_size" ] \
+        || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     _actual="$(sha256sum "$_archive" 2>/dev/null | awk '{print $1}')"
-    [ "$_actual" = "$_sha" ] || { rm -rf "$_work"; return 1; }
-    z2k_ow_archive_safe "$_archive" "$_work/archive-list" || { rm -rf "$_work"; return 1; }
+    [ "$_actual" = "$_sha" ] || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
+    z2k_ow_archive_safe "$_archive" "$_work/archive-list" \
+        || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     z2k_ow_extract_target_payload "$_archive" "$_stage" "$_work/archive-list" "$_work" \
-        || { rm -rf "$_work"; return 1; }
-    z2k_ow_owned_paths > "$_paths" || { rm -rf "$_work"; return 1; }
-    z2k_ow_migrate_relay_identity || { rm -rf "$_work"; return 1; }
+        || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
+    z2k_ow_owned_paths > "$_paths" || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
+    z2k_ow_migrate_relay_identity || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
 
-    printf '%s\n' "$_transaction_id" > "$_work/transaction-id" || { rm -rf "$_work"; return 1; }
+    printf '%s\n' "$_transaction_id" > "$_work/transaction-id" \
+        || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     if [ -e "$_state" ]; then
-        cp -p "$_state" "$_old_state" || { rm -rf "$_work"; return 1; }
-        : > "$_work/state-was-present" || { rm -rf "$_work"; return 1; }
+        cp -p "$_state" "$_old_state" \
+            || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
+        : > "$_work/state-was-present" \
+            || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     fi
-    : > "$_work/transaction-active" || { rm -rf "$_work"; return 1; }
+    : > "$_work/transaction-active" \
+        || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
 
     if [ -x "$_service" ]; then
         "$_service" stop >/dev/null 2>&1 || true
@@ -554,14 +585,14 @@ _z2k_ow_install_release_locked() {
     fi
     z2k_ow_backup_paths "$_transaction" "$_paths" "$_transaction_id" || {
         z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id" || true
-        rm -rf "$_work"
+        z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"
         [ "$_stopped" = 0 ] || z2k_ow_restart_services "$_service" "$_panel" || true
         return 1
     }
     z2k_ow_legacy_migrate "$(z2k_ow_path /usr/lib/z2k).z2k-backup.$_transaction_id" || {
         z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id" || true
         z2k_ow_cleanup_transaction "$_paths" "$_transaction_id"
-        rm -rf "$_work"
+        z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"
         [ "$_stopped" = 0 ] || z2k_ow_restart_services "$_service" "$_panel" || true
         return 1
     }
@@ -570,7 +601,7 @@ _z2k_ow_install_release_locked() {
         z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id" || echo "z2k-openwrt: file rollback incomplete" >&2
         z2k_ow_cleanup_transaction "$_paths" "$_transaction_id"
         [ "$_stopped" = 0 ] || z2k_ow_restart_services "$_service" "$_panel" || true
-        rm -rf "$_work"
+        z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"
         return 1
     fi
 
@@ -579,7 +610,7 @@ _z2k_ow_install_release_locked() {
         z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id" || true
         z2k_ow_cleanup_transaction "$_paths" "$_transaction_id"
         [ "$_stopped" = 0 ] || z2k_ow_restart_services "$_service" "$_panel" || true
-        rm -rf "$_work"; return 1
+        z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1
     }
 
     if [ "${Z2K_OW_TESTING:-0}" != 1 ]; then
@@ -592,7 +623,7 @@ _z2k_ow_install_release_locked() {
                 z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id" || true
                 z2k_ow_cleanup_transaction "$_paths" "$_transaction_id"
                 z2k_ow_restart_services "$_service" "$_panel" || true
-                rm -rf "$_work"; return 1
+                z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1
             }
         fi
     fi
@@ -605,7 +636,7 @@ _z2k_ow_install_release_locked() {
                 z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id" || true
                 z2k_ow_cleanup_transaction "$_paths" "$_transaction_id"
                 z2k_ow_restart_services "$_service" "$_panel" || true
-                rm -rf "$_work"; return 1
+                z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1
             }
         done
         _n=0
@@ -619,7 +650,7 @@ _z2k_ow_install_release_locked() {
             z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id" || true
             z2k_ow_cleanup_transaction "$_paths" "$_transaction_id"
             z2k_ow_restart_services "$_service" "$_panel" || true
-            rm -rf "$_work"; return 1
+            z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1
         }
     fi
 
@@ -627,7 +658,7 @@ _z2k_ow_install_release_locked() {
         z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id" || true
         z2k_ow_cleanup_transaction "$_paths" "$_transaction_id"
         z2k_ow_restart_services "$_service" "$_panel" || true
-        rm -rf "$_work"; return 1
+        z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1
     }
     _state_tmp="${_state}.z2k-new.$_transaction_id"
     _expected_record=$(printf 'tag=%s\nseq=%s' "$_tag" "$_seq")
@@ -638,7 +669,7 @@ _z2k_ow_install_release_locked() {
         z2k_ow_cleanup_transaction "$_paths" "$_transaction_id"
         if [ -f "$_old_state" ]; then mv -f "$_old_state" "$_state"; else rm -f "$_state"; fi
         z2k_ow_restart_services "$_service" "$_panel" || true
-        rm -rf "$_work"; return 1
+        z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1
     fi
 
     # The former package updater kept two additional version markers. Retire
@@ -650,7 +681,7 @@ _z2k_ow_install_release_locked() {
           "$(z2k_ow_path "${Z2K_ZAPRET2_RUNTIME:-/opt/zapret2}/.z2k-installed-tag")" \
           "$(z2k_ow_path "${Z2K_ZAPRET2_RUNTIME:-/opt/zapret2}/.z2k-tree-dirty")"
     z2k_ow_cleanup_transaction "$_paths" "$_transaction_id"
-    rm -rf "$_work"
+    z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"
     printf 'installed %s\n' "$_tag"
 }
 
@@ -699,7 +730,7 @@ z2k_ow_extract_target_payload() {
     ' "$_listing" > "$_selected" || return 1
     _unpacked="$(z2k_ow_payload_size_for_arch "$_archive" "$_target_arch")" || return 1
     case "$_unpacked" in ''|*[!0-9]*) return 1 ;; esac
-    _available_kb="$(df -Pk "$_work" 2>/dev/null | awk 'END {print $4}')"
+    _available_kb="$(df -Pk "$_stage" 2>/dev/null | awk 'END {print $4}')"
     case "$_available_kb" in ''|*[!0-9]*) echo "z2k-openwrt: cannot determine free space for payload staging" >&2; return 1 ;; esac
     if ! awk -v free_kb="$_available_kb" -v needed="$_unpacked" 'BEGIN { exit (free_kb * 1024 >= needed + 8388608) ? 0 : 1 }'; then
         echo "z2k-openwrt: insufficient free space for target payload staging (need ${_unpacked} bytes plus 8 MiB; available ${_available_kb} KiB)" >&2

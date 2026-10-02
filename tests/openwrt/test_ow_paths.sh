@@ -13,7 +13,7 @@ AD="$REPO/platform/openwrt"
     unset Z2K_ETC Z2K_CONFIG Z2K_STATE Z2K_USER_LISTS Z2K_CONF_DIR Z2K_RELAY_ID_FILE \
           Z2K_ROOT Z2K_BIN Z2K_LIB Z2K_LUA_DIR Z2K_FAKE_DIR Z2K_LISTS_DIR \
           Z2K_EXTRA_STRATS_DIR Z2K_MANIFESTS_DIR Z2K_ADAPTER_DIR \
-          Z2K_TMP Z2K_RUN Z2K_LOCKS Z2K_LOG Z2K_DOWNLOADS Z2K_GENERATED \
+          Z2K_TMP Z2K_OW_INSTALL_TMP Z2K_RUN Z2K_LOCKS Z2K_LOG Z2K_DOWNLOADS Z2K_GENERATED \
           Z2K_ZAPRET2_RUNTIME Z2K_NFQWS2
     . "$AD/paths.sh"
     [ "$Z2K_ETC" = "/etc/z2k" ] || { echo "Z2K_ETC=[$Z2K_ETC]" >&2; exit 1; }
@@ -24,6 +24,7 @@ AD="$REPO/platform/openwrt"
     [ "$Z2K_RUN" = "/tmp/z2k/runtime" ] || exit 1
     [ "$Z2K_LOG" = "/tmp/z2k/logs" ] || exit 1
     [ "$Z2K_TMP" = "/tmp/z2k" ] || exit 1
+    [ "$Z2K_OW_INSTALL_TMP" = "/tmp/z2kow-install-stage" ] || exit 1
     [ "$Z2K_BIN" = "/usr/lib/z2k/bin" ] || exit 1
 ) && _t_ok || _t_bad "дефолты путей"
 
@@ -32,11 +33,12 @@ AD="$REPO/platform/openwrt"
     unset Z2K_CONFIG Z2K_STATE Z2K_USER_LISTS Z2K_CONF_DIR Z2K_RELAY_ID_FILE \
           Z2K_BIN Z2K_LIB Z2K_LUA_DIR Z2K_FAKE_DIR Z2K_LISTS_DIR \
           Z2K_EXTRA_STRATS_DIR Z2K_MANIFESTS_DIR Z2K_ADAPTER_DIR \
-          Z2K_RUN Z2K_LOCKS Z2K_LOG Z2K_DOWNLOADS Z2K_GENERATED \
+          Z2K_OW_INSTALL_TMP Z2K_RUN Z2K_LOCKS Z2K_LOG Z2K_DOWNLOADS Z2K_GENERATED \
           Z2K_ZAPRET2_RUNTIME Z2K_NFQWS2
-    Z2K_ETC=/x Z2K_ROOT=/y Z2K_TMP=/t
+    Z2K_ETC=/x Z2K_ROOT=/y Z2K_TMP=/t Z2K_OW_INSTALL_TMP=/stage
     . "$AD/paths.sh"
     [ "$Z2K_ETC" = "/x" ] && [ "$Z2K_ROOT" = "/y" ] && \
+    [ "$Z2K_OW_INSTALL_TMP" = "/stage" ] && \
     [ "$Z2K_CONFIG" = "/x/config" ] && [ "$Z2K_RUN" = "/t/runtime" ]
 ) && _t_ok || _t_bad "env override путей"
 
