@@ -104,6 +104,7 @@ class UnifiedArchitectureTests(unittest.TestCase):
         self.assertIn("mipsle:mipsel", builder)
         self.assertIn("arm64:arm64", builder)
         self.assertIn("openwrt-rootfs.tar.gz", builder)
+        self.assertIn("copy_unsigned_candidate_manifest", builder)
         self.assertIn("openwrt-candidate/", workflow)
         self.assertNotRegex(release, r"(?i)(create-release|gh release create|signature_bundle_b64|packages\.adb)")
 

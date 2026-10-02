@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -64,6 +65,37 @@ class ControlledArtifactTests(unittest.TestCase):
             self.manifest["artifact"]["url"],
             "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz",
         )
+
+    def test_unsigned_candidate_uses_a_copy_without_replacing_the_published_artifact(self) -> None:
+        source = self.root / "UPDATES.json"
+        candidate = self.root / "candidate" / "UPDATES.json"
+        candidate.parent.mkdir()
+        self.manifest["artifact"] = {
+            "filename": "openwrt-rootfs.tar.gz",
+            "url": "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz",
+            "sha256": "a" * 64,
+            "size_bytes": 123,
+        }
+        MODULE.write_manifest(source, self.manifest)
+
+        MODULE.copy_unsigned_candidate_manifest(source, candidate)
+
+        published = json.loads(source.read_text(encoding="utf-8"))
+        generated = json.loads(candidate.read_text(encoding="utf-8"))
+        self.assertEqual(published["artifact"]["sha256"], "a" * 64)
+        self.assertNotIn("artifact", generated)
+        expected = dict(self.manifest)
+        expected.pop("artifact")
+        self.assertEqual(generated, expected)
+
+        MODULE.attach_file(
+            candidate,
+            self.artifact,
+            "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz",
+        )
+        final_candidate = json.loads(candidate.read_text(encoding="utf-8"))
+        self.assertEqual(final_candidate["artifact"]["sha256"], MODULE.sha256(self.artifact))
+        self.assertEqual(published["artifact"]["sha256"], "a" * 64)
 
     def test_manifest_cannot_carry_a_second_transport_or_component_release(self) -> None:
         url = "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz"

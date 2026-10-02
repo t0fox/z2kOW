@@ -116,7 +116,15 @@ mkdir -p "$_stage"
 sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$_stage" "$_runtime" "$_warpd" "$_tg" "$_rt" "$_detect"
 python3 "$ROOT/scripts/openwrt/rootfs_bundle.py" --root "$_stage" --output "$OUT/openwrt-rootfs.tar.gz"
 
-cp "$ROOT/UPDATES.json" "$OUT/UPDATES.json"
+python3 - "$ROOT" "$OUT/UPDATES.json" <<'PY'
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(sys.argv[1]) / "scripts" / "openwrt"))
+from controlled_release import copy_unsigned_candidate_manifest
+
+copy_unsigned_candidate_manifest(Path(sys.argv[1]) / "UPDATES.json", Path(sys.argv[2]))
+PY
 python3 "$ROOT/scripts/openwrt/controlled_release.py" attach \
     --manifest "$OUT/UPDATES.json" \
     --artifact "$OUT/openwrt-rootfs.tar.gz"

@@ -236,6 +236,17 @@ def write_manifest(path: Path, manifest: dict[str, object]) -> None:
                 pass
 
 
+def copy_unsigned_candidate_manifest(source: Path, destination: Path) -> None:
+    """Copy the controlled release metadata for a build candidate, without its published artifact."""
+    source = Path(source)
+    destination = Path(destination)
+    if source.resolve() == destination.resolve():
+        raise ValueError("candidate manifest must be separate from the controlled source manifest")
+    manifest = read_json_object(source, "controlled manifest")
+    manifest.pop("artifact", None)
+    write_manifest(destination, manifest)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)

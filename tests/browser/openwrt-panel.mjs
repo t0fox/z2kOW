@@ -903,9 +903,19 @@ try {
       modalTransform: getComputedStyle(modal).transform,
       transitionDuration: getComputedStyle(modal).transitionDuration,
       transitionProperty: getComputedStyle(modal).transitionProperty };
+    const transformFinished = new Promise(resolve => {
+      const timeout = window.setTimeout(() => finish(), 1000);
+      function finish(event) {
+        if (event && event.propertyName !== 'transform') return;
+        window.clearTimeout(timeout);
+        modal.removeEventListener('transitionend', finish);
+        resolve();
+      }
+      modal.addEventListener('transitionend', finish);
+    });
     openModalBackdrop(backdrop);
     await new Promise(requestAnimationFrame);
-    await new Promise(resolve => setTimeout(resolve, 220));
+    await transformFinished;
     const opened = { backdrop: backdrop.classList.contains('in'), modal: modal.classList.contains('in'),
       backdropOpacity: getComputedStyle(backdrop).opacity,
       modalOpacity: getComputedStyle(modal).opacity,
