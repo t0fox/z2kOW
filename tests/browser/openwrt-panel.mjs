@@ -73,6 +73,7 @@ const server = http.createServer((req, res) => {
       host: `host-${index}.example-${index}.net`,
       strategy: index % 4 + 1,
       mode: index % 9 === 0 ? 'frozen' : 'auto',
+      sni: index % 17 === 0 ? `front-${index}.example.net` : '',
       ts: Math.floor(Date.now() / 1000) - index * 60,
     }));
     const body = endpoint === 'state'
@@ -216,13 +217,20 @@ try {
 
   const routes = ['dashboard', 'toggles', 'strategies', 'warp', 'whitelist', 'exclude', 'extra-domains', 'diag', 'credits', 'state', 'pick', 'autohostlist'];
   const primaryRoutes = ['dashboard', 'toggles', 'state', 'warp', 'whitelist', 'extra-domains', 'diag', 'credits'];
-  const screenshotRoutes = ['dashboard', 'toggles', 'strategies', 'warp', 'exclude', 'diag', 'state'];
+  const screenshotRoutes = ['dashboard', 'toggles', 'strategies', 'warp', 'whitelist', 'exclude',
+    'extra-domains', 'diag', 'credits', 'state', 'pick', 'autohostlist'];
+  const responsiveScreenshotRoutes = ['dashboard', 'state', 'warp'];
   const requiredTokens = ['--ow-canvas', '--ow-surface-1', '--ow-surface-2', '--ow-surface-hover',
     '--ow-surface-selected', '--ow-border-subtle', '--ow-border-strong', '--ow-text-primary',
     '--ow-text-secondary', '--ow-text-tertiary', '--ow-accent', '--ow-accent-hover',
     '--ow-accent-soft', '--ow-brand-violet', '--ow-success', '--ow-warning', '--ow-danger',
     '--ow-info', '--ow-radius-control', '--ow-radius-card', '--ow-radius-panel',
-    '--ow-focus-ring', '--ow-shadow-card', '--ow-shadow-popover'];
+    '--ow-focus-ring', '--ow-shadow-card', '--ow-shadow-popover', '--ow-button-height',
+    '--ow-input-height', '--ow-select-height', '--ow-touch-target-height', '--ow-strategy-select-width',
+    '--ow-strategy-column-width', '--ow-table-row-height', '--ow-table-header-height',
+    '--ow-table-cell-padding-y', '--ow-table-cell-padding-x', '--ow-card-padding', '--ow-card-gap',
+    '--ow-motion-button', '--ow-motion-state', '--ow-motion-popover', '--ow-motion-shell',
+    '--ow-motion-tab-indicator'];
   const ratio = (foreground, background) => {
     const luminance = hex => {
       const channels = hex.match(/[\da-f]{2}/gi).map(value => parseInt(value, 16) / 255)
@@ -237,7 +245,7 @@ try {
   let totalModuleResponses = 0;
 
   for (const appearance of ['dark', 'light']) {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1104 }, colorScheme: appearance });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: appearance });
     const pageErrors = [];
     const consoleErrors = [];
     const moduleResponses = [];
@@ -612,6 +620,7 @@ try {
     for (const route of routes) {
       await page.evaluate(name => { location.hash = '#/' + name; }, route);
       await waitForRenderedRoute(page, route);
+      await page.mouse.move(1439, 899);
       const expectedNavRoute = ({ state: 'strategies', pick: 'strategies', whitelist: 'exclude', exclude: 'exclude',
         autohostlist: 'extra-domains' })[route] || route;
       const activeNavRoutes = await page.locator('#nav a.active').evaluateAll(nodes => nodes.map(node => node.dataset.route));
@@ -629,6 +638,28 @@ try {
         assert.equal(await control.getAttribute('aria-expanded'), 'true', 'custom select opens from pointer input');
         await listbox.waitFor({ state: 'visible' });
         assert.equal(await listbox.isVisible(), true, 'custom select presents its options while open');
+        await page.waitForFunction(() => {
+          const drop = document.querySelector('.chosen-drop-open');
+          return drop && drop.getAnimations().every(animation => animation.playState !== 'running');
+        });
+        const popupGeometry = await page.evaluate(() => {
+          const trigger = document.querySelector('#au-hour + .chosen-single').getBoundingClientRect();
+          const drop = document.querySelector('.chosen-drop-open');
+          const rect = drop.getBoundingClientRect();
+          const style = getComputedStyle(drop);
+          return { xOffset: Math.round((rect.left - trigger.left) * 100) / 100,
+            widthDelta: Math.round((rect.width - trigger.width) * 100) / 100,
+            radius: style.borderRadius, animationName: style.animationName,
+            animationDuration: style.animationDuration, animationEasing: style.animationTimingFunction };
+        });
+        assert.deepEqual([popupGeometry.xOffset, popupGeometry.widthDelta], [0, 0],
+          `the Lolz dropdown aligns to its trigger on the same x-axis and width (${JSON.stringify(popupGeometry)})`);
+        assert.equal(popupGeometry.radius, '10px', 'the open dropdown uses the shared control radius');
+        assert.equal(popupGeometry.animationName, 'chosenDropBelow', 'the dropdown uses its Lolz open keyframe');
+        assert.equal(popupGeometry.animationDuration, '0.2s', 'the dropdown opens over the source 200 ms');
+        assert.match(popupGeometry.animationEasing, /cubic-bezier\(0\.5, 0, 0, 1\.25\)/,
+          'the dropdown uses the source spring-like easing');
+        if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-dropdown-open.png`) });
         await page.keyboard.press('Escape');
         assert.equal(await control.getAttribute('aria-expanded'), 'false', 'Escape closes the custom select');
         assert.equal(await control.evaluate(node => document.activeElement === node), true,
@@ -679,6 +710,34 @@ try {
         });
         assert.deepEqual(strategyControl, { width: 220, height: 36, radius: '10px' },
           'strategy selectors match the measured Lolz 220×36 control geometry');
+        const tableGeometry = await page.locator('.state-table').evaluate(table => {
+          const header = Array.from(table.tHead.rows[0].cells);
+          const rows = Array.from(table.querySelectorAll('tbody tr')).filter(row => row.cells.length === header.length);
+          const first = rows[0];
+          const strategyCell = first.cells[3].getBoundingClientRect();
+          const strategy = first.cells[3].querySelector('.chosen-single').getBoundingClientRect();
+          const boundaries = header.map((cell, index) => {
+            const head = cell.getBoundingClientRect();
+            const row = first.cells[index].getBoundingClientRect();
+            return [Math.abs(head.left - row.left), Math.abs(head.right - row.right)];
+          }).flat();
+          return { columnBoundaryDelta: Math.max(...boundaries),
+            rowHeights: Array.from(new Set(rows.slice(0, 30).map(row => row.getBoundingClientRect().height))),
+            strategyCellWidth: strategyCell.width,
+            strategyLeftInset: strategy.left - strategyCell.left,
+            strategyVerticalCenterDelta: Math.abs((strategy.top + strategy.height / 2)
+              - (strategyCell.top + strategyCell.height / 2)),
+            sniRows: rows.filter(row => row.querySelector('.state-sni')).length };
+        });
+        assert.ok(tableGeometry.columnBoundaryDelta < 0.5,
+          `table headings and rows share one column grid (${JSON.stringify(tableGeometry)})`);
+        assert.deepEqual(tableGeometry.rowHeights, [54],
+          `standard and SNI rows keep one desktop row height (${JSON.stringify(tableGeometry)})`);
+        assert.equal(tableGeometry.strategyCellWidth, 236);
+        assert.equal(tableGeometry.strategyLeftInset, 8);
+        assert.ok(tableGeometry.strategyVerticalCenterDelta < 0.5,
+          `strategy controls are vertically centered in their cells (${JSON.stringify(tableGeometry)})`);
+        assert.ok(tableGeometry.sniRows > 0, 'the populated fixture exercises the optional SNI line');
         const dangerStyle = await page.locator('#app .btn-danger').first().evaluate(node => {
           const style = getComputedStyle(node);
           return { background: style.backgroundColor, color: style.color, radius: style.borderRadius };
@@ -723,9 +782,17 @@ try {
       }
       assert.equal(await lockup.locator('.brand-profile-logo').count(), 1, `${appearance}: single mark on #/${route}`);
       if (screenshotDir && screenshotRoutes.includes(route)) {
-        await page.mouse.move(1439, 1103);
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.mouse.move(1439, 899);
         await waitForNavSettled(page);
         await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-${route}.png`) });
+        if (route === 'credits') {
+          const disclosure = page.locator('#credits-upstream');
+          await disclosure.locator('summary').click();
+          assert.equal(await disclosure.getAttribute('open'), '', 'upstream credit details open for screenshot review');
+          await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-credits-upstream-open.png`) });
+          await disclosure.locator('summary').click();
+        }
         fs.writeFileSync(path.join(screenshotDir, `${appearance}-${route}.json`), JSON.stringify(await page.evaluate(() => ({
           route: location.hash,
           page: document.body.dataset.page,
@@ -788,8 +855,9 @@ try {
         assert.equal(await page.locator('#app [data-ui-fatal]').count(), 0, `${appearance}/${width}: ${route}`);
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
           `${appearance}/${width}: ${route} has no page horizontal overflow`);
-        if (screenshotDir && screenshotRoutes.includes(route)
+        if (screenshotDir && responsiveScreenshotRoutes.includes(route)
             && ([1920, 1366, 1280].includes(width) || (appearance === 'dark' && width === 1024 && route === 'dashboard'))) {
+          await page.evaluate(() => window.scrollTo(0, 0));
           await page.mouse.move(width - 1, height - 1);
           await waitForNavSettled(page);
           await page.waitForFunction(() => {
@@ -937,6 +1005,29 @@ try {
   assert.deepEqual([modalMotion.closing.backdrop, modalMotion.closing.modal, modalMotion.closing.closing],
     [false, false, 'true']);
   assert.equal(modalMotion.removed, true, 'modal backdrop is removed after the source close transition');
+  if (screenshotDir) {
+    await motionPage.evaluate(() => {
+      const backdrop = document.createElement('div');
+      backdrop.className = 'modal-backdrop in';
+      backdrop.dataset.qaModalScreenshot = 'true';
+      backdrop.innerHTML = '<div class="modal in"><h3>История обновлений</h3><p>Обновление проверено.</p><button class="btn btn-secondary" type="button">Закрыть</button></div>';
+      document.body.appendChild(backdrop);
+    });
+    await motionPage.screenshot({ path: path.join(screenshotDir, 'dark-1440-modal-open.png') });
+    await motionPage.locator('[data-qa-modal-screenshot="true"]').evaluate(node => node.remove());
+    await motionPage.evaluate(() => { location.hash = '#/diag'; });
+    await waitForRenderedRoute(motionPage, 'diag');
+    const visibleButton = motionPage.locator('#app .btn-primary:visible').first();
+    if (await visibleButton.count()) {
+      await visibleButton.hover();
+      await motionPage.waitForFunction(() => {
+        const button = document.querySelector('#app .btn-primary:hover');
+        return button && getComputedStyle(button, '::before').opacity === '1';
+      });
+      await motionPage.screenshot({ path: path.join(screenshotDir, 'dark-1440-primary-button-hover.png') });
+      await motionPage.mouse.move(1439, 899);
+    }
+  }
   await motionPage.close();
 
   const loginPage = await browser.newPage({ viewport: { width: 1920, height: 1080 }, colorScheme: 'dark' });
@@ -1185,8 +1276,23 @@ try {
         `390px ${route}: columns remain reachable in the local horizontal scroller (${JSON.stringify(stateLayout)})`);
       assert.ok(stateLayout.pageScrollWidth <= stateLayout.pageClientWidth,
         `390px ${route}: table scrolling does not create document overflow (${JSON.stringify(stateLayout)})`);
+      const touchTargets = await mobile.locator('.state-table tbody tr').first().evaluate(row => {
+        const measure = selector => {
+          const rect = row.querySelector(selector).getBoundingClientRect();
+          return { width: rect.width, height: rect.height };
+        };
+        return { rowHeight: row.getBoundingClientRect().height,
+          delete: measure('.state-del'), freeze: measure('.state-freeze'),
+          selector: measure('.chosen-single') };
+      });
+      assert.ok(touchTargets.delete.width >= 44 && touchTargets.delete.height >= 44
+        && touchTargets.freeze.width >= 44 && touchTargets.freeze.height >= 44,
+      `state table actions keep touch hit areas at least 44×44px (${JSON.stringify(touchTargets)})`);
+      assert.ok(touchTargets.selector.height >= 44 && touchTargets.rowHeight === 66,
+        `coarse-pointer selector and rows share touch geometry (${JSON.stringify(touchTargets)})`);
     }
-    if (screenshotDir && ['dashboard', 'strategies'].includes(route)) {
+    if (screenshotDir && ['dashboard', 'strategies', 'warp'].includes(route)) {
+      await mobile.evaluate(() => window.scrollTo(0, 0));
       await mobile.mouse.move(389, 843);
       await waitForNavSettled(mobile);
       await mobile.screenshot({ path: path.join(screenshotDir, `dark-390-${route}.png`), fullPage: true });
@@ -1201,6 +1307,22 @@ try {
   await mobile.evaluate(() => { location.hash = '#/strategies'; });
   await waitForRenderedRoute(mobile, 'strategies');
   await assertStrategyTabsAllowManualScroll(mobile, '320px dark');
+  for (const width of [320, 360, 375, 388, 390]) {
+    await mobile.setViewportSize({ width, height: 844 });
+    const headerFrame = await mobile.evaluate(() => {
+      const rect = selector => document.querySelector(selector).getBoundingClientRect();
+      const menu = rect('#menu-toggle');
+      const brand = rect('#panel-brand');
+      const theme = rect('.theme-toggle');
+      return { viewport: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth,
+        menuRight: menu.right, brandLeft: brand.left, brandRight: brand.right, themeLeft: theme.left };
+    });
+    assert.ok(headerFrame.menuRight <= headerFrame.brandLeft + 0.5
+      && headerFrame.brandRight <= headerFrame.themeLeft + 0.5,
+    `mobile header controls do not overlap at ${width}px (${JSON.stringify(headerFrame)})`);
+    assert.ok(headerFrame.scrollWidth <= headerFrame.viewport,
+      `mobile header stays within the viewport at ${width}px (${JSON.stringify(headerFrame)})`);
+  }
   await mobile.setViewportSize({ width: 390, height: 844 });
   // Exercise and capture the real mobile light-theme control while the drawer
   // exposes its footer switcher, then check every route in that appearance.
@@ -1246,7 +1368,8 @@ try {
       assert.ok(stateLayout.pageScrollWidth <= stateLayout.pageClientWidth,
         `390px light state: table scrolling does not create document overflow (${JSON.stringify(stateLayout)})`);
     }
-    if (screenshotDir) {
+    if (screenshotDir && ['dashboard', 'strategies', 'warp', 'state'].includes(route)) {
+      await mobile.evaluate(() => window.scrollTo(0, 0));
       await mobile.mouse.move(389, 843);
       await waitForNavSettled(mobile);
       await mobile.screenshot({ path: path.join(screenshotDir, `light-390-${route}.png`), fullPage: true });
@@ -1256,6 +1379,20 @@ try {
   assert.equal(await mobile.locator('#menu-shell .mm-ocd__content').evaluate(node => getComputedStyle(node).transitionDuration), '0s',
     'reduced motion disables drawer transitions');
   await mobile.close();
+
+  const coarseTablet = await browser.newPage({ viewport: { width: 1024, height: 900 }, isMobile: true, hasTouch: true });
+  await coarseTablet.goto(base + '/#/dashboard');
+  await waitForRenderedRoute(coarseTablet, 'dashboard');
+  const coarseTabletTargets = await coarseTablet.evaluate(() => ({
+    coarse: matchMedia('(pointer: coarse)').matches,
+    collapse: document.querySelector('#sidebar-collapse').getBoundingClientRect().height,
+    navItem: document.querySelector('#nav a[data-route="dashboard"]').getBoundingClientRect().height,
+  }));
+  assert.equal(coarseTabletTargets.coarse, true,
+    `touch tablet emulation uses a coarse pointer (${JSON.stringify(coarseTabletTargets)})`);
+  assert.ok(coarseTabletTargets.collapse >= 44 && coarseTabletTargets.navItem >= 44,
+    `tablet collapse and navigation keep 44 px hit areas (${JSON.stringify(coarseTabletTargets)})`);
+  await coarseTablet.close();
 
   // Halving the CSS viewport models a 200% browser zoom on a 1392 px display.
   const zoomed = await browser.newPage({ viewport: { width: 696, height: 552 }, deviceScaleFactor: 2, colorScheme: 'dark' });

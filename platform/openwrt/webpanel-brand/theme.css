@@ -56,6 +56,31 @@
   --ow-radius-control: 10px;
   --ow-radius-card: 12px;
   --ow-radius-panel: 12px;
+  --ow-button-height: 34px;
+  --ow-input-height: 30px;
+  --ow-select-height: 36px;
+  --ow-touch-target-height: 44px;
+  --ow-strategy-select-width: 220px;
+  --ow-table-action-column-width: 48px;
+  --ow-table-profile-column-width: 120px;
+  /* Table cell padding is included in the 236 px track, leaving the measured
+     220 px Chosen trigger in the content box. */
+  --ow-strategy-column-width: 236px;
+  --ow-table-freeze-column-width: 108px;
+  --ow-table-age-column-width: 75px;
+  --ow-table-row-height: 54px;
+  --ow-table-row-height-touch: 66px;
+  --ow-table-header-height: 42px;
+  --ow-table-cell-padding-y: 1px;
+  --ow-table-cell-padding-x: 8px;
+  --ow-table-action-cell-padding-x: 2px;
+  --ow-card-padding: var(--space-16, 16px);
+  --ow-card-gap: var(--space-16, 16px);
+  --ow-motion-button: 100ms;
+  --ow-motion-state: 150ms;
+  --ow-motion-popover: 200ms;
+  --ow-motion-shell: 300ms;
+  --ow-motion-tab-indicator: 350ms;
   --ow-shadow-card: none;
   --ow-shadow-popover: 0 16px 40px rgba(0, 0, 0, 0.36);
   --ow-button-start: #20764E;
@@ -85,6 +110,8 @@
   --bad: var(--ow-danger);
   --btn-primary-text: #FFFFFF;
   --radius: var(--ow-radius-control);
+  --radius-sm: var(--ow-radius-control);
+  --muted: var(--ow-text-secondary);
   --topbar-h: 44px;
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   --motion-fast: 100ms;
@@ -278,7 +305,7 @@ html[data-theme="light"] { scrollbar-color: #8CA29A transparent; }
   border-right-color: var(--ow-border-subtle);
   gap: 4px;
   padding: 8px 10px 12px;
-  transition: left 300ms ease, width 300ms ease;
+  transition: left var(--ow-motion-shell) ease, width var(--ow-motion-shell) ease;
 }
 body {
   padding-left: 0;
@@ -290,7 +317,7 @@ body {
   color: var(--ow-text-secondary);
   font-size: 14px;
   font-weight: 500;
-  transition: background-color 100ms linear, color 100ms linear;
+  transition: background-color var(--ow-motion-button) linear, color var(--ow-motion-button) linear;
 }
 #nav a:hover {
   background: var(--ow-surface-hover);
@@ -320,10 +347,10 @@ body {
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background-color 100ms linear, color 100ms linear;
+  transition: background-color var(--ow-motion-button) linear, color var(--ow-motion-button) linear;
 }
 #nav .sidebar-collapse:hover { background: var(--ow-surface-hover); color: var(--ow-text-primary); }
-#nav .sidebar-collapse .nav-ico { flex: 0 0 20px; transition: transform 300ms ease; }
+#nav .sidebar-collapse .nav-ico { flex: 0 0 20px; transition: transform var(--ow-motion-shell) ease; }
 .theme-toggle {
   position: absolute;
   top: 3px;
@@ -356,8 +383,8 @@ body {
   margin: var(--topbar-h) 0 0 calc(50% - 267px);
   padding: 20px 0 56px;
 }
-#panel-brand { transition: left 300ms ease; }
-.theme-toggle { transition: right 300ms ease; }
+#panel-brand { transition: left var(--ow-motion-shell) ease; }
+.theme-toggle { transition: right var(--ow-motion-shell) ease; }
 body[data-page="strategies"] #app { width: 800px; max-width: 800px; }
 body[data-page="login"] #app {
   width: calc(100% - 32px);
@@ -370,13 +397,14 @@ body[data-page="login"] #app {
   border: 1px solid var(--ow-border-subtle);
   border-radius: var(--ow-radius-card);
   box-shadow: var(--ow-shadow-card);
-  padding: 16px;
-  margin-bottom: 14px;
+  padding: var(--ow-card-padding);
+  margin-bottom: var(--ow-card-gap);
   transition: none;
 }
 .card.is-interactive {
   cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  transition: background var(--ow-motion-state) ease, border-color var(--ow-motion-state) ease,
+    box-shadow var(--ow-motion-state) ease, transform var(--ow-motion-state) ease;
 }
 .card.is-interactive:hover {
   background: var(--ow-card-hover-surface);
@@ -502,8 +530,8 @@ body[data-page="login"] #app {
 .btn {
   position: relative;
   overflow: hidden;
-  height: 34px;
-  min-height: 34px;
+  height: var(--ow-button-height);
+  min-height: var(--ow-button-height);
   padding: 0 15px;
   border-radius: var(--ow-radius-control);
   border-color: transparent;
@@ -511,11 +539,11 @@ body[data-page="login"] #app {
   color: var(--ow-text-primary);
   font-size: 14px;
   font-weight: 500;
-  line-height: 34px;
+  line-height: var(--ow-button-height);
   outline: 1px solid color-mix(in srgb, #4A5450 40%, transparent);
   outline-offset: -1px;
   box-shadow: none;
-  transition: all 100ms ease-in-out;
+  transition: all var(--ow-motion-button) ease-in-out;
 }
 .btn:not(.btn-primary):hover {
   background: var(--ow-button-hover-surface) radial-gradient(circle, transparent 1%, var(--ow-button-hover-surface) 1%) center / 15000%;
@@ -554,7 +582,7 @@ body[data-page="login"] #app {
 .btn-primary::after {
   background: rgb(0 0 0 / 0.18);
   opacity: 0;
-  transition: opacity 150ms ease;
+  transition: opacity var(--ow-motion-state) ease;
 }
 .btn-primary:active::after { opacity: 1; }
 .btn-secondary { background: var(--ow-button-secondary); color: var(--ow-text-primary); outline: 1px solid color-mix(in srgb, #8CA29A 40%, transparent); }
@@ -567,7 +595,7 @@ body[data-page="login"] #app {
 .btn:not(:disabled):not(.disabled):active {
   background-color: var(--ow-button-surface);
   background-size: 100%;
-  transition: all 100ms ease-in-out;
+  transition: all var(--ow-motion-button) ease-in-out;
   transform: scale(0.97);
 }
 .btn:not(.btn-primary):not(.btn-danger):not(:disabled):not(.disabled):active {
@@ -601,12 +629,12 @@ input[type="url"], textarea, select {
   font: inherit;
 }
 input[type="text"], input[type="password"], input[type="search"], input[type="number"], input[type="url"] {
-  height: 30px;
-  min-height: 30px;
+  height: var(--ow-input-height);
+  min-height: var(--ow-input-height);
   padding: 0 10px;
 }
 textarea { min-height: 30px; padding: 8px 10px; }
-select { height: 36px; min-height: 36px; padding: 0 10px; }
+select { height: var(--ow-select-height); min-height: var(--ow-select-height); padding: 0 10px; }
 textarea.warp-editor, .strategy-text, .wl-editor textarea, .dns-own textarea {
   border: 0;
   border-radius: var(--ow-radius-control);
@@ -677,7 +705,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   height: 14px;
   border-radius: 50%;
   content: "";
-  transition: all 150ms ease;
+  transition: all var(--ow-motion-state) ease;
 }
 #app input[type="radio"]::after {
   border: 1px solid var(--ow-choice-border);
@@ -771,7 +799,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 }
 .state-table th.sortable:hover { color: var(--ow-text-primary); background: var(--ow-surface-hover); }
 .state-table tbody tr {
-  transition: background 150ms ease, transform 150ms ease;
+  transition: background var(--ow-motion-state) ease, transform var(--ow-motion-state) ease;
 }
 .state-table tbody tr:hover { background: var(--ow-surface-2); }
 .state-table tbody tr[aria-selected="true"],
@@ -781,10 +809,10 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 .state-table select {
   width: 220px;
   min-width: 220px;
-  height: 36px;
-  min-height: 36px;
+  height: var(--ow-select-height);
+  min-height: var(--ow-select-height);
   padding: 0 10px;
-  line-height: 36px;
+  line-height: var(--ow-select-height);
   background-position: right 10px center;
   border-radius: var(--ow-radius-control);
 }
@@ -794,7 +822,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 .modal-backdrop {
   background-color: var(--scrim-modal);
   opacity: 0;
-  transition: opacity 150ms;
+  transition: opacity var(--ow-motion-state);
 }
 .modal-backdrop.in { opacity: 1; }
 .modal-backdrop[data-modal-closing="true"] { pointer-events: none; }
@@ -802,7 +830,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   border-radius: var(--ow-radius-card);
   transform: scale(.9);
   opacity: 0;
-  transition: transform 200ms ease-out, opacity 150ms;
+  transition: transform var(--ow-motion-popover) ease-out, opacity var(--ow-motion-state);
 }
 .modal.in { transform: scale(1); opacity: 1; }
 
@@ -820,8 +848,8 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   height: 2px;
   background: var(--ow-accent);
   border-radius: 2px;
-  transition: opacity 200ms, left 350ms cubic-bezier(.4, 0, .2, 1),
-    width 350ms cubic-bezier(.4, 0, .2, 1), top 350ms;
+  transition: opacity var(--ow-motion-popover), left var(--ow-motion-tab-indicator) cubic-bezier(.4, 0, .2, 1),
+    width var(--ow-motion-tab-indicator) cubic-bezier(.4, 0, .2, 1), top var(--ow-motion-tab-indicator);
   opacity: 0;
   pointer-events: none;
   z-index: 10;
@@ -893,7 +921,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   #app { width: auto; max-width: none; margin: var(--topbar-h) 0 0; padding: 20px 16px 56px; }
   body[data-page="strategies"] #app { width: auto; max-width: none; }
   .page-title { font-size: 22px; line-height: 1.36; margin-bottom: 16px; }
-  .card { padding: 16px; border-radius: var(--ow-radius-card); }
+  .card { padding: var(--ow-card-padding); border-radius: var(--ow-radius-card); }
   .topbar { height: 44px; }
   .theme-toggle { right: 14px; top: 0; }
   .theme-toggle button { width: 44px; height: 44px; }
@@ -929,7 +957,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
     max-width: 440px;
     overflow: auto;
     background: #111615;
-    transition: transform 300ms ease;
+    transition: transform var(--ow-motion-shell) ease;
   }
   .mm-ocd--left .mm-ocd__content { left: 0; transform: translate3d(-100%, 0, 0); }
   .mm-ocd--open .mm-ocd__content { transform: translate3d(0, 0, 0); }
@@ -997,6 +1025,21 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   body[data-page="strategies"] #app { width: calc(100% - 304px); max-width: none; }
 }
 
+@media (max-width: 389.98px) {
+  /* Keep the same full horizontal lockup while making room for the fixed
+     44 px menu and three 44 px theme controls on narrow phones. */
+  .brand {
+    width: calc(100vw - 230px);
+    height: max(20px, calc(23.75vw - 54.625px));
+  }
+  .brand-profile-logo {
+    left: calc(87.6875px - 38.125vw);
+    top: calc(24.4375px - 10.625vw);
+    width: min(306px, calc(191.25vw - 439.875px));
+    height: min(76.5px, calc(47.8125vw - 109.96875px));
+  }
+}
+
 @media (min-width: 1092px) {
   body[data-sidebar="collapsed"] #nav {
     left: calc(50% - 443.5px);
@@ -1016,7 +1059,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   body[data-sidebar="collapsed"][data-page="strategies"] #app { width: calc(100% - 115px); }
 }
 @media (min-width: 768px) {
-  #app { transition: margin-left 300ms ease, width 300ms ease; }
+  #app { transition: margin-left var(--ow-motion-shell) ease, width var(--ow-motion-shell) ease; }
   body[data-sidebar="collapsed"] #nav .nav-label {
     position: absolute;
     width: 1px;
@@ -1043,13 +1086,20 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 
 @media (pointer: coarse) {
   .brand, .theme-toggle button, .menu-toggle, .nav-drawer-close,
-  #nav a,
+  #nav a, #nav .sidebar-collapse,
   .btn:not(.btn-icon), input[type="text"], input[type="password"], input[type="search"],
   input[type="number"], input[type="url"], textarea, select { min-height: 44px; }
   .theme-toggle button, .menu-toggle, .nav-drawer-close { min-width: 44px; }
-  .btn:not(.btn-icon) { height: 44px; line-height: 44px; }
-  .credits-upstream > summary.btn.btn-secondary { min-height: 34px; height: 34px; line-height: 34px; }
-  .state-table .btn-icon, .state-table .btn-danger { min-height: 32px; height: auto; }
+  .btn:not(.btn-icon) { height: var(--ow-touch-target-height); line-height: var(--ow-touch-target-height); }
+  .credits-upstream > summary.btn.btn-secondary {
+    min-height: var(--ow-button-height);
+    height: var(--ow-button-height);
+    line-height: var(--ow-button-height);
+  }
+  .state-table .btn-icon, .state-table .btn-danger {
+    min-height: var(--ow-touch-target-height);
+    height: auto;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1098,7 +1148,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   position: relative;
   display: inline-block;
   vertical-align: middle;
-  min-height: 36px;
+  min-height: var(--ow-select-height);
   height: auto;
   max-width: 100%;
   border-radius: 10px;
@@ -1109,9 +1159,9 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 #app .chosen-container.t-sub-select { width: fit-content; }
 #app .flow-mode-field .chosen-container { display: block; width: 100%; }
 #app .state-table .chosen-container.state-strat-sel {
-  width: 220px;
-  min-width: 220px;
-  height: 36px;
+  width: var(--ow-strategy-select-width);
+  min-width: var(--ow-strategy-select-width);
+  height: var(--ow-select-height);
 }
 #app .chosen-container > select.chosen-native {
   position: absolute !important;
@@ -1136,7 +1186,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   align-items: center;
   width: 100%;
   min-width: 0;
-  min-height: 36px;
+  min-height: var(--ow-select-height);
   padding: 0 34px 0 13px;
   overflow: hidden;
   border: 1px solid var(--ow-border-subtle);
@@ -1147,7 +1197,8 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   line-height: 1.28;
   text-align: left;
   cursor: pointer;
-  transition: background-color 100ms ease-in-out, border-color 100ms ease-in-out;
+  transition: background-color var(--ow-motion-button) ease-in-out,
+    border-color var(--ow-motion-button) ease-in-out;
 }
 #app .chosen-single:hover { background: var(--ow-surface-hover); }
 #app .chosen-single:focus { outline: none; }
@@ -1176,7 +1227,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   border-right: 2px solid var(--ow-text-secondary);
   border-bottom: 2px solid var(--ow-text-secondary);
   transform: rotate(45deg);
-  transition: transform 200ms ease, border-color 100ms ease;
+  transition: transform var(--ow-motion-popover) ease, border-color var(--ow-motion-button) ease;
   pointer-events: none;
 }
 #app .chosen-with-drop .chosen-arrow { transform: rotate(225deg); }
@@ -1191,6 +1242,9 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   max-width: min(340px, calc(100vw - 16px));
   max-height: 300px;
   overflow: hidden;
+  /* Public Lolz Chosen rules combine left:10px with margin:6px -10px;
+     keep that net-zero horizontal offset for the fixed-position popup. */
+  margin: 6px -10px;
   border: 1px solid var(--ow-border-subtle);
   border-radius: 10px;
   background: var(--ow-surface-1);
@@ -1200,7 +1254,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   pointer-events: none;
   box-shadow: none;
   transform-origin: 50% 0;
-  transition: opacity 200ms ease-out, visibility 0s linear 200ms;
+  transition: opacity var(--ow-motion-popover) ease-out, visibility 0s linear var(--ow-motion-popover);
 }
 .chosen-drop[hidden] { display: none !important; }
 .chosen-drop.chosen-drop-measuring {
@@ -1213,8 +1267,8 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   visibility: visible;
   pointer-events: auto;
   box-shadow: var(--ow-select-shadow);
-  transition: opacity 200ms ease-out, visibility 0s;
-  animation: chosenDropBelow 200ms cubic-bezier(.5, 0, 0, 1.25) forwards;
+  transition: opacity var(--ow-motion-popover) ease-out, visibility 0s;
+  animation: chosenDropBelow var(--ow-motion-popover) cubic-bezier(.5, 0, 0, 1.25) forwards;
 }
 .chosen-drop.chosen-drop-open.chosen-drop-upwards {
   transform-origin: 50% 100%;
@@ -1224,7 +1278,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   opacity: 0;
   visibility: visible;
   pointer-events: none;
-  transition: opacity 200ms ease-out;
+  transition: opacity var(--ow-motion-popover) ease-out;
   animation: none;
 }
 .chosen-results {
@@ -1323,11 +1377,11 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 #app .state-table th,
 #app .state-table td {
   box-sizing: border-box;
-  height: 54px;
-  padding: 3px 8px;
+  height: var(--ow-table-row-height);
+  padding: var(--ow-table-cell-padding-y) var(--ow-table-cell-padding-x);
   vertical-align: middle;
 }
-#app .state-table th { height: 42px; white-space: nowrap; }
+#app .state-table th { height: var(--ow-table-header-height); white-space: nowrap; }
 #app .state-table th.sortable { white-space: nowrap; }
 #app .state-table th.sortable .icon {
   display: inline-block;
@@ -1337,16 +1391,20 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   vertical-align: -2px;
 }
 #app .state-table th:nth-child(1),
-#app .state-table td:nth-child(1) { width: 48px; text-align: center; }
+#app .state-table td:nth-child(1) {
+  width: var(--ow-table-action-column-width);
+  padding-inline: var(--ow-table-action-cell-padding-x);
+  text-align: center;
+}
 #app .state-table th:nth-child(2),
-#app .state-table td:nth-child(2) { width: 120px; }
+#app .state-table td:nth-child(2) { width: var(--ow-table-profile-column-width); }
 #app .state-table th:nth-child(4),
-#app .state-table td:nth-child(4) { width: 220px; white-space: nowrap; }
+#app .state-table td:nth-child(4) { width: var(--ow-strategy-column-width); white-space: nowrap; }
 #app .state-table th:nth-child(5),
-#app .state-table td:nth-child(5) { width: 108px; text-align: center; white-space: nowrap; }
+#app .state-table td:nth-child(5) { width: var(--ow-table-freeze-column-width); text-align: center; white-space: nowrap; }
 #app .state-table th:nth-child(6),
 #app .state-table td:nth-child(6) {
-  width: 75px;
+  width: var(--ow-table-age-column-width);
   padding-inline: 2px;
   text-align: right;
   white-space: nowrap;
@@ -1400,31 +1458,37 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 #app .state-table select.state-strat-sel {
   width: 100%;
   min-width: 0;
-  height: 32px;
-  min-height: 32px;
-  line-height: 32px;
+  height: var(--ow-select-height);
+  min-height: var(--ow-select-height);
+  line-height: var(--ow-select-height);
 }
 #app .state-table .chosen-container.state-strat-sel {
   display: block;
-  width: 100%;
-  min-width: 0;
+  width: var(--ow-strategy-select-width);
+  min-width: var(--ow-strategy-select-width);
   max-width: 100%;
-  height: 32px;
-  min-height: 32px;
+  height: var(--ow-select-height);
+  min-height: var(--ow-select-height);
 }
 #app .state-table .chosen-container.state-strat-sel .chosen-single {
   box-sizing: border-box;
-  height: 32px;
-  min-height: 32px;
+  height: var(--ow-select-height);
+  min-height: var(--ow-select-height);
   padding: 0 30px 0 10px;
 }
 
-@media (pointer: coarse) {
-  #app .state-table tbody > tr { height: 66px; }
+@media (pointer: coarse), (max-width: 767.98px) {
+  #app .state-table tbody > tr { height: var(--ow-table-row-height-touch); }
+  #app .state-table .btn-icon,
+  #app .state-table .btn-danger {
+    min-width: var(--ow-touch-target-height);
+    min-height: var(--ow-touch-target-height);
+    height: auto;
+  }
   #app .state-table .chosen-container.state-strat-sel,
   #app .state-table .chosen-container.state-strat-sel .chosen-single,
   #app .state-table select.state-strat-sel {
-    height: 44px;
-    min-height: 44px;
+    height: var(--ow-touch-target-height);
+    min-height: var(--ow-touch-target-height);
   }
 }
