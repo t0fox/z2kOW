@@ -86,6 +86,7 @@
   --dur-base: 200ms;
   --dur-large: 200ms;
   --sidebar-w: 260px;
+  --sidebar-w-collapsed: 72px;
   --switch-track: #445457;
   --slider-thumb: #F2F7F6;
   --log-bg: #0C0F0E;
@@ -233,6 +234,7 @@ body { font-family: var(--font-sans); font-size: 14px; line-height: 1.28; }
   border-right-color: var(--ow-border-subtle);
   gap: 4px;
   padding: 8px 10px 12px;
+  transition: left 300ms ease, width 300ms ease;
 }
 body {
   padding-left: 0;
@@ -259,7 +261,25 @@ body {
 #nav .nav-ico { width: 20px; height: 20px; stroke-linecap: round; stroke-linejoin: round; }
 #nav a:focus-visible { outline-offset: 2px; border-radius: 9px; }
 #nav .nav-external { border-top-color: var(--ow-border-subtle); }
-
+#nav .sidebar-collapse {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 36px;
+  margin-top: 4px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ow-text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 100ms linear, color 100ms linear;
+}
+#nav .sidebar-collapse:hover { background: var(--ow-surface-hover); color: var(--ow-text-primary); }
+#nav .sidebar-collapse .nav-ico { flex: 0 0 20px; transition: transform 300ms ease; }
 .theme-toggle {
   position: absolute;
   top: 3px;
@@ -292,6 +312,8 @@ body {
   margin: var(--topbar-h) 0 0 calc(50% - 267px);
   padding: 20px 0 56px;
 }
+#panel-brand { transition: left 300ms ease; }
+.theme-toggle { transition: right 300ms ease; }
 body[data-page="strategies"] #app { width: 800px; max-width: 800px; }
 body[data-page="login"] #app {
   width: calc(100% - 32px);
@@ -652,6 +674,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ow-accent); }
     z-index: 10000;
   }
   .topbar > .theme-toggle.menu-open { transform: none; }
+  #nav .sidebar-collapse { display: none; }
   .menu-toggle { margin-left: 0; }
 }
 
@@ -661,6 +684,46 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ow-accent); }
   #nav { left: 0; width: 261px; }
   #app { width: calc(100% - 304px); max-width: none; margin-left: 280px; }
   body[data-page="strategies"] #app { width: calc(100% - 304px); max-width: none; }
+}
+
+@media (min-width: 1092px) {
+  body[data-sidebar="collapsed"] #nav {
+    left: calc(50% - 443.5px);
+    width: var(--sidebar-w-collapsed);
+  }
+  body[data-sidebar="collapsed"] #app { margin-left: calc(50% - 356.5px); }
+  body[data-sidebar="collapsed"] #panel-brand { left: calc(50% - 445.5px); }
+  body[data-sidebar="collapsed"] .theme-toggle { right: calc(50% - 345.5px); }
+}
+@media (min-width: 768px) and (max-width: 1091px) {
+  body[data-sidebar="collapsed"] #nav { width: var(--sidebar-w-collapsed); }
+  body[data-sidebar="collapsed"] #app {
+    width: calc(100% - 115px);
+    max-width: none;
+    margin-left: 91px;
+  }
+  body[data-sidebar="collapsed"][data-page="strategies"] #app { width: calc(100% - 115px); }
+}
+@media (min-width: 768px) {
+  #app { transition: margin-left 300ms ease, width 300ms ease; }
+  body[data-sidebar="collapsed"] #nav .nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  body[data-sidebar="collapsed"] #nav a,
+  body[data-sidebar="collapsed"] #nav .sidebar-collapse {
+    justify-content: center;
+    padding-right: 0;
+    padding-left: 0;
+  }
+  body[data-sidebar="collapsed"] #nav .sidebar-collapse .nav-ico { transform: rotate(180deg); }
 }
 
 :root[data-theme="light"] .topbar::before {

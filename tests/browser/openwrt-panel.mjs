@@ -258,9 +258,7 @@ try {
     });
     await page.addInitScript(mode => {
       localStorage.setItem('z2k-theme', mode);
-      // Existing browsers may retain the old collapse preference. It must not
-      // shrink the single desktop navigation after that control is removed.
-      localStorage.setItem('z2k-sidebar', 'collapsed');
+      localStorage.setItem('z2k-sidebar', 'expanded');
     }, appearance);
     await page.goto(`${base}/#/dashboard`);
     await waitForRenderedRoute(page, 'dashboard');
@@ -271,9 +269,16 @@ try {
     await page.waitForFunction(() => Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 261) < 1,
       null, { timeout: 1200 });
     assert.equal(await page.locator('body').getAttribute('data-sidebar'), null,
-      `${appearance}: a legacy collapsed-sidebar preference is ignored`);
-    assert.equal(await page.locator('#sidebar-collapse').count(), 0,
-      `${appearance}: the redundant bottom collapse control is absent`);
+      `${appearance}: an expanded sidebar preference starts with the full rail`);
+    assert.equal(await page.locator('#sidebar-collapse').count(), 1,
+      `${appearance}: the sidebar keeps its bottom collapse control`);
+    assert.equal(await page.locator('#nav > #sidebar-collapse').count(), 1,
+      `${appearance}: the desktop collapse control is the final row in the sidebar`);
+    assert.equal(await page.locator('#sidebar-collapse').isVisible(), true);
+    assert.ok(await page.locator('#sidebar-collapse').evaluate(button =>
+      button.getBoundingClientRect().bottom <= document.querySelector('#nav').getBoundingClientRect().bottom - 8),
+    `${appearance}: the bottom collapse row remains in the visible rail`);
+    assert.equal(await page.locator('#sidebar-collapse').getAttribute('aria-expanded'), 'true');
     assert.equal(await page.locator('#nav .nav-external a').first().getAttribute('href'),
       'https://github.com/t0fox/z2kOW', `${appearance}: footer points to our repository`);
     assert.equal(await page.locator('#menu-shell.mm-ocd.mm-ocd--left > .mm-ocd__content > #nav').count(), 1,
@@ -318,7 +323,7 @@ try {
     assert.equal(await page.locator('[data-theme-btn="' + appearance + '"]').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.getByRole('group', { name: 'Тема' }).count(), 1);
     assert.equal(await page.locator('#menu-toggle').isVisible(), false,
-      `${appearance}: Full HD desktop uses the persistent sidebar, not the mobile menu button`);
+      `${appearance}: Full HD desktop keeps the mobile-only menu trigger hidden`);
 
     const tokens = await page.evaluate(names => {
       const style = getComputedStyle(document.documentElement);
@@ -396,8 +401,72 @@ try {
       `header controls follow Lolz's measured 98 px trailing inset within the shell (${JSON.stringify(desktopFrame)})`);
     assert.ok(Math.abs(await page.locator('#nav .nav-ico').first().evaluate(node => node.getBoundingClientRect().width) - 20) < 1,
       'sidebar icons match the reference size');
+    const shellMotion = await page.evaluate(() => {
+      const nav = getComputedStyle(document.querySelector('#nav'));
+      const app = getComputedStyle(document.querySelector('#app'));
+      return { navDuration: nav.transitionDuration, navEasing: nav.transitionTimingFunction,
+        appDuration: app.transitionDuration, appEasing: app.transitionTimingFunction };
+    });
+    assert.deepEqual(shellMotion.navDuration.split(',').map(value => value.trim()), ['0.3s', '0.3s'],
+      'desktop sidebar left and width transition for 300 ms');
+    assert.ok(shellMotion.navEasing.split(',').every(value => value.trim() === 'ease'),
+      'desktop sidebar uses the observed ease curve');
+    assert.deepEqual(shellMotion.appDuration.split(',').map(value => value.trim()), ['0.3s', '0.3s'],
+      'desktop content margin and width follow the rail over 300 ms');
+    assert.ok(shellMotion.appEasing.split(',').every(value => value.trim() === 'ease'),
+      'desktop content follows the observed ease curve');
     assert.ok(await page.locator('#app').evaluate(node => node.getBoundingClientRect().width === 800),
       'all desktop routes use the reference 800 px content column');
+    const sidebarCollapse = page.locator('#sidebar-collapse');
+    await sidebarCollapse.click();
+    await page.waitForFunction(() => document.body.dataset.sidebar === 'collapsed'
+      && Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 72) < 0.5
+      && Math.abs(document.querySelector('#app').getBoundingClientRect().x - (innerWidth / 2 - 356.5)) < 1);
+    await page.waitForFunction(() => document.getAnimations()
+      .every(animation => animation.playState !== 'running'));
+    const collapsedFrame = await page.evaluate(() => ({
+      state: document.body.getAttribute('data-sidebar'),
+      windowWidth: window.innerWidth,
+      railX: document.querySelector('#nav').getBoundingClientRect().x,
+      railWidth: document.querySelector('#nav').getBoundingClientRect().width,
+      appX: document.querySelector('#app').getBoundingClientRect().x,
+      appWidth: document.querySelector('#app').getBoundingClientRect().width,
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      labelWidth: document.querySelector('#nav a[data-route="dashboard"] .nav-label').getBoundingClientRect().width,
+    }));
+    assert.equal(collapsedFrame.state, 'collapsed', `${appearance}: collapse records the icon-only state`);
+    assert.ok(Math.abs(collapsedFrame.railWidth - 72) < 1, `${appearance}: collapsed rail is 72 px`);
+    assert.ok(Math.abs(collapsedFrame.appX - (collapsedFrame.windowWidth / 2 - 356.5)) < 1,
+      `${appearance}: main column recenters with the compact rail (${JSON.stringify(collapsedFrame)})`);
+    assert.equal(collapsedFrame.appWidth, 800, `${appearance}: collapse preserves the desktop content width`);
+    assert.ok(collapsedFrame.labelWidth <= 1, `${appearance}: nav text is visually hidden in the compact rail`);
+    assert.ok(collapsedFrame.scrollWidth <= collapsedFrame.clientWidth,
+      `${appearance}: collapsed shell stays inside the viewport`);
+    assert.equal(await page.getByRole('link', { name: 'Дашборд' }).count(), 1,
+      `${appearance}: collapsed nav links retain their accessible names`);
+    assert.equal(await sidebarCollapse.getAttribute('aria-expanded'), 'false');
+    assert.equal(await sidebarCollapse.getAttribute('aria-label'), 'Развернуть боковую панель');
+    assert.ok(await sidebarCollapse.locator('.nav-ico').evaluate(node => {
+      const matrix = new DOMMatrixReadOnly(getComputedStyle(node).transform);
+      return matrix.a < -0.999 && Math.abs(matrix.b) < 0.001
+        && Math.abs(matrix.c) < 0.001 && matrix.d < -0.999;
+    }), 'collapsed sidebar chevron settles into the expand direction');
+    assert.equal(await page.evaluate(() => localStorage.getItem('z2k-sidebar')), 'collapsed');
+    if (screenshotDir) {
+      await page.mouse.move(1439, 1103);
+      await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-dashboard-sidebar-collapsed.png`) });
+    }
+    await sidebarCollapse.click();
+    await page.waitForFunction(() => !document.body.hasAttribute('data-sidebar')
+      && Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 261) < 0.5);
+    await page.waitForFunction(() => document.getAnimations()
+      .every(animation => animation.playState !== 'running'));
+    assert.equal(await page.locator('body').getAttribute('data-sidebar'), null,
+      `${appearance}: the collapse control restores the expanded rail`);
+    assert.ok(Math.abs(await page.locator('#nav').evaluate(node => node.getBoundingClientRect().width) - 261) < 0.5);
+    assert.equal(await sidebarCollapse.getAttribute('aria-expanded'), 'true');
+    assert.equal(await page.evaluate(() => localStorage.getItem('z2k-sidebar')), 'expanded');
     const surfaces = await page.evaluate(() => ({
       topbarShadow: getComputedStyle(document.querySelector('.topbar')).boxShadow,
       cardShadow: getComputedStyle(document.querySelector('#app .card')).boxShadow,
@@ -683,6 +752,12 @@ try {
     ]) {
       await page.setViewportSize({ width, height });
       if (width >= 768 && width <= 1079) {
+        await page.waitForFunction(expectedWidth => {
+          const nav = document.querySelector('#nav').getBoundingClientRect();
+          const app = document.querySelector('#app').getBoundingClientRect();
+          return Math.abs(nav.x) < 0.5 && Math.abs(nav.width - 261) < 0.5
+            && Math.abs(app.x - 280) < 0.5 && Math.abs(app.width - (expectedWidth - 304)) < 0.5;
+        }, width, { timeout: 1500 });
         const tabletFrame = await page.evaluate(() => ({
           viewport: document.documentElement.clientWidth,
           scrollWidth: document.documentElement.scrollWidth,
@@ -881,9 +956,14 @@ try {
   await fullHdShort.waitForFunction(() => Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 261) < 1,
     null, { timeout: 1200 });
   assert.equal(await fullHdShort.locator('#menu-toggle').isVisible(), false,
-    'a short Full HD browser window keeps the desktop sidebar');
+    'a short Full HD browser window keeps the mobile menu trigger hidden');
   assert.ok(Math.abs(await fullHdShort.locator('#nav').evaluate(node => node.getBoundingClientRect().width) - 261) < 1,
     'a short Full HD browser window retains the desktop sidebar width');
+  await fullHdShort.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await fullHdShort.locator('#nav').evaluate(node => getComputedStyle(node).transitionDuration), '0s',
+    'reduced motion disables desktop rail geometry transitions');
+  assert.equal(await fullHdShort.locator('#app').evaluate(node => getComputedStyle(node).transitionDuration), '0s',
+    'reduced motion disables desktop content geometry transitions');
   await fullHdShort.close();
 
   const snapshotPage = await browser.newPage({ viewport: { width: 1392, height: 1104 } });
@@ -994,9 +1074,12 @@ try {
   await themeSlow.close();
 
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: 'dark', isMobile: true, hasTouch: true });
+  await mobile.addInitScript(() => localStorage.setItem('z2k-sidebar', 'collapsed'));
   await mobile.goto(base + '/#/dashboard');
   await waitForRenderedRoute(mobile, 'dashboard');
   assert.equal(await mobile.locator('#menu-toggle').isVisible(), true);
+  assert.equal(await mobile.locator('#sidebar-collapse').isVisible(), false,
+    'mobile keeps the drawer model and hides the desktop collapse control');
   const mobileTriggerBox = await mobile.locator('#menu-toggle').boundingBox();
   const mobileBrandBox = await mobile.locator('#panel-brand').boundingBox();
   const mobileThemeBox = await mobile.locator('.theme-toggle').boundingBox();
@@ -1014,6 +1097,8 @@ try {
     'opening applies the observed MmenuLight shell state');
   assert.equal(await mobile.locator('body').evaluate(node => node.classList.contains('mm-ocd-opened')), true,
     'opening applies the observed body scroll-state class');
+  assert.equal(await mobile.locator('#nav a[data-route="dashboard"] .nav-label').innerText(), 'Дашборд',
+    'a persisted desktop collapse preference does not hide mobile drawer labels');
   const drawerMotion = await mobile.evaluate(() => ({
     duration: getComputedStyle(document.querySelector('#menu-shell .mm-ocd__content')).transitionDuration,
     easing: getComputedStyle(document.querySelector('#menu-shell .mm-ocd__content')).transitionTimingFunction,

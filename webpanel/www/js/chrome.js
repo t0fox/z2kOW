@@ -4,6 +4,47 @@ import { STATE_SORT_LABELS, saveStateSort, stateSort } from "./state-model.js";
 // No-op stub — closeNavMore вызывается в navigate(), удалили overflow concept
 export function closeNavMore() {}
 
+const SIDEBAR_KEY = "z2k-sidebar";
+
+export function initSidebar() {
+  const button = document.getElementById("sidebar-collapse");
+  const nav = document.getElementById("nav");
+  if (!button || !nav) return;
+  const desktop = window.matchMedia("(min-width: 768px)");
+
+  function applyState(collapsed, persist) {
+    if (desktop.matches && collapsed) document.body.setAttribute("data-sidebar", "collapsed");
+    else document.body.removeAttribute("data-sidebar");
+
+    const label = collapsed ? "Развернуть боковую панель" : "Свернуть боковую панель";
+    button.setAttribute("aria-expanded", String(!collapsed));
+    button.setAttribute("aria-label", label);
+    button.title = label;
+
+    for (const link of nav.querySelectorAll("a")) {
+      const label = link.querySelector(".nav-label");
+      if (!label) continue;
+      if (desktop.matches && collapsed) link.title = label.textContent.trim();
+      else link.removeAttribute("title");
+    }
+
+    if (persist) {
+      try { localStorage.setItem(SIDEBAR_KEY, collapsed ? "collapsed" : "expanded"); }
+      catch (_) {}
+    }
+  }
+
+  let collapsed = false;
+  try { collapsed = localStorage.getItem(SIDEBAR_KEY) === "collapsed"; }
+  catch (_) {}
+  applyState(collapsed, false);
+  if (desktop.addEventListener) desktop.addEventListener("change", () => applyState(collapsed, false));
+  button.addEventListener("click", () => {
+    collapsed = !collapsed;
+    applyState(collapsed, true);
+  });
+}
+
 // Tri-state: "light" | "dark" | "auto" (default). "auto" слушает
 // prefers-color-scheme и обновляется live при системном переключении.
 // No-FOUC bootstrap (inline <script> в <head>) уже выставил

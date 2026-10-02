@@ -18,6 +18,23 @@ The companion [z2kOW WebPanel design pass](WEBPANEL-DESIGN-PASS.md) records how 
 - Narrow measurement: requested viewport 390×844; Chromium `innerWidth` was 390 and `document.documentElement.clientWidth` was 375 with the vertical scrollbar. The off-canvas shell was 375 px wide and the panel measured 300 px, exactly 80% of that content width.
 - CDP sources used: `Page.getResourceTree`, `Runtime.evaluate`, `Debugger.scriptParsed` / `Debugger.getScriptSource`, CSS computed styles, and `Animation.getCurrentTime` / `Animation.getKeyframes` observations (via the page's Web Animations API). The opened route and source URLs were checked against the browser's loaded resource tree.
 
+## 2026-10-02 current-tab visual verification
+
+These read-only measurements were taken from the two loaded Codex in-app tabs at the stated viewports. They describe only the named pages; they do not establish access to `lolz.live` or `zelenka.guru`.
+
+### `https://lolz.team/` — 614×672
+
+- The live page used a `#0C0F0E` body, `#D6D6D6` primary text, and the fallback stack `-apple-system, BlinkMacSystemFont, Inter, Helvetica Neue, sans-serif`. Base text was 14 px; thread titles were 15 px / weight 600.
+- Accent rules were `#00BA78`; cards used `#111615`, raised surfaces `#181E1C`, and subtle borders `#1E2725`. Card radius was 12 px. The fixed header was 44 px high.
+- Buttons were 34 px high, 14 px / weight 500, with 10 px radius; primary buttons used a green gradient.
+- Separate component states showed a 100 ms linear opacity/transform/visibility popover transition; primary-button active scale `0.97` with a 0.1 s `ease-in-out` transition; and select-popup scale/fade keyframes `chosenDropBelow` / `chosenDropUpwards` using `cubic-bezier(.5,0,0,1.25)`. The `fa-spin` keyframe rotates from 0° to 360°. These are separate effects; the page also contains unrelated keyframes.
+- Stylesheet endpoints observed were `https://fonts.googleapis.com/css2` and two `https://lolz.team/css.php` entries.
+
+### `https://lzt.market/` — 1280×720
+
+- The public page had a 1081 px main layout at x=92, with sidebar and main-content columns; the main content column was 800 px wide.
+- The search panel used `#111615`, 12 px radius, and 15 px / 20 px padding. A listing card measured 800×222 px with `#111615` surface, 12 px radius, and a 0.1 s `ease-in-out` transition. Card text used Inter at 14 px; the price was 16 px / weight 700.
+
 ## Main observed effect: mobile off-canvas menu
 
 ### DOM selectors and relevant markup
