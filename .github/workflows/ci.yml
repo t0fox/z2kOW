@@ -2,6 +2,12 @@ name: CI
 
 on:
   workflow_call:
+    inputs:
+      openwrt_candidate_version:
+        description: Candidate tag validated against the live upstream manifest for a trusted release run.
+        required: false
+        type: string
+        default: ""
   push:
     branches: ["**"]
   pull_request:
@@ -310,6 +316,27 @@ jobs:
             ( cd rt-proxy && env CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" $extra \
                 go build -trimpath -buildvcs=false -ldflags="-s -w" -o "z2k-rt-proxy-linux-$sfx" "$pkg" )
           done < build-matrix.tsv
+
+      - name: Resolve the release tag for the panel cache-buster check
+        env:
+          INPUT_CANDIDATE: ${{ inputs.openwrt_candidate_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_CANDIDATE" ]; then
+            tag="$INPUT_CANDIDATE"
+          elif [ "$GITHUB_REF" = refs/heads/main ]; then
+            nonce="$(date +%s%N)"
+            curl --fail --location --silent --show-error \
+              -H 'Cache-Control: no-cache, no-store' -H 'Pragma: no-cache' \
+              "https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json?nocache=$nonce" \
+              -o "$RUNNER_TEMP/upstream-live-UPDATES.json"
+            tag="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["current"])' \
+              "$RUNNER_TEMP/upstream-live-UPDATES.json")"
+          else
+            exit 0
+          fi
+          [[ "$tag" =~ ^[pr]-[0-9]+(\.[0-9]+)+$ ]]
+          printf 'Z2K_RELEASE_CANDIDATE_VERSION=%s\n' "$tag" >> "$GITHUB_ENV"
 
       - name: Run shell unit tests
         env:

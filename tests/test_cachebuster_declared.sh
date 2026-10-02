@@ -49,10 +49,11 @@ _manifest="$(cat "$ROOT/UPDATES.json")"
 #    генератор не запускали после смены версии, и людям уедет старый кеш.
 cur="$(printf '%s\n' "$_manifest" | sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
 idx=$(sed -n 's/.*app\.js?v=\([A-Za-z0-9._-]*\)".*/\1/p' "$IDX" | head -1)
-if [ -n "$cur" ] && [ "$cur" = "$idx" ]; then
-    ok "кеш-бастер панели совпадает с current ($cur)"
+candidate="${Z2K_RELEASE_CANDIDATE_VERSION:-$cur}"
+if [ -n "$candidate" ] && [ "$candidate" = "$idx" ]; then
+    ok "кеш-бастер панели совпадает с release candidate ($candidate)"
 else
-    no "кеш-бастер панели совпадает с current" "current=$cur, в index.html=$idx — запустить scripts/gen_file_hashes.sh"
+    no "кеш-бастер панели совпадает с release candidate" "candidate=$candidate (manifest current=$cur), в index.html=$idx — запустить scripts/gen_file_hashes.sh"
 fi
 
 # 3) index.html объявлен в changed_files последней записи. Пропускаем, если он
