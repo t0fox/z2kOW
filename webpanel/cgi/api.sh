@@ -1646,13 +1646,27 @@ case "$method $path" in
     # ---------- UNIFIED UPSTREAM UPDATE ----------
     "GET /update/status")
         # GET → may refresh the cache opportunistically (TTL guarded).
-        if ! installed=$(update_installed_tag 2>/dev/null) \
-            || [ -z "$installed" ] || [ "$installed" = "unknown" ]; then
+        if ! installed_record=$(update_installed_release_record 2>/dev/null); then
             json_fail "503 Service Unavailable" "$(update_state_error)"
         fi
+        installed=$(printf '%s\n' "$installed_record" | sed -n 's/^tag=//p' | head -1)
+        installed_seq=$(printf '%s\n' "$installed_record" | sed -n 's/^seq=//p' | head -1)
+        [ -n "$installed" ] && [ "$installed" != "unknown" ] || json_fail "503 Service Unavailable" "$(update_state_error)"
         update_refresh_manifest 0 2>/dev/null || true
         available=$(update_manifest_current)
         behind=$(update_behind_count "$installed") || json_fail "503 Service Unavailable" "installed release cannot be compared with the controlled manifest"
+        available_seq="" release_seq_mismatch=false
+        if [ -n "$available" ] && [ -n "$installed_seq" ]; then
+            available_seq=$(update_manifest_seq) || json_fail "503 Service Unavailable" "controlled release sequence is missing or invalid"
+            if [ "$installed" = "$available" ]; then
+                _seq_order=$(update_seq_compare "$installed_seq" "$available_seq") \
+                    || json_fail "503 Service Unavailable" "installed release sequence is invalid"
+                case "$_seq_order" in
+                    -1) behind=1; release_seq_mismatch=true ;;
+                    1) json_fail "503 Service Unavailable" "installed release sequence is ahead of the controlled manifest" ;;
+                esac
+            fi
+        fi
         last_check=$(update_last_check_ts)
         fetch_failed=$(update_last_fetch_failed)
         check_age=$(update_last_check_age)
@@ -1663,19 +1677,40 @@ case "$method $path" in
         json_string "$available"
         printf ',"behind":%s,"last_check":%s,"fetch_failed":%s,"check_age":%s' \
             "${behind:-0}" "${last_check:-0}" "${fetch_failed:-false}" "${check_age:--1}"
+        if [ -n "$installed_seq" ]; then
+            printf ',"installed_seq":%s' "$installed_seq"
+        fi
+        if [ -n "$available_seq" ]; then
+            printf ',"available_seq":%s,"release_seq_mismatch":%s' \
+                "$available_seq" "$release_seq_mismatch"
+        fi
         au_schedule_json
         printf '}\n'
         exit 0
         ;;
 
     "POST /update/check")
-        if ! installed=$(update_installed_tag 2>/dev/null) \
-            || [ -z "$installed" ] || [ "$installed" = "unknown" ]; then
+        if ! installed_record=$(update_installed_release_record 2>/dev/null); then
             json_fail "503 Service Unavailable" "$(update_state_error)"
         fi
+        installed=$(printf '%s\n' "$installed_record" | sed -n 's/^tag=//p' | head -1)
+        installed_seq=$(printf '%s\n' "$installed_record" | sed -n 's/^seq=//p' | head -1)
+        [ -n "$installed" ] && [ "$installed" != "unknown" ] || json_fail "503 Service Unavailable" "$(update_state_error)"
         update_refresh_manifest 1 2>/dev/null
         available=$(update_manifest_current)
         behind=$(update_behind_count "$installed") || json_fail "503 Service Unavailable" "installed release cannot be compared with the controlled manifest"
+        available_seq="" release_seq_mismatch=false
+        if [ -n "$available" ] && [ -n "$installed_seq" ]; then
+            available_seq=$(update_manifest_seq) || json_fail "503 Service Unavailable" "controlled release sequence is missing or invalid"
+            if [ "$installed" = "$available" ]; then
+                _seq_order=$(update_seq_compare "$installed_seq" "$available_seq") \
+                    || json_fail "503 Service Unavailable" "installed release sequence is invalid"
+                case "$_seq_order" in
+                    -1) behind=1; release_seq_mismatch=true ;;
+                    1) json_fail "503 Service Unavailable" "installed release sequence is ahead of the controlled manifest" ;;
+                esac
+            fi
+        fi
         last_check=$(update_last_check_ts)
         fetch_failed=$(update_last_fetch_failed)
         check_age=$(update_last_check_age)
@@ -1686,6 +1721,13 @@ case "$method $path" in
         json_string "$available"
         printf ',"behind":%s,"last_check":%s,"fetch_failed":%s,"check_age":%s' \
             "${behind:-0}" "${last_check:-0}" "${fetch_failed:-false}" "${check_age:--1}"
+        if [ -n "$installed_seq" ]; then
+            printf ',"installed_seq":%s' "$installed_seq"
+        fi
+        if [ -n "$available_seq" ]; then
+            printf ',"available_seq":%s,"release_seq_mismatch":%s' \
+                "$available_seq" "$release_seq_mismatch"
+        fi
         au_schedule_json
         printf '}\n'
         exit 0

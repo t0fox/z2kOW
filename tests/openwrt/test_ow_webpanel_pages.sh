@@ -38,4 +38,14 @@ _unknown_rc=$?
 printf '%s\n' "$_unknown_out" | sed 's/^/    /'
 [ "$_unknown_rc" -eq 0 ] && _t_ok || _t_bad "unknown installed release was rendered as current"
 
+_state_error_out="$(Z2K_OW_CAPS=1 Z2K_TEST_RELEASE_STATE_ERROR=1 node "$ROOT/tests/panel_harness.js" "$JS" dashboard 2>&1)"
+_state_error_rc=$?
+printf '%s\n' "$_state_error_out" | sed 's/^/    /'
+[ "$_state_error_rc" -eq 0 ] && _t_ok || _t_bad "missing installed release metadata was rendered as a normal install state"
+
+_seq_mismatch_out="$(Z2K_OW_CAPS=1 Z2K_TEST_RELEASE_SEQ_MISMATCH=1 node "$ROOT/tests/panel_harness.js" "$JS" dashboard 2>&1)"
+_seq_mismatch_rc=$?
+printf '%s\n' "$_seq_mismatch_out" | sed 's/^/    /'
+[ "$_seq_mismatch_rc" -eq 0 ] && _t_ok || _t_bad "installed sequence drift was rendered as current"
+
 _t_done

@@ -630,13 +630,16 @@ _z2k_ow_install_release_locked() {
         rm -rf "$_work"; return 1
     }
     _state_tmp="${_state}.z2k-new.$_transaction_id"
-    z2k_ow_release_state_write "$_state" "$_manifest" || {
+    _expected_record=$(printf 'tag=%s\nseq=%s' "$_tag" "$_seq")
+    if ! z2k_ow_release_state_write "$_state" "$_manifest" \
+        || [ "$(z2k_ow_release_state_read "$_state" 2>/dev/null)" != "$_expected_record" ]; then
+        echo "z2k-openwrt: canonical installed release state was not committed" >&2
         z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id" || true
         z2k_ow_cleanup_transaction "$_paths" "$_transaction_id"
         if [ -f "$_old_state" ]; then mv -f "$_old_state" "$_state"; else rm -f "$_state"; fi
         z2k_ow_restart_services "$_service" "$_panel" || true
         rm -rf "$_work"; return 1
-    }
+    fi
 
     # The former package updater kept two additional version markers. Retire
     # them only after the new full payload is healthy; the single canonical

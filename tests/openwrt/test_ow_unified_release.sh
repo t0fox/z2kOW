@@ -287,6 +287,25 @@ else
     _t_bad "more than one installed release state remains"
 fi
 
+# The installer must verify the state record after the commit helper returns.
+# This catches a helper that exits successfully without persisting tag+seq.
+READBACK_SYS="$T/readback-sys"
+mkdir -p "$READBACK_SYS/usr/lib" "$READBACK_SYS/usr/bin" "$READBACK_SYS/usr/sbin" \
+    "$READBACK_SYS/etc/z2k/state"
+export Z2K_OW_SYSROOT="$READBACK_SYS"
+_out="$( (
+    z2k_ow_release_state_write() { return 0; }
+    z2k_ow_install_release "$_CURRENT_TAG"
+) 2>&1)"; _rc=$?
+if [ "$_rc" -ne 0 ] \
+    && [ ! -e "$READBACK_SYS/etc/z2k/state/installed-release" ] \
+    && [ ! -e "$READBACK_SYS/usr/lib/z2k/version.txt" ]; then
+    _t_ok
+else
+    _t_bad "installer accepted a successful state writer that persisted no canonical release record: rc=$_rc output=$_out"
+fi
+export Z2K_OW_SYSROOT="$SYS"
+
 # Tampered artifact hash must fail before legacy cleanup or file mutation.
 rm -rf "$SYS"
 mkdir -p "$SYS/etc/z2k/state" "$SYS/usr/lib/z2k"

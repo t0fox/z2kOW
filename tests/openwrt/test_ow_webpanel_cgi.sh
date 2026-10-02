@@ -430,6 +430,8 @@ assert_eq "CLI reads the same canonical sequence as WebPanel API" "$_api_seq" "$
 assert_eq "CLI reads the shared API release record successfully" "0" "$_cli_rc"
 RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "update: installed payload truth" "p-86.2" "$(_jget "$OUT" 'd["installed"]')"
+assert_eq "update: installed sequence comes from canonical release state" "127" "$(_jget "$OUT" 'd["installed_seq"]')"
+assert_eq "update: controlled sequence comes from UPDATES.json" "134" "$(_jget "$OUT" 'd["available_seq"]')"
 assert_not_contains "update: no package/snapshot versions leak into the one release API" "$OUT" "_package"
 assert_not_contains "update: payload/seed metadata is not a user update version" "$OUT" '"seed"'
 assert_eq "update: available comes from signed controlled release" "p-86.11" "$(_jget "$OUT" 'd["available"]')"
@@ -437,6 +439,25 @@ assert_eq "update: signed manifest is cached with controlled authority" "control
 assert_eq "update: no fetch failure for valid controlled signature" "false" "$(_jget "$OUT" 'd["fetch_failed"]')"
 assert_contains "update: requests controlled manifest" "$T/update-fetch.log" "https://updates.example/controlled/UPDATES.json"
 assert_contains "update: requests controlled signature" "$T/update-fetch.log" "https://updates.example/controlled/UPDATES.json.sig"
+# The same tag with an older installed sequence is not current. The installer
+# already converges sequence drift through install_release; the WebPanel must
+# expose that same decision instead of hiding it behind a tag-only comparison.
+printf 'tag=p-86.11\nseq=133\n' > "$T/etc/state/installed-release"
+RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "update: same tag with stale sequence requests convergence" "1" "$(_jget "$OUT" 'd["behind"]')"
+assert_eq "update: same tag sequence drift is explicit" "true" "$(_jget "$OUT" 'd["release_seq_mismatch"]')"
+printf 'tag=p-86.11\nseq=135\n' > "$T/etc/state/installed-release"
+RAW="$( _cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "update: installed sequence ahead of controlled release fails closed" "Status: 503 Service Unavailable" "$(printf '%s\n' "$RAW" | _cgi_status)"
+assert_eq "update: future local sequence is not presented as current or downgraded" "false" "$(_jget "$OUT" 'd["ok"]')"
+printf 'tag=p-86.2\nseq=127\n' > "$T/etc/state/installed-release"
+# A syntactically valid release absent from controlled history cannot be
+# reported as current; upstream also refuses to compare unknown history tags.
+printf 'tag=p-99.99\nseq=999\n' > "$T/etc/state/installed-release"
+RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "update: unlisted installed release is not treated as current" "Status: 503 Service Unavailable" "$(printf '%s\n' "$RAW" | _cgi_status)"
+assert_eq "update: unlisted installed release returns an error response" "false" "$(_jget "$OUT" 'd["ok"]')"
+printf 'tag=p-86.2\nseq=127\n' > "$T/etc/state/installed-release"
 printf '{"current":"p-86.12","history":[{"v":"p-86.12"}]}' > "$T/zapret2/UPDATES.json"
 assert_not_contains "update: newer upstream-only release stays hidden" "$OUT" "p-86.12"
 assert_eq "update: temporary etag sidecars are removed" "" "$(find "$T" -name '*.etag' -print -quit)"

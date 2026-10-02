@@ -151,6 +151,12 @@ const statusFixture = (process.env.Z2K_OW_CAPS === "1")
     : { ok:true, installed:"r-71.1", running:true, service:"running",
         toggles:{game_warp:"0",customd:"0",dynamic_ttl:"1",
                  stats:"1",ppe:"1",auto_update:"1",autohostlist:"0"}, tunnel:{running:true} };
+if (process.env.Z2K_TEST_RELEASE_STATE_ERROR === "1") {
+  statusFixture.installed = false;
+  statusFixture.installed_state = "error";
+  statusFixture.installed_state_error = "installed release metadata is missing";
+  mockNode("status-grid");
+}
 if (BRAND_CASE === "openwrt") {
   statusFixture.brand = { name:"z2kOW", subtitle:"OpenWrt edition",
     logo:"/assets/openwrt/logo.png", favicon:"/assets/openwrt/favicon.svg",
@@ -160,7 +166,7 @@ if (BRAND_CASE === "openwrt") {
     logo:"https://evil.example/mark.svg", favicon:"//evil.example/favicon.svg",
     theme:"/../outside.css" };
 }
-if (process.env.Z2K_TEST_UPDATE_UNKNOWN === "1") mockNode("update-banner");
+if (process.env.Z2K_TEST_UPDATE_UNKNOWN === "1" || process.env.Z2K_TEST_RELEASE_SEQ_MISMATCH === "1") mockNode("update-banner");
 const FIXTURES = {
   // Z2K_OW_CAPS=1 — OpenWrt-форма /status (platform + capabilities) для
   // tests/openwrt/test_ow_webpanel_pages.sh: исполняет OW-ветки фронта
@@ -191,7 +197,11 @@ const FIXTURES = {
   "/warp/list": { ok:true, name:"custom", content:"1.2.3.4\n5.6.7.8" },
   "/update/status": process.env.Z2K_TEST_UPDATE_UNKNOWN === "1"
     ? { ok:true, installed:"unknown", available:"r-86.7", behind:0, last_check:1785830000, pending:[] }
-    : { ok:true, installed:"r-71.1", available:"r-71.1", behind:0,
+    : process.env.Z2K_TEST_RELEASE_SEQ_MISMATCH === "1"
+      ? { ok:true, installed:"p-86.13", available:"p-86.13", installed_seq:135,
+          available_seq:136, release_seq_mismatch:true, behind:1,
+          last_check:1785830000, pending:[] }
+      : { ok:true, installed:"r-71.1", available:"r-71.1", behind:0,
         last_check:1785830000, pending:[] },
   "/policy/status": { ok:true, enabled:false, policy:"" },
   "/diag": { ok:true, diag:"=== что не так ===\n  явных проблем не найдено\n" },
@@ -222,6 +232,17 @@ catch (e) { console.log("ЗАГРУЗКА УПАЛА: " + e.message); process.ex
     const banner = domById.get("update-banner").innerHTML;
     if (banner.includes("актуален")) errors.push("unknown installed release was rendered as up to date");
     if (!banner.includes("Не удалось проверить обновления z2k")) errors.push("unknown installed release did not render a state error");
+  }
+  if (process.env.Z2K_TEST_RELEASE_STATE_ERROR === "1") {
+    const statusGrid = domById.get("status-grid").innerHTML;
+    if (!statusGrid.includes("ошибка состояния")) errors.push("missing release metadata was rendered as a normal not-installed state");
+    if (statusGrid.includes('<div class="label">Установлен</div><div class="value">Нет')) errors.push("missing release metadata was rendered as merely not installed");
+  }
+  if (process.env.Z2K_TEST_RELEASE_SEQ_MISMATCH === "1") {
+    const banner = domById.get("update-banner").innerHTML;
+    if (!banner.includes("Нужно синхронизировать установленный выпуск")) errors.push("sequence drift was not shown as a release synchronization");
+    if (!banner.includes("p-86.13 · seq 135") || !banner.includes("p-86.13 · seq 136")) errors.push("sequence drift did not show both canonical and controlled release identities");
+    if (banner.includes("актуален")) errors.push("sequence drift was rendered as current");
   }
   if (BRAND_CASE) {
     const expect = (condition, label) => {

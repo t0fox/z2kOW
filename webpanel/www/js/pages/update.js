@@ -20,6 +20,7 @@ export async function refreshUpdateBanner(opts = {}) {
   const installed = (d && d.installed) || "?";
   const available = (d && d.available) || "?";
   const behind = Number((d && d.behind) || 0);
+  const releaseSeqMismatch = !!(d && d.release_seq_mismatch);
   const ts = Number((d && d.last_check) || 0);
   const ago = ts > 0 ? humanAgo(ts) : "—";
   // Подпись «когда оно само» — ответ на вопрос, который люди задают прямо
@@ -74,12 +75,14 @@ export async function refreshUpdateBanner(opts = {}) {
     banner.className = "update-banner";
     banner.innerHTML = `
       <div class="update-banner-text">
-        <strong>Доступно обновление ${escapeHtml(available)}</strong>
-        <span class="update-banner-meta">установлен движок ${escapeHtml(installed)} · отстаёт на ${behind} · проверено ${ago}${auNote}</span>
+        <strong>${releaseSeqMismatch ? "Нужно синхронизировать установленный выпуск" : `Доступно обновление ${escapeHtml(available)}`}</strong>
+        <span class="update-banner-meta">${releaseSeqMismatch
+          ? `установлен ${escapeHtml(installed)} · seq ${escapeHtml(String(d.installed_seq))} · controlled ${escapeHtml(available)} · seq ${escapeHtml(String(d.available_seq))} · проверено ${ago}${auNote}`
+          : `установлен движок ${escapeHtml(installed)} · отстаёт на ${behind} · проверено ${ago}${auNote}`}</span>
       </div>
       <div class="update-banner-actions">
         <button class="btn" id="upd-history-link" type="button">История обновлений</button>
-        <button class="btn btn-primary" id="upd-apply">Обновить</button>
+        <button class="btn btn-primary" id="upd-apply">${releaseSeqMismatch ? "Синхронизировать" : "Обновить"}</button>
       </div>
     `;
   } else if (unknown) {

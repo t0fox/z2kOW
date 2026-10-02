@@ -3305,6 +3305,20 @@ update_installed_tag() {
     fi
 }
 
+# Read one snapshot of the installed release. OpenWrt callers get both fields
+# from the canonical atomic record; Keenetic retains upstream's tag-only state.
+update_installed_release_record() {
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+        command -v z2k_ow_release_state_read >/dev/null 2>&1 || return 1
+        z2k_ow_release_state_read "${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}"
+        return $?
+    fi
+    local _tag
+    _tag=$(update_installed_tag) || return 1
+    case "$_tag" in ''|unknown) return 1 ;; esac
+    printf 'tag=%s\n' "$_tag"
+}
+
 # Get mtime of a file as a Unix timestamp. BusyBox `stat -c` doesn't exist
 # on Entware (even /opt/bin/stat is BusyBox), but `date -r FILE +%s` does.
 file_mtime() {
@@ -3520,6 +3534,36 @@ update_manifest_current() {
     sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$AU_MANIFEST_CACHE" | head -1
 }
 
+update_manifest_seq() {
+    [ -s "$AU_MANIFEST_CACHE" ] || return 1
+    awk '
+        match($0, /"seq"[[:space:]]*:[[:space:]]*[0-9]+/) {
+            value = substr($0, RSTART, RLENGTH)
+            sub(/.*:[[:space:]]*/, "", value)
+            print value
+            exit
+        }
+    ' "$AU_MANIFEST_CACHE" | awk '/^[1-9][0-9]*$/ { print; found=1; exit } END { if (!found) exit 1 }'
+}
+
+# Compare validated decimal release sequences without shell integer overflow.
+# Prefixing with a non-digit keeps awk's comparison lexicographic; decimal
+# strings are ordered by length first, then by their digits.
+update_seq_compare() {
+    local _installed="$1" _controlled="$2"
+    case "$_installed" in ''|*[!0-9]*) return 1 ;; esac
+    case "$_controlled" in ''|*[!0-9]*) return 1 ;; esac
+    LC_ALL=C awk -v installed="$_installed" -v controlled="$_controlled" 'BEGIN {
+        a = "x" installed
+        b = "x" controlled
+        if (length(installed) < length(controlled)) print -1
+        else if (length(installed) > length(controlled)) print 1
+        else if (a < b) print -1
+        else if (a > b) print 1
+        else print 0
+    }'
+}
+
 # Count how many history entries appear AFTER installed_tag.
 # Matches au_history_entries_after semantics in lib/auto_update.sh —
 # history-order, not numeric.
@@ -3541,11 +3585,10 @@ update_behind_count() {
             if (v == inst) { found = 1 }
         }
         END {
-            # count+0, не count: когда installed == current, ветка count++ ни разу
-            # не выполняется, count остаётся неинициализированной и awk печатает
-            # ПУСТУЮ строку. Сейчас это спасает только "${behind:-0}" у
-            # вызывающего (api.sh) — без него в JSON уходит "behind":, .
-            print (found ? count+0 : 0)
+            # A tag absent from the controlled history cannot be compared.
+            # Returning zero here made valid-but-unknown state look current.
+            if (!found) exit 1
+            print count+0
         }
     ' "$AU_MANIFEST_CACHE"
 }
