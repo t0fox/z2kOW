@@ -1304,3 +1304,127 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 @media (max-width: 639.98px) {
   #app .pick-modes { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Strategies table: one fixed column grid is shared by the header, ordinary
+   rows, and domain-group rows. At narrow widths the table scrolls inside its
+   own card before labels or controls are forced to wrap. */
+#app .table-scroll {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+#app .state-table {
+  width: 100%;
+  min-width: 760px;
+  table-layout: fixed;
+}
+#app .state-table th,
+#app .state-table td {
+  box-sizing: border-box;
+  height: 54px;
+  padding: 3px 8px;
+  vertical-align: middle;
+}
+#app .state-table th { height: 42px; white-space: nowrap; }
+#app .state-table th.sortable { white-space: nowrap; }
+#app .state-table th.sortable .icon {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 2px;
+  vertical-align: -2px;
+}
+#app .state-table th:nth-child(1),
+#app .state-table td:nth-child(1) { width: 48px; text-align: center; }
+#app .state-table th:nth-child(2),
+#app .state-table td:nth-child(2) { width: 120px; }
+#app .state-table th:nth-child(4),
+#app .state-table td:nth-child(4) { width: 220px; white-space: nowrap; }
+#app .state-table th:nth-child(5),
+#app .state-table td:nth-child(5) { width: 108px; text-align: center; white-space: nowrap; }
+#app .state-table th:nth-child(6),
+#app .state-table td:nth-child(6) {
+  width: 75px;
+  padding-inline: 2px;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* Keep each column label and its sort indicator left-aligned. */
+#app .state-table th:nth-child(1),
+#app .state-table th:nth-child(5),
+#app .state-table th:nth-child(6) { text-align: left; }
+#app .state-table th:nth-child(6) { padding-left: 2px; padding-right: 2px; }
+#app .state-table.sg-any td.state-host,
+#app .state-table.sg-any th[data-sort="host"] {
+  padding-left: calc(var(--space-12) + 22px);
+}
+#app .state-table.sg-any td.sg-leaf {
+  padding-left: calc(var(--space-12) + 22px + var(--space-16));
+}
+#app .state-table td:nth-child(2),
+#app .state-table td.state-host {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#app .state-table td.state-host:has(> .fam-tag) {
+  position: relative;
+  padding-right: 56px;
+}
+#app .state-table td.state-host > .fam-tag {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  margin: 0;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+#app .state-table .sg-toggle { max-width: 100%; min-width: 0; }
+#app .state-table .sg-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#app .state-table .state-sni {
+  height: 12px;
+  margin-top: 2px;
+  overflow: hidden;
+  line-height: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#app .state-table select.state-strat-sel {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  min-height: 32px;
+  line-height: 32px;
+}
+#app .state-table .chosen-container.state-strat-sel {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: 32px;
+  min-height: 32px;
+}
+#app .state-table .chosen-container.state-strat-sel .chosen-single {
+  box-sizing: border-box;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 30px 0 10px;
+}
+
+@media (pointer: coarse) {
+  #app .state-table tbody > tr { height: 66px; }
+  #app .state-table .chosen-container.state-strat-sel,
+  #app .state-table .chosen-container.state-strat-sel .chosen-single,
+  #app .state-table select.state-strat-sel {
+    height: 44px;
+    min-height: 44px;
+  }
+}
