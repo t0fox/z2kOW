@@ -23,6 +23,7 @@ case "$OUT" in
 esac
 
 field() { printf '%s\n' "$OUT" | awk -F'|' -v s="$1" -v l="$2" '$1==s && $2==l {print $4}'; }
+tile_value() { printf '%s\n' "$OUT" | awk -F'|' -v s="$1" -v l="$2" '$1==s && $2==l {print $3}'; }
 
 # --- 1. Всё включено — каждая плитка обязана нести состояние -------------------
 # Это проверка КЛАССА, а не одной плитки: зашитый пустой kind у любой будущей
@@ -61,6 +62,19 @@ if [ -z "$_bogus" ]; then
 else
     bad "неизвестное состояние (иконки не будет): $(printf '%s' "$_bogus" | tr '\n' ' ')"
 fi
+
+# --- 5. Установленный release state остаётся отдельным от service health ------
+[ "$(tile_value RELEASE Установлен)" = "Да · p-86.13 · seq 136" ] \
+    && [ "$(field RELEASE Установлен)" = "good" ] \
+    && ok "валидный canonical release показывает tag и seq как установленный" \
+    || bad "валидный release state не отобразился однозначно"
+[ "$(tile_value ERROR Установлен)" = "ошибка состояния" ] \
+    && [ "$(field ERROR Установлен)" = "bad" ] \
+    && ok "running service без release metadata показывает ошибку состояния" \
+    || bad "отсутствующий release state замаскирован статусом процесса"
+[ "$(tile_value ERROR Сервис)" = "работает" ] \
+    && ok "диагностика сохраняет running service независимо от ошибки release state" \
+    || bad "service status был смешан с installed release state"
 
 printf '\nPASSED: %s\nFAILED: %s\n' "$PASS" "$FAIL"
 [ "$FAIL" = 0 ]

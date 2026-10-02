@@ -10,7 +10,7 @@ from pathlib import Path
 root = Path(sys.argv[1])
 manifest = json.loads((root / "UPDATES.json").read_text(encoding="utf-8"))
 assert set(manifest) == {
-    "schema", "branch", "platform", "seq", "current", "upstream", "history", "artifact"
+    "schema", "branch", "platform", "seq", "current", "upstream", "history", "artifact", "signing"
 }
 assert manifest["schema"] == 1
 assert manifest["branch"] == "main" and manifest["platform"] == "openwrt"
@@ -29,6 +29,10 @@ assert isinstance(artifact["size_bytes"], int) and artifact["size_bytes"] > 0
 assert not {
     "files_sha256", "install_map", "components", "package_versions"
 } & set(manifest)
+signing = manifest["signing"]
+assert set(signing) == {"key_id"}
+assert re.fullmatch(r"[0-9a-f]{64}", signing["key_id"])
+assert (root / "scripts/openwrt/release-keys" / f"{signing['key_id']}.pub").is_file()
 assert not (root / "UPSTREAM.json").exists()
 
 update = (root / "platform/openwrt/update.sh").read_text(encoding="utf-8")

@@ -8,14 +8,14 @@ const fs = require("fs");
 const src = fs.readFileSync(process.argv[2], "utf8");
 
 // Вырезаем ровно объявление cells внутри renderStatusGrid и исполняем его.
-const m = src.match(/const cells = \[([\s\S]*?)\n {2}\];/);
+const m = src.match(/const releaseStateError = [\s\S]*?\n {2}\];/);
 if (!m) { console.log("НЕТ-БЛОКА"); process.exit(0); }
 
 const bool = v => (v === "1" ? "Вкл" : "Выкл");
 const fmtSvc = v => (v === "active" ? "работает" : v === "stopped" ? "остановлен" : "нет");
 
 function cellsFor(s) {
-  return new Function("s", "bool", "fmtSvc", `const cells = [${m[1]}\n  ]; return cells;`)(s, bool, fmtSvc);
+  return new Function("s", "bool", "fmtSvc", `${m[0]}\nreturn cells;`)(s, bool, fmtSvc);
 }
 
 const ON = {
@@ -28,8 +28,16 @@ const OFF = {
   tunnel: { running: true },
   toggles: { game_warp: "0", auto_update: "0", customd: "0" },
 };
+const RELEASE = {
+  ...ON, installed_state: "ok", installed_release: "p-86.13", installed_seq: 136,
+};
+const ERROR = {
+  ...ON, installed: false, installed_state: "error", installed_release: "", installed_seq: 0,
+};
 
 const out = [];
 for (const c of cellsFor(ON)) out.push(`ON|${c.label}|${c.value}|${c.kind}`);
 for (const c of cellsFor(OFF)) out.push(`OFF|${c.label}|${c.value}|${c.kind}`);
+for (const c of cellsFor(RELEASE)) out.push(`RELEASE|${c.label}|${c.value}|${c.kind}`);
+for (const c of cellsFor(ERROR)) out.push(`ERROR|${c.label}|${c.value}|${c.kind}`);
 console.log(out.join("\n"));

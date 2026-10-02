@@ -155,12 +155,21 @@ elif [ ! -s "$ROOT/UPDATES.json.sig" ]; then
     else
         no "unsigned main candidate fails closed before install" "signature check in install_release" "not found"
     fi
-elif "$OSSL" pkeyutl -verify -rawin -pubin -inkey "$ROOT/files/etc/z2k-update-pub.pem" \
-       -in "$ROOT/UPDATES.json" -sigfile "$ROOT/UPDATES.json.sig" >/dev/null 2>&1; then
-    ok "подпись манифеста в дереве сходится с опубликованным ключом"
 else
-    no "подпись манифеста в дереве сходится с опубликованным ключом" \
-       "сходится" "НЕ сходится — роутеры отвергнут релиз"
+    _release_key_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["signing"]["key_id"])' \
+        "$ROOT/UPDATES.json" 2>/dev/null)
+    _release_key="$ROOT/scripts/openwrt/release-keys/$_release_key_id.pub"
+    if printf '%s' "$_release_key_id" | grep -Eq '^[0-9a-f]{64}$' \
+       && [ -s "$_release_key" ] \
+       && "$OSSL" pkey -pubin -in "$_release_key" -outform DER > "$TMP/release-key.der" 2>/dev/null \
+       && [ "$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$TMP/release-key.der")" = "$_release_key_id" ] \
+       && "$OSSL" pkeyutl -verify -rawin -pubin -inkey "$_release_key" \
+            -in "$ROOT/UPDATES.json" -sigfile "$ROOT/UPDATES.json.sig" >/dev/null 2>&1; then
+        ok "подпись UPDATES.json сходится с release key, закреплённым в самом manifest"
+    else
+        no "подпись UPDATES.json сходится с release key, закреплённым в самом manifest" \
+           "валидная подпись и совпадающий fingerprint" "подпись/ключ не сходятся"
+    fi
 fi
 
 # --- 5. Рваная пара «манифест+подпись» — не подделка ---------------------------
