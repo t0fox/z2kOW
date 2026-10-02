@@ -1,6 +1,7 @@
 import { closeNavMore } from "./chrome.js";
 import { $app, $nav, escapeHtml } from "./core/dom.js";
-import { renderCredits, renderStrategies } from "./pages/credits.js";
+import { renderStrategies } from "./pages/credits.js";
+import { renderCreditsPage } from "./pages/credits-openwrt.js";
 import { renderDashboard } from "./pages/dashboard.js";
 import { renderDiag } from "./pages/diag.js";
 import { renderExcludeAddresses, renderExcludeDomains } from "./pages/exclude.js";
@@ -29,7 +30,7 @@ const routes = {
   pick: renderStrategyPick,
   strategies: renderStrategies,
   diag: renderDiag,
-  credits: renderCredits,
+  credits: renderCreditsPage,
 };
 
 // Active route highlight для всех `<a>` в #nav (primary + overflow).

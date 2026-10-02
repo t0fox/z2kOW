@@ -343,6 +343,118 @@ body[data-page="login"] #app {
 .card .desc { color: var(--ow-text-secondary); font-size: 14px; line-height: 1.28; }
 .card-danger { border-color: var(--ow-danger); box-shadow: none; }
 
+/* Credits: local OpenWrt support is primary; upstream credits stay available
+   in the source-style BBCode spoiler surface and remain secondary. */
+.credits-openwrt { margin-bottom: 14px; }
+.credits-openwrt__title {
+  margin: 0 0 8px;
+  color: var(--ow-text-primary);
+  font-size: 17px;
+  line-height: 1.34;
+  font-weight: 600;
+}
+.credits-openwrt .credits-intro {
+  max-width: none;
+  margin: 0 0 12px;
+  text-align: left;
+}
+.credits-openwrt__empty {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--ow-surface-2);
+  color: var(--ow-text-secondary);
+}
+.credits-openwrt .credits-grid { margin: 0; }
+.openwrt-credit-card {
+  border-color: var(--ow-border-subtle);
+  background: var(--ow-surface-2);
+  text-align: left;
+}
+.openwrt-credit-card .credits-name { color: var(--ow-text-primary); }
+.openwrt-credit-badge {
+  margin-bottom: 8px;
+  border: 1px solid var(--ow-border-subtle);
+  background: var(--ow-surface-2);
+  color: var(--ow-text-secondary);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.credits-upstream {
+  display: block;
+  margin: 10px 0;
+  padding: 5px;
+  border-radius: 12px;
+  background: var(--ow-surface-2);
+}
+.credits-upstream > summary {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 20px 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--ow-surface-2);
+  color: var(--ow-text-primary);
+  font: 500 14px/34px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+  list-style: none;
+  transition: all 100ms ease-in-out;
+}
+.credits-upstream > summary::-webkit-details-marker { display: none; }
+.credits-upstream > summary::marker { content: ""; }
+.credits-upstream > summary.btn.btn-secondary:hover { background: inherit; }
+.credits-upstream > summary.btn.btn-secondary:not(:disabled):not(.disabled):active {
+  line-height: 34px;
+  transform: none;
+  background: var(--ow-surface-2);
+  background-size: auto;
+}
+.credits-upstream > summary:focus-visible {
+  outline: 2px solid var(--ow-focus-ring);
+  outline-offset: 2px;
+}
+.credits-upstream__arrow {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ow-text-secondary);
+  transition: transform 200ms ease;
+}
+.credits-upstream[open] .credits-upstream__arrow { transform: rotate(180deg); }
+.credits-upstream__body {
+  margin-top: 5px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--ow-surface-1);
+}
+.credits-upstream__description {
+  margin: 0 0 14px;
+  color: var(--ow-text-secondary);
+  font-size: 14px;
+  line-height: 1.28;
+}
+.credits-upstream__body .credits-grid { margin-bottom: 0; }
+.credits-upstream__body .tester-card,
+.credits-upstream__body .sponsor-card {
+  border-color: var(--ow-border-subtle);
+  background: var(--ow-surface-2);
+}
+.credits-upstream__body .credits-name { color: var(--ow-text-primary); }
+.credits-upstream__body .credits-badge {
+  border-color: var(--ow-border-subtle);
+  background: var(--ow-surface-2);
+  color: var(--ow-text-secondary);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.credits-upstream__body .credits-card .desc { color: var(--ow-text-secondary); }
+
 .btn {
   position: relative;
   overflow: hidden;
@@ -737,6 +849,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ow-accent); }
   input[type="number"], input[type="url"], textarea, select { min-height: 44px; }
   .theme-toggle button, .menu-toggle, .nav-drawer-close { min-width: 44px; }
   .btn:not(.btn-icon) { height: 44px; line-height: 44px; }
+  .credits-upstream > summary.btn.btn-secondary { min-height: 34px; height: 34px; line-height: 34px; }
   .state-table .btn-icon, .state-table .btn-danger { min-height: 32px; height: auto; }
 }
 
