@@ -406,7 +406,8 @@ jobs:
             git push origin HEAD:main
           fi
 
-          for attempt in $(seq 1 30); do
+          attempt=1
+          while [ "$attempt" -le 30 ]; do
             nonce="$(date +%s%N)"
             if curl --fail --location --silent --show-error \
                 "$raw_url/UPDATES.json?nocache=$nonce" -o "$RUNNER_TEMP/public-main-UPDATES.json" \
@@ -418,6 +419,7 @@ jobs:
               fi
             fi
             sleep 2
+            attempt=$((attempt + 1))
           done
           cmp -s "$manifest" "$RUNNER_TEMP/public-main-UPDATES.json"
           cmp -s "$signature" "$RUNNER_TEMP/public-main-UPDATES.json.sig"
