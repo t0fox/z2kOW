@@ -508,12 +508,17 @@ try {
       topbarShadow: getComputedStyle(document.querySelector('.topbar')).boxShadow,
       cardShadow: getComputedStyle(document.querySelector('#app .card')).boxShadow,
       cardRadius: getComputedStyle(document.querySelector('#app .card')).borderRadius,
+      successGlowToken: getComputedStyle(document.documentElement).getPropertyValue('--ow-success-glow').trim(),
+      successCellShadow: getComputedStyle(document.querySelector('#app .status-cell.good')).boxShadow,
       titleAnimation: getComputedStyle(document.querySelector('#app .page-title')).animationName,
       cardAnimation: getComputedStyle(document.querySelector('#app > .card')).animationName,
     }));
     assert.equal(surfaces.topbarShadow, 'none', 'the reference header has no decorative drop shadow');
     assert.equal(surfaces.cardShadow, 'none', 'cards use a border instead of a floating shadow');
     assert.equal(surfaces.cardRadius, '12px');
+    assert.match(surfaces.successGlowToken, /^inset 0 0 0 1px color-mix\(/,
+      'success feedback uses a centralized semantic glow token');
+    assert.notEqual(surfaces.successCellShadow, 'none', 'successful status cells retain their subtle glow');
     assert.equal(await page.locator('#app .card .desc').first().evaluate(node => getComputedStyle(node).lineHeight), '17.92px',
       'card descriptions use the measured 14 px / 17.92 px Lolz rhythm');
     assert.equal(surfaces.titleAnimation, 'page-enter', 'the reference route transition is applied to page titles');
@@ -694,7 +699,13 @@ try {
         assert.equal(popupGeometry.animationDuration, '0.2s', 'the dropdown opens over the source 200 ms');
         assert.match(popupGeometry.animationEasing, /cubic-bezier\(0\.5, 0, 0, 1\.25\)/,
           'the dropdown uses the source spring-like easing');
-        if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-dropdown-open.png`) });
+        if (screenshotDir) {
+          await control.evaluate(node => window.scrollTo({
+            top: Math.max(0, window.scrollY + node.getBoundingClientRect().top - 80), behavior: 'instant',
+          }));
+          await waitForNavSettled(page);
+          await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-dropdown-open.png`) });
+        }
         await page.keyboard.press('Escape');
         assert.equal(await control.getAttribute('aria-expanded'), 'false', 'Escape closes the custom select');
         assert.equal(await control.evaluate(node => document.activeElement === node), true,
@@ -804,7 +815,9 @@ try {
           const lefts = actions.map(action => action.getBoundingClientRect().left);
           return { rowCount: actions.length, leftDelta: Math.max(...lefts) - Math.min(...lefts),
             width: node.clientWidth, scrollWidth: node.scrollWidth, height: node.clientHeight,
-            scrollHeight: node.scrollHeight, maxHeight: getComputedStyle(node).maxHeight };
+            scrollHeight: node.scrollHeight, maxHeight: getComputedStyle(node).maxHeight,
+            rowFontFamily: getComputedStyle(node.querySelector('li')).fontFamily,
+            rowFontSize: getComputedStyle(node.querySelector('li')).fontSize };
         });
         assert.equal(listGeometry.rowCount, 16, `the list fixture exercises sixteen rows (${JSON.stringify(listGeometry)})`);
         assert.ok(listGeometry.leftDelta < 0.5, `domain delete buttons align (${JSON.stringify(listGeometry)})`);
@@ -812,6 +825,10 @@ try {
           `long domain names stay inside the list width (${JSON.stringify(listGeometry)})`);
         assert.ok(listGeometry.scrollHeight > listGeometry.height && listGeometry.maxHeight === '400px',
           `long lists scroll inside their own 400 px box (${JSON.stringify(listGeometry)})`);
+        assert.match(listGeometry.rowFontFamily, /^Inter, -apple-system, BlinkMacSystemFont/,
+          `domain list rows use the shared Lolz Inter typography (${JSON.stringify(listGeometry)})`);
+        assert.equal(listGeometry.rowFontSize, '14px',
+          `domain list rows use the shared 14 px body scale (${JSON.stringify(listGeometry)})`);
       }
       if (route === 'autohostlist') {
         await page.waitForFunction(() => document.querySelectorAll('#ah-list li button[data-del]').length >= 7);
@@ -842,6 +859,9 @@ try {
       if (route === 'state') {
         await page.locator('.state-table').waitFor({ state: 'visible', timeout: 2000 });
         await page.waitForFunction(() => document.querySelectorAll('.state-table tbody tr').length >= 100, null, { timeout: 2000 });
+        const tablePanelRadius = await page.locator('.table-scroll').first().evaluate(node => getComputedStyle(node).borderRadius);
+        assert.equal(tablePanelRadius, '12px',
+          `${appearance}: the table wrapper keeps the measured Lolz 12 px panel radius in both themes`);
         const strategyControl = await page.locator('.state-table .chosen-single').first().evaluate(node => {
           const style = getComputedStyle(node);
           const rect = node.getBoundingClientRect();
@@ -927,14 +947,23 @@ try {
         await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-${route}.png`) });
         if (route === 'warp') {
           const deviceCard = page.locator('#warp-devices-card');
-          await deviceCard.scrollIntoViewIfNeeded();
+          await deviceCard.evaluate(node => window.scrollTo({
+            top: Math.max(0, window.scrollY + node.getBoundingClientRect().top - 60), behavior: 'instant',
+          }));
+          await waitForNavSettled(page);
           const offlineDisclosure = page.locator('#warp-neighbors .warp-offline');
           await offlineDisclosure.locator('summary').click();
           await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-warp-devices.png`) });
         }
         if (route === 'diag') {
           const log = page.locator('#diag-output');
-          await log.scrollIntoViewIfNeeded();
+          await log.evaluate(node => {
+            const card = node.closest('.card');
+            window.scrollTo({
+              top: Math.max(0, window.scrollY + card.getBoundingClientRect().top - 60), behavior: 'instant',
+            });
+          });
+          await waitForNavSettled(page);
           await log.evaluate(node => { node.scrollTop = node.scrollHeight; });
           await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-diag-log.png`) });
         }

@@ -47,6 +47,8 @@
   --ow-focus-ring: #00BA78;
   --ow-focus-glow: 0 0 0 2px #2E614A, 0 0 12px rgb(0 186 120 / 14%);
   --ow-accent-glow: 0 0 12px rgb(0 186 120 / 14%);
+  --ow-success-glow: inset 0 0 0 1px color-mix(in srgb, var(--ow-success) 9%, transparent),
+    0 0 12px color-mix(in srgb, var(--ow-success) 7%, transparent);
   --ow-selected-glow: inset 0 0 0 1px rgb(0 186 120 / 18%), 0 0 10px rgb(0 186 120 / 8%);
   --ow-button-glow: 0 0 14px rgb(0 186 120 / 16%);
   --ow-select-highlight: #1E2725;
@@ -170,7 +172,7 @@
   --ow-info: #17658C;
   --ow-radius-control: 10px;
   --ow-radius-card: 12px;
-  --ow-radius-panel: 14px;
+  --ow-radius-panel: 12px;
   --ow-focus-ring: #087A70;
   --ow-focus-glow: 0 0 0 2px #5D9B83, 0 0 10px rgb(8 122 112 / 12%);
   --ow-accent-glow: 0 0 10px rgb(8 122 112 / 12%);
@@ -906,8 +908,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 .status-cell.good .value, .tcp16-state.good .tcp16-text { color: var(--ow-success); }
 .status-cell.good {
   border-color: color-mix(in srgb, var(--ow-success) 32%, var(--ow-border-subtle));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ow-success) 9%, transparent),
-    0 0 12px color-mix(in srgb, var(--ow-success) 7%, transparent);
+  box-shadow: var(--ow-success-glow);
 }
 .status-cell.warn .value, .tcp16-state.warn .tcp16-text { color: var(--ow-warning); }
 .status-cell.bad .value, .tcp16-state.bad .tcp16-text { color: var(--ow-danger); }
@@ -1142,10 +1143,10 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 #app .btn-icon,
 #app .modal-close,
 #app .sheet-close { border-radius: var(--ow-radius-control); }
-#app .wl-list li.wl-empty {
+#app .wl-list li {
   font-family: var(--font-sans);
   font-size: 14px;
-  line-height: 1.4;
+  line-height: 1.28;
 }
 
 /* Chosen single-select adapter. Geometry, palette, focus ring, popup shadow,
