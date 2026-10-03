@@ -4,6 +4,7 @@
 _t_plan "ow-unified-release"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 . "$REPO/lib/auto_update.sh"
+. "$REPO/platform/openwrt/manifest.sh"
 . "$REPO/platform/openwrt/release.sh"
 Z2K_TEST_PYTHON="${Z2K_TEST_PYTHON:-python3}"
 Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
@@ -44,6 +45,7 @@ _CURRENT_SEQ="$(jsonfilter -i "$REPO/UPDATES.json" -e '@.seq')"
 [ -n "$_CURRENT_TAG" ] && [ -n "$_CURRENT_SEQ" ] || { echo 'FAIL[ow-unified-release]: controlled release manifest is unreadable' >&2; exit 1; }
 
 sha256sum() {
+    [ "$#" -eq 0 ] && { command sha256sum; return; }
     "$Z2K_TEST_PYTHON" -c 'import hashlib,sys; p=sys.argv[1]; print(hashlib.sha256(open(p,"rb").read()).hexdigest(), p)' "$1"
 }
 
@@ -87,11 +89,11 @@ make_artifact() {
 }
 
 prepare_manifest() {
-    _artifact="$1"; _out="$2"; _sha=""; _size=""
+    _artifact="$1"; _out="$2"; _url="${3:-https://github.com/t0fox/z2kOW/releases/download/$_CURRENT_TAG/openwrt-rootfs.tar.gz}"; _sha=""; _size=""
     _sha="$(sha256sum "$_artifact" | awk '{print $1}')"
     _size="$(wc -c < "$_artifact" | tr -d ' \t\r\n')"
-    "$Z2K_TEST_PYTHON" -c 'import json,sys; p,a,o,sha,size=sys.argv[1:]; d=json.load(open(p,encoding="utf-8")); d["artifact"]={"filename":"openwrt-rootfs.tar.gz","url":"https://github.com/t0fox/z2kOW/releases/download/%s/openwrt-rootfs.tar.gz"%d["current"],"sha256":sha,"size_bytes":int(size)}; d["signing"]={"key_id":"0000000000000000000000000000000000000000000000000000000000000000"}; history=d.pop("history"); f=open(o,"w",encoding="utf-8"); f.write(json.dumps(d,ensure_ascii=False,indent=2)[:-1]+",\n  "+chr(34)+"history"+chr(34)+": [\n"); f.write(",\n".join("    "+json.dumps(entry,ensure_ascii=False,separators=(",",":")) for entry in history)); f.write("\n  ]\n}\n"); f.close()' \
-        "$REPO/UPDATES.json" "$_artifact" "$_out" "$_sha" "$_size"
+    "$Z2K_TEST_PYTHON" -c 'import json,sys; p,a,o,sha,size,url=sys.argv[1:]; d=json.load(open(p,encoding="utf-8")); d["artifact"]={"filename":"openwrt-rootfs.tar.gz","url":url,"sha256":sha,"size_bytes":int(size)}; d["signing"]={"key_id":"0000000000000000000000000000000000000000000000000000000000000000"}; history=d.pop("history"); f=open(o,"w",encoding="utf-8"); f.write(json.dumps(d,ensure_ascii=False,indent=2)[:-1]+",\n  "+chr(34)+"history"+chr(34)+": [\n"); f.write(",\n".join("    "+json.dumps(entry,ensure_ascii=False,separators=(",",":")) for entry in history)); f.write("\n  ]\n}\n"); f.close()' \
+        "$REPO/UPDATES.json" "$_artifact" "$_out" "$_sha" "$_size" "$_url"
 }
 
 _state_is_release() {
@@ -286,6 +288,71 @@ if [ ! -e "$SYS/etc/z2k/state/installed-tag" ] && [ ! -e "$SYS/etc/z2k/state/pro
 else
     _t_bad "more than one installed release state remains"
 fi
+
+# A freshly bootstrapped, explicitly overridden manifest keeps its local
+# transport URL through the exact same canonical install_release engine.
+BOOTSTRAP_SYS="$T/bootstrap-sys"
+BOOTSTRAP_TMP="$T/bootstrap-tmp"
+BOOTSTRAP_URL=http://127.0.0.1:17777/UPDATES.json
+mkdir -p "$BOOTSTRAP_SYS/usr/lib" "$BOOTSTRAP_SYS/usr/bin" "$BOOTSTRAP_SYS/usr/sbin" \
+    "$BOOTSTRAP_SYS/etc/z2k/state" "$BOOTSTRAP_TMP"
+make_artifact "$T/bootstrap-payload"
+dd if=/dev/zero of="$T/bootstrap-payload/usr/lib/z2k/test-large.bin" bs=1M count=4 2>/dev/null || exit 1
+tar -czf "$T/dist/bootstrap-rootfs.tar.gz" -C "$T/bootstrap-payload" usr etc opt
+prepare_manifest "$T/dist/bootstrap-rootfs.tar.gz" "$T/bootstrap-UPDATES.json" \
+    "http://127.0.0.1:17777/openwrt-rootfs.tar.gz"
+openssl genpkey -algorithm Ed25519 -out "$T/bootstrap.key" >/dev/null 2>&1 || exit 1
+openssl pkey -in "$T/bootstrap.key" -pubout -out "$T/bootstrap.pub" >/dev/null 2>&1 || exit 1
+_bootstrap_key_id="$(openssl pkey -pubin -in "$T/bootstrap.pub" -outform DER 2>/dev/null | command sha256sum | awk '{print $1}')"
+"$Z2K_TEST_PYTHON" -c 'import json,sys; p,k=sys.argv[1:]; d=json.load(open(p,encoding="utf-8")); d["signing"]={"key_id":k}; json.dump(d,open(p,"w",encoding="utf-8"),ensure_ascii=False,indent=2); open(p,"a",encoding="utf-8").write("\n")' \
+    "$T/bootstrap-UPDATES.json" "$_bootstrap_key_id"
+openssl pkeyutl -sign -rawin -inkey "$T/bootstrap.key" -in "$T/bootstrap-UPDATES.json" \
+    -out "$T/bootstrap-UPDATES.json.sig" >/dev/null 2>&1 || exit 1
+Z2K_OW_BOOTSTRAP_PUBLIC_KEY="$T/bootstrap.pub" \
+    z2k_ow_manifest_verify_signature "$T/bootstrap-UPDATES.json" "$T/bootstrap-UPDATES.json.sig" \
+    && _t_ok || _t_bad "local bootstrap manifest verifies with its explicit test trust key"
+if z2k_ow_manifest_release_ok "$T/bootstrap-UPDATES.json"; then
+    _t_bad "local artifact URL is rejected without the explicit bootstrap origin"
+else
+    _t_ok
+fi
+z2k_ow_manifest_release_ok "$T/bootstrap-UPDATES.json" \
+    http://127.0.0.1:17777/openwrt-rootfs.tar.gz \
+    && _t_ok || _t_bad "local artifact URL is accepted only when it matches the explicit bootstrap origin"
+export Z2K_OW_SYSROOT="$BOOTSTRAP_SYS" \
+    Z2K_OW_INSTALL_TMP="$BOOTSTRAP_TMP" \
+    Z2K_OW_BOOTSTRAP_MANIFEST="$T/bootstrap-UPDATES.json" \
+    Z2K_OW_BOOTSTRAP_SIGNATURE="$T/bootstrap-UPDATES.json.sig" \
+    Z2K_OW_BOOTSTRAP_ARTIFACT="$T/dist/bootstrap-rootfs.tar.gz" \
+    Z2K_OW_BOOTSTRAP_PUBLIC_KEY="$T/bootstrap.pub" \
+    Z2KOW_MANIFEST_URL="$BOOTSTRAP_URL"
+df() {
+    _probe="$2"
+    printf '%s\n' "$_probe" >> "$T/df.calls"
+    case "$_probe" in
+        "$BOOTSTRAP_TMP"/*)
+            printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim 400000 100000 300000 25%% /tmp\n'
+            ;;
+        "$BOOTSTRAP_SYS/usr/lib/.z2k-install")
+            printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim 100000 90000 10000 90%% /overlay\n'
+            ;;
+        *) command df "$@" ;;
+    esac
+}
+_out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -eq 0 ] \
+    && _state_is_release "$_CURRENT_TAG" "$_CURRENT_SEQ" "$BOOTSTRAP_SYS/etc/z2k/state/installed-release" \
+    && grep -q "release tag $_CURRENT_TAG" "$BOOTSTRAP_SYS/usr/lib/z2k/version.txt"; then
+    _t_ok
+else
+    _t_bad "signed local bootstrap did not converge through install_release: rc=$_rc output=$_out"
+fi
+grep -qx "$BOOTSTRAP_TMP/stage" "$T/df.calls" && _t_ok \
+    || _t_bad "target payload free-space gate probes tmpfs staging, not flash overlay"
+unset -f df
+unset Z2K_OW_INSTALL_TMP Z2K_OW_BOOTSTRAP_MANIFEST Z2K_OW_BOOTSTRAP_SIGNATURE \
+    Z2K_OW_BOOTSTRAP_ARTIFACT Z2K_OW_BOOTSTRAP_PUBLIC_KEY Z2KOW_MANIFEST_URL
+export Z2K_OW_SYSROOT="$SYS"
 
 # The installer must verify the state record after the commit helper returns.
 # This catches a helper that exits successfully without persisting tag+seq.

@@ -52,6 +52,7 @@ z2k_ow_manifest_shape_ok() {
 
 z2k_ow_manifest_release_ok() {
     _m="$1"
+    _expected_url="${2:-https://github.com/t0fox/z2kOW/releases/download/$(z2k_ow_manifest_value "$1" current)/openwrt-rootfs.tar.gz}"
     z2k_ow_manifest_shape_ok "$_m" || return 1
     _tag=$(z2k_ow_manifest_value "$_m" current) || return 1
     _filename=$(z2k_ow_manifest_value "$_m" artifact.filename) || return 1
@@ -59,10 +60,9 @@ z2k_ow_manifest_release_ok() {
     _url=$(z2k_ow_manifest_value "$_m" artifact.url) || return 1
     _sha=$(z2k_ow_manifest_value "$_m" artifact.sha256 | tr 'A-F' 'a-f') || return 1
     _size=$(z2k_ow_manifest_value "$_m" artifact.size_bytes) || return 1
-    _expected="https://github.com/t0fox/z2kOW/releases/download/$_tag/openwrt-rootfs.tar.gz"
     [ "$_filename" = openwrt-rootfs.tar.gz ] \
         && printf '%s' "$_key_id" | grep -Eq '^[0-9a-f]{64}$' \
-        && [ "$_url" = "$_expected" ] \
+        && [ "$_url" = "$_expected_url" ] \
         && printf '%s' "$_sha" | grep -Eq '^[0-9a-f]{64}$' \
         && printf '%s' "$_size" | grep -Eq '^[1-9][0-9]*$'
 }
