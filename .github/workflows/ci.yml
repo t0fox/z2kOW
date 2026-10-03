@@ -269,6 +269,7 @@ jobs:
           # последних релизных коммита. При shallow-клоне их просто нет, и
           # проверка вырождается в skip, то есть в отсутствие защиты.
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Install lua
         # test_tcp16_lua.sh гоняет lua-харнесс. Без lua набор молча
