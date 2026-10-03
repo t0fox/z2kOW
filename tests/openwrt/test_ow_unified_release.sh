@@ -293,10 +293,34 @@ fi
 # transport URL through the exact same canonical install_release engine.
 BOOTSTRAP_SYS="$T/bootstrap-sys"
 BOOTSTRAP_TMP="$T/bootstrap-tmp"
+BOOTSTRAP_ENGINE="$T/bootstrap-engine/usr/lib/z2k"
+BOOTSTRAP_SERVICE_ENV="$T/bootstrap-service-env"
 BOOTSTRAP_URL=http://127.0.0.1:17777/UPDATES.json
 mkdir -p "$BOOTSTRAP_SYS/usr/lib" "$BOOTSTRAP_SYS/usr/bin" "$BOOTSTRAP_SYS/usr/sbin" \
     "$BOOTSTRAP_SYS/etc/z2k/state" "$BOOTSTRAP_TMP"
+mkdir -p "$BOOTSTRAP_ENGINE/platform"
+cp -R "$REPO/platform/openwrt" "$BOOTSTRAP_ENGINE/platform/openwrt"
+cp -R "$REPO/lib" "$BOOTSTRAP_ENGINE/lib"
 make_artifact "$T/bootstrap-payload"
+cat > "$T/bootstrap-payload/etc/init.d/z2k" <<EOF
+#!/bin/sh
+case "\$1" in
+    restart|start|status|running)
+        printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+            "\${Z2K_LIB:-}" "\${Z2K_ADAPTER_DIR:-}" "\${Z2K_AU_PUBKEY:-}" \
+            "\${Z2K_OW_BOOTSTRAP_MANIFEST:-}" "\${Z2K_OW_BOOTSTRAP_SIGNATURE:-}" \
+            "\${Z2K_OW_BOOTSTRAP_ARTIFACT:-}" "\${Z2K_OW_BOOTSTRAP_PUBLIC_KEY:-}" \
+            "\${Z2KOW_MANIFEST_URL:-}" "\${Z2KOW_TRUST_KEY:-}" >> "$BOOTSTRAP_SERVICE_ENV"
+        exit 0
+        ;;
+    *) exit 0 ;;
+esac
+EOF
+cat > "$T/bootstrap-payload/etc/init.d/z2k-webpanel" <<EOF
+#!/bin/sh
+case "\$1" in restart|start|running) exit 0 ;; *) exit 0 ;; esac
+EOF
+chmod 755 "$T/bootstrap-payload/etc/init.d/z2k" "$T/bootstrap-payload/etc/init.d/z2k-webpanel"
 dd if=/dev/zero of="$T/bootstrap-payload/usr/lib/z2k/test-large.bin" bs=1M count=4 2>/dev/null || exit 1
 tar -czf "$T/dist/bootstrap-rootfs.tar.gz" -C "$T/bootstrap-payload" usr etc opt
 prepare_manifest "$T/dist/bootstrap-rootfs.tar.gz" "$T/bootstrap-UPDATES.json" \
@@ -321,11 +345,18 @@ z2k_ow_manifest_release_ok "$T/bootstrap-UPDATES.json" \
     && _t_ok || _t_bad "local artifact URL is accepted only when it matches the explicit bootstrap origin"
 export Z2K_OW_SYSROOT="$BOOTSTRAP_SYS" \
     Z2K_OW_INSTALL_TMP="$BOOTSTRAP_TMP" \
+    Z2K_ROOT=/usr/lib/z2k \
+    Z2K_ADAPTER_DIR="$BOOTSTRAP_ENGINE/platform/openwrt" \
+    Z2K_LIB="$BOOTSTRAP_ENGINE/lib" \
+    Z2K_AU_PUBKEY="$BOOTSTRAP_TMP/z2k-update-pub.pem" \
     Z2K_OW_BOOTSTRAP_MANIFEST="$T/bootstrap-UPDATES.json" \
     Z2K_OW_BOOTSTRAP_SIGNATURE="$T/bootstrap-UPDATES.json.sig" \
     Z2K_OW_BOOTSTRAP_ARTIFACT="$T/dist/bootstrap-rootfs.tar.gz" \
     Z2K_OW_BOOTSTRAP_PUBLIC_KEY="$T/bootstrap.pub" \
-    Z2KOW_MANIFEST_URL="$BOOTSTRAP_URL"
+    Z2KOW_MANIFEST_URL="$BOOTSTRAP_URL" \
+    Z2KOW_TRUST_KEY="$T/bootstrap.pub" \
+    Z2K_TEST_BOOTSTRAP_SERVICE_ENV="$BOOTSTRAP_SERVICE_ENV" \
+    Z2K_OW_TEST_HEALTHCHECK=1
 df() {
     _probe="$2"
     printf '%s\n' "$_probe" >> "$T/df.calls"
@@ -349,9 +380,18 @@ else
 fi
 grep -qx "$BOOTSTRAP_TMP/stage" "$T/df.calls" && _t_ok \
     || _t_bad "target payload free-space gate probes tmpfs staging, not flash overlay"
+if [ -s "$BOOTSTRAP_SERVICE_ENV" ] \
+    && awk '$0 != "||||||||" { bad=1 } END { if (NR == 0 || bad) exit 1 }' "$BOOTSTRAP_SERVICE_ENV"; then
+    _t_ok
+else
+    _t_bad "restarted services inherited temporary bootstrap paths or trust overrides: $(cat "$BOOTSTRAP_SERVICE_ENV" 2>/dev/null)"
+fi
 unset -f df
 unset Z2K_OW_INSTALL_TMP Z2K_OW_BOOTSTRAP_MANIFEST Z2K_OW_BOOTSTRAP_SIGNATURE \
-    Z2K_OW_BOOTSTRAP_ARTIFACT Z2K_OW_BOOTSTRAP_PUBLIC_KEY Z2KOW_MANIFEST_URL
+    Z2K_OW_BOOTSTRAP_ARTIFACT Z2K_OW_BOOTSTRAP_PUBLIC_KEY Z2KOW_MANIFEST_URL \
+    Z2KOW_TRUST_KEY Z2K_TEST_BOOTSTRAP_SERVICE_ENV Z2K_OW_TEST_HEALTHCHECK \
+    Z2K_ADAPTER_DIR Z2K_LIB Z2K_AU_PUBKEY
+export Z2K_ADAPTER_DIR="$REPO/platform/openwrt" Z2K_ROOT="$SYS/usr/lib/z2k"
 export Z2K_OW_SYSROOT="$SYS"
 
 # The installer must verify the state record after the commit helper returns.

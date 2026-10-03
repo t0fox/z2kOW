@@ -445,12 +445,34 @@ z2k_ow_recover_transaction() {
     echo "z2k-openwrt: recovered interrupted install transaction" >&2
 }
 
+z2k_ow_service_call() {
+    local _service_path="${1:-}"
+    shift
+    [ -n "$_service_path" ] || return 1
+
+    # Fresh install runs the release engine from a short-lived extraction
+    # directory. procd inherits the environment of its init-script caller, so
+    # passing these bootstrap overrides through would leave every restarted
+    # daemon pointing into a directory removed when install.sh exits.
+    if [ -n "${Z2K_OW_BOOTSTRAP_MANIFEST:-}" ]; then
+        (
+            unset Z2K_ADAPTER_DIR Z2K_LIB Z2K_AU_PUBKEY \
+                Z2K_OW_BOOTSTRAP_MANIFEST Z2K_OW_BOOTSTRAP_SIGNATURE \
+                Z2K_OW_BOOTSTRAP_ARTIFACT Z2K_OW_BOOTSTRAP_PUBLIC_KEY \
+                Z2KOW_MANIFEST_URL Z2KOW_TRUST_KEY
+            "$_service_path" "$@"
+        )
+    else
+        "$_service_path" "$@"
+    fi
+}
+
 z2k_ow_restart_services() {
     _restart_failed=0
     for _restart_service in "$1" "$2"; do
         [ -n "$_restart_service" ] && [ -x "$_restart_service" ] || continue
-        "$_restart_service" restart >/dev/null 2>&1 || \
-            "$_restart_service" start >/dev/null 2>&1 || _restart_failed=1
+        z2k_ow_service_call "$_restart_service" restart >/dev/null 2>&1 || \
+            z2k_ow_service_call "$_restart_service" start >/dev/null 2>&1 || _restart_failed=1
     done
     [ "$_restart_failed" = 0 ]
 }
@@ -580,7 +602,7 @@ _z2k_ow_install_release_locked() {
         || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
 
     if [ -x "$_service" ]; then
-        "$_service" stop >/dev/null 2>&1 || true
+        z2k_ow_service_call "$_service" stop >/dev/null 2>&1 || true
         _stopped=1
     fi
     z2k_ow_backup_paths "$_transaction" "$_paths" "$_transaction_id" || {
@@ -630,15 +652,15 @@ _z2k_ow_install_release_locked() {
     if [ "${Z2K_OW_TESTING:-0}" != 1 ] || [ "${Z2K_OW_TEST_HEALTHCHECK:-0}" = 1 ]; then
         for _svc in "$_service" "$_panel"; do
             [ -x "$_svc" ] || continue
-            "$_svc" enable >/dev/null 2>&1 || true
+            z2k_ow_service_call "$_svc" enable >/dev/null 2>&1 || true
             _svc_name=$(basename "$_svc")
             _restart_log="$_work/$_svc_name-restart.log"
             _start_log="$_work/$_svc_name-start.log"
-            if "$_svc" restart >"$_restart_log" 2>&1; then
+            if z2k_ow_service_call "$_svc" restart >"$_restart_log" 2>&1; then
                 :
             else
                 _restart_rc=$?
-                if "$_svc" start >"$_start_log" 2>&1; then
+                if z2k_ow_service_call "$_svc" start >"$_start_log" 2>&1; then
                     :
                 else
                     _start_rc=$?
@@ -658,8 +680,8 @@ _z2k_ow_install_release_locked() {
         done
         _n=0
         while [ "$_n" -lt 15 ]; do
-            if [ ! -x "$_service" ] || "$_service" status >/dev/null 2>&1; then
-                if [ ! -x "$_panel" ] || "$_panel" running >/dev/null 2>&1; then break; fi
+            if [ ! -x "$_service" ] || z2k_ow_service_call "$_service" status >/dev/null 2>&1; then
+                if [ ! -x "$_panel" ] || z2k_ow_service_call "$_panel" running >/dev/null 2>&1; then break; fi
             fi
             _n=$((_n + 1)); sleep 1
         done
