@@ -445,6 +445,7 @@ fi
 HEALTH_SYS="$T/health-sys"
 HEALTH_STAGE="$T/health-stage"
 HEALTH_FAIL="$T/healthcheck-fails"
+HEALTH_SERVICE_FAIL="$T/service-start-fails"
 mkdir -p "$HEALTH_SYS/etc/z2k/state" "$HEALTH_SYS/usr/lib/z2k" \
     "$HEALTH_SYS/etc/init.d" "$HEALTH_SYS/usr/lib/.z2k-install"
 printf 'tag=p-86.2\nseq=127\n' > "$HEALTH_SYS/etc/z2k/state/installed-release"
@@ -453,14 +454,21 @@ make_artifact "$HEALTH_STAGE"
 cat > "$HEALTH_STAGE/etc/init.d/z2k" <<EOF
 #!/bin/sh
 case "\$1" in
-    restart|start|status|running) [ ! -e "$HEALTH_FAIL" ] ;;
+    restart|start)
+        if [ -e "$HEALTH_SERVICE_FAIL" ]; then
+            echo "mock-z2k-\$1-diagnostic" >&2
+            exit 23
+        fi
+        ;;
+    status|running) [ ! -e "$HEALTH_FAIL" ] ;;
     *) exit 0 ;;
 esac
 EOF
 cat > "$HEALTH_STAGE/etc/init.d/z2k-webpanel" <<EOF
 #!/bin/sh
 case "\$1" in
-    restart|start|running) [ ! -e "$HEALTH_FAIL" ] ;;
+    restart|start) exit 0 ;;
+    running) [ ! -e "$HEALTH_FAIL" ] ;;
     *) exit 0 ;;
 esac
 EOF
@@ -470,6 +478,18 @@ tar -czf "$T/dist/health-rootfs.tar.gz" -C "$HEALTH_STAGE" usr etc opt
 prepare_manifest "$T/dist/health-rootfs.tar.gz" "$T/health-UPDATES.json"
 export Z2K_OW_SYSROOT="$HEALTH_SYS" Z2K_OW_MANIFEST_PATH="$T/health-UPDATES.json"
 export Z2K_OW_ARTIFACT_PATH="$T/dist/health-rootfs.tar.gz" Z2K_OW_TEST_HEALTHCHECK=1
+touch "$HEALTH_SERVICE_FAIL"
+_out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -ne 0 ] \
+    && _state_is_release p-86.2 127 "$HEALTH_SYS/etc/z2k/state/installed-release" \
+    && grep -q 'previous payload' "$HEALTH_SYS/usr/lib/z2k/version.txt" \
+    && printf '%s\n' "$_out" | grep -q 'mock-z2k-restart-diagnostic' \
+    && printf '%s\n' "$_out" | grep -q 'mock-z2k-start-diagnostic'; then
+    _t_ok
+else
+    _t_bad "service start failure lost diagnostics or rollback: rc=$_rc state=$(cat "$HEALTH_SYS/etc/z2k/state/installed-release" 2>/dev/null) output=$_out"
+fi
+rm -f "$HEALTH_SERVICE_FAIL"
 touch "$HEALTH_FAIL"
 _out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
 if [ "$_rc" -ne 0 ] \

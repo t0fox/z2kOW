@@ -631,13 +631,30 @@ _z2k_ow_install_release_locked() {
         for _svc in "$_service" "$_panel"; do
             [ -x "$_svc" ] || continue
             "$_svc" enable >/dev/null 2>&1 || true
-            "$_svc" restart >/dev/null 2>&1 || "$_svc" start >/dev/null 2>&1 || {
-                echo "z2k-openwrt: service failed after payload replacement: $_svc" >&2
-                z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id" || true
-                z2k_ow_cleanup_transaction "$_paths" "$_transaction_id"
-                z2k_ow_restart_services "$_service" "$_panel" || true
-                z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1
-            }
+            _svc_name=$(basename "$_svc")
+            _restart_log="$_work/$_svc_name-restart.log"
+            _start_log="$_work/$_svc_name-start.log"
+            if "$_svc" restart >"$_restart_log" 2>&1; then
+                :
+            else
+                _restart_rc=$?
+                if "$_svc" start >"$_start_log" 2>&1; then
+                    :
+                else
+                    _start_rc=$?
+                    echo "z2k-openwrt: service failed after payload replacement: $_svc (restart=$_restart_rc start=$_start_rc)" >&2
+                    for _diagnostic in "$_restart_log" "$_start_log"; do
+                        if [ -s "$_diagnostic" ]; then
+                            echo "z2k-openwrt: $(basename "$_diagnostic") output (last 30 lines):" >&2
+                            tail -n 30 "$_diagnostic" >&2 || true
+                        fi
+                    done
+                    z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id" || true
+                    z2k_ow_cleanup_transaction "$_paths" "$_transaction_id"
+                    z2k_ow_restart_services "$_service" "$_panel" || true
+                    z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1
+                fi
+            fi
         done
         _n=0
         while [ "$_n" -lt 15 ]; do
