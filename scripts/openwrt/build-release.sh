@@ -14,6 +14,9 @@ command -v python3 >/dev/null 2>&1 || { echo "build-release: python3 is required
 command -v go >/dev/null 2>&1 || { echo "build-release: Go is required" >&2; exit 1; }
 _release_tag="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["current"])' "$ROOT/UPDATES.json")"
 [ -n "$_release_tag" ] || { echo "build-release: UPDATES.json has no current release" >&2; exit 1; }
+_source_sha="${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD)}"
+case "$_source_sha" in *[!0-9a-f]*|'') echo "build-release: source commit must be a full lowercase SHA-1" >&2; exit 1 ;; esac
+[ "${#_source_sha}" -eq 40 ] || { echo "build-release: source commit must be a full lowercase SHA-1" >&2; exit 1; }
 
 _pin="$ROOT/platform/openwrt/runtime-pin"
 _url="$(sed -n 's/^URL=//p' "$_pin" | head -1 | tr -d '\r\n')"
@@ -127,5 +130,6 @@ copy_unsigned_candidate_manifest(Path(sys.argv[1]) / "UPDATES.json", Path(sys.ar
 PY
 python3 "$ROOT/scripts/openwrt/controlled_release.py" attach \
     --manifest "$OUT/UPDATES.json" \
-    --artifact "$OUT/openwrt-rootfs.tar.gz"
+    --artifact "$OUT/openwrt-rootfs.tar.gz" \
+    --url "https://github.com/t0fox/z2kOW/releases/download/openwrt-$_source_sha/openwrt-rootfs.tar.gz"
 printf 'candidate: %s/openwrt-rootfs.tar.gz\nmanifest: %s/UPDATES.json (unsigned; do not publish until trusted signing)\n' "$OUT" "$OUT"

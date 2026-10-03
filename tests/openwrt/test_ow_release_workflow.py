@@ -102,6 +102,15 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("candidate artifact URL is not bound to its exact source commit", publish)
         self.assertNotIn('artifact_tag="$EXPECTED_TAG"', publish)
 
+    def test_unsigned_candidate_builder_binds_artifact_url_to_source_commit(self) -> None:
+        builder = (ROOT / "scripts/openwrt/build-release.sh").read_text(encoding="utf-8")
+
+        self.assertIn('_source_sha="${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD)}"', builder)
+        self.assertIn(
+            '--url "https://github.com/t0fox/z2kOW/releases/download/openwrt-$_source_sha/openwrt-rootfs.tar.gz"',
+            builder,
+        )
+
     def test_public_artifact_verification_keeps_the_canonical_filename(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         publish = workflow.split("  publish-release:", 1)[1]
