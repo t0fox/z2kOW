@@ -1,52 +1,82 @@
 # z2kOW architecture
 
-z2kOW adapts the shared [z2k](https://github.com/necronicle/z2k) application to OpenWrt. Common strategy, configuration, updater, runtime and WebPanel behavior stays in the shared tree where possible. Platform effects belong in `platform/openwrt/`, OpenWrt init/hotplug files, or explicit OpenWrt branches in shared integration points.
+z2kOW is an OpenWrt port of upstream z2k, not a separate product design. The default rule is simple: keep upstream product behavior common, and replace only platform effects that depend on Keenetic or Entware.
 
-The [upstream tracking policy](UPSTREAM.md) and [parity matrix](docs/UPSTREAM-PARITY-MATRIX.md) describe shared behavior and platform gaps. The [release operations guide](docs/openwrt-release-operations.md) describes the device install and update interface.
+See [UPSTREAM.md](UPSTREAM.md) for the upstream policy and [docs/UPSTREAM-PARITY-MATRIX.md](docs/UPSTREAM-PARITY-MATRIX.md) for known differences.
 
-## Runtime boundaries
+## Layers
 
-| Responsibility | z2kOW location | OpenWrt owner |
+| Layer | Responsibility | Main locations |
 |---|---|---|
-| Common CLI, config, strategies, updater and menu | `z2k.sh`, `lib/` | Shared z2k logic with OpenWrt path/service adapters |
-| Runtime scripts and default data | `files/` | Shared behavior plus OpenWrt-specific integration files |
-| Platform paths, environment and bootstrap | `platform/openwrt/paths.sh`, `env.sh`, `bootstrap.sh` | `/etc/z2k` persistent config/state, `/usr/lib/z2k` payload, `/tmp/z2k` transient files |
-| Service lifecycle | `files/init.d/`, `platform/openwrt/` | procd |
-| Firewall and interface events | `platform/openwrt/firewall.sh`, `hotplug/`, `files/hotplug.d/` | fw4/nftables and netifd/hotplug |
-| WebPanel | `webpanel/`, `platform/openwrt/webpanel.sh` | CGI/lighttpd integration owned by z2kOW; LuCI/uhttpd remain outside the boundary |
-| Release payload | `scripts/openwrt/`, `platform/openwrt/release.sh` | One signed full-rootfs artifact and `install_release <tag>` |
-| Architecture-specific binaries | `platform/openwrt/arch.sh`, staged `bin/linux-*` trees | OpenWrt target metadata with fail-closed mapping |
+| Common z2k | Config, strategies, runtime logic, lists, diagnostics, WebPanel behavior, update semantics | `z2k.sh`, `lib/`, `files/`, `webpanel/` |
+| OpenWrt adapter | Service, firewall, networking, scheduling, paths, architecture, platform probes | `platform/openwrt/` |
+| OpenWrt integration files | procd services, hotplug integration, platform-owned system hooks | `platform/openwrt/files/` |
+| Release tooling | Build, stage, sign, publish, install, rollback | `scripts/openwrt/`, `platform/openwrt/release.sh` |
 
-Keenetic `ndmc`, NDM hooks, Entware init/service management, and device policy APIs do not run on OpenWrt. Their user-facing purpose is retained only where an OpenWrt owner exists; the platform mechanism is supplied by procd, fw4/netifd, UCI and `/etc`/`/usr` paths.
+Common code may contain a small explicit platform seam when moving the effect into `platform/openwrt/` is not practical. Platform-specific behavior must not silently fall back to Keenetic paths or commands.
 
-## Install and update flow
+## OpenWrt ownership
+
+| Purpose | Path / owner |
+|---|---|
+| Persistent configuration and user data | `/etc/z2k` |
+| Replaceable product payload | `/usr/lib/z2k` |
+| Transient runtime state and logs | `/tmp/z2k` |
+| Core service | procd via `/etc/init.d/z2k` |
+| WebPanel service | procd via `/etc/init.d/z2k-webpanel` |
+| Firewall | fw4/nftables |
+| Network events | netifd/ubus and hotplug |
+| Scheduled maintenance | OpenWrt cron adapter |
+
+LuCI/uhttpd, unrelated UCI sections, and unrelated firewall state are outside z2kOW ownership.
+
+## Install and update
 
 ```text
 controlled UPDATES.json + signature
-                 |
-                 v
-      verify metadata and artifact
-                 |
-                 v
-       stage full rootfs archive
-                 |
-                 v
- install_release <upstream-tag>
-                 |
-                 v
- migrate/bootstrap -> service health -> commit
-                 |
-          failure: rollback
+              |
+              v
+verify release metadata and artifact
+              |
+              v
+stage immutable release payload
+              |
+              v
+install_release <tag>
+              |
+              v
+migrate / converge / restart / health gate
+              |
+       commit or rollback
 ```
 
-The device bootstrap is `scripts/openwrt/install.sh`. The repository-root `UPDATES.json` binds the complete `openwrt-rootfs.tar.gz` by URL, byte size and SHA-256 under its production signature. The OpenWrt installer applies the full payload for both upstream `patch` and `reinstall` history entries. See the operations guide for ownership, state preservation, migration, and rollback details.
+`scripts/openwrt/install.sh` is the device bootstrap. `install_release` is the canonical OpenWrt convergence operation for fresh installation and release application. The release payload is bound by signed metadata, byte size, and SHA-256.
 
-## Persistent state and ownership
+Upstream release semantics such as preservation, migration, reset behavior, and user-visible update behavior should be retained even when OpenWrt uses a different artifact-delivery mechanism.
 
-The release payload does not own `/etc/z2k`. That tree holds operator config, user lists and persistent state. Replaceable integration/payload paths are listed in `platform/openwrt/owned-paths.txt`. The release engine journals paths it replaces and previous release metadata to recover from a failed or interrupted transaction. User-requested backup/restore is a separate feature and must not be inferred from that transaction journal.
+## Product state
 
-The zapret2 runtime source is pinned in `platform/openwrt/runtime-pin`; the signed rootfs digest covers the final bundled bytes.
+`/etc/z2k/state/installed-release` is the canonical installed release record. CLI, WebPanel, updater, and diagnostics must interpret the same state. A running process alone does not establish that a release is installed.
+
+Release-owned and user-owned data are separate. Updating or reinstalling replaces release-owned content and preserves user-owned content according to upstream semantics.
+
+## Feature adapters
+
+OpenWrt adapters replace platform mechanisms, not product meaning:
+
+- Keenetic init/supervision → procd.
+- iptables/ipset and NDM hooks → fw4/nftables and hotplug.
+- `ndmc` network/device operations → ubus, UCI, netifd, and native routing.
+- Entware `/opt` ownership → `/etc/z2k`, `/usr/lib/z2k`, and `/tmp/z2k`.
+- Keenetic scheduling → OpenWrt cron/procd triggers.
+- Keenetic acceleration controls → OpenWrt flow-offload capability where applicable.
+
+Telegram, RT proxy, WARP, TCP16, diagnostics, scheduled list refresh, and other upstream features should keep upstream semantics while using these OpenWrt owners.
+
+## Removal
+
+Removal is also a parity feature. Its user-visible preservation and purge semantics must follow upstream z2k; only the cleanup mechanism is OpenWrt-native. OpenWrt cleanup must remove z2kOW-owned procd, nftables, hotplug, scheduler, and release-owned filesystem state without touching unrelated system configuration.
 
 ## Contributor rule
 
-Before changing common code, compare it with the pinned upstream implementation. Keep common behavior common; add or change an adapter for an OpenWrt platform boundary. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for development conventions and [`RELEASING.md`](RELEASING.md) for publication policy.
+Before changing common code, compare the change with the pinned upstream implementation. Prefer an existing platform hook or a small new adapter over a parallel OpenWrt implementation of the same feature.

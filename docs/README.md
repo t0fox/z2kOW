@@ -1,25 +1,33 @@
 # Documentation
 
-This index points to the current source of truth for each topic. Dated investigation records and retired designs, when retained, are under [`archive/`](archive/README.md).
+z2kOW keeps a small set of canonical documents. Historical investigations belong under [`archive/`](archive/README.md), not in the active documentation set.
 
-## Project and development
+## Start here
 
-- [Architecture](../ARCHITECTURE.md): runtime boundaries, filesystem ownership, and service integration.
-- [Contributing](../CONTRIBUTING.md): development conventions and local workflows.
-- [Changelog](../CHANGELOG.md): user-visible changes by release.
+- [Project README](../README.md) — user-facing overview, install, WebPanel, and basic commands.
+- [Architecture](../ARCHITECTURE.md) — common/upstream layer, OpenWrt boundary, ownership, and lifecycle.
+- [Upstream policy](../UPSTREAM.md) — how z2kOW stays aligned with upstream z2k.
+- [Parity matrix](UPSTREAM-PARITY-MATRIX.md) — current material differences from upstream.
 
-## Releases and upstream
+## Releases and security
 
-- [Release operations](openwrt-release-operations.md): install, update, recovery, and removal limits on OpenWrt.
-- [Release policy](../RELEASING.md): maintainer responsibilities and trusted publication.
-- [Upstream tracking](../UPSTREAM.md): upstream intake and the single router release authority.
-- [Parity matrix](UPSTREAM-PARITY-MATRIX.md): upstream behavior mapped to OpenWrt implementation and status.
-- [Documentation review ledger](UPSTREAM-SYNC.tsv): exact upstream document revisions classified by the audit helper.
+- [Release policy](../RELEASING.md) — maintainer rules for building and publishing releases.
+- [OpenWrt release operations](openwrt-release-operations.md) — device install, update, state, and recovery.
+- [Security](../SECURITY.md) — trust boundaries, signatures, WebPanel exposure, and telemetry.
 
-## Security and platform contracts
+## OpenWrt feature contracts
 
-- [Security](../SECURITY.md): trust boundaries, update verification, WebPanel exposure, and telemetry.
-- [WebPanel contract](openwrt-webpanel-contract.md): panel capabilities, service ownership, and OpenWrt integration.
-- [Telegram contract](openwrt-telegram-contract.md): Telegram transport and firewall ownership.
-- [RT proxy contract](openwrt-rt-proxy-contract.md): RT proxy lifecycle and routing integration.
-- [WARP contract](openwrt-warp-contract.md): WARP routing, marks, lists, and recovery.
+These documents describe only platform-specific invariants that are not obvious from upstream z2k:
+
+- [WebPanel](openwrt-webpanel-contract.md)
+- [Telegram transport](openwrt-telegram-contract.md)
+- [RT proxy](openwrt-rt-proxy-contract.md)
+- [WARP](openwrt-warp-contract.md)
+
+## Development records
+
+- [Contributing](../CONTRIBUTING.md) — development conventions.
+- [`UPSTREAM-SYNC.tsv`](UPSTREAM-SYNC.tsv) — reviewed upstream documentation revisions used by the sync audit.
+- [`archive/`](archive/) — historical notes that are not current contracts.
+
+Active documentation should describe the current contract, not CI transcripts, elapsed times, temporary implementation stages, or one-off test reports.

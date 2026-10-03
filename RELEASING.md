@@ -1,29 +1,43 @@
 # OpenWrt release policy
 
-This document defines maintainer policy for adapting upstream z2k releases and publishing the OpenWrt payload. Device installation and recovery instructions belong in the [OpenWrt release operations guide](docs/openwrt-release-operations.md).
+This document defines maintainer policy. Device commands and recovery are in [docs/openwrt-release-operations.md](docs/openwrt-release-operations.md).
 
-## Release source and approval
+## Release authority
 
-The upstream `necronicle/z2k` `z2k-enhanced` branch is an input, not a device update source. Review new upstream code and documentation, carry over shared behavior, adapt platform integrations, and update the [parity matrix](docs/UPSTREAM-PARITY-MATRIX.md) before approving a release. A newly discovered upstream sequence is not visible to routers until the controlled z2kOW manifest is advanced and published.
+Upstream `necronicle/z2k` is an input. Routers read only the controlled z2kOW `UPDATES.json` on `main`.
 
-The repository root `UPDATES.json` is the only release authority read by routers. It records the approved upstream tag, sequence, commit and history, plus the complete OpenWrt artifact URL, size and SHA-256. Do not publish a release by moving an upstream branch or publishing an individual package.
+A release must identify the approved upstream tag, sequence, and commit and bind the OpenWrt artifact by immutable URL, byte size, and SHA-256. Production metadata is signed with the protected z2kOW release key.
 
-## Build and publication
+## Build model
 
-The normal CI workflow builds an unsigned candidate through `scripts/openwrt/build-release.sh` and `scripts/openwrt/stage-rootfs.sh`. Candidates support maintainer review; the device bootstrap rejects an unsigned manifest.
+The OpenWrt release is a complete staged payload. Build and staging logic lives under `scripts/openwrt/`. Device application converges through `install_release` and the OpenWrt release engine.
 
-The trusted release workflow is `.github/workflows/release-openwrt.yml`. It runs from `main`, checks the requested tag and sequence against upstream, runs the CI gate, builds one complete rootfs, signs the controlled manifest with the protected production key, publishes immutable assets, verifies the public artifacts, and updates `UPDATES.json` and its signature. Keep the private signing key in the protected GitHub environment; never add it to the repository or candidate artifacts.
+Do not publish mutable files from `main` as production runtime dependencies. A release must be reproducible from a fixed repository state and fixed upstream provenance.
 
-Do not overwrite an already published artifact or manifest for a release. Correct a published defect with a new release. Use the workflow's retry-publication operation only for an already validated candidate when publication needs to be retried.
+## Trusted publication
+
+The trusted workflow is `.github/workflows/release-openwrt.yml`. It is responsible for:
+
+1. validating requested upstream provenance;
+2. building the candidate from the selected repository state;
+3. producing final release metadata;
+4. signing the controlled manifest with the protected production key;
+5. publishing immutable release assets;
+6. verifying the published artifact binding;
+7. advancing `UPDATES.json` and its signature.
+
+Do not overwrite an immutable published release. Publish a new release to correct a defect.
 
 ## Release review
 
-Before requesting production publication:
+Before production publication:
 
-- Confirm the upstream tag, sequence and commit are the intended baseline.
-- Review upstream behavior changes and update the parity matrix and any affected platform contracts.
-- Ensure the payload contains the required architecture-specific runtime files and preserves the `/etc/z2k` user-data boundary.
-- Review the exact candidate and release metadata; confirm that the signed manifest refers to the intended immutable artifact.
-- Keep user-facing changelog entries limited to changes users can observe.
+- confirm the intended upstream tag, sequence, and commit;
+- review upstream behavior changes and platform adaptations;
+- keep the parity matrix current;
+- confirm user-owned data remains outside release-owned payload paths;
+- confirm architecture-specific runtime selection is deterministic;
+- review the exact manifest and artifact references to be signed;
+- keep the changelog limited to user-visible changes.
 
-The [upstream tracking guide](UPSTREAM.md) covers release intake and the documentation-diff ledger. The [documentation index](docs/README.md) lists the canonical project documents.
+Release policy must not depend on temporary agent reports, one-off local paths, or test-run transcripts stored in documentation.

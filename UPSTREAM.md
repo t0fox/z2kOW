@@ -1,23 +1,67 @@
-# Upstream tracking
+# Upstream tracking and parity
 
-z2kOW adapts [necronicle/z2k](https://github.com/necronicle/z2k) for OpenWrt. The upstream `z2k-enhanced` branch is a read-only input; device updates use only the controlled z2kOW release manifest on `main`.
+z2kOW adapts [necronicle/z2k](https://github.com/necronicle/z2k) `z2k-enhanced` to OpenWrt.
 
-## Intake and release authority
+## Core rule
 
-The `sync-upstream.yml` workflow checks for upstream sequence changes and alerts maintainers. Discovery does not adapt or publish a release. For an approved update, review the upstream source and documentation changes, carry over shared behavior, adapt platform behavior to OpenWrt, update the [parity matrix](docs/UPSTREAM-PARITY-MATRIX.md), and review affected platform contracts.
+Upstream z2k is the source of truth for product behavior. z2kOW should preserve, as closely as practical:
 
-The repository-root [`UPDATES.json`](UPDATES.json) is the only release authority read by routers. It records the approved upstream tag, sequence, commit, and append-only history. A production release adds the complete OpenWrt artifact URL, byte size, and SHA-256 to that manifest and signs it. Devices do not read the upstream manifest directly, and a newly discovered upstream release remains unavailable until z2kOW adapts and publishes it.
+- feature set and user-visible behavior;
+- configuration and strategy semantics;
+- WebPanel behavior and actions;
+- install, update, reinstall, migration, preservation, reset, and removal semantics;
+- diagnostics and maintenance behavior;
+- scheduler intent and runtime feature flow.
 
-## Review upstream documentation changes
+OpenWrt may use different platform mechanics, but a platform difference by itself is not a reason to redesign a feature.
 
-Run the documentation audit against explicit base and target refs:
+## Allowed platform differences
+
+OpenWrt replaces Keenetic/Entware mechanisms with native owners:
+
+- procd for process lifecycle;
+- fw4/nftables for firewall state;
+- netifd, ubus, UCI, and hotplug for network state and events;
+- OpenWrt filesystem paths instead of Entware `/opt` ownership;
+- OpenWrt scheduling and package management;
+- OpenWrt-specific architecture and release delivery.
+
+Keenetic-only capabilities with no meaningful OpenWrt equivalent may be marked `N/A`, but that decision must be explicit. A missing adapter is not the same thing as an unsupported capability.
+
+## Upstream intake
+
+`sync-upstream.yml` discovers upstream sequence changes. Discovery does not publish anything to routers.
+
+For an upstream update:
+
+1. Pin the upstream tag, sequence, and commit.
+2. Review common behavior changes.
+3. Reuse common upstream code where possible.
+4. Adapt only platform-specific effects.
+5. Update the [parity matrix](docs/UPSTREAM-PARITY-MATRIX.md).
+6. Publish only through the z2kOW release pipeline.
+
+The documentation-diff helper is:
 
 ```sh
 sh scripts/openwrt/audit-upstream-docs.sh <base-ref> <target-ref>
 ```
 
-For each changed normative document, record the exact path, base and head blob IDs, classification, and rationale in [`docs/UPSTREAM-SYNC.tsv`](docs/UPSTREAM-SYNC.tsv). The helper checks changed Markdown contracts and selected workflow, release, and lifecycle files. Classifications are `OPENWRT RELEVANT`, `KEENETIC ONLY`, `RETIRED/HISTORICAL`, and `DOC ONLY`. Existing ledger rows apply only to the blob IDs they name; add a new row when the reviewed blob changes.
+`docs/UPSTREAM-SYNC.tsv` records reviewed upstream documentation revisions. It is an audit ledger, not a second product specification.
 
-## OpenWrt boundary
+## Device release authority
 
-Carry common upstream behavior through the existing OpenWrt adapters: procd, fw4/nftables, hotplug, UCI, and the platform services documented in [architecture](ARCHITECTURE.md). Do not run Keenetic lifecycle scripts or change LuCI/uhttpd files and ports. Device installation and publication are described in the [release operations guide](docs/openwrt-release-operations.md) and [release policy](RELEASING.md).
+Routers do not read upstream release metadata directly. The repository-root [`UPDATES.json`](UPDATES.json) is the sole device release authority for z2kOW. It records the approved upstream provenance and z2kOW artifact metadata and is authenticated by the z2kOW signing chain.
+
+This separation lets z2kOW keep upstream behavior while using an OpenWrt-native, signed release lifecycle.
+
+## Divergence rule
+
+A common-code difference should be one of:
+
+- an upstream change not yet synchronized;
+- a minimal OpenWrt seam;
+- project branding/presentation that does not change product semantics;
+- a documented intentional difference with a concrete platform reason.
+
+Do not create an independent OpenWrt implementation when the upstream implementation can be reused with a thin adapter.

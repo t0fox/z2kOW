@@ -1,51 +1,66 @@
 # OpenWrt release operations
 
-This guide describes the operator interface for installing, updating, inspecting, and recovering a z2kOW installation on OpenWrt. Maintainer publication policy is in [RELEASING.md](../RELEASING.md).
+This guide describes the device-facing install and update model. Maintainer publication policy is in [RELEASING.md](../RELEASING.md).
 
 ## Requirements
 
-Install and update require root on OpenWrt with `apk`, a supported target architecture, and working network access. The bootstrap uses `apk` to install `ca-bundle`, `openssl-util`, and `jsonfilter`; it downloads with `wget` or `curl`.
+- root access;
+- OpenWrt with `apk` package management;
+- a supported target architecture;
+- network access to the release source.
+
+The bootstrap may install required system tools such as CA certificates, OpenSSL utilities, and JSON helpers through `apk`. z2kOW itself is delivered as a signed release payload, not as a set of user-managed component APKs.
 
 ## Install
-
-Run the bootstrap on the router as root:
 
 ```sh
 wget -qO- https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh
 ```
 
-Alternatively, fetch it with `curl -fsSL https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh` when curl is installed.
+or, when `curl` is already available:
 
-The bootstrap verifies the signed repository-root `UPDATES.json`, validates the release metadata and artifact binding, downloads the complete `openwrt-rootfs.tar.gz`, checks its size and SHA-256, then invokes `install_release` for the controlled release. It does not install a z2kOW component package or feed.
+```sh
+curl -fsSL https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh
+```
+
+The bootstrap verifies the signed controlled manifest, validates the selected release and artifact binding, downloads the complete OpenWrt payload, checks size and SHA-256, and invokes `install_release`.
 
 ## Inspect and update
-
-Use the installed CLI:
 
 ```sh
 z2kow status
 z2kow check
 z2kow update
+z2kow restart
 ```
 
-`check` reports the controlled release available to the device. `update` applies that release through the same full-payload installer used for a fresh installation. Upstream history may label an entry `patch` or `reinstall`; OpenWrt currently installs the complete approved payload for either type. It does not execute upstream per-file patch steps.
+`status` reads the canonical installed `tag + seq` state and the OpenWrt service state. `check` and `update` use the same controlled release authority as fresh installation.
 
-The WebPanel also provides a release check and update action when its capability is available. The panel and CLI use the same controlled manifest and installed release state.
+Do not treat a running process as installed-release metadata. Installer, updater, CLI, WebPanel, and diagnostics must agree on the canonical release record.
 
-## Recovery and retained data
+## Data ownership
 
-The installer validates the archive paths and target architecture, stages the owned payload, journals replaced paths, applies bootstrap and migration steps, restarts owned services, runs its health gate, and updates the installed release record after success. A failed transaction attempts to restore the previous owned paths and release state and restart the previous services.
+- `/etc/z2k` — operator configuration, user lists, identity, and persistent state.
+- `/usr/lib/z2k` — replaceable z2kOW payload.
+- `/tmp/z2k` — transient runtime state and logs.
+- `platform/openwrt/owned-paths.txt` — replaceable integration paths owned by the release engine.
 
-Configuration, user lists, persistent strategy state, and relay identity are kept under `/etc/z2k`, outside the replaceable payload. The release transaction journal is for failure recovery; it is not a user backup. Make a separate backup before manual filesystem work.
+Release application must preserve user-owned data according to upstream z2k semantics.
 
-## Remove
+## Recovery
 
-The current public `z2kow` CLI and WebPanel do not expose an uninstall action. The installed tree is a complete rootfs payload rather than an `apk` package, so `apk del` does not remove z2kOW. The release includes internal cleanup logic, but it is not currently a supported operator command. Do not invoke that internal function as a substitute for an uninstall interface.
+The release engine stages the payload, validates paths and architecture, records the previous release-owned state, applies migration/convergence, restarts owned services, and commits the new release record only after the health gate.
 
-This means the current release has no supported one-command removal procedure. The installer preserves `/etc/z2k`; a full purge would also remove user configuration, lists, and state and must be treated as a separate destructive operation.
+On transaction failure it restores previous release-owned files and previous installed-release metadata as far as the recovery contract allows. The transaction journal is not a user backup.
 
-## Release ownership
+## Removal
 
-`platform/openwrt/owned-paths.txt` is the source of truth for replaceable product paths. `/etc/z2k` is persistent operator data. OpenWrt `apk` is used for system dependencies and one-time inspection/removal of legacy z2kOW package ownership; there is no ongoing component package feed.
+z2kOW is not owned by an `apk` package, so `apk del` is not an uninstall method.
 
-The repository-root `UPDATES.json` is the only device-visible release authority. Its production signature authenticates release metadata; the signed artifact record binds the complete rootfs archive by URL, byte size, and SHA-256. Upstream sequence discovery does not publish a device update. See [upstream tracking](../UPSTREAM.md) and the [parity matrix](UPSTREAM-PARITY-MATRIX.md).
+The operator-facing removal flow must follow upstream z2k semantics for preservation versus destructive cleanup. The OpenWrt implementation is responsible for removing only z2kOW-owned procd, nftables, hotplug, scheduler, release metadata, and release-owned filesystem state while preserving or purging user data exactly as the corresponding upstream action requires.
+
+If the installed release does not expose the removal action yet, do not substitute manual package removal for it.
+
+## Release authority
+
+The repository-root `UPDATES.json` is the only device-visible release authority. Upstream discovery never directly updates a router. Production metadata authenticates the selected immutable artifact by URL, size, and SHA-256.

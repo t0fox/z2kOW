@@ -1,54 +1,72 @@
 # z2kOW
 
-z2kOW adapts [z2k](https://github.com/necronicle/z2k) for OpenWrt routers. It uses OpenWrt services and firewall integration while sharing z2k's strategy engine and WebPanel.
+z2kOW is an OpenWrt adaptation of [z2k](https://github.com/necronicle/z2k). The project keeps upstream z2k behavior and features as close as practical while replacing Keenetic/Entware-specific integration with native OpenWrt mechanisms.
+
+## Project model
+
+- Upstream z2k is the source of truth for product behavior, configuration semantics, strategies, WebPanel logic, update semantics, and user-facing features.
+- OpenWrt-specific work belongs in the platform layer: procd, fw4/nftables, netifd/ubus/UCI, hotplug, filesystem paths, architecture selection, and release delivery.
+- Existing upstream behavior is not redesigned just because the platform is different.
+- z2kOW keeps its own signed release pipeline and OpenWrt-native install lifecycle.
+
+See [UPSTREAM.md](UPSTREAM.md) for the parity policy and [ARCHITECTURE.md](ARCHITECTURE.md) for the platform boundary.
 
 ## Features
 
-- Manage traffic filtering strategies and persistent strategy state.
-- Manage user lists and custom strategies.
-- Use the WebPanel to control the service, edit settings and lists, and view diagnostics.
-- Optional Telegram transport, RT proxy, and WARP routing integrations.
-- Install and update from a signed, complete release payload.
+- z2k strategy engine, strategy rotation, custom strategies, and persistent state.
+- RKN, YouTube, Discord, whitelist, exclusions, extra domains, and scheduled list maintenance.
+- WebPanel for service control, configuration, lists, diagnostics, and release management.
+- TCP16 line probing and related runtime integration.
+- Optional Telegram transport, RT proxy, and WARP routing.
+- OpenWrt service, firewall, network-event, and scheduler integration.
+- Signed release metadata and complete OpenWrt release payloads with rollback-aware installation.
 
-The available controls depend on the router and the installed release. The WebPanel hides controls that the installed platform does not provide.
+Some controls are exposed only when the installed OpenWrt platform provides the required capability.
 
 ## Requirements
 
-- An OpenWrt router with `apk` package management.
-- Root access and an internet connection during installation and updates.
-- A router architecture supported by the published release.
+- OpenWrt with `apk` package management.
+- Root access.
+- Network access during installation and updates.
+- A target architecture supported by the published release.
 
 ## Install
 
-Run as root on the router:
+Run as root:
 
 ```sh
 wget -qO- https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh
 ```
 
-Alternatively, if `curl` is already installed, run `curl -fsSL https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh`. The installer obtains required system tools with `apk`, verifies the signed release manifest and the complete payload, then installs the selected release.
+If `curl` is already installed:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh
+```
+
+The bootstrap installs only required OpenWrt system dependencies, verifies the signed z2kOW manifest and release artifact, then converges the selected release through `install_release`.
 
 ## WebPanel
 
-Open `http://<router-address>:8088` from the local network. The panel uses HTTP and is intended for local-network access. Keep it off public interfaces.
+Open:
 
-## Commands
-
-Check for an available release and apply an update:
-
-```sh
-z2kow check
-z2kow update
+```text
+http://<router-address>:8088
 ```
 
-Show release and service status or restart the service:
+The panel is intended for the local network. Do not expose it directly to WAN.
+
+## CLI
 
 ```sh
 z2kow status
+z2kow check
+z2kow update
 z2kow restart
+z2kow blocked-monitor status
 ```
 
-The service can also be managed through OpenWrt init:
+The core service can also be controlled through OpenWrt init:
 
 ```sh
 /etc/init.d/z2k start
@@ -56,17 +74,20 @@ The service can also be managed through OpenWrt init:
 /etc/init.d/z2k restart
 ```
 
-## Update
+## Updates and persistent data
 
-Use `z2kow check` to inspect the available release and `z2kow update` to apply it. Updates preserve configuration, state, and user lists.
+Routers read only the controlled repository-root `UPDATES.json`. Upstream discovery by itself never publishes a device update.
 
-## Remove
-
-The current complete-payload installation does not expose a supported uninstall command in `z2kow` or the WebPanel. Do not use `apk del` to remove it; `apk` installs system dependencies and does not own the z2kOW payload. See the [release operations guide](docs/openwrt-release-operations.md) for current removal limitations and ownership details.
+Release-owned files live under `/usr/lib/z2k` and OpenWrt integration paths. Operator configuration, user lists, and persistent state live under `/etc/z2k` and are kept outside the replaceable release payload.
 
 ## Documentation
 
-See the [documentation index](docs/README.md) for architecture, upstream parity, release, security, and platform contracts.
+- [Documentation index](docs/README.md)
+- [Architecture](ARCHITECTURE.md)
+- [Upstream parity policy](UPSTREAM.md)
+- [Upstream parity matrix](docs/UPSTREAM-PARITY-MATRIX.md)
+- [Release policy](RELEASING.md)
+- [Security model](SECURITY.md)
 
 ## License
 
