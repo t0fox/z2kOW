@@ -20,9 +20,11 @@ assert all("seq" not in entry for entry in manifest["history"])
 artifact = manifest["artifact"]
 assert set(artifact) == {"filename", "url", "sha256", "size_bytes"}
 assert artifact["filename"] == "openwrt-rootfs.tar.gz"
-assert artifact["url"] == (
-    "https://github.com/t0fox/z2kOW/releases/download/"
-    + manifest["current"] + "/openwrt-rootfs.tar.gz"
+# The payload is published under its immutable source-commit tag; the product
+# version remains the separate `current` field in the controlled manifest.
+assert re.fullmatch(
+    r"https://github\.com/t0fox/z2kOW/releases/download/openwrt-[0-9a-f]{40}/openwrt-rootfs\.tar\.gz",
+    artifact["url"],
 )
 assert re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"])
 assert isinstance(artifact["size_bytes"], int) and artifact["size_bytes"] > 0
