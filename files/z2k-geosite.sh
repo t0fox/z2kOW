@@ -70,6 +70,8 @@ EXTRA="${ZAPRET2_DIR}/extra_strats"
 # литералом `/opt/zapret2/lists/...`, любой гейт, посчитавший его иначе (через
 # ZAPRET2_DIR), смотрел бы на ДРУГОЙ файл и молча пропускал правку.
 FP_LIST="${ZAPRET2_FALSE_POSITIVE_LIST:-${ZAPRET2_DIR}/lists/rkn-false-positive.txt}"
+Z2K_EXTRA_DOMAINS_RUNTIME="${Z2K_EXTRA_DOMAINS_RUNTIME:-${ZAPRET2_DIR}/lists/extra-domains.txt}"
+Z2K_AUTOHOSTLIST_DOMAINS_FILE="${Z2K_AUTOHOSTLIST_DOMAINS_FILE:-${ZAPRET2_DIR}/lists/autohostlist-domains.txt}"
 
 # Отпечаток УЖЕ ПРИМЕНЁННОГО fp-списка. Живёт в /opt/etc, а не в дереве: всё
 # внутри ${ZAPRET2_DIR} умирает вместе с ним на каждой переустановке (тот же
@@ -603,8 +605,8 @@ clean_google_domains() {
     local list tmp failed=0
     for list in "$EXTRA"/*/*/List.txt "$EXTRA/TCP/RKN/Discord.txt" \
                 "$EXTRA/TCP_Discord.txt" \
-                "$ZAPRET2_DIR/lists/extra-domains.txt" \
-                "$ZAPRET2_DIR/lists/autohostlist-domains.txt"; do
+                "$Z2K_EXTRA_DOMAINS_RUNTIME" \
+                "$Z2K_AUTOHOSTLIST_DOMAINS_FILE"; do
         [ -f "$list" ] || continue
         tmp=$(mktemp "${list}.google.XXXXXX") || { failed=1; continue; }
         if ! filter_google_domains "$list" > "$tmp"; then
@@ -1101,8 +1103,8 @@ _z2k_rkn_fp_gate() {
 # ключи), но autocircular не удаляет stale entries сам. One-shot purge с
 # marker-файлом — выполнится один раз при следующем после patch refresh.
 purge_stale_google_state() {
-    local state="$EXTRA/cache/autocircular/state.tsv"
-    local marker="$EXTRA/cache/autocircular/.google_purge_2026_05_24.done"
+    local state="${Z2K_GEOSITE_STATE_FILE:-${STATE_FILE:-$EXTRA/cache/autocircular/state.tsv}}"
+    local marker="${Z2K_GEOSITE_GOOGLE_PURGE_MARKER:-$EXTRA/cache/autocircular/.google_purge_2026_05_24.done}"
     [ -f "$marker" ] && return 0
     mkdir -p "$(dirname "$marker")" 2>/dev/null
     if [ -f "$state" ]; then
@@ -1118,7 +1120,7 @@ purge_stale_google_state() {
 }
 
 purge_stale_instagram_state() {
-    local state="$EXTRA/cache/autocircular/state.tsv"
+    local state="${Z2K_GEOSITE_STATE_FILE:-${STATE_FILE:-$EXTRA/cache/autocircular/state.tsv}}"
     # КРИТИЧНО: marker в /opt/etc (persistent Entware root), НЕ в $EXTRA/cache.
     # Это был корень бага p-38: прежний marker жил в
     # $EXTRA/cache/autocircular/ который сносится rm/mv "$ZAPRET2_DIR" при
@@ -1128,7 +1130,7 @@ purge_stale_instagram_state() {
     # Цель purge — однократно сбросить застрявшую (до p-34) instagram.com
     # страту, залипшую на 40+ из-за browser-cancel false-positive в
     # silent_drop_detector. После сброса autocircular переподберёт рабочую.
-    local marker="/opt/etc/.z2k-instagram-purge-2026-05-28.done"
+    local marker="${Z2K_GEOSITE_INSTAGRAM_PURGE_MARKER:-/opt/etc/.z2k-instagram-purge-2026-05-28.done}"
     [ -f "$marker" ] && return 0
     mkdir -p "$(dirname "$marker")" 2>/dev/null
     if [ -f "$state" ]; then
@@ -1286,21 +1288,23 @@ usage() {
     sed -n '2,/^set -u/p' "$0" | sed 's/^# \{0,1\}//;s/^#$//' | head -n 46
 }
 
-cmd="${1:-fetch}"
-[ $# -gt 0 ] && shift
-case "$cmd" in
-    fetch)
-        for arg in "$@"; do
-            case "$arg" in
-                --force|-f) FORCE_REFETCH=1 ;;
-                *) die "unknown fetch arg: $arg" ;;
-            esac
-        done
-        fetch_all
-        ;;
-    show)                    show_asset "$@" ;;
-    status)                  status_report ;;
-    clean-google)            clean_google_domains ;;
-    -h|--help|help)          usage ;;
-    *)                       die "unknown command: $cmd" ;;
-esac
+if [ -z "${Z2K_GEOSITE_SOURCE_ONLY:-}" ]; then
+    cmd="${1:-fetch}"
+    [ $# -gt 0 ] && shift
+    case "$cmd" in
+        fetch)
+            for arg in "$@"; do
+                case "$arg" in
+                    --force|-f) FORCE_REFETCH=1 ;;
+                    *) die "unknown fetch arg: $arg" ;;
+                esac
+            done
+            fetch_all
+            ;;
+        show)                    show_asset "$@" ;;
+        status)                  status_report ;;
+        clean-google)            clean_google_domains ;;
+        -h|--help|help)          usage ;;
+        *)                       die "unknown command: $cmd" ;;
+    esac
+fi

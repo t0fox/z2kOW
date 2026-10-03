@@ -208,8 +208,12 @@ _z2k_install_paths_openwrt() {
             # на роутере), только под openwrt-корнями.
             echo "${or}/lists/extra-domains.txt"
             echo "/etc/z2k/user-lists/extra-domains.txt" ;;
-        files/lists/*.txt)
+        files/lists/meta-ranges.txt|files/lists/rkn-false-positive.txt|\
+        files/lists/sni_wl_candidates.txt|files/lists/tcp16_nets.txt|files/lists/tcp16_targets.txt|\
+        files/lists/warp-endpoints.txt|files/lists/warp-scan-pools.txt)
             echo "${or}/lists/${repo_path#files/lists/}" ;;
+        files/lists/*.txt)
+            : ;; # installation-era lists with no OpenWrt runtime consumer are not staged
         strats_new2.txt|quic_strats.ini)
             # В КОРНЕ payload, как на Keenetic (install.sh кладёт туда же):
             # au_step_regen_strategies читает ${ZAPRET2_DIR}/strats_new2.txt
@@ -222,8 +226,10 @@ _z2k_install_paths_openwrt() {
             # Остальные files/*.sh — будущие feature layers, каждый добавит
             # свой маппинг вместе с исполнителем (молча не теряются: drift-тест).
             echo "${or}/z2k-config-validator.sh" ;;
-        files/etc/*)
-            echo "${or}/etc/${repo_path#files/etc/}" ;;
+        files/etc/z2k-roots.pem)
+            echo "${or}/etc/z2k-roots.pem" ;;
+        files/etc/z2k-update-pub.pem)
+            : ;; # legacy updater authority; OpenWrt trusts only staged release-keys
         # Keenetic file-updater destinations. OpenWrt deployment bypasses
         # this map and converges the controlled complete rootfs payload.
         webpanel/cgi/*.sh)
@@ -239,6 +245,28 @@ _z2k_install_paths_openwrt() {
             # list refresh. Its warp-games entrypoint is platform-neutral;
             # Keenetic-only full-cycle helpers remain gated out of OW cron.
             echo "${or}/z2k-update-lists.sh" ;;
+        files/z2k-geosite.sh)
+            # The common full list refresh calls this updater for the current
+            # RKN/YouTube/Discord assets. Its file outputs stay under the
+            # selected payload root; OpenWrt's cron supplies that root.
+            echo "${or}/z2k-geosite.sh" ;;
+        files/z2k-stats-upload.sh)
+            # Privacy-preserving strategy stats use the same common uploader;
+            # OpenWrt cron injects the persistent config/state paths.
+            echo "${or}/z2k-stats-upload.sh" ;;
+        files/z2k-insta-ip-refresh.sh)
+            # Shared upstream fetch/filter/probe flow. OpenWrt sources its
+            # platform adapter for the dnsmasq host-record backend.
+            echo "${or}/z2k-insta-ip-refresh.sh" ;;
+        files/z2k-blocked-monitor.sh)
+            # Operator-invoked packet monitor. The CLI adapter redirects its
+            # bounded cache to tmpfs instead of the read-only payload tree.
+            echo "${or}/z2k-blocked-monitor.sh" ;;
+        files/z2k-tcp16-probe.sh)
+            # Upstream TCP16 probe logic is shared. Its paths/cron/config apply
+            # are redirected by platform/openwrt/env.sh and the OpenWrt native
+            # scheduler; this remains one installed feature in the full rootfs.
+            echo "${or}/z2k-tcp16-probe.sh" ;;
         files/z2k-warp-list-filter.awk)
             : ;; # OpenWrt complete payload owns this helper outside the file updater
         tests/*)

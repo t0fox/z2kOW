@@ -61,6 +61,131 @@ _diag_mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
     | awk '$NF ~ /platform\/openwrt\/diag\.sh$/ { print $1 }')
 assert_eq "final release tarball keeps the OpenWrt diagnostics adapter executable" \
     "-rwxr-xr-x" "$_diag_mode"
+_tcp16_probe_mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
+    | awk '$NF ~ /usr\/lib\/z2k\/z2k-tcp16-probe\.sh$/ { print $1 }')
+assert_eq "final release tarball includes executable TCP16 probe" \
+    "-rwxr-xr-x" "$_tcp16_probe_mode"
+for _path in usr/lib/z2k/lua/z2k-tcp16.lua \
+    usr/lib/z2k/lists/tcp16_targets.txt usr/lib/z2k/lists/tcp16_nets.txt \
+    usr/lib/z2k/lists/sni_wl_candidates.txt \
+    usr/lib/z2k/platform/openwrt/tcp16-check.sh; do
+    tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq "./$_path" \
+        && _t_ok || _t_bad "final rootfs is missing mandatory TCP16 runtime path $_path"
+done
+for _path in usr/lib/z2k/z2k-geosite.sh usr/lib/z2k/z2k-update-lists.sh \
+    usr/lib/z2k/z2k-dns-check.sh usr/lib/z2k/z2k-stats-upload.sh \
+    usr/lib/z2k/z2k-blocked-monitor.sh; do
+    tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq "./$_path" \
+        && _t_ok || _t_bad "final rootfs is missing upstream runtime executor $_path"
+done
+find "$ROOT/files/fake" -type f -print > "$T/fake-inventory"
+while IFS= read -r _source; do
+    _rel=${_source#"$ROOT/files/fake/"}
+    tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq "./usr/lib/z2k/fake/$_rel" \
+        && _t_ok || _t_bad "final rootfs omits registered fake blob $_rel"
+    grep -Fq "$_rel" "$ROOT/platform/openwrt/optbase.sh" \
+        && _t_ok || _t_bad "fake blob $_rel is not registered by the nfqws2 argv builder"
+done < "$T/fake-inventory"
+tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq './usr/lib/z2k/platform/openwrt/list-refresh.sh' \
+    && _t_ok || _t_bad "final rootfs inventory omits the native 04:00 list-refresh adapter"
+[ -x "$T/stage/usr/lib/z2k/platform/openwrt/list-refresh.sh" ] \
+    && _t_ok || _t_bad "native list-refresh adapter is executable in the final rootfs"
+for _source in "$ROOT"/files/lua/*.lua; do
+    _module=${_source##*/}
+    _rel=${_source#"$ROOT/"}
+    tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq "./usr/lib/z2k/lua/$_module" \
+        && _t_ok || _t_bad "final rootfs inventory omits upstream Lua module $_module"
+    _alias=${_module%.lua}
+    grep -qF "$_alias" "$ROOT/platform/openwrt/optbase.sh" \
+        && _t_ok || _t_bad "upstream Lua module $_alias is not reached from nfqws2 argv builder"
+    grep -Fq "$_rel|" "$ROOT/tests/openwrt/runtime-inventory.tsv" \
+        && _t_ok || _t_bad "upstream Lua module $_rel has no completeness inventory row"
+done
+
+# Machine-readable upstream runtime inventory: every direct upstream runtime
+# script is either delivered or has an explicit OpenWrt replacement/N/A reason.
+_inventory="$ROOT/tests/openwrt/runtime-inventory.tsv"
+while IFS='|' read -r _source _state _member _mode _witness_file _witness _reason; do
+    case "$_source" in ''|\#*) continue ;; esac
+    [ -f "$ROOT/$_source" ] \
+        && _t_ok || _t_bad "runtime inventory source is missing: $_source"
+    case "$_state" in
+        COMMON|ADAPTED)
+            tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq "$_member" \
+                && _t_ok || _t_bad "$_state component $_source is absent from final rootfs at $_member"
+            _actual_mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
+                | awk -v member="$_member" '$NF==member { print $1 }')
+            assert_eq "$_state component $_source final mode" "$_mode" "$_actual_mode"
+            if [ -n "$_witness_file" ] && [ -f "$ROOT/$_witness_file" ]; then
+                assert_contains "$_state component $_source runtime wiring" "$ROOT/$_witness_file" "$_witness"
+            else
+                _t_bad "$_state component $_source has no verifiable runtime wiring witness"
+            fi
+            ;;
+        N/A)
+            [ "$_member" = - ] && [ -n "$_reason" ] \
+                && _t_ok || _t_bad "N/A component $_source needs a technical reason and no payload target"
+            _base=${_source##*/}
+            if tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -F "/$_base" >/dev/null 2>&1; then
+                _t_bad "N/A source $_source unexpectedly ships in the product rootfs"
+            else
+                _t_ok
+            fi
+            ;;
+        "MISSING BUG")
+            _t_bad "upstream runtime component remains classified MISSING BUG: $_source"
+            ;;
+        *)
+            _t_bad "invalid runtime inventory state [$_state] for $_source"
+            ;;
+    esac
+done < "$_inventory"
+for _source in "$ROOT"/files/*.sh "$ROOT"/files/init.d/* "$ROOT"/files/ndm/*.sh \
+    "$ROOT"/files/*.awk "$ROOT"/files/S99zapret2.new; do
+    [ -f "$_source" ] || continue
+    _rel=${_source#"$ROOT/"}
+    grep -Fq "$_rel|" "$_inventory" \
+        && _t_ok || _t_bad "upstream runtime source $_rel has no completeness inventory row"
+done
+for _source in "$ROOT"/files/lists/* "$ROOT"/files/lists/extra_strats/*/*/* \
+    "$ROOT"/files/lists/extra_strats/*/*/*/*; do
+    [ -f "$_source" ] || continue
+    _rel=${_source#"$ROOT/"}
+    grep -Fq "$_rel|" "$ROOT/tests/openwrt/runtime-inventory.tsv" \
+        && _t_ok || _t_bad "upstream list source $_rel has no completeness inventory row"
+done
+for _source in "$ROOT"/files/etc/*; do
+    [ -f "$_source" ] || continue
+    _rel=${_source#"$ROOT/"}
+    grep -Fq "$_rel|" "$ROOT/tests/openwrt/runtime-inventory.tsv" \
+        && _t_ok || _t_bad "upstream runtime trust/TLS source $_rel has no completeness inventory row"
+done
+_geosite_mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
+    | awk '$NF ~ /usr\/lib\/z2k\/z2k-geosite\.sh$/ { print $1 }')
+assert_eq "final release tarball keeps the geosite executor executable" \
+    "-rwxr-xr-x" "$_geosite_mode"
+_list_update_mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
+    | awk '$NF ~ /usr\/lib\/z2k\/z2k-update-lists\.sh$/ { print $1 }')
+assert_eq "final release tarball keeps list updater executable" \
+    "-rwxr-xr-x" "$_list_update_mode"
+for _script in tg-check.sh rt-check.sh warp-check.sh fw-check.sh list-refresh.sh tcp16-check.sh; do
+    _mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
+        | awk -v path="platform/openwrt/$_script" 'index($NF, path) { print $1 }')
+    assert_eq "final rootfs makes directly invoked $_script executable" \
+        "-rwxr-xr-x" "$_mode"
+done
+for _script in z2k-tcp16-probe.sh z2k-geosite.sh z2k-update-lists.sh \
+    z2k-dns-check.sh z2k-stats-upload.sh z2k-blocked-monitor.sh \
+    z2k-insta-ip-refresh.sh; do
+    _mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
+        | awk -v path="usr/lib/z2k/$_script" 'index($NF, path) { print $1 }')
+    assert_eq "final rootfs makes upstream executor $_script executable" \
+        "-rwxr-xr-x" "$_mode"
+done
+tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq './usr/lib/z2k/platform/openwrt/insta-ip.sh' \
+    && _t_ok || _t_bad "final rootfs omits the OpenWrt dnsmasq adapter for upstream IP refresh"
+[ -x "$T/stage/usr/lib/z2k/platform/openwrt/tcp16-check.sh" ] \
+    && _t_ok || _t_bad "first-result TCP16 scheduler entrypoint remains executable"
 [ -x "$T/stage/usr/lib/z2k/platform/openwrt/update.sh" ] \
     && _t_ok || _t_bad "canonical update.sh remains executable for CLI and cron"
 cmp -s "$T/release-keys/$_key_id.pub" \

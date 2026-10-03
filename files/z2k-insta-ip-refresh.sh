@@ -132,11 +132,49 @@ if [ -f "$CONFIG" ]; then
     fi
 fi
 
-# 2. ndmc must be present (this is Keenetic-only).
-if ! command -v ndmc >/dev/null 2>&1; then
+# 2. Keep the upstream resolver/filter/probe flow and select only the host
+# record backend per platform. OpenWrt stores records in a dedicated dnsmasq
+# addnhosts file; Keenetic continues to use ndmc exactly as before.
+INSTA_BACKEND="keenetic"
+if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+    _insta_adapter="${Z2K_INSTA_ADAPTER:-${Z2K_ROOT:-$ZAPRET2_DIR}/platform/openwrt/insta-ip.sh}"
+    if [ ! -r "$_insta_adapter" ]; then
+        log "OpenWrt dnsmasq adapter is unavailable: $_insta_adapter"
+        exit 1
+    fi
+    # shellcheck disable=SC1090,SC1091
+    . "$_insta_adapter" || exit 1
+    if ! z2k_ow_insta_prepare; then
+        log "OpenWrt dnsmasq host-record backend is unavailable"
+        exit 1
+    fi
+    INSTA_BACKEND="openwrt"
+elif ! command -v ndmc >/dev/null 2>&1; then
     log "ndmc not found — not on Keenetic, exit"
     exit 0
 fi
+
+insta_show_running_config() {
+    if [ "$INSTA_BACKEND" = openwrt ]; then
+        z2k_ow_insta_show_running_config
+    else
+        LD_LIBRARY_PATH= ndmc -c "show running-config" 2>/dev/null
+    fi
+}
+insta_remove_host() {
+    if [ "$INSTA_BACKEND" = openwrt ]; then
+        z2k_ow_insta_remove_host "$1" "$2"
+    else
+        LD_LIBRARY_PATH= ndmc -c "no ip host $1 $2"
+    fi
+}
+insta_add_host() {
+    if [ "$INSTA_BACKEND" = openwrt ]; then
+        z2k_ow_insta_add_host "$1" "$2"
+    else
+        LD_LIBRARY_PATH= ndmc -c "ip host $1 $2"
+    fi
+}
 
 # 3. Сторожа «ноль записей = пользователь сам всё вычистил» здесь больше НЕТ.
 #
@@ -150,7 +188,7 @@ fi
 # флаг остался 1), и рефреш каждый раз выходил на первом шаге, не обращаясь к
 # VPS. Instagram не открывался, а вернуть адреса могла только ручная затравка.
 # Теперь пропавшие записи прописываются заново при первом удачном обращении.
-existing=$(LD_LIBRARY_PATH= ndmc -c "show running-config" 2>/dev/null \
+existing=$(insta_show_running_config \
     | awk '/^ip host/ && ($3 ~ /(^|\.)instagram\.com$/ || $3 ~ /(^|\.)cdninstagram\.com$/ || $3 ~ /(^|\.)whatsapp\.(com|net)$/) {print}')
 if [ -z "$existing" ]; then
     log "записей ip host для управляемых доменов нет — пропишу заново, если VPS ответит"
@@ -373,7 +411,7 @@ for h in $HOSTS; do
         log "skip $h: ни один из адресов не ответил — прежние записи оставлены"
         continue
     fi
-    old_ips=$(LD_LIBRARY_PATH= ndmc -c "show running-config" 2>/dev/null \
+    old_ips=$(insta_show_running_config \
         | awk -v host="$h" '/^ip host/ && $3==host {print $4}')
 
     # Set equality?  Sort both and compare.
@@ -386,7 +424,7 @@ for h in $HOSTS; do
 
     # Remove ALL old entries for this host.
     for ip in $old_ips; do
-        if LD_LIBRARY_PATH= ndmc -c "no ip host $h $ip" >/dev/null 2>&1; then
+        if insta_remove_host "$h" "$ip" >/dev/null 2>&1; then
             log "  - $h $ip"
             touched_ips="$touched_ips $ip"
         else
@@ -395,7 +433,7 @@ for h in $HOSTS; do
     done
     # Add fresh entries.
     for ip in $new_ips; do
-        if LD_LIBRARY_PATH= ndmc -c "ip host $h $ip" >/dev/null 2>&1; then
+        if insta_add_host "$h" "$ip" >/dev/null 2>&1; then
             log "  + $h $ip"
         else
             log "  FAIL add $h $ip"
@@ -406,13 +444,23 @@ done
 
 # 9. Persist & flush conntrack on dropped IPs so apps don't ride dead paths.
 if [ "$changes" -gt 0 ]; then
-    if LD_LIBRARY_PATH= ndmc -c "system configuration save" >/dev/null 2>&1; then
+    if [ "$INSTA_BACKEND" = openwrt ]; then
+        if z2k_ow_insta_commit >/dev/null 2>&1; then
+            log "dnsmasq host file committed and reloaded"
+        else
+            log "WARN: dnsmasq host file reload failed"
+        fi
+    elif LD_LIBRARY_PATH= ndmc -c "system configuration save" >/dev/null 2>&1; then
         log "ndmc config saved"
     else
         log "WARN: ndmc config save failed"
     fi
     for ip in $touched_ips; do
-        conntrack -D -d "$ip" >/dev/null 2>&1 || true
+        if [ "$INSTA_BACKEND" = openwrt ]; then
+            z2k_ow_insta_flush_ip "$ip" >/dev/null 2>&1 || true
+        else
+            conntrack -D -d "$ip" >/dev/null 2>&1 || true
+        fi
     done
     log "conntrack flushed for old IPs"
 fi

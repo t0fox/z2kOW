@@ -18,6 +18,18 @@ while IFS= read -r _file; do
             [ -f "$TREE/$_file" ] || continue
             mkdir -p "$STAGE$(dirname "$_dest")"
             cp -p "$TREE/$_file" "$STAGE$_dest"
+            # Windows/WSL worktrees may expose every source as 0777. Derive
+            # stable rootfs modes from role instead of preserving host modes.
+            # Common libraries/data are readable but not writable by anyone;
+            # only directly executed shell entrypoints stay executable.
+            case "$_file" in
+                files/*.sh|webpanel/cgi/*.sh)
+                chmod 0755 "$STAGE$_dest"
+                ;;
+                *)
+                chmod 0644 "$STAGE$_dest"
+                ;;
+            esac
         done
 done < "$_files"
 

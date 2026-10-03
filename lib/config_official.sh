@@ -1530,8 +1530,8 @@ generate_nfqws2_opt_from_strategies() {
     # Файла нет — значит не мерили, и механизм выключен. Это единственное
     # умолчание, при котором человек без этого блока не получает ничего.
     local _sp_flag=""
-    [ -r "${ZAPRET2_DIR:-/opt/zapret2}/state/tcp16.flag" ] &&
-        _sp_flag=$(cat "${ZAPRET2_DIR:-/opt/zapret2}/state/tcp16.flag" 2>/dev/null)
+    local _sp_flag_file="${Z2K_TCP16_FLAG:-${ZAPRET2_DIR:-/opt/zapret2}/state/tcp16.flag}"
+    [ -r "$_sp_flag_file" ] && _sp_flag=$(cat "$_sp_flag_file" 2>/dev/null)
     if [ "$Z2K_SNI_STALL" = "1" ] && [ "$_sp_flag" = "1" ] && [ -n "$_sp_circ" ] \
        && [ -f "${ZAPRET2_DIR:-/opt/zapret2}/lua/z2k-tcp16.lua" ]; then
         local _sp_k _sp_n

@@ -1,0 +1,61 @@
+# source|state|final_rootfs_member|mode|runtime_witness_file|runtime_witness_literal|N/A_reason
+files/000-zapret2.sh|N/A|-|-|-|-|Keenetic NDM netfilter hook; OpenWrt firewall recovery is driven by fw4 hotplug and fw-check.
+files/S99zapret2.new|ADAPTED|./etc/init.d/z2k|-rwxr-xr-x|platform/openwrt/files/etc/init.d/z2k|procd_set_param command|Keenetic init implementation is replaced by procd lifecycle.
+files/z2k-auto-update.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/update.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|update.sh apply|OpenWrt keeps controlled manifest/install_release update semantics.
+files/z2k-blocked-monitor.sh|COMMON|./usr/lib/z2k/z2k-blocked-monitor.sh|-rwxr-xr-x|platform/openwrt/z2kow.sh|blocked-monitor|Shared capture/parser behavior; OpenWrt redirects cache to tmpfs.
+files/z2k-config-validator.sh|COMMON|./usr/lib/z2k/z2k-config-validator.sh|-rwxr-xr-x|lib/auto_update.sh|z2k-config-validator.sh|-
+files/z2k-diag.sh|ADAPTED|./usr/lib/z2k/z2k-diag.sh|-rwxr-xr-x|platform/openwrt/env.sh|Z2K_DIAG_HOOK|Common report with OpenWrt probes.
+files/z2k-dns-check.sh|COMMON|./usr/lib/z2k/z2k-dns-check.sh|-rwxr-xr-x|webpanel/cgi/actions.sh|DNS_CHECK_SCRIPT|Shared DNS probe is invoked by the WebPanel API.
+files/z2k-fix-tg-watchdog.sh|N/A|-|-|-|-|Upstream marks this historical one-shot patcher as a no-op; no runtime behavior to port.
+files/z2k-geosite.sh|COMMON|./usr/lib/z2k/z2k-geosite.sh|-rwxr-xr-x|files/z2k-update-lists.sh|z2k-geosite.sh|Shared geosite fetch/filter/apply logic.
+files/z2k-insta-ip-refresh.sh|ADAPTED|./usr/lib/z2k/z2k-insta-ip-refresh.sh|-rwxr-xr-x|files/z2k-update-lists.sh|z2k-insta-ip-refresh.sh|Shared fetch/HMAC/range/probe flow uses OpenWrt dnsmasq records.
+files/z2k-nfqueue-selfheal.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/fw-check.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|fw-check.sh check|OpenWrt verifies and reapplies its complete fw4/NFQUEUE invariant set.
+files/z2k-ppe-deoffload.sh|N/A|-|-|-|-|Uses the proprietary Keenetic MediaTek PPE target and connskip match; OpenWrt has no NDM PPE subsystem.
+files/z2k-scheduler.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/schedule.sh|-rw-r--r--|platform/openwrt/files/etc/init.d/z2k|z2k_ow_cron_install|Resident Keenetic scheduler is replaced with BusyBox cron and procd service start.
+files/z2k-stats-upload.sh|COMMON|./usr/lib/z2k/z2k-stats-upload.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|z2k-stats-upload|Shared privacy-gated uploader receives OpenWrt config/state paths.
+files/z2k-tcp16-probe.sh|ADAPTED|./usr/lib/z2k/z2k-tcp16-probe.sh|-rwxr-xr-x|webpanel/cgi/actions.sh|tcp16_probe_async|Shared probe keeps upstream measurement; OpenWrt redirects state/config/service paths.
+files/z2k-tcp16-probe.sh|ADAPTED|./usr/lib/z2k/z2k-tcp16-probe.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|30 3 * * *|Nightly measurement remains at 03:30.
+files/z2k-tg-redirect.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/tg.sh|-rw-r--r--|platform/openwrt/tg.sh|z2k_ow_tg|OpenWrt uses fw4/nftables and the platform Telegram lifecycle.
+files/z2k-tg-watchdog.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/tg-check.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|tg-check.sh check|procd owns process restart; cron checks tunnel health and rules.
+files/z2k-update-lists.sh|COMMON|./usr/lib/z2k/z2k-update-lists.sh|-rwxr-xr-x|platform/openwrt/list-refresh.sh|z2k-update-lists.sh|Shared complete refresh is called with OpenWrt path/service bindings.
+files/z2k-warp.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/warp.sh|-rw-r--r--|webpanel/cgi/platform.sh|platform/openwrt/warp.sh|OpenWrt retains the user feature through its native WARP backend.
+files/z2k-warp-list-filter.awk|COMMON|./usr/lib/z2k/z2k-warp-list-filter.awk|-rw-r--r--|webpanel/cgi/actions.sh|z2k-warp-list-filter.awk|Shared list validation/filter is used by WebPanel game-list actions.
+files/init.d/S51z2k-warp|ADAPTED|./usr/lib/z2k/platform/openwrt/warp.sh|-rw-r--r--|platform/openwrt/warp.sh|procd_open_instance|WARP tunnel lifecycle is OpenWrt procd.
+files/init.d/S96z2k-rt-proxy|ADAPTED|./usr/lib/z2k/platform/openwrt/rt.sh|-rw-r--r--|platform/openwrt/rt.sh|procd_open_instance|RT proxy lifecycle/routing is OpenWrt procd and fw4.
+files/init.d/S97z2k-http-tunnel|ADAPTED|./usr/lib/z2k/platform/openwrt/tg.sh|-rw-r--r--|platform/openwrt/tg.sh|1444|cdnbase is owned by the shared OpenWrt Telegram client process.
+files/init.d/S98tg-tunnel|ADAPTED|./usr/lib/z2k/platform/openwrt/tg.sh|-rw-r--r--|platform/openwrt/tg.sh|procd_open_instance|Telegram lifecycle is OpenWrt procd.
+files/init.d/S99z2k-scheduler|ADAPTED|./usr/lib/z2k/platform/openwrt/schedule.sh|-rw-r--r--|platform/openwrt/schedule.sh|Z2K_LISTS_CRON_LINE|BusyBox cron replaces the resident Keenetic scheduler.
+files/ndm/90-z2k-tg-redirect.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/tg.sh|-rw-r--r--|platform/openwrt/tg.sh|nft|NDM hooks are replaced by fw4/nftables lifecycle.
+files/ndm/91-z2k-http-tunnel-redirect.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/tg.sh|-rw-r--r--|platform/openwrt/tg.sh|1444|NDM hooks are replaced by the OpenWrt Telegram/cdnbase backend.
+files/ndm/91-z2k-ttl-bypass.sh|N/A|-|-|-|-|Only excludes marked packets from Keenetic's optional NDM ip ttl-fix chain, which OpenWrt does not provide.
+files/ndm/92-z2k-rt-proxy-redirect.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/rt.sh|-rw-r--r--|platform/openwrt/rt.sh|nft|NDM hooks are replaced by fw4/nftables lifecycle.
+files/ndm/93-z2k-warp.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/warp.sh|-rw-r--r--|platform/openwrt/warp.sh|nft|NDM hooks are replaced by OpenWrt WARP PBR/nft adapter.
+files/ndm/94-z2k-ppe-deoffload.sh|N/A|-|-|-|-|Uses the Keenetic NDM event hook and proprietary per-flow PPE target.
+files/ndm/95-z2k-scheduler-watchdog.sh|N/A|-|-|-|-|Monitors a Keenetic resident scheduler; OpenWrt runs independent cron jobs under system cron supervision.
+files/etc/z2k-roots.pem|COMMON|./usr/lib/z2k/etc/z2k-roots.pem|-rw-r--r--|platform/openwrt/tg.sh|Z2K_TG_TLS_BUNDLE|-
+files/etc/z2k-update-pub.pem|N/A|-|-|-|-|Legacy Keenetic updater key; OpenWrt release verification trusts only its staged release-keys.
+files/lists/cf_extra_check_ips.txt|N/A|-|-|-|-|Keenetic-only bootstrap connectivity probe seed; no OpenWrt runtime consumer.
+files/lists/extra-domains.txt|COMMON|./usr/lib/z2k/lists/extra-domains.txt|-rw-r--r--|platform/openwrt/bootstrap.sh|Z2K_USER_LISTS/extra-domains.txt|-
+files/lists/extra_strats/TCP/RKN/Discord.txt|COMMON|./usr/lib/z2k/extra_strats/TCP/RKN/Discord.txt|-rw-r--r--|lib/config_official.sh|extra_strats_dir|-
+files/lists/extra_strats/TCP/RKN/List.txt|COMMON|./usr/lib/z2k/extra_strats/TCP/RKN/List.txt|-rw-r--r--|lib/config_official.sh|extra_strats_dir|-
+files/lists/extra_strats/TCP/YT_GV/List.txt|COMMON|./usr/lib/z2k/extra_strats/TCP/YT_GV/List.txt|-rw-r--r--|lib/config_official.sh|extra_strats_dir|-
+files/lists/extra_strats/TCP/YT/List.txt|COMMON|./usr/lib/z2k/extra_strats/TCP/YT/List.txt|-rw-r--r--|lib/config_official.sh|extra_strats_dir|-
+files/lists/extra_strats/UDP/YT/List.txt|COMMON|./usr/lib/z2k/extra_strats/UDP/YT/List.txt|-rw-r--r--|lib/config_official.sh|extra_strats_dir|-
+files/lists/ipset-exclude.txt|N/A|-|-|-|-|Keenetic-only ipset builder exclusion seed; OpenWrt generates nftables policy without the Keenetic ipset builder.
+files/lists/meta-ranges.txt|COMMON|./usr/lib/z2k/lists/meta-ranges.txt|-rw-r--r--|files/z2k-insta-ip-refresh.sh|META_RANGES|-
+files/lists/rkn-false-positive.txt|COMMON|./usr/lib/z2k/lists/rkn-false-positive.txt|-rw-r--r--|files/z2k-geosite.sh|FP_LIST|-
+files/lists/sni_wl_candidates.txt|COMMON|./usr/lib/z2k/lists/sni_wl_candidates.txt|-rw-r--r--|files/z2k-tcp16-probe.sh|Z2K_TCP16_CANDIDATES|-
+files/lists/tcp16_nets.txt|COMMON|./usr/lib/z2k/lists/tcp16_nets.txt|-rw-r--r--|files/lua/z2k-tcp16.lua|Z2K_TCP16_NETS|-
+files/lists/tcp16_targets.txt|COMMON|./usr/lib/z2k/lists/tcp16_targets.txt|-rw-r--r--|files/z2k-tcp16-probe.sh|Z2K_TCP16_TARGETS|-
+files/lists/telegram_ips.txt|N/A|-|-|-|-|Keenetic-only static Telegram IP seed; OpenWrt Telegram routing uses its native domain and nft set lifecycle.
+files/lists/warp-endpoints.txt|ADAPTED|./usr/lib/z2k/lists/warp-endpoints.txt|-rw-r--r--|platform/openwrt/warp.sh|WARP_ENDPOINTS|-
+files/lists/warp-scan-pools.txt|ADAPTED|./usr/lib/z2k/lists/warp-scan-pools.txt|-rw-r--r--|platform/openwrt/warp.sh|WARP_SCAN_POOLS|-
+files/lists/youtube_ips.txt|N/A|-|-|-|-|Keenetic-only static YouTube IP seed; OpenWrt geosite refresh and generated hostlists provide the supported routing behavior.
+files/lists/youtube_ips6.txt|N/A|-|-|-|-|Keenetic-only static YouTube IPv6 seed; OpenWrt geosite refresh and generated hostlists provide the supported routing behavior.
+files/lua/z2k-alert.lua|COMMON|./usr/lib/z2k/lua/z2k-alert.lua|-rw-r--r--|platform/openwrt/optbase.sh|z2k-alert|-
+files/lua/z2k-fooling-ext.lua|COMMON|./usr/lib/z2k/lua/z2k-fooling-ext.lua|-rw-r--r--|platform/openwrt/optbase.sh|z2k-fooling-ext|-
+files/lua/z2k-modern-core.lua|COMMON|./usr/lib/z2k/lua/z2k-modern-core.lua|-rw-r--r--|platform/openwrt/optbase.sh|z2k-modern-core|-
+files/lua/z2k-quic-silence.lua|COMMON|./usr/lib/z2k/lua/z2k-quic-silence.lua|-rw-r--r--|platform/openwrt/optbase.sh|z2k-quic-silence|-
+files/lua/z2k-range-rand.lua|COMMON|./usr/lib/z2k/lua/z2k-range-rand.lua|-rw-r--r--|platform/openwrt/optbase.sh|z2k-range-rand|-
+files/lua/z2k-state-persist.lua|COMMON|./usr/lib/z2k/lua/z2k-state-persist.lua|-rw-r--r--|platform/openwrt/optbase.sh|z2k-state-persist|-
+files/lua/z2k-tcp16.lua|COMMON|./usr/lib/z2k/lua/z2k-tcp16.lua|-rw-r--r--|platform/openwrt/optbase.sh|z2k-tcp16|-

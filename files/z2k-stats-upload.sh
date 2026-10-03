@@ -27,11 +27,11 @@
 # the menu / webpanel toggle to opt out. Every failure path is a silent no-op:
 # this script must NEVER affect the bypass.
 
-export PATH=/opt/sbin:/opt/bin:/sbin:/usr/sbin:/bin:/usr/bin
+export PATH="${Z2K_STUB_PATH:+$Z2K_STUB_PATH:}/opt/sbin:/opt/bin:/sbin:/usr/sbin:/bin:/usr/bin"
 
-ZAPRET2_DIR="/opt/zapret2"
-CONFIG="${ZAPRET2_DIR}/config"
-STATE_TSV="${ZAPRET2_DIR}/extra_strats/cache/autocircular/state.tsv"
+ZAPRET2_DIR="${ZAPRET2_DIR:-/opt/zapret2}"
+CONFIG="${Z2K_STATS_CONFIG:-${CONFIG_FILE:-${ZAPRET2_DIR}/config}}"
+STATE_TSV="${Z2K_STATS_STATE_TSV:-${STATE_FILE:-${ZAPRET2_DIR}/extra_strats/cache/autocircular/state.tsv}}"
 
 # Разброс 0..30 мин: в 03:00 отчёт шлёт ВЕСЬ флот, и наш VPS получает его в
 # одну минуту. Только плановый путь (stdin не tty); ручной запуск не ждёт.

@@ -19,6 +19,7 @@ z2k_ow_uninstall() {
         z2k_ow_rt_cron_remove 2>/dev/null || true
         z2k_ow_warp_cron_remove 2>/dev/null || true
         z2k_ow_fw_cron_remove 2>/dev/null || true
+        z2k_ow_tcp16_cron_remove 2>/dev/null || true
     } || true
     # TG firewall (Stage 3): chains И sets из runtime-таблицы — она внешняя
     # и переживает удаление пакета; оставить = litter. Best-effort, рано:
@@ -36,6 +37,11 @@ z2k_ow_uninstall() {
     # shellcheck disable=SC1090,SC1091
     . "$Z2K_ROOT/platform/openwrt/warp.sh" 2>/dev/null && \
         z2k_ow_warp cleanup 2>/dev/null || true
+    # Remove only our dnsmasq addnhosts reference and host include. User DNS
+    # settings and other addnhosts entries remain untouched.
+    # shellcheck disable=SC1090,SC1091
+    . "$Z2K_ROOT/platform/openwrt/insta-ip.sh" 2>/dev/null && \
+        z2k_ow_insta_uninstall 2>/dev/null || true
     "${Z2K_INITSRC:-/etc/init.d/z2k}" disable 2>/dev/null || true
     rm -f "$Z2K_ETC/.payload-initialized" \
           "$Z2K_ETC/state/installed-tag" \

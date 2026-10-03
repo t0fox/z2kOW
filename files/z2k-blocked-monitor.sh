@@ -23,7 +23,7 @@ export PATH="${Z2K_STUB_PATH:+$Z2K_STUB_PATH:}/opt/sbin:/opt/bin:/opt/usr/sbin:/
 
 ZAPRET_BASE="${ZAPRET_BASE:-/opt/zapret2}"
 ZAPRET_CONFIG="${ZAPRET_CONFIG:-$ZAPRET_BASE/config}"
-CACHE_DIR="${ZAPRET_BASE}/extra_strats/cache/blocked_monitor"
+CACHE_DIR="${Z2K_BLOCKED_MONITOR_CACHE:-${ZAPRET_BASE}/extra_strats/cache/blocked_monitor}"
 # PID file lives in /tmp (tmpfs), NOT under $CACHE_DIR on flash: a flash pidfile
 # survives reboot, and after a reboot the kernel reuses PIDs, so a stale pid
 # that happens to be re-allocated to an unrelated process makes running_pid

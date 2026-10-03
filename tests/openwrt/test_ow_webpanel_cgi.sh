@@ -191,6 +191,18 @@ export WARP_STATUS="$T/tmp/z2k/warp-status.json"
 export WP_DHCP_LEASES="$T/leases" WP_ARP_PATH="$T/arp-empty"
 export OW_TEST_ROOT="$T"
 
+# Full TCP16 payload fixture in the canonical OpenWrt paths, present before
+# /status projects feature capabilities.
+mkdir -p "$T/root/lua" "$T/root/lists" "$T/root/bin" "$T/etc/state"
+printf 'return {}\n' > "$T/root/lua/z2k-tcp16.lua"
+printf 'T1\t1\t*\ttest\t192.0.2.1\t443\n' > "$T/root/lists/tcp16_targets.txt"
+printf '1\t192.0.2.0/16\n' > "$T/root/lists/tcp16_nets.txt"
+printf 'test.example\n' > "$T/root/lists/sni_wl_candidates.txt"
+printf '#!/bin/sh\nprintf done > "%s/tcp16-probe-ran"\n' "$T" > "$T/root/z2k-tcp16-probe.sh"
+chmod +x "$T/root/z2k-tcp16-probe.sh"
+printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/z2k-detect"
+chmod +x "$T/root/bin/z2k-detect"
+
 # --- CGI caller (как lighttpd; HTTP_X_Z2K_PANEL обязателен) ---
 _cgi() { # <METHOD> <PATH> [QUERY] [bodyfile]
     _m="$1"; _p="$2"; _q="${3:-}"; _b="${4:-}"
@@ -258,7 +270,7 @@ assert_eq "status: stock offload mode" "none" "$(_jget "$OUT" 'd["toggles"]["flo
 printf '%s\n' "$OUT" > "$T/status-output"
 assert_contains "status: offload facts stay explicit" "$T/status-output" "flowtable=absent"
 assert_contains "status: packet proof stays unknown" "$T/status-output" "packet_visibility=unknown"
-assert_eq "status: tcp16 false" "false" "$(_jget "$OUT" 'd["capabilities"]["tcp16"]')"
+assert_eq "status: tcp16 true when full feature is shipped" "true" "$(_jget "$OUT" 'd["capabilities"]["tcp16"]')"
 assert_eq "status: Telegram TCP tunnel reports its own matching process probe" "false" "$(_jget "$OUT" 'd["tunnel"]["running"]')"
 assert_eq "status: diagnostics capability" "true" "$(_jget "$OUT" 'd["capabilities"]["diag"]')"
 assert_eq "status: customd true" "true" "$(_jget "$OUT" 'd["capabilities"]["customd"]')"
@@ -656,6 +668,15 @@ assert_eq "warp-devices: text/plain" "Content-Type: text/plain; charset=utf-8" "
 assert_contains "warp-devices: тело" "$T/etc/user-lists/warp/devices.txt" "aa:bb:cc:dd:ee:ff"
 OUT="$(_mg "tcp16" /tcp16)"
 assert_eq "tcp16: running false" "false" "$(_jget "$OUT" 'd["running"]')"
+printf '1\n' > "$T/etc/state/tcp16.flag"
+date +%s > "$T/etc/state/tcp16.flag.ts"
+printf '7\n' > "$T/etc/state/tcp16.duration"
+printf '24940\n' > "$T/etc/state/tcp16_asn.txt"
+printf '24940\ttest.example\n' > "$T/etc/state/tcp16_sni.txt"
+OUT="$(_mg "tcp16" /tcp16)"
+assert_eq "tcp16 API reads canonical persistent verdict" "1" "$(_jget "$OUT" 'd["measured"]')"
+assert_eq "tcp16 API reads canonical duration" "7" "$(_jget "$OUT" 'd["duration"]')"
+assert_eq "tcp16 API counts canonical SNI map" "1" "$(_jget "$OUT" 'd["names"]')"
 OUT="$(_mg "state" /state)"
 assert_eq "state: entries пусты" "0" "$(_jget "$OUT" 'len(d["entries"])')"
 OUT="$(_mg "pools" /pools)"
@@ -867,10 +888,15 @@ assert_eq "auth challenge без пароля: ok" "true" "$(_jget "$OUT" 'd["ok
 RAW="$(_cgi POST /auth/logout)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "auth logout: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
 printf 'domain=example.com' > "$T/body.txt"
+Z2K_DETECT_BIN="$T/missing-detector"; export Z2K_DETECT_BIN
 RAW="$(_cgi POST /diag/probe "" "$T/body.txt")"
 assert_eq "diag probe без модуля: 503" "Status: 503 Service Unavailable" "$(printf '%s\n' "$RAW" | _cgi_status)"
+unset Z2K_DETECT_BIN
 RAW="$(_cgi POST /tcp16/probe)"
-assert_eq "tcp16 probe без пробы: 503" "Status: 503 Service Unavailable" "$(printf '%s\n' "$RAW" | _cgi_status)"
+assert_eq "tcp16 probe uses installed probe" "Status: 200 OK" "$(printf '%s\n' "$RAW" | _cgi_status)"
+_i=0
+while [ "$_i" -lt 20 ] && [ ! -f "$T/tcp16-probe-ran" ]; do sleep 0.1; _i=$((_i + 1)); done
+[ -f "$T/tcp16-probe-ran" ] && _t_ok || _t_bad "tcp16 WebPanel action reaches the installed probe"
 
 # --- FRESH INSTALL (п.8): ни конфига, ни списков, ни state, ни WARP-файлов ---
 # Панель обязана открываться и читать initial state; отсутствие optional

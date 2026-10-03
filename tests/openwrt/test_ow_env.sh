@@ -19,6 +19,11 @@ assert_eq "ZAPRET_CONFIG -> canonical" "$T/etc/config" "$ZAPRET_CONFIG"
 assert_eq "STATE override -> etc/state" "$T/etc/state" "$Z2K_STATE_DIR_OVERRIDE"
 assert_eq "TCP16_ASN -> state" "$T/etc/state/tcp16_asn.txt" "$Z2K_TCP16_ASN"
 assert_eq "TCP16_NETS -> payload lists" "$T/root/lists/tcp16_nets.txt" "$Z2K_TCP16_NETS"
+assert_eq "TCP16 flag -> persistent state" "$T/etc/state/tcp16.flag" "$Z2K_TCP16_FLAG"
+assert_eq "TCP16 timestamp -> persistent state" "$T/etc/state/tcp16.flag.ts" "$Z2K_TCP16_TIMESTAMP"
+assert_eq "TCP16 duration -> persistent state" "$T/etc/state/tcp16.duration" "$Z2K_TCP16_DURATION"
+assert_eq "TCP16 targets -> payload lists" "$T/root/lists/tcp16_targets.txt" "$Z2K_TCP16_TARGETS"
+assert_eq "TCP16 candidates -> payload lists" "$T/root/lists/sni_wl_candidates.txt" "$Z2K_TCP16_CANDIDATES"
 assert_eq "SNI_PIN default (shipped lists)" "$T/root/lists/sni_wl_pin.txt" "$Z2K_SNI_PIN"
 assert_eq "FWTYPE nftables" "nftables" "$FWTYPE"
 # Platform identity (Stage 4 root-cause: без неё common видел keenetic —
@@ -33,6 +38,7 @@ assert_eq "merge shipped payload" "$T/root/lists/extra-domains.txt" "$Z2K_EXTRA_
 assert_eq "merge runtime user-lists" "$T/etc/user-lists/extra-domains.txt" "$Z2K_EXTRA_DOMAINS_RUNTIME"
 assert_eq "autohostlist ledger is persistent state" "$T/etc/state/autohostlist-domains.txt" "$AUTOHOSTLIST_DOMAINS_FILE"
 assert_eq "autohostlist engine file is separate" "$T/etc/state/zapret-hosts-auto.txt" "$Z2K_AUTOHOSTLIST_FILE"
+assert_eq "Instagram/WhatsApp dnsmasq include is persistent state" "$T/etc/state/insta-hosts" "$Z2K_INSTA_HOSTS_FILE"
 
 # §15: manifest repo == payload repo — один origin везде, без necronicle
 assert_eq "BRANCH production" "main" "$Z2K_AU_BRANCH"

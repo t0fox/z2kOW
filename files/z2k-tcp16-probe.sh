@@ -26,7 +26,20 @@
 PATH=/opt/bin:/opt/sbin:/usr/bin:/bin:/usr/sbin:/sbin
 export PATH
 
-ZAPRET2_DIR="${ZAPRET2_DIR:-/opt/zapret2}"
+Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
+if [ "${Z2K_PLATFORM:-}" = "openwrt" ] || [ -f "$Z2K_ROOT/platform/openwrt/paths.sh" ]; then
+    # Keep upstream probe logic, redirect only platform-owned paths and
+    # execution hooks. OpenWrt's detector is part of the signed rootfs; unlike
+    # Keenetic this path must never fetch an uncoordinated binary by itself.
+    . "$Z2K_ROOT/platform/openwrt/paths.sh" || exit 2
+    . "$Z2K_ROOT/platform/openwrt/env.sh" || exit 2
+    Z2K_PLATFORM=openwrt
+    DETECT_DIRS="${DETECT_DIRS:-$Z2K_BIN $Z2K_ROOT}"
+    PATH="$Z2K_BIN:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+    export Z2K_PLATFORM PATH
+else
+    ZAPRET2_DIR="${ZAPRET2_DIR:-/opt/zapret2}"
+fi
 # ГДЕ ИСКАТЬ БИНАРНИК. Штатное место установки — /opt/sbin/z2k-detect: туда
 # его кладёт установщик, оттуда его обновляет шаг refresh-binaries. Прежде
 # здесь стоял только путь внутри каталога обхода, и у КАЖДОГО пользователя
@@ -43,14 +56,49 @@ if [ -z "${DETECT:-}" ]; then
     done
     DETECT="${DETECT:-${DETECT_DIRS%% *}/z2k-detect}"
 fi
-TARGETS="${TARGETS:-$ZAPRET2_DIR/lists/tcp16_targets.txt}"
-FLAG="$ZAPRET2_DIR/state/tcp16.flag"
+TARGETS="${TARGETS:-${Z2K_TCP16_TARGETS:-$ZAPRET2_DIR/lists/tcp16_targets.txt}}"
+FLAG="${Z2K_TCP16_FLAG:-$ZAPRET2_DIR/state/tcp16.flag}"
 # Список AS, где блок найден: по нему рантайм решает, кому ставить имя, а кому
 # не надо. Без него имя уходит всему пулу подряд.
-ASNOUT="$ZAPRET2_DIR/state/tcp16_asn.txt"
-SNIOUT="$ZAPRET2_DIR/state/tcp16_sni.txt"
-CAND="${CAND:-$ZAPRET2_DIR/lists/sni_wl_candidates.txt}"
-LOG="${LOG:-/tmp/z2k-tcp16-probe.log}"
+ASNOUT="${Z2K_TCP16_ASN:-$ZAPRET2_DIR/state/tcp16_asn.txt}"
+SNIOUT="${Z2K_TCP16_SNI:-$ZAPRET2_DIR/state/tcp16_sni.txt}"
+CAND="${CAND:-${Z2K_TCP16_CANDIDATES:-$ZAPRET2_DIR/lists/sni_wl_candidates.txt}}"
+LOG="${LOG:-${Z2K_TCP16_LOG:-/tmp/z2k-tcp16-probe.log}}"
+STAMP="${Z2K_TCP16_TIMESTAMP:-$FLAG.ts}"
+DURATION="${Z2K_TCP16_DURATION:-$FLAG.duration}"
+CONFIG="${CONFIG:-${Z2K_CONFIG:-$ZAPRET2_DIR/config}}"
+
+if [ "$Z2K_PLATFORM" = openwrt ]; then
+    mkdir -p "$(dirname "$FLAG")" "$(dirname "$ASNOUT")" \
+        "$(dirname "$SNIOUT")" "$(dirname "$LOG")" \
+        "$(dirname "${Z2K_TCP16_LOCK:-/tmp/z2k/locks/tcp16-probe}")" 2>/dev/null || exit 2
+    _lock="${Z2K_TCP16_LOCK:-/tmp/z2k/locks/tcp16-probe}"
+    _lock_wait=0
+    while ! mkdir "$_lock" 2>/dev/null; do
+        _lock_pid=$(cat "$_lock/pid" 2>/dev/null)
+        case "$_lock_pid" in
+            ''|*[!0-9]*) ;;
+            *)
+                if ! kill -0 "$_lock_pid" 2>/dev/null; then
+                    rm -rf "$_lock" 2>/dev/null
+                    continue
+                fi
+                echo "проба уже выполняется (pid $_lock_pid)" >&2
+                exit 0
+                ;;
+        esac
+        _lock_wait=$((_lock_wait + 1))
+        [ "$_lock_wait" -lt 5 ] || { echo "проба уже запускается" >&2; exit 0; }
+        sleep 1
+    done
+    printf '%s\n' "$$" > "$_lock/pid"
+    _tcp16_unlock() {
+        [ "$(cat "$_lock/pid" 2>/dev/null)" = "$$" ] && rm -rf "$_lock" 2>/dev/null
+    }
+    trap _tcp16_unlock EXIT HUP INT TERM
+fi
+_probe_started=$(date +%s 2>/dev/null)
+case "$_probe_started" in ''|*[!0-9]*) _probe_started=0 ;; esac
 
 # ПАРАМЕТРЫ ПРОГОНА — ЗДЕСЬ, И ТОЛЬКО ЗДЕСЬ.
 #
@@ -114,7 +162,9 @@ if ! [ -x "$DETECT" ] || ! "$DETECT" tcp16 -h >/dev/null 2>&1; then
     else
         echo "бинарника пробы нет ($DETECT) — достаю его"
     fi
-    if [ -r "$ZAPRET2_DIR/lib/auto_update.sh" ]; then
+    if [ "$Z2K_PLATFORM" = openwrt ]; then
+        echo "детектор отсутствует или не поддерживает tcp16 в controlled OpenWrt payload" >&2
+    elif [ -r "$ZAPRET2_DIR/lib/auto_update.sh" ]; then
         # shellcheck source=/dev/null
         . "$ZAPRET2_DIR/lib/utils.sh" >/dev/null 2>&1
         # shellcheck source=/dev/null
@@ -217,7 +267,7 @@ rc=$?
 
 case "$rc" in
     1)  # блок есть
-        printf '1\n' > "$FLAG"
+        printf '1\n' > "$FLAG.new.$$" && mv -f "$FLAG.new.$$" "$FLAG" || exit 3
         # Имя на каждую найденную сеть. Пишем во временный файл и подменяем
         # разом: половина карты хуже, чем прежняя целая.
         if [ -s "$CAND" ]; then
@@ -254,7 +304,7 @@ case "$rc" in
         fi
         ;;
     0)  # блока нет
-        printf '0\n' > "$FLAG" ;;
+        printf '0\n' > "$FLAG.new.$$" && mv -f "$FLAG.new.$$" "$FLAG" || exit 3 ;;
     *)  # мишени не ответили вовсе — не мерили; прежний ответ не трогаем,
         # чтобы обрыв связи не выключил людям рабочий обход.
         echo "проба не состоялась (код $rc), флаг оставлен как был" >&2
@@ -262,7 +312,14 @@ case "$rc" in
 esac
 
 # Метка времени рядом: по ней видно, когда мерили, и не пора ли перемерить.
-date +%s > "$FLAG.ts" 2>/dev/null
+# Keep both values on persistent OpenWrt state; publish only after a successful
+# verdict and name scan so a failed probe cannot make old data look fresh.
+_probe_finished=$(date +%s 2>/dev/null)
+case "$_probe_finished" in ''|*[!0-9]*) _probe_finished="$_probe_started" ;; esac
+_probe_duration=$((_probe_finished - _probe_started))
+[ "$_probe_duration" -ge 0 ] 2>/dev/null || _probe_duration=0
+printf '%s\n' "$_probe_finished" > "$STAMP.new.$$" && mv -f "$STAMP.new.$$" "$STAMP" || exit 3
+printf '%s\n' "$_probe_duration" > "$DURATION.new.$$" && mv -f "$DURATION.new.$$" "$DURATION" || exit 3
 
 # ПЕРЕСОБРАТЬ КОНФИГ, ЕСЛИ ОТВЕТ ИЗМЕНИЛ КАРТИНУ.
 #
@@ -275,7 +332,6 @@ date +%s > "$FLAG.ts" 2>/dev/null
 # Сравниваем НАМЕРЕНИЕ с фактом: должен ли механизм быть в конфиге и есть ли он
 # там сейчас. Совпало — не трогаем ничего, это ночной прогон, и лишний
 # перезапуск сервиса людям не нужен.
-CONFIG="${CONFIG:-$ZAPRET2_DIR/config}"
 want=0
 [ "$(cat "$FLAG" 2>/dev/null)" = "1" ] && want=1
 have=0
@@ -283,7 +339,28 @@ grep -q -- "--lua-desync=z2k_sni_pick" "$CONFIG" 2>/dev/null && have=1
 
 if [ "$want" != "$have" ]; then
     echo "механизм должен быть в конфиге: $want, сейчас: $have — пересобираю"
-    if [ -r "$ZAPRET2_DIR/lib/config_official.sh" ]; then
+    if [ "$Z2K_PLATFORM" = openwrt ]; then
+        # Keep the one upstream config generator. OpenWrt only supplies its
+        # persistent TCP16 flag, generated config path, health validator and
+        # service control; never call the Keenetic init script here.
+        . "$Z2K_LIB/utils.sh" >/dev/null 2>&1 || exit 3
+        . "$Z2K_LIB/strategies.sh" >/dev/null 2>&1 || exit 3
+        . "$Z2K_LIB/config_official.sh" >/dev/null 2>&1 || exit 3
+        . "$Z2K_ROOT/platform/openwrt/generate.sh" >/dev/null 2>&1 || exit 3
+        Z2K_FORCE_CONFIG_REGEN=1
+        export Z2K_FORCE_CONFIG_REGEN
+        z2k_ow_generate || { echo "OpenWrt config generation failed" >&2; exit 3; }
+        if [ -x "$Z2K_ROOT/z2k-config-validator.sh" ]; then
+            sh "$Z2K_ROOT/z2k-config-validator.sh" >/dev/null 2>&1
+            [ "$?" -ge 2 ] && { echo "конфиг не прошёл проверку — сервис не трогаю" >&2; exit 3; }
+        fi
+        if [ -x "$INIT_SCRIPT" ] && "$INIT_SCRIPT" running >/dev/null 2>&1; then
+            "$INIT_SCRIPT" restart >/dev/null 2>&1 || { echo "OpenWrt service restart failed" >&2; exit 3; }
+            echo "OpenWrt config regenerated and service restarted"
+        else
+            echo "OpenWrt config regenerated; service is not running"
+        fi
+    elif [ -r "$ZAPRET2_DIR/lib/config_official.sh" ]; then
         # Тот же путь, которым пересобирает обновление: utils.sh нужен
         # генератору для safe_config_read и печати.
         # shellcheck source=/dev/null

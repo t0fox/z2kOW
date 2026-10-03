@@ -134,6 +134,11 @@ start_service() {
     z2k_ow_generate || return 1
     # shellcheck disable=SC1090
     . "$Z2K_CONFIG" || return 1
+    # Register the upstream periodic work on every boot/start: nightly update,
+    # full list/geosite refresh, and gated stats upload. This is independent
+    # of the dataplane toggle; an install with ENABLED=0 still needs its
+    # operator-selected update and maintenance schedules.
+    z2k_ow_cron_install || echo "z2k-openwrt: не удалось установить base maintenance schedule" >&2
     # ENABLED — master-гейт upstream-семантики (сохраняется регенерацией).
     [ "${ENABLED:-1}" = "1" ] || return 1
 
@@ -143,6 +148,7 @@ start_service() {
     if [ "${GAME_WARP_ENABLED:-0}" = "1" ]; then
         z2k_ow_warp_cron_install || echo "z2k-openwrt: не удалось установить WARP health schedule" >&2
     fi
+    z2k_ow_tcp16_cron_install || echo "z2k-openwrt: не удалось установить TCP16 schedule" >&2
 
     # Preflight runtime ДО всего: отсутствующий движок обязан ронять start
     # здесь с точной причиной, а не job exit=0 + exit=127 потом (live-урок).
@@ -241,6 +247,12 @@ service_started() {
         _z2k_ow_wait_feature rt && z2k_ow_rt_verify || { z2k_ow_start_rollback; return 1; }
     fi
     : > "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" || { z2k_ow_start_rollback; return 1; }
+    # Upstream performs the first line measurement on the first successful
+    # service start. Keep startup bounded: the full probe runs detached, and
+    # its persistent verdict suppresses later first-result cron retries.
+    if [ -x "$Z2K_TCP16_PROBE" ] && [ -x "$Z2K_ROOT/platform/openwrt/tcp16-check.sh" ]; then
+        ( sh "$Z2K_ROOT/platform/openwrt/tcp16-check.sh" ) </dev/null >/dev/null 2>&1 &
+    fi
     return 0
 }
 

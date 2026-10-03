@@ -63,13 +63,13 @@ assert_contains "actual selective table" "$T/output" "zapret2 flowtable  : prese
 assert_contains "actual exemptions" "$T/output" "zapret2 exemptions  : 1"
 assert_contains "global/selective conflict" "$T/output" "owner conflict     : global_fw4+zapret2"
 assert_contains "software dataplane observed" "$T/output" "observed dataplane : software"
-assert_contains "visibility remains unknown" "$T/output" "packet visibility  : UNKNOWN"
-assert_contains "circular remains unknown" "$T/output" "circular           : UNKNOWN"
+assert_contains "no queue path is inactive" "$T/output" "packet visibility  : inactive"
+assert_contains "circular feature is disabled when config has no circular" "$T/output" "circular           : disabled"
 
 printf 'FLOWOFFLOAD=hardware\n' > "$T/config"
 _out="$($REPO/platform/openwrt/diag.sh offload 2>&1)"
 printf '%s\n' "$_out" > "$T/output-hardware"
-assert_contains "hardware dataplane observed" "$T/output-hardware" "hardware offload   : observed"
+assert_contains "hardware dataplane active" "$T/output-hardware" "hardware offload   : active"
 assert_contains "hardware dataplane fact" "$T/output-hardware" "observed dataplane : hardware"
 
 _t_done

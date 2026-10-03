@@ -18,10 +18,10 @@ assert_file "webpanel.sh существует" "$WPSH"
 assert_file "init панели существует" "$PINIT"
 
 # Seam маленький: platform.sh обязан быть компактным.
-# Лимит 200 (был 170): +fail-closed блок I (PLATFORM_UNAVAILABLE мутации) и
-# +ready/degraded модель N — оба строго в seam'е, форков нет (см. ниже).
+# Лимит 210 (был 205): добавлена проверка наличия TCP16 executor для capability;
+# fail-closed PLATFORM_UNAVAILABLE и ready/degraded модель остаются в seam'е.
 _nlines="$(wc -l < "$CPSH" | tr -d ' ')"
-[ "$_nlines" -le 205 ] && _t_ok || _t_bad "platform.sh раздут: $_nlines строк (seam должен быть tiny)"
+[ "$_nlines" -le 210 ] && _t_ok || _t_bad "platform.sh раздут: $_nlines строк (seam должен быть tiny)"
 _nlines="$(wc -l < "$WPSH" | tr -d ' ')"
 [ "$_nlines" -le 260 ] && _t_ok || _t_bad "webpanel.sh раздут: $_nlines строк"
 

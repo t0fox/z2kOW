@@ -804,30 +804,47 @@ warp_status_reason() {
 # Расхождение — само по себе диагноз.
 print_tcp16() {
     printf '\n=== блок по объёму (16-20КБ) ===\n'
-    local flag="${ZAPRET2_DIR}/state/tcp16.flag"
-    local asn="${ZAPRET2_DIR}/state/tcp16_asn.txt"
-    local map="${ZAPRET2_DIR}/state/tcp16_sni.txt"
-    local nets="${ZAPRET2_DIR}/lists/tcp16_nets.txt"
-    local cand="${ZAPRET2_DIR}/lists/sni_wl_candidates.txt"
+    local flag="${Z2K_TCP16_FLAG:-${ZAPRET2_DIR}/state/tcp16.flag}"
+    local stamp="${Z2K_TCP16_TIMESTAMP:-$flag.ts}"
+    local duration_file="${Z2K_TCP16_DURATION:-$flag.duration}"
+    local asn="${Z2K_TCP16_ASN:-${ZAPRET2_DIR}/state/tcp16_asn.txt}"
+    local map="${Z2K_TCP16_SNI:-${ZAPRET2_DIR}/state/tcp16_sni.txt}"
+    local nets="${Z2K_TCP16_NETS:-${ZAPRET2_DIR}/lists/tcp16_nets.txt}"
+    local cand="${Z2K_TCP16_CANDIDATES:-${ZAPRET2_DIR}/lists/sni_wl_candidates.txt}"
+    local config="${Z2K_CONFIG:-${ZAPRET2_DIR}/config}"
 
     local f; f=$(cat "$flag" 2>/dev/null)
     case "$f" in
-        1) printf 'проба линии       : блок ЕСТЬ\n' ;;
-        0) printf 'проба линии       : блока нет — механизм не нужен\n' ;;
-        *) printf 'проба линии       : не измерялась (механизм выключен)\n' ;;
+        1) printf 'проба линии       : verdict=blocked (блок ЕСТЬ)\n' ;;
+        0) printf 'проба линии       : verdict=clear (блока нет — механизм не нужен)\n' ;;
+        *) printf 'проба линии       : verdict=unmeasured (ещё не измерялась)\n' ;;
     esac
     # Метку времени печатаем только вместе с ответом: одна без другого
     # означает, что проба сейчас идёт, и «измерено 13 ч назад» рядом с «не
     # измерялась» читателя только запутает.
-    if [ -s "$flag.ts" ] && [ -s "$flag" ]; then
+    if [ -s "$stamp" ] && [ -s "$flag" ]; then
         local ts age
-        ts=$(cat "$flag.ts" 2>/dev/null)
-        age=$(( $(date +%s) - ts ))
-        if [ "$age" -lt 3600 ] 2>/dev/null; then
-            printf 'измерено          : %s мин назад\n' "$((age / 60))"
-        else
-            printf 'измерено          : %s ч назад\n' "$((age / 3600))"
-        fi
+        ts=$(cat "$stamp" 2>/dev/null)
+        case "$ts" in
+            ''|*[!0-9]*) printf 'timestamp         : invalid\n' ;;
+            *)
+                printf 'timestamp         : %s\n' "$ts"
+                age=$(( $(date +%s) - ts ))
+                if [ "$age" -lt 3600 ] 2>/dev/null; then
+                    printf 'измерено          : %s мин назад\n' "$((age / 60))"
+                else
+                    printf 'измерено          : %s ч назад\n' "$((age / 3600))"
+                fi
+                ;;
+        esac
+    fi
+    if [ -r "$duration_file" ]; then
+        local duration
+        duration=$(cat "$duration_file" 2>/dev/null)
+        case "$duration" in
+            ''|*[!0-9]*) printf 'duration          : invalid\n' ;;
+            *) printf 'duration          : %s sec\n' "$duration" ;;
+        esac
     fi
 
     # Считаем через awk, а НЕ `grep -vc ... || echo 0`: на пустом файле grep
@@ -847,7 +864,7 @@ print_tcp16() {
 
     # Главное: доехало ли намеренное до конфига.
     local in_cfg=0
-    grep -q -- '--lua-desync=z2k_sni_pick' "${ZAPRET2_DIR}/config" 2>/dev/null && in_cfg=1
+    grep -q -- '--lua-desync=z2k_sni_pick' "$config" 2>/dev/null && in_cfg=1
     printf 'в конфиге         : %s\n' "$([ "$in_cfg" = 1 ] && echo 'да' || echo 'НЕТ')"
     # Примеры печатаем ВСЕГДА, когда карта есть, — в том числе при расхождении.
     # Первая редакция показывала их только когда всё сошлось, то есть скрывала
@@ -859,7 +876,7 @@ print_tcp16() {
     if [ "$f" = "1" ] && [ "$in_cfg" = "0" ]; then
         printf 'вердикт           : РАСХОЖДЕНИЕ — блок найден, а механизма в конфиге нет.\n'
         printf '                    Конфиг собран раньше пробы и не пересобран. Лечится\n'
-        printf '                    запуском %s/z2k-tcp16-probe.sh\n' "$ZAPRET2_DIR"
+        printf '                    запуском %s\n' "${Z2K_TCP16_PROBE:-$ZAPRET2_DIR/z2k-tcp16-probe.sh}"
     elif [ "$f" = "1" ] && [ ! -s "$map" ]; then
         printf 'вердикт           : блок есть, но ни одного имени не подобрано —\n'
         printf '                    на этой линии не подходит ни один кандидат\n'
@@ -945,6 +962,10 @@ print_warp() {
 # SECTION: autocircular state
 # =============================================================================
 print_rotator() {
+    if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] && z2k_diag_hook; then
+        "$Z2K_DIAG_HOOK" autocircular
+        return $?
+    fi
     printf '\n=== autocircular state ===\n'
     local state="${ZAPRET2_DIR}/extra_strats/cache/autocircular/state.tsv"
     if [ ! -r "$state" ]; then

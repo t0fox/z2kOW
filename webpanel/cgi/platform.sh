@@ -107,7 +107,7 @@ export Z2K_PLATFORM_STATUS
 
 # Panel status combines core readiness, custom.d capability, and installed tree.
 wp_capabilities_json() {
-    local _ready=false _degraded=false _running=false _payload_compatible=true _customd=false _offload=false
+    local _ready=false _degraded=false _running=false _payload_compatible=true _customd=false _offload=false _tcp16=false
     is_running >/dev/null 2>&1 && _running=true
     command -v z2k_ow_core_ready >/dev/null 2>&1 && z2k_ow_core_ready >/dev/null 2>&1 && _ready=true
     if [ "$Z2K_PLATFORM_STATUS" = "ok" ] && command -v z2k_ow_panel_payload_compatible >/dev/null 2>&1; then
@@ -117,8 +117,14 @@ wp_capabilities_json() {
     { [ "$_running" = "true" ] && [ "$_ready" = "false" ]; } && _degraded=true
     z2k_ow_customd_available >/dev/null 2>&1 && _customd=true
     z2k_ow_flowoffload_available >/dev/null 2>&1 && _offload=true
-    printf '"platform":"openwrt","ready":%s,"degraded":%s,"payload_compatible":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":false,"diag":true,"customd":%s,"offload":%s,"warp":true,"telegram":true,"uninstall":false}' \
-        "$_ready" "$_degraded" "$_payload_compatible" "$_customd" "$_offload"
+    if [ -x "$Z2K_TCP16_PROBE" ] && [ -x "$Z2K_BIN/z2k-detect" ] \
+        && [ -f "$Z2K_LUA_DIR/z2k-tcp16.lua" ] \
+        && [ -s "$Z2K_TCP16_TARGETS" ] && [ -s "$Z2K_TCP16_NETS" ] \
+        && [ -s "$Z2K_TCP16_CANDIDATES" ]; then
+        _tcp16=true
+    fi
+    printf '"platform":"openwrt","ready":%s,"degraded":%s,"payload_compatible":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":%s,"diag":true,"customd":%s,"offload":%s,"warp":true,"telegram":true,"uninstall":false}' \
+        "$_ready" "$_degraded" "$_payload_compatible" "$_tcp16" "$_customd" "$_offload"
 }
 
 # --- overrides: те же имена, OS-эффект через замороженные адаптеры ---

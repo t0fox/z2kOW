@@ -20,6 +20,20 @@ assert_eq "QUIC input stages with the full payload" \
 assert_eq "lists stage in product tree plus preserved user destination" \
     '/usr/lib/z2k/lists/extra-domains.txt
 /etc/z2k/user-lists/extra-domains.txt' "$(_ow files/lists/extra-domains.txt)"
+for _list in meta-ranges.txt rkn-false-positive.txt sni_wl_candidates.txt \
+    tcp16_nets.txt tcp16_targets.txt warp-endpoints.txt warp-scan-pools.txt; do
+    assert_eq "runtime list $_list has a product payload target" \
+        "/usr/lib/z2k/lists/$_list" "$(_ow "files/lists/$_list")"
+done
+for _unused in cf_extra_check_ips.txt ipset-exclude.txt telegram_ips.txt \
+    youtube_ips.txt youtube_ips6.txt; do
+    assert_eq "unconsumed Keenetic seed $_unused is excluded from OpenWrt" \
+        '' "$(_ow "files/lists/$_unused")"
+done
+assert_eq "Telegram TLS roots remain in payload" \
+    '/usr/lib/z2k/etc/z2k-roots.pem' "$(_ow files/etc/z2k-roots.pem)"
+assert_eq "obsolete updater key is not a second OpenWrt trust authority" \
+    '' "$(_ow files/etc/z2k-update-pub.pem)"
 assert_contains "staging materializes common source into the one full tree" \
     "$REPO/scripts/openwrt/stage-common-payload.sh" 'z2k_install_paths'
 assert_contains "full release installer uses the explicit owned-path list" \

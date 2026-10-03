@@ -196,7 +196,7 @@ print_tunnel() {
 }
 
 print_warp() {
-    local on bin transport endpoint ready err _adapter
+    local on bin transport endpoint ready err state _adapter
     _adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
     if [ -r "$_adapter/arch.sh" ]; then
         . "$_adapter/arch.sh"
@@ -206,23 +206,48 @@ print_warp() {
         bin="$_adapter/bin/linux-unsupported/z2k-warpd"
     fi
     on=$(_warp_enabled)
-    transport=$(_json_field transport "$_warp_status")
-    endpoint=$(_json_field endpoint "$_warp_status")
-    ready=$(grep -q '"ready":true' "$_warp_status" 2>/dev/null && echo true || echo false)
-    err=$(_json_field error "$_warp_status")
     printf '\n=== warp ===\n'
-    if [ "$on" = 1 ]; then printf 'mode              : on\n'; else printf 'mode              : off\n'; fi
+    case "$on" in
+        0)
+            printf 'mode              : off\n'
+            printf 'state             : disabled\n'
+            ;;
+        1)
+            printf 'mode              : on\n'
+            if [ ! -r "$_warp_status" ]; then
+                state=unavailable
+                ready=unavailable
+            elif grep -Eq '"ready"[[:space:]]*:[[:space:]]*true' "$_warp_status" 2>/dev/null; then
+                state=active
+                ready=true
+            elif grep -Eq '"ready"[[:space:]]*:[[:space:]]*false' "$_warp_status" 2>/dev/null; then
+                state=inactive
+                ready=false
+            else
+                state=unknown
+                ready=unknown
+            fi
+            transport=$(_json_field transport "$_warp_status")
+            endpoint=$(_json_field endpoint "$_warp_status")
+            err=$(_json_field error "$_warp_status")
+            [ -n "$transport" ] || transport=unavailable
+            [ -n "$endpoint" ] || endpoint=unavailable
+            printf 'state             : %s\n' "$state"
+            printf 'status            : ready=%s transport=%s endpoint=%s\n' "$ready" "$transport" "$endpoint"
+            [ -n "$err" ] && printf 'error             : %s\n' "$err"
+            ;;
+        *)
+            printf 'mode              : unknown\n'
+            printf 'state             : unknown\n'
+            ;;
+    esac
     if [ -x "$bin" ]; then printf 'engine            : installed\n'; else printf 'engine            : missing\n'; fi
     if [ -s "$_warp_device" ]; then printf 'device            : registered\n'; else printf 'device            : missing\n'; fi
-    [ -n "$transport" ] || transport=unknown
-    [ -n "$endpoint" ] || endpoint=unknown
-    printf 'status            : ready=%s transport=%s endpoint=%s\n' "$ready" "$transport" "$endpoint"
-    [ -n "$err" ] && printf 'error             : %s\n' "$err"
     printf 'status file       : %s\n' "$_warp_status"
 }
 
 print_platform() {
-    local root free overlay swap_total swap_free release_file release target arch
+    local root free overlay swap_total swap_free release_file release target arch meminfo
     root=${Z2K_ROOT:-}
     free=$(df -h "$root" 2>/dev/null | awk 'NR==2 {printf "%s свободно из %s (занято %s)", $4, $2, $5}')
     [ -n "$free" ] || free=неизвестно
@@ -231,8 +256,10 @@ print_platform() {
     printf 'payload root       : %s\n' "$root"
     printf 'payload space      : %s\n' "$free"
     release_file=${Z2K_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}
-    release=$(sed -n "s/^DISTRIB_RELEASE=['\"]\{0,1\}\(.*\)['\"]\{0,1\}$/\1/p" "$release_file" 2>/dev/null | head -1)
-    target=$(sed -n "s/^DISTRIB_TARGET=['\"]\{0,1\}\(.*\)['\"]\{0,1\}$/\1/p" "$release_file" 2>/dev/null | head -1)
+    release=$(sed -n "s/^DISTRIB_RELEASE=['\"]\{0,1\}\(.*\)['\"]\{0,1\}$/\1/p" "$release_file" 2>/dev/null \
+        | head -1 | sed "s/['\"]$//")
+    target=$(sed -n "s/^DISTRIB_TARGET=['\"]\{0,1\}\(.*\)['\"]\{0,1\}$/\1/p" "$release_file" 2>/dev/null \
+        | head -1 | sed "s/['\"]$//")
     arch=$(opkg print-architecture 2>/dev/null | awk '$1=="arch" && $2!="all" {p=($3~/^[0-9]+$/)?$3+0:0; if(p>=max){max=p; arch=$2}} END{print arch}')
     [ -n "$arch" ] || arch=$(uname -m 2>/dev/null)
     printf 'OpenWrt release   : %s\n' "${release:-unknown}"
@@ -240,126 +267,238 @@ print_platform() {
     printf 'OpenWrt arch      : %s\n' "${arch:-unknown}"
     overlay=$(df -h "${Z2K_OVERLAY_MOUNT:-/overlay}" 2>/dev/null | awk 'NR==2 {printf "%s free / %s (%s used)", $4,$2,$5}')
     printf 'overlay           : %s\n' "${overlay:-unavailable}"
-    if [ -r /proc/meminfo ]; then
-        printf 'memory             : %s\n' "$(awk '/^MemAvailable:/{a=$2} /^MemTotal:/{t=$2} END {printf "%d МБ свободно из %d", a/1024, t/1024}' /proc/meminfo 2>/dev/null)"
+    meminfo=${Z2K_MEMINFO:-/proc/meminfo}
+    if [ -r "$meminfo" ]; then
+        printf 'memory             : %s\n' "$(awk '/^MemAvailable:/{a=$2} /^MemTotal:/{t=$2} END {printf "%d МБ свободно из %d", a/1024, t/1024}' "$meminfo" 2>/dev/null)"
     fi
-    swap_total=$(awk '/^SwapTotal:/{print $2}' /proc/meminfo 2>/dev/null)
-    swap_free=$(awk '/^SwapFree:/{print $2}' /proc/meminfo 2>/dev/null)
-    printf 'swap              : %s/%s kB used\n' "$(( ${swap_total:-0} - ${swap_free:-0} ))" "${swap_total:-0}"
+    swap_total=$(awk '/^SwapTotal:/{print $2}' "$meminfo" 2>/dev/null)
+    swap_free=$(awk '/^SwapFree:/{print $2}' "$meminfo" 2>/dev/null)
+    case "$swap_total:$swap_free" in
+        *[!0-9:]*|:*) printf 'swap              : unavailable\n' ;;
+        0:0) printf 'swap              : disabled\n' ;;
+        *) printf 'swap              : %s/%s kB used\n' "$((swap_total - swap_free))" "$swap_total" ;;
+    esac
     printf 'loadavg            : %s\n' "$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
 }
 
+_ow_autocircular_configured() {
+    [ -r "$_cfg" ] || return 2
+    awk '
+        /^NFQWS2_OPT="/ { in_opt=1; next }
+        in_opt && /^"[[:space:]]*$/ { in_opt=0; next }
+        in_opt && /--lua-desync=circular([:[:space:]]|$)/ { found=1 }
+        END { exit(found ? 0 : 1) }
+    ' "$_cfg" 2>/dev/null
+}
+
+_ow_autocircular_live() {
+    local _ps _rc
+    _ps=$(ps w 2>/dev/null)
+    _rc=$?
+    [ "$_rc" -eq 0 ] || return 2
+    printf '%s\n' "$_ps" | grep -E '[n]fqws2.*--lua-desync=circular' >/dev/null 2>&1
+}
+
+_ow_autocircular_state() {
+    _ow_autocircular_configured
+    _oc_rc=$?
+    if [ "$_oc_rc" -ne 0 ]; then
+        case "$_oc_rc" in 2) printf 'unknown' ;; *) printf 'disabled' ;; esac
+        return
+    fi
+    _ow_autocircular_live
+    _live_rc=$?
+    case "$_live_rc" in 0) printf 'active' ;; 2) printf 'unavailable' ;; *) printf 'inactive' ;; esac
+}
+
+print_autocircular() {
+    local config="${Z2K_CONFIG:-$_cfg}" state_file="${STATE_FILE:-${Z2K_STATE:-/etc/z2k/state}/state.tsv}"
+    local enabled live rows
+    _cfg="$config"
+    printf '\n=== autocircular ===\n'
+    _ow_autocircular_configured
+    enabled=$?
+    if [ "$enabled" -ne 0 ]; then
+        case "$enabled" in
+            2) printf 'autocircular      : unknown\nstate file        : unknown (configuration unavailable)\n' ;;
+            *) printf 'autocircular      : disabled\nstate file        : N/A\n' ;;
+        esac
+        return 0
+    fi
+    _ow_autocircular_live
+    live=$?
+    if [ "$live" -eq 2 ]; then
+        printf 'autocircular      : unavailable\nstate file        : unavailable (process state unreadable)\n'
+        return 0
+    fi
+    if [ "$live" -eq 0 ]; then printf 'autocircular      : active\n'; else printf 'autocircular      : inactive\n'; fi
+    if [ ! -r "$state_file" ]; then
+        printf 'state file        : missing\n'
+        printf 'state file is missing while autocircular is enabled\n'
+        return 0
+    fi
+    rows=$(awk -F '\t' '$1 !~ /^#/ && $1 != "pool" && NF >= 4 {n++} END {print n+0}' "$state_file" 2>/dev/null)
+    if [ "${rows:-0}" -gt 0 ] 2>/dev/null; then
+        printf 'state file        : active (%s entries)\n' "$rows"
+    else
+        printf 'state file        : not-observed\n'
+    fi
+}
+
 print_offload() {
-    local rules ft_decl ft_add uci_flow uci_soft uci_hw hw_nat fastroute modules
-    local backend conclusion mode tab selective_table selective_rules selective_add
-    local exemptions fw4_rules fw4_flowtables owner_conflict core_running core_ready _v _chain
-    local conntrack actual hardware_fact
-    rules=$(nft list ruleset 2>/dev/null || true)
-    _ft_word=$(printf 'flow%s' 'table')
-    ft_decl=$(printf '%s\n' "$rules" | grep -ciE "(^|[[:space:]])${_ft_word}([[:space:]]|\{|$)" || true)
-    ft_add=$(printf '%s\n' "$rules" | grep -ciE '(^|[[:space:]])flow[[:space:]]+add([[:space:]]|$)' || true)
+    local mode=unknown rules nft_rc tab selective_table selective_add exemptions
+    local uci_soft=unset uci_hw=unset uci_flow=0 fw4_rules fw4_flowtables
+    local hw_nat fastroute modules module_file sys_modules module_dir
+    local software_cap hardware_cap capability conntrack conn_rc software_state hardware_state
+    local actual backend owner_conflict core_running core_ready _v queue_rules queue_packets selective_rules
+    local packet_state circular_state conclusion _line _count
     tab=${Z2K_ZAPRET_NFT_TABLE:-zapret2}
-    mode=$(sed -n 's/^[[:space:]]*FLOWOFFLOAD[[:space:]]*=[[:space:]]*//p' "$_cfg" 2>/dev/null \
-        | tail -1 | sed "s/[\"']//g" | tr -d ' \t\r\n')
-    [ -n "$mode" ] || mode=unknown
+    if [ -r "$_cfg" ]; then
+        mode=$(sed -n 's/^[[:space:]]*FLOWOFFLOAD[[:space:]]*=[[:space:]]*//p' "$_cfg" 2>/dev/null \
+            | tail -1 | sed "s/[\"']//g" | tr -d ' \t\r\n')
+        [ -n "$mode" ] || mode=unknown
+    fi
 
-    # Query the table and chains owned by the stock zapret2 runtime directly.
-    # No adapter rule is created here: this is observation only.
+    rules=$(nft list ruleset 2>/dev/null)
+    nft_rc=$?
+    [ "$nft_rc" -eq 0 ] || rules=
     selective_table=absent
-    nft list flowtable inet "$tab" ft >/dev/null 2>&1 && selective_table=present
-    selective_rules=$(
-        for _chain in flow_offload flow_offload_zapret flow_offload_always \
-                      forward_hook input_hook output_hook; do
-            nft list chain inet "$tab" "$_chain" 2>/dev/null || true
-        done
-    )
-    selective_add=$(printf '%s\n' "$selective_rules" | grep -ciE '(^|[[:space:]])flow[[:space:]]+add[[:space:]]+@ft([[:space:]]|$)' || true)
-    exemptions=$(nft list chain inet "$tab" flow_offload_zapret 2>/dev/null \
-        | grep -ci 'direct flow offloading exemption' || true)
+    printf '%s\n' "$rules" | grep -Eq 'table[[:space:]]+inet[[:space:]]+zapret2|flowtable[[:space:]]+ft' \
+        && selective_table=present
+    selective_add=$(printf '%s\n' "$rules" | grep -ciE '(^|[[:space:]])flow[[:space:]]+add[[:space:]]+@ft([[:space:]]|;|$)' || true)
+    selective_rules=$(nft list chain inet "$tab" flow_offload_zapret 2>/dev/null)
+    exemptions=$(printf '%s\n' "$selective_rules" | grep -ci 'direct flow offloading exemption' || true)
+    fw4_rules=$(printf '%s\n' "$rules" | sed -n '/table inet fw4/,/^[[:space:]]*}/p')
+    fw4_flowtables=$(printf '%s\n' "$fw4_rules" | grep -ciE '^[[:space:]]*flowtable[[:space:]]' || true)
+    queue_rules=$(printf '%s\n' "$rules" | grep -ciE 'queue([[:space:]].*)?bypass to 200' || true)
+    queue_packets=$(printf '%s\n' "$rules" | awk '
+        /queue([[:space:]].*)?bypass to 200/ {
+            line=$0
+            if (match(line, /counter packets [0-9]+/)) {
+                value=substr(line, RSTART, RLENGTH)
+                sub(/^.* /, "", value)
+                total += value
+            }
+        }
+        END { print total+0 }
+    ')
 
-    uci_flow=0
-    uci_soft=unset
-    uci_hw=unset
     if command -v uci >/dev/null 2>&1; then
         _v=$(uci -q get firewall.@defaults[0].flow_offloading 2>/dev/null || true)
         [ -n "$_v" ] && uci_soft=$_v
-        if [ "$_v" = 1 ]; then
-            uci_flow=1
-        fi
+        [ "$_v" = 1 ] && uci_flow=1
         _v=$(uci -q get firewall.@defaults[0].flow_offloading_hw 2>/dev/null || true)
         [ -n "$_v" ] && uci_hw=$_v
-        if [ "$_v" = 1 ]; then
-            uci_flow=1
-        fi
+        [ "$_v" = 1 ] && uci_flow=1
     fi
-    fw4_rules=$(nft list table inet fw4 2>/dev/null || true)
-    fw4_flowtables=$(printf '%s\n' "$fw4_rules" \
-        | grep -ciE '^[[:space:]]*flowtable[[:space:]]' || true)
-    core_running=0
-    core_ready=0
-    "$_init" running >/dev/null 2>&1 && core_running=1
-    z2k_ow_core_ready >/dev/null 2>&1 && core_ready=1
-
-    if [ -r /proc/driver/hw_nat ]; then
-        hw_nat=present
-    else
-        hw_nat=absent
-    fi
-    if [ -e /proc/sys/net/netfilter/nf_conntrack_fastroute ]; then
-        fastroute=$(cat /proc/sys/net/netfilter/nf_conntrack_fastroute 2>/dev/null || echo unreadable)
+    if [ -r "${Z2K_HW_NAT_FILE:-/proc/driver/hw_nat}" ]; then hw_nat=present; else hw_nat=absent; fi
+    if [ -e "${Z2K_FASTROUTE_FILE:-/proc/sys/net/netfilter/nf_conntrack_fastroute}" ]; then
+        fastroute=$(cat "${Z2K_FASTROUTE_FILE:-/proc/sys/net/netfilter/nf_conntrack_fastroute}" 2>/dev/null || echo unreadable)
     else
         fastroute=absent
     fi
-    modules=$(awk '$1 ~ /^(nf_flow_table|nf_flow_table_inet|shortcut_fe|fastpath)/ {n++} END {print n+0}' /proc/modules 2>/dev/null)
+    module_file=${Z2K_PROC_MODULES:-/proc/modules}
+    sys_modules=${Z2K_SYS_MODULE_DIR:-/sys/module}
+    module_dir=${Z2K_MODULE_DIR:-/lib/modules/$(uname -r 2>/dev/null)}
+    modules=$(awk '$1 ~ /^(nf_flow_table|nf_flow_table_inet|shortcut_fe|fastpath)/ {n++} END {print n+0}' "$module_file" 2>/dev/null)
     [ -n "$modules" ] || modules=0
+    software_cap=unavailable
+    if [ "$modules" -gt 0 ] 2>/dev/null || [ -d "$sys_modules/nf_flow_table" ] \
+       || [ -d "$sys_modules/nf_flow_table_inet" ]; then
+        software_cap=available
+    elif [ ! -r "$module_file" ] && [ ! -d "$sys_modules" ] && [ ! -d "$module_dir" ]; then
+        software_cap=unknown
+    fi
+    hardware_cap=unavailable
+    [ "$hw_nat" = present ] && hardware_cap=available
+    capability=unavailable
+    if [ "$software_cap" = available ] || [ "$hardware_cap" = available ]; then capability=available; fi
+    [ "$software_cap" = unknown ] && [ "$hardware_cap" = unavailable ] && capability=unknown
 
-    # A flowtable declaration is not a dataplane observation.  When conntrack
-    # exposes its offload markers, report the observed path separately; when it
-    # does not, keep the answer explicitly unknown instead of inferring packets
-    # or circular rotation from configuration alone.
-    conntrack=""
+    conntrack= conn_rc=127
     if command -v conntrack >/dev/null 2>&1; then
-        conntrack=$(conntrack -L 2>/dev/null || true)
-    elif [ -r /proc/net/nf_conntrack ]; then
-        conntrack=$(cat /proc/net/nf_conntrack 2>/dev/null || true)
+        conntrack=$(conntrack -L 2>/dev/null); conn_rc=$?
+    elif [ -r "${Z2K_CONNTRACK_FILE:-/proc/net/nf_conntrack}" ]; then
+        conntrack=$(cat "${Z2K_CONNTRACK_FILE:-/proc/net/nf_conntrack}" 2>/dev/null); conn_rc=$?
     fi
     actual=not-observed
-    hardware_fact=not-observed
-    if printf '%s\n' "$conntrack" | grep -qF '[HW_OFFLOAD]'; then
-        actual=hardware
-        hardware_fact=observed
-    elif printf '%s\n' "$conntrack" | grep -qF '[OFFLOAD]'; then
-        actual=software
-    elif [ "$selective_table" = present ] && printf '%s\n' "$rules" \
-         | grep -qE 'flags[[:space:]]+offload'; then
-        hardware_fact=requested
-    elif [ "$hw_nat" = present ]; then
-        hardware_fact=available
+    printf '%s\n' "$conntrack" | grep -qF '[HW_OFFLOAD]' && actual=hardware
+    if [ "$actual" = not-observed ] && printf '%s\n' "$conntrack" | grep -qF '[OFFLOAD]'; then actual=software; fi
+
+    software_state=N/A
+    hardware_state=N/A
+    backend=N/A
+    owner_conflict=N/A
+    case "$mode" in
+        none)
+            conclusion=disabled
+            packet_state=N/A
+            circular_state=N/A
+            ;;
+        software)
+            packet_state=unknown
+            circular_state=$(_ow_autocircular_state)
+            if [ "$nft_rc" -ne 0 ]; then
+                conclusion=unavailable; software_state=unavailable; backend=unavailable; packet_state=unavailable
+            elif [ "$selective_table" = absent ] || [ "$selective_add" -eq 0 ]; then
+                conclusion=inactive; software_state=inactive; backend=inactive
+            elif [ "$actual" = software ]; then
+                conclusion=active; software_state=active; backend=NFT_FLOW_TABLE
+            else
+                conclusion=not-observed; software_state=not-observed; backend=NFT_FLOW_TABLE
+            fi
+            ;;
+        hardware)
+            packet_state=unknown
+            circular_state=$(_ow_autocircular_state)
+            if [ "$actual" = hardware ]; then
+                conclusion=active; hardware_state=active; backend=HARDWARE_NAT
+            elif [ "$hw_nat" = present ]; then
+                conclusion=not-observed; hardware_state=not-observed; backend=HARDWARE_NAT
+            else
+                conclusion=unavailable; hardware_state=unavailable; backend=unavailable
+            fi
+            ;;
+        donttouch)
+            packet_state=unknown
+            circular_state=$(_ow_autocircular_state)
+            if [ "$actual" != not-observed ]; then
+                conclusion=active
+                [ "$actual" = hardware ] && backend=HARDWARE_NAT || backend=NFT_FLOW_TABLE
+            elif [ "$nft_rc" -ne 0 ]; then conclusion=unavailable; backend=unavailable
+            elif [ "$fw4_flowtables" -gt 0 ] || [ "$hw_nat" = present ]; then conclusion=not-observed
+            else conclusion=inactive
+            fi
+            ;;
+        *)
+            conclusion=unknown; packet_state=unknown; circular_state=unknown
+            ;;
+    esac
+    if [ "$mode" != none ] && [ "$mode" != unknown ]; then
+        if [ "$nft_rc" -ne 0 ]; then packet_state=unavailable
+        elif [ "$queue_rules" -eq 0 ]; then packet_state=inactive
+        elif [ "$queue_packets" -gt 0 ]; then packet_state=active
+        else packet_state=not-observed
+        fi
     fi
 
-    backend=BACKEND_UNKNOWN
-    if [ "$hw_nat" = present ]; then
-        backend=HARDWARE_NAT
-    elif [ "$selective_table" = present ] || [ "$fw4_flowtables" -gt 0 ]; then
-        backend=NFT_FLOW_TABLE
-    fi
-    conclusion=OFFLOAD_NOT_ACTIVE
-    if [ "$selective_table" = present ] || [ "$hw_nat" = present ]; then
-        conclusion=OFFLOAD_CONFIGURED
-    fi
+    core_running=0; core_ready=0
+    "$_init" running >/dev/null 2>&1 && core_running=1
+    z2k_ow_core_ready >/dev/null 2>&1 && core_ready=1
     owner_conflict=none
-    if [ "$uci_flow" -eq 1 ] || [ "$fw4_flowtables" -gt 0 ]; then
+    if [ "$mode" != none ] && { [ "$uci_flow" -eq 1 ] || [ "$fw4_flowtables" -gt 0 ]; }; then
         if [ "$selective_table" = present ] || [ "$mode" = software ] || [ "$mode" = hardware ]; then
             owner_conflict=global_fw4+zapret2
         elif [ "$core_running" = 1 ] && [ "$core_ready" = 1 ]; then
             owner_conflict=global_fw4+nfqueue
-        else
-            owner_conflict=global_fw4_only
+        else owner_conflict=global_fw4_only
         fi
     fi
-
     printf '\n=== offload ===\n'
     printf 'flowoffload mode   : %s\n' "$mode"
+    printf 'offload capability : %s\n' "$capability"
+    printf 'software capability: %s\n' "$software_cap"
+    printf 'hardware capability: %s\n' "$hardware_cap"
     printf 'zapret2 flowtable  : %s\n' "$selective_table"
     printf 'zapret2 flow add   : %s\n' "$selective_add"
     printf 'zapret2 exemptions  : %s\n' "$exemptions"
@@ -367,15 +506,14 @@ print_offload() {
     printf 'fw4 nft flowtables : %s\n' "$fw4_flowtables"
     printf 'owner conflict     : %s\n' "$owner_conflict"
     printf 'software modules   : %s (nf_flow_table family)\n' "$modules"
-    printf 'software offload   : %s\n' "$(if [ "$selective_table" = present ]; then echo active; else echo inactive; fi)"
-    printf 'hardware offload   : %s\n' "$hardware_fact"
+    printf 'software offload   : %s\n' "$software_state"
+    printf 'hardware offload   : %s\n' "$hardware_state"
     printf 'observed dataplane : %s\n' "$actual"
-    printf 'nft acceleration   : declarations=%s flow_add=%s\n' "$ft_decl" "$ft_add"
     printf 'nf_conntrack_fastroute: %s\n' "$fastroute"
     printf 'backend            : %s\n' "$backend"
     printf 'offload state      : %s\n' "$conclusion"
-    printf 'packet visibility  : UNKNOWN (offload config is not packet evidence)\n'
-    printf 'circular           : UNKNOWN (requires nfqws2/runtime evidence)\n'
+    printf 'packet visibility  : %s\n' "$packet_state"
+    printf 'circular           : %s\n' "$circular_state"
 }
 
 print_lists() {
@@ -424,7 +562,29 @@ print_netpath() {
     [ -n "$dns" ] || dns=unknown
     printf 'dns servers        : %s\n' "$dns"
     if command -v nslookup >/dev/null 2>&1; then
-        printf 'resolve check      : %s\n' "$(nslookup example.com 2>/dev/null | awk '/^Address[0-9]*:/{print $NF; exit}')"
+        local resolve_output resolve_addr resolve_rc
+        resolve_output=$(nslookup example.com 2>/dev/null)
+        resolve_rc=$?
+        resolve_addr=$(printf '%s\n' "$resolve_output" | awk '
+            /^Name:/ { answer=1; next }
+            answer && /^Address([[:space:]]+[0-9]+)?:/ {
+                a=$NF
+                if (a ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) { print a; exit }
+                if (any == "") any=a
+            }
+            END { if (NR && !answer) exit 2; if (any != "") print any }
+        ' | head -1)
+        if [ -n "$resolve_addr" ]; then
+            printf 'resolve check      : active example.com -> %s\n' "$resolve_addr"
+        elif [ "$resolve_rc" -ne 0 ]; then
+            printf 'resolve check      : inactive (no resolved address)\n'
+        elif [ -z "$resolve_output" ]; then
+            printf 'resolve check      : unknown (empty nslookup response)\n'
+        else
+            printf 'resolve check      : inactive (no resolved address)\n'
+        fi
+    else
+        printf 'resolve check      : unavailable (nslookup missing)\n'
     fi
 }
 
@@ -436,6 +596,7 @@ case "$1" in
     warp) print_warp ;;
     platform) print_platform ;;
     offload) print_offload ;;
+    autocircular) print_autocircular ;;
     lists) print_lists ;;
     netpath) print_netpath ;;
     *) exit 2 ;;

@@ -19,7 +19,8 @@ _hits="$(grep -rEin 'ndmc|/opt/etc/ndm|kmod_ndms|entware|-j PPE|ipset-exclude.*P
 [ -z "$_hits" ] && _t_ok || _t_bad "Keenetic-зависимости: $_hits"
 
 # S99/keenetic/baggage — только в комментариях (атрибуция), не в коде.
-# Список багажа: Keenetic-инит, PPE-правила, вотчдоги, tcp16-probe,
+# Список багажа: Keenetic-инит, PPE-правила, вотчдоги.
+# TCP16 probe теперь используется как общий адаптированный OpenWrt runtime,
 # ndm, /opt-пути. Имена z2k-warp ЛЕГИТИМНЫ с Stage 5 (слой приземлился:
 # platform/openwrt/warp{,-proc,-check}.sh + проводка; контракт в docs/).
 # TG/HTTP-tunnel убраны в Stage 3, RT — в Stage 4, WARP — в Stage 5
@@ -40,7 +41,7 @@ for _f in "$REPO"/platform/openwrt/*.sh \
         | grep -v '\.z2k-tree-dirty' \
         | grep -v '\.z2k-relay-id' \
         | grep -v 'Z2K_ZAPRET2_RUNTIME.*:-/opt/zapret2' \
-        | grep -inE 'keenetic|S99|(^|[^a-zA-Z])PPE([^a-zA-Z]|$)|watchdog|tcp16-probe|Entware|/opt/|(^|[^a-zA-Z_])ndm([^a-zA-Z_]|$)' || true)"
+        | grep -inE 'keenetic|S99|(^|[^a-zA-Z])PPE([^a-zA-Z]|$)|watchdog|Entware|/opt/|(^|[^a-zA-Z_])ndm([^a-zA-Z_]|$)' || true)"
     if [ "$(basename "$_f")" = "tg-retire-udp.sh" ]; then
         _h="$(printf '%s\n' "$_h" \
             | grep -v 'Z2K_OW_LEGACY_SHELL=.*:-/opt/bin/sh}' \

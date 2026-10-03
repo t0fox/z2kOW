@@ -9,6 +9,18 @@ case "$_command" in
         ;;
     update|u) shift; exec "${Z2K_UPDATE_BIN:-/usr/lib/z2k/platform/openwrt/update.sh}" apply "$@" ;;
     check) shift; exec "${Z2K_UPDATE_BIN:-/usr/lib/z2k/platform/openwrt/update.sh}" check "$@" ;;
+    blocked-monitor|bm)
+        shift
+        _root="${Z2K_ROOT:-/usr/lib/z2k}"
+        [ -r "$_root/platform/openwrt/paths.sh" ] && . "$_root/platform/openwrt/paths.sh"
+        [ -r "$_root/platform/openwrt/env.sh" ] && . "$_root/platform/openwrt/env.sh"
+        ZAPRET_BASE="$_root"
+        ZAPRET_CONFIG="${Z2K_CONFIG:-/etc/z2k/config}"
+        Z2K_BLOCKED_MONITOR_CACHE="${Z2K_BLOCKED_MONITOR_CACHE:-${Z2K_TMP:-/tmp/z2k}/blocked-monitor}"
+        MAX_TSV_LINES="${MAX_TSV_LINES:-25000}"
+        export ZAPRET_BASE ZAPRET_CONFIG Z2K_BLOCKED_MONITOR_CACHE MAX_TSV_LINES
+        exec sh "${Z2K_BLOCKED_MONITOR_SCRIPT:-$_root/z2k-blocked-monitor.sh}" "$@"
+        ;;
     restart|r)
         [ "$#" -eq 1 ] || { echo "usage: z2kow restart" >&2; exit 2; }
         exec "${Z2K_INIT:-/etc/init.d/z2k}" restart
@@ -30,7 +42,7 @@ case "$_command" in
         fi
         ;;
     help|-h|--help)
-        printf '%s\n' 'z2kow: install <tag> | check | update | status | restart'
+        printf '%s\n' 'z2kow: install <tag> | check | update | status | restart | blocked-monitor <start|stop|status|tail>'
         ;;
     *) echo "z2kow: unknown command: $_command" >&2; exit 2 ;;
 esac

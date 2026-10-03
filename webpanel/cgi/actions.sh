@@ -2837,24 +2837,35 @@ _tcp16_count() {
     awk '!/^#/ && NF {n++} END {print n + 0}' "$1" 2>/dev/null || echo 0
 }
 tcp16_status_json() {
-    local flag="${ZAPRET2_DIR}/state/tcp16.flag"
-    local f="" ts="" age="" in_cfg=false running=false
+    local flag="${Z2K_TCP16_FLAG:-${ZAPRET2_DIR}/state/tcp16.flag}"
+    local stamp="${Z2K_TCP16_TIMESTAMP:-$flag.ts}"
+    local duration_file="${Z2K_TCP16_DURATION:-$flag.duration}"
+    local asn="${Z2K_TCP16_ASN:-${ZAPRET2_DIR}/state/tcp16_asn.txt}"
+    local names="${Z2K_TCP16_SNI:-${ZAPRET2_DIR}/state/tcp16_sni.txt}"
+    local candidates="${Z2K_TCP16_CANDIDATES:-${ZAPRET2_DIR}/lists/sni_wl_candidates.txt}"
+    local f="" ts="" age="" duration="" in_cfg=false running=false verdict=unmeasured
     [ -s "$flag" ] && f=$(cat "$flag" 2>/dev/null)
     case "$f" in 0|1) ;; *) f="" ;; esac
     # Метка времени — только вместе с ответом: одна без другого означает, что
     # проба идёт прямо сейчас.
-    if [ -n "$f" ] && [ -s "$flag.ts" ]; then
-        ts=$(cat "$flag.ts" 2>/dev/null)
+    if [ -n "$f" ] && [ -s "$stamp" ]; then
+        ts=$(cat "$stamp" 2>/dev/null)
         case "$ts" in ''|*[!0-9]*) ts="" ;; *) age=$(( $(date +%s) - ts )) ;; esac
     fi
+    [ -r "$duration_file" ] && duration=$(cat "$duration_file" 2>/dev/null)
+    case "$duration" in ''|*[!0-9]*) duration="" ;; esac
+    case "$f" in 1) verdict=blocked ;; 0) verdict=clear ;; esac
     grep -q -- '--lua-desync=z2k_sni_pick' "$CONFIG_FILE" 2>/dev/null && in_cfg=true
     # Идёт ли проба: по процессу, а не по метке — метка появляется в конце.
     pgrep -f 'z2k-tcp16-probe.sh' >/dev/null 2>&1 && running=true
     printf '{"ok":true,"measured":'; json_string "$f"
+    printf ',"verdict":'; json_string "$verdict"
+    printf ',"timestamp":'; json_string "$ts"
+    printf ',"duration":%s' "${duration:-null}"
     printf ',"age":%s' "${age:-null}"
-    printf ',"nets_blocked":%s' "$(_tcp16_count "${ZAPRET2_DIR}/state/tcp16_asn.txt")"
-    printf ',"names":%s' "$(_tcp16_count "${ZAPRET2_DIR}/state/tcp16_sni.txt")"
-    printf ',"candidates":%s' "$(_tcp16_count "${ZAPRET2_DIR}/lists/sni_wl_candidates.txt")"
+    printf ',"nets_blocked":%s' "$(_tcp16_count "$asn")"
+    printf ',"names":%s' "$(_tcp16_count "$names")"
+    printf ',"candidates":%s' "$(_tcp16_count "$candidates")"
     printf ',"in_config":%s,"running":%s}\n' "$in_cfg" "$running"
 }
 
@@ -2863,11 +2874,12 @@ tcp16_status_json() {
 # логом; сама проба, если ответ сменил картину, пересобирает конфиг и
 # перезапускает сервис — панель это переживает как штатный обрыв.
 tcp16_probe_async() {
-    [ -r "${ZAPRET2_DIR}/z2k-tcp16-probe.sh" ] || return 3
+    local _probe="${Z2K_TCP16_PROBE:-${ZAPRET2_DIR}/z2k-tcp16-probe.sh}"
+    [ -r "$_probe" ] || return 3
     if pgrep -f 'z2k-tcp16-probe.sh' >/dev/null 2>&1; then
         return 4
     fi
-    svc_action_async "Проба линии на обрыв 16 КБ" "sh \"${ZAPRET2_DIR}/z2k-tcp16-probe.sh\""
+    svc_action_async "Проба линии на обрыв 16 КБ" "sh \"$_probe\""
 }
 
 # --- rotator state (Phase 3) ---

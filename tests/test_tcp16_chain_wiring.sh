@@ -114,20 +114,14 @@ done
 MISS=""
 for f in files/lists/tcp16_targets.txt files/lists/tcp16_nets.txt \
          files/lists/sni_wl_candidates.txt files/lua/z2k-tcp16.lua \
-         files/z2k-config-validator.sh; do
+         files/z2k-config-validator.sh files/z2k-tcp16-probe.sh; do
     dst=$(z2k_install_paths_for openwrt "$f")
     case "$dst" in /usr/lib/z2k/*) ;; *) MISS="$MISS $f" ;; esac
 done
 [ -z "$MISS" ] \
     && grep -q 'stage-common-payload.sh' "$DIR/scripts/openwrt/stage-rootfs.sh" \
-    && ok "общие файлы механизма входят в полный OpenWrt payload" \
-    || bad "общие файлы механизма не входят в полный OpenWrt payload:$MISS"
-
-# The probe script is intentionally Keenetic-only in the release map; it is not
-# a separate OpenWrt component or an independently updated payload.
-[ -z "$(z2k_install_paths_for openwrt files/z2k-tcp16-probe.sh)" ] \
-    && ok "OpenWrt не включает Keenetic-only probe как отдельный компонент" \
-    || bad "OpenWrt unexpectedly maps the Keenetic-only probe"
+    && ok "общие файлы и probe механизма входят в полный OpenWrt payload" \
+    || bad "общие файлы и probe механизма не входят в полный OpenWrt payload:$MISS"
 
 # --- 6. Устаревший бинарник проба чинит сама --------------------------------
 # Шаг refresh-binaries выполняется, только если релиз его объявил, а объявляется

@@ -19,6 +19,13 @@ Z2K_CRON_LINE="17 2 * * * $Z2K_ROOT/platform/openwrt/update.sh apply # z2k-updat
 # Keep this as a separate marker so update/install and health schedules do not
 # overwrite one another.
 Z2K_WARP_GAMES_CRON_LINE="37 2 * * * ZAPRET2_DIR=$Z2K_ROOT CONFIG_FILE=${Z2K_CONFIG:-/etc/z2k/config} Z2K_WARP_IPSET_SCRIPT=$Z2K_ROOT/platform/openwrt/warp.sh LOG_FILE=${Z2K_LOG:-/tmp/z2k/logs}/z2k-warp-games.log sh $Z2K_ROOT/z2k-update-lists.sh warp-games # z2k-warp-games"
+# Upstream's complete list maintenance cycle runs daily at 04:00. A small
+# OpenWrt launcher binds persistent state and service hooks before calling the
+# shared updater; the cron command stays below the BusyBox line-buffer limit.
+Z2K_LISTS_CRON_LINE="0 4 * * * $Z2K_ROOT/platform/openwrt/list-refresh.sh # z2k-lists"
+# Upstream strategy telemetry remains gated by its config toggle and
+# acknowledgement. The adapter supplies OpenWrt's canonical config and state.
+Z2K_STATS_CRON_LINE="0 3 * * * ZAPRET2_DIR=$Z2K_ROOT CONFIG_FILE=${Z2K_CONFIG:-/etc/z2k/config} STATE_FILE=${Z2K_STATE:-/etc/z2k/state}/state.tsv sh $Z2K_ROOT/z2k-stats-upload.sh # z2k-stats-upload"
 # TG health-check (Stage 3): конвергенция rules + probe + kill-only backoff.
 # Отдельный маркер и отдельные функции: updater-строку не трогаем.
 Z2K_TG_CRON_LINE="*/5 * * * * $Z2K_ROOT/platform/openwrt/tg-check.sh check # z2k-tg-health"
@@ -31,6 +38,12 @@ Z2K_WARP_CRON_LINE="*/1 * * * * $Z2K_ROOT/platform/openwrt/warp-check.sh check #
 # Core firewall health (p-84.20): сверка каждого required инварианта, одна
 # попытка re-apply, упорный провал снимает ready. Каденс 5 минут, как TG/RT.
 Z2K_FW_CRON_LINE="*/5 * * * * $Z2K_ROOT/platform/openwrt/fw-check.sh check # z2k-fw-health"
+# Upstream scheduler runs the complete TCP16 measurement nightly at 03:30 and
+# retries an unmeasured line every ten minutes after first service start. The
+# direct nightly command preserves the full remeasurement; the small check
+# adapter is a no-op once a valid persistent verdict exists.
+Z2K_TCP16_NIGHTLY_CRON_LINE="30 3 * * * sh $Z2K_ROOT/z2k-tcp16-probe.sh # z2k-tcp16-nightly"
+Z2K_TCP16_FIRST_CRON_LINE="*/10 * * * * sh $Z2K_ROOT/platform/openwrt/tcp16-check.sh # z2k-tcp16-first-result"
 
 # Read the selected hour as data.  The config is a shell fragment, so never
 # source it from cron/postinst.  The last assignment wins for the normal
@@ -77,16 +90,19 @@ z2k_ow_cron_install() {
     _hour=$(z2k_ow_schedule_hour "${Z2K_CONFIG:-/etc/z2k/config}") || return 1
     Z2K_CRON_LINE="17 $_hour * * * $Z2K_ROOT/platform/openwrt/update.sh apply # z2k-updater"
     Z2K_WARP_GAMES_CRON_LINE="37 $_hour * * * ZAPRET2_DIR=$Z2K_ROOT CONFIG_FILE=${Z2K_CONFIG:-/etc/z2k/config} Z2K_WARP_IPSET_SCRIPT=$Z2K_ROOT/platform/openwrt/warp.sh LOG_FILE=${Z2K_LOG:-/tmp/z2k/logs}/z2k-warp-games.log sh $Z2K_ROOT/z2k-update-lists.sh warp-games # z2k-warp-games"
+    Z2K_LISTS_CRON_LINE="0 4 * * * $Z2K_ROOT/platform/openwrt/list-refresh.sh # z2k-lists"
     mkdir -p "$(dirname "$Z2K_CRON_TAB")" 2>/dev/null || return 1
     [ -f "$Z2K_CRON_TAB" ] || : > "$Z2K_CRON_TAB" || return 1
     # Дедупликация: схлопываем все старые marker-строки в одну актуальную
     # (иначе правка расписания в новой версии плодила бы дубли).
     # Запись — temp в том же каталоге + rename (shared crontab нельзя
     # оставить обрезанным при сбое).
-    awk '!index($0, "# z2k-updater") && !index($0, "# z2k-warp-games")' \
+    awk '!index($0, "# z2k-updater") && !index($0, "# z2k-warp-games") && !index($0, "# z2k-lists") && !index($0, "# z2k-stats-upload")' \
         "$Z2K_CRON_TAB" > "$Z2K_CRON_TAB.new" 2>/dev/null || return 1
     printf '%s\n' "$Z2K_CRON_LINE" >> "$Z2K_CRON_TAB.new" || return 1
     printf '%s\n' "$Z2K_WARP_GAMES_CRON_LINE" >> "$Z2K_CRON_TAB.new" || return 1
+    printf '%s\n' "$Z2K_LISTS_CRON_LINE" >> "$Z2K_CRON_TAB.new" || return 1
+    printf '%s\n' "$Z2K_STATS_CRON_LINE" >> "$Z2K_CRON_TAB.new" || return 1
     mv -f "$Z2K_CRON_TAB.new" "$Z2K_CRON_TAB" || return 1
     # cron в части сборок выключен по умолчанию — фиксируем намерение
     # (enable) и поднимаем best-effort, если его нет в процессах; дважды
@@ -103,7 +119,7 @@ z2k_ow_cron_remove() {
     [ -f "$Z2K_CRON_TAB" ] || return 0
     # Та же атомарность; z2k-only файл (все строки наши) после remove пуст,
     # но цел — grep rc=1 здесь НЕ ошибка (см. install выше).
-    awk '!index($0, "# z2k-updater") && !index($0, "# z2k-warp-games")' \
+    awk '!index($0, "# z2k-updater") && !index($0, "# z2k-warp-games") && !index($0, "# z2k-lists") && !index($0, "# z2k-stats-upload")' \
         "$Z2K_CRON_TAB" > "$Z2K_CRON_TAB.new" 2>/dev/null || return 1
     mv -f "$Z2K_CRON_TAB.new" "$Z2K_CRON_TAB" || return 1
     return 0
@@ -182,4 +198,19 @@ z2k_ow_fw_cron_remove() {
     [ -f "$Z2K_CRON_TAB" ] || return 0
     _z2k_ow_cron_swap_line "# z2k-fw-health" "" || return 1
     return 0
+}
+
+z2k_ow_tcp16_cron_install() {
+    _z2k_ow_cron_swap_line "# z2k-tcp16-nightly" "$Z2K_TCP16_NIGHTLY_CRON_LINE" || return 1
+    _z2k_ow_cron_swap_line "# z2k-tcp16-first-result" "$Z2K_TCP16_FIRST_CRON_LINE" || return 1
+    if [ -x /etc/init.d/cron ]; then
+        /etc/init.d/cron enabled 2>/dev/null || /etc/init.d/cron enable 2>/dev/null || true
+        pidof crond >/dev/null 2>&1 || /etc/init.d/cron start 2>/dev/null || true
+    fi
+    return 0
+}
+
+z2k_ow_tcp16_cron_remove() {
+    _z2k_ow_cron_swap_line "# z2k-tcp16-nightly" "" || return 1
+    _z2k_ow_cron_swap_line "# z2k-tcp16-first-result" "" || return 1
 }
