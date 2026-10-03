@@ -17,6 +17,8 @@ The browser suite covers all configured routes in both themes. The checked-in im
 
 The latest screenshot run generated full-page captures for all 12 routes at 1440×900 in both themes, plus narrow 390×844 captures for the dashboard, strategies, WARP, state table, domain lists, and diagnostics. Additional captures cover 1920×1080, 1366×768, 1280×720, 1079×900, 1024×900, and 768×900; WARP device disclosure, diagnostics scrolling, open dropdown/modal, primary-button hover, and collapsed navigation were reviewed as separate states. The images use deterministic browser fixtures and do not represent a live router.
 
+The final audit adds 768 px and 800 px dashboard-grid measurements in both themes, long state-group collapse/expand with IPv4/IPv6 family badges at desktop and mobile widths, all three DNS result paths, domain-probe request normalization and result states, and the selected-domain editor at 390 px. Fresh captures are written to `.superpowers/sdd/pasted-text-1.txt-fbce365a-550a-4ec7-8d49-c977c1e41ccf/final-audit/`.
+
 ## Responsive behavior
 
 - At 1920 px, the desktop side rail is 261 px and the mobile drawer trigger is hidden. The header shows the z2kOW mark and theme control; route links appear once in the side menu.

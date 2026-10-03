@@ -46,11 +46,18 @@ const statusFixture = {
   tunnel: { running: true },
   capabilities: { policy: false, ppe: false, tcp16: false, diag: true, warp: true, telegram: true, uninstall: false, offload: true },
 };
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
   if (url.pathname.startsWith('/cgi-bin/api/')) {
     const endpoint = url.pathname.slice('/cgi-bin/api/'.length);
-    apiRequests.push({ endpoint, marker: req.headers['x-z2k-panel'] || '' });
+    const apiRequest = { endpoint, method: req.method, marker: req.headers['x-z2k-panel'] || '',
+      contentType: req.headers['content-type'] || '' };
+    if (req.method === 'POST') {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      apiRequest.body = Buffer.concat(chunks).toString('utf8');
+    }
+    apiRequests.push(apiRequest);
     if (req.headers['x-z2k-panel'] !== '1') {
       res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ ok: false, error: 'missing panel marker' }));
@@ -76,6 +83,13 @@ const server = http.createServer((req, res) => {
       sni: index % 17 === 0 ? `front-${index}.example.net` : '',
       ts: Math.floor(Date.now() / 1000) - index * 60,
     }));
+    Object.assign(stateEntries[0], { host: 'api.reddit.com|4' });
+    Object.assign(stateEntries[2], { host: 'old.reddit.com|6' });
+    Object.assign(stateEntries[4], { host: 'www.reddit.com|4' });
+    Object.assign(stateEntries[1], { host: 'api.long-group-name-for-responsive-layout-coverage.net|4' });
+    Object.assign(stateEntries[3], { host: 'cdn.long-group-name-for-responsive-layout-coverage.net|6' });
+    Object.assign(stateEntries[6], { host: '192.0.2.44' });
+    Object.assign(stateEntries[7], { host: '2001:db8:1234:5678::44' });
     const body = endpoint === 'state'
       ? { ok: true, entries: stateEntries }
       : endpoint === 'pools'
@@ -135,6 +149,17 @@ const server = http.createServer((req, res) => {
                                 ...Array.from({ length: 48 }, (_, index) => `log[${String(index + 1).padStart(2, '0')}] dnsmasq[${1000 + index}]: upstream probe completed; resolver=192.0.2.${(index % 200) + 1}; elapsed=${12 + index}ms`),
                                 '=== Конец краткой сводки ===',
                               ].join('\n') }
+        : endpoint === 'diag/probe' && req.method === 'POST'
+          ? { ok: true, report: probeReportFixture }
+        : endpoint === 'dns/check' && req.method === 'GET'
+          ? { ok: true, own: '1.1.1.1\nhttps://dns.example.test/dns-query', result: {
+            intercept: true, intercept_by: 'router', stub: '198.18.0.1', servers: [
+              { name: 'Resolver A', udp: 'works', udp_ms: 18, doh: 'spoof', doh_ms: 74,
+                dot: 'silent', dot_ms: null, current: true, yt: 'empty' },
+              { name: 'Resolver B', udp: 'silent', udp_ms: null, doh: 'works', doh_ms: 25,
+                dot: 'spoof', dot_ms: 97, current: false, yt: '' },
+            ],
+          } }
         : endpoint === 'exclude'
           ? { ok: true, entries: ['1.1.1.1', '192.0.2.10', '2001:db8:1234:5678::abcd', '203.0.113.64/27'],
               legacy_domains: ['legacy.example.net', 'long-legacy-domain-name-for-layout-review.example.org'] }
@@ -221,6 +246,236 @@ async function assertActiveStrategyTabVisible(page, label) {
     `${label}: the active strategy tab is fully visible without manual scrolling (${JSON.stringify(bounds)})`);
   assert.ok(bounds.tabsInView.every(item => item.left >= bounds.viewportLeft - 1 && item.right <= bounds.viewportRight + 1),
     `${label}: strategy tabs fit without clipped labels (${JSON.stringify(bounds)})`);
+}
+
+const probeReportFixture = [
+  'Probe: dns=ok tcp=fail tls=skip (284ms)',
+  'IPs: 203.0.113.8, 203.0.113.9',
+  'Code: 451',
+  'Reason: certificate <expired>',
+  'Verdict: HOT — blocked during TLS',
+  '  → Check the TLS inspection path',
+].join('\n');
+
+async function assertDiagDynamicStates(page, label, viewport = '1440') {
+  const groups = page.locator('#dns-result details.dns-group');
+  assert.equal(await groups.count(), 3, `${label}: previous DNS result renders all three paths`);
+  assert.deepEqual(await page.locator('#dns-result .dns-path').allTextContents(),
+    ['Обычный DNS', 'Шифрованный DoH', 'Шифрованный DoT'],
+    `${label}: DNS paths remain separately discoverable`);
+  assert.ok(await groups.evaluateAll(nodes => nodes.every(node => !node.open)),
+    `${label}: DNS result groups start collapsed`);
+  await groups.nth(0).locator('summary').click();
+  await groups.nth(1).locator('summary').click();
+  await groups.nth(2).locator('summary').click();
+  const dnsState = await groups.evaluateAll(nodes => nodes.map(node => ({
+    path: node.querySelector('.dns-path')?.textContent.trim(),
+    open: node.open,
+    note: node.querySelector('.dns-count')?.textContent.trim(),
+    tally: node.querySelector('.dns-tally')?.textContent.trim(),
+    tallyClass: node.querySelector('.dns-tally')?.className,
+    rows: Array.from(node.querySelectorAll('li')).map(row => ({
+      name: row.querySelector('span')?.textContent.trim(),
+      state: row.querySelector('.dns-state')?.textContent.trim(),
+      stateClass: row.querySelector('.dns-state')?.className,
+      current: row.querySelector('.dns-cur')?.textContent.trim() || '',
+      youtube: row.querySelector('.dns-yt')?.textContent.trim() || '',
+    })),
+  })));
+  assert.ok(dnsState.every(group => group.open && group.rows.length === 2),
+    `${label}: each expanded DNS path shows both fixture servers (${JSON.stringify(dnsState)})`);
+  assert.deepEqual(dnsState.map(group => group.tally), [
+    '1 целых · 1 без ответа', '1 целых · 1 подменено', '1 подменено · 1 без ответа',
+  ], `${label}: path summaries count working, substituted and silent responses (${JSON.stringify(dnsState)})`);
+  assert.deepEqual(dnsState.map(group => group.tallyClass), [
+    'dns-tally dns-good', 'dns-tally dns-bad', 'dns-tally dns-bad',
+  ]);
+  assert.match(dnsState[0].note, /порт 53 завёрнут роутером.*заглушка 198\.18\.0\.1/);
+  assert.ok(dnsState.every(group => group.rows.some(row => row.name.includes('Resolver A')
+    && row.current === 'используется сейчас' && row.youtube === 'нет адреса для youtube.com')),
+  `${label}: current resolver and missing YouTube address tags appear on each path`);
+  assert.match(dnsState[0].rows[0].state, /честно 18 мс/);
+  assert.match(dnsState[1].rows[0].state, /ответ подменён 74 мс/);
+  assert.match(dnsState[2].rows[1].state, /ответ подменён 97 мс/);
+  assert.equal(await page.locator('#dns-own-text').inputValue(),
+    '1.1.1.1\nhttps://dns.example.test/dns-query', `${label}: custom resolver text is restored`);
+
+  const requestStart = apiRequests.length;
+  await page.locator('#probe-domain').fill('https://example.test/path');
+  await page.locator('#probe-run').click();
+  await page.locator('#probe-result .probe-stage').first().waitFor({ state: 'visible' });
+  const probeRequest = apiRequests.slice(requestStart).find(request => request.endpoint === 'diag/probe');
+  assert.ok(probeRequest, `${label}: clicking Probe sends the local fixture request`);
+  assert.equal(probeRequest.method, 'POST', `${label}: domain probe uses POST`);
+  assert.equal(probeRequest.contentType, 'application/x-www-form-urlencoded',
+    `${label}: normalized domain is sent as a form field`);
+  assert.equal(probeRequest.body, 'domain=example.test',
+    `${label}: URL scheme and path are removed before submission (${JSON.stringify(probeRequest)})`);
+  assert.deepEqual(await page.locator('#probe-result .probe-stage').evaluateAll(nodes => nodes.map(node => ({
+    label: node.textContent.replace(/\s+/g, ' ').trim(),
+    className: node.className,
+  }))), [
+    { label: 'dnsok', className: 'probe-stage good' },
+    { label: 'tcpfail', className: 'probe-stage bad' },
+    { label: 'tlsskip', className: 'probe-stage muted' },
+  ], `${label}: each probe stage carries its result state`);
+  assert.equal(await page.locator('#probe-result .probe-lat').innerText(), '284 мс');
+  assert.equal(await page.locator('#probe-result .probe-line').first().innerText(),
+    'Адреса\n203.0.113.8, 203.0.113.9');
+  assert.equal(await page.locator('#probe-result .probe-line').nth(1).innerText(),
+    'Причина\ncertificate <expired>', `${label}: report content is escaped into visible text`);
+  assert.equal(await page.locator('#probe-result .probe-verdict').innerText(), 'Blocked during TLS');
+  assert.equal(await page.locator('#probe-result .probe-verdict').getAttribute('class'), 'probe-verdict hot');
+  assert.equal(await page.locator('#probe-result script').count(), 0,
+    `${label}: report text cannot inject markup`);
+  await page.locator('#probe-result .probe-raw summary').click();
+  assert.equal(await page.locator('#probe-result .probe-raw pre').innerText(), probeReportFixture,
+    `${label}: complete dynamic report remains available verbatim`);
+  if (screenshotDir) {
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const screenshotBase = `${label.replace(/[^a-z\d]+/gi, '-').toLowerCase()}-${viewport}-diag-dynamic`;
+    await page.screenshot({ path: path.join(screenshotDir, `${screenshotBase}.png`),
+      fullPage: viewport === '390' });
+    if (viewport !== '390') {
+      await page.locator('#dns-result').screenshot({
+        path: path.join(screenshotDir, `${screenshotBase}-dns-results.png`),
+      });
+    }
+  }
+}
+
+async function assertMobileSelectedDomainEditor(page, appearance) {
+  await page.waitForFunction(() => document.querySelectorAll('#wl-list .wl-row').length === 16);
+  const saveCount = apiRequests.filter(request => request.endpoint === 'extra-domains/save'
+    && request.method === 'POST').length;
+  await page.locator('#wl-search').fill('rutracker.org');
+  await page.locator('#wl-select').click();
+  assert.equal(await page.locator('#wl-count').innerText(), 'Найдено 1 из 16 · Выбрано 1',
+    `${appearance}/390: select-found operates on the filtered mobile list`);
+  assert.deepEqual(await page.locator('#wl-list [data-row]:checked').evaluateAll(nodes =>
+    nodes.map(node => ({ id: node.dataset.row, domain: node.closest('.wl-row').querySelector('span').textContent.trim() }))),
+  [{ id: '1', domain: 'rutracker.org' }], `${appearance}/390: only the matching domain is selected`);
+  await page.locator('#wl-edit-selected').click();
+  await page.locator('#wl-editor').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#wl-editor-title').innerText(), 'Редактирование выбранных: 1');
+  assert.equal(await page.locator('#wl-editor-hint').innerText(),
+    'Замените или удалите строки ниже. Невыбранные записи останутся на месте.');
+  assert.equal(await page.locator('#wl-editor-text').inputValue(), 'rutracker.org');
+  const controls = await page.locator('#wl-card').evaluate(root => ({
+    searchDisabled: root.querySelector('#wl-search').disabled,
+    selectDisabled: root.querySelector('#wl-select').disabled,
+    editSelectedDisabled: root.querySelector('#wl-edit-selected').disabled,
+    saveDisabled: root.querySelector('#wl-save').disabled,
+    cancelDisabled: root.querySelector('#wl-cancel').disabled,
+    editorDisabled: root.querySelector('#wl-editor-text').disabled,
+  }));
+  assert.deepEqual(controls, {
+    searchDisabled: true, selectDisabled: true, editSelectedDisabled: true,
+    saveDisabled: false, cancelDisabled: false, editorDisabled: false,
+  }, `${appearance}/390: list actions lock while editor actions remain available (${JSON.stringify(controls)})`);
+  assert.equal(apiRequests.filter(request => request.endpoint === 'extra-domains/save'
+    && request.method === 'POST').length, saveCount,
+  `${appearance}/390: opening the bulk editor performs no save request`);
+  const frame = await page.evaluate(() => ({
+    width: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth,
+  }));
+  assert.ok(frame.scrollWidth <= frame.width,
+    `${appearance}/390: selected editor stays within the mobile viewport (${JSON.stringify(frame)})`);
+  if (screenshotDir) {
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: path.join(screenshotDir,
+      `${appearance}-390-extra-domains-selected-editor.png`), fullPage: true });
+  }
+  await page.locator('#wl-cancel').click();
+  assert.equal(await page.locator('#wl-editor').evaluate(node => node.hidden), true,
+    `${appearance}/390: the fixture editor closes without changing the saved list`);
+}
+
+const longStateGroupName = 'long-group-name-for-responsive-layout-coverage.net';
+async function assertStateGroupDisclosure(page, label) {
+  const longGroup = page.locator('.state-table tbody.sg').filter({
+    has: page.locator('.sg-name', { hasText: longStateGroupName }),
+  });
+  assert.equal(await longGroup.count(), 1, `${label}: fixture renders one long registrable-domain group`);
+  const toggle = longGroup.locator('.sg-toggle');
+  if (await toggle.getAttribute('aria-expanded') === 'true') await toggle.click();
+  const collapsed = await longGroup.evaluate(group => ({
+    name: group.querySelector('.sg-name')?.textContent.trim(),
+    isClosed: group.classList.contains('sg-closed'),
+    expanded: group.querySelector('.sg-toggle')?.getAttribute('aria-expanded'),
+    members: group.querySelectorAll('tr.sg-member').length,
+    visibleMembers: Array.from(group.querySelectorAll('tr.sg-member'))
+      .filter(row => row.getBoundingClientRect().height > 0).length,
+  }));
+  assert.equal(collapsed.name, longStateGroupName, `${label}: long group name remains the registrable domain`);
+  assert.equal(collapsed.isClosed, true, `${label}: group can be collapsed`);
+  assert.equal(collapsed.expanded, 'false');
+  assert.equal(collapsed.members, 2, `${label}: long group has both address-family entries`);
+  assert.equal(collapsed.visibleMembers, 0, `${label}: collapsed group hides its member rows`);
+  if (screenshotDir) {
+    await longGroup.locator('.sg-head').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(screenshotDir,
+      `${label.replace(/[^a-z\d]+/gi, '-').toLowerCase()}-state-group-collapsed.png`) });
+  }
+
+  await toggle.click();
+  const expanded = await longGroup.evaluate(group => {
+    const members = Array.from(group.querySelectorAll('tr.sg-member'));
+    const hostCells = members.map(row => {
+      const cell = row.querySelector('.state-host');
+      const family = cell.querySelector('.fam-tag');
+      const cellRect = cell.getBoundingClientRect();
+      const familyRect = family.getBoundingClientRect();
+      return { family: family.textContent.trim(), cellWidth: cellRect.width,
+        familyRight: familyRect.right, cellRight: cellRect.right };
+    });
+    const name = group.querySelector('.sg-name');
+    const nameStyle = getComputedStyle(name);
+    return {
+      isClosed: group.classList.contains('sg-closed'),
+      expanded: group.querySelector('.sg-toggle')?.getAttribute('aria-expanded'),
+      visibleMembers: members.filter(row => row.getBoundingClientRect().height > 0).length,
+      hostCells,
+      name: { textOverflow: nameStyle.textOverflow, whiteSpace: nameStyle.whiteSpace,
+        scrollWidth: name.scrollWidth, clientWidth: name.clientWidth },
+      documentWidth: document.documentElement.clientWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+    };
+  });
+  assert.equal(expanded.isClosed, false, `${label}: group expands in place`);
+  assert.equal(expanded.expanded, 'true');
+  assert.equal(expanded.visibleMembers, 2, `${label}: expanded group reveals both rows`);
+  assert.deepEqual(expanded.hostCells.map(cell => cell.family).sort(), ['IPv4', 'IPv6'],
+    `${label}: repeated domain entries keep their IPv4 and IPv6 badges (${JSON.stringify(expanded.hostCells)})`);
+  assert.ok(expanded.hostCells.every(cell => cell.familyRight <= cell.cellRight + 0.5),
+    `${label}: family badges stay inside the host cells (${JSON.stringify(expanded.hostCells)})`);
+  assert.equal(expanded.name.textOverflow, 'ellipsis', `${label}: long group title has a bounded ellipsis`);
+  assert.equal(expanded.name.whiteSpace, 'nowrap');
+  assert.ok(expanded.name.scrollWidth > expanded.name.clientWidth,
+    `${label}: long group title exercises actual ellipsis (${JSON.stringify(expanded.name)})`);
+  assert.ok(expanded.documentScrollWidth <= expanded.documentWidth,
+    `${label}: expanded group does not cause page overflow (${JSON.stringify(expanded)})`);
+  if (screenshotDir) {
+    await page.screenshot({ path: path.join(screenshotDir,
+      `${label.replace(/[^a-z\d]+/gi, '-').toLowerCase()}-state-group-expanded.png`) });
+  }
+
+  await toggle.click();
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'false', `${label}: expanded group collapses again`);
+  assert.equal(await longGroup.locator('tr.sg-member:visible').count(), 0,
+    `${label}: the second collapse hides both rows`);
+  await toggle.click();
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'true', `${label}: test leaves a visible data row for geometry checks`);
+
+  const addresses = await page.locator('.state-table td.state-host').evaluateAll(cells => cells
+    .filter(cell => ['192.0.2.44', '2001:db8:1234:5678::44'].includes(cell.textContent.trim()))
+    .map(cell => ({ text: cell.textContent.trim(), grouped: cell.closest('tbody')?.classList.contains('sg') || false,
+      familyBadge: Boolean(cell.querySelector('.fam-tag')) }))
+    .sort((left, right) => left.text.localeCompare(right.text)));
+  assert.deepEqual(addresses, [
+    { text: '192.0.2.44', grouped: false, familyBadge: false },
+    { text: '2001:db8:1234:5678::44', grouped: false, familyBadge: false },
+  ], `${label}: literal IPv4 and IPv6 addresses remain standalone entries (${JSON.stringify(addresses)})`);
 }
 
 async function assertStrategyTabsAllowManualScroll(page, label) {
@@ -800,6 +1055,7 @@ try {
         }));
         assert.ok(logViewport.scrollHeight > logViewport.height && logViewport.overflowY === 'auto',
           `long diagnostic output stays inside its own scroll container (${JSON.stringify(logViewport)})`);
+        await assertDiagDynamicStates(page, appearance);
       }
       if (route === 'exclude') {
         await page.waitForFunction(() => document.querySelectorAll('#ex-list li button[data-del]').length >= 4);
@@ -859,10 +1115,11 @@ try {
       if (route === 'state') {
         await page.locator('.state-table').waitFor({ state: 'visible', timeout: 2000 });
         await page.waitForFunction(() => document.querySelectorAll('.state-table tbody tr').length >= 100, null, { timeout: 2000 });
+        await assertStateGroupDisclosure(page, `${appearance}/1440`);
         const tablePanelRadius = await page.locator('.table-scroll').first().evaluate(node => getComputedStyle(node).borderRadius);
         assert.equal(tablePanelRadius, '12px',
           `${appearance}: the table wrapper keeps the measured Lolz 12 px panel radius in both themes`);
-        const strategyControl = await page.locator('.state-table .chosen-single').first().evaluate(node => {
+        const strategyControl = await page.locator('.state-table .chosen-single:visible').first().evaluate(node => {
           const style = getComputedStyle(node);
           const rect = node.getBoundingClientRect();
           return { width: rect.width, height: rect.height, radius: style.borderRadius };
@@ -871,7 +1128,8 @@ try {
           'strategy selectors match the measured Lolz 220×36 control geometry');
         const tableGeometry = await page.locator('.state-table').evaluate(table => {
           const header = Array.from(table.tHead.rows[0].cells);
-          const rows = Array.from(table.querySelectorAll('tbody tr')).filter(row => row.cells.length === header.length);
+          const rows = Array.from(table.querySelectorAll('tbody tr')).filter(row => row.cells.length === header.length
+            && !row.classList.contains('sg-head') && row.getBoundingClientRect().height > 0);
           const first = rows[0];
           const strategyCell = first.cells[3].getBoundingClientRect();
           const strategy = first.cells[3].querySelector('.chosen-single').getBoundingClientRect();
@@ -1058,6 +1316,23 @@ try {
         }));
         assert.ok(responsiveFrame.scrollWidth <= responsiveFrame.viewport,
           `${appearance}/${width}: ${route} has no page horizontal overflow (${JSON.stringify(responsiveFrame)})`);
+        if (route === 'dashboard' && [768, 800].includes(width)) {
+          const statusGridGeometry = await page.locator('#status-grid').evaluate(grid => {
+            const cells = Array.from(grid.querySelectorAll('.status-cell'));
+            const columns = getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/);
+            return { count: cells.length, columnCount: columns.length, columns,
+              cellWidths: cells.map(cell => Math.round(cell.getBoundingClientRect().width * 10) / 10),
+              labels: cells.map(cell => cell.querySelector('.label')?.textContent.trim() || '') };
+          });
+          assert.equal(statusGridGeometry.count, 6,
+            `${appearance}/${width}: dashboard status grid has its six settled cells (${JSON.stringify(statusGridGeometry)})`);
+          assert.equal(statusGridGeometry.columnCount, 2,
+            `${appearance}/${width}: dashboard status grid retains two tablet columns (${JSON.stringify(statusGridGeometry)})`);
+          assert.ok(statusGridGeometry.cellWidths.every(cellWidth => cellWidth >= 160),
+            `${appearance}/${width}: dashboard status tiles retain the 160 px minimum at the compact tablet shell (${JSON.stringify(statusGridGeometry)})`);
+          if (screenshotDir) fs.writeFileSync(path.join(screenshotDir,
+            `${appearance}-${width}-dashboard-status-grid.json`), JSON.stringify(statusGridGeometry, null, 2));
+        }
         if (width === 768 && route === 'warp') {
           const warpColumns = await page.locator('#warp-games').evaluate(node => ({
             count: getComputedStyle(node).gridTemplateColumns.trim().split(/\s+/).length,
@@ -1075,6 +1350,7 @@ try {
             && ([1920, 1366, 1280].includes(width) || (appearance === 'dark' && width === 1024 && route === 'dashboard')
               || (width === 1079 && route === 'warp')
               || (width === 1024 && route === 'dashboard')
+              || ([768, 800].includes(width) && route === 'dashboard')
               || (width === 768 && route === 'warp'))) {
           await page.evaluate(() => window.scrollTo(0, 0));
           await page.mouse.move(width - 1, height - 1);
@@ -1497,7 +1773,10 @@ try {
     assert.ok(await mobile.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
       `390px: ${route} has no page horizontal overflow`);
     if (route === 'strategies') await assertActiveStrategyTabVisible(mobile, '390px dark');
+    if (route === 'diag') await assertDiagDynamicStates(mobile, 'dark', '390');
+    if (route === 'extra-domains') await assertMobileSelectedDomainEditor(mobile, 'dark');
     if (route === 'state') {
+      await assertStateGroupDisclosure(mobile, 'dark/390');
       const stateLayout = await mobile.locator('.state-table').evaluate(table => {
         const header = table.querySelector('thead');
         const row = table.querySelector('tbody tr');
@@ -1522,7 +1801,7 @@ try {
         `390px ${route}: columns remain reachable in the local horizontal scroller (${JSON.stringify(stateLayout)})`);
       assert.ok(stateLayout.pageScrollWidth <= stateLayout.pageClientWidth,
         `390px ${route}: table scrolling does not create document overflow (${JSON.stringify(stateLayout)})`);
-      const touchTargets = await mobile.locator('.state-table tbody tr').first().evaluate(row => {
+      const touchTargets = await mobile.locator('.state-table tbody.sg:not(.sg-closed) tr.sg-member:visible').first().evaluate(row => {
         const measure = selector => {
           const rect = row.querySelector(selector).getBoundingClientRect();
           return { width: rect.width, height: rect.height };
@@ -1590,7 +1869,10 @@ try {
     assert.ok(await mobile.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
       `390px light: ${route} has no page horizontal overflow`);
     if (route === 'strategies') await assertActiveStrategyTabVisible(mobile, '390px light');
+    if (route === 'diag') await assertDiagDynamicStates(mobile, 'light', '390');
+    if (route === 'extra-domains') await assertMobileSelectedDomainEditor(mobile, 'light');
     if (route === 'state') {
+      await assertStateGroupDisclosure(mobile, 'light/390');
       const stateLayout = await mobile.locator('.state-table').evaluate(table => {
         const header = table.querySelector('thead');
         const row = table.querySelector('tbody tr');

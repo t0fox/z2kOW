@@ -914,6 +914,13 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 .status-cell.bad .value, .tcp16-state.bad .tcp16-text { color: var(--ow-danger); }
 .status-cell.info .value { color: var(--ow-info); }
 
+/* The base 3-column tablet rule needs at least 500 px of card content to keep
+   each status tile at its 160 px minimum. The compact shell has only 464–534 px
+   for #app from 768–837 px, so retain the two-column tablet layout there. */
+@media (min-width: 768px) and (max-width: 837.98px) {
+  #app .status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 :focus-visible { outline: 2px solid var(--ow-focus-ring); outline-offset: 2px; }
 #nav a:focus-visible { outline-offset: 2px; }
 .switch input[type="checkbox"]:focus-visible + .slider { outline: 2px solid var(--ow-focus-ring); outline-offset: 3px; }
