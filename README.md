@@ -6,6 +6,18 @@ z2kOW — адаптация [z2k](https://github.com/necronicle/z2k) под Ope
 
 > z2kOW — это не отдельная реализация z2k и не новый форк с собственной логикой. Источник истины по продуктовому поведению — upstream z2k; OpenWrt-специфика живёт в адаптерном слое.
 
+## Поддержать проект
+
+Если z2kOW оказался полезен, проект можно поддержать через Streamiverse:
+
+**[donation.streamiverse.io/t0fox](https://donation.streamiverse.io/t0fox)**
+
+<a href="https://donation.streamiverse.io/t0fox">
+  <img src="platform/openwrt/webpanel-brand/streamiverse-donation.svg" width="280" alt="QR-код Streamiverse для поддержки z2kOW">
+</a>
+
+Поддержка добровольная и не открывает платные функции, отдельный доступ или приоритет.
+
 ---
 
 ## Что это

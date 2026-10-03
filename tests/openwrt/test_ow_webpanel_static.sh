@@ -132,6 +132,7 @@ assert_contains "release_map dns-check" "$RM" 'files/z2k-dns-check.sh)'
 
 # The complete payload builder stages webpanel assets into its one rootfs.
 assert_contains "rootfs builder stages webpanel brand assets" "$REPO/scripts/openwrt/stage-rootfs.sh" 'platform/openwrt/webpanel-brand/*'
+assert_file "Streamiverse QR asset exists" "$REPO/platform/openwrt/webpanel-brand/streamiverse-donation.svg"
 assert_contains "rootfs builder stages panel service" "$REPO/scripts/openwrt/stage-rootfs.sh" 'etc/init.d/z2k-webpanel'
 assert_contains "owned paths include panel service" "$REPO/platform/openwrt/owned-paths.txt" '/etc/init.d/z2k-webpanel'
 
@@ -166,6 +167,11 @@ fi
 assert_contains "js: autohostlist title" "$REPO/webpanel/www/js/router.js" 'autohostlist:'
 assert_contains "js: profile-derived title suffix" "$REPO/webpanel/www/js/router.js" 'window.__z2kBrandName'
 assert_contains "js: isolated credits route adapter" "$REPO/webpanel/www/js/router.js" 'credits: renderCreditsPage,'
+assert_contains "js: donations route" "$REPO/webpanel/www/js/router.js" 'donations: renderDonations,'
+assert_contains "js: donations nav next to credits" "$REPO/webpanel/www/index.html" 'data-route="donations"'
+assert_file "js: donations page exists" "$REPO/webpanel/www/js/pages/donations.js"
+assert_contains "js: Streamiverse widget id" "$REPO/webpanel/www/js/pages/donations.js" '6b3b146b-b238-434e-a0af-77ee64e53a58'
+assert_contains "js: Streamiverse fallback link" "$REPO/webpanel/www/js/pages/donations.js" 'https://donation.streamiverse.io/t0fox'
 if grep -nE 'openwrt|PLATFORM|capabilit' "$REPO/webpanel/www/js/router.js" 2>/dev/null \
     | grep -v 'credits-openwrt.js' | grep -q .; then
     _t_bad "js: router.js с platform-логикой вне credits adapter"

@@ -36,6 +36,8 @@ List editing keeps the shared optimistic-concurrency behavior: the client saves 
 
 The panel is intended for the local network. Optional authentication must use an OpenWrt-compatible local backend and must not silently fall back to Keenetic `ndmc`/NDM behavior.
 
+The `Донаты` route is intentionally opt-in: its QR code and fallback UI are local, while the Streamiverse iframe is requested only after the user opens that route. The donation service is not part of the panel boot path.
+
 ## Removal
 
 When removal is exposed in the panel, it must call the same canonical OpenWrt uninstall backend as the CLI and preserve the same user-visible semantics as upstream z2k.

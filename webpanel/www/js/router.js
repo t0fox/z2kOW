@@ -4,6 +4,7 @@ import { renderStrategies } from "./pages/credits.js";
 import { renderCreditsPage } from "./pages/credits-openwrt.js";
 import { renderDashboard } from "./pages/dashboard.js";
 import { renderDiag } from "./pages/diag.js";
+import { renderDonations } from "./pages/donations.js";
 import { renderExcludeAddresses, renderExcludeDomains } from "./pages/exclude.js";
 import { renderAutohostlistDomains, renderExtraDomains } from "./pages/extra-domains.js";
 import { renderState } from "./pages/strategies.js";
@@ -30,6 +31,7 @@ const routes = {
   pick: renderStrategyPick,
   strategies: renderStrategies,
   diag: renderDiag,
+  donations: renderDonations,
   credits: renderCreditsPage,
 };
 
@@ -55,6 +57,7 @@ const ROUTE_TITLES = {
   pick:            "Стратегии",
   strategies:      "Стратегии",
   diag:            "Диагностика",
+  donations:       "Донаты",
   credits:         "Благодарности",
 };
 
