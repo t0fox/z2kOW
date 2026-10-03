@@ -1284,6 +1284,7 @@ download_init_script() {
         www/js/pages/credits-openwrt.js \
         www/js/pages/dashboard.js \
         www/js/pages/diag.js \
+        www/js/pages/donations.js \
         www/js/pages/exclude.js \
         www/js/pages/extra-domains.js \
         www/js/pages/policy.js \

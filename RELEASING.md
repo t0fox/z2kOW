@@ -41,3 +41,13 @@ Before production publication:
 - keep the changelog limited to user-visible changes.
 
 Release policy must not depend on temporary agent reports, one-off local paths, or test-run transcripts stored in documentation.
+
+## Cancel a permanently red candidate
+
+The publish gate allows only one unpublished release candidate at a time. If its CI failure is permanent and the candidate will not be published, remove that candidate's remote tag so the release queue can move again:
+
+```sh
+git push origin :refs/tags/<candidate-tag>
+```
+
+Use this only for the unpublished candidate named by the gate. Do not delete the release branch, change UPDATES.json, or remove a tag for an already published release. Confirm that the remote tag is gone, fix the CI failure, and create a new candidate with a new release version; release versions and tags are never reused.

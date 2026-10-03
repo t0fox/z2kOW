@@ -876,7 +876,10 @@ try {
     const primaryBox = await primary.boundingBox();
     await page.mouse.move(primaryBox.x + primaryBox.width / 2, primaryBox.y + primaryBox.height / 2);
     await page.mouse.down();
-    await page.waitForTimeout(160);
+    await page.waitForFunction(() => {
+      const node = document.querySelector('button[data-qa-motion="true"]');
+      return node && getComputedStyle(node, '::after').opacity === '1';
+    });
     const primaryActive = await primary.evaluate(node => ({
       scale: new DOMMatrixReadOnly(getComputedStyle(node).transform).a,
       overlay: getComputedStyle(node, '::after').opacity,
