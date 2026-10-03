@@ -107,7 +107,9 @@ else
 fi
 
 # Common diff budget (§44): openwrt-специфичных строк в upstream-файлах — единицы.
-for _spec in "actions.sh:12" "api.sh:8" "auth.sh:6"; do
+# api.sh budget includes the OpenWrt-only canonical same-version reinstall
+# route and its capability field in both status/check responses.
+for _spec in "actions.sh:12" "api.sh:11" "auth.sh:6"; do
     _f="${_spec%%:*}"; _lim="${_spec##*:}"
     _n="$(grep -cE 'Z2K_PLATFORM|platform\.sh|PLATFORM_ENV|Z2K_PANEL_DIR|DEBUG_FLAG_FILE|Z2K_AU_MANIFEST_URL' \
         "$REPO/webpanel/cgi/$_f" 2>/dev/null || true)"

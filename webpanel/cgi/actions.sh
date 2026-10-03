@@ -3393,7 +3393,7 @@ update_refresh_manifest() {
         fi
         rm -f "$tmp" "$sig" "$tmp.etag" "$sig.etag" "$authority_tmp"
         : > "$AU_MANIFEST_FAIL_STAMP" 2>/dev/null
-        if [ "$strict" != 1 ] && [ -s "$AU_MANIFEST_CACHE" \
+        if [ "$strict" != 1 ] && [ -s "$AU_MANIFEST_CACHE" ] \
             && [ "$(head -1 "$authority_file" 2>/dev/null)" = "controlled" ] \
             && _update_manifest_sane "$AU_MANIFEST_CACHE" \
             && _update_manifest_signature_valid "$AU_MANIFEST_CACHE" "$AU_MANIFEST_CACHE.sig" \

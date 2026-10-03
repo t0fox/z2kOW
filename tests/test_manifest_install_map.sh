@@ -39,7 +39,8 @@ update = (root / "platform/openwrt/update.sh").read_text(encoding="utf-8")
 installer = (root / "scripts/openwrt/install_release.sh").read_text(encoding="utf-8")
 builder = (root / "scripts/openwrt/build-release.sh").read_text(encoding="utf-8")
 assert "Z2K_INSTALL_RELEASE_BIN:-/usr/sbin/install_release" in update
-assert "install_release <controlled-tag>" in installer
+assert "install_release <release-tag>" in installer
+assert "install_release --reinstall <installed-release-tag>" in installer
 assert "stage-rootfs.sh" in builder
 print(
     f"controlled {manifest['current']} seq {manifest['seq']}: "

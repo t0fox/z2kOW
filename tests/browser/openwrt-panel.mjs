@@ -1990,8 +1990,9 @@ try {
   await reinstallRacePage.keyboard.press('Escape');
   assert.equal(apiRequests.filter(request => request.endpoint === 'update/reinstall').length, reinstallCallsBefore,
     'Escape cancels without calling the backend');
+  await reinstallDialog.waitFor({ state: 'detached' });
   await reinstallRacePage.locator('#upd-reinstall').click();
-  await reinstallRacePage.locator('#confirm-ok').click();
+  await reinstallRacePage.getByRole('dialog').getByRole('button', { name: 'Переустановить', exact: true }).click();
   await reinstallRacePage.getByRole('button', { name: 'Обновить до p-86.14' }).waitFor({ state: 'visible' });
   assert.equal(apiRequests.filter(request => request.endpoint === 'update/reinstall').length, reinstallCallsBefore + 1,
     'the accepted action reaches the reinstall preflight exactly once');
