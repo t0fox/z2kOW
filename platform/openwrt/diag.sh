@@ -17,7 +17,7 @@ if [ -f "$_root/platform/openwrt/tg.sh" ]; then
 fi
 
 _cfg=${Z2K_CONFIG:-}
-_init=${Z2K_INIT:-}
+_init=${Z2K_INIT:-/etc/init.d/z2k}
 _run=${Z2K_RUN:-}
 _bin=${Z2K_BIN:-}
 _nfq=${Z2K_NFQWS2:-}
@@ -108,6 +108,22 @@ print_health() {
             _add "WARP включён, но списки адресов и устройства не выбраны — в туннель не направляется трафик"
         fi
     fi
+    _ow_autocircular_detect
+    case "$OW_AUTOCIRCULAR_STATE" in
+        broken)
+            _add "autocircular включён, но procd не подтверждает активный circular"
+            ;;
+        active)
+            if [ "$OW_AUTOCIRCULAR_STATE_STORAGE" = fallback ] \
+                && [ "${OW_AUTOCIRCULAR_STATE_ROWS:-0}" -gt 0 ] 2>/dev/null; then
+                if [ "$OW_AUTOCIRCULAR_PRIMARY_PATH" != "$OW_AUTOCIRCULAR_PERSISTENT_PATH" ]; then
+                    _add "autocircular работает, но процесс не использует OpenWrt persistent path $OW_AUTOCIRCULAR_PERSISTENT_PATH; записи находятся в fallback $OW_AUTOCIRCULAR_STATE_FILE"
+                else
+                    _add "autocircular работает, но сохранённые выборы находятся только в fallback $OW_AUTOCIRCULAR_STATE_FILE"
+                fi
+            fi
+            ;;
+    esac
     printf '=== что не так ===\n'
     if [ -n "$issues" ]; then
         printf '%b' "$issues"
@@ -283,6 +299,10 @@ print_platform() {
 
 _ow_autocircular_configured() {
     [ -r "$_cfg" ] || return 2
+    local _master
+    _master=$(sed -n 's/^[[:space:]]*ENABLED[[:space:]]*=[[:space:]]*//p' "$_cfg" 2>/dev/null \
+        | tail -1 | tr -d "'\" \t\r")
+    [ "$_master" = 0 ] && return 1
     awk '
         /^NFQWS2_OPT="/ { in_opt=1; next }
         in_opt && /^"[[:space:]]*$/ { in_opt=0; next }
@@ -291,58 +311,163 @@ _ow_autocircular_configured() {
     ' "$_cfg" 2>/dev/null
 }
 
+_ow_autocircular_procd_pid() {
+    local _json _running _pid
+    command -v ubus >/dev/null 2>&1 && command -v jsonfilter >/dev/null 2>&1 || return 2
+    _json=$(ubus call service list '{"name":"z2k"}' 2>/dev/null) || return 2
+    [ -n "$_json" ] || return 2
+    _running=$(printf '%s\n' "$_json" | jsonfilter -e '@.z2k.instances.z2k.running' 2>/dev/null)
+    case "$_running" in
+        true) ;;
+        false) return 1 ;;
+        *)
+            # A valid service-list response without this instance means the
+            # configured service is not registered with procd.
+            case "$_json" in \{*\}) return 1 ;; *) return 2 ;; esac
+            ;;
+    esac
+    _pid=$(printf '%s\n' "$_json" | jsonfilter -e '@.z2k.instances.z2k.pid' 2>/dev/null)
+    case "$_pid" in ''|*[!0-9]*) return 2 ;; esac
+    printf '%s' "$_pid"
+}
+
 _ow_autocircular_live() {
-    local _ps _rc
-    _ps=$(ps w 2>/dev/null)
+    local _pid _rc _proc_root _cmdline _exe
+    _pid=$(_ow_autocircular_procd_pid)
     _rc=$?
-    [ "$_rc" -eq 0 ] || return 2
-    printf '%s\n' "$_ps" | grep -E '[n]fqws2.*--lua-desync=circular' >/dev/null 2>&1
+    [ "$_rc" -eq 0 ] || return "$_rc"
+    OW_AUTOCIRCULAR_PID="$_pid"
+    _proc_root=${Z2K_DIAG_PROC_ROOT:-/proc}
+    [ -r "$_proc_root/$_pid/cmdline" ] || return 2
+    _cmdline=$(tr '\000' '\n' < "$_proc_root/$_pid/cmdline" 2>/dev/null) || return 2
+    [ -n "$_cmdline" ] || return 2
+    _exe=$(printf '%s\n' "$_cmdline" | sed -n '1p')
+    [ "${_exe##*/}" = nfqws2 ] || return 1
+    printf '%s\n' "$_cmdline" | grep -Eq '^--lua-desync=circular([:[:space:]]|$)'
+}
+
+_ow_autocircular_proc_env() {
+    local _pid="$1" _key="$2" _file="${Z2K_DIAG_PROC_ROOT:-/proc}/$1/environ"
+    [ -r "$_file" ] || return 1
+    tr '\000' '\n' < "$_file" 2>/dev/null | sed -n "s/^${_key}=//p" | head -1
+}
+
+_ow_autocircular_state_paths() {
+    local _primary_dir _fallback_dir
+    _primary_dir=
+    _fallback_dir=
+    if [ -r "${Z2K_DIAG_PROC_ROOT:-/proc}/$OW_AUTOCIRCULAR_PID/environ" ]; then
+        _primary_dir=$(_ow_autocircular_proc_env "$OW_AUTOCIRCULAR_PID" Z2K_STATE_DIR_OVERRIDE)
+        [ -n "$_primary_dir" ] || _primary_dir=$(_ow_autocircular_proc_env "$OW_AUTOCIRCULAR_PID" Z2K_AUTOCIRCULAR_DIR_OVERRIDE)
+        _fallback_dir=$(_ow_autocircular_proc_env "$OW_AUTOCIRCULAR_PID" Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE)
+    fi
+    [ -n "$_primary_dir" ] || _primary_dir=/opt/zapret2/extra_strats/cache/autocircular
+    [ -n "$_fallback_dir" ] || _fallback_dir=${Z2K_DIAG_AUTOCIRCULAR_DEFAULT_FALLBACK_DIR:-/tmp}
+    OW_AUTOCIRCULAR_PRIMARY_PATH="$_primary_dir/state.tsv"
+    OW_AUTOCIRCULAR_FALLBACK_PATH="$_fallback_dir/z2k-autocircular-state.tsv"
+    return 0
+}
+
+_ow_autocircular_rows() {
+    [ -r "$1" ] || { printf '0'; return 0; }
+    awk -F '\t' '$1 !~ /^#/ && $1 != "pool" && NF >= 3 {n++} END {print n+0}' "$1" 2>/dev/null
+}
+
+_ow_autocircular_detect() {
+    local _configured_rc _live_rc _primary_rows _fallback_rows
+    OW_AUTOCIRCULAR_STATE=unknown
+    OW_AUTOCIRCULAR_PID=
+    OW_AUTOCIRCULAR_PERSISTENT_PATH="${STATE_FILE:-${Z2K_STATE:-/etc/z2k/state}/state.tsv}"
+    OW_AUTOCIRCULAR_PRIMARY_PATH=
+    OW_AUTOCIRCULAR_FALLBACK_PATH=
+    OW_AUTOCIRCULAR_STATE_FILE=
+    OW_AUTOCIRCULAR_STATE_STORAGE=none
+    OW_AUTOCIRCULAR_STATE_ROWS=0
+
+    _ow_autocircular_configured
+    _configured_rc=$?
+    case "$_configured_rc" in
+        1) OW_AUTOCIRCULAR_STATE=disabled; return 0 ;;
+        2) OW_AUTOCIRCULAR_STATE=unknown; return 0 ;;
+    esac
+    _ow_autocircular_live
+    _live_rc=$?
+    case "$_live_rc" in
+        1) OW_AUTOCIRCULAR_STATE=broken; return 0 ;;
+        2) OW_AUTOCIRCULAR_STATE=unavailable; return 0 ;;
+    esac
+    _ow_autocircular_state_paths || { OW_AUTOCIRCULAR_STATE=unavailable; return 0; }
+
+    _primary_rows=$(_ow_autocircular_rows "$OW_AUTOCIRCULAR_PRIMARY_PATH")
+    _fallback_rows=$(_ow_autocircular_rows "$OW_AUTOCIRCULAR_FALLBACK_PATH")
+    if [ "${_primary_rows:-0}" -gt 0 ] 2>/dev/null; then
+        OW_AUTOCIRCULAR_STATE_FILE="$OW_AUTOCIRCULAR_PRIMARY_PATH"
+        OW_AUTOCIRCULAR_STATE_STORAGE=persistent
+        OW_AUTOCIRCULAR_STATE_ROWS="$_primary_rows"
+    elif [ "${_fallback_rows:-0}" -gt 0 ] 2>/dev/null; then
+        OW_AUTOCIRCULAR_STATE_FILE="$OW_AUTOCIRCULAR_FALLBACK_PATH"
+        OW_AUTOCIRCULAR_STATE_STORAGE=fallback
+        OW_AUTOCIRCULAR_STATE_ROWS="$_fallback_rows"
+    elif [ -r "$OW_AUTOCIRCULAR_PRIMARY_PATH" ]; then
+        OW_AUTOCIRCULAR_STATE_FILE="$OW_AUTOCIRCULAR_PRIMARY_PATH"
+        OW_AUTOCIRCULAR_STATE_STORAGE=persistent
+    elif [ -r "$OW_AUTOCIRCULAR_FALLBACK_PATH" ]; then
+        OW_AUTOCIRCULAR_STATE_FILE="$OW_AUTOCIRCULAR_FALLBACK_PATH"
+        OW_AUTOCIRCULAR_STATE_STORAGE=fallback
+    fi
+    if [ "${OW_AUTOCIRCULAR_STATE_ROWS:-0}" -gt 0 ] 2>/dev/null; then
+        OW_AUTOCIRCULAR_STATE=active
+    else
+        OW_AUTOCIRCULAR_STATE=enabled-not-observed
+    fi
+    return 0
 }
 
 _ow_autocircular_state() {
-    _ow_autocircular_configured
-    _oc_rc=$?
-    if [ "$_oc_rc" -ne 0 ]; then
-        case "$_oc_rc" in 2) printf 'unknown' ;; *) printf 'disabled' ;; esac
-        return
-    fi
-    _ow_autocircular_live
-    _live_rc=$?
-    case "$_live_rc" in 0) printf 'active' ;; 2) printf 'unavailable' ;; *) printf 'inactive' ;; esac
+    _ow_autocircular_detect
+    printf '%s' "$OW_AUTOCIRCULAR_STATE"
 }
 
 print_autocircular() {
-    local config="${Z2K_CONFIG:-$_cfg}" state_file="${STATE_FILE:-${Z2K_STATE:-/etc/z2k/state}/state.tsv}"
-    local enabled live rows
+    local config="${Z2K_CONFIG:-$_cfg}" _primary_status _fallback_status
     _cfg="$config"
+    _ow_autocircular_detect
     printf '\n=== autocircular ===\n'
-    _ow_autocircular_configured
-    enabled=$?
-    if [ "$enabled" -ne 0 ]; then
-        case "$enabled" in
-            2) printf 'autocircular      : unknown\nstate file        : unknown (configuration unavailable)\n' ;;
-            *) printf 'autocircular      : disabled\nstate file        : N/A\n' ;;
-        esac
-        return 0
-    fi
-    _ow_autocircular_live
-    live=$?
-    if [ "$live" -eq 2 ]; then
-        printf 'autocircular      : unavailable\nstate file        : unavailable (process state unreadable)\n'
-        return 0
-    fi
-    if [ "$live" -eq 0 ]; then printf 'autocircular      : active\n'; else printf 'autocircular      : inactive\n'; fi
-    if [ ! -r "$state_file" ]; then
-        printf 'state file        : missing\n'
-        printf 'state file is missing while autocircular is enabled\n'
-        return 0
-    fi
-    rows=$(awk -F '\t' '$1 !~ /^#/ && $1 != "pool" && NF >= 4 {n++} END {print n+0}' "$state_file" 2>/dev/null)
-    if [ "${rows:-0}" -gt 0 ] 2>/dev/null; then
-        printf 'state file        : active (%s entries)\n' "$rows"
+    printf 'autocircular      : %s\n' "$OW_AUTOCIRCULAR_STATE"
+    case "$OW_AUTOCIRCULAR_STATE" in
+        disabled)
+            printf 'state file        : N/A\n'
+            return 0
+            ;;
+        unknown)
+            printf 'state file        : unknown (configuration unavailable)\n'
+            return 0
+            ;;
+        unavailable)
+            printf 'state file        : unavailable (procd or process state unreadable)\n'
+            return 0
+            ;;
+        broken)
+            printf 'state file        : N/A (runtime process is not active with circular)\n'
+            return 0
+            ;;
+    esac
+    if [ "$OW_AUTOCIRCULAR_STATE" = active ]; then
+        printf 'state file        : active (%s entries; %s %s)\n' \
+            "$OW_AUTOCIRCULAR_STATE_ROWS" "$OW_AUTOCIRCULAR_STATE_STORAGE" "$OW_AUTOCIRCULAR_STATE_FILE"
     else
         printf 'state file        : not-observed\n'
     fi
+    _primary_status=absent; _fallback_status=absent
+    [ -r "$OW_AUTOCIRCULAR_PRIMARY_PATH" ] && _primary_status=present
+    [ -r "$OW_AUTOCIRCULAR_FALLBACK_PATH" ] && _fallback_status=present
+    if [ "$OW_AUTOCIRCULAR_PRIMARY_PATH" = "$OW_AUTOCIRCULAR_PERSISTENT_PATH" ]; then
+        printf 'persistent path   : %s (runtime primary; %s)\n' "$OW_AUTOCIRCULAR_PERSISTENT_PATH" "$_primary_status"
+    else
+        printf 'persistent path   : %s (not used by runtime)\n' "$OW_AUTOCIRCULAR_PERSISTENT_PATH"
+        printf 'Lua primary path  : %s (%s)\n' "$OW_AUTOCIRCULAR_PRIMARY_PATH" "$_primary_status"
+    fi
+    printf 'fallback path     : %s (%s)\n' "$OW_AUTOCIRCULAR_FALLBACK_PATH" "$_fallback_status"
 }
 
 print_offload() {

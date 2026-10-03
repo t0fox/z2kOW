@@ -14,6 +14,8 @@ export Z2K_PROC_MODULES="$T/proc/modules" Z2K_SYS_MODULE_DIR="$T/sys-module"
 export Z2K_MODULE_DIR="$T/modules" Z2K_HW_NAT_FILE="$T/proc/hw_nat"
 export Z2K_FASTROUTE_FILE="$T/proc/fastroute" Z2K_NFT_RULESET_FIXTURE="$T/nft-ruleset"
 export Z2K_DIAG_TEST_PS="$T/ps" Z2K_DIAG_TEST_CONNTRACK="$T/conntrack"
+export Z2K_DIAG_PROC_ROOT="$T/proc" Z2K_DIAG_PROCD_FIXTURE="$T/procd.json"
+export Z2K_DIAG_AUTOCIRCULAR_DEFAULT_FALLBACK_DIR="$T/tmp"
 printf '#!/bin/sh\nexit 0\n' > "$T/init"
 chmod +x "$T/init"
 
@@ -53,6 +55,27 @@ cat > "$T/bin/ps" <<'EOF'
 [ -r "$Z2K_DIAG_TEST_PS" ] && cat "$Z2K_DIAG_TEST_PS"
 EOF
 chmod +x "$T/bin/ps"
+cat > "$T/bin/ubus" <<'EOF'
+#!/bin/sh
+[ "${UBUS_FAIL:-0}" = 1 ] && exit 1
+case "$*" in *"service list"*) cat "$Z2K_DIAG_PROCD_FIXTURE" ;; *) exit 1 ;; esac
+EOF
+chmod +x "$T/bin/ubus"
+cat > "$T/bin/jsonfilter" <<'EOF'
+#!/bin/sh
+expr=""
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = "-e" ] && [ "$#" -gt 1 ]; then expr="$2"; shift 2; else shift; fi
+done
+case "$expr" in
+  *@.z2k.instances.z2k.running)
+    sed -n 's/.*"running":[[:space:]]*\([^,}]*\).*/\1/p' ;;
+  *@.z2k.instances.z2k.pid)
+    sed -n 's/.*"pid":[[:space:]]*\([0-9][0-9]*\).*/\1/p' ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$T/bin/jsonfilter"
 cat > "$T/bin/nslookup" <<'EOF'
 #!/bin/sh
 printf '%s\n' 'Server: 127.0.0.1' 'Address: 127.0.0.1:53'
@@ -162,19 +185,53 @@ assert_not_out "DNS server address is not mistaken for answer" 'resolve check.*1
 DNS_FAIL=1 DNS_FIXTURE="$T/dns-output" run_diag netpath
 assert_out "failed resolution is inactive" 'resolve check      : inactive'
 
-# Autocircular checks feature enablement before inspecting state files.
-printf 'NFQWS2_OPT="\n--lua-desync=fake --lua-desync=circular:fails=3\n"\n' > "$T/config"
-printf '/opt/zapret2/nfq2/nfqws2 --qnum=200 --lua-desync=circular:fails=3\n' > "$T/ps"
-printf 'pool\thost\tstrategy\tts\n' > "$T/etc/state/state.tsv"
-run_diag autocircular
-assert_out "configured live autocircular is active" 'autocircular      : active'
-assert_out "empty autocircular state is not-observed" 'state file        : not-observed'
-rm "$T/etc/state/state.tsv"
-run_diag autocircular
-assert_out "enabled autocircular diagnoses missing state" 'state file        : missing'
-assert_out "missing state diagnosis is conditional on enabled mechanism" 'state file is missing while autocircular is enabled'
-printf 'NFQWS2_OPT="\n--lua-desync=fake\n"\n' > "$T/config"
+# Autocircular uses procd + the complete /proc cmdline, never truncated `ps w`.
+printf 'ENABLED=1\nNFQWS2_OPT="\n--lua-desync=fake --lua-desync=circular:fails=3\n"\n' > "$T/config"
+printf '{"z2k":{"instances":{"z2k":{"running":true,"pid":4242}}}}\n' > "$T/procd.json"
+mkdir -p "$T/proc/4242"
+printf '%s\000' '/opt/zapret2/nfq2/nfqws2' '--qnum=200' '--lua-desync=circular:fails=3' > "$T/proc/4242/cmdline"
+: > "$T/proc/4242/environ"
+# The running process has no path overrides, matching procd on the router.
+# `ps w` is empty/truncated on purpose; Lua's upstream default fallback is
+# /tmp/z2k-autocircular-state.tsv (redirected to an isolated fixture here).
 : > "$T/ps"
+printf 'rkn_tcp\texample.com\t4\t1234\tauto\n' > "$T/tmp/z2k-autocircular-state.tsv"
+run_diag autocircular
+assert_out "procd and full cmdline detect live autocircular" 'autocircular      : active'
+assert_out "populated fallback state is reported" 'state file        : active (1 entries; fallback'
+assert_out "reported fallback path is the Lua state path" 'z2k-autocircular-state.tsv'
+assert_not_out "active fallback is not misreported as missing" 'state file is missing while autocircular is enabled'
+run_diag health
+assert_not_out "working autocircular does not add a false health warning" 'autocircular.*(inactive|broken|missing)'
+assert_out "unoverridden runtime paths are reported accurately" 'autocircular работает, но процесс не использует OpenWrt persistent path'
+
+# No saved rows means enabled-but-not-observed, not an installation failure.
+rm -f "$T/tmp/z2k-autocircular-state.tsv"
+run_diag autocircular
+assert_out "enabled autocircular without selections is not-observed" 'autocircular      : enabled-not-observed'
+assert_out "missing rows are not reported as a failure" 'state file        : not-observed'
+assert_not_out "no events do not produce a missing-state warning" 'state file is missing while autocircular is enabled'
+
+# Enabled config with a stopped instance or a process missing the argument is broken.
+printf '{"z2k":{"instances":{"z2k":{"running":false,"pid":4242}}}}\n' > "$T/procd.json"
+run_diag autocircular
+assert_out "enabled config with stopped procd instance is broken" 'autocircular      : broken'
+run_diag health
+assert_out "broken runtime is visible in the health summary" 'autocircular включён, но procd не подтверждает активный circular'
+printf '{"z2k":{"instances":{"z2k":{"running":true,"pid":4242}}}}\n' > "$T/procd.json"
+printf '%s\000' '/opt/zapret2/nfq2/nfqws2' '--qnum=200' '--lua-desync=fake' > "$T/proc/4242/cmdline"
+run_diag autocircular
+assert_out "running process without circular argument is broken" 'autocircular      : broken'
+
+# An unobservable procd API stays unavailable; an explicit master-off or no
+# circular option is disabled regardless of stale state files.
+UBUS_FAIL=1 run_diag autocircular
+assert_out "procd API failure is unavailable, not broken" 'autocircular      : unavailable'
+printf 'ENABLED=0\nNFQWS2_OPT="\n--lua-desync=circular:fails=3\n"\n' > "$T/config"
+run_diag autocircular
+assert_out "master disabled suppresses autocircular" 'autocircular      : disabled'
+assert_out "disabled autocircular has no state file" 'state file        : N/A'
+printf 'ENABLED=1\nNFQWS2_OPT="\n--lua-desync=fake\n"\n' > "$T/config"
 run_diag autocircular
 assert_out "autocircular is disabled when not configured" 'autocircular      : disabled'
 assert_not_out "disabled autocircular does not diagnose missing state" 'state file.*missing|state file is missing'
