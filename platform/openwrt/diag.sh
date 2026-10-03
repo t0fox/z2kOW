@@ -343,6 +343,7 @@ _ow_autocircular_live() {
     [ -n "$_cmdline" ] || return 2
     _exe=$(printf '%s\n' "$_cmdline" | sed -n '1p')
     [ "${_exe##*/}" = nfqws2 ] || return 1
+    OW_AUTOCIRCULAR_BINARY="$_exe"
     printf '%s\n' "$_cmdline" | grep -Eq '^--lua-desync=circular([:[:space:]]|$)'
 }
 
@@ -361,7 +362,15 @@ _ow_autocircular_state_paths() {
         [ -n "$_primary_dir" ] || _primary_dir=$(_ow_autocircular_proc_env "$OW_AUTOCIRCULAR_PID" Z2K_AUTOCIRCULAR_DIR_OVERRIDE)
         _fallback_dir=$(_ow_autocircular_proc_env "$OW_AUTOCIRCULAR_PID" Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE)
     fi
-    [ -n "$_primary_dir" ] || _primary_dir=/opt/zapret2/extra_strats/cache/autocircular
+    if [ -z "$_primary_dir" ]; then
+        local _runtime_root
+        _runtime_root=${OW_AUTOCIRCULAR_BINARY%/nfq2/nfqws2}
+        if [ "$_runtime_root" != "$OW_AUTOCIRCULAR_BINARY" ]; then
+            _primary_dir="$_runtime_root/extra_strats/cache/autocircular"
+        else
+            _primary_dir="${ZAPRET2_DIR:-${Z2K_ROOT:-/usr/lib/z2k}}/extra_strats/cache/autocircular"
+        fi
+    fi
     [ -n "$_fallback_dir" ] || _fallback_dir=${Z2K_DIAG_AUTOCIRCULAR_DEFAULT_FALLBACK_DIR:-/tmp}
     OW_AUTOCIRCULAR_PRIMARY_PATH="$_primary_dir/state.tsv"
     OW_AUTOCIRCULAR_FALLBACK_PATH="$_fallback_dir/z2k-autocircular-state.tsv"
@@ -377,6 +386,7 @@ _ow_autocircular_detect() {
     local _configured_rc _live_rc _primary_rows _fallback_rows
     OW_AUTOCIRCULAR_STATE=unknown
     OW_AUTOCIRCULAR_PID=
+    OW_AUTOCIRCULAR_BINARY=
     OW_AUTOCIRCULAR_PERSISTENT_PATH="${STATE_FILE:-${Z2K_STATE:-/etc/z2k/state}/state.tsv}"
     OW_AUTOCIRCULAR_PRIMARY_PATH=
     OW_AUTOCIRCULAR_FALLBACK_PATH=

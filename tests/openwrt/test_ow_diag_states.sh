@@ -189,7 +189,7 @@ assert_out "failed resolution is inactive" 'resolve check      : inactive'
 printf 'ENABLED=1\nNFQWS2_OPT="\n--lua-desync=fake --lua-desync=circular:fails=3\n"\n' > "$T/config"
 printf '{"z2k":{"instances":{"z2k":{"running":true,"pid":4242}}}}\n' > "$T/procd.json"
 mkdir -p "$T/proc/4242"
-printf '%s\000' '/opt/zapret2/nfq2/nfqws2' '--qnum=200' '--lua-desync=circular:fails=3' > "$T/proc/4242/cmdline"
+printf '%s\000' "$T/runtime-root/nfq2/nfqws2" '--qnum=200' '--lua-desync=circular:fails=3' > "$T/proc/4242/cmdline"
 : > "$T/proc/4242/environ"
 # The running process has no path overrides, matching procd on the router.
 # `ps w` is empty/truncated on purpose; Lua's upstream default fallback is
@@ -200,6 +200,7 @@ run_diag autocircular
 assert_out "procd and full cmdline detect live autocircular" 'autocircular      : active'
 assert_out "populated fallback state is reported" 'state file        : active (1 entries; fallback'
 assert_out "reported fallback path is the Lua state path" 'z2k-autocircular-state.tsv'
+assert_out "Lua primary is derived from the running executable" "Lua primary path  : $T/runtime-root/extra_strats/cache/autocircular/state.tsv (absent)"
 assert_not_out "active fallback is not misreported as missing" 'state file is missing while autocircular is enabled'
 run_diag health
 assert_not_out "working autocircular does not add a false health warning" 'autocircular.*(inactive|broken|missing)'
@@ -219,7 +220,7 @@ assert_out "enabled config with stopped procd instance is broken" 'autocircular 
 run_diag health
 assert_out "broken runtime is visible in the health summary" 'autocircular включён, но procd не подтверждает активный circular'
 printf '{"z2k":{"instances":{"z2k":{"running":true,"pid":4242}}}}\n' > "$T/procd.json"
-printf '%s\000' '/opt/zapret2/nfq2/nfqws2' '--qnum=200' '--lua-desync=fake' > "$T/proc/4242/cmdline"
+printf '%s\000' "$T/runtime-root/nfq2/nfqws2" '--qnum=200' '--lua-desync=fake' > "$T/proc/4242/cmdline"
 run_diag autocircular
 assert_out "running process without circular argument is broken" 'autocircular      : broken'
 
