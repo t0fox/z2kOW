@@ -1649,6 +1649,20 @@ warp_enable() {
     warp_set_flag 1 || { _wlog "не удалось записать GAME_WARP_ENABLED"; return 1; }
     warp_unpin_legacy
     [ -x "$WARP_BIN" ] || { _wlog "движок не установлен"; warp_set_flag 0 || _wlog "не удалось сбросить GAME_WARP_ENABLED"; return 1; }
+    if [ ! -s "$WARP_DEVICE" ]; then
+        # A bundled engine can be present before this router has a Cloudflare
+        # device identity. The UI enable path must converge through the same
+        # registration helper as install/self-heal before starting the daemon.
+        mkdir -p "$(dirname "$WARP_REG_STAMP")" 2>/dev/null && \
+            date +%s > "$WARP_REG_STAMP" 2>/dev/null || \
+            _wlog "не удалось записать метку попытки регистрации"
+        if ! warp_register; then
+            # Preserve the requested state: the boot-installed health cron can
+            # retry registration without ever routing user traffic through an
+            # unready tunnel.
+            _wlog "устройство пока не зарегистрировано; оставляю WARP включённым для selfheal"
+        fi
+    fi
     warp_nft_sets_load || { _wlog "списки не загрузились"; warp_set_flag 0 || _wlog "не удалось сбросить GAME_WARP_ENABLED"; return 1; }
     warp_nft_rules_apply || { _wlog "nft chains не встали"; warp_set_flag 0 || _wlog "не удалось сбросить GAME_WARP_ENABLED"; return 1; }
     _need_rebuild=0
@@ -1959,13 +1973,16 @@ warp_status() {
         [ -s "$WARP_DOMAIN_ERROR" ] || _domain_error=""
     fi
     _domain_error=$(printf '%s' "$_domain_error" | tr ' \t\r\n' '_' | cut -c1-120)
-    printf 'installed=%s enabled=%s running=%s ready=%s route_ready=%s state=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s domain_active=%s domain_rules=%s domain_pairs=%s domain_skipped=%s domain_overflow=%s domain_error=%s\n' \
+    printf 'installed=%s enabled=%s running=%s ready=%s route_ready=%s state=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s domain_active=%s domain_rules=%s domain_pairs=%s domain_skipped=%s domain_overflow=%s domain_error=%s edge_colo=%s edge_country=%s edge_rtt_ms=%s edge_checked_at=%s edge_selection=%s\n' \
         "$_installed" "$(warp_flag)" "$_running" "$_ready" "$_route_ready" "$_state" \
         "$(_json_str "$WARP_STATUS" transport)" "$(_json_str "$WARP_STATUS" endpoint)" \
         "$(_json_str "$WARP_STATUS" iface)" "$(_json_str "$WARP_STATUS" addr)" \
         "$_entries" "$_devices" "$_error" \
         "$(_json_raw "$WARP_STATUS" mem_kb)" "$_plan" "$_plan_err" "$_lic" \
-        "$_domain_active" "$_domain_rules" "$_domain_pairs" "$_domain_skipped" "$_domain_overflow" "$_domain_error"
+        "$_domain_active" "$_domain_rules" "$_domain_pairs" "$_domain_skipped" "$_domain_overflow" "$_domain_error" \
+        "$(_json_str "$WARP_STATUS" edge_colo)" "$(_json_str "$WARP_STATUS" edge_country)" \
+        "$(_json_raw "$WARP_STATUS" edge_rtt_ms)" "$(_json_raw "$WARP_STATUS" edge_checked_at)" \
+        "$(_json_str "$WARP_STATUS" edge_selection)"
 }
 
 # --- топология lifecycle ---

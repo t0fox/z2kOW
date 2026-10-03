@@ -18,6 +18,9 @@ z2k_ow_cron_install >/dev/null 2>&1 || { echo "FAIL[ow-schedule]: install" >&2; 
 assert_eq "одна наша строка" "1" "$(grep -c 'z2k-updater' "$Z2K_CRON_TAB")"
 assert_contains "зовёт launcher apply" "$Z2K_CRON_TAB" "/r/platform/openwrt/update.sh apply"
 assert_contains "чужое цело" "$Z2K_CRON_TAB" "/bin/true"
+z2k_ow_warp_cron_install >/dev/null 2>&1 || { echo "FAIL[ow-schedule]: WARP install" >&2; exit 1; }
+assert_eq "одна WARP health-строка" "1" "$(grep -c 'z2k-warp-health' "$Z2K_CRON_TAB")"
+assert_contains "WARP health вызывает OpenWrt check" "$Z2K_CRON_TAB" "/r/platform/openwrt/warp-check.sh check"
 z2k_ow_cron_install >/dev/null 2>&1
 assert_eq "идемпотентность" "1" "$(grep -c 'z2k-updater' "$Z2K_CRON_TAB")"
 z2k_ow_cron_remove >/dev/null 2>&1

@@ -56,6 +56,11 @@ mv "$T/release-keys/test.pub" "$T/release-keys/$_key_id.pub"
 mkdir -p "$T/stage"
 sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$T/stage" "$T/runtime.tar.gz" \
     "$T/warpd" "$T/tg" "$T/rt" "$T/detect" "$T/release-keys" || exit 1
+tar -czf "$T/openwrt-rootfs.tar.gz" -C "$T/stage" . || exit 1
+_diag_mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
+    | awk '$NF ~ /platform\/openwrt\/diag\.sh$/ { print $1 }')
+assert_eq "final release tarball keeps the OpenWrt diagnostics adapter executable" \
+    "-rwxr-xr-x" "$_diag_mode"
 [ -x "$T/stage/usr/lib/z2k/platform/openwrt/update.sh" ] \
     && _t_ok || _t_bad "canonical update.sh remains executable for CLI and cron"
 cmp -s "$T/release-keys/$_key_id.pub" \

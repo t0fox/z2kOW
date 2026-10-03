@@ -476,6 +476,24 @@ assert_eq "W3: PBR нет" "0" "$(grep -c 'fwmark' "$T/ip-rules" 2>/dev/null || 
 unset WARP_MOCK_REGISTER_RC
 _w_inv "W3"
 
+# --- W3b: first enable registers a missing device before starting WARP ------
+_reset
+_good_stub
+cp "$T/stub-bin" "$WARP_BIN"
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+warp_nft_sets_load() { return 0; }
+warp_nft_rules_apply() { return 0; }
+_z2k_ow_service_running() { return 1; }
+_warp_wait_and_pbr() { return 0; }
+warp_enable >/dev/null 2>&1
+assert_eq "W3b: first enable succeeds" "0" "$?"
+assert_eq "W3b: first enable registered the missing device" "stub-id" \
+    "$(sed -n 's/.*\"id\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p' "$T/etc/state/warp/device.json" | head -1)"
+assert_eq "W3b: desired WARP flag persisted" "1" "$(warp_flag)"
+_w_inv "W3b"
+# Restore production callbacks after the scenario-local stubs.
+. "$REPO/platform/openwrt/warp.sh"
+
 # --- W4: enable but not ready: флаг=1, процесса/instance нет PBR, direct ---
 _reset
 printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
@@ -1811,5 +1829,20 @@ assert_eq "W79: rollback reports failed route query" "1" "$?"
 assert_eq "W79: rollback keeps route ownership for retry" "1" "$([ -s "$WARP_PBR_OWNER" ] && echo 1 || echo 0)"
 assert_eq "W79: rollback preserves owned route when unreadable" "default dev z2ktun0" "$(cat "$T/ip-route-989")"
 _w_inv "W79"
+
+# --- W80: OpenWrt status preserves edge geography for the WebPanel API ------
+_reset
+WARP_STATUS="$T/tmp/warp/status.json"
+export WARP_STATUS
+cat > "$WARP_STATUS" <<'EOF'
+{"ready":true,"transport":"wg","endpoint":"188.114.97.1:2408","edge_colo":"FRA","edge_country":"DE","edge_rtt_ms":28,"edge_checked_at":1790337600,"edge_selection":"foreign"}
+EOF
+warp_status > "$T/warp-status.out"
+assert_contains "W80: edge colo survives OpenWrt status adapter" "$T/warp-status.out" "edge_colo=FRA"
+assert_contains "W80: edge country survives OpenWrt status adapter" "$T/warp-status.out" "edge_country=DE"
+assert_contains "W80: edge RTT survives OpenWrt status adapter" "$T/warp-status.out" "edge_rtt_ms=28"
+assert_contains "W80: edge check time survives OpenWrt status adapter" "$T/warp-status.out" "edge_checked_at=1790337600"
+assert_contains "W80: edge selection survives OpenWrt status adapter" "$T/warp-status.out" "edge_selection=foreign"
+_w_inv "W80"
 
 _t_done

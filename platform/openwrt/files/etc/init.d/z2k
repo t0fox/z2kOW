@@ -35,6 +35,7 @@ z2k_load_adapter() {
     Z2K_WARP_SOURCE_ONLY=1; export Z2K_WARP_SOURCE_ONLY
     # shellcheck disable=SC1090,SC1091
     . "$Z2K_ROOT/platform/openwrt/warp.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/schedule.sh" || return 1
     . "$Z2K_LIB/utils.sh" || return 1
     . "$Z2K_LIB/strategies.sh" || return 1
     . "$Z2K_LIB/config_official.sh" || return 1
@@ -135,6 +136,13 @@ start_service() {
     . "$Z2K_CONFIG" || return 1
     # ENABLED — master-гейт upstream-семантики (сохраняется регенерацией).
     [ "${ENABLED:-1}" = "1" ] || return 1
+
+    # The WARP health check owns first-device registration when no device file
+    # exists. Keep its one-minute schedule present whenever WARP is enabled;
+    # without it the bundled engine is installed but can never reach ready.
+    if [ "${GAME_WARP_ENABLED:-0}" = "1" ]; then
+        z2k_ow_warp_cron_install || echo "z2k-openwrt: не удалось установить WARP health schedule" >&2
+    fi
 
     # Preflight runtime ДО всего: отсутствующий движок обязан ронять start
     # здесь с точной причиной, а не job exit=0 + exit=127 потом (live-урок).

@@ -47,7 +47,7 @@ mkdir -p "$STAGE/usr/lib/z2k/platform/openwrt" "$STAGE/usr/lib/z2k/share"
 for src in "$ROOT"/platform/openwrt/*.sh; do
     [ -f "$src" ] || continue
     case "$(basename "$src")" in
-        update.sh) _mode=0755 ;;
+        diag.sh|update.sh) _mode=0755 ;;
         *) _mode=0644 ;;
     esac
     copy_data "$src" "usr/lib/z2k/platform/openwrt/$(basename "$src")" "$_mode"

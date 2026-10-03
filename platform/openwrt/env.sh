@@ -299,8 +299,10 @@ z2k_ow_flowoffload_status() {
 z2k_ow_flowoffload_regenerate() {
     # create_official_config consumes FLOWOFFLOAD from the shell environment.
     # Keep the override scoped to this operation so later panel requests cannot
-    # inherit a stale mode.
-    ( FLOWOFFLOAD="$1"; export FLOWOFFLOAD; regenerate_config )
+    # inherit a stale mode.  The CGI dispatcher enables nounset; the upstream
+    # generator still reads legacy saved_* locals that may be unset, so disable
+    # nounset only in this child rather than weakening the request handler.
+    ( set +u; FLOWOFFLOAD="$1"; export FLOWOFFLOAD; regenerate_config )
 }
 
 z2k_ow_flowoffload_rollback() {

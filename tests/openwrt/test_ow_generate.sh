@@ -112,6 +112,20 @@ assert_contains "FLOWOFFLOAD пережил регенерацию" "$CFG" "FLOW
 assert_eq "FLOWOFFLOAD mode reader is BusyBox-safe" "software" \
     "$(z2k_ow_flowoffload_mode)"
 
+# The real WebPanel CGI runs with `set -u`.  Its shared regenerate_config()
+# calls the upstream generator, which currently has legacy unset locals.  The
+# OpenWrt FLOWOFFLOAD seam must scope nounset away from that upstream call.
+CONFIG_FILE="$CFG"
+export CONFIG_FILE
+. "$REPO/webpanel/cgi/actions.sh"
+set_flag FLOWOFFLOAD software "$CFG"
+if ( set -u; z2k_ow_flowoffload_regenerate software ); then
+    _t_ok
+else
+    _t_bad "FLOWOFFLOAD regeneration works in WebPanel nounset context"
+fi
+assert_contains "WebPanel regeneration keeps selected FLOWOFFLOAD" "$CFG" "FLOWOFFLOAD=software"
+
 # --- user-owned strategy/list sources are the sources the generator consumes ---
 # A strategy written by the panel must change the generated NFQWS2_OPT, not
 # merely exist under /etc/z2k/user-lists.
