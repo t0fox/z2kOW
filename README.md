@@ -1,94 +1,249 @@
-# z2kOW
+# z2kOW — Zapret2 для OpenWrt
 
-z2kOW is an OpenWrt adaptation of [z2k](https://github.com/necronicle/z2k). The project keeps upstream z2k behavior and features as close as practical while replacing Keenetic/Entware-specific integration with native OpenWrt mechanisms.
+z2kOW — адаптация [z2k](https://github.com/necronicle/z2k) под OpenWrt.
 
-## Project model
+Цель проекта — сохранить функциональность и поведение upstream z2k максимально близко к оригиналу, заменив только то, что жёстко завязано на Keenetic и Entware: управление сервисами, firewall, сетевые события, пути файлов, планировщик и доставку релизов.
 
-- Upstream z2k is the source of truth for product behavior, configuration semantics, strategies, WebPanel logic, update semantics, and user-facing features.
-- OpenWrt-specific work belongs in the platform layer: procd, fw4/nftables, netifd/ubus/UCI, hotplug, filesystem paths, architecture selection, and release delivery.
-- Existing upstream behavior is not redesigned just because the platform is different.
-- z2kOW keeps its own signed release pipeline and OpenWrt-native install lifecycle.
+> z2kOW — это не отдельная реализация z2k и не новый форк с собственной логикой. Источник истины по продуктовому поведению — upstream z2k; OpenWrt-специфика живёт в адаптерном слое.
 
-See [UPSTREAM.md](UPSTREAM.md) for the parity policy and [ARCHITECTURE.md](ARCHITECTURE.md) for the platform boundary.
+---
 
-## Features
+## Что это
 
-- z2k strategy engine, strategy rotation, custom strategies, and persistent state.
-- RKN, YouTube, Discord, whitelist, exclusions, extra domains, and scheduled list maintenance.
-- WebPanel for service control, configuration, lists, diagnostics, and release management.
-- TCP16 line probing and related runtime integration.
-- Optional Telegram transport, RT proxy, and WARP routing.
-- OpenWrt service, firewall, network-event, and scheduler integration.
-- Signed release metadata and complete OpenWrt release payloads with rollback-aware installation.
+z2kOW устанавливает zapret2 на OpenWrt и добавляет поверх него общую логику z2k:
 
-Some controls are exposed only when the installed OpenWrt platform provides the required capability.
+- автоподбор стратегий;
+- постоянное состояние подобранных стратегий;
+- пользовательские списки и исключения;
+- WebPanel;
+- Telegram-туннель;
+- RT proxy;
+- игровой режим через WARP;
+- диагностику;
+- обновление списков и обслуживающие задачи;
+- проверку линии на обрыв 16–20 КБ;
+- подписанные обновления z2kOW.
 
-## Requirements
+На OpenWrt вместо Keenetic-механизмов используются procd, fw4/nftables, netifd, ubus, UCI и hotplug.
 
-- OpenWrt with `apk` package management.
-- Root access.
-- Network access during installation and updates.
-- A target architecture supported by the published release.
+---
 
-## Install
+## Особенности
 
-Run as root:
+### Сетевые стратегии
+
+- Общий с upstream z2k движок стратегий и генератор конфигурации.
+- Autocircular для автоматического подбора рабочих стратегий.
+- Постоянное состояние подобранных стратегий между перезапусками.
+- Отдельные профили для RKN, YouTube TCP, googlevideo, QUIC и Discord.
+- Пользовательские стратегии для отдельных пулов.
+- Whitelist, exclude и дополнительные домены.
+- Автохостлист и общие runtime-механизмы z2k там, где они применимы к OpenWrt.
+
+### Сеть и прокси
+
+- **Telegram** — прозрачный туннель для устройств в сети через OpenWrt-native nftables/procd backend.
+- **RT proxy** — прокси и DNS/firewall-интеграция для поддерживаемых RT-доменов.
+- **WARP** — split-routing через собственный WARP-движок z2k с OpenWrt policy-routing backend.
+- IPv4/IPv6 обрабатываются через нативный сетевой стек OpenWrt и общую логику z2k.
+
+### Инструменты и обслуживание
+
+- **WebPanel** — управление сервисом, конфигурацией, стратегиями, списками, диагностикой и обновлениями.
+- **z2k diag** — сводка состояния OpenWrt runtime: procd, nftables/NFQUEUE, сеть, Telegram, WARP, TCP16 и другие компоненты.
+- **TCP16** — проба линии на блок по объёму 16–20 КБ с сохранением результата и использованием его в runtime-конфигурации.
+- **Планировщик** — OpenWrt cron-адаптер для обновлений, списков, TCP16 и обслуживающих задач.
+- **Config validator** — проверка конфигурации перед применением.
+- Подписанный release manifest и проверка целостности OpenWrt release payload.
+
+---
+
+## Установка
+
+Требуется OpenWrt с пакетным менеджером `apk`, root-доступ и поддерживаемая архитектура.
+
+Запустите на роутере:
 
 ```sh
 wget -qO- https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh
 ```
 
-If `curl` is already installed:
+Если уже установлен `curl`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh
 ```
 
-The bootstrap installs only required OpenWrt system dependencies, verifies the signed z2kOW manifest and release artifact, then converges the selected release through `install_release`.
+Установщик:
 
-## WebPanel
+1. ставит только необходимые системные зависимости OpenWrt;
+2. получает контролируемый `UPDATES.json`;
+3. проверяет подпись release metadata;
+4. проверяет размер и SHA-256 release artifact;
+5. применяет релиз через `install_release`;
+6. запускает OpenWrt convergence и health gate.
 
-Open:
+Пользователю не нужно вручную устанавливать набор компонентных APK или собирать окружение из отдельных частей.
+
+---
+
+## Веб-панель
+
+После установки панель доступна по адресу:
 
 ```text
-http://<router-address>:8088
+http://<адрес-роутера>:8088
 ```
 
-The panel is intended for the local network. Do not expose it directly to WAN.
+Панель предназначена для локальной сети. Не публикуйте её напрямую в интернет.
 
-## CLI
+---
+
+## Командная строка
+
+Основная команда:
 
 ```sh
-z2kow status
-z2kow check
-z2kow update
-z2kow restart
-z2kow blocked-monitor status
+z2kow <команда>
 ```
 
-The core service can also be controlled through OpenWrt init:
+| Команда | Описание |
+|---|---|
+| `status` | Статус установленного релиза и сервиса |
+| `check` | Проверить доступный релиз |
+| `update` | Применить доступное обновление |
+| `restart` | Перезапустить основной сервис |
+| `blocked-monitor` | Управление монитором блокировок |
+
+Сервисом также можно управлять штатно через OpenWrt:
 
 ```sh
 /etc/init.d/z2k start
 /etc/init.d/z2k stop
 /etc/init.d/z2k restart
+/etc/init.d/z2k status
 ```
 
-## Updates and persistent data
+---
 
-Routers read only the controlled repository-root `UPDATES.json`. Upstream discovery by itself never publishes a device update.
+## Обрыв на 16–20 КБ
 
-Release-owned files live under `/usr/lib/z2k` and OpenWrt integration paths. Operator configuration, user lists, and persistent state live under `/etc/z2k` and are kept outside the replaceable release payload.
+Это отдельный механизм от autocircular.
 
-## Documentation
+Если соединение устанавливается, но передача обрывается после первых примерно 16 КБ, обычная ротация стратегий может не помочь. z2k использует отдельную пробу линии и карту сетей, чтобы подобрать подходящее имя для проблемных сетей.
 
-- [Documentation index](docs/README.md)
-- [Architecture](ARCHITECTURE.md)
-- [Upstream parity policy](UPSTREAM.md)
-- [Upstream parity matrix](docs/UPSTREAM-PARITY-MATRIX.md)
-- [Release policy](RELEASING.md)
-- [Security model](SECURITY.md)
+На OpenWrt используются те же продуктовые сущности upstream:
 
-## License
+- `z2k-tcp16-probe.sh` — измерение линии;
+- `z2k-tcp16.lua` — runtime-подстановка;
+- `tcp16_nets.txt` — карта сетей;
+- persistent state — результат последнего измерения;
+- ручной запуск через WebPanel;
+- периодический запуск через OpenWrt scheduler.
 
-MIT. See [LICENSE](LICENSE).
+---
+
+## Игровой режим WARP
+
+WARP — дополнительный режим для трафика, который удобнее маршрутизировать через отдельный туннель.
+
+OpenWrt-адаптация сохраняет upstream-смысл:
+
+```text
+install
+  ↓
+регистрация устройства
+  ↓
+enable
+  ↓
+движок ready
+  ↓
+nftables mark
+  ↓
+policy routing
+  ↓
+WARP tunnel
+```
+
+Платформенный backend использует procd, nftables и штатные таблицы маршрутизации OpenWrt вместо Keenetic/iptables-механики.
+
+---
+
+## Обновления
+
+Роутеры используют только контролируемый z2kOW `UPDATES.json`.
+
+Сам факт появления новой версии upstream z2k не означает автоматическую публикацию обновления для OpenWrt. Сначала upstream-изменения адаптируются, после чего публикуется отдельный подписанный z2kOW release.
+
+```text
+upstream z2k
+     ↓
+адаптация под OpenWrt
+     ↓
+z2kOW release
+     ↓
+signed UPDATES.json
+     ↓
+install_release
+```
+
+Конфигурация, пользовательские списки и постоянное состояние хранятся в `/etc/z2k` и отделены от заменяемого payload в `/usr/lib/z2k`.
+
+---
+
+## Архитектура
+
+Основная идея проекта:
+
+```text
+upstream z2k
+├── lib/
+├── files/
+├── webpanel/
+└── общая продуктовая логика
+        │
+        └── platform/openwrt/
+            ├── procd
+            ├── fw4 / nftables
+            ├── UCI / ubus / netifd
+            ├── hotplug
+            ├── scheduler
+            ├── routing
+            └── release lifecycle
+```
+
+Если функцию можно оставить общей с upstream — она остаётся общей. OpenWrt-реализация нужна только там, где отличается сама платформа.
+
+Подробнее:
+
+- [Архитектура](ARCHITECTURE.md)
+- [Политика синхронизации с upstream](UPSTREAM.md)
+- [Матрица parity](docs/UPSTREAM-PARITY-MATRIX.md)
+- [Документация](docs/README.md)
+- [Безопасность](SECURITY.md)
+
+---
+
+## Подпись обновлений
+
+Production release metadata подписываются отдельным ключом z2kOW. Устройство проверяет подпись manifest и только после этого доверяет URL, размеру и SHA-256 release artifact.
+
+Приватный production-ключ в репозитории не хранится.
+
+---
+
+## Для тех, кто собирается править код
+
+| Документ | О чём |
+|---|---|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Границы common-кода и OpenWrt-адаптера |
+| [UPSTREAM.md](UPSTREAM.md) | Правила сохранения upstream parity |
+| [RELEASING.md](RELEASING.md) | Как устроен выпуск OpenWrt-релизов |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Правила разработки |
+| [SECURITY.md](SECURITY.md) | Модель доверия и границы безопасности |
+
+---
+
+## Лицензия
+
+MIT
