@@ -1,3 +1,47 @@
 # path<TAB>base_blob<TAB>head_blob<TAB>classification<TAB>rationale
 README.md	ece5d49a0a0382deb1faa3f9cf77b943ceba4672	c781a1fa9797d918d1f4e1d3ad5980dc7d99380f	OPENWRT RELEVANT	README describes the unique strategy-set panel and detector workflow ported to OpenWrt.
-docs/superpowers/specs/2026-09-26-unique-strategy-set-design.md	-	6bf410b7348bdf0eb5fbd2ff7cefbdf33192314a	OPENWRT RELEVANT	The feature's staged pool and multi-IP contracts are implemented in common CGI and detector paths; stale measurement details stay recorded in DOC-02.
+
+ARCHITECTURE.md	082d7b2cefbe5558f53d9d5952bd904fd60d8bac	be1f3ae373b58f3954f23b80c1365e8bc19f3067	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+CHANGELOG.md	bde69d8955153443a778b3c5b3ba7c7b4d9e0d17	afb235d076907e7e4a2f5d1e2efdd93320137158	DOC ONLY	Documentation navigation or contributor guidance; no product behavior change.
+CONTRIBUTING.md	a3da3f20752a830b23dac0b8593f69b65849f0ef	71f1aba1f7a44ee5aa2573d8425c11f41f7580f7	DOC ONLY	Documentation navigation or contributor guidance; no product behavior change.
+docs/archive/README.md	-	2a0c7fbae011a8fcb635de8ada612984512c2600	RETIRED/HISTORICAL	Retained dated record; explicitly marked as historical, not a current contract.
+docs/detector-rewrite.md	5e149342433feea8059b8571647c6c9078fb644b	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/openwrt-adapter-contract.md	87fd1dbcd06136d6ea03309b4c2485e71e46ee96	-	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+docs/openwrt-mark-allocation.md	8c1b59d03b29784b567e9ee8ac40a55503e9a75c	-	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+docs/openwrt-release-operations.md	46839893e619f057854c343d894af8e3a1ebe73a	55d28d949f5c303f4ae80348f82da96d6665f6f7	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+docs/openwrt-rt-proxy-contract.md	7d2dd6c021878658219e76148d826223f0fefeca	1a1298d56f9ad0741ebac53cee5d4b2b2dac36ae	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+docs/openwrt-telegram-contract.md	831619a2a556dd67254faf9d997d0975ade5f1b0	cb5e607ccfb6298bd63b46c24a36d7990d806395	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+docs/openwrt-warp-contract.md	bcb0c86d0d015665a82cdf8d39cfca01128ffb1a	8250cd39254a414c34e0ca09122ee6e2bf8be37a	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+docs/openwrt-webpanel-contract.md	a8e941d8b692efa3bf94bd0e70c8e446e124759f	7f456dcb9bc100bdbb478543b07bb801467c4917	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+docs/openwrt-webpanel-redesign-spec.md	99f9240356a4076591ff5deb18dd628a4a3d0199	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/README.md	-	2cf9d04bc0d131c87875e954ebcbd6d5b14d2fd2	DOC ONLY	Documentation navigation or contributor guidance; no product behavior change.
+docs/security-review-2026-09-16.md	a1ecd1cee554a67de1d24fe1cc28395eafe62b14	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/security-triage-2026-09-21.md	fd97a7b3e444508501a87c12390b5fd783e81f55	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/superpowers/plans/2026-09-22-telegram-udp-recovery.md	f9ccb9f90fb011f91bc052ec32eb9438d271e052	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/superpowers/plans/2026-09-23-warp-domain-routing.md	997742442a1789c86eca6e36601082a013e78dac	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/superpowers/plans/2026-09-25-warp-foreign-edge-selection.md	dd7055c728b69192b655669a3e7a8104e0f9e0ac	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/superpowers/specs/2026-09-23-warp-domain-routing-design.md	b1f3151a21ebde9a7089ad95ceae926415fe76c8	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/superpowers/specs/2026-09-25-warp-foreign-edge-selection-design.md	a8e61f81a602b3f93676f2ee4da9a461a755166d	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/superpowers/specs/2026-10-02-z2kow-upstream-parity-design.md	469e4d25df61230a473464431ef035064bf2af0c	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/telegram-call-relay-design-2026-09-21.md	9c60762f3148e474aeed23a576df6a036fc803cc	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/telegram-reference-comparison-2026-09-21.md	317f9f7307253625cdf203a557068a71b3f46022	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/telegram-routing-regression-2026-09-22.md	bb13118a6860b915df45d6e7b270b0bc73b6e642	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/telegram-transport-field-2026-09-21.md	be218a357a54241ac6e9299564578126a24725a4	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/telegram-udp-recovery-2026-09-22.md	74d85058a1cd5e2252ce041c24d000b74e8ecc4c	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/telegram-udp-relay.md	cf7f8f8881babf2a6c779552d346abee0c0261bf	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+docs/UPSTREAM-PARITY-MATRIX.md	-	a6518c2ac2eeb589dbe61b4aaed4440bd416d3cd	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+docs/UPSTREAM-SYNC.md	ed781053e16484feed7922de40f5705b12d8b66d	-	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+docs/webpanel-list-editor.md	-	8441f0d2aee6cdaf0c310581c6369ad3c3b8652a	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+docs/whitelist-bulk-2026-09-22.md	6f87d3af703f14b946ae989aba1a7a64150a0fca	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
+lib/auto_update.sh	ad5b62d4530f2b0c1ac88679a8aaff04e792b4e6	933f886737756dffcab47cad55472cf56b595f20	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+README.md	2940c626639cbc526f8c0aa71dd320fa7bd2c3b5	68e77760985b7b8f0de8068d23e15df76949a1ae	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+reference/webpanel-qa/README.md	b5a5a0cc627f42fdba2642c7e7f4cfade7156ef1	095f5b28546f7eb019faa3e0249abd4497dbc33f	DOC ONLY	Documentation navigation or contributor guidance; no product behavior change.
+RELEASING.md	f9a2e3cff0f48f19afa955241b7aa52fd1a9a646	276c69d336b94e7ba35dd480e906d8f64fb59e7d	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+SECURITY.md	0b28c9ef6b4d86438d9d45a1ac4f208a21779841	2ad351caadf2aa15860fdbc476354493347a19cf	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+tests/QA.md	de3d49ca0366b077efa239060b8273678a6200a0	180509cac1a00076c9dd0c086bfcbeef9ff02e80	DOC ONLY	Documentation navigation or contributor guidance; no product behavior change.
+UPSTREAM.md	14a6d7d6250406ba8d8144cdee36678fad6755a6	16e56cbb30d862981e826d357533c0998929c123	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+
+docs/archive/multiwan-2026-09-22.md	-	54ede60995f15223caf4eeb45f2d3354b1e2ab3c	RETIRED/HISTORICAL	Archived WAN discovery investigation; not a current implementation contract.
+docs/archive/rollback-telegram-multiwan-2026-09-22.md	-	4a798de3525ab9e93c7e227156b369280091849c	RETIRED/HISTORICAL	Archived Telegram rollback decision; not a current implementation contract.
+docs/multiwan-2026-09-22.md	bae68ddc06b3fe6f1dcbba5a1341889dc353d3f2	-	RETIRED/HISTORICAL	Moved to docs/archive with an explicit historical-only banner.
+docs/rollback-telegram-multiwan-2026-09-22.md	ad30cd36882aaf8035fca6263cf995544952fe01	-	RETIRED/HISTORICAL	Moved to docs/archive with an explicit historical-only banner.

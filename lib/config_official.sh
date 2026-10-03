@@ -68,7 +68,7 @@ generate_nfqws2_opt_from_strategies() {
     # merge через `Z2K_REFACTOR_PHASE3=1` в config — оставлено для
     # тестирования / возможного rollforward.
     #
-    # PLATFORM HOOK (allowlisted, см. docs/openwrt-adapter-contract.md § sync):
+    # PLATFORM HOOK (allowlisted; the OpenWrt boundary is described in ARCHITECTURE.md):
     # путь через ${ZAPRET2_DIR}, как у всех ~30 соседних чтений в этой функции.
     # Было захардкожено "/opt/zapret2/config" — единственное такое чтение в
     # argv-конвейере. Keenetic: ZAPRET2_DIR там unset либо /opt/zapret2, строка

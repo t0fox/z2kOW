@@ -1,54 +1,23 @@
 # Upstream tracking
 
-z2kOW adapts [necronicle/z2k](https://github.com/necronicle/z2k) for OpenWrt.
-All project work stays on `main`; upstream release branches are read-only
-inputs and never become router update sources.
+z2kOW adapts [necronicle/z2k](https://github.com/necronicle/z2k) for OpenWrt. The upstream `z2k-enhanced` branch is a read-only input; device updates use only the controlled z2kOW release manifest on `main`.
 
-## Release discovery and approval
+## Intake and release authority
 
-`.github/workflows/sync-upstream.yml` checks the live `z2k-enhanced` branch
-every 15 minutes. It bypasses caches, resolves the current commit, reads the
-upstream `UPDATES.json`, and alerts when its sequence advances beyond the
-controlled z2kOW manifest.
+The `sync-upstream.yml` workflow checks for upstream sequence changes and alerts maintainers. Discovery does not adapt or publish a release. For an approved update, review the upstream source and documentation changes, carry over shared behavior, adapt platform behavior to OpenWrt, update the [parity matrix](docs/UPSTREAM-PARITY-MATRIX.md), and review affected platform contracts.
 
-Discovery does not promote a release. For each new upstream release, review
-the source diff, carry over common behavior, adapt platform-specific behavior
-through the existing OpenWrt services, then run the release tests. The
-controlled manifest changes only after that work is approved. No sync branch,
-component release, or automatic publication is part of this process.
+The repository-root [`UPDATES.json`](UPDATES.json) is the only release authority read by routers. It records the approved upstream tag, sequence, commit, and append-only history. A production release adds the complete OpenWrt artifact URL, byte size, and SHA-256 to that manifest and signs it. Devices do not read the upstream manifest directly, and a newly discovered upstream release remains unavailable until z2kOW adapts and publishes it.
 
-## One release authority
+## Review upstream documentation changes
 
-The repository-root [`UPDATES.json`](./UPDATES.json) on `main` is the sole
-release manifest used by routers, CI decisions, and the WebPanel. It records
-the approved upstream tag, sequence, immutable upstream commit, and append-only
-release history. A production release adds the complete OpenWrt payload's
-artifact URL, size, and SHA-256 to this same manifest.
-
-The updater never reads the upstream manifest directly. Upstream metadata is
-fetched only by the sync check and the controlled release builder. There is no
-`UPSTREAM.json` file or second version authority. A newer upstream sequence
-remains invisible to devices until its OpenWrt adaptation is tested, approved,
-signed, and published.
-
-## Installation
-
-Fresh install and every update use the same convergence command:
+Run the documentation audit against explicit base and target refs:
 
 ```sh
-install_release <upstream-tag>
+sh scripts/openwrt/audit-upstream-docs.sh <base-ref> <target-ref>
 ```
 
-The public bootstrap is
-[`scripts/openwrt/install.sh`](./scripts/openwrt/install.sh). It verifies the
-controlled manifest and full payload, then calls `install_release`. APK is
-used only for real OpenWrt system dependencies. One-time migration reads old
-z2kOW APK/feed ownership data, removes that ownership after a successful
-installation, and leaves no parallel package deployment path.
+For each changed normative document, record the exact path, base and head blob IDs, classification, and rationale in [`docs/UPSTREAM-SYNC.tsv`](docs/UPSTREAM-SYNC.tsv). The helper checks changed Markdown contracts and selected workflow, release, and lifecycle files. Classifications are `OPENWRT RELEVANT`, `KEENETIC ONLY`, `RETIRED/HISTORICAL`, and `DOC ONLY`. Existing ledger rows apply only to the blob IDs they name; add a new row when the reviewed blob changes.
 
 ## OpenWrt boundary
 
-Carry upstream behavior through the existing OpenWrt adapters: `procd`,
-`fw4`/nftables, hotplug, UCI, and the existing WARP, Telegram, RT proxy, and
-WebPanel services. Do not run Keenetic lifecycle scripts or mutate LuCI's
-entrypoint, static tree, `uhttpd` configuration, or ports 80/443.
+Carry common upstream behavior through the existing OpenWrt adapters: procd, fw4/nftables, hotplug, UCI, and the platform services documented in [architecture](ARCHITECTURE.md). Do not run Keenetic lifecycle scripts or change LuCI/uhttpd files and ports. Device installation and publication are described in the [release operations guide](docs/openwrt-release-operations.md) and [release policy](RELEASING.md).

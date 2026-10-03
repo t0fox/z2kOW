@@ -2,7 +2,8 @@
 
 Короткий документ о правилах, которые в этом проекте не очевидны и уже
 оплачены инцидентами. Про устройство — [ARCHITECTURE.md](ARCHITECTURE.md),
-про выпуск — [RELEASING.md](RELEASING.md).
+про выпуск — [RELEASING.md](RELEASING.md). Каталог текущей документации —
+[docs/README.md](docs/README.md).
 
 ---
 

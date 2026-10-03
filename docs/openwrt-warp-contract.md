@@ -1,9 +1,9 @@
-# OpenWrt WARP contract (Stage 5)
+# OpenWrt WARP contract
 
-Источник истины — текущий upstream `necronicle/z2k` (`z2k-enhanced`),
-НЕ память и НЕ usque-архитектура. Foundation FROZEN; порт только в
-`platform/openwrt/*`, `scripts/openwrt/stage-rootfs.sh`, `tests/openwrt/*`, `docs/*`
-(+ точечный COMMON_HOOK §27 и Go platform seam §4).
+The shared behavior follows upstream `necronicle/z2k` (`z2k-enhanced`).
+The OpenWrt implementation is in `platform/openwrt/warp.sh`, the procd init
+adapter, and the complete release payload. Common WARP behavior remains in
+the shared runtime where possible.
 
 ## 1. Upstream: цепочка и состояния
 
@@ -72,7 +72,7 @@ Atomic reload: validate-first (битая строка никогда не до�
 flush+add; правило W19: источник непуст, а валидных ноль → reload
 ОТКАЗАН, live set цел (намеренная очистка = пустые файлы = разрешена).
 
-## 3. Go platform seam (единственный common/Go diff, §27)
+## 3. Runtime interface
 
 `z2k-warpd/internal/nat` дёргает `iptables` через инжектированный `Runner`
 (`nat.Ensure(nat.Runner(cfg.Run), ...)` в `engine.Run`) — наружу торчит
@@ -85,8 +85,8 @@ Keenetic default не меняется ни байтом (доказывает �
 ОТСУТСТВИЕ при seam + присутствие TUN-команд).
 
 OpenWrt invocation включает external mode. Бинарь НЕ пересобирается под
-Stage 5 (флаг runtime — существующий `z2k-warpd-linux-arm64` артефакт;
-build secret не затрагивается).
+The runtime receives the `external` network backend so that OpenWrt owns
+network setup and teardown.
 
 ## 4. Process ownership — procd (без supervisor)
 
@@ -134,7 +134,7 @@ Transient:
 
 Device identity удаляется только отдельной explicit операцией (не `remove`).
 
-## 6. Mark/mask/table/pref (аудит — `docs/openwrt-mark-allocation.md`)
+## 6. Routing mark, table, and priority
 
 Keenetic `0x989/0x989` НЕ переносим (биты 8-11 пересекаются с mwan3
 `0x3F00`). Выбрано:
@@ -194,21 +194,12 @@ CLI parses comment arguments as nft syntax.
 
 - Mark ТОЛЬКО PREROUTING (router-local никогда в WARP — upstream инвариант
   после удаления OUTPUT; тесты запрещают OUTPUT-mark).
-- MSS 1240 = engine.MTU(1280)-40, тест держит coupling с Go-константой;
-  outbound — clamp-to-PMTU, inbound — explicit (НЕ зеркальный PMTU-clamp:
-  дал бы 1460 с LAN-моста; полевое измерение upstream).
+- MSS 1240 = engine.MTU(1280)-40; outbound traffic clamps to the route MTU,
+  while inbound traffic uses an explicit MSS value.
 - MASQUERADE только `oifname <валидированный iface>`; FORWARD только
   `oifname` (никакого generic accept, никакого WAN-ingress bypass).
-- Offload exemption правилом НЕ добавляем — и вот честное обоснование.
-  Runtime exemption-контракт — iptables-цепочка `forwarding_rule_zapret`
-  (`-j RETURN` перед `-j FLOWOFFLOAD`), которую runtime пересоздаёт внутри
-  своего apply: вклинить туда наше правило в верной позиции из адаптера
-  невозможно, а правило после enable-правила бесполезно. `-j PPE` на
-  OpenWrt отсутствует как класс; второй flowtable-фреймворк запрещён.
-  Смягчающее (не доказательство): flow-ключ софтового flowtable включает
-  mark, а наш марк стабилен в пределах соединения — корректный offload
-  маркированного трафика не ломает (в отличие от Keenetic PPE-драйвера).
-  HFO под нагрузкой MediaTek — live-check роутера (честный PARTIAL).
+- The adapter does not add flow-offload or PPE rules. OpenWrt does not expose
+  the Keenetic PPE control; the panel does not advertise a PPE capability.
 
 ## 8. Policy route — только при ready (fail-open invariant)
 
@@ -333,14 +324,14 @@ Watchdog за process-dead НЕ конкурирует с procd (только PB
   только свой. W43 (disable под локом не мутирует, после release — OFF),
   W44 (updater-stop под локом rc 1 без мутаций и порчи owner).
 
-## 11. Отклонения от upstream (осознанные)
+## Upstream adaptations
 
 1. Нет shell-supervisor (procd + bounded respawn 3600 5 5).
 2. Нет `-v` файлового лога движка в /tmp? — есть: движок сам ведёт
    logrot-лог (флаг --log), procd stdout/stderr → logd.
 3. ipset → nft sets (swap → validate-first + flush+add; инвариант «битая
    строка не обнуляет live» сохранён механизмом W19).
-4. `-j PPE` → нет (движок offload OpenWrt — см. §7, честный PARTIAL).
+4. `-j PPE` is not available through this OpenWrt adapter.
 5. `0x989` → `0x80000000/0x80000000` (mwan3-коллизия доказана).
 6. table 989/pref 90→500 + runtime ownership proof (вместо blind reuse).
 7. `ip route flush table` → только `del default` нашего (чужое не трогаем).

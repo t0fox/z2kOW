@@ -1,195 +1,35 @@
-# OpenWrt webpanel contract (Stage 6)
+# OpenWrt WebPanel contract
 
-Upstream webpanel + tiny OpenWrt platform adapter. No LuCI rewrite, no new
-API/frontend, no second TG/RT/WARP/firewall/updater/config implementation.
-Panel thinks it calls ordinary z2k operations; the adapter translates them
-into existing OpenWrt primitives (Stages 1-5).
+The shared z2k WebPanel runs on OpenWrt through a small platform adapter. The common API and frontend remain shared; OpenWrt-specific filesystem, service, firewall, and network operations belong to `webpanel/cgi/platform.sh` and `platform/openwrt/webpanel.sh`.
 
-## 1. Capability matrix (обязательный результат §36)
+## Ownership and paths
 
-CLASS: COMMON (тот же код), PLATFORM_IO (тонкий перевод), KEENETIC_ONLY
-(capability=false), ABSENT (в UI нет).
+- `webpanel/cgi/` and `webpanel/www/` are part of the complete release payload.
+- `/etc/z2k/webpanel/` stores operator-selected panel settings.
+- `/tmp/z2k/` stores generated configuration, logs, jobs, and other transient files.
+- `/etc/init.d/z2k-webpanel` owns the panel's procd service. The core service and WebPanel have separate lifecycles.
+- LuCI and uhttpd remain OpenWrt-owned. The panel must not modify `/www/cgi-bin/luci`, `/www/luci-static`, `/etc/config/uhttpd`, or their ports 80 and 443.
 
-| Capability | Class | OpenWrt owner / adaptation |
-|---|---|---|
-| service start/stop/restart/status | PLATFORM_IO | `INIT_SCRIPT=/etc/init.d/z2k`; `is_running` → init running (procd); `is_installed` → payload marker |
-| strategy editor/pools/custom/validate/save/reset | COMMON | env paths only; common generator |
-| whitelist add/delete/import/list | COMMON | `WHITELIST_FILE=/etc/z2k/user-lists/whitelist.txt` |
-| extra-domains add/delete/list | COMMON | `EXTRA_DOMAINS_FILE` → user-lists |
-| autohostlist view/delete | COMMON | `AUTOHOSTLIST_DOMAINS_FILE` → `/etc/z2k/state/autohostlist-domains.txt`; live `Z2K_AUTOHOSTLIST_FILE` is a separate nfqws2 working file |
-| exclusions add/delete/list | COMMON (file) | `EXCLUDE_FILE` → user-lists/exclude.txt; live nft apply unavailable (no ipset impl; graceful no-op precedent) |
-| rotator state view/edit/clear | COMMON | `STATE_FILE` → /etc/z2k/state/state.tsv |
-| config flags (все тумблеры кроме PPE) | COMMON | `CONFIG_FILE` → /etc/z2k/config + common generator + init restart |
-| debug flag | COMMON | `DEBUG_FLAG_FILE` (new seam, transient default) |
-| game-warp toggle | PLATFORM_IO | `WARP_SCRIPT` → platform warp.sh (rc 0/1/2 contract compatible) |
-| warp install/remove/status | PLATFORM_IO | same verbs |
-| warp reregister | PLATFORM_IO | `WARP_DEVICE` env + `WARP_INIT=/etc/init.d/z2k` (documented full-restart side effect) |
-| warp neighbors | PLATFORM_IO | `warp_neighbors` override: `ip -4 neigh` + DHCP leases + `/proc/net/arp` fallback; empty hostname allowed |
-| warp devices toggle/save/read | COMMON | `WARP_LISTS_DIR` env + reload via new `ipset` verb (sets_load, no duplication) |
-| warp games/lists read/toggle/save/delete | COMMON | `WARP_GAMES_DIR` → shipped tree, `WARP_LISTS_DIR` → user tree |
-| TG enable/disable | PLATFORM_IO | same `TG_PROXY_USER_DISABLED` flag + `/etc/init.d/z2k reload` (override, no daemon mgmt in CGI) |
-| TG status pid | COMMON | same :1443 cmdline match (portable, no /opt) |
-| RT toggle | ABSENT | no UI toggle upstream; don't invent; restart/update/uninstall must not break RT |
-| update status/check | PLATFORM_IO | single controlled `UPDATES.json`; installed tag comes from `/etc/z2k/state/installed-release` |
-| update apply | PLATFORM_IO | `AU_SCRIPT` → platform update.sh (`Z2K_AU_MANUAL/NO_JITTER` honored) |
-| full uninstall | KEENETIC_ONLY | capability false (message: package manager) |
-| Keenetic policy | KEENETIC_ONLY | capability false (no mwan3/PBR substitute) |
-| PPE toggle | KEENETIC_ONLY | capability false (HFO owned by zapret2 runtime) |
-| diagnostics /diag, /diag/download | PLATFORM_IO | capability true; common diagnostic delegates OpenWrt service/firewall/runtime probes through package-owned `platform/openwrt/diag.sh`; the panel can show and download the report |
-| tcp16 card/probe | KEENETIC_ONLY | capability false (probe not delivered; card hidden) |
-| domain probe/pick | COMMON* | works iff z2k-detect present (manifest delivers); else existing graceful error |
-| dns check | PLATFORM_IO | deliver z2k-dns-check.sh via release_map; `DNS_CHECK_OWN` → user-lists |
-| logs/jobs | COMMON | /tmp paths fine as-is |
-| strategy picker deps | COMMON* | `Z2K_DETECT_BIN` env |
-| auth state/challenge/login/logout | COMMON* | NDM capability false (`Z2K_PANEL_AUTH` stays 0 → required:false); origin/Host guards keep (platform-neutral) |
-| lighttpd/install | PLATFORM_IO | release-owned procd init; OpenWrt `apk` provides real system dependencies only |
-| settings port/bind/hosts | COMMON | `WEBPANEL_KEEP_DIR` → /etc/z2k/webpanel |
-| template render | PLATFORM_IO | same template + `@PLATFORM_ENV@`; OpenWrt renderer, OpenWrt values |
+The default panel bind is the detected LAN address on port `8088`. It uses HTTP. The panel is intended for local-network access; it must not bind automatically to WAN or a public interface.
 
-`*` = works when the underlying artifact is present, graceful error otherwise
-(existing behavior, no new code).
+## Platform capabilities
 
-## 2. Platform seam (exact)
+The API reports capabilities through `/status`; the frontend uses them to hide controls without an OpenWrt implementation.
 
-- `webpanel/cgi/platform.sh` — NEW small common file. Keenetic: no-op.
-  OpenWrt (`Z2K_PLATFORM=openwrt`): frozen-ownership env map (§4) + source
-  `$Z2K_ROOT/platform/openwrt/webpanel.sh` (function overrides). Sourced by
-  `api.sh` between auth.sh and actions.sh (one added line).
-- `platform/openwrt/webpanel.sh` — complete-release-owned OS-effect helpers:
-  `wp_lan_ip`, `wp_panel_render`, `wp_panel_validate`, `wp_panel_running`,
-  `wp_neighbors`, `wp_service_running`.
-- No `actions-openwrt.sh` / `api-openwrt.sh` / `app-openwrt.js` forks.
-- `api.sh` additions: source platform.sh; append `platform` +
-  `capabilities{policy,ppe,tcp16,diag,warp,telegram,uninstall}` and the
-  optional `brand{name,subtitle,logo,favicon,theme}` profile to `/status` on
-  OpenWrt only (Keenetic bytes identical). GET stays GET, shapes preserved.
-- Frontend: capability visibility and a platform-neutral brand projection.
-  The common app does not identify OpenWrt to choose assets: an absent profile
-  keeps the embedded z2k wordmark, favicon, stylesheet, and `Z2K` title suffix.
-  A profile carries its name, subtitle, same-origin SVG assets, and local CSS.
-  The common branding module validates those paths; route titles remain owned
-  by `router.js` and use the active brand name. Layout and business logic stay
-  shared.
-- OpenWrt supplies `z2kOW` / `OpenWrt edition` from the complete release
-  payload. Its wordmark, favicon, and theme live in
-  `/usr/lib/z2k/www/assets/openwrt/`; `install_release` applies them together
-  with common UI and adapter code. Their stable URLs are served by the existing
-  no-cache lighttpd document root. There is one full-payload update path.
+| Capability | OpenWrt behavior |
+|---|---|
+| Core service, strategies, config, lists, and diagnostics | Shared WebPanel backed by OpenWrt paths and procd; diagnostics delegate to the OpenWrt adapter. |
+| Telegram and WARP controls | Routed through the existing OpenWrt service adapters. |
+| TCP16 | Advertised only when the probe, detector, Lua module, and required data files are present in the installed payload. |
+| Custom DNS and flow offload controls | Advertised only when their OpenWrt prerequisites are available. |
+| Keenetic policy routing, PPE, fast route, uninstall | Not advertised as OpenWrt capabilities. |
 
-## 3. CGI must not know (frozen Stages 1-5 own it)
+The capability response in `webpanel/cgi/platform.sh` is the source of truth for current exposure. Do not infer support from dormant common frontend routes or files present in the repository.
 
-nft chains, procd internals, table 989, WARP mark, TG ports, RT DNS,
-hotplug, fw4. No `nft/ip rule/ubus/uci` in actions.sh for lifecycle —
-CGI calls adapter primitives. Static test pins this on the openwrt path
-(reachability-aware, not whole-file grep: Keenetic source keeps its lines).
+## Security and lifecycle
 
-## 4. OpenWrt path map (no /opt symlink hack)
+The panel uses the common request-origin checks. Optional password authentication is disabled by default. A password does not make WAN exposure safe; see the project [security model](../SECURITY.md).
 
-```text
-ZAPRET2_DIR=/usr/lib/z2k   Z2K_BIN=/usr/lib/z2k/bin
-Z2K_ETC=/etc/z2k           Z2K_STATE=/etc/z2k/state
-Z2K_USER_LISTS=/etc/z2k/user-lists
-Z2K_TMP=/tmp/z2k           Z2K_LOG=/tmp/z2k/logs   Z2K_RUN=/tmp/z2k/runtime
-INIT_SCRIPT=/etc/init.d/z2k
-CONFIG_FILE=/etc/z2k/config
-WHITELIST_FILE=/etc/z2k/user-lists/whitelist.txt
-EXTRA_DOMAINS_FILE=/etc/z2k/user-lists/extra-domains.txt
-EXCLUDE_FILE=/etc/z2k/user-lists/exclude.txt
-CUSTOM_STRAT_DIR=/etc/z2k/user-lists/custom-strategies
-WARP_SCRIPT=/usr/lib/z2k/platform/openwrt/warp.sh
-WARP_LISTS_DIR=/etc/z2k/user-lists/warp
-WARP_GAMES_DIR=/usr/lib/z2k/lists/warp/games   (UPDATER wholesale refresh)
-STATE_FILE=/etc/z2k/state/state.tsv
-AUTOHOSTLIST_DOMAINS_FILE=/etc/z2k/state/autohostlist-domains.txt
-Z2K_AUTOHOSTLIST_FILE=/etc/z2k/state/zapret-hosts-auto.txt (nfqws2 live file)
-DNS_CHECK_SCRIPT=/usr/lib/z2k/z2k-dns-check.sh
-DNS_CHECK_OWN=/etc/z2k/user-lists/dns-check.txt
-Z2K_DETECT_BIN=/usr/lib/z2k/bin/z2k-detect
-AU_TAG_FILE=/etc/z2k/state/installed-release
-AU_SCRIPT=/usr/lib/z2k/platform/openwrt/update.sh
-DEBUG_FLAG_FILE=/tmp/z2k/debug.flag (new seam, transient)
-WEBPANEL_KEEP_DIR=/etc/z2k/webpanel (port/bind/hosts, USER)
-```
+WebPanel updates use the same controlled release manifest and complete rootfs installation as the rest of z2kOW. Panel template refreshes and service operations must not restart or reconfigure LuCI/uhttpd. Installing or updating the core and stopping the core service must preserve the panel's independent lifecycle.
 
-Updater-owned vs user-owned lists never remix (§5): shipped game lists stay
-under `/usr/lib/z2k/lists`, user lists under `/etc/z2k/user-lists`.
-
-OpenWrt сохраняет найденные `--hostlist-auto` домены при штатном stop и
-восстанавливает их перед следующей генерацией/запуском через
-`platform/openwrt/autohostlist.sh`. Слив выполняется атомарным rename live-файла
-в drain, поэтому панельный ledger не зависит от payload
-`/usr/lib/z2k/lists/autohostlist-domains.txt`, а рабочий файл движка не является
-источником duplicate-check в WebUI. При выключенном `Z2K_AUTOHOSTLIST` ledger
-сохраняется, но новый engine-файл не создаётся.
-
-## 5. Ownership (→ owned-paths.txt, tests)
-
-```text
-webpanel/cgi/*, webpanel/www/*, lighttpd.conf template → complete release
-platform/openwrt/webpanel.sh, init/glue               → complete release
-/etc/z2k/webpanel/* (port/bind/hosts)                → USER
-generated lighttpd.conf, logs, pidfiles              → TRANSIENT
-```
-
-Upstream UI and OpenWrt adapter changes ship together in the one complete
-release payload and converge through `install_release <tag>`.
-Dormant assets on disk ≠ panel enabled (no updater special-casing).
-
-## 6. Panel service (independent lifecycle)
-
-- `/etc/init.d/z2k-webpanel` (procd, complete release): renders transient
-  `/tmp/z2k/runtime/webpanel/lighttpd.conf` from template + settings,
-  validates (`lighttpd -tt`), opens instance `lighttpd -D -f`, bounded
-  respawn (no shell supervisor). Never touches stock lighttpd/service.
-- LuCI/uhttpd is independent: do not edit /etc/config/uhttpd, restart its
-  service, change its firewall access or take ownership of /www/LuCI CGI.
-- Default bind is LAN_IP:8088. Collision checks compare the requested local
-  bind address and wildcard overlap; a listener on another specific IPv4 may
-  share the numeric port when the kernel permits it.
-- Stopping core MUST NOT kill panel and vice versa (separate services).
-- Port conflict: foreign listener → FAIL LOUDLY (no kill, no reconfig).
-- Bind default: current LAN IPv4 from UCI `network.lan.ipaddr`, with CIDR
-  suffix removal and strict validation; IPv6 off unless configured; never
-  0.0.0.0/WAN auto.
-- Settings created only if absent; update preserves port/bind/hosts.
-- Template update → render + panel-only reload/restart; core PID unchanged.
-- WEB-LUCI-01 remains PARTIAL until router before/after snapshots identify
-  :80/:443 owners and repeat HTTP/HTTPS LuCI probes across start, restart,
-  update, stop and removal. An HTTP 403 means a listener answered; it is not
-  evidence of a closed port.
-
-## 7. Updater integration (same step names)
-
-- `rebuild-panel` keeps its name. OpenWrt branch: template
-  `/usr/lib/z2k/webpanel/lighttpd.conf.in` + `/etc/z2k/webpanel/*` →
-  render via platform adapter → validate → restart `z2k-webpanel` ONLY if
-  installed+running. Panel package absent ⇒ safe no-op.
-- restart-set `webpanel/*` on openwrt → `z2k-webpanel` (not core restart).
-- Update button: check → manifest from `Z2K_AU_REPO_RAW`/`Z2K_AU_BRANCH`
-  (one updater truth); apply → `Z2K_AU_MANUAL=1 update.sh apply`
-  (no jitter for manual). No second manifest/verify/branch logic in CGI.
-- release_map openwrt adds: `webpanel/cgi/*`, `webpanel/www/*`,
-  `webpanel/lighttpd.conf` (→.in), `files/z2k-dns-check.sh`.
-  install/uninstall/init scripts stay package-owned (no updater mapping).
-- Template keeps ONE file + `@PLATFORM_ENV@` (empty on Keenetic):
-  OpenWrt renderer substitutes the `setenv Z2K_PLATFORM=openwrt` line.
-
-## 8. Security (no weakening)
-
-auth.sh, Host validation, same-origin, request limits, CGI restrictions
-unchanged. Panel binds LAN only (never WAN auto). NDM-auth unsupported on
-OpenWrt (stays off, fail-closed). No directory listing, api-only executable.
-
-## 9. Test layers
-
-A contract/static (matrix doc, ownership, no-forbidden-on-path, no fork,
-diff budget). B platform unit (webpanel.sh). C real CGI sysroot
-(api.sh+actions.sh, WP-scenarios). D panel lifecycle (render/start/stop).
-E regression (Foundation+TG+RT+WARP+Keenetic panel suites).
-
-## 10. Non-goals / stop conditions
-
-No LuCI/uhttpd/Node/Python rewrites. No new subsystems for
-Keenetic-only features (capability=false is a finished decision).
-RUNTIME PARTIAL without live router is not a blocker. Go CI debt stays
-out of Stage 6.
+The current CLI and WebPanel do not expose uninstall. Internal cleanup functions are not operator-facing commands.

@@ -1,132 +1,30 @@
-# Безопасность z2k
+# Security
 
-## Как сообщить о проблеме
+## Reporting a vulnerability
 
-Issue в этом репозитории. Если считаете, что находка не должна лежать
-публично до исправления — так и напишите в первом сообщении, без деталей,
-и договоримся о канале.
+Open an issue in this repository. If public details could put users at risk before a fix is available, state that in the issue without including exploit details so a private reporting channel can be arranged.
 
-Ответ по существу в течение нескольких дней. Проект ведёт один человек —
-это не отговорка, а факт, который стоит учитывать в ожиданиях.
+## Update trust
 
----
+The installer and updater run with root privileges. The first bootstrap is fetched over HTTPS from this repository; that first request depends on TLS and repository integrity. The bootstrap contains pinned Ed25519 release-key fingerprints. It verifies the controlled `UPDATES.json` signature before trusting the artifact URL, expected size, and SHA-256. The digest is checked against the complete OpenWrt rootfs archive before installation.
 
-## Что z2k собой представляет с точки зрения угроз
+Production signing uses a private key held in the protected GitHub production environment. The public key and trusted key identifiers are distributed with the project. A signature protects release metadata and artifact selection against a compromised repository publishing unsigned or self-signed metadata; it does not protect against compromise of the signing environment or private key.
 
-z2k ставится на домашний роутер, **работает от root** и регулярно скачивает и
-исполняет код с GitHub. Это значит, что цена компрометации канала доставки
-равна цене компрометации роутера целиком. Ниже честно перечислено, что
-защищено, а что нет.
+The installed release replaces product-owned paths and keeps `/etc/z2k` operator data outside the release payload. See [release operations](docs/openwrt-release-operations.md) for ownership and recovery behavior.
 
-### Что защищено
+## WebPanel exposure
 
-**Целостность доставляемых файлов.** `UPDATES.json` несёт карту `files_sha256`
-для каждого поставляемого файла. Каждый хоп цепочки зеркал сверяется с ней;
-не совпало — источник отвергается вместе с закешированным ETag, идём к
-следующему. Это закрывает протухший или подменённый ответ зеркала, включая
-`jsdelivr` и `gh-proxy`, которые терминируют TLS у себя.
+The WebPanel listens on HTTP and defaults to the router's LAN address on port `8088`. It is intended for access from the local network. Do not expose it to the internet or forward its port from a WAN interface.
 
-**Автообновление не запускает непроверенный код.** Скрипт установки,
-запускаемый от root в ходе автообновления, сверяется с той же картой до
-запуска. Не совпало — обновление не применяется.
+Panel password authentication is optional and disabled by default. When enabled, it adds a login boundary but does not make public exposure safe. Host and request-origin checks help prevent a web page from issuing unwanted requests through a user's browser; they do not protect against a device that can directly reach the panel on the LAN.
 
-**Стороннему реверс-прокси не доверяется то, что нечем сверить.**
-`gh-proxy.com` участвует только там, где известен ожидаемый дайджест.
+## Telemetry
 
-**Ввод из вебпанели не превращается в команду.** Конфиг исполняется как
-скрипт, поэтому значения экранируются, а строки стратегий отвергаются при
-наличии `"`, `` ` ``, `$` и управляющих символов.
+Strategy telemetry is enabled by default and can be disabled with the `Z2K_STATS` setting in `/etc/z2k/config` or through the available settings interface. The first scheduled upload is delayed until the telemetry notice has been shown, with a three-day maximum delay. The uploader sends strategy pool, strategy slot, and rounded time-in-slot values to the configured endpoint. It omits the host column from the local strategy state and does not send a stable device identifier. The current default endpoint uses HTTP: the upload contents and the router's source IP are visible to the endpoint and network path in transit.
 
-**Панель не отвечает на чужой адрес.** Проверяется `Host`, `Origin` и
-`Sec-Fetch-Site`; адрес привязки не может сам себя внести в список
-разрешённых, если он не приватный.
+## Security boundaries
 
-### Что НЕ защищено — и это осознанно
-
-**Первая установка — доверие при первом контакте.** Установка идёт командой
-`curl … | sh` из README. На этом шаге доверие целиком опирается на TLS и на
-то, что репозиторий не захвачен. Проверять здесь нечем: инструмент проверки
-и есть то, что скачивается.
-
-**Манифест подписан Ed25519 (с r-75).** Карта `files_sha256` защищает от
-подмены на зеркале, а подпись — от того, кто получил доступ к самому
-репозиторию: приватный ключ там не лежит, и подписать обновление захвативший
-репозиторий не может. После первой принятой подписи роутер защёлкивает
-храповик и с этого момента требует её всегда (`lib/auto_update.sh`,
-`au_manifest_verify` / `au_trust_pinned`); смена ключа требует явного
-подтверждения человеком. Подробности и отпечаток ключа — в README, раздел
-«Подпись обновлений».
-
-Оговорка про Realtek Lexra: под неё не собирается наш проверяльщик, поэтому
-проверка ложится на системный `openssl`. Если он есть и умеет Ed25519 — всё
-работает как обычно; если нет, а храповик ещё не защёлкнут, манифест
-принимается без подписи.
-
-**Панель по умолчанию без аутентификации, но пароль можно включить (с r-75.14).**
-Раньше здесь стояло «панель не имеет аутентификации» — это устарело. Вход по
-паролю есть, включается в меню и в самой панели, флаг `Z2K_PANEL_AUTH`;
-выключен по умолчанию, потому что панель рассчитана на доверенную локальную
-сеть. Отсюда границы:
-
-- пока пароль не включён, заражённое устройство **в вашей же локальной сети**
-  может управлять z2k — проверки происхождения запроса защищают от вредоносного
-  сайта в браузере, но не от прямого HTTP-клиента;
-- **не публикуйте панель наружу — и включённый пароль этого не меняет.** В
-  частности, не публикуйте её через KeenDNS: аутентификация в этом механизме по
-  умолчанию выключена, и панель окажется доступна из интернета всякому, кто
-  знает имя, — а имена перечислимы через публичные логи сертификатов.
-
-Даже с включённым паролем это не равно родному веб-интерфейсу Keenetic:
-блокировки после неудачных попыток у нас нет. Утверждать «тот же уровень
-доверия» было бы неточно.
-
-**Общий секрет туннеля не является секретом.** Он вшит в бинарники, которые
-лежат в открытом репозитории, и достаётся тривиально. Настоящая аутентификация
-туннеля — персональная пара Ed25519, которая чеканится на устройстве и не
-покидает его; общий секрет остаётся лишь купоном на регистрацию. Релей
-ограничен диапазонами Telegram, поэтому открытым прокси не является.
-
-Это требует настройки сервера: `--v1-off` отключает старый протокол целиком,
-а `--require-per-install` запрещает общий токен в оставленном v1. В исходниках
-оба флага по умолчанию выключены; запущенный без них релей всё ещё принимает
-старую общую авторизацию. Удаление токена из Git не отзывает его на сервере.
-
-**Проверки доступности не доказывают подлинность сайта.** Диагностические
-TLS-пробы `z2k-detect` намеренно принимают сертификаты для подставленного SNI.
-Health-проверка `rt-proxy` тоже не проверяет подлинность цели без явно заданного
-`--health-spki-pin`: подставной ответ способен оставить нерабочий узел в пуле.
-Пользовательский HTTPS внутри CONNECT проверяется самим клиентом; проверка
-здоровья пула эту защиту не заменяет.
-
-**Учётные данные вспомогательного прокси не являются секретом** по той же
-причине — он лежит в открытом репозитории. Защищает его не пароль, а область:
-он пропускает только один адрес назначения.
-
-**Телеметрия включена по умолчанию** и сейчас идёт без TLS. Состав, адрес и
-способ отключения описаны в [README](README.md#сбор-статистики).
-
----
-
-## Модель угроз: от кого защищаемся и от кого нет
-
-| Кто | Защита |
-|---|---|
-| Провайдер, DPI, наблюдатель на пути | **Да** для целостности обновлений. **Нет** для факта использования z2k |
-| Подменённое или протухшее зеркало | **Да** — карта хешей |
-| Вредоносный сайт в браузере пользователя | **Да** — проверки происхождения запроса |
-| Заражённое устройство в той же LAN | **Только если включён пароль панели** — по умолчанию выключен, граница принята |
-| Захват репозитория или учётной записи GitHub | **Да** — подпись манифеста Ed25519, ключ вне репозитория |
-| Кто-то, знающий имя вашего KeenDNS | **Нет, если вы опубликовали панель** — не делайте этого |
-
----
-
-## Что делать, если считаете, что вас скомпрометировали
-
-1. Выключите z2k из меню — это не удаляет настройки.
-2. Сохраните `/opt/var/log/z2k-auto-update.log` и вывод `z2k diag` до любых
-   действий: переустановка их перепишет.
-3. Проверьте, не опубликована ли панель наружу (`ip http proxy` в CLI роутера).
-4. Переустановите с нуля командой из README.
-
-Если находка выглядит как проблема самого z2k — заведите issue с этими
-данными, они сокращают разбор на порядок.
+- The release signature and artifact digest protect release integrity; they do not hide network activity from an internet provider or prove that the application itself is benign.
+- Availability probes may accept test certificates or responses where they only measure reachability. They must not be treated as proof of a destination's identity.
+- Secrets embedded in public binaries or source must be treated as public. Device-generated identity material is a separate credential and should remain on the device.
+- The project does not claim that a successful source or fixture check proves safe behavior on every router model or filesystem.

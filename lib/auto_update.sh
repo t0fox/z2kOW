@@ -843,7 +843,7 @@ au_step_regen_config() {
     # PLATFORM HOOK (allowlisted): путь конфига через env. Keenetic: unset →
     # ${ZAPRET2_DIR}/config как раньше. OpenWrt: /etc/z2k/config (писать в
     # ${ZAPRET2_DIR}/config там нельзя — это симлинк моста, rename подменил бы
-    # его файлом и /etc протух; см. docs/openwrt-adapter-contract.md).
+    # его файлом и /etc протух; см. docs/openwrt-release-operations.md).
     create_official_config "${Z2K_CONFIG_FILE:-${ZAPRET2_DIR}/config}" >/dev/null 2>&1
 }
 

@@ -1,10 +1,8 @@
-# OpenWrt Telegram-tunnel contract (Stage 3)
+# OpenWrt Telegram tunnel contract
 
-Источник истины о поведении — текущий upstream `necronicle/z2k`
-(`z2k-enhanced`), НЕ память о старых схемах. Ниже — зафиксированный
-фактический contract и его отображение на OpenWrt. Foundation FROZEN:
-порт строится только в `platform/openwrt/*`, `scripts/openwrt/stage-rootfs.sh`,
-`tests/openwrt/*`, `docs/*` (+ точечный COMMON_HOOK, см. §11).
+The shared z2k code supplies Telegram transport behavior. OpenWrt-specific
+process, firewall, and network integration is implemented in
+`platform/openwrt/tg.sh` and the procd init adapter.
 
 ## 1. Upstream: один процесс на оба порта
 
@@ -273,7 +271,8 @@ Keenetic regression proof: keenetic-ветка функции нетронута
 2. Нет `-v` и файлового лога с cap/mark — logd через procd; CONNECT_FAIL-скана нет.
 3. Нет S97 (legacy-пустышка не портируется вовсе).
 4. Нет minute-cron watchdog'а как супервизора — 5-мин health-check (converge + probe + kill-only backoff).
-5. v6 REJECT — весь TCP без dport (как upstream; шире формулировки Stage-3 §11 — подтвердить владельцем).
+5. IPv6 TCP traffic to the Telegram ranges on ports 80 and 443 receives an
+   ICMPv6 port-unreachable response so clients can fall back to IPv4.
 6. Собственные chains в чужой таблице вместо TOP-правил в общих chains (эквивалент приоритетов); приоритеты — числами.
 7. INPUT-guard (прямого аналога в upstream нет — там wildcard прикрыт relay-reject + client-guard + полем; здесь — доказуемый nft-drop).
 8. Crash-loop: upstream супервизор рестартит вечно (cap 30s); здесь procd halt'ит после 5 быстрых падений — чинить нечего, штормить нечем.

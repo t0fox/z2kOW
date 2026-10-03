@@ -2,7 +2,7 @@
 
 z2kOW adapts the shared [z2k](https://github.com/necronicle/z2k) application to OpenWrt. Common strategy, configuration, updater, runtime and WebPanel behavior stays in the shared tree where possible. Platform effects belong in `platform/openwrt/`, OpenWrt init/hotplug files, or explicit OpenWrt branches in shared integration points.
 
-For the audited upstream comparison and current gaps, see [`docs/UPSTREAM-PARITY-MATRIX.md`](docs/UPSTREAM-PARITY-MATRIX.md). The device install/update contract is in [`docs/openwrt-release-operations.md`](docs/openwrt-release-operations.md).
+The [upstream tracking policy](UPSTREAM.md) and [parity matrix](docs/UPSTREAM-PARITY-MATRIX.md) describe shared behavior and platform gaps. The [release operations guide](docs/openwrt-release-operations.md) describes the device install and update interface.
 
 ## Runtime boundaries
 
@@ -10,7 +10,7 @@ For the audited upstream comparison and current gaps, see [`docs/UPSTREAM-PARITY
 |---|---|---|
 | Common CLI, config, strategies, updater and menu | `z2k.sh`, `lib/` | Shared z2k logic with OpenWrt path/service adapters |
 | Runtime scripts and default data | `files/` | Shared behavior plus OpenWrt-specific integration files |
-| Platform paths, environment and bootstrap | `platform/openwrt/paths.sh`, `env.sh`, `bootstrap.sh` | `/etc/z2k` persistent config/state and `/usr/lib/z2k` payload |
+| Platform paths, environment and bootstrap | `platform/openwrt/paths.sh`, `env.sh`, `bootstrap.sh` | `/etc/z2k` persistent config/state, `/usr/lib/z2k` payload, `/tmp/z2k` transient files |
 | Service lifecycle | `files/init.d/`, `platform/openwrt/` | procd |
 | Firewall and interface events | `platform/openwrt/firewall.sh`, `hotplug/`, `files/hotplug.d/` | fw4/nftables and netifd/hotplug |
 | WebPanel | `webpanel/`, `platform/openwrt/webpanel.sh` | CGI/lighttpd integration owned by z2kOW; LuCI/uhttpd remain outside the boundary |
@@ -39,14 +39,14 @@ controlled UPDATES.json + signature
           failure: rollback
 ```
 
-The device bootstrap is `scripts/openwrt/install.sh`. The single device-visible manifest is repository-root `UPDATES.json`; it binds the complete `openwrt-rootfs.tar.gz` by URL, byte size and SHA-256 under its signature. CI stages an unsigned candidate; trusted signing and publication are separate. The OpenWrt install engine currently applies the full payload for both upstream `patch` and `reinstall` history entries. See the operations guide for ownership, state preservation, migration and rollback details.
+The device bootstrap is `scripts/openwrt/install.sh`. The repository-root `UPDATES.json` binds the complete `openwrt-rootfs.tar.gz` by URL, byte size and SHA-256 under its production signature. The OpenWrt installer applies the full payload for both upstream `patch` and `reinstall` history entries. See the operations guide for ownership, state preservation, migration, and rollback details.
 
 ## Persistent state and ownership
 
 The release payload does not own `/etc/z2k`. That tree holds operator config, user lists and persistent state. Replaceable integration/payload paths are listed in `platform/openwrt/owned-paths.txt`. The release engine journals paths it replaces and previous release metadata to recover from a failed or interrupted transaction. User-requested backup/restore is a separate feature and must not be inferred from that transaction journal.
 
-Runtime inputs are pinned during the build in `platform/openwrt/runtime-pin`; the signed rootfs digest covers the final bundled bytes. The signed manifest does not currently expose a distinct runtime version/source/hash record.
+The zapret2 runtime source is pinned in `platform/openwrt/runtime-pin`; the signed rootfs digest covers the final bundled bytes.
 
 ## Contributor rule
 
-Before changing common code, compare it with the pinned upstream implementation. Keep common behavior common; add or change an adapter only for a real OpenWrt platform boundary or a documented parity gap. Keep release instructions in [`RELEASING.md`](RELEASING.md) scoped to upstream tag tooling and the OpenWrt operator runbook linked above scoped to router installation.
+Before changing common code, compare it with the pinned upstream implementation. Keep common behavior common; add or change an adapter for an OpenWrt platform boundary. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for development conventions and [`RELEASING.md`](RELEASING.md) for publication policy.

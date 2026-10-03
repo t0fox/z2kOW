@@ -6,7 +6,7 @@
 # Все остальные файлы адаптера берут пути отсюда.
 # Каждая переменная переопределяема окружением — это же используют тесты.
 #
-# Filesystem-модель (см. docs/openwrt-adapter-contract.md):
+# Filesystem-модель (см. ARCHITECTURE.md):
 #   /etc/z2k/          persistent: config, state/, user-lists/, conf/
 #   /usr/lib/z2k/      payload (read-only): lib/, lua/, fake/, lists/,
 #                      extra_strats/, manifests/, platform/

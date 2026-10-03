@@ -1,16 +1,11 @@
-# OpenWrt RT-proxy contract (Stage 4)
+# OpenWrt RT proxy contract
 
-Источник истины — текущий upstream `necronicle/z2k` (`z2k-enhanced`),
-НЕ память. Foundation FROZEN; порт только в `platform/openwrt/*`,
-`scripts/openwrt/stage-rootfs.sh`, `tests/openwrt/*`, `docs/*` (+ точечный COMMON_HOOK §13).
+The shared z2k code supplies RT proxy behavior. OpenWrt-specific service,
+DNS, and firewall integration is implemented in `platform/openwrt/rt.sh`
+and the procd init adapter.
 
-> Target: OpenWrt 25.12.5 ships dnsmasq 2.93.
-> Do NOT assume an IPv4-only host-record suppresses AAAA forwarding:
-> A-only `--host-record` перекрывает A локально, но отсутствующий RR-type
-> (AAAA) 2.93 может отправить upstream — клиент уйдёт напрямую по IPv6
-> в обход прокси (доказанный баг, лечится dual-record ниже). Если будущий
-> dnsmasq поменяет behavior, dual-схема остаётся детерминированной
-> (оба типа отвечают локально при любом поведении forwarding).
+The adapter installs both A and AAAA host records for each proxied name.
+This keeps IPv6 lookups on the local sentinel path as well as IPv4 lookups.
 
 ## 1. Upstream: цепочка и argv
 
@@ -192,7 +187,7 @@ chain z2k_rt_dst_out { type nat hook output priority -101; }
 Без sets (один /32 — set избыточен). Idempotent flush+add.
 IPv6: ничего (sentinel v4-only).
 
-## 12. :1445 input guard (hardening Stage 3, повтор)
+## 12. Input guard on port 1445
 
 ```text
 chain z2k_rt_flt_in { type filter hook input priority -1; }
@@ -215,8 +210,7 @@ Scope строго порт; blanket `ct status dnat accept` запрещён т
   Keenetic/MediaTek-специфика, на OpenWrt отсутствует как класс.
 - Тесты доказывают: наши chains не содержат flowtable/flow-add/offload;
   redirect-цели — локальные порты (local-delivery ⇒ forward-offload
-  неприменим). HFO-поведение MediaTek под нагрузкой — live-check роутера
-  (честно PARTIAL).
+  неприменим). OpenWrt does not expose the Keenetic PPE control.
 - `FLOWOFFLOAD` на OpenWrt по умолчанию `none` (генератор) — runtime
   offload-цепочки при этом вообще не строит.
 
@@ -271,11 +265,10 @@ platform-neutral hook `Z2K_HOSTLIST_EXCLUDE_EXTRA` (common, unset = 1-в-1).
 
 ## 17. Cron: один, обоснованный
 
-`# z2k-rt-health` каждые 5 мин (`rt-check.sh`): покрывает halt-blackhole
-(§15) и reconverge. Procd + hotplug покрывают остальное; отдельного
-watchdog/supervisor нет (`z2k-rt-proxy` сам health-check'ит upstream-пул
-внутри). §26-spec выполнен: cron допустим, т.к. состояние «alive, но
-интеграция сломана» иначе не ловится.
+`# z2k-rt-health` runs every five minutes (`rt-check.sh`) to detect a live
+process with broken integration and converge or tear down routing safely.
+Procd and hotplug own process and interface events; there is no shell
+supervisor. The proxy performs its own upstream-pool health checks.
 
 ## 18. Зависимости и ownership
 

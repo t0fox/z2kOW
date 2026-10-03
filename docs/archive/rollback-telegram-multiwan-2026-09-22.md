@@ -1,3 +1,5 @@
+> Historical document — not a current implementation contract.
+
 # Retire Telegram UDP experiment; keep multi-WAN without native VPN capture
 
 Requested after p-85.6–85.8 caused broad connectivity complaints. No release

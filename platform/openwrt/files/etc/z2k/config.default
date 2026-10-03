@@ -4,7 +4,7 @@
 # только saved_*-ключи. Поэтому здесь лежат лишь ключи, чьи значения должны
 # отличаться от умолчаний генератора. Остальное (NFQWS2_OPT, QNUM, marks,
 # ports, AUTOHOSTLIST_*, DISABLE_IPV6...) — в коде генератора и zapret2.
-# Подробности: docs/openwrt-adapter-contract.md.
+# Подробности: ARCHITECTURE.md.
 
 # Master-гейт сервиса (читает init.d/z2k; переживает регенерацию).
 ENABLED=1
