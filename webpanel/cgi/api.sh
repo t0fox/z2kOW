@@ -1684,6 +1684,11 @@ case "$method $path" in
             printf ',"available_seq":%s,"release_seq_mismatch":%s' \
                 "$available_seq" "$release_seq_mismatch"
         fi
+        if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+            printf ',"reinstall_supported":true'
+        else
+            printf ',"reinstall_supported":false'
+        fi
         au_schedule_json
         printf '}\n'
         exit 0
@@ -1728,6 +1733,11 @@ case "$method $path" in
             printf ',"available_seq":%s,"release_seq_mismatch":%s' \
                 "$available_seq" "$release_seq_mismatch"
         fi
+        if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+            printf ',"reinstall_supported":true'
+        else
+            printf ',"reinstall_supported":false'
+        fi
         au_schedule_json
         printf '}\n'
         exit 0
@@ -1757,6 +1767,49 @@ case "$method $path" in
         job_id=$(update_apply_async) || json_fail "500 Internal Server Error" "apply launch failed"
         json_header
         printf '{"ok":true,"job":'
+        json_string "$job_id"
+        printf '}\n'
+        exit 0
+        ;;
+
+    "POST /update/reinstall")
+        require_method POST
+        [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] \
+            || json_fail "404 Not Found" "same-version reinstall is supported only on OpenWrt"
+        if ! installed_record=$(update_installed_release_record 2>/dev/null); then
+            json_fail "503 Service Unavailable" "$(update_state_error)"
+        fi
+        installed=$(printf '%s\n' "$installed_record" | sed -n 's/^tag=//p' | head -1)
+        installed_seq=$(printf '%s\n' "$installed_record" | sed -n 's/^seq=//p' | head -1)
+        [ -n "$installed" ] && [ "$installed" != unknown ] \
+            || json_fail "503 Service Unavailable" "$(update_state_error)"
+        # This action has a stricter freshness contract than a dashboard read:
+        # cached metadata may be displayed after a fetch outage, but cannot
+        # authorize reinstalling a version that production has superseded.
+        update_refresh_manifest 1 1 \
+            || json_fail "503 Service Unavailable" "fresh signed production manifest is unavailable"
+        available=$(update_manifest_current)
+        available_seq=$(update_manifest_seq) \
+            || json_fail "503 Service Unavailable" "controlled release sequence is missing or invalid"
+        if [ "$installed" != "$available" ] || [ "$installed_seq" != "$available_seq" ]; then
+            release_seq_mismatch=false
+            [ "$installed" != "$available" ] || release_seq_mismatch=true
+            json_header
+            printf '{"ok":true,"state":"update_available","installed":'
+            json_string "$installed"
+            printf ',"installed_seq":%s,"available":' "$installed_seq"
+            json_string "$available"
+            printf ',"available_seq":%s,"behind":%s,"release_seq_mismatch":%s}\n' \
+                "$available_seq" 1 "$release_seq_mismatch"
+            exit 0
+        fi
+        job_id=$(update_reinstall_async) || json_fail "500 Internal Server Error" "reinstall launch failed"
+        json_header
+        printf '{"ok":true,"state":"reinstalling","installed":'
+        json_string "$installed"
+        printf ',"installed_seq":%s,"available":' "$installed_seq"
+        json_string "$available"
+        printf ',"available_seq":%s,"job":' "$available_seq"
         json_string "$job_id"
         printf '}\n'
         exit 0

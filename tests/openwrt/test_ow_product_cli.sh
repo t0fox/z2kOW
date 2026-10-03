@@ -13,6 +13,9 @@ INSTALL
 cat > "$T/update" <<'UPDATE'
 #!/bin/sh
 printf 'update:%s\n' "$*" >> "$Z2K_TEST_LOG"
+if [ "${1:-}" = reinstall ]; then
+    printf 'manual:%s\n' "${Z2K_AU_MANUAL:-0}" >> "$Z2K_TEST_LOG"
+fi
 UPDATE
 cat > "$T/init" <<'INIT'
 #!/bin/sh
@@ -31,6 +34,14 @@ assert_eq "CLI install calls the canonical installer" 'install_release:p-86.13' 
 : > "$T/calls"
 if sh "$REPO/platform/openwrt/z2kow.sh" update >/dev/null 2>&1; then _t_ok; else _t_bad "CLI update dispatch"; fi
 assert_eq "CLI update goes to update adapter, whose apply path uses installer" 'update:apply' "$(cat "$T/calls")"
+: > "$T/calls"
+if sh "$REPO/platform/openwrt/z2kow.sh" reinstall >/dev/null 2>&1; then _t_ok; else _t_bad "CLI reinstall dispatch"; fi
+assert_eq "CLI reinstall asks the trusted update adapter for current release" 'update:reinstall
+manual:1' "$(cat "$T/calls")"
+: > "$T/calls"
+sh "$REPO/platform/openwrt/z2kow.sh" reinstall p-86.14 >/dev/null 2>&1
+assert_eq "CLI reinstall does not accept a frontend-supplied target" '2' "$?"
+assert_eq "invalid reinstall never reaches the update adapter" '' "$(cat "$T/calls")"
 : > "$T/calls"
 Z2K_TEST_INSTALL_RC=7 sh "$REPO/platform/openwrt/z2kow.sh" install p-86.13 >/dev/null 2>&1
 assert_eq "CLI propagates install failure" '7' "$?"

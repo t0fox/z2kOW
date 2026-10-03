@@ -30,9 +30,13 @@ z2k_ow_auto_update_disabled() {
 }
 
 case "$ACTION" in
-    check|apply) ;;
-    *) echo "usage: update.sh [check|apply]" >&2; exit 2 ;;
+    check|apply|reinstall) ;;
+    *) echo "usage: update.sh [check|apply|reinstall]" >&2; exit 2 ;;
 esac
+if [ "$ACTION" = reinstall ] && [ "$AU_MANUAL" != 1 ]; then
+    echo "z2k-openwrt: same-version reinstall is available only as a manual action" >&2
+    exit 2
+fi
 if [ "$ACTION" = apply ] && [ "$AU_MANUAL" != 1 ] && z2k_ow_auto_update_disabled; then
     echo "Автообновление отключено — обновление пропущено."
     exit 0
@@ -48,6 +52,21 @@ z2k_ow_release_state_read "$STATE" >/dev/null 2>&1 || {
     exit 1
 }
 z2k_ow_manifest_prepare_production "$MANIFEST"
+if [ "$ACTION" = reinstall ]; then
+    _record=$(z2k_ow_release_state_read "$STATE") || {
+        echo "z2k-openwrt: $(z2k_ow_release_state_error "$STATE")" >&2
+        exit 1
+    }
+    installed=$(printf '%s\n' "$_record" | sed -n 's/^tag=//p' | head -1)
+    installed_seq=$(printf '%s\n' "$_record" | sed -n 's/^seq=//p' | head -1)
+    current=$(z2k_ow_manifest_value "$MANIFEST" current) || exit 1
+    current_seq=$(z2k_ow_manifest_value "$MANIFEST" seq) || exit 1
+    if [ "$installed" != "$current" ] || [ "$installed_seq" != "$current_seq" ]; then
+        echo "Z2KOW_REINSTALL_UPDATE_AVAILABLE:$current"
+        exit 3
+    fi
+    exec "${Z2K_INSTALL_RELEASE_BIN:-/usr/sbin/install_release}" --reinstall "$installed"
+fi
 DECISION="$(z2k_ow_release_decision "$MANIFEST" "$STATE")"
 set -- $DECISION
 case "$1" in

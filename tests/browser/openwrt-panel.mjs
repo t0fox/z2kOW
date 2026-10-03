@@ -35,6 +35,8 @@ const mime = {
 const apiRequests = [];
 let statusResponsesCompleted = 0;
 let holdStatusResponses = true;
+let moveOnReinstall = false;
+let reinstallFixtureActive = false;
 const pendingStatusResponses = [];
 const statusFixture = {
   ok: true, installed: 'p-86.1', running: true, service: 'active', platform: 'openwrt',
@@ -98,8 +100,21 @@ const server = http.createServer(async (req, res) => {
           ? { ok: true, pools: [{ pool: 'tcp', custom: 0, line: '' }, { pool: 'quic', custom: 0, line: '' }] }
           : endpoint === 'strategy/unique-set'
             ? { ok: true, result: null }
-            : endpoint === 'update/status'
-              ? { ok: true, installed: 'p-86.1', available: 'p-86.1', behind: 0, last_check: Math.floor(Date.now() / 1000), pending: [] }
+            : endpoint === 'update/status' || (endpoint === 'update/check' && req.method === 'POST')
+              ? (moveOnReinstall
+                ? { ok: true, installed: 'p-86.13', installed_seq: 136, available: 'p-86.14', available_seq: 137,
+                    behind: 1, last_check: Math.floor(Date.now() / 1000), pending: [], reinstall_supported: true }
+                : reinstallFixtureActive
+                  ? { ok: true, installed: 'p-86.13', installed_seq: 136, available: 'p-86.13', available_seq: 136,
+                      behind: 0, last_check: Math.floor(Date.now() / 1000), pending: [], reinstall_supported: true }
+                  : { ok: true, installed: 'p-86.1', available: 'p-86.1', behind: 0,
+                      last_check: Math.floor(Date.now() / 1000), pending: [], reinstall_supported: true })
+              : endpoint === 'update/reinstall' && req.method === 'POST'
+                ? (moveOnReinstall
+                  ? { ok: true, state: 'update_available', installed: 'p-86.13', installed_seq: 136,
+                      available: 'p-86.14', available_seq: 137, behind: 1 }
+                  : { ok: true, state: 'reinstalling', installed: 'p-86.1', installed_seq: 1,
+                      available: 'p-86.1', available_seq: 1, job: 'reinstall-fixture' })
               : endpoint === 'product/update/status'
                 ? { ok: true, state: 'update-available', installed: 'v0.1.1', latest: 'v0.1.3', message: '' }
                 : endpoint === 'product/update/check'
@@ -598,7 +613,9 @@ try {
     assert.equal(await page.locator('#product-update-card').count(), 0,
       'the dashboard has no separate z2kOW update card');
     assert.equal(await page.locator('#upd-history-link').innerText(), 'История обновлений');
-    assert.equal(await page.locator('#upd-recheck').innerText(), 'Проверить');
+    assert.equal(await page.locator('#upd-reinstall').innerText(), 'Переустановить p-86.1');
+    assert.equal(await page.locator('#upd-recheck').count(), 0,
+      'a healthy OpenWrt release has one manual version action instead of a competing check button');
     assert.equal(await page.locator('#upd-apply').count(), 0,
       'current release exposes a check action, not a second update system');
     assert.equal(await page.title(), 'z2kOW · Дашборд');
@@ -1953,6 +1970,36 @@ try {
   assert.deepEqual(forcedFocus, { width: '2px', style: 'solid' }, 'forced-colors keeps keyboard focus visible');
   assert.deepEqual(forcedColorErrors, []);
   await forcedColors.close();
+
+  moveOnReinstall = false;
+  reinstallFixtureActive = true;
+  const reinstallRacePage = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  reinstallRacePage.on('pageerror', error => allPageErrors.push(error.message));
+  await reinstallRacePage.goto(`${base}/#/dashboard`);
+  await waitForRenderedRoute(reinstallRacePage, 'dashboard');
+  await reinstallRacePage.locator('#upd-reinstall').waitFor({ state: 'visible' });
+  const reinstallCallsBefore = apiRequests.filter(request => request.endpoint === 'update/reinstall').length;
+  moveOnReinstall = true;
+  await reinstallRacePage.locator('#upd-reinstall').click();
+  const reinstallDialog = reinstallRacePage.getByRole('dialog');
+  await reinstallDialog.waitFor({ state: 'visible' });
+  assert.match(await reinstallDialog.innerText(), /Переустановить p-86\.13\?/,
+    'the confirmation names exactly the installed release');
+  assert.equal(await reinstallDialog.locator('#confirm-ok').getAttribute('class'), 'btn btn-primary');
+  assert.equal(await reinstallDialog.locator('#confirm-cancel').getAttribute('class'), 'btn');
+  await reinstallRacePage.keyboard.press('Escape');
+  assert.equal(apiRequests.filter(request => request.endpoint === 'update/reinstall').length, reinstallCallsBefore,
+    'Escape cancels without calling the backend');
+  await reinstallRacePage.locator('#upd-reinstall').click();
+  await reinstallRacePage.locator('#confirm-ok').click();
+  await reinstallRacePage.getByRole('button', { name: 'Обновить до p-86.14' }).waitFor({ state: 'visible' });
+  assert.equal(apiRequests.filter(request => request.endpoint === 'update/reinstall').length, reinstallCallsBefore + 1,
+    'the accepted action reaches the reinstall preflight exactly once');
+  assert.equal(apiRequests.filter(request => request.endpoint === 'update/apply').length, 0,
+    'a manifest race never triggers an update to the newer release');
+  assert.equal(await reinstallRacePage.locator('#upd-apply').innerText(), 'Обновить до p-86.14');
+  await reinstallRacePage.close();
+  reinstallFixtureActive = false;
 
   assert.deepEqual(allPageErrors, []);
   assert.deepEqual(allConsoleErrors, []);

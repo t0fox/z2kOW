@@ -3340,7 +3340,7 @@ file_mtime() {
 
 # Refresh /tmp manifest cache when older than TTL (or force=1).
 update_refresh_manifest() {
-    local force="${1:-0}" age now mtime url tmp sig authority_tmp
+    local force="${1:-0}" strict="${2:-0}" age now mtime url tmp sig authority_tmp
     local authority_file="${AU_MANIFEST_AUTHORITY_FILE:-${AU_MANIFEST_CACHE}.authority}"
     local openwrt=0
     [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && openwrt=1
@@ -3393,13 +3393,17 @@ update_refresh_manifest() {
         fi
         rm -f "$tmp" "$sig" "$tmp.etag" "$sig.etag" "$authority_tmp"
         : > "$AU_MANIFEST_FAIL_STAMP" 2>/dev/null
-        if [ -s "$AU_MANIFEST_CACHE" ] \
+        if [ "$strict" != 1 ] && [ -s "$AU_MANIFEST_CACHE" \
             && [ "$(head -1 "$authority_file" 2>/dev/null)" = "controlled" ] \
             && _update_manifest_sane "$AU_MANIFEST_CACHE" \
             && _update_manifest_signature_valid "$AU_MANIFEST_CACHE" "$AU_MANIFEST_CACHE.sig" \
             && z2k_ow_manifest_release_ok "$AU_MANIFEST_CACHE"; then
             return 0
         fi
+        # Manual same-version reinstall promises to act on the production
+        # manifest fetched for this request. A signed cache remains useful for
+        # status display, but it cannot authorize a reinstall after fetch fails.
+        [ "$strict" != 1 ] || return 1
         rm -f "$AU_MANIFEST_CACHE" "$AU_MANIFEST_CACHE.sig" "$authority_file"
         return 1
     fi
@@ -3733,6 +3737,17 @@ EOF
 # the existing job_log path. The real auto-update log at /opt/var/log/...
 # is appended by au_log; we duplicate to the per-job temp log for the UI.
 update_apply_async() {
+    update_action_async apply
+}
+
+# Same single background-job mechanism for updates and user-requested reinstall.
+update_reinstall_async() {
+    update_action_async reinstall
+}
+
+update_action_async() {
+    local action="${1:-apply}"
+    case "$action" in apply|reinstall) ;; *) return 2 ;; esac
     [ -x "$AU_SCRIPT" ] || { echo "auto-update script missing: $AU_SCRIPT" >&2; return 1; }
     job_reap
     local job_id
@@ -3773,7 +3788,7 @@ update_apply_async() {
     (
         trap '' HUP
         env Z2K_AU_MANUAL=1 Z2K_AU_NO_JITTER=1 \
-            sh "$AU_SCRIPT" apply > "/tmp/z2k-job-$job_id.log" 2>&1
+            sh "$AU_SCRIPT" "$action" > "/tmp/z2k-job-$job_id.log" 2>&1
         echo "$?" > "/tmp/z2k-job-$job_id.exit"
     ) </dev/null >/dev/null 2>&1 &
     echo "$!" > "/tmp/z2k-job-$job_id.pid"

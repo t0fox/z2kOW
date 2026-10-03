@@ -11,6 +11,11 @@ case "$_command" in
         shift
         exec /bin/sh "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/uninstall.sh" "$@"
         ;;
+    reinstall)
+        [ "$#" -eq 1 ] || { echo "usage: z2kow reinstall" >&2; exit 2; }
+        exec env Z2K_AU_MANUAL=1 Z2K_AU_NO_JITTER=1 \
+            "${Z2K_UPDATE_BIN:-/usr/lib/z2k/platform/openwrt/update.sh}" reinstall
+        ;;
     update|u) shift; exec "${Z2K_UPDATE_BIN:-/usr/lib/z2k/platform/openwrt/update.sh}" apply "$@" ;;
     check) shift; exec "${Z2K_UPDATE_BIN:-/usr/lib/z2k/platform/openwrt/update.sh}" check "$@" ;;
     blocked-monitor|bm)
@@ -46,7 +51,7 @@ case "$_command" in
         fi
         ;;
     help|-h|--help)
-        printf '%s\n' 'z2kow: install <tag> | check | update | uninstall | status | restart | blocked-monitor <start|stop|status|tail>'
+        printf '%s\n' 'z2kow: install <tag> | reinstall | check | update | uninstall | status | restart | blocked-monitor <start|stop|status|tail>'
         ;;
     *) echo "z2kow: unknown command: $_command" >&2; exit 2 ;;
 esac

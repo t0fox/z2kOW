@@ -447,6 +447,7 @@ assert_eq "update: controlled sequence comes from UPDATES.json" "134" "$(_jget "
 assert_not_contains "update: no package/snapshot versions leak into the one release API" "$OUT" "_package"
 assert_not_contains "update: payload/seed metadata is not a user update version" "$OUT" '"seed"'
 assert_eq "update: available comes from signed controlled release" "p-86.11" "$(_jget "$OUT" 'd["available"]')"
+assert_eq "update: same-version reinstall is exposed only on OpenWrt" "true" "$(_jget "$OUT" 'd["reinstall_supported"]')"
 assert_eq "update: signed manifest is cached with controlled authority" "controlled" "$(cat "$AU_MANIFEST_CACHE.authority")"
 assert_eq "update: no fetch failure for valid controlled signature" "false" "$(_jget "$OUT" 'd["fetch_failed"]')"
 assert_contains "update: requests controlled manifest" "$T/update-fetch.log" "https://updates.example/controlled/UPDATES.json"
@@ -611,12 +612,46 @@ exit 0
 EOF
 chmod +x "$T/fake-apply"
 export AU_SCRIPT="$T/fake-apply"
+
+# Reinstall is pinned to the release already installed on the device. The
+# operation obtains a fresh signed production manifest before it can enqueue
+# the canonical update adapter.
+rm -f "$OW_TEST_FETCH_FAIL" "$AU_MANIFEST_FAIL_STAMP"
+printf 'tag=p-86.2\nseq=127\n' > "$T/etc/state/installed-release"
+: > "$T/apply.log"
+RAW="$(_cgi POST /update/reinstall)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "reinstall preflight: newer controlled release is a successful state response" "Status: 200 OK" "$(printf '%s\n' "$RAW" | _cgi_status)"
+assert_eq "reinstall preflight: response state is update_available" "update_available" "$(_jget "$OUT" 'd["state"]')"
+assert_eq "reinstall preflight: old installed tag is identified" "p-86.2" "$(_jget "$OUT" 'd["installed"]')"
+assert_eq "reinstall preflight: only the fresh controlled tag is offered" "p-86.11" "$(_jget "$OUT" 'd["available"]')"
+assert_eq "reinstall preflight: changed manifest does not launch any installer job" "" "$(cat "$T/apply.log")"
+assert_contains "reinstall preflight: re-fetches production manifest" "$T/update-fetch.log" "https://updates.example/controlled/UPDATES.json"
+
+# Even a valid cached manifest is insufficient when a fresh fetch fails. The
+# strict preflight must fail closed and preserve the no-install guarantee.
+printf 'tag=p-86.11\nseq=134\n' > "$T/etc/state/installed-release"
+touch "$OW_TEST_FETCH_FAIL"
+RAW="$(_cgi POST /update/reinstall)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "reinstall preflight: unavailable fresh manifest fails closed" "Status: 503 Service Unavailable" "$(printf '%s\n' "$RAW" | _cgi_status)"
+assert_eq "reinstall preflight: stale manifest never launches install" "" "$(cat "$T/apply.log")"
+rm -f "$OW_TEST_FETCH_FAIL"
+
+# A current, equal tag+seq may launch only the shared manual reinstall action.
+RAW="$(_cgi POST /update/reinstall)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "reinstall: current release launches a job" "true" "$(_jget "$OUT" 'd["ok"]')"
+assert_eq "reinstall: response identifies reinstalling state" "reinstalling" "$(_jget "$OUT" 'd["state"]')"
+_jid="$(_jget "$OUT" 'd["job"]')"
+JOB_IDS="$JOB_IDS $_jid"
+_jo="$(_poll_job "$_jid")" || _t_bad "reinstall: job не завершился"
+assert_contains "reinstall: invokes same update adapter with manual reinstall action" "$T/apply.log" "apply-args:reinstall"
+assert_contains "reinstall: preserves explicit manual flag" "$T/apply.log" "manual=1"
+
 RAW="$(_cgi POST /update/apply)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "apply: job выдан" "true" "$(_jget "$OUT" 'd["ok"]')"
 _jid="$(_jget "$OUT" 'd["job"]')"
 JOB_IDS="$JOB_IDS $_jid"
 _jo="$(_poll_job "$_jid")" || _t_bad "apply: job не завершился"
-assert_contains "apply: updater вызван" "$T/apply.log" "apply-args:apply"
+assert_contains "apply: updater still uses ordinary update action" "$T/apply.log" "apply-args:apply"
 assert_contains "apply: manual флаг" "$T/apply.log" "manual=1"
 
 # --- WP-MATRIX (webpanel parity, п.4/п.5): каждый frontend GET/POST ---

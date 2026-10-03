@@ -275,7 +275,7 @@ grep -q '^Z2K_AUTO_UPDATE_ENABLED=0$' "$TMP/flags.out" 2>/dev/null \
 # Comment lines are stripped before matching. The docstring inside this very
 # function names both variables, so an unfiltered grep would pass on the prose
 # after the code had been deleted — a test that asserts its own comments.
-apply_fn=$(awk '/^update_apply_async\(\)/{f=1} f{print} f&&/^}/{exit}' "$ACTIONS" \
+apply_fn=$(awk '/^update_action_async\(\)/{f=1} f{print} f&&/^}/{exit}' "$ACTIONS" \
            | sed 's/^[[:space:]]*#.*$//')
 case "$apply_fn" in *'Z2K_AU_MANUAL=1'*) ok "кнопка «Обновить» помечает запуск как ручной" ;;
                     *) no "кнопка «Обновить» помечает запуск как ручной" "Z2K_AU_MANUAL=1" "нет" ;; esac

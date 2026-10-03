@@ -2,7 +2,8 @@ import { apiGet, apiPost, errHtml, toastErr } from "../core/api.js";
 import { closeModalBackdrop, openModalBackdrop } from "../core/modal.js";
 import { _icons, escapeHtml, humanAgo } from "../core/dom.js";
 import { refreshStatus } from "../core/loadorder.js";
-import { openJobModal } from "../job.js";
+import { confirmModal, openJobModal } from "../job.js";
+import { toast } from "../core/toast.js";
 
 export async function refreshUpdateBanner(opts = {}) {
   const banner = document.getElementById("update-banner");
@@ -21,6 +22,7 @@ export async function refreshUpdateBanner(opts = {}) {
   const available = (d && d.available) || "?";
   const behind = Number((d && d.behind) || 0);
   const releaseSeqMismatch = !!(d && d.release_seq_mismatch);
+  const reinstallSupported = !!(d && d.reinstall_supported);
   const ts = Number((d && d.last_check) || 0);
   const ago = ts > 0 ? humanAgo(ts) : "—";
   // Подпись «когда оно само» — ответ на вопрос, который люди задают прямо
@@ -55,10 +57,12 @@ export async function refreshUpdateBanner(opts = {}) {
 
   if (activeJob) {
     banner.hidden = false;
-    banner.className = "update-banner";
-    banner.innerHTML = `
+      banner.className = "update-banner";
+      banner.innerHTML = `
       <div class="update-banner-text">
-        <strong>Обновление z2k до ${escapeHtml(activeJob.target)} в процессе</strong>
+        <strong>${activeJob.operation === "reinstall"
+          ? `Переустановка z2k ${escapeHtml(activeJob.target)} в процессе`
+          : `Обновление z2k до ${escapeHtml(activeJob.target)} в процессе`}</strong>
         <span class="update-banner-meta">клик для просмотра журнала</span>
       </div>
       <div class="update-banner-actions">
@@ -66,7 +70,7 @@ export async function refreshUpdateBanner(opts = {}) {
       </div>
     `;
     const resumeBtn = document.getElementById("upd-resume");
-    if (resumeBtn) resumeBtn.addEventListener("click", () => openApplyModal(activeJob.id, activeJob.target));
+    if (resumeBtn) resumeBtn.addEventListener("click", () => openApplyModal(activeJob.id, activeJob.target, activeJob.operation));
     return;
   }
 
@@ -82,7 +86,7 @@ export async function refreshUpdateBanner(opts = {}) {
       </div>
       <div class="update-banner-actions">
         <button class="btn" id="upd-history-link" type="button">История обновлений</button>
-        <button class="btn btn-primary" id="upd-apply">${releaseSeqMismatch ? "Синхронизировать" : "Обновить"}</button>
+        <button class="btn btn-primary" id="upd-apply">${releaseSeqMismatch ? "Синхронизировать выпуск" : `Обновить до ${escapeHtml(available)}`}</button>
       </div>
     `;
   } else if (unknown) {
@@ -131,7 +135,9 @@ export async function refreshUpdateBanner(opts = {}) {
       </div>
       <div class="update-banner-actions">
         <button class="btn" id="upd-history-link" type="button">История обновлений</button>
-        <button class="btn" id="upd-recheck">Проверить</button>
+        ${reinstallSupported
+          ? `<button class="btn" id="upd-reinstall" type="button">Переустановить ${escapeHtml(installed)}</button>`
+          : `<button class="btn" id="upd-recheck">Проверить</button>`}
       </div>
     `;
   }
@@ -141,6 +147,8 @@ export async function refreshUpdateBanner(opts = {}) {
 
   const applyBtn = document.getElementById("upd-apply");
   if (applyBtn) applyBtn.addEventListener("click", () => applyUpdateFlow(available));
+  const reinstallBtn = document.getElementById("upd-reinstall");
+  if (reinstallBtn) reinstallBtn.addEventListener("click", () => reinstallFlow(installed));
   const recheckBtn = document.getElementById("upd-recheck");
   if (recheckBtn) recheckBtn.addEventListener("click", async () => {
     const label = recheckBtn.textContent;
@@ -178,18 +186,65 @@ async function applyUpdateFlow(target) {
   // which matches the desired behaviour: once user closes the tab,
   // they don't need to be nagged about an apply they explicitly walked
   // away from. onDone clears the key.
-  sessionStorage.setItem("z2k_apply_job", JSON.stringify({ id: resp.job, target }));
+  sessionStorage.setItem("z2k_apply_job", JSON.stringify({ id: resp.job, target, operation: "update" }));
   openApplyModal(resp.job, target);
   refreshUpdateBanner();
 }
 
-function openApplyModal(jobId, target) {
-  openJobModal("Обновление z2k до " + target, jobId, {
+async function reinstallFlow(target) {
+  const accepted = await confirmModal(
+    `Переустановить ${target}?`,
+    `Будет заново скачан и проверен выпуск ${target}. Если controlled manifest уже указывает другую версию, ничего не установится — блок обновлений покажет доступный выпуск.`,
+    "Переустановить", "Отмена", { confirmPrimary: true },
+  );
+  if (!accepted) return;
+
+  let resp;
+  try {
+    // The tag displayed by the button is confirmation copy only. The backend
+    // resolves the installed record and fetches a fresh signed manifest.
+    resp = await apiPost("/update/reinstall");
+  } catch (e) {
+    toastErr("Ошибка запуска: ", e);
+    return;
+  }
+  if (resp.state === "update_available") {
+    await refreshUpdateBanner({ force: true });
+    return;
+  }
+  if (resp.state !== "reinstalling" || !resp.job) {
+    toast("Не удалось запустить переустановку " + target, "bad");
+    await refreshUpdateBanner({ force: true });
+    return;
+  }
+  sessionStorage.setItem("z2k_apply_job", JSON.stringify({ id: resp.job, target, operation: "reinstall" }));
+  openApplyModal(resp.job, target, "reinstall");
+  refreshUpdateBanner();
+}
+
+function openApplyModal(jobId, target, operation = "update") {
+  const reinstalling = operation === "reinstall";
+  openJobModal(reinstalling ? `Переустановка z2k ${target}` : "Обновление z2k до " + target, jobId, {
     warning: "Можно скрыть — обновление продолжит идти в фоне. При reinstall'е возможен короткий обрыв соединения с панелью — опрос лога продолжится автоматически.",
     tolerateOutage: true,
-    onDone: () => {
+    onDone: (result) => {
       sessionStorage.removeItem("z2k_apply_job");
-      setTimeout(() => refreshUpdateBanner({ force: true }), 500);
+      let refreshDelay = 500;
+      if (reinstalling) {
+        const log = (result && result.log) || "";
+        const moved = /Z2KOW_REINSTALL_UPDATE_AVAILABLE:([pr]-[0-9]+(?:\.[0-9]+)+)/.exec(log);
+        if (moved) {
+          refreshDelay = 300;
+        } else if (result && result.exit === 0) {
+          toast(`Текущая версия ${target} успешно переустановлена.`, "ok");
+        } else if (result && result.exit !== null && result.exit !== undefined) {
+          const rollback = log.includes("Z2KOW_ROLLBACK=complete")
+            ? ". Предыдущая рабочая версия восстановлена."
+            : "";
+          toast(`Не удалось переустановить ${target}${rollback}`, "bad");
+        }
+      }
+      setTimeout(() => refreshUpdateBanner({ force: true }), refreshDelay);
       setTimeout(refreshStatus, 1500);
     },
   });

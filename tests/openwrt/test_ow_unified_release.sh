@@ -265,6 +265,106 @@ _decision="$(z2k_ow_release_decision "$T/UPDATES.json" "$SYS/etc/z2k/state/insta
 assert_eq "check after p-86.2 -> $_CURRENT_TAG install is none" "none $_CURRENT_TAG" "$_decision"
 assert_eq "installed state has one tag and upstream seq" "2" "$(wc -l < "$SYS/etc/z2k/state/installed-release" | tr -d ' \t\r\n')"
 
+# A deliberate same-version reinstall enters the exact same verified full
+# payload transaction. It repairs a release-owned file while retaining the
+# one canonical state record and all user-owned settings/lists.
+_state_before="$(cat "$SYS/etc/z2k/state/installed-release")"
+mkdir -p "$SYS/etc/z2k/user-lists"
+printf 'keep user config\n' > "$SYS/etc/z2k/config"
+printf 'keep user domains\n' > "$SYS/etc/z2k/user-lists/extra-domains.txt"
+printf 'damaged release file\n' > "$SYS/usr/lib/z2k/version.txt"
+_out="$(z2k_ow_install_release --reinstall "$_CURRENT_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -eq 0 ] \
+    && [ "$_out" = "installed $_CURRENT_TAG" ] \
+    && grep -q "release tag $_CURRENT_TAG" "$SYS/usr/lib/z2k/version.txt" \
+    && [ "$(cat "$SYS/etc/z2k/state/installed-release")" = "$_state_before" ] \
+    && grep -q 'keep user config' "$SYS/etc/z2k/config" \
+    && grep -q 'keep user domains' "$SYS/etc/z2k/user-lists/extra-domains.txt"; then
+    _t_ok
+else
+    _t_bad "same-version reinstall did not reconverge while preserving state/settings/lists: rc=$_rc state=$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null) version=$(cat "$SYS/usr/lib/z2k/version.txt" 2>/dev/null) output=$_out"
+fi
+
+# Force only skips the equality short-circuit. Hash and size validation still
+# reject the same-version artifact before any release-owned file is replaced.
+cp "$T/UPDATES.json" "$T/reinstall-bad-hash.json"
+"$Z2K_TEST_PYTHON" -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); d["artifact"]["sha256"]="0"*64; json.dump(d,open(sys.argv[2],"w",encoding="utf-8"),ensure_ascii=False)' \
+    "$T/UPDATES.json" "$T/reinstall-bad-hash.json"
+export Z2K_OW_MANIFEST_PATH="$T/reinstall-bad-hash.json"
+printf 'preserve before hash failure\n' > "$SYS/usr/lib/z2k/version.txt"
+_out="$(z2k_ow_install_release --reinstall "$_CURRENT_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -ne 0 ] \
+    && grep -q 'preserve before hash failure' "$SYS/usr/lib/z2k/version.txt" \
+    && [ "$(cat "$SYS/etc/z2k/state/installed-release")" = "$_state_before" ]; then
+    _t_ok
+else
+    _t_bad "same-version reinstall bypassed artifact SHA-256 verification: rc=$_rc output=$_out"
+fi
+export Z2K_OW_MANIFEST_PATH="$T/UPDATES.json"
+
+cp "$T/UPDATES.json" "$T/reinstall-bad-size.json"
+"$Z2K_TEST_PYTHON" -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p,encoding="utf-8")); d["artifact"]["size_bytes"] += 1; json.dump(d,open(p,"w",encoding="utf-8"),ensure_ascii=False,indent=2)' \
+    "$T/reinstall-bad-size.json"
+export Z2K_OW_MANIFEST_PATH="$T/reinstall-bad-size.json"
+printf 'preserve before size failure\n' > "$SYS/usr/lib/z2k/version.txt"
+_out="$(z2k_ow_install_release --reinstall "$_CURRENT_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -ne 0 ] \
+    && grep -q 'preserve before size failure' "$SYS/usr/lib/z2k/version.txt" \
+    && [ "$(cat "$SYS/etc/z2k/state/installed-release")" = "$_state_before" ]; then
+    _t_ok
+else
+    _t_bad "same-version reinstall bypassed artifact size verification: rc=$_rc output=$_out"
+fi
+export Z2K_OW_MANIFEST_PATH="$T/UPDATES.json"
+
+# If the controlled release advances between the banner render and manual
+# action, install_release must reject the old reinstall target before touching
+# even release-owned files. This is the canonical installer race guard.
+cp "$T/UPDATES.json" "$T/reinstall-newer.json"
+"$Z2K_TEST_PYTHON" - "$T/reinstall-newer.json" <<'PY'
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+d = json.loads(path.read_text(encoding="utf-8"))
+d["current"] = "p-86.14"
+d["seq"] = 137
+d["upstream"]["tag"] = "p-86.14"
+d["artifact"]["url"] = "https://github.com/t0fox/z2kOW/releases/download/p-86.14/openwrt-rootfs.tar.gz"
+path.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+export Z2K_OW_MANIFEST_PATH="$T/reinstall-newer.json"
+printf 'preserve on manifest race\n' > "$SYS/usr/lib/z2k/version.txt"
+_out="$(z2k_ow_install_release --reinstall "$_CURRENT_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -eq 3 ] \
+    && printf '%s\n' "$_out" | grep -q '^Z2KOW_REINSTALL_UPDATE_AVAILABLE:p-86.14$' \
+    && grep -q 'preserve on manifest race' "$SYS/usr/lib/z2k/version.txt" \
+    && [ "$(cat "$SYS/etc/z2k/state/installed-release")" = "$_state_before" ]; then
+    _t_ok
+else
+    _t_bad "manifest race installed or obscured the newer release: rc=$_rc output=$_out"
+fi
+export Z2K_OW_MANIFEST_PATH="$T/UPDATES.json"
+
+# Reinstall must keep production signature verification ahead of the no-op
+# decision, and must not move the artifact size/hash gates behind any force
+# branch. These ordering assertions guard the production-only trust seam while
+# the transaction above exercises the same-version convergence at runtime.
+"$Z2K_TEST_PYTHON" - "$REPO/platform/openwrt/release.sh" <<'PY'
+import sys
+from pathlib import Path
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+body = source.split("_z2k_ow_install_release_locked() {", 1)[1].split("\n}", 1)[0]
+verify = body.index("z2k_ow_manifest_prepare_production")
+reinstall_guard = body.index('if [ "$_reinstall" = 1 ]; then')
+same_version = body.index('echo "none $_tag"')
+size_check = body.index('[ "$(wc -c < "$_archive"')
+hash_check = body.index('[ "$_actual" = "$_sha" ]')
+assert verify < reinstall_guard < same_version < size_check < hash_check
+assert '[ "$_reinstall" != 1 ]' in body
+PY
+_rc=$?
+[ "$_rc" -eq 0 ] && _t_ok || _t_bad "reinstall force is limited to the same-version early return and preserves trust checks"
+
 # A new shell process models the state observed after reboot.
 _out="$(Z2K_ADAPTER_DIR="$REPO/platform/openwrt" z2k_ow_release_decision "$T/UPDATES.json" "$SYS/etc/z2k/state/installed-release")"
 assert_eq "reboot simulation retains one installed-release state" "none $_CURRENT_TAG" "$_out"
@@ -500,7 +600,13 @@ case "\$1" in
             exit 23
         fi
         ;;
-    status|running) [ ! -e "$HEALTH_FAIL" ] ;;
+    status|running)
+        if grep -q 'release tag ' "$HEALTH_SYS/usr/lib/z2k/version.txt" 2>/dev/null; then
+            [ ! -e "$HEALTH_FAIL" ]
+        else
+            exit 0
+        fi
+        ;;
     *) exit 0 ;;
 esac
 EOF
@@ -508,7 +614,13 @@ cat > "$HEALTH_STAGE/etc/init.d/z2k-webpanel" <<EOF
 #!/bin/sh
 case "\$1" in
     restart|start) exit 0 ;;
-    running) [ ! -e "$HEALTH_FAIL" ] ;;
+    running)
+        if grep -q 'release tag ' "$HEALTH_SYS/usr/lib/z2k/version.txt" 2>/dev/null; then
+            [ ! -e "$HEALTH_FAIL" ]
+        else
+            exit 0
+        fi
+        ;;
     *) exit 0 ;;
 esac
 EOF
@@ -534,7 +646,8 @@ touch "$HEALTH_FAIL"
 _out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
 if [ "$_rc" -ne 0 ] \
     && _state_is_release p-86.2 127 "$HEALTH_SYS/etc/z2k/state/installed-release" \
-    && grep -q 'previous payload' "$HEALTH_SYS/usr/lib/z2k/version.txt"; then
+    && grep -q 'previous payload' "$HEALTH_SYS/usr/lib/z2k/version.txt" \
+    && printf '%s\n' "$_out" | grep -q 'Z2KOW_ROLLBACK=complete'; then
     _t_ok
 else
     _t_bad "failed health check committed release state or left target files: rc=$_rc state=$(cat "$HEALTH_SYS/etc/z2k/state/installed-release" 2>/dev/null) output=$_out"

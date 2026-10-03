@@ -478,9 +478,23 @@ z2k_ow_restart_services() {
 }
 
 _z2k_ow_install_release_locked() {
-    _requested="${1:-}"
+    _reinstall=0
+    if [ "${1:-}" = "--reinstall" ]; then
+        _reinstall=1
+        [ "$#" -eq 2 ] || {
+            echo "usage: install_release --reinstall <installed-release-tag>" >&2
+            return 2
+        }
+        _requested="$2"
+    else
+        [ "$#" -eq 1 ] || {
+            echo "usage: install_release <release-tag>" >&2
+            return 2
+        }
+        _requested="$1"
+    fi
     printf '%s' "$_requested" | grep -Eq '^[pr]-[0-9]+(\.[0-9]+)+$' || {
-        echo "usage: install_release <release-tag>" >&2
+        echo "usage: install_release [--reinstall] <release-tag>" >&2
         return 2
     }
 
@@ -538,20 +552,32 @@ _z2k_ow_install_release_locked() {
     fi
     z2k_ow_manifest_release_ok "$_manifest" "$_bootstrap_artifact_url" || return 1
     _tag="$(z2k_ow_json_value "$_manifest" current)" || return 1
+    _seq="$(z2k_ow_json_value "$_manifest" seq)" || return 1
+    z2k_ow_recover_transaction "$_work" "$_state" "$_service" "$_tag" "$_panel" || return 1
+    _installed="$(z2k_ow_release_state_tag "$_state")" || _installed=""
+    _state_record="$(z2k_ow_release_state_read "$_state")" || _state_record=""
+    if [ "$_reinstall" = 1 ]; then
+        [ -n "$_state_record" ] && [ "$_installed" = "$_requested" ] || {
+            echo "z2k-openwrt: reinstall target is not the currently installed release" >&2
+            return 1
+        }
+        if [ "$_tag" != "$_installed" ] \
+            || [ "$(z2k_ow_release_state_seq "$_state")" != "$_seq" ]; then
+            echo "Z2KOW_REINSTALL_UPDATE_AVAILABLE:$_tag"
+            return 3
+        fi
+    fi
     [ "$_tag" = "$_requested" ] || {
         echo "z2k-openwrt: only controlled current release may be installed ($_tag)" >&2
         return 1
     }
-    z2k_ow_recover_transaction "$_work" "$_state" "$_service" "$_tag" "$_panel" || return 1
     # Recovery metadata and per-path backups stay persistent. The downloaded
     # archive and target-specific extracted stage live on tmpfs so a release
     # larger than the router's overlay can still be applied.
     rm -rf "$_tmp_work" || return 1
-    _installed="$(z2k_ow_release_state_tag "$_state")" || return 1
-    _state_record="$(z2k_ow_release_state_read "$_state")" || _state_record=""
-    _seq="$(z2k_ow_json_value "$_manifest" seq)" || return 1
     if [ -n "$_state_record" ] && [ "$_installed" = "$_tag" ] \
         && [ "$(z2k_ow_release_state_seq "$_state")" = "$_seq" ] \
+        && [ "$_reinstall" != 1 ] \
         && ! z2k_ow_legacy_packages_present && ! z2k_ow_relay_identity_migration_needed; then
         echo "none $_tag"
         return 0
@@ -686,9 +712,22 @@ _z2k_ow_install_release_locked() {
             _n=$((_n + 1)); sleep 1
         done
         [ "$_n" -lt 15 ] || {
-            z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id" || true
-            z2k_ow_cleanup_transaction "$_paths" "$_transaction_id"
-            z2k_ow_restart_services "$_service" "$_panel" || true
+            _rollback_ok=1
+            z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id" || _rollback_ok=0
+            z2k_ow_cleanup_transaction "$_paths" "$_transaction_id" || _rollback_ok=0
+            z2k_ow_restart_services "$_service" "$_panel" || _rollback_ok=0
+            if [ -n "$_state_record" ]; then
+                [ "$(z2k_ow_release_state_read "$_state" 2>/dev/null)" = "$_state_record" ] || _rollback_ok=0
+            else
+                [ ! -s "$_state" ] || _rollback_ok=0
+            fi
+            { [ ! -x "$_service" ] || z2k_ow_service_call "$_service" status >/dev/null 2>&1; } || _rollback_ok=0
+            { [ ! -x "$_panel" ] || z2k_ow_service_call "$_panel" running >/dev/null 2>&1; } || _rollback_ok=0
+            if [ "$_rollback_ok" = 1 ]; then
+                echo "Z2KOW_ROLLBACK=complete"
+            else
+                echo "z2k-openwrt: rollback could not be verified" >&2
+            fi
             z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1
         }
     fi

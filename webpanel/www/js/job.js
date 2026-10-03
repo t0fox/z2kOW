@@ -556,7 +556,7 @@ export function confirmTypedModal(title, lines, word, okLabel) {
   });
 }
 
-export function confirmModal(title, text, okLabel, cancelLabel) {
+export function confirmModal(title, text, okLabel, cancelLabel, options = {}) {
   return new Promise(resolve => {
     const prevFocus = document.activeElement;
     const backdrop = document.createElement("div");
@@ -564,17 +564,19 @@ export function confirmModal(title, text, okLabel, cancelLabel) {
     // role/aria — по образцу sort-sheet ниже по файлу. Без них скринридер не
     // объявляет ни факт открытия диалога, ни сам текст предупреждения, ради
     // которого диалог и существует: озвучивалось только «кнопка».
-    // Акцентной покрашена БЕЗОПАСНАЯ кнопка, а не «Включать»: визуальный
-    // дефолт обязан совпадать с клавиатурным, иначе диалог подталкивает
-    // ровно к тому действию, от которого предостерегает.
+    // По умолчанию визуальный акцент остаётся на безопасном отказе.
+    // Для подтверждаемого ручного действия вызывающая сторона может явно
+    // перенести акцент на основную кнопку.
+    const confirmClass = options.confirmPrimary ? "btn btn-primary" : "btn";
+    const cancelClass = options.confirmPrimary ? "btn" : "btn btn-primary";
     backdrop.innerHTML = `
       <div class="modal" role="dialog" aria-modal="true"
            aria-labelledby="confirm-title" aria-describedby="confirm-text">
         <h3 id="confirm-title">${escapeHtml(title)}</h3>
         <div class="modal-warning" id="confirm-text">${escapeHtml(text)}</div>
         <div class="modal-footer">
-          <button class="btn" id="confirm-ok">${escapeHtml(okLabel)}</button>
-          <button class="btn btn-primary" id="confirm-cancel">${escapeHtml(cancelLabel)}</button>
+          <button class="${confirmClass}" id="confirm-ok">${escapeHtml(okLabel)}</button>
+          <button class="${cancelClass}" id="confirm-cancel">${escapeHtml(cancelLabel)}</button>
         </div>
       </div>
     `;

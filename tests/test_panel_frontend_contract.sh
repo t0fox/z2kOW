@@ -491,18 +491,19 @@ const SCENARIOS = {
       check("нет отдельной карточки z2kOW", !q("#app").innerHTML.includes('id="product-update-card"'), "product card exists");
       check("available copy uses upstream tag only", html.indexOf("Доступно обновление p-86.2") >= 0, html);
       check("history action has requested label", html.indexOf("История обновлений") >= 0, html);
+      check("update CTA names the controlled target", html.includes("Обновить до p-86.2"), html);
       check("update is the only apply/check action", html.includes('id="upd-apply"') && !html.includes('id="upd-recheck"') && !html.includes('id="upd-changelog-btn"'), html);
       check("no second product update endpoint was called", !CALLS["/product/update/status"] && !CALLS["/product/update/check"], JSON.stringify(CALLS));
     },
   },
 
   // No update keeps the upstream p-tag as the only visible version and offers
-  // exactly history plus one manual check.
+  // a deliberate same-version reinstall beside history.
   update_current_surface: {
     hash: "#/dashboard",
     setup() {
       ROUTER = async (p) => {
-        if (p === "/update/status") return { ok: true, installed: "p-86.1", available: "p-86.1", behind: 0, last_check: 0 };
+        if (p === "/update/status") return { ok: true, installed: "p-86.1", available: "p-86.1", behind: 0, last_check: 0, reinstall_supported: true };
         if (p.indexOf("/product/update") === 0) throw new Error("second product updater was called");
         return STATUS;
       };
@@ -512,8 +513,45 @@ const SCENARIOS = {
       const html = q("#update-banner").innerHTML;
       check("current copy shows the sole z2k release tag", html.indexOf("z2k p-86.1 актуален") >= 0, html);
       check("history action has requested label", html.indexOf("История обновлений") >= 0, html);
-      check("manual check is the only second action", html.includes('id="upd-recheck"') && !html.includes('id="upd-apply"'), html);
+      check("current release offers same-version reinstall", html.includes('id="upd-reinstall"') && html.includes("Переустановить p-86.1") && !html.includes('id="upd-recheck"'), html);
       check("no separate product update endpoint was called", !CALLS["/product/update/status"] && !CALLS["/product/update/check"], JSON.stringify(CALLS));
+    },
+  },
+
+  update_reinstall_manifest_race: {
+    hash: "#/dashboard",
+    setup() {
+      ROUTER = async (p, method) => {
+        if (p === "/update/status") return { ok: true, installed: "p-86.13", installed_seq: 136,
+          available: "p-86.13", available_seq: 136, behind: 0, last_check: 0, reinstall_supported: true };
+        if (p === "/update/reinstall" && method === "POST") return { ok: true, state: "update_available",
+          installed: "p-86.13", installed_seq: 136, available: "p-86.14", available_seq: 137, behind: 1 };
+        if (p === "/update/check" && method === "POST") return { ok: true, installed: "p-86.13", installed_seq: 136,
+          available: "p-86.14", available_seq: 137, behind: 1, last_check: 0 };
+        if (p.indexOf("/product/update") === 0) throw new Error("second product updater was called");
+        return STATUS;
+      };
+    },
+    async run() {
+      await sleep(160);
+      q("#upd-reinstall").fire("click");
+      await sleep(30);
+      let modal = confirmBox();
+      check("reinstall asks confirmation for the exact installed tag", !!modal && /Переустановить p-86\.13\?/.test(modal.innerHTML), modal && modal.innerHTML);
+      check("reinstall confirmation has an affirmative primary action and neutral cancel", !!modal
+        && /class="btn btn-primary" id="confirm-ok"[^>]*>Переустановить<\/button>/.test(modal.innerHTML)
+        && /class="btn" id="confirm-cancel"[^>]*>Отмена<\/button>/.test(modal.innerHTML), modal && modal.innerHTML);
+      q("#confirm-cancel").fire("click");
+      await sleep(250);
+      check("cancel does not call reinstall API", !CALLS["/update/reinstall"], JSON.stringify(CALLS));
+      q("#upd-reinstall").fire("click");
+      await sleep(30);
+      q("#confirm-ok").fire("click");
+      await sleep(280);
+      const html = q("#update-banner").innerHTML;
+      check("backend manifest race calls exactly one reinstall preflight", CALLS["/update/reinstall"] === 1, CALLS["/update/reinstall"]);
+      check("backend update_available refreshes the update target", html.includes("Обновить до p-86.14") && html.includes('id="upd-apply"'), html);
+      check("manifest race never starts update implicitly", !CALLS["/update/apply"], JSON.stringify(CALLS));
     },
   },
 
@@ -1312,7 +1350,7 @@ run_scen() {
 for scen in flowoffload_none flowoffload_unconfirmed flowoffload_hardware \
             flowoffload_mismatch flowoffload_mode_mismatch flowoffload_switch \
             stale_apply update_history_modal update_history_empty update_history_failed \
-            update_single_surface update_current_surface \
+            update_single_surface update_current_surface update_reinstall_manifest_race \
             toggles_status_failed toggles_left_page \
             warp_left_page \
             autohostlist_warn autohostlist_accept autohostlist_escape \
