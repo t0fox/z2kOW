@@ -19,6 +19,13 @@ Z2K_STATE="${Z2K_STATE:-$Z2K_ETC/state}"
 Z2K_USER_LISTS="${Z2K_USER_LISTS:-$Z2K_ETC/user-lists}"
 Z2K_OW_INSTALLED_RELEASE_FILE="${Z2K_OW_INSTALLED_RELEASE_FILE:-$Z2K_STATE/installed-release}"
 Z2K_RELAY_ID_FILE="${Z2K_RELAY_ID_FILE:-$Z2K_STATE/relay-id.json}"
+# Fixed ownership suffixes cannot be overridden by process environment.
+Z2K_OW_CANON_ROOT_SUFFIX="/usr/lib/z2k"
+Z2K_OW_CANON_ETC_SUFFIX="/etc/z2k"
+Z2K_OW_CANON_STATE_SUFFIX="$Z2K_OW_CANON_ETC_SUFFIX/state"
+Z2K_OW_CANON_CONFIG_SUFFIX="$Z2K_OW_CANON_ETC_SUFFIX/config"
+Z2K_OW_CANON_USER_LISTS_SUFFIX="$Z2K_OW_CANON_ETC_SUFFIX/user-lists"
+Z2K_OW_CANON_WARP_DEVICE_SUFFIX="$Z2K_OW_CANON_STATE_SUFFIX/warp/device.json"
 # CONFIG_DIR — имя узнает upstream (lib/utils.sh строит из него пути
 # strategies.conf/quic_strategies.conf). Значение — наше.
 Z2K_CONF_DIR="${Z2K_CONF_DIR:-$Z2K_ETC/conf}"
@@ -44,6 +51,10 @@ Z2K_TG_TLS_BUNDLE="${Z2K_TG_TLS_BUNDLE:-$Z2K_ROOT/etc/z2k-roots.pem}"
 Z2K_TMP="${Z2K_TMP:-/tmp/z2k}"
 Z2K_OW_INSTALL_TMP="${Z2K_OW_INSTALL_TMP:-/tmp/z2kow-install-stage}"
 Z2K_WARP_TMP="${Z2K_WARP_TMP:-/tmp/z2k-warp}"
+Z2K_OW_CANON_TMP_SUFFIX="/tmp/z2k"
+Z2K_OW_CANON_WARP_TMP_SUFFIX="/tmp/z2k-warp"
+Z2K_OW_CANON_INSTALL_TMP_SUFFIX="/tmp/z2kow-install-stage"
+Z2K_OW_CANON_JOB_PREFIX="/tmp/z2k-job-"
 Z2K_WARP_DOMAIN_RULES="${Z2K_WARP_DOMAIN_RULES:-$Z2K_WARP_TMP/domains.v1}"
 Z2K_RUN="${Z2K_RUN:-$Z2K_TMP/runtime}"
 Z2K_LOCKS="${Z2K_LOCKS:-$Z2K_TMP/locks}"
@@ -60,14 +71,17 @@ Z2K_FW4_OFFLOAD_STATE="${Z2K_FW4_OFFLOAD_STATE:-$Z2K_STATE/fw4-offload.state}"
 Z2K_FW4_RELOAD="${Z2K_FW4_RELOAD:-/etc/init.d/firewall}"
 export Z2K_FW4_OFFLOAD_STATE Z2K_FW4_RELOAD
 
-# --- zapret2 runtime (чужое дерево, только читаем) ---
-# Каталог установки zapret2-z2k OpenWrt runtime: nfq2/nfqws2, common/*.sh,
-# init.d/openwrt/functions, lua/zapret-{lib,antidpi,auto}.lua.
+# --- zapret2 runtime (complete release-owned OpenWrt payload) ---
+# Installed and removed together with z2kOW's complete release. It contains
+# nfq2/nfqws2, common/*.sh, init.d/openwrt/functions, and fork Lua modules.
 Z2K_ZAPRET2_RUNTIME="${Z2K_ZAPRET2_RUNTIME:-/opt/zapret2}"
+Z2K_OW_OPT_ROOT="/opt"
+Z2K_OW_CANON_ZAPRET2_SUFFIX="$Z2K_OW_OPT_ROOT/zapret2"
+Z2K_OW_CANON_ROLLBACK_SUFFIX="$Z2K_OW_OPT_ROOT/z2k-rollback"
 Z2K_NFQWS2="${Z2K_NFQWS2:-$Z2K_ZAPRET2_RUNTIME/nfq2/nfqws2}"
 # User-owned runtime sources.  The payload tree is immutable on OpenWrt, so
 # panel state must never be read from /usr/lib/z2k/lists or written below the
-# foreign zapret2 installation.
+# immutable runtime payload.
 Z2K_EXTRA_STRATEGIES_RUNTIME="${Z2K_EXTRA_STRATEGIES_RUNTIME:-$Z2K_USER_LISTS/custom-strategies}"
 Z2K_AUTOHOSTLIST_FILE="${Z2K_AUTOHOSTLIST_FILE:-$Z2K_STATE/zapret-hosts-auto.txt}"
 Z2K_AUTOHOSTLIST_DOMAINS_FILE="${Z2K_AUTOHOSTLIST_DOMAINS_FILE:-$Z2K_STATE/autohostlist-domains.txt}"

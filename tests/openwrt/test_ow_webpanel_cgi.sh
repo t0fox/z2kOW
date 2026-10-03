@@ -276,7 +276,7 @@ assert_eq "status: diagnostics capability" "true" "$(_jget "$OUT" 'd["capabiliti
 assert_eq "status: customd true" "true" "$(_jget "$OUT" 'd["capabilities"]["customd"]')"
 assert_eq "status: warp true" "true" "$(_jget "$OUT" 'd["capabilities"]["warp"]')"
 assert_eq "status: telegram true" "true" "$(_jget "$OUT" 'd["capabilities"]["telegram"]')"
-assert_eq "status: uninstall false" "false" "$(_jget "$OUT" 'd["capabilities"]["uninstall"]')"
+assert_eq "status: canonical uninstall capability" "true" "$(_jget "$OUT" 'd["capabilities"]["uninstall"]')"
 assert_eq "status: core running via init" "true" "$(_jget "$OUT" 'd["running"]')"
 assert_eq "status: running service without canonical release is not installed" "false" "$(_jget "$OUT" 'd["installed"]')"
 assert_eq "status: missing canonical release is an explicit state error" "error" "$(_jget "$OUT" 'd["installed_state"]')"
@@ -572,7 +572,7 @@ JOB_IDS="$JOB_IDS $_jid"
 _poll_job_fail "$_jid" "fastroute toggle: backend unavailable"
 printf 'confirm=X' > "$T/body.txt"
 RAW="$(_cgi POST /uninstall "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
-assert_eq "uninstall: отказ без package manager" "false" "$(_jget "$OUT" 'd["ok"]')"
+assert_eq "uninstall: сервер отклоняет запрос без подтверждения" "false" "$(_jget "$OUT" 'd["ok"]')"
 
 # --- customd parity: async enable/disable route mutates the inverse flag ---
 printf 'value=1' > "$T/body.txt"
@@ -897,6 +897,32 @@ assert_eq "tcp16 probe uses installed probe" "Status: 200 OK" "$(printf '%s\n' "
 _i=0
 while [ "$_i" -lt 20 ] && [ ! -f "$T/tcp16-probe-ran" ]; do sleep 0.1; _i=$((_i + 1)); done
 [ -f "$T/tcp16-probe-ran" ] && _t_ok || _t_bad "tcp16 WebPanel action reaches the installed probe"
+
+# Positive uninstall API path: keep the real CGI and async helper, replace only
+# the fixture worker body so this test proves the accepted request starts the
+# same canonical script entry with its server-side confirmation token.
+rm -f "$T/root/platform/openwrt/uninstall.sh"
+cat > "$T/root/platform/openwrt/uninstall.sh" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = "--worker" ]; then
+    printf '%s|%s\n' "${Z2K_UNINSTALL_CONFIRMED:-}" "$1" > "$Z2K_UNINSTALL_WORKER_MARKER"
+    exit 0
+fi
+. "$Z2K_UNINSTALL_LIBRARY"
+EOF
+chmod +x "$T/root/platform/openwrt/uninstall.sh"
+export Z2K_UNINSTALL_LIBRARY="$REPO/platform/openwrt/uninstall.sh"
+export Z2K_UNINSTALL_WORKER_MARKER="$T/uninstall-worker-ran"
+printf 'confirm=УДАЛИТЬ' > "$T/body.txt"
+RAW="$(_cgi POST /uninstall "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "uninstall: confirmed request launches job" "Status: 200 OK" "$(printf '%s\n' "$RAW" | _cgi_status)"
+_jid="$(_jget "$OUT" 'd["job"]')"
+assert_eq "uninstall: job id is returned" "true" "$([ -n "$_jid" ] && echo true || echo false)"
+JOB_IDS="$JOB_IDS $_jid"
+_jo="$(_poll_job "$_jid")" || _t_bad "uninstall: async job reaches completion"
+assert_eq "uninstall: canonical worker succeeds" "0" "$(_jget "$_jo" 'd["exit"]')"
+assert_contains "uninstall: same worker receives explicit confirmation" \
+    "$Z2K_UNINSTALL_WORKER_MARKER" '1|--worker'
 
 # --- FRESH INSTALL (п.8): ни конфига, ни списков, ни state, ни WARP-файлов ---
 # Панель обязана открываться и читать initial state; отсутствие optional

@@ -96,18 +96,15 @@ esac
 if [ -f "$Z2K_ROOT/platform/openwrt/webpanel.sh" ]; then
     . "$Z2K_ROOT/platform/openwrt/webpanel.sh" 2>/dev/null || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
 fi
-# The common /update/schedule route calls this seam after persisting the
-# value.  Loading the package-owned scheduler here keeps OpenWrt cron
-# convergence in its sole platform authority; Keenetic never enters this
-# branch.
+[ ! -r "$Z2K_ROOT/platform/openwrt/uninstall.sh" ] || . "$Z2K_ROOT/platform/openwrt/uninstall.sh" 2>/dev/null || Z2K_UNINSTALL_BACKEND_LOADED=0
+# OpenWrt persists /update/schedule through this package-owned cron adapter.
 if [ -f "$Z2K_ROOT/platform/openwrt/schedule.sh" ]; then
     . "$Z2K_ROOT/platform/openwrt/schedule.sh" 2>/dev/null || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
 fi
 export Z2K_PLATFORM_STATUS
-
 # Panel status combines core readiness, custom.d capability, and installed tree.
 wp_capabilities_json() {
-    local _ready=false _degraded=false _running=false _payload_compatible=true _customd=false _offload=false _tcp16=false
+    local _ready=false _degraded=false _running=false _payload_compatible=true _customd=false _offload=false _tcp16=false _uninstall=false
     is_running >/dev/null 2>&1 && _running=true
     command -v z2k_ow_core_ready >/dev/null 2>&1 && z2k_ow_core_ready >/dev/null 2>&1 && _ready=true
     if [ "$Z2K_PLATFORM_STATUS" = "ok" ] && command -v z2k_ow_panel_payload_compatible >/dev/null 2>&1; then
@@ -123,8 +120,9 @@ wp_capabilities_json() {
         && [ -s "$Z2K_TCP16_CANDIDATES" ]; then
         _tcp16=true
     fi
-    printf '"platform":"openwrt","ready":%s,"degraded":%s,"payload_compatible":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":%s,"diag":true,"customd":%s,"offload":%s,"warp":true,"telegram":true,"uninstall":false}' \
-        "$_ready" "$_degraded" "$_payload_compatible" "$_tcp16" "$_customd" "$_offload"
+    command -v z2k_ow_uninstall_async >/dev/null 2>&1 && _uninstall=true
+    printf '"platform":"openwrt","ready":%s,"degraded":%s,"payload_compatible":%s,"capabilities":{"policy":false,"ppe":false,"fastroute":false,"tcp16":%s,"diag":true,"customd":%s,"offload":%s,"warp":true,"telegram":true,"uninstall":%s}' \
+        "$_ready" "$_degraded" "$_payload_compatible" "$_tcp16" "$_customd" "$_offload" "$_uninstall"
 }
 
 # --- overrides: те же имена, OS-эффект через замороженные адаптеры ---
@@ -196,8 +194,11 @@ warp_neighbors() {
 }
 
 uninstall_async() {
-    echo "удаление z2k на OpenWrt — через пакетный менеджер роутера" >&2
-    return 1
+    command -v z2k_ow_uninstall_async >/dev/null 2>&1 || {
+        echo "удаление z2kOW недоступно: canonical backend не загружен" >&2
+        return 1
+    }
+    z2k_ow_uninstall_async
 }
 if [ "$Z2K_PLATFORM_STATUS" != "ok" ]; then
     is_installed() { return 1; }

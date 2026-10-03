@@ -6,7 +6,7 @@ The RT proxy keeps upstream z2k proxy semantics. OpenWrt replaces Keenetic DNS, 
 
 - procd owns the RT proxy process.
 - The proxy listens on the z2k RT local listener and uses the upstream proxy engine.
-- The proxy's outbound sockets use the desync-bypass mark required by the shared runtime so the proxy does not feed itself back into nfqws2.
+- The proxy's outbound sockets use upstream's exact `--so-mark` desync-bypass option, resolved from the shared runtime config, so the proxy does not feed itself back into nfqws2.
 
 ## DNS
 

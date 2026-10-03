@@ -7,6 +7,10 @@ case "$_command" in
         [ "$#" -eq 2 ] || { echo "usage: z2kow install <release-tag>" >&2; exit 2; }
         exec "${Z2K_INSTALL_RELEASE_BIN:-/usr/sbin/install_release}" "$2"
         ;;
+    uninstall|remove)
+        shift
+        exec /bin/sh "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/uninstall.sh" "$@"
+        ;;
     update|u) shift; exec "${Z2K_UPDATE_BIN:-/usr/lib/z2k/platform/openwrt/update.sh}" apply "$@" ;;
     check) shift; exec "${Z2K_UPDATE_BIN:-/usr/lib/z2k/platform/openwrt/update.sh}" check "$@" ;;
     blocked-monitor|bm)
@@ -42,7 +46,7 @@ case "$_command" in
         fi
         ;;
     help|-h|--help)
-        printf '%s\n' 'z2kow: install <tag> | check | update | status | restart | blocked-monitor <start|stop|status|tail>'
+        printf '%s\n' 'z2kow: install <tag> | check | update | uninstall | status | restart | blocked-monitor <start|stop|status|tail>'
         ;;
     *) echo "z2kow: unknown command: $_command" >&2; exit 2 ;;
 esac
