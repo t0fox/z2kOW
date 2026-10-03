@@ -117,12 +117,13 @@ printf '%s' "$_upstream_commit" | grep -Eq '^[0-9a-f]{40}$' \
     || die "controlled UPDATES.json содержит некорректный upstream commit"
 if [ "$_acceptance_source" = 1 ]; then
     _expected_artifact_url="${Z2KOW_MANIFEST_URL%/UPDATES.json}/openwrt-rootfs.tar.gz"
+    [ "$_filename" = openwrt-rootfs.tar.gz ] && [ "$_url" = "$_expected_artifact_url" ] \
+        || die "controlled UPDATES.json содержит некорректный artifact URL"
 else
-    _expected_artifact_url="https://github.com/t0fox/z2kOW/releases/download/$_tag/openwrt-rootfs.tar.gz"
+    [ "$_filename" = openwrt-rootfs.tar.gz ] \
+        && printf '%s' "$_url" | grep -Eq '^https://github[.]com/t0fox/z2kOW/releases/download/(openwrt-[0-9a-f]{40}|[pr]-[0-9]+([.][0-9]+)+)/openwrt-rootfs[.]tar[.]gz$' \
+        || die "controlled UPDATES.json содержит некорректный artifact URL"
 fi
-[ "$_filename" = openwrt-rootfs.tar.gz ] \
-    && [ "$_url" = "$_expected_artifact_url" ] \
-    || die "controlled UPDATES.json содержит некорректный artifact URL"
 printf '%s' "$_sha" | grep -Eq '^[0-9a-f]{64}$' \
     || die "controlled UPDATES.json содержит некорректный SHA-256"
 printf '%s' "$_size" | grep -Eq '^[1-9][0-9]*$' \

@@ -75,7 +75,7 @@ class ReleaseSigningTests(unittest.TestCase):
                 "history": [{"v": "p-86.13", "type": "reinstall", "ts": "2026-10-02T00:00:00Z"}],
                 "artifact": {
                     "filename": self.artifact.name,
-                    "url": "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz",
+                    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-" + "a" * 40 + "/openwrt-rootfs.tar.gz",
                     "sha256": hashlib.sha256(self.artifact.read_bytes()).hexdigest(),
                     "size_bytes": self.artifact.stat().st_size,
                 },

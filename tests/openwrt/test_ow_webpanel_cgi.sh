@@ -394,7 +394,7 @@ cat > "$T/controlled-UPDATES.json" <<'EOF'
   ],
   "artifact": {
     "filename": "openwrt-rootfs.tar.gz",
-    "url": "https://github.com/t0fox/z2kOW/releases/download/p-86.11/openwrt-rootfs.tar.gz",
+    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/openwrt-rootfs.tar.gz",
     "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "size_bytes": 23
   }

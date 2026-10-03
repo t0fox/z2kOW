@@ -89,7 +89,7 @@ make_artifact() {
 }
 
 prepare_manifest() {
-    _artifact="$1"; _out="$2"; _url="${3:-https://github.com/t0fox/z2kOW/releases/download/$_CURRENT_TAG/openwrt-rootfs.tar.gz}"; _sha=""; _size=""
+    _artifact="$1"; _out="$2"; _url="${3:-https://github.com/t0fox/z2kOW/releases/download/openwrt-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/openwrt-rootfs.tar.gz}"; _sha=""; _size=""
     _sha="$(sha256sum "$_artifact" | awk '{print $1}')"
     _size="$(wc -c < "$_artifact" | tr -d ' \t\r\n')"
     "$Z2K_TEST_PYTHON" -c 'import json,sys; p,a,o,sha,size,url=sys.argv[1:]; d=json.load(open(p,encoding="utf-8")); d["artifact"]={"filename":"openwrt-rootfs.tar.gz","url":url,"sha256":sha,"size_bytes":int(size)}; d["signing"]={"key_id":"0000000000000000000000000000000000000000000000000000000000000000"}; history=d.pop("history"); f=open(o,"w",encoding="utf-8"); f.write(json.dumps(d,ensure_ascii=False,indent=2)[:-1]+",\n  "+chr(34)+"history"+chr(34)+": [\n"); f.write(",\n".join("    "+json.dumps(entry,ensure_ascii=False,separators=(",",":")) for entry in history)); f.write("\n  ]\n}\n"); f.close()' \
@@ -120,6 +120,22 @@ make_artifact "$STAGE"
 mkdir -p "$T/dist"
     tar -czf "$T/dist/openwrt-rootfs.tar.gz" -C "$STAGE" usr etc opt
 prepare_manifest "$T/dist/openwrt-rootfs.tar.gz" "$T/UPDATES.json"
+z2k_ow_manifest_release_ok "$T/UPDATES.json" \
+    && _t_ok || _t_bad "technical immutable release URL is valid for the controlled p-86.13 manifest"
+cp "$T/UPDATES.json" "$T/untrusted-URL.json"
+"$Z2K_TEST_PYTHON" - "$T/untrusted-URL.json" <<'PY'
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+d = json.loads(path.read_text(encoding="utf-8"))
+d["artifact"]["url"] = "https://attacker.example/releases/download/openwrt-" + "a" * 40 + "/openwrt-rootfs.tar.gz"
+path.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+if z2k_ow_manifest_release_ok "$T/untrusted-URL.json"; then
+    _t_bad "manifest artifact URL cannot escape the controlled GitHub repository"
+else
+    _t_ok
+fi
 _decision="$(z2k_ow_release_decision "$T/UPDATES.json" "$SYS/etc/z2k/state/installed-release")"
 assert_eq "p-86.2 through upstream reinstall release enters controlled full install" \
     "update $_CURRENT_TAG" "$_decision"
@@ -329,7 +345,6 @@ d = json.loads(path.read_text(encoding="utf-8"))
 d["current"] = "p-86.14"
 d["seq"] = 137
 d["upstream"]["tag"] = "p-86.14"
-d["artifact"]["url"] = "https://github.com/t0fox/z2kOW/releases/download/p-86.14/openwrt-rootfs.tar.gz"
 path.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PY
 export Z2K_OW_MANIFEST_PATH="$T/reinstall-newer.json"

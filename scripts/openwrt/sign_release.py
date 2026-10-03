@@ -42,7 +42,7 @@ def _validate_release(manifest_path: Path, artifact_path: Path) -> dict[str, obj
         raise ValueError("controlled manifest has no complete rootfs artifact record")
     candidate = dict(manifest)
     candidate.pop("artifact", None)
-    attach_rootfs_artifact(candidate, artifact_path)
+    attach_rootfs_artifact(candidate, artifact_path, artifact.get("url"))
     if candidate.get("artifact") != artifact:
         raise ValueError("controlled artifact size or SHA-256 does not match the complete rootfs")
     return manifest

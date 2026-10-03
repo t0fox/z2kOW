@@ -22,6 +22,14 @@ class UnifiedArchitectureTests(unittest.TestCase):
         self.assertIn('INSTALLER="$TMP_DIR/install.sh"', launcher)
         self.assertIn('sh "$INSTALLER" "$@"', launcher)
 
+    def test_production_bootstrap_accepts_technical_release_tags_independent_of_current(self) -> None:
+        installer = (ROOT / "scripts/openwrt/install.sh").read_text(encoding="utf-8")
+        manifest = (ROOT / "platform/openwrt/manifest.sh").read_text(encoding="utf-8")
+        self.assertIn("openwrt-[0-9a-f]{40}", installer)
+        self.assertIn("openwrt-[0-9a-f]{40}", manifest)
+        self.assertNotIn('releases/download/$_tag/openwrt-rootfs.tar.gz', installer)
+        self.assertNotIn('releases/download/$(z2k_ow_manifest_value "$1" current)', manifest)
+
     def test_legacy_component_package_and_provenance_authorities_are_gone(self) -> None:
         removed = (
             "package/openwrt/Makefile",
@@ -62,9 +70,9 @@ class UnifiedArchitectureTests(unittest.TestCase):
         artifact = manifest["artifact"]
         self.assertEqual(set(artifact), {"filename", "url", "sha256", "size_bytes"})
         self.assertEqual(artifact["filename"], "openwrt-rootfs.tar.gz")
-        self.assertEqual(
+        self.assertRegex(
             artifact["url"],
-            f"https://github.com/t0fox/z2kOW/releases/download/{manifest['current']}/openwrt-rootfs.tar.gz",
+            r"^https://github\.com/t0fox/z2kOW/releases/download/(?:openwrt-[0-9a-f]{40}|[pr]-[0-9]+(?:\.[0-9]+)+)/openwrt-rootfs\.tar\.gz$",
         )
         self.assertRegex(artifact["sha256"], r"^[0-9a-f]{64}$")
         self.assertIsInstance(artifact["size_bytes"], int)

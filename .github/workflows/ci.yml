@@ -216,7 +216,7 @@ jobs:
           artifact = m["artifact"]
           assert set(artifact) == {"filename", "url", "sha256", "size_bytes"}
           assert artifact["filename"] == "openwrt-rootfs.tar.gz"
-          assert artifact["url"] == f"https://github.com/t0fox/z2kOW/releases/download/{m['current']}/openwrt-rootfs.tar.gz"
+          assert re.fullmatch(r"https://github\.com/t0fox/z2kOW/releases/download/(?:openwrt-[0-9a-f]{40}|[pr]-[0-9]+(?:\.[0-9]+)+)/openwrt-rootfs\.tar\.gz", artifact["url"])
           assert re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"])
           assert isinstance(artifact["size_bytes"], int) and artifact["size_bytes"] > 0
           assert not {"adapter", "payload", "bundle", "components", "package_versions", "openwrt_release_artifact"} & set(m)

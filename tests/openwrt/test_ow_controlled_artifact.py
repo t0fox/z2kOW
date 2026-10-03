@@ -18,6 +18,12 @@ if MODULE_PATH.exists():
 
 
 class ControlledArtifactTests(unittest.TestCase):
+    TECHNICAL_URL = (
+        "https://github.com/t0fox/z2kOW/releases/download/openwrt-"
+        + "a" * 40
+        + "/openwrt-rootfs.tar.gz"
+    )
+
     def setUp(self) -> None:
         self.assertIsNotNone(MODULE, "controlled_release.py must attach signed release artifacts")
         self.temp = tempfile.TemporaryDirectory()
@@ -47,7 +53,7 @@ class ControlledArtifactTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_single_transport_artifact_hash_is_recorded_in_updates_manifest(self) -> None:
-        url = "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz"
+        url = self.TECHNICAL_URL
 
         MODULE.attach_rootfs_artifact(self.manifest, self.artifact, url)
 
@@ -58,12 +64,12 @@ class ControlledArtifactTests(unittest.TestCase):
         self.assertEqual(record["size_bytes"], self.artifact.stat().st_size)
         self.assertEqual(set(record), {"filename", "url", "sha256", "size_bytes"})
 
-    def test_artifact_url_is_derived_from_the_manifest_current_tag(self) -> None:
-        MODULE.attach_rootfs_artifact(self.manifest, self.artifact)
+    def test_artifact_url_is_technical_and_independent_of_the_user_version(self) -> None:
+        MODULE.attach_rootfs_artifact(self.manifest, self.artifact, self.TECHNICAL_URL)
 
         self.assertEqual(
             self.manifest["artifact"]["url"],
-            "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz",
+            self.TECHNICAL_URL,
         )
 
     def test_unsigned_candidate_uses_a_copy_without_replacing_the_published_artifact(self) -> None:
@@ -72,7 +78,7 @@ class ControlledArtifactTests(unittest.TestCase):
         candidate.parent.mkdir()
         self.manifest["artifact"] = {
             "filename": "openwrt-rootfs.tar.gz",
-            "url": "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz",
+            "url": self.TECHNICAL_URL,
             "sha256": "a" * 64,
             "size_bytes": 123,
         }
@@ -94,7 +100,7 @@ class ControlledArtifactTests(unittest.TestCase):
         MODULE.attach_file(
             candidate,
             self.artifact,
-            "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz",
+            self.TECHNICAL_URL,
         )
         final_candidate = json.loads(candidate.read_text(encoding="utf-8"))
         self.assertEqual(final_candidate["artifact"]["sha256"], MODULE.sha256(self.artifact))
@@ -105,7 +111,7 @@ class ControlledArtifactTests(unittest.TestCase):
         candidate.parent.mkdir()
         MODULE.write_manifest(candidate, self.manifest)
 
-        MODULE.attach_file(candidate, self.artifact, key_id="b" * 64)
+        MODULE.attach_file(candidate, self.artifact, self.TECHNICAL_URL, key_id="b" * 64)
 
         final = json.loads(candidate.read_text(encoding="utf-8"))
         self.assertEqual(final["signing"], {"key_id": "b" * 64})
@@ -117,21 +123,35 @@ class ControlledArtifactTests(unittest.TestCase):
         MODULE.write_manifest(candidate, self.manifest)
 
         with self.assertRaisesRegex(ValueError, "signing key id"):
-            MODULE.attach_file(candidate, self.artifact, key_id="not-a-fingerprint")
+            MODULE.attach_file(candidate, self.artifact, self.TECHNICAL_URL, key_id="not-a-fingerprint")
 
     def test_manifest_cannot_carry_a_second_transport_or_component_release(self) -> None:
-        url = "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz"
+        url = self.TECHNICAL_URL
         MODULE.attach_rootfs_artifact(self.manifest, self.artifact, url)
         self.manifest["adapter"] = {"version": "0.1.1"}
 
         with self.assertRaisesRegex(ValueError, "secondary component release"):
             MODULE.attach_rootfs_artifact(self.manifest, self.artifact, url)
 
-    def test_artifact_must_be_an_immutable_asset_for_the_manifest_current_tag(self) -> None:
-        url = "https://github.com/t0fox/z2kOW/releases/download/p-86.12/openwrt-rootfs.tar.gz"
+    def test_artifact_must_use_a_full_sha_technical_release_tag(self) -> None:
+        urls = (
+            "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz",
+            "https://github.com/other/repo/releases/download/openwrt-" + "a" * 40 + "/openwrt-rootfs.tar.gz",
+            "https://github.com/t0fox/z2kOW/releases/download/openwrt-abcdef/openwrt-rootfs.tar.gz",
+            "https://example.com/releases/download/openwrt-" + "a" * 40 + "/openwrt-rootfs.tar.gz",
+        )
+        for url in urls:
+            with self.subTest(url=url), self.assertRaisesRegex(ValueError, "controlled immutable OpenWrt release"):
+                MODULE.attach_rootfs_artifact(self.manifest, self.artifact, url)
 
-        with self.assertRaisesRegex(ValueError, "current tag"):
-            MODULE.attach_rootfs_artifact(self.manifest, self.artifact, url)
+    def test_artifact_url_is_required_when_attaching_a_release(self) -> None:
+        with self.assertRaisesRegex(ValueError, "technical release URL"):
+            MODULE.attach_rootfs_artifact(self.manifest, self.artifact)
+
+    def test_missing_artifact_file_is_rejected(self) -> None:
+        missing = self.root / "missing" / "openwrt-rootfs.tar.gz"
+        with self.assertRaisesRegex(ValueError, "existing openwrt-rootfs.tar.gz"):
+            MODULE.attach_rootfs_artifact(self.manifest, missing, self.TECHNICAL_URL)
 
     def test_non_openwrt_manifest_is_rejected(self) -> None:
         self.manifest.pop("platform")
@@ -140,7 +160,7 @@ class ControlledArtifactTests(unittest.TestCase):
             MODULE.attach_rootfs_artifact(
                 self.manifest,
                 self.artifact,
-                "https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs.tar.gz",
+                self.TECHNICAL_URL,
             )
 
     def test_render_keeps_upstream_history_objects_one_per_line_without_seq_rewrite(self) -> None:

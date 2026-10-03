@@ -332,13 +332,13 @@ else
        'artifact filename openwrt-rootfs.tar.gz' "not found"
 fi
 
-if grep -q 'artifact\["url"\] == f"https://github.com/t0fox/z2kOW/releases/download/{m\[.current.\]}/openwrt-rootfs.tar.gz"' "$CI" \
+if grep -q 're.fullmatch(r"https://github' "$CI" \
     && grep -q 're.fullmatch(r"\[0-9a-f\]{64}", artifact\["sha256"\])' "$CI" \
     && grep -q 'artifact\["size_bytes"\] > 0' "$CI"; then
-    ok "CI checks immutable tag URL, SHA-256, and artifact size"
+    ok "CI checks controlled release URL, SHA-256, and artifact size"
 else
     no "CI checks immutable artifact identity and digest" \
-       'tag URL + sha256 + positive size' "not found"
+       'controlled release URL + sha256 + positive size' "not found"
 fi
 
 if grep -q 'assert not Path("UPSTREAM.json").exists()' "$CI" \

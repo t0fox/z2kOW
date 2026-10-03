@@ -16,6 +16,7 @@ from pathlib import Path
 TAG_RE = re.compile(r"[pr]-[0-9]+(?:\.[0-9]+)+\Z")
 ARTIFACT_NAME = "openwrt-rootfs.tar.gz"
 RELEASE_BASE = "https://github.com/t0fox/z2kOW/releases/download"
+TECHNICAL_RELEASE_TAG_RE = re.compile(r"openwrt-[0-9a-f]{40}\Z")
 UPSTREAM_REPOSITORY = "necronicle/z2k"
 UPSTREAM_BRANCH = "z2k-enhanced"
 COMMIT_RE = re.compile(r"[0-9a-f]{40}\Z")
@@ -129,9 +130,18 @@ def attach_rootfs_artifact(
     forbidden = {"adapter", "payload", "bundle", "components", "package_versions", "openwrt_release_artifact"}
     if forbidden.intersection(manifest):
         raise ValueError("secondary component release metadata is forbidden")
-    expected_url = f"{RELEASE_BASE}/{tag}/{ARTIFACT_NAME}"
-    if url is not None and url != expected_url:
-        raise ValueError(f"artifact URL must match the immutable current tag: {expected_url}")
+    if not isinstance(url, str):
+        raise ValueError("a technical release URL is required when attaching the artifact")
+    expected_prefix = f"{RELEASE_BASE}/"
+    suffix = f"/{ARTIFACT_NAME}"
+    if not url.startswith(expected_prefix) or not url.endswith(suffix):
+        raise ValueError("artifact URL must point to a controlled immutable OpenWrt release")
+    release_tag = url[len(expected_prefix) : -len(suffix)]
+    if not TECHNICAL_RELEASE_TAG_RE.fullmatch(release_tag):
+        raise ValueError("artifact URL must point to a controlled immutable OpenWrt release")
+    expected_url = f"{expected_prefix}{release_tag}{suffix}"
+    if url != expected_url:
+        raise ValueError("artifact URL must point to a controlled immutable OpenWrt release")
     artifact = Path(artifact)
     if not artifact.is_file() or artifact.name != ARTIFACT_NAME:
         raise ValueError(f"artifact must be an existing {ARTIFACT_NAME} file")
@@ -265,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
     attach = subparsers.add_parser("attach")
     attach.add_argument("--manifest", required=True, type=Path)
     attach.add_argument("--artifact", required=True, type=Path)
-    attach.add_argument("--url")
+    attach.add_argument("--url", required=True)
     attach.add_argument("--key-id")
     sync = subparsers.add_parser("sync")
     sync.add_argument("--upstream", required=True, type=Path)

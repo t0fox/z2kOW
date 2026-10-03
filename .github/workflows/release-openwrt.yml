@@ -232,6 +232,7 @@ jobs:
           python3 scripts/openwrt/controlled_release.py attach \
             --manifest "$out/UPDATES.json" \
             --artifact "$out/openwrt-rootfs.tar.gz" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/openwrt-$GITHUB_SHA/openwrt-rootfs.tar.gz" \
             --key-id "$RELEASE_KEY_ID"
           python3 - "$out/UPDATES.json" "$RELEASE_TAG_INPUT" "$RELEASE_SEQ_INPUT" "$RELEASE_KEY_ID" <<'PY'
           import json
@@ -296,6 +297,7 @@ jobs:
           ref: ${{ github.sha }}
       - name: Revalidate the already-built candidate without rerunning CI or the OpenWrt build
         if: inputs.operation == 'retry-publish'
+        id: revalidate
         shell: bash
         run: |
           set -euo pipefail
@@ -311,6 +313,8 @@ jobs:
           jobs_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID/jobs?per_page=100")"
           artifacts_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID/artifacts?per_page=100")"
           compare_json="$(gh api "repos/$GITHUB_REPOSITORY/compare/$(printf '%s' "$run_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])')...$GITHUB_SHA")"
+          candidate_source_sha="$(printf '%s' "$run_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])')"
+          [[ "$candidate_source_sha" =~ ^[0-9a-f]{40}$ ]]
           python3 - "$run_json" "$jobs_json" "$artifacts_json" "$compare_json" "$CANDIDATE_RUN_ID" <<'PY'
           import json
           import sys
@@ -361,6 +365,7 @@ jobs:
           if changed_paths - release_control_paths:
               raise SystemExit(f"product source changed after this candidate was built: {sorted(changed_paths)!r}")
           PY
+          printf 'source_sha=%s\n' "$candidate_source_sha" >> "$GITHUB_OUTPUT"
           printf 'Reusing the fully tested release candidate from workflow run %s; no CI or build jobs were rerun.\n' "$CANDIDATE_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -412,6 +417,7 @@ jobs:
         env:
           EXPECTED_TAG: ${{ inputs.operation == 'retry-publish' && inputs.tag || needs.validate-release.outputs.tag }}
           EXPECTED_SEQ: ${{ inputs.operation == 'retry-publish' && inputs.seq || needs.validate-release.outputs.seq }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.operation == 'retry-publish' && steps.revalidate.outputs.source_sha || github.sha }}
         run: |
           set -euo pipefail
           test -n "$RELEASE_PRIVATE_KEY"
@@ -439,50 +445,61 @@ jobs:
             --public-key "$key_file"
           rm -f "$private_key"
           unset RELEASE_PRIVATE_KEY
-          test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["current"])' "$manifest")" = "$EXPECTED_TAG"
-          test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["seq"])' "$manifest")" = "$EXPECTED_SEQ"
+          python3 - "$manifest" "$EXPECTED_TAG" "$EXPECTED_SEQ" "$EXPECTED_SOURCE_SHA" "$GITHUB_REPOSITORY" <<'PY'
+          import json
+          import sys
+          path, expected_tag, expected_seq, source_sha, repository = sys.argv[1:]
+          manifest = json.load(open(path, encoding="utf-8"))
+          if manifest.get("current") != expected_tag or manifest.get("seq") != int(expected_seq):
+              raise SystemExit("candidate user-visible release version differs from the approved upstream release")
+          expected_url = f"https://github.com/{repository}/releases/download/openwrt-{source_sha}/openwrt-rootfs.tar.gz"
+          if manifest.get("artifact", {}).get("url") != expected_url:
+              raise SystemExit("candidate artifact URL is not bound to its exact source commit")
+          PY
       - name: Create an immutable GitHub Release, verify public assets, and commit the sole manifest
         shell: bash
         env:
           EXPECTED_TAG: ${{ inputs.operation == 'retry-publish' && inputs.tag || needs.validate-release.outputs.tag }}
           EXPECTED_SEQ: ${{ inputs.operation == 'retry-publish' && inputs.seq || needs.validate-release.outputs.seq }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.operation == 'retry-publish' && steps.revalidate.outputs.source_sha || github.sha }}
         run: |
           set -euo pipefail
-          tag="$EXPECTED_TAG"
+          artifact_tag="openwrt-$EXPECTED_SOURCE_SHA"
           source="$RUNNER_TEMP/openwrt-release-candidate"
           manifest="$source/UPDATES.json"
           signature="$source/UPDATES.json.sig"
           artifact="$source/openwrt-rootfs.tar.gz"
-          release_url="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
+          release_url="https://github.com/$GITHUB_REPOSITORY/releases/download/$artifact_tag"
           raw_url="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main"
+          test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["artifact"]["url"])' "$manifest")" = "$release_url/openwrt-rootfs.tar.gz"
 
           python3 scripts/openwrt/check_immutable_releases.py "$GITHUB_REPOSITORY"
           git fetch --quiet origin main
           test "$(git rev-parse origin/main)" = "$GITHUB_SHA" \
             || { echo 'main moved after the release was prepared; rerun against the new main commit.' >&2; exit 1; }
 
-          is_draft="$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null || printf 'missing')"
+          is_draft="$(gh release view "$artifact_tag" --json isDraft --jq '.isDraft' 2>/dev/null || printf 'missing')"
           if [ "$is_draft" = missing ]; then
             notes="$RUNNER_TEMP/release-notes.md"
-            printf 'OpenWrt full-payload release %s (upstream sequence %s).\n' "$tag" "$EXPECTED_SEQ" > "$notes"
-            gh release create "$tag" --draft --target "$GITHUB_SHA" --title "$tag — OpenWrt" --notes-file "$notes"
+            printf 'Complete OpenWrt payload for %s (upstream sequence %s). Internal immutable artifact.\n' "$EXPECTED_TAG" "$EXPECTED_SEQ" > "$notes"
+            gh release create "$artifact_tag" --draft --target "$EXPECTED_SOURCE_SHA" --title "OpenWrt full payload for $EXPECTED_TAG" --notes-file "$notes"
             is_draft=true
           fi
 
           if [ "$is_draft" = true ]; then
-            gh release upload "$tag" "$artifact" "$manifest" "$signature" --clobber
+            gh release upload "$artifact_tag" "$artifact" "$manifest" "$signature" --clobber
             remote="$RUNNER_TEMP/verify-release-assets"
             mkdir -p "$remote"
-            gh release download "$tag" --dir "$remote" \
+            gh release download "$artifact_tag" --dir "$remote" \
               --pattern openwrt-rootfs.tar.gz --pattern UPDATES.json --pattern UPDATES.json.sig
             cmp -s "$artifact" "$remote/openwrt-rootfs.tar.gz"
             cmp -s "$manifest" "$remote/UPDATES.json"
             cmp -s "$signature" "$remote/UPDATES.json.sig"
-            gh release edit "$tag" --draft=false
+            gh release edit "$artifact_tag" --draft=false
           else
             remote="$RUNNER_TEMP/verify-release-assets"
             mkdir -p "$remote"
-            gh release download "$tag" --dir "$remote" \
+            gh release download "$artifact_tag" --dir "$remote" \
               --pattern openwrt-rootfs.tar.gz --pattern UPDATES.json --pattern UPDATES.json.sig
             cmp -s "$artifact" "$remote/openwrt-rootfs.tar.gz" \
               || { echo 'published immutable rootfs differs from this candidate.' >&2; exit 1; }
@@ -513,7 +530,7 @@ jobs:
           if ! git diff --cached --quiet; then
             git config user.name "t0fox"
             git config user.email "t0fox@yandex.ru"
-            git commit -m "release(openwrt): $tag"
+            git commit -m "release(openwrt): $EXPECTED_TAG"
             git push origin HEAD:main
           fi
 

@@ -88,6 +88,20 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('git config user.email "t0fox@yandex.ru"', workflow)
         self.assertNotRegex(workflow, r"(?i)z2k-(?:adapter|webpanel|zapret2-runtime|warp-runtime).*\.apk")
 
+    def test_artifact_release_uses_internal_source_commit_tag_without_changing_user_version(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
+        publish = workflow.split("  publish-release:", 1)[1]
+        self.assertIn(
+            '--url "https://github.com/$GITHUB_REPOSITORY/releases/download/openwrt-$GITHUB_SHA/openwrt-rootfs.tar.gz"',
+            prepare,
+        )
+        self.assertIn('artifact_tag="openwrt-$EXPECTED_SOURCE_SHA"', publish)
+        self.assertIn('--target "$EXPECTED_SOURCE_SHA"', publish)
+        self.assertIn("steps.revalidate.outputs.source_sha", publish)
+        self.assertIn("candidate artifact URL is not bound to its exact source commit", publish)
+        self.assertNotIn('artifact_tag="$EXPECTED_TAG"', publish)
+
     def test_public_artifact_verification_keeps_the_canonical_filename(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         publish = workflow.split("  publish-release:", 1)[1]
