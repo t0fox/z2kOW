@@ -44,29 +44,44 @@ z2kOW устанавливает zapret2 на OpenWrt и добавляет по
 
 ### Сетевые стратегии
 
-- Общий с upstream z2k движок стратегий и генератор конфигурации.
-- Autocircular для автоматического подбора рабочих стратегий.
-- Постоянное состояние подобранных стратегий между перезапусками.
-- Отдельные профили для RKN, YouTube TCP, googlevideo, QUIC и Discord.
-- Пользовательские стратегии для отдельных пулов.
-- Whitelist, exclude и дополнительные домены.
-- Автохостлист и общие runtime-механизмы z2k там, где они применимы к OpenWrt.
+- Общий с upstream z2k генератор конфигурации nfqws2 и та же модель autocircular.
+- TCP-пулы для RKN, YouTube TCP и GoogleVideo с автоматической ротацией стратегий.
+- Общий QUIC-пул для UDP/443 с отдельной детекцией прогресса QUIC.
+- Отдельный **Discord voice/video** профиль для Discord/STUN UDP.
+- Найденное состояние стратегий сохраняется между перезапусками.
+- Hostlist-режим: обход применяется к нужным доменам, а не ко всему трафику подряд.
+- Дополнительные пользовательские домены, whitelist и исключения.
+- Автохостлист — nfqws2 может самостоятельно накопить домены, для которых нужен обход.
+- Пользовательские стратегии позволяют переопределить отдельный пул, не форкая всю конфигурацию.
+
+### OpenWrt-интеграция
+
+- **procd** — жизненный цикл основного сервиса, WebPanel, Telegram, RT proxy и WARP.
+- **fw4/nftables** — NFQUEUE, redirects, sets и policy marking.
+- **netifd / ubus / UCI** — состояние интерфейсов, LAN/WAN и OpenWrt-конфигурация.
+- **hotplug** — восстановление runtime после сетевых событий.
+- **cron** — обновления, списки, TCP16 и self-heal задачи.
+- `/etc/z2k` — пользовательская конфигурация и постоянное состояние.
+- `/usr/lib/z2k` — заменяемый payload текущего релиза.
+- `/tmp/z2k` — runtime, временные файлы и журналы.
 
 ### Сеть и прокси
 
-- **Telegram** — прозрачный туннель для устройств в сети через OpenWrt-native nftables/procd backend.
-- **RT proxy** — прокси и DNS/firewall-интеграция для поддерживаемых RT-доменов.
-- **WARP** — split-routing через собственный WARP-движок z2k с OpenWrt policy-routing backend.
-- IPv4/IPv6 обрабатываются через нативный сетевой стек OpenWrt и общую логику z2k.
+- **Telegram** — прозрачный туннель для устройств в LAN без настройки proxy на каждом клиенте.
+- **Discord** — веб/TCP-трафик входит в RKN/TLS обработку, голос и видео обслуживаются отдельным UDP-профилем.
+- **RT proxy** — отдельный proxy с OpenWrt DNS/firewall-интеграцией.
+- **WARP** — split-routing для IP/CIDR, доменов, игровых списков и выбранных устройств.
+- IPv4/IPv6 обслуживаются общей логикой z2k и соответствующими OpenWrt backend'ами.
 
 ### Инструменты и обслуживание
 
-- **WebPanel** — управление сервисом, конфигурацией, стратегиями, списками, диагностикой и обновлениями.
-- **z2k diag** — сводка состояния OpenWrt runtime: procd, nftables/NFQUEUE, сеть, Telegram, WARP, TCP16 и другие компоненты.
-- **TCP16** — проба линии на блок по объёму 16–20 КБ с сохранением результата и использованием его в runtime-конфигурации.
-- **Планировщик** — OpenWrt cron-адаптер для обновлений, списков, TCP16 и обслуживающих задач.
-- **Config validator** — проверка конфигурации перед применением.
-- Подписанный release manifest и проверка целостности OpenWrt release payload.
+- **WebPanel** — сервис, режимы, стратегии, списки, WARP, диагностика, обновления, благодарности и донаты.
+- **z2k diag** — одна сводка по procd, nftables/NFQUEUE, сети, Telegram, WARP, TCP16 и состоянию релиза.
+- **z2k-detect** — проверки домена и сетевых стадий.
+- **TCP16** — отдельная проба линии для блокировки по объёму.
+- **Config validator** — проверка собранной конфигурации до применения.
+- **Blocked monitor** — просмотр проблемных/блокируемых сессий.
+- Подписанный release manifest и проверка целостности полного OpenWrt payload.
 
 ---
 
@@ -138,6 +153,69 @@ z2kow <команда>
 
 ---
 
+## Как работает autocircular
+
+z2k не требует вручную подбирать одну универсальную строку desync. У каждого пула есть набор стратегий: nfqws2 наблюдает новые соединения и при повторяющихся неудачах переключает стратегию для следующих соединений.
+
+```text
+новое соединение
+      ↓
+текущая стратегия пула
+      ↓
+наблюдение TCP / TLS / HTTP / QUIC
+      ↓
+успех ───────────────→ оставить стратегию
+      ↓
+повторяющиеся неудачи
+      ↓
+следующая стратегия
+      ↓
+состояние сохраняется
+```
+
+TCP, QUIC и Discord используют разные критерии прогресса. Обрыв на 16–20 КБ в эту ротацию не входит — для него существует отдельная система TCP16.
+
+---
+
+## Discord
+
+Discord в z2kOW не сводится к одному списку доменов.
+
+### Веб и текстовый трафик
+
+Discord-домены подключаются к TLS/RKN обработке. Обычный HTTPS проходит через тот же hostlist + autocircular, что и остальные ресурсы этого пула.
+
+### Голос и видео
+
+Для голосовых и видеосессий используется отдельный `discord_udp` профиль:
+
+- фильтрация идёт по сигнатурам `discord` и `stun`;
+- охватываются Discord voice/STUN UDP-порты;
+- используется отдельный набор fallback-стратегий;
+- circular хранит общее состояние voice-пула, где обычно нет нормального hostname/SNI;
+- desync применяется только к началу медиапотока, а не гонит весь высокобитрейтный звонок через NFQUEUE.
+
+Это особенно важно для слабых роутеров: задача — повлиять на установление UDP-сессии, а не постоянно обрабатывать каждый пакет голоса или стрима.
+
+В репозитории также сохранён upstream fallback:
+
+```text
+extras/discord-voice-hosts.txt
+```
+
+Это ручной клиентский вариант для отдельных проблем с Discord voice DNS/endpoints; основной OpenWrt-путь — роутерный UDP-профиль.
+
+---
+
+## Telegram
+
+Telegram работает прозрачно для устройств в локальной сети: клиентам не нужно прописывать отдельный proxy.
+
+На OpenWrt procd владеет процессом туннеля, nftables направляет Telegram traffic на локальные listeners, а health-check восстанавливает принадлежащие z2kOW runtime-правила. Пользовательское выключение Telegram считается нормальным состоянием и не должно самопроизвольно отменяться self-heal'ом.
+
+Общий клиент находится в `mtproxy-client/`, OpenWrt glue — в `platform/openwrt/tg.sh`.
+
+---
 ## Обрыв на 16–20 КБ
 
 Это отдельный механизм от autocircular.
@@ -157,27 +235,86 @@ z2kow <команда>
 
 ## Игровой режим WARP
 
-WARP — дополнительный режим для трафика, который удобнее маршрутизировать через отдельный туннель.
+Часть блокировок происходит по **IP-адресу**, а не по домену/SNI. Для такого трафика desync уже не помогает — его нужно отправить другим маршрутом.
 
-OpenWrt-адаптация сохраняет upstream-смысл:
+WARP в z2kOW — это **split-tunnel**, а не VPN для всего роутера:
 
 ```text
-install
-  ↓
-регистрация устройства
-  ↓
-enable
-  ↓
-движок ready
-  ↓
-nftables mark
-  ↓
-policy routing
-  ↓
-WARP tunnel
+выбранный IP / CIDR / домен / устройство
+                   ↓
+             nftables mark
+                   ↓
+               ip rule
+                   ↓
+          отдельная route table
+                   ↓
+               z2k-warpd
+                   ↓
+            Cloudflare WARP
 ```
 
-Платформенный backend использует procd, nftables и штатные таблицы маршрутизации OpenWrt вместо Keenetic/iptables-механики.
+Весь остальной трафик продолжает идти обычным маршрутом.
+
+### Собственный движок z2k-warpd
+
+WARP работает на собственном движке `z2k-warpd`, который лежит прямо в репозитории.
+
+У него два транспорта:
+
+- **WireGuard/UDP** — основной быстрый транспорт. Используются WARP registration data и Cloudflare reserved bytes; перед первым WG handshake движок добавляет короткую маскировочную последовательность.
+- **MASQUE CONNECT-IP поверх HTTP/2/TCP 443** — запасной транспорт на случай недоступного UDP.
+
+В режиме `auto` движок сам выбирает рабочий путь и следит за его состоянием. Наличие процесса само по себе не считается готовностью: OpenWrt backend также проверяет tunnel/interface и policy-routing state.
+
+### Установка и включение
+
+WARP — опциональная функция:
+
+```text
+Установить WARP
+      ↓
+получить движок
+      ↓
+зарегистрировать device identity
+      ↓
+Включить
+      ↓
+дождаться ready
+      ↓
+поднять nftables + policy routing
+```
+
+Device identity хранится в persistent state отдельно от заменяемого release payload.
+
+### Игровые списки
+
+Игровые IP/CIDR берутся из community-проекта `YOZH3G/ru-gaming-blocklist`. z2kOW хранит отдельный список на игру, а пользователь сам выбирает нужные игры.
+
+Это сделано намеренно вместо одного огромного глобального ipset: включение одной игры не должно случайно отправлять через WARP посторонние сети. Game lists обновляются планировщиком независимо от релиза z2kOW.
+
+### Пользовательские IP, CIDR и домены
+
+В собственные WARP-списки можно добавлять IP/CIDR и поддерживаемые доменные правила.
+
+Для доменов OpenWrt использует пассивное наблюдение DNS:
+
+1. роутер видит DNS-ответ клиента;
+2. сопоставляет ответ с WARP domain rules;
+3. создаёт временную пару «клиент → IP»;
+4. только трафик этого клиента к этому адресу получает WARP mark;
+5. запись истекает по TTL.
+
+Поэтому доменное правило не превращается в глобальный маршрут для всей LAN. Если приложение использует собственный DoH/DoT и DNS-ответ не виден роутеру, остаются IP/CIDR или маршрутизация выбранного устройства.
+
+### Устройства целиком через WARP
+
+Можно выбрать LAN-клиента по IP/MAC. OpenWrt-адаптер разрешает MAC в актуальный адрес активного клиента и не должен превращать старую DHCP lease в постоянный маршрут.
+
+### Fail-open и self-heal
+
+Если `z2k-warpd` перестал быть ready, z2kOW сначала снимает рабочий policy-routing path. Выбранный трафик не должен оставаться направленным в мёртвый туннель.
+
+Self-heal затем восстанавливает процесс, nftables state и PBR. Смысл тот же, что у upstream: временный прямой маршрут лучше blackhole.
 
 ---
 
@@ -203,6 +340,91 @@ install_release
 
 ---
 
+## Структура проекта
+
+Как и upstream z2k, репозиторий разделён на общую продуктовую часть и платформенную адаптацию. Главное дополнение z2kOW — `platform/openwrt/` и OpenWrt release tooling.
+
+```text
+z2kOW/
+├── z2k.sh                         # upstream/common bootstrap и общая логика z2k
+├── z2kow.sh                       # публичная OpenWrt bootstrap-команда
+├── strats_new2.txt                # база TCP-стратегий
+├── quic_strats.ini                # QUIC / Discord UDP strategy definitions
+│
+├── lib/                           # общие модули z2k
+│   ├── utils.sh                   # shell helpers и safe config access
+│   ├── install.sh                 # upstream lifecycle semantics
+│   ├── strategies.sh              # strategy parsing/materialization
+│   ├── config.sh                  # управление конфигурацией
+│   ├── config_official.sh         # сборка nfqws2 config
+│   ├── webpanel.sh                # общий WebPanel helper
+│   ├── auto_update.sh             # общая update-логика и platform seams
+│   └── release_map.sh             # build-time карта доставки файлов
+│
+├── files/                         # общий runtime payload
+│   ├── lua/
+│   │   ├── z2k-state-persist.lua # persistent autocircular state
+│   │   ├── z2k-alert.lua         # TCP/TLS/HTTP failure detection
+│   │   ├── z2k-quic-silence.lua  # QUIC progress/silence detector
+│   │   ├── z2k-modern-core.lua   # morph/fragmentation/host-key helpers
+│   │   ├── z2k-fooling-ext.lua   # dynamic TTL/fooling helpers
+│   │   └── z2k-tcp16.lua         # TCP16 runtime map
+│   ├── lists/                    # domain/IP/TCP16/WARP data
+│   ├── fake/                     # protocol blobs
+│   ├── z2k-tcp16-probe.sh        # проба линии 16–20 КБ
+│   ├── z2k-update-lists.sh       # доменные и WARP game lists
+│   ├── z2k-geosite.sh            # geosite/RKN import
+│   ├── z2k-config-validator.sh   # валидация конфигурации
+│   ├── z2k-blocked-monitor.sh    # монитор проблемных сессий
+│   ├── z2k-stats-upload.sh       # strategy telemetry helper
+│   └── z2k-diag.sh               # общая диагностическая оболочка
+│
+├── platform/openwrt/              # тонкий OpenWrt adapter
+│   ├── paths.sh                   # /etc/z2k, /usr/lib/z2k, /tmp/z2k
+│   ├── env.sh                     # common → OpenWrt environment map
+│   ├── generate.sh                # platform generation hooks
+│   ├── firewall.sh                # fw4/nftables/NFQUEUE
+│   ├── state.sh                   # persistent state helpers
+│   ├── schedule.sh                # cron schedules
+│   ├── tg.sh                      # Telegram backend
+│   ├── rt.sh                      # RT proxy backend
+│   ├── warp.sh                    # WARP lifecycle, nftables и PBR
+│   ├── warp-domain.sh             # client-scoped domain routing
+│   ├── diag.sh                    # OpenWrt diagnostics
+│   ├── uninstall.sh               # OpenWrt removal backend
+│   ├── update.sh                  # device updater frontend
+│   ├── release.sh                 # canonical release transaction
+│   ├── release_state.sh           # installed tag + seq
+│   ├── z2kow.sh                   # установленный operator CLI
+│   └── webpanel-brand/            # logo/theme/profile/donation assets
+│
+├── scripts/openwrt/               # build/release/bootstrap tooling
+│   ├── install.sh                 # fresh-install bootstrap
+│   ├── install_release.sh         # canonical install_release <tag>
+│   ├── stage-common-payload.sh    # common payload staging
+│   ├── stage-rootfs.sh            # final OpenWrt rootfs
+│   ├── build-release.sh           # release artifact build
+│   ├── sign_release.py            # release signing
+│   └── controlled_release.py      # controlled publication
+│
+├── webpanel/                      # общий CGI + frontend WebPanel
+├── z2k-warpd/                     # WARP engine: WireGuard + MASQUE/H2
+├── z2k-detect/                    # network/domain detector
+├── z2k-verify/                    # verification utility
+├── mtproxy-client/                # Telegram tunnel client
+├── rt-proxy/                      # RT proxy
+├── vps-relay/                     # relay-side components
+├── vps-stats/                     # statistics receiver
+├── extras/                        # дополнительные client helpers
+├── tests/                         # common + OpenWrt tests
+├── docs/                          # contracts и parity docs
+├── UPDATES.json                   # production update manifest
+└── UPDATES.json.sig               # подпись manifest
+```
+
+Ключевое правило: если код можно оставить общим с upstream, он остаётся в common-части. В `platform/openwrt/` уходит только эффект, который действительно зависит от OpenWrt.
+
+---
 ## Архитектура
 
 Основная идея проекта:
