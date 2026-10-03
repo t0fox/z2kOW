@@ -37,6 +37,7 @@ class PayloadBundleTests(unittest.TestCase):
 
     def test_bundle_is_deterministic_and_built_from_staged_rootfs(self) -> None:
         self.add("usr/lib/z2k/platform/openwrt/update.sh", b"#!/bin/sh\n")
+        (self.stage / "usr/lib/z2k/platform/openwrt/update.sh").chmod(0o755)
         self.add("etc/init.d/z2k", b"#!/bin/sh\n")
         self.add("opt/zapret2/nfq2/nfqws2", b"ELF fixture")
         self.add("etc/z2k/config", b"user config")
@@ -47,8 +48,10 @@ class PayloadBundleTests(unittest.TestCase):
 
         self.assertEqual(first.read_bytes(), second.read_bytes())
         with tarfile.open(first, "r:gz") as bundle:
-            names = {member.name for member in bundle.getmembers()}
+            members = {member.name: member for member in bundle.getmembers()}
+            names = set(members)
         self.assertIn("usr/lib/z2k/platform/openwrt/update.sh", names)
+        self.assertEqual(0o755, members["usr/lib/z2k/platform/openwrt/update.sh"].mode)
         self.assertIn("etc/init.d/z2k", names)
         self.assertIn("opt/zapret2/nfq2/nfqws2", names)
         self.assertNotIn("etc/z2k/config", names)

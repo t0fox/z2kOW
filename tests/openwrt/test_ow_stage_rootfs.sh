@@ -56,6 +56,8 @@ mv "$T/release-keys/test.pub" "$T/release-keys/$_key_id.pub"
 mkdir -p "$T/stage"
 sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$T/stage" "$T/runtime.tar.gz" \
     "$T/warpd" "$T/tg" "$T/rt" "$T/detect" "$T/release-keys" || exit 1
+[ -x "$T/stage/usr/lib/z2k/platform/openwrt/update.sh" ] \
+    && _t_ok || _t_bad "canonical update.sh remains executable for CLI and cron"
 cmp -s "$T/release-keys/$_key_id.pub" \
     "$T/stage/usr/lib/z2k/platform/openwrt/release-keys/$_key_id.pub" \
     && _t_ok || _t_bad "current release trust key is included in the complete payload"
