@@ -35,6 +35,9 @@
 # UPDATES.json.sig verification (ed25519 over exact bytes). p-84.17 sync fix.
 UPDATES.json text eol=lf
 
+# Captured third-party Lolzteam design references are not project source.
+reference/lolz-animation/** linguist-vendored
+
 # z2k OpenWrt adapter: extensionless router/packaging files must stay LF
 # (CRLF breaks shell/hotplug on the router). Path-scoped, additive only.
 package/openwrt/Makefile text eol=lf
