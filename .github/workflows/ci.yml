@@ -122,6 +122,9 @@ jobs:
           node-version: '22'
           cache: npm
 
+      - name: Test TikTok status rendering
+        run: node tests/test_tiktok_status_rendering.js
+
       - name: Install browser test dependencies
         run: npm ci --no-audit --no-fund
 

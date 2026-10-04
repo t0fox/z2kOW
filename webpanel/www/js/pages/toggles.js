@@ -296,19 +296,19 @@ function flowoffloadTechnicalMarkup(facts) {
 
 function tiktokReasonLabel(reason) {
   return ({
-    healthy: "Последняя проверка прошла успешно.",
-    "current-ip-fast-path": "Текущий узел подтвердил доступность.",
-    "no-current": "Выбран первый подтверждённый узел.",
-    "current-unhealthy": "Текущий узел не прошёл проверку.",
-    "material-latency-improvement": "Найден узел с заметно меньшей задержкой.",
-    "hysteresis-not-met": "Смена узла отложена: разница задержки недостаточна.",
-    "alternative-unhealthy": "Альтернативный узел не прошёл проверку.",
-    "transient-probe-failure": "Текущий узел временно не прошёл проверку.",
-    "dnsmasq-prepare-failed": "Не удалось подготовить DNS-подмену; обычный доступ сохранён.",
-    "no-verified-cdn-fail-open": "Рабочий CDN пока не найден. Подмена DNS не применяется, обычный доступ сохранён.",
-    "no-verified-alternative": "Не найден устойчивый альтернативный узел CDN.",
-    "consecutive-probe-failures": "Предыдущий узел не прошёл проверку доступности.",
-    disabled: "Исправление ленты выключено.",
+    healthy: "Проверка прошла успешно",
+    "current-ip-fast-path": "Текущий узел подтвердил доступность",
+    "no-current": "Подтверждён первый рабочий узел",
+    "current-unhealthy": "Текущий узел не прошёл проверку",
+    "material-latency-improvement": "Найден заметно более быстрый узел",
+    "hysteresis-not-met": "Переключение отложено: разница в задержке недостаточна",
+    "alternative-unhealthy": "Альтернативный узел не прошёл проверку",
+    "transient-probe-failure": "Временный сбой проверки текущего узла",
+    "dnsmasq-prepare-failed": "Не удалось настроить DNS-подмену; обычный доступ сохранён",
+    "no-verified-cdn-fail-open": "Рабочий CDN не найден; DNS-подмена не включена, обычный доступ сохранён",
+    "no-verified-alternative": "Не найден стабильный альтернативный узел CDN",
+    "consecutive-probe-failures": "Предыдущий узел не прошёл проверку доступности",
+    disabled: "Исправление ленты выключено",
   })[reason] || "Состояние CDN требует проверки.";
 }
 
@@ -319,11 +319,26 @@ function tiktokValue(value, { allowZero = false } = {}) {
   return text;
 }
 
-function tiktokFact(label, value, raw = value) {
+function tiktokFact(label, value) {
   const shown = tiktokValue(value, { allowZero: label === "Ошибок подряд" });
   if (!shown) return "";
-  const rawText = tiktokValue(raw, { allowZero: label === "Ошибок подряд" });
-  return `<div class="flow-fact"><span class="flow-fact-label">${label}</span><span class="flow-fact-value"><span>${escapeHtml(shown)}</span>${rawText && rawText !== shown ? `<code>${escapeHtml(rawText)}</code>` : ""}</span></div>`;
+  return `<div class="flow-fact"><span class="flow-fact-label">${label}</span><span class="flow-fact-value"><span>${escapeHtml(shown)}</span></span></div>`;
+}
+
+function tiktokReasonFact(label, reason) {
+  const raw = tiktokValue(reason);
+  if (!raw) return "";
+  return `<div class="flow-fact tiktok-reason-fact"><span class="flow-fact-label">${label}</span><span class="flow-fact-value"><span>${escapeHtml(tiktokReasonLabel(raw))}</span><code>raw: ${escapeHtml(raw)}</code></span></div>`;
+}
+
+function tiktokDiagnosticSection(title, facts) {
+  const content = facts.filter(Boolean).join("");
+  return content ? `<section class="tiktok-diagnostic-section"><h4>${title}</h4><div class="flow-facts">${content}</div></section>` : "";
+}
+
+function tiktokLatency(value) {
+  const latency = tiktokValue(value);
+  return latency ? `${latency} мс` : "";
 }
 
 function tiktokTime(epoch, detailed = false) {
@@ -354,45 +369,56 @@ function tiktokStatusMarkup(status) {
   const failoverReason = tiktokValue(data.last_failover_reason);
   const failoverFrom = tiktokValue(data.last_failover_from);
   const failoverTo = tiktokValue(data.last_failover_to);
-  const failover = failoverAgo && failoverFrom && failoverTo
-    ? `<p class="desc"><strong>Последнее переключение</strong> ${escapeHtml(failoverAgo)} · ${escapeHtml(failoverFrom)} → ${escapeHtml(failoverTo)}${failoverReason ? ` · ${escapeHtml(tiktokReasonLabel(failoverReason))}` : ""}</p>` : "";
-  const facts = [
-    tiktokFact("Целевой хост", data.host || "v77.tiktokcdn.com"),
+  const hasFailover = Boolean(failoverAgo && failoverFrom && failoverTo && failoverFrom !== failoverTo);
+  const failover = hasFailover
+    ? `<div class="tiktok-failover"><div class="tiktok-failover-title">↪ CDN переключён <span>${escapeHtml(failoverAgo)}</span></div><div class="tiktok-failover-route">${escapeHtml(failoverFrom)} → ${escapeHtml(failoverTo)}</div><div class="tiktok-failover-reason">${escapeHtml(failoverReason ? tiktokReasonLabel(failoverReason) : "Узел переключён")}</div></div>`
+    : "";
+  const primaryFacts = [
     tiktokFact("Текущий CDN", ip),
+    tiktokFact("Задержка", tiktokLatency(data.latency_ms)),
     tiktokFact("Источник", data.selected_source_domain),
-    tiktokFact("Режим", data.selected_mode),
-    tiktokFact("Provenance", data.selected_provenance),
-    tiktokFact("Регион", data.selected_geo_hint),
-    tiktokFact("CNAME", data.selected_cname),
-    tiktokFact("Задержка", tiktokValue(data.latency_ms) ? `${tiktokValue(data.latency_ms)} мс` : "", data.latency_ms),
-    tiktokFact("Последняя успешная проверка", tiktokTime(data.last_verified_epoch, true)),
-    tiktokFact("Ошибок подряд", data.failure_count),
-    tiktokFact("Состояние проверки", data.health),
-    tiktokFact("TCP connect", tiktokValue(data.connect_latency_ms) ? `${tiktokValue(data.connect_latency_ms)} мс` : "", data.connect_latency_ms),
-    tiktokFact("TLS", tiktokValue(data.tls_latency_ms) ? `${tiktokValue(data.tls_latency_ms)} мс` : "", data.tls_latency_ms),
-    tiktokFact("HTTP", data.http_status),
-    tiktokFact("POP", data.x77_pop),
-    tiktokFact("Cache", data.x77_cache),
-    tiktokFact("Server", data.server),
-    tiktokFact("DNS-наблюдений", data.dns_observed),
-    tiktokFact("Curated-наблюдений", data.curated_observed),
-    tiktokFact("Проверок стабильности", data.stability_probe_count),
-    reason ? tiktokFact("Причина", tiktokReasonLabel(reason), reason) : "",
-    ...(failoverAgo && failoverFrom && failoverTo ? [
-      tiktokFact("Последний failover", `${failoverFrom} → ${failoverTo}`),
-      tiktokFact("Время failover", tiktokTime(data.last_failover_epoch, true)),
-      tiktokFact("Причина failover", failoverReason ? tiktokReasonLabel(failoverReason) : "", failoverReason),
-    ] : []),
   ].filter(Boolean).join("");
+  const diagnostics = [
+    tiktokDiagnosticSection("Соединение", [
+      tiktokFact("TCP-соединение", tiktokLatency(data.connect_latency_ms)),
+      tiktokFact("TLS", tiktokLatency(data.tls_latency_ms)),
+      tiktokFact("HTTP-ответ", data.http_status),
+      tiktokFact("POP", data.x77_pop),
+      tiktokFact("Кэш", data.x77_cache),
+      tiktokFact("Сервер", data.server),
+    ]),
+    tiktokDiagnosticSection("Выбранный узел", [
+      tiktokFact("Домен источника", data.selected_source_domain),
+      tiktokFact("CNAME", data.selected_cname),
+      tiktokFact("Режим", data.selected_mode),
+      tiktokFact("Регион", data.selected_geo_hint),
+      tiktokFact("Источник узла", data.selected_provenance),
+    ]),
+    tiktokDiagnosticSection("Проверка", [
+      tiktokFact("Состояние", data.health || state),
+      tiktokFact("Ошибок подряд", data.failure_count),
+      tiktokFact("DNS-наблюдений", data.dns_observed),
+      tiktokFact("Curated-наблюдений", data.curated_observed),
+      tiktokFact("Проверок стабильности", data.stability_probe_count),
+      tiktokFact("Задержка узла", tiktokLatency(data.latency_ms)),
+      tiktokFact("Последняя проверка", tiktokTime(data.last_verified_epoch, true)),
+      tiktokReasonFact("Причина", reason),
+    ]),
+    hasFailover ? tiktokDiagnosticSection("Последний failover", [
+      tiktokFact("Маршрут", `${failoverFrom} → ${failoverTo}`),
+      tiktokFact("Время", tiktokTime(data.last_failover_epoch, true)),
+      tiktokReasonFact("Причина", failoverReason),
+    ]) : "",
+  ].join("");
   return `<h3>TikTok — состояние ленты</h3>
     <p class="desc">Автоматический подбор и контроль CDN для v77.tiktokcdn.com</p>
-    <div class="status-cell ${kind}" role="status"><div class="label">Состояние</div><div class="value">● ${escapeHtml(title)}</div></div>
+    <div class="tiktok-status-line"><span class="tiktok-status-badge ${kind}" role="status">● ${escapeHtml(title)}</span>${checkedAgo ? `<span class="tiktok-checked">Проверено ${escapeHtml(checkedAgo)}</span>` : ""}</div>
     ${copy ? `<p class="desc">${escapeHtml(copy)}</p>` : ""}
-    <div class="flow-facts">${tiktokFact("Текущий CDN", ip)}${tiktokFact("Задержка", tiktokValue(data.latency_ms) ? `${tiktokValue(data.latency_ms)} мс` : "", data.latency_ms)}${tiktokFact("Последняя проверка", checkedAgo)}</div>
+    ${primaryFacts ? `<div class="flow-facts tiktok-primary-facts">${primaryFacts}</div>` : ""}
     ${failover}
     <details class="flow-technical disclosure" id="tiktok-feed-technical">
       <summary>Техническая диагностика</summary>
-      <div class="disclosure-body"><div class="flow-technical-body"><div class="flow-facts">${facts}</div></div></div>
+      <div class="disclosure-body"><div class="flow-technical-body">${diagnostics}</div></div>
     </details>`;
 }
 

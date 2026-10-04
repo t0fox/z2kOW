@@ -2002,8 +2002,8 @@ try {
   await reinstallRacePage.close();
   reinstallFixtureActive = false;
 
-  const makeTikTokPage = async (initialEnabled, tiktokStatus) => {
-    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const makeTikTokPage = async (initialEnabled, tiktokStatus, { width = 390, height = 844, isMobile = true } = {}) => {
+    const page = await browser.newPage({ viewport: { width, height }, isMobile, hasTouch: isMobile });
     let enabled = initialEnabled;
     let jobNumber = 0;
     page.route('**/cgi-bin/api/status', route => {
@@ -2046,25 +2046,46 @@ try {
   await offCard.page.close();
 
   const healthy = await makeTikTokPage(true, {
-    state: 'healthy', selected_ip: '203.0.113.9', latency_ms: '84', last_verified_epoch: String(Math.floor(Date.now() / 1000) - 70),
+    state: 'healthy', selected_ip: '203.0.113.9', latency_ms: '131', last_verified_epoch: String(Math.floor(Date.now() / 1000) - 70),
     failure_count: '0', selected_source_domain: 'www.tiktokcdn.com', selected_mode: 'verified',
     selected_provenance: 'resolver+tls', selected_cname: 'edge.example.net', host: 'v77.tiktokcdn.com',
+    connect_latency_ms: '9', tls_latency_ms: '117', http_status: '400', x77_pop: 'CLA', x77_cache: 'MISS', server: 'RETN',
+    dns_observed: '4', curated_observed: '3', stability_probe_count: '2', health: 'healthy',
     last_failover_epoch: String(Math.floor(Date.now() / 1000) - 3600), last_failover_from: '203.0.113.8',
     last_failover_to: '203.0.113.9', last_failover_reason: 'consecutive-probe-failures', reason: 'healthy',
   });
   const healthyCard = healthy.page.locator('#tiktok-feed-status-card');
   assert.equal(await healthyCard.isVisible(), true);
   assert.match(await healthyCard.innerText(), /203\.0\.113\.9/);
-  assert.match(await healthyCard.innerText(), /84 мс/);
-  assert.match(await healthyCard.innerText(), /Последнее переключение/);
+  assert.match(await healthyCard.innerText(), /131 мс/);
+  assert.doesNotMatch(await healthyCard.innerText(), /131 мс\s+131/,
+    'latency is rendered once instead of repeating the raw number beside the formatted value');
+  assert.match(await healthyCard.innerText(), /CDN переключён/);
   assert.match(await healthyCard.innerText(), /203\.0\.113\.8 → 203\.0\.113\.9/);
+  assert.doesNotMatch(await healthyCard.innerText(), /raw: consecutive-probe-failures/);
   await healthyCard.locator('summary').click();
   assert.equal(await healthyCard.locator('details').evaluate(node => node.open), true,
     'technical diagnostics disclosure opens');
   assert.match(await healthyCard.innerText(), /www\.tiktokcdn\.com/);
   assert.match(await healthyCard.innerText(), /resolver\+tls/);
+  assert.match(await healthyCard.innerText(), /raw: consecutive-probe-failures/);
+  assert.match(await healthyCard.innerText(), /Соединение[\s\S]*Выбранный узел[\s\S]*Проверка[\s\S]*Последний failover/i);
+  assert.match(await healthyCard.innerText(), /HTTP-ответ[\s\S]*400/);
+  assert.doesNotMatch(await healthyCard.innerText(), /131 мс\s+131/);
   assert.doesNotMatch(await healthyCard.innerText(), /undefined|null|0 мс/);
   await healthy.page.close();
+
+  const desktop = await makeTikTokPage(true, {
+    state: 'healthy', selected_ip: '203.0.113.9', latency_ms: '131',
+    selected_source_domain: 'www.tiktokcdn.com', last_verified_epoch: String(Math.floor(Date.now() / 1000)),
+  }, { width: 1280, height: 900, isMobile: false });
+  const desktopCard = desktop.page.locator('#tiktok-feed-status-card');
+  assert.equal(await desktopCard.isVisible(), true, 'the TikTok status card renders at desktop width');
+  assert.equal(await desktopCard.locator('.tiktok-failover').count(), 0,
+    'the desktop summary omits a failover block when none has occurred');
+  assert.equal(await desktop.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
+    'the desktop card does not introduce horizontal overflow');
+  await desktop.page.close();
 
   const degraded = await makeTikTokPage(true, { state: 'degraded', selected_ip: '203.0.113.10', reason: 'no-verified-alternative' });
   assert.match(await degraded.page.locator('#tiktok-feed-status-card').innerText(), /Нестабильно/);
