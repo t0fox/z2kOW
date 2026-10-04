@@ -2,13 +2,13 @@
   "schema": 1,
   "branch": "main",
   "platform": "openwrt",
-  "seq": 136,
-  "current": "p-86.13",
+  "seq": 137,
+  "current": "p-86.14",
   "upstream": {
     "repository": "necronicle/z2k",
     "branch": "z2k-enhanced",
-    "tag": "p-86.13",
-    "commit": "7f630a9d459052b9c9c9eded06298f1b8f7f0a22"
+    "tag": "p-86.14",
+    "commit": "5e058c1c3944e0f0362cf9665b84108fc6e9b3dc"
   },
   "history": [
     {"v": "r-1", "type": "reinstall", "ts": "2026-05-04T00:00:00Z", "ref": "vk-whitelist-ext", "desc": "Extend whitelist with VK service/CDN domains (vkuseraudio/vkuservideo/vk-cdn/mvk/vkpay/vkforms/etc) — fixes broken photo comments and other XHR over non-vk.com VK domains", "changed_files": ["lib/config.sh"]},
@@ -297,13 +297,14 @@
     {"v": "p-86.10", "type": "patch", "ts": "2026-10-01T17:19:53Z", "ref": "p-86.10", "desc": "Исправлены таймауты открытия соединений Telegram при большом числе подключений. Диагностика теперь сообщает об отказах очереди туннеля.", "changed_files": ["webpanel/www/index.html", "files/z2k-diag.sh", "mtproxy-client/builds/tg-mtproxy-client-linux-386", "mtproxy-client/builds/tg-mtproxy-client-linux-amd64", "mtproxy-client/builds/tg-mtproxy-client-linux-arm", "mtproxy-client/builds/tg-mtproxy-client-linux-arm64", "mtproxy-client/builds/tg-mtproxy-client-linux-mips", "mtproxy-client/builds/tg-mtproxy-client-linux-mips64el", "mtproxy-client/builds/tg-mtproxy-client-linux-mips64le", "mtproxy-client/builds/tg-mtproxy-client-linux-mipsel", "mtproxy-client/builds/tg-mtproxy-client-linux-mipsle", "mtproxy-client/builds/tg-mtproxy-client-linux-ppc64", "mtproxy-client/builds/tg-mtproxy-client-linux-riscv64", "mtproxy-client/builds/tg-mtproxy-client-linux-x86", "UPDATES.json"], "steps": ["refresh-binaries"], "full_install": false},
     {"v": "p-86.11", "type": "patch", "ts": "2026-10-01T19:01:37Z", "ref": "p-86.11", "desc": "Исправлено применение WARP к клиентам AWG/WireGuard: выбор устройств локальной сети больше не исключает VPN-клиентов. Трафик по-прежнему направляется через WARP только для включённых списков.", "changed_files": ["webpanel/www/index.html", "files/ndm/93-z2k-warp.sh", "files/z2k-warp.sh", "UPDATES.json"], "steps": [], "full_install": false},
     {"v": "p-86.12", "type": "patch", "ts": "2026-10-01T20:50:10Z", "ref": "p-86.12", "desc": "В разделе «Стратегии» таблицу можно сортировать по заморозке: замороженные домены собираются наверху.", "changed_files": ["webpanel/www/index.html", "webpanel/www/js/pages/strategies.js", "webpanel/www/js/state-model.js", "UPDATES.json"], "steps": [], "full_install": false},
-    {"v": "p-86.13", "type": "patch", "ts": "2026-10-02T06:39:48Z", "ref": "p-86.13", "desc": "Когда списки WARP выключены, весь IPv4-трафик выбранных устройств теперь идёт через туннель; локальные сети остаются доступны напрямую. С включёнными списками маршрутизация ограничена их адресами. Уточнены подсказки в панели и диагностика.", "changed_files": ["webpanel/www/index.html", "files/z2k-diag.sh", "files/z2k-warp.sh", "webpanel/www/js/pages/warp.js", "UPDATES.json"], "steps": [], "full_install": false}
+    {"v": "p-86.13", "type": "patch", "ts": "2026-10-02T06:39:48Z", "ref": "p-86.13", "desc": "Когда списки WARP выключены, весь IPv4-трафик выбранных устройств теперь идёт через туннель; локальные сети остаются доступны напрямую. С включёнными списками маршрутизация ограничена их адресами. Уточнены подсказки в панели и диагностика.", "changed_files": ["webpanel/www/index.html", "files/z2k-diag.sh", "files/z2k-warp.sh", "webpanel/www/js/pages/warp.js", "UPDATES.json"], "steps": [], "full_install": false},
+    {"v": "p-86.14", "type": "patch", "ts": "2026-10-04T07:56:39Z", "ref": "p-86.14", "desc": "Исправлено определение выхода в интернет через интерфейс-мост, например при подключении через другой роутер. Правила обхода и их автоматическое восстановление теперь работают в такой конфигурации.", "changed_files": ["webpanel/www/index.html", "lib/wan.sh", "UPDATES.json"], "steps": [], "full_install": false}
   ],
   "artifact": {
     "filename": "openwrt-rootfs.tar.gz",
-    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-fec4b7a8a2444cd9bfea71a7de4f880aa120cdf4/openwrt-rootfs.tar.gz",
-    "sha256": "9e3cd81761367e57b2899607f6ce64d818f68b9609f8b9e76f83982254bf4211",
-    "size_bytes": 77505435
+    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-caa1d04fe016404d4d493b7dcc4dff9a2d45cf1d/openwrt-rootfs.tar.gz",
+    "sha256": "7a4d8f7135cfdd8175a982f9459444a33827378bcb66e64e06eb0a7b61ecad1b",
+    "size_bytes": 77505307
   },
   "signing": {
     "key_id": "916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae"
