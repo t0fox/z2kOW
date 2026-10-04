@@ -78,7 +78,7 @@ assert_contains "state exposes external ownership" "$Z2K_TIKTOK_STATE_FILE" 'sta
 
 grep -v '\.address=' "$UCI_TEST_DB" > "$UCI_TEST_DB.new"; mv "$UCI_TEST_DB.new" "$UCI_TEST_DB"
 z2k_ow_tiktok_disable || _t_bad "TikTok autofix disables cleanly"
-assert_file "disabled choice is persistent" "$Z2K_TIKTOK_DISABLED_FILE"
+[ -e "$Z2K_TIKTOK_DISABLED_FILE" ] && _t_ok || _t_bad "disabled choice is persistent"
 [ ! -s "$Z2K_TIKTOK_HOSTS_FILE" ] && _t_ok || _t_bad "disable clears only the owned pin"
 z2k_ow_tiktok_enable || _t_bad "TikTok autofix re-enables and probes"
 assert_contains "re-enable restores verified CDN" "$Z2K_TIKTOK_HOSTS_FILE" '143.244.42.18 v77.tiktokcdn.com'

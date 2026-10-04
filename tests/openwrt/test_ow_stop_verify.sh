@@ -92,6 +92,10 @@ z2k_load_adapter() {
     . "$REPO/platform/openwrt/warp.sh" || return 1
     return 0
 }
+# The real adapter also owns TikTok scheduler/DNS teardown; this fixture
+# isolates the core nft/RT/WARP stop contract and supplies those lifecycle hooks.
+z2k_ow_tiktok_cron_remove() { return 0; }
+z2k_ow_tiktok_stop() { return 0; }
 
 _run_stop() { : > "$T/calls"; : > "$T/run/core-ready"; stop_service >/dev/null 2>&1; echo "rc=$?" >> "$T/calls"; }
 
