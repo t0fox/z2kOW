@@ -64,4 +64,16 @@ else
     _t_bad "lifecycle order must be preflight -> migration -> procd"
 fi
 
+# A pre-86.2 install may have only the old /tmp fallback. Migration must seed
+# the new canonical persistent path, which the Lua runtime reads after upgrade.
+rm -f "$STATE_FILE" "$_fallback" "$Z2K_AUTOCIRCULAR_LEGACY_FALLBACK_OVERRIDE" \
+    "$STATE_FILE.pre-86.2" "$Z2K_AUTOCIRCULAR_LEGACY_FALLBACK_OVERRIDE.pre-86.2" \
+    "$Z2K_SLD_STATE_MIGRATION_MARKER"
+printf 'rkn_tcp\tlegacy.example.com\t7\t789\tauto\n' \
+    > "$Z2K_AUTOCIRCULAR_LEGACY_FALLBACK_OVERRIDE"
+if z2k_ow_migrate_sld_state; then _t_ok; else _t_bad "legacy-only migration failed"; fi
+assert_file "legacy-only migration creates persistent state" "$STATE_FILE"
+assert_contains "legacy-only row reaches persistent state" "$STATE_FILE" \
+    "rkn_tcp${_tab}example.com${_tab}7${_tab}789${_tab}auto"
+
 _t_done

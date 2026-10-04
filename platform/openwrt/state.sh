@@ -129,7 +129,7 @@ z2k_ow_migrate_sld_state() {
     local _primary="${STATE_FILE:-${Z2K_STATE:-/etc/z2k/state}/state.tsv}"
     local _fallback="${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-${Z2K_TMP:-/tmp/z2k}}/z2k-autocircular-state.tsv"
     local _legacy="${Z2K_AUTOCIRCULAR_LEGACY_FALLBACK_OVERRIDE:-/tmp/z2k-autocircular-state.tsv}"
-    local _files="" _locked="" _f _seen="" _rc=0 _merged _tmp _needs=0
+    local _files="" _sources="" _locked="" _f _f_attrs _seen="" _rc=0 _merged _tmp _needs=0
 
     for _f in "$_primary" "$_fallback" "$_legacy"; do
         case " $_seen " in *" $_f "*) continue ;; esac
@@ -138,6 +138,9 @@ z2k_ow_migrate_sld_state() {
         _files="$_files $_f"
     done
     [ -n "$_files" ] || return 0
+    _sources="${_files# }"
+    case " $_files " in *" $_primary "*) : ;; *) _files="$_files $_primary" ;; esac
+    mkdir -p "$(dirname "$_primary")" 2>/dev/null || return 1
 
     # Keep every source stable while selecting winners and preparing backups.
     # The path list is limited to fixed OpenWrt state paths (no user input).
@@ -153,7 +156,8 @@ z2k_ow_migrate_sld_state() {
     _merged="${Z2K_TMP:-/tmp/z2k}/state.sld.$$"
     if [ "$_rc" = 0 ]; then
         for _f in $_files; do
-            if [ ! -f "$_f.pre-86.2" ] && ! cp -p "$_f" "$_f.pre-86.2" 2>/dev/null; then
+            if [ -f "$_f" ] && [ ! -f "$_f.pre-86.2" ] && \
+               ! cp -p "$_f" "$_f.pre-86.2" 2>/dev/null; then
                 _rc=1
                 break
             fi
@@ -190,7 +194,7 @@ z2k_ow_migrate_sld_state() {
                 }
             }
             END { for (id in row) print row[id] }
-        ' $_files > "${_merged}.rows" 2>/dev/null || _rc=1
+        ' $_sources > "${_merged}.rows" 2>/dev/null || _rc=1
         if [ "$_rc" = 0 ]; then
             { printf '# z2k autocircular state: second-level domain keys (86.2)\n'
               LC_ALL=C sort "${_merged}.rows"
@@ -200,7 +204,9 @@ z2k_ow_migrate_sld_state() {
 
     if [ "$_rc" = 0 ]; then
         for _f in $_files; do
-            cmp -s "$_merged" "$_f" || _needs=1
+            if [ ! -f "$_f" ] || ! cmp -s "$_merged" "$_f"; then
+                _needs=1
+            fi
         done
     fi
 
@@ -209,7 +215,13 @@ z2k_ow_migrate_sld_state() {
     if [ "$_rc" = 0 ] && [ "$_needs" = 1 ]; then
         for _f in $_files; do
             _tmp="${_f}.sld.$$"
-            if ! cp -p "$_f" "$_tmp" 2>/dev/null || ! cat "$_merged" > "$_tmp" 2>/dev/null; then
+            if [ -f "$_f" ]; then
+                _f_attrs="$_f"
+            else
+                _f_attrs="${_sources%% *}"
+            fi
+            if ! cp -p "$_f_attrs" "$_tmp" 2>/dev/null || \
+               ! cat "$_merged" > "$_tmp" 2>/dev/null; then
                 _rc=1
                 break
             fi
