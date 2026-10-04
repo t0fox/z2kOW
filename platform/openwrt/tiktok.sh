@@ -55,6 +55,13 @@ z2k_ow_tiktok_enabled() {
     [ ! -e "$Z2K_TIKTOK_DISABLED_FILE" ]
 }
 
+# Periodic checks set this guard to core-ready. Interactive CLI calls leave it
+# empty, so operators can still run a manual check. Re-check immediately before
+# writes so a probe that overlapped service stop cannot resurrect a DNS pin.
+_z2k_ow_tiktok_runtime_allowed() {
+    [ -z "${Z2K_TIKTOK_REQUIRE_READY:-}" ] || [ -e "$Z2K_TIKTOK_REQUIRE_READY" ]
+}
+
 _z2k_ow_tiktok_registered() {
     "$Z2K_TIKTOK_UCI_BIN" -q show dhcp 2>/dev/null \
         | tr -d "'\"" \
@@ -122,9 +129,14 @@ z2k_ow_tiktok_prepare() {
 _z2k_ow_tiktok_set_host() {
     local _ip="$1" _tmp="${Z2K_TIKTOK_HOSTS_FILE}.new.$$"
     _z2k_ow_tiktok_valid_ipv4 "$_ip" || return 1
+    _z2k_ow_tiktok_runtime_allowed || return 0
     z2k_ow_tiktok_prepare || return 1
     printf '%s %s\n' "$_ip" "$Z2K_TIKTOK_HOST" > "$_tmp" || { rm -f "$_tmp"; return 1; }
     chmod 0644 "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+    if ! _z2k_ow_tiktok_runtime_allowed; then
+        rm -f "$_tmp"
+        return 0
+    fi
     if [ -f "$Z2K_TIKTOK_HOSTS_FILE" ] && cmp -s "$_tmp" "$Z2K_TIKTOK_HOSTS_FILE"; then
         rm -f "$_tmp"
         return 0
@@ -258,6 +270,7 @@ z2k_ow_tiktok_check() {
     local _now _current _current_latency _current_verified _fail _current_ms="" _current_ok=0
     local _candidates _ip _ms _best_ip="" _best_ms="" _probes=0 _success=0 _stable_ms _reason
     _now=$(date +%s 2>/dev/null) || _now=0
+    _z2k_ow_tiktok_runtime_allowed || return 0
     if ! z2k_ow_tiktok_enabled; then
         z2k_ow_tiktok_clear >/dev/null 2>&1 || true
         _z2k_ow_tiktok_state_write off "" "" 0 0 disabled
@@ -306,6 +319,7 @@ z2k_ow_tiktok_check() {
         [ -z "$_best_ip" ] || _best_ms="$_stable_ms"
     fi
 
+    _z2k_ow_tiktok_runtime_allowed || return 0
     if [ "$_current_ok" = 1 ]; then
         # Same hysteresis as zapret2-manager: switch only when the alternative
         # is <=75% of current latency and at least 40 ms faster.

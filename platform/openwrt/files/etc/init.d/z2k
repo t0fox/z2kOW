@@ -279,12 +279,12 @@ stop_service() {
     [ -f "$Z2K_CONFIG" ] && . "$Z2K_CONFIG"
     local _rc=0
     z2k_ow_tiktok_cron_remove || _rc=1
-    z2k_ow_tiktok_stop || _rc=1
     # core-ready FIRST: с этого момента гейты видят not-ready, resurrection
     # запрещена даже если teardown ниже частично провалится. Заодно снимаем
     # starting-маркер (зависший старт + stop = чисто).
     : > "$Z2K_RUN/stopping" 2>/dev/null || _rc=1
     rm -f "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" "$Z2K_RUN/starting" 2>/dev/null
+    z2k_ow_tiktok_stop || _rc=1
     # Drain the engine-owned live file before teardown; a second pass below
     # catches an append racing the first pass while procd is stopping nfqws2.
     if command -v z2k_ow_autohostlist_sync >/dev/null 2>&1; then

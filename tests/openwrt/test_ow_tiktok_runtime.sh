@@ -83,6 +83,16 @@ assert_file "disabled choice is persistent" "$Z2K_TIKTOK_DISABLED_FILE"
 z2k_ow_tiktok_enable || _t_bad "TikTok autofix re-enables and probes"
 assert_contains "re-enable restores verified CDN" "$Z2K_TIKTOK_HOSTS_FILE" '143.244.42.18 v77.tiktokcdn.com'
 
+# Periodic lifecycle guard: a check that overlaps service stop may finish its
+# network probes, but it must not be able to write a new DNS pin afterwards.
+export Z2K_TIKTOK_REQUIRE_READY="$T/core-ready"
+: > "$Z2K_TIKTOK_REQUIRE_READY"
+z2k_ow_tiktok_clear || _t_bad "precondition clears the owned pin"
+rm -f "$Z2K_TIKTOK_REQUIRE_READY"
+z2k_ow_tiktok_check || _t_bad "stopped-service guard returns cleanly"
+[ ! -s "$Z2K_TIKTOK_HOSTS_FILE" ] && _t_ok || _t_bad "stopped-service guard blocks DNS resurrection"
+unset Z2K_TIKTOK_REQUIRE_READY
+
 z2k_ow_tiktok_uninstall || _t_bad "TikTok adapter cleanup succeeds"
 assert_not_contains "uninstall removes only its addnhosts reference" "$UCI_TEST_DB" 'tiktok-cdn-hosts'
 [ ! -e "$Z2K_TIKTOK_HOSTS_FILE" ] && _t_ok || _t_bad "uninstall removes owned TikTok hosts file"

@@ -11,6 +11,8 @@ Z2K_ADAPTER_DIR="${Z2K_ADAPTER_DIR:-$Z2K_ROOT/platform/openwrt}"
 # cron process that started just before stop_service removed the schedule.
 _ready="${Z2K_CORE_READY:-${Z2K_RUN:-/tmp/z2k/runtime}/core-ready}"
 [ -e "$_ready" ] || exit 0
+Z2K_TIKTOK_REQUIRE_READY="$_ready"
+export Z2K_TIKTOK_REQUIRE_READY
 
 _lock="${Z2K_TIKTOK_LOCK_DIR:-${Z2K_TMP:-/tmp/z2k}/tiktok-check.lock}"
 if ! mkdir "$_lock" 2>/dev/null; then
