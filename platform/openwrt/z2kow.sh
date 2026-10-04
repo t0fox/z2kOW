@@ -18,6 +18,28 @@ case "$_command" in
         ;;
     update|u) shift; exec "${Z2K_UPDATE_BIN:-/usr/lib/z2k/platform/openwrt/update.sh}" apply "$@" ;;
     check) shift; exec "${Z2K_UPDATE_BIN:-/usr/lib/z2k/platform/openwrt/update.sh}" check "$@" ;;
+    tiktok)
+        shift
+        _root="${Z2K_ROOT:-/usr/lib/z2k}"
+        . "$_root/platform/openwrt/paths.sh"
+        . "$_root/platform/openwrt/env.sh"
+        . "$_root/platform/openwrt/schedule.sh"
+        . "$_root/platform/openwrt/tiktok.sh"
+        _action="${1:-status}"
+        case "$_action" in
+            status) z2k_ow_tiktok_status ;;
+            check) z2k_ow_tiktok_check ;;
+            enable)
+                z2k_ow_tiktok_cron_install
+                z2k_ow_tiktok_enable
+                ;;
+            disable)
+                z2k_ow_tiktok_cron_remove
+                z2k_ow_tiktok_disable
+                ;;
+            *) echo "usage: z2kow tiktok <status|check|enable|disable>" >&2; exit 2 ;;
+        esac
+        ;;
     blocked-monitor|bm)
         shift
         _root="${Z2K_ROOT:-/usr/lib/z2k}"
@@ -51,7 +73,7 @@ case "$_command" in
         fi
         ;;
     help|-h|--help)
-        printf '%s\n' 'z2kow: install <tag> | reinstall | check | update | uninstall | status | restart | blocked-monitor <start|stop|status|tail>'
+        printf '%s\n' 'z2kow: install <tag> | reinstall | check | update | uninstall | status | restart | tiktok <status|check|enable|disable> | blocked-monitor <start|stop|status|tail>'
         ;;
     *) echo "z2kow: unknown command: $_command" >&2; exit 2 ;;
 esac

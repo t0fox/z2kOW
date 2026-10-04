@@ -100,6 +100,7 @@ z2k_ow_rt_cron_remove() { echo rt-cron >> "$Z2K_UNINSTALL_TEST_LOG"; _remove_z2k
 z2k_ow_warp_cron_remove() { echo warp-cron >> "$Z2K_UNINSTALL_TEST_LOG"; _remove_z2k_cron; }
 z2k_ow_fw_cron_remove() { echo fw-cron >> "$Z2K_UNINSTALL_TEST_LOG"; _remove_z2k_cron; }
 z2k_ow_tcp16_cron_remove() { echo tcp16-cron >> "$Z2K_UNINSTALL_TEST_LOG"; _remove_z2k_cron; }
+z2k_ow_tiktok_cron_remove() { echo tiktok-cron >> "$Z2K_UNINSTALL_TEST_LOG"; _remove_z2k_cron; }
 EOF
 cat > "$Z2K_ROOT/platform/openwrt/firewall.sh" <<'EOF'
 z2k_ow_fw_remove() {
@@ -155,6 +156,9 @@ z2k_ow_insta_uninstall() {
     sed -e '/z2k-insta-hosts/d' "$Z2K_OW_DHCP_UCI" > "$Z2K_OW_DHCP_UCI.new" || return 1
     mv -f "$Z2K_OW_DHCP_UCI.new" "$Z2K_OW_DHCP_UCI"
 }
+EOF
+cat > "$Z2K_ROOT/platform/openwrt/tiktok.sh" <<'EOF'
+z2k_ow_tiktok_uninstall() { echo tiktok-cleanup >> "$Z2K_UNINSTALL_TEST_LOG"; }
 EOF
 cat > "$Z2K_ROOT/platform/openwrt/panel.sh" <<'EOF'
 wp_panel_running() { [ -f "$Z2K_PANEL_PROCESS" ]; }
@@ -268,6 +272,7 @@ assert_contains "uninstall removes Telegram integration" "$Z2K_UNINSTALL_TEST_LO
 assert_contains "uninstall removes RT integration" "$Z2K_UNINSTALL_TEST_LOG" 'rt-cleanup'
 assert_contains "uninstall removes WARP integration" "$Z2K_UNINSTALL_TEST_LOG" 'warp-cleanup'
 assert_contains "uninstall removes Insta host integration" "$Z2K_UNINSTALL_TEST_LOG" 'insta-cleanup'
+assert_contains "uninstall removes TikTok DNS integration" "$Z2K_UNINSTALL_TEST_LOG" 'tiktok-cleanup'
 [ ! -e "$Z2K_ROOT" ] && _t_ok || _t_bad "owned product payload removed"
 [ ! -e "$Z2K_ZAPRET2_RUNTIME" ] && _t_ok || _t_bad "owned dataplane removed"
 [ ! -e "$Z2K_OW_ROLLBACK_DIR" ] && _t_ok || _t_bad "owned rollback snapshot removed"
@@ -401,7 +406,7 @@ printf 'ordinary user config\n' > "$T/no-warp/etc/z2k/config"
 
 # A cleanup error is loud and leaves product/user metadata available for retry.
 mkdir -p "$Z2K_ROOT/platform/openwrt" "$Z2K_ETC/state/warp" "$Z2K_ZAPRET2_RUNTIME"
-for _f in schedule firewall tg rt warp insta-ip; do
+for _f in schedule firewall tg rt warp insta-ip tiktok; do
     cp "$REPO/platform/openwrt/$_f.sh" "$Z2K_ROOT/platform/openwrt/$_f.sh"
 done
 cp "$REPO/platform/openwrt/uninstall.sh" "$Z2K_ROOT/platform/openwrt/uninstall.sh"

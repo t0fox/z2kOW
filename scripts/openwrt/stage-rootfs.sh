@@ -50,7 +50,7 @@ mkdir -p "$STAGE/usr/lib/z2k/platform/openwrt" "$STAGE/usr/lib/z2k/share"
 for src in "$ROOT"/platform/openwrt/*.sh; do
     [ -f "$src" ] || continue
     case "$(basename "$src")" in
-        diag.sh|update.sh|tcp16-check.sh|tg-check.sh|rt-check.sh|warp-check.sh|fw-check.sh|list-refresh.sh) _mode=0755 ;;
+        diag.sh|update.sh|tcp16-check.sh|tiktok-check.sh|tg-check.sh|rt-check.sh|warp-check.sh|fw-check.sh|list-refresh.sh) _mode=0755 ;;
         *) _mode=0644 ;;
     esac
     copy_data "$src" "usr/lib/z2k/platform/openwrt/$(basename "$src")" "$_mode"

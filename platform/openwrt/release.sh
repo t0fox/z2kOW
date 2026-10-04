@@ -254,7 +254,7 @@ EOF_OWNERSHIP
         fi
     fi
 
-    apk add kmod-nft-queue kmod-tun kmod-nfnetlink-log conntrack openssl-util jsonfilter tcpdump-mini || {
+    apk add kmod-nft-queue kmod-tun kmod-nfnetlink-log conntrack openssl-util jsonfilter tcpdump-mini curl || {
         echo "z2k-openwrt: не удалось обеспечить системные зависимости OpenWrt" >&2
         return 1
     }

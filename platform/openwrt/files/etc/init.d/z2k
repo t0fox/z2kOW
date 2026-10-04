@@ -35,6 +35,7 @@ z2k_load_adapter() {
     Z2K_WARP_SOURCE_ONLY=1; export Z2K_WARP_SOURCE_ONLY
     # shellcheck disable=SC1090,SC1091
     . "$Z2K_ROOT/platform/openwrt/warp.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/tiktok.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/schedule.sh" || return 1
     . "$Z2K_LIB/utils.sh" || return 1
     . "$Z2K_LIB/strategies.sh" || return 1
@@ -252,6 +253,17 @@ service_started() {
         _z2k_ow_wait_feature rt && z2k_ow_rt_verify || { z2k_ow_start_rollback; return 1; }
     fi
     : > "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" || { z2k_ow_start_rollback; return 1; }
+    # TikTok CDN repair is an OpenWrt-only soft feature: it starts only after
+    # core-ready and can never make the z2k dataplane fail its health gate.
+    if z2k_ow_tiktok_enabled; then
+        if z2k_ow_tiktok_cron_install; then
+            ( sh "$Z2K_ROOT/platform/openwrt/tiktok-check.sh" check ) </dev/null >/dev/null 2>&1 &
+        else
+            echo "z2k-openwrt: warning: could not install TikTok CDN health schedule" >&2
+        fi
+    else
+        z2k_ow_tiktok_cron_remove >/dev/null 2>&1 || true
+    fi
     # Upstream performs the first line measurement on the first successful
     # service start. Keep startup bounded: the full probe runs detached, and
     # its persistent verdict suppresses later first-result cron retries.
@@ -266,6 +278,8 @@ stop_service() {
     # shellcheck disable=SC1090
     [ -f "$Z2K_CONFIG" ] && . "$Z2K_CONFIG"
     local _rc=0
+    z2k_ow_tiktok_cron_remove || _rc=1
+    z2k_ow_tiktok_stop || _rc=1
     # core-ready FIRST: с этого момента гейты видят not-ready, resurrection
     # запрещена даже если teardown ниже частично провалится. Заодно снимаем
     # starting-маркер (зависший старт + stop = чисто).
