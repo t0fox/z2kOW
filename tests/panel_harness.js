@@ -71,6 +71,7 @@ if (BRAND_CASE) {
   mockNode("brand-favicon", { href: "/favicon.svg?v=p-86.1" });
   mockNode("brand-mask-icon", { href: "/favicon.svg?v=p-86.1" });
 }
+if (process.env.Z2K_WARP_DOMAIN_MOCK) mockNode("warp-domain-state");
 const head = mkEl();
 global.document = {
   documentElement: mkEl(), body: mkEl(), head,
@@ -188,7 +189,11 @@ const FIXTURES = {
   "/extra-domains": { ok:true, domains:["example.org","cdnbase.com"] },
   "/warp/status": (process.env.Z2K_WARP_MOCK === "uninstalled")
     ? { ok:true, enabled:"0", installed:false, ready:false, transport:"", endpoint:"", iface:"", addr:"", entries:0, devices:0, error:"" }
-    : { ok:true, enabled:"1", installed:true, ready:true, transport:"wg", endpoint:"8.6.112.0:2408", iface:"z2ktun0", addr:"172.16.0.2", entries:1234, devices:2, error:"" },
+    : { ok:true, enabled:"1", installed:true, ready:true, route_ready:true, transport:"wg", endpoint:"8.6.112.0:2408", iface:"z2ktun0", addr:"172.16.0.2", entries:1234, devices:2, error:"",
+        domain_active: process.env.Z2K_WARP_DOMAIN_MOCK === "active",
+        domain_rules: process.env.Z2K_WARP_DOMAIN_MOCK === "empty" ? 0 : 4,
+        domain_pairs: process.env.Z2K_WARP_DOMAIN_MOCK === "active" ? 3 : 0,
+        domain_error: process.env.Z2K_WARP_DOMAIN_MOCK === "error" ? "observer-unavailable" : "" },
   "/warp/devices": "192.168.1.50\naa:bb:cc:dd:ee:ff\n",
   "/warp/neighbors": { ok:true, devices:[{mac:"aa:bb:cc:dd:ee:ff",ip:"192.168.1.77",label:"PS5",net:"Home",active:true,on:true},
     {mac:"11:22:33:44:55:66",ip:"192.168.1.78",label:"iPhone",net:"Home",active:false,on:false}] },
@@ -237,6 +242,17 @@ catch (e) { console.log("ЗАГРУЗКА УПАЛА: " + e.message); process.ex
     const statusGrid = domById.get("status-grid").innerHTML;
     if (!statusGrid.includes("ошибка состояния")) errors.push("missing release metadata was rendered as a normal not-installed state");
     if (statusGrid.includes('<div class="label">Установлен</div><div class="value">Нет')) errors.push("missing release metadata was rendered as merely not installed");
+  }
+  if (process.env.Z2K_WARP_DOMAIN_MOCK) {
+    const domainState = domById.get("warp-domain-state").textContent;
+    if (process.env.Z2K_WARP_DOMAIN_MOCK === "empty") {
+      if (!domainState.includes("не настроены")) errors.push("empty domain rules were rendered as unavailable instead of not configured");
+      if (domainState.includes("недоступны")) errors.push("empty domain rules were falsely rendered as unavailable");
+    } else if (process.env.Z2K_WARP_DOMAIN_MOCK === "active") {
+      if (!domainState.includes("активных пар устройство/IP: 3")) errors.push("active domain rule counts were not rendered");
+    } else if (process.env.Z2K_WARP_DOMAIN_MOCK === "error") {
+      if (!domainState.includes("недоступны") || !domainState.includes("observer unavailable")) errors.push("domain observer error was hidden");
+    }
   }
   if (process.env.Z2K_TEST_RELEASE_SEQ_MISMATCH === "1") {
     const banner = domById.get("update-banner").innerHTML;

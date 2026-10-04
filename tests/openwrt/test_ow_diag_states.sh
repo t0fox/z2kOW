@@ -169,6 +169,12 @@ export Z2K_DIAG_WARP_STATUS_FIXTURE="$T/warp-status"
 run_diag warp
 assert_out "enabled ready WARP is active" 'state             : active'
 assert_out "active WARP reports transport" 'transport=wireguard'
+printf 'ready=1 route_ready=0 state=tunnel transport=wireguard endpoint=engage.cloudflareclient.com:2408\n' \
+    > "$T/warp-status"
+run_diag warp
+assert_out "tunnel-only WARP is not mislabeled fully active" 'state             : tunnel'
+assert_out "tunnel-only state retains independent route failure" 'route_ready       : 0'
+assert_out "tunnel-only state keeps transport ready" 'status            : ready=true'
 printf '{"ready":false,"transport":"wireguard","endpoint":"engage.cloudflareclient.com:2408"}\n' > "$T/tmp/warp/status.json"
 printf 'ready=0 route_ready=0 state=inactive transport=wireguard endpoint=engage.cloudflareclient.com:2408\n' \
     > "$T/warp-status"

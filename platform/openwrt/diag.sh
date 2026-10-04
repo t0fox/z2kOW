@@ -241,7 +241,7 @@ print_tunnel() {
 }
 
 print_warp() {
-    local on bin transport endpoint ready err state _adapter _status _route_ready _iface _reason
+    local on bin transport endpoint ready err state _adapter _status _route_ready _runtime_state _iface _reason
     local _edge_colo _edge_country _edge_rtt _edge_selection
     _adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
     if [ -r "$_adapter/arch.sh" ]; then
@@ -264,15 +264,42 @@ print_warp() {
             if [ ! -r "$_warp_status" ] || [ -z "$_status" ]; then
                 state=unavailable
                 ready=unavailable
-            elif [ "$(_ow_warp_status_field "$_status" ready)" = 1 ]; then
-                state=active
-                ready=true
-            elif [ "$(_ow_warp_status_field "$_status" ready)" = 0 ]; then
-                state=inactive
-                ready=false
             else
-                state=unknown
-                ready=unknown
+                ready=$(_ow_warp_status_field "$_status" ready)
+                _route_ready=$(_ow_warp_status_field "$_status" route_ready)
+                _runtime_state=$(_ow_warp_status_field "$_status" state)
+                case "$ready" in
+                    1) ready=true ;;
+                    0) ready=false ;;
+                    *) ready=unknown ;;
+                esac
+                # Reuse the state machine from warp/status. A proven daemon
+                # transport is only `tunnel` when OpenWrt's route projection
+                # is not proven; `active` requires both proofs.
+                case "$_runtime_state" in
+                    error|connecting|recovering|inactive) state=$_runtime_state ;;
+                    tunnel) state=tunnel ;;
+                    ready|active)
+                        case "$_route_ready" in
+                            1) state=active ;;
+                            0) state=tunnel ;;
+                            *) state=unavailable ;;
+                        esac
+                        ;;
+                    *)
+                        if [ "$ready" = true ]; then
+                            case "$_route_ready" in
+                                1) state=active ;;
+                                0) state=tunnel ;;
+                                *) state=unavailable ;;
+                            esac
+                        elif [ "$ready" = false ]; then
+                            state=inactive
+                        else
+                            state=unknown
+                        fi
+                        ;;
+                esac
             fi
             transport=$(_ow_warp_status_field "$_status" transport)
             endpoint=$(_ow_warp_status_field "$_status" endpoint)
@@ -288,7 +315,6 @@ print_warp() {
                 Z2K_WARP_SOURCE_ONLY=1
                 if . "$_adapter/warp.sh" 2>/dev/null; then
                     unset Z2K_WARP_SOURCE_ONLY
-                    _route_ready=$(printf '%s\n' "$_status" | sed -n 's/.* route_ready=\([^ ]*\).*/\1/p')
                     [ -n "$_route_ready" ] || _route_ready=unavailable
                     _edge_colo=$(printf '%s\n' "$_status" | sed -n 's/.* edge_colo=\([^ ]*\).*/\1/p')
                     _edge_country=$(printf '%s\n' "$_status" | sed -n 's/.* edge_country=\([^ ]*\).*/\1/p')

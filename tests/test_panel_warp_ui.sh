@@ -50,6 +50,13 @@ if command -v node >/dev/null 2>&1; then
         if printf '%s\n' "$out" | grep -q 'ok  *#/warp$'; then ok "раздел #/warp отрисовался ($mock)"
         else no "раздел #/warp НЕ отрисовался ($mock)" "ok" "$(printf '%s' "$out" | tail -1)"; fi
     done
+    for mock in empty active error; do
+        if out=$(Z2K_WARP_DOMAIN_MOCK="$mock" node "$ROOT/tests/panel_harness.js" "$JS" warp 2>&1); then
+            ok "статус доменных правил отображён верно ($mock)"
+        else
+            no "статус доменных правил отображён неверно ($mock)" "correct status" "$(printf '%s' "$out" | tail -1)"
+        fi
+    done
 else
     printf '[SKIP] node не найден — рендер пропущен\n'
 fi

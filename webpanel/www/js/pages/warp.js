@@ -438,9 +438,12 @@ async function loadWarpStatus() {
   const installed = !!d.installed;
   const domainState = document.getElementById("warp-domain-state");
   if (domainState) {
+    const domainRules = Number(d.domain_rules) || 0;
+    const domainError = String(d.domain_error || "").trim();
     domainState.textContent = !enabled ? "Доменные правила выключены вместе с WARP."
       : d.domain_active ? `Доменные правила: ${Number(d.domain_rules) || 0}; активных пар устройство/IP: ${Number(d.domain_pairs) || 0}.`
-      : "Доменные правила сейчас недоступны; адреса и устройства продолжают работать.";
+      : domainRules === 0 && !domainError ? "Доменные правила не настроены — добавьте домен или импортируйте список ниже."
+      : `Доменные правила сейчас недоступны${domainError ? ` (${domainError.replace(/[_-]+/g, " ")})` : ""}; адреса и устройства продолжают работать.`;
   }
 
   // Три состояния раздела — из одного ответа. Не установлен: одна кнопка, без
