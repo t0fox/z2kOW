@@ -117,20 +117,23 @@ else
     no "CI читает build-matrix.tsv" "ссылка на файл" "у CI собственный список"
 fi
 
-# --- 6. One CI candidate builds and verifies the complete OpenWrt payload -----
+# --- 6. Push CI builds the payload once; release verifies that exact CI run ---
 RELEASE="$ROOT/.github/workflows/release-openwrt.yml"
 BUILDER="$ROOT/scripts/openwrt/build-release.sh"
 STAGER="$ROOT/scripts/openwrt/stage-rootfs.sh"
-if grep -Fq 'uses: ./.github/workflows/ci.yml' "$RELEASE" \
-   && grep -Fq 'sh scripts/openwrt/build-release.sh --out' "$RELEASE" \
+if grep -Fq 'openwrt-unified:' "$CI" \
+   && grep -Fq 'sh tests/openwrt/run.sh' "$CI" \
+   && grep -Fq 'sh scripts/openwrt/build-release.sh --out' "$CI" \
+   && grep -Fq 'scripts/openwrt/verify_source_ci.py' "$RELEASE" \
+   && ! grep -Fq 'uses: ./.github/workflows/ci.yml' "$RELEASE" \
    && grep -Fq 'stage-rootfs.sh' "$BUILDER" \
    && grep -Fq 'fetch_upstream_tg.py' "$BUILDER" \
    && grep -Fq 'RT_DIR' "$STAGER" \
    && grep -Fq 'DETECT_DIR' "$STAGER"; then
-    ok "CI builds one complete OpenWrt release payload after regression checks"
+    ok "push CI builds one full payload and release verifies the exact CI run"
 else
-    no "CI builds one complete OpenWrt release payload after regression checks" \
-       "release workflow, pinned TG binaries, RT/detector and rootfs staging" "contract missing"
+    no "push CI builds one full payload and release verifies the exact CI run" \
+       "push CI candidate, exact-SHA release gate, pinned TG binaries, RT/detector and rootfs staging" "contract missing"
 fi
 
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"
