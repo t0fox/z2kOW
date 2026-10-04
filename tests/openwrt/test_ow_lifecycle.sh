@@ -33,6 +33,10 @@ assert_contains "service: core bounded respawn" "$SVC" "procd_set_param respawn 
 assert_contains "service: shared NFQUEUE owner check" "$SVC" "z2k_ow_nfqws_consumer_ready"
 assert_contains "service: intentional stop fence" "$SVC" "stopping"
 assert_contains "service: installs WARP health check schedule" "$SVC" "z2k_ow_warp_cron_install"
+assert_contains "service: restores TikTok only when config toggle is enabled" "$SVC" "if z2k_ow_tiktok_enabled"
+assert_contains "service: runs explicit TikTok evaluation after core-ready" "$SVC" "tiktok-check.sh\" check explicit"
+assert_contains "service stop: removes TikTok schedule" "$SVC" "z2k_ow_tiktok_cron_remove"
+assert_contains "service stop: clears owned TikTok pin" "$SVC" "z2k_ow_tiktok_stop"
 assert_contains "panel: ready is not marker-only" "$REPO/webpanel/cgi/platform.sh" "z2k_ow_core_ready"
 
 _t_done

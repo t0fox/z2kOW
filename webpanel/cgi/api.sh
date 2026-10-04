@@ -308,6 +308,7 @@ case "$method $path" in
         au_hour=$(read_flag "Z2K_AU_HOUR" "$CONFIG_FILE" "02")
         case "$au_hour" in [01][0-9]|2[0-3]) ;; *) au_hour=02 ;; esac
         autohostlist=$(read_flag "Z2K_AUTOHOSTLIST" "$CONFIG_FILE" "0")
+        tiktok_feed=$(read_flag "Z2K_TIKTOK_FEED_ENABLED" "$CONFIG_FILE" "0")
         ow_flow=0
         [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && ow_flow=1
         if [ "$ow_flow" = 1 ]; then
@@ -347,6 +348,7 @@ case "$method $path" in
         printf ',"auto_update":';            json_string "${auto_update:-1}"
         printf ',"au_hour":';                json_string "${au_hour:-02}"
         printf ',"autohostlist":';           json_string "${autohostlist:-0}"
+        printf ',"tiktok_feed":';           json_string "${tiktok_feed:-0}"
         if [ "$ow_flow" = 1 ]; then
             printf ',"flowoffload":';         json_string "${flowoffload:-none}"
             printf ',"flowoffload_status":';  json_string "${flowoffload_status:-unavailable}"
@@ -465,6 +467,7 @@ case "$method $path" in
     "POST /toggle/ppe"|\
     "POST /toggle/fastroute"|\
     "POST /toggle/auto-update"|\
+    "POST /toggle/tiktok-feed"|\
     "POST /toggle/category-youtube"|\
     "POST /toggle/category-rkn"|\
     "POST /toggle/category-discord-voice"|\
@@ -487,6 +490,7 @@ case "$method $path" in
             /toggle/ppe)             _toggle_fn=toggle_ppe;             _label="PPE de-offload" ;;
             /toggle/fastroute)       _toggle_fn=toggle_fastroute;       _label="Программный fastpath" ;;
             /toggle/auto-update)     _toggle_fn=toggle_auto_update;     _label="Автообновление" ;;
+            /toggle/tiktok-feed)     _toggle_fn=toggle_tiktok_feed;     _label="TikTok — исправление ленты" ;;
             /toggle/autohostlist)    _toggle_fn=toggle_autohostlist;    _label="Автохостлист" ;;
         esac
         _verb=$([ "$val" = "1" ] && echo "Включаю" || echo "Отключаю")

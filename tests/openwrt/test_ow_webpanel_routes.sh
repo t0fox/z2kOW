@@ -76,6 +76,9 @@ done < "$T/tg.txt"
 # game-warp тумблер идёт мимо карты, прямым вызовом (уже покрыт п.1), но
 # карту без него считать битой нельзя: проверяем наличие ключа отдельно.
 grep -q 'customd: "customd"' "$WWW/js/pages/toggles.js" || _t_bad "TOGGLE_API_NAME потеряла customd"
+grep -q 'tiktok_feed: "tiktok-feed"' "$WWW/js/pages/toggles.js" || _t_bad "TOGGLE_API_NAME потеряла TikTok Feed toggle"
+grep -q 'Z2K_TIKTOK_FEED_ENABLED' "$REPO/webpanel/cgi/actions.sh" || _t_bad "TikTok Feed toggle does not persist its config flag"
+grep -q 'tiktokRow.hidden = s.platform !== "openwrt"' "$WWW/js/pages/toggles.js" || _t_bad "TikTok Feed UI is not restricted to OpenWrt"
 # 3d. update status/check: путь в переменной (opts.force ? ... : ...).
 if has_case "GET" "/update/status"; then _t_ok
 else _t_bad "frontend /update/status: нет case в api.sh"; fi

@@ -257,7 +257,7 @@ service_started() {
     # core-ready and can never make the z2k dataplane fail its health gate.
     if z2k_ow_tiktok_enabled; then
         if z2k_ow_tiktok_cron_install; then
-            ( sh "$Z2K_ROOT/platform/openwrt/tiktok-check.sh" check ) </dev/null >/dev/null 2>&1 &
+            ( sh "$Z2K_ROOT/platform/openwrt/tiktok-check.sh" check explicit ) </dev/null >/dev/null 2>&1 &
         else
             echo "z2k-openwrt: warning: could not install TikTok CDN health schedule" >&2
         fi

@@ -1342,6 +1342,34 @@ toggle_auto_update() {
     set_flag "Z2K_AUTO_UPDATE_ENABLED" "$want" "$CONFIG_FILE" || return 1
 }
 
+toggle_tiktok_feed() {
+    local want="$1" _check _previous _ready
+    [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] || return 1
+    _previous=$(read_flag "Z2K_TIKTOK_FEED_ENABLED" "$CONFIG_FILE" "0")
+    # Runtime stays in the OpenWrt adapter; the CGI only persists the choice
+    # and asks that adapter to install/remove its periodic check and pin.
+    . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/tiktok.sh" || return 1
+    . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/schedule.sh" || return 1
+    _check="${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/tiktok-check.sh"
+    _ready="${Z2K_CORE_READY:-${Z2K_RUN:-/tmp/z2k/runtime}/core-ready}"
+    set_flag "Z2K_TIKTOK_FEED_ENABLED" "$want" "$CONFIG_FILE" || return 1
+    if [ "$want" = 1 ]; then
+        if [ -e "$_ready" ]; then
+            if z2k_ow_tiktok_cron_install && sh "$_check" check explicit; then return 0; fi
+            set_flag "Z2K_TIKTOK_FEED_ENABLED" "$_previous" "$CONFIG_FILE" || return 1
+            z2k_ow_tiktok_cron_remove >/dev/null 2>&1 || true
+            z2k_ow_tiktok_disable >/dev/null 2>&1 || true
+            return 1
+        fi
+        return 0
+    else
+        if z2k_ow_tiktok_cron_remove && z2k_ow_tiktok_disable; then return 0; fi
+        set_flag "Z2K_TIKTOK_FEED_ENABLED" "$_previous" "$CONFIG_FILE" || return 1
+        [ "$_previous" != 1 ] || { [ ! -e "$_ready" ] || z2k_ow_tiktok_cron_install >/dev/null 2>&1 || true; }
+        return 1
+    fi
+}
+
 toggle_autohostlist() {
     # Z2K_AUTOHOSTLIST — switches MODE_FILTER between hostlist and autohostlist
     # (see lib/config_official.sh). Unlike toggle_stats this is NOT out-of-band:

@@ -32,6 +32,8 @@ const TOGGLE_DEFS = [
     extra: '<div class="t-desc" id="fastroute-status" role="status"></div>' },
   { key: "autohostlist", name: "Автохостлист",
     desc: "Обычно обходятся только домены из списков. С этой опцией движок сам замечает, что домен не открывается, и добавляет его — найденное попадает в основной список и подхватывается штатно. Плюс: сайты вне списков начинают работать без ручных добавлений. Минус: движок судит по поведению соединения и иногда ошибается, в список может попасть домен, который просто лежал сам по себе. Это смена принципа отбора трафика целиком, поэтому по умолчанию выключено." },
+  { key: "tiktok_feed", name: "TikTok — исправление ленты",
+    desc: "Автоматически подбирает рабочий CDN TikTok для ленты и переключается при его недоступности.", openwrtOnly: true },
   // Час не зашит в текст: он настраивается ниже, и описание, называющее
   // «02:00» у человека, выбравшего 05:00, врало бы прямо над селектором.
   { key: "auto_update", name: "Автообновление z2k",
@@ -177,6 +179,7 @@ const TOGGLE_API_NAME = {
   fastroute: "fastroute",
   auto_update: "auto-update",
   autohostlist: "autohostlist",
+  tiktok_feed: "tiktok-feed",
 };
 
 function syncFastroute(box, toggles) {
@@ -576,6 +579,9 @@ export async function renderToggles() {
       return;
     }
     if (_stale("toggles", seq)) return;
+    const toggleDefs = s.platform === "openwrt" ? TOGGLE_DEFS : TOGGLE_DEFS.filter(t => !t.openwrtOnly);
+    const tiktokRow = $app.querySelector('[data-key="tiktok_feed"]');
+    if (tiktokRow) tiktokRow.hidden = s.platform !== "openwrt";
     applyCapabilities(s);
     // Платформенно-зависимый текст — ПОСЛЕ applyCapabilities, когда platform
     // известна. Строка политики и PPE-ряд на OpenWrt спрятаны целиком, а ряд
@@ -618,7 +624,7 @@ export async function renderToggles() {
     // Чекбокс автообновления ловим здесь же: строка с временем ходит за ним,
     // и искать его вторым, другим селектором — способ однажды поехать врозь.
     let auBox = null;
-    TOGGLE_DEFS.forEach(t => {
+    toggleDefs.forEach(t => {
       const row = $app.querySelector(`[data-key="${t.key}"]`);
       if (!row) return;
       const box = row.querySelector("input");
@@ -878,6 +884,7 @@ async function toggleClick(key, box) {
     fastroute: "Маршрутный кэш",
     auto_update: "Автообновление движка zapret2",
     autohostlist: "Автохостлист",
+    tiktok_feed: "TikTok — исправление ленты",
   }[key] || key;
 
   let resp;

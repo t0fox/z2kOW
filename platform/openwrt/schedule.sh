@@ -44,7 +44,7 @@ Z2K_FW_CRON_LINE="*/5 * * * * $Z2K_ROOT/platform/openwrt/fw-check.sh check # z2k
 # adapter is a no-op once a valid persistent verdict exists.
 Z2K_TCP16_NIGHTLY_CRON_LINE="30 3 * * * sh $Z2K_ROOT/z2k-tcp16-probe.sh # z2k-tcp16-nightly"
 Z2K_TCP16_FIRST_CRON_LINE="*/10 * * * * sh $Z2K_ROOT/platform/openwrt/tcp16-check.sh # z2k-tcp16-first-result"
-Z2K_TIKTOK_CRON_LINE="7 * * * * sh $Z2K_ROOT/platform/openwrt/tiktok-check.sh check # z2k-tiktok-health"
+Z2K_TIKTOK_CRON_LINE="7 * * * * sh $Z2K_ROOT/platform/openwrt/tiktok-check.sh check scheduled # z2k-tiktok-health"
 
 # Read the selected hour as data.  The config is a shell fragment, so never
 # source it from cron/postinst.  The last assignment wins for the normal

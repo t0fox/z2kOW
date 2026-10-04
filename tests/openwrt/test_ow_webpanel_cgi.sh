@@ -16,7 +16,7 @@ export PATH="$T/bin:$PATH"
 export Z2K_PANEL_EXTRA_PATH="$T/bin"
 
 # --- adapter farm (настоящие файлы слоя) ---
-for _f in paths.sh env.sh arch.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
+for _f in paths.sh env.sh arch.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
@@ -260,6 +260,7 @@ assert_eq "status: HTTP 200" "Status: 200 OK" "$(printf '%s\n' "$RAW" | _cgi_sta
 _status_json_ok=$(printf '%s\n' "$OUT" | python3 -c 'import json,sys; json.load(sys.stdin); print("true")' 2>/dev/null || printf 'false')
 assert_eq "status: valid JSON with runtime probe" "true" "$_status_json_ok"
 assert_eq "status: platform" "openwrt" "$(_jget "$OUT" 'd["platform"]')"
+assert_eq "status: TikTok feed toggle defaults off" "0" "$(_jget "$OUT" 'd["toggles"]["tiktok_feed"]')"
 assert_eq "status: panel payload compatible" "true" "$(_jget "$OUT" 'd["payload_compatible"]')"
 assert_eq "status: policy false" "false" "$(_jget "$OUT" 'd["capabilities"]["policy"]')"
 assert_eq "status: ppe false" "false" "$(_jget "$OUT" 'd["capabilities"]["ppe"]')"
@@ -732,7 +733,7 @@ RAW="$(_cgi GET /strategy/pool "pool=rkn_tcp")"
 assert_eq "pool missing: text/plain пусто" "Content-Type: text/plain; charset=utf-8" "$(printf '%s\n' "$RAW" | _cgi_status)"
 
 # POST toggles: каждый job доходит до done/rc 0, флаг — в конфиге.
-for _tg in "dynamic-ttl:Z2K_DYNAMIC_TTL:1" "stats:Z2K_STATS:1" "auto-update:Z2K_AUTO_UPDATE_ENABLED:1" "autohostlist:Z2K_AUTOHOSTLIST:1"; do
+for _tg in "dynamic-ttl:Z2K_DYNAMIC_TTL:1" "stats:Z2K_STATS:1" "auto-update:Z2K_AUTO_UPDATE_ENABLED:1" "autohostlist:Z2K_AUTOHOSTLIST:1" "tiktok-feed:Z2K_TIKTOK_FEED_ENABLED:1"; do
     _tn="${_tg%%:*}"; _rest="${_tg#*:}"; _tk="${_rest%%:*}"; _tv="${_rest##*:}"
     printf 'value=%s' "$_tv" > "$T/body.txt"
     RAW="$(_cgi POST /toggle/$_tn "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
@@ -742,6 +743,13 @@ for _tg in "dynamic-ttl:Z2K_DYNAMIC_TTL:1" "stats:Z2K_STATS:1" "auto-update:Z2K_
     _poll_job_ok "$_jid" "toggle $_tn"
     assert_eq "toggle $_tn: флаг $_tk=$_tv" "$_tv" "$(grep -m1 "^$_tk=" "$T/etc/config" | cut -d= -f2)"
 done
+RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "TikTok feed toggle state follows the persistent config flag" "1" "$(_jget "$OUT" 'd["toggles"]["tiktok_feed"]')"
+printf 'value=0' > "$T/body.txt"
+RAW="$(_cgi POST /toggle/tiktok-feed "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_jid="$(_jget "$OUT" 'd["job"]')"; JOB_IDS="$JOB_IDS $_jid"
+_poll_job_ok "$_jid" "toggle tiktok-feed off"
+assert_eq "TikTok feed toggle disable persists 0" "0" "$(grep -m1 '^Z2K_TIKTOK_FEED_ENABLED=' "$T/etc/config" | cut -d= -f2)"
 printf 'value=9' > "$T/body.txt"
 RAW="$(_cgi POST /toggle/stats "" "$T/body.txt")"
 assert_eq "toggle bad value: 400" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"

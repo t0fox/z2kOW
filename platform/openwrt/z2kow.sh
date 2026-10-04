@@ -23,19 +23,32 @@ case "$_command" in
         _root="${Z2K_ROOT:-/usr/lib/z2k}"
         . "$_root/platform/openwrt/paths.sh"
         . "$_root/platform/openwrt/env.sh"
+        . "$_root/lib/utils.sh"
         . "$_root/platform/openwrt/schedule.sh"
         . "$_root/platform/openwrt/tiktok.sh"
         _action="${1:-status}"
+        _previous=$(awk -F= '$1 == "Z2K_TIKTOK_FEED_ENABLED" { v=$2; gsub(/[" '\''\r]/, "", v) } END { print v }' "$Z2K_CONFIG" 2>/dev/null)
+        [ "$_previous" = 1 ] || _previous=0
         case "$_action" in
             status) z2k_ow_tiktok_status ;;
             check) z2k_ow_tiktok_check ;;
             enable)
-                z2k_ow_tiktok_cron_install
-                z2k_ow_tiktok_enable
+                set_flag Z2K_TIKTOK_FEED_ENABLED 1 "$Z2K_CONFIG"
+                if [ -e "$Z2K_CORE_READY" ]; then
+                    if z2k_ow_tiktok_cron_install && z2k_ow_tiktok_enable; then :; else
+                        set_flag Z2K_TIKTOK_FEED_ENABLED "$_previous" "$Z2K_CONFIG"
+                        z2k_ow_tiktok_cron_remove >/dev/null 2>&1 || true
+                        exit 1
+                    fi
+                fi
                 ;;
             disable)
-                z2k_ow_tiktok_cron_remove
-                z2k_ow_tiktok_disable
+                set_flag Z2K_TIKTOK_FEED_ENABLED 0 "$Z2K_CONFIG"
+                if z2k_ow_tiktok_cron_remove && z2k_ow_tiktok_disable; then :; else
+                    set_flag Z2K_TIKTOK_FEED_ENABLED "$_previous" "$Z2K_CONFIG"
+                    [ "$_previous" != 1 ] || { [ ! -e "$Z2K_CORE_READY" ] || z2k_ow_tiktok_cron_install >/dev/null 2>&1 || true; }
+                    exit 1
+                fi
                 ;;
             *) echo "usage: z2kow tiktok <status|check|enable|disable>" >&2; exit 2 ;;
         esac
