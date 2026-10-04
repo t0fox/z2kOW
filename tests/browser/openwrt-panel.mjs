@@ -2002,6 +2002,81 @@ try {
   await reinstallRacePage.close();
   reinstallFixtureActive = false;
 
+  const makeTikTokPage = async (initialEnabled, tiktokStatus) => {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    let enabled = initialEnabled;
+    let jobNumber = 0;
+    page.route('**/cgi-bin/api/status', route => {
+      const fixture = structuredClone(statusFixture);
+      fixture.toggles.tiktok_feed = enabled ? '1' : '0';
+      if (enabled) fixture.tiktok_feed_status = tiktokStatus || {
+        state: 'healthy', selected_ip: '203.0.113.9', latency_ms: '84',
+        last_verified_epoch: String(Math.floor(Date.now() / 1000)), reason: 'healthy',
+      };
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture) });
+    });
+    page.route('**/cgi-bin/api/toggle/tiktok-feed', async route => {
+      enabled = route.request().postDataJSON().value === '1';
+      jobNumber += 1;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, job: `tiktok-status-fixture-${jobNumber}` }) });
+    });
+    page.route('**/cgi-bin/api/job**', route => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ done: true, exit: 0, status: 'done', log: 'ok' }),
+    }));
+    await page.goto(`${base}/#/toggles`);
+    await waitForRenderedRoute(page, 'toggles');
+    return { page, get enabled() { return enabled; } };
+  };
+
+  const offCard = await makeTikTokPage(false, null);
+  assert.equal(await offCard.page.locator('#tiktok-feed-status-card').isVisible(), false,
+    'the TikTok status card stays hidden while its persistent toggle is off');
+  await offCard.page.locator('[data-key="tiktok_feed"] input').check({ force: true });
+  await offCard.page.locator('#tiktok-feed-status-card').waitFor({ state: 'visible', timeout: 5000 });
+  assert.match(await offCard.page.locator('#tiktok-feed-status-card').innerText(), /● Работает/,
+    'enabling TikTok loads the actual status into the separate card');
+  await offCard.page.waitForFunction(() => document.querySelector('[data-key="tiktok_feed"] input')?.checked === true);
+  assert.equal(offCard.enabled, true);
+  await offCard.page.getByRole('button', { name: 'Готово' }).click();
+  await offCard.page.locator('.modal-backdrop').waitFor({ state: 'detached' });
+  const beforeDisableUrl = offCard.page.url();
+  await offCard.page.locator('[data-key="tiktok_feed"] input').uncheck({ force: true });
+  await offCard.page.locator('#tiktok-feed-status-card').waitFor({ state: 'hidden', timeout: 5000 });
+  assert.equal(offCard.page.url(), beforeDisableUrl, 'toggle off hides the card without navigating or reloading');
+  await offCard.page.close();
+
+  const healthy = await makeTikTokPage(true, {
+    state: 'healthy', selected_ip: '203.0.113.9', latency_ms: '84', last_verified_epoch: String(Math.floor(Date.now() / 1000) - 70),
+    failure_count: '0', selected_source_domain: 'www.tiktokcdn.com', selected_mode: 'verified',
+    selected_provenance: 'resolver+tls', selected_cname: 'edge.example.net', host: 'v77.tiktokcdn.com',
+    last_failover_epoch: String(Math.floor(Date.now() / 1000) - 3600), last_failover_from: '203.0.113.8',
+    last_failover_to: '203.0.113.9', last_failover_reason: 'consecutive-probe-failures', reason: 'healthy',
+  });
+  const healthyCard = healthy.page.locator('#tiktok-feed-status-card');
+  assert.equal(await healthyCard.isVisible(), true);
+  assert.match(await healthyCard.innerText(), /203\.0\.113\.9/);
+  assert.match(await healthyCard.innerText(), /84 мс/);
+  assert.match(await healthyCard.innerText(), /Последнее переключение/);
+  assert.match(await healthyCard.innerText(), /203\.0\.113\.8 → 203\.0\.113\.9/);
+  await healthyCard.locator('summary').click();
+  assert.equal(await healthyCard.locator('details').evaluate(node => node.open), true,
+    'technical diagnostics disclosure opens');
+  assert.match(await healthyCard.innerText(), /www\.tiktokcdn\.com/);
+  assert.match(await healthyCard.innerText(), /resolver\+tls/);
+  assert.doesNotMatch(await healthyCard.innerText(), /undefined|null|0 мс/);
+  await healthy.page.close();
+
+  const degraded = await makeTikTokPage(true, { state: 'degraded', selected_ip: '203.0.113.10', reason: 'no-verified-alternative' });
+  assert.match(await degraded.page.locator('#tiktok-feed-status-card').innerText(), /Нестабильно/);
+  await degraded.page.close();
+
+  const failOpen = await makeTikTokPage(true, { state: 'degraded', reason: 'no-verified-cdn-fail-open' });
+  const failOpenText = await failOpen.page.locator('#tiktok-feed-status-card').innerText();
+  assert.match(failOpenText, /Рабочий CDN не найден/);
+  assert.match(failOpenText, /обычный доступ сохранён/);
+  assert.doesNotMatch(failOpenText, /● Работает/);
+  await failOpen.page.close();
+
   assert.deepEqual(allPageErrors, []);
   assert.deepEqual(allConsoleErrors, []);
 

@@ -311,6 +311,31 @@ case "$method $path" in
         tiktok_feed=$(read_flag "Z2K_TIKTOK_FEED_ENABLED" "$CONFIG_FILE" "0")
         ow_flow=0
         [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && ow_flow=1
+        tiktok_status_json=""
+        if [ "$ow_flow" = 1 ] && [ "$tiktok_feed" = 1 ] \
+            && [ -r "$Z2K_ROOT/platform/openwrt/tiktok.sh" ]; then
+            # Read the existing runtime snapshot only. /status must never start
+            # a CDN discovery or verification probe.
+            . "$Z2K_ROOT/platform/openwrt/tiktok.sh"
+            _tiktok_status=$(z2k_ow_tiktok_status 2>/dev/null)
+            tiktok_status_json=$(
+                printf '{'
+                _tiktok_sep=
+                printf '%s\n' "$_tiktok_status" | while IFS='=' read -r _tiktok_key _tiktok_value; do
+                    case "$_tiktok_key" in
+                        enabled|state|host|selected_ip|latency_ms|last_verified_epoch|failure_count|reason|\
+                        selected_source_domain|selected_mode|selected_provenance|selected_geo_hint|selected_cname|\
+                        health|connect_latency_ms|tls_latency_ms|http_status|x77_pop|x77_cache|server|\
+                        dns_observed|curated_observed|stability_probe_count|last_failover_epoch|\
+                        last_failover_from|last_failover_to|last_failover_reason)
+                            printf '%s' "$_tiktok_sep"; json_string "$_tiktok_key"; printf ':'; json_string "$_tiktok_value"
+                            _tiktok_sep=,
+                            ;;
+                    esac
+                done
+                printf '}'
+            )
+        fi
         if [ "$ow_flow" = 1 ]; then
             flowoffload=$(z2k_ow_flowoffload_mode)
             flowoffload_status=$(z2k_ow_flowoffload_status)
@@ -353,7 +378,9 @@ case "$method $path" in
             printf ',"flowoffload":';         json_string "${flowoffload:-none}"
             printf ',"flowoffload_status":';  json_string "${flowoffload_status:-unavailable}"
         fi
-        printf '},"tunnel":{"running":%s}' "${tunnel_running:-false}"
+        printf '}'
+        [ -n "$tiktok_status_json" ] && printf ',"tiktok_feed_status":%s' "$tiktok_status_json"
+        printf ',"tunnel":{"running":%s}' "${tunnel_running:-false}"
         # OpenWrt capability visibility (§18): только openwrt, Keenetic-байты
         # не меняются. shapes preserved, ключи аддитивны (фрагмент уже
         # в кавычках — добавляем только запятую).

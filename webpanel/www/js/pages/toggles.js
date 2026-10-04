@@ -1,5 +1,5 @@
 import { apiGet, apiPost, errHtml, errMsg, toastErr } from "../core/api.js";
-import { $app, escapeHtml } from "../core/dom.js";
+import { $app, escapeHtml, humanAgo } from "../core/dom.js";
 import { _newLoad, _stale, applyCapabilities, refreshStatus } from "../core/loadorder.js";
 import { toast } from "../core/toast.js";
 import { JOB_FAIL, _updateGlobalUILock, confirmModal, jobOutcome, jobUnresolved, openJobModal, setLockAware, unresolvedMsg } from "../job.js";
@@ -294,6 +294,116 @@ function flowoffloadTechnicalMarkup(facts) {
   </details>`;
 }
 
+function tiktokReasonLabel(reason) {
+  return ({
+    healthy: "Последняя проверка прошла успешно.",
+    "current-ip-fast-path": "Текущий узел подтвердил доступность.",
+    "no-current": "Выбран первый подтверждённый узел.",
+    "current-unhealthy": "Текущий узел не прошёл проверку.",
+    "material-latency-improvement": "Найден узел с заметно меньшей задержкой.",
+    "hysteresis-not-met": "Смена узла отложена: разница задержки недостаточна.",
+    "alternative-unhealthy": "Альтернативный узел не прошёл проверку.",
+    "transient-probe-failure": "Текущий узел временно не прошёл проверку.",
+    "dnsmasq-prepare-failed": "Не удалось подготовить DNS-подмену; обычный доступ сохранён.",
+    "no-verified-cdn-fail-open": "Рабочий CDN пока не найден. Подмена DNS не применяется, обычный доступ сохранён.",
+    "no-verified-alternative": "Не найден устойчивый альтернативный узел CDN.",
+    "consecutive-probe-failures": "Предыдущий узел не прошёл проверку доступности.",
+    disabled: "Исправление ленты выключено.",
+  })[reason] || "Состояние CDN требует проверки.";
+}
+
+function tiktokValue(value, { allowZero = false } = {}) {
+  if (value == null) return "";
+  const text = String(value).trim();
+  if (!text || /^(null|undefined)$/i.test(text) || (!allowZero && /^0+(\.0+)?$/.test(text))) return "";
+  return text;
+}
+
+function tiktokFact(label, value, raw = value) {
+  const shown = tiktokValue(value, { allowZero: label === "Ошибок подряд" });
+  if (!shown) return "";
+  const rawText = tiktokValue(raw, { allowZero: label === "Ошибок подряд" });
+  return `<div class="flow-fact"><span class="flow-fact-label">${label}</span><span class="flow-fact-value"><span>${escapeHtml(shown)}</span>${rawText && rawText !== shown ? `<code>${escapeHtml(rawText)}</code>` : ""}</span></div>`;
+}
+
+function tiktokTime(epoch, detailed = false) {
+  const seconds = Number(epoch);
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  const date = new Date(seconds * 1000);
+  return detailed ? `${date.toLocaleString()} · ${humanAgo(seconds)}` : humanAgo(seconds);
+}
+
+function tiktokStatusMarkup(status) {
+  const data = status || {};
+  const state = tiktokValue(data.state);
+  const ip = tiktokValue(data.selected_ip);
+  const reason = tiktokValue(data.reason);
+  let title = "Рабочий CDN не найден";
+  let kind = "warn";
+  let copy = tiktokReasonLabel(reason);
+  if (state === "healthy" && ip) {
+    title = "Работает"; kind = "good"; copy = "";
+  } else if (state === "degraded" && ip) {
+    title = "Нестабильно"; copy = tiktokReasonLabel(reason);
+  } else if (["searching", "discovering", "checking"].includes(state)) {
+    title = "Поиск рабочего CDN"; copy = "Проверяются доступные узлы TikTok…";
+  }
+
+  const checkedAgo = tiktokTime(data.last_verified_epoch);
+  const failoverAgo = tiktokTime(data.last_failover_epoch);
+  const failoverReason = tiktokValue(data.last_failover_reason);
+  const failoverFrom = tiktokValue(data.last_failover_from);
+  const failoverTo = tiktokValue(data.last_failover_to);
+  const failover = failoverAgo && failoverFrom && failoverTo
+    ? `<p class="desc"><strong>Последнее переключение</strong> ${escapeHtml(failoverAgo)} · ${escapeHtml(failoverFrom)} → ${escapeHtml(failoverTo)}${failoverReason ? ` · ${escapeHtml(tiktokReasonLabel(failoverReason))}` : ""}</p>` : "";
+  const facts = [
+    tiktokFact("Целевой хост", data.host || "v77.tiktokcdn.com"),
+    tiktokFact("Текущий CDN", ip),
+    tiktokFact("Источник", data.selected_source_domain),
+    tiktokFact("Режим", data.selected_mode),
+    tiktokFact("Provenance", data.selected_provenance),
+    tiktokFact("Регион", data.selected_geo_hint),
+    tiktokFact("CNAME", data.selected_cname),
+    tiktokFact("Задержка", tiktokValue(data.latency_ms) ? `${tiktokValue(data.latency_ms)} мс` : "", data.latency_ms),
+    tiktokFact("Последняя успешная проверка", tiktokTime(data.last_verified_epoch, true)),
+    tiktokFact("Ошибок подряд", data.failure_count),
+    tiktokFact("Состояние проверки", data.health),
+    tiktokFact("TCP connect", tiktokValue(data.connect_latency_ms) ? `${tiktokValue(data.connect_latency_ms)} мс` : "", data.connect_latency_ms),
+    tiktokFact("TLS", tiktokValue(data.tls_latency_ms) ? `${tiktokValue(data.tls_latency_ms)} мс` : "", data.tls_latency_ms),
+    tiktokFact("HTTP", data.http_status),
+    tiktokFact("POP", data.x77_pop),
+    tiktokFact("Cache", data.x77_cache),
+    tiktokFact("Server", data.server),
+    tiktokFact("DNS-наблюдений", data.dns_observed),
+    tiktokFact("Curated-наблюдений", data.curated_observed),
+    tiktokFact("Проверок стабильности", data.stability_probe_count),
+    reason ? tiktokFact("Причина", tiktokReasonLabel(reason), reason) : "",
+    ...(failoverAgo && failoverFrom && failoverTo ? [
+      tiktokFact("Последний failover", `${failoverFrom} → ${failoverTo}`),
+      tiktokFact("Время failover", tiktokTime(data.last_failover_epoch, true)),
+      tiktokFact("Причина failover", failoverReason ? tiktokReasonLabel(failoverReason) : "", failoverReason),
+    ] : []),
+  ].filter(Boolean).join("");
+  return `<h3>TikTok — состояние ленты</h3>
+    <p class="desc">Автоматический подбор и контроль CDN для v77.tiktokcdn.com</p>
+    <div class="status-cell ${kind}" role="status"><div class="label">Состояние</div><div class="value">● ${escapeHtml(title)}</div></div>
+    ${copy ? `<p class="desc">${escapeHtml(copy)}</p>` : ""}
+    <div class="flow-facts">${tiktokFact("Текущий CDN", ip)}${tiktokFact("Задержка", tiktokValue(data.latency_ms) ? `${tiktokValue(data.latency_ms)} мс` : "", data.latency_ms)}${tiktokFact("Последняя проверка", checkedAgo)}</div>
+    ${failover}
+    <details class="flow-technical disclosure" id="tiktok-feed-technical">
+      <summary>Техническая диагностика</summary>
+      <div class="disclosure-body"><div class="flow-technical-body"><div class="flow-facts">${facts}</div></div></div>
+    </details>`;
+}
+
+function renderTikTokStatus(status, toggles, platform) {
+  const card = $app.querySelector("#tiktok-feed-status-card");
+  if (!card) return;
+  const visible = platform === "openwrt" && toggles && toggles.tiktok_feed === "1";
+  card.hidden = !visible;
+  card.innerHTML = visible ? tiktokStatusMarkup(status) : "";
+}
+
 function flowoffloadApplicationMarkup(selected, raw) {
   const facts = flowoffloadFacts(raw);
   const reported = facts.mode || "unknown";
@@ -419,6 +529,7 @@ export async function renderToggles() {
         </div>
       `).join("")}
     </div>
+    <div class="card" id="tiktok-feed-status-card" hidden></div>
     <div class="card" id="openwrt-offload-card" hidden>
       <h3>Ускорение трафика</h3>
       <p class="desc">Управление ускорением соединений через zapret2</p>
@@ -597,6 +708,7 @@ export async function renderToggles() {
     const badge = $app.querySelector("#tg-state-badge");
     if (!badge) return;
     if (errBox) { errBox.hidden = true; errBox.innerHTML = ""; }
+    renderTikTokStatus(s.tiktok_feed_status, s.toggles, s.platform);
     const flowCard = $app.querySelector("#openwrt-offload-card");
     const flowSelect = $app.querySelector("#flowoffload-mode");
     const flowState = $app.querySelector("#flowoffload-status");
@@ -937,6 +1049,13 @@ async function toggleClick(key, box) {
           const state = $app.querySelector("#fastroute-status");
           if (state) state.textContent = "Не удалось проверить состояние маршрутного кэша.";
         });
+      }
+      if (key === "tiktok_feed") {
+        apiGet("/status").then(s => {
+          if (!box.isConnected) return;
+          box.checked = s.toggles && s.toggles.tiktok_feed === "1";
+          renderTikTokStatus(s.tiktok_feed_status, s.toggles, s.platform);
+        }).catch(() => {});
       }
       if (restarts && !jobUnresolved(outcome)) setTimeout(refreshStatus, 500);
     },

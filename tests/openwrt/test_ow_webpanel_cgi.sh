@@ -261,6 +261,7 @@ _status_json_ok=$(printf '%s\n' "$OUT" | python3 -c 'import json,sys; json.load(
 assert_eq "status: valid JSON with runtime probe" "true" "$_status_json_ok"
 assert_eq "status: platform" "openwrt" "$(_jget "$OUT" 'd["platform"]')"
 assert_eq "status: TikTok feed toggle defaults off" "0" "$(_jget "$OUT" 'd["toggles"]["tiktok_feed"]')"
+assert_eq "status: TikTok diagnostics omitted while disabled" "null" "$(_jget "$OUT" 'd.get("tiktok_feed_status")')"
 assert_eq "status: panel payload compatible" "true" "$(_jget "$OUT" 'd["payload_compatible"]')"
 assert_eq "status: policy false" "false" "$(_jget "$OUT" 'd["capabilities"]["policy"]')"
 assert_eq "status: ppe false" "false" "$(_jget "$OUT" 'd["capabilities"]["ppe"]')"
@@ -745,11 +746,34 @@ for _tg in "dynamic-ttl:Z2K_DYNAMIC_TTL:1" "stats:Z2K_STATS:1" "auto-update:Z2K_
 done
 RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "TikTok feed toggle state follows the persistent config flag" "1" "$(_jget "$OUT" 'd["toggles"]["tiktok_feed"]')"
+cat > "$T/etc/state/tiktok-cdn.state" <<'EOF'
+state=healthy
+selected_ip=203.0.113.9
+latency_ms=84
+last_verified_epoch=1780550000
+failure_count=0
+selected_source_domain=www.tiktokcdn.com
+selected_mode=verified
+selected_provenance=resolver+tls
+selected_cname=edge.example.net
+last_failover_epoch=1780549900
+last_failover_from=203.0.113.8
+last_failover_to=203.0.113.9
+last_failover_reason=consecutive-probe-failures
+reason=healthy
+EOF
+RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "status: TikTok diagnostics project current state" "healthy" "$(_jget "$OUT" 'd["tiktok_feed_status"]["state"]')"
+assert_eq "status: TikTok diagnostics project selected CDN" "203.0.113.9" "$(_jget "$OUT" 'd["tiktok_feed_status"]["selected_ip"]')"
+assert_eq "status: TikTok diagnostics project source domain" "www.tiktokcdn.com" "$(_jget "$OUT" 'd["tiktok_feed_status"]["selected_source_domain"]')"
+assert_eq "status: TikTok diagnostics project failover reason" "consecutive-probe-failures" "$(_jget "$OUT" 'd["tiktok_feed_status"]["last_failover_reason"]')"
 printf 'value=0' > "$T/body.txt"
 RAW="$(_cgi POST /toggle/tiktok-feed "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 _jid="$(_jget "$OUT" 'd["job"]')"; JOB_IDS="$JOB_IDS $_jid"
 _poll_job_ok "$_jid" "toggle tiktok-feed off"
 assert_eq "TikTok feed toggle disable persists 0" "0" "$(grep -m1 '^Z2K_TIKTOK_FEED_ENABLED=' "$T/etc/config" | cut -d= -f2)"
+RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "status: TikTok diagnostics disappear when disabled" "null" "$(_jget "$OUT" 'd.get("tiktok_feed_status")')"
 printf 'value=9' > "$T/body.txt"
 RAW="$(_cgi POST /toggle/stats "" "$T/body.txt")"
 assert_eq "toggle bad value: 400" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
