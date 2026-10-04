@@ -41,6 +41,9 @@ trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 # install-time seed archive or payload/version marker is produced.
 sh "$ROOT/scripts/openwrt/stage-common-payload.sh" "$ROOT" "$STAGE" \
     || die "could not materialize the OpenWrt payload"
+python3 "$ROOT/scripts/openwrt/stamp_panel_assets.py" \
+    --root "$STAGE/usr/lib/z2k/www" --manifest "$ROOT/UPDATES.json" \
+    || die "could not stamp WebPanel assets from the controlled release manifest"
 
 # OpenWrt lifecycle and platform adapters are part of the same release tree.
 mkdir -p "$STAGE/usr/lib/z2k/platform/openwrt" "$STAGE/usr/lib/z2k/share"

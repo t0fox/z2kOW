@@ -40,20 +40,47 @@ else
        "в scripts/gen_file_hashes.sh нет дописывания в changed_files — грабли вернутся"
 fi
 
-# UPDATES.json is the only release source of truth. A test baseline may record
-# a previous commit for history checks, but must not override the controlled
-# release version when checking the panel cache-buster.
+# UPDATES.json is the only release source of truth. Cache-busters are rendered
+# into the staged payload from its controlled current tag; the branded source
+# WebPanel must remain untouched when preparing a release candidate.
 _manifest="$(cat "$ROOT/UPDATES.json")"
 
-# 2) Кеш-бастер в index.html совпадает с current payload. Если разошлись —
-#    генератор не запускали после смены версии, и людям уедет старый кеш.
+# 2) Stage a temporary copy of the panel at the selected release version. This
+#    also covers candidate versions newer than the source checkout's manifest.
 cur="$(printf '%s\n' "$_manifest" | sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
-idx=$(sed -n 's/.*app\.js?v=\([A-Za-z0-9._-]*\)".*/\1/p' "$IDX" | head -1)
 candidate="${Z2K_RELEASE_CANDIDATE_VERSION:-$cur}"
-if [ -n "$candidate" ] && [ "$candidate" = "$idx" ]; then
-    ok "кеш-бастер панели совпадает с release candidate ($candidate)"
+if [ -n "$candidate" ] && printf '%s' "$candidate" | grep -Eq '^[pr]-[0-9]+(\.[0-9]+)+$'; then
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/z2k-cachebuster.XXXXXX")" || exit 1
+    trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+    mkdir -p "$tmp/www"
+    cp -R "$ROOT/webpanel/www/." "$tmp/www/"
+    printf '{"current":"%s"}\n' "$candidate" > "$tmp/UPDATES.json"
+    if python3 "$ROOT/scripts/openwrt/stamp_panel_assets.py" --root "$tmp/www" --manifest "$tmp/UPDATES.json" \
+        && python3 - "$tmp/www" "$candidate" <<'PY'
+import pathlib
+import re
+import sys
+
+root, expected = pathlib.Path(sys.argv[1]), sys.argv[2].encode()
+count = 0
+for path in root.rglob("*"):
+    if path.suffix not in {".html", ".js", ".css"}:
+        continue
+    data = path.read_bytes()
+    versions = re.findall(rb"[?&]v=([pr]-[0-9]+(?:\.[0-9]+)+)", data)
+    if versions and any(version != expected for version in versions):
+        raise SystemExit(f"stale asset version in {path}")
+    count += len(versions)
+if count < 6:
+    raise SystemExit(f"expected panel asset references in staged tree, found {count}")
+PY
+    then
+        ok "staged panel cache-busters match release candidate ($candidate)"
+    else
+        no "staged panel cache-busters match release candidate" "stamp failed or staged assets still use an old tag"
+    fi
 else
-    no "кеш-бастер панели совпадает с release candidate" "candidate=$candidate (manifest current=$cur), в index.html=$idx — запустить scripts/gen_file_hashes.sh"
+    no "staged panel cache-busters match release candidate" "invalid candidate=$candidate (manifest current=$cur)"
 fi
 
 # 3) index.html объявлен в changed_files последней записи. Пропускаем, если он

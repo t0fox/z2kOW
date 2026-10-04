@@ -86,7 +86,7 @@ run_capture -4
 unset Z2K_NET_CLASS
 
 # The parser accepts only default spellings, rejects annotations for other
-# tables, accepts explicit main/254, and filters lo/bridge devices.
+# tables, accepts explicit main/254, excludes lo, and accepts WAN bridges.
 clear_ip
 cat > "$TMP/main4" <<'EOF'
 0.0.0.0/0 dev wan0 table main
@@ -100,7 +100,25 @@ mkdir -p "$TMP/net/br7/bridge"
 Z2K_NET_CLASS="$TMP/net"; export Z2K_NET_CLASS
 IP_4_main_FILE="$TMP/main4"; export IP_4_main_FILE
 run_capture -4
-[ "$STATUS:$RESULT" = '0:wan0 wan1' ] && ok 'default spellings and main annotations are filtered exactly' || no 'main annotations' '0:wan0 wan1' "$STATUS:$RESULT"
+[ "$STATUS:$RESULT" = '0:wan0 wan1 br7' ] && ok 'main/254 WAN bridge defaults are accepted while lo/policy routes are excluded' || no 'main annotations' '0:wan0 wan1 br7' "$STATUS:$RESULT"
+unset Z2K_NET_CLASS
+
+# Upstream issue fix: a bridge carrying a main default route is a WAN. Multiple
+# policy defaults on that same bridge do not change the main-route decision;
+# a connected-only LAN bridge is never discovered as a WAN.
+clear_ip
+cat > "$TMP/main4" <<'EOF'
+default via 192.0.2.1 dev br2 table 4096
+default via 192.0.2.1 dev br2 table 16394
+default via 192.0.2.1 dev br2 metric 1000
+default dev lan-policy table 12000
+192.168.1.0/24 dev br0 scope link
+EOF
+mkdir -p "$TMP/net/br2/bridge"
+Z2K_NET_CLASS="$TMP/net"; export Z2K_NET_CLASS
+IP_4_main_FILE="$TMP/main4"; export IP_4_main_FILE
+run_capture -4
+[ "$STATUS:$RESULT" = '0:br2' ] && ok 'upstream bridge WAN regression: main default accepted, policy-only and connected routes excluded' || no 'bridge WAN regression' '0:br2' "$STATUS:$RESULT"
 unset Z2K_NET_CLASS
 
 # ECMP works in both iproute2 layouts. A dead/linkdown hop is suppressed without

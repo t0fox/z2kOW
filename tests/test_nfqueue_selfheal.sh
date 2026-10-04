@@ -106,6 +106,7 @@ run() {  # env: NFQ, NFQ6 (def NFQ), PIDOF_OK, ROUTE_OK (v4 def 1), ROUTE6_OK (v
         ROUTE4_FAIL="${ROUTE4_FAIL:-0}" ROUTE6_FAIL="${ROUTE6_FAIL:-0}" \
         ROUTE4_MAIN_FILE="${ROUTE4_MAIN_FILE:-}" ROUTE4_DEFAULT_FILE="${ROUTE4_DEFAULT_FILE:-}" \
         ROUTE6_MAIN_FILE="${ROUTE6_MAIN_FILE:-}" ROUTE6_DEFAULT_FILE="${ROUTE6_DEFAULT_FILE:-}" \
+        Z2K_NET_CLASS="${Z2K_NET_CLASS:-/sys/class/net}" \
         REPAIR_MARKER="${REPAIR_MARKER:-}" \
         PATH="$BIN:/opt/sbin:/opt/bin:$PATH" \
         INIT_SCRIPT="$INIT" ZAPRET_CONFIG="$CFG" Z2K_WAN_LIB="$HERE/lib/wan.sh" \
@@ -120,7 +121,7 @@ count() { wc -l < "$CNT" | tr -d ' '; }
 # Hermetic: a var-assignment PREFIX on a function call persists in the shell
 # (POSIX behaviour) — e.g. `IPT_FAIL=1 run` would leak into the next test. Clear
 # every toggle so each case starts from run()'s documented defaults.
-reset() { : > "$CNT"; rm -rf "$LOCK"; rm -f "$LAST"; rm -f "$LOG" "$TMP/repaired"; unset NFQ NFQ6 RULES PIDOF_OK ROUTE_OK ROUTE6_OK ROUTE4_FAIL ROUTE6_FAIL ROUTE4_MAIN_FILE ROUTE4_DEFAULT_FILE ROUTE6_MAIN_FILE ROUTE6_DEFAULT_FILE REPAIR_MARKER IPT_FAIL MI LS CS; }
+reset() { : > "$CNT"; rm -rf "$LOCK"; rm -f "$LAST"; rm -f "$LOG" "$TMP/repaired"; unset NFQ NFQ6 RULES PIDOF_OK ROUTE_OK ROUTE6_OK ROUTE4_FAIL ROUTE6_FAIL ROUTE4_MAIN_FILE ROUTE4_DEFAULT_FILE ROUTE6_MAIN_FILE ROUTE6_DEFAULT_FILE Z2K_NET_CLASS REPAIR_MARKER IPT_FAIL MI LS CS; }
 
 # --- 1) the bug condition: nfqws2 up, WAN up, enabled, 0 NFQUEUE -> restart_fw
 reset; NFQ=0 PIDOF_OK=1 ROUTE_OK=1 run
@@ -138,6 +139,15 @@ n=$(count); [ "$n" = "0" ] && ok "nfqws2 down -> no restart_fw" || no "nfqws2 do
 # --- 4) WAN down (no route, no WAN_IFACE) -> no-op (avoid restart storm) ---
 reset; NFQ=0 PIDOF_OK=1 ROUTE_OK=0 run
 n=$(count); [ "$n" = "0" ] && ok "WAN down -> no restart_fw" || no "WAN down noop" "0" "$n"
+
+# OpenWrt's procd self-heal uses the same common WAN probe. A routed bridge is
+# a real WAN; a connected-only LAN bridge is not.
+reset; mkdir -p "$TMP/net/br7/bridge"; printf 'default via 192.0.2.1 dev br7\n' > "$TMP/route4-bridge"
+NFQ=0 PIDOF_OK=1 ROUTE_OK=0 ROUTE4_MAIN_FILE="$TMP/route4-bridge" Z2K_NET_CLASS="$TMP/net" run
+n=$(count); [ "$n" = "1" ] && ok "main default on OpenWrt bridge WAN -> self-heal fires" || no "bridge WAN self-heal" "1" "$n"
+reset; mkdir -p "$TMP/net/br7/bridge"; printf '192.168.1.0/24 dev br7 scope link\n' > "$TMP/route4-connected"
+NFQ=0 PIDOF_OK=1 ROUTE_OK=0 ROUTE4_MAIN_FILE="$TMP/route4-connected" Z2K_NET_CLASS="$TMP/net" run
+n=$(count); [ "$n" = "0" ] && ok "connected-only OpenWrt LAN bridge -> self-heal stays idle" || no "connected bridge self-heal" "0" "$n"
 
 # --- 5) WAN_IFACE in config satisfies WAN even with no default route -------
 reset; printf 'ENABLED=1\nWAN_IFACE=ppp0\n' > "$CFG"

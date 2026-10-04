@@ -57,6 +57,18 @@ mkdir -p "$T/stage"
 sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$T/stage" "$T/runtime.tar.gz" \
     "$T/warpd" "$T/tg" "$T/rt" "$T/detect" "$T/release-keys" || exit 1
 tar -czf "$T/openwrt-rootfs.tar.gz" -C "$T/stage" . || exit 1
+_release_tag=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["current"])' "$ROOT/UPDATES.json")
+_tar_index=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/www/index.html)
+printf '%s\n' "$_tar_index" | grep -Fq "app.js?v=$_release_tag" \
+    && _t_ok || _t_bad "final payload WebPanel index uses the controlled release cache-buster"
+_tar_app=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/www/app.js)
+printf '%s\n' "$_tar_app" | grep -Fq "identity.js?v=$_release_tag" \
+    && _t_ok || _t_bad "final payload WebPanel scripts use the controlled release cache-buster"
+printf '%s\n' "$_tar_index" | grep -Fq 'id="brand-profile-theme"' \
+    && _t_ok || _t_bad "final payload retains the branded WebPanel source while stamping cache-busters"
+_tar_wan=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/lib/wan.sh)
+printf '%s\n' "$_tar_wan" | grep -Fq 'lo) return 0 ;;' \
+    && _t_ok || _t_bad "final payload ships shared WAN discovery that accepts routed bridges"
 _diag_mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
     | awk '$NF ~ /platform\/openwrt\/diag\.sh$/ { print $1 }')
 assert_eq "final release tarball keeps the OpenWrt diagnostics adapter executable" \

@@ -20,7 +20,7 @@ Status meanings:
 | Persistent user data | Config, custom lists, strategy state, and device data survive release replacement according to upstream rules. | Persistent data is kept under `/etc/z2k`; release-owned payload lives under `/usr/lib/z2k`. | ADAPTED |
 | Config and strategies | Upstream config/strategy engine generates nfqws2 runtime behavior. | Common generator and strategy code is reused with OpenWrt path/service adapters. | PARITY |
 | Core lifecycle | Keenetic init/watchdog owns the service. | procd owns OpenWrt service lifecycle. | ADAPTED |
-| Firewall / WAN events | Keenetic uses NDM, iptables/ipset, and device policy APIs. | OpenWrt uses fw4/nftables, netifd/ubus/UCI, and hotplug. | ADAPTED |
+| Firewall / WAN events | Keenetic uses NDM, iptables/ipset, and device policy APIs; automatic WAN discovery accepts any interface with a main-table default except `lo`, including routed bridges. | OpenWrt uses fw4/nftables, netifd/ubus/UCI, and hotplug; firewall and self-heal consume the shared main-route WAN probe, which accepts routed bridges and ignores policy-only/connected routes. | ADAPTED |
 | Scheduled maintenance | Upstream schedules updates, list refresh, TCP16, telemetry, and feature maintenance. | OpenWrt cron adapter owns equivalent scheduled jobs. | ADAPTED |
 | Main list refresh | Upstream geosite/list helpers refresh managed domain data. | Common list/geosite logic is shipped with OpenWrt path and service adapters. | ADAPTED |
 | Strategy telemetry | Upstream uploader is controlled by `Z2K_STATS`. | Common uploader is scheduled through the OpenWrt scheduler with OpenWrt paths. | ADAPTED |
@@ -37,3 +37,16 @@ Status meanings:
 | Keenetic policy / NDM-only controls | Upstream can use Keenetic device-policy APIs that do not exist on OpenWrt. | No fake equivalent is exposed when OpenWrt has no meaningful owner for the capability. | N/A |
 
 Update this table when upstream behavior changes or an OpenWrt gap is closed. Do not add test-run counts or temporary acceptance notes here.
+
+## p-86.14 sync review
+
+- z2kOW base: `10f6940b51f66b9450ade16c673c030dcd084d95`.
+- Upstream base: `7f630a9d459052b9c9c9eded06298f1b8f7f0a22`.
+- Upstream target: `p-86.14`, seq `137`, commit `5e058c1c3944e0f0362cf9665b84108fc6e9b3dc`.
+- Live `z2k-enhanced/UPDATES.json` and the peeled `p-86.14` tag were checked before implementation; both identify p-86.14/137 and the tag commit above.
+
+| Material upstream change | Disposition | z2kOW implementation | Evidence |
+|---|---|---|---|
+| `lib/wan.sh`: a main-table default on a bridge is a WAN; only `lo` is excluded; policy-only routes remain excluded. | A — portable common behavior | Kept the common route parser and removed bridge-name/sysfs exclusions. The same helper is used by firewall WAN selection and OpenWrt NFQUEUE self-heal. | `tests/test_wan_detect.sh`; `tests/test_nfqueue_selfheal.sh`; final rootfs staging check. |
+| `webpanel/www/index.html`: release cache-buster moves with the upstream release. | B — preserve branded source, adapt release staging | Keep the local branded panel source intact. Stamp staged HTML/JS/CSS asset URLs from the controlled root `UPDATES.json` during the one rootfs build. No separate manifest or payload version is introduced. | `tests/test_cachebuster_declared.sh` with candidate p-86.14; `tests/openwrt/test_ow_stage_rootfs.sh` against the final tarball. |
+| Upstream `UPDATES.json` and signature advance to p-86.14/137. | B — controlled release metadata | The trusted `upstream-release` pipeline derives one controlled manifest from the pinned upstream manifest and commit, then signs/publishes it; repository production `UPDATES.json` remains unchanged until that workflow publishes successfully. | `tests/openwrt/test_ow_release_workflow.py`; trusted workflow live/pinned source checks. |

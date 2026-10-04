@@ -2,15 +2,13 @@
 # Shared WAN discovery for the firewall and its periodic repair. Read-only:
 # never change provider priorities, policy rules or the user's WAN_IFACE.
 # The main routing table is the automatic-discovery boundary: a device with a
-# main default is selected even if its name resembles a VPN. Policy-only routes
-# stay outside automatic discovery; WAN_IFACE can select any device explicitly.
+# main default is selected even if it is a bridge or resembles a VPN. Policy-only
+# routes stay outside automatic discovery; WAN_IFACE can select any device.
 # Do not query link netlink: it can hang on an unhealthy driver (issue #18).
 z2k_wan_auto_excluded() {
-    local dev="$1" sys="${Z2K_NET_CLASS:-/sys/class/net}"
-    case "$dev" in
-        lo|br[0-9]*) return 0 ;;
+    case "$1" in
+        lo) return 0 ;;
     esac
-    [ ! -d "$sys/$dev/bridge" ] || return 0
     return 1
 }
 
