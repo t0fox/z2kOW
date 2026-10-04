@@ -215,18 +215,29 @@ jobs:
             printf '\nZ2KOW_PUBLICATION_PLAN\n'
           } >> "$GITHUB_OUTPUT"
 
-  ci:
+  verify-source-ci:
     if: (inputs.operation == 'upstream-release' || inputs.operation == 'hotfix') && github.ref == 'refs/heads/main' && inputs.candidate_run_id == ''
     needs: validate-release
-    uses: ./.github/workflows/ci.yml
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
+      actions: read
       contents: read
-    with:
-      openwrt_candidate_version: ${{ needs.validate-release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify successful normal CI run for this exact main push SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/openwrt/verify_source_ci.py
 
   prepare-release:
     if: (inputs.operation == 'upstream-release' || inputs.operation == 'hotfix') && github.ref == 'refs/heads/main' && inputs.candidate_run_id == ''
-    needs: [validate-release, ci]
+    needs: [validate-release, verify-source-ci]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -408,9 +419,8 @@ jobs:
           conclusions = {job.get("name"): job.get("conclusion") for job in jobs}
           if conclusions.get("validate-release") != "success" or conclusions.get("prepare-release") != "success":
               raise SystemExit("candidate run did not pass upstream validation and candidate preparation")
-          ci_jobs = [job for job in jobs if (job.get("name") or "").startswith("ci / ")]
-          if not ci_jobs or any(job.get("conclusion") != "success" for job in ci_jobs):
-              raise SystemExit("candidate run did not pass every required CI job")
+          if conclusions.get("verify-source-ci") != "success":
+              raise SystemExit("candidate run did not verify successful CI for its exact source SHA")
           if conclusions.get("publish-release") != "failure":
               raise SystemExit("candidate run did not fail only at publish-release")
           unexpected = [

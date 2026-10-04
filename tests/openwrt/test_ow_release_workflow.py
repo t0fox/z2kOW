@@ -23,7 +23,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn('default: p-86.13', workflow)
         self.assertIn("refs/heads/main", workflow)
         self.assertIn("workflow_call:", ci)
-        self.assertIn("uses: ./.github/workflows/ci.yml", workflow)
+        self.assertNotIn("uses: ./.github/workflows/ci.yml", workflow)
+        self.assertIn("verify-source-ci:", workflow)
+        self.assertIn("actions: read", workflow)
+        self.assertIn("scripts/openwrt/verify_source_ci.py", workflow)
 
     def test_production_signing_is_environment_gated_and_never_artifacted_as_plaintext(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
@@ -42,8 +45,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_prepare_outputs_are_wired_into_sign_and_publish_jobs(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
-        validate = workflow.split("  validate-release:", 1)[1].split("  ci:", 1)[0]
-        ci = workflow.split("  ci:", 1)[1].split("  prepare-release:", 1)[0]
+        validate = workflow.split("  validate-release:", 1)[1].split("  verify-source-ci:", 1)[0]
+        verify_ci = workflow.split("  verify-source-ci:", 1)[1].split("  prepare-release:", 1)[0]
         prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
         publish = workflow.split("  publish-release:", 1)[1]
         self.assertIn("steps.validate.outputs.tag", validate)
@@ -51,8 +54,9 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("steps.validate.outputs.key_id", validate)
         self.assertIn("steps.validate.outputs.upstream_commit", validate)
         self.assertIn("id: validate", validate)
-        self.assertIn("needs: validate-release", ci)
-        self.assertIn("needs: [validate-release, ci]", prepare)
+        self.assertIn("needs: validate-release", verify_ci)
+        self.assertIn("actions: read", verify_ci)
+        self.assertIn("needs: [validate-release, verify-source-ci]", prepare)
         self.assertIn("needs: [validate-release, prepare-release]", publish)
         self.assertIn("needs.validate-release.outputs.tag", publish)
         self.assertIn("needs.validate-release.outputs.seq", publish)
@@ -149,17 +153,18 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_publish_can_reuse_the_previously_approved_candidate_without_rerunning_ci(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
-        ci = workflow.split("  ci:", 1)[1].split("  prepare-release:", 1)[0]
+        verify_ci = workflow.split("  verify-source-ci:", 1)[1].split("  prepare-release:", 1)[0]
         prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
         publish = workflow.split("  publish-release:", 1)[1]
 
         self.assertIn("retry-publish", workflow)
         self.assertIn("candidate_run_id", workflow)
-        self.assertNotIn("retry-publish", ci)
+        self.assertNotIn("retry-publish", verify_ci)
         self.assertNotIn("retry-publish", prepare)
         self.assertIn("always()", publish)
         self.assertIn("run-id:", publish)
         self.assertIn("actions/runs/$CANDIDATE_RUN_ID/jobs", publish)
+        self.assertIn('conclusions.get("verify-source-ci") != "success"', publish)
 
 
 if __name__ == "__main__":
