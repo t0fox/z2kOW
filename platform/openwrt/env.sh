@@ -173,6 +173,10 @@ export Z2K_HOSTLIST_EXCLUDE_EXTRA
 # byte-for-byte unchanged.
 Z2K_DIAG_HOOK="${Z2K_DIAG_HOOK:-$Z2K_ADAPTER_DIR/diag.sh}"
 export Z2K_DIAG_HOOK
+Z2K_DIAG_LOGS="${Z2K_DIAG_LOGS:-$Z2K_AU_LOG_FILE $Z2K_LOG/z2k-update-lists.log $Z2K_LOG/z2k-warp-games.log $Z2K_LOG/tcp16-probe.log /tmp/z2k-log/tg-tunnel.log /tmp/z2k-log/z2k-rt-proxy.log /tmp/z2k-log/z2k-http-tunnel.log /tmp/z2k-log/z2k-webpanel-error.log $Z2K_TMP/warp/warpd.log}"
+Z2K_DIAG_STARTUP_LOG="${Z2K_DIAG_STARTUP_LOG:-$Z2K_AU_LOG_FILE}"
+Z2K_DIAG_TUNNEL_LOG="${Z2K_DIAG_TUNNEL_LOG:-/tmp/z2k-log/tg-tunnel.log}"
+export Z2K_DIAG_LOGS Z2K_DIAG_STARTUP_LOG Z2K_DIAG_TUNNEL_LOG
 
 # Shared one-shot consumer predicate.  service_started wraps this in the
 # existing bounded wait; health/recovery callers use it once.  The PID and

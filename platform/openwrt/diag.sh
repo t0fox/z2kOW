@@ -212,7 +212,8 @@ print_tunnel() {
 }
 
 print_warp() {
-    local on bin transport endpoint ready err state _adapter
+    local on bin transport endpoint ready err state _adapter _status _route_ready _iface _reason
+    local _edge_colo _edge_country _edge_rtt _edge_selection
     _adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
     if [ -r "$_adapter/arch.sh" ]; then
         . "$_adapter/arch.sh"
@@ -251,6 +252,54 @@ print_warp() {
             printf 'state             : %s\n' "$state"
             printf 'status            : ready=%s transport=%s endpoint=%s\n' "$ready" "$transport" "$endpoint"
             [ -n "$err" ] && printf 'error             : %s\n' "$err"
+            if [ -r "$_adapter/warp.sh" ]; then
+                # Use the same read-only predicates as the status API. This
+                # distinguishes an established tunnel from proven OpenWrt PBR.
+                Z2K_WARP_SOURCE_ONLY=1
+                if . "$_adapter/warp.sh" 2>/dev/null; then
+                    unset Z2K_WARP_SOURCE_ONLY
+                    _status="$(warp_status 2>/dev/null)"
+                    _route_ready=$(printf '%s\n' "$_status" | sed -n 's/.* route_ready=\([^ ]*\).*/\1/p')
+                    [ -n "$_route_ready" ] || _route_ready=unavailable
+                    _edge_colo=$(printf '%s\n' "$_status" | sed -n 's/.* edge_colo=\([^ ]*\).*/\1/p')
+                    _edge_country=$(printf '%s\n' "$_status" | sed -n 's/.* edge_country=\([^ ]*\).*/\1/p')
+                    _edge_rtt=$(printf '%s\n' "$_status" | sed -n 's/.* edge_rtt_ms=\([^ ]*\).*/\1/p')
+                    _edge_selection=$(printf '%s\n' "$_status" | sed -n 's/.* edge_selection=\([^ ]*\).*/\1/p')
+                    [ -n "$_edge_colo" ] || _edge_colo=unavailable
+                    [ -n "$_edge_country" ] || _edge_country=unavailable
+                    case "$_edge_rtt" in ''|0) _edge_rtt=unavailable ;; esac
+                    [ -n "$_edge_selection" ] || _edge_selection=unavailable
+                    printf 'route_ready       : %s\n' "$_route_ready"
+                    if [ "$_route_ready" = 1 ]; then
+                        _reason=confirmed
+                    elif [ "$ready" != true ]; then
+                        _reason='transport proof incomplete'
+                    else
+                        _iface="$(_warp_live_iface)"
+                        if ! _warp_proven_ready; then
+                            _reason='live tunnel process or interface is not proven'
+                        elif ! warp_nft_tun_verify "$_iface" >/dev/null 2>&1; then
+                            _reason='nft/tun rules absent or inconsistent'
+                        elif ! warp_pbr_verify >/dev/null 2>&1; then
+                            _reason='policy route/rules absent, duplicated, or inconsistent'
+                        elif ! warp_pbr_owner_verify "$_iface" >/dev/null 2>&1; then
+                            _reason='OpenWrt route ownership record absent or inconsistent'
+                        else
+                            _reason='route status changed during diagnostic probe'
+                        fi
+                    fi
+                    printf 'routing reason   : %s\n' "$_reason"
+                    printf 'edge             : colo=%s country=%s rtt_ms=%s selection=%s\n' \
+                        "$_edge_colo" "$_edge_country" "$_edge_rtt" "$_edge_selection"
+                else
+                    unset Z2K_WARP_SOURCE_ONLY
+                    printf 'route_ready       : unavailable\n'
+                    printf 'routing reason   : OpenWrt WARP probe could not be loaded\n'
+                fi
+            else
+                printf 'route_ready       : unavailable\n'
+                printf 'routing reason   : OpenWrt WARP probe is unavailable\n'
+            fi
             ;;
         *)
             printf 'mode              : unknown\n'

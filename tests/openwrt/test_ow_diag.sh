@@ -67,4 +67,21 @@ printf '%s\n' "$_diag_json" > "$T/diag.json"
 assert_contains "JSON diagnostics includes only installed release version" "$T/diag.json" '"version":"p-86.11"'
 assert_not_contains "JSON diagnostics has no secondary version axes" "$T/diag.json" '"(engine|build|product)"'
 
+# The common log scanner must read the OpenWrt updater's actual log location.
+mkdir -p "$T/log" "$T/tmp"
+_today=$(date '+%Y-%m-%d')
+printf '%s 12:00:00 FAIL: warp games index unavailable — keeping current lists\n' "$_today" \
+    > "$T/log/z2k-warp-games.log"
+_diag_full=$(Z2K_PLATFORM=openwrt Z2K_ROOT="$REPO" Z2K_ETC="$T/etc/z2k" \
+    Z2K_STATE="$T/etc/z2k/state" Z2K_TMP="$T/tmp" Z2K_LOG="$T/log" \
+    Z2K_DIAG_LOGS="$T/log/z2k-warp-games.log" \
+    Z2K_DIAG_STARTUP_LOG="$T/log/z2k-warp-games.log" \
+    Z2K_DIAG_TUNNEL_LOG="$T/log/z2k-warp-games.log" \
+    ZAPRET2_DIR="$T/root" sh "$DIAG" --full 2>/dev/null)
+printf '%s\n' "$_diag_full" > "$T/diag-full.txt"
+assert_contains "OpenWrt diag sees the actual WARP game-list failure" "$T/diag-full.txt" \
+    'FAIL: warp games index unavailable'
+assert_contains "OpenWrt diag identifies the native WARP log" "$T/diag-full.txt" \
+    'z2k-warp-games.log'
+
 _t_done

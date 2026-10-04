@@ -873,6 +873,28 @@ z2k_ow_install_lock_release() {
     rmdir "$_lock" 2>/dev/null
 }
 
+# The OpenWrt canonical installer does not pass through the Keenetic installer
+# that seeds per-game WARP lists. Start the shared updater after successful
+# convergence when that feed is empty; feed availability cannot affect release
+# health or rollback.
+z2k_ow_seed_warp_games() {
+    [ "${Z2K_OW_TESTING:-0}" != 1 ] || return 0
+    local _root="${Z2K_ROOT:-/usr/lib/z2k}" _games="${Z2K_ROOT:-/usr/lib/z2k}/lists/warp/games"
+    local _updater="${Z2K_ROOT:-/usr/lib/z2k}/z2k-update-lists.sh" _file
+    [ -x "$_updater" ] || return 0
+    for _file in "$_games"/*.txt; do
+        [ -s "$_file" ] && return 0
+    done
+    (
+        export ZAPRET2_DIR="$_root"
+        export CONFIG_FILE="${Z2K_CONFIG:-/etc/z2k/config}"
+        export Z2K_WARP_IPSET_SCRIPT="${Z2K_ADAPTER_DIR:-$_root/platform/openwrt}/warp.sh"
+        export LOG_FILE="${Z2K_LOG:-/tmp/z2k/logs}/z2k-warp-games.log"
+        sh "$_updater" warp-games
+    ) </dev/null >/dev/null 2>&1 &
+    return 0
+}
+
 # Public convergence entry point used by both fresh install and every update.
 z2k_ow_install_release() {
     local _lock _rc
@@ -887,5 +909,6 @@ z2k_ow_install_release() {
         echo "z2k-openwrt: could not release installer lock $_lock" >&2
         [ "$_rc" -ne 0 ] || _rc=1
     }
+    [ "$_rc" -ne 0 ] || z2k_ow_seed_warp_games
     return "$_rc"
 }

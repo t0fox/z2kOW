@@ -2029,12 +2029,14 @@ fi
 # ровно в них лежит причина двух самых частых обращений: «панель не открывается»
 # и «детектор молчит». Отсутствующие файлы пропускаются сами ([ -r ]), так что
 # лишних строк на роутере без этих подсистем не будет.
-Z2K_DIAG_LOGS="/opt/var/log/z2k-auto-update.log /opt/var/log/z2k-scheduler.log
+Z2K_DIAG_LOGS="${Z2K_DIAG_LOGS:-/opt/var/log/z2k-auto-update.log /opt/var/log/z2k-scheduler.log
 /opt/zapret2/update-lists.log /tmp/z2k-log/tg-tunnel.log
 /tmp/z2k-warp/warpd.log /tmp/z2k-log/z2k-rt-proxy.log /tmp/z2k-log/z2k-http-tunnel.log
 /tmp/z2k-log/z2k-insta-refresh.log /tmp/z2k-log/z2k-webpanel-error.log
 /tmp/z2k-log/z2k-webpanel-sup.log /tmp/z2k-log/z2k-webpanel-startcheck.log
-/tmp/z2k-log/z2k-webpanel-wait.log"
+/tmp/z2k-log/z2k-webpanel-wait.log}"
+Z2K_DIAG_STARTUP_LOG="${Z2K_DIAG_STARTUP_LOG:-/opt/var/log/z2k-auto-update.log}"
+Z2K_DIAG_TUNNEL_LOG="${Z2K_DIAG_TUNNEL_LOG:-/tmp/z2k-log/tg-tunnel.log}"
 
 print_logs() {
     printf '\n=== errors across all logs ===\n'
@@ -2142,17 +2144,17 @@ _print_log_tails() {
     # Хвосты урезаны с 15/10: раньше они были единственным содержимым секции, а
     # теперь ошибки вытащены отдельно выше, и хвост нужен лишь как контекст
     # «что происходило вокруг». Сводка обязана влезать в одно сообщение.
-    printf '\n=== z2k-auto-update.log (last %s) ===\n' "$TAIL_STARTUP"
-    short_tail /opt/var/log/z2k-auto-update.log "$TAIL_STARTUP"
+    printf '\n=== %s (last %s) ===\n' "${Z2K_DIAG_STARTUP_LOG##*/}" "$TAIL_STARTUP"
+    short_tail "$Z2K_DIAG_STARTUP_LOG" "$TAIL_STARTUP"
 
-    printf '\n=== tg-tunnel.log (last %s) ===\n' "$TAIL_TUNNEL"
-    short_tail /tmp/z2k-log/tg-tunnel.log "$TAIL_TUNNEL"
+    printf '\n=== %s (last %s) ===\n' "${Z2K_DIAG_TUNNEL_LOG##*/}" "$TAIL_TUNNEL"
+    short_tail "$Z2K_DIAG_TUNNEL_LOG" "$TAIL_TUNNEL"
 
     # В файловом отчёте добавляем и остальные логи целиком-ish. На экране их нет:
     # там они только раздули бы сводку, а ошибки из них уже показаны выше.
     if [ "$TAIL_OTHERS" -gt 0 ]; then
         for f in $Z2K_DIAG_LOGS; do
-            case "$f" in /opt/var/log/z2k-auto-update.log|/tmp/z2k-log/tg-tunnel.log) continue ;; esac
+            case "$f" in "$Z2K_DIAG_STARTUP_LOG"|"$Z2K_DIAG_TUNNEL_LOG") continue ;; esac
             [ -r "$f" ] || continue
             printf '\n=== %s (last %s) ===\n' "$f" "$TAIL_OTHERS"
             short_tail "$f" "$TAIL_OTHERS"

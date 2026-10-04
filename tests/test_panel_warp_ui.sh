@@ -44,6 +44,7 @@ assert_eq "UI names recovery state" "1" "$(count 'соединение поте�
 
 if command -v node >/dev/null 2>&1; then
     JS=$(sh "$ROOT/tests/lib/panel_js.sh")
+    node "$ROOT/tests/test_warp_empty_games_ui.js" "$JS" || FAIL=$((FAIL + 1))
     for mock in installed uninstalled; do
         out=$(Z2K_WARP_MOCK="$mock" node "$ROOT/tests/panel_harness.js" "$JS" warp 2>&1)
         if printf '%s\n' "$out" | grep -q 'ok  *#/warp$'; then ok "раздел #/warp отрисовался ($mock)"

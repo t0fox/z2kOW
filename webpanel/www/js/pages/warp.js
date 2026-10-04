@@ -31,6 +31,7 @@ let _warpJob = null;
 let _warpJobTitle = "";
 let _warpReqs = 0;          // запросы, ещё не получившие id задачи
 let _warpPoll = null;       // перечитывание статуса, пока действие идёт
+let _warpGamesRetry = null; // ожидание первичной загрузки игровых списков
 
 function warpReqBegin() { _warpReqs++; }
 function warpReqEnd() { _warpReqs = Math.max(0, _warpReqs - 1); }
@@ -266,7 +267,7 @@ export async function renderWarp() {
     document.getElementById("warp-editor-card").hidden = true;
   });
   loadWarpStatus();
-  loadWarpGames();
+  loadWarpGames().then(scheduleWarpGamesRetry);
   loadWarpLists();
   loadWarpNeighbors();
   loadWarpDevices();
@@ -354,11 +355,8 @@ async function loadWarpGames() {
   if (_stale("warpGames", seq)) return;
   const games = (d && d.games) || [];
   if (!games.length) {
-    // Lists are pulled during the update itself, so being here means that
-    // fetch did not get through — not that the user has to wait a day.
-    host.innerHTML = `<p class="desc">Списки не загрузились — источник был недоступен.
-      Они подтянутся при следующем обновлении списков; свои адреса можно добавить
-      ниже уже сейчас.</p>`;
+    host.innerHTML = `<p class="desc">Игровые списки пока не загружены.
+      Панель проверит их снова автоматически; свои адреса можно добавить ниже.</p>`;
     return;
   }
   const on = games.filter(g => g.enabled === 1 || g.enabled === "1").length;
@@ -380,6 +378,26 @@ async function loadWarpGames() {
   host.querySelectorAll("[data-game] input").forEach(box => {
     box.addEventListener("change", () => warpGameToggle(box));
   });
+}
+
+function scheduleWarpGamesRetry() {
+  const host = document.getElementById("warp-games");
+  if (!host || host.querySelector("[data-game]")) return;
+  clearInterval(_warpGamesRetry);
+  _warpGamesRetry = setInterval(async () => {
+    const current = document.getElementById("warp-games");
+    if (!current || current.querySelector("[data-game]")) {
+      clearInterval(_warpGamesRetry);
+      _warpGamesRetry = null;
+      return;
+    }
+    await loadWarpGames();
+    const updated = document.getElementById("warp-games");
+    if (!updated || updated.querySelector("[data-game]")) {
+      clearInterval(_warpGamesRetry);
+      _warpGamesRetry = null;
+    }
+  }, 60000);
 }
 
 async function warpGameToggle(box) {
