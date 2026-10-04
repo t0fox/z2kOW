@@ -161,6 +161,13 @@ class PublicationPolicyTests(unittest.TestCase):
         self.assertIn('--title "$TECHNICAL_TITLE"', publisher)
         self.assertIn("--latest\n", publisher)
 
+    def test_latest_status_uses_a_supported_release_cli_field(self) -> None:
+        publisher = (ROOT / "scripts/openwrt/publish_release.sh").read_text(encoding="utf-8")
+        read_state = publisher.split("read_release_state()", 1)[1].split("check_existing_tag_target()", 1)[0]
+        self.assertIn("gh release list --limit 1000 --json tagName,isLatest", read_state)
+        self.assertNotRegex(read_state, r"gh release view .*?--json[^\n]*isLatest")
+        self.assertIn('record["isLatest"] = matches[0]["isLatest"]', read_state)
+
     def test_technical_release_tag_uses_the_exact_full_source_sha(self) -> None:
         self.assertEqual(MODULE.technical_release_tag(SOURCE_B), f"openwrt-{SOURCE_B}")
         with self.assertRaisesRegex(ValueError, "full lowercase SHA"):

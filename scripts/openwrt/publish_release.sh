@@ -56,8 +56,24 @@ release_exists() {
 
 read_release_state() {
     local tag="$1" title="$2" target="$3" prerelease="$4" latest="$5" notes="$6" record="$7"
+    local release_list="${record}.releases"
     gh release view "$tag" \
-        --json tagName,name,targetCommitish,isDraft,isPrerelease,isImmutable,isLatest,body > "$record"
+        --json tagName,name,targetCommitish,isDraft,isPrerelease,isImmutable,body > "$record"
+    gh release list --limit 1000 --json tagName,isLatest > "$release_list"
+    python3 - "$record" "$release_list" "$tag" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record_path, release_list_path, tag = sys.argv[1:]
+record = json.loads(Path(record_path).read_text(encoding="utf-8"))
+releases = json.loads(Path(release_list_path).read_text(encoding="utf-8"))
+matches = [release for release in releases if release.get("tagName") == tag]
+if len(matches) != 1 or not isinstance(matches[0].get("isLatest"), bool):
+    raise SystemExit(f"GitHub release list did not provide latest status for {tag}")
+record["isLatest"] = matches[0]["isLatest"]
+Path(record_path).write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+PY
     policy check-release --record "$record" --tag "$tag" --title "$title" \
         --target-commit "$target" --prerelease "$prerelease" --latest "$latest" \
         --notes "$notes"
