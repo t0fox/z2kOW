@@ -311,8 +311,8 @@ jobs:
           python3 - "$RELEASE_PLAN_JSON" "$out/candidate.json" "$out/UPDATES.json" "$GITHUB_SHA" <<'PY'
           import json
           import sys
-          plan_path, candidate_path, manifest_path, source_sha = sys.argv[1:]
-          candidate = json.load(open(plan_path, encoding="utf-8"))
+          plan_json, candidate_path, manifest_path, source_sha = sys.argv[1:]
+          candidate = json.loads(plan_json)
           manifest = json.load(open(manifest_path, encoding="utf-8"))
           if candidate.get("source_sha") != source_sha:
               raise SystemExit("publication plan is not bound to this exact source commit")

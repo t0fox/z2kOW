@@ -77,11 +77,12 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertLess(prepare.index("build-release.sh"), prepare.index("Reconfirm the upstream release did not advance while OpenWrt was building"))
         self.assertLess(publish.index("Reconfirm live upstream current and exact pinned tag before production signing"), publish.index("Sign and verify the exact final manifest"))
 
-    def test_candidate_plan_is_loaded_from_the_json_file_not_parsed_as_a_path(self) -> None:
+    def test_candidate_plan_output_is_parsed_as_json_not_treated_as_a_path(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
-        self.assertIn('candidate = json.load(open(plan_path, encoding="utf-8"))', prepare)
-        self.assertNotIn("candidate = json.loads(plan_path)", prepare)
+        self.assertIn("plan_json, candidate_path, manifest_path, source_sha = sys.argv[1:]", prepare)
+        self.assertIn("candidate = json.loads(plan_json)", prepare)
+        self.assertNotIn('candidate = json.load(open(plan_json', prepare)
 
     def test_publish_verifies_the_full_release_and_commits_only_controlled_updates(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
