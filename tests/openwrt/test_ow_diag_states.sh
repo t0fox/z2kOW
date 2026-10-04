@@ -95,7 +95,7 @@ EOF
 chmod +x "$T/bin/nslookup"
 
 run_diag() {
-    sh "$REPO/platform/openwrt/diag.sh" "$1" > "$T/output" 2>&1
+    sh "$REPO/platform/openwrt/diag.sh" "$1" "${2:-full}" > "$T/output" 2>&1
 }
 assert_out() { assert_contains "$1" "$T/output" "$2"; }
 assert_not_out() { assert_not_contains "$1" "$T/output" "$2"; }
@@ -216,19 +216,41 @@ printf '%s\000' "$T/runtime-root/nfq2/nfqws2" '--qnum=200' '--lua-desync=circula
 # `ps w` is empty/truncated on purpose; Lua's upstream default fallback is
 # /tmp/z2k-autocircular-state.tsv (redirected to an isolated fixture here).
 : > "$T/ps"
-printf 'rkn_tcp\texample.com\t4\t1234\tauto\n' > "$T/tmp/z2k-autocircular-state.tsv"
+{
+    printf '# comment\n'
+    for i in $(seq 1 42); do printf 'key%s\thost%s.example\t%s\t1234\tauto\n' "$i" "$i" "$i"; done
+} > "$T/tmp/z2k-autocircular-state.tsv"
 run_diag autocircular
 assert_out "procd and full cmdline detect live autocircular" 'autocircular      : active'
-assert_out "populated fallback state is reported" 'state file        : active (1 entries; fallback'
+assert_out "populated fallback state is reported" 'state file        : active (42 entries; fallback'
 assert_out "reported fallback path is the Lua state path" 'z2k-autocircular-state.tsv'
 assert_out "Lua primary is derived from the running executable" "Lua primary path  : $T/runtime-root/extra_strats/cache/autocircular/state.tsv (absent)"
+assert_out "OpenWrt reports the upstream tracked-entry count" 'tracked entries   : 42'
+assert_out "full mode lists only ten autocircular records" '... 32 more rows'
+assert_eq "full mode lists exactly 10 autocircular rows" 10 "$(grep -c '^key[0-9]' "$T/output")"
+run_diag autocircular report
+assert_eq "report mode lists exactly 40 autocircular rows" 40 "$(grep -c '^key[0-9]' "$T/output")"
+assert_out "report mode reports remaining autocircular records" '... 2 more rows'
 assert_not_out "active fallback is not misreported as missing" 'state file is missing while autocircular is enabled'
 run_diag health
 assert_not_out "working autocircular does not add a false health warning" 'autocircular.*(inactive|broken|missing)'
 assert_out "unoverridden runtime paths are reported accurately" 'autocircular работает, но процесс не использует OpenWrt persistent path'
 
+# Runtime environment overrides win over defaults, and primary state wins over
+# a populated fallback so details point at the file nfqws2 actually writes.
+mkdir -p "$T/runtime-state" "$T/runtime-fallback"
+printf 'override\tprimary.example\t9\t9999\tauto\n' > "$T/runtime-state/state.tsv"
+printf 'fallback\tfallback.example\t8\t8888\tauto\n' > "$T/runtime-fallback/z2k-autocircular-state.tsv"
+printf 'Z2K_STATE_DIR_OVERRIDE=%s\000Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE=%s\000' \
+    "$T/runtime-state" "$T/runtime-fallback" > "$T/proc/4242/environ"
+run_diag autocircular
+assert_out "runtime primary override is selected" "state file        : active (1 entries; persistent $T/runtime-state/state.tsv)"
+assert_out "actual runtime primary entry is rendered" 'override'
+assert_not_out "fallback row does not replace runtime primary" 'fallback.example'
+printf '%s\000' > "$T/proc/4242/environ"
+
 # No saved rows means enabled-but-not-observed, not an installation failure.
-rm -f "$T/tmp/z2k-autocircular-state.tsv"
+rm -f "$T/tmp/z2k-autocircular-state.tsv" "$T/runtime-state/state.tsv" "$T/runtime-fallback/z2k-autocircular-state.tsv"
 run_diag autocircular
 assert_out "enabled autocircular without selections is not-observed" 'autocircular      : enabled-not-observed'
 assert_out "missing rows are not reported as a failure" 'state file        : not-observed'

@@ -2129,13 +2129,52 @@ warp_pbr_verify() {
 # transport proof; this second predicate proves the platform-owned nft/TUN/PBR
 # plumbing plus the exact route and owner record are present together.
 warp_status_routing_ready() {
+    warp_status_routing_proofs >/dev/null
+}
+
+# One read-only projection feeds both route_ready and diagnostic detail. Keep
+# each proof attached to the verifier already used by the WARP state machine.
+warp_status_routing_proofs() {
     local _iface
-    _warp_proven_ready || return 1
-    _iface="$(_warp_live_iface)"
-    warp_nft_tun_verify "$_iface" >/dev/null 2>&1 || return 1
-    warp_pbr_verify >/dev/null 2>&1 || return 1
-    warp_pbr_owner_verify "$_iface" >/dev/null 2>&1 || return 1
-    return 0
+    WARP_ROUTE_TUNNEL=not-observed
+    WARP_ROUTE_INTERFACE=not-observed
+    WARP_ROUTE_NFT_MARK=not-observed
+    WARP_ROUTE_TUN=not-observed
+    WARP_ROUTE_PBR=not-observed
+    WARP_ROUTE_OWNER=not-observed
+    if [ "$(_json_raw "$WARP_STATUS" ready)" != true ]; then
+        WARP_ROUTE_TUNNEL=not-ready
+    elif ! command -v pidof >/dev/null 2>&1 || ! command -v ip >/dev/null 2>&1 || ! command -v nft >/dev/null 2>&1; then
+        WARP_ROUTE_TUNNEL=unavailable
+        WARP_ROUTE_INTERFACE=unavailable
+        WARP_ROUTE_NFT_MARK=unavailable
+        WARP_ROUTE_TUN=unavailable
+        WARP_ROUTE_PBR=unavailable
+        WARP_ROUTE_OWNER=unavailable
+    else
+        _iface="$(_warp_live_iface)"
+        if _warp_proven_ready; then
+            WARP_ROUTE_TUNNEL=present
+            WARP_ROUTE_INTERFACE=present
+            WARP_ROUTE_NFT_MARK=absent
+            warp_nft_rules_verify >/dev/null 2>&1 && WARP_ROUTE_NFT_MARK=present
+            WARP_ROUTE_TUN=absent
+            warp_nft_tun_verify "$_iface" >/dev/null 2>&1 && WARP_ROUTE_TUN=present
+            WARP_ROUTE_PBR=absent
+            warp_pbr_verify >/dev/null 2>&1 && WARP_ROUTE_PBR=present
+            WARP_ROUTE_OWNER=absent
+            warp_pbr_owner_verify "$_iface" >/dev/null 2>&1 && WARP_ROUTE_OWNER=present
+        else
+            WARP_ROUTE_TUNNEL=absent
+            _warp_iface_valid "$_iface" && WARP_ROUTE_INTERFACE=present
+        fi
+    fi
+    printf 'tunnel=%s interface=%s nft_mark=%s tun=%s pbr=%s owner=%s\n' \
+        "$WARP_ROUTE_TUNNEL" "$WARP_ROUTE_INTERFACE" "$WARP_ROUTE_NFT_MARK" \
+        "$WARP_ROUTE_TUN" "$WARP_ROUTE_PBR" "$WARP_ROUTE_OWNER"
+    [ "$WARP_ROUTE_TUNNEL" = present ] && [ "$WARP_ROUTE_INTERFACE" = present ] \
+        && [ "$WARP_ROUTE_NFT_MARK" = present ] && [ "$WARP_ROUTE_TUN" = present ] \
+        && [ "$WARP_ROUTE_PBR" = present ] && [ "$WARP_ROUTE_OWNER" = present ]
 }
 
 warp_pbr_owner_verify() {

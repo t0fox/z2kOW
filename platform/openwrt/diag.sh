@@ -64,7 +64,7 @@ _json_field() {
 }
 
 tg_connect_queue_failures() {
-    local _log="${Z2K_TG_LOG_FILE:-/tmp/z2k-log/tg-tunnel.log}"
+    local _log="${Z2K_DIAG_TUNNEL_LOG:-${Z2K_TG_LOG_FILE:-/tmp/z2k-log/tg-tunnel.log}}"
     if [ -r "$_log" ]; then
         tail -n 200 "$_log" 2>/dev/null | awk '/CONNECT throttled \(timeout\)/ {n++} END {print n+0}'
     elif command -v logread >/dev/null 2>&1; then
@@ -75,9 +75,65 @@ tg_connect_queue_failures() {
     fi
 }
 
+_ow_diag_qnum() {
+    local _q
+    _q=$(sed -n 's/^[[:space:]]*QNUM[[:space:]]*=[[:space:]]*//p' "$_cfg" 2>/dev/null | tail -1 | tr -d "'\" \t\r")
+    case "$_q" in ''|*[!0-9]*) _q=${QNUM:-200} ;; esac
+    printf '%s' "$_q"
+}
+
+_ow_diag_queue_stats() {
+    local _chain="$1" _q="$2" _rules
+    _rules=$(nft list chain inet "${Z2K_ZAPRET_NFT_TABLE:-${ZAPRET_NFT_TABLE:-zapret2}}" "$_chain" 2>/dev/null) || {
+        printf 'unavailable unavailable unavailable\n'; return 0;
+    }
+    printf '%s\n' "$_rules" | awk -v q="$_q" '
+        index($0, "queue flags bypass to " q) {
+            tail=substr($0, index($0, "queue flags bypass to " q) + length("queue flags bypass to " q))
+            if (tail !~ /^[[:space:];#]/ && tail != "") next
+            n++
+            line=$0
+            if (match(line, /counter packets [0-9]+ bytes [0-9]+/)) {
+                c=substr(line, RSTART, RLENGTH)
+                sub(/^counter packets /, "", c)
+                split(c, a, " bytes ")
+                packets+=a[1]; bytes+=a[2]; counted++
+            }
+        }
+        END {
+            if (!n) print "0 0 0"
+            else if (counted != n) print n " unavailable unavailable"
+            else print n, packets+0, bytes+0
+        }'
+}
+
+_ow_diag_fw_path_state() {
+    local _hook="$1" _chain="$2" _q="$3" _hook_rules _stats _count
+    _hook_rules=$(nft list chain inet "${Z2K_ZAPRET_NFT_TABLE:-${ZAPRET_NFT_TABLE:-zapret2}}" "$_hook" 2>/dev/null) || {
+        printf 'unavailable\n'; return 0;
+    }
+    printf '%s\n' "$_hook_rules" | grep -qE "(^|[[:space:]])jump[[:space:]]+$_chain([;[:space:]]|$)" || {
+        printf 'unreachable\n'; return 0;
+    }
+    _stats=$(_ow_diag_queue_stats "$_chain" "$_q")
+    _count=$(printf '%s\n' "$_stats" | awk '{print $1}')
+    case "$_count" in ''|*[!0-9]*) printf 'unavailable\n' ;; *)
+        [ "$_count" -gt 0 ] && printf 'reachable\n' || printf 'unreachable\n' ;;
+    esac
+}
+
+_ow_diag_queue_consumer() {
+    local _q="$1" _pid _cmd _proc="${Z2K_DIAG_PROC_ROOT:-/proc}"
+    _pid=$(awk -v q="$_q" '$1 == q {print $2; exit}' "${Z2K_NFQUEUE_PROC:-/proc/net/netfilter/nfnetlink_queue}" 2>/dev/null)
+    case "$_pid" in ''|*[!0-9]*) printf 'unavailable'; return 0 ;; esac
+    [ -r "$_proc/$_pid/cmdline" ] || { printf 'unavailable'; return 0; }
+    _cmd=$(tr '\000' ' ' < "$_proc/$_pid/cmdline" 2>/dev/null)
+    case "$_cmd" in *nfqws2*) printf 'PID %s' "$_pid" ;; *) printf 'none' ;; esac
+}
+
 print_health() {
     local issues="" nfq rules warp_on tg_pid _tg_queue_failures
-    local _warp_probe _warp_runtime_ready _warp_route_ready _warp_runtime_state
+    local _warp_probe _warp_runtime_ready _warp_route_ready _warp_runtime_state _qnum _out_path _in_path
     _add() { issues="$issues  [!] $1
 "; }
     _tg_queue_failures=$(tg_connect_queue_failures)
@@ -85,6 +141,11 @@ print_health() {
     if [ "$_tg_queue_failures" -gt 0 ]; then
         _add "в последних 200 строках лога телеграм-туннеля $_tg_queue_failures отказов очереди CONNECT — соединения отброшены на роутере до отправки на VPS"
     fi
+    _qnum=$(_ow_diag_qnum)
+    _out_path=$(_ow_diag_fw_path_state postnat_hook postnat "$_qnum")
+    _in_path=$(_ow_diag_fw_path_state prenat_hook prenat "$_qnum")
+    [ "$_out_path" = reachable ] || _add "NFQUEUE исходящий path $_out_path (postnat_hook → postnat, qnum $_qnum)"
+    [ "$_in_path" = reachable ] || _add "NFQUEUE входящий path $_in_path (prenat_hook → prenat, qnum $_qnum)"
     if ! "$_init" running >/dev/null 2>&1; then
         _add "сервис z2k не запущен"
     fi
@@ -182,11 +243,14 @@ print_service() {
 }
 
 print_firewall() {
-    local rules qcons chains counters tg4 tg6 tgcdn persistence
-    rules=$(nft list ruleset 2>/dev/null | grep -c 'queue flags bypass to 200' || true)
-    qcons=$(grep -c ' 200 ' /proc/net/netfilter/nfnetlink_queue 2>/dev/null || true)
+    local rules qcons chains tg4 tg6 tgcdn persistence qnum out_stats in_stats out_path in_path static_contract
+    qnum=$(_ow_diag_qnum)
+    out_stats=$(_ow_diag_queue_stats postnat "$qnum")
+    in_stats=$(_ow_diag_queue_stats prenat "$qnum")
+    out_path=$(_ow_diag_fw_path_state postnat_hook postnat "$qnum")
+    in_path=$(_ow_diag_fw_path_state prenat_hook prenat "$qnum")
+    qcons=$(_ow_diag_queue_consumer "$qnum")
     chains=$(nft list ruleset 2>/dev/null | grep -cE 'z2k_(tg|rt|warp)_' || true)
-    counters=$(nft -a list ruleset 2>/dev/null | awk '/counter packets [0-9]+ bytes [0-9]+/ {n++} END {print n+0}')
     tg4=missing; tg6=missing; tgcdn=missing
     nft list set inet "${Z2K_ZAPRET_NFT_TABLE:-zapret2}" "${Z2K_TG_SET4:-z2k_tg_dc4}" >/dev/null 2>&1 && tg4=present
     nft list set inet "${Z2K_ZAPRET_NFT_TABLE:-zapret2}" "${Z2K_TG_SET6:-z2k_tg_dc6}" >/dev/null 2>&1 && tg6=present
@@ -200,17 +264,24 @@ print_firewall() {
     local fw4 tgsets
     nft list table inet fw4 >/dev/null 2>&1 && fw4=present || fw4=missing
     tgsets=$(nft list ruleset 2>/dev/null | grep -cE 'set z2k_tg_' || true)
-    [ -n "$rules" ] || rules=0
-    [ -n "$qcons" ] || qcons=0
     [ -n "$chains" ] || chains=0
+    . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/firewall.sh" 2>/dev/null || true
+    static_contract=failed
+    command -v z2k_ow_fw_verify >/dev/null 2>&1 && QNUM="$qnum" z2k_ow_fw_verify >/dev/null 2>&1 && static_contract=proven
     printf '\n=== firewall (nftables) ===\n'
-    printf 'NFQUEUE queue rules: %s (expected 8)\n' "$rules"
-    printf 'queue 200 consumers : %s\n' "$qcons"
+    printf 'NFQUEUE исходящие : %s\n' "$(printf '%s\n' "$out_stats" | awk '{print $1}')"
+    printf 'NFQUEUE входящие  : %s\n' "$(printf '%s\n' "$in_stats" | awk '{print $1}')"
+    printf 'OUT path           : %s (postnat_hook → postnat)\n' "$out_path"
+    printf 'IN path            : %s (prenat_hook → prenat)\n' "$in_path"
+    printf 'static contract    : %s (z2k_ow_fw_verify)\n' "$static_contract"
+    printf 'queue %s consumer: %s\n' "$qnum" "$qcons"
+    printf 'счётчики правил:\n'
+    printf '  NFQUEUE OUT packets=%s bytes=%s\n' "$(printf '%s\n' "$out_stats" | awk '{print $2}')" "$(printf '%s\n' "$out_stats" | awk '{print $3}')"
+    printf '  NFQUEUE IN  packets=%s bytes=%s\n' "$(printf '%s\n' "$in_stats" | awk '{print $2}')" "$(printf '%s\n' "$in_stats" | awk '{print $3}')"
     printf 'owned helper chains : %s\n' "$chains"
     printf 'fw4 table           : %s\n' "$fw4"
     printf 'Telegram sets       : total=%s dc4=%s dc6=%s cdn4=%s\n' "${tgsets:-0}" "$tg4" "$tg6" "$tgcdn"
     printf 'persistence         : %s\n' "$persistence"
-    printf 'nft rule counters   : %s\n' "${counters:-0}"
     printf 'backend             : OpenWrt nftables\n'
 }
 
@@ -242,7 +313,7 @@ print_tunnel() {
 
 print_warp() {
     local on bin transport endpoint ready err state _adapter _status _route_ready _runtime_state _iface _reason
-    local _edge_colo _edge_country _edge_rtt _edge_selection
+    local _edge_colo _edge_country _edge_rtt _edge_selection _entries _devices
     _adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
     if [ -r "$_adapter/arch.sh" ]; then
         . "$_adapter/arch.sh"
@@ -320,11 +391,22 @@ print_warp() {
                     _edge_country=$(printf '%s\n' "$_status" | sed -n 's/.* edge_country=\([^ ]*\).*/\1/p')
                     _edge_rtt=$(printf '%s\n' "$_status" | sed -n 's/.* edge_rtt_ms=\([^ ]*\).*/\1/p')
                     _edge_selection=$(printf '%s\n' "$_status" | sed -n 's/.* edge_selection=\([^ ]*\).*/\1/p')
+                    _entries=$(_ow_warp_status_field "$_status" entries)
+                    _devices=$(_ow_warp_status_field "$_status" devices)
+                    [ -n "$_entries" ] || _entries=unavailable
+                    [ -n "$_devices" ] || _devices=unavailable
                     [ -n "$_edge_colo" ] || _edge_colo=unavailable
                     [ -n "$_edge_country" ] || _edge_country=unavailable
                     case "$_edge_rtt" in ''|0) _edge_rtt=unavailable ;; esac
                     [ -n "$_edge_selection" ] || _edge_selection=unavailable
+                    warp_status_routing_proofs >/dev/null 2>&1 || true
                     printf 'route_ready       : %s\n' "$_route_ready"
+                    printf 'TUN interface      : %s\n' "${WARP_ROUTE_INTERFACE:-unavailable}"
+                    printf 'nft mark path     : %s\n' "${WARP_ROUTE_NFT_MARK:-unavailable}"
+                    printf 'TUN dataplane      : %s\n' "${WARP_ROUTE_TUN:-unavailable}"
+                    printf 'PBR rule+route     : %s\n' "${WARP_ROUTE_PBR:-unavailable}"
+                    printf 'PBR owner record   : %s\n' "${WARP_ROUTE_OWNER:-unavailable}"
+                    printf 'selected sets      : destinations=%s devices=%s\n' "$_entries" "$_devices"
                     if [ "$_route_ready" = 1 ]; then
                         _reason=confirmed
                     elif [ "$ready" != true ]; then
@@ -423,7 +505,7 @@ print_insta() {
     elif z2k_ow_insta_registered; then
         _records=$(z2k_ow_insta_show_running_config | awk 'NF {n++} END {print n+0}')
         _managed=$(awk -F'"' '/^HOSTS="/ {n=split($2, hosts, /[[:space:]]+/); print n; exit}' \
-            "${Z2K_ROOT:-/usr/lib/z2k}/z2k-insta-ip-refresh.sh" 2>/dev/null)
+            "${Z2K_INSTA_REFRESH_SCRIPT:-${Z2K_ROOT:-/usr/lib/z2k}/z2k-insta-ip-refresh.sh}" 2>/dev/null)
         case "$_managed" in ''|*[!0-9]*) _managed=unknown ;; esac
         _runtime=unavailable
         _process=0
@@ -452,6 +534,13 @@ print_insta() {
         1) printf 'Insta IP refresh  : enabled\n' ;;
         *) printf 'Insta IP refresh  : not-observed\n' ;;
     esac
+}
+
+print_insta_records() {
+    local _adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
+    [ -r "$_adapter/insta-ip.sh" ] || return 0
+    . "$_adapter/insta-ip.sh" || return 0
+    z2k_ow_insta_show_running_config
 }
 
 _ow_autocircular_configured() {
@@ -596,10 +685,10 @@ _ow_autocircular_state() {
 }
 
 print_autocircular() {
-    local config="${Z2K_CONFIG:-$_cfg}" _primary_status _fallback_status
+    local config="${Z2K_CONFIG:-$_cfg}" mode="${1:-full}" _primary_status _fallback_status _rows
     _cfg="$config"
     _ow_autocircular_detect
-    printf '\n=== autocircular ===\n'
+    printf '\n=== autocircular state ===\n'
     printf 'autocircular      : %s\n' "$OW_AUTOCIRCULAR_STATE"
     case "$OW_AUTOCIRCULAR_STATE" in
         disabled)
@@ -622,8 +711,18 @@ print_autocircular() {
     if [ "$OW_AUTOCIRCULAR_STATE" = active ]; then
         printf 'state file        : active (%s entries; %s %s)\n' \
             "$OW_AUTOCIRCULAR_STATE_ROWS" "$OW_AUTOCIRCULAR_STATE_STORAGE" "$OW_AUTOCIRCULAR_STATE_FILE"
+        printf 'tracked entries   : %s\n' "$OW_AUTOCIRCULAR_STATE_ROWS"
+        _rows=10
+        [ "$mode" = report ] && _rows=40
+        printf '(first %s rows: key / host / strategy / ts)\n' "$_rows"
+        awk -F '\t' '$1 !~ /^#/ && $1 != "pool" && NF >= 3 {print; n++; if (n >= limit) exit}' \
+            limit="$_rows" "$OW_AUTOCIRCULAR_STATE_FILE" 2>/dev/null
+        if [ "$OW_AUTOCIRCULAR_STATE_ROWS" -gt "$_rows" ] 2>/dev/null; then
+            printf '... %s more rows\n' "$((OW_AUTOCIRCULAR_STATE_ROWS - _rows))"
+        fi
     else
         printf 'state file        : not-observed\n'
+        printf 'tracked entries   : 0 (not observed)\n'
     fi
     _primary_status=absent; _fallback_status=absent
     [ -r "$OW_AUTOCIRCULAR_PRIMARY_PATH" ] && _primary_status=present
@@ -898,8 +997,9 @@ case "$1" in
     warp) print_warp ;;
     platform) print_platform ;;
     insta) print_insta ;;
+    insta-records) print_insta_records ;;
     offload) print_offload ;;
-    autocircular) print_autocircular ;;
+    autocircular) print_autocircular "${2:-full}" ;;
     lists) print_lists ;;
     netpath) print_netpath ;;
     *) exit 2 ;;

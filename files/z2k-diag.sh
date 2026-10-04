@@ -771,8 +771,12 @@ print_iptables() {
 # =============================================================================
 print_tunnel() {
     if z2k_diag_hook; then
-        "$Z2K_DIAG_HOOK" tunnel
-        return $?
+        local _tunnel_rc=0
+        "$Z2K_DIAG_HOOK" tunnel || _tunnel_rc=$?
+        if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+            print_tunnel_live_probes
+        fi
+        return "$_tunnel_rc"
     fi
     printf '\n=== telegram tunnel ===\n'
     local tg_bin="/opt/sbin/tg-mtproxy-client"
@@ -823,6 +827,35 @@ print_tunnel() {
         grep -aE 'identity|registered|register attempt|занят другим|перерегистр|перевыпуск' "$tg_log" 2>/dev/null \
             | tail -8 | sed 's/^/  /'
         tail -4 "$tg_log" 2>/dev/null | sed 's/^/  /'
+    else
+        printf 'tunnel log        : нет (%s)\n' "$tg_log"
+    fi
+}
+
+# Platform-neutral relay reachability checks and tunnel log context. OpenWrt
+# supplies the owned process/listener details in its adapter; these probes are
+# the same upstream checks used by the Keenetic renderer.
+print_tunnel_live_probes() {
+    local rtt_and_loss vps_rtt vps_loss skew tg_log
+    rtt_and_loss=$(ping_vps_rtt)
+    vps_rtt=$(printf '%s\n' "$rtt_and_loss" | awk '{print $1}')
+    vps_loss=$(printf '%s\n' "$rtt_and_loss" | awk '{print $2}')
+    printf 'VPS ping %s     : avg %s ms, loss %s%%\n' "$VPS_IP" "${vps_rtt:---}" "${vps_loss:---}"
+    skew=$(clock_skew_vs_relay 2>/dev/null)
+    case "$skew" in
+        ''|*[!0-9-]*) printf 'clock vs relay    : не удалось выяснить\n' ;;
+        *)  if [ "$skew" -gt 120 ] || [ "$skew" -lt -120 ]; then
+                printf 'clock vs relay    : %+d s — ВНЕ ДОПУСКА (±120), туннель не поднимется\n' "$skew"
+            else
+                printf 'clock vs relay    : %+d s (ок)\n' "$skew"
+            fi ;;
+    esac
+    tg_log="${Z2K_DIAG_TUNNEL_LOG:-${Z2K_TG_LOG_FILE:-/tmp/z2k-log/tg-tunnel.log}}"
+    if [ -r "$tg_log" ]; then
+        printf 'tunnel log        : %s\n' "$tg_log"
+        grep -aE 'identity|registered|register attempt|занят другим|перерегистр|перевыпуск' "$tg_log" 2>/dev/null \
+            | tail -8 | z2k_mask_addrs | sed 's/^/  /'
+        tail -4 "$tg_log" 2>/dev/null | z2k_mask_addrs | sed 's/^/  /'
     else
         printf 'tunnel log        : нет (%s)\n' "$tg_log"
     fi
@@ -1017,7 +1050,7 @@ print_warp() {
 # =============================================================================
 print_rotator() {
     if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] && z2k_diag_hook; then
-        "$Z2K_DIAG_HOOK" autocircular
+        "$Z2K_DIAG_HOOK" autocircular "$MODE"
         return $?
     fi
     printf '\n=== autocircular state ===\n'
@@ -1223,11 +1256,8 @@ tg_connect_queue_failures() {
 
 print_health() {
     if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] && z2k_diag_hook; then
-        local _health_rc=0
-        "$Z2K_DIAG_HOOK" health || _health_rc=$?
-        print_dns_check_snapshot
-        "$Z2K_DIAG_HOOK" insta
-        return "$_health_rc"
+        "$Z2K_DIAG_HOOK" health
+        return $?
     fi
     if z2k_diag_hook; then
         "$Z2K_DIAG_HOOK" health
@@ -1705,8 +1735,14 @@ print_lists() {
 # =============================================================================
 print_netpath() {
     if z2k_diag_hook; then
-        "$Z2K_DIAG_HOOK" netpath
-        return $?
+        local _netpath_rc=0
+        "$Z2K_DIAG_HOOK" netpath || _netpath_rc=$?
+        if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+            print_dns_check_snapshot
+            "$Z2K_DIAG_HOOK" insta
+            print_agh
+        fi
+        return "$_netpath_rc"
     fi
     printf '\n=== network path ===\n'
 
@@ -1924,9 +1960,11 @@ agh_upstream_is_local() {
 }
 
 print_agh() {
-    local y c hosts pinned inagh cmp n_pin n_hit n_bad state ups upf u n_up n_uploc uploc lan
+    local y c hosts pinned inagh cmp n_pin n_hit n_bad state ups upf u n_up n_uploc uploc lan _insta_script _records
     y=""
-    for c in "${Z2K_AGH_YAML:-}" /opt/etc/AdGuardHome/AdGuardHome.yaml \
+    for c in "${Z2K_AGH_YAML:-}" /etc/AdGuardHome/AdGuardHome.yaml /etc/AdGuardHome.yaml \
+             /etc/adguardhome/AdGuardHome.yaml /var/lib/AdGuardHome/AdGuardHome.yaml \
+             /opt/etc/AdGuardHome/AdGuardHome.yaml \
              /opt/AdGuardHome/AdGuardHome.yaml /opt/var/AdGuardHome/AdGuardHome.yaml \
              /opt/share/AdGuardHome/AdGuardHome.yaml; do
         [ -n "$c" ] && [ -f "$c" ] && { y="$c"; break; }
@@ -1943,15 +1981,24 @@ print_agh() {
 
     # Список доменов берём из самого рефрешера, а не дублируем здесь: иначе две
     # копии списка разъедутся, и сводка начнёт врать про рассинхрон.
-    hosts=$(awk -F'"' '/^HOSTS=/ {print $2; exit}' "${ZAPRET2_DIR}/z2k-insta-ip-refresh.sh" 2>/dev/null)
-    if [ -z "$hosts" ] || ! command -v ndmc >/dev/null 2>&1; then
+    _insta_script="${Z2K_INSTA_REFRESH_SCRIPT:-${ZAPRET2_DIR}/z2k-insta-ip-refresh.sh}"
+    hosts=$(awk -F'"' '/^HOSTS=/ {print $2; exit}' "$_insta_script" 2>/dev/null)
+    if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+        _records=$("${Z2K_DIAG_HOOK:-}" insta-records 2>/dev/null || true)
+        pinned=$(printf '%s\n' "$_records" | awk '$1 == "ip" && $2 == "host" && NF >= 4 {print $3 " " $4}')
+    elif [ -n "$hosts" ] && command -v ndmc >/dev/null 2>&1; then
+        pinned="${Z2K_PINNED:-$(insta_pinned)}"
+    else
+        pinned=
+    fi
+    if [ -z "$hosts" ] || { [ "${Z2K_PLATFORM:-keenetic}" != openwrt ] && ! command -v ndmc >/dev/null 2>&1; }; then
         printf 'AdGuardHome       : %s (сверить записи не с чем)\n' "$state"
         return 0
     fi
     # Список уже собран print_insta_pins — второй раз ndmc не дёргаем: два
     # обращения к одному источнику разъезжаются, и отчёт начинает спорить сам
     # с собой.
-    pinned="${Z2K_PINNED:-$(insta_pinned)}"
+    [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] || pinned="${Z2K_PINNED:-$pinned}"
     inagh=$(awk -v hosts="$hosts" '
         function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
         function unq(s) { gsub(/"/, "", s); gsub(Q, "", s); return s }

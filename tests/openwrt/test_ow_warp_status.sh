@@ -69,6 +69,11 @@ if [ "\$1" = list ] && [ "\$2" = chain ]; then
         printf '%s\n' 'meta mark & 0x80000000 == 0x80000000 oifname "z2ktun*" accept comment "!z2k: WARP forwarded traffic"'
         exit 0
     fi
+    if [ "\$5" = z2k_warp_mark ]; then
+        [ "\${HAVE_MARK:-1}" = 1 ] || exit 0
+        printf '%s\n' 'ip daddr @z2k_warp_dst4 meta mark set meta mark & 0x7fffffff ^ 0x80000000'
+        exit 0
+    fi
     cat <<'RULES'
 oifname z2ktun0 tcp flags syn tcp option maxseg size set rt mtu
 iifname z2ktun0 tcp flags syn tcp option maxseg size set 1240
@@ -144,6 +149,11 @@ table=989
 iface=z2ktun0
 EOF
 export HAVE_NFT=1
+export HAVE_MARK=0
+_out="$(warp_status)"
+printf '%s\n' "$_out" > "$T/status-no-mark.log"
+assert_contains "missing nft mark rule prevents routing-ready" "$T/status-no-mark.log" "route_ready=0"
+export HAVE_MARK=1
 _out="$(warp_status)"
 printf '%s\n' "$_out" > "$T/status-ready.log"
 assert_contains "routing proof is true" "$T/status-ready.log" "route_ready=1"

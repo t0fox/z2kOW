@@ -232,7 +232,8 @@ z2k_ow_fw_verify() {
         nft list chain inet "$_tab" "$1" 2>/dev/null | grep -q "jump $2" || {
             echo "z2k-openwrt: fw_verify: нет jump $2 в $1 (dataplane недостижим)" >&2
             return 1; }
-        nft list chain inet "$_tab" "$2" 2>/dev/null | grep -q "to $_q" || {
+        nft list chain inet "$_tab" "$2" 2>/dev/null |
+            grep -qE "(^|[[:space:]])to[[:space:]]$_q([;[:space:]]|$)" || {
             echo "z2k-openwrt: fw_verify: нет NFQUEUE qnum $_q в $2" >&2
             return 1; }
     done

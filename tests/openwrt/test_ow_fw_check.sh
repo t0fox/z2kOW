@@ -36,7 +36,13 @@ if [ "$1" = "list" ] && [ "$2" = "chain" ]; then
                 echo 'meta mark and 0x40000000 == 0 jump prenat'
             fi
             ;;
-        postnat|prenat) echo 'queue flags bypass to 200' ;;
+        postnat|prenat)
+            if [ -f "$DIRTY/wrong-qnum" ] && [ "$_c" = prenat ]; then
+                echo 'queue flags bypass to 2000'
+            else
+                echo 'queue flags bypass to 200'
+            fi
+            ;;
         *) echo "empty chain" ;;
     esac
     exit 0
@@ -105,5 +111,11 @@ rm -f "$T/run/stopping"
 INIT_APPLY_FW=0 z2k_ow_fw_check >/dev/null 2>&1
 assert_eq "no-fw rc" "0" "$?"
 grep -q '^nft:' "$T/calls" && _t_bad "no-fw: полезли в nft" || _t_ok
+
+# --- 6. wrong qnum must not satisfy the canonical queue contract ---
+: > "$T/wrong-qnum"
+_got="$(nft list chain inet zapret2 prenat)"; [ "$_got" = "queue flags bypass to 2000" ] && _t_ok || { echo "fixture got=[$_got] DIR=[$DIRTY]"; _t_bad "fixture did not emit wrong qnum"; }
+z2k_ow_fw_verify >/dev/null 2>&1 && _t_bad "wrong qnum accepted" || _t_ok
+rm -f "$T/wrong-qnum"
 
 _t_done

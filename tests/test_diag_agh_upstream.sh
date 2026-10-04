@@ -26,6 +26,7 @@ mkdir -p "$SB/bin"
 
 cat > "$SB/bin/ndmc" <<'STUB'
 #!/bin/sh
+printf 'called\n' >> "$NDMC_LOG"
 cat "$NDM_CONF" 2>/dev/null
 STUB
 # Состояние AGH к приговору отношения не имеет, но пусть оно будет одинаковым
@@ -314,6 +315,41 @@ out=$(run "$Y_LOCAL" "")
 case "$out" in
     *'сверять нечего'*) ok "пустой ip host не объявляется поломкой" ;;
     *) bad "пустой ip host разобран неверно: [$out]" ;;
+esac
+
+# --- 16. OpenWrt uses dnsmasq addnhosts records without calling ndmc ----------
+cat > "$SB/openwrt-hook" <<'STUB'
+#!/bin/sh
+[ "$1" = insta-records ] || exit 2
+printf '%s\n' 'ip host a.test 1.2.3.4' 'ip host b.test 5.6.7.8'
+STUB
+chmod +x "$SB/openwrt-hook"
+printf '%s\n' "$Y_LOCAL" > "$SB/agh.yaml"
+: > "$SB/ndmc-called"
+out=$(env PATH="$SB/bin:$PATH" ZAPRET2_DIR="$SB" Z2K_PLATFORM=openwrt \
+    Z2K_AGH_YAML="$SB/agh.yaml" Z2K_DIAG_HOOK="$SB/openwrt-hook" \
+    Z2K_LAN_IP=192.168.1.1 NDMC_LOG="$SB/ndmc-called" \
+    sh "$SB/blk.sh" 2>/dev/null)
+case "$out" in
+    *'dns-proxy прошивки'*) ok "OpenWrt AGH parity reads the dnsmasq-owned pins" ;;
+    *) bad "OpenWrt AGH did not recognize firmware-resolver path: [$out]" ;;
+esac
+if [ ! -s "$SB/ndmc-called" ]; then ok "OpenWrt AGH check does not call Keenetic ndmc"; else bad "OpenWrt AGH check called ndmc"; fi
+
+Y_OPENWRT_EXTERNAL='dns:
+  upstream_dns:
+    - tls://1.1.1.1
+  upstream_dns_file: ""
+filtering:
+  rewrites: []'
+printf '%s\n' "$Y_OPENWRT_EXTERNAL" > "$SB/agh.yaml"
+out=$(env PATH="$SB/bin:$PATH" ZAPRET2_DIR="$SB" Z2K_PLATFORM=openwrt \
+    Z2K_AGH_YAML="$SB/agh.yaml" Z2K_DIAG_HOOK="$SB/openwrt-hook" \
+    Z2K_LAN_IP=192.168.1.1 NDMC_LOG="$SB/ndmc-called" \
+    sh "$SB/blk.sh" 2>/dev/null)
+case "$out" in
+    *'НЕ синхронизированы'*) ok "OpenWrt AGH external resolver warns when pins bypass dnsmasq" ;;
+    *) bad "OpenWrt AGH external resolver verdict is missing: [$out]" ;;
 esac
 
 printf '\nPASSED: %s\nFAILED: %s\n' "$PASS" "$FAIL"

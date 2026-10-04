@@ -342,16 +342,16 @@ import json, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 d = json.loads(path.read_text(encoding="utf-8"))
-d["current"] = "p-86.14"
-d["seq"] = 137
-d["upstream"]["tag"] = "p-86.14"
+d["current"] = "p-86.15"
+d["seq"] = 138
+d["upstream"]["tag"] = "p-86.15"
 path.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PY
 export Z2K_OW_MANIFEST_PATH="$T/reinstall-newer.json"
 printf 'preserve on manifest race\n' > "$SYS/usr/lib/z2k/version.txt"
 _out="$(z2k_ow_install_release --reinstall "$_CURRENT_TAG" 2>&1)"; _rc=$?
 if [ "$_rc" -eq 3 ] \
-    && printf '%s\n' "$_out" | grep -q '^Z2KOW_REINSTALL_UPDATE_AVAILABLE:p-86.14$' \
+    && printf '%s\n' "$_out" | grep -q '^Z2KOW_REINSTALL_UPDATE_AVAILABLE:p-86.15$' \
     && grep -q 'preserve on manifest race' "$SYS/usr/lib/z2k/version.txt" \
     && [ "$(cat "$SYS/etc/z2k/state/installed-release")" = "$_state_before" ]; then
     _t_ok

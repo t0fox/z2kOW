@@ -34,6 +34,9 @@ EOF
 cat > "$T/bin/nft" <<'EOF'
 #!/bin/sh
 case "$*" in
+  'list chain inet zapret2 z2k_warp_mark')
+    [ "${NFT_FULL:-0}" = 1 ] || exit 1
+    printf '%s\n' 'ip daddr @z2k_warp_dst4 meta mark set meta mark & 0x7fffffff ^ 0x80000000' ;;
   'list chain inet zapret2 z2k_warp_mss')
     [ "${NFT_FULL:-0}" = 1 ] || exit 1
     printf '%s\n' 'oifname "z2ktun0" tcp flags syn tcp option maxseg size set rt mtu' 'iifname "z2ktun0" tcp flags syn tcp option maxseg size set 1240' ;;
@@ -46,6 +49,9 @@ case "$*" in
   'list chain inet fw4 forward')
     [ "${NFT_FULL:-0}" = 1 ] || exit 1
     printf '%s\n' 'meta mark & 0x80000000 == 0x80000000 oifname "z2ktun*" accept comment "!z2k: WARP forwarded traffic"' ;;
+  'list table inet zapret2') [ "${NFT_FULL:-0}" = 1 ] ;;
+  'list set inet zapret2 z2k_warp_dst4'|'list set inet zapret2 z2k_warp_src4')
+    [ "${NFT_FULL:-0}" = 1 ] && printf '%s\n' 'elements = { }' ;;
   *) exit 1 ;;
 esac
 EOF
@@ -62,6 +68,8 @@ run_diag() {
 
 run_diag
 assert_contains "transport ready but absent nft plumbing is explicitly unrouted" "$T/output" 'route_ready       : 0'
+assert_contains "WARP details expose the missing nft mark proof" "$T/output" 'nft mark path     : absent'
+assert_contains "WARP details expose the missing TUN proof" "$T/output" 'TUN dataplane      : absent'
 assert_contains "diag names the missing nft/tun layer" "$T/output" 'routing reason   : nft/tun rules absent or inconsistent'
 assert_contains "missing edge metadata is explicit" "$T/output" 'edge             : colo=unavailable country=unavailable rtt_ms=unavailable selection=unavailable'
 
@@ -71,6 +79,10 @@ printf 'default dev z2ktun0\n' > "$T/ip-route"
 printf 'mark=0x80000000\nmask=0x80000000\npref=500\ntable=989\niface=z2ktun0\n' > "$WARP_PBR_OWNER"
 NFT_FULL=1 IP_RULES="$T/ip-rules" IP_ROUTE="$T/ip-route" run_diag
 assert_contains "all OpenWrt route probes promote tunnel to routing-ready" "$T/output" 'route_ready       : 1'
+assert_contains "canonical route proof includes nft mark path" "$T/output" 'nft mark path     : present'
+assert_contains "canonical route proof includes TUN dataplane" "$T/output" 'TUN dataplane      : present'
+assert_contains "canonical route proof includes PBR" "$T/output" 'PBR rule+route     : present'
+assert_contains "WARP details report selected destination and device counts" "$T/output" 'selected sets      : destinations=0 devices=0'
 assert_contains "healthy route has no failure reason" "$T/output" 'routing reason   : confirmed'
 assert_contains "diag prints actual Cloudflare edge metadata" "$T/output" 'edge             : colo=FRA country=DE rtt_ms=31 selection=foreign'
 
