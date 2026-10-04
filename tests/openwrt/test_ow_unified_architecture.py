@@ -106,9 +106,10 @@ class UnifiedArchitectureTests(unittest.TestCase):
     def test_candidate_and_ci_have_no_component_apk_build_or_secondary_manifest(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         release = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        publisher = (ROOT / "scripts/openwrt/publish_release.sh").read_text(encoding="utf-8")
         sync = (ROOT / ".github/workflows/sync-upstream.yml").read_text(encoding="utf-8")
         builder = (ROOT / "scripts/openwrt/build-release.sh").read_text(encoding="utf-8")
-        for text in (workflow, release, sync, builder):
+        for text in (workflow, release, publisher, sync, builder):
             self.assertNotRegex(text, r"(?i)z2k-(?:adapter|webpanel|zapret2-runtime|warp-runtime).*\.apk")
             self.assertNotIn("openwrt-UPDATES.json", text)
         self.assertIn("stage-rootfs.sh", builder)
@@ -121,8 +122,8 @@ class UnifiedArchitectureTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", release)
         self.assertIn("openwrt-production", release)
         self.assertIn("sign_release.py", release)
-        self.assertIn("gh release create", release)
-        self.assertIn("gh release upload", release)
+        self.assertIn("gh release create", publisher)
+        self.assertIn("gh release upload", publisher)
         self.assertIn("UPDATES.json.sig", release)
         self.assertNotIn("UPSTREAM.json", release)
 

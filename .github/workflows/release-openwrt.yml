@@ -4,24 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Initialize signing, build a new release, or retry publication from a verified candidate
+        description: Initialize signing, publish a new upstream Product Release, publish a same-version OpenWrt hotfix, or retry an exact candidate
         required: true
         type: choice
         options:
           - initialize-signing
-          - release
+          - upstream-release
+          - hotfix
           - retry-publish
         default: initialize-signing
       tag:
-        description: Approved upstream release tag to adapt and publish
+        description: Required upstream current tag for upstream-release; optional assertion for hotfix/retry-publish
         required: false
         type: string
-        default: p-86.13
       seq:
-        description: Approved upstream release sequence
+        description: Required upstream sequence for upstream-release; optional assertion for hotfix/retry-publish
         required: false
         type: string
-        default: "136"
       candidate_run_id:
         description: Earlier trusted release run whose CI and candidate build already succeeded (retry-publish only)
         required: false
@@ -102,7 +101,7 @@ jobs:
           retention-days: 1
 
   validate-release:
-    if: inputs.operation == 'release' && github.ref == 'refs/heads/main'
+    if: (inputs.operation == 'upstream-release' || inputs.operation == 'hotfix') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -110,11 +109,15 @@ jobs:
       seq: ${{ steps.validate.outputs.seq }}
       key_id: ${{ steps.validate.outputs.key_id }}
       upstream_commit: ${{ steps.validate.outputs.upstream_commit }}
+      plan: ${{ steps.validate.outputs.plan }}
     permissions:
       contents: read
     env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_OPERATION_INPUT: ${{ inputs.operation }}
       RELEASE_TAG_INPUT: ${{ inputs.tag }}
       RELEASE_SEQ_INPUT: ${{ inputs.seq }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
       RELEASE_KEY_ID: ${{ vars.Z2KOW_RELEASE_KEY_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -126,9 +129,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$RELEASE_TAG_INPUT" =~ ^[pr]-[0-9]+(\.[0-9]+)+$ ]]
-          [[ "$RELEASE_SEQ_INPUT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RELEASE_OPERATION_INPUT" == upstream-release || "$RELEASE_OPERATION_INPUT" == hotfix ]]
+          test -z "$CANDIDATE_RUN_ID" || { echo 'candidate_run_id is valid only for retry-publish.' >&2; exit 1; }
           [[ "$RELEASE_KEY_ID" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
           key_file="scripts/openwrt/release-keys/$RELEASE_KEY_ID.pub"
           test -s "$key_file"
           key_fingerprint="$(openssl pkey -pubin -in "$key_file" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
@@ -139,13 +143,32 @@ jobs:
             -H 'Cache-Control: no-cache, no-store' -H 'Pragma: no-cache' \
             "https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json?nocache=$nonce" \
             -o "$RUNNER_TEMP/upstream-live-UPDATES.json"
+          controlled_tag="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["current"])' UPDATES.json)"
+          controlled_seq="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["seq"])' UPDATES.json)"
+          if [ "$RELEASE_OPERATION_INPUT" = hotfix ]; then
+            if [ -n "$RELEASE_TAG_INPUT" ] && [ "$RELEASE_TAG_INPUT" != "$controlled_tag" ]; then
+              echo 'hotfix tag assertion must match the current production version.' >&2; exit 1
+            fi
+            if [ -n "$RELEASE_SEQ_INPUT" ] && [ "$RELEASE_SEQ_INPUT" != "$controlled_seq" ]; then
+              echo 'hotfix sequence assertion must match the current production sequence.' >&2; exit 1
+            fi
+            RELEASE_TAG_INPUT="$controlled_tag"
+            RELEASE_SEQ_INPUT="$controlled_seq"
+          fi
+          [[ "$RELEASE_TAG_INPUT" =~ ^[pr]-[0-9]+(\.[0-9]+)+$ ]]
+          [[ "$RELEASE_SEQ_INPUT" =~ ^[1-9][0-9]*$ ]]
           python3 - "$RUNNER_TEMP/upstream-live-UPDATES.json" "$RELEASE_TAG_INPUT" "$RELEASE_SEQ_INPUT" <<'PY'
           import json
           import sys
           manifest = json.load(open(sys.argv[1], encoding="utf-8"))
           wanted_tag, wanted_seq = sys.argv[2], int(sys.argv[3])
           if manifest.get("current") != wanted_tag or manifest.get("seq") != wanted_seq:
-              raise SystemExit("upstream live release changed; adapt and review the newly current release before publishing")
+              if manifest.get("seq", 0) > wanted_seq:
+                  raise SystemExit(
+                      f"Upstream version advanced to {manifest.get('current')}. "
+                      "\u0422\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f \u043d\u043e\u0432\u044b\u0439 Product Release, \u0430 \u043d\u0435 hotfix \u0441\u0442\u0430\u0440\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438."
+                  )
+              raise SystemExit("upstream live release changed; review the current upstream version before publishing")
           history = manifest.get("history")
           if not isinstance(history, list) or not history or history[-1].get("v") != wanted_tag:
               raise SystemExit("upstream release history does not end at the requested current tag")
@@ -169,11 +192,31 @@ jobs:
           if manifest.get("current") != sys.argv[2] or manifest.get("seq") != int(sys.argv[3]):
               raise SystemExit("upstream tag commit does not contain the requested release manifest")
           PY
+
+          gh api --paginate --jq '.[].tag_name' \
+            "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/github-release-tags.txt"
+          plan_args=(plan --operation "$RELEASE_OPERATION_INPUT" --tag "$RELEASE_TAG_INPUT" \
+            --seq "$RELEASE_SEQ_INPUT" --source-sha "$GITHUB_SHA" \
+            --upstream "$RUNNER_TEMP/upstream-live-UPDATES.json" --controlled UPDATES.json \
+            --upstream-commit "$upstream_commit" --output "$RUNNER_TEMP/publication-plan.json")
+          if [ "$RELEASE_OPERATION_INPUT" = upstream-release ] \
+              && grep -Fqx -- "$RELEASE_TAG_INPUT" "$RUNNER_TEMP/github-release-tags.txt"; then
+            plan_args+=(--product-release-exists)
+          fi
+          if grep -Fqx -- "openwrt-$GITHUB_SHA" "$RUNNER_TEMP/github-release-tags.txt"; then
+            plan_args+=(--technical-release-exists)
+          fi
+          python3 scripts/openwrt/publication_policy.py "${plan_args[@]}"
           printf 'tag=%s\nseq=%s\nkey_id=%s\nupstream_commit=%s\n' \
             "$RELEASE_TAG_INPUT" "$RELEASE_SEQ_INPUT" "$RELEASE_KEY_ID" "$upstream_commit" >> "$GITHUB_OUTPUT"
+          {
+            printf 'plan<<Z2KOW_PUBLICATION_PLAN\n'
+            cat "$RUNNER_TEMP/publication-plan.json"
+            printf '\nZ2KOW_PUBLICATION_PLAN\n'
+          } >> "$GITHUB_OUTPUT"
 
   ci:
-    if: inputs.operation == 'release' && github.ref == 'refs/heads/main' && inputs.candidate_run_id == ''
+    if: (inputs.operation == 'upstream-release' || inputs.operation == 'hotfix') && github.ref == 'refs/heads/main' && inputs.candidate_run_id == ''
     needs: validate-release
     uses: ./.github/workflows/ci.yml
     permissions:
@@ -182,22 +225,25 @@ jobs:
       openwrt_candidate_version: ${{ needs.validate-release.outputs.tag }}
 
   prepare-release:
-    if: inputs.operation == 'release' && github.ref == 'refs/heads/main' && inputs.candidate_run_id == ''
+    if: (inputs.operation == 'upstream-release' || inputs.operation == 'hotfix') && github.ref == 'refs/heads/main' && inputs.candidate_run_id == ''
     needs: [validate-release, ci]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
       contents: read
     env:
+      RELEASE_OPERATION_INPUT: ${{ inputs.operation }}
       RELEASE_TAG_INPUT: ${{ needs.validate-release.outputs.tag }}
       RELEASE_SEQ_INPUT: ${{ needs.validate-release.outputs.seq }}
       RELEASE_KEY_ID: ${{ needs.validate-release.outputs.key_id }}
       RELEASE_UPSTREAM_COMMIT: ${{ needs.validate-release.outputs.upstream_commit }}
+      RELEASE_PLAN_JSON: ${{ needs.validate-release.outputs.plan }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 1.25.13
@@ -218,14 +264,21 @@ jobs:
           if manifest.get("current") != sys.argv[2] or manifest.get("seq") != int(sys.argv[3]):
               raise SystemExit("validated upstream tag no longer contains the requested release manifest")
           PY
-      - name: Adapt the exact upstream tag into the only controlled UPDATES.json and build one complete rootfs
+      - name: Adapt the release operation into the controlled manifest and build one complete rootfs
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/openwrt/controlled_release.py sync \
-            --upstream "$RUNNER_TEMP/upstream-pinned-UPDATES.json" \
-            --commit "$RELEASE_UPSTREAM_COMMIT" \
-            --output "$RUNNER_TEMP/controlled-UPDATES.json"
+          cp UPDATES.json "$RUNNER_TEMP/production-UPDATES.json"
+          if [ "$RELEASE_OPERATION_INPUT" = upstream-release ]; then
+            python3 scripts/openwrt/controlled_release.py sync \
+              --upstream "$RUNNER_TEMP/upstream-pinned-UPDATES.json" \
+              --commit "$RELEASE_UPSTREAM_COMMIT" \
+              --output "$RUNNER_TEMP/controlled-UPDATES.json"
+          elif [ "$RELEASE_OPERATION_INPUT" = hotfix ]; then
+            cp "$RUNNER_TEMP/production-UPDATES.json" "$RUNNER_TEMP/controlled-UPDATES.json"
+          else
+            echo "unsupported publication operation: $RELEASE_OPERATION_INPUT" >&2; exit 1
+          fi
           cp "$RUNNER_TEMP/controlled-UPDATES.json" UPDATES.json
           out="$RUNNER_TEMP/openwrt-release-candidate"
           sh scripts/openwrt/build-release.sh --out "$out"
@@ -244,6 +297,26 @@ jobs:
               raise SystemExit(f"candidate manifest differs from validated release: {actual!r}")
           PY
           printf 'Prepared complete OpenWrt candidate: %s / seq %s\n' "$RELEASE_TAG_INPUT" "$RELEASE_SEQ_INPUT" >> "$GITHUB_STEP_SUMMARY"
+          python3 - "$RELEASE_PLAN_JSON" "$out/candidate.json" "$out/UPDATES.json" "$GITHUB_SHA" <<'PY'
+          import json
+          import sys
+          plan_path, candidate_path, manifest_path, source_sha = sys.argv[1:]
+          candidate = json.load(open(plan_path, encoding="utf-8"))
+          manifest = json.load(open(manifest_path, encoding="utf-8"))
+          if candidate.get("source_sha") != source_sha:
+              raise SystemExit("publication plan is not bound to this exact source commit")
+          if (candidate.get("tag"), candidate.get("seq")) != (manifest.get("current"), manifest.get("seq")):
+              raise SystemExit("candidate metadata differs from its signed manifest version")
+          with open(candidate_path, "w", encoding="utf-8") as stream:
+              json.dump(candidate, stream, ensure_ascii=False, indent=2)
+              stream.write("\n")
+          PY
+          python3 scripts/openwrt/publication_policy.py notes \
+            --candidate "$out/candidate.json" \
+            --upstream "$RUNNER_TEMP/upstream-pinned-UPDATES.json" \
+            --controlled "$RUNNER_TEMP/production-UPDATES.json" \
+            --repository "$GITHUB_WORKSPACE" \
+            --output-dir "$out"
       - name: Reconfirm the upstream release did not advance while OpenWrt was building
         shell: bash
         run: |
@@ -253,26 +326,31 @@ jobs:
             -H 'Cache-Control: no-cache, no-store' -H 'Pragma: no-cache' \
             "https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json?nocache=$nonce" \
             -o "$RUNNER_TEMP/upstream-live-after-build-UPDATES.json"
-          python3 - "$RUNNER_TEMP/upstream-live-after-build-UPDATES.json" "$RELEASE_TAG_INPUT" "$RELEASE_SEQ_INPUT" <<'PY'
+          python3 - "$RUNNER_TEMP/upstream-live-after-build-UPDATES.json" "$RELEASE_TAG_INPUT" "$RELEASE_SEQ_INPUT" "$RELEASE_OPERATION_INPUT" <<'PY'
           import json
           import sys
           manifest = json.load(open(sys.argv[1], encoding="utf-8"))
-          if manifest.get("current") != sys.argv[2] or manifest.get("seq") != int(sys.argv[3]):
-              raise SystemExit("upstream advanced during the OpenWrt build; review and adapt the new release")
+          tag, seq, operation = sys.argv[2], int(sys.argv[3]), sys.argv[4]
+          if manifest.get("current") != tag or manifest.get("seq") != seq:
+              if operation == "hotfix" and manifest.get("seq", 0) > seq:
+                  raise SystemExit(
+                      f"Upstream version advanced to {manifest.get('current')}. "
+                      "\u0422\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f \u043d\u043e\u0432\u044b\u0439 Product Release, \u0430 \u043d\u0435 hotfix \u0441\u0442\u0430\u0440\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438."
+                  )
+              raise SystemExit("upstream advanced during the OpenWrt build; review and adapt the current release")
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: z2kow-openwrt-release-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/openwrt-release-candidate/openwrt-rootfs.tar.gz
-            ${{ runner.temp }}/openwrt-release-candidate/UPDATES.json
+          path: ${{ runner.temp }}/openwrt-release-candidate/
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 3
 
   publish-release:
     if: >-
       always() && github.ref == 'refs/heads/main' &&
-      ((inputs.operation == 'release' && needs.validate-release.result == 'success' && needs.prepare-release.result == 'success') ||
+      (((inputs.operation == 'upstream-release' || inputs.operation == 'hotfix') &&
+        needs.validate-release.result == 'success' && needs.prepare-release.result == 'success') ||
        inputs.operation == 'retry-publish')
     needs: [validate-release, prepare-release]
     runs-on: ubuntu-latest
@@ -286,15 +364,15 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_KEY_ID: ${{ vars.Z2KOW_RELEASE_KEY_ID }}
-      RELEASE_PRIVATE_KEY: ${{ secrets.Z2KOW_RELEASE_PRIVATE_KEY }}
-      Z2KOW_IMMUTABILITY_TOKEN: ${{ secrets.Z2KOW_IMMUTABILITY_TOKEN }}
       CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
       RELEASE_TAG_INPUT: ${{ inputs.tag }}
       RELEASE_SEQ_INPUT: ${{ inputs.seq }}
+      Z2KOW_RETRY_PUBLISH: ${{ inputs.operation == 'retry-publish' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Revalidate the already-built candidate without rerunning CI or the OpenWrt build
         if: inputs.operation == 'retry-publish'
         id: revalidate
@@ -302,8 +380,6 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
-          [[ "$RELEASE_TAG_INPUT" =~ ^[pr]-[0-9]+(\.[0-9]+)+$ ]]
-          [[ "$RELEASE_SEQ_INPUT" =~ ^[1-9][0-9]*$ ]]
           [[ "$RELEASE_KEY_ID" =~ ^[0-9a-f]{64}$ ]]
           key_file="scripts/openwrt/release-keys/$RELEASE_KEY_ID.pub"
           test -s "$key_file"
@@ -312,15 +388,15 @@ jobs:
           run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID")"
           jobs_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID/jobs?per_page=100")"
           artifacts_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID/artifacts?per_page=100")"
-          compare_json="$(gh api "repos/$GITHUB_REPOSITORY/compare/$(printf '%s' "$run_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])')...$GITHUB_SHA")"
           candidate_source_sha="$(printf '%s' "$run_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])')"
           [[ "$candidate_source_sha" =~ ^[0-9a-f]{40}$ ]]
-          python3 - "$run_json" "$jobs_json" "$artifacts_json" "$compare_json" "$CANDIDATE_RUN_ID" <<'PY'
+          python3 - "$run_json" "$jobs_json" "$artifacts_json" "$CANDIDATE_RUN_ID" <<'PY'
           import json
+          import subprocess
           import sys
 
-          run, jobs_payload, artifacts_payload, compare = map(json.loads, sys.argv[1:5])
-          run_id = sys.argv[5]
+          run, jobs_payload, artifacts_payload = map(json.loads, sys.argv[1:4])
+          run_id = sys.argv[4]
           if str(run.get("id")) != run_id or run.get("path") != ".github/workflows/release-openwrt.yml":
               raise SystemExit("candidate run is not from the trusted OpenWrt release workflow")
           if (run.get("event"), run.get("head_branch"), run.get("status"), run.get("conclusion")) != (
@@ -348,36 +424,84 @@ jobs:
           artifact_name = f"z2kow-openwrt-release-{run_id}"
           artifacts = artifacts_payload.get("artifacts", [])
           if not any(item.get("name") == artifact_name and not item.get("expired") for item in artifacts):
-              raise SystemExit("candidate run's full release artifact is missing or expired")
+              raise SystemExit("candidate run's complete tested release artifact is missing or expired")
 
           candidate_sha = run.get("head_sha", "")
           if len(candidate_sha) != 40 or any(char not in "0123456789abcdef" for char in candidate_sha):
               raise SystemExit("candidate run has an invalid source commit")
-          if compare.get("status") not in ("ahead", "identical") or compare.get("behind_by") != 0:
-              raise SystemExit("candidate source is not an ancestor of the current main commit")
-          changed_paths = {item.get("filename") for item in compare.get("files", [])}
+          subprocess.run(["git", "fetch", "--quiet", "origin", "main"], check=True)
+          ancestor = subprocess.run(
+              ["git", "merge-base", "--is-ancestor", candidate_sha, "FETCH_HEAD"], check=False
+          )
+          if ancestor.returncode != 0:
+              raise SystemExit("candidate source is not an ancestor of current main")
+          changed = subprocess.run(
+              ["git", "diff", "--name-only", f"{candidate_sha}..FETCH_HEAD"],
+              check=True, capture_output=True, text=True,
+          ).stdout.splitlines()
           release_control_paths = {
               ".github/workflows/release-openwrt.yml",
               "scripts/openwrt/check_immutable_releases.py",
+              "scripts/openwrt/publication_policy.py",
+              "scripts/openwrt/publish_release.sh",
               "tests/openwrt/test_ow_immutable_release_check.py",
+              "tests/openwrt/test_ow_publication_policy.py",
               "tests/openwrt/test_ow_release_workflow.py",
+              "UPDATES.json",
+              "UPDATES.json.sig",
           }
-          if changed_paths - release_control_paths:
-              raise SystemExit(f"product source changed after this candidate was built: {sorted(changed_paths)!r}")
+          unexpected_paths = set(changed) - release_control_paths
+          if unexpected_paths:
+              raise SystemExit(
+                  "product source changed after this candidate was built: "
+                  f"{sorted(unexpected_paths)!r}"
+              )
           PY
           printf 'source_sha=%s\n' "$candidate_source_sha" >> "$GITHUB_OUTPUT"
-          printf 'Reusing the fully tested release candidate from workflow run %s; no CI or build jobs were rerun.\n' "$CANDIDATE_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Reusing the complete tested candidate from workflow run %s; no CI or build jobs were rerun.\n' \
+            "$CANDIDATE_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: z2kow-openwrt-release-${{ inputs.candidate_run_id || github.run_id }}
           path: ${{ runner.temp }}/openwrt-release-candidate
           github-token: ${{ github.token }}
           run-id: ${{ inputs.candidate_run_id || github.run_id }}
-      - name: Reconfirm the upstream release before production signing
+      - name: Validate exact candidate metadata and production baseline
+        id: candidate
         shell: bash
         env:
-          EXPECTED_TAG: ${{ inputs.operation == 'retry-publish' && inputs.tag || needs.validate-release.outputs.tag }}
-          EXPECTED_SEQ: ${{ inputs.operation == 'retry-publish' && inputs.seq || needs.validate-release.outputs.seq }}
+          CANDIDATE_SOURCE_SHA: ${{ steps.revalidate.outputs.source_sha || github.sha }}
+          EXPECTED_NEW_OPERATION: ${{ inputs.operation }}
+          EXPECTED_NEW_TAG: ${{ needs.validate-release.outputs.tag }}
+          EXPECTED_NEW_SEQ: ${{ needs.validate-release.outputs.seq }}
+        run: |
+          set -euo pipefail
+          args=(candidate-info --candidate "$RUNNER_TEMP/openwrt-release-candidate/candidate.json"
+            --source-sha "$CANDIDATE_SOURCE_SHA" --output "$RUNNER_TEMP/candidate-info.txt")
+          if [ -n "$RELEASE_TAG_INPUT" ]; then args+=(--tag "$RELEASE_TAG_INPUT"); fi
+          if [ -n "$RELEASE_SEQ_INPUT" ]; then args+=(--seq "$RELEASE_SEQ_INPUT"); fi
+          python3 scripts/openwrt/publication_policy.py "${args[@]}"
+          cat "$RUNNER_TEMP/candidate-info.txt" >> "$GITHUB_OUTPUT"
+          if [ "$EXPECTED_NEW_OPERATION" != retry-publish ]; then
+            test "$(sed -n 's/^operation=//p' "$RUNNER_TEMP/candidate-info.txt")" = "$EXPECTED_NEW_OPERATION"
+            test "$(sed -n 's/^tag=//p' "$RUNNER_TEMP/candidate-info.txt")" = "$EXPECTED_NEW_TAG"
+            test "$(sed -n 's/^seq=//p' "$RUNNER_TEMP/candidate-info.txt")" = "$EXPECTED_NEW_SEQ"
+          fi
+          manifest_state="$(python3 scripts/openwrt/publication_policy.py manifest-state \
+            --manifest UPDATES.json --candidate "$RUNNER_TEMP/openwrt-release-candidate/candidate.json")"
+          if [ "$EXPECTED_NEW_OPERATION" = retry-publish ]; then
+            [[ "$manifest_state" == baseline || "$manifest_state" == published ]]
+          else
+            test "$manifest_state" = baseline
+          fi
+          printf 'Production manifest state before signing: %s\n' "$manifest_state" >> "$GITHUB_STEP_SUMMARY"
+      - name: Reconfirm live upstream current and exact pinned tag before production signing
+        shell: bash
+        env:
+          EXPECTED_OPERATION: ${{ steps.candidate.outputs.operation }}
+          EXPECTED_TAG: ${{ steps.candidate.outputs.tag }}
+          EXPECTED_SEQ: ${{ steps.candidate.outputs.seq }}
+          EXPECTED_UPSTREAM_COMMIT: ${{ steps.candidate.outputs.upstream_commit }}
         run: |
           set -euo pipefail
           nonce="$(date +%s%N)"
@@ -385,56 +509,73 @@ jobs:
             -H 'Cache-Control: no-cache, no-store' -H 'Pragma: no-cache' \
             "https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json?nocache=$nonce" \
             -o "$RUNNER_TEMP/upstream-live-before-signing-UPDATES.json"
-          python3 - "$RUNNER_TEMP/upstream-live-before-signing-UPDATES.json" "$EXPECTED_TAG" "$EXPECTED_SEQ" <<'PY'
+          python3 - "$RUNNER_TEMP/upstream-live-before-signing-UPDATES.json" "$EXPECTED_TAG" "$EXPECTED_SEQ" "$EXPECTED_OPERATION" <<'PY'
           import json
           import sys
           manifest = json.load(open(sys.argv[1], encoding="utf-8"))
-          if manifest.get("current") != sys.argv[2] or manifest.get("seq") != int(sys.argv[3]):
-              raise SystemExit("upstream advanced before production signing; review and adapt the new release")
+          tag, seq, operation = sys.argv[2], int(sys.argv[3]), sys.argv[4]
+          if manifest.get("current") != tag or manifest.get("seq") != seq:
+              if operation == "hotfix" and manifest.get("seq", 0) > seq:
+                  raise SystemExit(
+                      f"Upstream version advanced to {manifest.get('current')}. "
+                      "\u0422\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f \u043d\u043e\u0432\u044b\u0439 Product Release, \u0430 \u043d\u0435 hotfix \u0441\u0442\u0430\u0440\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438."
+                  )
+              raise SystemExit("upstream changed before production signing; review the current release")
           PY
           refs="$(git ls-remote https://github.com/necronicle/z2k.git \
-            "refs/heads/z2k-enhanced" "refs/tags/$EXPECTED_TAG" "refs/tags/$EXPECTED_TAG^{}")"
+            "refs/tags/$EXPECTED_TAG" "refs/tags/$EXPECTED_TAG^{}")"
           tag_commit="$(printf '%s\n' "$refs" | awk -v tag="refs/tags/$EXPECTED_TAG" '$2 == tag {print $1}')"
           peeled_commit="$(printf '%s\n' "$refs" | awk -v tag="refs/tags/$EXPECTED_TAG^{}" '$2 == tag {print $1}')"
           upstream_commit="${peeled_commit:-$tag_commit}"
           [[ "$upstream_commit" =~ ^[0-9a-f]{40}$ ]]
+          test "$upstream_commit" = "$EXPECTED_UPSTREAM_COMMIT"
           curl --fail --location --silent --show-error \
             "https://raw.githubusercontent.com/necronicle/z2k/$upstream_commit/UPDATES.json?nocache=$nonce" \
             -o "$RUNNER_TEMP/upstream-pinned-before-signing-UPDATES.json"
-          python3 - "$RUNNER_TEMP/upstream-pinned-before-signing-UPDATES.json" "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json" "$EXPECTED_TAG" "$EXPECTED_SEQ" "$upstream_commit" <<'PY'
+          python3 - "$RUNNER_TEMP/upstream-pinned-before-signing-UPDATES.json" "$EXPECTED_TAG" "$EXPECTED_SEQ" <<'PY'
           import json
           import sys
-          upstream = json.load(open(sys.argv[1], encoding="utf-8"))
-          candidate = json.load(open(sys.argv[2], encoding="utf-8"))
-          if upstream.get("current") != sys.argv[3] or upstream.get("seq") != int(sys.argv[4]):
+          manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+          if manifest.get("current") != sys.argv[2] or manifest.get("seq") != int(sys.argv[3]):
               raise SystemExit("pinned upstream tag does not contain the approved current release")
-          provenance = candidate.get("upstream")
-          if not isinstance(provenance, dict) or provenance.get("commit") != sys.argv[5]:
-              raise SystemExit("candidate provenance does not match the current upstream release tag")
           PY
       - name: Sign and verify the exact final manifest with the protected production key
         shell: bash
         env:
-          EXPECTED_TAG: ${{ inputs.operation == 'retry-publish' && inputs.tag || needs.validate-release.outputs.tag }}
-          EXPECTED_SEQ: ${{ inputs.operation == 'retry-publish' && inputs.seq || needs.validate-release.outputs.seq }}
-          EXPECTED_SOURCE_SHA: ${{ inputs.operation == 'retry-publish' && steps.revalidate.outputs.source_sha || github.sha }}
+          RELEASE_PRIVATE_KEY: ${{ secrets.Z2KOW_RELEASE_PRIVATE_KEY }}
+          EXPECTED_TAG: ${{ steps.candidate.outputs.tag }}
+          EXPECTED_SEQ: ${{ steps.candidate.outputs.seq }}
+          EXPECTED_SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
         run: |
           set -euo pipefail
           test -n "$RELEASE_PRIVATE_KEY"
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "${{ inputs.operation }}" = retry-publish ]; then
-            key_file="scripts/openwrt/release-keys/$RELEASE_KEY_ID.pub"
-            test "$(openssl pkey -pubin -in "$key_file" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')" = "$RELEASE_KEY_ID"
-          else
-            test "$RELEASE_KEY_ID" = "${{ needs.validate-release.outputs.key_id }}"
-          fi
-          manifest="$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json"
-          artifact="$RUNNER_TEMP/openwrt-release-candidate/openwrt-rootfs.tar.gz"
+          [[ "$RELEASE_KEY_ID" =~ ^[0-9a-f]{64}$ ]]
           key_file="scripts/openwrt/release-keys/$RELEASE_KEY_ID.pub"
           test -s "$key_file"
+          test "$(openssl pkey -pubin -in "$key_file" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')" = "$RELEASE_KEY_ID"
+          manifest="$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json"
+          artifact="$RUNNER_TEMP/openwrt-release-candidate/openwrt-rootfs.tar.gz"
+          python3 - "$manifest" "$EXPECTED_TAG" "$EXPECTED_SEQ" "$EXPECTED_SOURCE_SHA" "$RELEASE_KEY_ID" "$GITHUB_REPOSITORY" <<'PY'
+          import json
+          import sys
+          path, tag, seq, source_sha, key_id, repository = sys.argv[1:]
+          manifest = json.load(open(path, encoding="utf-8"))
+          if (manifest.get("current"), manifest.get("seq")) != (tag, int(seq)):
+              raise SystemExit("candidate manifest user version differs from candidate metadata")
+          if manifest.get("signing", {}).get("key_id") != key_id:
+              raise SystemExit("candidate manifest signing key id differs from the protected production key")
+          expected_url = (
+              f"https://github.com/{repository}/releases/download/"
+              f"openwrt-{source_sha}/openwrt-rootfs.tar.gz"
+          )
+          if manifest.get("artifact", {}).get("url") != expected_url:
+              raise SystemExit("candidate artifact URL is not bound to its exact source commit")
+          PY
           umask 077
           private_key="$RUNNER_TEMP/z2kow-production-release.pem"
           trap 'rm -f "$private_key"' EXIT
           printf '%s' "$RELEASE_PRIVATE_KEY" > "$private_key"
+          unset RELEASE_PRIVATE_KEY
           python3 scripts/openwrt/sign_release.py sign \
             --manifest "$manifest" --artifact "$artifact" \
             --signature "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json.sig" \
@@ -444,117 +585,8 @@ jobs:
             --signature "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json.sig" \
             --public-key "$key_file"
           rm -f "$private_key"
-          unset RELEASE_PRIVATE_KEY
-          python3 - "$manifest" "$EXPECTED_TAG" "$EXPECTED_SEQ" "$EXPECTED_SOURCE_SHA" "$GITHUB_REPOSITORY" <<'PY'
-          import json
-          import sys
-          path, expected_tag, expected_seq, source_sha, repository = sys.argv[1:]
-          manifest = json.load(open(path, encoding="utf-8"))
-          if manifest.get("current") != expected_tag or manifest.get("seq") != int(expected_seq):
-              raise SystemExit("candidate user-visible release version differs from the approved upstream release")
-          expected_url = f"https://github.com/{repository}/releases/download/openwrt-{source_sha}/openwrt-rootfs.tar.gz"
-          if manifest.get("artifact", {}).get("url") != expected_url:
-              raise SystemExit("candidate artifact URL is not bound to its exact source commit")
-          PY
-      - name: Create an immutable GitHub Release, verify public assets, and commit the sole manifest
+      - name: Publish immutable technical payload and optional Product Release
         shell: bash
         env:
-          EXPECTED_TAG: ${{ inputs.operation == 'retry-publish' && inputs.tag || needs.validate-release.outputs.tag }}
-          EXPECTED_SEQ: ${{ inputs.operation == 'retry-publish' && inputs.seq || needs.validate-release.outputs.seq }}
-          EXPECTED_SOURCE_SHA: ${{ inputs.operation == 'retry-publish' && steps.revalidate.outputs.source_sha || github.sha }}
-        run: |
-          set -euo pipefail
-          artifact_tag="openwrt-$EXPECTED_SOURCE_SHA"
-          source="$RUNNER_TEMP/openwrt-release-candidate"
-          manifest="$source/UPDATES.json"
-          signature="$source/UPDATES.json.sig"
-          artifact="$source/openwrt-rootfs.tar.gz"
-          release_url="https://github.com/$GITHUB_REPOSITORY/releases/download/$artifact_tag"
-          raw_url="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main"
-          test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["artifact"]["url"])' "$manifest")" = "$release_url/openwrt-rootfs.tar.gz"
-
-          python3 scripts/openwrt/check_immutable_releases.py "$GITHUB_REPOSITORY"
-          git fetch --quiet origin main
-          test "$(git rev-parse origin/main)" = "$GITHUB_SHA" \
-            || { echo 'main moved after the release was prepared; rerun against the new main commit.' >&2; exit 1; }
-
-          is_draft="$(gh release view "$artifact_tag" --json isDraft --jq '.isDraft' 2>/dev/null || printf 'missing')"
-          if [ "$is_draft" = missing ]; then
-            notes="$RUNNER_TEMP/release-notes.md"
-            printf 'Complete OpenWrt payload for %s (upstream sequence %s). Internal immutable artifact.\n' "$EXPECTED_TAG" "$EXPECTED_SEQ" > "$notes"
-            gh release create "$artifact_tag" --draft --target "$EXPECTED_SOURCE_SHA" --title "OpenWrt full payload for $EXPECTED_TAG" --notes-file "$notes"
-            is_draft=true
-          fi
-
-          if [ "$is_draft" = true ]; then
-            gh release upload "$artifact_tag" "$artifact" "$manifest" "$signature" --clobber
-            remote="$RUNNER_TEMP/verify-release-assets"
-            mkdir -p "$remote"
-            gh release download "$artifact_tag" --dir "$remote" \
-              --pattern openwrt-rootfs.tar.gz --pattern UPDATES.json --pattern UPDATES.json.sig
-            cmp -s "$artifact" "$remote/openwrt-rootfs.tar.gz"
-            cmp -s "$manifest" "$remote/UPDATES.json"
-            cmp -s "$signature" "$remote/UPDATES.json.sig"
-            gh release edit "$artifact_tag" --draft=false
-          else
-            remote="$RUNNER_TEMP/verify-release-assets"
-            mkdir -p "$remote"
-            gh release download "$artifact_tag" --dir "$remote" \
-              --pattern openwrt-rootfs.tar.gz --pattern UPDATES.json --pattern UPDATES.json.sig
-            cmp -s "$artifact" "$remote/openwrt-rootfs.tar.gz" \
-              || { echo 'published immutable rootfs differs from this candidate.' >&2; exit 1; }
-            cmp -s "$manifest" "$remote/UPDATES.json" \
-              || { echo 'published immutable manifest differs from this candidate.' >&2; exit 1; }
-            cmp -s "$signature" "$remote/UPDATES.json.sig" \
-              || { echo 'published immutable signature differs from this candidate.' >&2; exit 1; }
-          fi
-
-          public_assets="$RUNNER_TEMP/public-release-assets"
-          mkdir -p "$public_assets"
-          for asset in openwrt-rootfs.tar.gz UPDATES.json UPDATES.json.sig; do
-            curl --fail --location --silent --show-error "$release_url/$asset?nocache=$(date +%s%N)" \
-              -o "$public_assets/$asset"
-          done
-          cmp -s "$artifact" "$public_assets/openwrt-rootfs.tar.gz"
-          cmp -s "$manifest" "$public_assets/UPDATES.json"
-          cmp -s "$signature" "$public_assets/UPDATES.json.sig"
-          python3 scripts/openwrt/sign_release.py verify \
-            --manifest "$public_assets/UPDATES.json" \
-            --artifact "$public_assets/openwrt-rootfs.tar.gz" \
-            --signature "$public_assets/UPDATES.json.sig" \
-            --public-key "scripts/openwrt/release-keys/$RELEASE_KEY_ID.pub"
-
-          cp "$manifest" UPDATES.json
-          cp "$signature" UPDATES.json.sig
-          git add -- UPDATES.json UPDATES.json.sig
-          if ! git diff --cached --quiet; then
-            git config user.name "t0fox"
-            git config user.email "t0fox@yandex.ru"
-            git commit -m "release(openwrt): $EXPECTED_TAG"
-            git push origin HEAD:main
-          fi
-
-          attempt=1
-          while [ "$attempt" -le 30 ]; do
-            nonce="$(date +%s%N)"
-            if curl --fail --location --silent --show-error \
-                "$raw_url/UPDATES.json?nocache=$nonce" -o "$RUNNER_TEMP/public-main-UPDATES.json" \
-                && curl --fail --location --silent --show-error \
-                "$raw_url/UPDATES.json.sig?nocache=$nonce" -o "$RUNNER_TEMP/public-main-UPDATES.json.sig"; then
-              if cmp -s "$manifest" "$RUNNER_TEMP/public-main-UPDATES.json" \
-                  && cmp -s "$signature" "$RUNNER_TEMP/public-main-UPDATES.json.sig"; then
-                break
-              fi
-            fi
-            sleep 2
-            attempt=$((attempt + 1))
-          done
-          cmp -s "$manifest" "$RUNNER_TEMP/public-main-UPDATES.json"
-          cmp -s "$signature" "$RUNNER_TEMP/public-main-UPDATES.json.sig"
-          python3 scripts/openwrt/sign_release.py verify \
-            --manifest "$RUNNER_TEMP/public-main-UPDATES.json" \
-            --artifact "$public_assets/openwrt-rootfs.tar.gz" \
-            --signature "$RUNNER_TEMP/public-main-UPDATES.json.sig" \
-            --public-key "scripts/openwrt/release-keys/$RELEASE_KEY_ID.pub"
-          sha256sum "$public_assets/openwrt-rootfs.tar.gz" >> "$GITHUB_STEP_SUMMARY"
-          printf '\nPublished and verified: %s\n' "$release_url" >> "$GITHUB_STEP_SUMMARY"
+          Z2KOW_IMMUTABILITY_TOKEN: ${{ secrets.Z2KOW_IMMUTABILITY_TOKEN }}
+        run: bash scripts/openwrt/publish_release.sh "$RUNNER_TEMP/openwrt-release-candidate"

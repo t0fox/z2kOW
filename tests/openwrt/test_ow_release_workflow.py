@@ -17,8 +17,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("operation:", workflow)
         self.assertIn("initialize-signing", workflow)
-        self.assertIn("p-86.13", workflow)
-        self.assertIn('default: "136"', workflow)
+        self.assertIn("upstream-release", workflow)
+        self.assertIn("hotfix", workflow)
+        self.assertIn("retry-publish", workflow)
+        self.assertNotIn('default: p-86.13', workflow)
         self.assertIn("refs/heads/main", workflow)
         self.assertIn("workflow_call:", ci)
         self.assertIn("uses: ./.github/workflows/ci.yml", workflow)
@@ -54,6 +56,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("needs: [validate-release, prepare-release]", publish)
         self.assertIn("needs.validate-release.outputs.tag", publish)
         self.assertIn("needs.validate-release.outputs.seq", publish)
+        self.assertIn("steps.validate.outputs.plan", validate)
+        self.assertIn("candidate-info --candidate", publish)
 
     def test_shared_ci_accepts_and_verifies_only_valid_signed_manifest_shape(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
@@ -67,10 +71,17 @@ class ReleaseWorkflowTests(unittest.TestCase):
         prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
         publish = workflow.split("  publish-release:", 1)[1]
         self.assertLess(prepare.index("build-release.sh"), prepare.index("Reconfirm the upstream release did not advance while OpenWrt was building"))
-        self.assertLess(publish.index("Reconfirm the upstream release before production signing"), publish.index("Sign and verify the exact final manifest"))
+        self.assertLess(publish.index("Reconfirm live upstream current and exact pinned tag before production signing"), publish.index("Sign and verify the exact final manifest"))
+
+    def test_candidate_plan_is_loaded_from_the_json_file_not_parsed_as_a_path(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
+        self.assertIn('candidate = json.load(open(plan_path, encoding="utf-8"))', prepare)
+        self.assertNotIn("candidate = json.loads(plan_path)", prepare)
 
     def test_publish_verifies_the_full_release_and_commits_only_controlled_updates(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        publisher = (ROOT / "scripts/openwrt/publish_release.sh").read_text(encoding="utf-8")
         self.assertIn("controlled_release.py sync", workflow)
         self.assertIn("build-release.sh", workflow)
         self.assertIn("controlled_release.py attach", workflow)
@@ -78,29 +89,30 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("sign_release.py verify", workflow)
         self.assertIn("openwrt-rootfs.tar.gz", workflow)
         self.assertIn("UPDATES.json.sig", workflow)
-        self.assertIn("gh release create", workflow)
-        self.assertIn("gh release upload", workflow)
-        self.assertIn("gh release edit", workflow)
-        self.assertIn("raw.githubusercontent.com/$GITHUB_REPOSITORY/main", workflow)
-        self.assertIn("scripts/openwrt/check_immutable_releases.py", workflow)
-        self.assertIn("git add -- UPDATES.json UPDATES.json.sig", workflow)
-        self.assertIn('git config user.name "t0fox"', workflow)
-        self.assertIn('git config user.email "t0fox@yandex.ru"', workflow)
+        self.assertIn("gh release create", publisher)
+        self.assertIn("gh release upload", publisher)
+        self.assertIn("gh release edit", publisher)
+        self.assertIn("raw.githubusercontent.com/$REPOSITORY/main", publisher)
+        self.assertIn("scripts/openwrt/check_immutable_releases.py", publisher)
+        self.assertIn("git -C \"$ROOT\" add -- UPDATES.json UPDATES.json.sig", publisher)
+        self.assertIn('git -C "$ROOT" config user.name "t0fox"', publisher)
+        self.assertIn('git -C "$ROOT" config user.email "t0fox@yandex.ru"', publisher)
         self.assertNotRegex(workflow, r"(?i)z2k-(?:adapter|webpanel|zapret2-runtime|warp-runtime).*\.apk")
 
     def test_artifact_release_uses_internal_source_commit_tag_without_changing_user_version(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
-        prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
-        publish = workflow.split("  publish-release:", 1)[1]
+        builder = (ROOT / "scripts/openwrt/build-release.sh").read_text(encoding="utf-8")
+        publisher = (ROOT / "scripts/openwrt/publish_release.sh").read_text(encoding="utf-8")
         self.assertIn(
-            '--url "https://github.com/$GITHUB_REPOSITORY/releases/download/openwrt-$GITHUB_SHA/openwrt-rootfs.tar.gz"',
-            prepare,
+            '--url "https://github.com/t0fox/z2kOW/releases/download/openwrt-$_source_sha/openwrt-rootfs.tar.gz"',
+            builder,
         )
-        self.assertIn('artifact_tag="openwrt-$EXPECTED_SOURCE_SHA"', publish)
-        self.assertIn('--target "$EXPECTED_SOURCE_SHA"', publish)
-        self.assertIn("steps.revalidate.outputs.source_sha", publish)
-        self.assertIn("candidate artifact URL is not bound to its exact source commit", publish)
-        self.assertNotIn('artifact_tag="$EXPECTED_TAG"', publish)
+        self.assertIn('TECHNICAL_TAG="$(python3', publisher)
+        self.assertIn('[[ "$TECHNICAL_TAG" == "openwrt-$SOURCE_SHA" ]]', publisher)
+        self.assertIn('--target "$SOURCE_SHA"', publisher)
+        self.assertIn("steps.revalidate.outputs.source_sha || github.sha", workflow)
+        self.assertIn("candidate artifact URL is not bound to its exact source commit", workflow)
+        self.assertNotIn('TECHNICAL_TAG="$EXPECTED_TAG"', publisher)
 
     def test_unsigned_candidate_builder_binds_artifact_url_to_source_commit(self) -> None:
         builder = (ROOT / "scripts/openwrt/build-release.sh").read_text(encoding="utf-8")
@@ -112,23 +124,23 @@ class ReleaseWorkflowTests(unittest.TestCase):
         )
 
     def test_public_artifact_verification_keeps_the_canonical_filename(self) -> None:
-        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
-        publish = workflow.split("  publish-release:", 1)[1]
+        publisher = (ROOT / "scripts/openwrt/publish_release.sh").read_text(encoding="utf-8")
 
-        self.assertIn('public_assets="$RUNNER_TEMP/public-release-assets"', publish)
-        self.assertIn('"$release_url/$asset?nocache=$(date +%s%N)"', publish)
-        self.assertIn('-o "$public_assets/$asset"', publish)
-        self.assertEqual(publish.count('--artifact "$public_assets/openwrt-rootfs.tar.gz"'), 2)
-        self.assertIn('sha256sum "$public_assets/openwrt-rootfs.tar.gz"', publish)
+        self.assertIn('for asset in openwrt-rootfs.tar.gz UPDATES.json UPDATES.json.sig', publisher)
+        self.assertIn('"$release_url/$asset?nocache=$(date +%s%N)"', publisher)
+        self.assertIn('-o "$public_assets/$asset"', publisher)
+        self.assertEqual(publisher.count('--artifact "$public_assets/openwrt-rootfs.tar.gz"'), 2)
+        self.assertIn('sha256sum "$public_assets/openwrt-rootfs.tar.gz"', publisher)
 
     def test_immutable_gate_uses_a_dedicated_read_token_and_preserves_api_errors(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         publish = workflow.split("  publish-release:", 1)[1]
+        publisher = (ROOT / "scripts/openwrt/publish_release.sh").read_text(encoding="utf-8")
 
         self.assertIn("Z2KOW_IMMUTABILITY_TOKEN", publish)
         self.assertIn("GH_TOKEN: ${{ github.token }}", publish)
         self.assertIn("Z2KOW_IMMUTABILITY_TOKEN: ${{ secrets.Z2KOW_IMMUTABILITY_TOKEN }}", publish)
-        self.assertIn("scripts/openwrt/check_immutable_releases.py", publish)
+        self.assertIn("scripts/openwrt/check_immutable_releases.py", publisher)
         self.assertIn("actions: read", publish)
         self.assertIn("contents: write", publish)
         self.assertNotRegex(publish, r"(?im)^\s+administration:\s*(?:write|read)")
@@ -143,8 +155,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
         self.assertIn("retry-publish", workflow)
         self.assertIn("candidate_run_id", workflow)
-        self.assertIn("inputs.candidate_run_id", ci)
-        self.assertIn("inputs.candidate_run_id", prepare)
+        self.assertNotIn("retry-publish", ci)
+        self.assertNotIn("retry-publish", prepare)
         self.assertIn("always()", publish)
         self.assertIn("run-id:", publish)
         self.assertIn("actions/runs/$CANDIDATE_RUN_ID/jobs", publish)
