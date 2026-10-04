@@ -302,9 +302,9 @@
   ],
   "artifact": {
     "filename": "openwrt-rootfs.tar.gz",
-    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-24e9f78d0e80dade752811d37ae03077095358a7/openwrt-rootfs.tar.gz",
-    "sha256": "1ea510d746ec43a489f8f980c86cf3e395a8de34c9048035f56ee31910c3a8a5",
-    "size_bytes": 77514443
+    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-b3977374e09005d6f212cc0144fb528b9bacdd8e/openwrt-rootfs.tar.gz",
+    "sha256": "449c0248662fb2aa869e638ce0116bd1c9bb6356ecc01c45719b9d5f4529e506",
+    "size_bytes": 77514827
   },
   "signing": {
     "key_id": "916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae"
