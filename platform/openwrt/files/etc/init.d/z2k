@@ -181,6 +181,11 @@ start_service() {
     # ровно как do_nfqws/run_nfqws в S99zapret2.new и init.d/openwrt/zapret2.
     # shellcheck disable=SC2086
     procd_set_param command "$Z2K_NFQWS2" --qnum="$_qnum" $_base $NFQWS2_OPT
+    # procd does not inherit this init shell's adapter environment. The Lua
+    # persistence module must receive the OpenWrt state paths explicitly.
+    procd_set_param env \
+        "Z2K_STATE_DIR_OVERRIDE=${Z2K_STATE_DIR_OVERRIDE:-$Z2K_STATE}" \
+        "Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE=${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-$Z2K_TMP}"
     procd_set_param pidfile "$Z2K_RUN/nfqws2.pid"
     # Bounded recovery belongs to procd, not a second shell watchdog.  Five
     # crashes in one hour open the circuit until an explicit start/restart.

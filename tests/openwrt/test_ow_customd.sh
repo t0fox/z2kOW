@@ -8,6 +8,8 @@ trap ow_fixture_done EXIT INT TERM
 
 AD="$REPO/platform/openwrt"
 . "$AD/paths.sh"
+. "$AD/env.sh"
+. "$AD/optbase.sh"
 Z2K_CUSTOM_DIR="$T/custom.d"
 Z2K_ZAPRET2_RUNTIME="$T/zapret2"
 Z2K_NFQWS2="$T/zapret2/nfq2/nfqws2"
@@ -26,6 +28,16 @@ EOF
 chmod +x "$T/nft"
 PATH="$T:$PATH"; export PATH
 . "$AD/customd.sh"
+
+# Every nfqws2 instance loads the shared autocircular Lua module, so custom.d
+# instances need the same OpenWrt persistent paths as the core daemon.
+procd_open_instance() { printf 'open:%s\n' "$1" >> "$T/procd.calls"; }
+procd_set_param() { printf 'param:%s\n' "$*" >> "$T/procd.calls"; }
+procd_close_instance() { printf 'close\n' >> "$T/procd.calls"; }
+: > "$T/procd.calls"
+_z2k_ow_customd_run_daemon 2000 '--qnum=65300' && _t_ok || _t_bad "customd procd instance"
+assert_contains "customd Lua state uses persistent OpenWrt paths" "$T/procd.calls" \
+    "param:env Z2K_STATE_DIR_OVERRIDE=$Z2K_STATE Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE=$Z2K_TMP"
 
 # A complete component set is advertised; a missing upstream example is not.
 z2k_ow_customd_available && _t_ok || _t_bad "обязательные custom.d компоненты не признаны"

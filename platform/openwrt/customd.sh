@@ -241,6 +241,10 @@ _z2k_ow_customd_run_daemon() {
     procd_open_instance "z2k-custom-${_id}" || return 1
     # shellcheck disable=SC2086
     procd_set_param command "$Z2K_CUSTOM_NFQWS2" $_base $_opt
+    # custom.d nfqws2 processes also load z2k-state-persist.lua.
+    procd_set_param env \
+        "Z2K_STATE_DIR_OVERRIDE=${Z2K_STATE_DIR_OVERRIDE:-$Z2K_STATE}" \
+        "Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE=${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-$Z2K_TMP}"
     procd_set_param pidfile "$Z2K_CUSTOM_PID_DIR/nfqws2_${_id}.pid"
     procd_set_param respawn 3600 5 5
     procd_close_instance
