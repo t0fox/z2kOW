@@ -36,6 +36,24 @@ _warp_enabled() {
     grep -m1 '^GAME_WARP_ENABLED=' "$_cfg" 2>/dev/null | cut -d= -f2 | tr -d '" '
 }
 
+_ow_warp_status_snapshot() {
+    local _adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
+    [ -r "$_adapter/warp.sh" ] || return 1
+    (
+        Z2K_WARP_SOURCE_ONLY=1
+        . "$_adapter/warp.sh" 2>/dev/null || exit 1
+        warp_status
+    )
+}
+
+_ow_warp_status_field() {
+    local _key="$2"
+    printf '%s\n' "$1" | awk -v key="$_key" '{
+        for (i = 1; i <= NF; i++)
+            if (index($i, key "=") == 1) { sub(/^[^=]*=/, "", $i); print $i; exit }
+    }'
+}
+
 _tg_disabled() {
     grep -m1 '^TG_PROXY_USER_DISABLED=' "$_cfg" 2>/dev/null \
         | cut -d= -f2 | tr -d '" ' | grep -qx '1'
@@ -59,6 +77,7 @@ tg_connect_queue_failures() {
 
 print_health() {
     local issues="" nfq rules warp_on tg_pid _tg_queue_failures
+    local _warp_probe _warp_runtime_ready _warp_route_ready _warp_runtime_state
     _add() { issues="$issues  [!] $1
 "; }
     _tg_queue_failures=$(tg_connect_queue_failures)
@@ -95,8 +114,18 @@ print_health() {
             _add "WARP: z2k-warpd отсутствует в $_warp_bin"
         elif [ ! -s "$_warp_device" ]; then
             _add "WARP: устройство не зарегистрировано"
-        elif [ ! -f "$_warp_status" ] || ! grep -q '"ready":true' "$_warp_status" 2>/dev/null; then
-            _add "WARP: туннель не готов (fail-open, трафик идёт напрямую)"
+        else
+            _warp_probe=$(_ow_warp_status_snapshot 2>/dev/null)
+            _warp_runtime_ready=$(_ow_warp_status_field "$_warp_probe" ready)
+            _warp_route_ready=$(_ow_warp_status_field "$_warp_probe" route_ready)
+            _warp_runtime_state=$(_ow_warp_status_field "$_warp_probe" state)
+            if [ "$_warp_runtime_ready" != 1 ]; then
+                _add "WARP: туннель не готов (state=${_warp_runtime_state:-unavailable}, fail-open — игровой трафик идёт напрямую)"
+            elif [ "$_warp_route_ready" = 0 ]; then
+                _add "WARP: туннель готов, но маршрутизация OpenWrt не подтверждена — nft/TUN/PBR не доказаны, игровой трафик может идти напрямую"
+            elif [ "$_warp_route_ready" != 1 ]; then
+                _add "WARP: туннель готов, но состояние маршрутизации недоступно для проверки"
+            fi
         fi
         _warp_n=$(nft list set inet zapret2 z2k_warp_dst4 2>/dev/null \
             | grep -cE '([0-9]{1,3}\.){3}[0-9]{1,3}' || true)
@@ -231,22 +260,23 @@ print_warp() {
             ;;
         1)
             printf 'mode              : on\n'
-            if [ ! -r "$_warp_status" ]; then
+            _status=$(_ow_warp_status_snapshot 2>/dev/null)
+            if [ ! -r "$_warp_status" ] || [ -z "$_status" ]; then
                 state=unavailable
                 ready=unavailable
-            elif grep -Eq '"ready"[[:space:]]*:[[:space:]]*true' "$_warp_status" 2>/dev/null; then
+            elif [ "$(_ow_warp_status_field "$_status" ready)" = 1 ]; then
                 state=active
                 ready=true
-            elif grep -Eq '"ready"[[:space:]]*:[[:space:]]*false' "$_warp_status" 2>/dev/null; then
+            elif [ "$(_ow_warp_status_field "$_status" ready)" = 0 ]; then
                 state=inactive
                 ready=false
             else
                 state=unknown
                 ready=unknown
             fi
-            transport=$(_json_field transport "$_warp_status")
-            endpoint=$(_json_field endpoint "$_warp_status")
-            err=$(_json_field error "$_warp_status")
+            transport=$(_ow_warp_status_field "$_status" transport)
+            endpoint=$(_ow_warp_status_field "$_status" endpoint)
+            err=$(_ow_warp_status_field "$_status" error)
             [ -n "$transport" ] || transport=unavailable
             [ -n "$endpoint" ] || endpoint=unavailable
             printf 'state             : %s\n' "$state"
@@ -258,7 +288,6 @@ print_warp() {
                 Z2K_WARP_SOURCE_ONLY=1
                 if . "$_adapter/warp.sh" 2>/dev/null; then
                     unset Z2K_WARP_SOURCE_ONLY
-                    _status="$(warp_status 2>/dev/null)"
                     _route_ready=$(printf '%s\n' "$_status" | sed -n 's/.* route_ready=\([^ ]*\).*/\1/p')
                     [ -n "$_route_ready" ] || _route_ready=unavailable
                     _edge_colo=$(printf '%s\n' "$_status" | sed -n 's/.* edge_colo=\([^ ]*\).*/\1/p')
@@ -325,7 +354,7 @@ print_platform() {
         | head -1 | sed "s/['\"]$//")
     target=$(sed -n "s/^DISTRIB_TARGET=['\"]\{0,1\}\(.*\)['\"]\{0,1\}$/\1/p" "$release_file" 2>/dev/null \
         | head -1 | sed "s/['\"]$//")
-    arch=$(opkg print-architecture 2>/dev/null | awk '$1=="arch" && $2!="all" {p=($3~/^[0-9]+$/)?$3+0:0; if(p>=max){max=p; arch=$2}} END{print arch}')
+    arch=${Z2K_OPENWRT_ARCH:-$(awk -F= '$1=="DISTRIB_ARCH" {gsub(/["\047]/, "", $2); print $2; exit}' "$release_file" 2>/dev/null)}
     [ -n "$arch" ] || arch=$(uname -m 2>/dev/null)
     printf 'OpenWrt release   : %s\n' "${release:-unknown}"
     printf 'OpenWrt target    : %s\n' "${target:-unknown}"
@@ -344,6 +373,59 @@ print_platform() {
         *) printf 'swap              : %s/%s kB used\n' "$((swap_total - swap_free))" "$swap_total" ;;
     esac
     printf 'loadavg            : %s\n' "$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
+}
+
+print_insta() {
+    local _adapter _refresh _dns _records _managed _runtime _cfgfile _cfg_seen _process
+    _adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
+    if [ ! -r "$_adapter/insta-ip.sh" ]; then
+        printf 'dnsmasq addnhosts: unavailable (OpenWrt adapter missing)\n'
+        return 0
+    fi
+    . "$_adapter/insta-ip.sh" || {
+        printf 'dnsmasq addnhosts: unavailable (adapter could not load)\n'
+        return 0
+    }
+    _refresh=$(sed -n 's/^[[:space:]]*Z2K_INSTA_IP_REFRESH[[:space:]]*=[[:space:]]*//p' "$_cfg" 2>/dev/null \
+        | tail -1 | tr -d "'\" \t\r")
+    _dns=$(sed -n 's/^[[:space:]]*Z2K_INSTA_DNS[[:space:]]*=[[:space:]]*//p' "$_cfg" 2>/dev/null \
+        | tail -1 | tr -d "'\" \t\r")
+    if [ "$_dns" = 0 ]; then
+        printf 'dnsmasq addnhosts: disabled by user (static Insta/WhatsApp pins off)\n'
+    elif ! command -v "$Z2K_INSTA_UCI_BIN" >/dev/null 2>&1; then
+        printf 'dnsmasq addnhosts: unavailable (uci missing)\n'
+    elif z2k_ow_insta_registered; then
+        _records=$(z2k_ow_insta_show_running_config | awk 'NF {n++} END {print n+0}')
+        _managed=$(awk -F'"' '/^HOSTS="/ {n=split($2, hosts, /[[:space:]]+/); print n; exit}' \
+            "${Z2K_ROOT:-/usr/lib/z2k}/z2k-insta-ip-refresh.sh" 2>/dev/null)
+        case "$_managed" in ''|*[!0-9]*) _managed=unknown ;; esac
+        _runtime=unavailable
+        _process=0
+        ps w 2>/dev/null | grep -E '[d]nsmasq' >/dev/null && _process=1
+        if [ "$_process" = 0 ]; then
+            _runtime=inactive
+        else
+            _cfg_seen=0
+            for _cfgfile in ${Z2K_INSTA_DNSMASQ_RUNTIME_CONFIGS:-/var/etc/dnsmasq.conf.*}; do
+                [ -r "$_cfgfile" ] || continue
+                _cfg_seen=1
+                if grep -F -x "addn-hosts=$Z2K_INSTA_HOSTS_FILE" "$_cfgfile" >/dev/null 2>&1; then
+                    _runtime=active
+                    break
+                fi
+            done
+            [ "$_runtime" = active ] || { [ "$_cfg_seen" = 1 ] && _runtime=not-observed; }
+        fi
+        printf 'dnsmasq addnhosts: registered; %s records; runtime=%s; managed hostnames=%s\n' \
+            "${_records:-0}" "$_runtime" "$_managed"
+    else
+        printf 'dnsmasq addnhosts: unregistered; no active OpenWrt DNS pin configuration\n'
+    fi
+    case "$_refresh" in
+        0) printf 'Insta IP refresh  : disabled by user\n' ;;
+        1) printf 'Insta IP refresh  : enabled\n' ;;
+        *) printf 'Insta IP refresh  : not-observed\n' ;;
+    esac
 }
 
 _ow_autocircular_configured() {
@@ -608,6 +690,16 @@ print_offload() {
     actual=not-observed
     printf '%s\n' "$conntrack" | grep -qF '[HW_OFFLOAD]' && actual=hardware
     if [ "$actual" = not-observed ] && printf '%s\n' "$conntrack" | grep -qF '[OFFLOAD]'; then actual=software; fi
+    # A live conntrack flag is stronger evidence than a missing vendor-specific
+    # capability file: runtime offload proves the corresponding path exists.
+    [ "$actual" = hardware ] && hardware_cap=available
+    [ "$actual" = software ] && software_cap=available
+    capability=unavailable
+    if [ "$software_cap" = available ] || [ "$hardware_cap" = available ]; then
+        capability=available
+    elif [ "$software_cap" = unknown ] && [ "$hardware_cap" = unavailable ]; then
+        capability=unknown
+    fi
 
     software_state=N/A
     hardware_state=N/A
@@ -779,6 +871,7 @@ case "$1" in
     tunnel) print_tunnel ;;
     warp) print_warp ;;
     platform) print_platform ;;
+    insta) print_insta ;;
     offload) print_offload ;;
     autocircular) print_autocircular ;;
     lists) print_lists ;;

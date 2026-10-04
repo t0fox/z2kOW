@@ -74,4 +74,34 @@ assert_contains "all OpenWrt route probes promote tunnel to routing-ready" "$T/o
 assert_contains "healthy route has no failure reason" "$T/output" 'routing reason   : confirmed'
 assert_contains "diag prints actual Cloudflare edge metadata" "$T/output" 'edge             : colo=FRA country=DE rtt_ms=31 selection=foreign'
 
+# The top-line health summary must use the same runtime proof as the WARP
+# detail/API. A daemon ready bit alone does not prove OpenWrt nft/TUN/PBR.
+cat > "$T/bin/init" <<'EOF'
+#!/bin/sh
+case "$1" in running) exit 0 ;; *) exit 1 ;; esac
+EOF
+chmod +x "$T/bin/init"
+mkdir -p "$T/root/nfq2" "$T/etc/state/warp" "$T/run" "$T/adapter/bin/linux-x86_64"
+cp "$REPO/platform/openwrt/arch.sh" "$T/adapter/arch.sh"
+cp "$REPO/platform/openwrt/warp.sh" "$T/adapter/warp.sh"
+printf '#!/bin/sh\nexit 0\n' > "$T/root/nfq2/nfqws2"
+printf '#!/bin/sh\nexit 0\n' > "$T/adapter/bin/linux-x86_64/z2k-warpd"
+chmod +x "$T/root/nfq2/nfqws2"
+chmod +x "$T/adapter/bin/linux-x86_64/z2k-warpd"
+printf '{"addr_v4":"172.16.9.9"}\n' > "$T/etc/state/warp/device.json"
+printf '777\n' > "$T/run/nfqws2.pid"
+printf '200 777 1 0 0\n' > "$T/nfqueue"
+printf 'ready\n' > "$T/run/core-ready"
+printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg","endpoint":"162.159.192.6:2408"}\n' > "$T/tmp/warp/status.json"
+  Z2K_ROOT="$REPO" Z2K_ADAPTER_DIR="$T/adapter" \
+  Z2K_ETC="$T/etc" Z2K_STATE="$T/etc/state" Z2K_TMP="$T/tmp" \
+  Z2K_RUN="$T/run" Z2K_CORE_READY="$T/run/core-ready" Z2K_CONFIG="$T/etc/config" \
+  Z2K_NFQWS2="$T/root/nfq2/nfqws2" Z2K_INIT="$T/bin/init" INIT_SCRIPT="$T/bin/init" \
+  Z2K_NFQUEUE_PROC="$T/nfqueue" Z2K_PROC_ROOT="$T/proc" \
+  WARP_BIN="$T/adapter/bin/linux-x86_64/z2k-warpd" WARP_PBR_OWNER="$T/tmp/warp/pbr.owner" \
+  Z2K_PLATFORM=openwrt PATH="$T/bin:/usr/bin:/bin" \
+  "$REPO/platform/openwrt/diag.sh" health > "$T/health" 2>&1
+assert_contains "health summary warns when WARP transport is ready but route is unproven" \
+  "$T/health" 'WARP: туннель готов, но маршрутизация OpenWrt не подтверждена'
+
 _t_done

@@ -71,5 +71,7 @@ _out="$($REPO/platform/openwrt/diag.sh offload 2>&1)"
 printf '%s\n' "$_out" > "$T/output-hardware"
 assert_contains "hardware dataplane active" "$T/output-hardware" "hardware offload   : active"
 assert_contains "hardware dataplane fact" "$T/output-hardware" "observed dataplane : hardware"
+assert_contains "observed hardware offload proves hardware capability" "$T/output-hardware" \
+    "hardware capability: available"
 
 _t_done

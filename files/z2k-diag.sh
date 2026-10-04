@@ -117,6 +117,15 @@ z2k_version_read() {
     printf '%s' "${v:-unknown}"
 }
 
+# OpenWrt distributions in this release line use apk, and newer builds no
+# longer ship opkg. /etc/openwrt_release is the authoritative native arch.
+get_openwrt_arch() {
+    local _release="${Z2K_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}" _arch
+    _arch="${Z2K_OPENWRT_ARCH:-$(awk -F= '$1=="DISTRIB_ARCH" {gsub(/["\047]/, "", $2); print $2; exit}' "$_release" 2>/dev/null)}"
+    [ -n "$_arch" ] || _arch=$(uname -m 2>/dev/null)
+    printf '%s' "${_arch:-unknown}"
+}
+
 # Resolve the Entware arch (e.g. mipsel-3.4_kn) via opkg, quiet fallback to uname -m.
 get_entware_arch() {
     local opkg_bin="opkg"
@@ -272,8 +281,7 @@ print_version_host() {
         local ow_release ow_target ow_arch
         ow_release=${Z2K_OPENWRT_RELEASE:-$(awk -F= '$1=="DISTRIB_RELEASE" {gsub(/["\047]/, "", $2); print $2}' "$ow_release_file" 2>/dev/null)}
         ow_target=${Z2K_OPENWRT_TARGET:-$(awk -F= '$1=="DISTRIB_TARGET" {gsub(/["\047]/, "", $2); print $2}' "$ow_release_file" 2>/dev/null)}
-        ow_arch=${Z2K_OPENWRT_ARCH:-$(opkg print-architecture 2>/dev/null | awk '$1=="arch" && $2!="all" {p=($3~/^[0-9]+$/)?$3+0:0; if(p>=max){max=p; arch=$2}} END{print arch}')}
-        [ -n "$ow_arch" ] || ow_arch=$(uname -m 2>/dev/null)
+        ow_arch=$(get_openwrt_arch)
         printf 'OpenWrt release   : %s\n' "${ow_release:-unknown}"
         printf 'OpenWrt target    : %s\n' "${ow_target:-unknown}"
         printf 'OpenWrt arch      : %s\n' "${ow_arch:-unknown}"
@@ -522,10 +530,56 @@ strategy_file_arms() {
 # =============================================================================
 # SECTION: service state + config flags
 # =============================================================================
+print_openwrt_service_details() {
+    local _cfg="${Z2K_CONFIG:-${ZAPRET2_DIR}/config}" _flags="" _key _val
+    local _pid _sc _arms _rest _pools _dead _pool _file _count _note _reasm
+    for _key in GAME_WARP_ENABLED GEOSITE_ENABLED; do
+        _val=$(safe_read "$_key" "$_cfg" "-")
+        [ -n "$_flags" ] && _flags="$_flags "
+        _flags="$_flags$_key=$_val"
+    done
+    printf 'config flags      : %s\n' "$_flags"
+
+    _pid=$(pgrep -f 'nfq2/nfqws2' 2>/dev/null | head -1)
+    if [ -n "$_pid" ]; then
+        if _sc=$(nfqws_strategy_counts "$_pid"); then
+            _arms=${_sc%% *}; _rest=${_sc#* }; _pools=${_rest%% *}; _dead=${_rest##* }
+            printf 'live strategies   : %s arms in %s circular pools; dead pools=%s\n' \
+                "$_arms" "$_pools" "$_dead"
+        else
+            printf 'live strategies   : unavailable (cannot read nfqws2 cmdline)\n'
+        fi
+        if _reasm=$(nfqws_reasm_state "$_pid"); then
+            printf 'reasm TLS CH      : %s\n' "$([ "$_reasm" = off ] && echo enabled || echo disabled)"
+        else
+            printf 'reasm TLS CH      : unavailable\n'
+        fi
+    else
+        printf 'live strategies   : N/A (nfqws2 is not running)\n'
+    fi
+
+    for _pool in TCP/RKN TCP/YT TCP/YT_GV UDP/YT; do
+        _file="${Z2K_EXTRA_STRATS_DIR:-${ZAPRET2_DIR}/extra_strats}/$_pool/Strategy.txt"
+        if [ -s "$_file" ]; then
+            _count=$(strategy_file_arms "$_file")
+            _note=""
+            grep -q -- '--lua-desync=circular' "$_file" 2>/dev/null || _note='; circular missing'
+            printf 'strategy %-9s: %s arms%s\n' "$_pool" "$_count" "$_note"
+        elif [ -e "$_file" ]; then
+            printf 'strategy %-9s: empty\n' "$_pool"
+        else
+            printf 'strategy %-9s: missing\n' "$_pool"
+        fi
+    done
+}
+
 print_service() {
     if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] && z2k_diag_hook; then
+        local _service_rc
         "$Z2K_DIAG_HOOK" service
-        return $?
+        _service_rc=$?
+        print_openwrt_service_details
+        return "$_service_rc"
     fi
     printf '\n=== service ===\n'
     local nfqws_pids
@@ -1168,6 +1222,13 @@ tg_connect_queue_failures() {
 }
 
 print_health() {
+    if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] && z2k_diag_hook; then
+        local _health_rc=0
+        "$Z2K_DIAG_HOOK" health || _health_rc=$?
+        print_dns_check_snapshot
+        "$Z2K_DIAG_HOOK" insta
+        return "$_health_rc"
+    fi
     if z2k_diag_hook; then
         "$Z2K_DIAG_HOOK" health
         return $?
@@ -2168,7 +2229,11 @@ _print_log_tails() {
 print_short() {
     local version entw nfqws_pids lan_ip svc
     version=$(z2k_version_read)
-    entw=$(get_entware_arch)
+    if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+        entw=$(get_openwrt_arch)
+    else
+        entw=$(get_entware_arch)
+    fi
     nfqws_pids=$(pgrep -f 'nfq2/nfqws2' 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
     lan_ip=$(get_lan_ip)
     if [ -n "$nfqws_pids" ]; then
@@ -2191,7 +2256,7 @@ print_short() {
 print_json() {
     # Intentionally minimal — webpanel will use sh-based sections in Phase 3.
     # This is a placeholder so the CLI --json flag doesn't 404 from the start.
-    local version nfqws_pids svc
+    local version nfqws_pids svc arch
     version=$(z2k_version_read)
     nfqws_pids=$(pgrep -f 'nfq2/nfqws2' 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
     if [ -n "$nfqws_pids" ]; then
@@ -2200,9 +2265,10 @@ print_json() {
         svc="down"
     fi
     if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+        arch=$(get_openwrt_arch)
         printf '{"version":"%s","service":"%s","lan_ip":"%s","arch":"%s"}\n' \
             "$version" \
-            "$svc" "$(get_lan_ip)" "$(get_entware_arch)"
+            "$svc" "$(get_lan_ip)" "$arch"
     else
         printf '{"version":"%s","service":"%s","lan_ip":"%s","arch":"%s"}\n' \
             "$version" "$svc" "$(get_lan_ip)" "$(get_entware_arch)"

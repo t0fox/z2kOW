@@ -7,7 +7,7 @@ DIAG="$REPO/files/z2k-diag.sh"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-diag-native.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 mkdir -p "$T/root" "$T/etc/state" "$T/etc/webpanel" "$T/tmp/runtime" "$T/bin"
-printf "DISTRIB_RELEASE='23.05.5'\nDISTRIB_TARGET='mediatek/filogic'\n" > "$T/openwrt_release"
+printf "DISTRIB_RELEASE='23.05.5'\nDISTRIB_TARGET='mediatek/filogic'\nDISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"
 printf 'tag=p-86.11\nseq=134\n' > "$T/etc/state/installed-release"
 printf 'tag=p-86.10\n' > "$T/root/.z2k-installed-tag"
 printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
@@ -58,12 +58,16 @@ assert_contains "OpenWrt report includes native platform section" "$T/output" 'p
 assert_contains "OpenWrt report includes release metadata" "$T/output" 'OpenWrt release'
 assert_contains "OpenWrt report reads release from OpenWrt release file" "$T/output" '23.05.5'
 assert_contains "OpenWrt report reads target from OpenWrt release file" "$T/output" 'mediatek/filogic'
+assert_contains "OpenWrt report reads apk-native architecture from release file" "$T/output" \
+    'OpenWrt arch      : aarch64_cortex-a53'
 assert_contains "OpenWrt report includes overlay facts" "$T/output" 'overlay'
 assert_contains "OpenWrt report includes swap facts" "$T/output" 'swap'
 assert_contains "OpenWrt report includes procd probe" "$T/output" 'procd'
 assert_contains "OpenWrt report includes netifd probe" "$T/output" 'netifd'
 assert_contains "OpenWrt report includes ubus probe" "$T/output" 'ubus'
 assert_contains "OpenWrt report includes UCI probe" "$T/output" 'UCI'
+assert_contains "OpenWrt service section retains shared config flags" "$T/output" \
+    'config flags      : GAME_WARP_ENABLED=0'
 assert_contains "OpenWrt report identifies fw4" "$T/output" 'fw4'
 assert_contains "OpenWrt report identifies nftables" "$T/output" 'nftables'
 assert_contains "OpenWrt report inspects panel listener" "$T/output" 'panel listener'
@@ -71,5 +75,17 @@ assert_contains "panel probe uses the configured webpanel port" "$T/output" 'pan
 assert_contains "panel probe reports the process bound to that port" "$T/output" '1234/lighttpd'
 _legacy_findings_more="unknown arch|Ent""ware|/opt|iptables.*missing"
 assert_not_contains "OpenWrt report avoids legacy architecture and iptables findings" "$T/output" "$_legacy_findings_more"
+
+cat > "$T/bin/opkg" <<'EOF'
+#!/bin/sh
+printf 'arch mipsel_24kc 100\n'
+EOF
+chmod +x "$T/bin/opkg"
+_platform=$(PATH="$T/bin:$PATH" Z2K_PLATFORM=openwrt Z2K_ROOT="$REPO" \
+  Z2K_OPENWRT_RELEASE_FILE="$T/openwrt_release" \
+  "$REPO/platform/openwrt/diag.sh" platform)
+printf '%s\n' "$_platform" > "$T/platform.txt"
+assert_contains "OpenWrt platform hook ignores legacy opkg and reads DISTRIB_ARCH" \
+  "$T/platform.txt" 'OpenWrt arch      : aarch64_cortex-a53'
 
 _t_done

@@ -5,7 +5,7 @@ _t_plan "ow-diag-states"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-diag-states.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
-mkdir -p "$T/bin" "$T/etc/state" "$T/tmp" "$T/run" "$T/sys-module" "$T/modules" "$T/proc"
+mkdir -p "$T/bin" "$T/etc/state" "$T/tmp" "$T/run" "$T/sys-module" "$T/modules" "$T/proc" "$T/adapter"
 export PATH="$T/bin:/usr/bin:/bin"
 export Z2K_ROOT="$REPO" Z2K_ETC="$T/etc" Z2K_STATE="$T/etc/state" Z2K_TMP="$T/tmp"
 export Z2K_RUN="$T/run" Z2K_CONFIG="$T/config" Z2K_INIT="$T/init" Z2K_BIN="$T/bin"
@@ -18,6 +18,16 @@ export Z2K_DIAG_PROC_ROOT="$T/proc" Z2K_DIAG_PROCD_FIXTURE="$T/procd.json"
 export Z2K_DIAG_AUTOCIRCULAR_DEFAULT_FALLBACK_DIR="$T/tmp"
 printf '#!/bin/sh\nexit 0\n' > "$T/init"
 chmod +x "$T/init"
+cat > "$T/adapter/warp.sh" <<'EOF'
+#!/bin/sh
+# Controlled canonical status snapshots keep this state matrix independent of
+# the host's real WARP daemon, interface, nft rules and routes.
+warp_status() {
+    [ -r "$Z2K_DIAG_WARP_STATUS_FIXTURE" ] && cat "$Z2K_DIAG_WARP_STATUS_FIXTURE"
+}
+EOF
+chmod +x "$T/adapter/warp.sh"
+export Z2K_ADAPTER_DIR="$T/adapter"
 
 cat > "$T/bin/nft" <<'EOF'
 #!/bin/sh
@@ -153,10 +163,15 @@ assert_out "WARP off is explicitly disabled" 'state             : disabled'
 assert_not_out "disabled WARP has no transport or endpoint fields" 'transport=.*endpoint=|transport[[:space:]]*:'
 printf 'GAME_WARP_ENABLED=1\n' > "$T/config"
 printf '{"ready":true,"transport":"wireguard","endpoint":"engage.cloudflareclient.com:2408"}\n' > "$T/tmp/warp/status.json"
+printf 'ready=1 route_ready=1 state=active transport=wireguard endpoint=engage.cloudflareclient.com:2408\n' \
+    > "$T/warp-status"
+export Z2K_DIAG_WARP_STATUS_FIXTURE="$T/warp-status"
 run_diag warp
 assert_out "enabled ready WARP is active" 'state             : active'
 assert_out "active WARP reports transport" 'transport=wireguard'
 printf '{"ready":false,"transport":"wireguard","endpoint":"engage.cloudflareclient.com:2408"}\n' > "$T/tmp/warp/status.json"
+printf 'ready=0 route_ready=0 state=inactive transport=wireguard endpoint=engage.cloudflareclient.com:2408\n' \
+    > "$T/warp-status"
 run_diag warp
 assert_out "enabled not-ready WARP is inactive" 'state             : inactive'
 rm "$T/tmp/warp/status.json"
