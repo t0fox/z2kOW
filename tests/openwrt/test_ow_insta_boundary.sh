@@ -32,10 +32,13 @@ assert_not_contains "full payload builder excludes Keenetic scheduler" "$REPO/sc
 assert_contains "Keenetic path retains ndmc backend" "$REPO/files/z2k-insta-ip-refresh.sh" 'ndmc not found'
 
 # The old defect was a delivery gap: OpenWrt did not ship the common helper,
-# so its empty gaming-list directory could never converge. Keep the truthful
-# source-error UI while asserting the helper and cron now reach OpenWrt.
+# so its empty gaming-list directory could never converge. A transient empty
+# response now has a retryable empty state; the backend log remains the source
+# of truth for whether the upstream fetch itself failed.
 assert_contains "gaming-list source failure остаётся видимым" "$REPO/files/z2k-update-lists.sh" 'warp games index unavailable'
-assert_contains "UI сохраняет gaming-list error" "$REPO/webpanel/www/js/pages/warp.js" 'Списки не загрузились — источник был недоступен'
+assert_contains "UI displays retryable empty gaming-list state" "$REPO/webpanel/www/js/pages/warp.js" 'Игровые списки пока не загружены'
+assert_contains "UI retries while gaming lists are still empty" "$REPO/webpanel/www/js/pages/warp.js" 'scheduleWarpGamesRetry'
+assert_not_contains "UI does not present empty response as a permanent fetch diagnosis" "$REPO/webpanel/www/js/pages/warp.js" 'Списки не загрузились — источник был недоступен'
 assert_contains "OpenWrt cron обновляет gaming lists" "$REPO/platform/openwrt/schedule.sh" 'z2k-warp-games'
 assert_contains "OpenWrt cron запускает common helper через sh" "$REPO/platform/openwrt/schedule.sh" 'sh $Z2K_ROOT/z2k-update-lists.sh warp-games'
 assert_contains "OpenWrt cron enters native list-refresh adapter" "$REPO/platform/openwrt/schedule.sh" 'platform/openwrt/list-refresh.sh # z2k-lists'
