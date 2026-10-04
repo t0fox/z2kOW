@@ -263,13 +263,13 @@ class PublicationPolicyTests(unittest.TestCase):
 
     def test_retry_publish_reuses_candidate_and_verifies_existing_releases_idempotently(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
-        ci = workflow.split("  ci:", 1)[1].split("  prepare-release:", 1)[0]
+        verify_ci = workflow.split("  verify-source-ci:", 1)[1].split("  prepare-release:", 1)[0]
         prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
         publish = workflow.split("  publish-release:", 1)[1]
         publisher = (ROOT / "scripts/openwrt/publish_release.sh").read_text(encoding="utf-8")
         self.assertIn("retry-publish", workflow)
         self.assertIn("candidate_run_id", workflow)
-        self.assertNotIn("retry-publish", ci)
+        self.assertNotIn("retry-publish", verify_ci)
         self.assertNotIn("retry-publish", prepare)
         self.assertIn("actions/download-artifact", publish)
         self.assertIn("isImmutable", publisher)
