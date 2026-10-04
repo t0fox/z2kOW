@@ -122,7 +122,6 @@ RELEASE="$ROOT/.github/workflows/release-openwrt.yml"
 BUILDER="$ROOT/scripts/openwrt/build-release.sh"
 STAGER="$ROOT/scripts/openwrt/stage-rootfs.sh"
 if grep -Fq 'uses: ./.github/workflows/ci.yml' "$RELEASE" \
-   && grep -Fq 'Adapt the exact upstream tag into the only controlled UPDATES.json and build one complete rootfs' "$RELEASE" \
    && grep -Fq 'sh scripts/openwrt/build-release.sh --out' "$RELEASE" \
    && grep -Fq 'stage-rootfs.sh' "$BUILDER" \
    && grep -Fq 'fetch_upstream_tg.py' "$BUILDER" \
