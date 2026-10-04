@@ -24,11 +24,11 @@ case "$*" in
     "-q show dhcp") cat "$UCI_TEST_DB" ;;
     "commit dhcp") exit 0 ;;
     "add_list dhcp.@dnsmasq[0].addnhosts="*)
-        _path=${2#dhcp.@dnsmasq[0].addnhosts=}
+        _path=${2#*=}
         printf "dhcp.@dnsmasq[0].addnhosts='%s'\n" "$_path" >> "$UCI_TEST_DB"
         ;;
     "del_list dhcp.@dnsmasq[0].addnhosts="*)
-        _path=${2#dhcp.@dnsmasq[0].addnhosts=}
+        _path=${2#*=}
         awk -v path="$_path" 'index($0, ".addnhosts=\047" path "\047") == 0' "$UCI_TEST_DB" > "$UCI_TEST_DB.new"
         mv "$UCI_TEST_DB.new" "$UCI_TEST_DB"
         ;;

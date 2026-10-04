@@ -18,7 +18,6 @@ Z2K_TIKTOK_CURL_BIN="${Z2K_TIKTOK_CURL_BIN:-curl}"
 Z2K_TIKTOK_NSLOOKUP_BIN="${Z2K_TIKTOK_NSLOOKUP_BIN:-nslookup}"
 Z2K_TIKTOK_MAX_PROBES="${Z2K_TIKTOK_MAX_PROBES:-12}"
 Z2K_TIKTOK_SUCCESS_TARGET="${Z2K_TIKTOK_SUCCESS_TARGET:-4}"
-Z2K_TIKTOK_LEASE_SECONDS="${Z2K_TIKTOK_LEASE_SECONDS:-3600}"
 Z2K_TIKTOK_RESOLVER_LIMIT="${Z2K_TIKTOK_RESOLVER_LIMIT:-6}"
 Z2K_TIKTOK_DNS_TIMEOUT="${Z2K_TIKTOK_DNS_TIMEOUT:-3}"
 Z2K_TIKTOK_FAIL_THRESHOLD="${Z2K_TIKTOK_FAIL_THRESHOLD:-2}"
@@ -75,7 +74,7 @@ _z2k_ow_tiktok_reload_dnsmasq() {
 # A future upstream implementation or a user-defined DNS override wins.  We
 # never replace/remove DNS state we do not own.
 z2k_ow_tiktok_external_override() {
-    local _line _path
+    local _path
     command -v "$Z2K_TIKTOK_UCI_BIN" >/dev/null 2>&1 || return 1
     if "$Z2K_TIKTOK_UCI_BIN" -q show dhcp 2>/dev/null \
         | tr -d "'\"" \
@@ -145,6 +144,7 @@ z2k_ow_tiktok_clear() {
 }
 
 _z2k_ow_tiktok_resolvers() {
+    local _f
     {
         for _f in /tmp/resolv.conf.d/resolv.conf.auto /etc/resolv.conf; do
             [ -r "$_f" ] || continue
