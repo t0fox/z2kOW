@@ -247,7 +247,7 @@ run_diag autocircular
 assert_out "runtime primary override is selected" "state file        : active (1 entries; persistent $T/runtime-state/state.tsv)"
 assert_out "actual runtime primary entry is rendered" 'override'
 assert_not_out "fallback row does not replace runtime primary" 'fallback.example'
-printf '%s\000' > "$T/proc/4242/environ"
+: > "$T/proc/4242/environ"
 
 # No saved rows means enabled-but-not-observed, not an installation failure.
 rm -f "$T/tmp/z2k-autocircular-state.tsv" "$T/runtime-state/state.tsv" "$T/runtime-fallback/z2k-autocircular-state.tsv"

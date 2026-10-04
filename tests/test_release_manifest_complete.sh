@@ -73,6 +73,13 @@ declared=$(awk '/^[[:space:]]*\{[[:space:]]*"v"/{last=$0} END{print last}' UPDAT
 [ -n "$declared" ] && ok "changed_files прочитан" \
                    || no "changed_files прочитан" "список" "пусто"
 
+platform=$(sed -n 's/^[[:space:]]*"platform"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' UPDATES.json | head -1)
+if [ "$platform" = openwrt ]; then
+    # OpenWrt updates install a complete artifact authenticated by the signed
+    # manifest; upstream changed_files does not control the OpenWrt payload.
+    ok "OpenWrt delivery uses the signed full-rootfs artifact, not changed_files"
+else
+
 # Everything that changed between the two release commits AND has an install
 # target. UPDATES.json is always in the list by construction; skip the noise.
 missing=""
@@ -103,6 +110,7 @@ elif [ -z "$missing" ]; then
     ok "все изменённые доставляемые файлы объявлены ($checked шт, $prev_ref..$cur_ref)"
 else
     no "все изменённые доставляемые файлы объявлены" "ничего не пропущено" "пропущено:$missing"
+fi
 fi
 
 # The panel's index.html carries the cache-buster and is therefore rewritten by
