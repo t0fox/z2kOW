@@ -37,11 +37,11 @@ cat > "$T/ruleset" <<'EOF'
 table inet zapret2 {
  chain postnat_hook { type filter hook postrouting priority 101; jump postnat; }
  chain prenat_hook { type filter hook prerouting priority -101; jump prenat; }
- chain postnat { ip daddr @wanif tcp dport 443 queue flags bypass to 200 counter packets 5 bytes 500; udp dport 443 queue flags bypass to 2000 counter packets 99 bytes 9900; }
- chain prenat { ip saddr @wanif tcp sport 443 queue flags bypass to 200 counter packets 7 bytes 700; }
+ chain postnat { ip daddr @wanif tcp dport 443 counter packets 5 bytes 500 queue flags bypass to 200; udp dport 443 counter packets 99 bytes 9900 queue flags bypass to 2000; }
+ chain prenat { ip saddr @wanif tcp sport 443 counter packets 7 bytes 700 queue flags bypass to 200; }
 }
 table inet fw4 {
- chain forward { counter packets 100 bytes 10000 queue flags bypass to 200 counter packets 77 bytes 7700; }
+ chain forward { counter packets 100 bytes 10000 queue flags bypass to 200; }
 }
 EOF
 
@@ -68,10 +68,31 @@ sh "$REPO/platform/openwrt/diag.sh" health > "$T/output" 2>&1
 assert_out "health summary uses the same missing incoming path proof" 'NFQUEUE входящий path unreachable'
 
 # Wrong queue and foreign rules do not inflate the owned OUT count.
-sed 's/to 200 counter packets 5 bytes 500/to 201 counter packets 5 bytes 500/' "$T/ruleset" > "$T/ruleset.new"
+sed 's/counter packets 5 bytes 500 queue flags bypass to 200/counter packets 5 bytes 500 queue flags bypass to 201/' "$T/ruleset" > "$T/ruleset.new"
 mv "$T/ruleset.new" "$T/ruleset"
 run_diag
 assert_out "wrong-qnum outgoing rule is not counted" 'NFQUEUE исходящие : 0'
 assert_out "wrong-qnum outgoing rule does not prove a path" 'OUT path           : unreachable'
+
+# The OpenWrt firewall adapter adds nft's counter expression to NFQUEUE rules
+# during the upstream firewall apply, making the displayed live counters real.
+. "$REPO/platform/openwrt/firewall.sh"
+z2k_ow_fw_source() { return 0; }
+zapret_apply_firewall_standard_nfqws_rules_nft() {
+    printf '%s\n' "${FW_EXTRA_POST:-}" > "$T/fw-extra-post"
+}
+zapret_apply_firewall_standard_rules_nft() {
+    zapret_apply_firewall_standard_nfqws_rules_nft
+}
+zapret_apply_firewall() {
+    zapret_apply_firewall_standard_rules_nft
+}
+z2k_ow_customd_firewall_guards_apply() { return 0; }
+FW_EXTRA_POST='comment "owned nfqueue"'
+z2k_ow_fw_apply
+assert_eq "OpenWrt core NFQUEUE rules install an nft counter before queue verdict" \
+    'comment "owned nfqueue" counter' "$(cat "$T/fw-extra-post")"
+assert_eq "OpenWrt counter injection does not leak outside firewall apply" \
+    'comment "owned nfqueue"' "$FW_EXTRA_POST"
 
 _t_done

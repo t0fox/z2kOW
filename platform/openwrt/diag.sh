@@ -75,6 +75,11 @@ tg_connect_queue_failures() {
     fi
 }
 
+print_tunnel_log() {
+    command -v logread >/dev/null 2>&1 || return 0
+    logread 2>/dev/null | grep -E 'z2k-tg|tg-mtproxy-client' | tail -n 200
+}
+
 _ow_diag_qnum() {
     local _q
     _q=$(sed -n 's/^[[:space:]]*QNUM[[:space:]]*=[[:space:]]*//p' "$_cfg" 2>/dev/null | tail -1 | tr -d "'\" \t\r")
@@ -1002,5 +1007,6 @@ case "$1" in
     autocircular) print_autocircular "${2:-full}" ;;
     lists) print_lists ;;
     netpath) print_netpath ;;
+    tunnel-log) print_tunnel_log ;;
     *) exit 2 ;;
 esac

@@ -86,11 +86,17 @@ cat > "$T/bin/curl" <<'EOF'
 #!/bin/sh
 printf '%s\r\n' 'HTTP/2 200' 'Date: Thu, 01 Jan 1970 00:00:00 GMT'
 EOF
+cat > "$T/bin/logread" <<'EOF'
+#!/bin/sh
+printf '%s\n' \
+    'daemon.info z2k-tg[1443]: identity registered for 203.0.113.8' \
+    'daemon.info z2k-tg[1443]: CONNECT_OK relay=203.0.113.9'
+EOF
 cat > "$T/bin/date" <<'EOF'
 #!/bin/sh
 if [ "${1:-}" = +%s ]; then printf '%s\n' "${Z2K_TEST_NOW:-0}"; else exec /usr/bin/date "$@"; fi
 EOF
-chmod +x "$T/bin/ping" "$T/bin/curl" "$T/bin/date"
+chmod +x "$T/bin/ping" "$T/bin/curl" "$T/bin/logread" "$T/bin/date"
 _today=$(date '+%Y-%m-%d')
 printf '%s 12:00:00 FAIL: warp games index unavailable — keeping current lists\n' "$_today" \
     > "$T/log/z2k-warp-games.log"
@@ -137,6 +143,22 @@ assert_contains "OpenWrt network path includes the DNS pin probe" "$T/network-pa
     'dnsmasq addnhosts:'
 assert_contains "OpenWrt network path includes Insta refresh state" "$T/network-path-section.txt" \
     'Insta IP refresh'
+
+# procd sends stdout/stderr to logread on devices where the configured file
+# logger path does not exist. The common tunnel renderer must retain that log.
+_diag_procd_log=$(PATH="$T/bin:$PATH" Z2K_TEST_NOW=0 VPS_IP=198.51.100.7 Z2K_PLATFORM=openwrt \
+    Z2K_ROOT="$REPO" Z2K_ETC="$T/etc/z2k" Z2K_STATE="$T/etc/z2k/state" \
+    Z2K_TMP="$T/tmp" Z2K_LOG="$T/log" Z2K_DIAG_LOGS="$T/log/z2k-warp-games.log" \
+    Z2K_DIAG_STARTUP_LOG="$T/log/z2k-warp-games.log" \
+    Z2K_DIAG_TUNNEL_LOG="$T/log/no-tg-file.log" \
+    Z2K_DIAG_DNS_CHECK_JSON="$T/dns-check.json" ZAPRET2_DIR="$T/root" \
+    sh "$DIAG" --report 2>/dev/null)
+printf '%s\n' "$_diag_procd_log" > "$T/diag-procd-log.txt"
+assert_contains "OpenWrt tunnel falls back to procd logread" "$T/diag-procd-log.txt" \
+    'tunnel log        : procd logread (z2k-tg)'
+assert_contains "OpenWrt tunnel shows recent procd CONNECT events" "$T/diag-procd-log.txt" 'CONNECT_OK'
+assert_contains "OpenWrt report masks addresses from procd tunnel logs" "$T/diag-procd-log.txt" \
+    'identity registered for x.x.x.x'
 
 # The OpenWrt replacement for Keenetic ip host must inspect its owned dnsmasq
 # addnhosts file and registration, not skip the shared IP-refresh evidence.

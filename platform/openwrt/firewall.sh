@@ -42,6 +42,11 @@ z2k_ow_fw_source() {
 # Применить/снять firewall zapret2 (читает $ZAPRET_CONFIG=/etc/z2k/config).
 z2k_ow_fw_apply() {
     z2k_ow_fw_source || return 1
+    # The diagnostic reads packet/byte counters from the core queue rules. Add
+    # nft's counter expression only for the duration of zapret2's NFQUEUE rule
+    # construction; FW_EXTRA_POST is emitted immediately before the queue
+    # verdict, and this dynamic scope does not alter the saved config.
+    local FW_EXTRA_POST="${FW_EXTRA_POST:+$FW_EXTRA_POST }counter"
     zapret_apply_firewall || return 1
     # This also runs from the standalone firewall-health cron, which sources
     # firewall.sh but not customd.sh.  Load the one adapter-owned bridge here

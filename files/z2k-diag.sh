@@ -836,7 +836,7 @@ print_tunnel() {
 # supplies the owned process/listener details in its adapter; these probes are
 # the same upstream checks used by the Keenetic renderer.
 print_tunnel_live_probes() {
-    local rtt_and_loss vps_rtt vps_loss skew tg_log
+    local rtt_and_loss vps_rtt vps_loss skew tg_log tg_log_lines
     rtt_and_loss=$(ping_vps_rtt)
     vps_rtt=$(printf '%s\n' "$rtt_and_loss" | awk '{print $1}')
     vps_loss=$(printf '%s\n' "$rtt_and_loss" | awk '{print $2}')
@@ -856,6 +856,17 @@ print_tunnel_live_probes() {
         grep -aE 'identity|registered|register attempt|занят другим|перерегистр|перевыпуск' "$tg_log" 2>/dev/null \
             | tail -8 | z2k_mask_addrs | sed 's/^/  /'
         tail -4 "$tg_log" 2>/dev/null | z2k_mask_addrs | sed 's/^/  /'
+    elif [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] && z2k_diag_hook; then
+        tg_log_lines=$("$Z2K_DIAG_HOOK" tunnel-log 2>/dev/null)
+        if [ -n "$tg_log_lines" ]; then
+            printf 'tunnel log        : procd logread (z2k-tg)\n'
+            printf '%s\n' "$tg_log_lines" \
+                | grep -aE 'identity|registered|register attempt|занят другим|перерегистр|перевыпуск' \
+                | tail -8 | z2k_mask_addrs | sed 's/^/  /'
+            printf '%s\n' "$tg_log_lines" | tail -4 | z2k_mask_addrs | sed 's/^/  /'
+        else
+            printf 'tunnel log        : нет (%s)\n' "$tg_log"
+        fi
     else
         printf 'tunnel log        : нет (%s)\n' "$tg_log"
     fi
