@@ -33,7 +33,7 @@ elif op == "exists":
     except (KeyError, IndexError, ValueError): print("0")
 PY
 cat > "$T/jshn.sh" <<'JSHN'
-json_load() { : "${JSON_PREFIX}"; JSHN_DATA=$1; JSHN_PATH=; export JSHN_DATA JSHN_PATH; }
+json_load() { : "${JSON_PREFIX}" "${JSON_UNSET}"; JSHN_DATA=$1; JSHN_PATH=; export JSHN_DATA JSHN_PATH; }
 _json_query() { python3 "$Z2K_TIKTOK_JSON_QUERY" "$1" "${2:-}"; }
 json_select() {
     if [ "$1" = .. ]; then case "$JSHN_PATH" in *\|*) JSHN_PATH=${JSHN_PATH%|*} ;; *) JSHN_PATH= ;; esac; export JSHN_PATH; return 0; fi
@@ -82,12 +82,16 @@ assert_eq "result polling is bounded at the configured two attempts" '10' "$(gre
 assert_contains "requests advertise the official JSON API" "$CHECKHOST_FIXTURE_LOG" 'Accept: application/json'
 assert_not_contains "requests do not use HTML or csrf_token" "$CHECKHOST_FIXTURE_LOG" 'csrf_token'
 
-if strict_observations=$(set -u; unset JSON_PREFIX; _z2k_ow_tiktok_checkhost_discover); then
+if strict_observations=$(set -u; unset JSON_PREFIX JSON_UNSET; _z2k_ow_tiktok_checkhost_discover); then
     assert_eq "Check-Host discovery completes under the WebPanel CGI nounset mode" '10' \
         "$(printf '%s\n' "$strict_observations" | wc -l | tr -d ' ')"
 else
     _t_bad "Check-Host discovery completes under the WebPanel CGI nounset mode"
 fi
+strict_after_jshn=$(set -u; unset JSON_PREFIX JSON_UNSET; \
+    _z2k_ow_tiktok_checkhost_request_id '{"request_id":"fixture-123"}' >/dev/null; \
+    case "$-" in *u*) printf preserved ;; *) printf disabled ;; esac)
+assert_eq "jshn compatibility does not disable nounset for its CGI caller" 'preserved' "$strict_after_jshn"
 
 _cached_rows=$(printf '%s\n' "$observations" | _z2k_ow_tiktok_serialize_lines)
 _now=$(date +%s)

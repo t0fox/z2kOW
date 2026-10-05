@@ -755,11 +755,14 @@ EOF_CATALOG
 }
 
 _z2k_ow_tiktok_jshn_load() {
+    # OpenWrt jshn's json_cleanup reads JSON_UNSET while json_load initializes it.
+    # Keep that library's parsing inside the Check-Host helper subshells below.
+    set +u
     JSON_PREFIX="${JSON_PREFIX:-}"
     . "$Z2K_TIKTOK_JSHN"
 }
 
-_z2k_ow_tiktok_checkhost_node_catalog() {
+_z2k_ow_tiktok_checkhost_node_catalog() (
     local _json _node _asn _ip _location _country _city _rows="" _limit="${Z2K_TIKTOK_CHECKHOST_NODE_LIMIT:-8}"
     [ "${Z2K_TIKTOK_CHECKHOST_ENABLED:-1}" = 1 ] || return 1
     [ -r "$Z2K_TIKTOK_JSHN" ] || return 1
@@ -805,9 +808,9 @@ _z2k_ow_tiktok_checkhost_node_catalog() {
             for (i=1; i<=NR && n<limit; i++) emit(rows[i])
         }
     '
-}
+)
 
-_z2k_ow_tiktok_checkhost_request_id() {
+_z2k_ow_tiktok_checkhost_request_id() (
     local _json="$1"
     [ -r "$Z2K_TIKTOK_JSHN" ] || return 1
     _z2k_ow_tiktok_jshn_load || return 1
@@ -815,9 +818,9 @@ _z2k_ow_tiktok_checkhost_request_id() {
     json_get_var _request_id request_id
     case "$_request_id" in ''|*[!a-zA-Z0-9_-]*) return 1 ;; esac
     printf '%s\n' "$_request_id"
-}
+)
 
-_z2k_ow_tiktok_checkhost_parse_results() {
+_z2k_ow_tiktok_checkhost_parse_results() (
     local _json="$1" _domain="$2" _node_rows="$3" _node _index _ip _ttl _meta
     [ -r "$Z2K_TIKTOK_JSHN" ] || return 1
     _z2k_ow_tiktok_jshn_load || return 1
@@ -845,7 +848,7 @@ _z2k_ow_tiktok_checkhost_parse_results() {
         done
         json_select ..
     done
-}
+)
 
 _z2k_ow_tiktok_checkhost_discover() {
     local _nodes _node_rows _domain _node _json _request_id _results _attempt _rows="" _part
