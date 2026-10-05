@@ -83,7 +83,7 @@ assert.match(noIcmpMarkup, /ICMP <b title="Ping не влияет на дост�
 assert.equal((noIcmpMarkup.match(/<button[^>]*data-tiktok-action="select"[^>]*>/g) || []).filter(button => !button.includes("disabled")).length, 1,
   "lack of ICMP does not disable a candidate verified through both TLS probes");
 const selectedRow = markup.match(/<article class="tiktok-candidate[^>]*data-ip="203\.0\.113\.35"[\s\S]*?<\/article>/)?.[0] || "";
-assert.match(selectedRow, /class="tiktok-candidate[^\"]* selected/,
+assert.match(selectedRow, /class="tiktok-candidate[^"]* selected/,
   "the current candidate has an explicit selected visual state");
 assert.match(selectedRow, /<summary>Подробнее<\/summary>[\s\S]*v77 <b>✓ 131 мс<\/b>/,
   "target latency details stay behind the per-candidate disclosure");
@@ -120,7 +120,7 @@ const orderedFixture = {
 };
 context.orderedFixture = orderedFixture;
 const orderedMarkup = vm.runInContext("tiktokStatusMarkup(orderedFixture)", context);
-const orderedRows = [...orderedMarkup.matchAll(/<article class="tiktok-candidate[^\"]*" data-ip="([^"]+)"/g)].map(match => match[1]);
+const orderedRows = [...orderedMarkup.matchAll(/<article class="tiktok-candidate[^"]*" data-ip="([^"]+)"/g)].map(match => match[1]);
 assert.deepEqual(orderedRows, ["203.0.113.35", "203.0.113.20", "203.0.113.50", "203.0.113.8"],
   "candidates render selected first, working by latency, unchecked next, and unavailable last");
 assert.match(orderedMarkup, /4 кандидата · 2 доступны · лучший 71 мс/,
