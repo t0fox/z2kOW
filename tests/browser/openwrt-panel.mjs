@@ -2010,7 +2010,8 @@ try {
       const fixture = structuredClone(statusFixture);
       fixture.toggles.tiktok_feed = enabled ? '1' : '0';
       if (enabled) fixture.tiktok_feed_status = tiktokStatus || {
-        state: 'healthy', selected_ip: '203.0.113.9', latency_ms: '84',
+        state: 'healthy', candidate_verified: '1', dns_override_applied: '1',
+        selected_ip: '203.0.113.9', latency_ms: '84',
         last_verified_epoch: String(Math.floor(Date.now() / 1000)), reason: 'healthy',
       };
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture) });
@@ -2046,7 +2047,8 @@ try {
   await offCard.page.close();
 
   const healthy = await makeTikTokPage(true, {
-    state: 'healthy', selected_ip: '203.0.113.9', latency_ms: '131', last_verified_epoch: String(Math.floor(Date.now() / 1000) - 70),
+    state: 'healthy', candidate_verified: '1', dns_override_applied: '1',
+    selected_ip: '203.0.113.9', latency_ms: '131', last_verified_epoch: String(Math.floor(Date.now() / 1000) - 70),
     failure_count: '0', selected_source_domain: 'www.tiktokcdn.com', selected_mode: 'verified',
     selected_provenance: 'resolver+tls', selected_cname: 'edge.example.net', host: 'v77.tiktokcdn.com',
     connect_latency_ms: '9', tls_latency_ms: '117', http_status: '400', x77_pop: 'CLA', x77_cache: 'MISS', server: 'RETN',
@@ -2076,7 +2078,8 @@ try {
   await healthy.page.close();
 
   const desktop = await makeTikTokPage(true, {
-    state: 'healthy', selected_ip: '203.0.113.9', latency_ms: '131',
+    state: 'healthy', candidate_verified: '1', dns_override_applied: '1',
+    selected_ip: '203.0.113.9', latency_ms: '131',
     selected_source_domain: 'www.tiktokcdn.com', last_verified_epoch: String(Math.floor(Date.now() / 1000)),
   }, { width: 1280, height: 900, isMobile: false });
   const desktopCard = desktop.page.locator('#tiktok-feed-status-card');
