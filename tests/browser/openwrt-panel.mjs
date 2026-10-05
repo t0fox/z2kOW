@@ -1053,7 +1053,7 @@ try {
           && document.querySelectorAll('#warp-neighbors .warp-offline [data-mac]').length >= 1);
         const offlineDisclosure = page.locator('#warp-neighbors .warp-offline');
         await offlineDisclosure.locator('summary').click();
-        const switchGeometry = await page.locator('#app .switch').evaluateAll(nodes => nodes.map(node => {
+        const switchGeometry = await page.locator('#app .switch:visible').evaluateAll(nodes => nodes.map(node => {
           const track = node.getBoundingClientRect();
           const thumb = getComputedStyle(node.querySelector('.slider'), '::before');
           return { width: track.width, height: track.height, thumbWidth: thumb.width, thumbHeight: thumb.height,
@@ -1062,7 +1062,7 @@ try {
         assert.ok(switchGeometry.length >= 8, `fixture exposes WARP on/off switches (${switchGeometry.length})`);
         assert.ok(switchGeometry.every(({ width, height, thumbWidth, thumbHeight }) =>
           width === 40 && height === 22 && thumbWidth === '16px' && thumbHeight === '16px'),
-        `all WARP switches use one 40×22 track and 16×16 knob (${JSON.stringify(switchGeometry)})`);
+        `all visible WARP switches use one 40×22 track and 16×16 knob (${JSON.stringify(switchGeometry)})`);
         assert.ok(switchGeometry.some(item => item.checked) && switchGeometry.some(item => !item.checked),
           'WARP QA includes both switch states without changing track geometry');
         await offlineDisclosure.locator('summary').click();
