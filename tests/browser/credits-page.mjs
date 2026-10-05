@@ -130,6 +130,7 @@ try {
     const actualNames = (await upstream.locator('[data-upstream-grid] .credits-name').allTextContents())
       .map(name => name.trim());
     assert.deepEqual(actualNames, upstreamNames, 'the complete upstream list renders from its original module');
+    assert.ok(actualNames.includes('GregMSK'), 'p-86.15 upstream sponsor is acknowledged in the upstream credits');
     await upstream.locator('summary').focus();
     await page.keyboard.press('Space');
     assert.equal(await upstream.getAttribute('open'), null, 'keyboard activation closes the upstream list');

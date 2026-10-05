@@ -2,6 +2,8 @@
 
 This matrix tracks material product differences between z2kOW and the pinned upstream z2k baseline. It is a design/status ledger, not a test report.
 
+Current upstream release baseline: `p-86.15`, seq `138`, commit `b90611f52ae5ba034d0181a3252efda6ecc95671`. The p-86.14 reviews below are historical sync records.
+
 Status meanings:
 
 - `PARITY` — common upstream behavior is retained.
@@ -38,7 +40,7 @@ Status meanings:
 
 Update this table when upstream behavior changes or an OpenWrt gap is closed. Do not add test-run counts or temporary acceptance notes here.
 
-## p-86.14 sync review
+## p-86.14 sync review (historical)
 
 - z2kOW base: `10f6940b51f66b9450ade16c673c030dcd084d95`.
 - Upstream base: `7f630a9d459052b9c9c9eded06298f1b8f7f0a22`.
@@ -51,7 +53,21 @@ Update this table when upstream behavior changes or an OpenWrt gap is closed. Do
 | `webpanel/www/index.html`: release cache-buster moves with the upstream release. | B — preserve branded source, adapt release staging | Keep the local branded panel source intact. Stamp staged HTML/JS/CSS asset URLs from the controlled root `UPDATES.json` during the one rootfs build. No separate manifest or payload version is introduced. | `tests/test_cachebuster_declared.sh` with candidate p-86.14; `tests/openwrt/test_ow_stage_rootfs.sh` against the final tarball. |
 | Upstream `UPDATES.json` and signature advance to p-86.14/137. | B — controlled release metadata | The trusted `upstream-release` pipeline derives one controlled manifest from the pinned upstream manifest and commit, then signs/publishes it; repository production `UPDATES.json` remains unchanged until that workflow publishes successfully. | `tests/openwrt/test_ow_release_workflow.py`; trusted workflow live/pinned source checks. |
 
-## p-86.14 diagnostics parity review
+## p-86.15 sync review
+
+- z2kOW source baseline: current `main` at `3f9f8ed1cd936a2b54e6be390fd19a025304dbd2` before this sync.
+- Upstream base: `p-86.14`, seq `137`, commit `5e058c1c3944e0f0362cf9665b84108fc6e9b3dc`.
+- Upstream target: `p-86.15`, seq `138`, commit `b90611f52ae5ba034d0181a3252efda6ecc95671`.
+- The peeled tag, live `UPDATES.json` current/seq/history/changed_files, and the complete `p-86.14..p-86.15` diff were checked. The diff contains `README.md`, `UPDATES.json`, `UPDATES.json.sig`, `lib/menu.sh`, `webpanel/www/index.html`, and `webpanel/www/js/pages/credits.js`; it adds the GregMSK sponsor acknowledgement and advances release/cache metadata. No functional runtime behavior changes are present.
+
+| Material upstream change | Disposition | z2kOW implementation | Evidence |
+|---|---|---|---|
+| `UPDATES.json` and signature advance from p-86.14/137 to p-86.15/138. | B — controlled release metadata | The trusted `upstream-release` workflow derives and signs the z2kOW controlled manifest from the pinned upstream release; production `UPDATES.json` changes only as part of successful publication. | `tests/openwrt/test_ow_release_workflow.py`; published manifest/signature verification. |
+| Upstream panel asset cache-buster advances to p-86.15. | B — preserve branded source, adapt release staging | Keep the z2kOW-branded panel source and stamp the staged HTML/JS/CSS asset URLs from the controlled release version. | `tests/test_cachebuster_declared.sh`; `tests/openwrt/test_ow_stage_rootfs.sh`. |
+| `lib/menu.sh` and upstream credits add the GregMSK sponsor acknowledgement. | B — preserve z2kOW acknowledgement policy | Add GregMSK only to the existing disclosed upstream credits section. Keep local z2kOW credits, menu roster, and branding independent. | `tests/browser/credits-page.mjs` verifies the rendered upstream acknowledgement and separate local credits. |
+| Runtime behavior between p-86.14 and p-86.15. | C — no functional delta | No runtime code is copied from this patch; p-86.14's already-adapted WAN bridge fix and current z2kOW/OpenWrt/WARP changes remain in the release source. | Full upstream tag diff; complete rootfs is built from current z2kOW `main`. |
+
+## p-86.14 diagnostics parity review (historical)
 
 - z2kOW diagnostic baseline: `740304002760fd4bd6b8eef7b0b2ff5b3e09f67b` (documentation-only spec commit on top of `origin/main` `a7ca0471adae5571f21d42304ee1b2aaf32885ba`).
 - Upstream diagnostic contract: `necronicle/z2k` `z2k-enhanced` `p-86.14`, `5e058c1c3944e0f0362cf9665b84108fc6e9b3dc`.
