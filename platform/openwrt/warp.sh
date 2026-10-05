@@ -40,6 +40,7 @@ WARP_BIN="${WARP_BIN:-$WARP_DOMAIN_RUNTIME_BIN}"
 WARP_DEVICE="${WARP_DEVICE:-${Z2K_STATE:-/etc/z2k/state}/warp/device.json}"
 WARP_STATUS="${WARP_STATUS:-${Z2K_TMP:-/tmp/z2k}/warp/status.json}"
 WARP_LOG="${WARP_LOG:-${Z2K_TMP:-/tmp/z2k}/warp/warpd.log}"
+WARP_ROUTE_ERROR_FILE="${WARP_ROUTE_ERROR_FILE:-${Z2K_TMP:-/tmp/z2k}/warp/route-error}"
 WARP_REG_RETRY="${WARP_REG_RETRY:-600}"
 WARP_REG_STAMP="${WARP_REG_STAMP:-${Z2K_TMP:-/tmp/z2k}/warp/register.stamp}"
 # Runtime ownership record PBR (defect 5): пишется успешным pbr_up, читается
@@ -1919,10 +1920,13 @@ warp_status() {
     local _installed=0 _running=0 _ready=0 _route_ready=0
     local _entries=0 _devices=0 _error="" _state="off"
     local _domain_active=0 _domain_rules=0 _domain_pairs=0 _domain_skipped=0 _domain_overflow=0 _domain_error=""
+    local _route_error="" _route_error_at=0
     [ -x "$WARP_BIN" ] && _installed=1
     warp_running && _running=1
     _warp_proven_ready >/dev/null 2>&1 && _ready=1
-    warp_status_routing_ready >/dev/null 2>&1 && _route_ready=1
+    warp_status_routing_proofs >/dev/null 2>&1 && _route_ready=1
+    _route_error="$WARP_ROUTE_ERROR"
+    _route_error_at="$WARP_ROUTE_ERROR_AT"
     _error="$(warp_last_error)"
     if [ "$(warp_flag)" = "1" ]; then
         if [ -n "$_error" ]; then
@@ -1973,7 +1977,7 @@ warp_status() {
         [ -s "$WARP_DOMAIN_ERROR" ] || _domain_error=""
     fi
     _domain_error=$(printf '%s' "$_domain_error" | tr ' \t\r\n' '_' | cut -c1-120)
-    printf 'installed=%s enabled=%s running=%s ready=%s route_ready=%s state=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s domain_active=%s domain_rules=%s domain_pairs=%s domain_skipped=%s domain_overflow=%s domain_error=%s edge_colo=%s edge_country=%s edge_rtt_ms=%s edge_checked_at=%s edge_selection=%s\n' \
+    printf 'installed=%s enabled=%s running=%s ready=%s route_ready=%s state=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s domain_active=%s domain_rules=%s domain_pairs=%s domain_skipped=%s domain_overflow=%s domain_error=%s edge_colo=%s edge_country=%s edge_rtt_ms=%s edge_checked_at=%s edge_selection=%s tunnel=%s interface=%s nft_mark=%s tun=%s pbr=%s owner=%s route_error=%s route_error_at=%s\n' \
         "$_installed" "$(warp_flag)" "$_running" "$_ready" "$_route_ready" "$_state" \
         "$(_json_str "$WARP_STATUS" transport)" "$(_json_str "$WARP_STATUS" endpoint)" \
         "$(_json_str "$WARP_STATUS" iface)" "$(_json_str "$WARP_STATUS" addr)" \
@@ -1982,7 +1986,10 @@ warp_status() {
         "$_domain_active" "$_domain_rules" "$_domain_pairs" "$_domain_skipped" "$_domain_overflow" "$_domain_error" \
         "$(_json_str "$WARP_STATUS" edge_colo)" "$(_json_str "$WARP_STATUS" edge_country)" \
         "$(_json_raw "$WARP_STATUS" edge_rtt_ms)" "$(_json_raw "$WARP_STATUS" edge_checked_at)" \
-        "$(_json_str "$WARP_STATUS" edge_selection)"
+        "$(_json_str "$WARP_STATUS" edge_selection)" \
+        "$WARP_ROUTE_TUNNEL" "$WARP_ROUTE_INTERFACE" "$WARP_ROUTE_NFT_MARK" \
+        "$WARP_ROUTE_TUN" "$WARP_ROUTE_PBR" "$WARP_ROUTE_OWNER" \
+        "${_route_error:-none}" "$_route_error_at"
 }
 
 # --- топология lifecycle ---
@@ -2041,13 +2048,16 @@ _z2k_ow_warp_dispatch() {
                 warp_nft_rules_apply >/dev/null 2>&1 || return 1
                 if _warp_proven_ready; then
                     warp_nft_tun_apply "$(_warp_live_iface)" >/dev/null 2>&1 || {
+                        _warp_route_error_set tun-apply-failed || true
                         _warp_converge_off keep >/dev/null 2>&1 || true
                         return 1
                     }
                     warp_pbr_verify >/dev/null 2>&1 || warp_pbr_up >/dev/null 2>&1 || {
+                        _warp_route_error_set pbr-apply-failed || true
                         _warp_converge_off keep >/dev/null 2>&1 || true
                         return 1
                     }
+                    _warp_route_error_clear
                 else
                     if warp_running; then
                         _warp_converge_off_keep_probe || return 1
@@ -2132,10 +2142,47 @@ warp_status_routing_ready() {
     warp_status_routing_proofs >/dev/null
 }
 
+_warp_route_error_set() {
+    local _reason="$1" _at
+    [ -s "$WARP_ROUTE_ERROR_FILE" ] && return 0
+    _at="$(date +%s 2>/dev/null || echo 0)"
+    mkdir -p "$(dirname "$WARP_ROUTE_ERROR_FILE")" 2>/dev/null || return 1
+    printf '%s %s\n' "$_reason" "$_at" > "$WARP_ROUTE_ERROR_FILE.new.$$" 2>/dev/null || return 1
+    mv -f "$WARP_ROUTE_ERROR_FILE.new.$$" "$WARP_ROUTE_ERROR_FILE" 2>/dev/null || {
+        rm -f "$WARP_ROUTE_ERROR_FILE.new.$$" 2>/dev/null
+        return 1
+    }
+}
+
+_warp_route_error_clear() {
+    rm -f "$WARP_ROUTE_ERROR_FILE" "$WARP_ROUTE_ERROR_FILE.new."* 2>/dev/null || true
+}
+
+# A single failed observation can be a command/runtime error, not proof that
+# the owned routing state disappeared. Retry once without changing dataplane.
+_warp_verify_confirm() {
+    "$@" && return 0
+    "$@"
+}
+
+_warp_route_fail_open() {
+    local _reason="$1"
+    _warp_route_error_set "$_reason" || _wlog "route reconciliation failed: $_reason (diagnostic write failed)"
+    _warp_converge_off keep >/dev/null 2>&1 || true
+    return 1
+}
+
 # One read-only projection feeds both route_ready and diagnostic detail. Keep
 # each proof attached to the verifier already used by the WARP state machine.
 warp_status_routing_proofs() {
-    local _iface
+    local _iface _route_error_line
+    WARP_ROUTE_ERROR=none
+    WARP_ROUTE_ERROR_AT=0
+    if [ -s "$WARP_ROUTE_ERROR_FILE" ]; then
+        IFS=' ' read -r WARP_ROUTE_ERROR WARP_ROUTE_ERROR_AT < "$WARP_ROUTE_ERROR_FILE" || true
+        [ -n "$WARP_ROUTE_ERROR" ] || WARP_ROUTE_ERROR=unknown
+        [ -n "$WARP_ROUTE_ERROR_AT" ] || WARP_ROUTE_ERROR_AT=0
+    fi
     WARP_ROUTE_TUNNEL=not-observed
     WARP_ROUTE_INTERFACE=not-observed
     WARP_ROUTE_NFT_MARK=not-observed
@@ -2157,21 +2204,23 @@ warp_status_routing_proofs() {
             WARP_ROUTE_TUNNEL=present
             WARP_ROUTE_INTERFACE=present
             WARP_ROUTE_NFT_MARK=absent
-            warp_nft_rules_verify >/dev/null 2>&1 && WARP_ROUTE_NFT_MARK=present
+            _warp_verify_confirm warp_nft_rules_verify >/dev/null 2>&1 && WARP_ROUTE_NFT_MARK=present
             WARP_ROUTE_TUN=absent
-            warp_nft_tun_verify "$_iface" >/dev/null 2>&1 && WARP_ROUTE_TUN=present
+            _warp_verify_confirm warp_nft_tun_verify "$_iface" >/dev/null 2>&1 && WARP_ROUTE_TUN=present
             WARP_ROUTE_PBR=absent
-            warp_pbr_verify >/dev/null 2>&1 && WARP_ROUTE_PBR=present
+            _warp_verify_confirm warp_pbr_verify >/dev/null 2>&1 && WARP_ROUTE_PBR=present
             WARP_ROUTE_OWNER=absent
-            warp_pbr_owner_verify "$_iface" >/dev/null 2>&1 && WARP_ROUTE_OWNER=present
+            _warp_verify_confirm warp_pbr_owner_verify "$_iface" >/dev/null 2>&1 && WARP_ROUTE_OWNER=present
         else
             WARP_ROUTE_TUNNEL=absent
             _warp_iface_valid "$_iface" && WARP_ROUTE_INTERFACE=present
         fi
     fi
-    printf 'tunnel=%s interface=%s nft_mark=%s tun=%s pbr=%s owner=%s\n' \
+    _route_error_line="$(printf '%s' "$WARP_ROUTE_ERROR" | tr ' \t\r\n' '_' | cut -c1-120)"
+    printf 'tunnel=%s interface=%s nft_mark=%s tun=%s pbr=%s owner=%s route_error=%s route_error_at=%s\n' \
         "$WARP_ROUTE_TUNNEL" "$WARP_ROUTE_INTERFACE" "$WARP_ROUTE_NFT_MARK" \
-        "$WARP_ROUTE_TUN" "$WARP_ROUTE_PBR" "$WARP_ROUTE_OWNER"
+        "$WARP_ROUTE_TUN" "$WARP_ROUTE_PBR" "$WARP_ROUTE_OWNER" \
+        "$_route_error_line" "$WARP_ROUTE_ERROR_AT"
     [ "$WARP_ROUTE_TUNNEL" = present ] && [ "$WARP_ROUTE_INTERFACE" = present ] \
         && [ "$WARP_ROUTE_NFT_MARK" = present ] && [ "$WARP_ROUTE_TUN" = present ] \
         && [ "$WARP_ROUTE_PBR" = present ] && [ "$WARP_ROUTE_OWNER" = present ]
@@ -2220,6 +2269,7 @@ _warp_converge_off_keep_probe() {
         _warp_tun_clear >/dev/null 2>&1 || _rc=1
         return "$_rc"
     fi
+    _warp_route_error_set probe-route-unavailable || true
     _warp_converge_off keep >/dev/null 2>&1 || _rc=1
     return "$_rc"
 }
@@ -2231,8 +2281,13 @@ z2k_ow_warp_check() {
     # register-recovery, а не молчаливый converge-to-off).
     [ "$(warp_cfg ENABLED 1)" = "1" ] || { _warp_converge_off full; return $?; }
     [ "$(warp_flag)" = "1" ] || { _warp_converge_off full; return $?; }
-    [ -x "$WARP_BIN" ] || { _warp_converge_off keep; return $?; }
+    [ -x "$WARP_BIN" ] || {
+        _warp_route_error_set warp-binary-missing || true
+        _warp_converge_off keep
+        return $?
+    }
     if [ ! -s "$WARP_DEVICE" ]; then
+        _warp_route_error_set device-identity-missing || true
         _warp_converge_off keep >/dev/null 2>&1 || return 1
         if warp_register_due; then
             mkdir -p "$(dirname "$WARP_REG_STAMP")" 2>/dev/null || return 1
@@ -2244,6 +2299,7 @@ z2k_ow_warp_check() {
     fi
     if ! warp_running; then
         warp_note_death
+        _warp_route_error_set daemon-not-running || true
         _warp_converge_off keep >/dev/null 2>&1 || return 1
         # A registered process crash is procd's bounded-respawn domain. Trust
         # the live procd registry, not our marker: a service restart can drop
@@ -2275,23 +2331,64 @@ z2k_ow_warp_check() {
         # Read-only probes first.  Every repair is tied to the failed layer;
         # healthy MARK/TUN/PBR/owner state performs zero nft/ip/filesystem
         # mutations, even when the tick runs every minute.
-        warp_nft_sets_reload_if_changed >/dev/null 2>&1 || { _warp_converge_off keep; return 1; }
-        if ! warp_nft_rules_verify >/dev/null 2>&1; then
-            warp_nft_rules_apply >/dev/null 2>&1 || { _warp_converge_off keep; return 1; }
+        if ! warp_nft_sets_reload_if_changed >/dev/null 2>&1; then
+            _warp_verify_confirm warp_nft_sets_verify >/dev/null 2>&1 || {
+                _warp_route_fail_open nft-sets-read-failed
+                return 1
+            }
         fi
-        if ! warp_nft_tun_verify "$_iface" >/dev/null 2>&1; then
-            warp_nft_tun_apply "$_iface" >/dev/null 2>&1 || { _warp_converge_off keep; return 1; }
+        if ! _warp_verify_confirm warp_nft_rules_verify >/dev/null 2>&1; then
+            warp_nft_rules_apply >/dev/null 2>&1 || {
+                _warp_route_fail_open nft-mark-apply-failed
+                return 1
+            }
         fi
-        if ! warp_pbr_verify >/dev/null 2>&1; then
-            warp_pbr_up repair >/dev/null 2>&1 || { _warp_converge_off keep; return 1; }
-        elif ! warp_pbr_owner_verify "$_iface" >/dev/null 2>&1; then
-            _warp_owner_write "$_iface" >/dev/null 2>&1 || { _warp_converge_off keep; return 1; }
+        if ! _warp_verify_confirm warp_nft_tun_verify "$_iface" >/dev/null 2>&1; then
+            warp_nft_tun_apply "$_iface" >/dev/null 2>&1 || {
+                if [ "${_WARP_CONFLICT:-0}" = "1" ]; then
+                    _warp_route_fail_open fw4-forward-conflict
+                else
+                    _warp_route_fail_open tun-apply-failed
+                fi
+                return 1
+            }
         fi
-        warp_nft_sets_verify >/dev/null 2>&1 && \
-            warp_nft_rules_verify >/dev/null 2>&1 && \
-            warp_nft_tun_verify "$_iface" >/dev/null 2>&1 && \
-            warp_pbr_verify >/dev/null 2>&1 && \
-            warp_pbr_owner_verify "$_iface" >/dev/null 2>&1 || { _warp_converge_off keep; return 1; }
+        if ! _warp_verify_confirm warp_pbr_verify >/dev/null 2>&1; then
+            warp_pbr_up repair >/dev/null 2>&1 || {
+                _warp_route_fail_open pbr-apply-failed
+                return 1
+            }
+        elif ! _warp_verify_confirm warp_pbr_owner_verify "$_iface" >/dev/null 2>&1; then
+            _warp_owner_write "$_iface" >/dev/null 2>&1 || {
+                _warp_route_fail_open owner-write-failed
+                return 1
+            }
+        fi
+        _warp_verify_confirm warp_nft_sets_verify >/dev/null 2>&1 || {
+            _warp_route_fail_open nft-sets-verify-failed
+            return 1
+        }
+        _warp_verify_confirm warp_nft_rules_verify >/dev/null 2>&1 || {
+            _warp_route_fail_open nft-mark-verify-failed
+            return 1
+        }
+        _warp_verify_confirm warp_nft_tun_verify "$_iface" >/dev/null 2>&1 || {
+            if ! _warp_verify_confirm _warp_fw4_forward_verify "$_iface" >/dev/null 2>&1; then
+                _warp_route_fail_open fw4-forward-verify-failed
+            else
+                _warp_route_fail_open tun-verify-failed
+            fi
+            return 1
+        }
+        _warp_verify_confirm warp_pbr_verify >/dev/null 2>&1 || {
+            _warp_route_fail_open pbr-verify-failed
+            return 1
+        }
+        _warp_verify_confirm warp_pbr_owner_verify "$_iface" >/dev/null 2>&1 || {
+            _warp_route_fail_open owner-verify-failed
+            return 1
+        }
+        _warp_route_error_clear
     else
         _warp_converge_off_keep_probe || return 1
     fi

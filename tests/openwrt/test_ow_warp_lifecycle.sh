@@ -89,6 +89,16 @@ if [ "\$1" = "list" ] && [ "\$2" = "table" ]; then
     exit 0
 fi
 if [ "\$1" = "list" ] && [ "\$2" = "set" ]; then
+    if [ "\$5" = "z2k_warp_dst4" ] && [ -e "$T/fail-nft-list-set-after-one" ]; then
+        if [ ! -e "$T/nft-list-set-seen" ]; then
+            : > "$T/nft-list-set-seen"
+        else
+            rm -f "$T/fail-nft-list-set-after-one"
+            : > "$T/nft-list-set-failed"
+            echo "injected transient nft list set failure: \$5" >> "$T/nft.log"
+            exit 1
+        fi
+    fi
     # Defect 6: сета нет (таблицу снесли) — честный провал для set-ensure.
     [ -f "$T/nft-set-\$5" ] && {
         # nft prints a host element without the implicit /32 mask.
@@ -186,9 +196,11 @@ cat > "$T/bin/ip" <<EOF
 #!/bin/sh
 echo "ip:\$*" >> "$T/ip.log"
 if [ "\$1" = "rule" ] && [ "\$2" = "show" ]; then
+    [ -f "$T/fail-rule-show-once" ] && { rm -f "$T/fail-rule-show-once"; exit 1; }
     cat "$T/ip-rules" 2>/dev/null; exit 0
 fi
 if [ "\$1" = "rule" ] && [ "\$2" = "add" ]; then
+    [ -f "$T/fail-rule-add" ] && exit 1
     _pref=""; _fm=""; _tb=""; _from=""; _prev=""
     for _a in "\$@"; do
         case "\$_prev" in
@@ -359,6 +371,7 @@ EOF
 
 _reset() {
     rm -f "$T"/fail-*
+    rm -f "$T/nft-list-set-failed" "$T/nft-list-set-seen" "$T/nft-list-set-count"
     rm -f "$T"/ip-route-*
     : > "$T/ip-rules"
     : > "$T/nft.log"; : > "$T/ip.log"; : > "$T/procd.log"; : > "$T/kill.log"; : > "$T/warpd.log"
@@ -1104,7 +1117,142 @@ assert_eq "W40: nat ровно 1" "1" "$(grep -c . "$T/nft-chain-z2k_warp_nat" 2
 assert_eq "W40: healthy nft mutations zero" "0" "$(grep -Ec '^nft:(add|flush|delete|replace|-f)' "$T/nft.log" 2>/dev/null || true)"
 assert_eq "W40: healthy route/rule mutations zero" "0" "$(grep -Ec '^ip:(route (add|del|delete|replace|change|flush)|rule (add|del|delete|replace|change|flush))' "$T/ip.log" 2>/dev/null || true)"
 assert_eq "W40: owner bytes stable" "$(cat "$T/pbr.owner.before" 2>/dev/null)" "$(cat "$T/tmp/warp/pbr.owner" 2>/dev/null)"
+warp_status > "$T/warp-status.out"
+assert_contains "W40: ten consecutive health ticks remain fully ready" "$T/warp-status.out" "ready=1 route_ready=1"
 _w_inv "W40"
+
+# --- W81: transient read after two healthy scheduled ticks ------------------
+_reset
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+printf '7.7.7.0/24\n' > "$T/etc/user-lists/warp/mine.txt"
+_ready_fixture
+warp_enable >/dev/null 2>&1 || _t_bad "W81: enable rc"
+warp_status > "$T/warp-status.out"
+assert_contains "W81: initial status is green" "$T/warp-status.out" "ready=1 route_ready=1"
+mkdir -p "$Z2K_RUN" "$(dirname "$T/proc/net/netfilter/nfnetlink_queue")"
+: > "$Z2K_RUN/core-ready"
+rm -f "$Z2K_RUN/stopping"
+printf '%s\n' "$$" > "$Z2K_RUN/nfqws2.pid"
+printf '200 %s\n' "$$" > "$T/proc/net/netfilter/nfnetlink_queue"
+Z2K_NFQUEUE_PROC="$T/proc/net/netfilter/nfnetlink_queue"; export Z2K_NFQUEUE_PROC
+cat > "$T/mock-init-warp-health" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$T/mock-init-warp-health"
+INIT_SCRIPT="$T/mock-init-warp-health"; export INIT_SCRIPT
+"$REPO/platform/openwrt/warp-check.sh" check >/dev/null 2>&1
+assert_eq "W81: first scheduled cron tick succeeds" "0" "$?"
+warp_status > "$T/warp-status.out"
+assert_contains "W81: first scheduled tick stays green" "$T/warp-status.out" "ready=1 route_ready=1"
+"$REPO/platform/openwrt/warp-check.sh" check >/dev/null 2>&1
+assert_eq "W81: second scheduled cron tick succeeds" "0" "$?"
+warp_status > "$T/warp-status.out"
+assert_contains "W81: second scheduled tick stays green" "$T/warp-status.out" "ready=1 route_ready=1"
+ : > "$T/nft.log"
+    : > "$T/fail-nft-list-set-after-one"
+    "$REPO/platform/openwrt/warp-check.sh" check >/dev/null 2>&1
+    _tick_rc=$?
+assert_eq "W81: third scheduled tick recovers from transient read" "0" "$_tick_rc"
+assert_contains "W81: final set proof hit one transient nft read failure" "$T/nft.log" "injected transient nft list set failure: z2k_warp_dst4"
+warp_status > "$T/warp-status.out"
+assert_contains "W81: transient read preserves green status" "$T/warp-status.out" "ready=1 route_ready=1"
+assert_contains "W81: routing proof exposes each layer and clear error" "$T/warp-status.out" "tunnel=present interface=present nft_mark=present tun=present pbr=present owner=present route_error=none"
+assert_contains "W81: route and rule survive transient read" "$T/ip-route-989" "default dev z2ktun0"
+assert_eq "W81: owned PBR rule survives transient read" "1" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules" 2>/dev/null || true)"
+assert_eq "W81: PBR owner survives transient read" "1" "$([ -s "$WARP_PBR_OWNER" ] && echo 1 || echo 0)"
+_w_inv "W81"
+
+# --- W82: firewall reload removes the owned fw4 rule; check repairs it -------
+_reset
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+_ready_fixture
+warp_enable >/dev/null 2>&1 || _t_bad "W82: enable rc"
+: > "$T/nft-fw4-forward"
+z2k_ow_warp check >/dev/null 2>&1
+assert_eq "W82: firewall reload repair succeeds" "0" "$?"
+warp_status > "$T/warp-status.out"
+assert_contains "W82: fw4 repair returns to green" "$T/warp-status.out" "ready=1 route_ready=1"
+assert_contains "W82: owned fw4 rule restored" "$T/nft-fw4-forward" "!z2k: WARP forwarded traffic"
+_w_inv "W82"
+
+# --- W83: a removed owned TUN rule is repaired without losing PBR -----------
+_reset
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+_ready_fixture
+warp_enable >/dev/null 2>&1 || _t_bad "W83: enable rc"
+: > "$T/nft-chain-z2k_warp_nat"
+z2k_ow_warp check >/dev/null 2>&1
+assert_eq "W83: TUN rule repair succeeds" "0" "$?"
+warp_status > "$T/warp-status.out"
+assert_contains "W83: TUN repair returns to green" "$T/warp-status.out" "ready=1 route_ready=1"
+assert_contains "W83: NAT rule is restored" "$T/nft-chain-z2k_warp_nat" "masquerade"
+_w_inv "W83"
+
+# --- W84: a removed owned PBR rule is repaired ------------------------------
+_reset
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+_ready_fixture
+warp_enable >/dev/null 2>&1 || _t_bad "W84: enable rc"
+grep -vF 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules" > "$T/ip-rules.new"
+mv -f "$T/ip-rules.new" "$T/ip-rules"
+z2k_ow_warp check >/dev/null 2>&1
+assert_eq "W84: PBR rule repair succeeds" "0" "$?"
+warp_status > "$T/warp-status.out"
+assert_contains "W84: PBR repair returns to green" "$T/warp-status.out" "ready=1 route_ready=1"
+assert_eq "W84: exactly one owned PBR rule restored" "1" "$(grep -c 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules")"
+_w_inv "W84"
+
+# --- W85: a missing owner is reconstructed from the verified PBR state ------
+_reset
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+_ready_fixture
+warp_enable >/dev/null 2>&1 || _t_bad "W85: enable rc"
+rm -f "$WARP_PBR_OWNER"
+z2k_ow_warp check >/dev/null 2>&1
+assert_eq "W85: owner reconstruction succeeds" "0" "$?"
+warp_status > "$T/warp-status.out"
+assert_contains "W85: owner reconstruction returns to green" "$T/warp-status.out" "ready=1 route_ready=1"
+assert_contains "W85: owner matches live interface" "$WARP_PBR_OWNER" "iface=z2ktun0"
+_w_inv "W85"
+
+# --- W86: one transient ip rule read does not tear down healthy routing ------
+_reset
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+_ready_fixture
+warp_enable >/dev/null 2>&1 || _t_bad "W86: enable rc"
+: > "$T/ip.log"
+: > "$T/fail-rule-show-once"
+z2k_ow_warp check >/dev/null 2>&1
+assert_eq "W86: health check recovers from one ip rule read failure" "0" "$?"
+warp_status > "$T/warp-status.out"
+assert_contains "W86: transient ip read preserves green status" "$T/warp-status.out" "ready=1 route_ready=1"
+assert_eq "W86: no PBR route or rule mutation" "0" "$(grep -Ec '^ip:(route (add|del|delete|replace|change|flush)|rule (add|del|delete|replace|change|flush))' "$T/ip.log" 2>/dev/null || true)"
+_w_inv "W86"
+
+# --- W87: failed repair records its layer before fail-open teardown ----------
+_reset
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+_ready_fixture
+warp_enable >/dev/null 2>&1 || _t_bad "W87: enable rc"
+grep -vF 'fwmark 0x80000000/0x80000000 lookup 989' "$T/ip-rules" > "$T/ip-rules.new"
+mv -f "$T/ip-rules.new" "$T/ip-rules"
+: > "$T/fail-rule-add"
+z2k_ow_warp check >/dev/null 2>&1
+assert_eq "W87: persistent PBR repair failure is reported" "1" "$?"
+warp_status > "$T/warp-status.out"
+assert_contains "W87: daemon stays ready while routing fails open" "$T/warp-status.out" "ready=1 route_ready=0"
+assert_contains "W87: exact PBR apply reason is retained" "$T/warp-status.out" "route_error=pbr-apply-failed"
+assert_eq "W87: failure timestamp is retained" "1" "$(grep -Eq 'route_error_at=[1-9][0-9]*' "$T/warp-status.out" && echo 1 || echo 0)"
+assert_eq "W87: failed PBR apply removed route" "0" "$([ -f "$T/ip-route-989" ] && echo 1 || echo 0)"
+_w_inv "W87"
+rm -f "$T/fail-rule-add"
+z2k_ow_warp check >/dev/null 2>&1
+assert_eq "W87: next convergence repairs routing" "0" "$?"
+warp_status > "$T/warp-status.out"
+assert_contains "W87: recovered routing is green" "$T/warp-status.out" "ready=1 route_ready=1"
+assert_contains "W87: stale route error is cleared" "$T/warp-status.out" "route_error=none route_error_at=0"
+_w_inv "W87 recovery"
 
 # --- W41: firewall recreation restores sets+chains+dynamic (defect 6) ---
 _reset
