@@ -25,6 +25,8 @@ append_rule() {
     _prev=
     for _arg in "$@"; do
         if [ "$_prev" = iifname ] || [ "$_prev" = oifname ]; then
+            # Keep nft's argument quotes literal in this serialized rule text.
+            # shellcheck disable=SC2089
             _line="$_line \"$_arg\""
         else
             _line="$_line $_arg"
@@ -42,6 +44,8 @@ apply_batch() {
         return 1
     fi
     while IFS= read -r _line; do
+        # Intentional word splitting parses this fixture's serialized command.
+        # shellcheck disable=SC2090
         set -- $_line
         case "$1 $2" in
             'add chain') : >> "$(chain_file "$5")" ;;
