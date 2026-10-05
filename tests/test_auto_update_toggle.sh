@@ -32,11 +32,7 @@ API="$HERE/webpanel/cgi/api.sh"
 # tests/lib/panel_js.sh).
 APPJS=$(sh "$(cd "$(dirname "$0")" && pwd)/lib/panel_js.sh")
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/autoupd.XXXXXX") || exit 1
-API_JOBS=""
 cleanup() {
-    for _j in $API_JOBS; do
-        rm -f "/tmp/z2k-job-$_j.log" "/tmp/z2k-job-$_j.pid" "/tmp/z2k-job-$_j.exit"
-    done
     rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -353,20 +349,18 @@ got=$(tgl "$body" auto_update)
 [ "$got" = 1 ] && ok "без флага в конфиге поле равно 1 (дефолт)" \
                || no "без флага в конфиге поле равно 1" "1" "$got"
 
-# Маршрут POST /toggle/auto-update — сквозняком: тумблер обязан дописать флаг в
-# конфиг и после этого измениться в /status. Раньше существование маршрута и
-# его связка с toggle_auto_update проверялись двумя грепами по api.sh.
+# Маршрут POST /toggle/auto-update — сквозняком. Это короткая настройка без
+# перезапуска сервиса, поэтому API применяет её синхронно и возвращает новое
+# значение сразу, без фоновой job-модалки.
 printf 'value=0' > "$TMP/toggle-body"
 body=$(api_cgi POST /toggle/auto-update "" "$TMP/toggle-body")
-job=$(printf '%s' "$body" | sed -n 's/.*"job":"\([0-9]*\)".*/\1/p')
-API_JOBS="$API_JOBS $job"
-[ -n "$job" ] && ok "POST /toggle/auto-update завёл задачу" \
-              || no "POST /toggle/auto-update завёл задачу" "job id" "$body"
-_w=0
-while [ "$_w" -lt 10 ]; do
-    [ -f "/tmp/z2k-job-$job.exit" ] && break
-    _w=$((_w + 1)); sleep 1
-done
+got=$(tgl "$body" value)
+case "$body" in
+    *'"ok":true'*)
+        [ "$got" = 0 ] && ok "POST /toggle/auto-update синхронно подтверждает новое значение" \
+                        || no "POST /toggle/auto-update подтверждает новое значение" "0" "$got" ;;
+    *) no "POST /toggle/auto-update возвращает успешный ответ" '{"ok":true,"value":"0"}' "$body" ;;
+esac
 [ "$(grep -c '^Z2K_AUTO_UPDATE_ENABLED=0$' "$API_CFG")" = 1 ] \
     && ok "маршрут действительно выключил автообновление в конфиге" \
     || no "маршрут выключил автообновление в конфиге" "строка =0" \

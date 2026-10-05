@@ -20,6 +20,9 @@ chmod +x "$INIT_SCRIPT"
 cat > "$tmp/z2k-config-validator.sh" <<'VALIDATOR'
 exit "${VALIDATOR_RC:-0}"
 VALIDATOR
+# This test extracts toggle_category() without sourcing the async job helpers.
+# Progress reporting is incidental to the category behavior under test.
+job_progress() { :; }
 eval "$(sed -n '/^toggle_category() {/,/^}/p' "$ROOT/webpanel/cgi/actions.sh")"
 is_running() { [ "${RUNNING:-1}" = 1 ]; }
 ensure_init_exec() { :; }
