@@ -2065,8 +2065,8 @@ try {
   assert.match(await healthyCard.innerText(), /CDN переключён/);
   assert.match(await healthyCard.innerText(), /203\.0\.113\.8 → 203\.0\.113\.9/);
   assert.doesNotMatch(await healthyCard.innerText(), /raw: consecutive-probe-failures/);
-  await healthyCard.locator('summary').click();
-  assert.equal(await healthyCard.locator('details').evaluate(node => node.open), true,
+  await healthyCard.locator('#tiktok-feed-technical > summary').click();
+  assert.equal(await healthyCard.locator('#tiktok-feed-technical').evaluate(node => node.open), true,
     'technical diagnostics disclosure opens');
   assert.match(await healthyCard.innerText(), /www\.tiktokcdn\.com/);
   assert.match(await healthyCard.innerText(), /resolver\+tls/);
