@@ -1601,7 +1601,7 @@ ol.steps > li,
   padding: 14px 16px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--ow-radius-card, 12px);
   margin: 0;
   position: relative;
   transition: border-color var(--dur-micro) var(--spring-smooth),
@@ -1876,30 +1876,55 @@ input[type=text]:focus, input[type=password]:focus {
   width: 100%;
 }
 .flow-application {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
   margin-top: var(--space-12);
-  padding: 10px 12px;
+  padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-subtle);
+  border-radius: 12px;
+  background: var(--ow-surface-2, var(--bg-card));
+  transition: border-color var(--ow-motion-state, 150ms) var(--ease-out),
+    background-color var(--ow-motion-state, 150ms) var(--ease-out);
 }
-.flow-application[data-kind="good"] { border-color: rgba(63, 185, 80, 0.45); }
-.flow-application[data-kind="warn"] { border-color: rgba(210, 153, 34, 0.55); }
+.flow-application-main { min-width: 0; }
 .flow-application-title {
-  font-size: 13px;
+  color: var(--text);
+  font-size: 14px;
   font-weight: 600;
 }
-.flow-application[data-kind="good"] .flow-application-title { color: var(--good); }
-.flow-application[data-kind="warn"] .flow-application-title { color: var(--warn); }
 .flow-application-copy {
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
+}
+.flow-application-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.flow-application[data-kind="good"] .flow-application-badge {
+  background: var(--good-alpha-soft);
+  color: var(--good);
+}
+.flow-application[data-kind="warn"] .flow-application-badge {
+  background: var(--warn-alpha-soft);
+  color: var(--warn);
 }
 .flow-warning {
   margin-top: var(--space-8);
   padding: var(--space-8) var(--space-12);
-  border-left: 3px solid var(--warn);
-  border-radius: 6px;
+  border-left: 2px solid var(--warn);
+  border-radius: 0 8px 8px 0;
   background: var(--warn-alpha-soft);
   color: var(--text);
   font-size: 12.5px;
@@ -2119,6 +2144,143 @@ input[type=text]:focus, input[type=password]:focus {
 .tiktok-candidate-facts span { display: flex; justify-content: space-between; gap: 6px; min-width: 0; }
 .tiktok-candidate-facts b { color: var(--text); font-weight: 500; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .tiktok-candidate-warning { margin-top: var(--space-8); color: var(--bad); font-size: 12px; }
+.tiktok-selection-summary {
+  display: grid;
+  gap: 8px;
+  margin-top: var(--space-12);
+  padding: 10px 12px;
+  border: 1px solid var(--ow-border-subtle, var(--border));
+  border-radius: var(--ow-radius-control, 10px);
+  background: var(--ow-surface-2, var(--bg-subtle));
+}
+.tiktok-current-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+.tiktok-current-facts > div { display: grid; gap: 2px; min-width: 0; }
+.tiktok-current-facts dt,
+.tiktok-candidate-region,
+.tiktok-candidate-meta,
+.tiktok-candidate-details > summary {
+  color: var(--ow-text-secondary, var(--text-muted));
+  font-size: 11px;
+}
+.tiktok-current-facts dd { min-width: 0; margin: 0; color: var(--ow-text-primary, var(--text)); font-size: 13px; font-variant-numeric: tabular-nums; }
+.tiktok-current-facts code { color: inherit; font-family: var(--font-mono); overflow-wrap: anywhere; }
+.tiktok-selection-event { margin: 0; color: var(--ow-success, var(--good)); font-size: 11px; }
+.tiktok-candidate-controls { margin-top: var(--space-12); }
+.tiktok-mode-control { display: flex; align-items: center; gap: 8px; }
+.tiktok-mode-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--ow-border-subtle, var(--border));
+  border-radius: var(--ow-radius-control, 10px);
+  background: var(--ow-surface-2, var(--bg-subtle));
+}
+.tiktok-mode-segment {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ow-text-secondary, var(--text-muted));
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  transition: background-color var(--ow-motion-state, 150ms) var(--ease-out), color var(--ow-motion-state, 150ms) var(--ease-out);
+}
+.tiktok-mode-segment:hover:not(:disabled) { color: var(--ow-text-primary, var(--text)); }
+.tiktok-mode-segment.active { background: var(--ow-accent-soft, var(--good-alpha-soft)); color: var(--ow-accent, var(--good)); font-weight: 600; }
+.tiktok-mode-segment:disabled { cursor: default; }
+.tiktok-candidate-overview { margin-top: var(--space-12); }
+.tiktok-candidate-summary { color: var(--ow-text-secondary, var(--text-muted)); font-size: 12px; font-variant-numeric: tabular-nums; }
+.tiktok-candidate-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--space-8); }
+.tiktok-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 9px;
+  border: 1px solid var(--ow-border-subtle, var(--border));
+  border-radius: var(--ow-radius-control, 10px);
+  background: var(--ow-surface-1, var(--bg-card));
+  color: var(--ow-text-secondary, var(--text-muted));
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  transition: border-color var(--ow-motion-state, 150ms) var(--ease-out), background-color var(--ow-motion-state, 150ms) var(--ease-out), color var(--ow-motion-state, 150ms) var(--ease-out);
+}
+.tiktok-filter span { color: var(--ow-text-tertiary, var(--text-muted)); font-variant-numeric: tabular-nums; }
+.tiktok-filter:hover { border-color: var(--ow-accent, var(--good)); color: var(--ow-text-primary, var(--text)); }
+.tiktok-filter.active { border-color: var(--ow-accent, var(--good)); background: var(--ow-accent-soft, var(--good-alpha-soft)); color: var(--ow-accent, var(--good)); }
+.tiktok-filter.active span { color: inherit; }
+.tiktok-candidate-list { display: grid; gap: 8px; margin-top: var(--space-8); padding: 0; border: 0; }
+.tiktok-candidate-group {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--ow-border-subtle, var(--border));
+  border-radius: var(--ow-radius-card, 12px);
+  background: var(--ow-surface-2, var(--bg-subtle));
+}
+.tiktok-candidate-group > h4 { margin: 0 0 8px; color: var(--ow-text-secondary, var(--text-muted)); font-size: 11px; font-weight: 600; }
+.tiktok-candidate-group > summary { min-height: 30px; color: var(--ow-text-secondary, var(--text-muted)); cursor: pointer; font-size: 12px; }
+.tiktok-candidate-group > summary:hover { color: var(--ow-text-primary, var(--text)); }
+.tiktok-candidate-group > .tiktok-candidate-rows { gap: 6px; margin-top: 8px; }
+.tiktok-candidate-group > summary + .tiktok-candidate-rows { margin-top: 0; }
+.tiktok-candidate-group[hidden] { display: none !important; }
+.tiktok-candidate-rows { gap: 6px; }
+.tiktok-candidate {
+  padding: 10px;
+  border: 1px solid var(--ow-border-subtle, var(--border));
+  border-radius: var(--ow-radius-control, 10px);
+  background: var(--ow-surface-1, var(--bg-card));
+}
+.tiktok-candidate.selected { padding-left: 10px; border-color: color-mix(in srgb, var(--ow-accent, var(--good)) 45%, var(--ow-border-subtle, var(--border))); box-shadow: inset 2px 0 var(--ow-accent, var(--good)); }
+.tiktok-candidate-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tiktok-candidate-primary { display: grid; gap: 3px; min-width: 0; }
+.tiktok-candidate-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.tiktok-candidate-title code { color: var(--ow-text-primary, var(--text)); font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tiktok-candidate-status { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; white-space: nowrap; }
+.tiktok-candidate-status.good { color: var(--ow-success, var(--good)); }
+.tiktok-candidate-status.bad { color: var(--ow-danger, var(--bad)); }
+.tiktok-candidate-status.pending { color: var(--ow-text-tertiary, var(--text-muted)); }
+.tiktok-candidate-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.tiktok-candidate-latency { color: var(--ow-text-secondary, var(--text-muted)); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#app .tiktok-candidate .btn {
+  min-width: 96px;
+  height: var(--ow-button-height, 34px);
+  min-height: var(--ow-button-height, 34px);
+  padding: 0 12px;
+  border-radius: var(--ow-radius-control, 10px);
+  font-size: 14px;
+  line-height: var(--ow-button-height, 34px);
+}
+.tiktok-selected-label { color: var(--ow-success, var(--good)); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.tiktok-candidate-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 7px; }
+.tiktok-candidate-verified { color: var(--ow-success, var(--good)); }
+.tiktok-candidate-details { margin-top: 6px; border-top: 1px solid var(--ow-border-subtle, var(--border)); }
+.tiktok-candidate-details > summary { min-height: 28px; padding-top: 6px; cursor: pointer; }
+.tiktok-candidate-details > summary:hover { color: var(--ow-text-primary, var(--text)); }
+.tiktok-candidate-technical { padding-top: 8px; border-top: 1px solid var(--ow-border-subtle, var(--border)); }
+.tiktok-candidate-technical .tiktok-candidate-source { margin: 0; }
+.tiktok-candidate-technical .tiktok-target-probe { border-color: var(--ow-border-subtle, var(--border)); border-radius: var(--ow-radius-control, 10px); background: var(--ow-surface-1, var(--bg-card)); }
+.tiktok-show-all {
+  min-height: 34px;
+  padding: 5px 10px;
+  border: 1px solid var(--ow-border-subtle, var(--border));
+  border-radius: var(--ow-radius-control, 10px);
+  background: var(--ow-surface-1, var(--bg-card));
+  color: var(--ow-accent, var(--good));
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  transition: border-color var(--ow-motion-state, 150ms) var(--ease-out), background-color var(--ow-motion-state, 150ms) var(--ease-out);
+}
+.tiktok-show-all:hover { border-color: var(--ow-accent, var(--good)); background: var(--ow-accent-soft, var(--good-alpha-soft)); }
+.tiktok-candidate-empty { margin: 0; color: var(--ow-text-secondary, var(--text-muted)); font-size: 12px; }
 .flow-traffic-diagnostics {
   margin-top: var(--space-12);
   padding-top: var(--space-8);
@@ -2742,10 +2904,18 @@ body[data-page="strategies"] #app { max-width: none; }
   .update-banner-actions { justify-content: flex-end; }
   .wl-add { flex-direction: column; align-items: stretch; }
   .flow-mode-field { max-width: none; }
+  .flow-application { align-items: flex-start; }
+  .flow-application-badge { margin-left: auto; }
   .flow-facts { grid-template-columns: 1fr; }
   .flow-fact { align-items: flex-start; }
   .flow-fact-value { flex-direction: column; align-items: flex-end; gap: 1px; }
   .tiktok-status-line { align-items: flex-start; }
+  .tiktok-mode-control { flex-wrap: wrap; }
+  .tiktok-candidate-controls { justify-content: space-between; }
+  .tiktok-candidate-head { align-items: flex-start; }
+  .tiktok-candidate-actions { flex-direction: column; align-items: flex-end; gap: 4px; }
+  .tiktok-current-facts { grid-template-columns: 1fr; }
+  .tiktok-filter { min-height: 34px; }
   .tiktok-primary-facts .flow-fact { grid-template-columns: minmax(92px, 0.8fr) minmax(0, 1.2fr); }
   .tiktok-diagnostic-section .flow-fact { align-items: flex-start; }
   .tiktok-candidate-head { grid-template-columns: minmax(0, 1fr) auto; }

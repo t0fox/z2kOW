@@ -364,19 +364,22 @@ function tiktokCandidatesMarkup(data) {
     if (ip) probes.set(ip, fields);
   });
   const mode = data.mode === "manual" ? "manual" : "auto";
-  const manualIp = tiktokValue(data.manual_ip);
-  const rows = [...candidates.entries()].map(([ip, candidate]) => {
+  const selectedIp = tiktokValue(data.selected_ip);
+  const rows = [...candidates.entries()].map(([ip, candidate], index) => {
     const probe = probes.get(ip) || [];
-    const selected = mode === "manual" && manualIp === ip;
+    const selected = selectedIp === ip;
     const unavailable = selected && data.state === "manual-unavailable";
     const v77Verified = probe[10] === "verified";
     const euVerified = probe[20] === "verified";
     const verified = !unavailable && probe[21] === "compatible" && v77Verified && euVerified;
+    const checked = probe.length >= 22;
     const checkNodes = Number.parseInt(candidate[11], 10) || 0;
     const checkCountries = Number.parseInt(candidate[12], 10) || 0;
     const checkAsns = Number.parseInt(candidate[13], 10) || 0;
     const hint = tiktokValue(candidate[6]) || "";
     const source = [candidate[7], candidate[4]].map(tiktokValue).filter(Boolean).join(" · ");
+    const latencyValue = verified ? Number.parseInt(probe[1], 10) : 0;
+    const category = verified ? "working" : checked ? "unavailable" : "unknown";
     const icmp = tiktokLatency(probe[22]);
     const targetCell = (label, latencyIndex, verifiedIndex) => {
       if (probe.length < 22) return `<span class="tiktok-target-probe pending">${label} <b>Не проверен</b></span>`;
@@ -404,34 +407,109 @@ function tiktokCandidatesMarkup(data) {
       ].join("");
     };
     const button = verified
-      ? `<button class="btn btn-secondary tiktok-select-cdn" data-tiktok-action="select" data-ip="${escapeHtml(ip)}"${selected ? " disabled" : ""}>${selected ? "Выбран" : "Выбрать"}</button>`
-      : `<button class="btn btn-secondary tiktok-select-cdn" disabled title="Сначала проверьте кандидат">Выбрать</button>`;
-    return `<article class="tiktok-candidate${selected ? " selected" : ""}" data-ip="${escapeHtml(ip)}">
-      <div class="tiktok-candidate-head"><code>${escapeHtml(ip)}</code><span>${escapeHtml(hint || "Регион не определён")}</span>${button}</div>
-      ${source ? `<div class="tiktok-candidate-source">Источники: ${escapeHtml(source)}${candidate[1] ? ` · Домены: ${escapeHtml(candidate[1])}` : ""}</div>` : ""}
-      ${checkNodes ? `<div class="tiktok-checkhost-count">Check-Host: ${checkNodes} ${checkNodes === 1 ? "узел" : "узлов"} / ${checkCountries} стран / ${checkAsns} ASN</div>` : ""}
-      <div class="tiktok-compatibility">${targetCell("v77", 1, 10)}${targetCell("v77-eu", 11, 20)}</div>
-      <div class="tiktok-candidate-facts">
-        <span>ICMP <b title="Ping не влияет на доступность CDN">${escapeHtml(icmp || "—")}</b></span>
-        ${targetFacts("v77", 0)}${targetFacts("v77-eu", 11)}
-      </div>
-      ${probe.length >= 22 && !verified ? `<div class="tiktok-candidate-warning">Недоступен с вашего подключения</div>` : ""}
-      ${unavailable ? `<div class="tiktok-candidate-warning" role="status">Выбранный CDN недоступен</div>` : ""}
-    </article>`;
-  }).join("");
+      ? `<button type="button" class="btn btn-secondary tiktok-select-cdn" data-tiktok-action="select" data-ip="${escapeHtml(ip)}" aria-label="Выбрать CDN ${escapeHtml(ip)}">Выбрать</button>`
+      : "";
+    return { ip, candidate, probe, selected, verified, checked, category, hint, source, checkNodes, checkCountries, checkAsns, latencyValue, icmp, button, targetCell, targetFacts, index };
+  });
+  const categoryOrder = { working: 0, unknown: 1, unavailable: 2 };
+  rows.sort((a, b) => Number(b.selected) - Number(a.selected)
+    || categoryOrder[a.category] - categoryOrder[b.category]
+    || (a.category === "working" && b.category === "working" ? (a.latencyValue || Number.MAX_SAFE_INTEGER) - (b.latencyValue || Number.MAX_SAFE_INTEGER) : 0)
+    || a.index - b.index);
 
-  const autoButton = mode === "manual"
-    ? `<span class="tiktok-mode-label">Режим: ручной выбор${manualIp ? ` · ${escapeHtml(manualIp)}` : ""}</span><button class="btn btn-secondary" data-tiktok-action="auto">Использовать автоматический выбор</button>`
-    : `<span class="tiktok-mode-label">Режим: автоматический выбор</span>`;
-  return `<div class="tiktok-candidate-controls">
-      ${autoButton}
-      <button class="btn btn-primary" data-tiktok-action="probe-all">Проверить все</button>
-    </div>
-    <details class="tiktok-candidate-list">
-      <summary>Кандидаты CDN <span>(${candidates.size})</span></summary>
-      <p class="desc">Проверка выполняется отдельно для v77.tiktokcdn.com и v77.tiktokcdn-eu.com. Доступность определяется по TCP 443 и TLS/SNI; Ping не обязателен.</p>
-      <div class="tiktok-candidate-rows">${rows || `<p class="tiktok-candidate-empty">Кандидаты ещё не обнаружены</p>`}</div>
-    </details>`;
+  const candidateRow = (row, hidden = false) => {
+    const statusLabel = row.category === "working" ? "Доступен" : row.category === "unavailable" ? "Недоступен" : "Не проверен";
+    const statusKind = row.category === "working" ? "good" : row.category === "unavailable" ? "bad" : "pending";
+    const selection = row.selected
+      ? `<span class="tiktok-selected-label" aria-current="true">✓ Выбран</span>`
+      : row.button;
+    const compatibility = row.verified
+      ? `<span class="tiktok-candidate-verified">TLS ✓ · v77 ✓ · v77-eu ✓</span>`
+      : row.checked ? `<span>Проверка TLS не пройдена</span>` : "";
+    const source = row.source ? `<span>Источники: ${escapeHtml(row.source)}</span>` : "";
+    const checkhost = row.checkNodes
+      ? `<span>Check-Host · ${row.checkNodes} узлов / ${row.checkCountries} стран / ${row.checkAsns} ASN</span>` : "";
+    return `<article class="tiktok-candidate ${row.category}${row.selected ? " selected" : ""}" data-ip="${escapeHtml(row.ip)}" data-state="${row.category}"${hidden ? " hidden data-tiktok-overflow" : ""}>
+      <div class="tiktok-candidate-head">
+        <div class="tiktok-candidate-primary">
+          <div class="tiktok-candidate-title"><code>${escapeHtml(row.ip)}</code><span class="tiktok-candidate-status ${statusKind}">● ${statusLabel}</span></div>
+          <span class="tiktok-candidate-region">${escapeHtml(row.hint || "Регион не определён")}</span>
+        </div>
+        <div class="tiktok-candidate-actions">${row.verified && row.latencyValue ? `<span class="tiktok-candidate-latency">${escapeHtml(tiktokLatency(row.latencyValue))}</span>` : ""}${selection}</div>
+      </div>
+      ${compatibility || checkhost || source ? `<div class="tiktok-candidate-meta">${compatibility}${checkhost}${source}</div>` : ""}
+      <details class="tiktok-candidate-details">
+        <summary>Подробнее</summary>
+        <div class="tiktok-candidate-technical">
+          ${row.source || row.candidate[1] ? `<div class="tiktok-candidate-source">${row.source ? `Источники: ${escapeHtml(row.source)}` : ""}${row.candidate[1] ? ` · Домены: ${escapeHtml(row.candidate[1])}` : ""}</div>` : ""}
+          ${row.checkNodes ? `<div class="tiktok-checkhost-count">Check-Host: ${row.checkNodes} узлов / ${row.checkCountries} стран / ${row.checkAsns} ASN</div>` : ""}
+          <div class="tiktok-compatibility">${row.targetCell("v77", 1, 10)}${row.targetCell("v77-eu", 11, 20)}</div>
+          <div class="tiktok-candidate-facts">
+            <span>ICMP <b title="Ping не влияет на доступность CDN">${escapeHtml(row.icmp || "—")}</b></span>
+            ${row.targetFacts("v77", 0)}${row.targetFacts("v77-eu", 11)}
+          </div>
+          ${row.checked && !row.verified ? `<div class="tiktok-candidate-warning">Недоступен с вашего подключения</div>` : ""}
+          ${row.selected && data.state === "manual-unavailable" ? `<div class="tiktok-candidate-warning" role="status">Выбранный CDN недоступен</div>` : ""}
+        </div>
+      </details>
+    </article>`;
+  };
+
+  const selected = rows.find(row => row.selected);
+  const working = rows.filter(row => row.category === "working" && !row.selected);
+  const unchecked = rows.filter(row => row.category === "unknown" && !row.selected);
+  const unavailable = rows.filter(row => row.category === "unavailable" && !row.selected);
+  const unavailableCount = rows.filter(row => row.category === "unavailable").length;
+  const maxVisible = 8;
+  const workingSlots = Math.max(0, maxVisible - (selected ? 1 : 0));
+  const visibleWorking = working.slice(0, workingSlots);
+  const overflowWorking = working.slice(workingSlots);
+  const checked = [...probes.values()].some(probe => probe.length >= 22);
+  const availableCount = rows.filter(row => row.category === "working").length;
+  const bestLatency = rows.filter(row => row.category === "working" && row.latencyValue > 0)
+    .reduce((best, row) => Math.min(best, row.latencyValue), Number.MAX_SAFE_INTEGER);
+  const plural = candidates.size === 1 ? "кандидат" : candidates.size >= 2 && candidates.size <= 4 ? "кандидата" : "кандидатов";
+  const candidateSummary = checked
+    ? `${candidates.size} ${plural} · ${availableCount} доступны${bestLatency < Number.MAX_SAFE_INTEGER ? ` · лучший ${tiktokLatency(bestLatency)}` : ""}`
+    : `${candidates.size} ${plural} · проверка не выполнена`;
+  const visibleCount = (selected ? 1 : 0) + visibleWorking.length;
+  const hasHidden = visibleCount < candidates.size;
+  const modeControl = `<div class="tiktok-candidate-controls">
+      <div class="tiktok-mode-control"><span class="tiktok-mode-label">Режим</span><div class="tiktok-mode-switch" role="group" aria-label="Режим выбора CDN">
+        <button type="button" class="tiktok-mode-segment${mode === "auto" ? " active" : ""}" data-tiktok-action="auto" data-tiktok-mode="auto" aria-pressed="${mode === "auto"}"${mode === "auto" ? " disabled" : ""}>Авто</button>
+        <button type="button" class="tiktok-mode-segment${mode === "manual" ? " active" : ""}" data-tiktok-action="manual" data-tiktok-mode="manual" data-ip="${escapeHtml(selectedIp)}" aria-pressed="${mode === "manual"}"${mode === "manual" || !selectedIp || data.candidate_verified !== "1" ? " disabled" : ""}>Вручную</button>
+      </div></div>
+      <button type="button" class="btn btn-primary" data-tiktok-action="probe-all">Проверить все</button>
+    </div>`;
+  const filterControls = `<div class="tiktok-candidate-filters" role="group" aria-label="Фильтр CDN-кандидатов">
+      <button type="button" class="tiktok-filter active" data-tiktok-action="filter" data-tiktok-filter="all" aria-pressed="true">Все <span>${candidates.size}</span></button>
+      <button type="button" class="tiktok-filter" data-tiktok-action="filter" data-tiktok-filter="working" aria-pressed="false">Рабочие <span>${availableCount}</span></button>
+      <button type="button" class="tiktok-filter" data-tiktok-action="filter" data-tiktok-filter="unavailable" aria-pressed="false">Недоступные <span>${unavailableCount}</span></button>
+    </div>`;
+  const workingGroup = `<section class="tiktok-candidate-group" data-tiktok-candidate-group="working">
+      <h4>Рабочие CDN (${availableCount})</h4>
+      <div class="tiktok-candidate-rows">${visibleWorking.map(row => candidateRow(row)).join("")}${overflowWorking.map(row => candidateRow(row, true)).join("")}</div>
+    </section>`;
+  const uncheckedGroup = unchecked.length
+    ? `<details class="tiktok-candidate-group tiktok-unchecked-group" data-tiktok-candidate-group="unknown"><summary>Не проверены (${unchecked.length})</summary><div class="tiktok-candidate-rows">${unchecked.map(row => candidateRow(row)).join("")}</div></details>` : "";
+  const unavailableGroup = unavailable.length
+    ? `<details class="tiktok-candidate-group tiktok-unavailable-group" data-tiktok-candidate-group="unavailable"><summary>Недоступные (${unavailable.length})</summary><div class="tiktok-candidate-rows">${unavailable.map(row => candidateRow(row)).join("")}</div></details>` : "";
+  const showAll = hasHidden
+    ? `<button type="button" class="tiktok-show-all" data-tiktok-action="show-all">Показать все ${candidates.size}</button>` : "";
+  const empty = !candidates.size ? `<p class="tiktok-candidate-empty">Кандидаты ещё не обнаружены</p>` : "";
+  return `${modeControl}
+    <div class="tiktok-candidate-overview">
+      <div class="tiktok-candidate-summary" role="status">${escapeHtml(candidateSummary)}</div>
+      ${filterControls}
+      <div class="tiktok-candidate-list">
+        ${empty}
+        ${selected ? `<div class="tiktok-candidate-group tiktok-selected-candidate-group" data-tiktok-candidate-group="${selected.category}">${candidateRow(selected)}</div>` : ""}
+        ${availableCount ? workingGroup : ""}
+        ${uncheckedGroup}
+        ${unavailableGroup}
+        ${showAll}
+      </div>
+    </div>`;
 }
 
 function wireTikTokActions(card) {
@@ -441,13 +519,47 @@ function wireTikTokActions(card) {
     const button = event.target.closest("[data-tiktok-action]");
     if (!button || button.disabled) return;
     const action = button.dataset.tiktokAction;
-    const endpoints = { "probe-all": "/tiktok/probe-all", select: "/tiktok/select", auto: "/tiktok/auto" };
-    const labels = { "probe-all": "Проверка CDN-кандидатов", select: "Проверка и выбор CDN", auto: "Возврат к автоматическому выбору" };
+    if (action === "filter") {
+      const filter = button.dataset.tiktokFilter;
+      const allExpanded = card.dataset.tiktokAllExpanded === "1";
+      card.querySelectorAll("[data-tiktok-filter]").forEach(item => {
+        const active = item.dataset.tiktokFilter === filter;
+        item.classList.toggle("active", active);
+        item.setAttribute("aria-pressed", String(active));
+      });
+      card.querySelectorAll("[data-tiktok-candidate-group]").forEach(group => {
+        group.hidden = filter !== "all" && group.dataset.tiktokCandidateGroup !== filter;
+        if (group instanceof HTMLDetailsElement) group.open = filter === "unavailable" || (filter === "all" && allExpanded);
+      });
+      card.querySelectorAll("[data-tiktok-overflow]").forEach(item => {
+        item.hidden = filter === "all" && !allExpanded;
+      });
+      const showAll = card.querySelector('[data-tiktok-action="show-all"]');
+      if (showAll) showAll.hidden = filter !== "all" || allExpanded;
+      return;
+    }
+    if (action === "show-all") {
+      card.dataset.tiktokAllExpanded = "1";
+      card.querySelectorAll("[data-tiktok-filter]").forEach(item => {
+        const active = item.dataset.tiktokFilter === "all";
+        item.classList.toggle("active", active);
+        item.setAttribute("aria-pressed", String(active));
+      });
+      card.querySelectorAll("[data-tiktok-candidate-group]").forEach(group => {
+        group.hidden = false;
+        if (group instanceof HTMLDetailsElement) group.open = true;
+      });
+      card.querySelectorAll("[data-tiktok-overflow]").forEach(item => { item.hidden = false; });
+      button.hidden = true;
+      return;
+    }
+    const endpoints = { "probe-all": "/tiktok/probe-all", select: "/tiktok/select", manual: "/tiktok/select", auto: "/tiktok/auto" };
+    const labels = { "probe-all": "Проверка CDN-кандидатов", select: "Проверка и выбор CDN", manual: "Фиксация текущего CDN", auto: "Автоматический выбор CDN" };
     if (!endpoints[action]) return;
     const buttons = [...card.querySelectorAll("[data-tiktok-action]")];
     buttons.forEach(item => { item.disabled = true; });
     try {
-      const params = action === "select" ? { ip: button.dataset.ip } : {};
+      const params = action === "select" || action === "manual" ? { ip: button.dataset.ip } : {};
       const response = await apiPost(endpoints[action], params);
       openJobModal(labels[action], response.job, {
         tolerateOutage: action === "select" || action === "auto",
@@ -474,6 +586,7 @@ function tiktokStatusMarkup(status) {
   const data = status || {};
   const state = tiktokValue(data.state);
   const ip = tiktokValue(data.selected_ip);
+  const mode = data.mode === "manual" ? "manual" : "auto";
   const reason = tiktokValue(data.reason);
   let title = "Рабочий CDN не найден";
   let kind = "warn";
@@ -496,19 +609,21 @@ function tiktokStatusMarkup(status) {
   }
 
   const checkedAgo = tiktokTime(data.last_verified_epoch);
-  const failoverAgo = tiktokTime(data.last_failover_epoch);
+  const selectedAgo = tiktokTime(data.selected_at_epoch);
   const failoverReason = tiktokValue(data.last_failover_reason);
   const failoverFrom = tiktokValue(data.last_failover_from);
   const failoverTo = tiktokValue(data.last_failover_to);
+  const failoverAgo = tiktokTime(data.last_failover_epoch);
   const hasFailover = Boolean(failoverAgo && failoverFrom && failoverTo && failoverFrom !== failoverTo);
-  const failover = hasFailover
-    ? `<div class="tiktok-failover"><div class="tiktok-failover-title">↪ CDN переключён <span>${escapeHtml(failoverAgo)}</span></div><div class="tiktok-failover-route">${escapeHtml(failoverFrom)} → ${escapeHtml(failoverTo)}</div><div class="tiktok-failover-reason">${escapeHtml(failoverReason ? tiktokReasonLabel(failoverReason) : "Узел переключён")}</div></div>`
+  const selectionEvent = ip
+    ? `✓ Выбран ${mode === "manual" ? "вручную" : "автоматически"}${selectedAgo ? ` ${escapeHtml(selectedAgo)}` : ""}`
     : "";
-  const primaryFacts = [
-    tiktokFact("Текущий CDN", ip),
-    tiktokFact("Задержка", tiktokLatency(data.latency_ms)),
-    tiktokFact("Источник", data.selected_source_domain),
-  ].filter(Boolean).join("");
+  const currentFacts = ip || tiktokLatency(data.latency_ms)
+    ? `<dl class="tiktok-current-facts">
+        ${ip ? `<div><dt>Текущий CDN</dt><dd><code>${escapeHtml(ip)}</code></dd></div>` : ""}
+        ${tiktokLatency(data.latency_ms) ? `<div><dt>Задержка</dt><dd>${escapeHtml(tiktokLatency(data.latency_ms))}</dd></div>` : ""}
+      </dl>${selectionEvent ? `<p class="tiktok-selection-event"><span aria-hidden="true">✓</span> ${escapeHtml(selectionEvent.slice(2))}</p>` : ""}`
+    : "";
   const diagnostics = [
     tiktokDiagnosticSection("Соединение", [
       tiktokFact("TCP-соединение", tiktokLatency(data.connect_latency_ms)),
@@ -522,6 +637,8 @@ function tiktokStatusMarkup(status) {
       tiktokFact("Домен источника", data.selected_source_domain),
       tiktokFact("CNAME", data.selected_cname),
       tiktokFact("Режим", data.selected_mode),
+      tiktokFact("Текущий выбор", mode === "manual" ? "manual" : "auto"),
+      tiktokFact("Время выбора", tiktokTime(data.selected_at_epoch, true)),
       tiktokFact("Регион", data.selected_geo_hint),
       tiktokFact("Источник узла", data.selected_provenance),
     ]),
@@ -535,7 +652,7 @@ function tiktokStatusMarkup(status) {
       tiktokFact("Последняя проверка", tiktokTime(data.last_verified_epoch, true)),
       tiktokReasonFact("Причина", reason),
     ]),
-    hasFailover ? tiktokDiagnosticSection("Последний failover", [
+    hasFailover ? tiktokDiagnosticSection("Последнее автоматическое переключение", [
       tiktokFact("Маршрут", `${failoverFrom} → ${failoverTo}`),
       tiktokFact("Время", tiktokTime(data.last_failover_epoch, true)),
       tiktokReasonFact("Причина", failoverReason),
@@ -543,11 +660,10 @@ function tiktokStatusMarkup(status) {
   ].join("");
   const candidates = tiktokCandidatesMarkup(data);
   return `<h3>TikTok — состояние ленты</h3>
-    <p class="desc">Автоматический подбор и контроль CDN для v77.tiktokcdn.com</p>
+    <p class="desc">Автоматический подбор и контроль CDN</p>
     <div class="tiktok-status-line"><span class="tiktok-status-badge ${kind}" role="status">● ${escapeHtml(title)}</span>${checkedAgo ? `<span class="tiktok-checked">Проверено ${escapeHtml(checkedAgo)}</span>` : ""}</div>
     ${copy ? `<p class="desc">${escapeHtml(copy)}</p>` : ""}
-    ${primaryFacts ? `<div class="flow-facts tiktok-primary-facts">${primaryFacts}</div>` : ""}
-    ${failover}
+    ${currentFacts ? `<div class="tiktok-selection-summary">${currentFacts}</div>` : ""}
     ${candidates}
     <details class="flow-technical disclosure" id="tiktok-feed-technical">
       <summary>Техническая диагностика</summary>
@@ -573,41 +689,45 @@ function flowoffloadApplicationMarkup(selected, raw) {
   const selectedLabel = flowoffloadModeLabel(selected);
   const warnings = [];
   let kind = "good";
-  let title = "Режим применён";
+  let badge = "Не подтверждено";
   let copy;
 
   if (reported !== "unknown" && reported !== selected) {
     kind = "warn";
-    title = "Проверьте применение";
+    badge = "Проверьте применение";
     warnings.push(`Выбрано «${selectedLabel}», но текущая конфигурация сообщает «${flowoffloadModeLabel(reported)}».`);
   }
 
   if (selected === "none") {
     if (flowtable === "absent" && actual !== "software" && actual !== "hardware") {
-      copy = "Ускорение отключено. Правила ускорения отсутствуют.";
+      badge = "Отключено";
+      copy = "Правила ускорения отсутствуют.";
     } else if (flowtable === "unknown") {
       kind = "warn";
-      title = "Режим выбран";
-      copy = "Ускорение отключено. Состояние правил не проверено.";
+      badge = "Не проверено";
+      copy = "Состояние правил ускорения не проверено.";
     } else {
       kind = "warn";
-      title = "Проверьте применение";
-      copy = "Ускорение выключено, но правила или фактическое ускорение ещё обнаружены.";
+      badge = "Проверьте применение";
+      copy = "Обнаружены правила или активное ускорение.";
     }
   } else if (flowtable === "absent") {
     kind = "warn";
-    title = "Проверьте применение";
-    copy = `Выбрано «${selectedLabel}», но правила ускорения отсутствуют.`;
+    badge = "Проверьте применение";
+    copy = "Правила ускорения отсутствуют.";
   } else if (actual === "software" || actual === "hardware") {
     if (actual !== selected) {
       kind = "warn";
-      title = "Проверьте применение";
-      copy = `Выбрано «${selectedLabel}», но фактически наблюдается «${flowoffloadModeLabel(actual)}».`;
+      badge = "Проверьте применение";
+      copy = `Фактически наблюдается «${flowoffloadModeLabel(actual)}».`;
     } else {
-      copy = `Выбрано «${selectedLabel}». Фактическое ускорение подтверждено по runtime-наблюдению.`;
+      badge = "Работа подтверждена";
+      copy = "Подтверждено runtime-наблюдением.";
     }
   } else {
-    copy = `Выбрано «${selectedLabel}». Фактическое ускорение не подтверждено.`;
+    kind = "warn";
+    badge = "Не подтверждено";
+    copy = "Фактическая работа не подтверждена.";
   }
 
   if (owner !== "none" && owner !== "unknown") {
@@ -616,8 +736,11 @@ function flowoffloadApplicationMarkup(selected, raw) {
   }
 
   return `<div class="flow-application" data-kind="${kind}">
-    <div class="flow-application-title">${escapeHtml(title)}</div>
-    <div class="flow-application-copy">${escapeHtml(copy)}</div>
+    <div class="flow-application-main">
+      <div class="flow-application-title">${escapeHtml(selectedLabel)}</div>
+      <div class="flow-application-copy">${escapeHtml(copy)}</div>
+    </div>
+    <span class="flow-application-badge">${escapeHtml(badge)}</span>
   </div>
   ${warnings.map(w => `<div class="flow-warning" role="note">${escapeHtml(w)}</div>`).join("")}
   ${flowoffloadTechnicalMarkup(facts)}`;

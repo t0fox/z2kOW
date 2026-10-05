@@ -349,9 +349,11 @@ const SCENARIOS = {
       const card = q("#openwrt-offload-card");
       const html = q("#flowoffload-status").innerHTML;
       check("none: карточка видима", card.hidden === false, String(card.hidden));
-      check("none: понятный статус применения", html.indexOf("Режим применён") >= 0, html);
+      check("none: выбранный режим виден в заголовке статуса",
+            html.indexOf('class="flow-application-title">Выключено</div>') >= 0, html);
       check("none: ускорение честно описано как отключённое",
-            html.indexOf("Ускорение отключено. Правила ускорения отсутствуют.") >= 0, html);
+            html.indexOf('class="flow-application-badge">Отключено</span>') >= 0 &&
+            html.indexOf("Правила ускорения отсутствуют.") >= 0, html);
       check("none: raw-строка не попала в основной статус", html.indexOf("mode=none;") < 0, html);
     },
   },
@@ -365,9 +367,11 @@ const SCENARIOS = {
     async run() {
       await sleep(120);
       const html = q("#flowoffload-status").innerHTML;
-      check("software: режим применён отдельно от доказательства работы", html.indexOf("Режим применён") >= 0, html);
+      check("software: выбранный режим показан отдельно от runtime-состояния",
+            html.indexOf('class="flow-application-title">Программное ускорение</div>') >= 0, html);
       check("software: отсутствие dataplane-доказательства явно показано",
-            html.indexOf("Фактическое ускорение не подтверждено") >= 0, html);
+            html.indexOf('class="flow-application-badge">Не подтверждено</span>') >= 0 &&
+            html.indexOf("Фактическая работа не подтверждена.") >= 0, html);
       check("software: flowtable не выдаётся за Работает", html.indexOf("Работает") < 0, html);
     },
   },
@@ -382,8 +386,17 @@ const SCENARIOS = {
       await sleep(120);
       const html = q("#flowoffload-status").innerHTML;
       check("hardware: пользовательское название режима", html.indexOf("Аппаратное ускорение") >= 0, html);
+      const primary = html.slice(0, html.indexOf('<details class="flow-technical disclosure"'));
+      check("hardware: выбранный режим занимает заголовок компактного статуса",
+            primary.includes('class="flow-application-title">Аппаратное ускорение</div>'), primary);
       check("hardware: requested не превращается в подтверждённую работу",
-            html.indexOf("Фактическое ускорение не подтверждено") >= 0, html);
+            primary.includes('class="flow-application-badge">Не подтверждено</span>') &&
+            primary.includes("Фактическая работа не подтверждена."), primary);
+      check("hardware: raw runtime-факты остаются в закрытой диагностике",
+            /<details class="flow-technical disclosure" id="flowoffload-technical">/.test(html) &&
+            /<code>requested<\/code>/.test(html), html);
+      check("hardware: raw mode не попадает в верхний статус",
+            !primary.includes("mode=hardware") && !primary.includes("requested"), primary);
     },
   },
 
@@ -398,7 +411,7 @@ const SCENARIOS = {
       const html = q("#flowoffload-status").innerHTML;
       check("mismatch: отдельное предупреждение", html.indexOf("Проверьте применение") >= 0, html);
       check("mismatch: причина называет отсутствующие правила",
-            html.indexOf("правила ускорения отсутствуют") >= 0, html);
+            html.toLowerCase().indexOf("правила ускорения отсутствуют") >= 0, html);
       check("mismatch: конфликт владельцев объяснён",
             html.indexOf("fw4 и NFQUEUE одновременно") >= 0, html);
     },
@@ -1388,8 +1401,8 @@ meta "пересортировка снова считается новой за
 meta "отказ панели снова неотличим от обрыва связи" job_refused 's/typeof e\.httpStatus === "number"/false/'
 meta "кнопки туннеля снова живы при непрочитанном статусе" toggles_status_failed '/"#tg-enable"), true);/d; /"#tg-disable"), true);/d'
 meta "ответ после ухода со страницы снова роняет страницу" toggles_left_page '/if (!badge) return;/d'
-meta "none снова выдаётся за неизвестный сбой" flowoffload_none 's/Ускорение отключено\. Правила ускорения отсутствуют\./Неизвестный сбой/'
-meta "неподтверждённое ускорение снова называется Работает" flowoffload_unconfirmed 's/Фактическое ускорение не подтверждено/Работает/'
+meta "none снова выдаётся за неизвестный сбой" flowoffload_none 's/Правила ускорения отсутствуют\./Неизвестный сбой/'
+meta "неподтверждённое ускорение снова называется Работает" flowoffload_unconfirmed 's/Фактическая работа не подтверждена\./Работает/'
 meta "отсутствующие правила больше не предупреждают" flowoffload_mismatch 's/} else if (flowtable === "absent")/} else if (false)/'
 meta "ответ WARP после ухода со страницы снова роняет страницу" warp_left_page '/if (!grid\.isConnected) return;/d'
 meta "упавшая проверка обновлений снова прячет весь блок" update_check_failed 's/^      err = e;$/      banner.hidden = true; return;/'

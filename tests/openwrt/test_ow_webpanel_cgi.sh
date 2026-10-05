@@ -751,6 +751,7 @@ state=healthy
 selected_ip=203.0.113.9
 latency_ms=84
 last_verified_epoch=1780550000
+selected_at_epoch=1780549950
 failure_count=0
 selected_source_domain=www.tiktokcdn.com
 selected_mode=verified
@@ -770,6 +771,7 @@ printf 'Z2K_TIKTOK_MODE=manual\nZ2K_TIKTOK_MANUAL_IP=203.0.113.9\n' >> "$T/etc/c
 RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "status: TikTok diagnostics project current state" "healthy" "$(_jget "$OUT" 'd["tiktok_feed_status"]["state"]')"
 assert_eq "status: TikTok diagnostics project selected CDN" "203.0.113.9" "$(_jget "$OUT" 'd["tiktok_feed_status"]["selected_ip"]')"
+assert_eq "status: TikTok current selection timestamp is projected" "1780549950" "$(_jget "$OUT" 'd["tiktok_feed_status"]["selected_at_epoch"]')"
 assert_eq "status: TikTok diagnostics project source domain" "www.tiktokcdn.com" "$(_jget "$OUT" 'd["tiktok_feed_status"]["selected_source_domain"]')"
 assert_eq "status: TikTok diagnostics project failover reason" "consecutive-probe-failures" "$(_jget "$OUT" 'd["tiktok_feed_status"]["last_failover_reason"]')"
 assert_eq "status: TikTok mode is projected" "manual" "$(_jget "$OUT" 'd["tiktok_feed_status"]["mode"]')"

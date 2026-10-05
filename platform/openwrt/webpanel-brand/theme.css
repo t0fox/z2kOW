@@ -1217,7 +1217,6 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 #app .wl-list,
 #app .wl-search input,
 #app .wl-editor textarea,
-#app .flow-application,
 #app .flow-warning,
 #app .dns-group,
 #app .dns-own textarea,
@@ -1225,6 +1224,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 #app .modal-warning,
 #app .job-link,
 #app pre.log { border-radius: var(--ow-radius-control); }
+#app .flow-application { border-radius: var(--ow-radius-card); }
 #app .update-banner { border-radius: var(--ow-radius-card); }
 #app .state-search-clear,
 #app .wl-list li button,

@@ -1,4 +1,4 @@
-// Real Chromium acceptance for the OpenWrt document root and its ES-module graph.
+// Real-browser acceptance for the OpenWrt document root and its ES-module graph.
 // Run with PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/browser/openwrt-panel.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -43,7 +43,9 @@ const statusFixture = {
   toggles: {
     game_warp: '0', customd: '0', dynamic_ttl: '1', stats: '1', stats_ack: '0',
     ppe: '1', auto_update: '1', autohostlist: '0', fastroute: '0',
-    fastroute_available: '0', flowoffload: 'hardware', flowoffload_status: 'enabled', au_hour: '3',
+    fastroute_available: '0', flowoffload: 'hardware',
+    flowoffload_status: 'mode=hardware; flowtable=present; flags=offload; exemptions=0; actual=not-observed; hardware=requested; owner=none; packet_visibility=unknown; circular=unknown',
+    au_hour: '3',
   },
   tunnel: { running: true },
   capabilities: { policy: false, ppe: false, tcp16: false, diag: true, warp: true, telegram: true, uninstall: false, offload: true },
@@ -213,8 +215,15 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({
   headless: true,
+  ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}),
   ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}),
 });
+
+async function screenshotComponent(page, locator, outputPath) {
+  if (!screenshotDir) return;
+  await page.addStyleTag({ content: '.topbar, .theme-toggle { visibility: hidden !important; }' });
+  await locator.screenshot({ path: outputPath, animations: 'disabled' });
+}
 
 async function waitForRenderedRoute(page, route) {
   await page.waitForFunction(name => {
@@ -1422,7 +1431,7 @@ try {
     assert.equal(await page.locator('#unique-set-reset-all').evaluate(node => node.classList.contains('btn-danger')), false,
       'reversible return-to-automatic action is not destructive red');
 
-    assert.ok(moduleResponses.length > 0, 'Chromium must load the real ES-module graph');
+    assert.ok(moduleResponses.length > 0, 'the browser must load the real ES-module graph');
     for (const response of moduleResponses) {
       assert.equal(response.status, 200, `required module failed: ${response.url}`);
       assert.match(response.type, /javascript/i, `wrong module MIME: ${response.url} (${response.type})`);
@@ -2003,13 +2012,16 @@ try {
   reinstallFixtureActive = false;
 
   const makeTikTokPage = async (initialEnabled, tiktokStatus, { width = 390, height = 844, isMobile = true } = {}) => {
-    const page = await browser.newPage({ viewport: { width, height }, isMobile, hasTouch: isMobile });
+    const page = await browser.newPage({ viewport: { width, height }, isMobile, hasTouch: isMobile, colorScheme: 'dark' });
+    await page.addInitScript(() => localStorage.setItem('z2k-theme', 'dark'));
+    page.on('pageerror', error => allPageErrors.push(error.message));
     let enabled = initialEnabled;
+    let currentStatus = tiktokStatus;
     let jobNumber = 0;
     page.route('**/cgi-bin/api/status', route => {
       const fixture = structuredClone(statusFixture);
       fixture.toggles.tiktok_feed = enabled ? '1' : '0';
-      if (enabled) fixture.tiktok_feed_status = tiktokStatus || {
+      if (enabled) fixture.tiktok_feed_status = currentStatus || {
         state: 'healthy', candidate_verified: '1', dns_override_applied: '1',
         selected_ip: '203.0.113.9', latency_ms: '84',
         last_verified_epoch: String(Math.floor(Date.now() / 1000)), reason: 'healthy',
@@ -2026,7 +2038,7 @@ try {
     }));
     await page.goto(`${base}/#/toggles`);
     await waitForRenderedRoute(page, 'toggles');
-    return { page, get enabled() { return enabled; } };
+    return { page, get enabled() { return enabled; }, setStatus(status) { currentStatus = status; } };
   };
 
   const offCard = await makeTikTokPage(false, null);
@@ -2049,6 +2061,7 @@ try {
   const healthy = await makeTikTokPage(true, {
     state: 'healthy', candidate_verified: '1', dns_override_applied: '1',
     selected_ip: '203.0.113.9', latency_ms: '131', last_verified_epoch: String(Math.floor(Date.now() / 1000) - 70),
+    mode: 'auto', selected_at_epoch: String(Math.floor(Date.now() / 1000) - 48),
     failure_count: '0', selected_source_domain: 'www.tiktokcdn.com', selected_mode: 'verified',
     selected_provenance: 'resolver+tls', selected_cname: 'edge.example.net', host: 'v77.tiktokcdn.com',
     connect_latency_ms: '9', tls_latency_ms: '117', http_status: '400', x77_pop: 'CLA', x77_cache: 'MISS', server: 'RETN',
@@ -2058,12 +2071,39 @@ try {
   });
   const healthyCard = healthy.page.locator('#tiktok-feed-status-card');
   assert.equal(await healthyCard.isVisible(), true);
+  const flowStatus = healthy.page.locator('#flowoffload-status .flow-application');
+  assert.equal(await flowStatus.locator('.flow-application-title').innerText(), 'Аппаратное ускорение');
+  assert.equal(await flowStatus.locator('.flow-application-badge').innerText(), 'Не подтверждено');
+  assert.doesNotMatch(await flowStatus.innerText(), /requested|mode=hardware/,
+    'requested hardware state remains out of the user-facing summary');
+  assert.equal(await healthy.page.locator('#flowoffload-technical').evaluate(node => node.open), false,
+    'hardware runtime facts stay behind a closed technical disclosure');
+  await healthy.page.locator('#flowoffload-technical > summary').click();
+  assert.match(await healthy.page.locator('#flowoffload-technical').innerText(), /Аппаратное состояние[\s\S]*Запрошено[\s\S]*requested/,
+    'requested hardware state remains inspectable in diagnostics');
+  await healthy.page.locator('#flowoffload-technical > summary').click();
+  const flowVisual = await flowStatus.evaluate(node => {
+    const style = getComputedStyle(node);
+    return { radius: style.borderRadius, background: style.backgroundColor, border: style.borderColor };
+  });
+  assert.deepEqual(flowVisual, { radius: '12px', background: 'rgb(24, 30, 28)', border: 'rgb(30, 39, 37)' },
+    `hardware status uses the Lolz surface, radius, and subtle border (${JSON.stringify(flowVisual)})`);
+  await healthy.page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await flowStatus.evaluate(node => getComputedStyle(node).transitionProperty), 'none',
+    'hardware status respects the reduced-motion preference');
+  await healthy.page.emulateMedia({ reducedMotion: 'no-preference' });
+  assert.equal(await healthy.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
+    'hardware and TikTok status cards fit the 390 px layout without horizontal overflow');
   assert.match(await healthyCard.innerText(), /203\.0\.113\.9/);
   assert.match(await healthyCard.innerText(), /131 мс/);
   assert.doesNotMatch(await healthyCard.innerText(), /131 мс\s+131/,
     'latency is rendered once instead of repeating the raw number beside the formatted value');
-  assert.match(await healthyCard.innerText(), /CDN переключён/);
-  assert.match(await healthyCard.innerText(), /203\.0\.113\.8 → 203\.0\.113\.9/);
+  const healthySummary = await healthyCard.locator('.tiktok-selection-summary').innerText();
+  assert.match(healthySummary, /Выбран автоматически/);
+  assert.doesNotMatch(healthySummary, /CDN переключён|203\.0\.113\.8 → 203\.0\.113\.9/);
+  if (screenshotDir) {
+    await screenshotComponent(healthy.page, healthyCard, path.join(screenshotDir, 'dark-390-tiktok-auto-healthy.png'));
+  }
   assert.doesNotMatch(await healthyCard.innerText(), /raw: consecutive-probe-failures/);
   await healthyCard.locator('#tiktok-feed-technical > summary').click();
   assert.equal(await healthyCard.locator('#tiktok-feed-technical').evaluate(node => node.open), true,
@@ -2071,11 +2111,98 @@ try {
   assert.match(await healthyCard.innerText(), /www\.tiktokcdn\.com/);
   assert.match(await healthyCard.innerText(), /resolver\+tls/);
   assert.match(await healthyCard.innerText(), /raw: consecutive-probe-failures/);
-  assert.match(await healthyCard.innerText(), /Соединение[\s\S]*Выбранный узел[\s\S]*Проверка[\s\S]*Последний failover/i);
+  assert.match(await healthyCard.innerText(), /Соединение[\s\S]*Выбранный узел[\s\S]*Проверка[\s\S]*Последнее автоматическое переключение/i);
+  assert.match(await healthyCard.innerText(), /203\.0\.113\.8 → 203\.0\.113\.9/);
   assert.match(await healthyCard.innerText(), /HTTP-ответ[\s\S]*400/);
   assert.doesNotMatch(await healthyCard.innerText(), /131 мс\s+131/);
   assert.doesNotMatch(await healthyCard.innerText(), /undefined|null|0 мс/);
   await healthy.page.close();
+
+  const visualGoodIps = ['203.0.113.35', '203.0.113.20', '203.0.113.50', '203.0.113.51', '203.0.113.52',
+    '203.0.113.53', '203.0.113.54', '203.0.113.55', '203.0.113.56', '203.0.113.57'];
+  const visualCandidatePool = [
+    ...visualGoodIps.map(ip => `${ip}|v77.tiktokcdn.com,v77.tiktokcdn-eu.com|direct|1.1.1.1|system-wan|edge.example.net|Amsterdam|check-host|1|1|0|8|4|8|ru1,de1|NL,DE|AS1,AS2|Amsterdam|131,117`),
+    '203.0.113.8|v77.tiktokcdn.com|direct|1.1.1.1|system-wan||Frankfurt|curated|0|1|0|0|0|0|||||',
+  ].join(';');
+  const visualProbeObservations = [
+    ...visualGoodIps.map((ip, index) => `${ip}|${90 + index * 9}|23|20|400|ams|HIT|edge|ok|ok|verified|${117 + index * 5}|19|27|400|fra|HIT|edge|ok|ok|verified|compatible|23`),
+    '203.0.113.8||0|0|||edge|failed|failed|failed||||||||||||incompatible|',
+  ].join(';');
+  const visualBase = {
+    state: 'healthy', candidate_verified: '1', dns_override_applied: '1', selected_ip: visualGoodIps[0],
+    manual_ip: '', mode: 'auto', latency_ms: '90', selected_at_epoch: String(Math.floor(Date.now() / 1000) - 48),
+    last_verified_epoch: String(Math.floor(Date.now() / 1000) - 48), reason: 'healthy',
+    candidate_pool: visualCandidatePool, probe_observations: visualProbeObservations,
+    last_failover_epoch: String(Math.floor(Date.now() / 1000) - 3600), last_failover_from: '203.0.113.8',
+    last_failover_to: visualGoodIps[0], last_failover_reason: 'consecutive-probe-failures',
+  };
+  const visualStates = [
+    { name: 'auto-healthy', status: visualBase },
+    { name: 'manual-selected', status: { ...visualBase, mode: 'manual', manual_ip: visualGoodIps[0] } },
+    { name: 'candidates-expanded', status: visualBase, action: 'expand' },
+    { name: 'unavailable-candidates', status: visualBase, action: 'unavailable' },
+    { name: 'diagnostics-expanded', status: visualBase, action: 'diagnostics' },
+  ];
+  for (const viewport of [
+    { width: 1920, height: 1080 },
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    const visual = await makeTikTokPage(true, visualStates[0].status,
+      { ...viewport, isMobile: viewport.width < 768 });
+    for (let stateIndex = 0; stateIndex < visualStates.length; stateIndex += 1) {
+      const state = visualStates[stateIndex];
+      if (stateIndex > 0) {
+        visual.setStatus(state.status);
+        await visual.page.reload({ waitUntil: 'domcontentloaded' });
+        await waitForRenderedRoute(visual.page, 'toggles');
+      }
+      const card = visual.page.locator('#tiktok-feed-status-card');
+      await card.waitFor({ state: 'visible' });
+      if (stateIndex === 0) {
+        const selectButton = card.locator('[data-tiktok-action="select"]:not(:disabled)').first();
+        const selectStyle = await selectButton.evaluate(node => {
+          const style = getComputedStyle(node);
+          const rect = node.getBoundingClientRect();
+          return { height: rect.height, width: rect.width, radius: style.borderRadius, fontSize: style.fontSize };
+        });
+        assert.deepEqual(selectStyle, { height: 34, width: 96, radius: '10px', fontSize: '14px' },
+          `${viewport.width}px select control follows shared Lolz control geometry (${JSON.stringify(selectStyle)})`);
+        if (screenshotDir) {
+          await screenshotComponent(visual.page, visual.page.locator('#openwrt-offload-card'),
+            path.join(screenshotDir, `dark-${viewport.width}-flowoffload-summary.png`));
+        }
+      }
+      if (state.action === 'expand') {
+        assert.ok(await card.locator('[data-tiktok-overflow]').count() > 0,
+          'candidate list keeps overflow rows collapsed before expansion');
+        await card.locator('[data-tiktok-action="show-all"]').click();
+        assert.equal(await card.locator('[data-tiktok-overflow]').evaluateAll(items => items.every(item => !item.hidden)), true,
+          'show all reveals overflow candidates');
+      } else if (state.action === 'unavailable') {
+        const filter = card.locator('[data-tiktok-action="filter"][data-tiktok-filter="unavailable"]');
+        await filter.focus();
+        await visual.page.keyboard.press('Enter');
+        assert.equal(await filter.getAttribute('aria-pressed'), 'true',
+          'candidate filters can be activated from the keyboard');
+        assert.equal(await card.locator('[data-tiktok-candidate-group="unavailable"]').evaluate(node => node.open), true,
+          'the unavailable group expands when its filter is selected');
+        assert.equal(await card.locator('[data-tiktok-candidate-group="unavailable"] [data-tiktok-action="select"]').count(), 0,
+          'unavailable candidates do not show a dead select button');
+      } else if (state.action === 'diagnostics') {
+        await card.locator('#tiktok-feed-technical > summary').click();
+        await visual.page.locator('#flowoffload-technical > summary').click();
+        assert.equal(await card.locator('#tiktok-feed-technical').evaluate(node => node.open), true);
+        assert.equal(await visual.page.locator('#flowoffload-technical').evaluate(node => node.open), true);
+      }
+      assert.equal(await visual.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
+        `${viewport.width}px ${state.name} layout has no horizontal overflow`);
+      if (screenshotDir) {
+        await screenshotComponent(visual.page, card, path.join(screenshotDir, `dark-${viewport.width}-tiktok-${state.name}.png`));
+      }
+    }
+    await visual.page.close();
+  }
 
   const desktop = await makeTikTokPage(true, {
     state: 'healthy', candidate_verified: '1', dns_override_applied: '1',
@@ -2111,7 +2238,7 @@ try {
   await broken.locator('#app [data-ui-fatal]').waitFor({ state: 'visible', timeout: 2000 });
   assert.match(await broken.locator('#app').innerText(), /Не удалось загрузить интерфейс/);
 
-  console.log(`PASS: real Chromium OpenWrt document root; ${routes.length} routes in dark/light; one-brand, contrast, keyboard, responsive, blocker, and broken-module cases; ${totalModuleResponses} module responses`);
+  console.log(`PASS: real browser OpenWrt document root; ${routes.length} routes in dark/light; one-brand, contrast, keyboard, responsive, blocker, and broken-module cases; ${totalModuleResponses} module responses`);
 } finally {
   await browser.close();
   await new Promise(resolve => server.close(resolve));

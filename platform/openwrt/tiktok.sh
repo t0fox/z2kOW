@@ -1436,6 +1436,7 @@ z2k_ow_tiktok_status() {
     printf 'selected_ip=%s\n' "$_ip"
     printf 'latency_ms=%s\n' "$_lat"
     printf 'last_verified_epoch=%s\n' "$_verified"
+    printf 'selected_at_epoch=%s\n' "$(_z2k_ow_tiktok_state_get selected_at_epoch)"
     printf 'failure_count=%s\n' "$_fail"
     printf 'candidate_verified=%s\n' "$_candidate_verified"
     printf 'dns_override_applied=%s\n' "$_dns_override_applied"
