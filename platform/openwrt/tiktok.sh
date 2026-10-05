@@ -754,6 +754,11 @@ $(_z2k_ow_tiktok_domain_catalog)
 EOF_CATALOG
 }
 
+_z2k_ow_tiktok_jshn_load() {
+    JSON_PREFIX="${JSON_PREFIX:-}"
+    . "$Z2K_TIKTOK_JSHN"
+}
+
 _z2k_ow_tiktok_checkhost_node_catalog() {
     local _json _node _asn _ip _location _country _city _rows="" _limit="${Z2K_TIKTOK_CHECKHOST_NODE_LIMIT:-8}"
     [ "${Z2K_TIKTOK_CHECKHOST_ENABLED:-1}" = 1 ] || return 1
@@ -761,7 +766,7 @@ _z2k_ow_tiktok_checkhost_node_catalog() {
     command -v "$Z2K_TIKTOK_CURL_BIN" >/dev/null 2>&1 || return 1
     case "$_limit" in ''|*[!0-9]*|0) _limit=8 ;; esac
     [ "$_limit" -le 12 ] 2>/dev/null || _limit=12
-    . "$Z2K_TIKTOK_JSHN" || return 1
+    _z2k_ow_tiktok_jshn_load || return 1
     _json=$("$Z2K_TIKTOK_CURL_BIN" --fail --silent --show-error --connect-timeout 3 --max-time 6 \
         -H 'Accept: application/json' "$Z2K_TIKTOK_CHECKHOST_API/nodes/ips" 2>/dev/null) || return 1
     json_load "$_json" || return 1
@@ -805,7 +810,7 @@ _z2k_ow_tiktok_checkhost_node_catalog() {
 _z2k_ow_tiktok_checkhost_request_id() {
     local _json="$1"
     [ -r "$Z2K_TIKTOK_JSHN" ] || return 1
-    . "$Z2K_TIKTOK_JSHN" || return 1
+    _z2k_ow_tiktok_jshn_load || return 1
     json_load "$_json" || return 1
     json_get_var _request_id request_id
     case "$_request_id" in ''|*[!a-zA-Z0-9_-]*) return 1 ;; esac
@@ -815,7 +820,7 @@ _z2k_ow_tiktok_checkhost_request_id() {
 _z2k_ow_tiktok_checkhost_parse_results() {
     local _json="$1" _domain="$2" _node_rows="$3" _node _index _ip _ttl _meta
     [ -r "$Z2K_TIKTOK_JSHN" ] || return 1
-    . "$Z2K_TIKTOK_JSHN" || return 1
+    _z2k_ow_tiktok_jshn_load || return 1
     json_load "$_json" || return 1
     json_get_keys _result_nodes || return 1
     for _node in $_result_nodes; do
