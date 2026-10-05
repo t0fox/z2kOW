@@ -29,7 +29,7 @@ docs/telegram-routing-regression-2026-09-22.md	bb13118a6860b915df45d6e7b270b0bc7
 docs/telegram-transport-field-2026-09-21.md	be218a357a54241ac6e9299564578126a24725a4	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
 docs/telegram-udp-recovery-2026-09-22.md	74d85058a1cd5e2252ce041c24d000b74e8ecc4c	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
 docs/telegram-udp-relay.md	cf7f8f8881babf2a6c779552d346abee0c0261bf	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
-docs/UPSTREAM-PARITY-MATRIX.md	-	2a8e7e0c81c21db8ce8667841ccc2ec4e8d5093f	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
+docs/UPSTREAM-PARITY-MATRIX.md	64a9d85fd69c8f5503f9b6c6d1662027e2d01875	2a8e7e0c81c21db8ce8667841ccc2ec4e8d5093f	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
 docs/UPSTREAM-SYNC.md	ed781053e16484feed7922de40f5705b12d8b66d	-	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
 docs/webpanel-list-editor.md	-	8441f0d2aee6cdaf0c310581c6369ad3c3b8652a	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
 docs/whitelist-bulk-2026-09-22.md	6f87d3af703f14b946ae989aba1a7a64150a0fca	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
