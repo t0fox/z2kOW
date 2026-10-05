@@ -59,7 +59,7 @@ assert.match(markup, /Использовать автоматический вы
   "manual mode offers a direct return to normal automatic selection");
 assert.match(markup, /Проверить все/,
   "the card exposes the bounded live candidate scan");
-assert.equal((markup.match(/<article class="tiktok-candidate[^\"]*" data-ip="203\.0\.113\.35"/g) || []).length, 1,
+assert.equal((markup.match(/<article class="tiktok-candidate[^"]*" data-ip="203\.0\.113\.35"/g) || []).length, 1,
   "duplicate discovery and curated rows merge into one candidate by IP");
 assert.match(markup, /ICMP <b title="Ping не влияет на доступность CDN">—/,
   "ICMP is informational and never required for candidate availability");
