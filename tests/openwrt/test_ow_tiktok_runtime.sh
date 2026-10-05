@@ -10,6 +10,7 @@ export UCI_TEST_DB="$T/uci.db" UCI_TEST_LOG="$T/uci.log" DNSMASQ_TEST_LOG="$T/dn
 export CURL_TEST_LOG="$T/curl.log"
 export CURL_RESOLVE_TEST_LOG="$T/curl-resolve.log"
 export CURL_ARGS_TEST_LOG="$T/curl-args.log"
+export CURL_PAIR_TEST_LOG="$T/curl-pairs.log"
 export NSLOOKUP_TEST_LOG="$T/nslookup.log"
 export TIKTOK_DNS_IP="143.244.42.18" TIKTOK_PROBE_MODE=ok
 export Z2K_STATE="$T/state"
@@ -22,6 +23,7 @@ export Z2K_TIKTOK_STATE_FILE="$T/state/tiktok-cdn.state"
 export Z2K_TIKTOK_CONFIG="$T/config"
 export Z2K_TIKTOK_APPLY_LOCK="$T/state/apply.lock"
 export Z2K_TIKTOK_DNSMASQ_INIT="$T/dnsmasq-init"
+export Z2K_TIKTOK_CHECKHOST_ENABLED=0
 export Z2K_TIKTOK_UCI_BIN=uci Z2K_TIKTOK_CURL_BIN=curl Z2K_TIKTOK_NSLOOKUP_BIN=nslookup
 printf "dhcp.cfg0001='dnsmasq'\n" > "$UCI_TEST_DB"
 printf 'Z2K_TIKTOK_FEED_ENABLED=1\n' > "$Z2K_TIKTOK_CONFIG"
@@ -72,7 +74,7 @@ cat > "$T/bin/nslookup" <<'STUB'
 printf '%s -> %s\n' "$2" "$1" >> "$NSLOOKUP_TEST_LOG"
 _ip=${TIKTOK_DNS_IP}
 if [ "$2" = 127.0.0.1 ]; then
-    _ip=$(sed -n 's#^address=/v77.tiktokcdn.com/##p' "$Z2K_TIKTOK_EFFECTIVE_CONFIG" 2>/dev/null | tail -1)
+    _ip=$(sed -n "s#^address=/$1/##p" "$Z2K_TIKTOK_EFFECTIVE_CONFIG" 2>/dev/null | tail -1)
     [ -n "$_ip" ] || _ip=${TIKTOK_LOCAL_DNS_IP:-$TIKTOK_DNS_IP}
 fi
 printf 'Server: %s\nAddress: %s:53\n\nNon-authoritative answer:\nName: %s\nAddress: %s\n' "$2" "$2" "$1" "$_ip"
@@ -86,13 +88,16 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 _ip=${_resolve##*:}
-_prior_ip_probes=$(grep -Fx "$_ip" "$CURL_TEST_LOG" 2>/dev/null | wc -l | tr -d ' ')
+_host=${_resolve%%:443:*}
+_prior_ip_probes=$(grep -Fx "$_resolve" "$CURL_PAIR_TEST_LOG" 2>/dev/null | wc -l | tr -d ' ')
 printf '%s\n' "$_ip" >> "$CURL_TEST_LOG"
+printf '%s\n' "$_resolve" >> "$CURL_PAIR_TEST_LOG"
 if [ "${TIKTOK_PROBE_WAIT:-0}" = 1 ]; then
     : > "$TIKTOK_PROBE_STARTED"
     while [ ! -e "$TIKTOK_PROBE_RELEASE" ]; do sleep 0.05; done
 fi
 if [ "${TIKTOK_PROBE_MODE:-ok}" = fail ]; then exit 28; fi
+if [ "${TIKTOK_FAIL_HOST:-}" = "$_host" ]; then exit 28; fi
 if [ "${TIKTOK_FAIL_STABILITY:-}" = "$_ip" ] && [ "${_prior_ip_probes:-0}" -ge 1 ]; then exit 28; fi
 case "$_ip" in
     143.244.42.18)
@@ -127,6 +132,15 @@ chmod 0755 "$T/bin/uci" "$T/bin/nslookup" "$T/bin/curl" "$Z2K_TIKTOK_DNSMASQ_INI
 
 # shellcheck disable=SC1090,SC1091
 . "$REPO/platform/openwrt/tiktok.sh"
+export TIKTOK_FAIL_HOST=v77.tiktokcdn-eu.com
+if z2k_ow_tiktok_manual_select 143.244.42.18; then
+    _t_bad "manual choice rejects a CDN that fails TLS/SNI for the EU target"
+else
+    _t_ok
+fi
+assert_eq "manual target-specific rejection does not persist manual mode" 'auto' "$(z2k_ow_tiktok_mode)"
+unset TIKTOK_FAIL_HOST
+: > "$CURL_TEST_LOG"
 z2k_ow_tiktok_check || _t_bad "initial TikTok CDN selection succeeds"
 assert_contains "verified CDN uses the native dnsmasq address override" "$UCI_TEST_DB" '/v77.tiktokcdn.com/143.244.42.18'
 assert_contains "effective dnsmasq config contains the selected IP" "$Z2K_TIKTOK_EFFECTIVE_CONFIG" 'address=/v77.tiktokcdn.com/143.244.42.18'
@@ -143,14 +157,15 @@ assert_file "native DNS ownership marker is persistent" "$Z2K_TIKTOK_ADDRESS_MAR
 assert_contains "native override always uses the managed target for TLS/SNI" "$CURL_TEST_LOG" '143.244.42.18'
 assert_contains "TLS/SNI probe headers and metrics are retained" "$Z2K_TIKTOK_STATE_FILE" 'x77_pop=ams'
 assert_contains "selected candidate source metadata is retained" "$Z2K_TIKTOK_STATE_FILE" 'selected_source_domain=v77.tiktokcdn.com'
-assert_contains "selected candidate retains all observed domains" "$Z2K_TIKTOK_STATE_FILE" 'selected_domains=v77.tiktokcdn.com,v16-cla.tiktokcdn.com,v16-ies-music.tiktokcdn.com,sf16-music.tiktokcdn-eu.com'
+assert_contains "selected candidate retains all observed domains" "$Z2K_TIKTOK_STATE_FILE" 'selected_domains=v77.tiktokcdn.com,v77.tiktokcdn-eu.com,v16-cla.tiktokcdn.com,v16-ies-music.tiktokcdn.com,sf16-music.tiktokcdn-eu.com'
 assert_contains "selected candidate merges DNS and curated provenance" "$Z2K_TIKTOK_STATE_FILE" 'selected_modes=direct,cla,ies,generic,curated'
 assert_contains "selected candidate retains DNS and fallback evidence" "$Z2K_TIKTOK_STATE_FILE" 'dns_observed=1'
 assert_contains "selected candidate records curated observation" "$Z2K_TIKTOK_STATE_FILE" 'curated_observed=1'
 assert_contains "stable selection records a last verified epoch" "$Z2K_TIKTOK_STATE_FILE" 'last_verified_epoch='
 assert_contains "TLS handshake time is recorded from SNI probe" "$Z2K_TIKTOK_STATE_FILE" 'tls_latency_ms=30'
 assert_contains "HTTP response and CDN POP headers are recorded" "$Z2K_TIKTOK_STATE_FILE" 'http_status=200'
-assert_eq "best initial candidate is repeated for stability" '2' "$(grep -c '^143.244.42.18$' "$CURL_TEST_LOG")"
+assert_eq "both managed targets are tested twice for stable selection" '4' "$(grep -c '^143.244.42.18$' "$CURL_TEST_LOG")"
+assert_contains "both managed target dnsmasq overrides are owned" "$UCI_TEST_DB" '/v77.tiktokcdn-eu.com/143.244.42.18'
 
 # A successful TLS probe is not enough to report healthy when applying the
 # effective dnsmasq address fails.
@@ -303,6 +318,10 @@ fi
 # ICMP is informational only; a failed ping cannot make the target TLS probe dead.
 cat > "$T/bin/ping" <<'STUB'
 #!/bin/sh
+if [ "${TIKTOK_PING_MODE:-blocked}" = available ]; then
+    printf '64 bytes from %s: time=23.4 ms\n' "${4:-candidate}"
+    exit 0
+fi
 exit 1
 STUB
 chmod +x "$T/bin/ping"
@@ -312,12 +331,16 @@ assert_contains "ICMP failure does not mark a TLS-verified candidate dead" "$Z2K
 
 # Manual candidate scans are capped and every probe pins SNI to the managed target.
 : > "$CURL_TEST_LOG"; : > "$CURL_RESOLVE_TEST_LOG"; : > "$CURL_ARGS_TEST_LOG"
+export TIKTOK_PING_MODE=available
 Z2K_TIKTOK_CANDIDATE_LIMIT=4 Z2K_TIKTOK_CANDIDATE_PARALLELISM=2 z2k_ow_tiktok_probe_all \
     || _t_bad "bounded candidate probe-all completes"
-assert_eq "probe-all respects its candidate limit" '4' "$(wc -l < "$CURL_TEST_LOG" | tr -d ' ')"
-assert_contains "candidate probe-all pins the managed target hostname" "$CURL_RESOLVE_TEST_LOG" 'v77.tiktokcdn.com:443:'
-assert_contains "candidate HTTPS probes request the managed target URL" "$CURL_ARGS_TEST_LOG" 'https://v77.tiktokcdn.com/'
+assert_eq "probe-all respects its candidate limit across both targets" '8' "$(wc -l < "$CURL_TEST_LOG" | tr -d ' ')"
+assert_contains "candidate probe-all pins the primary managed target hostname" "$CURL_RESOLVE_TEST_LOG" 'v77.tiktokcdn.com:443:'
+assert_contains "candidate probe-all pins the EU managed target hostname" "$CURL_RESOLVE_TEST_LOG" 'v77.tiktokcdn-eu.com:443:'
+assert_contains "candidate HTTPS probes request the primary managed target URL" "$CURL_ARGS_TEST_LOG" 'https://v77.tiktokcdn.com/'
+assert_contains "candidate HTTPS probes request the EU managed target URL" "$CURL_ARGS_TEST_LOG" 'https://v77.tiktokcdn-eu.com/'
 assert_not_contains "candidate HTTPS probes do not substitute a source-domain hostname" "$CURL_ARGS_TEST_LOG" 'https://v16-cla.tiktokcdn.com/'
+assert_contains "probe-all records optional ICMP latency without making it a health requirement" "$Z2K_TIKTOK_STATE_FILE" '|compatible|23;'
 _duplicate_probes=$(sed -n 's/^probe_observations=//p' "$Z2K_TIKTOK_STATE_FILE" \
     | tr ';' '\n' | cut -d'|' -f1 | sort | uniq -d)
 assert_eq "probe-all records each candidate once" '' "$_duplicate_probes"

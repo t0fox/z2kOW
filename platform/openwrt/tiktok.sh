@@ -2,11 +2,18 @@
 # OpenWrt-only TikTok CDN feed repair.
 #
 # This is intentionally isolated from upstream z2k strategy/config logic.  It
-# owns one dnsmasq address override for v77.tiktokcdn.com, discovers candidate
-# CDN addresses, verifies them with the real hostname over TLS, and keeps the
-# last known-good address.  External DNS overrides always win.
+# owns dnsmasq address overrides for TikTok's two managed CDN hostnames,
+# discovers candidate addresses, verifies each hostname over TLS, and keeps
+# the last known-good address. External DNS overrides always win.
 
 Z2K_TIKTOK_HOST="${Z2K_TIKTOK_HOST:-v77.tiktokcdn.com}"
+Z2K_TIKTOK_EU_HOST="${Z2K_TIKTOK_EU_HOST:-v77.tiktokcdn-eu.com}"
+Z2K_TIKTOK_CHECKHOST_API="${Z2K_TIKTOK_CHECKHOST_API:-https://check-host.net}"
+Z2K_TIKTOK_CHECKHOST_TTL="${Z2K_TIKTOK_CHECKHOST_TTL:-21600}"
+Z2K_TIKTOK_CHECKHOST_NODE_LIMIT="${Z2K_TIKTOK_CHECKHOST_NODE_LIMIT:-8}"
+Z2K_TIKTOK_CHECKHOST_POLL_ATTEMPTS="${Z2K_TIKTOK_CHECKHOST_POLL_ATTEMPTS:-2}"
+Z2K_TIKTOK_CHECKHOST_POLL_SECONDS="${Z2K_TIKTOK_CHECKHOST_POLL_SECONDS:-1}"
+Z2K_TIKTOK_JSHN="${Z2K_TIKTOK_JSHN:-/usr/share/libubox/jshn.sh}"
 Z2K_TIKTOK_HOSTS_FILE="${Z2K_TIKTOK_HOSTS_FILE:-${Z2K_STATE:-/etc/z2k/state}/tiktok-cdn-hosts}"
 Z2K_TIKTOK_UCI_MARKER="${Z2K_TIKTOK_UCI_MARKER:-${Z2K_STATE:-/etc/z2k/state}/.tiktok-addnhosts-owned}"
 Z2K_TIKTOK_CONTENT_MARKER="${Z2K_TIKTOK_CONTENT_MARKER:-${Z2K_STATE:-/etc/z2k/state}/.tiktok-host-content-owned}"
@@ -19,6 +26,7 @@ Z2K_TIKTOK_DNSMASQ_INIT="${Z2K_TIKTOK_DNSMASQ_INIT:-/etc/init.d/dnsmasq}"
 Z2K_TIKTOK_EFFECTIVE_CONFIG="${Z2K_TIKTOK_EFFECTIVE_CONFIG:-}"
 Z2K_TIKTOK_APPLY_LOCK="${Z2K_TIKTOK_APPLY_LOCK:-${Z2K_LOCKS:-${Z2K_TMP:-/tmp/z2k}/locks}/tiktok-apply.lock}"
 Z2K_TIKTOK_CURL_BIN="${Z2K_TIKTOK_CURL_BIN:-curl}"
+Z2K_TIKTOK_PING_BIN="${Z2K_TIKTOK_PING_BIN:-ping}"
 Z2K_TIKTOK_NSLOOKUP_BIN="${Z2K_TIKTOK_NSLOOKUP_BIN:-nslookup}"
 Z2K_TIKTOK_MAX_PROBES="${Z2K_TIKTOK_MAX_PROBES:-12}"
 Z2K_TIKTOK_CANDIDATE_PARALLELISM="${Z2K_TIKTOK_CANDIDATE_PARALLELISM:-4}"
@@ -66,6 +74,8 @@ _z2k_ow_tiktok_state_write() {
     local _resolver_sources="${_Z2K_TIKTOK_RESOLVER_SOURCES_STATE:-$(_z2k_ow_tiktok_state_get resolver_sources)}"
     local _resolution_observations="${_Z2K_TIKTOK_RESOLUTION_OBSERVATIONS_STATE:-$(_z2k_ow_tiktok_state_get resolution_observations)}"
     local _probe_observations="${_Z2K_TIKTOK_PROBE_OBSERVATIONS_STATE:-$(_z2k_ow_tiktok_state_get probe_observations)}"
+    local _checkhost_observations="${_Z2K_TIKTOK_CHECKHOST_OBSERVATIONS_STATE:-$(_z2k_ow_tiktok_state_get checkhost_observations)}"
+    local _checkhost_cache_epoch="${_Z2K_TIKTOK_CHECKHOST_CACHE_EPOCH_STATE:-$(_z2k_ow_tiktok_state_get checkhost_cache_epoch)}"
     if [ "$_argc" -lt 21 ] && [ "$_state" != off ] && [ "$_state" != external ]; then
         _domains=$(_z2k_ow_tiktok_state_get selected_domains)
         _modes=$(_z2k_ow_tiktok_state_get selected_modes)
@@ -123,6 +133,8 @@ _z2k_ow_tiktok_state_write() {
         printf 'resolver_sources=%s\n' "$_resolver_sources"
         printf 'resolution_observations=%s\n' "$_resolution_observations"
         printf 'probe_observations=%s\n' "$_probe_observations"
+        printf 'checkhost_observations=%s\n' "$_checkhost_observations"
+        printf 'checkhost_cache_epoch=%s\n' "$_checkhost_cache_epoch"
         printf 'reason=%s\n' "$_reason"
         printf 'candidate_verified=%s\n' "${_candidate_verified:-0}"
         printf 'dns_override_applied=%s\n' "${_dns_override_applied:-0}"
@@ -278,7 +290,7 @@ _z2k_ow_tiktok_restart_dnsmasq() {
 }
 
 _z2k_ow_tiktok_address_entry() {
-    printf '/%s/%s' "$Z2K_TIKTOK_HOST" "$1"
+    printf '/%s/%s' "${2:-$Z2K_TIKTOK_HOST}" "$1"
 }
 
 _z2k_ow_tiktok_address_registered() {
@@ -295,15 +307,20 @@ _z2k_ow_tiktok_address_registered() {
 }
 
 _z2k_ow_tiktok_owned_address() {
-    local _entry _ip
+    local _entry _ip _host _marker
     [ -r "$Z2K_TIKTOK_ADDRESS_MARKER" ] || return 1
-    _entry=$(cat "$Z2K_TIKTOK_ADDRESS_MARKER" 2>/dev/null)
-    case "$_entry" in
-        "/$Z2K_TIKTOK_HOST/"*) ;;
-        *) return 1 ;;
-    esac
-    _ip=${_entry#"/$Z2K_TIKTOK_HOST/"}
-    _z2k_ow_tiktok_valid_ipv4 "$_ip" && _z2k_ow_tiktok_address_registered "$_entry"
+    _marker=$(cat "$Z2K_TIKTOK_ADDRESS_MARKER" 2>/dev/null)
+    [ -n "$_marker" ] || return 1
+    for _entry in $(printf '%s' "$_marker" | tr ';' ' '); do
+        case "$_entry" in
+            "/$Z2K_TIKTOK_HOST/"*) _host="$Z2K_TIKTOK_HOST" ;;
+            "/$Z2K_TIKTOK_EU_HOST/"*) _host="$Z2K_TIKTOK_EU_HOST" ;;
+            *) return 1 ;;
+        esac
+        _ip=${_entry#"/$_host/"}
+        _z2k_ow_tiktok_valid_ipv4 "$_ip" && _z2k_ow_tiktok_address_registered "$_entry" || return 1
+    done
+    return 0
 }
 
 _z2k_ow_tiktok_write_address_marker() {
@@ -329,35 +346,40 @@ _z2k_ow_tiktok_effective_config_has() {
 }
 
 _z2k_ow_tiktok_dns_answer_has() {
-    local _ip="$1" _raw
-    _raw=$("$Z2K_TIKTOK_NSLOOKUP_BIN" "$Z2K_TIKTOK_HOST" 127.0.0.1 2>/dev/null) || return 1
+    local _ip="$1" _host="${2:-$Z2K_TIKTOK_HOST}" _raw
+    _raw=$("$Z2K_TIKTOK_NSLOOKUP_BIN" "$_host" 127.0.0.1 2>/dev/null) || return 1
     printf '%s\n' "$_raw" | _z2k_ow_tiktok_parse_nslookup 127.0.0.1 | grep -Fxq "$_ip"
 }
 
 _z2k_ow_tiktok_verify_override() {
-    local _ip="$1" _entry _tries=0
-    _entry=$(_z2k_ow_tiktok_address_entry "$_ip")
-    _z2k_ow_tiktok_address_registered "$_entry" || return 1
-    _z2k_ow_tiktok_effective_config_has "$_entry" || return 1
-    while [ "$_tries" -lt "$Z2K_TIKTOK_DNSMASQ_VERIFY_RETRIES" ]; do
-        _z2k_ow_tiktok_dns_answer_has "$_ip" && return 0
-        _tries=$((_tries + 1))
-        [ "$_tries" -lt "$Z2K_TIKTOK_DNSMASQ_VERIFY_RETRIES" ] && sleep 1
+    local _ip="$1" _host _entry _tries
+    for _host in "$Z2K_TIKTOK_HOST" "$Z2K_TIKTOK_EU_HOST"; do
+        _entry=$(_z2k_ow_tiktok_address_entry "$_ip" "$_host")
+        _z2k_ow_tiktok_address_registered "$_entry" || return 1
+        _z2k_ow_tiktok_effective_config_has "$_entry" || return 1
+        _tries=0
+        while [ "$_tries" -lt "$Z2K_TIKTOK_DNSMASQ_VERIFY_RETRIES" ]; do
+            _z2k_ow_tiktok_dns_answer_has "$_ip" "$_host" && break
+            _tries=$((_tries + 1))
+            [ "$_tries" -lt "$Z2K_TIKTOK_DNSMASQ_VERIFY_RETRIES" ] && sleep 1
+        done
+        [ "$_tries" -lt "$Z2K_TIKTOK_DNSMASQ_VERIFY_RETRIES" ] || return 1
     done
-    return 1
+    return 0
 }
 
 # A future upstream implementation or a user-defined DNS override wins. We
 # ignore only the exact address entry carrying our ownership marker.
 z2k_ow_tiktok_external_override() {
-    local _path _owned_address=""
+    local _path _owned_address="" _host
     command -v "$Z2K_TIKTOK_UCI_BIN" >/dev/null 2>&1 || return 1
     if _z2k_ow_tiktok_owned_address; then
         _owned_address=$(cat "$Z2K_TIKTOK_ADDRESS_MARKER" 2>/dev/null)
     fi
-    if "$Z2K_TIKTOK_UCI_BIN" -q show dhcp 2>/dev/null \
+    for _host in "$Z2K_TIKTOK_HOST" "$Z2K_TIKTOK_EU_HOST"; do
+      if "$Z2K_TIKTOK_UCI_BIN" -q show dhcp 2>/dev/null \
         | tr -d "'\"" \
-        | awk -F= -v host="$Z2K_TIKTOK_HOST" -v own="$_owned_address" '
+        | awk -F= -v host="$_host" -v own="$_owned_address" '
             $1 ~ /\.(hostrecord|cname)$/ {
                 value=substr($0, index($0, "=") + 1)
                 n=split(value, fields, /[,\/=[:space:]]+/)
@@ -367,13 +389,16 @@ z2k_ow_tiktok_external_override() {
                 n=split($2, entries, /[[:space:]]+/)
                 for (i=1; i<=n; i++) {
                     m=split(entries[i], fields, /\//)
-                    if (m >= 3 && tolower(fields[2]) == tolower(host) && entries[i] != own) found=1
+                    owned=0; own_count=split(own, own_entries, /;/)
+                    for (j=1; j<=own_count; j++) if (entries[i] == own_entries[j]) owned=1
+                    if (m >= 3 && tolower(fields[2]) == tolower(host) && !owned) found=1
                 }
             }
             END { exit !found }
         '; then
         return 0
-    fi
+      fi
+    done
     for _path in $("$Z2K_TIKTOK_UCI_BIN" -q show dhcp 2>/dev/null | tr -d "'\"" \
         | sed -n 's/^[^=]*\.addnhosts=//p'); do
         [ -n "$_path" ] || continue
@@ -391,7 +416,7 @@ z2k_ow_tiktok_external_override() {
 }
 
 _z2k_ow_tiktok_update_override() {
-    local _ip="${1:-}" _entry="" _old_entry="" _changed=0 _legacy=0 _tries=0
+    local _ip="${1:-}" _entry="" _entries="" _old_entries="" _old_entry _host _changed=0 _legacy=0 _tries=0
     local _legacy_safe=0
     command -v "$Z2K_TIKTOK_UCI_BIN" >/dev/null 2>&1 || return 1
     [ -x "$Z2K_TIKTOK_DNSMASQ_INIT" ] || return 1
@@ -399,11 +424,15 @@ _z2k_ow_tiktok_update_override() {
     if [ -n "$_ip" ]; then
         _z2k_ow_tiktok_valid_ipv4 "$_ip" || return 1
         z2k_ow_tiktok_external_override && return 1
-        _entry=$(_z2k_ow_tiktok_address_entry "$_ip")
+        for _host in "$Z2K_TIKTOK_HOST" "$Z2K_TIKTOK_EU_HOST"; do
+            _entry=$(_z2k_ow_tiktok_address_entry "$_ip" "$_host")
+            [ -n "$_entries" ] && _entries="$_entries;"
+            _entries="$_entries$_entry"
+        done
     fi
 
     if _z2k_ow_tiktok_owned_address; then
-        _old_entry=$(cat "$Z2K_TIKTOK_ADDRESS_MARKER" 2>/dev/null)
+        _old_entries=$(cat "$Z2K_TIKTOK_ADDRESS_MARKER" 2>/dev/null)
     fi
     if _z2k_ow_tiktok_registered; then
         _z2k_ow_tiktok_owned && _z2k_ow_tiktok_hosts_content_owned || {
@@ -417,13 +446,16 @@ _z2k_ow_tiktok_update_override() {
         _legacy_safe=1
     fi
 
-    if [ -n "$_old_entry" ]; then
-        while _z2k_ow_tiktok_address_registered "$_old_entry"; do
-            "$Z2K_TIKTOK_UCI_BIN" del_list \
-                "$Z2K_TIKTOK_UCI_SECTION.address=$_old_entry" || return 1
-            _changed=1
-            _tries=$((_tries + 1))
-            [ "$_tries" -lt 64 ] || return 1
+    if [ -n "$_old_entries" ]; then
+        for _old_entry in $(printf '%s' "$_old_entries" | tr ';' ' '); do
+            _tries=0
+            while _z2k_ow_tiktok_address_registered "$_old_entry"; do
+                "$Z2K_TIKTOK_UCI_BIN" del_list \
+                    "$Z2K_TIKTOK_UCI_SECTION.address=$_old_entry" || return 1
+                _changed=1
+                _tries=$((_tries + 1))
+                [ "$_tries" -lt 64 ] || return 1
+            done
         done
     fi
     if [ "$_legacy" = 1 ]; then
@@ -436,17 +468,21 @@ _z2k_ow_tiktok_update_override() {
             [ "$_tries" -lt 64 ] || return 1
         done
     fi
-    if [ -n "$_entry" ] && ! _z2k_ow_tiktok_address_registered "$_entry"; then
-        "$Z2K_TIKTOK_UCI_BIN" add_list \
-            "$Z2K_TIKTOK_UCI_SECTION.address=$_entry" || return 1
-        _changed=1
+    if [ -n "$_entries" ]; then
+        for _entry in $(printf '%s' "$_entries" | tr ';' ' '); do
+            if ! _z2k_ow_tiktok_address_registered "$_entry"; then
+                "$Z2K_TIKTOK_UCI_BIN" add_list \
+                    "$Z2K_TIKTOK_UCI_SECTION.address=$_entry" || return 1
+                _changed=1
+            fi
+        done
     fi
     if [ "$_changed" = 1 ]; then
         "$Z2K_TIKTOK_UCI_BIN" commit dhcp || return 1
     fi
-    if [ -n "$_entry" ]; then
-        _z2k_ow_tiktok_write_address_marker "$_entry" || return 1
-    elif [ -n "$_old_entry" ]; then
+    if [ -n "$_entries" ]; then
+        _z2k_ow_tiktok_write_address_marker "$_entries" || return 1
+    elif [ -n "$_old_entries" ]; then
         rm -f "$Z2K_TIKTOK_ADDRESS_MARKER" || return 1
     fi
 
@@ -512,6 +548,7 @@ _z2k_ow_tiktok_resolvers() {
 _z2k_ow_tiktok_domain_catalog() {
     cat <<'EOF_DOMAINS'
 v77.tiktokcdn.com|direct|primary-target
+v77.tiktokcdn-eu.com|direct|managed-target
 v16-cla.tiktokcdn.com|cla|canonical-domain-source
 v16-ies-music.tiktokcdn.com|ies|canonical-domain-source
 sf16-music.tiktokcdn-eu.com|generic|canonical-domain-source
@@ -601,8 +638,8 @@ _z2k_ow_tiktok_serialize_lines() {
     awk 'NF { printf "%s%s", separator, $0; separator=";" } END { if (separator != "") print "" }'
 }
 
-# Input rows are IP|domain|mode|resolver|source|cname. Output rows retain the
-# same merged candidate evidence as service-dns-tiktok-model.uc.
+# Input rows are IP|domain|mode|resolver|source|cname, optionally followed by
+# Check-Host city|country|ASN|TTL. Output rows merge both source families.
 _z2k_ow_tiktok_candidate_pool() {
     {
         cat
@@ -613,10 +650,13 @@ _z2k_ow_tiktok_candidate_pool() {
             for (i=1; i<=4; i++) if (octets[i] !~ /^[0-9]+$/ || octets[i] > 255) return 0
             return 1
         }
-        function append_unique(array, ip, value, key) {
+        function append_unique(array, ip, value, namespace, key) {
             if (value == "") return
-            key=ip SUBSEP value
+            key=namespace SUBSEP ip SUBSEP value
             if (!seen[key]++) array[ip]=(array[ip] == "" ? value : array[ip] "," value)
+        }
+        function count_values(value, parts) {
+            return value == "" ? 0 : split(value, parts, /,/)
         }
         function ensure(ip) {
             if (!ordered[ip]++) { order[++count]=ip; provenance[ip]="domain-resolution" }
@@ -625,25 +665,43 @@ _z2k_ow_tiktok_candidate_pool() {
             ip=$1; ensure(ip)
             if ($2 == "__CURATED__") {
                 curated[ip]=1
-                append_unique(geoHints, ip, $3)
-                append_unique(modes, ip, "curated")
-                append_unique(sources, ip, "curated-community-fallback")
-                if (provenance[ip] == "domain-resolution") provenance[ip]="mixed"
+                append_unique(geoHints, ip, $3, "geo")
+                append_unique(modes, ip, "curated", "mode")
+                append_unique(sources, ip, "curated-community-fallback", "source")
                 next
             }
             if ($2 !~ /^[a-z0-9][a-z0-9.-]*\.[a-z][a-z0-9-]*$/) next
             dns[ip]=1
-            append_unique(domains, ip, $2)
-            append_unique(modes, ip, $3)
-            append_unique(resolvers, ip, $4)
-            append_unique(sources, ip, $5)
-            append_unique(cnames, ip, $6)
+            append_unique(domains, ip, $2, "domain")
+            append_unique(modes, ip, $3, "mode")
+            if ($3 == "check-host") {
+                checkhost[ip]=1
+                append_unique(checkNodes, ip, $4, "check-node")
+                append_unique(checkCities, ip, $6, "check-city")
+                append_unique(checkCountries, ip, $7, "check-country")
+                append_unique(checkAsns, ip, $8, "check-asn")
+                append_unique(checkTtls, ip, $9, "check-ttl")
+                geo=($6 != "" && $7 != "" ? $6 ", " $7 : ($7 != "" ? $7 : $6))
+                append_unique(geoHints, ip, geo, "geo")
+            } else {
+                localdns[ip]=1
+                append_unique(resolvers, ip, $4, "resolver")
+                append_unique(geoHints, ip, $7, "geo")
+            }
+            append_unique(sources, ip, $5, "source")
+            if ($3 != "check-host") append_unique(cnames, ip, $6, "cname")
         }
         END {
             for (i=1; i<=count; i++) {
                 ip=order[i]
-                if (!dns[ip]) provenance[ip]="curated-community-fallback"
-                printf "%s|%s|%s|%s|%s|%s|%s|%s|%d|%d|0\n", ip, domains[ip], modes[ip], resolvers[ip], sources[ip], cnames[ip], geoHints[ip], provenance[ip], dns[ip] ? 1 : 0, curated[ip] ? 1 : 0
+                if ((localdns[ip] && checkhost[ip]) || (curated[ip] && (localdns[ip] || checkhost[ip]))) provenance[ip]="mixed"
+                else if (checkhost[ip]) provenance[ip]="check-host-distributed-discovery"
+                else if (!dns[ip]) provenance[ip]="curated-community-fallback"
+                printf "%s|%s|%s|%s|%s|%s|%s|%s|%d|%d|0|%d|%d|%d|%s|%s|%s|%s|%s\n", \
+                    ip, domains[ip], modes[ip], resolvers[ip], sources[ip], cnames[ip], geoHints[ip], provenance[ip], \
+                    dns[ip] ? 1 : 0, curated[ip] ? 1 : 0, count_values(checkNodes[ip]), \
+                    count_values(checkCountries[ip]), count_values(checkAsns[ip]), checkNodes[ip], \
+                    checkCountries[ip], checkAsns[ip], checkCities[ip], checkTtls[ip]
             }
         }
     '
@@ -696,16 +754,185 @@ $(_z2k_ow_tiktok_domain_catalog)
 EOF_CATALOG
 }
 
+_z2k_ow_tiktok_checkhost_node_catalog() {
+    local _json _node _asn _ip _location _country _city _rows="" _limit="${Z2K_TIKTOK_CHECKHOST_NODE_LIMIT:-8}"
+    [ "${Z2K_TIKTOK_CHECKHOST_ENABLED:-1}" = 1 ] || return 1
+    [ -r "$Z2K_TIKTOK_JSHN" ] || return 1
+    command -v "$Z2K_TIKTOK_CURL_BIN" >/dev/null 2>&1 || return 1
+    case "$_limit" in ''|*[!0-9]*|0) _limit=8 ;; esac
+    [ "$_limit" -le 12 ] 2>/dev/null || _limit=12
+    . "$Z2K_TIKTOK_JSHN" || return 1
+    _json=$("$Z2K_TIKTOK_CURL_BIN" --fail --silent --show-error --connect-timeout 3 --max-time 6 \
+        -H 'Accept: application/json' "$Z2K_TIKTOK_CHECKHOST_API/nodes/ips" 2>/dev/null) || return 1
+    json_load "$_json" || return 1
+    json_select nodes || return 1
+    json_get_keys _node_keys || return 1
+    for _node in $_node_keys; do
+        case "$_node" in *[!a-zA-Z0-9.-]*) continue ;; esac
+        case "$_node" in *.node.check-host.net) ;; *) continue ;; esac
+        json_select "$_node" || continue
+        json_get_var _asn asn
+        json_get_var _ip ip
+        json_get_values _location location
+        json_select ..
+        _z2k_ow_tiktok_valid_ipv4 "$_ip" || continue
+        set -- $_location
+        _country_name=$(printf '%s' "${2:-}" | tr '|;\r\n' '    ')
+        _city=$(printf '%s' "${3:-}" | tr '|;\r\n' '    ')
+        _asn=$(printf '%s' "$_asn" | tr '|;\r\n' '    ')
+        [ -n "$_country_name" ] || continue
+        [ -n "$_city" ] || continue
+        [ -n "$_asn" ] || continue
+        [ -n "$_rows" ] && _rows="$_rows\n"
+        _rows="$_rows$_node|$_country_name|$_city|$_asn"
+    done
+    [ -n "$_rows" ] || return 1
+    printf '%b\n' "$_rows" | awk -F'|' -v limit="$_limit" '
+        function emit(row, parts, key) {
+            split(row, parts, /\|/); key=parts[1]
+            if (key == "" || seen[key] || n >= limit) return
+            seen[key]=1; print row; n++
+        }
+        { rows[NR]=$0; countries[$2]=1; asns[$4]=1 }
+        END {
+            for (i=1; i<=NR && n<limit; i++) { split(rows[i], f, /\|/); if (!country_seen[f[2]]++) emit(rows[i]) }
+            for (i=1; i<=NR && n<limit; i++) { split(rows[i], f, /\|/); if (!asn_seen[f[4]]++) emit(rows[i]) }
+            for (i=1; i<=NR && n<limit; i++) emit(rows[i])
+        }
+    '
+}
+
+_z2k_ow_tiktok_checkhost_request_id() {
+    local _json="$1"
+    [ -r "$Z2K_TIKTOK_JSHN" ] || return 1
+    . "$Z2K_TIKTOK_JSHN" || return 1
+    json_load "$_json" || return 1
+    json_get_var _request_id request_id
+    case "$_request_id" in ''|*[!a-zA-Z0-9_-]*) return 1 ;; esac
+    printf '%s\n' "$_request_id"
+}
+
+_z2k_ow_tiktok_checkhost_parse_results() {
+    local _json="$1" _domain="$2" _node_rows="$3" _node _index _ip _ttl _meta
+    [ -r "$Z2K_TIKTOK_JSHN" ] || return 1
+    . "$Z2K_TIKTOK_JSHN" || return 1
+    json_load "$_json" || return 1
+    json_get_keys _result_nodes || return 1
+    for _node in $_result_nodes; do
+        case "$_node" in *[!a-zA-Z0-9.-]*) continue ;; esac
+        case "$_node" in *.node.check-host.net) ;; *) continue ;; esac
+        _meta=$(printf '%s\n' "$_node_rows" | awk -F'|' -v node="$_node" '$1 == node { print $2 "|" $3 "|" $4; exit }')
+        [ -n "$_meta" ] || continue
+        json_select "$_node" || continue
+        json_get_keys _records || { json_select ..; continue; }
+        for _index in $_records; do
+            json_select "$_index" || continue
+            json_get_values _ips A
+            json_get_var _ttl TTL
+            json_select ..
+            for _ip in $_ips; do
+                _z2k_ow_tiktok_valid_ipv4 "$_ip" || continue
+                case "$_ttl" in ''|*[!0-9]*) _ttl="" ;; esac
+                printf '%s|%s|%s|%s|%s|%s|%s\n' "$_ip" "$_node" \
+                    "${_meta%%|*}" "$(printf '%s' "$_meta" | cut -d'|' -f2)" \
+                    "$(printf '%s' "$_meta" | cut -d'|' -f3)" "$_domain" "$_ttl"
+            done
+        done
+        json_select ..
+    done
+}
+
+_z2k_ow_tiktok_checkhost_discover() {
+    local _nodes _node_rows _domain _node _json _request_id _results _attempt _rows="" _part
+    _node_rows=$(_z2k_ow_tiktok_checkhost_node_catalog) || return 1
+    _nodes=$(printf '%s\n' "$_node_rows" | cut -d'|' -f1 | tr '\n' ' ')
+    while IFS='|' read -r _domain _mode _provenance; do
+        [ -n "$_domain" ] || continue
+        set -- --fail --silent --show-error --connect-timeout 3 --max-time 6 \
+            -H 'Accept: application/json' --get "$Z2K_TIKTOK_CHECKHOST_API/check-dns" \
+            --data-urlencode "host=$_domain"
+        for _node in $_nodes; do set -- "$@" --data-urlencode "node=$_node"; done
+        _json=$("$Z2K_TIKTOK_CURL_BIN" "$@" 2>/dev/null) || continue
+        _request_id=$(_z2k_ow_tiktok_checkhost_request_id "$_json") || continue
+        _attempt=0
+        while [ "$_attempt" -lt "${Z2K_TIKTOK_CHECKHOST_POLL_ATTEMPTS:-3}" ]; do
+            _results=$("$Z2K_TIKTOK_CURL_BIN" --fail --silent --show-error --connect-timeout 3 --max-time 5 \
+                -H 'Accept: application/json' "$Z2K_TIKTOK_CHECKHOST_API/check-result/$_request_id" 2>/dev/null) || _results=""
+            if [ -n "$_results" ]; then
+                _part=$(_z2k_ow_tiktok_checkhost_parse_results "$_results" "$_domain" "$_node_rows")
+                [ -n "$_part" ] && { [ -n "$_rows" ] && _rows="$_rows\n"; _rows="$_rows$_part"; }
+            fi
+            _attempt=$((_attempt + 1))
+            [ "$_attempt" -lt "${Z2K_TIKTOK_CHECKHOST_POLL_ATTEMPTS:-3}" ] \
+                && sleep "${Z2K_TIKTOK_CHECKHOST_POLL_SECONDS:-1}"
+        done
+    done <<EOF_CHECKHOST_DOMAINS
+$(_z2k_ow_tiktok_domain_catalog)
+EOF_CHECKHOST_DOMAINS
+    [ -n "$_rows" ] || return 1
+    printf '%b\n' "$_rows" | awk -F'|' '!seen[$0]++'
+}
+
+_z2k_ow_tiktok_checkhost_cache_write() {
+    local _observations="$1" _epoch="$2" _tmp="${Z2K_TIKTOK_STATE_FILE}.new.$$"
+    mkdir -p "$(dirname "$Z2K_TIKTOK_STATE_FILE")" 2>/dev/null || return 1
+    if [ -r "$Z2K_TIKTOK_STATE_FILE" ]; then
+        awk -v observations="$_observations" -v epoch="$_epoch" '
+            /^checkhost_observations=/ { print "checkhost_observations=" observations; have_observations=1; next }
+            /^checkhost_cache_epoch=/ { print "checkhost_cache_epoch=" epoch; have_epoch=1; next }
+            { print }
+            END {
+                if (!have_observations) print "checkhost_observations=" observations
+                if (!have_epoch) print "checkhost_cache_epoch=" epoch
+            }
+        ' "$Z2K_TIKTOK_STATE_FILE" > "$_tmp" || { rm -f "$_tmp"; return 1; }
+    else
+        printf 'checkhost_observations=%s\ncheckhost_cache_epoch=%s\n' "$_observations" "$_epoch" > "$_tmp" || return 1
+    fi
+    chmod 0600 "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+    mv -f "$_tmp" "$Z2K_TIKTOK_STATE_FILE"
+}
+
+_z2k_ow_tiktok_checkhost_cache_expired() {
+    local _epoch="$(_z2k_ow_tiktok_state_get checkhost_cache_epoch)" _now
+    case "$_epoch" in ''|*[!0-9]*) return 0 ;; esac
+    _now=$(date +%s 2>/dev/null) || _now=0
+    [ $((_now - _epoch)) -ge "${Z2K_TIKTOK_CHECKHOST_TTL:-21600}" ]
+}
+
+_z2k_ow_tiktok_discover_combined() {
+    local _force="${1:-0}" _local_rows _check_rows _cached _epoch
+    _local_rows=$(_z2k_ow_tiktok_discover_candidates)
+    if [ "${Z2K_TIKTOK_CHECKHOST_ENABLED:-1}" = 1 ] \
+        && { [ "$_force" = 1 ] || [ -z "$(_z2k_ow_tiktok_state_get checkhost_observations)" ] || _z2k_ow_tiktok_checkhost_cache_expired; }; then
+        if _check_rows=$(_z2k_ow_tiktok_checkhost_discover); then
+            _epoch=$(date +%s 2>/dev/null) || _epoch=0
+            _check_rows=$(printf '%s\n' "$_check_rows" | _z2k_ow_tiktok_serialize_lines)
+            _z2k_ow_tiktok_checkhost_cache_write "$_check_rows" "$_epoch" || :
+        fi
+    fi
+    _cached=$(_z2k_ow_tiktok_state_get checkhost_observations)
+    {
+        printf '%s' "$_cached" | tr ';' '\n' | while IFS='|' read -r _ip _node _country _city _asn _domain _ttl; do
+            [ -n "$_ip" ] || continue
+            printf '%s|%s|check-host|%s|check-host|%s|%s|%s|%s\n' \
+                "$_ip" "$_domain" "$_node" "$_city" "$_country" "$_asn" "$_ttl"
+        done
+        printf '%s\n' "$_local_rows"
+    }
+}
+
 # stdout: detailed target probe result. curl validates the normal certificate
-# for v77.tiktokcdn.com because --insecure is deliberately never used.
+# for the managed hostname because --insecure is deliberately never used.
 _z2k_ow_tiktok_probe_report() {
-    local _ip="$1" _raw _metrics _http _connect _tls _total _ms _connect_ms _tls_ms _pop _cache _server _curl_rc _tcp _tls_ok _verified
+    local _ip="$1" _host="${2:-$Z2K_TIKTOK_HOST}" _raw _metrics _http _connect _tls _total _ms _connect_ms _tls_ms _pop _cache _server _curl_rc _tcp _tls_ok _verified
     _z2k_ow_tiktok_valid_ipv4 "$_ip" || return 1
+    case "$_host" in "$Z2K_TIKTOK_HOST"|"$Z2K_TIKTOK_EU_HOST") ;; *) return 1 ;; esac
     command -v "$Z2K_TIKTOK_CURL_BIN" >/dev/null 2>&1 || return 1
     if _raw=$("$Z2K_TIKTOK_CURL_BIN" --ipv4 --silent --show-error --dump-header - \
         --output /dev/null --stderr /dev/null --connect-timeout 4 --max-time 7 \
         --write-out '\nZ2M_TIKTOK_METRICS:%{http_code}|%{time_connect}|%{time_appconnect}|%{time_total}' \
-        --resolve "$Z2K_TIKTOK_HOST:443:$_ip" "https://$Z2K_TIKTOK_HOST/" 2>/dev/null); then
+        --resolve "$_host:443:$_ip" "https://$_host/" 2>/dev/null); then
         _curl_rc=0
     else
         _curl_rc=$?
@@ -730,11 +957,41 @@ EOF_METRICS
     [ "$_verified" = verified ]
 }
 
-# stdout: latency in milliseconds, for the existing auto-selection algorithm.
+# stdout is a target compatibility row. Both hostnames are independently
+# pinned with curl --resolve; the first eight columns preserve legacy state.
+_z2k_ow_tiktok_probe_matrix() {
+    local _ip="$1" _v77 _eu _v77_rc=0 _eu_rc=0
+    _v77=$(_z2k_ow_tiktok_probe_report "$_ip" "$Z2K_TIKTOK_HOST") || _v77_rc=$?
+    _eu=$(_z2k_ow_tiktok_probe_report "$_ip" "$Z2K_TIKTOK_EU_HOST") || _eu_rc=$?
+    [ -n "$_v77" ] || _v77="$_ip||||||||failed|failed|failed"
+    [ -n "$_eu" ] || _eu="$_ip||||||||failed|failed|failed"
+    printf '%s|%s|%s\n' \
+        "$(printf '%s' "$_v77" | cut -d'|' -f1-11)" \
+        "$(printf '%s' "$_eu" | cut -d'|' -f2-11)" \
+        "$([ "$_v77_rc" = 0 ] && [ "$_eu_rc" = 0 ] && printf compatible || printf incompatible)"
+    [ "$_v77_rc" = 0 ] && [ "$_eu_rc" = 0 ]
+}
+
+# ICMP is presentation-only. Missing ping support, packet loss, or a CDN that
+# blocks echo requests leaves this field empty and never affects verification.
+_z2k_ow_tiktok_icmp_latency_ms() {
+    local _raw _value
+    command -v "$Z2K_TIKTOK_PING_BIN" >/dev/null 2>&1 || return 0
+    _raw=$("$Z2K_TIKTOK_PING_BIN" -n -c 1 -W 1 "$1" 2>/dev/null) || return 0
+    _value=$(printf '%s\n' "$_raw" | sed -n 's/.*time[=<]\([0-9][0-9.]*\)[[:space:]]*ms.*/\1/p' | head -1)
+    [ -n "$_value" ] || return 0
+    awk -v value="$_value" 'BEGIN {
+        if (value !~ /^[0-9]+([.][0-9]+)?$/) exit
+        ms=int(value+0.5); if (ms < 1) ms=1; print ms
+    }'
+}
+
+# Auto-selection and manual apply both require a fresh successful probe for
+# each managed target. HTTP status remains diagnostic; curl/TLS success is the gate.
 _z2k_ow_tiktok_probe() {
-    local _report
-    _report=$(_z2k_ow_tiktok_probe_report "$1") || return 1
-    printf '%s\n' "$_report" | cut -d'|' -f1-8
+    local _row
+    _row=$(_z2k_ow_tiktok_probe_matrix "$1") || return 1
+    printf '%s\n' "$_row"
 }
 
 z2k_ow_tiktok_manual_check() {
@@ -852,26 +1109,24 @@ _z2k_ow_tiktok_state_update_candidates() {
 }
 
 z2k_ow_tiktok_probe_all() {
-    local _pool _ip _row _idx=0 _batch=0 _parallel="${Z2K_TIKTOK_CANDIDATE_PARALLELISM:-4}"
+    local _pool _ip _row _icmp _idx=0 _batch=0 _parallel="${Z2K_TIKTOK_CANDIDATE_PARALLELISM:-4}"
     local _limit="${Z2K_TIKTOK_CANDIDATE_LIMIT:-64}"
     local _tmp="${Z2K_TMP:-/tmp/z2k}/tiktok-probes.$$" _pids="" _pid _obs="" _result
     case "$_parallel" in ''|*[!0-9]*|0) _parallel=4 ;; esac
     [ "$_parallel" -le 8 ] 2>/dev/null || _parallel=8
     case "$_limit" in ''|*[!0-9]*|0) _limit=64 ;; esac
     [ "$_limit" -le 64 ] 2>/dev/null || _limit=64
-    _pool=$(_z2k_ow_tiktok_state_get candidate_pool)
-    if [ -z "$_pool" ]; then
-        _row=$(_z2k_ow_tiktok_discover_candidates)
-        _pool=$(printf '%s\n' "$_row" | _z2k_ow_tiktok_candidate_pool | _z2k_ow_tiktok_serialize_lines)
-    fi
+    _row=$(_z2k_ow_tiktok_discover_combined 1)
+    _pool=$(printf '%s\n' "$_row" | _z2k_ow_tiktok_candidate_pool | _z2k_ow_tiktok_serialize_lines)
     mkdir -p "$_tmp" 2>/dev/null || return 1
     while IFS='|' read -r _ip _; do
         _z2k_ow_tiktok_valid_ipv4 "$_ip" || continue
         _idx=$((_idx + 1))
         [ "$_idx" -le "$_limit" ] || break
         (
-            if _row=$(_z2k_ow_tiktok_probe_report "$_ip"); then _result=0; else _result=1; fi
-            printf '%s|%s\n' "$_row" "$_result" > "$_tmp/$_idx.result"
+            if _row=$(_z2k_ow_tiktok_probe_matrix "$_ip"); then _result=0; else _result=1; fi
+            _icmp=$(_z2k_ow_tiktok_icmp_latency_ms "$_ip")
+            printf '%s|%s|%s\n' "$_row" "$_icmp" "$_result" > "$_tmp/$_idx.result"
         ) &
         _pids="$_pids $!"
         _batch=$((_batch + 1))
@@ -890,7 +1145,7 @@ EOF_TIKTOK_CANDIDATES
         [ -r "$_tmp/$_idx.result" ] || continue
         _row=$(cat "$_tmp/$_idx.result")
         [ -n "$_obs" ] && _obs="$_obs;"
-        _obs="$_obs$(printf '%s' "$_row" | awk -F'|' '{printf "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s", $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11}')"
+        _obs="$_obs$(printf '%s' "$_row" | cut -d'|' -f1-23)"
     done
     _z2k_ow_tiktok_apply_lock_acquire || { rm -rf "$_tmp"; return 1; }
     _z2k_ow_tiktok_state_update_candidates "$_pool" "$_obs"
@@ -904,7 +1159,9 @@ z2k_ow_tiktok_check() {
     local _mode="${1:-automatic}" _force=0 _scheduled=0 _now _current _current_latency _current_verified _selected_at _discovered _evaluated
     local _fail _current_row="" _current_ms="" _current_ok=0 _current_probed=0 _pool _resolution _ip _row _best_row="" _best_ms="" _probes=0 _success=0 _candidate_index=0 _stable_row _reason
     local _domains _modes _resolvers _sources _cnames _geo _provenance _dns _curated _decision _stable_at
-    local _best_domain="" _best_domains="" _best_mode="" _best_modes="" _best_provenance="" _best_geo="" _best_resolvers="" _best_sources="" _best_cname="" _best_dns=0 _best_curated=0
+    local _candidate_ch_nodes _candidate_ch_countries _candidate_ch_asns _candidate_ch_node_names
+    local _candidate_ch_country_names _candidate_ch_asn_names _candidate_ch_cities _candidate_ch_ttls
+    local _best_domain="" _best_domains="" _best_mode="" _best_modes="" _best_provenance="" _best_geo="" _best_resolvers="" _best_sources="" _best_cname="" _best_dns=0 _best_curated=0 _best_ch_nodes=0
     local _failover_from="" _failover_to="" _failover_reason="" _stability=0
     local _sel_domain="" _sel_mode="" _sel_provenance="" _sel_geo="" _sel_domains="" _sel_modes="" _sel_resolvers="" _sel_sources="" _sel_cname="" _sel_dns=0 _sel_curated=0
     _now=$(date +%s 2>/dev/null) || _now=0
@@ -1038,13 +1295,15 @@ z2k_ow_tiktok_check() {
         return 0
     fi
 
-    _resolution=$(_z2k_ow_tiktok_discover_candidates)
+    _resolution=$(_z2k_ow_tiktok_discover_combined 0)
     _Z2K_TIKTOK_RESOLUTION_OBSERVATIONS_STATE=$(printf '%s\n' "$_resolution" | _z2k_ow_tiktok_serialize_lines)
     _pool=$(printf '%s\n' "$_resolution" | _z2k_ow_tiktok_candidate_pool)
     _Z2K_TIKTOK_CANDIDATE_POOL_STATE=$(printf '%s\n' "$_pool" | _z2k_ow_tiktok_serialize_lines)
     _Z2K_TIKTOK_RESOLVER_SOURCES_STATE=$(_z2k_ow_tiktok_resolvers | _z2k_ow_tiktok_serialize_lines)
     _discovered="$_now"
-    while IFS='|' read -r _ip _domains _modes _resolvers _sources _cnames _geo _provenance _dns _curated _verified; do
+    while IFS='|' read -r _ip _domains _modes _resolvers _sources _cnames _geo _provenance _dns _curated _verified \
+        _candidate_ch_nodes _candidate_ch_countries _candidate_ch_asns _candidate_ch_node_names \
+        _candidate_ch_country_names _candidate_ch_asn_names _candidate_ch_cities _candidate_ch_ttls; do
         [ -n "$_ip" ] || continue
         _candidate_index=$((_candidate_index + 1))
         [ "$_candidate_index" -le "$Z2K_TIKTOK_MAX_PROBES" ] || break
@@ -1055,12 +1314,15 @@ z2k_ow_tiktok_check() {
             _z2k_ow_tiktok_record_probe "$_ip" "$_row"
             _success=$((_success + 1))
             _ms=$(printf '%s' "$_row" | cut -d'|' -f2)
-            if [ -z "$_best_ms" ] || [ "$_ms" -lt "$_best_ms" ]; then
+            case "$_candidate_ch_nodes" in ''|*[!0-9]*) _candidate_ch_nodes=0 ;; esac
+            if [ -z "$_best_ms" ] || [ "$_ms" -lt "$_best_ms" ] \
+                || { [ "$_ms" -eq "$_best_ms" ] 2>/dev/null && [ "$_candidate_ch_nodes" -gt "$_best_ch_nodes" ]; }; then
                 _best_row="$_row"; _best_ms="$_ms"
                 _best_domain="${_domains%%,*}"; _best_domains="$_domains"; _best_mode="${_modes%%,*}"; _best_modes="$_modes"
                 _best_provenance="$_provenance"; _best_geo="${_geo%%,*}"
                 _best_resolvers="$_resolvers"; _best_sources="$_sources"; _best_cname="$_cnames"
                 _best_dns="$_dns"; _best_curated="$_curated"
+                _best_ch_nodes="$_candidate_ch_nodes"
             fi
             [ "$_success" -lt "$Z2K_TIKTOK_SUCCESS_TARGET" ] || break
         else
@@ -1164,6 +1426,8 @@ z2k_ow_tiktok_status() {
     printf 'manual_ip=%s\n' "$(_z2k_ow_tiktok_manual_ip)"
     printf 'state=%s\n' "$_state"
     printf 'host=%s\n' "$Z2K_TIKTOK_HOST"
+    printf 'managed_targets=%s,%s\n' "$Z2K_TIKTOK_HOST" "$Z2K_TIKTOK_EU_HOST"
+    printf 'checkhost_cache_epoch=%s\n' "$(_z2k_ow_tiktok_state_get checkhost_cache_epoch)"
     printf 'selected_ip=%s\n' "$_ip"
     printf 'latency_ms=%s\n' "$_lat"
     printf 'last_verified_epoch=%s\n' "$_verified"

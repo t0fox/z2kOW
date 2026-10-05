@@ -15,6 +15,7 @@ export Z2K_TIKTOK_RESOLVER_LIMIT=16
 . "$REPO/platform/openwrt/tiktok.sh"
 
 expected_domains='v77.tiktokcdn.com|direct|primary-target
+v77.tiktokcdn-eu.com|direct|managed-target
 v16-cla.tiktokcdn.com|cla|canonical-domain-source
 v16-ies-music.tiktokcdn.com|ies|canonical-domain-source
 sf16-music.tiktokcdn-eu.com|generic|canonical-domain-source'
@@ -85,11 +86,11 @@ EOF_NSLOOKUP
 chmod +x "$T/bin/nslookup"
 export PATH="$T/bin:$PATH" Z2K_TIKTOK_NSLOOKUP_BIN=nslookup
 _discovered=$(_z2k_ow_tiktok_discover_candidates)
-assert_eq "system resolvers queried across each source catalog domain" '12' "$(printf '%s\n' "$_discovered" | awk -F'|' '$1!="__QUERY__" {n++} END {print n+0}')"
-assert_eq "each resolver query outcome is retained" '12' "$(printf '%s\n' "$_discovered" | awk -F'|' '$1=="__QUERY__" {n++} END {print n+0}')"
+assert_eq "system resolvers queried across each source catalog domain" '15' "$(printf '%s\n' "$_discovered" | awk -F'|' '$1!="__QUERY__" {n++} END {print n+0}')"
+assert_eq "each resolver query outcome is retained" '15' "$(printf '%s\n' "$_discovered" | awk -F'|' '$1=="__QUERY__" {n++} END {print n+0}')"
 _discovered_row=$(printf '%s\n' "$_discovered" | _z2k_ow_tiktok_candidate_pool | awk -F'|' '$1=="203.0.113.50" {print;exit}')
 assert_eq "DNS discovery preserves domain, mode, resolver and source provenance" \
-    '203.0.113.50|v77.tiktokcdn.com,v16-cla.tiktokcdn.com,v16-ies-music.tiktokcdn.com,sf16-music.tiktokcdn-eu.com|direct,cla,ies,generic|1.1.1.1,8.8.8.8,9.9.9.9|system-wan|||domain-resolution|1|0|0' \
+    '203.0.113.50|v77.tiktokcdn.com,v77.tiktokcdn-eu.com,v16-cla.tiktokcdn.com,v16-ies-music.tiktokcdn.com,sf16-music.tiktokcdn-eu.com|direct,cla,ies,generic|1.1.1.1,8.8.8.8,9.9.9.9|system-wan|||domain-resolution|1|0|0|0|0|0|||||' \
     "$_discovered_row"
 
 nslookup_fixture='Server: 195.0.2.1
@@ -113,8 +114,32 @@ resolution_rows='143.244.42.18|v77.tiktokcdn.com|direct|1.1.1.1|system-wan|edge.
 candidate_row=$(printf '%s\n' "$resolution_rows" | _z2k_ow_tiktok_candidate_pool \
     | awk -F'|' '$1 == "143.244.42.18" { print; exit }')
 assert_eq "duplicate DNS and curated observations merge provenance" \
-    '143.244.42.18|v77.tiktokcdn.com,v16-cla.tiktokcdn.com|direct,cla,curated|1.1.1.1,8.8.8.8|system-wan,provider-catalog:google-dns,curated-community-fallback|edge.example.net|Amsterdam|mixed|1|1|0' \
+    '143.244.42.18|v77.tiktokcdn.com,v16-cla.tiktokcdn.com|direct,cla,curated|1.1.1.1,8.8.8.8|system-wan,provider-catalog:google-dns,curated-community-fallback|edge.example.net|Amsterdam|mixed|1|1|0|0|0|0|||||' \
     "$candidate_row"
+
+checkhost_rows='192.0.2.70|ru1.node.check-host.net|Russia|Moscow|AS14576|v77.tiktokcdn.com|300
+192.0.2.70|de1.node.check-host.net|Germany|Berlin|AS24940|v77.tiktokcdn-eu.com|120'
+checkhost_input=$(printf '%s\n' "$checkhost_rows" | awk -F'|' \
+    '{ print $1 "|" $6 "|check-host|" $2 "|check-host|" $4 "|" $3 "|" $5 "|" $7 }')
+checkhost_candidate=$(printf '%s\n' "$checkhost_input" | _z2k_ow_tiktok_candidate_pool \
+    | awk -F'|' '$1 == "192.0.2.70" { print; exit }')
+assert_eq "distributed observations for a duplicate IP merge all Check-Host provenance" \
+    '192.0.2.70|v77.tiktokcdn.com,v77.tiktokcdn-eu.com|check-host||check-host||Moscow, Russia,Berlin, Germany|check-host-distributed-discovery|1|0|0|2|2|2|ru1.node.check-host.net,de1.node.check-host.net|Russia,Germany|AS14576,AS24940|Moscow,Berlin|300,120' \
+    "$checkhost_candidate"
+
+_old_checkhost_epoch=$(date +%s)
+printf 'checkhost_cache_epoch=%s\n' "$_old_checkhost_epoch" > "$Z2K_TIKTOK_STATE_FILE"
+if _z2k_ow_tiktok_checkhost_cache_expired; then
+    assert_eq "fresh distributed discovery is cached below TTL" 1 0
+else
+    assert_eq "fresh distributed discovery is cached below TTL" 0 0
+fi
+printf 'checkhost_cache_epoch=%s\n' 1 > "$Z2K_TIKTOK_STATE_FILE"
+if _z2k_ow_tiktok_checkhost_cache_expired; then
+    assert_eq "expired Check-Host cache allows a scheduled refresh" 1 1
+else
+    assert_eq "expired Check-Host cache allows a scheduled refresh" 0 1
+fi
 assert_eq "candidate pool puts the 36 source fallback entries behind DNS candidates" \
     '36' "$(printf '%s\n' "$resolution_rows" | _z2k_ow_tiktok_candidate_pool | wc -l | tr -d ' ')"
 

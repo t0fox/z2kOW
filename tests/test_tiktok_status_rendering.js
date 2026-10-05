@@ -35,8 +35,8 @@ context.fixture = {
   last_failover_reason: "material-latency-improvement",
   mode: "manual",
   manual_ip: "203.0.113.35",
-  candidate_pool: "203.0.113.35|v77.tiktokcdn.com|direct|1.1.1.1|system-wan|edge.example.net|Amsterdam|resolver+tls|1|0|0;203.0.113.35|v16-cla.tiktokcdn.com|cla|8.8.8.8|provider-catalog|edge.example.net|Amsterdam|mixed|1|1|0;203.0.113.8|v77.tiktokcdn.com|direct|1.1.1.1|system-wan||Frankfurt|curated|0|1|0",
-  probe_observations: "203.0.113.35|131|20|30|400|ams|HIT|edge|ok|ok|verified;203.0.113.8||0|0|||edge|failed|failed|failed",
+  candidate_pool: "203.0.113.35|v77.tiktokcdn.com,v77.tiktokcdn-eu.com|direct,check-host|1.1.1.1|system-wan,check-host|edge.example.net|Amsterdam|mixed|1|0|0|8|4|8|ru1,de1,fr1|NL,DE,FR,US|AS1,AS2,AS3,AS4|Amsterdam,Berlin|300,120;203.0.113.35|v16-cla.tiktokcdn.com|cla|8.8.8.8|provider-catalog|edge.example.net|Amsterdam|mixed|1|1|0|0|0|0|||||;203.0.113.20|v77.tiktokcdn.com,v77.tiktokcdn-eu.com|direct|1.1.1.1|system-wan||Frankfurt|domain-resolution|1|0|0|0|0|0|||||;203.0.113.8|v77.tiktokcdn.com|direct|1.1.1.1|system-wan||Frankfurt|curated|0|1|0|0|0|0|||||",
+  probe_observations: "203.0.113.35|131|20|30|400|ams|HIT|edge|ok|ok|verified|117|19|27|400|fra|HIT|edge|ok|ok|verified|compatible|23;203.0.113.20|71|15|25|200|fra|HIT|edge|ok|ok|verified|69|14|24|200|fra|HIT|edge|ok|ok|verified|compatible|8;203.0.113.8||0|0|||edge|failed|failed|failed||||||||||incompatible|",
 };
 
 const markup = vm.runInContext("tiktokStatusMarkup(fixture)", context);
@@ -61,15 +61,30 @@ assert.match(markup, /Проверить все/,
   "the card exposes the bounded live candidate scan");
 assert.equal((markup.match(/<article class="tiktok-candidate[^"]*" data-ip="203\.0\.113\.35"/g) || []).length, 1,
   "duplicate discovery and curated rows merge into one candidate by IP");
-assert.match(markup, /ICMP <b title="Ping не влияет на доступность CDN">—/,
-  "ICMP is informational and never required for candidate availability");
-assert.match(markup, /TCP 443 <b>Доступен<\/b>/,
-  "candidate rows expose the target TCP probe result");
-assert.match(markup, /TLS\/SNI <b>Проверен<\/b>/,
-  "only candidates with successful target TLS/SNI expose an enabled selection control");
-assert.match(markup, /HTTP <b>400<\/b>/,
+assert.match(markup, /ICMP <b title="Ping не влияет на доступность CDN">23 мс/,
+  "available ICMP latency is displayed as informational data");
+assert.match(markup, /TCP 443 · v77<b>Доступен<\/b>/,
+  "candidate rows expose the primary target TCP probe result");
+assert.match(markup, /TLS\/SNI · v77-eu<b>Проверен<\/b>/,
+  "candidate rows expose the EU target TLS/SNI probe result");
+assert.match(markup, /HTTP · v77<b>400<\/b>/,
   "HTTP status remains a neutral candidate diagnostic");
-assert.equal((markup.match(/data-tiktok-action="select"/g) || []).length, 1,
+assert.match(markup, /Check-Host: 8 узлов \/ 4 стран \/ 8 ASN/,
+  "candidate rows summarize distributed node, country, and ASN evidence");
+const originalFixture = context.fixture;
+const noIcmpFixture = { ...originalFixture, mode: "auto", manual_ip: "", probe_observations: originalFixture.probe_observations.split(";")[0].split("|").slice(0, 22).join("|") };
+context.fixture = noIcmpFixture;
+const noIcmpMarkup = vm.runInContext("tiktokStatusMarkup(fixture)", context);
+context.fixture = originalFixture;
+assert.match(noIcmpMarkup, /ICMP <b title="Ping не влияет на доступность CDN">—<\/b>/,
+  "candidates without an ICMP result show a neutral placeholder");
+assert.equal((noIcmpMarkup.match(/<button[^>]*data-tiktok-action="select"[^>]*>/g) || []).filter(button => !button.includes("disabled")).length, 1,
+  "lack of ICMP does not disable a candidate verified through both TLS probes");
+assert.match(markup, /v77 <b>✓ 131 мс<\/b>/,
+  "the matrix shows local primary-target latency");
+assert.match(markup, /v77-eu <b>✓ 117 мс<\/b>/,
+  "the matrix shows local EU-target latency");
+assert.equal((markup.match(/<button[^>]*data-tiktok-action="select"[^>]*>/g) || []).filter(button => !button.includes("disabled")).length, 1,
   "only the live-verified candidate has an active select action");
 assert.match(source, /apiPost\(endpoints\[action\], params\)/,
   "candidate actions are sent through the WebPanel API");

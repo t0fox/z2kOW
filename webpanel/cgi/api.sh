@@ -323,12 +323,12 @@ case "$method $path" in
                 _tiktok_sep=
                 printf '%s\n' "$_tiktok_status" | while IFS='=' read -r _tiktok_key _tiktok_value; do
                     case "$_tiktok_key" in
-                        enabled|state|host|selected_ip|latency_ms|last_verified_epoch|failure_count|reason|\
+                        enabled|state|host|managed_targets|selected_ip|latency_ms|last_verified_epoch|failure_count|reason|\
                         selected_source_domain|selected_mode|selected_provenance|selected_geo_hint|selected_cname|\
                         health|connect_latency_ms|tls_latency_ms|http_status|x77_pop|x77_cache|server|\
                         dns_observed|curated_observed|stability_probe_count|last_failover_epoch|\
                         last_failover_from|last_failover_to|last_failover_reason|mode|manual_ip|\
-                        candidate_pool|probe_observations|candidate_verified|dns_override_applied)
+                        candidate_pool|probe_observations|checkhost_cache_epoch|candidate_verified|dns_override_applied)
                             printf '%s' "$_tiktok_sep"; json_string "$_tiktok_key"; printf ':'; json_string "$_tiktok_value"
                             _tiktok_sep=,
                             ;;

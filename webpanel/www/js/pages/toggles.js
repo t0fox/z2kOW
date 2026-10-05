@@ -369,31 +369,53 @@ function tiktokCandidatesMarkup(data) {
     const probe = probes.get(ip) || [];
     const selected = mode === "manual" && manualIp === ip;
     const unavailable = selected && data.state === "manual-unavailable";
-    const legacySuccessfulProbe = probe.length >= 8 && tiktokValue(probe[1]);
-    const verified = !unavailable && (probe[10] === "verified" || (legacySuccessfulProbe && probe[1] !== "failed"));
-    const tcp = probe[8] || (legacySuccessfulProbe ? "ok" : "");
-    const tls = probe[9] || (legacySuccessfulProbe ? "ok" : "");
-    const latency = tiktokLatency(probe[1]);
-    const icmpLatency = tiktokLatency(probe[11]);
+    const v77Verified = probe[10] === "verified";
+    const euVerified = probe[20] === "verified";
+    const verified = !unavailable && probe[21] === "compatible" && v77Verified && euVerified;
+    const checkNodes = Number.parseInt(candidate[11], 10) || 0;
+    const checkCountries = Number.parseInt(candidate[12], 10) || 0;
+    const checkAsns = Number.parseInt(candidate[13], 10) || 0;
     const hint = tiktokValue(candidate[6]) || "";
     const source = [candidate[7], candidate[4]].map(tiktokValue).filter(Boolean).join(" · ");
-    const popAndServer = [tiktokValue(probe[5]) ? `POP ${probe[5]}` : "", tiktokValue(probe[7])].filter(Boolean).join(" · ");
-    const tcpLabel = tcp === "ok" ? "Доступен" : tcp === "failed" ? "Нет ответа" : "—";
-    const tlsLabel = tls === "ok" ? "Проверен" : tls === "failed" ? "Не прошёл" : "—";
+    const icmp = tiktokLatency(probe[22]);
+    const targetCell = (label, latencyIndex, verifiedIndex) => {
+      if (probe.length < 22) return `<span class="tiktok-target-probe pending">${label} <b>Не проверен</b></span>`;
+      return probe[verifiedIndex] === "verified"
+        ? `<span class="tiktok-target-probe good">${label} <b>✓ ${escapeHtml(tiktokLatency(probe[latencyIndex]) || "TLS")}</b></span>`
+        : `<span class="tiktok-target-probe bad">${label} <b>✕ timeout</b></span>`;
+    };
+    const tcpLabel = (value) => value === "ok" ? "Доступен" : value === "failed" ? "Нет ответа" : "—";
+    const tlsLabel = (value) => value === "ok" ? "Проверен" : value === "failed" ? "Не прошёл" : "—";
+    const targetFacts = (name, offset) => {
+      const eu = offset === 11;
+      const tcp = probe[offset + (eu ? 7 : 8)] || "";
+      const tls = probe[offset + (eu ? 8 : 9)] || "";
+      const latency = tiktokLatency(probe[offset + (eu ? 0 : 1)]);
+      const http = tiktokValue(probe[offset + (eu ? 3 : 4)]);
+      const pop = tiktokValue(probe[offset + (eu ? 4 : 5)]);
+      const server = tiktokValue(probe[offset + (eu ? 6 : 7)]);
+      const popServer = [pop ? `POP ${pop}` : "", server].filter(Boolean).join(" · ");
+      return [
+        `<span>TCP 443 · ${name}<b>${escapeHtml(tcpLabel(tcp))}</b></span>`,
+        `<span>TLS/SNI · ${name}<b>${escapeHtml(tlsLabel(tls))}</b></span>`,
+        `<span>HTTPS · ${name}<b>${escapeHtml(latency || "—")}</b></span>`,
+        `<span>HTTP · ${name}<b>${escapeHtml(http || "—")}</b></span>`,
+        `<span>POP / сервер · ${name}<b>${escapeHtml(popServer || "—")}</b></span>`,
+      ].join("");
+    };
     const button = verified
       ? `<button class="btn btn-secondary tiktok-select-cdn" data-tiktok-action="select" data-ip="${escapeHtml(ip)}"${selected ? " disabled" : ""}>${selected ? "Выбран" : "Выбрать"}</button>`
       : `<button class="btn btn-secondary tiktok-select-cdn" disabled title="Сначала проверьте кандидат">Выбрать</button>`;
     return `<article class="tiktok-candidate${selected ? " selected" : ""}" data-ip="${escapeHtml(ip)}">
       <div class="tiktok-candidate-head"><code>${escapeHtml(ip)}</code><span>${escapeHtml(hint || "Регион не определён")}</span>${button}</div>
-      ${source ? `<div class="tiktok-candidate-source">${escapeHtml(source)}</div>` : ""}
+      ${source ? `<div class="tiktok-candidate-source">Источники: ${escapeHtml(source)}${candidate[1] ? ` · Домены: ${escapeHtml(candidate[1])}` : ""}</div>` : ""}
+      ${checkNodes ? `<div class="tiktok-checkhost-count">Check-Host: ${checkNodes} ${checkNodes === 1 ? "узел" : "узлов"} / ${checkCountries} стран / ${checkAsns} ASN</div>` : ""}
+      <div class="tiktok-compatibility">${targetCell("v77", 1, 10)}${targetCell("v77-eu", 11, 20)}</div>
       <div class="tiktok-candidate-facts">
-        <span>ICMP <b title="Ping не влияет на доступность CDN">${escapeHtml(icmpLatency || "—")}</b></span>
-        <span>TCP 443 <b>${escapeHtml(tcpLabel)}</b></span>
-        <span>TLS/SNI <b>${escapeHtml(tlsLabel)}</b></span>
-        <span>HTTPS <b>${escapeHtml(latency || "—")}</b></span>
-        <span>HTTP <b>${escapeHtml(tiktokValue(probe[4]) || "—")}</b></span>
-        <span>POP / сервер <b>${escapeHtml(popAndServer || "—")}</b></span>
+        <span>ICMP <b title="Ping не влияет на доступность CDN">${escapeHtml(icmp || "—")}</b></span>
+        ${targetFacts("v77", 0)}${targetFacts("v77-eu", 11)}
       </div>
+      ${probe.length >= 22 && !verified ? `<div class="tiktok-candidate-warning">Недоступен с вашего подключения</div>` : ""}
       ${unavailable ? `<div class="tiktok-candidate-warning" role="status">Выбранный CDN недоступен</div>` : ""}
     </article>`;
   }).join("");
@@ -407,7 +429,7 @@ function tiktokCandidatesMarkup(data) {
     </div>
     <details class="tiktok-candidate-list">
       <summary>Кандидаты CDN <span>(${candidates.size})</span></summary>
-      <p class="desc">Доступность определяется по TCP 443 и TLS/SNI для v77.tiktokcdn.com. Ping не является обязательным.</p>
+      <p class="desc">Проверка выполняется отдельно для v77.tiktokcdn.com и v77.tiktokcdn-eu.com. Доступность определяется по TCP 443 и TLS/SNI; Ping не обязателен.</p>
       <div class="tiktok-candidate-rows">${rows || `<p class="tiktok-candidate-empty">Кандидаты ещё не обнаружены</p>`}</div>
     </details>`;
 }
