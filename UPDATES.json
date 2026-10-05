@@ -2,13 +2,13 @@
   "schema": 1,
   "branch": "main",
   "platform": "openwrt",
-  "seq": 137,
-  "current": "p-86.14",
+  "seq": 138,
+  "current": "p-86.15",
   "upstream": {
     "repository": "necronicle/z2k",
     "branch": "z2k-enhanced",
-    "tag": "p-86.14",
-    "commit": "5e058c1c3944e0f0362cf9665b84108fc6e9b3dc"
+    "tag": "p-86.15",
+    "commit": "b90611f52ae5ba034d0181a3252efda6ecc95671"
   },
   "history": [
     {"v": "r-1", "type": "reinstall", "ts": "2026-05-04T00:00:00Z", "ref": "vk-whitelist-ext", "desc": "Extend whitelist with VK service/CDN domains (vkuseraudio/vkuservideo/vk-cdn/mvk/vkpay/vkforms/etc) — fixes broken photo comments and other XHR over non-vk.com VK domains", "changed_files": ["lib/config.sh"]},
@@ -298,13 +298,14 @@
     {"v": "p-86.11", "type": "patch", "ts": "2026-10-01T19:01:37Z", "ref": "p-86.11", "desc": "Исправлено применение WARP к клиентам AWG/WireGuard: выбор устройств локальной сети больше не исключает VPN-клиентов. Трафик по-прежнему направляется через WARP только для включённых списков.", "changed_files": ["webpanel/www/index.html", "files/ndm/93-z2k-warp.sh", "files/z2k-warp.sh", "UPDATES.json"], "steps": [], "full_install": false},
     {"v": "p-86.12", "type": "patch", "ts": "2026-10-01T20:50:10Z", "ref": "p-86.12", "desc": "В разделе «Стратегии» таблицу можно сортировать по заморозке: замороженные домены собираются наверху.", "changed_files": ["webpanel/www/index.html", "webpanel/www/js/pages/strategies.js", "webpanel/www/js/state-model.js", "UPDATES.json"], "steps": [], "full_install": false},
     {"v": "p-86.13", "type": "patch", "ts": "2026-10-02T06:39:48Z", "ref": "p-86.13", "desc": "Когда списки WARP выключены, весь IPv4-трафик выбранных устройств теперь идёт через туннель; локальные сети остаются доступны напрямую. С включёнными списками маршрутизация ограничена их адресами. Уточнены подсказки в панели и диагностика.", "changed_files": ["webpanel/www/index.html", "files/z2k-diag.sh", "files/z2k-warp.sh", "webpanel/www/js/pages/warp.js", "UPDATES.json"], "steps": [], "full_install": false},
-    {"v": "p-86.14", "type": "patch", "ts": "2026-10-04T07:56:39Z", "ref": "p-86.14", "desc": "Исправлено определение выхода в интернет через интерфейс-мост, например при подключении через другой роутер. Правила обхода и их автоматическое восстановление теперь работают в такой конфигурации.", "changed_files": ["webpanel/www/index.html", "lib/wan.sh", "UPDATES.json"], "steps": [], "full_install": false}
+    {"v": "p-86.14", "type": "patch", "ts": "2026-10-04T07:56:39Z", "ref": "p-86.14", "desc": "Исправлено определение выхода в интернет через интерфейс-мост, например при подключении через другой роутер. Правила обхода и их автоматическое восстановление теперь работают в такой конфигурации.", "changed_files": ["webpanel/www/index.html", "lib/wan.sh", "UPDATES.json"], "steps": [], "full_install": false},
+    {"v": "p-86.15", "type": "patch", "ts": "2026-10-05T19:08:55Z", "ref": "p-86.15", "desc": "Новый спонсор проекта — GregMSK", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false}
   ],
   "artifact": {
     "filename": "openwrt-rootfs.tar.gz",
-    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-3522cd6dfe2fdc6d94f97fe218d65705e455d11d/openwrt-rootfs.tar.gz",
-    "sha256": "4cc7eb60e845fe5764fb22b4fbfb8507c1bf127396f3237b8020a5d3341e2c28",
-    "size_bytes": 77566990
+    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-c32f0776dc135f90f40532fb0208e17c9e8cbae3/openwrt-rootfs.tar.gz",
+    "sha256": "ff7d08c74feb0fc26116c204be8758710fa09556d8e78991a0d554b03f1e8e44",
+    "size_bytes": 77567198
   },
   "signing": {
     "key_id": "916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae"
