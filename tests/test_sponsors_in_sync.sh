@@ -1,12 +1,12 @@
 #!/bin/sh
-# tests/test_sponsors_in_sync.sh — список спонсоров одинаков во всех трёх местах.
+# tests/test_sponsors_in_sync.sh — локальные списки синхронны; upstream-only
+# acknowledgements remain in the upstream panel module only.
 #
-# ЗАЧЕМ. Спонсоры перечислены ТРИЖДЫ и в трёх разных форматах: README.md
-# (маркдаун-список), lib/menu.sh (ASCII-коробка фиксированной ширины, имена через запятую) и
-# webpanel/www/js/pages/credits.js (карточки «Благодарности»). Добавляют человека
-# руками в каждое место. Забыть одно из трёх — вопрос времени, а заметить это
-# некому: ошибки не будет нигде, просто человек, давший денег, не увидит себя
-# там, куда пойдёт смотреть.
+# ЗАЧЕМ. Локальные спонсоры перечислены в двух разных форматах: README.md
+# (маркдаун-список) и lib/menu.sh (ASCII-коробка фиксированной ширины, имена через запятую).
+# webpanel/www/js/pages/credits.js contains upstream credits shown only in a
+# separate disclosure. Local contributors are tracked independently by openwrt-credits.js.
+# An upstream-only name must not be copied into z2kOW's own README or CLI menu.
 #
 # ГЛАВНЫЙ ТЕСТИРОВЩИК — НЕ СПОНСОР. В панели у него отдельная карточка с другим
 # бейджем (tester-card / «Главный тестировщик»), и в списках спонсоров его нет
@@ -78,9 +78,18 @@ for cls, name in re.findall(
     if cls == "sponsor":
         panel.append(html.unescape(name).strip())
 
-print("COUNTS", len(readme), len(menu), len(panel))
+upstream_only = {"GregMSK"}
+panel_local = [name for name in panel if name not in upstream_only]
+print("COUNTS", len(readme), len(menu), len(panel_local))
+print("UPSTREAM_ONLY_COUNT", len(upstream_only))
+missing_upstream = sorted(upstream_only - set(panel))
+leaked_upstream = sorted(upstream_only & (set(readme) | set(menu)))
+if missing_upstream:
+    print("UPSTREAM_ONLY_MISSING", missing_upstream)
+if leaked_upstream:
+    print("UPSTREAM_ONLY_LEAK", leaked_upstream)
 for label, a, b in (("README-меню", readme, menu),
-                    ("README-панель", readme, panel)):
+                    ("README-панель", readme, panel_local)):
     only_a = [x for x in a if x not in b]
     only_b = [x for x in b if x not in a]
     if only_a or only_b:
@@ -89,7 +98,7 @@ for label, a, b in (("README-меню", readme, menu),
 # Порядок тоже сверяем: расхождение обычно значит, что кого-то вставили не туда.
 if readme and menu and readme != menu:
     print("ORDER README-меню отличается")
-if readme and panel and readme != panel:
+if readme and panel_local and readme != panel_local:
     print("ORDER README-панель отличается")
 
 # Ширина строк коробки — в символах.
@@ -108,7 +117,7 @@ _counts=$(printf '%s\n' "$OUT" | grep '^COUNTS' | cut -d' ' -f2-)
 _r=$(echo "$_counts" | cut -d' ' -f1); _m=$(echo "$_counts" | cut -d' ' -f2); _p=$(echo "$_counts" | cut -d' ' -f3)
 
 if [ "${_r:-0}" -gt 0 ] && [ "${_m:-0}" -gt 0 ] && [ "${_p:-0}" -gt 0 ]; then
-    ok "списки найдены во всех трёх местах (README $_r, меню $_m, панель $_p)"
+    ok "локальные списки найдены (README $_r, меню $_m, общий список панели $_p)"
 else
     no "списки найдены везде" "  README=$_r меню=$_m панель=$_p — разбор сломался"
 fi
@@ -125,6 +134,14 @@ if [ -z "$_order" ]; then
     ok "порядок спонсоров одинаков"
 else
     no "порядок одинаков" "$_order"
+fi
+
+_upstream_only=$(printf '%s\n' "$OUT" | grep -E '^UPSTREAM_ONLY_(MISSING|LEAK)' || true)
+if [ -z "$_upstream_only" ]; then
+    _upstream_count=$(printf '%s\n' "$OUT" | grep '^UPSTREAM_ONLY_COUNT ' | cut -d' ' -f2)
+    ok "upstream-only acknowledgements remain out of local README and menu ($_upstream_count)"
+else
+    no "upstream-only acknowledgements stay in the upstream disclosure" "$_upstream_only"
 fi
 
 _width=$(printf '%s\n' "$OUT" | grep '^WIDTH' || true)
