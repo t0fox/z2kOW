@@ -79,6 +79,11 @@ grep -q 'customd: "customd"' "$WWW/js/pages/toggles.js" || _t_bad "TOGGLE_API_NA
 grep -q 'tiktok_feed: "tiktok-feed"' "$WWW/js/pages/toggles.js" || _t_bad "TOGGLE_API_NAME потеряла TikTok Feed toggle"
 grep -q 'Z2K_TIKTOK_FEED_ENABLED' "$REPO/webpanel/cgi/actions.sh" || _t_bad "TikTok Feed toggle does not persist its config flag"
 grep -q 'tiktokRow.hidden = s.platform !== "openwrt"' "$WWW/js/pages/toggles.js" || _t_bad "TikTok Feed UI is not restricted to OpenWrt"
+for _route in probe-all select auto; do
+    if grep -q "\"/tiktok/${_route}\"" "$WWW/js/pages/toggles.js" \
+        && has_case "POST" "/tiktok/$_route"; then _t_ok
+    else _t_bad "TikTok CDN action /tiktok/$_route is missing its UI or API route"; fi
+done
 # 3d. update status/check: путь в переменной (opts.force ? ... : ...).
 if has_case "GET" "/update/status"; then _t_ok
 else _t_bad "frontend /update/status: нет case в api.sh"; fi

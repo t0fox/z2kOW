@@ -2033,6 +2033,65 @@ input[type=text]:focus, input[type=password]:focus {
 }
 .tiktok-reason-fact code { white-space: normal; text-align: right; }
 .flow-technical[open] { border-top-color: var(--border); }
+.tiktok-candidate-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  margin-top: var(--space-12);
+}
+.tiktok-mode-label { color: var(--text-muted); font-size: 12px; }
+.tiktok-candidate-list {
+  margin-top: var(--space-8);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-8);
+}
+.tiktok-candidate-list > summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.tiktok-candidate-list > summary:hover { color: var(--text); }
+.tiktok-candidate-list > summary span { font-variant-numeric: tabular-nums; }
+.tiktok-candidate-list > .desc { margin: var(--space-8) 0; }
+.tiktok-candidate-rows { display: grid; }
+.tiktok-candidate {
+  min-width: 0;
+  padding: var(--space-12) 0;
+  border-top: 1px solid var(--border);
+}
+.tiktok-candidate.selected { box-shadow: inset 2px 0 var(--good); padding-left: var(--space-8); }
+.tiktok-candidate-head {
+  display: grid;
+  grid-template-columns: minmax(112px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-8);
+}
+.tiktok-candidate-head code {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.tiktok-candidate-head > span,
+.tiktok-candidate-source {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.tiktok-candidate-source { margin-top: 3px; }
+.tiktok-candidate .btn { padding: 5px 10px; font-size: 11px; }
+.tiktok-candidate-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px 12px;
+  margin-top: var(--space-8);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.tiktok-candidate-facts span { display: flex; justify-content: space-between; gap: 6px; min-width: 0; }
+.tiktok-candidate-facts b { color: var(--text); font-weight: 500; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.tiktok-candidate-warning { margin-top: var(--space-8); color: var(--bad); font-size: 12px; }
 .flow-traffic-diagnostics {
   margin-top: var(--space-12);
   padding-top: var(--space-8);
@@ -2662,6 +2721,11 @@ body[data-page="strategies"] #app { max-width: none; }
   .tiktok-status-line { align-items: flex-start; }
   .tiktok-primary-facts .flow-fact { grid-template-columns: minmax(92px, 0.8fr) minmax(0, 1.2fr); }
   .tiktok-diagnostic-section .flow-fact { align-items: flex-start; }
+  .tiktok-candidate-head { grid-template-columns: minmax(0, 1fr) auto; }
+  .tiktok-candidate-head > span { grid-column: 1; grid-row: 2; }
+  .tiktok-candidate-head .btn { grid-column: 2; grid-row: 1 / span 2; }
+  .tiktok-candidate-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tiktok-candidate-controls { justify-content: flex-start; }
 
   /* Keep the quick sort sheet alongside the table's visible, scrollable
      headers as a touch-friendly shortcut on narrow screens. */

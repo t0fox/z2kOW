@@ -33,7 +33,7 @@ const TOGGLE_DEFS = [
   { key: "autohostlist", name: "Автохостлист",
     desc: "Обычно обходятся только домены из списков. С этой опцией движок сам замечает, что домен не открывается, и добавляет его — найденное попадает в основной список и подхватывается штатно. Плюс: сайты вне списков начинают работать без ручных добавлений. Минус: движок судит по поведению соединения и иногда ошибается, в список может попасть домен, который просто лежал сам по себе. Это смена принципа отбора трафика целиком, поэтому по умолчанию выключено." },
   { key: "tiktok_feed", name: "TikTok — исправление ленты",
-    desc: "Автоматически подбирает рабочий CDN TikTok для ленты и переключается при его недоступности.", openwrtOnly: true },
+    desc: "Автоматически подбирает рабочий CDN для ленты TikTok; в карточке можно выбрать узел вручную.", openwrtOnly: true },
   // Час не зашит в текст: он настраивается ниже, и описание, называющее
   // «02:00» у человека, выбравшего 05:00, врало бы прямо над селектором.
   { key: "auto_update", name: "Автообновление z2k",
@@ -348,6 +348,106 @@ function tiktokTime(epoch, detailed = false) {
   return detailed ? `${date.toLocaleString()} · ${humanAgo(seconds)}` : humanAgo(seconds);
 }
 
+function tiktokCandidatesMarkup(data) {
+  const candidates = new Map();
+  String(data.candidate_pool || "").split(";").forEach(raw => {
+    const fields = raw.split("|");
+    const ip = tiktokValue(fields[0]);
+    if (ip && /^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip) && !candidates.has(ip)) {
+      candidates.set(ip, fields);
+    }
+  });
+  const probes = new Map();
+  String(data.probe_observations || "").split(";").forEach(raw => {
+    const fields = raw.split("|");
+    const ip = tiktokValue(fields[0]);
+    if (ip) probes.set(ip, fields);
+  });
+  const mode = data.mode === "manual" ? "manual" : "auto";
+  const manualIp = tiktokValue(data.manual_ip);
+  const rows = [...candidates.entries()].map(([ip, candidate]) => {
+    const probe = probes.get(ip) || [];
+    const selected = mode === "manual" && manualIp === ip;
+    const unavailable = selected && data.state === "manual-unavailable";
+    const legacySuccessfulProbe = probe.length >= 8 && tiktokValue(probe[1]);
+    const verified = !unavailable && (probe[10] === "verified" || (legacySuccessfulProbe && probe[1] !== "failed"));
+    const tcp = probe[8] || (legacySuccessfulProbe ? "ok" : "");
+    const tls = probe[9] || (legacySuccessfulProbe ? "ok" : "");
+    const latency = tiktokLatency(probe[1]);
+    const icmpLatency = tiktokLatency(probe[11]);
+    const hint = tiktokValue(candidate[6]) || "";
+    const source = [candidate[7], candidate[4]].map(tiktokValue).filter(Boolean).join(" · ");
+    const popAndServer = [tiktokValue(probe[5]) ? `POP ${probe[5]}` : "", tiktokValue(probe[7])].filter(Boolean).join(" · ");
+    const tcpLabel = tcp === "ok" ? "Доступен" : tcp === "failed" ? "Нет ответа" : "—";
+    const tlsLabel = tls === "ok" ? "Проверен" : tls === "failed" ? "Не прошёл" : "—";
+    const button = verified
+      ? `<button class="btn btn-secondary tiktok-select-cdn" data-tiktok-action="select" data-ip="${escapeHtml(ip)}"${selected ? " disabled" : ""}>${selected ? "Выбран" : "Выбрать"}</button>`
+      : `<button class="btn btn-secondary tiktok-select-cdn" disabled title="Сначала проверьте кандидат">Выбрать</button>`;
+    return `<article class="tiktok-candidate${selected ? " selected" : ""}" data-ip="${escapeHtml(ip)}">
+      <div class="tiktok-candidate-head"><code>${escapeHtml(ip)}</code><span>${escapeHtml(hint || "Регион не определён")}</span>${button}</div>
+      ${source ? `<div class="tiktok-candidate-source">${escapeHtml(source)}</div>` : ""}
+      <div class="tiktok-candidate-facts">
+        <span>ICMP <b title="Ping не влияет на доступность CDN">${escapeHtml(icmpLatency || "—")}</b></span>
+        <span>TCP 443 <b>${escapeHtml(tcpLabel)}</b></span>
+        <span>TLS/SNI <b>${escapeHtml(tlsLabel)}</b></span>
+        <span>HTTPS <b>${escapeHtml(latency || "—")}</b></span>
+        <span>HTTP <b>${escapeHtml(tiktokValue(probe[4]) || "—")}</b></span>
+        <span>POP / сервер <b>${escapeHtml(popAndServer || "—")}</b></span>
+      </div>
+      ${unavailable ? `<div class="tiktok-candidate-warning" role="status">Выбранный CDN недоступен</div>` : ""}
+    </article>`;
+  }).join("");
+
+  const autoButton = mode === "manual"
+    ? `<span class="tiktok-mode-label">Режим: ручной выбор${manualIp ? ` · ${escapeHtml(manualIp)}` : ""}</span><button class="btn btn-secondary" data-tiktok-action="auto">Использовать автоматический выбор</button>`
+    : `<span class="tiktok-mode-label">Режим: автоматический выбор</span>`;
+  return `<div class="tiktok-candidate-controls">
+      ${autoButton}
+      <button class="btn btn-primary" data-tiktok-action="probe-all">Проверить все</button>
+    </div>
+    <details class="tiktok-candidate-list">
+      <summary>Кандидаты CDN <span>(${candidates.size})</span></summary>
+      <p class="desc">Доступность определяется по TCP 443 и TLS/SNI для v77.tiktokcdn.com. Ping не является обязательным.</p>
+      <div class="tiktok-candidate-rows">${rows || `<p class="tiktok-candidate-empty">Кандидаты ещё не обнаружены</p>`}</div>
+    </details>`;
+}
+
+function wireTikTokActions(card) {
+  if (card.dataset.actionsWired) return;
+  card.dataset.actionsWired = "1";
+  card.addEventListener("click", async event => {
+    const button = event.target.closest("[data-tiktok-action]");
+    if (!button || button.disabled) return;
+    const action = button.dataset.tiktokAction;
+    const endpoints = { "probe-all": "/tiktok/probe-all", select: "/tiktok/select", auto: "/tiktok/auto" };
+    const labels = { "probe-all": "Проверка CDN-кандидатов", select: "Проверка и выбор CDN", auto: "Возврат к автоматическому выбору" };
+    if (!endpoints[action]) return;
+    const buttons = [...card.querySelectorAll("[data-tiktok-action]")];
+    buttons.forEach(item => { item.disabled = true; });
+    try {
+      const params = action === "select" ? { ip: button.dataset.ip } : {};
+      const response = await apiPost(endpoints[action], params);
+      openJobModal(labels[action], response.job, {
+        tolerateOutage: action === "select" || action === "auto",
+        onDone: result => {
+          if (!card.isConnected) return;
+          if (jobOutcome(result) === JOB_FAIL) {
+            toast(action === "select" ? "Выбранный CDN недоступен или не удалось применить DNS" : `${labels[action]} не выполнена`, "bad");
+          } else if (!jobUnresolved(jobOutcome(result))) {
+            toast(action === "auto" ? "Включён автоматический выбор CDN" : "Проверка CDN завершена");
+          }
+          apiGet("/status").then(state => renderTikTokStatus(state.tiktok_feed_status, state.toggles, state.platform)).catch(() => {
+            toastErr("Не удалось обновить состояние TikTok CDN: ", "status недоступен");
+          });
+        },
+      });
+    } catch (error) {
+      buttons.forEach(item => { if (item.isConnected) item.disabled = false; });
+      toastErr("Не удалось выполнить действие TikTok CDN: ", error);
+    }
+  });
+}
+
 function tiktokStatusMarkup(status) {
   const data = status || {};
   const state = tiktokValue(data.state);
@@ -356,8 +456,17 @@ function tiktokStatusMarkup(status) {
   let title = "Рабочий CDN не найден";
   let kind = "warn";
   let copy = tiktokReasonLabel(reason);
-  if (state === "healthy" && ip) {
+  if (state === "manual-unavailable") {
+    title = "Выбранный CDN недоступен"; kind = "bad";
+    copy = "Автоматическое переключение отключено; выбранный адрес не меняется.";
+  } else if (state === "dns-apply-error" || (data.candidate_verified === "1" && data.dns_override_applied !== "1")) {
+    title = "Ошибка применения DNS"; kind = "bad";
+    copy = "CDN проверен, но эффективная DNS-подмена не подтверждена.";
+  } else if (state === "healthy" && ip && data.candidate_verified === "1" && data.dns_override_applied === "1") {
     title = "Работает"; kind = "good"; copy = "";
+  } else if (state === "healthy" && ip) {
+    title = "DNS-применение не подтверждено"; kind = "warn";
+    copy = "Эффективный адрес роутера ещё не подтверждён.";
   } else if (state === "degraded" && ip) {
     title = "Нестабильно"; copy = tiktokReasonLabel(reason);
   } else if (["searching", "discovering", "checking"].includes(state)) {
@@ -410,12 +519,14 @@ function tiktokStatusMarkup(status) {
       tiktokReasonFact("Причина", failoverReason),
     ]) : "",
   ].join("");
+  const candidates = tiktokCandidatesMarkup(data);
   return `<h3>TikTok — состояние ленты</h3>
     <p class="desc">Автоматический подбор и контроль CDN для v77.tiktokcdn.com</p>
     <div class="tiktok-status-line"><span class="tiktok-status-badge ${kind}" role="status">● ${escapeHtml(title)}</span>${checkedAgo ? `<span class="tiktok-checked">Проверено ${escapeHtml(checkedAgo)}</span>` : ""}</div>
     ${copy ? `<p class="desc">${escapeHtml(copy)}</p>` : ""}
     ${primaryFacts ? `<div class="flow-facts tiktok-primary-facts">${primaryFacts}</div>` : ""}
     ${failover}
+    ${candidates}
     <details class="flow-technical disclosure" id="tiktok-feed-technical">
       <summary>Техническая диагностика</summary>
       <div class="disclosure-body"><div class="flow-technical-body">${diagnostics}</div></div>
@@ -425,6 +536,7 @@ function tiktokStatusMarkup(status) {
 function renderTikTokStatus(status, toggles, platform) {
   const card = $app.querySelector("#tiktok-feed-status-card");
   if (!card) return;
+  wireTikTokActions(card);
   const visible = platform === "openwrt" && toggles && toggles.tiktok_feed === "1";
   card.hidden = !visible;
   card.innerHTML = visible ? tiktokStatusMarkup(status) : "";

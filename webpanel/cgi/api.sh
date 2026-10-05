@@ -327,7 +327,8 @@ case "$method $path" in
                         selected_source_domain|selected_mode|selected_provenance|selected_geo_hint|selected_cname|\
                         health|connect_latency_ms|tls_latency_ms|http_status|x77_pop|x77_cache|server|\
                         dns_observed|curated_observed|stability_probe_count|last_failover_epoch|\
-                        last_failover_from|last_failover_to|last_failover_reason)
+                        last_failover_from|last_failover_to|last_failover_reason|mode|manual_ip|\
+                        candidate_pool|probe_observations|candidate_verified|dns_override_applied)
                             printf '%s' "$_tiktok_sep"; json_string "$_tiktok_key"; printf ':'; json_string "$_tiktok_value"
                             _tiktok_sep=,
                             ;;
@@ -481,6 +482,42 @@ case "$method $path" in
         esac
         z2k_ow_flowoffload_available || json_fail "503 Service Unavailable" "selective FLOWOFFLOAD недоступен"
         job_id=$(svc_action_async "Переключаю selective FLOWOFFLOAD на $flow_mode" "toggle_flowoffload $flow_mode")
+        json_header
+        printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
+        exit 0
+        ;;
+
+    # ---------- TIKTOK CDN CANDIDATES / MANUAL SELECTION ----------
+    "POST /tiktok/probe-all")
+        require_method POST
+        [ "$(read_flag Z2K_TIKTOK_FEED_ENABLED "$CONFIG_FILE" 0)" = 1 ] \
+            || json_fail "409 Conflict" "сначала включите исправление ленты TikTok"
+        job_id=$(svc_action_async "Проверяю CDN-кандидаты TikTok" "tiktok_probe_all")
+        json_header
+        printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
+        exit 0
+        ;;
+    "POST /tiktok/select")
+        require_method POST
+        body=$(read_body)
+        cdn_ip=$(form_value "$body" "ip")
+        case "$cdn_ip" in ''|*[!0-9.]*) json_fail "400 Bad Request" "ip must be an IPv4 address" ;; esac
+        . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/tiktok.sh" \
+            || json_fail "503 Service Unavailable" "TikTok CDN runtime недоступен"
+        _z2k_ow_tiktok_valid_ipv4 "$cdn_ip" \
+            || json_fail "400 Bad Request" "ip must be a valid IPv4 address"
+        [ "$(read_flag Z2K_TIKTOK_FEED_ENABLED "$CONFIG_FILE" 0)" = 1 ] \
+            || json_fail "409 Conflict" "сначала включите исправление ленты TikTok"
+        job_id=$(svc_action_async "Проверяю и выбираю CDN $cdn_ip" "tiktok_select_cdn $cdn_ip")
+        json_header
+        printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
+        exit 0
+        ;;
+    "POST /tiktok/auto")
+        require_method POST
+        [ "$(read_flag Z2K_TIKTOK_FEED_ENABLED "$CONFIG_FILE" 0)" = 1 ] \
+            || json_fail "409 Conflict" "сначала включите исправление ленты TikTok"
+        job_id=$(svc_action_async "Возвращаю автоматический выбор TikTok CDN" "tiktok_use_auto")
         json_header
         printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
         exit 0

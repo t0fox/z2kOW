@@ -760,13 +760,23 @@ last_failover_epoch=1780549900
 last_failover_from=203.0.113.8
 last_failover_to=203.0.113.9
 last_failover_reason=consecutive-probe-failures
+candidate_verified=1
+dns_override_applied=1
+candidate_pool=203.0.113.9|v77.tiktokcdn.com|direct|1.1.1.1|system-wan||Amsterdam|resolver+tls|1|0|0
+probe_observations=203.0.113.9|84|15|25|400|ams||edge|ok|ok|verified
 reason=healthy
 EOF
+printf 'Z2K_TIKTOK_MODE=manual\nZ2K_TIKTOK_MANUAL_IP=203.0.113.9\n' >> "$T/etc/config"
 RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "status: TikTok diagnostics project current state" "healthy" "$(_jget "$OUT" 'd["tiktok_feed_status"]["state"]')"
 assert_eq "status: TikTok diagnostics project selected CDN" "203.0.113.9" "$(_jget "$OUT" 'd["tiktok_feed_status"]["selected_ip"]')"
 assert_eq "status: TikTok diagnostics project source domain" "www.tiktokcdn.com" "$(_jget "$OUT" 'd["tiktok_feed_status"]["selected_source_domain"]')"
 assert_eq "status: TikTok diagnostics project failover reason" "consecutive-probe-failures" "$(_jget "$OUT" 'd["tiktok_feed_status"]["last_failover_reason"]')"
+assert_eq "status: TikTok mode is projected" "manual" "$(_jget "$OUT" 'd["tiktok_feed_status"]["mode"]')"
+assert_eq "status: TikTok manual IP is projected" "203.0.113.9" "$(_jget "$OUT" 'd["tiktok_feed_status"]["manual_ip"]')"
+assert_eq "status: TikTok discovery pool is projected" "203.0.113.9|v77.tiktokcdn.com|direct|1.1.1.1|system-wan||Amsterdam|resolver+tls|1|0|0" "$(_jget "$OUT" 'd["tiktok_feed_status"]["candidate_pool"]')"
+assert_eq "status: TikTok probe observations are projected" "203.0.113.9|84|15|25|400|ams||edge|ok|ok|verified" "$(_jget "$OUT" 'd["tiktok_feed_status"]["probe_observations"]')"
+assert_eq "status: TikTok reports effective DNS proof" "1" "$(_jget "$OUT" 'd["tiktok_feed_status"]["dns_override_applied"]')"
 printf 'value=0' > "$T/body.txt"
 RAW="$(_cgi POST /toggle/tiktok-feed "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 _jid="$(_jget "$OUT" 'd["job"]')"; JOB_IDS="$JOB_IDS $_jid"
@@ -774,6 +784,13 @@ _poll_job_ok "$_jid" "toggle tiktok-feed off"
 assert_eq "TikTok feed toggle disable persists 0" "0" "$(grep -m1 '^Z2K_TIKTOK_FEED_ENABLED=' "$T/etc/config" | cut -d= -f2)"
 RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "status: TikTok diagnostics disappear when disabled" "null" "$(_jget "$OUT" 'd.get("tiktok_feed_status")')"
+printf 'ip=not-an-ip' > "$T/body.txt"
+RAW="$(_cgi POST /tiktok/select "" "$T/body.txt")"
+assert_eq "TikTok selection rejects a non-IPv4 value" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+RAW="$(_cgi POST /tiktok/probe-all)"
+assert_eq "TikTok candidate probing requires the feature to be enabled" "Status: 409 Conflict" "$(printf '%s\n' "$RAW" | _cgi_status)"
+RAW="$(_cgi POST /tiktok/auto)"
+assert_eq "TikTok auto mode action requires the feature to be enabled" "Status: 409 Conflict" "$(printf '%s\n' "$RAW" | _cgi_status)"
 printf 'value=9' > "$T/body.txt"
 RAW="$(_cgi POST /toggle/stats "" "$T/body.txt")"
 assert_eq "toggle bad value: 400" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"

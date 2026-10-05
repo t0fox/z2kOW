@@ -131,7 +131,17 @@ assert_contains "TikTok config choice survives official generator regeneration" 
     "$REPO/lib/config_official.sh" 'saved_Z2K_TIKTOK_FEED_ENABLED=$(safe_config_read'
 assert_contains "TikTok toggle is emitted in regenerated config" \
     "$REPO/lib/config_official.sh" 'Z2K_TIKTOK_FEED_ENABLED=${saved_Z2K_TIKTOK_FEED_ENABLED}'
+assert_contains "TikTok manual mode is saved during config regeneration" \
+    "$REPO/lib/config_official.sh" 'saved_Z2K_TIKTOK_MODE=$(safe_config_read "Z2K_TIKTOK_MODE"'
+assert_contains "TikTok manual IP is saved during config regeneration" \
+    "$REPO/lib/config_official.sh" 'saved_Z2K_TIKTOK_MANUAL_IP=$(safe_config_read "Z2K_TIKTOK_MANUAL_IP"'
+assert_contains "TikTok mode is emitted in regenerated config" \
+    "$REPO/lib/config_official.sh" 'Z2K_TIKTOK_MODE=${saved_Z2K_TIKTOK_MODE}'
+assert_contains "TikTok manual IP is emitted in regenerated config" \
+    "$REPO/lib/config_official.sh" 'Z2K_TIKTOK_MANUAL_IP=${saved_Z2K_TIKTOK_MANUAL_IP}'
 assert_contains "new installs default TikTok feed repair off" \
     "$REPO/platform/openwrt/files/etc/z2k/config.default" 'Z2K_TIKTOK_FEED_ENABLED=0'
+assert_contains "new installs default TikTok mode to auto" \
+    "$REPO/platform/openwrt/files/etc/z2k/config.default" 'Z2K_TIKTOK_MODE=auto'
 
 _t_done

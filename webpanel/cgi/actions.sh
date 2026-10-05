@@ -1370,6 +1370,29 @@ toggle_tiktok_feed() {
     fi
 }
 
+tiktok_probe_all() {
+    [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] || return 1
+    [ "$(read_flag Z2K_TIKTOK_FEED_ENABLED "$CONFIG_FILE" 0)" = 1 ] || return 1
+    . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/tiktok.sh" || return 1
+    z2k_ow_tiktok_probe_all
+}
+
+tiktok_select_cdn() {
+    local ip="$1"
+    [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] || return 1
+    . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/tiktok.sh" || return 1
+    _z2k_ow_tiktok_valid_ipv4 "$ip" || return 1
+    z2k_ow_tiktok_enabled || return 1
+    z2k_ow_tiktok_manual_select "$ip"
+}
+
+tiktok_use_auto() {
+    [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] || return 1
+    . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/tiktok.sh" || return 1
+    z2k_ow_tiktok_enabled || return 1
+    z2k_ow_tiktok_use_auto
+}
+
 toggle_autohostlist() {
     # Z2K_AUTOHOSTLIST — switches MODE_FILTER between hostlist and autohostlist
     # (see lib/config_official.sh). Unlike toggle_stats this is NOT out-of-band:

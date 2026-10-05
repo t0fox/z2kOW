@@ -2056,6 +2056,8 @@ create_official_config() {
     # OpenWrt TikTok feed repair is an out-of-band platform adapter. Preserve
     # its persistent user choice across official config regeneration/update.
     local saved_Z2K_TIKTOK_FEED_ENABLED="0"
+    local saved_Z2K_TIKTOK_MODE="auto"
+    local saved_Z2K_TIKTOK_MANUAL_IP=""
     # Транспорт WARP, выбранный в панели. Та же механика пропажи, что выше:
     # без этой строки выбор сбрасывался бы в автомат любым тумблером.
     local saved_Z2K_WARP_TRANSPORT="auto"
@@ -2123,6 +2125,14 @@ create_official_config() {
         saved_Z2K_PANEL_AUTH=$(safe_config_read "Z2K_PANEL_AUTH" "$config_file" "0")
         saved_Z2K_AUTO_UPDATE_ENABLED=$(safe_config_read "Z2K_AUTO_UPDATE_ENABLED" "$config_file" "1")
         saved_Z2K_TIKTOK_FEED_ENABLED=$(safe_config_read "Z2K_TIKTOK_FEED_ENABLED" "$config_file" "0")
+        saved_Z2K_TIKTOK_MODE=$(safe_config_read "Z2K_TIKTOK_MODE" "$config_file" "auto")
+        case "$saved_Z2K_TIKTOK_MODE" in manual) ;; *) saved_Z2K_TIKTOK_MODE=auto ;; esac
+        saved_Z2K_TIKTOK_MANUAL_IP=$(safe_config_read "Z2K_TIKTOK_MANUAL_IP" "$config_file" "")
+        if ! printf '%s\n' "$saved_Z2K_TIKTOK_MANUAL_IP" | awk -F. '
+            NF != 4 { exit 1 }
+            { for (i=1; i<=4; i++) if ($i !~ /^[0-9]+$/ || $i < 0 || $i > 255) exit 1 }
+            { exit 0 }
+        '; then saved_Z2K_TIKTOK_MANUAL_IP=""; fi
         saved_Z2K_WARP_TRANSPORT=$(safe_config_read "Z2K_WARP_TRANSPORT" "$config_file" "auto")
         # В heredoc значение уходит без кавычек — пропускаем только известное.
         case "$saved_Z2K_WARP_TRANSPORT" in wg|h2) ;; *) saved_Z2K_WARP_TRANSPORT=auto ;; esac
@@ -2544,6 +2554,8 @@ Z2K_FASTROUTE_OFF=${saved_Z2K_FASTROUTE_OFF}
 Z2K_PANEL_AUTH=${saved_Z2K_PANEL_AUTH}
 Z2K_AUTO_UPDATE_ENABLED=${saved_Z2K_AUTO_UPDATE_ENABLED}
 Z2K_TIKTOK_FEED_ENABLED=${saved_Z2K_TIKTOK_FEED_ENABLED}
+Z2K_TIKTOK_MODE=${saved_Z2K_TIKTOK_MODE}
+Z2K_TIKTOK_MANUAL_IP=${saved_Z2K_TIKTOK_MANUAL_IP}
 Z2K_WARP_TRANSPORT=${saved_Z2K_WARP_TRANSPORT}
 # Час ночного автообновления, 00..23 по времени роутера. Реальный запуск
 # позже на 0..60 минут: разброс детерминированный по хосту, чтобы флот не

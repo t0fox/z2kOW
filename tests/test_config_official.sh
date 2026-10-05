@@ -477,6 +477,33 @@ assert_contains "FLOWOFFLOAD=hardware survives direct regeneration" "FLOWOFFLOAD
 FLOW_OUT=$(test_flowoffload_preserve "reinstall" "software" "old")
 assert_contains "reinstall: FLOWOFFLOAD recovered from .old backup" "FLOWOFFLOAD=software" "$FLOW_OUT"
 
+printf "\n--- TikTok manual CDN choice survives official config regeneration ---\n"
+test_tiktok_manual_preserve() {
+    local tag="$1" mode="$2" ip="$3" root="${MOCK_DIR}/tiktok-${1}"
+    rm -rf "$root"
+    mkdir -p "$root/extra_strats/TCP/YT" "$root/extra_strats/TCP/YT_GV" \
+        "$root/extra_strats/TCP/RKN" "$root/extra_strats/UDP/YT" "$root/lists"
+    echo "youtube.com" > "$root/extra_strats/TCP/YT/List.txt"
+    echo "googlevideo.com" > "$root/extra_strats/TCP/YT_GV/List.txt"
+    echo "youtube.com" > "$root/extra_strats/UDP/YT/List.txt"
+    echo "rutracker.org" > "$root/extra_strats/TCP/RKN/List.txt"
+    echo "whitelisted.example.com" > "$root/lists/whitelist.txt"
+    echo "--filter-tcp=443 --filter-l7=tls --lua-desync=circular:fails=3:time=60:key=rkn_tcp --lua-desync=fake:strategy=1" \
+        > "$root/extra_strats/TCP/RKN/Strategy.txt"
+    printf 'ENABLED=1\nZ2K_TIKTOK_FEED_ENABLED=1\nZ2K_TIKTOK_MODE=%s\nZ2K_TIKTOK_MANUAL_IP=%s\n' \
+        "$mode" "$ip" > "$root/config"
+    ( ZAPRET2_DIR="$root" create_official_config "$root/config" >/dev/null 2>&1 )
+    cat "$root/config"
+    rm -rf "$root"
+}
+
+TIKTOK_OUT=$(test_tiktok_manual_preserve "manual" "manual" "87.245.200.35")
+assert_contains "manual mode survives official config regeneration" "Z2K_TIKTOK_MODE=manual" "$TIKTOK_OUT"
+assert_contains "manual CDN IP survives official config regeneration" "Z2K_TIKTOK_MANUAL_IP=87.245.200.35" "$TIKTOK_OUT"
+TIKTOK_OUT=$(test_tiktok_manual_preserve "invalid" "preferred;bad" "999.1.2.3")
+assert_contains "unknown TikTok mode resets to auto during regeneration" "Z2K_TIKTOK_MODE=auto" "$TIKTOK_OUT"
+assert_contains "invalid TikTok manual IP is cleared during regeneration" "Z2K_TIKTOK_MANUAL_IP=" "$TIKTOK_OUT"
+
 printf "\n--- Z2K_PPE_DEOFFLOAD: webpanel offload toggle persists across regen ---\n"
 
 # Regression: the Keenetic per-flow hardware-offload exclusion toggle

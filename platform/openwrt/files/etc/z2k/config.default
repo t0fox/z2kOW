@@ -11,6 +11,8 @@ ENABLED=1
 
 # OpenWrt-only TikTok CDN feed repair. Disabled until explicitly enabled.
 Z2K_TIKTOK_FEED_ENABLED=0
+Z2K_TIKTOK_MODE=auto
+Z2K_TIKTOK_MANUAL_IP=
 
 # Пример: несколько LAN-сетей для zapret2 ifsets (по умолчанию "lan").
 #OPENWRT_LAN="lan lan2"

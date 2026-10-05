@@ -8,12 +8,16 @@ mkdir -p "$T/bin" "$T/state"
 export PATH="$T/bin:$PATH"
 export UCI_TEST_DB="$T/uci.db" UCI_TEST_LOG="$T/uci.log" DNSMASQ_TEST_LOG="$T/dnsmasq.log"
 export CURL_TEST_LOG="$T/curl.log"
+export CURL_RESOLVE_TEST_LOG="$T/curl-resolve.log"
+export CURL_ARGS_TEST_LOG="$T/curl-args.log"
 export NSLOOKUP_TEST_LOG="$T/nslookup.log"
 export TIKTOK_DNS_IP="143.244.42.18" TIKTOK_PROBE_MODE=ok
 export Z2K_STATE="$T/state"
 export Z2K_TIKTOK_HOSTS_FILE="$T/state/tiktok-cdn-hosts"
 export Z2K_TIKTOK_UCI_MARKER="$T/state/.tiktok-addnhosts-owned"
 export Z2K_TIKTOK_CONTENT_MARKER="$T/state/.tiktok-host-content-owned"
+export Z2K_TIKTOK_ADDRESS_MARKER="$T/state/.tiktok-address-owned"
+export Z2K_TIKTOK_EFFECTIVE_CONFIG="$T/dnsmasq.conf"
 export Z2K_TIKTOK_STATE_FILE="$T/state/tiktok-cdn.state"
 export Z2K_TIKTOK_CONFIG="$T/config"
 export Z2K_TIKTOK_APPLY_LOCK="$T/state/apply.lock"
@@ -35,9 +39,29 @@ case "$*" in
         _path=${2#*=}
         printf "dhcp.@dnsmasq[0].addnhosts='%s'\n" "$_path" >> "$UCI_TEST_DB"
         ;;
+    "add_list dhcp.@dnsmasq[0].address="*)
+        _entry=${2#*=}
+        printf "dhcp.@dnsmasq[0].address='%s'\n" "$_entry" >> "$UCI_TEST_DB"
+        ;;
     "del_list dhcp.@dnsmasq[0].addnhosts="*)
         _path=${2#*=}
-        awk -v path="$_path" 'index($0, ".addnhosts=\047" path "\047") == 0' "$UCI_TEST_DB" > "$UCI_TEST_DB.new"
+        awk -v path="$_path" '
+            $0 ~ /\.addnhosts=/ {
+                key=substr($0, 1, index($0, "=")-1)
+                value=substr($0, index($0, "=")+1)
+                needle="\047" path "\047"
+                gsub(needle, "", value)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+                if (value != "") print key "=" value
+                next
+            }
+            { print }
+        ' "$UCI_TEST_DB" > "$UCI_TEST_DB.new"
+        mv "$UCI_TEST_DB.new" "$UCI_TEST_DB"
+        ;;
+    "del_list dhcp.@dnsmasq[0].address="*)
+        _entry=${2#*=}
+        awk -v entry="$_entry" 'index($0, ".address=\047" entry "\047") == 0' "$UCI_TEST_DB" > "$UCI_TEST_DB.new"
         mv "$UCI_TEST_DB.new" "$UCI_TEST_DB"
         ;;
     *) exit 2 ;;
@@ -46,13 +70,19 @@ STUB
 cat > "$T/bin/nslookup" <<'STUB'
 #!/bin/sh
 printf '%s -> %s\n' "$2" "$1" >> "$NSLOOKUP_TEST_LOG"
-printf 'Server: %s\nAddress: %s:53\n\nNon-authoritative answer:\nName: %s\nAddress: %s\n' "$2" "$2" "$1" "$TIKTOK_DNS_IP"
+_ip=${TIKTOK_DNS_IP}
+if [ "$2" = 127.0.0.1 ]; then
+    _ip=$(sed -n 's#^address=/v77.tiktokcdn.com/##p' "$Z2K_TIKTOK_EFFECTIVE_CONFIG" 2>/dev/null | tail -1)
+    [ -n "$_ip" ] || _ip=${TIKTOK_LOCAL_DNS_IP:-$TIKTOK_DNS_IP}
+fi
+printf 'Server: %s\nAddress: %s:53\n\nNon-authoritative answer:\nName: %s\nAddress: %s\n' "$2" "$2" "$1" "$_ip"
 STUB
 cat > "$T/bin/curl" <<'STUB'
 #!/bin/sh
 _resolve=""
+printf '%s\n' "$*" >> "$CURL_ARGS_TEST_LOG"
 while [ "$#" -gt 0 ]; do
-    if [ "$1" = --resolve ]; then _resolve=$2; shift 2; continue; fi
+    if [ "$1" = --resolve ]; then _resolve=$2; printf '%s\n' "$2" >> "$CURL_RESOLVE_TEST_LOG"; shift 2; continue; fi
     shift
 done
 _ip=${_resolve##*:}
@@ -80,22 +110,37 @@ STUB
 cat > "$Z2K_TIKTOK_DNSMASQ_INIT" <<'STUB'
 #!/bin/sh
 printf '%s\n' "$*" >> "$DNSMASQ_TEST_LOG"
-[ "${1:-}" = reload ]
+[ "${1:-}" = restart ] || exit 1
+[ "${DNSMASQ_FAIL_RESTART:-0}" = 1 ] && exit 1
+: > "$Z2K_TIKTOK_EFFECTIVE_CONFIG"
+while IFS= read -r _line; do
+    case "$_line" in
+        *.address=*)
+            _entry=${_line#*=}
+            _entry=$(printf '%s' "$_entry" | tr -d "'\"")
+            printf 'address=%s\n' "$_entry" >> "$Z2K_TIKTOK_EFFECTIVE_CONFIG"
+            ;;
+    esac
+done < "$UCI_TEST_DB"
 STUB
 chmod 0755 "$T/bin/uci" "$T/bin/nslookup" "$T/bin/curl" "$Z2K_TIKTOK_DNSMASQ_INIT"
 
 # shellcheck disable=SC1090,SC1091
 . "$REPO/platform/openwrt/tiktok.sh"
 z2k_ow_tiktok_check || _t_bad "initial TikTok CDN selection succeeds"
-assert_contains "owned dnsmasq include is registered" "$UCI_TEST_DB" "$Z2K_TIKTOK_HOSTS_FILE"
-assert_contains "verified CDN is pinned with hosts syntax" "$Z2K_TIKTOK_HOSTS_FILE" '143.244.42.18 v77.tiktokcdn.com'
+assert_contains "verified CDN uses the native dnsmasq address override" "$UCI_TEST_DB" '/v77.tiktokcdn.com/143.244.42.18'
+assert_contains "effective dnsmasq config contains the selected IP" "$Z2K_TIKTOK_EFFECTIVE_CONFIG" 'address=/v77.tiktokcdn.com/143.244.42.18'
+assert_not_contains "new runtime does not register the legacy addnhosts file" "$UCI_TEST_DB" 'tiktok-cdn-hosts'
 assert_contains "state records healthy selection" "$Z2K_TIKTOK_STATE_FILE" 'state=healthy'
+assert_contains "state separates successful target verification" "$Z2K_TIKTOK_STATE_FILE" 'candidate_verified=1'
+assert_contains "state confirms effective DNS application" "$Z2K_TIKTOK_STATE_FILE" 'dns_override_applied=1'
 assert_contains "state records selected CDN" "$Z2K_TIKTOK_STATE_FILE" 'selected_ip=143.244.42.18'
 assert_contains "state persists the full discovery candidate pool" "$Z2K_TIKTOK_STATE_FILE" 'candidate_pool='
 assert_contains "state persists resolver discovery inputs" "$Z2K_TIKTOK_STATE_FILE" 'resolver_sources=1.1.1.1'
 assert_contains "state persists per-query DNS outcomes" "$Z2K_TIKTOK_STATE_FILE" '__QUERY__|v77.tiktokcdn.com'
 assert_contains "state persists probe observations" "$Z2K_TIKTOK_STATE_FILE" 'probe_observations='
-assert_file "ownership marker is persistent" "$Z2K_TIKTOK_UCI_MARKER"
+assert_file "native DNS ownership marker is persistent" "$Z2K_TIKTOK_ADDRESS_MARKER"
+assert_contains "native override always uses the managed target for TLS/SNI" "$CURL_TEST_LOG" '143.244.42.18'
 assert_contains "TLS/SNI probe headers and metrics are retained" "$Z2K_TIKTOK_STATE_FILE" 'x77_pop=ams'
 assert_contains "selected candidate source metadata is retained" "$Z2K_TIKTOK_STATE_FILE" 'selected_source_domain=v77.tiktokcdn.com'
 assert_contains "selected candidate retains all observed domains" "$Z2K_TIKTOK_STATE_FILE" 'selected_domains=v77.tiktokcdn.com,v16-cla.tiktokcdn.com,v16-ies-music.tiktokcdn.com,sf16-music.tiktokcdn-eu.com'
@@ -106,6 +151,16 @@ assert_contains "stable selection records a last verified epoch" "$Z2K_TIKTOK_ST
 assert_contains "TLS handshake time is recorded from SNI probe" "$Z2K_TIKTOK_STATE_FILE" 'tls_latency_ms=30'
 assert_contains "HTTP response and CDN POP headers are recorded" "$Z2K_TIKTOK_STATE_FILE" 'http_status=200'
 assert_eq "best initial candidate is repeated for stability" '2' "$(grep -c '^143.244.42.18$' "$CURL_TEST_LOG")"
+
+# A successful TLS probe is not enough to report healthy when applying the
+# effective dnsmasq address fails.
+export DNSMASQ_FAIL_RESTART=1
+if z2k_ow_tiktok_check explicit; then _t_bad "dnsmasq restart failure is reported"; else _t_ok; fi
+assert_contains "failed DNS apply has its own state" "$Z2K_TIKTOK_STATE_FILE" 'state=dns-apply-error'
+assert_contains "failed DNS apply preserves candidate verification" "$Z2K_TIKTOK_STATE_FILE" 'candidate_verified=1'
+assert_contains "failed DNS apply is explicitly false" "$Z2K_TIKTOK_STATE_FILE" 'dns_override_applied=0'
+unset DNSMASQ_FAIL_RESTART
+z2k_ow_tiktok_check explicit || _t_bad "DNS apply recovers after restart failure is removed"
 
 # A healthy candidate inside the 3600-second lease is probed directly without
 # rediscovery; scheduled and explicit checks still perform full evaluation.
@@ -133,14 +188,15 @@ assert_contains "kept incumbent retains its own source metadata" "$Z2K_TIKTOK_ST
 TIKTOK_PROBE_MODE=alt TIKTOK_DNS_IP=203.0.113.20
 z2k_ow_tiktok_check explicit || _t_bad "first selected-IP failure is handled"
 assert_contains "first failure preserves the current candidate" "$Z2K_TIKTOK_STATE_FILE" 'failure_count=1'
-assert_contains "first failure preserves the owned DNS pin" "$Z2K_TIKTOK_HOSTS_FILE" '143.244.42.18 v77.tiktokcdn.com'
+assert_contains "first failure preserves the owned DNS override" "$UCI_TEST_DB" '/v77.tiktokcdn.com/143.244.42.18'
 z2k_ow_tiktok_check explicit || _t_bad "second selected-IP failure triggers failover scan"
 assert_contains "verified alternate is selected after threshold" "$Z2K_TIKTOK_STATE_FILE" 'selected_ip=203.0.113.20'
 assert_contains "stability probe metadata is retained" "$Z2K_TIKTOK_STATE_FILE" 'x77_pop=fra'
 assert_contains "alternate uses the source stability repeat count" "$Z2K_TIKTOK_STATE_FILE" 'stability_probe_count=2'
 assert_contains "failover records previous and new selected addresses" "$Z2K_TIKTOK_STATE_FILE" 'last_failover_from=143.244.42.18'
 assert_contains "failover records destination" "$Z2K_TIKTOK_STATE_FILE" 'last_failover_to=203.0.113.20'
-assert_contains "DNS pin follows verified alternate" "$Z2K_TIKTOK_HOSTS_FILE" '203.0.113.20 v77.tiktokcdn.com'
+assert_contains "DNS override follows verified alternate" "$UCI_TEST_DB" '/v77.tiktokcdn.com/203.0.113.20'
+assert_contains "effective config follows verified failover" "$Z2K_TIKTOK_EFFECTIVE_CONFIG" 'address=/v77.tiktokcdn.com/203.0.113.20'
 
 # Repeated failures never erase the last known-good pin: the source fix is
 # fail-open before first selection and last-known-good thereafter.
@@ -148,7 +204,7 @@ TIKTOK_PROBE_MODE=fail
 z2k_ow_tiktok_check explicit || _t_bad "first post-failover failure handled"
 z2k_ow_tiktok_check explicit || _t_bad "repeated post-failover failure handled"
 assert_contains "repeated failure reports degraded health" "$Z2K_TIKTOK_STATE_FILE" 'state=degraded'
-assert_contains "repeated failure retains last known-good override" "$Z2K_TIKTOK_HOSTS_FILE" '203.0.113.20 v77.tiktokcdn.com'
+assert_contains "repeated failure retains last known-good override" "$UCI_TEST_DB" '/v77.tiktokcdn.com/203.0.113.20'
 
 # A user/upstream dnsmasq override has priority. The OpenWrt extension removes
 # only its own hosts record and does not delete the foreign setting.
@@ -157,7 +213,7 @@ if z2k_ow_tiktok_external_override; then _t_bad "unrelated DNS suffix is not tre
 grep -v 'not-v77\.tiktokcdn\.com' "$UCI_TEST_DB" > "$UCI_TEST_DB.new"; mv "$UCI_TEST_DB.new" "$UCI_TEST_DB"
 printf "dhcp.@dnsmasq[0].address='/v77.tiktokcdn.com/203.0.113.10'\n" >> "$UCI_TEST_DB"
 z2k_ow_tiktok_check || _t_bad "external TikTok DNS owner is accepted"
-[ ! -s "$Z2K_TIKTOK_HOSTS_FILE" ] && _t_ok || _t_bad "owned pin is cleared when an external owner appears"
+[ -z "$(grep -F '/v77.tiktokcdn.com/203.0.113.20' "$UCI_TEST_DB" 2>/dev/null)" ] && _t_ok || _t_bad "owned override is cleared when an external owner appears"
 assert_contains "foreign DNS override remains untouched" "$UCI_TEST_DB" '203.0.113.10'
 assert_contains "state exposes external ownership" "$Z2K_TIKTOK_STATE_FILE" 'state=external'
 
@@ -168,33 +224,114 @@ printf "dhcp.@dnsmasq[0].address='/example.org/198.51.100.1' '/v77.tiktokcdn.com
 if z2k_ow_tiktok_external_override; then _t_ok; else _t_bad "external owner in later UCI list value is detected"; fi
 grep -v '\.address=' "$UCI_TEST_DB" > "$UCI_TEST_DB.new"; mv "$UCI_TEST_DB.new" "$UCI_TEST_DB"
 
-# Exact UCI list membership must work when an unrelated addnhosts path precedes
-# the adapter-owned include in one `uci show` value.
+# Legacy addnhosts entries are migrated without removing a foreign list value.
 cp "$UCI_TEST_DB" "$T/uci.before-list-membership"
 grep -v '\.addnhosts=' "$UCI_TEST_DB" > "$UCI_TEST_DB.new"; mv "$UCI_TEST_DB.new" "$UCI_TEST_DB"
 printf "dhcp.@dnsmasq[0].addnhosts='/etc/other-hosts' '%s'\n" "$Z2K_TIKTOK_HOSTS_FILE" >> "$UCI_TEST_DB"
-if _z2k_ow_tiktok_registered; then _t_ok; else _t_bad "registered addnhosts path matches a later list member"; fi
-z2k_ow_tiktok_prepare || _t_bad "prepare recognizes owned include in later list position"
+printf '%s\n' "$Z2K_TIKTOK_HOSTS_FILE" > "$Z2K_TIKTOK_UCI_MARKER"
+printf '203.0.113.20 v77.tiktokcdn.com\n' > "$Z2K_TIKTOK_HOSTS_FILE"
+cp "$Z2K_TIKTOK_HOSTS_FILE" "$Z2K_TIKTOK_CONTENT_MARKER"
+_z2k_ow_tiktok_state_write healthy 203.0.113.20 35 0 1 migration-test
+z2k_ow_tiktok_prepare || _t_bad "prepare migrates the owned legacy include"
+assert_not_contains "migration removes the old TikTok addnhosts reference" "$UCI_TEST_DB" "$Z2K_TIKTOK_HOSTS_FILE"
+assert_contains "migration preserves the other addnhosts value" "$UCI_TEST_DB" '/etc/other-hosts'
+assert_contains "migration preserves the selected address in native config" "$UCI_TEST_DB" '/v77.tiktokcdn.com/203.0.113.20'
+[ ! -e "$Z2K_TIKTOK_HOSTS_FILE" ] && _t_ok || _t_bad "migration removes the owned legacy file"
 cp "$T/uci.before-list-membership" "$UCI_TEST_DB"
 
 grep -v '\.address=' "$UCI_TEST_DB" > "$UCI_TEST_DB.new"; mv "$UCI_TEST_DB.new" "$UCI_TEST_DB"
 z2k_ow_tiktok_disable || _t_bad "TikTok autofix disables cleanly"
 [ "$(awk -F= '$1=="Z2K_TIKTOK_FEED_ENABLED"{print $2}' "$Z2K_TIKTOK_CONFIG")" = 1 ] && _t_ok || _t_bad "adapter cleanup leaves config choice to caller"
-[ ! -s "$Z2K_TIKTOK_HOSTS_FILE" ] && _t_ok || _t_bad "disable clears only the owned pin"
+[ -z "$(grep -F '/v77.tiktokcdn.com/' "$UCI_TEST_DB" 2>/dev/null)" ] && _t_ok || _t_bad "disable clears the owned native override"
 TIKTOK_PROBE_MODE=ok TIKTOK_DNS_IP=143.244.42.18
 z2k_ow_tiktok_enable || _t_bad "TikTok autofix re-enables and probes"
-assert_contains "re-enable restores verified CDN" "$Z2K_TIKTOK_HOSTS_FILE" '143.244.42.18 v77.tiktokcdn.com'
+assert_contains "re-enable restores verified CDN" "$UCI_TEST_DB" '/v77.tiktokcdn.com/143.244.42.18'
+
+# Manual mode persists a chosen candidate, re-probes it against the target,
+# and keeps auto selection from silently changing it.
+TIKTOK_PROBE_MODE=alt TIKTOK_DNS_IP=203.0.113.20
+z2k_ow_tiktok_manual_select 203.0.113.20 || _t_bad "manual selection re-verifies and applies the candidate"
+assert_contains "manual choice persists its mode" "$Z2K_TIKTOK_CONFIG" 'Z2K_TIKTOK_MODE=manual'
+assert_contains "manual choice persists its IP" "$Z2K_TIKTOK_CONFIG" 'Z2K_TIKTOK_MANUAL_IP=203.0.113.20'
+assert_contains "manual choice applies a native target override" "$UCI_TEST_DB" '/v77.tiktokcdn.com/203.0.113.20'
+assert_contains "manual choice is effective in dnsmasq config" "$Z2K_TIKTOK_EFFECTIVE_CONFIG" 'address=/v77.tiktokcdn.com/203.0.113.20'
+assert_contains "manual choice records candidate verification" "$Z2K_TIKTOK_STATE_FILE" 'candidate_verified=1'
+assert_contains "manual choice records effective DNS application" "$Z2K_TIKTOK_STATE_FILE" 'dns_override_applied=1'
+_restart_choice=$(sh -c '. "$1"; printf "%s|%s" "$(z2k_ow_tiktok_mode)" "$( _z2k_ow_tiktok_manual_ip)"' sh "$REPO/platform/openwrt/tiktok.sh")
+assert_eq "manual mode and selected IP survive a runtime restart" 'manual|203.0.113.20' "$_restart_choice"
+TIKTOK_PROBE_MODE=ok TIKTOK_DNS_IP=143.244.42.18
+z2k_ow_tiktok_check explicit || _t_bad "scheduled verification keeps manual mode"
+assert_contains "auto evaluation does not overwrite a manual selection" "$Z2K_TIKTOK_STATE_FILE" 'selected_ip=203.0.113.20'
+assert_contains "manual selection remains the effective address" "$UCI_TEST_DB" '/v77.tiktokcdn.com/203.0.113.20'
+assert_contains "unavailable manual candidate remains selected" "$Z2K_TIKTOK_STATE_FILE" 'state=manual-unavailable'
+if z2k_ow_tiktok_manual_select 185.11.78.47; then _t_bad "manual selection rejects an unverified candidate"; else _t_ok; fi
+assert_contains "rejected manual IP does not replace persisted choice" "$Z2K_TIKTOK_CONFIG" 'Z2K_TIKTOK_MANUAL_IP=203.0.113.20'
+assert_contains "failed manual recheck does not replace the old DNS address" "$UCI_TEST_DB" '/v77.tiktokcdn.com/203.0.113.20'
+z2k_ow_tiktok_use_auto || _t_bad "returning to auto restores normal selection"
+assert_contains "auto mode clears the manual IP" "$Z2K_TIKTOK_CONFIG" 'Z2K_TIKTOK_MANUAL_IP='
+assert_contains "auto mode is persisted" "$Z2K_TIKTOK_CONFIG" 'Z2K_TIKTOK_MODE=auto'
+assert_contains "auto selection returns to the live verified candidate" "$Z2K_TIKTOK_STATE_FILE" 'selected_ip=143.244.42.18'
+
+# Returning to auto must serialize its persistent mode/IP writes against an
+# in-flight manual apply, then start the normal selection only after unlock.
+cp "$Z2K_TIKTOK_CONFIG" "$T/auto-lock.config"
+sed -i 's/^Z2K_TIKTOK_MODE=.*/Z2K_TIKTOK_MODE=manual/' "$T/auto-lock.config"
+sed -i 's/^Z2K_TIKTOK_MANUAL_IP=.*/Z2K_TIKTOK_MANUAL_IP=203.0.113.20/' "$T/auto-lock.config"
+if Z2K_TIKTOK_CONFIG="$T/auto-lock.config" sh -c '
+    . "$1"
+    lock_held=0
+    _z2k_ow_tiktok_apply_lock_acquire() { [ "$lock_held" = 0 ] || return 1; lock_held=1; }
+    _z2k_ow_tiktok_apply_lock_release() { [ "$lock_held" = 1 ] || return 1; lock_held=0; }
+    _z2k_ow_tiktok_config_set() {
+        [ "$lock_held" = 1 ] || return 1
+        awk -F= -v key="$1" -v value="$2" \
+            '\''$1 == key { print key "=" value; found=1; next } { print } END { if (!found) print key "=" value }'\'' \
+            "$Z2K_TIKTOK_CONFIG" > "$Z2K_TIKTOK_CONFIG.new" || return 1
+        mv "$Z2K_TIKTOK_CONFIG.new" "$Z2K_TIKTOK_CONFIG"
+    }
+    z2k_ow_tiktok_check() {
+        [ "$1" = explicit ] && [ "$lock_held" = 0 ] \
+            && [ "$(z2k_ow_tiktok_mode)" = auto ] && [ -z "$(_z2k_ow_tiktok_manual_ip)" ]
+    }
+    z2k_ow_tiktok_use_auto
+' sh "$REPO/platform/openwrt/tiktok.sh"; then
+    _t_ok
+else
+    _t_bad "auto mode persists under the apply lock and selects only after release"
+fi
+
+# ICMP is informational only; a failed ping cannot make the target TLS probe dead.
+cat > "$T/bin/ping" <<'STUB'
+#!/bin/sh
+exit 1
+STUB
+chmod +x "$T/bin/ping"
+TIKTOK_PROBE_MODE=ok TIKTOK_DNS_IP=143.244.42.18
+z2k_ow_tiktok_check explicit || _t_bad "TLS probe remains healthy when ICMP is blocked"
+assert_contains "ICMP failure does not mark a TLS-verified candidate dead" "$Z2K_TIKTOK_STATE_FILE" 'state=healthy'
+
+# Manual candidate scans are capped and every probe pins SNI to the managed target.
+: > "$CURL_TEST_LOG"; : > "$CURL_RESOLVE_TEST_LOG"; : > "$CURL_ARGS_TEST_LOG"
+Z2K_TIKTOK_CANDIDATE_LIMIT=4 Z2K_TIKTOK_CANDIDATE_PARALLELISM=2 z2k_ow_tiktok_probe_all \
+    || _t_bad "bounded candidate probe-all completes"
+assert_eq "probe-all respects its candidate limit" '4' "$(wc -l < "$CURL_TEST_LOG" | tr -d ' ')"
+assert_contains "candidate probe-all pins the managed target hostname" "$CURL_RESOLVE_TEST_LOG" 'v77.tiktokcdn.com:443:'
+assert_contains "candidate HTTPS probes request the managed target URL" "$CURL_ARGS_TEST_LOG" 'https://v77.tiktokcdn.com/'
+assert_not_contains "candidate HTTPS probes do not substitute a source-domain hostname" "$CURL_ARGS_TEST_LOG" 'https://v16-cla.tiktokcdn.com/'
+_duplicate_probes=$(sed -n 's/^probe_observations=//p' "$Z2K_TIKTOK_STATE_FILE" \
+    | tr ';' '\n' | cut -d'|' -f1 | sort | uniq -d)
+assert_eq "probe-all records each candidate once" '' "$_duplicate_probes"
+_duplicate_candidates=$(sed -n 's/^candidate_pool=//p' "$Z2K_TIKTOK_STATE_FILE" \
+    | tr ';' '\n' | cut -d'|' -f1 | sort | uniq -d)
+assert_eq "discovery plus curated candidate list contains unique IPs" '' "$_duplicate_candidates"
 
 # A replacement record for the same hostname is foreign until the stored exact
 # content ownership proof agrees; disable must preserve that record.
-printf '198.51.100.7 v77.tiktokcdn.com\n' > "$Z2K_TIKTOK_HOSTS_FILE"
-z2k_ow_tiktok_disable || _t_bad "disable completes while preserving a foreign replacement IP"
-if [ "$(cat "$Z2K_TIKTOK_CONTENT_MARKER")" = '143.244.42.18 v77.tiktokcdn.com' ]; then _t_ok; else _t_bad "content ownership marker retains last applied exact entry"; fi
-assert_contains "disable preserves the foreign replacement record" "$Z2K_TIKTOK_HOSTS_FILE" '198.51.100.7 v77.tiktokcdn.com'
-if z2k_ow_tiktok_prepare; then _t_bad "prepare refuses to overwrite a foreign replacement IP"; else _t_ok; fi
-assert_contains "prepare keeps the foreign replacement record intact" "$Z2K_TIKTOK_HOSTS_FILE" '198.51.100.7 v77.tiktokcdn.com'
-printf '143.244.42.18 v77.tiktokcdn.com\n' > "$Z2K_TIKTOK_HOSTS_FILE"
-cp "$Z2K_TIKTOK_HOSTS_FILE" "$Z2K_TIKTOK_CONTENT_MARKER"
+printf "dhcp.@dnsmasq[0].address='/v77.tiktokcdn.com/198.51.100.7'\n" >> "$UCI_TEST_DB"
+z2k_ow_tiktok_disable || _t_bad "disable removes its address and preserves a foreign replacement"
+assert_contains "disable preserves the foreign dnsmasq address" "$UCI_TEST_DB" '/v77.tiktokcdn.com/198.51.100.7'
+if z2k_ow_tiktok_external_override; then _t_ok; else _t_bad "foreign same-host address remains external after disable"; fi
+grep -v '\.address=' "$UCI_TEST_DB" > "$UCI_TEST_DB.new"; mv "$UCI_TEST_DB.new" "$UCI_TEST_DB"
 
 # Periodic lifecycle guard: a check that overlaps service stop may finish its
 # network probes, but it must not be able to write a new DNS pin afterwards.
@@ -247,8 +384,7 @@ printf 'Z2K_TIKTOK_FEED_ENABLED=1\n' > "$Z2K_TIKTOK_CONFIG"
 
 # The source loop bounds the original candidate-pool index at 12 before it
 # skips the selected IP. A healthy thirteenth candidate must remain excluded.
-printf '143.244.42.18 v77.tiktokcdn.com\n' > "$Z2K_TIKTOK_HOSTS_FILE"
-cp "$Z2K_TIKTOK_HOSTS_FILE" "$Z2K_TIKTOK_CONTENT_MARKER"
+_z2k_ow_tiktok_set_host 143.244.42.18 || _t_bad "race precondition installs the owned address"
 _now=$(date +%s)
 _z2k_ow_tiktok_state_write healthy 143.244.42.18 100 1 1 test-index-bound 1 1 1
 _z2k_ow_tiktok_discover_candidates() { :; }
@@ -277,8 +413,7 @@ latency_ms=80
 failure_count=0
 last_verified_epoch=$(date +%s)
 EOF_LEGACY
-printf '143.244.42.18 v77.tiktokcdn.com\n' > "$Z2K_TIKTOK_HOSTS_FILE"
-cp "$Z2K_TIKTOK_HOSTS_FILE" "$Z2K_TIKTOK_CONTENT_MARKER"
+_z2k_ow_tiktok_set_host 143.244.42.18 || _t_bad "legacy selection precondition installs its current address"
 z2k_ow_tiktok_check explicit || _t_bad "legacy selected IP migrates during verification"
 assert_contains "legacy selection is labeled with legacy provenance" "$Z2K_TIKTOK_STATE_FILE" 'selected_mode=legacy'
 assert_contains "legacy selection source is retained" "$Z2K_TIKTOK_STATE_FILE" 'selected_provenance=legacy'
@@ -286,8 +421,7 @@ assert_contains "legacy selection source is retained" "$Z2K_TIKTOK_STATE_FILE" '
 # The winner's mandatory stability repeat is independent of its first success;
 # a failed repeat must reject it and retain the previous selected address.
 _current="198.51.100.99"
-printf '%s v77.tiktokcdn.com\n' "$_current" > "$Z2K_TIKTOK_HOSTS_FILE"
-cp "$Z2K_TIKTOK_HOSTS_FILE" "$Z2K_TIKTOK_CONTENT_MARKER"
+_z2k_ow_tiktok_set_host "$_current" || _t_bad "stability precondition installs its current address"
 _z2k_ow_tiktok_state_write healthy "$_current" 100 1 1 test-stability-repeat
 _z2k_ow_tiktok_candidate_pool() {
     printf '%s||||||||0|0|0\n' "$_current"
@@ -307,25 +441,14 @@ TIKTOK_PROBE_MODE=fail
 z2k_ow_tiktok_check explicit || _t_bad "initial probe exhaustion is handled"
 assert_contains "first-run failure is degraded" "$Z2K_TIKTOK_STATE_FILE" 'state=degraded'
 [ -z "$(awk -F= '$1=="selected_ip"{print $2}' "$Z2K_TIKTOK_STATE_FILE")" ] && _t_ok || _t_bad "first-run fail-open has no selected IP"
-[ ! -s "$Z2K_TIKTOK_HOSTS_FILE" ] && _t_ok || _t_bad "first-run fail-open installs no DNS pin"
+[ -z "$(grep -F '/v77.tiktokcdn.com/' "$UCI_TEST_DB" 2>/dev/null)" ] && _t_ok || _t_bad "first-run fail-open installs no DNS pin"
 
-# If another package has added records to the shared path, uninstall must not
-# unregister or delete that file just because the original marker exists.
-cp "$UCI_TEST_DB" "$T/uci.before-uninstall"
-cp "$Z2K_TIKTOK_UCI_MARKER" "$T/marker.before-uninstall"
-cp "$Z2K_TIKTOK_HOSTS_FILE" "$T/hosts.before-uninstall"
-printf '198.51.100.9 other-package.example\n' > "$Z2K_TIKTOK_HOSTS_FILE"
-if z2k_ow_tiktok_uninstall; then _t_bad "uninstall refuses externally modified owned include"; else _t_ok; fi
-assert_contains "uninstall leaves the shared UCI addnhosts registration" "$UCI_TEST_DB" "$Z2K_TIKTOK_HOSTS_FILE"
-assert_contains "uninstall preserves the external addnhosts entry" "$Z2K_TIKTOK_HOSTS_FILE" 'other-package.example'
-assert_file "uninstall retains ownership marker after refusing foreign content" "$Z2K_TIKTOK_UCI_MARKER"
-cp "$T/uci.before-uninstall" "$UCI_TEST_DB"
-cp "$T/marker.before-uninstall" "$Z2K_TIKTOK_UCI_MARKER"
-cp "$T/hosts.before-uninstall" "$Z2K_TIKTOK_HOSTS_FILE"
-
+# Uninstall removes its marked exact address and preserves every foreign DNS entry.
+printf "dhcp.@dnsmasq[0].hostrecord='foreign.example,198.51.100.9'\n" >> "$UCI_TEST_DB"
 z2k_ow_tiktok_uninstall || _t_bad "TikTok adapter cleanup succeeds"
-assert_not_contains "uninstall removes only its addnhosts reference" "$UCI_TEST_DB" 'tiktok-cdn-hosts'
+assert_not_contains "uninstall removes only its managed address" "$UCI_TEST_DB" '/v77.tiktokcdn.com/'
+assert_contains "uninstall preserves foreign dnsmasq records" "$UCI_TEST_DB" 'foreign.example,198.51.100.9'
 [ ! -e "$Z2K_TIKTOK_HOSTS_FILE" ] && _t_ok || _t_bad "uninstall removes owned TikTok hosts file"
-[ ! -e "$Z2K_TIKTOK_UCI_MARKER" ] && _t_ok || _t_bad "uninstall removes TikTok ownership marker"
+[ ! -e "$Z2K_TIKTOK_ADDRESS_MARKER" ] && _t_ok || _t_bad "uninstall removes native ownership marker"
 
 _t_done
