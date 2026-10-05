@@ -46,7 +46,8 @@ assert_eq "UI names recovery state" "1" "$(count 'соединение поте�
 assert_eq "WDTT toggle row" "1" "$(count 'id="warp-wdtt-row"')"
 assert_eq "WDTT toggle endpoint" "1" "$(count '"/warp/wdtt"')"
 assert_eq "WDTT defaults from public status" "1" "$(count 'wdttBox.checked = !!d.wdtt_enabled')"
-assert_eq "WDTT control only appears when installed" "1" "$(count 'wdttRow.hidden = !installed')"
+assert_eq "WDTT control requires a configured WireGuard server" "1" "$(count 'wdttRow.hidden = !installed || !wgServerAvailable')"
+assert_eq "WDTT capability comes from public status" "1" "$(count 'd.wg_server_available === true')"
 
 if command -v node >/dev/null 2>&1; then
     JS=$(sh "$ROOT/tests/lib/panel_js.sh")

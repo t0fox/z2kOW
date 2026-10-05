@@ -628,18 +628,9 @@ warp_nft_rules_apply() {
     nft add chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
         '{ type filter hook prerouting priority -150; }' 2>/dev/null ||
         nft list chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" >/dev/null 2>&1 || return 1
-    nft add chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MSS" \
-        '{ type filter hook forward priority -150; }' 2>/dev/null ||
-        nft list chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MSS" >/dev/null 2>&1 || return 1
-    nft add chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_FWD" \
-        '{ type filter hook forward priority -1; }' 2>/dev/null ||
-        nft list chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_FWD" >/dev/null 2>&1 || return 1
-    nft add chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_NAT" \
-        '{ type nat hook postrouting priority 100; }' 2>/dev/null ||
-        nft list chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_NAT" >/dev/null 2>&1 || return 1
-    for _c in "$WARP_CHAIN_MARK" "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
-        nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$_c" 2>/dev/null || return 1
-    done
+    # This function owns only the MARK/policy chain. MSS/FWD/NAT belong to
+    # warp_nft_tun_apply() and must survive a policy-only reconcile.
+    nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" 2>/dev/null || return 1
     _wg_ifaces="$(warp_wireguard_server_devices 2>/dev/null || true)"
     for _wg_iface in $_wg_ifaces; do
         if [ "$_wdtt_active" = 1 ]; then
@@ -1958,6 +1949,8 @@ warp_reload_lists() {
 # noop (enable зальёт полностью сам).
 # Совпадает с keenetic-вербом `ipset` files/z2k-warp.sh по контракту вызова.
 warp_ipset() {
+    local _reconcile_rules=0
+    [ "${1:-}" = "--reconcile-rules" ] && _reconcile_rules=1
     [ "$(warp_flag)" = "1" ] || return 0
     warp_nft_sets_load || return 1
     # WebUI calls this after any live list save/toggle.  Domain additions and
@@ -1967,10 +1960,17 @@ warp_ipset() {
     # list edits keep the existing fast path and do not flush WARP chains.
     local _domain_rules
     _domain_rules="$(warp_validated_domains 2>/dev/null)"
-    if [ "${1:-}" = "--reconcile-rules" ] || [ -n "$_domain_rules" ] || \
+    if [ "$_reconcile_rules" = "1" ] || [ -n "$_domain_rules" ] || \
        nft list table "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" >/dev/null 2>&1 || \
        nft list set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" >/dev/null 2>&1; then
         warp_nft_rules_apply || return 1
+    fi
+    if [ "$_reconcile_rules" = "1" ] && _warp_proven_ready; then
+        _warp_verify_confirm warp_nft_sets_verify >/dev/null 2>&1 || return 1
+        # Reconcile is successful only when the complete pre-existing
+        # routing proof still holds. This is read-only and preserves the
+        # transient-read retry contract used by status/health checks.
+        warp_status_routing_proofs >/dev/null 2>&1 || return 1
     fi
     return 0
 }
@@ -1989,10 +1989,12 @@ warp_selfheal() {
 
 warp_status() {
     local _installed=0 _running=0 _ready=0 _route_ready=0
+    local _wg_server_available=0
     local _entries=0 _devices=0 _error="" _state="off"
     local _domain_active=0 _domain_rules=0 _domain_pairs=0 _domain_skipped=0 _domain_overflow=0 _domain_error=""
     local _route_error="" _route_error_at=0
     [ -x "$WARP_BIN" ] && _installed=1
+    warp_wireguard_server_devices 2>/dev/null | grep -q . && _wg_server_available=1
     warp_running && _running=1
     _warp_proven_ready >/dev/null 2>&1 && _ready=1
     warp_status_routing_proofs >/dev/null 2>&1 && _route_ready=1
@@ -2048,7 +2050,7 @@ warp_status() {
         [ -s "$WARP_DOMAIN_ERROR" ] || _domain_error=""
     fi
     _domain_error=$(printf '%s' "$_domain_error" | tr ' \t\r\n' '_' | cut -c1-120)
-    printf 'installed=%s enabled=%s running=%s ready=%s route_ready=%s state=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s domain_active=%s domain_rules=%s domain_pairs=%s domain_skipped=%s domain_overflow=%s domain_error=%s edge_colo=%s edge_country=%s edge_rtt_ms=%s edge_checked_at=%s edge_selection=%s tunnel=%s interface=%s nft_mark=%s tun=%s pbr=%s owner=%s route_error=%s route_error_at=%s\n' \
+    printf 'installed=%s enabled=%s running=%s ready=%s route_ready=%s state=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s domain_active=%s domain_rules=%s domain_pairs=%s domain_skipped=%s domain_overflow=%s domain_error=%s edge_colo=%s edge_country=%s edge_rtt_ms=%s edge_checked_at=%s edge_selection=%s tunnel=%s interface=%s nft_mark=%s tun=%s pbr=%s owner=%s route_error=%s route_error_at=%s wg_server_available=%s\n' \
         "$_installed" "$(warp_flag)" "$_running" "$_ready" "$_route_ready" "$_state" \
         "$(_json_str "$WARP_STATUS" transport)" "$(_json_str "$WARP_STATUS" endpoint)" \
         "$(_json_str "$WARP_STATUS" iface)" "$(_json_str "$WARP_STATUS" addr)" \
@@ -2060,7 +2062,7 @@ warp_status() {
         "$(_json_str "$WARP_STATUS" edge_selection)" \
         "$WARP_ROUTE_TUNNEL" "$WARP_ROUTE_INTERFACE" "$WARP_ROUTE_NFT_MARK" \
         "$WARP_ROUTE_TUN" "$WARP_ROUTE_PBR" "$WARP_ROUTE_OWNER" \
-        "${_route_error:-none}" "$_route_error_at"
+        "${_route_error:-none}" "$_route_error_at" "$_wg_server_available"
 }
 
 # --- топология lifecycle ---

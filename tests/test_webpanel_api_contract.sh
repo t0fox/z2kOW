@@ -98,6 +98,7 @@ cp "$SCRIPT_DIR/webpanel/cgi/api.sh" "$SCRIPT_DIR/webpanel/cgi/auth.sh" \
    "$SCRIPT_DIR/webpanel/cgi/actions.sh" "$STUBDIR/"
 cat >> "$STUBDIR/actions.sh" <<'STUB'
 is_running() { [ -f "${Z2K_TEST_RUNNING:-/nonexistent}" ]; }
+warp_ipset_reload_if_enabled() { printf '%s\n' "${1:-}" >> "$SB/warp-ipset-reloads"; return 0; }
 STUB
 Z2K_TEST_RUNNING="$SB/running"; export Z2K_TEST_RUNNING
 
@@ -225,7 +226,7 @@ WARP_SCRIPT="$SB/warp-stub.sh"; export WARP_SCRIPT
 cat > "$WARP_SCRIPT" <<'WSTUB'
 #!/bin/sh
 case "$1" in
-    status) echo 'installed=1 enabled=1 running=1 ready=1 route_ready=0 state=tunnel transport=wg endpoint=8.6.112.0:2408 iface=z2ktun0 addr=172.16.0.2 entries=12 devices=2 error= mem=27136 plan=unlimited plan_err=0 license=1 edge_colo=FRA edge_country=DE edge_rtt_ms=28 edge_checked_at=1790337600 edge_selection=foreign' ;;
+    status) echo 'installed=1 enabled=1 running=1 ready=1 route_ready=0 state=tunnel transport=wg endpoint=8.6.112.0:2408 iface=z2ktun0 addr=172.16.0.2 entries=12 devices=2 error= mem=27136 plan=unlimited plan_err=0 license=1 edge_colo=FRA edge_country=DE edge_rtt_ms=28 edge_checked_at=1790337600 edge_selection=foreign wg_server_available=1' ;;
     license) cat > "$LICENSE_GOT" ;;
     ipset)  : ;;
     migrate) mkdir -p "$WARP_LISTS_DIR"; touch "$WARP_LISTS_DIR/.legacy-aggregate-purged" ;;
@@ -252,8 +253,35 @@ assert_eq "warp/status — mem_kb из скрипта"      "27136"           "$
 assert_eq "warp/status — тип аккаунта"            "unlimited"       "$(jget "$OUT" 'd["plan"]')"
 assert_eq "warp/status — ключ сохранён"           "true"            "$(jget "$OUT" 'd["license"]')"
 assert_eq "warp/status — ошибки привязки нет"     "false"           "$(jget "$OUT" 'd["plan_error"]')"
+assert_eq "warp/status — WireGuard server capability" "true" "$(jget "$OUT" 'd["wg_server_available"]')"
+
+sed 's/wg_server_available=1/wg_server_available=0/' "$WARP_SCRIPT" > "$WARP_SCRIPT.new"
+mv "$WARP_SCRIPT.new" "$WARP_SCRIPT"; chmod +x "$WARP_SCRIPT"
+OUT=$(cgi GET /warp/status "" | cgi_body)
+assert_eq "warp/status — capability отсутствует без WG server" "false" "$(jget "$OUT" 'd["wg_server_available"]')"
+sed 's/wg_server_available=0/wg_server_available=1/' "$WARP_SCRIPT" > "$WARP_SCRIPT.new"
+mv "$WARP_SCRIPT.new" "$WARP_SCRIPT"; chmod +x "$WARP_SCRIPT"
+
+printf "\n--- WARP policy toggles request full rules reconcile ---\n"
+WARP_GAMES_DIR="$WARP_LISTS_DIR/games"; export WARP_GAMES_DIR
+mkdir -p "$WARP_GAMES_DIR"
+touch "$WARP_LISTS_DIR/.legacy-aggregate-purged"
+printf '5.5.5.5\n' > "$WARP_GAMES_DIR/steam.txt"
+printf '1.2.3.4\n' > "$WARP_LISTS_DIR/custom.txt"
+printf 'GAME_WARP_ENABLED=1\n' > "$CONFIG_FILE"
+printf 'name=steam&value=0\n' > "$SB/tg.body"
+: > "$SB/warp-ipset-reloads"
+OUT=$(cgi_stub POST /warp/games/toggle "" "$SB/tg.body" | cgi_body)
+assert_eq "game toggle API succeeds" "true" "$(jget "$OUT" 'd["ok"]')"
+assert_eq "game toggle API requests MARK reconcile" "--reconcile-rules" "$(cat "$SB/warp-ipset-reloads")"
+printf 'name=custom&value=0\n' > "$SB/tg.body"
+: > "$SB/warp-ipset-reloads"
+OUT=$(cgi_stub POST /warp/list/toggle "" "$SB/tg.body" | cgi_body)
+assert_eq "list toggle API succeeds" "true" "$(jget "$OUT" 'd["ok"]')"
+assert_eq "list toggle API requests MARK reconcile" "--reconcile-rules" "$(cat "$SB/warp-ipset-reloads")"
 
 
+OUT=$(cgi GET /warp/status "" | cgi_body)
 assert_eq "warp/status — выбор транспорта по умолчанию автомат" "auto" "$(jget "$OUT" 'd["transport_mode"]')"
 printf 'ENABLED=1\nGAME_WARP_ENABLED=1\nZ2K_WARP_TRANSPORT=h2\n' > "$CONFIG_FILE"
 OUT=$(cgi GET /warp/status "" | cgi_body)

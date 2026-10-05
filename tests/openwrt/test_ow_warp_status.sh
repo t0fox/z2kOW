@@ -180,10 +180,16 @@ mkdir -p "$WARP_GAMES_DIR"
 printf '8.8.8.8\n' > "$WARP_GAMES_DIR/steam.txt"
 printf 'steam\n' > "$WARP_ENABLED_FILE"
 printf '192.168.1.50\n' > "$WARP_DEVICES_FILE"
+# This suite's nft fake verifies the resulting MARK shape but does not model
+# live set contents. Keep the adapter in its not-yet-proven-ready path here;
+# full post-reconcile set/TUN/PBR proofs are exercised with stateful nft in the
+# production device-toggle acceptance in test_ow_warp_functional.sh.
+printf '{"ready":false,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg"}\n' > "$WARP_STATUS"
 : > "$T/nft.log"
 warp_ipset --reconcile-rules || _t_bad "device apply while route-ready rc"
 assert_contains "live device apply installs source+destination MARK rule" "$T/nft.log" \
     'nft:add rule inet zapret2 z2k_warp_mark ip saddr @z2k_warp_src4 ip daddr @z2k_warp_dst4 meta mark set'
+printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg","endpoint":"162.159.192.6:2408","edge_colo":"FRA","edge_country":"DE","edge_rtt_ms":42,"edge_selection":"foreign"}\n' > "$WARP_STATUS"
 _out="$(warp_status)"
 printf '%s\n' "$_out" > "$T/status-device-geo.log"
 assert_contains "device apply keeps OpenWrt routing ready" "$T/status-device-geo.log" "route_ready=1"

@@ -519,9 +519,10 @@ async function loadWarpStatus() {
   if (transportBox) transportBox.hidden = !installed;
   const wdttRow = document.getElementById("warp-wdtt-row");
   const wdttBox = document.getElementById("warp-wdtt-toggle");
-  if (wdttRow) wdttRow.hidden = !installed;
+  const wgServerAvailable = d.wg_server_available === true;
+  if (wdttRow) wdttRow.hidden = !installed || !wgServerAvailable;
   if (wdttBox) wdttBox.checked = !!d.wdtt_enabled;
-  if (wdttBox) wdttBox.disabled = !installed || warpActing();
+  if (wdttBox) wdttBox.disabled = !installed || !wgServerAvailable || warpActing();
   const plusBox = document.getElementById("warp-plus");
   if (plusBox) plusBox.hidden = !installed;
   const plusState = document.getElementById("warp-plus-state");

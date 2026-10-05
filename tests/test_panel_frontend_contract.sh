@@ -1047,7 +1047,8 @@ const SCENARIOS = {
       ROUTER = async (p, method) => {
         if (p === "/warp/status") return { ok: true, enabled: "1", installed: true, ready: true,
           transport: "wg", endpoint: "188.114.96.23:2408", iface: "z2ktun0", addr: "172.16.0.2",
-          entries: 1, devices: 0, error: "", mem_kb: 27136, transport_mode: "auto", wdtt_enabled: false };
+          entries: 1, devices: 0, error: "", mem_kb: 27136, transport_mode: "auto", wdtt_enabled: false,
+          wg_server_available: true };
         if (p === "/warp/games") return { ok: true, games: [] };
         if (p === "/warp/lists") return { ok: true, lists: [] };
         if (p === "/warp/neighbors") return { ok: true, devices: [] };
@@ -1065,6 +1066,29 @@ const SCENARIOS = {
       await sleep(80);
       check("WDTT enable is applied through dedicated API",
             postedValue("/warp/wdtt") === "1", BODIES["/warp/wdtt"]);
+    },
+  },
+
+  warp_wdtt_hidden_without_server: {
+    hash: "#/warp",
+    setup() {
+      ROUTER = async (p) => {
+        if (p === "/warp/status") return { ok: true, enabled: "1", installed: true, ready: true,
+          transport: "wg", endpoint: "188.114.96.23:2408", iface: "z2ktun0", addr: "172.16.0.2",
+          entries: 1, devices: 0, error: "", mem_kb: 27136, transport_mode: "auto",
+          wdtt_enabled: true, wg_server_available: false };
+        if (p === "/warp/games") return { ok: true, games: [] };
+        if (p === "/warp/lists") return { ok: true, lists: [] };
+        if (p === "/warp/neighbors") return { ok: true, devices: [] };
+        return { ok: true };
+      };
+    },
+    async run() {
+      await sleep(100);
+      const row = q("#warp-wdtt-row");
+      const box = q("#warp-wdtt-toggle");
+      check("WDTT is hidden without a WireGuard server", row.hidden === true, "hidden=" + row.hidden);
+      check("WDTT is disabled without a WireGuard server", box.disabled === true, "disabled=" + box.disabled);
     },
   },
 
@@ -1455,6 +1479,11 @@ for scen in flowoffload_none flowoffload_unconfirmed flowoffload_hardware \
     PASS=$((PASS + $(printf '%s\n' "$out" | grep -c '^\[PASS\]')))
     FAIL=$((FAIL + $(printf '%s\n' "$out" | grep -c '^\[FAIL\]')))
 done
+
+out=$(run_scen "$JS" warp_wdtt_hidden_without_server)
+printf '%s\n' "$out"
+PASS=$((PASS + $(printf '%s\n' "$out" | grep -c '^\[PASS\]')))
+FAIL=$((FAIL + $(printf '%s\n' "$out" | grep -c '^\[FAIL\]')))
 
 # ---------------------------------------------------------------------------
 # Мета: сломать ровно ту строку, ради которой сценарий написан, и убедиться,

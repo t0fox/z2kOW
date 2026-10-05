@@ -862,7 +862,9 @@ case "$method $path" in
         w_mode=$(read_flag "Z2K_WARP_TRANSPORT" "$CONFIG_FILE" "auto")
         case "$w_mode" in wg|h2) ;; *) w_mode=auto ;; esac
         w_wdtt=false; [ "$(_wf wdtt)" = "1" ] && w_wdtt=true
-        printf ',"transport_mode":"%s","wdtt_enabled":%s}\n' "$w_mode" "$w_wdtt"
+        w_wg_server=false; [ "$(_wf wg_server_available)" = "1" ] && w_wg_server=true
+        printf ',"transport_mode":"%s","wdtt_enabled":%s,"wg_server_available":%s}\n' \
+            "$w_mode" "$w_wdtt" "$w_wg_server"
         exit 0
         ;;
 
@@ -1232,7 +1234,7 @@ case "$method $path" in
         warp_game_toggle "$g_name" "$g_val" || json_fail "400 Bad Request" "toggle failed"
         # Same live-apply path the list editor uses: the set is rebuilt on the
         # spot, so a switch takes effect without a restart.
-        warp_ipset_reload_if_enabled
+        warp_ipset_reload_if_enabled --reconcile-rules
         json_header
         printf '{"ok":true,"name":'; json_string "$g_name"
         printf ',"enabled":%s}\n' "$g_val"
@@ -1318,7 +1320,7 @@ case "$method $path" in
             *) json_fail "400 Bad Request" "value must be 0 or 1" ;;
         esac
         warp_list_toggle "$l_name" "$l_val" || json_fail "400 Bad Request" "toggle failed"
-        warp_ipset_reload_if_enabled
+        warp_ipset_reload_if_enabled --reconcile-rules
         json_header
         printf '{"ok":true,"name":'; json_string "$l_name"
         printf ',"on":%s}\n' "$l_val"

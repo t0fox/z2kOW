@@ -6,6 +6,7 @@ _t_plan "ow-warp-functional"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-warpf.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
+export T
 
 mkdir -p "$T/bin" "$T/root/bin" "$T/root/platform/openwrt/bin/linux-arm64" "$T/etc" "$T/etc/state/warp" "$T/etc/user-lists/warp/games" "$T/root/lists/warp/games" "$T/tmp/warp" "$T/proc"
 export PATH="$T/bin:$PATH"
@@ -496,6 +497,9 @@ fi
 
 # A selected-device change must rebuild the canonical MARK shape even when
 # there are no domain observers. Exercise the real adapter implementation.
+# These shape-only cases use the log-only nft fake below the readiness proof;
+# keep the daemon not-ready so --reconcile-rules correctly skips live proofs.
+printf '{"ready":false,"iface":"z2ktun0","addr":"172.16.9.9"}\n' > "$T/tmp/warp/status.json"
 : > "$WARP_LISTS_DIR/.disabled"
 printf 'steam\n' > "$WARP_ENABLED_FILE"
 printf '192.168.1.50\n' > "$WARP_DEVICES_FILE"
@@ -755,5 +759,120 @@ mv "$T/nft-chain-z2k_warp_mark.new" "$T/nft-chain-z2k_warp_mark"
 printf ' iifname "wgserver" return\n' >> "$T/nft-chain-z2k_warp_mark"
 warp_nft_rules_verify && _t_ok || _t_bad "disabled WDTT accepts direct WireGuard server clients"
 rm -f "$T/uci-wireguard-enabled"
+
+# Production-path regression: the real WebPanel device commit launches the
+# actual platform adapter. Only nft/ip/uci are modeled; no apply helper is
+# replaced. A MARK-only reconcile must preserve all TUN-owned chains and every
+# route proof after the first selected LAN device is applied.
+cp "$REPO/tests/openwrt/fixtures/nft-stateful.sh" "$T/bin/nft"
+chmod +x "$T/bin/nft"
+rm -rf "$T/nft-state"
+rm -f "$T/nft-domain-table" "$T/nft-domain-set" "$T/nft-domain-chain-z2k_dns_output" \
+    "$T/nft-domain-chain-z2k_dns_forward" "$T/no-table" "$T/fw4-forward" "$T/uci-wireguard-enabled"
+: > "$T/nft.log"
+: > "$T/neigh"
+: > "$T/ip-rules"
+rm -f "$T"/ip-route-* "$T/tmp/warp/pbr.owner" "$T/tmp/warp/probe-route.owner" \
+    "$WARP_LISTS_DIR/mine.txt"
+printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_WDTT=0\n' > "$T/etc/config"
+: > "$WARP_DEVICES_FILE"
+printf 'steam\n' > "$WARP_ENABLED_FILE"
+: > "$WARP_LISTS_DIR/.disabled"
+printf '8.8.8.8\n' > "$WARP_GAMES_DIR/steam.txt"
+: > "$WARP_DOMAIN_RULES"
+rm -f "$WARP_DOMAIN_ERROR"
+touch "$WARP_LISTS_DIR/.legacy-aggregate-purged"
+printf '192.168.1.50 dev br-lan lladdr aa:bb:cc:dd:ee:ff REACHABLE\n' > "$T/neigh"
+printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg"}\n' > "$T/tmp/warp/status.json"
+warp_nft_sets_load || _t_bad "acceptance initial sets apply"
+warp_nft_rules_apply || _t_bad "acceptance initial MARK apply"
+warp_nft_tun_apply z2ktun0 || _t_bad "acceptance initial TUN apply"
+warp_pbr_up || _t_bad "acceptance initial PBR apply"
+_initial_route="$(warp_status)"
+printf '%s\n' "$_initial_route" > "$T/acceptance-initial-route.log"
+assert_contains "acceptance starts route-ready" "$T/acceptance-initial-route.log" "route_ready=1"
+_tun_before="$(for _c in z2k_warp_mss z2k_warp_fwd z2k_warp_nat; do nft list chain inet zapret2 "$_c"; done)"
+_pbr_before="$(cat "$T/ip-rules"; cat "$T/ip-route-989"; cat "$T/tmp/warp/pbr.owner")"
+unset Z2K_WARP_SOURCE_ONLY
+export WARP_SCRIPT="$REPO/platform/openwrt/warp.sh" CONFIG_FILE="$T/etc/config"
+. "$REPO/webpanel/cgi/actions.sh" 2>/dev/null
+warp_device_toggle aa:bb:cc:dd:ee:ff 1 || _t_bad "production WebPanel device toggle ON"
+_src_after="$(nft list set inet zapret2 z2k_warp_src4)"
+printf '%s\n' "$_src_after" > "$T/acceptance-source-set.log"
+assert_contains "production toggle changes source set" "$T/acceptance-source-set.log" "192.168.1.50"
+_tun_after="$(for _c in z2k_warp_mss z2k_warp_fwd z2k_warp_nat; do nft list chain inet zapret2 "$_c"; done)"
+_pbr_after="$(cat "$T/ip-rules"; cat "$T/ip-route-989"; cat "$T/tmp/warp/pbr.owner")"
+assert_eq "production device reconcile preserves TUN chains" "$_tun_before" "$_tun_after"
+assert_eq "production device reconcile preserves PBR and owner" "$_pbr_before" "$_pbr_after"
+_device_route="$(warp_status)"
+printf '%s\n' "$_device_route" > "$T/production-device-route.log"
+printf 'ROUTE[device-on]: %s\n' "$_device_route"
+assert_contains "production device toggle retains full route proof" "$T/production-device-route.log" "route_ready=1"
+assert_contains "production device toggle proves MARK" "$T/production-device-route.log" "nft_mark=present"
+assert_contains "production device toggle proves TUN" "$T/production-device-route.log" "tun=present"
+assert_contains "production device toggle proves PBR and owner" "$T/production-device-route.log" "pbr=present owner=present"
+nft list chain inet zapret2 z2k_warp_mark > "$T/production-device-mark.log"
+assert_contains "selected device with active lists uses scoped MARK" \
+    "$T/production-device-mark.log" \
+    'ip saddr @z2k_warp_src4 ip daddr @z2k_warp_dst4 meta mark set mark'
+
+acceptance_route_ready() {
+    warp_status > "$T/acceptance-route-current.log"
+    assert_contains "$1 keeps route_ready" "$T/acceptance-route-current.log" "route_ready=1"
+}
+acceptance_mark_contains() {
+    nft list chain inet zapret2 z2k_warp_mark > "$T/acceptance-mark-current.log"
+    assert_contains "$1" "$T/acceptance-mark-current.log" "$2"
+}
+acceptance_policy_unchanged() {
+    _tun_now="$(for _c in z2k_warp_mss z2k_warp_fwd z2k_warp_nat; do nft list chain inet zapret2 "$_c"; done)"
+    _pbr_now="$(cat "$T/ip-rules"; cat "$T/ip-route-989"; cat "$T/tmp/warp/pbr.owner")"
+    assert_eq "$1 preserves TUN chains" "$_tun_before" "$_tun_now"
+    assert_eq "$1 preserves PBR and owner" "$_pbr_before" "$_pbr_now"
+    acceptance_route_ready "$1"
+}
+
+# The last selected device can be removed without losing route readiness.
+warp_device_toggle aa:bb:cc:dd:ee:ff 0 || _t_bad "production WebPanel device toggle OFF"
+_src_after_off="$(nft list set inet zapret2 z2k_warp_src4)"
+printf '%s\n' "$_src_after_off" > "$T/acceptance-source-set-off.log"
+assert_not_contains "last device OFF empties source set" "$T/acceptance-source-set-off.log" '192.168.1.50'
+acceptance_policy_unchanged "last device OFF"
+printf 'ROUTE[device-off]: %s\n' "$(cat "$T/acceptance-route-current.log")"
+acceptance_mark_contains "last device OFF returns to destination-only policy" \
+    'ip daddr @z2k_warp_dst4 meta mark set mark'
+
+# Selected device + no active destination lists means full-device mode. First
+# enabling a destination list must switch back to list-scoped MARK immediately.
+warp_device_toggle aa:bb:cc:dd:ee:ff 1 || _t_bad "production device toggle ON before list transitions"
+warp_game_toggle steam 0 || _t_bad "disable last destination list"
+warp_ipset_reload_if_enabled --reconcile-rules || _t_bad "full-device policy transition apply"
+acceptance_policy_unchanged "full-device policy transition"
+acceptance_mark_contains "selected device without lists uses full-device MARK" \
+    'ip saddr @z2k_warp_src4 ip daddr != 0.0.0.0/8'
+warp_game_toggle steam 1 || _t_bad "enable first destination list"
+warp_ipset_reload_if_enabled --reconcile-rules || _t_bad "list policy transition apply"
+acceptance_policy_unchanged "list policy transition"
+acceptance_mark_contains "active destination list scopes MARK to selected source" \
+    'ip saddr @z2k_warp_src4 ip daddr @z2k_warp_dst4 meta mark set mark'
+
+# Native WireGuard client discovery and WDTT are MARK-only changes. Capability
+# is derived from the canonical server-interface helper; client presence alone
+# must not make the server-only control available.
+warp_status > "$T/wg-server-absent.log"
+assert_contains "WDTT capability false without WG server" "$T/wg-server-absent.log" "wg_server_available=0"
+touch "$T/uci-wireguard-enabled"
+warp_ipset_reload_if_enabled --reconcile-rules || _t_bad "native WG client policy reconcile"
+acceptance_policy_unchanged "native WG client policy reconcile"
+acceptance_mark_contains "native WG client policy has dedicated list mark" \
+    'iifname "wgclient" ip saddr 10.0.0.0/8 ip daddr @z2k_warp_dst4 meta mark set mark'
+warp_status > "$T/wg-server-present.log"
+assert_contains "WDTT capability true with WG server" "$T/wg-server-present.log" "wg_server_available=1"
+warp_wdtt_set 1 || _t_bad "WDTT enabled production reconcile"
+acceptance_policy_unchanged "WDTT enable"
+acceptance_mark_contains "WDTT enables full ingress mark for WG server" \
+    'iifname "wgserver" meta mark set mark'
+warp_wdtt_set 0 || _t_bad "WDTT disabled production reconcile"
+acceptance_policy_unchanged "WDTT disable"
 
 _t_done
