@@ -54,6 +54,8 @@ if grep -q "Готово" "/tmp/z2k-job-$_jid.log" 2>/dev/null; then
 else
     _t_ok
 fi
+assert_contains "failed job logs an explicit action start" "/tmp/z2k-job-$_jid.log" 'Запущено: Включаю Динамический TTL'
+assert_contains "failed job log gives a concrete final error code" "/tmp/z2k-job-$_jid.log" 'ошибка выполнения, код 1'
 rm -f "/tmp/z2k-job-$_jid.log" "/tmp/z2k-job-$_jid.pid" "/tmp/z2k-job-$_jid.exit"
 
 # --- 2. restart ok: job success с "Готово" ---
@@ -67,6 +69,23 @@ if grep -q "Готово" "/tmp/z2k-job-$_jid.log" 2>/dev/null; then
 else
     _t_bad "ok restart без 'Готово'"
 fi
+assert_contains "successful job log includes a final result and duration" "/tmp/z2k-job-$_jid.log" 'Итог: Включаю Динамический TTL — команда завершена успешно'
+rm -f "/tmp/z2k-job-$_jid.log" "/tmp/z2k-job-$_jid.pid" "/tmp/z2k-job-$_jid.exit"
+
+# --- 3. A quiet long-running action still updates the live modal log ---
+. "$STUBDIR/actions.sh"
+_jid="$(svc_action_async "heartbeat regression" "sleep 12")"
+[ -n "$_jid" ] || { _t_bad "heartbeat regression has a job id"; _jid="none"; }
+_wait=0
+while ! grep -q 'Выполняется: heartbeat regression' "/tmp/z2k-job-$_jid.log" 2>/dev/null \
+    && [ "$_wait" -lt 12 ]; do
+    sleep 1
+    _wait=$((_wait + 1))
+done
+assert_contains "quiet running job writes an intermediate heartbeat" "/tmp/z2k-job-$_jid.log" \
+    'Выполняется: heartbeat regression; прошло около 10 с'
+_rc="$(_job_wait "$_jid")"
+assert_eq "heartbeat job completes normally" "0" "$_rc"
 rm -f "/tmp/z2k-job-$_jid.log" "/tmp/z2k-job-$_jid.pid" "/tmp/z2k-job-$_jid.exit"
 
 _t_done

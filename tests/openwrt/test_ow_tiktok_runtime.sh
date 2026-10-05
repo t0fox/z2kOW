@@ -265,7 +265,12 @@ assert_contains "re-enable restores verified CDN" "$UCI_TEST_DB" '/v77.tiktokcdn
 # Manual mode persists a chosen candidate, re-probes it against the target,
 # and keeps auto selection from silently changing it.
 TIKTOK_PROBE_MODE=alt TIKTOK_DNS_IP=203.0.113.20
-z2k_ow_tiktok_manual_select 203.0.113.20 || _t_bad "manual selection re-verifies and applies the candidate"
+export Z2K_JOB_ID=manual-progress-regression
+z2k_ow_tiktok_manual_select 203.0.113.20 2> "$T/manual-progress.log" || _t_bad "manual selection re-verifies and applies the candidate"
+assert_contains "manual apply logs the target-specific recheck" "$T/manual-progress.log" 'перепроверяю выбранный 203.0.113.20'
+assert_contains "manual apply logs the owned DNS apply stage" "$T/manual-progress.log" 'применяю owned dnsmasq override'
+assert_contains "manual apply logs effective DNS confirmation" "$T/manual-progress.log" 'effective DNS подтверждает 203.0.113.20'
+unset Z2K_JOB_ID
 assert_contains "manual choice persists its mode" "$Z2K_TIKTOK_CONFIG" 'Z2K_TIKTOK_MODE=manual'
 assert_contains "manual choice persists its IP" "$Z2K_TIKTOK_CONFIG" 'Z2K_TIKTOK_MANUAL_IP=203.0.113.20'
 assert_contains "manual choice applies a native target override" "$UCI_TEST_DB" '/v77.tiktokcdn.com/203.0.113.20'
@@ -282,7 +287,11 @@ assert_contains "unavailable manual candidate remains selected" "$Z2K_TIKTOK_STA
 if z2k_ow_tiktok_manual_select 185.11.78.47; then _t_bad "manual selection rejects an unverified candidate"; else _t_ok; fi
 assert_contains "rejected manual IP does not replace persisted choice" "$Z2K_TIKTOK_CONFIG" 'Z2K_TIKTOK_MANUAL_IP=203.0.113.20'
 assert_contains "failed manual recheck does not replace the old DNS address" "$UCI_TEST_DB" '/v77.tiktokcdn.com/203.0.113.20'
-z2k_ow_tiktok_use_auto || _t_bad "returning to auto restores normal selection"
+export Z2K_JOB_ID=auto-progress-regression
+z2k_ow_tiktok_use_auto 2> "$T/auto-progress.log" || _t_bad "returning to auto restores normal selection"
+assert_contains "return to auto logs the mode change" "$T/auto-progress.log" 'возвращаю режим auto'
+assert_contains "return to auto logs the normal selection pipeline" "$T/auto-progress.log" 'запускаю штатный discovery'
+unset Z2K_JOB_ID
 assert_contains "auto mode clears the manual IP" "$Z2K_TIKTOK_CONFIG" 'Z2K_TIKTOK_MANUAL_IP='
 assert_contains "auto mode is persisted" "$Z2K_TIKTOK_CONFIG" 'Z2K_TIKTOK_MODE=auto'
 assert_contains "auto selection returns to the live verified candidate" "$Z2K_TIKTOK_STATE_FILE" 'selected_ip=143.244.42.18'
@@ -332,8 +341,16 @@ assert_contains "ICMP failure does not mark a TLS-verified candidate dead" "$Z2K
 # Manual candidate scans are capped and every probe pins SNI to the managed target.
 : > "$CURL_TEST_LOG"; : > "$CURL_RESOLVE_TEST_LOG"; : > "$CURL_ARGS_TEST_LOG"
 export TIKTOK_PING_MODE=available
+export Z2K_JOB_ID=runtime-progress-regression
+: > "$T/probe-progress.log"
 Z2K_TIKTOK_CANDIDATE_LIMIT=4 Z2K_TIKTOK_CANDIDATE_PARALLELISM=2 z2k_ow_tiktok_probe_all \
+    2> "$T/probe-progress.log" \
     || _t_bad "bounded candidate probe-all completes"
+assert_contains "probe-all logs the discovery stage" "$T/probe-progress.log" 'Обнаружение CDN-кандидатов'
+assert_contains "probe-all reports each completed candidate" "$T/probe-progress.log" '[1/4]'
+assert_contains "probe-all reports both managed-target results" "$T/probe-progress.log" 'v77.tiktokcdn.com'
+assert_contains "probe-all reports a concrete final candidate summary" "$T/probe-progress.log" 'Итог: проверено 4 кандидата'
+unset Z2K_JOB_ID
 assert_eq "probe-all respects its candidate limit across both targets" '8' "$(wc -l < "$CURL_TEST_LOG" | tr -d ' ')"
 assert_contains "candidate probe-all pins the primary managed target hostname" "$CURL_RESOLVE_TEST_LOG" 'v77.tiktokcdn.com:443:'
 assert_contains "candidate probe-all pins the EU managed target hostname" "$CURL_RESOLVE_TEST_LOG" 'v77.tiktokcdn-eu.com:443:'

@@ -953,9 +953,48 @@ restart_service_if_running() {
 # self-heal, chmod не выполнялся, и обещание r-43 не работало. Эндпоинты
 # переведены на обёртки; вызывать init-скрипт напрямую отсюда больше не нужно.
 ensure_init_exec() { [ -f "$INIT_SCRIPT" ] && chmod +x "$INIT_SCRIPT" 2>/dev/null; return 0; }
-svc_start()   { ensure_init_exec; "$INIT_SCRIPT" start   2>&1; }
-svc_stop()    { ensure_init_exec; "$INIT_SCRIPT" stop    2>&1; }
-svc_restart() { ensure_init_exec; "$INIT_SCRIPT" restart 2>&1; }
+svc_start() {
+    local rc
+    job_progress "Запускаю init-службу nfqws2"
+    ensure_init_exec
+    "$INIT_SCRIPT" start 2>&1; rc=$?
+    if [ "$rc" = 0 ]; then
+        if is_running; then job_progress "Проверка: процесс nfqws2 запущен"
+        else job_progress "Команда запуска завершилась успешно; процесс nfqws2 пока не подтверждён"
+        fi
+    else
+        job_progress "Ошибка запуска nfqws2: init-служба вернула код $rc"
+    fi
+    return "$rc"
+}
+svc_stop() {
+    local rc
+    job_progress "Останавливаю init-службу nfqws2"
+    ensure_init_exec
+    "$INIT_SCRIPT" stop 2>&1; rc=$?
+    if [ "$rc" = 0 ]; then
+        if is_running; then job_progress "Команда остановки завершилась; процесс nfqws2 всё ещё обнаруживается"
+        else job_progress "Проверка: процесс nfqws2 остановлен"
+        fi
+    else
+        job_progress "Ошибка остановки nfqws2: init-служба вернула код $rc"
+    fi
+    return "$rc"
+}
+svc_restart() {
+    local rc
+    job_progress "Перезапускаю init-службу nfqws2"
+    ensure_init_exec
+    "$INIT_SCRIPT" restart 2>&1; rc=$?
+    if [ "$rc" = 0 ]; then
+        if is_running; then job_progress "Проверка: после перезапуска процесс nfqws2 запущен"
+        else job_progress "Команда перезапуска завершилась успешно; процесс nfqws2 пока не подтверждён"
+        fi
+    else
+        job_progress "Ошибка перезапуска nfqws2: init-служба вернула код $rc"
+    fi
+    return "$rc"
+}
 
 # Убрать файлы прошлых задач. Каждый запуск задачи из панели оставляет в /tmp
 # три файла (.log, .pid, .exit), и до 2026-08-04 их не удалял никто: на роутере
@@ -1038,6 +1077,14 @@ _tmp_reap_orphans() {
 #
 # Использование:
 #   job_id=$(svc_action_async "Перезапуск сервиса" "/opt/etc/init.d/S99zapret2 restart")
+job_progress() {
+    # Human-readable progress contract used by async WebPanel actions and
+    # OpenWrt adapters. stderr is intentional: stdout remains available for
+    # machine-readable command-substitution results.
+    [ -n "${Z2K_JOB_ID:-}" ] || return 0
+    printf '[%s] %s\n' "$(date '+%H:%M:%S' 2>/dev/null || printf '??:??:??')" "$*" >&2
+}
+
 svc_action_async() {
     job_reap
     local label="$1"; shift
@@ -1046,17 +1093,28 @@ svc_action_async() {
     job_id=$(date +%s)$$
     local log="/tmp/z2k-job-${job_id}.log"
     (
-        printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$label" > "$log"
-        printf '─────────────────────────────────────────\n' >> "$log"
+        exec >> "$log" 2>&1
+        printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$label"
+        printf '─────────────────────────────────────────\n'
         export Z2K_JOB_ID="$job_id"
-        eval "$cmd" >> "$log" 2>&1
-        local rc=$?
+        job_progress "Запущено: $label"
+        local started_at elapsed=0 rc command_pid ended_at
+        started_at=$(date +%s 2>/dev/null) || started_at=0
+        ( eval "$cmd" ) &
+        command_pid=$!
+        job_wait_child "$command_pid" "$label"
+        rc=$?
+        ended_at=$(date +%s 2>/dev/null) || ended_at="$started_at"
+        elapsed=$((ended_at - started_at))
         rm -f "/tmp/z2k-job-${job_id}.cancel" "/tmp/z2k-job-${job_id}.child" 2>/dev/null
-        printf '─────────────────────────────────────────\n' >> "$log"
         if [ "$rc" = "0" ]; then
-            printf '[%s] Готово ✓\n' "$(date '+%H:%M:%S')" >> "$log"
+            job_progress "Итог: $label — команда завершена успешно за ${elapsed} с."
+            printf '─────────────────────────────────────────\n'
+            printf '[%s] Готово ✓\n' "$(date '+%H:%M:%S')"
         else
-            printf '[%s] Завершено с кодом %s\n' "$(date '+%H:%M:%S')" "$rc" >> "$log"
+            job_progress "Итог: $label — ошибка выполнения, код $rc, время ${elapsed} с."
+            printf '─────────────────────────────────────────\n'
+            printf '[%s] Завершено с кодом %s\n' "$(date '+%H:%M:%S')" "$rc"
         fi
         echo "$rc" > "/tmp/z2k-job-${job_id}.exit"
     ) </dev/null >/dev/null 2>&1 &
@@ -1073,6 +1131,18 @@ job_pid_alive() {
     [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 1
     state=$(awk '{print $3}' "/proc/${pid}/stat" 2>/dev/null)
     [ "$state" != Z ]
+}
+
+job_wait_child() {
+    local pid="$1" label="$2" elapsed=0
+    while job_pid_alive "$pid"; do
+        sleep 1
+        elapsed=$((elapsed + 1))
+        if [ $((elapsed % 10)) = 0 ] && job_pid_alive "$pid"; then
+            job_progress "Выполняется: $label; прошло около ${elapsed} с"
+        fi
+    done
+    wait "$pid"
 }
 
 job_descendants() {
@@ -1143,6 +1213,7 @@ warp_rc_superseded() {
 toggle_game_warp() {
     local want="$1" rc
     if [ "$want" = "1" ]; then
+        job_progress "WARP: сохраняю включённое состояние и поднимаю туннель"
         sh "$WARP_SCRIPT" enable; rc=$?
         if [ "$rc" = "2" ]; then
             echo "Туннель ещё не поднялся — причина в статусе раздела WARP. Режим оставлен включённым, трафик пока идёт напрямую; движок продолжает попытки в фоне." >&2
@@ -1156,12 +1227,15 @@ toggle_game_warp() {
             echo "WARP не установлен — нажмите «Установить» в разделе WARP" >&2
             return 1
         fi
+        job_progress "WARP: команда включения завершена; текущая готовность указана в статусе туннеля"
     else
+        job_progress "WARP: отключаю туннель и его маршрутизацию"
         sh "$WARP_SCRIPT" disable; rc=$?
         if warp_rc_superseded "$rc"; then
             echo "Прервано: запущено другое действие с WARP"
             return 3
         fi
+        [ "$rc" = 0 ] && job_progress "WARP: команда отключения завершена"
         return "$rc"
     fi
 }
@@ -1176,11 +1250,13 @@ warp_transport_set() {
         auto|wg|h2) ;;
         *) echo "неизвестный транспорт: $mode" >&2; return 1 ;;
     esac
+    job_progress "WARP: сохраняю транспорт $mode"
     set_flag "Z2K_WARP_TRANSPORT" "$mode" "$CONFIG_FILE" || return 1
     if [ "$(read_flag "GAME_WARP_ENABLED" "$CONFIG_FILE" "0")" != "1" ] || [ ! -f "$WARP_SCRIPT" ]; then
         echo "Сохранено. Применится при включении WARP."
         return 0
     fi
+    job_progress "WARP: перезапускаю движок с новым транспортом"
     sh "$WARP_SCRIPT" restart; rc=$?
     if [ "$rc" = "2" ]; then
         echo "Туннель на выбранном транспорте ещё не поднялся — причина в статусе раздела WARP. Движок продолжает попытки в фоне." >&2
@@ -1204,11 +1280,12 @@ warp_license_apply() {
         *) echo "неверный путь ключа" >&2; return 1 ;;
     esac
     [ -f "$f" ] || { echo "ключ не передан — введите его ещё раз" >&2; return 1; }
+    job_progress "WARP+: отправляю ключ на проверку и регистрацию устройства"
     out=$(sh "$WARP_SCRIPT" license < "$f" 2>&1); rc=$?
     rm -f "$f"
     [ -n "$out" ] && printf '%s\n' "$out"
     case "$rc" in
-        0) echo "Ключ применён." ;;
+        0) echo "Ключ применён."; job_progress "WARP+: ключ принят и применён" ;;
         2) echo "Это не похоже на ключ WARP+: в нём только латинские буквы, цифры и дефисы." >&2 ;;
         3)
             msg=$(printf '%s\n' "$out" | sed -n 's/.*license_rejected: [a-z]*: //p' | tail -n1)
@@ -1221,8 +1298,20 @@ warp_license_apply() {
 
 # Установка движка: скачать бинарь под арку, зарегистрировать устройство.
 # Ничего не запускает — это делает тумблер. Удаление: всё кроме device.json.
-warp_install_action() { sh "$WARP_SCRIPT" install; }
-warp_remove_action()  { sh "$WARP_SCRIPT" remove; }
+warp_install_action() {
+    job_progress "WARP: проверяю архитектуру и устанавливаю движок"
+    sh "$WARP_SCRIPT" install
+    local rc=$?
+    [ "$rc" = 0 ] && job_progress "WARP: установка завершена; состояние устройства доступно в разделе WARP"
+    return "$rc"
+}
+warp_remove_action() {
+    job_progress "WARP: останавливаю движок и удаляю его файлы"
+    sh "$WARP_SCRIPT" remove
+    local rc=$?
+    [ "$rc" = 0 ] && job_progress "WARP: удаление движка завершено"
+    return "$rc"
+}
 
 toggle_customd() {
     # Note: 1 = ENABLED, 0 = DISABLED in our API; the config flag is
@@ -1238,11 +1327,14 @@ toggle_customd() {
         # (Discord voice stayed broken even after "disabling"). So: stop while the
         # flag is still 0 (clean teardown of custom daemons + firewall), THEN flip,
         # THEN start.
+        job_progress "custom.d: останавливаю сервис до изменения флага"
         ensure_init_exec
         local _running=0
         is_running && _running=1
         [ "$_running" = "1" ] && "$INIT_SCRIPT" stop 2>&1
+        job_progress "custom.d: сохраняю выключенное состояние"
         set_flag "DISABLE_CUSTOM" "1" "$CONFIG_FILE" || return 1
+        [ "$_running" = "1" ] && job_progress "custom.d: запускаю сервис с новой настройкой"
         [ "$_running" = "1" ] && "$INIT_SCRIPT" start 2>&1
         # Итог тумблера — записанный флаг, а не код init-скрипта. Без этого
         # return на остановленном сервисе AND-list отдавал 1 при УСПЕШНОМ
@@ -1252,6 +1344,7 @@ toggle_customd() {
         # пробрасывает провал — fail-closed audit).
         return 0
     else
+        job_progress "custom.d: сохраняю включённое состояние и перезапускаю сервис"
         set_flag "DISABLE_CUSTOM" "0" "$CONFIG_FILE" || return 1
         restart_service_if_running || return 1
     fi
@@ -1269,6 +1362,7 @@ toggle_category() {
     [ -f "$validator" ] || { echo "Не найден валидатор конфигурации" >&2; return 1; }
     backup=$(mktemp "${CONFIG_FILE}.category.XXXXXX") || return 1
     cp -p "$CONFIG_FILE" "$backup" || { rm -f "$backup"; return 1; }
+    job_progress "Категория $category: останавливаю сервис перед изменением конфигурации"
     if is_running; then
         running=1
         ensure_init_exec
@@ -1278,14 +1372,17 @@ toggle_category() {
             return 1
         fi
     fi
+    job_progress "Категория $category: сохраняю выбор и пересобираю конфигурацию"
     if ! set_flag "Z2K_CATEGORY_$category" "$want" "$CONFIG_FILE" || ! regenerate_config; then
         rc=2
     else
+        job_progress "Категория $category: проверяю новую конфигурацию"
         ZAPRET_BASE="$ZAPRET2_DIR" sh "$validator" "$CONFIG_FILE" || rc=$?
     fi
     # Validator rc=1 is a warning; rc>=2 or an unexpected failure is fatal.
     case "$rc" in 0|1) ;; *) rc=2 ;; esac
     if [ "$rc" != 2 ] && [ "$running" = 1 ]; then
+        job_progress "Категория $category: запускаю сервис с проверенной конфигурацией"
         if ! "$INIT_SCRIPT" start 2>&1; then
             "$INIT_SCRIPT" stop 2>&1 || true
             rc=2
@@ -1317,9 +1414,13 @@ toggle_dynamic_ttl() {
     # decrement; we counter-inject a fresh TTL. Some users with explicit
     # NDM TTL-fix turn it off (Z2K_DYNAMIC_TTL=0). Default = 1.
     local want="$1"
+    job_progress "Динамический TTL: сохраняю настройку"
     set_flag "Z2K_DYNAMIC_TTL" "$want" "$CONFIG_FILE" || return 1
+    job_progress "Динамический TTL: пересобираю конфигурацию"
     regenerate_config
+    job_progress "Динамический TTL: перезапускаю службу, если она запущена"
     restart_service_if_running || return 1
+    job_progress "Динамический TTL: настройка применена"
 }
 
 toggle_stats() {
@@ -1352,9 +1453,11 @@ toggle_tiktok_feed() {
     . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/schedule.sh" || return 1
     _check="${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/tiktok-check.sh"
     _ready="${Z2K_CORE_READY:-${Z2K_RUN:-/tmp/z2k/runtime}/core-ready}"
+    job_progress "TikTok feed: сохраняю режим $([ "$want" = 1 ] && echo включён || echo выключен)"
     set_flag "Z2K_TIKTOK_FEED_ENABLED" "$want" "$CONFIG_FILE" || return 1
     if [ "$want" = 1 ]; then
         if [ -e "$_ready" ]; then
+            job_progress "TikTok feed: устанавливаю расписание и выполняю первичную проверку CDN"
             if z2k_ow_tiktok_cron_install && sh "$_check" check explicit; then return 0; fi
             set_flag "Z2K_TIKTOK_FEED_ENABLED" "$_previous" "$CONFIG_FILE" || return 1
             z2k_ow_tiktok_cron_remove >/dev/null 2>&1 || true
@@ -1363,6 +1466,7 @@ toggle_tiktok_feed() {
         fi
         return 0
     else
+        job_progress "TikTok feed: снимаю расписание и удаляю принадлежащий override DNS"
         if z2k_ow_tiktok_cron_remove && z2k_ow_tiktok_disable; then return 0; fi
         set_flag "Z2K_TIKTOK_FEED_ENABLED" "$_previous" "$CONFIG_FILE" || return 1
         [ "$_previous" != 1 ] || { [ ! -e "$_ready" ] || z2k_ow_tiktok_cron_install >/dev/null 2>&1 || true; }
@@ -1399,13 +1503,16 @@ toggle_autohostlist() {
     # the mode is baked into the generated config, so the config must be
     # regenerated and the service restarted for it to mean anything.
     local want="$1"
+    job_progress "Автохостлист: сохраняю режим"
     set_flag "Z2K_AUTOHOSTLIST" "$want" "$CONFIG_FILE" || return 1
+    job_progress "Автохостлист: пересобираю конфигурацию"
     regenerate_config || return 1
     # The comment above says "and the service restarted" — and for a release the
     # code did not do it. Regenerating alone writes MODE_FILTER into the config
     # while the daemon keeps running with the old one, which is exactly the
     # "flipped it and nothing happened" the user reports, made worse by the UI
     # showing a restart that never occurred. Restart failure fails the job.
+    job_progress "Автохостлист: применяю конфигурацию перезапуском службы"
     restart_service_if_running || return 1
 }
 
@@ -1418,13 +1525,16 @@ toggle_ppe() {
     # / leaves retrans=2 when off — so a config regen + service restart IS
     # required, in addition to applying/removing the mangle rules.
     local want="$1"
+    job_progress "PPE de-offload: сохраняю настройку"
     set_flag "Z2K_PPE_DEOFFLOAD" "$want" "$CONFIG_FILE" || return 1
     if [ "$want" = "0" ]; then
         [ -r /opt/zapret2/z2k-ppe-deoffload.sh ] && \
             ( . /opt/zapret2/z2k-ppe-deoffload.sh && z2k_ppe_remove_rules ) >/dev/null 2>&1
+        job_progress "PPE de-offload: пересобираю конфигурацию и применяю правила"
         regenerate_config
         restart_service_if_running || return 1
     else
+        job_progress "PPE de-offload: пересобираю конфигурацию и применяю правила"
         regenerate_config
         restart_service_if_running || return 1
         # Best-effort: ensure_rules returns 1 where the firmware `-j PPE` target
@@ -1503,10 +1613,12 @@ toggle_fastroute() {
     [ "$want" = "0" ] && target=1
     # Флаг сохраняем только после подтверждения ядра. При отказе возвращаем
     # прежнее состояние; ошибка восстановления также остаётся в журнале.
+    job_progress "Маршрутный кэш: применяю значение $target в ядре"
     if ! fastroute_write "$f" "$target"; then
         fastroute_write "$f" "$previous" || echo "Не удалось восстановить прежнее состояние кэша." >&2
         return 1
     fi
+    job_progress "Маршрутный кэш: подтверждение ядра получено, сохраняю настройку"
     if ! set_flag "Z2K_FASTROUTE_OFF" "$want" "$CONFIG_FILE"; then
         fastroute_write "$f" "$previous" || echo "Не удалось восстановить прежнее состояние кэша." >&2
         echo "Не удалось сохранить настройку." >&2
@@ -1583,8 +1695,11 @@ policy_save() {
     esac
     set_flag "POLICY_NAME" "$name" "$CONFIG_FILE" || return 1
     set_flag "POLICY_EXCLUDE" "$exclude" "$CONFIG_FILE" || return 1
+    job_progress "Политика доступа: пересобираю конфигурацию"
     regenerate_config
+    job_progress "Политика доступа: перезапускаю службу"
     restart_service_if_running || return 1
+    job_progress "Политика доступа: настройка применена"
 }
 
 # --- исключения по адресату (nozapret) ---
@@ -2265,6 +2380,7 @@ DNS_CHECK_OWN="${DNS_CHECK_OWN:-$ZAPRET2_DIR/lists/dns-check.txt}"
 
 dns_check_run() {
     [ -f "$DNS_CHECK_SCRIPT" ] || { echo "нет $DNS_CHECK_SCRIPT"; return 1; }
+    job_progress "DNS: проверяю стандартные и пользовательские резолверы по UDP, DoH и DoT"
     # Прогресс скрипт пишет в stderr, готовый JSON — в stdout и в файл.
     # В журнал задачи пускаем ТОЛЬКО прогресс: JSON там нечитаем, а человек
     # смотрит туда, чтобы понять, что работа идёт.
@@ -2274,7 +2390,18 @@ dns_check_run() {
     # и прогресс тоже.
     # shellcheck disable=SC2069
     Z2K_DNS_OUT="$DNS_CHECK_OUT" Z2K_DNS_OWN="$DNS_CHECK_OWN" \
-        sh "$DNS_CHECK_SCRIPT" 2>&1 >/dev/null || return 1
+        sh "$DNS_CHECK_SCRIPT" 2>&1 >/dev/null || {
+            job_progress "DNS: проверка завершилась ошибкой; подробность указана выше"
+            return 1
+        }
+    if [ -s "$DNS_CHECK_OUT" ]; then
+        local _dns_server_count _dns_responders
+        _dns_server_count=$(grep -o '"name"[[:space:]]*:' "$DNS_CHECK_OUT" | wc -l | tr -d ' ')
+        _dns_responders=$(grep -o '"verdict"[[:space:]]*:[[:space:]]*"works"' "$DNS_CHECK_OUT" | wc -l | tr -d ' ')
+        job_progress "DNS: проверено серверов: ${_dns_server_count:-0}; хотя бы один рабочий путь: ${_dns_responders:-0}"
+    else
+        job_progress "DNS: проверка завершилась, но файл результата пуст"
+    fi
     return 0
 }
 
@@ -2331,14 +2458,18 @@ warp_reregister() {
     cp -f "$dev" "${dev}.prev" 2>/dev/null
     rm -f "$dev" 2>/dev/null
     echo "запись устройства снята, поднимаю движок заново"
+    job_progress "WARP: перезапускаю движок для новой регистрации устройства"
     [ -x "$init" ] && "$init" restart 2>&1
+    job_progress "WARP: жду ответ регистрации устройства (до 8 секунд)"
     sleep 8
     if [ -s "$dev" ]; then
         echo "новая регистрация получена: $(sed -n 's/.*"v4": *"\([^"]*\)".*/адрес \1/p' "$dev" | head -1)"
+        job_progress "WARP: новая запись устройства получена"
         rm -f "${dev}.prev" 2>/dev/null
         return 0
     fi
     echo "новая регистрация не получена — возвращаю прежнюю запись"
+    job_progress "WARP: новая регистрация не получена; возвращаю прежнюю запись и запускаю движок"
     [ -f "${dev}.prev" ] && mv -f "${dev}.prev" "$dev"
     [ -x "$init" ] && "$init" restart >/dev/null 2>&1
     return 1
@@ -3798,7 +3929,9 @@ update_reinstall_async() {
 
 update_action_async() {
     local action="${1:-apply}"
+    local label="Обновление z2k"
     case "$action" in apply|reinstall) ;; *) return 2 ;; esac
+    [ "$action" != reinstall ] || label="Переустановка z2k"
     [ -x "$AU_SCRIPT" ] || { echo "auto-update script missing: $AU_SCRIPT" >&2; return 1; }
     job_reap
     local job_id
@@ -3838,9 +3971,32 @@ update_action_async() {
     # без строки задача умирает на HUP, с ней доживает до конца.
     (
         trap '' HUP
-        env Z2K_AU_MANUAL=1 Z2K_AU_NO_JITTER=1 \
-            sh "$AU_SCRIPT" "$action" > "/tmp/z2k-job-$job_id.log" 2>&1
-        echo "$?" > "/tmp/z2k-job-$job_id.exit"
+        exec >> "/tmp/z2k-job-$job_id.log" 2>&1
+        printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$label"
+        printf '─────────────────────────────────────────\n'
+        export Z2K_JOB_ID="$job_id"
+        job_progress "Запущено: $label; читаю манифест и проверяю состав обновления"
+        local started_at ended_at elapsed command_pid rc
+        started_at=$(date +%s 2>/dev/null) || started_at=0
+        ( env Z2K_AU_MANUAL=1 Z2K_AU_NO_JITTER=1 sh "$AU_SCRIPT" "$action" ) &
+        command_pid=$!
+        job_wait_child "$command_pid" "$label"
+        rc=$?
+        ended_at=$(date +%s 2>/dev/null) || ended_at="$started_at"
+        elapsed=$((ended_at - started_at))
+        if [ "$rc" = 0 ]; then
+            if [ "$action" = reinstall ]; then
+                job_progress "Итог: переустановщик завершился успешно за ${elapsed} с; версия не менялась."
+            else
+                job_progress "Итог: updater завершил применение за ${elapsed} с; установленную сборку можно проверить в статусе."
+            fi
+        else
+            job_progress "Итог: $label завершилось ошибкой, код $rc, время ${elapsed} с. Причина указана выше."
+        fi
+        printf '─────────────────────────────────────────\n'
+        [ "$rc" = 0 ] && printf '[%s] Готово ✓\n' "$(date '+%H:%M:%S')" \
+            || printf '[%s] Завершено с кодом %s\n' "$(date '+%H:%M:%S')" "$rc"
+        echo "$rc" > "/tmp/z2k-job-$job_id.exit"
     ) </dev/null >/dev/null 2>&1 &
     echo "$!" > "/tmp/z2k-job-$job_id.pid"
     printf '%s' "$job_id"
@@ -4484,9 +4640,27 @@ uninstall_async() {
     job_id=$(date +%s)$$
     (
         trap '' HUP
-        env Z2K_UNINSTALL_CONFIRMED=1 \
-            sh "$z2k_sh" uninstall > "/tmp/z2k-job-$job_id.log" 2>&1
-        echo "$?" > "/tmp/z2k-job-$job_id.exit"
+        exec >> "/tmp/z2k-job-$job_id.log" 2>&1
+        printf '[%s] Удаление z2k\n' "$(date '+%H:%M:%S')"
+        printf '─────────────────────────────────────────\n'
+        export Z2K_JOB_ID="$job_id"
+        job_progress "Запущено: удаление z2k; сохраняю исход и приступаю к демонтажу"
+        local started_at ended_at elapsed command_pid rc
+        started_at=$(date +%s 2>/dev/null) || started_at=0
+        ( env Z2K_UNINSTALL_CONFIRMED=1 sh "$z2k_sh" uninstall ) &
+        command_pid=$!
+        job_wait_child "$command_pid" "Удаление z2k"
+        rc=$?
+        ended_at=$(date +%s 2>/dev/null) || ended_at="$started_at"
+        elapsed=$((ended_at - started_at))
+        if [ "$rc" = 0 ]; then
+            job_progress "Итог: сценарий удаления завершился успешно за ${elapsed} с; панель остановлена по плану."
+            printf '[%s] Готово ✓\n' "$(date '+%H:%M:%S')"
+        else
+            job_progress "Итог: удаление завершилось с ошибкой, код $rc, время ${elapsed} с; подробность указана выше."
+            printf '[%s] Завершено с кодом %s\n' "$(date '+%H:%M:%S')" "$rc"
+        fi
+        echo "$rc" > "/tmp/z2k-job-$job_id.exit"
     ) </dev/null >/dev/null 2>&1 &
     echo "$!" > "/tmp/z2k-job-$job_id.pid"
     printf '%s' "$job_id"

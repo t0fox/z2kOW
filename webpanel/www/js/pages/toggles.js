@@ -1293,6 +1293,17 @@ async function toggleClick(key, box) {
     if (key === "fastroute") refreshFastroute(box);
     return;
   }
+  if (!resp.job) {
+    // Out-of-band preferences (stats and auto-update) only persist one flag;
+    // opening a background-job modal would take longer than the operation.
+    sw.classList.remove("loading");
+    box.disabled = false;
+    box.checked = wanted === "1";
+    if (key === "auto_update") auHourSync(box);
+    toast(wanted === "1" ? "Включено" : "Выключено");
+    refreshStatus();
+    return;
+  }
   // Backend async — открываем модалку с live-логом. Состояние switch'а
   // (loading + disabled) держится до onDone — если юзер закрыл модалку
   // раньше, badge в углу позволит снова открыть, а UI блокировка не

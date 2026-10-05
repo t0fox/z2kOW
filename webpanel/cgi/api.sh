@@ -523,7 +523,7 @@ case "$method $path" in
         exit 0
         ;;
 
-    # ---------- TOGGLES (async — returns job_id) ----------
+    # ---------- TOGGLES (long actions return job_id; one-flag preferences are sync) ----------
     "POST /toggle/game-warp"|\
     "POST /toggle/customd"|\
     "POST /toggle/dynamic-ttl"|\
@@ -558,6 +558,17 @@ case "$method $path" in
             /toggle/autohostlist)    _toggle_fn=toggle_autohostlist;    _label="Автохостлист" ;;
         esac
         _verb=$([ "$val" = "1" ] && echo "Включаю" || echo "Отключаю")
+        # These flags are read directly by their own scheduled workers and do
+        # not regenerate config or restart a service. A job modal for this
+        # single config write is slower than the operation itself.
+        case "$_toggle_fn" in
+            toggle_stats|toggle_auto_update)
+                "$_toggle_fn" "$val" || json_fail "500 Internal Server Error" "не удалось сохранить настройку"
+                json_header
+                printf '{"ok":true,"value":'; json_string "$val"; printf '}\n'
+                exit 0
+                ;;
+        esac
         job_id=$(svc_action_async "${_verb} ${_label}" "${_toggle_fn} ${val}")
         json_header
         printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'

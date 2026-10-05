@@ -341,13 +341,16 @@ toggle_flowoffload() {
     _old=$(z2k_ow_flowoffload_mode)
     [ "$_old" = "$_mode" ] && return 0
     if command -v is_running >/dev/null 2>&1 && is_running; then _was_running=1; fi
+    command -v job_progress >/dev/null 2>&1 && job_progress "FLOWOFFLOAD: сохраняю режим $_mode"
     set_flag FLOWOFFLOAD "$_mode" "$_cfg" || return 1
+    command -v job_progress >/dev/null 2>&1 && job_progress "FLOWOFFLOAD: пересобираю конфигурацию zapret2"
     if ! z2k_ow_flowoffload_regenerate "$_mode"; then
         z2k_ow_flowoffload_rollback "$_old" "$_was_running" \
             && echo "FLOWOFFLOAD не применён; восстановлен $_old" >&2 \
             || echo "FLOWOFFLOAD не применён; откат тоже не завершён" >&2
         return 1
     fi
+    [ "$_was_running" != 1 ] || { command -v job_progress >/dev/null 2>&1 && job_progress "FLOWOFFLOAD: перезапускаю службу"; }
     if [ "$_was_running" = 1 ] && ! restart_service_if_running; then
         z2k_ow_flowoffload_rollback "$_old" "$_was_running" \
             && echo "FLOWOFFLOAD не применён; восстановлен $_old" >&2 \
@@ -355,5 +358,6 @@ toggle_flowoffload() {
         return 1
     fi
     echo "FLOWOFFLOAD=$_mode; stock zapret2 selective offload" >&2
+    command -v job_progress >/dev/null 2>&1 && job_progress "FLOWOFFLOAD: режим $_mode сохранён и применён"
     return 0
 }

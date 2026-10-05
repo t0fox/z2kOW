@@ -80,6 +80,13 @@ grep -q 'd.status === "unknown"' "$JS" \
     && ok "status==\"unknown\" разбирается на фронте отдельно от done" \
     || no "status==\"unknown\" разбирается на фронте" 'd.status === "unknown"' "нет"
 
+grep -q 'job-modal-status is-running' "$JS" && grep -q 'if (wasNearBottom) logEl.scrollTop' "$JS" \
+    && ok "job modal показывает состояние и не крадёт ручную прокрутку" \
+    || no "job modal показывает состояние и сохраняет ручной скролл" "status + conditional scroll" "нет"
+grep -q 'min-height: 112px' "$CSS" && ! grep -q '\.modal pre\.log { flex: 1; min-height: 240px; }' "$CSS" \
+    && ok "короткий job log не резервирует пустые 240px" \
+    || no "короткий job log не резервирует пустые 240px" "min-height 112px" "старое пустое поле"
+
 # renderToggles() затирает $app целиком. Джоб завершается через 10-20 секунд —
 # юзер к этому моменту уже на другой странице, и адрес с подсветкой меню
 # остались бы от неё.
@@ -435,9 +442,20 @@ const SCENARIOS = {
     hash: "#/toggles",
     setup() {
       let applied = false;
+      let jobPolls = 0;
       ROUTER = async (p) => {
         if (p === "/offload") { applied = true; return { ok:true, job:"91" }; }
-        if (p === "/job") return { ok:true, done:true, exit:0, log:"готово" };
+        if (p === "/job") {
+          jobPolls++;
+          return {
+            ok:true,
+            done:jobPolls >= 2,
+            exit:jobPolls >= 2 ? 0 : null,
+            log:jobPolls === 1
+              ? "[12:00:01] Применяю режим\n[12:00:02] Пересобираю конфигурацию"
+              : "[12:00:01] Применяю режим\n[12:00:02] Пересобираю конфигурацию\n[12:00:03] Перезапускаю службу\n[12:00:04] Готово"
+          };
+        }
         if (p === "/status") {
           return applied
             ? flowStatus("software", "mode=software; flowtable=present; flags=software; exemptions=0; actual=not-observed; hardware=not-observed; owner=none; packet_visibility=unknown; circular=unknown")
@@ -451,11 +469,45 @@ const SCENARIOS = {
       const select = q("#flowoffload-mode");
       select.value = "software";
       select.fire("change");
-      await sleep(500);
+      await sleep(150);
+      let jobModal = document.body.children.find(child => child.className === "modal-backdrop" && child.dataset.jobId === "91");
+      check("switch: running job modal shows current progress", jobModal &&
+            jobModal.querySelector("#job-status").textContent === "Выполняется" &&
+            jobModal.querySelector("#job-log").textContent.indexOf("Пересобираю конфигурацию") >= 0,
+            jobModal && jobModal.querySelector("#job-log").textContent);
+      await sleep(1100);
       const body = (BODIES["/offload"] || [])[0] || "";
       check("switch: существующий API получил software", new URLSearchParams(body).get("mode") === "software", body);
       check("switch: состояние перечитано после job", q("#flowoffload-status").innerHTML.indexOf("Программное ускорение") >= 0,
             q("#flowoffload-status").innerHTML);
+      jobModal = document.body.children.find(child => child.className === "modal-backdrop" && child.dataset.jobId === "91");
+      check("switch: модалка завершённой задачи показывает итоговый статус",
+            jobModal && jobModal.querySelector("#job-status").textContent === "Завершено",
+            jobModal && jobModal.querySelector("#job-status").textContent);
+    },
+  },
+
+  quick_toggle_no_modal: {
+    hash: "#/toggles",
+    setup() {
+      ROUTER = async (p, method) => {
+        if (p === "/toggle/stats" && method === "POST") return { ok: true, value: "0" };
+        return STATUS;
+      };
+    },
+    async run() {
+      await sleep(120);
+      const box = q('#app>[data-key="stats"]>input');
+      box.checked = false;
+      box.fire("change");
+      await sleep(180);
+      check("мгновенный переключатель статистики не создаёт job modal",
+            !document.body.children.some(child => child.className === "modal-backdrop"),
+            document.body.children.map(child => child.className).join(","));
+      check("мгновенное действие не запускает опрос /job", !CALLS["/job"], CALLS["/job"]);
+      check("быстрый toggle разблокирован сразу", box.disabled === false, String(box.disabled));
+      check("быстрый toggle отправил выбранное значение", postedValue("/toggle/stats") === "0",
+            (BODIES["/toggle/stats"] || []).join(" | "));
     },
   },
 
@@ -1365,6 +1417,7 @@ for scen in flowoffload_none flowoffload_unconfirmed flowoffload_hardware \
             stale_apply update_history_modal update_history_empty update_history_failed \
             update_single_surface update_current_surface update_reinstall_manifest_race \
             toggles_status_failed toggles_left_page \
+            quick_toggle_no_modal \
             warp_left_page \
             autohostlist_warn autohostlist_accept autohostlist_escape \
             autohostlist_dismiss autohostlist_off other_toggle_no_warn \

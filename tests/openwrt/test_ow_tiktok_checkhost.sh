@@ -72,8 +72,13 @@ nodes=$(_z2k_ow_tiktok_checkhost_node_catalog)
 expected_nodes=$(printf 'ru1.node.check-host.net|Russia|Moscow|AS14576\nde1.node.check-host.net|Germany|Berlin|AS24940\nfr1.node.check-host.net|France|Paris|AS16276')
 assert_eq "node catalog prefers unique countries across a repeated-country pool" "$expected_nodes" "$nodes"
 
-observations=$(_z2k_ow_tiktok_checkhost_discover)
+export Z2K_JOB_ID=checkhost-progress-regression
+observations=$(_z2k_ow_tiktok_checkhost_discover 2> "$T/checkhost-progress.log")
 printf '%s\n' "$observations" > "$T/observations"
+assert_contains "Check-Host progress names the first discovery domain" "$T/checkhost-progress.log" '[1/5] v77.tiktokcdn.com'
+assert_contains "Check-Host progress reports the last discovery domain" "$T/checkhost-progress.log" '[5/5] sf16-music.tiktokcdn-eu.com'
+assert_contains "Check-Host progress reports its selected distributed node count" "$T/checkhost-progress.log" 'узлов: 3'
+unset Z2K_JOB_ID
 assert_eq "five discovery domains are checked at three distributed nodes" '10' "$(wc -l < "$T/observations" | tr -d ' ')"
 assert_contains "Check-Host provenance keeps node, country, city, ASN, domain, IP and TTL" "$T/observations" '203.0.113.77|ru1.node.check-host.net|Russia|Moscow|AS14576|v77.tiktokcdn.com|300'
 assert_not_contains "null and empty DNS replies do not create candidate observations" "$T/observations" 'us1.node.check-host.net'

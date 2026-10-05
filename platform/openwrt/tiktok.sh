@@ -41,6 +41,18 @@ Z2K_TIKTOK_HYSTERESIS_RELATIVE=0.75
 Z2K_TIKTOK_HYSTERESIS_ABSOLUTE_MS=40
 Z2K_TIKTOK_STABILITY_PROBES=2
 
+# WebPanel job output is captured by svc_action_async. Send progress to stderr:
+# discovery and probe helpers often run in command substitutions, where stdout
+# is reserved for their machine-readable return values.
+_z2k_ow_tiktok_job_progress() {
+    [ -n "${Z2K_JOB_ID:-}" ] || return 0
+    if command -v job_progress >/dev/null 2>&1; then
+        job_progress "$*"
+        return $?
+    fi
+    printf '[%s] %s\n' "$(date '+%H:%M:%S' 2>/dev/null || printf '??:??:??')" "$*" >&2
+}
+
 _z2k_ow_tiktok_valid_ipv4() {
     printf '%s\n' "$1" | awk -F. '
         NF != 4 { exit 1 }
@@ -851,29 +863,60 @@ _z2k_ow_tiktok_checkhost_parse_results() (
 )
 
 _z2k_ow_tiktok_checkhost_discover() {
-    local _nodes _node_rows _domain _node _json _request_id _results _attempt _rows="" _part
-    _node_rows=$(_z2k_ow_tiktok_checkhost_node_catalog) || return 1
+    local _nodes _node_rows _domain _node _json _request_id _results _attempt _rows="" _part=""
+    local _domain_index=0 _domain_total _node_count _observation_count _domain_rows _poll_index
+    if ! _node_rows=$(_z2k_ow_tiktok_checkhost_node_catalog); then
+        _z2k_ow_tiktok_job_progress "Check-Host недоступен; использую локальный DNS, cache и curated pool"
+        return 1
+    fi
     _nodes=$(printf '%s\n' "$_node_rows" | cut -d'|' -f1 | tr '\n' ' ')
+    _node_count=$(printf '%s\n' "$_node_rows" | awk 'NF { n++ } END { print n+0 }')
+    _domain_total=$(_z2k_ow_tiktok_domain_catalog | awk 'NF { n++ } END { print n+0 }')
+    _z2k_ow_tiktok_job_progress "Check-Host: распределённое DNS-обнаружение через узлов: $_node_count"
     while IFS='|' read -r _domain _mode _provenance; do
         [ -n "$_domain" ] || continue
+        _part=""; _domain_rows=""
+        _domain_index=$((_domain_index + 1))
+        _z2k_ow_tiktok_job_progress "Check-Host [$_domain_index/$_domain_total] $_domain: запрашиваю DNS-наблюдения"
         set -- --fail --silent --show-error --connect-timeout 3 --max-time 6 \
             -H 'Accept: application/json' --get "$Z2K_TIKTOK_CHECKHOST_API/check-dns" \
             --data-urlencode "host=$_domain"
         for _node in $_nodes; do set -- "$@" --data-urlencode "node=$_node"; done
-        _json=$("$Z2K_TIKTOK_CURL_BIN" "$@" 2>/dev/null) || continue
-        _request_id=$(_z2k_ow_tiktok_checkhost_request_id "$_json") || continue
+        if ! _json=$("$Z2K_TIKTOK_CURL_BIN" "$@" 2>/dev/null); then
+            _z2k_ow_tiktok_job_progress "Check-Host [$_domain_index/$_domain_total]: запрос не удался, использую fallback"
+            continue
+        fi
+        if ! _request_id=$(_z2k_ow_tiktok_checkhost_request_id "$_json"); then
+            _z2k_ow_tiktok_job_progress "Check-Host [$_domain_index/$_domain_total]: API не вернул request_id, использую fallback"
+            continue
+        fi
         _attempt=0
         while [ "$_attempt" -lt "${Z2K_TIKTOK_CHECKHOST_POLL_ATTEMPTS:-3}" ]; do
+            _poll_index=$((_attempt + 1))
+            _z2k_ow_tiktok_job_progress "Check-Host [$_domain_index/$_domain_total] $_domain: опрос результата ($_poll_index/${Z2K_TIKTOK_CHECKHOST_POLL_ATTEMPTS:-3})"
             _results=$("$Z2K_TIKTOK_CURL_BIN" --fail --silent --show-error --connect-timeout 3 --max-time 5 \
                 -H 'Accept: application/json' "$Z2K_TIKTOK_CHECKHOST_API/check-result/$_request_id" 2>/dev/null) || _results=""
             if [ -n "$_results" ]; then
                 _part=$(_z2k_ow_tiktok_checkhost_parse_results "$_results" "$_domain" "$_node_rows")
-                [ -n "$_part" ] && { [ -n "$_rows" ] && _rows="$_rows\n"; _rows="$_rows$_part"; }
+                if [ -n "$_part" ]; then
+                    [ -n "$_domain_rows" ] && _domain_rows="$_domain_rows\n"
+                    _domain_rows="$_domain_rows$_part"
+                fi
             fi
             _attempt=$((_attempt + 1))
             [ "$_attempt" -lt "${Z2K_TIKTOK_CHECKHOST_POLL_ATTEMPTS:-3}" ] \
                 && sleep "${Z2K_TIKTOK_CHECKHOST_POLL_SECONDS:-1}"
         done
+        if [ -n "$_domain_rows" ]; then
+            _domain_rows=$(printf '%b\n' "$_domain_rows" | awk -F'|' '!seen[$0]++')
+            _observation_count=$(printf '%s\n' "$_domain_rows" | awk 'NF { n++ } END { print n+0 }')
+            _z2k_ow_tiktok_job_progress "Check-Host [$_domain_index/$_domain_total] $_domain: получено уникальных IPv4-наблюдений: $_observation_count"
+            [ -n "$_rows" ] && _rows="$_rows\n"
+            _rows="$_rows$_domain_rows"
+        else
+            _z2k_ow_tiktok_job_progress "Check-Host [$_domain_index/$_domain_total] $_domain: IPv4-ответов нет; сохраняю fallback"
+        fi
+        _part=""
     done <<EOF_CHECKHOST_DOMAINS
 $(_z2k_ow_tiktok_domain_catalog)
 EOF_CHECKHOST_DOMAINS
@@ -1016,7 +1059,11 @@ z2k_ow_tiktok_manual_check() {
         return 1
     fi
 
+    if [ -z "$_row" ]; then
+        _z2k_ow_tiktok_job_progress "TikTok manual: перепроверяю $_ip для $Z2K_TIKTOK_HOST и $Z2K_TIKTOK_EU_HOST"
+    fi
     if [ -z "$_row" ] && ! _row=$(_z2k_ow_tiktok_probe "$_ip"); then
+        _z2k_ow_tiktok_job_progress "TikTok manual: $_ip не прошёл TCP/TLS/SNI; выбранный адрес сохранён"
         _z2k_ow_tiktok_apply_lock_acquire || return 1
         if _z2k_ow_tiktok_recheck_before_apply manual \
             && [ "$(z2k_ow_tiktok_mode)" = manual ] \
@@ -1032,6 +1079,7 @@ z2k_ow_tiktok_manual_check() {
         return 1
     fi
 
+    _z2k_ow_tiktok_job_progress "TikTok manual: $_ip прошёл проверку обоих доменов; применяю owned dnsmasq override"
     _z2k_ow_tiktok_apply_lock_acquire || return 1
     if ! _z2k_ow_tiktok_recheck_before_apply manual \
         || [ "$(z2k_ow_tiktok_mode)" != manual ] \
@@ -1040,11 +1088,13 @@ z2k_ow_tiktok_manual_check() {
         return 0
     fi
     if ! _z2k_ow_tiktok_set_host "$_ip"; then
+        _z2k_ow_tiktok_job_progress "TikTok manual: dnsmasq не подтвердил override для $_ip"
         _z2k_ow_tiktok_state_write_apply 1 0 dns-apply-error "$_ip" "$(printf '%s' "$_row" | cut -d'|' -f2)" \
             0 "$_now" dns-apply-failed
         _z2k_ow_tiktok_apply_lock_release
         return 1
     fi
+    _z2k_ow_tiktok_job_progress "TikTok manual: effective DNS подтверждает $_ip; сохраняю результат"
     _Z2K_TIKTOK_PROBE_OBSERVATIONS_STATE="$(_z2k_ow_tiktok_state_get probe_observations)"
     _z2k_ow_tiktok_state_write_apply 1 1 healthy "$_ip" "$(printf '%s' "$_row" | cut -d'|' -f2)" 0 "$_now" \
         manual-selection "$_now" "$(_z2k_ow_tiktok_state_get last_discovery_epoch)" "$_now" \
@@ -1062,12 +1112,15 @@ z2k_ow_tiktok_manual_select() {
     z2k_ow_tiktok_enabled || return 1
     # The candidate list is only a discovery snapshot. Re-probe the exact
     # managed hostname immediately before persisting and applying a choice.
+    _z2k_ow_tiktok_job_progress "TikTok manual: перепроверяю выбранный $_ip для обоих managed targets"
     if ! _row=$(_z2k_ow_tiktok_probe "$_ip"); then
+        _z2k_ow_tiktok_job_progress "TikTok manual: $_ip не проходит TLS/SNI probe; выбор и DNS override не изменены"
         if [ "$(z2k_ow_tiktok_mode)" = manual ] && [ "$(_z2k_ow_tiktok_manual_ip)" = "$_ip" ]; then
             z2k_ow_tiktok_manual_check >/dev/null 2>&1 || true
         fi
         return 1
     fi
+    _z2k_ow_tiktok_job_progress "TikTok manual: $_ip подтверждён; сохраняю manual mode и применяю DNS override"
     _z2k_ow_tiktok_apply_lock_acquire || return 1
     if ! z2k_ow_tiktok_enabled; then
         _z2k_ow_tiktok_apply_lock_release
@@ -1086,6 +1139,7 @@ z2k_ow_tiktok_manual_select() {
 }
 
 z2k_ow_tiktok_use_auto() {
+    _z2k_ow_tiktok_job_progress "TikTok: возвращаю режим auto и очищаю ручной IP"
     _z2k_ow_tiktok_apply_lock_acquire || return 1
     if ! _z2k_ow_tiktok_config_set Z2K_TIKTOK_MODE auto \
         || ! _z2k_ow_tiktok_config_set Z2K_TIKTOK_MANUAL_IP ""; then
@@ -1093,6 +1147,7 @@ z2k_ow_tiktok_use_auto() {
         return 1
     fi
     _z2k_ow_tiktok_apply_lock_release
+    _z2k_ow_tiktok_job_progress "TikTok: запускаю штатный discovery и автоматический выбор"
     z2k_ow_tiktok_check explicit
 }
 
@@ -1116,21 +1171,52 @@ _z2k_ow_tiktok_state_update_candidates() {
     mv -f "$_tmp" "$Z2K_TIKTOK_STATE_FILE"
 }
 
+_z2k_ow_tiktok_probe_progress_line() {
+    local _index="$1" _total="$2" _pool="$3" _row="$4"
+    local _ip _v77 _eu _v77_ms _eu_ms _icmp _source _geo _v77_display _eu_display
+    _ip=$(printf '%s' "$_row" | cut -d'|' -f1)
+    _v77=$(printf '%s' "$_row" | cut -d'|' -f11)
+    _eu=$(printf '%s' "$_row" | cut -d'|' -f21)
+    _v77_ms=$(printf '%s' "$_row" | cut -d'|' -f2)
+    _eu_ms=$(printf '%s' "$_row" | cut -d'|' -f12)
+    _icmp=$(printf '%s' "$_row" | cut -d'|' -f23)
+    _source=$(printf '%s\n' "$_pool" | tr ';' '\n' | awk -F'|' -v ip="$_ip" '$1 == ip { print $5; exit }')
+    _geo=$(printf '%s\n' "$_pool" | tr ';' '\n' | awk -F'|' -v ip="$_ip" '$1 == ip { print $7; exit }')
+    _v77_display="✕ timeout"
+    [ "$_v77" = verified ] && _v77_display="✓ ${_v77_ms:-?} мс"
+    _eu_display="✕ timeout"
+    [ "$_eu" = verified ] && _eu_display="✓ ${_eu_ms:-?} мс"
+    printf '[%s/%s] %s — v77 %s; v77-eu %s' "$_index" "$_total" "$_ip" "$_v77_display" "$_eu_display"
+    [ -z "$_geo" ] || printf ' — %s' "$_geo"
+    [ -z "$_source" ] || printf ' (%s)' "$_source"
+    [ -z "$_icmp" ] || printf '; ICMP %s мс' "$_icmp"
+    printf '\n'
+}
+
 z2k_ow_tiktok_probe_all() {
     local _pool _ip _row _icmp _idx=0 _batch=0 _parallel="${Z2K_TIKTOK_CANDIDATE_PARALLELISM:-4}"
     local _limit="${Z2K_TIKTOK_CANDIDATE_LIMIT:-64}"
     local _tmp="${Z2K_TMP:-/tmp/z2k}/tiktok-probes.$$" _pids="" _pid _obs="" _result
+    local _total=0 _batch_start=0 _batch_end=0 _batch_index _stats _saved_ifs _checked=0 _compatible=0 _incompatible=0 _best_ip="" _best_ms=""
     case "$_parallel" in ''|*[!0-9]*|0) _parallel=4 ;; esac
     [ "$_parallel" -le 8 ] 2>/dev/null || _parallel=8
     case "$_limit" in ''|*[!0-9]*|0) _limit=64 ;; esac
     [ "$_limit" -le 64 ] 2>/dev/null || _limit=64
+    _z2k_ow_tiktok_job_progress "Обнаружение CDN-кандидатов: Check-Host, локальный DNS, cache и curated pool"
     _row=$(_z2k_ow_tiktok_discover_combined 1)
     _pool=$(printf '%s\n' "$_row" | _z2k_ow_tiktok_candidate_pool | _z2k_ow_tiktok_serialize_lines)
+    _total=$(printf '%s\n' "$_pool" | tr ';' '\n' | awk -v limit="$_limit" 'NF && n < limit { n++ } END { print n+0 }')
+    if [ "$_total" -eq 0 ]; then
+        _z2k_ow_tiktok_job_progress "Кандидаты не найдены; текущий выбор CDN не изменён"
+    else
+        _z2k_ow_tiktok_job_progress "Найдено кандидатов: $_total; проверяю TCP/TLS/SNI для $Z2K_TIKTOK_HOST и $Z2K_TIKTOK_EU_HOST (параллельно: $_parallel)"
+    fi
     mkdir -p "$_tmp" 2>/dev/null || return 1
     while IFS='|' read -r _ip _; do
         _z2k_ow_tiktok_valid_ipv4 "$_ip" || continue
         _idx=$((_idx + 1))
         [ "$_idx" -le "$_limit" ] || break
+        [ "$_batch" -gt 0 ] || _batch_start=$_idx
         (
             if _row=$(_z2k_ow_tiktok_probe_matrix "$_ip"); then _result=0; else _result=1; fi
             _icmp=$(_z2k_ow_tiktok_icmp_latency_ms "$_ip")
@@ -1140,12 +1226,29 @@ z2k_ow_tiktok_probe_all() {
         _batch=$((_batch + 1))
         if [ "$_batch" -ge "$_parallel" ]; then
             for _pid in $_pids; do wait "$_pid" || true; done
+            _batch_end=$_idx
+            _batch_index=$_batch_start
+            while [ "$_batch_index" -le "$_batch_end" ]; do
+                _row=$(cat "$_tmp/$_batch_index.result" 2>/dev/null)
+                [ -z "$_row" ] || _z2k_ow_tiktok_job_progress "$(_z2k_ow_tiktok_probe_progress_line "$_batch_index" "$_total" "$_pool" "$_row")"
+                _batch_index=$((_batch_index + 1))
+            done
+            _batch_start=$((_batch_end + 1))
             _pids=""; _batch=0
         fi
     done <<EOF_TIKTOK_CANDIDATES
 $(printf '%s' "$_pool" | tr ';' '\n')
 EOF_TIKTOK_CANDIDATES
-    for _pid in $_pids; do wait "$_pid" || true; done
+    if [ -n "$_pids" ]; then
+        for _pid in $_pids; do wait "$_pid" || true; done
+        _batch_end=$_idx
+        _batch_index=$_batch_start
+        while [ "$_batch_index" -le "$_batch_end" ]; do
+            _row=$(cat "$_tmp/$_batch_index.result" 2>/dev/null)
+            [ -z "$_row" ] || _z2k_ow_tiktok_job_progress "$(_z2k_ow_tiktok_probe_progress_line "$_batch_index" "$_total" "$_pool" "$_row")"
+            _batch_index=$((_batch_index + 1))
+        done
+    fi
 
     _idx=0
     while [ "$_idx" -lt "$_limit" ]; do
@@ -1155,11 +1258,34 @@ EOF_TIKTOK_CANDIDATES
         [ -n "$_obs" ] && _obs="$_obs;"
         _obs="$_obs$(printf '%s' "$_row" | cut -d'|' -f1-23)"
     done
+    _stats=$(for _result_file in "$_tmp"/*.result; do [ -f "$_result_file" ] && cat "$_result_file"; done \
+        | awk -F'|' '
+            NF >= 22 {
+                total++
+                if ($22 == "compatible") {
+                    compatible++
+                    if ($2 ~ /^[0-9]+$/ && (!best_ms || $2 < best_ms)) { best_ms=$2; best_ip=$1 }
+                } else incompatible++
+            }
+            END { printf "%d|%d|%d|%s|%s\n", total+0, compatible+0, incompatible+0, best_ip, best_ms }
+        ')
+    _saved_ifs=$IFS
+    IFS='|' read -r _checked _compatible _incompatible _best_ip _best_ms <<EOF_TIKTOK_STATS
+$_stats
+EOF_TIKTOK_STATS
+    IFS=$_saved_ifs
     _z2k_ow_tiktok_apply_lock_acquire || { rm -rf "$_tmp"; return 1; }
     _z2k_ow_tiktok_state_update_candidates "$_pool" "$_obs"
     local _rc=$?
     _z2k_ow_tiktok_apply_lock_release
     rm -rf "$_tmp"
+    if [ "$_rc" = 0 ]; then
+        _summary="Итог: проверено $_checked кандидата — совместимы с обоими доменами: $_compatible, недоступны хотя бы для одного: $_incompatible. Результаты сохранены; текущий CDN не переключался."
+        [ -z "$_best_ip" ] || _summary="$_summary Лучший проверенный v77: $_best_ip, ${_best_ms} мс."
+        _z2k_ow_tiktok_job_progress "$_summary"
+    else
+        _z2k_ow_tiktok_job_progress "Результаты проб не удалось сохранить в runtime state"
+    fi
     return "$_rc"
 }
 

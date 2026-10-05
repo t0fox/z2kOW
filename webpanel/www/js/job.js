@@ -402,7 +402,10 @@ export function openJobModal(title, jobId, opts = {}) {
   backdrop.dataset.jobId = jobId;
   backdrop.innerHTML = `
     <div class="modal">
-      <h3>${escapeHtml(title)}</h3>
+      <div class="job-modal-heading">
+        <h3>${escapeHtml(title)}</h3>
+        <span class="job-modal-status is-running" id="job-status">Выполняется</span>
+      </div>
       ${warning}
       <pre class="log" id="job-log">${escapeHtml(poller.lastLog || "Запуск…")}</pre>
       <div class="modal-footer">
@@ -415,6 +418,7 @@ export function openJobModal(title, jobId, opts = {}) {
   openModalBackdrop(backdrop);
   const logEl = backdrop.querySelector("#job-log");
   const closeBtn = backdrop.querySelector("#job-close");
+  const statusEl = backdrop.querySelector("#job-status");
   const cancelBtn = backdrop.querySelector("#job-cancel");
   logEl.scrollTop = logEl.scrollHeight;
 
@@ -422,8 +426,25 @@ export function openJobModal(title, jobId, opts = {}) {
   // кнопки на «Готово»/«Закрыть». Если юзер закроет до done — мы
   // снимаем подписку, poller продолжит крутиться и сам разлочит UI.
   const onTick = (log, done, d) => {
+    const wasNearBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 48;
     logEl.textContent = log;
-    logEl.scrollTop = logEl.scrollHeight;
+    if (wasNearBottom) logEl.scrollTop = logEl.scrollHeight;
+    if (!done) {
+      statusEl.textContent = "Выполняется";
+      statusEl.className = "job-modal-status is-running";
+    } else if (d && d.exit === 0) {
+      statusEl.textContent = "Завершено";
+      statusEl.className = "job-modal-status is-success";
+    } else if (d && d.outcome === JOB_OFFLINE) {
+      statusEl.textContent = "Панель недоступна";
+      statusEl.className = "job-modal-status is-unknown";
+    } else if (d && (d.outcome === JOB_GONE || d.status === "unknown")) {
+      statusEl.textContent = "Итог неизвестен";
+      statusEl.className = "job-modal-status is-unknown";
+    } else if (done) {
+      statusEl.textContent = "Ошибка";
+      statusEl.className = "job-modal-status is-error";
+    }
     if (done) {
       const isLockHeld = (log || "").includes("lock held by pid=");
       if (d && d.exit === 0) {

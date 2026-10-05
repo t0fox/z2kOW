@@ -733,8 +733,9 @@ assert_eq "probe/run: 410 Gone" "Status: 410 Gone" "$(printf '%s\n' "$RAW" | _cg
 RAW="$(_cgi GET /strategy/pool "pool=rkn_tcp")"
 assert_eq "pool missing: text/plain пусто" "Content-Type: text/plain; charset=utf-8" "$(printf '%s\n' "$RAW" | _cgi_status)"
 
-# POST toggles: каждый job доходит до done/rc 0, флаг — в конфиге.
-for _tg in "dynamic-ttl:Z2K_DYNAMIC_TTL:1" "stats:Z2K_STATS:1" "auto-update:Z2K_AUTO_UPDATE_ENABLED:1" "autohostlist:Z2K_AUTOHOSTLIST:1" "tiktok-feed:Z2K_TIKTOK_FEED_ENABLED:1"; do
+# Долгие POST toggles: каждый job доходит до done/rc 0, флаг — в конфиге.
+# Статистика и автообновление проверяются отдельно ниже как быстрые sync writes.
+for _tg in "dynamic-ttl:Z2K_DYNAMIC_TTL:1" "autohostlist:Z2K_AUTOHOSTLIST:1" "tiktok-feed:Z2K_TIKTOK_FEED_ENABLED:1"; do
     _tn="${_tg%%:*}"; _rest="${_tg#*:}"; _tk="${_rest%%:*}"; _tv="${_rest##*:}"
     printf 'value=%s' "$_tv" > "$T/body.txt"
     RAW="$(_cgi POST /toggle/$_tn "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
@@ -793,6 +794,14 @@ RAW="$(_cgi POST /tiktok/probe-all)"
 assert_eq "TikTok candidate probing requires the feature to be enabled" "Status: 409 Conflict" "$(printf '%s\n' "$RAW" | _cgi_status)"
 RAW="$(_cgi POST /tiktok/auto)"
 assert_eq "TikTok auto mode action requires the feature to be enabled" "Status: 409 Conflict" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf 'value=0' > "$T/body.txt"
+RAW="$(_cgi POST /toggle/stats "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "quick stats toggle completes synchronously without a job modal" "null" "$(_jget "$OUT" 'd.get("job")')"
+assert_eq "quick stats toggle persists its value" "0" "$(grep -m1 '^Z2K_STATS=' "$T/etc/config" | cut -d= -f2)"
+printf 'value=0' > "$T/body.txt"
+RAW="$(_cgi POST /toggle/auto-update "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "quick auto-update toggle completes synchronously without a job modal" "null" "$(_jget "$OUT" 'd.get("job")')"
+assert_eq "quick auto-update toggle persists its value" "0" "$(grep -m1 '^Z2K_AUTO_UPDATE_ENABLED=' "$T/etc/config" | cut -d= -f2)"
 printf 'value=9' > "$T/body.txt"
 RAW="$(_cgi POST /toggle/stats "" "$T/body.txt")"
 assert_eq "toggle bad value: 400" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
