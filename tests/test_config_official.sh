@@ -504,6 +504,34 @@ TIKTOK_OUT=$(test_tiktok_manual_preserve "invalid" "preferred;bad" "999.1.2.3")
 assert_contains "unknown TikTok mode resets to auto during regeneration" "Z2K_TIKTOK_MODE=auto" "$TIKTOK_OUT"
 assert_contains "invalid TikTok manual IP is cleared during regeneration" "Z2K_TIKTOK_MANUAL_IP=" "$TIKTOK_OUT"
 
+printf "\n--- WARP WDTT selection survives official config regeneration ---\n"
+test_warp_wdtt_preserve() {
+    local tag="$1" setting="$2" root="${MOCK_DIR}/warp-wdtt-${1}"
+    rm -rf "$root"
+    mkdir -p "$root/extra_strats/TCP/YT" "$root/extra_strats/TCP/YT_GV" \
+        "$root/extra_strats/TCP/RKN" "$root/extra_strats/UDP/YT" "$root/lists"
+    echo "youtube.com" > "$root/extra_strats/TCP/YT/List.txt"
+    echo "googlevideo.com" > "$root/extra_strats/TCP/YT_GV/List.txt"
+    echo "youtube.com" > "$root/extra_strats/UDP/YT/List.txt"
+    echo "rutracker.org" > "$root/extra_strats/TCP/RKN/List.txt"
+    echo "whitelisted.example.com" > "$root/lists/whitelist.txt"
+    echo "--filter-tcp=443 --filter-l7=tls --lua-desync=circular:fails=3:time=60:key=rkn_tcp --lua-desync=fake:strategy=1" \
+        > "$root/extra_strats/TCP/RKN/Strategy.txt"
+    printf 'ENABLED=1\n%s\n' "$setting" > "$root/config"
+    ( ZAPRET2_DIR="$root" create_official_config "$root/config" >/dev/null 2>&1 )
+    grep -E '^Z2K_WARP_WDTT=' "$root/config" | head -1
+    rm -rf "$root"
+}
+
+WARP_WDTT_OUT=$(test_warp_wdtt_preserve "on" "Z2K_WARP_WDTT=1")
+assert_contains "WDTT enabled survives config regeneration" "Z2K_WARP_WDTT=1" "$WARP_WDTT_OUT"
+WARP_WDTT_OUT=$(test_warp_wdtt_preserve "off" "Z2K_WARP_WDTT=0")
+assert_contains "WDTT disabled survives config regeneration" "Z2K_WARP_WDTT=0" "$WARP_WDTT_OUT"
+WARP_WDTT_OUT=$(test_warp_wdtt_preserve "absent" "")
+assert_contains "WDTT missing config defaults to disabled" "Z2K_WARP_WDTT=0" "$WARP_WDTT_OUT"
+WARP_WDTT_OUT=$(test_warp_wdtt_preserve "invalid" "Z2K_WARP_WDTT=enabled")
+assert_contains "invalid WDTT config resets to disabled" "Z2K_WARP_WDTT=0" "$WARP_WDTT_OUT"
+
 printf "\n--- Z2K_PPE_DEOFFLOAD: webpanel offload toggle persists across regen ---\n"
 
 # Regression: the Keenetic per-flow hardware-offload exclusion toggle

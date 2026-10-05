@@ -39,6 +39,16 @@ WebPanel, CLI/actions, scheduler self-heal, diagnostics, and service startup mus
 
 Keep upstream filtering/validation semantics for destination lists and selected clients. OpenWrt adapters may change storage paths and nftables representation, not the meaning of accepted entries.
 
+## WireGuard server clients (WDTT)
+
+`Z2K_WARP_WDTT` defaults to `0` and survives official config regeneration. OpenWrt identifies server-side WireGuard interfaces from UCI (`proto=wireguard` with a valid `listen_port`); client tunnel interfaces are excluded.
+
+With WDTT off, traffic entering through those server interfaces stays direct. With WDTT on and at least one active WARP destination list, all client traffic entering through those interfaces receives the WARP mark, matching upstream WDTT scope. If no destination list is active, clients remain direct, including while selected LAN devices use full-device mode. The WebPanel updates the saved setting and asks the OpenWrt adapter to reconcile nft rules; failed reconciliation restores the previous setting.
+
+## Native WireGuard client tunnels
+
+OpenWrt UCI WireGuard interfaces without a `listen_port` are treated as client tunnels; interfaces with a configured listening port remain server interfaces and follow WDTT. In selected-device list mode, traffic entering a client tunnel is eligible for WARP when its source is in a private IPv4 range and its destination matches an active WARP IP/CIDR or learned domain pair. This path is independent of both the LAN device selection and the WDTT switch, matching upstream native WG/AWG client behavior. Public source traffic and unlisted destinations remain direct. Client tunnels do not receive a special full-device rule; the regular selected-source policy remains in effect there. DNS replies sent to these client interfaces are included in passive domain observation.
+
 ## Recovery
 
 Firewall reload, WAN reconnect, reboot, or daemon failure must converge back to the configured state. Recovery must not leave stale policy rules that route traffic to a non-ready tunnel.

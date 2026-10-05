@@ -32,6 +32,8 @@ assert_eq "destination editor names domains" "1" "$(count 'Списки адре
 assert_eq "game list source is visible"     "1" "$(count 'YOZH3G/ru-gaming-blocklist')"
 assert_eq "wildcard guidance visible"        "yes" "$([ "$(count '\*.example.com')" -gt 0 ] && echo yes || echo no)"
 assert_eq "router DNS visibility explained" "1" "$(count 'DNS роутера')"
+assert_eq "device selection keeps upstream list scope" "1" "$(count 'Выберите устройства, для которых будут работать включённые списки WARP')"
+assert_eq "device selection does not promise full traffic with active lists" "0" "$(count 'весь его трафик пойдёт через WARP, независимо от')"
 for code in register_blocked device_revoked no_endpoint tun_failed no_transit; do
     assert_eq "error text for $code"         "1" "$(count "$code:")"
 done
@@ -41,10 +43,15 @@ assert_eq "status uses ready, not tunnel_up" "0" "$(count 'tunnel_up')"
 assert_eq "status separates routing proof" "2" "$(count 'route_ready')"
 assert_eq "UI does not call ready alone fully working" "1" "$(count 'маршрутизация не подтверждена')"
 assert_eq "UI names recovery state" "1" "$(count 'соединение потеряно, восстанавливается')"
+assert_eq "WDTT toggle row" "1" "$(count 'id="warp-wdtt-row"')"
+assert_eq "WDTT toggle endpoint" "1" "$(count '"/warp/wdtt"')"
+assert_eq "WDTT defaults from public status" "1" "$(count 'wdttBox.checked = !!d.wdtt_enabled')"
+assert_eq "WDTT control only appears when installed" "1" "$(count 'wdttRow.hidden = !installed')"
 
 if command -v node >/dev/null 2>&1; then
     JS=$(sh "$ROOT/tests/lib/panel_js.sh")
     node "$ROOT/tests/test_warp_empty_games_ui.js" "$JS" || FAIL=$((FAIL + 1))
+    node "$ROOT/tests/test_warp_geo_status_ui.js" "$J" || FAIL=$((FAIL + 1))
     for mock in installed uninstalled; do
         out=$(Z2K_WARP_MOCK="$mock" node "$ROOT/tests/panel_harness.js" "$JS" warp 2>&1)
         if printf '%s\n' "$out" | grep -q 'ok  *#/warp$'; then ok "раздел #/warp отрисовался ($mock)"

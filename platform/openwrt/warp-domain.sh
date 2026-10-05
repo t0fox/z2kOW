@@ -161,6 +161,13 @@ warp_domain_observer_rules_apply() {
             _devices=$(printf '%s\n%s\n' "$_devices" "$_wg_devices" | awk 'NF && !seen[$0]++')
         fi
     fi
+    if command -v warp_wireguard_client_devices >/dev/null 2>&1; then
+        local _wg_client_devices
+        _wg_client_devices=$(warp_wireguard_client_devices 2>/dev/null || true)
+        if [ -n "$_wg_client_devices" ]; then
+            _devices=$(printf '%s\n%s\n' "$_devices" "$_wg_client_devices" | awk 'NF && !seen[$0]++')
+        fi
+    fi
     [ -n "$_devices" ] || { warp_domain_error_set lan-device-unavailable; return 1; }
     {
         printf 'flush chain %s %s %s\n' "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" "$WARP_DOMAIN_NFT_OUT"

@@ -28,6 +28,12 @@ _out="$(Z2K_OW_CAPS=1 node "$ROOT/tests/panel_harness.js" "$JS" $ROUTES 2>&1)"
 _rc=$?
 printf '%s\n' "$_out" | sed 's/^/    /'
 [ "$_rc" -eq 0 ] || _t_bad "харнесс завершился с rc=$_rc"
+
+_geo_out="$(node "$ROOT/tests/test_warp_geo_status_ui.js" "$ROOT/webpanel/www/js/pages/warp.js" 2>&1)"
+_geo_rc=$?
+printf '%s\n' "$_geo_out" | sed 's/^/    /'
+[ "$_geo_rc" -eq 0 ] && _t_ok || _t_bad "география WARP отображается без ложного healthy"
+
 for _r in $ROUTES; do
     if printf '%s\n' "$_out" | grep -q "ok  *#/$_r$"; then _t_ok
     else _t_bad "страница #/$_r под OW-caps НЕ отрисовалась"; fi

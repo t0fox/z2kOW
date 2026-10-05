@@ -31,6 +31,10 @@ const (
 	MTU         = 1280
 	openTimeout = 15 * time.Second
 	tick        = time.Second
+	// Keep active-step metadata bounded and aligned with edgepick's on-disk cache.
+	activeEdgeProbeTimeout = 12 * time.Second
+	activeEdgeProbeRetry   = time.Minute
+	activeEdgeFreshness    = 24 * time.Hour
 	// tunOffset — запас перед пакетом, который просят транспорты (virtio-заголовок).
 	tunOffset = 16
 )
@@ -143,6 +147,12 @@ type Engine struct {
 	scanning    bool
 	currentStep account.Step
 	edges       map[account.Step]edgepick.Result
+	edgeGeo     map[account.Step]edgeGeoState
+}
+
+type edgeGeoState struct {
+	selection string
+	retryAt   time.Time
 }
 
 // Run выполняет цикл до отмены ctx. Возвращает ошибку только для
@@ -161,7 +171,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	defer release()
 
-	e := &Engine{cfg: cfg, st: &status.Writer{Path: cfg.StatusPath, MinInterval: time.Second}, since: cfg.Now()}
+	e := &Engine{cfg: cfg, st: &status.Writer{Path: cfg.StatusPath, MinInterval: time.Second}, since: cfg.Now(), edgeGeo: make(map[account.Step]edgeGeoState)}
 	defer e.st.Remove()
 
 	d, err2 := account.Load(cfg.DevicePath)
@@ -227,6 +237,9 @@ func Run(ctx context.Context, cfg Config) error {
 		e.currentStep = step
 		e.write(status.Status{Ready: false, Transport: step.Transport, Endpoint: ladder.Label(step),
 			Iface: e.iface, Addr: d.AddrV4, HandshakeAge: -1, LadderStep: lad.Index()})
+		// Endpoint changes invalidate the visible geography immediately, even
+		// when the status writer is otherwise rate-limiting routine updates.
+		e.st.Flush()
 		tr, err := e.open(ctx, step, e.tunDev.Handle())
 		if err != nil {
 			cfg.Logf("ladder: %s failed: %v", ladder.Label(step), err)
@@ -379,6 +392,12 @@ func (e *Engine) serve(ctx context.Context, tr transport.Transport, step account
 		now := e.cfg.Now()
 		h := tr.Health()
 		v := mon.Assess(ctx, h, now, e.iface)
+		probeEdge := step.Transport == "wg" && v != health.Dead && mon.Proven() && e.activeEdgeProbeDue(step, now)
+		if probeEdge {
+			// A stale result for this same endpoint is hidden while it is refreshed.
+			delete(e.edges, step)
+			e.edgeGeo[step] = edgeGeoState{selection: "locating"}
+		}
 		// ГОТОВНОСТЬ — ТОЛЬКО ДОКАЗАННАЯ. Раньше здесь стояло просто
 		// «не мёртв», и туннель объявлялся готовым, едва встала сессия.
 		// В поле это выглядело так: ready=true, transport=h2, tx=314319 при
@@ -389,7 +408,7 @@ func (e *Engine) serve(ctx context.Context, tr transport.Transport, step account
 		//
 		// Doubtful у доказанного туннеля готовности НЕ снимает — иначе
 		// маршрут снимался бы при каждой паузе в трафике.
-		e.write(status.Status{
+		snapshot := status.Status{
 			Ready:        v != health.Dead && mon.Proven(),
 			Transport:    step.Transport,
 			Endpoint:     tr.Endpoint(),
@@ -400,10 +419,17 @@ func (e *Engine) serve(ctx context.Context, tr transport.Transport, step account
 			Tx:           h.Tx,
 			LadderStep:   lad.Index(),
 			Since:        e.since.Unix(),
-		})
+		}
+		e.write(snapshot)
 		if !committed && mon.Proven() {
 			committed = true
 			e.commitGood(lad)
+		}
+		if probeEdge {
+			e.st.Flush()
+			e.probeActiveEdge(ctx, step)
+			e.write(snapshot)
+			e.st.Flush()
 		}
 		if v == health.Dead {
 			// Причина — из транспорта, если она там есть, иначе из монитора:
@@ -436,6 +462,46 @@ func (e *Engine) serve(ctx context.Context, tr transport.Transport, step account
 			return false
 		}
 	}
+}
+
+func (e *Engine) activeEdgeProbeDue(step account.Step, now time.Time) bool {
+	if result, ok := e.edges[step]; ok && result.Colo != "" && result.Country != "" && !result.CheckedAt.IsZero() &&
+		now.Sub(result.CheckedAt) <= activeEdgeFreshness && result.CheckedAt.Sub(now) <= 5*time.Minute {
+		return false
+	}
+	state := e.edgeGeo[step]
+	if state.selection == "locating" || (state.selection == "unavailable" && now.Before(state.retryAt)) {
+		return false
+	}
+	return true
+}
+
+// probeActiveEdge enriches a step that the health monitor has already proven.
+// It uses the existing Cloudflare metadata probe through the active WARP TUN;
+// failure only affects location metadata and never changes tunnel readiness.
+func (e *Engine) probeActiveEdge(ctx context.Context, step account.Step) {
+	probeCtx, cancel := context.WithTimeout(ctx, activeEdgeProbeTimeout)
+	meta, rtt, loss, err := e.cfg.GeoProbe(probeCtx, e.iface)
+	cancel()
+	if ctx.Err() != nil {
+		delete(e.edgeGeo, step)
+		return
+	}
+	if err != nil || meta.Colo == "" || meta.Country == "" {
+		if err == nil {
+			err = errors.New("Cloudflare metadata is incomplete")
+		}
+		e.edgeGeo[step] = edgeGeoState{selection: "unavailable", retryAt: e.cfg.Now().Add(activeEdgeProbeRetry)}
+		e.cfg.Logf("edge: %s active location unavailable: %v", ladder.Label(step), err)
+		return
+	}
+	if e.edges == nil {
+		e.edges = make(map[account.Step]edgepick.Result)
+	}
+	e.edges[step] = edgepick.Result{Step: step, Colo: meta.Colo, Country: meta.Country,
+		RTT: rtt, LossPct: loss, CheckedAt: e.cfg.Now()}
+	delete(e.edgeGeo, step)
+	e.cfg.Logf("edge: %s active location %s/%s (%s)", ladder.Label(step), meta.Colo, meta.Country, rtt.Round(time.Millisecond))
 }
 
 // wgReachable пробует WG-handshake на пустом TUN. Ключ на время пробы
@@ -490,22 +556,30 @@ func (e *Engine) tearDownTUN() {
 }
 
 func (e *Engine) write(s status.Status) {
+	now := e.cfg.Now()
 	if s.EdgeSelection == "" {
 		if e.scanning {
 			s.EdgeSelection = "scanning"
 		} else if result, ok := e.edges[e.currentStep]; ok {
-			s.EdgeColo = result.Colo
-			s.EdgeCountry = result.Country
-			s.EdgeRTTMs = int(result.RTT / time.Millisecond)
-			s.EdgeCheckedAt = result.CheckedAt.Unix()
-			s.EdgeSelection = "unknown"
-			if result.Country == "RU" {
-				s.EdgeSelection = "domestic"
-			} else if result.Country != "" {
-				s.EdgeSelection = "foreign"
+			if result.Colo != "" && result.Country != "" && !result.CheckedAt.IsZero() && now.Sub(result.CheckedAt) <= activeEdgeFreshness && result.CheckedAt.Sub(now) <= 5*time.Minute {
+				s.EdgeColo = result.Colo
+				s.EdgeCountry = result.Country
+				s.EdgeRTTMs = int(result.RTT / time.Millisecond)
+				s.EdgeCheckedAt = result.CheckedAt.Unix()
+				s.EdgeSelection = "unknown"
+				if result.Country == "RU" {
+					s.EdgeSelection = "domestic"
+				} else {
+					s.EdgeSelection = "foreign"
+				}
 			}
-		} else if e.currentStep.Transport != "" {
-			s.EdgeSelection = "fallback"
+		}
+		if s.EdgeSelection == "" {
+			if state := e.edgeGeo[e.currentStep]; state.selection != "" {
+				s.EdgeSelection = state.selection
+			} else if e.currentStep.Transport != "" {
+				s.EdgeSelection = "fallback"
+			}
 		}
 	}
 	s.PID = os.Getpid()

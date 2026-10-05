@@ -61,6 +61,7 @@ chmod +x "$T/bin/ip"
 
 cat > "$T/bin/nft" <<EOF
 #!/bin/sh
+echo "nft:\$*" >> "$T/nft.log"
 if [ "\$1" = list ] && [ "\$2" = table ]; then exit 0; fi
 if [ "\$1" = list ] && [ "\$2" = set ]; then exit 0; fi
 if [ "\$1" = list ] && [ "\$2" = chain ]; then
@@ -71,7 +72,11 @@ if [ "\$1" = list ] && [ "\$2" = chain ]; then
     fi
     if [ "\$5" = z2k_warp_mark ]; then
         [ "\${HAVE_MARK:-1}" = 1 ] || exit 0
-        printf '%s\n' 'ip daddr @z2k_warp_dst4 meta mark set meta mark & 0x7fffffff ^ 0x80000000'
+        if [ -s "$T/nft-mark-rule" ]; then
+            cat "$T/nft-mark-rule"
+        else
+            printf '%s\n' 'ip daddr @z2k_warp_dst4 meta mark set meta mark & 0x7fffffff ^ 0x80000000'
+        fi
         exit 0
     fi
     cat <<'RULES'
@@ -80,6 +85,14 @@ iifname z2ktun0 tcp flags syn tcp option maxseg size set 1240
 oifname z2ktun0 accept
 oifname z2ktun0 masquerade
 RULES
+    exit 0
+fi
+if [ "\$1" = flush ] && [ "\$2" = chain ] && [ "\$5" = z2k_warp_mark ]; then
+    : > "$T/nft-mark-rule"
+    exit 0
+fi
+if [ "\$1" = add ] && [ "\$2" = rule ] && [ "\$5" = z2k_warp_mark ]; then
+    printf '%s\n' "\$*" | sed 's/^add rule inet zapret2 z2k_warp_mark //' >> "$T/nft-mark-rule"
     exit 0
 fi
 exit 0
@@ -158,6 +171,26 @@ _out="$(warp_status)"
 printf '%s\n' "$_out" > "$T/status-ready.log"
 assert_contains "routing proof is true" "$T/status-ready.log" "route_ready=1"
 assert_contains "complete state is ready" "$T/status-ready.log" "state=ready"
+
+# Joint acceptance: the selected-device change uses the real OpenWrt ipset
+# adapter and changes the canonical MARK shape while preserving the healthy
+# route proof and the active WireGuard step's Cloudflare metadata.
+printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg","endpoint":"162.159.192.6:2408","edge_colo":"FRA","edge_country":"DE","edge_rtt_ms":42,"edge_selection":"foreign"}\n' > "$WARP_STATUS"
+mkdir -p "$WARP_GAMES_DIR"
+printf '8.8.8.8\n' > "$WARP_GAMES_DIR/steam.txt"
+printf 'steam\n' > "$WARP_ENABLED_FILE"
+printf '192.168.1.50\n' > "$WARP_DEVICES_FILE"
+: > "$T/nft.log"
+warp_ipset --reconcile-rules || _t_bad "device apply while route-ready rc"
+assert_contains "live device apply installs source+destination MARK rule" "$T/nft.log" \
+    'nft:add rule inet zapret2 z2k_warp_mark ip saddr @z2k_warp_src4 ip daddr @z2k_warp_dst4 meta mark set'
+_out="$(warp_status)"
+printf '%s\n' "$_out" > "$T/status-device-geo.log"
+assert_contains "device apply keeps OpenWrt routing ready" "$T/status-device-geo.log" "route_ready=1"
+assert_contains "device apply keeps current step geo metadata" "$T/status-device-geo.log" \
+    "edge_colo=FRA edge_country=DE edge_rtt_ms=42"
+assert_contains "device apply keeps current step geo selection" "$T/status-device-geo.log" \
+    "edge_selection=foreign"
 
 # The observer's JSON is authoritative for activity, but the rules.v1 file is
 # also consulted to avoid reporting stale daemon state after its rule file is

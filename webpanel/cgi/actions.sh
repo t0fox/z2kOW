@@ -2329,9 +2329,33 @@ warp_lists_ensure_dir() {
 warp_ipset_reload_if_enabled() {
     # Live-apply list edits: rebuild the ipset only while the feature is ON.
     # While OFF the set is left alone — enable does a full load anyway.
+    local _reconcile_rules=0
+    [ "${1:-}" = "--reconcile-rules" ] && _reconcile_rules=1
     [ "$(read_flag "GAME_WARP_ENABLED" "$CONFIG_FILE" "0")" = "1" ] || return 0
     [ -f "$WARP_SCRIPT" ] || return 0
-    sh "$WARP_SCRIPT" ipset >/dev/null 2>&1 || true
+    if [ "$_reconcile_rules" = "1" ]; then
+        sh "$WARP_SCRIPT" ipset --reconcile-rules >/dev/null 2>&1
+    else
+        sh "$WARP_SCRIPT" ipset >/dev/null 2>&1
+    fi
+}
+
+# Apply the WARP list policy to clients behind OpenWrt WireGuard-server
+# interfaces. Keep the saved choice if WARP is off; when it is on, reconcile
+# nft rules immediately and roll the config back if the adapter rejects it.
+warp_wdtt_set() {
+    local value="$1" old
+    case "$value" in 0|1) ;; *) echo "value must be 0 or 1" >&2; return 1 ;; esac
+    old=$(read_flag "Z2K_WARP_WDTT" "$CONFIG_FILE" "0")
+    set_flag "Z2K_WARP_WDTT" "$value" "$CONFIG_FILE" || return 1
+    if [ "$(read_flag "GAME_WARP_ENABLED" "$CONFIG_FILE" "0")" = "1" ] && [ -f "$WARP_SCRIPT" ]; then
+        sh "$WARP_SCRIPT" ipset --reconcile-rules >/dev/null 2>&1 || {
+            set_flag "Z2K_WARP_WDTT" "$old" "$CONFIG_FILE" || true
+            sh "$WARP_SCRIPT" ipset --reconcile-rules >/dev/null 2>&1 || true
+            echo "не удалось применить правило WDTT" >&2
+            return 1
+        }
+    fi
 }
 
 warp_status_info() {
@@ -2341,7 +2365,8 @@ warp_status_info() {
     # контрактный тест требует донести его как есть.
     local st=""
     [ -f "$WARP_SCRIPT" ] && st=$(sh "$WARP_SCRIPT" status 2>/dev/null)
-    printf '%s enabled=%s\n' "$st" "$(read_flag "GAME_WARP_ENABLED" "$CONFIG_FILE" "0")"
+    printf '%s enabled=%s wdtt=%s\n' "$st" "$(read_flag "GAME_WARP_ENABLED" "$CONFIG_FILE" "0")" \
+        "$(read_flag "Z2K_WARP_WDTT" "$CONFIG_FILE" "0")"
 }
 
 # ---------- устройства «всё в WARP» (lists/warp/devices.txt) ----------
@@ -2525,6 +2550,29 @@ warp_neighbors() {
 
 # Включить/выключить устройство по MAC: строка в devices.txt добавляется или
 # убирается; ручные строки (IP, чужие MAC) не трогаются.
+warp_devices_commit() {
+    local tmp="$1" f="$WARP_LISTS_DIR/devices.txt" old="$1.old"
+    if [ -f "$f" ]; then
+        cp -p "$f" "$old" || return 1
+    else
+        : > "$old" || return 1
+    fi
+    if ! mv -f "$tmp" "$f"; then
+        rm -f "$old"
+        return 1
+    fi
+    chmod 644 "$f"
+    if warp_ipset_reload_if_enabled --reconcile-rules; then
+        rm -f "$old"
+        return 0
+    fi
+    # Upstream keeps the saved device choice transactional with its live apply.
+    # Restore the prior choice and make a best-effort attempt to restore routing.
+    mv -f "$old" "$f"
+    warp_ipset_reload_if_enabled --reconcile-rules >/dev/null 2>&1 || true
+    return 1
+}
+
 warp_device_toggle() {
     local mac val="$2" f="$WARP_LISTS_DIR/devices.txt" tmp
     mac=$(printf '%s' "$1" | tr 'A-Z-' 'a-z:')
@@ -2540,8 +2588,7 @@ warp_device_toggle() {
         [ "$val" = "1" ] && printf '%s\n' "$mac"
         true
     } > "$tmp" || { rm -f "$tmp"; return 1; }
-    mv -f "$tmp" "$f" && chmod 644 "$f"
-    warp_ipset_reload_if_enabled
+    warp_devices_commit "$tmp" || { rm -f "$tmp"; return 1; }
     return 0
 }
 
@@ -2579,9 +2626,11 @@ warp_devices_save() {
         d++
     }
     END { printf "entries=%d dropped=%d\n", n, d > "/dev/stderr" }' > "$tmp" 2> "$tmp.stat" || { rm -f "$tmp" "$tmp.stat"; return 1; }
-    mv -f "$tmp" "$WARP_LISTS_DIR/devices.txt" && chmod 644 "$WARP_LISTS_DIR/devices.txt"
+    if ! warp_devices_commit "$tmp"; then
+        rm -f "$tmp" "$tmp.stat"
+        return 1
+    fi
     cat "$tmp.stat"; rm -f "$tmp.stat"
-    warp_ipset_reload_if_enabled
     return 0
 }
 

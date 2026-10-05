@@ -61,6 +61,188 @@ func TestForeignEdgeSelectedBeforeFasterDomestic(t *testing.T) {
 	<-done
 }
 
+func TestCurrentUnscannedWGStepGetsGeoAfterHealthyProof(t *testing.T) {
+	h := newHarness(t, baseDevice(), map[string]bool{"wg:2408": true})
+	candidate := account.Step{Transport: "wg", Host: "188.114.96.23", Port: 2408}
+	current := account.Step{Transport: "wg", Host: "8.6.112.0", Port: 2408}
+	cfg := h.config()
+	cfg.EdgeCandidates = []account.Step{candidate}
+	cfg.EdgeWAN = func(string) (string, error) { return "", nil }
+	var geoMu sync.Mutex
+	geoCalls := 0
+	cfg.GeoProbe = func(context.Context, string) (edgepick.Meta, time.Duration, int, error) {
+		h.mu.Lock()
+		host := h.made[len(h.made)-1].step.Host
+		h.mu.Unlock()
+		geoMu.Lock()
+		geoCalls++
+		geoMu.Unlock()
+		if host == candidate.Host {
+			return edgepick.Meta{}, 0, 100, errors.New("candidate meta timeout")
+		}
+		if host != current.Host {
+			return edgepick.Meta{}, 0, 100, fmt.Errorf("unexpected probe step %s", host)
+		}
+		return edgepick.Meta{Colo: "HEL", Country: "FI"}, 42 * time.Millisecond, 0, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = Run(ctx, cfg); close(done) }()
+	waitFor(t, "healthy active WG step", func() bool { s := readStatus(h); return s != nil && s.Ready })
+	s := readStatus(h)
+	if s.EdgeColo != "HEL" || s.EdgeCountry != "FI" || s.EdgeRTTMs != 42 || s.EdgeSelection != "foreign" {
+		cancel()
+		<-done
+		t.Fatalf("active fallback step must have its own geo metadata: %+v", s)
+	}
+	readyAt := cfg.Now()
+	waitFor(t, "several status ticks on same step", func() bool { return cfg.Now().Sub(readyAt) >= 5*time.Second })
+	for i := 0; i < 20; i++ {
+		_ = readStatus(h) // status polling must not trigger a network probe
+	}
+	geoMu.Lock()
+	gotCalls := geoCalls
+	geoMu.Unlock()
+	cancel()
+	<-done
+	if gotCalls != 2 { // one failed discovery candidate, one current active step
+		t.Fatalf("GeoProbe calls on a stable active step = %d, want 2 total", gotCalls)
+	}
+}
+
+func TestSwitchingWGStepClearsOldGeoUntilNewStepIsProbed(t *testing.T) {
+	h := newHarness(t, baseDevice(), map[string]bool{"wg:2408": true})
+	edgeA := account.Step{Transport: "wg", Host: "188.114.96.23", Port: 2408}
+	edgeB := account.Step{Transport: "wg", Host: "8.6.112.0", Port: 2408}
+	cfg := h.config()
+	cfg.EdgeCandidates = []account.Step{edgeA}
+	cfg.EdgeWAN = func(string) (string, error) { return "", nil }
+	bProbeStarted := make(chan struct{})
+	releaseBProbe := make(chan struct{})
+	var bOnce sync.Once
+	cfg.GeoProbe = func(ctx context.Context, _ string) (edgepick.Meta, time.Duration, int, error) {
+		h.mu.Lock()
+		host := h.made[len(h.made)-1].step.Host
+		h.mu.Unlock()
+		if host == edgeA.Host {
+			return edgepick.Meta{Colo: "HEL", Country: "FI"}, 40 * time.Millisecond, 0, nil
+		}
+		if host != edgeB.Host {
+			return edgepick.Meta{}, 0, 100, fmt.Errorf("unexpected probe step %s", host)
+		}
+		bOnce.Do(func() { close(bProbeStarted) })
+		select {
+		case <-releaseBProbe:
+			return edgepick.Meta{Colo: "LAX", Country: "US"}, 73 * time.Millisecond, 0, nil
+		case <-ctx.Done():
+			return edgepick.Meta{}, 0, 100, ctx.Err()
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = Run(ctx, cfg); close(done) }()
+	waitFor(t, "edge A ready with known geo", func() bool {
+		s := readStatus(h)
+		return s != nil && s.Ready && s.Endpoint != "" && s.EdgeColo == "HEL" && s.EdgeCountry == "FI"
+	})
+	h.mu.Lock()
+	activeA := h.made[len(h.made)-1]
+	h.mu.Unlock()
+	activeA.die()
+	select {
+	case <-bProbeStarted:
+	case <-time.After(3 * time.Second):
+		cancel()
+		close(releaseBProbe)
+		<-done
+		t.Fatal("new active WG step was not geo-probed")
+	}
+	s := readStatus(h)
+	if s == nil || !s.Ready || s.EdgeColo != "" || s.EdgeCountry != "" || s.EdgeSelection != "locating" {
+		cancel()
+		close(releaseBProbe)
+		<-done
+		t.Fatalf("old endpoint geography leaked while new step was being probed: %+v", s)
+	}
+	close(releaseBProbe)
+	waitFor(t, "edge B has its own geo", func() bool {
+		s := readStatus(h)
+		return s != nil && s.Ready && s.EdgeColo == "LAX" && s.EdgeCountry == "US" && s.EdgeRTTMs == 73 && s.EdgeSelection == "foreign"
+	})
+	cancel()
+	<-done
+}
+
+func TestGeoProbeFailureKeepsReadyAndRetriesWithoutPollingProbes(t *testing.T) {
+	h := newHarness(t, baseDevice(), map[string]bool{"wg:2408": true})
+	candidate := account.Step{Transport: "wg", Host: "188.114.96.23", Port: 2408}
+	current := account.Step{Transport: "wg", Host: "8.6.112.0", Port: 2408}
+	cfg := h.config()
+	cfg.EdgeCandidates = []account.Step{candidate}
+	cfg.EdgeWAN = func(string) (string, error) { return "", nil }
+	var geoMu sync.Mutex
+	activeCalls := 0
+	cfg.GeoProbe = func(context.Context, string) (edgepick.Meta, time.Duration, int, error) {
+		h.mu.Lock()
+		host := h.made[len(h.made)-1].step.Host
+		h.mu.Unlock()
+		if host == candidate.Host {
+			return edgepick.Meta{}, 0, 100, errors.New("scan meta timeout")
+		}
+		if host != current.Host {
+			return edgepick.Meta{}, 0, 100, fmt.Errorf("unexpected probe step %s", host)
+		}
+		geoMu.Lock()
+		activeCalls++
+		attempt := activeCalls
+		geoMu.Unlock()
+		if attempt == 1 {
+			return edgepick.Meta{}, 0, 100, errors.New("temporary meta timeout")
+		}
+		return edgepick.Meta{Colo: "LAX", Country: "US"}, 81 * time.Millisecond, 0, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = Run(ctx, cfg); close(done) }()
+	deadline := time.Now().Add(3 * time.Second)
+	var failedStatus *status.Status
+	for time.Now().Before(deadline) {
+		failedStatus = readStatus(h)
+		if failedStatus != nil && failedStatus.Ready && failedStatus.EdgeSelection == "unavailable" {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if failedStatus == nil || !failedStatus.Ready || failedStatus.EdgeSelection != "unavailable" {
+		cancel()
+		<-done
+		t.Fatalf("geo failure must leave tunnel ready and report unavailable metadata: %+v", failedStatus)
+	}
+	for i := 0; i < 20; i++ {
+		_ = readStatus(h)
+	}
+	geoMu.Lock()
+	firstCalls := activeCalls
+	geoMu.Unlock()
+	if firstCalls != 1 {
+		cancel()
+		<-done
+		t.Fatalf("active-step probe count before retry = %d, want 1", firstCalls)
+	}
+	waitFor(t, "later geo retry succeeds", func() bool {
+		s := readStatus(h)
+		return s != nil && s.Ready && s.EdgeColo == "LAX" && s.EdgeCountry == "US" && s.EdgeRTTMs == 81
+	})
+	geoMu.Lock()
+	finalCalls := activeCalls
+	geoMu.Unlock()
+	cancel()
+	<-done
+	if finalCalls != 2 {
+		t.Fatalf("active-step GeoProbe attempts = %d, want one failure and one retry", finalCalls)
+	}
+}
+
 func TestForeignScanCancellationLeavesNoCacheOrReadyRoute(t *testing.T) {
 	h := newHarness(t, baseDevice(), map[string]bool{"wg:2408": true})
 	cfg := h.config()

@@ -128,6 +128,23 @@ function fmtSize(b) {
   return (b / 1048576).toFixed(1) + " МБ";
 }
 
+function warpEdgeStatusCell(d) {
+  const colo = String(d.edge_colo || "").trim();
+  const country = String(d.edge_country || "").trim();
+  const hasGeo = Boolean(colo && country);
+  const edge = hasGeo ? `${colo} · ${country}` :
+    d.edge_selection === "locating" ? "Определяю географию…" :
+    d.edge_selection === "unavailable" ? "Географию определить не удалось" :
+    "География не определена";
+  const latency = Number(d.edge_rtt_ms);
+  const rtt = Number.isFinite(latency) && latency > 0 ? `${Math.round(latency)} мс` : "";
+  return {
+    label: "Узел Cloudflare",
+    value: [edge, rtt].filter(Boolean).join(" · "),
+    kind: hasGeo ? "good" : "",
+  };
+}
+
 export async function renderWarp() {
   $app.innerHTML = `
     <h1 class="page-title">WARP</h1>
@@ -153,6 +170,16 @@ export async function renderWarp() {
           ${WARP_MODES.map(m => `<button type="button" class="seg-btn" data-mode="${m.id}" role="radio" aria-checked="false">${m.label}</button>`).join("")}
         </div>
         <p class="desc" id="warp-transport-hint"></p>
+      </div>
+      <div class="toggle-row" id="warp-wdtt-row" hidden>
+        <div class="t-text">
+          <div class="t-name">Клиенты WireGuard-сервера через WARP</div>
+          <div class="t-desc">При включённых списках весь трафик клиентов WireGuard-сервера идёт через WARP. Выключено — трафик идёт напрямую.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="warp-wdtt-toggle" disabled>
+          <span class="slider"></span>
+        </label>
       </div>
       <div class="warp-plus" id="warp-plus" hidden>
         <label class="t-name" for="warp-plus-key">Ключ WARP+</label>
@@ -190,8 +217,10 @@ export async function renderWarp() {
     </div>
     <div class="card" id="warp-devices-card" hidden>
       <h3>Устройства</h3>
-      <p class="desc">Включите устройство — и весь его трафик пойдёт через WARP, независимо от
-        списков. Удобно для консоли или телефона. <b>Применяется сразу.</b></p>
+      <p class="desc">Выберите устройства, для которых будут работать включённые списки WARP.
+        Если ни одно не выбрано, списки действуют для всей локальной сети.
+        Если списки выключены, весь интернет-трафик выбранных устройств идёт через WARP.
+        <b>Применяется сразу.</b></p>
       <div id="warp-neighbors" class="warp-games">${skeletonBlocks(2)}</div>
       <details class="disclosure warp-manual">
         <summary>Вручную: IP или MAC по строке</summary>
@@ -215,7 +244,8 @@ export async function renderWarp() {
         Через WARP идёт трафик к адресам из включённых списков;
         включают и выключают их тумблеры в карточке выше.
         Без включённых списков весь интернет-трафик выбранных устройств идёт через WARP;
-        локальные сети остаются доступны напрямую.
+        если устройства тоже не выбраны, трафик идёт напрямую.
+        Локальные сети остаются доступны напрямую.
         <b>Изменения применяются сразу</b>, без перезапуска, и переживают переустановку z2k.
       </p>
       <p class="desc">Для доменов устройство должно получать обычные DNS-ответы через DNS роутера
@@ -245,6 +275,7 @@ export async function renderWarp() {
   `;
   const box = $app.querySelector('[data-key="game_warp"] input');
   box.addEventListener("change", () => warpToggle(box));
+  document.getElementById("warp-wdtt-toggle").addEventListener("change", (e) => warpWdttToggle(e.target));
   document.getElementById("warp-install-btn").addEventListener("click", warpInstall);
   document.getElementById("warp-remove-btn").addEventListener("click", warpRemove);
   document.getElementById("warp-rereg-btn").addEventListener("click", warpReregister);
@@ -486,6 +517,11 @@ async function loadWarpStatus() {
 
   const transportBox = document.getElementById("warp-transport");
   if (transportBox) transportBox.hidden = !installed;
+  const wdttRow = document.getElementById("warp-wdtt-row");
+  const wdttBox = document.getElementById("warp-wdtt-toggle");
+  if (wdttRow) wdttRow.hidden = !installed;
+  if (wdttBox) wdttBox.checked = !!d.wdtt_enabled;
+  if (wdttBox) wdttBox.disabled = !installed || warpActing();
   const plusBox = document.getElementById("warp-plus");
   if (plusBox) plusBox.hidden = !installed;
   const plusState = document.getElementById("warp-plus-state");
@@ -537,9 +573,7 @@ async function loadWarpStatus() {
       kind: d.ready && routeReady ? "good" : d.ready ? "warn" : "" },
   ];
   if (d.ready && d.transport === "wg") {
-    const edge = [d.edge_colo, d.edge_country].filter(Boolean).join(" · ");
-    const rtt = Number(d.edge_rtt_ms) > 0 ? `${Math.round(Number(d.edge_rtt_ms))} мс` : "";
-    cells.push({ label: "Узел Cloudflare", value: [edge || "география не определена", rtt].filter(Boolean).join(" · "), kind: edge ? "good" : "" });
+    cells.push(warpEdgeStatusCell(d));
   }
   // Память движка — только пока он запущен. Растёт с трафиком, не со списком;
   // после правки буферов норма 20–40 МБ. Выше 96 МБ — предупреждение: на
@@ -565,6 +599,26 @@ function setWarpMode(mode) {
   const hint = document.getElementById("warp-transport-hint");
   const m = WARP_MODES.find(x => x.id === mode);
   if (hint && m) hint.textContent = m.hint;
+}
+
+async function warpWdttToggle(box) {
+  const wanted = box.checked ? "1" : "0";
+  const previous = !box.checked;
+  if (warpActing() || foreignJobsActive("warp")) {
+    box.checked = previous;
+    toast("Дождитесь завершения текущей операции с WARP", "bad");
+    return;
+  }
+  box.disabled = true;
+  try {
+    await apiPost("/warp/wdtt", { value: wanted });
+    toast(wanted === "1" ? "Трафик клиентов WireGuard-сервера идёт через WARP" : "Клиенты WireGuard-сервера идут напрямую");
+  } catch (e) {
+    box.checked = previous;
+    toastErr("Не удалось применить: ", e);
+  } finally {
+    box.disabled = false;
+  }
 }
 
 // Смена транспорта у включённого WARP перезапускает движок — задача без

@@ -921,7 +921,8 @@ cat > "$T/warp-stub.sh" <<EOF
 #!/bin/sh
 echo "warp-stub:\$*" >> "$T/warp-stub.log"
 case "\$1" in
-    status) echo 'installed=1 enabled=0 ready=0 transport= endpoint= iface= addr= entries=0 devices=1 error= mem=0' ;;
+    status) echo 'installed=1 enabled=0 ready=0 transport= endpoint= iface= addr= entries=0 devices=1 error= mem=0 wdtt=0' ;;
+    ipset) [ ! -f "$T/fail-warp-ipset" ] ;;
     *) exit 0 ;;
 esac
 EOF
@@ -943,6 +944,55 @@ _jid="$(_jget "$OUT" 'd["job"]')"
 JOB_IDS="$JOB_IDS $_jid"
 _poll_job_ok "$_jid" "warp reregister без записи"
 mv "$T/device.json.bak" "$T/etc/state/warp/device.json"
+
+# Device selection uses the real API/actions path. Its live adapter call must
+# request rule reconciliation, and an adapter failure must reach the API.
+printf 'GAME_WARP_ENABLED=1\nENABLED=1\n' > "$T/etc/config"
+printf 'mac=aa:bb:cc:dd:ee:ff&value=1' > "$T/body.txt"
+RAW="$(_cgi POST /warp/devices/toggle "" "$T/body.txt")"
+assert_eq "warp device toggle: successful apply is 200" "Status: 200 OK" "$(printf '%s\n' "$RAW" | _cgi_status)"
+assert_contains "warp device toggle: asks adapter for canonical rule reconciliation" "$T/warp-stub.log" \
+    "warp-stub:ipset --reconcile-rules"
+
+touch "$T/fail-warp-ipset"
+cp "$T/etc/user-lists/warp/devices.txt" "$T/devices-before-failed-toggle"
+printf 'mac=aa:bb:cc:dd:ee:ff&value=0' > "$T/body.txt"
+RAW="$(_cgi POST /warp/devices/toggle "" "$T/body.txt")"
+assert_eq "warp device toggle: adapter failure is not reported as success" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+assert_eq "warp device toggle: failed apply restores selection" "0" "$(cmp -s "$T/etc/user-lists/warp/devices.txt" "$T/devices-before-failed-toggle"; echo $?)"
+printf '192.168.1.111\n' > "$T/body.txt"
+RAW="$(_cgi POST /warp/devices/save "" "$T/body.txt")"
+assert_eq "warp device save: apply failure is not reported as success" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+assert_eq "warp device save: failed apply restores selection" "0" "$(cmp -s "$T/etc/user-lists/warp/devices.txt" "$T/devices-before-failed-toggle"; echo $?)"
+
+# WDTT matches upstream: it is off by default, persists through the ordinary
+# config path, and applies OpenWrt nft rules transactionally while WARP is on.
+rm -f "$T/fail-warp-ipset"
+RAW="$(_cgi GET /warp/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "warp status exposes WDTT default off" "false" "$(_jget "$OUT" 'd["wdtt_enabled"]')"
+_warp_config_enabled=$(grep -m1 '^GAME_WARP_ENABLED=' "$T/etc/config" | cut -d= -f2)
+assert_eq "warp status keeps enabled as its own config value" "$_warp_config_enabled" "$(_jget "$OUT" 'd["enabled"]')"
+printf 'value=1' > "$T/body.txt"
+RAW="$(_cgi POST /warp/wdtt "" "$T/body.txt")"
+assert_eq "warp WDTT enable is accepted" "Status: 200 OK" "$(printf '%s\n' "$RAW" | _cgi_status)"
+assert_eq "warp WDTT flag is persisted" "1" "$(grep -m1 '^Z2K_WARP_WDTT=' "$T/etc/config" | cut -d= -f2)"
+assert_contains "warp WDTT enable reconciles OpenWrt rules" "$T/warp-stub.log" \
+    "warp-stub:ipset --reconcile-rules"
+RAW="$(_cgi GET /warp/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "warp status reports WDTT enabled" "true" "$(_jget "$OUT" 'd["wdtt_enabled"]')"
+touch "$T/fail-warp-ipset"
+_wdtt_apply_before=$(grep -c '^warp-stub:ipset --reconcile-rules$' "$T/warp-stub.log")
+printf 'value=0' > "$T/body.txt"
+RAW="$(_cgi POST /warp/wdtt "" "$T/body.txt")"
+assert_eq "warp WDTT apply failure reaches API" "Status: 500 Internal Server Error" "$(printf '%s\n' "$RAW" | _cgi_status)"
+assert_eq "warp WDTT apply failure restores prior flag" "1" "$(grep -m1 '^Z2K_WARP_WDTT=' "$T/etc/config" | cut -d= -f2)"
+_wdtt_apply_after=$(grep -c '^warp-stub:ipset --reconcile-rules$' "$T/warp-stub.log")
+assert_eq "warp WDTT apply failure attempts rollback reconciliation" "2" "$((_wdtt_apply_after - _wdtt_apply_before))"
+rm -f "$T/fail-warp-ipset"
+printf 'value=maybe' > "$T/body.txt"
+RAW="$(_cgi POST /warp/wdtt "" "$T/body.txt")"
+assert_eq "warp WDTT rejects invalid state" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+rm -f "$T/fail-warp-ipset"
 unset WARP_SCRIPT
 
 # Остальные мутации: controlled-контракты без побочных эффектов хоста.
@@ -1102,6 +1152,7 @@ OUT="$(_fresh "extra-domains" /extra-domains)"
 assert_eq "fresh extra-domains: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
 OUT="$(_fresh "warp-status" /warp/status)"
 assert_eq "fresh warp-status: installed false" "false" "$(_jget "$OUT" 'd["installed"]')"
+assert_eq "fresh warp-status: WDTT defaults off" "false" "$(_jget "$OUT" 'd["wdtt_enabled"]')"
 OUT="$(_fresh "warp-neighbors" /warp/neighbors)"
 assert_eq "fresh neighbors: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
 OUT="$(_fresh "state" /state)"

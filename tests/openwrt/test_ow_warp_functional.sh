@@ -42,6 +42,14 @@ if [ "\$1" = "list" ] && [ "\$2" = "set" ] && [ "\$5" = "z2k_warp_domain4" ]; th
     cat "$T/nft-domain-set"
     exit 0
 fi
+if [ "\$1" = "list" ] && [ "\$2" = "set" ] && [ "\$4" = "zapret2" ] && [ "\$5" = "z2k_warp_dst4" ]; then
+    if [ -f "$T/nft-empty-dst-set" ]; then
+        printf 'set z2k_warp_dst4 { type ipv4_addr; flags interval; }\n'
+    else
+        printf 'set z2k_warp_dst4 { type ipv4_addr; flags interval; elements = { 1.2.3.4 } }\n'
+    fi
+    exit 0
+fi
 if [ "\$1" = "list" ] && [ "\$2" = "chain" ] && [ "\$4" = "z2k_warp_dns" ]; then
     case "\$5" in
         z2k_dns_output|z2k_dns_forward)
@@ -221,6 +229,7 @@ if [ "\$1" = -q ] && [ "\$2" = get ]; then
         network.wgserver.listen_port) echo 51820; exit 0 ;;
         network.wgserver.device) echo wgserver; exit 0 ;;
         network.wgclient.listen_port) exit 1 ;;
+        network.wgclient.device) echo wgclient; exit 0 ;;
     esac
 fi
 exit 1
@@ -484,30 +493,120 @@ if grep -q 'nft:add chain inet zapret2 z2k_warp_mark' "$T/nft.log"; then
 else
     _t_ok
 fi
+
+# A selected-device change must rebuild the canonical MARK shape even when
+# there are no domain observers. Exercise the real adapter implementation.
+: > "$WARP_LISTS_DIR/.disabled"
+printf 'steam\n' > "$WARP_ENABLED_FILE"
+printf '192.168.1.50\n' > "$WARP_DEVICES_FILE"
+: > "$T/nft.log"
+warp_ipset --reconcile-rules || _t_bad "device live reconcile rc"
+assert_contains "device live reconcile: selected source + destination list" "$T/nft.log" \
+    'nft:add rule inet zapret2 z2k_warp_mark ip saddr @z2k_warp_src4 ip daddr @z2k_warp_dst4 meta mark set mark'
+
+# list mode -> full-device mode -> list mode -> no selected devices must each
+# leave rules matching the current selection, not the previous rule shape.
+: > "$WARP_LISTS_DIR/.disabled"
+for _list_file in "$WARP_LISTS_DIR"/*.txt; do
+    [ "$_list_file" = "$WARP_DEVICES_FILE" ] && continue
+    [ -f "$_list_file" ] || continue
+    basename "$_list_file" .txt >> "$WARP_LISTS_DIR/.disabled"
+done
+: > "$WARP_ENABLED_FILE"
+: > "$T/nft.log"
+warp_ipset --reconcile-rules || _t_bad "full-device live reconcile rc"
+assert_contains "device live reconcile: full-device mode" "$T/nft.log" \
+    'nft:add rule inet zapret2 z2k_warp_mark ip saddr @z2k_warp_src4 ip daddr != 0.0.0.0/8'
+
+: > "$WARP_LISTS_DIR/.disabled"
+printf 'steam\n' > "$WARP_ENABLED_FILE"
+: > "$WARP_DEVICES_FILE"
+: > "$T/nft.log"
+warp_ipset --reconcile-rules || _t_bad "list mode live reconcile rc"
+assert_contains "device live reconcile: removing selected device restores destination-only mode" "$T/nft.log" \
+    'nft:add rule inet zapret2 z2k_warp_mark ip daddr @z2k_warp_dst4 meta mark set mark'
+if grep 'nft:add rule .*z2k_warp_mark' "$T/nft.log" | grep -q 'ip saddr @z2k_warp_src4'; then
+    _t_bad "device live reconcile retained source selector after device removal"
+else
+    _t_ok
+fi
+
+# Restore the fixture used by the following domain-list live-reload checks.
+: > "$WARP_LISTS_DIR/.disabled"
+printf 'steam\n' > "$WARP_ENABLED_FILE"
+printf '1.1.1.1\n' > "$WARP_DEVICES_FILE"
+
 printf 'www.cloudflare.com\n' > "$T/etc/user-lists/warp/mine.txt"
 export Z2K_WARP_DOMAIN_LAN_DEVICES=br-lan
 : > "$T/uci-wireguard-enabled"
 : > "$T/nft.log"
 warp_ipset || _t_bad "live list reload rc"
+assert_eq "WireGuard discovery distinguishes client and server interfaces" "wgclient" "$(warp_wireguard_client_devices)"
 assert_contains "live domain reload: client-pair mark rule" "$T/nft.log" \
     'nft:add rule inet zapret2 z2k_warp_mark ip saddr @z2k_warp_src4 ip saddr . ip daddr @z2k_warp_domain4'
-assert_contains "selected LAN devices do not exclude WireGuard server clients" "$T/nft.log" \
-    'nft:add rule inet zapret2 z2k_warp_mark iifname wgserver ip saddr 10.0.0.0/8 ip daddr @z2k_warp_dst4'
-assert_contains "WireGuard clients remain limited to active domain pairs" "$T/nft.log" \
-    'nft:add rule inet zapret2 z2k_warp_mark iifname wgserver ip saddr 100.64.0.0/10 ip saddr . ip daddr @z2k_warp_domain4'
-if grep 'nft:add rule .*z2k_warp_mark' "$T/nft.log" | grep -q 'wgclient'; then
-    _t_bad "client WireGuard tunnel was included as a server ingress"
+if grep 'nft:add rule .*z2k_warp_mark iifname wgserver.*meta mark set' "$T/nft.log" >/dev/null; then
+    _t_bad "WDTT-disabled WireGuard server clients were marked"
 else
     _t_ok
 fi
+assert_contains "client WireGuard ingress: private source to listed IP is eligible" "$T/nft.log" \
+    'nft:add rule inet zapret2 z2k_warp_mark iifname wgclient ip saddr 10.0.0.0/8 ip daddr @z2k_warp_dst4 meta mark set mark'
+assert_contains "client WireGuard ingress: private source to observed domain is eligible" "$T/nft.log" \
+    'nft:add rule inet zapret2 z2k_warp_mark iifname wgclient ip saddr 10.0.0.0/8 ip saddr . ip daddr @z2k_warp_domain4 meta mark set mark'
 assert_contains "live domain reload: observer table" "$T/nft.log" \
     'nft:add table inet z2k_warp_dns'
 assert_contains "live domain reload: passive DNS NFLOG hook" "$T/nft.log" \
     'nft-batch:add rule inet z2k_warp_dns z2k_dns_output oifname "br-lan" ip protocol { tcp, udp } th sport 53 counter log group 189'
 assert_contains "live domain reload: WireGuard DNS replies are observed" "$T/nft.log" \
     'nft-batch:add rule inet z2k_warp_dns z2k_dns_forward oifname "wgserver" ip protocol { tcp, udp } th sport 53 counter log group 189'
+assert_contains "live domain reload: WireGuard client DNS replies are observed" "$T/nft.log" \
+    'nft-batch:add rule inet z2k_warp_dns z2k_dns_forward oifname "wgclient" ip protocol { tcp, udp } th sport 53 counter log group 189'
 assert_contains "live domain reload: domain rules published" "$T/tmp/warp/domains.v1" \
     'www.cloudflare.com'
+
+# Upstream WDTT behavior: server-side WireGuard clients are direct by default.
+# With WDTT enabled and active WARP lists, their entire ingress is marked for
+# WARP; with no active lists (full-device mode) it returns to direct routing.
+if grep 'nft:add rule .*z2k_warp_mark iifname wgserver meta mark set' "$T/nft.log" >/dev/null; then
+    _t_bad "WDTT defaults off and leaves WireGuard server clients direct"
+else
+    _t_ok
+fi
+printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_WDTT=1\n' > "$T/etc/config"
+: > "$T/nft.log"
+warp_ipset --reconcile-rules || _t_bad "WDTT enabled live reconcile rc"
+assert_contains "WDTT enabled routes all WireGuard server client traffic" "$T/nft.log" \
+    'nft:add rule inet zapret2 z2k_warp_mark iifname wgserver meta mark set mark'
+if grep 'nft:add rule .*z2k_warp_mark iifname wgserver' "$T/nft.log" | grep -q 'ip daddr @z2k_warp_dst4'; then
+    _t_bad "WDTT route was incorrectly limited to destination-list IPs"
+else
+    _t_ok
+fi
+: > "$WARP_LISTS_DIR/.disabled"
+for _list_file in "$WARP_LISTS_DIR"/*.txt; do
+    [ "$_list_file" = "$WARP_DEVICES_FILE" ] && continue
+    [ -f "$_list_file" ] || continue
+    basename "$_list_file" .txt >> "$WARP_LISTS_DIR/.disabled"
+done
+: > "$WARP_ENABLED_FILE"
+: > "$T/nft-empty-dst-set"
+: > "$T/nft.log"
+warp_ipset --reconcile-rules || _t_bad "WDTT no-list reconcile rc"
+if grep 'nft:add rule .*z2k_warp_mark iifname wgserver meta mark set' "$T/nft.log" >/dev/null; then
+    _t_bad "WDTT clients stay direct when active lists are empty"
+else
+    _t_ok
+fi
+if grep 'nft:add rule .*z2k_warp_mark iifname wgclient.*meta mark set' "$T/nft.log" >/dev/null; then
+    _t_bad "native WireGuard client ingress stays direct when active lists are empty"
+else
+    _t_ok
+fi
+if warp_full_device_mode; then _t_ok; else _t_bad "empty active lists enter full-device LAN mode"; fi
+rm -f "$WARP_LISTS_DIR/.disabled"
+rm -f "$T/nft-empty-dst-set"
+printf 'steam\n' > "$WARP_ENABLED_FILE"
+printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_WDTT=0\n' > "$T/etc/config"
 rm -f "$T/uci-wireguard-enabled"
 
 # --- PBR: install idempotent + конфликты ---
@@ -629,5 +728,32 @@ warp_nft_rules_verify && _t_bad "active domains accepted without domain mark rul
 printf ' ip saddr @z2k_warp_src4 ip saddr . ip daddr @z2k_warp_domain4 meta mark set\n' \
     >> "$T/nft-chain-z2k_warp_mark"
 warp_nft_rules_verify && _t_ok || _t_bad "valid active-domain mark rule rejected"
+
+# The route verifier must prove WDTT policy too. It requires the blanket
+# ingress mark when enabled and rejects stale WireGuard-server marks after
+# disable, including old destination-scoped rules.
+touch "$T/uci-wireguard-enabled"
+printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_WDTT=1\n' > "$T/etc/config"
+printf ' iifname "wgserver" return\n' >> "$T/nft-chain-z2k_warp_mark"
+printf ' iifname "wgserver" meta mark set mark\n' >> "$T/nft-chain-z2k_warp_mark"
+for _subnet in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10; do
+    printf ' iifname "wgclient" ip saddr %s ip daddr @z2k_warp_dst4 meta mark set\n' "$_subnet" \
+        >> "$T/nft-chain-z2k_warp_mark"
+    printf ' iifname "wgclient" ip saddr %s ip saddr . ip daddr @z2k_warp_domain4 meta mark set\n' "$_subnet" \
+        >> "$T/nft-chain-z2k_warp_mark"
+done
+warp_nft_rules_verify && _t_ok || _t_bad "WDTT route verifier accepts enabled full-ingress rule"
+sed '/iifname "wgserver" meta mark set mark/d' "$T/nft-chain-z2k_warp_mark" > "$T/nft-chain-z2k_warp_mark.new"
+mv "$T/nft-chain-z2k_warp_mark.new" "$T/nft-chain-z2k_warp_mark"
+warp_nft_rules_verify && _t_bad "WDTT route verifier accepts missing enabled rule" || _t_ok
+printf ' iifname "wgserver" ip saddr 10.0.0.0/8 ip daddr @z2k_warp_dst4 meta mark set\n' \
+    >> "$T/nft-chain-z2k_warp_mark"
+printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_WDTT=0\n' > "$T/etc/config"
+warp_nft_rules_verify && _t_bad "disabled WDTT verifier accepts stale scoped server rule" || _t_ok
+sed '/iifname "wgserver"/d' "$T/nft-chain-z2k_warp_mark" > "$T/nft-chain-z2k_warp_mark.new"
+mv "$T/nft-chain-z2k_warp_mark.new" "$T/nft-chain-z2k_warp_mark"
+printf ' iifname "wgserver" return\n' >> "$T/nft-chain-z2k_warp_mark"
+warp_nft_rules_verify && _t_ok || _t_bad "disabled WDTT accepts direct WireGuard server clients"
+rm -f "$T/uci-wireguard-enabled"
 
 _t_done

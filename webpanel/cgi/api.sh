@@ -825,7 +825,10 @@ case "$method $path" in
     "GET /warp/status")
         result=$(warp_status_info)
         _wf() { printf ' %s ' "$result" | sed -n "s/.*[[:space:]]$1=\([^ ]*\).*/\1/p" | head -1; }
-        w_enabled=$(printf '%s' "$result" | sed -n 's/.*enabled=\(.*\)$/\1/p')
+        # `warp_status_info` appends adapter-owned tokens after the saved
+        # enabled flag. Capture one token only so `wdtt=0` cannot leak into
+        # the public enabled value.
+        w_enabled=$(printf '%s' "$result" | sed -n 's/.*enabled=\([^ ]*\).*/\1/p')
         w_inst_j=false;  [ "$(_wf installed)" = "1" ] && w_inst_j=true
         w_running_j=false; [ "$(_wf running)" = "1" ] && w_running_j=true
         w_ready_j=false; [ "$(_wf ready)" = "1" ] && w_ready_j=true
@@ -858,7 +861,8 @@ case "$method $path" in
         # init-скрипт.
         w_mode=$(read_flag "Z2K_WARP_TRANSPORT" "$CONFIG_FILE" "auto")
         case "$w_mode" in wg|h2) ;; *) w_mode=auto ;; esac
-        printf ',"transport_mode":"%s"}\n' "$w_mode"
+        w_wdtt=false; [ "$(_wf wdtt)" = "1" ] && w_wdtt=true
+        printf ',"transport_mode":"%s","wdtt_enabled":%s}\n' "$w_mode" "$w_wdtt"
         exit 0
         ;;
 
@@ -896,6 +900,16 @@ case "$method $path" in
             exit 0
         fi
         set_flag "Z2K_WARP_TRANSPORT" "$val" "$CONFIG_FILE" || json_fail "500 Internal Server Error" "save failed"
+        json_ok
+        ;;
+
+    # Apply active WARP lists to clients entering through a local WireGuard
+    # server interface. The OpenWrt adapter owns live nft reconciliation.
+    "POST /warp/wdtt")
+        body=$(read_body)
+        val=$(form_value "$body" "value")
+        case "$val" in 0|1) ;; *) json_fail "400 Bad Request" "value must be 0 or 1" ;; esac
+        warp_wdtt_set "$val" || json_fail "500 Internal Server Error" "apply failed"
         json_ok
         ;;
 
