@@ -2330,13 +2330,20 @@ try {
   const dohPage = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, colorScheme: 'dark' });
   await dohPage.addInitScript(() => localStorage.setItem('z2k-theme', 'dark'));
   dohPage.on('pageerror', error => allPageErrors.push(error.message));
-  let dohStatus = {
-    state: 'starting', installed: '1', enabled: '1', provider: 'xbox',
-    endpoint: 'https://xbox-dns.ru/dns-query', bootstrap: '111.88.96.50,111.88.96.51',
-    reason: 'listener-not-ready', force_lan_dns: '0',
-  };
+  let dohStatus = { state: 'not-installed', installed: '0', enabled: '0', provider: 'unknown', external_config: '0' };
   let dohJobNumber = 0;
+  let acceptNextDohConfirm = false;
+  const dohConfirmMessages = [];
   const dohActions = [];
+  dohPage.on('dialog', async dialog => {
+    dohConfirmMessages.push(dialog.message());
+    if (acceptNextDohConfirm) {
+      acceptNextDohConfirm = false;
+      await dialog.accept();
+    } else {
+      await dialog.dismiss();
+    }
+  });
   dohPage.route('**/cgi-bin/api/status', route => {
     const fixture = structuredClone(statusFixture);
     fixture.doh = structuredClone(dohStatus);
@@ -2347,21 +2354,17 @@ try {
     const body = route.request().postDataJSON() || {};
     dohActions.push({ endpoint, body });
     if (endpoint === 'provider') {
-      const endpoints = {
-        xbox: ['https://xbox-dns.ru/dns-query', '111.88.96.50,111.88.96.51'],
-        cloudflare: ['https://cloudflare-dns.com/dns-query', '1.1.1.1,1.0.0.1'],
-        google: ['https://dns.google/dns-query', '8.8.8.8,8.8.4.4'],
-      };
-      const preset = endpoints[body.provider];
+      const provider = body.provider;
+      const region = body.region || '';
       dohStatus = {
-        ...dohStatus, provider: body.provider,
-        endpoint: body.endpoint || (preset && preset[0]) || '',
-        bootstrap: body.bootstrap || (preset && preset[1]) || '',
+        ...dohStatus, state: 'working', installed: '1', enabled: '1', running: '1',
+        provider: provider === 'geohide' ? `geohide_${region}` : provider,
+        endpoint: body.endpoint || `https://${provider}.example/dns-query`,
+        bootstrap: body.bootstrap || '', external_config: '0', reason: '',
       };
     }
-    if (endpoint === 'install') dohStatus = { ...dohStatus, state: 'installed-disabled', installed: '1', enabled: '0', force_lan_dns: '0' };
-    if (endpoint === 'enable') dohStatus = { ...dohStatus, state: 'healthy', installed: '1', enabled: '1', force_lan_dns: '0' };
-    if (endpoint === 'force-dns') dohStatus.force_lan_dns = body.value;
+    if (endpoint === 'install') dohStatus = { ...dohStatus, state: 'disabled', installed: '1', enabled: '0', running: '0', external_config: '0' };
+    if (endpoint === 'uninstall') dohStatus = { state: 'not-installed', installed: '0', enabled: '0', provider: 'unknown', external_config: '0' };
     dohJobNumber += 1;
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, job: `doh-fixture-${dohJobNumber}` }) });
   });
@@ -2372,74 +2375,83 @@ try {
   await waitForRenderedRoute(dohPage, 'toggles');
   const dohCard = dohPage.locator('#doh-card');
   assert.equal(await dohCard.isVisible(), true, 'DoH controls are shown on OpenWrt');
-  assert.match(await dohCard.innerText(), /Проверяю локальный DNS listener/);
-  assert.doesNotMatch(await dohCard.innerText(), /Установлено, но не работает/,
-    'the listener warm-up state is distinct from a degraded resolver');
-  assert.doesNotMatch(await dohCard.innerText(), /DNS через Xbox DNS/,
-    'the provider selector does not describe DoH as Xbox-only');
-  assert.deepEqual(await dohCard.locator('#doh-provider option').allTextContents(),
-    ['Xbox DNS', 'Cloudflare', 'Google', 'Свой endpoint']);
-  const dohLayoutOrder = await dohCard.evaluate(card => [
-    card.querySelector('h3'), card.querySelector('.doh-description'),
-    card.querySelector('.doh-provider-panel'), card.querySelector('#doh-status'),
-    card.querySelector('#doh-actions'),
-  ].map(element => [...card.children].indexOf(element)));
-  assert.deepEqual(dohLayoutOrder, [0, 1, 2, 3, 4],
-    'DoH card follows title, description, provider, status, actions order');
-  dohStatus = {
-    state: 'not-installed', installed: '0', provider: 'xbox',
-    endpoint: 'https://xbox-dns.ru/dns-query', bootstrap: '111.88.96.50,111.88.96.51',
-    force_lan_dns: '0',
-  };
+  assert.match(await dohCard.innerText(), /Статус: Не установлен/);
+  assert.deepEqual(await dohCard.locator('#doh-provider option').evaluateAll(options => options.map(option => option.value)), [
+    'xbox', 'comss', 'google', 'quad9', 'xyz', 'geohide', 'cloudflare', 'dns_ai', 'malw',
+    'astracat', 'mafioznik', 'malw_cloudflare', 'nullsproxy', 'default', 'custom',
+  ], 'the provider selector contains every StressOzz preset and custom endpoint last');
+  assert.equal(await dohCard.locator('#doh-region').isVisible(), false);
+  assert.equal(await dohCard.locator('#doh-custom-fields').isVisible(), false);
+  assert.equal(await dohCard.locator('[data-doh-action]').count(), 1,
+    'not-installed state offers only Install');
+  assert.equal(await dohCard.locator('#doh-provider-panel').count(), 0,
+    'provider controls do not sit in a nested card');
+  await dohCard.locator('#doh-provider').selectOption('cloudflare');
+  assert.equal(dohActions.length, 0, 'choosing a provider does not apply it automatically');
+
+  await dohCard.getByRole('button', { name: 'Установить' }).click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-1"] #job-close').waitFor({ state: 'visible' });
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-1"] #job-close').click();
+  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Выключен'));
+  assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
+    ['apply', 'check', 'uninstall'], 'installed state offers Apply, Check and Remove');
+  assert.equal(await dohCard.locator('#doh-force-dns').count(), 0,
+    'force DNS is not exposed as an unrelated extra stage');
+
+  dohStatus = { ...dohStatus, external_config: '1' };
   await dohPage.reload();
   await waitForRenderedRoute(dohPage, 'toggles');
-  assert.match(await dohCard.innerText(), /Компонент не установлен/);
+  await dohCard.locator('#doh-provider').selectOption('geohide');
+  await dohCard.locator('#doh-region').selectOption('us');
+  await dohCard.getByRole('button', { name: 'Применить' }).click();
+  assert.match(dohConfirmMessages.at(-1), /конфигурация https-dns-proxy/i,
+    'the UI explains why applying replaces existing user configuration');
+  assert.equal(dohActions.length, 1, 'dismissing the ownership warning does not submit an Apply job');
+  acceptNextDohConfirm = true;
+  await dohCard.getByRole('button', { name: 'Применить' }).click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-2"] #job-close').waitFor({ state: 'visible' });
+  assert.deepEqual(dohActions[1], { endpoint: 'provider', body: { provider: 'geohide_us', replace: '1' } },
+    'GeoHide apply submits the selected region and explicit ownership replacement');
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-2"] #job-close').click();
+  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Работает'));
+  assert.equal(await dohCard.locator('#doh-region').isVisible(), true,
+    'GeoHide exposes RU/EU/US region selection');
+  assert.equal(await dohCard.locator('#doh-region').inputValue(), 'us');
+
+  dohStatus = { ...dohStatus, state: 'error', enabled: '1', running: '0', reason: 'proxy-not-running' };
+  await dohPage.reload();
+  await waitForRenderedRoute(dohPage, 'toggles');
+  assert.match(await dohCard.innerText(), /Статус: Ошибка/);
+  assert.match(await dohCard.innerText(), /сервис https-dns-proxy не запущен/i);
+  assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
+    ['apply', 'check', 'uninstall'], 'error state keeps simple Apply, Check and Remove actions');
+
   await dohCard.locator('#doh-provider').selectOption('custom');
   assert.equal(await dohCard.locator('#doh-custom-fields').isVisible(), true,
     'custom endpoint fields appear only for the custom provider');
   await dohCard.locator('#doh-endpoint').fill('https://resolver.example/dns-query');
   await dohCard.locator('#doh-bootstrap').fill('203.0.113.1,203.0.113.2');
-  await dohCard.getByRole('button', { name: 'Применить провайдера' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-1"] #job-close').waitFor({ state: 'visible' });
-  assert.deepEqual(dohActions[0], {
+  await dohCard.getByRole('button', { name: 'Применить' }).click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').waitFor({ state: 'visible' });
+  assert.deepEqual(dohActions[2], {
     endpoint: 'provider',
     body: { provider: 'custom', endpoint: 'https://resolver.example/dns-query', bootstrap: '203.0.113.1,203.0.113.2' },
-  }, 'custom provider selection submits the endpoint and bootstrap DNS');
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-1"] #job-close').click();
+  }, 'custom endpoint values are applied only after explicit Apply');
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').click();
   await dohPage.waitForFunction(() => document.querySelector('#doh-provider')?.value === 'custom' &&
     document.querySelector('#doh-endpoint')?.value === 'https://resolver.example/dns-query');
-  await dohCard.getByRole('button', { name: 'Установить DoH' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-2"] #job-close').waitFor({ state: 'visible' });
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-2"] #job-close').click();
-  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('DoH выключен'));
-  await dohCard.getByRole('button', { name: 'Включить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').waitFor({ state: 'visible' });
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').click();
-  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('DoH работает'));
-  const forceDns = dohCard.locator('#doh-force-dns');
-  await forceDns.check({ force: true });
+
+  await dohCard.getByRole('button', { name: 'Проверить' }).click();
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-4"] #job-close').waitFor({ state: 'visible' });
-  assert.deepEqual(dohActions.map(action => action.endpoint), ['provider', 'install', 'enable', 'force-dns']);
-  assert.equal(dohActions[3].body.value, '1', 'LAN DNS switch sends the explicit enabled value');
+  assert.equal(dohActions[3].endpoint, 'check', 'diagnostics use a separate Check action');
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-4"] #job-close').click();
-  await dohPage.waitForFunction(() => document.querySelector('#doh-force-dns')?.checked === true);
-  dohStatus = { state: 'degraded', installed: '1', enabled: '1', reason: 'dnsmasq-not-routed', force_lan_dns: '1' };
-  await dohPage.reload();
-  await waitForRenderedRoute(dohPage, 'toggles');
-  assert.match(await dohCard.innerText(), /dnsmasq не направляет запросы в локальный DoH proxy/);
-  assert.equal(await dohCard.locator('[data-doh-action="restart"]').count(), 1,
-    'degraded DoH offers a restart action');
-  assert.equal(await dohCard.locator('#doh-force-row').isVisible(), false,
-    'the independent LAN DNS switch is hidden while the route is degraded');
-  dohStatus = {
-    state: 'error', installed: '0', provider: 'custom', endpoint: 'https://resolver.example/dns-query',
-    bootstrap: '203.0.113.1,203.0.113.2', reason: 'listener-query-failed', force_lan_dns: '0',
-  };
-  await dohPage.reload();
-  await waitForRenderedRoute(dohPage, 'toggles');
-  assert.match(await dohCard.innerText(), /Установка не завершена/);
-  assert.match(await dohCard.innerText(), /Локальный DoH listener не вернул DNS-ответ/,
-    'failed install status remains visible after rollback');
+  await dohCard.getByRole('button', { name: 'Удалить' }).click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').waitFor({ state: 'visible' });
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').click();
+  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Не установлен'));
+  assert.deepEqual(dohActions.map(action => action.endpoint), ['install', 'provider', 'provider', 'check', 'uninstall']);
+  assert.equal(await dohPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
+    'compact DoH controls do not introduce mobile horizontal overflow');
   await dohPage.close();
 
   assert.deepEqual(allPageErrors, []);

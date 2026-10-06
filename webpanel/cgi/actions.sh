@@ -1516,7 +1516,8 @@ doh_provider_action() {
     doh_adapter_load && z2k_ow_doh_select_provider \
         "${Z2K_DOH_REQUEST_PROVIDER:-}" \
         "${Z2K_DOH_REQUEST_ENDPOINT:-}" \
-        "${Z2K_DOH_REQUEST_BOOTSTRAP:-}"
+        "${Z2K_DOH_REQUEST_BOOTSTRAP:-}" \
+        "${Z2K_DOH_REQUEST_REPLACE:-0}"
 }
 doh_force_dns_action() {
     case "${1:-}" in 0|1) ;; *) return 1 ;; esac

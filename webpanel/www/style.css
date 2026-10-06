@@ -2002,56 +2002,40 @@ input[type=text]:focus, input[type=password]:focus {
 .tiktok-status-badge.good { color: var(--good); background: var(--good-alpha-soft); }
 .tiktok-status-badge.warn { color: var(--warn); }
 .tiktok-status-badge.bad { color: var(--bad); }
-.card .doh-description { margin-bottom: var(--space-24); }
-.doh-provider-panel {
+.doh-controls {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.45fr);
   gap: var(--space-12);
-  padding: var(--space-16);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-subtle);
+  align-items: end;
+  margin-top: var(--space-12);
 }
-.doh-provider-panel .field { margin: 0; }
-.doh-custom-fields { display: grid; gap: var(--space-12); }
-.doh-provider-note,
-.doh-status-copy {
-  margin: 0;
-  color: var(--text-muted);
+.doh-controls .field { min-width: 0; margin: 0; }
+.doh-custom-fields {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-12);
+}
+.doh-custom-fields .field { margin: 0; }
+.doh-ownership-warning {
+  margin: var(--space-12) 0 0;
+  color: var(--warn);
   font-size: 13px;
+  line-height: 1.5;
+}
+.doh-status {
+  margin: var(--space-16) 0 var(--space-12);
+  color: var(--text-muted);
+  font-size: 14px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.doh-provider-actions { margin-top: var(--space-4); }
-.doh-status {
-  display: grid;
-  justify-items: start;
-  gap: var(--space-8);
-  margin: var(--space-24) 0 var(--space-16);
-  padding: var(--space-12) var(--space-16);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-subtle);
-}
-.doh-status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-4);
-  min-height: 28px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: var(--bg-card);
-  font-size: 12px;
-  font-weight: 600;
-}
-.doh-status-badge.good { color: var(--good); background: var(--good-alpha-soft); }
-.doh-status-badge.pending { color: var(--warn); }
-.doh-status-badge.bad { color: var(--bad); background: var(--bad-alpha-soft); }
-.doh-status-badge.neutral { color: var(--text); }
-#doh-actions { gap: var(--space-8); }
-#doh-force-row {
-  margin-top: var(--space-16);
-  padding-top: var(--space-16);
-  border-top: 1px solid var(--border);
+.doh-status[data-state="working"] { color: var(--good); }
+.doh-status[data-state="error"] { color: var(--bad); }
+#doh-actions { gap: var(--space-8); flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .doh-controls { grid-template-columns: minmax(0, 1fr); }
+  .doh-custom-fields { grid-template-columns: minmax(0, 1fr); }
 }
 .tiktok-checked,
 .tiktok-failover-title > span {

@@ -343,7 +343,7 @@ case "$method $path" in
                 _doh_sep=
                 printf '%s\n' "$_doh_status" | tr ' ' '\n' | while IFS='=' read -r _doh_key _doh_value; do
                     case "$_doh_key" in
-                        state|installed|enabled|provider|endpoint|bootstrap|package_owner|proxy|dnsmasq|force_lan_dns|reason)
+                        state|installed|enabled|running|provider|endpoint|bootstrap|package_owner|external_config|proxy|dnsmasq|force_lan_dns|reason)
                             printf '%s' "$_doh_sep"; json_string "$_doh_key"; printf ':'; json_string "$_doh_value"
                             _doh_sep=,
                             ;;
@@ -534,12 +534,14 @@ case "$method $path" in
         if [ "$path" = /doh/provider ]; then
             body=$(read_body)
             _doh_provider=$(form_value "$body" "provider")
+            _doh_replace=$(form_value "$body" "replace")
+            case "$_doh_replace" in ''|0) _doh_replace=0 ;; 1) ;; *) json_fail "400 Bad Request" "replace must be 0 or 1" ;; esac
             case "$_doh_provider" in
-                xbox|cloudflare|google) ;;
+                xbox|comss|google|quad9|xyz|geohide_ru|geohide_eu|geohide_us|cloudflare|dns_ai|malw|astracat|mafioznik|malw_cloudflare|nullsproxy|default) ;;
                 custom)
                     _doh_endpoint=$(form_value "$body" "endpoint")
                     _doh_bootstrap=$(form_value "$body" "bootstrap")
-                    [ -n "$_doh_bootstrap" ] || _doh_bootstrap=1.1.1.1,1.0.0.1
+                    [ -n "$_doh_bootstrap" ] || _doh_bootstrap=1.1.1.1,1.0.0.1,2606:4700:4700::1111,2606:4700:4700::1001
                     . "$Z2K_ROOT/platform/openwrt/doh.sh" \
                         || json_fail "500 Internal Server Error" "DoH adapter unavailable"
                     _z2k_ow_doh_valid_custom_endpoint "$_doh_endpoint" \
@@ -551,7 +553,8 @@ case "$method $path" in
             Z2K_DOH_REQUEST_PROVIDER=$_doh_provider
             Z2K_DOH_REQUEST_ENDPOINT=${_doh_endpoint:-}
             Z2K_DOH_REQUEST_BOOTSTRAP=${_doh_bootstrap:-}
-            export Z2K_DOH_REQUEST_PROVIDER Z2K_DOH_REQUEST_ENDPOINT Z2K_DOH_REQUEST_BOOTSTRAP
+            Z2K_DOH_REQUEST_REPLACE=$_doh_replace
+            export Z2K_DOH_REQUEST_PROVIDER Z2K_DOH_REQUEST_ENDPOINT Z2K_DOH_REQUEST_BOOTSTRAP Z2K_DOH_REQUEST_REPLACE
         fi
         case "$path" in
             /doh/install) _doh_action=doh_install_action; _doh_label="Установка DoH" ;;
@@ -561,7 +564,7 @@ case "$method $path" in
             /doh/restart) _doh_action=doh_restart_action; _doh_label="Перезапуск DoH" ;;
             /doh/check) _doh_action=doh_check_action; _doh_label="Проверка DoH" ;;
             /doh/force-dns) _doh_action="doh_force_dns_action $_doh_value"; _doh_label="Настройка DNS для LAN" ;;
-            /doh/provider) _doh_action=doh_provider_action; _doh_label="Смена DoH провайдера" ;;
+            /doh/provider) _doh_action=doh_provider_action; _doh_label="Применение DoH провайдера" ;;
         esac
         job_id=$(svc_action_async "$_doh_label" "$_doh_action")
         json_header
