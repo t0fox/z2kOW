@@ -2,13 +2,13 @@
   "schema": 1,
   "branch": "main",
   "platform": "openwrt",
-  "seq": 138,
-  "current": "p-86.15",
+  "seq": 139,
+  "current": "p-86.16",
   "upstream": {
     "repository": "necronicle/z2k",
     "branch": "z2k-enhanced",
-    "tag": "p-86.15",
-    "commit": "b90611f52ae5ba034d0181a3252efda6ecc95671"
+    "tag": "p-86.16",
+    "commit": "5a11ffd82d10578039487da2ef09210278eb06ff"
   },
   "history": [
     {"v": "r-1", "type": "reinstall", "ts": "2026-05-04T00:00:00Z", "ref": "vk-whitelist-ext", "desc": "Extend whitelist with VK service/CDN domains (vkuseraudio/vkuservideo/vk-cdn/mvk/vkpay/vkforms/etc) — fixes broken photo comments and other XHR over non-vk.com VK domains", "changed_files": ["lib/config.sh"]},
@@ -299,13 +299,14 @@
     {"v": "p-86.12", "type": "patch", "ts": "2026-10-01T20:50:10Z", "ref": "p-86.12", "desc": "В разделе «Стратегии» таблицу можно сортировать по заморозке: замороженные домены собираются наверху.", "changed_files": ["webpanel/www/index.html", "webpanel/www/js/pages/strategies.js", "webpanel/www/js/state-model.js", "UPDATES.json"], "steps": [], "full_install": false},
     {"v": "p-86.13", "type": "patch", "ts": "2026-10-02T06:39:48Z", "ref": "p-86.13", "desc": "Когда списки WARP выключены, весь IPv4-трафик выбранных устройств теперь идёт через туннель; локальные сети остаются доступны напрямую. С включёнными списками маршрутизация ограничена их адресами. Уточнены подсказки в панели и диагностика.", "changed_files": ["webpanel/www/index.html", "files/z2k-diag.sh", "files/z2k-warp.sh", "webpanel/www/js/pages/warp.js", "UPDATES.json"], "steps": [], "full_install": false},
     {"v": "p-86.14", "type": "patch", "ts": "2026-10-04T07:56:39Z", "ref": "p-86.14", "desc": "Исправлено определение выхода в интернет через интерфейс-мост, например при подключении через другой роутер. Правила обхода и их автоматическое восстановление теперь работают в такой конфигурации.", "changed_files": ["webpanel/www/index.html", "lib/wan.sh", "UPDATES.json"], "steps": [], "full_install": false},
-    {"v": "p-86.15", "type": "patch", "ts": "2026-10-05T19:08:55Z", "ref": "p-86.15", "desc": "Новый спонсор проекта — GregMSK", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false}
+    {"v": "p-86.15", "type": "patch", "ts": "2026-10-05T19:08:55Z", "ref": "p-86.15", "desc": "Новый спонсор проекта — GregMSK", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false},
+    {"v": "p-86.16", "type": "patch", "ts": "2026-10-06T11:55:04Z", "ref": "p-86.16", "desc": "Новый спонсор проекта — Кожевников. Убран сбор статистики стратегий: роутер больше ничего не отправляет на сервер проекта, пункт меню [C] и переключатель в панели удалены.", "changed_files": ["webpanel/www/index.html", "files/init.d/S99z2k-scheduler", "files/ndm/95-z2k-scheduler-watchdog.sh", "files/z2k-scheduler.sh", "lib/config_official.sh", "lib/install.sh", "lib/menu.sh", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/core/toast.js", "webpanel/www/js/pages/credits.js", "webpanel/www/js/pages/dashboard.js", "webpanel/www/js/pages/toggles.js", "z2k.sh", "UPDATES.json"], "steps": ["regen-config", "validate-config", "restart-service"], "full_install": false}
   ],
   "artifact": {
     "filename": "openwrt-rootfs.tar.gz",
-    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-275d5c84ab28cd12457179b46a79ebe984e2f88f/openwrt-rootfs.tar.gz",
-    "sha256": "1eed2e08ab59c890c2954a8d12fe753295d012d1eebc6b1502cb1a733decd017",
-    "size_bytes": 77575789
+    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-25d3c5a9afa9c4963aedb9cb9cdd5f69206a957f/openwrt-rootfs.tar.gz",
+    "sha256": "a4b9dec48f42c529db78a690e88975bfe89838a8de61efcd6e6d71545a48c6c5",
+    "size_bytes": 77573959
   },
   "signing": {
     "key_id": "916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae"
