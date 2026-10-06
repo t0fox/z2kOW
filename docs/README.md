@@ -4,7 +4,8 @@ z2kOW keeps a small set of canonical documents. Historical investigations belong
 
 ## Start here
 
-- [Project README](../README.md) — user-facing overview, install, WebPanel, and basic commands.
+- [Project README](../README.md) — public technical overview, release model, WebPanel, and basic commands.
+- [Legal and use policy](../LEGAL.md) — project scope, operator responsibility, third-party references, donations, and public documentation policy.
 - [Architecture](../ARCHITECTURE.md) — common/upstream layer, OpenWrt boundary, ownership, and lifecycle.
 - [Upstream policy](../UPSTREAM.md) — how z2kOW stays aligned with upstream z2k.
 - [Parity matrix](UPSTREAM-PARITY-MATRIX.md) — current material differences from upstream.
