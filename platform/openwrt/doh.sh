@@ -166,6 +166,10 @@ _z2k_ow_doh_bootstraps() {
     done
 }
 
+_z2k_ow_doh_join_csv() {
+    awk 'NF { printf "%s%s", separator, $0; separator="," } END { if (separator != "") print "" }'
+}
+
 _z2k_ow_doh_save_service() {
     local _enabled=0 _running=0
     _z2k_ow_doh_enabled && _enabled=1
@@ -200,8 +204,8 @@ z2k_ow_doh_status() {
         _z2k_ow_doh_enabled && _enabled=1
         [ -s "$Z2K_DOH_PACKAGE_OWNED_FILE" ] && _owner=z2kow
         _sections=$(_z2k_ow_doh_sections)
-        _urls=$(_z2k_ow_doh_urls | paste -sd, -)
-        _bootstraps=$(_z2k_ow_doh_bootstraps | paste -sd, -)
+        _urls=$(_z2k_ow_doh_urls | _z2k_ow_doh_join_csv)
+        _bootstraps=$(_z2k_ow_doh_bootstraps | _z2k_ow_doh_join_csv)
         if [ -n "$_urls" ]; then
             _z2k_ow_doh_detect_provider "$_urls"
             _provider=$Z2K_DOH_PROVIDER
@@ -211,7 +215,11 @@ z2k_ow_doh_status() {
         _z2k_ow_doh_external_config && _external=1
         [ "$(_z2k_ow_doh_get "$Z2K_DOH_PACKAGE.config.force_dns")" = 1 ] && _force=1
         if [ -z "$_urls" ]; then
-            _state=error; _reason=resolver-config-missing
+            if [ -s "$Z2K_DOH_CONFIG_OWNED_FILE" ] || [ "$_running" = 1 ] || [ "$_enabled" = 1 ]; then
+                _state=error; _reason=resolver-config-missing
+            else
+                _state=disabled
+            fi
         elif [ "$_running" = 1 ]; then
             _state=working
         elif [ "$_enabled" = 1 ]; then
@@ -375,6 +383,7 @@ z2k_ow_doh_uninstall() {
             if [ "$_running" = 1 ]; then "$Z2K_DOH_PROXY_INIT" restart || return 1; else "$Z2K_DOH_PROXY_INIT" stop >/dev/null 2>&1 || true; fi
         fi
         "$Z2K_DOH_DNSMASQ_INIT" restart || return 1
+        echo "DoH удалён; пользовательская конфигурация https-dns-proxy восстановлена, внешний пакет сохранён"
         rm -f "$Z2K_DOH_CONFIG_OWNED_FILE" "$Z2K_DOH_CONFIG_BACKUP" "$Z2K_DOH_SERVICE_SNAPSHOT"
     elif [ "$_owned_package" = 1 ] && [ "$_external" = 0 ]; then
         "$Z2K_DOH_PROXY_INIT" disable >/dev/null 2>&1 || true
@@ -392,6 +401,6 @@ z2k_ow_doh_uninstall() {
         "$Z2K_DOH_DNSMASQ_INIT" restart || return 1
         rm -f "$Z2K_DOH_CONFIG_OWNED_FILE"
     fi
-    rm -f "$Z2K_DOH_PROFILE_FILE" "$Z2K_DOH_STATE_FILE" "$Z2K_DOH_ERROR_FILE"
+    rm -f "$Z2K_DOH_PROFILE_FILE" "$Z2K_DOH_STATE_FILE" "$Z2K_DOH_ERROR_FILE" "$Z2K_DOH_INSTALL_SNAPSHOT"
     return 0
 }

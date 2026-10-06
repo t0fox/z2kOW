@@ -24,6 +24,12 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 mkdir -p "$T/bin" "$T/state"
 export PATH="$T/bin:$PATH"
+cat > "$T/bin/paste" <<'STUB'
+#!/bin/sh
+echo "paste intentionally unavailable in OpenWrt base system" >&2
+exit 127
+STUB
+chmod 0755 "$T/bin/paste"
 export Z2K_STATE="$T/state" Z2K_ROOT="$REPO"
 export Z2K_DOH_UCI_BIN=uci Z2K_DOH_APK_BIN=apk
 export Z2K_DOH_PROXY_INIT="$T/https-dns-proxy.init"
@@ -553,5 +559,29 @@ cmp -s "$T/preapply-config" "$Z2K_DOH_CONFIG_FILE" && _t_ok || {
 }
 assert_contains "restored config retains edits made after package installation" "$Z2K_DOH_TEST_DB" "https-dns-proxy.config.custom_marker='edited-after-install'"
 assert_contains "restored config retains the latest user resolver" "$Z2K_DOH_TEST_DB" "https-dns-proxy.outside.resolver_url='https://dns.quad9.net/dns-query'"
+
+# Removing the z2kOW resolver from a pre-existing package restores the exact
+# user's main-only config. That is an inactive DoH setup, not a broken owned
+# resolver; the external package and its UCI values remain untouched.
+rm -f "$T/state"/.doh-* "$T/state"/doh.* "$Z2K_DOH_RUNNING_FILE" "$Z2K_DOH_ENABLED_FILE"
+: > "$Z2K_DOH_TEST_DB"
+printf "https-dns-proxy.config='main'\nhttps-dns-proxy.config.custom_marker='user-main-only'\n" > "$Z2K_DOH_TEST_DB"
+printf 'installed\n' > "$Z2K_DOH_PACKAGE_FILE"
+uci commit https-dns-proxy
+cp "$Z2K_DOH_CONFIG_FILE" "$T/main-only-before-apply"
+z2k_ow_doh_install || _t_bad "already-installed package accepts DoH management without reinstalling"
+assert_eq "main-only pre-existing UCI is treated as user-owned before Apply" 1 "$(_doh_field "$(z2k_ow_doh_status)" external_config)"
+z2k_ow_doh_select_provider xbox '' '' 1 || _t_bad "Apply replaces a confirmed main-only config with an active resolver"
+assert_eq "Apply makes the selected resolver active" working "$(_doh_field "$(z2k_ow_doh_status)" state)"
+assert_eq "Apply clears external ownership once its resolver is active" 0 "$(_doh_field "$(z2k_ow_doh_status)" external_config)"
+printf 'preexisting_config=1\n' > "$Z2K_DOH_INSTALL_SNAPSHOT"
+z2k_ow_doh_uninstall > "$T/remove-main-only.stdout" || _t_bad "Remove restores a main-only user config"
+assert_contains "Remove explains that the external resolver config was restored" "$T/remove-main-only.stdout" 'пользовательская конфигурация https-dns-proxy восстановлена'
+[ ! -e "$Z2K_DOH_INSTALL_SNAPSHOT" ] && _t_ok || _t_bad "Remove cleans the stale package install receipt"
+cmp -s "$T/main-only-before-apply" "$Z2K_DOH_CONFIG_FILE" && _t_ok || _t_bad "Remove restores the main-only UCI exactly"
+assert_file "Remove preserves a package installed before z2kOW" "$Z2K_DOH_PACKAGE_FILE"
+assert_eq "restored main-only config reports DoH as disabled" disabled "$(_doh_field "$(z2k_ow_doh_status)" state)"
+assert_eq "restored main-only config is not reported as a missing active resolver error" '' "$(_doh_field "$(z2k_ow_doh_status)" reason)"
+assert_eq "restored external UCI remains identified for a future confirmed Apply" 1 "$(_doh_field "$(z2k_ow_doh_status)" external_config)"
 
 _t_done
