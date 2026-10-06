@@ -49,7 +49,8 @@ grep -Fq '<svg id="brand-composite-logo"' "$REPO/webpanel/www/index.html" \
     && grep -Fq '<span id="brand-wordmark"' "$REPO/webpanel/www/index.html" \
     && ! grep -qE 'brand-default-logo|ANTIDPI|KEENETIC|brand-tagline' "$REPO/webpanel/www/index.html" \
     && ! grep -Fq 'brand-logo-window' "$REPO/webpanel/www/style.css" \
-    && grep -Fq '#brand-composite-logo { display: none; width: 112px; height: 28px;' "$REPO/webpanel/www/style.css" \
+    && grep -Fq 'viewBox="536 151 1242 270" width="184" height="40"' "$REPO/webpanel/www/index.html" \
+    && grep -Fq '#brand-composite-logo { display: none; width: 184px; height: 40px;' "$REPO/webpanel/www/style.css" \
     && grep -Fq '.brand-composite #brand-composite-logo { display: block;' "$REPO/webpanel/www/style.css" \
     && grep -Fq '.brand-composite #brand-wordmark, .brand-composite #brand-profile-logo { display: none;' "$REPO/webpanel/www/style.css" \
     && grep -Fq '.topbar { padding: 0 var(--space-16); gap: 12px; }' "$REPO/webpanel/www/style.css" \

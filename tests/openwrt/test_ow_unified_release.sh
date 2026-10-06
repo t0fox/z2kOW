@@ -109,6 +109,8 @@ printf '{"install_id":"legacy-install","priv":"legacy-key"}\n' > "$SYS/opt/zapre
 printf 'p-86.2\n' > "$SYS/etc/z2k/state/installed-release"
 printf 'keep user config\n' > "$SYS/etc/z2k/config"
 printf 'old apk-owned file\n' > "$SYS/usr/lib/z2k/legacy.txt"
+printf '#!/bin/sh\nexit 0\n' > "$SYS/usr/lib/z2k/z2k-stats-upload.sh"
+printf 'stats-upload=2026-10-05\n' > "$SYS/opt/zapret2/.z2k-scheduler-state"
 printf 'https://github.com/t0fox/z2kOW/releases/latest/download/packages.adb\n' > "$SYS/etc/apk/repositories.d/z2kow.list"
 printf 'https://feed.z2k.example.com/openwrt\n' > "$SYS/etc/apk/repositories.d/z2k.list"
 printf 'https://downloads.openwrt.org/releases/24.10/packages/aarch64_cortex-a53/base\n' > "$SYS/etc/apk/repositories.d/custom.list"
@@ -190,13 +192,16 @@ _state_is_release "$_CURRENT_TAG" "$_CURRENT_SEQ" "$SYS/etc/z2k/state/installed-
 _identity_ok=0
 grep -q 'legacy-install' "$SYS/etc/z2k/state/relay-id.json" && _identity_ok=1
 [ ! -e "$SYS/usr/lib/z2k/legacy.txt" ] && _old_ok=1
+_telemetry_ok=0
+[ ! -e "$SYS/usr/lib/z2k/z2k-stats-upload.sh" ] \
+    && [ ! -e "$SYS/opt/zapret2/.z2k-scheduler-state" ] && _telemetry_ok=1
 grep -q "release tag $_CURRENT_TAG" "$SYS/usr/lib/z2k/version.txt" && _version_ok=1
 grep -q 'keep user config' "$SYS/etc/z2k/config" && _config_ok=1
-if [ "$_rc" -eq 0 ] && [ "$_state_ok" = 1 ] && [ "$_identity_ok" = 1 ] && [ "$_old_ok" = 1 ] \
+if [ "$_rc" -eq 0 ] && [ "$_state_ok" = 1 ] && [ "$_identity_ok" = 1 ] && [ "$_old_ok" = 1 ] && [ "$_telemetry_ok" = 1 ] \
     && [ "$_version_ok" = 1 ] && [ "$_config_ok" = 1 ]; then
     _t_ok
 else
-    _t_bad "legacy p-86.2 full migration to $_CURRENT_TAG: rc=$_rc checks=$_state_ok/$_identity_ok/$_old_ok/$_version_ok/$_config_ok state=$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null) old=$(test -e "$SYS/usr/lib/z2k/legacy.txt" && echo present || echo absent) version=$(cat "$SYS/usr/lib/z2k/version.txt" 2>/dev/null) config=$(cat "$SYS/etc/z2k/config" 2>/dev/null) output=$_out"
+    _t_bad "legacy full migration to $_CURRENT_TAG retires old strategy telemetry without losing release state: rc=$_rc checks=$_state_ok/$_identity_ok/$_old_ok/$_telemetry_ok/$_version_ok/$_config_ok state=$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null) old=$(test -e "$SYS/usr/lib/z2k/legacy.txt" && echo present || echo absent) uploader=$(test -e "$SYS/usr/lib/z2k/z2k-stats-upload.sh" && echo present || echo absent) version=$(cat "$SYS/usr/lib/z2k/version.txt" 2>/dev/null) config=$(cat "$SYS/etc/z2k/config" 2>/dev/null) output=$_out"
 fi
 if grep -Eq '^add --no-scripts lighttpd([[:space:]]|$)' "$T/apk.add.log"; then
     _t_ok

@@ -250,10 +250,6 @@ _z2k_install_paths_openwrt() {
             # RKN/YouTube/Discord assets. Its file outputs stay under the
             # selected payload root; OpenWrt's cron supplies that root.
             echo "${or}/z2k-geosite.sh" ;;
-        files/z2k-stats-upload.sh)
-            # Privacy-preserving strategy stats use the same common uploader;
-            # OpenWrt cron injects the persistent config/state paths.
-            echo "${or}/z2k-stats-upload.sh" ;;
         files/z2k-insta-ip-refresh.sh)
             # Shared upstream fetch/filter/probe flow. OpenWrt sources its
             # platform adapter for the dnsmasq host-record backend.

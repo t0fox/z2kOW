@@ -267,27 +267,17 @@ html[data-theme="light"] { scrollbar-color: #8CA29A transparent; }
 .mm-ocd__backdrop { display: none; }
 .brand {
   position: absolute;
-  left: calc(50% - 545.5px);
-  top: 3px;
-  width: 200px;
-  height: 38px;
-  overflow: hidden;
-  border-radius: 8px;
-  background: #080C0B;
+  left: calc(50% - 533.3px);
+  top: 2px;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  overflow: visible;
+  background: transparent;
   color: var(--ow-text-primary);
   transform: none;
 }
 .brand:hover { transform: none; }
-.brand-profile-logo {
-  position: absolute;
-  left: -52px;
-  top: -19px;
-  width: 329px;
-  height: 82px;
-  max-width: none;
-  object-fit: fill;
-  flex: none;
-}
 .brand-wordmark {
   position: absolute;
   width: 1px;
@@ -1009,7 +999,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 @media (max-width: 767.98px) {
   body { padding-left: 0; }
   .topbar { padding-left: 14px; padding-right: 14px; }
-  .brand { position: relative; left: auto; top: auto; margin-right: auto; transform: none; }
+  .brand { position: relative; left: auto; top: auto; max-width: calc(100vw - 230px); margin-right: auto; transform: none; }
   .brand:hover { transform: none; }
   #app { width: auto; max-width: none; margin: var(--topbar-h) 0 0; padding: 20px 16px 56px; }
   body[data-page="strategies"] #app { width: auto; max-width: none; }
@@ -1091,8 +1081,6 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   #nav.menu-open { transform: none; }
   #nav a { padding: 12px 20px; border-radius: 0; font-size: 14px; }
   #nav a.active { border-radius: 0; }
-  .brand { width: 160px; }
-  .brand-profile-logo { left: -61px; top: -17px; width: 306px; height: 76.5px; }
   .topbar > .theme-toggle {
     position: absolute;
     top: 0;
@@ -1111,7 +1099,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 }
 
 @media (min-width: 768px) and (max-width: 1091px) {
-  .brand { left: 16px; }
+  .brand { left: 10px; }
   .theme-toggle { right: 16px; }
   #nav { left: 0; width: 261px; }
   #app { width: calc(100% - 304px); max-width: none; margin-left: 280px; }
@@ -1119,18 +1107,8 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 }
 
 @media (max-width: 389.98px) {
-  /* Keep the same full horizontal lockup while making room for the fixed
-     44 px menu and three 44 px theme controls on narrow phones. */
-  .brand {
-    width: calc(100vw - 230px);
-    height: max(20px, calc(23.75vw - 54.625px));
-  }
-  .brand-profile-logo {
-    left: calc(87.6875px - 38.125vw);
-    top: calc(24.4375px - 10.625vw);
-    width: min(306px, calc(191.25vw - 439.875px));
-    height: min(76.5px, calc(47.8125vw - 109.96875px));
-  }
+  /* Let the cropped 4.6:1 lockup shrink between the mobile menu and controls. */
+  #brand-composite-logo { width: 184px; max-width: 100%; height: auto; flex: 0 1 184px; }
 }
 
 @media (min-width: 1092px) {
@@ -1139,7 +1117,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
     width: var(--sidebar-w-collapsed);
   }
   body[data-sidebar="collapsed"] #app { margin-left: calc(50% - 356.5px); }
-  body[data-sidebar="collapsed"] #panel-brand { left: calc(50% - 445.5px); }
+  body[data-sidebar="collapsed"] #panel-brand { left: calc(50% - 433.5px); }
   body[data-sidebar="collapsed"] .theme-toggle { right: calc(50% - 345.5px); }
 }
 @media (min-width: 768px) and (max-width: 1091px) {

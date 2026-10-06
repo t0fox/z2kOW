@@ -85,11 +85,16 @@ for _path in usr/lib/z2k/lua/z2k-tcp16.lua \
         && _t_ok || _t_bad "final rootfs is missing mandatory TCP16 runtime path $_path"
 done
 for _path in usr/lib/z2k/z2k-geosite.sh usr/lib/z2k/z2k-update-lists.sh \
-    usr/lib/z2k/z2k-dns-check.sh usr/lib/z2k/z2k-stats-upload.sh \
+    usr/lib/z2k/z2k-dns-check.sh \
     usr/lib/z2k/z2k-blocked-monitor.sh; do
     tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq "./$_path" \
         && _t_ok || _t_bad "final rootfs is missing upstream runtime executor $_path"
 done
+if tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fq './usr/lib/z2k/z2k-stats-upload.sh'; then
+    _t_bad "final rootfs must not ship the retired strategy-stats uploader"
+else
+    _t_ok
+fi
 find "$ROOT/files/fake" -type f -print > "$T/fake-inventory"
 while IFS= read -r _source; do
     _rel=${_source#"$ROOT/files/fake/"}
@@ -187,7 +192,7 @@ for _script in tg-check.sh rt-check.sh warp-check.sh fw-check.sh list-refresh.sh
         "-rwxr-xr-x" "$_mode"
 done
 for _script in z2k-tcp16-probe.sh z2k-geosite.sh z2k-update-lists.sh \
-    z2k-dns-check.sh z2k-stats-upload.sh z2k-blocked-monitor.sh \
+    z2k-dns-check.sh z2k-blocked-monitor.sh \
     z2k-insta-ip-refresh.sh; do
     _mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
         | awk -v path="usr/lib/z2k/$_script" 'index($NF, path) { print $1 }')

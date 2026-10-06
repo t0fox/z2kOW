@@ -23,9 +23,6 @@ Z2K_WARP_GAMES_CRON_LINE="37 2 * * * ZAPRET2_DIR=$Z2K_ROOT CONFIG_FILE=${Z2K_CON
 # OpenWrt launcher binds persistent state and service hooks before calling the
 # shared updater; the cron command stays below the BusyBox line-buffer limit.
 Z2K_LISTS_CRON_LINE="0 4 * * * $Z2K_ROOT/platform/openwrt/list-refresh.sh # z2k-lists"
-# Upstream strategy telemetry remains gated by its config toggle and
-# acknowledgement. The adapter supplies OpenWrt's canonical config and state.
-Z2K_STATS_CRON_LINE="0 3 * * * ZAPRET2_DIR=$Z2K_ROOT CONFIG_FILE=${Z2K_CONFIG:-/etc/z2k/config} STATE_FILE=${Z2K_STATE:-/etc/z2k/state}/state.tsv sh $Z2K_ROOT/z2k-stats-upload.sh # z2k-stats-upload"
 # TG health-check (Stage 3): конвергенция rules + probe + kill-only backoff.
 # Отдельный маркер и отдельные функции: updater-строку не трогаем.
 Z2K_TG_CRON_LINE="*/5 * * * * $Z2K_ROOT/platform/openwrt/tg-check.sh check # z2k-tg-health"
@@ -103,7 +100,6 @@ z2k_ow_cron_install() {
     printf '%s\n' "$Z2K_CRON_LINE" >> "$Z2K_CRON_TAB.new" || return 1
     printf '%s\n' "$Z2K_WARP_GAMES_CRON_LINE" >> "$Z2K_CRON_TAB.new" || return 1
     printf '%s\n' "$Z2K_LISTS_CRON_LINE" >> "$Z2K_CRON_TAB.new" || return 1
-    printf '%s\n' "$Z2K_STATS_CRON_LINE" >> "$Z2K_CRON_TAB.new" || return 1
     mv -f "$Z2K_CRON_TAB.new" "$Z2K_CRON_TAB" || return 1
     # cron в части сборок выключен по умолчанию — фиксируем намерение
     # (enable) и поднимаем best-effort, если его нет в процессах; дважды

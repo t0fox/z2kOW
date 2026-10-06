@@ -41,7 +41,7 @@ const pendingStatusResponses = [];
 const statusFixture = {
   ok: true, installed: 'p-86.1', running: true, service: 'active', platform: 'openwrt',
   toggles: {
-    game_warp: '0', customd: '0', dynamic_ttl: '1', stats: '1', stats_ack: '0',
+    game_warp: '0', customd: '0', dynamic_ttl: '1',
     ppe: '1', auto_update: '1', autohostlist: '0', fastroute: '0',
     fastroute_available: '0', flowoffload: 'hardware',
     flowoffload_status: 'mode=hardware; flowtable=present; flags=offload; exemptions=0; actual=not-observed; hardware=requested; owner=none; packet_visibility=unknown; circular=unknown',
@@ -641,6 +641,32 @@ try {
     assert.equal(await lockup.locator('.brand-wordmark').isVisible(), false, `${appearance}: duplicate text lockup is hidden`);
     assert.equal(await lockup.locator('.brand-wordmark').textContent(), 'z2kOW', 'generic fallback text remains available');
     assert.doesNotMatch(await lockup.innerText(), /keenetic|antidpi|openwrt edition/i);
+    const brandRender = await lockup.evaluate(node => {
+      const brand = node.getBoundingClientRect();
+      const logo = node.querySelector('#brand-composite-logo').getBoundingClientRect();
+      const firstMenuItem = document.querySelector('#nav a[data-route="dashboard"]').getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return {
+        x: brand.x, y: brand.y, width: brand.width, height: brand.height,
+        background: style.backgroundColor, borderRadius: style.borderRadius,
+        logoX: logo.x, logoY: logo.y, logoWidth: logo.width, logoHeight: logo.height,
+        firstMenuItemX: firstMenuItem.x,
+      };
+    });
+    assert.equal(brandRender.background, 'rgba(0, 0, 0, 0)',
+      `${appearance}: #panel-brand has a transparent background`);
+    assert.equal(brandRender.borderRadius, '0px', `${appearance}: the brand has no card radius`);
+    assert.deepEqual([brandRender.logoWidth, brandRender.logoHeight], [184, 40],
+      `${appearance}: the lockup uses the enlarged artwork size`);
+    assert.ok(Math.abs(brandRender.logoWidth / brandRender.logoHeight - (1242 / 270)) < 0.001,
+      `${appearance}: the SVG keeps the cropped source aspect ratio without stretching`);
+    assert.ok(Math.abs(brandRender.width - brandRender.logoWidth) <= 1
+      && Math.abs(brandRender.height - brandRender.logoHeight) <= 1,
+    `${appearance}: the clickable brand box tightly fits the visible SVG (${JSON.stringify(brandRender)})`);
+    assert.ok(brandRender.width <= brandRender.logoWidth + 2 && brandRender.height <= brandRender.logoHeight + 2,
+      `${appearance}: the brand has no oversized blank area around the SVG (${JSON.stringify(brandRender)})`);
+    assert.ok(Math.abs(brandRender.x - brandRender.firstMenuItemX) < 1,
+      `${appearance}: the logo aligns with the first sidebar item (${JSON.stringify(brandRender)})`);
     const logoRender = await lockup.locator('#brand-composite-logo').evaluate(node => {
       const box = node.getBoundingClientRect();
       return {
@@ -649,14 +675,48 @@ try {
         ink: getComputedStyle(node.querySelector('#brand-logo-ink')).fill,
         accent: getComputedStyle(node.querySelector('#brand-logo-accent')).fill,
         sources: [...node.querySelectorAll('[data-brand-source]')].map(source => source.getAttribute('href')),
+        viewBox: [node.viewBox.baseVal.width, node.viewBox.baseVal.height],
       };
     });
-    assert.deepEqual([logoRender.width, logoRender.height], [112, 28], `${appearance}: logo keeps its 4:1 source ratio in the topbar`);
+    assert.deepEqual([logoRender.width, logoRender.height], [184, 40], `${appearance}: enlarged logo keeps its 4.6:1 cropped ratio in the topbar`);
+    assert.deepEqual(logoRender.viewBox, [1242, 270], `${appearance}: the SVG clips only unused source canvas around the artwork`);
     assert.equal(logoRender.background, 'rgba(0, 0, 0, 0)', `${appearance}: logo has a transparent background`);
     assert.equal(logoRender.ink, appearance === 'light' ? 'rgb(24, 38, 37)' : 'rgb(214, 214, 214)',
       `${appearance}: z2k lettering follows the theme ink`);
     assert.equal(logoRender.accent, appearance === 'light' ? 'rgb(8, 122, 112)' : 'rgb(0, 186, 120)',
       `${appearance}: OW and the mark follow the green theme accent`);
+    const visibleInk = await lockup.locator('#brand-composite-logo').evaluate(async node => {
+      const source = new Image();
+      source.src = node.querySelector('[data-brand-source]').getAttribute('href');
+      await source.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = source.naturalWidth;
+      canvas.height = source.naturalHeight;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      context.drawImage(source, 0, 0);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let left = canvas.width, top = canvas.height, right = -1, bottom = -1;
+      for (let y = 0; y < canvas.height; y++) {
+        for (let x = 0; x < canvas.width; x++) {
+          const offset = (y * canvas.width + x) * 4;
+          const red = pixels[offset] / 255, green = pixels[offset + 1] / 255;
+          const wordAlpha = Math.max(0, 1.085106 * red - 0.085106);
+          const accentAlpha = Math.max(0, -1.574803 * red + 1.574803 * green - 0.148235);
+          if (Math.max(wordAlpha, accentAlpha) * 255 > 16) {
+            left = Math.min(left, x); top = Math.min(top, y);
+            right = Math.max(right, x); bottom = Math.max(bottom, y);
+          }
+        }
+      }
+      const viewBox = node.viewBox.baseVal;
+      const box = node.getBoundingClientRect();
+      return {
+        width: (right - left + 1) / viewBox.width * box.width,
+        height: (bottom - top + 1) / viewBox.height * box.height,
+      };
+    });
+    assert.ok(visibleInk.width >= 165 && visibleInk.height >= 32,
+      `${appearance}: the source artwork fills the lockup at a useful size (${JSON.stringify(visibleInk)})`);
     assert.deepEqual(logoRender.sources, ['/assets/openwrt/logo.png', '/assets/openwrt/logo.png']);
     assert.equal(await page.locator('#brand-favicon').getAttribute('href'), '/assets/openwrt/favicon.svg');
     assert.equal(await page.locator('#brand-profile-theme').getAttribute('href'), '/assets/openwrt/theme.css');
@@ -718,6 +778,8 @@ try {
       brandX: document.querySelector('#panel-brand').getBoundingClientRect().x,
       brandY: document.querySelector('#panel-brand').getBoundingClientRect().y,
       brandWidth: document.querySelector('#panel-brand').getBoundingClientRect().width,
+      brandHeight: document.querySelector('#panel-brand').getBoundingClientRect().height,
+      firstMenuItemX: document.querySelector('#nav a[data-route="dashboard"]').getBoundingClientRect().x,
       utilityRight: document.querySelector('.theme-toggle').getBoundingClientRect().right,
       appRight: document.querySelector('#app').getBoundingClientRect().right,
     }));
@@ -731,10 +793,11 @@ try {
       `the main column matches the measured 800 px reference (${desktopFrame.appWidth}px)`);
     assert.ok(Math.abs(desktopFrame.appY - 44) < 1,
       `the main column begins directly below the single 44 px header (${JSON.stringify(desktopFrame)})`);
-    assert.ok(Math.abs(desktopFrame.brandX - (desktopFrame.windowWidth / 2 - 545.5)) < 1,
-      `the z2kOW lockup starts at Lolz's measured brand position (${JSON.stringify(desktopFrame)})`);
-    assert.ok(Math.abs(desktopFrame.brandY - 3) < 1 && Math.abs(desktopFrame.brandWidth - 200) < 1,
-      `the full z2kOW logo lockup occupies the measured 200×38 header slot at y=3 (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(desktopFrame.brandX - desktopFrame.firstMenuItemX) < 1,
+      `the z2kOW lockup aligns with the first sidebar item (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(desktopFrame.brandY - 2) < 1 && Math.abs(desktopFrame.brandWidth - 184) < 1
+      && Math.abs(desktopFrame.brandHeight - 40) < 1,
+    `the clickable brand box fits the 184×40 lockup at the center of the 44 px topbar (${JSON.stringify(desktopFrame)})`);
     assert.equal(await page.locator('#header-nav, #route-recents').count(), 0,
       'the header has no duplicated route-navigation rows');
     assert.ok(Math.abs(desktopFrame.utilityRight - (desktopFrame.appRight - 98)) < 2,

@@ -2,7 +2,7 @@
 
 This matrix tracks material product differences between z2kOW and the pinned upstream z2k baseline. It is a design/status ledger, not a test report.
 
-Current upstream release baseline: `p-86.15`, seq `138`, commit `b90611f52ae5ba034d0181a3252efda6ecc95671`. The p-86.14 reviews below are historical sync records.
+Current upstream release baseline: `p-86.16`, seq `139`, commit `5a11ffd82d10578039487da2ef09210278eb06ff`. The p-86.14 and p-86.15 reviews below are historical sync records.
 
 Status meanings:
 
@@ -23,9 +23,9 @@ Status meanings:
 | Config and strategies | Upstream config/strategy engine generates nfqws2 runtime behavior. | Common generator and strategy code is reused with OpenWrt path/service adapters. | PARITY |
 | Core lifecycle | Keenetic init/watchdog owns the service. | procd owns OpenWrt service lifecycle. | ADAPTED |
 | Firewall / WAN events | Keenetic uses NDM, iptables/ipset, and device policy APIs; automatic WAN discovery accepts any interface with a main-table default except `lo`, including routed bridges. | OpenWrt uses fw4/nftables, netifd/ubus/UCI, and hotplug; firewall and self-heal consume the shared main-route WAN probe, which accepts routed bridges and ignores policy-only/connected routes. | ADAPTED |
-| Scheduled maintenance | Upstream schedules updates, list refresh, TCP16, telemetry, and feature maintenance. | OpenWrt cron adapter owns equivalent scheduled jobs. | ADAPTED |
+| Scheduled maintenance | Upstream schedules updates, list refresh, TCP16, and feature maintenance. | OpenWrt cron adapter owns equivalent jobs and removes legacy `# z2k-stats-upload` rows during schedule convergence. | ADAPTED |
 | Main list refresh | Upstream geosite/list helpers refresh managed domain data. | Common list/geosite logic is shipped with OpenWrt path and service adapters. | ADAPTED |
-| Strategy telemetry | Upstream uploader is controlled by `Z2K_STATS`. | Common uploader is scheduled through the OpenWrt scheduler with OpenWrt paths. | ADAPTED |
+| Remote strategy reporting | p-86.16 removes strategy upload, its operator controls, and the VPS receiver. | Removed the uploader, scheduler job, config flags, API/UI controls, and receiver. The local autocircular `telemetry.tsv` remains local state and is never sent remotely. | PARITY |
 | TCP16 | Upstream probes the line, stores a verdict/map, schedules retries/nightly probing, and feeds runtime config. | Probe, detector, Lua/data payload, scheduler, persistent state, WebPanel action, and OpenWrt runtime integration are shipped as one feature path. | ADAPTED |
 | Diagnostics | Upstream reports service, firewall, platform, tunnels, WARP, TCP16, and state. | Common diagnostic structure delegates platform probes to OpenWrt for procd, nftables, netifd, storage, offload, and feature state. | ADAPTED |
 | Telegram transport | Upstream tunnel behavior with Keenetic firewall/service integration. | Same transport purpose through procd and nftables adapters. | ADAPTED |
@@ -66,6 +66,25 @@ Update this table when upstream behavior changes or an OpenWrt gap is closed. Do
 | Upstream panel asset cache-buster advances to p-86.15. | B — preserve branded source, adapt release staging | Keep the z2kOW-branded panel source and stamp the staged HTML/JS/CSS asset URLs from the controlled release version. | `tests/test_cachebuster_declared.sh`; `tests/openwrt/test_ow_stage_rootfs.sh`. |
 | `lib/menu.sh` and upstream credits add the GregMSK sponsor acknowledgement. | B — preserve z2kOW acknowledgement policy | Add GregMSK only to the existing disclosed upstream credits section. Keep local z2kOW credits, menu roster, and branding independent. | `tests/browser/credits-page.mjs` verifies the rendered upstream acknowledgement and separate local credits. |
 | Runtime behavior between p-86.14 and p-86.15. | C — no functional delta | No runtime code is copied from this patch; p-86.14's already-adapted WAN bridge fix and current z2kOW/OpenWrt/WARP changes remain in the release source. | Full upstream tag diff; complete rootfs is built from current z2kOW `main`. |
+
+## p-86.16 sync review
+
+- z2kOW source baseline: `main` at `64842d4b52896d74497efb37e2587e31cb2c8ff6`.
+- Upstream base: `p-86.15`, seq `138`, commit `b90611f52ae5ba034d0181a3252efda6ecc95671`.
+- Upstream target: `p-86.16`, seq `139`, commit `5a11ffd82d10578039487da2ef09210278eb06ff`.
+- Complete source range: `b90611f..5a11ffd` (3 commits, 45 changed paths), including `d48ccca10b64f07fbb7953e62955c0c15cec6ef2` (remove strategy telemetry), `e91a3102cb1978e4f3f2d696d25d81d2b3136ce6` (add sponsor Кожевников), and the p-86.16 release commit.
+- The pinned tag and live upstream manifest agree on p-86.16/139. Upstream `UPDATES.json` and its signature are intentionally excluded from the z2kOW source; device metadata remains controlled by the trusted OpenWrt release workflow.
+
+| Material upstream change | Disposition | z2kOW implementation | Evidence |
+|---|---|---|---|
+| Remove `files/z2k-stats-upload.sh`, `webpanel/www/js/pages/telemetry.js`, `vps-stats/`, collector service, and stats receiver routes. | A — remove remote reporting end to end | Removed upload transport, notice and controls, API routes/fields, payload mapping, receiver, nginx routes, service, and collector monitoring. Historical release records remain intact. | `tests/test_strategy_telemetry_retired.sh`, API contract tests, rootfs payload checks, and VPS inventory review. |
+| Remove `Z2K_STATS` / `Z2K_STATS_ACK`, menu `[C]`, the 03:00 shared scheduler entry, and remote-report UI. | A — portable behavior removal | Removed the config writer, CLI submenu, common task, panel toast, dashboard notice, and toggle. Config regeneration drops the retired keys from existing configs. | `tests/test_config_official.sh`, `tests/test_panel_frontend_contract.sh`, `tests/openwrt/test_ow_schedule.sh`, and `tests/test_strategy_telemetry_retired.sh`. |
+| OpenWrt cron used a platform-owned `# z2k-stats-upload` row. | B — OpenWrt lifecycle adaptation | No replacement reporting job is created. Schedule install/remove continue to filter the retired marker so an old row disappears while unrelated crontab entries survive. | `tests/openwrt/test_ow_schedule.sh`. |
+| Old router release may contain the uploader and its scheduler state under release-owned `/usr/lib/z2k` and `/opt/zapret2` paths. | B — OpenWrt release adaptation | Full payload convergence replaces those owned trees; regenerated config and cron convergence clear the other old controls. | `tests/openwrt/test_ow_unified_release.sh`, `tests/openwrt/test_ow_stage_rootfs.sh`, and `tests/test_config_official.sh`. |
+| Add sponsor Кожевников to upstream acknowledgements. | B — preserve z2kOW credit ownership | Added the upstream acknowledgement to the upstream disclosure only; local README and CLI sponsor roster remain unchanged. | `tests/browser/credits-page.mjs` and `tests/test_sponsors_in_sync.sh`. |
+| Clarify the difference between local strategy state and remote statistics in contributor/security documentation. | A — documentation parity | Removed the obsolete upload-risk instructions and state clearly that `telemetry.tsv` is local state with no remote reporting. | `CONTRIBUTING.md`, `SECURITY.md`, and the active-reference audit. |
+| Upstream changes Keenetic init.d and NDM scheduler wiring; release metadata and cache-buster also advance. | C — platform-specific or controlled release surface | Do not port Keenetic init.d/NDM behavior. The OpenWrt scheduler remains owned by its adapter. The trusted OpenWrt release flow owns the controlled manifest, signature, artifact and staged asset cache-buster. | Full upstream path audit, `.github/workflows/release-openwrt.yml`, and OpenWrt rootfs staging tests. |
+| Local autocircular state in `telemetry.tsv`. | C — keep local-only strategy memory | Preserve existing strategy rotation and diagnostics; no remote upload path consumes this file after the retirement. | Upstream diff does not modify the autocircular state code; local autocircular tests remain in the suite. |
 
 ## p-86.14 diagnostics parity review (historical)
 

@@ -14,7 +14,7 @@ z2kOW keeps a small set of canonical documents. Historical investigations belong
 
 - [Release policy](../RELEASING.md) — maintainer rules for building and publishing releases.
 - [OpenWrt release operations](openwrt-release-operations.md) — device install, update, state, and recovery.
-- [Security](../SECURITY.md) — trust boundaries, signatures, WebPanel exposure, and telemetry.
+- [Security](../SECURITY.md) — trust boundaries, signatures, and WebPanel exposure.
 
 ## OpenWrt feature contracts
 

@@ -447,7 +447,6 @@ z2kOW/
 │   ├── z2k-geosite.sh            # geosite / managed list import
 │   ├── z2k-config-validator.sh   # валидация конфигурации
 │   ├── z2k-blocked-monitor.sh    # монитор проблемных сессий
-│   ├── z2k-stats-upload.sh       # strategy telemetry helper
 │   └── z2k-diag.sh               # общая диагностическая оболочка
 │
 ├── platform/openwrt/              # тонкий OpenWrt adapter
@@ -485,7 +484,6 @@ z2kOW/
 ├── mtproxy-client/                # Telegram tunnel client
 ├── rt-proxy/                      # RT proxy
 ├── vps-relay/                     # relay-side components
-├── vps-stats/                     # statistics receiver
 ├── extras/                        # дополнительные client helpers
 ├── tests/                         # common + OpenWrt tests
 ├── docs/                          # contracts и parity docs

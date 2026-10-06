@@ -18,12 +18,9 @@ The WebPanel listens on HTTP and defaults to the router's LAN address on port `8
 
 Panel password authentication is optional and disabled by default. When enabled, it adds a login boundary but does not make public exposure safe. Host and request-origin checks help prevent a web page from issuing unwanted requests through a user's browser; they do not protect against a device that can directly reach the panel on the LAN.
 
-## Telemetry
-
-Strategy telemetry is enabled by default and can be disabled with the `Z2K_STATS` setting in `/etc/z2k/config` or through the available settings interface. The first scheduled upload is delayed until the telemetry notice has been shown, with a three-day maximum delay. The uploader sends strategy pool, strategy slot, and rounded time-in-slot values to the configured endpoint. It omits the host column from the local strategy state and does not send a stable device identifier. The current default endpoint uses HTTP: the upload contents and the router's source IP are visible to the endpoint and network path in transit.
-
 ## Security boundaries
 
+- Strategy selection state stays local on the device; remote strategy reporting has been removed.
 - The release signature and artifact digest protect release integrity; they do not hide network activity from an internet provider or prove that the application itself is benign.
 - Availability probes may accept test certificates or responses where they only measure reachability. They must not be treated as proof of a destination's identity.
 - Secrets embedded in public binaries or source must be treated as public. Device-generated identity material is a separate credential and should remain on the device.

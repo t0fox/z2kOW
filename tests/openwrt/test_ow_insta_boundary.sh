@@ -14,8 +14,6 @@ _mapped="$(Z2K_PLATFORM=openwrt z2k_install_paths files/z2k-update-lists.sh 2>/d
 assert_eq "WARP list refresher доставляется в OpenWrt payload" "/usr/lib/z2k/z2k-update-lists.sh" "$_mapped"
 _mapped="$(Z2K_PLATFORM=openwrt z2k_install_paths files/z2k-geosite.sh 2>/dev/null)"
 assert_eq "upstream geosite executor доставляется в OpenWrt payload" "/usr/lib/z2k/z2k-geosite.sh" "$_mapped"
-_mapped="$(Z2K_PLATFORM=openwrt z2k_install_paths files/z2k-stats-upload.sh 2>/dev/null)"
-assert_eq "upstream stats executor доставляется в OpenWrt payload" "/usr/lib/z2k/z2k-stats-upload.sh" "$_mapped"
 _mapped="$(Z2K_PLATFORM=openwrt z2k_install_paths files/z2k-blocked-monitor.sh 2>/dev/null)"
 assert_eq "blocked monitor доставляется в OpenWrt payload" "/usr/lib/z2k/z2k-blocked-monitor.sh" "$_mapped"
 _mapped="$(Z2K_PLATFORM=openwrt z2k_install_paths lib/install.sh 2>/dev/null)"
@@ -50,8 +48,6 @@ assert_contains "OpenWrt env binds autocircular state to persistent state.tsv" "
 assert_contains "OpenWrt env binds the merged extra-domain user file" "$REPO/platform/openwrt/env.sh" 'Z2K_EXTRA_DOMAINS_RUNTIME="${Z2K_EXTRA_DOMAINS_RUNTIME:-$Z2K_USER_LISTS/extra-domains.txt}"'
 assert_contains "OpenWrt env binds the persistent autohostlist ledger" "$REPO/platform/openwrt/env.sh" 'Z2K_AUTOHOSTLIST_DOMAINS_FILE="${Z2K_AUTOHOSTLIST_DOMAINS_FILE:-$Z2K_STATE/autohostlist-domains.txt}"'
 assert_contains "list refresh keeps geosite markers in OpenWrt persistent state" "$REPO/platform/openwrt/list-refresh.sh" 'Z2K_GEOSITE_INSTAGRAM_PURGE_MARKER'
-assert_contains "OpenWrt cron preserves upstream 03:00 stats run" "$REPO/platform/openwrt/schedule.sh" '0 3 * * *'
-assert_contains "stats uploader consumes persistent OpenWrt state.tsv" "$REPO/platform/openwrt/schedule.sh" 'STATE_FILE=${Z2K_STATE:-/etc/z2k/state}/state.tsv'
 assert_contains "OpenWrt geosite executor remains reachable from common refresh" "$REPO/files/z2k-update-lists.sh" 'z2k-geosite.sh" fetch'
 assert_contains "blocked monitor is an operator CLI command" "$REPO/platform/openwrt/z2kow.sh" 'blocked-monitor|bm)'
 assert_contains "blocked monitor writes outside read-only release payload" "$REPO/platform/openwrt/z2kow.sh" 'Z2K_BLOCKED_MONITOR_CACHE'

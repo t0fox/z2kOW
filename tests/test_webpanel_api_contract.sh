@@ -178,26 +178,24 @@ printf "\n--- /status: значение флага с кавычкой не рв
 # read_flag снимает только ОКРУЖАЮЩИЕ кавычки, так что правленный руками
 # конфиг отдаёт значение с кавычкой внутри. Раньше оно шло в "%s" как есть:
 # JSON.parse во фронте падал, и весь дашборд показывал «Ошибка».
-printf 'ENABLED=1\nGAME_WARP_ENABLED=0"x\nZ2K_PPE_DEOFFLOAD=a\\b\nZ2K_STATS=да\n' > "$CONFIG_FILE"
+printf 'ENABLED=1\nGAME_WARP_ENABLED=0"x\nZ2K_PPE_DEOFFLOAD=a\\b\nZ2K_DYNAMIC_TTL=да\n' > "$CONFIG_FILE"
 OUT=$(cgi GET /status "" | cgi_body)
 assert_eq "GET /status exposes server epoch for relative timestamps" "true" "$(jget "$OUT" 'isinstance(d.get("server_now_epoch"), int) and d["server_now_epoch"] > 0')"
 assert_eq "тело /status — валидный JSON"      "1"    "$(json_ok_p "$OUT")"
 assert_eq "кавычка доехала экранированной"    '0"x'  "$(jget "$OUT" 'd["toggles"]["game_warp"]')"
 assert_eq "обратный слэш доехал экранированным" 'a\b' "$(jget "$OUT" 'd["toggles"]["ppe"]')"
-assert_eq "кириллица не превратилась в escape" 'да'  "$(jget "$OUT" 'd["toggles"]["stats"]')"
+assert_eq "кириллица не превратилась в escape" 'да'  "$(jget "$OUT" 'd["toggles"]["dynamic_ttl"]')"
 printf 'ENABLED=1\nGAME_WARP_ENABLED=1\n' > "$CONFIG_FILE"
 OUT=$(cgi GET /status "" | cgi_body)
 assert_eq "нормальный флаг читается как раньше" "1" "$(jget "$OUT" 'd["toggles"]["game_warp"]')"
 
-printf "\n--- /toggles: плоская карта тумблеров (фронт telemetry.js) ---\n"
-# telemetry.js читает GET /toggles ради stats_ack; кейса не было ни на одной
-# платформе (фронт молча терпел 404). Форма — плоская проекция вложенного
-# "toggles" из /status, значения строками через json_string.
-printf 'ENABLED=1\nGAME_WARP_ENABLED=1\nZ2K_STATS_ACK=0\n' > "$CONFIG_FILE"
+printf "\n--- /toggles: плоская карта действующих переключателей ---\n"
+# Форма — плоская проекция вложенного "toggles" из /status; значения строками.
+printf 'ENABLED=1\nGAME_WARP_ENABLED=1\n' > "$CONFIG_FILE"
 OUT=$(cgi GET /toggles "" | cgi_body)
 assert_eq "toggles — валидный JSON"       "1" "$(json_ok_p "$OUT")"
 assert_eq "toggles — game_warp"           "1" "$(jget "$OUT" 'd["game_warp"]')"
-assert_eq "toggles — stats_ack"           "0" "$(jget "$OUT" 'd["stats_ack"]')"
+assert_eq "toggles — retired stats fields absent" "0" "$(printf '%s' "$OUT" | grep -Ec '"stats(_ack)?"' || true)"
 assert_eq "toggles — dynamic_ttl default" "1" "$(jget "$OUT" 'd["dynamic_ttl"]')"
 printf 'ENABLED=1\nGAME_WARP_ENABLED=0"x\n' > "$CONFIG_FILE"
 OUT=$(cgi GET /toggles "" | cgi_body)

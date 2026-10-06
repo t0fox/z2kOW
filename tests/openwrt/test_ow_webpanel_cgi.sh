@@ -710,11 +710,8 @@ _poll_job_ok() { # $1 jobid $2 label — done + exit 0
 # GET /toggles: единственный вызов без кейса (404 был на обеих платформах).
 OUT="$(_mg "toggles" /toggles)"
 assert_eq "toggles: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
-assert_eq "toggles: stats_ack default 1" "1" "$(_jget "$OUT" 'd["stats_ack"]')"
 assert_eq "toggles: game_warp из конфига" "0" "$(_jget "$OUT" 'd["game_warp"]')"
-printf 'GAME_WARP_ENABLED=0\nENABLED=1\nZ2K_STATS_ACK=0\n' > "$T/etc/config"
-OUT="$(_mg "toggles ack=0" /toggles)"
-assert_eq "toggles: stats_ack=0 доезжает (telemetry)" "0" "$(_jget "$OUT" 'd["stats_ack"]')"
+assert_eq "toggles: retired stats fields are absent" "0" "$(printf '%s' "$OUT" | grep -Ec '"stats(_ack)?"' || true)"
 printf 'GAME_WARP_ENABLED=0\nENABLED=1\nDISABLE_CUSTOM=1\n' > "$T/etc/config"
 
 # Остальные frontend GET: статус + по одному ключевому полю shape.
@@ -831,16 +828,12 @@ assert_eq "TikTok candidate probing requires the feature to be enabled" "Status:
 RAW="$(_cgi POST /tiktok/auto)"
 assert_eq "TikTok auto mode action requires the feature to be enabled" "Status: 409 Conflict" "$(printf '%s\n' "$RAW" | _cgi_status)"
 printf 'value=0' > "$T/body.txt"
-RAW="$(_cgi POST /toggle/stats "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
-assert_eq "quick stats toggle completes synchronously without a job modal" "null" "$(_jget "$OUT" 'd.get("job")')"
-assert_eq "quick stats toggle persists its value" "0" "$(grep -m1 '^Z2K_STATS=' "$T/etc/config" | cut -d= -f2)"
+RAW="$(_cgi POST /toggle/stats "" "$T/body.txt")"
+assert_eq "retired stats toggle route returns 404" "Status: 404 Not Found" "$(printf '%s\n' "$RAW" | _cgi_status)"
 printf 'value=0' > "$T/body.txt"
 RAW="$(_cgi POST /toggle/auto-update "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "quick auto-update toggle completes synchronously without a job modal" "null" "$(_jget "$OUT" 'd.get("job")')"
 assert_eq "quick auto-update toggle persists its value" "0" "$(grep -m1 '^Z2K_AUTO_UPDATE_ENABLED=' "$T/etc/config" | cut -d= -f2)"
-printf 'value=9' > "$T/body.txt"
-RAW="$(_cgi POST /toggle/stats "" "$T/body.txt")"
-assert_eq "toggle bad value: 400" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
 
 # Service controls: job + эффект через mock-init.
 for _svc in start stop restart; do
@@ -889,10 +882,8 @@ JOB_IDS="$JOB_IDS $_jid"
 _jo="$(_poll_job "$_jid")" || _t_bad "dns check: job не завершился"
 assert_eq "dns check: job done" "true" "$(_jget "$_jo" 'd["done"]')"
 
-# Stats ack: флаг в конфиге.
-RAW="$(_cgi POST /stats/ack)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
-assert_eq "stats ack: ok" "true" "$(_jget "$OUT" 'd["ok"]')"
-assert_eq "stats ack: флаг 1" "1" "$(grep -m1 '^Z2K_STATS_ACK=' "$T/etc/config" | cut -d= -f2)"
+RAW="$(_cgi POST /stats/ack)"
+assert_eq "retired stats acknowledgement route returns 404" "Status: 404 Not Found" "$(printf '%s\n' "$RAW" | _cgi_status)"
 
 # The clean OpenWrt payload has only the canonical Discord list.  The panel's
 # duplicate-domain check must inspect that effective source, not require the
@@ -1185,7 +1176,7 @@ assert_eq "fresh status: installed false" "false" "$(_jget "$OUT" 'd["installed"
 assert_eq "fresh status: toggles defaults" "1" "$(_jget "$OUT" 'd["toggles"]["dynamic_ttl"]')"
 assert_eq "fresh status: caps openwrt" "openwrt" "$(_jget "$OUT" 'd["platform"]')"
 OUT="$(_fresh "toggles" /toggles)"
-assert_eq "fresh toggles: stats_ack default" "1" "$(_jget "$OUT" 'd["stats_ack"]')"
+assert_eq "fresh toggles: retired stats fields are absent" "0" "$(printf '%s' "$OUT" | grep -Ec '"stats(_ack)?"' || true)"
 OUT="$(_fresh "whitelist" /whitelist)"
 assert_eq "fresh whitelist: пуст" "0" "$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["domains"]))' 2>/dev/null)"
 OUT="$(_fresh "exclude" /exclude)"

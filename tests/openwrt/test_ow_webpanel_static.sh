@@ -212,6 +212,5 @@ if grep -n 'document\.title.*replace\|для OpenWrt' "$REPO/webpanel/www/js/cor
 else
     _t_ok
 fi
-assert_contains "js: telemetry nav-guard" "$REPO/webpanel/www/js/pages/telemetry.js" 'host.isConnected === false'
 
 _t_done

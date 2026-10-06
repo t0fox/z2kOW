@@ -1,8 +1,7 @@
 #!/bin/sh
 # tests/openwrt/test_ow_webpanel_routes.sh - parity frontend calls -> api.sh cases.
 #
-# Ловит класс "фронт зовёт, бэкенд не знает" (живой пример: GET /toggles звал
-# telemetry.js, кейса не было ни на одной платформе, фронт молча терпел 404).
+# Ловит класс "фронт зовёт, бэкенд не знает" для действующих панельных маршрутов.
 # Endpoints извлекаются из CURRENT source (не руками): apiGet/apiPost/
 # apiGetText/apiPostText + fetch(API + ...) + динамические /service/, /tunnel/,
 # /toggle/ (значения из data-svc/TGGLE-карты/TOGGLE_API_NAME). Каждый обязан

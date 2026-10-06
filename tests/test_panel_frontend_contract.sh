@@ -487,30 +487,6 @@ const SCENARIOS = {
     },
   },
 
-  quick_toggle_no_modal: {
-    hash: "#/toggles",
-    setup() {
-      ROUTER = async (p, method) => {
-        if (p === "/toggle/stats" && method === "POST") return { ok: true, value: "0" };
-        return STATUS;
-      };
-    },
-    async run() {
-      await sleep(120);
-      const box = q('#app>[data-key="stats"]>input');
-      box.checked = false;
-      box.fire("change");
-      await sleep(180);
-      check("мгновенный переключатель статистики не создаёт job modal",
-            !document.body.children.some(child => child.className === "modal-backdrop"),
-            document.body.children.map(child => child.className).join(","));
-      check("мгновенное действие не запускает опрос /job", !CALLS["/job"], CALLS["/job"]);
-      check("быстрый toggle разблокирован сразу", box.disabled === false, String(box.disabled));
-      check("быстрый toggle отправил выбранное значение", postedValue("/toggle/stats") === "0",
-            (BODIES["/toggle/stats"] || []).join(" | "));
-    },
-  },
-
   // Джоб, о котором роутер уже ничего не знает: файлы подчистил job_reap или
   // роутер перезагрузился посреди обновления. Бекенд отвечает УСПЕШНО, поэтому
   // счётчик сетевых ошибок такой ответ не поймает.
@@ -1468,7 +1444,6 @@ for scen in flowoffload_none flowoffload_unconfirmed flowoffload_hardware \
             stale_apply update_history_modal update_history_empty update_history_failed \
             update_single_surface update_current_surface update_reinstall_manifest_race \
             toggles_status_failed toggles_left_page \
-            quick_toggle_no_modal \
             warp_left_page \
             autohostlist_warn autohostlist_accept autohostlist_escape \
             autohostlist_dismiss autohostlist_off other_toggle_no_warn \

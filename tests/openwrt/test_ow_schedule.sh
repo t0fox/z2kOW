@@ -13,16 +13,14 @@ Z2K_CRON_TAB="$T/crontab"; export Z2K_CRON_TAB
 Z2K_CONFIG="$T/config"; export Z2K_CONFIG
 . "$REPO/platform/openwrt/schedule.sh" || { echo "FAIL[ow-schedule]: schedule" >&2; exit 1; }
 
-printf '0 3 * * * /bin/true # чужое\n' > "$Z2K_CRON_TAB"
+printf '0 3 * * * /bin/true # чужое\n0 3 * * * sh /r/z2k-stats-upload.sh # z2k-stats-upload\n' > "$Z2K_CRON_TAB"
 z2k_ow_cron_install >/dev/null 2>&1 || { echo "FAIL[ow-schedule]: install" >&2; exit 1; }
 assert_eq "одна наша строка" "1" "$(grep -c 'z2k-updater' "$Z2K_CRON_TAB")"
 assert_contains "зовёт launcher apply" "$Z2K_CRON_TAB" "/r/platform/openwrt/update.sh apply"
 assert_eq "one upstream full list refresh row" "1" "$(grep -c 'z2k-lists' "$Z2K_CRON_TAB")"
 assert_contains "full list refresh keeps upstream 04:00 schedule" "$Z2K_CRON_TAB" "0 4 * * *"
 assert_contains "full list refresh calls native list adapter" "$Z2K_CRON_TAB" "/r/platform/openwrt/list-refresh.sh"
-assert_eq "one upstream stats upload row" "1" "$(grep -c 'z2k-stats-upload' "$Z2K_CRON_TAB")"
-assert_contains "stats upload keeps upstream 03:00 schedule" "$Z2K_CRON_TAB" "0 3 * * *"
-assert_contains "stats upload reads OpenWrt persistent autocircular state" "$Z2K_CRON_TAB" "STATE_FILE=/etc/z2k/state/state.tsv"
+assert_eq "legacy strategy telemetry cron row is retired on schedule convergence" "0" "$(grep -c 'z2k-stats-upload' "$Z2K_CRON_TAB" || true)"
 assert_contains "чужое цело" "$Z2K_CRON_TAB" "/bin/true"
 z2k_ow_warp_cron_install >/dev/null 2>&1 || { echo "FAIL[ow-schedule]: WARP install" >&2; exit 1; }
 assert_eq "одна WARP health-строка" "1" "$(grep -c 'z2k-warp-health' "$Z2K_CRON_TAB")"
@@ -42,7 +40,7 @@ assert_eq "идемпотентность" "1" "$(grep -c 'z2k-updater' "$Z2K_CR
 z2k_ow_cron_remove >/dev/null 2>&1
 assert_eq "наша убрана" "0" "$(grep -c 'z2k-updater' "$Z2K_CRON_TAB" || true)"
 assert_eq "full list refresh removed with owned schedule" "0" "$(grep -c 'z2k-lists' "$Z2K_CRON_TAB" || true)"
-assert_eq "stats upload removed with owned schedule" "0" "$(grep -c 'z2k-stats-upload' "$Z2K_CRON_TAB" || true)"
+assert_eq "legacy strategy telemetry cron row stays retired" "0" "$(grep -c 'z2k-stats-upload' "$Z2K_CRON_TAB" || true)"
 assert_contains "чужая осталась" "$Z2K_CRON_TAB" "/bin/true"
 rm -f "$Z2K_CRON_TAB"
 z2k_ow_cron_remove >/dev/null 2>&1 && _t_ok || _t_bad "remove без файла падает"

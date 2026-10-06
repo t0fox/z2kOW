@@ -294,11 +294,6 @@ case "$method $path" in
         category_rkn=$(read_flag "Z2K_CATEGORY_RKN" "$CONFIG_FILE" "1")
         category_discord_voice=$(read_flag "Z2K_CATEGORY_DISCORD_VOICE" "$CONFIG_FILE" "1")
         dynamic_ttl=$(read_flag "Z2K_DYNAMIC_TTL" "$CONFIG_FILE" "1")
-        stats=$(read_flag "Z2K_STATS" "$CONFIG_FILE" "1")
-        # Признак «человек ещё не видел, что уходит». Панель по нему покажет
-        # карточку с полями и адресом, и снимет гейт первой отправки —
-        # до этого аплоадер молчит (files/z2k-stats-upload.sh).
-        stats_ack=$(read_flag "Z2K_STATS_ACK" "$CONFIG_FILE" "1")
         ppe=$(read_flag "Z2K_PPE_DEOFFLOAD" "$CONFIG_FILE" "1")
         fastroute_snapshot
         auto_update=$(read_flag "Z2K_AUTO_UPDATE_ENABLED" "$CONFIG_FILE" "1")
@@ -372,10 +367,10 @@ case "$method $path" in
         game_warp=$(read_flag "GAME_WARP_ENABLED" "$CONFIG_FILE" "0")
         json_header
         # Каждое значение флага — через json_string, а не прямым %s. read_flag
-        # снимает только ОКРУЖАЮЩИЕ кавычки, поэтому правленный руками конфиг
-        # (Z2K_STATS=0") отдаёт значение, которое рвёт строку JSON. Ломается при
-        # этом не один тумблер: фронт не разбирает ответ целиком и весь дашборд
-        # уходит в «Ошибка». Быстрый путь json_string на "0"/"1" не форкает.
+        # снимает только ОКРУЖАЮЩИЕ кавычки, поэтому ручное изменение конфига
+        # может записать значение, которое рвёт JSON. При ошибке фронт не
+        # разбирает ответ целиком и весь дашборд уходит в «Ошибка».
+        # Быстрый путь json_string на "0"/"1" не форкает.
         printf '{"ok":true,"server_now_epoch":%s,' "$server_now_epoch"
         status_installed_json
         printf ',"running":%s,"service":' "${running:-false}"
@@ -386,8 +381,6 @@ case "$method $path" in
         printf ',"category_rkn":';            json_string "${category_rkn:-1}"
         printf ',"category_discord_voice":';  json_string "${category_discord_voice:-1}"
         printf ',"dynamic_ttl":';            json_string "${dynamic_ttl:-1}"
-        printf ',"stats":';                  json_string "${stats:-1}"
-        printf ',"stats_ack":';              json_string "${stats_ack:-1}"
         printf ',"ppe":';                    json_string "${ppe:-1}"
         printf ',"fastroute":';              json_string "${fastroute:-1}"
         printf ',"fastroute_status":';        json_string "$(fastroute_status)"
@@ -444,24 +437,7 @@ case "$method $path" in
         exit 0
         ;;
 
-    # Человек увидел карточку с составом телеметрии. Снимаем гейт первой
-    # отправки — синхронно, без задачи: правка одного ключа в конфиге, ждать
-    # тут нечего, а показывать модалку прогресса ради этого было бы издевательством.
-    "POST /stats/ack")
-        set_flag Z2K_STATS_ACK 1 "$CONFIG_FILE" \
-            || json_fail "500 Internal Server Error" "не удалось записать признак"
-        json_header
-        printf '{"ok":true}\n'
-        exit 0
-        ;;
-
     # ---------- TOGGLES (read-only flat map) ----------
-    # telemetry.js читает GET /toggles ради stats_ack ДО первого /status:
-    # карточка «уходит статистика» живёт на дашборде, а не в «Режимах».
-    # Маршрута не было ни на одной платформе (фронт молча терпел 404) —
-    # это общая дыра контракта, а не platform-различие: форма та же, что
-    # у вложенного "toggles" в /status, только плоская. Значения — через
-    # json_string, как в /status (правка конфига руками не должна рвать JSON).
     "GET /toggles")
         disable_cd=$(read_flag "DISABLE_CUSTOM" "$CONFIG_FILE" "1")
         if [ "$disable_cd" = "0" ]; then customd="1"; else customd="0"; fi
@@ -469,8 +445,6 @@ case "$method $path" in
         category_rkn=$(read_flag "Z2K_CATEGORY_RKN" "$CONFIG_FILE" "1")
         category_discord_voice=$(read_flag "Z2K_CATEGORY_DISCORD_VOICE" "$CONFIG_FILE" "1")
         dynamic_ttl=$(read_flag "Z2K_DYNAMIC_TTL" "$CONFIG_FILE" "1")
-        stats=$(read_flag "Z2K_STATS" "$CONFIG_FILE" "1")
-        stats_ack=$(read_flag "Z2K_STATS_ACK" "$CONFIG_FILE" "1")
         ppe=$(read_flag "Z2K_PPE_DEOFFLOAD" "$CONFIG_FILE" "1")
         auto_update=$(read_flag "Z2K_AUTO_UPDATE_ENABLED" "$CONFIG_FILE" "1")
         autohostlist=$(read_flag "Z2K_AUTOHOSTLIST" "$CONFIG_FILE" "0")
@@ -482,8 +456,6 @@ case "$method $path" in
         printf ',"category_rkn":';             json_string "${category_rkn:-1}"
         printf ',"category_discord_voice":';   json_string "${category_discord_voice:-1}"
         printf ',"dynamic_ttl":';             json_string "${dynamic_ttl:-1}"
-        printf ',"stats":';                   json_string "${stats:-1}"
-        printf ',"stats_ack":';               json_string "${stats_ack:-1}"
         printf ',"ppe":';                     json_string "${ppe:-1}"
         printf ',"auto_update":';             json_string "${auto_update:-1}"
         printf ',"autohostlist":';            json_string "${autohostlist:-0}"
@@ -601,7 +573,6 @@ case "$method $path" in
     "POST /toggle/game-warp"|\
     "POST /toggle/customd"|\
     "POST /toggle/dynamic-ttl"|\
-    "POST /toggle/stats"|\
     "POST /toggle/ppe"|\
     "POST /toggle/fastroute"|\
     "POST /toggle/auto-update"|\
@@ -624,7 +595,6 @@ case "$method $path" in
             /toggle/game-warp)       _toggle_fn=toggle_game_warp;       _label="WARP-туннель" ;;
             /toggle/customd)         _toggle_fn=toggle_customd;         _label="custom.d" ;;
             /toggle/dynamic-ttl)     _toggle_fn=toggle_dynamic_ttl;     _label="Динамический TTL" ;;
-            /toggle/stats)           _toggle_fn=toggle_stats;           _label="Сбор статистики" ;;
             /toggle/ppe)             _toggle_fn=toggle_ppe;             _label="PPE de-offload" ;;
             /toggle/fastroute)       _toggle_fn=toggle_fastroute;       _label="Программный fastpath" ;;
             /toggle/auto-update)     _toggle_fn=toggle_auto_update;     _label="Автообновление" ;;
@@ -636,7 +606,7 @@ case "$method $path" in
         # not regenerate config or restart a service. A job modal for this
         # single config write is slower than the operation itself.
         case "$_toggle_fn" in
-            toggle_stats|toggle_auto_update)
+            toggle_auto_update)
                 "$_toggle_fn" "$val" || json_fail "500 Internal Server Error" "не удалось сохранить настройку"
                 json_header
                 printf '{"ok":true,"value":'; json_string "$val"; printf '}\n'

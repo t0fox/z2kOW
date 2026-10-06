@@ -13,7 +13,6 @@
 #
 # Tasks (HH:MM <command>):
 #   HH:00  z2k-auto-update.sh apply       — nightly auto-update, HH=Z2K_AU_HOUR (02)
-#   03:00  z2k-stats-upload.sh             — anonymized strategy stats -> VPS
 #   03:30  z2k-tcp16-probe.sh              — блок по объёму: сети и имя на каждую
 #   04:00  z2k-update-lists.sh             — RKN/YT hostlist refresh
 
@@ -355,8 +354,8 @@ while true; do
     now_epoch=$(date +%s)
 
     # Автообновление — в час, выбранный человеком в панели, а не в зашитые
-    # 02:00. Стоит ДО общего case: там ветки взаимоисключающие, и `*:00`
-    # перехватывал бы 03:00 у выгрузки статистики.
+    # 02:00. Стоит ДО общего case, чтобы выбрать час автообновления отдельно
+    # от фиксированных daily tasks.
     #
     # Порядок условий не косметика: au_hour читает конфиг, и проверка минут
     # перед ним оставляет этот awk ровно на ровных часах.
@@ -369,14 +368,6 @@ while true; do
     # Daily tasks — gate on date-key so each only fires once per day even
     # if our 30s tick passes through the same minute twice.
     case "$hhmm" in
-        03:00)
-            # Anonymized strategy-stats upload (gated on Z2K_STATS inside the
-            # script; silent no-op on opt-out / network failure).
-            if [ "$(last_fired_for_key stats-upload)" != "$today" ]; then
-                mark_fired stats-upload "$today"
-                run_task stats-upload "${ZAPRET2_DIR}/z2k-stats-upload.sh"
-            fi
-            ;;
         # ЕСЛИ ЛИНИЯ ТАК И НЕ ИЗМЕРЕНА — ПОВТОРЯТЬ, НЕ ДОЖИДАЯСЬ НОЧИ.
         #
         # Раньше проба запускалась только при старте службы и в 03:30. На свежей

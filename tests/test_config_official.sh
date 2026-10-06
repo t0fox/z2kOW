@@ -833,6 +833,16 @@ test_corrupt_custom_strategy healthy \
     "--filter-tcp=443 --filter-l7=tls --lua-desync=fake:blob=z2k_custom_marker:strategy=1" \
     "0" "исправный пользовательский файл принимается"
 
+printf "\n--- retired strategy telemetry settings are dropped from existing config ---\n"
+printf 'ENABLED=1\nZ2K_STATS=1\nZ2K_STATS_ACK=0\nZ2K_STATS_ENDPOINT=https://old.invalid/stats\nZ2K_STATS_TOKEN=legacy\n' \
+    > "$MOCK_ZAPRET2/config"
+( ZAPRET2_DIR="$MOCK_ZAPRET2" create_official_config "$MOCK_ZAPRET2/config" >/dev/null 2>&1 )
+_retired_config=$(cat "$MOCK_ZAPRET2/config")
+assert_not_contains "existing configs drop the retired stats switch" "Z2K_STATS=" "$_retired_config"
+assert_not_contains "existing configs drop the retired acknowledgement flag" "Z2K_STATS_ACK=" "$_retired_config"
+assert_not_contains "existing configs drop the retired telemetry endpoint" "Z2K_STATS_ENDPOINT=" "$_retired_config"
+assert_not_contains "existing configs drop the retired telemetry token" "Z2K_STATS_TOKEN=" "$_retired_config"
+
 rm -rf "$MOCK_DIR"
 
 printf "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"

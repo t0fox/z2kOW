@@ -12,7 +12,6 @@ files/z2k-insta-ip-refresh.sh|ADAPTED|./usr/lib/z2k/z2k-insta-ip-refresh.sh|-rwx
 files/z2k-nfqueue-selfheal.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/fw-check.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|fw-check.sh check|OpenWrt verifies and reapplies its complete fw4/NFQUEUE invariant set.
 files/z2k-ppe-deoffload.sh|N/A|-|-|-|-|Uses the proprietary Keenetic MediaTek PPE target and connskip match; OpenWrt has no NDM PPE subsystem.
 files/z2k-scheduler.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/schedule.sh|-rw-r--r--|platform/openwrt/files/etc/init.d/z2k|z2k_ow_cron_install|Resident Keenetic scheduler is replaced with BusyBox cron and procd service start.
-files/z2k-stats-upload.sh|COMMON|./usr/lib/z2k/z2k-stats-upload.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|z2k-stats-upload|Shared privacy-gated uploader receives OpenWrt config/state paths.
 files/z2k-tcp16-probe.sh|ADAPTED|./usr/lib/z2k/z2k-tcp16-probe.sh|-rwxr-xr-x|webpanel/cgi/actions.sh|tcp16_probe_async|Shared probe keeps upstream measurement; OpenWrt redirects state/config/service paths.
 files/z2k-tcp16-probe.sh|ADAPTED|./usr/lib/z2k/z2k-tcp16-probe.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|30 3 * * *|Nightly measurement remains at 03:30.
 files/z2k-tg-redirect.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/tg.sh|-rw-r--r--|platform/openwrt/tg.sh|z2k_ow_tg|OpenWrt uses fw4/nftables and the platform Telegram lifecycle.

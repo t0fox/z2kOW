@@ -344,7 +344,7 @@ body {
 .brand:hover { color: var(--text); }
 .brand-profile-logo { display: block; width: 34px; height: 34px; object-fit: contain; flex: 0 0 34px; }
 .brand-wordmark { display: block; color: inherit; font-size: 18px; font-weight: 650; line-height: 1; letter-spacing: -0.04em; }
-#brand-composite-logo { display: none; width: 112px; height: 28px; flex: 0 0 112px; overflow: visible; }
+#brand-composite-logo { display: none; width: 184px; height: 40px; max-width: 100%; flex: 0 1 184px; overflow: visible; }
 .brand-composite { gap: 0; }
 .brand-composite #brand-composite-logo { display: block; }
 .brand-composite #brand-wordmark, .brand-composite #brand-profile-logo { display: none; }
