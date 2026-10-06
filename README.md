@@ -132,7 +132,21 @@ z2kOW переносит общую сетевую логику z2k на OpenWrt
 
 z2kOW использует подписанную OpenWrt release-модель. Bootstrap и updater работают с root-привилегиями, поэтому перед развёртыванием рекомендуется ознакомиться с исходным кодом, [SECURITY.md](SECURITY.md), [LEGAL.md](LEGAL.md) и release-документацией.
 
-Canonical bootstrap находится в `scripts/openwrt/install.sh`. Подробности процесса установки и восстановления описаны в [docs/openwrt-release-operations.md](docs/openwrt-release-operations.md).
+Canonical bootstrap находится в `scripts/openwrt/install.sh`.
+
+Для установки на поддерживаемый OpenWrt с пакетным менеджером `apk` и root-доступом:
+
+```sh
+wget -qO- https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh
+```
+
+Если на устройстве уже установлен `curl`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh
+```
+
+Перед запуском bootstrap рекомендуется ознакомиться с [SECURITY.md](SECURITY.md), [LEGAL.md](LEGAL.md) и [документацией release lifecycle](docs/openwrt-release-operations.md).
 
 Установщик:
 
