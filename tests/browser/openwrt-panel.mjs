@@ -645,19 +645,24 @@ try {
       const brand = node.getBoundingClientRect();
       const logo = node.querySelector('#brand-composite-logo').getBoundingClientRect();
       const firstMenuItem = document.querySelector('#nav a[data-route="dashboard"]').getBoundingClientRect();
+      const topbar = document.querySelector('.topbar').getBoundingClientRect();
       const style = getComputedStyle(node);
       return {
         x: brand.x, y: brand.y, width: brand.width, height: brand.height,
         background: style.backgroundColor, borderRadius: style.borderRadius,
         logoX: logo.x, logoY: logo.y, logoWidth: logo.width, logoHeight: logo.height,
-        firstMenuItemX: firstMenuItem.x,
+        firstMenuItemX: firstMenuItem.x, topbarHeight: topbar.height,
       };
     });
     assert.equal(brandRender.background, 'rgba(0, 0, 0, 0)',
       `${appearance}: #panel-brand has a transparent background`);
     assert.equal(brandRender.borderRadius, '0px', `${appearance}: the brand has no card radius`);
-    assert.ok(Math.abs(brandRender.logoWidth - 214) < 1 && Math.abs(brandRender.logoHeight - 44) < 1,
-      `${appearance}: the lockup uses the roomier artwork size (${JSON.stringify(brandRender)})`);
+    assert.ok(Math.abs(brandRender.logoWidth - 248) < 1 && Math.abs(brandRender.logoHeight - 51.05) < 1,
+      `${appearance}: the lockup fills the sidebar at the enlarged artwork size (${JSON.stringify(brandRender)})`);
+    assert.ok(brandRender.topbarHeight >= brandRender.logoHeight + 6,
+      `${appearance}: the logo has vertical breathing room inside its topbar (${JSON.stringify(brandRender)})`);
+    assert.ok(Math.abs(brandRender.logoY - (brandRender.topbarHeight - brandRender.logoHeight) / 2) < 1,
+      `${appearance}: the enlarged logo is vertically centered in the topbar (${JSON.stringify(brandRender)})`);
     assert.ok(Math.abs(brandRender.logoWidth / brandRender.logoHeight - (1166 / 240)) < 0.01,
       `${appearance}: the SVG viewport matches the cropped source aspect ratio`);
     assert.ok(Math.abs(brandRender.width - brandRender.logoWidth) <= 1
@@ -679,8 +684,8 @@ try {
         viewBox: [node.viewBox.baseVal.width, node.viewBox.baseVal.height],
       };
     });
-    assert.ok(Math.abs(logoRender.width - 214) < 1 && Math.abs(logoRender.height - 44) < 1,
-      `${appearance}: roomier logo keeps the cropped source ratio in the topbar`);
+    assert.ok(Math.abs(logoRender.width - 248) < 1 && Math.abs(logoRender.height - 51.05) < 1,
+      `${appearance}: enlarged logo keeps the cropped source ratio in the topbar`);
     assert.deepEqual(logoRender.viewBox, [1166, 240], `${appearance}: the SVG clips only unused source canvas around the artwork`);
     assert.equal(logoRender.preserveAspectRatio, 'xMidYMid meet',
       `${appearance}: cropped artwork preserves its intrinsic proportions without stretching`);
@@ -719,7 +724,7 @@ try {
         height: (bottom - top + 1) / viewBox.height * box.height,
       };
     });
-    assert.ok(visibleInk.width >= 205 && visibleInk.height >= 40,
+    assert.ok(visibleInk.width >= 237 && visibleInk.height >= 48,
       `${appearance}: the source artwork fills the enlarged lockup at a useful size (${JSON.stringify(visibleInk)})`);
     assert.deepEqual(logoRender.sources, ['/assets/openwrt/logo.png', '/assets/openwrt/logo.png']);
     assert.equal(await page.locator('#brand-favicon').getAttribute('href'), '/assets/openwrt/favicon.svg');
@@ -748,8 +753,8 @@ try {
     assert.equal(await page.evaluate(() => getComputedStyle(document.body).fontSize), '14px', 'compact body type');
     assert.equal(await page.evaluate(() => getComputedStyle(document.body).lineHeight), '17.92px',
       'body leading matches the measured Lolz 14 px / 17.92 px rhythm');
-    assert.equal(await page.locator('.topbar').evaluate(node => node.getBoundingClientRect().height), 44,
-      'desktop topbar uses the compact reference height');
+    assert.equal(await page.locator('.topbar').evaluate(node => node.getBoundingClientRect().height), 58,
+      'desktop OpenWrt topbar gives the enlarged logo vertical room');
     const headerStyle = await page.locator('.topbar').evaluate(node => {
       const style = getComputedStyle(node);
       const effect = getComputedStyle(node, '::before');
@@ -795,13 +800,13 @@ try {
       `the main column begins at Lolz's measured centered-shell offset (${JSON.stringify(desktopFrame)})`);
     assert.ok(Math.abs(desktopFrame.appWidth - 800) < 1,
       `the main column matches the measured 800 px reference (${desktopFrame.appWidth}px)`);
-    assert.ok(Math.abs(desktopFrame.appY - 44) < 1,
-      `the main column begins directly below the single 44 px header (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(desktopFrame.appY - 58) < 1,
+      `the main column begins directly below the enlarged 58 px header (${JSON.stringify(desktopFrame)})`);
     assert.ok(Math.abs(desktopFrame.brandX - desktopFrame.firstMenuItemX) < 1,
       `the z2kOW lockup aligns with the first sidebar item (${JSON.stringify(desktopFrame)})`);
-    assert.ok(Math.abs(desktopFrame.brandY) < 1 && Math.abs(desktopFrame.brandWidth - 214) < 1
-      && Math.abs(desktopFrame.brandHeight - 44) < 1,
-    `the clickable brand box fits the enlarged 214×44 lockup in the 44 px topbar (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(desktopFrame.brandY - (58 - 51.05) / 2) < 1
+      && Math.abs(desktopFrame.brandWidth - 248) < 1 && Math.abs(desktopFrame.brandHeight - 51.05) < 1,
+    `the clickable brand box fits the enlarged 248×51 lockup centered in the 58 px topbar (${JSON.stringify(desktopFrame)})`);
     assert.equal(await page.locator('#header-nav, #route-recents').count(), 0,
       'the header has no duplicated route-navigation rows');
     assert.ok(Math.abs(desktopFrame.utilityRight - (desktopFrame.appRight - 98)) < 2,
@@ -1565,8 +1570,8 @@ try {
     `Full-HD first paint uses the locally bundled Lolz Inter font while profile.json is held (${JSON.stringify(firstPaintTheme)})`);
   assert.equal(firstPaintTheme.fontSize, '14px',
     `Full-HD first paint uses the Lolz 14 px body size while profile.json is held (${JSON.stringify(firstPaintTheme)})`);
-  assert.equal(firstPaintTheme.topbarHeight, '44px',
-    `Full-HD first paint uses the Lolz 44 px topbar while profile.json is held (${JSON.stringify(firstPaintTheme)})`);
+  assert.equal(firstPaintTheme.topbarHeight, '58px',
+    `Full-HD first paint uses the OpenWrt 58 px topbar while profile.json is held (${JSON.stringify(firstPaintTheme)})`);
   await firstPaintPage.close();
 
   const motionPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });

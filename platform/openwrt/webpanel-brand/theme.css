@@ -114,7 +114,7 @@
   --radius: var(--ow-radius-control);
   --radius-sm: var(--ow-radius-control);
   --muted: var(--ow-text-secondary);
-  --topbar-h: 44px;
+  --topbar-h: 58px;
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   --motion-fast: 100ms;
   --motion-normal: 180ms;
@@ -268,7 +268,7 @@ html[data-theme="light"] { scrollbar-color: #8CA29A transparent; }
 .brand {
   position: absolute;
   left: calc(50% - 533.3px);
-  top: 0;
+  top: calc((var(--topbar-h) - 51.05px) / 2);
   width: auto;
   height: auto;
   min-width: 0;
@@ -278,6 +278,7 @@ html[data-theme="light"] { scrollbar-color: #8CA29A transparent; }
   transform: none;
 }
 .brand:hover { transform: none; }
+#brand-composite-logo { width: 248px; height: 51.05px; flex: 0 1 248px; }
 .brand-wordmark {
   position: absolute;
   width: 1px;
@@ -345,7 +346,7 @@ body {
 #nav .sidebar-collapse .nav-ico { flex: 0 0 20px; transition: transform var(--ow-motion-shell) ease; }
 .theme-toggle {
   position: absolute;
-  top: 3px;
+  top: calc((var(--topbar-h) - 40px) / 2);
   right: calc(50% - 435px);
   margin-left: 0;
   gap: 2px;
@@ -1006,8 +1007,8 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   body[data-page="strategies"] #app { width: auto; max-width: none; }
   .page-title { font-size: 22px; line-height: 1.36; margin-bottom: 16px; }
   .card { padding: var(--ow-card-padding); border-radius: var(--ow-radius-card); }
-  .topbar { height: 44px; }
-  .theme-toggle { right: 14px; top: 0; }
+  .topbar { height: 58px; }
+  .theme-toggle { right: 14px; top: calc((var(--topbar-h) - 52px) / 2); }
   .theme-toggle button { width: 44px; height: 44px; }
   .menu-toggle, .topbar #nav .nav-drawer-close { min-width: 44px; min-height: 44px; }
   .strat-tabs { gap: 2px; }
@@ -1084,7 +1085,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   #nav a.active { border-radius: 0; }
   .topbar > .theme-toggle {
     position: absolute;
-    top: 0;
+    top: calc((var(--topbar-h) - 52px) / 2);
     right: 14px;
     bottom: auto;
     left: auto;
@@ -1109,7 +1110,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 
 @media (max-width: 389.98px) {
   /* Let the enlarged lockup shrink between the mobile menu and controls. */
-  #brand-composite-logo { width: 214px; max-width: 100%; flex: 0 1 214px; }
+  #brand-composite-logo { width: 248px; max-width: 100%; flex: 0 1 248px; }
 }
 
 @media (min-width: 1092px) {
