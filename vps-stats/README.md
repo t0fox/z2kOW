@@ -35,10 +35,9 @@ the TUI menu `[C]`, the webpanel "Режимы → Сбор статистики
 
 Everything above is about the *contents* of the upload. The *transport* is plain
 HTTP to a bare IP: `http://213.176.74.63:8088/stats`, no TLS
-(`files/z2k-stats-upload.sh`). Say plainly what that means, because for a
-circumvention tool it outweighs the field-level anonymization:
+(`files/z2k-stats-upload.sh`). Say plainly what that means, because for a network-processing tool it outweighs the field-level anonymization:
 
-- anyone who can watch the connection — in Russia that means the operator's DPI —
+- anyone who can watch the connection on the network path
   sees a regular POST from your address to a fixed server, in the clear, carrying
   pool and strategy names. That is a usable signal for classifying the device as
   running z2k, and it is *more* revealing than any field inside the body;
