@@ -1,12 +1,12 @@
 #!/bin/sh
-# Upstream p-86.14 uninstall parity and OpenWrt ownership-boundary regression.
+# Upstream p-86.15 uninstall parity and OpenWrt ownership-boundary regression.
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-uninstall-parity"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # The comparison source is the exact commit approved by the controlled manifest.
 assert_contains "parity source is pinned upstream commit" "$REPO/UPDATES.json" \
-    '"commit": "5e058c1c3944e0f0362cf9665b84108fc6e9b3dc"'
+    '"commit": "b90611f52ae5ba034d0181a3252efda6ecc95671"'
 assert_contains "CLI exposes upstream uninstall action" "$REPO/platform/openwrt/z2kow.sh" \
     'uninstall|remove'
 assert_contains "CLI delegates to canonical uninstaller" "$REPO/platform/openwrt/z2kow.sh" \

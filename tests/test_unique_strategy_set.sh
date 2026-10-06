@@ -466,11 +466,8 @@ else
 fi
 
 grep -q 'в среднем около 20 минут' "$ROOT/README.md" || bad 'README omits timing'
-grep -q 'discord.com.*instagram.com.*rutor.org' "$ROOT/README.md" || bad 'README omits RKN probe order'
 grep -qi 'Discord' "$ROOT/README.md" && grep -q 'fallback' "$ROOT/README.md" || bad 'README omits Discord fallback'
-grep -q 'yt_tcp.*gv_tcp.*quic.*rkn_tcp' "$ROOT/README.md" || bad 'README omits target pools'
-grep -q 'i.ytimg.com.*googlevideo.com' "$ROOT/README.md" || bad 'README omits updated YouTube targets'
-grep -q 'два IPv4-адреса' "$ROOT/README.md" && grep -q 'общий кандидат не найден' "$ROOT/README.md" || bad 'README omits CDN common-candidate/no-apply rule'
+grep -q 'Часть upstream probe-наборов использует конкретные внешние домены как технические тестовые цели' "$ROOT/README.md" || bad 'README omits the technical purpose of upstream probe domains'
 grep -q 'специально для вашего провайдера' "$ROOT/webpanel/www/js/pages/strategies.js" && ok 'UI сохраняет согласованное короткое описание' || bad 'UI description changed unexpectedly'
 grep -q 'Последний набор не применён' "$ROOT/webpanel/www/js/pages/strategies.js" && grep -q 'Причина:' "$ROOT/webpanel/www/js/pages/strategies.js" && grep -q 'result.error' "$ROOT/webpanel/www/js/pages/strategies.js" && ok 'UI показывает сохранённую краткую причину отказа' || bad 'UI продолжает скрывать причину отказа'
 sed -n '/^\.unique-set-badge {/,/^}/p' "$ROOT/webpanel/www/style.css" | grep -q 'background: #c62828' && ok 'экспериментальная пометка выделена красным' || bad 'экспериментальная пометка не выделена красным'

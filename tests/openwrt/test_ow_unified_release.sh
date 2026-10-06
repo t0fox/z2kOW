@@ -337,21 +337,28 @@ export Z2K_OW_MANIFEST_PATH="$T/UPDATES.json"
 # action, install_release must reject the old reinstall target before touching
 # even release-owned files. This is the canonical installer race guard.
 cp "$T/UPDATES.json" "$T/reinstall-newer.json"
-"$Z2K_TEST_PYTHON" - "$T/reinstall-newer.json" <<'PY'
+_CURRENT_TAG_PREFIX=${_CURRENT_TAG%.*}
+_CURRENT_TAG_PATCH=${_CURRENT_TAG##*.}
+case "$_CURRENT_TAG_PATCH" in
+    ''|*[!0-9]*) _t_bad "cannot derive a newer race-fixture tag from $_CURRENT_TAG"; exit 1 ;;
+esac
+_RACE_TAG="$_CURRENT_TAG_PREFIX.$((_CURRENT_TAG_PATCH + 1))"
+_RACE_SEQ=$((_CURRENT_SEQ + 1))
+"$Z2K_TEST_PYTHON" - "$T/reinstall-newer.json" "$_RACE_TAG" "$_RACE_SEQ" <<'PY'
 import json, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 d = json.loads(path.read_text(encoding="utf-8"))
-d["current"] = "p-86.15"
-d["seq"] = 138
-d["upstream"]["tag"] = "p-86.15"
+d["current"] = sys.argv[2]
+d["seq"] = int(sys.argv[3])
+d["upstream"]["tag"] = sys.argv[2]
 path.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PY
 export Z2K_OW_MANIFEST_PATH="$T/reinstall-newer.json"
 printf 'preserve on manifest race\n' > "$SYS/usr/lib/z2k/version.txt"
 _out="$(z2k_ow_install_release --reinstall "$_CURRENT_TAG" 2>&1)"; _rc=$?
 if [ "$_rc" -eq 3 ] \
-    && printf '%s\n' "$_out" | grep -q '^Z2KOW_REINSTALL_UPDATE_AVAILABLE:p-86.15$' \
+    && printf '%s\n' "$_out" | grep -q "^Z2KOW_REINSTALL_UPDATE_AVAILABLE:$_RACE_TAG$" \
     && grep -q 'preserve on manifest race' "$SYS/usr/lib/z2k/version.txt" \
     && [ "$(cat "$SYS/etc/z2k/state/installed-release")" = "$_state_before" ]; then
     _t_ok

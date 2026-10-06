@@ -2099,7 +2099,7 @@ try {
   assert.doesNotMatch(await healthyCard.innerText(), /131 мс\s+131/,
     'latency is rendered once instead of repeating the raw number beside the formatted value');
   const healthySummary = await healthyCard.locator('.tiktok-selection-summary').innerText();
-  assert.match(healthySummary, /Выбран автоматически/);
+  assert.match(healthySummary, /Текущий CDN выбран автоматически/i);
   assert.doesNotMatch(healthySummary, /CDN переключён|203\.0\.113\.8 → 203\.0\.113\.9/);
   if (screenshotDir) {
     await screenshotComponent(healthy.page, healthyCard, path.join(screenshotDir, 'dark-390-tiktok-auto-healthy.png'));

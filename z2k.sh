@@ -1279,6 +1279,7 @@ download_init_script() {
         www/js/core/whitelist.js \
         www/js/core/domain-list-editor.js \
         www/js/core/toast.js \
+        www/js/core/time.js \
         www/js/job.js \
         www/js/pages/credits.js \
         www/js/pages/credits-openwrt.js \
