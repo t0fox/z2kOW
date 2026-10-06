@@ -159,6 +159,24 @@ curl -fsSL https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/in
 
 Release lifecycle собирает компоненты в единый проверяемый OpenWrt payload.
 
+### Windows: если сайты висят и не открываются
+
+Если на iPhone или Mac сайты открываются, а на Windows-компьютере долго грузятся и падают, включите в Windows метки времени TCP. Откройте командную строку от имени администратора и выполните:
+
+```cmd
+netsh interface tcp set global timestamps=enabled
+```
+
+Вернуть как было:
+
+```cmd
+netsh interface tcp set global timestamps=disabled
+```
+
+Зачем это нужно: часть стратегий портит метку времени в поддельном пакете, чтобы сервер его отбросил. В Windows метки по умолчанию выключены, поэтому сервер принимает подделку, и соединение зависает. На iPhone и Mac метки включены, там всё работает. От блокировки по IP это не помогает.
+
+Это настройка Windows-клиента, а не OpenWrt: z2kOW не может включить её на компьютере автоматически.
+
 ---
 
 ## Веб-панель

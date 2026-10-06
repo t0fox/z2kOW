@@ -166,3 +166,17 @@ export Z2K_ROOT Z2K_ADAPTER_DIR Z2K_LIB Z2K_AU_PUBKEY \
     Z2K_OW_BOOTSTRAP_PUBLIC_KEY \
     Z2K_OW_BOOTSTRAP_MANIFEST Z2K_OW_BOOTSTRAP_SIGNATURE Z2K_OW_BOOTSTRAP_ARTIFACT
 "$ENGINE/usr/sbin/install_release" "$_tag"
+
+cat <<'NOTICE'
+
+ВАЖНО ДЛЯ WINDOWS
+Если через z2kOW будут работать Windows-клиенты, включите TCP timestamps
+в командной строке от имени администратора:
+
+  netsh interface tcp set global timestamps=enabled
+
+Вернуть как было:
+  netsh interface tcp set global timestamps=disabled
+
+Подробнее: README.md → Windows.
+NOTICE

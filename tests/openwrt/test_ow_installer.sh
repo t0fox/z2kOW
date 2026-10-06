@@ -124,6 +124,9 @@ if sh "$INSTALLER" > "$T/out" 2>&1; then _t_ok; else _t_bad "fresh bootstrap fai
 assert_eq "bootstrap enters the unified installer once with controlled tag" p-86.13 "$(cat "$T/install-call" 2>/dev/null)"
 assert_eq "fresh bootstrap writes the single installed release state" "tag=p-86.13
 seq=136" "$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null)"
+assert_contains "successful fresh bootstrap prints Windows TCP timestamps notice" "$T/out" "ВАЖНО ДЛЯ WINDOWS"
+assert_contains "fresh bootstrap shows the required Windows command" "$T/out" "netsh interface tcp set global timestamps=enabled"
+assert_not_contains "shared install/update transaction does not print the fresh-install Windows notice" "$REPO/platform/openwrt/release.sh" 'timestamps=enabled|ВАЖНО ДЛЯ WINDOWS'
 assert_eq "bootstrap installs only required OpenWrt system dependencies" \
     "update
 add ca-bundle openssl-util jsonfilter" "$(cat "$T/apk.log" 2>/dev/null)"
