@@ -80,7 +80,8 @@ _z2k_ow_uninstall_validate_paths() {
 }
 
 _z2k_ow_uninstall_has_owned_install() {
-    local _warp_dir="$(dirname "$WARP_DEVICE")" _entry
+    local _warp_dir _entry
+    _warp_dir=$(dirname "$WARP_DEVICE")
     for _entry in "$Z2K_ROOT" "$Z2K_ZAPRET2_RUNTIME" "$Z2K_TMP" \
         "$Z2K_OW_INSTALL_TMP" "$Z2K_WARP_TMP" "$Z2K_OW_INSTALL_WORK" \
         "$Z2K_OW_ROLLBACK_DIR" "$Z2K_OW_INSTALL_LOCK" \
@@ -181,7 +182,9 @@ _z2k_ow_uninstall_fw4_include() {
 }
 
 _z2k_ow_uninstall_preserve_warp_move() {
-    local _warp_dir="$(dirname "$WARP_DEVICE")" _backup="${Z2K_ETC}.warp-preserve" _moved=0
+    local _warp_dir _backup _moved=0
+    _warp_dir=$(dirname "$WARP_DEVICE")
+    _backup="${Z2K_ETC}.warp-preserve"
     [ ! -L "$_warp_dir" ] || { echo "z2k-openwrt: WARP state path is a symlink; refusing uninstall" >&2; return 1; }
     [ ! -e "$_warp_dir" ] || [ -d "$_warp_dir" ] || {
         echo "z2k-openwrt: WARP state path is not a directory; refusing uninstall" >&2
@@ -386,7 +389,7 @@ z2k_ow_uninstall_async() {
     local _job_id _base
     [ -r "$_script" ] || { echo "z2k-openwrt: canonical uninstall script unavailable: $_script" >&2; return 1; }
     _job_id="$(date +%s)$$"
-    _base="${Z2K_OW_CANON_JOB_PREFIX}${_job_id}"
+    _base="${Z2K_JOB_DIR:-${Z2K_OW_CANON_JOB_PREFIX%/*}}/z2k-job-${_job_id}"
     [ "${Z2K_OW_TESTING:-0}" != 1 ] || _base="${Z2K_JOB_PREFIX:-$_base}"
     (
         trap '' HUP

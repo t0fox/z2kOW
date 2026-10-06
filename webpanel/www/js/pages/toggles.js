@@ -842,13 +842,22 @@ function dohReasonLabel(reason) {
   const labels = {
     "resolver-section-not-owned": "Секция с этим именем уже используется другой конфигурацией.",
     "package-missing": "Пакет https-dns-proxy не найден.",
-    "resolver-config-changed": "Конфигурация Xbox DNS изменилась извне.",
+    "resolver-config-changed": "Настройки DoH resolver изменились извне.",
     "listener-conflict": "Порт локального DNS занят другой https-dns-proxy секцией.",
     "proxy-not-running": "Сервис https-dns-proxy не запущен.",
     "listener-not-ready": "Локальный DNS proxy пока не принимает запросы.",
     "dnsmasq-not-routed": "dnsmasq не направляет запросы в локальный DoH proxy.",
     "dnsmasq-not-running": "Сервис dnsmasq не запущен.",
+    "listener-query-failed": "Локальный DoH listener не вернул DNS-ответ. Проверьте endpoint, bootstrap DNS и доступ в интернет.",
     "router-dns-check-failed": "Проверочный DNS запрос через роутер не прошёл.",
+    "dnsmasq-restart-failed": "Не удалось применить DoH маршрут в dnsmasq.",
+    "package-install-failed": "OpenWrt не подтвердил установку https-dns-proxy.",
+    "provider-config-invalid": "Параметры DoH provider некорректны.",
+    "provider-update-failed": "Не удалось применить provider; прежняя конфигурация восстановлена.",
+    "rollback-failed": "Установка завершилась ошибкой, и автоматический откат потребовал внимания.",
+    "resolver-config-failed": "Не удалось создать конфигурацию DoH resolver.",
+    "runtime-check-failed": "Runtime-проверка DoH не подтвердила рабочий маршрут.",
+    "install-snapshot-failed": "Не удалось сохранить исходное состояние OpenWrt для безопасного отката.",
   };
   return labels[reason] || "Рабочий DNS маршрут не подтверждён. Нажмите «Проверить» для диагностики.";
 }
@@ -862,22 +871,35 @@ function renderDohStatus(status, platform) {
   const actions = card.querySelector("#doh-actions");
   const forceRow = card.querySelector("#doh-force-row");
   const forceBox = card.querySelector("#doh-force-dns");
+  const providerSelect = card.querySelector("#doh-provider");
+  const customFields = card.querySelector("#doh-custom-fields");
+  const endpointField = card.querySelector("#doh-endpoint");
+  const bootstrapField = card.querySelector("#doh-bootstrap");
+  if (providerSelect) providerSelect.value = status && status.provider || "xbox";
+  if (customFields) customFields.hidden = !providerSelect || providerSelect.value !== "custom";
+  if (endpointField) endpointField.value = status && status.provider === "custom" ? status.endpoint || "" : "";
+  if (bootstrapField) bootstrapField.value = status && status.provider === "custom" ? status.bootstrap || "" : "";
   const state = status && status.state || "error";
   const installed = status && status.installed === "1";
+  const reason = dohReasonLabel(status && status.reason);
   if (state === "not-installed" || !installed) {
-    line.textContent = state === "not-installed" ? "Компонент не установлен" : dohReasonLabel(status && status.reason);
+    if (state === "error") {
+      line.innerHTML = `<span class="doh-status-badge bad">⚠ Установка не завершена</span><p class="doh-status-copy">${escapeHtml(reason)}</p>`;
+    } else {
+      line.innerHTML = '<span class="doh-status-badge neutral">Компонент не установлен</span>';
+    }
     actions.innerHTML = '<button class="btn btn-primary" data-doh-action="install">Установить DoH</button>';
     forceRow.hidden = true;
     return;
   }
   if (state === "installed-disabled") {
-    line.innerHTML = '<span class="doh-status-good">● Компонент установлен</span><br>○ DoH выключен';
+    line.innerHTML = `<span class="doh-status-badge neutral">Компонент установлен</span><span class="doh-status-copy">DoH выключен${status.reason ? ` · ${escapeHtml(reason)}` : ""}</span>`;
     actions.innerHTML = '<button class="btn btn-primary" data-doh-action="enable">Включить</button><button class="btn btn-secondary" data-doh-action="check">Проверить</button><button class="btn btn-danger" data-doh-action="uninstall">Удалить DoH</button>';
     forceRow.hidden = true;
     return;
   }
   if (state === "healthy") {
-    line.innerHTML = '<span class="doh-status-good">● Установлено</span><br><span class="doh-status-good">● Сервис работает</span>';
+    line.innerHTML = '<span class="doh-status-badge good">● DoH работает</span><span class="doh-status-copy">Проверены локальный listener и DNS-запрос через dnsmasq.</span>';
     actions.innerHTML = '<button class="btn btn-primary" data-doh-action="disable">Выключить</button><button class="btn btn-secondary" data-doh-action="check">Проверить</button><button class="btn btn-danger" data-doh-action="uninstall">Удалить DoH</button>';
     forceRow.hidden = false;
     forceBox.checked = status.force_lan_dns === "1";
@@ -885,13 +907,12 @@ function renderDohStatus(status, platform) {
     return;
   }
   if (state === "starting") {
-    line.innerHTML = '<span class="doh-status-pending">◌ Проверяю локальный DNS listener</span>';
+    line.innerHTML = '<span class="doh-status-badge pending">◌ Проверяю локальный DNS listener</span>';
     actions.innerHTML = '<button class="btn btn-primary" data-doh-action="restart">Перезапустить</button><button class="btn btn-secondary" data-doh-action="check">Проверить</button><button class="btn btn-danger" data-doh-action="uninstall">Удалить DoH</button>';
     forceRow.hidden = true;
     return;
   }
-  const reason = dohReasonLabel(status && status.reason);
-  line.innerHTML = `<span class="doh-status-bad">⚠ Установлено, но не работает</span><br>${escapeHtml(reason)}`;
+  line.innerHTML = `<span class="doh-status-badge bad">⚠ Установлено, но не работает</span><span class="doh-status-copy">${escapeHtml(reason)}</span>`;
   actions.innerHTML = '<button class="btn btn-primary" data-doh-action="restart">Перезапустить</button><button class="btn btn-secondary" data-doh-action="check">Проверить</button><button class="btn btn-danger" data-doh-action="uninstall">Удалить DoH</button>';
   forceRow.hidden = true;
 }
@@ -918,7 +939,32 @@ export async function renderToggles() {
     <div class="card" id="tiktok-feed-status-card" hidden></div>
     <div class="card" id="doh-card" hidden>
       <h3>DNS over HTTPS</h3>
-      <p class="desc">Защищённый DNS через Xbox DNS</p>
+      <p class="desc doh-description">Выберите DNS-провайдера или задайте собственный HTTPS endpoint.</p>
+      <div class="doh-provider-panel">
+        <label class="field" for="doh-provider">
+          <span class="field-label">Провайдер</span>
+          <select class="t-sub-select" id="doh-provider">
+            <option value="xbox">Xbox DNS</option>
+            <option value="cloudflare">Cloudflare</option>
+            <option value="google">Google</option>
+            <option value="custom">Свой endpoint</option>
+          </select>
+        </label>
+        <div class="doh-custom-fields" id="doh-custom-fields" hidden>
+          <label class="field" for="doh-endpoint">
+            <span class="field-label">HTTPS endpoint</span>
+            <input id="doh-endpoint" type="url" inputmode="url" autocomplete="url" placeholder="https://dns.example/dns-query" spellcheck="false">
+          </label>
+          <label class="field" for="doh-bootstrap">
+            <span class="field-label">Bootstrap DNS, IPv4 через запятую</span>
+            <input id="doh-bootstrap" type="text" inputmode="text" autocomplete="off" placeholder="1.1.1.1,1.0.0.1" spellcheck="false">
+          </label>
+        </div>
+        <p class="doh-provider-note">Bootstrap DNS используется только для поиска адреса выбранного DoH-сервера.</p>
+        <div class="doh-provider-actions">
+          <button class="btn btn-secondary" data-doh-action="provider">Применить провайдера</button>
+        </div>
+      </div>
       <div class="doh-status" id="doh-status" role="status" aria-live="polite">Проверяю состояние…</div>
       <div class="btn-row" id="doh-actions"></div>
       <label class="toggle-row" id="doh-force-row" hidden>
@@ -1058,14 +1104,29 @@ export async function renderToggles() {
       restart: ["/doh/restart", "Перезапуск DoH"],
       check: ["/doh/check", "Проверка DoH"],
       force: ["/doh/force-dns", "Настройка DNS для LAN"],
+      provider: ["/doh/provider", "Смена DoH провайдера"],
     };
     const spec = actions[action];
     if (!spec) return;
     const buttons = [...card.querySelectorAll("[data-doh-action]")];
     const forceBox = card.querySelector("#doh-force-dns");
+    const providerSelect = card.querySelector("#doh-provider");
+    const customInputs = [...card.querySelectorAll("#doh-custom-fields input")];
     buttons.forEach(button => { button.disabled = true; });
     if (forceBox) forceBox.disabled = true;
-    apiPost(spec[0], action === "force" ? { value: value ? "1" : "0" } : undefined).then(response => {
+    if (providerSelect) providerSelect.disabled = true;
+    customInputs.forEach(input => { input.disabled = true; });
+    let body;
+    if (action === "force") body = { value: value ? "1" : "0" };
+    if (action === "provider") {
+      const provider = providerSelect && providerSelect.value || "xbox";
+      body = { provider };
+      if (provider === "custom") {
+        body.endpoint = card.querySelector("#doh-endpoint").value.trim();
+        body.bootstrap = card.querySelector("#doh-bootstrap").value.trim();
+      }
+    }
+    apiPost(spec[0], body).then(response => {
       if (response && response.job) {
         openJobModal(spec[1], response.job, {
           onDone: () => { if (onTogglesPage()) renderToggles(); },
@@ -1078,6 +1139,8 @@ export async function renderToggles() {
       if (forceBox && action === "force") forceBox.checked = !value;
       buttons.forEach(button => { if (button.isConnected) button.disabled = false; });
       if (forceBox && forceBox.isConnected) forceBox.disabled = false;
+      if (providerSelect && providerSelect.isConnected) providerSelect.disabled = false;
+      customInputs.forEach(input => { if (input.isConnected) input.disabled = false; });
       toastErr("Ошибка: ", error);
     });
   }
@@ -1092,6 +1155,11 @@ export async function renderToggles() {
     });
     const forceBox = card.querySelector("#doh-force-dns");
     forceBox.addEventListener("change", () => runDohAction("force", forceBox.checked));
+    const providerSelect = card.querySelector("#doh-provider");
+    const customFields = card.querySelector("#doh-custom-fields");
+    providerSelect.addEventListener("change", () => {
+      if (customFields) customFields.hidden = providerSelect.value !== "custom";
+    });
   }
 
   async function loadTogglesState() {

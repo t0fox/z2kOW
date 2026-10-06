@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 39524)
+Total output lines: 2388
+
 // Real-browser acceptance for the OpenWrt document root and its ES-module graph.
 // Run with PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/browser/openwrt-panel.mjs
 import assert from 'node:assert/strict';
@@ -48,7 +51,11 @@ const statusFixture = {
     au_hour: '3',
   },
   tunnel: { running: true },
-  doh: { state: 'not-installed', installed: '0', force_lan_dns: '0' },
+  doh: {
+    state: 'not-installed', installed: '0', provider: 'xbox',
+    endpoint: 'https://xbox-dns.ru/dns-query', bootstrap: '111.88.96.50,111.88.96.51',
+    force_lan_dns: '0',
+  },
   capabilities: { policy: false, ppe: false, tcp16: false, diag: true, warp: true, telegram: true, uninstall: false, offload: true },
 };
 const server = http.createServer(async (req, res) => {
@@ -904,552 +911,7 @@ try {
         activeLayer: after.backgroundColor, activeDuration: after.transitionDuration,
         text: style.color,
         stops: ['--ow-button-start', '--ow-button-mid', '--ow-button-hover-start',
-          '--ow-button-hover-mid', '--ow-button-hover-end'].map(name => root.getPropertyValue(name).trim()) };
-    });
-    assert.match(primaryStyle.backgroundImage, /linear-gradient\(88deg/,
-      `primary gradient follows the source 88 degree angle (${JSON.stringify(primaryStyle)})`);
-    assert.match(primaryStyle.backgroundImage, /42, 143, 92/, 'primary gradient uses the source #2A8F5C middle stop');
-    assert.match(primaryStyle.hoverLayer, /linear-gradient\(88deg/, 'primary hover is the source pseudo-element overlay');
-    assert.equal(primaryStyle.hoverDuration, '0.3s', 'primary hover overlay fades over the source 300 ms');
-    assert.equal(primaryStyle.filter, 'brightness(1.08)', 'primary hover uses the source brightness response');
-    assert.equal(primaryStyle.activeLayer, 'rgba(0, 0, 0, 0.18)', 'primary press overlays the source black tint');
-    assert.equal(primaryStyle.activeDuration, '0.15s', 'primary press overlay uses the source 150 ms fade');
-    assert.deepEqual(primaryStyle.stops.slice(0, 2), ['#20764E', '#2A8F5C']);
-    assert.deepEqual(primaryStyle.stops.slice(2), ['#1C6946', '#329C6C', '#1D8254']);
-    assert.equal(primaryStyle.text, 'rgb(245, 245, 245)', 'primary button text matches the source #F5F5F5');
-    const primaryBox = await primary.boundingBox();
-    await page.mouse.move(primaryBox.x + primaryBox.width / 2, primaryBox.y + primaryBox.height / 2);
-    await page.mouse.down();
-    await page.waitForFunction(() => {
-      const node = document.querySelector('button[data-qa-motion="true"]');
-      return node && getComputedStyle(node, '::after').opacity === '1';
-    });
-    const primaryActive = await primary.evaluate(node => ({
-      scale: new DOMMatrixReadOnly(getComputedStyle(node).transform).a,
-      overlay: getComputedStyle(node, '::after').opacity,
-    }));
-    assert.ok(Math.abs(primaryActive.scale - 0.97) < 0.002, 'primary press uses the source scale(.97)');
-    assert.equal(primaryActive.overlay, '1', 'primary press reaches the source black-overlay state');
-    await page.mouse.up();
-    await page.evaluate(() => document.querySelector('button[data-qa-motion="true"]').remove());
-    assert.ok(ratio(tokens['--ow-text-primary'], tokens['--ow-surface-1']) >= 4.5);
-    assert.ok(ratio(tokens['--ow-text-secondary'], tokens['--ow-surface-2']) >= 4.5);
-    assert.ok(ratio(tokens['--ow-text-tertiary'], tokens['--ow-surface-2']) >= 4.5);
-    assert.ok(ratio(tokens['--ow-accent'], tokens['--ow-canvas']) >= 4.5);
-    assert.ok(ratio(tokens['--ow-border-strong'], tokens['--ow-surface-selected']) >= 3);
-    for (const name of ['--ow-success', '--ow-warning', '--ow-danger', '--ow-info']) {
-      assert.ok(ratio(tokens[name], tokens['--ow-surface-1']) >= 4.5, `${appearance}: ${name} text contrast`);
-      assert.ok(ratio(tokens[name], tokens['--ow-surface-2']) >= 4.5, `${appearance}: ${name} nested text contrast`);
-    }
-    const localInter = await page.evaluate(() => document.fonts.load('400 14px Inter')
-      .then(faces => faces.some(face => face.family === 'Inter' && face.status === 'loaded')));
-    assert.equal(localInter, true, 'the locally bundled Lolz reference font is available without a CDN');
-    assert.match(await page.evaluate(() => getComputedStyle(document.body).fontFamily), /^Inter, -apple-system, BlinkMacSystemFont/,
-      'body typography uses the observed Lolz system/Inter font stack');
-
-    await page.keyboard.press('Tab');
-    const focus = await page.evaluate(() => ({
-      id: document.activeElement.id,
-      width: getComputedStyle(document.activeElement).outlineWidth,
-      style: getComputedStyle(document.activeElement).outlineStyle,
-    }));
-    assert.equal(focus.id, 'panel-brand', 'keyboard focus starts on the single brand link');
-    assert.equal(focus.width, '2px');
-    assert.equal(focus.style, 'solid');
-    await page.evaluate(() => document.activeElement.blur());
-    await page.evaluate(() => document.activeElement.blur());
-
-    for (const route of routes) {
-      await page.evaluate(name => { location.hash = '#/' + name; }, route);
-      await waitForRenderedRoute(page, route);
-      await page.mouse.move(1439, 899);
-      const expectedNavRoute = ({ state: 'strategies', pick: 'strategies', whitelist: 'exclude', exclude: 'exclude',
-        autohostlist: 'extra-domains' })[route] || route;
-      const activeNavRoutes = await page.locator('#nav a.active').evaluateAll(nodes => nodes.map(node => node.dataset.route));
-      assert.deepEqual(activeNavRoutes, [expectedNavRoute], `${appearance}: /${route} highlights its matching navigation item`);
-      if (route === 'toggles') {
-        const control = page.locator('#au-hour + .chosen-single');
-        assert.equal(await control.evaluate(node => getComputedStyle(node).minHeight), '36px',
-          'desktop form controls match the 36 px reference height');
-        assert.equal(await control.evaluate(node => getComputedStyle(node).borderRadius), '10px',
-          'desktop form controls match the 10 px reference radius');
-        assert.equal(await control.getAttribute('role'), 'combobox', 'custom selects expose a combobox control');
-        const listbox = page.locator(`#${await control.getAttribute('aria-controls')}`);
-        assert.equal(await listbox.getAttribute('role'), 'listbox', 'custom select options expose a listbox');
-        await control.click();
-        assert.equal(await control.getAttribute('aria-expanded'), 'true', 'custom select opens from pointer input');
-        await listbox.waitFor({ state: 'visible' });
-        assert.equal(await listbox.isVisible(), true, 'custom select presents its options while open');
-        await page.waitForFunction(() => {
-          const drop = document.querySelector('.chosen-drop-open');
-          return drop && drop.getAnimations().every(animation => animation.playState !== 'running');
-        });
-        const popupGeometry = await page.evaluate(() => {
-          const trigger = document.querySelector('#au-hour + .chosen-single').getBoundingClientRect();
-          const drop = document.querySelector('.chosen-drop-open');
-          const rect = drop.getBoundingClientRect();
-          const style = getComputedStyle(drop);
-          return { xOffset: Math.round((rect.left - trigger.left) * 100) / 100,
-            widthDelta: Math.round((rect.width - trigger.width) * 100) / 100,
-            radius: style.borderRadius, animationName: style.animationName,
-            animationDuration: style.animationDuration, animationEasing: style.animationTimingFunction };
-        });
-        assert.deepEqual([popupGeometry.xOffset, popupGeometry.widthDelta], [0, 0],
-          `the Lolz dropdown aligns to its trigger on the same x-axis and width (${JSON.stringify(popupGeometry)})`);
-        assert.equal(popupGeometry.radius, '10px', 'the open dropdown uses the shared control radius');
-        assert.equal(popupGeometry.animationName, 'chosenDropBelow', 'the dropdown uses its Lolz open keyframe');
-        assert.equal(popupGeometry.animationDuration, '0.2s', 'the dropdown opens over the source 200 ms');
-        assert.match(popupGeometry.animationEasing, /cubic-bezier\(0\.5, 0, 0, 1\.25\)/,
-          'the dropdown uses the source spring-like easing');
-        if (screenshotDir) {
-          await control.evaluate(node => window.scrollTo({
-            top: Math.max(0, window.scrollY + node.getBoundingClientRect().top - 80), behavior: 'instant',
-          }));
-          await waitForNavSettled(page);
-          await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-dropdown-open.png`) });
-        }
-        await page.keyboard.press('Escape');
-        assert.equal(await control.getAttribute('aria-expanded'), 'false', 'Escape closes the custom select');
-        assert.equal(await control.evaluate(node => document.activeElement === node), true,
-          'closing the custom select returns keyboard focus to its trigger');
-        assert.equal(await page.locator('.segmented .seg-btn.seg-on').evaluate(node => getComputedStyle(node).boxShadow), 'none',
-          'selected segmented controls use a flat surface');
-        const modeSwitches = await page.locator('#app .toggle-row[data-key] .switch').evaluateAll(nodes => nodes
-          .filter(node => node.getBoundingClientRect().width > 0)
-          .map(node => {
-          const track = node.getBoundingClientRect();
-          const thumb = getComputedStyle(node.querySelector('.slider'), '::before');
-          return { width: track.width, height: track.height, thumbWidth: thumb.width,
-            thumbHeight: thumb.height, checked: node.querySelector('input').checked };
-          }));
-        assert.ok(modeSwitches.length >= 8, 'the modes page exercises its full switch family');
-        assert.ok(modeSwitches.every(item => item.width === 40 && item.height === 22
-          && item.thumbWidth === '16px' && item.thumbHeight === '16px'),
-        `mode switches share one 40×22 track and 16×16 knob (${JSON.stringify(modeSwitches)})`);
-        assert.ok(modeSwitches.some(item => item.checked) && modeSwitches.some(item => !item.checked),
-          'mode switch geometry is stable in both selected states');
-      }
-      if (route === 'pick') {
-        const pickerGeometry = await page.locator('#app .pick-mode').evaluateAll(nodes => nodes.map(node => {
-          const box = node.getBoundingClientRect();
-          const radio = node.querySelector('input[type="radio"]').getBoundingClientRect();
-          return { left: box.left, top: box.top, width: box.width, height: box.height,
-            radius: getComputedStyle(node).borderRadius, radioWidth: radio.width,
-            radioHeight: radio.height, checked: node.querySelector('input').checked };
-        }));
-        assert.equal(pickerGeometry.length, 5, 'the strategy picker exposes five aligned mode cards');
-        assert.ok(pickerGeometry.every(card => card.radius === '10px'
-          && card.height >= 40 && card.radioWidth === 16 && card.radioHeight === 16),
-        `mode cards use the shared corners and radio geometry (${JSON.stringify(pickerGeometry)})`);
-        assert.ok(Math.abs(pickerGeometry[0].width - pickerGeometry[1].width) < 0.5
-          && Math.abs(pickerGeometry[2].width - pickerGeometry[3].width) < 0.5,
-        `paired mode cards share their grid widths (${JSON.stringify(pickerGeometry)})`);
-        const domainField = page.locator('#pick-domain');
-        const before = await domainField.boundingBox();
-        await page.locator('.pick-mode input[value="voice"]').check();
-        assert.equal(await domainField.isDisabled(), true, 'voice mode disables the irrelevant domain field');
-        const disabled = await domainField.boundingBox();
-        assert.deepEqual([disabled.width, disabled.height], [before.width, before.height],
-          'the domain field keeps its geometry when disabled');
-        await page.locator('.pick-mode input[value="tcp13"]').check();
-        assert.equal(await domainField.isDisabled(), false, 'a domain mode restores the field');
-      }
-      if (route === 'warp') {
-        const fieldStyle = await page.locator('#warp-plus-key').evaluate(node => {
-          const style = getComputedStyle(node);
-          return { height: node.getBoundingClientRect().height, borderWidth: style.borderTopWidth,
-            radius: style.borderRadius, background: style.backgroundColor };
-        });
-        assert.equal(fieldStyle.height, 30, 'Lolz text controls use a compact 30 px field height');
-        assert.equal(fieldStyle.borderWidth, '0px', 'Lolz text controls have no visible outline border');
-        assert.equal(fieldStyle.radius, '10px', 'Lolz text controls use 10 px corners');
-        assert.equal(fieldStyle.background, appearance === 'dark'
-          ? 'rgb(24, 30, 28)' : 'rgb(234, 241, 239)',
-        'text controls use the measured dark surface or its light-theme surface');
-        await page.waitForFunction(() => document.querySelectorAll('#warp-games [data-game]').length >= 5
-          && document.querySelectorAll('#warp-neighbors > [data-mac]').length >= 3
-          && document.querySelectorAll('#warp-neighbors .warp-offline [data-mac]').length >= 1);
-        const offlineDisclosure = page.locator('#warp-neighbors .warp-offline');
-        await offlineDisclosure.locator('summary').click();
-        const switchGeometry = await page.locator('#app .switch:visible').evaluateAll(nodes => nodes.map(node => {
-          const track = node.getBoundingClientRect();
-          const thumb = getComputedStyle(node.querySelector('.slider'), '::before');
-          return { width: track.width, height: track.height, thumbWidth: thumb.width, thumbHeight: thumb.height,
-            checked: node.querySelector('input').checked };
-        }));
-        assert.ok(switchGeometry.length >= 8, `fixture exposes WARP on/off switches (${switchGeometry.length})`);
-        assert.ok(switchGeometry.every(({ width, height, thumbWidth, thumbHeight }) =>
-          width === 40 && height === 22 && thumbWidth === '16px' && thumbHeight === '16px'),
-        `all visible WARP switches use one 40×22 track and 16×16 knob (${JSON.stringify(switchGeometry)})`);
-        assert.ok(switchGeometry.some(item => item.checked) && switchGeometry.some(item => !item.checked),
-          'WARP QA includes both switch states without changing track geometry');
-        await offlineDisclosure.locator('summary').click();
-      }
-      if (route === 'diag') {
-        const editorStyle = await page.locator('#dns-own-text').evaluate(node => {
-          const style = getComputedStyle(node);
-          return { borderWidth: style.borderTopWidth, radius: style.borderRadius,
-            background: style.backgroundColor, minHeight: style.minHeight };
-        });
-        assert.equal(editorStyle.borderWidth, '0px', 'specialized text editors keep Lolz borderless controls');
-        assert.equal(editorStyle.radius, '10px', 'specialized text editors use the reference radius');
-        assert.equal(editorStyle.background, appearance === 'dark'
-          ? 'rgb(24, 30, 28)' : 'rgb(234, 241, 239)', 'specialized text editors use the theme control surface');
-        assert.equal(editorStyle.minHeight, '76px', 'the diagnostics editor retains its task-specific working area');
-        const logViewport = await page.locator('#diag-output').evaluate(node => ({
-          height: node.clientHeight, scrollHeight: node.scrollHeight,
-          overflowY: getComputedStyle(node).overflowY,
-        }));
-        assert.ok(logViewport.scrollHeight > logViewport.height && logViewport.overflowY === 'auto',
-          `long diagnostic output stays inside its own scroll container (${JSON.stringify(logViewport)})`);
-        await assertDiagDynamicStates(page, appearance);
-      }
-      if (route === 'exclude') {
-        await page.waitForFunction(() => document.querySelectorAll('#ex-list li button[data-del]').length >= 4);
-        const deleteColumn = await page.locator('#ex-list li button[data-del]').evaluateAll(nodes =>
-          nodes.map(node => node.getBoundingClientRect().left));
-        assert.ok(Math.max(...deleteColumn) - Math.min(...deleteColumn) < 0.5,
-          `address-list delete buttons form one vertical column (${JSON.stringify(deleteColumn)})`);
-      }
-      if (route === 'extra-domains') {
-        await page.waitForFunction(() => document.querySelectorAll('#wl-list .wl-row').length >= 8);
-        const listGeometry = await page.locator('#wl-list').evaluate(node => {
-          const actions = Array.from(node.querySelectorAll('li button[data-del]'));
-          const lefts = actions.map(action => action.getBoundingClientRect().left);
-          return { rowCount: actions.length, leftDelta: Math.max(...lefts) - Math.min(...lefts),
-            width: node.clientWidth, scrollWidth: node.scrollWidth, height: node.clientHeight,
-            scrollHeight: node.scrollHeight, maxHeight: getComputedStyle(node).maxHeight,
-            rowFontFamily: getComputedStyle(node.querySelector('li')).fontFamily,
-            rowFontSize: getComputedStyle(node.querySelector('li')).fontSize };
-        });
-        assert.equal(listGeometry.rowCount, 16, `the list fixture exercises sixteen rows (${JSON.stringify(listGeometry)})`);
-        assert.ok(listGeometry.leftDelta < 0.5, `domain delete buttons align (${JSON.stringify(listGeometry)})`);
-        assert.ok(listGeometry.scrollWidth <= listGeometry.width,
-          `long domain names stay inside the list width (${JSON.stringify(listGeometry)})`);
-        assert.ok(listGeometry.scrollHeight > listGeometry.height && listGeometry.maxHeight === '400px',
-          `long lists scroll inside their own 400 px box (${JSON.stringify(listGeometry)})`);
-        assert.match(listGeometry.rowFontFamily, /^Inter, -apple-system, BlinkMacSystemFont/,
-          `domain list rows use the shared Lolz Inter typography (${JSON.stringify(listGeometry)})`);
-        assert.equal(listGeometry.rowFontSize, '14px',
-          `domain list rows use the shared 14 px body scale (${JSON.stringify(listGeometry)})`);
-      }
-      if (route === 'autohostlist') {
-        await page.waitForFunction(() => document.querySelectorAll('#ah-list li button[data-del]').length >= 7);
-        const deleteColumn = await page.locator('#ah-list li button[data-del]').evaluateAll(nodes =>
-          nodes.map(node => node.getBoundingClientRect().left));
-        assert.ok(Math.max(...deleteColumn) - Math.min(...deleteColumn) < 0.5,
-          'autohostlist delete buttons form one vertical column');
-      }
-      if (route === 'whitelist') {
-        const emptyMessage = page.locator('#app .wl-list .wl-empty').first();
-        await emptyMessage.waitFor({ state: 'visible' });
-        const emptyMessageStyle = await emptyMessage.evaluate(node => ({
-          text: node.textContent.trim(),
-          fontFamily: getComputedStyle(node).fontFamily,
-        }));
-        assert.equal(emptyMessageStyle.text, 'Список пуст. Добавьте сайт или импортируйте файл.');
-        assert.match(emptyMessageStyle.fontFamily, /^Inter, -apple-system, BlinkMacSystemFont/,
-          'user-facing empty states use the shared Lolz Inter typography');
-      }
-      await page.waitForFunction(() => {
-        const title = document.querySelector('#app .page-title');
-        return title && Number.parseFloat(getComputedStyle(title).opacity) >= 0.99;
-      }, null, { timeout: 1500 });
-      assert.equal(await page.locator('#app [data-ui-fatal]').count(), 0,
-        `${appearance}: #/${route} must not render the fatal-route fallback`);
-      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
-        `${appearance}/1440: ${route} has no page horizontal overflow`);
-      if (route === 'state') {
-        await page.locator('.state-table').waitFor({ state: 'visible', timeout: 2000 });
-        await page.waitForFunction(() => document.querySelectorAll('.state-table tbody tr').length >= 100, null, { timeout: 2000 });
-        await assertStateGroupDisclosure(page, `${appearance}/1440`);
-        const tablePanelRadius = await page.locator('.table-scroll').first().evaluate(node => getComputedStyle(node).borderRadius);
-        assert.equal(tablePanelRadius, '12px',
-          `${appearance}: the table wrapper keeps the measured Lolz 12 px panel radius in both themes`);
-        const strategyControl = await page.locator('.state-table .chosen-single:visible').first().evaluate(node => {
-          const style = getComputedStyle(node);
-          const rect = node.getBoundingClientRect();
-          return { width: rect.width, height: rect.height, radius: style.borderRadius };
-        });
-        assert.deepEqual(strategyControl, { width: 220, height: 36, radius: '10px' },
-          'strategy selectors match the measured Lolz 220×36 control geometry');
-        const tableGeometry = await page.locator('.state-table').evaluate(table => {
-          const header = Array.from(table.tHead.rows[0].cells);
-          const rows = Array.from(table.querySelectorAll('tbody tr')).filter(row => row.cells.length === header.length
-            && !row.classList.contains('sg-head') && row.getBoundingClientRect().height > 0);
-          const first = rows[0];
-          const strategyCell = first.cells[3].getBoundingClientRect();
-          const strategy = first.cells[3].querySelector('.chosen-single').getBoundingClientRect();
-          const boundaries = header.map((cell, index) => {
-            const head = cell.getBoundingClientRect();
-            const row = first.cells[index].getBoundingClientRect();
-            return [Math.abs(head.left - row.left), Math.abs(head.right - row.right)];
-          }).flat();
-          return { columnBoundaryDelta: Math.max(...boundaries),
-            rowHeights: Array.from(new Set(rows.slice(0, 30).map(row => row.getBoundingClientRect().height))),
-            strategyCellWidth: strategyCell.width,
-            strategyLeftInset: strategy.left - strategyCell.left,
-            strategyVerticalCenterDelta: Math.abs((strategy.top + strategy.height / 2)
-              - (strategyCell.top + strategyCell.height / 2)),
-            sniRows: rows.filter(row => row.querySelector('.state-sni')).length };
-        });
-        assert.ok(tableGeometry.columnBoundaryDelta < 0.5,
-          `table headings and rows share one column grid (${JSON.stringify(tableGeometry)})`);
-        assert.deepEqual(tableGeometry.rowHeights, [54],
-          `standard and SNI rows keep one desktop row height (${JSON.stringify(tableGeometry)})`);
-        assert.equal(tableGeometry.strategyCellWidth, 236);
-        assert.equal(tableGeometry.strategyLeftInset, 8);
-        assert.ok(tableGeometry.strategyVerticalCenterDelta < 0.5,
-          `strategy controls are vertically centered in their cells (${JSON.stringify(tableGeometry)})`);
-        assert.ok(tableGeometry.sniRows > 0, 'the populated fixture exercises the optional SNI line');
-        const dangerStyle = await page.locator('#app .btn-danger').first().evaluate(node => {
-          const style = getComputedStyle(node);
-          return { background: style.backgroundColor, color: style.color, radius: style.borderRadius };
-        });
-        assert.deepEqual(dangerStyle, { background: 'rgb(139, 56, 56)', color: 'rgb(245, 245, 245)', radius: '10px' },
-          'destructive controls use the source filled red button treatment');
-      }
-      if (route === 'state' || route === 'pick') {
-        await page.waitForFunction(() => {
-          const tabs = document.querySelector('.strat-tabs');
-          return tabs && getComputedStyle(tabs, '::after').opacity === '1';
-        }, null, { timeout: 1200 });
-        const tabIndicator = await page.locator('.strat-tabs').evaluate(node => {
-          const style = getComputedStyle(node, '::after');
-          return { left: node.style.getPropertyValue('--tab-left'), width: node.style.getPropertyValue('--tab-width'),
-            opacity: style.opacity, transition: style.transition };
-        });
-        assert.notEqual(tabIndicator.width, '', `${appearance}/${route}: active-tab width is measured from the selected link`);
-        assert.equal(tabIndicator.opacity, '1', `${appearance}/${route}: source underline is visible`);
-        assert.match(tabIndicator.transition, /0\.35s cubic-bezier\(0\.4, 0, 0\.2, 1\)/,
-          `${appearance}/${route}: underline position follows Lolz easing`);
-        assert.ok(tabIndicator.left.endsWith('px'), `${appearance}/${route}: source position variable is applied`);
-        const tabScrollMotion = await page.locator('.strat-tabs').evaluate(async tabs => {
-          const active = tabs.querySelector('.strat-tab.active');
-          const spacer = document.createElement('span');
-          spacer.style.cssText = 'flex:0 0 420px;width:420px';
-          tabs.appendChild(spacer);
-          tabs.scrollLeft = 40;
-          tabs.dispatchEvent(new Event('scroll'));
-          await new Promise(requestAnimationFrame);
-          const result = { left: Number.parseFloat(tabs.style.getPropertyValue('--tab-left')),
-            expectedLeft: active.offsetLeft - tabs.scrollLeft,
-            marginLeft: getComputedStyle(tabs, '::after').marginLeft };
-          spacer.remove();
-          tabs.scrollLeft = 0;
-          tabs.dispatchEvent(new Event('scroll'));
-          return result;
-        });
-        assert.equal(tabScrollMotion.left, tabScrollMotion.expectedLeft,
-          `${appearance}/${route}: source tab indicator follows horizontal scroll (${JSON.stringify(tabScrollMotion)})`);
-        assert.equal(tabScrollMotion.marginLeft, '5px', `${appearance}/${route}: source underline has its 5 px inset`);
-      }
-      assert.equal(await lockup.locator('#brand-composite-logo').count(), 1, `${appearance}: single mark on #/${route}`);
-      if (screenshotDir && screenshotRoutes.includes(route)) {
-        await page.evaluate(() => window.scrollTo(0, 0));
-        await page.mouse.move(1439, 899);
-        await waitForNavSettled(page);
-        await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-${route}.png`) });
-        if (route === 'warp') {
-          const deviceCard = page.locator('#warp-devices-card');
-          await deviceCard.evaluate(node => window.scrollTo({
-            top: Math.max(0, window.scrollY + node.getBoundingClientRect().top - 60), behavior: 'instant',
-          }));
-          await waitForNavSettled(page);
-          const offlineDisclosure = page.locator('#warp-neighbors .warp-offline');
-          await offlineDisclosure.locator('summary').click();
-          await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-warp-devices.png`) });
-        }
-        if (route === 'diag') {
-          const log = page.locator('#diag-output');
-          await log.evaluate(node => {
-            const card = node.closest('.card');
-            window.scrollTo({
-              top: Math.max(0, window.scrollY + card.getBoundingClientRect().top - 60), behavior: 'instant',
-            });
-          });
-          await waitForNavSettled(page);
-          await log.evaluate(node => { node.scrollTop = node.scrollHeight; });
-          await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-diag-log.png`) });
-        }
-        if (route === 'credits') {
-          const disclosure = page.locator('#credits-upstream');
-          await disclosure.locator('summary').click();
-          assert.equal(await disclosure.getAttribute('open'), '', 'upstream credit details open for screenshot review');
-          await page.screenshot({ path: path.join(screenshotDir, `${appearance}-1440-credits-upstream-open.png`) });
-          await disclosure.locator('summary').click();
-        }
-        fs.writeFileSync(path.join(screenshotDir, `${appearance}-${route}.json`), JSON.stringify(await page.evaluate(() => ({
-          route: location.hash,
-          page: document.body.dataset.page,
-          appText: document.querySelector('#app')?.innerText.slice(0, 600) || '',
-          tableRows: document.querySelectorAll('.state-table tbody tr').length,
-          contentStyle: (() => {
-            const element = document.querySelector('.unique-set-card') || document.querySelector('.page-title');
-            if (!element) return null;
-            const style = getComputedStyle(element);
-            const rect = element.getBoundingClientRect();
-            return { tag: element.tagName, display: style.display, visibility: style.visibility,
-              opacity: style.opacity, color: style.color, background: style.backgroundColor,
-              rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } };
-          })(),
-          scrollWidth: document.documentElement.scrollWidth,
-          clientWidth: document.documentElement.clientWidth,
-        })), null, 2));
-      }
-    }
-    for (const { width, height } of [
-      { width: 1920, height: 1080 },
-      { width: 1440, height: 900 },
-      { width: 1366, height: 768 },
-      { width: 1280, height: 720 },
-      { width: 1079, height: 900 },
-      { width: 1024, height: 900 },
-      { width: 800, height: 900 },
-      { width: 768, height: 900 },
-    ]) {
-      await page.setViewportSize({ width, height });
-      if (width >= 768 && width <= 1079) {
-        await page.waitForFunction(expectedWidth => {
-          const nav = document.querySelector('#nav').getBoundingClientRect();
-          const app = document.querySelector('#app').getBoundingClientRect();
-          return Math.abs(nav.x) < 0.5 && Math.abs(nav.width - 261) < 0.5
-            && Math.abs(app.x - 280) < 0.5 && Math.abs(app.width - (expectedWidth - 304)) < 0.5;
-        }, width, { timeout: 1500 });
-        const tabletFrame = await page.evaluate(() => ({
-          viewport: document.documentElement.clientWidth,
-          scrollWidth: document.documentElement.scrollWidth,
-          navX: document.querySelector('#nav').getBoundingClientRect().x,
-          navWidth: document.querySelector('#nav').getBoundingClientRect().width,
-          appX: document.querySelector('#app').getBoundingClientRect().x,
-          appWidth: document.querySelector('#app').getBoundingClientRect().width,
-        }));
-        assert.ok(tabletFrame.scrollWidth <= tabletFrame.viewport,
-          `${appearance}/${width}: tablet shell has no page horizontal overflow (${JSON.stringify(tabletFrame)})`);
-        assert.ok(Math.abs(tabletFrame.navX) < 1 && Math.abs(tabletFrame.navWidth - 261) < 1,
-          `${appearance}/${width}: tablet navigation stays fully visible at 261 px (${JSON.stringify(tabletFrame)})`);
-        assert.ok(Math.abs(tabletFrame.appX - 280) < 1 && Math.abs(tabletFrame.appWidth - (width - 304)) < 1,
-          `${appearance}/${width}: tablet content fits beside the navigation with 20 px gap (${JSON.stringify(tabletFrame)})`);
-      }
-      for (const route of routes) {
-        await page.evaluate(name => { location.hash = '#/' + name; }, route);
-        await waitForRenderedRoute(page, route);
-        if (route === 'state') {
-          await page.locator('.state-table').waitFor({ state: 'visible', timeout: 1500 });
-          await page.waitForFunction(() => document.querySelectorAll('.state-table tbody tr').length >= 100, null, { timeout: 2000 });
-        }
-        assert.equal(await page.locator('#app [data-ui-fatal]').count(), 0, `${appearance}/${width}: ${route}`);
-        const responsiveFrame = await page.evaluate(() => ({
-          viewport: document.documentElement.clientWidth,
-          scrollWidth: document.documentElement.scrollWidth,
-          minWidthProbe: (() => {
-            const rows = Array.from(document.querySelectorAll('#warp-games > .toggle-row'));
-            const originalValues = rows.map(row => row.style.minWidth);
-            rows.forEach(row => { row.style.minWidth = '0'; });
-            const fittedWidth = document.documentElement.scrollWidth;
-            rows.forEach((row, index) => { row.style.minWidth = originalValues[index]; });
-            return { rowCount: rows.length, fittedWidth };
-          })(),
-          overflowCandidates: Array.from(document.querySelectorAll('#app *')).map(node => {
-            const rect = node.getBoundingClientRect();
-            return { tag: node.tagName, id: node.id, className: String(node.className || ''),
-              game: node.closest('[data-game]')?.getAttribute('data-game') || '',
-              gridWidth: node.closest('.warp-games')?.getBoundingClientRect().width || 0,
-              left: Math.round(rect.left * 10) / 10, right: Math.round(rect.right * 10) / 10,
-              width: Math.round(rect.width * 10) / 10, scrollWidth: node.scrollWidth,
-              clientWidth: node.clientWidth };
-          }).filter(node => node.right > innerWidth + 1 || node.left < -1)
-            .sort((left, right) => right.right - left.right).slice(0, 8),
-        }));
-        assert.ok(responsiveFrame.scrollWidth <= responsiveFrame.viewport,
-          `${appearance}/${width}: ${route} has no page horizontal overflow (${JSON.stringify(responsiveFrame)})`);
-        if (route === 'dashboard' && [768, 800].includes(width)) {
-          const statusGridGeometry = await page.locator('#status-grid').evaluate(grid => {
-            const cells = Array.from(grid.querySelectorAll('.status-cell'));
-            const columns = getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/);
-            return { count: cells.length, columnCount: columns.length, columns,
-              cellWidths: cells.map(cell => Math.round(cell.getBoundingClientRect().width * 10) / 10),
-              labels: cells.map(cell => cell.querySelector('.label')?.textContent.trim() || '') };
-          });
-          assert.equal(statusGridGeometry.count, 6,
-            `${appearance}/${width}: dashboard status grid has its six settled cells (${JSON.stringify(statusGridGeometry)})`);
-          assert.equal(statusGridGeometry.columnCount, 2,
-            `${appearance}/${width}: dashboard status grid retains two tablet columns (${JSON.stringify(statusGridGeometry)})`);
-          assert.ok(statusGridGeometry.cellWidths.every(cellWidth => cellWidth >= 160),
-            `${appearance}/${width}: dashboard status tiles retain the 160 px minimum at the compact tablet shell (${JSON.stringify(statusGridGeometry)})`);
-          if (screenshotDir) fs.writeFileSync(path.join(screenshotDir,
-            `${appearance}-${width}-dashboard-status-grid.json`), JSON.stringify(statusGridGeometry, null, 2));
-        }
-        if (width === 768 && route === 'warp') {
-          const warpColumns = await page.locator('#warp-games').evaluate(node => ({
-            count: getComputedStyle(node).gridTemplateColumns.trim().split(/\s+/).length,
-            names: Array.from(node.querySelectorAll('.t-name')).map(name => ({
-              overflow: getComputedStyle(name).textOverflow,
-              scrollWidth: name.scrollWidth,
-              clientWidth: name.clientWidth,
-            })),
-          }));
-          assert.equal(warpColumns.count, 2, `tablet WARP keeps its measured two-column game grid (${JSON.stringify(warpColumns)})`);
-          assert.ok(warpColumns.names.every(name => name.overflow === 'ellipsis' && name.scrollWidth >= name.clientWidth),
-            `long WARP labels truncate within their columns (${JSON.stringify(warpColumns)})`);
-        }
-        if (screenshotDir && responsiveScreenshotRoutes.includes(route)
-            && ([1920, 1366, 1280].includes(width) || (appearance === 'dark' && width === 1024 && route === 'dashboard')
-              || (width === 1079 && route === 'warp')
-              || (width === 1024 && route === 'dashboard')
-              || ([768, 800].includes(width) && route === 'dashboard')
-              || (width === 768 && route === 'warp'))) {
-          await page.evaluate(() => window.scrollTo(0, 0));
-          await page.mouse.move(width - 1, height - 1);
-          await waitForNavSettled(page);
-          await page.waitForFunction(() => {
-            const tabs = document.querySelector('.strat-tabs');
-            if (!tabs) return true;
-            const active = tabs.querySelector('.strat-tab.active, .strat-tab[aria-selected="true"]');
-            if (!active) return false;
-            const indicator = getComputedStyle(tabs, '::after');
-            const close = (actual, expected) => Math.abs(parseFloat(actual) - expected) < 1;
-            return tabs.getAnimations({ subtree: true })
-              .filter(animation => animation.effect?.pseudoElement === '::after')
-              .every(animation => animation.playState !== 'running')
-              && close(indicator.left, active.offsetLeft - tabs.scrollLeft)
-              && close(indicator.top, active.offsetTop + active.offsetHeight - 2)
-              && close(indicator.width, active.offsetWidth);
-          }, null, { timeout: 1500 });
-          await page.screenshot({ path: path.join(screenshotDir, `${appearance}-${width}-${route}.png`) });
-        }
-      }
-    }
-    for (const width of [1080, 1081, 1085, 1090, 1091, 1092]) {
-      await page.setViewportSize({ width, height: 900 });
-      const edgeFrame = await page.evaluate(() => ({
-        viewport: document.documentElement.clientWidth,
-        brand: document.querySelector('#panel-brand').getBoundingClientRect().toJSON(),
-        nav: document.querySelector('#nav').getBoundingClientRect().toJSON(),
-        app: document.querySelector('#app').getBoundingClientRect().toJSON(),
-      }));
-      assert.ok(edgeFrame.brand.left >= 0 && edgeFrame.nav.left >= 0
-        && edgeFrame.app.right <= edgeFrame.viewport,
-      `${appearance}/${width}: shell stays inside the viewport at the desktop breakpoint (${JSON.stringify(edgeFrame)})`);
-    }
-    await page.evaluate(() => { location.hash = '#/state'; });
-    await waitForRenderedRoute(page, 'state');
-    await page.locator('.state-table').waitFor({ state: 'visible', timeout: 1500 });
-    assert.equal(await page.locator('.state-table').evaluate(node => node.tagName), 'TABLE', 'dense desktop data stays a table');
-    const frozenRow = await page.locator('.state-table tbody tr').filter({ has: page.locator('.state-strat-sel[data-mode="frozen"]') }).first().evaluate(row => ({
-      frozen: row.dataset.frozen,
-      inlineBackground: row.style.background,
-      background: getComputedStyle(row).backgroundColor,
-      selectedSurface: getComputedStyle(document.querySelector('#nav a.active')).backgroundColor,
-    }));
-    assert.equal(frozenRow.frozen, 'true', `frozen table state is semantic and themeable (${JSON.stringify(frozenRow)})`);
-    assert.equal(frozenRow.inlineBackground, '', 'row color comes from the shared Lolz surface token');
-    assert.equal(frozenRow.background, frozenRow.selectedSurface, 'frozen rows use the source selected surface');
-    assert.equal((await page.locator('.unique-set-badge').innerText()).trim(), 'Экспериментальная функция');
-    assert.equal(await page.locator('#unique-set-reset-all').evaluate(node => node.classList.contains('btn-danger')), false,
-      'reversible return-to-automatic action is not destructive red');
-
-    assert.ok(moduleResponses.length > 0, 'the browser must load the real ES-module graph');
+          '--ow-button-hover-mid', '--ow-button-ho…9524 tokens truncated…r must load the real ES-module graph');
     for (const response of moduleResponses) {
       assert.equal(response.status, 200, `required module failed: ${response.url}`);
       assert.match(response.type, /javascript/i, `wrong module MIME: ${response.url} (${response.type})`);
@@ -2254,7 +1716,11 @@ try {
   const dohPage = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, colorScheme: 'dark' });
   await dohPage.addInitScript(() => localStorage.setItem('z2k-theme', 'dark'));
   dohPage.on('pageerror', error => allPageErrors.push(error.message));
-  let dohStatus = { state: 'starting', installed: '1', enabled: '1', reason: 'listener-not-ready', force_lan_dns: '0' };
+  let dohStatus = {
+    state: 'starting', installed: '1', enabled: '1', provider: 'xbox',
+    endpoint: 'https://xbox-dns.ru/dns-query', bootstrap: '111.88.96.50,111.88.96.51',
+    reason: 'listener-not-ready', force_lan_dns: '0',
+  };
   let dohJobNumber = 0;
   const dohActions = [];
   dohPage.route('**/cgi-bin/api/status', route => {
@@ -2266,8 +1732,21 @@ try {
     const endpoint = new URL(route.request().url()).pathname.split('/').pop();
     const body = route.request().postDataJSON() || {};
     dohActions.push({ endpoint, body });
-    if (endpoint === 'install') dohStatus = { state: 'installed-disabled', installed: '1', force_lan_dns: '0' };
-    if (endpoint === 'enable') dohStatus = { state: 'healthy', installed: '1', enabled: '1', force_lan_dns: '0' };
+    if (endpoint === 'provider') {
+      const endpoints = {
+        xbox: ['https://xbox-dns.ru/dns-query', '111.88.96.50,111.88.96.51'],
+        cloudflare: ['https://cloudflare-dns.com/dns-query', '1.1.1.1,1.0.0.1'],
+        google: ['https://dns.google/dns-query', '8.8.8.8,8.8.4.4'],
+      };
+      const preset = endpoints[body.provider];
+      dohStatus = {
+        ...dohStatus, provider: body.provider,
+        endpoint: body.endpoint || (preset && preset[0]) || '',
+        bootstrap: body.bootstrap || (preset && preset[1]) || '',
+      };
+    }
+    if (endpoint === 'install') dohStatus = { ...dohStatus, state: 'installed-disabled', installed: '1', enabled: '0', force_lan_dns: '0' };
+    if (endpoint === 'enable') dohStatus = { ...dohStatus, state: 'healthy', installed: '1', enabled: '1', force_lan_dns: '0' };
     if (endpoint === 'force-dns') dohStatus.force_lan_dns = body.value;
     dohJobNumber += 1;
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, job: `doh-fixture-${dohJobNumber}` }) });
@@ -2282,24 +1761,53 @@ try {
   assert.match(await dohCard.innerText(), /Проверяю локальный DNS listener/);
   assert.doesNotMatch(await dohCard.innerText(), /Установлено, но не работает/,
     'the listener warm-up state is distinct from a degraded resolver');
-  dohStatus = { state: 'not-installed', installed: '0', force_lan_dns: '0' };
+  assert.doesNotMatch(await dohCard.innerText(), /DNS через Xbox DNS/,
+    'the provider selector does not describe DoH as Xbox-only');
+  assert.deepEqual(await dohCard.locator('#doh-provider option').allTextContents(),
+    ['Xbox DNS', 'Cloudflare', 'Google', 'Свой endpoint']);
+  const dohLayoutOrder = await dohCard.evaluate(card => [
+    card.querySelector('h3'), card.querySelector('.doh-description'),
+    card.querySelector('.doh-provider-panel'), card.querySelector('#doh-status'),
+    card.querySelector('#doh-actions'),
+  ].map(element => [...card.children].indexOf(element)));
+  assert.deepEqual(dohLayoutOrder, [0, 1, 2, 3, 4],
+    'DoH card follows title, description, provider, status, actions order');
+  dohStatus = {
+    state: 'not-installed', installed: '0', provider: 'xbox',
+    endpoint: 'https://xbox-dns.ru/dns-query', bootstrap: '111.88.96.50,111.88.96.51',
+    force_lan_dns: '0',
+  };
   await dohPage.reload();
   await waitForRenderedRoute(dohPage, 'toggles');
   assert.match(await dohCard.innerText(), /Компонент не установлен/);
-  await dohCard.getByRole('button', { name: 'Установить DoH' }).click();
+  await dohCard.locator('#doh-provider').selectOption('custom');
+  assert.equal(await dohCard.locator('#doh-custom-fields').isVisible(), true,
+    'custom endpoint fields appear only for the custom provider');
+  await dohCard.locator('#doh-endpoint').fill('https://resolver.example/dns-query');
+  await dohCard.locator('#doh-bootstrap').fill('203.0.113.1,203.0.113.2');
+  await dohCard.getByRole('button', { name: 'Применить провайдера' }).click();
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-1"] #job-close').waitFor({ state: 'visible' });
+  assert.deepEqual(dohActions[0], {
+    endpoint: 'provider',
+    body: { provider: 'custom', endpoint: 'https://resolver.example/dns-query', bootstrap: '203.0.113.1,203.0.113.2' },
+  }, 'custom provider selection submits the endpoint and bootstrap DNS');
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-1"] #job-close').click();
-  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('DoH выключен'));
-  await dohCard.getByRole('button', { name: 'Включить' }).click();
+  await dohPage.waitForFunction(() => document.querySelector('#doh-provider')?.value === 'custom' &&
+    document.querySelector('#doh-endpoint')?.value === 'https://resolver.example/dns-query');
+  await dohCard.getByRole('button', { name: 'Установить DoH' }).click();
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-2"] #job-close').waitFor({ state: 'visible' });
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-2"] #job-close').click();
-  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Сервис работает'));
+  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('DoH выключен'));
+  await dohCard.getByRole('button', { name: 'Включить' }).click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').waitFor({ state: 'visible' });
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').click();
+  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('DoH работает'));
   const forceDns = dohCard.locator('#doh-force-dns');
   await forceDns.check({ force: true });
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').waitFor({ state: 'visible' });
-  assert.deepEqual(dohActions.map(action => action.endpoint), ['install', 'enable', 'force-dns']);
-  assert.equal(dohActions[2].body.value, '1', 'LAN DNS switch sends the explicit enabled value');
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-4"] #job-close').waitFor({ state: 'visible' });
+  assert.deepEqual(dohActions.map(action => action.endpoint), ['provider', 'install', 'enable', 'force-dns']);
+  assert.equal(dohActions[3].body.value, '1', 'LAN DNS switch sends the explicit enabled value');
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-4"] #job-close').click();
   await dohPage.waitForFunction(() => document.querySelector('#doh-force-dns')?.checked === true);
   dohStatus = { state: 'degraded', installed: '1', enabled: '1', reason: 'dnsmasq-not-routed', force_lan_dns: '1' };
   await dohPage.reload();
@@ -2309,6 +1817,15 @@ try {
     'degraded DoH offers a restart action');
   assert.equal(await dohCard.locator('#doh-force-row').isVisible(), false,
     'the independent LAN DNS switch is hidden while the route is degraded');
+  dohStatus = {
+    state: 'error', installed: '0', provider: 'custom', endpoint: 'https://resolver.example/dns-query',
+    bootstrap: '203.0.113.1,203.0.113.2', reason: 'listener-query-failed', force_lan_dns: '0',
+  };
+  await dohPage.reload();
+  await waitForRenderedRoute(dohPage, 'toggles');
+  assert.match(await dohCard.innerText(), /Установка не завершена/);
+  assert.match(await dohCard.innerText(), /Локальный DoH listener не вернул DNS-ответ/,
+    'failed install status remains visible after rollback');
   await dohPage.close();
 
   assert.deepEqual(allPageErrors, []);

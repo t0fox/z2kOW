@@ -348,7 +348,7 @@ case "$method $path" in
                 _doh_sep=
                 printf '%s\n' "$_doh_status" | tr ' ' '\n' | while IFS='=' read -r _doh_key _doh_value; do
                     case "$_doh_key" in
-                        state|installed|enabled|provider|package_owner|proxy|dnsmasq|force_lan_dns|reason)
+                        state|installed|enabled|provider|endpoint|bootstrap|package_owner|proxy|dnsmasq|force_lan_dns|reason)
                             printf '%s' "$_doh_sep"; json_string "$_doh_key"; printf ':'; json_string "$_doh_value"
                             _doh_sep=,
                             ;;
@@ -546,7 +546,7 @@ case "$method $path" in
 
     # ---------- OPTIONAL OPENWRT DNS OVER HTTPS ----------
     "POST /doh/install"|"POST /doh/uninstall"|"POST /doh/enable"|\
-    "POST /doh/disable"|"POST /doh/restart"|"POST /doh/check"|"POST /doh/force-dns")
+    "POST /doh/disable"|"POST /doh/restart"|"POST /doh/check"|"POST /doh/force-dns"|"POST /doh/provider")
         require_method POST
         [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] \
             || json_fail "404 Not Found" "DoH доступен только на OpenWrt"
@@ -559,6 +559,28 @@ case "$method $path" in
                 *) json_fail "400 Bad Request" "value must be 0 or 1" ;;
             esac
         fi
+        if [ "$path" = /doh/provider ]; then
+            body=$(read_body)
+            _doh_provider=$(form_value "$body" "provider")
+            case "$_doh_provider" in
+                xbox|cloudflare|google) ;;
+                custom)
+                    _doh_endpoint=$(form_value "$body" "endpoint")
+                    _doh_bootstrap=$(form_value "$body" "bootstrap")
+                    [ -n "$_doh_bootstrap" ] || _doh_bootstrap=1.1.1.1,1.0.0.1
+                    . "$Z2K_ROOT/platform/openwrt/doh.sh" \
+                        || json_fail "500 Internal Server Error" "DoH adapter unavailable"
+                    _z2k_ow_doh_valid_custom_endpoint "$_doh_endpoint" \
+                        && _z2k_ow_doh_valid_bootstrap "$_doh_bootstrap" \
+                        || json_fail "400 Bad Request" "invalid custom HTTPS endpoint or bootstrap DNS"
+                    ;;
+                *) json_fail "400 Bad Request" "unknown DoH provider" ;;
+            esac
+            Z2K_DOH_REQUEST_PROVIDER=$_doh_provider
+            Z2K_DOH_REQUEST_ENDPOINT=${_doh_endpoint:-}
+            Z2K_DOH_REQUEST_BOOTSTRAP=${_doh_bootstrap:-}
+            export Z2K_DOH_REQUEST_PROVIDER Z2K_DOH_REQUEST_ENDPOINT Z2K_DOH_REQUEST_BOOTSTRAP
+        fi
         case "$path" in
             /doh/install) _doh_action=doh_install_action; _doh_label="Установка DoH" ;;
             /doh/uninstall) _doh_action=doh_uninstall_action; _doh_label="Удаление DoH" ;;
@@ -567,6 +589,7 @@ case "$method $path" in
             /doh/restart) _doh_action=doh_restart_action; _doh_label="Перезапуск DoH" ;;
             /doh/check) _doh_action=doh_check_action; _doh_label="Проверка DoH" ;;
             /doh/force-dns) _doh_action="doh_force_dns_action $_doh_value"; _doh_label="Настройка DNS для LAN" ;;
+            /doh/provider) _doh_action=doh_provider_action; _doh_label="Смена DoH провайдера" ;;
         esac
         job_id=$(svc_action_async "$_doh_label" "$_doh_action")
         json_header

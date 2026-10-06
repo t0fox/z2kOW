@@ -6,7 +6,10 @@
 _t_plan "ow-webpanel-cgi"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wpc.XXXXXX")" || exit 1
-trap 'rm -rf "$T"; for _j in $JOB_IDS; do rm -f "/tmp/z2k-job-$_j.log" "/tmp/z2k-job-$_j.pid" "/tmp/z2k-job-$_j.exit"; done' EXIT INT TERM
+Z2K_JOB_DIR="$T/jobs"
+export Z2K_JOB_DIR
+mkdir -p "$Z2K_JOB_DIR"
+trap 'for _j in $JOB_IDS; do rm -f "$Z2K_JOB_DIR/z2k-job-$_j.log" "$Z2K_JOB_DIR/z2k-job-$_j.pid" "$Z2K_JOB_DIR/z2k-job-$_j.exit"; done; rm -rf "$T"' EXIT INT TERM
 JOB_IDS=""
 
 mkdir -p "$T/bin" "$T/root/platform/openwrt" "$T/root/bin" "$T/root/lib" \
@@ -211,10 +214,14 @@ _cgi() { # <METHOD> <PATH> [QUERY] [bodyfile]
         _cl=$(wc -c < "$_b" | tr -d ' ')
         env REQUEST_METHOD="$_m" PATH_INFO="$_p" QUERY_STRING="$_q" \
             HTTP_HOST="192.168.7.1" HTTP_X_Z2K_PANEL="1" CONTENT_LENGTH="$_cl" \
+            Z2K_JOB_DIR="$Z2K_JOB_DIR" \
+            Z2K_OW_TESTING=1 \
             sh "$T/cgi/api.sh" < "$_b" 2>/dev/null
     else
         env REQUEST_METHOD="$_m" PATH_INFO="$_p" QUERY_STRING="$_q" \
             HTTP_HOST="192.168.7.1" HTTP_X_Z2K_PANEL="1" CONTENT_LENGTH="0" \
+            Z2K_JOB_DIR="$Z2K_JOB_DIR" \
+            Z2K_OW_TESTING=1 \
             sh "$T/cgi/api.sh" < /dev/null 2>/dev/null
     fi
 }
@@ -265,10 +272,18 @@ assert_eq "status: TikTok feed toggle defaults off" "0" "$(_jget "$OUT" 'd["togg
 assert_eq "status: TikTok diagnostics omitted while disabled" "null" "$(_jget "$OUT" 'd.get("tiktok_feed_status")')"
 assert_eq "status: DoH is explicitly not installed on a clean OpenWrt setup" "not-installed" "$(_jget "$OUT" 'd["doh"]["state"]')"
 assert_eq "status: DoH force DNS defaults off" "0" "$(_jget "$OUT" 'd["doh"]["force_lan_dns"]')"
+assert_eq "status: DoH defaults to the Xbox preset" "xbox" "$(_jget "$OUT" 'd["doh"]["provider"]')"
+assert_eq "status: DoH exposes the selected HTTPS endpoint" "https://xbox-dns.ru/dns-query" "$(_jget "$OUT" 'd["doh"]["endpoint"]')"
 _status_out="$OUT"
 printf '%s' 'value=1%3Btouch%20/tmp/z2k-doh-injection' > "$T/doh-invalid-body"
 RAW="$(_cgi POST /doh/force-dns "" "$T/doh-invalid-body")"
 assert_eq "DoH force DNS rejects injected values" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' 'provider=custom&endpoint=http%3A%2F%2Fresolver.example%2Fdns-query&bootstrap=1.1.1.1' > "$T/doh-provider-invalid-endpoint"
+RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-invalid-endpoint")"
+assert_eq "DoH rejects a custom endpoint without HTTPS" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' 'provider=custom&endpoint=https%3A%2F%2Fresolver.example%2Fdns-query&bootstrap=127.0.0.1%2C999.1.1.1' > "$T/doh-provider-invalid-bootstrap"
+RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-invalid-bootstrap")"
+assert_eq "DoH rejects invalid custom bootstrap DNS" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
 printf '%s\n' 'url=https%3A%2F%2Fevil.example%2Fdns-query&bootstrap=127.0.0.1' > "$T/doh-install-body"
 RAW="$(_cgi POST /doh/install "" "$T/doh-install-body")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 _doh_job="$(_jget "$OUT" 'd["job"]')"
@@ -1086,6 +1101,8 @@ _jid="$(_jget "$OUT" 'd["job"]')"
 assert_eq "uninstall: job id is returned" "true" "$([ -n "$_jid" ] && echo true || echo false)"
 JOB_IDS="$JOB_IDS $_jid"
 _jo="$(_poll_job "$_jid")" || _t_bad "uninstall: async job reaches completion"
+assert_file "uninstall: canonical worker stores its exit code in the configured job directory" \
+    "$Z2K_JOB_DIR/z2k-job-$_jid.exit"
 assert_eq "uninstall: canonical worker succeeds" "0" "$(_jget "$_jo" 'd["exit"]')"
 assert_contains "uninstall: same worker receives explicit confirmation" \
     "$Z2K_UNINSTALL_WORKER_MARKER" '1|--worker'
@@ -1094,9 +1111,9 @@ assert_contains "uninstall: same worker receives explicit confirmation" \
 # Панель обязана открываться и читать initial state; отсутствие optional
 # state — не "panel unavailable". Отдельный минимальный fixture T2.
 T2="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wpfresh.XXXXXX")" || exit 1
-trap 'rm -rf "$T" "$T2"; for _j in $JOB_IDS; do rm -f "/tmp/z2k-job-$_j.log" "/tmp/z2k-job-$_j.pid" "/tmp/z2k-job-$_j.exit"; done' EXIT INT TERM
+trap 'for _j in $JOB_IDS; do rm -f "$Z2K_JOB_DIR/z2k-job-$_j.log" "$Z2K_JOB_DIR/z2k-job-$_j.pid" "$Z2K_JOB_DIR/z2k-job-$_j.exit"; done; rm -rf "$T" "$T2"' EXIT INT TERM
 mkdir -p "$T2/bin" "$T2/root/platform/openwrt" "$T2/root/bin" "$T2/root/lib" \
-         "$T2/etc" "$T2/tmp/z2k/runtime"
+         "$T2/etc" "$T2/tmp/z2k/runtime" "$T2/jobs"
 for _f in paths.sh env.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T2/root/platform/openwrt/$_f" 2>/dev/null
 done
@@ -1131,6 +1148,8 @@ _cgi2() { # тот же контракт, что _cgi, но на пустом T2
         env REQUEST_METHOD="$_m" PATH_INFO="$_p" QUERY_STRING="$_q" \
             HTTP_HOST="192.168.1.1" HTTP_X_Z2K_PANEL="1" CONTENT_LENGTH="$_cl" \
             Z2K_PLATFORM=openwrt Z2K_ROOT="$T2/root" Z2K_ETC="$T2/etc" Z2K_TMP="$T2/tmp" \
+            Z2K_JOB_DIR="$T2/jobs" \
+            Z2K_OW_TESTING=1 \
             Z2K_CONFIG="$T2/etc/config" Z2K_PROC_ROOT="$T2/proc" Z2K_INIT="$T2/mock-init" \
             Z2K_BIN="$T2/root/bin" INIT_SCRIPT="$T2/mock-init" ZAPRET2_DIR="$T2/zapret2" \
             WP_IP_BIN="$T2/bin/ip" WP_DHCP_LEASES="$T2/leases" WP_ARP_PATH="$T2/arp-empty" \
@@ -1140,6 +1159,8 @@ _cgi2() { # тот же контракт, что _cgi, но на пустом T2
         env REQUEST_METHOD="$_m" PATH_INFO="$_p" QUERY_STRING="$_q" \
             HTTP_HOST="192.168.1.1" HTTP_X_Z2K_PANEL="1" CONTENT_LENGTH="0" \
             Z2K_PLATFORM=openwrt Z2K_ROOT="$T2/root" Z2K_ETC="$T2/etc" Z2K_TMP="$T2/tmp" \
+            Z2K_JOB_DIR="$T2/jobs" \
+            Z2K_OW_TESTING=1 \
             Z2K_CONFIG="$T2/etc/config" Z2K_PROC_ROOT="$T2/proc" Z2K_INIT="$T2/mock-init" \
             Z2K_BIN="$T2/root/bin" INIT_SCRIPT="$T2/mock-init" ZAPRET2_DIR="$T2/zapret2" \
             WP_IP_BIN="$T2/bin/ip" WP_DHCP_LEASES="$T2/leases" WP_ARP_PATH="$T2/arp-empty" \
