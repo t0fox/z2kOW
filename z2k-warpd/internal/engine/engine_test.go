@@ -88,7 +88,11 @@ func TestCurrentUnscannedWGStepGetsGeoAfterHealthyProof(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { _ = Run(ctx, cfg); close(done) }()
-	waitFor(t, "healthy active WG step", func() bool { s := readStatus(h); return s != nil && s.Ready })
+	waitFor(t, "healthy active WG step with geo metadata", func() bool {
+		s := readStatus(h)
+		return s != nil && s.Ready && s.EdgeColo == "HEL" && s.EdgeCountry == "FI" &&
+			s.EdgeRTTMs == 42 && s.EdgeSelection == "foreign"
+	})
 	s := readStatus(h)
 	if s.EdgeColo != "HEL" || s.EdgeCountry != "FI" || s.EdgeRTTMs != 42 || s.EdgeSelection != "foreign" {
 		cancel()
