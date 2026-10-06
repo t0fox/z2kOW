@@ -28,3 +28,8 @@ Strategy telemetry is enabled by default and can be disabled with the `Z2K_STATS
 - Availability probes may accept test certificates or responses where they only measure reachability. They must not be treated as proof of a destination's identity.
 - Secrets embedded in public binaries or source must be treated as public. Device-generated identity material is a separate credential and should remain on the device.
 - The project does not claim that a successful source or fixture check proves safe behavior on every router model or filesystem.
+
+
+## Legal and deployment boundary
+
+Security guarantees do not imply that every network configuration is permitted in every jurisdiction or network. Operators are responsible for reviewing applicable requirements and third-party terms before deployment. See [LEGAL.md](LEGAL.md) for the project's public use-policy and documentation boundary.
