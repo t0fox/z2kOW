@@ -12,7 +12,7 @@ const context = vm.createContext({
   escapeHtml: value => String(value).replace(/[&<>"']/g, ch => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[ch]),
-  humanAgo: seconds => Number(seconds) === 1791144948 ? "48 с назад" : "3 мин назад",
+  humanAgo: (seconds, now) => Number(seconds) === 1791144948 ? "48 с назад" : "3 мин назад",
 });
 
 vm.runInContext(source, context, { filename: sourcePath });
@@ -50,7 +50,7 @@ assert.doesNotMatch(summaryText, /131 мс\s+131/,
   "the formatted latency is not followed by its raw numeric duplicate");
 assert.doesNotMatch(summary, /material-latency-improvement/,
   "raw failover reason codes stay out of the user-facing summary");
-assert.match(summaryText, /Выбран вручную 48 с назад/,
+assert.match(summaryText, /Текущий CDN выбран вручную 48 с назад/,
   "the primary summary describes when the current manual selection was made");
 assert.doesNotMatch(summaryText, /CDN переключён|203\.0\.113\.8 → 203\.0\.113\.35/,
   "a manual selection never presents an old failover as the current event");
@@ -108,7 +108,7 @@ const autoFixture = { ...originalFixture, mode: "auto", manual_ip: "", selected_
 context.autoFixture = autoFixture;
 const autoMarkup = vm.runInContext("tiktokStatusMarkup(autoFixture)", context);
 const autoSummary = autoMarkup.split('<div class="tiktok-candidate-controls"', 1)[0];
-assert.match(autoSummary, /Выбран автоматически 48 с назад/,
+assert.match(autoSummary, /Текущий CDN выбран автоматически 48 с назад/,
   "automatic selection uses the current selected IP and selected timestamp");
 assert.doesNotMatch(autoSummary, /CDN переключён|203\.0\.113\.8 → 203\.0\.113\.35/,
   "an older failover is not shown as the current automatic selection event");
@@ -146,7 +146,7 @@ const selectedUnavailableWorkingGroup = selectedUnavailableMarkup.match(/<sectio
 const selectedUnavailableOverflow = (selectedUnavailableWorkingGroup.match(/data-tiktok-overflow/g) || []).length;
 assert.equal((selectedUnavailableWorkingGroup.match(/<article /g) || []).length - selectedUnavailableOverflow, 7,
   "a selected unavailable CDN still counts toward the eight-row default candidate cap");
-assert.match(selectedUnavailableMarkup, /Выбран вручную/,
+assert.match(selectedUnavailableMarkup, /Текущий CDN выбран вручную/,
   "the manual-unavailable card still identifies the selected CDN in the summary");
 assert.match(selectedUnavailableMarkup, /data-tiktok-filter="unavailable"[^>]*>Недоступные <span>1<\/span>/,
   "the unavailable filter count includes a manually selected CDN that is currently unavailable");
@@ -173,4 +173,43 @@ assert.match(undiscovered, /Кандидаты ещё не обнаружены/
   "an empty candidate list explains why there are no CDN rows yet");
 assert.match(undiscovered, /кандидатов · проверка не выполнена/,
   "candidate availability stays unknown until a probe has run");
+
+const pendingManual = vm.runInContext(
+  "tiktokStatusMarkup(fixture, 1791145000, { action: 'select', ip: '203.0.113.20' })", context);
+const pendingSummary = pendingManual.split('<div class="tiktok-candidate-controls"', 1)[0];
+assert.match(pendingSummary, /Проверяю новый CDN/,
+  "manual selection progress identifies the new CDN being checked");
+assert.match(pendingSummary, /Проверяется CDN <code>203\.0\.113\.20<\/code>/,
+  "manual selection progress shows the requested candidate IP");
+assert.match(pendingSummary, /Текущий CDN проверен: 3 мин назад/,
+  "the previous verification age is explicitly attributed to the current old CDN");
+assert.doesNotMatch(pendingSummary, /Проверено 3 мин назад/,
+  "the old verification age is not presented as the result of the active operation");
+assert.match(pendingSummary, /203\.0\.113\.35/,
+  "the old working CDN remains visible while the candidate is verified");
+
+const pendingScan = vm.runInContext(
+  "tiktokStatusMarkup({ ...fixture, candidates_checked_epoch: '1791144948' }, 1791145000, { action: 'probe-all' })", context);
+const pendingScanSummary = pendingScan.split('<div class="tiktok-candidate-controls"', 1)[0];
+assert.match(pendingScanSummary, /Идёт проверка кандидатов/,
+  "probe-all progress is visible in the status card");
+assert.match(pendingScanSummary, /Последняя завершённая проверка кандидатов/,
+  "probe-all does not label the old current-CDN verification as a completed candidate scan");
+
+const pendingAuto = vm.runInContext(
+  "tiktokStatusMarkup(fixture, 1791145000, { action: 'auto' })", context);
+assert.match(pendingAuto, /Переключаю в автоматический режим/,
+  "an automatic-mode change is shown as pending");
+const refreshingStatus = vm.runInContext(
+  'tiktokStatusMarkup(fixture, 1791145000, { action: "refresh" })', context,
+);
+assert.match(refreshingStatus, /Обновляю состояние CDN/,
+  "a completed operation stays distinct while its canonical status refreshes");
+
+const failedManual = vm.runInContext("tiktokStatusMarkup(fixture, 1791145000)", context);
+const failedSummary = failedManual.split('<div class="tiktok-candidate-controls"', 1)[0];
+assert.match(failedSummary, /Последняя проверка текущего CDN: 3 мин назад/,
+  "after a failed selection the unchanged current CDN retains its honest verification age");
+assert.doesNotMatch(failedSummary, /Проверяется[^<]*203\.0\.113\.20/,
+  "a completed failed selection no longer claims to be checking the candidate");
 console.log("PASS: TikTok feed status formats latency once and keeps raw failover codes in diagnostics");

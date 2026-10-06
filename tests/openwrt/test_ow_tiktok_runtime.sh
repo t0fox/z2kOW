@@ -266,7 +266,9 @@ assert_contains "re-enable restores verified CDN" "$UCI_TEST_DB" '/v77.tiktokcdn
 # and keeps auto selection from silently changing it.
 TIKTOK_PROBE_MODE=alt TIKTOK_DNS_IP=203.0.113.20
 export Z2K_JOB_ID=manual-progress-regression
+_manual_started=$(date +%s)
 z2k_ow_tiktok_manual_select 203.0.113.20 2> "$T/manual-progress.log" || _t_bad "manual selection re-verifies and applies the candidate"
+_manual_finished=$(date +%s)
 assert_contains "manual apply logs the target-specific recheck" "$T/manual-progress.log" 'перепроверяю выбранный 203.0.113.20'
 assert_contains "manual apply logs the owned DNS apply stage" "$T/manual-progress.log" 'применяю owned dnsmasq override'
 assert_contains "manual apply logs effective DNS confirmation" "$T/manual-progress.log" 'effective DNS подтверждает 203.0.113.20'
@@ -277,6 +279,14 @@ assert_contains "manual choice applies a native target override" "$UCI_TEST_DB" 
 assert_contains "manual choice is effective in dnsmasq config" "$Z2K_TIKTOK_EFFECTIVE_CONFIG" 'address=/v77.tiktokcdn.com/203.0.113.20'
 assert_contains "manual choice records candidate verification" "$Z2K_TIKTOK_STATE_FILE" 'candidate_verified=1'
 assert_contains "manual choice records effective DNS application" "$Z2K_TIKTOK_STATE_FILE" 'dns_override_applied=1'
+_manual_selected_at=$(sed -n 's/^selected_at_epoch=//p' "$Z2K_TIKTOK_STATE_FILE")
+_manual_verified_at=$(sed -n 's/^last_verified_epoch=//p' "$Z2K_TIKTOK_STATE_FILE")
+case "$_manual_selected_at:$_manual_verified_at" in *[!0-9:]*) _t_bad "manual timestamps are valid epoch seconds" ;; *)
+    [ "$_manual_selected_at" -ge "$_manual_started" ] && [ "$_manual_selected_at" -le "$_manual_finished" ] \
+        && _t_ok || _t_bad "manual selection timestamp records the completed production apply"
+    [ "$_manual_verified_at" -ge "$_manual_started" ] && [ "$_manual_verified_at" -le "$_manual_finished" ] \
+        && _t_ok || _t_bad "manual verification timestamp records the completed production apply" ;;
+esac
 _restart_choice=$(sh -c '. "$1"; printf "%s|%s" "$(z2k_ow_tiktok_mode)" "$( _z2k_ow_tiktok_manual_ip)"' sh "$REPO/platform/openwrt/tiktok.sh")
 assert_eq "manual mode and selected IP survive a runtime restart" 'manual|203.0.113.20' "$_restart_choice"
 TIKTOK_PROBE_MODE=ok TIKTOK_DNS_IP=143.244.42.18
@@ -358,6 +368,8 @@ assert_contains "candidate HTTPS probes request the primary managed target URL" 
 assert_contains "candidate HTTPS probes request the EU managed target URL" "$CURL_ARGS_TEST_LOG" 'https://v77.tiktokcdn-eu.com/'
 assert_not_contains "candidate HTTPS probes do not substitute a source-domain hostname" "$CURL_ARGS_TEST_LOG" 'https://v16-cla.tiktokcdn.com/'
 assert_contains "probe-all records optional ICMP latency without making it a health requirement" "$Z2K_TIKTOK_STATE_FILE" '|compatible|23;'
+_candidates_checked=$(sed -n 's/^candidates_checked_epoch=//p' "$Z2K_TIKTOK_STATE_FILE")
+case "$_candidates_checked" in ''|*[!0-9]*) _t_bad "probe-all records its own completion epoch" ;; *) _t_ok ;; esac
 _duplicate_probes=$(sed -n 's/^probe_observations=//p' "$Z2K_TIKTOK_STATE_FILE" \
     | tr ';' '\n' | cut -d'|' -f1 | sort | uniq -d)
 assert_eq "probe-all records each candidate once" '' "$_duplicate_probes"

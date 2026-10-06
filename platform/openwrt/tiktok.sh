@@ -50,7 +50,8 @@ _z2k_ow_tiktok_job_progress() {
         job_progress "$*"
         return $?
     fi
-    printf '[%s] %s\n' "$(date '+%H:%M:%S' 2>/dev/null || printf '??:??:??')" "$*" >&2
+    _epoch=$(date +%s 2>/dev/null) || _epoch=
+    case "$_epoch" in ''|*[!0-9]*) printf '%s\n' "$*" >&2 ;; *) printf '@z2k-ts:%s|%s\n' "$_epoch" "$*" >&2 ;; esac
 }
 
 _z2k_ow_tiktok_valid_ipv4() {
@@ -80,6 +81,7 @@ _z2k_ow_tiktok_state_write() {
     local _failover_from="${30:-$(_z2k_ow_tiktok_state_get last_failover_from)}"
     local _failover_to="${31:-$(_z2k_ow_tiktok_state_get last_failover_to)}"
     local _failover_reason="${32:-$(_z2k_ow_tiktok_state_get last_failover_reason)}"
+    local _candidates_checked="${_Z2K_TIKTOK_CANDIDATES_CHECKED_EPOCH_STATE:-$(_z2k_ow_tiktok_state_get candidates_checked_epoch)}"
     local _candidate_verified="${_Z2K_TIKTOK_CANDIDATE_VERIFIED_OVERRIDE:-${33:-$(_z2k_ow_tiktok_state_get candidate_verified)}}"
     local _dns_override_applied="${_Z2K_TIKTOK_DNS_OVERRIDE_APPLIED_OVERRIDE:-${34:-$(_z2k_ow_tiktok_state_get dns_override_applied)}}"
     local _candidate_pool="${_Z2K_TIKTOK_CANDIDATE_POOL_STATE:-$(_z2k_ow_tiktok_state_get candidate_pool)}"
@@ -117,6 +119,7 @@ _z2k_ow_tiktok_state_write() {
         printf 'selected_at_epoch=%s\n' "$_selected_at"
         printf 'last_discovery_epoch=%s\n' "$_discovered"
         printf 'last_evaluation_epoch=%s\n' "$_evaluated"
+        printf 'candidates_checked_epoch=%s\n' "$_candidates_checked"
         printf 'selected_source_domain=%s\n' "$_source_domain"
         printf 'selected_mode=%s\n' "$_mode"
         printf 'selected_provenance=%s\n' "$_provenance"
@@ -1152,20 +1155,24 @@ z2k_ow_tiktok_use_auto() {
 }
 
 _z2k_ow_tiktok_state_update_candidates() {
-    local _pool="$1" _observations="$2" _tmp="${Z2K_TIKTOK_STATE_FILE}.new.$$"
+    local _pool="$1" _observations="$2" _now _tmp="${Z2K_TIKTOK_STATE_FILE}.new.$$"
+    _now=$(date +%s 2>/dev/null) || _now=0
+    case "$_now" in ''|*[!0-9]*) _now=0 ;; esac
     mkdir -p "$(dirname "$Z2K_TIKTOK_STATE_FILE")" 2>/dev/null || return 1
     if [ -r "$Z2K_TIKTOK_STATE_FILE" ]; then
-        awk -v pool="$_pool" -v observations="$_observations" '
+        awk -v pool="$_pool" -v observations="$_observations" -v checked="$_now" '
             /^candidate_pool=/ { print "candidate_pool=" pool; have_pool=1; next }
             /^probe_observations=/ { print "probe_observations=" observations; have_observations=1; next }
+            /^candidates_checked_epoch=/ { print "candidates_checked_epoch=" checked; have_checked=1; next }
             { print }
             END {
                 if (!have_pool) print "candidate_pool=" pool
                 if (!have_observations) print "probe_observations=" observations
+                if (!have_checked) print "candidates_checked_epoch=" checked
             }
         ' "$Z2K_TIKTOK_STATE_FILE" > "$_tmp" || { rm -f "$_tmp"; return 1; }
     else
-        printf 'candidate_pool=%s\nprobe_observations=%s\n' "$_pool" "$_observations" > "$_tmp" || return 1
+        printf 'candidate_pool=%s\nprobe_observations=%s\ncandidates_checked_epoch=%s\n' "$_pool" "$_observations" "$_now" > "$_tmp" || return 1
     fi
     chmod 0600 "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
     mv -f "$_tmp" "$Z2K_TIKTOK_STATE_FILE"
@@ -1565,6 +1572,7 @@ z2k_ow_tiktok_status() {
     printf 'selected_ip=%s\n' "$_ip"
     printf 'latency_ms=%s\n' "$_lat"
     printf 'last_verified_epoch=%s\n' "$_verified"
+    printf 'candidates_checked_epoch=%s\n' "$(_z2k_ow_tiktok_state_get candidates_checked_epoch)"
     printf 'selected_at_epoch=%s\n' "$(_z2k_ow_tiktok_state_get selected_at_epoch)"
     printf 'failure_count=%s\n' "$_fail"
     printf 'candidate_verified=%s\n' "$_candidate_verified"

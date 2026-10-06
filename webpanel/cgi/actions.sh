@@ -1077,12 +1077,18 @@ _tmp_reap_orphans() {
 #
 # Использование:
 #   job_id=$(svc_action_async "Перезапуск сервиса" "/opt/etc/init.d/S99zapret2 restart")
+job_log_record() {
+    local _epoch
+    _epoch=$(date +%s 2>/dev/null) || _epoch=
+    case "$_epoch" in ''|*[!0-9]*) printf '%s\n' "$*" ;; *) printf '@z2k-ts:%s|%s\n' "$_epoch" "$*" ;; esac
+}
+
 job_progress() {
     # Human-readable progress contract used by async WebPanel actions and
     # OpenWrt adapters. stderr is intentional: stdout remains available for
     # machine-readable command-substitution results.
     [ -n "${Z2K_JOB_ID:-}" ] || return 0
-    printf '[%s] %s\n' "$(date '+%H:%M:%S' 2>/dev/null || printf '??:??:??')" "$*" >&2
+    job_log_record "$*" >&2
 }
 
 svc_action_async() {
@@ -1094,7 +1100,7 @@ svc_action_async() {
     local log="/tmp/z2k-job-${job_id}.log"
     (
         exec >> "$log" 2>&1
-        printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$label"
+        job_log_record "$label"
         printf '─────────────────────────────────────────\n'
         export Z2K_JOB_ID="$job_id"
         job_progress "Запущено: $label"
@@ -1110,11 +1116,11 @@ svc_action_async() {
         if [ "$rc" = "0" ]; then
             job_progress "Итог: $label — команда завершена успешно за ${elapsed} с."
             printf '─────────────────────────────────────────\n'
-            printf '[%s] Готово ✓\n' "$(date '+%H:%M:%S')"
+            job_log_record "Готово ✓"
         else
             job_progress "Итог: $label — ошибка выполнения, код $rc, время ${elapsed} с."
             printf '─────────────────────────────────────────\n'
-            printf '[%s] Завершено с кодом %s\n' "$(date '+%H:%M:%S')" "$rc"
+            job_log_record "Завершено с кодом $rc"
         fi
         echo "$rc" > "/tmp/z2k-job-${job_id}.exit"
     ) </dev/null >/dev/null 2>&1 &
@@ -4021,7 +4027,7 @@ update_action_async() {
     (
         trap '' HUP
         exec >> "/tmp/z2k-job-$job_id.log" 2>&1
-        printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$label"
+        job_log_record "$label"
         printf '─────────────────────────────────────────\n'
         export Z2K_JOB_ID="$job_id"
         job_progress "Запущено: $label; читаю манифест и проверяю состав обновления"
@@ -4043,8 +4049,8 @@ update_action_async() {
             job_progress "Итог: $label завершилось ошибкой, код $rc, время ${elapsed} с. Причина указана выше."
         fi
         printf '─────────────────────────────────────────\n'
-        [ "$rc" = 0 ] && printf '[%s] Готово ✓\n' "$(date '+%H:%M:%S')" \
-            || printf '[%s] Завершено с кодом %s\n' "$(date '+%H:%M:%S')" "$rc"
+        [ "$rc" = 0 ] && job_log_record "Готово ✓" \
+            || job_log_record "Завершено с кодом $rc"
         echo "$rc" > "/tmp/z2k-job-$job_id.exit"
     ) </dev/null >/dev/null 2>&1 &
     echo "$!" > "/tmp/z2k-job-$job_id.pid"
@@ -4690,7 +4696,7 @@ uninstall_async() {
     (
         trap '' HUP
         exec >> "/tmp/z2k-job-$job_id.log" 2>&1
-        printf '[%s] Удаление z2k\n' "$(date '+%H:%M:%S')"
+        job_log_record "Удаление z2k"
         printf '─────────────────────────────────────────\n'
         export Z2K_JOB_ID="$job_id"
         job_progress "Запущено: удаление z2k; сохраняю исход и приступаю к демонтажу"
@@ -4704,10 +4710,10 @@ uninstall_async() {
         elapsed=$((ended_at - started_at))
         if [ "$rc" = 0 ]; then
             job_progress "Итог: сценарий удаления завершился успешно за ${elapsed} с; панель остановлена по плану."
-            printf '[%s] Готово ✓\n' "$(date '+%H:%M:%S')"
+            job_log_record "Готово ✓"
         else
             job_progress "Итог: удаление завершилось с ошибкой, код $rc, время ${elapsed} с; подробность указана выше."
-            printf '[%s] Завершено с кодом %s\n' "$(date '+%H:%M:%S')" "$rc"
+            job_log_record "Завершено с кодом $rc"
         fi
         echo "$rc" > "/tmp/z2k-job-$job_id.exit"
     ) </dev/null >/dev/null 2>&1 &

@@ -24,7 +24,7 @@ export async function refreshUpdateBanner(opts = {}) {
   const releaseSeqMismatch = !!(d && d.release_seq_mismatch);
   const reinstallSupported = !!(d && d.reinstall_supported);
   const ts = Number((d && d.last_check) || 0);
-  const ago = ts > 0 ? humanAgo(ts) : "—";
+  const ago = ts > 0 ? humanAgo(ts, d && d.server_now_epoch) : "—";
   // Подпись «когда оно само» — ответ на вопрос, который люди задают прямо
   // здесь, глядя на баннер (issue #60). Только текст: крутят время там же,
   // где и сам тумблер автообновления, а баннер целиком перерисовывается на

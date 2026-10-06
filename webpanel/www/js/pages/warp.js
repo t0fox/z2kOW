@@ -864,7 +864,7 @@ async function loadWarpLists() {
       <li>
         <span class="warp-item">
           <span class="warp-item-name">${escapeHtml(l.name)}.txt</span>
-          <span class="warp-item-meta">${warpEntries(l.entries)} · ${fmtSize(l.size)}${Number(l.mtime) > 0 ? " · изменён " + humanAgo(Number(l.mtime)) : ""}${listOn(l) ? "" : " · выключен"}</span>
+          <span class="warp-item-meta">${warpEntries(l.entries)} · ${fmtSize(l.size)}${Number(l.mtime) > 0 ? " · изменён " + humanAgo(Number(l.mtime), d.server_now_epoch) : ""}${listOn(l) ? "" : " · выключен"}</span>
         </span>
         <span class="warp-item-actions">
           <button class="btn-icon" title="Редактировать" aria-label="Редактировать ${escapeHtml(l.name)}" data-edit="${escapeHtml(l.name)}">${_icons.edit}</button>

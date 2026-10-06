@@ -319,6 +319,12 @@ function tiktokValue(value, { allowZero = false } = {}) {
   return text;
 }
 
+let tiktokStatusSnapshot = null;
+let tiktokTogglesSnapshot = null;
+let tiktokPlatformSnapshot = "";
+let tiktokServerNowEpoch = 0;
+let tiktokPendingAction = null;
+
 function tiktokFact(label, value) {
   const shown = tiktokValue(value, { allowZero: label === "Ошибок подряд" });
   if (!shown) return "";
@@ -341,14 +347,16 @@ function tiktokLatency(value) {
   return latency ? `${latency} мс` : "";
 }
 
-function tiktokTime(epoch, detailed = false) {
+function tiktokTime(epoch, detailed = false, serverNowEpoch = 0) {
   const seconds = Number(epoch);
   if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  const ago = humanAgo(seconds, serverNowEpoch);
+  if (ago === "время не синхронизировано") return ago;
   const date = new Date(seconds * 1000);
-  return detailed ? `${date.toLocaleString()} · ${humanAgo(seconds)}` : humanAgo(seconds);
+  return detailed ? `${date.toLocaleString()} · ${ago}` : ago;
 }
 
-function tiktokCandidatesMarkup(data) {
+function tiktokCandidatesMarkup(data, pending = null) {
   const candidates = new Map();
   String(data.candidate_pool || "").split(";").forEach(raw => {
     const fields = raw.split("|");
@@ -407,7 +415,7 @@ function tiktokCandidatesMarkup(data) {
       ].join("");
     };
     const button = verified
-      ? `<button type="button" class="btn btn-secondary tiktok-select-cdn" data-tiktok-action="select" data-ip="${escapeHtml(ip)}" aria-label="Выбрать CDN ${escapeHtml(ip)}">Выбрать</button>`
+      ? `<button type="button" class="btn btn-secondary tiktok-select-cdn" data-tiktok-action="select" data-ip="${escapeHtml(ip)}" aria-label="Выбрать CDN ${escapeHtml(ip)}"${pending ? " disabled" : ""}>Выбрать</button>`
       : "";
     return { ip, candidate, probe, selected, verified, checked, category, hint, source, checkNodes, checkCountries, checkAsns, latencyValue, icmp, button, targetCell, targetFacts, index };
   });
@@ -476,10 +484,10 @@ function tiktokCandidatesMarkup(data) {
   const hasHidden = visibleCount < candidates.size;
   const modeControl = `<div class="tiktok-candidate-controls">
       <div class="tiktok-mode-control"><span class="tiktok-mode-label">Режим</span><div class="tiktok-mode-switch" role="group" aria-label="Режим выбора CDN">
-        <button type="button" class="tiktok-mode-segment${mode === "auto" ? " active" : ""}" data-tiktok-action="auto" data-tiktok-mode="auto" aria-pressed="${mode === "auto"}"${mode === "auto" ? " disabled" : ""}>Авто</button>
-        <button type="button" class="tiktok-mode-segment${mode === "manual" ? " active" : ""}" data-tiktok-action="manual" data-tiktok-mode="manual" data-ip="${escapeHtml(selectedIp)}" aria-pressed="${mode === "manual"}"${mode === "manual" || !selectedIp || data.candidate_verified !== "1" ? " disabled" : ""}>Вручную</button>
+        <button type="button" class="tiktok-mode-segment${mode === "auto" ? " active" : ""}" data-tiktok-action="auto" data-tiktok-mode="auto" aria-pressed="${mode === "auto"}"${pending || mode === "auto" ? " disabled" : ""}>Авто</button>
+        <button type="button" class="tiktok-mode-segment${mode === "manual" ? " active" : ""}" data-tiktok-action="manual" data-tiktok-mode="manual" data-ip="${escapeHtml(selectedIp)}" aria-pressed="${mode === "manual"}"${pending || mode === "manual" || !selectedIp || data.candidate_verified !== "1" ? " disabled" : ""}>Вручную</button>
       </div></div>
-      <button type="button" class="btn btn-primary" data-tiktok-action="probe-all">Проверить все</button>
+      <button type="button" class="btn btn-primary" data-tiktok-action="probe-all"${pending ? " disabled" : ""}>Проверить все</button>
     </div>`;
   const filterControls = `<div class="tiktok-candidate-filters" role="group" aria-label="Фильтр CDN-кандидатов">
       <button type="button" class="tiktok-filter active" data-tiktok-action="filter" data-tiktok-filter="all" aria-pressed="true">Все <span>${candidates.size}</span></button>
@@ -556,6 +564,8 @@ function wireTikTokActions(card) {
     const endpoints = { "probe-all": "/tiktok/probe-all", select: "/tiktok/select", manual: "/tiktok/select", auto: "/tiktok/auto" };
     const labels = { "probe-all": "Проверка CDN-кандидатов", select: "Проверка и выбор CDN", manual: "Фиксация текущего CDN", auto: "Автоматический выбор CDN" };
     if (!endpoints[action]) return;
+    tiktokPendingAction = { action, ip: action === "select" ? button.dataset.ip : "" };
+    renderTikTokStatus(tiktokStatusSnapshot, tiktokTogglesSnapshot, tiktokPlatformSnapshot, tiktokServerNowEpoch);
     const buttons = [...card.querySelectorAll("[data-tiktok-action]")];
     buttons.forEach(item => { item.disabled = true; });
     try {
@@ -563,26 +573,35 @@ function wireTikTokActions(card) {
       const response = await apiPost(endpoints[action], params);
       openJobModal(labels[action], response.job, {
         tolerateOutage: action === "select" || action === "auto",
-        onDone: result => {
-          if (!card.isConnected) return;
+        onDone: async result => {
           if (jobOutcome(result) === JOB_FAIL) {
             toast(action === "select" ? "Выбранный CDN недоступен или не удалось применить DNS" : `${labels[action]} не выполнена`, "bad");
           } else if (!jobUnresolved(jobOutcome(result))) {
             toast(action === "auto" ? "Включён автоматический выбор CDN" : "Проверка CDN завершена");
           }
-          apiGet("/status").then(state => renderTikTokStatus(state.tiktok_feed_status, state.toggles, state.platform)).catch(() => {
+          tiktokPendingAction = { action: "refresh" };
+          renderTikTokStatus(tiktokStatusSnapshot, tiktokTogglesSnapshot, tiktokPlatformSnapshot, tiktokServerNowEpoch);
+          try {
+            const state = await apiGet("/status");
+            tiktokPendingAction = null;
+            renderTikTokStatus(state.tiktok_feed_status, state.toggles, state.platform, state.server_now_epoch);
+          } catch (_) {
+            tiktokPendingAction = null;
+            renderTikTokStatus(tiktokStatusSnapshot, tiktokTogglesSnapshot, tiktokPlatformSnapshot, tiktokServerNowEpoch);
             toastErr("Не удалось обновить состояние TikTok CDN: ", "status недоступен");
-          });
+          }
         },
       });
     } catch (error) {
+      tiktokPendingAction = null;
+      renderTikTokStatus(tiktokStatusSnapshot, tiktokTogglesSnapshot, tiktokPlatformSnapshot, tiktokServerNowEpoch);
       buttons.forEach(item => { if (item.isConnected) item.disabled = false; });
       toastErr("Не удалось выполнить действие TikTok CDN: ", error);
     }
   });
 }
 
-function tiktokStatusMarkup(status) {
+function tiktokStatusMarkup(status, serverNowEpoch, pending = null) {
   const data = status || {};
   const state = tiktokValue(data.state);
   const ip = tiktokValue(data.selected_ip);
@@ -607,16 +626,32 @@ function tiktokStatusMarkup(status) {
   } else if (["searching", "discovering", "checking"].includes(state)) {
     title = "Поиск рабочего CDN"; copy = "Проверяются доступные узлы TikTok…";
   }
+  if (pending) {
+    if (pending.action === "select") {
+      title = "Проверяю новый CDN…";
+      copy = "Текущий CDN остаётся активным до успешной проверки и применения.";
+    } else if (pending.action === "probe-all") {
+      title = "Идёт проверка кандидатов…";
+      copy = "Кандидаты проверяются; предыдущий результат остаётся доступен ниже.";
+    } else if (pending.action === "auto" || pending.action === "manual") {
+      title = pending.action === "auto" ? "Переключаю в автоматический режим…" : "Закрепляю текущий CDN вручную…";
+      copy = "Текущий CDN остаётся активным до завершения операции.";
+    } else if (pending.action === "refresh") {
+      title = "Обновляю состояние CDN…";
+      copy = "Операция завершена; загружаю актуальный результат.";
+    }
+  }
 
-  const checkedAgo = tiktokTime(data.last_verified_epoch);
-  const selectedAgo = tiktokTime(data.selected_at_epoch);
+  const checkedAgo = tiktokTime(data.last_verified_epoch, false, serverNowEpoch);
+  const selectedAgo = tiktokTime(data.selected_at_epoch, false, serverNowEpoch);
+  const candidatesCheckedAgo = tiktokTime(data.candidates_checked_epoch, false, serverNowEpoch);
   const failoverReason = tiktokValue(data.last_failover_reason);
   const failoverFrom = tiktokValue(data.last_failover_from);
   const failoverTo = tiktokValue(data.last_failover_to);
-  const failoverAgo = tiktokTime(data.last_failover_epoch);
+  const failoverAgo = tiktokTime(data.last_failover_epoch, false, serverNowEpoch);
   const hasFailover = Boolean(failoverAgo && failoverFrom && failoverTo && failoverFrom !== failoverTo);
   const selectionEvent = ip
-    ? `✓ Выбран ${mode === "manual" ? "вручную" : "автоматически"}${selectedAgo ? ` ${escapeHtml(selectedAgo)}` : ""}`
+    ? `✓ Текущий CDN выбран ${mode === "manual" ? "вручную" : "автоматически"}${selectedAgo ? ` ${escapeHtml(selectedAgo)}` : ""}`
     : "";
   const currentFacts = ip || tiktokLatency(data.latency_ms)
     ? `<dl class="tiktok-current-facts">
@@ -638,7 +673,7 @@ function tiktokStatusMarkup(status) {
       tiktokFact("CNAME", data.selected_cname),
       tiktokFact("Режим", data.selected_mode),
       tiktokFact("Текущий выбор", mode === "manual" ? "manual" : "auto"),
-      tiktokFact("Время выбора", tiktokTime(data.selected_at_epoch, true)),
+      tiktokFact("Время выбора", tiktokTime(data.selected_at_epoch, true, serverNowEpoch)),
       tiktokFact("Регион", data.selected_geo_hint),
       tiktokFact("Источник узла", data.selected_provenance),
     ]),
@@ -649,21 +684,27 @@ function tiktokStatusMarkup(status) {
       tiktokFact("Curated-наблюдений", data.curated_observed),
       tiktokFact("Проверок стабильности", data.stability_probe_count),
       tiktokFact("Задержка узла", tiktokLatency(data.latency_ms)),
-      tiktokFact("Последняя проверка", tiktokTime(data.last_verified_epoch, true)),
+      tiktokFact("Последняя проверка текущего CDN", tiktokTime(data.last_verified_epoch, true, serverNowEpoch)),
+      tiktokFact("Полная проверка кандидатов", tiktokTime(data.candidates_checked_epoch, true, serverNowEpoch)),
       tiktokReasonFact("Причина", reason),
     ]),
     hasFailover ? tiktokDiagnosticSection("Последнее автоматическое переключение", [
       tiktokFact("Маршрут", `${failoverFrom} → ${failoverTo}`),
-      tiktokFact("Время", tiktokTime(data.last_failover_epoch, true)),
+      tiktokFact("Время", tiktokTime(data.last_failover_epoch, true, serverNowEpoch)),
       tiktokReasonFact("Причина", failoverReason),
     ]) : "",
   ].join("");
-  const candidates = tiktokCandidatesMarkup(data);
+  const candidates = tiktokCandidatesMarkup(data, pending);
+  const statusTime = pending && pending.action === "probe-all"
+    ? candidatesCheckedAgo ? `Последняя завершённая проверка кандидатов: ${candidatesCheckedAgo}` : "Полная проверка кандидатов ещё не завершена"
+    : checkedAgo ? `${pending && ip ? "Текущий CDN проверен" : "Последняя проверка текущего CDN"}: ${checkedAgo}` : "";
+  const pendingIp = pending && pending.action === "select" && pending.ip
+    ? `<p class="tiktok-operation-pending">Проверяется CDN <code>${escapeHtml(pending.ip)}</code></p>` : "";
   return `<h3>TikTok — состояние ленты</h3>
     <p class="desc">Автоматический подбор и контроль CDN</p>
-    <div class="tiktok-status-line"><span class="tiktok-status-badge ${kind}" role="status">● ${escapeHtml(title)}</span>${checkedAgo ? `<span class="tiktok-checked">Проверено ${escapeHtml(checkedAgo)}</span>` : ""}</div>
+    <div class="tiktok-status-line"><span class="tiktok-status-badge ${pending ? "warn" : kind}" role="status">● ${escapeHtml(title)}</span>${statusTime ? `<span class="tiktok-checked">${escapeHtml(statusTime)}</span>` : ""}</div>
     ${copy ? `<p class="desc">${escapeHtml(copy)}</p>` : ""}
-    ${currentFacts ? `<div class="tiktok-selection-summary">${currentFacts}</div>` : ""}
+    ${currentFacts ? `<div class="tiktok-selection-summary">${currentFacts}${pendingIp}</div>` : pendingIp ? `<div class="tiktok-selection-summary">${pendingIp}</div>` : ""}
     ${candidates}
     <details class="flow-technical disclosure" id="tiktok-feed-technical">
       <summary>Техническая диагностика</summary>
@@ -671,13 +712,17 @@ function tiktokStatusMarkup(status) {
     </details>`;
 }
 
-function renderTikTokStatus(status, toggles, platform) {
+function renderTikTokStatus(status, toggles, platform, serverNowEpoch) {
   const card = $app.querySelector("#tiktok-feed-status-card");
   if (!card) return;
   wireTikTokActions(card);
+  if (status) tiktokStatusSnapshot = status;
+  if (toggles) tiktokTogglesSnapshot = toggles;
+  if (platform) tiktokPlatformSnapshot = platform;
+  if (serverNowEpoch !== undefined) tiktokServerNowEpoch = serverNowEpoch;
   const visible = platform === "openwrt" && toggles && toggles.tiktok_feed === "1";
   card.hidden = !visible;
-  card.innerHTML = visible ? tiktokStatusMarkup(status) : "";
+  card.innerHTML = visible ? tiktokStatusMarkup(status, tiktokServerNowEpoch, tiktokPendingAction) : "";
 }
 
 function flowoffloadApplicationMarkup(selected, raw) {
@@ -991,7 +1036,7 @@ export async function renderToggles() {
     const badge = $app.querySelector("#tg-state-badge");
     if (!badge) return;
     if (errBox) { errBox.hidden = true; errBox.innerHTML = ""; }
-    renderTikTokStatus(s.tiktok_feed_status, s.toggles, s.platform);
+    renderTikTokStatus(s.tiktok_feed_status, s.toggles, s.platform, s.server_now_epoch);
     const flowCard = $app.querySelector("#openwrt-offload-card");
     const flowSelect = $app.querySelector("#flowoffload-mode");
     const flowState = $app.querySelector("#flowoffload-status");
@@ -1348,7 +1393,7 @@ async function toggleClick(key, box) {
         apiGet("/status").then(s => {
           if (!box.isConnected) return;
           box.checked = s.toggles && s.toggles.tiktok_feed === "1";
-          renderTikTokStatus(s.tiktok_feed_status, s.toggles, s.platform);
+          renderTikTokStatus(s.tiktok_feed_status, s.toggles, s.platform, s.server_now_epoch);
         }).catch(() => {});
       }
       if (restarts && !jobUnresolved(outcome)) setTimeout(refreshStatus, 500);

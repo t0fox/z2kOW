@@ -206,6 +206,12 @@ actproc() {
         sh -c ". \"$ACTIONS\"; $1"
 }
 
+_job_time_record=$(act 'Z2K_JOB_ID=test; TZ=UTC job_progress "проверка времени" 2>&1')
+case "$_job_time_record" in
+    @z2k-ts:[0-9]*\|проверка\ времени) ok "job_progress stores an absolute epoch record instead of router wall time" ;;
+    *) no "job_progress uses the browser-renderable epoch contract" "@z2k-ts:<epoch>|message" "$_job_time_record" ;;
+esac
+
 # Права в переносимом виде: ls одинаково пишет их и на BSD, и на GNU, и на busybox.
 fmode() { ls -l "$1" 2>/dev/null | cut -c2-10; }
 fowner() { ls -ldn "$1" 2>/dev/null | awk '{print $3":"$4}'; }

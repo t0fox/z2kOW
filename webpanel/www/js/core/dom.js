@@ -1,5 +1,7 @@
 "use strict";
 
+export { humanAgo } from "./time.js";
+
 export const API = "/cgi-bin/api";
 
 export const $app = document.getElementById("app");
@@ -7,14 +9,6 @@ export const $app = document.getElementById("app");
 export const $toastStack = document.getElementById("toast-stack");
 
 export const $nav = document.getElementById("nav");
-
-export function humanAgo(tsSec) {
-  const age = Math.max(0, Math.floor(Date.now() / 1000) - tsSec);
-  if (age < 60) return age + " с назад";
-  if (age < 3600) return Math.floor(age / 60) + " мин назад";
-  if (age < 86400) return Math.floor(age / 3600) + " ч назад";
-  return Math.floor(age / 86400) + " дн назад";
-}
 
 export function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({

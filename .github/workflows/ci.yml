@@ -125,6 +125,9 @@ jobs:
       - name: Test TikTok status rendering
         run: node tests/test_tiktok_status_rendering.js
 
+      - name: Test browser-local event time formatting
+        run: node tests/test_webpanel_time_format.js
+
       - name: Install browser test dependencies
         run: npm ci --no-audit --no-fund
 

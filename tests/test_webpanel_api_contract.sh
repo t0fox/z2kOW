@@ -180,6 +180,7 @@ printf "\n--- /status: значение флага с кавычкой не рв
 # JSON.parse во фронте падал, и весь дашборд показывал «Ошибка».
 printf 'ENABLED=1\nGAME_WARP_ENABLED=0"x\nZ2K_PPE_DEOFFLOAD=a\\b\nZ2K_STATS=да\n' > "$CONFIG_FILE"
 OUT=$(cgi GET /status "" | cgi_body)
+assert_eq "GET /status exposes server epoch for relative timestamps" "true" "$(jget "$OUT" 'isinstance(d.get("server_now_epoch"), int) and d["server_now_epoch"] > 0')"
 assert_eq "тело /status — валидный JSON"      "1"    "$(json_ok_p "$OUT")"
 assert_eq "кавычка доехала экранированной"    '0"x'  "$(jget "$OUT" 'd["toggles"]["game_warp"]')"
 assert_eq "обратный слэш доехал экранированным" 'a\b' "$(jget "$OUT" 'd["toggles"]["ppe"]')"
@@ -380,6 +381,7 @@ assert_eq "warp/devices/toggle off — ok"       "true" "$(jget "$OUT" 'd["ok"]'
 assert_eq "devices.txt — MAC убран"            "0" "$(grep -c 'aa:bb:cc:dd:ee:ff' "$WARP_LISTS_DIR/devices.txt")"
 assert_eq "devices.txt — ручная строка цела"   "1" "$(grep -c '^192.168.1.5$' "$WARP_LISTS_DIR/devices.txt")"
 OUT=$(cgi GET /warp/lists "" | cgi_body)
+assert_eq "warp/lists exposes server epoch for file modification ages" "true" "$(jget "$OUT" 'isinstance(d.get("server_now_epoch"), int) and d["server_now_epoch"] > 0')"
 assert_eq "warp/lists — devices.txt не показывается как список адресов" "0" "$(jget "$OUT" 'len([l for l in d["lists"] if l["name"]=="devices"])')"
 printf '1.2.3.4\n' > "$SB/dev.body"
 OUT=$(cgi POST /warp/list/save "name=devices&mode=create" "$SB/dev.body" | cgi_body)

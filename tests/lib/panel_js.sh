@@ -72,7 +72,8 @@ _layers="js/core js/data js/state-model.js js/job.js js/chrome.js js/pages js/ro
 } | while IFS= read -r _f; do
         printf '\n// ===== %s =====\n' "${_f#"$_www/"}"
         cat "$_f"
-    done | sed -e '/^import .* from "[^"]*";$/d' -e 's/^export //' \
+    done | sed -e '/^import .* from "[^"]*";$/d' \
+             -e '/^export { .* } from "[^"]*";$/d' -e 's/^export //' \
   | sed -e 's/^\(.\)/  \1/' > "$_tmp_out"
 
 # ОТСТУП В ДВА ПРОБЕЛА ВОССТАНАВЛИВАЕТСЯ НАМЕРЕННО. До разбиения весь код жил

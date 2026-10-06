@@ -444,6 +444,7 @@ assert_eq "CLI reads the same canonical sequence as WebPanel API" "$_api_seq" "$
 assert_eq "CLI reads the shared API release record successfully" "0" "$_cli_rc"
 RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "update: installed payload truth" "p-86.2" "$(_jget "$OUT" 'd["installed"]')"
+assert_eq "update: exposes server epoch for relative event age" "true" "$(_jget "$OUT" 'isinstance(d.get("server_now_epoch"), int) and d["server_now_epoch"] > 0')"
 assert_eq "update: installed sequence comes from canonical release state" "127" "$(_jget "$OUT" 'd["installed_seq"]')"
 assert_eq "update: controlled sequence comes from UPDATES.json" "134" "$(_jget "$OUT" 'd["available_seq"]')"
 assert_not_contains "update: no package/snapshot versions leak into the one release API" "$OUT" "_package"

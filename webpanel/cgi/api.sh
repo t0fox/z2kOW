@@ -309,6 +309,8 @@ case "$method $path" in
         case "$au_hour" in [01][0-9]|2[0-3]) ;; *) au_hour=02 ;; esac
         autohostlist=$(read_flag "Z2K_AUTOHOSTLIST" "$CONFIG_FILE" "0")
         tiktok_feed=$(read_flag "Z2K_TIKTOK_FEED_ENABLED" "$CONFIG_FILE" "0")
+        server_now_epoch=$(date +%s 2>/dev/null) || server_now_epoch=0
+        case "$server_now_epoch" in ''|*[!0-9]*) server_now_epoch=0 ;; esac
         ow_flow=0
         [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && ow_flow=1
         tiktok_status_json=""
@@ -323,7 +325,7 @@ case "$method $path" in
                 _tiktok_sep=
                 printf '%s\n' "$_tiktok_status" | while IFS='=' read -r _tiktok_key _tiktok_value; do
                     case "$_tiktok_key" in
-                        enabled|state|host|managed_targets|selected_ip|latency_ms|last_verified_epoch|selected_at_epoch|failure_count|reason|\
+                        enabled|state|host|managed_targets|selected_ip|latency_ms|last_verified_epoch|selected_at_epoch|candidates_checked_epoch|failure_count|reason|\
                         selected_source_domain|selected_mode|selected_provenance|selected_geo_hint|selected_cname|\
                         health|connect_latency_ms|tls_latency_ms|http_status|x77_pop|x77_cache|server|\
                         dns_observed|curated_observed|stability_probe_count|last_failover_epoch|\
@@ -356,7 +358,7 @@ case "$method $path" in
         # (Z2K_STATS=0") отдаёт значение, которое рвёт строку JSON. Ломается при
         # этом не один тумблер: фронт не разбирает ответ целиком и весь дашборд
         # уходит в «Ошибка». Быстрый путь json_string на "0"/"1" не форкает.
-        printf '{"ok":true,'
+        printf '{"ok":true,"server_now_epoch":%s,' "$server_now_epoch"
         status_installed_json
         printf ',"running":%s,"service":' "${running:-false}"
         json_string "${svc_state:-unknown}"
@@ -1242,8 +1244,10 @@ case "$method $path" in
         ;;
 
     "GET /warp/lists")
+        server_now_epoch=$(date +%s 2>/dev/null) || server_now_epoch=0
+        case "$server_now_epoch" in ''|*[!0-9]*) server_now_epoch=0 ;; esac
         json_header
-        printf '{"ok":true,"lists":['
+        printf '{"ok":true,"server_now_epoch":%s,"lists":[' "$server_now_epoch"
         first=1
         warp_lists | while IFS="$(printf '\t')" read -r wname wentries wsize wmtime won; do
             [ -z "$wname" ] && continue
@@ -1763,6 +1767,8 @@ case "$method $path" in
             fi
         fi
         last_check=$(update_last_check_ts)
+        server_now_epoch=$(date +%s 2>/dev/null) || server_now_epoch=0
+        case "$server_now_epoch" in ''|*[!0-9]*) server_now_epoch=0 ;; esac
         fetch_failed=$(update_last_fetch_failed)
         check_age=$(update_last_check_age)
         json_header
@@ -1770,8 +1776,8 @@ case "$method $path" in
         json_string "$installed"
         printf ',"available":'
         json_string "$available"
-        printf ',"behind":%s,"last_check":%s,"fetch_failed":%s,"check_age":%s' \
-            "${behind:-0}" "${last_check:-0}" "${fetch_failed:-false}" "${check_age:--1}"
+        printf ',"behind":%s,"last_check":%s,"fetch_failed":%s,"check_age":%s,"server_now_epoch":%s' \
+            "${behind:-0}" "${last_check:-0}" "${fetch_failed:-false}" "${check_age:--1}" "$server_now_epoch"
         if [ -n "$installed_seq" ]; then
             printf ',"installed_seq":%s' "$installed_seq"
         fi
@@ -1812,6 +1818,8 @@ case "$method $path" in
             fi
         fi
         last_check=$(update_last_check_ts)
+        server_now_epoch=$(date +%s 2>/dev/null) || server_now_epoch=0
+        case "$server_now_epoch" in ''|*[!0-9]*) server_now_epoch=0 ;; esac
         fetch_failed=$(update_last_fetch_failed)
         check_age=$(update_last_check_age)
         json_header
@@ -1819,8 +1827,8 @@ case "$method $path" in
         json_string "$installed"
         printf ',"available":'
         json_string "$available"
-        printf ',"behind":%s,"last_check":%s,"fetch_failed":%s,"check_age":%s' \
-            "${behind:-0}" "${last_check:-0}" "${fetch_failed:-false}" "${check_age:--1}"
+        printf ',"behind":%s,"last_check":%s,"fetch_failed":%s,"check_age":%s,"server_now_epoch":%s' \
+            "${behind:-0}" "${last_check:-0}" "${fetch_failed:-false}" "${check_age:--1}" "$server_now_epoch"
         if [ -n "$installed_seq" ]; then
             printf ',"installed_seq":%s' "$installed_seq"
         fi

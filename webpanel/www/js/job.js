@@ -3,6 +3,7 @@ import { closeModalBackdrop, openModalBackdrop } from "./core/modal.js";
 import { _icons, escapeHtml } from "./core/dom.js";
 import { apiPost } from "./core/api.js";
 import { toast } from "./core/toast.js";
+import { formatJobLog } from "./core/time.js";
 
 // Registry of currently-running jobs. Each entry survives modal close
 // (user clicks "Скрыть") and powers the bottom-right badge — click on
@@ -407,7 +408,7 @@ export function openJobModal(title, jobId, opts = {}) {
         <span class="job-modal-status is-running" id="job-status">Выполняется</span>
       </div>
       ${warning}
-      <pre class="log" id="job-log">${escapeHtml(poller.lastLog || "Запуск…")}</pre>
+      <pre class="log" id="job-log">${escapeHtml(formatJobLog(poller.lastLog || "Запуск…"))}</pre>
       <div class="modal-footer">
         ${opts.cancelable ? '<button class="btn btn-danger" id="job-cancel">Отменить</button>' : ""}
         <button class="btn" id="job-close">Скрыть</button>
@@ -427,7 +428,7 @@ export function openJobModal(title, jobId, opts = {}) {
   // снимаем подписку, poller продолжит крутиться и сам разлочит UI.
   const onTick = (log, done, d) => {
     const wasNearBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 48;
-    logEl.textContent = log;
+    logEl.textContent = formatJobLog(log);
     if (wasNearBottom) logEl.scrollTop = logEl.scrollHeight;
     if (!done) {
       statusEl.textContent = "Выполняется";
