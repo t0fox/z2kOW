@@ -1710,6 +1710,7 @@ try {
   const themeBlocked = await browser.newPage();
   const themeErrors = [];
   themeBlocked.on('pageerror', error => themeErrors.push(error.message));
+  await themeBlocked.addInitScript(() => localStorage.setItem('z2k-theme', 'dark'));
   await themeBlocked.route('**/assets/openwrt/theme.css', route => route.abort('blockedbyclient'));
   await themeBlocked.goto(base + '/#/dashboard');
   await waitForRenderedRoute(themeBlocked, 'dashboard');
