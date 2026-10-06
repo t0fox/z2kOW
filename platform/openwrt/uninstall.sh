@@ -21,6 +21,7 @@ z2k_ow_uninstall_paths_load() {
     unset Z2K_WARP_SOURCE_ONLY
     . "$_adapter/insta-ip.sh" || return 1
     . "$_adapter/tiktok.sh" || return 1
+    . "$_adapter/doh.sh" || return 1
     return 0
 }
 
@@ -316,6 +317,7 @@ z2k_ow_uninstall() (
     z2k_ow_warp cleanup || _rc=1
     z2k_ow_insta_uninstall || _rc=1
     z2k_ow_tiktok_uninstall || _rc=1
+    z2k_ow_doh_uninstall || _rc=1
     z2k_ow_fw_remove || _rc=1
     z2k_ow_stop_verify || _rc=1
     _z2k_ow_uninstall_fw4_include || _rc=1

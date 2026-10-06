@@ -107,9 +107,9 @@ else
 fi
 
 # Common diff budget (§44): openwrt-специфичных строк в upstream-файлах — единицы.
-# api.sh budget includes the OpenWrt-only canonical same-version reinstall
-# route and its capability field in both status/check responses.
-for _spec in "actions.sh:12" "api.sh:11" "auth.sh:6"; do
+# Common diff budget (§44): the one optional DoH adapter seam in actions.sh
+# and one DoH-only route guard in api.sh are included in the shared surface.
+for _spec in "actions.sh:13" "api.sh:12" "auth.sh:6"; do
     _f="${_spec%%:*}"; _lim="${_spec##*:}"
     _n="$(grep -cE 'Z2K_PLATFORM|platform\.sh|PLATFORM_ENV|Z2K_PANEL_DIR|DEBUG_FLAG_FILE|Z2K_AU_MANIFEST_URL' \
         "$REPO/webpanel/cgi/$_f" 2>/dev/null || true)"

@@ -40,6 +40,24 @@
   <a id="panel-brand" href="#/dashboard" class="brand" aria-label="z2kOW">
     <img id="brand-profile-logo" class="brand-profile-logo" src="favicon.svg?v=p-86.13" width="36" height="36" alt="">
     <span id="brand-wordmark" class="brand-wordmark">z2kOW</span>
+    <svg id="brand-composite-logo" viewBox="0 0 2508 627" width="112" height="28" role="img" aria-label="z2kOW" hidden>
+      <defs>
+        <filter id="ow-logo-word-extract" color-interpolation-filters="sRGB">
+          <feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  1.085106 0 0 0 -0.085106" />
+        </filter>
+        <filter id="ow-logo-accent-extract" color-interpolation-filters="sRGB">
+          <feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  -1.574803 1.574803 0 0 -0.148235" />
+        </filter>
+        <mask id="ow-logo-word-mask" maskUnits="userSpaceOnUse" mask-type="alpha" x="0" y="0" width="2508" height="627">
+          <image data-brand-source href="/assets/openwrt/logo.png" width="2508" height="627" filter="url(#ow-logo-word-extract)" />
+        </mask>
+        <mask id="ow-logo-accent-mask" maskUnits="userSpaceOnUse" mask-type="alpha" x="0" y="0" width="2508" height="627">
+          <image data-brand-source href="/assets/openwrt/logo.png" width="2508" height="627" filter="url(#ow-logo-accent-extract)" />
+        </mask>
+      </defs>
+      <rect id="brand-logo-ink" width="2508" height="627" fill="var(--ow-text-primary, var(--text, currentColor))" mask="url(#ow-logo-word-mask)" />
+      <rect id="brand-logo-accent" width="2508" height="627" fill="var(--ow-accent, var(--accent, #00BA78))" mask="url(#ow-logo-accent-mask)" />
+    </svg>
   </a>
   <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Открыть меню" aria-expanded="false" aria-controls="nav">
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
@@ -159,10 +177,14 @@
         var brand = document.getElementById("panel-brand");
         var image = document.getElementById("brand-profile-logo");
         var wordmark = document.getElementById("brand-wordmark");
+        var logoSvg = document.getElementById("brand-composite-logo");
         var icon = document.getElementById("brand-favicon");
         var mask = document.getElementById("brand-mask-icon");
-        if (!brand || !image || !wordmark || !icon || !mask) return;
-        image.src = logo;
+        if (!brand || !image || !wordmark || !logoSvg || !icon || !mask) return;
+        logoSvg.querySelectorAll("[data-brand-source]").forEach(function (source) {
+          source.setAttribute("href", logo);
+        });
+        brand.classList.add("brand-composite");
         wordmark.textContent = name;
         brand.setAttribute("aria-label", name + " — " + subtitle);
         icon.href = favicon;

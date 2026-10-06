@@ -1503,6 +1503,24 @@ tiktok_use_auto() {
     z2k_ow_tiktok_use_auto
 }
 
+# Xbox DoH is an optional OpenWrt package integration. Resolver values are
+# fixed in the adapter; only the 0/1 force-DNS switch crosses this boundary.
+doh_adapter_load() {
+    [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] || return 1
+    . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/doh.sh"
+}
+
+doh_install_action() { doh_adapter_load && z2k_ow_doh_install; }
+doh_uninstall_action() { doh_adapter_load && z2k_ow_doh_uninstall; }
+doh_enable_action() { doh_adapter_load && z2k_ow_doh_enable; }
+doh_disable_action() { doh_adapter_load && z2k_ow_doh_disable; }
+doh_restart_action() { doh_adapter_load && z2k_ow_doh_restart; }
+doh_check_action() { doh_adapter_load && z2k_ow_doh_check; }
+doh_force_dns_action() {
+    case "${1:-}" in 0|1) ;; *) return 1 ;; esac
+    doh_adapter_load && z2k_ow_doh_set_force_dns "$1"
+}
+
 toggle_autohostlist() {
     # Z2K_AUTOHOSTLIST — switches MODE_FILTER between hostlist and autohostlist
     # (see lib/config_official.sh). Unlike toggle_stats this is NOT out-of-band:

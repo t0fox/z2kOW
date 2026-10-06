@@ -19,6 +19,8 @@ assert_contains "offload delegates through hook" "$DIAG" '"$Z2K_DIAG_HOOK" offlo
 assert_contains "autocircular delegates through hook" "$DIAG" '"$Z2K_DIAG_HOOK" autocircular'
 assert_contains "lists delegate through hook" "$DIAG" '"$Z2K_DIAG_HOOK" lists'
 assert_contains "network path delegates through hook" "$DIAG" '"$Z2K_DIAG_HOOK" netpath'
+assert_contains "OpenWrt service diagnostics include compact DoH ownership state" "$AD" 'print_doh'
+assert_contains "DoH diagnostics reports the LAN force-DNS flag" "$AD" 'force_lan_dns'
 assert_contains "adapter hook exported" "$ENV" 'Z2K_DIAG_HOOK='
 assert_contains "adapter hook reads procd state" "$AD" '"$_init" running'
 assert_contains "p-86.10 diagnostic reports queued Telegram CONNECT drops" "$AD" 'CONNECT throttled'

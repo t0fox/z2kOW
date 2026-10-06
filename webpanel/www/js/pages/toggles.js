@@ -838,6 +838,64 @@ async function saveFlowoffload(select, state, error) {
   });
 }
 
+function dohReasonLabel(reason) {
+  const labels = {
+    "resolver-section-not-owned": "Секция с этим именем уже используется другой конфигурацией.",
+    "package-missing": "Пакет https-dns-proxy не найден.",
+    "resolver-config-changed": "Конфигурация Xbox DNS изменилась извне.",
+    "listener-conflict": "Порт локального DNS занят другой https-dns-proxy секцией.",
+    "proxy-not-running": "Сервис https-dns-proxy не запущен.",
+    "listener-not-ready": "Локальный DNS proxy пока не принимает запросы.",
+    "dnsmasq-not-routed": "dnsmasq не направляет запросы в локальный DoH proxy.",
+    "dnsmasq-not-running": "Сервис dnsmasq не запущен.",
+    "router-dns-check-failed": "Проверочный DNS запрос через роутер не прошёл.",
+  };
+  return labels[reason] || "Рабочий DNS маршрут не подтверждён. Нажмите «Проверить» для диагностики.";
+}
+
+function renderDohStatus(status, platform) {
+  const card = $app.querySelector("#doh-card");
+  if (!card) return;
+  card.hidden = platform !== "openwrt";
+  if (card.hidden) return;
+  const line = card.querySelector("#doh-status");
+  const actions = card.querySelector("#doh-actions");
+  const forceRow = card.querySelector("#doh-force-row");
+  const forceBox = card.querySelector("#doh-force-dns");
+  const state = status && status.state || "error";
+  const installed = status && status.installed === "1";
+  if (state === "not-installed" || !installed) {
+    line.textContent = state === "not-installed" ? "Компонент не установлен" : dohReasonLabel(status && status.reason);
+    actions.innerHTML = '<button class="btn btn-primary" data-doh-action="install">Установить DoH</button>';
+    forceRow.hidden = true;
+    return;
+  }
+  if (state === "installed-disabled") {
+    line.innerHTML = '<span class="doh-status-good">● Компонент установлен</span><br>○ DoH выключен';
+    actions.innerHTML = '<button class="btn btn-primary" data-doh-action="enable">Включить</button><button class="btn btn-secondary" data-doh-action="check">Проверить</button><button class="btn btn-danger" data-doh-action="uninstall">Удалить DoH</button>';
+    forceRow.hidden = true;
+    return;
+  }
+  if (state === "healthy") {
+    line.innerHTML = '<span class="doh-status-good">● Установлено</span><br><span class="doh-status-good">● Сервис работает</span>';
+    actions.innerHTML = '<button class="btn btn-primary" data-doh-action="disable">Выключить</button><button class="btn btn-secondary" data-doh-action="check">Проверить</button><button class="btn btn-danger" data-doh-action="uninstall">Удалить DoH</button>';
+    forceRow.hidden = false;
+    forceBox.checked = status.force_lan_dns === "1";
+    forceBox.disabled = false;
+    return;
+  }
+  if (state === "starting") {
+    line.innerHTML = '<span class="doh-status-pending">◌ Проверяю локальный DNS listener</span>';
+    actions.innerHTML = '<button class="btn btn-primary" data-doh-action="restart">Перезапустить</button><button class="btn btn-secondary" data-doh-action="check">Проверить</button><button class="btn btn-danger" data-doh-action="uninstall">Удалить DoH</button>';
+    forceRow.hidden = true;
+    return;
+  }
+  const reason = dohReasonLabel(status && status.reason);
+  line.innerHTML = `<span class="doh-status-bad">⚠ Установлено, но не работает</span><br>${escapeHtml(reason)}`;
+  actions.innerHTML = '<button class="btn btn-primary" data-doh-action="restart">Перезапустить</button><button class="btn btn-secondary" data-doh-action="check">Проверить</button><button class="btn btn-danger" data-doh-action="uninstall">Удалить DoH</button>';
+  forceRow.hidden = true;
+}
+
 export async function renderToggles() {
   $app.innerHTML = `
     <h1 class="page-title">Режимы</h1>
@@ -858,6 +916,16 @@ export async function renderToggles() {
       `).join("")}
     </div>
     <div class="card" id="tiktok-feed-status-card" hidden></div>
+    <div class="card" id="doh-card" hidden>
+      <h3>DNS over HTTPS</h3>
+      <p class="desc">Защищённый DNS через Xbox DNS</p>
+      <div class="doh-status" id="doh-status" role="status" aria-live="polite">Проверяю состояние…</div>
+      <div class="btn-row" id="doh-actions"></div>
+      <label class="toggle-row" id="doh-force-row" hidden>
+        <span class="t-text"><span class="t-name">Принудительный DNS для LAN</span><span class="t-desc">Перенаправляет обычные DNS запросы клиентов на DNS роутера. Не блокирует DoH клиентов на TCP/443.</span></span>
+        <span class="switch"><input id="doh-force-dns" type="checkbox" disabled><span class="slider"></span></span>
+      </label>
+    </div>
     <div class="card" id="openwrt-offload-card" hidden>
       <h3>Ускорение трафика</h3>
       <p class="desc">Управление ускорением соединений через zapret2</p>
@@ -979,6 +1047,53 @@ export async function renderToggles() {
   // ухода: _stale ловит только более свежую загрузку, но не смену маршрута.
   const onTogglesPage = () => !!document.getElementById("tg-state-badge");
 
+  function runDohAction(action, value = null) {
+    const card = $app.querySelector("#doh-card");
+    if (!card || card.hidden) return;
+    const actions = {
+      install: ["/doh/install", "Установка DoH"],
+      uninstall: ["/doh/uninstall", "Удаление DoH"],
+      enable: ["/doh/enable", "Включение DoH"],
+      disable: ["/doh/disable", "Выключение DoH"],
+      restart: ["/doh/restart", "Перезапуск DoH"],
+      check: ["/doh/check", "Проверка DoH"],
+      force: ["/doh/force-dns", "Настройка DNS для LAN"],
+    };
+    const spec = actions[action];
+    if (!spec) return;
+    const buttons = [...card.querySelectorAll("[data-doh-action]")];
+    const forceBox = card.querySelector("#doh-force-dns");
+    buttons.forEach(button => { button.disabled = true; });
+    if (forceBox) forceBox.disabled = true;
+    apiPost(spec[0], action === "force" ? { value: value ? "1" : "0" } : undefined).then(response => {
+      if (response && response.job) {
+        openJobModal(spec[1], response.job, {
+          onDone: () => { if (onTogglesPage()) renderToggles(); },
+        });
+      } else {
+        toast(spec[1] + " — готово");
+        if (onTogglesPage()) renderToggles();
+      }
+    }).catch(error => {
+      if (forceBox && action === "force") forceBox.checked = !value;
+      buttons.forEach(button => { if (button.isConnected) button.disabled = false; });
+      if (forceBox && forceBox.isConnected) forceBox.disabled = false;
+      toastErr("Ошибка: ", error);
+    });
+  }
+
+  function wireDohCard() {
+    const card = $app.querySelector("#doh-card");
+    if (!card || card.dataset.wired) return;
+    card.dataset.wired = "1";
+    card.addEventListener("click", event => {
+      const button = event.target.closest && event.target.closest("[data-doh-action]");
+      if (button) runDohAction(button.dataset.dohAction);
+    });
+    const forceBox = card.querySelector("#doh-force-dns");
+    forceBox.addEventListener("change", () => runDohAction("force", forceBox.checked));
+  }
+
   async function loadTogglesState() {
     const seq = _newLoad("toggles");
     let s;
@@ -1037,6 +1152,8 @@ export async function renderToggles() {
     if (!badge) return;
     if (errBox) { errBox.hidden = true; errBox.innerHTML = ""; }
     renderTikTokStatus(s.tiktok_feed_status, s.toggles, s.platform, s.server_now_epoch);
+    renderDohStatus(s.doh, s.platform);
+    wireDohCard();
     const flowCard = $app.querySelector("#openwrt-offload-card");
     const flowSelect = $app.querySelector("#flowoffload-mode");
     const flowState = $app.querySelector("#flowoffload-status");

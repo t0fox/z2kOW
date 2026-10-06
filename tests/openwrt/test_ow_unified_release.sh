@@ -286,8 +286,14 @@ assert_eq "installed state has one tag and upstream seq" "2" "$(wc -l < "$SYS/et
 # one canonical state record and all user-owned settings/lists.
 _state_before="$(cat "$SYS/etc/z2k/state/installed-release")"
 mkdir -p "$SYS/etc/z2k/user-lists"
+mkdir -p "$SYS/etc/config" "$SYS/etc/z2k/state"
 printf 'keep user config\n' > "$SYS/etc/z2k/config"
 printf 'keep user domains\n' > "$SYS/etc/z2k/user-lists/extra-domains.txt"
+printf 'enabled=1\nprovider=xbox\n' > "$SYS/etc/z2k/state/doh.state"
+printf 'z2kow_xbox\n' > "$SYS/etc/z2k/state/.doh-uci-owned"
+printf 'https-dns-proxy\n' > "$SYS/etc/z2k/state/.doh-package-owned"
+printf "config main 'config'\n\nconfig https-dns-proxy 'z2kow_xbox'\n\toption resolver_url 'https://xbox-dns.ru/dns-query'\n" \
+    > "$SYS/etc/config/https-dns-proxy"
 printf 'damaged release file\n' > "$SYS/usr/lib/z2k/version.txt"
 _out="$(z2k_ow_install_release --reinstall "$_CURRENT_TAG" 2>&1)"; _rc=$?
 if [ "$_rc" -eq 0 ] \
@@ -295,7 +301,11 @@ if [ "$_rc" -eq 0 ] \
     && grep -q "release tag $_CURRENT_TAG" "$SYS/usr/lib/z2k/version.txt" \
     && [ "$(cat "$SYS/etc/z2k/state/installed-release")" = "$_state_before" ] \
     && grep -q 'keep user config' "$SYS/etc/z2k/config" \
-    && grep -q 'keep user domains' "$SYS/etc/z2k/user-lists/extra-domains.txt"; then
+    && grep -q 'keep user domains' "$SYS/etc/z2k/user-lists/extra-domains.txt" \
+    && grep -q '^enabled=1$' "$SYS/etc/z2k/state/doh.state" \
+    && grep -q '^z2kow_xbox$' "$SYS/etc/z2k/state/.doh-uci-owned" \
+    && grep -q '^https-dns-proxy$' "$SYS/etc/z2k/state/.doh-package-owned" \
+    && grep -q "https://xbox-dns.ru/dns-query" "$SYS/etc/config/https-dns-proxy"; then
     _t_ok
 else
     _t_bad "same-version reinstall did not reconverge while preserving state/settings/lists: rc=$_rc state=$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null) version=$(cat "$SYS/usr/lib/z2k/version.txt" 2>/dev/null) output=$_out"

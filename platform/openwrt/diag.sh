@@ -136,6 +136,38 @@ _ow_diag_queue_consumer() {
     case "$_cmd" in *nfqws2*) printf 'PID %s' "$_pid" ;; *) printf 'none' ;; esac
 }
 
+_ow_diag_doh_snapshot() (
+    _adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
+    [ -r "$_adapter/doh.sh" ] || exit 1
+    . "$_adapter/doh.sh" 2>/dev/null || exit 1
+    z2k_ow_doh_status 2>/dev/null
+)
+
+_ow_diag_doh_field() {
+    local _status="$1" _key="$2" _item
+    for _item in $_status; do
+        case "$_item" in
+            "$_key"=*) printf '%s' "${_item#*=}"; return 0 ;;
+        esac
+    done
+    return 1
+}
+
+print_doh() {
+    local _status _package _owner _enabled _provider _proxy _dnsmasq _force
+    _status=$(_ow_diag_doh_snapshot) || _status="state=unavailable installed=0 enabled=0 provider=xbox package_owner=external proxy=unavailable dnsmasq=unavailable force_lan_dns=0"
+    _package=$(_ow_diag_doh_field "$_status" installed); [ "$_package" = 1 ] && _package=installed || _package=absent
+    _owner=$(_ow_diag_doh_field "$_status" package_owner); [ -n "$_owner" ] || _owner=unknown
+    _enabled=$(_ow_diag_doh_field "$_status" enabled); [ "$_enabled" = 1 ] && _enabled=yes || _enabled=no
+    _provider=$(_ow_diag_doh_field "$_status" provider); [ -n "$_provider" ] || _provider=unknown
+    _proxy=$(_ow_diag_doh_field "$_status" proxy); [ -n "$_proxy" ] || _proxy=unavailable
+    _dnsmasq=$(_ow_diag_doh_field "$_status" dnsmasq); [ -n "$_dnsmasq" ] || _dnsmasq=unavailable
+    _force=$(_ow_diag_doh_field "$_status" force_lan_dns); [ "$_force" = 1 ] && _force=yes || _force=no
+    printf '\nDoH:\n'
+    printf '  package: %s\n  owner: %s\n  enabled: %s\n  provider: %s\n  proxy: %s\n  dnsmasq: %s\n  force_lan_dns: %s\n' \
+        "$_package" "$_owner" "$_enabled" "$_provider" "$_proxy" "$_dnsmasq" "$_force"
+}
+
 print_health() {
     local issues="" nfq rules warp_on tg_pid _tg_queue_failures
     local _warp_probe _warp_runtime_ready _warp_route_ready _warp_runtime_state _qnum _out_path _in_path
@@ -245,6 +277,7 @@ print_service() {
     if [ -x /etc/init.d/network ]; then printf 'netifd             : init script present\n'; else printf 'netifd             : init script unavailable\n'; fi
     if command -v uci >/dev/null 2>&1; then printf 'UCI                : available\n'; else printf 'UCI                : unavailable\n'; fi
     printf 'NFQUEUE owner      : %s\n' "$(awk -v q="$qnum" '$1==q {print $2; found=1} END {if (!found) print "absent"}' "${Z2K_NFQUEUE_PROC:-/proc/net/netfilter/nfnetlink_queue}" 2>/dev/null)"
+    print_doh
 }
 
 print_firewall() {
@@ -997,6 +1030,7 @@ print_netpath() {
 case "$1" in
     health) print_health ;;
     service) print_service ;;
+    doh) print_doh ;;
     firewall) print_firewall ;;
     tunnel) print_tunnel ;;
     warp) print_warp ;;

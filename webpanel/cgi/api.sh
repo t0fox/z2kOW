@@ -314,6 +314,7 @@ case "$method $path" in
         ow_flow=0
         [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] && ow_flow=1
         tiktok_status_json=""
+        doh_status_json=""
         if [ "$ow_flow" = 1 ] && [ "$tiktok_feed" = 1 ] \
             && [ -r "$Z2K_ROOT/platform/openwrt/tiktok.sh" ]; then
             # Read the existing runtime snapshot only. /status must never start
@@ -333,6 +334,23 @@ case "$method $path" in
                         candidate_pool|probe_observations|checkhost_cache_epoch|candidate_verified|dns_override_applied)
                             printf '%s' "$_tiktok_sep"; json_string "$_tiktok_key"; printf ':'; json_string "$_tiktok_value"
                             _tiktok_sep=,
+                            ;;
+                    esac
+                done
+                printf '}'
+            )
+        fi
+        if [ "$ow_flow" = 1 ] && [ -r "$Z2K_ROOT/platform/openwrt/doh.sh" ]; then
+            . "$Z2K_ROOT/platform/openwrt/doh.sh"
+            _doh_status=$(z2k_ow_doh_status 2>/dev/null)
+            doh_status_json=$(
+                printf '{'
+                _doh_sep=
+                printf '%s\n' "$_doh_status" | tr ' ' '\n' | while IFS='=' read -r _doh_key _doh_value; do
+                    case "$_doh_key" in
+                        state|installed|enabled|provider|package_owner|proxy|dnsmasq|force_lan_dns|reason)
+                            printf '%s' "$_doh_sep"; json_string "$_doh_key"; printf ':'; json_string "$_doh_value"
+                            _doh_sep=,
                             ;;
                     esac
                 done
@@ -383,6 +401,7 @@ case "$method $path" in
         fi
         printf '}'
         [ -n "$tiktok_status_json" ] && printf ',"tiktok_feed_status":%s' "$tiktok_status_json"
+        [ -n "$doh_status_json" ] && printf ',"doh":%s' "$doh_status_json"
         printf ',"tunnel":{"running":%s}' "${tunnel_running:-false}"
         # OpenWrt capability visibility (§18): только openwrt, Keenetic-байты
         # не меняются. shapes preserved, ключи аддитивны (фрагмент уже
@@ -520,6 +539,36 @@ case "$method $path" in
         [ "$(read_flag Z2K_TIKTOK_FEED_ENABLED "$CONFIG_FILE" 0)" = 1 ] \
             || json_fail "409 Conflict" "сначала включите исправление ленты TikTok"
         job_id=$(svc_action_async "Возвращаю автоматический выбор TikTok CDN" "tiktok_use_auto")
+        json_header
+        printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
+        exit 0
+        ;;
+
+    # ---------- OPTIONAL OPENWRT DNS OVER HTTPS ----------
+    "POST /doh/install"|"POST /doh/uninstall"|"POST /doh/enable"|\
+    "POST /doh/disable"|"POST /doh/restart"|"POST /doh/check"|"POST /doh/force-dns")
+        require_method POST
+        [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] \
+            || json_fail "404 Not Found" "DoH доступен только на OpenWrt"
+        _doh_value=""
+        if [ "$path" = /doh/force-dns ]; then
+            body=$(read_body)
+            _doh_value=$(form_value "$body" "value")
+            case "$_doh_value" in
+                0|1) ;;
+                *) json_fail "400 Bad Request" "value must be 0 or 1" ;;
+            esac
+        fi
+        case "$path" in
+            /doh/install) _doh_action=doh_install_action; _doh_label="Установка DoH" ;;
+            /doh/uninstall) _doh_action=doh_uninstall_action; _doh_label="Удаление DoH" ;;
+            /doh/enable) _doh_action=doh_enable_action; _doh_label="Включение DoH" ;;
+            /doh/disable) _doh_action=doh_disable_action; _doh_label="Выключение DoH" ;;
+            /doh/restart) _doh_action=doh_restart_action; _doh_label="Перезапуск DoH" ;;
+            /doh/check) _doh_action=doh_check_action; _doh_label="Проверка DoH" ;;
+            /doh/force-dns) _doh_action="doh_force_dns_action $_doh_value"; _doh_label="Настройка DNS для LAN" ;;
+        esac
+        job_id=$(svc_action_async "$_doh_label" "$_doh_action")
         json_header
         printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
         exit 0

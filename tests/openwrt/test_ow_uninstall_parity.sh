@@ -21,6 +21,8 @@ assert_contains "uninstall removes the single canonical release record" \
     "$REPO/platform/openwrt/uninstall.sh" 'Z2K_OW_INSTALLED_RELEASE_FILE'
 assert_contains "uninstall preserves WARP device identity" \
     "$REPO/platform/openwrt/uninstall.sh" 'device.json'
+assert_contains "uninstall uses the DoH adapter for ownership-safe cleanup" \
+    "$REPO/platform/openwrt/uninstall.sh" 'z2k_ow_doh_uninstall'
 assert_contains "uninstall does not expose a second purge mode" \
     "$REPO/platform/openwrt/uninstall.sh" 'Z2K_UNINSTALL_CONFIRMED'
 unset Z2K_OW_SYSROOT
@@ -80,7 +82,7 @@ mkdir -p "$Z2K_ROOT/platform/openwrt" "$Z2K_ETC/conf" "$Z2K_ETC/webpanel" \
     "$(dirname "$Z2K_FW4_RELOAD")" "$T/etc/rc.d" \
     "$T/www/cgi-bin" "$T/www/luci-static/resources" \
     "$(dirname "$Z2K_OW_DHCP_UCI")" || exit 1
-for _f in paths.sh env.sh release.sh release_state.sh webpanel.sh uninstall.sh; do
+for _f in paths.sh env.sh release.sh release_state.sh webpanel.sh uninstall.sh doh.sh; do
     cp "$REPO/platform/openwrt/$_f" "$Z2K_ADAPTER_DIR/$_f"
 done
 mkdir -p "$T/bin" "$T/etc/config" "$T/etc/rc.d"
@@ -159,6 +161,9 @@ z2k_ow_insta_uninstall() {
 EOF
 cat > "$Z2K_ROOT/platform/openwrt/tiktok.sh" <<'EOF'
 z2k_ow_tiktok_uninstall() { echo tiktok-cleanup >> "$Z2K_UNINSTALL_TEST_LOG"; }
+EOF
+cat > "$Z2K_ROOT/platform/openwrt/doh.sh" <<'EOF'
+z2k_ow_doh_uninstall() { echo doh-cleanup >> "$Z2K_UNINSTALL_TEST_LOG"; }
 EOF
 cat > "$Z2K_ROOT/platform/openwrt/panel.sh" <<'EOF'
 wp_panel_running() { [ -f "$Z2K_PANEL_PROCESS" ]; }

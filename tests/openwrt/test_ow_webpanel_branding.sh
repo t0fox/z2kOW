@@ -44,13 +44,33 @@ then
 else
     _t_bad "the supplied 2508×627 logo stays byte-for-byte unchanged"
 fi
-grep -Fq '<img id="brand-profile-logo"' "$REPO/webpanel/www/index.html" \
+grep -Fq '<svg id="brand-composite-logo"' "$REPO/webpanel/www/index.html" \
+    && grep -Fq 'data-brand-source' "$REPO/webpanel/www/index.html" \
     && grep -Fq '<span id="brand-wordmark"' "$REPO/webpanel/www/index.html" \
     && ! grep -qE 'brand-default-logo|ANTIDPI|KEENETIC|brand-tagline' "$REPO/webpanel/www/index.html" \
     && ! grep -Fq 'brand-logo-window' "$REPO/webpanel/www/style.css" \
-    && grep -Fq '.brand-profile-logo { display: block; width: 34px; height: 34px;' "$REPO/webpanel/www/style.css" \
+    && grep -Fq '#brand-composite-logo { display: none; width: 112px; height: 28px;' "$REPO/webpanel/www/style.css" \
+    && grep -Fq '.brand-composite #brand-composite-logo { display: block;' "$REPO/webpanel/www/style.css" \
+    && grep -Fq '.brand-composite #brand-wordmark, .brand-composite #brand-profile-logo { display: none;' "$REPO/webpanel/www/style.css" \
     && grep -Fq '.topbar { padding: 0 var(--space-16); gap: 12px; }' "$REPO/webpanel/www/style.css" \
-    && _t_ok || _t_bad "the existing shared brand slot and favicon remain unchanged"
+    && _t_ok || _t_bad "the shared brand slot uses a transparent, sidebar-sized inline SVG lockup"
+
+if node - "$REPO/webpanel/www/index.html" <<'NODE'
+const fs = require("fs");
+const html = fs.readFileSync(process.argv[2], "utf8");
+if (!html.includes('mask-type="alpha"')
+    || !html.includes('filter="url(#ow-logo-word-extract)"')
+    || !html.includes('filter="url(#ow-logo-accent-extract)"')
+    || !html.includes('fill="var(--ow-text-primary, var(--text, currentColor))"')
+    || !html.includes('fill="var(--ow-accent, var(--accent, #00BA78))"')) process.exit(1);
+if (!html.includes('window.__z2kBrandName = name;')
+    || !html.includes('brand.classList.add("brand-composite")')) process.exit(1);
+NODE
+then
+    _t_ok
+else
+    _t_bad "the logo separates original neutral and green artwork into theme-aware transparent SVG masks"
+fi
 
 if node - "$REPO/platform/openwrt/webpanel-brand/profile.json" "$REPO/webpanel/www/index.html" <<'NODE'
 const fs = require("fs");

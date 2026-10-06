@@ -36,11 +36,13 @@ export function applyBranding(status) {
   const brand = document.getElementById("panel-brand");
   const image = document.getElementById("brand-profile-logo");
   const wordmark = document.getElementById("brand-wordmark");
+  const logoSvg = document.getElementById("brand-composite-logo");
   const icon = document.getElementById("brand-favicon");
   const mask = document.getElementById("brand-mask-icon");
-  if (!brand || !image || !wordmark || !icon || !mask) return false;
+  if (!brand || !image || !wordmark || !logoSvg || !icon || !mask) return false;
 
-  image.setAttribute("src", logo);
+  logoSvg.querySelectorAll("[data-brand-source]").forEach(source => source.setAttribute("href", logo));
+  brand.classList.add("brand-composite");
   wordmark.textContent = name;
   brand.setAttribute("aria-label", name + " — " + subtitle);
   icon.setAttribute("href", favicon);

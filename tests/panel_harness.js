@@ -65,7 +65,16 @@ global.HTMLSelectElement = class HTMLSelectElement {
 global.HTMLOptGroupElement = class HTMLOptGroupElement {};
 global.HTMLOptionElement = class HTMLOptionElement {};
 if (BRAND_CASE) {
-  mockNode("panel-brand", { attributes: { "aria-label": "z2kOW" } });
+  const brandClasses = new Set();
+  const brand = mockNode("panel-brand", { attributes: { "aria-label": "z2kOW" } });
+  brand.classList.add = name => brandClasses.add(name);
+  brand.classList.contains = name => brandClasses.has(name);
+  const logoSources = [mkEl(), mkEl()];
+  mockNode("brand-composite-logo", {
+    querySelectorAll(selector) { return selector === "[data-brand-source]" ? logoSources : []; },
+  });
+  globalThis.__z2kTestLogoSources = logoSources;
+  globalThis.__z2kTestBrandClasses = brandClasses;
   mockNode("brand-profile-logo", { hidden: false, src: "/favicon.svg?v=p-86.1" });
   mockNode("brand-wordmark", { textContent: "z2kOW" });
   mockNode("brand-favicon", { href: "/favicon.svg?v=p-86.1" });
@@ -269,12 +278,15 @@ catch (e) { console.log("ЗАГРУЗКА УПАЛА: " + e.message); process.ex
     const unsafe = BRAND_CASE === "unsafe";
     const brandLink = domById.get("panel-brand");
     const profileLogo = domById.get("brand-profile-logo");
+    const logoSvg = domById.get("brand-composite-logo");
     const wordmark = domById.get("brand-wordmark");
     const favicon = domById.get("brand-favicon");
     const mask = domById.get("brand-mask-icon");
     const theme = domById.get("brand-profile-theme");
     if (profile) {
-      expect(profileLogo && profileLogo.hidden === false && profileLogo.src === "/assets/openwrt/logo.png", "OpenWrt profile updates the exact z2kOW lockup");
+      expect(logoSvg && global.__z2kTestLogoSources.every(source => source.getAttribute("href") === "/assets/openwrt/logo.png"), "OpenWrt profile supplies both SVG masks from the local artwork");
+      expect(global.__z2kTestBrandClasses.has("brand-composite"), "OpenWrt profile selects its composite logo layout");
+      expect(profileLogo && profileLogo.src === "/favicon.svg?v=p-86.1", "OpenWrt logo keeps the generic fallback image untouched");
       expect(wordmark && wordmark.textContent === "z2kOW", "OpenWrt profile updates the HTML wordmark");
       expect(brandLink && brandLink.getAttribute("aria-label") === "z2kOW — OpenWrt edition", "brand name and subtitle are accessible");
       expect(favicon && favicon.href === "/assets/openwrt/favicon.svg" && mask && mask.href === "/assets/openwrt/favicon.svg", "favicon and mask icon use the profile asset");
@@ -285,6 +297,7 @@ catch (e) { console.log("ЗАГРУЗКА УПАЛА: " + e.message); process.ex
       }
     } else if (unsafe) {
       expect(profileLogo && profileLogo.src === "/favicon.svg?v=p-86.1", "unsafe profile keeps the local default mark");
+      expect(!global.__z2kTestBrandClasses.has("brand-composite"), "unsafe profile cannot activate the composite logo");
       expect(wordmark && wordmark.textContent === "z2kOW", "unsafe profile keeps the default HTML wordmark");
       expect(favicon && favicon.href === "/favicon.svg?v=p-86.1" && mask && mask.href === "/favicon.svg?v=p-86.1", "unsafe profile cannot replace local icons");
       expect(!theme, "unsafe profile cannot load a non-local theme");
@@ -292,6 +305,7 @@ catch (e) { console.log("ЗАГРУЗКА УПАЛА: " + e.message); process.ex
       expect(global.document.title === "z2kOW · Стратегии", "rejected profile keeps the default tab brand");
     } else {
       expect(profileLogo && profileLogo.src === "/favicon.svg?v=p-86.1" && wordmark && wordmark.textContent === "z2kOW", "missing profile preserves the single default lockup");
+      expect(!global.__z2kTestBrandClasses.has("brand-composite"), "missing profile preserves the generic logo layout");
       expect(favicon && favicon.href === "/favicon.svg?v=p-86.1" && mask && mask.href === "/favicon.svg?v=p-86.1", "missing profile preserves default icons");
       expect(!theme, "missing profile does not add a theme stylesheet");
       global.location.hash = "#/strategies"; global.__nav && global.__nav();

@@ -48,6 +48,7 @@ const statusFixture = {
     au_hour: '3',
   },
   tunnel: { running: true },
+  doh: { state: 'not-installed', installed: '0', force_lan_dns: '0' },
   capabilities: { policy: false, ppe: false, tcp16: false, diag: true, warp: true, telegram: true, uninstall: false, offload: true },
 };
 const server = http.createServer(async (req, res) => {
@@ -629,13 +630,30 @@ try {
       'current release exposes a check action, not a second update system');
     assert.equal(await page.title(), 'z2kOW · Дашборд');
     assert.equal(await lockup.getAttribute('aria-label'), 'z2kOW — OpenWrt edition');
-    assert.equal(await lockup.locator('.brand-profile-logo').count(), 1, 'exactly one mark element exists');
-    assert.equal(await page.locator('.brand-profile-logo').count(), 1, 'the whole document contains exactly one brand mark');
-    assert.equal(await lockup.locator('.brand-wordmark').count(), 1, 'exactly one HTML wordmark exists');
-    assert.equal((await lockup.locator('.brand-wordmark').innerText()).replace(/\s+/g, ''), 'z2kOW');
+    assert.equal(await lockup.locator('#brand-composite-logo').count(), 1, 'exactly one composite logo exists');
+    assert.equal(await page.locator('#brand-composite-logo').count(), 1, 'the whole document contains one composite logo');
+    assert.equal(await lockup.locator('#brand-composite-logo').isVisible(), true, `${appearance}: composite logo is visible`);
+    assert.equal(await lockup.locator('#brand-profile-logo').isVisible(), false, `${appearance}: opaque fallback image is hidden`);
+    assert.equal(await lockup.locator('.brand-wordmark').isVisible(), false, `${appearance}: duplicate text lockup is hidden`);
+    assert.equal(await lockup.locator('.brand-wordmark').textContent(), 'z2kOW', 'generic fallback text remains available');
     assert.doesNotMatch(await lockup.innerText(), /keenetic|antidpi|openwrt edition/i);
-    assert.equal(await lockup.locator('.brand-profile-logo').evaluate(node => node.naturalWidth > 0), true);
-    assert.equal(await lockup.locator('.brand-profile-logo').getAttribute('src'), '/assets/openwrt/logo.png');
+    const logoRender = await lockup.locator('#brand-composite-logo').evaluate(node => {
+      const box = node.getBoundingClientRect();
+      return {
+        width: box.width, height: box.height,
+        background: getComputedStyle(node).backgroundColor,
+        ink: getComputedStyle(node.querySelector('#brand-logo-ink')).fill,
+        accent: getComputedStyle(node.querySelector('#brand-logo-accent')).fill,
+        sources: [...node.querySelectorAll('[data-brand-source]')].map(source => source.getAttribute('href')),
+      };
+    });
+    assert.deepEqual([logoRender.width, logoRender.height], [112, 28], `${appearance}: logo keeps its 4:1 source ratio in the topbar`);
+    assert.equal(logoRender.background, 'rgba(0, 0, 0, 0)', `${appearance}: logo has a transparent background`);
+    assert.equal(logoRender.ink, appearance === 'light' ? 'rgb(24, 38, 37)' : 'rgb(214, 214, 214)',
+      `${appearance}: z2k lettering follows the theme ink`);
+    assert.equal(logoRender.accent, appearance === 'light' ? 'rgb(8, 122, 112)' : 'rgb(0, 186, 120)',
+      `${appearance}: OW and the mark follow the green theme accent`);
+    assert.deepEqual(logoRender.sources, ['/assets/openwrt/logo.png', '/assets/openwrt/logo.png']);
     assert.equal(await page.locator('#brand-favicon').getAttribute('href'), '/assets/openwrt/favicon.svg');
     assert.equal(await page.locator('#brand-profile-theme').getAttribute('href'), '/assets/openwrt/theme.css');
     assert.equal(await page.locator('[data-theme-btn="' + appearance + '"]').getAttribute('aria-pressed'), 'true');
@@ -1226,7 +1244,7 @@ try {
           `${appearance}/${route}: source tab indicator follows horizontal scroll (${JSON.stringify(tabScrollMotion)})`);
         assert.equal(tabScrollMotion.marginLeft, '5px', `${appearance}/${route}: source underline has its 5 px inset`);
       }
-      assert.equal(await lockup.locator('.brand-profile-logo').count(), 1, `${appearance}: single mark on #/${route}`);
+      assert.equal(await lockup.locator('#brand-composite-logo').count(), 1, `${appearance}: single mark on #/${route}`);
       if (screenshotDir && screenshotRoutes.includes(route)) {
         await page.evaluate(() => window.scrollTo(0, 0));
         await page.mouse.move(1439, 899);
@@ -1652,8 +1670,8 @@ try {
   await loaderBlocked.goto(base + '/#/dashboard');
   await waitForRenderedRoute(loaderBlocked, 'dashboard');
   await loaderBlocked.locator('#brand-profile-theme').waitFor({ state: 'attached', timeout: 1200 });
-  assert.equal(await loaderBlocked.locator('#brand-wordmark').innerText(), 'z2kOW');
-  assert.equal(await loaderBlocked.locator('#panel-brand .brand-profile-logo').count(), 1);
+  assert.equal(await loaderBlocked.locator('#brand-composite-logo').isVisible(), true);
+  assert.equal(await loaderBlocked.locator('#panel-brand .brand-wordmark').isVisible(), false);
   for (const route of primaryRoutes) {
     await loaderBlocked.evaluate(name => { location.hash = '#/' + name; }, route);
     await waitForRenderedRoute(loaderBlocked, route);
@@ -1676,8 +1694,9 @@ try {
   await blocked.goto(base + '/#/dashboard');
   await waitForRenderedRoute(blocked, 'dashboard');
   assert.equal(await blocked.title(), 'z2kOW · Дашборд');
-  assert.equal(await blocked.locator('#panel-brand .brand-profile-logo').count(), 1);
+  assert.equal(await blocked.locator('#panel-brand .brand-profile-logo').isVisible(), true);
   assert.equal(await blocked.locator('#panel-brand .brand-wordmark').innerText(), 'z2kOW');
+  assert.equal(await blocked.locator('#brand-composite-logo').isVisible(), false);
   assert.doesNotMatch(await blocked.locator('#panel-brand').innerText(), /keenetic|antidpi/i);
   assert.ok(blockedResourceFailures.some(item => item.path.endsWith('/js/core/identity.js')
     && item.error.startsWith('net::ERR_BLOCKED_BY_CLIENT')), 'identity request must be blocked by the browser');
@@ -1694,7 +1713,10 @@ try {
   await themeBlocked.route('**/assets/openwrt/theme.css', route => route.abort('blockedbyclient'));
   await themeBlocked.goto(base + '/#/dashboard');
   await waitForRenderedRoute(themeBlocked, 'dashboard');
-  assert.equal(await themeBlocked.locator('#brand-wordmark').innerText(), 'z2kOW');
+  assert.equal(await themeBlocked.locator('#brand-composite-logo').isVisible(), true);
+  assert.equal(await themeBlocked.locator('#brand-composite-logo').evaluate(node =>
+    getComputedStyle(node.querySelector('#brand-logo-ink')).fill), 'rgb(230, 237, 243)',
+  'logo has theme-variable fallback colors if profile CSS is blocked');
   for (const route of primaryRoutes) {
     await themeBlocked.evaluate(name => { location.hash = '#/' + name; }, route);
     await waitForRenderedRoute(themeBlocked, route);
@@ -2227,6 +2249,66 @@ try {
   assert.match(failOpenText, /обычный доступ сохранён/);
   assert.doesNotMatch(failOpenText, /● Работает/);
   await failOpen.page.close();
+
+  const dohPage = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, colorScheme: 'dark' });
+  await dohPage.addInitScript(() => localStorage.setItem('z2k-theme', 'dark'));
+  dohPage.on('pageerror', error => allPageErrors.push(error.message));
+  let dohStatus = { state: 'starting', installed: '1', enabled: '1', reason: 'listener-not-ready', force_lan_dns: '0' };
+  let dohJobNumber = 0;
+  const dohActions = [];
+  dohPage.route('**/cgi-bin/api/status', route => {
+    const fixture = structuredClone(statusFixture);
+    fixture.doh = structuredClone(dohStatus);
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture) });
+  });
+  dohPage.route('**/cgi-bin/api/doh/**', async route => {
+    const endpoint = new URL(route.request().url()).pathname.split('/').pop();
+    const body = route.request().postDataJSON() || {};
+    dohActions.push({ endpoint, body });
+    if (endpoint === 'install') dohStatus = { state: 'installed-disabled', installed: '1', force_lan_dns: '0' };
+    if (endpoint === 'enable') dohStatus = { state: 'healthy', installed: '1', enabled: '1', force_lan_dns: '0' };
+    if (endpoint === 'force-dns') dohStatus.force_lan_dns = body.value;
+    dohJobNumber += 1;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, job: `doh-fixture-${dohJobNumber}` }) });
+  });
+  dohPage.route('**/cgi-bin/api/job**', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ done: true, exit: 0, status: 'done', log: 'ok' }),
+  }));
+  await dohPage.goto(`${base}/#/toggles`);
+  await waitForRenderedRoute(dohPage, 'toggles');
+  const dohCard = dohPage.locator('#doh-card');
+  assert.equal(await dohCard.isVisible(), true, 'DoH controls are shown on OpenWrt');
+  assert.match(await dohCard.innerText(), /Проверяю локальный DNS listener/);
+  assert.doesNotMatch(await dohCard.innerText(), /Установлено, но не работает/,
+    'the listener warm-up state is distinct from a degraded resolver');
+  dohStatus = { state: 'not-installed', installed: '0', force_lan_dns: '0' };
+  await dohPage.reload();
+  await waitForRenderedRoute(dohPage, 'toggles');
+  assert.match(await dohCard.innerText(), /Компонент не установлен/);
+  await dohCard.getByRole('button', { name: 'Установить DoH' }).click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-1"] #job-close').waitFor({ state: 'visible' });
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-1"] #job-close').click();
+  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('DoH выключен'));
+  await dohCard.getByRole('button', { name: 'Включить' }).click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-2"] #job-close').waitFor({ state: 'visible' });
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-2"] #job-close').click();
+  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Сервис работает'));
+  const forceDns = dohCard.locator('#doh-force-dns');
+  await forceDns.check({ force: true });
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').waitFor({ state: 'visible' });
+  assert.deepEqual(dohActions.map(action => action.endpoint), ['install', 'enable', 'force-dns']);
+  assert.equal(dohActions[2].body.value, '1', 'LAN DNS switch sends the explicit enabled value');
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').click();
+  await dohPage.waitForFunction(() => document.querySelector('#doh-force-dns')?.checked === true);
+  dohStatus = { state: 'degraded', installed: '1', enabled: '1', reason: 'dnsmasq-not-routed', force_lan_dns: '1' };
+  await dohPage.reload();
+  await waitForRenderedRoute(dohPage, 'toggles');
+  assert.match(await dohCard.innerText(), /dnsmasq не направляет запросы в локальный DoH proxy/);
+  assert.equal(await dohCard.locator('[data-doh-action="restart"]').count(), 1,
+    'degraded DoH offers a restart action');
+  assert.equal(await dohCard.locator('#doh-force-row').isVisible(), false,
+    'the independent LAN DNS switch is hidden while the route is degraded');
+  await dohPage.close();
 
   assert.deepEqual(allPageErrors, []);
   assert.deepEqual(allConsoleErrors, []);

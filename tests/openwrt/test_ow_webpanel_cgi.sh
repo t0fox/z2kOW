@@ -16,7 +16,7 @@ export PATH="$T/bin:$PATH"
 export Z2K_PANEL_EXTRA_PATH="$T/bin"
 
 # --- adapter farm (настоящие файлы слоя) ---
-for _f in paths.sh env.sh arch.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh; do
+for _f in paths.sh env.sh arch.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh doh.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
@@ -182,6 +182,7 @@ exit 0
 EOF
 chmod +x "$T/zapret2/nfq2/nfqws2"
 export Z2K_PLATFORM=openwrt Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
+export Z2K_DOH_APK_BIN="$T/bin/false" Z2K_DOH_UCI_BIN="$T/bin/false" Z2K_DOH_PROC_NET_UDP_FILE="$T/no-udp"
 export Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc" Z2K_INIT="$T/mock-init"
 export Z2K_BIN="$T/root/bin" INIT_SCRIPT="$T/mock-init" ZAPRET2_DIR="$T/zapret2" \
        Z2K_ZAPRET2_RUNTIME="$T/zapret2"
@@ -262,6 +263,25 @@ assert_eq "status: valid JSON with runtime probe" "true" "$_status_json_ok"
 assert_eq "status: platform" "openwrt" "$(_jget "$OUT" 'd["platform"]')"
 assert_eq "status: TikTok feed toggle defaults off" "0" "$(_jget "$OUT" 'd["toggles"]["tiktok_feed"]')"
 assert_eq "status: TikTok diagnostics omitted while disabled" "null" "$(_jget "$OUT" 'd.get("tiktok_feed_status")')"
+assert_eq "status: DoH is explicitly not installed on a clean OpenWrt setup" "not-installed" "$(_jget "$OUT" 'd["doh"]["state"]')"
+assert_eq "status: DoH force DNS defaults off" "0" "$(_jget "$OUT" 'd["doh"]["force_lan_dns"]')"
+_status_out="$OUT"
+printf '%s' 'value=1%3Btouch%20/tmp/z2k-doh-injection' > "$T/doh-invalid-body"
+RAW="$(_cgi POST /doh/force-dns "" "$T/doh-invalid-body")"
+assert_eq "DoH force DNS rejects injected values" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf 'url=https%3A%2F%2Fevil.example%2Fdns-query&bootstrap=127.0.0.1' > "$T/doh-install-body"
+RAW="$(_cgi POST /doh/install "" "$T/doh-install-body")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_doh_job="$(_jget "$OUT" 'd["job"]')"
+assert_eq "DoH install route returns an async job immediately" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+JOB_IDS="$JOB_IDS $_doh_job"
+_poll_job_fail "$_doh_job" "DoH install runs in an async job and fails closed when optional apk is unavailable"
+assert_not_contains "DoH install ignores browser-supplied resolver values" "$T/doh-install-body" 'https://evil.example/dns-query'
+_openwrt_platform="$Z2K_PLATFORM"
+Z2K_PLATFORM=keenetic
+RAW="$(_cgi POST /doh/install)"
+Z2K_PLATFORM="$_openwrt_platform"
+assert_eq "DoH action routes are not exposed on Keenetic" "Status: 404 Not Found" "$(printf '%s\n' "$RAW" | _cgi_status)"
+OUT="$_status_out"
 assert_eq "status: panel payload compatible" "true" "$(_jget "$OUT" 'd["payload_compatible"]')"
 assert_eq "status: policy false" "false" "$(_jget "$OUT" 'd["capabilities"]["policy"]')"
 assert_eq "status: ppe false" "false" "$(_jget "$OUT" 'd["capabilities"]["ppe"]')"
