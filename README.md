@@ -159,7 +159,7 @@ curl -fsSL https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/in
 
 Release lifecycle собирает компоненты в единый проверяемый OpenWrt payload.
 
-### Windows: если сайты висят и не открываются
+### Windows: обязательный шаг для Windows-клиентов
 
 Если на iPhone или Mac сайты открываются, а на Windows-компьютере долго грузятся и падают, включите в Windows метки времени TCP. Откройте командную строку от имени администратора и выполните:
 
