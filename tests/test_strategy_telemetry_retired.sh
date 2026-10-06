@@ -35,6 +35,8 @@ for _file in lib/config_official.sh lib/menu.sh lib/install.sh lib/release_map.s
     no_match "strategy telemetry controls and upload path are retired" "$_file" "$_pattern"
 done
 
+no_match "CLI no longer advertises the removed strategy telemetry option" lib/menu.sh 'Сбор статистики стратегий|\[C\]|,C,'
+
 no_match "release installer no longer deploys the uploader" lib/install.sh 'z2k-stats-upload'
 no_match "OpenWrt payload map no longer contains the uploader" lib/release_map.sh 'z2k-stats-upload'
 no_match "OpenWrt panel API has no stats routes or response fields" webpanel/cgi/api.sh 'stats_ack|/stats|toggle/stats|Z2K_STATS'

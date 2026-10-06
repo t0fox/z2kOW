@@ -268,7 +268,7 @@ html[data-theme="light"] { scrollbar-color: #8CA29A transparent; }
 .brand {
   position: absolute;
   left: calc(50% - 533.3px);
-  top: 2px;
+  top: 0;
   width: auto;
   height: auto;
   min-width: 0;
@@ -1001,6 +1001,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   .topbar { padding-left: 14px; padding-right: 14px; }
   .brand { position: relative; left: auto; top: auto; max-width: calc(100vw - 230px); margin-right: auto; transform: none; }
   .brand:hover { transform: none; }
+  #brand-composite-logo { height: auto; }
   #app { width: auto; max-width: none; margin: var(--topbar-h) 0 0; padding: 20px 16px 56px; }
   body[data-page="strategies"] #app { width: auto; max-width: none; }
   .page-title { font-size: 22px; line-height: 1.36; margin-bottom: 16px; }
@@ -1107,8 +1108,8 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
 }
 
 @media (max-width: 389.98px) {
-  /* Let the cropped 4.6:1 lockup shrink between the mobile menu and controls. */
-  #brand-composite-logo { width: 184px; max-width: 100%; height: auto; flex: 0 1 184px; }
+  /* Let the enlarged lockup shrink between the mobile menu and controls. */
+  #brand-composite-logo { width: 214px; max-width: 100%; flex: 0 1 214px; }
 }
 
 @media (min-width: 1092px) {

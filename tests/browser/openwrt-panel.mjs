@@ -656,10 +656,10 @@ try {
     assert.equal(brandRender.background, 'rgba(0, 0, 0, 0)',
       `${appearance}: #panel-brand has a transparent background`);
     assert.equal(brandRender.borderRadius, '0px', `${appearance}: the brand has no card radius`);
-    assert.deepEqual([brandRender.logoWidth, brandRender.logoHeight], [184, 40],
-      `${appearance}: the lockup uses the enlarged artwork size`);
-    assert.ok(Math.abs(brandRender.logoWidth / brandRender.logoHeight - (1242 / 270)) < 0.001,
-      `${appearance}: the SVG keeps the cropped source aspect ratio without stretching`);
+    assert.ok(Math.abs(brandRender.logoWidth - 214) < 1 && Math.abs(brandRender.logoHeight - 44) < 1,
+      `${appearance}: the lockup uses the roomier artwork size (${JSON.stringify(brandRender)})`);
+    assert.ok(Math.abs(brandRender.logoWidth / brandRender.logoHeight - (1166 / 240)) < 0.01,
+      `${appearance}: the SVG viewport matches the cropped source aspect ratio`);
     assert.ok(Math.abs(brandRender.width - brandRender.logoWidth) <= 1
       && Math.abs(brandRender.height - brandRender.logoHeight) <= 1,
     `${appearance}: the clickable brand box tightly fits the visible SVG (${JSON.stringify(brandRender)})`);
@@ -675,11 +675,15 @@ try {
         ink: getComputedStyle(node.querySelector('#brand-logo-ink')).fill,
         accent: getComputedStyle(node.querySelector('#brand-logo-accent')).fill,
         sources: [...node.querySelectorAll('[data-brand-source]')].map(source => source.getAttribute('href')),
+        preserveAspectRatio: node.getAttribute('preserveAspectRatio'),
         viewBox: [node.viewBox.baseVal.width, node.viewBox.baseVal.height],
       };
     });
-    assert.deepEqual([logoRender.width, logoRender.height], [184, 40], `${appearance}: enlarged logo keeps its 4.6:1 cropped ratio in the topbar`);
-    assert.deepEqual(logoRender.viewBox, [1242, 270], `${appearance}: the SVG clips only unused source canvas around the artwork`);
+    assert.ok(Math.abs(logoRender.width - 214) < 1 && Math.abs(logoRender.height - 44) < 1,
+      `${appearance}: roomier logo keeps the cropped source ratio in the topbar`);
+    assert.deepEqual(logoRender.viewBox, [1166, 240], `${appearance}: the SVG clips only unused source canvas around the artwork`);
+    assert.equal(logoRender.preserveAspectRatio, 'xMidYMid meet',
+      `${appearance}: cropped artwork preserves its intrinsic proportions without stretching`);
     assert.equal(logoRender.background, 'rgba(0, 0, 0, 0)', `${appearance}: logo has a transparent background`);
     assert.equal(logoRender.ink, appearance === 'light' ? 'rgb(24, 38, 37)' : 'rgb(214, 214, 214)',
       `${appearance}: z2k lettering follows the theme ink`);
@@ -715,8 +719,8 @@ try {
         height: (bottom - top + 1) / viewBox.height * box.height,
       };
     });
-    assert.ok(visibleInk.width >= 165 && visibleInk.height >= 32,
-      `${appearance}: the source artwork fills the lockup at a useful size (${JSON.stringify(visibleInk)})`);
+    assert.ok(visibleInk.width >= 205 && visibleInk.height >= 40,
+      `${appearance}: the source artwork fills the enlarged lockup at a useful size (${JSON.stringify(visibleInk)})`);
     assert.deepEqual(logoRender.sources, ['/assets/openwrt/logo.png', '/assets/openwrt/logo.png']);
     assert.equal(await page.locator('#brand-favicon').getAttribute('href'), '/assets/openwrt/favicon.svg');
     assert.equal(await page.locator('#brand-profile-theme').getAttribute('href'), '/assets/openwrt/theme.css');
@@ -795,9 +799,9 @@ try {
       `the main column begins directly below the single 44 px header (${JSON.stringify(desktopFrame)})`);
     assert.ok(Math.abs(desktopFrame.brandX - desktopFrame.firstMenuItemX) < 1,
       `the z2kOW lockup aligns with the first sidebar item (${JSON.stringify(desktopFrame)})`);
-    assert.ok(Math.abs(desktopFrame.brandY - 2) < 1 && Math.abs(desktopFrame.brandWidth - 184) < 1
-      && Math.abs(desktopFrame.brandHeight - 40) < 1,
-    `the clickable brand box fits the 184×40 lockup at the center of the 44 px topbar (${JSON.stringify(desktopFrame)})`);
+    assert.ok(Math.abs(desktopFrame.brandY) < 1 && Math.abs(desktopFrame.brandWidth - 214) < 1
+      && Math.abs(desktopFrame.brandHeight - 44) < 1,
+    `the clickable brand box fits the enlarged 214×44 lockup in the 44 px topbar (${JSON.stringify(desktopFrame)})`);
     assert.equal(await page.locator('#header-nav, #route-recents').count(), 0,
       'the header has no duplicated route-navigation rows');
     assert.ok(Math.abs(desktopFrame.utilityRight - (desktopFrame.appRight - 98)) < 2,
