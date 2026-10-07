@@ -209,6 +209,28 @@ z2k_ow_offload_benchmark_spread_pct() {
         | awk '{a[NR]=$1}END{if(NR%2)printf "%.8f",a[(NR+1)/2];else printf "%.8f",(a[NR/2]+a[NR/2+1])/2}')
     awk -v mad="$_mad" -v median="$_median" 'BEGIN{if(median>0)printf "%.1f",100*mad/median;else print "null"}'
 }
+z2k_ow_offload_benchmark_run_range_pct() {
+    local _mode="$1" _metric="$2" _i _v _median
+    set --
+    for _i in 1 2 3 4 5; do
+        _v=$(sed -n "s/^${_metric}=//p" "$(z2k_ow_offload_benchmark_session_dir)/samples/${_mode}-$_i" 2>/dev/null)
+        [ -n "$_v" ] && [ "$(z2k_ow_offload_benchmark_number_or_null "$_v")" != null ] && set -- "$@" "$_v"
+    done
+    [ "$#" -eq 5 ] || { printf null; return; }
+    _median=$(z2k_ow_offload_benchmark_median "$@")
+    printf '%s\n' "$@" | awk -v median="$_median" 'NR==1{lo=$1;hi=$1}{if($1<lo)lo=$1;if($1>hi)hi=$1}END{if(median>0)printf "%.1f",100*(hi-lo)/median;else print "null"}'
+}
+z2k_ow_offload_benchmark_outlier_count_pct() {
+    local _mode="$1" _metric="$2" _threshold="${3:-10}" _i _v _median
+    set --
+    for _i in 1 2 3 4 5; do
+        _v=$(sed -n "s/^${_metric}=//p" "$(z2k_ow_offload_benchmark_session_dir)/samples/${_mode}-$_i" 2>/dev/null)
+        [ -n "$_v" ] && [ "$(z2k_ow_offload_benchmark_number_or_null "$_v")" != null ] && set -- "$@" "$_v"
+    done
+    [ "$#" -eq 5 ] || { printf null; return; }
+    _median=$(z2k_ow_offload_benchmark_median "$@")
+    printf '%s\n' "$@" | awk -v median="$_median" -v threshold="$_threshold" 'BEGIN{if(median<=0){print "null";exit}}{d=$1-median;if(d<0)d=-d;if(100*d/median>threshold)n++}END{if(median>0)print n+0}'
+}
 z2k_ow_offload_benchmark_run_count() {
     local _mode="$1" _i _n=0
     for _i in 1 2 3 4 5; do [ -s "$(z2k_ow_offload_benchmark_session_dir)/samples/${_mode}-$_i" ] && _n=$((_n+1)); done
@@ -276,7 +298,7 @@ z2k_ow_offload_benchmark_system_json() {
         "$(z2k_ow_offload_benchmark_json_text "$_wan")"
 }
 z2k_ow_offload_benchmark_write_result() {
-    local _status="$1" _message="$2" _root _mode _metric _sep _i _file _k _actual _runs _dl _sw _hw _recommendation _reason _du _su _dc _sc _hu _hc _hd _hvs _hobs _sqm _pbr _warp _unstable _complete _accepted _sd _scd _hcd _spread _restored
+    local _status="$1" _message="$2" _root _mode _metric _sep _i _file _k _actual _runs _dl _sw _hw _recommendation _reason _du _su _dc _sc _hu _hc _hd _hvs _hobs _sqm _pbr _warp _unstable _complete _accepted _sd _scd _hcd _spread _outliers _restored
     _root=$(z2k_ow_offload_benchmark_root); mkdir -p "$_root"
     _dl=$(z2k_ow_offload_benchmark_result_value none download_mbps)
     _sw=$(z2k_ow_offload_benchmark_result_value software download_mbps)
@@ -307,7 +329,9 @@ z2k_ow_offload_benchmark_write_result() {
     for _mode in none software hardware; do
         for _metric in download_mbps upload_mbps; do
             _spread=$(z2k_ow_offload_benchmark_spread_pct "$_mode" "$_metric")
-            if [ "$_spread" != null ] && awk -v n="$_spread" 'BEGIN{exit !(n>15)}'; then _unstable=true; fi
+            _outliers=$(z2k_ow_offload_benchmark_outlier_count_pct "$_mode" "$_metric" 10)
+            if { [ "$_spread" != null ] && awk -v n="$_spread" 'BEGIN{exit !(n>15)}'; } \
+                || { [ "$_outliers" != null ] && [ "$_outliers" -gt 1 ] 2>/dev/null; }; then _unstable=true; fi
         done
     done
     _complete=false
@@ -319,7 +343,7 @@ z2k_ow_offload_benchmark_write_result() {
     _accepted=false
     [ "$_status" = completed ] && [ "$_complete" = true ] && [ "$_unstable" = false ] && [ "$_restored" = true ] && _accepted=true
     {
-        printf '{"schema":1,"status":"%s","timestamp":"%s","system":%s,"provider":"cloudflare","server":"speed.cloudflare.com","original_mode":"%s","restored":%s,"message":"%s","modes":{' \
+        printf '{"schema":1,"stability_rule":"two_of_five_over_10pct","status":"%s","timestamp":"%s","system":%s,"provider":"cloudflare","server":"speed.cloudflare.com","original_mode":"%s","restored":%s,"message":"%s","modes":{' \
             "$_status" "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')" \
             "$(z2k_ow_offload_benchmark_system_json)" \
             "$(z2k_ow_offload_benchmark_field initial_mode 2>/dev/null)" \
@@ -341,7 +365,10 @@ z2k_ow_offload_benchmark_write_result() {
                 fi
                 _i=$((_i+1))
             done
-            printf '],"available":%s' "$([ -n "$_runs" ] && printf true || printf false)"
+            printf '],"available":%s,"run_range_pct":{"download":%s,"upload":%s}' \
+                "$([ -n "$_runs" ] && printf true || printf false)" \
+                "$(z2k_ow_offload_benchmark_run_range_pct "$_mode" download_mbps)" \
+                "$(z2k_ow_offload_benchmark_run_range_pct "$_mode" upload_mbps)"
             for _k in download_mbps upload_mbps cpu_avg cpu_peak idle_ms download_loaded_ms upload_loaded_ms jitter_ms loss_pct duration_s; do
                 printf ',"%s":%s' "$_k" "$(z2k_ow_offload_benchmark_result_value "$_mode" "$_k")"
             done
@@ -352,12 +379,16 @@ z2k_ow_offload_benchmark_write_result() {
             esac
             printf '}'; _sep=,
         done
-        printf '},"comparisons":{"software_vs_none":{"download_pct":%s,"upload_pct":%s,"cpu_pct":%s},"hardware_vs_none":{"download_pct":%s,"upload_pct":%s,"cpu_pct":%s},"hardware_vs_software":{"download_pct":%s,"upload_pct":%s,"cpu_pct":%s}},' \
-            "$(z2k_ow_offload_benchmark_delta_pct "$_dl" "$_sw")" "$(z2k_ow_offload_benchmark_delta_pct "$_du" "$_su")" "$(z2k_ow_offload_benchmark_delta_pct "$_dc" "$_sc")" \
-            "$(z2k_ow_offload_benchmark_delta_pct "$_dl" "$_hw")" "$(z2k_ow_offload_benchmark_delta_pct "$_du" "$_hu")" "$(z2k_ow_offload_benchmark_delta_pct "$_dc" "$_hc")" \
-            "$_hvs" "$(z2k_ow_offload_benchmark_delta_pct "$_su" "$_hu")" "$(z2k_ow_offload_benchmark_delta_pct "$_sc" "$_hc")"
+        if [ "$_accepted" = true ]; then
+            printf '},"comparisons":{"software_vs_none":{"download_pct":%s,"upload_pct":%s,"cpu_pct":%s},"hardware_vs_none":{"download_pct":%s,"upload_pct":%s,"cpu_pct":%s},"hardware_vs_software":{"download_pct":%s,"upload_pct":%s,"cpu_pct":%s}},' \
+                "$(z2k_ow_offload_benchmark_delta_pct "$_dl" "$_sw")" "$(z2k_ow_offload_benchmark_delta_pct "$_du" "$_su")" "$(z2k_ow_offload_benchmark_delta_pct "$_dc" "$_sc")" \
+                "$(z2k_ow_offload_benchmark_delta_pct "$_dl" "$_hw")" "$(z2k_ow_offload_benchmark_delta_pct "$_du" "$_hu")" "$(z2k_ow_offload_benchmark_delta_pct "$_dc" "$_hc")" \
+                "$_hvs" "$(z2k_ow_offload_benchmark_delta_pct "$_su" "$_hu")" "$(z2k_ow_offload_benchmark_delta_pct "$_sc" "$_hc")"
+        else
+            printf '},"comparisons":{"software_vs_none":{"download_pct":null,"upload_pct":null,"cpu_pct":null},"hardware_vs_none":{"download_pct":null,"upload_pct":null,"cpu_pct":null},"hardware_vs_software":{"download_pct":null,"upload_pct":null,"cpu_pct":null}},'
+        fi
         printf '"validity":{"complete":%s,"unstable":%s,"accepted":%s,"warnings":["Внешний тест зависит от Cloudflare, маршрута и провайдера"' "$_complete" "$_unstable" "$_accepted"
-        [ "$_unstable" = false ] || printf ',"Разброс загрузки или отдачи превышает 15%%; сравнение может быть неточным"'
+        [ "$_unstable" = false ] || printf ',"Повторные измерения загрузки или отдачи нестабильны: минимум два прогона отклоняются от медианы более чем на 10%%"'
         case "$_sqm" in
             confirmed) printf ',"SQM работает; hardware offload может обходить его обработку"' ;;
             possible-risk) printf ',"SQM настроен; проверьте сохранение queueing при аппаратном offload"' ;;
@@ -468,7 +499,8 @@ z2k_ow_offload_benchmark_status_json() {
     case "$_status" in starting|applying|awaiting_sample|restoring) _active=true ;; esac
     _result="$(z2k_ow_offload_benchmark_root)/last-result.json"
     _last_success="$(z2k_ow_offload_benchmark_root)/last-success.json"
-    if grep -q '"accepted":true' "$_last_success" 2>/dev/null; then
+    if grep -q '"accepted":true' "$_last_success" 2>/dev/null \
+        && grep -q '"stability_rule":"two_of_five_over_10pct"' "$_last_success" 2>/dev/null; then
         _last_success_timestamp=$(sed -n 's/.*"timestamp":"\([^"]*\)".*/\1/p' "$_last_success" 2>/dev/null | head -1)
     else
         _last_success_timestamp=
@@ -478,16 +510,17 @@ z2k_ow_offload_benchmark_status_json() {
         "${_status:-idle}" "$(z2k_ow_offload_benchmark_field mode 2>/dev/null)" \
         "$(z2k_ow_offload_benchmark_number_or_null "$(z2k_ow_offload_benchmark_field trial 2>/dev/null)")" \
         "$(z2k_ow_offload_benchmark_field nonce 2>/dev/null)" "$(z2k_ow_offload_benchmark_field provider 2>/dev/null)"
-    if [ -s "$_result" ]; then cat "$_result"; else printf null; fi
+    if [ -s "$_result" ] && grep -q '"stability_rule":"two_of_five_over_10pct"' "$_result" 2>/dev/null; then cat "$_result"; else printf null; fi
     printf ',"last_success_timestamp":"%s"}\n' "$_last_success_timestamp"
 }
 z2k_ow_offload_benchmark_result_json() {
     local _f="$(z2k_ow_offload_benchmark_root)/last-result.json"
-    if [ -s "$_f" ]; then cat "$_f"; else printf '{"ok":true,"result":null}\n'; fi
+    if [ -s "$_f" ] && grep -q '"stability_rule":"two_of_five_over_10pct"' "$_f" 2>/dev/null; then cat "$_f"; else printf '{"ok":true,"result":null}\n'; fi
 }
 z2k_ow_offload_benchmark_last_success_json() {
     local _f="$(z2k_ow_offload_benchmark_root)/last-success.json"
-    if [ -s "$_f" ] && grep -q '"accepted":true' "$_f" 2>/dev/null; then cat "$_f"; else printf 'null\n'; fi
+    if [ -s "$_f" ] && grep -q '"accepted":true' "$_f" 2>/dev/null \
+        && grep -q '"stability_rule":"two_of_five_over_10pct"' "$_f" 2>/dev/null; then cat "$_f"; else printf 'null\n'; fi
 }
 
 # One compact API route keeps platform-specific workflow out of the common CGI

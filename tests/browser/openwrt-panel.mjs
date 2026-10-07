@@ -2253,18 +2253,27 @@ try {
   let latestBenchmarkStatus = null;
   const fixtureResult = {
     status: 'completed', timestamp: '2026-10-07T10:00:00Z', recommendation: 'software',
-    validity: { complete: true, warnings: ['Внешний тест зависит от Cloudflare'] },
+    validity: { complete: true, unstable: false, accepted: true, warnings: ['Внешний тест зависит от Cloudflare'] },
+    comparisons: {
+      software_vs_none: { download_pct: 100, upload_pct: -78, cpu_pct: 17 },
+      hardware_vs_software: { download_pct: null, upload_pct: null, cpu_pct: null },
+    },
     system: { router_model: 'Fixture Router', openwrt_version: 'OpenWrt 24.10', z2kow_version: 'p-86.14', wan_interface: 'wan0' },
     modes: Object.fromEntries(['none', 'software', 'hardware'].map(mode => [mode, {
       available: mode !== 'hardware', download_mbps: mode === 'software' ? 120 : 60,
       upload_mbps: 30, cpu_avg: 25, cpu_peak: 41, idle_ms: 9,
       download_loaded_ms: 18, upload_loaded_ms: 21, jitter_ms: 2, loss_pct: 0,
-      offload_observed: mode === 'software', runs: [{ download_mbps: 59 }, { download_mbps: 60 }, { download_mbps: 61 }],
+      offload_observed: mode === 'software', run_range_pct: { download: 3.3, upload: 3.3 },
+      runs: [
+        { download_mbps: 59, upload_mbps: 29, download_loaded_ms: 17, upload_loaded_ms: 20 },
+        { download_mbps: 60, upload_mbps: 30, download_loaded_ms: 18, upload_loaded_ms: 21 },
+        { download_mbps: 61, upload_mbps: 31, download_loaded_ms: 19, upload_loaded_ms: 22 },
+      ],
     }])),
   };
   await healthy.page.route(/\/cgi-bin\/api\/offload\/benchmark\?view=status$/, route => {
     latestBenchmarkStatus = showLastSuccessFallback
-      ? { ok: true, active: false, status: 'failed', result: { ...fixtureResult, status: 'failed', timestamp: '2026-10-07T11:00:00Z', recommendation: null, message: 'endpoint failed' }, last_success_timestamp: fixtureResult.timestamp }
+      ? { ok: true, active: false, status: 'failed', result: { ...fixtureResult, status: 'failed', validity: { ...fixtureResult.validity, complete: false, accepted: false }, timestamp: '2026-10-07T11:00:00Z', recommendation: null, message: 'endpoint failed' }, last_success_timestamp: fixtureResult.timestamp }
       : resumedSample
         ? { ok: true, active: false, status: 'completed', result: fixtureResult }
         : { ok: true, active: true, session: 'session-fixture', token: 'token-fixture', status: 'awaiting_sample',
@@ -2295,10 +2304,23 @@ try {
     'reload resumes the pending browser test and submits measured transfer rates');
   assert.ok(Number.isFinite(Number(resumedSample.idle_ms)) && Number.isFinite(Number(resumedSample.duration_s)));
   assert.match(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Рекомендуется: Программное/);
+  assert.match(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Программное против отключённого/,
+    'accepted benchmark shows its percentage comparison');
+  await healthy.page.locator('#flowoffload-benchmark-result details > summary').click();
+  const benchmarkDetails = await healthy.page.locator('#flowoffload-benchmark-result').innerText();
+  assert.match(benchmarkDetails, /↑ 29 Mbps \/ 30 Mbps \/ 31 Mbps/,
+    'benchmark diagnostics show every raw upload trial');
+  assert.match(benchmarkDetails, /Ping ↓ 17 ms \/ 18 ms \/ 19 ms/,
+    'benchmark diagnostics show every loaded-latency trial');
+  assert.match(benchmarkDetails, /Размах: ↓ 3,3% · ↑ 3,3%/,
+    'benchmark diagnostics show the measured download and upload ranges');
   showLastSuccessFallback = true;
   await healthy.page.reload();
   await waitForCondition(() => latestBenchmarkStatus?.status === 'failed', 'failed benchmark history response');
-  await healthy.page.waitForFunction(() => document.querySelector('#flowoffload-benchmark-status')?.innerText.includes('Последняя успешная серия'));
+  await healthy.page.waitForFunction(() => document.querySelector('#flowoffload-benchmark-result')?.dataset.signature?.includes('endpoint failed'));
+  assert.doesNotMatch(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Программное против отключённого/,
+    'incomplete benchmark hides percentage comparisons');
+  await healthy.page.waitForFunction(() => document.querySelector('#flowoffload-benchmark-status')?.innerText.includes('Последняя принятая стабильная серия'));
   const lastSuccess = healthy.page.locator('#flowoffload-benchmark-last-success');
   const lastSuccessDebug = await healthy.page.evaluate(() => ({
     status: document.querySelector('#flowoffload-benchmark-status')?.textContent,

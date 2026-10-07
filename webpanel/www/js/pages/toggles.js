@@ -897,15 +897,24 @@ function flowBenchmarkResultMarkup(result) {
     return Math.abs(n) < 5 ? "≈0%" : `${n > 0 ? "+" : "−"}${Math.abs(n)}%`;
   };
   const comparisons = result.comparisons || {};
-  const comparisonMarkup = [
+  const comparisonMarkup = result.validity?.complete === true && result.validity?.unstable !== true && result.validity?.accepted === true ? [
     ["Программное против отключённого", comparisons.software_vs_none],
     ["Аппаратное против программного", comparisons.hardware_vs_software],
-  ].filter(([, values]) => values).map(([title, values]) => `<div class="flow-benchmark-comparison"><strong>${title}</strong><span>↓ ${delta(values.download_pct)} · ↑ ${delta(values.upload_pct)} · CPU ${delta(values.cpu_pct)}</span></div>`).join("");
+  ].filter(([, values]) => values).map(([title, values]) => `<div class="flow-benchmark-comparison"><strong>${title}</strong><span>↓ ${delta(values.download_pct)} · ↑ ${delta(values.upload_pct)} · CPU ${delta(values.cpu_pct)}</span></div>`).join("") : "";
   const diagnostics = ["none", "software", "hardware"].map(mode => {
-    const runs = result.modes[mode]?.runs || [];
-    const values = runs.map(run => flowBenchmarkValue(run.download_mbps, " Mbps")).join(" / ") || "нет прогонов";
+    const modeResult = result.modes[mode] || {};
+    const runs = modeResult.runs || [];
+    const series = (key, suffix) => runs.map(run => flowBenchmarkValue(run[key], suffix)).join(" / ") || "нет прогонов";
+    const range = modeResult.run_range_pct || {};
+    const values = [
+      `↓ ${series("download_mbps", " Mbps")}`,
+      `↑ ${series("upload_mbps", " Mbps")}`,
+      `Ping ↓ ${series("download_loaded_ms", " ms")}`,
+      `Ping ↑ ${series("upload_loaded_ms", " ms")}`,
+      `Размах: ↓ ${flowBenchmarkValue(range.download, "%")} · ↑ ${flowBenchmarkValue(range.upload, "%")}`,
+    ].join(" · ");
     const observed = result.modes[mode]?.offload_observed === true ? "наблюдался" : "не привязан к замеру";
-    return `<div class="flow-fact"><span class="flow-fact-label">${labels[mode]}</span><span class="flow-fact-value">${escapeHtml(values)} · ${observed}</span></div>`;
+    return `<div class="flow-fact"><span class="flow-fact-label">${labels[mode]}</span><span class="flow-fact-value">${escapeHtml(values)} · offload ${observed}</span></div>`;
   }).join("");
   const system = result.system || {};
   const systemLabels = { router_model: "Модель роутера", openwrt_version: "OpenWrt", z2kow_version: "z2kOW", wan_interface: "WAN интерфейс" };
@@ -1342,7 +1351,7 @@ export async function renderToggles() {
         <details class="flow-technical disclosure flow-benchmark-method">
           <summary>Методика и ограничения</summary>
           <div class="disclosure-body"><div class="flow-technical-body">
-            <p class="flow-benchmark-note">Перед каждым режимом выполняется warm-up, затем три прогона с одинаковыми параметрами. Конфигурация временно переключается на none → software → hardware и восстанавливается после завершения, ошибки или остановки. Hardware пропускается, если flowtable не применился. Сам факт флага не считается доказательством: проверяются conntrack-маркеры под трафиком.</p>
+            <p class="flow-benchmark-note">Проводятся пять сбалансированно чередуемых раундов с одинаковыми параметрами; показаны сырые результаты и полный размах. Серия отклоняется при двух и более прогонах, которые отклоняются от медианы загрузки или отдачи более чем на 10%. Конфигурация временно переключается и восстанавливается после завершения, ошибки или остановки. Hardware пропускается, если flowtable не применился.</p>
             <p class="flow-benchmark-note">Результат зависит от Cloudflare, провайдера и маршрута. Потери отражают только неуспешные HTTP-пробы. Тест iperf3 с роутера здесь не включён: исходящие с самого роутера потоки не проходят через forwarding flowtable и не измеряют FLOWOFFLOAD.</p>
           </div></div>
         </details>

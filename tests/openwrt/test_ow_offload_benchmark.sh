@@ -49,6 +49,14 @@ printf '%s\n' '{"status":"completed","timestamp":"legacy","validity":{"complete"
 assert_eq "legacy unstable result is not exposed as accepted history" null "$(z2k_ow_offload_benchmark_last_success_json)"
 z2k_ow_offload_benchmark_status_json > "$T/status.json"
 assert_contains "legacy unstable result has no accepted timestamp" "$T/status.json" '"last_success_timestamp":""'
+printf '%s\n' '{"status":"completed","timestamp":"old-rule","validity":{"complete":true,"unstable":false,"accepted":true}}' \
+    > "$T/state/flowoffload-benchmark/last-success.json"
+assert_eq "pre-rule accepted result is not exposed as stable history" null "$(z2k_ow_offload_benchmark_last_success_json)"
+cp "$T/state/flowoffload-benchmark/last-success.json" "$T/state/flowoffload-benchmark/last-result.json"
+assert_eq "pre-rule result is not exposed through the result API" '{"ok":true,"result":null}' "$(z2k_ow_offload_benchmark_result_json)"
+z2k_ow_offload_benchmark_status_json > "$T/status.json"
+assert_contains "pre-rule accepted result has no current-rule timestamp" "$T/status.json" '"last_success_timestamp":""'
+assert_contains "pre-rule result is not exposed through status API" "$T/status.json" '"result":null'
 printf '%s\n' 'Fixture File Router' > "$T/model"
 printf "%s\n" "DISTRIB_DESCRIPTION='OpenWrt 24.10 file fixture'" > "$T/openwrt_release"
 printf '%s\n' 'tag=p-86.14-file' > "$T/installed-release"
@@ -105,6 +113,10 @@ z2k_ow_offload_benchmark_wait_sample() {
     if [ "${BENCH_UPLOAD_NOISY:-}" = 1 ]; then
         case "$1:$2" in none:1) _upload=15 ;; none:2) _upload=40 ;; none:3) _upload=85 ;; none:4) _upload=20 ;; none:5) _upload=80 ;; software:1) _upload=20 ;; software:2) _upload=50 ;; software:3) _upload=90 ;; software:4) _upload=25 ;; software:5) _upload=80 ;; hardware:1) _upload=15 ;; hardware:2) _upload=40 ;; hardware:3) _upload=85 ;; hardware:4) _upload=20 ;; hardware:5) _upload=80 ;; esac
     fi
+    if [ "${BENCH_TWO_OUTLIERS:-}" = 1 ]; then
+        case "$1:$2" in software:3) _download=88 ;; software:4) _download=89 ;; esac
+    fi
+    if [ "${BENCH_SINGLE_OUTLIER:-}" = 1 ] && [ "$1:$2" = software:5 ]; then _download=85; fi
     printf 'download_mbps=%s\nupload_mbps=%s\nidle_ms=8\ndownload_loaded_ms=20\nupload_loaded_ms=24\njitter_ms=2\nloss_pct=0\nduration_s=4\nserver=cloudflare\n' "$_download" "$_upload"
 }
 z2k_ow_offload_benchmark_cpu_monitor() {
@@ -118,7 +130,7 @@ uci() {
 run_case() {
     _case="$1"
     _preserved_success=
-    if [ "$_case" = error-after-success ] || [ "$_case" = noisy ] || [ "$_case" = noisy-upload ]; then
+    if [ "$_case" = error-after-success ] || [ "$_case" = noisy ] || [ "$_case" = noisy-upload ] || [ "$_case" = two-outliers ]; then
       if [ -s "$T/state/flowoffload-benchmark/last-success.json" ]; then
         _preserved_success="$T/last-success-preserved.json"
         cp "$T/state/flowoffload-benchmark/last-success.json" "$_preserved_success"
@@ -132,7 +144,7 @@ run_case() {
     fi
     printf 'FLOWOFFLOAD=software\n' > "$Z2K_CONFIG"
     BENCH_SAMPLE_FAIL_ON="" BENCH_STOP_ON_SAMPLE="" BENCH_APPLY_FAIL="" BENCH_HW_UNSUPPORTED=""
-    BENCH_HARDWARE_FAST="" BENCH_CPU_UNKNOWN="" BENCH_SQM="" BENCH_NOISY="" BENCH_UPLOAD_NOISY=""
+    BENCH_HARDWARE_FAST="" BENCH_CPU_UNKNOWN="" BENCH_SQM="" BENCH_NOISY="" BENCH_UPLOAD_NOISY="" BENCH_TWO_OUTLIERS="" BENCH_SINGLE_OUTLIER=""
     case "$_case" in
         success) ;;
         error|error-after-success) BENCH_SAMPLE_FAIL_ON="software:2" ;;
@@ -145,9 +157,11 @@ run_case() {
         cpu-unknown) BENCH_CPU_UNKNOWN=1 ;;
         noisy) BENCH_HARDWARE_FAST=1; BENCH_NOISY=1 ;;
         noisy-upload) BENCH_HARDWARE_FAST=1; BENCH_UPLOAD_NOISY=1 ;;
+        two-outliers) BENCH_TWO_OUTLIERS=1 ;;
+        single-outlier) BENCH_SINGLE_OUTLIER=1 ;;
     esac
     export BENCH_SAMPLE_FAIL_ON BENCH_STOP_ON_SAMPLE BENCH_APPLY_FAIL BENCH_HW_UNSUPPORTED \
-        BENCH_HARDWARE_FAST BENCH_CPU_UNKNOWN BENCH_SQM BENCH_NOISY BENCH_UPLOAD_NOISY
+        BENCH_HARDWARE_FAST BENCH_CPU_UNKNOWN BENCH_SQM BENCH_NOISY BENCH_UPLOAD_NOISY BENCH_TWO_OUTLIERS BENCH_SINGLE_OUTLIER
     if [ "$_case" = hardware-conflict ]; then
         cat > "$T/sqm-active" <<'EOF'
 #!/bin/sh
@@ -169,6 +183,7 @@ EOF
             assert_eq "success: worker exits zero" "0" "$_rc"
             assert_eq "success: final status completed" "completed" "$(z2k_ow_offload_benchmark_field status)"
             assert_contains "success: result has real fixture measurements" "$T/state/flowoffload-benchmark/last-result.json" '"download_mbps":100'
+            assert_contains "success: acceptance records the active stability rule" "$T/state/flowoffload-benchmark/last-result.json" '"stability_rule":"two_of_five_over_10pct"'
             assert_contains "success: software and hardware modes are present" "$T/state/flowoffload-benchmark/last-result.json" '"software":{"runs":[{'
             assert_contains "success: sub-noise differences produce no winner" "$T/state/flowoffload-benchmark/last-result.json" '"recommendation":null'
             assert_contains "success: stable complete series is accepted" "$T/state/flowoffload-benchmark/last-result.json" '"accepted":true'
@@ -179,6 +194,7 @@ EOF
         error|error-after-success)
             assert_ne "error: worker reports failure" "0" "$_rc"
             assert_eq "error: final status failed" "failed" "$(z2k_ow_offload_benchmark_field status)"
+            assert_contains "error: incomplete series has no percentage comparisons" "$T/state/flowoffload-benchmark/last-result.json" '"software_vs_none":{"download_pct":null,"upload_pct":null,"cpu_pct":null}'
             if [ "$_case" = error-after-success ]; then
                 cmp -s "$_preserved_success" "$T/state/flowoffload-benchmark/last-success.json" && _t_ok || _t_bad "error: failed attempt preserves last successful result"
             fi
@@ -223,6 +239,18 @@ EOF
             assert_contains "noisy-upload: no performance recommendation is emitted" "$T/state/flowoffload-benchmark/last-result.json" '"recommendation":null'
             cmp -s "$_preserved_success" "$T/state/flowoffload-benchmark/last-success.json" && _t_ok || _t_bad "noisy-upload: unstable series is not recorded as a last successful benchmark"
             ;;
+        two-outliers)
+            assert_contains "two-outliers: repeated deviations beyond 10% make series unstable" "$T/state/flowoffload-benchmark/last-result.json" '"unstable":true'
+            assert_contains "two-outliers: unstable series is rejected" "$T/state/flowoffload-benchmark/last-result.json" '"accepted":false'
+            assert_contains "two-outliers: unstable series has no recommendation" "$T/state/flowoffload-benchmark/last-result.json" '"recommendation":null'
+            assert_contains "two-outliers: unstable series has no percentage comparisons" "$T/state/flowoffload-benchmark/last-result.json" '"software_vs_none":{"download_pct":null,"upload_pct":null,"cpu_pct":null}'
+            assert_contains "two-outliers: full download range is retained in result" "$T/state/flowoffload-benchmark/last-result.json" '"run_range_pct":{"download":12.0,"upload":0.0}'
+            cmp -s "$_preserved_success" "$T/state/flowoffload-benchmark/last-success.json" && _t_ok || _t_bad "two-outliers: unstable series is not recorded as a last successful benchmark"
+            ;;
+        single-outlier)
+            assert_contains "single-outlier: one deviation is tolerated by the robust stability check" "$T/state/flowoffload-benchmark/last-result.json" '"accepted":true'
+            assert_contains "single-outlier: full range remains visible" "$T/state/flowoffload-benchmark/last-result.json" '"run_range_pct":{"download":15.0,"upload":0.0}'
+            ;;
     esac
 }
 
@@ -238,6 +266,8 @@ run_case hardware-unobserved
 run_case cpu-unknown
 run_case noisy
 run_case noisy-upload
+run_case two-outliers
+run_case single-outlier
 run_case success
 
 printf 'FLOWOFFLOAD=software\n' > "$Z2K_CONFIG"
