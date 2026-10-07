@@ -653,4 +653,37 @@ rm -f "$Z2K_DOH_APK_DEL_FAIL_FILE"
 z2k_ow_doh_uninstall 1 || _t_bad "Remove can retry after apk del failure"
 assert_not_contains "successful retry leaves the package absent" "$Z2K_DOH_PACKAGE_FILE" 'installed'
 
+# Removal is complete once the package, service, and generated listener routes
+# are gone. A loopback DNS probe is not a removal prerequisite: after apk del
+# this router may not answer on 127.0.0.1:53, which previously turned a
+# successful purge into a failed job and left stale ownership receipts behind.
+rm -f "$T/state"/.doh-* "$T/state"/doh.* "$Z2K_DOH_PACKAGE_FILE" \
+    "$Z2K_DOH_RUNNING_FILE" "$Z2K_DOH_ENABLED_FILE"
+: > "$Z2K_DOH_TEST_DB"
+rm -f "$Z2K_DOH_CONFIG_FILE"
+z2k_ow_doh_install || _t_bad "install package for post-removal DNS failure coverage"
+z2k_ow_doh_select_provider xbox || _t_bad "apply resolver for post-removal DNS failure coverage"
+: > "$Z2K_DOH_LOOKUP_FILE"
+: > "$Z2K_DOH_TEST_LOG"
+if z2k_ow_doh_uninstall 1 >"$T/remove-dns-unavailable.stdout" 2>"$T/remove-dns-unavailable.stderr"; then
+    _t_ok
+else
+    _t_bad "Remove succeeds when only the post-removal loopback DNS probe would fail"
+fi
+assert_not_contains "Remove does not run a loopback health probe after purging the package" \
+    "$Z2K_DOH_TEST_LOG" '^nslookup '
+assert_not_contains "Remove leaves the package absent after a loopback DNS failure" \
+    "$Z2K_DOH_PACKAGE_FILE" 'installed'
+assert_eq "Remove reports the package absent after a successful purge" \
+    not-installed "$(_doh_field "$(z2k_ow_doh_status)" state)"
+assert_eq "uninstalled DoH reports no package owner" \
+    none "$(_doh_field "$(z2k_ow_doh_status)" package_owner)"
+assert_eq "uninstalled DoH marks proxy status not applicable" \
+    not-applicable "$(_doh_field "$(z2k_ow_doh_status)" proxy)"
+assert_eq "uninstalled DoH marks dnsmasq status not applicable" \
+    not-applicable "$(_doh_field "$(z2k_ow_doh_status)" dnsmasq)"
+[ ! -e "$Z2K_DOH_PACKAGE_OWNED_FILE" ] && _t_ok || _t_bad "Remove clears package ownership after successful purge"
+[ ! -e "$Z2K_DOH_CONFIG_OWNED_FILE" ] && _t_ok || _t_bad "Remove clears resolver ownership after successful purge"
+assert_not_contains "Remove does not claim DNS was verified" "$T/remove-dns-unavailable.stdout" 'DNS работает'
+
 _t_done

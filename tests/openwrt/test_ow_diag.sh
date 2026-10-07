@@ -76,6 +76,24 @@ assert_contains "DoH diagnostic reports no active error reason as none" "$T/diag
 assert_contains "DoH diagnostic reports a live proxy as available" "$T/diag-doh.txt" 'proxy: available'
 assert_contains "DoH diagnostic reports a live dnsmasq route as available" "$T/diag-doh.txt" 'dnsmasq: available'
 
+cat > "$T/doh-adapter/doh.sh" <<'EOF'
+#!/bin/sh
+z2k_ow_doh_status() {
+    printf 'state=not-installed reason= installed=0 enabled=0 provider=unknown package_owner=none proxy=not-applicable dnsmasq=not-applicable force_lan_dns=0\n'
+}
+EOF
+_diag_doh_removed=$(Z2K_ROOT="$REPO" Z2K_ADAPTER_DIR="$T/doh-adapter" Z2K_STATE="$T/etc/z2k/state" \
+    sh "$AD" doh 2>/dev/null)
+printf '%s\n' "$_diag_doh_removed" > "$T/diag-doh-removed.txt"
+assert_contains "DoH diagnostic identifies the package as absent after Remove" \
+    "$T/diag-doh-removed.txt" 'package: absent'
+assert_contains "DoH diagnostic has no owner after Remove" \
+    "$T/diag-doh-removed.txt" 'owner: none'
+assert_contains "DoH diagnostic labels the absent proxy as not applicable" \
+    "$T/diag-doh-removed.txt" 'proxy: not-applicable'
+assert_contains "DoH diagnostic labels absent dnsmasq integration as not applicable" \
+    "$T/diag-doh-removed.txt" 'dnsmasq: not-applicable'
+
 printf 'tag=p-86.11\nseq=134\n' > "$T/etc/z2k/state/installed-release"
 printf "DISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"
 _diag=$(Z2K_PLATFORM=openwrt Z2K_ROOT="$T/root" Z2K_ETC="$T/etc/z2k" \

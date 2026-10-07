@@ -226,9 +226,12 @@ _z2k_ow_doh_restore_backup() {
 }
 
 z2k_ow_doh_status() {
-    local _state=not-installed _installed=0 _running=0 _enabled=0 _provider=unknown _endpoint= _bootstrap= _urls _bootstraps _external=0 _owner=external _sections _force=0 _reason= _confirm_remove=0 _proxy=unavailable _dnsmasq=unavailable
+    local _state=not-installed _installed=0 _running=0 _enabled=0 _provider=unknown _endpoint= _bootstrap= _urls _bootstraps _external=0 _owner=none _sections _force=0 _reason= _confirm_remove=0 _proxy=not-applicable _dnsmasq=not-applicable
     if _z2k_ow_doh_installed; then
         _installed=1
+        _owner=external
+        _proxy=unavailable
+        _dnsmasq=unavailable
         _z2k_ow_doh_running && _running=1
         _z2k_ow_doh_enabled && _enabled=1
         [ "$_running" = 1 ] && _proxy=available
@@ -501,7 +504,7 @@ _z2k_ow_doh_remove_dnsmasq_listener_routes() {
 
 z2k_ow_doh_uninstall() {
     local _confirm=${1:-0} _installed=0 _owned_package=0 _external=0 _legacy=0
-    local _preserve_config=0 _restore_file= _snapshot _section _port _backup_port _ports= _route _answer _reason
+    local _preserve_config=0 _restore_file= _snapshot _section _port _backup_port _ports= _route
     _z2k_ow_doh_installed && _installed=1
     [ -s "$Z2K_DOH_PACKAGE_OWNED_FILE" ] && _owned_package=1
     [ -s "$Z2K_DOH_CONFIG_OWNED_FILE" ] && _legacy=1
@@ -622,10 +625,6 @@ z2k_ow_doh_uninstall() {
             done
         done
     fi
-    if ! _answer=$(_z2k_ow_doh_lookup_answer); then
-        echo "DoH: пакет удалён, но DNS-запрос роутера через 127.0.0.1 не прошёл" >&2
-        return 1
-    fi
     rm -f "$Z2K_DOH_PACKAGE_OWNED_FILE" "$Z2K_DOH_CONFIG_OWNED_FILE" "$Z2K_DOH_CONFIG_BACKUP" \
         "$Z2K_DOH_CONFIG_BASELINE" "$Z2K_DOH_INSTALL_SNAPSHOT" \
         "$Z2K_DOH_SERVICE_SNAPSHOT" "$Z2K_DOH_PREINSTALL_CONFIG" "$Z2K_DOH_PREINSTALL_CONFIG_MARKER" \
@@ -635,8 +634,8 @@ z2k_ow_doh_uninstall() {
         return 1
     }
     if [ "$_preserve_config" = 1 ]; then
-        echo "DoH удалён; пользовательская конфигурация https-dns-proxy сохранена в /etc/config/https-dns-proxy; DNS работает (ответ $_answer)"
+        echo "DoH удалён; пользовательская конфигурация https-dns-proxy сохранена в /etc/config/https-dns-proxy; проверка DNS выполняется отдельно"
     else
-        echo "DoH удалён; DNS работает (ответ $_answer)"
+        echo "DoH удалён; проверка DNS выполняется отдельно"
     fi
 }
