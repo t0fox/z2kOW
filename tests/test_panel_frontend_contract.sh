@@ -42,14 +42,16 @@ fi
 # ---------------------------------------------------------------------------
 
 # Заголовок X-Z2K-Panel — единственное доказательство для origin-стража в
-# cgi/auth.sh, что запрос пришёл с этой страницы. Забыть его в одном вызове —
-# получить 403 ровно в одной функции, и заметить это только в поле.
+# cgi/auth.sh, что запрос пришёл с этой страницы. Внешние fetch к Cloudflare
+# составляют отдельный браузерный speed test и намеренно не несут этот заголовок:
+# он вызвал бы CORS preflight и проверял бы уже не WebPanel API.
 nfetch=$(grep -c 'fetch(' "$JS")
 bare=$(awk '
     { line[NR] = $0 }
     END {
         for (i = 1; i <= NR; i++) {
             if (line[i] !~ /fetch\(/) continue
+            if (line[i] ~ /\$\{base\}\/__(down|up)/) continue
             found = 0
             for (j = i; j <= i + 6 && j <= NR; j++) if (line[j] ~ /PANEL_HDR/) found = 1
             if (!found) printf "%d ", i

@@ -37,6 +37,17 @@ z2k_ow_offload_benchmark_verify_mode() {
     esac
 }
 
+# z2k_ow_flowoffload_status scans router-wide conntrack state. A marker may
+# belong to an unrelated client, so it is not evidence for the browser sample.
+# Until the sampled socket can be correlated exactly, fail closed for actual
+# per-flow observation; mode application is still verified from nft/config.
+z2k_ow_offload_benchmark_sample_actual() {
+    case "$1" in
+        none) printf 'not-observed' ;;
+        software|hardware|*) printf 'unknown' ;;
+    esac
+}
+
 z2k_ow_offload_benchmark_number_or_null() {
     case "$1" in ''|*[!0-9.+-]*) printf null; return ;; esac
     awk -v n="$1" 'BEGIN { if (n ~ /^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$/) printf "%s", n; else printf "null" }'
@@ -52,9 +63,12 @@ z2k_ow_offload_benchmark_delta_pct() {
     awk -v a="$_a" -v b="$_b" 'BEGIN { if (a==0) print "null"; else printf "%.0f",(b-a)*100/a }'
 }
 z2k_ow_offload_benchmark_new_token() {
-    local _v
-    _v=$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')
-    case "$_v" in ''|*[!0-9a-f]*) _v="$(date +%s)$$" ;; esac
+    local _v _uuid_file="${Z2K_BENCH_UUID_FILE:-/proc/sys/kernel/random/uuid}" IFS
+    _v=
+    IFS= read -r _v < "$_uuid_file" || _v=
+    _v=$(printf '%s' "$_v" | sed 's/-//g')
+    case "$_v" in ''|*[!0-9a-f]*) echo "kernel UUID source unavailable" >&2; return 1 ;; esac
+    [ "${#_v}" -eq 32 ] || { echo "kernel UUID source returned an invalid token" >&2; return 1; }
     printf '%s' "$_v"
 }
 
@@ -109,7 +123,8 @@ z2k_ow_offload_benchmark_start() {
     mkdir "$(z2k_ow_offload_benchmark_lock_dir)" 2>/dev/null || { echo "benchmark уже выполняется" >&2; return 1; }
     _dir=$(z2k_ow_offload_benchmark_session_dir)
     rm -rf "$_dir"; mkdir -p "$_dir/samples" || { rmdir "$(z2k_ow_offload_benchmark_lock_dir)"; return 1; }
-    _session="$(date +%s)$$"; _token=$(z2k_ow_offload_benchmark_new_token)
+    _session="$(date +%s)$$"; _token=$(z2k_ow_offload_benchmark_new_token) \
+        || { rm -rf "$(z2k_ow_offload_benchmark_lock_dir)" "$_dir"; return 1; }
     printf 'session=%s\ntoken=%s\nprovider=%s\nstatus=starting\nmode=\ntrial=0\nnonce=\ninitial_mode=%s\ncreated=%s\nmessage=\n' \
         "$_session" "$_token" "$_provider" "$_mode" "$(date +%s)" > "$(z2k_ow_offload_benchmark_state_file)" \
         || { rm -rf "$(z2k_ow_offload_benchmark_lock_dir)" "$_dir"; return 1; }
@@ -166,7 +181,7 @@ z2k_ow_offload_benchmark_cpu_monitor() {
 z2k_ow_offload_benchmark_metric() {
     local _mode="$1" _key="$2" _i _v _args
     set --
-    for _i in 1 2 3; do
+    for _i in 1 2 3 4 5; do
         _v=$(sed -n "s/^${_key}=//p" "$(z2k_ow_offload_benchmark_session_dir)/samples/${_mode}-$_i" 2>/dev/null)
         [ -n "$_v" ] && [ "$(z2k_ow_offload_benchmark_number_or_null "$_v")" != null ] && set -- "$@" "$_v"
     done
@@ -181,18 +196,22 @@ z2k_ow_offload_benchmark_result_value() {
     esac
 }
 z2k_ow_offload_benchmark_spread_pct() {
-    local _mode="$1" _metric="$2" _i _v
+    local _mode="$1" _metric="$2" _i _v _median _mad
     set --
-    for _i in 1 2 3; do
+    for _i in 1 2 3 4 5; do
         _v=$(sed -n "s/^${_metric}=//p" "$(z2k_ow_offload_benchmark_session_dir)/samples/${_mode}-$_i" 2>/dev/null)
         [ -n "$_v" ] && [ "$(z2k_ow_offload_benchmark_number_or_null "$_v")" != null ] && set -- "$@" "$_v"
     done
-    [ "$#" -ge 2 ] || { printf null; return; }
-    printf '%s\n' "$@" | awk '{a[NR]=$1;if(NR==1||$1<lo)lo=$1;if(NR==1||$1>hi)hi=$1}END{sort=0;for(i=1;i<=NR;i++)for(j=i+1;j<=NR;j++)if(a[i]>a[j]){t=a[i];a[i]=a[j];a[j]=t};if(NR%2)m=a[(NR+1)/2];else m=(a[NR/2]+a[NR/2+1])/2;if(m>0)printf "%.1f",(hi-lo)*100/m;else print "null"}'
+    [ "$#" -eq 5 ] || { printf null; return; }
+    _median=$(z2k_ow_offload_benchmark_median "$@")
+    _mad=$(for _v in "$@"; do awk -v value="$_v" -v median="$_median" 'BEGIN{d=value-median;if(d<0)d=-d;printf "%.8f\n",d}'; done \
+        | LC_ALL=C sort -n \
+        | awk '{a[NR]=$1}END{if(NR%2)printf "%.8f",a[(NR+1)/2];else printf "%.8f",(a[NR/2]+a[NR/2+1])/2}')
+    awk -v mad="$_mad" -v median="$_median" 'BEGIN{if(median>0)printf "%.1f",100*mad/median;else print "null"}'
 }
 z2k_ow_offload_benchmark_run_count() {
     local _mode="$1" _i _n=0
-    for _i in 1 2 3; do [ -s "$(z2k_ow_offload_benchmark_session_dir)/samples/${_mode}-$_i" ] && _n=$((_n+1)); done
+    for _i in 1 2 3 4 5; do [ -s "$(z2k_ow_offload_benchmark_session_dir)/samples/${_mode}-$_i" ] && _n=$((_n+1)); done
     printf '%s' "$_n"
 }
 z2k_ow_offload_benchmark_conflict() {
@@ -257,7 +276,7 @@ z2k_ow_offload_benchmark_system_json() {
         "$(z2k_ow_offload_benchmark_json_text "$_wan")"
 }
 z2k_ow_offload_benchmark_write_result() {
-    local _status="$1" _message="$2" _root _mode _sep _i _file _k _actual _runs _dl _sw _hw _recommendation _reason _du _su _dc _sc _hu _hc _hd _hs _hobs _sqm _pbr _warp _unstable _complete _sd _scd _hcd _spread _restored
+    local _status="$1" _message="$2" _root _mode _metric _sep _i _file _k _actual _runs _dl _sw _hw _recommendation _reason _du _su _dc _sc _hu _hc _hd _hvs _hobs _sqm _pbr _warp _unstable _complete _accepted _sd _scd _hcd _spread _restored
     _root=$(z2k_ow_offload_benchmark_root); mkdir -p "$_root"
     _dl=$(z2k_ow_offload_benchmark_result_value none download_mbps)
     _sw=$(z2k_ow_offload_benchmark_result_value software download_mbps)
@@ -269,7 +288,7 @@ z2k_ow_offload_benchmark_write_result() {
     _hu=$(z2k_ow_offload_benchmark_result_value hardware upload_mbps)
     _hc=$(z2k_ow_offload_benchmark_result_value hardware cpu_avg)
     _hd=$(z2k_ow_offload_benchmark_result_value hardware download_mbps)
-    _hs=$(z2k_ow_offload_benchmark_delta_pct "$_sw" "$_hd")
+    _sd=null; _scd=null; _hvs=null; _hcd=null
     _hobs=$(grep -h '^actual=hardware$' "$(z2k_ow_offload_benchmark_session_dir)"/samples/hardware-* 2>/dev/null | wc -l | tr -d ' ')
     _sqm=$(z2k_ow_offload_benchmark_conflict sqm); _pbr=$(z2k_ow_offload_benchmark_conflict pbr); _warp=$(z2k_ow_offload_benchmark_conflict warp)
     _recommendation=null; _reason=
@@ -278,23 +297,27 @@ z2k_ow_offload_benchmark_write_result() {
         if { [ "$_sd" != null ] && [ "$_sd" -ge 5 ] 2>/dev/null; } || { [ "$_scd" != null ] && [ "$_scd" -le -5 ] 2>/dev/null; }; then
             _recommendation='"software"'; _reason="$( [ "$_sd" != null ] && [ "$_sd" -ge 5 ] 2>/dev/null && printf 'download +%s%% vs none' "$_sd" || printf 'CPU %s%% vs none' "${_scd:-unknown}" )"
         fi
-        _hd=$(z2k_ow_offload_benchmark_delta_pct "$_sw" "$_hw"); _hcd=$(z2k_ow_offload_benchmark_delta_pct "$_sc" "$_hc")
+        _hvs=$(z2k_ow_offload_benchmark_delta_pct "$_sw" "$_hw"); _hcd=$(z2k_ow_offload_benchmark_delta_pct "$_sc" "$_hc")
         if [ "$_hobs" -ge 2 ] 2>/dev/null && [ "$_sqm" = none ] && [ "$_pbr" = none ] && [ "$_warp" = none ] \
-            && { { [ "$_hd" != null ] && [ "$_hd" -ge 5 ] 2>/dev/null; } || { [ "$_hcd" != null ] && [ "$_hcd" -le -10 ] 2>/dev/null; }; }; then
-            _recommendation='"hardware"'; _reason="$( [ "$_hd" != null ] && [ "$_hd" -ge 5 ] 2>/dev/null && printf 'download +%s%% vs software' "$_hd" || printf 'CPU %s%% vs software' "${_hcd:-unknown}" )"
+            && { { [ "$_hvs" != null ] && [ "$_hvs" -ge 5 ] 2>/dev/null; } || { [ "$_hcd" != null ] && [ "$_hcd" -le -10 ] 2>/dev/null; }; }; then
+            _recommendation='"hardware"'; _reason="$( [ "$_hvs" != null ] && [ "$_hvs" -ge 5 ] 2>/dev/null && printf 'download +%s%% vs software' "$_hvs" || printf 'CPU %s%% vs software' "${_hcd:-unknown}" )"
         fi
     fi
     _unstable=false
     for _mode in none software hardware; do
-        _spread=$(z2k_ow_offload_benchmark_spread_pct "$_mode" download_mbps)
-        if [ "$_spread" != null ] && awk -v n="$_spread" 'BEGIN{exit !(n>15)}'; then _unstable=true; fi
+        for _metric in download_mbps upload_mbps; do
+            _spread=$(z2k_ow_offload_benchmark_spread_pct "$_mode" "$_metric")
+            if [ "$_spread" != null ] && awk -v n="$_spread" 'BEGIN{exit !(n>15)}'; then _unstable=true; fi
+        done
     done
     _complete=false
-    [ "$_status" = completed ] && [ "$(z2k_ow_offload_benchmark_run_count none)" = 3 ] \
-        && [ "$(z2k_ow_offload_benchmark_run_count software)" = 3 ] && _complete=true
+    [ "$_status" = completed ] && [ "$(z2k_ow_offload_benchmark_run_count none)" = 5 ] \
+        && [ "$(z2k_ow_offload_benchmark_run_count software)" = 5 ] && _complete=true
     # A noisy series is useful as diagnostics but cannot support a winner.
     [ "$_unstable" = false ] || { _recommendation=null; _reason=; }
     _restored=true; [ -f "$(z2k_ow_offload_benchmark_restore_file)" ] && _restored=false
+    _accepted=false
+    [ "$_status" = completed ] && [ "$_complete" = true ] && [ "$_unstable" = false ] && [ "$_restored" = true ] && _accepted=true
     {
         printf '{"schema":1,"status":"%s","timestamp":"%s","system":%s,"provider":"cloudflare","server":"speed.cloudflare.com","original_mode":"%s","restored":%s,"message":"%s","modes":{' \
             "$_status" "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')" \
@@ -305,7 +328,7 @@ z2k_ow_offload_benchmark_write_result() {
         _sep=
         for _mode in none software hardware; do
             printf '%s"%s":{"runs":[' "$_sep" "$_mode"; _runs=; _i=1
-            while [ "$_i" -le 3 ]; do
+            while [ "$_i" -le 5 ]; do
                 _file="$(z2k_ow_offload_benchmark_session_dir)/samples/${_mode}-$_i"
                 if [ -r "$_file" ]; then
                     [ -z "$_runs" ] || printf ','
@@ -331,10 +354,10 @@ z2k_ow_offload_benchmark_write_result() {
         done
         printf '},"comparisons":{"software_vs_none":{"download_pct":%s,"upload_pct":%s,"cpu_pct":%s},"hardware_vs_none":{"download_pct":%s,"upload_pct":%s,"cpu_pct":%s},"hardware_vs_software":{"download_pct":%s,"upload_pct":%s,"cpu_pct":%s}},' \
             "$(z2k_ow_offload_benchmark_delta_pct "$_dl" "$_sw")" "$(z2k_ow_offload_benchmark_delta_pct "$_du" "$_su")" "$(z2k_ow_offload_benchmark_delta_pct "$_dc" "$_sc")" \
-            "$(z2k_ow_offload_benchmark_delta_pct "$_dl" "$_hd")" "$(z2k_ow_offload_benchmark_delta_pct "$_du" "$_hu")" "$(z2k_ow_offload_benchmark_delta_pct "$_dc" "$_hc")" \
-            "$_hd" "$(z2k_ow_offload_benchmark_delta_pct "$_su" "$_hu")" "$(z2k_ow_offload_benchmark_delta_pct "$_sc" "$_hc")"
-        printf '"validity":{"complete":%s,"unstable":%s,"warnings":["Внешний тест зависит от Cloudflare, маршрута и провайдера"' "$_complete" "$_unstable"
-        [ "$_unstable" = false ] || printf ',"Разброс загрузки превышает 15%%; сравнение может быть неточным"'
+            "$(z2k_ow_offload_benchmark_delta_pct "$_dl" "$_hw")" "$(z2k_ow_offload_benchmark_delta_pct "$_du" "$_hu")" "$(z2k_ow_offload_benchmark_delta_pct "$_dc" "$_hc")" \
+            "$_hvs" "$(z2k_ow_offload_benchmark_delta_pct "$_su" "$_hu")" "$(z2k_ow_offload_benchmark_delta_pct "$_sc" "$_hc")"
+        printf '"validity":{"complete":%s,"unstable":%s,"accepted":%s,"warnings":["Внешний тест зависит от Cloudflare, маршрута и провайдера"' "$_complete" "$_unstable" "$_accepted"
+        [ "$_unstable" = false ] || printf ',"Разброс загрузки или отдачи превышает 15%%; сравнение может быть неточным"'
         case "$_sqm" in
             confirmed) printf ',"SQM работает; hardware offload может обходить его обработку"' ;;
             possible-risk) printf ',"SQM настроен; проверьте сохранение queueing при аппаратном offload"' ;;
@@ -343,7 +366,7 @@ z2k_ow_offload_benchmark_write_result() {
         if [ "$_recommendation" = null ]; then printf 'null'; else printf '{"mode":%s,"reason":"%s"}' "$_recommendation" "$_reason"; fi
         printf '}\n'
     } > "$_root/last-result.json.tmp" && mv -f "$_root/last-result.json.tmp" "$_root/last-result.json"
-    if [ "$_status" = completed ] && [ "$_complete" = true ] && [ "$_restored" = true ]; then
+    if [ "$_accepted" = true ]; then
         cp "$_root/last-result.json" "$_root/last-success.json.tmp" \
             && mv -f "$_root/last-success.json.tmp" "$_root/last-success.json"
     fi
@@ -364,14 +387,16 @@ z2k_ow_offload_benchmark_worker_cleanup() {
         fi
     fi
     [ -n "$_status" ] || _status=failed
-    z2k_ow_offload_benchmark_set_field status "$_status"
-    z2k_ow_offload_benchmark_set_field message "$(printf '%s' "$_message" | tr '\n' ' ')"
     z2k_ow_offload_benchmark_write_result "$_status" "${_message:-}"
+    # Publish terminal state only after its matching result is atomically
+    # written; otherwise a poll can pair the new status with stale JSON.
+    z2k_ow_offload_benchmark_set_field message "$(printf '%s' "$_message" | tr '\n' ' ')"
+    z2k_ow_offload_benchmark_set_field status "$_status"
     rm -f "$(z2k_ow_offload_benchmark_stop_file)"; rm -rf "$(z2k_ow_offload_benchmark_lock_dir)"
     [ "$_status" = completed ]
 }
 z2k_ow_offload_benchmark_worker_impl() {
-    local _session="$1" _initial _boot _mode _trial _nonce _rc _sample _cpu _pid _file _actual _flags _ft
+    local _session="$1" _initial _boot _mode _trial _round _order _nonce _rc _sample _cpu _pid _file _actual _flags _ft
     [ "$(z2k_ow_offload_benchmark_field session 2>/dev/null)" = "$_session" ] || return 1
     [ "$(cat "$(z2k_ow_offload_benchmark_lock_dir)/session" 2>/dev/null)" = "$_session" ] || return 1
     _initial=$(z2k_ow_offload_benchmark_field initial_mode); _boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)
@@ -383,43 +408,51 @@ z2k_ow_offload_benchmark_worker_impl() {
     trap 'z2k_ow_offload_benchmark_worker_cleanup $?' EXIT
     trap 'z2k_ow_offload_benchmark_set_field desired_status stopped; z2k_ow_offload_benchmark_set_field message stopped; exit 130' HUP INT TERM
     z2k_ow_offload_benchmark_set_field status applying
-    for _mode in none software hardware; do
-        [ ! -f "$(z2k_ow_offload_benchmark_stop_file)" ] || { z2k_ow_offload_benchmark_set_field desired_status stopped; z2k_ow_offload_benchmark_set_field message stopped; return 1; }
-        job_progress "FLOWOFFLOAD benchmark: применяю $_mode"
-        if ! toggle_flowoffload "$_mode"; then
-            [ "$_mode" = hardware ] && { job_progress "Hardware не применился, пропускаю"; continue; }
-            z2k_ow_offload_benchmark_set_field desired_status failed; z2k_ow_offload_benchmark_set_field message "не удалось применить $_mode"; return 1
-        fi
-        [ "$(z2k_ow_offload_benchmark_mode_from_config)" = "$_mode" ] || {
-            [ "$_mode" = hardware ] && continue
-            z2k_ow_offload_benchmark_set_field desired_status failed; z2k_ow_offload_benchmark_set_field message "режим $_mode не подтвердился"; return 1
-        }
-        sleep "${Z2K_BENCH_SETTLE_SECONDS:-2}"
-        _flags=$(z2k_ow_flowoffload_status | sed -n 's/.*flags=\([^;]*\).*/\1/p')
-        _ft=$(z2k_ow_flowoffload_status | sed -n 's/.*flowtable=\([^;]*\).*/\1/p')
-        if [ "$_mode" != none ] && { [ "$_ft" != present ] || { [ "$_mode" = hardware ] && [ "$_flags" != offload ]; }; }; then
-            [ "$_mode" = hardware ] && { job_progress "Hardware flowtable недоступен, пропускаю"; continue; }
-            z2k_ow_offload_benchmark_set_field desired_status failed; z2k_ow_offload_benchmark_set_field message "flowtable $_mode не применился"; return 1
-        fi
-        _trial=1
-        while [ "$_trial" -le 3 ]; do
+    # Rotate a balanced order so each mode appears across the five rounds.
+    # This reduces bias from time-varying WAN load; five samples also permit a
+    # median absolute deviation that tolerates one isolated network outlier.
+    for _round in 1 2 3 4 5; do
+        case "$_round" in
+            1) _order='none software hardware' ;;
+            2) _order='software hardware none' ;;
+            3) _order='hardware none software' ;;
+            4) _order='none hardware software' ;;
+            5) _order='hardware software none' ;;
+        esac
+        for _mode in $_order; do
             [ ! -f "$(z2k_ow_offload_benchmark_stop_file)" ] || { z2k_ow_offload_benchmark_set_field desired_status stopped; z2k_ow_offload_benchmark_set_field message stopped; return 1; }
+            job_progress "FLOWOFFLOAD benchmark: применяю $_mode"
+            if ! toggle_flowoffload "$_mode"; then
+                [ "$_mode" = hardware ] && { job_progress "Hardware не применился, пропускаю"; continue; }
+                z2k_ow_offload_benchmark_set_field desired_status failed; z2k_ow_offload_benchmark_set_field message "не удалось применить $_mode"; return 1
+            fi
+            [ "$(z2k_ow_offload_benchmark_mode_from_config)" = "$_mode" ] || {
+                [ "$_mode" = hardware ] && continue
+                z2k_ow_offload_benchmark_set_field desired_status failed; z2k_ow_offload_benchmark_set_field message "режим $_mode не подтвердился"; return 1
+            }
+            sleep "${Z2K_BENCH_SETTLE_SECONDS:-2}"
+            _flags=$(z2k_ow_flowoffload_status | sed -n 's/.*flags=\([^;]*\).*/\1/p')
+            _ft=$(z2k_ow_flowoffload_status | sed -n 's/.*flowtable=\([^;]*\).*/\1/p')
+            if [ "$_mode" != none ] && { [ "$_ft" != present ] || { [ "$_mode" = hardware ] && [ "$_flags" != offload ]; }; }; then
+                [ "$_mode" = hardware ] && { job_progress "Hardware flowtable недоступен, пропускаю"; continue; }
+                z2k_ow_offload_benchmark_set_field desired_status failed; z2k_ow_offload_benchmark_set_field message "flowtable $_mode не применился"; return 1
+            fi
+            _trial=$(z2k_ow_offload_benchmark_run_count "$_mode"); _trial=$((_trial+1))
             _nonce=$(z2k_ow_offload_benchmark_new_token)
             z2k_ow_offload_benchmark_set_field status awaiting_sample; z2k_ow_offload_benchmark_set_field mode "$_mode"
             z2k_ow_offload_benchmark_set_field trial "$_trial"; z2k_ow_offload_benchmark_set_field nonce "$_nonce"
             _cpu="$(z2k_ow_offload_benchmark_session_dir)/cpu.$_nonce"
             z2k_ow_offload_benchmark_cpu_monitor "$_cpu" & _pid=$!
-            job_progress "FLOWOFFLOAD benchmark: $_mode, прогон $_trial/3 — измерение в браузере"
+            job_progress "FLOWOFFLOAD benchmark: $_mode, прогон $_trial/5 — измерение в браузере"
             _sample=$(z2k_ow_offload_benchmark_wait_sample "$_mode" "$_trial" "$_nonce"); _rc=$?
             kill "$_pid" 2>/dev/null; wait "$_pid" 2>/dev/null
             if [ "$_rc" = 2 ]; then z2k_ow_offload_benchmark_set_field desired_status stopped; z2k_ow_offload_benchmark_set_field message stopped; return 1; fi
             if [ "$_rc" != 0 ]; then z2k_ow_offload_benchmark_set_field desired_status failed; z2k_ow_offload_benchmark_set_field message "тестовый endpoint не ответил"; return 1; fi
             _file="$(z2k_ow_offload_benchmark_session_dir)/samples/${_mode}-$_trial"
             printf '%s\n' "$_sample" > "$_file"
-            _actual=$(z2k_ow_flowoffload_status | sed -n 's/.*actual=\([^;]*\).*/\1/p')
+            _actual=$(z2k_ow_offload_benchmark_sample_actual "$_mode")
             printf 'actual=%s\n' "${_actual:-unknown}" >> "$_file"
             printf 'cpu_avg=%s\ncpu_peak=%s\n' "$(sed -n 's/^avg=//p' "$_cpu" 2>/dev/null)" "$(sed -n 's/^peak=//p' "$_cpu" 2>/dev/null)" >> "$_file"
-            _trial=$((_trial+1))
         done
     done
     z2k_ow_offload_benchmark_set_field desired_status completed; z2k_ow_offload_benchmark_set_field message ''
@@ -435,8 +468,12 @@ z2k_ow_offload_benchmark_status_json() {
     case "$_status" in starting|applying|awaiting_sample|restoring) _active=true ;; esac
     _result="$(z2k_ow_offload_benchmark_root)/last-result.json"
     _last_success="$(z2k_ow_offload_benchmark_root)/last-success.json"
-    _last_success_timestamp=$(sed -n 's/.*"timestamp":"\([^"]*\)".*/\1/p' "$_last_success" 2>/dev/null | head -1)
-    printf '{"ok":true,"active":%s,"session":"%s","token":"%s","status":"%s","mode":"%s","trial":%s,"total_trials":3,"nonce":"%s","provider":"%s","result":' \
+    if grep -q '"accepted":true' "$_last_success" 2>/dev/null; then
+        _last_success_timestamp=$(sed -n 's/.*"timestamp":"\([^"]*\)".*/\1/p' "$_last_success" 2>/dev/null | head -1)
+    else
+        _last_success_timestamp=
+    fi
+    printf '{"ok":true,"active":%s,"session":"%s","token":"%s","status":"%s","mode":"%s","trial":%s,"total_trials":5,"nonce":"%s","provider":"%s","result":' \
         "$_active" "$(z2k_ow_offload_benchmark_field session 2>/dev/null)" "$(z2k_ow_offload_benchmark_field token 2>/dev/null)" \
         "${_status:-idle}" "$(z2k_ow_offload_benchmark_field mode 2>/dev/null)" \
         "$(z2k_ow_offload_benchmark_number_or_null "$(z2k_ow_offload_benchmark_field trial 2>/dev/null)")" \
@@ -450,7 +487,7 @@ z2k_ow_offload_benchmark_result_json() {
 }
 z2k_ow_offload_benchmark_last_success_json() {
     local _f="$(z2k_ow_offload_benchmark_root)/last-success.json"
-    if [ -s "$_f" ]; then cat "$_f"; else printf 'null\n'; fi
+    if [ -s "$_f" ] && grep -q '"accepted":true' "$_f" 2>/dev/null; then cat "$_f"; else printf 'null\n'; fi
 }
 
 # One compact API route keeps platform-specific workflow out of the common CGI

@@ -9,6 +9,7 @@ let flowBenchmarkPollTimer = 0;
 let flowBenchmarkInFlight = "";
 let flowBenchmarkWasActive = false;
 let flowBenchmarkRefreshBusy = false;
+let flowBenchmarkLastError = "";
 
 const TOGGLE_DEFS = [
   { key: "category_youtube", name: "YouTube",
@@ -882,8 +883,13 @@ function flowBenchmarkResultMarkup(result) {
   }).join("");
   const recommendation = typeof result.recommendation === "string" ? result.recommendation : result.recommendation?.mode;
   const recommendationReason = result.recommendation && typeof result.recommendation === "object" ? result.recommendation.reason : "";
+  const noRecommendationReason = result.validity?.unstable
+    ? "Серия нестабильна; вывод делать нельзя."
+    : result.validity?.complete === false
+      ? "Серия неполная; вывод делать нельзя."
+      : "Разница между режимами меньше порога шума; рекомендация не требуется.";
   const recommended = recommendation ? `<div class="flow-benchmark-recommendation"><strong>Рекомендуется: ${escapeHtml(labels[recommendation] || recommendation)}</strong><span>${escapeHtml(recommendationReason || "Основано на медианах; hardware учитывается только при наблюдаемом аппаратном offload.")}</span></div>` :
-    `<div class="flow-benchmark-recommendation is-muted">Рекомендация не сформирована: тест неполный или преимущество меньше порога шума.</div>`;
+    `<div class="flow-benchmark-recommendation is-muted">${escapeHtml(noRecommendationReason)}</div>`;
   const warning = result.validity?.warnings?.length ? `<p class="flow-benchmark-note">${escapeHtml(result.validity.warnings.join("; "))}</p>` : "";
   const delta = value => {
     if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
@@ -898,7 +904,7 @@ function flowBenchmarkResultMarkup(result) {
   const diagnostics = ["none", "software", "hardware"].map(mode => {
     const runs = result.modes[mode]?.runs || [];
     const values = runs.map(run => flowBenchmarkValue(run.download_mbps, " Mbps")).join(" / ") || "нет прогонов";
-    const observed = result.modes[mode]?.offload_observed === true ? "наблюдался" : "не подтверждён";
+    const observed = result.modes[mode]?.offload_observed === true ? "наблюдался" : "не привязан к замеру";
     return `<div class="flow-fact"><span class="flow-fact-label">${labels[mode]}</span><span class="flow-fact-value">${escapeHtml(values)} · ${observed}</span></div>`;
   }).join("");
   const system = result.system || {};
@@ -909,7 +915,7 @@ function flowBenchmarkResultMarkup(result) {
   const message = result.message ? `<p class="flow-benchmark-note">${escapeHtml(result.message)}</p>` : "";
   const timestamp = result.timestamp ? `<p class="flow-benchmark-note">Серия: ${escapeHtml(result.timestamp)}</p>` : "";
   return `${recommended}${comparisonMarkup ? `<div class="flow-benchmark-comparisons">${comparisonMarkup}</div>` : ""}${warning}<div class="flow-benchmark-table-wrap"><table class="flow-benchmark-table"><thead><tr><th>Режим</th>${metrics.map(([, label]) => `<th>${label}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>
-    <details class="flow-technical disclosure"><summary>Подробные прогоны и ограничения</summary><div class="disclosure-body"><div class="flow-technical-body"><div class="flow-facts">${diagnostics}${systemMarkup}${conflictMarkup}</div>${message}${timestamp}<p class="flow-benchmark-note">Фактический offload проверяется по conntrack-маркерам во время трафика. Внешний результат зависит от Cloudflare, маршрута и провайдера; потери считаются по HTTP-пробам.</p></div></div></details>`;
+    <details class="flow-technical disclosure"><summary>Подробные прогоны и ограничения</summary><div class="disclosure-body"><div class="flow-technical-body"><div class="flow-facts">${diagnostics}${systemMarkup}${conflictMarkup}</div>${message}${timestamp}<p class="flow-benchmark-note">Conntrack-маркеры общие для роутера и не доказывают offload именно тестового браузерного потока. Без точной корреляции hardware не подтверждается и не рекомендуется. Внешняя скорость зависит от Cloudflare, маршрута и провайдера; потери считаются по HTTP-пробам.</p></div></div></details>`;
 }
 
 async function flowBenchmarkMeasure(status) {
@@ -959,8 +965,6 @@ async function flowBenchmarkMeasure(status) {
     const seconds = Math.max(0.001, (performance.now() - started) / 1000);
     return { mbps: bytes * 8 / seconds / 1e6, seconds };
   };
-  const warm = await fetch(`${base}/__down?bytes=1000000&${cache()}`, { cache: "no-store", mode: "cors" });
-  await drain(warm);
   const idle = [], downPings = [], upPings = [];
   let failed = 0, probes = 0;
   const loaded = async direction => {
@@ -1016,16 +1020,23 @@ async function flowBenchmarkRefresh() {
     if (!active) { if (start) start.disabled = false; if (stop) stop.disabled = false; }
     if (select) select.disabled = active;
     if (provider) provider.disabled = active;
-    if (statusNode) {
-      const labels = { starting: "Подготавливаю тест…", applying: "Переключаю режим…", awaiting_sample: `Тестирую: ${state.mode === "none" ? "без ускорения" : state.mode === "software" ? "software" : "hardware"}, прогон ${state.trial}/3`, restoring: "Восстанавливаю исходный режим…", completed: "Тест завершён, исходный режим восстановлен.", failed: "Тест не завершён; смотрите результат и состояние восстановления.", stopped: "Тест остановлен, исходный режим восстановлен." };
-      const lastSuccess = !active && state.last_success_timestamp
-        ? ` Последняя успешная серия: ${new Date(state.last_success_timestamp).toLocaleString("ru-RU")}.`
-        : "";
-      statusNode.textContent = `${labels[state.status] || "Интернет-тест: Cloudflare Speed Test"}${lastSuccess}`;
-    }
     const result = state.result;
+    if (statusNode) {
+      const completedLabel = result?.validity?.accepted === true
+        ? "Тест завершён; серия стабильна, исходный режим восстановлен."
+        : result?.validity?.unstable === true
+          ? "Тест завершён, но серия отклонена как нестабильная; вывод делать нельзя."
+          : "Тест завершён, но серия неполная; вывод делать нельзя.";
+      const labels = { starting: "Подготавливаю тест…", applying: "Переключаю режим…", awaiting_sample: `Тестирую: ${state.mode === "none" ? "без ускорения" : state.mode === "software" ? "software" : "hardware"}, прогон ${state.trial}/${state.total_trials || 5}`, restoring: "Восстанавливаю исходный режим…", completed: completedLabel, failed: "Тест не завершён; смотрите результат и состояние восстановления.", stopped: "Тест остановлен, исходный режим восстановлен." };
+      const lastSuccess = !active && state.last_success_timestamp
+        ? ` Последняя принятая стабильная серия: ${new Date(state.last_success_timestamp).toLocaleString("ru-RU")}.`
+        : "";
+      const measurementError = state.status === "stopped" && flowBenchmarkLastError ? ` Ошибка измерения: ${flowBenchmarkLastError}.` : "";
+      statusNode.textContent = `${labels[state.status] || "Интернет-тест: Cloudflare Speed Test"}${measurementError}${lastSuccess}`;
+    }
     const resultNode = card.querySelector("#flowoffload-benchmark-result");
-    if (resultNode && result) {
+    if (resultNode && active) resultNode.hidden = true;
+    if (resultNode && result && !active) {
       const signature = JSON.stringify(result);
       if (resultNode.dataset.signature !== signature) {
         resultNode.innerHTML = flowBenchmarkResultMarkup(result);
@@ -1066,7 +1077,9 @@ async function flowBenchmarkRefresh() {
         const sample = await flowBenchmarkMeasure(state);
         await apiPost("/offload/benchmark", { action: "sample", ...sample });
       } catch (error) {
-        if (statusNode) statusNode.textContent = `Ошибка измерения: ${errMsg(error)}. Восстанавливаю режим…`;
+        flowBenchmarkLastError = errMsg(error);
+        console.error("FLOWOFFLOAD benchmark measurement failed", error);
+        if (statusNode) statusNode.textContent = `Ошибка измерения: ${flowBenchmarkLastError}. Восстанавливаю режим…`;
         try { await apiPost("/offload/benchmark", { action: "stop" }); } catch (_) {}
         flowBenchmarkInFlight = "";
       }
@@ -1113,6 +1126,7 @@ function wireFlowBenchmark() {
     try {
       const started = await apiPost("/offload/benchmark", { action: "start", provider: provider?.value || "cloudflare" });
       if (started?.job) {
+        flowBenchmarkLastError = "";
         openJobModal("Сравнение режимов FLOWOFFLOAD", started.job, {
           onDone: async () => {
             await flowBenchmarkRefresh();
