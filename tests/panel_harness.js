@@ -41,7 +41,13 @@ const mkEl = () => {
     get innerHTML(){ return this._h; },
     set textContent(v){ this._h = String(v); noteRendered(this._h); },
     get textContent(){ return this._h; },
-    addEventListener(){}, removeEventListener(){}, appendChild(child){ this.children.push(child); if (child && child.id) domById.set(child.id, child); return child; }, removeChild(child){ this.children = this.children.filter(x => x !== child); },
+    addEventListener(){}, removeEventListener(){}, appendChild(child){ child.parentNode = this; this.children.push(child); if (child && child.id) domById.set(child.id, child); return child; }, removeChild(child){ this.children = this.children.filter(x => x !== child); if (child && child.parentNode === this) child.parentNode = null; },
+    contains(node){
+      // Selector results are lazy mocks, so model body containment by connection state.
+      if (this === global.document.body) return !!node && node.isConnected !== false;
+      for (let current = node; current; current = current.parentNode) if (current === this) return true;
+      return false;
+    },
     setAttribute(k,v){ this.attributes[k]=String(v); this[k]=String(v); if (k === "id" && BRAND_CASE) domById.set(String(v), this); }, getAttribute(k){ return this.attributes[k]; },
     removeAttribute(){}, querySelector(){ return mkEl(); }, querySelectorAll(){ return []; },
     closest(){ return null; }, focus(){}, blur(){}, click(){}, insertAdjacentHTML(){},

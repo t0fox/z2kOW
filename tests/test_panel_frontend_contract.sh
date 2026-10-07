@@ -173,7 +173,13 @@ function mkEl(key) {
     addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); },
     removeEventListener() {},
     appendChild(c) { c._parent = this; this.children.push(c); if (this._sel === "#toast-stack") TOASTS.push(String(c._h)); },
-    removeChild(c) { const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1); },
+    removeChild(c) { const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1); if (c && c._parent === this) c._parent = null; },
+    contains(node) {
+      // Selector results are lazy mocks, so model body containment by connection state.
+      if (this === global.document.body) return !!node && node.isConnected !== false;
+      for (let current = node; current; current = current._parent) if (current === this) return true;
+      return false;
+    },
     remove() { if (this._parent) this._parent.removeChild(this); },
     setAttribute(k, v) { this.attributes[k] = v; }, getAttribute(k) { return this.attributes[k]; },
     removeAttribute(k) { delete this.attributes[k]; },
