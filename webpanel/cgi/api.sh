@@ -343,7 +343,7 @@ case "$method $path" in
                 _doh_sep=
                 printf '%s\n' "$_doh_status" | tr ' ' '\n' | while IFS='=' read -r _doh_key _doh_value; do
                     case "$_doh_key" in
-                        state|installed|enabled|running|provider|endpoint|bootstrap|package_owner|external_config|proxy|dnsmasq|force_lan_dns|reason)
+                        state|installed|enabled|running|provider|endpoint|bootstrap|package_owner|external_config|confirm_remove|proxy|dnsmasq|force_lan_dns|reason)
                             printf '%s' "$_doh_sep"; json_string "$_doh_key"; printf ':'; json_string "$_doh_value"
                             _doh_sep=,
                             ;;

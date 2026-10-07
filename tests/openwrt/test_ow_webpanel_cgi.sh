@@ -362,6 +362,21 @@ export OW_DOH_NSLOOKUP_LOG="$T/doh-nslookup.calls"
 unset Z2K_DOH_NSLOOKUP_BIN Z2K_DOH_HEALTH_HOST
 export Z2K_DOH_APK_BIN="$T/bin/doh-apk" Z2K_DOH_UCI_BIN="$T/bin/doh-uci"
 export Z2K_DOH_DNSMASQ_RUNTIME_DIR="$T/doh-dnsmasq-runtime"
+# A DoH package installed by z2kOW can still have a pre-install config receipt.
+# The adapter requests explicit confirmation on Remove, so /status must expose
+# that fact to the browser even when the active resolver section is z2kOW-owned.
+_doh_saved_state=${Z2K_STATE:-}
+export Z2K_STATE="$T/etc/state"
+mkdir -p "$Z2K_STATE"
+printf 'z2kow_doh\n' > "$Z2K_STATE/.doh-uci-owned"
+printf 'https-dns-proxy\n' > "$Z2K_STATE/.doh-package-owned"
+printf 'preexisting config snapshot\n' > "$Z2K_STATE/.doh-config-backup"
+printf 'present=1\n' > "$Z2K_STATE/.doh-preinstall-config-present"
+RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "status exposes confirmation required before removing a pre-existing DoH config" \
+    "1" "$(_jget "$OUT" 'd["doh"]["confirm_remove"]')"
+rm -f "$Z2K_STATE"/.doh-*
+if [ -n "$_doh_saved_state" ]; then export Z2K_STATE="$_doh_saved_state"; else unset Z2K_STATE; fi
 RAW="$(_cgi POST /doh/check)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 _doh_job="$(_jget "$OUT" 'd["job"]')"
 assert_eq "DoH Check starts through the real API async route without test overrides" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"

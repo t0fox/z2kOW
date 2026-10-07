@@ -5,11 +5,13 @@ import { toast } from "../core/toast.js";
 import { JOB_FAIL, _updateGlobalUILock, confirmModal, jobOutcome, jobUnresolved, openJobModal, setLockAware, unresolvedMsg } from "../job.js";
 import { AUTOHOSTLIST_WARNING, TOGGLES_RESTART_SERVICE, resyncToggle } from "./policy.js";
 
-let flowBenchmarkPollTimer = 0;
-let flowBenchmarkInFlight = "";
-let flowBenchmarkWasActive = false;
-let flowBenchmarkRefreshBusy = false;
-let flowBenchmarkLastError = "";
+const flowBenchmarkRuntime = {
+  pollTimer: 0,
+  inFlight: "",
+  wasActive: false,
+  refreshBusy: false,
+  lastError: "",
+};
 
 const TOGGLE_DEFS = [
   { key: "category_youtube", name: "YouTube",
@@ -1034,7 +1036,7 @@ async function flowBenchmarkMeasure(status) {
       do {
         probes++;
         try { times.push(await probe()); } catch (_) { failed++; }
-        if (running) await new Promise(resolve => setTimeout(resolve, 350));
+        if (running) await new Promise(resolve => { setTimeout(resolve, 350); });
       } while (running);
     })();
     const result = await transfer(direction);
@@ -1065,8 +1067,8 @@ async function flowBenchmarkMeasure(status) {
 
 async function flowBenchmarkRefresh() {
   const card = document.getElementById("flowoffload-benchmark");
-  if (!card || card.hidden || flowBenchmarkRefreshBusy) return;
-  flowBenchmarkRefreshBusy = true;
+  if (!card || card.hidden || flowBenchmarkRuntime.refreshBusy) return;
+  flowBenchmarkRuntime.refreshBusy = true;
   const statusNode = card.querySelector("#flowoffload-benchmark-status");
   try {
     const state = await apiGet("/offload/benchmark?view=status");
@@ -1092,7 +1094,7 @@ async function flowBenchmarkRefresh() {
       const lastSuccess = !active && state.last_success_timestamp
         ? ` Последняя принятая стабильная серия: ${new Date(state.last_success_timestamp).toLocaleString("ru-RU")}.`
         : "";
-      const measurementError = state.status === "stopped" && flowBenchmarkLastError ? ` Ошибка измерения: ${flowBenchmarkLastError}.` : "";
+      const measurementError = state.status === "stopped" && flowBenchmarkRuntime.lastError ? ` Ошибка измерения: ${flowBenchmarkRuntime.lastError}.` : "";
       const providerLabel = state.provider === "cloudflare" ? "Cloudflare (резервная диагностика)" : "Яндекс Интернетометр";
       statusNode.textContent = `${labels[state.status] || `Интернет-тест: ${providerLabel}`}${measurementError}${lastSuccess}`;
     }
@@ -1133,22 +1135,22 @@ async function flowBenchmarkRefresh() {
       }
       }
     }
-    if (active && state.status === "awaiting_sample" && state.nonce && flowBenchmarkInFlight !== state.nonce) {
-      flowBenchmarkInFlight = state.nonce;
+    if (active && state.status === "awaiting_sample" && state.nonce && flowBenchmarkRuntime.inFlight !== state.nonce) {
+      flowBenchmarkRuntime.inFlight = state.nonce;
       try {
         const sample = await flowBenchmarkMeasure(state);
         await apiPost("/offload/benchmark", { action: "sample", ...sample });
       } catch (error) {
-        flowBenchmarkLastError = errMsg(error);
+        flowBenchmarkRuntime.lastError = errMsg(error);
         console.error("FLOWOFFLOAD benchmark measurement failed", error);
-        if (statusNode) statusNode.textContent = `Ошибка измерения: ${flowBenchmarkLastError}. Восстанавливаю режим…`;
+        if (statusNode) statusNode.textContent = `Ошибка измерения: ${flowBenchmarkRuntime.lastError}. Восстанавливаю режим…`;
         try { await apiPost("/offload/benchmark", { action: "stop" }); } catch (_) {}
-        flowBenchmarkInFlight = "";
+        flowBenchmarkRuntime.inFlight = "";
       }
     }
-    if (active) flowBenchmarkWasActive = true;
-    if (!active && start && flowBenchmarkWasActive) {
-      flowBenchmarkWasActive = false;
+    if (active) flowBenchmarkRuntime.wasActive = true;
+    if (!active && start && flowBenchmarkRuntime.wasActive) {
+      flowBenchmarkRuntime.wasActive = false;
       const selectNode = document.getElementById("flowoffload-mode");
       const stateView = document.getElementById("flowoffload-status");
       const errorView = document.getElementById("flowoffload-error");
@@ -1158,18 +1160,18 @@ async function flowBenchmarkRefresh() {
   } catch (_) {
     if (statusNode && !statusNode.textContent) statusNode.textContent = "Интернет-тест пока недоступен.";
   } finally {
-    flowBenchmarkRefreshBusy = false;
+    flowBenchmarkRuntime.refreshBusy = false;
   }
 }
 
 function startFlowBenchmarkPolling() {
-  if (flowBenchmarkPollTimer) clearInterval(flowBenchmarkPollTimer);
-  flowBenchmarkInFlight = "";
-  flowBenchmarkWasActive = false;
+  if (flowBenchmarkRuntime.pollTimer) clearInterval(flowBenchmarkRuntime.pollTimer);
+  flowBenchmarkRuntime.inFlight = "";
+  flowBenchmarkRuntime.wasActive = false;
   void flowBenchmarkRefresh();
-  flowBenchmarkPollTimer = setInterval(() => {
+  flowBenchmarkRuntime.pollTimer = setInterval(() => {
     if (!document.getElementById("tg-state-badge")) {
-      clearInterval(flowBenchmarkPollTimer); flowBenchmarkPollTimer = 0; return;
+      clearInterval(flowBenchmarkRuntime.pollTimer); flowBenchmarkRuntime.pollTimer = 0; return;
     }
     void flowBenchmarkRefresh();
   }, 1200);
@@ -1188,7 +1190,7 @@ function wireFlowBenchmark() {
     try {
       const started = await apiPost("/offload/benchmark", { action: "start", provider: provider?.value || "yandex-internetometer" });
       if (started?.job) {
-        flowBenchmarkLastError = "";
+        flowBenchmarkRuntime.lastError = "";
         openJobModal("Сравнение режимов FLOWOFFLOAD", started.job, {
           onDone: async () => {
             await flowBenchmarkRefresh();
@@ -1309,8 +1311,20 @@ function renderDohStatus(status, platform, syncControls = false) {
   line.dataset.state = stateLabel === "Работает" ? "working" : stateLabel === "Ошибка" ? "error" : "disabled";
   line.textContent = `Статус: ${stateLabel}${stateLabel === "Ошибка" ? ` · ${reason}` : ""}`;
   if (actions.dataset.actionSet !== "manage") {
-    actions.innerHTML = '<button class="btn btn-primary" data-doh-action="apply">Применить</button><button class="btn btn-secondary" data-doh-action="check">Проверить</button><button class="btn btn-danger" data-doh-action="uninstall">Удалить</button>';
+    actions.innerHTML = '<button class="btn btn-primary" data-doh-action="apply">Применить</button><button class="btn btn-secondary" data-doh-action="check">Проверить</button><button class="btn btn-secondary" data-doh-service-toggle hidden></button><button class="btn btn-danger" data-doh-action="uninstall">Удалить</button>';
     actions.dataset.actionSet = "manage";
+  }
+  const serviceButton = actions.querySelector("[data-doh-service-toggle]");
+  if (serviceButton) {
+    const shouldStop = status && (status.enabled === "1" || status.running === "1");
+    const canStart = Boolean(status && status.endpoint);
+    serviceButton.hidden = !shouldStop && !canStart;
+    if (serviceButton.hidden) {
+      delete serviceButton.dataset.dohAction;
+    } else {
+      serviceButton.dataset.dohAction = shouldStop ? "disable" : "enable";
+      serviceButton.textContent = shouldStop ? "Остановить" : "Запустить";
+    }
   }
 }
 
@@ -1529,6 +1543,8 @@ export async function renderToggles() {
       uninstall: ["/doh/uninstall", "Удаление DoH"],
       check: ["/doh/check", "Проверка DoH"],
       apply: ["/doh/provider", "Применение DoH"],
+      enable: ["/doh/enable", "Запуск DoH"],
+      disable: ["/doh/disable", "Остановка DoH"],
     };
     const spec = actions[action];
     if (!spec) return;

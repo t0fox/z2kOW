@@ -2534,6 +2534,8 @@ try {
       };
     }
     if (endpoint === 'install') dohStatus = { ...dohStatus, state: 'disabled', installed: '1', enabled: '0', running: '0', external_config: '0' };
+    if (endpoint === 'enable') dohStatus = { ...dohStatus, state: 'working', installed: '1', enabled: '1', running: '1', reason: '' };
+    if (endpoint === 'disable') dohStatus = { ...dohStatus, state: 'disabled', installed: '1', enabled: '0', running: '0', reason: '' };
     if (endpoint === 'uninstall') {
       if (failNextDohUninstall) {
         failNextDohUninstall = false;
@@ -2584,7 +2586,7 @@ try {
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-1"] #job-close').click();
   await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Выключен'));
   assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
-    ['apply', 'check', 'uninstall'], 'installed state offers Apply, Check and Remove');
+    ['apply', 'check', 'uninstall'], 'freshly installed DoH offers Apply, Check and Remove until a resolver is configured');
   assert.equal(await dohCard.locator('#doh-force-dns').count(), 0,
     'force DNS is not exposed as an unrelated extra stage');
 
@@ -2612,6 +2614,20 @@ try {
   assert.equal(await dohCard.locator('#doh-region').isVisible(), true,
     'GeoHide exposes RU/EU/US region selection');
   assert.equal(await dohCard.locator('#doh-region').inputValue(), 'us');
+  assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
+    ['apply', 'check', 'disable', 'uninstall'], 'configured working DoH offers Stop');
+  await dohCard.getByRole('button', { name: 'Остановить' }).click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').waitFor({ state: 'visible' });
+  assert.deepEqual(dohActions[2], { endpoint: 'disable', body: {} }, 'Stop calls the existing DoH disable action');
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').click();
+  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Выключен'));
+  assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
+    ['apply', 'check', 'enable', 'uninstall'], 'stopping DoH retains its config and offers Start');
+  await dohCard.getByRole('button', { name: 'Запустить' }).click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-4"] #job-close').waitFor({ state: 'visible' });
+  assert.deepEqual(dohActions[3], { endpoint: 'enable', body: {} }, 'Start calls the existing DoH enable action');
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-4"] #job-close').click();
+  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Работает'));
 
   dohStatus = { ...dohStatus, state: 'error', enabled: '1', running: '0', reason: 'proxy-not-running' };
   await dohPage.reload();
@@ -2619,7 +2635,7 @@ try {
   assert.match(await dohCard.innerText(), /Статус: Ошибка/);
   assert.match(await dohCard.innerText(), /сервис https-dns-proxy не запущен/i);
   assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
-    ['apply', 'check', 'uninstall'], 'error state keeps simple Apply, Check and Remove actions');
+    ['apply', 'check', 'disable', 'uninstall'], 'error state keeps Stop available while the service remains enabled');
 
   await dohCard.locator('#doh-provider').selectOption('custom');
   assert.equal(await dohCard.locator('#doh-custom-fields').isVisible(), true,
@@ -2627,12 +2643,12 @@ try {
   await dohCard.locator('#doh-endpoint').fill('https://resolver.example/dns-query');
   await dohCard.locator('#doh-bootstrap').fill('203.0.113.1,203.0.113.2');
   await dohCard.getByRole('button', { name: 'Применить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').waitFor({ state: 'visible' });
-  assert.deepEqual(dohActions[2], {
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').waitFor({ state: 'visible' });
+  assert.deepEqual(dohActions[4], {
     endpoint: 'provider',
     body: { provider: 'custom', endpoint: 'https://resolver.example/dns-query', bootstrap: '203.0.113.1,203.0.113.2' },
   }, 'custom endpoint values are applied only after explicit Apply');
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').click();
   await dohPage.waitForFunction(() => document.querySelector('#doh-provider')?.value === 'custom' &&
     document.querySelector('#doh-endpoint')?.value === 'https://resolver.example/dns-query');
 
@@ -2640,9 +2656,9 @@ try {
   holdNextDohJobResult = true;
   const dohStatusCallsBeforeCheck = dohStatusCalls;
   await dohCard.getByRole('button', { name: 'Проверить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-4"] #job-close').waitFor({ state: 'visible' });
-  assert.equal(dohActions[3].endpoint, 'check', 'diagnostics use a separate Check action');
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-4"] #job-close').click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').waitFor({ state: 'visible' });
+  assert.equal(dohActions[5].endpoint, 'check', 'diagnostics use a separate Check action');
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').click();
   await dohPage.evaluate(() => {
     window.scrollTo(0, 650);
     document.querySelector('#tiktok-feed-technical').open = true;
@@ -2727,26 +2743,26 @@ try {
 
   acceptNextDohConfirm = true;
   await dohCard.getByRole('button', { name: 'Удалить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').waitFor({ state: 'visible' });
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').filter({ hasText: 'Закрыть' }).waitFor({ state: 'visible' });
-  assert.equal(await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').innerText(), 'Закрыть',
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-7"] #job-close').waitFor({ state: 'visible' });
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-7"] #job-close').filter({ hasText: 'Закрыть' }).waitFor({ state: 'visible' });
+  assert.equal(await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-7"] #job-close').innerText(), 'Закрыть',
     'a failed uninstall never presents the success action Готово');
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-7"] #job-close').click();
   await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Работает'));
   acceptNextDohConfirm = true;
   await dohCard.getByRole('button', { name: 'Удалить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').waitFor({ state: 'visible' });
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-8"] #job-close').waitFor({ state: 'visible' });
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-8"] #job-close').click();
   await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Не установлен'));
-  assert.deepEqual(dohActions[4], { endpoint: 'uninstall', body: { confirm: '1' } },
+  assert.deepEqual(dohActions[6], { endpoint: 'uninstall', body: { confirm: '1' } },
     'confirmed Remove submits the server-required external package confirmation');
-  assert.deepEqual(dohActions[5], { endpoint: 'uninstall', body: { confirm: '1' } },
+  assert.deepEqual(dohActions[7], { endpoint: 'uninstall', body: { confirm: '1' } },
     'a failed Remove remains retryable after state is refreshed');
   assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
     ['install'], 'Remove immediately returns the card to Install-only state');
   assert.equal(await dohCard.locator('#doh-ownership-warning').isVisible(), false,
     'the external ownership warning disappears after package removal');
-  assert.deepEqual(dohActions.map(action => action.endpoint), ['install', 'provider', 'provider', 'check', 'uninstall', 'uninstall']);
+  assert.deepEqual(dohActions.map(action => action.endpoint), ['install', 'provider', 'disable', 'enable', 'provider', 'check', 'uninstall', 'uninstall']);
   assert.equal(await dohPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
     'compact DoH controls do not introduce mobile horizontal overflow');
   await dohPage.close();
