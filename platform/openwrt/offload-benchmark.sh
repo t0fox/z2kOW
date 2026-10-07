@@ -72,6 +72,172 @@ z2k_ow_offload_benchmark_new_token() {
     printf '%s' "$_v"
 }
 
+z2k_ow_offload_benchmark_yandex_host() {
+    local _url="$1" _host
+    case "$_url" in https://*.cdn.yandex.net/*) ;; *) return 1 ;; esac
+    printf '%s\n' "$_url" | grep -Eq '^[A-Za-z0-9:/?&=._-]+$' || return 1
+    _host=${_url#https://}; _host=${_host%%/*}
+    case "$_host" in *..*|.*|*.) return 1 ;; esac
+    printf '%s\n' "$_host" | grep -Eq '^([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+cdn\.yandex\.net$' || return 1
+    printf '%s' "$_host"
+}
+z2k_ow_offload_benchmark_yandex_url_valid() {
+    local _kind="$1" _url="$2" _mid="$3"
+    z2k_ow_offload_benchmark_yandex_host "$_url" >/dev/null || return 1
+    case "$_kind" in
+        latency)
+            printf '%s\n' "$_url" | grep -Eq "^https://([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\\.)+cdn\\.yandex\\.net/[A-Za-z0-9_-]+/ping\\?mid=${_mid}&lid=[0-9]+$" ;;
+        download)
+            printf '%s\n' "$_url" | grep -Eq "^https://([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\\.)+cdn\\.yandex\\.net/[A-Za-z0-9_-]+/probes/(50mb|100kb)\\?lid=[0-9]+&mid=${_mid}(&timeout=[0-9]+)?$" ;;
+        upload)
+            printf '%s\n' "$_url" | grep -Eq "^https://([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\\.)+cdn\\.yandex\\.net/[A-Za-z0-9_-]+/upload\\?mid=${_mid}&size=[1-9][0-9]*(&timeout=[0-9]+)?$" ;;
+        *) return 1 ;;
+    esac
+}
+z2k_ow_offload_benchmark_yandex_url_lid() {
+    case "$1" in
+        latency) printf '%s\n' "$2" | sed -n 's/.*&lid=\([0-9][0-9]*\)$/\1/p' ;;
+        download) printf '%s\n' "$2" | sed -n 's/.*?lid=\([0-9][0-9]*\)&mid=.*/\1/p' ;;
+        *) return 1 ;;
+    esac
+}
+z2k_ow_offload_benchmark_validate_yandex_probes() {
+    local _source="$1" _target="$2" _bytes _mid _i _j _k _url _host _timeout _size _type _lid _lids _lid_count=0
+    local _lat_count=0 _download_count=0 _upload_count=0 _full_downloads=0 _full_uploads=0
+    local _chosen_latency= _chosen_download= _chosen_upload= _chosen_server=
+    [ -r "$_source" ] && command -v jsonfilter >/dev/null 2>&1 || return 1
+    _bytes=$(wc -c < "$_source" 2>/dev/null | tr -d ' ')
+    case "$_bytes" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$_bytes" -gt 1 ] && [ "$_bytes" -le 65536 ] || return 1
+    [ "$(jsonfilter -q -i "$_source" -t '@.mid' 2>/dev/null)" = string ] || return 1
+    [ "$(jsonfilter -q -i "$_source" -t '@.lid' 2>/dev/null)" = array ] || return 1
+    for _type in latency download upload; do
+        [ "$(jsonfilter -q -i "$_source" -t "@.$_type" 2>/dev/null)" = object ] || return 1
+        [ "$(jsonfilter -q -i "$_source" -t "@.$_type.probes" 2>/dev/null)" = array ] || return 1
+    done
+    _mid=$(jsonfilter -q -i "$_source" -e '@.mid' 2>/dev/null)
+    printf '%s\n' "$_mid" | grep -Eq '^[A-Za-z0-9_-]{16,128}$' || return 1
+    _lids=
+    for _i in 0 1 2 3 4 5 6; do
+        _type=$(jsonfilter -q -i "$_source" -t "@.lid[$_i]" 2>/dev/null)
+        [ -n "$_type" ] || break
+        [ "$_i" -lt 6 ] && [ "$_type" = string ] || return 1
+        _lid=$(jsonfilter -q -i "$_source" -e "@.lid[$_i]" 2>/dev/null)
+        case "$_lid" in ''|*[!0-9]*|0*) return 1 ;; esac
+        case " $_lids " in *" $_lid "*) return 1 ;; esac
+        _lids="${_lids}${_lids:+ }$_lid"
+        _lid_count=$((_lid_count+1)); [ "$_lid_count" -le 6 ] || return 1
+    done
+    [ "$_lid_count" -ge 1 ] || return 1
+
+    for _i in 0 1 2 3; do
+        _type=$(jsonfilter -q -i "$_source" -t "@.latency.probes[$_i]" 2>/dev/null)
+        [ -n "$_type" ] || break
+        [ "$_type" = object ] || return 1
+        [ "$(jsonfilter -q -i "$_source" -t "@.latency.probes[$_i].url" 2>/dev/null)" = string ] || return 1
+        _url=$(jsonfilter -q -i "$_source" -e "@.latency.probes[$_i].url" 2>/dev/null)
+        [ -n "$_url" ] || break
+        [ "$_i" -lt 3 ] && z2k_ow_offload_benchmark_yandex_url_valid latency "$_url" "$_mid" || return 1
+        _lid=$(z2k_ow_offload_benchmark_yandex_url_lid latency "$_url")
+        case " $_lids " in *" $_lid "*) ;; *) return 1 ;; esac
+        _lat_count=$((_lat_count+1))
+    done
+    [ "$_lat_count" -ge 1 ] && [ "$_lat_count" -le 3 ] || return 1
+
+    for _i in 0 1 2 3 4 5 6; do
+        _type=$(jsonfilter -q -i "$_source" -t "@.download.probes[$_i]" 2>/dev/null)
+        [ -n "$_type" ] || break
+        [ "$_type" = object ] || return 1
+        [ "$(jsonfilter -q -i "$_source" -t "@.download.probes[$_i].url" 2>/dev/null)" = string ] || return 1
+        _url=$(jsonfilter -q -i "$_source" -e "@.download.probes[$_i].url" 2>/dev/null)
+        [ -n "$_url" ] || break
+        [ "$_i" -lt 6 ] && z2k_ow_offload_benchmark_yandex_url_valid download "$_url" "$_mid" || return 1
+        _lid=$(z2k_ow_offload_benchmark_yandex_url_lid download "$_url")
+        case " $_lids " in *" $_lid "*) ;; *) return 1 ;; esac
+        _download_count=$((_download_count+1))
+        _type=$(jsonfilter -q -i "$_source" -t "@.download.probes[$_i].timeout" 2>/dev/null)
+        [ -z "$_type" ] || [ "$_type" = int ] || return 1
+        _timeout=$(jsonfilter -q -i "$_source" -e "@.download.probes[$_i].timeout" 2>/dev/null)
+        if [ -n "$_timeout" ]; then case "$_timeout" in *[!0-9]*|0) return 1 ;; esac; fi
+        case "$_url" in */probes/50mb\?*) [ -z "$_timeout" ] && _full_downloads=$((_full_downloads+1)) ;; esac
+    done
+    [ "$_download_count" -ge 1 ] && [ "$_download_count" -le 6 ] && [ "$_full_downloads" -ge 1 ] || return 1
+
+    for _i in 0 1 2 3 4 5 6; do
+        _type=$(jsonfilter -q -i "$_source" -t "@.upload.probes[$_i]" 2>/dev/null)
+        [ -n "$_type" ] || break
+        [ "$_type" = object ] || return 1
+        [ "$(jsonfilter -q -i "$_source" -t "@.upload.probes[$_i].url" 2>/dev/null)" = string ] || return 1
+        [ "$(jsonfilter -q -i "$_source" -t "@.upload.probes[$_i].size" 2>/dev/null)" = int ] || return 1
+        _url=$(jsonfilter -q -i "$_source" -e "@.upload.probes[$_i].url" 2>/dev/null)
+        [ -n "$_url" ] || break
+        [ "$_i" -lt 6 ] && z2k_ow_offload_benchmark_yandex_url_valid upload "$_url" "$_mid" || return 1
+        _size=$(jsonfilter -q -i "$_source" -e "@.upload.probes[$_i].size" 2>/dev/null)
+        case "$_size" in ''|*[!0-9]*) return 1 ;; esac
+        [ "$_size" -gt 0 ] && [ "$_size" -le 52428800 ] || return 1
+        case "$_url" in *"&size=$_size"*) ;; *) return 1 ;; esac
+        _upload_count=$((_upload_count+1))
+        _type=$(jsonfilter -q -i "$_source" -t "@.upload.probes[$_i].timeout" 2>/dev/null)
+        [ -z "$_type" ] || [ "$_type" = int ] || return 1
+        _timeout=$(jsonfilter -q -i "$_source" -e "@.upload.probes[$_i].timeout" 2>/dev/null)
+        if [ -n "$_timeout" ]; then case "$_timeout" in *[!0-9]*|0) return 1 ;; esac; fi
+        case "$_url" in */upload\?*) [ -z "$_timeout" ] && _full_uploads=$((_full_uploads+1)) ;; esac
+    done
+    [ "$_upload_count" -ge 1 ] && [ "$_upload_count" -le 6 ] && [ "$_full_uploads" -ge 1 ] || return 1
+
+    for _i in 0 1 2; do
+        _url=$(jsonfilter -q -i "$_source" -e "@.latency.probes[$_i].url" 2>/dev/null); [ -n "$_url" ] || continue
+        _host=$(z2k_ow_offload_benchmark_yandex_host "$_url") || return 1
+        for _j in 0 1 2 3 4 5; do
+            _chosen_download=$(jsonfilter -q -i "$_source" -e "@.download.probes[$_j].url" 2>/dev/null); [ -n "$_chosen_download" ] || continue
+            case "$_chosen_download" in */probes/50mb\?*) ;; *) continue ;; esac
+            _timeout=$(jsonfilter -q -i "$_source" -e "@.download.probes[$_j].timeout" 2>/dev/null); [ -z "$_timeout" ] || continue
+            [ "$(z2k_ow_offload_benchmark_yandex_host "$_chosen_download")" = "$_host" ] || continue
+            for _k in 0 1 2 3 4 5; do
+                _chosen_upload=$(jsonfilter -q -i "$_source" -e "@.upload.probes[$_k].url" 2>/dev/null); [ -n "$_chosen_upload" ] || continue
+                _timeout=$(jsonfilter -q -i "$_source" -e "@.upload.probes[$_k].timeout" 2>/dev/null); [ -z "$_timeout" ] || continue
+                [ "$(z2k_ow_offload_benchmark_yandex_host "$_chosen_upload")" = "$_host" ] || continue
+                _chosen_latency=$_url; _chosen_server=$_host; break
+            done
+            [ -n "$_chosen_latency" ] && break
+        done
+        [ -n "$_chosen_latency" ] && break
+    done
+    [ -n "$_chosen_latency" ] && [ -n "$_chosen_download" ] && [ -n "$_chosen_upload" ] && [ -n "$_chosen_server" ] || return 1
+    printf '{"provider":"yandex-internetometer","server":"%s","mid":"%s","latency_url":"%s","download_url":"%s","upload_url":"%s"}\n' \
+        "$_chosen_server" "$_mid" "$_chosen_latency" "$_chosen_download" "$_chosen_upload" > "$_target.new.$$" \
+        && mv -f "$_target.new.$$" "$_target"
+}
+z2k_ow_offload_benchmark_prepare_yandex_probes() {
+    local _dir="$(z2k_ow_offload_benchmark_session_dir)" _raw="$(z2k_ow_offload_benchmark_session_dir)/probes.raw.json" _url
+    command -v curl >/dev/null 2>&1 || { echo 'на роутере нет curl для запроса probe-конфигурации Яндекса' >&2; return 1; }
+    _url="https://yandex.ru/internet/api/v0/get-probes?nocache=$(date +%s)$$&from=internet"
+    if ! curl -fsS --connect-timeout 5 --max-time 20 --max-filesize 65536 \
+        -H 'User-Agent: Mozilla/5.0 z2kOW' -H 'Referer: https://yandex.ru/internet/' -H 'Accept: application/json' \
+        -o "$_raw" "$_url" >/dev/null 2>&1; then
+        rm -f "$_raw"
+        echo 'не удалось получить probe-конфигурацию Яндекс Интернетометра' >&2
+        return 1
+    fi
+    z2k_ow_offload_benchmark_validate_yandex_probes "$_raw" "$_dir/probe-config.json" || {
+        rm -f "$_raw" "$_dir/probe-config.json" "$_dir/probe-config.json.new.$$"
+        echo 'ответ get-probes не прошёл строгую проверку формата или CDN endpoints' >&2
+        return 1
+    }
+    rm -f "$_raw"
+}
+z2k_ow_offload_benchmark_probe_config_json() {
+    local _file="$(z2k_ow_offload_benchmark_session_dir)/probe-config.json"
+    if [ -s "$_file" ]; then cat "$_file"; else printf null; fi
+}
+z2k_ow_offload_benchmark_provider_server() {
+    case "$(z2k_ow_offload_benchmark_field provider 2>/dev/null)" in
+        yandex-internetometer) jsonfilter -q -i "$(z2k_ow_offload_benchmark_session_dir)/probe-config.json" -e '@.server' 2>/dev/null ;;
+        cloudflare) printf speed.cloudflare.com ;;
+        *) printf '' ;;
+    esac
+}
+
 z2k_ow_offload_benchmark_pid_alive() {
     local _p="$1" _s
     [ -n "$_p" ] && kill -0 "$_p" 2>/dev/null || return 1
@@ -112,8 +278,8 @@ z2k_ow_offload_benchmark_recover() {
 }
 
 z2k_ow_offload_benchmark_start() {
-    local _provider="${1:-cloudflare}" _mode _dir _session _token
-    [ "$_provider" = cloudflare ] || { echo "unsupported provider" >&2; return 1; }
+    local _provider="${1:-yandex-internetometer}" _mode _dir _session _token
+    case "$_provider" in yandex-internetometer|cloudflare) ;; *) echo "unsupported provider" >&2; return 1 ;; esac
     z2k_ow_offload_benchmark_recover || { echo "исходный режим FLOWOFFLOAD не восстановлен" >&2; return 1; }
     z2k_ow_flowoffload_available || { echo "FLOWOFFLOAD benchmark недоступен" >&2; return 1; }
     is_running >/dev/null 2>&1 || { echo "сначала запустите сервис z2kOW" >&2; return 1; }
@@ -125,6 +291,10 @@ z2k_ow_offload_benchmark_start() {
     rm -rf "$_dir"; mkdir -p "$_dir/samples" || { rmdir "$(z2k_ow_offload_benchmark_lock_dir)"; return 1; }
     _session="$(date +%s)$$"; _token=$(z2k_ow_offload_benchmark_new_token) \
         || { rm -rf "$(z2k_ow_offload_benchmark_lock_dir)" "$_dir"; return 1; }
+    if [ "$_provider" = yandex-internetometer ] && ! z2k_ow_offload_benchmark_prepare_yandex_probes; then
+        rm -rf "$(z2k_ow_offload_benchmark_lock_dir)" "$_dir"
+        return 1
+    fi
     printf 'session=%s\ntoken=%s\nprovider=%s\nstatus=starting\nmode=\ntrial=0\nnonce=\ninitial_mode=%s\ncreated=%s\nmessage=\n' \
         "$_session" "$_token" "$_provider" "$_mode" "$(date +%s)" > "$(z2k_ow_offload_benchmark_state_file)" \
         || { rm -rf "$(z2k_ow_offload_benchmark_lock_dir)" "$_dir"; return 1; }
@@ -138,7 +308,7 @@ z2k_ow_offload_benchmark_stop() {
     esac
 }
 z2k_ow_offload_benchmark_submit() {
-    local _session="$1" _token="$2" _nonce="$3" _server="${12}" _value _sample
+    local _session="$1" _token="$2" _nonce="$3" _server="${12}" _expected_server _provider _value _sample
     [ "$(z2k_ow_offload_benchmark_field session)" = "$_session" ] || return 1
     [ "$(z2k_ow_offload_benchmark_field token)" = "$_token" ] || return 1
     [ "$(z2k_ow_offload_benchmark_field nonce)" = "$_nonce" ] || return 1
@@ -146,7 +316,9 @@ z2k_ow_offload_benchmark_submit() {
     for _value in "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}"; do
         case "$_value" in ''|*[!0-9.]*) return 1 ;; esac
     done
-    case "$_server" in cloudflare|speed.cloudflare.com) ;; *) return 1 ;; esac
+    _provider=$(z2k_ow_offload_benchmark_field provider 2>/dev/null)
+    _expected_server=$(z2k_ow_offload_benchmark_provider_server)
+    [ -n "$_expected_server" ] && [ "$_server" = "$_expected_server" ] || return 1
     _sample="$(z2k_ow_offload_benchmark_session_dir)/sample.$_nonce"
     [ ! -e "$_sample" ] || return 1
     printf 'download_mbps=%s\nupload_mbps=%s\nidle_ms=%s\ndownload_loaded_ms=%s\nupload_loaded_ms=%s\njitter_ms=%s\nloss_pct=%s\nduration_s=%s\nserver=%s\n' \
@@ -154,7 +326,7 @@ z2k_ow_offload_benchmark_submit() {
 }
 
 z2k_ow_offload_benchmark_wait_sample() {
-    local _nonce="$3" _sample="$(z2k_ow_offload_benchmark_session_dir)/sample.$3" _n="${Z2K_BENCH_SAMPLE_TIMEOUT:-90}"
+    local _nonce="$3" _sample="$(z2k_ow_offload_benchmark_session_dir)/sample.$3" _n="${Z2K_BENCH_SAMPLE_TIMEOUT:-150}"
     while [ "$_n" -gt 0 ]; do
         [ ! -f "$(z2k_ow_offload_benchmark_stop_file)" ] || return 2
         [ ! -s "$_sample" ] || { cat "$_sample"; return 0; }
@@ -298,8 +470,10 @@ z2k_ow_offload_benchmark_system_json() {
         "$(z2k_ow_offload_benchmark_json_text "$_wan")"
 }
 z2k_ow_offload_benchmark_write_result() {
-    local _status="$1" _message="$2" _root _mode _metric _sep _i _file _k _actual _runs _dl _sw _hw _recommendation _reason _du _su _dc _sc _hu _hc _hd _hvs _hobs _sqm _pbr _warp _unstable _complete _accepted _sd _scd _hcd _spread _outliers _restored
+    local _status="$1" _message="$2" _root _mode _metric _sep _i _file _k _actual _runs _dl _sw _hw _recommendation _reason _du _su _dc _sc _hu _hc _hd _hvs _hobs _sqm _pbr _warp _unstable _complete _accepted _sd _scd _hcd _spread _outliers _restored _provider _server
     _root=$(z2k_ow_offload_benchmark_root); mkdir -p "$_root"
+    _provider=$(z2k_ow_offload_benchmark_field provider 2>/dev/null)
+    _server=$(z2k_ow_offload_benchmark_provider_server)
     _dl=$(z2k_ow_offload_benchmark_result_value none download_mbps)
     _sw=$(z2k_ow_offload_benchmark_result_value software download_mbps)
     _hw=$(z2k_ow_offload_benchmark_result_value hardware download_mbps)
@@ -343,9 +517,11 @@ z2k_ow_offload_benchmark_write_result() {
     _accepted=false
     [ "$_status" = completed ] && [ "$_complete" = true ] && [ "$_unstable" = false ] && [ "$_restored" = true ] && _accepted=true
     {
-        printf '{"schema":1,"stability_rule":"two_of_five_over_10pct","status":"%s","timestamp":"%s","system":%s,"provider":"cloudflare","server":"speed.cloudflare.com","original_mode":"%s","restored":%s,"message":"%s","modes":{' \
+        printf '{"schema":1,"stability_rule":"two_of_five_over_10pct","status":"%s","timestamp":"%s","system":%s,"provider":%s,"server":%s,"original_mode":"%s","restored":%s,"message":"%s","modes":{' \
             "$_status" "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')" \
             "$(z2k_ow_offload_benchmark_system_json)" \
+            "$(z2k_ow_offload_benchmark_json_text "$_provider")" \
+            "$(z2k_ow_offload_benchmark_json_text "$_server")" \
             "$(z2k_ow_offload_benchmark_field initial_mode 2>/dev/null)" \
             "$_restored" \
             "$(printf '%s' "$_message" | tr '\\"' '  ' | tr '\n' ' ')"
@@ -361,7 +537,8 @@ z2k_ow_offload_benchmark_write_result() {
                         [ -n "$_sep" ] && printf ','; printf '"%s":%s' "$_k" "$(z2k_ow_offload_benchmark_number_or_null "$(sed -n "s/^${_k}=//p" "$_file")")"; _sep=1
                     done
                     _actual=$(sed -n 's/^actual=//p' "$_file")
-                    printf ',"actual":"%s"}' "${_actual:-unknown}"; _runs=1
+                    printf ',"actual":"%s","server":%s}' "${_actual:-unknown}" \
+                        "$(z2k_ow_offload_benchmark_json_text "$(sed -n 's/^server=//p' "$_file")")"; _runs=1
                 fi
                 _i=$((_i+1))
             done
@@ -387,7 +564,7 @@ z2k_ow_offload_benchmark_write_result() {
         else
             printf '},"comparisons":{"software_vs_none":{"download_pct":null,"upload_pct":null,"cpu_pct":null},"hardware_vs_none":{"download_pct":null,"upload_pct":null,"cpu_pct":null},"hardware_vs_software":{"download_pct":null,"upload_pct":null,"cpu_pct":null}},'
         fi
-        printf '"validity":{"complete":%s,"unstable":%s,"accepted":%s,"warnings":["Внешний тест зависит от Cloudflare, маршрута и провайдера"' "$_complete" "$_unstable" "$_accepted"
+        printf '"validity":{"complete":%s,"unstable":%s,"accepted":%s,"warnings":["Внешний тест зависит от выбранного CDN, маршрута и провайдера"' "$_complete" "$_unstable" "$_accepted"
         [ "$_unstable" = false ] || printf ',"Повторные измерения загрузки или отдачи нестабильны: минимум два прогона отклоняются от медианы более чем на 10%%"'
         case "$_sqm" in
             confirmed) printf ',"SQM работает; hardware offload может обходить его обработку"' ;;
@@ -505,11 +682,13 @@ z2k_ow_offload_benchmark_status_json() {
     else
         _last_success_timestamp=
     fi
-    printf '{"ok":true,"active":%s,"session":"%s","token":"%s","status":"%s","mode":"%s","trial":%s,"total_trials":5,"nonce":"%s","provider":"%s","result":' \
+    printf '{"ok":true,"active":%s,"session":"%s","token":"%s","status":"%s","mode":"%s","trial":%s,"total_trials":5,"nonce":"%s","provider":"%s","probe_config":' \
         "$_active" "$(z2k_ow_offload_benchmark_field session 2>/dev/null)" "$(z2k_ow_offload_benchmark_field token 2>/dev/null)" \
         "${_status:-idle}" "$(z2k_ow_offload_benchmark_field mode 2>/dev/null)" \
         "$(z2k_ow_offload_benchmark_number_or_null "$(z2k_ow_offload_benchmark_field trial 2>/dev/null)")" \
         "$(z2k_ow_offload_benchmark_field nonce 2>/dev/null)" "$(z2k_ow_offload_benchmark_field provider 2>/dev/null)"
+    z2k_ow_offload_benchmark_probe_config_json
+    printf ',"result":'
     if [ -s "$_result" ] && grep -q '"stability_rule":"two_of_five_over_10pct"' "$_result" 2>/dev/null; then cat "$_result"; else printf null; fi
     printf ',"last_success_timestamp":"%s"}\n' "$_last_success_timestamp"
 }
@@ -542,9 +721,9 @@ z2k_ow_offload_benchmark_api() {
     _body=$(read_body); _action=$(form_value "$_body" action)
     case "$_action" in
         start)
-            _provider=$(form_value "$_body" provider); [ -n "$_provider" ] || _provider=cloudflare
-            case "$_provider" in cloudflare) ;; *) json_fail "400 Bad Request" "unsupported benchmark provider" ;; esac
-            _session=$(z2k_ow_offload_benchmark_start "$_provider") || json_fail "409 Conflict" "не удалось запустить benchmark"
+            _provider=$(form_value "$_body" provider); [ -n "$_provider" ] || _provider=yandex-internetometer
+            case "$_provider" in yandex-internetometer|cloudflare) ;; *) json_fail "400 Bad Request" "unsupported benchmark provider" ;; esac
+            _session=$(z2k_ow_offload_benchmark_start "$_provider" 2>&1) || json_fail "409 Conflict" "${_session:-не удалось запустить benchmark}"
             case "$_session" in ''|*[!0-9]*)
                 rm -rf "$(z2k_ow_offload_benchmark_lock_dir)" "$(z2k_ow_offload_benchmark_session_dir)"
                 json_fail "500 Internal Server Error" "не удалось создать benchmark session" ;;

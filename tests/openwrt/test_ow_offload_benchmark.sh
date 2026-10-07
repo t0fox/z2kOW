@@ -117,7 +117,7 @@ z2k_ow_offload_benchmark_wait_sample() {
         case "$1:$2" in software:3) _download=88 ;; software:4) _download=89 ;; esac
     fi
     if [ "${BENCH_SINGLE_OUTLIER:-}" = 1 ] && [ "$1:$2" = software:5 ]; then _download=85; fi
-    printf 'download_mbps=%s\nupload_mbps=%s\nidle_ms=8\ndownload_loaded_ms=20\nupload_loaded_ms=24\njitter_ms=2\nloss_pct=0\nduration_s=4\nserver=cloudflare\n' "$_download" "$_upload"
+    printf 'download_mbps=%s\nupload_mbps=%s\nidle_ms=8\ndownload_loaded_ms=20\nupload_loaded_ms=24\njitter_ms=2\nloss_pct=0\nduration_s=4\nserver=speed.cloudflare.com\n' "$_download" "$_upload"
 }
 z2k_ow_offload_benchmark_cpu_monitor() {
     [ "${BENCH_CPU_UNKNOWN:-}" = 1 ] || printf 'avg=12\npeak=18\n' > "$1"

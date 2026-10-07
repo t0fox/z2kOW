@@ -2198,7 +2198,9 @@ try {
   assert.equal(await healthy.page.locator('#flowoffload-benchmark').isVisible(), true,
     'OpenWrt offload card exposes an explicit, non-autostarting comparison action');
   assert.equal(await healthy.page.locator('#flowoffload-benchmark-start').innerText(), 'Сравнить режимы');
-  assert.equal(await healthy.page.locator('#flowoffload-benchmark-provider').inputValue(), 'cloudflare');
+  assert.equal(await healthy.page.locator('#flowoffload-benchmark-provider').inputValue(), 'yandex-internetometer');
+  assert.match(await healthy.page.locator('#flowoffload-benchmark-provider').innerText(), /Cloudflare — резервная диагностика/,
+    'Cloudflare remains an explicit diagnostic option rather than the primary provider');
   assert.equal(await healthy.page.locator('#flowoffload-benchmark-result').isVisible(), false,
     'no measurements are fabricated before a benchmark has completed');
   assert.equal(await flowStatus.locator('.flow-application-title').innerText(), 'Аппаратное ускорение');
@@ -2253,7 +2255,8 @@ try {
   let latestBenchmarkStatus = null;
   const fixtureResult = {
     status: 'completed', timestamp: '2026-10-07T10:00:00Z', recommendation: 'software',
-    validity: { complete: true, unstable: false, accepted: true, warnings: ['Внешний тест зависит от Cloudflare'] },
+    provider: 'yandex-internetometer', server: 'edge-01.cdn.yandex.net',
+    validity: { complete: true, unstable: false, accepted: true, warnings: ['Внешний тест зависит от выбранного CDN'] },
     comparisons: {
       software_vs_none: { download_pct: 100, upload_pct: -78, cpu_pct: 17 },
       hardware_vs_software: { download_pct: null, upload_pct: null, cpu_pct: null },
@@ -2265,9 +2268,9 @@ try {
       download_loaded_ms: 18, upload_loaded_ms: 21, jitter_ms: 2, loss_pct: 0,
       offload_observed: mode === 'software', run_range_pct: { download: 3.3, upload: 3.3 },
       runs: [
-        { download_mbps: 59, upload_mbps: 29, download_loaded_ms: 17, upload_loaded_ms: 20 },
-        { download_mbps: 60, upload_mbps: 30, download_loaded_ms: 18, upload_loaded_ms: 21 },
-        { download_mbps: 61, upload_mbps: 31, download_loaded_ms: 19, upload_loaded_ms: 22 },
+        { download_mbps: 59, upload_mbps: 29, download_loaded_ms: 17, upload_loaded_ms: 20, server: 'edge-01.cdn.yandex.net' },
+        { download_mbps: 60, upload_mbps: 30, download_loaded_ms: 18, upload_loaded_ms: 21, server: 'edge-01.cdn.yandex.net' },
+        { download_mbps: 61, upload_mbps: 31, download_loaded_ms: 19, upload_loaded_ms: 22, server: 'edge-01.cdn.yandex.net' },
       ],
     }])),
   };
@@ -2277,7 +2280,13 @@ try {
       : resumedSample
         ? { ok: true, active: false, status: 'completed', result: fixtureResult }
         : { ok: true, active: true, session: 'session-fixture', token: 'token-fixture', status: 'awaiting_sample',
-            mode: 'software', trial: 2, nonce: 'nonce-after-reload', provider: 'cloudflare', result: null };
+            mode: 'software', trial: 2, nonce: 'nonce-after-reload', provider: 'yandex-internetometer', result: null,
+            probe_config: {
+              provider: 'yandex-internetometer', server: 'edge-01.cdn.yandex.net', mid: 'fixturemid123456789',
+              latency_url: 'https://edge-01.cdn.yandex.net/cdnrph/ping?mid=fixturemid123456789&lid=123',
+              download_url: 'https://edge-01.cdn.yandex.net/cdnrph/probes/50mb?lid=123&mid=fixturemid123456789',
+              upload_url: 'https://edge-01.cdn.yandex.net/cdnrph/upload?mid=fixturemid123456789&size=30720',
+            } };
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(latestBenchmarkStatus) });
   });
   await healthy.page.route(/\/cgi-bin\/api\/offload\/benchmark\?view=last-success$/, route => route.fulfill({
@@ -2288,20 +2297,41 @@ try {
     resumedSample = route.request().postDataJSON();
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
   });
-  await healthy.page.route('https://speed.cloudflare.com/**', route => route.fulfill({
-    status: route.request().method() === 'OPTIONS' ? 204 : 200,
-    headers: {
-      'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS',
-      'access-control-allow-headers': 'content-type', 'content-type': 'application/octet-stream',
-    },
-    body: route.request().method() === 'OPTIONS' ? '' : Buffer.alloc(65536),
-  }));
+  const benchmarkTransferRequests = [];
+  await healthy.page.route('https://**.cdn.yandex.net/**', route => {
+    const request = route.request();
+    if (request.method() === 'OPTIONS') {
+      return route.fulfill({
+        status: 204,
+        headers: {
+          'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS',
+          'access-control-allow-headers': 'content-type',
+        },
+      });
+    }
+    const url = new URL(request.url());
+    const direction = url.pathname.endsWith('/ping') ? 'latency' : url.pathname.endsWith('/50mb') ? 'download' : 'upload';
+    const bytes = direction === 'download' ? 50 * 1024 * 1024 : direction === 'upload' ? request.postDataBuffer()?.byteLength || 0 : 0;
+    benchmarkTransferRequests.push({ direction, bytes });
+    return route.fulfill({
+      status: 200,
+      headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'content-type': direction === 'upload' ? 'text/plain' : 'application/octet-stream' },
+      body: direction === 'download' ? Buffer.alloc(bytes) : direction === 'upload' ? 'ok' : '',
+    });
+  });
   await healthy.page.reload();
   await healthy.page.locator('#flowoffload-benchmark-result').waitFor({ state: 'visible', timeout: 10000 });
   assert.equal(resumedSample.session, 'session-fixture');
   assert.equal(resumedSample.nonce, 'nonce-after-reload');
   assert.ok(resumedSample.download_mbps > 0 && resumedSample.upload_mbps > 0,
     'reload resumes the pending browser test and submits measured transfer rates');
+  assert.deepEqual(benchmarkTransferRequests.filter(item => item.direction === 'download').map(item => item.bytes), [50 * 1024 * 1024],
+    'each benchmark round downloads the full 50 MiB Yandex CDN probe from the browser');
+  const uploadBytes = benchmarkTransferRequests.find(item => item.direction === 'upload')?.bytes || 0;
+  assert.ok(uploadBytes >= 8 * 1024 * 1024 && uploadBytes < 8 * 1024 * 1024 + 1024,
+    `each benchmark round uploads an 8 MiB Yandex probe from the browser (body ${uploadBytes} bytes)`);
+  assert.ok(benchmarkTransferRequests.filter(item => item.direction === 'latency').length >= 4,
+    'latency probes use Yandex endpoints');
   assert.ok(Number.isFinite(Number(resumedSample.idle_ms)) && Number.isFinite(Number(resumedSample.duration_s)));
   assert.match(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Рекомендуется: Программное/);
   assert.match(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Программное против отключённого/,
@@ -2314,6 +2344,8 @@ try {
     'benchmark diagnostics show every loaded-latency trial');
   assert.match(benchmarkDetails, /Размах: ↓ 3,3% · ↑ 3,3%/,
     'benchmark diagnostics show the measured download and upload ranges');
+  assert.match(benchmarkDetails, /Провайдер: Яндекс Интернетометр · CDN: edge-01\.cdn\.yandex\.net/,
+    'benchmark diagnostics identify the selected Yandex provider and actual CDN host');
   showLastSuccessFallback = true;
   await healthy.page.reload();
   await waitForCondition(() => latestBenchmarkStatus?.status === 'failed', 'failed benchmark history response');

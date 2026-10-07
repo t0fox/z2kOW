@@ -866,6 +866,8 @@ function flowBenchmarkValue(value, suffix = "") {
 
 function flowBenchmarkResultMarkup(result) {
   if (!result || !result.modes) return "";
+  const providerLabel = result.provider === "yandex-internetometer" ? "Яндекс Интернетометр"
+    : result.provider === "cloudflare" ? "Cloudflare (резервная диагностика)" : "не определён";
   const labels = { none: "Без ускорения", software: "Программное", hardware: "Аппаратное" };
   const metrics = [
     ["download_mbps", "↓ Mbps", " Mbps"], ["upload_mbps", "↑ Mbps", " Mbps"],
@@ -924,12 +926,46 @@ function flowBenchmarkResultMarkup(result) {
   const message = result.message ? `<p class="flow-benchmark-note">${escapeHtml(result.message)}</p>` : "";
   const timestamp = result.timestamp ? `<p class="flow-benchmark-note">Серия: ${escapeHtml(result.timestamp)}</p>` : "";
   return `${recommended}${comparisonMarkup ? `<div class="flow-benchmark-comparisons">${comparisonMarkup}</div>` : ""}${warning}<div class="flow-benchmark-table-wrap"><table class="flow-benchmark-table"><thead><tr><th>Режим</th>${metrics.map(([, label]) => `<th>${label}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>
-    <details class="flow-technical disclosure"><summary>Подробные прогоны и ограничения</summary><div class="disclosure-body"><div class="flow-technical-body"><div class="flow-facts">${diagnostics}${systemMarkup}${conflictMarkup}</div>${message}${timestamp}<p class="flow-benchmark-note">Conntrack-маркеры общие для роутера и не доказывают offload именно тестового браузерного потока. Без точной корреляции hardware не подтверждается и не рекомендуется. Внешняя скорость зависит от Cloudflare, маршрута и провайдера; потери считаются по HTTP-пробам.</p></div></div></details>`;
+    <details class="flow-technical disclosure"><summary>Подробные прогоны и ограничения</summary><div class="disclosure-body"><div class="flow-technical-body"><div class="flow-facts">${diagnostics}${systemMarkup}${conflictMarkup}</div><p class="flow-benchmark-note">Провайдер: ${escapeHtml(providerLabel)} · CDN: ${escapeHtml(result.server || "не определён")}</p>${message}${timestamp}<p class="flow-benchmark-note">Все измерительные запросы запускает браузер LAN-клиента через роутер. Conntrack-маркеры общие для роутера и не доказывают offload именно тестового браузерного потока. Без точной корреляции hardware не подтверждается и не рекомендуется. Результат зависит от выбранного CDN, маршрута и провайдера; потери считаются по HTTP-пробам.</p></div></div></details>`;
 }
 
 async function flowBenchmarkMeasure(status) {
-  const base = "https://speed.cloudflare.com";
-  const cache = () => `cacheBust=${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const provider = status.provider || "yandex-internetometer";
+  const yandex = provider === "yandex-internetometer" ? status.probe_config : null;
+  const requestId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const withRequestId = raw => {
+    const url = new URL(raw);
+    url.searchParams.set("rid", requestId());
+    return url.href;
+  };
+  const validateYandexConfig = config => {
+    const hostPattern = /^([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+cdn\.yandex\.net$/i;
+    if (!config || config.provider !== "yandex-internetometer" || typeof config.mid !== "string" ||
+        !/^[A-Za-z0-9_-]{16,128}$/.test(config.mid) || typeof config.server !== "string" || !hostPattern.test(config.server)) {
+      throw new Error("не получена проверенная probe-конфигурация Яндекс Интернетометра");
+    }
+    const endpoint = (raw, type) => {
+      let url;
+      try { url = new URL(raw); } catch (_) { throw new Error(`некорректный Yandex ${type} endpoint`); }
+      if (url.protocol !== "https:" || url.hostname !== config.server || url.port || url.username || url.password || url.hash || url.searchParams.get("mid") !== config.mid) {
+        throw new Error(`Yandex ${type} endpoint не совпадает с проверенным CDN`);
+      }
+      if (type === "latency" && !/^\/[A-Za-z0-9_-]+\/ping$/.test(url.pathname)) throw new Error("некорректный Yandex latency endpoint");
+      if (type === "download" && (!/^\/[A-Za-z0-9_-]+\/probes\/50mb$/.test(url.pathname) || !/^\d+$/.test(url.searchParams.get("lid") || ""))) throw new Error("некорректный Yandex download endpoint");
+      if (type === "upload" && (!/^\/[A-Za-z0-9_-]+\/upload$/.test(url.pathname) || !/^\d+$/.test(url.searchParams.get("size") || ""))) throw new Error("некорректный Yandex upload endpoint");
+      return url.href;
+    };
+    return {
+      server: config.server,
+      latency: endpoint(config.latency_url, "latency"),
+      download: endpoint(config.download_url, "download"),
+      upload: endpoint(config.upload_url, "upload"),
+    };
+  };
+  const yandexConfig = yandex ? validateYandexConfig(yandex) : null;
+  if (provider === "yandex-internetometer" && !yandexConfig) throw new Error("не найдена probe-конфигурация Яндекс Интернетометра");
+  if (provider !== "yandex-internetometer" && provider !== "cloudflare") throw new Error("неподдерживаемый benchmark provider");
+  const cloudflare = "https://speed.cloudflare.com";
   const median = values => {
     const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
     if (!sorted.length) return null;
@@ -952,24 +988,39 @@ async function flowBenchmarkMeasure(status) {
     const controller = new AbortController();
     const abortTimer = setTimeout(() => controller.abort(), 5000);
     try {
-      const response = await fetch(`${base}/__down?bytes=1&${cache()}`, { cache: "no-store", mode: "cors", signal: controller.signal });
-      await drain(response);
+      const url = yandexConfig ? withRequestId(yandexConfig.latency) : `${cloudflare}/__down?bytes=1&cacheBust=${requestId()}`;
+      const response = await fetch(url, { cache: "no-store", mode: "cors", redirect: "error", signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status || "error"}`);
+      await response.arrayBuffer();
     } finally { clearTimeout(abortTimer); }
     return performance.now() - start;
   };
   const transfer = async direction => {
     const started = performance.now();
-    const length = direction === "download" ? 16 * 1024 * 1024 : 4 * 1024 * 1024;
+    const length = yandexConfig
+      ? (direction === "download" ? 50 * 1024 * 1024 : 8 * 1024 * 1024)
+      : (direction === "download" ? 16 * 1024 * 1024 : 4 * 1024 * 1024);
     const payload = direction === "upload" ? new Blob([new Uint8Array(length)]) : null;
     const controller = new AbortController();
-    const abortTimer = setTimeout(() => controller.abort(), 15000);
+    const abortTimer = setTimeout(() => controller.abort(), yandexConfig ? 60000 : 15000);
     let bytes = 0;
     try {
-      const response = direction === "download"
-        ? await fetch(`${base}/__down?bytes=${length}&${cache()}`, { cache: "no-store", mode: "cors", signal: controller.signal })
-        : await fetch(`${base}/__up?${cache()}`, { method: "POST", body: payload, cache: "no-store", mode: "cors", signal: controller.signal });
+      let response;
+      if (yandexConfig && direction === "upload") {
+        const form = new FormData();
+        form.append("data", payload);
+        response = await fetch(withRequestId(yandexConfig.upload), { method: "POST", body: form, cache: "no-store", mode: "cors", redirect: "error", signal: controller.signal });
+      } else {
+        const url = yandexConfig
+          ? withRequestId(yandexConfig.download)
+          : `${cloudflare}/${direction === "download" ? `__down?bytes=${length}` : "__up?"}${direction === "download" ? "&" : ""}cacheBust=${requestId()}`;
+        response = direction === "download"
+          ? await fetch(url, { cache: "no-store", mode: "cors", redirect: "error", signal: controller.signal })
+          : await fetch(url, { method: "POST", body: payload, cache: "no-store", mode: "cors", redirect: "error", signal: controller.signal });
+      }
       if (direction === "download") bytes = await drain(response);
       else { if (!response.ok) throw new Error(`HTTP ${response.status}`); await response.arrayBuffer(); bytes = length; }
+      if (yandexConfig && direction === "download" && bytes !== length) throw new Error(`Yandex CDN вернул ${bytes} байт вместо ${length}`);
     } finally { clearTimeout(abortTimer); }
     const seconds = Math.max(0.001, (performance.now() - started) / 1000);
     return { mbps: bytes * 8 / seconds / 1e6, seconds };
@@ -1007,7 +1058,8 @@ async function flowBenchmarkMeasure(status) {
     download_mbps: down.mbps, upload_mbps: up.mbps, idle_ms: median(idle),
     download_loaded_ms: median(downPings), upload_loaded_ms: median(upPings),
     jitter_ms: jitter, loss_pct: probes ? failed * 100 / probes : null,
-    duration_s: down.seconds + up.seconds, server: "cloudflare",
+    duration_s: down.seconds + up.seconds,
+    server: yandexConfig?.server || "speed.cloudflare.com", provider,
   };
 }
 
@@ -1041,7 +1093,8 @@ async function flowBenchmarkRefresh() {
         ? ` Последняя принятая стабильная серия: ${new Date(state.last_success_timestamp).toLocaleString("ru-RU")}.`
         : "";
       const measurementError = state.status === "stopped" && flowBenchmarkLastError ? ` Ошибка измерения: ${flowBenchmarkLastError}.` : "";
-      statusNode.textContent = `${labels[state.status] || "Интернет-тест: Cloudflare Speed Test"}${measurementError}${lastSuccess}`;
+      const providerLabel = state.provider === "cloudflare" ? "Cloudflare (резервная диагностика)" : "Яндекс Интернетометр";
+      statusNode.textContent = `${labels[state.status] || `Интернет-тест: ${providerLabel}`}${measurementError}${lastSuccess}`;
     }
     const resultNode = card.querySelector("#flowoffload-benchmark-result");
     if (resultNode && active) resultNode.hidden = true;
@@ -1133,7 +1186,7 @@ function wireFlowBenchmark() {
     if (!window.confirm("Во время теста режим ускорения будет временно переключаться. Активные соединения могут быть перезапущены. После завершения исходная конфигурация будет восстановлена.")) return;
     start.disabled = true;
     try {
-      const started = await apiPost("/offload/benchmark", { action: "start", provider: provider?.value || "cloudflare" });
+      const started = await apiPost("/offload/benchmark", { action: "start", provider: provider?.value || "yandex-internetometer" });
       if (started?.job) {
         flowBenchmarkLastError = "";
         openJobModal("Сравнение режимов FLOWOFFLOAD", started.job, {
@@ -1338,8 +1391,8 @@ export async function renderToggles() {
       <div class="t-desc" id="flowoffload-error" role="alert" hidden></div>
       <section class="flow-benchmark" id="flowoffload-benchmark" data-lock-group="offload-benchmark" aria-labelledby="flowoffload-benchmark-title">
         <div class="flow-benchmark-heading">
-          <div><h4 id="flowoffload-benchmark-title">Сравнение режимов</h4><p class="desc">Интернет-тест через браузер: трафик проходит через WAN роутера. Провайдер: Cloudflare Speed Test.</p></div>
-          <label class="field flow-benchmark-provider"><span class="field-label">Провайдер</span><select id="flowoffload-benchmark-provider" class="t-sub-select"><option value="cloudflare">Cloudflare Speed Test</option></select></label>
+          <div><h4 id="flowoffload-benchmark-title">Сравнение режимов</h4><p class="desc">Интернет-тест запускается браузером LAN-клиента и проходит через роутер. Основной источник: Яндекс Интернетометр.</p></div>
+          <label class="field flow-benchmark-provider"><span class="field-label">Провайдер</span><select id="flowoffload-benchmark-provider" class="t-sub-select"><option value="yandex-internetometer">Яндекс Интернетометр</option><option value="cloudflare">Cloudflare — резервная диагностика</option></select></label>
         </div>
         <div class="btn-row flow-benchmark-actions">
           <button class="btn btn-primary" id="flowoffload-benchmark-start" type="button">Сравнить режимы</button>
@@ -1351,8 +1404,8 @@ export async function renderToggles() {
         <details class="flow-technical disclosure flow-benchmark-method">
           <summary>Методика и ограничения</summary>
           <div class="disclosure-body"><div class="flow-technical-body">
-            <p class="flow-benchmark-note">Проводятся пять сбалансированно чередуемых раундов с одинаковыми параметрами; показаны сырые результаты и полный размах. Серия отклоняется при двух и более прогонах, которые отклоняются от медианы загрузки или отдачи более чем на 10%. Конфигурация временно переключается и восстанавливается после завершения, ошибки или остановки. Hardware пропускается, если flowtable не применился.</p>
-            <p class="flow-benchmark-note">Результат зависит от Cloudflare, провайдера и маршрута. Потери отражают только неуспешные HTTP-пробы. Тест iperf3 с роутера здесь не включён: исходящие с самого роутера потоки не проходят через forwarding flowtable и не измеряют FLOWOFFLOAD.</p>
+            <p class="flow-benchmark-note">Проводятся пять сбалансированно чередуемых раундов с одинаковыми параметрами: каждый раунд загружает файл Яндекса 50 MiB, отправляет 8 MiB и собирает latency probes. Показаны сырые результаты и полный размах. Серия отклоняется при двух и более прогонах, которые отклоняются от медианы загрузки или отдачи более чем на 10%. Конфигурация временно переключается и восстанавливается после завершения, ошибки или остановки. Hardware пропускается, если flowtable не применился.</p>
+            <p class="flow-benchmark-note">Из-за CORS списка probes <code>/internet/api/v0/get-probes</code> его получает роутер для браузера; сами latency/download/upload запросы выполняет LAN-браузер напрямую к выбранному CDN через роутер. Cloudflare доступен только как явный резервный диагностический провайдер и не нужен для запуска теста Яндекса. Результат зависит от CDN, провайдера и маршрута. Потери отражают неуспешные HTTP-пробы; исходящие запросы с самого роутера не измеряют forwarding FLOWOFFLOAD.</p>
           </div></div>
         </details>
       </section>
