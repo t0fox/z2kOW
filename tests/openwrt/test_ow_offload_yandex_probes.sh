@@ -116,6 +116,15 @@ if z2k_ow_offload_benchmark_submit "$_session" "$(z2k_ow_offload_benchmark_field
 else _t_ok; fi
 z2k_ow_offload_benchmark_submit "$_session" "$(z2k_ow_offload_benchmark_field token)" fixture-nonce \
     80 20 10 30 32 1 0 12 edge-01.cdn.yandex.net && _t_ok || _t_bad "browser sample accepts its selected Yandex CDN host"
+z2k_ow_offload_benchmark_set_field nonce fixture-no-pings
+z2k_ow_offload_benchmark_submit "$_session" "$(z2k_ow_offload_benchmark_field token)" fixture-no-pings \
+    80 20 null null null null 100 12 edge-01.cdn.yandex.net \
+    && _t_ok || _t_bad "speed sample remains valid when all optional latency probes fail"
+z2k_ow_offload_benchmark_set_field nonce fixture-invalid-speed
+if z2k_ow_offload_benchmark_submit "$_session" "$(z2k_ow_offload_benchmark_field token)" fixture-invalid-speed \
+    null 20 null null null null 100 12 edge-01.cdn.yandex.net >/dev/null 2>&1; then
+    _t_bad "sample with missing download speed is rejected"
+else _t_ok; fi
 z2k_ow_offload_benchmark_write_result failed fixture-result
 assert_contains "raw result names the Yandex provider" "$(z2k_ow_offload_benchmark_root)/last-result.json" '"provider":"yandex-internetometer"'
 assert_contains "raw result names the actual CDN server" "$(z2k_ow_offload_benchmark_root)/last-result.json" '"server":"edge-01.cdn.yandex.net"'

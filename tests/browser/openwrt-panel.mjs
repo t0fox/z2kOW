@@ -2252,6 +2252,7 @@ try {
   // nonce, completes a browser-originated sample, and renders its result.
   let resumedSample = null;
   let showLastSuccessFallback = false;
+  let failBenchmarkPings = false;
   let latestBenchmarkStatus = null;
   const fixtureResult = {
     status: 'completed', timestamp: '2026-10-07T10:00:00Z', recommendation: 'software',
@@ -2313,18 +2314,32 @@ try {
     const direction = url.pathname.endsWith('/ping') ? 'latency' : url.pathname.endsWith('/50mb') ? 'download' : 'upload';
     const bytes = direction === 'download' ? 50 * 1024 * 1024 : direction === 'upload' ? request.postDataBuffer()?.byteLength || 0 : 0;
     benchmarkTransferRequests.push({ direction, bytes });
+    if (failBenchmarkPings && direction === 'latency') {
+      return route.fulfill({
+        status: 503,
+        headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS' },
+        body: 'temporary latency probe failure',
+      });
+    }
     return route.fulfill({
       status: 200,
       headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'content-type': direction === 'upload' ? 'text/plain' : 'application/octet-stream' },
       body: direction === 'download' ? Buffer.alloc(bytes) : direction === 'upload' ? 'ok' : '',
     });
   });
+  failBenchmarkPings = true;
   await healthy.page.reload();
   await healthy.page.locator('#flowoffload-benchmark-result').waitFor({ state: 'visible', timeout: 10000 });
   assert.equal(resumedSample.session, 'session-fixture');
   assert.equal(resumedSample.nonce, 'nonce-after-reload');
   assert.ok(resumedSample.download_mbps > 0 && resumedSample.upload_mbps > 0,
     'reload resumes the pending browser test and submits measured transfer rates');
+  assert.deepEqual(
+    [resumedSample.idle_ms, resumedSample.download_loaded_ms, resumedSample.upload_loaded_ms, resumedSample.jitter_ms],
+    ['null', 'null', 'null', 'null'],
+    'missing CDN ping probes remain null while successful throughput samples are submitted',
+  );
+  assert.equal(resumedSample.loss_pct, '100', 'failed latency probes are retained as measured loss');
   assert.deepEqual(benchmarkTransferRequests.filter(item => item.direction === 'download').map(item => item.bytes), [50 * 1024 * 1024],
     'each benchmark round downloads the full 50 MiB Yandex CDN probe from the browser');
   const uploadBytes = benchmarkTransferRequests.find(item => item.direction === 'upload')?.bytes || 0;
@@ -2332,7 +2347,7 @@ try {
     `each benchmark round uploads an 8 MiB Yandex probe from the browser (body ${uploadBytes} bytes)`);
   assert.ok(benchmarkTransferRequests.filter(item => item.direction === 'latency').length >= 4,
     'latency probes use Yandex endpoints');
-  assert.ok(Number.isFinite(Number(resumedSample.idle_ms)) && Number.isFinite(Number(resumedSample.duration_s)));
+  assert.ok(Number.isFinite(Number(resumedSample.duration_s)));
   assert.match(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Рекомендуется: Программное/);
   assert.match(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Программное против отключённого/,
     'accepted benchmark shows its percentage comparison');

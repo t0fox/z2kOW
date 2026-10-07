@@ -313,8 +313,15 @@ z2k_ow_offload_benchmark_submit() {
     [ "$(z2k_ow_offload_benchmark_field token)" = "$_token" ] || return 1
     [ "$(z2k_ow_offload_benchmark_field nonce)" = "$_nonce" ] || return 1
     [ "$(z2k_ow_offload_benchmark_field status)" = awaiting_sample ] || return 1
-    for _value in "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}"; do
-        case "$_value" in ''|*[!0-9.]*) return 1 ;; esac
+    # Throughput, loss, and duration are required for a usable run. CDN ping
+    # probes are best-effort; a run with no successful ping must still be
+    # accepted with null latency metrics instead of aborting the full series.
+    for _value in "$4" "$5" "${10}" "${11}"; do
+        [ "$(z2k_ow_offload_benchmark_number_or_null "$_value")" != null ] || return 1
+    done
+    for _value in "$6" "$7" "$8" "$9"; do
+        [ "$_value" = null ] && continue
+        [ "$(z2k_ow_offload_benchmark_number_or_null "$_value")" != null ] || return 1
     done
     _provider=$(z2k_ow_offload_benchmark_field provider 2>/dev/null)
     _expected_server=$(z2k_ow_offload_benchmark_provider_server)

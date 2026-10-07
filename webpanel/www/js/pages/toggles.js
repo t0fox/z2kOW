@@ -1054,7 +1054,9 @@ async function flowBenchmarkMeasure(status) {
   upPings.push(...up.times);
   const allPings = idle.concat(downPings, upPings);
   const mean = allPings.reduce((sum, n) => sum + n, 0) / Math.max(1, allPings.length);
-  const jitter = Math.sqrt(allPings.reduce((sum, n) => sum + (n - mean) ** 2, 0) / Math.max(1, allPings.length));
+  const jitter = allPings.length
+    ? Math.sqrt(allPings.reduce((sum, n) => sum + (n - mean) ** 2, 0) / allPings.length)
+    : null;
   return {
     session: status.session, token: status.token, nonce: status.nonce,
     download_mbps: down.mbps, upload_mbps: up.mbps, idle_ms: median(idle),
