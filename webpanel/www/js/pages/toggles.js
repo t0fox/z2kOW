@@ -719,7 +719,51 @@ function renderTikTokStatus(status, toggles, platform, serverNowEpoch) {
   if (serverNowEpoch !== undefined) tiktokServerNowEpoch = serverNowEpoch;
   const visible = platform === "openwrt" && toggles && toggles.tiktok_feed === "1";
   card.hidden = !visible;
+  const signature = JSON.stringify({
+    visible: !!visible,
+    status: status || null,
+    enabled: toggles && toggles.tiktok_feed,
+    platform,
+    pending: tiktokPendingAction,
+  });
+  if (card.dataset.stateSignature === signature) return;
+  const openDetails = [...card.querySelectorAll("details[open]")].map((details, index) => details.id || String(index));
+  const scrollState = [...card.querySelectorAll("*")]
+    .map((el, index) => ({ id: el.id, index, top: el.scrollTop, left: el.scrollLeft }))
+    .filter(item => item.top || item.left);
+  const focused = card.contains(document.activeElement) ? document.activeElement : null;
+  const focusedId = focused && focused.id;
+  const focusedAction = focused && focused.getAttribute("data-tiktok-action");
+  const focusedActionAttributes = focusedAction
+    ? ["data-ip", "data-tiktok-mode", "data-tiktok-filter"]
+      .map(name => [name, focused.getAttribute(name)])
+      .filter(([, value]) => value !== null)
+    : [];
+  const selection = focused && typeof focused.selectionStart === "number"
+    ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null;
   card.innerHTML = visible ? tiktokStatusMarkup(status, tiktokServerNowEpoch, tiktokPendingAction) : "";
+  card.dataset.stateSignature = signature;
+  [...card.querySelectorAll("details")].forEach((details, index) => {
+    if (openDetails.includes(details.id || String(index))) details.open = true;
+  });
+  scrollState.forEach(item => {
+    const el = item.id ? card.querySelector(`#${CSS.escape(item.id)}`) : card.querySelectorAll("*")[item.index];
+    if (el) { el.scrollTop = item.top; el.scrollLeft = item.left; }
+  });
+  if (focusedId) {
+    const replacement = card.querySelector(`#${CSS.escape(focusedId)}`);
+    if (replacement) {
+      replacement.focus({ preventScroll: true });
+      if (selection && typeof replacement.setSelectionRange === "function") {
+        replacement.setSelectionRange(selection[0], selection[1], selection[2]);
+      }
+    }
+  } else if (focusedAction) {
+    const replacement = [...card.querySelectorAll("[data-tiktok-action]")].find(el =>
+      el.getAttribute("data-tiktok-action") === focusedAction &&
+      focusedActionAttributes.every(([name, value]) => el.getAttribute(name) === value));
+    if (replacement) replacement.focus({ preventScroll: true });
+  }
 }
 
 function flowoffloadApplicationMarkup(selected, raw) {
@@ -788,12 +832,18 @@ function flowoffloadApplicationMarkup(selected, raw) {
   ${flowoffloadTechnicalMarkup(facts)}`;
 }
 
-function flowoffloadSync(s, select, state, error) {
+function flowoffloadSync(s, select, state, error, preserveControls = false) {
   const mode = s && s.toggles && s.toggles.flowoffload;
   if (!select || !state || !mode) return;
-  select.value = mode;
-  select.dataset.saved = mode;
-  state.innerHTML = flowoffloadApplicationMarkup(mode, s.toggles.flowoffload_status);
+  if (!preserveControls || (document.activeElement !== select && select.dataset.dirty !== "1")) {
+    select.value = mode;
+    select.dataset.saved = mode;
+  }
+  const signature = JSON.stringify([mode, s.toggles.flowoffload_status || null]);
+  if (state.dataset.stateSignature !== signature) {
+    state.innerHTML = flowoffloadApplicationMarkup(mode, s.toggles.flowoffload_status);
+    state.dataset.stateSignature = signature;
+  }
   if (error) { error.hidden = true; error.textContent = ""; }
 }
 
@@ -830,6 +880,7 @@ async function saveFlowoffload(select, state, error) {
       } else if (!jobUnresolved(outcome)) {
         toast("FLOWOFFLOAD: " + wanted);
       }
+      select.dataset.dirty = "0";
       flowoffloadReload(select, state, error);
     },
   });
@@ -846,7 +897,7 @@ function dohReasonLabel(reason) {
   return labels[reason] || "Сервис или конфигурация DNS-провайдера недоступны. Нажмите «Проверить» для диагностики.";
 }
 
-function renderDohStatus(status, platform) {
+function renderDohStatus(status, platform, syncControls = false) {
   const card = $app.querySelector("#doh-card");
   if (!card) return;
   card.hidden = platform !== "openwrt";
@@ -867,27 +918,37 @@ function renderDohStatus(status, platform) {
     geoRegion = selectedProvider.slice("geohide_".length);
     selectedProvider = "geohide";
   }
-  if (providerSelect) providerSelect.value = selectedProvider;
+  if (syncControls) {
+    if (providerSelect) providerSelect.value = selectedProvider;
+    if (regionSelect) regionSelect.value = geoRegion;
+    if (endpointField) endpointField.value = status && status.provider === "custom" ? status.endpoint || "" : "";
+    if (bootstrapField) bootstrapField.value = status && status.provider === "custom" ? status.bootstrap || "" : "";
+  }
   if (regionRow) regionRow.hidden = !providerSelect || providerSelect.value !== "geohide";
-  if (regionSelect) regionSelect.value = geoRegion;
   if (customFields) customFields.hidden = !providerSelect || providerSelect.value !== "custom";
-  if (endpointField) endpointField.value = status && status.provider === "custom" ? status.endpoint || "" : "";
-  if (bootstrapField) bootstrapField.value = status && status.provider === "custom" ? status.bootstrap || "" : "";
   const state = status && status.state || "error";
   const installed = status && status.installed === "1";
   const reason = dohReasonLabel(status && status.reason);
   if (ownershipWarning) ownershipWarning.hidden = !installed || status.external_config !== "1";
+  card.dataset.confirmRemove = installed && (status.confirm_remove === "1" ||
+    status.package_owner === "external" || status.external_config === "1") ? "1" : "0";
   if (state === "not-installed" || !installed) {
     line.dataset.state = "not-installed";
     line.textContent = "Статус: Не установлен";
-    actions.innerHTML = '<button class="btn btn-primary" data-doh-action="install">Установить</button>';
+    if (actions.dataset.actionSet !== "install") {
+      actions.innerHTML = '<button class="btn btn-primary" data-doh-action="install">Установить</button>';
+      actions.dataset.actionSet = "install";
+    }
     return;
   }
   const stateLabel = state === "working" || state === "healthy" ? "Работает"
     : state === "disabled" || state === "installed-disabled" ? "Выключен" : "Ошибка";
   line.dataset.state = stateLabel === "Работает" ? "working" : stateLabel === "Ошибка" ? "error" : "disabled";
   line.textContent = `Статус: ${stateLabel}${stateLabel === "Ошибка" ? ` · ${reason}` : ""}`;
-  actions.innerHTML = '<button class="btn btn-primary" data-doh-action="apply">Применить</button><button class="btn btn-secondary" data-doh-action="check">Проверить</button><button class="btn btn-danger" data-doh-action="uninstall">Удалить</button>';
+  if (actions.dataset.actionSet !== "manage") {
+    actions.innerHTML = '<button class="btn btn-primary" data-doh-action="apply">Применить</button><button class="btn btn-secondary" data-doh-action="check">Проверить</button><button class="btn btn-danger" data-doh-action="uninstall">Удалить</button>';
+    actions.dataset.actionSet = "manage";
+  }
 }
 
 export async function renderToggles() {
@@ -1094,11 +1155,12 @@ export async function renderToggles() {
     const bootstrapField = card.querySelector("#doh-bootstrap");
     if (action === "apply" && card.querySelector("#doh-ownership-warning")?.hidden === false &&
         !window.confirm("Обнаружена пользовательская конфигурация https-dns-proxy. Она будет сохранена и заменена выбранным провайдером. При удалении DoH исходная конфигурация восстановится. Продолжить?")) return;
+    if (action === "uninstall" && card.dataset.confirmRemove === "1" && !window.confirm(
+      "https-dns-proxy или его конфигурация были установлены до управления z2kOW. " +
+      "Конфигурация будет сохранена для последующего восстановления, но пакет и работающий DoH будут удалены. Продолжить?")) return;
     const buttons = [...card.querySelectorAll("[data-doh-action]")];
-    const controls = [...card.querySelectorAll("#doh-provider, #doh-region, #doh-custom-fields input")];
     buttons.forEach(button => { button.disabled = true; });
     let body;
-    controls.forEach(control => { control.disabled = true; });
     if (action === "apply") {
       const provider = providerSelect && providerSelect.value || "xbox";
       body = { provider: provider === "geohide" ? `geohide_${regionSelect.value}` : provider };
@@ -1107,19 +1169,24 @@ export async function renderToggles() {
         body.bootstrap = bootstrapField.value.trim();
       }
       if (card.querySelector("#doh-ownership-warning")?.hidden === false) body.replace = "1";
+    } else if (action === "uninstall") {
+      body = { confirm: card.dataset.confirmRemove === "1" ? "1" : "0" };
     }
     apiPost(spec[0], body).then(response => {
       if (response && response.job) {
         openJobModal(spec[1], response.job, {
-          onDone: () => { if (onTogglesPage()) renderToggles(); },
+          onDone: async () => {
+            buttons.forEach(button => { if (button.isConnected) button.disabled = false; });
+            if (onTogglesPage()) await refreshTogglesState();
+          },
         });
       } else {
         toast(spec[1] + " — готово");
-        if (onTogglesPage()) renderToggles();
+        buttons.forEach(button => { if (button.isConnected) button.disabled = false; });
+        if (onTogglesPage()) refreshTogglesState();
       }
     }).catch(error => {
       buttons.forEach(button => { if (button.isConnected) button.disabled = false; });
-      controls.forEach(control => { if (control.isConnected) control.disabled = false; });
       toastErr("Ошибка: ", error);
     });
   }
@@ -1180,6 +1247,24 @@ export async function renderToggles() {
       return;
     }
     if (_stale("toggles", seq)) return;
+    syncTogglesState(s, true);
+  }
+
+  async function refreshTogglesState() {
+    const seq = _newLoad("toggles");
+    let s;
+    try {
+      s = await apiGet("/status");
+    } catch (e) {
+      if (!_stale("toggles", seq) && onTogglesPage()) toastErr("Не удалось обновить состояние режимов: ", e);
+      return null;
+    }
+    if (_stale("toggles", seq) || !onTogglesPage()) return null;
+    syncTogglesState(s, false);
+    return s;
+  }
+
+  function syncTogglesState(s, initial) {
     const toggleDefs = s.platform === "openwrt" ? TOGGLE_DEFS : TOGGLE_DEFS.filter(t => !t.openwrtOnly);
     const tiktokRow = $app.querySelector('[data-key="tiktok_feed"]');
     if (tiktokRow) tiktokRow.hidden = s.platform !== "openwrt";
@@ -1199,7 +1284,7 @@ export async function renderToggles() {
     if (!badge) return;
     if (errBox) { errBox.hidden = true; errBox.innerHTML = ""; }
     renderTikTokStatus(s.tiktok_feed_status, s.toggles, s.platform, s.server_now_epoch);
-    renderDohStatus(s.doh, s.platform);
+    renderDohStatus(s.doh, s.platform, initial);
     wireDohCard();
     const flowCard = $app.querySelector("#openwrt-offload-card");
     const flowSelect = $app.querySelector("#flowoffload-mode");
@@ -1218,7 +1303,7 @@ export async function renderToggles() {
       s.capabilities.offload === true && !!s.toggles.flowoffload;
     if (flowCard) flowCard.hidden = !flowVisible;
     if (flowVisible && flowSelect) {
-      flowoffloadSync(s, flowSelect, flowState, flowError);
+      flowoffloadSync(s, flowSelect, flowState, flowError, !initial);
       setLockAware(flowSelect, false);
       if (!flowSelect.dataset.wired) {
         flowSelect.dataset.wired = "1";
@@ -1233,7 +1318,8 @@ export async function renderToggles() {
       if (!row) return;
       const box = row.querySelector("input");
       if (t.key === "auto_update") auBox = box;
-      box.checked = s.toggles[t.key] === "1";
+      const checked = s.toggles[t.key] === "1";
+      if (initial || box !== document.activeElement) box.checked = checked;
       if (t.key === "fastroute") {
         const state = row.querySelector("#fastroute-status");
         if (state) state.textContent = s.toggles.fastroute_status || "Состояние маршрутного кэша недоступно.";
@@ -1252,7 +1338,8 @@ export async function renderToggles() {
         });
       }
     });
-    wireAuHour(s.toggles && s.toggles.au_hour, auBox);
+    if (initial) wireAuHour(s.toggles && s.toggles.au_hour, auBox);
+    else auHourSync(auBox);
     // TG-tunnel state pill + button enable/disable matching reality.
     const tgRunning = s.tunnel && s.tunnel.running === true;
     badge.hidden = false;
@@ -1290,7 +1377,7 @@ export async function renderToggles() {
     // Wait until tunnel state actually matches what we asked for — init
     // script может тратить 1-2 сек на cleanup iptables / conntrack
     // после stop, и /status в это время ещё видит daemon alive. Без
-    // polling renderToggles из onDone подхватывает stale=true state,
+    // in-place refresh после завершения job подхватит итоговое состояние,
     // и badge показывает «ВКЛЮЧЁН» через секунду после клика
     // «Отключить» — юзер думает что не сработало.
     async function pollTgState() {
@@ -1309,7 +1396,7 @@ export async function renderToggles() {
 
     // Backend returns either {ok:true,job:<id>} (async, new) or
     // {ok:true} (sync, old). Если есть job — открываем модалку с
-    // live-логом; иначе toast + re-render toggles страницы.
+    // live-логом; иначе toast + обновление runtime state на месте.
     if (resp && resp.job) {
       // Исходное состояние возвращаем ДО openJobModal: лок запоминает
       // текущее disabled как «правильное» и вернул бы кнопку выключенной.
@@ -1317,13 +1404,13 @@ export async function renderToggles() {
       openJobModal(title, resp.job, {
         onDone: async () => {
           await pollTgState();
-          if (onTogglesPage()) renderToggles();
+          if (onTogglesPage()) await refreshTogglesState();
         },
       });
     } else {
       toast(title + " — готово");
       await pollTgState();
-      if (onTogglesPage()) renderToggles();
+      if (onTogglesPage()) await refreshTogglesState();
       else restoreBtns();
     }
   }

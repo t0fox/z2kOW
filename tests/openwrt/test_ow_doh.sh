@@ -41,6 +41,7 @@ export Z2K_DOH_PACKAGE_FILE="$T/package-installed"
 export Z2K_DOH_RUNNING_FILE="$T/proxy-running"
 export Z2K_DOH_ENABLED_FILE="$T/service-enabled"
 export Z2K_DOH_DNSMASQ_RUNNING_FILE="$T/dnsmasq-running"
+export Z2K_DOH_DNSMASQ_RUNTIME_DIR="$T/dnsmasq-runtime"
 export Z2K_DOH_LOOKUP_FILE="$T/lookup-result"
 export Z2K_DOH_LISTENER_FILE="$T/listener-ready"
 export Z2K_DOH_TEST_INIT_ENABLED="$T/init-enabled-before"
@@ -186,8 +187,14 @@ if [ -f "$Z2K_DOH_DNSMASQ_FAIL_COUNT_FILE" ]; then
     fi
 fi
 if [ "${Z2K_DOH_EMIT_UDHCPC_WARNING:-0}" = 1 ]; then
-    printf 'udhcpc: broadcasting discover\nudhcpc: no lease, failing\n' >&2
+    printf 'udhcpc: started, v1.37.0\nudhcpc: broadcasting discover\nudhcpc: no lease, failing\n' >&2
 fi
+mkdir -p "$Z2K_DOH_DNSMASQ_RUNTIME_DIR"
+{
+    if [ -f "$Z2K_DOH_PACKAGE_FILE" ]; then
+        awk -F= '$1 ~ /^https-dns-proxy\..+\.listen_port$/ { value=substr($0,index($0,"=")+1); gsub(/^\047|\047$/,"",value); print "server=127.0.0.1#" value }' "$Z2K_DOH_TEST_DB"
+    fi
+} > "$Z2K_DOH_DNSMASQ_RUNTIME_DIR/dnsmasq.conf.fixture"
 if [ -n "${Z2K_TIKTOK_EFFECTIVE_CONFIG:-}" ]; then
     awk -F= '$1 ~ /\.address$/ { value=substr($0,index($0,"=")+1); gsub(/^\047|\047$/,"",value); print "address=" value }' \
         "$Z2K_DOH_TEST_DB" > "$Z2K_TIKTOK_EFFECTIVE_CONFIG"
@@ -474,6 +481,22 @@ printf '203.0.113.8\n' > "$Z2K_DOH_LOOKUP_FILE"
 : > "$Z2K_DOH_ENABLED_FILE"
 z2k_ow_doh_check >/dev/null || _t_bad "Check succeeds when service and dnsmasq return an answer"
 assert_eq "successful Check does not write a duplicate provider flag" 1 "$(test -f "$T/state/doh.provider"; echo $?)"
+: > "$Z2K_DOH_TEST_LOG"
+if env -u Z2K_DOH_NSLOOKUP_BIN -u Z2K_DOH_HEALTH_HOST sh -uc '. "$Z2K_ROOT/platform/openwrt/doh.sh"; z2k_ow_doh_check' \
+    >"$T/check-nounset.stdout" 2>"$T/check-nounset.stderr"; then
+    _t_ok
+else
+    _t_bad "Check works under set -u without optional test overrides"
+fi
+assert_contains "nounset-safe Check reaches the default nslookup command" "$Z2K_DOH_TEST_LOG" 'nslookup example.com 127.0.0.1'
+assert_contains "Check diagnostics name the detected provider and endpoint" "$T/check-nounset.stdout" 'provider=custom endpoint=https://resolver.example/dns-query'
+assert_contains "Check diagnostics include the returned DNS answer" "$T/check-nounset.stdout" 'answer=203.0.113.8'
+assert_contains "Check diagnostics report success" "$T/check-nounset.stdout" 'result=success'
+Z2K_DOH_EMIT_UDHCPC_WARNING=1 z2k_ow_doh_restart > "$T/restart-filtered.stdout" 2>&1 \
+    || _t_bad "dnsmasq restart succeeds while OpenWrt performs its one-shot DHCP probe"
+assert_not_contains "successful DoH restart omits only harmless dnsmasq udhcpc probe chatter" \
+    "$T/restart-filtered.stdout" 'udhcpc:'
+assert_contains "DHCP probe filtering does not skip the dnsmasq restart" "$Z2K_DOH_TEST_LOG" 'dnsmasq restart'
 
 # Real dnsmasq reads the package-managed route and continues to serve the
 # TikTok local address overrides alongside the DoH catch-all.
@@ -482,12 +505,13 @@ _doh_test_real_dnsmasq_tiktok "$_external_port"
 
 # A user-owned package/config is never overwritten by install. Apply requires
 # explicit replacement confirmation, snapshots the original config, and Remove
-# restores it while leaving the externally owned package and service intact.
+# deletes the package after a second explicit confirmation while restoring the
+# user's UCI file for a later reimport.
 rm -f "$T/package-installed" "$T/state/.doh-package-owned" "$T/state/.doh-uci-owned" \
     "$T/state/.doh-config-backup" "$T/state/.doh-config-baseline" "$T/state/.doh-service-snapshot"
 rm -f "$Z2K_DOH_RUNNING_FILE" "$Z2K_DOH_ENABLED_FILE"
 : > "$Z2K_DOH_TEST_DB"
-printf "dhcp.@dnsmasq[0]='dnsmasq'\ndhcp.@dnsmasq[0].address='/v77.tiktokcdn.com/87.245.200.35'\nhttps-dns-proxy.config='main'\nhttps-dns-proxy.config.force_dns='0'\nhttps-dns-proxy.config.dnsmasq_config_update='*'\nhttps-dns-proxy.config.custom_marker='preserve-me'\nhttps-dns-proxy.outside='https-dns-proxy'\nhttps-dns-proxy.outside.resolver_url='https://dns.google/dns-query'\nhttps-dns-proxy.outside.bootstrap_dns='8.8.8.8,8.8.4.4'\nhttps-dns-proxy.outside.listen_port='5053'\n" > "$Z2K_DOH_TEST_DB"
+printf "dhcp.@dnsmasq[0]='dnsmasq'\ndhcp.@dnsmasq[0].noresolv='1'\ndhcp.@dnsmasq[0].server='/mask.icloud.com/'\ndhcp.@dnsmasq[0].server='/mask-h2.icloud.com/'\ndhcp.@dnsmasq[0].server='/use-application-dns.net/'\ndhcp.@dnsmasq[0].server='127.0.0.1#5053'\ndhcp.@dnsmasq[0].server='127.0.0.1#5054'\ndhcp.@dnsmasq[0].doh_backup_noresolv='-1'\ndhcp.@dnsmasq[0].doh_backup_server='/mask.icloud.com/'\ndhcp.@dnsmasq[0].doh_backup_server='127.0.0.1#5053'\ndhcp.@dnsmasq[0].doh_backup_server='127.0.0.1#5054'\ndhcp.@dnsmasq[0].doh_server='127.0.0.1#5053'\ndhcp.@dnsmasq[0].doh_server='127.0.0.1#5054'\ndhcp.@dnsmasq[0].address='/v77.tiktokcdn.com/87.245.200.35'\nhttps-dns-proxy.config='main'\nhttps-dns-proxy.config.force_dns='0'\nhttps-dns-proxy.config.dnsmasq_config_update='*'\nhttps-dns-proxy.config.custom_marker='preserve-me'\nhttps-dns-proxy.outside='https-dns-proxy'\nhttps-dns-proxy.outside.resolver_url='https://dns.google/dns-query'\nhttps-dns-proxy.outside.bootstrap_dns='8.8.8.8,8.8.4.4'\nhttps-dns-proxy.outside.listen_port='5054'\n" > "$Z2K_DOH_TEST_DB"
 printf 'installed\n' > "$Z2K_DOH_PACKAGE_FILE"
 : > "$Z2K_DOH_ENABLED_FILE"
 : > "$Z2K_DOH_RUNNING_FILE"
@@ -510,20 +534,40 @@ assert_file "confirmed replacement saves the original package config" "$T/state/
 assert_eq "confirmed apply installs the selected resolver" 'https://xbox-dns.ru/dns-query' "$(_doh_config_value z2kow_doh.resolver_url)"
 assert_not_contains "confirmed apply removes the replaced external resolver" "$Z2K_DOH_TEST_DB" '^https-dns-proxy\.outside='
 assert_contains "confirmed apply leaves unrelated package main values in place" "$Z2K_DOH_TEST_DB" "https-dns-proxy.config.custom_marker='preserve-me'"
-z2k_ow_doh_uninstall || _t_bad "Remove restores external resolver configuration"
+if z2k_ow_doh_uninstall; then
+    _t_bad "Remove requires explicit confirmation before deleting an external package"
+else
+    _t_ok
+fi
+assert_file "unconfirmed Remove leaves the external package installed" "$Z2K_DOH_PACKAGE_FILE"
+z2k_ow_doh_uninstall 1 || _t_bad "confirmed Remove deletes the external package and restores its config"
 cmp -s "$T/external-original" "$Z2K_DOH_CONFIG_FILE" && _t_ok || _t_bad "Remove restores the original https-dns-proxy config"
 assert_contains "restored UCI keeps the user's resolver section" "$Z2K_DOH_TEST_DB" "https-dns-proxy.outside.resolver_url='https://dns.google/dns-query'"
 assert_contains "restored UCI keeps unrelated package main settings" "$Z2K_DOH_TEST_DB" "https-dns-proxy.config.custom_marker='preserve-me'"
-assert_file "Remove retains the external package" "$Z2K_DOH_PACKAGE_FILE"
-assert_eq "Remove restores service enabled state" 0 "$(test -f "$Z2K_DOH_ENABLED_FILE"; echo $?)"
-assert_eq "Remove restores service running state" 0 "$(test -f "$Z2K_DOH_RUNNING_FILE"; echo $?)"
+assert_not_contains "Remove removes the active route to the new listener" "$Z2K_DOH_TEST_DB" "dhcp.@dnsmasq[0].server='127.0.0.1#5053'"
+assert_not_contains "Remove removes the restored user's route to its old listener" "$Z2K_DOH_TEST_DB" "dhcp.@dnsmasq[0].server='127.0.0.1#5054'"
+assert_not_contains "Remove removes legacy DoH route markers for deleted listeners" "$Z2K_DOH_TEST_DB" "dhcp.@dnsmasq[0].doh_server='127.0.0.1#5053'"
+assert_not_contains "Remove removes legacy backup routes for deleted listeners" "$Z2K_DOH_TEST_DB" "dhcp.@dnsmasq[0].doh_backup_server='127.0.0.1#5054'"
+assert_not_contains "Remove restores dnsmasq noresolv to its pre-DoH default" "$Z2K_DOH_TEST_DB" "dhcp.@dnsmasq[0].noresolv='1'"
+assert_not_contains "Remove consumes the legacy noresolv backup marker" "$Z2K_DOH_TEST_DB" "dhcp.@dnsmasq[0].doh_backup_noresolv="
+assert_contains "Remove preserves unrelated encrypted-DNS canary routing" "$Z2K_DOH_TEST_DB" "dhcp.@dnsmasq[0].server='/mask.icloud.com/'"
+assert_contains "Remove preserves the TikTok local DNS override" "$Z2K_DOH_TEST_DB" "dhcp.@dnsmasq[0].address='/v77.tiktokcdn.com/87.245.200.35'"
+assert_not_contains "confirmed Remove deletes the external package" "$Z2K_DOH_PACKAGE_FILE" 'installed'
+assert_eq "Remove disables the service rather than restoring it" 1 "$(test -f "$Z2K_DOH_ENABLED_FILE"; echo $?)"
+assert_eq "Remove stops the service rather than restoring it" 1 "$(test -f "$Z2K_DOH_RUNNING_FILE"; echo $?)"
+assert_eq "Remove refreshes DoH status to not installed" not-installed "$(_doh_field "$(z2k_ow_doh_status)" state)"
+assert_not_contains "Remove clears package-generated dnsmasq listener routes" "$Z2K_DOH_DNSMASQ_RUNTIME_DIR/dnsmasq.conf.fixture" '127.0.0.1#505[34]'
+nslookup example.com 127.0.0.1 >/dev/null || _t_bad "router DNS remains available after DoH removal"
 
-# An explicitly selected custom provider can be applied to an external package,
-# but removing the z2kOW integration without an ownership receipt is a no-op.
+# Remove means package removal even if there was no z2kOW resolver receipt;
+# the user's package config is left in UCI for reimport.
 rm -f "$T/state/.doh-uci-owned" "$T/state/.doh-config-backup"
-z2k_ow_doh_uninstall || _t_bad "Remove does not claim an external-only config"
-assert_contains "external-only resolver remains after Remove" "$Z2K_DOH_TEST_DB" "https-dns-proxy.outside.resolver_url='https://dns.google/dns-query'"
-assert_file "external-only package remains installed" "$Z2K_DOH_PACKAGE_FILE"
+printf 'installed\n' > "$Z2K_DOH_PACKAGE_FILE"
+: > "$Z2K_DOH_ENABLED_FILE"
+: > "$Z2K_DOH_RUNNING_FILE"
+z2k_ow_doh_uninstall 1 || _t_bad "confirmed Remove deletes an external-only package"
+assert_contains "external-only UCI remains available after Remove" "$Z2K_DOH_TEST_DB" "https-dns-proxy.outside.resolver_url='https://dns.google/dns-query'"
+assert_not_contains "external-only package is actually deleted" "$Z2K_DOH_PACKAGE_FILE" 'installed'
 
 # A stale https-dns-proxy UCI file can exist even when the package is absent.
 # Installation must preserve and flag it; Remove restores it after deleting
@@ -551,7 +595,7 @@ fi
 cmp -s "$T/preinstall-before-apply" "$Z2K_DOH_TEST_DB" && _t_ok || _t_bad "refused apply leaves pre-install UCI untouched"
 cp "$Z2K_DOH_CONFIG_FILE" "$T/preapply-config"
 z2k_ow_doh_select_provider xbox '' '' 1 || _t_bad "confirmed apply snapshots the latest pre-replacement UCI"
-z2k_ow_doh_uninstall || _t_bad "Remove deletes the package z2kOW installed while restoring pre-install UCI"
+z2k_ow_doh_uninstall 1 || _t_bad "Remove deletes the package z2kOW installed while restoring pre-install UCI"
 assert_not_contains "Remove deletes the z2kOW-installed package" "$Z2K_DOH_PACKAGE_FILE" 'installed'
 cmp -s "$T/preapply-config" "$Z2K_DOH_CONFIG_FILE" && _t_ok || {
     diff -u "$T/preapply-config" "$Z2K_DOH_CONFIG_FILE" >&2 || true
@@ -560,9 +604,8 @@ cmp -s "$T/preapply-config" "$Z2K_DOH_CONFIG_FILE" && _t_ok || {
 assert_contains "restored config retains edits made after package installation" "$Z2K_DOH_TEST_DB" "https-dns-proxy.config.custom_marker='edited-after-install'"
 assert_contains "restored config retains the latest user resolver" "$Z2K_DOH_TEST_DB" "https-dns-proxy.outside.resolver_url='https://dns.quad9.net/dns-query'"
 
-# Removing the z2kOW resolver from a pre-existing package restores the exact
-# user's main-only config. That is an inactive DoH setup, not a broken owned
-# resolver; the external package and its UCI values remain untouched.
+# Removing a z2kOW resolver from a pre-existing package restores the exact
+# user's main-only config while deleting the confirmed package.
 rm -f "$T/state"/.doh-* "$T/state"/doh.* "$Z2K_DOH_RUNNING_FILE" "$Z2K_DOH_ENABLED_FILE"
 : > "$Z2K_DOH_TEST_DB"
 printf "https-dns-proxy.config='main'\nhttps-dns-proxy.config.custom_marker='user-main-only'\n" > "$Z2K_DOH_TEST_DB"
@@ -575,13 +618,31 @@ z2k_ow_doh_select_provider xbox '' '' 1 || _t_bad "Apply replaces a confirmed ma
 assert_eq "Apply makes the selected resolver active" working "$(_doh_field "$(z2k_ow_doh_status)" state)"
 assert_eq "Apply clears external ownership once its resolver is active" 0 "$(_doh_field "$(z2k_ow_doh_status)" external_config)"
 printf 'preexisting_config=1\n' > "$Z2K_DOH_INSTALL_SNAPSHOT"
-z2k_ow_doh_uninstall > "$T/remove-main-only.stdout" || _t_bad "Remove restores a main-only user config"
-assert_contains "Remove explains that the external resolver config was restored" "$T/remove-main-only.stdout" 'пользовательская конфигурация https-dns-proxy восстановлена'
+z2k_ow_doh_uninstall 1 > "$T/remove-main-only.stdout" || _t_bad "Remove restores a main-only user config and deletes the package"
+assert_contains "Remove explains that the external resolver config was preserved" "$T/remove-main-only.stdout" 'пользовательская конфигурация https-dns-proxy сохранена'
 [ ! -e "$Z2K_DOH_INSTALL_SNAPSHOT" ] && _t_ok || _t_bad "Remove cleans the stale package install receipt"
 cmp -s "$T/main-only-before-apply" "$Z2K_DOH_CONFIG_FILE" && _t_ok || _t_bad "Remove restores the main-only UCI exactly"
-assert_file "Remove preserves a package installed before z2kOW" "$Z2K_DOH_PACKAGE_FILE"
-assert_eq "restored main-only config reports DoH as disabled" disabled "$(_doh_field "$(z2k_ow_doh_status)" state)"
-assert_eq "restored main-only config is not reported as a missing active resolver error" '' "$(_doh_field "$(z2k_ow_doh_status)" reason)"
-assert_eq "restored external UCI remains identified for a future confirmed Apply" 1 "$(_doh_field "$(z2k_ow_doh_status)" external_config)"
+assert_not_contains "Remove deletes the package installed before z2kOW" "$Z2K_DOH_PACKAGE_FILE" 'installed'
+assert_eq "restored main-only config reports DoH as not installed" not-installed "$(_doh_field "$(z2k_ow_doh_status)" state)"
+assert_eq "restored UCI remains available for later package reimport" 0 "$(test -s "$Z2K_DOH_CONFIG_FILE"; echo $?)"
+
+# Package-delete command failures must be visible to the async job and retain
+# enough ownership state for the user to retry.
+rm -f "$T/state"/.doh-* "$T/state"/doh.* "$Z2K_DOH_PACKAGE_FILE" "$Z2K_DOH_RUNNING_FILE" "$Z2K_DOH_ENABLED_FILE"
+: > "$Z2K_DOH_TEST_DB"
+rm -f "$Z2K_DOH_CONFIG_FILE"
+z2k_ow_doh_install || _t_bad "install package for failure-gate coverage"
+z2k_ow_doh_select_provider xbox || _t_bad "apply resolver for failure-gate coverage"
+: > "$Z2K_DOH_APK_DEL_FAIL_FILE"
+if z2k_ow_doh_uninstall 1 >"$T/remove-apk-fail.stdout" 2>"$T/remove-apk-fail.stderr"; then
+    _t_bad "Remove reports apk del failure"
+else
+    _t_ok
+fi
+assert_file "failed apk del keeps package state visible" "$Z2K_DOH_PACKAGE_FILE"
+assert_file "failed apk del keeps ownership receipts for retry" "$Z2K_DOH_PACKAGE_OWNED_FILE"
+rm -f "$Z2K_DOH_APK_DEL_FAIL_FILE"
+z2k_ow_doh_uninstall 1 || _t_bad "Remove can retry after apk del failure"
+assert_not_contains "successful retry leaves the package absent" "$Z2K_DOH_PACKAGE_FILE" 'installed'
 
 _t_done

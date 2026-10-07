@@ -531,6 +531,13 @@ case "$method $path" in
                 *) json_fail "400 Bad Request" "value must be 0 or 1" ;;
             esac
         fi
+        if [ "$path" = /doh/uninstall ]; then
+            body=$(read_body)
+            _doh_confirm=$(form_value "$body" "confirm")
+            case "$_doh_confirm" in ''|0) _doh_confirm=0 ;; 1) ;; *) json_fail "400 Bad Request" "confirm must be 0 or 1" ;; esac
+            Z2K_DOH_REQUEST_CONFIRM=$_doh_confirm
+            export Z2K_DOH_REQUEST_CONFIRM
+        fi
         if [ "$path" = /doh/provider ]; then
             body=$(read_body)
             _doh_provider=$(form_value "$body" "provider")

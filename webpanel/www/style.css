@@ -283,6 +283,9 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+/* Dynamic job/status UI must never let browser scroll anchoring move the page
+   when content above the viewport changes. State refreshes preserve scrollY. */
+html { overflow-anchor: none; }
 body {
   background: var(--bg);
   color: var(--text);

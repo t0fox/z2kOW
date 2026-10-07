@@ -1507,7 +1507,7 @@ doh_adapter_load() {
 }
 
 doh_install_action() { doh_adapter_load && z2k_ow_doh_install; }
-doh_uninstall_action() { doh_adapter_load && z2k_ow_doh_uninstall; }
+doh_uninstall_action() { doh_adapter_load && z2k_ow_doh_uninstall "${Z2K_DOH_REQUEST_CONFIRM:-0}"; }
 doh_enable_action() { doh_adapter_load && z2k_ow_doh_enable; }
 doh_disable_action() { doh_adapter_load && z2k_ow_doh_disable; }
 doh_restart_action() { doh_adapter_load && z2k_ow_doh_restart; }

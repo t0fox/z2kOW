@@ -244,6 +244,14 @@ async function waitForRenderedRoute(page, route) {
     .every(node => Number.parseFloat(getComputedStyle(node).opacity) >= 0.99), null, { timeout: 2000 });
 }
 
+async function waitForCondition(predicate, description, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${description}`);
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
+
 async function waitForNavSettled(page) {
   await page.waitForFunction(() => [...document.querySelectorAll('#nav a')]
     .every(link => link.getAnimations().every(animation => animation.playState !== 'running')),
@@ -2333,6 +2341,15 @@ try {
   let dohStatus = { state: 'not-installed', installed: '0', enabled: '0', provider: 'unknown', external_config: '0' };
   let dohJobNumber = 0;
   let acceptNextDohConfirm = false;
+  let holdNextDohJobResult = false;
+  let releaseHeldDohJob = null;
+  let dohStatusCalls = 0;
+  let autohostlistFixture = '0';
+  let tiktokRefreshVersion = 0;
+  let failNextDohUninstall = true;
+  const failedDohJobIds = new Set();
+  let tgRunningFixture = true;
+  let tgJobNumber = 0;
   const dohConfirmMessages = [];
   const dohActions = [];
   dohPage.on('dialog', async dialog => {
@@ -2345,8 +2362,17 @@ try {
     }
   });
   dohPage.route('**/cgi-bin/api/status', route => {
+    dohStatusCalls += 1;
     const fixture = structuredClone(statusFixture);
     fixture.doh = structuredClone(dohStatus);
+    fixture.tunnel = { running: tgRunningFixture };
+    fixture.toggles.autohostlist = autohostlistFixture;
+    fixture.toggles.tiktok_feed = '1';
+    fixture.tiktok_feed_status = {
+      state: 'healthy', selected_ip: '203.0.113.9', mode: 'auto', candidate_verified: '1',
+      dns_override_applied: '1', selected_source_domain: 'www.tiktokcdn.com', candidates: [],
+      failure_count: String(tiktokRefreshVersion),
+    };
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture) });
   });
   dohPage.route('**/cgi-bin/api/doh/**', async route => {
@@ -2360,22 +2386,37 @@ try {
         ...dohStatus, state: 'working', installed: '1', enabled: '1', running: '1',
         provider: provider === 'geohide' ? `geohide_${region}` : provider,
         endpoint: body.endpoint || `https://${provider}.example/dns-query`,
-        bootstrap: body.bootstrap || '', external_config: '0', reason: '',
+        bootstrap: body.bootstrap || '', external_config: '0', confirm_remove: '1', reason: '',
       };
     }
     if (endpoint === 'install') dohStatus = { ...dohStatus, state: 'disabled', installed: '1', enabled: '0', running: '0', external_config: '0' };
     if (endpoint === 'uninstall') {
-      dohStatus = dohStatus.package_owner === 'external'
-        ? { ...dohStatus, state: 'working', installed: '1', enabled: '1', running: '1',
-          provider: 'google', endpoint: 'https://dns.google/dns-query', external_config: '1', reason: '' }
-        : { state: 'not-installed', installed: '0', enabled: '0', provider: 'unknown', external_config: '0' };
+      if (failNextDohUninstall) {
+        failNextDohUninstall = false;
+        failedDohJobIds.add(`doh-fixture-${dohJobNumber + 1}`);
+      } else {
+        dohStatus = { state: 'not-installed', installed: '0', enabled: '0', provider: 'unknown', external_config: '0', confirm_remove: '0' };
+      }
     }
     dohJobNumber += 1;
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, job: `doh-fixture-${dohJobNumber}` }) });
   });
-  dohPage.route('**/cgi-bin/api/job**', route => route.fulfill({
-    status: 200, contentType: 'application/json', body: JSON.stringify({ done: true, exit: 0, status: 'done', log: 'ok' }),
-  }));
+  dohPage.route('**/cgi-bin/api/tunnel/**', route => {
+    tgJobNumber += 1;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, job: `tg-fixture-${tgJobNumber}` }) });
+  });
+  dohPage.route('**/cgi-bin/api/job**', async route => {
+    if (holdNextDohJobResult) {
+      holdNextDohJobResult = false;
+      await new Promise(resolve => { releaseHeldDohJob = resolve; });
+    }
+    const jobId = new URL(route.request().url()).searchParams.get('id');
+    return route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ done: true,
+        exit: failedDohJobIds.has(jobId) ? 1 : 0, status: failedDohJobIds.has(jobId) ? 'failed' : 'done',
+        log: failedDohJobIds.has(jobId) ? 'DoH: apk del https-dns-proxy завершился ошибкой' : 'ok' }),
+    });
+  });
   await dohPage.goto(`${base}/#/toggles`);
   await waitForRenderedRoute(dohPage, 'toggles');
   const dohCard = dohPage.locator('#doh-card');
@@ -2404,7 +2445,7 @@ try {
     'force DNS is not exposed as an unrelated extra stage');
 
   dohStatus = {
-    ...dohStatus, external_config: '1', package_owner: 'external',
+    ...dohStatus, external_config: '1', confirm_remove: '1', package_owner: 'external',
     provider: 'google', endpoint: 'https://dns.google/dns-query',
   };
   await dohPage.reload();
@@ -2451,19 +2492,117 @@ try {
   await dohPage.waitForFunction(() => document.querySelector('#doh-provider')?.value === 'custom' &&
     document.querySelector('#doh-endpoint')?.value === 'https://resolver.example/dns-query');
 
+  await dohPage.evaluate(() => { window.__togglesPageRoot = document.querySelector('#app').firstElementChild; });
+  holdNextDohJobResult = true;
+  const dohStatusCallsBeforeCheck = dohStatusCalls;
   await dohCard.getByRole('button', { name: 'Проверить' }).click();
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-4"] #job-close').waitFor({ state: 'visible' });
   assert.equal(dohActions[3].endpoint, 'check', 'diagnostics use a separate Check action');
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-4"] #job-close').click();
+  await dohPage.evaluate(() => {
+    window.scrollTo(0, 650);
+    document.querySelector('#tiktok-feed-technical').open = true;
+    const input = document.querySelector('#doh-endpoint');
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(8, 19);
+    window.__togglesExpectedScroll = window.scrollY;
+    window.__togglesExpectedSelection = [input.selectionStart, input.selectionEnd];
+  });
+  // Mobile Edge can apply its focus/visual-viewport adjustment on the next
+  // frame. Establish the scroll baseline after that browser-side adjustment,
+  // before releasing the held job whose refresh is under test.
+  await dohPage.waitForFunction(() => new Promise(resolve => {
+    const y = window.scrollY;
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve(y === window.scrollY)));
+  }));
+  await dohPage.evaluate(() => {
+    window.__togglesExpectedScroll = window.scrollY;
+  });
+  assert.equal(await dohPage.evaluate(() => window.scrollY > 200), true,
+    'the async DoH refresh fixture is positioned below the first screen');
+  assert.equal(typeof releaseHeldDohJob, 'function', 'job result is held until the scroll/focus state is prepared');
+  autohostlistFixture = '1';
+  releaseHeldDohJob();
+  releaseHeldDohJob = null;
+  await dohPage.waitForFunction(() => document.querySelector('[data-key="autohostlist"] input')?.checked === true);
+  await waitForCondition(() => dohStatusCalls > dohStatusCallsBeforeCheck, 'DoH /status refresh');
+  await dohPage.waitForTimeout(50);
+  const dohRefreshDomState = await dohPage.evaluate(() => ({
+    expectedScroll: window.__togglesExpectedScroll,
+    scroll: window.scrollY,
+    rootSame: document.querySelector('#app').firstElementChild === window.__togglesPageRoot,
+    focusedId: document.activeElement?.id,
+    expectedSelection: window.__togglesExpectedSelection,
+    selection: [document.activeElement?.selectionStart, document.activeElement?.selectionEnd],
+    detailsOpen: document.querySelector('#tiktok-feed-technical')?.open,
+  }));
+  assert.equal(dohRefreshDomState.scroll, dohRefreshDomState.expectedScroll,
+    'DoH state refresh preserves window.scrollY');
+  assert.equal(dohRefreshDomState.rootSame, true, 'DoH state refresh keeps the original page root');
+  assert.equal(dohRefreshDomState.focusedId, 'doh-endpoint', 'DoH state refresh preserves focused input');
+  assert.deepEqual(dohRefreshDomState.selection, dohRefreshDomState.expectedSelection, 'DoH state refresh preserves the input cursor');
+  assert.equal(dohRefreshDomState.detailsOpen, true, 'DoH state refresh keeps the open TikTok details block');
+
+  await dohPage.evaluate(() => { window.__togglesPageRoot = document.querySelector('#app').firstElementChild; });
+  holdNextDohJobResult = true;
+  const dohStatusCallsBeforeTelegram = dohStatusCalls;
+  await dohPage.getByRole('button', { name: 'Отключить' }).click();
+  await dohPage.locator('.modal-backdrop[data-job-id="tg-fixture-1"] #job-close').waitFor({ state: 'visible' });
+  await dohPage.locator('.modal-backdrop[data-job-id="tg-fixture-1"] #job-close').click();
+  await dohPage.evaluate(() => {
+    window.scrollTo(0, 700);
+    document.querySelector('#tiktok-feed-technical').open = true;
+    const action = document.querySelector('#tiktok-feed-status-card [data-tiktok-action="probe-all"]');
+    action.focus({ preventScroll: true });
+    window.__togglesExpectedScroll = window.scrollY;
+    window.__togglesExpectedFocus = action.dataset.tiktokAction;
+  });
+  await dohPage.waitForFunction(() => new Promise(resolve => {
+    const y = window.scrollY;
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve(y === window.scrollY)));
+  }));
+  await dohPage.evaluate(() => { window.__togglesExpectedScroll = window.scrollY; });
+  assert.equal(typeof releaseHeldDohJob, 'function');
+  tgRunningFixture = false;
+  tiktokRefreshVersion += 1;
+  releaseHeldDohJob();
+  releaseHeldDohJob = null;
+  await dohPage.waitForFunction(() => document.querySelector('#tg-state-badge')?.innerText === 'ОСТАНОВЛЕН');
+  await dohPage.waitForFunction(() => window.__togglesExpectedScroll === window.scrollY &&
+    document.querySelector('#app').firstElementChild === window.__togglesPageRoot &&
+    document.querySelector('#tiktok-feed-technical')?.open === true &&
+    document.activeElement?.dataset.tiktokAction === window.__togglesExpectedFocus,
+  null, { timeout: 5000 });
+  await waitForCondition(() => dohStatusCalls > dohStatusCallsBeforeTelegram, 'Telegram /status refresh');
+  assert.equal(await dohPage.locator('#tg-state-badge').innerText(), 'ОСТАНОВЛЕН',
+    'Telegram completion updates its badge in place');
+  assert.equal(await dohPage.evaluate(() => document.querySelector('#app').firstElementChild === window.__togglesPageRoot), true,
+    'Telegram refresh keeps the original page root');
+  assert.equal(await dohPage.evaluate(() => document.activeElement?.dataset.tiktokAction), 'probe-all',
+    'a TikTok action button without an id keeps focus across a changed status refresh');
+
+  acceptNextDohConfirm = true;
   await dohCard.getByRole('button', { name: 'Удалить' }).click();
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').waitFor({ state: 'visible' });
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').filter({ hasText: 'Закрыть' }).waitFor({ state: 'visible' });
+  assert.equal(await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').innerText(), 'Закрыть',
+    'a failed uninstall never presents the success action Готово');
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').click();
   await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Работает'));
-  assert.equal(await dohCard.locator('#doh-provider').inputValue(), 'google',
-    'Remove restores the provider that belonged to the external package');
-  assert.equal(await dohCard.locator('#doh-ownership-warning').isVisible(), true,
-    'the UI explains that the pre-existing external configuration remains after Remove');
-  assert.deepEqual(dohActions.map(action => action.endpoint), ['install', 'provider', 'provider', 'check', 'uninstall']);
+  acceptNextDohConfirm = true;
+  await dohCard.getByRole('button', { name: 'Удалить' }).click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').waitFor({ state: 'visible' });
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').click();
+  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Не установлен'));
+  assert.deepEqual(dohActions[4], { endpoint: 'uninstall', body: { confirm: '1' } },
+    'confirmed Remove submits the server-required external package confirmation');
+  assert.deepEqual(dohActions[5], { endpoint: 'uninstall', body: { confirm: '1' } },
+    'a failed Remove remains retryable after state is refreshed');
+  assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
+    ['install'], 'Remove immediately returns the card to Install-only state');
+  assert.equal(await dohCard.locator('#doh-ownership-warning').isVisible(), false,
+    'the external ownership warning disappears after package removal');
+  assert.deepEqual(dohActions.map(action => action.endpoint), ['install', 'provider', 'provider', 'check', 'uninstall', 'uninstall']);
   assert.equal(await dohPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
     'compact DoH controls do not introduce mobile horizontal overflow');
   await dohPage.close();

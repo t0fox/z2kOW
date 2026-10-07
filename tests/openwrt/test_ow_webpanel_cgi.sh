@@ -288,6 +288,9 @@ assert_eq "DoH rejects invalid custom bootstrap DNS" "Status: 400 Bad Request" "
 printf '%s\n' 'provider=xbox&replace=2' > "$T/doh-provider-invalid-replace"
 RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-invalid-replace")"
 assert_eq "DoH API rejects a non-boolean replace intent" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' 'confirm=2' > "$T/doh-uninstall-invalid-confirm"
+RAW="$(_cgi POST /doh/uninstall "" "$T/doh-uninstall-invalid-confirm")"
+assert_eq "DoH API rejects a non-boolean uninstall confirmation" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
 printf '%s\n' 'provider=geohide_us&replace=1' > "$T/doh-provider-preset"
 RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-preset")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 _doh_job="$(_jget "$OUT" 'd["job"]')"
@@ -304,6 +307,77 @@ if [ -n "$_doh_job" ]; then
     JOB_IDS="$JOB_IDS $_doh_job"
     _poll_job_fail "$_doh_job" "valid IPv6 custom endpoint request reaches the adapter"
 fi
+
+# Exercise the production /doh/check -> svc_action_async -> eval -> actions.sh
+# chain under api.sh's set -u. The DNS command is an ordinary PATH executable;
+# the optional test override variables deliberately remain unset.
+cat > "$T/bin/doh-apk" <<'EOF'
+#!/bin/sh
+[ "$#" -eq 3 ] && [ "$1" = info ] && [ "$2" = -e ] && [ "$3" = https-dns-proxy ]
+EOF
+chmod +x "$T/bin/doh-apk"
+cat > "$T/bin/doh-uci" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = -q ] && shift
+case "${1:-}" in
+    show)
+        [ "${2:-}" = https-dns-proxy ] || exit 1
+        cat <<'UCI'
+https-dns-proxy.z2kow_doh='https-dns-proxy'
+https-dns-proxy.z2kow_doh.resolver_url='https://dns.google/dns-query'
+https-dns-proxy.z2kow_doh.listen_port='5053'
+UCI
+        ;;
+    get)
+        case "${2:-}" in
+            https-dns-proxy.z2kow_doh) printf '%s\n' https-dns-proxy ;;
+            https-dns-proxy.z2kow_doh.resolver_url) printf '%s\n' https://dns.google/dns-query ;;
+            https-dns-proxy.z2kow_doh.listen_port) printf '%s\n' 5053 ;;
+            *) exit 1 ;;
+        esac
+        ;;
+    *) exit 1 ;;
+esac
+EOF
+chmod +x "$T/bin/doh-uci"
+cat > "$T/bin/nslookup" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$OW_DOH_NSLOOKUP_LOG"
+printf 'Server: 127.0.0.1\nAddress: 127.0.0.1#53\n\nName: example.com\nAddress: 203.0.113.88\n'
+EOF
+chmod +x "$T/bin/nslookup"
+mkdir -p "$T/doh-dnsmasq-runtime"
+printf 'server=127.0.0.1#5053\n' > "$T/doh-dnsmasq-runtime/dnsmasq.conf.fixture"
+_doh_saved_apk_bin=$Z2K_DOH_APK_BIN
+_doh_saved_uci_bin=$Z2K_DOH_UCI_BIN
+_doh_saved_runtime_dir=${Z2K_DOH_DNSMASQ_RUNTIME_DIR:-}
+export OW_DOH_NSLOOKUP_LOG="$T/doh-nslookup.calls"
+unset Z2K_DOH_NSLOOKUP_BIN Z2K_DOH_HEALTH_HOST
+export Z2K_DOH_APK_BIN="$T/bin/doh-apk" Z2K_DOH_UCI_BIN="$T/bin/doh-uci"
+export Z2K_DOH_DNSMASQ_RUNTIME_DIR="$T/doh-dnsmasq-runtime"
+RAW="$(_cgi POST /doh/check)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_doh_job="$(_jget "$OUT" 'd["job"]')"
+assert_eq "DoH Check starts through the real API async route without test overrides" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+if [ -n "$_doh_job" ]; then
+    JOB_IDS="$JOB_IDS $_doh_job"
+    _doh_check_job="$(_poll_job "$_doh_job")" || _t_bad "DoH Check async job completes under set -u"
+    assert_eq "DoH Check async job exits successfully" "0" "$(_jget "$_doh_check_job" 'd["exit"]')"
+    printf '%s' "$(_jget "$_doh_check_job" 'd["log"]')" > "$T/doh-check-job.log"
+    assert_contains "DoH Check reaches PATH nslookup with the production defaults" "$T/doh-nslookup.calls" 'example.com 127.0.0.1'
+    assert_contains "DoH job log identifies the detected provider and endpoint" "$T/doh-check-job.log" 'provider=google endpoint=https://dns.google/dns-query'
+    assert_contains "DoH job log includes the DNS answer and success" "$T/doh-check-job.log" 'answer=203.0.113.88 result=success'
+    assert_not_contains "DoH job log has no nounset failure" "$T/doh-check-job.log" 'parameter not set'
+fi
+Z2K_DOH_APK_BIN=$_doh_saved_apk_bin
+Z2K_DOH_UCI_BIN=$_doh_saved_uci_bin
+export Z2K_DOH_APK_BIN Z2K_DOH_UCI_BIN
+if [ -n "$_doh_saved_runtime_dir" ]; then
+    Z2K_DOH_DNSMASQ_RUNTIME_DIR=$_doh_saved_runtime_dir
+    export Z2K_DOH_DNSMASQ_RUNTIME_DIR
+else
+    unset Z2K_DOH_DNSMASQ_RUNTIME_DIR
+fi
+
 printf '%s\n' 'url=https%3A%2F%2Fevil.example%2Fdns-query&bootstrap=127.0.0.1' > "$T/doh-install-body"
 RAW="$(_cgi POST /doh/install "" "$T/doh-install-body")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 _doh_job="$(_jget "$OUT" 'd["job"]')"
@@ -311,6 +385,14 @@ assert_eq "DoH install route returns an async job immediately" "true" "$([ -n "$
 JOB_IDS="$JOB_IDS $_doh_job"
 _poll_job_fail "$_doh_job" "DoH install runs in an async job and fails closed when optional apk is unavailable"
 assert_not_contains "DoH install ignores browser-supplied resolver values" "$T/doh-install-body" 'https://evil.example/dns-query'
+printf '%s\n' 'confirm=1' > "$T/doh-uninstall-confirm"
+RAW="$(_cgi POST /doh/uninstall "" "$T/doh-uninstall-confirm")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_doh_job="$(_jget "$OUT" 'd["job"]')"
+assert_eq "DoH uninstall confirmation reaches an async job" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+if [ -n "$_doh_job" ]; then
+    JOB_IDS="$JOB_IDS $_doh_job"
+    _poll_job_fail "$_doh_job" "DoH uninstall does not claim success when optional package/DNS commands fail"
+fi
 _openwrt_platform="$Z2K_PLATFORM"
 Z2K_PLATFORM=keenetic
 RAW="$(_cgi POST /doh/install)"

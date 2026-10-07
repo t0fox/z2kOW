@@ -9,6 +9,7 @@ Z2K_DOH_SECOND_SECTION=z2kow_doh_1
 [ -n "${Z2K_DOH_PIDOF_BIN:-}" ] || Z2K_DOH_PIDOF_BIN=pidof
 [ -n "${Z2K_DOH_PROXY_INIT:-}" ] || Z2K_DOH_PROXY_INIT=/etc/init.d/https-dns-proxy
 [ -n "${Z2K_DOH_DNSMASQ_INIT:-}" ] || Z2K_DOH_DNSMASQ_INIT=/etc/init.d/dnsmasq
+[ -n "${Z2K_DOH_DNSMASQ_RUNTIME_DIR:-}" ] || Z2K_DOH_DNSMASQ_RUNTIME_DIR=/var/etc
 [ -n "${Z2K_DOH_CONFIG_FILE:-}" ] || Z2K_DOH_CONFIG_FILE=/etc/config/https-dns-proxy
 [ -n "${Z2K_STATE:-}" ] || Z2K_STATE=/etc/z2k/state
 _Z2K_DOH_DIR=$Z2K_STATE
@@ -32,6 +33,26 @@ _z2k_ow_doh_export() { _z2k_ow_doh_uci -q export "$Z2K_DOH_PACKAGE" 2>/dev/null;
 _z2k_ow_doh_installed() { "$Z2K_DOH_APK_BIN" info -e "$Z2K_DOH_PACKAGE" >/dev/null 2>&1; }
 _z2k_ow_doh_running() { "$Z2K_DOH_PIDOF_BIN" https-dns-proxy >/dev/null 2>&1; }
 _z2k_ow_doh_enabled() { "$Z2K_DOH_PROXY_INIT" enabled >/dev/null 2>&1; }
+
+# OpenWrt's dnsmasq init script performs a one-shot udhcpc probe while
+# rebuilding its configuration. The probe uses -n, a single attempt, and
+# /bin/true, so it never takes ownership of netifd's WAN lease. That was
+# verified on the target router; hide only its known successful-probe chatter.
+_z2k_ow_doh_dnsmasq_restart() {
+    local _output _rc
+    if _output=$("$Z2K_DOH_DNSMASQ_INIT" restart 2>&1); then _rc=0; else _rc=$?; fi
+    if [ "$_rc" -ne 0 ]; then
+        [ -z "$_output" ] || printf '%s\n' "$_output"
+        return "$_rc"
+    fi
+    [ -z "$_output" ] || printf '%s\n' "$_output" | while IFS= read -r _line; do
+        case "$_line" in
+            'udhcpc: started'|'udhcpc: started,'*|'udhcpc: broadcasting discover'|'udhcpc: no lease, failing') ;;
+            *) printf '%s\n' "$_line" ;;
+        esac
+    done
+    return 0
+}
 
 _z2k_ow_doh_write() {
     _path=$1
@@ -166,6 +187,14 @@ _z2k_ow_doh_bootstraps() {
     done
 }
 
+_z2k_ow_doh_config_ports() {
+    [ -r "$1" ] || return 0
+    awk -F= '
+        /^[[:space:]]*option[[:space:]]+listen_port[[:space:]]+/ { value=$NF; gsub(/[^0-9]/,"",value); if (value != "") print value; next }
+        $1 ~ /\.listen_port$/ { value=substr($0,index($0,"=")+1); gsub(/[^0-9]/,"",value); if (value != "") print value }
+    ' "$1"
+}
+
 _z2k_ow_doh_join_csv() {
     awk 'NF { printf "%s%s", separator, $0; separator="," } END { if (separator != "") print "" }'
 }
@@ -184,7 +213,7 @@ _z2k_ow_doh_restore_service() {
     _running=$(sed -n 's/^running=//p' "$Z2K_DOH_SERVICE_SNAPSHOT")
     if [ "$_enabled" = 1 ]; then "$Z2K_DOH_PROXY_INIT" enable || return 1; else "$Z2K_DOH_PROXY_INIT" disable || return 1; fi
     if [ "$_running" = 1 ]; then "$Z2K_DOH_PROXY_INIT" restart || return 1; else "$Z2K_DOH_PROXY_INIT" stop >/dev/null 2>&1 || true; fi
-    "$Z2K_DOH_DNSMASQ_INIT" restart || return 1
+    _z2k_ow_doh_dnsmasq_restart || return 1
     rm -f "$Z2K_DOH_SERVICE_SNAPSHOT"
 }
 
@@ -197,12 +226,15 @@ _z2k_ow_doh_restore_backup() {
 }
 
 z2k_ow_doh_status() {
-    local _state=not-installed _installed=0 _running=0 _enabled=0 _provider=unknown _endpoint= _bootstrap= _urls _bootstraps _external=0 _owner=external _sections _force=0 _reason=
+    local _state=not-installed _installed=0 _running=0 _enabled=0 _provider=unknown _endpoint= _bootstrap= _urls _bootstraps _external=0 _owner=external _sections _force=0 _reason= _confirm_remove=0
     if _z2k_ow_doh_installed; then
         _installed=1
         _z2k_ow_doh_running && _running=1
         _z2k_ow_doh_enabled && _enabled=1
         [ -s "$Z2K_DOH_PACKAGE_OWNED_FILE" ] && _owner=z2kow
+        if [ "$_owner" = external ] || [ -s "$Z2K_DOH_CONFIG_BACKUP" ] || [ -s "$Z2K_DOH_PREINSTALL_CONFIG_MARKER" ]; then
+            _confirm_remove=1
+        fi
         _sections=$(_z2k_ow_doh_sections)
         _urls=$(_z2k_ow_doh_urls | _z2k_ow_doh_join_csv)
         _bootstraps=$(_z2k_ow_doh_bootstraps | _z2k_ow_doh_join_csv)
@@ -228,8 +260,8 @@ z2k_ow_doh_status() {
             _state=disabled
         fi
     fi
-    printf 'state=%s installed=%s enabled=%s running=%s provider=%s endpoint=%s bootstrap=%s package_owner=%s external_config=%s force_lan_dns=%s reason=%s\n' \
-        "$_state" "$_installed" "$_enabled" "$_running" "$_provider" "$_endpoint" "$_bootstrap" "$_owner" "$_external" "$_force" "$_reason"
+    printf 'state=%s installed=%s enabled=%s running=%s provider=%s endpoint=%s bootstrap=%s package_owner=%s external_config=%s confirm_remove=%s force_lan_dns=%s reason=%s\n' \
+        "$_state" "$_installed" "$_enabled" "$_running" "$_provider" "$_endpoint" "$_bootstrap" "$_owner" "$_external" "$_confirm_remove" "$_force" "$_reason"
 }
 
 z2k_ow_doh_install() {
@@ -290,30 +322,83 @@ z2k_ow_doh_select_provider() {
         | sed '/^$/d' | _z2k_ow_doh_write "$Z2K_DOH_CONFIG_OWNED_FILE" || return 1
     "$Z2K_DOH_PROXY_INIT" enable || return 1
     "$Z2K_DOH_PROXY_INIT" restart || return 1
-    "$Z2K_DOH_DNSMASQ_INIT" restart || return 1
+    _z2k_ow_doh_dnsmasq_restart || return 1
     echo "DoH настроен: $Z2K_DOH_PROVIDER_LABEL"
 }
 
-z2k_ow_doh_enable() { _z2k_ow_doh_installed && "$Z2K_DOH_PROXY_INIT" enable && "$Z2K_DOH_PROXY_INIT" restart && "$Z2K_DOH_DNSMASQ_INIT" restart; }
-z2k_ow_doh_disable() { _z2k_ow_doh_installed && "$Z2K_DOH_PROXY_INIT" disable && "$Z2K_DOH_PROXY_INIT" stop && "$Z2K_DOH_DNSMASQ_INIT" restart; }
-z2k_ow_doh_restart() { _z2k_ow_doh_installed && "$Z2K_DOH_PROXY_INIT" restart && "$Z2K_DOH_DNSMASQ_INIT" restart; }
+z2k_ow_doh_enable() { _z2k_ow_doh_installed && "$Z2K_DOH_PROXY_INIT" enable && "$Z2K_DOH_PROXY_INIT" restart && _z2k_ow_doh_dnsmasq_restart; }
+z2k_ow_doh_disable() { _z2k_ow_doh_installed && "$Z2K_DOH_PROXY_INIT" disable && "$Z2K_DOH_PROXY_INIT" stop && _z2k_ow_doh_dnsmasq_restart; }
+z2k_ow_doh_restart() { _z2k_ow_doh_installed && "$Z2K_DOH_PROXY_INIT" restart && _z2k_ow_doh_dnsmasq_restart; }
+
+_z2k_ow_doh_lookup_answer() {
+    local _lookup=${Z2K_DOH_NSLOOKUP_BIN:-nslookup}
+    local _host=${Z2K_DOH_HEALTH_HOST:-example.com}
+    local _output _answer
+    if ! _output=$("$_lookup" "$_host" 127.0.0.1 2>&1); then
+        printf '%s\n' "DoH/DNS lookup failed: $_output" >&2
+        return 1
+    fi
+    _answer=$(printf '%s\n' "$_output" | awk '
+        /Address([[:space:]]+[0-9]+)?:[[:space:]]*/ {
+            ip=$NF
+            if (ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && ip != "127.0.0.1") { print ip; exit }
+        }
+    ')
+    [ -n "$_answer" ] || { printf '%s\n' "DoH/DNS lookup returned no IPv4 answer: $_output" >&2; return 1; }
+    printf '%s\n' "$_answer"
+}
+
+_z2k_ow_doh_has_dnsmasq_listener_route() {
+    local _section _port _config _found
+    for _section in $(_z2k_ow_doh_sections); do
+        _port=$(_z2k_ow_doh_get "$Z2K_DOH_PACKAGE.$_section.listen_port") || _port=5053
+        [ -n "$_port" ] || _port=5053
+        _found=0
+        for _config in "$Z2K_DOH_DNSMASQ_RUNTIME_DIR"/dnsmasq.conf.*; do
+            [ -r "$_config" ] || continue
+            if grep -Eq "^server=(127\\.0\\.0\\.1|/#/127\\.0\\.0\\.1)#$_port$" "$_config"; then
+                _found=1
+                break
+            fi
+        done
+        [ "$_found" = 1 ] || return 1
+    done
+    [ -n "$(_z2k_ow_doh_urls)" ]
+}
 
 z2k_ow_doh_check() {
-    local _lookup _output _host
-    _lookup=$Z2K_DOH_NSLOOKUP_BIN; [ -n "$_lookup" ] || _lookup=nslookup
-    _host=$Z2K_DOH_HEALTH_HOST; [ -n "$_host" ] || _host=example.com
-    _output=$("$_lookup" "$_host" 127.0.0.1 2>&1) || { printf '%s\n' "DoH/DNS check failed: $_output" >&2; return 1; }
-    printf '%s\n' "$_output" | awk '/Address([[:space:]]+[0-9]+)?:/&&$NF~/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/&&$NF!="127.0.0.1"{ok=1} END{exit !ok}' || {
-        echo "DoH/DNS check returned no IPv4 address" >&2; return 1;
-    }
-    echo "DoH/DNS check succeeded"
+    local _provider=unknown _endpoint=none _urls _answer _reason
+    _urls=$(_z2k_ow_doh_urls | _z2k_ow_doh_join_csv)
+    if [ -n "$_urls" ]; then
+        _z2k_ow_doh_detect_provider "$_urls"
+        _provider=$Z2K_DOH_PROVIDER
+        _endpoint=$_urls
+    fi
+    if ! _z2k_ow_doh_installed; then _reason=package-not-installed
+    elif [ -z "$_urls" ]; then _reason=resolver-config-missing
+    elif ! _z2k_ow_doh_running; then _reason=proxy-not-running
+    elif ! "$Z2K_DOH_PIDOF_BIN" dnsmasq >/dev/null 2>&1; then _reason=dnsmasq-not-running
+    elif ! _z2k_ow_doh_has_dnsmasq_listener_route; then _reason=dnsmasq-listener-route-missing
+    else _reason=; fi
+    if [ -n "$_reason" ]; then
+        printf 'DoH check: provider=%s endpoint=%s answer=none result=error reason=%s\n' \
+            "$_provider" "$_endpoint" "$_reason" >&2
+        return 1
+    fi
+    if ! _answer=$(_z2k_ow_doh_lookup_answer); then
+        printf 'DoH check: provider=%s endpoint=%s answer=none result=error reason=router-dns-query-failed\n' \
+            "$_provider" "$_endpoint" >&2
+        return 1
+    fi
+    printf 'DoH check: provider=%s endpoint=%s answer=%s result=success\n' \
+        "$_provider" "$_endpoint" "$_answer"
 }
 
 z2k_ow_doh_set_force_dns() {
     case "$1" in 0|1) ;; *) return 1 ;; esac
     _z2k_ow_doh_installed || return 1
     _z2k_ow_doh_uci set "$Z2K_DOH_PACKAGE.config.force_dns=$1" && _z2k_ow_doh_uci commit "$Z2K_DOH_PACKAGE" \
-        && "$Z2K_DOH_PROXY_INIT" restart && "$Z2K_DOH_DNSMASQ_INIT" restart
+        && "$Z2K_DOH_PROXY_INIT" restart && _z2k_ow_doh_dnsmasq_restart
 }
 
 _z2k_ow_doh_remove_sections() {
@@ -343,64 +428,201 @@ _z2k_ow_doh_restore_legacy_dnsmasq() {
         esac
     done < "$Z2K_DOH_LEGACY_DHCP_SNAPSHOT"
     _z2k_ow_doh_uci commit dhcp || _rc=1
-    [ "$_rc" = 0 ] && "$Z2K_DOH_DNSMASQ_INIT" restart || _rc=1
+    [ "$_rc" = 0 ] && _z2k_ow_doh_dnsmasq_restart || _rc=1
     [ "$_rc" = 0 ] && rm -f "$Z2K_DOH_LEGACY_DHCP_SNAPSHOT"
     return "$_rc"
 }
 
+_z2k_ow_doh_dnsmasq_sections() {
+    _z2k_ow_doh_uci -q show dhcp 2>/dev/null | awk -F= '$1 ~ /^dhcp\..+$/ && $2 ~ /dnsmasq/ { section=$1; sub(/^dhcp\./,"",section); sub(/\..*/,"",section); print section }' | sort -u
+}
+
+_z2k_ow_doh_uci_list_values() {
+    _z2k_ow_doh_uci -q show "$1" 2>/dev/null | sed 's/^[^=]*=//' | tr " '" '\n' | sed '/^$/d'
+}
+
+_z2k_ow_doh_remove_dnsmasq_listener_routes() {
+    [ -n "$_ports" ] || return 0
+    local _section _option _key _value _port _backup _current _changed=0
+    for _section in $(_z2k_ow_doh_dnsmasq_sections); do
+        for _option in server doh_server doh_backup_server; do
+            _key=dhcp.$_section.$_option
+            for _value in $(_z2k_ow_doh_uci_list_values "$_key"); do
+                case "$_value" in
+                    *127.0.0.1\#*)
+                        _port=${_value##*127.0.0.1\#}
+                        case " $_ports " in
+                            *" $_port "*)
+                                _z2k_ow_doh_uci del_list "$_key=$_value" || return 1
+                                _changed=1
+                                ;;
+                        esac
+                        ;;
+                esac
+            done
+        done
+
+        _backup=$(_z2k_ow_doh_get "dhcp.$_section.doh_backup_noresolv") || _backup=
+        if [ -n "$_backup" ]; then
+            _current=$(_z2k_ow_doh_get "dhcp.$_section.noresolv") || _current=
+            case "$_backup" in
+                -1)
+                    [ -z "$_current" ] || _z2k_ow_doh_uci delete "dhcp.$_section.noresolv" || return 1
+                    ;;
+                0|1)
+                    [ "$_current" = "$_backup" ] || _z2k_ow_doh_uci set "dhcp.$_section.noresolv=$_backup" || return 1
+                    ;;
+                *)
+                    echo "DoH: недопустимое сохранённое значение dnsmasq noresolv ($_backup)" >&2
+                    return 1
+                    ;;
+            esac
+            _z2k_ow_doh_uci delete "dhcp.$_section.doh_backup_noresolv" || return 1
+            _changed=1
+        fi
+    done
+    [ "$_changed" = 1 ] || return 0
+    _z2k_ow_doh_uci commit dhcp
+}
+
 z2k_ow_doh_uninstall() {
-    local _owned_package=0 _external=0 _legacy=0 _preexisting=0
+    local _confirm=${1:-0} _installed=0 _owned_package=0 _external=0 _legacy=0
+    local _preserve_config=0 _restore_file= _snapshot _section _port _backup_port _ports= _route _answer _reason
+    _z2k_ow_doh_installed && _installed=1
     [ -s "$Z2K_DOH_PACKAGE_OWNED_FILE" ] && _owned_package=1
     [ -s "$Z2K_DOH_CONFIG_OWNED_FILE" ] && _legacy=1
     _z2k_ow_doh_external_config && _external=1
-    [ "$_legacy" = 0 ] || _z2k_ow_doh_restore_legacy_dnsmasq || return 1
 
-    if [ "$_owned_package" = 1 ] && [ -s "$Z2K_DOH_PREINSTALL_CONFIG_MARKER" ]; then
-        "$Z2K_DOH_PROXY_INIT" disable >/dev/null 2>&1 || true
-        "$Z2K_DOH_PROXY_INIT" stop >/dev/null 2>&1 || true
-        if _z2k_ow_doh_installed; then "$Z2K_DOH_APK_BIN" del "$Z2K_DOH_PACKAGE" || return 1; fi
-        if [ -s "$Z2K_DOH_CONFIG_BACKUP" ]; then
-            _z2k_ow_doh_uci -q import "$Z2K_DOH_PACKAGE" < "$Z2K_DOH_CONFIG_BACKUP" || return 1
-            _z2k_ow_doh_uci commit "$Z2K_DOH_PACKAGE" || return 1
-        elif [ -s "$Z2K_DOH_PREINSTALL_CONFIG" ]; then
-            _z2k_ow_doh_uci -q import "$Z2K_DOH_PACKAGE" < "$Z2K_DOH_PREINSTALL_CONFIG" || return 1
-            _z2k_ow_doh_uci commit "$Z2K_DOH_PACKAGE" || return 1
-        elif [ -e "$Z2K_DOH_CONFIG_FILE" ]; then
-            : > "$Z2K_DOH_CONFIG_FILE" || return 1
-        fi
-        "$Z2K_DOH_DNSMASQ_INIT" restart || return 1
-        rm -f "$Z2K_DOH_PACKAGE_OWNED_FILE" "$Z2K_DOH_CONFIG_OWNED_FILE" "$Z2K_DOH_CONFIG_BACKUP" \
-            "$Z2K_DOH_CONFIG_BASELINE" "$Z2K_DOH_INSTALL_SNAPSHOT" "$Z2K_DOH_SERVICE_SNAPSHOT" \
-            "$Z2K_DOH_PREINSTALL_CONFIG" "$Z2K_DOH_PREINSTALL_CONFIG_MARKER"
-    elif [ -s "$Z2K_DOH_CONFIG_BACKUP" ]; then
-        _z2k_ow_doh_remove_sections || return 1
-        _z2k_ow_doh_uci -q import "$Z2K_DOH_PACKAGE" < "$Z2K_DOH_CONFIG_BACKUP" || return 1
-        _z2k_ow_doh_uci commit "$Z2K_DOH_PACKAGE" || return 1
-        if [ -s "$Z2K_DOH_SERVICE_SNAPSHOT" ]; then
-            _enabled=$(sed -n 's/^enabled=//p' "$Z2K_DOH_SERVICE_SNAPSHOT")
-            _running=$(sed -n 's/^running=//p' "$Z2K_DOH_SERVICE_SNAPSHOT")
-            if [ "$_enabled" = 1 ]; then "$Z2K_DOH_PROXY_INIT" enable || return 1; else "$Z2K_DOH_PROXY_INIT" disable || return 1; fi
-            if [ "$_running" = 1 ]; then "$Z2K_DOH_PROXY_INIT" restart || return 1; else "$Z2K_DOH_PROXY_INIT" stop >/dev/null 2>&1 || true; fi
-        fi
-        "$Z2K_DOH_DNSMASQ_INIT" restart || return 1
-        echo "DoH удалён; пользовательская конфигурация https-dns-proxy восстановлена, внешний пакет сохранён"
-        rm -f "$Z2K_DOH_CONFIG_OWNED_FILE" "$Z2K_DOH_CONFIG_BACKUP" "$Z2K_DOH_SERVICE_SNAPSHOT"
-    elif [ "$_owned_package" = 1 ] && [ "$_external" = 0 ]; then
-        "$Z2K_DOH_PROXY_INIT" disable >/dev/null 2>&1 || true
-        "$Z2K_DOH_PROXY_INIT" stop >/dev/null 2>&1 || true
-        "$Z2K_DOH_APK_BIN" del "$Z2K_DOH_PACKAGE" || return 1
-        _preexisting=$(sed -n 's/^preexisting_config=//p' "$Z2K_DOH_INSTALL_SNAPSHOT" 2>/dev/null)
-        if [ "$_preexisting" = 1 ] && [ -s "$Z2K_DOH_PREINSTALL_CONFIG" ]; then
-            _z2k_ow_doh_uci -q import "$Z2K_DOH_PACKAGE" < "$Z2K_DOH_PREINSTALL_CONFIG" || return 1
-            _z2k_ow_doh_uci commit "$Z2K_DOH_PACKAGE" || return 1
-        else rm -f "$Z2K_DOH_CONFIG_FILE"; fi
-        rm -f "$Z2K_DOH_PACKAGE_OWNED_FILE" "$Z2K_DOH_CONFIG_OWNED_FILE" "$Z2K_DOH_CONFIG_BASELINE" \
-            "$Z2K_DOH_INSTALL_SNAPSHOT" "$Z2K_DOH_PREINSTALL_CONFIG" "$Z2K_DOH_PREINSTALL_CONFIG_MARKER"
-    elif [ "$_legacy" = 1 ]; then
-        "$Z2K_DOH_PROXY_INIT" reload >/dev/null 2>&1 || true
-        "$Z2K_DOH_DNSMASQ_INIT" restart || return 1
-        rm -f "$Z2K_DOH_CONFIG_OWNED_FILE"
+    if [ "$_installed" = 1 ] && { [ "$_owned_package" = 0 ] || [ "$_external" = 1 ] || \
+        [ -s "$Z2K_DOH_CONFIG_BACKUP" ] || [ -s "$Z2K_DOH_PREINSTALL_CONFIG_MARKER" ]; } && [ "$_confirm" != 1 ]; then
+        echo "DoH: https-dns-proxy или его конфигурация существовали до управления z2kOW; подтвердите удаление пакета" >&2
+        return 1
     fi
-    rm -f "$Z2K_DOH_PROFILE_FILE" "$Z2K_DOH_STATE_FILE" "$Z2K_DOH_ERROR_FILE" "$Z2K_DOH_INSTALL_SNAPSHOT"
-    return 0
+
+    # Remember every listener before touching UCI. A restored external config
+    # remains useful for a later package reimport, but no live dnsmasq route may
+    # continue pointing at the package we are about to remove.
+    for _section in $(_z2k_ow_doh_sections); do
+        _port=$(_z2k_ow_doh_get "$Z2K_DOH_PACKAGE.$_section.listen_port") || _port=5053
+        [ -n "$_port" ] || _port=5053
+        case " $_ports " in *" $_port "*) ;; *) _ports="$_ports $_port" ;; esac
+    done
+
+    # Prefer the exact pre-Apply snapshot. If this was a preinstalled package
+    # with no Apply yet, restore its install-time snapshot. Otherwise retain the
+    # current externally owned UCI export before apk removes package files.
+    if [ -s "$Z2K_DOH_CONFIG_BACKUP" ]; then
+        _restore_file=$Z2K_DOH_CONFIG_BACKUP; _preserve_config=1
+    elif [ -s "$Z2K_DOH_PREINSTALL_CONFIG_MARKER" ] && [ -e "$Z2K_DOH_PREINSTALL_CONFIG" ]; then
+        _restore_file=$Z2K_DOH_PREINSTALL_CONFIG; _preserve_config=1
+    elif [ "$_external" = 1 ] && [ "$_owned_package" = 0 ]; then
+        if _snapshot=$(_z2k_ow_doh_export); then
+            printf '%s\n' "$_snapshot" | _z2k_ow_doh_write "$Z2K_DOH_CONFIG_BACKUP" || return 1
+            _restore_file=$Z2K_DOH_CONFIG_BACKUP; _preserve_config=1
+        else
+            echo "DoH: не удалось сохранить пользовательскую конфигурацию https-dns-proxy" >&2
+            return 1
+        fi
+    elif [ "$_external" = 1 ]; then
+        # Keep package-wide user edits, but remove the resolver sections owned
+        # by z2kOW before saving this fallback snapshot.
+        _z2k_ow_doh_remove_sections || return 1
+        if _snapshot=$(_z2k_ow_doh_export); then
+            printf '%s\n' "$_snapshot" | _z2k_ow_doh_write "$Z2K_DOH_CONFIG_BACKUP" || return 1
+            _restore_file=$Z2K_DOH_CONFIG_BACKUP; _preserve_config=1
+        else
+            echo "DoH: не удалось сохранить пользовательскую конфигурацию https-dns-proxy" >&2
+            return 1
+        fi
+    fi
+
+    if [ -n "$_restore_file" ]; then
+        for _backup_port in $(_z2k_ow_doh_config_ports "$_restore_file"); do
+            case " $_ports " in *" $_backup_port "*) ;; *) _ports="$_ports $_backup_port" ;; esac
+        done
+    fi
+
+    [ "$_legacy" = 0 ] || _z2k_ow_doh_restore_legacy_dnsmasq || return 1
+    if [ "$_installed" = 1 ] || _z2k_ow_doh_running || _z2k_ow_doh_enabled; then
+        "$Z2K_DOH_PROXY_INIT" disable || { echo "DoH: не удалось отключить автозапуск https-dns-proxy" >&2; return 1; }
+        "$Z2K_DOH_PROXY_INIT" stop || { echo "DoH: не удалось остановить https-dns-proxy" >&2; return 1; }
+    fi
+    if [ "$_installed" = 1 ]; then
+        "$Z2K_DOH_APK_BIN" del "$Z2K_DOH_PACKAGE" || { echo "DoH: apk del https-dns-proxy завершился ошибкой" >&2; return 1; }
+    fi
+    if _z2k_ow_doh_installed; then
+        echo "DoH: пакет https-dns-proxy остался установлен после apk del" >&2
+        return 1
+    fi
+
+    if [ "$_preserve_config" = 1 ]; then
+        _z2k_ow_doh_uci -q import "$Z2K_DOH_PACKAGE" < "$_restore_file" || {
+            echo "DoH: пакет удалён, но импорт сохранённой конфигурации завершился ошибкой" >&2
+            return 1
+        }
+        _z2k_ow_doh_uci commit "$Z2K_DOH_PACKAGE" || {
+            echo "DoH: пакет удалён, но не удалось записать сохранённую конфигурацию" >&2
+            return 1
+        }
+    else
+        _z2k_ow_doh_delete_resolver_sections || return 1
+        if [ -n "$(_z2k_ow_doh_get "$Z2K_DOH_PACKAGE.config")" ]; then
+            _z2k_ow_doh_uci delete "$Z2K_DOH_PACKAGE.config" || return 1
+        fi
+        _z2k_ow_doh_uci commit "$Z2K_DOH_PACKAGE" || return 1
+        rm -f "$Z2K_DOH_CONFIG_FILE" || return 1
+    fi
+
+    _z2k_ow_doh_remove_dnsmasq_listener_routes || {
+        echo "DoH: не удалось убрать DNSMasq-маршруты к удалённым DoH listener" >&2
+        return 1
+    }
+
+    _z2k_ow_doh_dnsmasq_restart || { echo "DoH: не удалось перезапустить dnsmasq после удаления" >&2; return 1; }
+
+    if _z2k_ow_doh_running; then echo "DoH: процесс https-dns-proxy всё ещё работает" >&2; return 1; fi
+    if _z2k_ow_doh_enabled; then echo "DoH: автозапуск https-dns-proxy всё ещё включён" >&2; return 1; fi
+    if [ -s "$Z2K_DOH_CONFIG_OWNED_FILE" ]; then
+        while IFS= read -r _section; do
+            [ -n "$_section" ] || continue
+            if [ "$(_z2k_ow_doh_get "$Z2K_DOH_PACKAGE.$_section")" = https-dns-proxy ]; then
+                echo "DoH: в UCI осталась z2kOW секция $_section" >&2
+                return 1
+            fi
+        done < "$Z2K_DOH_CONFIG_OWNED_FILE"
+    fi
+    if [ -n "$_ports" ]; then
+        _route=$(_z2k_ow_doh_uci -q show dhcp 2>/dev/null | awk -F= '$1 ~ /\.server$/ && $2 ~ /127\.0\.0\.1#[0-9]+/ {print $2}')
+        for _port in $_ports; do
+            if printf '%s\n' "$_route" | grep -Eq "127\\.0\\.0\\.1#$_port([[:space:]'\"]|$)"; then
+                echo "DoH: dnsmasq UCI всё ещё ссылается на удалённый listener 127.0.0.1#$_port" >&2
+                return 1
+            fi
+            local _config
+            for _config in "$Z2K_DOH_DNSMASQ_RUNTIME_DIR"/dnsmasq.conf.*; do
+                [ -r "$_config" ] || continue
+                if grep -Eq "^server=(127\\.0\\.0\\.1|/#/127\\.0\\.0\\.1)#$_port$" "$_config"; then
+                    echo "DoH: runtime dnsmasq всё ещё ссылается на удалённый listener 127.0.0.1#$_port" >&2
+                    return 1
+                fi
+            done
+        done
+    fi
+    if ! _answer=$(_z2k_ow_doh_lookup_answer); then
+        echo "DoH: пакет удалён, но DNS-запрос роутера через 127.0.0.1 не прошёл" >&2
+        return 1
+    fi
+    rm -f "$Z2K_DOH_PACKAGE_OWNED_FILE" "$Z2K_DOH_CONFIG_OWNED_FILE" "$Z2K_DOH_CONFIG_BACKUP" \
+        "$Z2K_DOH_CONFIG_BASELINE" "$Z2K_DOH_INSTALL_SNAPSHOT" \
+        "$Z2K_DOH_SERVICE_SNAPSHOT" "$Z2K_DOH_PREINSTALL_CONFIG" "$Z2K_DOH_PREINSTALL_CONFIG_MARKER" \
+        "$Z2K_DOH_PROFILE_FILE" "$Z2K_DOH_STATE_FILE" "$Z2K_DOH_ERROR_FILE" || return 1
+    [ ! -e "$Z2K_DOH_PACKAGE_OWNED_FILE" ] && [ ! -e "$Z2K_DOH_CONFIG_OWNED_FILE" ] || {
+        echo "DoH: не удалось очистить z2kOW ownership receipts" >&2
+        return 1
+    }
+    if [ "$_preserve_config" = 1 ]; then
+        echo "DoH удалён; пользовательская конфигурация https-dns-proxy сохранена в /etc/config/https-dns-proxy; DNS работает (ответ $_answer)"
+    else
+        echo "DoH удалён; DNS работает (ответ $_answer)"
+    fi
 }
