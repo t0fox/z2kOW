@@ -154,8 +154,10 @@ _ow_diag_doh_field() {
 }
 
 print_doh() {
-    local _status _package _owner _enabled _provider _proxy _dnsmasq _force
+    local _status _state _reason _package _owner _enabled _provider _proxy _dnsmasq _force
     _status=$(_ow_diag_doh_snapshot) || _status="state=unavailable installed=0 enabled=0 provider=xbox package_owner=external proxy=unavailable dnsmasq=unavailable force_lan_dns=0"
+    _state=$(_ow_diag_doh_field "$_status" state); [ -n "$_state" ] || _state=unknown
+    _reason=$(_ow_diag_doh_field "$_status" reason); [ -n "$_reason" ] || _reason=none
     _package=$(_ow_diag_doh_field "$_status" installed); [ "$_package" = 1 ] && _package=installed || _package=absent
     _owner=$(_ow_diag_doh_field "$_status" package_owner); [ -n "$_owner" ] || _owner=unknown
     _enabled=$(_ow_diag_doh_field "$_status" enabled); [ "$_enabled" = 1 ] && _enabled=yes || _enabled=no
@@ -164,8 +166,8 @@ print_doh() {
     _dnsmasq=$(_ow_diag_doh_field "$_status" dnsmasq); [ -n "$_dnsmasq" ] || _dnsmasq=unavailable
     _force=$(_ow_diag_doh_field "$_status" force_lan_dns); [ "$_force" = 1 ] && _force=yes || _force=no
     printf '\nDoH:\n'
-    printf '  package: %s\n  owner: %s\n  enabled: %s\n  provider: %s\n  proxy: %s\n  dnsmasq: %s\n  force_lan_dns: %s\n' \
-        "$_package" "$_owner" "$_enabled" "$_provider" "$_proxy" "$_dnsmasq" "$_force"
+    printf '  state: %s\n  reason: %s\n  package: %s\n  owner: %s\n  enabled: %s\n  provider: %s\n  proxy: %s\n  dnsmasq: %s\n  force_lan_dns: %s\n' \
+        "$_state" "$_reason" "$_package" "$_owner" "$_enabled" "$_provider" "$_proxy" "$_dnsmasq" "$_force"
 }
 
 print_health() {

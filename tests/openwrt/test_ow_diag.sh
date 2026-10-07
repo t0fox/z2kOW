@@ -39,6 +39,8 @@ assert_contains "adapter hook uses explicit disabled/unknown states" "$AD" 'conc
 assert_contains "adapter hook reports unavailable backend" "$AD" 'backend=unavailable'
 assert_contains "adapter hook reports selected FLOWOFFLOAD" "$AD" 'flowoffload mode'
 assert_contains "adapter hook reports zapret2 flowtable" "$AD" 'zapret2 flowtable'
+assert_contains "DoH diagnostic prints canonical state and reason fields" "$AD" 'state: %s'
+assert_contains "DoH diagnostic prints resolved proxy and dnsmasq runtime fields" "$AD" 'dnsmasq: %s'
 assert_contains "adapter hook reports exemptions" "$AD" 'exemptions'
 assert_contains "adapter hook reports owner conflict" "$AD" 'owner conflict'
 assert_contains "adapter hook separates packet visibility" "$AD" 'packet visibility'
@@ -57,6 +59,23 @@ assert_contains "complete rootfs stages adapter diag hook" "$STAGE" 'platform/op
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-diag-version.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 mkdir -p "$T/root" "$T/etc/z2k/state"
+
+# Verify the actual DoH diagnostic formatter with a canonical runtime snapshot.
+mkdir -p "$T/doh-adapter"
+cat > "$T/doh-adapter/doh.sh" <<'EOF'
+#!/bin/sh
+z2k_ow_doh_status() {
+    printf 'state=working reason= installed=1 enabled=1 provider=xbox package_owner=z2kow proxy=available dnsmasq=available force_lan_dns=1\n'
+}
+EOF
+_diag_doh=$(Z2K_ROOT="$REPO" Z2K_ADAPTER_DIR="$T/doh-adapter" Z2K_STATE="$T/etc/z2k/state" \
+    sh "$AD" doh 2>/dev/null)
+printf '%s\n' "$_diag_doh" > "$T/diag-doh.txt"
+assert_contains "DoH diagnostic exposes the canonical working state" "$T/diag-doh.txt" 'state: working'
+assert_contains "DoH diagnostic reports no active error reason as none" "$T/diag-doh.txt" 'reason: none'
+assert_contains "DoH diagnostic reports a live proxy as available" "$T/diag-doh.txt" 'proxy: available'
+assert_contains "DoH diagnostic reports a live dnsmasq route as available" "$T/diag-doh.txt" 'dnsmasq: available'
+
 printf 'tag=p-86.11\nseq=134\n' > "$T/etc/z2k/state/installed-release"
 printf "DISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"
 _diag=$(Z2K_PLATFORM=openwrt Z2K_ROOT="$T/root" Z2K_ETC="$T/etc/z2k" \

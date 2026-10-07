@@ -226,11 +226,12 @@ _z2k_ow_doh_restore_backup() {
 }
 
 z2k_ow_doh_status() {
-    local _state=not-installed _installed=0 _running=0 _enabled=0 _provider=unknown _endpoint= _bootstrap= _urls _bootstraps _external=0 _owner=external _sections _force=0 _reason= _confirm_remove=0
+    local _state=not-installed _installed=0 _running=0 _enabled=0 _provider=unknown _endpoint= _bootstrap= _urls _bootstraps _external=0 _owner=external _sections _force=0 _reason= _confirm_remove=0 _proxy=unavailable _dnsmasq=unavailable
     if _z2k_ow_doh_installed; then
         _installed=1
         _z2k_ow_doh_running && _running=1
         _z2k_ow_doh_enabled && _enabled=1
+        [ "$_running" = 1 ] && _proxy=available
         [ -s "$Z2K_DOH_PACKAGE_OWNED_FILE" ] && _owner=z2kow
         if [ "$_owner" = external ] || [ -s "$Z2K_DOH_CONFIG_BACKUP" ] || [ -s "$Z2K_DOH_PREINSTALL_CONFIG_MARKER" ]; then
             _confirm_remove=1
@@ -246,6 +247,13 @@ z2k_ow_doh_status() {
         _bootstrap=$(printf '%s\n' "$_bootstraps" | sed -n '1p')
         _z2k_ow_doh_external_config && _external=1
         [ "$(_z2k_ow_doh_get "$Z2K_DOH_PACKAGE.config.force_dns")" = 1 ] && _force=1
+        if "$Z2K_DOH_PIDOF_BIN" dnsmasq >/dev/null 2>&1; then
+            if [ -n "$_urls" ] && _z2k_ow_doh_has_dnsmasq_listener_route; then
+                _dnsmasq=available
+            else
+                _dnsmasq=route-missing
+            fi
+        fi
         if [ -z "$_urls" ]; then
             if [ -s "$Z2K_DOH_CONFIG_OWNED_FILE" ] || [ "$_running" = 1 ] || [ "$_enabled" = 1 ]; then
                 _state=error; _reason=resolver-config-missing
@@ -253,15 +261,21 @@ z2k_ow_doh_status() {
                 _state=disabled
             fi
         elif [ "$_running" = 1 ]; then
-            _state=working
+            if [ "$_dnsmasq" = unavailable ]; then
+                _state=error; _reason=dnsmasq-not-running
+            elif [ "$_dnsmasq" != available ]; then
+                _state=error; _reason=dnsmasq-listener-route-missing
+            else
+                _state=working
+            fi
         elif [ "$_enabled" = 1 ]; then
             _state=error; _reason=proxy-not-running
         else
             _state=disabled
         fi
     fi
-    printf 'state=%s installed=%s enabled=%s running=%s provider=%s endpoint=%s bootstrap=%s package_owner=%s external_config=%s confirm_remove=%s force_lan_dns=%s reason=%s\n' \
-        "$_state" "$_installed" "$_enabled" "$_running" "$_provider" "$_endpoint" "$_bootstrap" "$_owner" "$_external" "$_confirm_remove" "$_force" "$_reason"
+    printf 'state=%s installed=%s enabled=%s running=%s provider=%s endpoint=%s bootstrap=%s package_owner=%s external_config=%s confirm_remove=%s force_lan_dns=%s proxy=%s dnsmasq=%s reason=%s\n' \
+        "$_state" "$_installed" "$_enabled" "$_running" "$_provider" "$_endpoint" "$_bootstrap" "$_owner" "$_external" "$_confirm_remove" "$_force" "$_proxy" "$_dnsmasq" "$_reason"
 }
 
 z2k_ow_doh_install() {

@@ -393,10 +393,18 @@ assert_contains "resolver apply preserves the TikTok primary override" "$Z2K_DOH
 assert_contains "resolver apply preserves the TikTok EU override" "$Z2K_DOH_TEST_DB" '/v77.tiktokcdn-eu.com/87.245.200.35'
 assert_eq "the package-managed dnsmasq integration remains enabled" '*' "$(_doh_config_value config.dnsmasq_config_update)"
 assert_eq "working status comes from the running proxy process and actual UCI config" working "$(_doh_field "$(z2k_ow_doh_status)" state)"
+assert_eq "DoH status exposes a running proxy as available to diagnostics" available "$(_doh_field "$(z2k_ow_doh_status)" proxy)"
+assert_eq "DoH status exposes the active dnsmasq listener route to diagnostics" available "$(_doh_field "$(z2k_ow_doh_status)" dnsmasq)"
+mv "$Z2K_DOH_DNSMASQ_RUNTIME_DIR/dnsmasq.conf.fixture" "$T/dnsmasq.conf.saved"
+assert_eq "missing runtime dnsmasq route is visible to diagnostics" route-missing "$(_doh_field "$(z2k_ow_doh_status)" dnsmasq)"
+assert_eq "missing runtime dnsmasq route is not reported as working" error "$(_doh_field "$(z2k_ow_doh_status)" state)"
+assert_eq "missing runtime dnsmasq route has a specific status reason" dnsmasq-listener-route-missing "$(_doh_field "$(z2k_ow_doh_status)" reason)"
+mv "$T/dnsmasq.conf.saved" "$Z2K_DOH_DNSMASQ_RUNTIME_DIR/dnsmasq.conf.fixture"
 : > "$Z2K_DOH_ENABLED_FILE"
 rm -f "$Z2K_DOH_RUNNING_FILE"
 assert_eq "enabled resolver with a stopped proxy reports an error, not disabled" error "$(_doh_field "$(z2k_ow_doh_status)" state)"
 assert_eq "stopped enabled proxy has an actionable reason" proxy-not-running "$(_doh_field "$(z2k_ow_doh_status)" reason)"
+assert_eq "DoH status marks a stopped proxy unavailable to diagnostics" unavailable "$(_doh_field "$(z2k_ow_doh_status)" proxy)"
 : > "$Z2K_DOH_RUNNING_FILE"
 
 # Every StressOzz preset is represented as endpoint/bootstrap data. Applying
