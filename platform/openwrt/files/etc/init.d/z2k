@@ -37,6 +37,7 @@ z2k_load_adapter() {
     . "$Z2K_ROOT/platform/openwrt/warp.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/tiktok.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/schedule.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/offload-benchmark.sh" || return 1
     . "$Z2K_LIB/utils.sh" || return 1
     . "$Z2K_LIB/strategies.sh" || return 1
     . "$Z2K_LIB/config_official.sh" || return 1
@@ -126,6 +127,9 @@ z2k_ow_start_rollback() {
 
 start_service() {
     z2k_load_adapter || return 1
+    # If reboot interrupted a temporary benchmark transaction, restore its
+    # saved FLOWOFFLOAD mode before generating the service's runtime config.
+    z2k_ow_offload_benchmark_recover || echo "z2k-openwrt: FLOWOFFLOAD benchmark recovery deferred" >&2
     OPENWRT_LAN="$(z2k_ow_lan)"
     export OPENWRT_LAN
     z2k_ow_bootstrap || return 1

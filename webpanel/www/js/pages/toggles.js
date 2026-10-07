@@ -5,6 +5,11 @@ import { toast } from "../core/toast.js";
 import { JOB_FAIL, _updateGlobalUILock, confirmModal, jobOutcome, jobUnresolved, openJobModal, setLockAware, unresolvedMsg } from "../job.js";
 import { AUTOHOSTLIST_WARNING, TOGGLES_RESTART_SERVICE, resyncToggle } from "./policy.js";
 
+let flowBenchmarkPollTimer = 0;
+let flowBenchmarkInFlight = "";
+let flowBenchmarkWasActive = false;
+let flowBenchmarkRefreshBusy = false;
+
 const TOGGLE_DEFS = [
   { key: "category_youtube", name: "YouTube",
     desc: "Обход для YouTube и Googlevideo, включая QUIC. Выключите, чтобы эти сервисы работали напрямую." },
@@ -853,6 +858,288 @@ function flowoffloadReload(select, state, error) {
   });
 }
 
+function flowBenchmarkValue(value, suffix = "") {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
+  return `${Number(value).toLocaleString("ru-RU", { maximumFractionDigits: 1 })}${suffix}`;
+}
+
+function flowBenchmarkResultMarkup(result) {
+  if (!result || !result.modes) return "";
+  const labels = { none: "Без ускорения", software: "Программное", hardware: "Аппаратное" };
+  const metrics = [
+    ["download_mbps", "↓ Mbps", " Mbps"], ["upload_mbps", "↑ Mbps", " Mbps"],
+    ["cpu_avg", "CPU avg", "%"], ["cpu_peak", "CPU peak", "%"],
+    ["idle_ms", "Ping idle", " ms"], ["download_loaded_ms", "Ping ↓", " ms"],
+    ["upload_loaded_ms", "Ping ↑", " ms"], ["jitter_ms", "Jitter", " ms"],
+    ["loss_pct", "Потери HTTP", "%"], ["duration_s", "Время", " с"],
+  ];
+  const rows = ["none", "software", "hardware"].map(mode => {
+    const row = result.modes[mode] || {};
+    if (mode === "hardware" && row.available === false) {
+      return `<tr><th scope="row">${labels[mode]}</th><td colspan="${metrics.length}">Не поддерживается или не применилось</td></tr>`;
+    }
+    return `<tr><th scope="row">${labels[mode]}</th>${metrics.map(([key, , suffix]) => `<td>${flowBenchmarkValue(row[key], suffix)}</td>`).join("")}</tr>`;
+  }).join("");
+  const recommendation = typeof result.recommendation === "string" ? result.recommendation : result.recommendation?.mode;
+  const recommendationReason = result.recommendation && typeof result.recommendation === "object" ? result.recommendation.reason : "";
+  const recommended = recommendation ? `<div class="flow-benchmark-recommendation"><strong>Рекомендуется: ${escapeHtml(labels[recommendation] || recommendation)}</strong><span>${escapeHtml(recommendationReason || "Основано на медианах; hardware учитывается только при наблюдаемом аппаратном offload.")}</span></div>` :
+    `<div class="flow-benchmark-recommendation is-muted">Рекомендация не сформирована: тест неполный или преимущество меньше порога шума.</div>`;
+  const warning = result.validity?.warnings?.length ? `<p class="flow-benchmark-note">${escapeHtml(result.validity.warnings.join("; "))}</p>` : "";
+  const delta = value => {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
+    const n = Number(value);
+    return Math.abs(n) < 5 ? "≈0%" : `${n > 0 ? "+" : "−"}${Math.abs(n)}%`;
+  };
+  const comparisons = result.comparisons || {};
+  const comparisonMarkup = [
+    ["Программное против отключённого", comparisons.software_vs_none],
+    ["Аппаратное против программного", comparisons.hardware_vs_software],
+  ].filter(([, values]) => values).map(([title, values]) => `<div class="flow-benchmark-comparison"><strong>${title}</strong><span>↓ ${delta(values.download_pct)} · ↑ ${delta(values.upload_pct)} · CPU ${delta(values.cpu_pct)}</span></div>`).join("");
+  const diagnostics = ["none", "software", "hardware"].map(mode => {
+    const runs = result.modes[mode]?.runs || [];
+    const values = runs.map(run => flowBenchmarkValue(run.download_mbps, " Mbps")).join(" / ") || "нет прогонов";
+    const observed = result.modes[mode]?.offload_observed === true ? "наблюдался" : "не подтверждён";
+    return `<div class="flow-fact"><span class="flow-fact-label">${labels[mode]}</span><span class="flow-fact-value">${escapeHtml(values)} · ${observed}</span></div>`;
+  }).join("");
+  const system = result.system || {};
+  const systemLabels = { router_model: "Модель роутера", openwrt_version: "OpenWrt", z2kow_version: "z2kOW", wan_interface: "WAN интерфейс" };
+  const systemMarkup = Object.entries(systemLabels).map(([key, label]) => `<div class="flow-fact"><span class="flow-fact-label">${label}</span><span class="flow-fact-value">${escapeHtml(system[key] || "Не определено")}</span></div>`).join("");
+  const conflictLabels = { sqm: "SQM", pbr: "PBR", warp: "WARP" };
+  const conflictMarkup = Object.entries(result.conflicts || {}).map(([key, value]) => `<div class="flow-fact"><span class="flow-fact-label">${escapeHtml(conflictLabels[key] || key)}</span><span class="flow-fact-value">${escapeHtml(value)}</span></div>`).join("");
+  const message = result.message ? `<p class="flow-benchmark-note">${escapeHtml(result.message)}</p>` : "";
+  const timestamp = result.timestamp ? `<p class="flow-benchmark-note">Серия: ${escapeHtml(result.timestamp)}</p>` : "";
+  return `${recommended}${comparisonMarkup ? `<div class="flow-benchmark-comparisons">${comparisonMarkup}</div>` : ""}${warning}<div class="flow-benchmark-table-wrap"><table class="flow-benchmark-table"><thead><tr><th>Режим</th>${metrics.map(([, label]) => `<th>${label}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>
+    <details class="flow-technical disclosure"><summary>Подробные прогоны и ограничения</summary><div class="disclosure-body"><div class="flow-technical-body"><div class="flow-facts">${diagnostics}${systemMarkup}${conflictMarkup}</div>${message}${timestamp}<p class="flow-benchmark-note">Фактический offload проверяется по conntrack-маркерам во время трафика. Внешний результат зависит от Cloudflare, маршрута и провайдера; потери считаются по HTTP-пробам.</p></div></div></details>`;
+}
+
+async function flowBenchmarkMeasure(status) {
+  const base = "https://speed.cloudflare.com";
+  const cache = () => `cacheBust=${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const median = values => {
+    const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
+    if (!sorted.length) return null;
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
+  const drain = async response => {
+    if (!response.ok || !response.body) throw new Error(`HTTP ${response.status || "error"}`);
+    const reader = response.body.getReader();
+    let bytes = 0;
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      bytes += part.value.byteLength;
+    }
+    return bytes;
+  };
+  const probe = async () => {
+    const start = performance.now();
+    const controller = new AbortController();
+    const abortTimer = setTimeout(() => controller.abort(), 5000);
+    try {
+      const response = await fetch(`${base}/__down?bytes=1&${cache()}`, { cache: "no-store", mode: "cors", signal: controller.signal });
+      await drain(response);
+    } finally { clearTimeout(abortTimer); }
+    return performance.now() - start;
+  };
+  const transfer = async direction => {
+    const started = performance.now();
+    const length = direction === "download" ? 16 * 1024 * 1024 : 4 * 1024 * 1024;
+    const payload = direction === "upload" ? new Blob([new Uint8Array(length)]) : null;
+    const controller = new AbortController();
+    const abortTimer = setTimeout(() => controller.abort(), 15000);
+    let bytes = 0;
+    try {
+      const response = direction === "download"
+        ? await fetch(`${base}/__down?bytes=${length}&${cache()}`, { cache: "no-store", mode: "cors", signal: controller.signal })
+        : await fetch(`${base}/__up?${cache()}`, { method: "POST", body: payload, cache: "no-store", mode: "cors", signal: controller.signal });
+      if (direction === "download") bytes = await drain(response);
+      else { if (!response.ok) throw new Error(`HTTP ${response.status}`); await response.arrayBuffer(); bytes = length; }
+    } finally { clearTimeout(abortTimer); }
+    const seconds = Math.max(0.001, (performance.now() - started) / 1000);
+    return { mbps: bytes * 8 / seconds / 1e6, seconds };
+  };
+  const warm = await fetch(`${base}/__down?bytes=1000000&${cache()}`, { cache: "no-store", mode: "cors" });
+  await drain(warm);
+  const idle = [], downPings = [], upPings = [];
+  let failed = 0, probes = 0;
+  const loaded = async direction => {
+    const times = [];
+    let running = true;
+    const probeLoop = (async () => {
+      do {
+        probes++;
+        try { times.push(await probe()); } catch (_) { failed++; }
+        if (running) await new Promise(resolve => setTimeout(resolve, 350));
+      } while (running);
+    })();
+    const result = await transfer(direction);
+    running = false;
+    await probeLoop;
+    return { ...result, times };
+  };
+  for (let i = 0; i < 4; i++) {
+    probes++;
+    try { idle.push(await probe()); } catch (_) { failed++; }
+  }
+  const down = await loaded("download");
+  downPings.push(...down.times);
+  const up = await loaded("upload");
+  upPings.push(...up.times);
+  const allPings = idle.concat(downPings, upPings);
+  const mean = allPings.reduce((sum, n) => sum + n, 0) / Math.max(1, allPings.length);
+  const jitter = Math.sqrt(allPings.reduce((sum, n) => sum + (n - mean) ** 2, 0) / Math.max(1, allPings.length));
+  return {
+    session: status.session, token: status.token, nonce: status.nonce,
+    download_mbps: down.mbps, upload_mbps: up.mbps, idle_ms: median(idle),
+    download_loaded_ms: median(downPings), upload_loaded_ms: median(upPings),
+    jitter_ms: jitter, loss_pct: probes ? failed * 100 / probes : null,
+    duration_s: down.seconds + up.seconds, server: "cloudflare",
+  };
+}
+
+async function flowBenchmarkRefresh() {
+  const card = document.getElementById("flowoffload-benchmark");
+  if (!card || card.hidden || flowBenchmarkRefreshBusy) return;
+  flowBenchmarkRefreshBusy = true;
+  const statusNode = card.querySelector("#flowoffload-benchmark-status");
+  try {
+    const state = await apiGet("/offload/benchmark?view=status");
+    if (!card.isConnected) return;
+    const active = state.active === true;
+    const start = card.querySelector("#flowoffload-benchmark-start");
+    const stop = card.querySelector("#flowoffload-benchmark-stop");
+    const select = document.getElementById("flowoffload-mode");
+    const provider = card.querySelector("#flowoffload-benchmark-provider");
+    if (start) start.hidden = active;
+    if (stop) stop.hidden = !active;
+    if (!active) { if (start) start.disabled = false; if (stop) stop.disabled = false; }
+    if (select) select.disabled = active;
+    if (provider) provider.disabled = active;
+    if (statusNode) {
+      const labels = { starting: "Подготавливаю тест…", applying: "Переключаю режим…", awaiting_sample: `Тестирую: ${state.mode === "none" ? "без ускорения" : state.mode === "software" ? "software" : "hardware"}, прогон ${state.trial}/3`, restoring: "Восстанавливаю исходный режим…", completed: "Тест завершён, исходный режим восстановлен.", failed: "Тест не завершён; смотрите результат и состояние восстановления.", stopped: "Тест остановлен, исходный режим восстановлен." };
+      const lastSuccess = !active && state.last_success_timestamp
+        ? ` Последняя успешная серия: ${new Date(state.last_success_timestamp).toLocaleString("ru-RU")}.`
+        : "";
+      statusNode.textContent = `${labels[state.status] || "Интернет-тест: Cloudflare Speed Test"}${lastSuccess}`;
+    }
+    const result = state.result;
+    const resultNode = card.querySelector("#flowoffload-benchmark-result");
+    if (resultNode && result) {
+      const signature = JSON.stringify(result);
+      if (resultNode.dataset.signature !== signature) {
+        resultNode.innerHTML = flowBenchmarkResultMarkup(result);
+        resultNode.dataset.signature = signature;
+      }
+      resultNode.hidden = false;
+    }
+    const lastSuccessNode = card.querySelector("#flowoffload-benchmark-last-success");
+    let lastSuccessContent = card.querySelector("#flowoffload-benchmark-last-success-content");
+    const lastSuccessIsCurrent = state.status === "completed" && result?.timestamp === state.last_success_timestamp;
+    if (lastSuccessNode) {
+      const showLastSuccess = !active && !lastSuccessIsCurrent && Boolean(state.last_success_timestamp);
+      lastSuccessNode.hidden = !showLastSuccess;
+      if (showLastSuccess && !lastSuccessContent) {
+        lastSuccessContent = document.createElement("div");
+        lastSuccessContent.id = "flowoffload-benchmark-last-success-content";
+        lastSuccessNode.append(lastSuccessContent);
+      }
+      if (showLastSuccess && lastSuccessContent) {
+      if (lastSuccessNode.dataset.timestamp !== state.last_success_timestamp) {
+        lastSuccessNode.dataset.timestamp = state.last_success_timestamp;
+        lastSuccessContent.textContent = "Загружаю последнюю успешную серию…";
+        try {
+          const lastSuccess = await apiGet("/offload/benchmark?view=last-success");
+          if (!card.isConnected) return;
+          if (lastSuccess?.status === "completed") lastSuccessContent.innerHTML = flowBenchmarkResultMarkup(lastSuccess);
+          else lastSuccessContent.textContent = "Последняя успешная серия недоступна.";
+        } catch (_) {
+          lastSuccessNode.dataset.timestamp = "";
+          lastSuccessContent.textContent = "Не удалось загрузить последнюю успешную серию.";
+        }
+      }
+      }
+    }
+    if (active && state.status === "awaiting_sample" && state.nonce && flowBenchmarkInFlight !== state.nonce) {
+      flowBenchmarkInFlight = state.nonce;
+      try {
+        const sample = await flowBenchmarkMeasure(state);
+        await apiPost("/offload/benchmark", { action: "sample", ...sample });
+      } catch (error) {
+        if (statusNode) statusNode.textContent = `Ошибка измерения: ${errMsg(error)}. Восстанавливаю режим…`;
+        try { await apiPost("/offload/benchmark", { action: "stop" }); } catch (_) {}
+        flowBenchmarkInFlight = "";
+      }
+    }
+    if (active) flowBenchmarkWasActive = true;
+    if (!active && start && flowBenchmarkWasActive) {
+      flowBenchmarkWasActive = false;
+      const selectNode = document.getElementById("flowoffload-mode");
+      const stateView = document.getElementById("flowoffload-status");
+      const errorView = document.getElementById("flowoffload-error");
+      if (selectNode) selectNode.disabled = false;
+      flowoffloadReload(selectNode, stateView, errorView);
+    }
+  } catch (_) {
+    if (statusNode && !statusNode.textContent) statusNode.textContent = "Интернет-тест пока недоступен.";
+  } finally {
+    flowBenchmarkRefreshBusy = false;
+  }
+}
+
+function startFlowBenchmarkPolling() {
+  if (flowBenchmarkPollTimer) clearInterval(flowBenchmarkPollTimer);
+  flowBenchmarkInFlight = "";
+  flowBenchmarkWasActive = false;
+  void flowBenchmarkRefresh();
+  flowBenchmarkPollTimer = setInterval(() => {
+    if (!document.getElementById("tg-state-badge")) {
+      clearInterval(flowBenchmarkPollTimer); flowBenchmarkPollTimer = 0; return;
+    }
+    void flowBenchmarkRefresh();
+  }, 1200);
+}
+
+function wireFlowBenchmark() {
+  const card = document.getElementById("flowoffload-benchmark");
+  if (!card || card.dataset.wired) return;
+  card.dataset.wired = "1";
+  const start = card.querySelector("#flowoffload-benchmark-start");
+  const stop = card.querySelector("#flowoffload-benchmark-stop");
+  const provider = card.querySelector("#flowoffload-benchmark-provider");
+  start?.addEventListener("click", async () => {
+    if (!window.confirm("Во время теста режим ускорения будет временно переключаться. Активные соединения могут быть перезапущены. После завершения исходная конфигурация будет восстановлена.")) return;
+    start.disabled = true;
+    try {
+      const started = await apiPost("/offload/benchmark", { action: "start", provider: provider?.value || "cloudflare" });
+      if (started?.job) {
+        openJobModal("Сравнение режимов FLOWOFFLOAD", started.job, {
+          onDone: async () => {
+            await flowBenchmarkRefresh();
+            const select = document.getElementById("flowoffload-mode");
+            flowoffloadReload(select, document.getElementById("flowoffload-status"), document.getElementById("flowoffload-error"));
+          },
+        });
+      }
+      await flowBenchmarkRefresh();
+    } catch (error) {
+      start.disabled = false;
+      toastErr("Не удалось запустить сравнение: ", error);
+    }
+  });
+  stop?.addEventListener("click", async () => {
+    stop.disabled = true;
+    try {
+      await apiPost("/offload/benchmark", { action: "stop" });
+      const statusNode = card.querySelector("#flowoffload-benchmark-status");
+      if (statusNode) statusNode.textContent = "Останавливаю и восстанавливаю исходный режим…";
+    } catch (error) {
+      toastErr("Не удалось остановить benchmark: ", error);
+      stop.disabled = false;
+    }
+  });
+}
+
 async function saveFlowoffload(select, state, error) {
   const wanted = select.value;
   const previous = select.dataset.saved || "none";
@@ -1026,6 +1313,26 @@ export async function renderToggles() {
       </label>
       <div id="flowoffload-status" role="status" aria-live="polite"></div>
       <div class="t-desc" id="flowoffload-error" role="alert" hidden></div>
+      <section class="flow-benchmark" id="flowoffload-benchmark" data-lock-group="offload-benchmark" aria-labelledby="flowoffload-benchmark-title">
+        <div class="flow-benchmark-heading">
+          <div><h4 id="flowoffload-benchmark-title">Сравнение режимов</h4><p class="desc">Интернет-тест через браузер: трафик проходит через WAN роутера. Провайдер: Cloudflare Speed Test.</p></div>
+          <label class="field flow-benchmark-provider"><span class="field-label">Провайдер</span><select id="flowoffload-benchmark-provider" class="t-sub-select"><option value="cloudflare">Cloudflare Speed Test</option></select></label>
+        </div>
+        <div class="btn-row flow-benchmark-actions">
+          <button class="btn btn-primary" id="flowoffload-benchmark-start" type="button">Сравнить режимы</button>
+          <button class="btn btn-danger" id="flowoffload-benchmark-stop" type="button" hidden>Остановить тест</button>
+        </div>
+        <div class="flow-benchmark-status" id="flowoffload-benchmark-status" role="status" aria-live="polite">Загружаю состояние benchmark…</div>
+        <div class="flow-benchmark-result" id="flowoffload-benchmark-result" hidden></div>
+        <details class="flow-technical disclosure" id="flowoffload-benchmark-last-success" hidden><summary>Последний успешный результат</summary><div class="disclosure-body"><div id="flowoffload-benchmark-last-success-content"></div></div></details>
+        <details class="flow-technical disclosure flow-benchmark-method">
+          <summary>Методика и ограничения</summary>
+          <div class="disclosure-body"><div class="flow-technical-body">
+            <p class="flow-benchmark-note">Перед каждым режимом выполняется warm-up, затем три прогона с одинаковыми параметрами. Конфигурация временно переключается на none → software → hardware и восстанавливается после завершения, ошибки или остановки. Hardware пропускается, если flowtable не применился. Сам факт флага не считается доказательством: проверяются conntrack-маркеры под трафиком.</p>
+            <p class="flow-benchmark-note">Результат зависит от Cloudflare, провайдера и маршрута. Потери отражают только неуспешные HTTP-пробы. Тест iperf3 с роутера здесь не включён: исходящие с самого роутера потоки не проходят через forwarding flowtable и не измеряют FLOWOFFLOAD.</p>
+          </div></div>
+        </details>
+      </section>
     </div>
     <div class="card" id="panel-session-ttl-card">
       <h3>Срок входа в веб-панель</h3>
@@ -1261,6 +1568,7 @@ export async function renderToggles() {
     }
     if (_stale("toggles", seq) || !onTogglesPage()) return null;
     syncTogglesState(s, false);
+    void flowBenchmarkRefresh();
     return s;
   }
 
@@ -1304,6 +1612,7 @@ export async function renderToggles() {
     if (flowCard) flowCard.hidden = !flowVisible;
     if (flowVisible && flowSelect) {
       flowoffloadSync(s, flowSelect, flowState, flowError, !initial);
+      wireFlowBenchmark();
       setLockAware(flowSelect, false);
       if (!flowSelect.dataset.wired) {
         flowSelect.dataset.wired = "1";
@@ -1356,6 +1665,7 @@ export async function renderToggles() {
   // Пока читался /status, юзер мог уйти — вешать обработчики уже некуда, а
   // querySelector вернёт null и уронит остаток функции.
   if (!onTogglesPage()) return;
+  startFlowBenchmarkPolling();
   loadPanelSessionTtl();
 
   async function tgAction(action, title) {

@@ -19,7 +19,7 @@ export PATH="$T/bin:$PATH"
 export Z2K_PANEL_EXTRA_PATH="$T/bin"
 
 # --- adapter farm (настоящие файлы слоя) ---
-for _f in paths.sh env.sh arch.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh doh.sh; do
+for _f in paths.sh env.sh arch.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh doh.sh offload-benchmark.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
@@ -92,6 +92,13 @@ chmod +x "$T/bin/ip"
 cat > "$T/bin/nft" <<EOF
 #!/bin/sh
 echo "nft:\$*" >> "$T/nft.log"
+if [ "\$1" = list ] && [ "\$2" = flowtable ]; then
+    _mode=\$(sed -n 's/^FLOWOFFLOAD=//p' "$T/etc/config" | tail -1)
+    case "\$_mode" in
+        software) echo 'flowtable ft { hook ingress priority filter; }' ;;
+        hardware) echo 'flowtable ft { flags offload; }' ;;
+    esac
+fi
 exit 0
 EOF
 chmod +x "$T/bin/nft"
@@ -445,6 +452,31 @@ RAW="$(_cgi POST /offload "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi
 JOB_IDS="$JOB_IDS $(_jget "$OUT" 'd["job"]')"
 _poll_job_fail "$(_jget "$OUT" 'd["job"]')" "offload: failed apply rollback"
 assert_eq "offload: failed apply restored software" "software" "$(grep '^FLOWOFFLOAD=' "$T/etc/config" | tail -1 | cut -d= -f2-)"
+
+# The browser-originated comparison has dedicated status/result/action routes.
+# Start and cooperatively stop it before the mock browser submits any traffic;
+# this exercises the async lifecycle and proves the transaction restores mode.
+RAW="$(_cgi GET /offload/benchmark "view=status")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "benchmark status route available" "true" "$(_jget "$OUT" 'd["ok"]')"
+assert_eq "benchmark status idle before start" "false" "$(_jget "$OUT" 'd["active"]')"
+assert_eq "benchmark result does not invent metrics" "null" "$(_jget "$OUT" 'd["result"]')"
+assert_eq "benchmark has no fabricated last-success timestamp" "" "$(_jget "$OUT" 'd["last_success_timestamp"]')"
+printf 'action=start&provider=cloudflare' > "$T/body.txt"
+RAW="$(_cgi POST /offload/benchmark "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "benchmark start accepted" "true" "$(_jget "$OUT" 'd["ok"]')"
+_benchmark_job="$(_jget "$OUT" 'd["job"]')"
+JOB_IDS="$JOB_IDS $_benchmark_job"
+printf 'action=stop' > "$T/stop-body.txt"
+RAW="$(_cgi POST /offload/benchmark "" "$T/stop-body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "benchmark cooperative stop accepted" "true" "$(_jget "$OUT" 'd["stopping"]')"
+_benchmark_out="$(_poll_job "$_benchmark_job")"
+assert_eq "benchmark stop job completes with stopped transaction" "1" "$(_jget "$_benchmark_out" 'd["exit"]')"
+RAW="$(_cgi GET /offload/benchmark "view=status")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "benchmark stop restores original configured FLOWOFFLOAD" "software" "$(grep '^FLOWOFFLOAD=' "$T/etc/config" | tail -1 | cut -d= -f2-)"
+assert_eq "benchmark stop exposes terminal status" "stopped" "$(_jget "$OUT" 'd["status"]')"
+assert_file "benchmark stop saves structured result" "$T/etc/state/flowoffload-benchmark/last-result.json"
+RAW="$(_cgi GET /offload/benchmark "view=last-success")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "stopped benchmark is not reported as a successful history item" "null" "$(printf '%s' "$OUT" | tr -d '\n')"
 
 # --- Host allowlist с LAN bind (WP25-контекст) ---
 RAW="$(env REQUEST_METHOD="GET" PATH_INFO="/status" QUERY_STRING="" \
@@ -1207,7 +1239,7 @@ T2="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wpfresh.XXXXXX")" || exit 1
 trap 'for _j in $JOB_IDS; do rm -f "$Z2K_JOB_DIR/z2k-job-$_j.log" "$Z2K_JOB_DIR/z2k-job-$_j.pid" "$Z2K_JOB_DIR/z2k-job-$_j.exit"; done; rm -rf "$T" "$T2"' EXIT INT TERM
 mkdir -p "$T2/bin" "$T2/root/platform/openwrt" "$T2/root/bin" "$T2/root/lib" \
          "$T2/etc" "$T2/tmp/z2k/runtime" "$T2/jobs"
-for _f in paths.sh env.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh; do
+for _f in paths.sh env.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh offload-benchmark.sh panel.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T2/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T2/root/platform/openwrt/warp-proc.sh" 2>/dev/null

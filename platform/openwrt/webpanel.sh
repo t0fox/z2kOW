@@ -13,6 +13,8 @@ else
 fi
 unset _ow_state_lib
 
+[ ! -r "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/offload-benchmark.sh" ] || . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/offload-benchmark.sh" 2>/dev/null || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+
 z2k_ow_meta_value() {
     local _file="$1" _key="$2" _value
     [ -r "$_file" ] || return 1

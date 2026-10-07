@@ -480,6 +480,13 @@ case "$method $path" in
         exit 0
         ;;
 
+    "GET /offload/benchmark"|"POST /offload/benchmark")
+        command -v z2k_ow_offload_benchmark_api >/dev/null 2>&1 \
+            || json_fail "404 Not Found" "benchmark unavailable on this platform"
+        z2k_ow_offload_benchmark_api
+        exit 0
+        ;;
+
     # ---------- TIKTOK CDN CANDIDATES / MANUAL SELECTION ----------
     "POST /tiktok/probe-all")
         require_method POST

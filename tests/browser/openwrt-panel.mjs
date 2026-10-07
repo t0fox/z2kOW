@@ -84,6 +84,22 @@ const server = http.createServer(async (req, res) => {
       }
       return;
     }
+    if (endpoint === 'offload/benchmark') {
+      const view = url.searchParams.get('view');
+      const requestBody = req.method === 'POST'
+        ? Object.fromEntries(new URLSearchParams(apiRequests[apiRequests.length - 1]?.body || ''))
+        : {};
+      const body = view === 'result' ? { ok: true, result: null }
+        : req.method === 'POST' && requestBody.action === 'start'
+          ? { ok: true, job: 'benchmark-fixture', session: '1', token: 'fixture' }
+          : req.method === 'POST' && requestBody.action === 'stop'
+            ? { ok: true, stopping: true }
+            : req.method === 'POST' ? { ok: true }
+              : { ok: true, active: false, status: 'idle', result: null };
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(body));
+      return;
+    }
     const stateEntries = Array.from({ length: 140 }, (_, index) => ({
       key: index % 2 ? 'quic' : 'tcp',
       host: `host-${index}.example-${index}.net`,
@@ -2179,6 +2195,12 @@ try {
   const healthyCard = healthy.page.locator('#tiktok-feed-status-card');
   assert.equal(await healthyCard.isVisible(), true);
   const flowStatus = healthy.page.locator('#flowoffload-status .flow-application');
+  assert.equal(await healthy.page.locator('#flowoffload-benchmark').isVisible(), true,
+    'OpenWrt offload card exposes an explicit, non-autostarting comparison action');
+  assert.equal(await healthy.page.locator('#flowoffload-benchmark-start').innerText(), 'Сравнить режимы');
+  assert.equal(await healthy.page.locator('#flowoffload-benchmark-provider').inputValue(), 'cloudflare');
+  assert.equal(await healthy.page.locator('#flowoffload-benchmark-result').isVisible(), false,
+    'no measurements are fabricated before a benchmark has completed');
   assert.equal(await flowStatus.locator('.flow-application-title').innerText(), 'Аппаратное ускорение');
   assert.equal(await flowStatus.locator('.flow-application-badge').innerText(), 'Не подтверждено');
   assert.doesNotMatch(await flowStatus.innerText(), /requested|mode=hardware/,
@@ -2223,6 +2245,74 @@ try {
   assert.match(await healthyCard.innerText(), /HTTP-ответ[\s\S]*400/);
   assert.doesNotMatch(await healthyCard.innerText(), /131 мс\s+131/);
   assert.doesNotMatch(await healthyCard.innerText(), /undefined|null|0 мс/);
+
+  // Reload while a trial is pending. The new page reads the same session and
+  // nonce, completes a browser-originated sample, and renders its result.
+  let resumedSample = null;
+  let showLastSuccessFallback = false;
+  let latestBenchmarkStatus = null;
+  const fixtureResult = {
+    status: 'completed', timestamp: '2026-10-07T10:00:00Z', recommendation: 'software',
+    validity: { complete: true, warnings: ['Внешний тест зависит от Cloudflare'] },
+    system: { router_model: 'Fixture Router', openwrt_version: 'OpenWrt 24.10', z2kow_version: 'p-86.14', wan_interface: 'wan0' },
+    modes: Object.fromEntries(['none', 'software', 'hardware'].map(mode => [mode, {
+      available: mode !== 'hardware', download_mbps: mode === 'software' ? 120 : 60,
+      upload_mbps: 30, cpu_avg: 25, cpu_peak: 41, idle_ms: 9,
+      download_loaded_ms: 18, upload_loaded_ms: 21, jitter_ms: 2, loss_pct: 0,
+      offload_observed: mode === 'software', runs: [{ download_mbps: 59 }, { download_mbps: 60 }, { download_mbps: 61 }],
+    }])),
+  };
+  await healthy.page.route(/\/cgi-bin\/api\/offload\/benchmark\?view=status$/, route => {
+    latestBenchmarkStatus = showLastSuccessFallback
+      ? { ok: true, active: false, status: 'failed', result: { ...fixtureResult, status: 'failed', timestamp: '2026-10-07T11:00:00Z', recommendation: null, message: 'endpoint failed' }, last_success_timestamp: fixtureResult.timestamp }
+      : resumedSample
+        ? { ok: true, active: false, status: 'completed', result: fixtureResult }
+        : { ok: true, active: true, session: 'session-fixture', token: 'token-fixture', status: 'awaiting_sample',
+            mode: 'software', trial: 2, nonce: 'nonce-after-reload', provider: 'cloudflare', result: null };
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(latestBenchmarkStatus) });
+  });
+  await healthy.page.route(/\/cgi-bin\/api\/offload\/benchmark\?view=last-success$/, route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify(fixtureResult),
+  }));
+  await healthy.page.route('**/cgi-bin/api/offload/benchmark', async route => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    resumedSample = route.request().postDataJSON();
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+  });
+  await healthy.page.route('https://speed.cloudflare.com/**', route => route.fulfill({
+    status: route.request().method() === 'OPTIONS' ? 204 : 200,
+    headers: {
+      'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS',
+      'access-control-allow-headers': 'content-type', 'content-type': 'application/octet-stream',
+    },
+    body: route.request().method() === 'OPTIONS' ? '' : Buffer.alloc(65536),
+  }));
+  await healthy.page.reload();
+  await healthy.page.locator('#flowoffload-benchmark-result').waitFor({ state: 'visible', timeout: 10000 });
+  assert.equal(resumedSample.session, 'session-fixture');
+  assert.equal(resumedSample.nonce, 'nonce-after-reload');
+  assert.ok(resumedSample.download_mbps > 0 && resumedSample.upload_mbps > 0,
+    'reload resumes the pending browser test and submits measured transfer rates');
+  assert.ok(Number.isFinite(Number(resumedSample.idle_ms)) && Number.isFinite(Number(resumedSample.duration_s)));
+  assert.match(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Рекомендуется: Программное/);
+  showLastSuccessFallback = true;
+  await healthy.page.reload();
+  await waitForCondition(() => latestBenchmarkStatus?.status === 'failed', 'failed benchmark history response');
+  await healthy.page.waitForFunction(() => document.querySelector('#flowoffload-benchmark-status')?.innerText.includes('Последняя успешная серия'));
+  const lastSuccess = healthy.page.locator('#flowoffload-benchmark-last-success');
+  const lastSuccessDebug = await healthy.page.evaluate(() => ({
+    status: document.querySelector('#flowoffload-benchmark-status')?.textContent,
+    hidden: document.querySelector('#flowoffload-benchmark-last-success')?.hidden,
+    timestamp: document.querySelector('#flowoffload-benchmark-last-success')?.dataset.timestamp,
+    content: Boolean(document.querySelector('#flowoffload-benchmark-last-success-content')),
+  }));
+  assert.equal(lastSuccessDebug.hidden, false, `last-success fallback should be visible; fixture=${JSON.stringify(latestBenchmarkStatus)} UI=${JSON.stringify(lastSuccessDebug)}`);
+  await lastSuccess.locator('summary').first().click();
+  await lastSuccess.locator('#flowoffload-benchmark-last-success-content details > summary').click();
+  await lastSuccess.getByText('Модель роутера').waitFor({ state: 'visible' });
+  assert.match(await lastSuccess.innerText(), /Fixture Router/);
+  await healthy.page.locator('#flowoffload-benchmark-result details > summary').click();
+  assert.match(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /endpoint failed/);
   await healthy.page.close();
 
   const visualGoodIps = ['203.0.113.35', '203.0.113.20', '203.0.113.50', '203.0.113.51', '203.0.113.52',

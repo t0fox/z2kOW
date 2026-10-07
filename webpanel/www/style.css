@@ -2100,6 +2100,107 @@ input[type=text]:focus, input[type=password]:focus {
 }
 .tiktok-reason-fact code { white-space: normal; text-align: right; }
 .flow-technical[open] { border-top-color: var(--border); }
+.flow-benchmark {
+  margin-top: var(--space-16);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-12);
+}
+.flow-benchmark-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+}
+.flow-benchmark-heading h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+}
+.flow-benchmark-heading .desc {
+  margin: 4px 0 0;
+  max-width: 600px;
+}
+.flow-benchmark-provider { min-width: 220px; margin: 0; }
+.flow-benchmark-provider select { width: 100%; }
+.flow-benchmark-actions { margin-top: var(--space-12); }
+.flow-benchmark-status {
+  min-height: 20px;
+  margin-top: var(--space-8);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.flow-benchmark-result { margin-top: var(--space-12); }
+.flow-benchmark-recommendation {
+  display: grid;
+  gap: 3px;
+  margin-bottom: var(--space-12);
+  padding: 10px 12px;
+  border-left: 3px solid var(--good);
+  border-radius: 0 8px 8px 0;
+  background: var(--good-alpha-soft);
+  color: var(--text);
+  font-size: 13px;
+}
+.flow-benchmark-recommendation span,
+.flow-benchmark-recommendation.is-muted { color: var(--text-muted); }
+.flow-benchmark-comparisons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-8);
+  margin: 0 0 var(--space-12);
+}
+.flow-benchmark-comparison {
+  display: grid;
+  gap: 3px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.flow-benchmark-comparison strong { color: var(--text); font-size: 12px; }
+.flow-benchmark-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.flow-benchmark-table {
+  width: 100%;
+  min-width: 1040px;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.flow-benchmark-table th,
+.flow-benchmark-table td {
+  padding: 8px 9px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  white-space: nowrap;
+}
+.flow-benchmark-table thead th {
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  font-size: 11px;
+  font-weight: 600;
+}
+.flow-benchmark-table th:first-child,
+.flow-benchmark-table td:first-child { text-align: left; }
+.flow-benchmark-table tbody th { color: var(--text); font-weight: 600; }
+.flow-benchmark-table tbody tr:last-child > * { border-bottom: 0; }
+.flow-benchmark-note {
+  margin: var(--space-8) 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.flow-benchmark-method { margin-top: var(--space-12); }
+@media (max-width: 640px) {
+  .flow-benchmark-comparisons { grid-template-columns: minmax(0, 1fr); }
+  .flow-benchmark-provider { min-width: 100%; }
+}
 .tiktok-candidate-controls {
   display: flex;
   align-items: center;
