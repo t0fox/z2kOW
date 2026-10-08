@@ -883,7 +883,7 @@ function renderTikTokStatus(status, toggles, platform, serverNowEpoch) {
   }
 }
 
-function flowoffloadApplicationMarkup(selected, raw) {
+function flowoffloadOverviewMarkup(selected, raw) {
   const facts = flowoffloadFacts(raw);
   const reported = facts.configured_mode || "unknown";
   const actual = facts.actual_dataplane || "unavailable";
