@@ -115,7 +115,7 @@ assert_out "capability remains separate from runtime" 'offload capability : avai
 assert_out "disabled software path is N/A" 'software offload   : N/A'
 assert_out "disabled hardware path is not applicable" 'hardware offload   : not-applicable'
 assert_out "disabled backend is N/A" 'backend            : N/A'
-assert_out "packet probe is not applicable when offload is disabled" 'packet visibility  : not-applicable'
+assert_out "missing queue rules are inactive when offload is disabled" 'packet visibility  : inactive'
 assert_not_out "none does not fall through to backend unknown" 'BACKEND_UNKNOWN|backend[[:space:]]*:[[:space:]]*unknown'
 assert_not_out "none does not emit universal unknowns" 'packet visibility[[:space:]]*:[[:space:]]*UNKNOWN|circular[[:space:]]*:[[:space:]]*UNKNOWN'
 
@@ -134,6 +134,18 @@ table inet zapret2 {
  chain forward_hook { counter packets 7 bytes 700 queue flags bypass to 200; }
 }
 EOF
+cp "$T/nft-ruleset" "$T/nft-ruleset.software"
+cat > "$T/nft-ruleset" <<'EOF'
+table inet zapret2 {
+ chain forward_hook { counter packets 7 bytes 700 queue flags bypass to 200; }
+}
+EOF
+printf 'FLOWOFFLOAD=none\n' > "$T/config"
+run_diag offload
+assert_out "none mode remains disabled with NFQUEUE rules" 'offload state      : disabled'
+assert_out "NFQUEUE visibility remains active with offload disabled" 'packet visibility  : active'
+cp "$T/nft-ruleset.software" "$T/nft-ruleset"
+printf 'FLOWOFFLOAD=software\n' > "$T/config"
 printf 'tcp 6 100 ESTABLISHED src=192.0.2.1 dst=198.51.100.1 [OFFLOAD]\n' > "$T/conntrack"
 run_diag offload
 assert_out "software marker means runtime active" 'offload state      : active'
