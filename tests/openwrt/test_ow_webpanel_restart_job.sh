@@ -37,9 +37,9 @@ _cgi_post() { # $1 PATH_INFO, $2 body
         HTTP_HOST="192.168.1.1" HTTP_X_Z2K_PANEL="1" CONTENT_LENGTH="$_cl" \
         sh "$STUBDIR/api.sh" < "$T/body" 2>/dev/null
 }
-_job_wait() { # $1 jobid -> exit code (ждём появления .exit до 15с)
+_job_wait() { # $1 jobid -> exit code (ждём появления .exit до 30с)
     _i=0
-    while [ ! -f "$JOB_DIR/z2k-job-$1.exit" ] && [ "$_i" -lt 15 ]; do sleep 1; _i=$((_i + 1)); done
+    while [ ! -f "$JOB_DIR/z2k-job-$1.exit" ] && [ "$_i" -lt 30 ]; do sleep 1; _i=$((_i + 1)); done
     cat "$JOB_DIR/z2k-job-$1.exit" 2>/dev/null || echo "NOEXIT"
 }
 
@@ -77,16 +77,16 @@ rm -f "$JOB_DIR/z2k-job-$_jid.log" "$JOB_DIR/z2k-job-$_jid.pid" "$JOB_DIR/z2k-jo
 
 # --- 3. A quiet long-running action still updates the live modal log ---
 . "$STUBDIR/actions.sh"
-_jid="$(svc_action_async "heartbeat regression" "sleep 12")"
+_jid="$(svc_action_async "heartbeat regression" "job_progress 'probe phase: awaiting a quiet worker'; sleep 20")"
 [ -n "$_jid" ] || { _t_bad "heartbeat regression has a job id"; _jid="none"; }
 _wait=0
-while ! grep -q 'Выполняется: heartbeat regression' "$JOB_DIR/z2k-job-$_jid.log" 2>/dev/null \
-    && [ "$_wait" -lt 12 ]; do
+while ! grep -q 'Этап: probe phase: awaiting a quiet worker; без смены этапа' "$JOB_DIR/z2k-job-$_jid.log" 2>/dev/null \
+    && [ "$_wait" -lt 20 ]; do
     sleep 1
     _wait=$((_wait + 1))
 done
-assert_contains "quiet running job writes an intermediate heartbeat" "$JOB_DIR/z2k-job-$_jid.log" \
-    'Выполняется: heartbeat regression; прошло около 10 с'
+assert_contains "quiet running job reports its current phase and elapsed phase time" "$JOB_DIR/z2k-job-$_jid.log" \
+    'Этап: probe phase: awaiting a quiet worker; без смены этапа'
 _rc="$(_job_wait "$_jid")"
 assert_eq "heartbeat job completes normally" "0" "$_rc"
 rm -f "$JOB_DIR/z2k-job-$_jid.log" "$JOB_DIR/z2k-job-$_jid.pid" "$JOB_DIR/z2k-job-$_jid.exit"

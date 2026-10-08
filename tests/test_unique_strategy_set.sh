@@ -15,6 +15,7 @@ export Z2K_DETECT_BIN="$SB/z2k-detect"
 printf '#!/bin/sh\nexit 0\n' > "$Z2K_DETECT_BIN"
 chmod +x "$Z2K_DETECT_BIN"
 is_running() { return 1; }
+job_step() { printf '%s\n' "$*"; }
 eval "$(awk '/^json_escape\(\)/,/^}/; /^json_string\(\)/,/^}/' "$ROOT/webpanel/cgi/api.sh")"
 
 strategy_pick_run() {
@@ -256,7 +257,7 @@ modern_calls=$(printf 'i.ytimg.com mixed 142.250.74.182 142.250.74.214\ngooglevi
 DNS_FORMAT=modern; export DNS_FORMAT
 run_case common || bad 'современный BusyBox DNS должен пройти до полного набора'
 expect_calls "$modern_calls"
-grep -q 'Этап: i.ytimg.com (mixed), ищу от 142.250.74.182 и проверяю кандидаты на всех адресах' "$SB/run.log" && ok 'современный nslookup доходит до первого общего замера' || bad 'современный nslookup завершился до strategy_pick_run'
+grep -q 'Уникальный набор: i.ytimg.com (mixed), опорный IP 142.250.74.182; проверяю кандидата на обоих адресах' "$SB/run.log" && ok 'современный nslookup доходит до первого общего замера' || bad 'современный nslookup завершился до strategy_pick_run'
 DNS_FORMAT=legacy; export DNS_FORMAT
 
 UNIQUE_CDN_SHARED=googlevideo.com; export UNIQUE_CDN_SHARED
