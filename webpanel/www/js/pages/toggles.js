@@ -417,6 +417,17 @@ function tiktokReasonLabel(reason) {
     "material-latency-improvement": "Найден заметно более быстрый узел",
     "hysteresis-not-met": "Переключение отложено: разница в задержке недостаточна",
     "alternative-unhealthy": "Альтернативный узел не прошёл проверку",
+    "active-probe": "Проверена доступность текущего IP",
+    "active-probe-failed": "Текущий IP не прошёл проверку",
+    "confirmed-failover": "После двух отказов включён проверенный резерв",
+    "dns-apply-failed": "DNS-подмена не применена; прежняя запись сохранена",
+    "initial-selection": "Выбран первый проверенный IP",
+    "legacy-date-unknown": "Историческая дата выбора неизвестна",
+    "legacy-strict-selection": "Сохранена строгая фиксация из старой настройки",
+    "no-verified-candidate": "Для домена не найден проверенный кандидат",
+    "policy-updated": "Политика выбора обновлена",
+    "preferred-recovered": "Предпочтительный IP восстановлен после стабильных проверок",
+    "preferred-selection": "IP задан как предпочтительный",
     "transient-probe-failure": "Временный сбой проверки текущего узла",
     "dnsmasq-prepare-failed": "Не удалось настроить DNS-подмену; обычный доступ сохранён",
     "no-verified-cdn-fail-open": "Рабочий CDN не найден; DNS-подмена не включена, обычный доступ сохранён",
@@ -438,6 +449,7 @@ let tiktokTogglesSnapshot = null;
 let tiktokPlatformSnapshot = "";
 let tiktokServerNowEpoch = 0;
 let tiktokPendingAction = null;
+let tiktokSelectedDomain = "v77.tiktokcdn.com";
 
 function tiktokFact(label, value) {
   const shown = tiktokValue(value, { allowZero: label === "Ошибок подряд" });
@@ -471,8 +483,15 @@ function tiktokTime(epoch, detailed = false, serverNowEpoch = 0) {
 }
 
 function tiktokCandidatesMarkup(data, pending = null) {
+  const host = tiktokSelectedDomain;
+  const hostSlug = host.replace(/[.-]/g, "_");
+  const hostScanAt = tiktokValue(data[`domain_${hostSlug}_candidates_checked_epoch`]);
+  const hostScopedScan = Boolean(hostScanAt);
+  const hostPool = tiktokValue(data[`domain_${hostSlug}_candidate_pool`]);
+  const hostObservations = tiktokValue(data[`domain_${hostSlug}_candidate_observations`]);
+  const legacyV77 = host === "v77.tiktokcdn.com" && !hostScopedScan;
   const candidates = new Map();
-  String(data.candidate_pool || "").split(";").forEach(raw => {
+  String(hostScopedScan ? hostPool : (data.candidate_pool || "")).split(";").forEach(raw => {
     const fields = raw.split("|");
     const ip = tiktokValue(fields[0]);
     if (ip && /^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip) && !candidates.has(ip)) {
@@ -480,21 +499,21 @@ function tiktokCandidatesMarkup(data, pending = null) {
     }
   });
   const probes = new Map();
-  String(data.probe_observations || "").split(";").forEach(raw => {
+  String(hostScopedScan ? hostObservations : (data.probe_observations || "")).split(";").forEach(raw => {
     const fields = raw.split("|");
     const ip = tiktokValue(fields[0]);
     if (ip) probes.set(ip, fields);
   });
-  const mode = data.mode === "manual" ? "manual" : "auto";
-  const selectedIp = tiktokValue(data.selected_ip);
+  const selectedIp = tiktokValue(data[`domain_${hostSlug}_selected_ip`]) || (legacyV77 ? tiktokValue(data.selected_ip) : "");
   const rows = [...candidates.entries()].map(([ip, candidate], index) => {
     const probe = probes.get(ip) || [];
     const selected = selectedIp === ip;
     const unavailable = selected && data.state === "manual-unavailable";
+    const domainVerified = hostScopedScan && probe[10] === "verified";
     const v77Verified = probe[10] === "verified";
     const euVerified = probe[20] === "verified";
-    const verified = !unavailable && probe[21] === "compatible" && v77Verified && euVerified;
-    const checked = probe.length >= 22;
+    const verified = !unavailable && (hostScopedScan ? domainVerified : legacyV77 && probe[21] === "compatible" && v77Verified && euVerified);
+    const checked = hostScopedScan ? probe.length >= 11 : legacyV77 && probe.length >= 22;
     const checkNodes = Number.parseInt(candidate[11], 10) || 0;
     const checkCountries = Number.parseInt(candidate[12], 10) || 0;
     const checkAsns = Number.parseInt(candidate[13], 10) || 0;
@@ -502,8 +521,15 @@ function tiktokCandidatesMarkup(data, pending = null) {
     const source = [candidate[7], candidate[4]].map(tiktokValue).filter(Boolean).join(" · ");
     const latencyValue = verified ? Number.parseInt(probe[1], 10) : 0;
     const category = verified ? "working" : checked ? "unavailable" : "unknown";
-    const icmp = tiktokLatency(probe[22]);
+    const icmp = legacyV77 ? tiktokLatency(probe[22]) : "";
     const targetCell = (label, latencyIndex, verifiedIndex) => {
+      if (hostScopedScan) {
+        if (label !== "v77") return "";
+        return probe[10] === "verified"
+          ? `<span class="tiktok-target-probe good">TLS/SNI · ${escapeHtml(host)} <b>✓ ${escapeHtml(tiktokLatency(probe[1]) || "подтверждены")}</b></span>`
+          : `<span class="tiktok-target-probe bad">TLS/SNI · ${escapeHtml(host)} <b>✕ не подтверждены</b></span>`;
+      }
+      if (!legacyV77) return label === "v77" ? `<span class="tiktok-target-probe pending">TLS/SNI · ${escapeHtml(host)} <b>Не проверены</b></span>` : "";
       if (probe.length < 22) return `<span class="tiktok-target-probe pending">${label} <b>Не проверен</b></span>`;
       return probe[verifiedIndex] === "verified"
         ? `<span class="tiktok-target-probe good">${label} <b>✓ ${escapeHtml(tiktokLatency(probe[latencyIndex]) || "TLS")}</b></span>`
@@ -512,6 +538,17 @@ function tiktokCandidatesMarkup(data, pending = null) {
     const tcpLabel = (value) => value === "ok" ? "Доступен" : value === "failed" ? "Нет ответа" : "—";
     const tlsLabel = (value) => value === "ok" ? "Проверен" : value === "failed" ? "Не прошёл" : "—";
     const targetFacts = (name, offset) => {
+      if (hostScopedScan || !legacyV77) {
+        if (offset !== 0) return "";
+        if (!hostScopedScan) return `<span>Проверка · ${escapeHtml(host)}<b>Не выполнена для этого домена</b></span>`;
+        return [
+          `<span>TCP 443 · ${escapeHtml(host)}<b>${escapeHtml(tcpLabel(probe[8]))}</b></span>`,
+          `<span>TLS/SNI · ${escapeHtml(host)}<b>${escapeHtml(tlsLabel(probe[9]))}</b></span>`,
+          `<span>HTTPS · ${escapeHtml(host)}<b>${escapeHtml(tiktokLatency(probe[1]) || "—")}</b></span>`,
+          `<span>HTTP · ${escapeHtml(host)}<b>${escapeHtml(tiktokValue(probe[4]) || "—")}</b></span>`,
+          `<span>POP / сервер · ${escapeHtml(host)}<b>${escapeHtml([probe[5] ? `POP ${probe[5]}` : "", probe[7] || ""].filter(Boolean).join(" · ") || "—")}</b></span>`,
+        ].join("");
+      }
       const eu = offset === 11;
       const tcp = probe[offset + (eu ? 7 : 8)] || "";
       const tls = probe[offset + (eu ? 8 : 9)] || "";
@@ -528,8 +565,10 @@ function tiktokCandidatesMarkup(data, pending = null) {
         `<span>POP / сервер · ${name}<b>${escapeHtml(popServer || "—")}</b></span>`,
       ].join("");
     };
-    const button = verified
-      ? `<button type="button" class="btn btn-secondary tiktok-select-cdn" data-tiktok-action="select" data-ip="${escapeHtml(ip)}" aria-label="Выбрать CDN ${escapeHtml(ip)}"${pending ? " disabled" : ""}>Выбрать</button>`
+    const canCheckForDomain = !legacyV77;
+    const buttonLabel = verified ? "Выбрать" : "Проверить и выбрать";
+    const button = ip && (verified || (canCheckForDomain && !checked))
+      ? `<button type="button" class="btn btn-secondary tiktok-select-cdn" data-tiktok-action="select" data-ip="${escapeHtml(ip)}" data-host="${escapeHtml(host)}" aria-label="${buttonLabel} CDN ${escapeHtml(ip)}${canCheckForDomain ? ` для ${escapeHtml(host)}` : ""}"${pending ? " disabled" : ""}>${buttonLabel}</button>`
       : "";
     return { ip, candidate, probe, selected, verified, checked, category, hint, source, checkNodes, checkCountries, checkAsns, latencyValue, icmp, button, targetCell, targetFacts, index };
   });
@@ -546,8 +585,8 @@ function tiktokCandidatesMarkup(data, pending = null) {
       ? `<span class="tiktok-selected-label" aria-current="true">✓ Выбран</span>`
       : row.button;
     const compatibility = row.verified
-      ? `<span class="tiktok-candidate-verified">TLS ✓ · v77 ✓ · v77-eu ✓</span>`
-      : row.checked ? `<span>Проверка TLS не пройдена</span>` : "";
+      ? `<span class="tiktok-candidate-verified">Проверен для ${escapeHtml(host)}</span>`
+      : row.checked ? `<span>TLS/SNI для ${escapeHtml(host)} не подтверждены</span>` : "";
     const source = row.source ? `<span>Источники: ${escapeHtml(row.source)}</span>` : "";
     const checkhost = row.checkNodes
       ? `<span>Check-Host · ${row.checkNodes} узлов / ${row.checkCountries} стран / ${row.checkAsns} ASN</span>` : "";
@@ -586,7 +625,7 @@ function tiktokCandidatesMarkup(data, pending = null) {
   const workingSlots = Math.max(0, maxVisible - (selected ? 1 : 0));
   const visibleWorking = working.slice(0, workingSlots);
   const overflowWorking = working.slice(workingSlots);
-  const checked = [...probes.values()].some(probe => probe.length >= 22);
+  const checked = hostScopedScan || (legacyV77 && [...probes.values()].some(probe => probe.length >= 22));
   const availableCount = rows.filter(row => row.category === "working").length;
   const bestLatency = rows.filter(row => row.category === "working" && row.latencyValue > 0)
     .reduce((best, row) => Math.min(best, row.latencyValue), Number.MAX_SAFE_INTEGER);
@@ -597,11 +636,10 @@ function tiktokCandidatesMarkup(data, pending = null) {
   const visibleCount = (selected ? 1 : 0) + visibleWorking.length;
   const hasHidden = visibleCount < candidates.size;
   const modeControl = `<div class="tiktok-candidate-controls">
-      <div class="tiktok-mode-control"><span class="tiktok-mode-label">Режим</span><div class="tiktok-mode-switch" role="group" aria-label="Режим выбора CDN">
-        <button type="button" class="tiktok-mode-segment${mode === "auto" ? " active" : ""}" data-tiktok-action="auto" data-tiktok-mode="auto" aria-pressed="${mode === "auto"}"${pending || mode === "auto" ? " disabled" : ""}>Авто</button>
-        <button type="button" class="tiktok-mode-segment${mode === "manual" ? " active" : ""}" data-tiktok-action="manual" data-tiktok-mode="manual" data-ip="${escapeHtml(selectedIp)}" aria-pressed="${mode === "manual"}"${pending || mode === "manual" || !selectedIp || data.candidate_verified !== "1" ? " disabled" : ""}>Вручную</button>
-      </div></div>
-      <button type="button" class="btn btn-primary" data-tiktok-action="probe-all"${pending ? " disabled" : ""}>Проверить все</button>
+      <label class="tiktok-mode-control"><span class="tiktok-mode-label">Домен</span><select data-tiktok-domain-select aria-label="Домен TikTok для проверки и выбора">${[
+        "v77.tiktokcdn.com", "v77.tiktokcdn-eu.com", "v16-cla.tiktokcdn.com", "v16-ies-music.tiktokcdn.com", "sf16-music.tiktokcdn-eu.com",
+      ].map(host => `<option value="${host}"${host === tiktokSelectedDomain ? " selected" : ""}>${host}</option>`).join("")}</select></label>
+      <button type="button" class="btn btn-primary" data-tiktok-action="probe-all" data-host="${escapeHtml(host)}"${pending ? " disabled" : ""}>Проверить все</button>
     </div>`;
   const filterControls = `<div class="tiktok-candidate-filters" role="group" aria-label="Фильтр CDN-кандидатов">
       <button type="button" class="tiktok-filter active" data-tiktok-action="filter" data-tiktok-filter="all" aria-pressed="true">Все <span>${candidates.size}</span></button>
@@ -675,18 +713,22 @@ function wireTikTokActions(card) {
       button.hidden = true;
       return;
     }
-    const endpoints = { "probe-all": "/tiktok/probe-all", select: "/tiktok/select", manual: "/tiktok/select", auto: "/tiktok/auto" };
-    const labels = { "probe-all": "Проверка CDN-кандидатов", select: "Проверка и выбор CDN", manual: "Фиксация текущего CDN", auto: "Автоматический выбор CDN" };
+    const endpoints = { "probe-all": "/tiktok/probe-all", select: "/tiktok/select", manual: "/tiktok/select", auto: "/tiktok/auto", policy: "/tiktok/policy" };
+    const labels = { "probe-all": "Проверка CDN-кандидатов", select: "Проверка и выбор CDN", manual: "Фиксация текущего CDN", auto: "Автоматический выбор CDN", policy: "Обновление политики CDN" };
     if (!endpoints[action]) return;
-    tiktokPendingAction = { action, ip: action === "select" ? button.dataset.ip : "" };
+    const actionHost = button.dataset.host || ((action === "probe-all" || action === "select") ? tiktokSelectedDomain : "");
+    tiktokPendingAction = { action, ip: action === "select" ? button.dataset.ip : "", host: actionHost, policy: button.dataset.policy || "" };
     renderTikTokStatus(tiktokStatusSnapshot, tiktokTogglesSnapshot, tiktokPlatformSnapshot, tiktokServerNowEpoch);
     const buttons = [...card.querySelectorAll("[data-tiktok-action]")];
     buttons.forEach(item => { item.disabled = true; });
     try {
-      const params = action === "select" || action === "manual" ? { ip: button.dataset.ip } : {};
+      const params = action === "select" || action === "manual"
+        ? { ip: button.dataset.ip, host: button.dataset.host || tiktokSelectedDomain }
+        : action === "policy" ? { host: button.dataset.host, policy: button.dataset.policy }
+          : action === "probe-all" ? { host: actionHost } : {};
       const response = await apiPost(endpoints[action], params);
       openJobModal(labels[action], response.job, {
-        tolerateOutage: action === "select" || action === "auto",
+        tolerateOutage: action === "select" || action === "auto" || action === "policy",
         onDone: async result => {
           if (jobOutcome(result) === JOB_FAIL) {
             toast(action === "select" ? "Выбранный CDN недоступен или не удалось применить DNS" : `${labels[action]} не выполнена`, "bad");
@@ -713,6 +755,76 @@ function wireTikTokActions(card) {
       toastErr("Не удалось выполнить действие TikTok CDN: ", error);
     }
   });
+  card.addEventListener("change", event => {
+    const select = event.target.closest("[data-tiktok-domain-select]");
+    if (!select) return;
+    tiktokSelectedDomain = select.value;
+    renderTikTokStatus(tiktokStatusSnapshot, tiktokTogglesSnapshot, tiktokPlatformSnapshot, tiktokServerNowEpoch);
+  });
+}
+
+function tiktokDomainCardsMarkup(data, serverNowEpoch, pending) {
+  const hosts = [
+    "v77.tiktokcdn.com", "v77.tiktokcdn-eu.com", "v16-cla.tiktokcdn.com",
+    "v16-ies-music.tiktokcdn.com", "sf16-music.tiktokcdn-eu.com",
+  ];
+  const policies = { auto: "Авто", preferred: "Предпочтительный", strict: "Строгий" };
+  const healthLabels = {
+    unverified: "Ожидает проверки",
+    "transport-confirmed": "TCP/TLS/SNI подтверждены",
+    unavailable: "Домен не прошёл проверку",
+    "dns-apply-error": "Ошибка применения DNS",
+    degraded: "Нестабильно",
+  };
+  return `<section class="tiktok-domains" aria-label="Состояние CDN по доменам">
+    <p class="desc">Состояние проверяется отдельно по каждому домену. DNS и TLS сами по себе не подтверждают передачу видео.</p>
+    ${hosts.map(host => {
+      const slug = host.replace(/[.-]/g, "_");
+      const value = field => tiktokValue(data[`domain_${slug}_${field}`]);
+      const policy = value("policy") || "auto";
+      const selectedIp = value("selected_ip");
+      const preferredIp = value("preferred_ip");
+      const health = value("health") || "unverified";
+      const reason = value("reason");
+      const dnsApplied = value("dns_override_applied") === "1" ? "DNS роутера применён" : "DNS роутера не подтверждён";
+      const selectedAt = tiktokTime(value("selected_at_epoch"), true, serverNowEpoch);
+      const verifiedAt = tiktokTime(value("last_verified_epoch"), true, serverNowEpoch);
+      const evaluatedAt = tiktokTime(value("last_evaluation_epoch"), true, serverNowEpoch);
+      const candidatePool = value("candidate_pool");
+      const candidateCount = candidatePool ? candidatePool.split(";").filter(Boolean).length : 0;
+      const selectedCandidate = candidatePool.split(";").map(row => row.split("|")).find(candidate => candidate[0] === selectedIp);
+      const selectedSource = selectedCandidate
+        ? [tiktokValue(selectedCandidate[7]), tiktokValue(selectedCandidate[4])].filter(Boolean).join(" · ") : "";
+      const candidatesAt = tiktokTime(value("candidates_checked_epoch"), true, serverNowEpoch);
+      const latency = tiktokLatency(value("latency_ms"));
+      const http = value("http_status");
+      const failoverFrom = value("last_failover_from");
+      const failoverTo = value("last_failover_to");
+      const rowPending = pending && pending.host === host;
+      return `<article class="tiktok-domain-card">
+        <div class="tiktok-domain-heading"><code>${escapeHtml(host)}</code><span class="tiktok-domain-health">${escapeHtml(rowPending ? "Обновляется…" : (healthLabels[health] || health))}</span></div>
+        <div class="tiktok-domain-facts">
+          <span>IP <b>${selectedIp ? `<code>${escapeHtml(selectedIp)}</code>` : "—"}</b></span>
+          <span>Предпочтительный IP <b>${preferredIp ? `<code>${escapeHtml(preferredIp)}</code>` : "нет"}</b></span>
+          <span>Политика <b>${escapeHtml(policies[policy] || policy)}</b></span>
+          <span>${escapeHtml(dnsApplied)}</span>
+          <span>TLS <b>${escapeHtml(latency || "—")}</b></span>
+          <span>HTTP <b>${escapeHtml(http || "—")}</b></span>
+          <span>Видео <b>не проверено</b></span>
+          <span>IP выбран <b>${escapeHtml(selectedAt || "время неизвестно")}</b></span>
+          <span>Последняя проверка <b>${escapeHtml(verifiedAt || "нет успешной проверки")}</b></span>
+          <span>Последняя оценка <b>${escapeHtml(evaluatedAt || "ещё не выполнялась")}</b></span>
+          <span>Кандидаты <b>${candidateCount} · ${escapeHtml(candidatesAt || "ещё не сканировались")}</b></span>
+          ${selectedSource ? `<span>Источник выбранного IP <b>${escapeHtml(selectedSource)}</b></span>` : ""}
+          ${reason ? `<span>Причина состояния <b>${escapeHtml(tiktokReasonLabel(reason))}</b></span>` : ""}
+          ${failoverFrom && failoverTo ? `<span>Последний failover <b><code>${escapeHtml(failoverFrom)} → ${escapeHtml(failoverTo)}</code></b></span>` : ""}
+        </div>
+        <div class="tiktok-domain-policies" role="group" aria-label="Политика для ${escapeHtml(host)}">
+          ${Object.entries(policies).map(([key, label]) => `<button type="button" class="tiktok-policy-button${key === policy ? " active" : ""}" data-tiktok-action="policy" data-host="${escapeHtml(host)}" data-policy="${key}" aria-pressed="${key === policy}"${pending || key === policy ? " disabled" : ""}>${label}</button>`).join("")}
+        </div>
+      </article>`;
+    }).join("")}
+  </section>`;
 }
 
 function tiktokStatusMarkup(status, serverNowEpoch, pending = null) {
@@ -731,7 +843,8 @@ function tiktokStatusMarkup(status, serverNowEpoch, pending = null) {
     title = "Ошибка применения DNS"; kind = "bad";
     copy = "CDN проверен, но эффективная DNS-подмена не подтверждена.";
   } else if (state === "healthy" && ip && data.candidate_verified === "1" && data.dns_override_applied === "1") {
-    title = "Работает"; kind = "good"; copy = "";
+    title = "CDN доступен"; kind = "good";
+    copy = "Транспорт и TLS подтверждены, HTTP проверен, DNS применён на роутере. Передача видео и работа ленты не проверены; устройство должно использовать DNS роутера.";
   } else if (state === "healthy" && ip) {
     title = "DNS-применение не подтверждено"; kind = "warn";
     copy = "Эффективный адрес роутера ещё не подтверждён.";
@@ -819,6 +932,7 @@ function tiktokStatusMarkup(status, serverNowEpoch, pending = null) {
     <div class="tiktok-status-line"><span class="tiktok-status-badge ${pending ? "warn" : kind}" role="status">● ${escapeHtml(title)}</span>${statusTime ? `<span class="tiktok-checked">${escapeHtml(statusTime)}</span>` : ""}</div>
     ${copy ? `<p class="desc">${escapeHtml(copy)}</p>` : ""}
     ${currentFacts ? `<div class="tiktok-selection-summary">${currentFacts}${pendingIp}</div>` : pendingIp ? `<div class="tiktok-selection-summary">${pendingIp}</div>` : ""}
+    ${tiktokDomainCardsMarkup(data, serverNowEpoch, pending)}
     ${candidates}
     <details class="flow-technical disclosure" id="tiktok-feed-technical">
       <summary>Техническая диагностика</summary>

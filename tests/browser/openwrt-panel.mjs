@@ -2144,6 +2144,7 @@ try {
     page.route('**/cgi-bin/api/status', route => {
       const fixture = structuredClone(statusFixture);
       fixture.toggles.tiktok_feed = enabled ? '1' : '0';
+      fixture.server_now_epoch = Math.floor(Date.now() / 1000);
       if (enabled) fixture.tiktok_feed_status = currentStatus || {
         state: 'healthy', candidate_verified: '1', dns_override_applied: '1',
         selected_ip: '203.0.113.9', latency_ms: '84',
@@ -2169,8 +2170,10 @@ try {
     'the TikTok status card stays hidden while its persistent toggle is off');
   await offCard.page.locator('[data-key="tiktok_feed"] input').check({ force: true });
   await offCard.page.locator('#tiktok-feed-status-card').waitFor({ state: 'visible', timeout: 5000 });
-  assert.match(await offCard.page.locator('#tiktok-feed-status-card').innerText(), /● Работает/,
-    'enabling TikTok loads the actual status into the separate card');
+  assert.match(await offCard.page.locator('#tiktok-feed-status-card').innerText(), /● CDN доступен/,
+    'enabling TikTok shows the verified CDN transport status in the separate card');
+  assert.match(await offCard.page.locator('#tiktok-feed-status-card').innerText(), /Передача видео и работа ленты не проверены/,
+    'the status does not claim that CDN transport proves video delivery or feed operation');
   await offCard.page.waitForFunction(() => document.querySelector('[data-key="tiktok_feed"] input')?.checked === true);
   assert.equal(offCard.enabled, true);
   await offCard.page.getByRole('button', { name: 'Готово' }).click();
@@ -2547,11 +2550,45 @@ try {
     ...visualGoodIps.map((ip, index) => `${ip}|${90 + index * 9}|23|20|400|ams|HIT|edge|ok|ok|verified|${117 + index * 5}|19|27|400|fra|HIT|edge|ok|ok|verified|compatible|23`),
     '203.0.113.8||0|0|||edge|failed|failed|failed||||||||||||incompatible|',
   ].join(';');
+  const visualDomainHosts = [
+    'v77.tiktokcdn.com', 'v77.tiktokcdn-eu.com', 'v16-cla.tiktokcdn.com',
+    'v16-ies-music.tiktokcdn.com', 'sf16-music.tiktokcdn-eu.com',
+  ];
+  const visualNow = Math.floor(Date.now() / 1000);
+  const visualDomainFields = Object.fromEntries(visualDomainHosts.flatMap((host, index) => {
+    const slug = host.replace(/[.-]/g, '_');
+    const selectedIp = visualGoodIps[index];
+    const policy = index === 2 || index === 3 ? 'preferred' : index === 4 ? 'strict' : 'auto';
+    const preferredIp = index === 3 ? visualGoodIps[5] : policy === 'preferred' || policy === 'strict' ? selectedIp : '';
+    const pool = [
+      ...visualGoodIps.map((ip, candidateIndex) => `${ip}|${host}|direct|1.1.1.1|system-wan|edge-${candidateIndex}|Amsterdam|check-host|1|0|0|8|4|8|ru1,de1|NL,DE|AS1,AS2|Amsterdam|300,120`),
+      `203.0.113.8|${host}|direct|1.1.1.1|curated-community-fallback||Frankfurt|curated-community-fallback|0|1|0|0|0|0|||||`,
+    ].join(';');
+    const observation = [
+      ...visualGoodIps.map((ip, candidateIndex) => `${ip}|${90 + candidateIndex * 9}|23|20|206|ams|HIT|edge-${candidateIndex}|ok|ok|verified`),
+      '203.0.113.8||||||||failed|failed|failed',
+    ].join(';');
+    const failover = index === 3;
+    const fields = {
+      cluster: index < 2 ? '77' : '16', policy, preferred_ip: preferredIp, selected_ip: selectedIp,
+      health: 'transport-confirmed', failure_count: '0', selected_at_epoch: String(visualNow - 3600 + index * 45),
+      preferred_set_at_epoch: preferredIp ? String(visualNow - 7200) : '',
+      last_verified_epoch: String(visualNow - 75), last_evaluation_epoch: String(visualNow - 30),
+      last_failover_epoch: failover ? String(visualNow - 1800) : '',
+      last_failover_from: failover ? visualGoodIps[5] : '', last_failover_to: failover ? selectedIp : '',
+      reason: failover ? 'confirmed-failover' : policy === 'preferred' ? 'preferred-selection' : 'healthy',
+      dns_override_applied: '1', latency_ms: String(90 + index * 7), http_status: '206',
+      candidates_checked_epoch: String(visualNow - 300), candidate_pool: pool,
+      candidate_observations: observation,
+    };
+    return Object.entries(fields).map(([field, value]) => [`domain_${slug}_${field}`, value]);
+  }));
   const visualBase = {
     state: 'healthy', candidate_verified: '1', dns_override_applied: '1', selected_ip: visualGoodIps[0],
     manual_ip: '', mode: 'auto', latency_ms: '90', selected_at_epoch: String(Math.floor(Date.now() / 1000) - 48),
     last_verified_epoch: String(Math.floor(Date.now() / 1000) - 48), reason: 'healthy',
     candidate_pool: visualCandidatePool, probe_observations: visualProbeObservations,
+    ...visualDomainFields,
     last_failover_epoch: String(Math.floor(Date.now() / 1000) - 3600), last_failover_from: '203.0.113.8',
     last_failover_to: visualGoodIps[0], last_failover_reason: 'consecutive-probe-failures',
   };
@@ -2579,6 +2616,11 @@ try {
       const card = visual.page.locator('#tiktok-feed-status-card');
       await card.waitFor({ state: 'visible' });
       if (stateIndex === 0) {
+        const claCard = card.locator('.tiktok-domain-card').filter({ hasText: 'v16-cla.tiktokcdn.com' });
+        assert.match(await claCard.innerText(), new RegExp(visualGoodIps[2].replaceAll('.', '\\.')),
+          'v16-cla displays its independent selected address');
+        assert.match(await claCard.innerText(), /Источник выбранного IP[\s\S]*check-host · system-wan/,
+          'per-domain status includes the selected candidate source');
         const selectButton = card.locator('[data-tiktok-action="select"]:not(:disabled)').first();
         const selectStyle = await selectButton.evaluate(node => {
           const style = getComputedStyle(node);

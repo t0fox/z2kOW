@@ -92,21 +92,30 @@ _host=${_resolve%%:443:*}
 _prior_ip_probes=$(grep -Fx "$_resolve" "$CURL_PAIR_TEST_LOG" 2>/dev/null | wc -l | tr -d ' ')
 printf '%s\n' "$_ip" >> "$CURL_TEST_LOG"
 printf '%s\n' "$_resolve" >> "$CURL_PAIR_TEST_LOG"
-if [ "${TIKTOK_PROBE_WAIT:-0}" = 1 ]; then
+if [ "${TIKTOK_PROBE_WAIT:-0}" = 1 ] \
+    || { [ "${TIKTOK_PROBE_WAIT_IP:-}" = "$_ip" ] \
+        && { [ -z "${TIKTOK_PROBE_WAIT_HOST:-}" ] || [ "${TIKTOK_PROBE_WAIT_HOST:-}" = "$_host" ]; }; }; then
     : > "$TIKTOK_PROBE_STARTED"
     while [ ! -e "$TIKTOK_PROBE_RELEASE" ]; do sleep 0.05; done
 fi
 if [ "${TIKTOK_PROBE_MODE:-ok}" = fail ]; then exit 28; fi
 if [ "${TIKTOK_FAIL_HOST:-}" = "$_host" ]; then exit 28; fi
+if [ "${TIKTOK_FAIL_IP_HOST:-}" = "$_host=$_ip" ]; then exit 28; fi
 if [ "${TIKTOK_FAIL_STABILITY:-}" = "$_ip" ] && [ "${_prior_ip_probes:-0}" -ge 1 ]; then exit 28; fi
 case "$_ip" in
     143.244.42.18)
         case "${TIKTOK_PROBE_MODE:-ok}" in ok|slow) ;; *) exit 28 ;; esac
         [ "${TIKTOK_PROBE_MODE:-ok}" = fail ] && exit 28
-        printf 'HTTP/2 200\r\nX-77-POP: ams\r\nX-77-Cache: HIT\r\nServer: edge\r\n\nZ2M_TIKTOK_METRICS:200|0.020000|0.030000|0.080000'
+        _http=${TIKTOK_HTTP_CODE:-200}
+        printf 'HTTP/2 %s\r\nX-77-POP: ams\r\nX-77-Cache: HIT\r\nServer: edge\r\n\nZ2M_TIKTOK_METRICS:%s|0.020000|0.030000|0.080000' "$_http" "$_http"
         exit 0 ;;
     203.0.113.20)
-        case "${TIKTOK_PROBE_MODE:-ok}" in alt) _total=0.035000; _pop=fra ;; slow) _total=0.055000; _pop=fra ;; *) exit 28 ;; esac
+        case "${TIKTOK_PROBE_MODE:-ok}" in
+            alt) _total=0.035000; _pop=fra ;;
+            slow) _total=0.055000; _pop=fra ;;
+            ok) [ "${TIKTOK_ALLOW_IP:-}" = "$_ip" ] || exit 28; _total=0.035000; _pop=fra ;;
+            *) exit 28 ;;
+        esac
         printf 'HTTP/2 200\r\nX-77-POP: %s\r\nX-77-Cache: HIT\r\nServer: edge\r\n\nZ2M_TIKTOK_METRICS:200|0.010000|0.020000|%s' "$_pop" "$_total"
         exit 0 ;;
     *) exit 28 ;;
@@ -117,6 +126,10 @@ cat > "$Z2K_TIKTOK_DNSMASQ_INIT" <<'STUB'
 printf '%s\n' "$*" >> "$DNSMASQ_TEST_LOG"
 [ "${1:-}" = restart ] || exit 1
 [ "${DNSMASQ_FAIL_RESTART:-0}" = 1 ] && exit 1
+if [ -n "${DNSMASQ_FAIL_ENTRY:-}" ] && grep -F "$DNSMASQ_FAIL_ENTRY" "$UCI_TEST_DB" >/dev/null 2>&1; then
+    printf 'injected-failure=%s\n' "$DNSMASQ_FAIL_ENTRY" >> "$DNSMASQ_TEST_LOG"
+    exit 1
+fi
 : > "$Z2K_TIKTOK_EFFECTIVE_CONFIG"
 while IFS= read -r _line; do
     case "$_line" in
@@ -166,6 +179,25 @@ assert_contains "TLS handshake time is recorded from SNI probe" "$Z2K_TIKTOK_STA
 assert_contains "HTTP response and CDN POP headers are recorded" "$Z2K_TIKTOK_STATE_FILE" 'http_status=200'
 assert_eq "both managed targets are tested twice for stable selection" '4' "$(grep -c '^143.244.42.18$' "$CURL_TEST_LOG")"
 assert_contains "both managed target dnsmasq overrides are owned" "$UCI_TEST_DB" '/v77.tiktokcdn-eu.com/143.244.42.18'
+
+# All five canonical CDN domains must be probed with their own SNI/Host.
+for _host in v77.tiktokcdn.com v77.tiktokcdn-eu.com v16-cla.tiktokcdn.com v16-ies-music.tiktokcdn.com sf16-music.tiktokcdn-eu.com; do
+    if _probe=$(_z2k_ow_tiktok_probe_report 143.244.42.18 "$_host"); then
+        _t_ok
+    else
+        _t_bad "hostname-specific TLS probe accepts $_host"
+    fi
+done
+assert_contains "v16-cla probe pins SNI to its hostname" "$CURL_RESOLVE_TEST_LOG" 'v16-cla.tiktokcdn.com:443:143.244.42.18'
+assert_contains "v16-ies probe pins SNI to its hostname" "$CURL_RESOLVE_TEST_LOG" 'v16-ies-music.tiktokcdn.com:443:143.244.42.18'
+assert_contains "sf16 probe pins SNI to its hostname" "$CURL_RESOLVE_TEST_LOG" 'sf16-music.tiktokcdn-eu.com:443:143.244.42.18'
+
+# An HTTP 403/404 from the CDN root is still an observed HTTP response, and
+# never claims that an actual media object was delivered.
+export TIKTOK_HTTP_CODE=403
+if _probe=$(_z2k_ow_tiktok_probe_report 143.244.42.18 v16-cla.tiktokcdn.com); then _t_ok; else _t_bad "HTTP 403 does not invalidate confirmed transport"; fi
+assert_eq "root HTTP status remains available for diagnostics" '403' "$(printf '%s' "$_probe" | cut -d'|' -f5)"
+unset TIKTOK_HTTP_CODE
 
 # A successful TLS probe is not enough to report healthy when applying the
 # effective dnsmasq address fails.
@@ -287,6 +319,22 @@ case "$_manual_selected_at:$_manual_verified_at" in *[!0-9:]*) _t_bad "manual ti
     [ "$_manual_verified_at" -ge "$_manual_started" ] && [ "$_manual_verified_at" -le "$_manual_finished" ] \
         && _t_ok || _t_bad "manual verification timestamp records the completed production apply" ;;
 esac
+# Re-checking the same preferred IP updates verification time, never selection
+# time. Use a deterministic clock so the regression cannot pass by coincidence.
+date() {
+    if [ "${1:-}" = +%s ] && [ -n "${TIKTOK_NOW:-}" ]; then printf '%s\n' "$TIKTOK_NOW"; else command date "$@"; fi
+}
+_manual_selected_at=$(sed -n 's/^selected_at_epoch=//p' "$Z2K_TIKTOK_STATE_FILE")
+TIKTOK_NOW=$((_manual_selected_at + 1800))
+z2k_ow_tiktok_manual_check || _t_bad "repeated manual health-check succeeds"
+assert_eq "repeated manual health-check preserves original selection epoch" "$_manual_selected_at" "$(sed -n 's/^selected_at_epoch=//p' "$Z2K_TIKTOK_STATE_FILE")"
+unset TIKTOK_NOW
+
+# Legacy state writes that omit a selection event preserve the prior epoch;
+# they never substitute the latest verification time.
+_manual_selected_at=$(sed -n 's/^selected_at_epoch=//p' "$Z2K_TIKTOK_STATE_FILE")
+_z2k_ow_tiktok_state_write healthy 203.0.113.20 40 0 200 timestamp-regression
+assert_eq "state writer does not infer selection time from verification time" "$_manual_selected_at" "$(sed -n 's/^selected_at_epoch=//p' "$Z2K_TIKTOK_STATE_FILE")"
 _restart_choice=$(sh -c '. "$1"; printf "%s|%s" "$(z2k_ow_tiktok_mode)" "$( _z2k_ow_tiktok_manual_ip)"' sh "$REPO/platform/openwrt/tiktok.sh")
 assert_eq "manual mode and selected IP survive a runtime restart" 'manual|203.0.113.20' "$_restart_choice"
 TIKTOK_PROBE_MODE=ok TIKTOK_DNS_IP=143.244.42.18
@@ -502,5 +550,125 @@ assert_not_contains "uninstall removes only its managed address" "$UCI_TEST_DB" 
 assert_contains "uninstall preserves foreign dnsmasq records" "$UCI_TEST_DB" 'foreign.example,198.51.100.9'
 [ ! -e "$Z2K_TIKTOK_HOSTS_FILE" ] && _t_ok || _t_bad "uninstall removes owned TikTok hosts file"
 [ ! -e "$Z2K_TIKTOK_ADDRESS_MARKER" ] && _t_ok || _t_bad "uninstall removes native ownership marker"
+
+# A new hostname-specific choice records a preferred address for that domain
+# and applies only that domain's owned dnsmasq address.
+TIKTOK_PROBE_MODE=alt TIKTOK_DNS_IP=203.0.113.20
+if z2k_ow_tiktok_manual_select 203.0.113.20 v16-cla.tiktokcdn.com; then _t_ok; else _t_bad "v16-cla preferred selection succeeds"; fi
+assert_eq "new manual selection uses preferred-with-fallback policy" preferred "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com policy)"
+assert_eq "preferred address is stored per hostname" 203.0.113.20 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com preferred_ip)"
+assert_eq "active address is stored per hostname" 203.0.113.20 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com selected_ip)"
+assert_contains "v16-cla owns its own DNS address" "$UCI_TEST_DB" '/v16-cla.tiktokcdn.com/203.0.113.20'
+assert_not_contains "v16-cla selection does not assign that IP to another v16 hostname" "$UCI_TEST_DB" '/v16-ies-music.tiktokcdn.com/203.0.113.20'
+assert_contains "domain state is schema-versioned" "$Z2K_TIKTOK_DOMAIN_STATE_FILE" 'schema_version=2'
+TIKTOK_PROBE_MODE=ok TIKTOK_DNS_IP=143.244.42.18
+z2k_ow_tiktok_manual_select 143.244.42.18 v16-ies-music.tiktokcdn.com \
+    || _t_bad "v16-ies-music can select an independent address"
+assert_eq "v16 domains retain independent active IPs" 203.0.113.20 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com selected_ip)"
+assert_eq "v16-ies-music has its own active IP" 143.244.42.18 "$(_z2k_ow_tiktok_domain_state_get v16-ies-music.tiktokcdn.com selected_ip)"
+assert_contains "both independently selected v16 addresses are owned" "$UCI_TEST_DB" '/v16-ies-music.tiktokcdn.com/143.244.42.18'
+
+# Full discovery for one hostname records only probes made with that hostname
+# and leaves the currently applied DNS map untouched.
+_domain_dns_before=$(grep -F '/v16-cla.tiktokcdn.com/' "$UCI_TEST_DB")
+TIKTOK_PROBE_MODE=alt
+z2k_ow_tiktok_probe_all v16-cla.tiktokcdn.com || _t_bad "hostname-specific candidate discovery completes"
+assert_contains "full discovery probes a v16 candidate with exact SNI" "$CURL_PAIR_TEST_LOG" 'v16-cla.tiktokcdn.com:443:203.0.113.20'
+assert_contains "full discovery persists the exact hostname observation" "$Z2K_TIKTOK_DOMAIN_STATE_FILE" 'domain.v16-cla.tiktokcdn.com.candidate_observations=198.51.100.99|'
+assert_contains "full discovery records the hostname-verified reserve" "$Z2K_TIKTOK_DOMAIN_STATE_FILE" '203.0.113.20|35|10|20|200|fra|HIT|edge|ok|ok|verified'
+assert_contains "full discovery records its candidate pool per hostname" "$Z2K_TIKTOK_DOMAIN_STATE_FILE" 'domain.v16-cla.tiktokcdn.com.candidate_pool=198.51.100.99|'
+assert_eq "full discovery does not change the selected DNS address" "$_domain_dns_before" "$(grep -F '/v16-cla.tiktokcdn.com/' "$UCI_TEST_DB")"
+TIKTOK_PROBE_MODE=ok
+
+# A policy probe may finish after a newer user selection. It must revalidate
+# its state snapshot under the apply lock before replacing that selection.
+z2k_ow_tiktok_domain_policy_set v16-ies-music.tiktokcdn.com auto \
+    || _t_bad "v16-ies-music returns to auto before the policy race check"
+rm -f "$T/policy-probe-started" "$T/policy-probe-release"
+export TIKTOK_PROBE_WAIT_IP=143.244.42.18 TIKTOK_PROBE_WAIT_HOST=v16-ies-music.tiktokcdn.com
+export TIKTOK_PROBE_STARTED="$T/policy-probe-started" TIKTOK_PROBE_RELEASE="$T/policy-probe-release"
+z2k_ow_tiktok_domain_policy_set v16-ies-music.tiktokcdn.com strict >/dev/null 2>&1 &
+_policy_pid=$!
+_wait=0
+while [ ! -e "$T/policy-probe-started" ] && [ "$_wait" -lt 100 ]; do sleep 0.05; _wait=$((_wait + 1)); done
+if [ -e "$T/policy-probe-started" ]; then _t_ok; else _t_bad "strict policy probe reached its hostname-specific wait"; fi
+TIKTOK_PROBE_MODE=alt z2k_ow_tiktok_manual_select 203.0.113.20 v16-ies-music.tiktokcdn.com \
+    || _t_bad "newer user selection completes while the old policy probe waits"
+: > "$T/policy-probe-release"
+if wait "$_policy_pid"; then _t_bad "stale strict-policy probe is rejected"; else _t_ok; fi
+unset TIKTOK_PROBE_WAIT_IP TIKTOK_PROBE_WAIT_HOST TIKTOK_PROBE_STARTED TIKTOK_PROBE_RELEASE
+assert_eq "stale policy probe preserves newer preferred policy" preferred "$(_z2k_ow_tiktok_domain_state_get v16-ies-music.tiktokcdn.com policy)"
+assert_eq "stale policy probe preserves newer selected IP" 203.0.113.20 "$(_z2k_ow_tiktok_domain_state_get v16-ies-music.tiktokcdn.com selected_ip)"
+TIKTOK_PROBE_MODE=ok TIKTOK_DNS_IP=143.244.42.18
+_domain_selected_at=$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com selected_at_epoch)
+export TIKTOK_ALLOW_IP=203.0.113.20
+_z2k_ow_tiktok_check_domains automatic || _t_bad "healthy per-domain verification succeeds"
+assert_eq "routine per-domain checks preserve selection time" "$_domain_selected_at" "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com selected_at_epoch)"
+unset TIKTOK_ALLOW_IP
+cp "$Z2K_TIKTOK_ADDRESS_MARKER" "$T/domain-address-marker.before-rollback"
+export DNSMASQ_FAIL_RESTART=1
+if z2k_ow_tiktok_domain_select v16-cla.tiktokcdn.com 143.244.42.18; then
+    _t_bad "multi-host DNS apply reports a restart failure"
+else
+    _t_ok
+fi
+unset DNSMASQ_FAIL_RESTART
+assert_eq "failed multi-host DNS apply rolls back ownership marker" "$(cat "$T/domain-address-marker.before-rollback")" "$(cat "$Z2K_TIKTOK_ADDRESS_MARKER")"
+assert_contains "failed multi-host DNS apply retains the original v16-cla address" "$UCI_TEST_DB" '/v16-cla.tiktokcdn.com/203.0.113.20'
+assert_contains "failed multi-host DNS apply retains the newer v16-ies selection" "$UCI_TEST_DB" '/v16-ies-music.tiktokcdn.com/203.0.113.20'
+assert_eq "failed multi-host DNS apply does not commit the new host state" 203.0.113.20 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com selected_ip)"
+
+# Preferred selections stay recorded while a failed active IP accrues two
+# independent failures; only then does a freshly verified reserve take over.
+_domain_last_verified=$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com last_verified_epoch)
+export TIKTOK_FAIL_IP_HOST="v16-cla.tiktokcdn.com=203.0.113.20"
+_z2k_ow_tiktok_check_domains automatic || _t_bad "first per-domain health evaluation completes"
+assert_eq "first failure does not switch the preferred IP" 203.0.113.20 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com selected_ip)"
+assert_eq "first failure increments the per-domain counter" 1 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com failure_count)"
+export DNSMASQ_FAIL_ENTRY='/v16-cla.tiktokcdn.com/143.244.42.18'
+if _z2k_ow_tiktok_check_domains automatic; then
+    _t_bad "failed reserve DNS application is reported"
+else
+    _t_ok
+fi
+unset DNSMASQ_FAIL_ENTRY
+assert_contains "the DNS fixture failed only the proposed v16-cla mapping" "$DNSMASQ_TEST_LOG" 'injected-failure=/v16-cla.tiktokcdn.com/143.244.42.18'
+assert_eq "failed reserve apply keeps the old active IP" 203.0.113.20 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com selected_ip)"
+assert_eq "failed reserve apply preserves the active selection time" "$_domain_selected_at" "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com selected_at_epoch)"
+assert_eq "failed reserve apply preserves the old IP verification time" "$_domain_last_verified" "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com last_verified_epoch)"
+assert_eq "failed reserve apply preserves confirmation that the old DNS was active" 1 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com dns_override_applied)"
+assert_eq "failed reserve apply does not record a failover" "" "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com last_failover_epoch)"
+_z2k_ow_tiktok_check_domains automatic || _t_bad "second per-domain health evaluation completes"
+unset TIKTOK_FAIL_IP_HOST
+assert_eq "confirmed failure activates a verified reserve" 143.244.42.18 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com selected_ip)"
+assert_eq "failover keeps the user's preferred IP" 203.0.113.20 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com preferred_ip)"
+assert_file "v16-cla records a failover epoch" "$Z2K_TIKTOK_DOMAIN_STATE_FILE"
+assert_contains "v16-cla records the failover source epoch" "$Z2K_TIKTOK_DOMAIN_STATE_FILE" 'domain.v16-cla.tiktokcdn.com.last_failover_epoch='
+assert_eq "v16-cla failover records the previous address" 203.0.113.20 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com last_failover_from)"
+assert_eq "v16-cla failover records the reserve address" 143.244.42.18 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com last_failover_to)"
+export Z2K_TIKTOK_RECOVERY_COOLDOWN=0
+export TIKTOK_ALLOW_IP=203.0.113.20
+_z2k_ow_tiktok_check_domains automatic || _t_bad "first preferred recovery observation completes"
+assert_eq "one good preferred observation does not recover early" 143.244.42.18 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com selected_ip)"
+_z2k_ow_tiktok_check_domains automatic || _t_bad "second preferred recovery observation completes"
+assert_eq "preferred address recovers after stable observations" 203.0.113.20 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com selected_ip)"
+assert_file "preferred recovery records an epoch" "$Z2K_TIKTOK_DOMAIN_STATE_FILE"
+assert_contains "preferred recovery records its timestamp" "$Z2K_TIKTOK_DOMAIN_STATE_FILE" 'domain.v16-cla.tiktokcdn.com.last_recovery_epoch='
+unset TIKTOK_ALLOW_IP
+unset Z2K_TIKTOK_RECOVERY_COOLDOWN
+
+# Strict policy remains pinned through two failures; preferred-with-fallback
+# is the policy exercised above.
+TIKTOK_PROBE_MODE=alt
+z2k_ow_tiktok_manual_select 203.0.113.20 sf16-music.tiktokcdn-eu.com \
+    || _t_bad "strict-policy fixture has a hostname-verified preference"
+z2k_ow_tiktok_domain_policy_set sf16-music.tiktokcdn-eu.com strict \
+    || _t_bad "strict policy can be selected for one hostname"
+export TIKTOK_FAIL_IP_HOST="sf16-music.tiktokcdn-eu.com=203.0.113.20"
+TIKTOK_PROBE_MODE=ok
+_z2k_ow_tiktok_check_domains automatic || _t_bad "first strict-policy health evaluation completes"
+_z2k_ow_tiktok_check_domains automatic || _t_bad "second strict-policy health evaluation completes"
+assert_eq "strict policy retains the selected IP after failure threshold" 203.0.113.20 "$(_z2k_ow_tiktok_domain_state_get sf16-music.tiktokcdn-eu.com selected_ip)"
+unset TIKTOK_FAIL_IP_HOST
 
 _t_done

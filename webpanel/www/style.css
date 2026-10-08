@@ -2496,6 +2496,17 @@ input[type=text]:focus, input[type=password]:focus {
   border-radius: var(--ow-radius-control, 10px);
   background: var(--ow-surface-2, var(--bg-subtle));
 }
+.tiktok-domains { display: grid; gap: 8px; margin: 12px 0; }
+.tiktok-domain-card { min-width: 0; padding: 10px 12px; border: 1px solid var(--ow-border-subtle, var(--border)); border-radius: var(--ow-radius-card, 12px); background: var(--ow-surface-1, var(--bg-card)); }
+.tiktok-domain-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.tiktok-domain-heading code { overflow-wrap: anywhere; color: var(--ow-text-primary, var(--text)); font-family: var(--font-mono); font-size: 12px; }
+.tiktok-domain-health { color: var(--ow-text-secondary, var(--text-muted)); font-size: 11px; }
+.tiktok-domain-facts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 7px; color: var(--ow-text-secondary, var(--text-muted)); font-size: 11px; }
+.tiktok-domain-facts b { color: var(--ow-text-primary, var(--text)); font-weight: 500; }
+.tiktok-domain-policies { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.tiktok-policy-button { min-height: 28px; padding: 4px 8px; border: 1px solid var(--ow-border-subtle, var(--border)); border-radius: 8px; background: transparent; color: var(--ow-text-secondary, var(--text-muted)); font: inherit; font-size: 11px; cursor: pointer; }
+.tiktok-policy-button.active { border-color: var(--ow-accent, var(--good)); background: var(--ow-accent-soft, var(--good-alpha-soft)); color: var(--ow-accent, var(--good)); }
+.tiktok-policy-button:disabled { cursor: default; }
 .tiktok-mode-segment {
   min-height: 30px;
   padding: 4px 10px;

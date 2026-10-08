@@ -61,10 +61,21 @@ assert.match(diagnostics, /raw: material-latency-improvement/,
   "the raw failover reason remains available in technical diagnostics");
 assert.match(diagnostics, /HTTP-ответ<\/span><span class="flow-fact-value"><span>400/,
   "an HTTP 400 is shown neutrally as a diagnostic response");
-assert.match(markup, /data-tiktok-action="auto"/,
-  "the automatic mode remains a direct backend action");
-assert.match(markup, /aria-pressed="true"[^>]*data-tiktok-mode="manual"|data-tiktok-mode="manual"[^>]*aria-pressed="true"/,
-  "manual mode is conveyed by an accessible selected segment");
+assert.match(markup, /data-tiktok-action="policy"[^>]*data-policy="auto"/,
+  "each CDN hostname exposes its automatic policy directly");
+assert.match(markup, /data-policy="preferred"[\s\S]*data-policy="strict"/,
+  "the domain policy controls expose preferred-with-fallback and strict modes");
+for (const host of ["v77.tiktokcdn.com", "v77.tiktokcdn-eu.com", "v16-cla.tiktokcdn.com", "v16-ies-music.tiktokcdn.com", "sf16-music.tiktokcdn-eu.com"]) {
+  assert.match(markup, new RegExp(host.replace(/[.-]/g, "[.-]")), `the status card includes ${host}`);
+}
+assert.match(markup, /Видео <b>не проверено<\/b>/,
+  "the interface never claims a successful media fetch from a transport probe");
+assert.match(summaryText, /CDN доступен/,
+  "the primary healthy badge describes CDN transport rather than claiming the TikTok feed works");
+assert.match(summaryText, /Передача видео и работа ленты не проверены/,
+  "the primary healthy status explicitly limits what the transport probe proves");
+assert.doesNotMatch(summaryText, /● Работает/,
+  "a successful transport probe never labels the TikTok feed as working");
 assert.match(markup, /Проверить все/,
   "the card exposes the bounded live candidate scan");
 assert.equal((markup.match(/<article class="tiktok-candidate[^"]*" data-ip="203\.0\.113\.35"/g) || []).length, 1,
@@ -212,4 +223,42 @@ assert.match(failedSummary, /Последняя проверка текущег�
   "after a failed selection the unchanged current CDN retains its honest verification age");
 assert.doesNotMatch(failedSummary, /Проверяется[^<]*203\.0\.113\.20/,
   "a completed failed selection no longer claims to be checking the candidate");
+
+vm.runInContext('tiktokSelectedDomain = "v16-cla.tiktokcdn.com"', context);
+const v16Slug = "v16_cla_tiktokcdn_com";
+const hostScopedFixture = {
+  ...originalFixture,
+  [`domain_${v16Slug}_selected_ip`]: "203.0.113.20",
+  [`domain_${v16Slug}_candidate_pool`]: "203.0.113.20|v16-cla.tiktokcdn.com|cla|1.1.1.1|host-discovery|edge-v16|Frankfurt|domain-resolution|1|0|0|0|0|0|||||",
+  [`domain_${v16Slug}_candidate_observations`]: "203.0.113.20|77|18|26|206|fra|HIT|edge-v16|ok|ok|verified",
+  [`domain_${v16Slug}_candidates_checked_epoch`]: "1791145000",
+};
+context.hostScopedFixture = hostScopedFixture;
+const hostScopedMarkup = vm.runInContext("tiktokStatusMarkup(hostScopedFixture)", context);
+const hostCandidateList = hostScopedMarkup.slice(hostScopedMarkup.indexOf('<div class="tiktok-candidate-overview">'), hostScopedMarkup.indexOf('<details class="flow-technical'));
+assert.match(hostCandidateList, /data-ip="203\.0\.113\.20"[\s\S]*Проверен для v16-cla\.tiktokcdn\.com/,
+  "a host-scoped scan shows the candidate verified for its exact hostname");
+assert.doesNotMatch(hostCandidateList, /data-ip="203\.0\.113\.35"/,
+  "a host-scoped scan replaces stale candidates from another CDN domain");
+assert.match(hostCandidateList, /HTTPS · v16-cla\.tiktokcdn\.com/,
+  "expanded probe details name the exact hostname that was checked");
+const v16CardPosition = hostScopedMarkup.indexOf("<code>v16-cla.tiktokcdn.com</code>");
+const v16Card = hostScopedMarkup.slice(hostScopedMarkup.lastIndexOf('<article class="tiktok-domain-card">', v16CardPosition), hostScopedMarkup.indexOf("</article>", v16CardPosition));
+assert.match(v16Card, /IP <b><code>203\.0\.113\.20<\/code><\/b>/,
+  "the per-domain card shows the active v16 address independently of global v77 state");
+assert.match(v16Card, /Источник выбранного IP <b>domain-resolution · host-discovery<\/b>/,
+  "the domain card identifies the discovered source of its active IP");
+assert.doesNotMatch(hostCandidateList, /v77 <b>✓|v77-eu <b>✓/,
+  "a v77 probe is never displayed as proof for a v16 hostname");
+assert.match(hostScopedMarkup, /data-tiktok-action="probe-all" data-host="v16-cla\.tiktokcdn\.com"/,
+  "the full discovery action carries the selected hostname");
+
+const unscannedDomainMarkup = vm.runInContext(
+  "tiktokStatusMarkup({ ...fixture, domain_v16_cla_tiktokcdn_com_selected_ip: '203.0.113.35' })", context);
+const unscannedDomainList = unscannedDomainMarkup.slice(unscannedDomainMarkup.indexOf('<div class="tiktok-candidate-overview">'), unscannedDomainMarkup.indexOf('<details class="flow-technical'));
+assert.match(unscannedDomainList, /Не выполнена для этого домена/,
+  "legacy observations remain explicitly unverified until the selected hostname is probed");
+assert.doesNotMatch(unscannedDomainList, /v77 <b>✓|v77-eu <b>✓/,
+  "legacy v77 probe details stay hidden for an unscanned v16 hostname");
+vm.runInContext('tiktokSelectedDomain = "v77.tiktokcdn.com"', context);
 console.log("PASS: TikTok feed status formats latency once and keeps raw failover codes in diagnostics");

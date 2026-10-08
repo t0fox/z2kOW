@@ -22,6 +22,6 @@ cleanup() { rmdir "$_lock" 2>/dev/null || true; }
 trap cleanup EXIT HUP INT TERM
 
 case "${1:-check}" in
-    check) z2k_ow_tiktok_check "${2:-automatic}" ;;
-    *) echo 'usage: tiktok-check.sh check [explicit|scheduled]' >&2; exit 2 ;;
+    check) _z2k_ow_tiktok_check_domains "${2:-automatic}" ;;
+    *) echo 'usage: tiktok-check.sh check [automatic|explicit|scheduled]' >&2; exit 2 ;;
 esac

@@ -19,6 +19,7 @@ Z2K_TIKTOK_UCI_MARKER="${Z2K_TIKTOK_UCI_MARKER:-${Z2K_STATE:-/etc/z2k/state}/.ti
 Z2K_TIKTOK_CONTENT_MARKER="${Z2K_TIKTOK_CONTENT_MARKER:-${Z2K_STATE:-/etc/z2k/state}/.tiktok-host-content-owned}"
 Z2K_TIKTOK_ADDRESS_MARKER="${Z2K_TIKTOK_ADDRESS_MARKER:-${Z2K_STATE:-/etc/z2k/state}/.tiktok-address-owned}"
 Z2K_TIKTOK_STATE_FILE="${Z2K_TIKTOK_STATE_FILE:-${Z2K_STATE:-/etc/z2k/state}/tiktok-cdn.state}"
+Z2K_TIKTOK_DOMAIN_STATE_FILE="${Z2K_TIKTOK_DOMAIN_STATE_FILE:-${Z2K_STATE:-/etc/z2k/state}/tiktok-domains.state}"
 Z2K_TIKTOK_CONFIG="${Z2K_TIKTOK_CONFIG:-${CONFIG_FILE:-${Z2K_CONFIG:-/etc/z2k/config}}}"
 Z2K_TIKTOK_UCI_SECTION="${Z2K_TIKTOK_UCI_SECTION:-dhcp.@dnsmasq[0]}"
 Z2K_TIKTOK_UCI_BIN="${Z2K_TIKTOK_UCI_BIN:-uci}"
@@ -67,10 +68,119 @@ _z2k_ow_tiktok_state_get() {
     sed -n "s/^$1=//p" "$Z2K_TIKTOK_STATE_FILE" 2>/dev/null | head -1
 }
 
+_z2k_ow_tiktok_domain_hosts() {
+    printf '%s\n' "$Z2K_TIKTOK_HOST" "$Z2K_TIKTOK_EU_HOST" \
+        v16-cla.tiktokcdn.com v16-ies-music.tiktokcdn.com sf16-music.tiktokcdn-eu.com
+}
+
+_z2k_ow_tiktok_domain_slug() {
+    printf '%s' "$1" | tr '.-' '__'
+}
+
+_z2k_ow_tiktok_domain_state_get() {
+    local _key
+    if [ "$#" -lt 2 ]; then _key="$1"; else _key="domain.$1.$2"; fi
+    [ -r "$Z2K_TIKTOK_DOMAIN_STATE_FILE" ] || return 0
+    awk -F= -v key="$_key" '$1 == key { value=substr($0, index($0, "=")+1) } END { print value }' \
+        "$Z2K_TIKTOK_DOMAIN_STATE_FILE" 2>/dev/null
+}
+
+_z2k_ow_tiktok_domain_state_set_many() {
+    local _host="$1" _pair _field _value _tmp="${Z2K_TIKTOK_DOMAIN_STATE_FILE}.new.$$" _updates="${Z2K_TIKTOK_DOMAIN_STATE_FILE}.updates.$$"
+    shift
+    _z2k_ow_tiktok_managed_domain "$_host" || return 1
+    mkdir -p "$(dirname "$Z2K_TIKTOK_DOMAIN_STATE_FILE")" 2>/dev/null || return 1
+    : > "$_updates" || return 1
+    printf 'schema_version=2\n' >> "$_updates" || { rm -f "$_updates"; return 1; }
+    for _pair in "$@"; do
+        case "$_pair" in *=*) ;; *) rm -f "$_updates"; return 1 ;; esac
+        _field=${_pair%%=*}; _value=${_pair#*=}
+        case "$_field" in ''|*[!a-z_]*) rm -f "$_updates"; return 1 ;; esac
+        printf 'domain.%s.%s=%s\n' "$_host" "$_field" "$_value" >> "$_updates" || { rm -f "$_updates"; return 1; }
+    done
+    [ -f "$Z2K_TIKTOK_DOMAIN_STATE_FILE" ] || : > "$Z2K_TIKTOK_DOMAIN_STATE_FILE" || { rm -f "$_updates"; return 1; }
+    awk -F= '
+        NR == FNR { key=substr($0, 1, index($0, "=")-1); updates[key]=substr($0, index($0, "=")+1); next }
+        {
+            key=substr($0, 1, index($0, "=")-1)
+            if (key in updates) { print key "=" updates[key]; delete updates[key]; next }
+            print
+        }
+        END { for (key in updates) print key "=" updates[key] }
+    ' "$_updates" "$Z2K_TIKTOK_DOMAIN_STATE_FILE" > "$_tmp" || { rm -f "$_tmp" "$_updates"; return 1; }
+    chmod 0600 "$_tmp" 2>/dev/null || { rm -f "$_tmp" "$_updates"; return 1; }
+    mv -f "$_tmp" "$Z2K_TIKTOK_DOMAIN_STATE_FILE" || { rm -f "$_tmp" "$_updates"; return 1; }
+    rm -f "$_updates"
+}
+
+_z2k_ow_tiktok_domain_state_init() {
+    local _schema _mode _manual _legacy_ip _verified _evaluated _host _policy _preferred _active _tmp="${Z2K_TIKTOK_DOMAIN_STATE_FILE}.new.$$"
+    _schema=$(_z2k_ow_tiktok_domain_state_get schema_version)
+    [ "$_schema" = 2 ] && return 0
+    _mode=$(z2k_ow_tiktok_mode)
+    _manual=$(_z2k_ow_tiktok_manual_ip)
+    _legacy_ip=$(_z2k_ow_tiktok_state_get selected_ip)
+    _verified=$(_z2k_ow_tiktok_state_get last_verified_epoch)
+    _evaluated=$(_z2k_ow_tiktok_state_get last_evaluation_epoch)
+    if [ "$_mode" = manual ] && _z2k_ow_tiktok_valid_ipv4 "$_manual"; then _legacy_ip=$_manual; fi
+    case "$_verified" in ''|*[!0-9]*) _verified= ;; esac
+    case "$_evaluated" in ''|*[!0-9]*) _evaluated= ;; esac
+    mkdir -p "$(dirname "$Z2K_TIKTOK_DOMAIN_STATE_FILE")" 2>/dev/null || return 1
+    {
+        printf 'schema_version=2\n'
+        printf 'migrated_from=legacy-v1\n'
+        for _host in $(_z2k_ow_tiktok_domain_hosts); do
+            _policy=auto; _preferred=; _active=
+            case "$_host" in
+                "$Z2K_TIKTOK_HOST"|"$Z2K_TIKTOK_EU_HOST")
+                    if [ "$_mode" = manual ] && _z2k_ow_tiktok_valid_ipv4 "$_manual"; then
+                        _policy=strict; _preferred=$_manual; _active=$_manual
+                    elif _z2k_ow_tiktok_valid_ipv4 "$_legacy_ip"; then
+                        _active=$_legacy_ip
+                    fi
+                    ;;
+            esac
+            printf 'domain.%s.cluster=%s\n' "$_host" "$(_z2k_ow_tiktok_domain_cluster "$_host")"
+            printf 'domain.%s.policy=%s\n' "$_host" "$_policy"
+            printf 'domain.%s.preferred_ip=%s\n' "$_host" "$_preferred"
+            printf 'domain.%s.selected_ip=%s\n' "$_host" "$_active"
+            printf 'domain.%s.health=unverified\n' "$_host"
+            printf 'domain.%s.failure_count=0\n' "$_host"
+            printf 'domain.%s.last_verified_epoch=%s\n' "$_host" "$_verified"
+            printf 'domain.%s.last_evaluation_epoch=%s\n' "$_host" "$_evaluated"
+            printf 'domain.%s.selected_at_epoch=\n' "$_host"
+            printf 'domain.%s.preferred_set_at_epoch=\n' "$_host"
+            printf 'domain.%s.last_failover_epoch=\n' "$_host"
+            printf 'domain.%s.last_recovery_epoch=\n' "$_host"
+            printf 'domain.%s.reason=legacy-date-unknown\n' "$_host"
+            printf 'domain.%s.dns_override_applied=0\n' "$_host"
+        done
+    } > "$_tmp" || { rm -f "$_tmp"; return 1; }
+    chmod 0600 "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+    mv -f "$_tmp" "$Z2K_TIKTOK_DOMAIN_STATE_FILE"
+}
+
+_z2k_ow_tiktok_domain_overrides() {
+    local _replace_host="${1:-}" _replace_ip="${2:-}" _replace_host2="${3:-}" _replace_ip2="${4:-}" _host _ip _rows=""
+    _z2k_ow_tiktok_domain_state_init || return 1
+    while IFS= read -r _host; do
+        [ -n "$_host" ] || continue
+        _ip=$(_z2k_ow_tiktok_domain_state_get "$_host" selected_ip)
+        [ "$_host" != "$_replace_host" ] || _ip=$_replace_ip
+        [ "$_host" != "$_replace_host2" ] || _ip=$_replace_ip2
+        _z2k_ow_tiktok_valid_ipv4 "$_ip" || continue
+        [ -n "$_rows" ] && _rows="$_rows;"
+        _rows="$_rows$_host=$_ip"
+    done <<EOF_HOSTS
+$(_z2k_ow_tiktok_domain_hosts)
+EOF_HOSTS
+    printf '%s' "$_rows"
+}
+
 _z2k_ow_tiktok_state_write() {
     local _argc=$#
     local _state="$1" _ip="${2:-}" _lat="${3:-}" _fail="${4:-0}" _verified="${5:-0}" _reason="${6:-}"
-    local _selected_at="${7:-$_verified}" _discovered="${8:-0}" _evaluated="${9:-$_verified}"
+    local _selected_at="" _previous_ip _previous_selected_at _discovered="${8:-0}" _evaluated="${9:-$_verified}"
     local _source_domain="${10:-}" _mode="${11:-}" _provenance="${12:-}" _geo="${13:-}"
     local _health="${14:-$_state}" _connect="${15:-}" _tls="${16:-}" _http="${17:-}"
     local _pop="${18:-}" _cache="${19:-}" _server="${20:-}"
@@ -90,6 +200,13 @@ _z2k_ow_tiktok_state_write() {
     local _probe_observations="${_Z2K_TIKTOK_PROBE_OBSERVATIONS_STATE:-$(_z2k_ow_tiktok_state_get probe_observations)}"
     local _checkhost_observations="${_Z2K_TIKTOK_CHECKHOST_OBSERVATIONS_STATE:-$(_z2k_ow_tiktok_state_get checkhost_observations)}"
     local _checkhost_cache_epoch="${_Z2K_TIKTOK_CHECKHOST_CACHE_EPOCH_STATE:-$(_z2k_ow_tiktok_state_get checkhost_cache_epoch)}"
+    _previous_ip=$(_z2k_ow_tiktok_state_get selected_ip)
+    _previous_selected_at=$(_z2k_ow_tiktok_state_get selected_at_epoch)
+    if [ "$_argc" -ge 7 ]; then
+        _selected_at="$7"
+    elif [ "$_ip" = "$_previous_ip" ]; then
+        _selected_at="$_previous_selected_at"
+    fi
     if [ "$_argc" -lt 21 ] && [ "$_state" != off ] && [ "$_state" != external ]; then
         _domains=$(_z2k_ow_tiktok_state_get selected_domains)
         _modes=$(_z2k_ow_tiktok_state_get selected_modes)
@@ -327,11 +444,8 @@ _z2k_ow_tiktok_owned_address() {
     _marker=$(cat "$Z2K_TIKTOK_ADDRESS_MARKER" 2>/dev/null)
     [ -n "$_marker" ] || return 1
     for _entry in $(printf '%s' "$_marker" | tr ';' ' '); do
-        case "$_entry" in
-            "/$Z2K_TIKTOK_HOST/"*) _host="$Z2K_TIKTOK_HOST" ;;
-            "/$Z2K_TIKTOK_EU_HOST/"*) _host="$Z2K_TIKTOK_EU_HOST" ;;
-            *) return 1 ;;
-        esac
+        _host=${_entry#*/}; _host=${_host%%/*}
+        _z2k_ow_tiktok_managed_domain "$_host" || return 1
         _ip=${_entry#"/$_host/"}
         _z2k_ow_tiktok_valid_ipv4 "$_ip" && _z2k_ow_tiktok_address_registered "$_entry" || return 1
     done
@@ -391,7 +505,8 @@ z2k_ow_tiktok_external_override() {
     if _z2k_ow_tiktok_owned_address; then
         _owned_address=$(cat "$Z2K_TIKTOK_ADDRESS_MARKER" 2>/dev/null)
     fi
-    for _host in "$Z2K_TIKTOK_HOST" "$Z2K_TIKTOK_EU_HOST"; do
+    while IFS= read -r _host; do
+      [ -n "$_host" ] || continue
       if "$Z2K_TIKTOK_UCI_BIN" -q show dhcp 2>/dev/null \
         | tr -d "'\"" \
         | awk -F= -v host="$_host" -v own="$_owned_address" '
@@ -413,7 +528,9 @@ z2k_ow_tiktok_external_override() {
         '; then
         return 0
       fi
-    done
+    done <<EOF_HOSTS
+$(_z2k_ow_tiktok_domain_hosts)
+EOF_HOSTS
     for _path in $("$Z2K_TIKTOK_UCI_BIN" -q show dhcp 2>/dev/null | tr -d "'\"" \
         | sed -n 's/^[^=]*\.addnhosts=//p'); do
         [ -n "$_path" ] || continue
@@ -428,6 +545,108 @@ z2k_ow_tiktok_external_override() {
         fi
     done
     return 1
+}
+
+_z2k_ow_tiktok_verify_overrides() {
+    local _mapping="$1" _pair _host _ip _entry _tries
+    [ -z "$_mapping" ] && return 0
+    for _pair in $(printf '%s' "$_mapping" | tr ';' ' '); do
+        _host=${_pair%%=*}; _ip=${_pair#*=}
+        _z2k_ow_tiktok_managed_domain "$_host" && _z2k_ow_tiktok_valid_ipv4 "$_ip" || return 1
+        _entry=$(_z2k_ow_tiktok_address_entry "$_ip" "$_host")
+        _z2k_ow_tiktok_address_registered "$_entry" || return 1
+        _z2k_ow_tiktok_effective_config_has "$_entry" || return 1
+        _tries=0
+        while [ "$_tries" -lt "$Z2K_TIKTOK_DNSMASQ_VERIFY_RETRIES" ]; do
+            _z2k_ow_tiktok_dns_answer_has "$_ip" "$_host" && break
+            _tries=$((_tries + 1))
+            [ "$_tries" -lt "$Z2K_TIKTOK_DNSMASQ_VERIFY_RETRIES" ] && sleep 1
+        done
+        [ "$_tries" -lt "$Z2K_TIKTOK_DNSMASQ_VERIFY_RETRIES" ] || return 1
+    done
+    return 0
+}
+
+_z2k_ow_tiktok_restore_overrides() {
+    local _old="$1" _new="$2" _entry _host _ip _rc=0
+    for _entry in $(printf '%s' "$_new" | tr ';' ' '); do
+        _host=${_entry#*/}; _host=${_host%%/*}; _ip=${_entry##*/}
+        _entry=$(_z2k_ow_tiktok_address_entry "$_ip" "$_host")
+        while _z2k_ow_tiktok_address_registered "$_entry"; do
+            "$Z2K_TIKTOK_UCI_BIN" del_list "$Z2K_TIKTOK_UCI_SECTION.address=$_entry" || { _rc=1; break; }
+        done
+    done
+    for _entry in $(printf '%s' "$_old" | tr ';' ' '); do
+        _host=${_entry#*/}; _host=${_host%%/*}; _ip=${_entry##*/}
+        _z2k_ow_tiktok_managed_domain "$_host" && _z2k_ow_tiktok_valid_ipv4 "$_ip" || { _rc=1; continue; }
+        _z2k_ow_tiktok_address_registered "$_entry" || \
+            "$Z2K_TIKTOK_UCI_BIN" add_list "$Z2K_TIKTOK_UCI_SECTION.address=$_entry" || _rc=1
+    done
+    "$Z2K_TIKTOK_UCI_BIN" commit dhcp || _rc=1
+    if [ -n "$_old" ]; then _z2k_ow_tiktok_write_address_marker "$_old" || _rc=1
+    else rm -f "$Z2K_TIKTOK_ADDRESS_MARKER" || _rc=1; fi
+    _z2k_ow_tiktok_restart_dnsmasq || _rc=1
+    [ "$_rc" = 0 ]
+}
+
+# Apply a complete host=IPv4 map in one dnsmasq transaction. The ownership
+# marker is advanced only after the committed config and localhost DNS agree.
+_z2k_ow_tiktok_update_overrides() {
+    local _mapping="${1:-}" _entries="" _old_entries="" _entry _pair _host _ip _changed=0 _tries _rc=0
+    command -v "$Z2K_TIKTOK_UCI_BIN" >/dev/null 2>&1 || return 1
+    [ -x "$Z2K_TIKTOK_DNSMASQ_INIT" ] || return 1
+    "$Z2K_TIKTOK_UCI_BIN" -q show "$Z2K_TIKTOK_UCI_SECTION" >/dev/null 2>&1 || return 1
+    if [ -n "$_mapping" ]; then
+        z2k_ow_tiktok_external_override && return 1
+        for _pair in $(printf '%s' "$_mapping" | tr ';' ' '); do
+            case "$_pair" in *=*) ;; *) return 1 ;; esac
+            _host=${_pair%%=*}; _ip=${_pair#*=}
+            _z2k_ow_tiktok_managed_domain "$_host" && _z2k_ow_tiktok_valid_ipv4 "$_ip" || return 1
+            _entry=$(_z2k_ow_tiktok_address_entry "$_ip" "$_host")
+            [ -n "$_entries" ] && _entries="$_entries;"
+            _entries="$_entries$_entry"
+        done
+    fi
+    if _z2k_ow_tiktok_owned_address; then
+        _old_entries=$(cat "$Z2K_TIKTOK_ADDRESS_MARKER" 2>/dev/null)
+    elif [ -e "$Z2K_TIKTOK_ADDRESS_MARKER" ]; then
+        return 1
+    fi
+    if [ "$_old_entries" = "$_entries" ] && { [ -z "$_mapping" ] || _z2k_ow_tiktok_verify_overrides "$_mapping"; }; then
+        return 0
+    fi
+    # Legacy includes are migrated by prepare before this multi-host writer.
+    _z2k_ow_tiktok_registered && return 1
+    for _entry in $(printf '%s' "$_old_entries" | tr ';' ' '); do
+        _tries=0
+        while _z2k_ow_tiktok_address_registered "$_entry"; do
+            "$Z2K_TIKTOK_UCI_BIN" del_list "$Z2K_TIKTOK_UCI_SECTION.address=$_entry" || { _rc=1; break; }
+            _changed=1; _tries=$((_tries + 1)); [ "$_tries" -lt 64 ] || { _rc=1; break; }
+        done
+        [ "$_rc" = 0 ] || break
+    done
+    if [ "$_rc" = 0 ]; then
+        for _entry in $(printf '%s' "$_entries" | tr ';' ' '); do
+            "$Z2K_TIKTOK_UCI_BIN" add_list "$Z2K_TIKTOK_UCI_SECTION.address=$_entry" || { _rc=1; break; }
+            _changed=1
+        done
+    fi
+    if [ "$_changed" = 1 ]; then "$Z2K_TIKTOK_UCI_BIN" commit dhcp || _rc=1; fi
+    if [ "$_rc" != 0 ]; then
+        _z2k_ow_tiktok_restore_overrides "$_old_entries" "$_entries" >/dev/null 2>&1 || :
+        return 1
+    fi
+    if [ -n "$_entries" ]; then _z2k_ow_tiktok_write_address_marker "$_entries" || _rc=1
+    elif [ -n "$_old_entries" ]; then rm -f "$Z2K_TIKTOK_ADDRESS_MARKER" || _rc=1; fi
+    if [ "$_rc" = 0 ] && { [ "$_changed" = 1 ] || { [ -n "$_mapping" ] && ! _z2k_ow_tiktok_verify_overrides "$_mapping"; }; }; then
+        if _z2k_ow_tiktok_runtime_allowed; then _z2k_ow_tiktok_restart_dnsmasq || _rc=1; fi
+    fi
+    if [ "$_rc" = 0 ] && [ -n "$_mapping" ]; then _z2k_ow_tiktok_verify_overrides "$_mapping" || _rc=1; fi
+    if [ "$_rc" != 0 ]; then
+        _z2k_ow_tiktok_restore_overrides "$_old_entries" "$_entries" >/dev/null 2>&1 || :
+        return 1
+    fi
+    return 0
 }
 
 _z2k_ow_tiktok_update_override() {
@@ -568,6 +787,21 @@ v16-cla.tiktokcdn.com|cla|canonical-domain-source
 v16-ies-music.tiktokcdn.com|ies|canonical-domain-source
 sf16-music.tiktokcdn-eu.com|generic|canonical-domain-source
 EOF_DOMAINS
+}
+
+_z2k_ow_tiktok_domain_cluster() {
+    case "$1" in
+        "$Z2K_TIKTOK_HOST"|"$Z2K_TIKTOK_EU_HOST") printf '77' ;;
+        v16-cla.tiktokcdn.com|v16-ies-music.tiktokcdn.com|sf16-music.tiktokcdn-eu.com) printf '16' ;;
+        *) return 1 ;;
+    esac
+}
+
+_z2k_ow_tiktok_managed_domain() {
+    case "$1" in
+        "$Z2K_TIKTOK_HOST"|"$Z2K_TIKTOK_EU_HOST"|v16-cla.tiktokcdn.com|v16-ies-music.tiktokcdn.com|sf16-music.tiktokcdn-eu.com) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 _z2k_ow_tiktok_curated_candidates() {
@@ -948,7 +1182,8 @@ _z2k_ow_tiktok_checkhost_cache_write() {
 }
 
 _z2k_ow_tiktok_checkhost_cache_expired() {
-    local _epoch="$(_z2k_ow_tiktok_state_get checkhost_cache_epoch)" _now
+    local _epoch _now
+    _epoch=$(_z2k_ow_tiktok_state_get checkhost_cache_epoch)
     case "$_epoch" in ''|*[!0-9]*) return 0 ;; esac
     _now=$(date +%s 2>/dev/null) || _now=0
     [ $((_now - _epoch)) -ge "${Z2K_TIKTOK_CHECKHOST_TTL:-21600}" ]
@@ -981,7 +1216,7 @@ _z2k_ow_tiktok_discover_combined() {
 _z2k_ow_tiktok_probe_report() {
     local _ip="$1" _host="${2:-$Z2K_TIKTOK_HOST}" _raw _metrics _http _connect _tls _total _ms _connect_ms _tls_ms _pop _cache _server _curl_rc _tcp _tls_ok _verified
     _z2k_ow_tiktok_valid_ipv4 "$_ip" || return 1
-    case "$_host" in "$Z2K_TIKTOK_HOST"|"$Z2K_TIKTOK_EU_HOST") ;; *) return 1 ;; esac
+    _z2k_ow_tiktok_managed_domain "$_host" || return 1
     command -v "$Z2K_TIKTOK_CURL_BIN" >/dev/null 2>&1 || return 1
     if _raw=$("$Z2K_TIKTOK_CURL_BIN" --ipv4 --silent --show-error --dump-header - \
         --output /dev/null --stderr /dev/null --connect-timeout 4 --max-time 7 \
@@ -1048,9 +1283,253 @@ _z2k_ow_tiktok_probe() {
     printf '%s\n' "$_row"
 }
 
+# Probe one exact hostname, then update only that hostname's policy and DNS
+# address. Candidate discovery is shared, but every candidate is verified with
+# this hostname's own SNI before it can be selected.
+_z2k_ow_tiktok_domain_check_one() {
+    local _host="$1" _full="$2" _now="$3" _policy _preferred _active _stored_active _old_active _failure _row="" _candidate
+    local _best_row="" _best_ms="" _candidate_ip _candidate_row _probe_count=0 _recovery _last_failover _failure_before_apply
+    local _selected_at _stored_selected_at _preferred_at _health=unverified _reason _mapping _http _dns=1 _current_ms _decision
+    local _last_verified _stored_last_verified _stored_dns _last_recovery _failover_from _failover_to _locked_policy _locked_preferred _locked_active
+    _policy=$(_z2k_ow_tiktok_domain_state_get "$_host" policy); [ -n "$_policy" ] || _policy=auto
+    _preferred=$(_z2k_ow_tiktok_domain_state_get "$_host" preferred_ip)
+    _stored_active=$(_z2k_ow_tiktok_domain_state_get "$_host" selected_ip)
+    _active=$_stored_active
+    if [ -z "$_active" ] && [ "$_policy" = auto ] \
+        && { [ "$_host" = "$Z2K_TIKTOK_HOST" ] || [ "$_host" = "$Z2K_TIKTOK_EU_HOST" ]; }; then
+        local _legacy_ip
+        _legacy_ip=$(_z2k_ow_tiktok_state_get selected_ip)
+        _z2k_ow_tiktok_valid_ipv4 "$_legacy_ip" && _active=$_legacy_ip
+    fi
+    _old_active=$_active
+    _failure=$(_z2k_ow_tiktok_domain_state_get "$_host" failure_count)
+    case "$_failure" in ''|*[!0-9]*) _failure=0 ;; esac
+    _selected_at=$(_z2k_ow_tiktok_domain_state_get "$_host" selected_at_epoch)
+    _stored_selected_at=$_selected_at
+    _preferred_at=$(_z2k_ow_tiktok_domain_state_get "$_host" preferred_set_at_epoch)
+    _last_verified=$(_z2k_ow_tiktok_domain_state_get "$_host" last_verified_epoch)
+    _stored_last_verified=$_last_verified
+    _stored_dns=$(_z2k_ow_tiktok_domain_state_get "$_host" dns_override_applied)
+    [ "$_stored_dns" = 1 ] || _stored_dns=0
+    _last_recovery=$(_z2k_ow_tiktok_domain_state_get "$_host" last_recovery_epoch)
+    _failover_from=$(_z2k_ow_tiktok_domain_state_get "$_host" last_failover_from)
+    _failover_to=$(_z2k_ow_tiktok_domain_state_get "$_host" last_failover_to)
+    _recovery=$(_z2k_ow_tiktok_domain_state_get "$_host" recovery_count)
+    case "$_recovery" in ''|*[!0-9]*) _recovery=0 ;; esac
+    _last_failover=$(_z2k_ow_tiktok_domain_state_get "$_host" last_failover_epoch)
+    _reason=active-probe
+
+    if _z2k_ow_tiktok_valid_ipv4 "$_active"; then
+        if _row=$(_z2k_ow_tiktok_probe_report "$_active" "$_host"); then
+            _failure=0
+            _health=transport-confirmed
+        else
+            _failure=$((_failure + 1))
+            _health=unavailable
+            _row="$_active||||||||failed|failed|failed"
+            _reason=active-probe-failed
+        fi
+    fi
+
+    # A preferred address that is currently not active gets a separate probe.
+    # Recovery requires two successful observations and a cooldown after the
+    # last failover, so a single good packet cannot cause a flap.
+    if [ "$_policy" = preferred ] && _z2k_ow_tiktok_valid_ipv4 "$_preferred" \
+        && [ "$_preferred" != "$_active" ] && [ -n "$_active" ]; then
+        if _candidate_row=$(_z2k_ow_tiktok_probe_report "$_preferred" "$_host"); then
+            _recovery=$((_recovery + 1))
+            if [ "$_recovery" -ge "$Z2K_TIKTOK_STABILITY_PROBES" ] \
+                && { [ -z "$_last_failover" ] || [ $((_now - _last_failover)) -ge "${Z2K_TIKTOK_RECOVERY_COOLDOWN:-300}" ]; }; then
+                _active=$_preferred
+                _row=$_candidate_row
+                _failure=0
+                _health=transport-confirmed
+                _reason=preferred-recovered
+                _last_recovery=$_now
+            fi
+        else
+            _recovery=0
+        fi
+    else
+        _recovery=0
+    fi
+
+    # Strict policy never replaces its pinned address. Preferred policy keeps
+    # the active address through one failed check; only the second failure
+    # invokes discovery and fresh host-specific candidate probes.
+    if { [ -z "$_active" ] || { [ "$_health" = unavailable ] \
+        && [ "$_policy" != strict ] && [ "$_failure" -ge "$Z2K_TIKTOK_FAILOVER_THRESHOLD" ]; }; } \
+        || { [ "$_full" = 1 ] && [ "$_policy" = auto ] && [ "$_health" = transport-confirmed ]; }; then
+        local _resolution _pool _candidate_file="${Z2K_TIKTOK_DOMAIN_STATE_FILE}.candidates.$$" _best_ip="" _candidate_ms _candidate_success=0 _must_find=0
+        { [ -z "$_active" ] || { [ "$_health" = unavailable ] && [ "$_failure" -ge "$Z2K_TIKTOK_FAILOVER_THRESHOLD" ]; }; } && _must_find=1
+        _resolution=$(_z2k_ow_tiktok_discover_combined 0)
+        _pool=$(printf '%s\n' "$_resolution" | _z2k_ow_tiktok_candidate_pool)
+        {
+            printf '%s\n' "$_pool" | cut -d'|' -f1
+            _z2k_ow_tiktok_curated_candidates | cut -d'|' -f1
+        } | awk 'NF && !seen[$0]++' > "$_candidate_file" || { rm -f "$_candidate_file"; return 1; }
+        while IFS= read -r _candidate_ip; do
+            [ -n "$_candidate_ip" ] || continue
+            _z2k_ow_tiktok_valid_ipv4 "$_candidate_ip" || continue
+            [ "$_candidate_ip" != "$_active" ] || continue
+            _probe_count=$((_probe_count + 1))
+            [ "$_probe_count" -le "$Z2K_TIKTOK_MAX_PROBES" ] || break
+            if _candidate_row=$(_z2k_ow_tiktok_probe_report "$_candidate_ip" "$_host"); then
+                _candidate_success=$((_candidate_success + 1))
+                _candidate_ms=$(printf '%s' "$_candidate_row" | cut -d'|' -f2)
+                if [ -z "$_best_ms" ] || [ "$_candidate_ms" -lt "$_best_ms" ] 2>/dev/null; then
+                    _best_row=$_candidate_row; _best_ms=$_candidate_ms; _best_ip=$_candidate_ip
+                    # On recovery use the saved preference before the general
+                    # candidate pool, while still requiring a fresh probe.
+                    [ "$_policy" != preferred ] || [ "$_candidate_ip" != "$_preferred" ] || break
+                fi
+                [ "$_must_find" = 0 ] || break
+            fi
+            [ "$_candidate_success" -lt "$Z2K_TIKTOK_SUCCESS_TARGET" ] || break
+        done < "$_candidate_file"
+        rm -f "$_candidate_file"
+        if [ -n "$_best_ip" ] && [ "$_must_find" = 1 ]; then
+            local _stability_try=1
+            while [ "$_stability_try" -lt "$Z2K_TIKTOK_STABILITY_PROBES" ]; do
+                _candidate_row=$(_z2k_ow_tiktok_probe_report "$_best_ip" "$_host") || { _best_row=; _best_ip=; break; }
+                _stability_try=$((_stability_try + 1))
+            done
+            [ -z "$_best_row" ] || _best_row=$_candidate_row
+        fi
+    fi
+
+    _failure_before_apply=$_failure
+    _current_ms=$(printf '%s' "$_row" | cut -d'|' -f2)
+    if [ -z "$_active" ] && [ -z "$_best_row" ]; then
+        _health=unavailable
+        _reason=no-verified-candidate
+    fi
+    if [ -z "$_active" ] && [ -n "$_best_row" ]; then
+        _active=$_best_ip; _row=$_best_row; _health=transport-confirmed; _failure=0; _reason=initial-selection
+    elif [ "$_health" = unavailable ] && [ "$_policy" != strict ] \
+        && [ "$_failure" -ge "$Z2K_TIKTOK_FAILOVER_THRESHOLD" ] && [ -n "$_best_row" ]; then
+        _failover_from=$_old_active; _failover_to=$_best_ip
+        _active=$_best_ip; _row=$_best_row; _health=transport-confirmed; _failure=0; _reason=confirmed-failover
+    elif [ "$_full" = 1 ] && [ "$_policy" = auto ] && [ "$_health" = transport-confirmed ] && [ -n "$_best_row" ]; then
+        _decision=$(_z2k_ow_tiktok_hysteresis healthy "$_current_ms" healthy "$_best_ms")
+        if [ "${_decision%%|*}" = switch ]; then
+            _failover_from=$_active; _failover_to=$_best_ip
+            _active=$_best_ip; _row=$_best_row; _reason=${_decision#*|}
+        fi
+    fi
+    [ "$_health" != transport-confirmed ] || _last_verified=$_now
+
+    [ "$_old_active" = "$_active" ] || _selected_at=$_now
+    _http=$(printf '%s' "$_row" | cut -d'|' -f5)
+    [ -n "$_active" ] || _dns=0
+    _z2k_ow_tiktok_apply_lock_acquire || return 1
+    _locked_policy=$(_z2k_ow_tiktok_domain_state_get "$_host" policy)
+    _locked_preferred=$(_z2k_ow_tiktok_domain_state_get "$_host" preferred_ip)
+    _locked_active=$(_z2k_ow_tiktok_domain_state_get "$_host" selected_ip)
+    if [ "$_locked_policy" != "$_policy" ] || [ "$_locked_preferred" != "$_preferred" ] \
+        || [ "$_locked_active" != "$_stored_active" ]; then
+        _z2k_ow_tiktok_apply_lock_release
+        return 0
+    fi
+    _mapping=$(_z2k_ow_tiktok_domain_overrides "$_host" "$_active") || {
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    }
+    if ! _z2k_ow_tiktok_recheck_before_apply \
+        || z2k_ow_tiktok_external_override \
+        || ! _z2k_ow_tiktok_update_overrides "$_mapping"; then
+        if [ "$_active" != "$_old_active" ]; then
+            _selected_at=$_stored_selected_at
+            _last_verified=$_stored_last_verified
+            _failure=$_failure_before_apply
+        fi
+        _health=dns-apply-error
+        _reason=dns-apply-failed
+        _z2k_ow_tiktok_domain_state_set_many "$_host" \
+            "policy=$_policy" "preferred_ip=$_preferred" "selected_ip=$_old_active" \
+            "health=$_health" "failure_count=$_failure" "recovery_count=$_recovery" \
+            "selected_at_epoch=$_selected_at" "last_evaluation_epoch=$_now" \
+            "last_verified_epoch=$_last_verified" "reason=$_reason" "dns_override_applied=$_stored_dns" "media_status=not-verified"
+        if [ "$_host" = "$Z2K_TIKTOK_HOST" ]; then
+            _z2k_ow_tiktok_state_write_apply 1 0 dns-apply-error "$_old_active" \
+                "$_current_ms" "$_failure" "$(_z2k_ow_tiktok_state_get last_verified_epoch)" \
+                dns-apply-failed "$_selected_at" "$(_z2k_ow_tiktok_state_get last_discovery_epoch)" "$_now"
+        fi
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    fi
+    _z2k_ow_tiktok_domain_state_set_many "$_host" \
+        "policy=$_policy" "preferred_ip=$_preferred" "selected_ip=$_active" \
+        "health=$_health" "failure_count=$_failure" "recovery_count=$_recovery" \
+        "selected_at_epoch=$_selected_at" "last_evaluation_epoch=$_now" \
+        "last_verified_epoch=$_last_verified" "last_recovery_epoch=$_last_recovery" \
+        "last_failover_epoch=$([ -n "$_failover_from" ] && printf '%s' "$_now" || printf '%s' "$_last_failover")" \
+        "last_failover_from=$_failover_from" "last_failover_to=$_failover_to" \
+        "reason=$_reason" "dns_override_applied=$_dns" \
+        "latency_ms=$(printf '%s' "$_row" | cut -d'|' -f2)" \
+        "http_status=$_http" "http_checked=$([ -n "$_http" ] && printf 1 || printf 0)" \
+        "media_status=not-verified" \
+        "connect_latency_ms=$(printf '%s' "$_row" | cut -d'|' -f3)" \
+        "tls_latency_ms=$(printf '%s' "$_row" | cut -d'|' -f4)"
+    local _rc=$?
+    if [ "$_host" = "$Z2K_TIKTOK_HOST" ]; then
+        local _flat_state=degraded _flat_verified=0
+        [ "$_health" != transport-confirmed ] || { _flat_state=healthy; _flat_verified=1; }
+        [ "$_health" = transport-confirmed ] || [ "$_health" = unavailable ] || _flat_state=$_health
+        _z2k_ow_tiktok_state_write_apply "$_flat_verified" "$_dns" "$_flat_state" "$_active" \
+            "$(printf '%s' "$_row" | cut -d'|' -f2)" "$_failure" \
+            "$(_z2k_ow_tiktok_domain_state_get "$_host" last_verified_epoch)" "$_reason" \
+            "$_selected_at" "$(_z2k_ow_tiktok_state_get last_discovery_epoch)" "$_now" \
+            "$_host" "$_policy" "per-domain" "" \
+            "$_health" "$(printf '%s' "$_row" | cut -d'|' -f3)" \
+            "$(printf '%s' "$_row" | cut -d'|' -f4)" "$_http" \
+            "$(printf '%s' "$_row" | cut -d'|' -f6)" "$(printf '%s' "$_row" | cut -d'|' -f7)" \
+            "$(printf '%s' "$_row" | cut -d'|' -f8)" || _rc=1
+    fi
+    _z2k_ow_tiktok_apply_lock_release
+    return "$_rc"
+}
+
+_z2k_ow_tiktok_check_domains() {
+    local _mode="$1" _host _now _full=0 _rc=0 _mapping
+    case "$_mode" in automatic) ;; scheduled|explicit) _full=1 ;; *) return 2 ;; esac
+    _z2k_ow_tiktok_runtime_allowed || return 0
+    z2k_ow_tiktok_enabled || return 0
+    _now=$(date +%s 2>/dev/null) || _now=0
+    case "$_now" in ''|*[!0-9]*) _now=0 ;; esac
+    _z2k_ow_tiktok_apply_lock_acquire || return 1
+    if ! _z2k_ow_tiktok_runtime_allowed || ! z2k_ow_tiktok_enabled; then
+        _z2k_ow_tiktok_apply_lock_release
+        return 0
+    fi
+    if ! z2k_ow_tiktok_prepare || ! _z2k_ow_tiktok_domain_state_init; then
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    fi
+    _mapping=$(_z2k_ow_tiktok_domain_overrides) || {
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    }
+    if ! _z2k_ow_tiktok_update_overrides "$_mapping"; then
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    fi
+    _z2k_ow_tiktok_apply_lock_release
+    while IFS= read -r _host; do
+        [ -n "$_host" ] || continue
+        _z2k_ow_tiktok_domain_check_one "$_host" "$_full" "$_now" || _rc=1
+    done <<EOF_TIKTOK_HOSTS
+$(_z2k_ow_tiktok_domain_hosts)
+EOF_TIKTOK_HOSTS
+    return "$_rc"
+}
+
 z2k_ow_tiktok_manual_check() {
-    local _ip _row="${1:-}" _now _dns_applied=0 _fail=0
+    local _ip _row="${1:-}" _now _dns_applied=0 _fail=0 _previous_ip _selected_at _mapping _host _old_domain_ip _domain_selected_at _http _domain_state_present=0
+    [ "$(_z2k_ow_tiktok_domain_state_get schema_version)" = 2 ] && _domain_state_present=1
     _ip=$(_z2k_ow_tiktok_manual_ip)
+    _previous_ip=$(_z2k_ow_tiktok_state_get selected_ip)
+    _selected_at=$(_z2k_ow_tiktok_state_get selected_at_epoch)
     _now=$(date +%s 2>/dev/null) || _now=0
     if ! _z2k_ow_tiktok_valid_ipv4 "$_ip"; then
         _z2k_ow_tiktok_apply_lock_acquire || return 1
@@ -1090,7 +1569,18 @@ z2k_ow_tiktok_manual_check() {
         _z2k_ow_tiktok_apply_lock_release
         return 0
     fi
-    if ! _z2k_ow_tiktok_set_host "$_ip"; then
+    if [ "$_domain_state_present" = 1 ]; then
+        _mapping=$(_z2k_ow_tiktok_domain_overrides "$Z2K_TIKTOK_HOST" "$_ip" "$Z2K_TIKTOK_EU_HOST" "$_ip") || {
+            _z2k_ow_tiktok_apply_lock_release
+            return 1
+        }
+        _z2k_ow_tiktok_update_overrides "$_mapping" || {
+            _z2k_ow_tiktok_job_progress "TikTok manual: dnsmasq не подтвердил override для $_ip"
+            _z2k_ow_tiktok_state_write_apply 1 0 dns-apply-error "$_ip" "$(printf '%s' "$_row" | cut -d'|' -f2)" 0 "$_now" dns-apply-failed
+            _z2k_ow_tiktok_apply_lock_release
+            return 1
+        }
+    elif ! _z2k_ow_tiktok_set_host "$_ip"; then
         _z2k_ow_tiktok_job_progress "TikTok manual: dnsmasq не подтвердил override для $_ip"
         _z2k_ow_tiktok_state_write_apply 1 0 dns-apply-error "$_ip" "$(printf '%s' "$_row" | cut -d'|' -f2)" \
             0 "$_now" dns-apply-failed
@@ -1098,19 +1588,118 @@ z2k_ow_tiktok_manual_check() {
         return 1
     fi
     _z2k_ow_tiktok_job_progress "TikTok manual: effective DNS подтверждает $_ip; сохраняю результат"
+    if [ "$_previous_ip" != "$_ip" ]; then _selected_at="$_now"; fi
     _Z2K_TIKTOK_PROBE_OBSERVATIONS_STATE="$(_z2k_ow_tiktok_state_get probe_observations)"
     _z2k_ow_tiktok_state_write_apply 1 1 healthy "$_ip" "$(printf '%s' "$_row" | cut -d'|' -f2)" 0 "$_now" \
-        manual-selection "$_now" "$(_z2k_ow_tiktok_state_get last_discovery_epoch)" "$_now" \
+        manual-selection "$_selected_at" "$(_z2k_ow_tiktok_state_get last_discovery_epoch)" "$_now" \
         manual manual manual-selection "" healthy "$(printf '%s' "$_row" | cut -d'|' -f3)" \
         "$(printf '%s' "$_row" | cut -d'|' -f4)" "$(printf '%s' "$_row" | cut -d'|' -f5)" \
         "$(printf '%s' "$_row" | cut -d'|' -f6)" "$(printf '%s' "$_row" | cut -d'|' -f7)" \
         "$(printf '%s' "$_row" | cut -d'|' -f8)" manual manual "" manual-selection "" 0 0 1
+    if [ "$_domain_state_present" = 1 ]; then for _host in "$Z2K_TIKTOK_HOST" "$Z2K_TIKTOK_EU_HOST"; do
+        _old_domain_ip=$(_z2k_ow_tiktok_domain_state_get "$_host" selected_ip)
+        _domain_selected_at=$(_z2k_ow_tiktok_domain_state_get "$_host" selected_at_epoch)
+        [ "$_old_domain_ip" = "$_ip" ] || _domain_selected_at=$_now
+        _http=$(printf '%s' "$_row" | cut -d'|' -f5)
+        [ "$_host" != "$Z2K_TIKTOK_EU_HOST" ] || _http=$(printf '%s' "$_row" | cut -d'|' -f15)
+        _z2k_ow_tiktok_domain_state_set_many "$_host" \
+            "policy=strict" "preferred_ip=$_ip" "selected_ip=$_ip" \
+            "health=transport-confirmed" "failure_count=0" "recovery_count=0" \
+            "preferred_set_at_epoch=$(_z2k_ow_tiktok_domain_state_get "$_host" preferred_set_at_epoch)" \
+            "selected_at_epoch=$_domain_selected_at" "last_verified_epoch=$_now" "last_evaluation_epoch=$_now" \
+            "reason=legacy-strict-selection" "dns_override_applied=1" \
+            "latency_ms=$([ "$_host" = "$Z2K_TIKTOK_HOST" ] && printf '%s' "$(printf '%s' "$_row" | cut -d'|' -f2)" || printf '%s' "$(printf '%s' "$_row" | cut -d'|' -f12)")" \
+            "http_status=$_http" "http_checked=1" "media_status=not-verified" \
+            "connect_latency_ms=$([ "$_host" = "$Z2K_TIKTOK_HOST" ] && printf '%s' "$(printf '%s' "$_row" | cut -d'|' -f3)" || printf '%s' "$(printf '%s' "$_row" | cut -d'|' -f13)")" \
+            "tls_latency_ms=$([ "$_host" = "$Z2K_TIKTOK_HOST" ] && printf '%s' "$(printf '%s' "$_row" | cut -d'|' -f4)" || printf '%s' "$(printf '%s' "$_row" | cut -d'|' -f14)")" || {
+                _z2k_ow_tiktok_apply_lock_release
+                return 1
+            }
+    done; fi
     _z2k_ow_tiktok_apply_lock_release
     return 0
 }
 
+z2k_ow_tiktok_domain_select() {
+    local _host="$1" _ip="$2" _row _now _previous_ip _previous_preferred _selected_at _preferred_at _mapping _http
+    local _snapshot_policy _snapshot_ip _snapshot_preferred
+    _z2k_ow_tiktok_managed_domain "$_host" || return 1
+    _z2k_ow_tiktok_valid_ipv4 "$_ip" || return 1
+    z2k_ow_tiktok_enabled || return 1
+    _z2k_ow_tiktok_apply_lock_acquire || return 1
+    if ! z2k_ow_tiktok_enabled || ! _z2k_ow_tiktok_runtime_allowed \
+        || ! _z2k_ow_tiktok_domain_state_init; then
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    fi
+    _snapshot_policy=$(_z2k_ow_tiktok_domain_state_get "$_host" policy)
+    _snapshot_ip=$(_z2k_ow_tiktok_domain_state_get "$_host" selected_ip)
+    _snapshot_preferred=$(_z2k_ow_tiktok_domain_state_get "$_host" preferred_ip)
+    _z2k_ow_tiktok_apply_lock_release
+    if ! _row=$(_z2k_ow_tiktok_probe_report "$_ip" "$_host"); then
+        _z2k_ow_tiktok_job_progress "TikTok: $_ip не прошёл hostname-specific probe для $_host"
+        return 1
+    fi
+    _z2k_ow_tiktok_apply_lock_acquire || return 1
+    if ! z2k_ow_tiktok_enabled || ! _z2k_ow_tiktok_runtime_allowed || z2k_ow_tiktok_external_override; then
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    fi
+    if [ "$(_z2k_ow_tiktok_domain_state_get "$_host" policy)" != "$_snapshot_policy" ] \
+        || [ "$(_z2k_ow_tiktok_domain_state_get "$_host" selected_ip)" != "$_snapshot_ip" ] \
+        || [ "$(_z2k_ow_tiktok_domain_state_get "$_host" preferred_ip)" != "$_snapshot_preferred" ]; then
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    fi
+    # Convert a legacy include before building the full schema-v2 mapping.
+    if _z2k_ow_tiktok_registered || { [ -e "$Z2K_TIKTOK_HOSTS_FILE" ] && _z2k_ow_tiktok_owned; }; then
+        local _legacy_ip
+        _legacy_ip=$(_z2k_ow_tiktok_state_get selected_ip)
+        [ -n "$(_z2k_ow_tiktok_manual_ip)" ] && _legacy_ip=$(_z2k_ow_tiktok_manual_ip)
+        if ! _z2k_ow_tiktok_update_override "$_legacy_ip"; then
+            _z2k_ow_tiktok_apply_lock_release
+            return 1
+        fi
+    fi
+    _previous_ip=$(_z2k_ow_tiktok_domain_state_get "$_host" selected_ip)
+    _previous_preferred=$(_z2k_ow_tiktok_domain_state_get "$_host" preferred_ip)
+    _selected_at=$(_z2k_ow_tiktok_domain_state_get "$_host" selected_at_epoch)
+    _preferred_at=$(_z2k_ow_tiktok_domain_state_get "$_host" preferred_set_at_epoch)
+    _now=$(date +%s 2>/dev/null) || _now=0
+    case "$_now" in ''|*[!0-9]*) _now=0 ;; esac
+    [ "$_previous_ip" = "$_ip" ] || _selected_at=$_now
+    [ "$_previous_preferred" = "$_ip" ] || _preferred_at=$_now
+    _mapping=$(_z2k_ow_tiktok_domain_overrides "$_host" "$_ip") || {
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    }
+    if ! _z2k_ow_tiktok_update_overrides "$_mapping"; then
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    fi
+    _http=$(printf '%s' "$_row" | cut -d'|' -f5)
+    _z2k_ow_tiktok_domain_state_set_many "$_host" \
+        "cluster=$(_z2k_ow_tiktok_domain_cluster "$_host")" \
+        "policy=preferred" "preferred_ip=$_ip" "selected_ip=$_ip" \
+        "health=transport-confirmed" "failure_count=0" \
+        "preferred_set_at_epoch=$_preferred_at" "selected_at_epoch=$_selected_at" \
+        "last_verified_epoch=$_now" "last_evaluation_epoch=$_now" \
+        "reason=preferred-selection" "dns_override_applied=1" \
+        "latency_ms=$(printf '%s' "$_row" | cut -d'|' -f2)" \
+        "http_status=$_http" "http_checked=1" "media_status=not-verified" \
+        "connect_latency_ms=$(printf '%s' "$_row" | cut -d'|' -f3)" \
+        "tls_latency_ms=$(printf '%s' "$_row" | cut -d'|' -f4)"
+    local _rc=$?
+    _z2k_ow_tiktok_apply_lock_release
+    return "$_rc"
+}
+
 z2k_ow_tiktok_manual_select() {
-    local _ip="$1" _row
+    local _ip="$1" _row _host="${2:-}"
+    if [ -n "$_host" ]; then
+        z2k_ow_tiktok_domain_select "$_host" "$_ip"
+        return $?
+    fi
     _z2k_ow_tiktok_valid_ipv4 "$_ip" || return 1
     z2k_ow_tiktok_enabled || return 1
     # The candidate list is only a discovery snapshot. Re-probe the exact
@@ -1139,6 +1728,81 @@ z2k_ow_tiktok_manual_select() {
     fi
     _z2k_ow_tiktok_apply_lock_release
     z2k_ow_tiktok_manual_check "$_row"
+}
+
+z2k_ow_tiktok_domain_policy_set() {
+    local _host="$1" _policy="$2" _preferred _active _target _row _now _mapping _old_policy _selected_at _preferred_at
+    _z2k_ow_tiktok_managed_domain "$_host" || return 1
+    case "$_policy" in auto|preferred|strict) ;; *) return 1 ;; esac
+    z2k_ow_tiktok_enabled || return 1
+    _z2k_ow_tiktok_apply_lock_acquire || return 1
+    if ! z2k_ow_tiktok_enabled || ! _z2k_ow_tiktok_runtime_allowed \
+        || ! _z2k_ow_tiktok_domain_state_init; then
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    fi
+    _old_policy=$(_z2k_ow_tiktok_domain_state_get "$_host" policy)
+    _preferred=$(_z2k_ow_tiktok_domain_state_get "$_host" preferred_ip)
+    _active=$(_z2k_ow_tiktok_domain_state_get "$_host" selected_ip)
+    _selected_at=$(_z2k_ow_tiktok_domain_state_get "$_host" selected_at_epoch)
+    _preferred_at=$(_z2k_ow_tiktok_domain_state_get "$_host" preferred_set_at_epoch)
+    _z2k_ow_tiktok_apply_lock_release
+    _target=$_active
+    case "$_policy" in
+        strict)
+            _z2k_ow_tiktok_valid_ipv4 "$_preferred" && _target=$_preferred
+            _z2k_ow_tiktok_valid_ipv4 "$_target" || return 1
+            _row=$(_z2k_ow_tiktok_probe_report "$_target" "$_host") || return 1
+            ;;
+        preferred)
+            _z2k_ow_tiktok_valid_ipv4 "$_preferred" || return 1
+            if ! _z2k_ow_tiktok_valid_ipv4 "$_active"; then
+                _target=$_preferred
+                _row=$(_z2k_ow_tiktok_probe_report "$_target" "$_host") || return 1
+            fi
+            ;;
+    esac
+    _now=$(date +%s 2>/dev/null) || _now=0
+    case "$_now" in ''|*[!0-9]*) _now=0 ;; esac
+    _z2k_ow_tiktok_apply_lock_acquire || return 1
+    if ! z2k_ow_tiktok_enabled || ! _z2k_ow_tiktok_runtime_allowed || z2k_ow_tiktok_external_override; then
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    fi
+    if [ "$(_z2k_ow_tiktok_domain_state_get "$_host" policy)" != "$_old_policy" ] \
+        || [ "$(_z2k_ow_tiktok_domain_state_get "$_host" selected_ip)" != "$_active" ] \
+        || [ "$(_z2k_ow_tiktok_domain_state_get "$_host" preferred_ip)" != "$_preferred" ]; then
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    fi
+    [ "$_policy" != auto ] || _preferred=
+    if [ "$_policy" = strict ] || { [ "$_policy" = preferred ] && ! _z2k_ow_tiktok_valid_ipv4 "$_active"; }; then
+        [ "$_active" = "$_target" ] || _selected_at=$_now
+        _active=$_target
+    fi
+    [ -n "$_preferred_at" ] || { [ "$_policy" = preferred ] && _preferred_at=$_now; }
+    _mapping=$(_z2k_ow_tiktok_domain_overrides "$_host" "$_active") || {
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    }
+    if ! _z2k_ow_tiktok_update_overrides "$_mapping"; then
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    fi
+    _z2k_ow_tiktok_domain_state_set_many "$_host" \
+        "policy=$_policy" "preferred_ip=$_preferred" "selected_ip=$_active" \
+        "health=$([ -n "$_row" ] && printf transport-confirmed || printf "$(_z2k_ow_tiktok_domain_state_get "$_host" health)")" \
+        "failure_count=0" "last_evaluation_epoch=$_now" \
+        "selected_at_epoch=$_selected_at" "preferred_set_at_epoch=$_preferred_at" \
+        "last_verified_epoch=$([ -n "$_row" ] && printf '%s' "$_now" || printf '%s' "$(_z2k_ow_tiktok_domain_state_get "$_host" last_verified_epoch)")" \
+        "latency_ms=$(printf '%s' "$_row" | cut -d'|' -f2)" \
+        "http_status=$(printf '%s' "$_row" | cut -d'|' -f5)" "http_checked=$([ -n "$_row" ] && printf 1 || printf 0)" \
+        "media_status=not-verified" "reason=policy-updated" \
+        "dns_override_applied=$([ -n "$_active" ] && printf 1 || printf 0)"
+    local _rc=$?
+    _z2k_ow_tiktok_apply_lock_release
+    [ "$_old_policy" != "$_policy" ] || :
+    return "$_rc"
 }
 
 z2k_ow_tiktok_use_auto() {
@@ -1200,7 +1864,108 @@ _z2k_ow_tiktok_probe_progress_line() {
     printf '\n'
 }
 
+_z2k_ow_tiktok_probe_domain_progress_line() {
+    local _index="$1" _total="$2" _host="$3" _pool="$4" _row="$5"
+    local _ip _status _latency _http _source _geo
+    _ip=$(printf '%s' "$_row" | cut -d'|' -f1)
+    _status=$(printf '%s' "$_row" | cut -d'|' -f11)
+    _latency=$(printf '%s' "$_row" | cut -d'|' -f2)
+    _http=$(printf '%s' "$_row" | cut -d'|' -f5)
+    _source=$(printf '%s\n' "$_pool" | tr ';' '\n' | awk -F'|' -v ip="$_ip" '$1 == ip { print $5; exit }')
+    _geo=$(printf '%s\n' "$_pool" | tr ';' '\n' | awk -F'|' -v ip="$_ip" '$1 == ip { print $7; exit }')
+    [ "$_status" = verified ] || _status="не прошёл"
+    printf '[%s/%s] %s для %s — %s' "$_index" "$_total" "$_ip" "$_host" "$_status"
+    [ -z "$_latency" ] || printf ', %s мс' "$_latency"
+    [ -z "$_http" ] || printf ', HTTP %s' "$_http"
+    [ -z "$_geo" ] || printf ' — %s' "$_geo"
+    [ -z "$_source" ] || printf ' (%s)' "$_source"
+    printf '\n'
+}
+
+_z2k_ow_tiktok_probe_domain_all() {
+    local _host="$1" _resolution _pool _ip _row _idx=0 _total=0 _batch=0 _parallel="${Z2K_TIKTOK_CANDIDATE_PARALLELISM:-4}"
+    local _limit="${Z2K_TIKTOK_CANDIDATE_LIMIT:-64}" _tmp="${Z2K_TMP:-/tmp/z2k}/tiktok-domain-probes.$$"
+    local _pids="" _pid _batch_start=0 _batch_end=0 _batch_index _obs="" _now _rc
+    _z2k_ow_tiktok_managed_domain "$_host" || return 1
+    _z2k_ow_tiktok_runtime_allowed || return 0
+    z2k_ow_tiktok_enabled || return 1
+    case "$_parallel" in ''|*[!0-9]*|0) _parallel=4 ;; esac
+    [ "$_parallel" -le 8 ] 2>/dev/null || _parallel=8
+    case "$_limit" in ''|*[!0-9]*|0) _limit=64 ;; esac
+    [ "$_limit" -le 64 ] 2>/dev/null || _limit=64
+    _z2k_ow_tiktok_job_progress "Обнаружение CDN-кандидатов для $_host: Check-Host, локальный DNS, cache и curated pool"
+    _resolution=$(_z2k_ow_tiktok_discover_combined 1)
+    _pool=$(printf '%s\n' "$_resolution" | _z2k_ow_tiktok_candidate_pool | _z2k_ow_tiktok_serialize_lines)
+    _total=$(printf '%s\n' "$_pool" | tr ';' '\n' | awk -v limit="$_limit" 'NF && n < limit { n++ } END { print n+0 }')
+    _z2k_ow_tiktok_job_progress "Найдено кандидатов для $_host: $_total; проверяю TCP/TLS/SNI с SNI этого домена (параллельно: $_parallel)"
+    mkdir -p "$_tmp" 2>/dev/null || return 1
+    _idx=0
+    while IFS='|' read -r _ip _; do
+        _z2k_ow_tiktok_valid_ipv4 "$_ip" || continue
+        _idx=$((_idx + 1))
+        [ "$_idx" -le "$_limit" ] || break
+        [ "$_batch" -gt 0 ] || _batch_start=$_idx
+        (
+            _row=$(_z2k_ow_tiktok_probe_report "$_ip" "$_host") || :
+            [ -n "$_row" ] || _row="$_ip||||||||failed|failed|failed"
+            printf '%s\n' "$_row" > "$_tmp/$_idx.result"
+        ) &
+        _pids="$_pids $!"
+        _batch=$((_batch + 1))
+        if [ "$_batch" -ge "$_parallel" ]; then
+            for _pid in $_pids; do wait "$_pid" || true; done
+            _batch_end=$_idx; _batch_index=$_batch_start
+            while [ "$_batch_index" -le "$_batch_end" ]; do
+                _row=$(cat "$_tmp/$_batch_index.result" 2>/dev/null)
+                [ -z "$_row" ] || _z2k_ow_tiktok_job_progress "$(_z2k_ow_tiktok_probe_domain_progress_line "$_batch_index" "$_total" "$_host" "$_pool" "$_row")"
+                _batch_index=$((_batch_index + 1))
+            done
+            _batch_start=$((_batch_end + 1)); _pids=""; _batch=0
+        fi
+    done <<EOF_TIKTOK_DOMAIN_POOL
+$(printf '%s' "$_pool" | tr ';' '\n')
+EOF_TIKTOK_DOMAIN_POOL
+    if [ -n "$_pids" ]; then
+        for _pid in $_pids; do wait "$_pid" || true; done
+        _batch_end=$_idx; _batch_index=$_batch_start
+        while [ "$_batch_index" -le "$_batch_end" ]; do
+            _row=$(cat "$_tmp/$_batch_index.result" 2>/dev/null)
+            [ -z "$_row" ] || _z2k_ow_tiktok_job_progress "$(_z2k_ow_tiktok_probe_domain_progress_line "$_batch_index" "$_total" "$_host" "$_pool" "$_row")"
+            _batch_index=$((_batch_index + 1))
+        done
+    fi
+    _obs=""; _batch_index=1
+    while [ "$_batch_index" -le "$_idx" ]; do
+        [ -r "$_tmp/$_batch_index.result" ] || { _batch_index=$((_batch_index + 1)); continue; }
+        _row=$(cat "$_tmp/$_batch_index.result")
+        [ -n "$_obs" ] && _obs="$_obs;"
+        _obs="$_obs$(printf '%s' "$_row" | cut -d'|' -f1-11)"
+        _batch_index=$((_batch_index + 1))
+    done
+    rm -rf "$_tmp"
+    _now=$(date +%s 2>/dev/null) || _now=0
+    case "$_now" in ''|*[!0-9]*) _now=0 ;; esac
+    _z2k_ow_tiktok_apply_lock_acquire || return 1
+    if ! _z2k_ow_tiktok_runtime_allowed || ! z2k_ow_tiktok_enabled \
+        || ! _z2k_ow_tiktok_domain_state_init; then
+        _z2k_ow_tiktok_apply_lock_release
+        return 1
+    fi
+    _z2k_ow_tiktok_domain_state_set_many "$_host" \
+        "candidate_pool=$_pool" "candidate_observations=$_obs" "candidates_checked_epoch=$_now"
+    _rc=$?
+    _z2k_ow_tiktok_apply_lock_release
+    if [ "$_rc" = 0 ]; then
+        _z2k_ow_tiktok_job_progress "Проверка $_host завершена: $_idx кандидатов; результаты сохранены, DNS выбор не менялся"
+    fi
+    return "$_rc"
+}
+
 z2k_ow_tiktok_probe_all() {
+    if [ -n "${1:-}" ]; then
+        _z2k_ow_tiktok_probe_domain_all "$1"
+        return $?
+    fi
     local _pool _ip _row _icmp _idx=0 _batch=0 _parallel="${Z2K_TIKTOK_CANDIDATE_PARALLELISM:-4}"
     local _limit="${Z2K_TIKTOK_CANDIDATE_LIMIT:-64}"
     local _tmp="${Z2K_TMP:-/tmp/z2k}/tiktok-probes.$$" _pids="" _pid _obs="" _result
@@ -1552,7 +2317,7 @@ EOF_POOL
 }
 
 z2k_ow_tiktok_status() {
-    local _state _ip _lat _verified _fail _enabled _mode _candidate_verified _dns_override_applied
+    local _state _ip _lat _verified _fail _enabled _mode _candidate_verified _dns_override_applied _host _slug _field
     _state=$(_z2k_ow_tiktok_state_get state); [ -n "$_state" ] || _state=unknown
     _ip=$(_z2k_ow_tiktok_state_get selected_ip)
     _lat=$(_z2k_ow_tiktok_state_get latency_ms)
@@ -1599,6 +2364,17 @@ z2k_ow_tiktok_status() {
     printf 'last_failover_from=%s\n' "$(_z2k_ow_tiktok_state_get last_failover_from)"
     printf 'last_failover_to=%s\n' "$(_z2k_ow_tiktok_state_get last_failover_to)"
     printf 'last_failover_reason=%s\n' "$(_z2k_ow_tiktok_state_get last_failover_reason)"
+    for _host in $(_z2k_ow_tiktok_domain_hosts); do
+        _slug=$(_z2k_ow_tiktok_domain_slug "$_host")
+        for _field in cluster policy preferred_ip selected_ip health failure_count \
+            selected_at_epoch preferred_set_at_epoch last_verified_epoch last_evaluation_epoch \
+            last_failover_epoch last_failover_from last_failover_to last_recovery_epoch reason dns_override_applied \
+            connect_latency_ms tls_latency_ms latency_ms http_status http_checked media_status recovery_count \
+            candidate_pool candidate_observations candidates_checked_epoch; do
+            printf 'domain_%s_%s=%s\n' "$_slug" "$_field" \
+                "$(_z2k_ow_tiktok_domain_state_get "$_host" "$_field")"
+        done
+    done
 }
 
 z2k_ow_tiktok_enable() {
@@ -1635,7 +2411,8 @@ _z2k_ow_tiktok_uninstall_locked() {
     fi
     z2k_ow_tiktok_clear || return 1
     rm -f "$Z2K_TIKTOK_UCI_MARKER" "$Z2K_TIKTOK_CONTENT_MARKER" \
-        "$Z2K_TIKTOK_ADDRESS_MARKER" "$Z2K_TIKTOK_STATE_FILE"
+        "$Z2K_TIKTOK_ADDRESS_MARKER" "$Z2K_TIKTOK_STATE_FILE" \
+        "$Z2K_TIKTOK_DOMAIN_STATE_FILE" "${Z2K_TIKTOK_DOMAIN_STATE_FILE}.candidates."*
 }
 
 z2k_ow_tiktok_uninstall() {

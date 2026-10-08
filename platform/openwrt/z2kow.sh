@@ -31,11 +31,11 @@ case "$_command" in
         [ "$_previous" = 1 ] || _previous=0
         case "$_action" in
             status) z2k_ow_tiktok_status ;;
-            check) z2k_ow_tiktok_check ;;
+            check) _z2k_ow_tiktok_check_domains automatic ;;
             enable)
                 set_flag Z2K_TIKTOK_FEED_ENABLED 1 "$Z2K_CONFIG"
                 if [ -e "$Z2K_CORE_READY" ]; then
-                    if z2k_ow_tiktok_cron_install && z2k_ow_tiktok_enable; then :; else
+                    if z2k_ow_tiktok_cron_install && _z2k_ow_tiktok_check_domains explicit; then :; else
                         set_flag Z2K_TIKTOK_FEED_ENABLED "$_previous" "$Z2K_CONFIG"
                         z2k_ow_tiktok_cron_remove >/dev/null 2>&1 || true
                         exit 1

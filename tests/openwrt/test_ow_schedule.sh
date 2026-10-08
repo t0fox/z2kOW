@@ -32,9 +32,12 @@ assert_eq "одна TCP16 первичная retry-строка" "1" "$(grep -c 
 assert_contains "TCP16 initial retry через native adapter" "$Z2K_CRON_TAB" "*/10 * * * * sh /r/platform/openwrt/tcp16-check.sh # z2k-tcp16-first-result"
 z2k_ow_tiktok_cron_install >/dev/null 2>&1 || { echo "FAIL[ow-schedule]: TikTok install" >&2; exit 1; }
 assert_eq "one TikTok health row" "1" "$(grep -c 'z2k-tiktok-health' "$Z2K_CRON_TAB")"
-assert_contains "TikTok CDN check is hourly and marks scheduled evaluation" "$Z2K_CRON_TAB" "7 * * * * sh /r/platform/openwrt/tiktok-check.sh check scheduled # z2k-tiktok-health"
+assert_contains "TikTok active host checks run every three minutes" "$Z2K_CRON_TAB" "*/3 * * * * sh /r/platform/openwrt/tiktok-check.sh check automatic # z2k-tiktok-health"
+assert_eq "one TikTok full discovery row" "1" "$(grep -c 'z2k-tiktok-full-discovery' "$Z2K_CRON_TAB")"
+assert_contains "TikTok full discovery runs twice an hour" "$Z2K_CRON_TAB" "7,37 * * * * sh /r/platform/openwrt/tiktok-check.sh check scheduled # z2k-tiktok-full-discovery"
 z2k_ow_tiktok_cron_remove >/dev/null 2>&1 || _t_bad "TikTok cron remove fails"
 assert_eq "TikTok health row removed independently" "0" "$(grep -c 'z2k-tiktok-health' "$Z2K_CRON_TAB" || true)"
+assert_eq "TikTok full discovery row removed independently" "0" "$(grep -c 'z2k-tiktok-full-discovery' "$Z2K_CRON_TAB" || true)"
 z2k_ow_cron_install >/dev/null 2>&1
 assert_eq "идемпотентность" "1" "$(grep -c 'z2k-updater' "$Z2K_CRON_TAB")"
 z2k_ow_cron_remove >/dev/null 2>&1

@@ -41,7 +41,8 @@ Z2K_FW_CRON_LINE="*/5 * * * * $Z2K_ROOT/platform/openwrt/fw-check.sh check # z2k
 # adapter is a no-op once a valid persistent verdict exists.
 Z2K_TCP16_NIGHTLY_CRON_LINE="30 3 * * * sh $Z2K_ROOT/z2k-tcp16-probe.sh # z2k-tcp16-nightly"
 Z2K_TCP16_FIRST_CRON_LINE="*/10 * * * * sh $Z2K_ROOT/platform/openwrt/tcp16-check.sh # z2k-tcp16-first-result"
-Z2K_TIKTOK_CRON_LINE="7 * * * * sh $Z2K_ROOT/platform/openwrt/tiktok-check.sh check scheduled # z2k-tiktok-health"
+Z2K_TIKTOK_CRON_LINE="*/3 * * * * sh $Z2K_ROOT/platform/openwrt/tiktok-check.sh check automatic # z2k-tiktok-health"
+Z2K_TIKTOK_FULL_CRON_LINE="7,37 * * * * sh $Z2K_ROOT/platform/openwrt/tiktok-check.sh check scheduled # z2k-tiktok-full-discovery"
 
 # Read the selected hour as data.  The config is a shell fragment, so never
 # source it from cron/postinst.  The last assignment wins for the normal
@@ -215,6 +216,7 @@ z2k_ow_tcp16_cron_remove() {
 
 z2k_ow_tiktok_cron_install() {
     _z2k_ow_cron_swap_line "# z2k-tiktok-health" "$Z2K_TIKTOK_CRON_LINE" || return 1
+    _z2k_ow_cron_swap_line "# z2k-tiktok-full-discovery" "$Z2K_TIKTOK_FULL_CRON_LINE" || return 1
     if [ -x /etc/init.d/cron ]; then
         /etc/init.d/cron enabled 2>/dev/null || /etc/init.d/cron enable 2>/dev/null || true
         pidof crond >/dev/null 2>&1 || /etc/init.d/cron start 2>/dev/null || true
@@ -225,5 +227,6 @@ z2k_ow_tiktok_cron_install() {
 z2k_ow_tiktok_cron_remove() {
     [ -f "$Z2K_CRON_TAB" ] || return 0
     _z2k_ow_cron_swap_line "# z2k-tiktok-health" "" || return 1
+    _z2k_ow_cron_swap_line "# z2k-tiktok-full-discovery" "" || return 1
     return 0
 }

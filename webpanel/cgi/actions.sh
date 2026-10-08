@@ -1477,19 +1477,31 @@ toggle_tiktok_feed() {
 }
 
 tiktok_probe_all() {
+    local host="${1:-v77.tiktokcdn.com}"
     [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] || return 1
     [ "$(read_flag Z2K_TIKTOK_FEED_ENABLED "$CONFIG_FILE" 0)" = 1 ] || return 1
     . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/tiktok.sh" || return 1
-    z2k_ow_tiktok_probe_all
+    _z2k_ow_tiktok_managed_domain "$host" || return 1
+    z2k_ow_tiktok_probe_all "$host"
 }
 
 tiktok_select_cdn() {
-    local ip="$1"
+    local ip="$1" host="${2:-v77.tiktokcdn.com}"
     [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] || return 1
     . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/tiktok.sh" || return 1
     _z2k_ow_tiktok_valid_ipv4 "$ip" || return 1
+    _z2k_ow_tiktok_managed_domain "$host" || return 1
     z2k_ow_tiktok_enabled || return 1
-    z2k_ow_tiktok_manual_select "$ip"
+    z2k_ow_tiktok_manual_select "$ip" "$host"
+}
+
+tiktok_set_policy() {
+    local host="$1" policy="$2"
+    [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] || return 1
+    . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/tiktok.sh" || return 1
+    _z2k_ow_tiktok_managed_domain "$host" || return 1
+    case "$policy" in auto|preferred|strict) ;; *) return 1 ;; esac
+    z2k_ow_tiktok_domain_policy_set "$host" "$policy"
 }
 
 tiktok_use_auto() {

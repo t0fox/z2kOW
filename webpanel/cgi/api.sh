@@ -326,7 +326,7 @@ case "$method $path" in
                         health|connect_latency_ms|tls_latency_ms|http_status|x77_pop|x77_cache|server|\
                         dns_observed|curated_observed|stability_probe_count|last_failover_epoch|\
                         last_failover_from|last_failover_to|last_failover_reason|mode|manual_ip|\
-                        candidate_pool|probe_observations|checkhost_cache_epoch|candidate_verified|dns_override_applied)
+                        candidate_pool|probe_observations|checkhost_cache_epoch|candidate_verified|dns_override_applied|domain_*)
                             printf '%s' "$_tiktok_sep"; json_string "$_tiktok_key"; printf ':'; json_string "$_tiktok_value"
                             _tiktok_sep=,
                             ;;
@@ -490,9 +490,16 @@ case "$method $path" in
     # ---------- TIKTOK CDN CANDIDATES / MANUAL SELECTION ----------
     "POST /tiktok/probe-all")
         require_method POST
+        body=$(read_body)
+        cdn_host=$(form_value "$body" "host")
+        [ -n "$cdn_host" ] || cdn_host=v77.tiktokcdn.com
+        . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/tiktok.sh" \
+            || json_fail "503 Service Unavailable" "TikTok CDN runtime недоступен"
+        _z2k_ow_tiktok_managed_domain "$cdn_host" \
+            || json_fail "400 Bad Request" "host must be a managed TikTok CDN hostname"
         [ "$(read_flag Z2K_TIKTOK_FEED_ENABLED "$CONFIG_FILE" 0)" = 1 ] \
             || json_fail "409 Conflict" "сначала включите исправление ленты TikTok"
-        job_id=$(svc_action_async "Проверяю CDN-кандидаты TikTok" "tiktok_probe_all")
+        job_id=$(svc_action_async "Проверяю CDN-кандидаты для $cdn_host" "tiktok_probe_all $cdn_host")
         json_header
         printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
         exit 0
@@ -501,14 +508,35 @@ case "$method $path" in
         require_method POST
         body=$(read_body)
         cdn_ip=$(form_value "$body" "ip")
+        cdn_host=$(form_value "$body" "host")
+        [ -n "$cdn_host" ] || cdn_host=v77.tiktokcdn.com
         case "$cdn_ip" in ''|*[!0-9.]*) json_fail "400 Bad Request" "ip must be an IPv4 address" ;; esac
         . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/tiktok.sh" \
             || json_fail "503 Service Unavailable" "TikTok CDN runtime недоступен"
         _z2k_ow_tiktok_valid_ipv4 "$cdn_ip" \
             || json_fail "400 Bad Request" "ip must be a valid IPv4 address"
+        _z2k_ow_tiktok_managed_domain "$cdn_host" \
+            || json_fail "400 Bad Request" "host must be a managed TikTok CDN hostname"
         [ "$(read_flag Z2K_TIKTOK_FEED_ENABLED "$CONFIG_FILE" 0)" = 1 ] \
             || json_fail "409 Conflict" "сначала включите исправление ленты TikTok"
-        job_id=$(svc_action_async "Проверяю и выбираю CDN $cdn_ip" "tiktok_select_cdn $cdn_ip")
+        job_id=$(svc_action_async "Проверяю $cdn_ip для $cdn_host" "tiktok_select_cdn $cdn_ip $cdn_host")
+        json_header
+        printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
+        exit 0
+        ;;
+    "POST /tiktok/policy")
+        require_method POST
+        body=$(read_body)
+        cdn_host=$(form_value "$body" "host")
+        cdn_policy=$(form_value "$body" "policy")
+        case "$cdn_policy" in auto|preferred|strict) ;; *) json_fail "400 Bad Request" "policy must be auto, preferred or strict" ;; esac
+        . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/tiktok.sh" \
+            || json_fail "503 Service Unavailable" "TikTok CDN runtime недоступен"
+        _z2k_ow_tiktok_managed_domain "$cdn_host" \
+            || json_fail "400 Bad Request" "host must be a managed TikTok CDN hostname"
+        [ "$(read_flag Z2K_TIKTOK_FEED_ENABLED "$CONFIG_FILE" 0)" = 1 ] \
+            || json_fail "409 Conflict" "сначала включите исправление ленты TikTok"
+        job_id=$(svc_action_async "Меняю политику CDN для $cdn_host" "tiktok_set_policy $cdn_host $cdn_policy")
         json_header
         printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
         exit 0
