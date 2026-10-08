@@ -55,9 +55,11 @@ z2k_ow_offload_benchmark_sample_actual() {
     esac
 }
 z2k_ow_offload_benchmark_health_json() {
-    local _snapshot="$1" _expected="$2" _key _value _sep= _reason
-    _reason=$(z2k_ow_flowoffload_health_reason "$_snapshot" "$_expected")
+    local _snapshot="$1" _expected="$2" _error="${3:-}" _key _value _reason
+    if [ -n "$_error" ]; then _reason=health-snapshot-missing
+    else _reason=$(z2k_ow_flowoffload_health_reason "$_snapshot" "$_expected"); fi
     printf '{"expected_health_reason":%s' "$(z2k_ow_offload_benchmark_json_text "$_reason")"
+    printf ',"snapshot_error":%s' "$(z2k_ow_offload_benchmark_json_text "$_error")"
     for _key in configured_mode flowtable_state flowtable_flags flowtable_devices actual_dataplane \
         nfqueue_rules nfqueue_packets packet_visibility selective_state exemption_rules owner_state \
         owner_conflict circular_state hardware_requested hardware_observed hardware_state \
@@ -66,13 +68,35 @@ z2k_ow_offload_benchmark_health_json() {
         case "$_key" in
             nfqueue_rules|nfqueue_packets|exemption_rules|hardware_requested)
                 printf ',"%s":%s' "$_key" "$(z2k_ow_offload_benchmark_number_or_null "$_value")" ;;
-            *) printf ',"%s":%s' "$_key" "$(z2k_ow_offload_benchmark_json_text "$_value")" ;;
+            *)
+                [ -n "$_value" ] || _value=unavailable
+                printf ',"%s":%s' "$_key" "$(z2k_ow_offload_benchmark_json_text "$_value")" ;;
         esac
     done
     printf '}'
 }
+z2k_ow_offload_benchmark_health_pair_reason() {
+    local _mode="$1" _before_reason="$2" _after_reason="$3" _before_error="${4:-}" _after_error="${5:-}" _allowed
+    if [ -n "$_before_error" ] || [ -n "$_after_error" ]; then
+        printf health-snapshot-missing
+        return 1
+    fi
+    if [ "$_mode" = none ]; then
+        [ "$_before_reason" = disabled ] && [ "$_after_reason" = disabled ] || {
+            printf '%s' "${_after_reason:-${_before_reason:-health-unavailable}}"
+            return 1
+        }
+    else
+        case "$_before_reason" in
+            confirmed|dataplane-not-observed|nfqueue-not-observed|hardware-not-observed|circular-not-observed) _allowed=1 ;;
+            *) printf '%s' "${_before_reason:-health-unavailable}"; return 1 ;;
+        esac
+        [ "$_after_reason" = confirmed ] || { printf '%s' "${_after_reason:-health-unavailable}"; return 1; }
+    fi
+    printf confirmed
+}
 z2k_ow_offload_benchmark_health_valid() {
-    local _mode="$1" _i _file _before _after _before_reason _after_reason _allowed
+    local _mode="$1" _i _file _before _after _before_reason _after_reason _before_error _after_error _reason
     for _i in 1 2 3 4 5; do
         _file="$(z2k_ow_offload_benchmark_session_dir)/samples/${_mode}-$_i"
         [ -r "$_file" ] || { printf 'incomplete-series'; return 1; }
@@ -81,16 +105,10 @@ z2k_ow_offload_benchmark_health_valid() {
         [ -n "$_before" ] && [ -n "$_after" ] || { printf 'health-snapshot-missing'; return 1; }
         _before_reason=$(sed -n 's/^health_before_reason=//p' "$_file")
         _after_reason=$(sed -n 's/^health_after_reason=//p' "$_file")
-        if [ "$_mode" = none ]; then
-            [ "$_before_reason" = disabled ] && [ "$_after_reason" = disabled ] \
-                || { printf '%s' "${_after_reason:-${_before_reason:-health-unavailable}}"; return 1; }
-        else
-            case "$_before_reason" in
-                confirmed|dataplane-not-observed|nfqueue-not-observed|hardware-not-observed|circular-not-observed) _allowed=1 ;;
-                *) printf '%s' "${_before_reason:-health-unavailable}"; return 1 ;;
-            esac
-            [ "$_after_reason" = confirmed ] || { printf '%s' "${_after_reason:-health-unavailable}"; return 1; }
-        fi
+        _before_error=$(sed -n 's/^health_before_error=//p' "$_file")
+        _after_error=$(sed -n 's/^health_after_error=//p' "$_file")
+        _reason=$(z2k_ow_offload_benchmark_health_pair_reason "$_mode" "$_before_reason" "$_after_reason" "$_before_error" "$_after_error")
+        [ "$_reason" = confirmed ] || { printf '%s' "$_reason"; return 1; }
     done
     printf confirmed
 }
@@ -107,15 +125,17 @@ z2k_ow_offload_benchmark_delta_pct() {
     local _a _b
     _a=$(z2k_ow_offload_benchmark_number_or_null "$1"); _b=$(z2k_ow_offload_benchmark_number_or_null "$2")
     [ "$_a" != null ] && [ "$_b" != null ] || { printf null; return; }
-    awk -v a="$_a" -v b="$_b" 'BEGIN { if (a==0) print "null"; else printf "%.0f",(b-a)*100/a }'
+    awk -v a="$_a" -v b="$_b" 'BEGIN { if (a==0) print "null"; else printf "%.6g",(b-a)*100/a }'
 }
 z2k_ow_offload_benchmark_delta_value() {
     local _a _b
     _a=$(z2k_ow_offload_benchmark_number_or_null "$1")
     _b=$(z2k_ow_offload_benchmark_number_or_null "$2")
     [ "$_a" != null ] && [ "$_b" != null ] || { printf null; return; }
-    awk -v a="$_a" -v b="$_b" 'BEGIN {printf "%.1f",b-a}'
+    awk -v a="$_a" -v b="$_b" 'BEGIN {printf "%.6g",b-a}'
 }
+z2k_ow_offload_benchmark_at_least() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a >= b) }'; }
+z2k_ow_offload_benchmark_at_most() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a <= b) }'; }
 z2k_ow_offload_benchmark_new_token() {
     local _v _uuid_file="${Z2K_BENCH_UUID_FILE:-/proc/sys/kernel/random/uuid}" IFS
     _v=
@@ -507,7 +527,7 @@ z2k_ow_offload_benchmark_conflict() {
 }
 z2k_ow_offload_benchmark_json_text() {
     local _value
-    _value=$(printf '%s' "$1" | LC_ALL=C tr -cd 'A-Za-z0-9 .,_()+:/@-')
+    _value=$(printf '%s' "$1" | tr '\r\n\t' '   ' | tr -d '\001-\010\013\014\016-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
     [ -n "$_value" ] && printf '"%s"' "$_value" || printf null
 }
 z2k_ow_offload_benchmark_comparison_json() {
@@ -556,6 +576,7 @@ z2k_ow_offload_benchmark_system_json() {
 z2k_ow_offload_benchmark_write_result() {
     local _status="$1" _message="$2" _root _mode _metric _sep _i _file _k _actual _runs _dl _sw _hw _recommendation _reason _du _su _dc _sc _hu _hc _hd _hvs _hobs _sqm _pbr _warp _unstable _complete _accepted _sd _scd _hcd _spread _outliers _restored _provider _server
     local _none_health _software_health _hardware_health _none_health_rc _software_health_rc _hardware_health_rc _health_ok _hardware_health_ok _health_before _health_after
+    local _health_before_reason _health_after_reason _health_before_error _health_after_error _run_health_reason _run_health_ok
     _root=$(z2k_ow_offload_benchmark_root); mkdir -p "$_root"
     _provider=$(z2k_ow_offload_benchmark_field provider 2>/dev/null)
     _server=$(z2k_ow_offload_benchmark_provider_server)
@@ -580,14 +601,14 @@ z2k_ow_offload_benchmark_write_result() {
     _hardware_health_ok=false; [ "$_hardware_health_rc" -eq 0 ] && _hardware_health_ok=true
     if [ "$_status" = completed ] && [ "$_health_ok" = true ] && [ "$_dl" != null ] && [ "$_sw" != null ]; then
         _sd=$(z2k_ow_offload_benchmark_delta_pct "$_dl" "$_sw"); _scd=$(z2k_ow_offload_benchmark_delta_pct "$_dc" "$_sc")
-        if { [ "$_sd" != null ] && [ "$_sd" -ge 5 ] 2>/dev/null; } || { [ "$_scd" != null ] && [ "$_scd" -le -5 ] 2>/dev/null; }; then
-            _recommendation='"software"'; _reason="$( [ "$_sd" != null ] && [ "$_sd" -ge 5 ] 2>/dev/null && printf 'download +%s%% vs none' "$_sd" || printf 'CPU %s%% vs none' "${_scd:-unknown}" )"
+        if { [ "$_sd" != null ] && z2k_ow_offload_benchmark_at_least "$_sd" 5; } || { [ "$_scd" != null ] && z2k_ow_offload_benchmark_at_most "$_scd" -5; }; then
+            _recommendation='"software"'; _reason="$( [ "$_sd" != null ] && z2k_ow_offload_benchmark_at_least "$_sd" 5 && printf 'download +%s%% vs none' "$_sd" || printf 'CPU %s%% vs none' "${_scd:-unknown}" )"
         fi
         _hvs=$(z2k_ow_offload_benchmark_delta_pct "$_sw" "$_hw"); _hcd=$(z2k_ow_offload_benchmark_delta_pct "$_sc" "$_hc")
         if [ "$_hardware_health_ok" = true ] && [ "$_hobs" -ge 2 ] 2>/dev/null \
             && [ "$_sqm" = none ] && [ "$_pbr" = none ] && [ "$_warp" = none ] \
-            && { { [ "$_hvs" != null ] && [ "$_hvs" -ge 5 ] 2>/dev/null; } || { [ "$_hcd" != null ] && [ "$_hcd" -le -10 ] 2>/dev/null; }; }; then
-            _recommendation='"hardware"'; _reason="$( [ "$_hvs" != null ] && [ "$_hvs" -ge 5 ] 2>/dev/null && printf 'download +%s%% vs software' "$_hvs" || printf 'CPU %s%% vs software' "${_hcd:-unknown}" )"
+            && { { [ "$_hvs" != null ] && z2k_ow_offload_benchmark_at_least "$_hvs" 5; } || { [ "$_hcd" != null ] && z2k_ow_offload_benchmark_at_most "$_hcd" -10; }; }; then
+            _recommendation='"hardware"'; _reason="$( [ "$_hvs" != null ] && z2k_ow_offload_benchmark_at_least "$_hvs" 5 && printf 'download +%s%% vs software' "$_hvs" || printf 'CPU %s%% vs software' "${_hcd:-unknown}" )"
         fi
     fi
     _unstable=false
@@ -612,7 +633,7 @@ z2k_ow_offload_benchmark_write_result() {
     [ "$_status" = completed ] && [ "$_complete" = true ] && [ "$_unstable" = false ] \
         && [ "$_restored" = true ] && [ "$_health_ok" = true ] && _accepted=true
     {
-        printf '{"schema":1,"stability_rule":"two_of_five_over_10pct","status":"%s","timestamp":"%s","system":%s,"provider":%s,"server":%s,"original_mode":"%s","restored":%s,"message":"%s","modes":{' \
+        printf '{"schema":2,"runtime_evidence_version":1,"stability_rule":"two_of_five_over_10pct","status":"%s","timestamp":"%s","system":%s,"provider":%s,"server":%s,"original_mode":"%s","restored":%s,"message":"%s","modes":{' \
             "$_status" "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')" \
             "$(z2k_ow_offload_benchmark_system_json)" \
             "$(z2k_ow_offload_benchmark_json_text "$_provider")" \
@@ -636,9 +657,17 @@ z2k_ow_offload_benchmark_write_result() {
                         "$(z2k_ow_offload_benchmark_json_text "$(sed -n 's/^server=//p' "$_file")")"
                     _health_before=$(sed -n 's/^health_before=//p' "$_file")
                     _health_after=$(sed -n 's/^health_after=//p' "$_file")
-                    printf ',"health_before":%s,"health_after":%s}' \
-                        "$(z2k_ow_offload_benchmark_health_json "$_health_before" "$_mode")" \
-                        "$(z2k_ow_offload_benchmark_health_json "$_health_after" "$_mode")"
+                    _health_before_reason=$(sed -n 's/^health_before_reason=//p' "$_file")
+                    _health_after_reason=$(sed -n 's/^health_after_reason=//p' "$_file")
+                    _health_before_error=$(sed -n 's/^health_before_error=//p' "$_file")
+                    _health_after_error=$(sed -n 's/^health_after_error=//p' "$_file")
+                    _run_health_reason=$(z2k_ow_offload_benchmark_health_pair_reason "$_mode" \
+                        "$_health_before_reason" "$_health_after_reason" "$_health_before_error" "$_health_after_error")
+                    _run_health_ok=false; [ "$_run_health_reason" = confirmed ] && _run_health_ok=true
+                    printf ',"health_accepted":%s,"rejection_reason":%s,"health_before":%s,"health_after":%s}' \
+                        "$_run_health_ok" "$( [ "$_run_health_ok" = true ] && printf null || z2k_ow_offload_benchmark_json_text "$_run_health_reason" )" \
+                        "$(z2k_ow_offload_benchmark_health_json "$_health_before" "$_mode" "$_health_before_error")" \
+                        "$(z2k_ow_offload_benchmark_health_json "$_health_after" "$_mode" "$_health_after_error")"
                     _runs=1
                 fi
                 _i=$((_i+1))
@@ -727,6 +756,8 @@ z2k_ow_offload_benchmark_worker_cleanup() {
 z2k_ow_offload_benchmark_worker_impl() {
     local _session="$1" _initial _boot _mode _trial _round _order _nonce _rc _sample _cpu _pid _file _actual _flags _ft
     local _snapshot_before _snapshot_after _health_before_reason _health_after_reason
+    local _snapshot_before_error_file _snapshot_after_error_file _snapshot_before_rc _snapshot_after_rc
+    local _snapshot_before_error _snapshot_after_error _snapshot_before_stderr _snapshot_after_stderr
     [ "$(z2k_ow_offload_benchmark_field session 2>/dev/null)" = "$_session" ] || return 1
     [ "$(cat "$(z2k_ow_offload_benchmark_lock_dir)/session" 2>/dev/null)" = "$_session" ] || return 1
     _initial=$(z2k_ow_offload_benchmark_field initial_mode); _boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)
@@ -761,7 +792,15 @@ z2k_ow_offload_benchmark_worker_impl() {
                 z2k_ow_offload_benchmark_set_field desired_status failed; z2k_ow_offload_benchmark_set_field message "режим $_mode не подтвердился"; return 1
             }
             sleep "${Z2K_BENCH_SETTLE_SECONDS:-2}"
-            _snapshot_before=$(z2k_ow_flowoffload_status 2>/dev/null)
+            _snapshot_before_error_file="$(z2k_ow_offload_benchmark_session_dir)/snapshot-before.err"
+            _snapshot_before=$(z2k_ow_flowoffload_status 2>"$_snapshot_before_error_file"); _snapshot_before_rc=$?
+            _snapshot_before_error=
+            if [ "$_snapshot_before_rc" -ne 0 ]; then
+                _snapshot_before_stderr=$(tr '\r\n' '  ' < "$_snapshot_before_error_file" | sed 's/[[:space:]]*$//')
+                _snapshot_before_error="observer exited with status $_snapshot_before_rc${_snapshot_before_stderr:+: $_snapshot_before_stderr}"
+            elif [ -z "$_snapshot_before" ]; then
+                _snapshot_before_error='observer returned an empty snapshot'
+            fi
             _flags=$(z2k_ow_offload_field "$_snapshot_before" flowtable_flags)
             _ft=$(z2k_ow_offload_field "$_snapshot_before" flowtable_state)
             if [ "$_mode" != none ] && { [ "$_ft" != present ] || { [ "$_mode" = hardware ] && [ "$_flags" != offload ]; }; }; then
@@ -779,15 +818,24 @@ z2k_ow_offload_benchmark_worker_impl() {
             kill "$_pid" 2>/dev/null; wait "$_pid" 2>/dev/null
             if [ "$_rc" = 2 ]; then z2k_ow_offload_benchmark_set_field desired_status stopped; z2k_ow_offload_benchmark_set_field message stopped; return 1; fi
             if [ "$_rc" != 0 ]; then z2k_ow_offload_benchmark_set_field desired_status failed; z2k_ow_offload_benchmark_set_field message "тестовый endpoint не ответил"; return 1; fi
-            _snapshot_after=$(z2k_ow_flowoffload_status 2>/dev/null)
+            _snapshot_after_error_file="$(z2k_ow_offload_benchmark_session_dir)/snapshot-after.err"
+            _snapshot_after=$(z2k_ow_flowoffload_status 2>"$_snapshot_after_error_file"); _snapshot_after_rc=$?
+            _snapshot_after_error=
+            if [ "$_snapshot_after_rc" -ne 0 ]; then
+                _snapshot_after_stderr=$(tr '\r\n' '  ' < "$_snapshot_after_error_file" | sed 's/[[:space:]]*$//')
+                _snapshot_after_error="observer exited with status $_snapshot_after_rc${_snapshot_after_stderr:+: $_snapshot_after_stderr}"
+            elif [ -z "$_snapshot_after" ]; then
+                _snapshot_after_error='observer returned an empty snapshot'
+            fi
             _health_after_reason=$(z2k_ow_flowoffload_health_reason "$_snapshot_after" "$_mode")
             _file="$(z2k_ow_offload_benchmark_session_dir)/samples/${_mode}-$_trial"
             printf '%s\n' "$_sample" > "$_file"
             _actual=$(z2k_ow_offload_benchmark_sample_actual "$_mode")
             printf 'actual=%s\n' "${_actual:-unknown}" >> "$_file"
             printf 'cpu_avg=%s\ncpu_peak=%s\n' "$(sed -n 's/^avg=//p' "$_cpu" 2>/dev/null)" "$(sed -n 's/^peak=//p' "$_cpu" 2>/dev/null)" >> "$_file"
-            printf 'health_before_reason=%s\nhealth_after_reason=%s\nhealth_before=%s\nhealth_after=%s\n' \
-                "$_health_before_reason" "$_health_after_reason" "$_snapshot_before" "$_snapshot_after" >> "$_file"
+            printf 'health_before_reason=%s\nhealth_after_reason=%s\nhealth_before_error=%s\nhealth_after_error=%s\nhealth_before=%s\nhealth_after=%s\n' \
+                "$_health_before_reason" "$_health_after_reason" "$_snapshot_before_error" "$_snapshot_after_error" \
+                "$_snapshot_before" "$_snapshot_after" >> "$_file"
         done
     done
     z2k_ow_offload_benchmark_set_field desired_status completed; z2k_ow_offload_benchmark_set_field message ''
@@ -798,16 +846,23 @@ z2k_ow_offload_benchmark_worker() { ( z2k_ow_offload_benchmark_worker_impl "$1" 
 
 z2k_ow_offload_benchmark_status_json() {
     z2k_ow_offload_benchmark_recover >/dev/null 2>&1 || true
-    local _status _active _result _last_success _last_success_timestamp
+    local _status _active _result _last_success _last_success_timestamp _last_success_state
     _status=$(z2k_ow_offload_benchmark_field status 2>/dev/null); _active=false
     case "$_status" in starting|applying|awaiting_sample|restoring) _active=true ;; esac
     _result="$(z2k_ow_offload_benchmark_root)/last-result.json"
     _last_success="$(z2k_ow_offload_benchmark_root)/last-success.json"
     if grep -q '"accepted":true' "$_last_success" 2>/dev/null \
         && grep -q '"stability_rule":"two_of_five_over_10pct"' "$_last_success" 2>/dev/null; then
-        _last_success_timestamp=$(sed -n 's/.*"timestamp":"\([^"]*\)".*/\1/p' "$_last_success" 2>/dev/null | head -1)
+        if grep -q '"runtime_evidence_version":1' "$_last_success" 2>/dev/null; then
+            _last_success_timestamp=$(sed -n 's/.*"timestamp":"\([^"]*\)".*/\1/p' "$_last_success" 2>/dev/null | head -1)
+            _last_success_state=current
+        else
+            _last_success_timestamp=
+            _last_success_state=historical
+        fi
     else
         _last_success_timestamp=
+        _last_success_state=none
     fi
     printf '{"ok":true,"active":%s,"session":"%s","token":"%s","status":"%s","mode":"%s","trial":%s,"total_trials":5,"nonce":"%s","provider":"%s","probe_config":' \
         "$_active" "$(z2k_ow_offload_benchmark_field session 2>/dev/null)" "$(z2k_ow_offload_benchmark_field token 2>/dev/null)" \
@@ -816,17 +871,31 @@ z2k_ow_offload_benchmark_status_json() {
         "$(z2k_ow_offload_benchmark_field nonce 2>/dev/null)" "$(z2k_ow_offload_benchmark_field provider 2>/dev/null)"
     z2k_ow_offload_benchmark_probe_config_json
     printf ',"result":'
-    if [ -s "$_result" ] && grep -q '"stability_rule":"two_of_five_over_10pct"' "$_result" 2>/dev/null; then cat "$_result"; else printf null; fi
-    printf ',"last_success_timestamp":"%s"}\n' "$_last_success_timestamp"
+    if [ -s "$_result" ] && grep -q '"stability_rule":"two_of_five_over_10pct"' "$_result" 2>/dev/null; then
+        z2k_ow_offload_benchmark_result_with_evidence_state "$_result"
+    else printf null; fi
+    printf ',"last_success_timestamp":"%s","last_success_state":"%s"}\n' "$_last_success_timestamp" "$_last_success_state"
 }
 z2k_ow_offload_benchmark_result_json() {
     local _f="$(z2k_ow_offload_benchmark_root)/last-result.json"
-    if [ -s "$_f" ] && grep -q '"stability_rule":"two_of_five_over_10pct"' "$_f" 2>/dev/null; then cat "$_f"; else printf '{"ok":true,"result":null}\n'; fi
+    if [ -s "$_f" ] && grep -q '"stability_rule":"two_of_five_over_10pct"' "$_f" 2>/dev/null; then
+        z2k_ow_offload_benchmark_result_with_evidence_state "$_f"
+    else printf '{"ok":true,"result":null}\n'; fi
+}
+z2k_ow_offload_benchmark_result_with_evidence_state() {
+    local _file="$1"
+    if grep -q '"runtime_evidence_version":1' "$_file" 2>/dev/null; then
+        cat "$_file"
+    else
+        sed '1s/^{/{"runtime_evidence_state":"historical",/' "$_file"
+    fi
 }
 z2k_ow_offload_benchmark_last_success_json() {
     local _f="$(z2k_ow_offload_benchmark_root)/last-success.json"
     if [ -s "$_f" ] && grep -q '"accepted":true' "$_f" 2>/dev/null \
-        && grep -q '"stability_rule":"two_of_five_over_10pct"' "$_f" 2>/dev/null; then cat "$_f"; else printf 'null\n'; fi
+        && grep -q '"stability_rule":"two_of_five_over_10pct"' "$_f" 2>/dev/null; then
+        z2k_ow_offload_benchmark_result_with_evidence_state "$_f"
+    else printf 'null\n'; fi
 }
 
 # One compact API route keeps platform-specific workflow out of the common CGI

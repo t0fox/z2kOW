@@ -265,12 +265,45 @@ function flowoffloadFactLabel(key, value) {
   };
   const ownerLabels = {
     zapret2: "zapret2", fw4: "fw4", multiple: "Несколько владельцев", none: "Нет владельца ускорения",
-    unknown: "Не удалось определить владельца",
+    unknown: "Не удалось определить владельца", unavailable: "Проверка недоступна",
   };
   const conflictLabels = {
     "global_fw4+nfqueue": "fw4 и NFQUEUE одновременно",
     "global_fw4+zapret2": "fw4 и zapret2 одновременно",
   };
+  if (key === "packet_visibility") {
+    return ({
+      active: "Активен", "not-observed": "Счётчик без пакетов", inactive: "Правила отсутствуют",
+      unavailable: "Проверка недоступна", "not-applicable": "Не применяется",
+    })[value] || common[value] || value || "Не удалось проверить";
+  }
+  if (key === "nfqueue_packets" || key === "nfqueue_rules" || key === "exemption_rules" ||
+      key === "offloaded_connections" || key === "hw_offloaded_connections" || key === "software_offloaded_connections") {
+    return /^\d+$/.test(String(value)) ? String(value) : common[value] || "Не удалось проверить";
+  }
+  if (key === "flowtable_devices") return value === "none" ? "Устройства не заданы" : value;
+  if (key === "flowtable_state") return ({ present: "Установлена", absent: "Отсутствует" })[value] || common[value] || value;
+  if (key === "flowtable_flags") return ({ software: "Программные", offload: "Аппаратный запрос", none: "Нет" })[value] || common[value] || value;
+  if (key === "hardware_state") return ({
+    observed: "Работает", requested: "Запрошен", available: "Поддерживается", "not-observed": "Не наблюдалось",
+    "not-applicable": "Не используется", unavailable: "Проверка недоступна", broken: "Не работает",
+  })[value] || common[value] || value;
+  if (key === "hardware_capability") return ({
+    available: "Поддерживается", unavailable: "Проверка недоступна", unknown: "Не определена", unsupported: "Недоступна",
+  })[value] || common[value] || value;
+  if (key === "software_capability") return ({
+    available: "Поддерживается", unavailable: "Проверка runtime недоступна", unknown: "Не определена", unsupported: "Недоступна",
+  })[value] || common[value] || value;
+  if (key === "hardware_observed") return ({
+    observed: "Подтверждён", "not-observed": "Не наблюдался", "not-applicable": "Не используется", unavailable: "Проверка недоступна",
+  })[value] || common[value] || value;
+  if (key === "actual_dataplane") return ({
+    software: "Программный", hardware: "Аппаратный", "not-observed": "Не наблюдался", unavailable: "Проверка недоступна",
+  })[value] || common[value] || value;
+  if (key === "owner_conflict") return value === "none" ? "Нет" : value === "unavailable" ? "Проверка недоступна" : (conflictLabels[value] || value || "Не удалось проверить");
+  if (key === "owner_state") return ownerLabels[value] || (value || "Не удалось определить владельца");
+  if (key === "runtime_health") return ({ healthy: "Исправно", attention: "Не подтверждено", disabled: "Отключено", broken: "Ошибка", unavailable: "Проверка недоступна" })[value] || value;
+  if (key === "circular_state") return ({ active: "Активен", disabled: "Не используется", broken: "Ошибка", unknown: "Не удалось проверить", unavailable: "Проверка недоступна" })[value] || value;
   if (key === "configured_mode" || key === "mode") return flowoffloadModeLabel(value);
   if (key === "flowtable_flags" || key === "flags") return value === "offload" ? "Hardware запрошен" : common[value] || value;
   if (key === "actual_dataplane" || key === "actual") {
@@ -313,22 +346,27 @@ function flowoffloadFactLabel(key, value) {
 function flowoffloadFactKind(key, raw) {
   if (key === "actual_dataplane" && ["software", "hardware"].includes(raw)) return "good";
   if (key === "nfqueue_packets" && /^\d+$/.test(raw)) return Number(raw) > 0 ? "good" : "warn";
+  if (key === "packet_visibility" && raw === "inactive") return "bad";
+  if (key === "owner_conflict" && raw === "unavailable") return "warn";
   if (["none", "disabled", "not-applicable"].includes(raw)) return "disabled";
   if (["broken", "incomplete", "conflict"].includes(raw) || (key === "owner_conflict" && raw !== "none" && raw !== "unavailable")) return "bad";
   if (["active", "present", "complete", "observed", "healthy", "confirmed"].includes(raw)) return "good";
   return "warn";
 }
 
+function flowoffloadFactValue(rawKey, rawValue) {
+  const raw = rawValue || "unavailable";
+  const value = flowoffloadFactLabel(rawKey, raw);
+  const rawHint = value !== raw ? ` title="Код runtime: ${escapeHtml(raw)}" aria-label="${escapeHtml(value)}; техническое значение ${escapeHtml(raw)}"` : "";
+  return { value, rawHint, kind: flowoffloadFactKind(rawKey, raw) };
+}
+
 function flowoffloadFactMarkup(key, label, facts) {
   const raw = facts[key] || "unavailable";
-  const selected = facts.configured_mode;
-  let value = flowoffloadFactLabel(key, raw);
-  if (key === "hardware_state" && raw === "not-applicable") value = selected === "software" ? "Не используется: выбран software" : "Не используется";
+  const presentation = flowoffloadFactValue(key, raw);
   return `<div class="flow-fact">
     <span class="flow-fact-label">${label}</span>
-    <span class="flow-fact-value" data-kind="${flowoffloadFactKind(key, raw)}">${value === raw
-      ? `<code>${escapeHtml(raw)}</code>`
-      : `<span>${escapeHtml(value)}</span><code>${escapeHtml(raw)}</code>`}</span>
+    <span class="flow-fact-value" data-flow-fact-value="${key}" data-kind="${presentation.kind}"${presentation.rawHint}><span>${escapeHtml(presentation.value)}</span></span>
   </div>`;
 }
 
@@ -340,26 +378,30 @@ function flowoffloadTechnicalMarkup(facts) {
         ${flowoffloadFactMarkup("actual_dataplane", "Фактический dataplane", facts)}
         ${flowoffloadFactMarkup("flowtable_state", "Flowtable", facts)}
         ${flowoffloadFactMarkup("flowtable_flags", "Флаги", facts)}
-        ${flowoffloadFactMarkup("flowtable_devices", "Flowtable devices", facts)}
+        ${flowoffloadFactMarkup("flowtable_devices", "Интерфейсы", facts)}
         ${flowoffloadFactMarkup("offloaded_connections", "Ускоренные соединения", facts)}
+        ${flowoffloadFactMarkup("software_offloaded_connections", "Программные соединения", facts)}
       </div></section>
       <section class="flow-diagnostic-section"><h4>Selective processing</h4><div class="flow-facts">
         ${flowoffloadFactMarkup("packet_visibility", "NFQUEUE", facts)}
-        ${flowoffloadFactMarkup("nfqueue_packets", "NFQUEUE packets", facts)}
+        ${flowoffloadFactMarkup("nfqueue_rules", "Правила NFQUEUE", facts)}
+        ${flowoffloadFactMarkup("nfqueue_packets", "Пакеты", facts)}
         ${flowoffloadFactMarkup("exemption_rules", "Исключения zapret2", facts)}
         ${flowoffloadFactMarkup("selective_state", "Selective structure", facts)}
         ${flowoffloadFactMarkup("circular_state", "Circular", facts)}
       </div></section>
       <section class="flow-diagnostic-section"><h4>Аппаратное ускорение</h4><div class="flow-facts">
         ${flowoffloadFactMarkup("hardware_state", "Hardware", facts)}
-        ${flowoffloadFactMarkup("hardware_capability", "Capability", facts)}
-        ${flowoffloadFactMarkup("hardware_requested", "Hardware requested", facts)}
-        ${flowoffloadFactMarkup("hardware_observed", "Hardware dataplane", facts)}
+        ${flowoffloadFactMarkup("hardware_capability", "Поддержка", facts)}
+        ${flowoffloadFactMarkup("hardware_requested", "Запрос hardware", facts)}
+        ${flowoffloadFactMarkup("hardware_observed", "Dataplane", facts)}
+        ${flowoffloadFactMarkup("hw_offloaded_connections", "Аппаратные соединения", facts)}
       </div></section>
       <section class="flow-diagnostic-section"><h4>Владение</h4><div class="flow-facts">
         ${flowoffloadFactMarkup("global_fw4_offload", "Глобальный fw4 offload", facts)}
         ${flowoffloadFactMarkup("owner_state", "Владелец", facts)}
         ${flowoffloadFactMarkup("owner_conflict", "Конфликт", facts)}
+        ${flowoffloadFactMarkup("runtime_health", "Runtime health", facts)}
         ${flowoffloadFactMarkup("runtime_health_reason", "Причина состояния", facts)}
       </div></section>
     </div></div>
@@ -892,15 +934,18 @@ function flowoffloadApplicationMarkup(selected, raw) {
     warnings.push(`Обнаружен конфликт владельцев: ${flowoffloadFactLabel("owner_conflict", conflict)}.`);
   }
 
-  return `<div class="flow-application" data-kind="${kind}">
+  return `<div class="flowoffload-overview"><div class="flow-application" data-kind="${kind}">
     <div class="flow-application-main">
       <div class="flow-application-title">${escapeHtml(selectedLabel)}</div>
       <div class="flow-application-copy">${escapeHtml(copy)}</div>
     </div>
     <span class="flow-application-badge">${escapeHtml(badge)}</span>
-  </div>
-  ${warnings.map(w => `<div class="flow-warning" role="note">${escapeHtml(w)}</div>`).join("")}
-  ${flowoffloadTechnicalMarkup(facts)}`;
+  </div>${warnings.map(w => `<div class="flow-warning" role="note">${escapeHtml(w)}</div>`).join("")}</div>`;
+}
+
+function flowoffloadApplicationMarkup(selected, raw) {
+  const facts = flowoffloadFacts(raw);
+  return `${flowoffloadOverviewMarkup(selected, raw)}${flowoffloadTechnicalMarkup(facts)}`;
 }
 
 function flowoffloadSync(s, select, state, error, preserveControls = false) {
@@ -912,7 +957,30 @@ function flowoffloadSync(s, select, state, error, preserveControls = false) {
   }
   const signature = JSON.stringify([mode, s.toggles.flowoffload_status || null]);
   if (state.dataset.stateSignature !== signature) {
-    state.innerHTML = flowoffloadApplicationMarkup(mode, s.toggles.flowoffload_status);
+    if (!state.dataset.stateSignature) {
+      state.innerHTML = flowoffloadApplicationMarkup(mode, s.toggles.flowoffload_status);
+    } else {
+      const raw = s.toggles.flowoffload_status;
+      const facts = flowoffloadFacts(raw);
+      const overview = state.querySelector(".flowoffload-overview");
+      if (overview) overview.innerHTML = flowoffloadOverviewMarkup(mode, raw);
+      Object.entries(facts).forEach(([key, value]) => {
+        const fact = state.querySelector(`[data-flow-fact-value="${key}"]`);
+        if (!fact) return;
+        const presentation = flowoffloadFactValue(key, value);
+        fact.innerHTML = `<span>${escapeHtml(presentation.value)}</span>`;
+        fact.setAttribute("data-kind", presentation.kind);
+        if (presentation.rawHint) {
+          const hint = presentation.rawHint.match(/title="([^"]*)"/);
+          const label = presentation.rawHint.match(/aria-label="([^"]*)"/);
+          if (hint) fact.setAttribute("title", hint[1]);
+          if (label) fact.setAttribute("aria-label", label[1]);
+        } else {
+          fact.removeAttribute("title");
+          fact.removeAttribute("aria-label");
+        }
+      });
+    }
     state.dataset.stateSignature = signature;
   }
   if (error) { error.hidden = true; error.textContent = ""; }
@@ -926,7 +994,7 @@ function flowoffloadReload(select, state, error) {
 
 function flowBenchmarkValue(value, suffix = "") {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
-  return `${Number(value).toLocaleString("ru-RU", { maximumFractionDigits: 1 })}${suffix}`;
+  return `${Number(value).toLocaleString("ru-RU", { maximumSignificantDigits: 6 })}${suffix}`;
 }
 
 function flowBenchmarkResultMarkup(result) {
@@ -934,19 +1002,24 @@ function flowBenchmarkResultMarkup(result) {
   const providerLabel = result.provider === "yandex-internetometer" ? "Яндекс Интернетометр"
     : result.provider === "cloudflare" ? "Cloudflare (резервная диагностика)" : "не определён";
   const labels = { none: "Без ускорения", software: "Программное", hardware: "Аппаратное" };
-  const metrics = [
+  const primaryMetrics = [
     ["download_mbps", "↓ Mbps", " Mbps"], ["upload_mbps", "↑ Mbps", " Mbps"],
     ["cpu_avg", "CPU avg", "%"], ["cpu_peak", "CPU peak", "%"],
     ["idle_ms", "Ping idle", " ms"], ["download_loaded_ms", "Ping ↓", " ms"],
-    ["upload_loaded_ms", "Ping ↑", " ms"], ["jitter_ms", "Jitter", " ms"],
-    ["loss_pct", "Потери HTTP", "%"], ["duration_s", "Время", " с"],
+    ["upload_loaded_ms", "Ping ↑", " ms"],
   ];
+  const allMetrics = [...primaryMetrics, ["jitter_ms", "Jitter", " ms"], ["loss_pct", "HTTP loss", "%"], ["duration_s", "Duration", " с"]];
+  const runHeaders = ["Прогон", ...primaryMetrics.map(([, label]) => label), "Health"];
+  const historical = result.runtime_evidence_state === "historical" || Number(result.runtime_evidence_version) !== 1;
   const rows = ["none", "software", "hardware"].map(mode => {
     const row = result.modes[mode] || {};
+    const modeHealth = result.health?.[mode];
+    const healthLabel = historical ? "Исторический" : modeHealth?.accepted === true ? "Принят" : modeHealth?.accepted === false ? "Отклонён" : "Не подтверждён";
+    const healthKind = historical || modeHealth?.accepted === undefined ? "warn" : modeHealth.accepted ? "good" : "bad";
     if (mode === "hardware" && row.available === false) {
-      return `<tr><th scope="row">${labels[mode]}</th><td colspan="${metrics.length}">Не поддерживается или не применилось</td></tr>`;
+      return `<tr><th scope="row">${labels[mode]}</th><td colspan="${primaryMetrics.length}">Не поддерживается или не применилось</td><td><span class="flow-benchmark-health-state" data-kind="${healthKind}">${healthLabel}</span></td></tr>`;
     }
-    return `<tr><th scope="row">${labels[mode]}</th>${metrics.map(([key, , suffix]) => `<td>${flowBenchmarkValue(row[key], suffix)}</td>`).join("")}</tr>`;
+    return `<tr><th scope="row">${labels[mode]}</th>${primaryMetrics.map(([key, , suffix]) => `<td>${flowBenchmarkValue(row[key], suffix)}</td>`).join("")}<td><span class="flow-benchmark-health-state" data-kind="${healthKind}">${healthLabel}</span></td></tr>`;
   }).join("");
   const recommendation = typeof result.recommendation === "string" ? result.recommendation : result.recommendation?.mode;
   const recommendationReason = result.recommendation && typeof result.recommendation === "object" ? result.recommendation.reason : "";
@@ -957,26 +1030,124 @@ function flowBenchmarkResultMarkup(result) {
     "owner-conflict": "обнаружен конфликт владельцев", "hardware-not-observed": "hardware dataplane не наблюдался",
     "flowtable-missing": "flowtable отсутствует", "flowtable-mode-mismatch": "флаги flowtable не соответствуют режиму",
     "circular-broken": "Circular runtime не работает", "incomplete-series": "серия неполная",
-    "health-snapshot-missing": "health snapshot отсутствует",
+    "circular-unavailable": "проверка Circular недоступна", "health-snapshot-missing": "снимок runtime не собран",
+    "state-unavailable": "runtime недоступен", "mode-mismatch": "режим конфигурации не совпадает",
+  };
+  const metricValueLabel = (key, value) => {
+    if (value === null || value === undefined || value === "") return "—";
+    return flowoffloadFactLabel(key, String(value));
+  };
+  const evidenceFields = [
+    ["configured_mode", "Режим"], ["flowtable_state", "Flowtable"], ["flowtable_flags", "Флаги"],
+    ["flowtable_devices", "Интерфейсы"], ["actual_dataplane", "Dataplane"], ["packet_visibility", "NFQUEUE"],
+    ["nfqueue_rules", "Правила NFQUEUE"], ["nfqueue_packets", "Пакеты NFQUEUE"],
+    ["offloaded_connections", "Ускоренные соединения"], ["software_offloaded_connections", "Программные соединения"],
+    ["hw_offloaded_connections", "Аппаратные соединения"], ["hardware_capability", "Поддержка hardware"],
+    ["hardware_requested", "Запрос hardware"], ["hardware_observed", "Аппаратный dataplane"],
+    ["hardware_state", "Состояние hardware"], ["software_capability", "Поддержка software"],
+    ["global_fw4_offload", "Глобальный fw4 offload"], ["global_fw4_flowtables", "Flowtable fw4"],
+    ["flow_offload_chain", "Цепочка flow offload"], ["flow_offload_zapret_chain", "Цепочка zapret2"],
+    ["flow_offload_always_chain", "Цепочка always"], ["flow_add_rules", "Правила добавления flow"],
+    ["exemption_rules", "Исключения"], ["selective_state", "Selective processing"],
+    ["circular_state", "Circular"], ["owner_state", "Владелец"], ["owner_conflict", "Конфликт владельцев"],
+    ["runtime_health", "Runtime health"], ["runtime_health_reason", "Причина health"],
+  ];
+  const runHealth = run => {
+    if (historical) return { label: "Исторический", kind: "warn" };
+    if (run.health_accepted === true) return { label: "Принят", kind: "good" };
+    const reason = run.rejection_reason || run.health_after?.expected_health_reason || run.health_before?.expected_health_reason;
+    if (run.health_accepted === false || reason) return { label: "Отклонён", kind: "bad", reason };
+    return { label: "Не подтверждён", kind: "warn" };
+  };
+  const snapshotMarkup = (title, snapshot, error) => {
+    if (!snapshot || typeof snapshot !== "object") {
+      return `<section class="flow-benchmark-snapshot"><h6>${title}</h6><p class="flow-benchmark-note">Снимок не собран</p>${error ? `<p class="flow-benchmark-rejection">Ошибка сбора: ${escapeHtml(error)}</p>` : ""}</section>`;
+    }
+    const facts = evidenceFields.map(([key, label]) => {
+      const value = snapshot[key];
+      if (value === undefined || value === null || value === "") return `<dt>${label}</dt><dd>Нет данных в снимке</dd>`;
+      const raw = String(value);
+      const formatted = metricValueLabel(key, value);
+      const rawCode = formatted !== raw && !/^-?\d+(?:\.\d+)?$/.test(raw) ? ` <code>${escapeHtml(raw)}</code>` : "";
+      return `<dt>${label}</dt><dd>${escapeHtml(formatted)}${rawCode}</dd>`;
+    }).join("");
+    return `<section class="flow-benchmark-snapshot"><h6>${title}</h6><dl>${facts || "<dt>Runtime</dt><dd>Нет собранных фактов</dd>"}</dl>${error ? `<p class="flow-benchmark-rejection">Ошибка сбора: ${escapeHtml(error)}</p>` : ""}</section>`;
+  };
+  const snapshotChangesMarkup = (snapshot, before, error) => {
+    if (!snapshot || typeof snapshot !== "object") {
+      return `<section class="flow-benchmark-snapshot"><h6>Снимок после прогона</h6><p class="flow-benchmark-note">Снимок не собран</p>${error ? `<p class="flow-benchmark-rejection">Ошибка сбора: ${escapeHtml(error)}</p>` : ""}</section>`;
+    }
+    if (!before || typeof before !== "object") return snapshotMarkup("Снимок после прогона", snapshot, error);
+    const changed = evidenceFields.filter(([key]) => String(before[key] ?? "") !== String(snapshot[key] ?? ""));
+    const rows = changed.map(([key, label]) => {
+      const oldValue = before[key];
+      const newValue = snapshot[key];
+      const oldText = oldValue === undefined || oldValue === null || oldValue === "" ? "Нет данных в снимке" : metricValueLabel(key, oldValue);
+      const newText = newValue === undefined || newValue === null || newValue === "" ? "Нет данных в снимке" : metricValueLabel(key, newValue);
+      const oldRaw = oldValue === undefined || oldValue === null ? "" : String(oldValue);
+      const newRaw = newValue === undefined || newValue === null ? "" : String(newValue);
+      const bothNumeric = /^-?\d+(?:\.\d+)?$/.test(oldRaw) && /^-?\d+(?:\.\d+)?$/.test(newRaw);
+      const raw = oldRaw !== newRaw && !bothNumeric && (oldText !== oldRaw || newText !== newRaw)
+        ? ` <code>${escapeHtml(oldRaw || "—")} → ${escapeHtml(newRaw || "—")}</code>` : "";
+      return `<dt>${label}</dt><dd>${escapeHtml(oldText)} → ${escapeHtml(newText)}${raw}</dd>`;
+    }).join("");
+    const unchangedCount = evidenceFields.length - changed.length;
+    const summary = changed.length
+      ? `Изменилось фактов: ${changed.length}; остальные ${unchangedCount} не изменились и показаны в снимке до прогона.`
+      : "Факты совпадают со снимком до прогона.";
+    return `<section class="flow-benchmark-snapshot"><h6>Снимок после прогона</h6><p class="flow-benchmark-note">${summary}</p>${changed.length ? `<dl>${rows}</dl>` : ""}${error ? `<p class="flow-benchmark-rejection">Ошибка сбора: ${escapeHtml(error)}</p>` : ""}</section>`;
+  };
+  const runDetailsMarkup = (run, index, mode) => {
+    const health = runHealth(run);
+    const before = run.health_before;
+    const after = run.health_after;
+    const rejection = health.reason
+      ? `<div class="flow-benchmark-rejection">Причина отклонения: ${escapeHtml(healthReasonLabels[health.reason] || health.reason)} <code>${escapeHtml(health.reason)}</code></div>`
+      : "";
+    const beforeError = before?.snapshot_error || run.health_before_error || "";
+    const afterError = after?.snapshot_error || run.health_after_error || "";
+    const changedCount = before && after && typeof before === "object" && typeof after === "object"
+      ? evidenceFields.filter(([key]) => String(before[key] ?? "") !== String(after[key] ?? "")).length
+      : null;
+    const snapshotLabel = changedCount === null
+      ? "Runtime до и после · снимок отсутствует"
+      : `Runtime до и после · ${evidenceFields.length} фактов · изменений: ${changedCount}`;
+    const server = run.server || result.server || "не определён";
+    const actual = metricValueLabel("actual_dataplane", run.actual);
+    return `<details class="flow-benchmark-run-details" data-flow-benchmark-key="run-${mode}-${index}">
+      <summary>Подробности Run ${index + 1}</summary><div class="flow-benchmark-run-detail-content">
+        <div class="flow-benchmark-run-meta"><span>Jitter: <strong>${flowBenchmarkValue(run.jitter_ms, " ms")}</strong></span><span>HTTP loss: <strong>${flowBenchmarkValue(run.loss_pct, "%")}</strong></span><span>Duration: <strong>${flowBenchmarkValue(run.duration_s, " с")}</strong></span><span class="is-host">CDN hostname: <strong>${escapeHtml(server)}</strong></span><span>Observed dataplane: <strong>${escapeHtml(actual)}</strong></span><span>Health: <strong class="flow-benchmark-health-state" data-kind="${health.kind}">${escapeHtml(health.label)}</strong></span></div>
+        ${rejection}<details class="flow-benchmark-snapshots" data-flow-benchmark-key="snapshots-${mode}-${index}"><summary>${escapeHtml(snapshotLabel)}</summary><div class="flow-benchmark-snapshot-pair">${snapshotMarkup("Снимок до прогона", before, beforeError)}${snapshotChangesMarkup(after, before, afterError)}</div></details>
+      </div></details>`;
+  };
+  const modeHealthLabel = mode => {
+    if (historical) return "исторический результат · runtime evidence отсутствует";
+    const health = result.health?.[mode];
+    if (health?.accepted === true) return "health gate пройден";
+    return `health gate: ${healthReasonLabels[health?.reason] || health?.reason || "не пройден"}`;
   };
   const hardwareHealth = result.health?.hardware;
-  const hardwareBlock = hardwareHealth && hardwareHealth.accepted !== true
-    ? `Hardware: нет валидного сравнения. ${healthReasonLabels[hardwareHealth.reason] || hardwareHealth.reason || "runtime health не подтверждён"}.`
+  const hardwareBlock = !historical && hardwareHealth?.accepted !== true
+    ? `Аппаратное ускорение: Нет валидного сравнения. ${healthReasonLabels[hardwareHealth?.reason] || hardwareHealth?.reason || (result.modes.hardware?.available === false ? "режим не поддерживается или не применился" : "runtime health не подтверждён")}.`
     : "";
-  const noRecommendationReason = result.validity?.unstable
+  const healthFailureMode = ["none", "software"].find(mode => result.health?.[mode]?.accepted !== true);
+  const healthFailureReason = result.health?.[healthFailureMode]?.reason;
+  const noRecommendationReason = historical
+    ? "Сохранённые результаты исторические: runtime-снимки до и после прогона не записывались."
+    : result.validity?.unstable
     ? "Серия нестабильна; вывод делать нельзя."
     : result.validity?.complete === false
       ? "Серия неполная; вывод делать нельзя."
       : result.validity?.health_accepted === false
-        ? `Рекомендация заблокирована: ${healthReasonLabels[result.health?.software?.reason] || result.health?.software?.reason || "runtime health не подтверждён"}.`
+        ? `Рекомендация заблокирована: ${labels[healthFailureMode] || "режим"} — ${healthReasonLabels[healthFailureReason] || healthFailureReason || "runtime health не подтверждён"}.`
         : hardwareBlock || "Разница между режимами меньше порога шума; рекомендация не требуется.";
-  const recommended = recommendation ? `<div class="flow-benchmark-recommendation"><strong>Рекомендуется: ${escapeHtml(labels[recommendation] || recommendation)}</strong><span>${escapeHtml(recommendationReason || "Основано на медианах; hardware учитывается только при наблюдаемом аппаратном offload.")}</span></div>` :
+  const recommended = !historical && recommendation ? `<div class="flow-benchmark-recommendation"><strong>Рекомендуется: ${escapeHtml(labels[recommendation] || recommendation)}</strong><span>${escapeHtml(recommendationReason || "Вывод основан на медианах; hardware учитывается только при наблюдаемом аппаратном offload.")}</span></div>` :
     `<div class="flow-benchmark-recommendation is-muted">${escapeHtml(noRecommendationReason)}</div>`;
   const warning = result.validity?.warnings?.length ? `<p class="flow-benchmark-note">${escapeHtml(result.validity.warnings.join("; "))}</p>` : "";
   const delta = value => {
     if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
     const n = Number(value);
-    return `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(n)}%`;
+    return `${n > 0 ? "+" : n < 0 ? "−" : ""}${flowBenchmarkValue(Math.abs(n))}%`;
   };
   const deltaMs = value => {
     if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
@@ -984,29 +1155,27 @@ function flowBenchmarkResultMarkup(result) {
     return `${n > 0 ? "+" : n < 0 ? "−" : ""}${flowBenchmarkValue(Math.abs(n), " ms")}`;
   };
   const comparisons = result.comparisons || {};
-  const compareMarkup = (title, values) => `<div class="flow-benchmark-comparison"><strong>${title}</strong><span>Download ${delta(values.download_pct)} · Upload ${delta(values.upload_pct)} · CPU avg ${delta(values.cpu_pct)} · CPU peak ${delta(values.cpu_peak_pct)} · Ping idle ${deltaMs(values.idle_ms_delta)} · Ping loaded ↓ ${deltaMs(values.download_loaded_ms_delta)}</span></div>`;
-  const comparisonMarkup = result.validity?.complete === true && result.validity?.unstable !== true && result.validity?.accepted === true
+  const compareMarkup = (title, values) => `<div class="flow-benchmark-comparison"><strong>${title}</strong><span>Download ${delta(values.download_pct)} · Upload ${delta(values.upload_pct)} · CPU avg ${delta(values.cpu_pct)} · CPU peak ${delta(values.cpu_peak_pct)} · Ping idle ${deltaMs(values.idle_ms_delta)} · Ping ↓ ${deltaMs(values.download_loaded_ms_delta)} · Ping ↑ ${deltaMs(values.upload_loaded_ms_delta)}</span></div>`;
+  const comparisonMarkup = !historical && result.validity?.complete === true && result.validity?.unstable !== true && result.validity?.accepted === true
     ? `${comparisons.software_vs_none ? compareMarkup("Программное vs Без ускорения", comparisons.software_vs_none) : ""}${result.health?.hardware?.accepted === true && comparisons.hardware_vs_software ? compareMarkup("Аппаратное vs Программное", comparisons.hardware_vs_software) : hardwareBlock ? `<div class="flow-benchmark-comparison is-muted"><strong>Аппаратное vs Программное</strong><span>${escapeHtml(hardwareBlock)}</span></div>` : ""}`
-    : "";
+    : !historical && hardwareBlock ? `<div class="flow-benchmark-comparison is-muted"><strong>Аппаратное vs Программное</strong><span>${escapeHtml(hardwareBlock)}</span></div>` : "";
   const diagnostics = ["none", "software", "hardware"].map(mode => {
     const modeResult = result.modes[mode] || {};
     const runs = modeResult.runs || [];
     const stats = modeResult.run_summary || {};
     const statRows = Object.entries(stats).map(([key, value]) => {
-      const metric = metrics.find(item => item[0] === key);
+      const metric = allMetrics.find(item => item[0] === key);
       if (!metric) return "";
       const suffix = metric[2];
       return `<tr><th>${metric[1]}</th><td>${flowBenchmarkValue(value.median, suffix)}</td><td>${flowBenchmarkValue(value.min, suffix)}</td><td>${flowBenchmarkValue(value.max, suffix)}</td><td>${flowBenchmarkValue(value.range_pct, "%")}</td><td>${flowBenchmarkValue(value.outliers)}</td></tr>`;
     }).join("");
     const runRows = runs.map((run, index) => {
-      const health = run.health_after || {};
-      const evidence = ["flowtable_state", "flowtable_flags", "actual_dataplane", "packet_visibility", "exemption_rules", "owner_conflict", "circular_state"]
-        .map(key => `${key}: ${flowoffloadFactLabel(key, String(health[key] ?? "unavailable"))}`).join(" · ");
-      return `<tr><th>Run ${index + 1}</th>${metrics.map(([key, , suffix]) => `<td>${flowBenchmarkValue(run[key], suffix)}</td>`).join("")}<td>${escapeHtml(run.actual || "unknown")}</td><td>${escapeHtml(run.server || result.server || "не определён")}</td><td>${escapeHtml(healthReasonLabels[health.expected_health_reason] || health.expected_health_reason || "health недоступен")}<small>${escapeHtml(evidence)}</small></td></tr>`;
+      const health = runHealth(run);
+      return `<tr class="flow-benchmark-run-main"><th scope="row">Run ${index + 1}</th>${primaryMetrics.map(([key, , suffix]) => `<td>${flowBenchmarkValue(run[key], suffix)}</td>`).join("")}<td><span class="flow-benchmark-health-state" data-kind="${health.kind}">${escapeHtml(health.label)}</span></td></tr>`;
     }).join("");
-    const modeHealth = result.health?.[mode];
-    const healthStatus = modeHealth?.accepted === true ? "Все post-run проверки прошли" : `Health gate: ${healthReasonLabels[modeHealth?.reason] || modeHealth?.reason || "не пройден"}`;
-    return `<section class="flow-benchmark-mode-detail"><h5>${labels[mode]} · ${escapeHtml(healthStatus)}</h5><div class="flow-benchmark-table-wrap"><table class="flow-benchmark-table flow-benchmark-run-table"><thead><tr><th>Прогон</th>${metrics.map(([, label]) => `<th>${label}</th>`).join("")}<th>Поток*</th><th>CDN</th><th>Runtime evidence</th></tr></thead><tbody>${runRows || `<tr><td colspan="${metrics.length + 4}">Нет прогонов</td></tr>`}</tbody></table></div><div class="flow-benchmark-table-wrap"><table class="flow-benchmark-table flow-benchmark-summary-table"><thead><tr><th>Сводка</th><th>Median</th><th>Min</th><th>Max</th><th>Range</th><th>Outliers</th></tr></thead><tbody>${statRows}</tbody></table></div></section>`;
+    const runDetails = runs.map((run, index) => runDetailsMarkup(run, index, mode)).join("");
+    const healthStatus = modeHealthLabel(mode);
+    return `<section class="flow-benchmark-mode-detail"><h5>${labels[mode]} · ${escapeHtml(healthStatus)}</h5><div class="flow-benchmark-table-wrap"><table class="flow-benchmark-table flow-benchmark-run-table"><thead><tr>${runHeaders.map(label => `<th>${label}</th>`).join("")}</tr></thead><tbody>${runRows || `<tr><td colspan="${runHeaders.length}">Нет прогонов</td></tr>`}</tbody></table></div><div class="flow-benchmark-run-details-list">${runDetails}</div><div class="flow-benchmark-table-wrap"><table class="flow-benchmark-table flow-benchmark-summary-table"><thead><tr><th>Метрика</th><th>Медиана</th><th>Мин</th><th>Макс</th><th>Разброс</th><th>Выбросы</th></tr></thead><tbody>${statRows}</tbody></table></div></section>`;
   }).join("");
   const system = result.system || {};
   const systemLabels = { router_model: "Модель роутера", openwrt_version: "OpenWrt", z2kow_version: "z2kOW", wan_interface: "WAN интерфейс" };
@@ -1015,8 +1184,27 @@ function flowBenchmarkResultMarkup(result) {
   const conflictMarkup = Object.entries(result.conflicts || {}).map(([key, value]) => `<div class="flow-fact"><span class="flow-fact-label">${escapeHtml(conflictLabels[key] || key)}</span><span class="flow-fact-value">${escapeHtml(value)}</span></div>`).join("");
   const message = result.message ? `<p class="flow-benchmark-note">${escapeHtml(result.message)}</p>` : "";
   const timestamp = result.timestamp ? `<p class="flow-benchmark-note">Серия: ${escapeHtml(result.timestamp)}</p>` : "";
-  return `${recommended}${comparisonMarkup ? `<div class="flow-benchmark-comparisons">${comparisonMarkup}</div>` : ""}${warning}<div class="flow-benchmark-table-wrap"><table class="flow-benchmark-table"><thead><tr><th>Режим</th>${metrics.map(([, label]) => `<th>${label}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>
-    <details class="flow-technical disclosure"><summary>Подробные прогоны и ограничения</summary><div class="disclosure-body"><div class="flow-benchmark-details">${diagnostics}<div class="flow-facts">${systemMarkup}${conflictMarkup}</div><p class="flow-benchmark-note">Провайдер: ${escapeHtml(providerLabel)} · CDN: ${escapeHtml(result.server || "не определён")}</p>${message}${timestamp}<p class="flow-benchmark-note">Все измерительные запросы запускает браузер LAN-клиента через роутер. Conntrack-маркеры общие для роутера и не доказывают offload именно тестового браузерного потока. Значение в колонке «Поток*» остаётся неизвестным без точной корреляции. Hardware сравнивается только при подтверждённых runtime-снимках до и после серии.</p></div></div></details>`;
+  const historicalNote = historical ? `<div class="flow-benchmark-history" role="note"><strong>Исторический результат.</strong> Runtime evidence отсутствует: эта версия не сохраняла снимки до и после прогона. Измерения оставлены для справки; актуальная рекомендация и runtime health не выводятся. Запустите новую серию, чтобы получить текущие снимки.</div>` : "";
+  return `${historicalNote}${recommended}${comparisonMarkup ? `<div class="flow-benchmark-comparisons">${comparisonMarkup}</div>` : ""}${warning}<div class="flow-benchmark-table-wrap"><table class="flow-benchmark-table flow-benchmark-summary-table"><thead><tr><th>Режим</th>${primaryMetrics.map(([, label]) => `<th>${label}</th>`).join("")}<th>Health</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <details class="flow-technical disclosure" data-flow-benchmark-key="series-details"><summary>Подробные прогоны и ограничения</summary><div class="disclosure-body"><div class="flow-benchmark-details">${diagnostics}<div class="flow-facts">${systemMarkup}${conflictMarkup}</div><p class="flow-benchmark-note">Провайдер: ${escapeHtml(providerLabel)} · CDN: ${escapeHtml(result.server || "не определён")}</p>${message}${timestamp}<p class="flow-benchmark-note">Измерительные запросы запускает браузер LAN-клиента через роутер. Conntrack-маркеры относятся ко всему роутеру и не подтверждают аппаратное ускорение именно браузерного потока. Для каждого прогона отдельно показаны снимки до и после и изменения между ними.</p></div></div></details>`;
+}
+
+function flowBenchmarkRenderResult(resultNode, result) {
+  const openKeys = new Set(Array.from(
+    resultNode.querySelectorAll("details[data-flow-benchmark-key][open]"),
+    node => node.dataset.flowBenchmarkKey,
+  ));
+  const tableScroll = Array.from(
+    resultNode.querySelectorAll(".flow-benchmark-table-wrap"),
+    node => node.scrollLeft,
+  );
+  resultNode.innerHTML = flowBenchmarkResultMarkup(result);
+  resultNode.querySelectorAll("details[data-flow-benchmark-key]").forEach(node => {
+    if (openKeys.has(node.dataset.flowBenchmarkKey)) node.open = true;
+  });
+  resultNode.querySelectorAll(".flow-benchmark-table-wrap").forEach((node, index) => {
+    node.scrollLeft = tableScroll[index] || 0;
+  });
 }
 
 async function flowBenchmarkMeasure(status) {
@@ -1183,7 +1371,9 @@ async function flowBenchmarkRefresh() {
       const labels = { starting: "Подготавливаю тест…", applying: "Переключаю режим…", awaiting_sample: `Тестирую: ${state.mode === "none" ? "без ускорения" : state.mode === "software" ? "software" : "hardware"}, прогон ${state.trial}/${state.total_trials || 5}`, restoring: "Восстанавливаю исходный режим…", completed: completedLabel, failed: "Тест не завершён; смотрите результат и состояние восстановления.", stopped: "Тест остановлен, исходный режим восстановлен." };
       const lastSuccess = !active && state.last_success_timestamp
         ? ` Последняя принятая стабильная серия: ${new Date(state.last_success_timestamp).toLocaleString("ru-RU")}.`
-        : "";
+        : !active && state.last_success_state === "historical"
+          ? " Предыдущая сохранённая серия доступна как исторический результат."
+          : "";
       const measurementError = state.status === "stopped" && flowBenchmarkRuntime.lastError ? ` Ошибка измерения: ${flowBenchmarkRuntime.lastError}.` : "";
       const providerLabel = state.provider === "cloudflare" ? "Cloudflare (резервная диагностика)" : "Яндекс Интернетометр";
       statusNode.textContent = `${labels[state.status] || `Интернет-тест: ${providerLabel}`}${measurementError}${lastSuccess}`;
@@ -1193,7 +1383,7 @@ async function flowBenchmarkRefresh() {
     if (resultNode && result && !active) {
       const signature = JSON.stringify(result);
       if (resultNode.dataset.signature !== signature) {
-        resultNode.innerHTML = flowBenchmarkResultMarkup(result);
+        flowBenchmarkRenderResult(resultNode, result);
         resultNode.dataset.signature = signature;
       }
       resultNode.hidden = false;
@@ -1202,7 +1392,8 @@ async function flowBenchmarkRefresh() {
     let lastSuccessContent = card.querySelector("#flowoffload-benchmark-last-success-content");
     const lastSuccessIsCurrent = state.status === "completed" && result?.timestamp === state.last_success_timestamp;
     if (lastSuccessNode) {
-      const showLastSuccess = !active && !lastSuccessIsCurrent && Boolean(state.last_success_timestamp);
+      const hasLastSuccess = Boolean(state.last_success_timestamp) || state.last_success_state === "historical";
+      const showLastSuccess = !active && !lastSuccessIsCurrent && hasLastSuccess;
       lastSuccessNode.hidden = !showLastSuccess;
       if (showLastSuccess && !lastSuccessContent) {
         lastSuccessContent = document.createElement("div");
@@ -1210,13 +1401,14 @@ async function flowBenchmarkRefresh() {
         lastSuccessNode.append(lastSuccessContent);
       }
       if (showLastSuccess && lastSuccessContent) {
-      if (lastSuccessNode.dataset.timestamp !== state.last_success_timestamp) {
-        lastSuccessNode.dataset.timestamp = state.last_success_timestamp;
+      const lastSuccessKey = state.last_success_timestamp || "historical";
+      if (lastSuccessNode.dataset.timestamp !== lastSuccessKey) {
+        lastSuccessNode.dataset.timestamp = lastSuccessKey;
         lastSuccessContent.textContent = "Загружаю последнюю успешную серию…";
         try {
           const lastSuccess = await apiGet("/offload/benchmark?view=last-success");
           if (!card.isConnected) return;
-          if (lastSuccess?.status === "completed") lastSuccessContent.innerHTML = flowBenchmarkResultMarkup(lastSuccess);
+          if (lastSuccess?.status === "completed") flowBenchmarkRenderResult(lastSuccessContent, lastSuccess);
           else lastSuccessContent.textContent = "Последняя успешная серия недоступна.";
         } catch (_) {
           lastSuccessNode.dataset.timestamp = "";

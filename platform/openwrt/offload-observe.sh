@@ -317,9 +317,9 @@ z2k_ow_flowoffload_snapshot() {
         fi
     fi
 
-    if [ "$_mode" = none ]; then
-        _packet_visibility=not-applicable
-    elif [ "$_rules_rc" -ne 0 ]; then
+    # FLOWOFFLOAD=none disables only flow offload. NFQUEUE rules and packet
+    # counters, like Circular runtime, are independent zapret2 observations.
+    if [ "$_rules_rc" -ne 0 ]; then
         _queue_rules=unavailable; _queue_packets=unavailable; _packet_visibility=unavailable
     elif [ "${_queue_rules:-0}" -gt 0 ] 2>/dev/null; then
         if [ "${_queue_packets:-0}" -gt 0 ] 2>/dev/null; then _packet_visibility=active

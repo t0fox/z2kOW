@@ -72,6 +72,16 @@ else
     no "X-Z2K-Panel во всех вызовах fetch" "0 голых" "строки: $bare"
 fi
 
+benchmark_snapshot_css=$(sed -n '/^\.flow-benchmark-snapshot {/,/^}/p' "$CSS")
+benchmark_recommendation_css=$(sed -n '/^\.flow-benchmark-recommendation {/,/^}/p' "$CSS")
+if printf '%s\n' "$benchmark_snapshot_css" | grep -q 'background: var(--ow-surface-2' \
+    && ! printf '%s\n' "$benchmark_snapshot_css" | grep -q 'var(--bg-subtle)' \
+    && printf '%s\n' "$benchmark_recommendation_css" | grep -q 'background: var(--ow-surface-2'; then
+    ok "benchmark evidence uses the neutral Lolz surfaces"
+else
+    no "benchmark evidence uses the neutral Lolz surfaces" "surface-2, no accent-soft" "$benchmark_snapshot_css $benchmark_recommendation_css"
+fi
+
 # toast(msg, kind) строит класс "toast-"+kind. Класса, которого нет в style.css,
 # не существует и визуально: тост уезжает в дефолтную рамку, а автор уверен,
 # что подсветил успех.
@@ -453,18 +463,92 @@ const SCENARIOS = {
             primary.includes("Dataplane не наблюдался"), primary);
       check("hardware: raw runtime-факты остаются в закрытой диагностике",
             /<details class="flow-technical disclosure" id="flowoffload-technical">/.test(html) &&
-            /<code>requested<\/code>/.test(html), html);
+            /aria-label="Запрошен; техническое значение requested"/.test(html), html);
       check("hardware: raw mode не попадает в верхний статус",
             !primary.includes("mode=hardware") && !primary.includes("requested"), primary);
+      check("hardware: software and hardware connection counts remain visible in technical diagnostics",
+            html.includes('data-flow-fact-value="software_offloaded_connections"') &&
+            html.includes('data-flow-fact-value="hw_offloaded_connections"'), html);
       const comparisonHtml = globalThis.__testFlowBenchmarkResultMarkup({
-        modes: { none:{}, software:{}, hardware:{} },
+        schema: 2, runtime_evidence_version: 1, modes: { none:{}, software:{}, hardware:{} },
         validity:{ complete:true, unstable:false, accepted:true, health_accepted:true },
         health:{ none:{accepted:true,reason:"disabled"}, software:{accepted:true,reason:"confirmed"}, hardware:{accepted:false,reason:"hardware-not-observed"} },
         comparisons:{ software_vs_none:{download_pct:0,upload_pct:0,cpu_pct:0}, hardware_vs_software:{download_pct:null,upload_pct:null,cpu_pct:null} },
       });
-      const hardwareComparison = comparisonHtml.slice(comparisonHtml.indexOf("Аппаратное vs Программное"));
+      const comparisonStart = comparisonHtml.indexOf('<div class="flow-benchmark-comparison is-muted">');
+      const comparisonEnd = comparisonHtml.indexOf("</div>", comparisonStart);
+      const hardwareComparison = comparisonHtml.slice(comparisonStart, comparisonEnd);
       check("hardware: missing health never renders a false zero comparison",
             hardwareComparison.toLowerCase().includes("нет валидного сравнения") && !/0%/.test(hardwareComparison) && !comparisonHtml.includes("≈0%"), hardwareComparison);
+      const missingHardwareHealth = globalThis.__testFlowBenchmarkResultMarkup({
+        runtime_evidence_version: 1, modes: { none:{}, software:{}, hardware:{ available: true } },
+        validity:{ complete:true, unstable:false, accepted:true, health_accepted:true },
+        health:{ none:{accepted:true,reason:"disabled"}, software:{accepted:true,reason:"confirmed"} },
+      });
+      check("hardware: missing health is not presented as a valid comparison",
+            missingHardwareHealth.includes("Нет валидного сравнения") && missingHardwareHealth.includes("runtime health не подтверждён"), missingHardwareHealth);
+    },
+  },
+
+  flowoffload_benchmark_evidence: {
+    hash: "#/toggles",
+    setup() {
+      ROUTER = async () => flowStatus("software", flowSnapshot("software"));
+    },
+    async run() {
+      const render = globalThis.__testFlowBenchmarkResultMarkup;
+      const legacy = render({
+        schema: 1, runtime_evidence_state: "historical", timestamp: "2026-10-07T21:36:20Z",
+        system: { z2kow_version: "p-86.16" },
+        modes: { none: { runs: [{ download_mbps: 97 }] }, software: {}, hardware: {} },
+        validity: { complete: true, unstable: false, accepted: true, health_accepted: true },
+        recommendation: { mode: "hardware", reason: "legacy recommendation" },
+      });
+      check("legacy result explains missing runtime evidence",
+        legacy.includes("Исторический результат") && legacy.includes("runtime evidence отсутствует"), legacy);
+      check("legacy result does not present an old recommendation as current",
+        !legacy.includes("Рекомендуется: Аппаратное") && !legacy.includes("health недоступен"), legacy);
+
+      const current = render({
+        schema: 2, runtime_evidence_version: 1, timestamp: "2026-10-08T10:00:00Z",
+        system: { z2kow_version: "p-86.17" },
+        modes: {
+          none: { runs: [{
+            download_mbps: 97, upload_mbps: 41, cpu_avg: 12, cpu_peak: 18,
+            idle_ms: 8, download_loaded_ms: 20, upload_loaded_ms: 24,
+            jitter_ms: 2, loss_pct: 0, duration_s: 4, server: "very-long-cdn-edge-07.eu-west.example-cdn.net",
+            actual: "not-observed", rejection_reason: "health-snapshot-missing",
+            health_before: { expected_health_reason: "health-snapshot-missing", flowtable_state: "absent", flowtable_flags: "none", packet_visibility: "active", nfqueue_packets: 2450, exemption_rules: 4, offloaded_connections: 0, software_offloaded_connections: 0, hw_offloaded_connections: 0, hardware_capability: "available", hardware_requested: 0, hardware_observed: "not-applicable", hardware_state: "not-applicable", software_capability: "available", global_fw4_offload: "disabled", global_fw4_flowtables: 0, flow_offload_chain: "absent", flow_offload_zapret_chain: "absent", flow_offload_always_chain: "absent", flow_add_rules: 0, owner_conflict: "none", circular_state: "active", runtime_health_reason: "disabled" },
+            health_after: { expected_health_reason: "disabled", flowtable_state: "absent", flowtable_flags: "none", packet_visibility: "active", nfqueue_packets: 2470, exemption_rules: 4, offloaded_connections: 0, software_offloaded_connections: 0, hw_offloaded_connections: 0, hardware_capability: "available", hardware_requested: 0, hardware_observed: "not-applicable", hardware_state: "not-applicable", software_capability: "available", global_fw4_offload: "disabled", global_fw4_flowtables: 0, flow_offload_chain: "absent", flow_offload_zapret_chain: "absent", flow_offload_always_chain: "absent", flow_add_rules: 0, owner_conflict: "none", circular_state: "active", runtime_health_reason: "disabled" },
+          }], run_summary: {} },
+          software: { runs: [], run_summary: {} }, hardware: { runs: [], run_summary: {} },
+        },
+        health: { none: { accepted: false, reason: "health-snapshot-missing" }, software: { accepted: true, reason: "confirmed" }, hardware: { accepted: false, reason: "hardware-not-observed" } },
+        validity: { complete: true, unstable: false, accepted: false, health_accepted: false },
+        comparisons: { software_vs_none: { download_pct: null, upload_pct: null, cpu_pct: null }, hardware_vs_software: { download_pct: null, upload_pct: null, cpu_pct: null } },
+        recommendation: null,
+      });
+      check("run table has the compact measurement columns and Health",
+        current.includes("flow-benchmark-run-table") && current.includes("<th>Health</th>") && !current.includes("<th>Runtime evidence</th>"), current);
+      check("each run has a disclosure for its detailed evidence",
+        current.includes("flow-benchmark-run-details") && current.includes("Run 1"), current);
+      check("runtime snapshots are behind a compact nested disclosure",
+        current.includes("flow-benchmark-snapshots") && current.includes("Runtime до и после ·"), current);
+      check("result disclosures have stable keys for polling preservation",
+        current.includes('data-flow-benchmark-key="series-details"') && current.includes('data-flow-benchmark-key="run-none-0"'), current);
+      check("run details preserve quality, CDN, before and after snapshots and rejection cause",
+        ["Jitter", "HTTP loss", "Duration", "very-long-cdn-edge-07.eu-west.example-cdn.net", "Снимок до прогона", "Снимок после прогона", "NFQUEUE", "Circular", "health-snapshot-missing"].every(value => current.includes(value)), current);
+      check("run snapshots preserve all dataplane, hardware, fw4 and selective rule counts",
+        ["Ускоренные соединения", "Аппаратные соединения", "Запрос hardware", "Flowtable fw4", "Цепочка zapret2", "Правила добавления flow"].every(value => current.includes(value)), current);
+      check("after snapshot shows changed facts once and points to the full before snapshot",
+        current.includes("2450 → 2470") && current.includes("не изменились и показаны в снимке до прогона"), current);
+      check("runtime evidence is not concatenated into one cell",
+        !/flowtable_state:.*·.*packet_visibility:/.test(current), current);
+      const blockedStart = current.indexOf('<div class="flow-benchmark-comparison is-muted">');
+      const blockedEnd = current.indexOf("</div>", blockedStart);
+      const blocked = current.slice(blockedStart, blockedEnd);
+      check("blocked comparison has a concrete reason and no rounded zero",
+        blocked.includes("Нет валидного сравнения") && !/≈?0%/.test(blocked), blocked);
     },
   },
 
@@ -558,8 +642,8 @@ const SCENARIOS = {
       await sleep(1100);
       const body = (BODIES["/offload"] || [])[0] || "";
       check("switch: существующий API получил software", new URLSearchParams(body).get("mode") === "software", body);
-      check("switch: состояние перечитано после job", q("#flowoffload-status").innerHTML.indexOf("Программное ускорение") >= 0,
-            q("#flowoffload-status").innerHTML);
+      check("switch: состояние перечитано после job", q("#flowoffload-status").querySelector(".flowoffload-overview").innerHTML.indexOf("Программное ускорение") >= 0,
+            q("#flowoffload-status").querySelector(".flowoffload-overview").innerHTML);
       jobModal = document.body.children.find(child => child.className === "modal-backdrop" && child.dataset.jobId === "91");
       check("switch: модалка завершённой задачи показывает итоговый статус",
             jobModal && jobModal.querySelector("#job-status").textContent === "Завершено",
@@ -1519,7 +1603,7 @@ run_scen() {
 }
 
 # Счётчики внутри while-пайпа теряются (subshell), поэтому считаем по выводу.
-for scen in flowoffload_none flowoffload_unconfirmed flowoffload_hardware \
+for scen in flowoffload_none flowoffload_unconfirmed flowoffload_hardware flowoffload_benchmark_evidence \
             flowoffload_mismatch flowoffload_mode_mismatch flowoffload_broken_nfqueue flowoffload_switch \
             stale_apply update_history_modal update_history_empty update_history_failed \
             update_single_surface update_current_surface update_reinstall_manifest_race \

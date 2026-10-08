@@ -20,7 +20,10 @@ assert_ne() {
 assert_eq "median ignores order" "2" "$(z2k_ow_offload_benchmark_median 3 1 2)"
 assert_eq "even median averages middle values" "2.5" "$(z2k_ow_offload_benchmark_median 4 1 3 2)"
 assert_eq "relative improvement is a percentage" "20" "$(z2k_ow_offload_benchmark_delta_pct 100 120)"
+assert_eq "small but real percentage deltas are preserved" "0.1" "$(z2k_ow_offload_benchmark_delta_pct 100 100.1)"
+assert_eq "small but real latency deltas are preserved" "0.05" "$(z2k_ow_offload_benchmark_delta_value 5.5 5.55)"
 assert_eq "zero denominator is unknown" "null" "$(z2k_ow_offload_benchmark_delta_pct 0 20)"
+assert_eq "JSON text escapes exact quotes in observer errors" '"observer said \"denied\""' "$(z2k_ow_offload_benchmark_json_text 'observer said "denied"')"
 assert_eq "invalid metric is null" "null" "$(z2k_ow_offload_benchmark_number_or_null 'not-a-number')"
 assert_eq "router-wide conntrack marker is not accepted as sample proof" "unknown" "$(z2k_ow_offload_benchmark_sample_actual hardware)"
 
@@ -58,6 +61,22 @@ assert_eq "pre-rule result is not exposed through the result API" '{"ok":true,"r
 z2k_ow_offload_benchmark_status_json > "$T/status.json"
 assert_contains "pre-rule accepted result has no current-rule timestamp" "$T/status.json" '"last_success_timestamp":""'
 assert_contains "pre-rule result is not exposed through status API" "$T/status.json" '"result":null'
+printf '%s\n' '{"schema":1,"stability_rule":"two_of_five_over_10pct","status":"completed","timestamp":"2026-10-07T21:36:20Z","system":{"z2kow_version":"p-86.16"},"validity":{"complete":true,"unstable":false,"accepted":true},"recommendation":{"mode":"hardware"},"modes":{"none":{"runs":[{"download_mbps":97}]}}}' \
+    > "$T/state/flowoffload-benchmark/last-result.json"
+_legacy_result=$(z2k_ow_offload_benchmark_result_json)
+printf '%s\n' "$_legacy_result" > "$T/legacy-result.json"
+assert_contains "legacy result is explicitly marked historical" "$T/legacy-result.json" '"runtime_evidence_state":"historical"'
+assert_contains "legacy result data is preserved" "$T/legacy-result.json" '"download_mbps":97'
+python3 -m json.tool "$T/legacy-result.json" >/dev/null 2>&1 && _t_ok || _t_bad "legacy result API remains valid JSON after historical annotation"
+z2k_ow_offload_benchmark_status_json > "$T/status.json"
+assert_contains "status API marks persisted legacy result historical" "$T/status.json" '"runtime_evidence_state":"historical"'
+cp "$T/state/flowoffload-benchmark/last-result.json" "$T/state/flowoffload-benchmark/last-success.json"
+_legacy_success=$(z2k_ow_offload_benchmark_last_success_json)
+printf '%s\n' "$_legacy_success" > "$T/legacy-success.json"
+assert_contains "last-success API marks legacy evidence historical" "$T/legacy-success.json" '"runtime_evidence_state":"historical"'
+z2k_ow_offload_benchmark_status_json > "$T/status.json"
+assert_contains "legacy result is not advertised as current accepted history" "$T/status.json" '"last_success_timestamp":""'
+assert_contains "legacy accepted history remains available with a historical label" "$T/status.json" '"last_success_state":"historical"'
 printf '%s\n' 'Fixture File Router' > "$T/model"
 printf "%s\n" "DISTRIB_DESCRIPTION='OpenWrt 24.10 file fixture'" > "$T/openwrt_release"
 printf '%s\n' 'tag=p-86.14-file' > "$T/installed-release"
@@ -78,6 +97,13 @@ toggle_flowoffload() {
     sed "s/^FLOWOFFLOAD=.*/FLOWOFFLOAD=$1/" "$Z2K_CONFIG" > "$Z2K_CONFIG.new" && mv "$Z2K_CONFIG.new" "$Z2K_CONFIG"
 }
 z2k_ow_flowoffload_status() {
+    _status_count=$(cat "$T/status-calls" 2>/dev/null); _status_count=$((${_status_count:-0}+1))
+    printf '%s\n' "$_status_count" > "$T/status-calls"
+    if [ "${BENCH_OBSERVER_FAIL_ON:-}" = "$_status_count" ]; then
+        printf '%s\n' 'fixture nft permission denied' >&2
+        return 42
+    fi
+    [ "${BENCH_OBSERVER_EMPTY_ON:-}" != "$_status_count" ] || return 0
     case "$(z2k_ow_flowoffload_mode)" in
         hardware)
             if [ "${BENCH_HW_UNSUPPORTED:-}" = 1 ]; then
@@ -143,12 +169,13 @@ run_case() {
     fi
     rm -rf "$T/state/flowoffload-benchmark" "$T/tmp/flowoffload-benchmark" "$T/applied.log"
     mkdir -p "$T/state" "$T/tmp"
+    : > "$T/status-calls"
     if [ -n "$_preserved_success" ]; then
         mkdir -p "$T/state/flowoffload-benchmark"
         cp "$_preserved_success" "$T/state/flowoffload-benchmark/last-success.json"
     fi
     printf 'FLOWOFFLOAD=software\n' > "$Z2K_CONFIG"
-    BENCH_SAMPLE_FAIL_ON="" BENCH_STOP_ON_SAMPLE="" BENCH_APPLY_FAIL="" BENCH_HW_UNSUPPORTED="" BENCH_NFQUEUE_INACTIVE=""
+    BENCH_SAMPLE_FAIL_ON="" BENCH_STOP_ON_SAMPLE="" BENCH_APPLY_FAIL="" BENCH_HW_UNSUPPORTED="" BENCH_NFQUEUE_INACTIVE="" BENCH_OBSERVER_FAIL_ON="" BENCH_OBSERVER_EMPTY_ON=""
     BENCH_HARDWARE_FAST="" BENCH_CPU_UNKNOWN="" BENCH_SQM="" BENCH_NOISY="" BENCH_UPLOAD_NOISY="" BENCH_TWO_OUTLIERS="" BENCH_SINGLE_OUTLIER=""
     case "$_case" in
         success) ;;
@@ -160,6 +187,8 @@ run_case() {
         hardware-conflict) BENCH_HARDWARE_FAST=1; BENCH_SQM=1 ;;
         hardware-unobserved) BENCH_HARDWARE_FAST=1; BENCH_HW_UNSUPPORTED=1 ;;
         health-broken) BENCH_NFQUEUE_INACTIVE=1 ;;
+        observer-failure) BENCH_OBSERVER_FAIL_ON=1 ;;
+        observer-empty) BENCH_OBSERVER_EMPTY_ON=1 ;;
         cpu-unknown) BENCH_CPU_UNKNOWN=1 ;;
         noisy) BENCH_HARDWARE_FAST=1; BENCH_NOISY=1 ;;
         noisy-upload) BENCH_HARDWARE_FAST=1; BENCH_UPLOAD_NOISY=1 ;;
@@ -167,7 +196,7 @@ run_case() {
         single-outlier) BENCH_SINGLE_OUTLIER=1 ;;
     esac
     export BENCH_SAMPLE_FAIL_ON BENCH_STOP_ON_SAMPLE BENCH_APPLY_FAIL BENCH_HW_UNSUPPORTED BENCH_NFQUEUE_INACTIVE \
-        BENCH_HARDWARE_FAST BENCH_CPU_UNKNOWN BENCH_SQM BENCH_NOISY BENCH_UPLOAD_NOISY BENCH_TWO_OUTLIERS BENCH_SINGLE_OUTLIER
+        BENCH_OBSERVER_FAIL_ON BENCH_OBSERVER_EMPTY_ON BENCH_HARDWARE_FAST BENCH_CPU_UNKNOWN BENCH_SQM BENCH_NOISY BENCH_UPLOAD_NOISY BENCH_TWO_OUTLIERS BENCH_SINGLE_OUTLIER
     if [ "$_case" = hardware-conflict ]; then
         cat > "$T/sqm-active" <<'EOF'
 #!/bin/sh
@@ -189,6 +218,9 @@ EOF
             assert_eq "success: worker exits zero" "0" "$_rc"
             assert_eq "success: final status completed" "completed" "$(z2k_ow_offload_benchmark_field status)"
             assert_contains "success: result has real fixture measurements" "$T/state/flowoffload-benchmark/last-result.json" '"download_mbps":100'
+            assert_contains "success: new result versions its runtime evidence" "$T/state/flowoffload-benchmark/last-result.json" '"schema":2,"runtime_evidence_version":1'
+            assert_contains "success: each run carries before and after snapshots" "$T/state/flowoffload-benchmark/last-result.json" '"health_accepted":true,"rejection_reason":null,"health_before":'
+            assert_contains "success: NFQUEUE evidence retains its actual counter" "$T/state/flowoffload-benchmark/last-result.json" '"nfqueue_packets":5'
             assert_contains "success: acceptance records the active stability rule" "$T/state/flowoffload-benchmark/last-result.json" '"stability_rule":"two_of_five_over_10pct"'
             assert_contains "success: software and hardware modes are present" "$T/state/flowoffload-benchmark/last-result.json" '"software":{"runs":[{'
             assert_contains "success: sub-noise differences produce no winner" "$T/state/flowoffload-benchmark/last-result.json" '"recommendation":null'
@@ -236,6 +268,16 @@ EOF
             assert_contains "health-broken: raw software samples remain available" "$T/state/flowoffload-benchmark/last-result.json" '"software":{"runs":[{'
             assert_contains "health-broken: recommendation is blocked" "$T/state/flowoffload-benchmark/last-result.json" '"recommendation":null'
             ;;
+        observer-failure)
+            assert_contains "observer failure: the exact snapshot collection error is retained" "$T/state/flowoffload-benchmark/last-result.json" '"snapshot_error":"observer exited with status 42: fixture nft permission denied"'
+            assert_contains "observer failure: missing before snapshot blocks health acceptance" "$T/state/flowoffload-benchmark/last-result.json" '"none":{"accepted":false,"reason":"health-snapshot-missing"}'
+            assert_contains "observer failure: the affected run retains its rejection reason" "$T/state/flowoffload-benchmark/last-result.json" '"health_accepted":false,"rejection_reason":"health-snapshot-missing"'
+            assert_contains "observer failure: measured network samples remain available" "$T/state/flowoffload-benchmark/last-result.json" '"download_mbps":100'
+            ;;
+        observer-empty)
+            assert_contains "empty observer result: collection cause is retained" "$T/state/flowoffload-benchmark/last-result.json" '"snapshot_error":"observer returned an empty snapshot"'
+            assert_contains "empty observer result: health remains fail-closed" "$T/state/flowoffload-benchmark/last-result.json" '"none":{"accepted":false,"reason":"health-snapshot-missing"}'
+            ;;
         cpu-unknown)
             assert_contains "cpu-unknown: unavailable CPU remains null" "$T/state/flowoffload-benchmark/last-result.json" '"cpu_avg":null'
             ;;
@@ -276,6 +318,8 @@ run_case hardware-fast
 run_case hardware-conflict
 run_case hardware-unobserved
 run_case health-broken
+run_case observer-failure
+run_case observer-empty
 run_case cpu-unknown
 run_case noisy
 run_case noisy-upload

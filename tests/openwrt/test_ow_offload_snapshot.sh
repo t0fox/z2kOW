@@ -152,8 +152,16 @@ _facts=$(NFT_FAIL=1 z2k_ow_flowoffload_status)
 assert_eq "unreadable nft runtime is unavailable" unavailable "$(snapshot_field "$_facts" packet_visibility)"
 unset NFT_FAIL
 printf 'FLOWOFFLOAD=none\n' > "$T/config"
+cat > "$T/ruleset" <<'EOF'
+table inet zapret2 {
+ chain input { queue flags bypass to 200 counter packets 2450 bytes 500000 }
+}
+EOF
+rm -f "$T/flowtable"
 _facts=$(z2k_ow_flowoffload_status)
-assert_eq "none mode makes packet visibility not applicable" not-applicable "$(snapshot_field "$_facts" packet_visibility)"
+assert_eq "none mode still observes an active NFQUEUE path" active "$(snapshot_field "$_facts" packet_visibility)"
+assert_eq "none mode retains NFQUEUE rule count" 1 "$(snapshot_field "$_facts" nfqueue_rules)"
+assert_eq "none mode retains NFQUEUE packet count" 2450 "$(snapshot_field "$_facts" nfqueue_packets)"
 
 printf 'FLOWOFFLOAD=software\nENABLED=1\nNFQWS2_OPT="\n--lua-desync=circular:fails=3\n"\n' > "$T/config"
 mkdir -p "$T/proc/4242" "$T/circular-cache/extra_strats/cache/autocircular" "$T/circular-state"
@@ -164,6 +172,11 @@ printf 'Z2K_STATE_DIR_OVERRIDE=%s\000Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE=%s\000' 
 printf '192.0.2.1\t198.51.100.1\t443\n' > "$T/circular-state/state.tsv"
 _facts=$(z2k_ow_flowoffload_status)
 assert_eq "configured and observed circular runtime is active" active "$(snapshot_field "$_facts" circular_state)"
+sed 's/^FLOWOFFLOAD=software$/FLOWOFFLOAD=none/' "$T/config" > "$T/config.new" && mv "$T/config.new" "$T/config"
+_facts=$(z2k_ow_flowoffload_status)
+assert_eq "none mode continues to observe Circular independently" active "$(snapshot_field "$_facts" circular_state)"
+assert_eq "none mode continues to observe NFQUEUE independently" active "$(snapshot_field "$_facts" packet_visibility)"
+printf 'FLOWOFFLOAD=software\nENABLED=1\nNFQWS2_OPT="\n--lua-desync=circular:fails=3\n"\n' > "$T/config"
 printf '{"z2k":{"instances":{"z2k":{"running":false,"pid":4242}}}}\n' > "$T/diag-procd.json"
 _facts=$(z2k_ow_flowoffload_status)
 assert_eq "configured circular with stopped procd is broken" broken "$(snapshot_field "$_facts" circular_state)"

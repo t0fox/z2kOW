@@ -44,7 +44,7 @@ const statusFixture = {
     game_warp: '0', customd: '0', dynamic_ttl: '1',
     ppe: '1', auto_update: '1', autohostlist: '0', fastroute: '0',
     fastroute_available: '0', flowoffload: 'hardware',
-    flowoffload_status: 'configured_mode=hardware; flowtable_state=present; flowtable_flags=offload; flowtable_devices=wan; actual_dataplane=not-observed; exemption_rules=0; nfqueue_rules=unknown; nfqueue_packets=unknown; packet_visibility=unknown; circular_state=unknown; hardware_capability=unknown; hardware_observed=not-observed; hardware_state=requested; owner_state=unknown; owner_conflict=unavailable; runtime_health=attention; runtime_health_reason=hardware-not-observed',
+    flowoffload_status: 'configured_mode=hardware; flowtable_state=present; flowtable_flags=offload; flowtable_devices=br-lan,wan; actual_dataplane=not-observed; exemption_rules=4; nfqueue_rules=8; nfqueue_packets=26061; packet_visibility=active; circular_state=active; hardware_capability=available; hardware_requested=1; hardware_observed=not-observed; hardware_state=requested; hw_offloaded_connections=0; software_offloaded_connections=3; offloaded_connections=3; selective_state=complete; owner_state=zapret2; owner_conflict=none; runtime_health=attention; runtime_health_reason=hardware-not-observed',
     au_hour: '3',
   },
   tunnel: { running: true },
@@ -2210,8 +2210,15 @@ try {
   assert.equal(await healthy.page.locator('#flowoffload-technical').evaluate(node => node.open), false,
     'hardware runtime facts stay behind a closed technical disclosure');
   await healthy.page.locator('#flowoffload-technical > summary').click();
-  assert.match(await healthy.page.locator('#flowoffload-technical').innerText(), /Hardware[\s\S]*Запрошен, dataplane не наблюдался[\s\S]*requested/,
-    'requested hardware state remains inspectable in diagnostics');
+  const offloadDiagnostics = healthy.page.locator('#flowoffload-technical');
+  assert.match(await offloadDiagnostics.innerText(), /Hardware[\s\S]*Запрошен[\s\S]*Поддерживается[\s\S]*Не наблюдался/,
+    'requested, supported and not-observed hardware states remain distinct');
+  assert.match(await offloadDiagnostics.innerText(), /NFQUEUE[\s\S]*Активен[\s\S]*Пакеты[\s\S]*26061/,
+    'diagnostics show independent NFQUEUE activity and its real packet count');
+  assert.match(await offloadDiagnostics.innerText(), /Исключения zapret2[\s\S]*4/,
+    'diagnostics preserve the actual selective-exemption count');
+  assert.match(await offloadDiagnostics.locator('[data-flow-fact-value="hardware_state"]').getAttribute('aria-label'), /requested/,
+    'raw technical state remains accessible without taking visual width');
   await healthy.page.locator('#flowoffload-technical > summary').click();
   const flowVisual = await flowStatus.evaluate(node => {
     const style = getComputedStyle(node);
@@ -2255,11 +2262,18 @@ try {
   let failBenchmarkPings = false;
   let latestBenchmarkStatus = null;
   const fixtureResult = {
+    schema: 2, runtime_evidence_version: 1,
     status: 'completed', timestamp: '2026-10-07T10:00:00Z', recommendation: 'software',
     provider: 'yandex-internetometer', server: 'edge-01.cdn.yandex.net',
+    health: {
+      none: { accepted: true, reason: 'confirmed' },
+      software: { accepted: true, reason: 'confirmed' },
+      hardware: { accepted: false, reason: 'hardware-not-observed' },
+    },
     validity: { complete: true, unstable: false, accepted: true, warnings: ['Внешний тест зависит от выбранного CDN'] },
     comparisons: {
-      software_vs_none: { download_pct: 100, upload_pct: -78, cpu_pct: 17 },
+      software_vs_none: { download_pct: 100, upload_pct: -78, cpu_pct: 17, cpu_peak_pct: 10, idle_ms_delta: 0.05,
+        download_loaded_ms_delta: 1.1, upload_loaded_ms_delta: -0.05 },
       hardware_vs_software: { download_pct: null, upload_pct: null, cpu_pct: null },
     },
     system: { router_model: 'Fixture Router', openwrt_version: 'OpenWrt 24.10', z2kow_version: 'p-86.14', wan_interface: 'wan0' },
@@ -2272,16 +2286,54 @@ try {
         download_mbps: { median: 60, min: 59, max: 61, range_pct: 3.3, outliers: 0 },
         upload_mbps: { median: 30, min: 29, max: 31, range_pct: 3.3, outliers: 0 },
       },
-      runs: [
-        { download_mbps: 59, upload_mbps: 29, download_loaded_ms: 17, upload_loaded_ms: 20, server: 'edge-01.cdn.yandex.net' },
-        { download_mbps: 60, upload_mbps: 30, download_loaded_ms: 18, upload_loaded_ms: 21, server: 'edge-01.cdn.yandex.net' },
-        { download_mbps: 61, upload_mbps: 31, download_loaded_ms: 19, upload_loaded_ms: 22, server: 'edge-01.cdn.yandex.net' },
+      runs: mode === 'hardware' ? [] : [
+        { download_mbps: 59, upload_mbps: 29, cpu_avg: 24.8, cpu_peak: 40.1, idle_ms: 9.05,
+          download_loaded_ms: 17, upload_loaded_ms: 20, jitter_ms: 1.2, loss_pct: 0, duration_s: 4.2,
+          actual: 'not-observed', health_accepted: true, server: 'very-long-cdn-edge-07.eu-west.example-cdn.net',
+          health_before: { expected_health_reason: mode === 'none' ? 'disabled' : 'confirmed', configured_mode: mode,
+            flowtable_state: mode === 'none' ? 'absent' : 'present', flowtable_flags: mode === 'none' ? 'none' : 'software',
+            flowtable_devices: 'br-lan, wan', actual_dataplane: mode === 'none' ? 'not-applicable' : 'software',
+            offloaded_connections: mode === 'none' ? 0 : 3,
+            software_offloaded_connections: mode === 'software' ? 3 : 0,
+            hw_offloaded_connections: 0, hardware_capability: 'available',
+            hardware_requested: 0, hardware_observed: 'not-applicable', hardware_state: 'not-applicable',
+            software_capability: 'available', global_fw4_offload: 'disabled', global_fw4_flowtables: 0,
+            flow_offload_chain: mode === 'none' ? 'absent' : 'present',
+            flow_offload_zapret_chain: mode === 'none' ? 'absent' : 'present',
+            flow_offload_always_chain: mode === 'none' ? 'absent' : 'present', flow_add_rules: mode === 'none' ? 0 : 1,
+            packet_visibility: 'active', nfqueue_rules: 8, nfqueue_packets: 2450, exemption_rules: 4,
+            selective_state: 'complete', circular_state: 'active', owner_state: 'zapret2', owner_conflict: 'none',
+            runtime_health: mode === 'none' ? 'disabled' : 'healthy', runtime_health_reason: mode === 'none' ? 'disabled' : 'confirmed' },
+          health_after: { expected_health_reason: mode === 'none' ? 'disabled' : 'confirmed', configured_mode: mode,
+            flowtable_state: mode === 'none' ? 'absent' : 'present', flowtable_flags: mode === 'none' ? 'none' : 'software',
+            flowtable_devices: 'br-lan, wan', actual_dataplane: mode === 'none' ? 'not-applicable' : 'software',
+            offloaded_connections: mode === 'none' ? 0 : 3,
+            software_offloaded_connections: mode === 'software' ? 3 : 0,
+            hw_offloaded_connections: 0, hardware_capability: 'available',
+            hardware_requested: 0, hardware_observed: 'not-applicable', hardware_state: 'not-applicable',
+            software_capability: 'available', global_fw4_offload: 'disabled', global_fw4_flowtables: 0,
+            flow_offload_chain: mode === 'none' ? 'absent' : 'present',
+            flow_offload_zapret_chain: mode === 'none' ? 'absent' : 'present',
+            flow_offload_always_chain: mode === 'none' ? 'absent' : 'present', flow_add_rules: mode === 'none' ? 0 : 1,
+            packet_visibility: 'active', nfqueue_rules: 8, nfqueue_packets: 2470, exemption_rules: 4,
+            selective_state: 'complete', circular_state: 'active', owner_state: 'zapret2', owner_conflict: 'none',
+            runtime_health: mode === 'none' ? 'disabled' : 'healthy', runtime_health_reason: mode === 'none' ? 'disabled' : 'confirmed' } },
+        { download_mbps: 60, upload_mbps: 30, cpu_avg: 25, cpu_peak: 41, idle_ms: 9, download_loaded_ms: 18,
+          upload_loaded_ms: 21, jitter_ms: 1.5, loss_pct: 0, duration_s: 4.3, actual: 'not-observed', health_accepted: true,
+          server: 'edge-01.cdn.yandex.net', health_before: { flowtable_state: 'present' }, health_after: { flowtable_state: 'present' } },
+        { download_mbps: 61, upload_mbps: 31, cpu_avg: 25.2, cpu_peak: 41.4, idle_ms: 9.1,
+          download_loaded_ms: 19, upload_loaded_ms: 22, jitter_ms: 1.1, loss_pct: 0, duration_s: 4.4,
+          actual: 'not-observed', health_accepted: true, server: 'edge-01.cdn.yandex.net',
+          health_before: { flowtable_state: 'present' }, health_after: { flowtable_state: 'present' } },
       ],
     }])),
   };
+  const historicalFixtureResult = {
+    ...fixtureResult, schema: 1, runtime_evidence_version: undefined, runtime_evidence_state: 'historical',
+  };
   await healthy.page.route(/\/cgi-bin\/api\/offload\/benchmark\?view=status$/, route => {
     latestBenchmarkStatus = showLastSuccessFallback
-      ? { ok: true, active: false, status: 'failed', result: { ...fixtureResult, status: 'failed', validity: { ...fixtureResult.validity, complete: false, accepted: false }, timestamp: '2026-10-07T11:00:00Z', recommendation: null, message: 'endpoint failed' }, last_success_timestamp: fixtureResult.timestamp }
+      ? { ok: true, active: false, status: 'failed', result: { ...fixtureResult, status: 'failed', validity: { ...fixtureResult.validity, complete: false, accepted: false }, timestamp: '2026-10-07T11:00:00Z', recommendation: null, message: 'endpoint failed' }, last_success_timestamp: '', last_success_state: 'historical' }
       : resumedSample
         ? { ok: true, active: false, status: 'completed', result: fixtureResult }
         : { ok: true, active: true, session: 'session-fixture', token: 'token-fixture', status: 'awaiting_sample',
@@ -2295,7 +2347,7 @@ try {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(latestBenchmarkStatus) });
   });
   await healthy.page.route(/\/cgi-bin\/api\/offload\/benchmark\?view=last-success$/, route => route.fulfill({
-    status: 200, contentType: 'application/json', body: JSON.stringify(fixtureResult),
+    status: 200, contentType: 'application/json', body: JSON.stringify(historicalFixtureResult),
   }));
   await healthy.page.route('**/cgi-bin/api/offload/benchmark', async route => {
     if (route.request().method() !== 'POST') return route.fallback();
@@ -2355,7 +2407,7 @@ try {
   assert.match(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Рекомендуется: Программное/);
   assert.match(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Программное vs Без ускорения/,
     'accepted benchmark shows its percentage comparison');
-  await healthy.page.locator('#flowoffload-benchmark-result details > summary').click();
+  await healthy.page.locator('#flowoffload-benchmark-result > details > summary').click();
   const benchmarkDetails = await healthy.page.locator('#flowoffload-benchmark-result').innerText();
   assert.match(benchmarkDetails, /Run 1\t59 Mbps\t29 Mbps[\s\S]*Run 2\t60 Mbps\t30 Mbps[\s\S]*Run 3\t61 Mbps\t31 Mbps/,
     'benchmark diagnostics show every raw upload trial');
@@ -2365,13 +2417,107 @@ try {
     'benchmark diagnostics show the measured download and upload ranges');
   assert.match(benchmarkDetails, /Провайдер: Яндекс Интернетометр · CDN: edge-01\.cdn\.yandex\.net/,
     'benchmark diagnostics identify the selected Yandex provider and actual CDN host');
+  const runTables = healthy.page.locator('#flowoffload-benchmark-result .flow-benchmark-run-table');
+  assert.equal(await runTables.count(), 3, 'benchmark details contain one measurement table per mode');
+  for (const runTable of await runTables.all()) {
+    const runHeaders = await runTable.locator('thead th').allInnerTexts();
+    assert.deepEqual(runHeaders, ['Прогон', '↓ Mbps', '↑ Mbps', 'CPU avg', 'CPU peak', 'Ping idle', 'Ping ↓', 'Ping ↑', 'Health'],
+      'each mode uses the compact measurement columns and a separate health state');
+  }
+  const firstRunDetails = healthy.page.locator('#flowoffload-benchmark-result .flow-benchmark-run-details').first();
+  await firstRunDetails.locator(':scope > summary').click();
+  const runtimeSnapshots = firstRunDetails.locator('.flow-benchmark-snapshots');
+  assert.equal(await runtimeSnapshots.evaluate(node => node.open), false,
+    'runtime snapshots stay collapsed in the compact per-run view');
+  assert.match(await runtimeSnapshots.locator('summary').innerText(), /Runtime до и после · \d+ фактов · изменений: 1/,
+    'the compact runtime summary reports evidence and changed-fact counts');
+  await runtimeSnapshots.locator('summary').click();
+  const firstRunText = await firstRunDetails.innerText();
+  assert.match(firstRunText, /Jitter[\s\S]*HTTP loss[\s\S]*Duration[\s\S]*CDN hostname/,
+    'per-run details keep sample quality and CDN separate from the measurement table');
+  assert.match(firstRunText, /Снимок до прогона[\s\S]*Снимок после прогона[\s\S]*2450[\s\S]*2470/i,
+    'per-run details expose before/after snapshots and real NFQUEUE counter changes');
+  assert.match(firstRunText, /Пакеты NFQUEUE\s+2450 → 2470/,
+    'after snapshot lists only changed facts with before/after values');
+  assert.match(firstRunText, /остальные \d+ не изменились и показаны в снимке до прогона/i,
+    'unchanged runtime facts stay available in the before snapshot without duplicating the after snapshot');
+  assert.match(firstRunText, /Аппаратные соединения[\s\S]*Поддержка hardware[\s\S]*Цепочка zapret2/,
+    'runtime snapshots retain connection counts, hardware evidence, and selective rule facts');
+  const snapshotHeights = await firstRunDetails.locator('.flow-benchmark-snapshot').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
+  assert.ok(snapshotHeights[1] < snapshotHeights[0] / 2,
+    `the after snapshot keeps its own compact height (${JSON.stringify(snapshotHeights)})`);
+  const benchmarkSurfaces = await healthy.page.evaluate(() => ({
+    snapshot: getComputedStyle(document.querySelector('.flow-benchmark-snapshot')).backgroundColor,
+    recommendation: getComputedStyle(document.querySelector('.flow-benchmark-recommendation')).backgroundColor,
+    tableHeader: getComputedStyle(document.querySelector('.flow-benchmark-table thead th')).backgroundColor,
+  }));
+  assert.deepEqual(benchmarkSurfaces,
+    { snapshot: 'rgb(24, 30, 28)', recommendation: 'rgb(24, 30, 28)', tableHeader: 'rgb(24, 30, 28)' },
+    `benchmark cards use the neutral Lolz surface color (${JSON.stringify(benchmarkSurfaces)})`);
+  const providerSelect = healthy.page.locator('#flowoffload-benchmark-provider');
+  await providerSelect.focus();
+  await providerSelect.selectOption('cloudflare');
+  const runTableWrap = healthy.page.locator('#flowoffload-benchmark-result .flow-benchmark-run-table').first().locator('xpath=..');
+  await runTableWrap.evaluate(node => { node.scrollLeft = 80; });
+  fixtureResult.modes.none.runs[0].health_after.nfqueue_packets = 2475;
+  await healthy.page.waitForFunction(() => document.querySelector('#flowoffload-benchmark-result')?.innerText.includes('2450 → 2475'));
+  await healthy.page.waitForTimeout(1400);
+  assert.equal(await providerSelect.inputValue(), 'cloudflare', 'status polling preserves the selected benchmark provider');
+  assert.equal(await healthy.page.evaluate(() => document.activeElement?.id), 'flowoffload-benchmark-provider',
+    'status polling preserves keyboard focus');
+  assert.equal(await firstRunDetails.evaluate(node => node.open), true,
+    'status polling preserves the open per-run disclosure');
+  assert.equal(await firstRunDetails.locator('.flow-benchmark-snapshots').evaluate(node => node.open), true,
+    'status polling preserves the open runtime snapshot disclosure');
+  assert.equal(await runTableWrap.evaluate(node => node.scrollLeft), 80,
+    'status polling preserves the measurement table scroll position');
+  if (screenshotDir) {
+    await screenshotComponent(healthy.page, healthy.page.locator('#openwrt-offload-card'),
+      path.join(screenshotDir, 'dark-1280-flowoffload-benchmark-runtime-evidence.png'));
+  }
+  await firstRunDetails.locator('.flow-benchmark-snapshots > summary').click();
+  await healthy.page.locator('#flowoffload-technical > summary').click();
+  for (const width of [1920, 1280, 900, 390]) {
+    await healthy.page.setViewportSize({ width, height: 900 });
+    await healthy.page.waitForTimeout(400);
+    const frame = await healthy.page.evaluate(() => {
+      const viewport = document.documentElement.clientWidth;
+      const card = document.querySelector('#openwrt-offload-card');
+      const run = document.querySelector('#flowoffload-benchmark-result .flow-benchmark-run-main');
+      const host = document.querySelector('#flowoffload-benchmark-result .flow-benchmark-run-meta .is-host');
+      const fact = document.querySelector('#flowoffload-technical .flow-fact');
+      const label = fact?.querySelector('.flow-fact-label');
+      const value = fact?.querySelector('.flow-fact-value');
+      return {
+        viewport, pageWidth: document.documentElement.scrollWidth,
+        cardWidth: card?.getBoundingClientRect().width,
+        runHeight: run?.getBoundingClientRect().height,
+        hostWidth: host?.getBoundingClientRect().width, hostScroll: host?.scrollWidth,
+        labelWidth: label?.getBoundingClientRect().width, valueLeft: value?.getBoundingClientRect().left,
+        labelRight: label?.getBoundingClientRect().right, labelWordBreak: label && getComputedStyle(label).wordBreak,
+        overflowers: [...document.querySelectorAll('#app *')].map(node => {
+          const rect = node.getBoundingClientRect();
+          return { tag: node.tagName, id: node.id, className: String(node.className || '').slice(0, 80), right: Math.round(rect.right), width: Math.round(rect.width) };
+        }).filter(node => node.right > viewport + 1).sort((a, b) => b.right - a.right).slice(0, 8),
+      };
+    });
+    if (screenshotDir) {
+      await screenshotComponent(healthy.page, healthy.page.locator('#openwrt-offload-card'),
+        path.join(screenshotDir, `dark-${width}-flowoffload-benchmark-diagnostics.png`));
+    }
+    assert.ok(frame.pageWidth <= frame.viewport, `${width}px FLOWOFFLOAD must not cause page-level horizontal overflow (${JSON.stringify(frame)})`);
+    assert.ok(frame.runHeight < 48, `${width}px measurement rows stay compact (${JSON.stringify(frame)})`);
+    assert.ok(frame.hostScroll <= frame.hostWidth + 1, `${width}px long CDN hostname wraps inside its details (${JSON.stringify(frame)})`);
+    assert.ok(frame.labelWidth >= 88 && frame.valueLeft >= frame.labelRight - 1 && frame.labelWordBreak === 'normal',
+      `${width}px diagnostic labels and values use a readable two-column row (${JSON.stringify(frame)})`);
+  }
   showLastSuccessFallback = true;
   await healthy.page.reload();
   await waitForCondition(() => latestBenchmarkStatus?.status === 'failed', 'failed benchmark history response');
   await healthy.page.waitForFunction(() => document.querySelector('#flowoffload-benchmark-result')?.dataset.signature?.includes('endpoint failed'));
   assert.doesNotMatch(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Программное vs Без ускорения/,
     'incomplete benchmark hides percentage comparisons');
-  await healthy.page.waitForFunction(() => document.querySelector('#flowoffload-benchmark-status')?.innerText.includes('Последняя принятая стабильная серия'));
+  await healthy.page.waitForFunction(() => document.querySelector('#flowoffload-benchmark-status')?.innerText.includes('Предыдущая сохранённая серия доступна как исторический результат'));
   const lastSuccess = healthy.page.locator('#flowoffload-benchmark-last-success');
   const lastSuccessDebug = await healthy.page.evaluate(() => ({
     status: document.querySelector('#flowoffload-benchmark-status')?.textContent,
@@ -2380,11 +2526,14 @@ try {
     content: Boolean(document.querySelector('#flowoffload-benchmark-last-success-content')),
   }));
   assert.equal(lastSuccessDebug.hidden, false, `last-success fallback should be visible; fixture=${JSON.stringify(latestBenchmarkStatus)} UI=${JSON.stringify(lastSuccessDebug)}`);
+  assert.equal(lastSuccessDebug.timestamp, 'historical', 'legacy history remains visible without a current benchmark timestamp');
   await lastSuccess.locator('summary').first().click();
-  await lastSuccess.locator('#flowoffload-benchmark-last-success-content details > summary').click();
+  await lastSuccess.locator('#flowoffload-benchmark-last-success-content > details > summary').click();
   await lastSuccess.getByText('Модель роутера').waitFor({ state: 'visible' });
   assert.match(await lastSuccess.innerText(), /Fixture Router/);
-  await healthy.page.locator('#flowoffload-benchmark-result details > summary').click();
+  assert.match(await lastSuccess.innerText(), /Исторический результат[\s\S]*runtime evidence отсутствует/);
+  assert.doesNotMatch(await lastSuccess.innerText(), /Рекомендуется: Аппаратное/);
+  await healthy.page.locator('#flowoffload-benchmark-result > details > summary').click();
   assert.match(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /endpoint failed/);
   await healthy.page.close();
 

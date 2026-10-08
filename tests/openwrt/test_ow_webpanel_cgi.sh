@@ -457,14 +457,14 @@ assert_eq "status: stock offload capability" "true" "$(_jget "$OUT" 'd["capabili
 assert_eq "status: stock offload mode" "none" "$(_jget "$OUT" 'd["toggles"]["flowoffload"]')"
 printf '%s\n' "$OUT" > "$T/status-output"
 assert_contains "status: offload facts stay explicit" "$T/status-output" "flowtable_state=absent"
-assert_contains "status: packet proof is not applicable while disabled" "$T/status-output" "packet_visibility=not-applicable"
+assert_contains "status: NFQUEUE remains independently observable while offload is disabled" "$T/status-output" "packet_visibility=inactive"
 assert_contains "status: circular comes from runtime observer" "$T/status-output" "circular_state=disabled"
 assert_not_contains "status: packet visibility is never hardcoded unknown" "$T/status-output" "packet_visibility=unknown"
 assert_not_contains "status: circular is never hardcoded unknown" "$T/status-output" "circular_state=unknown"
 Z2K_ROOT="$T/root" Z2K_CONFIG="$T/etc/config" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp/z2k" \
     Z2K_STATE="$T/etc/state" Z2K_RUN="$T/run" Z2K_BIN="$T/bin" sh "$REPO/platform/openwrt/diag.sh" offload \
     > "$T/diag-status" 2>&1
-assert_contains "diag and status use the same disabled packet state" "$T/diag-status" "packet visibility  : not-applicable"
+assert_contains "diag and status use the same disabled-mode packet state" "$T/diag-status" "packet visibility  : inactive"
 assert_contains "diag and status use the same circular state" "$T/diag-status" "circular           : disabled"
 assert_eq "status: tcp16 true when full feature is shipped" "true" "$(_jget "$OUT" 'd["capabilities"]["tcp16"]')"
 assert_eq "status: Telegram TCP tunnel reports its own matching process probe" "false" "$(_jget "$OUT" 'd["tunnel"]["running"]')"
