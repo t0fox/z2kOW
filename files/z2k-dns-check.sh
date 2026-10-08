@@ -579,7 +579,7 @@ $_curname|$_cur||"
 
         # Заглушка ЭТОГО сервера: адрес, пришедший на два и более разных домена.
         if [ -n "${dot:-}" ]; then
-            z2k_dns_progress "$_server_label: проверяю DoT внутри TLS/853"
+            z2k_dns_progress "$_server_label: проверяю DNS через TLS на порту 853"
             DOT_MS=""
             if dot_alive "$dot" "$_sip"; then
                 up=1
