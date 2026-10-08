@@ -1927,6 +1927,14 @@ input[type=text]:focus, input[type=password]:focus {
   background: var(--warn-alpha-soft);
   color: var(--warn);
 }
+.flow-application[data-kind="bad"] .flow-application-badge {
+  background: var(--bad-alpha-soft, var(--bg-card));
+  color: var(--bad);
+}
+.flow-application[data-kind="disabled"] .flow-application-badge {
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+}
 .flow-warning {
   margin-top: var(--space-8);
   padding: var(--space-8) var(--space-12);
@@ -1955,7 +1963,21 @@ input[type=text]:focus, input[type=password]:focus {
   font-size: 11px;
   font-weight: 400;
 }
-.flow-technical-body { padding-top: var(--space-8); }
+#flowoffload-technical .flow-technical-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 18px;
+  padding-top: var(--space-8);
+}
+.flow-diagnostic-section { min-width: 0; }
+.flow-diagnostic-section h4 {
+  margin: 0 0 5px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
 .flow-facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1981,6 +2003,10 @@ input[type=text]:focus, input[type=password]:focus {
 .flow-fact-value > span {
   overflow-wrap: anywhere;
 }
+.flow-fact-value[data-kind="good"] > span { color: var(--good); }
+.flow-fact-value[data-kind="warn"] > span { color: var(--warn); }
+.flow-fact-value[data-kind="bad"] > span { color: var(--bad); }
+.flow-fact-value[data-kind="disabled"] > span { color: var(--text-muted); }
 .flow-fact-value code {
   color: var(--text-muted);
   font-family: var(--font-mono);
@@ -2161,6 +2187,31 @@ input[type=text]:focus, input[type=password]:focus {
   font-variant-numeric: tabular-nums;
 }
 .flow-benchmark-comparison strong { color: var(--text); font-size: 12px; }
+.flow-benchmark-comparison.is-muted { border-style: dashed; }
+.flow-benchmark-details { display: grid; gap: var(--space-12); padding-top: var(--space-8); }
+.flow-benchmark-mode-detail { min-width: 0; }
+.flow-benchmark-mode-detail h5 {
+  margin: 0 0 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.flow-benchmark-run-table { min-width: 1500px; }
+.flow-benchmark-summary-table { min-width: 680px; }
+.flow-benchmark-summary-table th,
+.flow-benchmark-summary-table td { padding-top: 5px; padding-bottom: 5px; }
+.flow-benchmark-run-table td small {
+  display: block;
+  max-width: 420px;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: normal;
+  text-align: left;
+}
+.flow-benchmark-run-table td:last-child { max-width: 430px; white-space: normal; }
 .flow-benchmark-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);
@@ -3085,7 +3136,8 @@ body[data-page="strategies"] #app { max-width: none; }
   .flow-mode-field { max-width: none; }
   .flow-application { align-items: flex-start; }
   .flow-application-badge { margin-left: auto; }
-  .flow-facts { grid-template-columns: 1fr; }
+  .flow-facts,
+  #flowoffload-technical .flow-technical-body { grid-template-columns: 1fr; }
   .flow-fact { align-items: flex-start; }
   .flow-fact-value { flex-direction: column; align-items: flex-end; gap: 1px; }
   .tiktok-status-line { align-items: flex-start; }

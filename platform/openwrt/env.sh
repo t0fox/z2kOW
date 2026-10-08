@@ -217,6 +217,7 @@ z2k_platform_nfqws_alive() {
 # rule, or fw4 replacement of their own.
 z2k_ow_flowoffload_mode() {
     local _cfg="${CONFIG_FILE:-${Z2K_CONFIG:-/etc/z2k/config}}" _mode
+    [ -r "$_cfg" ] || { printf '%s\n' unknown; return 0; }
     # BusyBox tr treats [:space:] as literal characters in this invocation;
     # use the same portable trim as the rest of the OpenWrt adapter, after
     # removing optional config quotes separately.
@@ -224,9 +225,18 @@ z2k_ow_flowoffload_mode() {
         "$_cfg" 2>/dev/null | tail -1 | sed "s/[\"']//g" | tr -d ' \t\r\n')
     case "$_mode" in
         none|software|hardware|donttouch) printf '%s\n' "$_mode" ;;
-        *) printf '%s\n' none ;;
+        *) printf '%s\n' unknown ;;
     esac
 }
+
+# One read-only runtime observer feeds /status, CLI diagnostics and benchmark.
+_ow_offload_observe="${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/offload-observe.sh"
+if [ -r "$_ow_offload_observe" ]; then
+    . "$_ow_offload_observe" || Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+else
+    Z2K_PLATFORM_STATUS="PLATFORM_UNAVAILABLE"
+fi
+unset _ow_offload_observe
 
 z2k_ow_flowoffload_available() {
     local _rt="${Z2K_ZAPRET2_RUNTIME:-/opt/zapret2}" _cfg
@@ -241,73 +251,7 @@ z2k_ow_flowoffload_available() {
 }
 
 z2k_ow_flowoffload_status() {
-    local _mode _tab _ft _flowtable _chain _exemptions _flags _uci_flow _uci_soft _uci_hw
-    local _fw4 _fw4_flowtables _owner _ct _actual _hardware _running _v
-    _mode=$(z2k_ow_flowoffload_mode)
-    _tab="${Z2K_ZAPRET_NFT_TABLE:-zapret2}"
-    _ft=""
-    if command -v nft >/dev/null 2>&1; then
-        _ft=$(nft list flowtable inet "$_tab" ft 2>/dev/null || true)
-    fi
-    if [ -n "$_ft" ]; then
-        _flowtable=present
-        printf '%s\n' "$_ft" | grep -qE '[[:space:]]flags[[:space:]]+offload([[:space:]]|$)' \
-            && _flags=offload || _flags=software
-    else
-        _flowtable=absent
-        _flags=none
-    fi
-    _chain=""
-    if command -v nft >/dev/null 2>&1; then
-        _chain=$(nft list chain inet "$_tab" flow_offload_zapret 2>/dev/null || true)
-    fi
-    _exemptions=$(printf '%s\n' "$_chain" | grep -ci 'direct flow offloading exemption' || true)
-
-    _uci_flow=0; _uci_soft=unset; _uci_hw=unset
-    if command -v uci >/dev/null 2>&1; then
-        _v=$(uci -q get firewall.@defaults[0].flow_offloading 2>/dev/null || true)
-        [ -n "$_v" ] && _uci_soft="$_v"
-        [ "$_v" = 1 ] && _uci_flow=1
-        _v=$(uci -q get firewall.@defaults[0].flow_offloading_hw 2>/dev/null || true)
-        [ -n "$_v" ] && _uci_hw="$_v"
-        [ "$_v" = 1 ] && _uci_flow=1
-    fi
-    _fw4=""
-    if command -v nft >/dev/null 2>&1; then
-        _fw4=$(nft list table inet fw4 2>/dev/null || true)
-    fi
-    _fw4_flowtables=$(printf '%s\n' "$_fw4" | grep -ciE '^[[:space:]]*flowtable[[:space:]]' || true)
-    _owner=none
-    if [ "$_uci_flow" = 1 ] || [ "$_fw4_flowtables" -gt 0 ]; then
-        if [ "$_flowtable" = present ] || [ "$_mode" = software ] || [ "$_mode" = hardware ]; then
-            _owner=global_fw4+zapret2
-        else
-            _running=0
-            if command -v is_running >/dev/null 2>&1 && is_running; then _running=1; fi
-            [ "$_running" = 1 ] && _owner=global_fw4+nfqueue || _owner=global_fw4_only
-        fi
-    fi
-
-    _ct=""
-    if command -v conntrack >/dev/null 2>&1; then
-        _ct=$(conntrack -L 2>/dev/null || true)
-    elif [ -r /proc/net/nf_conntrack ]; then
-        _ct=$(cat /proc/net/nf_conntrack 2>/dev/null || true)
-    fi
-    _actual=not-observed
-    _hardware=not-observed
-    if printf '%s\n' "$_ct" | grep -qF '[HW_OFFLOAD]'; then
-        _actual=hardware
-        _hardware=observed
-    elif printf '%s\n' "$_ct" | grep -qF '[OFFLOAD]'; then
-        _actual=software
-    elif [ "$_flags" = offload ]; then
-        _hardware=requested
-    elif [ -r /proc/driver/hw_nat ]; then
-        _hardware=available
-    fi
-    printf 'mode=%s; flowtable=%s; flags=%s; exemptions=%s; actual=%s; hardware=%s; owner=%s; packet_visibility=unknown; circular=unknown\n' \
-        "$_mode" "$_flowtable" "$_flags" "${_exemptions:-0}" "$_actual" "$_hardware" "$_owner"
+    z2k_ow_flowoffload_snapshot
 }
 
 z2k_ow_flowoffload_regenerate() {

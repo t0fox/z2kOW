@@ -11,6 +11,7 @@ trap 'rm -rf "$T"' EXIT INT TERM
 
 [ -f "$ADAPTER" ] || { _t_bad "benchmark adapter exists"; _t_done; exit 1; }
 . "$ADAPTER"
+. "$REPO/platform/openwrt/offload-observe.sh"
 
 assert_ne() {
     if [ "$2" != "$3" ]; then _t_ok; else _t_bad "$1: expected value other than [$2]"; fi
@@ -80,17 +81,21 @@ z2k_ow_flowoffload_status() {
     case "$(z2k_ow_flowoffload_mode)" in
         hardware)
             if [ "${BENCH_HW_UNSUPPORTED:-}" = 1 ]; then
-                printf 'mode=hardware; flowtable=present; flags=software; actual=not-observed; hardware=available; owner=none\n'
+                printf 'configured_mode=hardware; flowtable_state=present; flowtable_flags=software; flowtable_devices=wan; actual_dataplane=not-observed; exemption_rules=1; nfqueue_rules=1; nfqueue_packets=5; packet_visibility=active; circular_state=disabled; hardware_capability=available; hardware_requested=0; hardware_observed=not-observed; hardware_state=available; global_fw4_offload=disabled; global_fw4_flowtables=0; owner_state=zapret2; owner_conflict=none; offloaded_connections=0; hw_offloaded_connections=0; software_offloaded_connections=0; flow_offload_chain=present; flow_offload_zapret_chain=present; flow_offload_always_chain=present; flow_add_rules=1; selective_state=complete; software_capability=available; runtime_health=broken; runtime_health_reason=flowtable-mode-mismatch\n'
             else
-                printf 'mode=hardware; flowtable=present; flags=offload; actual=hardware; hardware=observed; owner=none\n'
+                printf 'configured_mode=hardware; flowtable_state=present; flowtable_flags=offload; flowtable_devices=wan; actual_dataplane=hardware; exemption_rules=1; nfqueue_rules=1; nfqueue_packets=5; packet_visibility=active; circular_state=disabled; hardware_capability=available; hardware_requested=1; hardware_observed=observed; hardware_state=observed; global_fw4_offload=disabled; global_fw4_flowtables=0; owner_state=zapret2; owner_conflict=none; offloaded_connections=3; hw_offloaded_connections=3; software_offloaded_connections=0; flow_offload_chain=present; flow_offload_zapret_chain=present; flow_offload_always_chain=present; flow_add_rules=1; selective_state=complete; software_capability=available; runtime_health=healthy; runtime_health_reason=confirmed\n'
             fi
             ;;
-        software) printf 'mode=software; flowtable=present; flags=software; actual=software; hardware=not-observed; owner=none\n' ;;
-        *) printf 'mode=none; flowtable=absent; flags=none; actual=not-observed; hardware=not-observed; owner=none\n' ;;
+        software)
+            _bench_status=$(z2k_ow_offload_benchmark_field status 2>/dev/null)
+            if [ "${BENCH_NFQUEUE_INACTIVE:-}" = 1 ] && { [ "$_bench_status" = applying ] || [ "$_bench_status" = awaiting_sample ]; }; then
+                printf 'configured_mode=software; flowtable_state=present; flowtable_flags=software; flowtable_devices=wan; actual_dataplane=software; exemption_rules=1; nfqueue_rules=0; nfqueue_packets=0; packet_visibility=inactive; circular_state=disabled; hardware_capability=unavailable; hardware_requested=0; hardware_observed=not-applicable; hardware_state=not-applicable; global_fw4_offload=disabled; global_fw4_flowtables=0; owner_state=zapret2; owner_conflict=none; offloaded_connections=3; hw_offloaded_connections=0; software_offloaded_connections=3; flow_offload_chain=present; flow_offload_zapret_chain=present; flow_offload_always_chain=present; flow_add_rules=1; selective_state=complete; software_capability=available; runtime_health=broken; runtime_health_reason=nfqueue-inactive\n'
+            else
+                printf 'configured_mode=software; flowtable_state=present; flowtable_flags=software; flowtable_devices=wan; actual_dataplane=software; exemption_rules=1; nfqueue_rules=1; nfqueue_packets=5; packet_visibility=active; circular_state=disabled; hardware_capability=unavailable; hardware_requested=0; hardware_observed=not-applicable; hardware_state=not-applicable; global_fw4_offload=disabled; global_fw4_flowtables=0; owner_state=zapret2; owner_conflict=none; offloaded_connections=3; hw_offloaded_connections=0; software_offloaded_connections=3; flow_offload_chain=present; flow_offload_zapret_chain=present; flow_offload_always_chain=present; flow_add_rules=1; selective_state=complete; software_capability=available; runtime_health=healthy; runtime_health_reason=confirmed\n'
+            fi
+            ;;
+        *) printf 'configured_mode=none; flowtable_state=absent; flowtable_flags=none; flowtable_devices=none; actual_dataplane=not-observed; exemption_rules=0; nfqueue_rules=0; nfqueue_packets=0; packet_visibility=not-applicable; circular_state=disabled; hardware_capability=unavailable; hardware_requested=0; hardware_observed=not-applicable; hardware_state=not-applicable; global_fw4_offload=disabled; global_fw4_flowtables=0; owner_state=none; owner_conflict=none; offloaded_connections=0; hw_offloaded_connections=0; software_offloaded_connections=0; flow_offload_chain=absent; flow_offload_zapret_chain=absent; flow_offload_always_chain=absent; flow_add_rules=0; selective_state=not-applicable; software_capability=available; runtime_health=disabled; runtime_health_reason=disabled\n' ;;
     esac
-}
-z2k_ow_offload_benchmark_sample_actual() {
-    z2k_ow_flowoffload_status | sed -n 's/.*actual=\([^;]*\).*/\1/p'
 }
 z2k_ow_offload_benchmark_wait_sample() {
     if [ "${BENCH_STOP_ON_SAMPLE:-}" = "$2" ]; then
@@ -143,7 +148,7 @@ run_case() {
         cp "$_preserved_success" "$T/state/flowoffload-benchmark/last-success.json"
     fi
     printf 'FLOWOFFLOAD=software\n' > "$Z2K_CONFIG"
-    BENCH_SAMPLE_FAIL_ON="" BENCH_STOP_ON_SAMPLE="" BENCH_APPLY_FAIL="" BENCH_HW_UNSUPPORTED=""
+    BENCH_SAMPLE_FAIL_ON="" BENCH_STOP_ON_SAMPLE="" BENCH_APPLY_FAIL="" BENCH_HW_UNSUPPORTED="" BENCH_NFQUEUE_INACTIVE=""
     BENCH_HARDWARE_FAST="" BENCH_CPU_UNKNOWN="" BENCH_SQM="" BENCH_NOISY="" BENCH_UPLOAD_NOISY="" BENCH_TWO_OUTLIERS="" BENCH_SINGLE_OUTLIER=""
     case "$_case" in
         success) ;;
@@ -154,13 +159,14 @@ run_case() {
         hardware-fast) BENCH_HARDWARE_FAST=1 ;;
         hardware-conflict) BENCH_HARDWARE_FAST=1; BENCH_SQM=1 ;;
         hardware-unobserved) BENCH_HARDWARE_FAST=1; BENCH_HW_UNSUPPORTED=1 ;;
+        health-broken) BENCH_NFQUEUE_INACTIVE=1 ;;
         cpu-unknown) BENCH_CPU_UNKNOWN=1 ;;
         noisy) BENCH_HARDWARE_FAST=1; BENCH_NOISY=1 ;;
         noisy-upload) BENCH_HARDWARE_FAST=1; BENCH_UPLOAD_NOISY=1 ;;
         two-outliers) BENCH_TWO_OUTLIERS=1 ;;
         single-outlier) BENCH_SINGLE_OUTLIER=1 ;;
     esac
-    export BENCH_SAMPLE_FAIL_ON BENCH_STOP_ON_SAMPLE BENCH_APPLY_FAIL BENCH_HW_UNSUPPORTED \
+    export BENCH_SAMPLE_FAIL_ON BENCH_STOP_ON_SAMPLE BENCH_APPLY_FAIL BENCH_HW_UNSUPPORTED BENCH_NFQUEUE_INACTIVE \
         BENCH_HARDWARE_FAST BENCH_CPU_UNKNOWN BENCH_SQM BENCH_NOISY BENCH_UPLOAD_NOISY BENCH_TWO_OUTLIERS BENCH_SINGLE_OUTLIER
     if [ "$_case" = hardware-conflict ]; then
         cat > "$T/sqm-active" <<'EOF'
@@ -224,6 +230,12 @@ EOF
             assert_contains "hardware-unobserved: request alone is not proof" "$T/state/flowoffload-benchmark/last-result.json" '"offload_observed":false'
             assert_not_contains "hardware-unobserved: hardware is not recommended" "$T/state/flowoffload-benchmark/last-result.json" '"recommendation":\{"mode":"hardware"'
             ;;
+        health-broken)
+            assert_contains "health-broken: NFQUEUE inactivity is recorded per mode" "$T/state/flowoffload-benchmark/last-result.json" '"software":{"accepted":false,"reason":"nfqueue-inactive"}'
+            assert_contains "health-broken: unhealthy runtime blocks overall acceptance" "$T/state/flowoffload-benchmark/last-result.json" '"health_accepted":false'
+            assert_contains "health-broken: raw software samples remain available" "$T/state/flowoffload-benchmark/last-result.json" '"software":{"runs":[{'
+            assert_contains "health-broken: recommendation is blocked" "$T/state/flowoffload-benchmark/last-result.json" '"recommendation":null'
+            ;;
         cpu-unknown)
             assert_contains "cpu-unknown: unavailable CPU remains null" "$T/state/flowoffload-benchmark/last-result.json" '"cpu_avg":null'
             ;;
@@ -263,6 +275,7 @@ run_case hardware-unsupported
 run_case hardware-fast
 run_case hardware-conflict
 run_case hardware-unobserved
+run_case health-broken
 run_case cpu-unknown
 run_case noisy
 run_case noisy-upload

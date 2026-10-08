@@ -18,15 +18,19 @@ chmod +x "$T/init"
 cat > "$T/bin/nft" <<'EOF'
 #!/bin/sh
 if [ "$1" = list ] && [ "$2" = ruleset ]; then
-    printf 'table inet zapret2 { flowtable ft { devices = { "wan" } } flow add @ft }\n'
+    printf 'table inet zapret2 { flowtable ft { hook ingress priority filter; devices = { "wan" } } chain flow_offload { jump flow_offload_zapret } chain flow_offload_zapret { return comment "direct flow offloading exemption"; goto flow_offload_always } chain flow_offload_always { flow add @ft } }\n'
     printf 'table inet fw4 { flowtable ft { devices = { "wan" } } flow add @ft }\n'
     exit 0
 fi
 if [ "$1" = list ] && [ "$2" = flowtable ]; then
-    [ "$4" = zapret2 ] && [ "$5" = ft ] && exit 0
+    if [ "$4" = zapret2 ] && [ "$5" = ft ]; then
+        grep -q '^FLOWOFFLOAD=hardware' "${Z2K_CONFIG:-}" && printf 'flowtable ft { flags offload; devices = { "wan" }; }\n' || printf 'flowtable ft { devices = { "wan" }; }\n'
+        exit 0
+    fi
     exit 1
 fi
 if [ "$1" = list ] && [ "$2" = table ]; then
+    [ "$4" = zapret2 ] && printf 'table inet zapret2 { chain flow_offload_zapret { return comment "direct flow offloading exemption"; } }\n' && exit 0
     [ "$4" = fw4 ] && printf 'flowtable ft { devices = { "wan" } }\n' && exit 0
     exit 1
 fi
@@ -60,7 +64,7 @@ _out="$($REPO/platform/openwrt/diag.sh offload 2>&1)"
 printf '%s\n' "$_out" > "$T/output"
 assert_contains "actual selected mode" "$T/output" "flowoffload mode   : software"
 assert_contains "actual selective table" "$T/output" "zapret2 flowtable  : present"
-assert_contains "actual exemptions" "$T/output" "zapret2 exemptions  : 1"
+assert_contains "actual exemptions" "$T/output" "zapret2 exemptions : 1 active"
 assert_contains "global/selective conflict" "$T/output" "owner conflict     : global_fw4+zapret2"
 assert_contains "software dataplane observed" "$T/output" "observed dataplane : software"
 assert_contains "no queue path is inactive" "$T/output" "packet visibility  : inactive"
@@ -69,7 +73,7 @@ assert_contains "circular feature is disabled when config has no circular" "$T/o
 printf 'FLOWOFFLOAD=hardware\n' > "$T/config"
 _out="$($REPO/platform/openwrt/diag.sh offload 2>&1)"
 printf '%s\n' "$_out" > "$T/output-hardware"
-assert_contains "hardware dataplane active" "$T/output-hardware" "hardware offload   : active"
+assert_contains "hardware dataplane active" "$T/output-hardware" "hardware offload   : observed"
 assert_contains "hardware dataplane fact" "$T/output-hardware" "observed dataplane : hardware"
 assert_contains "observed hardware offload proves hardware capability" "$T/output-hardware" \
     "hardware capability: available"

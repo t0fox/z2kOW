@@ -19,7 +19,7 @@ export PATH="$T/bin:$PATH"
 export Z2K_PANEL_EXTRA_PATH="$T/bin"
 
 # --- adapter farm (настоящие файлы слоя) ---
-for _f in paths.sh env.sh arch.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh doh.sh offload-benchmark.sh; do
+for _f in paths.sh env.sh arch.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh doh.sh diag.sh offload-benchmark.sh offload-observe.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
@@ -92,13 +92,40 @@ chmod +x "$T/bin/ip"
 cat > "$T/bin/nft" <<EOF
 #!/bin/sh
 echo "nft:\$*" >> "$T/nft.log"
+if [ "\$1" = list ] && [ "\$2" = ruleset ]; then
+    _mode=\$(sed -n 's/^FLOWOFFLOAD=//p' "$T/etc/config" | tail -1)
+    case "\$_mode" in
+        software) printf 'table inet zapret2 { flowtable ft { hook ingress priority filter; devices = { wan }; } chain flow_offload { jump flow_offload_zapret; } chain flow_offload_zapret { return comment "direct flow offloading exemption"; goto flow_offload_always; queue flags bypass to 200 counter packets 3 bytes 300; } chain flow_offload_always { flow add @ft; } }\n' ;;
+        hardware) printf 'table inet zapret2 { flowtable ft { hook ingress priority filter; devices = { wan }; flags offload; } chain flow_offload { jump flow_offload_zapret; } chain flow_offload_zapret { return comment "direct flow offloading exemption"; goto flow_offload_always; queue flags bypass to 200 counter packets 3 bytes 300; } chain flow_offload_always { flow add @ft; } }\n' ;;
+    esac
+    exit 0
+fi
 if [ "\$1" = list ] && [ "\$2" = flowtable ]; then
     _mode=\$(sed -n 's/^FLOWOFFLOAD=//p' "$T/etc/config" | tail -1)
     case "\$_mode" in
-        software) echo 'flowtable ft { hook ingress priority filter; }' ;;
-        hardware) echo 'flowtable ft { flags offload; }' ;;
+        software) echo 'flowtable ft { hook ingress priority filter; devices = { wan }; }'; exit 0 ;;
+        hardware) echo 'flowtable ft { flags offload; devices = { wan }; }'; exit 0 ;;
+    esac
+    exit 1
+fi
+if [ "\$1" = list ] && [ "\$2" = table ] && [ "\$4" = zapret2 ]; then
+    _mode=\$(sed -n 's/^FLOWOFFLOAD=//p' "$T/etc/config" | tail -1)
+    case "\$_mode" in
+        none) exit 1 ;;
+        software) printf 'table inet zapret2 { flowtable ft { hook ingress priority filter; devices = { wan }; } chain flow_offload { jump flow_offload_zapret; } chain flow_offload_zapret { return comment "direct flow offloading exemption"; goto flow_offload_always; queue flags bypass to 200 counter packets 3 bytes 300; } chain flow_offload_always { flow add @ft; } }\n'; exit 0 ;;
+        hardware) printf 'table inet zapret2 { flowtable ft { hook ingress priority filter; devices = { wan }; flags offload; } chain flow_offload { jump flow_offload_zapret; } chain flow_offload_zapret { return comment "direct flow offloading exemption"; goto flow_offload_always; queue flags bypass to 200 counter packets 3 bytes 300; } chain flow_offload_always { flow add @ft; } }\n'; exit 0 ;;
     esac
 fi
+if [ "\$1" = list ] && [ "\$2" = chain ] && [ "\$4" = zapret2 ]; then
+    case "\$5" in
+        flow_offload) printf 'chain flow_offload { jump flow_offload_zapret; }\n' ;;
+        flow_offload_zapret) printf 'chain flow_offload_zapret { return comment "direct flow offloading exemption"; goto flow_offload_always; queue flags bypass to 200 counter packets 3 bytes 300; }\n' ;;
+        flow_offload_always) printf 'chain flow_offload_always { flow add @ft; }\n' ;;
+        *) exit 1 ;;
+    esac
+    exit 0
+fi
+if [ "\$1" = list ] && [ "\$2" = table ] && [ "\$4" = fw4 ]; then exit 1; fi
 exit 0
 EOF
 chmod +x "$T/bin/nft"
@@ -124,7 +151,7 @@ PY
 EOF
 chmod +x "$T/bin/jsonfilter"
 # --- fixtures ---
-printf 'GAME_WARP_ENABLED=0\nENABLED=1\n' > "$T/etc/config"
+printf 'FLOWOFFLOAD=none\nGAME_WARP_ENABLED=0\nENABLED=1\n' > "$T/etc/config"
 : > "$T/etc/user-lists/whitelist.txt"
 : > "$T/pidof.out"; : > "$T/ip-rules"; : > "$T/init.log"
 : > "$T/service-active"
@@ -429,8 +456,16 @@ assert_eq "status: fastroute backend" "Программный fastpath недо�
 assert_eq "status: stock offload capability" "true" "$(_jget "$OUT" 'd["capabilities"]["offload"]')"
 assert_eq "status: stock offload mode" "none" "$(_jget "$OUT" 'd["toggles"]["flowoffload"]')"
 printf '%s\n' "$OUT" > "$T/status-output"
-assert_contains "status: offload facts stay explicit" "$T/status-output" "flowtable=absent"
-assert_contains "status: packet proof stays unknown" "$T/status-output" "packet_visibility=unknown"
+assert_contains "status: offload facts stay explicit" "$T/status-output" "flowtable_state=absent"
+assert_contains "status: packet proof is not applicable while disabled" "$T/status-output" "packet_visibility=not-applicable"
+assert_contains "status: circular comes from runtime observer" "$T/status-output" "circular_state=disabled"
+assert_not_contains "status: packet visibility is never hardcoded unknown" "$T/status-output" "packet_visibility=unknown"
+assert_not_contains "status: circular is never hardcoded unknown" "$T/status-output" "circular_state=unknown"
+Z2K_ROOT="$T/root" Z2K_CONFIG="$T/etc/config" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp/z2k" \
+    Z2K_STATE="$T/etc/state" Z2K_RUN="$T/run" Z2K_BIN="$T/bin" sh "$REPO/platform/openwrt/diag.sh" offload \
+    > "$T/diag-status" 2>&1
+assert_contains "diag and status use the same disabled packet state" "$T/diag-status" "packet visibility  : not-applicable"
+assert_contains "diag and status use the same circular state" "$T/diag-status" "circular           : disabled"
 assert_eq "status: tcp16 true when full feature is shipped" "true" "$(_jget "$OUT" 'd["capabilities"]["tcp16"]')"
 assert_eq "status: Telegram TCP tunnel reports its own matching process probe" "false" "$(_jget "$OUT" 'd["tunnel"]["running"]')"
 assert_eq "status: diagnostics capability" "true" "$(_jget "$OUT" 'd["capabilities"]["diag"]')"
@@ -1254,7 +1289,7 @@ T2="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wpfresh.XXXXXX")" || exit 1
 trap 'for _j in $JOB_IDS; do rm -f "$Z2K_JOB_DIR/z2k-job-$_j.log" "$Z2K_JOB_DIR/z2k-job-$_j.pid" "$Z2K_JOB_DIR/z2k-job-$_j.exit"; done; rm -rf "$T" "$T2"' EXIT INT TERM
 mkdir -p "$T2/bin" "$T2/root/platform/openwrt" "$T2/root/bin" "$T2/root/lib" \
          "$T2/etc" "$T2/tmp/z2k/runtime" "$T2/jobs"
-for _f in paths.sh env.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh offload-benchmark.sh panel.sh; do
+for _f in paths.sh env.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh offload-benchmark.sh offload-observe.sh panel.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T2/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T2/root/platform/openwrt/warp-proc.sh" 2>/dev/null

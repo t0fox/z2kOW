@@ -24,15 +24,22 @@ z2k_ow_offload_benchmark_set_field() {
 }
 z2k_ow_offload_benchmark_mode_from_config() { z2k_ow_flowoffload_mode 2>/dev/null; }
 z2k_ow_offload_benchmark_verify_mode() {
-    local _mode="$1" _facts _ft _flags
+    local _mode="$1" _facts _ft _flags _selective _conflict _queue _reason
     [ "$(z2k_ow_offload_benchmark_mode_from_config)" = "$_mode" ] || return 1
     _facts=$(z2k_ow_flowoffload_status 2>/dev/null)
-    _ft=$(printf '%s' "$_facts" | sed -n 's/.*flowtable=\([^;]*\).*/\1/p')
-    _flags=$(printf '%s' "$_facts" | sed -n 's/.*flags=\([^;]*\).*/\1/p')
+    _ft=$(z2k_ow_offload_field "$_facts" flowtable_state)
+    _flags=$(z2k_ow_offload_field "$_facts" flowtable_flags)
+    _selective=$(z2k_ow_offload_field "$_facts" selective_state)
+    _conflict=$(z2k_ow_offload_field "$_facts" owner_conflict)
+    _queue=$(z2k_ow_offload_field "$_facts" nfqueue_rules)
     case "$_mode" in
-        none) [ "$_ft" = absent ] ;;
-        software) [ "$_ft" = present ] && [ "$_flags" = software ] ;;
-        hardware) [ "$_ft" = present ] && [ "$_flags" = offload ] ;;
+        none) [ "$_ft" = absent ] && [ "$_conflict" = none ] ;;
+        software)
+            [ "$_ft" = present ] && [ "$_flags" = software ] && [ "$_selective" = complete ] \
+                && [ "$_conflict" = none ] && [ "${_queue:-0}" -gt 0 ] 2>/dev/null ;;
+        hardware)
+            [ "$_ft" = present ] && [ "$_flags" = offload ] && [ "$_selective" = complete ] \
+                && [ "$_conflict" = none ] && [ "${_queue:-0}" -gt 0 ] 2>/dev/null ;;
         *) return 1 ;;
     esac
 }
@@ -46,6 +53,46 @@ z2k_ow_offload_benchmark_sample_actual() {
         none) printf 'not-observed' ;;
         software|hardware|*) printf 'unknown' ;;
     esac
+}
+z2k_ow_offload_benchmark_health_json() {
+    local _snapshot="$1" _expected="$2" _key _value _sep= _reason
+    _reason=$(z2k_ow_flowoffload_health_reason "$_snapshot" "$_expected")
+    printf '{"expected_health_reason":%s' "$(z2k_ow_offload_benchmark_json_text "$_reason")"
+    for _key in configured_mode flowtable_state flowtable_flags flowtable_devices actual_dataplane \
+        nfqueue_rules nfqueue_packets packet_visibility selective_state exemption_rules owner_state \
+        owner_conflict circular_state hardware_requested hardware_observed hardware_state \
+        runtime_health runtime_health_reason; do
+        _value=$(z2k_ow_offload_field "$_snapshot" "$_key")
+        case "$_key" in
+            nfqueue_rules|nfqueue_packets|exemption_rules|hardware_requested)
+                printf ',"%s":%s' "$_key" "$(z2k_ow_offload_benchmark_number_or_null "$_value")" ;;
+            *) printf ',"%s":%s' "$_key" "$(z2k_ow_offload_benchmark_json_text "$_value")" ;;
+        esac
+    done
+    printf '}'
+}
+z2k_ow_offload_benchmark_health_valid() {
+    local _mode="$1" _i _file _before _after _before_reason _after_reason _allowed
+    for _i in 1 2 3 4 5; do
+        _file="$(z2k_ow_offload_benchmark_session_dir)/samples/${_mode}-$_i"
+        [ -r "$_file" ] || { printf 'incomplete-series'; return 1; }
+        _before=$(sed -n 's/^health_before=//p' "$_file")
+        _after=$(sed -n 's/^health_after=//p' "$_file")
+        [ -n "$_before" ] && [ -n "$_after" ] || { printf 'health-snapshot-missing'; return 1; }
+        _before_reason=$(sed -n 's/^health_before_reason=//p' "$_file")
+        _after_reason=$(sed -n 's/^health_after_reason=//p' "$_file")
+        if [ "$_mode" = none ]; then
+            [ "$_before_reason" = disabled ] && [ "$_after_reason" = disabled ] \
+                || { printf '%s' "${_after_reason:-${_before_reason:-health-unavailable}}"; return 1; }
+        else
+            case "$_before_reason" in
+                confirmed|dataplane-not-observed|nfqueue-not-observed|hardware-not-observed|circular-not-observed) _allowed=1 ;;
+                *) printf '%s' "${_before_reason:-health-unavailable}"; return 1 ;;
+            esac
+            [ "$_after_reason" = confirmed ] || { printf '%s' "${_after_reason:-health-unavailable}"; return 1; }
+        fi
+    done
+    printf confirmed
 }
 
 z2k_ow_offload_benchmark_number_or_null() {
@@ -61,6 +108,13 @@ z2k_ow_offload_benchmark_delta_pct() {
     _a=$(z2k_ow_offload_benchmark_number_or_null "$1"); _b=$(z2k_ow_offload_benchmark_number_or_null "$2")
     [ "$_a" != null ] && [ "$_b" != null ] || { printf null; return; }
     awk -v a="$_a" -v b="$_b" 'BEGIN { if (a==0) print "null"; else printf "%.0f",(b-a)*100/a }'
+}
+z2k_ow_offload_benchmark_delta_value() {
+    local _a _b
+    _a=$(z2k_ow_offload_benchmark_number_or_null "$1")
+    _b=$(z2k_ow_offload_benchmark_number_or_null "$2")
+    [ "$_a" != null ] && [ "$_b" != null ] || { printf null; return; }
+    awk -v a="$_a" -v b="$_b" 'BEGIN {printf "%.1f",b-a}'
 }
 z2k_ow_offload_benchmark_new_token() {
     local _v _uuid_file="${Z2K_BENCH_UUID_FILE:-/proc/sys/kernel/random/uuid}" IFS
@@ -374,6 +428,17 @@ z2k_ow_offload_benchmark_result_value() {
         *) printf null ;;
     esac
 }
+z2k_ow_offload_benchmark_extreme() {
+    local _mode="$1" _metric="$2" _which="$3" _i _v
+    set --
+    for _i in 1 2 3 4 5; do
+        _v=$(sed -n "s/^${_metric}=//p" "$(z2k_ow_offload_benchmark_session_dir)/samples/${_mode}-$_i" 2>/dev/null)
+        [ -n "$_v" ] && [ "$(z2k_ow_offload_benchmark_number_or_null "$_v")" != null ] && set -- "$@" "$_v"
+    done
+    [ "$#" -gt 0 ] || { printf null; return; }
+    if [ "$_which" = min ]; then printf '%s\n' "$@" | LC_ALL=C sort -n | head -1
+    else printf '%s\n' "$@" | LC_ALL=C sort -n | tail -1; fi
+}
 z2k_ow_offload_benchmark_spread_pct() {
     local _mode="$1" _metric="$2" _i _v _median _mad
     set --
@@ -445,6 +510,18 @@ z2k_ow_offload_benchmark_json_text() {
     _value=$(printf '%s' "$1" | LC_ALL=C tr -cd 'A-Za-z0-9 .,_()+:/@-')
     [ -n "$_value" ] && printf '"%s"' "$_value" || printf null
 }
+z2k_ow_offload_benchmark_comparison_json() {
+    local _from="$1" _to="$2" _key
+    printf '{"download_pct":%s,"upload_pct":%s,"cpu_pct":%s,"cpu_peak_pct":%s' \
+        "$(z2k_ow_offload_benchmark_delta_pct "$(z2k_ow_offload_benchmark_result_value "$_from" download_mbps)" "$(z2k_ow_offload_benchmark_result_value "$_to" download_mbps)")" \
+        "$(z2k_ow_offload_benchmark_delta_pct "$(z2k_ow_offload_benchmark_result_value "$_from" upload_mbps)" "$(z2k_ow_offload_benchmark_result_value "$_to" upload_mbps)")" \
+        "$(z2k_ow_offload_benchmark_delta_pct "$(z2k_ow_offload_benchmark_result_value "$_from" cpu_avg)" "$(z2k_ow_offload_benchmark_result_value "$_to" cpu_avg)")" \
+        "$(z2k_ow_offload_benchmark_delta_pct "$(z2k_ow_offload_benchmark_result_value "$_from" cpu_peak)" "$(z2k_ow_offload_benchmark_result_value "$_to" cpu_peak)")"
+    for _key in idle_ms download_loaded_ms upload_loaded_ms jitter_ms loss_pct; do
+        printf ',"%s_delta":%s' "$_key" "$(z2k_ow_offload_benchmark_delta_value "$(z2k_ow_offload_benchmark_result_value "$_from" "$_key")" "$(z2k_ow_offload_benchmark_result_value "$_to" "$_key")")"
+    done
+    printf '}'
+}
 z2k_ow_offload_benchmark_system_json() {
     local _model="${Z2K_BENCH_ROUTER_MODEL:-}" _release="${Z2K_BENCH_OPENWRT_VERSION:-}" \
         _version="${Z2K_BENCH_Z2KOW_VERSION:-}" _wan="${Z2K_BENCH_WAN_INTERFACE:-}" _raw _release_file _installed
@@ -478,6 +555,7 @@ z2k_ow_offload_benchmark_system_json() {
 }
 z2k_ow_offload_benchmark_write_result() {
     local _status="$1" _message="$2" _root _mode _metric _sep _i _file _k _actual _runs _dl _sw _hw _recommendation _reason _du _su _dc _sc _hu _hc _hd _hvs _hobs _sqm _pbr _warp _unstable _complete _accepted _sd _scd _hcd _spread _outliers _restored _provider _server
+    local _none_health _software_health _hardware_health _none_health_rc _software_health_rc _hardware_health_rc _health_ok _hardware_health_ok _health_before _health_after
     _root=$(z2k_ow_offload_benchmark_root); mkdir -p "$_root"
     _provider=$(z2k_ow_offload_benchmark_field provider 2>/dev/null)
     _server=$(z2k_ow_offload_benchmark_provider_server)
@@ -492,16 +570,22 @@ z2k_ow_offload_benchmark_write_result() {
     _hc=$(z2k_ow_offload_benchmark_result_value hardware cpu_avg)
     _hd=$(z2k_ow_offload_benchmark_result_value hardware download_mbps)
     _sd=null; _scd=null; _hvs=null; _hcd=null
-    _hobs=$(grep -h '^actual=hardware$' "$(z2k_ow_offload_benchmark_session_dir)"/samples/hardware-* 2>/dev/null | wc -l | tr -d ' ')
+    _hobs=$(grep -h '^health_after=.*hardware_observed=observed' "$(z2k_ow_offload_benchmark_session_dir)"/samples/hardware-* 2>/dev/null | wc -l | tr -d ' ')
     _sqm=$(z2k_ow_offload_benchmark_conflict sqm); _pbr=$(z2k_ow_offload_benchmark_conflict pbr); _warp=$(z2k_ow_offload_benchmark_conflict warp)
     _recommendation=null; _reason=
-    if [ "$_status" = completed ] && [ "$_dl" != null ] && [ "$_sw" != null ]; then
+    _none_health=$(z2k_ow_offload_benchmark_health_valid none); _none_health_rc=$?
+    _software_health=$(z2k_ow_offload_benchmark_health_valid software); _software_health_rc=$?
+    _hardware_health=$(z2k_ow_offload_benchmark_health_valid hardware); _hardware_health_rc=$?
+    _health_ok=false; [ "$_none_health_rc" -eq 0 ] && [ "$_software_health_rc" -eq 0 ] && _health_ok=true
+    _hardware_health_ok=false; [ "$_hardware_health_rc" -eq 0 ] && _hardware_health_ok=true
+    if [ "$_status" = completed ] && [ "$_health_ok" = true ] && [ "$_dl" != null ] && [ "$_sw" != null ]; then
         _sd=$(z2k_ow_offload_benchmark_delta_pct "$_dl" "$_sw"); _scd=$(z2k_ow_offload_benchmark_delta_pct "$_dc" "$_sc")
         if { [ "$_sd" != null ] && [ "$_sd" -ge 5 ] 2>/dev/null; } || { [ "$_scd" != null ] && [ "$_scd" -le -5 ] 2>/dev/null; }; then
             _recommendation='"software"'; _reason="$( [ "$_sd" != null ] && [ "$_sd" -ge 5 ] 2>/dev/null && printf 'download +%s%% vs none' "$_sd" || printf 'CPU %s%% vs none' "${_scd:-unknown}" )"
         fi
         _hvs=$(z2k_ow_offload_benchmark_delta_pct "$_sw" "$_hw"); _hcd=$(z2k_ow_offload_benchmark_delta_pct "$_sc" "$_hc")
-        if [ "$_hobs" -ge 2 ] 2>/dev/null && [ "$_sqm" = none ] && [ "$_pbr" = none ] && [ "$_warp" = none ] \
+        if [ "$_hardware_health_ok" = true ] && [ "$_hobs" -ge 2 ] 2>/dev/null \
+            && [ "$_sqm" = none ] && [ "$_pbr" = none ] && [ "$_warp" = none ] \
             && { { [ "$_hvs" != null ] && [ "$_hvs" -ge 5 ] 2>/dev/null; } || { [ "$_hcd" != null ] && [ "$_hcd" -le -10 ] 2>/dev/null; }; }; then
             _recommendation='"hardware"'; _reason="$( [ "$_hvs" != null ] && [ "$_hvs" -ge 5 ] 2>/dev/null && printf 'download +%s%% vs software' "$_hvs" || printf 'CPU %s%% vs software' "${_hcd:-unknown}" )"
         fi
@@ -521,8 +605,12 @@ z2k_ow_offload_benchmark_write_result() {
     # A noisy series is useful as diagnostics but cannot support a winner.
     [ "$_unstable" = false ] || { _recommendation=null; _reason=; }
     _restored=true; [ -f "$(z2k_ow_offload_benchmark_restore_file)" ] && _restored=false
+    if [ "$_complete" != true ] || [ "$_unstable" != false ] || [ "$_restored" != true ]; then
+        _recommendation=null; _reason=
+    fi
     _accepted=false
-    [ "$_status" = completed ] && [ "$_complete" = true ] && [ "$_unstable" = false ] && [ "$_restored" = true ] && _accepted=true
+    [ "$_status" = completed ] && [ "$_complete" = true ] && [ "$_unstable" = false ] \
+        && [ "$_restored" = true ] && [ "$_health_ok" = true ] && _accepted=true
     {
         printf '{"schema":1,"stability_rule":"two_of_five_over_10pct","status":"%s","timestamp":"%s","system":%s,"provider":%s,"server":%s,"original_mode":"%s","restored":%s,"message":"%s","modes":{' \
             "$_status" "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')" \
@@ -544,8 +632,14 @@ z2k_ow_offload_benchmark_write_result() {
                         [ -n "$_sep" ] && printf ','; printf '"%s":%s' "$_k" "$(z2k_ow_offload_benchmark_number_or_null "$(sed -n "s/^${_k}=//p" "$_file")")"; _sep=1
                     done
                     _actual=$(sed -n 's/^actual=//p' "$_file")
-                    printf ',"actual":"%s","server":%s}' "${_actual:-unknown}" \
-                        "$(z2k_ow_offload_benchmark_json_text "$(sed -n 's/^server=//p' "$_file")")"; _runs=1
+                    printf ',"actual":"%s","server":%s' "${_actual:-unknown}" \
+                        "$(z2k_ow_offload_benchmark_json_text "$(sed -n 's/^server=//p' "$_file")")"
+                    _health_before=$(sed -n 's/^health_before=//p' "$_file")
+                    _health_after=$(sed -n 's/^health_after=//p' "$_file")
+                    printf ',"health_before":%s,"health_after":%s}' \
+                        "$(z2k_ow_offload_benchmark_health_json "$_health_before" "$_mode")" \
+                        "$(z2k_ow_offload_benchmark_health_json "$_health_after" "$_mode")"
+                    _runs=1
                 fi
                 _i=$((_i+1))
             done
@@ -556,23 +650,43 @@ z2k_ow_offload_benchmark_write_result() {
             for _k in download_mbps upload_mbps cpu_avg cpu_peak idle_ms download_loaded_ms upload_loaded_ms jitter_ms loss_pct duration_s; do
                 printf ',"%s":%s' "$_k" "$(z2k_ow_offload_benchmark_result_value "$_mode" "$_k")"
             done
+            printf ',"run_summary":{'; _sep=
+            for _k in download_mbps upload_mbps cpu_avg cpu_peak idle_ms download_loaded_ms upload_loaded_ms jitter_ms loss_pct duration_s; do
+                printf '%s"%s":{"median":%s,"min":%s,"max":%s,"range_pct":%s,"outliers":%s}' \
+                    "$_sep" "$_k" \
+                    "$(z2k_ow_offload_benchmark_result_value "$_mode" "$_k")" \
+                    "$(z2k_ow_offload_benchmark_extreme "$_mode" "$_k" min)" \
+                    "$(z2k_ow_offload_benchmark_extreme "$_mode" "$_k" max)" \
+                    "$(z2k_ow_offload_benchmark_run_range_pct "$_mode" "$_k")" \
+                    "$(z2k_ow_offload_benchmark_outlier_count_pct "$_mode" "$_k" 10)"
+                _sep=,
+            done
+            printf '}'
             case "$_mode" in
-                hardware) if grep -q '^actual=hardware$' "$(z2k_ow_offload_benchmark_session_dir)/samples/hardware-1" "$(z2k_ow_offload_benchmark_session_dir)/samples/hardware-2" "$(z2k_ow_offload_benchmark_session_dir)/samples/hardware-3" 2>/dev/null; then printf ',"offload_observed":true'; else printf ',"offload_observed":false'; fi ;;
-                software) if grep -q '^actual=software$' "$(z2k_ow_offload_benchmark_session_dir)/samples/software-1" "$(z2k_ow_offload_benchmark_session_dir)/samples/software-2" "$(z2k_ow_offload_benchmark_session_dir)/samples/software-3" 2>/dev/null; then printf ',"offload_observed":true'; else printf ',"offload_observed":false'; fi ;;
+                hardware) if grep -h '^health_after=.*hardware_observed=observed' "$(z2k_ow_offload_benchmark_session_dir)"/samples/hardware-* >/dev/null 2>&1; then printf ',"offload_observed":true'; else printf ',"offload_observed":false'; fi ;;
+                software) if grep -h '^health_after=.*actual_dataplane=software' "$(z2k_ow_offload_benchmark_session_dir)"/samples/software-* >/dev/null 2>&1; then printf ',"offload_observed":true'; else printf ',"offload_observed":false'; fi ;;
                 *) printf ',"offload_observed":false' ;;
             esac
             printf '}'; _sep=,
         done
-        if [ "$_accepted" = true ]; then
-            printf '},"comparisons":{"software_vs_none":{"download_pct":%s,"upload_pct":%s,"cpu_pct":%s},"hardware_vs_none":{"download_pct":%s,"upload_pct":%s,"cpu_pct":%s},"hardware_vs_software":{"download_pct":%s,"upload_pct":%s,"cpu_pct":%s}},' \
-                "$(z2k_ow_offload_benchmark_delta_pct "$_dl" "$_sw")" "$(z2k_ow_offload_benchmark_delta_pct "$_du" "$_su")" "$(z2k_ow_offload_benchmark_delta_pct "$_dc" "$_sc")" \
-                "$(z2k_ow_offload_benchmark_delta_pct "$_dl" "$_hw")" "$(z2k_ow_offload_benchmark_delta_pct "$_du" "$_hu")" "$(z2k_ow_offload_benchmark_delta_pct "$_dc" "$_hc")" \
-                "$_hvs" "$(z2k_ow_offload_benchmark_delta_pct "$_su" "$_hu")" "$(z2k_ow_offload_benchmark_delta_pct "$_sc" "$_hc")"
-        else
-            printf '},"comparisons":{"software_vs_none":{"download_pct":null,"upload_pct":null,"cpu_pct":null},"hardware_vs_none":{"download_pct":null,"upload_pct":null,"cpu_pct":null},"hardware_vs_software":{"download_pct":null,"upload_pct":null,"cpu_pct":null}},'
-        fi
-        printf '"validity":{"complete":%s,"unstable":%s,"accepted":%s,"warnings":["Внешний тест зависит от выбранного CDN, маршрута и провайдера"' "$_complete" "$_unstable" "$_accepted"
+        printf '},"health":{"none":{"accepted":%s,"reason":%s},"software":{"accepted":%s,"reason":%s},"hardware":{"accepted":%s,"reason":%s}},' \
+            "$([ "$_none_health_rc" -eq 0 ] && printf true || printf false)" "$(z2k_ow_offload_benchmark_json_text "$_none_health")" \
+            "$([ "$_software_health_rc" -eq 0 ] && printf true || printf false)" "$(z2k_ow_offload_benchmark_json_text "$_software_health")" \
+            "$([ "$_hardware_health_rc" -eq 0 ] && printf true || printf false)" "$(z2k_ow_offload_benchmark_json_text "$_hardware_health")"
+        printf '"comparisons":{"software_vs_none":'
+        if [ "$_accepted" = true ]; then z2k_ow_offload_benchmark_comparison_json none software
+        else printf '{"download_pct":null,"upload_pct":null,"cpu_pct":null}'; fi
+        printf ',"hardware_vs_none":'
+        if [ "$_accepted" = true ] && [ "$_hardware_health_ok" = true ]; then z2k_ow_offload_benchmark_comparison_json none hardware
+        else printf '{"download_pct":null,"upload_pct":null,"cpu_pct":null}'; fi
+        printf ',"hardware_vs_software":'
+        if [ "$_accepted" = true ] && [ "$_hardware_health_ok" = true ]; then z2k_ow_offload_benchmark_comparison_json software hardware
+        else printf '{"download_pct":null,"upload_pct":null,"cpu_pct":null}'; fi
+        printf '},'
+        printf '"validity":{"complete":%s,"unstable":%s,"accepted":%s,"health_accepted":%s,"warnings":["Внешний тест зависит от выбранного CDN, маршрута и провайдера"' "$_complete" "$_unstable" "$_accepted" "$_health_ok"
         [ "$_unstable" = false ] || printf ',"Повторные измерения загрузки или отдачи нестабильны: минимум два прогона отклоняются от медианы более чем на 10%%"'
+        [ "$_health_ok" = true ] || printf ',"Runtime health gate: none=%s, software=%s"' "$_none_health" "$_software_health"
+        [ "$_hardware_health_ok" = true ] || printf ',"Hardware recommendation blocked: %s"' "$_hardware_health"
         case "$_sqm" in
             confirmed) printf ',"SQM работает; hardware offload может обходить его обработку"' ;;
             possible-risk) printf ',"SQM настроен; проверьте сохранение queueing при аппаратном offload"' ;;
@@ -612,6 +726,7 @@ z2k_ow_offload_benchmark_worker_cleanup() {
 }
 z2k_ow_offload_benchmark_worker_impl() {
     local _session="$1" _initial _boot _mode _trial _round _order _nonce _rc _sample _cpu _pid _file _actual _flags _ft
+    local _snapshot_before _snapshot_after _health_before_reason _health_after_reason
     [ "$(z2k_ow_offload_benchmark_field session 2>/dev/null)" = "$_session" ] || return 1
     [ "$(cat "$(z2k_ow_offload_benchmark_lock_dir)/session" 2>/dev/null)" = "$_session" ] || return 1
     _initial=$(z2k_ow_offload_benchmark_field initial_mode); _boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)
@@ -646,12 +761,13 @@ z2k_ow_offload_benchmark_worker_impl() {
                 z2k_ow_offload_benchmark_set_field desired_status failed; z2k_ow_offload_benchmark_set_field message "режим $_mode не подтвердился"; return 1
             }
             sleep "${Z2K_BENCH_SETTLE_SECONDS:-2}"
-            _flags=$(z2k_ow_flowoffload_status | sed -n 's/.*flags=\([^;]*\).*/\1/p')
-            _ft=$(z2k_ow_flowoffload_status | sed -n 's/.*flowtable=\([^;]*\).*/\1/p')
+            _snapshot_before=$(z2k_ow_flowoffload_status 2>/dev/null)
+            _flags=$(z2k_ow_offload_field "$_snapshot_before" flowtable_flags)
+            _ft=$(z2k_ow_offload_field "$_snapshot_before" flowtable_state)
             if [ "$_mode" != none ] && { [ "$_ft" != present ] || { [ "$_mode" = hardware ] && [ "$_flags" != offload ]; }; }; then
                 [ "$_mode" = hardware ] && { job_progress "Hardware flowtable недоступен, пропускаю"; continue; }
-                z2k_ow_offload_benchmark_set_field desired_status failed; z2k_ow_offload_benchmark_set_field message "flowtable $_mode не применился"; return 1
             fi
+            _health_before_reason=$(z2k_ow_flowoffload_health_reason "$_snapshot_before" "$_mode")
             _trial=$(z2k_ow_offload_benchmark_run_count "$_mode"); _trial=$((_trial+1))
             _nonce=$(z2k_ow_offload_benchmark_new_token)
             z2k_ow_offload_benchmark_set_field status awaiting_sample; z2k_ow_offload_benchmark_set_field mode "$_mode"
@@ -663,11 +779,15 @@ z2k_ow_offload_benchmark_worker_impl() {
             kill "$_pid" 2>/dev/null; wait "$_pid" 2>/dev/null
             if [ "$_rc" = 2 ]; then z2k_ow_offload_benchmark_set_field desired_status stopped; z2k_ow_offload_benchmark_set_field message stopped; return 1; fi
             if [ "$_rc" != 0 ]; then z2k_ow_offload_benchmark_set_field desired_status failed; z2k_ow_offload_benchmark_set_field message "тестовый endpoint не ответил"; return 1; fi
+            _snapshot_after=$(z2k_ow_flowoffload_status 2>/dev/null)
+            _health_after_reason=$(z2k_ow_flowoffload_health_reason "$_snapshot_after" "$_mode")
             _file="$(z2k_ow_offload_benchmark_session_dir)/samples/${_mode}-$_trial"
             printf '%s\n' "$_sample" > "$_file"
             _actual=$(z2k_ow_offload_benchmark_sample_actual "$_mode")
             printf 'actual=%s\n' "${_actual:-unknown}" >> "$_file"
             printf 'cpu_avg=%s\ncpu_peak=%s\n' "$(sed -n 's/^avg=//p' "$_cpu" 2>/dev/null)" "$(sed -n 's/^peak=//p' "$_cpu" 2>/dev/null)" >> "$_file"
+            printf 'health_before_reason=%s\nhealth_after_reason=%s\nhealth_before=%s\nhealth_after=%s\n' \
+                "$_health_before_reason" "$_health_after_reason" "$_snapshot_before" "$_snapshot_after" >> "$_file"
         done
     done
     z2k_ow_offload_benchmark_set_field desired_status completed; z2k_ow_offload_benchmark_set_field message ''

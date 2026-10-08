@@ -37,9 +37,14 @@ case "$*" in
     [ -r "$Z2K_NFT_RULESET_FIXTURE" ] && cat "$Z2K_NFT_RULESET_FIXTURE"
     exit 0 ;;
   "list flowtable inet zapret2 ft")
-    grep -q 'flowtable ft' "$Z2K_NFT_RULESET_FIXTURE" 2>/dev/null ;;
+    grep -q 'flowtable ft' "$Z2K_NFT_RULESET_FIXTURE" 2>/dev/null || exit 1
+    cat "$Z2K_NFT_RULESET_FIXTURE"; exit 0 ;;
+  "list table inet zapret2")
+    grep -q 'table inet zapret2' "$Z2K_NFT_RULESET_FIXTURE" 2>/dev/null || exit 1
+    cat "$Z2K_NFT_RULESET_FIXTURE"; exit 0 ;;
   "list chain inet zapret2 flow_offload"*|"list chain inet zapret2 flow_offload_zapret"*|"list chain inet zapret2 flow_offload_always"*|"list chain inet zapret2 forward_hook"*|"list chain inet zapret2 input_hook"*|"list chain inet zapret2 output_hook"*)
-    cat "$Z2K_NFT_RULESET_FIXTURE" 2>/dev/null ;;
+    grep -q "$5" "$Z2K_NFT_RULESET_FIXTURE" 2>/dev/null || exit 1
+    cat "$Z2K_NFT_RULESET_FIXTURE"; exit 0 ;;
   "list table inet fw4")
     grep -A20 'table inet fw4' "$Z2K_NFT_RULESET_FIXTURE" 2>/dev/null ;;
 esac
@@ -108,9 +113,9 @@ run_diag offload
 assert_out "none mode is disabled" 'offload state      : disabled'
 assert_out "capability remains separate from runtime" 'offload capability : available'
 assert_out "disabled software path is N/A" 'software offload   : N/A'
-assert_out "disabled hardware path is N/A" 'hardware offload   : N/A'
+assert_out "disabled hardware path is not applicable" 'hardware offload   : not-applicable'
 assert_out "disabled backend is N/A" 'backend            : N/A'
-assert_out "packet probe is N/A when offload is disabled" 'packet visibility  : N/A'
+assert_out "packet probe is not applicable when offload is disabled" 'packet visibility  : not-applicable'
 assert_not_out "none does not fall through to backend unknown" 'BACKEND_UNKNOWN|backend[[:space:]]*:[[:space:]]*unknown'
 assert_not_out "none does not emit universal unknowns" 'packet visibility[[:space:]]*:[[:space:]]*UNKNOWN|circular[[:space:]]*:[[:space:]]*UNKNOWN'
 
@@ -118,8 +123,14 @@ assert_not_out "none does not emit universal unknowns" 'packet visibility[[:spac
 printf 'FLOWOFFLOAD=software\n' > "$T/config"
 cat > "$T/nft-ruleset" <<'EOF'
 table inet zapret2 {
- flowtable ft { hook ingress priority filter; devices = { "wan" }; }
- chain flow_offload_zapret { flow add @ft; }
+ flowtable ft { hook ingress priority filter; devices = { wan }; }
+ chain flow_offload { jump flow_offload_zapret; }
+ chain flow_offload_zapret {
+   ip daddr 198.51.100.1 return comment "direct flow offloading exemption"
+   tcp dport 443 return comment "direct flow offloading exemption"
+   goto flow_offload_always
+ }
+ chain flow_offload_always { flow add @ft; }
  chain forward_hook { counter packets 7 bytes 700 queue flags bypass to 200; }
 }
 EOF
@@ -129,7 +140,7 @@ assert_out "software marker means runtime active" 'offload state      : active'
 assert_out "software marker sets selected backend" 'backend            : NFT_FLOW_TABLE'
 assert_out "queue packet counter means visibility active" 'packet visibility  : active'
 assert_out "selected software reports active" 'software offload   : active'
-assert_out "unselected hardware path is N/A" 'hardware offload   : N/A'
+assert_out "unselected hardware path is not applicable" 'hardware offload   : not-applicable'
 
 # A present flowtable without packet markers is configured but not observed active.
 printf '' > "$T/conntrack"
@@ -139,10 +150,10 @@ run_diag offload
 assert_out "configured flowtable without runtime marker is not observed" 'offload state      : not-observed'
 assert_out "zero queue packets are not-observed, not universal unknown" 'packet visibility  : not-observed'
 
-# Selected mode with no runtime table is inactive; no queue path is inactive too.
+# Selected mode with no runtime table is broken; no queue path is inactive too.
 : > "$T/nft-ruleset"
 run_diag offload
-assert_out "missing runtime flowtable is inactive" 'offload state      : inactive'
+assert_out "missing runtime flowtable is broken" 'offload state      : broken'
 assert_out "missing queue path is inactive" 'packet visibility  : inactive'
 
 # Failed probes are unavailable; an absent config is genuinely unknown.
@@ -152,7 +163,7 @@ assert_out "packet probe failure is unavailable" 'packet visibility  : unavailab
 rm -f "$T/config"
 run_diag offload
 assert_out "missing config makes mode unknown" 'flowoffload mode   : unknown'
-assert_out "missing config is genuinely unknown" 'offload state      : unknown'
+assert_out "missing config health is unavailable" 'offload state      : unavailable'
 
 # WARP-only transport details are gated on the enabled flag.
 printf 'GAME_WARP_ENABLED=0\n' > "$T/config"

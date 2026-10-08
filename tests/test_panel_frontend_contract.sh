@@ -325,6 +325,40 @@ function flowStatus(mode, raw) {
     toggles: { ...STATUS.toggles, flowoffload: mode, flowoffload_status: raw },
   };
 }
+function flowSnapshot(mode, overrides = {}) {
+  const defaults = {
+    configured_mode: mode,
+    flowtable_state: mode === "none" ? "absent" : "present",
+    flowtable_flags: mode === "hardware" ? "offload" : mode === "software" ? "software" : "none",
+    flowtable_devices: mode === "none" ? "none" : "wan,lan1",
+    actual_dataplane: "not-observed",
+    exemption_rules: "0",
+    nfqueue_rules: mode === "none" ? "0" : "1",
+    nfqueue_packets: "0",
+    packet_visibility: mode === "none" ? "not-applicable" : "not-observed",
+    circular_state: "disabled",
+    hardware_capability: "unavailable",
+    hardware_requested: mode === "hardware" ? "1" : "0",
+    hardware_observed: mode === "hardware" ? "not-observed" : "not-applicable",
+    hardware_state: mode === "hardware" ? "requested" : "not-applicable",
+    global_fw4_offload: "disabled",
+    global_fw4_flowtables: "0",
+    owner_state: mode === "none" ? "none" : "zapret2",
+    owner_conflict: "none",
+    offloaded_connections: "0",
+    hw_offloaded_connections: "0",
+    software_offloaded_connections: "0",
+    flow_offload_chain: mode === "none" ? "absent" : "present",
+    flow_offload_zapret_chain: mode === "none" ? "absent" : "present",
+    flow_offload_always_chain: mode === "none" ? "absent" : "present",
+    flow_add_rules: mode === "none" ? "0" : "1",
+    selective_state: mode === "none" ? "not-applicable" : "complete",
+    software_capability: "available",
+    runtime_health: mode === "none" ? "disabled" : "attention",
+    runtime_health_reason: mode === "none" ? "disabled" : "dataplane-not-observed",
+  };
+  return Object.entries({ ...defaults, ...overrides }).map(([key, value]) => `${key}=${value}`).join("; ");
+}
 
 const OUT = [];
 const check = (name, cond, detail) => OUT.push((cond ? "OK " : "BAD ") + name + (cond ? "" : "  :: " + String(detail || "")));
@@ -333,7 +367,10 @@ const check = (name, cond, detail) => OUT.push((cond ? "OK " : "BAD ") + name + 
 // поломку ровно так же, как брошенное исключение.
 process.on("unhandledRejection", e => UNHANDLED.push((e && e.message) || String(e)));
 
-function loadApp() { new Function(fs.readFileSync(APP, "utf8"))(); }
+function loadApp() {
+  const source = fs.readFileSync(APP, "utf8");
+  new Function(`${source}\nglobalThis.__testFlowBenchmarkResultMarkup = flowBenchmarkResultMarkup;`)();
+}
 
 // Эталон предупреждения об автохостлисте. Формулировка согласована с
 // владельцем: сверяем её ЦЕЛИКОМ, а не по куску, иначе «смягчил половину
@@ -364,7 +401,7 @@ const SCENARIOS = {
     hash: "#/toggles",
     setup() {
       ROUTER = async () => flowStatus("none",
-        "mode=none; flowtable=absent; flags=none; exemptions=0; actual=not-observed; hardware=not-observed; owner=none; packet_visibility=unknown; circular=unknown");
+        flowSnapshot("none"));
     },
     async run() {
       await sleep(120);
@@ -375,7 +412,7 @@ const SCENARIOS = {
             html.indexOf('class="flow-application-title">Выключено</div>') >= 0, html);
       check("none: ускорение честно описано как отключённое",
             html.indexOf('class="flow-application-badge">Отключено</span>') >= 0 &&
-            html.indexOf("Правила ускорения отсутствуют.") >= 0, html);
+            html.indexOf("Ускорение не используется.") >= 0, html);
       check("none: raw-строка не попала в основной статус", html.indexOf("mode=none;") < 0, html);
     },
   },
@@ -384,7 +421,7 @@ const SCENARIOS = {
     hash: "#/toggles",
     setup() {
       ROUTER = async () => flowStatus("software",
-        "mode=software; flowtable=present; flags=software; exemptions=0; actual=not-observed; hardware=not-observed; owner=none; packet_visibility=unknown; circular=unknown");
+        flowSnapshot("software"));
     },
     async run() {
       await sleep(120);
@@ -393,7 +430,7 @@ const SCENARIOS = {
             html.indexOf('class="flow-application-title">Программное ускорение</div>') >= 0, html);
       check("software: отсутствие dataplane-доказательства явно показано",
             html.indexOf('class="flow-application-badge">Не подтверждено</span>') >= 0 &&
-            html.indexOf("Фактическая работа не подтверждена.") >= 0, html);
+            html.indexOf("Dataplane не наблюдался") >= 0, html);
       check("software: flowtable не выдаётся за Работает", html.indexOf("Работает") < 0, html);
     },
   },
@@ -402,7 +439,7 @@ const SCENARIOS = {
     hash: "#/toggles",
     setup() {
       ROUTER = async () => flowStatus("hardware",
-        "mode=hardware; flowtable=present; flags=offload; exemptions=0; actual=not-observed; hardware=requested; owner=none; packet_visibility=unknown; circular=unknown");
+        flowSnapshot("hardware"));
     },
     async run() {
       await sleep(120);
@@ -413,12 +450,21 @@ const SCENARIOS = {
             primary.includes('class="flow-application-title">Аппаратное ускорение</div>'), primary);
       check("hardware: requested не превращается в подтверждённую работу",
             primary.includes('class="flow-application-badge">Не подтверждено</span>') &&
-            primary.includes("Фактическая работа не подтверждена."), primary);
+            primary.includes("Dataplane не наблюдался"), primary);
       check("hardware: raw runtime-факты остаются в закрытой диагностике",
             /<details class="flow-technical disclosure" id="flowoffload-technical">/.test(html) &&
             /<code>requested<\/code>/.test(html), html);
       check("hardware: raw mode не попадает в верхний статус",
             !primary.includes("mode=hardware") && !primary.includes("requested"), primary);
+      const comparisonHtml = globalThis.__testFlowBenchmarkResultMarkup({
+        modes: { none:{}, software:{}, hardware:{} },
+        validity:{ complete:true, unstable:false, accepted:true, health_accepted:true },
+        health:{ none:{accepted:true,reason:"disabled"}, software:{accepted:true,reason:"confirmed"}, hardware:{accepted:false,reason:"hardware-not-observed"} },
+        comparisons:{ software_vs_none:{download_pct:0,upload_pct:0,cpu_pct:0}, hardware_vs_software:{download_pct:null,upload_pct:null,cpu_pct:null} },
+      });
+      const hardwareComparison = comparisonHtml.slice(comparisonHtml.indexOf("Аппаратное vs Программное"));
+      check("hardware: missing health never renders a false zero comparison",
+            hardwareComparison.toLowerCase().includes("нет валидного сравнения") && !/0%/.test(hardwareComparison) && !comparisonHtml.includes("≈0%"), hardwareComparison);
     },
   },
 
@@ -426,14 +472,15 @@ const SCENARIOS = {
     hash: "#/toggles",
     setup() {
       ROUTER = async () => flowStatus("software",
-        "mode=software; flowtable=absent; flags=none; exemptions=0; actual=not-observed; hardware=not-observed; owner=global_fw4+nfqueue; packet_visibility=unknown; circular=unknown");
+        flowSnapshot("software", { flowtable_state:"absent", flowtable_flags:"none", owner_state:"multiple",
+          owner_conflict:"global_fw4+nfqueue", runtime_health:"broken", runtime_health_reason:"flowtable-missing" }));
     },
     async run() {
       await sleep(120);
       const html = q("#flowoffload-status").innerHTML;
-      check("mismatch: отдельное предупреждение", html.indexOf("Проверьте применение") >= 0, html);
-      check("mismatch: причина называет отсутствующие правила",
-            html.toLowerCase().indexOf("правила ускорения отсутствуют") >= 0, html);
+      check("mismatch: runtime error badge", html.indexOf('class="flow-application-badge">Ошибка runtime</span>') >= 0, html);
+      check("mismatch: причина называет отсутствующую flowtable",
+            html.indexOf("Flowtable отсутствует") >= 0, html);
       check("mismatch: конфликт владельцев объяснён",
             html.indexOf("fw4 и NFQUEUE одновременно") >= 0, html);
     },
@@ -443,13 +490,31 @@ const SCENARIOS = {
     hash: "#/toggles",
     setup() {
       ROUTER = async () => flowStatus("software",
-        "mode=none; flowtable=absent; flags=none; exemptions=0; actual=not-observed; hardware=not-observed; owner=none; packet_visibility=unknown; circular=unknown");
+        flowSnapshot("none", { configured_mode:"none", runtime_health:"disabled", runtime_health_reason:"disabled" }));
     },
     async run() {
       await sleep(120);
       const html = q("#flowoffload-status").innerHTML;
       check("mode mismatch: выбранный режим отделён от ответа runtime",
             html.indexOf("Выбрано «Программное ускорение», но текущая конфигурация сообщает «Выключено».") >= 0, html);
+    },
+  },
+
+  flowoffload_broken_nfqueue: {
+    hash: "#/toggles",
+    setup() {
+      ROUTER = async () => flowStatus("software", flowSnapshot("software", {
+        actual_dataplane:"software", packet_visibility:"inactive", nfqueue_rules:"0",
+        runtime_health:"broken", runtime_health_reason:"nfqueue-inactive",
+      }));
+    },
+    async run() {
+      await sleep(120);
+      const html = q("#flowoffload-status").innerHTML;
+      check("broken NFQUEUE: status is red, not full green",
+        html.includes('class="flow-application" data-kind="bad"') && html.includes('class="flow-application-badge">Ошибка runtime</span>'), html);
+      check("broken NFQUEUE: active dataplane is paired with traffic warning",
+        html.includes("Ускорение активно; требуется проверить обработку трафика."), html);
     },
   },
 
@@ -1455,7 +1520,7 @@ run_scen() {
 
 # Счётчики внутри while-пайпа теряются (subshell), поэтому считаем по выводу.
 for scen in flowoffload_none flowoffload_unconfirmed flowoffload_hardware \
-            flowoffload_mismatch flowoffload_mode_mismatch flowoffload_switch \
+            flowoffload_mismatch flowoffload_mode_mismatch flowoffload_broken_nfqueue flowoffload_switch \
             stale_apply update_history_modal update_history_empty update_history_failed \
             update_single_surface update_current_surface update_reinstall_manifest_race \
             toggles_status_failed toggles_left_page \
@@ -1500,9 +1565,9 @@ meta "пересортировка снова считается новой за
 meta "отказ панели снова неотличим от обрыва связи" job_refused 's/typeof e\.httpStatus === "number"/false/'
 meta "кнопки туннеля снова живы при непрочитанном статусе" toggles_status_failed '/"#tg-enable"), true);/d; /"#tg-disable"), true);/d'
 meta "ответ после ухода со страницы снова роняет страницу" toggles_left_page '/if (!badge) return;/d'
-meta "none снова выдаётся за неизвестный сбой" flowoffload_none 's/Правила ускорения отсутствуют\./Неизвестный сбой/'
-meta "неподтверждённое ускорение снова называется Работает" flowoffload_unconfirmed 's/Фактическая работа не подтверждена\./Работает/'
-meta "отсутствующие правила больше не предупреждают" flowoffload_mismatch 's/} else if (flowtable === "absent")/} else if (false)/'
+meta "none снова выдаётся за неизвестный сбой" flowoffload_none 's/Ускорение не используется\./Не удалось проверить/'
+meta "неподтверждённое ускорение снова называется Работает" flowoffload_unconfirmed 's/Dataplane не наблюдался/Работает/'
+meta "health gate больше не требует полного runtime" flowoffload_unconfirmed 's/health === "healthy" && reported === selected/true || health === "healthy" && reported === selected/'
 meta "ответ WARP после ухода со страницы снова роняет страницу" warp_left_page '/if (!grid\.isConnected) return;/d'
 meta "упавшая проверка обновлений снова прячет весь блок" update_check_failed 's/^      err = e;$/      banner.hidden = true; return;/'
 meta "Escape перестал закрывать историю версий" update_history_modal 's/if (e\.key === "Escape") {/if (false) {/'
