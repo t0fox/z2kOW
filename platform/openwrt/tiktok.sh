@@ -1731,7 +1731,7 @@ z2k_ow_tiktok_manual_select() {
 }
 
 z2k_ow_tiktok_domain_policy_set() {
-    local _host="$1" _policy="$2" _preferred _active _target _row _now _mapping _old_policy _selected_at _preferred_at
+    local _host="$1" _policy="$2" _preferred _active _target _row="" _now _mapping _old_policy _selected_at _preferred_at
     _z2k_ow_tiktok_managed_domain "$_host" || return 1
     case "$_policy" in auto|preferred|strict) ;; *) return 1 ;; esac
     z2k_ow_tiktok_enabled || return 1

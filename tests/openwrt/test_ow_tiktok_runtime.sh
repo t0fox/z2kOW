@@ -582,6 +582,14 @@ TIKTOK_PROBE_MODE=ok
 
 # A policy probe may finish after a newer user selection. It must revalidate
 # its state snapshot under the apply lock before replacing that selection.
+_policy_output=$( (set -u; z2k_ow_tiktok_domain_policy_set v16-ies-music.tiktokcdn.com auto) 2>&1)
+_policy_rc=$?
+[ "$_policy_rc" -eq 0 ] && _t_ok || _t_bad "auto policy succeeds under nounset"
+assert_eq "auto policy emits no nounset diagnostics" "" "$_policy_output"
+_policy_output=$( (set -u; z2k_ow_tiktok_domain_policy_set v16-cla.tiktokcdn.com preferred) 2>&1)
+_policy_rc=$?
+[ "$_policy_rc" -eq 0 ] && _t_ok || _t_bad "preferred policy with active IP succeeds under nounset"
+assert_eq "preferred policy with active IP emits no nounset diagnostics" "" "$_policy_output"
 z2k_ow_tiktok_domain_policy_set v16-ies-music.tiktokcdn.com auto \
     || _t_bad "v16-ies-music returns to auto before the policy race check"
 rm -f "$T/policy-probe-started" "$T/policy-probe-release"
