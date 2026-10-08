@@ -107,9 +107,9 @@ else
 fi
 
 # Common diff budget (§44): openwrt-специфичных строк в upstream-файлах — единицы.
-# Common diff budget (§44): the one optional DoH adapter seam in actions.sh
-# and one DoH-only route guard in api.sh are included in the shared surface.
-for _spec in "actions.sh:13" "api.sh:12" "auth.sh:6"; do
+# Common diff budget (§44): the optional DoH adapter seam, DoH-only route
+# guard, and per-domain TikTok policy action are included in the shared surface.
+for _spec in "actions.sh:14" "api.sh:12" "auth.sh:6"; do
     _f="${_spec%%:*}"; _lim="${_spec##*:}"
     _n="$(grep -cE 'Z2K_PLATFORM|platform\.sh|PLATFORM_ENV|Z2K_PANEL_DIR|DEBUG_FLAG_FILE|Z2K_AU_MANIFEST_URL' \
         "$REPO/webpanel/cgi/$_f" 2>/dev/null || true)"
