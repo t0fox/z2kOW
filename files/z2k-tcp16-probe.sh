@@ -68,6 +68,16 @@ STAMP="${Z2K_TCP16_TIMESTAMP:-$FLAG.ts}"
 DURATION="${Z2K_TCP16_DURATION:-$FLAG.duration}"
 CONFIG="${CONFIG:-${Z2K_CONFIG:-$ZAPRET2_DIR/config}}"
 
+z2k_tcp16_progress() {
+    [ -n "${Z2K_JOB_ID:-}" ] || return 0
+    local _epoch
+    _epoch=$(date +%s 2>/dev/null) || _epoch=
+    case "$_epoch" in
+        ''|*[!0-9]*) printf 'TCP16: %s\n' "$*" >&2 ;;
+        *) printf '@z2k-ts:%s|TCP16: %s\n' "$_epoch" "$*" >&2 ;;
+    esac
+}
+
 if [ "$Z2K_PLATFORM" = openwrt ]; then
     mkdir -p "$(dirname "$FLAG")" "$(dirname "$ASNOUT")" \
         "$(dirname "$SNIOUT")" "$(dirname "$LOG")" \
@@ -145,10 +155,12 @@ BATCH="${BATCH:-5}"
 # лезть в сеть. Установка кладёт его за секунды, а лишний поход за семью
 # мегабайтами при живом установщике не нужен никому.
 if ! [ -x "$DETECT" ]; then
+    z2k_tcp16_progress "жду бинарник z2k-detect, который устанавливает release-процесс"
     _wait=0
     while [ "$_wait" -lt "${Z2K_TCP16_WAIT_BIN:-120}" ]; do
         sleep 5
         _wait=$((_wait + 5))
+        [ $((_wait % 30)) -ne 0 ] || z2k_tcp16_progress "бинарник ещё не появился; ожидание ${_wait}/${Z2K_TCP16_WAIT_BIN:-120} с"
         for _d in $DETECT_DIRS; do
             [ -x "$_d/z2k-detect" ] && { DETECT="$_d/z2k-detect"; break; }
         done
@@ -262,11 +274,13 @@ run_logged() {   # run_logged <как писать в LOG: > или >> > <ком
 }
 
 echo "проба линии: $(grep -vc '^#' "$TARGETS" 2>/dev/null || echo '?') мишеней в $PARALLEL потоков, качаю с каждой по 20 КБ"
+z2k_tcp16_progress "проверяю ${TARGETS##*/}: TCP-соединения и передачу 20 КБ по каждой мишени"
 run_logged ">" env $DETECT_ENV "$DETECT" tcp16 -targets "$TARGETS" -parallel "$PARALLEL" -asn-out "$ASNOUT"
 rc=$?
 
 case "$rc" in
     1)  # блок есть
+        z2k_tcp16_progress "обрыв на объёме подтверждён; ищу рабочее SNI-имя отдельно для каждой сети"
         printf '1\n' > "$FLAG.new.$$" && mv -f "$FLAG.new.$$" "$FLAG" || exit 3
         # Имя на каждую найденную сеть. Пишем во временный файл и подменяем
         # разом: половина карты хуже, чем прежняя целая.
@@ -293,6 +307,7 @@ case "$rc" in
                     || _cand_run="$CAND"
             fi
             echo "подбор имён: $(grep -vc '^#' "$_cand_run" 2>/dev/null || echo '?') кандидатов на каждую сеть с обрывом, пачками по $BATCH"
+            z2k_tcp16_progress "сканирую кандидатов пачками по $BATCH и сохраняю прежнюю карту до полного результата"
             if run_logged ">>" env $DETECT_ENV "$DETECT" tcp16 -targets "$TARGETS" -scan "$_cand_run" -per-asn \
                  -sni-out "$SNIOUT.new" -parallel "$PARALLEL" -batch "$BATCH"; then
                 mv -f "$SNIOUT.new" "$SNIOUT"
@@ -304,6 +319,7 @@ case "$rc" in
         fi
         ;;
     0)  # блока нет
+        z2k_tcp16_progress "проба завершена: обрыв на объёме не обнаружен"
         printf '0\n' > "$FLAG.new.$$" && mv -f "$FLAG.new.$$" "$FLAG" || exit 3 ;;
     *)  # мишени не ответили вовсе — не мерили; прежний ответ не трогаем,
         # чтобы обрыв связи не выключил людям рабочий обход.
@@ -338,6 +354,7 @@ have=0
 grep -q -- "--lua-desync=z2k_sni_pick" "$CONFIG" 2>/dev/null && have=1
 
 if [ "$want" != "$have" ]; then
+    z2k_tcp16_progress "результат меняет конфигурацию; пересобираю и проверяю её перед restart"
     echo "механизм должен быть в конфиге: $want, сейчас: $have — пересобираю"
     if [ "$Z2K_PLATFORM" = openwrt ]; then
         # Keep the one upstream config generator. OpenWrt only supplies its
@@ -355,6 +372,7 @@ if [ "$want" != "$have" ]; then
             [ "$?" -ge 2 ] && { echo "конфиг не прошёл проверку — сервис не трогаю" >&2; exit 3; }
         fi
         if [ -x "$INIT_SCRIPT" ] && "$INIT_SCRIPT" running >/dev/null 2>&1; then
+            z2k_tcp16_progress "конфигурация прошла проверку; перезапускаю службу"
             "$INIT_SCRIPT" restart >/dev/null 2>&1 || { echo "OpenWrt service restart failed" >&2; exit 3; }
             echo "OpenWrt config regenerated and service restarted"
         else

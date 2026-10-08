@@ -34,6 +34,20 @@ _z2k_ow_doh_installed() { "$Z2K_DOH_APK_BIN" info -e "$Z2K_DOH_PACKAGE" >/dev/nu
 _z2k_ow_doh_running() { "$Z2K_DOH_PIDOF_BIN" https-dns-proxy >/dev/null 2>&1; }
 _z2k_ow_doh_enabled() { "$Z2K_DOH_PROXY_INIT" enabled >/dev/null 2>&1; }
 
+_z2k_ow_doh_progress() {
+    [ -n "${Z2K_JOB_ID:-}" ] || return 0
+    if command -v job_progress >/dev/null 2>&1; then
+        job_progress "DoH: $*"
+        return 0
+    fi
+    local _epoch
+    _epoch=$(date +%s 2>/dev/null) || _epoch=
+    case "$_epoch" in
+        ''|*[!0-9]*) printf 'DoH: %s\n' "$*" >&2 ;;
+        *) printf '@z2k-ts:%s|DoH: %s\n' "$_epoch" "$*" >&2 ;;
+    esac
+}
+
 # OpenWrt's dnsmasq init script performs a one-shot udhcpc probe while
 # rebuilding its configuration. The probe uses -n, a single attempt, and
 # /bin/true, so it never takes ownership of netifd's WAN lease. That was
@@ -211,8 +225,10 @@ _z2k_ow_doh_restore_service() {
     local _enabled _running
     _enabled=$(sed -n 's/^enabled=//p' "$Z2K_DOH_SERVICE_SNAPSHOT")
     _running=$(sed -n 's/^running=//p' "$Z2K_DOH_SERVICE_SNAPSHOT")
+    _z2k_ow_doh_progress "восстанавливаю прежние автозапуск и состояние DoH-службы"
     if [ "$_enabled" = 1 ]; then "$Z2K_DOH_PROXY_INIT" enable || return 1; else "$Z2K_DOH_PROXY_INIT" disable || return 1; fi
     if [ "$_running" = 1 ]; then "$Z2K_DOH_PROXY_INIT" restart || return 1; else "$Z2K_DOH_PROXY_INIT" stop >/dev/null 2>&1 || true; fi
+    _z2k_ow_doh_progress "перезапускаю dnsmasq после восстановления DoH-службы"
     _z2k_ow_doh_dnsmasq_restart || return 1
     rm -f "$Z2K_DOH_SERVICE_SNAPSHOT"
 }
@@ -285,12 +301,15 @@ z2k_ow_doh_install() {
     local _before
     if _z2k_ow_doh_installed; then echo "https-dns-proxy уже установлен; конфигурация не менялась"; return 0; fi
     mkdir -p "$_Z2K_DOH_DIR" 2>/dev/null || return 1
+    _z2k_ow_doh_progress "сохраняю существующую конфигурацию перед установкой пакета"
     _before=$(_z2k_ow_doh_export)
     if [ -n "$_before" ] || [ -s "$Z2K_DOH_CONFIG_FILE" ]; then
         printf '%s\n' "$_before" | _z2k_ow_doh_write "$Z2K_DOH_PREINSTALL_CONFIG" || return 1
         printf 'present=1\n' | _z2k_ow_doh_write "$Z2K_DOH_PREINSTALL_CONFIG_MARKER" || return 1
     fi
+    _z2k_ow_doh_progress "устанавливаю https-dns-proxy через apk"
     "$Z2K_DOH_APK_BIN" add "$Z2K_DOH_PACKAGE" || return 1
+    _z2k_ow_doh_progress "проверяю установленный пакет и записываю ownership"
     _z2k_ow_doh_installed || { echo "apk не подтвердил установку https-dns-proxy" >&2; return 1; }
     printf '%s\n' "$Z2K_DOH_PACKAGE" | _z2k_ow_doh_write "$Z2K_DOH_PACKAGE_OWNED_FILE" || return 1
     _z2k_ow_doh_export | _z2k_ow_doh_write "$Z2K_DOH_CONFIG_BASELINE" || return 1
@@ -317,9 +336,11 @@ z2k_ow_doh_select_provider() {
         echo "DoH: найдена пользовательская конфигурация; подтвердите замену" >&2; return 1
     fi
     if [ "$_external" = 1 ]; then
+        _z2k_ow_doh_progress "сохраняю пользовательскую конфигурацию и состояние службы перед заменой"
         [ -s "$Z2K_DOH_CONFIG_BACKUP" ] || _z2k_ow_doh_export | _z2k_ow_doh_write "$Z2K_DOH_CONFIG_BACKUP" || return 1
         [ -s "$Z2K_DOH_SERVICE_SNAPSHOT" ] || _z2k_ow_doh_save_service || return 1
     fi
+    _z2k_ow_doh_progress "собираю UCI-конфигурацию провайдера $Z2K_DOH_PROVIDER_LABEL"
     _z2k_ow_doh_delete_resolver_sections || return 1
     _z2k_ow_doh_uci set "$Z2K_DOH_PACKAGE.config=main" || return 1
     _z2k_ow_doh_uci set "$Z2K_DOH_PACKAGE.config.listen_addr=127.0.0.1" || return 1
@@ -334,18 +355,40 @@ z2k_ow_doh_select_provider() {
         _z2k_ow_doh_uci set "$Z2K_DOH_PACKAGE.$Z2K_DOH_SECOND_SECTION.bootstrap_dns=8.8.8.8,8.8.4.4,2001:4860:4860::8888,2001:4860:4860::8844" || return 1
         _z2k_ow_doh_uci set "$Z2K_DOH_PACKAGE.$Z2K_DOH_SECOND_SECTION.listen_port=5054" || return 1
     fi
+    _z2k_ow_doh_progress "сохраняю конфигурацию провайдера и receipt владения"
     _z2k_ow_doh_uci commit "$Z2K_DOH_PACKAGE" || return 1
     printf '%s\n%s\n' "$Z2K_DOH_SECTION" "$([ "$_provider" = default ] && echo "$Z2K_DOH_SECOND_SECTION")" \
         | sed '/^$/d' | _z2k_ow_doh_write "$Z2K_DOH_CONFIG_OWNED_FILE" || return 1
+    _z2k_ow_doh_progress "включаю и перезапускаю https-dns-proxy"
     "$Z2K_DOH_PROXY_INIT" enable || return 1
     "$Z2K_DOH_PROXY_INIT" restart || return 1
+    _z2k_ow_doh_progress "перезапускаю dnsmasq, чтобы применить DoH-маршрут"
     _z2k_ow_doh_dnsmasq_restart || return 1
+    _z2k_ow_doh_progress "провайдер применён; проверяю состояние прокси и DNS"
     echo "DoH настроен: $Z2K_DOH_PROVIDER_LABEL"
 }
 
-z2k_ow_doh_enable() { _z2k_ow_doh_installed && "$Z2K_DOH_PROXY_INIT" enable && "$Z2K_DOH_PROXY_INIT" restart && _z2k_ow_doh_dnsmasq_restart; }
-z2k_ow_doh_disable() { _z2k_ow_doh_installed && "$Z2K_DOH_PROXY_INIT" disable && "$Z2K_DOH_PROXY_INIT" stop && _z2k_ow_doh_dnsmasq_restart; }
-z2k_ow_doh_restart() { _z2k_ow_doh_installed && "$Z2K_DOH_PROXY_INIT" restart && _z2k_ow_doh_dnsmasq_restart; }
+z2k_ow_doh_enable() {
+    _z2k_ow_doh_installed || return 1
+    _z2k_ow_doh_progress "включаю службу и запускаю DoH-прокси"
+    "$Z2K_DOH_PROXY_INIT" enable && "$Z2K_DOH_PROXY_INIT" restart || return 1
+    _z2k_ow_doh_progress "перезапускаю dnsmasq для применения маршрута"
+    _z2k_ow_doh_dnsmasq_restart
+}
+z2k_ow_doh_disable() {
+    _z2k_ow_doh_installed || return 1
+    _z2k_ow_doh_progress "отключаю автозапуск и останавливаю DoH-прокси"
+    "$Z2K_DOH_PROXY_INIT" disable && "$Z2K_DOH_PROXY_INIT" stop || return 1
+    _z2k_ow_doh_progress "перезапускаю dnsmasq после отключения прокси"
+    _z2k_ow_doh_dnsmasq_restart
+}
+z2k_ow_doh_restart() {
+    _z2k_ow_doh_installed || return 1
+    _z2k_ow_doh_progress "перезапускаю DoH-прокси"
+    "$Z2K_DOH_PROXY_INIT" restart || return 1
+    _z2k_ow_doh_progress "перезапускаю dnsmasq для обновления маршрута"
+    _z2k_ow_doh_dnsmasq_restart
+}
 
 _z2k_ow_doh_lookup_answer() {
     local _lookup=${Z2K_DOH_NSLOOKUP_BIN:-nslookup}
@@ -385,6 +428,7 @@ _z2k_ow_doh_has_dnsmasq_listener_route() {
 
 z2k_ow_doh_check() {
     local _provider=unknown _endpoint=none _urls _answer _reason
+    _z2k_ow_doh_progress "проверяю установку пакета, состояние прокси и активный маршрут dnsmasq"
     _urls=$(_z2k_ow_doh_urls | _z2k_ow_doh_join_csv)
     if [ -n "$_urls" ]; then
         _z2k_ow_doh_detect_provider "$_urls"
@@ -402,6 +446,7 @@ z2k_ow_doh_check() {
             "$_provider" "$_endpoint" "$_reason" >&2
         return 1
     fi
+    _z2k_ow_doh_progress "проверяю DNS-запрос через localhost"
     if ! _answer=$(_z2k_ow_doh_lookup_answer); then
         printf 'DoH check: provider=%s endpoint=%s answer=none result=error reason=router-dns-query-failed\n' \
             "$_provider" "$_endpoint" >&2
@@ -414,8 +459,12 @@ z2k_ow_doh_check() {
 z2k_ow_doh_set_force_dns() {
     case "$1" in 0|1) ;; *) return 1 ;; esac
     _z2k_ow_doh_installed || return 1
-    _z2k_ow_doh_uci set "$Z2K_DOH_PACKAGE.config.force_dns=$1" && _z2k_ow_doh_uci commit "$Z2K_DOH_PACKAGE" \
-        && "$Z2K_DOH_PROXY_INIT" restart && _z2k_ow_doh_dnsmasq_restart
+    _z2k_ow_doh_progress "сохраняю настройку принудительного DNS: $1"
+    _z2k_ow_doh_uci set "$Z2K_DOH_PACKAGE.config.force_dns=$1" && _z2k_ow_doh_uci commit "$Z2K_DOH_PACKAGE" || return 1
+    _z2k_ow_doh_progress "перезапускаю DoH-прокси с новой настройкой"
+    "$Z2K_DOH_PROXY_INIT" restart || return 1
+    _z2k_ow_doh_progress "перезапускаю dnsmasq для применения настройки"
+    _z2k_ow_doh_dnsmasq_restart
 }
 
 _z2k_ow_doh_remove_sections() {
@@ -516,6 +565,8 @@ z2k_ow_doh_uninstall() {
         return 1
     fi
 
+    _z2k_ow_doh_progress "собираю состояние пакета, внешней конфигурации и DNS-маршрутов"
+
     # Remember every listener before touching UCI. A restored external config
     # remains useful for a later package reimport, but no live dnsmasq route may
     # continue pointing at the package we are about to remove.
@@ -559,12 +610,14 @@ z2k_ow_doh_uninstall() {
         done
     fi
 
+    _z2k_ow_doh_progress "восстанавливаю прежние DNS-настройки и останавливаю DoH-службу"
     [ "$_legacy" = 0 ] || _z2k_ow_doh_restore_legacy_dnsmasq || return 1
     if [ "$_installed" = 1 ] || _z2k_ow_doh_running || _z2k_ow_doh_enabled; then
         "$Z2K_DOH_PROXY_INIT" disable || { echo "DoH: не удалось отключить автозапуск https-dns-proxy" >&2; return 1; }
         "$Z2K_DOH_PROXY_INIT" stop || { echo "DoH: не удалось остановить https-dns-proxy" >&2; return 1; }
     fi
     if [ "$_installed" = 1 ]; then
+        _z2k_ow_doh_progress "удаляю https-dns-proxy через apk"
         "$Z2K_DOH_APK_BIN" del "$Z2K_DOH_PACKAGE" || { echo "DoH: apk del https-dns-proxy завершился ошибкой" >&2; return 1; }
     fi
     if _z2k_ow_doh_installed; then
@@ -572,6 +625,7 @@ z2k_ow_doh_uninstall() {
         return 1
     fi
 
+    _z2k_ow_doh_progress "восстанавливаю конфигурацию и очищаю принадлежащие DoH DNS-маршруты"
     if [ "$_preserve_config" = 1 ]; then
         _z2k_ow_doh_uci -q import "$Z2K_DOH_PACKAGE" < "$_restore_file" || {
             echo "DoH: пакет удалён, но импорт сохранённой конфигурации завершился ошибкой" >&2
@@ -595,6 +649,7 @@ z2k_ow_doh_uninstall() {
         return 1
     }
 
+    _z2k_ow_doh_progress "перезапускаю dnsmasq и проверяю очистку owned-состояния"
     _z2k_ow_doh_dnsmasq_restart || { echo "DoH: не удалось перезапустить dnsmasq после удаления" >&2; return 1; }
 
     if _z2k_ow_doh_running; then echo "DoH: процесс https-dns-proxy всё ещё работает" >&2; return 1; fi

@@ -2,6 +2,16 @@
 # Canonical OpenWrt implementation of the upstream `uninstall` action.
 # This file is shared by `z2kow uninstall` and the confirmed WebPanel job.
 
+_z2k_ow_uninstall_progress() {
+    [ -n "${Z2K_JOB_ID:-}" ] || return 0
+    local _epoch
+    _epoch=$(date +%s 2>/dev/null) || _epoch=
+    case "$_epoch" in
+        ''|*[!0-9]*) printf 'Удаление z2k: %s\n' "$*" >&2 ;;
+        *) printf '@z2k-ts:%s|Удаление z2k: %s\n' "$_epoch" "$*" >&2 ;;
+    esac
+}
+
 z2k_ow_uninstall_paths_load() {
     local _root="${Z2K_ROOT:-/usr/lib/z2k}" _adapter
     _adapter="${Z2K_ADAPTER_DIR:-$_root/platform/openwrt}"
@@ -300,6 +310,7 @@ z2k_ow_uninstall() (
 
     _work="$Z2K_OW_INSTALL_WORK"
     _state="$Z2K_OW_INSTALLED_RELEASE_FILE"
+    _z2k_ow_uninstall_progress "проверяю и восстанавливаю прерванную транзакцию установки"
     z2k_ow_recover_transaction "$_work" "$_state" "$Z2K_OW_CORE_INIT" "" "$Z2K_OW_PANEL_INIT" || {
         echo "z2k-openwrt: cannot recover interrupted release transaction; uninstall stopped safely" >&2
         return 1
@@ -307,6 +318,7 @@ z2k_ow_uninstall() (
 
     # Remove future cron launches first, then disable and stop every procd
     # owner while its adapters and state are still present.
+    _z2k_ow_uninstall_progress "снимаю расписания и останавливаю panel/core службы"
     _z2k_ow_uninstall_remove_cron || _rc=1
     _z2k_ow_uninstall_service "$Z2K_OW_PANEL_INIT" WebPanel || _rc=1
     _z2k_ow_uninstall_service "$Z2K_OW_CORE_INIT" core || _rc=1
@@ -315,6 +327,7 @@ z2k_ow_uninstall() (
 
     # Keep exact OpenWrt-owned service integrations removable even if an older
     # stop path missed them. Each adapter removes only its own nft/UCI entries.
+    _z2k_ow_uninstall_progress "очищаю принадлежащие интеграции Telegram, RT, WARP, Insta, TikTok и DoH"
     z2k_ow_tg cleanup || _rc=1
     z2k_ow_rt cleanup || _rc=1
     z2k_ow_warp cleanup || _rc=1
@@ -322,6 +335,7 @@ z2k_ow_uninstall() (
     z2k_ow_tiktok_uninstall || _rc=1
     z2k_ow_doh_uninstall || _rc=1
     z2k_ow_fw_remove || _rc=1
+    _z2k_ow_uninstall_progress "проверяю firewall и восстанавливаю исходные offload-настройки"
     z2k_ow_stop_verify || _rc=1
     _z2k_ow_uninstall_fw4_include || _rc=1
     if [ -f "$Z2K_FW4_OFFLOAD_STATE" ]; then
@@ -346,6 +360,7 @@ z2k_ow_uninstall() (
         return 1
     }
 
+    _z2k_ow_uninstall_progress "удаляю runtime, rollback-снимок и временные файлы"
     rm -rf "$Z2K_OW_INSTALL_WORK" || { echo "z2k-openwrt: cannot remove install transaction workspace" >&2; return 1; }
     rm -rf "$Z2K_OW_ROLLBACK_DIR" || { echo "z2k-openwrt: cannot remove rollback snapshot" >&2; return 1; }
     rm -rf "$Z2K_ZAPRET2_RUNTIME" || { echo "z2k-openwrt: cannot remove owned zapret2 runtime" >&2; return 1; }
@@ -362,6 +377,7 @@ z2k_ow_uninstall() (
         echo "z2k-openwrt: cannot remove owned procd init scripts" >&2
         return 1
     }
+    _z2k_ow_uninstall_progress "удаляю payload z2kOW; сохранённая регистрация WARP остаётся на месте"
     rm -rf "$Z2K_ROOT" || {
         echo "z2k-openwrt: cannot remove the z2kOW release payload" >&2
         return 1

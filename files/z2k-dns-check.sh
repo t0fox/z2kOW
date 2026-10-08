@@ -65,6 +65,16 @@ TIMEOUT="${Z2K_DNS_TIMEOUT:-5}"
 OWN_LIST="${Z2K_DNS_OWN:-$ZAPRET2_DIR/lists/dns-check.txt}"
 CURRENT_ADDR=""
 
+z2k_dns_progress() {
+    [ -n "${Z2K_JOB_ID:-}" ] || return 0
+    local _epoch
+    _epoch=$(date +%s 2>/dev/null) || _epoch=
+    case "$_epoch" in
+        ''|*[!0-9]*) printf 'DNS: %s\n' "$*" >&2 ;;
+        *) printf '@z2k-ts:%s|DNS: %s\n' "$_epoch" "$*" >&2 ;;
+    esac
+}
+
 # Мишени: несвязанные домены, заблокированные в РФ. Именно НЕСВЯЗАННЫЕ — на
 # этом держится вывод заглушки. Общий хостинг сломал бы правило «повторился →
 # подстановка».
@@ -435,6 +445,7 @@ main() {
     # Кто именно — без правил файрвола (скрипт ничего в системе не трогает и
     # не читает): если канарейке ответили тем же адресом, что и резолвер
     # роутера на тот же домен, заворот на роутере; иначе — на пути.
+    z2k_dns_progress "проверяю UDP-канарейку и определяю перехват DNS на порту 53"
     intercept=0; intercept_by=""
     _ca=$(udp_a "$CANARY" "$CONTROL" | head -1)
     if [ -n "$_ca" ]; then
@@ -499,6 +510,8 @@ $_curname|$_cur||"
 
     printf '%s\n' "$servers" | while IFS='|' read -r name udp doh dot; do
         [ -n "${name:-}" ] || continue
+        case "$name" in https://*) _server_label="пользовательский DoH endpoint" ;; *) _server_label="$name" ;; esac
+        z2k_dns_progress "проверяю $_server_label по доступным UDP/53, DoH и DoT путям"
         up=0; up_u=0; n_ok=0; n_all=0; dms=""; tms=""; ums=""
         st_u="none"; st_d="none"; st_t="none"; st_yt="none"
         # Ответы по каждому пути КОПИМ ОТДЕЛЬНО. Иначе вердикт один на двоих,
@@ -508,6 +521,9 @@ $_curname|$_cur||"
         _own="/tmp/.z2k-dns-udp.$$"; : > "$_own"
         _ownd="/tmp/.z2k-dns-doh.$$"; : > "$_ownd"
 
+        if [ -n "${udp:-}" ]; then
+            z2k_dns_progress "$_server_label: запрашиваю UDP/53 и собираю A-ответы"
+        fi
         if [ -n "${udp:-}" ] && [ -n "$(udp_a "$udp" "$CONTROL")" ]; then
             up=1; up_u=1
             # Меряем ТОЛЬКО того, кто уже ответил: у молчащего dig отсидел бы
@@ -540,6 +556,7 @@ $_curname|$_cur||"
         case "${udp:-}" in ''|*[!0-9.]*) ;; *) _sip="$udp" ;; esac
 
         if [ -n "${doh:-}" ]; then
+            z2k_dns_progress "$_server_label: проверяю DoH через HTTPS"
             dms=$(doh_wire_ms "$doh" "$_sip")
             if [ -n "$dms" ]; then
                 up=1
@@ -562,6 +579,7 @@ $_curname|$_cur||"
 
         # Заглушка ЭТОГО сервера: адрес, пришедший на два и более разных домена.
         if [ -n "${dot:-}" ]; then
+            z2k_dns_progress "$_server_label: проверяю DoT внутри TLS/853"
             DOT_MS=""
             if dot_alive "$dot" "$_sip"; then
                 up=1
@@ -609,6 +627,7 @@ $_curname|$_cur||"
         if [ -z "${dot:-}" ]; then st_t="none"
         elif [ -z "$tms" ]; then st_t="silent"
         else st_t="works"; fi
+        z2k_dns_progress "$_server_label: UDP=$st_u, DoH=$st_d, DoT=$st_t; перехожу к сверке ответов"
         rm -f "$_own" "$_ownd"
         # Разделитель \037, не таб: таб — IFS-пробельный, и `read` схлопывает
         # подряд идущие. У сервера без DoH пустых полей два, и всё съезжает.

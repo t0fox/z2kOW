@@ -1094,6 +1094,58 @@ job_progress() {
     job_log_record "$*" >&2
 }
 
+# Keep useful progress visible in interactive/non-job callers too, while job
+# callers get a timestamped phase marker that the wait loop can recognize.
+job_step() {
+    if [ -n "${Z2K_JOB_ID:-}" ]; then
+        job_progress "$*"
+    else
+        printf '%s\n' "$*"
+    fi
+}
+
+# Read the most recent structured phase without trusting raw command output.
+# Every marker already goes to the user-visible job log, so the wait loop can
+# describe a quiet phase without overwriting it with a generic heartbeat.
+job_latest_progress() {
+    local _id="$1" _log
+    [ -n "$_id" ] || return 0
+    _log=$(_z2k_job_file "$_id" log)
+    [ -r "$_log" ] || return 0
+    tail -n 120 "$_log" 2>/dev/null | awk '
+        index($0, "@z2k-ts:") == 1 && index($0, "|") > 0 {
+            line=substr($0, length("@z2k-ts:")+1)
+            separator=index(line, "|")
+            epoch=substr(line, 1, separator-1)
+            phase=substr(line, separator+1)
+            latest=epoch "|" phase
+        }
+        END { if (latest != "") print latest }
+    '
+}
+
+# Some long workers write ordinary progress lines instead of @z2k-ts markers.
+# Keep a short last-line fallback for those tasks; never echo an unbounded line
+# into every heartbeat.
+job_latest_output() {
+    local _id="$1" _log
+    [ -n "$_id" ] || return 0
+    _log=$(_z2k_job_file "$_id" log)
+    [ -r "$_log" ] || return 0
+    tail -n 40 "$_log" 2>/dev/null | awk '
+        {
+            gsub(/\r/, " ")
+            if ($0 == "" || index($0, "@z2k-ts:") == 1 || $0 ~ /^─+$/ ||
+                $0 == "Готово ✓" || $0 ~ /^Завершено с кодом /) next
+            line=$0
+        }
+        END {
+            if (length(line) <= 240) print line
+            else if (line != "") print "длинный вывод сохранён выше в журнале"
+        }
+    '
+}
+
 svc_action_async() {
     mkdir -p "$Z2K_JOB_DIR" || return 1
     job_reap
@@ -1108,6 +1160,7 @@ svc_action_async() {
         job_log_record "$label"
         printf '─────────────────────────────────────────\n'
         export Z2K_JOB_ID="$job_id"
+        export Z2K_JOB_DIR
         job_progress "Запущено: $label"
         local started_at elapsed=0 rc command_pid ended_at
         started_at=$(date +%s 2>/dev/null) || started_at=0
@@ -1145,12 +1198,35 @@ job_pid_alive() {
 }
 
 job_wait_child() {
-    local pid="$1" label="$2" elapsed=0
+    local pid="$1" label="$2" elapsed=0 marker marker_at phase phase_age now output
     while job_pid_alive "$pid"; do
         sleep 1
         elapsed=$((elapsed + 1))
-        if [ $((elapsed % 10)) = 0 ] && job_pid_alive "$pid"; then
-            job_progress "Выполняется: $label; прошло около ${elapsed} с"
+        if [ $((elapsed % 15)) = 0 ] && job_pid_alive "$pid"; then
+            marker=$(job_latest_progress "${Z2K_JOB_ID:-}")
+            if [ -n "$marker" ]; then
+                marker_at=${marker%%|*}
+                phase=${marker#*|}
+                case "$marker_at" in ''|*[!0-9]*) marker_at= ;; esac
+            else
+                marker_at=
+            fi
+            if [ -n "$marker_at" ]; then
+                now=$(date +%s 2>/dev/null) || now="$marker_at"
+                case "$now" in ''|*[!0-9]*) now="$marker_at" ;; esac
+                phase_age=$((now - marker_at))
+                [ "$phase_age" -ge 0 ] 2>/dev/null || phase_age=0
+                if [ "$phase_age" -ge 15 ]; then
+                    job_log_record "Этап: $phase; без смены этапа ${phase_age} с; всего ${elapsed} с."
+                fi
+            else
+                output=$(job_latest_output "${Z2K_JOB_ID:-}")
+                if [ -n "$output" ]; then
+                    job_log_record "Операция «$label» ещё выполняется (${elapsed} с). Последний вывод: $output"
+                else
+                    job_log_record "Операция «$label» ещё выполняется (${elapsed} с); новых этапов пока нет."
+                fi
+            fi
         fi
     done
     wait "$pid"
@@ -2938,12 +3014,12 @@ tunnel_enable() {
     local cfg="${ZAPRET2_DIR}/config"
     if [ -f "$cfg" ]; then
         if grep -q '^TG_PROXY_USER_DISABLED=' "$cfg"; then
-            echo "Снимаю флаг TG_PROXY_USER_DISABLED → 0 в /opt/zapret2/config"
+            job_step "Telegram-туннель: разрешаю watchdog восстановить сервис"
             sed -i 's/^TG_PROXY_USER_DISABLED=.*/TG_PROXY_USER_DISABLED=0/' "$cfg"
         fi
     fi
     if [ -x "/opt/etc/init.d/S98tg-tunnel" ]; then
-        echo "Запускаю S98tg-tunnel..."
+        job_step "Telegram-туннель: запускаю S98tg-tunnel"
         /opt/etc/init.d/S98tg-tunnel start 2>&1
     else
         echo "tunnel init script missing" >&2
@@ -2952,10 +3028,10 @@ tunnel_enable() {
     # cdnbase-туннель (:1444) — тот же бинарник и та же пользовательская
     # сущность, поэтому включается и выключается вместе с телеграмным.
     if [ -x "/opt/etc/init.d/S97z2k-http-tunnel" ]; then
-        echo "Запускаю S97z2k-http-tunnel (cdnbase)..."
+        job_step "Telegram-туннель: запускаю сопутствующий HTTP-туннель"
         /opt/etc/init.d/S97z2k-http-tunnel start 2>&1
     fi
-    echo "Туннель запущен."
+    job_step "Telegram-туннель: команды запуска завершены"
 }
 
 tunnel_disable() {
@@ -2967,29 +3043,29 @@ tunnel_disable() {
     local cfg="${ZAPRET2_DIR}/config"
     if [ -f "$cfg" ]; then
         if grep -q '^TG_PROXY_USER_DISABLED=' "$cfg"; then
-            echo "Устанавливаю TG_PROXY_USER_DISABLED=1 в /opt/zapret2/config"
+            job_step "Telegram-туннель: запрещаю watchdog повторно поднимать сервис"
             sed -i 's/^TG_PROXY_USER_DISABLED=.*/TG_PROXY_USER_DISABLED=1/' "$cfg"
         else
-            echo "Добавляю TG_PROXY_USER_DISABLED=1 в /opt/zapret2/config"
+            job_step "Telegram-туннель: записываю флаг отключения watchdog"
             echo "TG_PROXY_USER_DISABLED=1" >> "$cfg"
         fi
     else
         echo "Конфиг /opt/zapret2/config не найден — флаг не записан"
     fi
     if [ -x "/opt/etc/init.d/S98tg-tunnel" ]; then
-        echo "Останавливаю S98tg-tunnel..."
+        job_step "Telegram-туннель: останавливаю S98tg-tunnel"
         /opt/etc/init.d/S98tg-tunnel stop 2>&1
     else
-        echo "Init-скрипт S98tg-tunnel не найден — пропускаю"
+        job_step "Telegram-туннель: S98 init-скрипт отсутствует, пропускаю"
     fi
     # И cdnbase-туннель (:1444): один бинарник, одна сущность для человека.
     # Раньше он оставался жить (~8 МБ) — со стороны это выглядело как «выключил
     # туннель, а процесс tg-mtproxy-client всё равно висит в памяти».
     if [ -x "/opt/etc/init.d/S97z2k-http-tunnel" ]; then
-        echo "Останавливаю S97z2k-http-tunnel (cdnbase)..."
+        job_step "Telegram-туннель: останавливаю сопутствующий HTTP-туннель"
         /opt/etc/init.d/S97z2k-http-tunnel stop 2>&1
     fi
-    echo "Туннель остановлен, watchdog респектнёт флаг и не будет его перезапускать."
+    job_step "Telegram-туннель остановлен; watchdog увидит флаг отключения"
 }
 
 # --- async jobs ---
@@ -4069,6 +4145,7 @@ update_action_async() {
         job_log_record "$label"
         printf '─────────────────────────────────────────\n'
         export Z2K_JOB_ID="$job_id"
+        export Z2K_JOB_DIR
         job_progress "Запущено: $label; читаю манифест и проверяю состав обновления"
         local started_at ended_at elapsed command_pid rc
         started_at=$(date +%s 2>/dev/null) || started_at=0
@@ -4211,6 +4288,8 @@ strategy_pick_run() {
     done
     [ -x "$bin" ] || { echo "модуль замера не установлен" >&2; return 3; }
 
+    job_step "Подбор стратегии: режим $mode; цель ${domain:-Discord voice}${pinned_ip:+, IP $pinned_ip}; запускаю проверку"
+
     rm -f "$STRATEGY_PICK_OUT"
     local tcp_out="/tmp/z2k-strategy-pick-tcp.$$"
     local quic_out="/tmp/z2k-strategy-pick-quic.$$"
@@ -4244,6 +4323,7 @@ strategy_pick_run() {
             fi
             for extra_ip in $also_test_ips; do set -- "$@" -also-test-ip "$extra_ip"; done
             set -- "$@" "$target_addr"
+            job_step "Подбор стратегии: проверяю TCP/TLS 1.3 для $domain"
             GODEBUG=asyncpreemptoff=1 "$bin" "$@" > "$tcp_out" 2>"$tcp_err" &
             tcp_pid=$!
             ;;
@@ -4259,6 +4339,7 @@ strategy_pick_run() {
             fi
             for extra_ip in $also_test_ips; do set -- "$@" -also-test-ip "$extra_ip"; done
             set -- "$@" "$target_addr"
+            job_step "Подбор стратегии: проверяю TCP/TLS 1.2 для $domain"
             GODEBUG=asyncpreemptoff=1 "$bin" "$@" > "$tcp_out" 2>"$tcp_err" &
             tcp_pid=$!
             ;;
@@ -4276,12 +4357,14 @@ strategy_pick_run() {
             fi
             for extra_ip in $also_test_ips; do set -- "$@" -also-test-ip "$extra_ip"; done
             set -- "$@" "$target_addr"
+            job_step "Подбор стратегии: ищу общий приём для TLS 1.2 и TLS 1.3 на $domain; предел ${limit} с"
             GODEBUG=asyncpreemptoff=1 "$bin" "$@" > "$tcp_out" 2>"$tcp_err" &
             tcp_pid=$!
             ;;
         quic)
             echo "Замеряю $domain по QUIC — так ходят браузеры по HTTP/3."
             echo "Это занимает около минуты."
+            job_step "Подбор стратегии: проверяю QUIC/HTTP3 для $domain"
             GODEBUG=asyncpreemptoff=1 "$bin" quic -json "$domain" > "$quic_out" 2>"$quic_err" &
             quic_pid=$!
             ;;
@@ -4290,6 +4373,7 @@ strategy_pick_run() {
             echo "имени, которое можно вписать, сервер выдаётся на сессию."
             echo "Если разговор не начат — замер это честно скажет."
             limit=120
+            job_step "Подбор стратегии: проверяю текущую Discord voice-сессию; предел ${limit} с"
             GODEBUG=asyncpreemptoff=1 "$bin" voice -json > "$voice_out" 2>"$voice_err" &
             voice_pid=$!
             ;;
@@ -4317,7 +4401,7 @@ strategy_pick_run() {
             echo "$STRATEGY_PICK_FAILURE_REASON" >&2
             return 4
         fi
-        [ $((i % 15)) = 0 ] && echo "  идёт замер, ${i} с"
+        [ $((i % 15)) = 0 ] && job_step "Подбор стратегии: режим $mode для ${domain:-Discord voice} всё ещё выполняется, ${i}/${limit} с"
         sleep 1
     done
     if [ -n "$tcp_pid" ]; then
@@ -4389,7 +4473,7 @@ strategy_pick_run() {
         return "$result_rc"
     fi
     rm -f "$tcp_err" "$quic_err" "$voice_err"
-    echo "Замер закончен за ${i} с."
+    job_step "Подбор стратегии: режим $mode для ${domain:-Discord voice} завершён за ${i} с"
     return 0
 }
 
@@ -4583,7 +4667,7 @@ strategy_unique_set_stage() {
     local domain="$1" mode="$2" name="$3" pool="$4" json
     json="$UNIQUE_SET_DIR/$name.json"
     local found complete
-    echo "Этап: $domain ($mode) → $pool"
+    job_step "Уникальный набор: этап $domain ($mode) → пул $pool; запускаю замеры"
     strategy_unique_set_measure "$domain" "$mode" "$json" || return $?
     found=$(strategy_unique_set_strategy "$json")
     [ -n "$found" ] || { echo "Для $domain стратегия не найдена" >&2; return 20; }
@@ -4593,7 +4677,7 @@ strategy_unique_set_stage() {
     complete=$(printf '%s\n' "$found" | strategy_complete_line "$pool") || return 1
     [ -n "$complete" ] || { echo "Не удалось собрать профиль пула $pool" >&2; return 1; }
     printf '%s\n' "$complete" > "$UNIQUE_SET_DIR/$pool.txt" || return 1
-    echo "Найдена стратегия: $found"
+    job_step "Уникальный набор: для $domain найдена стратегия пула $pool: $found"
 }
 
 strategy_unique_set_stage_multi_ip() {
@@ -4609,7 +4693,7 @@ strategy_unique_set_stage_multi_ip() {
         attempt=$((attempt + 1))
         additional=$(printf '%s\n' "$ips" | awk -v anchor="$anchor" '$0 != anchor && NF { if (out != "") out=out " "; out=out $0 } END { print out }')
         out="$UNIQUE_SET_DIR/$name-common-$attempt.json"
-        echo "Этап: $domain ($mode), ищу от $anchor и проверяю кандидаты на всех адресах"
+        job_step "Уникальный набор: $domain ($mode), опорный IP $anchor; проверяю кандидата на обоих адресах"
         strategy_unique_set_measure "$domain" "$mode" "$out" "$anchor" "$additional" || {
             echo "$domain: общий замер на $anchor не завершился; пул $pool не будет применён" >&2; return 1;
         }
@@ -4623,7 +4707,7 @@ EOF
     complete=$(printf '%s\n' "$found" | strategy_complete_line "$pool") || return 1
     [ -n "$complete" ] || { echo "Не удалось собрать профиль пула $pool" >&2; return 1; }
     printf '%s\n' "$complete" > "$UNIQUE_SET_DIR/$pool.txt" || return 1
-    echo "Общий кандидат для $domain прошёл всю проверочную матрицу: $found"
+    job_step "Уникальный набор: кандидат для $domain прошёл проверку на обоих IP; собираю пул $pool"
 }
 
 strategy_unique_set_run() {
@@ -4640,6 +4724,7 @@ strategy_unique_set_run() {
     mkdir -p "$UNIQUE_SET_DIR" || { echo "Не удалось создать рабочий каталог" >&2; return 1; }
     STRATEGY_PICK_OUT="$previous_out"
     started=$(date +%s)
+    job_step "Уникальный набор: начинаю проверки четырёх пулов на DNS-адресах роутера"
 
     strategy_unique_set_stage_multi_ip i.ytimg.com mixed stage-youtube yt_tcp || return 1
     strategy_unique_set_stage_multi_ip googlevideo.com mixed stage-googlevideo gv_tcp || return 1
@@ -4673,7 +4758,7 @@ strategy_unique_set_run() {
 
     local service_restarted=false
     is_running && service_restarted=true
-    echo "Проверяю и применяю все четыре пула одним набором…"
+    job_step "Уникальный набор: все замеры завершены; проверяю и применяю конфигурацию транзакцией"
     strategy_pool_save_batch "$UNIQUE_SET_DIR" "$UNIQUE_SET_DIR/transaction" || { rm -f "${UNIQUE_SET_RESULT_TMP:-}"; return $?; }
     ended=$(date +%s)
     strategy_unique_set_result_write "$UNIQUE_SET_DIR" "$coverage" "$reason" "$((ended - started))" "$service_restarted" || {
@@ -4682,7 +4767,7 @@ strategy_unique_set_run() {
     mv -f "$UNIQUE_SET_RESULT_TMP" "${STRATEGY_UNIQUE_RESULT_FILE:-/tmp/z2k-unique-set-result.json}" || {
         echo "набор применён, но не удалось сохранить итоговый отчёт" >&2; return 1;
     }
-    echo "Набор применён за $((ended - started)) с."
+    job_step "Уникальный набор: все четыре пула применены за $((ended - started)) с"
     [ "$own_dir" = 0 ] || rm -rf "$UNIQUE_SET_DIR"
     return 0
 }
@@ -4739,6 +4824,7 @@ uninstall_async() {
         job_log_record "Удаление z2k"
         printf '─────────────────────────────────────────\n'
         export Z2K_JOB_ID="$job_id"
+        export Z2K_JOB_DIR
         job_progress "Запущено: удаление z2k; сохраняю исход и приступаю к демонтажу"
         local started_at ended_at elapsed command_pid rc
         started_at=$(date +%s 2>/dev/null) || started_at=0

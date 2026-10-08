@@ -76,7 +76,18 @@ WARP_LEGACY_DIR="${WARP_LEGACY_DIR:-/opt/etc/z2k-warp}"
 [ -f "$CONFIG_FILE" ] && _warp_cfg_proxy=$(grep -m1 '^Z2K_WARP_VPS_PROXY=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"')
 WARP_VPS_PROXY="${WARP_VPS_PROXY:-${_warp_cfg_proxy:-http://z2kwarp:z2kW4rpR3g2026@213.176.74.63:8119}}"
 
-_wlog() { echo "[z2k-warp] $*" >&2; }
+_wlog() {
+    if [ -n "${Z2K_JOB_ID:-}" ]; then
+        local _epoch
+        _epoch=$(date +%s 2>/dev/null) || _epoch=
+        case "$_epoch" in
+            ''|*[!0-9]*) printf 'WARP: %s\n' "$*" >&2 ;;
+            *) printf '@z2k-ts:%s|WARP: %s\n' "$_epoch" "$*" >&2 ;;
+        esac
+    else
+        echo "[z2k-warp] $*" >&2
+    fi
+}
 warp_flag() { grep -m1 '^GAME_WARP_ENABLED=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2 | tr -d '" '; }
 warp_set_flag() {
     [ -f "$CONFIG_FILE" ] || return 0
@@ -671,6 +682,7 @@ warp_op_superseded() {
 }
 
 warp_enable() {
+    _wlog "включаю туннель: настраиваю списки и запускаю движок"
     warp_op_begin
     warp_op_lock || { warp_op_superseded; return 3; }
     warp_op_current || { warp_op_unlock; warp_op_superseded; return 3; }
@@ -686,6 +698,9 @@ warp_enable() {
     while [ "$waited" -lt "$WARP_READY_WAIT" ]; do
         warp_op_current || { warp_op_superseded; return 3; }
         warp_ready && break
+        if [ "$waited" -gt 0 ] && [ $((waited % 30)) -eq 0 ]; then
+            _wlog "ожидаю готовность туннеля: ${waited}/${WARP_READY_WAIT} с"
+        fi
         sleep 2; waited=$((waited + 2))
     done
     warp_op_lock || { warp_op_superseded; return 3; }
@@ -708,6 +723,7 @@ warp_enable() {
 # застрявшего держателя замка. Перебитым оно бывает, только если после него
 # уже нажали что-то ещё — тогда главнее то нажатие.
 warp_disable() {
+    _wlog "выключаю туннель: снимаю маршрут, останавливаю службу и очищаю наборы"
     warp_op_begin
     warp_op_lock || { warp_op_superseded; return 3; }
     warp_op_current || { warp_op_unlock; warp_op_superseded; return 3; }
@@ -730,6 +746,7 @@ warp_disable() {
 # своим ожиданием готовности и теми же кодами 0/1/2/3. У выключенного WARP
 # перезапускать нечего: выбор применится при включении.
 warp_restart() {
+    _wlog "перезапускаю движок и проверю готовность туннеля"
     warp_op_begin
     warp_op_lock || { warp_op_superseded; return 3; }
     warp_op_current || { warp_op_unlock; warp_op_superseded; return 3; }
@@ -751,6 +768,7 @@ warp_license() {
     local key out rc
     [ -x "$WARP_BIN" ] || { _wlog "движок не установлен — нажмите «Установить»"; return 4; }
     key=$(cat)
+    _wlog "передаю ключ WARP+ на проверку через Cloudflare"
     out=$(printf '%s' "$key" | "$WARP_BIN" license --device "$WARP_DEVICE" 2>&1); rc=$?
     if [ "$rc" = "1" ] && [ -n "$WARP_VPS_PROXY" ]; then
         _wlog "напрямую Cloudflare не ответил — пробую через релей..."

@@ -96,7 +96,18 @@ WARP_DOMAIN_HELPER="${WARP_DOMAIN_HELPER:-${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/li
 # Секрет релей НЕ логируем никогда (см. warp_register).
 WARP_VPS_PROXY_DEFAULT="http://z2kwarp:z2kW4rpR3g2026@213.176.74.63:8119"
 
-_wlog() { echo "[z2k-warp] $*" >&2; }
+_wlog() {
+    if [ -n "${Z2K_JOB_ID:-}" ]; then
+        local _epoch
+        _epoch=$(date +%s 2>/dev/null) || _epoch=
+        case "$_epoch" in
+            ''|*[!0-9]*) printf 'WARP: %s\n' "$*" >&2 ;;
+            *) printf '@z2k-ts:%s|WARP: %s\n' "$_epoch" "$*" >&2 ;;
+        esac
+    else
+        echo "[z2k-warp] $*" >&2
+    fi
+}
 _z2k_ow_warp_mut() { [ -n "$Z2K_WARP_QUIET" ] || printf '%s\n' "$1"; }
 warp_flag() { grep -m1 '^GAME_WARP_ENABLED=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2 | tr -d '" '; }
 warp_set_flag() {
@@ -1393,6 +1404,7 @@ warp_register_due() {
 }
 
 warp_install() {
+    _wlog "проверяю каталоги списков и встроенный бинарник движка"
     warp_op_current || { warp_op_superseded; return 3; }
     warp_lists_migrate || return 1
     [ -x "$WARP_BIN" ] && "$WARP_BIN" version >/dev/null 2>&1 || {
@@ -1400,6 +1412,7 @@ warp_install() {
         return 1
     }
     # Ничего не запускается: только движок на диск и ключ устройства.
+    _wlog "проверяю или регистрирую идентификатор устройства"
     warp_register || return 1
     return 0
 }
@@ -1432,7 +1445,7 @@ warp_unpin_legacy() {
 # не новое намерение пользователя, а хвост текущего flow (иначе stale op-file
 # убивал бы refresh, W44).
 _warp_wait_ready() {
-    local _waited=0 _t0 _mt
+    local _waited=0 _t0 _mt _last_log=0
     _t0=$(date +%s 2>/dev/null || echo 0)
     while [ "$_waited" -lt "${1:-$WARP_READY_WAIT}" ]; do
         if warp_running; then
@@ -1444,6 +1457,10 @@ _warp_wait_ready() {
         fi
         if [ "${2:-}" != "internal" ]; then
             warp_op_current || { warp_op_superseded; return 3; }
+        fi
+        if [ $((_waited - _last_log)) -ge 15 ]; then
+            _wlog "ожидаю подтверждённую готовность туннеля: ${_waited}/${1:-$WARP_READY_WAIT} с"
+            _last_log=$_waited
         fi
         if [ "$(_json_raw "$WARP_STATUS" ready)" = "true" ] && warp_running; then
             if command -v stat >/dev/null 2>&1; then
@@ -1706,6 +1723,7 @@ _z2k_ow_warp_procd_instance_registered() {
 
 warp_enable() {
     local _was_enabled _need_rebuild
+    _wlog "включаю WARP: готовлю списки и маршрутизацию"
     warp_op_current || { warp_op_superseded; return 3; }
     rm -f "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null
     _was_enabled="$(warp_flag)"
@@ -1719,6 +1737,7 @@ warp_enable() {
         mkdir -p "$(dirname "$WARP_REG_STAMP")" 2>/dev/null && \
             date +%s > "$WARP_REG_STAMP" 2>/dev/null || \
             _wlog "не удалось записать метку попытки регистрации"
+        _wlog "идентификатор устройства отсутствует; регистрирую перед запуском туннеля"
         if ! warp_register; then
             # Preserve the requested state: the boot-installed health cron can
             # retry registration without ever routing user traffic through an
@@ -1727,6 +1746,7 @@ warp_enable() {
         fi
     fi
     warp_nft_sets_load || { _wlog "списки не загрузились"; warp_set_flag 0 || _wlog "не удалось сбросить GAME_WARP_ENABLED"; return 1; }
+    _wlog "применяю nft-правила и передаю запуск службе procd"
     warp_nft_rules_apply || { _wlog "nft chains не встали"; warp_set_flag 0 || _wlog "не удалось сбросить GAME_WARP_ENABLED"; return 1; }
     _need_rebuild=0
     if _z2k_ow_service_running && { [ "$_was_enabled" != "1" ] || ! warp_running; }; then
@@ -1737,6 +1757,7 @@ warp_enable() {
     else
         _z2k_ow_warp_service_reload || return $?
     fi
+    _wlog "жду готовность движка и затем проверю PBR-маршрут"
     _warp_wait_and_pbr
 }
 
@@ -1800,6 +1821,7 @@ _z2k_ow_warp_service_rebuild() {
 
 warp_disable() {
     local _was_running _rc=0
+    _wlog "выключаю WARP: сначала снимаю маршрутизацию, затем останавливаю instance"
     # Порядок (defect 1): PBR down ПЕРВЫМ -> clears -> flag 0 -> reconcile.
     # Reload при flag=1 пересоздал бы instance (окно "выключен, но работает").
     warp_op_current || { warp_op_superseded; return 3; }
@@ -1824,6 +1846,7 @@ warp_disable() {
         _wlog "disable: процесс всё ещё жив после reconcile"
         return 1
     fi
+    _wlog "проверка выключения завершена; процесс движка остановлен"
     return "$_rc"
 }
 
@@ -1836,6 +1859,7 @@ warp_disable() {
 # сверяем supersession перед PBR. Выключенному нечего перезапускать: выбор
 # применится при включении.
 warp_restart() {
+    _wlog "перезапускаю WARP с текущими настройками транспорта"
     warp_op_current || { warp_op_superseded; return 3; }
     if [ "$(warp_flag)" != "1" ]; then
         return 0
@@ -1848,6 +1872,7 @@ warp_restart() {
     # procd respawn uses the already-committed instance definition, including
     # its old env. Rebuild that definition through the owning service.
     _z2k_ow_warp_service_rebuild || return $?
+    _wlog "служба пересоздана; жду подтверждения туннеля и восстановлю PBR"
     _warp_wait_and_pbr
 }
 
@@ -1858,6 +1883,7 @@ warp_license() {
     local _key _out _rc _proxy
     [ -x "$WARP_BIN" ] || { _wlog "движок не установлен — нажмите «Установить»"; return 4; }
     _key=$(cat)
+    _wlog "передаю ключ WARP+ на проверку через Cloudflare"
     _proxy="$(warp_cfg Z2K_WARP_VPS_PROXY "")"
     [ -n "$_proxy" ] || _proxy="$WARP_VPS_PROXY_DEFAULT"
     _out=$(printf '%s' "$_key" | "$WARP_BIN" license --device "$WARP_DEVICE" 2>&1); _rc=$?
@@ -1874,6 +1900,7 @@ warp_remove() {
     # бинарь удаляем ТОЛЬКО после доказанного off. Провал disable = провал
     # remove, бинарь цел (W51).
     warp_op_current || { warp_op_superseded; return 3; }
+    _wlog "сначала полностью выключаю WARP и снимаю принадлежащие ему правила"
     warp_disable || return 1
     warp_nft_remove full || { _wlog "remove: не удалось полностью очистить nft-состояние"; return 1; }
     if [ "$WARP_BIN" != "$WARP_DOMAIN_RUNTIME_BIN" ]; then
