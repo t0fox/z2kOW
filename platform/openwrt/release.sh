@@ -1,6 +1,19 @@
 #!/bin/sh
 # One controlled full-payload release path for OpenWrt.
 
+# The WebPanel reports a generic timer while install_release is busy. Emit
+# phase markers to its existing job log so slow archive work is identifiable;
+# ordinary CLI and cron callers keep their existing output.
+z2k_ow_install_progress() {
+    [ -n "${Z2K_JOB_ID:-}" ] || return 0
+    local _epoch
+    _epoch=$(date +%s 2>/dev/null) || _epoch=
+    case "$_epoch" in
+        ''|*[!0-9]*) printf '%s\n' "$*" >&2 ;;
+        *) printf '@z2k-ts:%s|%s\n' "$_epoch" "$*" >&2 ;;
+    esac
+}
+
 z2k_ow_json_value() {
     _file="$1" _expr="$2"
     command -v jsonfilter >/dev/null 2>&1 || return 1
@@ -531,6 +544,7 @@ _z2k_ow_install_release_locked() {
     _transaction_id="$$"
     _stopped=0 _tag=""
 
+    z2k_ow_install_progress "Проверяю манифест и подпись релиза"
     if [ "${Z2K_OW_TESTING:-0}" != 1 ]; then
         [ "$(id -u 2>/dev/null || echo 1)" = 0 ] || { echo "install_release must run as root" >&2; return 1; }
         . "$_adapter/env.sh" || return 1
@@ -601,16 +615,20 @@ _z2k_ow_install_release_locked() {
     elif [ "${Z2K_OW_TESTING:-0}" = 1 ] && [ -n "${Z2K_OW_ARTIFACT_PATH:-}" ]; then
         _archive="$Z2K_OW_ARTIFACT_PATH"
     else
+        z2k_ow_install_progress "Загружаю полный архив релиза"
         z2k_ow_download "$_url" "$_archive" || {
             z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1;
         }
     fi
+    z2k_ow_install_progress "Проверяю размер и SHA-256 архива"
     [ "$(wc -c < "$_archive" | tr -d ' \t\r\n')" = "$_size" ] \
         || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     _actual="$(sha256sum "$_archive" 2>/dev/null | awk '{print $1}')"
     [ "$_actual" = "$_sha" ] || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
+    z2k_ow_install_progress "Проверяю список файлов архива"
     z2k_ow_archive_safe "$_archive" "$_work/archive-list" \
         || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
+    z2k_ow_install_progress "Извлекаю файлы для архитектуры роутера"
     z2k_ow_extract_target_payload "$_archive" "$_stage" "$_work/archive-list" "$_work" \
         || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     z2k_ow_owned_paths > "$_paths" || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
@@ -628,6 +646,7 @@ _z2k_ow_install_release_locked() {
         || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
 
     if [ -x "$_service" ]; then
+        z2k_ow_install_progress "Останавливаю сервис перед заменой файлов"
         z2k_ow_service_call "$_service" stop >/dev/null 2>&1 || true
         _stopped=1
     fi
@@ -645,6 +664,7 @@ _z2k_ow_install_release_locked() {
         return 1
     }
 
+    z2k_ow_install_progress "Применяю проверенные файлы релиза"
     if ! z2k_ow_apply_staged_tree "$_stage" "$_transaction" "$_paths" "$_transaction_id"; then
         z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id" || echo "z2k-openwrt: file rollback incomplete" >&2
         z2k_ow_cleanup_transaction "$_paths" "$_transaction_id"
@@ -676,6 +696,7 @@ _z2k_ow_install_release_locked() {
         fi
     fi
     if [ "${Z2K_OW_TESTING:-0}" != 1 ] || [ "${Z2K_OW_TEST_HEALTHCHECK:-0}" = 1 ]; then
+        z2k_ow_install_progress "Перезапускаю сервисы и проверяю доступность панели"
         for _svc in "$_service" "$_panel"; do
             [ -x "$_svc" ] || continue
             z2k_ow_service_call "$_svc" enable >/dev/null 2>&1 || true
@@ -784,9 +805,11 @@ z2k_ow_payload_size_for_arch() {
 # one-file release payload; pruning saves constrained flash during installation.
 z2k_ow_extract_target_payload() {
     _archive="$1" _stage="$2" _listing="$3" _work="$4"
-    _arch_script=usr/lib/z2k/platform/openwrt/arch.sh
-    tar -xzf "$_archive" -C "$_stage" "$_arch_script" || return 1
-    . "$_stage/$_arch_script" || return 1
+    # Architecture is a property of this router, not of the payload. Reuse
+    # the installed adapter's detector instead of extracting one file from
+    # the compressed tarball first. tar still has to decompress the whole
+    # archive to reach that member, so this used to add a complete extra pass.
+    . "$_adapter/arch.sh" || return 1
     _target_arch="$(z2k_ow_arch_name 2>/dev/null)" || {
         echo "z2k-openwrt: unsupported router architecture; release payload was not extracted" >&2
         return 1
