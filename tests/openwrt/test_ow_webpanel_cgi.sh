@@ -279,7 +279,14 @@ _poll_job() { # $1 jobid -> печатает тело последнего оп�
         sleep 0.2
         _jr="$(_cgi GET /job "id=$1")"
         _jo="$(printf '%s\n' "$_jr" | _cgi_body)"
-        [ "$(_jget "$_jo" 'd["done"]')" = "true" ] && { printf '%s' "$_jo"; return 0; }
+        if [ "$(_jget "$_jo" 'd["done"]')" = "true" ]; then
+            if printf '%s' "$_jo" | grep -Fq 'parameter not set'; then
+                _t_bad "async job $1 logs an unset-variable error"
+                return 1
+            fi
+            printf '%s' "$_jo"
+            return 0
+        fi
         _i=$((_i + 1))
     done
     printf '%s' "$_jo"
@@ -310,6 +317,36 @@ assert_eq "status: DoH provider comes from package UCI, empty before install" "u
 assert_eq "status: DoH exposes no inactive endpoint before install" "" "$(_jget "$OUT" 'd["doh"]["endpoint"]')"
 assert_eq "status: DoH has no external config before install" "0" "$(_jget "$OUT" 'd["doh"]["external_config"]')"
 _status_out="$OUT"
+# Exercise the exact reported route: api.sh enables nounset, queues the action,
+# and svc_action_async evaluates it in the background. With no saved active IP,
+# switching the policy to auto leaves the optional probe row empty.
+cp "$T/etc/config" "$T/config.before-tiktok-policy"
+printf 'Z2K_TIKTOK_FEED_ENABLED=1\n' >> "$T/etc/config"
+mkdir -p "$T/etc/state"
+printf 'schema_version=2\n' > "$T/etc/state/tiktok-domains.state"
+printf 'host=v77.tiktokcdn.com&policy=auto' > "$T/tiktok-policy-body"
+RAW="$(
+    export Z2K_STATE="$T/etc/state"
+    export Z2K_TIKTOK_CONFIG="$T/etc/config"
+    export Z2K_TIKTOK_DOMAIN_STATE_FILE="$T/etc/state/tiktok-domains.state"
+    export Z2K_TIKTOK_STATE_FILE="$T/etc/state/tiktok-cdn.state"
+    export Z2K_TIKTOK_ADDRESS_MARKER="$T/etc/state/.tiktok-address-owned"
+    export Z2K_TIKTOK_UCI_BIN=true Z2K_TIKTOK_DNSMASQ_INIT=/bin/true
+    export Z2K_TIKTOK_APPLY_LOCK="$T/tmp/z2k/runtime/tiktok-policy.lock"
+    _cgi POST /tiktok/policy "" "$T/tiktok-policy-body"
+)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_tiktok_job="$(_jget "$OUT" 'd["job"]')"
+assert_eq "TikTok policy route starts an async job" "true" "$([ -n "$_tiktok_job" ] && printf true || printf false)"
+if [ -n "$_tiktok_job" ]; then
+    JOB_IDS="$JOB_IDS $_tiktok_job"
+    _tiktok_job_result="$(_poll_job "$_tiktok_job")" || _t_bad "TikTok policy async job completes under api.sh nounset"
+    assert_eq "TikTok auto policy job exits successfully" "0" "$(_jget "$_tiktok_job_result" 'd["exit"]')"
+    printf '%s' "$(_jget "$_tiktok_job_result" 'd["log"]')" > "$T/tiktok-policy-job.log"
+    assert_not_contains "TikTok policy job has no nounset diagnostics" "$T/tiktok-policy-job.log" 'parameter not set'
+    assert_eq "TikTok auto policy is persisted" "auto" "$(sed -n 's/^domain.v77.tiktokcdn.com.policy=//p' "$T/etc/state/tiktok-domains.state")"
+fi
+cp "$T/config.before-tiktok-policy" "$T/etc/config"
+
 printf '%s' 'value=1%3Btouch%20/tmp/z2k-doh-injection' > "$T/doh-invalid-body"
 RAW="$(_cgi POST /doh/force-dns "" "$T/doh-invalid-body")"
 assert_eq "DoH force DNS rejects injected values" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"

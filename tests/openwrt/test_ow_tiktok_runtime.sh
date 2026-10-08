@@ -590,6 +590,24 @@ _policy_output=$( (set -u; z2k_ow_tiktok_domain_policy_set v16-cla.tiktokcdn.com
 _policy_rc=$?
 [ "$_policy_rc" -eq 0 ] && _t_ok || _t_bad "preferred policy with active IP succeeds under nounset"
 assert_eq "preferred policy with active IP emits no nounset diagnostics" "" "$_policy_output"
+if _z2k_ow_tiktok_domain_state_set_many v16-cla.tiktokcdn.com \
+    "policy=preferred" "preferred_ip=203.0.113.20" "selected_ip="; then
+    _t_ok
+else
+    _t_bad "preferred-policy no-active-IP fixture is prepared"
+fi
+TIKTOK_PROBE_MODE=alt
+_policy_output=$( (set -u; z2k_ow_tiktok_domain_policy_set v16-cla.tiktokcdn.com preferred) 2>&1)
+_policy_rc=$?
+[ "$_policy_rc" -eq 0 ] && _t_ok || _t_bad "preferred policy with no active IP succeeds under nounset"
+assert_eq "preferred policy with no active IP emits no nounset diagnostics" "" "$_policy_output"
+assert_eq "preferred policy with no active IP probes and applies its preferred address" \
+    203.0.113.20 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com selected_ip)"
+TIKTOK_PROBE_MODE=ok
+_policy_output=$( (set -u; z2k_ow_tiktok_domain_policy_set v16-ies-music.tiktokcdn.com strict) 2>&1)
+_policy_rc=$?
+[ "$_policy_rc" -eq 0 ] && _t_ok || _t_bad "strict policy succeeds under nounset"
+assert_eq "strict policy emits no nounset diagnostics" "" "$_policy_output"
 z2k_ow_tiktok_domain_policy_set v16-ies-music.tiktokcdn.com auto \
     || _t_bad "v16-ies-music returns to auto before the policy race check"
 rm -f "$T/policy-probe-started" "$T/policy-probe-release"
