@@ -640,7 +640,7 @@ print_offload() {
     local _snapshot _mode _flowtable _flags _devices _actual _exemptions _queue_rules _queue_packets
     local _visibility _circular _hardware_cap _hardware_observed _hardware_state _global _owner _conflict
     local _offloaded _hw_offloaded _flow_chain _zap_chain _always_chain _flow_add _selective _software_cap
-    local _health _reason _state _software_state _backend _capability
+    local _health _reason _state _software_state _backend _capability _fastroute
     _snapshot=$(z2k_ow_flowoffload_snapshot 2>/dev/null)
     [ -n "$_snapshot" ] || _snapshot='configured_mode=unknown; flowtable_state=unavailable; flowtable_flags=unavailable; flowtable_devices=unavailable; actual_dataplane=unavailable; exemption_rules=unavailable; nfqueue_rules=unavailable; nfqueue_packets=unavailable; packet_visibility=unavailable; circular_state=unknown; hardware_capability=unavailable; hardware_observed=unavailable; hardware_state=unavailable; global_fw4_offload=unavailable; owner_state=unknown; owner_conflict=unavailable; selective_state=unavailable; runtime_health=unavailable; runtime_health_reason=state-unavailable'
     _mode=$(z2k_ow_offload_field "$_snapshot" configured_mode)
@@ -703,6 +703,12 @@ print_offload() {
             broken) _software_state=broken ;;
         esac
     fi
+    if [ -e "${Z2K_FASTROUTE_FILE:-/proc/sys/net/netfilter/nf_conntrack_fastroute}" ]; then
+        _fastroute=$(cat "${Z2K_FASTROUTE_FILE:-/proc/sys/net/netfilter/nf_conntrack_fastroute}" 2>/dev/null) \
+            || _fastroute=unreadable
+    else
+        _fastroute=absent
+    fi
     printf '\n=== offload ===\n'
     printf 'flowoffload mode   : %s\n' "${_mode:-unknown}"
     printf 'offload capability : %s\n' "$_capability"
@@ -732,6 +738,7 @@ print_offload() {
     printf 'observed dataplane : %s\n' "${_actual:-unavailable}"
     printf 'offloaded connections: %s\n' "${_offloaded:-unavailable}"
     printf 'HW offloaded connections: %s\n' "${_hw_offloaded:-unavailable}"
+    printf 'nf_conntrack_fastroute: %s\n' "$_fastroute"
     printf 'backend            : %s\n' "$_backend"
     printf 'offload state      : %s (%s)\n' "$_state" "${_reason:-state-unavailable}"
     printf 'packet visibility  : %s\n' "${_visibility:-unavailable}"

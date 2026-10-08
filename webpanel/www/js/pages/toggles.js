@@ -868,7 +868,7 @@ function flowoffloadApplicationMarkup(selected, raw) {
     kind = "good";
     badge = "Работа подтверждена";
     copy = "Подтверждено runtime-наблюдением.";
-  } else if (health === "broken" || conflict !== "none") {
+  } else if (health === "broken" || (conflict !== "none" && conflict !== "unavailable")) {
     kind = "bad";
     badge = "Ошибка runtime";
     copy = (actual === "software" || actual === "hardware")

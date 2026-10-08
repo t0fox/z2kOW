@@ -5,10 +5,12 @@ _t_plan "ow-diag"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 DIAG="$REPO/files/z2k-diag.sh"
 AD="$REPO/platform/openwrt/diag.sh"
+OFFLOAD_OBSERVE="$REPO/platform/openwrt/offload-observe.sh"
 ENV="$REPO/platform/openwrt/env.sh"
 STAGE="$REPO/scripts/openwrt/stage-rootfs.sh"
 
 assert_file "OpenWrt diagnostics adapter exists" "$AD"
+assert_file "OpenWrt offload observer exists" "$OFFLOAD_OBSERVE"
 assert_contains "common diagnostic has neutral hook" "$DIAG" 'Z2K_DIAG_HOOK='
 assert_contains "health delegates through hook" "$DIAG" '"$Z2K_DIAG_HOOK" health'
 assert_contains "firewall delegates through hook" "$DIAG" '"$Z2K_DIAG_HOOK" firewall'
@@ -35,7 +37,9 @@ assert_contains "canonical nfq path is exported" "$ENV" 'export Z2K_NFQWS2'
 assert_contains "adapter hook selects architecture TG binary" "$REPO/platform/openwrt/tg.sh" \
     'z2k_ow_tg_bin_path "${Z2K_BIN:-/usr/lib/z2k/bin}"'
 assert_contains "adapter hook resolves architecture WARP runtime path" "$AD" 'z2k_ow_warp_bin_path "$_warp_adapter"'
-assert_contains "adapter hook uses explicit disabled/unknown states" "$AD" 'conclusion=disabled'
+assert_contains "offload observer preserves the disabled state" "$OFFLOAD_OBSERVE" 'disabled) printf disabled ;;'
+assert_contains "offload observer reports unavailable evidence explicitly" "$OFFLOAD_OBSERVE" \
+    'state-unavailable|circular-unavailable|mode-unavailable) printf unavailable ;;'
 assert_contains "adapter hook reports unavailable backend" "$AD" 'backend=unavailable'
 assert_contains "adapter hook reports selected FLOWOFFLOAD" "$AD" 'flowoffload mode'
 assert_contains "adapter hook reports zapret2 flowtable" "$AD" 'zapret2 flowtable'
@@ -45,7 +49,7 @@ assert_contains "adapter hook reports exemptions" "$AD" 'exemptions'
 assert_contains "adapter hook reports owner conflict" "$AD" 'owner conflict'
 assert_contains "adapter hook separates packet visibility" "$AD" 'packet visibility'
 assert_contains "adapter hook does not claim circular proof" "$AD" 'circular'
-assert_contains "offload mode trim is BusyBox-safe" "$AD" "tr -d ' \t\r\n'"
+assert_contains "offload mode trim is BusyBox-safe" "$OFFLOAD_OBSERVE" "tr -d ' \t\r\n'"
 assert_contains "adapter hook checks fastroute presence" "$AD" 'nf_conntrack_fastroute'
 assert_contains "adapter hook uses canonical WARP status" "$AD" 'warp/status.json'
 assert_not_contains "adapter hook never prints WARP key" "$AD" 'WARP_PLUS_KEY'

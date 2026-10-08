@@ -69,6 +69,11 @@ assert_contains "global/selective conflict" "$T/output" "owner conflict     : gl
 assert_contains "software dataplane observed" "$T/output" "observed dataplane : software"
 assert_contains "no queue path is inactive" "$T/output" "packet visibility  : inactive"
 assert_contains "circular feature is disabled when config has no circular" "$T/output" "circular           : disabled"
+printf '1\n' > "$T/fastroute"
+_out="$(Z2K_FASTROUTE_FILE="$T/fastroute" "$REPO/platform/openwrt/diag.sh" offload 2>&1)"
+printf '%s\n' "$_out" > "$T/output-fastroute"
+assert_contains "diagnostics retain the fast-route kernel setting" "$T/output-fastroute" \
+    "nf_conntrack_fastroute: 1"
 
 printf 'FLOWOFFLOAD=hardware\n' > "$T/config"
 _out="$($REPO/platform/openwrt/diag.sh offload 2>&1)"

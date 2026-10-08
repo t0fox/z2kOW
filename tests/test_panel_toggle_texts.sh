@@ -56,9 +56,11 @@ for label in "Выключено" "Программное ускорение" "�
         no "режим подписан: $label" "есть" "нет"
     fi
 done
-if grep -q 'Техническая диагностика' "$T" &&
-   grep -q 'Диагностика обработки трафика' "$T" &&
-   grep -q 'packet_visibility' "$T" && grep -q 'circular' "$T"; then
+FLOW_TECH=$(sed -n '/^function flowoffloadTechnicalMarkup(/,/^}/p' "$T")
+if printf '%s' "$FLOW_TECH" | grep -q 'Техническая диагностика' &&
+   printf '%s' "$FLOW_TECH" | grep -q 'id="flowoffload-technical"' &&
+   printf '%s' "$FLOW_TECH" | grep -q 'packet_visibility' &&
+   printf '%s' "$FLOW_TECH" | grep -q 'circular_state'; then
     ok "технические поля и диагностика обработки трафика вынесены в disclosure"
 else
     no "технические поля и диагностика обработки трафика вынесены в disclosure" "есть" "нет"

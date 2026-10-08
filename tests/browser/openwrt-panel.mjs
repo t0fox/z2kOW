@@ -44,7 +44,7 @@ const statusFixture = {
     game_warp: '0', customd: '0', dynamic_ttl: '1',
     ppe: '1', auto_update: '1', autohostlist: '0', fastroute: '0',
     fastroute_available: '0', flowoffload: 'hardware',
-    flowoffload_status: 'mode=hardware; flowtable=present; flags=offload; exemptions=0; actual=not-observed; hardware=requested; owner=none; packet_visibility=unknown; circular=unknown',
+    flowoffload_status: 'configured_mode=hardware; flowtable_state=present; flowtable_flags=offload; flowtable_devices=wan; actual_dataplane=not-observed; exemption_rules=0; nfqueue_rules=unknown; nfqueue_packets=unknown; packet_visibility=unknown; circular_state=unknown; hardware_capability=unknown; hardware_observed=not-observed; hardware_state=requested; owner_state=unknown; owner_conflict=unavailable; runtime_health=attention; runtime_health_reason=hardware-not-observed',
     au_hour: '3',
   },
   tunnel: { running: true },
@@ -2210,7 +2210,7 @@ try {
   assert.equal(await healthy.page.locator('#flowoffload-technical').evaluate(node => node.open), false,
     'hardware runtime facts stay behind a closed technical disclosure');
   await healthy.page.locator('#flowoffload-technical > summary').click();
-  assert.match(await healthy.page.locator('#flowoffload-technical').innerText(), /Аппаратное состояние[\s\S]*Запрошено[\s\S]*requested/,
+  assert.match(await healthy.page.locator('#flowoffload-technical').innerText(), /Hardware[\s\S]*Запрошен, dataplane не наблюдался[\s\S]*requested/,
     'requested hardware state remains inspectable in diagnostics');
   await healthy.page.locator('#flowoffload-technical > summary').click();
   const flowVisual = await flowStatus.evaluate(node => {
@@ -2268,6 +2268,10 @@ try {
       upload_mbps: 30, cpu_avg: 25, cpu_peak: 41, idle_ms: 9,
       download_loaded_ms: 18, upload_loaded_ms: 21, jitter_ms: 2, loss_pct: 0,
       offload_observed: mode === 'software', run_range_pct: { download: 3.3, upload: 3.3 },
+      run_summary: {
+        download_mbps: { median: 60, min: 59, max: 61, range_pct: 3.3, outliers: 0 },
+        upload_mbps: { median: 30, min: 29, max: 31, range_pct: 3.3, outliers: 0 },
+      },
       runs: [
         { download_mbps: 59, upload_mbps: 29, download_loaded_ms: 17, upload_loaded_ms: 20, server: 'edge-01.cdn.yandex.net' },
         { download_mbps: 60, upload_mbps: 30, download_loaded_ms: 18, upload_loaded_ms: 21, server: 'edge-01.cdn.yandex.net' },
@@ -2349,15 +2353,15 @@ try {
     'latency probes use Yandex endpoints');
   assert.ok(Number.isFinite(Number(resumedSample.duration_s)));
   assert.match(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Рекомендуется: Программное/);
-  assert.match(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Программное против отключённого/,
+  assert.match(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Программное vs Без ускорения/,
     'accepted benchmark shows its percentage comparison');
   await healthy.page.locator('#flowoffload-benchmark-result details > summary').click();
   const benchmarkDetails = await healthy.page.locator('#flowoffload-benchmark-result').innerText();
-  assert.match(benchmarkDetails, /↑ 29 Mbps \/ 30 Mbps \/ 31 Mbps/,
+  assert.match(benchmarkDetails, /Run 1\t59 Mbps\t29 Mbps[\s\S]*Run 2\t60 Mbps\t30 Mbps[\s\S]*Run 3\t61 Mbps\t31 Mbps/,
     'benchmark diagnostics show every raw upload trial');
-  assert.match(benchmarkDetails, /Ping ↓ 17 ms \/ 18 ms \/ 19 ms/,
+  assert.match(benchmarkDetails, /Run 1[\s\S]*17 ms\t20 ms[\s\S]*Run 2[\s\S]*18 ms\t21 ms[\s\S]*Run 3[\s\S]*19 ms\t22 ms/,
     'benchmark diagnostics show every loaded-latency trial');
-  assert.match(benchmarkDetails, /Размах: ↓ 3,3% · ↑ 3,3%/,
+  assert.match(benchmarkDetails, /↓ Mbps\t60 Mbps\t59 Mbps\t61 Mbps\t3,3%[\s\S]*↑ Mbps\t30 Mbps\t29 Mbps\t31 Mbps\t3,3%/,
     'benchmark diagnostics show the measured download and upload ranges');
   assert.match(benchmarkDetails, /Провайдер: Яндекс Интернетометр · CDN: edge-01\.cdn\.yandex\.net/,
     'benchmark diagnostics identify the selected Yandex provider and actual CDN host');
@@ -2365,7 +2369,7 @@ try {
   await healthy.page.reload();
   await waitForCondition(() => latestBenchmarkStatus?.status === 'failed', 'failed benchmark history response');
   await healthy.page.waitForFunction(() => document.querySelector('#flowoffload-benchmark-result')?.dataset.signature?.includes('endpoint failed'));
-  assert.doesNotMatch(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Программное против отключённого/,
+  assert.doesNotMatch(await healthy.page.locator('#flowoffload-benchmark-result').innerText(), /Программное vs Без ускорения/,
     'incomplete benchmark hides percentage comparisons');
   await healthy.page.waitForFunction(() => document.querySelector('#flowoffload-benchmark-status')?.innerText.includes('Последняя принятая стабильная серия'));
   const lastSuccess = healthy.page.locator('#flowoffload-benchmark-last-success');
