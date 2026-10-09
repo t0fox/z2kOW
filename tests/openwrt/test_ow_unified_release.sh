@@ -1,11 +1,14 @@
 #!/bin/sh
-# One complete artifact, one state, one install_release(tag) convergence path.
+# Один полный архив, одна запись состояния и общий путь install_release(tag).
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-unified-release"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 . "$REPO/lib/auto_update.sh"
 . "$REPO/platform/openwrt/manifest.sh"
+. "$REPO/platform/openwrt/release_state.sh"
 . "$REPO/platform/openwrt/release.sh"
+Z2K_TEST_CORE_READY=1
+z2k_ow_core_ready() { [ "$Z2K_TEST_CORE_READY" = 1 ]; }
 Z2K_TEST_PYTHON="${Z2K_TEST_PYTHON:-python3}"
 Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
 export Z2K_ADAPTER_DIR
@@ -62,6 +65,12 @@ make_artifact() {
         "$_stage/opt/zapret2/binaries/linux-arm64" "$_stage/opt/zapret2/binaries/linux-x86_64" \
         "$_stage/usr/bin" "$_stage/usr/sbin" \
         "$_stage/opt/zapret2/etc/z2k" \
+        "$_stage/opt/zapret2/binaries/linux-arm64/nfq2" \
+        "$_stage/opt/zapret2/binaries/linux-arm64/ip2net" \
+        "$_stage/opt/zapret2/binaries/linux-arm64/mdig" \
+        "$_stage/opt/zapret2/binaries/linux-x86_64/nfq2" \
+        "$_stage/opt/zapret2/binaries/linux-x86_64/ip2net" \
+        "$_stage/opt/zapret2/binaries/linux-x86_64/mdig" \
         "$_stage/etc/init.d" "$_stage/etc/hotplug.d/iface" \
         "$_stage/etc/sysctl.d" "$_stage/usr/share/nftables.d/chain-pre/forward"
     printf 'release payload\n' > "$_stage/usr/lib/z2k/platform/openwrt/release.sh"
@@ -74,8 +83,28 @@ make_artifact() {
     printf 'x86 detect\n' > "$_stage/usr/lib/z2k/bin/linux-x86_64/z2k-detect"
     printf 'arm64 warp\n' > "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd"
     printf 'x86 warp\n' > "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd"
-    printf 'arm64 dataplane\n' > "$_stage/opt/zapret2/binaries/linux-arm64/nfqws2"
-    printf 'x86 dataplane\n' > "$_stage/opt/zapret2/binaries/linux-x86_64/nfqws2"
+    chmod 0755 \
+        "$_stage/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client" \
+        "$_stage/usr/lib/z2k/bin/linux-x86_64/tg-mtproxy-client" \
+        "$_stage/usr/lib/z2k/bin/linux-arm64/z2k-rt-proxy" \
+        "$_stage/usr/lib/z2k/bin/linux-x86_64/z2k-rt-proxy" \
+        "$_stage/usr/lib/z2k/bin/linux-arm64/z2k-detect" \
+        "$_stage/usr/lib/z2k/bin/linux-x86_64/z2k-detect" \
+        "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd" \
+        "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd"
+    printf 'arm64 dataplane\n' > "$_stage/opt/zapret2/binaries/linux-arm64/nfq2/nfqws2"
+    printf 'x86 dataplane\n' > "$_stage/opt/zapret2/binaries/linux-x86_64/nfq2/nfqws2"
+    printf 'arm64 ip2net\n' > "$_stage/opt/zapret2/binaries/linux-arm64/ip2net/ip2net"
+    printf 'arm64 mdig\n' > "$_stage/opt/zapret2/binaries/linux-arm64/mdig/mdig"
+    printf 'x86 ip2net\n' > "$_stage/opt/zapret2/binaries/linux-x86_64/ip2net/ip2net"
+    printf 'x86 mdig\n' > "$_stage/opt/zapret2/binaries/linux-x86_64/mdig/mdig"
+    chmod 0755 \
+        "$_stage/opt/zapret2/binaries/linux-arm64/nfq2/nfqws2" \
+        "$_stage/opt/zapret2/binaries/linux-arm64/ip2net/ip2net" \
+        "$_stage/opt/zapret2/binaries/linux-arm64/mdig/mdig" \
+        "$_stage/opt/zapret2/binaries/linux-x86_64/nfq2/nfqws2" \
+        "$_stage/opt/zapret2/binaries/linux-x86_64/ip2net/ip2net" \
+        "$_stage/opt/zapret2/binaries/linux-x86_64/mdig/mdig"
     printf '#!/bin/sh\nexit 0\n' > "$_stage/usr/lib/z2k/platform/openwrt/bootstrap.sh"
     printf 'release tag %s\n' "$_CURRENT_TAG" > "$_stage/usr/lib/z2k/version.txt"
     printf 'update public key\n' > "$_stage/opt/zapret2/etc/z2k-update-pub.pem"
@@ -86,6 +115,7 @@ make_artifact() {
     printf '# product hotplug\n' > "$_stage/etc/hotplug.d/iface/90-z2k"
     printf 'net.ipv4.ip_forward=1\n' > "$_stage/etc/sysctl.d/99-z2k.conf"
     printf 'table inet z2k-test {}\n' > "$_stage/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft"
+    chmod 0755 "$_stage/usr/bin/z2kow" "$_stage/usr/sbin/install_release"
 }
 
 prepare_manifest() {
@@ -167,8 +197,8 @@ apk() {
             shift; [ "$1" = --no-scripts ] || return 9; shift
             for _pkg in "$@"; do
                 sed -i "\\|^$_pkg\$|d" "$T/legacy-packages"
-                # Model apk removing package-owned files. The transaction must
-                # have moved them beside their destinations before apk del.
+                # Имитировать удаление файлов пакетом apk. До apk del транзакция
+                # должна перенести их рядом с исходными путями.
                 rm -f "$SYS/usr/lib/z2k/legacy.txt" "$SYS/usr/bin/z2kow" \
                     "$SYS/usr/sbin/install_release" "$SYS/etc/init.d/z2k" \
                     "$SYS/etc/init.d/z2k-webpanel" "$SYS/etc/hotplug.d/iface/90-z2k" \
@@ -182,9 +212,12 @@ apk() {
 
 export Z2K_OW_TESTING=1 Z2K_OW_SYSROOT="$SYS"
 export Z2K_ROOT="$SYS/usr/lib/z2k" Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
+export Z2K_OW_INSTALL_TMP="$T/install-tmp"
 export Z2K_OW_MANIFEST_PATH="$T/UPDATES.json" Z2K_OW_ARTIFACT_PATH="$T/dist/openwrt-rootfs.tar.gz"
 export Z2K_OW_INSTALLED_RELEASE_FILE=/etc/z2k/state/installed-release
 export Z2K_OW_INSTALL_WORK=/usr/lib/.z2k-install
+mkdir -p "$Z2K_OW_INSTALL_TMP"
+printf 'не удалять пользовательские временные данные\n' > "$Z2K_OW_INSTALL_TMP/user-data.txt"
 
 _out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
 _state_ok=0; _old_ok=0; _version_ok=0; _config_ok=0
@@ -203,6 +236,11 @@ if [ "$_rc" -eq 0 ] && [ "$_state_ok" = 1 ] && [ "$_identity_ok" = 1 ] && [ "$_o
 else
     _t_bad "legacy full migration to $_CURRENT_TAG retires old strategy telemetry without losing release state: rc=$_rc checks=$_state_ok/$_identity_ok/$_old_ok/$_telemetry_ok/$_version_ok/$_config_ok state=$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null) old=$(test -e "$SYS/usr/lib/z2k/legacy.txt" && echo present || echo absent) uploader=$(test -e "$SYS/usr/lib/z2k/z2k-stats-upload.sh" && echo present || echo absent) version=$(cat "$SYS/usr/lib/z2k/version.txt" 2>/dev/null) config=$(cat "$SYS/etc/z2k/config" 2>/dev/null) output=$_out"
 fi
+if grep -q 'не удалять пользовательские временные данные' "$Z2K_OW_INSTALL_TMP/user-data.txt"; then
+    _t_ok
+else
+    _t_bad "установка затронула пользовательские данные рядом с временным каталогом"
+fi
 if grep -Eq '^add --no-scripts lighttpd([[:space:]]|$)' "$T/apk.add.log"; then
     _t_ok
 else
@@ -212,15 +250,15 @@ if [ -f "$SYS/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client" ] \
     && [ ! -e "$SYS/usr/lib/z2k/bin/linux-x86_64/tg-mtproxy-client" ] \
     && [ -f "$SYS/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd" ] \
     && [ ! -e "$SYS/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd" ] \
-    && [ -f "$SYS/opt/zapret2/binaries/linux-arm64/nfqws2" ] \
-    && [ ! -e "$SYS/opt/zapret2/binaries/linux-x86_64/nfqws2" ]; then
+    && [ -f "$SYS/opt/zapret2/binaries/linux-arm64/nfq2/nfqws2" ] \
+    && [ ! -e "$SYS/opt/zapret2/binaries/linux-x86_64/nfq2/nfqws2" ]; then
     _t_ok
 else
     _t_bad "installer did not prune other architecture variants from target staging"
 fi
 
-# An absent/empty marker on an otherwise migrated device safely resyncs the
-# current tag and never interprets the whole release history as an install.
+# Если маркер отсутствует или пуст, безопасно синхронизировать текущий тег
+# и не считать всю историю релизов новой установкой.
 : > "$SYS/etc/z2k/state/installed-release"
 _decision="$(z2k_ow_release_decision "$T/UPDATES.json" "$SYS/etc/z2k/state/installed-release")"
 assert_eq "empty installed tag resyncs without reinstall loop" "resync $_CURRENT_TAG" "$_decision"
@@ -250,7 +288,7 @@ fi
 mkdir -p "$_install_lock"
 printf '%s\n' "$$" > "$_install_lock/pid"
 _out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
-if [ "$_rc" -ne 0 ] && printf '%s' "$_out" | grep -q 'another install_release is running' \
+if [ "$_rc" -ne 0 ] && printf '%s' "$_out" | grep -q 'уже выполняется другой install_release' \
     && _state_is_release "$_CURRENT_TAG" "$_CURRENT_SEQ" "$SYS/etc/z2k/state/installed-release"; then
     _t_ok
 else
@@ -258,8 +296,8 @@ else
 fi
 rm -rf "$_install_lock"
 
-# A malformed legacy package claiming LuCI/uhttpd ownership is rejected before
-# apk removal or any protected path mutation.
+# Неверное описание старого пакета, которому принадлежат LuCI/uhttpd,
+# отклоняется до apk del и изменения любых защищённых путей.
 mkdir -p "$SYS/www/cgi-bin" "$SYS/etc/config"
 printf 'keep LuCI entrypoint\n' > "$SYS/www/cgi-bin/luci"
 printf 'keep OpenWrt web server config\n' > "$SYS/etc/config/uhttpd"
@@ -268,7 +306,7 @@ _unsafe_owned_paths='www/cgi-bin/luci
 etc/config/uhttpd'
 : > "$T/apk.log"
 _out="$(z2k_ow_legacy_migrate "$SYS/usr/lib/z2k" 2>&1)"; _rc=$?
-if [ "$_rc" -ne 0 ] && printf '%s' "$_out" | grep -q 'protected LuCI/uhttpd path' \
+if [ "$_rc" -ne 0 ] && printf '%s' "$_out" | grep -q 'защищённым путём LuCI/uhttpd' \
     && ! grep -qE '^(add|del) ' "$T/apk.log" \
     && grep -q 'keep LuCI entrypoint' "$SYS/www/cgi-bin/luci" \
     && grep -q 'keep OpenWrt web server config' "$SYS/etc/config/uhttpd"; then
@@ -286,9 +324,28 @@ _decision="$(z2k_ow_release_decision "$T/UPDATES.json" "$SYS/etc/z2k/state/insta
 assert_eq "check after p-86.2 -> $_CURRENT_TAG install is none" "none $_CURRENT_TAG" "$_decision"
 assert_eq "installed state has one tag and upstream seq" "2" "$(wc -l < "$SYS/etc/z2k/state/installed-release" | tr -d ' \t\r\n')"
 
-# A deliberate same-version reinstall enters the exact same verified full
-# payload transaction. It repairs a release-owned file while retaining the
-# one canonical state record and all user-owned settings/lists.
+# Совпадающие метаданные не должны скрывать отказ dataplane readiness.
+_out="$(Z2K_TEST_CORE_READY=0 z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -eq 0 ] && printf '%s\n' "$_out" | grep -q "^installed $_CURRENT_TAG$"; then
+    _t_ok
+else
+    _t_bad "no-op скрыл неготовый dataplane вместо восстановления: rc=$_rc output=$_out"
+fi
+
+# Канонический tag сам по себе не подтверждает целостность повреждённого payload.
+# Перед no-op проверяется набор исполняемых файлов выбранной архитектуры.
+rm -f "$SYS/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client"
+_out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -eq 0 ] && printf '%s\n' "$_out" | grep -q "^installed $_CURRENT_TAG$" \
+    && [ -x "$SYS/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client" ]; then
+    _t_ok
+else
+    _t_bad "matching tag masked a missing target binary instead of repairing it: rc=$_rc mode=$(ls -ld "$SYS/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client" 2>/dev/null) archive=$(tar -tvzf "$T/dist/openwrt-rootfs.tar.gz" 2>/dev/null | grep 'linux-arm64/tg-mtproxy-client') output=$_out"
+fi
+
+# Намеренная переустановка той же версии проходит ту же проверенную транзакцию
+# полного payload. Она восстанавливает принадлежащий релизу файл и сохраняет
+# единственную запись состояния, настройки и пользовательские списки.
 _state_before="$(cat "$SYS/etc/z2k/state/installed-release")"
 mkdir -p "$SYS/etc/z2k/user-lists"
 mkdir -p "$SYS/etc/config" "$SYS/etc/z2k/state"
@@ -316,8 +373,8 @@ else
     _t_bad "same-version reinstall did not reconverge while preserving state/settings/lists: rc=$_rc state=$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null) version=$(cat "$SYS/usr/lib/z2k/version.txt" 2>/dev/null) output=$_out"
 fi
 
-# Force only skips the equality short-circuit. Hash and size validation still
-# reject the same-version artifact before any release-owned file is replaced.
+# Принудительная переустановка пропускает только проверку равенства версии.
+# Хэш и размер архива по-прежнему проверяются до замены файлов релиза.
 cp "$T/UPDATES.json" "$T/reinstall-bad-hash.json"
 "$Z2K_TEST_PYTHON" -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); d["artifact"]["sha256"]="0"*64; json.dump(d,open(sys.argv[2],"w",encoding="utf-8"),ensure_ascii=False)' \
     "$T/UPDATES.json" "$T/reinstall-bad-hash.json"
@@ -348,9 +405,9 @@ else
 fi
 export Z2K_OW_MANIFEST_PATH="$T/UPDATES.json"
 
-# If the controlled release advances between the banner render and manual
-# action, install_release must reject the old reinstall target before touching
-# even release-owned files. This is the canonical installer race guard.
+# Если утверждённый релиз изменился после показа сообщения, но до ручного
+# действия, install_release должен отклонить старую цель до замены файлов.
+# Это защищает от гонки версий.
 cp "$T/UPDATES.json" "$T/reinstall-newer.json"
 _CURRENT_TAG_PREFIX=${_CURRENT_TAG%.*}
 _CURRENT_TAG_PATCH=${_CURRENT_TAG##*.}
@@ -382,10 +439,9 @@ else
 fi
 export Z2K_OW_MANIFEST_PATH="$T/UPDATES.json"
 
-# Reinstall must keep production signature verification ahead of the no-op
-# decision, and must not move the artifact size/hash gates behind any force
-# branch. These ordering assertions guard the production-only trust seam while
-# the transaction above exercises the same-version convergence at runtime.
+# При переустановке production-подпись проверяется до решения о no-op; размер
+# и хэш архива нельзя переносить за ветку принудительного режима. Эти проверки
+# порядка защищают production-границу доверия; выше проверяется сама транзакция.
 "$Z2K_TEST_PYTHON" - "$REPO/platform/openwrt/release.sh" <<'PY'
 import sys
 from pathlib import Path
@@ -402,11 +458,11 @@ PY
 _rc=$?
 [ "$_rc" -eq 0 ] && _t_ok || _t_bad "reinstall force is limited to the same-version early return and preserves trust checks"
 
-# A new shell process models the state observed after reboot.
+# Новый процесс shell имитирует состояние после перезагрузки.
 _out="$(Z2K_ADAPTER_DIR="$REPO/platform/openwrt" z2k_ow_release_decision "$T/UPDATES.json" "$SYS/etc/z2k/state/installed-release")"
 assert_eq "reboot simulation retains one installed-release state" "none $_CURRENT_TAG" "$_out"
 
-# Fresh install follows the same function and creates only the one state file.
+# Новая установка использует тот же обработчик и создаёт одну запись состояния.
 rm -rf "$SYS"
 mkdir -p "$SYS/usr/lib" "$SYS/usr/bin" "$SYS/usr/sbin" "$SYS/etc/z2k/state"
 : > "$SYS/etc/z2k/state/installed-release"
@@ -426,15 +482,27 @@ else
     _t_bad "more than one installed release state remains"
 fi
 
-# A freshly bootstrapped, explicitly overridden manifest keeps its local
-# transport URL through the exact same canonical install_release engine.
+# Начальный установщик с явно заданным манифестом сохраняет локальный URL
+# загрузки и использует тот же основной движок install_release.
 BOOTSTRAP_SYS="$T/bootstrap-sys"
 BOOTSTRAP_TMP="$T/bootstrap-tmp"
 BOOTSTRAP_ENGINE="$T/bootstrap-engine/usr/lib/z2k"
 BOOTSTRAP_SERVICE_ENV="$T/bootstrap-service-env"
+BOOTSTRAP_SERVICE_STOP="$T/bootstrap-service-stop"
 BOOTSTRAP_URL=http://127.0.0.1:17777/UPDATES.json
 mkdir -p "$BOOTSTRAP_SYS/usr/lib" "$BOOTSTRAP_SYS/usr/bin" "$BOOTSTRAP_SYS/usr/sbin" \
     "$BOOTSTRAP_SYS/etc/z2k/state" "$BOOTSTRAP_TMP"
+printf 'tag=p-86.12\nseq=135\n' > "$BOOTSTRAP_SYS/etc/z2k/state/installed-release"
+mkdir -p "$BOOTSTRAP_SYS/usr/lib/z2k" "$BOOTSTRAP_SYS/etc/init.d"
+printf 'previous payload\n' > "$BOOTSTRAP_SYS/usr/lib/z2k/version.txt"
+cat > "$BOOTSTRAP_SYS/etc/init.d/z2k" <<EOF
+#!/bin/sh
+case "\$1" in
+    stop) echo stopped >> "$BOOTSTRAP_SERVICE_STOP" ;;
+    restart|start|status) exit 0 ;;
+esac
+EOF
+chmod 755 "$BOOTSTRAP_SYS/etc/init.d/z2k"
 mkdir -p "$BOOTSTRAP_ENGINE/platform"
 cp -R "$REPO/platform/openwrt" "$BOOTSTRAP_ENGINE/platform/openwrt"
 cp -R "$REPO/lib" "$BOOTSTRAP_ENGINE/lib"
@@ -443,11 +511,13 @@ cat > "$T/bootstrap-payload/etc/init.d/z2k" <<EOF
 #!/bin/sh
 case "\$1" in
     restart|start|status|running)
-        printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+        printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
             "\${Z2K_LIB:-}" "\${Z2K_ADAPTER_DIR:-}" "\${Z2K_AU_PUBKEY:-}" \
             "\${Z2K_OW_BOOTSTRAP_MANIFEST:-}" "\${Z2K_OW_BOOTSTRAP_SIGNATURE:-}" \
             "\${Z2K_OW_BOOTSTRAP_ARTIFACT:-}" "\${Z2K_OW_BOOTSTRAP_PUBLIC_KEY:-}" \
-            "\${Z2KOW_MANIFEST_URL:-}" "\${Z2KOW_TRUST_KEY:-}" >> "$BOOTSTRAP_SERVICE_ENV"
+            "\${Z2KOW_MANIFEST_URL:-}" "\${Z2KOW_TRUST_KEY:-}" \
+            "\${TMPDIR:-}" "\${Z2K_OW_INSTALL_TMP:-}" "\${Z2K_OW_SYSROOT:-}" \
+            >> "$BOOTSTRAP_SERVICE_ENV"
         exit 0
         ;;
     *) exit 0 ;;
@@ -492,21 +562,62 @@ export Z2K_OW_SYSROOT="$BOOTSTRAP_SYS" \
     Z2K_OW_BOOTSTRAP_PUBLIC_KEY="$T/bootstrap.pub" \
     Z2KOW_MANIFEST_URL="$BOOTSTRAP_URL" \
     Z2KOW_TRUST_KEY="$T/bootstrap.pub" \
+    TMPDIR="$BOOTSTRAP_TMP" \
     Z2K_TEST_BOOTSTRAP_SERVICE_ENV="$BOOTSTRAP_SERVICE_ENV" \
     Z2K_OW_TEST_HEALTHCHECK=1
+OVERLAY_LOW=0
+TMP_LOW=1
 df() {
     _probe="$2"
     printf '%s\n' "$_probe" >> "$T/df.calls"
     case "$_probe" in
         "$BOOTSTRAP_TMP"/*)
-            printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim 400000 100000 300000 25%% /tmp\n'
+            if [ "$TMP_LOW" = 1 ]; then
+                printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim 400000 399999 1 99%% /tmp\n'
+            else
+                printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim 400000 100000 300000 25%% /tmp\n'
+            fi
             ;;
         "$BOOTSTRAP_SYS/usr/lib/.z2k-install")
             printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim 100000 90000 10000 90%% /overlay\n'
             ;;
+        "$BOOTSTRAP_SYS/usr/lib"|"$BOOTSTRAP_SYS/opt"|"$BOOTSTRAP_SYS")
+            if [ "$OVERLAY_LOW" = 1 ]; then
+                printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim 100000 99999 1 99%% /overlay\n'
+            else
+                printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim 400000 100000 300000 25%% /overlay\n'
+            fi
+            ;;
         *) command df "$@" ;;
     esac
 }
+_out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -ne 0 ] \
+    && _state_is_release p-86.12 135 "$BOOTSTRAP_SYS/etc/z2k/state/installed-release" \
+    && grep -q 'previous payload' "$BOOTSTRAP_SYS/usr/lib/z2k/version.txt" \
+    && [ ! -e "$BOOTSTRAP_SERVICE_STOP" ] \
+    && printf '%s\n' "$_out" | grep -q 'недостаточно места для распаковки файлов выбранной архитектуры'; then
+    _t_ok
+else
+    _t_bad "проверка tmpfs не остановила замену до изменения файлов и служб: rc=$_rc output=$_out df=$(tr '\n' ';' < "$T/df.calls")"
+fi
+TMP_LOW=0
+OVERLAY_LOW=1
+_out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -ne 0 ] \
+    && _state_is_release p-86.12 135 "$BOOTSTRAP_SYS/etc/z2k/state/installed-release" \
+    && grep -q 'previous payload' "$BOOTSTRAP_SYS/usr/lib/z2k/version.txt" \
+    && [ ! -e "$BOOTSTRAP_SERVICE_STOP" ] \
+    && printf '%s\n' "$_out" | grep -q 'недостаточно места в /overlay'; then
+    _t_ok
+else
+    _t_bad "проверка overlay не остановила замену до изменения файлов и служб: rc=$_rc output=$_out df=$(tr '\n' ';' < "$T/df.calls")"
+fi
+rm -rf "$BOOTSTRAP_SYS"
+mkdir -p "$BOOTSTRAP_SYS/usr/lib/z2k" "$BOOTSTRAP_SYS/usr/bin" "$BOOTSTRAP_SYS/usr/sbin" \
+    "$BOOTSTRAP_SYS/etc/z2k/state" "$BOOTSTRAP_SYS/etc/init.d"
+: > "$BOOTSTRAP_SYS/etc/z2k/state/installed-release"
+OVERLAY_LOW=0
 _out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
 if [ "$_rc" -eq 0 ] \
     && _state_is_release "$_CURRENT_TAG" "$_CURRENT_SEQ" "$BOOTSTRAP_SYS/etc/z2k/state/installed-release" \
@@ -515,13 +626,13 @@ if [ "$_rc" -eq 0 ] \
 else
     _t_bad "signed local bootstrap did not converge through install_release: rc=$_rc output=$_out"
 fi
-grep -qx "$BOOTSTRAP_TMP/stage" "$T/df.calls" && _t_ok \
-    || _t_bad "target payload free-space gate probes tmpfs staging, not flash overlay"
+grep -qx "$BOOTSTRAP_TMP/z2kow-release/stage" "$T/df.calls" && _t_ok \
+    || _t_bad "проверка свободного места для распаковки не проверила временный каталог: $(tr '\n' ';' < "$T/df.calls")"
 if [ -s "$BOOTSTRAP_SERVICE_ENV" ] \
-    && awk '$0 != "||||||||" { bad=1 } END { if (NR == 0 || bad) exit 1 }' "$BOOTSTRAP_SERVICE_ENV"; then
+    && awk -F'|' 'NF != 12 { bad=1 } { for (i=1; i<=NF; i++) if ($i != "") bad=1 } END { if (NR == 0 || bad) exit 1 }' "$BOOTSTRAP_SERVICE_ENV"; then
     _t_ok
 else
-    _t_bad "restarted services inherited temporary bootstrap paths or trust overrides: $(cat "$BOOTSTRAP_SERVICE_ENV" 2>/dev/null)"
+    _t_bad "restarted services inherited bootstrap paths, sysroot or trust overrides: $(cat "$BOOTSTRAP_SERVICE_ENV" 2>/dev/null)"
 fi
 unset -f df
 unset Z2K_OW_INSTALL_TMP Z2K_OW_BOOTSTRAP_MANIFEST Z2K_OW_BOOTSTRAP_SIGNATURE \
@@ -531,8 +642,8 @@ unset Z2K_OW_INSTALL_TMP Z2K_OW_BOOTSTRAP_MANIFEST Z2K_OW_BOOTSTRAP_SIGNATURE \
 export Z2K_ADAPTER_DIR="$REPO/platform/openwrt" Z2K_ROOT="$SYS/usr/lib/z2k"
 export Z2K_OW_SYSROOT="$SYS"
 
-# The installer must verify the state record after the commit helper returns.
-# This catches a helper that exits successfully without persisting tag+seq.
+# После вызова фиксации установщик проверяет запись состояния. Так обнаружится
+# помощник, который завершился успешно, но не сохранил tag + seq.
 READBACK_SYS="$T/readback-sys"
 mkdir -p "$READBACK_SYS/usr/lib" "$READBACK_SYS/usr/bin" "$READBACK_SYS/usr/sbin" \
     "$READBACK_SYS/etc/z2k/state"
@@ -550,7 +661,8 @@ else
 fi
 export Z2K_OW_SYSROOT="$SYS"
 
-# Tampered artifact hash must fail before legacy cleanup or file mutation.
+# Подменённый хэш архива должен привести к отказу до очистки старой установки
+# или изменения файлов.
 rm -rf "$SYS"
 mkdir -p "$SYS/etc/z2k/state" "$SYS/usr/lib/z2k"
 printf 'p-86.2\n' > "$SYS/etc/z2k/state/installed-release"
@@ -567,9 +679,8 @@ else
     _t_bad "hash failure was not fail-closed: rc=$_rc output=$_out"
 fi
 
-# When apk removes old package files but the verified release is incomplete,
-# the transaction restores the prior files and release state. APK ownership
-# stays retired; a retry uses the same full install_release path.
+# Неполный релиз отклоняется на предварительной проверке до миграции старых
+# APK-пакетов и любых изменений постоянных файлов.
 rm -rf "$SYS"
 mkdir -p "$SYS/etc/z2k/state" "$SYS/etc/z2k" "$SYS/usr/lib/z2k/share" \
     "$SYS/usr/bin" "$SYS/usr/sbin" "$SYS/etc/init.d" \
@@ -597,13 +708,15 @@ if [ "$_rc" -ne 0 ] && grep -qx 'p-86.2' "$SYS/etc/z2k/state/installed-release" 
     && grep -q 'old core tree' "$SYS/usr/lib/z2k/legacy.txt" \
     && grep -q 'old core init' "$SYS/etc/init.d/z2k" \
     && grep -q 'preserve config' "$SYS/etc/z2k/config" \
-    && [ ! -s "$T/legacy-packages" ]; then
+    && [ -s "$T/legacy-packages" ] \
+    && [ -e "$SYS/etc/apk/repositories.d/z2kow.list" ] \
+    && printf '%s\n' "$_out" | grep -q 'архив релиза не содержит принадлежащий ему путь'; then
     _t_ok
 else
-    _t_bad "failed migration did not roll back files/state after APK removal: rc=$_rc output=$_out"
+    _t_bad "incomplete release was not rejected before legacy migration: rc=$_rc output=$_out"
 fi
 
-# A retry after one-time legacy package/feed removal must still converge.
+# После отказа предварительной проверки полноценная повторная попытка завершается.
 make_artifact "$T/retry"
 tar -czf "$T/dist/retry-rootfs.tar.gz" -C "$T/retry" usr etc opt
 prepare_manifest "$T/dist/retry-rootfs.tar.gz" "$T/retry-UPDATES.json"
@@ -617,8 +730,8 @@ else
     _t_bad "retry after partial legacy retirement failed: rc=$_rc output=$_out"
 fi
 
-# A failed post-replacement health check must roll files and the prior canonical
-# release state back together; only the healthy retry may commit the target tag.
+# Если проверка состояния после замены не пройдена, файлы и прежняя запись
+# релиза восстанавливаются вместе. Новая версия фиксируется только после успеха.
 HEALTH_SYS="$T/health-sys"
 HEALTH_STAGE="$T/health-stage"
 HEALTH_FAIL="$T/healthcheck-fails"
@@ -631,13 +744,21 @@ make_artifact "$HEALTH_STAGE"
 cat > "$HEALTH_STAGE/etc/init.d/z2k" <<EOF
 #!/bin/sh
 case "\$1" in
-    restart|start)
+    enable|restart|start)
+        if grep -q '^ENABLED=0$' "$HEALTH_SYS/etc/z2k/config" 2>/dev/null; then
+            echo "\$1" >> "$HEALTH_SYS/disabled-service-actions"
+            exit 23
+        fi
         if [ -e "$HEALTH_SERVICE_FAIL" ]; then
             echo "mock-z2k-\$1-diagnostic" >&2
             exit 23
         fi
         ;;
     status|running)
+        if grep -q '^ENABLED=0$' "$HEALTH_SYS/etc/z2k/config" 2>/dev/null; then
+            echo "\$1" >> "$HEALTH_SYS/disabled-service-actions"
+            exit 1
+        fi
         if grep -q 'release tag ' "$HEALTH_SYS/usr/lib/z2k/version.txt" 2>/dev/null; then
             [ ! -e "$HEALTH_FAIL" ]
         else
@@ -689,6 +810,23 @@ if [ "$_rc" -ne 0 ] \
 else
     _t_bad "failed health check committed release state or left target files: rc=$_rc state=$(cat "$HEALTH_SYS/etc/z2k/state/installed-release" 2>/dev/null) output=$_out"
 fi
+_out="$( (
+    z2k_ow_restore_paths() { return 1; }
+    z2k_ow_install_release "$_CURRENT_TAG"
+) 2>&1)"; _rc=$?
+_transaction_id="$(cat "$HEALTH_SYS/usr/lib/.z2k-install/transaction-id" 2>/dev/null)"
+if [ "$_rc" -ne 0 ] \
+    && _state_is_release p-86.2 127 "$HEALTH_SYS/etc/z2k/state/installed-release" \
+    && [ -f "$HEALTH_SYS/usr/lib/.z2k-install/transaction-active" ] \
+    && [ -s "$HEALTH_SYS/usr/lib/.z2k-install/transaction.log" ] \
+    && [ -n "$_transaction_id" ] \
+    && [ -e "$HEALTH_SYS/usr/lib/z2k.z2k-backup.$_transaction_id" ] \
+    && printf '%s\n' "$_out" | grep -q 'откат не завершён; данные для восстановления сохранены' \
+    && ! printf '%s\n' "$_out" | grep -q 'Z2KOW_ROLLBACK=complete'; then
+    _t_ok
+else
+    _t_bad "failed file rollback deleted recovery metadata or claimed success: rc=$_rc output=$_out"
+fi
 rm -f "$HEALTH_FAIL"
 _out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
 if [ "$_rc" -eq 0 ] \
@@ -697,6 +835,148 @@ if [ "$_rc" -eq 0 ] \
     _t_ok
 else
     _t_bad "healthy install did not commit target state: rc=$_rc state=$(cat "$HEALTH_SYS/etc/z2k/state/installed-release" 2>/dev/null) output=$_out"
+fi
+
+# С ENABLED=0 установка обновляет файлы, но не включает и не запускает dataplane.
+printf 'ENABLED=0\n' > "$HEALTH_SYS/etc/z2k/config"
+rm -f "$HEALTH_SYS/disabled-service-actions"
+_out="$(z2k_ow_install_release --reinstall "$_CURRENT_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -eq 0 ] \
+    && _state_is_release "$_CURRENT_TAG" "$_CURRENT_SEQ" "$HEALTH_SYS/etc/z2k/state/installed-release" \
+    && [ ! -e "$HEALTH_SYS/disabled-service-actions" ]; then
+    _t_ok
+else
+    _t_bad "установка не сохранила отключённое состояние dataplane: rc=$_rc actions=$(cat "$HEALTH_SYS/disabled-service-actions" 2>/dev/null) output=$_out"
+fi
+
+# Прерванная запись нового seq того же тега не должна считаться завершённой.
+RECOVERY_SYS="$T/recovery-sys"
+RECOVERY_WORK="$RECOVERY_SYS/usr/lib/.z2k-install"
+RECOVERY_TMP="$T/recovery-tmp/z2kow-release"
+mkdir -p "$RECOVERY_SYS/etc/z2k/state" "$RECOVERY_SYS/usr/lib/z2k" "$RECOVERY_WORK"
+printf 'tag=p-86.2\nseq=127\n' > "$RECOVERY_SYS/etc/z2k/state/installed-release"
+cp "$RECOVERY_SYS/etc/z2k/state/installed-release" "$RECOVERY_WORK/installed-release.old"
+: > "$RECOVERY_WORK/state-was-present"
+: > "$RECOVERY_WORK/state-write-started"
+: > "$RECOVERY_WORK/transaction-active"
+printf '4101\n' > "$RECOVERY_WORK/transaction-id"
+printf '%s\n' /usr/lib/z2k > "$RECOVERY_WORK/owned-paths"
+printf 'V|2\nB|/usr/lib/z2k\nO|/usr/lib/z2k\nI|/usr/lib/z2k\n' > "$RECOVERY_WORK/transaction.log"
+printf 'tag=p-86.2\nseq=128\n' > "$RECOVERY_WORK/transaction-target"
+mkdir -p "$RECOVERY_SYS/usr/lib/z2k.z2k-backup.4101"
+printf 'предыдущий payload\n' > "$RECOVERY_SYS/usr/lib/z2k.z2k-backup.4101/version.txt"
+printf 'новый payload\n' > "$RECOVERY_SYS/usr/lib/z2k/version.txt"
+Z2K_OW_SYSROOT="$RECOVERY_SYS" _tmp_work="$RECOVERY_TMP" \
+    z2k_ow_recover_transaction "$RECOVERY_WORK" \
+        "$RECOVERY_SYS/etc/z2k/state/installed-release" "" p-86.2 128 ""; _rc=$?
+if [ "$_rc" -eq 0 ] \
+    && _state_is_release p-86.2 127 "$RECOVERY_SYS/etc/z2k/state/installed-release" \
+    && grep -q 'предыдущий payload' "$RECOVERY_SYS/usr/lib/z2k/version.txt" \
+    && [ ! -e "$RECOVERY_WORK" ]; then
+    _t_ok
+else
+    _t_bad "восстановление ошибочно приняло старый seq за завершённый релиз: rc=$_rc state=$(cat "$RECOVERY_SYS/etc/z2k/state/installed-release" 2>/dev/null) payload=$(cat "$RECOVERY_SYS/usr/lib/z2k/version.txt" 2>/dev/null)"
+fi
+
+# После отката той же версии совпадение tag + seq не доказывает, что переустановка завершилась.
+SAME_RECOVERY_SYS="$T/same-recovery-sys"
+SAME_RECOVERY_WORK="$SAME_RECOVERY_SYS/usr/lib/.z2k-install"
+SAME_RECOVERY_MARKER="$SAME_RECOVERY_SYS/recovery-restarted"
+mkdir -p "$SAME_RECOVERY_SYS/etc/z2k/state" "$SAME_RECOVERY_SYS/usr/lib/z2k" \
+    "$SAME_RECOVERY_SYS/etc/init.d" "$SAME_RECOVERY_WORK"
+printf 'tag=p-86.2\nseq=128\n' > "$SAME_RECOVERY_SYS/etc/z2k/state/installed-release"
+cp "$SAME_RECOVERY_SYS/etc/z2k/state/installed-release" "$SAME_RECOVERY_WORK/installed-release.old"
+: > "$SAME_RECOVERY_WORK/state-was-present"
+: > "$SAME_RECOVERY_WORK/state-write-started"
+: > "$SAME_RECOVERY_WORK/transaction-active"
+printf '4104\n' > "$SAME_RECOVERY_WORK/transaction-id"
+printf '%s\n' /usr/lib/z2k > "$SAME_RECOVERY_WORK/owned-paths"
+printf 'V|2\nB|/usr/lib/z2k\nO|/usr/lib/z2k\nI|/usr/lib/z2k\nR|/usr/lib/z2k\n' \
+    > "$SAME_RECOVERY_WORK/transaction.log"
+printf 'tag=p-86.2\nseq=128\n' > "$SAME_RECOVERY_WORK/transaction-target"
+printf 'старые файлы после отката\n' > "$SAME_RECOVERY_SYS/usr/lib/z2k/version.txt"
+cat > "$SAME_RECOVERY_SYS/etc/init.d/z2k" <<EOF
+#!/bin/sh
+case "\$1" in
+    restart|start) : > "$SAME_RECOVERY_MARKER" ;;
+    status|stop|enable) exit 0 ;;
+    *) exit 0 ;;
+esac
+EOF
+chmod 755 "$SAME_RECOVERY_SYS/etc/init.d/z2k"
+Z2K_OW_SYSROOT="$SAME_RECOVERY_SYS" _tmp_work="$RECOVERY_TMP" \
+    z2k_ow_recover_transaction "$SAME_RECOVERY_WORK" \
+        "$SAME_RECOVERY_SYS/etc/z2k/state/installed-release" \
+        "$SAME_RECOVERY_SYS/etc/init.d/z2k" p-86.3 129 ""; _rc=$?
+if [ "$_rc" -eq 0 ] \
+    && [ -e "$SAME_RECOVERY_MARKER" ] \
+    && grep -q 'старые файлы после отката' "$SAME_RECOVERY_SYS/usr/lib/z2k/version.txt" \
+    && [ ! -e "$SAME_RECOVERY_WORK" ]; then
+    _t_ok
+else
+    _t_bad "откат той же версии был принят за commit: rc=$_rc restarted=$([ -e "$SAME_RECOVERY_MARKER" ] && echo yes || echo no) output=$(cat "$SAME_RECOVERY_SYS/usr/lib/z2k/version.txt" 2>/dev/null)"
+fi
+
+# Частичная очистка после commit должна завершаться по сохранённой цели транзакции,
+# даже если манифест уже указывает на следующий релиз.
+mkdir -p "$RECOVERY_SYS/etc/z2k/state" "$RECOVERY_SYS/usr/lib/z2k" "$RECOVERY_SYS/opt/zapret2" "$RECOVERY_WORK"
+printf 'tag=p-86.2\nseq=128\n' > "$RECOVERY_SYS/etc/z2k/state/installed-release"
+printf 'tag=p-86.1\nseq=126\n' > "$RECOVERY_WORK/installed-release.old"
+: > "$RECOVERY_WORK/state-was-present"
+: > "$RECOVERY_WORK/state-write-started"
+: > "$RECOVERY_WORK/transaction-active"
+printf '4102\n' > "$RECOVERY_WORK/transaction-id"
+printf '%s\n' /usr/lib/z2k /opt/zapret2 > "$RECOVERY_WORK/owned-paths"
+printf 'V|2\nB|/usr/lib/z2k\nO|/usr/lib/z2k\nI|/usr/lib/z2k\nB|/opt/zapret2\nO|/opt/zapret2\nI|/opt/zapret2\n' \
+    > "$RECOVERY_WORK/transaction.log"
+printf 'tag=p-86.2\nseq=128\n' > "$RECOVERY_WORK/transaction-target"
+mkdir -p "$RECOVERY_SYS/opt/zapret2.z2k-backup.4102"
+printf 'новый z2k payload\n' > "$RECOVERY_SYS/usr/lib/z2k/version.txt"
+printf 'новый zapret payload\n' > "$RECOVERY_SYS/opt/zapret2/version.txt"
+printf 'старый zapret payload\n' > "$RECOVERY_SYS/opt/zapret2.z2k-backup.4102/version.txt"
+Z2K_OW_SYSROOT="$RECOVERY_SYS" _tmp_work="$RECOVERY_TMP" \
+    z2k_ow_recover_transaction "$RECOVERY_WORK" \
+        "$RECOVERY_SYS/etc/z2k/state/installed-release" "" p-86.3 129 ""; _rc=$?
+if [ "$_rc" -eq 0 ] \
+    && _state_is_release p-86.2 128 "$RECOVERY_SYS/etc/z2k/state/installed-release" \
+    && grep -q 'новый z2k payload' "$RECOVERY_SYS/usr/lib/z2k/version.txt" \
+    && grep -q 'новый zapret payload' "$RECOVERY_SYS/opt/zapret2/version.txt" \
+    && [ ! -e "$RECOVERY_SYS/opt/zapret2.z2k-backup.4102" ] \
+    && [ ! -e "$RECOVERY_WORK" ]; then
+    _t_ok
+else
+    _t_bad "частичная очистка откатила уже зафиксированный релиз: rc=$_rc state=$(cat "$RECOVERY_SYS/etc/z2k/state/installed-release" 2>/dev/null) z2k=$(cat "$RECOVERY_SYS/usr/lib/z2k/version.txt" 2>/dev/null) zapret=$(cat "$RECOVERY_SYS/opt/zapret2/version.txt" 2>/dev/null)"
+fi
+
+# Старый журнал без цели не должен частично откатывать дерево при пропавшей копии.
+LEGACY_RECOVERY_SYS="$T/legacy-recovery-sys"
+LEGACY_RECOVERY_WORK="$LEGACY_RECOVERY_SYS/usr/lib/.z2k-install"
+mkdir -p "$LEGACY_RECOVERY_SYS/etc/z2k/state" "$LEGACY_RECOVERY_SYS/usr/lib/z2k" \
+    "$LEGACY_RECOVERY_SYS/opt/zapret2" "$LEGACY_RECOVERY_SYS/opt/zapret2.z2k-backup.4103" \
+    "$LEGACY_RECOVERY_WORK"
+printf 'tag=p-86.2\nseq=127\n' > "$LEGACY_RECOVERY_SYS/etc/z2k/state/installed-release"
+printf 'tag=p-86.1\nseq=126\n' > "$LEGACY_RECOVERY_WORK/installed-release.old"
+: > "$LEGACY_RECOVERY_WORK/state-was-present"
+: > "$LEGACY_RECOVERY_WORK/state-write-started"
+: > "$LEGACY_RECOVERY_WORK/transaction-active"
+printf '4103\n' > "$LEGACY_RECOVERY_WORK/transaction-id"
+printf '%s\n' /usr/lib/z2k /opt/zapret2 > "$LEGACY_RECOVERY_WORK/owned-paths"
+printf 'V|2\nB|/usr/lib/z2k\nO|/usr/lib/z2k\nI|/usr/lib/z2k\nB|/opt/zapret2\nO|/opt/zapret2\nI|/opt/zapret2\n' \
+    > "$LEGACY_RECOVERY_WORK/transaction.log"
+printf 'новый z2k payload\n' > "$LEGACY_RECOVERY_SYS/usr/lib/z2k/version.txt"
+printf 'новый zapret payload\n' > "$LEGACY_RECOVERY_SYS/opt/zapret2/version.txt"
+printf 'старый zapret payload\n' > "$LEGACY_RECOVERY_SYS/opt/zapret2.z2k-backup.4103/version.txt"
+Z2K_OW_SYSROOT="$LEGACY_RECOVERY_SYS" _tmp_work="$RECOVERY_TMP" \
+    z2k_ow_recover_transaction "$LEGACY_RECOVERY_WORK" \
+        "$LEGACY_RECOVERY_SYS/etc/z2k/state/installed-release" "" p-86.3 129 ""; _rc=$?
+if [ "$_rc" -ne 0 ] \
+    && grep -q 'новый z2k payload' "$LEGACY_RECOVERY_SYS/usr/lib/z2k/version.txt" \
+    && grep -q 'новый zapret payload' "$LEGACY_RECOVERY_SYS/opt/zapret2/version.txt" \
+    && [ -e "$LEGACY_RECOVERY_SYS/opt/zapret2.z2k-backup.4103" ] \
+    && [ -e "$LEGACY_RECOVERY_WORK/transaction-active" ]; then
+    _t_ok
+else
+    _t_bad "откат изменил часть дерева при отсутствующей резервной копии: rc=$_rc z2k=$(cat "$LEGACY_RECOVERY_SYS/usr/lib/z2k/version.txt" 2>/dev/null) zapret=$(cat "$LEGACY_RECOVERY_SYS/opt/zapret2/version.txt" 2>/dev/null)"
 fi
 unset Z2K_OW_SYSROOT Z2K_OW_MANIFEST_PATH Z2K_OW_ARTIFACT_PATH Z2K_OW_TEST_HEALTHCHECK
 

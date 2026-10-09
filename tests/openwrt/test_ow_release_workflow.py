@@ -63,6 +63,20 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("steps.validate.outputs.plan", validate)
         self.assertIn("candidate-info --candidate", publish)
 
+    def test_exact_rootfs_candidate_is_accepted_before_upload_and_before_signing(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
+        publish = workflow.split("  publish-release:", 1)[1]
+        self.assertLess(
+            prepare.index("accept_release_candidate.py"),
+            prepare.index("uses: actions/upload-artifact"),
+        )
+        self.assertLess(
+            publish.index("candidate-acceptance.json"),
+            publish.index("Sign and verify the exact final manifest"),
+        )
+        self.assertIn("needs.prepare-release.result == 'success'", workflow)
+
     def test_shared_ci_accepts_and_verifies_only_valid_signed_manifest_shape(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn('"signing"', ci)

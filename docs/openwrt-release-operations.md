@@ -1,31 +1,32 @@
-# OpenWrt release operations
+# Выпуск и установка OpenWrt
 
-This guide describes the device-facing install and update model. Maintainer publication policy is in [RELEASING.md](../RELEASING.md).
+В этом руководстве описана установка и обновление на роутере. Правила публикации для сопровождающих проекта находятся в [RELEASING.md](../RELEASING.md).
 
-## Requirements
+## Требования
 
-- root access;
-- OpenWrt with `apk` package management;
-- a supported target architecture;
-- network access to the release source.
+- права root;
+- OpenWrt 24.10 или новее с менеджером пакетов `apk` либо сборка OpenWrt `SNAPSHOT`;
+- поддерживаемая архитектура;
+- доступ к сети для загрузки релиза;
+- не менее 8 МиБ доступной оперативной памяти на этапе начальной установки.
 
-The bootstrap may install required system tools such as CA certificates, OpenSSL utilities, and JSON helpers through `apk`. z2kOW itself is delivered as a signed release payload, not as a set of user-managed component APKs.
+Установщик может поставить системные средства: сертификаты центров сертификации, OpenSSL и инструменты для чтения JSON. Сам z2kOW устанавливается из подписанного архива релиза, а не из набора APK-пакетов компонентов.
 
-## Install
+## Установка
 
 ```sh
 wget -qO- https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh
 ```
 
-or, when `curl` is already available:
+Если уже установлен `curl`, можно использовать:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/t0fox/z2kOW/main/scripts/openwrt/install.sh | sh
 ```
 
-The bootstrap verifies the signed controlled manifest, validates the selected release and artifact binding, downloads the complete OpenWrt payload, checks size and SHA-256, and invokes `install_release`.
+До установки зависимостей начальный установщик проверяет версию OpenWrt и доступную память. Затем он проверяет, что временная файловая система вмещает подписанный архив и рабочие файлы, проверяет подпись манифеста и соответствие выбранному релизу, загружает полный архив OpenWrt, сверяет размер и SHA-256 и запускает `install_release`.
 
-## Inspect and update
+## Проверка состояния и обновление
 
 ```sh
 z2kow status
@@ -34,33 +35,33 @@ z2kow update
 z2kow restart
 ```
 
-`status` reads the canonical installed `tag + seq` state and the OpenWrt service state. `check` and `update` use the same controlled release authority as fresh installation.
+`status` читает единую запись `tag + seq` и состояние служб OpenWrt. Команды `check` и `update`, как и новая установка, используют один источник утверждённых релизов.
 
-Do not treat a running process as installed-release metadata. Installer, updater, CLI, WebPanel, and diagnostics must agree on the canonical release record.
+Факт запуска процесса не заменяет запись установленного релиза. Установщик, обновление, CLI, WebPanel и средства диагностики должны сверять одну и ту же запись.
 
-## Data ownership
+## Владение данными
 
-- `/etc/z2k` — operator configuration, user lists, identity, and persistent state.
-- `/usr/lib/z2k` — replaceable z2kOW payload.
-- `/tmp/z2k` — transient runtime state and logs.
-- `platform/openwrt/owned-paths.txt` — replaceable integration paths owned by the release engine.
+- `/etc/z2k` — настройки оператора, пользовательские списки, идентификаторы и постоянное состояние;
+- `/usr/lib/z2k` — заменяемые файлы z2kOW;
+- `/tmp/z2k` — временное состояние и журналы работы;
+- `platform/openwrt/owned-paths.txt` — файлы интеграции, которыми управляет движок релизов.
 
-Release application must preserve user-owned data according to upstream z2k semantics.
+При установке релиза пользовательские данные должны сохраняться согласно семантике upstream z2k.
 
-## Recovery
+## Восстановление
 
-The release engine stages the payload, validates paths and architecture, records the previous release-owned state, applies migration/convergence, restarts owned services, and commits the new release record only after the health gate.
+Движок подготавливает и проверяет файлы релиза, проверяет архитектуру и пути, сохраняет прежние принадлежащие релизу файлы, выполняет миграцию, перезапускает управляемые службы и записывает новую версию только после проверок состояния.
 
-On transaction failure it restores previous release-owned files and previous installed-release metadata as far as the recovery contract allows. The transaction journal is not a user backup.
+При ошибке транзакции движок восстанавливает прежние файлы и запись установленного релиза. Журнал и резервные копии сохраняются, если откат или проверка восстановленных служб завершились с ошибкой. Журнал транзакции не заменяет пользовательскую резервную копию.
 
-## Removal
+## Удаление
 
-z2kOW is not owned by an `apk` package, so `apk del` is not an uninstall method.
+z2kOW не устанавливается как APK-пакет, поэтому `apk del` не удаляет его корректно.
 
-The operator-facing removal flow must follow upstream z2k semantics for preservation versus destructive cleanup. The OpenWrt implementation is responsible for removing only z2kOW-owned procd, nftables, hotplug, scheduler, release metadata, and release-owned filesystem state while preserving or purging user data exactly as the corresponding upstream action requires.
+Удаление должно соблюдать правила upstream z2k: реализация OpenWrt удаляет только принадлежащие z2kOW службы procd, правила nftables, обработчики hotplug, задания планировщика, метаданные релиза и файлы интеграции. Пользовательские данные сохраняются или удаляются только в соответствии с выбранным действием upstream.
 
-If the installed release does not expose the removal action yet, do not substitute manual package removal for it.
+Если установленный релиз ещё не предоставляет штатное удаление, не заменяйте его ручным удалением APK-пакетов.
 
-## Release authority
+## Источник релизов
 
-The repository-root `UPDATES.json` is the only device-visible release authority. Upstream discovery never directly updates a router. Production metadata authenticates the selected immutable artifact by URL, size, and SHA-256.
+Корневой `UPDATES.json` — единственный источник версий, видимый роутеру. Поиск новых версий upstream сам по себе не меняет роутер. Подписанные метаданные связывают выбранный неизменяемый архив с его URL, размером и SHA-256.

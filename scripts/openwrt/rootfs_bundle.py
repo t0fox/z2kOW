@@ -88,15 +88,20 @@ def _tar_info(relative: PurePosixPath, source: Path) -> tarfile.TarInfo:
         info.name += "/"
     elif stat.S_ISLNK(mode):
         target = os.readlink(source)
-        if target.startswith("/") or "\\" in target:
-            raise ValueError(f"unsafe symlink: {relative} -> {target}")
+        if (
+            target.startswith("/")
+            or "\\" in target
+            or "//" in target
+            or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in target)
+        ):
+            raise ValueError(f"небезопасная цель символической ссылки: {relative} -> {target}")
         normalized = PurePosixPath(relative.parent, target)
         depth = 0
         for part in normalized.parts:
             if part == "..":
                 depth -= 1
                 if depth < 0:
-                    raise ValueError(f"unsafe symlink: {relative} -> {target}")
+                    raise ValueError(f"небезопасная цель символической ссылки: {relative} -> {target}")
             elif part not in ("", "."):
                 depth += 1
         info.type = tarfile.SYMTYPE

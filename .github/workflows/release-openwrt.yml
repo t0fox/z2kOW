@@ -328,6 +328,11 @@ jobs:
             --controlled "$RUNNER_TEMP/production-UPDATES.json" \
             --repository "$GITHUB_WORKSPACE" \
             --output-dir "$out"
+      - name: Проверить собранный rootfs через начальный установщик
+        run: |
+          python3 tests/openwrt/accept_release_candidate.py \
+            "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json" \
+            "$RUNNER_TEMP/openwrt-release-candidate/openwrt-rootfs.tar.gz"
       - name: Reconfirm the upstream release did not advance while OpenWrt was building
         shell: bash
         run: |
@@ -476,6 +481,34 @@ jobs:
           path: ${{ runner.temp }}/openwrt-release-candidate
           github-token: ${{ github.token }}
           run-id: ${{ inputs.candidate_run_id || github.run_id }}
+      - name: Проверить квитанцию приёмки этого же rootfs-кандидата
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/openwrt-release-candidate/candidate-acceptance.json" \
+            "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json" \
+            "$RUNNER_TEMP/openwrt-release-candidate/openwrt-rootfs.tar.gz" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+          receipt_path, manifest_path, artifact_path = map(pathlib.Path, sys.argv[1:])
+          receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          artifact = artifact_path.read_bytes()
+          expected = {
+              "schema": 1,
+              "result": "passed",
+              "environment": "staged-linux-rootfs",
+              "router_verified": False,
+              "tag": manifest.get("current"),
+              "seq": manifest.get("seq"),
+              "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+              "artifact_sha256": hashlib.sha256(artifact).hexdigest(),
+          }
+          if receipt != expected:
+              raise SystemExit("квитанция приёмки отсутствует, неуспешна или относится к другому кандидату")
+          PY
       - name: Validate exact candidate metadata and production baseline
         id: candidate
         shell: bash

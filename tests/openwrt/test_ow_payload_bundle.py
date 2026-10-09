@@ -87,7 +87,27 @@ class PayloadBundleTests(unittest.TestCase):
             link.symlink_to("../../../../etc/passwd")
         except OSError as error:
             self.skipTest(f"symlink creation unavailable: {error}")
-        with self.assertRaisesRegex(ValueError, "unsafe symlink"):
+        with self.assertRaisesRegex(ValueError, "небезопасная цель символической ссылки"):
+            self.build()
+
+    def test_rejects_symlink_target_with_whitespace(self) -> None:
+        link = self.stage / "usr/lib/z2k/link"
+        link.parent.mkdir(parents=True)
+        try:
+            link.symlink_to("target file")
+        except OSError as error:
+            self.skipTest(f"symlink creation unavailable: {error}")
+        with self.assertRaisesRegex(ValueError, "небезопасная цель символической ссылки"):
+            self.build()
+
+    def test_rejects_symlink_target_with_repeated_separator(self) -> None:
+        link = self.stage / "usr/lib/z2k/link"
+        link.parent.mkdir(parents=True)
+        try:
+            link.symlink_to("target//file")
+        except OSError as error:
+            self.skipTest(f"symlink creation unavailable: {error}")
+        with self.assertRaisesRegex(ValueError, "небезопасная цель символической ссылки"):
             self.build()
 
 

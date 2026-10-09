@@ -1,21 +1,48 @@
 #!/bin/sh
-# Fresh install bootstrap. It verifies the controlled manifest and one complete
-# rootfs archive, then enters the same install_release(tag) transaction as all
-# later updates. apk is used only for OpenWrt system dependencies.
+# Начальная установка проверяет манифест и полный архив rootfs, затем запускает
+# ту же транзакцию install_release(tag), что используется при обновлениях.
+# apk применяется только для установки системных зависимостей OpenWrt.
 set -eu
 
-die() { printf 'z2kOW installer: %s\n' "$*" >&2; exit 1; }
+die() { printf 'установщик z2kOW: %s\n' "$*" >&2; exit 1; }
 [ "$(id -u 2>/dev/null || echo 1)" = 0 ] || die "запустите установщик от root"
 OPENWRT_RELEASE_FILE="${Z2K_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
 [ -r "$OPENWRT_RELEASE_FILE" ] || die "это не OpenWrt"
 . "$OPENWRT_RELEASE_FILE"
 [ "${DISTRIB_ID:-}" = OpenWrt ] || die "поддерживается только OpenWrt"
+_openwrt_release=${DISTRIB_RELEASE:-}
+case "$_openwrt_release" in
+    SNAPSHOT) ;;
+    *)
+        awk -v version="$_openwrt_release" 'BEGIN {
+            if (!match(version, /^[0-9]+\.[0-9]+/)) exit 1
+            split(substr(version, RSTART, RLENGTH), part, /\./)
+            exit !((part[1] > 24) || (part[1] == 24 && part[2] >= 10))
+        }' || die "поддерживается OpenWrt 24.10 или новее с apk"
+        ;;
+esac
+_meminfo=${Z2K_OW_MEMINFO_FILE:-/proc/meminfo}
+[ -r "$_meminfo" ] || die "не удалось определить объём свободной оперативной памяти"
+_mem_available_kb=$(awk '
+    /^MemAvailable:/ { available=$2; found=1 }
+    /^MemFree:/ { free=$2 }
+    /^Buffers:/ { buffers=$2 }
+    /^Cached:/ { cached=$2 }
+    END {
+        if (!found) available=free+buffers+cached
+        if (available ~ /^[0-9]+$/) printf "%.0f\n", available
+    }
+' "$_meminfo")
+case "$_mem_available_kb" in ''|*[!0-9]*) die "не удалось определить объём свободной оперативной памяти" ;; esac
+if [ "$_mem_available_kb" -lt 8192 ]; then
+    die "недостаточно оперативной памяти: требуется 8192 КиБ, доступно $_mem_available_kb КиБ"
+fi
 command -v apk >/dev/null 2>&1 || die "нужен OpenWrt с apk для системных зависимостей"
 
 BASE="https://raw.githubusercontent.com/t0fox/z2kOW/main"
-# Bootstrap pins trusted production key fingerprints here. Keep old pins while
-# rotating keys so an already published release can introduce the next public
-# key into the installed keyring before that key signs a later release.
+# Здесь закреплены отпечатки доверенных ключей выпуска. При ротации сохраняйте
+# старые отпечатки: уже опубликованный релиз должен добавить следующий открытый
+# ключ в keyring до того, как этим ключом подпишут новый релиз.
 BOOTSTRAP_TRUSTED_KEY_IDS="916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae"
 _manifest_override_set=${Z2KOW_MANIFEST_URL+x}
 _trust_override_set=${Z2KOW_TRUST_KEY+x}
@@ -27,10 +54,10 @@ if [ "$_manifest_override_set" = x ]; then
         || die "Z2KOW_MANIFEST_URL и Z2KOW_TRUST_KEY должны задаваться вместе"
     case "$Z2KOW_MANIFEST_URL" in
         http://*/UPDATES.json|https://*/UPDATES.json) ;;
-        *) die "acceptance manifest URL должен оканчиваться на /UPDATES.json" ;;
+        *) die "адрес приёмочного манифеста должен оканчиваться на /UPDATES.json" ;;
     esac
     [ -f "$Z2KOW_TRUST_KEY" ] && [ -r "$Z2KOW_TRUST_KEY" ] \
-        || die "acceptance trust key недоступен для чтения"
+        || die "приёмочный открытый ключ недоступен для чтения"
     _acceptance_source=1
     MANIFEST_URL=$Z2KOW_MANIFEST_URL
 else
@@ -41,6 +68,10 @@ SIGNATURE_URL="$MANIFEST_URL.sig"
 
 apk update || die "не удалось обновить индексы системных зависимостей"
 apk add ca-bundle openssl-util jsonfilter || die "не удалось установить системные средства проверки подписи"
+for _tool in awk df grep openssl sha256sum tar; do
+    command -v "$_tool" >/dev/null 2>&1 || die "необходимая системная команда отсутствует: $_tool"
+done
+command -v jsonfilter >/dev/null 2>&1 || die "после установки системных зависимостей отсутствует jsonfilter"
 
 if command -v wget >/dev/null 2>&1; then
     download() { wget -q -T 60 -O "$2" "$1"; }
@@ -66,30 +97,30 @@ ENGINE="$TMP/engine"
 
 value() { jsonfilter -i "$MANIFEST" -e "@.$1" 2>/dev/null | head -n 1; }
 
-download "$MANIFEST_URL" "$MANIFEST" || die "не удалось получить controlled UPDATES.json"
+download "$MANIFEST_URL" "$MANIFEST" || die "не удалось получить проверенный UPDATES.json"
 _key_id=$(value signing.key_id)
 printf '%s' "$_key_id" | grep -Eq '^[0-9a-f]{64}$' \
-    || die "controlled UPDATES.json contains an invalid signing key id"
+    || die "проверенный UPDATES.json содержит неверный идентификатор ключа подписи"
 
-# This key is pinned in the bootstrap itself. A key fetched beside the manifest
-# would let a modified manifest replace its own trust anchor.
+# Этот ключ закреплён в самом установщике. Если загружать его рядом с
+# манифестом, подменённый манифест сможет подменить и собственный корень доверия.
 if [ "$_acceptance_source" = 1 ]; then
-    cp "$Z2KOW_TRUST_KEY" "$PUBKEY" || die "не удалось подготовить acceptance trust key"
+    cp "$Z2KOW_TRUST_KEY" "$PUBKEY" || die "не удалось подготовить приёмочный открытый ключ"
 else
     case " $BOOTSTRAP_TRUSTED_KEY_IDS " in
         *" $_key_id "*) ;;
-        *) die "controlled manifest references an unpinned release key" ;;
+        *) die "манифест ссылается на незакреплённый ключ выпуска" ;;
     esac
     download "$BASE/scripts/openwrt/release-keys/$_key_id.pub" "$PUBKEY" \
         || die "не удалось получить закреплённый открытый ключ выпуска"
 fi
 _actual_key_id=$(openssl pkey -pubin -in "$PUBKEY" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')
-[ "$_actual_key_id" = "$_key_id" ] || die "release key fingerprint does not match controlled UPDATES.json"
+[ "$_actual_key_id" = "$_key_id" ] || die "отпечаток ключа выпуска не совпадает с проверенным UPDATES.json"
 
-download "$SIGNATURE_URL" "$SIGNATURE" || die "нет подписи controlled UPDATES.json; релиз не опубликован"
+download "$SIGNATURE_URL" "$SIGNATURE" || die "нет подписи проверенного UPDATES.json; релиз не опубликован"
 openssl pkeyutl -verify -rawin -pubin -inkey "$PUBKEY" \
     -in "$MANIFEST" -sigfile "$SIGNATURE" >/dev/null 2>&1 \
-    || die "подпись controlled UPDATES.json неверна"
+    || die "подпись проверенного UPDATES.json неверна"
 
 _schema=$(value schema)
 _branch=$(value branch)
@@ -105,40 +136,107 @@ _url=$(value artifact.url)
 _sha=$(value artifact.sha256 | tr 'A-F' 'a-f')
 _size=$(value artifact.size_bytes)
 [ "$_schema" = 1 ] && [ "$_branch" = main ] && [ "$_platform" = openwrt ] \
-    || die "controlled UPDATES.json имеет неподдерживаемую схему"
+    || die "проверенный UPDATES.json имеет неподдерживаемую схему"
 printf '%s' "$_tag" | grep -Eq '^[pr]-[0-9]+(\.[0-9]+)+$' \
-    || die "controlled UPDATES.json содержит некорректный release tag"
+    || die "проверенный UPDATES.json содержит неверную версию релиза"
 printf '%s' "$_seq" | grep -Eq '^[1-9][0-9]*$' \
-    || die "controlled UPDATES.json содержит некорректный seq"
+    || die "проверенный UPDATES.json содержит неверный номер версии"
 [ "$_upstream_repo" = necronicle/z2k ] \
     && [ "$_upstream_branch" = z2k-enhanced ] && [ "$_upstream_tag" = "$_tag" ] \
-    || die "controlled UPDATES.json содержит некорректное upstream происхождение"
+    || die "проверенный UPDATES.json содержит неверные исходные сведения upstream"
 printf '%s' "$_upstream_commit" | grep -Eq '^[0-9a-f]{40}$' \
-    || die "controlled UPDATES.json содержит некорректный upstream commit"
+    || die "проверенный UPDATES.json содержит неверный коммит upstream"
 if [ "$_acceptance_source" = 1 ]; then
     _expected_artifact_url="${Z2KOW_MANIFEST_URL%/UPDATES.json}/openwrt-rootfs.tar.gz"
     [ "$_filename" = openwrt-rootfs.tar.gz ] && [ "$_url" = "$_expected_artifact_url" ] \
-        || die "controlled UPDATES.json содержит некорректный artifact URL"
+        || die "проверенный UPDATES.json содержит неверный URL архива"
 else
     [ "$_filename" = openwrt-rootfs.tar.gz ] \
         && printf '%s' "$_url" | grep -Eq '^https://github[.]com/t0fox/z2kOW/releases/download/(openwrt-[0-9a-f]{40}|[pr]-[0-9]+([.][0-9]+)+)/openwrt-rootfs[.]tar[.]gz$' \
-        || die "controlled UPDATES.json содержит некорректный artifact URL"
+        || die "проверенный UPDATES.json содержит неверный URL архива"
 fi
 printf '%s' "$_sha" | grep -Eq '^[0-9a-f]{64}$' \
-    || die "controlled UPDATES.json содержит некорректный SHA-256"
+    || die "проверенный UPDATES.json содержит неверный SHA-256"
 printf '%s' "$_size" | grep -Eq '^[1-9][0-9]*$' \
-    || die "controlled UPDATES.json содержит некорректный artifact size"
+    || die "проверенный UPDATES.json содержит неверный размер архива"
+
+_tmp_available_kb=$(df -Pk "$TMP" 2>/dev/null | awk 'END { if (NR >= 2) print $4 }')
+case "$_tmp_available_kb" in ''|*[!0-9]*) die "не удалось определить свободное место во временном хранилище" ;; esac
+if ! awk -v available_kb="$_tmp_available_kb" -v artifact_bytes="$_size" \
+    'BEGIN { exit (available_kb * 1024 >= artifact_bytes + 4194304) ? 0 : 1 }'; then
+    die "недостаточно места во временном хранилище: требуется $_size байт архива плюс 4 МиБ, доступно $_tmp_available_kb КиБ"
+fi
 
 download "$_url" "$ARTIFACT" || die "не удалось скачать полный выпуск $_tag"
 [ "$(wc -c < "$ARTIFACT" | tr -d ' \t\r\n')" = "$_size" ] \
-    || die "размер rootfs не совпал с controlled UPDATES.json"
+    || die "размер rootfs не совпал с проверенным UPDATES.json"
 [ "$(sha256sum "$ARTIFACT" | awk '{print $1}')" = "$_sha" ] \
-    || die "SHA-256 rootfs не совпал с controlled UPDATES.json"
+    || die "SHA-256 rootfs не совпал с проверенным UPDATES.json"
 
-# Extract only the small trusted installer engine to tmpfs. The complete
-# payload remains a single archive and is applied by install_release(tag).
+# Извлечь все shell-исходники движка из того же подписанного архива.
+# Состав выбирается по содержимому архива, чтобы список установщика не расходился
+# с файлами, которые подключает install_release. Runtime-файлы и бинарники роутера
+# во временную копию движка не попадают.
 mkdir -p "$ENGINE"
-tar -xzf "$ARTIFACT" -C "$ENGINE" \
+_archive_members="$TMP/archive-members"
+_engine_files="$TMP/engine-files"
+_archive_details="$TMP/archive-details"
+tar -tzf "$ARTIFACT" > "$_archive_members" \
+    || die "не удалось прочитать список файлов подписанного rootfs"
+tar -tvzf "$ARTIFACT" > "$_archive_details" \
+    || die "не удалось прочитать типы файлов подписанного rootfs"
+awk '
+    function safe_link(path, target, path_parts, path_count, depth, target_parts, target_count, i) {
+        if (target == "" || target ~ /^\// || target ~ /\\/ || target ~ /\/\// \
+            || target ~ /[[:space:][:cntrl:]]/) return 0
+        path_count = split(path, path_parts, "/")
+        depth = path_count - 1
+        target_count = split(target, target_parts, "/")
+        for (i = 1; i <= target_count; i++) {
+            if (target_parts[i] == "" || target_parts[i] == ".") continue
+            if (target_parts[i] == "..") {
+                if (depth == 0) return 0
+                depth--
+            } else {
+                depth++
+            }
+        }
+        return 1
+    }
+    {
+        kind = substr($1, 1, 1)
+        if (kind != "-" && kind != "d" && kind != "l") exit 1
+        if (kind == "l") {
+            if (NF < 3 || $(NF - 1) != "->") exit 1
+            path = $(NF - 2)
+            target = $NF
+            if (!safe_link(path, target)) exit 1
+        } else {
+            path = $NF
+        }
+        if (path ~ /\/\//) exit 1
+        sub(/\/$/, "", path)
+        if (path == "" || path ~ /^\// || path ~ /[[:space:][:cntrl:]]/ \
+            || path ~ /\\/ || path ~ /(^|\/)\.\.?($|\/)/) exit 1
+        if (path == "www" || path ~ /^www\// || path == "etc/config/uhttpd" \
+            || path == "etc/apk" || path ~ /^etc\/apk\// \
+            || path ~ /(^|\/)[^/]+\.apk$/) exit 1
+        count++
+    }
+    END { if (count == 0) exit 1 }
+' "$_archive_details" || die "архив содержит небезопасный тип записи, путь или цель ссылки"
+awk '
+    {
+        path = $0
+        safe = path !~ /(^|\/)\.\.?($|\/)/ && path !~ /[[:space:]]/ && index(path, "\\") == 0
+        engine = path ~ /^usr\/lib\/z2k\/lib\/.+\.sh$/ ||
+            path ~ /^usr\/lib\/z2k\/platform\/openwrt\/.+\.sh$/ ||
+            path == "usr/lib/z2k/platform/openwrt/owned-paths.txt" ||
+            path == "usr/sbin/install_release" || path == "usr/bin/z2kow"
+        if (safe && engine) print path
+    }
+' "$_archive_members" > "$_engine_files" || die "не удалось определить файлы установочного движка"
+for _required in \
     usr/lib/z2k/lib/utils.sh \
     usr/lib/z2k/lib/auto_update.sh \
     usr/lib/z2k/platform/openwrt/paths.sh \
@@ -147,13 +245,18 @@ tar -xzf "$ARTIFACT" -C "$ENGINE" \
     usr/lib/z2k/platform/openwrt/release_state.sh \
     usr/lib/z2k/platform/openwrt/release.sh \
     usr/lib/z2k/platform/openwrt/bootstrap.sh \
+    usr/lib/z2k/platform/openwrt/arch.sh \
     usr/lib/z2k/platform/openwrt/owned-paths.txt \
-    usr/sbin/install_release \
-    || die "полный rootfs не содержит canonical installer engine"
-[ -x "$ENGINE/usr/sbin/install_release" ] || die "canonical install_release отсутствует в rootfs"
+    usr/sbin/install_release usr/bin/z2kow; do
+    grep -qx "$_required" "$_engine_files" \
+        || die "подписанный rootfs не содержит обязательный файл движка установки: $_required"
+done
+tar -xzf "$ARTIFACT" -C "$ENGINE" -T "$_engine_files" \
+    || die "не удалось извлечь install engine из подписанного rootfs"
+[ -x "$ENGINE/usr/sbin/install_release" ] || die "основной install_release отсутствует в rootfs"
 
-# The payload root is the live target. Only the installer code and library
-# sources come from the small temporary extraction above.
+# Каталог payload — файловая система роутера. Из временной распаковки берутся
+# только установочный код и исходники библиотек.
 Z2K_ROOT=/usr/lib/z2k
 Z2K_ADAPTER_DIR="$ENGINE/usr/lib/z2k/platform/openwrt"
 Z2K_LIB="$ENGINE/usr/lib/z2k/lib"
