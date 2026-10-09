@@ -1,10 +1,10 @@
 # Upstream tracking and parity
 
-z2kOW adapts [necronicle/z2k](https://github.com/necronicle/z2k) `z2k-enhanced` to OpenWrt.
+z2kOW is an independently maintained OpenWrt port **and modification** of [necronicle/z2k](https://github.com/necronicle/z2k) `z2k-enhanced`. It preserves upstream semantics for inherited features while adding its own OpenWrt-specific functionality.
 
 ## Core rule
 
-Upstream z2k is the source of truth for product behavior. z2kOW should preserve, as closely as practical:
+Upstream z2k is the source of truth **for behavior inherited from upstream**, not for features introduced by z2kOW. Inherited functionality should preserve, as closely as practical:
 
 - feature set and user-visible behavior;
 - configuration and strategy semantics;
@@ -13,7 +13,7 @@ Upstream z2k is the source of truth for product behavior. z2kOW should preserve,
 - diagnostics and maintenance behavior;
 - scheduler intent and runtime feature flow.
 
-OpenWrt may use different platform mechanics, but a platform difference by itself is not a reason to redesign a feature.
+OpenWrt may use different platform mechanics, but a platform difference by itself is not a reason to redesign an inherited feature. Project-specific additions (for example DoH management, TikTok CDN fixes, and FLOWOFFLOAD diagnostics/benchmarking) may define their own behavior and lifecycle; they are not upstream parity requirements.
 
 ## Allowed platform differences
 
@@ -61,7 +61,8 @@ A common-code difference should be one of:
 
 - an upstream change not yet synchronized;
 - a minimal OpenWrt seam;
-- project branding/presentation that does not change product semantics;
-- a documented intentional difference with a concrete platform reason.
+- project branding/presentation that does not change inherited product semantics;
+- an explicitly documented z2kOW extension with its own behavior, ownership, and tests;
+- a documented intentional difference with a concrete compatibility or platform reason.
 
-Do not create an independent OpenWrt implementation when the upstream implementation can be reused with a thin adapter.
+Do not duplicate existing upstream features when they can be reused with a thin adapter. Keep z2kOW-only functionality isolated and documented so upstream updates can be integrated without silently overwriting either side.

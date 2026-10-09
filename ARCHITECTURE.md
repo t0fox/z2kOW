@@ -1,6 +1,6 @@
 # z2kOW architecture
 
-z2kOW is an OpenWrt port of upstream z2k, not a separate product design. The default rule is simple: keep upstream product behavior common, and replace only platform effects that depend on Keenetic or Entware.
+z2kOW is an independently maintained OpenWrt port and modification of upstream z2k. The default rule for **inherited z2k features** is to keep their behavior and common implementation as close to upstream as practical, replacing only platform effects that depend on Keenetic or Entware. z2kOW also contains its own OpenWrt-specific extensions, which are deliberately isolated from common upstream logic.
 
 See [UPSTREAM.md](UPSTREAM.md) for the upstream policy and [docs/UPSTREAM-PARITY-MATRIX.md](docs/UPSTREAM-PARITY-MATRIX.md) for known differences.
 
@@ -10,6 +10,7 @@ See [UPSTREAM.md](UPSTREAM.md) for the upstream policy and [docs/UPSTREAM-PARITY
 |---|---|---|
 | Common z2k | Config, strategies, runtime logic, lists, diagnostics, WebPanel behavior, update semantics | `z2k.sh`, `lib/`, `files/`, `webpanel/` |
 | OpenWrt adapter | Service, firewall, networking, scheduling, paths, architecture, platform probes | `platform/openwrt/` |
+| z2kOW extensions | DoH, TikTok CDN management, FLOWOFFLOAD diagnostics and benchmarking | `platform/openwrt/doh.sh`, `tiktok.sh`, `offload-observe.sh`, `offload-benchmark.sh` |
 | OpenWrt integration files | procd services, hotplug integration, platform-owned system hooks | `platform/openwrt/files/` |
 | Release tooling | Build, stage, sign, publish, install, rollback | `scripts/openwrt/`, `platform/openwrt/release.sh` |
 
@@ -62,7 +63,7 @@ Release-owned and user-owned data are separate. Updating or reinstalling replace
 
 ## Feature adapters
 
-OpenWrt adapters replace platform mechanisms, not product meaning:
+OpenWrt adapters preserve the meaning of **inherited upstream features** while replacing their platform mechanisms:
 
 - Keenetic init/supervision → procd.
 - iptables/ipset and NDM hooks → fw4/nftables and hotplug.
@@ -71,7 +72,9 @@ OpenWrt adapters replace platform mechanisms, not product meaning:
 - Keenetic scheduling → OpenWrt cron/procd triggers.
 - Keenetic acceleration controls → OpenWrt flow-offload capability where applicable.
 
-Telegram, RT proxy, WARP, TCP16, diagnostics, scheduled list refresh, and other upstream features should keep upstream semantics while using these OpenWrt owners.
+Telegram, RT proxy, WARP, TCP16, diagnostics, scheduled list refresh, and other inherited upstream features should keep upstream semantics while using these OpenWrt owners.
+
+z2kOW-specific features such as DoH provider management, TikTok CDN overrides, and selective FLOWOFFLOAD diagnostics/benchmarking have their own contracts and tests. They must coexist with OpenWrt services and inherited behavior without claiming to be part of upstream z2k.
 
 ## Removal
 
@@ -79,4 +82,4 @@ Removal is also a parity feature. Its user-visible preservation and purge semant
 
 ## Contributor rule
 
-Before changing common code, compare the change with the pinned upstream implementation. Prefer an existing platform hook or a small new adapter over a parallel OpenWrt implementation of the same feature.
+Before changing inherited common code, compare the change with the pinned upstream implementation. Prefer an existing platform hook or a small new adapter over a parallel OpenWrt implementation. Keep new z2kOW-only features explicit, scoped, and testable rather than silently blending them into upstream behavior.
