@@ -7,6 +7,15 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d)" || exit 1
 trap 'rm -rf "$T"' EXIT HUP INT TERM
 
+# Проверять архив тем же awk, который установлен в OpenWrt.
+_busybox="${Z2K_TEST_BUSYBOX:-$(command -v busybox 2>/dev/null || true)}"
+if [ -n "$_busybox" ]; then
+    mkdir -p "$T/bin"
+    ln -s "$_busybox" "$T/bin/awk" || exit 1
+    PATH="$T/bin:$PATH"
+    export PATH
+fi
+
 make_archive() {
     _root="$1" _archive="$2"
     tar -czf "$_archive" -C "$_root" \
@@ -24,6 +33,16 @@ if z2k_ow_archive_safe "$T/valid.tar.gz" "$T/valid.list"; then
     _t_ok
 else
     _t_bad "безопасная относительная ссылка разрешена"
+fi
+
+# Исправление regex не должно разрешать вложенные пакетные артефакты.
+cp -a "$T/valid" "$T/apk" || exit 1
+printf 'пакет\n' > "$T/apk/usr/lib/z2k/platform/openwrt/payload.apk"
+make_archive "$T/apk" "$T/apk.tar.gz"
+if z2k_ow_archive_safe "$T/apk.tar.gz" "$T/apk.list"; then
+    _t_bad "вложенный APK отклонён при проверке архива"
+else
+    _t_ok
 fi
 
 for _target in /etc/passwd ../../../../../../etc/passwd 'release engine'; do

@@ -10,6 +10,12 @@ BIN="$T/bin"; BOOT_TMP="$T/bootstrap-tmp"; STAGE_TMP="$T/staging"
 PAYLOAD="$T/payload"; SYS="$T/sys"
 mkdir -p "$BIN" "$BOOT_TMP" "$PAYLOAD" "$SYS/usr/lib" "$STAGE_TMP"
 
+# Начальный установщик и извлечённый движок используют awk роутера.
+_busybox="${Z2K_TEST_BUSYBOX:-$(command -v busybox 2>/dev/null || true)}"
+if [ -n "$_busybox" ]; then
+    ln -s "$_busybox" "$BIN/awk" || exit 1
+fi
+
 command -v openssl >/dev/null 2>&1 || { _t_bad "openssl unavailable"; _t_done; exit $?; }
 openssl genpkey -algorithm ED25519 -out "$T/test.key" >/dev/null 2>&1 || exit 1
 openssl pkey -in "$T/test.key" -pubout -out "$T/test.pub" >/dev/null 2>&1 || exit 1

@@ -220,7 +220,7 @@ awk '
             || path ~ /\\/ || path ~ /(^|\/)\.\.?($|\/)/) exit 1
         if (path == "www" || path ~ /^www\// || path == "etc/config/uhttpd" \
             || path == "etc/apk" || path ~ /^etc\/apk\// \
-            || path ~ /(^|\/)[^/]+\.apk$/) exit 1
+            || path ~ /(^|\/)[^\/]+\.apk$/) exit 1
         count++
     }
     END { if (count == 0) exit 1 }

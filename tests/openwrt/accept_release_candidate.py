@@ -113,6 +113,11 @@ def main() -> int:
         public_der = subprocess.run(["openssl", "pkey", "-pubin", "-in", str(pubkey), "-outform", "DER"], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout
         test_key_id = hashlib.sha256(public_der).hexdigest()
 
+        # Использовать awk роутера, если BusyBox доступен на проверочном хосте.
+        busybox = os.environ.get("Z2K_TEST_BUSYBOX") or shutil.which("busybox")
+        if busybox:
+            (bin_dir / "awk").symlink_to(busybox)
+
         served_artifact = served / "openwrt-rootfs.tar.gz"
         served_artifact.write_bytes(artifact_data)
         manifest["signing"] = {"key_id": test_key_id}

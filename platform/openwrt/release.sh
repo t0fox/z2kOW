@@ -354,7 +354,7 @@ z2k_ow_archive_entries_safe() {
                 || path ~ /\\/ || path ~ /(^|\/)\.\.?($|\/)/) exit 1
             if (path == "www" || path ~ /^www\// || path == "etc/config/uhttpd" \
                 || path == "etc/apk" || path ~ /^etc\/apk\// \
-                || path ~ /(^|\/)[^/]+\.apk$/ || path == "packages.adb") exit 1
+                || path ~ /(^|\/)[^\/]+\.apk$/ || path == "packages.adb") exit 1
             count++
         }
         END { if (count == 0) exit 1 }
