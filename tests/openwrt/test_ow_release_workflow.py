@@ -77,6 +77,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         )
         self.assertIn("needs.prepare-release.result == 'success'", workflow)
 
+    def test_openwrt_ci_runs_all_checks_without_skipping_dependencies(self) -> None:
+        ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        job = ci.split("  openwrt-unified:", 1)[1]
+        self.assertIn("lighttpd", job)
+        self.assertIn("curl", job)
+        self.assertIn("platform/openwrt/runtime-pin", job)
+        self.assertIn("sha256sum -c", job)
+        self.assertIn('OW_STRICT=1 Z2K_RT_TARBALL="$runtime_archive" sh tests/openwrt/run.sh', job)
+        self.assertLess(job.index("sha256sum -c"), job.index("OW_STRICT=1"))
+
     def test_shared_ci_accepts_and_verifies_only_valid_signed_manifest_shape(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn('"signing"', ci)

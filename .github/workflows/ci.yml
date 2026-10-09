@@ -666,10 +666,17 @@ jobs:
           go-version: 1.25.13
           cache: true
           cache-dependency-path: z2k-warpd/go.sum
-      - name: Установить dnsmasq и BusyBox для проверок OpenWrt
-        run: sudo apt-get update && sudo apt-get install -y dnsmasq-base busybox
-      - name: Run OpenWrt regression suite
-        run: sh tests/openwrt/run.sh
+      - name: Установить зависимости всех проверок OpenWrt
+        run: sudo apt-get update && sudo apt-get install -y dnsmasq-base busybox lighttpd curl
+      - name: Выполнить полный набор OpenWrt без пропусков
+        run: |
+          runtime_archive="$RUNNER_TEMP/zapret2-ci.tar.gz"
+          runtime_url=$(sed -n 's/^URL=//p' platform/openwrt/runtime-pin | tr -d '\r\n')
+          runtime_sha=$(sed -n 's/^SHA256=//p' platform/openwrt/runtime-pin | tr -d '\r\n')
+          curl --fail --location --silent --show-error --connect-timeout 10 --max-time 300 \
+            -o "$runtime_archive" "$runtime_url"
+          printf '%s  %s\n' "$runtime_sha" "$runtime_archive" | sha256sum -c -
+          OW_STRICT=1 Z2K_RT_TARBALL="$runtime_archive" sh tests/openwrt/run.sh
       - name: Test upstream WARP engine and build universal rootfs candidate
         run: sh scripts/openwrt/build-release.sh --out "$RUNNER_TEMP/openwrt-candidate"
       - name: Проверить готовый кандидат установщиком с утилитами BusyBox
