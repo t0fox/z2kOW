@@ -1,5 +1,5 @@
 #!/bin/sh
-# The release staging path must produce every runtime binary dispatch needs.
+# Раскладка релиза должна содержать все runtime-файлы, нужные установщику.
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-stage-rootfs-binaries"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -18,15 +18,16 @@ if ! ln -s "$T/symlink-probe" "$T/symlink-check" 2>/dev/null || [ ! -L "$T/symli
 fi
 
 R="$T/runtime"
-mkdir -p "$R/init.d/openwrt" "$R/common" "$R/ipset" "$R/nfq2" \
-    "$R/ip2net" "$R/mdig" "$R/binaries/linux-amd64" "$R/lua"
+mkdir -p "$R/init.d/openwrt" "$R/common" "$R/ipset" \
+    "$R/binaries/linux-x86_64" "$R/lua"
 for _f in init.d/openwrt/functions common/base.sh common/fwtype.sh \
     common/linux_iphelper.sh common/ipt.sh common/nft.sh common/linux_fw.sh \
     common/linux_daemons.sh common/list.sh common/custom.sh ipset/def.sh; do
     mkdir -p "$R/$(dirname "$_f")"
     : > "$R/$_f"
 done
-for _f in nfq2/nfqws2 ip2net/ip2net mdig/mdig ipset/create_ipset.sh binaries/linux-amd64/nfqws2; do
+for _f in binaries/linux-x86_64/nfqws2 binaries/linux-x86_64/ip2net \
+    binaries/linux-x86_64/mdig ipset/create_ipset.sh; do
     mkdir -p "$R/$(dirname "$_f")"
     printf '#!/bin/sh\nexit 0\n' > "$R/$_f"
     chmod 0755 "$R/$_f"
@@ -56,6 +57,24 @@ mv "$T/release-keys/test.pub" "$T/release-keys/$_key_id.pub"
 mkdir -p "$T/stage"
 sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$T/stage" "$T/runtime.tar.gz" \
     "$T/warpd" "$T/tg" "$T/rt" "$T/detect" "$T/release-keys" || exit 1
+
+for _pair in nfq2/nfqws2 ip2net/ip2net mdig/mdig; do
+    _name=${_pair#*/}
+    _alias="$T/stage/opt/zapret2/binaries/linux-x86_64/$_pair"
+    case "$_name" in
+        nfqws2)
+            [ -L "$_alias" ] && [ -x "$_alias" ] \
+                && [ "$(readlink "$_alias")" = "../$_name" ] \
+                && _t_ok || _t_bad "плоский бинарник nfqws2 получает относительную совместимую ссылку"
+            ;;
+        *)
+            [ -f "$_alias" ] && [ -x "$_alias" ] \
+                && [ ! -f "$T/stage/opt/zapret2/binaries/linux-x86_64/$_name" ] \
+                && _t_ok || _t_bad "плоский бинарник $_name перемещён в каталог, ожидаемый установщиком"
+            ;;
+    esac
+done
+
 tar -czf "$T/openwrt-rootfs.tar.gz" -C "$T/stage" . || exit 1
 _release_tag=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["current"])' "$ROOT/UPDATES.json")
 _tar_index=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/www/index.html)
@@ -119,8 +138,8 @@ for _source in "$ROOT"/files/lua/*.lua; do
         && _t_ok || _t_bad "upstream Lua module $_rel has no completeness inventory row"
 done
 
-# Machine-readable upstream runtime inventory: every direct upstream runtime
-# script is either delivered or has an explicit OpenWrt replacement/N/A reason.
+# Машиночитаемый перечень runtime upstream: каждый прямой runtime-скрипт
+# поставляется либо имеет явную причину замены или неприменимости в OpenWrt.
 _inventory="$ROOT/tests/openwrt/runtime-inventory.tsv"
 while IFS='|' read -r _source _state _member _mode _witness_file _witness _reason; do
     case "$_source" in ''|\#*) continue ;; esac

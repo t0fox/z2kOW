@@ -116,23 +116,18 @@ else
     no "подтверждённая замена сбрасывает храповик" "rm -f pin" "не найдено"
 fi
 
-# --- 6. Отпечаток ключа опубликован -------------------------------------------
+# --- 6. Документация описывает текущую цепочку доверия ------------------------
 #
-# Без него подтверждение Z2K_TRUST_NEW_KEY бессмысленно: человеку нечем сверить
-# показанный отпечаток, и «сверьте с README» превращается в «подтвердите что
-# угодно».
+# README указывает на production key id в манифесте и на каталог закреплённых
+# открытых ключей. Не встраиваем туда отпечаток отдельного legacy-ключа:
+# он может устареть и запутать проверку релиза OpenWrt.
 _README="$ROOT/README.md"
-_KEY="$ROOT/files/etc/z2k-update-pub.pem"
-if [ -s "$_KEY" ] && [ -f "$_README" ]; then
-    if command -v sha256sum >/dev/null 2>&1; then _h=$(sha256sum "$_KEY" | cut -d' ' -f1)
-    else _h=$(shasum -a 256 "$_KEY" | cut -d' ' -f1); fi
-    if grep -qF "$_h" "$_README"; then
-        ok "отпечаток ключа опубликован в README и совпадает с файлом"
-    else
-        no "отпечаток ключа опубликован в README" "$_h" "в README его нет или он устарел"
-    fi
+if grep -qF '`UPDATES.json`' "$_README" \
+    && grep -qF '`signing.key_id`' "$_README" \
+    && grep -qF '`scripts/openwrt/release-keys/`' "$_README"; then
+    ok "README указывает текущий key id и каталог закреплённых ключей релиза"
 else
-    no "ключ и README на месте" "оба файла" "нет"
+    no "README описывает цепочку доверия релиза" "UPDATES.json, signing.key_id и release-keys" "не найдено"
 fi
 
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"
