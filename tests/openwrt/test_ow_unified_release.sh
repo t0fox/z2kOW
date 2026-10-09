@@ -65,12 +65,6 @@ make_artifact() {
         "$_stage/opt/zapret2/binaries/linux-arm64" "$_stage/opt/zapret2/binaries/linux-x86_64" \
         "$_stage/usr/bin" "$_stage/usr/sbin" \
         "$_stage/opt/zapret2/etc/z2k" \
-        "$_stage/opt/zapret2/binaries/linux-arm64/nfq2" \
-        "$_stage/opt/zapret2/binaries/linux-arm64/ip2net" \
-        "$_stage/opt/zapret2/binaries/linux-arm64/mdig" \
-        "$_stage/opt/zapret2/binaries/linux-x86_64/nfq2" \
-        "$_stage/opt/zapret2/binaries/linux-x86_64/ip2net" \
-        "$_stage/opt/zapret2/binaries/linux-x86_64/mdig" \
         "$_stage/etc/init.d" "$_stage/etc/hotplug.d/iface" \
         "$_stage/etc/sysctl.d" "$_stage/usr/share/nftables.d/chain-pre/forward"
     printf 'release payload\n' > "$_stage/usr/lib/z2k/platform/openwrt/release.sh"
@@ -92,19 +86,19 @@ make_artifact() {
         "$_stage/usr/lib/z2k/bin/linux-x86_64/z2k-detect" \
         "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd" \
         "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd"
-    printf 'arm64 dataplane\n' > "$_stage/opt/zapret2/binaries/linux-arm64/nfq2/nfqws2"
-    printf 'x86 dataplane\n' > "$_stage/opt/zapret2/binaries/linux-x86_64/nfq2/nfqws2"
-    printf 'arm64 ip2net\n' > "$_stage/opt/zapret2/binaries/linux-arm64/ip2net/ip2net"
-    printf 'arm64 mdig\n' > "$_stage/opt/zapret2/binaries/linux-arm64/mdig/mdig"
-    printf 'x86 ip2net\n' > "$_stage/opt/zapret2/binaries/linux-x86_64/ip2net/ip2net"
-    printf 'x86 mdig\n' > "$_stage/opt/zapret2/binaries/linux-x86_64/mdig/mdig"
+    printf 'arm64 dataplane\n' > "$_stage/opt/zapret2/binaries/linux-arm64/nfqws2"
+    printf 'x86 dataplane\n' > "$_stage/opt/zapret2/binaries/linux-x86_64/nfqws2"
+    printf 'arm64 ip2net\n' > "$_stage/opt/zapret2/binaries/linux-arm64/ip2net"
+    printf 'arm64 mdig\n' > "$_stage/opt/zapret2/binaries/linux-arm64/mdig"
+    printf 'x86 ip2net\n' > "$_stage/opt/zapret2/binaries/linux-x86_64/ip2net"
+    printf 'x86 mdig\n' > "$_stage/opt/zapret2/binaries/linux-x86_64/mdig"
     chmod 0755 \
-        "$_stage/opt/zapret2/binaries/linux-arm64/nfq2/nfqws2" \
-        "$_stage/opt/zapret2/binaries/linux-arm64/ip2net/ip2net" \
-        "$_stage/opt/zapret2/binaries/linux-arm64/mdig/mdig" \
-        "$_stage/opt/zapret2/binaries/linux-x86_64/nfq2/nfqws2" \
-        "$_stage/opt/zapret2/binaries/linux-x86_64/ip2net/ip2net" \
-        "$_stage/opt/zapret2/binaries/linux-x86_64/mdig/mdig"
+        "$_stage/opt/zapret2/binaries/linux-arm64/nfqws2" \
+        "$_stage/opt/zapret2/binaries/linux-arm64/ip2net" \
+        "$_stage/opt/zapret2/binaries/linux-arm64/mdig" \
+        "$_stage/opt/zapret2/binaries/linux-x86_64/nfqws2" \
+        "$_stage/opt/zapret2/binaries/linux-x86_64/ip2net" \
+        "$_stage/opt/zapret2/binaries/linux-x86_64/mdig"
     printf '#!/bin/sh\nexit 0\n' > "$_stage/usr/lib/z2k/platform/openwrt/bootstrap.sh"
     printf 'release tag %s\n' "$_CURRENT_TAG" > "$_stage/usr/lib/z2k/version.txt"
     printf 'update public key\n' > "$_stage/opt/zapret2/etc/z2k-update-pub.pem"
@@ -115,7 +109,8 @@ make_artifact() {
     printf '# product hotplug\n' > "$_stage/etc/hotplug.d/iface/90-z2k"
     printf 'net.ipv4.ip_forward=1\n' > "$_stage/etc/sysctl.d/99-z2k.conf"
     printf 'table inet z2k-test {}\n' > "$_stage/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft"
-    chmod 0755 "$_stage/usr/bin/z2kow" "$_stage/usr/sbin/install_release"
+    chmod 0755 "$_stage/usr/bin/z2kow" "$_stage/usr/sbin/install_release" \
+        "$_stage/etc/init.d/z2k" "$_stage/etc/init.d/z2k-webpanel"
 }
 
 prepare_manifest() {
@@ -250,8 +245,8 @@ if [ -f "$SYS/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client" ] \
     && [ ! -e "$SYS/usr/lib/z2k/bin/linux-x86_64/tg-mtproxy-client" ] \
     && [ -f "$SYS/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd" ] \
     && [ ! -e "$SYS/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd" ] \
-    && [ -f "$SYS/opt/zapret2/binaries/linux-arm64/nfq2/nfqws2" ] \
-    && [ ! -e "$SYS/opt/zapret2/binaries/linux-x86_64/nfq2/nfqws2" ]; then
+    && [ -f "$SYS/opt/zapret2/binaries/linux-arm64/nfqws2" ] \
+    && [ ! -e "$SYS/opt/zapret2/binaries/linux-x86_64/nfqws2" ]; then
     _t_ok
 else
     _t_bad "installer did not prune other architecture variants from target staging"
@@ -318,7 +313,7 @@ _unsafe_owned_paths=""
 : > "$T/legacy-packages"
 
 _out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
-assert_eq "second install is none" "none $_CURRENT_TAG" "$_out"
+assert_eq "second install is none" "none $_CURRENT_TAG" "$(printf '%s\n' "$_out" | tail -n 1)"
 assert_eq "second install is a no-op" "0" "$_rc"
 _decision="$(z2k_ow_release_decision "$T/UPDATES.json" "$SYS/etc/z2k/state/installed-release")"
 assert_eq "check after p-86.2 -> $_CURRENT_TAG install is none" "none $_CURRENT_TAG" "$_decision"
@@ -359,7 +354,7 @@ printf "config main 'config'\n\nconfig https-dns-proxy 'z2kow_xbox'\n\toption re
 printf 'damaged release file\n' > "$SYS/usr/lib/z2k/version.txt"
 _out="$(z2k_ow_install_release --reinstall "$_CURRENT_TAG" 2>&1)"; _rc=$?
 if [ "$_rc" -eq 0 ] \
-    && [ "$_out" = "installed $_CURRENT_TAG" ] \
+    && [ "$(printf '%s\n' "$_out" | tail -n 1)" = "installed $_CURRENT_TAG" ] \
     && grep -q "release tag $_CURRENT_TAG" "$SYS/usr/lib/z2k/version.txt" \
     && [ "$(cat "$SYS/etc/z2k/state/installed-release")" = "$_state_before" ] \
     && grep -q 'keep user config' "$SYS/etc/z2k/config" \
@@ -450,7 +445,7 @@ body = source.split("_z2k_ow_install_release_locked() {", 1)[1].split("\n}", 1)[
 verify = body.index("z2k_ow_manifest_prepare_production")
 reinstall_guard = body.index('if [ "$_reinstall" = 1 ]; then')
 same_version = body.index('echo "none $_tag"')
-size_check = body.index('[ "$(wc -c < "$_archive"')
+size_check = body.index('_actual_size="$(wc -c < "$_archive"')
 hash_check = body.index('[ "$_actual" = "$_sha" ]')
 assert verify < reinstall_guard < same_version < size_check < hash_check
 assert '[ "$_reinstall" != 1 ]' in body
@@ -744,7 +739,8 @@ make_artifact "$HEALTH_STAGE"
 cat > "$HEALTH_STAGE/etc/init.d/z2k" <<EOF
 #!/bin/sh
 case "\$1" in
-    enable|restart|start)
+    enable) exit 0 ;;
+    restart|start)
         if grep -q '^ENABLED=0$' "$HEALTH_SYS/etc/z2k/config" 2>/dev/null; then
             echo "\$1" >> "$HEALTH_SYS/disabled-service-actions"
             exit 23

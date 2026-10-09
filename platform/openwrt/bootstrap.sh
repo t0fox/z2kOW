@@ -1,6 +1,6 @@
 #!/bin/sh
-# Persistent configuration bootstrap only. Release installation is owned by
-# platform/openwrt/release.sh; this file never stages or versions payloads.
+# Инициализация постоянной конфигурации. Установкой релиза управляет
+# platform/openwrt/release.sh; здесь payload не раскладывается и не версионируется.
 
 z2k_ow_retire_discovery() {
     local _init="${Z2K_OW_LEGACY_DETECT_INIT:-/etc/init.d/z2k-detect}"
@@ -13,7 +13,7 @@ z2k_ow_retire_discovery() {
            || ! grep -Fqx '# /etc/init.d/z2k-detect - reactive DPI-discovery daemon (parity S98z2k-detect).' "$_init" 2>/dev/null \
            || ! grep -Fqx '# PACKAGE-owned.' "$_init" 2>/dev/null \
            || ! grep -Fqx 'START=98' "$_init" 2>/dev/null; then
-            echo "z2k-openwrt: preserving unrecognized legacy init path $_init" >&2
+            echo "z2k-openwrt: сохранён неизвестный init-скрипт прежней установки: $_init" >&2
         else
             _owned_init=1
             if [ -x "$_init" ]; then
@@ -46,6 +46,10 @@ z2k_ow_retire_discovery() {
     done
 
     [ "$_retired" = "1" ] || return 0
+    # До фиксации установки старые данные и init остаются доступными откату.
+    # Этот же маркер виден bootstrap, вызванному из запускаемой procd-службы.
+    local _retire_work="${Z2K_OW_INSTALL_WORK:-/usr/lib/.z2k-install}"
+    [ ! -e "$_retire_work/transaction-active" ] || return 0
     rm -f "$Z2K_LISTS_DIR/discovered-domains.txt" \
         "$Z2K_LISTS_DIR/discovered-domains.txt.etag" \
         "$Z2K_STATE/discovered-domains.txt" \
@@ -59,8 +63,8 @@ z2k_ow_bootstrap() {
     mkdir -p "$Z2K_ETC" "$Z2K_STATE" "$Z2K_USER_LISTS" "$Z2K_CONF_DIR" \
         "$Z2K_RUN" "$Z2K_LOCKS" "$Z2K_LOG" "$Z2K_DOWNLOADS" "$Z2K_GENERATED" || return 1
 
-    # Prefer OpenWrt's target triplet: uname -m reports plain mips on some
-    # devices and cannot tell the release's big/little-endian runtime apart.
+    # Метаданные OpenWrt различают ABI: uname -m на части роутеров возвращает
+    # только mips и не различает порядок байтов в бинарниках релиза.
     if ! command -v z2k_ow_arch_name >/dev/null 2>&1; then
         . "${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/arch.sh" || return 1
     fi
@@ -74,7 +78,7 @@ z2k_ow_bootstrap() {
         _dir="${_pair%%/*}" _name="${_pair#*/}"
         _source="$_runtime/binaries/$_arch_dir/$_name"
         _link="$_runtime/$_dir/$_name"
-        [ -x "$_source" ] || {
+        [ -f "$_source" ] && [ -x "$_source" ] || {
             echo "z2k-openwrt: нет $_source для этой архитектуры" >&2
             return 1
         }

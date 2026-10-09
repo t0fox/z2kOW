@@ -5,7 +5,7 @@
 # этапы в её журнал заданий, чтобы было видно медленную распаковку архива;
 # команды CLI и cron сохраняют привычный вывод.
 z2k_ow_install_progress() {
-    [ -n "${Z2K_JOB_ID:-}" ] || return 0
+    [ -n "${Z2K_JOB_ID:-}" ] || { printf 'z2kOW: %s\n' "$*" >&2; return 0; }
     local _epoch
     _epoch=$(date +%s 2>/dev/null) || _epoch=
     case "$_epoch" in
@@ -80,6 +80,46 @@ z2k_ow_release_state_write() {
     mv -f "$_tmp" "$_state" || { rm -f "$_tmp"; return 1; }
 }
 
+# Отпечаток применённого архива дополняет tag + seq: одноимённый хотфикс
+# может иметь те же продуктовые значения, но другой immutable payload.
+z2k_ow_artifact_digest_read() {
+    local _digest_file="$1"
+    [ -f "$_digest_file" ] && [ ! -L "$_digest_file" ] || return 1
+    [ "$(wc -l < "$_digest_file" | tr -d ' \t\r\n')" = 1 ] || return 1
+    grep -Eq '^[0-9a-f]{64}$' "$_digest_file" || return 1
+    cat "$_digest_file"
+}
+
+z2k_ow_artifact_receipt_matches() {
+    local _receipt_manifest="$1" _receipt_state="$2" _receipt_expected _receipt_actual
+    _receipt_expected="$(z2k_ow_json_value "$_receipt_manifest" artifact.sha256 | tr 'A-F' 'a-f')" || return 1
+    _receipt_actual="$(z2k_ow_artifact_digest_read "${_receipt_state%/*}/installed-artifact-sha256")" || return 1
+    [ "$_receipt_actual" = "$_receipt_expected" ]
+}
+
+z2k_ow_artifact_receipt_write() {
+    local _receipt_state="$1" _receipt_sha="$2" _receipt_path _receipt_tmp
+    printf '%s' "$_receipt_sha" | grep -Eq '^[0-9a-f]{64}$' || return 1
+    _receipt_path="${_receipt_state%/*}/installed-artifact-sha256"
+    _receipt_tmp="$_receipt_path.z2k-new.$$"
+    (umask 077; printf '%s\n' "$_receipt_sha" > "$_receipt_tmp") \
+        && mv -f "$_receipt_tmp" "$_receipt_path" || { rm -f "$_receipt_tmp"; return 1; }
+}
+
+z2k_ow_restore_artifact_receipt() {
+    local _receipt_work="$1" _receipt_state="$2" _receipt_path _receipt_tmp
+    _receipt_path="${_receipt_state%/*}/installed-artifact-sha256"
+    if [ -f "$_receipt_work/artifact-was-present" ]; then
+        [ -f "$_receipt_work/installed-artifact.old" ] || return 1
+        _receipt_tmp="$_receipt_path.z2k-recover.$$"
+        cp -p "$_receipt_work/installed-artifact.old" "$_receipt_tmp" \
+            && mv -f "$_receipt_tmp" "$_receipt_path" \
+            && cmp -s "$_receipt_work/installed-artifact.old" "$_receipt_path" || return 1
+    elif [ -f "$_receipt_work/state-write-started" ]; then
+        rm -f "$_receipt_path" || return 1
+    fi
+}
+
 z2k_ow_legacy_packages_present() {
     command -v apk >/dev/null 2>&1 || return 1
     for _pkg in z2k-adapter z2k-webpanel z2k-zapret2-runtime z2k-warp-runtime; do
@@ -118,6 +158,10 @@ z2k_ow_release_decision() {
     if [ "$_installed" = "$_tag" ] && [ "$(z2k_ow_release_state_seq "$_state")" != "$_seq" ]; then
         # При изменении номера версии выполнить полную установку и проверку
         # состояния служб до замены единой записи о версии.
+        printf 'update %s\n' "$_tag"
+        return 0
+    fi
+    if [ "$_installed" = "$_tag" ] && ! z2k_ow_artifact_receipt_matches "$_manifest" "$_state"; then
         printf 'update %s\n' "$_tag"
         return 0
     fi
@@ -213,6 +257,21 @@ z2k_ow_pkg_remove_legacy() {
     apk del --no-scripts $_names
 }
 
+# Системные зависимости должны быть готовы до остановки работающего z2k.
+z2k_ow_system_dependencies() {
+    apk add kmod-nft-queue kmod-tun kmod-nfnetlink-log conntrack openssl-util jsonfilter tcpdump-mini curl || {
+        echo "z2k-openwrt: не удалось обеспечить системные зависимости OpenWrt" >&2
+        return 1
+    }
+    # Панель запускает собственный lighttpd на настроенном порту. Скрипты
+    # пакетов включают системный lighttpd, который занимает порт LuCI 80 и
+    # отвечает 403 на /cgi-bin/luci; ставить только сервер и модули.
+    apk add --no-scripts lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias || {
+        echo "z2k-openwrt: не удалось обеспечить системные зависимости OpenWrt" >&2
+        return 1
+    }
+}
+
 z2k_ow_legacy_migrate() {
     _legacy_root="${1:-$(z2k_ow_path /usr/lib/z2k)}"
     command -v apk >/dev/null 2>&1 || {
@@ -265,17 +324,6 @@ EOF_OWNERSHIP
         fi
     fi
 
-    apk add kmod-nft-queue kmod-tun kmod-nfnetlink-log conntrack openssl-util jsonfilter tcpdump-mini curl || {
-        echo "z2k-openwrt: не удалось обеспечить системные зависимости OpenWrt" >&2
-        return 1
-    }
-    # Панель запускает собственный lighttpd на настроенном порту. Скрипты
-    # пакетов включают системный lighttpd, который занимает порт LuCI 80 и
-    # отвечает 403 на /cgi-bin/luci; ставить только сервер и модули.
-    apk add --no-scripts lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-alias || {
-        echo "z2k-openwrt: не удалось обеспечить системные зависимости OpenWrt" >&2
-        return 1
-    }
     z2k_ow_pkg_remove_legacy "$_names" || {
         echo "z2k-openwrt: не удалось удалить старое владение пакетами z2kOW" >&2
         return 1
@@ -427,6 +475,7 @@ z2k_ow_restore_paths() {
         if [ -e "$_save" ] || [ -L "$_save" ]; then
             if [ "$_restore_started" = 0 ]; then
                 printf 'R|%s\n' "$_rel" >> "$_transaction" || { _failed=1; continue; }
+                sync || { _failed=1; continue; }
                 _restore_started=1
             fi
             if [ -e "$_dst" ] || [ -L "$_dst" ]; then rm -rf "$_dst" || { _failed=1; continue; }; fi
@@ -451,6 +500,7 @@ z2k_ow_restore_paths() {
             fi
             if [ "$_restore_started" = 0 ]; then
                 printf 'R|%s\n' "$_rel" >> "$_transaction" || { _failed=1; continue; }
+                sync || { _failed=1; continue; }
             fi
             if [ -e "$_dst" ] || [ -L "$_dst" ]; then rm -rf "$_dst" || _failed=1; fi
             { [ ! -e "$_dst" ] && [ ! -L "$_dst" ]; } || _failed=1
@@ -480,7 +530,10 @@ z2k_ow_backup_paths() {
             # Записать наличие исходного пути до переименования, чтобы при
             # восстановлении отличить потерю копии от нового файла.
             printf 'O|%s\n' "$_rel" >> "$_transaction" || return 1
+            sync || return 1
             mv "$_dst" "$_save" || return 1
+        else
+            sync || return 1
         fi
     done < "$_paths"
 }
@@ -498,6 +551,7 @@ z2k_ow_apply_staged_tree() {
         mkdir -p "$(dirname "$_dst")" || return 1
         _new="${_dst}.z2k-new.${_transaction_id}"
         printf 'I|%s\n' "$_rel" >> "$_transaction" || return 1
+        sync || return 1
         # Финальное переименование выполняется в том же каталоге и атомарно.
         # Большие каталоги сначала перемещаются из временного каталога на той же файловой
         # системе; небольшие файлы /etc копируются во временный файл рядом.
@@ -530,8 +584,123 @@ z2k_ow_cleanup_transaction() {
     return "$_failed"
 }
 
+z2k_ow_remove_boot_recovery() {
+    local _br_work="$1" _br_hook _br_expected
+    [ -f "$_br_work/recovery-hook" ] || return 0
+    _br_hook="$(cat "$_br_work/recovery-hook")" || return 1
+    _br_expected="$(z2k_ow_path /etc/rc.d/S21z2kow-install-recovery)"
+    [ "$_br_hook" = "$_br_expected" ] || return 1
+    if [ -e "$_br_hook" ] || [ -L "$_br_hook" ]; then
+        [ -L "$_br_hook" ] && [ "$(readlink "$_br_hook")" = "$_br_work/recovery-engine/recover_boot.sh" ] || {
+            echo "z2k-openwrt: загрузочная ссылка recovery заменена; журнал оставлен" >&2
+            return 1
+        }
+        rm -f "$_br_hook" || return 1
+    fi
+}
+
+# Сохранить только принадлежащие продукту ссылки запуска. Старые init-скрипты
+# могут ещё не иметь recovery guard, поэтому при аварии они не должны запускаться.
+z2k_ow_capture_startup() {
+    local _bs_work="$1" _bs_dir _bs_path _bs_name _bs_target _bs_service
+    _bs_dir="$(z2k_ow_path /etc/rc.d)"
+    mkdir -p "$_bs_work/startup-links" || return 1
+    [ -d "$_bs_work/startup-links" ] && [ ! -L "$_bs_work/startup-links" ] || return 1
+    : > "$_bs_work/startup-paths" || return 1
+    for _bs_path in "$_bs_dir"/S??z2k "$_bs_dir"/S??z2k-webpanel; do
+        [ -e "$_bs_path" ] || [ -L "$_bs_path" ] || continue
+        _bs_name=${_bs_path##*/}
+        case "$_bs_name" in S[0-9][0-9]z2k) _bs_service=z2k ;; S[0-9][0-9]z2k-webpanel) _bs_service=z2k-webpanel ;; *) return 1 ;; esac
+        [ -L "$_bs_path" ] || { echo "z2k-openwrt: неизвестный путь автозапуска: $_bs_path" >&2; return 1; }
+        _bs_target="$(readlink "$_bs_path")" || return 1
+        case "$_bs_target" in "../init.d/$_bs_service"|"/etc/init.d/$_bs_service"|"$(z2k_ow_path "/etc/init.d/$_bs_service")") ;;
+            *) echo "z2k-openwrt: неизвестная цель автозапуска: $_bs_path" >&2; return 1 ;;
+        esac
+        rm -f "$_bs_work/startup-links/$_bs_name" || return 1
+        ln -s "$_bs_target" "$_bs_work/startup-links/$_bs_name" || return 1
+        printf '%s\n' "$_bs_name" >> "$_bs_work/startup-paths" || return 1
+    done
+    : > "$_bs_work/startup-links-prepared"
+}
+
+z2k_ow_suspend_startup() {
+    local _bs_work="$1" _bs_dir _bs_path _bs_name _bs_target _bs_service
+    [ -f "$_bs_work/startup-links-prepared" ] || return 0
+    _bs_dir="$(z2k_ow_path /etc/rc.d)"
+    for _bs_path in "$_bs_dir"/S??z2k "$_bs_dir"/S??z2k-webpanel; do
+        [ -e "$_bs_path" ] || [ -L "$_bs_path" ] || continue
+        _bs_name=${_bs_path##*/}
+        case "$_bs_name" in S[0-9][0-9]z2k) _bs_service=z2k ;; S[0-9][0-9]z2k-webpanel) _bs_service=z2k-webpanel ;; *) return 1 ;; esac
+        [ -L "$_bs_path" ] || return 1
+        _bs_target="$(readlink "$_bs_path")" || return 1
+        case "$_bs_target" in "../init.d/$_bs_service"|"/etc/init.d/$_bs_service"|"$(z2k_ow_path "/etc/init.d/$_bs_service")") ;;
+            *) return 1 ;;
+        esac
+        rm -f "$_bs_path" || return 1
+    done
+    sync
+}
+
+z2k_ow_restore_startup() {
+    local _bs_work="$1" _bs_dir _bs_name _bs_target _bs_mode="${2:-rollback}" _bs_service _bs_existing _bs_found
+    [ -f "$_bs_work/startup-links-prepared" ] || return 0
+    [ "$_bs_mode" = commit ] || z2k_ow_suspend_startup "$_bs_work" || return 1
+    _bs_dir="$(z2k_ow_path /etc/rc.d)"
+    while IFS= read -r _bs_name; do
+        case "$_bs_name" in S[0-9][0-9]z2k|S[0-9][0-9]z2k-webpanel) ;; *) return 1 ;; esac
+        if [ "$_bs_mode" = commit ]; then
+            # enable уже создал ссылки нового релиза. Если dataplane выключен,
+            # сохранить прежний автозапуск для его независимых maintenance-задач.
+            case "$_bs_name" in S[0-9][0-9]z2k) _bs_service=z2k ;; *) _bs_service=z2k-webpanel ;; esac
+            _bs_found=0
+            for _bs_existing in "$_bs_dir"/S??"$_bs_service"; do
+                if [ -e "$_bs_existing" ] || [ -L "$_bs_existing" ]; then _bs_found=1; break; fi
+            done
+            [ "$_bs_found" = 0 ] || continue
+        fi
+        [ -L "$_bs_work/startup-links/$_bs_name" ] || return 1
+        _bs_target="$(readlink "$_bs_work/startup-links/$_bs_name")" || return 1
+        ln -s "$_bs_target" "$_bs_dir/$_bs_name" || return 1
+    done < "$_bs_work/startup-paths"
+    sync
+}
+
+# Копия того же проверенного движка остаётся на overlay, даже когда основной
+# payload временно отсутствует. rcS вызовет её до z2k (START=22).
+z2k_ow_prepare_boot_recovery() {
+    local _br_work="$1" _br_tmp="$2" _br_adapter="$3" _br_engine _br_hook _br_file
+    _br_engine="$_br_work/recovery-engine"
+    _br_hook="$(z2k_ow_path /etc/rc.d/S21z2kow-install-recovery)"
+    if [ -e "$_br_hook" ] || [ -L "$_br_hook" ]; then
+        [ -L "$_br_hook" ] && [ "$(readlink "$_br_hook")" = "$_br_engine/recover_boot.sh" ] || {
+            echo "z2k-openwrt: чужая загрузочная ссылка мешает подготовить recovery" >&2
+            return 1
+        }
+    fi
+    mkdir -p "$_br_engine" "${_br_hook%/*}" || return 1
+    for _br_file in paths.sh env.sh release_state.sh release.sh arch.sh recover_boot.sh; do
+        [ -f "$_br_adapter/$_br_file" ] && [ -s "$_br_adapter/$_br_file" ] || return 1
+        cp -p "$_br_adapter/$_br_file" "$_br_engine/$_br_file" || return 1
+    done
+    chmod 0755 "$_br_engine/recover_boot.sh" || return 1
+    printf '%s\n' "$_br_tmp" > "$_br_work/temporary-work" || return 1
+    printf '%s\n' "$_br_hook" > "$_br_work/recovery-hook" || return 1
+    if [ ! -L "$_br_hook" ]; then
+        ln -s "$_br_engine/recover_boot.sh" "$_br_hook" || return 1
+    fi
+    z2k_ow_capture_startup "$_br_work"
+}
+
 z2k_ow_cleanup_install_workspace() {
     _failed=0
+    # Cleanup вызывается после подтверждённого commit/rollback либо до замены
+    # файлов. Сначала снять active и сохранить это на диск: ошибка удаления
+    # workspace после снятия boot hook не должна заблокировать здоровые службы.
+    if [ -e "$1/transaction-active" ] || [ -L "$1/transaction-active" ]; then
+        rm -f "$1/transaction-active" || return 1
+        sync || return 1
+    fi
+    z2k_ow_remove_boot_recovery "$1" || return 1
     rm -rf "$1" || _failed=1
     if [ -e "$2" ] || [ -L "$2" ]; then
         if z2k_ow_temp_workspace_owned "$2"; then
@@ -589,6 +758,7 @@ z2k_ow_cleanup_temp_workspace() {
 z2k_ow_rollback_install() {
     _rollback_phase="$1"
     echo "z2k-openwrt: этап «$_rollback_phase» не выполнен; восстанавливается предыдущий релиз" >&2
+    z2k_ow_suspend_startup "$_work" || return 1
     if ! z2k_ow_restore_paths "$_transaction" "$_paths" "$_transaction_id"; then
         echo "z2k-openwrt: откат не завершён; данные для восстановления сохранены в $_work" >&2
         z2k_ow_cleanup_temp_workspace "$_tmp_work" || true
@@ -608,6 +778,10 @@ z2k_ow_rollback_install() {
         rm -f "$_state" || { echo "z2k-openwrt: не удалось удалить незафиксированное состояние релиза; данные оставлены в $_work" >&2; return 1; }
         [ ! -e "$_state" ] || { echo "z2k-openwrt: незафиксированное состояние релиза сохранилось; данные оставлены в $_work" >&2; return 1; }
     fi
+    z2k_ow_restore_artifact_receipt "$_work" "$_state" && sync || {
+        echo "z2k-openwrt: отпечаток прежнего архива не восстановлен; журнал оставлен" >&2
+        return 1
+    }
     z2k_ow_restart_services "$_service" "$_panel" \
         || { echo "z2k-openwrt: предыдущие службы не запустились; данные восстановления оставлены в $_work" >&2; z2k_ow_cleanup_temp_workspace "$_tmp_work" || true; return 1; }
     { [ ! -x "$_service" ] || ! z2k_ow_service_enabled \
@@ -615,6 +789,7 @@ z2k_ow_rollback_install() {
         || { echo "z2k-openwrt: служба z2k не прошла проверку состояния; данные оставлены в $_work" >&2; z2k_ow_cleanup_temp_workspace "$_tmp_work" || true; return 1; }
         { [ ! -x "$_panel" ] || { z2k_ow_service_call "$_panel" running >/dev/null 2>&1 && z2k_ow_webpanel_http_ready; }; } \
         || { echo "z2k-openwrt: служба WebPanel или HTTP-проверка не пройдена; данные оставлены в $_work" >&2; z2k_ow_cleanup_temp_workspace "$_tmp_work" || true; return 1; }
+    z2k_ow_restore_startup "$_work" || return 1
     z2k_ow_cleanup_transaction "$_paths" "$_transaction_id" \
         || { echo "z2k-openwrt: очистка после отката не завершена; данные восстановления оставлены в $_work" >&2; z2k_ow_cleanup_temp_workspace "$_tmp_work" || true; return 1; }
     z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work" \
@@ -648,8 +823,18 @@ z2k_ow_recover_transaction() {
         [ -n "$_target_tag" ] && [ -n "$_target_seq" ] || return 1
         _transaction_target_record=$(printf 'tag=%s\nseq=%s' "$_target_tag" "$_target_seq")
     fi
+    _transaction_target_digest=""
+    _installed_digest=""
+    if [ -e "$_work/transaction-artifact" ] || [ -L "$_work/transaction-artifact" ]; then
+        _transaction_target_digest="$(z2k_ow_artifact_digest_read "$_work/transaction-artifact")" || {
+            echo "z2k-openwrt: повреждён отпечаток цели транзакции; журнал оставлен" >&2
+            return 1
+        }
+        _installed_digest="$(z2k_ow_artifact_digest_read "${_state%/*}/installed-artifact-sha256")" || _installed_digest=""
+    fi
     if [ -n "$_installed_record" ] \
         && [ "$_installed_record" = "$_transaction_target_record" ] \
+        && { [ -z "$_transaction_target_digest" ] || [ "$_installed_digest" = "$_transaction_target_digest" ]; } \
         && [ -f "$_work/state-write-started" ] \
         && [ -f "$_transaction" ] \
         && ! grep -q '^R|' "$_transaction"; then
@@ -657,6 +842,7 @@ z2k_ow_recover_transaction() {
         # питания; прервалось только удаление временных файлов транзакции.
         # Записи R| означают, что начался откат; даже совпадающий tag + seq
         # при повторной установке не должен превращать его в успешный commit.
+        z2k_ow_restore_startup "$_work" commit || return 1
         z2k_ow_cleanup_transaction "$_paths" "$_id" || {
             echo "z2k-openwrt: очистка завершённой транзакции не выполнена; журнал оставлен в $_work" >&2
             return 1
@@ -664,6 +850,7 @@ z2k_ow_recover_transaction() {
         z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work" || return 1
         return 0
     fi
+    z2k_ow_suspend_startup "$_work" || return 1
     z2k_ow_restore_paths "$_transaction" "$_paths" "$_id" || return 1
     if [ -f "$_work/state-was-present" ]; then
         [ -f "$_work/installed-release.old" ] || return 1
@@ -673,6 +860,10 @@ z2k_ow_recover_transaction() {
     elif [ -f "$_work/state-write-started" ]; then
         rm -f "$_state" || return 1
     fi
+    z2k_ow_restore_artifact_receipt "$_work" "$_state" && sync || {
+        echo "z2k-openwrt: отпечаток прежнего архива не восстановлен; журнал оставлен" >&2
+        return 1
+    }
     z2k_ow_restart_services "$_service" "$_panel" || {
         echo "z2k-openwrt: файлы восстановлены, но прежние службы не запустились; журнал оставлен в $_work" >&2
         return 1
@@ -686,6 +877,7 @@ z2k_ow_recover_transaction() {
         echo "z2k-openwrt: WebPanel после восстановления не прошла проверку; журнал оставлен в $_work" >&2
         return 1
     }
+    z2k_ow_restore_startup "$_work" || return 1
     z2k_ow_cleanup_transaction "$_paths" "$_id" || {
         echo "z2k-openwrt: очистка восстановления не выполнена; журнал оставлен в $_work" >&2
         return 1
@@ -724,6 +916,66 @@ z2k_ow_service_call() {
     fi
 }
 
+# Сопоставить путь с самым длинным mountpoint, а не с именем устройства df.
+z2k_ow_storage_type() {
+    local _storage_path _mountinfo="${Z2K_OW_MOUNTINFO_FILE:-/proc/self/mountinfo}"
+    _storage_path="$(readlink -f "$1" 2>/dev/null)" || return 1
+    [ -n "$_storage_path" ] && [ -r "$_mountinfo" ] || return 1
+    Z2K_STORAGE_PATH="$_storage_path" awk '
+        BEGIN { path=ENVIRON["Z2K_STORAGE_PATH"] }
+        {
+            point=$5
+            gsub(/\\040/, " ", point)
+            gsub(/\\011/, "\t", point)
+            if (point == "/" || path == point || index(path, point "/") == 1) {
+                if (length(point) > longest) {
+                    for (i=6; i<=NF; i++) if ($i == "-") {
+                        kind=$(i+1); longest=length(point); break
+                    }
+                }
+            }
+        }
+        END { if (kind == "") exit 1; print kind }
+    ' "$_mountinfo"
+}
+
+# Свободная ёмкость tmpfs не равна физической RAM: бюджет проверяется отдельно.
+# На дисковом хранилище архив целиком не резервирует оперативную память.
+z2k_ow_memory_preflight() {
+    local _memory_path="$1" _memory_bytes="$2" _memory_reserve="$3" _memory_type _memory_available
+    local _memory_info="${Z2K_OW_MEMINFO_FILE:-/proc/meminfo}"
+    _memory_type="$(z2k_ow_storage_type "$_memory_path")" || {
+        echo "z2k-openwrt: не удалось определить тип временной файловой системы: $_memory_path" >&2
+        return 1
+    }
+    case "$_memory_type" in tmpfs|ramfs|rootfs) ;; *) return 0 ;; esac
+    [ -r "$_memory_info" ] || return 1
+    _memory_available=$(awk '
+        /^MemAvailable:/ { available=$2; found=1 }
+        /^MemFree:/ { free=$2; fallback=1 }
+        /^Buffers:/ { buffers=$2 }
+        /^Cached:/ { cached=$2 }
+        /^Shmem:/ { shmem=$2 }
+        END {
+            if (!found && !fallback) exit 1
+            if (!found) available=free+buffers+cached-shmem
+            if (available < 0) available=0
+            if (available ~ /^[0-9]+$/) printf "%.0f\n", available
+            else exit 1
+        }
+    ' "$_memory_info") || return 1
+    [ -n "$_memory_available" ] || return 1
+    awk -v available="$_memory_available" -v bytes="$_memory_bytes" -v reserve="$_memory_reserve" '
+        BEGIN {
+            if (bytes !~ /^[0-9]+$/ || reserve !~ /^[0-9]+$/) exit 1
+            if (available*1024 < bytes+reserve) {
+                printf "z2k-openwrt: недостаточно RAM для временного хранилища (нужно %.0f байт с резервом; доступно %.0f КиБ)\n", bytes+reserve, available > "/dev/stderr"
+                exit 1
+            }
+        }
+    '
+}
+
 z2k_ow_system_preflight() {
     [ "${Z2K_OW_TESTING:-0}" = 1 ] && return 0
     local _release_file="${Z2K_OW_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
@@ -743,7 +995,7 @@ z2k_ow_system_preflight() {
             ;;
     esac
     command -v apk >/dev/null 2>&1 || { echo "z2k-openwrt: нужен apk для системных зависимостей OpenWrt" >&2; return 1; }
-    for _tool in awk df grep readlink sha256sum tar; do
+    for _tool in awk df grep readlink sha256sum sync tar tr xargs; do
         command -v "$_tool" >/dev/null 2>&1 || { echo "z2k-openwrt: необходимая системная команда отсутствует: $_tool" >&2; return 1; }
     done
     [ -r "$_meminfo" ] || { echo "z2k-openwrt: не удалось определить объём свободной оперативной памяти" >&2; return 1; }
@@ -924,6 +1176,7 @@ _z2k_ow_install_release_locked() {
     if [ -n "$_state_record" ] && [ "$_installed" = "$_tag" ] \
         && [ "$(z2k_ow_release_state_seq "$_state")" = "$_seq" ] \
         && [ "$_reinstall" != 1 ] \
+        && z2k_ow_artifact_receipt_matches "$_manifest" "$_state" \
         && ! z2k_ow_legacy_packages_present && ! z2k_ow_relay_identity_migration_needed; then
         if z2k_ow_installed_payload_ready; then
             echo "none $_tag"
@@ -945,35 +1198,54 @@ _z2k_ow_install_release_locked() {
     rm -rf "$_transaction" "$_work/transaction-active" \
         "$_work/transaction-id" "$_work/state-was-present" \
         "$_work/state-write-started" "$_work/transaction-target" \
+        "$_work/transaction-artifact" "$_work/artifact-was-present" "$_work/installed-artifact.old" \
         "$_work/transaction-target.new.$$" "$_old_state"
-    mkdir -p "$_stage" || return 1
+    mkdir -p "$_stage" || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     if [ -n "${Z2K_OW_BOOTSTRAP_ARTIFACT:-}" ]; then
         _archive="$Z2K_OW_BOOTSTRAP_ARTIFACT"
     elif [ "${Z2K_OW_TESTING:-0}" = 1 ] && [ -n "${Z2K_OW_ARTIFACT_PATH:-}" ]; then
         _archive="$Z2K_OW_ARTIFACT_PATH"
     else
+        z2k_ow_memory_preflight "$_tmp_work" "$_size" 4194304 \
+            || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
         z2k_ow_install_progress "Загружаю полный архив релиза"
         z2k_ow_download "$_url" "$_archive" || {
             z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1;
         }
     fi
     z2k_ow_install_progress "Проверяю размер и SHA-256 архива"
-    [ "$(wc -c < "$_archive" | tr -d ' \t\r\n')" = "$_size" ] \
-        || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
+    _actual_size="$(wc -c < "$_archive" | tr -d ' \t\r\n')"
+    [ "$_actual_size" = "$_size" ] || {
+        echo "z2k-openwrt: размер архива не совпал с манифестом (ожидалось $_size байт, получено $_actual_size)" >&2
+        z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"
+        return 1
+    }
     _actual="$(sha256sum "$_archive" 2>/dev/null | awk '{print $1}')"
-    [ "$_actual" = "$_sha" ] || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
+    [ "$_actual" = "$_sha" ] || {
+        echo "z2k-openwrt: SHA-256 архива не совпал с проверенным манифестом" >&2
+        z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"
+        return 1
+    }
     z2k_ow_install_progress "Проверяю список файлов архива"
     z2k_ow_archive_safe "$_archive" "$_work/archive-list" \
-        || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
+        || { echo "z2k-openwrt: архив содержит запрещённый путь, тип записи или цель ссылки" >&2; z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     z2k_ow_install_progress "Извлекаю файлы для архитектуры роутера"
     z2k_ow_extract_target_payload "$_archive" "$_stage" "$_work/archive-list" "$_work" \
         || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     z2k_ow_owned_paths > "$_paths" || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
+    z2k_ow_install_progress "Проверяю системные зависимости до остановки служб"
+    z2k_ow_system_dependencies || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
+    # APK мог занять место: повторить расчёт payload на каждой целевой ФС.
+    z2k_ow_overlay_preflight "$_archive" "$_target_arch" "$_adapter/owned-paths.txt" \
+        "$_work/archive-list" "$_work" "$_stage" \
+        || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     z2k_ow_migrate_relay_identity || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
 
     printf '%s\n' "$_transaction_id" > "$_work/transaction-id" \
         || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     _expected_record=$(printf 'tag=%s\nseq=%s' "$_tag" "$_seq")
+    printf '%s\n' "$_sha" > "$_work/transaction-artifact" \
+        || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     _target_record_tmp="$_work/transaction-target.new.$$"
     printf 'tag=%s\nseq=%s\n' "$_tag" "$_seq" > "$_target_record_tmp" \
         && mv -f "$_target_record_tmp" "$_work/transaction-target" || {
@@ -987,46 +1259,58 @@ _z2k_ow_install_release_locked() {
         : > "$_work/state-was-present" \
             || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     fi
+    if [ -e "${_state%/*}/installed-artifact-sha256" ] || [ -L "${_state%/*}/installed-artifact-sha256" ]; then
+        [ -f "${_state%/*}/installed-artifact-sha256" ] && [ ! -L "${_state%/*}/installed-artifact-sha256" ] \
+            && cp -p "${_state%/*}/installed-artifact-sha256" "$_work/installed-artifact.old" \
+            && : > "$_work/artifact-was-present" \
+            || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
+    fi
+    z2k_ow_prepare_boot_recovery "$_work" "$_tmp_work" "$_adapter" || {
+        z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"
+        return 1
+    }
     : > "$_work/transaction-active" \
         || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
+    sync || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
+    z2k_ow_suspend_startup "$_work" || { z2k_ow_rollback_install "приостановка автозапуска"; return 1; }
 
     if [ -x "$_service" ]; then
         z2k_ow_install_progress "Останавливаю сервис перед заменой файлов"
         _stopped=1
         z2k_ow_service_call "$_service" stop >/dev/null 2>&1 || {
-            z2k_ow_rollback_install "service stop"
+            z2k_ow_rollback_install "остановка службы"
             return 1
         }
     fi
     z2k_ow_backup_paths "$_transaction" "$_paths" "$_transaction_id" || {
-        z2k_ow_rollback_install "backup creation"
+        z2k_ow_rollback_install "создание резервных копий"
         return 1
     }
     z2k_ow_legacy_migrate "$(z2k_ow_path /usr/lib/z2k).z2k-backup.$_transaction_id" || {
-        z2k_ow_rollback_install "legacy migration"
+        z2k_ow_rollback_install "миграция прежней установки"
         return 1
     }
 
     z2k_ow_install_progress "Применяю проверенные файлы релиза"
     if ! z2k_ow_apply_staged_tree "$_stage" "$_transaction" "$_paths" "$_transaction_id"; then
-        z2k_ow_rollback_install "file apply"
+        z2k_ow_rollback_install "применение файлов"
         return 1
     fi
 
     _state_dir="$(dirname "$_state")"
     mkdir -p "$_state_dir" || {
-        z2k_ow_rollback_install "release state directory creation"
+        z2k_ow_rollback_install "создание каталога состояния релиза"
         return 1
     }
 
     if [ "${Z2K_OW_TESTING:-0}" != 1 ]; then
         _bootstrap="$_adapter/bootstrap.sh"
         if [ -r "$_bootstrap" ]; then
-            . "$_bootstrap" || { z2k_ow_rollback_install "bootstrap load"; return 1; }
-            . "$_adapter/paths.sh" || { z2k_ow_rollback_install "path initialization"; return 1; }
-            . "$_adapter/env.sh" || { z2k_ow_rollback_install "environment initialization"; return 1; }
+            . "$_bootstrap" || { z2k_ow_rollback_install "загрузка bootstrap"; return 1; }
+            . "$_adapter/paths.sh" || { z2k_ow_rollback_install "инициализация путей"; return 1; }
+            . "$_adapter/env.sh" || { z2k_ow_rollback_install "инициализация окружения"; return 1; }
             z2k_ow_bootstrap || {
-                z2k_ow_rollback_install "platform bootstrap"
+                z2k_ow_rollback_install "инициализация OpenWrt"
                 return 1
             }
         fi
@@ -1034,12 +1318,22 @@ _z2k_ow_install_release_locked() {
     if [ "${Z2K_OW_TESTING:-0}" != 1 ] || [ "${Z2K_OW_TEST_HEALTHCHECK:-0}" = 1 ]; then
         z2k_ow_install_progress "Перезапускаю сервисы и проверяю доступность панели"
         for _svc in "$_service" "$_panel"; do
-            [ -x "$_svc" ] || continue
+            [ -f "$_svc" ] && [ -x "$_svc" ] || {
+                echo "z2k-openwrt: обязательный init-скрипт исчез или неисполняем: $_svc" >&2
+                z2k_ow_rollback_install "проверка обязательного init-скрипта"
+                return 1
+            }
             if [ "$_svc" = "$_service" ] && ! z2k_ow_service_enabled; then
                 continue
             fi
-            z2k_ow_service_call "$_svc" enable >/dev/null 2>&1 || true
             _svc_name=$(basename "$_svc")
+            _enable_log="$_work/$_svc_name-enable.log"
+            if ! z2k_ow_service_call "$_svc" enable >"$_enable_log" 2>&1; then
+                echo "z2k-openwrt: не удалось включить автозапуск обязательной службы: $_svc" >&2
+                tail -n 30 "$_enable_log" >&2 || true
+                z2k_ow_rollback_install "включение автозапуска службы"
+                return 1
+            fi
             _restart_log="$_work/$_svc_name-restart.log"
             _start_log="$_work/$_svc_name-start.log"
             if z2k_ow_service_call "$_svc" restart >"$_restart_log" 2>&1; then
@@ -1057,31 +1351,39 @@ _z2k_ow_install_release_locked() {
                             tail -n 30 "$_diagnostic" >&2 || true
                         fi
                     done
-                    z2k_ow_rollback_install "service start"
+                    z2k_ow_rollback_install "запуск службы"
                     return 1
                 fi
             fi
         done
         _n=0
         while [ "$_n" -lt 15 ]; do
-            if [ ! -x "$_service" ] || ! z2k_ow_service_enabled \
-                || { z2k_ow_service_call "$_service" status >/dev/null 2>&1 && z2k_ow_dataplane_ready; }; then
-                if [ ! -x "$_panel" ] || { z2k_ow_service_call "$_panel" running >/dev/null 2>&1 && z2k_ow_webpanel_http_ready; }; then break; fi
+            if [ -x "$_service" ] && { ! z2k_ow_service_enabled \
+                || { z2k_ow_service_call "$_service" status >/dev/null 2>&1 && z2k_ow_dataplane_ready; }; }; then
+                if [ -x "$_panel" ] && z2k_ow_service_call "$_panel" running >/dev/null 2>&1 && z2k_ow_webpanel_http_ready; then break; fi
             fi
             _n=$((_n + 1)); sleep 1
         done
-        [ "$_n" -lt 15 ] || { z2k_ow_rollback_install "service health check"; return 1; }
+        [ "$_n" -lt 15 ] || { z2k_ow_rollback_install "проверка состояния служб"; return 1; }
     fi
 
-    : > "$_work/state-write-started" || {
-        z2k_ow_rollback_install "release state journal"
+    z2k_ow_restore_startup "$_work" commit || {
+        z2k_ow_rollback_install "сохранение настроек автозапуска"
         return 1
     }
+    : > "$_work/state-write-started" || {
+        z2k_ow_rollback_install "журналирование версии релиза"
+        return 1
+    }
+    sync || { z2k_ow_rollback_install "сохранение журнала версии на диск"; return 1; }
     _state_tmp="${_state}.z2k-new.$_transaction_id"
     if ! z2k_ow_release_state_write "$_state" "$_manifest" \
-        || [ "$(z2k_ow_release_state_read "$_state" 2>/dev/null)" != "$_expected_record" ]; then
+        || [ "$(z2k_ow_release_state_read "$_state" 2>/dev/null)" != "$_expected_record" ] \
+        || ! z2k_ow_artifact_receipt_write "$_state" "$_sha" \
+        || ! z2k_ow_artifact_receipt_matches "$_manifest" "$_state" \
+        || ! sync; then
         echo "z2k-openwrt: не удалось зафиксировать единую запись установленной версии" >&2
-        z2k_ow_rollback_install "release state commit"
+        z2k_ow_rollback_install "фиксация версии и отпечатка архива"
         return 1
     fi
 
@@ -1102,6 +1404,12 @@ _z2k_ow_install_release_locked() {
         echo "z2k-openwrt: релиз установлен, но журнал транзакции не удалён" >&2
         return 1
     }
+    if [ "${Z2K_OW_TESTING:-0}" != 1 ] && command -v z2k_ow_retire_discovery >/dev/null 2>&1; then
+        z2k_ow_retire_discovery || {
+            echo "z2k-openwrt: релиз установлен, очистка старого discovery отложена до следующего запуска" >&2
+            return 1
+        }
+    fi
     printf 'installed %s\n' "$_tag"
 }
 
@@ -1159,15 +1467,21 @@ z2k_ow_installed_payload_ready() {
     _ready_arch="$(z2k_ow_arch_name 2>/dev/null)" || { echo "z2k-openwrt: архитектура установленного релиза не поддерживается" >&2; return 1; }
     [ -x "$(z2k_ow_path /usr/bin/z2kow)" ] || { echo "z2k-openwrt: исполняемый файл z2kow отсутствует или повреждён" >&2; return 1; }
     [ -x "$(z2k_ow_path /usr/sbin/install_release)" ] || { echo "z2k-openwrt: движок обновления отсутствует или повреждён" >&2; return 1; }
+    for _ready_path in "$_service" "$_panel"; do
+        [ -f "$_ready_path" ] && [ -s "$_ready_path" ] && [ -x "$_ready_path" ] || {
+            echo "z2k-openwrt: обязательная служба отсутствует или неисполняема: $_ready_path" >&2
+            return 1
+        }
+    done
     for _ready_path in \
         "$_ready_root/bin/linux-$_ready_arch/tg-mtproxy-client" \
         "$_ready_root/bin/linux-$_ready_arch/z2k-rt-proxy" \
         "$_ready_root/bin/linux-$_ready_arch/z2k-detect" \
         "$_ready_root/platform/openwrt/bin/linux-$_ready_arch/z2k-warpd" \
-        "$_ready_runtime/binaries/linux-$_ready_arch/nfq2/nfqws2" \
-        "$_ready_runtime/binaries/linux-$_ready_arch/ip2net/ip2net" \
-        "$_ready_runtime/binaries/linux-$_ready_arch/mdig/mdig"; do
-        [ -s "$_ready_path" ] && [ -x "$_ready_path" ] || {
+        "$_ready_runtime/binaries/linux-$_ready_arch/nfqws2" \
+        "$_ready_runtime/binaries/linux-$_ready_arch/ip2net" \
+        "$_ready_runtime/binaries/linux-$_ready_arch/mdig"; do
+        [ -f "$_ready_path" ] && [ -s "$_ready_path" ] && [ -x "$_ready_path" ] || {
             echo "z2k-openwrt: исполняемый файл выбранной архитектуры отсутствует или повреждён: $_ready_path" >&2
             return 1
         }
@@ -1221,6 +1535,7 @@ EOF_OWNED
 # в занятом месте и не прибавляется повторно к требованию.
 z2k_ow_overlay_preflight() {
     local _ov_archive="$1" _ov_arch="$2" _ov_paths="$3" _ov_listing="$4" _ov_work="$5"
+    local _ov_stage="${6:-}" _ov_source _ov_source_fs
     local _ov_sizes="$_ov_work/owned-payload-sizes" _ov_requirements="$_ov_work/overlay-requirements"
     local _ov_rel _ov_bytes _ov_member _ov_dst _ov_probe
     local _ov_df _ov_filesystem _ov_df_rest _ov_available_kb _ov_mountpoint
@@ -1252,6 +1567,15 @@ z2k_ow_overlay_preflight() {
             ;;
         esac
         [ -n "$_ov_filesystem" ] && [ -n "$_ov_mountpoint" ] || return 1
+        if [ -n "$_ov_stage" ]; then
+            _ov_source="$_ov_stage/$_ov_member"
+            if [ -d "$_ov_source" ] && [ ! -L "$_ov_source" ]; then
+                _ov_source_fs="$(df -Pk "$_ov_source" 2>/dev/null | awk 'END { if (NR >= 2) print $1 "|" $NF }')"
+                # Каталог на том же mount перемещается rename; его место уже
+                # занято staging и отражено в df. Файлы и EXDEV требуют копии.
+                [ "$_ov_source_fs" != "$_ov_filesystem|$_ov_mountpoint" ] || _ov_bytes=0
+            fi
+        fi
         printf '%s|%s|%s|%s\n' "$_ov_filesystem" "$_ov_mountpoint" "$_ov_available_kb" "$_ov_bytes" \
             >> "$_ov_requirements" || return 1
     done < "$_ov_sizes"
@@ -1315,16 +1639,24 @@ z2k_ow_extract_target_payload() {
         echo "z2k-openwrt: недостаточно места для распаковки файлов выбранной архитектуры (нужно ${_unpacked} байт и ещё 8 МиБ; доступно ${_available_kb} КиБ)" >&2
         return 1
     fi
-    tar -xzf "$_archive" -C "$_stage" -T "$_selected" || return 1
+    z2k_ow_memory_preflight "$_stage" "$_unpacked" 8388608 || return 1
+    # Передача списком аргументов работает и с BusyBox tar без поддержки -T.
+    # Нулевой разделитель сохраняет имена буквально, размер команды ограничен.
+    tr '\n' '\000' < "$_selected" \
+        | xargs -0 -r -s 32768 tar -xzf "$_archive" -C "$_stage" || return 1
     for _required in \
+        "usr/bin/z2kow" \
+        "usr/sbin/install_release" \
+        "etc/init.d/z2k" \
+        "etc/init.d/z2k-webpanel" \
         "usr/lib/z2k/bin/linux-$_target_arch/tg-mtproxy-client" \
         "usr/lib/z2k/bin/linux-$_target_arch/z2k-rt-proxy" \
         "usr/lib/z2k/bin/linux-$_target_arch/z2k-detect" \
         "usr/lib/z2k/platform/openwrt/bin/linux-$_target_arch/z2k-warpd" \
-        "opt/zapret2/binaries/linux-$_target_arch/nfq2/nfqws2" \
-        "opt/zapret2/binaries/linux-$_target_arch/ip2net/ip2net" \
-        "opt/zapret2/binaries/linux-$_target_arch/mdig/mdig"; do
-        [ -s "$_stage/$_required" ] && [ -x "$_stage/$_required" ] || {
+        "opt/zapret2/binaries/linux-$_target_arch/nfqws2" \
+        "opt/zapret2/binaries/linux-$_target_arch/ip2net" \
+        "opt/zapret2/binaries/linux-$_target_arch/mdig"; do
+        [ -f "$_stage/$_required" ] && [ -s "$_stage/$_required" ] && [ -x "$_stage/$_required" ] || {
             echo "z2k-openwrt: в полном архиве релиза отсутствует исполняемый файл выбранной архитектуры $_required" >&2
             return 1
         }
@@ -1335,11 +1667,14 @@ z2k_ow_extract_target_payload() {
 # файл блокировки с PID; следующий запуск удаляет устаревшую блокировку и
 # вызывает z2k_ow_recover_transaction() для восстановления или очистки.
 z2k_ow_install_lock_acquire() {
-    local _lock="$1" _pid="" _attempt=0
+    local _lock="$1" _pid="" _attempt=0 _boot_id _lock_boot
+    _boot_id="$(cat "${Z2K_OW_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}" 2>/dev/null)"
+    [ -n "$_boot_id" ] || { echo "z2k-openwrt: идентификатор загрузки недоступен" >&2; return 1; }
     while [ "$_attempt" -lt 3 ]; do
         if mkdir "$_lock" 2>/dev/null; then
-            if ! printf '%s\n' "$$" > "$_lock/pid"; then
-                rm -f "$_lock/pid" 2>/dev/null || true
+            if ! printf '%s\n' "$$" > "$_lock/pid" \
+                || ! printf '%s\n' "$_boot_id" > "$_lock/boot-id"; then
+                rm -f "$_lock/pid" "$_lock/boot-id" 2>/dev/null || true
                 rmdir "$_lock" 2>/dev/null || true
                 return 1
             fi
@@ -1356,11 +1691,13 @@ z2k_ow_install_lock_acquire() {
                 return 1
                 ;;
         esac
-        if [ "$_pid" = "$$" ] || kill -0 "$_pid" 2>/dev/null; then
+        _lock_boot="$(cat "$_lock/boot-id" 2>/dev/null)"
+        if { [ -z "$_lock_boot" ] || [ "$_lock_boot" = "$_boot_id" ]; } \
+            && { [ "$_pid" = "$$" ] || kill -0 "$_pid" 2>/dev/null; }; then
             echo "z2k-openwrt: уже выполняется другой install_release (PID $_pid)" >&2
             return 1
         fi
-        rm -f "$_lock/pid" 2>/dev/null || return 1
+        rm -f "$_lock/pid" "$_lock/boot-id" 2>/dev/null || return 1
         rmdir "$_lock" 2>/dev/null || return 1
         _attempt=$((_attempt + 1))
     done
@@ -1373,7 +1710,7 @@ z2k_ow_install_lock_release() {
     [ -d "$_lock" ] && [ ! -L "$_lock" ] || return 0
     _pid="$(cat "$_lock/pid" 2>/dev/null)"
     [ "$_pid" = "$$" ] || return 0
-    rm -f "$_lock/pid" 2>/dev/null || return 1
+    rm -f "$_lock/pid" "$_lock/boot-id" 2>/dev/null || return 1
     rmdir "$_lock" 2>/dev/null
 }
 

@@ -310,9 +310,11 @@ z2k_ow_uninstall() (
 
     _work="$Z2K_OW_INSTALL_WORK"
     _state="$Z2K_OW_INSTALLED_RELEASE_FILE"
+    _tmp_work="${Z2K_OW_INSTALL_TMP%/}/z2kow-release"
+    [ ! -f "$_work/temporary-work" ] || _tmp_work="$(cat "$_work/temporary-work")"
     _z2k_ow_uninstall_progress "проверяю и восстанавливаю прерванную транзакцию установки"
-    z2k_ow_recover_transaction "$_work" "$_state" "$Z2K_OW_CORE_INIT" "" "$Z2K_OW_PANEL_INIT" || {
-        echo "z2k-openwrt: cannot recover interrupted release transaction; uninstall stopped safely" >&2
+    z2k_ow_recover_transaction "$_work" "$_state" "$Z2K_OW_CORE_INIT" "" "" "$Z2K_OW_PANEL_INIT" || {
+        echo "z2k-openwrt: не удалось восстановить прерванную транзакцию релиза; удаление остановлено" >&2
         return 1
     }
 

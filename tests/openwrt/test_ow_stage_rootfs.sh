@@ -58,21 +58,10 @@ mkdir -p "$T/stage"
 sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$T/stage" "$T/runtime.tar.gz" \
     "$T/warpd" "$T/tg" "$T/rt" "$T/detect" "$T/release-keys" || exit 1
 
-for _pair in nfq2/nfqws2 ip2net/ip2net mdig/mdig; do
-    _name=${_pair#*/}
-    _alias="$T/stage/opt/zapret2/binaries/linux-x86_64/$_pair"
-    case "$_name" in
-        nfqws2)
-            [ -L "$_alias" ] && [ -x "$_alias" ] \
-                && [ "$(readlink "$_alias")" = "../$_name" ] \
-                && _t_ok || _t_bad "плоский бинарник nfqws2 получает относительную совместимую ссылку"
-            ;;
-        *)
-            [ -f "$_alias" ] && [ -x "$_alias" ] \
-                && [ ! -f "$T/stage/opt/zapret2/binaries/linux-x86_64/$_name" ] \
-                && _t_ok || _t_bad "плоский бинарник $_name перемещён в каталог, ожидаемый установщиком"
-            ;;
-    esac
+for _binary in nfqws2 ip2net mdig; do
+    _path="$T/stage/opt/zapret2/binaries/linux-x86_64/$_binary"
+    [ -f "$_path" ] && [ -x "$_path" ] \
+        && _t_ok || _t_bad "сборщик сохраняет плоский исполняемый файл upstream: $_binary"
 done
 
 tar -czf "$T/openwrt-rootfs.tar.gz" -C "$T/stage" . || exit 1
@@ -247,4 +236,31 @@ printf "DISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"
 _out=$(Z2K_OW_OPENWRT_RELEASE_FILE="$T/openwrt_release" "$T/stage/usr/lib/z2k/bin/z2k-detect" argv)
 assert_eq "detector wrapper resolves ARM64 from OpenWrt target" "detect-arm64
 argv" "$_out"
+
+# Настоящий bootstrap должен связать runtime с обычными исполняемыми файлами,
+# а не с каталогами, которые тоже проходят проверку shell -x.
+if (
+    Z2K_ROOT="$T/stage/usr/lib/z2k"
+    Z2K_ETC="$T/bootstrap-etc"
+    Z2K_TMP="$T/bootstrap-tmp"
+    Z2K_ZAPRET2_RUNTIME="$T/stage/opt/zapret2"
+    Z2K_OW_LEGACY_DETECT_INIT="$T/no-legacy-init"
+    Z2K_OW_PROC_ROOT="$T/no-proc"
+    export Z2K_ROOT Z2K_ETC Z2K_TMP Z2K_ZAPRET2_RUNTIME \
+        Z2K_OW_LEGACY_DETECT_INIT Z2K_OW_PROC_ROOT
+    . "$ROOT/platform/openwrt/paths.sh"
+    . "$ROOT/platform/openwrt/bootstrap.sh"
+    z2k_ow_bootstrap || exit 1
+    for _pair in nfq2/nfqws2 ip2net/ip2net mdig/mdig; do
+        _link="$Z2K_ZAPRET2_RUNTIME/$_pair"
+        [ -L "$_link" ] && [ -f "$_link" ] && [ -x "$_link" ] || {
+            echo "runtime-ссылка не указывает на исполняемый файл: $_link" >&2
+            exit 1
+        }
+    done
+); then
+    _t_ok
+else
+    _t_bad "настоящий bootstrap создаёт рабочие ссылки для всех трёх runtime-бинарников"
+fi
 _t_done

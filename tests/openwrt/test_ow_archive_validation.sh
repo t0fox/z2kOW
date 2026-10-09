@@ -11,7 +11,9 @@ trap 'rm -rf "$T"' EXIT HUP INT TERM
 _busybox="${Z2K_TEST_BUSYBOX:-$(command -v busybox 2>/dev/null || true)}"
 if [ -n "$_busybox" ]; then
     mkdir -p "$T/bin"
-    ln -s "$_busybox" "$T/bin/awk" || exit 1
+    for _applet in awk tar xargs tr; do
+        ln -s "$_busybox" "$T/bin/$_applet" || exit 1
+    done
     PATH="$T/bin:$PATH"
     export PATH
 fi

@@ -59,3 +59,21 @@ status_installed_json() {
 update_state_error() {
     z2k_ow_release_state_error "${AU_TAG_FILE:-${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}}"
 }
+
+# Одноимённый хотфикс не добавляет новый тег в upstream history. Его
+# доступность определяется отпечатком архива из проверенного манифеста.
+update_hotfix_pending() {
+    local _hotfix_manifest="$1" _hotfix_installed="$2" _hotfix_current _hotfix_sha _hotfix_state _hotfix_receipt
+    _hotfix_current="$(z2k_ow_manifest_value "$_hotfix_manifest" current)" || return 1
+    [ "$_hotfix_current" = "$_hotfix_installed" ] || return 1
+    _hotfix_sha="$(z2k_ow_manifest_value "$_hotfix_manifest" artifact.sha256 | tr 'A-F' 'a-f')" || return 1
+    printf '%s' "$_hotfix_sha" | grep -Eq '^[0-9a-f]{64}$' || return 1
+    _hotfix_state="${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}"
+    _hotfix_receipt="${_hotfix_state%/*}/installed-artifact-sha256"
+    if [ -f "$_hotfix_receipt" ] && [ ! -L "$_hotfix_receipt" ] \
+        && [ "$(wc -l < "$_hotfix_receipt" | tr -d ' \t\r\n')" = 1 ] \
+        && grep -Fxq "$_hotfix_sha" "$_hotfix_receipt"; then
+        return 1
+    fi
+    return 0
+}

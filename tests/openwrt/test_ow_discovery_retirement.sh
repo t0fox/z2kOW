@@ -45,6 +45,14 @@ ln -s "$Z2K_STATE/discovered-domains.txt" "$Z2K_LISTS_DIR/discovered-domains.txt
 printf 'foreign\n' > "$T/foreign/lists/discovered-domains.txt"
 printf 'foreign\n' > "$T/foreign/etc/init.d/S98z2k-detect"
 
+export Z2K_OW_INSTALL_WORK="$T/install-work"
+mkdir -p "$Z2K_OW_INSTALL_WORK"
+: > "$Z2K_OW_INSTALL_WORK/transaction-active"
+z2k_ow_retire_discovery >/dev/null 2>&1
+assert_eq "активная транзакция сохраняет прежний init для отката" "1" "$(test -f "$Z2K_OW_LEGACY_DETECT_INIT" && echo 1 || echo 0)"
+assert_eq "активная транзакция сохраняет persistent discovery state" "stale" "$(cat "$Z2K_STATE/discovered-domains.txt" 2>/dev/null)"
+rm -f "$Z2K_OW_INSTALL_WORK/transaction-active"
+
 z2k_ow_retire_discovery >/dev/null 2>&1
 assert_eq "retirement succeeds" "0" "$?"
 assert_eq "old init stopped" "1" "$(grep -q stopped "$T/old-service-stopped" 2>/dev/null && echo 1 || echo 0)"

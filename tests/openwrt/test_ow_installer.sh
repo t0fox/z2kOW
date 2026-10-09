@@ -32,7 +32,7 @@ chmod 755 "$T/payload/usr/sbin/install_release"
 printf '#!/bin/sh\nexit 0\n' > "$T/payload/usr/bin/z2kow"
 chmod 755 "$T/payload/usr/bin/z2kow"
 for f in utils.sh auto_update.sh; do printf '#!/bin/sh\n' > "$T/payload/usr/lib/z2k/lib/$f"; done
-for f in paths.sh env.sh manifest.sh release_state.sh release.sh bootstrap.sh; do
+for f in paths.sh env.sh manifest.sh release_state.sh release.sh recover_boot.sh bootstrap.sh; do
     printf '#!/bin/sh\n' > "$T/payload/usr/lib/z2k/platform/openwrt/$f"
 done
 cp "$REPO/platform/openwrt/arch.sh" "$T/payload/usr/lib/z2k/platform/openwrt/arch.sh" || exit 1
@@ -41,7 +41,7 @@ tar -czf "$T/openwrt-rootfs.tar.gz" -C "$T/payload" \
     usr/sbin/install_release usr/bin/z2kow usr/lib/z2k/lib/utils.sh usr/lib/z2k/lib/auto_update.sh \
     usr/lib/z2k/platform/openwrt/paths.sh usr/lib/z2k/platform/openwrt/env.sh \
     usr/lib/z2k/platform/openwrt/manifest.sh usr/lib/z2k/platform/openwrt/release_state.sh \
-    usr/lib/z2k/platform/openwrt/release.sh \
+    usr/lib/z2k/platform/openwrt/release.sh usr/lib/z2k/platform/openwrt/recover_boot.sh \
     usr/lib/z2k/platform/openwrt/bootstrap.sh usr/lib/z2k/platform/openwrt/arch.sh \
     usr/lib/z2k/platform/openwrt/owned-paths.txt
 ARTIFACT_SHA="$(sha256sum "$T/openwrt-rootfs.tar.gz" | awk '{print $1}')"

@@ -3942,6 +3942,12 @@ update_behind_count() {
         ;;
     esac
     [ -s "$AU_MANIFEST_CACHE" ] || { printf '0'; return; }
+    # Адаптер OpenWrt дополнительно видит хотфиксы с прежними tag + seq.
+    if command -v update_hotfix_pending >/dev/null 2>&1 \
+        && update_hotfix_pending "$AU_MANIFEST_CACHE" "$installed"; then
+        printf '1\n'
+        return 0
+    fi
     awk -v inst="$installed" '
         /"v"[[:space:]]*:[[:space:]]*"/ {
             line = $0

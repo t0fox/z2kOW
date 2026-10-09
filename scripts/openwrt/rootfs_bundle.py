@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the single deterministic OpenWrt release transport archive."""
+"""Создание единого воспроизводимого транспортного архива релиза OpenWrt."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from typing import Iterator
 _USER_DATA = (
     PurePosixPath("etc/z2k/config"),
     PurePosixPath("etc/z2k/state"),
+    PurePosixPath("etc/z2k/conf"),
     PurePosixPath("etc/z2k/user-lists"),
     PurePosixPath("etc/z2k/webpanel"),
 )
@@ -31,21 +32,21 @@ def _relative(path: Path, root: Path) -> PurePosixPath:
     relative = PurePosixPath(path.relative_to(root).as_posix())
     text = relative.as_posix()
     if relative.is_absolute() or not relative.parts or any(p in ("", ".", "..") for p in relative.parts):
-        raise ValueError(f"unsafe staged path: {text}")
+        raise ValueError(f"небезопасный подготовленный путь: {text}")
     if "\\" in text or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in text):
-        raise ValueError(f"non-portable staged path: {text}")
+        raise ValueError(f"непереносимый подготовленный путь: {text}")
     return relative
 
 
 def _check_path(relative: PurePosixPath) -> None:
     if _under(relative, PurePosixPath("www")):
-        raise ValueError(f"forbidden LuCI/uhttpd path: /{relative}")
+        raise ValueError(f"запрещённый путь LuCI/uhttpd: /{relative}")
     if relative == PurePosixPath("etc/config/uhttpd"):
-        raise ValueError("forbidden LuCI/uhttpd path: /etc/config/uhttpd")
+        raise ValueError("запрещённый путь LuCI/uhttpd: /etc/config/uhttpd")
     if any(_under(relative, parent) for parent in _LEGACY_APK_PATHS):
-        raise ValueError(f"forbidden legacy package/feed path: /{relative}")
+        raise ValueError(f"запрещённый путь прежнего пакетного репозитория: /{relative}")
     if relative.as_posix().endswith(".apk") or relative.name == "packages.adb":
-        raise ValueError(f"forbidden legacy package/feed artifact in payload: /{relative}")
+        raise ValueError(f"запрещённый артефакт прежнего пакетного репозитория в payload: /{relative}")
 
 
 def _walk(root: Path) -> Iterator[tuple[Path, PurePosixPath]]:
@@ -110,20 +111,20 @@ def _tar_info(relative: PurePosixPath, source: Path) -> tarfile.TarInfo:
         info.type = tarfile.REGTYPE
         info.size = source.stat().st_size
     else:
-        raise ValueError(f"unsupported staged file type: {relative}")
+        raise ValueError(f"неподдерживаемый тип подготовленного файла: {relative}")
     return info
 
 
 def build_rootfs_bundle(staged_root: Path, output: Path) -> None:
-    """Pack an already staged complete rootfs; no package manager is involved."""
+    """Упаковка подготовленного полного rootfs без пакетного менеджера."""
     root = Path(staged_root).resolve()
     output = Path(output).resolve()
     if not root.is_dir():
-        raise ValueError(f"staged rootfs does not exist: {root}")
+        raise ValueError(f"подготовленный rootfs не существует: {root}")
     output.parent.mkdir(parents=True, exist_ok=True)
     entries = list(_walk(root))
     if not entries:
-        raise ValueError("staged rootfs is empty")
+        raise ValueError("подготовленный rootfs пуст")
 
     with tempfile.NamedTemporaryFile(dir=output.parent, prefix=output.name + ".", suffix=".tmp", delete=False) as raw:
         temporary = Path(raw.name)
@@ -145,13 +146,13 @@ def build_rootfs_bundle(staged_root: Path, output: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True, type=Path, help="staged filesystem root")
+    parser.add_argument("--root", required=True, type=Path, help="корень подготовленной файловой системы")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
     try:
         build_rootfs_bundle(args.root, args.output)
     except (OSError, ValueError, tarfile.TarError) as error:
-        print(f"rootfs bundle: {error}", file=sys.stderr)
+        print(f"архив rootfs: {error}", file=sys.stderr)
         return 1
     return 0
 

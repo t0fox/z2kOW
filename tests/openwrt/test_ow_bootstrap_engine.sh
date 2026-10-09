@@ -13,7 +13,9 @@ mkdir -p "$BIN" "$BOOT_TMP" "$PAYLOAD" "$SYS/usr/lib" "$STAGE_TMP"
 # Начальный установщик и извлечённый движок используют awk роутера.
 _busybox="${Z2K_TEST_BUSYBOX:-$(command -v busybox 2>/dev/null || true)}"
 if [ -n "$_busybox" ]; then
-    ln -s "$_busybox" "$BIN/awk" || exit 1
+    for _applet in awk tar xargs tr; do
+        ln -s "$_busybox" "$BIN/$_applet" || exit 1
+    done
 fi
 
 command -v openssl >/dev/null 2>&1 || { _t_bad "openssl unavailable"; _t_done; exit $?; }
@@ -27,12 +29,12 @@ TEST_KEY_ID="$(openssl pkey -pubin -in "$T/test.pub" -outform DER 2>/dev/null | 
 mkdir -p "$PAYLOAD/usr/lib/z2k/platform/openwrt" "$PAYLOAD/usr/lib/z2k/lib" \
     "$PAYLOAD/usr/lib/z2k/bin/linux-x86_64" \
     "$PAYLOAD/usr/lib/z2k/platform/openwrt/bin/linux-x86_64" \
-    "$PAYLOAD/usr/sbin" "$PAYLOAD/usr/bin" "$PAYLOAD/opt/zapret2/binaries/linux-x86_64/nfq2" \
-    "$PAYLOAD/opt/zapret2/binaries/linux-x86_64/ip2net" \
-    "$PAYLOAD/opt/zapret2/binaries/linux-x86_64/mdig" \
+    "$PAYLOAD/usr/sbin" "$PAYLOAD/usr/bin" "$PAYLOAD/opt/zapret2/binaries/linux-x86_64" \
+    "$PAYLOAD/opt/zapret2/binaries/linux-x86_64" \
+    "$PAYLOAD/opt/zapret2/binaries/linux-x86_64" \
     "$PAYLOAD/etc/init.d" "$PAYLOAD/etc/hotplug.d/iface" "$PAYLOAD/etc/sysctl.d" \
     "$PAYLOAD/usr/share/nftables.d/chain-pre/forward"
-for name in paths.sh env.sh manifest.sh release_state.sh release.sh bootstrap.sh arch.sh; do
+for name in paths.sh env.sh manifest.sh release_state.sh release.sh recover_boot.sh bootstrap.sh arch.sh; do
     cp "$REPO/platform/openwrt/$name" "$PAYLOAD/usr/lib/z2k/platform/openwrt/$name" || exit 1
 done
 cp "$REPO/platform/openwrt/owned-paths.txt" "$PAYLOAD/usr/lib/z2k/platform/openwrt/owned-paths.txt" || exit 1
@@ -41,6 +43,13 @@ cp "$REPO/scripts/openwrt/install_release.sh" "$PAYLOAD/usr/sbin/install_release
 chmod 755 "$PAYLOAD/usr/sbin/install_release"
 printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/usr/bin/z2kow"
 chmod 755 "$PAYLOAD/usr/bin/z2kow"
+mkdir -p "$PAYLOAD/usr/lib/z2k/lists" "$PAYLOAD/usr/lib/z2k/share"
+printf 'example.test\n' > "$PAYLOAD/usr/lib/z2k/lists/rkn.txt"
+printf 'ENABLED=0\n' > "$PAYLOAD/usr/lib/z2k/share/config.default"
+for _pool in TCP/YT TCP/YT_GV TCP/RKN UDP/YT; do
+    mkdir -p "$PAYLOAD/usr/lib/z2k/extra_strats/$_pool"
+    printf 'тестовая стратегия\n' > "$PAYLOAD/usr/lib/z2k/extra_strats/$_pool/Strategy.txt"
+done
 for name in tg-mtproxy-client z2k-rt-proxy z2k-detect; do
     printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/usr/lib/z2k/bin/linux-x86_64/$name"
     chmod 755 "$PAYLOAD/usr/lib/z2k/bin/linux-x86_64/$name"
@@ -49,8 +58,8 @@ printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/usr/lib/z2k/platform/openwrt/bin/linux-
 chmod 755 "$PAYLOAD/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd"
 for pair in nfq2/nfqws2 ip2net/ip2net mdig/mdig; do
     name="${pair#*/}"
-    printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/opt/zapret2/binaries/linux-x86_64/$pair"
-    chmod 755 "$PAYLOAD/opt/zapret2/binaries/linux-x86_64/$pair"
+    printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/opt/zapret2/binaries/linux-x86_64/$name"
+    chmod 755 "$PAYLOAD/opt/zapret2/binaries/linux-x86_64/$name"
 done
 for name in z2k z2k-webpanel; do
     printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/etc/init.d/$name"
@@ -95,7 +104,9 @@ done
 case "$url" in
     http://127.0.0.1:17778/UPDATES.json) cp "$Z2K_TEST_MANIFEST" "$dest" ;;
     http://127.0.0.1:17778/UPDATES.json.sig) cp "$Z2K_TEST_SIGNATURE" "$dest" ;;
-    http://127.0.0.1:17778/openwrt-rootfs.tar.gz) cp "$Z2K_TEST_ARTIFACT" "$dest" ;;
+    http://127.0.0.1:17778/openwrt-rootfs.tar.gz)
+        [ -z "${Z2K_TEST_ARTIFACT_FETCHES:-}" ] || printf 'download\n' >> "$Z2K_TEST_ARTIFACT_FETCHES"
+        cp "$Z2K_TEST_ARTIFACT" "$dest" ;;
     *) echo "unexpected URL: $url" >&2; exit 2 ;;
 esac
 WGET
@@ -150,6 +161,31 @@ else
     _t_bad "приёмка полного rootfs-кандидата завершилась ошибкой: $(cat "$T/candidate-acceptance.out")"
 fi
 assert_file "квитанция приёмки привязана к исходному кандидату" "$T/candidate-acceptance.json"
+
+# Большая свободная ёмкость tmpfs не разрешает скачать архив, не помещающийся в RAM.
+cp "$T/UPDATES.json" "$T/good-UPDATES.json"
+cp "$T/UPDATES.json.sig" "$T/good-UPDATES.json.sig"
+python3 - "$T/UPDATES.json" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+manifest = json.loads(path.read_text())
+manifest['artifact']['size_bytes'] = 16777216
+path.write_text(json.dumps(manifest))
+PY
+openssl pkeyutl -sign -rawin -inkey "$T/test.key" -in "$T/UPDATES.json" -out "$T/UPDATES.json.sig" || exit 1
+printf 'MemAvailable: 8192 kB\n' > "$T/low-meminfo"
+printf '1 0 0:1 / / rw - tmpfs tmpfs rw\n' > "$T/memory-mountinfo"
+if Z2K_OW_MEMINFO_FILE="$T/low-meminfo" Z2K_OW_MOUNTINFO_FILE="$T/memory-mountinfo" \
+    Z2K_TEST_ARTIFACT_FETCHES="$T/artifact-fetches" \
+    sh "$REPO/scripts/openwrt/install.sh" > "$T/low-memory.out" 2>&1; then
+    _t_bad "bootstrap отклоняет архив, превышающий физическую RAM tmpfs"
+else
+    _t_ok
+fi
+assert_contains "диагностика bootstrap называет недостаток RAM" "$T/low-memory.out" 'недостаточно RAM'
+if [ ! -s "$T/artifact-fetches" ]; then _t_ok; else _t_bad "RAM preflight выполняется до загрузки архива"; fi
+cp "$T/good-UPDATES.json" "$T/UPDATES.json"
+cp "$T/good-UPDATES.json.sig" "$T/UPDATES.json.sig"
 
 # Подписанный неполный архив нужно отклонить до запуска движка и изменения
 # уже установленного дерева.

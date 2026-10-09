@@ -4,6 +4,66 @@
 # apk применяется только для установки системных зависимостей OpenWrt.
 set -eu
 
+# Сопоставить путь с самым длинным mountpoint, а не с именем устройства df.
+z2k_ow_storage_type() {
+    local _storage_path _mountinfo="${Z2K_OW_MOUNTINFO_FILE:-/proc/self/mountinfo}"
+    _storage_path="$(readlink -f "$1" 2>/dev/null)" || return 1
+    [ -n "$_storage_path" ] && [ -r "$_mountinfo" ] || return 1
+    Z2K_STORAGE_PATH="$_storage_path" awk '
+        BEGIN { path=ENVIRON["Z2K_STORAGE_PATH"] }
+        {
+            point=$5
+            gsub(/\\040/, " ", point)
+            gsub(/\\011/, "\t", point)
+            if (point == "/" || path == point || index(path, point "/") == 1) {
+                if (length(point) > longest) {
+                    for (i=6; i<=NF; i++) if ($i == "-") {
+                        kind=$(i+1); longest=length(point); break
+                    }
+                }
+            }
+        }
+        END { if (kind == "") exit 1; print kind }
+    ' "$_mountinfo"
+}
+
+# Свободная ёмкость tmpfs не равна физической RAM: бюджет проверяется отдельно.
+# На дисковом хранилище архив целиком не резервирует оперативную память.
+z2k_ow_memory_preflight() {
+    local _memory_path="$1" _memory_bytes="$2" _memory_reserve="$3" _memory_type _memory_available
+    local _memory_info="${Z2K_OW_MEMINFO_FILE:-/proc/meminfo}"
+    _memory_type="$(z2k_ow_storage_type "$_memory_path")" || {
+        echo "z2k-openwrt: не удалось определить тип временной файловой системы: $_memory_path" >&2
+        return 1
+    }
+    case "$_memory_type" in tmpfs|ramfs|rootfs) ;; *) return 0 ;; esac
+    [ -r "$_memory_info" ] || return 1
+    _memory_available=$(awk '
+        /^MemAvailable:/ { available=$2; found=1 }
+        /^MemFree:/ { free=$2; fallback=1 }
+        /^Buffers:/ { buffers=$2 }
+        /^Cached:/ { cached=$2 }
+        /^Shmem:/ { shmem=$2 }
+        END {
+            if (!found && !fallback) exit 1
+            if (!found) available=free+buffers+cached-shmem
+            if (available < 0) available=0
+            if (available ~ /^[0-9]+$/) printf "%.0f\n", available
+            else exit 1
+        }
+    ' "$_memory_info") || return 1
+    [ -n "$_memory_available" ] || return 1
+    awk -v available="$_memory_available" -v bytes="$_memory_bytes" -v reserve="$_memory_reserve" '
+        BEGIN {
+            if (bytes !~ /^[0-9]+$/ || reserve !~ /^[0-9]+$/) exit 1
+            if (available*1024 < bytes+reserve) {
+                printf "z2k-openwrt: недостаточно RAM для временного хранилища (нужно %.0f байт с резервом; доступно %.0f КиБ)\n", bytes+reserve, available > "/dev/stderr"
+                exit 1
+            }
+        }
+    '
+}
+
 die() { printf 'установщик z2kOW: %s\n' "$*" >&2; exit 1; }
 [ "$(id -u 2>/dev/null || echo 1)" = 0 ] || die "запустите установщик от root"
 OPENWRT_RELEASE_FILE="${Z2K_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
@@ -68,7 +128,7 @@ SIGNATURE_URL="$MANIFEST_URL.sig"
 
 apk update || die "не удалось обновить индексы системных зависимостей"
 apk add ca-bundle openssl-util jsonfilter || die "не удалось установить системные средства проверки подписи"
-for _tool in awk df grep openssl sha256sum tar; do
+for _tool in awk df grep openssl readlink sha256sum tar tr xargs; do
     command -v "$_tool" >/dev/null 2>&1 || die "необходимая системная команда отсутствует: $_tool"
 done
 command -v jsonfilter >/dev/null 2>&1 || die "после установки системных зависимостей отсутствует jsonfilter"
@@ -167,6 +227,9 @@ if ! awk -v available_kb="$_tmp_available_kb" -v artifact_bytes="$_size" \
     die "недостаточно места во временном хранилище: требуется $_size байт архива плюс 4 МиБ, доступно $_tmp_available_kb КиБ"
 fi
 
+z2k_ow_memory_preflight "$TMP" "$_size" 4194304 \
+    || die "архив не помещается в доступную оперативную память"
+
 download "$_url" "$ARTIFACT" || die "не удалось скачать полный выпуск $_tag"
 [ "$(wc -c < "$ARTIFACT" | tr -d ' \t\r\n')" = "$_size" ] \
     || die "размер rootfs не совпал с проверенным UPDATES.json"
@@ -244,6 +307,7 @@ for _required in \
     usr/lib/z2k/platform/openwrt/manifest.sh \
     usr/lib/z2k/platform/openwrt/release_state.sh \
     usr/lib/z2k/platform/openwrt/release.sh \
+    usr/lib/z2k/platform/openwrt/recover_boot.sh \
     usr/lib/z2k/platform/openwrt/bootstrap.sh \
     usr/lib/z2k/platform/openwrt/arch.sh \
     usr/lib/z2k/platform/openwrt/owned-paths.txt \
@@ -251,7 +315,10 @@ for _required in \
     grep -qx "$_required" "$_engine_files" \
         || die "подписанный rootfs не содержит обязательный файл движка установки: $_required"
 done
-tar -xzf "$ARTIFACT" -C "$ENGINE" -T "$_engine_files" \
+# BusyBox tar не во всех сборках поддерживает -T. Передавать проверенные имена
+# аргументами с нулевым разделителем и ограничивать размер каждой команды.
+tr '\n' '\000' < "$_engine_files" \
+    | xargs -0 -r -s 32768 tar -xzf "$ARTIFACT" -C "$ENGINE" \
     || die "не удалось извлечь install engine из подписанного rootfs"
 [ -x "$ENGINE/usr/sbin/install_release" ] || die "основной install_release отсутствует в rootfs"
 

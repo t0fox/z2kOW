@@ -150,38 +150,13 @@ mkdir -p "$STAGE/opt/zapret2/binaries"
 cp -a "$runtime/binaries/." "$STAGE/opt/zapret2/binaries/" \
     || die "не удалось подготовить полный multi-architecture runtime upstream"
 
-# В закреплённом runtime upstream исполняемые файлы лежат прямо в каталоге
-# linux-<архитектура>, а адаптер OpenWrt обращается к подпапкам по назначению.
-# Добавить относительные ссылки, сохранив исходные файлы без дублирования.
+# Сохранить плоскую раскладку upstream: bootstrap создаёт runtime-ссылки
+# прямо на эти файлы. Каталог с именем бинарника не является его заменой.
 for _arch_dir in "$STAGE"/opt/zapret2/binaries/linux-*; do
     [ -d "$_arch_dir" ] || continue
-    for _pair in nfqws2:nfq2 ip2net:ip2net mdig:mdig; do
-        _binary=${_pair%%:*}
-        _subdir=${_pair#*:}
-        _source="$_arch_dir/$_binary"
-        _alias="$_arch_dir/$_subdir/$_binary"
-        if [ -e "$_alias" ] || [ -L "$_alias" ]; then
-            [ -f "$_alias" ] && [ -x "$_alias" ] \
-                || die "некорректный runtime-файл выбранной архитектуры: $_alias"
-            continue
-        fi
-        [ -f "$_source" ] && [ -x "$_source" ] \
-            || die "в runtime нет исполняемого файла выбранной архитектуры: $_source"
-        if [ "$_subdir" = "$_binary" ]; then
-            _temporary="$_arch_dir/.$_binary.z2k-stage.$$"
-            [ ! -e "$_temporary" ] || die "занят временный путь раскладки runtime: $_temporary"
-            mv "$_source" "$_temporary" \
-                || die "не удалось временно переместить runtime-файл: $_source"
-            mkdir -p "$(dirname -- "$_alias")" \
-                || die "не удалось создать каталог runtime: $(dirname -- "$_alias")"
-            mv "$_temporary" "$_alias" \
-                || die "не удалось поместить runtime-файл: $_alias"
-        else
-            mkdir -p "$(dirname -- "$_alias")" \
-                || die "не удалось создать каталог runtime: $(dirname -- "$_alias")"
-            ln -s "../$_binary" "$_alias" \
-                || die "не удалось создать runtime-ссылку: $_alias"
-        fi
+    for _binary in nfqws2 ip2net mdig; do
+        [ -f "$_arch_dir/$_binary" ] && [ -x "$_arch_dir/$_binary" ] \
+            || die "в runtime нет исполняемого файла архитектуры: $_arch_dir/$_binary"
     done
 done
 

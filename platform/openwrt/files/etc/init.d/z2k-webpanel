@@ -12,7 +12,27 @@ START=95
 
 Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
 
+# Неполная транзакция допускает запуск только из живого установщика/recovery.
+# После перезагрузки повторно использованный PID без совпадающего boot id не подходит.
+z2k_install_recovery_ready() {
+    local _recovery_work="${Z2K_OW_INSTALL_WORK:-/usr/lib/.z2k-install}"
+    local _recovery_lock="${Z2K_OW_INSTALL_LOCK:-/usr/lib/.z2k-install.lock}"
+    local _recovery_pid _recovery_boot _current_boot
+    [ -f "$_recovery_work/transaction-active" ] || return 0
+    _recovery_pid="$(cat "$_recovery_lock/pid" 2>/dev/null)"
+    _recovery_boot="$(cat "$_recovery_lock/boot-id" 2>/dev/null)"
+    _current_boot="$(cat "${Z2K_OW_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}" 2>/dev/null)"
+    case "$_recovery_pid" in ''|*[!0-9]*) _recovery_pid=0 ;; esac
+    if [ "$_recovery_pid" -gt 0 ] && [ -n "$_recovery_boot" ] \
+        && [ "$_recovery_boot" = "$_current_boot" ] && kill -0 "$_recovery_pid" 2>/dev/null; then
+        return 0
+    fi
+    echo "z2k-openwrt: запуск службы отложен до восстановления прерванной установки" >&2
+    return 1
+}
+
 start_service() {
+    z2k_install_recovery_ready || return 1
     # shellcheck disable=SC1090,SC1091
     . "$Z2K_ROOT/platform/openwrt/webpanel.sh" || return 1
     local _cfg="" _port=""

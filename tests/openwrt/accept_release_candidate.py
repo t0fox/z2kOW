@@ -113,10 +113,11 @@ def main() -> int:
         public_der = subprocess.run(["openssl", "pkey", "-pubin", "-in", str(pubkey), "-outform", "DER"], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout
         test_key_id = hashlib.sha256(public_der).hexdigest()
 
-        # Использовать awk роутера, если BusyBox доступен на проверочном хосте.
+        # Использовать утилиты роутера, если BusyBox доступен на проверочном хосте.
         busybox = os.environ.get("Z2K_TEST_BUSYBOX") or shutil.which("busybox")
         if busybox:
-            (bin_dir / "awk").symlink_to(busybox)
+            for applet in ("awk", "tar", "xargs", "tr"):
+                (bin_dir / applet).symlink_to(busybox)
 
         served_artifact = served / "openwrt-rootfs.tar.gz"
         served_artifact.write_bytes(artifact_data)
@@ -148,7 +149,19 @@ def main() -> int:
         service_log = work / "service-calls.log"
         write_executable(
             work / "service-helper",
-            '#!/bin/sh\nprintf "%s|%s\\n" "$1" "$2" >> "$Z2K_TEST_SERVICE_LOG"\ncase "${2:-}" in stop|start|restart|status|running) exit 0 ;; *) exit 2 ;; esac\n',
+            '''#!/bin/sh
+printf "%s|%s\\n" "$1" "$2" >> "$Z2K_TEST_SERVICE_LOG"
+case "${2:-}" in
+    enable)
+        service=${1##*/}
+        case "$service" in z2k) order=22 ;; z2k-webpanel) order=95 ;; *) exit 2 ;; esac
+        mkdir -p "$Z2K_TEST_SYSROOT/etc/rc.d" || exit 1
+        ln -sf "../init.d/$service" "$Z2K_TEST_SYSROOT/etc/rc.d/S$order$service" || exit 1
+        ;;
+    stop|start|restart|status|running) exit 0 ;;
+    *) exit 2 ;;
+esac
+''',
         )
         write_executable(
             work / "http-probe",
@@ -165,7 +178,7 @@ def main() -> int:
 
         env = os.environ.copy()
         for name in list(env):
-            if name.startswith("Z2K_OW_") or name.startswith("Z2KOW_") or name in {"Z2K_ROOT", "Z2K_ADAPTER_DIR", "Z2K_LIB", "Z2K_AU_PUBKEY"}:
+            if name.startswith("Z2K_") or name.startswith("Z2KOW_"):
                 env.pop(name, None)
         env.update(
             {
@@ -192,6 +205,28 @@ def main() -> int:
         run(["sh", str(ROOT / "scripts/openwrt/install.sh")], env, "точный кандидат установлен через начальный установщик")
         state = sysroot / "etc/z2k/state/installed-release"
         check_state(state, tag, seq, "после свежей установки")
+
+        def check_bootstrap(label: str) -> None:
+            # Реальная инициализация payload выполняется в изолированном rootfs;
+            # только службы и пакетный менеджер остаются заглушками.
+            bootstrap_env = env.copy()
+            bootstrap_env.update({
+                "Z2K_ROOT": str(sysroot / "usr/lib/z2k"),
+                "Z2K_ADAPTER_DIR": str(sysroot / "usr/lib/z2k/platform/openwrt"),
+                "Z2K_ETC": str(sysroot / "etc/z2k"),
+                "Z2K_TMP": str(sysroot / "tmp/z2k"),
+                "Z2K_ZAPRET2_RUNTIME": str(sysroot / "opt/zapret2"),
+                "Z2K_OW_LEGACY_DETECT_INIT": str(sysroot / "etc/init.d/z2k-detect"),
+                "Z2K_OW_PROC_ROOT": str(sysroot / "proc"),
+            })
+            run(["sh", "-eu", "-c", '. "$Z2K_ADAPTER_DIR/paths.sh"; . "$Z2K_ADAPTER_DIR/bootstrap.sh"; z2k_ow_bootstrap'], bootstrap_env, label)
+            for pair in ("nfq2/nfqws2", "ip2net/ip2net", "mdig/mdig"):
+                link = sysroot / "opt/zapret2" / pair
+                binary = sysroot / "opt/zapret2/binaries/linux-x86_64" / pair.split("/")[1]
+                if not link.is_symlink() or not link.is_file() or not os.access(link, os.X_OK) or link.resolve() != binary.resolve():
+                    raise RuntimeError(f"bootstrap создал неверную runtime-ссылку: {link}")
+
+        check_bootstrap("настоящий bootstrap и runtime-ссылки после свежей установки")
 
         installed_binary = sysroot / "usr/lib/z2k/bin/linux-x86_64/tg-mtproxy-client"
         if not installed_binary.is_file() or not os.access(installed_binary, os.X_OK):
@@ -220,9 +255,11 @@ def main() -> int:
         state.write_text(f"tag={old_tag}\nseq={old_seq}\n", encoding="utf-8")
         run([str(engine), tag], engine_env, "обновление с прежней записью релиза")
         check_state(state, tag, seq, "после обновления")
+        check_bootstrap("настоящий bootstrap и runtime-ссылки после обновления")
 
         run([str(engine), "--reinstall", tag], engine_env, "повторная установка той же версии")
         check_state(state, tag, seq, "после повторной установки")
+        check_bootstrap("настоящий bootstrap и runtime-ссылки после повторной установки")
 
         state.write_text(f"tag={old_tag}\nseq={old_seq}\n", encoding="utf-8")
         installed_binary.write_text("previous payload\n", encoding="utf-8")
@@ -239,6 +276,7 @@ def main() -> int:
         engine_env["Z2K_TEST_FAIL_HTTP_PROBES"] = ""
         run([str(engine), tag], engine_env, "повторная попытка после отката")
         check_state(state, tag, seq, "после повторной попытки")
+        check_bootstrap("настоящий bootstrap и runtime-ссылки после повторной попытки")
         for path, expected in (
             (sysroot / "etc/z2k/config", "сохраняемый пользовательский параметр"),
             (sysroot / "etc/z2k/user-lists/custom.txt", "user-domain.example"),

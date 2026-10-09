@@ -42,6 +42,7 @@ class PayloadBundleTests(unittest.TestCase):
         self.add("opt/zapret2/nfq2/nfqws2", b"ELF fixture")
         self.add("etc/z2k/config", b"user config")
         self.add("etc/z2k/state/installed-release", b"user state")
+        self.add("etc/z2k/conf/strategies.conf", b"user strategies")
 
         first = self.build("one.tar.gz")
         second = self.build("two.tar.gz")
@@ -56,6 +57,7 @@ class PayloadBundleTests(unittest.TestCase):
         self.assertIn("opt/zapret2/nfq2/nfqws2", names)
         self.assertNotIn("etc/z2k/config", names)
         self.assertNotIn("etc/z2k/state/installed-release", names)
+        self.assertNotIn("etc/z2k/conf/strategies.conf", names)
         self.assertFalse(any(name.endswith(".apk") for name in names))
         self.assertTrue(all(not name.startswith("/") and ".." not in Path(name).parts for name in names))
 
@@ -63,7 +65,7 @@ class PayloadBundleTests(unittest.TestCase):
         for path in ("www/cgi-bin/luci", "www/luci-static/luci.js", "etc/config/uhttpd"):
             with self.subTest(path=path):
                 self.add(path, b"must never ship")
-                with self.assertRaisesRegex(ValueError, "forbidden LuCI/uhttpd path"):
+                with self.assertRaisesRegex(ValueError, "запрещённый путь LuCI/uhttpd"):
                     self.build()
                 (self.stage / path).unlink()
 
@@ -76,7 +78,7 @@ class PayloadBundleTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.add(path, b"legacy installation infrastructure")
-                with self.assertRaisesRegex(ValueError, "forbidden legacy package/feed"):
+                with self.assertRaisesRegex(ValueError, "запрещённый"):
                     self.build()
                 (self.stage / path).unlink()
 

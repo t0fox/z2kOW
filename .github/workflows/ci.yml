@@ -672,7 +672,7 @@ jobs:
         run: sh tests/openwrt/run.sh
       - name: Test upstream WARP engine and build universal rootfs candidate
         run: sh scripts/openwrt/build-release.sh --out "$RUNNER_TEMP/openwrt-candidate"
-      - name: Проверить готовый кандидат установщиком с BusyBox awk
+      - name: Проверить готовый кандидат установщиком с утилитами BusyBox
         run: |
           python3 tests/openwrt/accept_release_candidate.py \
             "$RUNNER_TEMP/openwrt-candidate/UPDATES.json" \
