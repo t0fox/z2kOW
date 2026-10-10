@@ -172,8 +172,8 @@ assert_contains "js: isolated credits route adapter" "$REPO/webpanel/www/js/rout
 assert_contains "js: donations route" "$REPO/webpanel/www/js/router.js" 'donations: renderDonations,'
 assert_contains "js: donations nav next to credits" "$REPO/webpanel/www/index.html" 'data-route="donations"'
 assert_file "js: donations page exists" "$REPO/webpanel/www/js/pages/donations.js"
-assert_contains "js: Streamiverse widget id" "$REPO/webpanel/www/js/pages/donations.js" '6b3b146b-b238-434e-a0af-77ee64e53a58'
-assert_contains "js: Streamiverse fallback link" "$REPO/webpanel/www/js/pages/donations.js" 'https://donation.streamiverse.io/t0fox'
+assert_contains "js: CloudTips widget script" "$REPO/webpanel/www/js/pages/donations.js" 'https://widget.cloudtips.ru/bundle.js'
+assert_contains "js: CloudTips fallback link" "$REPO/webpanel/www/js/pages/donations.js" 'https://pay.cloudtips.ru/p/34db013d'
 if grep -nE 'openwrt|PLATFORM|capabilit' "$REPO/webpanel/www/js/router.js" 2>/dev/null \
     | grep -v 'credits-openwrt.js' | grep -q .; then
     _t_bad "js: router.js с platform-логикой вне credits adapter"
