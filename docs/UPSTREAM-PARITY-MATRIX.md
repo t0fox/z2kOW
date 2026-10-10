@@ -2,7 +2,7 @@
 
 This matrix tracks material product differences between z2kOW and the pinned upstream z2k baseline. It is a design/status ledger, not a test report.
 
-Current upstream release baseline: `p-86.16`, seq `139`, commit `5a11ffd82d10578039487da2ef09210278eb06ff`. The p-86.14 and p-86.15 reviews below are historical sync records.
+Последний проверенный upstream tag: `p-86.17`, seq `140`, commit `295257dafdc5853ceea550d9cc5871b4b4b685b2`. Версию, опубликованную для роутеров, см. в `UPDATES.json`: её изменяет только подписанный OpenWrt-релизный процесс. Обзоры `p-86.14` и `p-86.15` ниже — исторические записи синхронизации.
 
 Status meanings:
 
@@ -66,6 +66,19 @@ Update this table when upstream behavior changes or an OpenWrt gap is closed. Do
 | Upstream panel asset cache-buster advances to p-86.15. | B — preserve branded source, adapt release staging | Keep the z2kOW-branded panel source and stamp the staged HTML/JS/CSS asset URLs from the controlled release version. | `tests/test_cachebuster_declared.sh`; `tests/openwrt/test_ow_stage_rootfs.sh`. |
 | `lib/menu.sh` and upstream credits add the GregMSK sponsor acknowledgement. | B — preserve z2kOW acknowledgement policy | Add GregMSK only to the existing disclosed upstream credits section. Keep local z2kOW credits, menu roster, and branding independent. | `tests/browser/credits-page.mjs` verifies the rendered upstream acknowledgement and separate local credits. |
 | Runtime behavior between p-86.14 and p-86.15. | C — no functional delta | No runtime code is copied from this patch; p-86.14's already-adapted WAN bridge fix and current z2kOW/OpenWrt/WARP changes remain in the release source. | Full upstream tag diff; complete rootfs is built from current z2kOW `main`. |
+
+## p-86.17: синхронизация благодарности bootnet
+
+- База z2kOW перед синхронизацией: `main` на коммите `b699d96ec3df6495c506a05f9194ddf7eb70965b`.
+- База upstream: `p-86.16`, seq `139`, commit `5a11ffd82d10578039487da2ef09210278eb06ff`.
+- Цель upstream: `p-86.17`, seq `140`, commit `295257dafdc5853ceea550d9cc5871b4b4b685b2`.
+- Полный диапазон содержит два указанных коммита: благодарность `bootnet` и выпускные метаданные `p-86.17`. Изменений сетевого поведения нет.
+
+| Изменение upstream | Решение | Адаптация в z2kOW | Проверка/источник |
+|---|---|---|---|
+| Благодарность `bootnet` в README, CLI и панели upstream. | Сохранить раздельное авторство | Добавить карточку только в раскрываемый upstream-раздел WebPanel. Локальные README и CLI-списки z2kOW не менять. | `webpanel/www/js/pages/credits.js`; `tests/test_sponsors_in_sync.sh`; `tests/browser/credits-page.mjs`. |
+| Upstream `UPDATES.json`, подпись и cache-buster переходят на `p-86.17` / 140. | Использовать контролируемый релиз z2kOW | Не копировать upstream-манифест и подпись. Опубликованный манифест, артефакт OpenWrt и версия cache-buster создаются и подписываются штатным `release-openwrt.yml`. | `RELEASING.md`; `.github/workflows/release-openwrt.yml`. |
+| Runtime-изменения между `p-86.16` и `p-86.17`. | Функционального изменения нет | Код сетевой обработки не меняется. | Полный diff upstream-коммитов `9766c1933db9f9cc00526d856e35e3c7b7b7c20c..295257dafdc5853ceea550d9cc5871b4b4b685b2`. |
 
 ## p-86.16 sync review
 

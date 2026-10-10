@@ -78,7 +78,7 @@ for cls, name in re.findall(
     if cls == "sponsor":
         panel.append(html.unescape(name).strip())
 
-upstream_only = {"GregMSK", "Кожевников"}
+upstream_only = {"GregMSK", "Кожевников", "bootnet"}
 panel_local = [name for name in panel if name not in upstream_only]
 print("COUNTS", len(readme), len(menu), len(panel_local))
 print("UPSTREAM_ONLY_COUNT", len(upstream_only))
