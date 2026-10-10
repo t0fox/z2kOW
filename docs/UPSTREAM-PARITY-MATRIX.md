@@ -25,7 +25,7 @@ This matrix tracks material product differences between z2kOW and the pinned ups
 
 This table covers all 11 paths in the complete three-commit upstream diff, including the new test. Source parity, signed publication, candidate-rootfs acceptance, and live-router acceptance are reported as separate gates; a source/test pass is not evidence of a live router dataplane pass.
 
-Последний проверенный upstream tag: `p-86.17`, seq `140`, commit `295257dafdc5853ceea550d9cc5871b4b4b685b2`. Версию, опубликованную для роутеров, см. в `UPDATES.json`: её изменяет только подписанный OpenWrt-релизный процесс. Обзоры `p-86.14` и `p-86.15` ниже — исторические записи синхронизации.
+Последний проверенный upstream tag: `r-86.5`, seq `141`, commit `43b98092c5a337a35f5c094363f469243d7b8b80`. Версию, опубликованную для роутеров, см. в `UPDATES.json`: её изменяет только подписанный OpenWrt-релизный процесс. Обзоры `p-86.14` и `p-86.15` ниже — исторические записи синхронизации.
 
 Status meanings:
 
