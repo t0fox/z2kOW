@@ -520,8 +520,9 @@ body[data-page="login"] #app {
 }
 .credits-upstream__body .credits-card .desc { color: var(--ow-text-secondary); }
 
-/* Donations: the QR and fallback stay local; the remote Streamiverse widget
-   is requested only after the user opens the dedicated route. */
+/* Donations: keep the original two-column layout. The direct QR and
+   alternative links are local; payment frames load only on this route.
+   CloudTips also offers a documented modal widget when iframes are blocked. */
 .donation-card { overflow: hidden; }
 .donation-heading { margin-bottom: 16px; }
 .donation-heading h2 {
@@ -577,18 +578,49 @@ body[data-page="login"] #app {
 .donation-widget {
   min-width: 0;
   overflow: hidden;
-  border-radius: 20px;
+  border: 1px solid var(--ow-border-subtle);
+  border-radius: var(--ow-radius-card);
+  background: var(--ow-surface-2);
 }
+.donation-widget-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+}
+.donation-widget-caption {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 3px;
+  font-size: 13px;
+  color: var(--ow-text-secondary);
+}
+.donation-widget-caption strong { font-size: 15px; color: var(--ow-text-primary); }
+.donation-modal-open { flex-shrink: 0; }
+.donation-widget-status {
+  margin: 0;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--ow-text-secondary);
+}
+.donation-widget-status:empty { display: none; }
 .donation-widget iframe {
   display: block;
   width: 100%;
-  max-width: 440px;
-  height: 1050px;
-  margin: 0 auto;
+  height: 980px;
   border: 0;
-  border-radius: 20px;
   background: #fff;
 }
+.donation-widget-fallback {
+  padding: 12px;
+  border-top: 1px solid var(--ow-border-subtle);
+  color: var(--ow-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.donation-widget-fallback a { color: var(--ow-accent); overflow-wrap: anywhere; }
 .donation-note {
   margin: 14px 0 0;
   color: var(--ow-text-secondary);
@@ -598,7 +630,11 @@ body[data-page="login"] #app {
 @media (max-width: 767.98px) {
   .donation-layout { grid-template-columns: minmax(0, 1fr); }
   .donation-direct { max-width: 320px; margin: 0 auto; width: 100%; }
-  .donation-widget iframe { max-width: 100%; }
+  .donation-widget iframe { height: 900px; }
+}
+@media (max-width: 419.98px) {
+  .donation-widget-toolbar { flex-wrap: wrap; }
+  .donation-modal-open { width: 100%; }
 }
 
 .btn {
