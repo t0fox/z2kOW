@@ -667,7 +667,7 @@ jobs:
           cache: true
           cache-dependency-path: z2k-warpd/go.sum
       - name: Установить зависимости всех проверок OpenWrt
-        run: sudo apt-get update && sudo apt-get install -y dnsmasq-base busybox lighttpd curl
+        run: sudo apt-get update && sudo apt-get install -y dnsmasq-base busybox lighttpd curl lua5.3
       - name: Выполнить полный набор OpenWrt без пропусков
         run: |
           runtime_archive="$RUNNER_TEMP/zapret2-ci.tar.gz"

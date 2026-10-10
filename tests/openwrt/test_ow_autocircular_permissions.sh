@@ -62,6 +62,17 @@ _root_state_call() {
         return 1
     fi
 }
+assert_root_file() {
+    _root_file_desc="$1"
+    _root_file_path="$2"
+    if [ "$(id -u)" = 0 ]; then
+        assert_file "$_root_file_desc" "$_root_file_path"
+    elif command -v sudo >/dev/null 2>&1 && sudo -n test -s "$_root_file_path"; then
+        _t_ok
+    else
+        _t_bad "$_root_file_desc: резервная копия недоступна или пуста"
+    fi
+}
 if [ "$(id -u)" = 0 ]; then
     chown root:root "$T" "$Z2K_ETC" "$Z2K_STATE" "$Z2K_TMP" "$_root_target" || exit 1
 elif command -v sudo >/dev/null 2>&1; then
@@ -83,8 +94,9 @@ assert_contains "сохранён закреплённый YouTube" "$STATE_FILE
 assert_contains "сохранён QUIC из старого fallback" "$STATE_FILE" "quic${_tab}googlevideo.com|4${_tab}3${_tab}1700000001${_tab}auto"
 assert_contains "сохранён прежний запасной файл" "$STATE_FILE" "rkn_tcp${_tab}legacy.example|4${_tab}2${_tab}1700000002${_tab}auto"
 _backup_dir="$Z2K_STATE/autocircular-migration-backup"
-assert_file "резервная копия прежнего primary" "$_backup_dir/legacy-primary.tsv"
-assert_file "резервная копия прежнего fallback" "$_backup_dir/legacy-tmp.tsv"
+assert_root_file "резервная копия прежнего primary" "$_backup_dir/legacy-primary.tsv"
+assert_root_file "резервная копия прежнего fallback" "$_backup_dir/legacy-z2k-tmp.tsv"
+assert_root_file "резервная копия заданного legacy fallback" "$_backup_dir/legacy-tmp.tsv"
 assert_eq "резервная копия недоступна nfqws2 на запись" "700" "$(stat -c '%a' "$_backup_dir" 2>/dev/null)"
 assert_eq "каталог резервных копий остаётся root-owned" "0" "$(stat -c '%u' "$_backup_dir" 2>/dev/null)"
 assert_eq "общий каталог state не менял права/владельца" "$_parent_meta" "$(stat -c '%a:%u:%g' "$Z2K_STATE" 2>/dev/null)"
