@@ -410,24 +410,29 @@ case "$out" in
 esac
 rm -f untracked_probe.tmp
 
-# --- property 2: the OpenWrt manifest stays a single-artifact authority -------
+# --- property 2: the OpenWrt manifest keeps one controlled multi-arch release --
 if python3 -c "
 import json,sys
 m=json.load(open('UPDATES.json', encoding='utf-8'))
-want=['schema','branch','platform','seq','current','upstream','history','artifact','signing']
+want=['schema','branch','platform','seq','current','upstream','history','artifacts','artifact','signing']
 a=m.get('artifact',{})
+arches={'arm64','arm','x86_64','x86','mips','mipsel','riscv64'}
+records=m.get('artifacts',{})
 signing=m.get('signing',{})
-ok=(list(m)==want and m.get('platform')=='openwrt'
+ok=(list(m)==want and m.get('platform')=='openwrt' and set(records)==arches
     and a.get('filename')=='openwrt-rootfs.tar.gz'
     and len(a.get('sha256',''))==64 and a.get('size_bytes',0)>0
+    and all(r.get('filename')=='openwrt-rootfs-'+arch+'.tar.gz'
+            and len(r.get('sha256',''))==64 and r.get('size_bytes',0)>0
+            and r.get('unpacked_size_bytes',0)>0 for arch,r in records.items())
     and list(signing)==['key_id'] and len(signing.get('key_id',''))==64
     and not any(k in m for k in ('files_sha256','install_map','components','package_versions')))
 sys.exit(0 if ok else 1)
 " 2>/dev/null; then
-    ok "controlled UPDATES.json keeps exactly one complete OpenWrt artifact"
+    ok "controlled UPDATES.json keeps seven architecture artifacts and one generic transition archive"
 else
-    no "controlled UPDATES.json keeps one artifact and no component maps" \
-       "schema,branch,platform,seq,current,upstream,history,artifact,signing" \
+    no "controlled UPDATES.json keeps seven architecture artifacts and one generic transition archive" \
+       "schema,branch,platform,seq,current,upstream,history,artifacts,artifact,signing" \
        "$(python3 -c "import json;print(','.join(json.load(open('UPDATES.json')).keys()))" 2>/dev/null)"
 fi
 

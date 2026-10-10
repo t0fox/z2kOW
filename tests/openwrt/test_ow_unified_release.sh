@@ -128,7 +128,7 @@ prepare_manifest() {
     _artifact="$1"; _out="$2"; _url="${3:-https://github.com/t0fox/z2kOW/releases/download/openwrt-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/openwrt-rootfs.tar.gz}"; _sha=""; _size=""
     _sha="$(sha256sum "$_artifact" | awk '{print $1}')"
     _size="$(wc -c < "$_artifact" | tr -d ' \t\r\n')"
-    "$Z2K_TEST_PYTHON" -c 'import json,sys; p,a,o,sha,size,url=sys.argv[1:]; d=json.load(open(p,encoding="utf-8")); d["artifact"]={"filename":"openwrt-rootfs.tar.gz","url":url,"sha256":sha,"size_bytes":int(size)}; d["signing"]={"key_id":"0000000000000000000000000000000000000000000000000000000000000000"}; history=d.pop("history"); f=open(o,"w",encoding="utf-8"); f.write(json.dumps(d,ensure_ascii=False,indent=2)[:-1]+",\n  "+chr(34)+"history"+chr(34)+": [\n"); f.write(",\n".join("    "+json.dumps(entry,ensure_ascii=False,separators=(",",":")) for entry in history)); f.write("\n  ]\n}\n"); f.close()' \
+    "$Z2K_TEST_PYTHON" -c 'import json,sys; p,a,o,sha,size,url=sys.argv[1:]; d=json.load(open(p,encoding="utf-8")); d.pop("artifacts",None); d["artifact"]={"filename":"openwrt-rootfs.tar.gz","url":url,"sha256":sha,"size_bytes":int(size)}; d["signing"]={"key_id":"0000000000000000000000000000000000000000000000000000000000000000"}; history=d.pop("history"); f=open(o,"w",encoding="utf-8"); f.write(json.dumps(d,ensure_ascii=False,indent=2)[:-1]+",\n  "+chr(34)+"history"+chr(34)+": [\n"); f.write(",\n".join("    "+json.dumps(entry,ensure_ascii=False,separators=(",",":")) for entry in history)); f.write("\n  ]\n}\n"); f.close()' \
         "$REPO/UPDATES.json" "$_artifact" "$_out" "$_sha" "$_size" "$_url"
 }
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# The controlled manifest approves one complete OpenWrt release artifact.
+# The controlled manifest approves one complete release and its architecture payloads.
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 python3 - "$ROOT" <<'PY'
 import json
@@ -10,7 +10,7 @@ from pathlib import Path
 root = Path(sys.argv[1])
 manifest = json.loads((root / "UPDATES.json").read_text(encoding="utf-8"))
 assert set(manifest) == {
-    "schema", "branch", "platform", "seq", "current", "upstream", "history", "artifact", "signing"
+    "schema", "branch", "platform", "seq", "current", "upstream", "history", "artifacts", "artifact", "signing"
 }
 assert manifest["schema"] == 1
 assert manifest["branch"] == "main" and manifest["platform"] == "openwrt"
@@ -28,6 +28,14 @@ assert re.fullmatch(
 )
 assert re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"])
 assert isinstance(artifact["size_bytes"], int) and artifact["size_bytes"] > 0
+arches = {"arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64"}
+assert set(manifest["artifacts"]) == arches
+for arch, record in manifest["artifacts"].items():
+    assert set(record) == {"filename", "url", "sha256", "size_bytes", "unpacked_size_bytes"}
+    assert record["filename"] == f"openwrt-rootfs-{arch}.tar.gz"
+    assert re.fullmatch(r"[0-9a-f]{64}", record["sha256"])
+    assert isinstance(record["size_bytes"], int) and record["size_bytes"] > 0
+    assert isinstance(record["unpacked_size_bytes"], int) and record["unpacked_size_bytes"] > 0
 assert not {
     "files_sha256", "install_map", "components", "package_versions"
 } & set(manifest)

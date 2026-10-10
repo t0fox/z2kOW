@@ -12,8 +12,10 @@ export Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
 mkdir -p "$Z2K_STATE"
 AU_MANIFEST_CACHE="$T/UPDATES.json"
 cp "$REPO/UPDATES.json" "$AU_MANIFEST_CACHE"
+printf "DISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"
+export Z2K_OW_OPENWRT_RELEASE_FILE="$T/openwrt_release"
 TAG="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["current"])' "$AU_MANIFEST_CACHE")"
-DIGEST="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["artifact"]["sha256"])' "$AU_MANIFEST_CACHE")"
+DIGEST="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m.get("artifacts",{}).get("arm64",m.get("artifact",{}))["sha256"])' "$AU_MANIFEST_CACHE")"
 jsonfilter() {
     local _jf_file _jf_expr _jf_type=0
     while [ "$#" -gt 0 ]; do
@@ -51,15 +53,13 @@ python3 - "$AU_MANIFEST_CACHE" <<'PY'
 import json, pathlib, sys
 path = pathlib.Path(sys.argv[1])
 manifest = json.loads(path.read_text())
-manifest['artifact']['sha256'] = 'f' * 64
+manifest.get('artifacts', {}).get('arm64', manifest.get('artifact', {}))['sha256'] = 'f' * 64
 path.write_text(json.dumps(manifest, indent=2))
 PY
 assert_eq "новый SHA-256 при том же tag + seq отображается как хотфикс" 1 "$(update_behind_count "$TAG")"
 
 # The OpenWrt panel must compare the digest selected for its local architecture
 # when a signed release uses per-architecture records and has no legacy field.
-printf "DISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"
-export Z2K_OW_OPENWRT_RELEASE_FILE="$T/openwrt_release"
 python3 - "$AU_MANIFEST_CACHE" <<'PY'
 import json, pathlib, sys
 path = pathlib.Path(sys.argv[1])

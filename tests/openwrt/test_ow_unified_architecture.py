@@ -51,7 +51,7 @@ class UnifiedArchitectureTests(unittest.TestCase):
 
     def test_root_manifest_is_the_single_current_openwrt_release_authority(self) -> None:
         manifest = json.loads((ROOT / "UPDATES.json").read_text(encoding="utf-8"))
-        expected_fields = {"schema", "branch", "platform", "seq", "current", "upstream", "history", "artifact"}
+        expected_fields = {"schema", "branch", "platform", "seq", "current", "upstream", "history", "artifacts", "artifact"}
         if "signing" in manifest:
             expected_fields.add("signing")
         self.assertEqual(set(manifest), expected_fields)
@@ -77,6 +77,19 @@ class UnifiedArchitectureTests(unittest.TestCase):
         self.assertRegex(artifact["sha256"], r"^[0-9a-f]{64}$")
         self.assertIsInstance(artifact["size_bytes"], int)
         self.assertGreater(artifact["size_bytes"], 0)
+        arches = {"arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64"}
+        self.assertEqual(set(manifest["artifacts"]), arches)
+        for arch, record in manifest["artifacts"].items():
+            self.assertEqual(
+                set(record),
+                {"filename", "url", "sha256", "size_bytes", "unpacked_size_bytes"},
+            )
+            self.assertEqual(record["filename"], f"openwrt-rootfs-{arch}.tar.gz")
+            self.assertRegex(record["sha256"], r"^[0-9a-f]{64}$")
+            self.assertIsInstance(record["size_bytes"], int)
+            self.assertGreater(record["size_bytes"], 0)
+            self.assertIsInstance(record["unpacked_size_bytes"], int)
+            self.assertGreater(record["unpacked_size_bytes"], 0)
         history_versions = [record["v"] for record in manifest["history"]]
         self.assertEqual(len(history_versions), len(set(history_versions)))
         self.assertNotIn("seq", manifest["history"][-1], "keep upstream's per-entry history schema unchanged")
