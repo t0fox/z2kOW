@@ -286,7 +286,11 @@ func loadBlob(name string) []byte {
 	if name == "" {
 		return nil
 	}
-	b, err := os.ReadFile(filepath.Join(blobDir, name))
+	dir := os.Getenv("Z2K_FAKE_DIR")
+	if dir == "" {
+		dir = blobDir
+	}
+	b, err := os.ReadFile(filepath.Join(dir, name))
 	if err != nil || len(b) < 64 {
 		return nil
 	}

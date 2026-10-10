@@ -4571,6 +4571,7 @@ strategy_unique_set_ips() {
         stats=$(printf '%s\n' "$output" | strategy_unique_set_parse_ips --stats)
         raw_count=${stats%% *}
         parsed_count=${stats#* }
+
         if [ "$parsed_count" -ge 2 ]; then
             STRATEGY_UNIQUE_FAILURE_REASON=""
             return 0
@@ -4606,6 +4607,7 @@ strategy_unique_set_measure() {
     rc=$?
     STRATEGY_PICK_OUT="$previous_out"
     if [ "$rc" != 0 ]; then
+        [ "$mode" != quic ] || [ ! -s "$out" ] || STRATEGY_UNIQUE_FAILURE_JSON="$out"
         [ -z "${STRATEGY_PICK_FAILURE_REASON:-}" ] || STRATEGY_UNIQUE_FAILURE_REASON="$STRATEGY_PICK_FAILURE_REASON"
         return "$rc"
     fi
@@ -4659,12 +4661,17 @@ strategy_unique_set_result_write() {
 }
 
 strategy_unique_set_result_failure_write() {
-    local error="$1" elapsed="$2"
+    local error="$1" elapsed="$2" measurement="${3:-}"
     local result="${STRATEGY_UNIQUE_RESULT_FILE:-/tmp/z2k-unique-set-result.json}" tmp
     tmp="$result.$$"
     {
         printf '{"ok":false,"error":'; json_string "$error"
-        printf ',"elapsed_seconds":%s}\n' "$elapsed"
+        printf ',"elapsed_seconds":%s' "$elapsed"
+        if [ -n "$measurement" ] && [ -s "$measurement" ]; then
+            printf ',"measurement":'
+            cat "$measurement"
+        fi
+        printf '}\n'
     } > "$tmp" || { rm -f "$tmp"; return 1; }
     mv -f "$tmp" "$result" || { rm -f "$tmp"; return 1; }
 }
@@ -4673,17 +4680,26 @@ strategy_unique_set_stage() {
     local domain="$1" mode="$2" name="$3" pool="$4" json
     json="$UNIQUE_SET_DIR/$name.json"
     local found complete
-    job_step "Уникальный набор: этап $domain ($mode) → пул $pool; запускаю замеры"
+    job_step "Этап: $domain ($mode) → $pool"
     strategy_unique_set_measure "$domain" "$mode" "$json" || return $?
     found=$(strategy_unique_set_strategy "$json")
-    [ -n "$found" ] || { echo "Для $domain стратегия не найдена" >&2; return 20; }
+    if [ -z "$found" ]; then
+        if [ "$mode" = quic ]; then
+            STRATEGY_UNIQUE_FAILURE_JSON="$json"
+            STRATEGY_UNIQUE_FAILURE_REASON="QUIC $domain: не найден повторяемый исполнимый приём"
+            echo "$STRATEGY_UNIQUE_FAILURE_REASON" >&2
+        else
+            echo "Для $domain стратегия не найдена" >&2
+        fi
+        return 20
+    fi
     case "$found" in
         *'"'*|*'\\'*) echo "В выводе для $domain небезопасная строка стратегии" >&2; return 1 ;;
     esac
     complete=$(printf '%s\n' "$found" | strategy_complete_line "$pool") || return 1
     [ -n "$complete" ] || { echo "Не удалось собрать профиль пула $pool" >&2; return 1; }
     printf '%s\n' "$complete" > "$UNIQUE_SET_DIR/$pool.txt" || return 1
-    job_step "Уникальный набор: для $domain найдена стратегия пула $pool: $found"
+    job_step "Найдена стратегия: $found"
 }
 
 strategy_unique_set_stage_multi_ip() {
@@ -4699,7 +4715,7 @@ strategy_unique_set_stage_multi_ip() {
         attempt=$((attempt + 1))
         additional=$(printf '%s\n' "$ips" | awk -v anchor="$anchor" '$0 != anchor && NF { if (out != "") out=out " "; out=out $0 } END { print out }')
         out="$UNIQUE_SET_DIR/$name-common-$attempt.json"
-        job_step "Уникальный набор: $domain ($mode), опорный IP $anchor; проверяю кандидата на обоих адресах"
+        job_step "Этап: $domain ($mode), ищу от $anchor и проверяю кандидаты на всех адресах"
         strategy_unique_set_measure "$domain" "$mode" "$out" "$anchor" "$additional" || {
             echo "$domain: общий замер на $anchor не завершился; пул $pool не будет применён" >&2; return 1;
         }
@@ -4713,13 +4729,14 @@ EOF
     complete=$(printf '%s\n' "$found" | strategy_complete_line "$pool") || return 1
     [ -n "$complete" ] || { echo "Не удалось собрать профиль пула $pool" >&2; return 1; }
     printf '%s\n' "$complete" > "$UNIQUE_SET_DIR/$pool.txt" || return 1
-    job_step "Уникальный набор: кандидат для $domain прошёл проверку на обоих IP; собираю пул $pool"
+    job_step "Общий кандидат для $domain прошёл всю проверочную матрицу: $found"
 }
 
 strategy_unique_set_run() {
     local previous_out="${STRATEGY_PICK_OUT:-}" started ended discord instagram rutor selected coverage reason rc
     local own_dir=0
     STRATEGY_UNIQUE_FAILURE_REASON=""
+    STRATEGY_UNIQUE_FAILURE_JSON=""
     strategy_unique_set_preflight || return 1
     if [ -z "${UNIQUE_SET_DIR:-}" ]; then
         UNIQUE_SET_DIR="/tmp/z2k-unique-set.$$"
@@ -4730,13 +4747,11 @@ strategy_unique_set_run() {
     mkdir -p "$UNIQUE_SET_DIR" || { echo "Не удалось создать рабочий каталог" >&2; return 1; }
     STRATEGY_PICK_OUT="$previous_out"
     started=$(date +%s)
-    job_step "Уникальный набор: начинаю проверки четырёх пулов на DNS-адресах роутера"
-
     strategy_unique_set_stage_multi_ip i.ytimg.com mixed stage-youtube yt_tcp || return 1
     strategy_unique_set_stage_multi_ip googlevideo.com mixed stage-googlevideo gv_tcp || return 1
-    strategy_unique_set_stage instagram.com quic stage-instagram-quic quic || return 1
-    # RKN TCP is compared only on the modern TLS 1.3 hello. The legacy hello
-    # can select a different strategy and is outside this experiment's target.
+    strategy_unique_set_stage instagram.com quic stage-instagram-quic quic || { rc=$?; return "$rc"; }
+    # Для RKN TCP сравниваем только современное приветствие TLS 1.3.
+    # Старое приветствие может выбрать другую стратегию и в этот замер не входит.
     strategy_unique_set_stage discord.com tcp13 stage-discord rkn_tcp || return 1
     strategy_unique_set_stage instagram.com tcp13 stage-instagram-tcp rkn_tcp || {
         rc=$?; [ "$rc" = 20 ] || return "$rc"
@@ -4748,8 +4763,8 @@ strategy_unique_set_run() {
     discord=$(strategy_unique_set_normalize < "$UNIQUE_SET_DIR/stage-discord.json" | strategy_unique_set_strategy /dev/stdin)
     instagram=$(strategy_unique_set_strategy "$UNIQUE_SET_DIR/stage-instagram-tcp.json" 2>/dev/null | strategy_unique_set_normalize)
     rutor=$(strategy_unique_set_strategy "$UNIQUE_SET_DIR/stage-rutor.json" 2>/dev/null | strategy_unique_set_normalize)
-    # Discord is mandatory; the two other RKN probes are informative and may
-    # fail, in which case the measured Discord result remains the fallback.
+    # Discord обязателен; две другие пробы RKN справочные и могут не пройти.
+    # Тогда для пула остаётся измеренный результат Discord.
     [ -n "$discord" ] || { echo "Discord-стратегия обязательна для RKN-пула" >&2; return 1; }
     discord=$(printf '%s' "$discord" | strategy_unique_set_normalize)
     selected="$discord"
@@ -4764,8 +4779,12 @@ strategy_unique_set_run() {
 
     local service_restarted=false
     is_running && service_restarted=true
-    job_step "Уникальный набор: все замеры завершены; проверяю и применяю конфигурацию транзакцией"
-    strategy_pool_save_batch "$UNIQUE_SET_DIR" "$UNIQUE_SET_DIR/transaction" || { rm -f "${UNIQUE_SET_RESULT_TMP:-}"; return $?; }
+    job_step "Проверяю и применяю все четыре пула одним набором…"
+    strategy_pool_save_batch "$UNIQUE_SET_DIR" "$UNIQUE_SET_DIR/transaction" || {
+        rc=$?
+        rm -f "${UNIQUE_SET_RESULT_TMP:-}"
+        return "$rc"
+    }
     ended=$(date +%s)
     strategy_unique_set_result_write "$UNIQUE_SET_DIR" "$coverage" "$reason" "$((ended - started))" "$service_restarted" || {
         echo "Набор применён, но не удалось собрать итоговый отчёт" >&2; return 1;
@@ -4773,7 +4792,7 @@ strategy_unique_set_run() {
     mv -f "$UNIQUE_SET_RESULT_TMP" "${STRATEGY_UNIQUE_RESULT_FILE:-/tmp/z2k-unique-set-result.json}" || {
         echo "набор применён, но не удалось сохранить итоговый отчёт" >&2; return 1;
     }
-    job_step "Уникальный набор: все четыре пула применены за $((ended - started)) с"
+    job_step "Набор применён за $((ended - started)) с."
     [ "$own_dir" = 0 ] || rm -rf "$UNIQUE_SET_DIR"
     return 0
 }
@@ -4786,9 +4805,9 @@ strategy_unique_set_worker() {
     rc=$?
     if [ "$rc" -ne 0 ]; then
         ended=$(date +%s)
-        error="${STRATEGY_UNIQUE_FAILURE_REASON:-Набор не применён (код $rc); подробности в журнале задачи}"
-        strategy_unique_set_result_failure_write "$error" "$((ended - started))" || {
-            echo "Не удалось сохранить причину отказа набора" >&2
+        error="${STRATEGY_UNIQUE_FAILURE_REASON:-Набор не применён (код $rc)}"
+        strategy_unique_set_result_failure_write "$error" "$((ended - started))" "${STRATEGY_UNIQUE_FAILURE_JSON:-}" || {
+            echo "Не удалось сохранить диагностику отказа набора" >&2
         }
     fi
     return "$rc"
