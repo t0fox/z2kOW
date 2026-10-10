@@ -93,8 +93,13 @@ assert_eq "Lua и оболочка используют один файл" "$Z2K
 assert_eq "запасной файл живёт отдельно в tmpfs" \
     "$Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE/z2k-autocircular-state.tsv" "$STATE_FILE_FALLBACK"
 
-if _root_state_call z2k_ow_prepare_autocircular_storage; then _t_ok; else _t_bad "каталог autocircular подготовлен"; fi
-if _root_state_call z2k_ow_migrate_autocircular_state; then _t_ok; else _t_bad "старое состояние перенесено"; fi
+# Штатная сборка OpenWrt может быть без `stat` (пакета coreutils). Подменяем
+# команду только на время подготовки и миграции: второй вызов подготовки
+# проверяет уже созданный файл и обязан работать через штатный BusyBox `ls`.
+stat() { return 127; }
+if _root_state_call z2k_ow_prepare_autocircular_storage; then _t_ok; else _t_bad "каталог autocircular подготовлен без stat"; fi
+if _root_state_call z2k_ow_migrate_autocircular_state; then _t_ok; else _t_bad "старое состояние перенесено без stat"; fi
+unset -f stat
 
 _tab="$(printf '\t')"
 assert_contains "сохранён закреплённый YouTube" "$STATE_FILE" "yt_tcp${_tab}youtube.com|4${_tab}5${_tab}1700000000${_tab}frozen${_tab}old.youtube.com"

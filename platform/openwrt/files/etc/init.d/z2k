@@ -163,10 +163,16 @@ start_service() {
     # Путь autocircular нужен и панели при ENABLED=0: подготовить хранилище
     # и перенести старые записи до master-гейта и до запуска процесса.
     if command -v z2k_ow_prepare_autocircular_storage >/dev/null 2>&1; then
-        z2k_ow_prepare_autocircular_storage || return 1
+        z2k_ow_prepare_autocircular_storage || {
+            echo "z2k-openwrt: не удалось подготовить отдельное хранилище autocircular" >&2
+            return 1
+        }
     fi
     if command -v z2k_ow_migrate_autocircular_state >/dev/null 2>&1; then
-        z2k_ow_migrate_autocircular_state || return 1
+        z2k_ow_migrate_autocircular_state || {
+            echo "z2k-openwrt: не удалось перенести состояние autocircular" >&2
+            return 1
+        }
     fi
 
     # Register the upstream periodic work on every boot/start: nightly update,

@@ -55,9 +55,19 @@ _z2k_ow_prepare_autocircular_file() {
         printf '%b' "$_header" > "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
     else
         [ -f "$_path" ] || return 1
-        _metadata=$(stat -c '%u:%a' "$_path" 2>/dev/null) || return 1
+        # В базовой прошивке OpenWrt утилита `stat` может отсутствовать.
+        # BusyBox `ls -ln` есть в штатном наборе и даёт числового владельца
+        # вместе с символьной маской прав; не завязываем запуск службы на
+        # пакет coreutils.
+        _metadata=$(LC_ALL=C ls -ldn "$_path" 2>/dev/null | LC_ALL=C awk '
+            NR == 1 { print $3 ":" $1; found = 1 }
+            END { if (!found) exit 1 }
+        ') || {
+            echo "z2k-openwrt: не удалось прочитать владельца и права файла состояния: $_path" >&2
+            return 1
+        }
         _owner=${_metadata%%:*}; _mode=${_metadata#*:}
-        [ "$_owner" != "$_uid" ] || [ "$_mode" != 644 ] || return 0
+        [ "$_owner" != "$_uid" ] || [ "$_mode" != -rw-r--r-- ] || return 0
         _tmp=$(mktemp "$_work_dir/.autocircular-fix.XXXXXX") || return 1
         cp -p "$_path" "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
     fi
