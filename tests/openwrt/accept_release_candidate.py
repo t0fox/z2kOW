@@ -232,7 +232,9 @@ esac
                 "Z2K_TEST_FAIL_HTTP_PROBES": "",
             }
         )
-        run(["sh", str(ROOT / "scripts/openwrt/install.sh")], env, "точный кандидат установлен через начальный установщик")
+        bootstrap_env = env.copy()
+        bootstrap_env.pop("Z2K_OW_INSTALL_WORK", None)
+        run(["sh", str(ROOT / "scripts/openwrt/install.sh")], bootstrap_env, "точный кандидат установлен через начальный установщик")
         check_installed_architecture(sysroot, host_arch, "после свежей установки")
         state = sysroot / "etc/z2k/state/installed-release"
         check_state(state, tag, seq, "после свежей установки")
