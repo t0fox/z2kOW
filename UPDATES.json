@@ -2,13 +2,13 @@
   "schema": 1,
   "branch": "main",
   "platform": "openwrt",
-  "seq": 139,
-  "current": "p-86.16",
+  "seq": 140,
+  "current": "p-86.17",
   "upstream": {
     "repository": "necronicle/z2k",
     "branch": "z2k-enhanced",
-    "tag": "p-86.16",
-    "commit": "5a11ffd82d10578039487da2ef09210278eb06ff"
+    "tag": "p-86.17",
+    "commit": "295257dafdc5853ceea550d9cc5871b4b4b685b2"
   },
   "history": [
     {"v": "r-1", "type": "reinstall", "ts": "2026-05-04T00:00:00Z", "ref": "vk-whitelist-ext", "desc": "Extend whitelist with VK service/CDN domains (vkuseraudio/vkuservideo/vk-cdn/mvk/vkpay/vkforms/etc) — fixes broken photo comments and other XHR over non-vk.com VK domains", "changed_files": ["lib/config.sh"]},
@@ -300,13 +300,14 @@
     {"v": "p-86.13", "type": "patch", "ts": "2026-10-02T06:39:48Z", "ref": "p-86.13", "desc": "Когда списки WARP выключены, весь IPv4-трафик выбранных устройств теперь идёт через туннель; локальные сети остаются доступны напрямую. С включёнными списками маршрутизация ограничена их адресами. Уточнены подсказки в панели и диагностика.", "changed_files": ["webpanel/www/index.html", "files/z2k-diag.sh", "files/z2k-warp.sh", "webpanel/www/js/pages/warp.js", "UPDATES.json"], "steps": [], "full_install": false},
     {"v": "p-86.14", "type": "patch", "ts": "2026-10-04T07:56:39Z", "ref": "p-86.14", "desc": "Исправлено определение выхода в интернет через интерфейс-мост, например при подключении через другой роутер. Правила обхода и их автоматическое восстановление теперь работают в такой конфигурации.", "changed_files": ["webpanel/www/index.html", "lib/wan.sh", "UPDATES.json"], "steps": [], "full_install": false},
     {"v": "p-86.15", "type": "patch", "ts": "2026-10-05T19:08:55Z", "ref": "p-86.15", "desc": "Новый спонсор проекта — GregMSK", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false},
-    {"v": "p-86.16", "type": "patch", "ts": "2026-10-06T11:55:04Z", "ref": "p-86.16", "desc": "Новый спонсор проекта — Кожевников. Убран сбор статистики стратегий: роутер больше ничего не отправляет на сервер проекта, пункт меню [C] и переключатель в панели удалены.", "changed_files": ["webpanel/www/index.html", "files/init.d/S99z2k-scheduler", "files/ndm/95-z2k-scheduler-watchdog.sh", "files/z2k-scheduler.sh", "lib/config_official.sh", "lib/install.sh", "lib/menu.sh", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/core/toast.js", "webpanel/www/js/pages/credits.js", "webpanel/www/js/pages/dashboard.js", "webpanel/www/js/pages/toggles.js", "z2k.sh", "UPDATES.json"], "steps": ["regen-config", "validate-config", "restart-service"], "full_install": false}
+    {"v": "p-86.16", "type": "patch", "ts": "2026-10-06T11:55:04Z", "ref": "p-86.16", "desc": "Новый спонсор проекта — Кожевников. Убран сбор статистики стратегий: роутер больше ничего не отправляет на сервер проекта, пункт меню [C] и переключатель в панели удалены.", "changed_files": ["webpanel/www/index.html", "files/init.d/S99z2k-scheduler", "files/ndm/95-z2k-scheduler-watchdog.sh", "files/z2k-scheduler.sh", "lib/config_official.sh", "lib/install.sh", "lib/menu.sh", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/core/toast.js", "webpanel/www/js/pages/credits.js", "webpanel/www/js/pages/dashboard.js", "webpanel/www/js/pages/toggles.js", "z2k.sh", "UPDATES.json"], "steps": ["regen-config", "validate-config", "restart-service"], "full_install": false},
+    {"v": "p-86.17", "type": "patch", "ts": "2026-10-09T22:46:11Z", "ref": "p-86.17", "desc": "Новый спонсор проекта — bootnet.", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false}
   ],
   "artifact": {
     "filename": "openwrt-rootfs.tar.gz",
-    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-321a47b493cb53af2711f633cb316173eed4cab5/openwrt-rootfs.tar.gz",
-    "sha256": "7f2385e0f589d26207cf9b36f6f0c15f4552e4474bbcf7cdc07e4d63eb792000",
-    "size_bytes": 77632341
+    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-bb601f58f1d9597e1357a7e693d1a17fb00415da/openwrt-rootfs.tar.gz",
+    "sha256": "872d782cf22d0ec303613d0c1cf3efab3e32b7115c337fe6debd5168b1da7a99",
+    "size_bytes": 77634486
   },
   "signing": {
     "key_id": "916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae"
