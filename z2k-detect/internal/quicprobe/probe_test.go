@@ -40,7 +40,7 @@ type fakeBox struct {
 	answerInitial bool
 	// partialBlocked — сколько раз ответить на Initial с заблокированным именем.
 	// Нужен, чтобы проверить распознавание неповторяемого результата.
-	partialBlocked int
+	partialBlocked  int
 	blockedAttempts int
 	// silent — не отвечать вообще ни на что, включая согласование версии.
 	// Так выглядит блокировка по адресу: датаграммы исчезают молча, и ICMP
