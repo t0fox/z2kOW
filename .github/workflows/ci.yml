@@ -210,8 +210,8 @@ jobs:
           import hashlib, json, re, subprocess
           from pathlib import Path
           m = json.loads(Path("UPDATES.json").read_text(encoding="utf-8"))
-          required = {"schema", "branch", "platform", "seq", "current", "upstream", "history", "artifact"}
-          assert set(m) in (required, required | {"signing"})
+          required = {"schema", "branch", "platform", "seq", "current", "upstream", "history"}
+          assert required <= set(m) <= required | {"artifact", "artifacts", "signing"}
           assert m["schema"] == 1 and m["branch"] == "main" and m["platform"] == "openwrt"
           assert isinstance(m["seq"], int) and m["seq"] > 0
           assert re.fullmatch(r"[pr]-[0-9]+(?:\.[0-9]+)+", m["current"])
@@ -219,12 +219,35 @@ jobs:
           assert m["upstream"]["branch"] == "z2k-enhanced"
           assert m["upstream"]["tag"] == m["current"]
           assert re.fullmatch(r"[0-9a-f]{40}", m["upstream"]["commit"])
-          artifact = m["artifact"]
-          assert set(artifact) == {"filename", "url", "sha256", "size_bytes"}
-          assert artifact["filename"] == "openwrt-rootfs.tar.gz"
-          assert re.fullmatch(r"https://github\.com/t0fox/z2kOW/releases/download/(?:openwrt-[0-9a-f]{40}|[pr]-[0-9]+(?:\.[0-9]+)+)/openwrt-rootfs\.tar\.gz", artifact["url"])
-          assert re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"])
-          assert isinstance(artifact["size_bytes"], int) and artifact["size_bytes"] > 0
+          if "artifacts" not in m:
+              artifact = m["artifact"]
+              assert set(artifact) == {"filename", "url", "sha256", "size_bytes"}
+              assert artifact["filename"] == "openwrt-rootfs.tar.gz"
+              assert re.fullmatch(r"https://github\.com/t0fox/z2kOW/releases/download/(?:openwrt-[0-9a-f]{40}|[pr]-[0-9]+(?:\.[0-9]+)+)/openwrt-rootfs\.tar\.gz", artifact["url"])
+              assert re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"])
+              assert isinstance(artifact["size_bytes"], int) and artifact["size_bytes"] > 0
+          else:
+              arches = {"arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64"}
+              assert set(m["artifacts"]) == arches
+              release_tags = set()
+              for arch, artifact in m["artifacts"].items():
+                  filename = f"openwrt-rootfs-{arch}.tar.gz"
+                  assert set(artifact) == {"filename", "url", "sha256", "size_bytes", "unpacked_size_bytes"}
+                  assert artifact["filename"] == filename
+                  match = re.fullmatch(rf"https://github\.com/t0fox/z2kOW/releases/download/(openwrt-[0-9a-f]{{40}})/{re.escape(filename)}", artifact["url"])
+                  assert match
+                  release_tags.add(match.group(1))
+                  assert re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"])
+                  assert isinstance(artifact["size_bytes"], int) and artifact["size_bytes"] > 0
+                  assert isinstance(artifact["unpacked_size_bytes"], int) and artifact["unpacked_size_bytes"] > 0
+              assert len(release_tags) == 1
+              if "artifact" in m:
+                  artifact = m["artifact"]
+                  assert set(artifact) == {"filename", "url", "sha256", "size_bytes"}
+                  assert artifact["filename"] == "openwrt-rootfs.tar.gz"
+                  assert re.fullmatch(r"https://github\.com/t0fox/z2kOW/releases/download/openwrt-[0-9a-f]{40}/openwrt-rootfs\.tar\.gz", artifact["url"])
+                  assert re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"])
+                  assert isinstance(artifact["size_bytes"], int) and artifact["size_bytes"] > 0
           assert not {"adapter", "payload", "bundle", "components", "package_versions", "openwrt_release_artifact"} & set(m)
           assert m["history"]
           assert m["history"][-1]["v"] == m["current"]
@@ -677,14 +700,27 @@ jobs:
             -o "$runtime_archive" "$runtime_url"
           printf '%s  %s\n' "$runtime_sha" "$runtime_archive" | sha256sum -c -
           OW_STRICT=1 Z2K_RT_TARBALL="$runtime_archive" sh tests/openwrt/run.sh
-      - name: Test upstream WARP engine and build universal rootfs candidate
-        run: sh scripts/openwrt/build-release.sh --out "$RUNNER_TEMP/openwrt-candidate"
+      - name: Test upstream WARP engine and build per-architecture rootfs candidates
+        run: |
+          set -euo pipefail
+          cp UPDATES.json "$RUNNER_TEMP/production-UPDATES.json"
+          include_legacy_fallback="$(python3 scripts/openwrt/publication_policy.py migration-fallback \
+            --manifest "$RUNNER_TEMP/production-UPDATES.json")"
+          [[ "$include_legacy_fallback" == true || "$include_legacy_fallback" == false ]]
+          build_args=(--out "$RUNNER_TEMP/openwrt-candidate")
+          if [ "$include_legacy_fallback" = true ]; then build_args+=(--legacy-rootfs); fi
+          sh scripts/openwrt/build-release.sh "${build_args[@]}"
+          python3 scripts/openwrt/controlled_release.py attach \
+            --manifest "$RUNNER_TEMP/openwrt-candidate/UPDATES.json" \
+            --artifact-dir "$RUNNER_TEMP/openwrt-candidate" \
+            --source-sha "$GITHUB_SHA" \
+            --production-baseline "$RUNNER_TEMP/production-UPDATES.json"
       - name: Проверить готовый кандидат установщиком с утилитами BusyBox
         run: |
           python3 tests/openwrt/accept_release_candidate.py \
             "$RUNNER_TEMP/openwrt-candidate/UPDATES.json" \
-            "$RUNNER_TEMP/openwrt-candidate/openwrt-rootfs.tar.gz"
-      - name: Upload unsigned full-payload candidate
+            "$RUNNER_TEMP/openwrt-candidate"
+      - name: Upload unsigned architecture payload candidates
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: z2kow-openwrt-unsigned-${{ github.sha }}

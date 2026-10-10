@@ -13,7 +13,7 @@ PASS=0; FAIL=0; FAILED=""
 STRICT="${OW_STRICT:-0}"
 SKIPPED=""
 
-# 0. синтаксис всех shell-файлов слоя (+ Stage 7 release tooling)
+# 0. syntax-check each shell file with its declared interpreter.
 for _f in platform/openwrt/*.sh platform/openwrt/custom.d/.keep \
           platform/openwrt/bin/z2k-rt-proxy platform/openwrt/bin/z2k-detect \
           platform/openwrt/files/etc/init.d/z2k \
@@ -24,7 +24,9 @@ for _f in platform/openwrt/*.sh platform/openwrt/custom.d/.keep \
           tests/openwrt/*.sh; do
     [ -f "$_f" ] || continue
     [ "$(basename "$_f")" = ".keep" ] && continue
-    if sh -n "$_f" 2>/dev/null; then
+    _syntax_shell='sh'
+    case "$(sed -n '1p' "$_f")" in *bash*) _syntax_shell=bash ;; esac
+    if "$_syntax_shell" -n "$_f" 2>/dev/null; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1)); FAILED="$FAILED syntax:$_f"

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import copy
 import http.server
 import json
 import os
@@ -17,6 +18,8 @@ from typing import Sequence
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts" / "openwrt"))
+from controlled_release import ARCHITECTURES, validate_architecture_assets  # noqa: E402
 
 
 def run(args: Sequence[str], env: dict[str, str], label: str, expected: bool = True) -> str:
@@ -70,16 +73,50 @@ def check_state(path: Path, tag: str, seq: int, label: str) -> None:
         raise RuntimeError(f"{label}: неверная запись состояния: {values!r}")
 
 
+def check_installed_architecture(sysroot: Path, arch: str, label: str) -> None:
+    foreign = [
+        path for root in (sysroot / "usr/lib/z2k", sysroot / "opt/zapret2")
+        if root.exists() for path in root.rglob("linux-*")
+        if path.is_dir() and path.name != f"linux-{arch}"
+    ]
+    if foreign:
+        raise RuntimeError(f"{label}: установлен payload чужих архитектур: {foreign[:5]}")
+    required = (
+        sysroot / f"usr/lib/z2k/bin/linux-{arch}/tg-mtproxy-client",
+        sysroot / f"usr/lib/z2k/bin/linux-{arch}/z2k-rt-proxy",
+        sysroot / f"usr/lib/z2k/bin/linux-{arch}/z2k-detect",
+        sysroot / f"usr/lib/z2k/platform/openwrt/bin/linux-{arch}/z2k-warpd",
+        sysroot / f"opt/zapret2/binaries/linux-{arch}/nfqws2",
+        sysroot / f"opt/zapret2/binaries/linux-{arch}/ip2net",
+        sysroot / f"opt/zapret2/binaries/linux-{arch}/mdig",
+    )
+    missing = [str(path) for path in required if not path.is_file() or not os.access(path, os.X_OK)]
+    if missing:
+        raise RuntimeError(f"{label}: отсутствуют исполняемые файлы целевой архитектуры: {missing}")
+
+
 def main() -> int:
     if len(sys.argv) != 3:
-        print("Использование: accept_release_candidate.py UPDATES.json openwrt-rootfs.tar.gz", file=sys.stderr)
+        print("Использование: accept_release_candidate.py UPDATES.json ARTIFACT_DIRECTORY", file=sys.stderr)
         return 2
-    manifest_source, artifact_source = map(Path, sys.argv[1:])
-    manifest = json.loads(manifest_source.read_text(encoding="utf-8"))
+    manifest_source, artifact_dir = map(Path, sys.argv[1:])
+    artifact_dir = artifact_dir.resolve()
+    original_manifest = json.loads(manifest_source.read_text(encoding="utf-8"))
+    if not isinstance(original_manifest, dict):
+        raise RuntimeError("кандидат UPDATES.json должен содержать объект")
+    asset_names = validate_architecture_assets(original_manifest, artifact_dir)
+    original_asset_hashes = {
+        name: hashlib.sha256((artifact_dir / name).read_bytes()).hexdigest() for name in asset_names
+    }
+    manifest = copy.deepcopy(original_manifest)
     tag = str(manifest["current"])
     seq = int(manifest["seq"])
-    if manifest.get("platform") != "openwrt" or manifest.get("artifact", {}).get("filename") != "openwrt-rootfs.tar.gz":
-        raise RuntimeError("кандидат не является архивом полного релиза OpenWrt")
+    if manifest.get("platform") != "openwrt" or set(manifest.get("artifacts", {})) != set(ARCHITECTURES):
+        raise RuntimeError("кандидат должен содержать ровно семь архитектурных архивов OpenWrt")
+    host_arch = "x86_64"
+    selected_record = manifest["artifacts"][host_arch]
+    selected_filename = str(selected_record["filename"])
+    artifact_source = artifact_dir / selected_filename
     artifact_data = artifact_source.read_bytes()
     original_manifest_hash = hashlib.sha256(manifest_source.read_bytes()).hexdigest()
     original_artifact_hash = hashlib.sha256(artifact_data).hexdigest()
@@ -119,20 +156,13 @@ def main() -> int:
             for applet in ("awk", "tar", "xargs", "tr"):
                 (bin_dir / applet).symlink_to(busybox)
 
-        served_artifact = served / "openwrt-rootfs.tar.gz"
+        served_artifact = served / selected_filename
         served_artifact.write_bytes(artifact_data)
         manifest["signing"] = {"key_id": test_key_id}
-        manifest["artifact"] = {
-            "filename": "openwrt-rootfs.tar.gz",
-            "url": "http://127.0.0.1/openwrt-rootfs.tar.gz",
-            "sha256": hashlib.sha256(artifact_data).hexdigest(),
-            "size_bytes": len(artifact_data),
-        }
-        (served / "UPDATES.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
         httpd, http_thread = serve(served, QuietHandler)
         base_url = f"http://127.0.0.1:{httpd.server_port}"
-        manifest["artifact"]["url"] = f"{base_url}/openwrt-rootfs.tar.gz"
+        manifest["artifacts"][host_arch]["url"] = f"{base_url}/{selected_filename}"
         (served / "UPDATES.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         signature = served / "UPDATES.json.sig"
         subprocess.run(["openssl", "pkeyutl", "-sign", "-rawin", "-inkey", str(key), "-in", str(served / "UPDATES.json"), "-out", str(signature)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -144,7 +174,7 @@ def main() -> int:
         write_executable(bin_dir / "apk", '#!/bin/sh\ncase "${1:-}" in info) exit 1 ;; update|add|del) exit 0 ;; *) exit 2 ;; esac\n')
         write_executable(
             bin_dir / "jsonfilter",
-            "#!/usr/bin/env python3\nimport json,sys\na=sys.argv[1:]; f=e=None\nwhile a:\n x=a.pop(0)\n if x=='-i': f=a.pop(0)\n elif x=='-e': e=a.pop(0).removeprefix('@.')\n else: raise SystemExit(2)\nv=json.load(open(f,encoding='utf-8'))\nfor k in e.split('.'): v=v[k]\nif v is not None: print(v)\n",
+            "#!/usr/bin/env python3\nimport json,sys\na=sys.argv[1:]; f=e=None; kind=False\nwhile a:\n x=a.pop(0)\n if x=='-i': f=a.pop(0)\n elif x=='-e': e=a.pop(0).removeprefix('@.')\n elif x=='-t': kind=True; e=a.pop(0).removeprefix('@.')\n else: raise SystemExit(2)\nv=json.load(open(f,encoding='utf-8'))\nfor k in e.split('.'): v=v[k]\nif kind: print('object' if isinstance(v,dict) else 'array' if isinstance(v,list) else 'string' if isinstance(v,str) else 'boolean' if isinstance(v,bool) else 'number' if isinstance(v,(int,float)) else 'null')\nelif v is not None: print(v)\n",
         )
         service_log = work / "service-calls.log"
         write_executable(
@@ -202,7 +232,10 @@ esac
                 "Z2K_TEST_FAIL_HTTP_PROBES": "",
             }
         )
-        run(["sh", str(ROOT / "scripts/openwrt/install.sh")], env, "точный кандидат установлен через начальный установщик")
+        bootstrap_env = env.copy()
+        bootstrap_env.pop("Z2K_OW_INSTALL_WORK", None)
+        run(["sh", str(ROOT / "scripts/openwrt/install.sh")], bootstrap_env, "точный кандидат установлен через начальный установщик")
+        check_installed_architecture(sysroot, host_arch, "после свежей установки")
         state = sysroot / "etc/z2k/state/installed-release"
         check_state(state, tag, seq, "после свежей установки")
 
@@ -255,10 +288,12 @@ esac
         state.write_text(f"tag={old_tag}\nseq={old_seq}\n", encoding="utf-8")
         run([str(engine), tag], engine_env, "обновление с прежней записью релиза")
         check_state(state, tag, seq, "после обновления")
+        check_installed_architecture(sysroot, host_arch, "после обновления")
         check_bootstrap("настоящий bootstrap и runtime-ссылки после обновления")
 
         run([str(engine), "--reinstall", tag], engine_env, "повторная установка той же версии")
         check_state(state, tag, seq, "после повторной установки")
+        check_installed_architecture(sysroot, host_arch, "после повторной установки")
         check_bootstrap("настоящий bootstrap и runtime-ссылки после повторной установки")
 
         state.write_text(f"tag={old_tag}\nseq={old_seq}\n", encoding="utf-8")
@@ -276,6 +311,7 @@ esac
         engine_env["Z2K_TEST_FAIL_HTTP_PROBES"] = ""
         run([str(engine), tag], engine_env, "повторная попытка после отката")
         check_state(state, tag, seq, "после повторной попытки")
+        check_installed_architecture(sysroot, host_arch, "после восстановления после отката")
         check_bootstrap("настоящий bootstrap и runtime-ссылки после повторной попытки")
         for path, expected in (
             (sysroot / "etc/z2k/config", "сохраняемый пользовательский параметр"),
@@ -300,11 +336,12 @@ esac
             "seq": seq,
             "manifest_sha256": original_manifest_hash,
             "artifact_sha256": original_artifact_hash,
+            "asset_sha256": original_asset_hashes,
         }
         (manifest_source.parent / "candidate-acceptance.json").write_text(
             json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-        print("ПРОЙДЕНО: квитанция приёмки связана с исходными манифестом и архивом кандидата")
+        print("ПРОЙДЕНО: квитанция связана с исходным манифестом и точным набором архивов")
 
         panel.shutdown()
         httpd.shutdown()

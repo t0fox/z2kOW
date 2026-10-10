@@ -10,11 +10,14 @@ import os
 import re
 import sys
 import tempfile
+import tarfile
 from pathlib import Path
 
 
 TAG_RE = re.compile(r"[pr]-[0-9]+(?:\.[0-9]+)+\Z")
 ARTIFACT_NAME = "openwrt-rootfs.tar.gz"
+ARCHITECTURES = ("arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64")
+ARCHIVE_NAME_TEMPLATE = "openwrt-rootfs-{arch}.tar.gz"
 RELEASE_BASE = "https://github.com/t0fox/z2kOW/releases/download"
 TECHNICAL_RELEASE_TAG_RE = re.compile(r"openwrt-[0-9a-f]{40}\Z")
 UPSTREAM_REPOSITORY = "necronicle/z2k"
@@ -29,6 +32,148 @@ def sha256(path: Path) -> str:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def unpacked_size(path: Path) -> int:
+    """Return the payload byte count without expanding the archive to disk."""
+    try:
+        with tarfile.open(path, "r:gz") as archive:
+            return sum(member.size for member in archive.getmembers())
+    except (OSError, tarfile.TarError) as error:
+        raise ValueError(f"artifact is not a readable gzip tar archive: {path.name}") from error
+
+
+def migration_fallback_required(production_manifest: dict[str, object]) -> bool:
+    """Keep the old full bundle for exactly the release whose checked baseline is legacy-only."""
+    return "artifacts" not in production_manifest
+
+
+def _validate_controlled_manifest(manifest: dict[str, object]) -> tuple[str, str]:
+    if manifest.get("platform") != "openwrt":
+        raise ValueError("controlled artifact can only be attached to an OpenWrt manifest")
+    if manifest.get("schema") != 1 or manifest.get("branch") != "main":
+        raise ValueError("controlled manifest must use schema 1 on main")
+    tag = manifest.get("current")
+    if not isinstance(tag, str) or not TAG_RE.fullmatch(tag):
+        raise ValueError("manifest current tag is missing or malformed")
+    seq = manifest.get("seq")
+    if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1:
+        raise ValueError("manifest current sequence is missing or malformed")
+    upstream = manifest.get("upstream")
+    if not isinstance(upstream, dict):
+        raise ValueError("controlled manifest upstream provenance is missing or malformed")
+    if (
+        upstream.get("repository") != UPSTREAM_REPOSITORY
+        or upstream.get("branch") != UPSTREAM_BRANCH
+        or upstream.get("tag") != tag
+        or not isinstance(upstream.get("commit"), str)
+        or not COMMIT_RE.fullmatch(upstream["commit"])
+    ):
+        raise ValueError("controlled manifest upstream provenance is missing or malformed")
+    history = manifest.get("history")
+    if (
+        not isinstance(history, list)
+        or not history
+        or not all(isinstance(entry, dict) for entry in history)
+        or history[-1].get("v") != tag
+    ):
+        raise ValueError("controlled release history must end at current tag")
+    forbidden = {"adapter", "payload", "bundle", "components", "package_versions", "openwrt_release_artifact"}
+    if forbidden.intersection(manifest):
+        raise ValueError("secondary component release metadata is forbidden")
+    return tag, str(manifest["seq"])
+
+
+def _release_url(source_sha: str, filename: str) -> str:
+    if not COMMIT_RE.fullmatch(source_sha):
+        raise ValueError("source commit must be a full lowercase SHA")
+    return f"{RELEASE_BASE}/openwrt-{source_sha}/{filename}"
+
+
+def artifact_record(path: Path, filename: str, url: str, *, per_arch: bool) -> dict[str, object]:
+    path = Path(path)
+    if not path.is_file() or path.name != filename:
+        raise ValueError(f"artifact must be an existing {filename} file")
+    record: dict[str, object] = {
+        "filename": filename,
+        "url": url,
+        "sha256": sha256(path),
+        "size_bytes": path.stat().st_size,
+    }
+    if per_arch:
+        record["unpacked_size_bytes"] = unpacked_size(path)
+    return record
+
+
+def validate_architecture_assets(
+    manifest: dict[str, object], artifact_dir: Path, source_sha: str | None = None
+) -> list[str]:
+    """Verify every recorded archive against its exact local file and return release asset names."""
+    records = manifest.get("artifacts")
+    if not isinstance(records, dict) or set(records) != set(ARCHITECTURES):
+        raise ValueError("manifest artifacts must contain exactly the seven supported architectures")
+    artifact_dir = Path(artifact_dir)
+    asset_names: list[str] = []
+    seen_release_tags: set[str] = set()
+    for arch in ARCHITECTURES:
+        record = records[arch]
+        filename = ARCHIVE_NAME_TEMPLATE.format(arch=arch)
+        if not isinstance(record, dict) or set(record) != {
+            "filename", "url", "sha256", "size_bytes", "unpacked_size_bytes"
+        }:
+            raise ValueError(f"artifact record for {arch} is malformed")
+        if record.get("filename") != filename:
+            raise ValueError(f"artifact filename for {arch} is not canonical")
+        url = record.get("url")
+        prefix = f"{RELEASE_BASE}/"
+        suffix = f"/{filename}"
+        if not isinstance(url, str) or not url.startswith(prefix) or not url.endswith(suffix):
+            raise ValueError(f"artifact URL for {arch} is not a controlled immutable release URL")
+        release_tag = url[len(prefix):-len(suffix)]
+        if not TECHNICAL_RELEASE_TAG_RE.fullmatch(release_tag) or url != f"{prefix}{release_tag}{suffix}":
+            raise ValueError(f"artifact URL for {arch} is not canonical")
+        if source_sha is not None and release_tag != f"openwrt-{source_sha}":
+            raise ValueError(f"artifact URL for {arch} is not bound to its exact source commit")
+        seen_release_tags.add(release_tag)
+        if not isinstance(record.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", record["sha256"]):
+            raise ValueError(f"artifact SHA-256 for {arch} is malformed")
+        for field in ("size_bytes", "unpacked_size_bytes"):
+            value = record.get(field)
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ValueError(f"artifact {field} for {arch} is malformed")
+        path = artifact_dir / filename
+        expected = artifact_record(path, filename, url, per_arch=True)
+        if expected != record:
+            raise ValueError(f"artifact size, SHA-256, or unpacked size for {arch} does not match")
+        asset_names.append(filename)
+    if len(seen_release_tags) != 1:
+        raise ValueError("architecture artifacts must refer to one immutable technical release")
+
+    legacy = manifest.get("artifact")
+    if legacy is not None:
+        if not isinstance(legacy, dict) or set(legacy) != {"filename", "url", "sha256", "size_bytes"}:
+            raise ValueError("legacy fallback artifact record is malformed")
+        legacy_url = legacy.get("url")
+        if not isinstance(legacy_url, str) or not legacy_url.endswith(f"/{ARTIFACT_NAME}"):
+            raise ValueError("legacy fallback URL is malformed")
+        legacy_tag = legacy_url[:-len(f"/{ARTIFACT_NAME}")].rsplit("/", 1)[-1]
+        if not TECHNICAL_RELEASE_TAG_RE.fullmatch(legacy_tag) or legacy_url != f"{RELEASE_BASE}/{legacy_tag}/{ARTIFACT_NAME}":
+            raise ValueError("legacy fallback URL is not canonical")
+        if source_sha is not None and legacy_tag != f"openwrt-{source_sha}":
+            raise ValueError("legacy fallback URL is not bound to its exact source commit")
+        expected = artifact_record(artifact_dir / ARTIFACT_NAME, ARTIFACT_NAME, legacy_url, per_arch=False)
+        if expected != legacy:
+            raise ValueError("legacy fallback size or SHA-256 does not match")
+        asset_names.append(ARTIFACT_NAME)
+
+    expected_names = set(asset_names)
+    present_names = {
+        path.name for path in artifact_dir.iterdir()
+        if path.is_file() and (path.name == ARTIFACT_NAME or path.name.startswith("openwrt-rootfs-"))
+    }
+    if present_names != expected_names:
+        raise ValueError("candidate directory has missing or extra rootfs archive assets")
+    return asset_names
 
 
 def controlled_from_upstream(upstream: dict[str, object], commit: str) -> dict[str, object]:
@@ -98,38 +243,7 @@ def compare_upstream(
 def attach_rootfs_artifact(
     manifest: dict[str, object], artifact: Path, url: str | None = None
 ) -> None:
-    if manifest.get("platform") != "openwrt":
-        raise ValueError("controlled artifact can only be attached to an OpenWrt manifest")
-    if manifest.get("schema") != 1 or manifest.get("branch") != "main":
-        raise ValueError("controlled manifest must use schema 1 on main")
-    tag = manifest.get("current")
-    if not isinstance(tag, str) or not TAG_RE.fullmatch(tag):
-        raise ValueError("manifest current tag is missing or malformed")
-    seq = manifest.get("seq")
-    if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1:
-        raise ValueError("manifest current sequence is missing or malformed")
-    upstream = manifest.get("upstream")
-    if not isinstance(upstream, dict):
-        raise ValueError("controlled manifest upstream provenance is missing or malformed")
-    if (
-        upstream.get("repository") != UPSTREAM_REPOSITORY
-        or upstream.get("branch") != UPSTREAM_BRANCH
-        or upstream.get("tag") != tag
-        or not isinstance(upstream.get("commit"), str)
-        or not COMMIT_RE.fullmatch(upstream["commit"])
-    ):
-        raise ValueError("controlled manifest upstream provenance is missing or malformed")
-    history = manifest.get("history")
-    if (
-        not isinstance(history, list)
-        or not history
-        or not all(isinstance(entry, dict) for entry in history)
-        or history[-1].get("v") != tag
-    ):
-        raise ValueError("controlled release history must end at current tag")
-    forbidden = {"adapter", "payload", "bundle", "components", "package_versions", "openwrt_release_artifact"}
-    if forbidden.intersection(manifest):
-        raise ValueError("secondary component release metadata is forbidden")
+    _validate_controlled_manifest(manifest)
     if not isinstance(url, str):
         raise ValueError("a technical release URL is required when attaching the artifact")
     expected_prefix = f"{RELEASE_BASE}/"
@@ -155,6 +269,55 @@ def attach_rootfs_artifact(
     if previous is not None and previous != record:
         raise ValueError("manifest already contains a different OpenWrt release artifact")
     manifest["artifact"] = record
+
+
+def attach_architecture_artifacts(
+    manifest: dict[str, object],
+    artifact_dir: Path,
+    source_sha: str,
+    production_baseline: dict[str, object],
+    key_id: str | None = None,
+) -> bool:
+    """Attach seven verified target bundles and the migration-only full archive."""
+    _validate_controlled_manifest(manifest)
+    include_legacy = migration_fallback_required(production_baseline)
+    artifact_dir = Path(artifact_dir)
+    manifest.pop("artifact", None)
+    manifest.pop("artifacts", None)
+    manifest.pop("signing", None)
+    records: dict[str, dict[str, object]] = {}
+    for arch in ARCHITECTURES:
+        filename = ARCHIVE_NAME_TEMPLATE.format(arch=arch)
+        records[arch] = artifact_record(
+            artifact_dir / filename, filename, _release_url(source_sha, filename), per_arch=True
+        )
+    manifest["artifacts"] = records
+    if include_legacy:
+        manifest["artifact"] = artifact_record(
+            artifact_dir / ARTIFACT_NAME, ARTIFACT_NAME, _release_url(source_sha, ARTIFACT_NAME), per_arch=False
+        )
+    if key_id is not None:
+        if not RELEASE_KEY_ID_RE.fullmatch(key_id):
+            raise ValueError("signing key id must be a lowercase SHA-256 fingerprint")
+        manifest["signing"] = {"key_id": key_id}
+    validate_architecture_assets(manifest, artifact_dir, source_sha)
+    return include_legacy
+
+
+def attach_architecture_file(
+    manifest_path: Path,
+    artifact_dir: Path,
+    source_sha: str,
+    production_baseline_path: Path,
+    key_id: str | None = None,
+) -> bool:
+    manifest = read_json_object(manifest_path, "controlled manifest")
+    production_baseline = read_json_object(production_baseline_path, "checked production baseline")
+    include_legacy = attach_architecture_artifacts(
+        manifest, artifact_dir, source_sha, production_baseline, key_id
+    )
+    write_manifest(manifest_path, manifest)
+    return include_legacy
 
 
 def render_manifest(manifest: dict[str, object]) -> str:
@@ -265,6 +428,7 @@ def copy_unsigned_candidate_manifest(source: Path, destination: Path) -> None:
         raise ValueError("candidate manifest must be separate from the controlled source manifest")
     manifest = read_json_object(source, "controlled manifest")
     manifest.pop("artifact", None)
+    manifest.pop("artifacts", None)
     manifest.pop("signing", None)
     write_manifest(destination, manifest)
 
@@ -274,8 +438,11 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     attach = subparsers.add_parser("attach")
     attach.add_argument("--manifest", required=True, type=Path)
-    attach.add_argument("--artifact", required=True, type=Path)
-    attach.add_argument("--url", required=True)
+    attach.add_argument("--artifact", type=Path, help="legacy single archive compatibility")
+    attach.add_argument("--artifact-dir", type=Path)
+    attach.add_argument("--source-sha")
+    attach.add_argument("--production-baseline", type=Path)
+    attach.add_argument("--url")
     attach.add_argument("--key-id")
     sync = subparsers.add_parser("sync")
     sync.add_argument("--upstream", required=True, type=Path)
@@ -288,7 +455,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "attach":
-            attach_file(args.manifest, args.artifact, args.url, args.key_id)
+            if args.artifact_dir is not None:
+                if args.artifact is not None or args.url is not None or args.source_sha is None or args.production_baseline is None:
+                    raise ValueError("per-architecture attach requires --artifact-dir, --source-sha, and --production-baseline")
+                include_legacy = attach_architecture_file(
+                    args.manifest, args.artifact_dir, args.source_sha, args.production_baseline, args.key_id
+                )
+                print(f"attached seven architecture assets; legacy fallback: {'yes' if include_legacy else 'no'}")
+            else:
+                if args.artifact is None or args.url is None:
+                    raise ValueError("legacy attach requires --artifact and --url")
+                attach_file(args.manifest, args.artifact, args.url, args.key_id)
         elif args.command == "sync":
             upstream = read_json_object(args.upstream, "upstream manifest")
             write_manifest(args.output, controlled_from_upstream(upstream, args.commit))

@@ -117,23 +117,27 @@ else
     no "CI читает build-matrix.tsv" "ссылка на файл" "у CI собственный список"
 fi
 
-# --- 6. Push CI builds the payload once; release verifies that exact CI run ---
+# --- 6. CI builds per-architecture payloads and pins the migration fallback ---
 RELEASE="$ROOT/.github/workflows/release-openwrt.yml"
 BUILDER="$ROOT/scripts/openwrt/build-release.sh"
 STAGER="$ROOT/scripts/openwrt/stage-rootfs.sh"
 if grep -Fq 'openwrt-unified:' "$CI" \
    && grep -Fq 'sh tests/openwrt/run.sh' "$CI" \
-   && grep -Fq 'sh scripts/openwrt/build-release.sh --out' "$CI" \
+   && grep -Fq 'build_args=(--out "$RUNNER_TEMP/openwrt-candidate")' "$CI" \
+   && grep -Fq 'if [ "$include_legacy_fallback" = true ]; then build_args+=(--legacy-rootfs); fi' "$CI" \
+   && grep -Fq 'sh scripts/openwrt/build-release.sh "${build_args[@]}"' "$CI" \
+   && grep -Fq -- '--artifact-dir "$RUNNER_TEMP/openwrt-candidate"' "$CI" \
+   && grep -Fq 'migration-fallback' "$CI" \
    && grep -Fq 'scripts/openwrt/verify_source_ci.py' "$RELEASE" \
    && ! grep -Fq 'uses: ./.github/workflows/ci.yml' "$RELEASE" \
    && grep -Fq 'stage-rootfs.sh' "$BUILDER" \
    && grep -Fq 'fetch_upstream_tg.py' "$BUILDER" \
    && grep -Fq 'RT_DIR' "$STAGER" \
    && grep -Fq 'DETECT_DIR' "$STAGER"; then
-    ok "push CI builds one full payload and release verifies the exact CI run"
+    ok "CI builds seven architecture payloads with one checked migration fallback"
 else
-    no "push CI builds one full payload and release verifies the exact CI run" \
-       "push CI candidate, exact-SHA release gate, pinned TG binaries, RT/detector and rootfs staging" "contract missing"
+    no "CI builds per-architecture payloads and pins the migration fallback" \
+       "seven-architecture candidate, exact-SHA gate, checked fallback, pinned TG/RT/detector and staging" "contract missing"
 fi
 
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"

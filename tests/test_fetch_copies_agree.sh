@@ -117,6 +117,30 @@ run_copy() {
     printf '%s' "$_out"
 }
 
+# OpenWrt's release updater runs with `set -u`; z2k_fetch legitimately calls
+# this helper with only URL and destination in its final direct-download path.
+# Keep the omitted optional mirror argument empty instead of aborting the shell.
+for f in $COPIES; do
+    _sb="$TMP/nounset"; rm -rf "$_sb"; mkdir -p "$_sb"
+    extract_fn "$ROOT/$f" > "$_sb/fn.sh"
+    _out=$(env -i PATH="$TMP/bin:$Z2K_TEST_PATH" SB="$_sb" "$Z2K_TEST_SH" -c '
+        set -u
+        . "$SB/fn.sh"
+        curl() { return 22; }
+        z2k_connfail() { return 1; }
+        if _z2k_curl_etag "https://example.invalid/x" "$SB/dest"; then
+            printf RC0
+        else
+            printf RC1
+        fi
+    ' 2>&1)
+    if [ "$_out" = "RC1" ]; then
+        ok "$f: two arguments with nounset return download failure, not shell error"
+    else
+        no "$f: omitted optional mirror argument under nounset" "RC1" "$_out"
+    fi
+done
+
 # --- 1. Провал записи: все копии обязаны ответить одинаково -------------------
 #
 # Правильное поведение: вернуть НЕуспех и не оставить etag. Оставленный etag —

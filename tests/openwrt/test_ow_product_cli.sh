@@ -59,6 +59,6 @@ printf 'tag=unknown\nseq=128\n' > "$Z2K_OW_INSTALLED_RELEASE_FILE"
 _status="$(sh "$REPO/platform/openwrt/z2kow.sh" status 2>&1)"; _rc=$?
 assert_eq "CLI rejects unknown as installed release metadata" "1" "$_rc"
 printf '%s\n' "$_status" > "$T/cli-status-error"
-assert_contains "CLI reports invalid canonical release metadata" "$T/cli-status-error" "installed release metadata"
+assert_contains "CLI сообщает о повреждённой записи установленного выпуска" "$T/cli-status-error" "запись установленного выпуска повреждена"
 [ ! -e "$REPO/platform/openwrt/product-update.sh" ] && _t_ok || _t_bad "no component updater remains"
 _t_done

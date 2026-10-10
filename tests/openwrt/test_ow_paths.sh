@@ -59,6 +59,7 @@ for _f in "$REPO"/platform/openwrt/*.sh \
           "$REPO"/platform/openwrt/files/etc/hotplug.d/iface/90-z2k; do
     [ "$(basename "$_f")" = "paths.sh" ] && continue
     _hits="$(sed 's/#.*$//' "$_f" | grep -v 'installed-tag\|product-tag\|z2k_ow_legacy_migrate' \
+        | grep -vF '/opt/zapret2|/usr/bin/z2kow' \
         | grep -nE '/usr/lib/z2k|/etc/z2k|/tmp/z2k' | grep -v ':-' || true)"
     [ -n "$_hits" ] && _badpaths="$_badpaths $_f:$_hits"
 done

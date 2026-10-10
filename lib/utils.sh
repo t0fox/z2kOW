@@ -198,7 +198,7 @@ z2k_connfail() {
 # добавленная в копию z2k.sh, потерялась бы молча, без единого признака.
 if ! command -v _z2k_curl_etag >/dev/null 2>&1; then
 _z2k_curl_etag() {
-    local url="$1" dest="$2" resolve_args="$3" conn_to="${4:-10}"
+    local url="$1" dest="$2" resolve_args="${3:-}" conn_to="${4:-10}"
     local etag_file="${dest}.etag"
     local hdr_file="${dest}.hdr.$$"
     local tmp_body="${dest}.new.$$"

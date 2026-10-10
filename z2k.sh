@@ -279,7 +279,7 @@ z2k_connfail() {
 # есть cached etag в `${dest}.etag`. На 304 тело не качается, файл
 # остаётся как был — типично ~500ms вместо ~5s на unchanged контент.
 _z2k_curl_etag() {
-    local url="$1" dest="$2" resolve_args="$3" conn_to="${4:-10}"
+    local url="$1" dest="$2" resolve_args="${3:-}" conn_to="${4:-10}"
     local etag_file="${dest}.etag"
     local hdr_file="${dest}.hdr.$$"
     local tmp_body="${dest}.new.$$"

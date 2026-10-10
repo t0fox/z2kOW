@@ -63,7 +63,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("steps.validate.outputs.plan", validate)
         self.assertIn("candidate-info --candidate", publish)
 
-    def test_exact_rootfs_candidate_is_accepted_before_upload_and_before_signing(self) -> None:
+    def test_complete_per_arch_candidate_is_accepted_before_upload_and_before_signing(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
         publish = workflow.split("  publish-release:", 1)[1]
@@ -76,6 +76,23 @@ class ReleaseWorkflowTests(unittest.TestCase):
             publish.index("Sign and verify the exact final manifest"),
         )
         self.assertIn("needs.prepare-release.result == 'success'", workflow)
+        self.assertIn('"$RUNNER_TEMP/openwrt-release-candidate"', prepare)
+        self.assertIn('"$RUNNER_TEMP/openwrt-release-candidate"', publish)
+        self.assertIn('--artifact-dir "$RUNNER_TEMP/openwrt-release-candidate"', publish)
+
+    def test_transition_fallback_uses_checked_baseline_and_is_carried_by_the_candidate(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
+        publish = workflow.split("  publish-release:", 1)[1]
+        copied_baseline = prepare.index('cp UPDATES.json "$RUNNER_TEMP/production-UPDATES.json"')
+        controlled_copy = prepare.index('cp "$RUNNER_TEMP/controlled-UPDATES.json" UPDATES.json')
+        self.assertLess(copied_baseline, controlled_copy)
+        self.assertIn('migration-fallback \\\n            --manifest "$RUNNER_TEMP/production-UPDATES.json"', prepare)
+        self.assertIn('--production-baseline "$RUNNER_TEMP/production-UPDATES.json"', prepare)
+        self.assertIn('include_legacy_fallback', prepare)
+        self.assertIn("include_legacy_fallback=", publish)
+        self.assertIn("sed -n 's/^include_legacy_fallback=//p'", publish)
+        self.assertIn("candidate_run_id", publish)
 
     def test_openwrt_ci_runs_all_checks_without_skipping_dependencies(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
@@ -86,6 +103,21 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("sha256sum -c", job)
         self.assertIn('OW_STRICT=1 Z2K_RT_TARBALL="$runtime_archive" sh tests/openwrt/run.sh', job)
         self.assertLess(job.index("sha256sum -c"), job.index("OW_STRICT=1"))
+
+    def test_openwrt_ci_attaches_per_arch_records_before_candidate_acceptance(self) -> None:
+        ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        job = ci.split("  openwrt-unified:", 1)[1]
+        build = job.index("build-release.sh")
+        attach = job.index("controlled_release.py attach", build)
+        acceptance = job.index("accept_release_candidate.py", attach)
+        self.assertIn('cp UPDATES.json "$RUNNER_TEMP/production-UPDATES.json"', job)
+        self.assertIn("migration-fallback", job)
+        self.assertIn("--legacy-rootfs", job)
+        self.assertIn('--artifact-dir "$RUNNER_TEMP/openwrt-candidate"', job)
+        self.assertIn('--source-sha "$GITHUB_SHA"', job)
+        self.assertIn('--production-baseline "$RUNNER_TEMP/production-UPDATES.json"', job)
+        self.assertLess(build, attach)
+        self.assertLess(attach, acceptance)
 
     def test_shared_ci_accepts_and_verifies_only_valid_signed_manifest_shape(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
@@ -104,7 +136,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
     def test_candidate_plan_output_is_parsed_as_json_not_treated_as_a_path(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
-        self.assertIn("plan_json, candidate_path, manifest_path, source_sha = sys.argv[1:]", prepare)
+        self.assertIn("plan_json, candidate_path, manifest_path, source_sha, baseline_path = sys.argv[1:]", prepare)
         self.assertIn("candidate = json.loads(plan_json)", prepare)
         self.assertNotIn('candidate = json.load(open(plan_json', prepare)
 
@@ -116,7 +148,9 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("controlled_release.py attach", workflow)
         self.assertIn("sign_release.py", workflow)
         self.assertIn("sign_release.py verify", workflow)
-        self.assertIn("openwrt-rootfs.tar.gz", workflow)
+        self.assertIn("--artifact-dir", workflow)
+        self.assertIn('openwrt-rootfs-{arch}.tar.gz', (ROOT / "scripts/openwrt/controlled_release.py").read_text(encoding="utf-8"))
+        self.assertIn("openwrt-rootfs.tar.gz", (ROOT / "scripts/openwrt/controlled_release.py").read_text(encoding="utf-8"))
         self.assertIn("UPDATES.json.sig", workflow)
         self.assertIn("gh release create", publisher)
         self.assertIn("gh release upload", publisher)
@@ -132,10 +166,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         builder = (ROOT / "scripts/openwrt/build-release.sh").read_text(encoding="utf-8")
         publisher = (ROOT / "scripts/openwrt/publish_release.sh").read_text(encoding="utf-8")
-        self.assertIn(
-            '--url "https://github.com/t0fox/z2kOW/releases/download/openwrt-$_source_sha/openwrt-rootfs.tar.gz"',
-            builder,
-        )
+        self.assertIn('--source-sha "$GITHUB_SHA"', workflow)
+        self.assertIn('openwrt-rootfs-{arch}.tar.gz', (ROOT / "scripts/openwrt/controlled_release.py").read_text(encoding="utf-8"))
+        self.assertIn('--legacy-rootfs', workflow)
+        self.assertIn('openwrt-rootfs-<arch>.tar.gz', builder)
         self.assertIn('TECHNICAL_TAG="$(python3', publisher)
         self.assertIn('[[ "$TECHNICAL_TAG" == "openwrt-$SOURCE_SHA" ]]', publisher)
         self.assertIn('--target "$SOURCE_SHA"', publisher)
@@ -144,22 +178,18 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn('TECHNICAL_TAG="$EXPECTED_TAG"', publisher)
 
     def test_unsigned_candidate_builder_binds_artifact_url_to_source_commit(self) -> None:
-        builder = (ROOT / "scripts/openwrt/build-release.sh").read_text(encoding="utf-8")
-
-        self.assertIn('_source_sha="${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD)}"', builder)
-        self.assertIn(
-            '--url "https://github.com/t0fox/z2kOW/releases/download/openwrt-$_source_sha/openwrt-rootfs.tar.gz"',
-            builder,
-        )
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        self.assertIn("--source-sha", workflow)
 
     def test_public_artifact_verification_keeps_the_canonical_filename(self) -> None:
         publisher = (ROOT / "scripts/openwrt/publish_release.sh").read_text(encoding="utf-8")
 
-        self.assertIn('for asset in openwrt-rootfs.tar.gz UPDATES.json UPDATES.json.sig', publisher)
+        self.assertIn('for asset in "${RELEASE_ASSETS[@]}" UPDATES.json UPDATES.json.sig', publisher)
         self.assertIn('"$release_url/$asset?nocache=$(date +%s%N)"', publisher)
         self.assertIn('-o "$public_assets/$asset"', publisher)
-        self.assertEqual(publisher.count('--artifact "$public_assets/openwrt-rootfs.tar.gz"'), 2)
-        self.assertIn('sha256sum "$public_assets/openwrt-rootfs.tar.gz"', publisher)
+        self.assertIn('sign_release.py" verify', publisher)
+        self.assertIn('--artifact-dir "$public_assets"', publisher)
+        self.assertIn('compare_release_assets', publisher)
 
     def test_immutable_gate_uses_a_dedicated_read_token_and_preserves_api_errors(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")

@@ -147,6 +147,17 @@ class UnifiedArchitectureTests(unittest.TestCase):
         self.assertTrue("platform/openwrt/update.sh" in apply_body, "OpenWrt must enter the canonical updater")
         self.assertTrue("exec" in apply_body, "the legacy patch/reinstall engine must not continue")
 
+    def test_dashboard_update_and_reinstall_share_the_openwrt_installer(self) -> None:
+        platform = (ROOT / "webpanel/cgi/platform.sh").read_text(encoding="utf-8")
+        actions = (ROOT / "webpanel/cgi/actions.sh").read_text(encoding="utf-8")
+        updater = (ROOT / "platform/openwrt/update.sh").read_text(encoding="utf-8")
+        release = (ROOT / "platform/openwrt/release.sh").read_text(encoding="utf-8")
+        self.assertIn('AU_SCRIPT="${AU_SCRIPT:-$Z2K_ROOT/platform/openwrt/update.sh}"', platform)
+        self.assertIn('env Z2K_AU_MANUAL=1 Z2K_AU_NO_JITTER=1 sh "$AU_SCRIPT" "$action"', actions)
+        self.assertIn('exec "${Z2K_INSTALL_RELEASE_BIN:-/usr/sbin/install_release}" --reinstall "$installed"', updater)
+        self.assertIn('exec "${Z2K_INSTALL_RELEASE_BIN:-/usr/sbin/install_release}" "$2"', updater)
+        self.assertIn('z2k_ow_manifest_select_artifact "$_manifest" "$_target_arch"', release)
+
     def test_installed_release_state_contains_tag_and_upstream_seq_once(self) -> None:
         release = (ROOT / "platform/openwrt/release.sh").read_text(encoding="utf-8")
         updater = (ROOT / "platform/openwrt/update.sh").read_text(encoding="utf-8")
@@ -193,6 +204,21 @@ class UnifiedArchitectureTests(unittest.TestCase):
         self.assertIn("arm64:arm64", builder)
         self.assertIn("riscv64:riscv64", builder)
         self.assertIn("runtime/binaries", stage)
+
+    def test_builder_emits_seven_archives_and_requests_legacy_explicitly(self) -> None:
+        builder = (ROOT / "scripts/openwrt/build-release.sh").read_text(encoding="utf-8")
+        self.assertIn("--legacy-rootfs", builder)
+        self.assertIn("for arch in arm64 arm x86_64 x86 mips mipsel riscv64", builder)
+        self.assertIn('"$OUT/openwrt-rootfs-$arch.tar.gz"', builder)
+        self.assertIn('--arch "$arch"', builder)
+        self.assertIn('if [ "$_legacy_rootfs" -eq 1 ]; then', builder)
+        self.assertRegex(
+            builder.replace("\\\n", " "),
+            r'if \[ "\$_legacy_rootfs" -eq 1 \]; then\s*\n'
+            r'\s*python3 .*?/rootfs_bundle\.py" --root "\$_stage" '
+            r'--output "\$OUT/openwrt-rootfs\.tar\.gz"',
+            "legacy full archive generation itself must be guarded by the transition flag",
+        )
 
     def test_full_payload_contains_arch_selected_runtime_and_diagnostic_binaries(self) -> None:
         builder = (ROOT / "scripts/openwrt/build-release.sh").read_text(encoding="utf-8")

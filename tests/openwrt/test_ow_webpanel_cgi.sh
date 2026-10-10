@@ -21,7 +21,7 @@ export PATH="$T/bin:$PATH"
 export Z2K_PANEL_EXTRA_PATH="$T/bin"
 
 # --- adapter farm (настоящие файлы слоя) ---
-for _f in paths.sh env.sh arch.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh doh.sh diag.sh offload-benchmark.sh offload-observe.sh; do
+for _f in paths.sh env.sh arch.sh manifest.sh release_state.sh release.sh update.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh doh.sh diag.sh offload-benchmark.sh offload-observe.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
@@ -53,7 +53,17 @@ EOF
 cat > "$T/root/lib/utils.sh" <<'EOF'
 #!/bin/sh
 safe_config_read() { return 1; }
+z2k_fetch() {
+    printf '%s\n' "$1" >> "${OW_TEST_FETCH_LOG:-/dev/null}"
+    [ ! -f "${OW_TEST_FETCH_FAIL:-/dev/null}" ] || return 1
+    case "$1" in
+        *UPDATES.json.sig) cp "$OW_TEST_UPDATES_SIG" "$2" ;;
+        *UPDATES.json*) cp "$OW_TEST_UPDATES" "$2" ;;
+        *) return 1 ;;
+    esac
+}
 EOF
+cp "$REPO/lib/auto_update.sh" "$T/root/lib/auto_update.sh"
 # --- mock init (procd): running по service-active, всё логирует ---
 cat > "$T/mock-init" <<EOF
 #!/bin/sh
@@ -142,12 +152,14 @@ source = None
 while args:
     arg = args.pop(0)
     if arg == "-i": source = args.pop(0)
+    elif arg == "-t": path = args.pop(0).removeprefix("@.").split("."); type_only = True
     elif arg == "-e": path = args.pop(0).removeprefix("@.").split(".")
     else: raise SystemExit(2)
 value = json.load(open(source, encoding="utf-8"))
 for key in path:
     value = value[key]
-if isinstance(value, bool): print("true" if value else "false")
+if locals().get("type_only", False): print({dict: "object", list: "array", str: "string", int: "number", float: "number", bool: "boolean", type(None): "null"}.get(type(value), "null"))
+elif isinstance(value, bool): print("true" if value else "false")
 elif value is not None: print(value)
 PY
 EOF
@@ -346,6 +358,61 @@ if [ -n "$_tiktok_job" ]; then
     printf '%s' "$(_jget "$_tiktok_job_result" 'd["log"]')" > "$T/tiktok-policy-job.log"
     assert_not_contains "TikTok policy job has no nounset diagnostics" "$T/tiktok-policy-job.log" 'parameter not set'
     assert_eq "TikTok auto policy is persisted" "auto" "$(sed -n 's/^domain.v77.tiktokcdn.com.policy=//p' "$T/etc/state/tiktok-domains.state")"
+fi
+# В auto уже выбран адрес, но preferred_ip ещё пустой: проверяем путь UI.
+cat > "$T/etc/state/tiktok-domains.state" <<'EOF_TIKTOK_STATE'
+schema_version=2
+domain.v77.tiktokcdn.com.policy=auto
+domain.v77.tiktokcdn.com.preferred_ip=
+domain.v77.tiktokcdn.com.selected_ip=203.0.113.77
+domain.v77.tiktokcdn.com.selected_at_epoch=1
+domain.v77.tiktokcdn.com.preferred_set_at_epoch=
+domain.v77.tiktokcdn.com.health=transport-confirmed
+domain.v77.tiktokcdn.com.last_verified_epoch=1
+domain.v77.tiktokcdn.com.last_evaluation_epoch=1
+domain.v77.tiktokcdn.com.dns_override_applied=1
+EOF_TIKTOK_STATE
+cat > "$T/bin/tiktok-policy-uci" <<'EOF_TIKTOK_UCI'
+#!/bin/sh
+case "$*" in
+    "-q show dhcp.@dnsmasq[0]") printf '%s\n' "dhcp.@dnsmasq[0]='dnsmasq'" ;;
+    "-q show dhcp") printf '%s\n' "dhcp.@dnsmasq[0].address='/v77.tiktokcdn.com/203.0.113.77'" ;;
+    "commit dhcp") exit 0 ;;
+    *) exit 2 ;;
+esac
+EOF_TIKTOK_UCI
+cat > "$T/bin/tiktok-policy-nslookup" <<'EOF_TIKTOK_NSLOOKUP'
+#!/bin/sh
+printf 'Server: %s\nAddress: %s:53\n\nName: %s\nAddress: 203.0.113.77\n' "$2" "$2" "$1"
+EOF_TIKTOK_NSLOOKUP
+chmod +x "$T/bin/tiktok-policy-uci" "$T/bin/tiktok-policy-nslookup"
+printf '%s\n' '/v77.tiktokcdn.com/203.0.113.77' > "$T/etc/state/.tiktok-address-owned"
+printf '%s\n' 'address=/v77.tiktokcdn.com/203.0.113.77' > "$T/tiktok-dnsmasq.conf"
+printf 'host=v77.tiktokcdn.com&policy=preferred' > "$T/tiktok-preferred-body"
+RAW="$(
+    export Z2K_STATE="$T/etc/state"
+    export Z2K_TIKTOK_CONFIG="$T/etc/config"
+    export Z2K_TIKTOK_DOMAIN_STATE_FILE="$T/etc/state/tiktok-domains.state"
+    export Z2K_TIKTOK_STATE_FILE="$T/etc/state/tiktok-cdn.state"
+    export Z2K_TIKTOK_ADDRESS_MARKER="$T/etc/state/.tiktok-address-owned"
+    export Z2K_TIKTOK_UCI_BIN="$T/bin/tiktok-policy-uci" Z2K_TIKTOK_DNSMASQ_INIT=/bin/true
+    export Z2K_TIKTOK_NSLOOKUP_BIN="$T/bin/tiktok-policy-nslookup"
+    export Z2K_TIKTOK_EFFECTIVE_CONFIG="$T/tiktok-dnsmasq.conf"
+    export Z2K_TIKTOK_APPLY_LOCK="$T/tmp/z2k/runtime/tiktok-policy.lock"
+    _cgi POST /tiktok/policy "" "$T/tiktok-preferred-body"
+)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_tiktok_job="$(_jget "$OUT" 'd["job"]')"
+assert_eq "панель запускает переключение авто-адреса в preferred" "true" "$([ -n "$_tiktok_job" ] && printf true || printf false)"
+if [ -n "$_tiktok_job" ]; then
+    JOB_IDS="$JOB_IDS $_tiktok_job"
+    _tiktok_job_result="$(_poll_job "$_tiktok_job")" || _t_bad "задача переключения preferred завершается"
+    _tiktok_policy_exit=$(_jget "$_tiktok_job_result" 'd["exit"]')
+    if [ "$_tiktok_policy_exit" != 0 ]; then
+        printf 'TikTok preferred job result: %s\n' "$_tiktok_job_result" >&2
+    fi
+    assert_eq "задача переключения preferred завершается без кода 1" "0" "$_tiktok_policy_exit"
+    assert_eq "preferred_ip сохраняется через API панели" "203.0.113.77" \
+        "$(sed -n 's/^domain.v77.tiktokcdn.com.preferred_ip=//p' "$T/etc/state/tiktok-domains.state")"
 fi
 cp "$T/config.before-tiktok-policy" "$T/etc/config"
 
@@ -660,6 +727,23 @@ cat > "$T/controlled-UPDATES.json" <<'EOF'
   }
 }
 EOF
+python3 - "$T/controlled-UPDATES.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+manifest = json.load(open(path, encoding="utf-8"))
+legacy = manifest.pop("artifact")
+manifest["artifacts"] = {}
+for index, arch in enumerate(("arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64")):
+    manifest["artifacts"][arch] = {
+        "filename": f"openwrt-rootfs-{arch}.tar.gz",
+        "url": legacy["url"].rsplit("/", 1)[0] + f"/openwrt-rootfs-{arch}.tar.gz",
+        "sha256": str(index + 1) * 64,
+        "size_bytes": legacy["size_bytes"] + index,
+        "unpacked_size_bytes": 1024 + index,
+    }
+json.dump(manifest, open(path, "w", encoding="utf-8"))
+PY
+EXPECTED_ARM64_SHA="$(python3 -c 'print("1" * 64)')"
 openssl genpkey -algorithm ed25519 -out "$T/controlled-test.key"
 openssl pkey -in "$T/controlled-test.key" -pubout -out "$T/controlled-test.pub"
 _test_key_id="$(openssl pkey -pubin -in "$T/controlled-test.pub" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
@@ -683,6 +767,9 @@ export OW_TEST_UPDATES_SIG="$T/controlled-UPDATES.json.sig"
 export Z2K_AU_PUBKEY="$T/controlled-test.pub"
 export Z2K_AU_REPO_RAW="https://updates.example/controlled"
 export Z2K_AU_MANIFEST_URL="$Z2K_AU_REPO_RAW/UPDATES.json"
+export Z2K_OW_OPENWRT_RELEASE_FILE="$T/openwrt_release" Z2K_AU_TMP_DIR="$T/update-tmp"
+printf "DISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"
+mkdir -p "$Z2K_AU_TMP_DIR"
 export AU_MANIFEST_CACHE="$T/manifest.json"
 export AU_MANIFEST_FAIL_STAMP="$T/manifest.json.fail"
 mkdir -p "$T/etc/state"
@@ -745,7 +832,7 @@ RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 printf '%s\n' "$RAW" > "$T/update-unknown.out"
 assert_eq "update: unknown installed version returns HTTP state error" "Status: 503 Service Unavailable" "$(printf '%s\n' "$RAW" | _cgi_status)"
 assert_eq "update: unknown installed version is not a successful update response" "false" "$(_jget "$OUT" 'd["ok"]')"
-assert_contains "update: unknown installed version identifies canonical state failure" "$T/update-unknown.out" "installed release metadata"
+assert_contains "update: неизвестная установленная версия объясняет, где ошибка записи выпуска" "$T/update-unknown.out" "запись установленного выпуска"
 rm -f "$T/etc/state/installed-release"
 RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "update: missing installed metadata returns HTTP state error" "Status: 503 Service Unavailable" "$(printf '%s\n' "$RAW" | _cgi_status)"
@@ -756,15 +843,21 @@ python3 - "$T/controlled-UPDATES.json" <<'PY'
 import json, sys
 path = sys.argv[1]
 manifest = json.load(open(path, encoding="utf-8"))
-manifest.pop("artifact", None)
+manifest["artifacts"].pop("arm64", None)
+manifest["artifact"] = {
+    "filename": "openwrt-rootfs.tar.gz",
+    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-" + "a" * 40 + "/openwrt-rootfs.tar.gz",
+    "sha256": "c" * 64,
+    "size_bytes": 23,
+}
 json.dump(manifest, open(path, "w", encoding="utf-8"))
 PY
 openssl pkeyutl -sign -rawin -inkey "$T/controlled-test.key" \
     -in "$T/controlled-UPDATES.json" -out "$T/controlled-UPDATES.json.sig"
 rm -f "$AU_MANIFEST_CACHE" "$AU_MANIFEST_CACHE.authority" "$AU_MANIFEST_FAIL_STAMP"
 RAW="$(_cgi GET /update/status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
-assert_eq "update: signed manifest without the unified rootfs asset is rejected" "" "$(_jget "$OUT" 'd["available"]')"
-assert_eq "update: missing rootfs descriptor reports fetch failure" "true" "$(_jget "$OUT" 'd["fetch_failed"]')"
+assert_eq "update: signed manifest missing local arch record is rejected" "" "$(_jget "$OUT" 'd["available"]')"
+assert_eq "update: local arch record failure reports fetch failure despite legacy fallback" "true" "$(_jget "$OUT" 'd["fetch_failed"]')"
 mv -f "$T/controlled-UPDATES.complete.json" "$T/controlled-UPDATES.json"
 openssl pkeyutl -sign -rawin -inkey "$T/controlled-test.key" \
     -in "$T/controlled-UPDATES.json" -out "$T/controlled-UPDATES.json.sig"
@@ -869,10 +962,24 @@ cat > "$T/fake-apply" <<EOF
 #!/bin/sh
 echo "apply-args:\$*" >> "$T/apply.log"
 echo "manual=\$Z2K_AU_MANUAL" >> "$T/apply.log"
-exit 0
+"$REPO/platform/openwrt/update.sh" "\$@" >> "$T/updater.log" 2>&1
+_rc=\$?
+echo "update-rc:\$_rc" >> "$T/apply.log"
+exit "\$_rc"
 EOF
 chmod +x "$T/fake-apply"
 export AU_SCRIPT="$T/fake-apply"
+cat > "$T/bin/install_release" <<'EOF'
+#!/bin/sh
+. "$Z2K_ROOT/platform/openwrt/manifest.sh"
+arch="$(z2k_ow_manifest_local_arch)" || exit 1
+manifest="${Z2K_AU_TMP_DIR}/UPDATES.json"
+z2k_ow_manifest_select_artifact "$manifest" "$arch" || exit 1
+printf 'install-args:%s arch=%s filename=%s sha=%s\n' \
+    "$*" "$arch" "$Z2K_OW_ARTIFACT_FILENAME" "$Z2K_OW_ARTIFACT_SHA256" >> "$OW_TEST_INSTALL_LOG"
+EOF
+chmod +x "$T/bin/install_release"
+export Z2K_INSTALL_RELEASE_BIN="$T/bin/install_release" OW_TEST_INSTALL_LOG="$T/install-artifacts.log"
 
 # Reinstall is pinned to the release already installed on the device. The
 # operation obtains a fresh signed production manifest before it can enqueue
@@ -904,16 +1011,23 @@ assert_eq "reinstall: response identifies reinstalling state" "reinstalling" "$(
 _jid="$(_jget "$OUT" 'd["job"]')"
 JOB_IDS="$JOB_IDS $_jid"
 _jo="$(_poll_job "$_jid")" || _t_bad "reinstall: job не завершился"
+assert_eq "reinstall: shared update adapter succeeds" "0" "$(_jget "$_jo" 'd["exit"]')"
 assert_contains "reinstall: invokes same update adapter with manual reinstall action" "$T/apply.log" "apply-args:reinstall"
 assert_contains "reinstall: preserves explicit manual flag" "$T/apply.log" "manual=1"
+assert_contains "reinstall: routes through the selected local architecture record" "$T/install-artifacts.log" \
+    "install-args:--reinstall p-86.11 arch=arm64 filename=openwrt-rootfs-arm64.tar.gz sha=$EXPECTED_ARM64_SHA"
 
+printf 'tag=p-86.2\nseq=127\n' > "$T/etc/state/installed-release"
 RAW="$(_cgi POST /update/apply)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "apply: job выдан" "true" "$(_jget "$OUT" 'd["ok"]')"
 _jid="$(_jget "$OUT" 'd["job"]')"
 JOB_IDS="$JOB_IDS $_jid"
 _jo="$(_poll_job "$_jid")" || _t_bad "apply: job не завершился"
+assert_eq "apply: shared update adapter succeeds" "0" "$(_jget "$_jo" 'd["exit"]')"
 assert_contains "apply: updater still uses ordinary update action" "$T/apply.log" "apply-args:apply"
 assert_contains "apply: manual флаг" "$T/apply.log" "manual=1"
+assert_contains "apply: ordinary update uses the same selected local architecture artifact" "$T/install-artifacts.log" \
+    "install-args:p-86.11 arch=arm64 filename=openwrt-rootfs-arm64.tar.gz sha=$EXPECTED_ARM64_SHA"
 
 # --- WP-MATRIX (webpanel parity, п.4/п.5): каждый frontend GET/POST ---
 # Карта вкладок → вызовов → endpoints сверена с source (58 вызовов / 75

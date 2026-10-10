@@ -1,15 +1,17 @@
 #!/bin/sh
-# Build the single OpenWrt rootfs transport artifact; never builds z2k APKs.
+# Build OpenWrt rootfs transport artifacts; never builds z2k APKs.
 set -eu
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 OUT=""
+_legacy_rootfs=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --out) [ "$#" -ge 2 ] || { echo "--out requires a directory" >&2; exit 2; }; OUT="$2"; shift 2 ;;
-        *) echo "usage: build-release.sh --out DIR" >&2; exit 2 ;;
+        --legacy-rootfs) _legacy_rootfs=1; shift ;;
+        *) echo "usage: build-release.sh --out DIR [--legacy-rootfs]" >&2; exit 2 ;;
     esac
 done
-[ -n "$OUT" ] || { echo "usage: build-release.sh --out DIR" >&2; exit 2; }
+[ -n "$OUT" ] || { echo "usage: build-release.sh --out DIR [--legacy-rootfs]" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "build-release: python3 is required" >&2; exit 1; }
 command -v go >/dev/null 2>&1 || { echo "build-release: Go is required" >&2; exit 1; }
 _release_tag="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["current"])' "$ROOT/UPDATES.json")"
@@ -117,7 +119,13 @@ OUT="$(mkdir -p "$OUT" && CDPATH= cd -- "$OUT" && pwd)"
 _stage="$_tmp/rootfs"
 mkdir -p "$_stage"
 sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$_stage" "$_runtime" "$_warpd" "$_tg" "$_rt" "$_detect"
-python3 "$ROOT/scripts/openwrt/rootfs_bundle.py" --root "$_stage" --output "$OUT/openwrt-rootfs.tar.gz"
+for arch in arm64 arm x86_64 x86 mips mipsel riscv64; do
+    python3 "$ROOT/scripts/openwrt/rootfs_bundle.py" --root "$_stage" \
+        --output "$OUT/openwrt-rootfs-$arch.tar.gz" --arch "$arch"
+done
+if [ "$_legacy_rootfs" -eq 1 ]; then
+    python3 "$ROOT/scripts/openwrt/rootfs_bundle.py" --root "$_stage" --output "$OUT/openwrt-rootfs.tar.gz"
+fi
 
 python3 - "$ROOT" "$OUT/UPDATES.json" <<'PY'
 import sys
@@ -128,8 +136,10 @@ from controlled_release import copy_unsigned_candidate_manifest
 
 copy_unsigned_candidate_manifest(Path(sys.argv[1]) / "UPDATES.json", Path(sys.argv[2]))
 PY
-python3 "$ROOT/scripts/openwrt/controlled_release.py" attach \
-    --manifest "$OUT/UPDATES.json" \
-    --artifact "$OUT/openwrt-rootfs.tar.gz" \
-    --url "https://github.com/t0fox/z2kOW/releases/download/openwrt-$_source_sha/openwrt-rootfs.tar.gz"
-printf 'candidate: %s/openwrt-rootfs.tar.gz\nmanifest: %s/UPDATES.json (unsigned; do not publish until trusted signing)\n' "$OUT" "$OUT"
+if [ "$_legacy_rootfs" -eq 1 ]; then
+    python3 "$ROOT/scripts/openwrt/controlled_release.py" attach \
+        --manifest "$OUT/UPDATES.json" \
+        --artifact "$OUT/openwrt-rootfs.tar.gz" \
+        --url "https://github.com/t0fox/z2kOW/releases/download/openwrt-$_source_sha/openwrt-rootfs.tar.gz"
+fi
+printf 'candidates: %s/openwrt-rootfs-<arch>.tar.gz\nmanifest: %s/UPDATES.json (unsigned; do not publish until trusted signing)\n' "$OUT" "$OUT"

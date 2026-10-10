@@ -41,7 +41,7 @@ status_installed_json() {
     _installed=$(is_installed && echo true || echo false)
     printf '"installed":%s' "${_installed:-false}"
 }
-update_state_error() { printf 'installed release metadata is missing or invalid'; }
+update_state_error() { printf 'Запись установленного выпуска отсутствует или повреждена'; }
 # Platform seam (Stage 6): env map ДО actions.sh (её топ-уровневые :- дефолты
 # вычисляются при сорсинге), overrides — ПОСЛЕ (иначе actions.sh перетрёт их
 # своими keenetic-определениями). На Keenetic обе строки no-op. Файл один,
@@ -1840,16 +1840,16 @@ case "$method $path" in
         [ -n "$installed" ] && [ "$installed" != "unknown" ] || json_fail "503 Service Unavailable" "$(update_state_error)"
         update_refresh_manifest 0 2>/dev/null || true
         available=$(update_manifest_current)
-        behind=$(update_behind_count "$installed") || json_fail "503 Service Unavailable" "installed release cannot be compared with the controlled manifest"
+        behind=$(update_behind_count "$installed") || json_fail "503 Service Unavailable" "Не удалось сравнить установленный выпуск с проверенным манифестом"
         available_seq="" release_seq_mismatch=false
         if [ -n "$available" ] && [ -n "$installed_seq" ]; then
-            available_seq=$(update_manifest_seq) || json_fail "503 Service Unavailable" "controlled release sequence is missing or invalid"
+            available_seq=$(update_manifest_seq) || json_fail "503 Service Unavailable" "В манифесте выпуска отсутствует номер версии или он неверен"
             if [ "$installed" = "$available" ]; then
                 _seq_order=$(update_seq_compare "$installed_seq" "$available_seq") \
-                    || json_fail "503 Service Unavailable" "installed release sequence is invalid"
+                    || json_fail "503 Service Unavailable" "Номер установленного выпуска повреждён"
                 case "$_seq_order" in
                     -1) behind=1; release_seq_mismatch=true ;;
-                    1) json_fail "503 Service Unavailable" "installed release sequence is ahead of the controlled manifest" ;;
+                    1) json_fail "503 Service Unavailable" "Номер установленного выпуска опережает манифест" ;;
                 esac
             fi
         fi
@@ -1891,16 +1891,16 @@ case "$method $path" in
         [ -n "$installed" ] && [ "$installed" != "unknown" ] || json_fail "503 Service Unavailable" "$(update_state_error)"
         update_refresh_manifest 1 2>/dev/null
         available=$(update_manifest_current)
-        behind=$(update_behind_count "$installed") || json_fail "503 Service Unavailable" "installed release cannot be compared with the controlled manifest"
+        behind=$(update_behind_count "$installed") || json_fail "503 Service Unavailable" "Не удалось сравнить установленный выпуск с проверенным манифестом"
         available_seq="" release_seq_mismatch=false
         if [ -n "$available" ] && [ -n "$installed_seq" ]; then
-            available_seq=$(update_manifest_seq) || json_fail "503 Service Unavailable" "controlled release sequence is missing or invalid"
+            available_seq=$(update_manifest_seq) || json_fail "503 Service Unavailable" "В манифесте выпуска отсутствует номер версии или он неверен"
             if [ "$installed" = "$available" ]; then
                 _seq_order=$(update_seq_compare "$installed_seq" "$available_seq") \
-                    || json_fail "503 Service Unavailable" "installed release sequence is invalid"
+                    || json_fail "503 Service Unavailable" "Номер установленного выпуска повреждён"
                 case "$_seq_order" in
                     -1) behind=1; release_seq_mismatch=true ;;
-                    1) json_fail "503 Service Unavailable" "installed release sequence is ahead of the controlled manifest" ;;
+                    1) json_fail "503 Service Unavailable" "Номер установленного выпуска опережает манифест" ;;
                 esac
             fi
         fi
@@ -1954,7 +1954,7 @@ case "$method $path" in
         ;;
 
     "POST /update/apply")
-        job_id=$(update_apply_async) || json_fail "500 Internal Server Error" "apply launch failed"
+        job_id=$(update_apply_async) || json_fail "500 Internal Server Error" "Не удалось запустить установку обновления"
         json_header
         printf '{"ok":true,"job":'
         json_string "$job_id"
@@ -1965,7 +1965,7 @@ case "$method $path" in
     "POST /update/reinstall")
         require_method POST
         [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] \
-            || json_fail "404 Not Found" "same-version reinstall is supported only on OpenWrt"
+            || json_fail "404 Not Found" "Переустановка той же версии доступна только в OpenWrt"
         if ! installed_record=$(update_installed_release_record 2>/dev/null); then
             json_fail "503 Service Unavailable" "$(update_state_error)"
         fi
@@ -1977,10 +1977,10 @@ case "$method $path" in
         # cached metadata may be displayed after a fetch outage, but cannot
         # authorize reinstalling a version that production has superseded.
         update_refresh_manifest 1 1 \
-            || json_fail "503 Service Unavailable" "fresh signed production manifest is unavailable"
+            || json_fail "503 Service Unavailable" "Не удалось получить свежий подписанный манифест выпуска"
         available=$(update_manifest_current)
         available_seq=$(update_manifest_seq) \
-            || json_fail "503 Service Unavailable" "controlled release sequence is missing or invalid"
+            || json_fail "503 Service Unavailable" "В манифесте выпуска отсутствует номер версии или он неверен"
         if [ "$installed" != "$available" ] || [ "$installed_seq" != "$available_seq" ]; then
             release_seq_mismatch=false
             [ "$installed" != "$available" ] || release_seq_mismatch=true
@@ -1993,7 +1993,7 @@ case "$method $path" in
                 "$available_seq" 1 "$release_seq_mismatch"
             exit 0
         fi
-        job_id=$(update_reinstall_async) || json_fail "500 Internal Server Error" "reinstall launch failed"
+        job_id=$(update_reinstall_async) || json_fail "500 Internal Server Error" "Не удалось запустить переустановку выпуска"
         json_header
         printf '{"ok":true,"state":"reinstalling","installed":'
         json_string "$installed"
@@ -2031,7 +2031,7 @@ case "$method $path" in
         if [ "$confirm_word" != "УДАЛИТЬ" ]; then
             json_fail "400 Bad Request" "запрос отклонён: не подтверждено удаление"
         fi
-        job_id=$(uninstall_async) || json_fail "500 Internal Server Error" "uninstall launch failed"
+        job_id=$(uninstall_async) || json_fail "500 Internal Server Error" "Не удалось запустить удаление программы"
         json_header
         printf '{"ok":true,"job":'
         json_string "$job_id"

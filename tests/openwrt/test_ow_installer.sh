@@ -124,6 +124,11 @@ cat > "$SYS/etc/openwrt_release" <<'RELEASE'
 DISTRIB_ID='OpenWrt'
 DISTRIB_RELEASE='25.12.5'
 RELEASE
+cat > "$T/healthy-memory" <<'MEMINFO'
+MemTotal: 262144 kB
+MemFree: 196608 kB
+MemAvailable: 196608 kB
+MEMINFO
 printf 'LuCI assets\n' > "$SYS/www/luci-static/index"
 luci_fixture_seed "$SYS" || exit 1
 _luci_before="$(luci_fixture_state "$SYS")" || exit 1
@@ -133,7 +138,8 @@ export PATH="$BIN:/usr/bin:/bin" TMPDIR Z2K_TEST_MANIFEST="$T/UPDATES.json" \
     Z2K_TEST_SIGNATURE="$T/UPDATES.json.sig" Z2K_TEST_ARTIFACT="$T/openwrt-rootfs.tar.gz" \
     Z2K_TEST_INSTALL_CALL="$T/install-call" Z2K_TEST_APK_LOG="$T/apk.log" \
     Z2K_TEST_WGET_LOG="$T/wget.log" \
-    Z2K_TEST_SYSROOT="$SYS"
+    Z2K_TEST_SYSROOT="$SYS" Z2K_OW_SYSROOT="$SYS" \
+    Z2K_OW_MEMINFO_FILE="$T/healthy-memory"
 
 if sh "$INSTALLER" > "$T/out" 2>&1; then _t_ok; else _t_bad "fresh bootstrap failed: $(cat "$T/out")"; fi
 assert_eq "bootstrap enters the unified installer once with controlled tag" p-86.13 "$(cat "$T/install-call" 2>/dev/null)"
@@ -215,7 +221,7 @@ Z2K_TEST_BAD_SIGNATURE=1 sh "$INSTALLER" > "$T/bad-signature.out" 2>&1 && _t_bad
 assert_contains "bad signature is rejected by Ed25519 verification" "$T/bad-signature.out" "подпись проверенного UPDATES.json неверна"
 Z2K_TEST_BAD_SIGNATURE=0 Z2K_TEST_BAD_ARTIFACT=1 sh "$INSTALLER" > "$T/bad-artifact.out" 2>&1 && _t_bad "bad artifact was accepted"
 [ -f "$T/install-call" ] && _t_bad "bad artifact reached install_release" || _t_ok
-assert_contains "same-size altered artifact is rejected by SHA-256" "$T/bad-artifact.out" "SHA-256 rootfs не совпал"
+assert_contains "изменённый архив того же размера отклоняется по SHA-256" "$T/bad-artifact.out" "SHA-256 архива файлов роутера не совпал"
 
 # Даже корректно подписанный архив не должен извлекать движок через опасную ссылку.
 cp -a "$T/payload" "$T/unsafe-payload"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Создание единого воспроизводимого транспортного архива релиза OpenWrt."""
+"""Создание воспроизводимого транспортного архива релиза OpenWrt."""
 
 from __future__ import annotations
 
@@ -13,6 +13,13 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Iterator
 
+
+_ARCHES = ("arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64")
+_BINARY_ROOTS = (
+    PurePosixPath("opt/zapret2/binaries"),
+    PurePosixPath("usr/lib/z2k/platform/openwrt/bin"),
+    PurePosixPath("usr/lib/z2k/bin"),
+)
 
 _USER_DATA = (
     PurePosixPath("etc/z2k/config"),
@@ -115,14 +122,30 @@ def _tar_info(relative: PurePosixPath, source: Path) -> tarfile.TarInfo:
     return info
 
 
-def build_rootfs_bundle(staged_root: Path, output: Path) -> None:
-    """Упаковка подготовленного полного rootfs без пакетного менеджера."""
+def _matches_arch(relative: PurePosixPath, arch: str) -> bool:
+    for binary_root in _BINARY_ROOTS:
+        if _under(relative, binary_root):
+            return all(
+                part == f"linux-{arch}"
+                for part in relative.relative_to(binary_root).parts
+                if part.startswith("linux-")
+            )
+    return True
+
+
+def build_rootfs_bundle(staged_root: Path, output: Path, arch: str | None = None) -> None:
+    """Упаковка rootfs; arch=None сохраняет полный переходный payload."""
+    if arch is not None and arch not in _ARCHES:
+        raise ValueError(f"неподдерживаемая архитектура: {arch}")
     root = Path(staged_root).resolve()
     output = Path(output).resolve()
     if not root.is_dir():
         raise ValueError(f"подготовленный rootfs не существует: {root}")
     output.parent.mkdir(parents=True, exist_ok=True)
-    entries = list(_walk(root))
+    entries = [
+        (source, relative) for source, relative in _walk(root)
+        if arch is None or _matches_arch(relative, arch)
+    ]
     if not entries:
         raise ValueError("подготовленный rootfs пуст")
 
@@ -148,9 +171,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, type=Path, help="корень подготовленной файловой системы")
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--arch", choices=_ARCHES, help="архитектура payload; без параметра — полный архив")
     args = parser.parse_args(argv)
     try:
-        build_rootfs_bundle(args.root, args.output)
+        build_rootfs_bundle(args.root, args.output, arch=args.arch)
     except (OSError, ValueError, tarfile.TarError) as error:
         print(f"архив rootfs: {error}", file=sys.stderr)
         return 1

@@ -7,8 +7,8 @@
 ### Добавлено
 
 - Управление product-релизами из CLI `z2kow` и карточки обновления WebPanel; история читается из controlled release manifest, состояние и журнал операции доступны через product update API.
-- Единый OpenWrt rootfs candidate содержит adapter, необязательную WebPanel, закреплённый zapret2 runtime и WARP runtime; manifest связывает полный архив с его размером и SHA-256.
-- Bootstrap проверяет подпись controlled manifest и устанавливает полный `openwrt-rootfs.tar.gz` через `install_release`.
+- Единый корень OpenWrt содержит адаптер, необязательную WebPanel, закреплённый runtime zapret2 и WARP; манифест связывает каждый архив с его размером и SHA-256.
+- Установщик проверяет подпись `UPDATES.json`, загружает архив только для архитектуры роутера и использует общий путь `install_release`. Полный архив остаётся лишь в переходном выпуске для старых установщиков.
 
 ### Исправлено
 

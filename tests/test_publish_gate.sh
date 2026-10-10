@@ -320,16 +320,20 @@ else
     no "gate требует current == history[-1].v" 'new["current"] != nh[-1]["v"]' "не найдено"
 fi
 
-# --- 11. CI validates the single controlled OpenWrt release manifest ----------
-# The main branch carries one complete artifact; production signing and publish
-# happen in a separate trusted operation. Do not require stale staging-tag
-# preflight code or a production signing key in ordinary CI.
-if grep -Fq '"history", "artifact"' "$CI" \
+# --- 11. CI validates per-architecture records and the one-release fallback ---
+# The current manifest has seven records. The complete archive is optional and
+# allowed only while the checked production baseline is legacy-only.
+if grep -Fq '"history"}' "$CI" \
+    && grep -Fq 'if "artifacts" not in m:' "$CI" \
+    && grep -Fq 'arches = {"arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64"}' "$CI" \
+    && grep -Fq 'assert set(m["artifacts"]) == arches' "$CI" \
+    && grep -Fq 'filename = f"openwrt-rootfs-{arch}.tar.gz"' "$CI" \
+    && grep -Fq 'if "artifact" in m:' "$CI" \
     && grep -q 'artifact\["filename"\] == "openwrt-rootfs.tar.gz"' "$CI"; then
-    ok "CI validates the one complete OpenWrt rootfs artifact"
+    ok "CI validates all seven architecture records and the migration fallback"
 else
-    no "CI validates the controlled rootfs artifact" \
-       'artifact filename openwrt-rootfs.tar.gz' "not found"
+    no "CI validates per-architecture artifacts and transition fallback" \
+       'seven exact architecture records; full archive only for legacy baseline' "contract missing"
 fi
 
 if grep -q 're.fullmatch(r"https://github' "$CI" \

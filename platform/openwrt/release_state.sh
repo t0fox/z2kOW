@@ -1,6 +1,6 @@
 #!/bin/sh
-# The single canonical reader for the installed OpenWrt release record.
-# The on-device file remains exactly tag=<release> + seq=<upstream sequence>.
+# Единственный способ прочитать запись установленного выпуска OpenWrt.
+# Формат файла на роутере остаётся tag=<выпуск> и seq=<номер upstream>.
 z2k_ow_release_state_read() {
     local _state="${1:-${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}}"
     [ -r "$_state" ] || return 1
@@ -26,11 +26,11 @@ z2k_ow_release_state_read() {
 z2k_ow_release_state_error() {
     local _state="${1:-${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}}"
     if [ ! -e "$_state" ]; then
-        printf '%s' 'installed release metadata is missing'
+        printf '%s' 'не найдена запись установленного выпуска'
     elif [ ! -r "$_state" ]; then
-        printf '%s' 'installed release metadata is unreadable'
+        printf '%s' 'нет доступа к записи установленного выпуска'
     else
-        printf '%s' 'installed release metadata is invalid'
+        printf '%s' 'запись установленного выпуска повреждена'
     fi
 }
 
@@ -40,8 +40,8 @@ z2k_ow_release_state_payload_tag() {
     printf '%s\n' "$_record" | sed -n 's/^tag=//p' | head -1
 }
 
-# WebPanel /status uses this hook when the OpenWrt state adapter is loaded.
-# The common API provides a Keenetic fallback with the same JSON key shape.
+# Панель управления использует эту функцию для показа состояния OpenWrt.
+# Общий интерфейс сохраняет те же названия полей JSON.
 status_installed_json() {
     local _state="${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}" _record _tag _seq
     if _record=$(z2k_ow_release_state_read "$_state"); then
@@ -60,13 +60,18 @@ update_state_error() {
     z2k_ow_release_state_error "${AU_TAG_FILE:-${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}}"
 }
 
-# Одноимённый хотфикс не добавляет новый тег в upstream history. Его
-# доступность определяется отпечатком архива из проверенного манифеста.
+# Хотфикс с тем же тегом не добавляет новую версию в историю upstream.
+# Его наличие определяется отпечатком архива из проверенного манифеста.
 update_hotfix_pending() {
-    local _hotfix_manifest="$1" _hotfix_installed="$2" _hotfix_current _hotfix_sha _hotfix_state _hotfix_receipt
+    local _hotfix_manifest="$1" _hotfix_installed="$2" _hotfix_current _hotfix_sha _hotfix_state _hotfix_receipt _manifest_lib
+    _manifest_lib="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/manifest.sh"
+    if ! command -v z2k_ow_manifest_artifact_sha256 >/dev/null 2>&1; then
+        [ -r "$_manifest_lib" ] || return 1
+        . "$_manifest_lib" || return 1
+    fi
     _hotfix_current="$(z2k_ow_manifest_value "$_hotfix_manifest" current)" || return 1
     [ "$_hotfix_current" = "$_hotfix_installed" ] || return 1
-    _hotfix_sha="$(z2k_ow_manifest_value "$_hotfix_manifest" artifact.sha256 | tr 'A-F' 'a-f')" || return 1
+    _hotfix_sha="$(z2k_ow_manifest_artifact_sha256 "$_hotfix_manifest")" || return 1
     printf '%s' "$_hotfix_sha" | grep -Eq '^[0-9a-f]{64}$' || return 1
     _hotfix_state="${Z2K_OW_INSTALLED_RELEASE_FILE:-${Z2K_STATE:-/etc/z2k/state}/installed-release}"
     _hotfix_receipt="${_hotfix_state%/*}/installed-artifact-sha256"

@@ -54,11 +54,16 @@ src, dst, sha, size, tag = sys.argv[1:]
 d = json.load(open(src, encoding="utf-8"))
 d["current"] = tag
 d["upstream"]["tag"] = tag
-d["artifact"] = {
-    "filename": "openwrt-rootfs.tar.gz",
-    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-" + "a" * 40 + "/openwrt-rootfs.tar.gz",
-    "sha256": sha,
-    "size_bytes": int(size),
+d.pop("artifact", None)
+d["artifacts"] = {
+    arch: {
+        "filename": f"openwrt-rootfs-{arch}.tar.gz",
+        "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-" + "a" * 40 + f"/openwrt-rootfs-{arch}.tar.gz",
+        "sha256": sha if arch == "arm64" else "e" * 64,
+        "size_bytes": int(size),
+        "unpacked_size_bytes": 4096,
+    }
+    for arch in ("arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64")
 }
 d["signing"] = {"key_id": "0" * 64}
 open(dst, "w", encoding="utf-8").write(json.dumps(d))
@@ -76,20 +81,23 @@ export Z2K_OW_MANIFEST_PATH="$MANIFEST" Z2K_OW_ARTIFACT_PATH="$ARCHIVE"
 mkdir -p "$T/tmp"
 
 jsonfilter() {
-    _file= _expr=
+    _file= _expr= _type=0
     while [ "$#" -gt 0 ]; do
         case "$1" in
             -i) _file="$2"; shift 2 ;;
+            -t) _type=1; _expr="${2#@.}"; shift 2 ;;
             -e) _expr="${2#@.}"; shift 2 ;;
             *) return 2 ;;
         esac
     done
-    python3 - "$_file" "$_expr" <<'PY'
+    python3 - "$_file" "$_expr" "$_type" <<'PY'
 import json, sys
 v = json.load(open(sys.argv[1], encoding="utf-8"))
 for key in sys.argv[2].split("."):
     v = v[key]
-if v is not None:
+if sys.argv[3] == "1":
+    print({dict: "object", list: "array", str: "string", int: "number", float: "number", bool: "boolean", type(None): "null"}.get(type(v), "null"))
+elif v is not None:
     print(v)
 PY
 }
@@ -112,11 +120,13 @@ apk() {
 _FAULT=""
 _FAULT_USED=0
 mv() {
+    _mv_dest=
+    for _mv_arg do _mv_dest="$_mv_arg"; done
     if [ "$_FAULT" = backup ] && [ "$_FAULT_USED" = 0 ]; then
         case "$2" in *.z2k-backup.*) _FAULT_USED=1; : > "$T/injection-fired"; return 73 ;; esac
     fi
     if [ "$_FAULT" = apply-copy ] && [ "$_FAULT_USED" = 0 ] \
-        && [ "$1" = "$T/tmp/z2kow-release/stage/usr/lib/z2k" ] \
+        && [ "$1" = "$SYS/usr/lib/.z2k-install/stage/usr/lib/z2k" ] \
         && [ "$2" = "$SYS/usr/lib/z2k" ]; then
         return 74
     fi
@@ -124,13 +134,17 @@ mv() {
         && [ "$2" = "$SYS/usr/bin/z2kow" ]; then
         _FAULT_USED=1; : > "$T/injection-fired"; return 75
     fi
+    if [ "$_FAULT" = receipt ] && [ "$_FAULT_USED" = 0 ] \
+        && [ "$_mv_dest" = "$SYS/etc/z2k/state/installed-artifact-sha256" ]; then
+        _FAULT_USED=1; : > "$T/injection-fired"; return 77
+    fi
     command mv "$@"
 }
 
 cp() {
     if [ "$_FAULT" = apply-copy ] && [ "$_FAULT_USED" = 0 ] \
         && [ "${1:-}" = -a ] \
-        && [ "$2" = "$T/tmp/z2kow-release/stage/usr/lib/z2k" ]; then
+        && [ "$2" = "$SYS/usr/lib/.z2k-install/stage/usr/lib/z2k" ]; then
         case "$3" in "$SYS/usr/lib/z2k.z2k-new."*)
             _FAULT_USED=1; : > "$T/injection-fired"
             mkdir -p "$3/platform/openwrt"
@@ -181,8 +195,19 @@ prepare_sysroot() {
     rm -f "$T/injection-fired" "$T/fail-new-health" "$SERVICE_FAIL_FILE" \
         "$T/service-stopped" "$T/apk-add-failed"
     mkdir -p "$SYS/etc/z2k/state" "$SYS/etc/init.d" "$SYS/usr/lib/z2k" \
+        "$SYS/etc/z2k/user-lists" "$SYS/www/cgi-bin" \
         "$SYS/usr/bin" "$SYS/usr/sbin" "$SYS/etc/apk/repositories.d" "$SYS/etc/apk/keys"
     printf 'tag=p-1.2\nseq=1\n' > "$SYS/etc/z2k/state/installed-release"
+    printf '%s\n' 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' > "$SYS/etc/z2k/state/installed-artifact-sha256"
+    printf 'ENABLED=1\nUSER_VALUE=preserve\n' > "$SYS/etc/z2k/config"
+    chmod 640 "$SYS/etc/z2k/config"
+    printf 'user-list preserve\n' > "$SYS/etc/z2k/user-lists/custom.txt"
+    chmod 640 "$SYS/etc/z2k/user-lists/custom.txt"
+    printf 'luci sentinel\n' > "$SYS/www/cgi-bin/luci"
+    chmod 644 "$SYS/www/cgi-bin/luci"
+    _old_config_stat=$(stat -c '%u:%g:%a' "$SYS/etc/z2k/config")
+    _old_user_list_stat=$(stat -c '%u:%g:%a' "$SYS/etc/z2k/user-lists/custom.txt")
+    _old_luci_stat=$(stat -c '%u:%g:%a' "$SYS/www/cgi-bin/luci")
     printf 'old payload\n' > "$SYS/usr/lib/z2k/version.txt"
     for _svc in z2k z2k-webpanel; do
         printf '#!/bin/sh\nexit 0\n' > "$SYS/etc/init.d/$_svc"
@@ -192,16 +217,33 @@ prepare_sysroot() {
     echo 0 > "$_OLD_COUNT"
 }
 
+assert_operator_files_preserved() {
+    _description="$1"
+    if [ "$(cat "$SYS/etc/z2k/config" 2>/dev/null)" = "ENABLED=1
+USER_VALUE=preserve" ] \
+        && [ "$(cat "$SYS/etc/z2k/user-lists/custom.txt" 2>/dev/null)" = "user-list preserve" ] \
+        && [ "$(cat "$SYS/www/cgi-bin/luci" 2>/dev/null)" = "luci sentinel" ] \
+        && [ "$(stat -c '%u:%g:%a' "$SYS/etc/z2k/config" 2>/dev/null)" = "$_old_config_stat" ] \
+        && [ "$(stat -c '%u:%g:%a' "$SYS/etc/z2k/user-lists/custom.txt" 2>/dev/null)" = "$_old_user_list_stat" ] \
+        && [ "$(stat -c '%u:%g:%a' "$SYS/www/cgi-bin/luci" 2>/dev/null)" = "$_old_luci_stat" ]; then
+        _t_ok
+    else
+        _t_bad "$_description: конфигурация, ownership/permissions или защищённый LuCI path изменились"
+    fi
+}
+
 assert_rolled_back() {
     _description="$1"
     if [ "$_rc" -ne 0 ] \
         && grep -qx 'tag=p-1.2' "$SYS/etc/z2k/state/installed-release" \
+        && grep -qx 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' "$SYS/etc/z2k/state/installed-artifact-sha256" \
         && grep -q 'old payload' "$SYS/usr/lib/z2k/version.txt" \
         && [ ! -e "$SYS/usr/lib/.z2k-install/transaction-active" ]; then
         _t_ok
     else
         _t_bad "$_description: rc=$_rc state=$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null) payload=$(cat "$SYS/usr/lib/z2k/version.txt" 2>/dev/null)"
     fi
+    assert_operator_files_preserved "$_description"
 }
 
 prepare_sysroot
@@ -209,6 +251,12 @@ _FAULT=backup _FAULT_USED=0
 _out="$(z2k_ow_install_release "$_tag" 2>&1)"; _rc=$?
 assert_rolled_back "ошибка mv backup после записи журнала возвращает старые файлы"
 [ -e "$T/injection-fired" ] && _t_ok || _t_bad "не сработал injection отказа backup mv"
+
+prepare_sysroot
+_FAULT=receipt _FAULT_USED=0
+_out="$(z2k_ow_install_release "$_tag" 2>&1)"; _rc=$?
+assert_rolled_back "ошибка фиксации digest receipt откатывает новый payload и сохраняет прежний receipt"
+[ -e "$T/injection-fired" ] && _t_ok || _t_bad "не сработал injection отказа записи digest receipt"
 
 prepare_sysroot
 _FAULT=apply-copy _FAULT_USED=0
@@ -272,11 +320,28 @@ rm -f "$T/fail-new-health" "$SERVICE_FAIL_FILE"
 _out="$(z2k_ow_install_release "$_tag" 2>&1)"; _rc=$?
 if [ "$_rc" -eq 0 ] \
     && grep -qx "tag=$_tag" "$SYS/etc/z2k/state/installed-release" \
+    && grep -qx "$_sha" "$SYS/etc/z2k/state/installed-artifact-sha256" \
     && grep -q "release tag $_tag" "$SYS/usr/lib/z2k/version.txt" \
     && [ ! -e "$SYS/usr/lib/.z2k-install/transaction-active" ]; then
     _t_ok
 else
     _t_bad "повтор после неудачного rollback не восстановил транзакцию: rc=$_rc output=$_out"
 fi
+assert_operator_files_preserved "успешное обновление"
+
+# Reinstall through the same release engine at the same tag and sequence must
+# converge a stale receipt without touching user configuration or ownership.
+prepare_sysroot
+printf 'tag=%s\nseq=%s\n' "$_tag" "$_seq" > "$SYS/etc/z2k/state/installed-release"
+_out="$(z2k_ow_install_release --reinstall "$_tag" 2>&1)"; _rc=$?
+if [ "$_rc" -eq 0 ] \
+    && grep -qx "$_sha" "$SYS/etc/z2k/state/installed-artifact-sha256" \
+    && grep -q "release tag $_tag" "$SYS/usr/lib/z2k/version.txt" \
+    && [ ! -e "$SYS/usr/lib/.z2k-install/transaction-active" ]; then
+    _t_ok
+else
+    _t_bad "повторная установка текущего tag/seq обновляет digest receipt через общую транзакцию: rc=$_rc output=$_out"
+fi
+assert_operator_files_preserved "переустановка через release engine"
 
 _t_done

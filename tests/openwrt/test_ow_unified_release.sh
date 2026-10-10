@@ -3,6 +3,7 @@
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-unified-release"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$REPO/platform/openwrt/paths.sh"
 . "$REPO/lib/auto_update.sh"
 . "$REPO/platform/openwrt/manifest.sh"
 . "$REPO/platform/openwrt/release_state.sh"
@@ -14,33 +15,25 @@ Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
 export Z2K_ADAPTER_DIR
 
 jsonfilter() {
-    _file="" _expr=""
-    while [ "$#" -gt 0 ]; do
-        case "$1" in
-            -i) _file="$2"; shift 2 ;;
-            -e) _expr="$2"; shift 2 ;;
-            *) return 2 ;;
-        esac
-    done
-    _path="${_expr#@.}"
-    case "$_path" in
-        upstream.*) _section=upstream; _key="${_path#upstream.}" ;;
-        artifact.*) _section=artifact; _key="${_path#artifact.}" ;;
-        signing.*) _section=signing; _key="${_path#signing.}" ;;
-        *) _section=root; _key="$_path" ;;
-    esac
-    awk -v section="$_section" -v key="$_key" '
-        section == "root" && $1 == "\"" key "\":" {
-            value=$2; gsub(/[",]/, "", value); print value; exit
-        }
-        section == "upstream" && /^  "upstream"[[:space:]]*:/ { active=1; next }
-        section == "artifact" && /^  "artifact"[[:space:]]*:/ { active=1; next }
-        section == "signing" && /^  "signing"[[:space:]]*:/ { active=1; next }
-        active && /^  [}]/{ active=0 }
-        active && $1 == "\"" key "\":" {
-            value=$2; gsub(/[",]/, "", value); print value; exit
-        }
-    ' "$_file"
+    python3 - "$@" <<'PY'
+import json, sys
+args = sys.argv[1:]
+filename = expr = None
+kind = False
+while args:
+    arg = args.pop(0)
+    if arg == "-i": filename = args.pop(0)
+    elif arg == "-e": expr = args.pop(0)
+    elif arg == "-t": kind = True; expr = args.pop(0)
+    else: raise SystemExit(2)
+value = json.load(open(filename, encoding="utf-8"))
+for key in expr.removeprefix("@.").split("."):
+    value = value[key]
+if kind:
+    print("object" if isinstance(value, dict) else "array" if isinstance(value, list) else "string" if isinstance(value, str) else "number" if isinstance(value, (int, float)) else "null")
+elif value is not None:
+    print(value)
+PY
 }
 
 _CURRENT_TAG="$(jsonfilter -i "$REPO/UPDATES.json" -e '@.current')"
@@ -54,6 +47,24 @@ sha256sum() {
 
 T="$(mktemp -d)" || exit 1
 trap 'rm -rf "$T"' EXIT HUP INT TERM
+mkdir -p "$T/download-failure-bin"
+cat > "$T/download-failure-bin/wget" <<'EOF_WGET_FAIL'
+#!/bin/sh
+exit 37
+EOF_WGET_FAIL
+chmod 0755 "$T/download-failure-bin/wget"
+_download_error="$(PATH="$T/download-failure-bin:$PATH" \
+    z2k_ow_download 'https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs-arm64.tar.gz' \
+    "$T/openwrt-rootfs-arm64.tar.gz.part" 2>&1)"
+_download_rc=$?
+if [ "$_download_rc" -eq 37 ] \
+    && printf '%s\n' "$_download_error" | grep -qF 'не удалось скачать архив выпуска' \
+    && printf '%s\n' "$_download_error" | grep -qF 'код ошибки 37' \
+    && printf '%s\n' "$_download_error" | grep -qF 'openwrt-rootfs-arm64.tar.gz.part'; then
+    _t_ok
+else
+    _t_bad "ошибка загрузки сообщает причину, код возврата и временный путь: rc=$_download_rc output=$_download_error"
+fi
 printf "DISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"
 export Z2K_OW_OPENWRT_RELEASE_FILE="$T/openwrt_release"
 make_artifact() {
@@ -121,6 +132,46 @@ prepare_manifest() {
         "$REPO/UPDATES.json" "$_artifact" "$_out" "$_sha" "$_size" "$_url"
 }
 
+prepare_arch_manifest() {
+    _artifact="$1" _out="$2" _arch="$3" _url="$4" _legacy_url="${5:-}"
+    "$Z2K_TEST_PYTHON" - "$REPO/UPDATES.json" "$_artifact" "$_out" "$_arch" "$_url" "$_legacy_url" <<'PY'
+import hashlib, json, pathlib, sys, tarfile
+source, archive_path, output, arch, url, legacy_url = sys.argv[1:]
+d = json.loads(pathlib.Path(source).read_text(encoding="utf-8"))
+archive = pathlib.Path(archive_path).read_bytes()
+digest = hashlib.sha256(archive).hexdigest()
+size = len(archive)
+prefixes = (
+    ("usr/lib/z2k/bin/", "linux-"),
+    ("usr/lib/z2k/platform/openwrt/bin/", "linux-"),
+    ("opt/zapret2/binaries/", "linux-"),
+)
+unpacked = 0
+with tarfile.open(archive_path, "r:gz") as tf:
+    for member in tf:
+        if not member.isfile():
+            continue
+        foreign = False
+        for prefix, marker in prefixes:
+            if member.name.startswith(prefix):
+                name = member.name[len(prefix):].split("/", 1)[0]
+                if name.startswith(marker) and name != marker + arch:
+                    foreign = True
+                break
+        if not foreign:
+            unpacked += member.size
+filename = f"openwrt-rootfs-{arch}.tar.gz"
+d.pop("artifact", None)
+d["artifacts"] = {arch: {"filename": filename, "url": url, "sha256": digest,
+                         "size_bytes": size, "unpacked_size_bytes": unpacked}}
+if legacy_url:
+    d["artifact"] = {"filename": "openwrt-rootfs.tar.gz", "url": legacy_url,
+                     "sha256": digest, "size_bytes": size}
+d["signing"] = {"key_id": "0000000000000000000000000000000000000000000000000000000000000000"}
+pathlib.Path(output).write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
 _state_is_release() {
     grep -qx "tag=$1" "$3" 2>/dev/null && grep -qx "seq=$2" "$3" 2>/dev/null
 }
@@ -146,6 +197,40 @@ printf '%s\n' z2k-adapter z2k-webpanel z2k-zapret2-runtime z2k-warp-runtime > "$
 make_artifact "$STAGE"
 mkdir -p "$T/dist"
     tar -czf "$T/dist/openwrt-rootfs.tar.gz" -C "$STAGE" usr etc opt
+_release_real_tar="$(command -v tar)"
+mkdir -p "$T/extract-failure-bin" "$T/extract-failure-work" \
+    "$T/extract-failure-stage" "$T/extract-failure-tmp"
+"$_release_real_tar" -tzf "$T/dist/openwrt-rootfs.tar.gz" > "$T/extract-failure-list"
+cat > "$T/extract-failure-bin/tar" <<'EOF_TAR_FAIL'
+#!/bin/sh
+case " $* " in
+    *' -xzf '*) echo 'ошибка тестовой распаковки' >&2; exit 41 ;;
+esac
+exec "$Z2K_TEST_REAL_TAR" "$@"
+EOF_TAR_FAIL
+chmod 0755 "$T/extract-failure-bin/tar"
+_extract_error="$(
+    (
+        PATH="$T/extract-failure-bin:$PATH"
+        Z2K_TEST_REAL_TAR="$_release_real_tar"
+        export PATH Z2K_TEST_REAL_TAR
+        _adapter="$REPO/platform/openwrt"
+        z2k_ow_overlay_preflight() { return 0; }
+        z2k_ow_memory_preflight() { return 0; }
+        z2k_ow_extract_target_payload "$T/dist/openwrt-rootfs.tar.gz" \
+            "$T/extract-failure-stage" "$T/extract-failure-list" \
+            "$T/extract-failure-work" "$T/extract-failure-tmp"
+    ) 2>&1
+)"
+_extract_rc=$?
+if [ "$_extract_rc" -ne 0 ] \
+    && printf '%s\n' "$_extract_error" | grep -qF 'не удалось распаковать проверенный архив' \
+    && printf '%s\n' "$_extract_error" | grep -qF "$T/extract-failure-stage" \
+    && printf '%s\n' "$_extract_error" | grep -qF 'код ошибки'; then
+    _t_ok
+else
+    _t_bad "сбой распаковки сообщает путь временного каталога и код ошибки: rc=$_extract_rc output=$_extract_error"
+fi
 prepare_manifest "$T/dist/openwrt-rootfs.tar.gz" "$T/UPDATES.json"
 z2k_ow_manifest_release_ok "$T/UPDATES.json" \
     && _t_ok || _t_bad "technical immutable release URL is valid for the controlled p-86.13 manifest"
@@ -230,6 +315,13 @@ if [ "$_rc" -eq 0 ] && [ "$_state_ok" = 1 ] && [ "$_identity_ok" = 1 ] && [ "$_o
     _t_ok
 else
     _t_bad "legacy full migration to $_CURRENT_TAG retires old strategy telemetry without losing release state: rc=$_rc checks=$_state_ok/$_identity_ok/$_old_ok/$_telemetry_ok/$_version_ok/$_config_ok state=$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null) old=$(test -e "$SYS/usr/lib/z2k/legacy.txt" && echo present || echo absent) uploader=$(test -e "$SYS/usr/lib/z2k/z2k-stats-upload.sh" && echo present || echo absent) version=$(cat "$SYS/usr/lib/z2k/version.txt" 2>/dev/null) config=$(cat "$SYS/etc/z2k/config" 2>/dev/null) output=$_out"
+fi
+if printf '%s\n' "$_out" | grep -qF 'Проверяю совместный запас оперативной памяти и временного хранилища' \
+    && printf '%s\n' "$_out" | grep -qF 'Заранее проверяю место для архива, распаковки и отката' \
+    && printf '%s\n' "$_out" | grep -qF 'Повторно проверяю место после установки системных зависимостей'; then
+    _t_ok
+else
+    _t_bad "журнал установки показывает отдельные этапы проверки памяти и места на разделе"
 fi
 if grep -q 'не удалять пользовательские временные данные' "$Z2K_OW_INSTALL_TMP/user-data.txt"; then
     _t_ok
@@ -321,7 +413,7 @@ assert_eq "installed state has one tag and upstream seq" "2" "$(wc -l < "$SYS/et
 
 # Совпадающие метаданные не должны скрывать отказ dataplane readiness.
 _out="$(Z2K_TEST_CORE_READY=0 z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
-if [ "$_rc" -eq 0 ] && printf '%s\n' "$_out" | grep -q "^installed $_CURRENT_TAG$"; then
+if [ "$_rc" -eq 0 ] && printf '%s\n' "$_out" | grep -q "^Установлен выпуск $_CURRENT_TAG$"; then
     _t_ok
 else
     _t_bad "no-op скрыл неготовый dataplane вместо восстановления: rc=$_rc output=$_out"
@@ -331,16 +423,16 @@ fi
 # Перед no-op проверяется набор исполняемых файлов выбранной архитектуры.
 rm -f "$SYS/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client"
 _out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
-if [ "$_rc" -eq 0 ] && printf '%s\n' "$_out" | grep -q "^installed $_CURRENT_TAG$" \
+if [ "$_rc" -eq 0 ] && printf '%s\n' "$_out" | grep -q "^Установлен выпуск $_CURRENT_TAG$" \
     && [ -x "$SYS/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client" ]; then
     _t_ok
 else
     _t_bad "matching tag masked a missing target binary instead of repairing it: rc=$_rc mode=$(ls -ld "$SYS/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client" 2>/dev/null) archive=$(tar -tvzf "$T/dist/openwrt-rootfs.tar.gz" 2>/dev/null | grep 'linux-arm64/tg-mtproxy-client') output=$_out"
 fi
 
-# Намеренная переустановка той же версии проходит ту же проверенную транзакцию
-# полного payload. Она восстанавливает принадлежащий релизу файл и сохраняет
-# единственную запись состояния, настройки и пользовательские списки.
+# Намеренная переустановка той же версии заменяет проверенные файлы на месте,
+# используя сверенный архив как резерв. Это восстанавливает повреждённый файл
+# без второй полной копии и сохраняет состояние, настройки и пользовательские списки.
 _state_before="$(cat "$SYS/etc/z2k/state/installed-release")"
 mkdir -p "$SYS/etc/z2k/user-lists"
 mkdir -p "$SYS/etc/config" "$SYS/etc/z2k/state"
@@ -352,9 +444,19 @@ printf 'https-dns-proxy\n' > "$SYS/etc/z2k/state/.doh-package-owned"
 printf "config main 'config'\n\nconfig https-dns-proxy 'z2kow_xbox'\n\toption resolver_url 'https://xbox-dns.ru/dns-query'\n" \
     > "$SYS/etc/config/https-dns-proxy"
 printf 'damaged release file\n' > "$SYS/usr/lib/z2k/version.txt"
-_out="$(z2k_ow_install_release --reinstall "$_CURRENT_TAG" 2>&1)"; _rc=$?
+_out="$( (
+    z2k_ow_extract_target_payload() {
+        echo "повторная установка не должна создавать полную временную распаковку" >&2
+        return 91
+    }
+    z2k_ow_prepare_install_stage() {
+        echo "повторная установка не должна создавать временный каталог распаковки" >&2
+        return 92
+    }
+    z2k_ow_install_release --reinstall "$_CURRENT_TAG"
+) 2>&1)"; _rc=$?
 if [ "$_rc" -eq 0 ] \
-    && [ "$(printf '%s\n' "$_out" | tail -n 1)" = "installed $_CURRENT_TAG" ] \
+    && [ "$(printf '%s\n' "$_out" | tail -n 1)" = "Установлен выпуск $_CURRENT_TAG" ] \
     && grep -q "release tag $_CURRENT_TAG" "$SYS/usr/lib/z2k/version.txt" \
     && [ "$(cat "$SYS/etc/z2k/state/installed-release")" = "$_state_before" ] \
     && grep -q 'keep user config' "$SYS/etc/z2k/config" \
@@ -362,10 +464,134 @@ if [ "$_rc" -eq 0 ] \
     && grep -q '^enabled=1$' "$SYS/etc/z2k/state/doh.state" \
     && grep -q '^z2kow_xbox$' "$SYS/etc/z2k/state/.doh-uci-owned" \
     && grep -q '^https-dns-proxy$' "$SYS/etc/z2k/state/.doh-package-owned" \
-    && grep -q "https://xbox-dns.ru/dns-query" "$SYS/etc/config/https-dns-proxy"; then
+    && grep -q "https://xbox-dns.ru/dns-query" "$SYS/etc/config/https-dns-proxy" \
+    && [ ! -e "$SYS/usr/lib/.z2k-install" ] \
+    && [ ! -e "$Z2K_OW_INSTALL_TMP/z2kow-release" ] \
+    && ! find "$SYS" \( -name '*.z2k-backup.*' -o -name '*.z2k-new.*' \) | grep -q .; then
     _t_ok
 else
     _t_bad "same-version reinstall did not reconverge while preserving state/settings/lists: rc=$_rc state=$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null) version=$(cat "$SYS/usr/lib/z2k/version.txt" 2>/dev/null) output=$_out"
+fi
+
+# При малом постоянном хранилище отказ должен произойти до остановки службы
+# и оставить прежние файлы и состояние нетронутыми.
+cp "$SYS/usr/lib/z2k/version.txt" "$T/direct-reinstall-before-low-space.txt"
+printf 'сохранить при нехватке места\n' > "$SYS/usr/lib/z2k/version.txt"
+_apk_calls_before="$(wc -l < "$T/apk.log")"
+_out="$( (
+    z2k_ow_memory_preflight() { return 0; }
+    df() { printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim-root 100000 99999 1 99%% /overlay\n'; }
+    z2k_ow_service_call() {
+        [ "${2:-}" != stop ] || : > "$T/direct-low-space-service-stopped"
+        return 0
+    }
+    z2k_ow_install_release --reinstall "$_CURRENT_TAG"
+) 2>&1)"; _rc=$?
+if [ "$_rc" -ne 0 ] \
+    && printf '%s\n' "$_out" | grep -q 'недостаточно места' \
+    && grep -q 'сохранить при нехватке места' "$SYS/usr/lib/z2k/version.txt" \
+    && [ "$(cat "$SYS/etc/z2k/state/installed-release")" = "$_state_before" ] \
+    && [ "$(wc -l < "$T/apk.log")" -eq "$_apk_calls_before" ] \
+    && [ ! -e "$T/direct-low-space-service-stopped" ] \
+    && [ ! -e "$SYS/usr/lib/.z2k-install" ] \
+    && [ ! -e "$Z2K_OW_INSTALL_TMP/z2kow-release" ]; then
+    _t_ok
+else
+    _t_bad "нехватка места не остановила переустановку до изменения файлов и служб: rc=$_rc output=$_out"
+fi
+cp "$T/direct-reinstall-before-low-space.txt" "$SYS/usr/lib/z2k/version.txt"
+
+# Если распаковка после освобождения прежних путей прерывается, откат заново
+# извлекает тот же сверенный архив и удаляет временные данные после проверки.
+_real_tar="$(command -v tar)"
+mkdir -p "$T/direct-reinstall-fail-bin"
+cat > "$T/direct-reinstall-fail-bin/tar" <<'EOF_DIRECT_TAR_FAIL'
+#!/bin/sh
+if [ -n "${Z2K_TEST_DIRECT_ROOT:-}" ] && [ -n "${Z2K_TEST_DIRECT_FAIL_MARKER:-}" ] \
+    && [ ! -e "$Z2K_TEST_DIRECT_FAIL_MARKER" ] \
+    && printf '%s\n' "$*" | grep -Fq -- "-xzf " \
+    && printf '%s\n' "$*" | grep -Fq -- "-C $Z2K_TEST_DIRECT_ROOT"; then
+    : > "$Z2K_TEST_DIRECT_FAIL_MARKER"
+    echo 'искусственный обрыв распаковки' >&2
+    exit 47
+fi
+exec "$Z2K_TEST_REAL_TAR" "$@"
+EOF_DIRECT_TAR_FAIL
+chmod 0755 "$T/direct-reinstall-fail-bin/tar"
+printf 'повреждено перед проверкой отката\n' > "$SYS/usr/lib/z2k/version.txt"
+_out="$( (
+    PATH="$T/direct-reinstall-fail-bin:$PATH"
+    Z2K_TEST_REAL_TAR="$_real_tar"
+    Z2K_TEST_DIRECT_ROOT="${SYS%/}/"
+    Z2K_TEST_DIRECT_FAIL_MARKER="$T/direct-reinstall-fail-once"
+    export PATH Z2K_TEST_REAL_TAR Z2K_TEST_DIRECT_ROOT Z2K_TEST_DIRECT_FAIL_MARKER
+    z2k_ow_install_release --reinstall "$_CURRENT_TAG"
+) 2>&1)"; _rc=$?
+if [ "$_rc" -ne 0 ] \
+    && [ "$(cat "$SYS/etc/z2k/state/installed-release")" = "$_state_before" ] \
+    && grep -q "release tag $_CURRENT_TAG" "$SYS/usr/lib/z2k/version.txt" \
+    && printf '%s\n' "$_out" | grep -q 'Z2KOW_ROLLBACK=complete' \
+    && [ ! -e "$SYS/usr/lib/.z2k-install" ] \
+    && [ ! -e "$Z2K_OW_INSTALL_TMP/z2kow-release" ]; then
+    _t_ok
+else
+    _t_bad "повторная установка не восстановила тот же проверенный архив после обрыва: rc=$_rc state=$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null) version=$(cat "$SYS/usr/lib/z2k/version.txt" 2>/dev/null) output=$_out"
+fi
+
+# После отключения питания установленная часть может отсутствовать целиком.
+# Раннее восстановление должно собрать её из оставленного проверенного архива.
+DIRECT_RECOVERY_SYS="$T/direct-recovery-sys"
+DIRECT_RECOVERY_WORK="$DIRECT_RECOVERY_SYS/usr/lib/.z2k-install"
+DIRECT_RECOVERY_TMP="$T/direct-recovery-tmp/z2kow-release"
+DIRECT_RECOVERY_SHA="$(cat "$SYS/etc/z2k/state/installed-artifact-sha256")"
+mkdir -p "$DIRECT_RECOVERY_SYS/etc/z2k/state" "$DIRECT_RECOVERY_SYS/etc/z2k" \
+    "$DIRECT_RECOVERY_WORK" "$DIRECT_RECOVERY_TMP"
+printf '%s\n' 'z2kow-release-stage-v1' > "$DIRECT_RECOVERY_TMP/.z2kow-owner"
+printf 'tag=%s\nseq=%s\n' "$_CURRENT_TAG" "$_CURRENT_SEQ" \
+    > "$DIRECT_RECOVERY_SYS/etc/z2k/state/installed-release"
+printf '%s\n' "$DIRECT_RECOVERY_SHA" \
+    > "$DIRECT_RECOVERY_SYS/etc/z2k/state/installed-artifact-sha256"
+cp "$DIRECT_RECOVERY_SYS/etc/z2k/state/installed-release" \
+    "$DIRECT_RECOVERY_WORK/installed-release.old"
+cp "$DIRECT_RECOVERY_SYS/etc/z2k/state/installed-artifact-sha256" \
+    "$DIRECT_RECOVERY_WORK/installed-artifact.old"
+cp "$T/dist/openwrt-rootfs.tar.gz" "$DIRECT_RECOVERY_WORK/openwrt-rootfs.tar.gz"
+printf '%s\n' "$DIRECT_RECOVERY_SHA" > "$DIRECT_RECOVERY_WORK/transaction-artifact"
+wc -c < "$DIRECT_RECOVERY_WORK/openwrt-rootfs.tar.gz" \
+    | tr -d ' \t\r\n' > "$DIRECT_RECOVERY_WORK/transaction-artifact-size"
+printf '%s\n' arm64 > "$DIRECT_RECOVERY_WORK/transaction-arch"
+printf 'tag=%s\nseq=%s\n' "$_CURRENT_TAG" "$_CURRENT_SEQ" \
+    > "$DIRECT_RECOVERY_WORK/transaction-target"
+printf '%s\n' 9417 > "$DIRECT_RECOVERY_WORK/transaction-id"
+printf '%s\n' same-archive-v1 > "$DIRECT_RECOVERY_WORK/reinstall-from-archive"
+printf '%s\n' 'V|2' > "$DIRECT_RECOVERY_WORK/transaction.log"
+cp "$REPO/platform/openwrt/owned-paths.txt" "$DIRECT_RECOVERY_WORK/owned-paths"
+: > "$DIRECT_RECOVERY_WORK/state-was-present"
+: > "$DIRECT_RECOVERY_WORK/artifact-was-present"
+: > "$DIRECT_RECOVERY_WORK/transaction-active"
+: > "$DIRECT_RECOVERY_WORK/startup-links-prepared"
+: > "$DIRECT_RECOVERY_WORK/startup-paths"
+printf 'ENABLED=0\n' > "$DIRECT_RECOVERY_SYS/etc/z2k/config"
+_out="$( (
+    export Z2K_OW_SYSROOT="$DIRECT_RECOVERY_SYS"
+    export Z2K_ROOT="$DIRECT_RECOVERY_SYS/usr/lib/z2k"
+    export Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
+    export Z2K_OW_INSTALL_TMP="${DIRECT_RECOVERY_TMP%/z2kow-release}"
+    _tmp_work="$DIRECT_RECOVERY_TMP"
+    z2k_ow_recover_transaction "$DIRECT_RECOVERY_WORK" \
+        "$DIRECT_RECOVERY_SYS/etc/z2k/state/installed-release" \
+        "$DIRECT_RECOVERY_SYS/etc/init.d/z2k" "$_CURRENT_TAG" "$_CURRENT_SEQ" \
+        "$DIRECT_RECOVERY_SYS/etc/init.d/z2k-webpanel"
+) 2>&1)"; _rc=$?
+if [ "$_rc" -eq 0 ] \
+    && grep -q "release tag $_CURRENT_TAG" "$DIRECT_RECOVERY_SYS/usr/lib/z2k/version.txt" \
+    && [ "$(cat "$DIRECT_RECOVERY_SYS/etc/z2k/state/installed-artifact-sha256")" = "$DIRECT_RECOVERY_SHA" ] \
+    && [ ! -e "$DIRECT_RECOVERY_WORK" ] \
+    && [ ! -e "$DIRECT_RECOVERY_TMP" ] \
+    && printf '%s\n' "$_out" | grep -q 'восстановлена прерванная транзакция установки'; then
+    _t_ok
+else
+    _t_bad "восстановление после отключения питания не собрало файлы из проверенного архива: rc=$_rc version=$(cat "$DIRECT_RECOVERY_SYS/usr/lib/z2k/version.txt" 2>/dev/null) output=$_out"
 fi
 
 # Принудительная переустановка пропускает только проверку равенства версии.
@@ -524,9 +750,11 @@ case "\$1" in restart|start|running) exit 0 ;; *) exit 0 ;; esac
 EOF
 chmod 755 "$T/bootstrap-payload/etc/init.d/z2k" "$T/bootstrap-payload/etc/init.d/z2k-webpanel"
 dd if=/dev/zero of="$T/bootstrap-payload/usr/lib/z2k/test-large.bin" bs=1M count=4 2>/dev/null || exit 1
-tar -czf "$T/dist/bootstrap-rootfs.tar.gz" -C "$T/bootstrap-payload" usr etc opt
-prepare_manifest "$T/dist/bootstrap-rootfs.tar.gz" "$T/bootstrap-UPDATES.json" \
-    "http://127.0.0.1:17777/openwrt-rootfs.tar.gz"
+tar -czf "$T/dist/openwrt-rootfs-arm64.tar.gz" -C "$T/bootstrap-payload" usr etc opt
+BOOTSTRAP_ARCH_URL="http://127.0.0.1:17777/openwrt-rootfs-arm64.tar.gz"
+BOOTSTRAP_LEGACY_URL="http://127.0.0.1:17777/openwrt-rootfs.tar.gz"
+prepare_arch_manifest "$T/dist/openwrt-rootfs-arm64.tar.gz" "$T/bootstrap-UPDATES.json" \
+    arm64 "$BOOTSTRAP_ARCH_URL"
 openssl genpkey -algorithm Ed25519 -out "$T/bootstrap.key" >/dev/null 2>&1 || exit 1
 openssl pkey -in "$T/bootstrap.key" -pubout -out "$T/bootstrap.pub" >/dev/null 2>&1 || exit 1
 _bootstrap_key_id="$(openssl pkey -pubin -in "$T/bootstrap.pub" -outform DER 2>/dev/null | command sha256sum | awk '{print $1}')"
@@ -543,17 +771,31 @@ else
     _t_ok
 fi
 z2k_ow_manifest_release_ok "$T/bootstrap-UPDATES.json" \
-    http://127.0.0.1:17777/openwrt-rootfs.tar.gz \
-    && _t_ok || _t_bad "local artifact URL is accepted only when it matches the explicit bootstrap origin"
+    "$BOOTSTRAP_ARCH_URL" \
+    && _t_ok || _t_bad "local architecture URL is accepted only when it matches the explicit bootstrap origin"
+z2k_ow_manifest_select_artifact "$T/bootstrap-UPDATES.json" arm64 "$BOOTSTRAP_ARCH_URL" \
+    && assert_eq "per-architecture record selected from per-arch-only manifest" \
+        "$BOOTSTRAP_ARCH_URL" "$Z2K_OW_ARTIFACT_URL"
+prepare_arch_manifest "$T/dist/openwrt-rootfs-arm64.tar.gz" "$T/bootstrap-transition-UPDATES.json" \
+    arm64 "$BOOTSTRAP_ARCH_URL" "$BOOTSTRAP_LEGACY_URL"
+"$Z2K_TEST_PYTHON" -c 'import json,sys; p,k=sys.argv[1:]; d=json.load(open(p,encoding="utf-8")); d["signing"]={"key_id":k}; json.dump(d,open(p,"w",encoding="utf-8"),ensure_ascii=False,indent=2); open(p,"a",encoding="utf-8").write("\n")' \
+    "$T/bootstrap-transition-UPDATES.json" "$_bootstrap_key_id"
+openssl pkeyutl -sign -rawin -inkey "$T/bootstrap.key" -in "$T/bootstrap-transition-UPDATES.json" \
+    -out "$T/bootstrap-transition-UPDATES.json.sig" >/dev/null 2>&1 || exit 1
+z2k_ow_manifest_select_artifact "$T/bootstrap-transition-UPDATES.json" arm64 "$BOOTSTRAP_ARCH_URL" \
+    && assert_eq "transition map chooses per-arch entry even with valid legacy fallback" \
+        "$BOOTSTRAP_ARCH_URL" "$Z2K_OW_ARTIFACT_URL"
+_BOOTSTRAP_TAG="$(jsonfilter -i "$T/bootstrap-transition-UPDATES.json" -e '@.current')"
+_BOOTSTRAP_SEQ="$(jsonfilter -i "$T/bootstrap-transition-UPDATES.json" -e '@.seq')"
 export Z2K_OW_SYSROOT="$BOOTSTRAP_SYS" \
     Z2K_OW_INSTALL_TMP="$BOOTSTRAP_TMP" \
     Z2K_ROOT=/usr/lib/z2k \
     Z2K_ADAPTER_DIR="$BOOTSTRAP_ENGINE/platform/openwrt" \
     Z2K_LIB="$BOOTSTRAP_ENGINE/lib" \
     Z2K_AU_PUBKEY="$BOOTSTRAP_TMP/z2k-update-pub.pem" \
-    Z2K_OW_BOOTSTRAP_MANIFEST="$T/bootstrap-UPDATES.json" \
-    Z2K_OW_BOOTSTRAP_SIGNATURE="$T/bootstrap-UPDATES.json.sig" \
-    Z2K_OW_BOOTSTRAP_ARTIFACT="$T/dist/bootstrap-rootfs.tar.gz" \
+    Z2K_OW_BOOTSTRAP_MANIFEST="$T/bootstrap-transition-UPDATES.json" \
+    Z2K_OW_BOOTSTRAP_SIGNATURE="$T/bootstrap-transition-UPDATES.json.sig" \
+    Z2K_OW_BOOTSTRAP_ARTIFACT="$T/dist/openwrt-rootfs-arm64.tar.gz" \
     Z2K_OW_BOOTSTRAP_PUBLIC_KEY="$T/bootstrap.pub" \
     Z2KOW_MANIFEST_URL="$BOOTSTRAP_URL" \
     Z2KOW_TRUST_KEY="$T/bootstrap.pub" \
@@ -562,6 +804,8 @@ export Z2K_OW_SYSROOT="$BOOTSTRAP_SYS" \
     Z2K_OW_TEST_HEALTHCHECK=1
 OVERLAY_LOW=0
 TMP_LOW=1
+STAGE_LOW=0
+OPT_SEPARATE=0
 df() {
     _probe="$2"
     printf '%s\n' "$_probe" >> "$T/df.calls"
@@ -574,7 +818,27 @@ df() {
             fi
             ;;
         "$BOOTSTRAP_SYS/usr/lib/.z2k-install")
-            printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim 100000 90000 10000 90%% /overlay\n'
+            if [ "$STAGE_LOW" = 1 ]; then
+                printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim-root 100000 99999 1 99%% /overlay\n'
+            else
+                printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim-root 400000 100000 300000 25%% /overlay\n'
+            fi
+            ;;
+        "$BOOTSTRAP_SYS/usr/lib/.z2k-install/stage")
+            if [ "$STAGE_LOW" = 1 ]; then
+                printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim-root 100000 99999 1 99%% /overlay\n'
+            else
+                printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim-root 400000 100000 300000 25%% /overlay\n'
+            fi
+            ;;
+        "$BOOTSTRAP_SYS/opt")
+            if [ "$OPT_SEPARATE" = 1 ]; then
+                printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim-opt 400000 100000 300000 25%% /opt\n'
+            elif [ "$OVERLAY_LOW" = 1 ]; then
+                printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim 100000 99999 1 99%% /overlay\n'
+            else
+                printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim 400000 100000 300000 25%% /overlay\n'
+            fi
             ;;
         "$BOOTSTRAP_SYS/usr/lib"|"$BOOTSTRAP_SYS/opt"|"$BOOTSTRAP_SYS")
             if [ "$OVERLAY_LOW" = 1 ]; then
@@ -586,19 +850,32 @@ df() {
         *) command df "$@" ;;
     esac
 }
-_out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
+printf 'MemTotal: 131072 kB\nMemAvailable: 4096 kB\n' > "$T/128m-low-meminfo"
+_out="$(Z2K_OW_MEMINFO_FILE="$T/128m-low-meminfo" \
+    z2k_ow_install_release "$_BOOTSTRAP_TAG" 2>&1)"; _rc=$?
 if [ "$_rc" -ne 0 ] \
     && _state_is_release p-86.12 135 "$BOOTSTRAP_SYS/etc/z2k/state/installed-release" \
     && grep -q 'previous payload' "$BOOTSTRAP_SYS/usr/lib/z2k/version.txt" \
     && [ ! -e "$BOOTSTRAP_SERVICE_STOP" ] \
-    && printf '%s\n' "$_out" | grep -q 'недостаточно места для распаковки файлов выбранной архитектуры'; then
+    && printf '%s\n' "$_out" | grep -q 'недостаточно свободной оперативной памяти'; then
+    _t_ok
+else
+    _t_bad "128 MiB low-MemAvailable preflight did not refuse before mutation or service stop: rc=$_rc output=$_out"
+fi
+rm -f "$T/128m-low-meminfo"
+_out="$(z2k_ow_install_release "$_BOOTSTRAP_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -ne 0 ] \
+    && _state_is_release p-86.12 135 "$BOOTSTRAP_SYS/etc/z2k/state/installed-release" \
+    && grep -q 'previous payload' "$BOOTSTRAP_SYS/usr/lib/z2k/version.txt" \
+    && [ ! -e "$BOOTSTRAP_SERVICE_STOP" ] \
+    && printf '%s\n' "$_out" | grep -q 'недостаточно места'; then
     _t_ok
 else
     _t_bad "проверка tmpfs не остановила замену до изменения файлов и служб: rc=$_rc output=$_out df=$(tr '\n' ';' < "$T/df.calls")"
 fi
 TMP_LOW=0
 OVERLAY_LOW=1
-_out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
+_out="$(z2k_ow_install_release "$_BOOTSTRAP_TAG" 2>&1)"; _rc=$?
 if [ "$_rc" -ne 0 ] \
     && _state_is_release p-86.12 135 "$BOOTSTRAP_SYS/etc/z2k/state/installed-release" \
     && grep -q 'previous payload' "$BOOTSTRAP_SYS/usr/lib/z2k/version.txt" \
@@ -608,21 +885,54 @@ if [ "$_rc" -ne 0 ] \
 else
     _t_bad "проверка overlay не остановила замену до изменения файлов и служб: rc=$_rc output=$_out df=$(tr '\n' ';' < "$T/df.calls")"
 fi
+STAGE_LOW=1
+OPT_SEPARATE=1
+_out="$(z2k_ow_install_release "$_BOOTSTRAP_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -ne 0 ] \
+    && _state_is_release p-86.12 135 "$BOOTSTRAP_SYS/etc/z2k/state/installed-release" \
+    && grep -q 'previous payload' "$BOOTSTRAP_SYS/usr/lib/z2k/version.txt" \
+    && [ ! -e "$BOOTSTRAP_SERVICE_STOP" ] \
+    && printf '%s\n' "$_out" | grep -q 'недостаточно места на разделе временной распаковки'; then
+    _t_ok
+else
+    _t_bad "low staging filesystem was not rejected before extraction/service stop when /opt is separate: rc=$_rc output=$_out"
+fi
+STAGE_LOW=0
+OPT_SEPARATE=0
 rm -rf "$BOOTSTRAP_SYS"
 mkdir -p "$BOOTSTRAP_SYS/usr/lib/z2k" "$BOOTSTRAP_SYS/usr/bin" "$BOOTSTRAP_SYS/usr/sbin" \
     "$BOOTSTRAP_SYS/etc/z2k/state" "$BOOTSTRAP_SYS/etc/init.d"
 : > "$BOOTSTRAP_SYS/etc/z2k/state/installed-release"
 OVERLAY_LOW=0
-_out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
+_out="$(z2k_ow_install_release "$_BOOTSTRAP_TAG" 2>&1)"; _rc=$?
 if [ "$_rc" -eq 0 ] \
-    && _state_is_release "$_CURRENT_TAG" "$_CURRENT_SEQ" "$BOOTSTRAP_SYS/etc/z2k/state/installed-release" \
-    && grep -q "release tag $_CURRENT_TAG" "$BOOTSTRAP_SYS/usr/lib/z2k/version.txt"; then
+    && _state_is_release "$_BOOTSTRAP_TAG" "$_BOOTSTRAP_SEQ" "$BOOTSTRAP_SYS/etc/z2k/state/installed-release" \
+    && grep -q "release tag $_BOOTSTRAP_TAG" "$BOOTSTRAP_SYS/usr/lib/z2k/version.txt"; then
     _t_ok
 else
     _t_bad "signed local bootstrap did not converge through install_release: rc=$_rc output=$_out"
 fi
-grep -qx "$BOOTSTRAP_TMP/z2kow-release/stage" "$T/df.calls" && _t_ok \
-    || _t_bad "проверка свободного места для распаковки не проверила временный каталог: $(tr '\n' ';' < "$T/df.calls")"
+printf 'damaged selected release\n' > "$BOOTSTRAP_SYS/usr/lib/z2k/version.txt"
+_out="$(z2k_ow_install_release --reinstall "$_BOOTSTRAP_TAG" 2>&1)"; _rc=$?
+if [ "$_rc" -eq 0 ] \
+    && printf '%s\n' "$_out" | grep -q "^Установлен выпуск $_BOOTSTRAP_TAG$" \
+    && grep -q "release tag $_BOOTSTRAP_TAG" "$BOOTSTRAP_SYS/usr/lib/z2k/version.txt"; then
+    _t_ok
+else
+    _t_bad "per-architecture reinstall did not converge through install_release: rc=$_rc output=$_out"
+fi
+for _root in \
+    "$BOOTSTRAP_SYS/usr/lib/z2k/bin" \
+    "$BOOTSTRAP_SYS/usr/lib/z2k/platform/openwrt/bin" \
+    "$BOOTSTRAP_SYS/opt/zapret2/binaries"; do
+    if find "$_root" -mindepth 1 -maxdepth 1 -type d ! -name linux-arm64 | grep -q .; then
+        _t_bad "per-architecture install left foreign binaries under $_root"
+    else
+        _t_ok
+    fi
+done
+grep -Fq "$BOOTSTRAP_SYS/usr/lib/.z2k-install/stage/" "$T/df.calls" && _t_ok \
+    || _t_bad "проверка свободного места для распаковки не проверила overlay staging: $(tr '\n' ';' < "$T/df.calls")"
 if [ -s "$BOOTSTRAP_SERVICE_ENV" ] \
     && awk -F'|' 'NF != 12 { bad=1 } { for (i=1; i<=NF; i++) if ($i != "") bad=1 } END { if (NR == 0 || bad) exit 1 }' "$BOOTSTRAP_SERVICE_ENV"; then
     _t_ok
@@ -973,6 +1283,20 @@ if [ "$_rc" -ne 0 ] \
     _t_ok
 else
     _t_bad "откат изменил часть дерева при отсутствующей резервной копии: rc=$_rc z2k=$(cat "$LEGACY_RECOVERY_SYS/usr/lib/z2k/version.txt" 2>/dev/null) zapret=$(cat "$LEGACY_RECOVERY_SYS/opt/zapret2/version.txt" 2>/dev/null)"
+fi
+# После очистки временной распаковки не оставлять пустой стандартный каталог.
+CANONICAL_SYSROOT="$T/canonical-sysroot"
+CANONICAL_TMP="$CANONICAL_SYSROOT/tmp/z2kow-install-stage"
+CANONICAL_TMP_WORK="$CANONICAL_TMP/z2kow-release"
+CANONICAL_CLEANUP_WORK="$CANONICAL_SYSROOT/usr/lib/.z2k-install"
+mkdir -p "$CANONICAL_TMP_WORK" "$CANONICAL_CLEANUP_WORK"
+printf '%s\n' z2kow-release-stage-v1 > "$CANONICAL_TMP_WORK/.z2kow-owner"
+if Z2K_OW_SYSROOT="$CANONICAL_SYSROOT" \
+    z2k_ow_cleanup_install_workspace "$CANONICAL_CLEANUP_WORK" "$CANONICAL_TMP_WORK" \
+    && [ ! -e "$CANONICAL_TMP" ]; then
+    _t_ok
+else
+    _t_bad "очистка оставила пустой стандартный каталог временных файлов: $CANONICAL_TMP"
 fi
 unset Z2K_OW_SYSROOT Z2K_OW_MANIFEST_PATH Z2K_OW_ARTIFACT_PATH Z2K_OW_TEST_HEALTHCHECK
 

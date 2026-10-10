@@ -4,6 +4,7 @@
 _t_plan "ow-boot-recovery"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 . "$REPO/platform/openwrt/release.sh"
+. "$REPO/platform/openwrt/manifest.sh"
 T="$(mktemp -d)" || exit 1
 trap 'rm -rf "$T"' EXIT HUP INT TERM
 SYS="$T/sys"
@@ -25,6 +26,49 @@ exit 0
 EOF
 chmod 755 "$SERVICE_HELPER"
 export Z2K_OW_TEST_SERVICE_HELPER="$SERVICE_HELPER"
+printf "DISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"
+export Z2K_OW_OPENWRT_RELEASE_FILE="$T/openwrt_release" Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
+MANIFEST="$T/UPDATES.json"
+jsonfilter() {
+    _jf_file= _jf_expr= _jf_type=0
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -i) _jf_file="$2"; shift 2 ;;
+            -e) _jf_expr="${2#@.}"; shift 2 ;;
+            -t) _jf_type=1; _jf_expr="${2#@.}"; shift 2 ;;
+            *) return 2 ;;
+        esac
+    done
+    python3 - "$_jf_file" "$_jf_expr" "$_jf_type" <<'PY'
+import json, sys
+value = json.load(open(sys.argv[1], encoding="utf-8"))
+for key in sys.argv[2].split("."):
+    value = value[key]
+if sys.argv[3] == "1":
+    print({dict: "object", list: "array", str: "string", int: "number", float: "number", bool: "boolean", type(None): "null"}.get(type(value), "null"))
+elif value is not None:
+    print(value)
+PY
+}
+python3 - "$REPO/UPDATES.json" "$MANIFEST" <<'PY'
+import hashlib, json, sys
+source, target = sys.argv[1:]
+manifest = json.load(open(source, encoding="utf-8"))
+manifest.pop("artifact", None)
+manifest["artifacts"] = {}
+for arch in ("arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64"):
+    manifest["artifacts"][arch] = {
+        "filename": f"openwrt-rootfs-{arch}.tar.gz",
+        "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-" + "a" * 40 + f"/openwrt-rootfs-{arch}.tar.gz",
+        "sha256": hashlib.sha256(f"archive:{arch}".encode()).hexdigest(),
+        "size_bytes": 1024,
+        "unpacked_size_bytes": 8192,
+    }
+with open(target, "w", encoding="utf-8") as output:
+    json.dump(manifest, output)
+PY
+TARGET_SHA="$(z2k_ow_manifest_artifact_sha256 "$MANIFEST" arm64)" || exit 1
+OLD_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 if ! command -v z2k_ow_prepare_boot_recovery >/dev/null 2>&1; then
     _t_bad "установщик подготавливает сохраняемый загрузочный вызов recovery"
     _t_done
@@ -32,7 +76,8 @@ if ! command -v z2k_ow_prepare_boot_recovery >/dev/null 2>&1; then
 fi
 
 prepare_interruption() {
-    mkdir -p "$WORK" "$SYS/etc/z2k/state" "$SYS/etc/init.d" "$SYS/etc/rc.d" "$SYS/usr/lib/z2k" "$TEMP"
+    mkdir -p "$WORK" "$SYS/etc/z2k/state" "$SYS/etc/init.d" "$SYS/etc/rc.d" \
+        "$SYS/usr/lib/z2k" "$SYS/opt/zapret2/binaries/linux-arm64" "$TEMP"
     rm -f "$SYS/etc/rc.d/S22z2k" "$SYS/etc/rc.d/S95z2k-webpanel"
     printf 'z2kow-release-stage-v1\n' > "$TEMP/.z2kow-owner"
     printf 'ENABLED=0\n' > "$SYS/etc/z2k/config"
@@ -45,13 +90,20 @@ prepare_interruption() {
     printf 'сломанная новая версия\n' > "$SYS/usr/lib/z2k/version.txt"
     mkdir -p "$SYS/usr/lib/z2k.z2k-backup.991"
     printf 'прежняя версия\n' > "$SYS/usr/lib/z2k.z2k-backup.991/version.txt"
-    printf '/usr/lib/z2k\n' > "$WORK/owned-paths"
-    printf 'V|2\nB|/usr/lib/z2k\nO|/usr/lib/z2k\nI|/usr/lib/z2k\n' > "$WORK/transaction.log"
+    printf 'broken new zapret tree\n' > "$SYS/opt/zapret2/binaries/linux-arm64/nfqws2"
+    mkdir -p "$SYS/opt/zapret2.z2k-backup.991/binaries/linux-arm64"
+    printf 'previous zapret tree\n' > "$SYS/opt/zapret2.z2k-backup.991/binaries/linux-arm64/nfqws2"
+    printf '/usr/lib/z2k\n/opt/zapret2\n' > "$WORK/owned-paths"
+    printf 'V|2\nB|/usr/lib/z2k\nO|/usr/lib/z2k\nI|/usr/lib/z2k\nB|/opt/zapret2\nO|/opt/zapret2\nI|/opt/zapret2\n' > "$WORK/transaction.log"
     printf '991\n' > "$WORK/transaction-id"
     printf 'tag=p-86.12\nseq=135\n' > "$WORK/installed-release.old"
     cp "$WORK/installed-release.old" "$SYS/etc/z2k/state/installed-release"
+    printf '%s\n' "$OLD_SHA" > "$WORK/installed-artifact.old"
+    cp "$WORK/installed-artifact.old" "$SYS/etc/z2k/state/installed-artifact-sha256"
+    : > "$WORK/artifact-was-present"
     : > "$WORK/state-was-present"
     printf 'tag=p-86.13\nseq=136\n' > "$WORK/transaction-target"
+    printf '%s\n' "$TARGET_SHA" > "$WORK/transaction-artifact"
     z2k_ow_prepare_boot_recovery "$WORK" "$TEMP" "$_adapter" || return 1
     : > "$WORK/transaction-active"
     z2k_ow_suspend_startup "$WORK" || return 1
@@ -70,6 +122,8 @@ fi
 assert_eq "прежний payload восстановлен при загрузке" "прежняя версия" "$(cat "$SYS/usr/lib/z2k/version.txt")"
 assert_eq "прежнее состояние версии восстановлено" "tag=p-86.12
 seq=135" "$(cat "$SYS/etc/z2k/state/installed-release")"
+assert_eq "boot recovery возвращает прежний Zapret2 root" "previous zapret tree" "$(cat "$SYS/opt/zapret2/binaries/linux-arm64/nfqws2")"
+assert_eq "boot recovery возвращает digest receipt старого релиза" "$OLD_SHA" "$(cat "$SYS/etc/z2k/state/installed-artifact-sha256")"
 if [ "$(readlink "$SYS/etc/rc.d/S22z2k" 2>/dev/null)" = ../init.d/z2k ] \
     && [ "$(readlink "$SYS/etc/rc.d/S95z2k-webpanel" 2>/dev/null)" = ../init.d/z2k-webpanel ]; then
     _t_ok
@@ -166,12 +220,12 @@ panel_guard_case "старый boot-id с живым PID" предыдущая-�
 panel_guard_case "текущая загрузка с живым PID" текущая-загрузка "$$" allowed
 # Смоделировать commit, прерванный только на этапе очистки.
 prepare_commit_cleanup() {
-    rm -rf "$WORK" "$LOCK" "$HOOK" "$SYS/usr/lib/z2k.z2k-backup.991"
+    rm -rf "$WORK" "$LOCK" "$HOOK" "$SYS/usr/lib/z2k.z2k-backup.991" "$SYS/opt/zapret2.z2k-backup.991"
     unset Z2K_OW_INSTALL_WORK Z2K_OW_INSTALL_LOCK
     prepare_interruption || return 1
     printf 'новая подтверждённая версия\n' > "$SYS/usr/lib/z2k/version.txt"
+    printf 'new zapret release\n' > "$SYS/opt/zapret2/binaries/linux-arm64/nfqws2"
     cp "$WORK/transaction-target" "$SYS/etc/z2k/state/installed-release"
-    printf '%s\n' 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' > "$WORK/transaction-artifact"
     cp "$WORK/transaction-artifact" "$SYS/etc/z2k/state/installed-artifact-sha256"
     : > "$WORK/state-write-started"
     # Настоящий enable создаёт ссылку панели до записи состояния версии.
@@ -180,6 +234,8 @@ prepare_commit_cleanup() {
 prepare_commit_cleanup || exit 1
 if sh "$HOOK" boot > "$T/commit-cleanup.out" 2>&1 \
     && grep -q 'новая подтверждённая версия' "$SYS/usr/lib/z2k/version.txt" \
+    && grep -Fxq 'new zapret release' "$SYS/opt/zapret2/binaries/linux-arm64/nfqws2" \
+    && grep -Fxq "$TARGET_SHA" "$SYS/etc/z2k/state/installed-artifact-sha256" \
     && [ -L "$SYS/etc/rc.d/S22z2k" ] && [ -L "$SYS/etc/rc.d/S95z2k-webpanel" ] \
     && [ ! -e "$WORK" ] && [ ! -L "$HOOK" ]; then
     _t_ok
@@ -191,12 +247,13 @@ fi
 prepare_commit_cleanup || exit 1
 cp "$WORK/installed-release.old" "$WORK/transaction-target"
 cp "$WORK/installed-release.old" "$SYS/etc/z2k/state/installed-release"
-printf '%s\n' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$WORK/installed-artifact.old"
+printf '%s\n' "$OLD_SHA" > "$WORK/installed-artifact.old"
 cp "$WORK/installed-artifact.old" "$SYS/etc/z2k/state/installed-artifact-sha256"
 : > "$WORK/artifact-was-present"
 if sh "$HOOK" boot > "$T/hotfix-recovery.out" 2>&1 \
     && grep -q 'прежняя версия' "$SYS/usr/lib/z2k/version.txt" \
-    && grep -Fxq 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$SYS/etc/z2k/state/installed-artifact-sha256"; then
+    && grep -Fxq "$OLD_SHA" "$SYS/etc/z2k/state/installed-artifact-sha256" \
+    && grep -Fxq 'previous zapret tree' "$SYS/opt/zapret2/binaries/linux-arm64/nfqws2"; then
     _t_ok
 else
     _t_bad "прерванный commit одноимённого хотфикса откатывает прежний SHA-256: $(cat "$T/hotfix-recovery.out")"
