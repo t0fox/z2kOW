@@ -41,8 +41,8 @@ class TikTokProductionDnsmasqAcceptance(unittest.TestCase):
         return path
 
     def test_selection_apply_failover_restart_disable_and_external_override(self) -> None:
-        """Production selection and apply flows update a running dnsmasq daemon."""
-        ip_a, ip_b, external_ip = "87.245.200.8", "87.245.200.35", "203.0.113.99"
+        """Проверяет выбор IP и его применение работающим dnsmasq."""
+        ip_a, ip_b, external_ip = "212.188.77.134", "143.244.42.21", "203.0.113.99"
         state = self.root / "state"
         state.mkdir()
         resolver_file = self.root / "resolv.conf"
@@ -97,11 +97,11 @@ _host=${_endpoint%%:*}; _ip=${_endpoint##*:}
 case "$_url" in "https://$_host/") ;; *) exit 2 ;; esac
 case "$_host" in v77.tiktokcdn.com|v77.tiktokcdn-eu.com) ;; *) exit 2 ;; esac
 case "$_ip" in
-  87.245.200.8) _total=0.131 ;;
-  87.245.200.35) _total=0.072 ;;
+  212.188.77.134) _total=0.050; _pop=moscow_4_RU ;;
+  143.244.42.21) _total=0.072; _pop=amsterdamNL ;;
   *) exit 7 ;;
 esac
-printf 'HTTP/1.1 400 Bad Request\\r\\nX-77-Pop: acceptance-pop\\r\\nServer: acceptance-cdn\\r\\n\\r\\n'
+printf 'HTTP/1.1 400 Bad Request\\r\\nX-77-Pop: %s\\r\\nServer: acceptance-cdn\\r\\n\\r\\n' "$_pop"
 printf '\\nZ2M_TIKTOK_METRICS:400|0.020|0.050|%s' "$_total"
 ''')
         uci = self.executable(self.root / "uci", '''#!/bin/sh
@@ -163,7 +163,7 @@ exit 1
             self.assertEqual(result.returncode == 0, expect_success, result.stderr + result.stdout)
             return result
 
-        # Auto selection discovers A and reaches the production apply helper itself.
+        # Автовыбор находит IP A и вызывает штатное применение конфигурации.
         call_adapter("z2k_ow_tiktok_check", "explicit")
         self.assertEqual([ip_a], query_a(self.port))
         self.assertEqual([ip_a], query_a(self.port, EU_HOST))
@@ -171,26 +171,26 @@ exit 1
         self.assertIn(f"address=/{HOST}/{ip_a}", config.read_text(encoding="ascii"))
         self.assertIn(f"address=/{EU_HOST}/{ip_a}", config.read_text(encoding="ascii"))
 
-        # A manual selection changes to B through tiktok.sh and takes effect in real dnsmasq.
+        # Ручной выбор меняет адрес на B и проверяется через работающий dnsmasq.
         call_adapter("z2k_ow_tiktok_manual_select", ip_b)
         self.assertEqual([ip_b], query_a(self.port))
         self.assertEqual([ip_b], query_a(self.port, EU_HOST))
         self.assertIn(f"Z2K_TIKTOK_MANUAL_IP={ip_b}", (state / "config").read_text(encoding="ascii"))
         self.assertNotIn(ip_a, query_a(self.port))
 
-        # A dnsmasq restart consumes the persisted UCI record and keeps B live.
+        # После перезапуска dnsmasq применяет сохранённую запись UCI.
         subprocess.run([str(init), "restart"], env=env, check=True, capture_output=True, text=True)
         self.assertEqual([ip_b], query_a(self.port))
         self.assertEqual([ip_b], query_a(self.port, EU_HOST))
 
-        # Disable removes the owned UCI entry; the actual daemon returns upstream DNS again.
+        # Отключение удаляет собственную запись UCI и возвращает DNS от upstream.
         call_adapter("z2k_ow_tiktok_disable")
         self.assertNotIn(f"/{HOST}/{ip_b}", uci_db.read_text(encoding="ascii"))
         self.assertNotIn(f"/{EU_HOST}/{ip_b}", uci_db.read_text(encoding="ascii"))
         self.assertEqual([FALLBACK_IP], query_a(self.port))
         self.assertEqual([FALLBACK_IP], query_a(self.port, EU_HOST))
 
-        # A user-owned entry blocks z2kOW apply and stays effective.
+        # Пользовательская запись блокирует применение z2kOW и остаётся активной.
         subprocess.run([str(uci), "add_list", f"dhcp.@dnsmasq[0].address=/{HOST}/{external_ip}"], env=env, check=True)
         subprocess.run([str(init), "restart"], env=env, check=True, capture_output=True, text=True)
         call_adapter("_z2k_ow_tiktok_set_host", ip_a, expect_success=False)
