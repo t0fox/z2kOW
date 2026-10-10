@@ -108,7 +108,20 @@ check_existing_tag_target() {
 
 verify_release_asset_names() {
     local tag="$1" actual="$RUNNER_TEMP/z2kow-release-actual-assets.txt" expected="$RUNNER_TEMP/z2kow-release-expected-assets.txt"
-    gh api "repos/$REPOSITORY/releases/tags/$tag" --jq '.assets[].name' | LC_ALL=C sort > "$actual"
+    local releases="$RUNNER_TEMP/z2kow-release-list.json"
+    gh api --paginate "repos/$REPOSITORY/releases?per_page=100" > "$releases"
+    python3 - "$releases" "$tag" > "$actual" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+releases = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+matches = [release for release in releases if release.get("tag_name") == sys.argv[2]]
+if len(matches) != 1:
+    raise SystemExit(f"expected exactly one GitHub release record for {sys.argv[2]}")
+for asset in sorted(item["name"] for item in matches[0].get("assets", [])):
+    print(asset)
+PY
     { printf '%s\n' "${RELEASE_ASSETS[@]}" UPDATES.json UPDATES.json.sig | LC_ALL=C sort; } > "$expected"
     cmp -s "$expected" "$actual" \
         || { echo "release $tag does not contain exactly the signed manifest asset set." >&2; return 1; }

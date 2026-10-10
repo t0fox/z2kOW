@@ -191,6 +191,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('--artifact-dir "$public_assets"', publisher)
         self.assertIn('compare_release_assets', publisher)
 
+    def test_draft_asset_verification_lists_releases_instead_of_tag_lookup(self) -> None:
+        publisher = (ROOT / "scripts/openwrt/publish_release.sh").read_text(encoding="utf-8")
+        verifier = publisher.split("verify_release_asset_names()", 1)[1].split(
+            "compare_release_assets()", 1
+        )[0]
+
+        self.assertIn('releases?per_page=100', verifier)
+        self.assertIn('release.get("tag_name") == sys.argv[2]', verifier)
+        self.assertNotIn('releases/tags/$tag', verifier)
+
     def test_immutable_gate_uses_a_dedicated_read_token_and_preserves_api_errors(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         publish = workflow.split("  publish-release:", 1)[1]
