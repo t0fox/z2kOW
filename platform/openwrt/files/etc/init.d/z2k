@@ -159,6 +159,16 @@ start_service() {
     z2k_ow_generate || return 1
     # shellcheck disable=SC1090
     . "$Z2K_CONFIG" || return 1
+
+    # Путь autocircular нужен и панели при ENABLED=0: подготовить хранилище
+    # и перенести старые записи до master-гейта и до запуска процесса.
+    if command -v z2k_ow_prepare_autocircular_storage >/dev/null 2>&1; then
+        z2k_ow_prepare_autocircular_storage || return 1
+    fi
+    if command -v z2k_ow_migrate_autocircular_state >/dev/null 2>&1; then
+        z2k_ow_migrate_autocircular_state || return 1
+    fi
+
     # Register the upstream periodic work on every boot/start: nightly update,
     # full list/geosite refresh, and gated stats upload. This is independent
     # of the dataplane toggle; an install with ENABLED=0 still needs its
@@ -209,8 +219,8 @@ start_service() {
     # procd does not inherit this init shell's adapter environment. The Lua
     # persistence module must receive the OpenWrt state paths explicitly.
     procd_set_param env \
-        "Z2K_STATE_DIR_OVERRIDE=${Z2K_STATE_DIR_OVERRIDE:-$Z2K_STATE}" \
-        "Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE=${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-$Z2K_TMP}"
+        "Z2K_STATE_DIR_OVERRIDE=${Z2K_STATE_DIR_OVERRIDE:-$Z2K_AUTOCIRCULAR_DIR}" \
+        "Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE=${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-$Z2K_AUTOCIRCULAR_FALLBACK_DIR}"
     procd_set_param pidfile "$Z2K_RUN/nfqws2.pid"
     # Bounded recovery belongs to procd, not a second shell watchdog.  Five
     # crashes in one hour open the circuit until an explicit start/restart.

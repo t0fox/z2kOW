@@ -232,6 +232,9 @@ _z2k_ow_customd_load_runtime() {
 
 _z2k_ow_customd_run_daemon() {
     local _id="$1" _opt="$2" _base
+    if command -v z2k_ow_prepare_autocircular_storage >/dev/null 2>&1; then
+        z2k_ow_prepare_autocircular_storage || return 1
+    fi
     mkdir -p "$Z2K_CUSTOM_PID_DIR" 2>/dev/null || return 1
     if command -v z2k_ow_optbase >/dev/null 2>&1; then
         _base=$(z2k_ow_optbase) || return 1
@@ -243,8 +246,8 @@ _z2k_ow_customd_run_daemon() {
     procd_set_param command "$Z2K_CUSTOM_NFQWS2" $_base $_opt
     # custom.d nfqws2 processes also load z2k-state-persist.lua.
     procd_set_param env \
-        "Z2K_STATE_DIR_OVERRIDE=${Z2K_STATE_DIR_OVERRIDE:-$Z2K_STATE}" \
-        "Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE=${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-$Z2K_TMP}"
+        "Z2K_STATE_DIR_OVERRIDE=${Z2K_STATE_DIR_OVERRIDE:-$Z2K_AUTOCIRCULAR_DIR}" \
+        "Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE=${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-$Z2K_AUTOCIRCULAR_FALLBACK_DIR}"
     procd_set_param pidfile "$Z2K_CUSTOM_PID_DIR/nfqws2_${_id}.pid"
     procd_set_param respawn 3600 5 5
     procd_close_instance

@@ -38,20 +38,22 @@ export ZAPRET2_DIR CONFIG_DIR LISTS_DIR
 FWTYPE="${FWTYPE:-nftables}"
 export FWTYPE
 
-# Lua: состояние autocircular — в persistent /etc/z2k/state.
-Z2K_STATE_DIR_OVERRIDE="${Z2K_STATE_DIR_OVERRIDE:-$Z2K_STATE}"
-Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE="${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-$Z2K_TMP}"
+# Lua, панель и миграции используют один отдельный persistent-каталог.
+# Родитель /etc/z2k/state остаётся root-owned; nfqws2 записывает только сюда.
+Z2K_STATE_DIR_OVERRIDE="${Z2K_STATE_DIR_OVERRIDE:-$Z2K_AUTOCIRCULAR_DIR}"
+Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE="${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-$Z2K_AUTOCIRCULAR_FALLBACK_DIR}"
+Z2K_AUTOCIRCULAR_DIR="$Z2K_STATE_DIR_OVERRIDE"
 export Z2K_STATE_DIR_OVERRIDE Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE
 
-# Тот же файл глазами shell-стороны: шаг reset-state апдейтера чистит
-# ${STATE_FILE} (дефолт — keenetic-путь; здесь указываем наш).
-STATE_FILE="${STATE_FILE:-$Z2K_STATE/state.tsv}"
-export STATE_FILE
-# Тот же fallback глазами reset-state: lua пишет запасную копию в
-# ${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE}/z2k-autocircular-state.tsv (см. выше),
-# шаг чистит её через этот hook (lib/auto_update.sh au_step_reset_state).
-Z2K_AU_STATE_FALLBACK="${Z2K_AU_STATE_FALLBACK:-$Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE/z2k-autocircular-state.tsv}"
-export Z2K_AU_STATE_FALLBACK
+# Те же файлы глазами панели и апдейтера. Явные переопределения сохраняют
+# тестовый контракт и позволяют разбирать старую установку без смены кода.
+STATE_FILE="${STATE_FILE:-$Z2K_STATE_DIR_OVERRIDE/state.tsv}"
+STATE_FILE_FALLBACK="${STATE_FILE_FALLBACK:-$Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE/z2k-autocircular-state.tsv}"
+Z2K_AUTOCIRCULAR_STATE_FILE="$STATE_FILE"
+Z2K_AU_STATE_FALLBACK="${Z2K_AU_STATE_FALLBACK:-$STATE_FILE_FALLBACK}"
+export Z2K_AUTOCIRCULAR_DIR Z2K_AUTOCIRCULAR_STATE_FILE \
+    STATE_FILE STATE_FILE_FALLBACK Z2K_AU_STATE_FALLBACK
+# Шаг reset-state чистит запасной файл по тому же пути, куда пишет Lua.
 
 # Пара 3-way merge extra-domains (au_merge_extra_domains): shipped-база из
 # payload, runtime-мерж в user-lists. Keenetic-дефолты — в самом хуке.

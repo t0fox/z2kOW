@@ -37,7 +37,7 @@ procd_close_instance() { printf 'close\n' >> "$T/procd.calls"; }
 : > "$T/procd.calls"
 _z2k_ow_customd_run_daemon 2000 '--qnum=65300' && _t_ok || _t_bad "customd procd instance"
 assert_contains "customd Lua state uses persistent OpenWrt paths" "$T/procd.calls" \
-    "param:env Z2K_STATE_DIR_OVERRIDE=$Z2K_STATE Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE=$Z2K_TMP"
+    "param:env Z2K_STATE_DIR_OVERRIDE=$Z2K_AUTOCIRCULAR_DIR Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE=$Z2K_AUTOCIRCULAR_FALLBACK_DIR"
 
 # A complete component set is advertised; a missing upstream example is not.
 z2k_ow_customd_available && _t_ok || _t_bad "обязательные custom.d компоненты не признаны"

@@ -1421,8 +1421,11 @@ warp_install() {
 # с OpenWrt-путями; чужие закрепления не трогаем).
 warp_unpin_legacy() {
     local _f
-    for _f in "${Z2K_STATE:-/etc/z2k/state}/state.tsv" /tmp/z2k-autocircular-state.tsv; do
+    for _f in "${STATE_FILE:-${Z2K_AUTOCIRCULAR_STATE_FILE:-${Z2K_ETC:-/etc/z2k}/autocircular/state.tsv}}" \
+             "${STATE_FILE_FALLBACK:-${Z2K_AUTOCIRCULAR_FALLBACK_DIR:-${Z2K_TMP:-/tmp/z2k}/autocircular}/z2k-autocircular-state.tsv}" \
+             "${Z2K_STATE:-/etc/z2k/state}/state.tsv" /tmp/z2k-autocircular-state.tsv; do
         [ -n "$_f" ] && [ -f "$_f" ] || continue
+        cp -p "$_f" "$_f.z2k-unpin.$$" 2>/dev/null || continue
         awk -F'\t' -v k="rkn_tcp" -v h="cloudflareclient.com|4" \
             '($1 == k && $2 == h && $5 == "manual") { next } { print }' \
             "$_f" > "$_f.z2k-unpin.$$" 2>/dev/null || { rm -f "$_f.z2k-unpin.$$"; continue; }

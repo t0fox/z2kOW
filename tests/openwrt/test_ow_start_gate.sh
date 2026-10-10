@@ -149,7 +149,7 @@ _run
 assert_contains "happy rc 0" "$T/calls" "rc=0"
 assert_contains "happy instance" "$T/calls" "instance:z2k"
 assert_contains "nfqws Lua state uses persistent OpenWrt paths" "$T/calls" \
-    "param:env Z2K_STATE_DIR_OVERRIDE=$T/etc/state Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE=$T/tmp"
+    "param:env Z2K_STATE_DIR_OVERRIDE=$T/etc/autocircular Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE=$T/tmp/autocircular"
 assert_contains "happy tg" "$T/calls" "tg:1"
 assert_contains "happy rt" "$T/calls" "rt:1"
 assert_contains "happy warp" "$T/calls" "warp:1"

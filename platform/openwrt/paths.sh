@@ -7,7 +7,7 @@
 # Каждая переменная переопределяема окружением — это же используют тесты.
 #
 # Filesystem-модель (см. ARCHITECTURE.md):
-#   /etc/z2k/          persistent: config, state/, user-lists/, conf/
+#   /etc/z2k/          persistent: config, state/, autocircular/, user-lists/, conf/
 #   /usr/lib/z2k/      payload (read-only): lib/, lua/, fake/, lists/,
 #                      extra_strats/, manifests/, platform/
 #   /tmp/z2k/          transient: runtime/, locks/, logs/, downloads/, generated/
@@ -16,6 +16,8 @@
 Z2K_ETC="${Z2K_ETC:-/etc/z2k}"
 Z2K_CONFIG="${Z2K_CONFIG:-$Z2K_ETC/config}"
 Z2K_STATE="${Z2K_STATE:-$Z2K_ETC/state}"
+Z2K_AUTOCIRCULAR_DIR="${Z2K_AUTOCIRCULAR_DIR:-$Z2K_ETC/autocircular}"
+Z2K_AUTOCIRCULAR_STATE_FILE="${Z2K_AUTOCIRCULAR_STATE_FILE:-$Z2K_AUTOCIRCULAR_DIR/state.tsv}"
 Z2K_USER_LISTS="${Z2K_USER_LISTS:-$Z2K_ETC/user-lists}"
 Z2K_OW_INSTALLED_RELEASE_FILE="${Z2K_OW_INSTALLED_RELEASE_FILE:-$Z2K_STATE/installed-release}"
 Z2K_RELAY_ID_FILE="${Z2K_RELAY_ID_FILE:-$Z2K_STATE/relay-id.json}"
@@ -49,6 +51,7 @@ Z2K_TG_TLS_BUNDLE="${Z2K_TG_TLS_BUNDLE:-$Z2K_ROOT/etc/z2k-roots.pem}"
 
 # --- transient (tmpfs) ---
 Z2K_TMP="${Z2K_TMP:-/tmp/z2k}"
+Z2K_AUTOCIRCULAR_FALLBACK_DIR="${Z2K_AUTOCIRCULAR_FALLBACK_DIR:-$Z2K_TMP/autocircular}"
 Z2K_OW_INSTALL_TMP="${Z2K_OW_INSTALL_TMP:-/tmp/z2kow-install-stage}"
 Z2K_WARP_TMP="${Z2K_WARP_TMP:-/tmp/z2k-warp}"
 Z2K_OW_CANON_TMP_SUFFIX="/tmp/z2k"
@@ -87,7 +90,8 @@ Z2K_AUTOHOSTLIST_FILE="${Z2K_AUTOHOSTLIST_FILE:-$Z2K_STATE/zapret-hosts-auto.txt
 Z2K_AUTOHOSTLIST_DOMAINS_FILE="${Z2K_AUTOHOSTLIST_DOMAINS_FILE:-$Z2K_STATE/autohostlist-domains.txt}"
 Z2K_AUTOHOSTLIST_DEBUG_FILE="${Z2K_AUTOHOSTLIST_DEBUG_FILE:-$Z2K_STATE/zapret-hosts-auto-debug.log}"
 Z2K_INSTA_HOSTS_FILE="${Z2K_INSTA_HOSTS_FILE:-$Z2K_STATE/insta-hosts}"
-export Z2K_ETC Z2K_CONFIG Z2K_STATE Z2K_USER_LISTS \
+export Z2K_ETC Z2K_CONFIG Z2K_STATE Z2K_AUTOCIRCULAR_DIR \
+    Z2K_AUTOCIRCULAR_STATE_FILE Z2K_AUTOCIRCULAR_FALLBACK_DIR Z2K_USER_LISTS \
     Z2K_OW_INSTALLED_RELEASE_FILE Z2K_CONF_DIR \
     Z2K_RELAY_ID_FILE \
     Z2K_ROOT Z2K_BIN Z2K_LIB Z2K_LUA_DIR Z2K_FAKE_DIR Z2K_LISTS_DIR \
@@ -106,7 +110,7 @@ z2k_ow_paths_check() {
         [ -d "$_d" ] || _missing="$_missing $_d"
     done
     if [ "$_mode" = "all" ]; then
-        for _d in "$Z2K_ETC" "$Z2K_STATE" "$Z2K_RUN" "$Z2K_LOG"; do
+        for _d in "$Z2K_ETC" "$Z2K_STATE" "$Z2K_AUTOCIRCULAR_DIR" "$Z2K_RUN" "$Z2K_LOG"; do
             [ -d "$_d" ] || _missing="$_missing $_d"
         done
     fi

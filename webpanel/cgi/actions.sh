@@ -3245,7 +3245,7 @@ STATE_FILE="${STATE_FILE:-$ZAPRET2_DIR/extra_strats/cache/autocircular/state.tsv
 # It must be cleaned in lockstep with the primary — load_state() merges both on
 # the next restart with newer-ts winning, so a stale fallback row would
 # otherwise resurrect a host the operator just deleted.
-STATE_FILE_FALLBACK="${STATE_FILE_FALLBACK:-/tmp/z2k-autocircular-state.tsv}"
+STATE_FILE_FALLBACK="${STATE_FILE_FALLBACK:-${Z2K_AU_STATE_FALLBACK:-/tmp/z2k-autocircular-state.tsv}}"
 
 state_read() {
     # Display-truth: read the SAME merged view the persist bridge actually writes

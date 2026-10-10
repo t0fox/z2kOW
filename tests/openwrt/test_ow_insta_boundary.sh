@@ -44,7 +44,7 @@ assert_contains "full list refresh is scheduled at upstream 04:00" "$REPO/platfo
 assert_contains "full list refresh defaults to the OpenWrt service init" "$REPO/platform/openwrt/list-refresh.sh" 'INIT_SCRIPT="${INIT_SCRIPT:-/etc/init.d/z2k}"'
 assert_contains "full list refresh supplies the OpenWrt WARP replacement" "$REPO/platform/openwrt/list-refresh.sh" 'Z2K_WARP_IPSET_SCRIPT="${Z2K_WARP_IPSET_SCRIPT:-$Z2K_ROOT/platform/openwrt/warp.sh}"'
 assert_contains "list refresh sources the shared OpenWrt path adapter" "$REPO/platform/openwrt/list-refresh.sh" 'platform/openwrt/env.sh'
-assert_contains "OpenWrt env binds autocircular state to persistent state.tsv" "$REPO/platform/openwrt/env.sh" 'STATE_FILE="${STATE_FILE:-$Z2K_STATE/state.tsv}"'
+assert_contains "OpenWrt env binds autocircular state to its own persistent directory" "$REPO/platform/openwrt/env.sh" 'STATE_FILE="${STATE_FILE:-$Z2K_STATE_DIR_OVERRIDE/state.tsv}"'
 assert_contains "OpenWrt env binds the merged extra-domain user file" "$REPO/platform/openwrt/env.sh" 'Z2K_EXTRA_DOMAINS_RUNTIME="${Z2K_EXTRA_DOMAINS_RUNTIME:-$Z2K_USER_LISTS/extra-domains.txt}"'
 assert_contains "OpenWrt env binds the persistent autohostlist ledger" "$REPO/platform/openwrt/env.sh" 'Z2K_AUTOHOSTLIST_DOMAINS_FILE="${Z2K_AUTOHOSTLIST_DOMAINS_FILE:-$Z2K_STATE/autohostlist-domains.txt}"'
 assert_contains "list refresh keeps geosite markers in OpenWrt persistent state" "$REPO/platform/openwrt/list-refresh.sh" 'Z2K_GEOSITE_INSTAGRAM_PURGE_MARKER'

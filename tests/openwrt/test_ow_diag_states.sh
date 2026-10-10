@@ -245,6 +245,7 @@ printf '%s\000' "$T/runtime-root/nfq2/nfqws2" '--qnum=200' '--lua-desync=circula
 } > "$T/tmp/z2k-autocircular-state.tsv"
 run_diag autocircular
 assert_out "procd and full cmdline detect live autocircular" 'autocircular      : active'
+assert_out "diagnostics use the separate persistent autocircular path" "persistent path   : $T/etc/autocircular/state.tsv (not used by runtime)"
 assert_out "populated fallback state is reported" 'state file        : active (42 entries; fallback'
 assert_out "reported fallback path is the Lua state path" 'z2k-autocircular-state.tsv'
 assert_out "Lua primary is derived from the running executable" "Lua primary path  : $T/runtime-root/extra_strats/cache/autocircular/state.tsv (absent)"

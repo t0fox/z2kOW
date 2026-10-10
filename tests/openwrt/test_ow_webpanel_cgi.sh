@@ -12,9 +12,11 @@ mkdir -p "$Z2K_JOB_DIR"
 trap 'for _j in $JOB_IDS; do rm -f "$Z2K_JOB_DIR/z2k-job-$_j.log" "$Z2K_JOB_DIR/z2k-job-$_j.pid" "$Z2K_JOB_DIR/z2k-job-$_j.exit"; done; rm -rf "$T"' EXIT INT TERM
 JOB_IDS=""
 
+# Директории autocircular подготовлены стартом демона, как в установленной системе.
 mkdir -p "$T/bin" "$T/root/platform/openwrt" "$T/root/bin" "$T/root/lib" \
          "$T/root/webpanel/cgi" "$T/root/webpanel" "$T/etc/user-lists/warp" "$T/etc/state/warp" \
-         "$T/etc/webpanel" "$T/tmp/z2k/runtime" "$T/proc/7777"
+         "$T/etc/webpanel" "$T/etc/autocircular" "$T/tmp/z2k/autocircular" \
+         "$T/tmp/z2k/runtime" "$T/proc/7777"
 export PATH="$T/bin:$PATH"
 export Z2K_PANEL_EXTRA_PATH="$T/bin"
 

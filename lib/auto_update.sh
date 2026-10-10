@@ -1240,6 +1240,10 @@ au_step_reset_state() {
     # а не в /tmp (env.sh: Z2K_AU_STATE_FALLBACK). Unset = keenetic 1-в-1.
     [ -n "${Z2K_AU_STATE_FALLBACK:-}" ] && rm -f "$Z2K_AU_STATE_FALLBACK" 2>/dev/null
     rm -f "${STATE_FILE:-$ac/state.tsv}" \
+          "${STATE_FILE:-$ac/state.tsv}.lock" "${STATE_FILE:-$ac/state.tsv}.tmp" \
+          "${STATE_FILE_FALLBACK:-${Z2K_AU_STATE_FALLBACK:-/tmp/z2k-autocircular-state.tsv}}" \
+          "${STATE_FILE_FALLBACK:-${Z2K_AU_STATE_FALLBACK:-/tmp/z2k-autocircular-state.tsv}}.lock" \
+          "${STATE_FILE_FALLBACK:-${Z2K_AU_STATE_FALLBACK:-/tmp/z2k-autocircular-state.tsv}}.tmp" \
           "$ac/state.tsv.lock" "$ac/state.tsv.tmp" \
           /tmp/z2k-autocircular-state.tsv 2>/dev/null
     au_log "reset-state: состояние автоподбора сброшено"

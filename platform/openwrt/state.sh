@@ -42,6 +42,151 @@ _z2k_ow_state_lock_release() {
     rm -f "${1}.lock" 2>/dev/null || true
 }
 
+# Подготовить только файлы autocircular для пользователя nfqws2.
+# /etc/z2k/state и соседние данные остаются с прежними владельцами и правами.
+_z2k_ow_prepare_autocircular_file() {
+    local _path="$1" _user="$2" _work_dir="$3" _header="${4:-}"
+    local _metadata _owner _mode _uid _tmp
+    [ ! -L "$_path" ] || return 1
+    _uid=$(id -u "$_user" 2>/dev/null) || return 1
+    if [ ! -e "$_path" ]; then
+        [ -n "$_header" ] || return 0
+        _tmp=$(mktemp "$_work_dir/.autocircular-init.XXXXXX") || return 1
+        printf '%b' "$_header" > "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+    else
+        [ -f "$_path" ] || return 1
+        _metadata=$(stat -c '%u:%a' "$_path" 2>/dev/null) || return 1
+        _owner=${_metadata%%:*}; _mode=${_metadata#*:}
+        [ "$_owner" != "$_uid" ] || [ "$_mode" != 644 ] || return 0
+        _tmp=$(mktemp "$_work_dir/.autocircular-fix.XXXXXX") || return 1
+        cp -p "$_path" "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+    fi
+    chown "$_user" "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+    chmod 644 "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+    # Атомарная замена имени не позволяет записи пройти по подставленной ссылке.
+    mv -f "$_tmp" "$_path" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+    return 0
+}
+
+z2k_ow_prepare_autocircular_storage() {
+    local _primary="${STATE_FILE:-${Z2K_AUTOCIRCULAR_DIR:-${Z2K_ETC:-/etc/z2k}/autocircular}/state.tsv}"
+    local _fallback="${STATE_FILE_FALLBACK:-}"
+    [ -n "$_fallback" ] || _fallback="${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-${Z2K_AUTOCIRCULAR_FALLBACK_DIR:-${Z2K_TMP:-/tmp/z2k}/autocircular}}/z2k-autocircular-state.tsv"
+    local _primary_dir="${_primary%/*}" _fallback_dir="${_fallback%/*}" _user="${WS_USER:-nobody}"
+    local _root_state="${Z2K_STATE:-${Z2K_ETC:-/etc/z2k}/state}"
+    [ -n "$_primary_dir" ] && [ -n "$_fallback_dir" ] || return 1
+    mkdir -p "$_primary_dir" "$_fallback_dir" "$_root_state" 2>/dev/null || return 1
+    [ ! -L "$_primary_dir" ] && [ ! -L "$_fallback_dir" ] || return 1
+    chown "$_user" "$_primary_dir" "$_fallback_dir" 2>/dev/null || return 1
+    chmod 755 "$_primary_dir" "$_fallback_dir" 2>/dev/null || return 1
+    _z2k_ow_prepare_autocircular_file "$_primary" "$_user" "$_root_state" \
+        '# z2k autocircular state (persisted circular strategy)\n# key\thost\tstrategy\tts\tmode\tsni\n' || return 1
+    _z2k_ow_prepare_autocircular_file "$_fallback" "$_user" "$_root_state" || return 1
+    return 0
+}
+
+# Однократно перенести состояние со старых OpenWrt-путей в отдельный каталог.
+# Сначала копии помещаются в закрытый root-каталог, затем новая запись
+# атомарно публикуется и только после этого старое имя освобождается.
+z2k_ow_migrate_autocircular_state() {
+    local _primary="${STATE_FILE:-${Z2K_AUTOCIRCULAR_DIR:-${Z2K_ETC:-/etc/z2k}/autocircular}/state.tsv}"
+    local _old_primary="${Z2K_AUTOCIRCULAR_LEGACY_PRIMARY_OVERRIDE:-${Z2K_STATE:-${Z2K_ETC:-/etc/z2k}/state}/state.tsv}"
+    local _old_tmp="${Z2K_AUTOCIRCULAR_LEGACY_TMP_OVERRIDE:-${Z2K_TMP:-/tmp/z2k}/z2k-autocircular-state.tsv}"
+    local _old_fallback="${Z2K_AUTOCIRCULAR_LEGACY_FALLBACK_OVERRIDE:-/tmp/z2k-autocircular-state.tsv}"
+    local _old_runtime="${Z2K_AUTOCIRCULAR_LEGACY_RUNTIME_OVERRIDE:-${Z2K_ZAPRET2_RUNTIME:-/opt/zapret2}/extra_strats/cache/autocircular/state.tsv}"
+    local _backup_dir="${Z2K_AUTOCIRCULAR_BACKUP_DIR:-${Z2K_STATE:-${Z2K_ETC:-/etc/z2k}/state}/autocircular-migration-backup}"
+    local _legacy="" _seen=" $_primary " _locked="" _f _backup _backup_tmp _tmp="" _rc=0
+
+    z2k_ow_prepare_autocircular_storage || return 1
+    for _f in "$_old_primary" "$_old_tmp" "$_old_fallback" "$_old_runtime"; do
+        case "$_seen" in *" $_f "*) continue ;; esac
+        _seen="$_seen$_f "
+        [ -s "$_f" ] || continue
+        _legacy="${_legacy:+$_legacy }$_f"
+    done
+    [ -n "$_legacy" ] || return 0
+
+    # Источники фиксированы адаптером; удерживаем их и новый файл до публикации.
+    for _f in $_legacy "$_primary"; do
+        if ! _z2k_ow_state_lock_acquire "$_f"; then
+            echo "z2k-openwrt: autocircular state busy: $_f" >&2
+            _rc=1
+            break
+        fi
+        _locked="$_locked $_f"
+    done
+
+    # Временные и резервные файлы хранятся отдельно от доступных nobody путей.
+    if [ "$_rc" = 0 ]; then
+        mkdir -p "$_backup_dir" 2>/dev/null || _rc=1
+        if [ "$_rc" = 0 ]; then
+            [ ! -L "$_backup_dir" ] || _rc=1
+            if [ "$_rc" = 0 ]; then
+                chown 0:0 "$_backup_dir" 2>/dev/null || _rc=1
+                chmod 700 "$_backup_dir" 2>/dev/null || _rc=1
+            fi
+        fi
+        for _f in $_legacy; do
+            [ "$_rc" = 0 ] || break
+            case "$_f" in
+                "$_old_primary") _backup="$_backup_dir/legacy-primary.tsv" ;;
+                "$_old_tmp") _backup="$_backup_dir/legacy-z2k-tmp.tsv" ;;
+                "$_old_fallback") _backup="$_backup_dir/legacy-tmp.tsv" ;;
+                "$_old_runtime") _backup="$_backup_dir/legacy-runtime.tsv" ;;
+                *) _rc=1; break ;;
+            esac
+            [ -e "$_backup" ] && continue
+            _backup_tmp=$(mktemp "$_backup_dir/.backup.XXXXXX") || { _rc=1; break; }
+            if ! cp -p "$_f" "$_backup_tmp" 2>/dev/null || \
+               ! mv -f "$_backup_tmp" "$_backup" 2>/dev/null; then
+                rm -f "$_backup_tmp" 2>/dev/null || true
+                _rc=1
+                break
+            fi
+        done
+    fi
+
+    if [ "$_rc" = 0 ]; then
+        _tmp=$(mktemp "$_backup_dir/.state-migrate.XXXXXX") || _rc=1
+    fi
+
+    # Последней читается новая копия: при одинаковой метке времени она главнее.
+    if [ "$_rc" = 0 ]; then
+        # shellcheck disable=SC2086
+        awk -F '\t' '
+            BEGIN { OFS="\t" }
+            /^#/ || NF < 3 || $1 == "" || $2 == "" || $3 !~ /^[0-9]+$/ || $3 < 1 { next }
+            {
+                id=$1 FS $2
+                stamp=($4 ~ /^[0-9]+$/) ? $4+0 : 0
+                if (!(id in row) || stamp >= ts[id]) { row[id]=$0; ts[id]=stamp }
+            }
+            END {
+                print "# z2k autocircular state (persisted circular strategy)"
+                print "# key\thost\tstrategy\tts\tmode\tsni"
+                for (id in row) print row[id]
+            }
+        ' $_legacy "$_primary" > "$_tmp" 2>/dev/null || _rc=1
+    fi
+    if [ "$_rc" = 0 ]; then
+        chown "${WS_USER:-nobody}" "$_tmp" 2>/dev/null || _rc=1
+        chmod 644 "$_tmp" 2>/dev/null || _rc=1
+    fi
+    if [ "$_rc" = 0 ]; then
+        mv -f "$_tmp" "$_primary" 2>/dev/null || _rc=1
+    fi
+    if [ "$_rc" = 0 ]; then
+        for _f in $_legacy; do
+            rm -f "$_f" 2>/dev/null || { _rc=1; break; }
+        done
+    fi
+
+    rm -f "$_tmp" 2>/dev/null || true
+    for _f in $_locked; do _z2k_ow_state_lock_release "$_f"; done
+    [ "$_rc" -eq 0 ] || return 1
+    z2k_ow_prepare_autocircular_storage
+}
+
 _z2k_ow_migrate_quic_state_file() {
     local _path="$1" _tmp="${1}.mig.$$"
     [ -s "$_path" ] || return 0

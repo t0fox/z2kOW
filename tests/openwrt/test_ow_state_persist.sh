@@ -1,8 +1,9 @@
 #!/bin/sh
 # tests/openwrt/test_ow_state_persist.sh - §9D: strategy persistence на OW-путях.
 # p-84.17: подобранная/закреплённая стратегия переживает regen/restart/reload.
-# Перевод путей: lua primary = $Z2K_STATE/state.tsv (persistent /etc/z2k/state),
-# lua fallback = $Z2K_TMP/z2k-autocircular-state.tsv, shell STATE_FILE — тот же
+# Перевод путей: lua primary = $Z2K_AUTOCIRCULAR_DIR/state.tsv,
+# lua fallback = $Z2K_AUTOCIRCULAR_FALLBACK_DIR/z2k-autocircular-state.tsv,
+# shell STATE_FILE — тот же
 # файл, reset-state чистит оба через Z2K_AU_STATE_FALLBACK-hook.
 . "$(dirname "$0")/helper.sh"
 . "$(dirname "$0")/fixture.sh"
@@ -29,18 +30,23 @@ assert_contains "single rootfs builder materializes mapped common files" "$REPO/
 assert_contains "lua primary override" "$LUA" 'Z2K_STATE_DIR_OVERRIDE'
 assert_contains "lua fallback override" "$LUA" 'Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE'
 assert_contains "lua primary file" "$LUA" 'state.tsv'
-assert_eq "shell STATE_FILE == state dir + state.tsv" "$Z2K_STATE/state.tsv" "$STATE_FILE"
-assert_eq "shell dir override == state dir" "$Z2K_STATE" "$Z2K_STATE_DIR_OVERRIDE"
+assert_eq "shell STATE_FILE == autocircular dir + state.tsv" "$Z2K_AUTOCIRCULAR_DIR/state.tsv" "$STATE_FILE"
+assert_eq "shell dir override == autocircular dir" "$Z2K_AUTOCIRCULAR_DIR" "$Z2K_STATE_DIR_OVERRIDE"
+assert_eq "shell fallback file == Lua fallback" \
+    "$Z2K_AUTOCIRCULAR_FALLBACK_DIR/z2k-autocircular-state.tsv" "$STATE_FILE_FALLBACK"
 assert_eq "shell fallback hook == tmp fallback file" \
     "$Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE/z2k-autocircular-state.tsv" "$Z2K_AU_STATE_FALLBACK"
 
-# 3. state persistent: выводится из $Z2K_ETC, прод-дефолт — /etc/z2k/state.
+# 3. состояние persistent и отделено от смешанного каталога state.
 assert_eq "Z2K_STATE derived from ETC" "$Z2K_ETC/state" "$Z2K_STATE"
 _prod_state="$(env -i PATH="$PATH" sh -c '. "$0/platform/openwrt/paths.sh" >/dev/null 2>&1; printf "%s" "$Z2K_STATE"' "$REPO" 2>/dev/null)"
 assert_eq "prod Z2K_STATE" "/etc/z2k/state" "$_prod_state"
+_prod_autocircular="$(env -i PATH="$PATH" sh -c '. "$0/platform/openwrt/paths.sh" >/dev/null 2>&1; printf "%s" "$Z2K_AUTOCIRCULAR_DIR"' "$REPO" 2>/dev/null)"
+assert_eq "prod autocircular path" "/etc/z2k/autocircular" "$_prod_autocircular"
 
 # 4. regen (materialize) НЕ трогает state: подобранное живёт через пересборку.
-mkdir -p "$Z2K_STATE" || exit 1
+mkdir -p "$Z2K_STATE" "$Z2K_AUTOCIRCULAR_DIR" \
+    "$Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE" || exit 1
 printf 'rkn_tcp\texample.com\t7\t1700000000\tauto\n' > "$STATE_FILE"
 _before="$(cksum "$STATE_FILE")"
 z2k_ow_materialize "$Z2K_MANIFESTS_DIR" >/dev/null 2>&1 \
@@ -48,7 +54,7 @@ z2k_ow_materialize "$Z2K_MANIFESTS_DIR" >/dev/null 2>&1 \
 assert_eq "regen не трогает state.tsv" "$_before" "$(cksum "$STATE_FILE")"
 
 # 5. reset-state чистит primary И fallback (оба OW-пути), лишний мусор — нет.
-mkdir -p "$Z2K_TMP" || exit 1
+mkdir -p "$Z2K_TMP" "$Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE" || exit 1
 printf 'x\n' > "$Z2K_AU_STATE_FALLBACK"
 printf 'keep\n' > "$Z2K_STATE/keep.txt"
 ZAPRET2_DIR="$Z2K_ROOT" au_step_reset_state >/dev/null 2>&1

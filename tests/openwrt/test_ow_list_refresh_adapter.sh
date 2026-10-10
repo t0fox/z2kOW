@@ -25,8 +25,8 @@ Z2K_ROOT="$ROOT" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp" \
 assert_contains "full refresh invokes upstream all mode" "$T/captured.env" 'args=all'
 assert_contains "full refresh uses OpenWrt service restart" "$T/captured.env" "INIT_SCRIPT=/etc/init.d/z2k"
 assert_contains "full refresh supplies OpenWrt WARP list hook" "$T/captured.env" "Z2K_WARP_IPSET_SCRIPT=$ROOT/platform/openwrt/warp.sh"
-assert_contains "full refresh uses canonical autocircular state" "$T/captured.env" "STATE_FILE=$T/etc/state/state.tsv"
-assert_contains "full refresh geosite purge uses the same state file" "$T/captured.env" "Z2K_GEOSITE_STATE_FILE=$T/etc/state/state.tsv"
+assert_contains "full refresh uses canonical autocircular state" "$T/captured.env" "STATE_FILE=$T/etc/autocircular/state.tsv"
+assert_contains "full refresh geosite purge uses the same state file" "$T/captured.env" "Z2K_GEOSITE_STATE_FILE=$T/etc/autocircular/state.tsv"
 assert_contains "full refresh keeps merged extra domains in persistent user lists" "$T/captured.env" "Z2K_EXTRA_DOMAINS_RUNTIME=$T/etc/user-lists/extra-domains.txt"
 assert_contains "full refresh keeps autohostlist ledger in persistent state" "$T/captured.env" "Z2K_AUTOHOSTLIST_DOMAINS_FILE=$T/etc/state/autohostlist-domains.txt"
 assert_contains "Google migration marker survives payload replacement" "$T/captured.env" "Z2K_GEOSITE_GOOGLE_PURGE_MARKER=$T/etc/state/.geosite-google-purge-2026-05-24.done"
