@@ -16,7 +16,6 @@ PRODUCT_TITLE="${PRODUCT_TAG:+z2kOW $PRODUCT_TAG}"
 RETRY="${Z2KOW_RETRY_PUBLISH:-false}"
 MANIFEST="$CANDIDATE/UPDATES.json"
 SIGNATURE="$CANDIDATE/UPDATES.json.sig"
-ARTIFACT="$CANDIDATE/openwrt-rootfs.tar.gz"
 TECHNICAL_NOTES="$CANDIDATE/technical-release-notes.md"
 PRODUCT_NOTES="$CANDIDATE/product-release-notes.md"
 
@@ -26,7 +25,6 @@ PRODUCT_NOTES="$CANDIDATE/product-release-notes.md"
 [[ "$OPERATION" == "hotfix" || "$OPERATION" == "upstream-release" ]]
 test -s "$MANIFEST"
 test -s "$SIGNATURE"
-test -s "$ARTIFACT"
 test -s "$TECHNICAL_NOTES"
 if [[ "$OPERATION" == "upstream-release" ]]; then
     test "$PRODUCT_TAG" = "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["tag"])' "$CANDIDATE/candidate.json")"
@@ -36,6 +34,23 @@ else
 fi
 
 policy() { python3 "$POLICY" "$@"; }
+assets_from_manifest() { policy asset-list --manifest "$1" > "$2"; }
+INCLUDE_LEGACY_FALLBACK="$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1], encoding="utf-8")).get("include_legacy_fallback"); print("true" if v is True else "false" if v is False else "invalid")' "$CANDIDATE/candidate.json")"
+[[ "$INCLUDE_LEGACY_FALLBACK" == true || "$INCLUDE_LEGACY_FALLBACK" == false ]]
+ASSET_LIST="$RUNNER_TEMP/z2kow-release-assets.txt"
+assets_from_manifest "$MANIFEST" "$ASSET_LIST"
+mapfile -t RELEASE_ASSETS < "$ASSET_LIST"
+[[ "${#RELEASE_ASSETS[@]}" -eq 7 || "${#RELEASE_ASSETS[@]}" -eq 8 ]]
+RELEASE_FILES=()
+for asset in "${RELEASE_ASSETS[@]}"; do
+    test -s "$CANDIDATE/$asset"
+    RELEASE_FILES+=("$CANDIDATE/$asset")
+done
+python3 "$ROOT/scripts/openwrt/sign_release.py" verify \
+    --manifest "$MANIFEST" --artifact-dir "$CANDIDATE" \
+    --include-legacy-fallback "$INCLUDE_LEGACY_FALLBACK" \
+    --signature "$SIGNATURE" \
+    --public-key "$ROOT/scripts/openwrt/release-keys/$RELEASE_KEY_ID.pub"
 manifest_state="$(policy manifest-state --manifest "$ROOT/UPDATES.json" --candidate "$CANDIDATE/candidate.json")"
 if [[ "$RETRY" != true && "$manifest_state" != baseline ]]; then
     echo "new publication must start from its production manifest baseline (found $manifest_state)" >&2
@@ -91,17 +106,36 @@ check_existing_tag_target() {
         || { echo "Git tag $tag already points to $resolved, expected $target; refusing to reuse it." >&2; return 1; }
 }
 
+verify_release_asset_names() {
+    local tag="$1" actual="$RUNNER_TEMP/z2kow-release-actual-assets.txt" expected="$RUNNER_TEMP/z2kow-release-expected-assets.txt"
+    gh api "repos/$REPOSITORY/releases/tags/$tag" --jq '.assets[].name' | LC_ALL=C sort > "$actual"
+    { printf '%s\n' "${RELEASE_ASSETS[@]}" UPDATES.json UPDATES.json.sig | LC_ALL=C sort; } > "$expected"
+    cmp -s "$expected" "$actual" \
+        || { echo "release $tag does not contain exactly the signed manifest asset set." >&2; return 1; }
+}
+
+compare_release_assets() {
+    local destination="$1"
+    policy compare-assets --manifest "$MANIFEST" --candidate-dir "$CANDIDATE" --downloaded-dir "$destination"
+}
+
 download_and_compare_assets() {
-    local tag="$1" destination
+    local tag="$1" destination asset
     destination="$(mktemp -d "$RUNNER_TEMP/z2kow-release-assets.XXXXXX")"
-    gh release download "$tag" --dir "$destination" \
-        --pattern openwrt-rootfs.tar.gz --pattern UPDATES.json --pattern UPDATES.json.sig
-    cmp -s "$ARTIFACT" "$destination/openwrt-rootfs.tar.gz" \
-        || { echo "published rootfs for $tag differs from this verified candidate." >&2; return 1; }
+    verify_release_asset_names "$tag"
+    for asset in "${RELEASE_ASSETS[@]}" UPDATES.json UPDATES.json.sig; do
+        gh release download "$tag" --dir "$destination" --pattern "$asset"
+    done
+    compare_release_assets "$destination"
     cmp -s "$MANIFEST" "$destination/UPDATES.json" \
         || { echo "published manifest for $tag differs from this verified candidate." >&2; return 1; }
     cmp -s "$SIGNATURE" "$destination/UPDATES.json.sig" \
         || { echo "published signature for $tag differs from this verified candidate." >&2; return 1; }
+    python3 "$ROOT/scripts/openwrt/sign_release.py" verify \
+        --manifest "$destination/UPDATES.json" --artifact-dir "$destination" \
+        --include-legacy-fallback "$INCLUDE_LEGACY_FALLBACK" \
+        --signature "$destination/UPDATES.json.sig" \
+        --public-key "$ROOT/scripts/openwrt/release-keys/$RELEASE_KEY_ID.pub"
 }
 
 artifact_state=missing
@@ -123,7 +157,7 @@ if [[ "$artifact_state" == missing ]]; then
 fi
 
 if [[ "$artifact_state" == draft ]]; then
-    gh release upload "$TECHNICAL_TAG" "$ARTIFACT" "$MANIFEST" "$SIGNATURE" --clobber
+    gh release upload "$TECHNICAL_TAG" "${RELEASE_FILES[@]}" "$MANIFEST" "$SIGNATURE" --clobber
     download_and_compare_assets "$TECHNICAL_TAG"
     gh release edit "$TECHNICAL_TAG" --draft=false --prerelease --latest=false
 else
@@ -134,16 +168,17 @@ read_release_state "$TECHNICAL_TAG" "$TECHNICAL_TITLE" "$SOURCE_SHA" true false 
 
 public_assets="$(mktemp -d "$RUNNER_TEMP/z2kow-public-assets.XXXXXX")"
 release_url="https://github.com/$REPOSITORY/releases/download/$TECHNICAL_TAG"
-for asset in openwrt-rootfs.tar.gz UPDATES.json UPDATES.json.sig; do
+for asset in "${RELEASE_ASSETS[@]}" UPDATES.json UPDATES.json.sig; do
     curl --fail --location --silent --show-error \
         "$release_url/$asset?nocache=$(date +%s%N)" -o "$public_assets/$asset"
 done
-cmp -s "$ARTIFACT" "$public_assets/openwrt-rootfs.tar.gz"
+compare_release_assets "$public_assets"
 cmp -s "$MANIFEST" "$public_assets/UPDATES.json"
 cmp -s "$SIGNATURE" "$public_assets/UPDATES.json.sig"
 python3 "$ROOT/scripts/openwrt/sign_release.py" verify \
     --manifest "$public_assets/UPDATES.json" \
-    --artifact "$public_assets/openwrt-rootfs.tar.gz" \
+    --artifact-dir "$public_assets" \
+    --include-legacy-fallback "$INCLUDE_LEGACY_FALLBACK" \
     --signature "$public_assets/UPDATES.json.sig" \
     --public-key "$ROOT/scripts/openwrt/release-keys/$RELEASE_KEY_ID.pub"
 
@@ -216,10 +251,11 @@ cmp -s "$MANIFEST" "$RUNNER_TEMP/public-main-UPDATES.json"
 cmp -s "$SIGNATURE" "$RUNNER_TEMP/public-main-UPDATES.json.sig"
 python3 "$ROOT/scripts/openwrt/sign_release.py" verify \
     --manifest "$RUNNER_TEMP/public-main-UPDATES.json" \
-    --artifact "$public_assets/openwrt-rootfs.tar.gz" \
+    --artifact-dir "$public_assets" \
+    --include-legacy-fallback "$INCLUDE_LEGACY_FALLBACK" \
     --signature "$RUNNER_TEMP/public-main-UPDATES.json.sig" \
     --public-key "$ROOT/scripts/openwrt/release-keys/$RELEASE_KEY_ID.pub"
-sha256sum "$public_assets/openwrt-rootfs.tar.gz" >> "$GITHUB_STEP_SUMMARY"
+sha256sum "${RELEASE_FILES[@]}" >> "$GITHUB_STEP_SUMMARY"
 printf '\nPublished and verified payload: %s\n' "$release_url" >> "$GITHUB_STEP_SUMMARY"
 if [[ -n "$PRODUCT_TAG" ]]; then
     printf 'Product Release: %s\n' "$PRODUCT_TAG" >> "$GITHUB_STEP_SUMMARY"

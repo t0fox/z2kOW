@@ -134,7 +134,7 @@ z2k_connfail() {
 # скрипт не source'ит utils.sh). Слои: raw.github → jsdelivr → gh-proxy →
 # Четвёртого слоя (ndmc) больше нет — см. комментарий в теле функции.
 _z2k_curl_etag() {
-    local url="$1" dest="$2" resolve_args="$3" conn_to="${4:-10}"
+    local url="$1" dest="$2" resolve_args="${3:-}" conn_to="${4:-10}"
     local etag_file="${dest}.etag"
     local hdr_file="${dest}.hdr.$$"
     local tmp_body="${dest}.new.$$"

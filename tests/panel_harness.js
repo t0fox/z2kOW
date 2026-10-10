@@ -168,7 +168,7 @@ const statusFixture = (process.env.Z2K_OW_CAPS === "1")
 if (process.env.Z2K_TEST_RELEASE_STATE_ERROR === "1") {
   statusFixture.installed = false;
   statusFixture.installed_state = "error";
-  statusFixture.installed_state_error = "installed release metadata is missing";
+  statusFixture.installed_state_error = "не найдена запись установленного выпуска";
   mockNode("status-grid");
 }
 if (BRAND_CASE === "openwrt") {

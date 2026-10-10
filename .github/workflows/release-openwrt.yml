@@ -277,11 +277,14 @@ jobs:
           if manifest.get("current") != sys.argv[2] or manifest.get("seq") != int(sys.argv[3]):
               raise SystemExit("validated upstream tag no longer contains the requested release manifest")
           PY
-      - name: Adapt the release operation into the controlled manifest and build one complete rootfs
+      - name: Derive migration fallback from the checked production manifest and build per-architecture archives
         shell: bash
         run: |
           set -euo pipefail
           cp UPDATES.json "$RUNNER_TEMP/production-UPDATES.json"
+          include_legacy_fallback="$(python3 scripts/openwrt/publication_policy.py migration-fallback \
+            --manifest "$RUNNER_TEMP/production-UPDATES.json")"
+          [[ "$include_legacy_fallback" == true || "$include_legacy_fallback" == false ]]
           if [ "$RELEASE_OPERATION_INPUT" = upstream-release ]; then
             python3 scripts/openwrt/controlled_release.py sync \
               --upstream "$RUNNER_TEMP/upstream-pinned-UPDATES.json" \
@@ -294,30 +297,48 @@ jobs:
           fi
           cp "$RUNNER_TEMP/controlled-UPDATES.json" UPDATES.json
           out="$RUNNER_TEMP/openwrt-release-candidate"
-          sh scripts/openwrt/build-release.sh --out "$out"
+          build_args=(--out "$out")
+          if [ "$include_legacy_fallback" = true ]; then build_args+=(--legacy-rootfs); fi
+          sh scripts/openwrt/build-release.sh "${build_args[@]}"
           python3 scripts/openwrt/controlled_release.py attach \
             --manifest "$out/UPDATES.json" \
-            --artifact "$out/openwrt-rootfs.tar.gz" \
-            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/openwrt-$GITHUB_SHA/openwrt-rootfs.tar.gz" \
+            --artifact-dir "$out" \
+            --source-sha "$GITHUB_SHA" \
+            --production-baseline "$RUNNER_TEMP/production-UPDATES.json" \
             --key-id "$RELEASE_KEY_ID"
-          python3 - "$out/UPDATES.json" "$RELEASE_TAG_INPUT" "$RELEASE_SEQ_INPUT" "$RELEASE_KEY_ID" <<'PY'
+          python3 - "$out/UPDATES.json" "$RELEASE_TAG_INPUT" "$RELEASE_SEQ_INPUT" "$RELEASE_KEY_ID" "$include_legacy_fallback" "$GITHUB_REPOSITORY" "$GITHUB_SHA" <<'PY'
           import json
           import sys
           manifest = json.load(open(sys.argv[1], encoding="utf-8"))
-          expected = (sys.argv[2], int(sys.argv[3]), sys.argv[4])
-          actual = (manifest.get("current"), manifest.get("seq"), manifest.get("signing", {}).get("key_id"))
+          expected = (sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5] == "true")
+          repository, source_sha = sys.argv[6:8]
+          arches = {"arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64"}
+          actual = (
+              manifest.get("current"), manifest.get("seq"), manifest.get("signing", {}).get("key_id"),
+              "artifact" in manifest,
+          )
           if actual != expected:
               raise SystemExit(f"candidate manifest differs from validated release: {actual!r}")
+          if set(manifest.get("artifacts", {})) != arches:
+              raise SystemExit("candidate manifest does not contain all seven architecture records")
+          for arch, record in manifest["artifacts"].items():
+              filename = f"openwrt-rootfs-{arch}.tar.gz"
+              url = f"https://github.com/{repository}/releases/download/openwrt-{source_sha}/{filename}"
+              if record.get("filename") != filename or record.get("url") != url:
+                  raise SystemExit(f"candidate artifact URL is not bound to the exact source commit: {arch}")
           PY
           printf 'Prepared complete OpenWrt candidate: %s / seq %s\n' "$RELEASE_TAG_INPUT" "$RELEASE_SEQ_INPUT" >> "$GITHUB_STEP_SUMMARY"
-          python3 - "$RELEASE_PLAN_JSON" "$out/candidate.json" "$out/UPDATES.json" "$GITHUB_SHA" <<'PY'
+          python3 - "$RELEASE_PLAN_JSON" "$out/candidate.json" "$out/UPDATES.json" "$GITHUB_SHA" "$RUNNER_TEMP/production-UPDATES.json" <<'PY'
           import json
           import sys
-          plan_json, candidate_path, manifest_path, source_sha = sys.argv[1:]
+          plan_json, candidate_path, manifest_path, source_sha, baseline_path = sys.argv[1:]
           candidate = json.loads(plan_json)
           manifest = json.load(open(manifest_path, encoding="utf-8"))
           if candidate.get("source_sha") != source_sha:
               raise SystemExit("publication plan is not bound to this exact source commit")
+          baseline = json.load(open(baseline_path, encoding="utf-8"))
+          if candidate.get("include_legacy_fallback") != ("artifacts" not in baseline):
+              raise SystemExit("candidate legacy fallback decision differs from the checked production baseline")
           if (candidate.get("tag"), candidate.get("seq")) != (manifest.get("current"), manifest.get("seq")):
               raise SystemExit("candidate metadata differs from its signed manifest version")
           with open(candidate_path, "w", encoding="utf-8") as stream:
@@ -334,7 +355,7 @@ jobs:
         run: |
           python3 tests/openwrt/accept_release_candidate.py \
             "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json" \
-            "$RUNNER_TEMP/openwrt-release-candidate/openwrt-rootfs.tar.gz"
+            "$RUNNER_TEMP/openwrt-release-candidate"
       - name: Reconfirm the upstream release did not advance while OpenWrt was building
         shell: bash
         run: |
@@ -489,15 +510,21 @@ jobs:
           set -euo pipefail
           python3 - "$RUNNER_TEMP/openwrt-release-candidate/candidate-acceptance.json" \
             "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json" \
-            "$RUNNER_TEMP/openwrt-release-candidate/openwrt-rootfs.tar.gz" <<'PY'
+            "$RUNNER_TEMP/openwrt-release-candidate" <<'PY'
           import hashlib
           import json
           import pathlib
           import sys
-          receipt_path, manifest_path, artifact_path = map(pathlib.Path, sys.argv[1:])
+          receipt_path, manifest_path, artifact_dir = map(pathlib.Path, sys.argv[1:])
           receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
           manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-          artifact = artifact_path.read_bytes()
+          names = [record["filename"] for record in manifest["artifacts"].values()]
+          if "artifact" in manifest:
+              names.append(manifest["artifact"]["filename"])
+          asset_hashes = {
+              name: hashlib.sha256((artifact_dir / name).read_bytes()).hexdigest()
+              for name in names
+          }
           expected = {
               "schema": 1,
               "result": "passed",
@@ -506,7 +533,8 @@ jobs:
               "tag": manifest.get("current"),
               "seq": manifest.get("seq"),
               "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
-              "artifact_sha256": hashlib.sha256(artifact).hexdigest(),
+              "artifact_sha256": asset_hashes[manifest["artifacts"]["x86_64"]["filename"]],
+              "asset_sha256": asset_hashes,
           }
           if receipt != expected:
               raise SystemExit("квитанция приёмки отсутствует, неуспешна или относится к другому кандидату")
@@ -538,6 +566,24 @@ jobs:
             [[ "$manifest_state" == baseline || "$manifest_state" == published ]]
           else
             test "$manifest_state" = baseline
+          fi
+          if [ "$manifest_state" = baseline ]; then
+            fallback="$(python3 scripts/openwrt/publication_policy.py validate-fallback \
+              --candidate "$RUNNER_TEMP/openwrt-release-candidate/candidate.json" \
+              --manifest UPDATES.json --source-sha "$CANDIDATE_SOURCE_SHA" \
+              --tag "$(sed -n 's/^tag=//p' "$RUNNER_TEMP/candidate-info.txt")" \
+              --seq "$(sed -n 's/^seq=//p' "$RUNNER_TEMP/candidate-info.txt")")"
+            test "$fallback" = "$(sed -n 's/^include_legacy_fallback=//p' "$RUNNER_TEMP/candidate-info.txt")"
+          else
+            python3 - "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json" \
+              "$(sed -n 's/^include_legacy_fallback=//p' "$RUNNER_TEMP/candidate-info.txt")" <<'PY'
+          import json
+          import sys
+          manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+          expected = sys.argv[2] == "true"
+          if ("artifact" in manifest) != expected:
+              raise SystemExit("published candidate's legacy fallback differs from its original decision")
+          PY
           fi
           printf 'Production manifest state before signing: %s\n' "$manifest_state" >> "$GITHUB_STEP_SUMMARY"
       - name: Reconfirm live upstream current and exact pinned tag before production signing
@@ -591,6 +637,7 @@ jobs:
           EXPECTED_TAG: ${{ steps.candidate.outputs.tag }}
           EXPECTED_SEQ: ${{ steps.candidate.outputs.seq }}
           EXPECTED_SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+          EXPECTED_INCLUDE_LEGACY_FALLBACK: ${{ steps.candidate.outputs.include_legacy_fallback }}
         run: |
           set -euo pipefail
           test -n "$RELEASE_PRIVATE_KEY"
@@ -599,22 +646,29 @@ jobs:
           test -s "$key_file"
           test "$(openssl pkey -pubin -in "$key_file" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')" = "$RELEASE_KEY_ID"
           manifest="$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json"
-          artifact="$RUNNER_TEMP/openwrt-release-candidate/openwrt-rootfs.tar.gz"
-          python3 - "$manifest" "$EXPECTED_TAG" "$EXPECTED_SEQ" "$EXPECTED_SOURCE_SHA" "$RELEASE_KEY_ID" "$GITHUB_REPOSITORY" <<'PY'
+          python3 - "$manifest" "$EXPECTED_TAG" "$EXPECTED_SEQ" "$EXPECTED_SOURCE_SHA" "$RELEASE_KEY_ID" "$GITHUB_REPOSITORY" "$EXPECTED_INCLUDE_LEGACY_FALLBACK" <<'PY'
           import json
           import sys
-          path, tag, seq, source_sha, key_id, repository = sys.argv[1:]
+          path, tag, seq, source_sha, key_id, repository, include_legacy = sys.argv[1:]
           manifest = json.load(open(path, encoding="utf-8"))
           if (manifest.get("current"), manifest.get("seq")) != (tag, int(seq)):
               raise SystemExit("candidate manifest user version differs from candidate metadata")
           if manifest.get("signing", {}).get("key_id") != key_id:
               raise SystemExit("candidate manifest signing key id differs from the protected production key")
-          expected_url = (
-              f"https://github.com/{repository}/releases/download/"
-              f"openwrt-{source_sha}/openwrt-rootfs.tar.gz"
-          )
-          if manifest.get("artifact", {}).get("url") != expected_url:
-              raise SystemExit("candidate artifact URL is not bound to its exact source commit")
+          arches = {"arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64"}
+          if set(manifest.get("artifacts", {})) != arches:
+              raise SystemExit("candidate manifest does not contain exactly seven architecture records")
+          if ("artifact" in manifest) != (include_legacy == "true"):
+              raise SystemExit("candidate manifest fallback differs from its checked production-baseline decision")
+          for arch, record in manifest["artifacts"].items():
+              filename = f"openwrt-rootfs-{arch}.tar.gz"
+              expected_url = f"https://github.com/{repository}/releases/download/openwrt-{source_sha}/{filename}"
+              if record.get("filename") != filename or record.get("url") != expected_url:
+                  raise SystemExit(f"candidate artifact URL is not bound to its exact source commit: {arch}")
+          if include_legacy == "true":
+              expected_url = f"https://github.com/{repository}/releases/download/openwrt-{source_sha}/openwrt-rootfs.tar.gz"
+              if manifest.get("artifact", {}).get("url") != expected_url:
+                  raise SystemExit("candidate legacy fallback URL is not bound to its exact source commit")
           PY
           umask 077
           private_key="$RUNNER_TEMP/z2kow-production-release.pem"
@@ -622,11 +676,13 @@ jobs:
           printf '%s' "$RELEASE_PRIVATE_KEY" > "$private_key"
           unset RELEASE_PRIVATE_KEY
           python3 scripts/openwrt/sign_release.py sign \
-            --manifest "$manifest" --artifact "$artifact" \
+            --manifest "$manifest" --artifact-dir "$RUNNER_TEMP/openwrt-release-candidate" \
+            --include-legacy-fallback "$EXPECTED_INCLUDE_LEGACY_FALLBACK" \
             --signature "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json.sig" \
             --private-key "$private_key"
           python3 scripts/openwrt/sign_release.py verify \
-            --manifest "$manifest" --artifact "$artifact" \
+            --manifest "$manifest" --artifact-dir "$RUNNER_TEMP/openwrt-release-candidate" \
+            --include-legacy-fallback "$EXPECTED_INCLUDE_LEGACY_FALLBACK" \
             --signature "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json.sig" \
             --public-key "$key_file"
           rm -f "$private_key"

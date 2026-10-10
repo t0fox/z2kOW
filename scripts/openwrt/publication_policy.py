@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import filecmp
 import json
 import re
 import subprocess
@@ -17,6 +18,7 @@ SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 TECHNICAL_TAG_RE = re.compile(r"openwrt-([0-9a-f]{40})\Z")
 RELEASE_BASE = "https://github.com/t0fox/z2kOW/releases/download"
 ARTIFACT_NAME = "openwrt-rootfs.tar.gz"
+ARCHITECTURES = ("arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64")
 INTERNAL_ONLY_MESSAGE = "Внутренние изменения механизма выпуска и проверки обновлений. Пользовательское поведение не изменилось."
 INTERNAL_RELEASE_PATHS = {
     "scripts/openwrt/audit-upstream-docs.sh",
@@ -38,10 +40,17 @@ def _version(tag: object, seq: object, label: str) -> tuple[str, int]:
 
 
 def previous_payload_source_sha(manifest: dict[str, Any]) -> str:
-    artifact = manifest.get("artifact")
-    url = artifact.get("url") if isinstance(artifact, dict) else None
+    artifacts = manifest.get("artifacts")
+    if "artifacts" in manifest:
+        if not isinstance(artifacts, dict) or set(artifacts) != set(ARCHITECTURES):
+            raise ValueError("production architecture artifact map is incomplete or malformed")
+        selected = artifacts.get("x86_64")
+        suffix = "/openwrt-rootfs-x86_64.tar.gz"
+    else:
+        selected = manifest.get("artifact")
+        suffix = f"/{ARTIFACT_NAME}"
+    url = selected.get("url") if isinstance(selected, dict) else None
     prefix = f"{RELEASE_BASE}/"
-    suffix = f"/{ARTIFACT_NAME}"
     if not isinstance(url, str) or not url.startswith(prefix) or not url.endswith(suffix):
         raise ValueError("production artifact URL is not a controlled OpenWrt technical release")
     tag = url[len(prefix) : -len(suffix)]
@@ -52,6 +61,56 @@ def previous_payload_source_sha(manifest: dict[str, Any]) -> str:
     if url != expected:
         raise ValueError("production artifact URL is not canonical")
     return match.group(1)
+
+
+def migration_fallback_required(production_manifest: dict[str, Any]) -> bool:
+    """Return true only for a checked legacy-only production manifest."""
+    return "artifacts" not in production_manifest
+
+
+def release_asset_names(manifest: dict[str, Any]) -> list[str]:
+    """Return the exact rootfs assets named by the signed manifest."""
+    if "artifacts" not in manifest:
+        record = manifest.get("artifact")
+        if not isinstance(record, dict) or record.get("filename") != ARTIFACT_NAME:
+            raise ValueError("legacy release manifest has no canonical rootfs asset")
+        return [ARTIFACT_NAME]
+    records = manifest.get("artifacts")
+    if not isinstance(records, dict) or set(records) != set(ARCHITECTURES):
+        raise ValueError("manifest artifacts must contain exactly the seven supported architectures")
+    names: list[str] = []
+    for arch in ARCHITECTURES:
+        expected = f"openwrt-rootfs-{arch}.tar.gz"
+        record = records[arch]
+        if not isinstance(record, dict) or record.get("filename") != expected:
+            raise ValueError(f"manifest artifact filename for {arch} is not canonical")
+        names.append(expected)
+    legacy = manifest.get("artifact")
+    if legacy is not None:
+        if not isinstance(legacy, dict) or legacy.get("filename") != ARTIFACT_NAME:
+            raise ValueError("migration fallback filename is not canonical")
+        names.append(ARTIFACT_NAME)
+    if len(names) != len(set(names)):
+        raise ValueError("manifest contains duplicate release assets")
+    return names
+
+
+def compare_release_assets(manifest: dict[str, Any], candidate_dir: Path, downloaded_dir: Path) -> None:
+    names = release_asset_names(manifest)
+    candidate_dir = Path(candidate_dir)
+    downloaded_dir = Path(downloaded_dir)
+    for directory, label in ((candidate_dir, "candidate"), (downloaded_dir, "downloaded release")):
+        present = {
+            item.name for item in directory.iterdir()
+            if item.is_file() and (item.name == ARTIFACT_NAME or item.name.startswith("openwrt-rootfs-"))
+        }
+        if present != set(names):
+            raise ValueError(f"{label} has a missing or extra rootfs asset")
+    for name in names:
+        left = candidate_dir / name
+        right = downloaded_dir / name
+        if not filecmp.cmp(left, right, shallow=False):
+            raise ValueError(f"published asset {name} differs from the tested candidate")
 
 
 def technical_release_tag(source_sha: str) -> str:
@@ -141,6 +200,7 @@ def plan_publication(
         "base_current": controlled_tag,
         "base_seq": controlled_seq,
         "base_payload_sha": previous_sha,
+        "include_legacy_fallback": migration_fallback_required(controlled),
     }
 
 
@@ -178,7 +238,20 @@ def validate_candidate_metadata(
     upstream_commit = candidate.get("upstream_commit")
     if not isinstance(upstream_commit, str) or not SHA_RE.fullmatch(upstream_commit):
         raise ValueError("candidate upstream tag commit is malformed")
+    include_legacy = candidate.get("include_legacy_fallback")
+    if not isinstance(include_legacy, bool):
+        raise ValueError("candidate legacy fallback decision is missing or malformed")
     return candidate
+
+
+def validate_candidate_fallback_decision(
+    candidate: dict[str, Any], production_baseline: dict[str, Any]
+) -> bool:
+    expected = migration_fallback_required(production_baseline)
+    actual = candidate.get("include_legacy_fallback")
+    if not isinstance(actual, bool) or actual != expected:
+        raise ValueError("candidate legacy fallback decision does not match its checked production baseline")
+    return expected
 
 
 def production_manifest_state(manifest: dict[str, Any], candidate: dict[str, Any]) -> str:
@@ -371,9 +444,41 @@ def _candidate_info_command(args: argparse.Namespace) -> None:
         requested_seq=requested_seq if requested_seq is not None else raw_candidate.get("seq"),
     )
     with Path(args.output).open("w", encoding="utf-8", newline="\n") as stream:
-        for key in ("operation", "tag", "seq", "source_sha", "technical_tag", "technical_title", "product_tag", "upstream_commit", "base_current", "base_seq", "base_payload_sha"):
+        for key in ("operation", "tag", "seq", "source_sha", "technical_tag", "technical_title", "product_tag", "upstream_commit", "base_current", "base_seq", "base_payload_sha", "include_legacy_fallback"):
             value = candidate.get(key)
+            if key == "include_legacy_fallback":
+                value = "true" if value else "false"
             stream.write(f"{key}={'' if value is None else value}\n")
+
+
+def _migration_fallback_command(args: argparse.Namespace) -> None:
+    manifest = _read_json(args.manifest, "checked production manifest")
+    print("true" if migration_fallback_required(manifest) else "false")
+
+
+def _asset_list_command(args: argparse.Namespace) -> None:
+    for name in release_asset_names(_read_json(args.manifest, "signed manifest")):
+        print(name)
+
+
+def _compare_assets_command(args: argparse.Namespace) -> None:
+    compare_release_assets(
+        _read_json(args.manifest, "signed manifest"), args.candidate_dir, args.downloaded_dir
+    )
+    print("release assets match the exact candidate set")
+
+
+def _validate_fallback_command(args: argparse.Namespace) -> None:
+    candidate = validate_candidate_metadata(
+        _read_json(args.candidate, "candidate metadata"),
+        source_sha=args.source_sha,
+        requested_tag=args.tag,
+        requested_seq=args.seq,
+    )
+    include_legacy = validate_candidate_fallback_decision(
+        candidate, _read_json(args.manifest, "checked production baseline")
+    )
+    print("true" if include_legacy else "false")
 def validate_release_record(
     record: dict[str, Any],
     *,
@@ -478,6 +583,28 @@ def parser() -> argparse.ArgumentParser:
     candidate.add_argument("--seq", type=int)
     candidate.add_argument("--output", required=True, type=Path)
     candidate.set_defaults(func=_candidate_info_command)
+
+    migration_fallback = commands.add_parser("migration-fallback")
+    migration_fallback.add_argument("--manifest", required=True, type=Path)
+    migration_fallback.set_defaults(func=_migration_fallback_command)
+
+    asset_list = commands.add_parser("asset-list")
+    asset_list.add_argument("--manifest", required=True, type=Path)
+    asset_list.set_defaults(func=_asset_list_command)
+
+    compare_assets = commands.add_parser("compare-assets")
+    compare_assets.add_argument("--manifest", required=True, type=Path)
+    compare_assets.add_argument("--candidate-dir", required=True, type=Path)
+    compare_assets.add_argument("--downloaded-dir", required=True, type=Path)
+    compare_assets.set_defaults(func=_compare_assets_command)
+
+    validate_fallback = commands.add_parser("validate-fallback")
+    validate_fallback.add_argument("--candidate", required=True, type=Path)
+    validate_fallback.add_argument("--manifest", required=True, type=Path)
+    validate_fallback.add_argument("--source-sha", required=True)
+    validate_fallback.add_argument("--tag", required=True)
+    validate_fallback.add_argument("--seq", required=True, type=int)
+    validate_fallback.set_defaults(func=_validate_fallback_command)
 
     release = commands.add_parser("check-release")
     release.add_argument("--record", required=True, type=Path)

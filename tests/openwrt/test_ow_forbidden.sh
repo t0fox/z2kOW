@@ -41,6 +41,8 @@ for _f in "$REPO"/platform/openwrt/*.sh \
         | grep -v '\.z2k-tree-dirty' \
         | grep -v '\.z2k-relay-id' \
         | grep -v 'Z2K_ZAPRET2_RUNTIME.*:-/opt/zapret2' \
+        | grep -vF '/opt/zapret2|/usr/bin/z2kow' \
+        | grep -v '\$_stage/opt/zapret2/binaries' \
         | grep -inE 'keenetic|S99|(^|[^a-zA-Z])PPE([^a-zA-Z]|$)|watchdog|Entware|/opt/|(^|[^a-zA-Z_])ndm([^a-zA-Z_]|$)' || true)"
     if [ "$(basename "$_f")" = "tg-retire-udp.sh" ]; then
         _h="$(printf '%s\n' "$_h" \

@@ -154,6 +154,77 @@ class PublicationPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "advanced beyond the candidate baseline"):
             MODULE.production_manifest_state(stale, candidate)
 
+    def test_transition_fallback_decision_comes_from_the_checked_production_manifest_shape(self) -> None:
+        legacy = controlled_manifest()
+        self.assertTrue(MODULE.migration_fallback_required(legacy))
+
+        per_arch = controlled_manifest()
+        per_arch.pop("artifact")
+        per_arch["artifacts"] = {
+            arch: {
+                "filename": f"openwrt-rootfs-{arch}.tar.gz",
+                "url": f"https://github.com/t0fox/z2kOW/releases/download/openwrt-{SOURCE_A}/openwrt-rootfs-{arch}.tar.gz",
+                "sha256": "f" * 64,
+                "size_bytes": 123,
+                "unpacked_size_bytes": 456,
+            }
+            for arch in ("arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64")
+        }
+        self.assertFalse(MODULE.migration_fallback_required(per_arch))
+
+        candidate = self.plan("hotfix")
+        self.assertTrue(candidate["include_legacy_fallback"])
+        candidate["include_legacy_fallback"] = False
+        with self.assertRaisesRegex(ValueError, "legacy fallback decision"):
+            MODULE.validate_candidate_fallback_decision(candidate, legacy)
+
+    def test_per_arch_only_manifest_preserves_technical_source_sha_for_hotfix_planning(self) -> None:
+        manifest = controlled_manifest()
+        manifest.pop("artifact")
+        manifest["artifacts"] = {
+            arch: {
+                "filename": f"openwrt-rootfs-{arch}.tar.gz",
+                "url": f"https://github.com/t0fox/z2kOW/releases/download/openwrt-{SOURCE_C}/openwrt-rootfs-{arch}.tar.gz",
+                "sha256": "f" * 64,
+                "size_bytes": 123,
+                "unpacked_size_bytes": 456,
+            }
+            for arch in ("arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64")
+        }
+        self.assertEqual(MODULE.previous_payload_source_sha(manifest), SOURCE_C)
+        planned = self.plan("hotfix", controlled=manifest)
+        self.assertEqual(planned["base_payload_sha"], SOURCE_C)
+        self.assertFalse(planned["include_legacy_fallback"])
+
+    def test_release_asset_set_is_exact_and_publication_comparison_covers_each_archive(self) -> None:
+        architectures = ("arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64")
+        manifest = {"artifacts": {
+            arch: {"filename": f"openwrt-rootfs-{arch}.tar.gz"} for arch in architectures
+        }}
+        self.assertEqual(
+            MODULE.release_asset_names(manifest),
+            [f"openwrt-rootfs-{arch}.tar.gz" for arch in architectures],
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            candidate = root / "candidate"
+            downloaded = root / "downloaded"
+            candidate.mkdir()
+            downloaded.mkdir()
+            for index, arch in enumerate(architectures):
+                name = f"openwrt-rootfs-{arch}.tar.gz"
+                content = f"archive {index}".encode()
+                (candidate / name).write_bytes(content)
+                (downloaded / name).write_bytes(content)
+            MODULE.compare_release_assets(manifest, candidate, downloaded)
+            (downloaded / "openwrt-rootfs-x86_64.tar.gz").write_bytes(b"different")
+            with self.assertRaisesRegex(ValueError, "differs from the tested candidate"):
+                MODULE.compare_release_assets(manifest, candidate, downloaded)
+            (downloaded / "openwrt-rootfs-x86_64.tar.gz").write_bytes(b"archive 2")
+            (downloaded / "openwrt-rootfs-other.tar.gz").write_bytes(b"extra")
+            with self.assertRaisesRegex(ValueError, "missing or extra rootfs asset"):
+                MODULE.compare_release_assets(manifest, candidate, downloaded)
+
     def test_technical_release_is_published_as_prerelease_and_never_latest(self) -> None:
         publisher = (ROOT / "scripts/openwrt/publish_release.sh").read_text(encoding="utf-8")
         self.assertRegex(publisher, r"(?s)gh release create .*?--draft --prerelease --latest=false")
@@ -263,8 +334,8 @@ class PublicationPolicyTests(unittest.TestCase):
             self.assertIn(required, publish)
         self.assertIn("name: openwrt-production", publish)
         self.assertIn("scripts/openwrt/check_immutable_releases.py", publisher)
-        self.assertIn('cmp -s "$ARTIFACT" "$public_assets/openwrt-rootfs.tar.gz"', publisher)
-        self.assertIn('sha256sum "$public_assets/openwrt-rootfs.tar.gz"', publisher)
+        self.assertIn('--artifact-dir "$CANDIDATE"', publisher)
+        self.assertIn('assets_from_manifest', publisher)
         self.assertIn("isImmutable", publisher)
         self.assertIn("isImmutable", policy)
 

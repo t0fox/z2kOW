@@ -13,7 +13,7 @@ z2k_ow_retire_discovery() {
            || ! grep -Fqx '# /etc/init.d/z2k-detect - reactive DPI-discovery daemon (parity S98z2k-detect).' "$_init" 2>/dev/null \
            || ! grep -Fqx '# PACKAGE-owned.' "$_init" 2>/dev/null \
            || ! grep -Fqx 'START=98' "$_init" 2>/dev/null; then
-            echo "z2k-openwrt: сохранён неизвестный init-скрипт прежней установки: $_init" >&2
+            echo "z2k-openwrt: сохранён неизвестный скрипт запуска прежней установки: $_init" >&2
         else
             _owned_init=1
             if [ -x "$_init" ]; then
@@ -98,14 +98,14 @@ z2k_ow_bootstrap() {
     fi
     if [ ! -L "$Z2K_ROOT/config" ]; then
         [ ! -e "$Z2K_ROOT/config" ] || {
-            echo "z2k-openwrt: $Z2K_ROOT/config существует и не симлинк" >&2
+            echo "z2k-openwrt: $Z2K_ROOT/config существует и не является символической ссылкой" >&2
             return 1
         }
         ln -s "$Z2K_CONFIG" "$Z2K_ROOT/config" || return 1
     fi
     if [ ! -L "$Z2K_LISTS_DIR/whitelist.txt" ]; then
         [ ! -e "$Z2K_LISTS_DIR/whitelist.txt" ] || {
-            echo "z2k-openwrt: lists/whitelist.txt существует и не симлинк" >&2
+            echo "z2k-openwrt: lists/whitelist.txt существует и не является символической ссылкой" >&2
             return 1
         }
         [ -e "$Z2K_USER_LISTS/whitelist.txt" ] || : > "$Z2K_USER_LISTS/whitelist.txt" || return 1
@@ -131,7 +131,7 @@ z2k_ow_bootstrap() {
     for _f in zapret-lib.lua zapret-antidpi.lua zapret-auto.lua; do
         if [ ! -f "$Z2K_ZAPRET2_RUNTIME/lua/$_f" ] && \
            [ ! -f "$Z2K_ZAPRET2_RUNTIME/lua/$_f.gz" ]; then
-            echo "z2k-openwrt: предупреждение: нет runtime lua/$_f" >&2
+            echo "z2k-openwrt: предупреждение: отсутствует среда выполнения Lua: lua/$_f" >&2
         fi
     done
 }

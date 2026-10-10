@@ -215,7 +215,7 @@ Z2K_TEST_BAD_SIGNATURE=1 sh "$INSTALLER" > "$T/bad-signature.out" 2>&1 && _t_bad
 assert_contains "bad signature is rejected by Ed25519 verification" "$T/bad-signature.out" "подпись проверенного UPDATES.json неверна"
 Z2K_TEST_BAD_SIGNATURE=0 Z2K_TEST_BAD_ARTIFACT=1 sh "$INSTALLER" > "$T/bad-artifact.out" 2>&1 && _t_bad "bad artifact was accepted"
 [ -f "$T/install-call" ] && _t_bad "bad artifact reached install_release" || _t_ok
-assert_contains "same-size altered artifact is rejected by SHA-256" "$T/bad-artifact.out" "SHA-256 rootfs не совпал"
+assert_contains "изменённый архив того же размера отклоняется по SHA-256" "$T/bad-artifact.out" "SHA-256 архива файлов роутера не совпал"
 
 # Даже корректно подписанный архив не должен извлекать движок через опасную ссылку.
 cp -a "$T/payload" "$T/unsafe-payload"

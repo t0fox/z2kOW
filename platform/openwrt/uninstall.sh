@@ -1,6 +1,6 @@
 #!/bin/sh
-# Canonical OpenWrt implementation of the upstream `uninstall` action.
-# This file is shared by `z2kow uninstall` and the confirmed WebPanel job.
+# Основной сценарий удаления z2kOW для OpenWrt.
+# Его вызывают `z2kow uninstall` и подтверждённая задача панели управления.
 
 _z2k_ow_uninstall_progress() {
     [ -n "${Z2K_JOB_ID:-}" ] || return 0
@@ -16,7 +16,7 @@ z2k_ow_uninstall_paths_load() {
     local _root="${Z2K_ROOT:-/usr/lib/z2k}" _adapter
     _adapter="${Z2K_ADAPTER_DIR:-$_root/platform/openwrt}"
     [ -r "$_adapter/paths.sh" ] && . "$_adapter/paths.sh" || {
-        echo "z2k-openwrt: adapter paths are unavailable; refusing uninstall" >&2
+        echo "z2k-openwrt: системные пути OpenWrt недоступны; удаление остановлено" >&2
         return 1
     }
     . "$_adapter/env.sh" || return 1
@@ -40,12 +40,12 @@ _z2k_ow_uninstall_path_is_safe() {
     _expected="$_suffix"
     [ -z "${Z2K_OW_SYSROOT:-}" ] || _expected="${Z2K_OW_SYSROOT%/}${_suffix}"
     [ "$_path" = "$_expected" ] || {
-        echo "z2k-openwrt: refusing unsafe uninstall path: $_path (expected $_expected)" >&2
+        echo "z2k-openwrt: небезопасный путь удаления: $_path (ожидался $_expected); удаление остановлено" >&2
         return 1
     }
     case "$_path" in
         /|*//*|*/../*|*/..|*/./*|*/.)
-            echo "z2k-openwrt: refusing non-canonical uninstall path: $_path" >&2
+            echo "z2k-openwrt: путь удаления не совпадает с ожидаемым: $_path; удаление остановлено" >&2
             return 1
             ;;
     esac
@@ -73,7 +73,7 @@ _z2k_ow_uninstall_validate_paths() {
     _z2k_ow_uninstall_path_is_safe "$Z2K_OW_CLI_FILE" /usr/bin/z2kow || return 1
     _z2k_ow_uninstall_path_is_safe "$Z2K_OW_INSTALL_RELEASE_FILE" /usr/sbin/install_release || return 1
     [ "$WARP_DEVICE" = "$Z2K_STATE/warp/device.json" ] || {
-        echo "z2k-openwrt: refusing WARP identity outside canonical state: $WARP_DEVICE" >&2
+        echo "z2k-openwrt: данные регистрации WARP находятся вне ожидаемого каталога: $WARP_DEVICE; удаление остановлено" >&2
         return 1
     }
     _z2k_ow_uninstall_path_is_safe "$WARP_DEVICE" "$Z2K_OW_CANON_WARP_DEVICE_SUFFIX" || return 1
@@ -82,7 +82,7 @@ _z2k_ow_uninstall_validate_paths() {
         "$Z2K_WARP_TMP" "$Z2K_OW_INSTALL_TMP" "$Z2K_OW_INSTALL_WORK" \
         "$Z2K_OW_ROLLBACK_DIR"; do
         if [ -L "$_dir" ]; then
-            echo "z2k-openwrt: refusing symlink at owned uninstall directory $_dir" >&2
+            echo "z2k-openwrt: принадлежащий z2kOW каталог является символической ссылкой: $_dir; удаление остановлено" >&2
             return 1
         fi
     done
@@ -146,7 +146,7 @@ _z2k_ow_uninstall_stop_owned_nfqws() {
             sleep 1
         fi
         [ ! -e "$_proc/exe" ] || {
-            echo "z2k-openwrt: cannot stop z2k-owned nfqws2 process $_pid" >&2
+            echo "z2k-openwrt: не удалось остановить процесс nfqws2, принадлежащий z2kOW (номер $_pid)" >&2
             return 1
         }
     done
@@ -158,11 +158,11 @@ _z2k_ow_uninstall_fw4_include() {
     local _rule="${WARP_FW4_RULE_COMMENT:-!z2k: WARP forwarded traffic}"
     local _nft="${Z2K_OW_NFT_BIN:-nft}" _reload="${Z2K_FW4_RELOAD:-/etc/init.d/firewall}"
     if ! command -v "$_nft" >/dev/null 2>&1 && [ ! -x "$_nft" ]; then
-        echo "z2k-openwrt: nft is unavailable; cannot verify fw4 cleanup" >&2
+        echo "z2k-openwrt: команда nft недоступна; невозможно проверить очистку правил fw4" >&2
         return 1
     fi
     _rules=$("$_nft" list ruleset 2>/dev/null) || {
-        echo "z2k-openwrt: nft could not inspect the fw4 ruleset" >&2
+        echo "z2k-openwrt: команда nft не смогла прочитать набор правил fw4" >&2
         return 1
     }
     if [ -e "$_file" ] || [ -L "$_file" ]; then
@@ -181,10 +181,10 @@ _z2k_ow_uninstall_fw4_include() {
     if [ "$_rc" != 0 ]; then
         if [ -n "$_saved" ]; then
             mv "$_saved" "$_file" 2>/dev/null || \
-                echo "z2k-openwrt: WARP firewall include backup remains at $_saved" >&2
+                echo "z2k-openwrt: резервная копия правил брандмауэра WARP осталась в $_saved" >&2
             "$_reload" reload >/dev/null 2>&1 || true
         fi
-        echo "z2k-openwrt: fw4 still has z2k WARP state; retry uninstall after firewall reload succeeds" >&2
+        echo "z2k-openwrt: в fw4 ещё остались правила WARP от z2kOW; повторите удаление после успешной перезагрузки брандмауэра" >&2
         return 1
     fi
     [ -z "$_saved" ] || rm -f "$_saved"
@@ -195,17 +195,17 @@ _z2k_ow_uninstall_preserve_warp_move() {
     local _warp_dir _backup _moved=0
     _warp_dir=$(dirname "$WARP_DEVICE")
     _backup="${Z2K_ETC}.warp-preserve"
-    [ ! -L "$_warp_dir" ] || { echo "z2k-openwrt: WARP state path is a symlink; refusing uninstall" >&2; return 1; }
+    [ ! -L "$_warp_dir" ] || { echo "z2k-openwrt: каталог состояния WARP является символической ссылкой; удаление остановлено" >&2; return 1; }
     [ ! -e "$_warp_dir" ] || [ -d "$_warp_dir" ] || {
-        echo "z2k-openwrt: WARP state path is not a directory; refusing uninstall" >&2
+        echo "z2k-openwrt: путь состояния WARP не является каталогом; удаление остановлено" >&2
         return 1
     }
     [ ! -L "$_backup" ] && { [ ! -e "$_backup" ] || [ -d "$_backup" ]; } || {
-        echo "z2k-openwrt: invalid WARP preservation path: $_backup" >&2
+        echo "z2k-openwrt: неверный путь для сохранения состояния WARP: $_backup" >&2
         return 1
     }
     if [ -d "$_warp_dir" ] && [ -d "$_backup" ]; then
-        echo "z2k-openwrt: both WARP state and interrupted preservation exist; refusing to choose" >&2
+        echo "z2k-openwrt: одновременно найдены состояние WARP и незавершённая резервная копия; удаление остановлено для ручной проверки" >&2
         return 1
     fi
     if [ -d "$_warp_dir" ]; then
@@ -217,18 +217,18 @@ _z2k_ow_uninstall_preserve_warp_move() {
             if [ "$_moved" = 1 ]; then
                 mkdir -p "$(dirname "$_warp_dir")" 2>/dev/null
                 mv "$_backup" "$_warp_dir" 2>/dev/null || \
-                    echo "z2k-openwrt: WARP state preserved at $_backup" >&2
+                    echo "z2k-openwrt: состояние WARP сохранено в $_backup" >&2
             fi
             return 1
         }
     fi
     if [ -d "$_backup" ]; then
         mkdir -p "$(dirname "$_warp_dir")" || {
-            echo "z2k-openwrt: WARP state preserved at $_backup" >&2
+            echo "z2k-openwrt: состояние WARP сохранено в $_backup" >&2
             return 1
         }
         mv "$_backup" "$_warp_dir" || {
-            echo "z2k-openwrt: WARP state preserved at $_backup" >&2
+            echo "z2k-openwrt: состояние WARP сохранено в $_backup" >&2
             return 1
         }
     fi
@@ -243,11 +243,11 @@ _z2k_ow_uninstall_service() {
         return 0
     fi
     [ ! -L "$_service" ] || {
-        echo "z2k-openwrt: refusing to execute symlinked $_label service: $_service" >&2
+        echo "z2k-openwrt: скрипт службы $_label является символической ссылкой: $_service; запуск остановлен" >&2
         return 1
     }
     [ -x "$_service" ] || {
-        echo "z2k-openwrt: owned $_label service is not executable: $_service" >&2
+        echo "z2k-openwrt: скрипт принадлежащей z2kOW службы $_label нельзя запустить: $_service" >&2
         return 1
     }
     "$_service" disable >/dev/null 2>&1 || return 1
@@ -259,7 +259,7 @@ _z2k_ow_uninstall_verify_processes() {
     for _fn in z2k_ow_tg_running z2k_ow_rt_running warp_running wp_panel_running; do
         command -v "$_fn" >/dev/null 2>&1 || continue
         if "$_fn" >/dev/null 2>&1; then
-            echo "z2k-openwrt: $_fn still reports a z2k-owned process after stop" >&2
+            echo "z2k-openwrt: после остановки служба $_fn всё ещё сообщает о процессе z2kOW" >&2
             return 1
         fi
     done
@@ -270,7 +270,7 @@ _z2k_ow_uninstall_cleanup_trap() {
     local _rc=$?
     if [ -n "${_Z2K_OW_UNINSTALL_LOCK:-}" ]; then
         z2k_ow_install_lock_release "$_Z2K_OW_UNINSTALL_LOCK" || {
-            echo "z2k-openwrt: could not release install lock $_Z2K_OW_UNINSTALL_LOCK" >&2
+            echo "z2k-openwrt: не удалось снять блокировку удаления $_Z2K_OW_UNINSTALL_LOCK" >&2
             [ "$_rc" -ne 0 ] || _rc=1
         }
     fi
@@ -296,11 +296,11 @@ z2k_ow_uninstall() (
 
     _z2k_ow_uninstall_validate_paths || return 1
     _z2k_ow_uninstall_has_owned_install || {
-        echo "z2k-openwrt: z2kOW is already uninstalled"
+        echo "z2k-openwrt: z2kOW уже удалён"
         return 0
     }
     if [ "${Z2K_OW_TESTING:-0}" != 1 ] && [ "$(id -u 2>/dev/null || echo 1)" != 0 ]; then
-        echo "z2k-openwrt: uninstall must run as root" >&2
+        echo "z2k-openwrt: удаление нужно запускать от имени суперпользователя" >&2
         return 1
     fi
 
@@ -318,12 +318,12 @@ z2k_ow_uninstall() (
         return 1
     }
 
-    # Remove future cron launches first, then disable and stop every procd
-    # owner while its adapters and state are still present.
-    _z2k_ow_uninstall_progress "снимаю расписания и останавливаю panel/core службы"
+    # Сначала удалить задания cron, затем остановить службы, пока доступны их
+    # адаптеры и состояние.
+    _z2k_ow_uninstall_progress "снимаю расписания и останавливаю основную службу и панель управления"
     _z2k_ow_uninstall_remove_cron || _rc=1
-    _z2k_ow_uninstall_service "$Z2K_OW_PANEL_INIT" WebPanel || _rc=1
-    _z2k_ow_uninstall_service "$Z2K_OW_CORE_INIT" core || _rc=1
+    _z2k_ow_uninstall_service "$Z2K_OW_PANEL_INIT" "панели управления" || _rc=1
+    _z2k_ow_uninstall_service "$Z2K_OW_CORE_INIT" "основной службы" || _rc=1
     _z2k_ow_uninstall_stop_owned_nfqws || _rc=1
     _z2k_ow_uninstall_verify_processes || _rc=1
 
@@ -344,12 +344,12 @@ z2k_ow_uninstall() (
         if command -v z2k_ow_offload_restore >/dev/null 2>&1; then
             z2k_ow_offload_restore || _rc=1
         else
-            echo "z2k-openwrt: cannot restore the saved fw4 offload settings" >&2
+            echo "z2k-openwrt: не удалось восстановить сохранённые параметры ускорения fw4" >&2
             _rc=1
         fi
     fi
     if [ "$_rc" != 0 ]; then
-        echo "z2k-openwrt: service or owned firewall cleanup failed; product files retained for a safe retry" >&2
+        echo "z2k-openwrt: не удалось остановить службы или очистить принадлежащие z2kOW правила брандмауэра; файлы оставлены для безопасного повтора" >&2
         return 1
     fi
 
@@ -358,33 +358,33 @@ z2k_ow_uninstall() (
     # directory lives outside the removed tree and survives; move that one small
     # directory aside on the same filesystem, remove /etc/z2k, then restore it.
     _z2k_ow_uninstall_preserve_warp_move || {
-        echo "z2k-openwrt: cannot safely preserve WARP registration state; product files retained" >&2
+        echo "z2k-openwrt: не удалось безопасно сохранить данные регистрации WARP; файлы программы оставлены" >&2
         return 1
     }
 
-    _z2k_ow_uninstall_progress "удаляю runtime, rollback-снимок и временные файлы"
-    rm -rf "$Z2K_OW_INSTALL_WORK" || { echo "z2k-openwrt: cannot remove install transaction workspace" >&2; return 1; }
-    rm -rf "$Z2K_OW_ROLLBACK_DIR" || { echo "z2k-openwrt: cannot remove rollback snapshot" >&2; return 1; }
-    rm -rf "$Z2K_ZAPRET2_RUNTIME" || { echo "z2k-openwrt: cannot remove owned zapret2 runtime" >&2; return 1; }
+    _z2k_ow_uninstall_progress "удаляю рабочие файлы, резервную копию для отката и временные данные"
+    rm -rf "$Z2K_OW_INSTALL_WORK" || { echo "z2k-openwrt: не удалось удалить рабочие данные транзакции установки" >&2; return 1; }
+    rm -rf "$Z2K_OW_ROLLBACK_DIR" || { echo "z2k-openwrt: не удалось удалить резервную копию для отката" >&2; return 1; }
+    rm -rf "$Z2K_ZAPRET2_RUNTIME" || { echo "z2k-openwrt: не удалось удалить принадлежащие z2kOW рабочие файлы zapret2" >&2; return 1; }
     rm -rf "$Z2K_TMP" "$Z2K_WARP_TMP" "$Z2K_OW_INSTALL_TMP" || {
-        echo "z2k-openwrt: cannot remove z2k runtime/cache staging" >&2
+        echo "z2k-openwrt: не удалось удалить временные файлы программы и её кэш" >&2
         return 1
     }
     rm -f "$Z2K_OW_HOTPLUG_FILE" "$Z2K_OW_SYSCTL_FILE" \
         "$Z2K_OW_WARP_NFT_FILE" "$Z2K_OW_CLI_FILE" "$Z2K_OW_INSTALL_RELEASE_FILE" || {
-        echo "z2k-openwrt: cannot remove owned OpenWrt hooks or commands" >&2
+        echo "z2k-openwrt: не удалось удалить принадлежащие z2kOW команды или сценарии OpenWrt" >&2
         return 1
     }
     rm -f "$Z2K_OW_PANEL_INIT" "$Z2K_OW_CORE_INIT" || {
-        echo "z2k-openwrt: cannot remove owned procd init scripts" >&2
+        echo "z2k-openwrt: не удалось удалить принадлежащие z2kOW скрипты запуска procd" >&2
         return 1
     }
     _z2k_ow_uninstall_progress "удаляю payload z2kOW; сохранённая регистрация WARP остаётся на месте"
     rm -rf "$Z2K_ROOT" || {
-        echo "z2k-openwrt: cannot remove the z2kOW release payload" >&2
+        echo "z2k-openwrt: не удалось удалить файлы установленного выпуска z2kOW" >&2
         return 1
     }
-    echo "z2k-openwrt: uninstall complete; WARP registration state preserved at $WARP_DEVICE"
+    echo "z2k-openwrt: удаление завершено; данные регистрации WARP сохранены в $WARP_DEVICE"
     return 0
 )
 
@@ -405,7 +405,7 @@ z2k_ow_uninstall_confirm() {
 z2k_ow_uninstall_async() {
     local _script="${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/uninstall.sh"
     local _job_id _base
-    [ -r "$_script" ] || { echo "z2k-openwrt: canonical uninstall script unavailable: $_script" >&2; return 1; }
+    [ -r "$_script" ] || { echo "z2k-openwrt: основной сценарий удаления недоступен: $_script" >&2; return 1; }
     _job_id="$(date +%s)$$"
     _base="${Z2K_JOB_DIR:-${Z2K_OW_CANON_JOB_PREFIX%/*}}/z2k-job-${_job_id}"
     [ "${Z2K_OW_TESTING:-0}" != 1 ] || _base="${Z2K_JOB_PREFIX:-$_base}"
@@ -424,24 +424,24 @@ z2k_ow_uninstall_main() {
     local _mode="${1:-cli}"
     case "$_mode" in
         --worker)
-            [ "$#" -eq 1 ] || { echo 'usage: uninstall.sh --worker' >&2; return 2; }
+            [ "$#" -eq 1 ] || { echo 'Использование: uninstall.sh --worker' >&2; return 2; }
             [ "${Z2K_UNINSTALL_CONFIRMED:-}" = 1 ] || {
-                echo "z2k-openwrt: background uninstall requires server-side confirmation" >&2
+                echo "z2k-openwrt: для фонового удаления требуется подтверждение через панель управления" >&2
                 return 2
             }
             z2k_ow_uninstall_paths_load || return 1
             z2k_ow_uninstall
             ;;
         cli)
-            [ "$#" -eq 0 ] || { shift; [ "$#" -eq 0 ] || { echo 'usage: z2kow uninstall' >&2; return 2; }; }
+            [ "$#" -eq 0 ] || { shift; [ "$#" -eq 0 ] || { echo 'Использование: z2kow uninstall' >&2; return 2; }; }
             if [ "${Z2K_UNINSTALL_CONFIRMED:-}" != 1 ] && ! z2k_ow_uninstall_confirm; then
-                echo "z2k-openwrt: uninstall cancelled"
+                echo "z2k-openwrt: удаление отменено"
                 return 0
             fi
             z2k_ow_uninstall_paths_load || return 1
             z2k_ow_uninstall
             ;;
-        *) echo 'usage: z2kow uninstall' >&2; return 2 ;;
+        *) echo 'Использование: z2kow uninstall' >&2; return 2 ;;
     esac
 }
 
