@@ -1569,7 +1569,7 @@ body[data-page="login"] #app { max-width: none; }
   letter-spacing: .035em;
 }
 .unique-set-card h3 { margin: 0 0 8px; }
-.unique-set-status { min-height: 0; margin: 8px 0 0; }
+.unique-set-status { min-height: 0; margin: 8px 0 0; white-space: pre-line; }
 .unique-set-status:empty { display: none; }
 
 .policy-help summary {

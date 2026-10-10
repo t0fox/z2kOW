@@ -28,6 +28,10 @@ strategy_pick_run() {
         printf '{"verdict":"no_strategy"}\n' > "$STRATEGY_PICK_OUT"; return 0;
     }
     if [ "${UNIQUE_MISSING_STAGE:-}" = "$domain $mode" ]; then
+        if [ "$mode" = quic ]; then
+            printf '%s\n' '{"mode":"quic","tcp":null,"quic":{"verdict":"content","reason":"контроль отвечает, цель молчит","error_code":"GLOBAL_TIMEOUT","repeats":3,"probes":57,"trace":[{"name":"зонд:имя как есть","sent":3,"answered":0},{"name":"фальшивка fake_default_quic ×11","sent":3,"answered":1,"note":"ответов 1 из 3 — неустойчиво"}]},"voice":null}' > "$STRATEGY_PICK_OUT"
+            return 0
+        fi
         strategy=
     else
     case "$UNIQUE_CASE:$domain:$mode" in
@@ -116,6 +120,7 @@ strategy_pool_save_batch() {
         printf '%s=' "$pool" >> "$SAVE_LOG"
         cat "$staged/$pool.txt" >> "$SAVE_LOG"
     done
+    return "${SAVE_RC:-0}"
 }
 
 # Load the production orchestration functions. A missing function is the
@@ -253,11 +258,22 @@ for pool in yt_tcp gv_tcp quic rkn_tcp; do
     grep -q "^$pool=complete:$pool:" "$SAVE_LOG" && ok "$pool получает свой замер" || bad "$pool не получил свой замер"
 done
 
+SAVE_RC=37; export SAVE_RC
+: > "$CALL_LOG"; : > "$SAVE_LOG"; rm -f "$STRATEGY_PICK_OUT" "$STRATEGY_UNIQUE_RESULT_FILE" "$UNIQUE_SET_DIR"/*
+if strategy_unique_set_run > "$SB/batch-failure.log" 2>&1; then
+    bad 'ошибка batch-save вернула успех'
+else
+    rc=$?
+    [ "$rc" = 37 ] && ok 'ошибка batch-save сохранила исходный код 37' || bad "ошибка batch-save вернула код $rc вместо 37"
+fi
+[ ! -e "$STRATEGY_UNIQUE_RESULT_FILE" ] && ok 'ошибка batch-save не создаёт отчёт об успехе' || bad 'ошибка batch-save записала отчёт об успехе'
+SAVE_RC=0; export SAVE_RC
+
 modern_calls=$(printf 'i.ytimg.com mixed 142.250.74.182 142.250.74.214\ngooglevideo.com mixed 142.250.74.182 142.250.74.214\ninstagram.com quic - -\ndiscord.com tcp13 - -\ninstagram.com tcp13 - -\nrutor.org tcp13 - -')
 DNS_FORMAT=modern; export DNS_FORMAT
 run_case common || bad 'современный BusyBox DNS должен пройти до полного набора'
 expect_calls "$modern_calls"
-grep -q 'Уникальный набор: i.ytimg.com (mixed), опорный IP 142.250.74.182; проверяю кандидата на обоих адресах' "$SB/run.log" && ok 'современный nslookup доходит до первого общего замера' || bad 'современный nslookup завершился до strategy_pick_run'
+grep -q 'Этап: i.ytimg.com (mixed), ищу от 142.250.74.182 и проверяю кандидаты на всех адресах' "$SB/run.log" && ok 'современный nslookup доходит до первого общего замера' || bad 'современный nslookup завершился до strategy_pick_run'
 DNS_FORMAT=legacy; export DNS_FORMAT
 
 UNIQUE_CDN_SHARED=googlevideo.com; export UNIQUE_CDN_SHARED
@@ -274,7 +290,8 @@ if strategy_unique_set_worker > "$SB/one-ip.log" 2>&1; then bad 'один CDN-IP
 [ ! -s "$SAVE_LOG" ] && ok 'при одном IP пулы не меняются' || bad 'при одном IP вызван batch save'
 [ ! -s "$CALL_LOG" ] && ok 'при одном IP detector не запускается' || bad 'при одном IP detector был запущен'
 grep -q 'найден только один уникальный IPv4' "$SB/one-ip.log" && ok 'один IP получает конкретную причину отказа' || bad 'причина отказа для одного IP не указана'
-grep -Fq '"ok":false' "$STRATEGY_UNIQUE_RESULT_FILE" && grep -q 'найден только один уникальный IPv4' "$STRATEGY_UNIQUE_RESULT_FILE" && ok 'результат задачи сохраняет ошибку одного IP' || bad 'результат задачи не содержит причину одного IP'
+[ -s "$STRATEGY_UNIQUE_RESULT_FILE" ] && grep -Fq 'найден только один уникальный IPv4' "$STRATEGY_UNIQUE_RESULT_FILE" \
+    && ok 'ошибка одного IP сохраняется для интерфейса' || bad 'ошибка одного IP не сохранена для интерфейса'
 
 DNS_ONE_IP=0; DNS_FORMAT=unsupported
 export DNS_ONE_IP DNS_FORMAT
@@ -319,7 +336,8 @@ unset Z2K_NSLOOKUP_BIN
 : > "$CALL_LOG"; : > "$SAVE_LOG"; rm -f "$STRATEGY_PICK_OUT" "$STRATEGY_UNIQUE_RESULT_FILE" "$UNIQUE_SET_DIR"/*
 if strategy_unique_set_worker > "$SB/unparsed-dns.log" 2>&1; then bad 'неизвестный DNS формат принят'; else ok 'неизвестный DNS формат остановил набор'; fi
 grep -q 'i.ytimg.com: DNS вернул 2 IPv4, parser распознал 0' "$SB/unparsed-dns.log" && ok 'job log объясняет разницу DNS/parser' || bad 'job log не показывает причину несовпадения parser'
-grep -Fq '"error":"i.ytimg.com: DNS вернул 2 IPv4, parser распознал 0"' "$STRATEGY_UNIQUE_RESULT_FILE" && ok 'result сохраняет краткую DNS-диагностику' || bad 'result не сохраняет DNS-диагностику'
+[ -s "$STRATEGY_UNIQUE_RESULT_FILE" ] && grep -Fq 'parser распознал 0' "$STRATEGY_UNIQUE_RESULT_FILE" \
+    && ok 'ошибка DNS сохраняется для интерфейса' || bad 'ошибка DNS не сохранена для интерфейса'
 [ ! -s "$CALL_LOG" ] && [ ! -s "$SAVE_LOG" ] && ok 'ошибка DNS не запускает detector и batch save' || bad 'ошибка DNS вызвала замер или запись пулов'
 DNS_FORMAT=legacy; export DNS_FORMAT
 
@@ -329,6 +347,25 @@ grep -q '"coverage":"Discord-fallback"' "$STRATEGY_UNIQUE_RESULT_FILE" && ok 'в
 
 run_case missing-optional || bad 'отсутствие optional домена должно дать fallback'
 grep -q '^rkn_tcp=complete:rkn_tcp:required-measured$' "$SAVE_LOG" && ok 'нет Instagram/Rutor — используется Discord' || bad 'optional-отсутствие не обработано'
+
+UNIQUE_CASE=common; UNIQUE_MISSING_STAGE='instagram.com quic'; export UNIQUE_CASE UNIQUE_MISSING_STAGE
+: > "$CALL_LOG"; : > "$SAVE_LOG"; rm -f "$STRATEGY_PICK_OUT" "$STRATEGY_UNIQUE_RESULT_FILE" "$UNIQUE_SET_DIR"/*
+if strategy_unique_set_worker > "$SB/quic-diagnostic.log" 2>&1; then
+    bad 'отсутствие QUIC-стратегии принято'
+else
+    rc=$?
+    [ "$rc" = 20 ] && ok 'отсутствие QUIC-стратегии сохраняет код стадии' || bad "QUIC-отказ вернул код $rc вместо 20"
+fi
+grep -Fq '"measurement":{"mode":"quic"' "$STRATEGY_UNIQUE_RESULT_FILE" \
+    && grep -Fq '"verdict":"content"' "$STRATEGY_UNIQUE_RESULT_FILE" \
+    && grep -Fq '"reason":"контроль отвечает, цель молчит"' "$STRATEGY_UNIQUE_RESULT_FILE" \
+    && grep -Fq '"error_code":"GLOBAL_TIMEOUT"' "$STRATEGY_UNIQUE_RESULT_FILE" \
+    && grep -Fq '"answered":1' "$STRATEGY_UNIQUE_RESULT_FILE" \
+    && grep -Fq '"note":"ответов 1 из 3 — неустойчиво"' "$STRATEGY_UNIQUE_RESULT_FILE" \
+    && ok 'результат отказа сохраняет QUIC-вердикт, причину, код и трассу' \
+    || bad 'результат отказа потерял QUIC-диагностику'
+[ ! -s "$SAVE_LOG" ] && ok 'QUIC-диагностика не применяет частичный набор' || bad 'QUIC-отказ запустил частичное применение'
+UNIQUE_MISSING_STAGE=; export UNIQUE_MISSING_STAGE
 
 run_case common-space || bad 'нормализованное пересечение должно примениться'
 grep -q '^rkn_tcp=complete:rkn_tcp:shared rkn$' "$SAVE_LOG" && ok 'сравнение сворачивает повторные и краевые пробелы' || bad 'whitespace-нормализация не совпала'
@@ -475,7 +512,16 @@ else
     bad 'README не объясняет назначение внешних probe-целей'
 fi
 grep -q 'специально для вашего провайдера' "$ROOT/webpanel/www/js/pages/strategies.js" && ok 'UI сохраняет согласованное короткое описание' || bad 'UI description changed unexpectedly'
-grep -q 'Последний набор не применён' "$ROOT/webpanel/www/js/pages/strategies.js" && grep -q 'Причина:' "$ROOT/webpanel/www/js/pages/strategies.js" && grep -q 'result.error' "$ROOT/webpanel/www/js/pages/strategies.js" && ok 'UI показывает сохранённую краткую причину отказа' || bad 'UI продолжает скрывать причину отказа'
+grep -Fq 'function formatUniqueSetFailure(result' "$ROOT/webpanel/www/js/pages/strategies.js" \
+    && grep -Fq 'quic.error_code' "$ROOT/webpanel/www/js/pages/strategies.js" \
+    && grep -Fq 'outcomes[verdict]' "$ROOT/webpanel/www/js/pages/strategies.js" \
+    && grep -Fq 'ошибка выполнения QUIC-пробы' "$ROOT/webpanel/www/js/pages/strategies.js" \
+    && grep -Fq 'Обнаруженные приёмы:' "$ROOT/webpanel/www/js/pages/strategies.js" \
+    && ok 'UI различает QUIC-вердикты и ошибки выполнения, показывает error_code и замеры' \
+    || bad 'UI не показывает QUIC-диагностику отказа'
+grep -q 'white-space: pre-line' "$ROOT/webpanel/www/style.css" && ok 'QUIC-диагностика отображается короткими строками' || bad 'строки диагностики сливаются в сплошной текст'
+grep -Fq 'Z2K_FAKE_DIR="${Z2K_FAKE_DIR:-${_z2k_bin_dir%/bin}/fake}"' "$ROOT/platform/openwrt/bin/z2k-detect" \
+    && ok 'OpenWrt wrapper передаёт Go-пробе каталог файлов z2k' || bad 'OpenWrt wrapper не настраивает каталог QUIC-файлов'
 sed -n '/^\.unique-set-badge {/,/^}/p' "$ROOT/webpanel/www/style.css" | grep -q 'background: #c62828' && ok 'экспериментальная пометка выделена красным' || bad 'экспериментальная пометка не выделена красным'
 
 printf '\nPASSED: %s\nFAILED: %s\n' "$PASS" "$FAIL"

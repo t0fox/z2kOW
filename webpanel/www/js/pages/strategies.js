@@ -207,14 +207,87 @@ function formatUniqueSetDuration(value) {
   return `${remainder} с`;
 }
 
+function formatUniqueSetFailure(result, duration = "") {
+  const elapsed = duration ? ` Подбор занял ${duration}.` : "";
+  const measurement = result && result.measurement;
+  const quic = measurement && measurement.quic;
+  if (!quic) {
+    const reason = result && typeof result.error === "string"
+      ? result.error.replace(/\s+/g, " ").slice(0, 240)
+      : "Подробности указаны в журнале задачи.";
+    return `Набор не применён.${elapsed}\nПричина: ${reason}`;
+  }
+
+  const verdictLabels = {
+    clear: "QUIC отвечает без обхода",
+    content: "блокировка зависит от имени",
+    address: "адрес или UDP-путь недоступен",
+    no_quic: "цель, вероятно, не обслуживает QUIC",
+    flaky: "результат не повторяется",
+    unreachable: "не получен пригодный IPv4-адрес",
+    local_address: "DNS вернул локальный адрес",
+  };
+  const verdict = typeof quic.verdict === "string" ? quic.verdict : "неизвестен";
+  const label = verdictLabels[verdict] || "результат требует проверки";
+  const reason = typeof quic.reason === "string"
+    ? quic.reason.replace(/\s+/g, " ").slice(0, 300)
+    : "причина в JSON замера отсутствует";
+  const code = typeof quic.error_code === "string" && quic.error_code ? quic.error_code : "нет";
+  const strategy = typeof quic.strategy === "string" && quic.strategy ? quic.strategy : "";
+  let outcome;
+  if (code !== "нет") {
+    outcome = `ошибка выполнения QUIC-пробы (${code})`;
+  } else if (strategy) {
+    outcome = `z2k-detect выдал стратегию, но QUIC-пул её не получил: ${strategy}`;
+  } else {
+    const outcomes = {
+      clear: "обход не нужен; для QUIC-цели стратегия не требуется",
+      content: "блокировка по имени подтверждена, но повторяемого исполнимого приёма нет",
+      address: "проба не подтвердила блокировку по имени; стратегия не выводится из недоступного адреса или UDP",
+      no_quic: "цель не ответила на QUIC Initial; по этому результату стратегию вывести нельзя",
+      flaky: "повторы дали разные результаты; стратегия не считается подтверждённой",
+      unreachable: "ошибка DNS или нет IPv4-адреса; QUIC-проба не началась",
+      local_address: "DNS вернул локальный адрес; измерение не проверяет внешний маршрут",
+    };
+    outcome = outcomes[verdict] || "z2k-detect не выдал исполнимую стратегию";
+  }
+  const trace = Array.isArray(quic.trace) ? quic.trace : [];
+  const target = trace.find(step => step && step.name === "зонд:имя как есть");
+  const candidates = trace.filter(step => step && typeof step.name === "string"
+    && /^(фальшивка|фрагментация|перед Initial|приветствие|тот же Initial)/.test(step.name)
+    && Number(step.sent) > 0);
+  const best = candidates.reduce((selected, step) => {
+    if (!selected) return step;
+    const currentRate = Number(step.answered || 0) / Number(step.sent || 1);
+    const selectedRate = Number(selected.answered || 0) / Number(selected.sent || 1);
+    return currentRate > selectedRate ? step : selected;
+  }, null);
+  let evidence = target
+    ? `целевой Initial ${Number(target.answered || 0)}/${Number(target.sent || 0)}`
+    : "целевой Initial не измерен";
+  if (best) {
+    evidence += `; лучшая проба ${best.name} ${Number(best.answered || 0)}/${Number(best.sent || 0)}`;
+    if (best.note) evidence += ` — ${String(best.note).replace(/\s+/g, " ").slice(0, 120)}`;
+  } else {
+    evidence += "; приёмы не измерены";
+  }
+  const address = typeof quic.addr === "string" && quic.addr ? `; адрес ${quic.addr}` : "";
+  const counts = `зондов ${Number(quic.probes || 0)}, повторов ${Number(quic.repeats || 0)}${address}; error_code ${code}`;
+  const targetName = typeof quic.target === "string" && quic.target ? quic.target : "instagram.com";
+  const findings = Array.isArray(quic.findings) && quic.findings.length
+    ? `\nОбнаруженные приёмы: ${quic.findings.map(value => String(value).replace(/\s+/g, " ")).join("; ").slice(0, 240)}.`
+    : "";
+  return `Набор не применён.${elapsed}\nQUIC ${targetName}: ${verdict} — ${label}. ${reason}\nИтог: ${outcome}.\nЗамеры: ${counts}; ${evidence}.${findings}`;
+}
+
 async function loadUniqueStrategySetResult() {
   const status = document.getElementById("unique-set-status");
   if (!status) return;
   try {
     const response = await apiGet("/strategy/unique-set");
     const result = response && response.result;
-    if (result && result.ok === false && typeof result.error === "string" && !status.textContent.trim()) {
-      status.textContent = `Последний набор не применён. Причина: ${result.error.slice(0, 240)}`;
+    if (result && result.ok === false && !status.textContent.trim()) {
+      status.textContent = formatUniqueSetFailure(result, formatUniqueSetDuration(result.elapsed_seconds));
       return;
     }
     const duration = result && result.ok && formatUniqueSetDuration(result.elapsed_seconds);
@@ -258,13 +331,17 @@ async function startUniqueStrategySet(btn) {
           return;
         }
         if (outcome === JOB_FAIL) {
-          let reason = "";
-          try {
-            const saved = await apiGet("/strategy/unique-set");
-            const result = saved && saved.result;
-            if (result && result.ok === false && typeof result.error === "string") reason = result.error.slice(0, 240);
-          } catch (_) {}
-          if (status) status.textContent = `Набор не применён. Подбор занял ${clientDuration}. ${reason ? `Причина: ${reason}` : "Причина указана в журнале задачи."}`;
+          if (status) {
+            try {
+              const failed = await apiGet("/strategy/unique-set");
+              const result = failed && failed.result;
+              status.textContent = result && result.ok === false
+                ? formatUniqueSetFailure(result, clientDuration)
+                : `Набор не применён. Подбор занял ${clientDuration}. Подробности указаны в журнале задачи.`;
+            } catch (_) {
+              status.textContent = `Набор не применён. Подбор занял ${clientDuration}. Подробности указаны в журнале задачи.`;
+            }
+          }
           return;
         }
         let duration = clientDuration;

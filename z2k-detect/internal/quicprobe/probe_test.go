@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -37,6 +38,10 @@ type fakeBox struct {
 	// answerInitial — отвечать ли на Initial вообще. Ложь изображает хост,
 	// который не обслуживает HTTP/3.
 	answerInitial bool
+	// partialBlocked — сколько раз ответить на Initial с заблокированным именем.
+	// Нужен, чтобы проверить распознавание неповторяемого результата.
+	partialBlocked int
+	blockedAttempts int
 	// silent — не отвечать вообще ни на что, включая согласование версии.
 	// Так выглядит блокировка по адресу: датаграммы исчезают молча, и ICMP
 	// «порт недоступен» тоже не приходит, потому что до хоста они не доехали.
@@ -60,6 +65,7 @@ type boxMode struct {
 	firstPacketOnly bool
 	residual        bool
 	answerInitial   bool
+	partialBlocked  int
 	silent          bool
 }
 
@@ -72,7 +78,7 @@ func (b *fakeBox) set(f func(*fakeBox)) {
 func (b *fakeBox) mode() boxMode {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return boxMode{b.blocked, b.firstPacketOnly, b.residual, b.answerInitial, b.silent}
+	return boxMode{b.blocked, b.firstPacketOnly, b.residual, b.answerInitial, b.partialBlocked, b.silent}
 }
 
 func newFakeBox(t *testing.T, blocked string) *fakeBox {
@@ -104,7 +110,7 @@ func (b *fakeBox) serve() {
 func (b *fakeBox) handle(pkt []byte, from *net.UDPAddr) {
 	b.mu.Lock()
 	b.requests++
-	m := boxMode{b.blocked, b.firstPacketOnly, b.residual, b.answerInitial, b.silent}
+	m := boxMode{b.blocked, b.firstPacketOnly, b.residual, b.answerInitial, b.partialBlocked, b.silent}
 	if m.silent {
 		b.mu.Unlock()
 		return
@@ -135,8 +141,12 @@ func (b *fakeBox) handle(pkt []byte, from *net.UDPAddr) {
 	if inspectable && sni == m.blocked {
 		b.mu.Lock()
 		b.tripped = true
+		b.blockedAttempts++
+		answerPartial := m.partialBlocked > 0 && b.blockedAttempts <= m.partialBlocked
 		b.mu.Unlock()
-		return
+		if !answerPartial {
+			return
+		}
 	}
 	if !m.answerInitial {
 		return
@@ -323,6 +333,17 @@ func TestProbeSeesContentBlock(t *testing.T) {
 	}
 }
 
+// Частичный ответ целевого Initial — это нестабильное измерение, а не
+// доказательство чистого соединения или подтверждённого обхода.
+func TestProbeMarksPartiallyAnsweredTargetFlaky(t *testing.T) {
+	box := newFakeBox(t, "rutracker.org")
+	box.set(func(b *fakeBox) { b.partialBlocked = 1 })
+	res := runAgainst(t, box, "rutracker.org")
+	if res.Verdict != VerdictFlaky {
+		t.Fatalf("вердикт %q (%s), ожидался %q", res.Verdict, res.Reason, VerdictFlaky)
+	}
+}
+
 // Коробка разбирает только первую датаграмму потока. Замер обязан это
 // увидеть и выдать исполнимую строку — фальшивку перед настоящим пакетом.
 func TestProbeFindsFirstPacketOnly(t *testing.T) {
@@ -404,5 +425,27 @@ func TestProbeSeesAddressBlock(t *testing.T) {
 	res := runAgainst(t, box, "example.org")
 	if res.Verdict != VerdictAddress {
 		t.Fatalf("вердикт %q (%s), ожидался %q", res.Verdict, res.Reason, VerdictAddress)
+	}
+}
+
+// Ошибка DNS должна оставаться ошибкой разрешения имени, а не подменяться
+// вердиктом о блокировке адреса или содержимого.
+func TestProbeReportsDNSFailure(t *testing.T) {
+	res := Run(context.Background(), "bad domain", Options{})
+	if res.Verdict != VerdictUnreachable {
+		t.Fatalf("вердикт %q (%s), ожидался %q", res.Verdict, res.Reason, VerdictUnreachable)
+	}
+	if !strings.Contains(res.Reason, "имя не разрешается") {
+		t.Fatalf("причина %q не объясняет ошибку DNS", res.Reason)
+	}
+}
+
+// Истечение общего таймаута пробы должно сохранять машинный код ошибки.
+func TestProbePreservesGlobalTimeoutCode(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	res := Run(ctx, "instagram.com", Options{})
+	if res.ErrorCode != "GLOBAL_TIMEOUT" {
+		t.Fatalf("error_code=%q, ожидался GLOBAL_TIMEOUT; причина: %s", res.ErrorCode, res.Reason)
 	}
 }
