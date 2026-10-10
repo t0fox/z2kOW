@@ -24,7 +24,7 @@ for _f in platform/openwrt/*.sh platform/openwrt/custom.d/.keep \
           tests/openwrt/*.sh; do
     [ -f "$_f" ] || continue
     [ "$(basename "$_f")" = ".keep" ] && continue
-    _syntax_shell=sh
+    _syntax_shell='sh'
     case "$(sed -n '1p' "$_f")" in *bash*) _syntax_shell=bash ;; esac
     if "$_syntax_shell" -n "$_f" 2>/dev/null; then
         PASS=$((PASS + 1))
