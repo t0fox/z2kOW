@@ -2,13 +2,13 @@
   "schema": 1,
   "branch": "main",
   "platform": "openwrt",
-  "seq": 140,
-  "current": "p-86.17",
+  "seq": 141,
+  "current": "r-86.5",
   "upstream": {
     "repository": "necronicle/z2k",
     "branch": "z2k-enhanced",
-    "tag": "p-86.17",
-    "commit": "295257dafdc5853ceea550d9cc5871b4b4b685b2"
+    "tag": "r-86.5",
+    "commit": "43b98092c5a337a35f5c094363f469243d7b8b80"
   },
   "history": [
     {"v": "r-1", "type": "reinstall", "ts": "2026-05-04T00:00:00Z", "ref": "vk-whitelist-ext", "desc": "Extend whitelist with VK service/CDN domains (vkuseraudio/vkuservideo/vk-cdn/mvk/vkpay/vkforms/etc) — fixes broken photo comments and other XHR over non-vk.com VK domains", "changed_files": ["lib/config.sh"]},
@@ -301,13 +301,65 @@
     {"v": "p-86.14", "type": "patch", "ts": "2026-10-04T07:56:39Z", "ref": "p-86.14", "desc": "Исправлено определение выхода в интернет через интерфейс-мост, например при подключении через другой роутер. Правила обхода и их автоматическое восстановление теперь работают в такой конфигурации.", "changed_files": ["webpanel/www/index.html", "lib/wan.sh", "UPDATES.json"], "steps": [], "full_install": false},
     {"v": "p-86.15", "type": "patch", "ts": "2026-10-05T19:08:55Z", "ref": "p-86.15", "desc": "Новый спонсор проекта — GregMSK", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false},
     {"v": "p-86.16", "type": "patch", "ts": "2026-10-06T11:55:04Z", "ref": "p-86.16", "desc": "Новый спонсор проекта — Кожевников. Убран сбор статистики стратегий: роутер больше ничего не отправляет на сервер проекта, пункт меню [C] и переключатель в панели удалены.", "changed_files": ["webpanel/www/index.html", "files/init.d/S99z2k-scheduler", "files/ndm/95-z2k-scheduler-watchdog.sh", "files/z2k-scheduler.sh", "lib/config_official.sh", "lib/install.sh", "lib/menu.sh", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/core/toast.js", "webpanel/www/js/pages/credits.js", "webpanel/www/js/pages/dashboard.js", "webpanel/www/js/pages/toggles.js", "z2k.sh", "UPDATES.json"], "steps": ["regen-config", "validate-config", "restart-service"], "full_install": false},
-    {"v": "p-86.17", "type": "patch", "ts": "2026-10-09T22:46:11Z", "ref": "p-86.17", "desc": "Новый спонсор проекта — bootnet.", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false}
+    {"v": "p-86.17", "type": "patch", "ts": "2026-10-09T22:46:11Z", "ref": "p-86.17", "desc": "Новый спонсор проекта — bootnet.", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false},
+    {"v": "r-86.5", "type": "reinstall", "ts": "2026-10-10T12:08:31Z", "ref": "r-86.5", "desc": "Движок обхода обновлён до zapret2 1.0.5.2 с нашим исправлением: большой ClientHello из нескольких частей больше не зависает, если часть сегментов прошла мимо обхода — соединение продолжается с задержкой в доли секунды. Восстановление правил после пересборки сетевых правил Keenetic стало надёжнее: событие, пришедшее во время восстановления, больше не теряется (раньше обход мог молчать до минуты), а сами события пишутся в журнал для диагностики. Планировщик следит, чтобы программное ускорение NAT оставалось выключенным.", "changed_files": ["webpanel/www/index.html", "files/000-zapret2.sh", "files/z2k-diag.sh", "files/z2k-nfqueue-selfheal.sh", "lib/install.sh", "UPDATES.json"], "steps": [], "full_install": true}
   ],
+  "artifacts": {
+    "arm64": {
+      "filename": "openwrt-rootfs-arm64.tar.gz",
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f149a709b7d7ea6bdd3b99eb49d63f2568247063/openwrt-rootfs-arm64.tar.gz",
+      "sha256": "d6534303da2426d7c64e2f2d38d1af61546a139072bb1b03bf4cbc9677030743",
+      "size_bytes": 13152474,
+      "unpacked_size_bytes": 32131767
+    },
+    "arm": {
+      "filename": "openwrt-rootfs-arm.tar.gz",
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f149a709b7d7ea6bdd3b99eb49d63f2568247063/openwrt-rootfs-arm.tar.gz",
+      "sha256": "00f93cfefb2679e2633d6a8e03a5048b422869507e82cfa1b95413f71b037551",
+      "size_bytes": 13730995,
+      "unpacked_size_bytes": 33420747
+    },
+    "x86_64": {
+      "filename": "openwrt-rootfs-x86_64.tar.gz",
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f149a709b7d7ea6bdd3b99eb49d63f2568247063/openwrt-rootfs-x86_64.tar.gz",
+      "sha256": "db79cca1ce2173a7e7d5e49a370e2bbe75c65f30b4b49b07d10d7f6ce802fe81",
+      "size_bytes": 14146368,
+      "unpacked_size_bytes": 33768383
+    },
+    "x86": {
+      "filename": "openwrt-rootfs-x86.tar.gz",
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f149a709b7d7ea6bdd3b99eb49d63f2568247063/openwrt-rootfs-x86.tar.gz",
+      "sha256": "760d10fdca230102620b303c07bd3f115edbe4677ffe7896635d7f5940106727",
+      "size_bytes": 13796446,
+      "unpacked_size_bytes": 32982795
+    },
+    "mips": {
+      "filename": "openwrt-rootfs-mips.tar.gz",
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f149a709b7d7ea6bdd3b99eb49d63f2568247063/openwrt-rootfs-mips.tar.gz",
+      "sha256": "26454a40a1e7d205cc5de2c6febab45b9de1924452ab8e307508131b4ab1b7eb",
+      "size_bytes": 13433490,
+      "unpacked_size_bytes": 36703235
+    },
+    "mipsel": {
+      "filename": "openwrt-rootfs-mipsel.tar.gz",
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f149a709b7d7ea6bdd3b99eb49d63f2568247063/openwrt-rootfs-mipsel.tar.gz",
+      "sha256": "5c55f55d24c658976741c76023ca6d1e386e90572cf2922f0377b7ecfb92fdd5",
+      "size_bytes": 13362310,
+      "unpacked_size_bytes": 36707243
+    },
+    "riscv64": {
+      "filename": "openwrt-rootfs-riscv64.tar.gz",
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f149a709b7d7ea6bdd3b99eb49d63f2568247063/openwrt-rootfs-riscv64.tar.gz",
+      "sha256": "2f757a9028c3a0548008c2a16a9fff43b531b2ded1648bf49d815bbec9ac97bd",
+      "size_bytes": 13479707,
+      "unpacked_size_bytes": 32618763
+    }
+  },
   "artifact": {
     "filename": "openwrt-rootfs.tar.gz",
-    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-ffff1d02bbcc472f29dbfc0cb5b5bfc96e255cc4/openwrt-rootfs.tar.gz",
-    "sha256": "8fa9eb879a8159c6d890f92f765dc0fa98a370de24f291f4f4d80ba18f4385e6",
-    "size_bytes": 77635842
+    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f149a709b7d7ea6bdd3b99eb49d63f2568247063/openwrt-rootfs.tar.gz",
+    "sha256": "dd2182150b510e58e3ae5275490971b53d28fd68a736541863d76898b8d55034",
+    "size_bytes": 77645571
   },
   "signing": {
     "key_id": "916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae"
