@@ -13,6 +13,12 @@ USE_PROCD=1
 # after network, слот рядом с zapret2(21) — его сервис при этом выключен.
 START=22
 
+# Reconcile after the native fw4 configuration trigger. This is a synchronous
+# callback, not a procd instance restart or a second firewall service.
+service_triggers() {
+    procd_add_reload_trigger firewall
+}
+
 Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
 Z2K_ETC="${Z2K_ETC:-/etc/z2k}"
 Z2K_RUN="${Z2K_RUN:-${Z2K_TMP:-/tmp/z2k}/runtime}"
@@ -42,6 +48,15 @@ z2k_load_adapter() {
     . "$Z2K_LIB/strategies.sh" || return 1
     . "$Z2K_LIB/config_official.sh" || return 1
     return 0
+}
+
+reload_service() {
+    z2k_load_adapter || return 1
+    # shellcheck disable=SC1090,SC1091
+    [ -f "$Z2K_CONFIG" ] && . "$Z2K_CONFIG"
+    [ -f "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" ] || return 0
+    Z2K_FW_EVENT_SETTLE="${Z2K_FW_EVENT_SETTLE:-2}"
+    z2k_ow_fw_event reload
 }
 
 # BusyBox builds differ: some have an executable usleep applet, some only

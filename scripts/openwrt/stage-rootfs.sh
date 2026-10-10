@@ -129,6 +129,12 @@ mkdir -p "$TMP/runtime"
 tar -xzf "$RUNTIME_ARCHIVE" -C "$TMP/runtime" --strip-components=1 \
     || die "не удалось распаковать закреплённый runtime zapret2"
 runtime="$TMP/runtime"
+for _arch in arm arm64 mips mipsel riscv64 x86 x86_64; do
+    for _binary in nfqws2 ip2net mdig; do
+        [ -x "$runtime/binaries/linux-$_arch/$_binary" ] \
+            || die "в архиве runtime отсутствует исполняемый linux-$_arch/$_binary"
+    done
+done
 for path in \
     init.d/openwrt/functions:opt/zapret2/init.d/openwrt/functions \
     common/base.sh:opt/zapret2/common/base.sh \

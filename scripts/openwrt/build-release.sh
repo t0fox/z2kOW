@@ -37,6 +37,7 @@ else
 fi
 _got="$(sha256sum "$_runtime" | awk '{print $1}')"
 [ "$_got" = "$_sha" ] || { echo "build-release: pinned zapret2 runtime hash mismatch" >&2; exit 1; }
+Z2K_RUNTIME_ARCHIVE="$_runtime" sh "$ROOT/tests/openwrt/test_ow_runtime_artifact.sh"
 
 _warpd="$_tmp/z2k-warpd"
 mkdir -p "$_warpd"

@@ -19,19 +19,23 @@ fi
 
 R="$T/runtime"
 mkdir -p "$R/init.d/openwrt" "$R/common" "$R/ipset" \
-    "$R/binaries/linux-x86_64" "$R/lua"
+    "$R/lua"
 for _f in init.d/openwrt/functions common/base.sh common/fwtype.sh \
     common/linux_iphelper.sh common/ipt.sh common/nft.sh common/linux_fw.sh \
     common/linux_daemons.sh common/list.sh common/custom.sh ipset/def.sh; do
     mkdir -p "$R/$(dirname "$_f")"
     : > "$R/$_f"
 done
-for _f in binaries/linux-x86_64/nfqws2 binaries/linux-x86_64/ip2net \
-    binaries/linux-x86_64/mdig ipset/create_ipset.sh; do
-    mkdir -p "$R/$(dirname "$_f")"
-    printf '#!/bin/sh\nexit 0\n' > "$R/$_f"
-    chmod 0755 "$R/$_f"
+for _arch in arm arm64 mips mipsel riscv64 x86 x86_64; do
+    mkdir -p "$R/binaries/linux-$_arch"
+    for _binary in nfqws2 ip2net mdig; do
+        printf '#!/bin/sh\nexit 0\n' > "$R/binaries/linux-$_arch/$_binary"
+        chmod 0755 "$R/binaries/linux-$_arch/$_binary"
+    done
 done
+mkdir -p "$R/ipset"
+printf '#!/bin/sh\nexit 0\n' > "$R/ipset/create_ipset.sh"
+chmod 0755 "$R/ipset/create_ipset.sh"
 for _f in zapret-lib zapret-antidpi zapret-auto; do
     printf 'fixture\n' | gzip -c > "$R/lua/$_f.lua.gz"
 done
@@ -53,6 +57,20 @@ openssl genpkey -algorithm Ed25519 -out "$T/release-keys/test.key" >/dev/null 2>
 openssl pkey -in "$T/release-keys/test.key" -pubout -out "$T/release-keys/test.pub" >/dev/null 2>&1 || exit 1
 _key_id="$(openssl pkey -pubin -in "$T/release-keys/test.pub" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
 mv "$T/release-keys/test.pub" "$T/release-keys/$_key_id.pub"
+
+# An archive missing even one supported architecture must fail before rootfs
+# staging can silently publish a router payload without its dataplane.
+cp -R "$R" "$T/runtime-incomplete"
+rm -rf "$T/runtime-incomplete/binaries/linux-mipsel"
+tar -czf "$T/runtime-incomplete.tar.gz" -C "$T" runtime-incomplete || exit 1
+mkdir -p "$T/stage-incomplete"
+if sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$T/stage-incomplete" \
+    "$T/runtime-incomplete.tar.gz" "$T/warpd" "$T/tg" "$T/rt" "$T/detect" \
+    "$T/release-keys" >/dev/null 2>&1; then
+    _t_bad "staging rejects an engine archive missing linux-mipsel"
+else
+    _t_ok
+fi
 
 mkdir -p "$T/stage"
 sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$T/stage" "$T/runtime.tar.gz" \
@@ -111,6 +129,23 @@ while IFS= read -r _source; do
     grep -Fq "$_rel" "$ROOT/platform/openwrt/optbase.sh" \
         && _t_ok || _t_bad "fake blob $_rel is not registered by the nfqws2 argv builder"
 done < "$T/fake-inventory"
+
+# QUIC probes and nfqws2 must consume the same staged fake directory. The
+# x86_64 detector fixture fails unless its wrapper exports that exact path and
+# the selected QUIC blob exists there.
+_detect="$T/stage/usr/lib/z2k/bin/z2k-detect"
+_detect_arch="$T/stage/usr/lib/z2k/bin/linux-x86_64/z2k-detect"
+cat > "$_detect_arch" <<'EOF'
+#!/bin/sh
+[ "$Z2K_FAKE_DIR" = "$Z2K_EXPECT_FAKE_DIR" ] || exit 10
+[ -s "$Z2K_FAKE_DIR/quic_initial_www_google_com.bin" ] || exit 11
+printf 'fake-dir=%s\n' "$Z2K_FAKE_DIR"
+EOF
+chmod 0755 "$_detect_arch"
+_probe_out="$(Z2K_OW_ARCH=x86_64 Z2K_EXPECT_FAKE_DIR="$T/stage/usr/lib/z2k/fake" \
+    "$_detect" blob-path 2>&1)"
+printf '%s\n' "$_probe_out" | grep -Fq "fake-dir=$T/stage/usr/lib/z2k/fake" \
+    && _t_ok || _t_bad "QUIC detector reads the same /usr/lib/z2k/fake directory staged for nfqws2"
 tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq './usr/lib/z2k/platform/openwrt/list-refresh.sh' \
     && _t_ok || _t_bad "final rootfs inventory omits the native 04:00 list-refresh adapter"
 [ -x "$T/stage/usr/lib/z2k/platform/openwrt/list-refresh.sh" ] \

@@ -170,6 +170,23 @@ print_doh() {
         "$_state" "$_reason" "$_package" "$_owner" "$_enabled" "$_provider" "$_proxy" "$_dnsmasq" "$_force"
 }
 
+_ow_diag_fw4_recovery() {
+    local _events
+    printf 'fw4 recovery events:\n'
+    if ! command -v logread >/dev/null 2>&1; then
+        printf '  unavailable (logread missing)\n'
+        return 0
+    fi
+    # logread is the system's bounded ring buffer; keep at most 20 matching
+    # records in this report and do not persist a second copy in tmpfs.
+    _events=$(logread 2>/dev/null | grep -F 'z2k-fw4' | tail -n 20)
+    if [ -n "$_events" ]; then
+        printf '%s\n' "$_events" | sed 's/^/  /'
+    else
+        printf '  no recent recovery events\n'
+    fi
+}
+
 print_health() {
     local issues="" nfq rules warp_on tg_pid _tg_queue_failures
     local _warp_probe _warp_runtime_ready _warp_route_ready _warp_runtime_state _qnum _out_path _in_path
@@ -323,6 +340,7 @@ print_firewall() {
     printf 'Telegram sets       : total=%s dc4=%s dc6=%s cdn4=%s\n' "${tgsets:-0}" "$tg4" "$tg6" "$tgcdn"
     printf 'persistence         : %s\n' "$persistence"
     printf 'backend             : OpenWrt nftables\n'
+    _ow_diag_fw4_recovery
 }
 
 print_tunnel() {

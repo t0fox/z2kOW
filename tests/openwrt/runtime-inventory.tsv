@@ -1,15 +1,15 @@
 # source|state|final_rootfs_member|mode|runtime_witness_file|runtime_witness_literal|N/A_reason
-files/000-zapret2.sh|N/A|-|-|-|-|Keenetic NDM netfilter hook; OpenWrt firewall recovery is driven by fw4 hotplug and fw-check.
+files/000-zapret2.sh|N/A|-|-|-|-|Keenetic NDM hook is not installed; event-loss recovery is adapted through procd firewall trigger, existing iface hotplug, fw-check, and platform/openwrt/firewall.sh.
 files/S99zapret2.new|ADAPTED|./etc/init.d/z2k|-rwxr-xr-x|platform/openwrt/files/etc/init.d/z2k|procd_set_param command|Keenetic init implementation is replaced by procd lifecycle.
 files/z2k-auto-update.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/update.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|update.sh apply|OpenWrt keeps controlled manifest/install_release update semantics.
 files/z2k-blocked-monitor.sh|COMMON|./usr/lib/z2k/z2k-blocked-monitor.sh|-rwxr-xr-x|platform/openwrt/z2kow.sh|blocked-monitor|Shared capture/parser behavior; OpenWrt redirects cache to tmpfs.
 files/z2k-config-validator.sh|COMMON|./usr/lib/z2k/z2k-config-validator.sh|-rwxr-xr-x|lib/auto_update.sh|z2k-config-validator.sh|-
-files/z2k-diag.sh|ADAPTED|./usr/lib/z2k/z2k-diag.sh|-rwxr-xr-x|platform/openwrt/env.sh|Z2K_DIAG_HOOK|Common report with OpenWrt probes.
+files/z2k-diag.sh|ADAPTED|./usr/lib/z2k/z2k-diag.sh|-rwxr-xr-x|platform/openwrt/env.sh|Z2K_DIAG_HOOK|Common report with OpenWrt probes; fw4 recovery events come from logread with a 20-line output cap.
 files/z2k-dns-check.sh|COMMON|./usr/lib/z2k/z2k-dns-check.sh|-rwxr-xr-x|webpanel/cgi/actions.sh|DNS_CHECK_SCRIPT|Shared DNS probe is invoked by the WebPanel API.
 files/z2k-fix-tg-watchdog.sh|N/A|-|-|-|-|Upstream marks this historical one-shot patcher as a no-op; no runtime behavior to port.
 files/z2k-geosite.sh|COMMON|./usr/lib/z2k/z2k-geosite.sh|-rwxr-xr-x|files/z2k-update-lists.sh|z2k-geosite.sh|Shared geosite fetch/filter/apply logic.
 files/z2k-insta-ip-refresh.sh|ADAPTED|./usr/lib/z2k/z2k-insta-ip-refresh.sh|-rwxr-xr-x|files/z2k-update-lists.sh|z2k-insta-ip-refresh.sh|Shared fetch/HMAC/range/probe flow uses OpenWrt dnsmasq records.
-files/z2k-nfqueue-selfheal.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/fw-check.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|fw-check.sh check|OpenWrt verifies and reapplies its complete fw4/NFQUEUE invariant set.
+files/z2k-nfqueue-selfheal.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/fw-check.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|fw-check.sh check|OpenWrt serializes fw4/NFQUEUE reconciliation and owns/restores global flow-offload UCI state; Keenetic fastnat sysctls are not used.
 files/z2k-ppe-deoffload.sh|N/A|-|-|-|-|Uses the proprietary Keenetic MediaTek PPE target and connskip match; OpenWrt has no NDM PPE subsystem.
 files/z2k-scheduler.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/schedule.sh|-rw-r--r--|platform/openwrt/files/etc/init.d/z2k|z2k_ow_cron_install|Resident Keenetic scheduler is replaced with BusyBox cron and procd service start.
 files/z2k-tcp16-probe.sh|ADAPTED|./usr/lib/z2k/z2k-tcp16-probe.sh|-rwxr-xr-x|webpanel/cgi/actions.sh|tcp16_probe_async|Shared probe keeps upstream measurement; OpenWrt redirects state/config/service paths.

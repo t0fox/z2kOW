@@ -47,14 +47,21 @@ case "$_code" in
 esac
 
 # --- 2. движок закреплён не ниже r2 ------------------------------------------
-_pin=$(grep -oE 'v1\.0\.5\.1-z2k-r[0-9]+' "$INSTALL" | sort -u)
+_pin=$(grep 'local fallback_url=' "$INSTALL" | grep -oE 'v[0-9]+(\.[0-9]+)*-z2k-r[0-9]+' | sort -u)
 _n=$(printf '%s\n' "$_pin" | wc -l | tr -d ' ')
 [ "$_n" = "1" ] && ok "пин движка в install.sh один: $_pin" || no "пин движка один" "1" "$_pin"
 _r=$(printf '%s' "$_pin" | sed 's/.*-r//')
-if [ -n "$_r" ] && [ "$_r" -ge 2 ] 2>/dev/null; then
-    ok "движок не ниже форка r2 (connbytes 0:N)"
+if [ -n "$_r" ] && [ "$_r" -ge 0 ] 2>/dev/null && printf '%s\n' "$_pin" | grep -q 'v1\.0\.5\.2-z2k-r0'; then
+    ok "движок закреплён на upstream v1.0.5.2-z2k-r0 (reassembly enabled)"
 else
-    no "движок не ниже форка r2" ">=2" "$_pin"
+    no "движок закреплён на upstream v1.0.5.2-z2k-r0" "v1.0.5.2-z2k-r0" "$_pin"
+fi
+
+_ow_pin=$(sed -n 's/^URL=.*\/download\/\([^/]*\)\/.*$/\1/p' "$ROOT/platform/openwrt/runtime-pin")
+if [ "$_ow_pin" = "v1.0.5.2-z2k-r0" ]; then
+    ok "OpenWrt rootfs pins the same reassembly-capable engine"
+else
+    no "OpenWrt rootfs engine pin" "v1.0.5.2-z2k-r0" "$_ow_pin"
 fi
 
 # --- 3. диагностика: флаг = отклонение, его отсутствие = норма ----------------

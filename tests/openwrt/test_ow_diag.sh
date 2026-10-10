@@ -59,6 +59,9 @@ assert_contains "OpenWrt error scan includes all webpanel error logs" "$ENV" 'z2
 assert_contains "complete rootfs stages diagnostic hook source" "$STAGE" 'files/z2k-diag.sh" usr/lib/z2k/z2k-diag.sh'
 assert_contains "complete rootfs marks diagnostic hook executable" "$STAGE" 'usr/lib/z2k/z2k-diag.sh 0755'
 assert_contains "complete rootfs stages adapter diag hook" "$STAGE" 'platform/openwrt/*.sh'
+assert_contains "fw4 event diagnostics read the native system ring buffer" "$AD" "grep -F 'z2k-fw4'"
+assert_contains "fw4 event diagnostic output is capped" "$AD" 'tail -n 20'
+assert_not_contains "OpenWrt diagnostics do not depend on NDM journal files" "$AD" 'ndm-hook.log'
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-diag-version.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
@@ -297,5 +300,25 @@ assert_contains "clock skew beyond the upstream 120 second threshold is unhealth
 assert_contains "report mode masks addresses in Telegram logs" "$T/diag-report.txt" 'identity registered for x.x.x.x'
 assert_not_contains "report mode does not expose raw addresses in Telegram logs" \
     "$T/diag-report.txt" 'identity registered for 203\.0\.113\.7'
+
+# fw4 recovery messages stay in logread's finite system ring buffer and only
+# the newest twenty matching lines enter a detailed firewall report.
+cat > "$T/bin/logread" <<'EOF'
+#!/bin/sh
+i=1
+while [ "$i" -le 25 ]; do
+    printf 'user.notice z2k-fw4: recovery-%s\n' "$i"
+    i=$((i + 1))
+done
+EOF
+chmod +x "$T/bin/logread"
+_diag_fw4=$(PATH="$T/bin:$PATH" Z2K_ROOT="$REPO" Z2K_CONFIG="$T/etc/z2k/config" \
+    Z2K_ETC="$T/etc/z2k" Z2K_STATE="$T/etc/z2k/state" Z2K_RUN="$T/tmp/runtime" \
+    sh "$AD" firewall 2>/dev/null)
+printf '%s\n' "$_diag_fw4" > "$T/diag-fw4.txt"
+_fw4_lines=$(grep -c 'z2k-fw4' "$T/diag-fw4.txt" || true)
+assert_eq "firewall report caps recovery journal to twenty records" 20 "$_fw4_lines"
+assert_contains "firewall report includes the newest recovery record" "$T/diag-fw4.txt" 'recovery-25'
+assert_not_contains "firewall report drops older recovery records" "$T/diag-fw4.txt" 'recovery-5'
 
 _t_done

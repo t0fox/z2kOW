@@ -2,8 +2,8 @@
 # tests/openwrt/test_ow_iface.sh - §1: iface ownership без дублирования.
 # Вердикт аудита: stock 90-zapret2 гейтится на `zapret2 enabled`, а сервис
 # zapret2 в нашей модели DISABLED — stock не сработал бы никогда. Поэтому
-# 90-z2k существует, но содержит РОВНО один канонический вызов reload и
-# ничего из: WAN/LAN-переопределения, nft-восстановления, recovery.
+# 90-z2k содержит один вызов обновления ifsets и один вызов общего
+# сериализованного recovery после штатного fw4 iface hook.
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-iface"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -16,7 +16,7 @@ assert_eq "один hotplug-файл" "1" "$_n"
 _r="$(grep -l 'reload_ifsets' "$REPO"/platform/openwrt/files/etc/hotplug.d/iface/* 2>/dev/null | wc -l | tr -d ' ')"
 assert_eq "он и вызывает reload" "1" "$_r"
 
-# никакого дублирования: ни nft, ни рестартов, ни recovery в коде
+# никакого второго firewall-движка или рестарта демона
 _bad="$(sed 's/#.*$//' "$HP" | grep -nEi 'nft|iptables|fw3|fw4|restart|start_fw|stop_fw|recover|WAN=|LAN=' || true)"
 [ -z "$_bad" ] && _t_ok || _t_bad "hotplug дублирует zapret2: $_bad"
 
@@ -31,6 +31,7 @@ fi
 # только ifup/ifdown, демон не упоминается
 assert_contains "ifup" "$HP" "ifup"
 assert_contains "ifdown" "$HP" "ifdown"
+assert_contains "iface reload shares coalesced fw4 reconciliation" "$HP" "z2k_ow_fw_event iface"
 if sed 's/#.*$//' "$HP" | grep -qiE 'nfqws|procd'; then
     _t_bad "hotplug трогает daemon-слой"
 else

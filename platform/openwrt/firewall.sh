@@ -61,6 +61,92 @@ z2k_ow_fw_apply() {
 z2k_ow_fw_remove() { z2k_ow_fw_source || return 1; zapret_unapply_firewall; }
 z2k_ow_fw_reload_ifsets() { z2k_ow_fw_source || return 1; zapret_reload_ifsets; }
 
+# OpenWrt event/periodic reconciliation shares one synchronous lock. The
+# pending file is set before lock acquisition, so an event that overlaps a
+# repair is consumed by its current owner instead of being dropped. A hard
+# process exit leaves a PID lock that the next event can safely reap.
+_z2k_ow_fw_event_claim() {
+    local _lock="$1" _tmp="$1.new.$$" _pid
+    printf '%s\n' "$$" > "$_tmp" || return 1
+    if ln "$_tmp" "$_lock" 2>/dev/null; then
+        rm -f "$_tmp"
+        return 0
+    fi
+    rm -f "$_tmp"
+    _pid=$(cat "$_lock" 2>/dev/null)
+    case "$_pid" in ''|*[!0-9]*) return 1 ;; esac
+    kill -0 "$_pid" 2>/dev/null && return 1
+    rm -f "$_lock" 2>/dev/null || return 1
+    printf '%s\n' "$$" > "$_tmp" || return 1
+    if ln "$_tmp" "$_lock" 2>/dev/null; then
+        rm -f "$_tmp"
+        return 0
+    fi
+    rm -f "$_tmp"
+    return 1
+}
+
+z2k_ow_fw_event() {
+    local _event="${1:-reload}" _run="${Z2K_RUN:-/tmp/z2k/runtime}"
+    local _pending="$_run/fw-recovery.pending" _lock="$_run/fw-recovery.lock"
+    local _max="${Z2K_FW_EVENT_MAX_ATTEMPTS:-3}" _settle="${Z2K_FW_EVENT_SETTLE:-0}"
+    local _attempts=0 _recovered=0 _initial=0 _final=1
+    case "$_max" in ''|*[!0-9]*|0) _max=3 ;; esac
+    case "$_settle" in ''|*[!0-9]*) _settle=0 ;; esac
+    [ "$_max" -le 5 ] 2>/dev/null || _max=5
+    [ "$_settle" -le 5 ] 2>/dev/null || _settle=5
+    [ "${INIT_APPLY_FW:-1}" = 1 ] || return 0
+    [ ! -f "${Z2K_RUN:-/tmp/z2k/runtime}/stopping" ] || return 0
+    [ -f "${Z2K_CORE_READY:-${Z2K_RUN:-/tmp/z2k/runtime}/core-ready}" ] || return 0
+    mkdir -p "$_run" 2>/dev/null || return 1
+    : > "$_pending" || return 1
+
+    while [ "$_attempts" -lt "$_max" ]; do
+        if ! _z2k_ow_fw_event_claim "$_lock"; then
+            # Another synchronous owner will consume the pending marker.
+            return 0
+        fi
+        if [ "$_initial" = 0 ] && [ "$_attempts" = 0 ]; then
+            z2k_ow_fw_verify >/dev/null 2>&1 && _initial=1 || _initial=2
+        fi
+        while [ "$_attempts" -lt "$_max" ]; do
+            rm -f "$_pending"
+            _attempts=$((_attempts + 1))
+            [ "$_settle" -eq 0 ] || sleep "$_settle"
+            z2k_ow_fw_check >/dev/null 2>&1 || true
+            if z2k_ow_fw_verify >/dev/null 2>&1; then
+                _final=0
+                [ ! -e "$_pending" ] && break
+            else
+                _final=1
+                [ -e "$_pending" ] || break
+            fi
+        done
+        if [ "$(cat "$_lock" 2>/dev/null)" = "$$" ]; then rm -f "$_lock"; fi
+        if [ "$_final" = 0 ] && [ ! -e "$_pending" ]; then
+            _recovered=1
+            break
+        fi
+        # Close the hand-off race: a callback can mark pending after the
+        # owner's last in-lock check but before it unlinks the lock.
+        [ -e "$_pending" ] || break
+    done
+
+    # If a continuing storm consumed the retry budget, preserve the marker for
+    # the existing periodic checker instead of claiming that every event was
+    # drained. The final attempt above still ran the full verifier.
+    if [ "$_attempts" -ge "$_max" ] && [ -e "$_pending" ]; then _final=1; fi
+
+    if [ "$_final" = 0 ]; then
+        if [ "$_initial" != 1 ] && [ "$_recovered" = 1 ]; then
+            logger -t z2k-fw4 "firewall event $_event recovered NFQUEUE state after $_attempts attempt(s)" 2>/dev/null || true
+        fi
+        return 0
+    fi
+    logger -t z2k-fw4 "firewall event $_event could not verify NFQUEUE state after $_attempts attempt(s)" 2>/dev/null || true
+    return 1
+}
+
 # fw4 global flow offload and zapret2 selective offload cannot own the same
 # dataplane simultaneously: fw4 may shortcut a flow before NFQUEUE sees it.
 # Keep the user values (including an option that was absent) in persistent

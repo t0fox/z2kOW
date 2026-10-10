@@ -65,6 +65,16 @@ assert_contains "snapshot preserves original software" "$T/etc/state/fw4-offload
 assert_contains "snapshot preserves original hardware" "$T/etc/state/fw4-offload.state" "$(printf 'flow_offloading_hw\t1\t0')"
 assert_contains "fw4 reloaded after disable" "$T/uci.log" "reload:reload"
 
+# If UCI is changed while z2k owns NFQUEUE, a later convergence must disable
+# both global switches again without replacing the original restoration state.
+printf 'flow_offloading=1\nflow_offloading_hw=1\n' > "$T/uci.db"
+z2k_ow_offload_prepare
+assert_eq "re-enabled offload prepare rc" "0" "$?"
+assert_contains "software offload remains disabled while owned" "$T/uci.db" "flow_offloading=0"
+assert_contains "hardware offload is re-disabled while owned" "$T/uci.db" "flow_offloading_hw=0"
+assert_contains "re-enable does not overwrite original software snapshot" "$T/etc/state/fw4-offload.state" "$(printf 'flow_offloading\t1\t1')"
+assert_contains "re-enable does not overwrite original hardware snapshot" "$T/etc/state/fw4-offload.state" "$(printf 'flow_offloading_hw\t1\t0')"
+
 # Restore after runtime teardown: both values must be byte-for-byte equivalent
 # to the original UCI state and the ownership snapshot must be consumed.
 z2k_ow_offload_restore

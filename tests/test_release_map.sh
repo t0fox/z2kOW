@@ -47,10 +47,10 @@ assert_eq "install.sh — без последствий (носитель шаг
 e() { if printf '%s\n' "$1" | z2k_engine_pin_changed; then echo yes; else echo no; fi; }
 assert_eq "смена fallback_url = движок сменился" "yes" \
   "$(e '-    local fallback_url="https://x/v1.0.5-z2k-r0/a.tar.gz"
-+    local fallback_url="https://x/v1.0.5.1-z2k-r0/a.tar.gz"')"
++    local fallback_url="https://x/v1.0.5.2-z2k-r0/a.tar.gz"')"
 assert_eq "правка комментария рядом — не смена движка" "no" \
-  "$(e '-    # Эталон install_bin.sh из ПРИКРЕПЛЁННОГО релиза (v1.0.5-z2k-r0;
-+    # Эталон install_bin.sh из ПРИКРЕПЛЁННОГО релиза (v1.0.5.1-z2k-r0;
+  "$(e '-    # Эталон install_bin.sh из ПРИКРЕПЛЁННОГО релиза (v1.0.5.1-z2k-r3;
++    # Эталон install_bin.sh из ПРИКРЕПЛЁННОГО релиза (v1.0.5.2-z2k-r0;
      local fallback_url="https://x/v1.0.5-z2k-r0/a.tar.gz"')"
 assert_eq "пустой дифф — не смена движка" "no" "$(e '')"
 

@@ -29,6 +29,10 @@ z2k_ow_core_ready || exit 0
 
 logger -t z2k "reloading zapret2 ifsets due to $ACTION of $INTERFACE (daemon untouched)"
 z2k_ow_fw_reload_ifsets
+# fw4's native iface hook runs earlier in this hotplug chain. Recheck the
+# final NFQUEUE contract here; concurrent iface/firewall events are coalesced
+# by the same synchronous recovery owner used by service reload and periodic fw-check.
+z2k_ow_fw_event iface || true
 # TG rules reconverge (Stage 3): sets переживают flap, правила доставляем
 # идемпотентно; демон НЕ трогаем (PID stable). tg.sh может отсутствовать
 # на старом payload — тогда молча скипаем (правил всё равно нет).
