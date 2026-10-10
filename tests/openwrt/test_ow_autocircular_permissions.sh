@@ -26,6 +26,24 @@ export WS_USER
 mkdir -p "$Z2K_STATE" "$Z2K_TMP" || exit 1
 chmod 755 "$T" "$Z2K_ETC" "$Z2K_TMP" || exit 1
 chmod 755 "$Z2K_STATE" || exit 1
+
+# Подготовить файлы, пока runner ещё может писать в fixture. Ниже родительские
+# каталоги станут root-owned; вложенный legacy-каталог останется доступен тесту.
+_old_primary="$Z2K_STATE/state.tsv"
+_old_fallback="$Z2K_TMP/z2k-autocircular-state.tsv"
+_legacy_dir="$T/legacy"
+_legacy_fallback="$_legacy_dir/z2k-autocircular-state.tsv"
+_root_target="$T/root-owned-target"
+Z2K_AUTOCIRCULAR_LEGACY_FALLBACK_OVERRIDE="$_legacy_fallback"
+export Z2K_AUTOCIRCULAR_LEGACY_FALLBACK_OVERRIDE
+mkdir -p "$_legacy_dir" || exit 1
+printf '# прежний primary\nyt_tcp\tyoutube.com|4\t5\t1700000000\tfrozen\told.youtube.com\n' > "$_old_primary" || exit 1
+printf '# прежний fallback\nquic\tgooglevideo.com|4\t3\t1700000001\tauto\n' > "$_old_fallback" || exit 1
+printf 'rkn_tcp\tlegacy.example|4\t2\t1700000002\tauto\n' > "$_legacy_fallback" || exit 1
+printf 'не менять\n' > "$_root_target" || exit 1
+chmod 640 "$_old_primary" "$_old_fallback" "$_legacy_fallback" || exit 1
+chmod 644 "$_root_target" || exit 1
+
 _root_state_call() {
     _action="$1"
     if [ "$(id -u)" = 0 ]; then
@@ -45,9 +63,9 @@ _root_state_call() {
     fi
 }
 if [ "$(id -u)" = 0 ]; then
-    chown root:root "$T" "$Z2K_ETC" "$Z2K_STATE" "$Z2K_TMP" || exit 1
+    chown root:root "$T" "$Z2K_ETC" "$Z2K_STATE" "$Z2K_TMP" "$_root_target" || exit 1
 elif command -v sudo >/dev/null 2>&1; then
-    sudo -n chown root:root "$T" "$Z2K_ETC" "$Z2K_STATE" "$Z2K_TMP" || exit 1
+    sudo -n chown root:root "$T" "$Z2K_ETC" "$Z2K_STATE" "$Z2K_TMP" "$_root_target" || exit 1
 fi
 _parent_meta="$(stat -c '%a:%u:%g' "$Z2K_STATE" 2>/dev/null)"
 assert_eq "общий каталог состояния root-owned" "0" "$(stat -c '%u' "$Z2K_STATE" 2>/dev/null)"
@@ -56,18 +74,6 @@ assert_eq "отдельный каталог autocircular" "$Z2K_ETC/autocircula
 assert_eq "Lua и оболочка используют один файл" "$Z2K_AUTOCIRCULAR_DIR/state.tsv" "$STATE_FILE"
 assert_eq "запасной файл живёт отдельно в tmpfs" \
     "$Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE/z2k-autocircular-state.tsv" "$STATE_FILE_FALLBACK"
-
-# Имитируем старые пути OpenWrt и переносим обе копии в новый постоянный файл.
-_old_primary="$Z2K_STATE/state.tsv"
-_old_fallback="$Z2K_TMP/z2k-autocircular-state.tsv"
-_legacy_fallback="$T/legacy/z2k-autocircular-state.tsv"
-Z2K_AUTOCIRCULAR_LEGACY_FALLBACK_OVERRIDE="$_legacy_fallback"
-export Z2K_AUTOCIRCULAR_LEGACY_FALLBACK_OVERRIDE
-mkdir -p "$(dirname "$_legacy_fallback")" || exit 1
-printf '# прежний primary\nyt_tcp\tyoutube.com|4\t5\t1700000000\tfrozen\told.youtube.com\n' > "$_old_primary"
-printf '# прежний fallback\nquic\tgooglevideo.com|4\t3\t1700000001\tauto\n' > "$_old_fallback"
-printf 'rkn_tcp\tlegacy.example|4\t2\t1700000002\tauto\n' > "$_legacy_fallback"
-chmod 640 "$_old_primary" "$_old_fallback" "$_legacy_fallback"
 
 if _root_state_call z2k_ow_prepare_autocircular_storage; then _t_ok; else _t_bad "каталог autocircular подготовлен"; fi
 if _root_state_call z2k_ow_migrate_autocircular_state; then _t_ok; else _t_bad "старое состояние перенесено"; fi
@@ -85,17 +91,22 @@ assert_eq "общий каталог state не менял права/владе
 assert_eq "новый каталог принадлежит WS_USER" "$(id -u "$WS_USER")" "$(stat -c '%u' "$Z2K_AUTOCIRCULAR_DIR" 2>/dev/null)"
 assert_eq "файл стратегии принадлежит WS_USER" "$(id -u "$WS_USER")" "$(stat -c '%u' "$STATE_FILE" 2>/dev/null)"
 
+_ws_user_call() {
+    _ws_target_uid=$(id -u "$WS_USER" 2>/dev/null) || return 1
+    _ws_current_uid=$(id -u)
+    if [ "$_ws_current_uid" = "$_ws_target_uid" ]; then
+        "$@"
+    elif [ "$_ws_current_uid" = 0 ] && command -v runuser >/dev/null 2>&1; then
+        runuser -u "$WS_USER" -- "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo -n -u "$WS_USER" -- "$@"
+    else
+        return 77
+    fi
+}
+
 if command -v lua5.3 >/dev/null 2>&1; then
-    _run_unprivileged() {
-        if [ "$(id -u)" = 0 ] && command -v runuser >/dev/null 2>&1; then
-            runuser -u "$WS_USER" -- "$@"
-        elif command -v sudo >/dev/null 2>&1; then
-            sudo -n -u "$WS_USER" -- "$@"
-        else
-            return 77
-        fi
-    }
-    if _run_unprivileged env \
+    if _ws_user_call env \
         Z2K_STATE_DIR_OVERRIDE="$Z2K_AUTOCIRCULAR_DIR" \
         Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE="$Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE" \
         lua5.3 "$REPO/tests/openwrt/autocircular_permissions.lua" write; then
@@ -105,7 +116,7 @@ if command -v lua5.3 >/dev/null 2>&1; then
     else
         _t_bad "nfqws2-пользователь записал новую стратегию"
     fi
-    if _run_unprivileged env \
+    if _ws_user_call env \
         Z2K_STATE_DIR_OVERRIDE="$Z2K_AUTOCIRCULAR_DIR" \
         Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE="$Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE" \
         lua5.3 "$REPO/tests/openwrt/autocircular_permissions.lua" restore; then
@@ -122,15 +133,17 @@ Z2K_PLATFORM=openwrt Z2K_ROOT="$Z2K_ROOT" Z2K_ETC="$Z2K_ETC" \
     Z2K_TMP="$Z2K_TMP" WS_USER="$WS_USER" \
     HTTP_HOST=192.168.1.1 HTTP_SEC_FETCH_SITE=same-origin \
     REQUEST_METHOD=GET PATH_INFO=/state \
-    sh "$REPO/webpanel/cgi/api.sh" 2>/dev/null | tail -1 > "$T/api.json"
+    sh "$REPO/webpanel/cgi/api.sh" 2>/dev/null | tail -1 > "$_legacy_dir/api.json"
 assert_contains "GET /state показывает запись из нового каталога" \
-    "$T/api.json" '"host":"youtube.com","strategy":"7"'
+    "$_legacy_dir/api.json" '"host":"youtube.com","strategy":"7"'
 
 # Корневой процесс не должен проходить по ссылке из каталога, доступного демону.
-_root_target="$T/root-owned-target"
-printf 'не менять\n' > "$_root_target"
-rm -f "$STATE_FILE"
-ln -s "$_root_target" "$STATE_FILE" || exit 1
+if _ws_user_call rm -f "$STATE_FILE" && \
+   _ws_user_call ln -s "$_root_target" "$STATE_FILE"; then
+    :
+else
+    _t_bad "пользователь nfqws2 подготовил ссылку для проверки"
+fi
 if _root_state_call z2k_ow_prepare_autocircular_storage; then
     _t_bad "подготовка состояния отклоняет ссылку на root-owned файл"
 else
