@@ -37,6 +37,13 @@ _root_target="$T/root-owned-target"
 Z2K_AUTOCIRCULAR_LEGACY_FALLBACK_OVERRIDE="$_legacy_fallback"
 export Z2K_AUTOCIRCULAR_LEGACY_FALLBACK_OVERRIDE
 mkdir -p "$_legacy_dir" || exit 1
+mkdir -p "$_legacy_dir/files/lua" || exit 1
+cp "$REPO/tests/openwrt/autocircular_permissions.lua" \
+    "$_legacy_dir/autocircular_permissions.lua" || exit 1
+cp "$REPO/files/lua/z2k-state-persist.lua" \
+    "$_legacy_dir/files/lua/z2k-state-persist.lua" || exit 1
+chmod 644 "$_legacy_dir/autocircular_permissions.lua" \
+    "$_legacy_dir/files/lua/z2k-state-persist.lua" || exit 1
 printf '# прежний primary\nyt_tcp\tyoutube.com|4\t5\t1700000000\tfrozen\told.youtube.com\n' > "$_old_primary" || exit 1
 printf '# прежний fallback\nquic\tgooglevideo.com|4\t3\t1700000001\tauto\n' > "$_old_fallback" || exit 1
 printf 'rkn_tcp\tlegacy.example|4\t2\t1700000002\tauto\n' > "$_legacy_fallback" || exit 1
@@ -121,20 +128,26 @@ if command -v lua5.3 >/dev/null 2>&1; then
     if _ws_user_call env \
         Z2K_STATE_DIR_OVERRIDE="$Z2K_AUTOCIRCULAR_DIR" \
         Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE="$Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE" \
-        lua5.3 "$REPO/tests/openwrt/autocircular_permissions.lua" write; then
+        sh -c 'cd "$1" || exit 1; exec lua5.3 "$2" "$3"' \
+            sh "$_legacy_dir" "$_legacy_dir/autocircular_permissions.lua" write \
+            > "$_legacy_dir/lua-write.log" 2>&1; then
         _t_ok
         assert_contains "nfqws2 записал новую стратегию в primary" "$STATE_FILE" \
             "yt_tcp${_tab}youtube.com${_tab}7"
     else
-        _t_bad "nfqws2-пользователь записал новую стратегию"
+        _lua_error=$(tr '\n' ' ' < "$_legacy_dir/lua-write.log" 2>/dev/null)
+        _t_bad "nfqws2-пользователь записал новую стратегию: $_lua_error"
     fi
     if _ws_user_call env \
         Z2K_STATE_DIR_OVERRIDE="$Z2K_AUTOCIRCULAR_DIR" \
         Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE="$Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE" \
-        lua5.3 "$REPO/tests/openwrt/autocircular_permissions.lua" restore; then
+        sh -c 'cd "$1" || exit 1; exec lua5.3 "$2" "$3"' \
+            sh "$_legacy_dir" "$_legacy_dir/autocircular_permissions.lua" restore \
+            > "$_legacy_dir/lua-restore.log" 2>&1; then
         _t_ok
     else
-        _t_bad "новая стратегия восстановилась после перезапуска Lua"
+        _lua_error=$(tr '\n' ' ' < "$_legacy_dir/lua-restore.log" 2>/dev/null)
+        _t_bad "новая стратегия восстановилась после перезапуска Lua: $_lua_error"
     fi
 else
     echo "SKIP[ow-autocircular-permissions]: нет lua5.3" >&2
