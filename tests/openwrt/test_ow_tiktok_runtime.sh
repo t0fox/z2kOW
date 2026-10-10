@@ -111,12 +111,15 @@ case "$_ip" in
         exit 0 ;;
     203.0.113.20)
         case "${TIKTOK_PROBE_MODE:-ok}" in
-            alt) _total=0.035000; _pop=fra ;;
-            slow) _total=0.055000; _pop=fra ;;
-            ok) [ "${TIKTOK_ALLOW_IP:-}" = "$_ip" ] || exit 28; _total=0.035000; _pop=fra ;;
+            alt) _total=0.035000; _pop=minsk_2_BY ;;
+            slow) _total=0.055000; _pop=minsk_2_BY ;;
+            ok) [ "${TIKTOK_ALLOW_IP:-}" = "$_ip" ] || exit 28; _total=0.035000; _pop=minsk_2_BY ;;
             *) exit 28 ;;
         esac
         printf 'HTTP/2 200\r\nX-77-POP: %s\r\nX-77-Cache: HIT\r\nServer: edge\r\n\nZ2M_TIKTOK_METRICS:200|0.010000|0.020000|%s' "$_pop" "$_total"
+        exit 0 ;;
+    198.51.100.99)
+        printf 'HTTP/2 200\r\nX-77-POP: stockholmSE\r\nX-77-Cache: MISS\r\nServer: edge\r\n\nZ2M_TIKTOK_METRICS:200|0.010000|0.020000|0.025000'
         exit 0 ;;
     *) exit 28 ;;
 esac
@@ -145,6 +148,13 @@ chmod 0755 "$T/bin/uci" "$T/bin/nslookup" "$T/bin/curl" "$Z2K_TIKTOK_DNSMASQ_INI
 
 # shellcheck disable=SC1090,SC1091
 . "$REPO/platform/openwrt/tiktok.sh"
+assert_eq "Minsk CDN77 POP is allowed" 0 "$(_z2k_ow_tiktok_pop_location_allowed minsk_2_BY; echo $?)"
+assert_eq "Russian CDN77 POP is allowed" 0 "$(_z2k_ow_tiktok_pop_location_allowed moscow_6_RU; echo $?)"
+assert_eq "Amsterdam CDN77 POP is allowed" 0 "$(_z2k_ow_tiktok_pop_location_allowed ams; echo $?)"
+assert_eq "Stockholm CDN77 POP is rejected" 1 "$(_z2k_ow_tiktok_pop_location_allowed stockholmSE; echo $?)"
+assert_eq "a CDN without X-77-POP keeps the Check-Host geo gate" 0 "$(_z2k_ow_tiktok_pop_location_allowed ''; echo $?)"
+assert_eq "matrix rejects an out-of-region POP from the second host" 1 \
+    "$(_z2k_ow_tiktok_probe_matrix_location_allowed '203.0.113.1|1|1|1|200|moscow_6_RU|MISS|edge|ok|ok|verified|1|1|1|200|stockholmSE|MISS|edge|ok|ok|verified|compatible'; echo $?)"
 export TIKTOK_FAIL_HOST=v77.tiktokcdn-eu.com
 if z2k_ow_tiktok_manual_select 143.244.42.18; then
     _t_bad "manual choice rejects a CDN that fails TLS/SNI for the EU target"
@@ -222,6 +232,12 @@ z2k_ow_tiktok_check automatic || _t_bad "expired lease triggers an evaluation"
 _query_after=$(wc -l < "$NSLOOKUP_TEST_LOG")
 [ "$_query_after" -gt "$_query_before" ] && _t_ok || _t_bad "expired lease rediscovers CDN candidates"
 
+# Географический тестовый пул содержит только разрешённые местоположения.
+_z2k_ow_tiktok_candidate_pool() {
+    printf '143.244.42.18||||||Amsterdam|curated-community-fallback|0|1|0\n'
+    printf '203.0.113.20||||||Minsk, Belarus|curated-community-fallback|0|1|0\n'
+}
+
 # A modest latency improvement is insufficient until both source hysteresis
 # conditions pass, and the current selection metadata must remain selected.
 TIKTOK_PROBE_MODE=slow TIKTOK_DNS_IP=203.0.113.20
@@ -238,7 +254,7 @@ assert_contains "first failure preserves the current candidate" "$Z2K_TIKTOK_STA
 assert_contains "first failure preserves the owned DNS override" "$UCI_TEST_DB" '/v77.tiktokcdn.com/143.244.42.18'
 z2k_ow_tiktok_check explicit || _t_bad "second selected-IP failure triggers failover scan"
 assert_contains "verified alternate is selected after threshold" "$Z2K_TIKTOK_STATE_FILE" 'selected_ip=203.0.113.20'
-assert_contains "stability probe metadata is retained" "$Z2K_TIKTOK_STATE_FILE" 'x77_pop=fra'
+assert_contains "stability probe metadata is retained" "$Z2K_TIKTOK_STATE_FILE" 'x77_pop=minsk_2_BY'
 assert_contains "alternate uses the source stability repeat count" "$Z2K_TIKTOK_STATE_FILE" 'stability_probe_count=2'
 assert_contains "failover records previous and new selected addresses" "$Z2K_TIKTOK_STATE_FILE" 'last_failover_from=143.244.42.18'
 assert_contains "failover records destination" "$Z2K_TIKTOK_STATE_FILE" 'last_failover_to=203.0.113.20'
@@ -252,6 +268,9 @@ z2k_ow_tiktok_check explicit || _t_bad "first post-failover failure handled"
 z2k_ow_tiktok_check explicit || _t_bad "repeated post-failover failure handled"
 assert_contains "repeated failure reports degraded health" "$Z2K_TIKTOK_STATE_FILE" 'state=degraded'
 assert_contains "repeated failure retains last known-good override" "$UCI_TEST_DB" '/v77.tiktokcdn.com/203.0.113.20'
+
+# Возвращаем production-реализацию пула для следующих независимых проверок.
+. "$REPO/platform/openwrt/tiktok.sh"
 
 # A user/upstream dnsmasq override has priority. The OpenWrt extension removes
 # only its own hosts record and does not delete the foreign setting.
@@ -489,11 +508,11 @@ _now=$(date +%s)
 _z2k_ow_tiktok_state_write healthy 143.244.42.18 100 1 1 test-index-bound 1 1 1
 _z2k_ow_tiktok_discover_candidates() { :; }
 _z2k_ow_tiktok_candidate_pool() {
-    printf '143.244.42.18||||||||0|1|0\n'
+    printf '143.244.42.18||||||Amsterdam|curated-community-fallback|0|1|0\n'
     for _i in 2 3 4 5 6 7 8 9 10 11 12; do
-        printf '198.51.100.%s||||||||0|1|0\n' "$_i"
+        printf '198.51.100.%s||||||Moscow, Russia|check-host-distributed-discovery|1|0|0\n' "$_i"
     done
-    printf '203.0.113.20||||||||0|1|0\n'
+    printf '203.0.113.20||||||Minsk, Belarus|curated-community-fallback|0|1|0\n'
 }
 TIKTOK_PROBE_MODE=alt
 _curl_start=$(wc -l < "$CURL_TEST_LOG")
@@ -524,8 +543,8 @@ _current="198.51.100.99"
 _z2k_ow_tiktok_set_host "$_current" || _t_bad "stability precondition installs its current address"
 _z2k_ow_tiktok_state_write healthy "$_current" 100 1 1 test-stability-repeat
 _z2k_ow_tiktok_candidate_pool() {
-    printf '%s||||||||0|0|0\n' "$_current"
-    printf '203.0.113.20||||||||0|1|0\n'
+    printf '%s||||||Amsterdam|curated-community-fallback|0|0|0\n' "$_current"
+    printf '203.0.113.20||||||Minsk, Belarus|curated-community-fallback|0|1|0\n'
 }
 : > "$CURL_TEST_LOG"
 export TIKTOK_PROBE_MODE=alt TIKTOK_FAIL_STABILITY=203.0.113.20
@@ -575,7 +594,7 @@ TIKTOK_PROBE_MODE=alt
 z2k_ow_tiktok_probe_all v16-cla.tiktokcdn.com || _t_bad "hostname-specific candidate discovery completes"
 assert_contains "full discovery probes a v16 candidate with exact SNI" "$CURL_PAIR_TEST_LOG" 'v16-cla.tiktokcdn.com:443:203.0.113.20'
 assert_contains "full discovery persists the exact hostname observation" "$Z2K_TIKTOK_DOMAIN_STATE_FILE" 'domain.v16-cla.tiktokcdn.com.candidate_observations=198.51.100.99|'
-assert_contains "full discovery records the hostname-verified reserve" "$Z2K_TIKTOK_DOMAIN_STATE_FILE" '203.0.113.20|35|10|20|200|fra|HIT|edge|ok|ok|verified'
+assert_contains "full discovery records the hostname-verified reserve" "$Z2K_TIKTOK_DOMAIN_STATE_FILE" '203.0.113.20|35|10|20|200|minsk_2_BY|HIT|edge|ok|ok|verified'
 assert_contains "full discovery records its candidate pool per hostname" "$Z2K_TIKTOK_DOMAIN_STATE_FILE" 'domain.v16-cla.tiktokcdn.com.candidate_pool=198.51.100.99|'
 assert_eq "full discovery does not change the selected DNS address" "$_domain_dns_before" "$(grep -F '/v16-cla.tiktokcdn.com/' "$UCI_TEST_DB")"
 TIKTOK_PROBE_MODE=ok
@@ -590,6 +609,18 @@ _policy_output=$( (set -u; z2k_ow_tiktok_domain_policy_set v16-cla.tiktokcdn.com
 _policy_rc=$?
 [ "$_policy_rc" -eq 0 ] && _t_ok || _t_bad "preferred policy with active IP succeeds under nounset"
 assert_eq "preferred policy with active IP emits no nounset diagnostics" "" "$_policy_output"
+if _z2k_ow_tiktok_domain_state_set_many v16-cla.tiktokcdn.com \
+    "policy=auto" "preferred_ip=" "selected_ip=203.0.113.20" "health=transport-confirmed"; then
+    _t_ok
+else
+    _t_bad "подготовка авто-режима без закреплённого адреса"
+fi
+_policy_output=$( (set -u; z2k_ow_tiktok_domain_policy_set v16-cla.tiktokcdn.com preferred) 2>&1)
+_policy_rc=$?
+[ "$_policy_rc" -eq 0 ] && _t_ok || _t_bad "переход в preferred закрепляет уже выбранный адрес"
+assert_eq "переход в preferred не печатает диагностику nounset" "" "$_policy_output"
+assert_eq "переход в preferred сохраняет выбранный IP как preferred" 203.0.113.20 \
+    "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com preferred_ip)"
 if _z2k_ow_tiktok_domain_state_set_many v16-cla.tiktokcdn.com \
     "policy=preferred" "preferred_ip=203.0.113.20" "selected_ip="; then
     _t_ok
@@ -644,6 +675,13 @@ assert_contains "failed multi-host DNS apply retains the original v16-cla addres
 assert_contains "failed multi-host DNS apply retains the newer v16-ies selection" "$UCI_TEST_DB" '/v16-ies-music.tiktokcdn.com/203.0.113.20'
 assert_eq "failed multi-host DNS apply does not commit the new host state" 203.0.113.20 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com selected_ip)"
 
+# Для доменного теста оба резерва имеют подтверждённую разрешённую географию.
+_z2k_ow_tiktok_candidate_pool() {
+    printf '198.51.100.99||||||Amsterdam, Netherlands|check-host-distributed-discovery|1|0|0\n'
+    printf '203.0.113.20||||||Minsk, Belarus|curated-community-fallback|0|1|0\n'
+    printf '143.244.42.18||||||Amsterdam|curated-community-fallback|0|1|0\n'
+}
+
 # Preferred selections stay recorded while a failed active IP accrues two
 # independent failures; only then does a freshly verified reserve take over.
 _domain_last_verified=$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com last_verified_epoch)
@@ -672,6 +710,7 @@ assert_file "v16-cla records a failover epoch" "$Z2K_TIKTOK_DOMAIN_STATE_FILE"
 assert_contains "v16-cla records the failover source epoch" "$Z2K_TIKTOK_DOMAIN_STATE_FILE" 'domain.v16-cla.tiktokcdn.com.last_failover_epoch='
 assert_eq "v16-cla failover records the previous address" 203.0.113.20 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com last_failover_from)"
 assert_eq "v16-cla failover records the reserve address" 143.244.42.18 "$(_z2k_ow_tiktok_domain_state_get v16-cla.tiktokcdn.com last_failover_to)"
+assert_contains "кандидат с POP вне разрешённых регионов проверен, но не выбран" "$CURL_TEST_LOG" '198.51.100.99'
 export Z2K_TIKTOK_RECOVERY_COOLDOWN=0
 export TIKTOK_ALLOW_IP=203.0.113.20
 _z2k_ow_tiktok_check_domains automatic || _t_bad "first preferred recovery observation completes"
@@ -682,6 +721,9 @@ assert_file "preferred recovery records an epoch" "$Z2K_TIKTOK_DOMAIN_STATE_FILE
 assert_contains "preferred recovery records its timestamp" "$Z2K_TIKTOK_DOMAIN_STATE_FILE" 'domain.v16-cla.tiktokcdn.com.last_recovery_epoch='
 unset TIKTOK_ALLOW_IP
 unset Z2K_TIKTOK_RECOVERY_COOLDOWN
+
+# Возвращаем production-реализацию пула перед проверкой strict-режима.
+. "$REPO/platform/openwrt/tiktok.sh"
 
 # Strict policy remains pinned through two failures; preferred-with-fallback
 # is the policy exercised above.

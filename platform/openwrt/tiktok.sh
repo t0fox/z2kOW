@@ -1012,7 +1012,7 @@ _z2k_ow_tiktok_jshn_load() {
 }
 
 _z2k_ow_tiktok_checkhost_node_catalog() (
-    local _json _node _asn _ip _location _country _city _rows="" _limit="${Z2K_TIKTOK_CHECKHOST_NODE_LIMIT:-8}"
+    local _json _node _node_host _asn _ip _location _country_name _country_key _city _city_key _rows="" _limit="${Z2K_TIKTOK_CHECKHOST_NODE_LIMIT:-8}"
     [ "${Z2K_TIKTOK_CHECKHOST_ENABLED:-1}" = 1 ] || return 1
     [ -r "$Z2K_TIKTOK_JSHN" ] || return 1
     command -v "$Z2K_TIKTOK_CURL_BIN" >/dev/null 2>&1 || return 1
@@ -1020,13 +1020,12 @@ _z2k_ow_tiktok_checkhost_node_catalog() (
     [ "$_limit" -le 12 ] 2>/dev/null || _limit=12
     _z2k_ow_tiktok_jshn_load || return 1
     _json=$("$Z2K_TIKTOK_CURL_BIN" --fail --silent --show-error --connect-timeout 3 --max-time 6 \
-        -H 'Accept: application/json' "$Z2K_TIKTOK_CHECKHOST_API/nodes/ips" 2>/dev/null) || return 1
+        -H 'Accept: application/json' "$Z2K_TIKTOK_CHECKHOST_API/nodes/hosts" 2>/dev/null) || return 1
     json_load "$_json" || return 1
     json_select nodes || return 1
     json_get_keys _node_keys || return 1
     for _node in $_node_keys; do
-        case "$_node" in *[!a-zA-Z0-9.-]*) continue ;; esac
-        case "$_node" in *.node.check-host.net) ;; *) continue ;; esac
+        _node_host=$(_z2k_ow_tiktok_checkhost_node_hostname "$_node") || continue
         json_select "$_node" || continue
         json_get_var _asn asn
         json_get_var _ip ip
@@ -1034,30 +1033,78 @@ _z2k_ow_tiktok_checkhost_node_catalog() (
         json_select ..
         _z2k_ow_tiktok_valid_ipv4 "$_ip" || continue
         set -- $_location
-        _country_name=$(printf '%s' "${2:-}" | tr '|;\r\n' '    ')
-        _city=$(printf '%s' "${3:-}" | tr '|;\r\n' '    ')
+        [ "$#" -ge 3 ] || continue
+        _country_name=$(printf '%s' "$2" | tr '|;\r\n' '    ')
+        shift 2
+        _city=$(printf '%s' "$*" | tr '|;\r\n' '    ')
         _asn=$(printf '%s' "$_asn" | tr '|;\r\n' '    ')
         [ -n "$_country_name" ] || continue
         [ -n "$_city" ] || continue
         [ -n "$_asn" ] || continue
+        # В BusyBox tr классы [:upper:]/[:lower:] на части сборок дают
+        # неверную таблицу соответствий; для ASCII используем явные диапазоны.
+        _country_key=$(printf '%s' "$_country_name" | tr 'A-Z' 'a-z')
+        _city_key=$(printf '%s' "$_city" | tr 'A-Z' 'a-z')
+        # Принимаем только узлы из России, Минска и Амстердама.
+        case "$_country_key:$_city_key" in
+            russia:*|russian\ federation:*|россия:*|российская\ федерация:*) ;;
+            belarus:minsk|by:minsk|беларусь:минск|беларусь:minsk) ;;
+            netherlands:amsterdam|the\ netherlands:amsterdam|nl:amsterdam) ;;
+            *) continue ;;
+        esac
         [ -n "$_rows" ] && _rows="$_rows\n"
-        _rows="$_rows$_node|$_country_name|$_city|$_asn"
+        _rows="$_rows$_node_host|$_country_name|$_city|$_asn"
     done
     [ -n "$_rows" ] || return 1
     printf '%b\n' "$_rows" | awk -F'|' -v limit="$_limit" '
+        function is_russia(country) {
+            country=tolower(country)
+            return country == "russia" || country == "russian federation" \
+                || country == "россия" || country == "российская федерация"
+        }
         function emit(row, parts, key) {
             split(row, parts, /\|/); key=parts[1]
-            if (key == "" || seen[key] || n >= limit) return
-            seen[key]=1; print row; n++
+            if (key == "" || seen[key] || n >= limit) return 0
+            seen[key]=1; print row; n++; return 1
         }
-        { rows[NR]=$0; countries[$2]=1; asns[$4]=1 }
+        function emit_russia(row, parts, city) {
+            split(row, parts, /\|/); city=parts[3]
+            if (is_russia(parts[2]) && russia_count < 3 && !russia_city[city] && emit(row)) {
+                russia_city[city]=1; russia_count++
+            }
+        }
+        { rows[NR]=$0 }
         END {
-            for (i=1; i<=NR && n<limit; i++) { split(rows[i], f, /\|/); if (!country_seen[f[2]]++) emit(rows[i]) }
-            for (i=1; i<=NR && n<limit; i++) { split(rows[i], f, /\|/); if (!asn_seen[f[4]]++) emit(rows[i]) }
+            # Резервируем точки всех трёх нужных мест, чтобы избыток
+            # российских узлов не вытеснял Минск и Амстердам из лимита.
+            for (i=1; i<=NR && russia_count<1 && n<limit; i++) emit_russia(rows[i])
+            for (i=1; i<=NR && n<limit; i++) { split(rows[i], f, /\|/); if (f[2] == "Belarus" && tolower(f[3]) == "minsk") emit(rows[i]) }
+            for (i=1; i<=NR && n<limit; i++) { split(rows[i], f, /\|/); if (f[2] == "Netherlands" && tolower(f[3]) == "amsterdam") emit(rows[i]) }
+            for (i=1; i<=NR && russia_count<3 && n<limit; i++) emit_russia(rows[i])
             for (i=1; i<=NR && n<limit; i++) emit(rows[i])
         }
     '
 )
+
+# Оставляем только IP, наблюдавшиеся Check-Host-узлами из разрешённых мест,
+# либо пришедшие из известного пула Минска, России и Амстердама.
+_z2k_ow_tiktok_allowed_geo_candidates() {
+    awk -F'|' '
+        function allowed(geo, words, count, i, word) {
+            gsub(/[,;]/, " ", geo)
+            count=split(tolower(geo), words, /[[:space:]]+/)
+            for (i=1; i<=count; i++) {
+                word=words[i]
+                if (word == "minsk" || word == "belarus" || word == "by" \
+                    || word == "russia" || word == "russian" \
+                    || word == "россия" || word == "российская" \
+                    || word == "moscow" || word == "amsterdam") return 1
+            }
+            return 0
+        }
+        NF >= 7 && allowed($7) { print }
+    '
+}
 
 _z2k_ow_tiktok_checkhost_request_id() (
     local _json="$1"
@@ -1069,16 +1116,29 @@ _z2k_ow_tiktok_checkhost_request_id() (
     printf '%s\n' "$_request_id"
 )
 
+_z2k_ow_tiktok_checkhost_node_hostname() {
+    local _key="$1" _label
+    case "$_key" in
+        *.node.check-host.net) printf '%s\n' "$_key" ;;
+        *_node_check_host_net)
+            # jshn превращает точки и дефисы в ключах JSON в подчёркивания.
+            _label=${_key%_node_check_host_net}
+            case "$_label" in ''|*[!a-zA-Z0-9]*) return 1 ;; esac
+            printf '%s.node.check-host.net\n' "$_label"
+            ;;
+        *) return 1 ;;
+    esac
+}
+
 _z2k_ow_tiktok_checkhost_parse_results() (
-    local _json="$1" _domain="$2" _node_rows="$3" _node _index _ip _ttl _meta
+    local _json="$1" _domain="$2" _node_rows="$3" _node _node_host _index _ip _ttl _meta
     [ -r "$Z2K_TIKTOK_JSHN" ] || return 1
     _z2k_ow_tiktok_jshn_load || return 1
     json_load "$_json" || return 1
     json_get_keys _result_nodes || return 1
     for _node in $_result_nodes; do
-        case "$_node" in *[!a-zA-Z0-9.-]*) continue ;; esac
-        case "$_node" in *.node.check-host.net) ;; *) continue ;; esac
-        _meta=$(printf '%s\n' "$_node_rows" | awk -F'|' -v node="$_node" '$1 == node { print $2 "|" $3 "|" $4; exit }')
+        _node_host=$(_z2k_ow_tiktok_checkhost_node_hostname "$_node") || continue
+        _meta=$(printf '%s\n' "$_node_rows" | awk -F'|' -v node="$_node_host" '$1 == node { print $2 "|" $3 "|" $4; exit }')
         [ -n "$_meta" ] || continue
         json_select "$_node" || continue
         json_get_keys _records || { json_select ..; continue; }
@@ -1090,7 +1150,7 @@ _z2k_ow_tiktok_checkhost_parse_results() (
             for _ip in $_ips; do
                 _z2k_ow_tiktok_valid_ipv4 "$_ip" || continue
                 case "$_ttl" in ''|*[!0-9]*) _ttl="" ;; esac
-                printf '%s|%s|%s|%s|%s|%s|%s\n' "$_ip" "$_node" \
+                printf '%s|%s|%s|%s|%s|%s|%s\n' "$_ip" "$_node_host" \
                     "${_meta%%|*}" "$(printf '%s' "$_meta" | cut -d'|' -f2)" \
                     "$(printf '%s' "$_meta" | cut -d'|' -f3)" "$_domain" "$_ttl"
             done
@@ -1213,6 +1273,32 @@ _z2k_ow_tiktok_discover_combined() {
 
 # stdout: detailed target probe result. curl validates the normal certificate
 # for the managed hostname because --insecure is deliberately never used.
+_z2k_ow_tiktok_pop_location_allowed() {
+    local _pop="$1"
+    # CDN77 сообщает POP ответа; если он присутствует, не принимаем чужие регионы.
+    # Для других CDN без такого заголовка остаётся фильтр географии Check-Host.
+    [ -n "$_pop" ] || return 0
+    _pop=$(printf '%s' "$_pop" | tr 'A-Z' 'a-z')
+    case "$_pop" in
+        *minsk*|*_by|*_by_*|*moscow*|*petersburg*|*_ru|*_ru_*|ams|ams_*|*amsterdam*|*_nl|*_nl_*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+_z2k_ow_tiktok_probe_location_allowed() {
+    local _pop
+    _pop=$(printf '%s\n' "$1" | cut -d'|' -f6)
+    _z2k_ow_tiktok_pop_location_allowed "$_pop"
+}
+
+_z2k_ow_tiktok_probe_matrix_location_allowed() {
+    local _row="$1" _first_pop _second_pop
+    _first_pop=$(printf '%s\n' "$_row" | cut -d'|' -f6)
+    _second_pop=$(printf '%s\n' "$_row" | cut -d'|' -f16)
+    _z2k_ow_tiktok_pop_location_allowed "$_first_pop" \
+        && _z2k_ow_tiktok_pop_location_allowed "$_second_pop"
+}
+
 _z2k_ow_tiktok_probe_report() {
     local _ip="$1" _host="${2:-$Z2K_TIKTOK_HOST}" _raw _metrics _http _connect _tls _total _ms _connect_ms _tls_ms _pop _cache _server _curl_rc _tcp _tls_ok _verified
     _z2k_ow_tiktok_valid_ipv4 "$_ip" || return 1
@@ -1320,7 +1406,8 @@ _z2k_ow_tiktok_domain_check_one() {
     _reason=active-probe
 
     if _z2k_ow_tiktok_valid_ipv4 "$_active"; then
-        if _row=$(_z2k_ow_tiktok_probe_report "$_active" "$_host"); then
+        if _row=$(_z2k_ow_tiktok_probe_report "$_active" "$_host") \
+            && _z2k_ow_tiktok_probe_location_allowed "$_row"; then
             _failure=0
             _health=transport-confirmed
         else
@@ -1336,7 +1423,8 @@ _z2k_ow_tiktok_domain_check_one() {
     # last failover, so a single good packet cannot cause a flap.
     if [ "$_policy" = preferred ] && _z2k_ow_tiktok_valid_ipv4 "$_preferred" \
         && [ "$_preferred" != "$_active" ] && [ -n "$_active" ]; then
-        if _candidate_row=$(_z2k_ow_tiktok_probe_report "$_preferred" "$_host"); then
+        if _candidate_row=$(_z2k_ow_tiktok_probe_report "$_preferred" "$_host") \
+            && _z2k_ow_tiktok_probe_location_allowed "$_candidate_row"; then
             _recovery=$((_recovery + 1))
             if [ "$_recovery" -ge "$Z2K_TIKTOK_STABILITY_PROBES" ] \
                 && { [ -z "$_last_failover" ] || [ $((_now - _last_failover)) -ge "${Z2K_TIKTOK_RECOVERY_COOLDOWN:-300}" ]; }; then
@@ -1365,8 +1453,7 @@ _z2k_ow_tiktok_domain_check_one() {
         _resolution=$(_z2k_ow_tiktok_discover_combined 0)
         _pool=$(printf '%s\n' "$_resolution" | _z2k_ow_tiktok_candidate_pool)
         {
-            printf '%s\n' "$_pool" | cut -d'|' -f1
-            _z2k_ow_tiktok_curated_candidates | cut -d'|' -f1
+            printf '%s\n' "$_pool" | _z2k_ow_tiktok_allowed_geo_candidates | cut -d'|' -f1
         } | awk 'NF && !seen[$0]++' > "$_candidate_file" || { rm -f "$_candidate_file"; return 1; }
         while IFS= read -r _candidate_ip; do
             [ -n "$_candidate_ip" ] || continue
@@ -1374,7 +1461,8 @@ _z2k_ow_tiktok_domain_check_one() {
             [ "$_candidate_ip" != "$_active" ] || continue
             _probe_count=$((_probe_count + 1))
             [ "$_probe_count" -le "$Z2K_TIKTOK_MAX_PROBES" ] || break
-            if _candidate_row=$(_z2k_ow_tiktok_probe_report "$_candidate_ip" "$_host"); then
+            if _candidate_row=$(_z2k_ow_tiktok_probe_report "$_candidate_ip" "$_host") \
+                && _z2k_ow_tiktok_probe_location_allowed "$_candidate_row"; then
                 _candidate_success=$((_candidate_success + 1))
                 _candidate_ms=$(printf '%s' "$_candidate_row" | cut -d'|' -f2)
                 if [ -z "$_best_ms" ] || [ "$_candidate_ms" -lt "$_best_ms" ] 2>/dev/null; then
@@ -1391,7 +1479,9 @@ _z2k_ow_tiktok_domain_check_one() {
         if [ -n "$_best_ip" ] && [ "$_must_find" = 1 ]; then
             local _stability_try=1
             while [ "$_stability_try" -lt "$Z2K_TIKTOK_STABILITY_PROBES" ]; do
-                _candidate_row=$(_z2k_ow_tiktok_probe_report "$_best_ip" "$_host") || { _best_row=; _best_ip=; break; }
+                _candidate_row=$(_z2k_ow_tiktok_probe_report "$_best_ip" "$_host") \
+                    && _z2k_ow_tiktok_probe_location_allowed "$_candidate_row" \
+                    || { _best_row=; _best_ip=; break; }
                 _stability_try=$((_stability_try + 1))
             done
             [ -z "$_best_row" ] || _best_row=$_candidate_row
@@ -1731,7 +1821,7 @@ z2k_ow_tiktok_manual_select() {
 }
 
 z2k_ow_tiktok_domain_policy_set() {
-    local _host="$1" _policy="$2" _preferred _active _target _row="" _now _mapping _old_policy _selected_at _preferred_at
+    local _host="$1" _policy="$2" _preferred _save_preferred _active _target _row="" _now _mapping _old_policy _selected_at _preferred_at
     _z2k_ow_tiktok_managed_domain "$_host" || return 1
     case "$_policy" in auto|preferred|strict) ;; *) return 1 ;; esac
     z2k_ow_tiktok_enabled || return 1
@@ -1743,6 +1833,7 @@ z2k_ow_tiktok_domain_policy_set() {
     fi
     _old_policy=$(_z2k_ow_tiktok_domain_state_get "$_host" policy)
     _preferred=$(_z2k_ow_tiktok_domain_state_get "$_host" preferred_ip)
+    _save_preferred=$_preferred
     _active=$(_z2k_ow_tiktok_domain_state_get "$_host" selected_ip)
     _selected_at=$(_z2k_ow_tiktok_domain_state_get "$_host" selected_at_epoch)
     _preferred_at=$(_z2k_ow_tiktok_domain_state_get "$_host" preferred_set_at_epoch)
@@ -1755,7 +1846,11 @@ z2k_ow_tiktok_domain_policy_set() {
             _row=$(_z2k_ow_tiktok_probe_report "$_target" "$_host") || return 1
             ;;
         preferred)
-            _z2k_ow_tiktok_valid_ipv4 "$_preferred" || return 1
+            if ! _z2k_ow_tiktok_valid_ipv4 "$_preferred"; then
+                # При переходе из auto закрепляем уже выбранный адрес домена.
+                _z2k_ow_tiktok_valid_ipv4 "$_active" || return 1
+                _save_preferred=$_active
+            fi
             if ! _z2k_ow_tiktok_valid_ipv4 "$_active"; then
                 _target=$_preferred
                 _row=$(_z2k_ow_tiktok_probe_report "$_target" "$_host") || return 1
@@ -1775,7 +1870,7 @@ z2k_ow_tiktok_domain_policy_set() {
         _z2k_ow_tiktok_apply_lock_release
         return 1
     fi
-    [ "$_policy" != auto ] || _preferred=
+    [ "$_policy" != auto ] || _save_preferred=
     if [ "$_policy" = strict ] || { [ "$_policy" = preferred ] && ! _z2k_ow_tiktok_valid_ipv4 "$_active"; }; then
         [ "$_active" = "$_target" ] || _selected_at=$_now
         _active=$_target
@@ -1790,7 +1885,7 @@ z2k_ow_tiktok_domain_policy_set() {
         return 1
     fi
     _z2k_ow_tiktok_domain_state_set_many "$_host" \
-        "policy=$_policy" "preferred_ip=$_preferred" "selected_ip=$_active" \
+        "policy=$_policy" "preferred_ip=$_save_preferred" "selected_ip=$_active" \
         "health=$([ -n "$_row" ] && printf transport-confirmed || printf "$(_z2k_ow_tiktok_domain_state_get "$_host" health)")" \
         "failure_count=0" "last_evaluation_epoch=$_now" \
         "selected_at_epoch=$_selected_at" "preferred_set_at_epoch=$_preferred_at" \
@@ -1895,7 +1990,8 @@ _z2k_ow_tiktok_probe_domain_all() {
     [ "$_limit" -le 64 ] 2>/dev/null || _limit=64
     _z2k_ow_tiktok_job_progress "Обнаружение CDN-кандидатов для $_host: Check-Host, локальный DNS, cache и curated pool"
     _resolution=$(_z2k_ow_tiktok_discover_combined 1)
-    _pool=$(printf '%s\n' "$_resolution" | _z2k_ow_tiktok_candidate_pool | _z2k_ow_tiktok_serialize_lines)
+    _pool=$(printf '%s\n' "$_resolution" | _z2k_ow_tiktok_candidate_pool \
+        | _z2k_ow_tiktok_allowed_geo_candidates | _z2k_ow_tiktok_serialize_lines)
     _total=$(printf '%s\n' "$_pool" | tr ';' '\n' | awk -v limit="$_limit" 'NF && n < limit { n++ } END { print n+0 }')
     _z2k_ow_tiktok_job_progress "Найдено кандидатов для $_host: $_total; проверяю TCP/TLS/SNI с SNI этого домена (параллельно: $_parallel)"
     mkdir -p "$_tmp" 2>/dev/null || return 1
@@ -1976,7 +2072,8 @@ z2k_ow_tiktok_probe_all() {
     [ "$_limit" -le 64 ] 2>/dev/null || _limit=64
     _z2k_ow_tiktok_job_progress "Обнаружение CDN-кандидатов: Check-Host, локальный DNS, cache и curated pool"
     _row=$(_z2k_ow_tiktok_discover_combined 1)
-    _pool=$(printf '%s\n' "$_row" | _z2k_ow_tiktok_candidate_pool | _z2k_ow_tiktok_serialize_lines)
+    _pool=$(printf '%s\n' "$_row" | _z2k_ow_tiktok_candidate_pool \
+        | _z2k_ow_tiktok_allowed_geo_candidates | _z2k_ow_tiktok_serialize_lines)
     _total=$(printf '%s\n' "$_pool" | tr ';' '\n' | awk -v limit="$_limit" 'NF && n < limit { n++ } END { print n+0 }')
     if [ "$_total" -eq 0 ]; then
         _z2k_ow_tiktok_job_progress "Кандидаты не найдены; текущий выбор CDN не изменён"
@@ -2145,7 +2242,8 @@ z2k_ow_tiktok_check() {
         && [ "$_current_verified" -gt 0 ] 2>/dev/null \
         && [ $((_now - _current_verified)) -le "$Z2K_TIKTOK_SELECTED_LEASE_SECONDS" ] 2>/dev/null; then
         _current_probed=1
-        if _current_row=$(_z2k_ow_tiktok_probe "$_current"); then
+        if _current_row=$(_z2k_ow_tiktok_probe "$_current") \
+            && _z2k_ow_tiktok_probe_matrix_location_allowed "$_current_row"; then
             _z2k_ow_tiktok_record_probe "$_current" "$_current_row"
             _z2k_ow_tiktok_apply_lock_acquire || return 1
             if ! _z2k_ow_tiktok_recheck_before_apply auto; then
@@ -2166,17 +2264,20 @@ z2k_ow_tiktok_check() {
             _z2k_ow_tiktok_apply_lock_release
             return 0
         fi
+        _current_row=
         _z2k_ow_tiktok_record_probe "$_current" ""
         _fail=$((_fail + 1))
     fi
     if _z2k_ow_tiktok_valid_ipv4 "$_current"; then
         if [ "$_current_probed" = 0 ]; then
             _current_probed=1
-            if _current_row=$(_z2k_ow_tiktok_probe "$_current"); then
+            if _current_row=$(_z2k_ow_tiktok_probe "$_current") \
+                && _z2k_ow_tiktok_probe_matrix_location_allowed "$_current_row"; then
                 _current_ok=1
                 _fail=0
                 _z2k_ow_tiktok_record_probe "$_current" "$_current_row"
             else
+                _current_row=
                 _fail=$((_fail + 1))
                 _z2k_ow_tiktok_record_probe "$_current" ""
             fi
@@ -2203,7 +2304,8 @@ z2k_ow_tiktok_check() {
 
     _resolution=$(_z2k_ow_tiktok_discover_combined 0)
     _Z2K_TIKTOK_RESOLUTION_OBSERVATIONS_STATE=$(printf '%s\n' "$_resolution" | _z2k_ow_tiktok_serialize_lines)
-    _pool=$(printf '%s\n' "$_resolution" | _z2k_ow_tiktok_candidate_pool)
+    _pool=$(printf '%s\n' "$_resolution" | _z2k_ow_tiktok_candidate_pool \
+        | _z2k_ow_tiktok_allowed_geo_candidates)
     _Z2K_TIKTOK_CANDIDATE_POOL_STATE=$(printf '%s\n' "$_pool" | _z2k_ow_tiktok_serialize_lines)
     _Z2K_TIKTOK_RESOLVER_SOURCES_STATE=$(_z2k_ow_tiktok_resolvers | _z2k_ow_tiktok_serialize_lines)
     _discovered="$_now"
@@ -2216,7 +2318,8 @@ z2k_ow_tiktok_check() {
         [ "$_ip" != "$_current" ] || continue
         [ "$_probes" -lt "$Z2K_TIKTOK_MAX_PROBES" ] || break
         _probes=$((_probes + 1))
-        if _row=$(_z2k_ow_tiktok_probe "$_ip"); then
+        if _row=$(_z2k_ow_tiktok_probe "$_ip") \
+            && _z2k_ow_tiktok_probe_matrix_location_allowed "$_row"; then
             _z2k_ow_tiktok_record_probe "$_ip" "$_row"
             _success=$((_success + 1))
             _ms=$(printf '%s' "$_row" | cut -d'|' -f2)
@@ -2239,7 +2342,10 @@ $_pool
 EOF_POOL
     _best_ip=$(printf '%s' "$_best_row" | cut -d'|' -f1)
     if [ -n "$_best_ip" ]; then
-        _stable_row=$(_z2k_ow_tiktok_probe "$_best_ip") || _stable_row=""
+        if ! _stable_row=$(_z2k_ow_tiktok_probe "$_best_ip") \
+            || ! _z2k_ow_tiktok_probe_matrix_location_allowed "$_stable_row"; then
+            _stable_row=""
+        fi
         _z2k_ow_tiktok_record_probe "$_best_ip" "$_stable_row"
         [ -n "$_stable_row" ] || _best_row=""
         [ -z "$_stable_row" ] || _best_row="$_stable_row"
