@@ -205,6 +205,9 @@ prepare_sysroot() {
     chmod 640 "$SYS/etc/z2k/user-lists/custom.txt"
     printf 'luci sentinel\n' > "$SYS/www/cgi-bin/luci"
     chmod 644 "$SYS/www/cgi-bin/luci"
+    _old_config_stat=$(stat -c '%u:%g:%a' "$SYS/etc/z2k/config")
+    _old_user_list_stat=$(stat -c '%u:%g:%a' "$SYS/etc/z2k/user-lists/custom.txt")
+    _old_luci_stat=$(stat -c '%u:%g:%a' "$SYS/www/cgi-bin/luci")
     printf 'old payload\n' > "$SYS/usr/lib/z2k/version.txt"
     for _svc in z2k z2k-webpanel; do
         printf '#!/bin/sh\nexit 0\n' > "$SYS/etc/init.d/$_svc"
@@ -220,9 +223,9 @@ assert_operator_files_preserved() {
 USER_VALUE=preserve" ] \
         && [ "$(cat "$SYS/etc/z2k/user-lists/custom.txt" 2>/dev/null)" = "user-list preserve" ] \
         && [ "$(cat "$SYS/www/cgi-bin/luci" 2>/dev/null)" = "luci sentinel" ] \
-        && [ "$(stat -c '%u:%g:%a' "$SYS/etc/z2k/config" 2>/dev/null)" = "0:0:640" ] \
-        && [ "$(stat -c '%u:%g:%a' "$SYS/etc/z2k/user-lists/custom.txt" 2>/dev/null)" = "0:0:640" ] \
-        && [ "$(stat -c '%u:%g:%a' "$SYS/www/cgi-bin/luci" 2>/dev/null)" = "0:0:644" ]; then
+        && [ "$(stat -c '%u:%g:%a' "$SYS/etc/z2k/config" 2>/dev/null)" = "$_old_config_stat" ] \
+        && [ "$(stat -c '%u:%g:%a' "$SYS/etc/z2k/user-lists/custom.txt" 2>/dev/null)" = "$_old_user_list_stat" ] \
+        && [ "$(stat -c '%u:%g:%a' "$SYS/www/cgi-bin/luci" 2>/dev/null)" = "$_old_luci_stat" ]; then
         _t_ok
     else
         _t_bad "$_description: конфигурация, ownership/permissions или защищённый LuCI path изменились"
