@@ -18,13 +18,12 @@ z2kOW — open-source программное обеспечение для об�
 
 ## Поддержать проект
 
-Если z2kOW оказался полезен, проект можно поддержать через Streamiverse:
+Если z2kOW оказался полезен, проект можно поддержать любым из способов:
 
-**[donation.streamiverse.io/t0fox](https://donation.streamiverse.io/t0fox)**
-
-<a href="https://donation.streamiverse.io/t0fox">
-  <img src="platform/openwrt/webpanel-brand/streamiverse-donation.svg" width="280" alt="QR-код Streamiverse для поддержки z2kOW">
-</a>
+| Streamiverse | CloudTips |
+| :---: | :---: |
+| **[Поддержать через Streamiverse](https://donation.streamiverse.io/t0fox)** | **[Поддержать через CloudTips](https://pay.cloudtips.ru/p/34db013d)** |
+| <a href="https://donation.streamiverse.io/t0fox"><img src="platform/openwrt/webpanel-brand/streamiverse-donation.svg" width="200" alt="QR-код Streamiverse для поддержки z2kOW"></a> | <a href="https://pay.cloudtips.ru/p/34db013d"><img src="platform/openwrt/webpanel-brand/cloudtips-donation.svg" width="200" alt="QR-код CloudTips для поддержки z2kOW"></a> |
 
 Поддержка добровольная и не открывает платные функции, сетевой доступ, отдельные конфигурации или приоритет.
 
