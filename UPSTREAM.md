@@ -49,6 +49,10 @@ sh scripts/openwrt/audit-upstream-docs.sh <base-ref> <target-ref>
 
 `docs/UPSTREAM-SYNC.tsv` records reviewed upstream documentation revisions. It is an audit ledger, not a second product specification.
 
+## Учёт неприменимых выпусков
+
+`docs/UPSTREAM-SKIPS.json` хранит точные upstream-тег и `seq` выпусков со статусом `not applicable` и русским объяснением. Проверка `sync-upstream.yml` включает эти номера в учёт синхронизации, поэтому повторно не предлагает тот же выпуск. Более новый `seq` по-прежнему требует отдельного разбора. Этот реестр не меняет версию продукта, `UPDATES.json`, его подпись или содержимое пакета.
+
 ## Device release authority
 
 Routers do not read upstream release metadata directly. The repository-root [`UPDATES.json`](UPDATES.json) is the sole device release authority for z2kOW. It records the approved upstream provenance and z2kOW artifact metadata and is authenticated by the z2kOW signing chain.

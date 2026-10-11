@@ -77,6 +77,25 @@ class ControlledArtifactTests(unittest.TestCase):
             capture_output=True,
         )
 
+    def _check_upstream(
+        self, upstream: dict[str, object], skip_registry: dict[str, object]
+    ) -> subprocess.CompletedProcess[str]:
+        upstream_path = self.root / "upstream.json"
+        controlled_path = self.root / "controlled.json"
+        skip_path = self.root / "upstream-skips.json"
+        upstream_path.write_text(json.dumps(upstream), encoding="utf-8")
+        controlled_path.write_text(json.dumps(self.manifest), encoding="utf-8")
+        skip_path.write_text(json.dumps(skip_registry), encoding="utf-8")
+        return subprocess.run(
+            [
+                sys.executable, str(MODULE_PATH), "check-upstream",
+                "--upstream", str(upstream_path), "--commit", "d" * 40,
+                "--controlled", str(controlled_path), "--skip-registry", str(skip_path),
+            ],
+            text=True,
+            capture_output=True,
+        )
+
     def test_single_transport_artifact_hash_is_recorded_in_updates_manifest(self) -> None:
         url = self.TECHNICAL_URL
 
@@ -228,6 +247,61 @@ class ControlledArtifactTests(unittest.TestCase):
         self.assertTrue(result["update_available"])
         self.assertEqual(result["latest_tag"], "p-100.2")
         self.assertEqual(result["latest_seq"], 900)
+
+    def test_not_applicable_release_advances_review_watermark_without_repeating_or_masking_next_release(self) -> None:
+        """Пропуск не повторяется, а следующий выпуск остаётся заметным."""
+        skip_registry = {
+            "schema": 1,
+            "skips": [
+                {
+                    "tag": "p-86.19",
+                    "seq": 143,
+                    "status": "not applicable",
+                    "reason": "Entware относится к Keenetic, на OpenWrt этот механизм не используется.",
+                }
+            ],
+        }
+        upstream = {
+            "branch": "z2k-enhanced",
+            "current": "p-86.19",
+            "seq": 143,
+            "history": [{"v": "r-86.5"}, {"v": "p-86.18"}, {"v": "p-86.19"}],
+        }
+
+        skipped = self._check_upstream(upstream, skip_registry)
+
+        self.assertEqual(skipped.returncode, 0, skipped.stderr)
+        skipped_result = json.loads(skipped.stdout.splitlines()[0])
+        self.assertFalse(skipped_result["update_available"])
+        self.assertEqual(skipped_result["accounted_seq"], 143)
+        self.assertEqual(skipped_result["not_applicable"][0]["tag"], "p-86.19")
+        self.assertIn("неприменим", skipped.stdout)
+
+        upstream["current"] = "p-86.20"
+        upstream["seq"] = 144
+        upstream["history"].append({"v": "p-86.20"})
+        next_release = self._check_upstream(upstream, skip_registry)
+
+        self.assertEqual(next_release.returncode, 3, next_release.stdout)
+        next_result = json.loads(next_release.stdout.splitlines()[0])
+        self.assertTrue(next_result["update_available"])
+        self.assertEqual(next_result["accounted_seq"], 143)
+        self.assertEqual(next_result["latest_tag"], "p-86.20")
+
+    def test_upstream_skip_must_match_a_release_in_live_history(self) -> None:
+        """Реестр не должен пропускать тег, которого нет в истории upstream."""
+        registry = {
+            "schema": 1,
+            "skips": [
+                {"tag": "p-86.19", "seq": 143, "status": "not applicable", "reason": "Только Entware."}
+            ],
+        }
+        upstream = self._upstream("p-86.20", 144)
+
+        result = self._check_upstream(upstream, registry)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("отсутствует в актуальной истории", result.stderr)
 
     def test_live_upstream_check_rejects_a_rewound_sequence(self) -> None:
         upstream = {"branch": "z2k-enhanced", "current": "p-100.2", "seq": 811, "history": [{"v": "p-100.2"}]}

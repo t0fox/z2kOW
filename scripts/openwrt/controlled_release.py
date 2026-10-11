@@ -267,9 +267,12 @@ def verify_upstream_tag(
 
 
 def compare_upstream(
-    upstream: dict[str, object], controlled: dict[str, object], commit: str
+    upstream: dict[str, object],
+    controlled: dict[str, object],
+    commit: str,
+    skip_registry: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    """Compare live upstream with the controlled OpenWrt release without version ordering."""
+    """Сопоставить upstream-релиз с выпуском OpenWrt и учесть отмеченные пропуски."""
     latest = controlled_from_upstream(upstream, commit)
     approved_seq = controlled.get("seq")
     if not isinstance(approved_seq, int) or isinstance(approved_seq, bool) or approved_seq < 1:
@@ -281,6 +284,47 @@ def compare_upstream(
     latest_tag = latest["current"]
     if latest_seq == approved_seq and latest_tag != approved_tag:
         raise ValueError("upstream current tag changed without a sequence advance")
+
+    skips: list[dict[str, object]] = []
+    if skip_registry is not None:
+        if set(skip_registry) != {"schema", "skips"}:
+            raise ValueError("реестр пропусков upstream содержит неизвестные поля")
+        schema = skip_registry.get("schema")
+        records = skip_registry.get("skips")
+        if not isinstance(schema, int) or isinstance(schema, bool) or schema != 1:
+            raise ValueError("версия схемы реестра пропусков upstream не поддерживается")
+        if not isinstance(records, list):
+            raise ValueError("список пропусков upstream повреждён")
+        upstream_history = upstream.get("history")
+        history_tags = {
+            entry.get("v") for entry in upstream_history
+            if isinstance(entry, dict) and isinstance(entry.get("v"), str)
+        }
+        seen_tags: set[str] = set()
+        seen_seqs: set[int] = set()
+        for record in records:
+            if not isinstance(record, dict) or set(record) != {"tag", "seq", "status", "reason"}:
+                raise ValueError("запись реестра пропусков upstream повреждена")
+            tag = record.get("tag")
+            seq = record.get("seq")
+            status = record.get("status")
+            reason = record.get("reason")
+            if not isinstance(tag, str) or not TAG_RE.fullmatch(tag):
+                raise ValueError("тег в реестре пропусков upstream повреждён")
+            if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1 or seq > latest_seq:
+                raise ValueError("seq в реестре пропусков upstream не подтверждён текущим манифестом")
+            if status != "not applicable" or not isinstance(reason, str) or not reason.strip():
+                raise ValueError("пропуск upstream должен иметь статус not applicable и причину")
+            if tag not in history_tags:
+                raise ValueError(f"пропущенный выпуск {tag} отсутствует в актуальной истории upstream")
+            if tag in seen_tags or seq in seen_seqs:
+                raise ValueError("реестр пропусков upstream содержит повторный тег или seq")
+            seen_tags.add(tag)
+            seen_seqs.add(seq)
+            skips.append({"tag": tag, "seq": seq, "status": status, "reason": reason.strip()})
+
+    accounted_seq = max([approved_seq, *(entry["seq"] for entry in skips)])
+    not_applicable = [entry for entry in skips if entry["seq"] > approved_seq]
     approved_provenance = controlled.get("upstream")
     approved_commit = approved_provenance.get("commit") if isinstance(approved_provenance, dict) else None
     return {
@@ -289,8 +333,10 @@ def compare_upstream(
         "latest_commit": commit,
         "approved_tag": approved_tag,
         "approved_seq": approved_seq,
+        "accounted_seq": accounted_seq,
         "source_changed": commit != approved_commit,
-        "update_available": latest_seq > approved_seq,
+        "not_applicable": not_applicable,
+        "update_available": latest_seq > accounted_seq,
     }
 
 
@@ -506,6 +552,7 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--upstream", required=True, type=Path)
     check.add_argument("--commit", required=True)
     check.add_argument("--controlled", required=True, type=Path)
+    check.add_argument("--skip-registry", required=True, type=Path)
     verify_tag = subparsers.add_parser("verify-upstream-tag")
     verify_tag.add_argument("--upstream", required=True, type=Path)
     verify_tag.add_argument("--pinned", required=True, type=Path)
@@ -537,16 +584,24 @@ def main(argv: list[str] | None = None) -> int:
         else:
             upstream = read_json_object(args.upstream, "upstream manifest")
             controlled = read_json_object(args.controlled, "controlled manifest")
-            result = compare_upstream(upstream, controlled, args.commit)
+            skip_registry = read_json_object(args.skip_registry, "реестр пропусков upstream")
+            result = compare_upstream(upstream, controlled, args.commit, skip_registry)
             print(json.dumps(result, sort_keys=True))
             if result["update_available"]:
                 print(
-                    f"new upstream release {result['latest_tag']} (seq {result['latest_seq']}) "
-                    f"is newer than controlled {result['approved_tag']} (seq {result['approved_seq']})",
+                    f"новый применимый upstream-выпуск {result['latest_tag']} "
+                    f"(seq {result['latest_seq']}); учёт синхронизации до seq {result['accounted_seq']}",
                     file=sys.stderr,
                 )
                 return 3
-            print("no newer upstream release")
+            if result["not_applicable"]:
+                skipped = max(result["not_applicable"], key=lambda entry: entry["seq"])
+                print(
+                    f"upstream-выпуск {skipped['tag']} (seq {skipped['seq']}) отмечен как неприменимый; "
+                    f"учёт синхронизации до seq {result['accounted_seq']}"
+                )
+            else:
+                print(f"новых применимых upstream-выпусков нет; учёт до seq {result['accounted_seq']}")
     except (OSError, ValueError) as error:
         print(f"выпуск z2kOW: {error}", file=sys.stderr)
         return 1

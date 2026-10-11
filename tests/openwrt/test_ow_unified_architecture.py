@@ -255,6 +255,7 @@ class UnifiedArchitectureTests(unittest.TestCase):
         self.assertIn("api.github.com/repos/necronicle/z2k/branches/z2k-enhanced", sync)
         self.assertIn("Cache-Control: no-cache", sync)
         self.assertIn("controlled_release.py check-upstream", sync)
+        self.assertIn("--skip-registry docs/UPSTREAM-SKIPS.json", sync)
         self.assertNotRegex(sync, r"\b[pr]-86\.\d+\b")
         self.assertIn("GITHUB_STEP_SUMMARY", sync)
 
