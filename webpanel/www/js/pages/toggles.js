@@ -1348,9 +1348,6 @@ async function flowBenchmarkMeasure(status) {
       return url.href;
     };
     return {
-    const tgSupported = !tgRust || !s.tunnel || s.tunnel.supported !== false;
-    const tgInstalled = !tgRust || !s.tunnel || s.tunnel.installed !== false;
-    const tgUnavailable = !tgSupported || !tgInstalled;
       server: config.server,
       latency: endpoint(config.latency_url, "latency"),
       download: endpoint(config.download_url, "download"),
@@ -2144,6 +2141,9 @@ export async function renderToggles() {
     // Транспорт Rust доступен только на двух архитектурах из сборки.
     const tgRust = s.platform === "openwrt";
     const tgRunning = s.tunnel && s.tunnel.running === true;
+    const tgSupported = !tgRust || !s.tunnel || s.tunnel.supported !== false;
+    const tgInstalled = !tgRust || !s.tunnel || s.tunnel.installed !== false;
+    const tgUnavailable = !tgSupported || !tgInstalled;
     badge.hidden = false;
     badge.textContent = !tgSupported || !tgInstalled
       ? (s.tunnel.status || "Недоступен")
