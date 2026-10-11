@@ -23,11 +23,6 @@ from controlled_release import ARCHITECTURES, validate_architecture_assets  # no
 
 
 def run(args: Sequence[str], env: dict[str, str], label: str, expected: bool = True) -> str:
-    id_call_count = env.get("Z2K_TEST_ID_CALL_COUNT")
-    if id_call_count:
-        # Первые две проверки имитируют запуск от root в установщике и движке;
-        # проверки владельцев должны видеть фактический UID агента CI.
-        Path(id_call_count).write_text("0\n", encoding="utf-8")
     result = subprocess.run(args, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if (result.returncode == 0) != expected:
         raise RuntimeError(f"{label}: код {result.returncode}\n{result.stdout}")
@@ -179,6 +174,7 @@ def main() -> int:
         panel_url = f"http://127.0.0.1:{panel.server_port}/"
 
         id_call_count = work / "id-call-count"
+        id_call_count.write_text("0\n", encoding="utf-8")
         write_executable(
             bin_dir / "id",
             '''#!/bin/sh
@@ -186,7 +182,7 @@ if [ "${1:-}" = -u ]; then
     count=$(cat "$Z2K_TEST_ID_CALL_COUNT" 2>/dev/null || echo 0)
     count=$((count + 1))
     printf '%s\\n' "$count" > "$Z2K_TEST_ID_CALL_COUNT"
-    if [ "$count" -le 2 ]; then echo 0; else exec /usr/bin/id -u; fi
+    if [ "$count" -eq 1 ]; then echo 0; else exec /usr/bin/id -u; fi
     exit 0
 fi
 exec /usr/bin/id "$@"
