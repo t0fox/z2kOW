@@ -369,7 +369,7 @@ jobs:
             "$RUNNER_TEMP/openwrt-release-candidate" \
             "$RUNNER_TEMP/openwrt-release-candidate/upgrade-acceptance.json" \
             x86_64
-      - name: Reconfirm the upstream release did not advance while OpenWrt was building
+      - name: Повторно проверить upstream после сборки
         shell: bash
         run: |
           set -euo pipefail
@@ -378,19 +378,26 @@ jobs:
             -H 'Cache-Control: no-cache, no-store' -H 'Pragma: no-cache' \
             "https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json?nocache=$nonce" \
             -o "$RUNNER_TEMP/upstream-live-after-build-UPDATES.json"
-          python3 - "$RUNNER_TEMP/upstream-live-after-build-UPDATES.json" "$RELEASE_TAG_INPUT" "$RELEASE_SEQ_INPUT" "$RELEASE_OPERATION_INPUT" <<'PY'
-          import json
-          import sys
-          manifest = json.load(open(sys.argv[1], encoding="utf-8"))
-          tag, seq, operation = sys.argv[2], int(sys.argv[3]), sys.argv[4]
-          if manifest.get("current") != tag or manifest.get("seq") != seq:
-              if operation == "hotfix" and manifest.get("seq", 0) > seq:
-                  raise SystemExit(
-                      f"Upstream version advanced to {manifest.get('current')}. "
-                      "\u0422\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f \u043d\u043e\u0432\u044b\u0439 Product Release, \u0430 \u043d\u0435 hotfix \u0441\u0442\u0430\u0440\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438."
-                  )
-              raise SystemExit("upstream advanced during the OpenWrt build; review and adapt the current release")
-          PY
+          refs="$(git ls-remote https://github.com/necronicle/z2k.git \
+            "refs/heads/z2k-enhanced" "refs/tags/$RELEASE_TAG_INPUT" "refs/tags/$RELEASE_TAG_INPUT^{}")"
+          printf '%s\n' "$refs" > "$RUNNER_TEMP/upstream-refs-after-build.txt"
+          tag_commit="$(printf '%s\n' "$refs" | awk -v tag="refs/tags/$RELEASE_TAG_INPUT" '$2 == tag {print $1}')"
+          peeled_commit="$(printf '%s\n' "$refs" | awk -v tag="refs/tags/$RELEASE_TAG_INPUT^{}" '$2 == tag {print $1}')"
+          upstream_commit="${peeled_commit:-$tag_commit}"
+          [[ "$upstream_commit" =~ ^[0-9a-f]{40}$ ]]
+          test "$upstream_commit" = "$RELEASE_UPSTREAM_COMMIT"
+          curl --fail --location --silent --show-error \
+            "https://raw.githubusercontent.com/necronicle/z2k/$upstream_commit/UPDATES.json?nocache=$nonce" \
+            -o "$RUNNER_TEMP/upstream-pinned-after-build-UPDATES.json"
+          verified_commit="$(python3 scripts/openwrt/controlled_release.py verify-upstream-tag \
+            --upstream "$RUNNER_TEMP/upstream-live-after-build-UPDATES.json" \
+            --pinned "$RUNNER_TEMP/upstream-pinned-after-build-UPDATES.json" \
+            --refs "$RUNNER_TEMP/upstream-refs-after-build.txt" \
+            --skip-registry docs/UPSTREAM-SKIPS.json \
+            --tag "$RELEASE_TAG_INPUT" --seq "$RELEASE_SEQ_INPUT")"
+          [[ "$verified_commit" = "$RELEASE_UPSTREAM_COMMIT" ]] || {
+            echo 'после сборки не совпадает проверенный Git-тег upstream' >&2; exit 1;
+          }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: z2kow-openwrt-release-${{ github.run_id }}

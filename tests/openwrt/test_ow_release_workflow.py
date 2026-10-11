@@ -64,6 +64,20 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("--skip-registry docs/UPSTREAM-SKIPS.json", publish)
         self.assertIn('"docs/UPSTREAM-SKIPS.json"', publish)
 
+    def test_post_build_upstream_check_accepts_only_registered_skips(self) -> None:
+        """После сборки повторно проверяет тег через реестр пропусков upstream."""
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        check = workflow.split(
+            "- name: Повторно проверить upstream после сборки",
+            1,
+        )[1].split("- uses: actions/upload-artifact", 1)[0]
+
+        self.assertIn("verify-upstream-tag", check)
+        self.assertIn("--skip-registry docs/UPSTREAM-SKIPS.json", check)
+        self.assertIn("upstream-pinned-after-build-UPDATES.json", check)
+        self.assertIn("upstream-refs-after-build.txt", check)
+        self.assertIn("RELEASE_UPSTREAM_COMMIT", check)
+
     def test_release_builder_installs_arm64_cross_headers(self) -> None:
         """Ставит ARM64-заголовки для C-зависимостей Rust-сборки релиза."""
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
@@ -224,7 +238,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
         publish = workflow.split("  publish-release:", 1)[1]
-        self.assertLess(prepare.index("build-release.sh"), prepare.index("Reconfirm the upstream release did not advance while OpenWrt was building"))
+        self.assertLess(prepare.index("build-release.sh"), prepare.index("Повторно проверить upstream после сборки"))
         self.assertLess(publish.index("Reconfirm live upstream current and exact pinned tag before production signing"), publish.index("Sign and verify the exact final manifest"))
 
     def test_candidate_plan_output_is_parsed_as_json_not_treated_as_a_path(self) -> None:
