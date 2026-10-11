@@ -63,6 +63,8 @@ z2k_diag_hook() {
 # OpenWrt этот код не вызывает: состояние туннеля проверяет Rust-адаптер.
 if [ "${Z2K_PLATFORM:-keenetic}" != openwrt ]; then
     VPS_IP="${VPS_IP:-213.176.74.63}"
+else
+    VPS_IP="не используется"
 fi
 
 MODE="full"
@@ -190,6 +192,10 @@ get_lan_ip() {
 
 ping_vps_rtt() {
     local out loss rtt
+    if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+        printf -- '-- --'
+        return 0
+    fi
     out=$(ping -c 3 -W 2 "$VPS_IP" 2>/dev/null | tail -3) || { printf -- '-- --'; return; }
     loss=$(printf '%s\n' "$out" | grep -oE '[0-9]+% packet loss' | head -1 | tr -d '% packetloss ' || true)
     rtt=$(printf '%s\n' "$out" | grep -oE 'min/avg/max[^=]*= *[0-9.]+/[0-9.]+' | head -1 | awk -F'/' '{print $(NF)}' || true)

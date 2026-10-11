@@ -12,6 +12,19 @@ awk '/^clock_skew_vs_relay\(\) \{/,/^\}/' \
     "$ROOT/files/z2k-diag.sh" > "$TMP/function.sh"
 printf 'DISTRIB_ARCH=x86_64\n' > "$TMP/openwrt_release"
 
+awk '/^ping_vps_rtt\(\) \{/,/^\}/' \
+    "$ROOT/files/z2k-diag.sh" > "$TMP/ping-vps-function.sh"
+result=$(FUNCTION_FILE="$TMP/ping-vps-function.sh" PING_LOG="$TMP/openwrt-ping.log" sh -c '
+    set -u
+    . "$FUNCTION_FILE"
+    Z2K_PLATFORM=openwrt
+    VPS_IP=213.176.74.63
+    ping() { printf "called\n" >> "$PING_LOG"; return 0; }
+    ping_vps_rtt
+') || result=ERROR
+case "$result" in "-- --") ok "OpenWrt пропускает ping собственного VPS" ;; *) bad "OpenWrt VPS ping result: $result" ;; esac
+[ ! -s "$TMP/openwrt-ping.log" ] && ok "OpenWrt не отправляет ICMP на VPS" || bad "OpenWrt вызвал ping VPS"
+
 result=$(FUNCTION_FILE="$TMP/function.sh" OPENWRT_FILE="$TMP/openwrt_release" \
     CURL_LOG="$TMP/openwrt-curl.log" sh -c '
         . "$FUNCTION_FILE"
