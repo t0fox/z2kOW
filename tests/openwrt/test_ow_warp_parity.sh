@@ -126,7 +126,20 @@ assert_contains "instance env transport" "$T/calls" "Z2K_WARP_TRANSPORT=h2"
 assert_eq "instance env is one procd block" "1" "$(grep -c '^param:env ' "$T/calls")"
 assert_contains "instance env carries runtime tuning" "$T/calls" "param:env GODEBUG=asyncpreemptoff=1"
 assert_contains "instance env binds probe source" "$T/calls" "Z2K_WARP_PROBE_SOURCE=1"
-assert_contains "instance env carries relay" "$T/calls" "Z2K_WARP_VPS_PROXY=http://"
+# В старых конфигах OpenWrt может сохраниться адрес отключённого VPS-релея.
+# Адаптер игнорирует его, но оставляет прочие пользовательские proxy.
+printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_TRANSPORT=h2\nZ2K_WARP_VPS_PROXY=http://z2kwarp:old@213.176.74.63:8119\n' > "$T/etc/config"
+: > "$T/calls"
+warp_start_instance >/dev/null 2>&1
+if grep -q 'Z2K_WARP_VPS_PROXY=' "$T/calls"; then
+    _t_bad "старый VPS proxy не удалён из окружения procd"
+else
+    _t_ok
+fi
+printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_VPS_PROXY=http://proxy.example:8080\n' > "$T/etc/config"
+: > "$T/calls"
+warp_start_instance >/dev/null 2>&1
+assert_contains "окружение экземпляра сохраняет пользовательский proxy" "$T/calls" "Z2K_WARP_VPS_PROXY=http://proxy.example:8080"
 
 # --- 2. restart: disabled = noop; enabled = pbr-down, bounce, wait ---
 printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
@@ -216,7 +229,7 @@ printf 'WEIRD??' | warp_license >/dev/null 2>&1
 assert_eq "license bad rc 2" "2" "$?"
 printf 'REJECT-X' | warp_license >/dev/null 2>&1
 assert_eq "license reject rc 3" "3" "$?"
-# proxy-retry: rc 1 без прокси, успех с прокси.
+# Пользовательский прокси остаётся доступен как явный fallback.
 cat > "$WARP_BIN" <<'EOF'
 #!/bin/sh
 case "$*" in
@@ -225,10 +238,27 @@ case "$*" in
 esac
 EOF
 chmod +x "$WARP_BIN"
-export WARP_VPS_PROXY="http://relay.invalid/"
+printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_VPS_PROXY=http://proxy.example:8080\n' > "$T/etc/config"
 printf 'GOOD-KEY-123' | warp_license > "$T/lic2.out" 2>&1
 assert_eq "license relay retry rc" "0" "$?"
 assert_contains "license relay msg" "$T/lic2.out" "via relay ok"
+
+# Старый встроенный VPS адрес из установленного конфига не используется даже
+# когда прямой запрос падает.
+printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_VPS_PROXY=http://z2kwarp:old@213.176.74.63:8119\n' > "$T/etc/config"
+WARP_CALLS="$T/warpd-calls"; export WARP_CALLS
+: > "$WARP_CALLS"
+cat > "$WARP_BIN" <<'EOF'
+#!/bin/sh
+echo "$*" >> "$WARP_CALLS"
+echo "net fail"
+exit 1
+EOF
+chmod +x "$WARP_BIN"
+printf 'GOOD-KEY-123' | warp_license > "$T/lic3.out" 2>&1
+assert_eq "старый VPS proxy не используется повторно" "1" "$?"
+assert_eq "лицензия отправлена только напрямую" "1" "$(wc -l < "$WARP_CALLS" | tr -d ' ')"
+assert_not_contains "в запрос лицензии не добавлен старый proxy" "$WARP_CALLS" '--proxy'
 
 # --- 4. lists: .disabled respected ---
 mkdir -p "$T/etc/user-lists/warp"

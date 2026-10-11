@@ -91,10 +91,6 @@ WARP_FW4_CHAIN="${WARP_FW4_CHAIN:-forward}"
 WARP_FW4_RULE_COMMENT="${WARP_FW4_RULE_COMMENT:-!z2k: WARP forwarded traffic}"
 WARP_DOMAIN_HELPER="${WARP_DOMAIN_HELPER:-${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/warp-domain.sh}"
 [ -r "$WARP_DOMAIN_HELPER" ] && . "$WARP_DOMAIN_HELPER"
-# Релей для API/регистрации, если напрямую заблокирован (как S51/z2k-warp.sh;
-# дефолт продублирован — равенство трёх копий сторожит parity-тест).
-# Секрет релей НЕ логируем никогда (см. warp_register).
-WARP_VPS_PROXY_DEFAULT="http://z2kwarp:z2kW4rpR3g2026@213.176.74.63:8119"
 
 _wlog() {
     if [ -n "${Z2K_JOB_ID:-}" ]; then
@@ -125,6 +121,27 @@ warp_cfg() { # $1 key, $2 default: чтение конфига без сорси
     [ -f "$CONFIG_FILE" ] && \
         _v=$(awk -F= -v k="$1" '$1==k {v=$2; gsub(/[" ]/,"",v)} END {print v}' "$CONFIG_FILE" 2>/dev/null)
     [ -n "$_v" ] && printf '%s' "$_v" || printf '%s' "$2"
+}
+# Настроенный оператором proxy допустим, но сохранённая настройка старого VPS
+# не должна вернуть отключённую зависимость после обновления OpenWrt.
+warp_external_proxy() {
+    local _proxy _authority _host
+    _proxy="$(warp_cfg Z2K_WARP_VPS_PROXY "")"
+    [ -n "$_proxy" ] || return 0
+    case "$_proxy" in
+        *://*)
+            _authority="${_proxy#*://}"
+            _authority="${_authority%%/*}"
+            _authority="${_authority##*@}"
+            _host="${_authority%%:*}"
+            _host=$(printf '%s' "$_host" | tr '[:upper:]' '[:lower:]')
+            _host="${_host%.}"
+            case "$_host" in
+                213.176.74.63|213.176.74.63.nip.io|79.137.196.7) return 0 ;;
+            esac
+            ;;
+    esac
+    printf '%s' "$_proxy"
 }
 # Транспорт движка (p-84.18 parity: auto|wg|h2). Источник — конфиг
 # (Z2K_WARP_TRANSPORT пишет панель; генератор его сохраняет при regen).
@@ -1409,13 +1426,12 @@ warp_start_instance() {
         return 1
     }
     local _proxy _regtmp
-    _proxy="$(warp_cfg Z2K_WARP_VPS_PROXY "")"
-    [ -n "$_proxy" ] || _proxy="$WARP_VPS_PROXY_DEFAULT"
+    _proxy="$(warp_external_proxy)"
     procd_open_instance "z2k-warp"
     warp_with_argv _z2k_ow_warp_procd_command
     # procd_set_param env публикует весь параметр одним блоком: повторный
     # вызов заменяет предыдущий набор на BusyBox/OpenWrt, поэтому GODEBUG,
-    # выбранный транспорт и релей должны попасть в одну запись. Транспорт
+    # выбранный транспорт и пользовательский proxy должны попасть в одну запись. Транспорт
     # остаётся env-параметром: старое бинарное не знает --transport и упадёт
     # на разборе такого флага.
     set -- \
@@ -1463,10 +1479,6 @@ warp_start_instance() {
 
 # --- install/register (CLI) ---
 
-# Дефолт VPS-релея (как S51/z2k-warp.sh; равенство трёх копий — parity-тест).
-# В логах URL НЕ появляется никогда (см. warp_register).
-WARP_VPS_PROXY_DEFAULT="http://z2kwarp:z2kW4rpR3g2026@213.176.74.63:8119"
-
 # sha256 ожидаемого артефакта из ПРОВЕРЕННОГО манифеста ($1 файл, $2 arch).
 warp_arch() {
     # Use the same OpenWrt target selector as the shipped binary wrappers.
@@ -1488,8 +1500,7 @@ warp_arch() {
 
 warp_register() {
     local _out _proxy
-    _proxy="$(warp_cfg Z2K_WARP_VPS_PROXY "")"
-    [ -n "$_proxy" ] || _proxy="$WARP_VPS_PROXY_DEFAULT"
+    _proxy="$(warp_external_proxy)"
     mkdir -p "$(dirname "$WARP_DEVICE")" 2>/dev/null || {
         _wlog "не удалось создать каталог ключа устройства"
         return 1
@@ -1502,10 +1513,10 @@ warp_register() {
     if _out=$("$WARP_BIN" register --device "$WARP_DEVICE" 2>&1); then
         _wlog "$_out"
     else
-        # Причина — код, НЕ proxy-URL (секрет релея в логи не пишем).
-        _wlog "напрямую не вышло — пробую через релей..."
-        if _out=$("$WARP_BIN" register --device "$WARP_DEVICE" --proxy "$_proxy" 2>&1); then
-            _wlog "через релей: зарегистрированы"
+        # VPS больше не является обязательным резервом; используем только
+        # явно настроенный оператором proxy, прошедший фильтр старого endpoint.
+        if [ -n "$_proxy" ] && _out=$("$WARP_BIN" register --device "$WARP_DEVICE" --proxy "$_proxy" 2>&1); then
+            _wlog "через настроенный proxy: зарегистрированы"
         else
             _wlog "register_blocked"
             return 1
@@ -2011,11 +2022,10 @@ warp_license() {
     [ -x "$WARP_BIN" ] || { _wlog "движок не установлен — нажмите «Установить»"; return 4; }
     _key=$(cat)
     _wlog "передаю ключ WARP+ на проверку через Cloudflare"
-    _proxy="$(warp_cfg Z2K_WARP_VPS_PROXY "")"
-    [ -n "$_proxy" ] || _proxy="$WARP_VPS_PROXY_DEFAULT"
+    _proxy="$(warp_external_proxy)"
     _out=$(printf '%s' "$_key" | "$WARP_BIN" license --device "$WARP_DEVICE" 2>&1); _rc=$?
     if [ "$_rc" = "1" ] && [ -n "$_proxy" ]; then
-        _wlog "напрямую Cloudflare не ответил — пробую через релей..."
+        _wlog "напрямую Cloudflare не ответил — пробую через настроенный proxy..."
         _out=$(printf '%s' "$_key" | "$WARP_BIN" license --device "$WARP_DEVICE" --proxy "$_proxy" 2>&1); _rc=$?
     fi
     [ -n "$_out" ] && printf '%s\n' "$_out"
