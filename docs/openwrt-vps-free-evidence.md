@@ -38,6 +38,12 @@
 Проверялись адаптерные скрипты напрямую в VM; полный продуктовый rootfs туда не устанавливался.
 В чистом базовом образе `curl` отсутствовал. Для сетевых сценариев его установили в госте; штатный OpenWrt release installer включает `curl` в runtime-пакеты, а bootstrap устанавливает `jsonfilter`. Поэтому это не требование к предустановленному образу, но проверка полного package lifecycle остаётся открытой.
 
+## Отдельный бинарник WARP daemon
+
+`z2k-warpd` собирался отдельно от release builder командой Go с OpenWrt build tag и `openwrt-overlay/overlay.json`. Все семь target получили корректный ELF machine/endianness и статическую линковку: `arm64` (AArch64), `arm` (ARM EABI5), `amd64` (x86-64, `CGO_ENABLED=0`), `386` (i386), `mips` (MIPS32 big-endian, softfloat), `mipsle` (MIPS32 little-endian, softfloat), `riscv64` (RISC-V double-float ABI).
+
+`GOTOOLCHAIN=local go test -tags openwrt -overlay openwrt-overlay/overlay.json ./...` прошёл для всех пакетов `z2k-warpd`. Это доказывает компиляцию и unit suite; сами собранные WARP daemon бинарники в QEMU и на реальных устройствах не запускались.
+
 ## Локальные suites
 
 Все перечисленные ниже suites завершились без ошибок:
@@ -60,7 +66,7 @@
 
 ## Границы этих доказательств
 
-- Проверен только QEMU target x86/64. Совместимость shell-адаптера с остальными архитектурами проверками этой итерации не подтверждена.
+- QEMU проверки OpenWrt выполнены только на x86/64. Отдельный `z2k-warpd` собран на всех семи поддерживаемых targets, но бинарный runtime не проверен ни на одном target.
 - Полная чистая установка продукта, реальное обновление подписанного rootfs, полный rollback и удаление продукта в QEMU не выполнялись.
 - CI на GitHub не запускался: ветка не публиковалась. Локальные результаты не являются результатами CI.
 - Telegram исключён из этой работы по указанию пользователя и остаётся вне этой приёмки.
