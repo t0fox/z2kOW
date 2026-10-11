@@ -78,7 +78,7 @@
 - `tests/openwrt/test_ow_updater_state.sh`: 7/7; проверяет состояние updater.
 - `tests/openwrt/test_ow_bootstrap_download_validation.sh`: 8/8; проверяет отдельную функцию скачивания, точные сообщения о неверном размере/SHA-256 и отсутствие публикации недоверенного файла.
 - `tests/openwrt/test_ow_bootstrap_manifest_mirrors.sh`: 7/7; проверяет отклонение плохой подписи origin, принятие подписанного зеркала и fail-closed при плохих подписях всех источников.
-- `tests/test_diag_clock_skew_vps_free.sh`: 5/5; OpenWrt использует прямой HTTPS, прежний Keenetic relay сохраняется.
+- `tests/test_diag_clock_skew_vps_free.sh`: 7/7; OpenWrt не отправляет VPS ping и сверяет время по прямому HTTPS, прежний Keenetic relay сохраняется.
 - `GOTOOLCHAIN=local go test ./...` в `rt-proxy`: все пакеты прошли.
 
 В журналах installer/release присутствуют ожидаемые сообщения тестовых сценариев о восстановлении транзакции и отклонении неправильной SHA-256/размера; сами suites завершились успешно.
@@ -107,7 +107,7 @@
 | DNS LAN | DNS провайдера/настройка роутера; не старый VPS | Используются локальные средства OpenWrt/dnsmasq и существующая upstream DNS конфигурация. Проверена запись addnhosts; отказ всех DoH кандидатов не выдаёт просроченный IP. |
 | WARP | Cloudflare registration/license использовали собственный VPS proxy как fallback | В проверенном `HEAD` OpenWrt adapter всё ещё задаёт старый VPS proxy по умолчанию и использует его после прямой ошибки (`platform/openwrt/warp.sh`). Поэтому VPS-free путь даже для отдельной опции WARP не подтверждён; полное соединение с Cloudflare требует внешнего доступа. Текущие незакоммиченные изменения адаптера не входят в этот аудит и здесь не оцениваются. |
 | RuTracker RT proxy | Upstream pool `ps1.blockme.site` — независимая сторонняя egress-услуга | Proxy engine не зависит от нашей VPS и по умолчанию разрешает прямое соединение для явного списка RuTracker hostnames, если pool не смог обслужить запрос. Внешний pool не обязателен, когда сайт доступен напрямую; если провайдер блокирует прямой маршрут и сторонний pool недоступен, обход без любого внешнего egress невозможен. Варианты: прямой доступ, сторонний pool или собственный egress по выбору оператора. Unit suite, семь сборок и прямые TLS/HTTP E2E в QEMU прошли: Cloudflare и сам `rutracker.org` вернули HTTP 200 при недоступном pool и заблокированных VPS IP. |
-| Диагностика | Общий `files/z2k-diag.sh` проверял часы через VPS relay | При обнаружении OpenWrt используется прямой HTTPS Date от Cloudflare с Google как вторым источником; Keenetic сохраняет закреплённый relay. Изолированный тест `5/5`, QEMU probe при блокировке VPS вернул `0` секунд расхождения. |
+| Диагностика | Общий `files/z2k-diag.sh` проверял VPS ping и сверял часы через relay | OpenWrt пропускает VPS ping и проверяет часы по прямому HTTPS Date от Cloudflare с Google как вторым источником; Keenetic сохраняет прежний ping и закреплённый relay. Изолированный тест `7/7`; QEMU clock probe при блокировке VPS ранее вернул `0` секунд расхождения. |
 | Telegram | Пользователь исключил компонент из текущей работы | Не проверялся и не изменялся в рамках этой приёмки; другой агент отвечает за него. |
 
 Отдельные legacy VPS-строки остаются в shared Keenetic и в OpenWrt WARP adapter; путь clock-skew теперь выбирается по платформе и на OpenWrt использует прямые origin’ы. Полный жизненный цикл релизов остаётся пунктом незавершённой приёмки.
