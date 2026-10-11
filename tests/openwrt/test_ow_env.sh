@@ -29,6 +29,7 @@ assert_eq "FWTYPE nftables" "nftables" "$FWTYPE"
 # Platform identity (Stage 4 root-cause: без неё common видел keenetic —
 # platform gate пропускал чужие манифесты, binary-координация скипалась).
 assert_eq "Z2K_PLATFORM openwrt" "openwrt" "$Z2K_PLATFORM"
+assert_eq "OpenWrt disables the legacy VPS fetch layer" "1" "$Z2K_FETCH_VPS_OUT"
 assert_eq "OPENWRT_LAN default" "lan" "$OPENWRT_LAN"
 assert_eq "INIT_SCRIPT procd" "/etc/init.d/z2k" "$INIT_SCRIPT"
 assert_eq "Z2K_CONFIG_FILE canonical" "$T/etc/config" "$Z2K_CONFIG_FILE"

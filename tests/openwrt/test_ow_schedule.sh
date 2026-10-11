@@ -20,6 +20,7 @@ assert_contains "зовёт launcher apply" "$Z2K_CRON_TAB" "/r/platform/openwrt
 assert_eq "one upstream full list refresh row" "1" "$(grep -c 'z2k-lists' "$Z2K_CRON_TAB")"
 assert_contains "full list refresh keeps upstream 04:00 schedule" "$Z2K_CRON_TAB" "0 4 * * *"
 assert_contains "full list refresh calls native list adapter" "$Z2K_CRON_TAB" "/r/platform/openwrt/list-refresh.sh"
+assert_contains "WARP list cron disables the legacy VPS fetch layer" "$Z2K_CRON_TAB" "Z2K_FETCH_VPS_OUT=1"
 assert_eq "legacy strategy telemetry cron row is retired on schedule convergence" "0" "$(grep -c 'z2k-stats-upload' "$Z2K_CRON_TAB" || true)"
 assert_contains "чужое цело" "$Z2K_CRON_TAB" "/bin/true"
 z2k_ow_warp_cron_install >/dev/null 2>&1 || { echo "FAIL[ow-schedule]: WARP install" >&2; exit 1; }
