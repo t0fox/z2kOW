@@ -214,12 +214,65 @@ def controlled_from_upstream(upstream: dict[str, object], commit: str) -> dict[s
     }
 
 
+def _validated_skip_records(
+    upstream: dict[str, object], skip_registry: dict[str, object] | None
+) -> list[dict[str, object]]:
+    if skip_registry is None:
+        return []
+    if set(skip_registry) != {"schema", "skips"}:
+        raise ValueError("реестр пропусков upstream содержит неизвестные поля")
+    schema = skip_registry.get("schema")
+    records = skip_registry.get("skips")
+    if not isinstance(schema, int) or isinstance(schema, bool) or schema != 1:
+        raise ValueError("версия схемы реестра пропусков upstream не поддерживается")
+    if not isinstance(records, list):
+        raise ValueError("список пропусков upstream повреждён")
+    latest_seq = upstream.get("seq")
+    history = upstream.get("history")
+    if (
+        not isinstance(latest_seq, int)
+        or isinstance(latest_seq, bool)
+        or latest_seq < 1
+        or not isinstance(history, list)
+        or not all(isinstance(entry, dict) for entry in history)
+    ):
+        raise ValueError("актуальный манифест upstream не позволяет проверить реестр пропусков")
+    history_tags = {
+        entry.get("v") for entry in history if isinstance(entry.get("v"), str)
+    }
+    skips: list[dict[str, object]] = []
+    seen_tags: set[str] = set()
+    seen_seqs: set[int] = set()
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {"tag", "seq", "status", "reason"}:
+            raise ValueError("запись реестра пропусков upstream повреждена")
+        tag = record.get("tag")
+        seq = record.get("seq")
+        status = record.get("status")
+        reason = record.get("reason")
+        if not isinstance(tag, str) or not TAG_RE.fullmatch(tag):
+            raise ValueError("тег в реестре пропусков upstream повреждён")
+        if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1 or seq > latest_seq:
+            raise ValueError("seq в реестре пропусков upstream не подтверждён текущим манифестом")
+        if status != "not applicable" or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("пропуск upstream должен иметь статус not applicable и причину")
+        if tag not in history_tags:
+            raise ValueError(f"пропущенный выпуск {tag} отсутствует в актуальной истории upstream")
+        if tag in seen_tags or seq in seen_seqs:
+            raise ValueError("реестр пропусков upstream содержит повторный тег или seq")
+        seen_tags.add(tag)
+        seen_seqs.add(seq)
+        skips.append({"tag": tag, "seq": seq, "status": status, "reason": reason.strip()})
+    return skips
+
+
 def verify_upstream_tag(
     upstream: dict[str, object],
     pinned: dict[str, object],
     refs_text: str,
     tag: str,
     seq: int,
+    skip_registry: dict[str, object] | None = None,
 ) -> str:
     """Проверить манифесты и точный Git-тег официального выпуска."""
     if not isinstance(tag, str) or not TAG_RE.fullmatch(tag):
@@ -227,26 +280,64 @@ def verify_upstream_tag(
     if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1:
         raise ValueError("запрошен некорректный номер upstream seq")
 
-    for manifest, label in ((upstream, "текущая ветка"), (pinned, "закреплённый Git-тег")):
-        current = manifest.get("current")
-        manifest_seq = manifest.get("seq")
-        history = manifest.get("history")
-        if manifest.get("branch") != UPSTREAM_BRANCH:
-            raise ValueError(f"{label}: манифест не принадлежит ветке upstream z2k-enhanced")
+    if upstream.get("branch") != UPSTREAM_BRANCH or pinned.get("branch") != UPSTREAM_BRANCH:
+        raise ValueError("манифест не принадлежит ветке upstream z2k-enhanced")
+    live_tag = upstream.get("current")
+    live_seq = upstream.get("seq")
+    live_history = upstream.get("history")
+    if (
+        not isinstance(live_tag, str)
+        or not TAG_RE.fullmatch(live_tag)
+        or not isinstance(live_seq, int)
+        or isinstance(live_seq, bool)
+        or live_seq < seq
+        or not isinstance(live_history, list)
+        or not live_history
+        or not all(isinstance(entry, dict) for entry in live_history)
+        or live_history[-1].get("v") != live_tag
+    ):
+        raise ValueError("текущая история upstream повреждена или отстала от проверяемого выпуска")
+    pinned_history = pinned.get("history")
+    if (
+        pinned.get("current") != tag
+        or not isinstance(pinned.get("seq"), int)
+        or isinstance(pinned.get("seq"), bool)
+        or pinned.get("seq") != seq
+        or not isinstance(pinned_history, list)
+        or not pinned_history
+        or not all(isinstance(entry, dict) for entry in pinned_history)
+        or pinned_history[-1].get("v") != tag
+    ):
+        raise ValueError("закреплённый Git-тег: current/seq не совпадают с проверяемым выпуском")
+
+    target_indexes = [
+        index for index, entry in enumerate(live_history) if entry.get("v") == tag
+    ]
+    if len(target_indexes) != 1:
+        raise ValueError("проверяемый выпуск отсутствует или повторяется в истории upstream")
+    target_index = target_indexes[0]
+    newer_entries = live_history[target_index + 1 :]
+    if live_seq - seq != len(newer_entries):
+        raise ValueError("между проверяемым выпуском и live upstream есть неучтённые версии")
+    skips = _validated_skip_records(upstream, skip_registry)
+    skips_by_tag = {entry["tag"]: entry for entry in skips}
+    for offset, entry in enumerate(newer_entries, start=1):
+        newer_tag = entry.get("v")
+        newer_seq = seq + offset
+        if not isinstance(newer_tag, str) or not TAG_RE.fullmatch(newer_tag):
+            raise ValueError("в актуальной истории upstream найден некорректный тег")
+        skip = skips_by_tag.get(newer_tag)
         if (
-            current != tag
-            or not isinstance(manifest_seq, int)
-            or isinstance(manifest_seq, bool)
-            or manifest_seq != seq
+            skip is None
+            or skip.get("seq") != newer_seq
+            or skip.get("status") != "not applicable"
         ):
-            raise ValueError(f"{label}: current/seq не совпадают с проверяемым выпуском")
-        if (
-            not isinstance(history, list)
-            or not history
-            or not all(isinstance(entry, dict) for entry in history)
-            or history[-1].get("v") != tag
-        ):
-            raise ValueError(f"{label}: история upstream не заканчивается проверяемым тегом")
+            raise ValueError(
+                f"после {tag} найден применимый или неучтённый выпуск upstream "
+                f"{newer_tag} (seq {newer_seq})"
+            )
+    if any(entry["tag"] == tag or entry["seq"] == seq for entry in skips):
+        raise ValueError("целевой выпуск upstream отмечен неприменимым")
 
     refs: dict[str, list[str]] = {}
     for line in refs_text.splitlines():
@@ -285,43 +376,7 @@ def compare_upstream(
     if latest_seq == approved_seq and latest_tag != approved_tag:
         raise ValueError("upstream current tag changed without a sequence advance")
 
-    skips: list[dict[str, object]] = []
-    if skip_registry is not None:
-        if set(skip_registry) != {"schema", "skips"}:
-            raise ValueError("реестр пропусков upstream содержит неизвестные поля")
-        schema = skip_registry.get("schema")
-        records = skip_registry.get("skips")
-        if not isinstance(schema, int) or isinstance(schema, bool) or schema != 1:
-            raise ValueError("версия схемы реестра пропусков upstream не поддерживается")
-        if not isinstance(records, list):
-            raise ValueError("список пропусков upstream повреждён")
-        upstream_history = upstream.get("history")
-        history_tags = {
-            entry.get("v") for entry in upstream_history
-            if isinstance(entry, dict) and isinstance(entry.get("v"), str)
-        }
-        seen_tags: set[str] = set()
-        seen_seqs: set[int] = set()
-        for record in records:
-            if not isinstance(record, dict) or set(record) != {"tag", "seq", "status", "reason"}:
-                raise ValueError("запись реестра пропусков upstream повреждена")
-            tag = record.get("tag")
-            seq = record.get("seq")
-            status = record.get("status")
-            reason = record.get("reason")
-            if not isinstance(tag, str) or not TAG_RE.fullmatch(tag):
-                raise ValueError("тег в реестре пропусков upstream повреждён")
-            if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1 or seq > latest_seq:
-                raise ValueError("seq в реестре пропусков upstream не подтверждён текущим манифестом")
-            if status != "not applicable" or not isinstance(reason, str) or not reason.strip():
-                raise ValueError("пропуск upstream должен иметь статус not applicable и причину")
-            if tag not in history_tags:
-                raise ValueError(f"пропущенный выпуск {tag} отсутствует в актуальной истории upstream")
-            if tag in seen_tags or seq in seen_seqs:
-                raise ValueError("реестр пропусков upstream содержит повторный тег или seq")
-            seen_tags.add(tag)
-            seen_seqs.add(seq)
-            skips.append({"tag": tag, "seq": seq, "status": status, "reason": reason.strip()})
+    skips = _validated_skip_records(upstream, skip_registry)
 
     accounted_seq = max([approved_seq, *(entry["seq"] for entry in skips)])
     not_applicable = [entry for entry in skips if entry["seq"] > approved_seq]
@@ -559,6 +614,7 @@ def main(argv: list[str] | None = None) -> int:
     verify_tag.add_argument("--refs", required=True, type=Path)
     verify_tag.add_argument("--tag", required=True)
     verify_tag.add_argument("--seq", required=True, type=int)
+    verify_tag.add_argument("--skip-registry", type=Path)
     args = parser.parse_args(argv)
     try:
         if args.command == "attach":
@@ -580,7 +636,12 @@ def main(argv: list[str] | None = None) -> int:
             upstream = read_json_object(args.upstream, "live upstream manifest")
             pinned = read_json_object(args.pinned, "tag-pinned upstream manifest")
             refs = args.refs.read_text(encoding="utf-8")
-            print(verify_upstream_tag(upstream, pinned, refs, args.tag, args.seq))
+            skip_registry = (
+                read_json_object(args.skip_registry, "реестр пропусков upstream")
+                if args.skip_registry is not None
+                else None
+            )
+            print(verify_upstream_tag(upstream, pinned, refs, args.tag, args.seq, skip_registry))
         else:
             upstream = read_json_object(args.upstream, "upstream manifest")
             controlled = read_json_object(args.controlled, "controlled manifest")

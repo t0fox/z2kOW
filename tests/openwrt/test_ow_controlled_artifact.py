@@ -60,6 +60,7 @@ class ControlledArtifactTests(unittest.TestCase):
     def _verify_upstream_tag(
         self, upstream: dict[str, object], pinned: dict[str, object], refs: str,
         tag: str = "r-86.5", seq: int = 141,
+        skip_registry: dict[str, object] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         live_path = self.root / "upstream-live.json"
         pinned_path = self.root / "upstream-pinned.json"
@@ -67,12 +68,17 @@ class ControlledArtifactTests(unittest.TestCase):
         live_path.write_text(json.dumps(upstream), encoding="utf-8")
         pinned_path.write_text(json.dumps(pinned), encoding="utf-8")
         refs_path.write_text(refs, encoding="utf-8")
+        command = [
+            sys.executable, str(MODULE_PATH), "verify-upstream-tag",
+            "--upstream", str(live_path), "--pinned", str(pinned_path),
+            "--refs", str(refs_path), "--tag", tag, "--seq", str(seq),
+        ]
+        if skip_registry is not None:
+            skip_path = self.root / "upstream-skips.json"
+            skip_path.write_text(json.dumps(skip_registry), encoding="utf-8")
+            command.extend(["--skip-registry", str(skip_path)])
         return subprocess.run(
-            [
-                sys.executable, str(MODULE_PATH), "verify-upstream-tag",
-                "--upstream", str(live_path), "--pinned", str(pinned_path),
-                "--refs", str(refs_path), "--tag", tag, "--seq", str(seq),
-            ],
+            command,
             text=True,
             capture_output=True,
         )
@@ -345,6 +351,79 @@ class ControlledArtifactTests(unittest.TestCase):
         self.assertNotEqual(mismatched_tag.returncode, 0)
         self.assertNotEqual(mismatched_seq.returncode, 0)
         self.assertNotEqual(malformed_seq.returncode, 0)
+
+    def test_upstream_product_release_can_precede_only_registered_not_applicable_releases(self) -> None:
+        """Разрешает целевой тег перед хвостом, целиком отмеченным неприменимым."""
+        target_commit = "a" * 40
+        branch_commit = "b" * 40
+        target = {
+            "branch": "z2k-enhanced",
+            "current": "p-86.18",
+            "seq": 142,
+            "history": [{"v": "r-86.5"}, {"v": "p-86.18"}],
+        }
+        live = {
+            "branch": "z2k-enhanced",
+            "current": "p-86.19",
+            "seq": 143,
+            "history": [{"v": "r-86.5"}, {"v": "p-86.18"}, {"v": "p-86.19"}],
+        }
+        skips = {
+            "schema": 1,
+            "skips": [
+                {
+                    "tag": "p-86.19",
+                    "seq": 143,
+                    "status": "not applicable",
+                    "reason": "Выпуск предназначен для другой платформы.",
+                }
+            ],
+        }
+        refs = (
+            f"{branch_commit}\trefs/heads/z2k-enhanced\n"
+            f"{target_commit}\trefs/tags/p-86.18\n"
+        )
+
+        result = self._verify_upstream_tag(live, target, refs, "p-86.18", 142, skips)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), target_commit)
+
+    def test_upstream_product_release_rejects_an_unregistered_or_misnumbered_newer_release(self) -> None:
+        """Запрещает пропускать выпуск без точной записи тега и seq."""
+        target_commit = "a" * 40
+        branch_commit = "b" * 40
+        target = {
+            "branch": "z2k-enhanced",
+            "current": "p-86.18",
+            "seq": 142,
+            "history": [{"v": "r-86.5"}, {"v": "p-86.18"}],
+        }
+        live = {
+            "branch": "z2k-enhanced",
+            "current": "p-86.19",
+            "seq": 143,
+            "history": [{"v": "r-86.5"}, {"v": "p-86.18"}, {"v": "p-86.19"}],
+        }
+        registry = {
+            "schema": 1,
+            "skips": [
+                {
+                    "tag": "p-86.19",
+                    "seq": 142,
+                    "status": "not applicable",
+                    "reason": "Выпуск предназначен для другой платформы.",
+                }
+            ],
+        }
+        refs = (
+            f"{branch_commit}\trefs/heads/z2k-enhanced\n"
+            f"{target_commit}\trefs/tags/p-86.18\n"
+        )
+
+        result = self._verify_upstream_tag(live, target, refs, "p-86.18", 142, registry)
+
+        self.assertNotEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":

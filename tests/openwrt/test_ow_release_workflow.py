@@ -54,6 +54,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("UPSTREAM_BRANCH = \"z2k-enhanced\"", controlled)
         self.assertIn("проверенный Git-тег upstream", validate)
 
+    def test_release_gate_accepts_only_registered_not_applicable_releases_after_target(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        validate = workflow.split("  validate-release:", 1)[1].split("  verify-source-ci:", 1)[0]
+        publish = workflow.split("  publish-release:", 1)[1]
+
+        self.assertIn("--skip-registry docs/UPSTREAM-SKIPS.json", validate)
+        self.assertIn('--upstream "$RUNNER_TEMP/upstream-pinned-UPDATES.json" --controlled UPDATES.json', validate)
+        self.assertIn("--skip-registry docs/UPSTREAM-SKIPS.json", publish)
+        self.assertIn('"docs/UPSTREAM-SKIPS.json"', publish)
+
     def test_production_workflow_checks_production_key_id_before_publishing(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         signing = workflow.split("- name: Sign and verify the exact final manifest", 1)[1]

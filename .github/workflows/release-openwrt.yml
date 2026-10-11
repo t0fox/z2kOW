@@ -157,23 +157,6 @@ jobs:
           fi
           [[ "$RELEASE_TAG_INPUT" =~ ^[pr]-[0-9]+(\.[0-9]+)+$ ]]
           [[ "$RELEASE_SEQ_INPUT" =~ ^[1-9][0-9]*$ ]]
-          python3 - "$RUNNER_TEMP/upstream-live-UPDATES.json" "$RELEASE_TAG_INPUT" "$RELEASE_SEQ_INPUT" <<'PY'
-          import json
-          import sys
-          manifest = json.load(open(sys.argv[1], encoding="utf-8"))
-          wanted_tag, wanted_seq = sys.argv[2], int(sys.argv[3])
-          if manifest.get("current") != wanted_tag or manifest.get("seq") != wanted_seq:
-              if manifest.get("seq", 0) > wanted_seq:
-                  raise SystemExit(
-                      f"Upstream version advanced to {manifest.get('current')}. "
-                      "\u0422\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f \u043d\u043e\u0432\u044b\u0439 Product Release, \u0430 \u043d\u0435 hotfix \u0441\u0442\u0430\u0440\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438."
-                  )
-              raise SystemExit("upstream live release changed; review the current upstream version before publishing")
-          history = manifest.get("history")
-          if not isinstance(history, list) or not history or history[-1].get("v") != wanted_tag:
-              raise SystemExit("upstream release history does not end at the requested current tag")
-          PY
-
           refs="$(git ls-remote https://github.com/necronicle/z2k.git \
             "refs/heads/z2k-enhanced" "refs/tags/$RELEASE_TAG_INPUT" "refs/tags/$RELEASE_TAG_INPUT^{}")"
           printf '%s\n' "$refs" > "$RUNNER_TEMP/upstream-refs.txt"
@@ -197,6 +180,7 @@ jobs:
             --upstream "$RUNNER_TEMP/upstream-live-UPDATES.json" \
             --pinned "$RUNNER_TEMP/upstream-pinned-UPDATES.json" \
             --refs "$RUNNER_TEMP/upstream-refs.txt" \
+            --skip-registry docs/UPSTREAM-SKIPS.json \
             --tag "$RELEASE_TAG_INPUT" --seq "$RELEASE_SEQ_INPUT")"
           [[ "$verified_commit" = "$upstream_commit" ]] || {
             echo 'не совпадает проверенный Git-тег upstream' >&2; exit 1;
@@ -206,7 +190,7 @@ jobs:
             "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/github-release-tags.txt"
           plan_args=(plan --operation "$RELEASE_OPERATION_INPUT" --tag "$RELEASE_TAG_INPUT" \
             --seq "$RELEASE_SEQ_INPUT" --source-sha "$GITHUB_SHA" \
-            --upstream "$RUNNER_TEMP/upstream-live-UPDATES.json" --controlled UPDATES.json \
+            --upstream "$RUNNER_TEMP/upstream-pinned-UPDATES.json" --controlled UPDATES.json \
             --upstream-commit "$upstream_commit" --output "$RUNNER_TEMP/publication-plan.json")
           if [ "$RELEASE_OPERATION_INPUT" = upstream-release ] \
               && grep -Fqx -- "$RELEASE_TAG_INPUT" "$RUNNER_TEMP/github-release-tags.txt"; then
@@ -513,6 +497,7 @@ jobs:
               "tests/openwrt/test_ow_immutable_release_check.py",
               "tests/openwrt/test_ow_publication_policy.py",
               "tests/openwrt/test_ow_release_workflow.py",
+              "docs/UPSTREAM-SKIPS.json",
               "UPDATES.json",
               "UPDATES.json.sig",
           }
@@ -617,7 +602,6 @@ jobs:
       - name: Reconfirm live upstream current and exact pinned tag before production signing
         shell: bash
         env:
-          EXPECTED_OPERATION: ${{ steps.candidate.outputs.operation }}
           EXPECTED_TAG: ${{ steps.candidate.outputs.tag }}
           EXPECTED_SEQ: ${{ steps.candidate.outputs.seq }}
           EXPECTED_UPSTREAM_COMMIT: ${{ steps.candidate.outputs.upstream_commit }}
@@ -628,19 +612,6 @@ jobs:
             -H 'Cache-Control: no-cache, no-store' -H 'Pragma: no-cache' \
             "https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json?nocache=$nonce" \
             -o "$RUNNER_TEMP/upstream-live-before-signing-UPDATES.json"
-          python3 - "$RUNNER_TEMP/upstream-live-before-signing-UPDATES.json" "$EXPECTED_TAG" "$EXPECTED_SEQ" "$EXPECTED_OPERATION" <<'PY'
-          import json
-          import sys
-          manifest = json.load(open(sys.argv[1], encoding="utf-8"))
-          tag, seq, operation = sys.argv[2], int(sys.argv[3]), sys.argv[4]
-          if manifest.get("current") != tag or manifest.get("seq") != seq:
-              if operation == "hotfix" and manifest.get("seq", 0) > seq:
-                  raise SystemExit(
-                      f"Upstream version advanced to {manifest.get('current')}. "
-                      "\u0422\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f \u043d\u043e\u0432\u044b\u0439 Product Release, \u0430 \u043d\u0435 hotfix \u0441\u0442\u0430\u0440\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438."
-                  )
-              raise SystemExit("upstream changed before production signing; review the current release")
-          PY
           refs="$(git ls-remote https://github.com/necronicle/z2k.git \
             "refs/heads/z2k-enhanced" "refs/tags/$EXPECTED_TAG" "refs/tags/$EXPECTED_TAG^{}")"
           printf '%s\n' "$refs" > "$RUNNER_TEMP/upstream-refs-before-signing.txt"
@@ -665,6 +636,7 @@ jobs:
             --upstream "$RUNNER_TEMP/upstream-live-before-signing-UPDATES.json" \
             --pinned "$RUNNER_TEMP/upstream-pinned-before-signing-UPDATES.json" \
             --refs "$RUNNER_TEMP/upstream-refs-before-signing.txt" \
+            --skip-registry docs/UPSTREAM-SKIPS.json \
             --tag "$EXPECTED_TAG" --seq "$EXPECTED_SEQ")"
           [[ "$verified_commit" = "$EXPECTED_UPSTREAM_COMMIT" ]] || {
             echo 'не совпадает проверенный Git-тег upstream перед подписью' >&2; exit 1;
