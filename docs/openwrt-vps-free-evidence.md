@@ -65,6 +65,7 @@
 - `tests/openwrt/test_ow_unified_release.sh`: 71/71.
 - `tests/openwrt/test_ow_warp_static.sh`: 92/92.
 - `tests/openwrt/test_ow_warp_parity.sh`: 39/39.
+- `tests/openwrt/test_ow_warp_archmap.sh`: 6/6; карта OpenWrt target для WARP.
 - `tests/openwrt/test_ow_warp_lifecycle.sh`: 440/440.
 - `tests/test_geosite_vps_independence.sh`: 1/1.
 - `tests/test_geosite_cache_survives_reinstall.sh`: 41/41.
