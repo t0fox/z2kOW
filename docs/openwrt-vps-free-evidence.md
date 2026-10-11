@@ -81,6 +81,7 @@
 - `tests/openwrt/test_ow_bootstrap_download_validation.sh`: 8/8; проверяет отдельную функцию скачивания, точные сообщения о неверном размере/SHA-256 и отсутствие публикации недоверенного файла.
 - `tests/openwrt/test_ow_bootstrap_manifest_mirrors.sh`: 7/7; проверяет отклонение плохой подписи origin, принятие подписанного зеркала и fail-closed при плохих подписях всех источников.
 - `tests/openwrt/test_ow_insta_refresh_noop_backup.sh`: 7/7; OpenWrt refresh без изменений удаляет временный backup, а отказ dnsmasq reload восстанавливает предыдущий файл.
+- Keenetic Insta-IP regression suites: `test_insta_refresh_async.sh` 13/13, `test_insta_refresh_cert_mismatch.sh` 13/13, `test_insta_dns_opt_out.sh` 9/9.
 - `tests/test_diag_clock_skew_vps_free.sh`: 7/7; OpenWrt не отправляет VPS ping и сверяет время по прямому HTTPS, прежний Keenetic relay сохраняется.
 - `GOTOOLCHAIN=local go test ./...` в `rt-proxy`: все пакеты прошли.
 
