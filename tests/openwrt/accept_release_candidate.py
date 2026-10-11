@@ -23,6 +23,11 @@ from controlled_release import ARCHITECTURES, validate_architecture_assets  # no
 
 
 def run(args: Sequence[str], env: dict[str, str], label: str, expected: bool = True) -> str:
+    id_call_count = env.get("Z2K_TEST_ID_CALL_COUNT")
+    if id_call_count:
+        # Первые две проверки имитируют запуск от root в установщике и движке;
+        # проверки владельцев должны видеть фактический UID агента CI.
+        Path(id_call_count).write_text("0\n", encoding="utf-8")
     result = subprocess.run(args, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if (result.returncode == 0) != expected:
         raise RuntimeError(f"{label}: код {result.returncode}\n{result.stdout}")
@@ -173,7 +178,20 @@ def main() -> int:
         panel, panel_thread = serve(None, PanelHandler)
         panel_url = f"http://127.0.0.1:{panel.server_port}/"
 
-        write_executable(bin_dir / "id", '#!/bin/sh\n[ "${1:-}" = -u ] && { echo 0; exit 0; }\nexec /usr/bin/id "$@"\n')
+        id_call_count = work / "id-call-count"
+        write_executable(
+            bin_dir / "id",
+            '''#!/bin/sh
+if [ "${1:-}" = -u ]; then
+    count=$(cat "$Z2K_TEST_ID_CALL_COUNT" 2>/dev/null || echo 0)
+    count=$((count + 1))
+    printf '%s\\n' "$count" > "$Z2K_TEST_ID_CALL_COUNT"
+    if [ "$count" -le 2 ]; then echo 0; else exec /usr/bin/id -u; fi
+    exit 0
+fi
+exec /usr/bin/id "$@"
+''',
+        )
         write_executable(bin_dir / "apk", '#!/bin/sh\ncase "${1:-}" in info) exit 1 ;; update|add|del) exit 0 ;; *) exit 2 ;; esac\n')
         write_executable(
             bin_dir / "jsonfilter",
@@ -228,6 +246,7 @@ esac
                 "Z2K_OW_TEST_HEALTHCHECK": "1",
                 "Z2K_OW_TEST_SERVICE_HELPER": str(work / "service-helper"),
                 "Z2K_OW_TEST_HTTP_PROBE": str(work / "http-probe"),
+                "Z2K_TEST_ID_CALL_COUNT": str(id_call_count),
                 "Z2K_TEST_SERVICE_LOG": str(service_log),
                 "Z2K_TEST_SYSROOT": str(sysroot),
                 "Z2K_TEST_PANEL_URL": panel_url,
