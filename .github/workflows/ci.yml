@@ -359,7 +359,7 @@ jobs:
         run: sh tests/run_all.sh
 
   rust-tg-proxy:
-    name: Rust TG WS Proxy: ARM64 и x86_64
+    name: "Rust TG WS Proxy: ARM64 и x86_64"
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
