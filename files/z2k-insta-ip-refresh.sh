@@ -196,7 +196,16 @@ else
     log "found existing ip host records: $(printf '%s\n' "$existing" | wc -l | tr -d ' ')"
 fi
 
-# 4. Build request body.
+# 4. OpenWrt разрешает адреса через независимые локальные DoH endpoints;
+#    Keenetic сохраняет существующий HMAC-контракт с VPS.
+parsed=""
+if [ "$INSTA_BACKEND" = openwrt ]; then
+    parsed=$(z2k_ow_insta_resolve_hosts $HOSTS 2>>"$LOG") || {
+        log "FAIL: локальные DNS-резолверы и допустимый кэш недоступны"
+        exit 1
+    }
+else
+# 4. Для Keenetic формируем тело запроса по прежнему контракту.
 body='{"hosts":['
 first=1
 for h in $HOSTS; do
@@ -251,6 +260,7 @@ parsed=$(printf '%s' "$response" \
                 if (arr[i] ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/)
                     print host "\t" arr[i]
         }')
+fi
 
 if [ -z "$parsed" ]; then
     log "FAIL: could not parse response: $response"
@@ -400,10 +410,20 @@ filter_alive() {     # host, адреса на stdin
 # 8. Diff & apply per host.
 changes=0
 touched_ips=""
+INSTA_UPDATED_HOSTS=""
+INSTA_NEW_RECORDS=""
+INSTA_HOSTS_BACKUP=""
+if [ "$INSTA_BACKEND" = openwrt ]; then
+    INSTA_HOSTS_BACKUP="${Z2K_INSTA_HOSTS_FILE}.z2k-backup.$$"
+    cp -p "$Z2K_INSTA_HOSTS_FILE" "$INSTA_HOSTS_BACKUP" || {
+        log "FAIL: не удалось сохранить текущие dnsmasq записи перед refresh"
+        exit 1
+    }
+fi
 for h in $HOSTS; do
     cand_ips=$(printf '%s\n' "$parsed" | awk -v host="$h" '$1==host {print $2}' | head -8)
     if [ -z "$cand_ips" ]; then
-        log "skip $h (VPS returned no IPs)"
+        log "skip $h (DNS returned no candidates)"
         continue
     fi
     new_ips=$(printf '%s\n' "$cand_ips" | filter_alive "$h")
@@ -419,6 +439,18 @@ for h in $HOSTS; do
     old_sorted=$(printf '%s\n' "$old_ips" | sort -u)
     if [ -n "$old_ips" ] && [ "$new_sorted" = "$old_sorted" ]; then
         log "unchanged $h: $(echo $new_ips | tr '\n' ' ')"
+        continue
+    fi
+
+    if [ "$INSTA_BACKEND" = openwrt ]; then
+        INSTA_UPDATED_HOSTS="$INSTA_UPDATED_HOSTS $h"
+        for ip in $new_ips; do
+            INSTA_NEW_RECORDS="${INSTA_NEW_RECORDS}${INSTA_NEW_RECORDS:+
+}$ip $h"
+            log "  + $h $ip"
+        done
+        for ip in $old_ips; do touched_ips="$touched_ips $ip"; done
+        changes=$((changes + 1))
         continue
     fi
 
@@ -445,10 +477,17 @@ done
 # 9. Persist & flush conntrack on dropped IPs so apps don't ride dead paths.
 if [ "$changes" -gt 0 ]; then
     if [ "$INSTA_BACKEND" = openwrt ]; then
-        if z2k_ow_insta_commit >/dev/null 2>&1; then
-            log "dnsmasq host file committed and reloaded"
+        if z2k_ow_insta_replace_hosts "$INSTA_UPDATED_HOSTS" "$INSTA_NEW_RECORDS" \
+            && z2k_ow_insta_commit >/dev/null 2>&1; then
+            log "dnsmasq host records atomically replaced and reloaded"
         else
-            log "WARN: dnsmasq host file reload failed"
+            if z2k_ow_insta_restore_hosts "$INSTA_HOSTS_BACKUP"; then
+                z2k_ow_insta_commit >/dev/null 2>&1 || true
+                log "FAIL: dnsmasq refresh failed; previous host records restored"
+            else
+                log "FAIL: dnsmasq refresh failed and previous host records could not be restored"
+            fi
+            changes=0
         fi
     elif LD_LIBRARY_PATH= ndmc -c "system configuration save" >/dev/null 2>&1; then
         log "ndmc config saved"
@@ -463,6 +502,10 @@ if [ "$changes" -gt 0 ]; then
         fi
     done
     log "conntrack flushed for old IPs"
+fi
+
+if [ "$INSTA_BACKEND" = openwrt ] && [ -n "$INSTA_HOSTS_BACKUP" ]; then
+    rm -f "$INSTA_HOSTS_BACKUP"
 fi
 
 log "=== refresh done: $changes host(s) updated ==="
