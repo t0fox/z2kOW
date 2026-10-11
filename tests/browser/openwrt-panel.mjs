@@ -2811,6 +2811,7 @@ try {
   await dohCard.locator('#doh-provider').selectOption('google');
   await dohCard.locator('#doh-add-upstream').click();
   await dohCard.locator('#doh-provider').selectOption('quad9');
+  await dohCard.locator('#dns-protocol').selectOption('doq');
   await dohCard.locator('#doh-upstream-role').selectOption('fallback');
   await dohCard.locator('#doh-add-upstream').click();
   assert.match(await dohCard.locator('#dns-profile-queue').innerText(), /Основные upstream[\s\S]*dns\.google[\s\S]*Аварийный fallback[\s\S]*dns\.quad9/,
@@ -2820,11 +2821,11 @@ try {
   await dohPage.locator('#dns-route-domain').fill('video.example');
   await dohPage.locator('#dns-route-upstream').selectOption('fallbacks:0');
   await dohPage.locator('#dns-route-add').click();
-  assert.match(await dohPage.locator('#dns-profile-rules-list').innerText(), /video\.example\s*→\s*https:\/\/dns\.quad9\.net\/dns-query/,
-    'domain routes can target a selected upstream or fallback');
+  assert.match(await dohPage.locator('#dns-profile-rules-list').innerText(), /video\.example\s*→\s*quic:\/\/dns\.quad9\.net:853/,
+    'доменное правило направляется на выбранный upstream или fallback');
   const profileBody = {
-    upstreams: 'https://dns.google/dns-query', fallbacks: 'https://dns.quad9.net/dns-query',
-    routes: 'video.example=https://dns.quad9.net/dns-query', mode: 'parallel', bootstrap: '1.1.1.1\n2001:4860:4860::8888', replace: '1',
+    upstreams: 'https://dns.google/dns-query', fallbacks: 'quic://dns.quad9.net:853',
+    routes: 'video.example=quic://dns.quad9.net:853', protocol: 'doq', mode: 'parallel', bootstrap: '1.1.1.1\n2001:4860:4860::8888', replace: '1',
   };
   assert.match(await dohCard.locator('#dns-profile-warning').innerText(), /Незашифрованный fallback отключён/,
     'the profile explicitly states that there is no plain DNS fallback');
@@ -2839,7 +2840,7 @@ try {
   await dohCard.getByRole('button', { name: 'Применить' }).click();
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-2"] #job-close').waitFor({ state: 'visible' });
   assert.deepEqual(dohActions[1], { endpoint: 'profile', body: profileBody },
-    'Apply submits exact upstreams, fallback, route, mode, bootstrap and replacement acknowledgement');
+    'Отправка профиля передаёт выбранный DoQ и точные параметры DNS');
   assert.equal(Object.hasOwn(dohActions[1].body, 'plain_fallback'), false,
     'the profile request contains no plain fallback setting');
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-2"] #job-close').click();
@@ -2871,14 +2872,14 @@ try {
   assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
     ['apply', 'check', 'disable', 'uninstall'], 'error state keeps Stop available while the service remains enabled');
   assert.match(await dohPage.locator('#dns-profile-queue').innerText(),
-    /Основные upstream[\s\S]*Google Public DNS[\s\S]*https:\/\/dns\.google[\s\S]*Аварийный fallback[\s\S]*Quad9[\s\S]*https:\/\/dns\.quad9/,
-    'saved upstream and fallback are restored from profile status after reload');
+    /Основные upstream[\s\S]*Google Public DNS[\s\S]*https:\/\/dns\.google[\s\S]*Аварийный fallback[\s\S]*Quad9[\s\S]*quic:\/\/dns\.quad9/,
+    'после перезагрузки профиль восстанавливает DoH upstream и DoQ fallback');
   assert.equal(await dohPage.locator('#dns-profile-bootstrap').inputValue(), '1.1.1.1\n2001:4860:4860::8888',
     'both IPv4 and IPv6 bootstrap resolvers are restored from profile status');
   assert.equal(await dohPage.locator('#dns-upstream-mode').inputValue(), 'parallel',
     'saved upstream mode is restored from profile status');
-  assert.match(await dohPage.locator('#dns-profile-rules-list').innerText(), /video\.example\s*→\s*https:\/\/dns\.quad9\.net\/dns-query/,
-    'saved domain routes are restored from profile status');
+  assert.match(await dohPage.locator('#dns-profile-rules-list').innerText(), /video\.example\s*→\s*quic:\/\/dns\.quad9\.net:853/,
+    'после перезагрузки доменное правило восстанавливается из состояния DNS');
   assert.equal(dohStatus.profile_upstreams_b64, Buffer.from(profileBody.upstreams).toString('base64'));
   assert.equal(dohStatus.profile_fallbacks_b64, Buffer.from(profileBody.fallbacks).toString('base64'));
   assert.equal(dohStatus.profile_routes_b64, Buffer.from(profileBody.routes).toString('base64'));

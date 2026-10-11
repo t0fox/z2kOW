@@ -365,7 +365,7 @@ async function runDohAction(action) {
   let body;
   if (action === "apply") {
     if (!DNS_PROFILE.upstreams.length) { toast("Добавьте хотя бы один основной upstream.", "bad"); buttons.forEach(button => button.disabled = false); return; }
-    body = {upstreams: DNS_PROFILE.upstreams.map(item => item.endpoint).join("\n"), fallbacks: DNS_PROFILE.fallbacks.map(item => item.endpoint).join("\n"), routes: DNS_PROFILE.routes.map(item => `${item.domain}=${item.endpoint}`).join("\n"), mode: $app.querySelector("#dns-upstream-mode").value, bootstrap: splitList($app.querySelector("#dns-profile-bootstrap").value).join("\n")};
+    body = {upstreams: DNS_PROFILE.upstreams.map(item => item.endpoint).join("\n"), fallbacks: DNS_PROFILE.fallbacks.map(item => item.endpoint).join("\n"), routes: DNS_PROFILE.routes.map(item => `${item.domain}=${item.endpoint}`).join("\n"), mode: $app.querySelector("#dns-upstream-mode").value, protocol: card.querySelector("#dns-protocol").value, bootstrap: splitList($app.querySelector("#dns-profile-bootstrap").value).join("\n")};
     if (warning) body.replace = "1";
   } else if (action === "uninstall") body = {confirm: card.dataset.confirmRemove === "1" ? "1" : "0"};
   else if (action === "settings") {
