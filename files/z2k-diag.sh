@@ -1181,13 +1181,20 @@ tg_redirect_counts() {
 }
 
 clock_skew_vs_relay() {
-    local srv_date srv_epoch now_epoch
-    # --resolve: адрес уже записан в имени (nip.io), незачем зависеть от
-    # резолвера — на роутере с мёртвым DNS диагностика обязана работать именно
-    # тогда, когда она нужнее всего. TLS-имя не меняется.
-    srv_date=$(curl -s -m 8 --resolve "${VPS_IP}.nip.io:443:${VPS_IP}" \
-               -D - -o /dev/null "https://${VPS_IP}.nip.io/" 2>/dev/null \
-               | awk 'tolower($1)=="date:"{sub(/^[Dd]ate: */,""); sub(/\r$/,""); print; exit}')
+    local srv_date srv_epoch now_epoch _clock_host
+    if [ -r "${Z2K_DIAG_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}" ]; then
+        # OpenWrt сверяет часы напрямую по HTTPS, без старого relay и proxy.
+        for _clock_host in www.cloudflare.com www.google.com; do
+            srv_date=$(curl -s -m 8 -D - -o /dev/null "https://${_clock_host}/" 2>/dev/null \
+                       | awk 'tolower($1)=="date:"{sub(/^[Dd]ate: */,""); sub(/\r$/,""); print; exit}')
+            [ -n "$srv_date" ] && break
+        done
+    else
+        # Keenetic оставляет прежнюю проверку через relay с закреплённым IP.
+        srv_date=$(curl -s -m 8 --resolve "${VPS_IP}.nip.io:443:${VPS_IP}" \
+                   -D - -o /dev/null "https://${VPS_IP}.nip.io/" 2>/dev/null \
+                   | awk 'tolower($1)=="date:"{sub(/^[Dd]ate: */,""); sub(/\r$/,""); print; exit}')
+    fi
     [ -n "$srv_date" ] || return 1
     srv_epoch=$(printf '%s\n' "$srv_date" | awk '
         function days_from_civil(y, m, d,   era, yoe, doy, doe) {
