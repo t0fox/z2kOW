@@ -71,6 +71,9 @@
 - `tests/test_geosite_apply_guard.sh`: 17/17.
 - `tests/test_geosite_inject.sh`: 19/19.
 - `tests/test_geosite_rkn_asset.sh`: 9/9.
+- `tests/openwrt/test_ow_update_entry.sh`: 12/12; проверяет точки входа OpenWrt updater.
+- `tests/openwrt/test_ow_updater_failsafe.sh`: 5/5; проверяет восстановление updater при отказах.
+- `tests/openwrt/test_ow_updater_state.sh`: 7/7; проверяет состояние updater.
 - `tests/openwrt/test_ow_bootstrap_download_validation.sh`: 8/8; проверяет отдельную функцию скачивания, точные сообщения о неверном размере/SHA-256 и отсутствие публикации недоверенного файла.
 - `tests/test_diag_clock_skew_vps_free.sh`: 5/5; OpenWrt использует прямой HTTPS, прежний Keenetic relay сохраняется.
 - `GOTOOLCHAIN=local go test ./...` в `rt-proxy`: все пакеты прошли.
