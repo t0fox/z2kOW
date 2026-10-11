@@ -331,17 +331,18 @@ jobs:
                   raise SystemExit(f"candidate artifact URL is not bound to the exact source commit: {arch}")
           PY
           printf 'Prepared complete OpenWrt candidate: %s / seq %s\n' "$RELEASE_TAG_INPUT" "$RELEASE_SEQ_INPUT" >> "$GITHUB_STEP_SUMMARY"
-          python3 - "$RELEASE_PLAN_JSON" "$out/candidate.json" "$out/UPDATES.json" "$GITHUB_SHA" "$RUNNER_TEMP/production-UPDATES.json" <<'PY'
+          python3 - "$RELEASE_PLAN_JSON" "$out/candidate.json" "$out/UPDATES.json" "$GITHUB_SHA" "$include_legacy_fallback" <<'PY'
           import json
           import sys
-          plan_json, candidate_path, manifest_path, source_sha, baseline_path = sys.argv[1:]
+          plan_json, candidate_path, manifest_path, source_sha, expected_fallback = sys.argv[1:]
           candidate = json.loads(plan_json)
           manifest = json.load(open(manifest_path, encoding="utf-8"))
           if candidate.get("source_sha") != source_sha:
               raise SystemExit("publication plan is not bound to this exact source commit")
-          baseline = json.load(open(baseline_path, encoding="utf-8"))
-          if candidate.get("include_legacy_fallback") != ("artifacts" not in baseline):
-              raise SystemExit("candidate legacy fallback decision differs from the checked production baseline")
+          if expected_fallback not in {"true", "false"}:
+              raise SystemExit("решение о legacy fallback для production-базовой версии некорректно")
+          if candidate.get("include_legacy_fallback") != (expected_fallback == "true"):
+              raise SystemExit("решение о legacy fallback в плане не совпадает с проверенной policy")
           if (candidate.get("tag"), candidate.get("seq")) != (manifest.get("current"), manifest.get("seq")):
               raise SystemExit("candidate metadata differs from its signed manifest version")
           with open(candidate_path, "w", encoding="utf-8") as stream:

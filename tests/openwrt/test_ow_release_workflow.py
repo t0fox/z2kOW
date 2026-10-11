@@ -125,6 +125,9 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('migration-fallback \\\n            --manifest "$RUNNER_TEMP/production-UPDATES.json"', prepare)
         self.assertIn('--production-baseline "$RUNNER_TEMP/production-UPDATES.json"', prepare)
         self.assertIn('include_legacy_fallback', prepare)
+        self.assertIn('"$GITHUB_SHA" "$include_legacy_fallback" <<\'PY\'', prepare)
+        self.assertIn('candidate.get("include_legacy_fallback") != (expected_fallback == "true")', prepare)
+        self.assertNotIn('("artifacts" not in baseline)', prepare)
         self.assertIn("include_legacy_fallback=", publish)
         self.assertIn("sed -n 's/^include_legacy_fallback=//p'", publish)
         self.assertIn("candidate_run_id", publish)
@@ -227,7 +230,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
     def test_candidate_plan_output_is_parsed_as_json_not_treated_as_a_path(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
-        self.assertIn("plan_json, candidate_path, manifest_path, source_sha, baseline_path = sys.argv[1:]", prepare)
+        self.assertIn("plan_json, candidate_path, manifest_path, source_sha, expected_fallback = sys.argv[1:]", prepare)
         self.assertIn("candidate = json.loads(plan_json)", prepare)
         self.assertNotIn('candidate = json.load(open(plan_json', prepare)
 
