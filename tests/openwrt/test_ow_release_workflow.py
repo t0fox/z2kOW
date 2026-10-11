@@ -64,6 +64,13 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("--skip-registry docs/UPSTREAM-SKIPS.json", publish)
         self.assertIn('"docs/UPSTREAM-SKIPS.json"', publish)
 
+    def test_release_builder_installs_arm64_cross_headers(self) -> None:
+        """Ставит ARM64-заголовки для C-зависимостей Rust-сборки релиза."""
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
+
+        self.assertIn("gcc-aarch64-linux-gnu libc6-dev-arm64-cross", prepare)
+
     def test_production_workflow_checks_production_key_id_before_publishing(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         signing = workflow.split("- name: Sign and verify the exact final manifest", 1)[1]
