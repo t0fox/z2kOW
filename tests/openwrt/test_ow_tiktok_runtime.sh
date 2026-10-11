@@ -4,7 +4,7 @@ _t_plan "ow-tiktok-runtime"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-tiktok.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
-mkdir -p "$T/bin" "$T/state"
+mkdir -p "$T/bin" "$T/state" "$T/tmp"
 export PATH="$T/bin:$PATH"
 export UCI_TEST_DB="$T/uci.db" UCI_TEST_LOG="$T/uci.log" DNSMASQ_TEST_LOG="$T/dnsmasq.log"
 export CURL_TEST_LOG="$T/curl.log"
@@ -14,6 +14,7 @@ export CURL_PAIR_TEST_LOG="$T/curl-pairs.log"
 export NSLOOKUP_TEST_LOG="$T/nslookup.log"
 export TIKTOK_DNS_IP="143.244.42.18" TIKTOK_PROBE_MODE=ok
 export Z2K_STATE="$T/state"
+export Z2K_TMP="$T/tmp"
 export Z2K_TIKTOK_HOSTS_FILE="$T/state/tiktok-cdn-hosts"
 export Z2K_TIKTOK_UCI_MARKER="$T/state/.tiktok-addnhosts-owned"
 export Z2K_TIKTOK_CONTENT_MARKER="$T/state/.tiktok-host-content-owned"

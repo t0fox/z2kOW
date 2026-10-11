@@ -76,6 +76,45 @@ z2k_ow_tg_status() {
 }
 
 # Условия запуска: исполняемый бинарник, ENABLED=1 и пользовательский запрет выключен.
+z2k_ow_tg_panel_enable() {
+    local _cfg="${CONFIG_FILE:-/etc/z2k/config}" _init="${Z2K_INIT:-/etc/init.d/z2k}"
+    z2k_ow_tg_arch_supported || {
+        echo "Тип не поддерживается: Rust TG WS Proxy недоступен для этой архитектуры" >&2
+        return 1
+    }
+    [ -x "${Z2K_TG_RUST_BIN:-}" ] || {
+        echo "Rust TG WS Proxy не установлен для этой архитектуры" >&2
+        return 1
+    }
+    if grep -q '^TG_PROXY_USER_DISABLED=' "$_cfg" 2>/dev/null; then
+        sed -i 's/^TG_PROXY_USER_DISABLED=.*/TG_PROXY_USER_DISABLED=0/' "$_cfg" 2>/dev/null
+    fi
+    echo "Применяю через z2k/procd..."
+    [ -x "$_init" ] || { echo "нет $_init" >&2; return 1; }
+    "$_init" reload 2>&1
+}
+
+z2k_ow_tg_status_json() {
+    local _running="${1:-false}" _supported=true _installed=true
+    local _status='Rust TG WS Proxy' _message='Прозрачный Telegram TCP/443 через Rust TG WS Proxy.'
+    if ! z2k_ow_tg_arch_supported; then
+        _supported=false
+        _installed=false
+        _status='Тип не поддерживается'
+        _message='Rust TG WS Proxy недоступен для этой архитектуры.'
+    elif [ ! -x "${Z2K_TG_RUST_BIN:-}" ]; then
+        _installed=false
+        _status='Не установлен'
+        _message='В релизе отсутствует Rust TG WS Proxy для этой архитектуры.'
+    fi
+    printf '{"running":%s,"supported":%s,"installed":%s,"status":' \
+        "$_running" "$_supported" "$_installed"
+    json_string "$_status"
+    printf ',"message":'
+    json_string "$_message"
+    printf '}'
+}
+
 z2k_ow_tg_wanted() {
     z2k_ow_tg_arch_supported || return 1
     [ -x "$Z2K_TG_RUST_BIN" ] || return 1

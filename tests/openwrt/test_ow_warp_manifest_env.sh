@@ -4,7 +4,7 @@
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-warp-payload-runtime"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-T="$(mktemp -d "/tmp/z2k-ow-warp-env.XXXXXX")" || exit 1
+T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-warp-env.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 
 mkdir -p "$T/root/platform/openwrt/bin/linux-x86_64" "$T/root/etc" \

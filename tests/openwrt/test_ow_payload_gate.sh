@@ -12,6 +12,9 @@ export Z2K_OW_SYSROOT="$T/sys"
 mkdir -p "$Z2K_OW_SYSROOT"
 export Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
 _adapter="$Z2K_ADAPTER_DIR"
+# Повторяем штатный вход install_release, который загружает пути до release.sh.
+# Так проверка выбирает Rust-прокси из /usr/lib/z2k/bin для архитектуры роутера.
+. "$Z2K_ADAPTER_DIR/paths.sh"
 printf "DISTRIB_ARCH='x86_64'\n" > "$T/openwrt_release"
 export Z2K_OW_OPENWRT_RELEASE_FILE="$T/openwrt_release"
 
@@ -48,6 +51,15 @@ if check_extract "$T/valid.tar.gz" "$T/valid-stage" "$T/valid-work"; then
     _t_ok
 else
     _t_bad "полный payload с исполняемыми службами разрешён"
+fi
+
+cp -a "$T/valid" "$T/missing-tg" || exit 1
+rm -f "$T/missing-tg/usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy" || exit 1
+tar -czf "$T/missing-tg.tar.gz" -C "$T/missing-tg" usr etc opt || exit 1
+if check_extract "$T/missing-tg.tar.gz" "$T/missing-tg-stage" "$T/missing-tg-work"; then
+    _t_bad "архив без Rust TG WS Proxy выбранной архитектуры отклонён"
+else
+    _t_ok
 fi
 
 for _path in etc/init.d/z2k etc/init.d/z2k-webpanel usr/bin/z2kow; do

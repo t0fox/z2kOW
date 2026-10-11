@@ -14,7 +14,7 @@ fi
 # Здоровье адаптера: любой несорсящийся/отсутствующий компонент = controlled
 # PLATFORM_UNAVAILABLE (fail-closed audit I). Молчаливый fallback в Keenetic
 # defaults запрещён: мутации тогда действовали бы на чужие пути с success.
-Z2K_PLATFORM_STATUS="ok"
+Z2K_PLATFORM_STATUS="ok"; REINSTALL_SUPPORTED=1
 Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
 export Z2K_ROOT
 # shellcheck disable=SC1090,SC1091
@@ -138,23 +138,11 @@ is_installed() {
 }
 
 tunnel_enable() {
-    local cfg="${CONFIG_FILE:-/etc/z2k/config}" _init="${Z2K_INIT:-/etc/init.d/z2k}"
-    if command -v z2k_ow_tg_arch_supported >/dev/null 2>&1; then
-        z2k_ow_tg_arch_supported || {
-            echo "Тип не поддерживается: Rust TG WS Proxy недоступен для этой архитектуры" >&2
-            return 1
-        }
-        [ -x "${Z2K_TG_RUST_BIN:-}" ] || {
-            echo "Rust TG WS Proxy не установлен для этой архитектуры" >&2
-            return 1
-        }
-    fi
-    if grep -q '^TG_PROXY_USER_DISABLED=' "$cfg" 2>/dev/null; then
-        sed -i 's/^TG_PROXY_USER_DISABLED=.*/TG_PROXY_USER_DISABLED=0/' "$cfg" 2>/dev/null
-    fi
-    echo "Применяю через z2k/procd..."
-    [ -x "$_init" ] || { echo "нет $_init" >&2; return 1; }
-    "$_init" reload 2>&1
+    command -v z2k_ow_tg_panel_enable >/dev/null 2>&1 || {
+        echo "Модуль управления Telegram недоступен" >&2
+        return 1
+    }
+    z2k_ow_tg_panel_enable
 }
 
 tunnel_disable() {

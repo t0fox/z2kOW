@@ -21,7 +21,7 @@ export PATH="$T/bin:$PATH"
 export Z2K_PANEL_EXTRA_PATH="$T/bin"
 
 # --- adapter farm (настоящие файлы слоя) ---
-for _f in paths.sh env.sh arch.sh manifest.sh release_state.sh release.sh update.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh doh.sh diag.sh offload-benchmark.sh offload-observe.sh; do
+for _f in paths.sh env.sh arch.sh manifest.sh release_state.sh release.sh update.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh doh.sh dnsproxy.sh diag.sh offload-benchmark.sh offload-observe.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
@@ -68,6 +68,9 @@ cp "$REPO/lib/auto_update.sh" "$T/root/lib/auto_update.sh"
 cat > "$T/mock-init" <<EOF
 #!/bin/sh
 echo "init:\$*" >> "$T/init.log"
+if [ "\${Z2K_OW_ARCH:-}" = mips ]; then
+    echo "init:\$*" >> "$T/mips-init.log"
+fi
 case "\$1" in
     running) [ -f "$T/service-active" ] && exit 0; exit 1 ;;
     reload|restart|start|stop) exit 0 ;;
@@ -336,6 +339,9 @@ assert_eq "status: DoH force DNS defaults off" "0" "$(_jget "$OUT" 'd["doh"]["fo
 assert_eq "status: DoH provider comes from package UCI, empty before install" "unknown" "$(_jget "$OUT" 'd["doh"]["provider"]')"
 assert_eq "status: DoH exposes no inactive endpoint before install" "" "$(_jget "$OUT" 'd["doh"]["endpoint"]')"
 assert_eq "status: DoH has no external config before install" "0" "$(_jget "$OUT" 'd["doh"]["external_config"]')"
+assert_eq "status: DNS cache capability is explicit before install" "unknown" "$(_jget "$OUT" 'd["doh"]["cache_enabled"]')"
+assert_eq "status: upstream address-family support is reported honestly" "unsupported" "$(_jget "$OUT" 'd["doh"]["upstream_family"]')"
+assert_eq "status: DNS redirect snapshot defaults off" "0" "$(_jget "$OUT" 'd["doh"]["redirect_snapshot"]')"
 _status_out="$OUT"
 # Exercise the exact reported route: api.sh enables nounset, queues the action,
 # and svc_action_async evaluates it in the background. With no saved active IP,
@@ -428,6 +434,14 @@ assert_eq "DoH force DNS rejects injected values" "Status: 400 Bad Request" "$(p
 printf '%s\n' 'provider=custom&endpoint=http%3A%2F%2Fresolver.example%2Fdns-query&bootstrap=1.1.1.1' > "$T/doh-provider-invalid-endpoint"
 RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-invalid-endpoint")"
 assert_eq "DoH rejects a custom endpoint without HTTPS" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' 'provider=custom&endpoint=https%3A%2F%2Fresolver.example%2Fdns-query' > "$T/doh-provider-no-bootstrap"
+RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-no-bootstrap")"
+assert_eq "DoH rejects a custom hostname when bootstrap was not explicitly supplied" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' 'provider=custom&endpoint=https%3A%2F%2F192.0.2.53%2Fdns-query' > "$T/doh-provider-literal-ip"
+RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-literal-ip")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_doh_job="$(_jget "$OUT" 'd["job"]')"
+assert_eq "DoH accepts a literal-IP custom endpoint without bootstrap" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+if [ -n "$_doh_job" ]; then JOB_IDS="$JOB_IDS $_doh_job"; _poll_job_fail "$_doh_job" "literal-IP DNS endpoint reaches adapter without an implicit bootstrap"; fi
 printf '%s\n' 'provider=custom&endpoint=https%3A%2F%2Fresolver.example%2Fdns-query&bootstrap=127.0.0.1%2C999.1.1.1' > "$T/doh-provider-invalid-bootstrap"
 RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-invalid-bootstrap")"
 assert_eq "DoH rejects invalid custom bootstrap DNS" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
@@ -453,35 +467,108 @@ if [ -n "$_doh_job" ]; then
     JOB_IDS="$JOB_IDS $_doh_job"
     _poll_job_fail "$_doh_job" "valid IPv6 custom endpoint request reaches the adapter"
 fi
+printf '%s\n' 'provider=quad9&protocol=dot' > "$T/doh-provider-quad9-dot"
+RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-quad9-dot")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_doh_job="$(_jget "$OUT" 'd["job"]')"
+assert_eq "DNS API accepts Quad9 DoT" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+if [ -n "$_doh_job" ]; then JOB_IDS="$JOB_IDS $_doh_job"; _poll_job_fail "$_doh_job" "Quad9 DoT reaches adapter"; fi
+printf '%s\n' 'provider=quad9&protocol=doq' > "$T/doh-provider-quad9-doq"
+RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-quad9-doq")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_doh_job="$(_jget "$OUT" 'd["job"]')"
+assert_eq "DNS API accepts Quad9 DoQ" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+if [ -n "$_doh_job" ]; then JOB_IDS="$JOB_IDS $_doh_job"; _poll_job_fail "$_doh_job" "Quad9 DoQ reaches adapter"; fi
+printf '%s\n' 'provider=quad9&protocol=dnscrypt' > "$T/doh-provider-quad9-dnscrypt"
+RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-quad9-dnscrypt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_doh_job="$(_jget "$OUT" 'd["job"]')"
+assert_eq "DNS API accepts Quad9 DNSCrypt" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+if [ -n "$_doh_job" ]; then JOB_IDS="$JOB_IDS $_doh_job"; _poll_job_fail "$_doh_job" "Quad9 DNSCrypt reaches adapter"; fi
+printf '%s\n' 'provider=xbox&protocol=dot' > "$T/doh-provider-incompatible"
+RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-incompatible")"
+assert_eq "DNS API rejects a DoH-only preset with DoT" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' 'provider=custom&protocol=doq&endpoint=https%3A%2F%2Fresolver.example%2Fdns-query&bootstrap=1.1.1.1' > "$T/doh-provider-scheme-mismatch"
+RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-scheme-mismatch")"
+assert_eq "DNS API rejects a custom endpoint whose scheme mismatches DoQ" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' 'provider=custom&protocol=dnscrypt&endpoint=sdns%3A%2F%2FAQAAAAAAAAAAAAAA' > "$T/doh-provider-dnscrypt-no-bootstrap"
+RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-dnscrypt-no-bootstrap")"
+OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_doh_job="$(_jget "$OUT" 'd["job"]')"
+assert_eq "DNSCrypt API accepts a stamp without bootstrap DNS" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+if [ -n "$_doh_job" ]; then JOB_IDS="$JOB_IDS $_doh_job"; _poll_job_fail "$_doh_job" "DNSCrypt stamp reaches adapter without bootstrap"; fi
+printf '%s\n' 'provider=custom&protocol=bogus&endpoint=https%3A%2F%2Fresolver.example%2Fdns-query' > "$T/doh-provider-unknown-protocol"
+RAW="$(_cgi POST /doh/provider "" "$T/doh-provider-unknown-protocol")"
+assert_eq "DNS API rejects an unknown protocol" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
 
-# Exercise the production /doh/check -> svc_action_async -> eval -> actions.sh
-# chain under api.sh's set -u. The DNS command is an ordinary PATH executable;
-# the optional test override variables deliberately remain unset.
+# Mixed upstream profile: validate encrypted endpoints, independent fallback,
+# upstream mode, native domain-route input, and newline-separated bootstrap.
+printf '%s\n' 'upstreams=https%3A%2F%2Fcloudflare-dns.com%2Fdns-query&mode=bogus&bootstrap=1.1.1.1' > "$T/doh-profile-invalid-mode"
+RAW="$(_cgi POST /doh/profile "" "$T/doh-profile-invalid-mode")"
+assert_eq "DNS profile API rejects an unsupported upstream strategy" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' 'upstreams=192.0.2.1&mode=load_balance&bootstrap=1.1.1.1' > "$T/doh-profile-plaintext-upstream"
+RAW="$(_cgi POST /doh/profile "" "$T/doh-profile-plaintext-upstream")"
+assert_eq "DNS profile API rejects implicit plaintext main upstream" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' 'upstreams=https%3A%2F%2Fcloudflare-dns.com%2Fdns-query&mode=load_balance' > "$T/doh-profile-no-bootstrap"
+RAW="$(_cgi POST /doh/profile "" "$T/doh-profile-no-bootstrap")"
+assert_eq "DNS profile API rejects hostname upstreams without an explicit bootstrap list" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' 'upstreams=https%3A%2F%2Fcloudflare-dns.com%2Fdns-query&fallbacks=9.9.9.9&mode=load_balance&bootstrap=1.1.1.1' > "$T/doh-profile-plaintext-fallback"
+RAW="$(_cgi POST /doh/profile "" "$T/doh-profile-plaintext-fallback")"
+assert_eq "DNS profile API rejects implicit plaintext fallback" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' 'upstreams=https%3A%2F%2Fcloudflare-dns.com%2Fdns-query&routes=bad_domain%3Dtls%3A%2F%2Fdns.google&mode=parallel&bootstrap=1.1.1.1' > "$T/doh-profile-invalid-route"
+RAW="$(_cgi POST /doh/profile "" "$T/doh-profile-invalid-route")"
+assert_eq "DNS profile API rejects invalid domain-routing names" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' 'upstreams=https%3A%2F%2Fcloudflare-dns.com%2Fdns-query%0Atls%3A%2F%2Fdns.google%0Aquic%3A%2F%2Fdns.adguard-dns.com&fallbacks=h3%3A%2F%2Fdns.quad9.net%2Fdns-query&routes=xbox.com%3Dtls%3A%2F%2Fdns.google&mode=parallel&bootstrap=1.1.1.1%0A8.8.8.8&replace=1' > "$T/doh-profile-mixed"
+RAW="$(_cgi POST /doh/profile "" "$T/doh-profile-mixed")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_doh_job="$(_jget "$OUT" 'd["job"]')"
+assert_eq "DNS profile API accepts mixed encrypted upstreams and explicit fallback" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+if [ -n "$_doh_job" ]; then JOB_IDS="$JOB_IDS $_doh_job"; _poll_job_fail "$_doh_job" "valid DNS profile request reaches the async adapter action"; fi
+
+# Проверить рабочую цепочку /doh/check → svc_action_async → eval → actions.sh
+# на UCI/procd-стенде dnsproxy с включённым set -u из api.sh.
 cat > "$T/bin/doh-apk" <<'EOF'
 #!/bin/sh
-[ "$#" -eq 3 ] && [ "$1" = info ] && [ "$2" = -e ] && [ "$3" = https-dns-proxy ]
+case "$1 $2 $3" in
+    'info -e dnsproxy') [ -f "$OW_DOH_INSTALLED" ] ;;
+    'info -e https-dns-proxy') exit 1 ;;
+    'add dnsproxy') exit 1 ;;
+    *) exit 2 ;;
+esac
 EOF
 chmod +x "$T/bin/doh-apk"
 cat > "$T/bin/doh-uci" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = -q ] && shift
 case "${1:-}" in
-    show)
-        [ "${2:-}" = https-dns-proxy ] || exit 1
-        cat <<'UCI'
-https-dns-proxy.z2kow_doh='https-dns-proxy'
-https-dns-proxy.z2kow_doh.resolver_url='https://dns.google/dns-query'
-https-dns-proxy.z2kow_doh.listen_port='5053'
-UCI
-        ;;
-    get)
+    show|export)
         case "${2:-}" in
-            https-dns-proxy.z2kow_doh) printf '%s\n' https-dns-proxy ;;
-            https-dns-proxy.z2kow_doh.resolver_url) printf '%s\n' https://dns.google/dns-query ;;
-            https-dns-proxy.z2kow_doh.listen_port) printf '%s\n' 5053 ;;
+            dnsproxy) cat <<'UCI'
+dnsproxy.global='dnsproxy'
+dnsproxy.global.enabled='1'
+dnsproxy.global.listen_addr='127.0.0.1'
+dnsproxy.global.listen_port='5353'
+dnsproxy.global.insecure='0'
+dnsproxy.servers='dnsproxy'
+dnsproxy.servers.upstream='https://dns.google/dns-query'
+dnsproxy.servers.bootstrap='8.8.8.8'
+UCI
+                ;;
+            dhcp)
+                while IFS= read -r _route; do
+                    [ -n "$_route" ] && printf "dhcp.@dnsmasq[0].server='%s'\n" "$_route"
+                done < "$OW_DOH_UCI_DHCP_SERVERS"
+                ;;
             *) exit 1 ;;
         esac
         ;;
+    get) exit 1 ;;
+    add_list)
+        _route=$(printf '%s' "$2" | cut -d= -f2-)
+        grep -Fxq "$_route" "$OW_DOH_UCI_DHCP_SERVERS" || printf '%s\n' "$_route" >> "$OW_DOH_UCI_DHCP_SERVERS"
+        ;;
+    del_list)
+        _route=$(printf '%s' "$2" | cut -d= -f2-)
+        awk -v route="$_route" '$0 != route' "$OW_DOH_UCI_DHCP_SERVERS" > "$OW_DOH_UCI_DHCP_SERVERS.tmp" &&
+            mv "$OW_DOH_UCI_DHCP_SERVERS.tmp" "$OW_DOH_UCI_DHCP_SERVERS"
+        ;;
+    set|delete|commit) exit 0 ;;
     *) exit 1 ;;
 esac
 EOF
@@ -491,69 +578,128 @@ cat > "$T/bin/nslookup" <<'EOF'
 printf '%s\n' "$*" >> "$OW_DOH_NSLOOKUP_LOG"
 printf 'Server: 127.0.0.1\nAddress: 127.0.0.1#53\n\nName: example.com\nAddress: 203.0.113.88\n'
 EOF
-chmod +x "$T/bin/nslookup"
-mkdir -p "$T/doh-dnsmasq-runtime"
-printf 'server=127.0.0.1#5053\n' > "$T/doh-dnsmasq-runtime/dnsmasq.conf.fixture"
-_doh_saved_apk_bin=$Z2K_DOH_APK_BIN
-_doh_saved_uci_bin=$Z2K_DOH_UCI_BIN
-_doh_saved_runtime_dir=${Z2K_DOH_DNSMASQ_RUNTIME_DIR:-}
-export OW_DOH_NSLOOKUP_LOG="$T/doh-nslookup.calls"
-unset Z2K_DOH_NSLOOKUP_BIN Z2K_DOH_HEALTH_HOST
-export Z2K_DOH_APK_BIN="$T/bin/doh-apk" Z2K_DOH_UCI_BIN="$T/bin/doh-uci"
-export Z2K_DOH_DNSMASQ_RUNTIME_DIR="$T/doh-dnsmasq-runtime"
-# A DoH package installed by z2kOW can still have a pre-install config receipt.
-# The adapter requests explicit confirmation on Remove, so /status must expose
-# that fact to the browser even when the active resolver section is z2kOW-owned.
+cat > "$T/bin/drill" <<'EOF'
+#!/bin/sh
+printf 'example.com. 60 IN A 203.0.113.88\n'
+EOF
+cat > "$T/bin/doh-proxy-init" <<'EOF'
+#!/bin/sh
+case "$1" in enabled|restart|enable|disable|stop) exit 0 ;; *) exit 1 ;; esac
+EOF
+cat > "$T/bin/doh-dnsmasq-init" <<'EOF'
+#!/bin/sh
+[ "$1" = restart ]
+EOF
+cat > "$T/bin/doh-pidof" <<'EOF'
+#!/bin/sh
+[ "$1" = dnsproxy ]
+EOF
+chmod +x "$T/bin/nslookup" "$T/bin/drill" "$T/bin/doh-proxy-init" "$T/bin/doh-dnsmasq-init" "$T/bin/doh-pidof"
+_doh_saved_apk_bin=${Z2K_DOH_APK_BIN:-}
+_doh_saved_uci_bin=${Z2K_DOH_UCI_BIN:-}
+_doh_saved_proxy_init=${Z2K_DOH_PROXY_INIT:-}
+_doh_saved_pidof_bin=${Z2K_DOH_PIDOF_BIN:-}
 _doh_saved_state=${Z2K_STATE:-}
-export Z2K_STATE="$T/etc/state"
+export OW_DOH_NSLOOKUP_LOG="$T/doh-nslookup.calls" OW_DOH_INSTALLED="$T/doh-installed"
+export OW_DOH_UCI_DHCP_SERVERS="$T/doh-dhcp-servers"
+printf '127.0.0.1#5353\n' > "$OW_DOH_UCI_DHCP_SERVERS"
+unset Z2K_DOH_NSLOOKUP_BIN Z2K_DOH_HEALTH_HOST
+export Z2K_STATE="$T/etc/state" Z2K_DOH_APK_BIN="$T/bin/doh-apk" Z2K_DOH_UCI_BIN="$T/bin/doh-uci"
+export Z2K_DOH_PROXY_INIT="$T/bin/doh-proxy-init" Z2K_DOH_DNSMASQ_INIT="$T/bin/doh-dnsmasq-init" Z2K_DOH_PIDOF_BIN="$T/bin/doh-pidof"
 mkdir -p "$Z2K_STATE"
-printf 'z2kow_doh\n' > "$Z2K_STATE/.doh-uci-owned"
-printf 'https-dns-proxy\n' > "$Z2K_STATE/.doh-package-owned"
-printf 'preexisting config snapshot\n' > "$Z2K_STATE/.doh-config-backup"
-printf 'present=1\n' > "$Z2K_STATE/.doh-preinstall-config-present"
+printf 'protocol=doh\nprovider=google\nendpoint=https://dns.google/dns-query\nbootstrap=8.8.8.8\nprofile_upstreams_b64=aHR0cHM6Ly9kbnMuZ29vZ2xlL2Rucy1xdWVyeQ==\nprofile_fallbacks_b64=\nprofile_routes_b64=\nprofile_bootstrap_b64=OS45LjkuOQo4LjguOC44\nmode=parallel\n' > "$Z2K_STATE/doh.state"
+printf 'noresolv=1\nroute_preexisting=0\n' > "$Z2K_STATE/.dnsproxy-dnsmasq-snapshot"
+printf 'external dnsproxy config backup\n' > "$Z2K_STATE/.dnsproxy-config-backup"
+printf 'dnsproxy\n' > "$Z2K_STATE/.dnsproxy-package-owned"
+"$T/bin/doh-uci" -q export dnsproxy > "$Z2K_STATE/.dnsproxy-config-baseline"
+: > "$OW_DOH_INSTALLED"
 RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
-assert_eq "status exposes confirmation required before removing a pre-existing DoH config" \
+assert_eq "status exposes confirmation required before restoring an external DNS config" \
     "1" "$(_jget "$OUT" 'd["doh"]["confirm_remove"]')"
-rm -f "$Z2K_STATE"/.doh-*
-if [ -n "$_doh_saved_state" ]; then export Z2K_STATE="$_doh_saved_state"; else unset Z2K_STATE; fi
+assert_eq "status exposes route recovery state" "1" "$(_jget "$OUT" 'd["doh"]["route_snapshot"]')"
+assert_eq "status exposes DNS cache enabled state" "0" "$(_jget "$OUT" 'd["doh"]["cache_enabled"]')"
+assert_eq "status exposes DNS cache size" "65535" "$(_jget "$OUT" 'd["doh"]["cache_size"]')"
+assert_eq "status exposes LAN redirect state" "disabled" "$(_jget "$OUT" 'd["doh"]["redirect_state"]')"
+assert_eq "status exposes DNS upstream family capability" "unsupported" "$(_jget "$OUT" 'd["doh"]["upstream_family"]')"
+assert_eq "status preserves the saved multi-upstream profile for the UI" "aHR0cHM6Ly9kbnMuZ29vZ2xlL2Rucy1xdWVyeQ==" "$(_jget "$OUT" 'd["doh"]["profile_upstreams_b64"]')"
+assert_eq "status preserves the saved bootstrap list for the UI" "OS45LjkuOQo4LjguOC44" "$(_jget "$OUT" 'd["doh"]["profile_bootstrap_b64"]')"
+assert_eq "status preserves the saved upstream strategy for the UI" "parallel" "$(_jget "$OUT" 'd["doh"]["profile_mode"]')"
 RAW="$(_cgi POST /doh/check)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 _doh_job="$(_jget "$OUT" 'd["job"]')"
-assert_eq "DoH Check starts through the real API async route without test overrides" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+assert_eq "DNS Check starts through the real API async route" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
 if [ -n "$_doh_job" ]; then
     JOB_IDS="$JOB_IDS $_doh_job"
-    _doh_check_job="$(_poll_job "$_doh_job")" || _t_bad "DoH Check async job completes under set -u"
-    assert_eq "DoH Check async job exits successfully" "0" "$(_jget "$_doh_check_job" 'd["exit"]')"
+    _doh_check_job="$(_poll_job "$_doh_job")" || _t_bad "DNS Check async job completes under set -u"
+    assert_eq "DNS Check async job exits successfully" "0" "$(_jget "$_doh_check_job" 'd["exit"]')"
     printf '%s' "$(_jget "$_doh_check_job" 'd["log"]')" > "$T/doh-check-job.log"
-    assert_contains "DoH Check reaches PATH nslookup with the production defaults" "$T/doh-nslookup.calls" 'example.com 127.0.0.1'
-    assert_contains "DoH job log identifies the detected provider and endpoint" "$T/doh-check-job.log" 'provider=google endpoint=https://dns.google/dns-query'
-    assert_contains "DoH job log includes the DNS answer and success" "$T/doh-check-job.log" 'answer=203.0.113.88 result=success'
-    assert_not_contains "DoH job log has no nounset failure" "$T/doh-check-job.log" 'parameter not set'
+    assert_contains "DNS Check reaches nslookup through dnsmasq" "$T/doh-nslookup.calls" 'example.com 127.0.0.1'
+    assert_contains "DNS job log reports the protected upstream endpoint" "$T/doh-check-job.log" 'endpoint=https://dns.google/dns-query'
+    assert_contains "DNS job log separates local lookup from protected upstream confirmation" "$T/doh-check-job.log" 'local_dns_state=working upstream_state=confirmed'
+    assert_not_contains "DNS job log has no nounset failure" "$T/doh-check-job.log" 'parameter not set'
 fi
-Z2K_DOH_APK_BIN=$_doh_saved_apk_bin
-Z2K_DOH_UCI_BIN=$_doh_saved_uci_bin
-export Z2K_DOH_APK_BIN Z2K_DOH_UCI_BIN
-if [ -n "$_doh_saved_runtime_dir" ]; then
-    Z2K_DOH_DNSMASQ_RUNTIME_DIR=$_doh_saved_runtime_dir
-    export Z2K_DOH_DNSMASQ_RUNTIME_DIR
-else
-    unset Z2K_DOH_DNSMASQ_RUNTIME_DIR
+
+printf '%s\n' 'cache_enabled=2&cache_size=65535' > "$T/doh-settings-invalid-enabled"
+RAW="$(_cgi POST /doh/settings "" "$T/doh-settings-invalid-enabled")"
+assert_eq "DNS settings reject invalid cache toggle" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' 'cache_enabled=1&cache_size=4095' > "$T/doh-settings-invalid-size"
+RAW="$(_cgi POST /doh/settings "" "$T/doh-settings-invalid-size")"
+assert_eq "DNS settings reject an undersized cache" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' 'cache_enabled=1&cache_size=32768' > "$T/doh-settings-valid"
+RAW="$(_cgi POST /doh/settings "" "$T/doh-settings-valid")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_doh_job="$(_jget "$OUT" 'd["job"]')"
+assert_eq "DNS cache settings reach the real async adapter action" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+if [ -n "$_doh_job" ]; then
+    JOB_IDS="$JOB_IDS $_doh_job"
+    _doh_settings_job="$(_poll_job "$_doh_job")" || _t_bad "DNS cache settings async job completes"
+    assert_eq "DNS cache settings async job exits successfully" "0" "$(_jget "$_doh_settings_job" 'd["exit"]')"
 fi
+RAW="$(_cgi POST /doh/settings 'cache_enabled=1&cache_size=1048577')"
+assert_eq "DNS settings reject an oversized cache" "Status: 400 Bad Request" "$(printf '%s\n' "$RAW" | _cgi_status)"
+
+RAW="$(_cgi GET /doh/diagnostics)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_doh_job="$(_jget "$OUT" 'd["job"]')"
+assert_eq "DNS diagnostics start through the API async route" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+if [ -n "$_doh_job" ]; then
+    JOB_IDS="$JOB_IDS $_doh_job"
+    _doh_diag_job="$(_poll_job "$_doh_job")" || _t_bad "DNS diagnostics async job completes"
+    assert_eq "DNS diagnostics async job exits successfully" "0" "$(_jget "$_doh_diag_job" 'd["exit"]')"
+    printf '%s' "$(_jget "$_doh_diag_job" 'd["log"]')" > "$T/doh-diagnostics-job.log"
+    assert_contains "DNS diagnostics separate dnsproxy and dnsmasq probes" "$T/doh-diagnostics-job.log" 'dnsproxy_direct_probe=working'
+    assert_contains "DNS diagnostics report LAN redirect state" "$T/doh-diagnostics-job.log" 'lan_redirect=inactive-or-drift'
+fi
+RAW="$(_cgi POST /doh/recover)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_doh_job="$(_jget "$OUT" 'd["job"]')"
+assert_eq "DNS recovery starts through the API async route" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+if [ -n "$_doh_job" ]; then
+    JOB_IDS="$JOB_IDS $_doh_job"
+    _doh_recover_job="$(_poll_job "$_doh_job")" || _t_bad "DNS recovery async job completes"
+    assert_eq "DNS recovery async job exits successfully" "0" "$(_jget "$_doh_recover_job" 'd["exit"]')"
+    assert_eq "DNS recovery leaves one working dnsproxy route" "127.0.0.1#5353" "$(cat "$OW_DOH_UCI_DHCP_SERVERS")"
+fi
+rm -f "$OW_DOH_INSTALLED"
 
 printf '%s\n' 'url=https%3A%2F%2Fevil.example%2Fdns-query&bootstrap=127.0.0.1' > "$T/doh-install-body"
 RAW="$(_cgi POST /doh/install "" "$T/doh-install-body")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 _doh_job="$(_jget "$OUT" 'd["job"]')"
-assert_eq "DoH install route returns an async job immediately" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+assert_eq "DNS install route returns an async job immediately" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
 JOB_IDS="$JOB_IDS $_doh_job"
-_poll_job_fail "$_doh_job" "DoH install runs in an async job and fails closed when optional apk is unavailable"
-assert_not_contains "DoH install ignores browser-supplied resolver values" "$T/doh-install-body" 'https://evil.example/dns-query'
+_poll_job_fail "$_doh_job" "DNS install runs in an async job and fails closed when apk installation fails"
+assert_not_contains "DNS install ignores browser-supplied resolver values" "$T/doh-install-body" 'https://evil.example/dns-query'
+rm -f "$Z2K_STATE/.dnsproxy-dnsmasq-snapshot"
+: > "$OW_DOH_INSTALLED"
 printf '%s\n' 'confirm=1' > "$T/doh-uninstall-confirm"
 RAW="$(_cgi POST /doh/uninstall "" "$T/doh-uninstall-confirm")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 _doh_job="$(_jget "$OUT" 'd["job"]')"
-assert_eq "DoH uninstall confirmation reaches an async job" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
+assert_eq "DNS uninstall confirmation reaches an async job" "true" "$([ -n "$_doh_job" ] && printf true || printf false)"
 if [ -n "$_doh_job" ]; then
     JOB_IDS="$JOB_IDS $_doh_job"
-    _poll_job_fail "$_doh_job" "DoH uninstall does not claim success when optional package/DNS commands fail"
+    _poll_job_fail "$_doh_job" "DNS uninstall refuses to remove an externally owned package"
 fi
+if [ -n "$_doh_saved_apk_bin" ]; then export Z2K_DOH_APK_BIN="$_doh_saved_apk_bin"; else unset Z2K_DOH_APK_BIN; fi
+if [ -n "$_doh_saved_uci_bin" ]; then export Z2K_DOH_UCI_BIN="$_doh_saved_uci_bin"; else unset Z2K_DOH_UCI_BIN; fi
+if [ -n "$_doh_saved_proxy_init" ]; then export Z2K_DOH_PROXY_INIT="$_doh_saved_proxy_init"; else unset Z2K_DOH_PROXY_INIT; fi
+if [ -n "$_doh_saved_pidof_bin" ]; then export Z2K_DOH_PIDOF_BIN="$_doh_saved_pidof_bin"; else unset Z2K_DOH_PIDOF_BIN; fi
+if [ -n "$_doh_saved_state" ]; then export Z2K_STATE="$_doh_saved_state"; else unset Z2K_STATE; fi
 _openwrt_platform="$Z2K_PLATFORM"
 Z2K_PLATFORM=keenetic
 RAW="$(_cgi POST /doh/install)"
@@ -661,6 +807,20 @@ assert_contains "exclude файл" "$T/etc/user-lists/exclude.txt" "9.9.9.9"
 
 # --- TG disable/enable через Stage-3 контракт (WP12) ---
 : > "$T/init.log"
+printf 'TG_PROXY_USER_DISABLED=1\n' > "$T/etc/config"
+export Z2K_OW_ARCH=mips
+RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "статус сообщает о неподдерживаемой архитектуре" "Тип не поддерживается" "$(_jget "$OUT" 'd["tunnel"]["status"]')"
+assert_eq "статус сообщает о недоступности Rust-прокси" "false" "$(_jget "$OUT" 'd["tunnel"]["supported"]')"
+RAW="$(_cgi POST /tunnel/enable)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "включение Telegram: задача создана" "true" "$(_jget "$OUT" 'd["ok"]')"
+_jid="$(_jget "$OUT" 'd["job"]')"
+JOB_IDS="$JOB_IDS $_jid"
+_poll_job_fail "$_jid" "архитектура Telegram Rust не поддерживается"
+assert_eq "включение при неподдерживаемой архитектуре сохраняет настройку" "1" "$(grep -m1 '^TG_PROXY_USER_DISABLED=' "$T/etc/config" | cut -d= -f2)"
+assert_not_contains "включение при неподдерживаемой архитектуре не перезапускает службу" "$T/mips-init.log" '^init:reload$'
+unset Z2K_OW_ARCH
+
 RAW="$(_cgi POST /tunnel/disable)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "tg disable: job" "true" "$(_jget "$OUT" 'd["ok"]')"
 JOB_IDS="$JOB_IDS $(_jget "$OUT" 'd["job"]')"
@@ -801,20 +961,6 @@ assert_eq "update: controlled sequence comes from UPDATES.json" "134" "$(_jget "
 assert_not_contains "update: no package/snapshot versions leak into the one release API" "$OUT" "_package"
 assert_not_contains "update: payload/seed metadata is not a user update version" "$OUT" '"seed"'
 assert_eq "update: available comes from signed controlled release" "p-86.11" "$(_jget "$OUT" 'd["available"]')"
-printf 'TG_PROXY_USER_DISABLED=1\n' > "$T/etc/config"
-export Z2K_OW_ARCH=mips
-RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
-assert_eq "статус сообщает о неподдерживаемой архитектуре" "Тип не поддерживается" "$(_jget "$OUT" 'd["tunnel"]["status"]')"
-assert_eq "статус сообщает о недоступности Rust-прокси" "false" "$(_jget "$OUT" 'd["tunnel"]["supported"]')"
-RAW="$(_cgi POST /tunnel/enable)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
-assert_eq "включение Telegram: задача создана" "true" "$(_jget "$OUT" 'd["ok"]')"
-_jid="$(_jget "$OUT" 'd["job"]')"
-JOB_IDS="$JOB_IDS $_jid"
-_poll_job_fail "$_jid" "архитектура Telegram Rust не поддерживается"
-assert_eq "включение при неподдерживаемой архитектуре сохраняет настройку" "1" "$(grep -m1 '^TG_PROXY_USER_DISABLED=' "$T/etc/config" | cut -d= -f2)"
-assert_not_contains "включение при неподдерживаемой архитектуре не перезапускает службу" "$T/init.log" '^init:reload$'
-unset Z2K_OW_ARCH
-
 assert_eq "update: same-version reinstall is exposed only on OpenWrt" "true" "$(_jget "$OUT" 'd["reinstall_supported"]')"
 assert_eq "update: signed manifest is cached with controlled authority" "controlled" "$(cat "$AU_MANIFEST_CACHE.authority")"
 assert_eq "update: no fetch failure for valid controlled signature" "false" "$(_jget "$OUT" 'd["fetch_failed"]')"

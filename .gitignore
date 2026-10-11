@@ -16,6 +16,9 @@ discord_blockcheck2_tls13_20260123_131631.txt
 /%TEMP%*.txt
 /__codex_quarantine/
 /nul
+/.playwright-cli/
+/output/diagnostics/
+/output/playwright/
 # Имя релизного бинарника — tg-mtproxy-client (BINARY в mtproxy-client/Makefile);
 # точные правила живут в mtproxy-client/.gitignore.
 mtproxy-client/tg-mtproxy-client

@@ -77,7 +77,7 @@ rm -f "$JOB_DIR/z2k-job-$_jid.log" "$JOB_DIR/z2k-job-$_jid.pid" "$JOB_DIR/z2k-jo
 
 # --- 3. A quiet long-running action still updates the live modal log ---
 . "$STUBDIR/actions.sh"
-_jid="$(svc_action_async "heartbeat regression" "job_progress 'probe phase: awaiting a quiet worker'; sleep 20")"
+_jid="$(svc_action_async "heartbeat regression" "job_progress 'Этап: probe phase: awaiting a quiet worker'; sleep 20")"
 [ -n "$_jid" ] || { _t_bad "heartbeat regression has a job id"; _jid="none"; }
 _wait=0
 while ! grep -q 'Этап: probe phase: awaiting a quiet worker; без смены этапа' "$JOB_DIR/z2k-job-$_jid.log" 2>/dev/null \
@@ -87,8 +87,31 @@ while ! grep -q 'Этап: probe phase: awaiting a quiet worker; без смен
 done
 assert_contains "quiet running job reports its current phase and elapsed phase time" "$JOB_DIR/z2k-job-$_jid.log" \
     'Этап: probe phase: awaiting a quiet worker; без смены этапа'
+if grep -q 'Этап: Этап:' "$JOB_DIR/z2k-job-$_jid.log" 2>/dev/null; then
+    _t_bad "heartbeat phase prefix is not duplicated"
+else
+    _t_ok
+fi
 _rc="$(_job_wait "$_jid")"
 assert_eq "heartbeat job completes normally" "0" "$_rc"
+# Сигнал heartbeat отображается в интерфейсе, но не подменяет обычный вывод операции.
+printf '%s\n' 'Операция «probe» ещё выполняется (15 с). Последний вывод: Этап: probe phase' \
+    > "$JOB_DIR/z2k-job-heartbeat-filter.log"
+_heartbeat_output="$(job_latest_output heartbeat-filter)"
+assert_eq "a previous heartbeat is not re-quoted as worker output" "" "$_heartbeat_output"
 rm -f "$JOB_DIR/z2k-job-$_jid.log" "$JOB_DIR/z2k-job-$_jid.pid" "$JOB_DIR/z2k-job-$_jid.exit"
+rm -f "$JOB_DIR/z2k-job-heartbeat-filter.log"
+printf '%s\n' \
+    '@z2k-ts:100|Этап: actual worker phase' \
+    '@z2k-ts:115|Этап: actual worker phase; без смены этапа 15 с; всего 15 с.' \
+    > "$JOB_DIR/z2k-job-marker-filter.log"
+_latest_marker="$(job_latest_progress marker-filter)"
+assert_eq "heartbeat does not replace the latest actual work marker" \
+    '100|Этап: actual worker phase' "$_latest_marker"
+printf '%s\n' '@z2k-ts:115|Этап: only heartbeat; без смены этапа 15 с; всего 15 с.' \
+    > "$JOB_DIR/z2k-job-marker-filter.log"
+_latest_marker="$(job_latest_progress marker-filter)"
+assert_eq "heartbeat alone is not exposed as a work phase" "" "$_latest_marker"
+rm -f "$JOB_DIR/z2k-job-marker-filter.log"
 
 _t_done

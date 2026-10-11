@@ -1285,12 +1285,14 @@ download_init_script() {
         www/js/pages/credits-openwrt.js \
         www/js/pages/dashboard.js \
         www/js/pages/diag.js \
+        www/js/pages/dns.js \
         www/js/pages/donations.js \
         www/js/pages/exclude.js \
         www/js/pages/extra-domains.js \
         www/js/pages/policy.js \
         www/js/pages/strategies.js \
         www/js/pages/strategy-pick.js \
+        www/js/pages/tiktok.js \
         www/js/pages/toggles.js \
         www/js/pages/update.js \
         www/js/pages/warp.js \

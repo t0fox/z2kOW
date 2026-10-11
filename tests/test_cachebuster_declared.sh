@@ -83,19 +83,12 @@ else
     no "staged panel cache-busters match release candidate" "invalid candidate=$candidate (manifest current=$cur)"
 fi
 
-# 3) index.html объявлен в changed_files последней записи. Пропускаем, если он
-#    в этом релизе и правда не менялся — тогда объявлять нечего.
-last="$(printf '%s\n' "$_manifest" | grep '^{"v":' | tail -1)"
-if printf '%s' "$last" | grep -q '"webpanel/www/index.html"'; then
-    ok "index.html объявлен в changed_files последнего релиза"
+# 3) OpenWrt собирает панель по отдельному проверяемому манифесту-кандидату;
+#    производственный манифест не меняется до подтверждённой подписи.
+if grep -Fq 'stamp_panel_assets.py' "$ROOT/scripts/openwrt/stage-rootfs.sh"; then
+    ok "OpenWrt release stage stamps index.html from its controlled candidate"
 else
-    # менялся ли он относительно предыдущего коммита
-    if git -C "$ROOT" diff --quiet HEAD -- webpanel/www/index.html 2>/dev/null; then
-        ok "index.html в этом релизе не менялся — объявлять нечего"
-    else
-        no "index.html объявлен в changed_files последнего релиза" \
-           "файл изменён, но не объявлен — панель уедет со старым кешем"
-    fi
+    no "OpenWrt release stage stamps index.html" "stage-rootfs.sh no longer runs stamp_panel_assets.py"
 fi
 
 printf '\nPASSED: %d\nFAILED: %d\n' "$PASS" "$FAIL"

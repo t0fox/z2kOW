@@ -120,10 +120,11 @@ function bool(v) { return v === "1" ? "Вкл" : "Выкл"; }
 // syncServiceButtons (специфичность перебивает [hidden]).
 export function applyCapabilities(s) {
   const caps = (s && s.capabilities) || null;
-  if (!caps) return;
   const hide = (sel) => {
     document.querySelectorAll(sel).forEach((el) => { el.style.display = "none"; });
   };
+  if (s && s.platform !== "openwrt") hide('a[data-route="tiktok"], a[data-route="dns"]');
+  if (!caps) return;
   if (caps.diag === false) hide('a[data-route="diag"]');
   if (caps.policy === false) hide("#policy-card");
   if (caps.ppe === false) hide('[data-key="ppe"]');

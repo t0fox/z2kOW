@@ -188,23 +188,13 @@ get_lan_ip() {
     printf '%s' "${ip:-unknown}"
 }
 
-# Ping VPS (3 packets, short timeout), return "avg_rtt_ms loss_pct" or "-- --".
-#
-# Три пакета, а не пять: busybox ping шлёт их с интервалом в секунду и опции -i
-# не поддерживает (проверено на роутере), поэтому каждый пакет — это ровно
-# секунда ожидания. На пяти пакетах ping занимал 4.07 с из 4.68 с всей сводки,
-# то есть 87% времени диагностики уходило сюда. Три пакета дают 2.07 с и всё
-# ещё отвечают на вопрос, ради которого это здесь: жив ли путь до VPS и есть ли
-# потери. Точность оценки потерь падает с шага 20% до 33% — для триажа неважно,
-# там значимо только «ноль или не ноль».
 ping_vps_rtt() {
-    local out
+    local out loss rtt
     out=$(ping -c 3 -W 2 "$VPS_IP" 2>/dev/null | tail -3) || { printf -- '-- --'; return; }
-    local loss rtt
     loss=$(printf '%s\n' "$out" | grep -oE '[0-9]+% packet loss' | head -1 | tr -d '% packetloss ' || true)
     rtt=$(printf '%s\n' "$out" | grep -oE 'min/avg/max[^=]*= *[0-9.]+/[0-9.]+' | head -1 | awk -F'/' '{print $(NF)}' || true)
-    [ -z "$loss" ] && loss="--"
-    [ -z "$rtt" ] && rtt="--"
+    [ -n "$loss" ] || loss=--
+    [ -n "$rtt" ] || rtt=--
     printf '%s %s' "$rtt" "$loss"
 }
 

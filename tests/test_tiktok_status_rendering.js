@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const sourcePath = path.join(__dirname, "..", "webpanel", "www", "js", "pages", "toggles.js");
+const sourcePath = path.join(__dirname, "..", "webpanel", "www", "js", "pages", "tiktok.js");
 const source = fs.readFileSync(sourcePath, "utf8")
   .replace(/^import .*;\s*$/gm, "")
   .replace(/^export /gm, "");

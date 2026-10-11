@@ -253,6 +253,30 @@ form_value() {
         }'
 }
 
+# DNS profile lists arrive as newline-delimited form values. Validate them
+# before creating a background job so malformed endpoints and local plaintext
+# resolvers are rejected as an API error, not reported as an async apply.
+_doh_profile_validate_endpoints() {
+    _list=$1 _required=$2 _max=$3 _bootstrap=${4:-} _count=0
+    while IFS= read -r _endpoint || [ -n "$_endpoint" ]; do
+        [ -n "$_endpoint" ] || continue
+        _count=$((_count + 1))
+        [ "$_count" -le "$_max" ] 2>/dev/null || return 1
+        case "$_endpoint" in https://*|h3://*|tls://*|quic://*|sdns://*) ;; *) return 1 ;; esac
+        _z2k_ow_doh_profile_endpoint "$_endpoint" "$_bootstrap" || return 1
+    done <<EOF
+$_list
+EOF
+    [ "$_count" -ge "$_required" ] 2>/dev/null
+}
+
+_doh_profile_valid_domain() {
+    printf '%s\n' "$1" | awk '
+      function label(s){return length(s)>0&&length(s)<=63&&s~/^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$/}
+      length($0)>253||$0==""{exit 1}
+      {n=split($0,a,".");for(i=1;i<=n;i++)if(!label(a[i]))exit 1}'
+}
+
 # --- route dispatch ---
 
 auth_require
@@ -343,7 +367,7 @@ case "$method $path" in
                 _doh_sep=
                 printf '%s\n' "$_doh_status" | tr ' ' '\n' | while IFS='=' read -r _doh_key _doh_value; do
                     case "$_doh_key" in
-                        state|installed|enabled|running|provider|endpoint|bootstrap|package_owner|external_config|confirm_remove|proxy|dnsmasq|force_lan_dns|reason)
+                        state|installed|enabled|running|provider|protocol|actual_protocol|local_dns_state|upstream_state|upstream_confirmed|upstream_family|endpoint|bootstrap|legacy_endpoint|legacy_bootstrap|migration_available|route_snapshot|cache_enabled|cache_size|redirect_state|redirect_snapshot|redirect_family|package_owner|external_config|confirm_remove|proxy|dnsmasq|force_lan_dns|reason|profile_upstreams_b64|profile_fallbacks_b64|profile_routes_b64|profile_bootstrap_b64|profile_mode)
                             printf '%s' "$_doh_sep"; json_string "$_doh_key"; printf ':'; json_string "$_doh_value"
                             _doh_sep=,
                             ;;
@@ -395,28 +419,8 @@ case "$method $path" in
         printf '}'
         [ -n "$tiktok_status_json" ] && printf ',"tiktok_feed_status":%s' "$tiktok_status_json"
         [ -n "$doh_status_json" ] && printf ',"doh":%s' "$doh_status_json"
-        if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] \
-            && command -v z2k_ow_tg_arch_supported >/dev/null 2>&1; then
-            tunnel_supported=true
-            tunnel_installed=true
-            tunnel_status='Rust TG WS Proxy'
-            tunnel_message='Прозрачный Telegram TCP/443 через Rust TG WS Proxy.'
-            if ! z2k_ow_tg_arch_supported; then
-                tunnel_supported=false
-                tunnel_installed=false
-                tunnel_status='Тип не поддерживается'
-                tunnel_message='Rust TG WS Proxy недоступен для этой архитектуры.'
-            elif [ ! -x "${Z2K_TG_RUST_BIN:-}" ]; then
-                tunnel_installed=false
-                tunnel_status='Не установлен'
-                tunnel_message='В релизе отсутствует Rust TG WS Proxy для этой архитектуры.'
-            fi
-            printf ',"tunnel":{"running":%s,"supported":%s,"installed":%s,"status":' \
-                "${tunnel_running:-false}" "$tunnel_supported" "$tunnel_installed"
-            json_string "$tunnel_status"
-            printf ',"message":'
-            json_string "$tunnel_message"
-            printf '}'
+        if command -v z2k_ow_tg_status_json >/dev/null 2>&1; then
+            printf ',"tunnel":%s' "$(z2k_ow_tg_status_json "${tunnel_running:-false}")"
         else
             printf ',"tunnel":{"running":%s}' "${tunnel_running:-false}"
         fi
@@ -575,12 +579,23 @@ case "$method $path" in
         exit 0
         ;;
 
-    # ---------- OPTIONAL OPENWRT DNS OVER HTTPS ----------
+    # ---------- ЗАЩИЩЁННЫЙ DNS OPENWRT ----------
+    "GET /doh/diagnostics")
+        require_method GET
+        [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] \
+            || json_fail "404 Not Found" "Защищённый DNS доступен только на OpenWrt"
+        job_id=$(svc_action_async "Диагностика dnsproxy и dnsmasq" doh_diagnostics_action)
+        json_header
+        printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
+        exit 0
+        ;;
+
     "POST /doh/install"|"POST /doh/uninstall"|"POST /doh/enable"|\
-    "POST /doh/disable"|"POST /doh/restart"|"POST /doh/check"|"POST /doh/force-dns"|"POST /doh/provider")
+    "POST /doh/disable"|"POST /doh/restart"|"POST /doh/check"|"POST /doh/force-dns"|\
+    "POST /doh/provider"|"POST /doh/profile"|"POST /doh/settings"|"POST /doh/recover")
         require_method POST
         [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] \
-            || json_fail "404 Not Found" "DoH доступен только на OpenWrt"
+            || json_fail "404 Not Found" "Защищённый DNS доступен только на OpenWrt"
         _doh_value=""
         if [ "$path" = /doh/force-dns ]; then
             body=$(read_body)
@@ -589,6 +604,30 @@ case "$method $path" in
                 0|1) ;;
                 *) json_fail "400 Bad Request" "value must be 0 or 1" ;;
             esac
+        fi
+        if [ "$path" = /doh/settings ]; then
+            body=$(read_body)
+            _doh_cache_enabled=$(form_value "$body" "cache_enabled")
+            _doh_cache_size=$(form_value "$body" "cache_size")
+            case "$_doh_cache_enabled" in
+                0|1) ;;
+                *) json_fail "400 Bad Request" "cache_enabled должен быть 0 или 1" ;;
+            esac
+            case "$_doh_cache_size" in
+                ''|*[!0-9]*) json_fail "400 Bad Request" "cache_size должен быть целым числом от 4096 до 1048576" ;;
+            esac
+            # Ограничить длину перед арифметикой shell: так ash не переполнит
+            # число и сразу отклонит чрезмерно длинный десятичный ввод.
+            [ "${#_doh_cache_size}" -le 7 ] \
+                || json_fail "400 Bad Request" "размер кэша должен быть от 4096 до 1048576 байт"
+            _doh_cache_size_num=$(printf '%s\n' "$_doh_cache_size" | sed 's/^0*//')
+            [ -n "$_doh_cache_size_num" ] || _doh_cache_size_num=0
+            [ "$_doh_cache_size_num" -ge 4096 ] 2>/dev/null \
+                && [ "$_doh_cache_size_num" -le 1048576 ] 2>/dev/null \
+                || json_fail "400 Bad Request" "размер кэша должен быть от 4096 до 1048576 байт"
+            Z2K_DOH_REQUEST_CACHE_ENABLED=$_doh_cache_enabled
+            Z2K_DOH_REQUEST_CACHE_SIZE=$_doh_cache_size_num
+            export Z2K_DOH_REQUEST_CACHE_ENABLED Z2K_DOH_REQUEST_CACHE_SIZE
         fi
         if [ "$path" = /doh/uninstall ]; then
             body=$(read_body)
@@ -600,37 +639,100 @@ case "$method $path" in
         if [ "$path" = /doh/provider ]; then
             body=$(read_body)
             _doh_provider=$(form_value "$body" "provider")
+            _doh_protocol=$(form_value "$body" "protocol")
+            case "$_doh_protocol" in
+                ''|doh) _doh_protocol=doh ;;
+                doh3|dot|doq|dnscrypt) ;;
+                *) json_fail "400 Bad Request" "неизвестный протокол DNS" ;;
+            esac
             _doh_replace=$(form_value "$body" "replace")
             case "$_doh_replace" in ''|0) _doh_replace=0 ;; 1) ;; *) json_fail "400 Bad Request" "replace must be 0 or 1" ;; esac
+            . "$Z2K_ROOT/platform/openwrt/doh.sh" \
+                || json_fail "500 Internal Server Error" "адаптер DNS недоступен"
             case "$_doh_provider" in
                 xbox|comss|google|quad9|xyz|geohide_ru|geohide_eu|geohide_us|cloudflare|dns_ai|malw|astracat|mafioznik|malw_cloudflare|nullsproxy|default) ;;
                 custom)
                     _doh_endpoint=$(form_value "$body" "endpoint")
                     _doh_bootstrap=$(form_value "$body" "bootstrap")
-                    [ -n "$_doh_bootstrap" ] || _doh_bootstrap=1.1.1.1,1.0.0.1,2606:4700:4700::1111,2606:4700:4700::1001
-                    . "$Z2K_ROOT/platform/openwrt/doh.sh" \
-                        || json_fail "500 Internal Server Error" "DoH adapter unavailable"
-                    _z2k_ow_doh_valid_custom_endpoint "$_doh_endpoint" \
-                        && _z2k_ow_doh_valid_bootstrap "$_doh_bootstrap" \
-                        || json_fail "400 Bad Request" "invalid custom HTTPS endpoint or bootstrap DNS"
+                    if [ -n "$_doh_bootstrap" ]; then
+                        _z2k_ow_doh_valid_bootstrap "$_doh_bootstrap" \
+                            || json_fail "400 Bad Request" "неверный адрес начального DNS-сервера"
+                    fi
+                    _z2k_ow_doh_profile_endpoint "$_doh_endpoint" "$_doh_bootstrap" \
+                        || json_fail "400 Bad Request" "для hostname endpoint требуется явный bootstrap DNS"
                     ;;
-                *) json_fail "400 Bad Request" "unknown DoH provider" ;;
+                *) json_fail "400 Bad Request" "неизвестный DNS-провайдер" ;;
             esac
+            z2k_ow_doh_provider_protocol_valid \
+                "$_doh_provider" "$_doh_protocol" "${_doh_endpoint:-}" \
+                || json_fail "400 Bad Request" "провайдер не поддерживает выбранный протокол или адрес DNS"
             Z2K_DOH_REQUEST_PROVIDER=$_doh_provider
+            Z2K_DOH_REQUEST_PROTOCOL=$_doh_protocol
             Z2K_DOH_REQUEST_ENDPOINT=${_doh_endpoint:-}
             Z2K_DOH_REQUEST_BOOTSTRAP=${_doh_bootstrap:-}
             Z2K_DOH_REQUEST_REPLACE=$_doh_replace
-            export Z2K_DOH_REQUEST_PROVIDER Z2K_DOH_REQUEST_ENDPOINT Z2K_DOH_REQUEST_BOOTSTRAP Z2K_DOH_REQUEST_REPLACE
+            export Z2K_DOH_REQUEST_PROVIDER Z2K_DOH_REQUEST_PROTOCOL Z2K_DOH_REQUEST_ENDPOINT Z2K_DOH_REQUEST_BOOTSTRAP Z2K_DOH_REQUEST_REPLACE
+        fi
+        if [ "$path" = /doh/profile ]; then
+            body=$(read_body)
+            _doh_profile_upstreams=$(form_value "$body" "upstreams")
+            _doh_profile_fallbacks=$(form_value "$body" "fallbacks")
+            _doh_profile_routes=$(form_value "$body" "routes")
+            _doh_profile_bootstrap=$(form_value "$body" "bootstrap")
+            _doh_profile_mode=$(form_value "$body" "mode")
+            _doh_replace=$(form_value "$body" "replace")
+            case "$_doh_profile_mode" in load_balance|parallel|fastest_addr) ;; *) json_fail "400 Bad Request" "неизвестная стратегия DNS upstream" ;; esac
+            case "$_doh_replace" in ''|0) _doh_replace=0 ;; 1) ;; *) json_fail "400 Bad Request" "replace must be 0 or 1" ;; esac
+            . "$Z2K_ROOT/platform/openwrt/doh.sh" \
+                || json_fail "500 Internal Server Error" "адаптер DNS недоступен"
+            _doh_profile_bootstrap_flat=$(printf '%s\n' "$_doh_profile_bootstrap" | tr ',\n' '\n\n' | awk 'NF{printf "%s%s",sep,$0;sep=","}')
+            if [ -n "$_doh_profile_bootstrap_flat" ]; then
+                _z2k_ow_doh_valid_bootstrap "$_doh_profile_bootstrap_flat" \
+                    || json_fail "400 Bad Request" "bootstrap должен содержать только IP-адреса"
+            fi
+            _doh_profile_validate_endpoints "$_doh_profile_upstreams" 1 16 "$_doh_profile_bootstrap_flat" \
+                || json_fail "400 Bad Request" "нужен список из 1–16 защищённых DNS upstream"
+            _doh_profile_validate_endpoints "$_doh_profile_fallbacks" 0 8 "$_doh_profile_bootstrap_flat" \
+                || json_fail "400 Bad Request" "fallback должен содержать не более 8 защищённых DNS endpoint"
+            _doh_profile_route_count=0
+            while IFS= read -r _doh_profile_route || [ -n "$_doh_profile_route" ]; do
+                [ -n "$_doh_profile_route" ] || continue
+                _doh_profile_route_count=$((_doh_profile_route_count + 1))
+                [ "$_doh_profile_route_count" -le 32 ] 2>/dev/null \
+                    || json_fail "400 Bad Request" "допускается не более 32 доменных DNS правил"
+                case "$_doh_profile_route" in *=*) ;; *) json_fail "400 Bad Request" "доменное правило должно иметь вид domain=endpoint" ;; esac
+                _doh_profile_domain=${_doh_profile_route%%=*}
+                _doh_profile_endpoint=${_doh_profile_route#*=}
+                _doh_profile_valid_domain "$_doh_profile_domain" \
+                    || json_fail "400 Bad Request" "неверное доменное имя в DNS правиле"
+                case "$_doh_profile_endpoint" in https://*|h3://*|tls://*|quic://*|sdns://*) ;; *) json_fail "400 Bad Request" "доменное правило должно использовать защищённый endpoint" ;; esac
+                _z2k_ow_doh_profile_endpoint "$_doh_profile_endpoint" "$_doh_profile_bootstrap_flat" \
+                    || json_fail "400 Bad Request" "неверный endpoint в DNS правиле или отсутствует bootstrap"
+            done <<EOF
+$_doh_profile_routes
+EOF
+            Z2K_DOH_REQUEST_UPSTREAMS=$_doh_profile_upstreams
+            Z2K_DOH_REQUEST_FALLBACKS=$_doh_profile_fallbacks
+            Z2K_DOH_REQUEST_ROUTES=$_doh_profile_routes
+            Z2K_DOH_REQUEST_BOOTSTRAPS=$_doh_profile_bootstrap_flat
+            Z2K_DOH_REQUEST_MODE=$_doh_profile_mode
+            Z2K_DOH_REQUEST_REPLACE=$_doh_replace
+            export Z2K_DOH_REQUEST_UPSTREAMS Z2K_DOH_REQUEST_FALLBACKS \
+                Z2K_DOH_REQUEST_ROUTES Z2K_DOH_REQUEST_BOOTSTRAPS \
+                Z2K_DOH_REQUEST_MODE Z2K_DOH_REQUEST_REPLACE
         fi
         case "$path" in
-            /doh/install) _doh_action=doh_install_action; _doh_label="Установка DoH" ;;
-            /doh/uninstall) _doh_action=doh_uninstall_action; _doh_label="Удаление DoH" ;;
-            /doh/enable) _doh_action=doh_enable_action; _doh_label="Включение DoH" ;;
-            /doh/disable) _doh_action=doh_disable_action; _doh_label="Выключение DoH" ;;
-            /doh/restart) _doh_action=doh_restart_action; _doh_label="Перезапуск DoH" ;;
-            /doh/check) _doh_action=doh_check_action; _doh_label="Проверка DoH" ;;
+            /doh/install) _doh_action=doh_install_action; _doh_label="Установка dnsproxy" ;;
+            /doh/uninstall) _doh_action=doh_uninstall_action; _doh_label="Удаление dnsproxy" ;;
+            /doh/enable) _doh_action=doh_enable_action; _doh_label="Включение защищённого DNS" ;;
+            /doh/disable) _doh_action=doh_disable_action; _doh_label="Выключение защищённого DNS" ;;
+            /doh/restart) _doh_action=doh_restart_action; _doh_label="Перезапуск dnsproxy" ;;
+            /doh/check) _doh_action=doh_check_action; _doh_label="Проверка защищённого DNS" ;;
             /doh/force-dns) _doh_action="doh_force_dns_action $_doh_value"; _doh_label="Настройка DNS для LAN" ;;
-            /doh/provider) _doh_action=doh_provider_action; _doh_label="Применение DoH провайдера" ;;
+            /doh/provider) _doh_action=doh_provider_action; _doh_label="Применение DNS провайдера" ;;
+            /doh/profile) _doh_action=doh_profile_action; _doh_label="Применение DNS профиля" ;;
+            /doh/settings) _doh_action=doh_cache_action; _doh_label="Настройка DNS-кэша" ;;
+            /doh/recover) _doh_action=doh_recover_action; _doh_label="Восстановление DNS-маршрута" ;;
         esac
         job_id=$(svc_action_async "$_doh_label" "$_doh_action")
         json_header
@@ -1896,7 +1998,7 @@ case "$method $path" in
             printf ',"available_seq":%s,"release_seq_mismatch":%s' \
                 "$available_seq" "$release_seq_mismatch"
         fi
-        if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+        if [ "${REINSTALL_SUPPORTED:-0}" = 1 ]; then
             printf ',"reinstall_supported":true'
         else
             printf ',"reinstall_supported":false'
@@ -1947,7 +2049,7 @@ case "$method $path" in
             printf ',"available_seq":%s,"release_seq_mismatch":%s' \
                 "$available_seq" "$release_seq_mismatch"
         fi
-        if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+        if [ "${REINSTALL_SUPPORTED:-0}" = 1 ]; then
             printf ',"reinstall_supported":true'
         else
             printf ',"reinstall_supported":false'

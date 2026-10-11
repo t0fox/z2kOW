@@ -162,7 +162,7 @@ const statusFixture = (process.env.Z2K_OW_CAPS === "1")
         tunnel:{running:false}, platform:"openwrt",
         capabilities:{policy:false,ppe:false,tcp16:false,diag:false,
                       warp:true,telegram:true,uninstall:false} }
-    : { ok:true, installed:"r-71.1", running:true, service:"running",
+    : { ok:true, installed:"r-86.5", running:true, service:"running",
         toggles:{game_warp:"0",customd:"0",dynamic_ttl:"1",
                  ppe:"1",auto_update:"1",autohostlist:"0"}, tunnel:{running:true} };
 if (process.env.Z2K_TEST_RELEASE_STATE_ERROR === "1") {
@@ -214,12 +214,12 @@ const FIXTURES = {
   "/warp/lists": { ok:true, lists:[{name:"custom",entries:5,size:120,mtime:1785830000}] },
   "/warp/list": { ok:true, name:"custom", content:"1.2.3.4\n5.6.7.8" },
   "/update/status": process.env.Z2K_TEST_UPDATE_UNKNOWN === "1"
-    ? { ok:true, installed:"unknown", available:"r-86.7", behind:0, last_check:1785830000, pending:[] }
+    ? { ok:true, installed:"unknown", available:"r-86.5", behind:0, last_check:1785830000, pending:[] }
     : process.env.Z2K_TEST_RELEASE_SEQ_MISMATCH === "1"
-      ? { ok:true, installed:"p-86.13", available:"p-86.13", installed_seq:135,
-          available_seq:136, release_seq_mismatch:true, behind:1,
+      ? { ok:true, installed:"r-86.5", available:"r-86.5", installed_seq:140,
+          available_seq:141, release_seq_mismatch:true, behind:1,
           last_check:1785830000, pending:[] }
-      : { ok:true, installed:"r-71.1", available:"r-71.1", behind:0,
+      : { ok:true, installed:"r-86.5", available:"r-86.5", behind:0,
         last_check:1785830000, pending:[] },
   "/policy/status": { ok:true, enabled:false, policy:"" },
   "/diag": { ok:true, diag:"=== что не так ===\n  явных проблем не найдено\n" },
@@ -270,7 +270,7 @@ catch (e) { console.log("ЗАГРУЗКА УПАЛА: " + e.message); process.ex
   if (process.env.Z2K_TEST_RELEASE_SEQ_MISMATCH === "1") {
     const banner = domById.get("update-banner").innerHTML;
     if (!banner.includes("Нужно синхронизировать установленный выпуск")) errors.push("sequence drift was not shown as a release synchronization");
-    if (!banner.includes("p-86.13 · seq 135") || !banner.includes("p-86.13 · seq 136")) errors.push("sequence drift did not show both canonical and controlled release identities");
+    if (!banner.includes("r-86.5 · seq 140") || !banner.includes("r-86.5 · seq 141")) errors.push("sequence drift did not show both canonical and controlled release identities");
     if (banner.includes("актуален")) errors.push("sequence drift was rendered as current");
   }
   if (BRAND_CASE) {

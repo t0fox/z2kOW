@@ -2724,7 +2724,7 @@ _z2k_disarm_stock_lighttpd()
     _dsl_init=""
     for _dsl_c in /opt/etc/init.d/S*lighttpd; do
         [ -e "$_dsl_c" ] || continue
-        case "$_dsl_c" in *z2k*) continue ;; esac
+        case "${_dsl_c##*/}" in *z2k*) continue ;; esac
         _dsl_init="$_dsl_c"
         break
     done

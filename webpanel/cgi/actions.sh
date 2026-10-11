@@ -518,9 +518,11 @@ strategy_validate() {
     strategy_pool_ok "$pool" || { echo "unknown pool"; return 1; }
 
     local engine="${Z2K_NFQWS2:-$ZAPRET2_DIR/nfq2/nfqws2}"
+    local tmp_root="${Z2K_TMP:-/tmp/z2k}"
     [ -x "$engine" ] || { echo "движок не найден: $engine"; return 1; }
 
-    local shadow="/tmp/z2k-strat-shadow.$$"
+    mkdir -p "$tmp_root" 2>/dev/null || return 1
+    local shadow="$tmp_root/z2k-strat-shadow.$$"
     # Своя тень (PID мог быть переиспользован) — и заодно чужие, брошенные
     # убитым CGI: проверка стратегии задачу не заводит, и без этого вызова
     # осиротевшие тени не подчистил бы никто.
@@ -561,7 +563,7 @@ strategy_validate() {
         return 1
     fi
 
-    local tmpcfg="/tmp/z2k-strategy-check.$$"
+    local tmpcfg="$tmp_root/z2k-strategy-check.$$"
     local rc=0 opt="" err=""
     if ( ZAPRET2_DIR="$shadow"; Z2K_EXTRA_STRATEGIES_RUNTIME="$shadow/lists/custom-strategies";
          export ZAPRET2_DIR Z2K_EXTRA_STRATEGIES_RUNTIME; regenerate_config_to "$tmpcfg" ); then
@@ -651,7 +653,8 @@ strategy_pool_read() {
 # Serialize all pool mutations so a manual save/reset cannot interleave with
 # the four-pool transaction while it validates or regenerates config.
 strategy_config_lock_acquire() {
-    local dir="${STRATEGY_CONFIG_LOCK:-/tmp/z2k-strategy-config.lock}" n=0 owner
+    local dir="${STRATEGY_CONFIG_LOCK:-${Z2K_TMP:-/tmp/z2k}/z2k-strategy-config.lock}" n=0 owner
+    mkdir -p "${dir%/*}" 2>/dev/null || return 1
     while ! mkdir "$dir" 2>/dev/null; do
         owner=$(cat "$dir/pid" 2>/dev/null)
         if [ -n "$(find "$dir" -maxdepth 0 -mmin +5 2>/dev/null)" ] &&
@@ -668,7 +671,7 @@ strategy_config_lock_acquire() {
 }
 
 strategy_config_lock_release() {
-    local dir="${STRATEGY_CONFIG_LOCK_HELD:-${STRATEGY_CONFIG_LOCK:-/tmp/z2k-strategy-config.lock}}" owner
+    local dir="${STRATEGY_CONFIG_LOCK_HELD:-${STRATEGY_CONFIG_LOCK:-${Z2K_TMP:-/tmp/z2k}/z2k-strategy-config.lock}}" owner
     owner=$(cat "$dir/pid" 2>/dev/null)
     [ "$owner" = "$$" ] && rm -rf "$dir" 2>/dev/null
     STRATEGY_CONFIG_LOCK_HELD=
@@ -784,12 +787,13 @@ strategy_pool_save_batch() {
 # it was — silently falling back to the shipped strategy would leave the user
 # convinced their own is running.
 _strategy_pool_save_locked() {
-    local pool="$1" body
+    local pool="$1" body _error_file="${Z2K_TMP:-/tmp/z2k}/z2k-strategy-err.$$"
     strategy_pool_ok "$pool" || { echo "unknown pool" >&2; return 1; }
     body=$(strategy_complete_line "$pool")
-    printf '%s\n' "$body" | strategy_validate "$pool" >"/tmp/z2k-strategy-err.$$" 2>&1 || {
-        cat "/tmp/z2k-strategy-err.$$" >&2; rm -f "/tmp/z2k-strategy-err.$$"; return 1; }
-    rm -f "/tmp/z2k-strategy-err.$$"
+    mkdir -p "${_error_file%/*}" 2>/dev/null || return 1
+    printf '%s\n' "$body" | strategy_validate "$pool" >"$_error_file" 2>&1 || {
+        cat "$_error_file" >&2; rm -f "$_error_file"; return 1; }
+    rm -f "$_error_file"
     mkdir -p "$CUSTOM_STRAT_DIR" 2>/dev/null || return 1
     printf '%s\n' "$body" > "$CUSTOM_STRAT_DIR/$pool.txt" || return 1
     chmod 644 "$CUSTOM_STRAT_DIR/$pool.txt" 2>/dev/null
@@ -1050,8 +1054,10 @@ job_reap() {
 # Час — та же мера, что и для задач: заведомо дольше любой проверки стратегии и
 # любой проверки обновлений, то есть живое не задеваем.
 _tmp_reap_orphans() {
-    local f
+    local f _tmp_root="${Z2K_TMP:-/tmp/z2k}"
     for f in /tmp/z2k-strat-shadow.* /tmp/z2k-strategy-check.* /tmp/z2k-strategy-err.* \
+             "$_tmp_root"/z2k-strat-shadow.* "$_tmp_root"/z2k-strategy-check.* \
+             "$_tmp_root"/z2k-strategy-err.* \
              /tmp/z2k-strategy-pick-* \
              /tmp/z2k-warp-license.* /tmp/z2k-state-bulk.* /tmp/z2k-bulk-err.* \
              "${AU_MANIFEST_CACHE:-/tmp/z2k-au-manifest.json}".new.*; do
@@ -1118,6 +1124,10 @@ job_latest_progress() {
             separator=index(line, "|")
             epoch=substr(line, 1, separator-1)
             phase=substr(line, separator+1)
+            # Служебные сигналы фонового процесса нужны для таймера интерфейса,
+            # но не должны менять текущий этап или отображаться как выполненная работа.
+            if (index(phase, "; без смены этапа ") > 0 ||
+                index(phase, " ещё выполняется ") > 0) next
             latest=epoch "|" phase
         }
         END { if (latest != "") print latest }
@@ -1136,7 +1146,9 @@ job_latest_output() {
         {
             gsub(/\r/, " ")
             if ($0 == "" || index($0, "@z2k-ts:") == 1 || $0 ~ /^─+$/ ||
-                $0 == "Готово ✓" || $0 ~ /^Завершено с кодом /) next
+                $0 == "Готово ✓" || $0 ~ /^Завершено с кодом / ||
+                $0 ~ /^Этап: .*; без смены этапа / ||
+                $0 ~ /^Операция «.*» ещё выполняется /) next
             line=$0
         }
         END {
@@ -1207,6 +1219,7 @@ job_wait_child() {
             if [ -n "$marker" ]; then
                 marker_at=${marker%%|*}
                 phase=${marker#*|}
+                while [ "${phase#Этап: }" != "$phase" ]; do phase=${phase#Этап: }; done
                 case "$marker_at" in ''|*[!0-9]*) marker_at= ;; esac
             else
                 marker_at=
@@ -1587,8 +1600,8 @@ tiktok_use_auto() {
     z2k_ow_tiktok_use_auto
 }
 
-# DoH is an optional OpenWrt package integration. Presets are resolved by the
-# adapter; custom values cross this boundary only through validated env vars.
+# Защищённый DNS подключается в OpenWrt как дополнительный пакет. Адаптер
+# выбирает готовые настройки и проверяет пользовательские протоколы и адреса.
 doh_adapter_load() {
     [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] || return 1
     . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/doh.sh"
@@ -1605,12 +1618,29 @@ doh_provider_action() {
         "${Z2K_DOH_REQUEST_PROVIDER:-}" \
         "${Z2K_DOH_REQUEST_ENDPOINT:-}" \
         "${Z2K_DOH_REQUEST_BOOTSTRAP:-}" \
+        "${Z2K_DOH_REQUEST_REPLACE:-0}" \
+        "${Z2K_DOH_REQUEST_PROTOCOL:-doh}"
+}
+doh_profile_action() {
+    doh_adapter_load && z2k_ow_doh_apply_profile \
+        "${Z2K_DOH_REQUEST_UPSTREAMS:-}" \
+        "${Z2K_DOH_REQUEST_FALLBACKS:-}" \
+        "${Z2K_DOH_REQUEST_ROUTES:-}" \
+        "${Z2K_DOH_REQUEST_MODE:-load_balance}" \
+        "${Z2K_DOH_REQUEST_BOOTSTRAPS:-}" \
         "${Z2K_DOH_REQUEST_REPLACE:-0}"
 }
 doh_force_dns_action() {
     case "${1:-}" in 0|1) ;; *) return 1 ;; esac
     doh_adapter_load && z2k_ow_doh_set_force_dns "$1"
 }
+doh_cache_action() {
+    doh_adapter_load && z2k_ow_doh_set_cache \
+        "${Z2K_DOH_REQUEST_CACHE_ENABLED:-}" \
+        "${Z2K_DOH_REQUEST_CACHE_SIZE:-}"
+}
+doh_diagnostics_action() { doh_adapter_load && z2k_ow_doh_diagnostics; }
+doh_recover_action() { doh_adapter_load && z2k_ow_doh_recover; }
 
 toggle_autohostlist() {
     # Z2K_AUTOHOSTLIST — switches MODE_FILTER between hostlist and autohostlist

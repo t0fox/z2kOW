@@ -7,7 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const playwright = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium } = playwright.chromium ? playwright : playwright.default;
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const webpanelInit = fs.readFileSync(path.join(repo, 'platform/openwrt/files/etc/init.d/z2k-webpanel'), 'utf8');
 const webpanelAdapter = fs.readFileSync(path.join(repo, 'platform/openwrt/webpanel.sh'), 'utf8');
@@ -311,6 +312,8 @@ const probeReportFixture = [
 ].join('\n');
 
 async function assertDiagDynamicStates(page, label, viewport = '1440') {
+  if (await page.locator('#dns-result').count()) {
+  await page.locator('#dns-result details.dns-group').first().waitFor({ state: 'attached' });
   const groups = page.locator('#dns-result details.dns-group');
   assert.equal(await groups.count(), 3, `${label}: previous DNS result renders all three paths`);
   assert.deepEqual(await page.locator('#dns-result .dns-path').allTextContents(),
@@ -353,6 +356,8 @@ async function assertDiagDynamicStates(page, label, viewport = '1440') {
   assert.equal(await page.locator('#dns-own-text').inputValue(),
     '1.1.1.1\nhttps://dns.example.test/dns-query', `${label}: custom resolver text is restored`);
 
+  }
+  if (await page.locator('#probe-run').count()) {
   const requestStart = apiRequests.length;
   await page.locator('#probe-domain').fill('https://example.test/path');
   await page.locator('#probe-run').click();
@@ -389,14 +394,14 @@ async function assertDiagDynamicStates(page, label, viewport = '1440') {
     const screenshotBase = `${label.replace(/[^a-z\d]+/gi, '-').toLowerCase()}-${viewport}-diag-dynamic`;
     await page.screenshot({ path: path.join(screenshotDir, `${screenshotBase}.png`),
       fullPage: viewport === '390' });
-    if (viewport !== '390') {
+    if (viewport !== '390' && await page.locator('#dns-result').count()) {
       await page.locator('#dns-result').screenshot({
         path: path.join(screenshotDir, `${screenshotBase}-dns-results.png`),
       });
     }
   }
+  }
 }
-
 async function assertMobileSelectedDomainEditor(page, appearance) {
   await page.waitForFunction(() => document.querySelectorAll('#wl-list .wl-row').length === 16);
   const saveCount = apiRequests.filter(request => request.endpoint === 'extra-domains/save'
@@ -558,10 +563,10 @@ try {
   assert.equal(oldBootstrapRequests, 0, 'the renamed bootstrap never requests branding.js');
   await legacyBlocked.close();
 
-  const routes = ['dashboard', 'toggles', 'strategies', 'warp', 'whitelist', 'exclude', 'extra-domains', 'diag', 'credits', 'state', 'pick', 'autohostlist'];
-  const primaryRoutes = ['dashboard', 'toggles', 'state', 'warp', 'whitelist', 'extra-domains', 'diag', 'credits'];
+  const routes = ['dashboard', 'toggles', 'tiktok', 'dns', 'strategies', 'warp', 'whitelist', 'exclude', 'extra-domains', 'diag', 'credits', 'state', 'pick', 'autohostlist'];
+  const primaryRoutes = ['dashboard', 'toggles', 'tiktok', 'dns', 'state', 'warp', 'whitelist', 'extra-domains', 'diag', 'credits'];
   const screenshotRoutes = ['dashboard', 'toggles', 'strategies', 'warp', 'whitelist', 'exclude',
-    'extra-domains', 'diag', 'credits', 'state', 'pick', 'autohostlist'];
+    'extra-domains', 'diag', 'tiktok', 'dns', 'credits', 'state', 'pick', 'autohostlist'];
   const responsiveScreenshotRoutes = ['dashboard', 'state', 'warp'];
   const requiredTokens = ['--ow-canvas', '--ow-surface-1', '--ow-surface-2', '--ow-surface-hover',
     '--ow-surface-selected', '--ow-border-subtle', '--ow-border-strong', '--ow-text-primary',
@@ -1185,7 +1190,7 @@ try {
           'WARP QA includes both switch states without changing track geometry');
         await offlineDisclosure.locator('summary').click();
       }
-      if (route === 'diag') {
+      if (route === 'dns') {
         const editorStyle = await page.locator('#dns-own-text').evaluate(node => {
           const style = getComputedStyle(node);
           return { borderWidth: style.borderTopWidth, radius: style.borderRadius,
@@ -1196,6 +1201,10 @@ try {
         assert.equal(editorStyle.background, appearance === 'dark'
           ? 'rgb(24, 30, 28)' : 'rgb(234, 241, 239)', 'specialized text editors use the theme control surface');
         assert.equal(editorStyle.minHeight, '76px', 'the diagnostics editor retains its task-specific working area');
+      }
+      if (route === 'diag') {
+        assert.equal(await page.locator('#dns-run, #doh-card').count(), 0,
+          'Diagnostics has no duplicate DNS controls');
         const logViewport = await page.locator('#diag-output').evaluate(node => ({
           height: node.clientHeight, scrollHeight: node.scrollHeight,
           overflowY: getComputedStyle(node).overflowY,
@@ -1203,6 +1212,16 @@ try {
         assert.ok(logViewport.scrollHeight > logViewport.height && logViewport.overflowY === 'auto',
           `long diagnostic output stays inside its own scroll container (${JSON.stringify(logViewport)})`);
         await assertDiagDynamicStates(page, appearance);
+      }
+      if (route === 'dns') {
+        assert.deepEqual(await page.locator('#dns-protocol option').evaluateAll(options => options.map(option => option.value)),
+          ['doh', 'doh3', 'dot', 'doq', 'dnscrypt']);
+        await assertDiagDynamicStates(page, appearance);
+      }
+      if (route === 'tiktok') {
+        assert.equal(await page.locator('#tiktok-toggle').count(), 1);
+        assert.equal(await page.locator('[data-key="tiktok_feed"]').count(), 0,
+          'Modes has no duplicate TikTok switch');
       }
       if (route === 'exclude') {
         await page.waitForFunction(() => document.querySelectorAll('#ex-list li button[data-del]').length >= 4);
@@ -2160,26 +2179,27 @@ try {
     page.route('**/cgi-bin/api/job**', route => route.fulfill({
       status: 200, contentType: 'application/json', body: JSON.stringify({ done: true, exit: 0, status: 'done', log: 'ok' }),
     }));
-    await page.goto(`${base}/#/toggles`);
-    await waitForRenderedRoute(page, 'toggles');
+    await page.goto(`${base}/#/tiktok`);
+    await waitForRenderedRoute(page, 'tiktok');
+    assert.equal(await page.locator('a[data-route="tiktok"]').getAttribute('class'), 'active');
     return { page, get enabled() { return enabled; }, setStatus(status) { currentStatus = status; } };
   };
 
   const offCard = await makeTikTokPage(false, null);
   assert.equal(await offCard.page.locator('#tiktok-feed-status-card').isVisible(), false,
     'the TikTok status card stays hidden while its persistent toggle is off');
-  await offCard.page.locator('[data-key="tiktok_feed"] input').check({ force: true });
+  await offCard.page.locator('#tiktok-toggle').check({ force: true });
   await offCard.page.locator('#tiktok-feed-status-card').waitFor({ state: 'visible', timeout: 5000 });
   assert.match(await offCard.page.locator('#tiktok-feed-status-card').innerText(), /● CDN доступен/,
     'enabling TikTok shows the verified CDN transport status in the separate card');
   assert.match(await offCard.page.locator('#tiktok-feed-status-card').innerText(), /Передача видео и работа ленты не проверены/,
     'the status does not claim that CDN transport proves video delivery or feed operation');
-  await offCard.page.waitForFunction(() => document.querySelector('[data-key="tiktok_feed"] input')?.checked === true);
+  await offCard.page.waitForFunction(() => document.querySelector('#tiktok-toggle')?.checked === true);
   assert.equal(offCard.enabled, true);
   await offCard.page.getByRole('button', { name: 'Готово' }).click();
   await offCard.page.locator('.modal-backdrop').waitFor({ state: 'detached' });
   const beforeDisableUrl = offCard.page.url();
-  await offCard.page.locator('[data-key="tiktok_feed"] input').uncheck({ force: true });
+  await offCard.page.locator('#tiktok-toggle').uncheck({ force: true });
   await offCard.page.locator('#tiktok-feed-status-card').waitFor({ state: 'hidden', timeout: 5000 });
   assert.equal(offCard.page.url(), beforeDisableUrl, 'toggle off hides the card without navigating or reloading');
   await offCard.page.close();
@@ -2197,44 +2217,8 @@ try {
   });
   const healthyCard = healthy.page.locator('#tiktok-feed-status-card');
   assert.equal(await healthyCard.isVisible(), true);
-  const flowStatus = healthy.page.locator('#flowoffload-status .flow-application');
-  assert.equal(await healthy.page.locator('#flowoffload-benchmark').isVisible(), true,
-    'OpenWrt offload card exposes an explicit, non-autostarting comparison action');
-  assert.equal(await healthy.page.locator('#flowoffload-benchmark-start').innerText(), 'Сравнить режимы');
-  assert.equal(await healthy.page.locator('#flowoffload-benchmark-provider').inputValue(), 'yandex-internetometer');
-  assert.match(await healthy.page.locator('#flowoffload-benchmark-provider').innerText(), /Cloudflare — резервная диагностика/,
-    'Cloudflare remains an explicit diagnostic option rather than the primary provider');
-  assert.equal(await healthy.page.locator('#flowoffload-benchmark-result').isVisible(), false,
-    'no measurements are fabricated before a benchmark has completed');
-  assert.equal(await flowStatus.locator('.flow-application-title').innerText(), 'Аппаратное ускорение');
-  assert.equal(await flowStatus.locator('.flow-application-badge').innerText(), 'Не подтверждено');
-  assert.doesNotMatch(await flowStatus.innerText(), /requested|mode=hardware/,
-    'requested hardware state remains out of the user-facing summary');
-  assert.equal(await healthy.page.locator('#flowoffload-technical').evaluate(node => node.open), false,
-    'hardware runtime facts stay behind a closed technical disclosure');
-  await healthy.page.locator('#flowoffload-technical > summary').click();
-  const offloadDiagnostics = healthy.page.locator('#flowoffload-technical');
-  assert.match(await offloadDiagnostics.innerText(), /Hardware[\s\S]*Запрошен[\s\S]*Поддерживается[\s\S]*Не наблюдался/,
-    'requested, supported and not-observed hardware states remain distinct');
-  assert.match(await offloadDiagnostics.innerText(), /NFQUEUE[\s\S]*Активен[\s\S]*Пакеты[\s\S]*26061/,
-    'diagnostics show independent NFQUEUE activity and its real packet count');
-  assert.match(await offloadDiagnostics.innerText(), /Исключения zapret2[\s\S]*4/,
-    'diagnostics preserve the actual selective-exemption count');
-  assert.match(await offloadDiagnostics.locator('[data-flow-fact-value="hardware_state"]').getAttribute('aria-label'), /requested/,
-    'raw technical state remains accessible without taking visual width');
-  await healthy.page.locator('#flowoffload-technical > summary').click();
-  const flowVisual = await flowStatus.evaluate(node => {
-    const style = getComputedStyle(node);
-    return { radius: style.borderRadius, background: style.backgroundColor, border: style.borderColor };
-  });
-  assert.deepEqual(flowVisual, { radius: '12px', background: 'rgb(24, 30, 28)', border: 'rgb(30, 39, 37)' },
-    `hardware status uses the Lolz surface, radius, and subtle border (${JSON.stringify(flowVisual)})`);
-  await healthy.page.emulateMedia({ reducedMotion: 'reduce' });
-  assert.equal(await flowStatus.evaluate(node => getComputedStyle(node).transitionProperty), 'none',
-    'hardware status respects the reduced-motion preference');
-  await healthy.page.emulateMedia({ reducedMotion: 'no-preference' });
   assert.equal(await healthy.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
-    'hardware and TikTok status cards fit the 390 px layout without horizontal overflow');
+    'TikTok status cards fit the 390 px layout without horizontal overflow');
   assert.match(await healthyCard.innerText(), /203\.0\.113\.9/);
   assert.match(await healthyCard.innerText(), /131 мс/);
   assert.doesNotMatch(await healthyCard.innerText(), /131 мс\s+131/,
@@ -2258,8 +2242,10 @@ try {
   assert.doesNotMatch(await healthyCard.innerText(), /131 мс\s+131/);
   assert.doesNotMatch(await healthyCard.innerText(), /undefined|null|0 мс/);
 
-  // Reload while a trial is pending. The new page reads the same session and
-  // nonce, completes a browser-originated sample, and renders its result.
+  await healthy.page.goto(`${base}/#/toggles`);
+  await waitForRenderedRoute(healthy.page, 'toggles');
+  // FLOWOFFLOAD stays on Modes; reload there while a trial is pending and
+  // verify its existing browser-originated sample lifecycle.
   let resumedSample = null;
   let showLastSuccessFallback = false;
   let failBenchmarkPings = false;
@@ -2611,7 +2597,7 @@ try {
       if (stateIndex > 0) {
         visual.setStatus(state.status);
         await visual.page.reload({ waitUntil: 'domcontentloaded' });
-        await waitForRenderedRoute(visual.page, 'toggles');
+        await waitForRenderedRoute(visual.page, 'tiktok');
       }
       const card = visual.page.locator('#tiktok-feed-status-card');
       await card.waitFor({ state: 'visible' });
@@ -2629,10 +2615,6 @@ try {
         });
         assert.deepEqual(selectStyle, { height: 34, width: 96, radius: '10px', fontSize: '14px' },
           `${viewport.width}px select control follows shared Lolz control geometry (${JSON.stringify(selectStyle)})`);
-        if (screenshotDir) {
-          await screenshotComponent(visual.page, visual.page.locator('#openwrt-offload-card'),
-            path.join(screenshotDir, `dark-${viewport.width}-flowoffload-summary.png`));
-        }
       }
       if (state.action === 'expand') {
         assert.ok(await card.locator('[data-tiktok-overflow]').count() > 0,
@@ -2652,9 +2634,7 @@ try {
           'unavailable candidates do not show a dead select button');
       } else if (state.action === 'diagnostics') {
         await card.locator('#tiktok-feed-technical > summary').click();
-        await visual.page.locator('#flowoffload-technical > summary').click();
         assert.equal(await card.locator('#tiktok-feed-technical').evaluate(node => node.open), true);
-        assert.equal(await visual.page.locator('#flowoffload-technical').evaluate(node => node.open), true);
       }
       assert.equal(await visual.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
         `${viewport.width}px ${state.name} layout has no horizontal overflow`);
@@ -2692,7 +2672,7 @@ try {
   const dohPage = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, colorScheme: 'dark' });
   await dohPage.addInitScript(() => localStorage.setItem('z2k-theme', 'dark'));
   dohPage.on('pageerror', error => allPageErrors.push(error.message));
-  let dohStatus = { state: 'not-installed', installed: '0', enabled: '0', provider: 'unknown', external_config: '0' };
+  let dohStatus = { state: 'not-installed', installed: '0', enabled: '0', provider: 'unknown', protocol: 'doh', actual_protocol: '', local_dns_state: 'unknown', upstream_state: 'unconfirmed', external_config: '0' };
   let dohJobNumber = 0;
   let acceptNextDohConfirm = false;
   let holdNextDohJobResult = false;
@@ -2733,14 +2713,14 @@ try {
     const endpoint = new URL(route.request().url()).pathname.split('/').pop();
     const body = route.request().postDataJSON() || {};
     dohActions.push({ endpoint, body });
-    if (endpoint === 'provider') {
-      const provider = body.provider;
-      const region = body.region || '';
+    if (endpoint === 'profile') {
+      const encodeList = value => Buffer.from(value || '').toString('base64');
       dohStatus = {
-        ...dohStatus, state: 'working', installed: '1', enabled: '1', running: '1',
-        provider: provider === 'geohide' ? `geohide_${region}` : provider,
-        endpoint: body.endpoint || `https://${provider}.example/dns-query`,
-        bootstrap: body.bootstrap || '', external_config: '0', confirm_remove: '1', reason: '',
+        ...dohStatus, state: 'working', installed: '1', enabled: '1', running: '1', provider: 'profile',
+        protocol: 'doh', actual_protocol: 'doh', upstream_state: 'confirmed', local_dns_state: 'working',
+        endpoint: body.upstreams.split('\n')[0], bootstrap: body.bootstrap, external_config: '0', confirm_remove: '1', reason: '',
+        profile_upstreams_b64: encodeList(body.upstreams), profile_fallbacks_b64: encodeList(body.fallbacks),
+        profile_routes_b64: encodeList(body.routes), profile_bootstrap_b64: encodeList(body.bootstrap), profile_mode: body.mode,
       };
     }
     if (endpoint === 'install') dohStatus = { ...dohStatus, state: 'disabled', installed: '1', enabled: '0', running: '0', external_config: '0' };
@@ -2773,23 +2753,44 @@ try {
         log: failedDohJobIds.has(jobId) ? 'DoH: apk del https-dns-proxy завершился ошибкой' : 'ok' }),
     });
   });
-  await dohPage.goto(`${base}/#/toggles`);
-  await waitForRenderedRoute(dohPage, 'toggles');
+  await dohPage.goto(`${base}/#/dns`);
+  await waitForRenderedRoute(dohPage, 'dns');
+  assert.equal(await dohPage.locator('a[data-route="dns"]').getAttribute('class'), 'active');
   const dohCard = dohPage.locator('#doh-card');
   assert.equal(await dohCard.isVisible(), true, 'DoH controls are shown on OpenWrt');
+  try {
+    await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Не установлен'));
+  } catch (error) {
+    throw new Error(`${error.message}; /status calls=${dohStatusCalls}; page errors=${allPageErrors.slice(-5).join(' | ')}`);
+  }
   assert.match(await dohCard.innerText(), /Статус: Не установлен/);
-  assert.deepEqual(await dohCard.locator('#doh-provider option').evaluateAll(options => options.map(option => option.value)), [
-    'xbox', 'comss', 'google', 'quad9', 'xyz', 'geohide', 'cloudflare', 'dns_ai', 'malw',
-    'astracat', 'mafioznik', 'malw_cloudflare', 'nullsproxy', 'default', 'custom',
-  ], 'the provider selector contains every StressOzz preset and custom endpoint last');
-  assert.equal(await dohCard.locator('#doh-region').isVisible(), false);
-  assert.equal(await dohCard.locator('#doh-custom-fields').isVisible(), false);
+  assert.equal(await dohCard.locator('#dns-protocol').inputValue(), 'doh');
+  const catalogGroups = await dohCard.locator('#doh-provider optgroup').evaluateAll(groups => groups.map(group => ({
+    label: group.label, providers: [...group.querySelectorAll('option')].map(option => option.value),
+  })));
+  assert.deepEqual(catalogGroups.map(group => group.label), ['Универсальные', 'С фильтрацией', 'Региональные и Smart DNS', 'Персональные'],
+    'the catalog groups providers by category');
+  assert.ok(catalogGroups.flatMap(group => group.providers).includes('quad9'), 'catalog includes Quad9');
+  assert.ok(catalogGroups.flatMap(group => group.providers).includes('google'), 'catalog includes Google Public DNS');
+  assert.equal(await dohCard.locator('#doh-provider option[value="custom"]').count(), 1,
+    'the custom endpoint remains available outside catalog categories');
+  assert.deepEqual(await dohPage.locator('#app h2').allInnerTexts(), ['Настройка', 'Дополнительно', 'Проверка'],
+    'DNS is organized into setup, additional controls, and checks');
+  await dohCard.locator('#doh-provider').selectOption('quad9');
+  assert.equal(await dohCard.locator('#dns-protocol option[value="doq"]').evaluate(option => option.hidden), false,
+    'Quad9 exposes its supported DoQ endpoint');
+  await dohCard.locator('#doh-provider').selectOption('google');
+  assert.equal(await dohPage.locator('#doh-custom-fields').isVisible(), false,
+    'catalog entries use their confirmed endpoint without custom fields');
   assert.equal(await dohCard.locator('[data-doh-action]').count(), 1,
     'not-installed state offers only Install');
   assert.equal(await dohCard.locator('#doh-provider-panel').count(), 0,
     'provider controls do not sit in a nested card');
-  await dohCard.locator('#doh-provider').selectOption('cloudflare');
-  assert.equal(dohActions.length, 0, 'choosing a provider does not apply it automatically');
+  await dohCard.locator('#doh-provider').selectOption('google');
+  await dohCard.locator('#doh-add-upstream').click();
+  assert.match(await dohCard.locator('#dns-profile-queue').innerText(), /https:\/\/dns\.google\/dns-query/,
+    'adding a catalog choice queues its original domain endpoint');
+  assert.equal(dohActions.length, 0, 'choosing or queueing a catalog endpoint does not apply it automatically');
 
   await dohCard.getByRole('button', { name: 'Установить' }).click();
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-1"] #job-close').waitFor({ state: 'visible' });
@@ -2801,29 +2802,52 @@ try {
     'force DNS is not exposed as an unrelated extra stage');
 
   dohStatus = {
-    ...dohStatus, external_config: '1', confirm_remove: '1', package_owner: 'external',
-    provider: 'google', endpoint: 'https://dns.google/dns-query',
+    ...dohStatus, state: 'disabled', enabled: '0', running: '0', external_config: '1', confirm_remove: '1', package_owner: 'external',
+    provider: 'unknown', endpoint: '', profile_upstreams_b64: '', profile_fallbacks_b64: '', profile_routes_b64: '', profile_bootstrap_b64: '', profile_mode: '',
   };
   await dohPage.reload();
-  await waitForRenderedRoute(dohPage, 'toggles');
-  await dohCard.locator('#doh-provider').selectOption('geohide');
-  await dohCard.locator('#doh-region').selectOption('us');
+  await waitForRenderedRoute(dohPage, 'dns');
+  await dohPage.waitForFunction(() => document.querySelector('#doh-ownership-warning')?.hidden === false);
+  await dohCard.locator('#doh-provider').selectOption('google');
+  await dohCard.locator('#doh-add-upstream').click();
+  await dohCard.locator('#doh-provider').selectOption('quad9');
+  await dohCard.locator('#doh-upstream-role').selectOption('fallback');
+  await dohCard.locator('#doh-add-upstream').click();
+  assert.match(await dohCard.locator('#dns-profile-queue').innerText(), /Основные upstream[\s\S]*dns\.google[\s\S]*Аварийный fallback[\s\S]*dns\.quad9/,
+    'the profile supports multiple role groups with unchanged domain endpoints');
+  await dohPage.locator('#dns-profile-bootstrap').fill('1.1.1.1\n2001:4860:4860::8888');
+  await dohPage.locator('#dns-upstream-mode').selectOption('parallel');
+  await dohPage.locator('#dns-route-domain').fill('video.example');
+  await dohPage.locator('#dns-route-upstream').selectOption('fallbacks:0');
+  await dohPage.locator('#dns-route-add').click();
+  assert.match(await dohPage.locator('#dns-profile-rules-list').innerText(), /video\.example\s*→\s*https:\/\/dns\.quad9\.net\/dns-query/,
+    'domain routes can target a selected upstream or fallback');
+  const profileBody = {
+    upstreams: 'https://dns.google/dns-query', fallbacks: 'https://dns.quad9.net/dns-query',
+    routes: 'video.example=https://dns.quad9.net/dns-query', mode: 'parallel', bootstrap: '1.1.1.1\n2001:4860:4860::8888', replace: '1',
+  };
+  assert.match(await dohCard.locator('#dns-profile-warning').innerText(), /Незашифрованный fallback отключён/,
+    'the profile explicitly states that there is no plain DNS fallback');
+  assert.equal(await dohCard.locator('#dns-profile-ack').count(), 1,
+    'mixing universal and filtering catalog categories requires acknowledgement');
+  await dohCard.locator('#dns-profile-ack').check();
   await dohCard.getByRole('button', { name: 'Применить' }).click();
-  assert.match(dohConfirmMessages.at(-1), /конфигурация https-dns-proxy/i,
-    'the UI explains why applying replaces existing user configuration');
-  assert.equal(dohActions.length, 1, 'dismissing the ownership warning does not submit an Apply job');
+  assert.match(dohConfirmMessages.at(-1), /конфигурация dnsproxy/i,
+    'replacing external dnsproxy configuration requires explicit confirmation');
+  assert.equal(dohActions.length, 1, 'dismissing the ownership warning does not submit a profile');
   acceptNextDohConfirm = true;
   await dohCard.getByRole('button', { name: 'Применить' }).click();
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-2"] #job-close').waitFor({ state: 'visible' });
-  assert.deepEqual(dohActions[1], { endpoint: 'provider', body: { provider: 'geohide_us', replace: '1' } },
-    'GeoHide apply submits the selected region and explicit ownership replacement');
+  assert.deepEqual(dohActions[1], { endpoint: 'profile', body: profileBody },
+    'Apply submits exact upstreams, fallback, route, mode, bootstrap and replacement acknowledgement');
+  assert.equal(Object.hasOwn(dohActions[1].body, 'plain_fallback'), false,
+    'the profile request contains no plain fallback setting');
   await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-2"] #job-close').click();
   await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Работает'));
+  assert.match(await dohCard.innerText(), /DNS роутера: ответы DNS подтверждены/);
+  assert.match(await dohCard.innerText(), /Защищённый upstream: подтверждён · фактически: DoH/);
   assert.equal(await dohCard.locator('#doh-ownership-warning').isVisible(), false,
-    'a successful confirmed Apply no longer reports its own resolver as external');
-  assert.equal(await dohCard.locator('#doh-region').isVisible(), true,
-    'GeoHide exposes RU/EU/US region selection');
-  assert.equal(await dohCard.locator('#doh-region').inputValue(), 'us');
+    'a successful profile apply no longer reports its own resolver as external');
   assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
     ['apply', 'check', 'disable', 'uninstall'], 'configured working DoH offers Stop');
   await dohCard.getByRole('button', { name: 'Остановить' }).click();
@@ -2841,138 +2865,84 @@ try {
 
   dohStatus = { ...dohStatus, state: 'error', enabled: '1', running: '0', reason: 'proxy-not-running' };
   await dohPage.reload();
-  await waitForRenderedRoute(dohPage, 'toggles');
-  assert.match(await dohCard.innerText(), /Статус: Ошибка/);
-  assert.match(await dohCard.innerText(), /сервис https-dns-proxy не запущен/i);
+  await waitForRenderedRoute(dohPage, 'dns');
+  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Ошибка'));
+  assert.match(await dohCard.innerText(), /сервис dnsproxy не запущен/i);
   assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
     ['apply', 'check', 'disable', 'uninstall'], 'error state keeps Stop available while the service remains enabled');
+  assert.match(await dohPage.locator('#dns-profile-queue').innerText(),
+    /Основные upstream[\s\S]*Google Public DNS[\s\S]*https:\/\/dns\.google[\s\S]*Аварийный fallback[\s\S]*Quad9[\s\S]*https:\/\/dns\.quad9/,
+    'saved upstream and fallback are restored from profile status after reload');
+  assert.equal(await dohPage.locator('#dns-profile-bootstrap').inputValue(), '1.1.1.1\n2001:4860:4860::8888',
+    'both IPv4 and IPv6 bootstrap resolvers are restored from profile status');
+  assert.equal(await dohPage.locator('#dns-upstream-mode').inputValue(), 'parallel',
+    'saved upstream mode is restored from profile status');
+  assert.match(await dohPage.locator('#dns-profile-rules-list').innerText(), /video\.example\s*→\s*https:\/\/dns\.quad9\.net\/dns-query/,
+    'saved domain routes are restored from profile status');
+  assert.equal(dohStatus.profile_upstreams_b64, Buffer.from(profileBody.upstreams).toString('base64'));
+  assert.equal(dohStatus.profile_fallbacks_b64, Buffer.from(profileBody.fallbacks).toString('base64'));
+  assert.equal(dohStatus.profile_routes_b64, Buffer.from(profileBody.routes).toString('base64'));
+  assert.equal(dohStatus.profile_bootstrap_b64, Buffer.from(profileBody.bootstrap).toString('base64'));
 
-  await dohCard.locator('#doh-provider').selectOption('custom');
-  assert.equal(await dohCard.locator('#doh-custom-fields').isVisible(), true,
-    'custom endpoint fields appear only for the custom provider');
-  await dohCard.locator('#doh-endpoint').fill('https://resolver.example/dns-query');
-  await dohCard.locator('#doh-bootstrap').fill('203.0.113.1,203.0.113.2');
-  await dohCard.getByRole('button', { name: 'Применить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').waitFor({ state: 'visible' });
-  assert.deepEqual(dohActions[4], {
-    endpoint: 'provider',
-    body: { provider: 'custom', endpoint: 'https://resolver.example/dns-query', bootstrap: '203.0.113.1,203.0.113.2' },
-  }, 'custom endpoint values are applied only after explicit Apply');
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').click();
-  await dohPage.waitForFunction(() => document.querySelector('#doh-provider')?.value === 'custom' &&
-    document.querySelector('#doh-endpoint')?.value === 'https://resolver.example/dns-query');
-
-  await dohPage.evaluate(() => { window.__togglesPageRoot = document.querySelector('#app').firstElementChild; });
+  await dohPage.evaluate(() => { window.__dnsPageRoot = document.querySelector('#app').firstElementChild; });
   holdNextDohJobResult = true;
   const dohStatusCallsBeforeCheck = dohStatusCalls;
   await dohCard.getByRole('button', { name: 'Проверить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').waitFor({ state: 'visible' });
-  assert.equal(dohActions[5].endpoint, 'check', 'diagnostics use a separate Check action');
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').waitFor({ state: 'visible' });
+  assert.equal(dohActions[4].endpoint, 'check', 'diagnostics use a separate Check action');
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').click();
   await dohPage.evaluate(() => {
     window.scrollTo(0, 650);
-    document.querySelector('#tiktok-feed-technical').open = true;
-    const input = document.querySelector('#doh-endpoint');
+    const input = document.querySelector('#dns-profile-bootstrap');
     input.focus({ preventScroll: true });
     input.setSelectionRange(8, 19);
-    window.__togglesExpectedScroll = window.scrollY;
-    window.__togglesExpectedSelection = [input.selectionStart, input.selectionEnd];
-  });
-  // Mobile Edge can apply its focus/visual-viewport adjustment on the next
-  // frame. Establish the scroll baseline after that browser-side adjustment,
-  // before releasing the held job whose refresh is under test.
-  await dohPage.waitForFunction(() => new Promise(resolve => {
-    const y = window.scrollY;
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve(y === window.scrollY)));
-  }));
-  await dohPage.evaluate(() => {
-    window.__togglesExpectedScroll = window.scrollY;
-  });
-  assert.equal(await dohPage.evaluate(() => window.scrollY > 200), true,
-    'the async DoH refresh fixture is positioned below the first screen');
-  assert.equal(typeof releaseHeldDohJob, 'function', 'job result is held until the scroll/focus state is prepared');
-  autohostlistFixture = '1';
-  releaseHeldDohJob();
-  releaseHeldDohJob = null;
-  await dohPage.waitForFunction(() => document.querySelector('[data-key="autohostlist"] input')?.checked === true);
-  await waitForCondition(() => dohStatusCalls > dohStatusCallsBeforeCheck, 'DoH /status refresh');
-  await dohPage.waitForTimeout(50);
-  const dohRefreshDomState = await dohPage.evaluate(() => ({
-    expectedScroll: window.__togglesExpectedScroll,
-    scroll: window.scrollY,
-    rootSame: document.querySelector('#app').firstElementChild === window.__togglesPageRoot,
-    focusedId: document.activeElement?.id,
-    expectedSelection: window.__togglesExpectedSelection,
-    selection: [document.activeElement?.selectionStart, document.activeElement?.selectionEnd],
-    detailsOpen: document.querySelector('#tiktok-feed-technical')?.open,
-  }));
-  assert.equal(dohRefreshDomState.scroll, dohRefreshDomState.expectedScroll,
-    'DoH state refresh preserves window.scrollY');
-  assert.equal(dohRefreshDomState.rootSame, true, 'DoH state refresh keeps the original page root');
-  assert.equal(dohRefreshDomState.focusedId, 'doh-endpoint', 'DoH state refresh preserves focused input');
-  assert.deepEqual(dohRefreshDomState.selection, dohRefreshDomState.expectedSelection, 'DoH state refresh preserves the input cursor');
-  assert.equal(dohRefreshDomState.detailsOpen, true, 'DoH state refresh keeps the open TikTok details block');
-
-  await dohPage.evaluate(() => { window.__togglesPageRoot = document.querySelector('#app').firstElementChild; });
-  holdNextDohJobResult = true;
-  const dohStatusCallsBeforeTelegram = dohStatusCalls;
-  await dohPage.getByRole('button', { name: 'Отключить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="tg-fixture-1"] #job-close').waitFor({ state: 'visible' });
-  await dohPage.locator('.modal-backdrop[data-job-id="tg-fixture-1"] #job-close').click();
-  await dohPage.evaluate(() => {
-    window.scrollTo(0, 700);
-    document.querySelector('#tiktok-feed-technical').open = true;
-    const action = document.querySelector('#tiktok-feed-status-card [data-tiktok-action="probe-all"]');
-    action.focus({ preventScroll: true });
-    window.__togglesExpectedScroll = window.scrollY;
-    window.__togglesExpectedFocus = action.dataset.tiktokAction;
+    window.__dnsExpectedScroll = window.scrollY;
+    window.__dnsExpectedSelection = [input.selectionStart, input.selectionEnd];
   });
   await dohPage.waitForFunction(() => new Promise(resolve => {
     const y = window.scrollY;
     requestAnimationFrame(() => requestAnimationFrame(() => resolve(y === window.scrollY)));
   }));
-  await dohPage.evaluate(() => { window.__togglesExpectedScroll = window.scrollY; });
+  await dohPage.evaluate(() => { window.__dnsExpectedScroll = window.scrollY; });
   assert.equal(typeof releaseHeldDohJob, 'function');
-  tgRunningFixture = false;
-  tiktokRefreshVersion += 1;
   releaseHeldDohJob();
   releaseHeldDohJob = null;
-  await dohPage.waitForFunction(() => document.querySelector('#tg-state-badge')?.innerText === 'ОСТАНОВЛЕН');
-  await dohPage.waitForFunction(() => window.__togglesExpectedScroll === window.scrollY &&
-    document.querySelector('#app').firstElementChild === window.__togglesPageRoot &&
-    document.querySelector('#tiktok-feed-technical')?.open === true &&
-    document.activeElement?.dataset.tiktokAction === window.__togglesExpectedFocus,
-  null, { timeout: 5000 });
-  await waitForCondition(() => dohStatusCalls > dohStatusCallsBeforeTelegram, 'Telegram /status refresh');
-  assert.equal(await dohPage.locator('#tg-state-badge').innerText(), 'ОСТАНОВЛЕН',
-    'Telegram completion updates its badge in place');
-  assert.equal(await dohPage.evaluate(() => document.querySelector('#app').firstElementChild === window.__togglesPageRoot), true,
-    'Telegram refresh keeps the original page root');
-  assert.equal(await dohPage.evaluate(() => document.activeElement?.dataset.tiktokAction), 'probe-all',
-    'a TikTok action button without an id keeps focus across a changed status refresh');
+  await waitForCondition(() => dohStatusCalls > dohStatusCallsBeforeCheck, 'DNS /status refresh');
+  await dohPage.waitForTimeout(50);
+  const dnsRefreshDomState = await dohPage.evaluate(() => ({
+    expectedScroll: window.__dnsExpectedScroll, scroll: window.scrollY,
+    rootSame: document.querySelector('#app').firstElementChild === window.__dnsPageRoot,
+    focusedId: document.activeElement?.id,
+    expectedSelection: window.__dnsExpectedSelection,
+    selection: [document.activeElement?.selectionStart, document.activeElement?.selectionEnd],
+  }));
+  assert.equal(dnsRefreshDomState.scroll, dnsRefreshDomState.expectedScroll, 'DNS status refresh preserves window.scrollY');
+  assert.equal(dnsRefreshDomState.rootSame, true, 'DNS status refresh keeps the original page root');
+  assert.equal(dnsRefreshDomState.focusedId, 'dns-profile-bootstrap', 'DNS status refresh preserves focused input');
+  assert.deepEqual(dnsRefreshDomState.selection, dnsRefreshDomState.expectedSelection, 'DNS status refresh preserves the input cursor');
 
   acceptNextDohConfirm = true;
-  await dohCard.getByRole('button', { name: 'Удалить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-7"] #job-close').waitFor({ state: 'visible' });
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-7"] #job-close').filter({ hasText: 'Закрыть' }).waitFor({ state: 'visible' });
-  assert.equal(await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-7"] #job-close').innerText(), 'Закрыть',
+  await dohCard.getByRole('button', { name: 'Удалить', exact: true }).click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').waitFor({ state: 'visible' });
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').filter({ hasText: 'Закрыть' }).waitFor({ state: 'visible' });
+  assert.equal(await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').innerText(), 'Закрыть',
     'a failed uninstall never presents the success action Готово');
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-7"] #job-close').click();
-  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Работает'));
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').click();
+  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Ошибка'));
   acceptNextDohConfirm = true;
-  await dohCard.getByRole('button', { name: 'Удалить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-8"] #job-close').waitFor({ state: 'visible' });
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-8"] #job-close').click();
+  await dohCard.getByRole('button', { name: 'Удалить', exact: true }).click();
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-7"] #job-close').waitFor({ state: 'visible' });
+  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-7"] #job-close').click();
   await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Не установлен'));
-  assert.deepEqual(dohActions[6], { endpoint: 'uninstall', body: { confirm: '1' } },
+  assert.deepEqual(dohActions[5], { endpoint: 'uninstall', body: { confirm: '1' } },
     'confirmed Remove submits the server-required external package confirmation');
-  assert.deepEqual(dohActions[7], { endpoint: 'uninstall', body: { confirm: '1' } },
+  assert.deepEqual(dohActions[6], { endpoint: 'uninstall', body: { confirm: '1' } },
     'a failed Remove remains retryable after state is refreshed');
   assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
     ['install'], 'Remove immediately returns the card to Install-only state');
   assert.equal(await dohCard.locator('#doh-ownership-warning').isVisible(), false,
     'the external ownership warning disappears after package removal');
-  assert.deepEqual(dohActions.map(action => action.endpoint), ['install', 'provider', 'disable', 'enable', 'provider', 'check', 'uninstall', 'uninstall']);
+  assert.deepEqual(dohActions.map(action => action.endpoint), ['install', 'profile', 'disable', 'enable', 'check', 'uninstall', 'uninstall']);
   assert.equal(await dohPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
     'compact DoH controls do not introduce mobile horizontal overflow');
   await dohPage.close();

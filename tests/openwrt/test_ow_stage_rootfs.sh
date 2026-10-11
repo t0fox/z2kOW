@@ -95,6 +95,17 @@ printf '%s\n' "$_tar_index" | grep -Fq "app.js?v=$_release_tag" \
 _tar_app=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/www/app.js)
 printf '%s\n' "$_tar_app" | grep -Fq "identity.js?v=$_release_tag" \
     && _t_ok || _t_bad "final payload WebPanel scripts use the controlled release cache-buster"
+_tar_dns_catalog=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/www/js/data/dns-providers.js)
+printf '%s\n' "$_tar_dns_catalog" | grep -Fq 'https://xbox-dns.ru/dns-query' \
+    && _t_ok || _t_bad "complete signed-release payload carries the DNS endpoint catalog"
+if printf '%s\n' "$_tar_dns_catalog" | grep -Eq 'resolverIps|ipv4:|ipv6:|83\.220\.169\.155|94\.140\.14\.14'; then
+    _t_bad "DNS catalog must use provider domain endpoints rather than pinned provider IPs"
+else
+    _t_ok
+fi
+_tar_dns_page=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/www/js/pages/dns.js)
+printf '%s\n' "$_tar_dns_page" | grep -Fq "../data/dns-providers.js?v=$_release_tag" \
+    && _t_ok || _t_bad "DNS catalog import is versioned with its signed rootfs release"
 printf '%s\n' "$_tar_index" | grep -Fq 'id="brand-profile-theme"' \
     && _t_ok || _t_bad "final payload retains the branded WebPanel source while stamping cache-busters"
 _tar_wan=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/lib/wan.sh)
@@ -281,6 +292,7 @@ for _kind in rt detect; do
     _count=$(find "$T/stage/usr/lib/z2k/bin" -path "*/linux-*/*" -name "$_bin" -type f | wc -l | tr -d ' ')
     assert_eq "all seven $_kind binaries staged" "7" "$_count"
 done
+assert_file "MIT-лицензия upstream Rust добавлена в rootfs" "$T/stage/usr/share/licenses/tg-ws-proxy-rs/LICENSE"
 printf "DISTRIB_ARCH='mips_24kc'\n" > "$T/openwrt_release"
 _out=$(Z2K_OW_OPENWRT_RELEASE_FILE="$T/openwrt_release" "$T/stage/usr/lib/z2k/bin/z2k-rt-proxy" argv)
 assert_eq "RT wrapper resolves big-endian MIPS from OpenWrt target" "rt-mips
@@ -292,7 +304,6 @@ argv" "$_out"
 
 # Настоящий bootstrap должен связать runtime с обычными исполняемыми файлами,
 # а не с каталогами, которые тоже проходят проверку shell -x.
-assert_file "MIT-лицензия upstream Rust добавлена в rootfs" "$T/stage/usr/share/licenses/tg-ws-proxy-rs/LICENSE"
 if (
     Z2K_ROOT="$T/stage/usr/lib/z2k"
     Z2K_ETC="$T/bootstrap-etc"

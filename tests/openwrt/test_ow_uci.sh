@@ -5,9 +5,10 @@ _t_plan "ow-uci"
 AD="$(cd "$(dirname "$0")/../.." && pwd)/platform/openwrt"
 . "$AD/uci.sh"
 
-# без uci в PATH — дефолты, молча
+# без uci в PATH — дефолты, молча (хост CI может иметь /usr/bin/uci).
 assert_eq "lan default без uci" "lan" "$(z2k_ow_lan)"
-assert_eq "dnsmasq servers без uci — пусто" "" "$(z2k_ow_dnsmasq_servers)"
+( export PATH=/nonexistent; [ -z "$(z2k_ow_dnsmasq_servers)" ] ) \
+    && _t_ok || _t_bad "dnsmasq servers без uci — пусто"
 
 # env побеждает
 ( OPENWRT_LAN="lan lan2"; [ "$(z2k_ow_lan)" = "lan lan2" ] ) \

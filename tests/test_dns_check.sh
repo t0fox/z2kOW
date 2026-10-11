@@ -89,12 +89,12 @@ Z2K_DNS_LIB=1 . "$S"; proxy_mismatch "$_pans" "$_pmis"
 assert_eq "два домена в одном /24 — прокси-подмена" "XBOX" "$(cut -d"$_US" -f1 "$_pmis" | sort -u | tr '\n' ' ' | sed 's/ $//')"
 assert_eq "разные хостеры у разных серверов — не подмена" "0" "$(grep -c '^CF\|^YA' "$_pmis")"
 assert_eq "прокси-подмена — своё состояние proxy в JSON" "2" "$(grep -c 'st_[ud]="proxy"' "$S")"
-assert_eq "панель знает состояние proxy" "1" "$(grep -c 'proxy: { cls: "bad"' "$ROOT/webpanel/www/js/pages/diag.js")"
+assert_eq "панель знает состояние proxy" "1" "$(grep -c 'proxy: { cls: "bad"' "$ROOT/webpanel/www/js/pages/dns.js")"
 assert_eq "строка человеку печатается ПОСЛЕ сверки" "1" "$(awk '/proxy_mismatch "\$_ans" "\$_mis"/{f=1} f && /_say "\$st_u"/{print "1"; exit}' "$S")"
 assert_eq "заворот UDP: публичные серверы получают hijack, а не оценку чужого ответа" "1" "$(grep -c 'st_u="hijack"' "$S")"
 assert_eq "резолвер роутера при завороте оценивается как раньше" "1" "$(grep -c '"$name" != "${CURRENT_ADDR:-}"' "$S")"
 assert_eq "в JSON есть, кто заворачивает" "1" "$(grep -c '"intercept_by":"%s"' "$S")"
-assert_eq "панель знает состояние hijack" "1" "$(grep -c 'hijack: { cls: "warn"' "$ROOT/webpanel/www/js/pages/diag.js")"
+assert_eq "панель знает состояние hijack" "1" "$(grep -c 'hijack: { cls: "warn"' "$ROOT/webpanel/www/js/pages/dns.js")"
 assert_eq "чекер зовёт proxy_mismatch после ref_mismatch" "1" "$(grep -c '^    proxy_mismatch "\$_ans" "\$_mis"' "$S")"
 
 # --- 3в. Каждый сервер опрашивается ПО СВОЕМУ адресу, а не через резолвер роутера
@@ -123,8 +123,8 @@ assert_eq "сохранение своих есть" "1" "$(grep -c '^dns_check_
 assert_eq "запуск задачей, а не в запросе" "1" \
     "$(grep -c 'svc_action_async "Проверка DNS"' "$ROOT/webpanel/cgi/api.sh")"
 
-# --- 7. Карточка в диагностике -----------------------------------------------
-D="$ROOT/webpanel/www/js/pages/diag.js"
+# --- 7. Диагностика вынесена на отдельную страницу DNS -----------------------
+D="$ROOT/webpanel/www/js/pages/dns.js"
 assert_eq "карточка есть"                "1" "$(grep -c 'id="dns-run"' "$D")"
 # Группируем по ПУТИ, а не по серверу: иначе заголовок группы спорит со строкой
 # внутри неё — «доходят целыми» напротив «ответ подменён» у того же Quad9.
@@ -176,16 +176,13 @@ assert_eq "и уехала в подпись группы"    "1" "$(grep -c 'dn
 assert_eq "не обвиняем сервер в подмене" "0" "$(grep -c '"подменяет"' "$D")"
 assert_eq "говорим про ответ, а не про сервер" "1" \
     "$(grep -c 'label: "ответ подменён"' "$D")"
-# Карточка стоит ПОСЛЕ проверки домена и ДО сводки: оба верхних блока отвечают
-# на «почему не открывается», сводка — для пересылки в чат.
-_pos_probe=$(grep -n 'Проверка домена' "$D" | head -1 | cut -d: -f1)
-_pos_dns=$(grep -n '<h3>Проверка DNS</h3>' "$D" | head -1 | cut -d: -f1)
-_pos_sum=$(grep -n 'Сводка z2k-diag' "$D" | head -1 | cut -d: -f1)
-if [ "$_pos_probe" -lt "$_pos_dns" ] && [ "$_pos_dns" -lt "$_pos_sum" ]; then
-    ok "порядок карточек: домен → DNS → сводка"
-else
-    no "порядок карточек" "домен < DNS < сводка" "$_pos_probe/$_pos_dns/$_pos_sum"
-fi
+# DNS вынесен в собственный маршрут; в «Диагностике» остаются проверка
+# домена и сводка, без второй копии DNS-интерфейса.
+DIAG="$ROOT/webpanel/www/js/pages/diag.js"
+assert_eq "DNS-интерфейс не дублируется в диагностике" "0" "$(grep -c 'id=\"dns-run\"' "$DIAG")"
+assert_eq "проверка домена осталась в диагностике" "1" "$(grep -c 'id=\"probe-run\"' "$DIAG")"
+assert_eq "сводка осталась в диагностике" "1" "$(grep -c 'Сводка z2k-diag' "$DIAG")"
+assert_eq "DNS доступен отдельной страницей" "1" "$(grep -c 'id=\"dns-run\"' "$D")"
 
 # --- 8. Доставка на роутеры ---------------------------------------------------
 # Файл без цели в карте не приезжает вовсе, а без установки — не исполняется.

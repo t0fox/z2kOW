@@ -75,11 +75,20 @@ done < "$T/tg.txt"
 # game-warp тумблер идёт мимо карты, прямым вызовом (уже покрыт п.1), но
 # карту без него считать битой нельзя: проверяем наличие ключа отдельно.
 grep -q 'customd: "customd"' "$WWW/js/pages/toggles.js" || _t_bad "TOGGLE_API_NAME потеряла customd"
-grep -q 'tiktok_feed: "tiktok-feed"' "$WWW/js/pages/toggles.js" || _t_bad "TOGGLE_API_NAME потеряла TikTok Feed toggle"
+grep -q 'apiPost("/toggle/tiktok-feed"' "$WWW/js/pages/tiktok.js" || _t_bad "TikTok Fix toggle route missing"
 grep -q 'Z2K_TIKTOK_FEED_ENABLED' "$REPO/webpanel/cgi/actions.sh" || _t_bad "TikTok Feed toggle does not persist its config flag"
-grep -q 'tiktokRow.hidden = s.platform !== "openwrt"' "$WWW/js/pages/toggles.js" || _t_bad "TikTok Feed UI is not restricted to OpenWrt"
+grep -q 'state.platform === "openwrt"' "$WWW/js/pages/tiktok.js" || _t_bad "TikTok Fix UI is not restricted to OpenWrt"
+grep -q 'href="#/tiktok" data-route="tiktok"' "$WWW/index.html" || _t_bad "TikTok Fix navigation link missing"
+grep -q 'href="#/dns" data-route="dns"' "$WWW/index.html" || _t_bad "DNS navigation link missing"
+grep -q 'tiktok: renderTikTok' "$WWW/js/router.js" || _t_bad "TikTok route missing"
+grep -q 'dns: renderDns' "$WWW/js/router.js" || _t_bad "DNS route missing"
+if grep -q 'TikTok — исправление ленты\|id="tiktok-feed-status-card"' "$WWW/js/pages/toggles.js"; then _t_bad "TikTok controls remain duplicated in Modes"; else _t_ok; fi
+if grep -q 'id="doh-card"' "$WWW/js/pages/toggles.js"; then _t_bad "DNS controls remain duplicated in Modes"; else _t_ok; fi
+if grep -q 'id="dns-run"' "$WWW/js/pages/diag.js"; then _t_bad "DNS controls remain duplicated in Diagnostics"; else _t_ok; fi
+grep -q 'protocol: card.querySelector("#dns-protocol").value' "$WWW/js/pages/dns.js" || _t_bad "DNS protocol is not submitted"
+grep -q 'actual_protocol' "$WWW/js/pages/dns.js" || _t_bad "DNS status does not distinguish verified upstream protocol"
 for _route in probe-all select auto; do
-    if grep -q "\"/tiktok/${_route}\"" "$WWW/js/pages/toggles.js" \
+    if grep -q "\"/tiktok/${_route}\"" "$WWW/js/pages/tiktok.js" \
         && has_case "POST" "/tiktok/$_route"; then _t_ok
     else _t_bad "TikTok CDN action /tiktok/$_route is missing its UI or API route"; fi
 done

@@ -298,14 +298,24 @@ z2k_ow_fw_check() {
 # NFQUEUE qnum == $QNUM из конфига.
 z2k_ow_fw_verify() {
     local _tab="${Z2K_ZAPRET_NFT_TABLE:-${ZAPRET_NFT_TABLE:-zapret2}}"
-    local _q="${QNUM:-200}" _c
+    local _q="${QNUM:-200}" _c _disable_ipv6="${DISABLE_IPV6:-}"
+    if [ -z "$_disable_ipv6" ]; then
+        _disable_ipv6=$(sed -n 's/^[[:space:]]*DISABLE_IPV6[[:space:]]*=[[:space:]]*//p' \
+            "${Z2K_CONFIG:-/etc/z2k/config}" 2>/dev/null | head -1 | tr -d "'\" \t\r")
+    fi
+    [ "$_disable_ipv6" = 1 ] || _disable_ipv6=0
     command -v nft >/dev/null 2>&1 || {
         echo "z2k-openwrt: fw_verify: нет nft" >&2; return 1; }
-    for _s in nozapret nozapret6; do
+    for _s in nozapret; do
         nft list set inet "$_tab" "$_s" >/dev/null 2>&1 || {
             echo "z2k-openwrt: fw_verify: нет сета $_s (ipsets не созданы?)" >&2
             return 1; }
     done
+    if [ "$_disable_ipv6" != 1 ]; then
+        nft list set inet "$_tab" nozapret6 >/dev/null 2>&1 || {
+            echo "z2k-openwrt: fw_verify: нет сета nozapret6 (ipsets не созданы?)" >&2
+            return 1; }
+    fi
     # wanif заселён (пустой = jump'ы с фильтром никуда не ведут; IPv4-аплинк
     # обязан быть — без него роутеру нечего обходить). wanif6 может быть
     # легитимно пуст (нет IPv6-аплинка — фильтр тогда не ставится, jump
@@ -315,9 +325,11 @@ z2k_ow_fw_verify() {
     nft list set inet "$_tab" wanif 2>/dev/null | grep -q '"' || {
         echo "z2k-openwrt: fw_verify: пуст uplink-сет (аплинк не резолвится?)" >&2
         return 1; }
-    nft list set inet "$_tab" wanif6 >/dev/null 2>&1 || {
-        echo "z2k-openwrt: fw_verify: нет v6 uplink-сета" >&2
-        return 1; }
+    if [ "$_disable_ipv6" != 1 ]; then
+        nft list set inet "$_tab" wanif6 >/dev/null 2>&1 || {
+            echo "z2k-openwrt: fw_verify: нет v6 uplink-сета" >&2
+            return 1; }
+    fi
     for _pair in "postnat_hook postnat" "prenat_hook prenat"; do
         set -- $_pair
         nft list chain inet "$_tab" "$1" 2>/dev/null | grep -q "jump $2" || {

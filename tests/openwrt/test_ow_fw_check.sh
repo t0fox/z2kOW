@@ -16,6 +16,9 @@ cat > "$T/bin/nft" <<'EOF'
 #!/bin/sh
 echo "nft:$*" >> "$CALLS"
 if [ "$1" = "list" ] && [ "$2" = "set" ]; then
+    if [ "${MOCK_DISABLE_IPV6:-0}" = 1 ]; then
+        case "$5" in nozapret6|wanif6) exit 1 ;; esac
+    fi
     case "$5" in
         wanif) echo 'set wanif { type ifname; elements = { "wan" } }' ;;
         wanif6) echo 'set wanif6 { type ifname; }' ;;
@@ -117,5 +120,17 @@ grep -q '^nft:' "$T/calls" && _t_bad "no-fw: полезли в nft" || _t_ok
 _got="$(nft list chain inet zapret2 prenat)"; [ "$_got" = "queue flags bypass to 2000" ] && _t_ok || { echo "fixture got=[$_got] DIR=[$DIRTY]"; _t_bad "fixture did not emit wrong qnum"; }
 z2k_ow_fw_verify >/dev/null 2>&1 && _t_bad "wrong qnum accepted" || _t_ok
 rm -f "$T/wrong-qnum"
+
+# --- 7. IPv6 отключён: IPv4 dataplane работает и без IPv6-наборов ---
+printf 'ENABLED=1\nQNUM=200\nDISABLE_IPV6=1\n' > "$T/etc/config"
+MOCK_DISABLE_IPV6=1
+export MOCK_DISABLE_IPV6
+unset DISABLE_IPV6
+: > "$T/calls"
+z2k_ow_fw_verify >/dev/null 2>&1
+assert_eq "config DISABLE_IPV6=1 accepts a healthy IPv4-only dataplane" "0" "$?"
+grep -qE '^nft:list set inet zapret2 (nozapret6|wanif6)$' "$T/calls" \
+    && _t_bad "IPv6 disabled still queried v6 sets" || _t_ok
+unset DISABLE_IPV6 MOCK_DISABLE_IPV6
 
 _t_done
