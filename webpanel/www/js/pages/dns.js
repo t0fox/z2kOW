@@ -43,11 +43,6 @@ export async function renderDns() {
       <div class="doh-status" id="doh-status" data-state="unknown" role="status" aria-live="polite">Статус: проверяется…</div>
       <div class="btn-row" id="doh-actions"></div>
     </div>
-    <section class="card" id="dns-check">
-      <div class="row-between"><div><h2>Проверка</h2><p class="desc">Сравнивает обычный DNS, DoH и DoT; быстрый ответ ещё не подтверждает подлинность сервера. Проверка занимает около минуты.</p></div><button class="btn btn-primary" id="dns-run">Проверить</button></div>
-      <div id="dns-result"></div>
-      <div class="dns-own"><label for="dns-own-text">Свои DNS-серверы для проверки</label><textarea id="dns-own-text" spellcheck="false" autocapitalize="none" placeholder="1.1.1.2&#10;https://dns.example.org/dns-query"></textarea><p class="desc" style="margin:6px 0 10px">По одному в строке: адрес для обычного DNS или ссылка для DoH. Проверяются вместе с остальными.</p><button class="btn" id="dns-own-save">Сохранить</button></div>
-    </section>
     <section class="card" id="dns-advanced">
       <h2>Дополнительно</h2>
       <div class="dns-adapter-diagnostics" id="dns-adapter-diagnostics" aria-live="polite"></div>
@@ -67,6 +62,11 @@ export async function renderDns() {
       <p class="desc" id="dns-adapter-capability-note">Отдельные upstream-переключатели IPv4/IPv6 в dnsproxy 0.83.0 отсутствуют; это не влияет на выбранный upstream-протокол.</p>
       <div class="btn-row" id="dns-recovery-actions"></div>
       <p class="desc" id="dns-recovery-note"></p>
+    </section>
+    <section class="card" id="dns-check">
+      <div class="row-between"><div><h2>Проверка</h2><p class="desc">Сравнивает обычный DNS, DoH и DoT; быстрый ответ ещё не подтверждает подлинность сервера. Проверка занимает около минуты.</p></div><button class="btn btn-primary" id="dns-run">Проверить</button></div>
+      <div id="dns-result"></div>
+      <div class="dns-own"><label for="dns-own-text">Свои DNS-серверы для проверки</label><textarea id="dns-own-text" spellcheck="false" autocapitalize="none" placeholder="1.1.1.2&#10;https://dns.example.org/dns-query"></textarea><p class="desc" style="margin:6px 0 10px">По одному в строке: адрес для обычного DNS или ссылка для DoH. Проверяются вместе с остальными.</p><button class="btn" id="dns-own-save">Сохранить</button></div>
     </section>`;
   document.getElementById("dns-run").addEventListener("click", dnsRun);
   document.getElementById("dns-own-save").addEventListener("click", dnsOwnSave);

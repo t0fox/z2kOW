@@ -1268,6 +1268,7 @@ download_init_script() {
         www/index.html www/app.js www/style.css www/favicon.svg \
         www/js/chrome.js \
         www/js/data/openwrt-credits.js \
+        www/js/data/dns-providers.js \
         www/js/core/api.js \
         www/js/core/auth.js \
         www/js/core/identity.js \
