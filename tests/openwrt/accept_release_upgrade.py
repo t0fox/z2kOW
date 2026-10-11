@@ -665,9 +665,6 @@ def main() -> int:
                 next_manifest_data = dict(candidate_for_server)
                 if use_generic_candidate:
                     next_manifest_data.pop("artifacts", None)
-                    next_manifest_data["artifact"] = dict(candidate_record)
-                else:
-                    next_manifest_data["artifacts"][args.architecture] = dict(candidate_record)
                 next_manifest_data["current"] = next_tag
                 next_manifest_data["seq"] = candidate_seq + 1
                 next_manifest_data["upstream"] = dict(next_manifest_data["upstream"])
