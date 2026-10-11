@@ -575,11 +575,19 @@ def main() -> int:
                 with mountinfo.open("a", encoding="utf-8") as mounts:
                     mounts.write(f"39 36 0:35 / {ram_tmp_parent} rw - tmpfs tmpfs rw\n")
                 try:
-                    output = invoke(
-                        ram_tmp_parent,
-                        f"предыдущий {previous_tag} updater отказывает на tmpfs при 23 МиБ MemAvailable",
-                        expected=False,
+                    original_meminfo = meminfo.read_text(encoding="utf-8")
+                    meminfo.write_text(
+                        f"MemTotal: {MEM_TOTAL_KB} kB\nMemAvailable: 8000 kB\n",
+                        encoding="utf-8",
                     )
+                    try:
+                        output = invoke(
+                            ram_tmp_parent,
+                            f"предыдущий {previous_tag} updater отказывает на tmpfs при 8 МиБ MemAvailable",
+                            expected=False,
+                        )
+                    finally:
+                        meminfo.write_text(original_meminfo, encoding="utf-8")
                     calls = service_log.read_text(encoding="utf-8") if service_log.exists() else ""
                     if "stop" in calls:
                         raise RuntimeError("предыдущий установщик останавливал службы до RAM-preflight")
