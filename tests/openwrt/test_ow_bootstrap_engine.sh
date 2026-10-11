@@ -15,7 +15,7 @@ mkdir -p "$BIN" "$BOOT_TMP" "$PAYLOAD" "$SYS/usr/lib" "$STAGE_TMP"
 # Начальный установщик и извлечённый движок используют awk роутера.
 _busybox="${Z2K_TEST_BUSYBOX:-$(command -v busybox 2>/dev/null || true)}"
 if [ -n "$_busybox" ]; then
-    for _applet in awk tar xargs tr; do
+    for _applet in awk xargs tr; do
         ln -s "$_busybox" "$BIN/$_applet" || exit 1
     done
 fi
