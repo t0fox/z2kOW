@@ -257,7 +257,7 @@ class ControlledArtifactTests(unittest.TestCase):
                     "tag": "p-86.19",
                     "seq": 143,
                     "status": "not applicable",
-                    "reason": "Entware относится к Keenetic, на OpenWrt этот механизм не используется.",
+                    "reason": "Этот механизм не используется на OpenWrt.",
                 }
             ],
         }
@@ -293,7 +293,7 @@ class ControlledArtifactTests(unittest.TestCase):
         registry = {
             "schema": 1,
             "skips": [
-                {"tag": "p-86.19", "seq": 143, "status": "not applicable", "reason": "Только Entware."}
+                {"tag": "p-86.19", "seq": 143, "status": "not applicable", "reason": "Только для другой платформы."}
             ],
         }
         upstream = self._upstream("p-86.20", 144)
