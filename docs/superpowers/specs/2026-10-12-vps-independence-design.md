@@ -2,7 +2,7 @@
 
 ## Цель
 
-Сохранить пользовательские функции z2kOW на OpenWrt после отключения VPS `213.176.74.63`, не меняя поведение Keenetic и общий upstream-код без необходимости. Текущий upstream tag `p-86.18` и `seq 142` остаются неизменными; изменения поставляются отдельной ревизией OpenWrt.
+Сохранить основные пользовательские функции z2kOW на чистом OpenWrt без VPS, VPN, WARP и обязательного внешнего proxy, не меняя поведение Keenetic и общий upstream-код без необходимости. WARP остаётся отдельной опциональной функцией и не используется как транспортный fallback. Текущий upstream tag `p-86.18` и `seq 142` остаются неизменными; изменения поставляются отдельной ревизией OpenWrt.
 
 ## Границы
 
@@ -15,22 +15,26 @@
 | Telegram WS/MTProto relay | Rust `tg-ws-proxy`, отдельный OpenWrt daemon; старый Go-клиент сохранён переходной заглушкой | Rust WS Proxy напрямую к Telegram через WSS и прозрачный redirect | Реальный клиентский трафик через роутер: вход, переписка и медиа; VPS endpoint заблокирован; rollback на старое установленное состояние проверен |
 | GitHub raw/release/list загрузки через VPS SNI passthrough | Общий `z2k_fetch` начинает с прямого GitHub и может использовать старый VPS до зеркал | OpenWrt-адаптер отключает только VPS слой; сохраняются прямой GitHub и имеющиеся зеркала | Проверить установку, списки и обновление релиза с точечной блокировкой endpoint; проверить хеши/подписи и поведение при недоступности отдельных источников |
 | WARP registration/license/control-plane через HTTP proxy | `platform/openwrt/warp.sh` задаёт старый VPS proxy default и передаёт `Z2K_WARP_VPS_PROXY` в daemon | Прямые запросы Cloudflare без старого proxy | Чистая регистрация и проверка лицензии через заблокированный endpoint; проверка уже зарегистрированного профиля, data plane, перезапуска и отказа сети |
-| Insta-IP HMAC resolver | Общий refresh helper содержит URL старого VPS, но OpenWrt имеет `platform/openwrt/insta-ip.sh` backend через dnsmasq | Проверить и при необходимости отключить только OpenWrt вызов VPS resolver; использовать поддерживаемый независимый источник/механизм | Refresh, записи dnsmasq, обновление и удаление проходят без обращений к endpoint; пользовательские `addnhosts` настройки сохраняются |
+| Insta-IP HMAC resolver | Общий refresh helper входит в OpenWrt rootfs и вызывается полным list refresh; endpoint объединяет system DNS + Google/Cloudflare/Quad9 IPv4 ответы, затем роутер выполняет проверки кандидатов и применяет свой dnsmasq backend | Локально получить DNS A/TTL по системному и нескольким независимым резолверам, фильтровать адреса по ownership CIDR, проверять каждого кандидата с HTTPS/SNI без отключения TLS проверки; кэшировать валидные записи с TTL и сохранять прежние рабочие записи при временном отказе | Без endpoint и WARP проверить свежий ответ, блок DNS, ошибку/отказ CDN, истечение TTL, stale cache и восстановление; dnsmasq и пользовательские `addnhosts` сохраняются |
 | Keenetic DNS pinning/host records, WhatsApp/Ticketmaster pins, Go Telegram и HTTP/CDN tunnel, диагностический VPS probe | Общие файлы и `ndmc`/Keenetic init runtime; OpenWrt имеет свои адаптеры/сервисы | Сохранить общую функциональность; удалить OpenWrt runtime-зависимость только если подтверждена | Статический аудит call sites, staged rootfs и runtime smoke проверки доказывают, какие пути OpenWrt не устанавливает/не запускает |
 
 Отдельно инвентаризировать VPS deployment, nginx/tinyproxy, relay API, observability и секреты. Они не удаляются из репозитория в рамках OpenWrt-only изменения, пока не доказано отсутствие пользователей Keenetic и других клиентов.
 
 ## Реализация
 
-1. Добавить тонкую OpenWrt-конфигурацию, отключающую адрес VPS для `z2k_fetch` во всех точках OpenWrt (основной CLI, обновление списков, auto-update, install/update path). Не менять общий порядок/поведение Keenetic. Записывать в диагностику выбранные источники без секретов.
-2. Удалить VPS proxy default из OpenWrt WARP daemon launch/config migration. Существующие пользовательские настройки прокси не перезаписывать без миграционного правила и теста; целевой штатный режим для новой установки — прямое соединение.
+1. Добавить тонкую OpenWrt-конфигурацию, отключающую адрес VPS для `z2k_fetch` и других runtime fetch entry points, включая отдельные cron paths. Для installer/bootstrap/release добавить прямой HTTPS и независимые mirror URLs с проверкой подписанного manifest и artifact hash. Не менять `UPDATES.json`, `install_release(tag)`, rollback или общий Keenetic default. Записывать в диагностику выбранные источники без секретов.
+2. Убрать старый VPS proxy default из OpenWrt WARP daemon launch/config migration. WARP не участвует в загрузках, DNS refresh, Telegram или updater recovery. Явный пользовательский proxy можно сохранить только как отдельную WARP-настройку; он не обязателен, и старый VPS host отфильтровывается.
 3. Сохранить Rust WS Proxy как единственную новую Telegram реализацию OpenWrt; оставить legacy заглушку и rollback payload до клиентской приёмки.
-4. Разобраться с OpenWrt Insta-IP вызовом resolver. Не подменять аутентифицированный resolver произвольным публичным API без проверки контракта, целостности и поддержки.
+4. Перенести Insta-IP resolver union на роутер, сохранив allowlist, Meta CIDR filtering, HTTPS/SNI candidate probing и dnsmasq ownership. Данные кэша должны содержать host/IP/expiry/source, обновление должно быть атомарным; при полном сбое сети сохранять прежний рабочий набор до истечения TTL и не удалять пользовательские записи.
 5. Не менять `UPDATES.json`, upstream release tag, `seq`, Rust upstream pin/version или подписанные артефакты ради этой работы. Версионную запись добавлять только штатным OpenWrt revision-механизмом после всех проверок.
 
 ## Архитектуры
 
-Нативный z2kOW runtime matrix: `arm64`, `arm`, `x86_64`, `x86`, `mips`, `mipsel`, `riscv64`; `mips64le` не публикуется текущим OpenWrt rootfs, поскольку pinned runtime его не поддерживает. Rust Telegram бинарник сейчас собирается/поставляется только для `arm64` и `x86_64`. Для каждого поддерживаемого роутерного ABI подтвердить: совместимость штатных OpenWrt функций; наличие Rust TG binary либо явное и проверенное состояние «Telegram WS Proxy не поддерживается». Дополнительную архитектуру нельзя объявлять поддержанной по аналогии: нужны отдельные build, ABI и runtime проверки. Добавление Rust target не входит в предположение об архитектуре и требует доказанной сборки/проверки зависимостей.
+Нативный z2kOW runtime matrix: `arm64`, `arm`, `x86_64`, `x86`, `mips`, `mipsel`, `riscv64`; `mips64le` не публикуется текущим OpenWrt rootfs, поскольку pinned runtime его не поддерживает. Rust Telegram бинарник сейчас собирается/поставляется только для `arm64` и `x86_64`. Для каждого ABI подтвердить штатные функции, архитектурную поддержку Rust TG либо явное ограничение. Дополнительную архитектуру нельзя объявлять поддержанной по аналогии.
+
+## Основные сетевые сервисы
+
+OpenWrt может использовать прямой TLS, локальный DNS и локальные движки без VPN/WARP. Для Telegram требуется работа существующего прозрачного Rust WS Proxy с реальным клиентом LAN; WSS handshake недостаточен. Если операторская сеть блокирует Telegram origin и альтернативные независимые прямые endpoints также недоступны, transparent proxy сам по себе не может создать недоступный внешний маршрут. В таком сценарии нужно представить измеренное доказательство и варианты архитектуры; отсутствие relay нельзя маскировать тем, что daemon запущен.
 
 ## Безопасный live-debug и верификация
 
@@ -42,19 +46,21 @@
 
 ## Проверки и последовательность
 
-1. Завершить статический аудит VPS endpoint, OpenWrt packaging, install/update/uninstall/rollback и тестовых seams.
-2. Добавить проверки сначала для отключения VPS fetch layer, прямого WARP и отсутствия VPS default в конфиге/daemon argv; прогнать targeted OpenWrt tests и полный относящийся CI.
-3. Собрать кандидаты для каждой поддерживаемой архитектуры и проверить упаковку rootfs. Подтвердить Rust binary отдельно на каждой заявленной архитектуре.
-4. Провести на тестовом роутере чистую установку, upgrade, rollback и uninstall. В каждом релевантном сценарии старый endpoint заблокирован. Для Telegram нужны реальные действия с телефона/клиента; для WARP — чистая регистрация и traffic path.
-5. После успешной замены функций удалить только доказанно устаревшие OpenWrt VPS defaults/references. Сохранить Keenetic и server-side функции.
-6. Повторить регрессии для чистой установки, обновления, rollback, удаления, пользовательских настроек и соседних сервисов. Подготовить матрицу, diff, CI, E2E evidence, ограничения и merge-readiness.
+1. Завершить статический аудит всех сетевых entry points, упаковки и lifecycle.
+2. Добавить tests-first изменения для fetch/bootstrap/release, local Insta-IP DNS refresh и VPS-free WARP control plane. Проверить failover между прямым source и независимыми mirrors с подписью/hash.
+3. Провести QEMU OpenWrt сценарии: чистая установка, update, rollback, uninstall; временный отказ WAN, локального DNS, прямого GitHub и отдельного CDN; reboot/restart посреди refresh/download; проверка атомарного восстановления и сохранности настроек.
+4. Собрать кандидаты для каждой поддерживаемой архитектуры и отдельно проверить Rust TG binary.
+5. Провести дополнительный router/client E2E там, где доступен доверенный тестовый роутер; блокировать только VPS endpoint и отдельно доказать, что VPN/WARP/proxy не включались.
+6. Удалить только подтверждённо неиспользуемые OpenWrt VPS defaults. Сохранить Keenetic/server-side пути и rollback payload до приёмки.
+7. Повторить clean install/update/rollback/uninstall и регрессии; подготовить матрицу, diff, CI/QEMU/runtime evidence, измерения и ограничения.
 
 ## Текущие риски и критерии завершения
 
 - Нет подтверждённой конфигурации SSH target/алиаса тестового роутера; адрес роутера нельзя угадывать.
 - Предыдущие записи Rust кандидата описывают успешный протокольный handshake, но пользовательский Telegram E2E остаётся неподтверждённым.
 - Прямая доступность Cloudflare control plane и GitHub/зеркал в тестовой сети неизвестна.
-- Требуется выяснить контракт Insta-IP resolver, прежде чем отключать его общий OpenWrt вызов.
+- DNS union и TTL сейчас выполняет удалённый resolver; локальная реализация должна воспроизвести его candidate/filter/probe свойства и stale-cache semantics.
+- QEMU binary установлен, но образ OpenWrt и гостевая тестовая среда ещё не подготовлены.
 - Поддержка Telegram на `arm`, `x86`, `mips`, `mipsel`, `riscv64` не подтверждена; нельзя обещать эквивалентность без сборки и теста.
 
-Готовность к слиянию достигается, только когда с отключённым старым VPS приняты все пользовательские OpenWrt функции, clean install/update/rollback/uninstall, архитектурная матрица и регрессии. Ветка остаётся `feat/vps-independence`; PR, merge и production release исключены до отдельного разрешения пользователя.
+Готовность к слиянию достигается, только когда базовые функции проходят с VPS endpoint заблокированным, без VPN/WARP и без обязательного внешнего proxy; QEMU покрывает сетевые/DNS/CDN отказы и жизненный цикл. Ветка остаётся `feat/openwrt-vps-free`; PR, merge и production release исключены до отдельного разрешения пользователя.
