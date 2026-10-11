@@ -114,13 +114,23 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_openwrt_ci_runs_all_checks_without_skipping_dependencies(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        job = ci.split("  openwrt-unified:", 1)[1]
-        self.assertIn("lighttpd", job)
-        self.assertIn("curl", job)
-        self.assertIn("platform/openwrt/runtime-pin", job)
-        self.assertIn("sha256sum -c", job)
-        self.assertIn('OW_STRICT=1 Z2K_RT_TARBALL="$runtime_archive" sh tests/openwrt/run.sh', job)
-        self.assertLess(job.index("sha256sum -c"), job.index("OW_STRICT=1"))
+        acceptance = ci.split("  openwrt-acceptance:", 1)[1].split("  openwrt-unified:", 1)[0]
+        builder = ci.split("  openwrt-unified:", 1)[1]
+        self.assertIn("fail-fast: false", acceptance)
+        self.assertIn("shard: [0, 1, 2, 3]", acceptance)
+        self.assertIn('OW_STRICT: "1"', acceptance)
+        self.assertIn('OW_SHARD_COUNT: "4"', acceptance)
+        self.assertIn("OW_SHARD_INDEX:", acceptance)
+        self.assertIn("lighttpd", acceptance)
+        self.assertIn("curl", acceptance)
+        self.assertIn("platform/openwrt/runtime-pin", acceptance)
+        self.assertIn("sha256sum -c", acceptance)
+        self.assertIn('Z2K_RT_TARBALL="$runtime_archive" sh tests/openwrt/run.sh', acceptance)
+        self.assertLess(acceptance.index("sha256sum -c"), acceptance.index("sh tests/openwrt/run.sh"))
+        self.assertIn("build-release.sh", builder)
+        self.assertIn("accept_release_candidate.py", builder)
+        self.assertIn("upgrade-acceptance.sh", builder)
+        self.assertIn("uses: actions/upload-artifact", builder)
 
     def test_openwrt_ci_attaches_per_arch_records_before_candidate_acceptance(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
