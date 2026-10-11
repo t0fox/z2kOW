@@ -139,6 +139,16 @@ is_installed() {
 
 tunnel_enable() {
     local cfg="${CONFIG_FILE:-/etc/z2k/config}" _init="${Z2K_INIT:-/etc/init.d/z2k}"
+    if command -v z2k_ow_tg_arch_supported >/dev/null 2>&1; then
+        z2k_ow_tg_arch_supported || {
+            echo "Тип не поддерживается: Rust TG WS Proxy недоступен для этой архитектуры" >&2
+            return 1
+        }
+        [ -x "${Z2K_TG_RUST_BIN:-}" ] || {
+            echo "Rust TG WS Proxy не установлен для этой архитектуры" >&2
+            return 1
+        }
+    fi
     if grep -q '^TG_PROXY_USER_DISABLED=' "$cfg" 2>/dev/null; then
         sed -i 's/^TG_PROXY_USER_DISABLED=.*/TG_PROXY_USER_DISABLED=0/' "$cfg" 2>/dev/null
     fi

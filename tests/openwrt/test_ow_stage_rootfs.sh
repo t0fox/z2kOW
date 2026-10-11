@@ -43,15 +43,20 @@ tar -czf "$T/runtime.tar.gz" -C "$T" runtime || exit 1
 
 for _name in warpd tg rt detect; do mkdir -p "$T/$_name"; done
 for _arch in arm64 arm x86_64 x86 mips mipsel riscv64; do
-    mkdir -p "$T/warpd/linux-$_arch" "$T/tg/linux-$_arch" \
-        "$T/rt/linux-$_arch" "$T/detect/linux-$_arch"
-    for _spec in "warpd:z2k-warpd" "tg:tg-mtproxy-client" \
-        "rt:z2k-rt-proxy" "detect:z2k-detect"; do
+    mkdir -p "$T/warpd/linux-$_arch" "$T/rt/linux-$_arch" "$T/detect/linux-$_arch"
+    for _spec in "warpd:z2k-warpd" "rt:z2k-rt-proxy" "detect:z2k-detect"; do
         _kind=${_spec%%:*}; _bin=${_spec#*:}
         printf '#!/bin/sh\nprintf "%%s\\n" "%s-%s" "$*"\n' "$_kind" "$_arch" > "$T/$_kind/linux-$_arch/$_bin"
         chmod 0755 "$T/$_kind/linux-$_arch/$_bin"
     done
 done
+for _arch in arm64 x86_64; do
+    mkdir -p "$T/tg/linux-$_arch"
+    printf '#!/bin/sh\nexit 0\n' > "$T/tg/linux-$_arch/tg-ws-proxy"
+    chmod 0755 "$T/tg/linux-$_arch/tg-ws-proxy"
+done
+printf 'MIT license fixture\n' > "$T/tg/LICENSE"
+printf 'upstream=test\n' > "$T/tg/PROVENANCE"
 mkdir -p "$T/release-keys"
 openssl genpkey -algorithm Ed25519 -out "$T/release-keys/test.key" >/dev/null 2>&1 || exit 1
 openssl pkey -in "$T/release-keys/test.key" -pubout -out "$T/release-keys/test.pub" >/dev/null 2>&1 || exit 1
@@ -254,12 +259,25 @@ cmp -s "$T/release-keys/$_key_id.pub" \
 [ ! -e "$T/stage/opt/zapret2/etc/z2k-update-pub.pem" ] \
     && _t_ok || _t_bad "obsolete generic update key is not shipped as a second authority"
 
-for _kind in tg rt detect; do
-    case "$_kind" in
-        tg) _bin=tg-mtproxy-client ;;
-        rt) _bin=z2k-rt-proxy ;;
-        detect) _bin=z2k-detect ;;
-    esac
+_tg_count=$(find "$T/stage/usr/lib/z2k/bin" -path '*/linux-*/*' -name tg-ws-proxy -type f | wc -l | tr -d ' ')
+assert_eq "Rust TG собран только для ARM64 и x86_64" "2" "$_tg_count"
+_legacy_tg_count=$(find "$T/stage/usr/lib/z2k/bin" -path '*/linux-*/*' -name tg-mtproxy-client -type f | wc -l | tr -d ' ')
+assert_eq "переходные заглушки старого клиента подготовлены для всех архитектур" "7" "$_legacy_tg_count"
+for _arch in arm arm64 mips mipsel riscv64 x86 x86_64; do
+    [ -x "$T/stage/usr/lib/z2k/bin/linux-$_arch/tg-mtproxy-client" ] \
+        && _t_ok || _t_bad "нет переходной заглушки linux-$_arch"
+done
+if "$T/stage/usr/lib/z2k/bin/linux-x86_64/tg-mtproxy-client" >/dev/null 2>&1; then
+    _t_bad "переходная заглушка не должна запускать удалённый движок Telegram"
+else
+    [ "$?" -eq 126 ] && _t_ok || _t_bad "переходная заглушка отказывает с кодом 126"
+fi
+for _arch in arm64 x86_64; do
+    [ -x "$T/stage/usr/lib/z2k/bin/linux-$_arch/tg-ws-proxy" ] \
+        && _t_ok || _t_bad "в Rust TG payload отсутствует linux-$_arch"
+done
+for _kind in rt detect; do
+    case "$_kind" in rt) _bin=z2k-rt-proxy ;; detect) _bin=z2k-detect ;; esac
     _count=$(find "$T/stage/usr/lib/z2k/bin" -path "*/linux-*/*" -name "$_bin" -type f | wc -l | tr -d ' ')
     assert_eq "all seven $_kind binaries staged" "7" "$_count"
 done
@@ -274,6 +292,7 @@ argv" "$_out"
 
 # Настоящий bootstrap должен связать runtime с обычными исполняемыми файлами,
 # а не с каталогами, которые тоже проходят проверку shell -x.
+assert_file "MIT-лицензия upstream Rust добавлена в rootfs" "$T/stage/usr/share/licenses/tg-ws-proxy-rs/LICENSE"
 if (
     Z2K_ROOT="$T/stage/usr/lib/z2k"
     Z2K_ETC="$T/bootstrap-etc"

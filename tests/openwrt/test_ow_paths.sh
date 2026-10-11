@@ -24,9 +24,18 @@ AD="$REPO/platform/openwrt"
     [ "$Z2K_RUN" = "/tmp/z2k/runtime" ] || exit 1
     [ "$Z2K_LOG" = "/tmp/z2k/logs" ] || exit 1
     [ "$Z2K_TMP" = "/tmp/z2k" ] || exit 1
-    [ "$Z2K_OW_INSTALL_TMP" = "/tmp/z2kow-install-stage" ] || exit 1
+    [ "$Z2K_OW_INSTALL_TMP" = "/usr/lib/.z2kow-install-stage" ] || exit 1
     [ "$Z2K_BIN" = "/usr/lib/z2k/bin" ] || exit 1
 ) && _t_ok || _t_bad "дефолты путей"
+
+# В sysroot используется такой же постоянный каталог относительно корня стенда,
+# чтобы интеграционная проверка не писала в настоящий /usr/lib хоста.
+(
+    unset Z2K_OW_INSTALL_TMP
+    Z2K_OW_SYSROOT=/test-root
+    . "$AD/paths.sh"
+    [ "$Z2K_OW_INSTALL_TMP" = "/test-root/usr/lib/.z2kow-install-stage" ]
+) && _t_ok || _t_bad "sysroot default for persistent release staging"
 
 # override: окружение побеждает дефолты (наследуемые вычищаем — :- их бы взял)
 (

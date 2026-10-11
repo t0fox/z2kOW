@@ -47,7 +47,7 @@ chmod +x "$T/bin/nft"
 
 # --- fixture runtime (functions со stub zapret_*) ---
 mkdir -p "$T/rt/init.d/openwrt" "$T/rt/nfq2" "$T/rt/ip2net" "$T/rt/mdig" \
-         "$T/rt/lua" "$T/rt/common" "$T/rt/ipset" "$T/abindir"
+         "$T/rt/lua" "$T/rt/common" "$T/rt/ipset" "$T/abindir/linux-x86_64"
 cat > "$T/rt/init.d/openwrt/functions" <<EOF
 #!/bin/sh
 zapret_apply_firewall() { echo "fw:apply" >> "$T/calls"; [ -f "$T/fw-apply-fail" ] && return 1; return 0; }
@@ -66,9 +66,11 @@ done
 printf '#!/bin/sh\nexit 0\n' > "$T/rt/ipset/create_ipset.sh"
 chmod +x "$T/rt/ipset/create_ipset.sh"
 printf '# stub\n' > "$T/rt/ipset/def.sh"
-for _b in tg-mtproxy-client z2k-rt-proxy z2k-detect; do
-    printf '#!/bin/sh\n# stub (rt: so-mark capable, см. preflight)\n# so-mark\nexit 0\n' > "$T/abindir/$_b"; chmod +x "$T/abindir/$_b"
-done
+printf '#!/bin/sh\n# Заглушка для preflight OpenWrt.\n# so-mark\nexit 0\n' > "$T/abindir/z2k-rt-proxy"
+printf '#!/bin/sh\n# Заглушка для проверки preflight.\nexit 0\n' > "$T/abindir/z2k-detect"
+chmod +x "$T/abindir/z2k-rt-proxy" "$T/abindir/z2k-detect"
+printf '#!/bin/sh\n# Заглушка с поддержкой отметки сокета so-mark.\n# so-mark\nexit 0\n' > "$T/abindir/linux-x86_64/tg-ws-proxy"
+chmod +x "$T/abindir/linux-x86_64/tg-ws-proxy"
 
 # --- грузим настоящий init, но адаптер-лоадер подменяем: старту нужен
 # ТОЛЬКО настоящий firewall.sh (preflight/fw_apply/fw_verify); остальное —

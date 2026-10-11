@@ -38,15 +38,15 @@ def controlled_manifest() -> dict[str, object]:
         "schema": 1,
         "branch": "main",
         "platform": "openwrt",
-        "current": "p-86.13",
-        "seq": 136,
+        "current": "r-86.5",
+        "seq": 141,
         "upstream": {
             "repository": "necronicle/z2k",
             "branch": "z2k-enhanced",
-            "tag": "p-86.13",
-            "commit": "e" * 40,
+            "tag": "r-86.5",
+            "commit": "43b98092c5a337a35f5c094363f469243d7b8b80",
         },
-        "history": [{"v": "p-86.13", "desc": "Исправлена маршрутизация WARP."}],
+        "history": [{"v": "r-86.5", "desc": "Исправлена маршрутизация WARP."}],
         "artifact": {
             "filename": "openwrt-rootfs.tar.gz",
             "url": f"https://github.com/t0fox/z2kOW/releases/download/openwrt-{SOURCE_A}/openwrt-rootfs.tar.gz",
@@ -57,13 +57,14 @@ def controlled_manifest() -> dict[str, object]:
     }
 
 
-def upstream_manifest(tag: str = "p-86.13", seq: int = 136) -> dict[str, object]:
+def upstream_manifest(tag: str = "r-86.5", seq: int = 141) -> dict[str, object]:
     return {
+        "branch": "z2k-enhanced",
         "current": tag,
         "seq": seq,
         "history": [{
             "v": tag,
-            "desc": "Исправлена маршрутизация WARP." if tag == "p-86.13" else "Обновлена обработка сетевых правил.",
+            "desc": "Исправлена маршрутизация WARP." if tag == "r-86.5" else "Обновлена обработка сетевых правил.",
             "changed_files": ["lib/config.sh", "files/lists/tcp16_nets.txt"],
         }],
     }
@@ -93,9 +94,25 @@ class PublicationPolicyTests(unittest.TestCase):
         )
 
     def test_product_release_for_current_upstream_version_is_created_only_once(self) -> None:
-        advanced = upstream_manifest("p-86.14", 137)
-        with self.assertRaisesRegex(ValueError, "Product Release p-86.14 already exists"):
+        advanced = upstream_manifest("r-86.6", 142)
+        advanced["history"] = [
+            {"v": "r-86.5", "desc": "Базовая версия."},
+            {"v": "r-86.6", "desc": "Новое изменение upstream."},
+        ]
+        with self.assertRaisesRegex(ValueError, "Product Release r-86.6 already exists"):
             self.plan("upstream-release", upstream=advanced, existing_product_release=True)
+
+    def test_product_release_accepts_the_next_official_tag_and_sequence(self) -> None:
+        advanced = upstream_manifest("r-86.6", 142)
+        advanced["history"] = [
+            {"v": "r-86.5", "desc": "Базовая версия."},
+            {"v": "r-86.6", "desc": "Следующий выпуск upstream."},
+        ]
+
+        plan = self.plan("upstream-release", upstream=advanced)
+
+        self.assertEqual((plan["tag"], plan["seq"]), ("r-86.6", 142))
+        self.assertEqual(plan["product_tag"], "r-86.6")
 
     def test_same_version_fix_selects_a_technical_hotfix_payload(self) -> None:
         plan = self.plan("hotfix")
@@ -106,8 +123,8 @@ class PublicationPolicyTests(unittest.TestCase):
     def test_two_hotfixes_keep_the_product_version_and_get_distinct_payload_tags(self) -> None:
         first = self.plan("hotfix", SOURCE_B)
         second = self.plan("hotfix", SOURCE_C)
-        self.assertEqual((first["tag"], first["seq"]), ("p-86.13", 136))
-        self.assertEqual((second["tag"], second["seq"]), ("p-86.13", 136))
+        self.assertEqual((first["tag"], first["seq"]), ("r-86.5", 141))
+        self.assertEqual((second["tag"], second["seq"]), ("r-86.5", 141))
         self.assertNotEqual(first["technical_tag"], second["technical_tag"])
 
     def test_hotfix_manifest_replaces_only_the_artifact_record(self) -> None:
@@ -125,7 +142,7 @@ class PublicationPolicyTests(unittest.TestCase):
                 artifact,
                 f"https://github.com/t0fox/z2kOW/releases/download/openwrt-{SOURCE_B}/openwrt-rootfs.tar.gz",
             )
-            self.assertEqual((unsigned["current"], unsigned["seq"]), ("p-86.13", 136))
+            self.assertEqual((unsigned["current"], unsigned["seq"]), ("r-86.5", 141))
             self.assertIn(f"openwrt-{SOURCE_B}", unsigned["artifact"]["url"])
             self.assertNotIn("signing", unsigned)
 
@@ -133,6 +150,31 @@ class PublicationPolicyTests(unittest.TestCase):
         plan = self.plan("hotfix")
         self.assertEqual(plan["tag"], controlled_manifest()["current"])
         self.assertEqual(plan["seq"], controlled_manifest()["seq"])
+
+    def test_locally_invented_product_version_and_mismatched_sequence_are_rejected(self) -> None:
+        upstream = upstream_manifest()
+        controlled = controlled_manifest()
+        for tag, seq in (("r-86.7", 143), ("r-86.5", 142), ("r-86.6", 141)):
+            with self.subTest(tag=tag, seq=seq), self.assertRaises(ValueError):
+                MODULE.plan_publication(
+                    operation="hotfix",
+                    requested_tag=tag,
+                    requested_seq=seq,
+                    source_sha=SOURCE_B,
+                    upstream=upstream,
+                    controlled=controlled,
+                    upstream_commit="e" * 40,
+                )
+
+    def test_upstream_release_cannot_skip_intermediate_sequences(self) -> None:
+        skipped = upstream_manifest("r-86.7", 143)
+        skipped["history"] = [
+            {"v": "r-86.5", "desc": "База."},
+            {"v": "r-86.6", "desc": "Пропускаемый upstream-выпуск."},
+            {"v": "r-86.7", "desc": "Текущий upstream-выпуск."},
+        ]
+        with self.assertRaisesRegex(ValueError, "нельзя пропускать промежуточные версии upstream"):
+            self.plan("upstream-release", upstream=skipped)
 
     def test_manifest_state_accepts_only_the_candidate_baseline_or_already_published_payload(self) -> None:
         candidate = self.plan("hotfix")
@@ -171,6 +213,17 @@ class PublicationPolicyTests(unittest.TestCase):
             for arch in ("arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64")
         }
         self.assertFalse(MODULE.migration_fallback_required(per_arch))
+
+        # Старые клиенты p-86.17 умеют получать только общий архив. Оставляем
+        # этот переходный путь в управляемых выпусках, пока правила публикации
+        # явно не перестанут поддерживать такие установленные версии.
+        per_arch["artifact"] = {
+            "filename": "openwrt-rootfs.tar.gz",
+            "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-" + SOURCE_A + "/openwrt-rootfs.tar.gz",
+            "sha256": "a" * 64,
+            "size_bytes": 123,
+        }
+        self.assertTrue(MODULE.migration_fallback_required(per_arch))
 
         candidate = self.plan("hotfix")
         self.assertTrue(candidate["include_legacy_fallback"])
@@ -249,23 +302,27 @@ class PublicationPolicyTests(unittest.TestCase):
             self.plan("hotfix", existing_technical_release=True)
 
     def test_hotfix_is_rejected_if_upstream_advanced(self) -> None:
-        advanced = upstream_manifest("p-86.14", 137)
-        with self.assertRaisesRegex(ValueError, r"Upstream version advanced to p-86\.14.*новый Product Release"):
+        advanced = upstream_manifest("r-86.6", 142)
+        advanced["history"] = [
+            {"v": "r-86.5", "desc": "База."},
+            {"v": "r-86.6", "desc": "Новое изменение upstream."},
+        ]
+        with self.assertRaisesRegex(ValueError, r"Upstream version advanced to r-86\.6.*новый Product Release"):
             self.plan("hotfix", upstream=advanced)
 
     def test_upstream_release_is_rejected_when_current_tag_and_seq_are_already_published(self) -> None:
-        with self.assertRaisesRegex(ValueError, r"p-86\.13 / seq 136 уже опубликован как пользовательская версия"):
+        with self.assertRaisesRegex(ValueError, r"r-86\.5 / seq 141 уже опубликован как пользовательская версия"):
             self.plan("upstream-release")
 
     def test_generated_product_and_hotfix_notes_are_russian(self) -> None:
         with patch.object(MODULE.subprocess, "run") as run:
             run.return_value.stdout = "webpanel/www/index.html\n"
             product = MODULE.product_release_notes(
-                "p-86.14", 137, SOURCE_B, upstream_manifest("p-86.14", 137), controlled_manifest(), ROOT
+                "r-86.6", 142, SOURCE_B, upstream_manifest("r-86.6", 142), controlled_manifest(), ROOT
             )
             hotfix = MODULE.hotfix_release_notes(ROOT, controlled_manifest(), SOURCE_B)
-        self.assertIn("# z2kOW p-86.14", product)
-        self.assertIn("Адаптация upstream z2k p-86.14 для OpenWrt.", product)
+        self.assertIn("# z2kOW r-86.6", product)
+        self.assertIn("Адаптация upstream z2k r-86.6 для OpenWrt.", product)
         self.assertRegex(product, "[А-Яа-яЁё]")
         self.assertRegex(hotfix, "[А-Яа-яЁё]")
         self.assertNotIn("Complete OpenWrt payload", product + hotfix)
@@ -287,6 +344,16 @@ class PublicationPolicyTests(unittest.TestCase):
             notes = MODULE.hotfix_release_notes(ROOT, controlled_manifest(), SOURCE_B)
         self.assertIn(MODULE.INTERNAL_ONLY_MESSAGE, notes)
         self.assertNotIn("Обновлена логика", notes)
+
+    def test_rust_proxy_hotfix_notes_are_marked_as_alpha(self) -> None:
+        with patch.object(MODULE.subprocess, "run") as run:
+            run.return_value.stdout = (
+                "patches/tg-ws-proxy-rs/0001-transparent-openwrt.patch\n"
+                "platform/openwrt/tg.sh\n"
+            )
+            notes = MODULE.hotfix_release_notes(ROOT, controlled_manifest(), SOURCE_B)
+        self.assertIn("альфа-тестирование нового протокола Rust TG WS Proxy", notes)
+        self.assertIn("пользовательская версия r-86.5 / seq 141 не меняется", notes)
 
     def test_openwrt_installer_changes_are_not_hidden_as_release_infrastructure(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -318,7 +385,7 @@ class PublicationPolicyTests(unittest.TestCase):
     def test_technical_release_title_never_uses_the_product_version(self) -> None:
         title = MODULE.technical_release_title(SOURCE_B)
         self.assertEqual(title, f"OpenWrt payload {SOURCE_B[:7]}")
-        self.assertNotIn("p-86.13", title)
+        self.assertNotIn("r-86.5", title)
         self.assertRegex(MODULE.technical_release_tag(SOURCE_B), r"^openwrt-[0-9a-f]{40}$")
 
     def test_trust_chain_and_immutability_gates_remain_required(self) -> None:
@@ -423,11 +490,11 @@ class PublicationPolicyTests(unittest.TestCase):
 
     def test_candidate_metadata_rejects_a_hotfix_that_changes_product_version(self) -> None:
         candidate = self.plan("hotfix")
-        candidate["tag"] = "p-86.14"
-        candidate["seq"] = 137
+        candidate["tag"] = "r-86.6"
+        candidate["seq"] = 142
         with self.assertRaisesRegex(ValueError, "preserve the base product tag and sequence"):
             MODULE.validate_candidate_metadata(
-                candidate, source_sha=SOURCE_B, requested_tag="p-86.14", requested_seq=137
+                candidate, source_sha=SOURCE_B, requested_tag="r-86.6", requested_seq=142
             )
 
 

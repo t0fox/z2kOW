@@ -7,7 +7,7 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-tgfw.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 
-mkdir -p "$T/bin" "$T/root/bin" "$T/root/etc" "$T/etc" "$T/tmp" "$T/proc"
+mkdir -p "$T/bin" "$T/root/bin/linux-x86_64" "$T/root/etc" "$T/etc" "$T/tmp" "$T/proc"
 export PATH="$T/bin:$PATH"
 
 # --- mock nft: пишет вызовы, симулирует наличие таблицы ---
@@ -39,18 +39,19 @@ chmod +x "$T/bin/pidof"
 : > "$T/pidof.out"
 
 # --- sysroot ---
-cat > "$T/root/bin/tg-mtproxy-client" <<'EOF'
+cat > "$T/root/bin/linux-x86_64/tg-ws-proxy" <<'EOF'
 #!/bin/sh
 exit 0
 EOF
-chmod +x "$T/root/bin/tg-mtproxy-client"
+chmod +x "$T/root/bin/linux-x86_64/tg-ws-proxy"
 printf 'x\n' > "$T/root/etc/z2k-roots.pem"
 printf 'ENABLED=1\n' > "$T/etc/config"
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_BIN="$T/root/bin" Z2K_RUN="$T/tmp/runtime" Z2K_LOG="$T/tmp/logs"
-export Z2K_TG_BIN="$T/root/bin/tg-mtproxy-client"
+export Z2K_TG_RUST_BIN="$T/root/bin/linux-x86_64/tg-ws-proxy"
 export Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc"
+export Z2K_ADAPTER_DIR="$REPO/platform/openwrt" Z2K_OW_ARCH=x86_64
 export Z2K_TG_HEALTH_DIR="$T/tmp/tg-health"
 # shellcheck disable=SC1090,SC1091
 . "$REPO/platform/openwrt/tg.sh" || { echo "FAIL[ow-tg-firewall]: source tg.sh" >&2; exit 1; }
@@ -62,36 +63,36 @@ z2k_ow_tg_wanted && _t_bad "wanted при ENABLED=0" || _t_ok
 printf 'ENABLED=1\nTG_PROXY_USER_DISABLED=1\n' > "$T/etc/config"
 z2k_ow_tg_wanted && _t_bad "wanted при user-disable" || _t_ok
 printf 'ENABLED=1\n' > "$T/etc/config"
-rm -f "$T/root/bin/tg-mtproxy-client"
+rm -f "$T/root/bin/linux-x86_64/tg-ws-proxy"
 z2k_ow_tg_wanted && _t_bad "wanted без бинарника" || _t_ok
-printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/tg-mtproxy-client"
-chmod +x "$T/root/bin/tg-mtproxy-client"
+printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/linux-x86_64/tg-ws-proxy"
+chmod +x "$T/root/bin/linux-x86_64/tg-ws-proxy"
 
 # --- nft apply: точные shapes ---
 : > "$T/nft.log"
 z2k_ow_tg_nft_apply || _t_bad "nft_apply rc"
 assert_contains "set dc4 создан" "$T/nft.log" 'add set inet zapret2 z2k_tg_dc4 { type ipv4_addr; flags interval; }'
 assert_contains "set dc6 создан" "$T/nft.log" 'add set inet zapret2 z2k_tg_dc6 { type ipv6_addr; flags interval; }'
-assert_contains "set cdn создан" "$T/nft.log" 'add set inet zapret2 z2k_tg_cdn4 { type ipv4_addr; flags interval; }'
+assert_contains "старый набор CDN VPS удаляется при запуске Rust" "$T/nft.log" 'delete set inet zapret2 z2k_tg_cdn4'
+assert_not_contains "старый набор HTTP CDN VPS не устанавливается" "$T/nft.log" 'add set .*z2k_tg_cdn4'
 assert_contains "dc4 элементы" "$T/nft.log" 'add element inet zapret2 z2k_tg_dc4 { 149.154.160.0/20, 91.108.4.0/22, 91.108.8.0/22, 91.108.12.0/22, 91.108.16.0/22, 91.108.20.0/22, 91.108.56.0/22, 91.105.192.0/23, 95.161.64.0/20, 185.76.151.0/24 }'
 assert_contains "dc6 элементы" "$T/nft.log" 'add element inet zapret2 z2k_tg_dc6 { 2001:67c:4e8::/48, 2001:b28:f23c::/47, 2001:b28:f23f::/48, 2a0a:f280:203::/48 }'
-assert_contains "cdn элемент" "$T/nft.log" 'add element inet zapret2 z2k_tg_cdn4 { 168.119.95.238/32 }'
+assert_not_contains "адрес VPS relay не устанавливается" "$T/nft.log" '168\.119\.95\.238'
 assert_contains "chain prerouting" "$T/nft.log" 'add chain inet zapret2 z2k_tg_dst_pre { type nat hook prerouting priority -101; }'
 assert_contains "chain output nat" "$T/nft.log" 'add chain inet zapret2 z2k_tg_dst_out { type nat hook output priority -101; }'
-assert_contains "chain forward" "$T/nft.log" 'add chain inet zapret2 z2k_tg_flt_fwd { type filter hook forward priority -1; }'
-assert_contains "chain output filter" "$T/nft.log" 'add chain inet zapret2 z2k_tg_flt_out { type filter hook output priority -1; }'
+assert_not_contains "старые IPv6 reject-цепочки не создаются" "$T/nft.log" 'add chain inet zapret2 z2k_tg_flt_(fwd|out)'
 assert_contains "chain input guard" "$T/nft.log" 'add chain inet zapret2 z2k_tg_flt_in { type filter hook input priority -1; }'
 assert_contains "redirect 443 pre" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_pre tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443'
+assert_contains "IPv6 TCP/443 перенаправляется в prerouting" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_pre tcp dport 443 ip6 daddr @z2k_tg_dc6 redirect to :1443'
 assert_contains "redirect 443 out" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_out tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443'
-assert_contains "redirect 80 pre" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_pre tcp dport 80 ip daddr @z2k_tg_cdn4 redirect to :1444'
-assert_contains "redirect 80 out" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_out tcp dport 80 ip daddr @z2k_tg_cdn4 redirect to :1444'
-assert_contains "v6 reject fwd" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_fwd ip6 daddr @z2k_tg_dc6 tcp dport {80, 443} reject with icmpv6 type port-unreachable'
-assert_contains "v6 reject out" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_out ip6 daddr @z2k_tg_dc6 tcp dport {80, 443} reject with icmpv6 type port-unreachable'
-assert_contains "guard accept scoped" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_in tcp dport { 1443, 1444 } ct status dnat accept'
-assert_contains "guard drop" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_in tcp dport { 1443, 1444 } drop'
+assert_contains "IPv6 TCP/443 перенаправляется в output" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_out tcp dport 443 ip6 daddr @z2k_tg_dc6 redirect to :1443'
+assert_not_contains "обычный HTTP/80 не перенаправляется" "$T/nft.log" 'dport 80.*redirect'
+assert_contains "метка исходящего сокета исключает цикл перенаправления" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_out meta mark 0x40000000 return'
+assert_contains "guard accept scoped" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_in tcp dport 1443 ct status dnat accept'
+assert_contains "guard drop" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_in tcp dport 1443 drop'
 # порядок в chain: accept СТРОГО до drop (иначе редиректнутые тоже режем)
-_accept_ln="$(grep -n 'z2k_tg_flt_in tcp dport { 1443, 1444 } ct status dnat accept' "$T/nft.log" | head -1 | cut -d: -f1)"
-_drop_ln="$(grep -n 'z2k_tg_flt_in tcp dport { 1443, 1444 } drop' "$T/nft.log" | head -1 | cut -d: -f1)"
+_accept_ln="$(grep -n 'z2k_tg_flt_in tcp dport 1443 ct status dnat accept' "$T/nft.log" | head -1 | cut -d: -f1)"
+_drop_ln="$(grep -n 'z2k_tg_flt_in tcp dport 1443 drop' "$T/nft.log" | head -1 | cut -d: -f1)"
 if [ -n "$_accept_ln" ] && [ -n "$_drop_ln" ] && [ "$_accept_ln" -lt "$_drop_ln" ]; then
     _t_ok
 else
@@ -129,11 +130,11 @@ else
 fi
 rm -f "$T/no-table"
 
-# --- remove: chains да (5), sets нет; cleanup full: и sets ---
+# --- remove: цепочки остаются без наборов; полная очистка удаляет также старые наборы ---
 : > "$T/nft.log"
 z2k_ow_tg_nft_remove
 assert_contains "flush pre" "$T/nft.log" 'flush chain inet zapret2 z2k_tg_dst_pre'
-assert_contains "delete fwd" "$T/nft.log" 'delete chain inet zapret2 z2k_tg_flt_fwd'
+assert_contains "delete legacy fwd" "$T/nft.log" 'delete chain inet zapret2 z2k_tg_flt_fwd'
 assert_contains "delete input guard" "$T/nft.log" 'delete chain inet zapret2 z2k_tg_flt_in'
 assert_eq "remove: chains сняты (5 delete)" "5" "$(grep -c '^nft:delete chain' "$T/nft.log")"
 if grep -E '^nft:delete set' "$T/nft.log" >/dev/null 2>&1; then
@@ -147,35 +148,31 @@ assert_contains "full сносит set dc4" "$T/nft.log" 'delete set inet zapret
 assert_contains "full сносит set dc6" "$T/nft.log" 'delete set inet zapret2 z2k_tg_dc6'
 assert_contains "full сносит set cdn" "$T/nft.log" 'delete set inet zapret2 z2k_tg_cdn4'
 
-# --- conntrack: ровно TG CIDR + CDN, ничего больше ---
+# --- conntrack: только IPv4-сети DC Telegram ---
 : > "$T/conntrack.log"
 z2k_ow_tg_conntrack_flush
-assert_eq "conntrack вызовов" "11" "$(grep -c '^conntrack:-D -d' "$T/conntrack.log")"
+assert_eq "conntrack вызовов" "10" "$(grep -c '^conntrack:-D -d' "$T/conntrack.log")"
 assert_contains "conntrack sample" "$T/conntrack.log" 'conntrack:-D -d 149.154.160.0/20'
-assert_contains "conntrack cdn" "$T/conntrack.log" 'conntrack:-D -d 168.119.95.238/32'
-if grep -vE '^conntrack:-D -d (149\.154\.160\.0/20|91\.108\.(4|8|12|16|20|56)\.0/22|91\.105\.192\.0/23|95\.161\.64\.0/20|185\.76\.151\.0/24|168\.119\.95\.238/32)$' "$T/conntrack.log" >/dev/null 2>&1; then
+assert_not_contains "conntrack не затрагивает старый HTTP CDN relay" "$T/conntrack.log" '168\.119\.95\.238'
+if grep -vE '^conntrack:-D -d (149\.154\.160\.0/20|91\.108\.(4|8|12|16|20|56)\.0/22|91\.105\.192\.0/23|95\.161\.64\.0/20|185\.76\.151\.0/24)$' "$T/conntrack.log" >/dev/null 2>&1; then
     _t_bad "conntrack задел чужое"
 else
     _t_ok
 fi
 
-# --- argv: точная команда, overrides, тишина builder'а ---
+# --- argv: прямой режим Rust, ограничение соединений, без параметров релея ---
 _rec() { printf 'ARGV:%s\n' "$*" >> "$T/argv.log"; }
 : > "$T/argv.log"
 z2k_ow_tg_with_argv _rec
-assert_contains "оба listen" "$T/argv.log" "--listen=:1443 --listen=:1444"
-assert_contains "timeout" "$T/argv.log" "--timeout=15m"
-assert_contains "бинарник из Z2K_BIN" "$T/argv.log" "$T/root/bin/tg-mtproxy-client"
-if grep -q 'tunnel-secret' "$T/argv.log"; then
-    _t_bad "secret без override"
-else
-    _t_ok
-fi
+assert_contains "путь к бинарнику Rust" "$T/argv.log" "$T/root/bin/linux-x86_64/tg-ws-proxy"
+assert_contains "прозрачный режим включён" "$T/argv.log" '--transparent'
+assert_contains "используется один порт прослушивания" "$T/argv.log" '--port=1443'
+assert_contains "число соединений ограничено" "$T/argv.log" '--max-connections=8'
+assert_not_contains "аргументы VPS relay отсутствуют" "$T/argv.log" 'relay|tunnel-url|tunnel-secret|1444'
 printf 'ENABLED=1\nZ2K_RELAY_SECRET=abc123\nZ2K_RELAY_URL=wss://example.test/ws\n' > "$T/etc/config"
 : > "$T/argv.log"
 _out="$(z2k_ow_tg_with_argv _rec 2>"$T/argv.err")"
-assert_contains "override secret" "$T/argv.log" "--tunnel-secret=abc123"
-assert_contains "override url" "$T/argv.log" "--tunnel-url=wss://example.test/ws"
+assert_not_contains "настройки старого relay игнорируются" "$T/argv.log" 'abc123|example\.test|relay'
 assert_eq "builder молчит в stdout" "" "$_out"
 assert_eq "builder молчит в stderr" "" "$(cat "$T/argv.err")"
 printf 'ENABLED=1\n' > "$T/etc/config"
@@ -198,11 +195,8 @@ procd_close_instance() { echo "close" >> "$T/procd.log"; }
 : > "$T/procd.log"
 z2k_ow_tg_start_instance || _t_bad "start_instance rc"
 assert_contains "instance z2k-tg" "$T/procd.log" "instance:z2k-tg"
-assert_contains "GODEBUG" "$T/procd.log" "param:command "
-assert_contains "GODEBUG env" "$T/procd.log" "param:env GODEBUG=asyncpreemptoff=1"
-assert_contains "roots exported in combined env table" "$T/procd.log" "SSL_CERT_FILE=$T/root/etc/z2k-roots.pem"
-assert_contains "final procd environment retains GODEBUG" "$T/procd.env" "GODEBUG=asyncpreemptoff=1"
-assert_eq "all variables fit one procd env table" "1" "$(grep -c '^param:env ' "$T/procd.log")"
+assert_contains "procd запускает Rust-бинарник" "$T/procd.log" "param:command $T/root/bin/linux-x86_64/tg-ws-proxy"
+assert_contains "procd передаёт параметры прозрачного режима" "$T/procd.log" "--transparent"
 assert_not_contains "retired Telegram UDP env is not passed to TCP client" "$T/procd.env" 'Z2K_TG_UDP|UDP_ROUTE'
 assert_contains "respawn bounded" "$T/procd.log" "param:respawn 3600 5 5"
 assert_contains "instance closed" "$T/procd.log" "close"
@@ -217,10 +211,10 @@ else
 fi
 printf 'x\n' > "$T/root/etc/z2k-roots.pem"
 
-# --- pids: матч только по :1443 ---
+# --- процессы: только проверка Rust-процесса ---
 mkdir -p "$T/proc/111" "$T/proc/222" "$T/proc/333"
-printf 'tg-mtproxy-client --listen=:1443 --listen=:1444 --timeout=15m' | tr ' ' '\0' > "$T/proc/111/cmdline"
-printf 'tg-mtproxy-client --listen=:1444 --timeout=15m' | tr ' ' '\0' > "$T/proc/222/cmdline"
+printf 'tg-ws-proxy --port=1443 --transparent' | tr ' ' '\0' > "$T/proc/111/cmdline"
+printf 'tg-ws-proxy --port=1444' | tr ' ' '\0' > "$T/proc/222/cmdline"
 printf 'some-other-daemon' > "$T/proc/333/cmdline"
 printf '111 222 333\n' > "$T/pidof.out"
 assert_eq "матч только :1443" "111" "$(z2k_ow_tg_pids | tr '\n' ' ' | tr -d ' ')"

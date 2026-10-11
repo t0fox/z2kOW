@@ -9,6 +9,8 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-hotfix-identity.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT HUP INT TERM
+printf '36 25 0:32 / %s rw - ext4 /dev/test-overlay rw\n' "$T" > "$T/mountinfo"
+export Z2K_OW_MOUNTINFO_FILE="$T/mountinfo"
 SYS="$T/sys"; STAGE="$T/rootfs"; ARCHIVE="$T/rootfs.tar.gz"; MANIFEST="$T/UPDATES.json"
 TAG="$(awk -F'"' '/"current"[[:space:]]*:/ {print $4; exit}' "$REPO/UPDATES.json")"
 mkdir -p "$STAGE/usr/lib/z2k/platform/openwrt/bin/linux-arm64" \
@@ -21,7 +23,7 @@ make_archive() {
     _payload="$1"
     cp -a "$REPO/platform/openwrt/." "$STAGE/usr/lib/z2k/platform/openwrt/" || return 1
     printf 'release tag %s\n%s\n' "$TAG" "$_payload" > "$STAGE/usr/lib/z2k/version.txt"
-    for _p in "$STAGE/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client" \
+    for _p in "$STAGE/usr/lib/z2k/bin/linux-arm64/tg-ws-proxy" \
         "$STAGE/usr/lib/z2k/bin/linux-arm64/z2k-rt-proxy" "$STAGE/usr/lib/z2k/bin/linux-arm64/z2k-detect" \
         "$STAGE/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd" \
         "$STAGE/opt/zapret2/binaries/linux-arm64/nfqws2" "$STAGE/opt/zapret2/binaries/linux-arm64/ip2net" \
@@ -47,7 +49,8 @@ PY
 
 printf "DISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"
 export Z2K_OW_TESTING=1 Z2K_OW_TEST_HEALTHCHECK=1 Z2K_OW_OPENWRT_RELEASE_FILE="$T/openwrt_release"
-export Z2K_OW_SYSROOT="$SYS" Z2K_ROOT="$SYS/usr/lib/z2k" Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
+export Z2K_OW_SYSROOT="$SYS" Z2K_ROOT="$SYS/usr/lib/z2k" \
+    Z2K_BIN=/usr/lib/z2k/bin Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
 export Z2K_OW_INSTALLED_RELEASE_FILE=/etc/z2k/state/installed-release Z2K_OW_INSTALL_WORK=/usr/lib/.z2k-install
 export Z2K_OW_INSTALL_TMP="$T/tmp" Z2K_OW_MANIFEST_PATH="$MANIFEST" Z2K_OW_ARTIFACT_PATH="$ARCHIVE"
 mkdir -p "$T/tmp"

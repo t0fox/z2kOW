@@ -47,6 +47,8 @@ sha256sum() {
 
 T="$(mktemp -d)" || exit 1
 trap 'rm -rf "$T"' EXIT HUP INT TERM
+printf '36 25 0:32 / %s rw - ext4 /dev/test-overlay rw\n37 36 0:33 / /tmp rw - tmpfs tmpfs rw\n' "$T" > "$T/mountinfo"
+export Z2K_OW_MOUNTINFO_FILE="$T/mountinfo"
 mkdir -p "$T/download-failure-bin"
 cat > "$T/download-failure-bin/wget" <<'EOF_WGET_FAIL'
 #!/bin/sh
@@ -80,8 +82,8 @@ make_artifact() {
         "$_stage/etc/sysctl.d" "$_stage/usr/share/nftables.d/chain-pre/forward"
     printf 'release payload\n' > "$_stage/usr/lib/z2k/platform/openwrt/release.sh"
     cp "$REPO/platform/openwrt/arch.sh" "$_stage/usr/lib/z2k/platform/openwrt/arch.sh"
-    printf 'arm64 tg\n' > "$_stage/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client"
-    printf 'x86 tg\n' > "$_stage/usr/lib/z2k/bin/linux-x86_64/tg-mtproxy-client"
+    printf 'arm64 tg\n' > "$_stage/usr/lib/z2k/bin/linux-arm64/tg-ws-proxy"
+    printf 'x86 tg\n' > "$_stage/usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy"
     printf 'arm64 rt\n' > "$_stage/usr/lib/z2k/bin/linux-arm64/z2k-rt-proxy"
     printf 'x86 rt\n' > "$_stage/usr/lib/z2k/bin/linux-x86_64/z2k-rt-proxy"
     printf 'arm64 detect\n' > "$_stage/usr/lib/z2k/bin/linux-arm64/z2k-detect"
@@ -89,8 +91,8 @@ make_artifact() {
     printf 'arm64 warp\n' > "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd"
     printf 'x86 warp\n' > "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd"
     chmod 0755 \
-        "$_stage/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client" \
-        "$_stage/usr/lib/z2k/bin/linux-x86_64/tg-mtproxy-client" \
+        "$_stage/usr/lib/z2k/bin/linux-arm64/tg-ws-proxy" \
+        "$_stage/usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy" \
         "$_stage/usr/lib/z2k/bin/linux-arm64/z2k-rt-proxy" \
         "$_stage/usr/lib/z2k/bin/linux-x86_64/z2k-rt-proxy" \
         "$_stage/usr/lib/z2k/bin/linux-arm64/z2k-detect" \
@@ -201,19 +203,20 @@ _release_real_tar="$(command -v tar)"
 mkdir -p "$T/extract-failure-bin" "$T/extract-failure-work" \
     "$T/extract-failure-stage" "$T/extract-failure-tmp"
 "$_release_real_tar" -tzf "$T/dist/openwrt-rootfs.tar.gz" > "$T/extract-failure-list"
-cat > "$T/extract-failure-bin/tar" <<'EOF_TAR_FAIL'
+_release_real_xargs="$(command -v xargs)"
+cat > "$T/extract-failure-bin/xargs" <<'EOF_XARGS_FAIL'
 #!/bin/sh
 case " $* " in
-    *' -xzf '*) echo 'ошибка тестовой распаковки' >&2; exit 41 ;;
+    *' tar -xzf '*) echo 'ошибка тестовой распаковки' >&2; exit 41 ;;
 esac
-exec "$Z2K_TEST_REAL_TAR" "$@"
-EOF_TAR_FAIL
-chmod 0755 "$T/extract-failure-bin/tar"
+exec "$Z2K_TEST_REAL_XARGS" "$@"
+EOF_XARGS_FAIL
+chmod 0755 "$T/extract-failure-bin/xargs"
 _extract_error="$(
     (
         PATH="$T/extract-failure-bin:$PATH"
-        Z2K_TEST_REAL_TAR="$_release_real_tar"
-        export PATH Z2K_TEST_REAL_TAR
+        Z2K_TEST_REAL_XARGS="$_release_real_xargs"
+        export PATH Z2K_TEST_REAL_XARGS
         _adapter="$REPO/platform/openwrt"
         z2k_ow_overlay_preflight() { return 0; }
         z2k_ow_memory_preflight() { return 0; }
@@ -303,7 +306,7 @@ _out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
 _state_ok=0; _old_ok=0; _version_ok=0; _config_ok=0
 _state_is_release "$_CURRENT_TAG" "$_CURRENT_SEQ" "$SYS/etc/z2k/state/installed-release" && _state_ok=1
 _identity_ok=0
-grep -q 'legacy-install' "$SYS/etc/z2k/state/relay-id.json" && _identity_ok=1
+[ ! -e "$SYS/etc/z2k/state/relay-id.json" ] && _identity_ok=1
 [ ! -e "$SYS/usr/lib/z2k/legacy.txt" ] && _old_ok=1
 _telemetry_ok=0
 [ ! -e "$SYS/usr/lib/z2k/z2k-stats-upload.sh" ] \
@@ -316,6 +319,51 @@ if [ "$_rc" -eq 0 ] && [ "$_state_ok" = 1 ] && [ "$_identity_ok" = 1 ] && [ "$_o
 else
     _t_bad "legacy full migration to $_CURRENT_TAG retires old strategy telemetry without losing release state: rc=$_rc checks=$_state_ok/$_identity_ok/$_old_ok/$_telemetry_ok/$_version_ok/$_config_ok state=$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null) old=$(test -e "$SYS/usr/lib/z2k/legacy.txt" && echo present || echo absent) uploader=$(test -e "$SYS/usr/lib/z2k/z2k-stats-upload.sh" && echo present || echo absent) version=$(cat "$SYS/usr/lib/z2k/version.txt" 2>/dev/null) config=$(cat "$SYS/etc/z2k/config" 2>/dev/null) output=$_out"
 fi
+
+# Same-version hotfix должен применяться обычным install_release(tag)
+# по новому SHA-256 payload и не менять пользовательский tag/seq.
+_initial_install_output="$_out"
+cp "$T/UPDATES.json" "$T/UPDATES-baseline.json"
+cp "$T/dist/openwrt-rootfs.tar.gz" "$T/openwrt-rootfs-baseline.tar.gz"
+_baseline_sha="$(sha256sum "$T/openwrt-rootfs-baseline.tar.gz" | awk '{print $1}')"
+_hotfix_stage="$T/release-root-hotfix"
+make_artifact "$_hotfix_stage"
+printf 'hotfix payload\n' > "$_hotfix_stage/usr/lib/z2k/platform/openwrt/release.sh"
+tar -czf "$T/dist/openwrt-rootfs.tar.gz" -C "$_hotfix_stage" usr etc opt
+prepare_manifest "$T/dist/openwrt-rootfs.tar.gz" "$T/UPDATES.json" \
+    "https://github.com/t0fox/z2kOW/releases/download/openwrt-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/openwrt-rootfs.tar.gz"
+_hotfix_sha="$(sha256sum "$T/dist/openwrt-rootfs.tar.gz" | awk '{print $1}')"
+_hotfix_decision="$(z2k_ow_release_decision "$T/UPDATES.json" "$SYS/etc/z2k/state/installed-release")"
+assert_eq "изменение SHA-256 архива без смены версии запускает обычное обновление" \
+    "update $_CURRENT_TAG" "$_hotfix_decision"
+_hotfix_out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _hotfix_rc=$?
+_hotfix_state_ok=0 _hotfix_payload_ok=0
+_state_is_release "$_CURRENT_TAG" "$_CURRENT_SEQ" "$SYS/etc/z2k/state/installed-release" && _hotfix_state_ok=1
+[ "$(cat "$SYS/etc/z2k/state/installed-artifact-sha256" 2>/dev/null)" = "$_hotfix_sha" ] && _hotfix_receipt_ok=1 || _hotfix_receipt_ok=0
+grep -qF 'hotfix payload' "$SYS/usr/lib/z2k/platform/openwrt/release.sh" && _hotfix_payload_ok=1
+if [ "$_hotfix_rc" -eq 0 ] && [ "$_hotfix_state_ok" = 1 ] \
+    && [ "$_hotfix_receipt_ok" = 1 ] && [ "$_hotfix_payload_ok" = 1 ] \
+    && [ "$_baseline_sha" != "$_hotfix_sha" ]; then
+    _t_ok
+else
+    _t_bad "same-version hotfix по новому digest проходит штатный установщик: rc=$_hotfix_rc state=$_hotfix_state_ok receipt=$_hotfix_receipt_ok payload=$_hotfix_payload_ok output=$_hotfix_out"
+fi
+
+# Возвращаем фикстуру исходного payload, чтобы следующие сценарии начинались
+# с исходного проверенного состояния и той же пользовательской версии.
+cp "$T/UPDATES-baseline.json" "$T/UPDATES.json"
+cp "$T/openwrt-rootfs-baseline.tar.gz" "$T/dist/openwrt-rootfs.tar.gz"
+_restore_out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _restore_rc=$?
+_restore_ok=0
+[ "$(cat "$SYS/etc/z2k/state/installed-artifact-sha256" 2>/dev/null)" = "$_baseline_sha" ] \
+    && grep -qF 'release payload' "$SYS/usr/lib/z2k/platform/openwrt/release.sh" && _restore_ok=1
+if [ "$_restore_rc" -eq 0 ] && [ "$_restore_ok" = 1 ]; then
+    _t_ok
+else
+    _t_bad "восстановление исходного same-version payload завершилось штатным установщиком: rc=$_restore_rc output=$_restore_out"
+fi
+_out="$_initial_install_output"
+
 if printf '%s\n' "$_out" | grep -qF 'Проверяю совместный запас оперативной памяти и временного хранилища' \
     && printf '%s\n' "$_out" | grep -qF 'Заранее проверяю место для архива, распаковки и отката' \
     && printf '%s\n' "$_out" | grep -qF 'Повторно проверяю место после установки системных зависимостей'; then
@@ -333,8 +381,8 @@ if grep -Eq '^add --no-scripts lighttpd([[:space:]]|$)' "$T/apk.add.log"; then
 else
     _t_bad "lighttpd system dependency install must not enable its default LuCI-port daemon"
 fi
-if [ -f "$SYS/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client" ] \
-    && [ ! -e "$SYS/usr/lib/z2k/bin/linux-x86_64/tg-mtproxy-client" ] \
+if [ -f "$SYS/usr/lib/z2k/bin/linux-arm64/tg-ws-proxy" ] \
+    && [ ! -e "$SYS/usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy" ] \
     && [ -f "$SYS/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd" ] \
     && [ ! -e "$SYS/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd" ] \
     && [ -f "$SYS/opt/zapret2/binaries/linux-arm64/nfqws2" ] \
@@ -421,13 +469,13 @@ fi
 
 # Канонический tag сам по себе не подтверждает целостность повреждённого payload.
 # Перед no-op проверяется набор исполняемых файлов выбранной архитектуры.
-rm -f "$SYS/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client"
+rm -f "$SYS/usr/lib/z2k/bin/linux-arm64/tg-ws-proxy"
 _out="$(z2k_ow_install_release "$_CURRENT_TAG" 2>&1)"; _rc=$?
 if [ "$_rc" -eq 0 ] && printf '%s\n' "$_out" | grep -q "^Установлен выпуск $_CURRENT_TAG$" \
-    && [ -x "$SYS/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client" ]; then
+    && [ -x "$SYS/usr/lib/z2k/bin/linux-arm64/tg-ws-proxy" ]; then
     _t_ok
 else
-    _t_bad "matching tag masked a missing target binary instead of repairing it: rc=$_rc mode=$(ls -ld "$SYS/usr/lib/z2k/bin/linux-arm64/tg-mtproxy-client" 2>/dev/null) archive=$(tar -tvzf "$T/dist/openwrt-rootfs.tar.gz" 2>/dev/null | grep 'linux-arm64/tg-mtproxy-client') output=$_out"
+    _t_bad "tag совпал, но отсутствующий Rust-бинарник не восстановлен: rc=$_rc mode=$(ls -ld "$SYS/usr/lib/z2k/bin/linux-arm64/tg-ws-proxy" 2>/dev/null) archive=$(tar -tvzf "$T/dist/openwrt-rootfs.tar.gz" 2>/dev/null | grep 'linux-arm64/tg-ws-proxy') output=$_out"
 fi
 
 # Намеренная переустановка той же версии заменяет проверенные файлы на месте,
@@ -503,9 +551,9 @@ cp "$T/direct-reinstall-before-low-space.txt" "$SYS/usr/lib/z2k/version.txt"
 
 # Если распаковка после освобождения прежних путей прерывается, откат заново
 # извлекает тот же сверенный архив и удаляет временные данные после проверки.
-_real_tar="$(command -v tar)"
+_real_xargs="$(command -v xargs)"
 mkdir -p "$T/direct-reinstall-fail-bin"
-cat > "$T/direct-reinstall-fail-bin/tar" <<'EOF_DIRECT_TAR_FAIL'
+cat > "$T/direct-reinstall-fail-bin/xargs" <<'EOF_DIRECT_XARGS_FAIL'
 #!/bin/sh
 if [ -n "${Z2K_TEST_DIRECT_ROOT:-}" ] && [ -n "${Z2K_TEST_DIRECT_FAIL_MARKER:-}" ] \
     && [ ! -e "$Z2K_TEST_DIRECT_FAIL_MARKER" ] \
@@ -515,16 +563,16 @@ if [ -n "${Z2K_TEST_DIRECT_ROOT:-}" ] && [ -n "${Z2K_TEST_DIRECT_FAIL_MARKER:-}"
     echo 'искусственный обрыв распаковки' >&2
     exit 47
 fi
-exec "$Z2K_TEST_REAL_TAR" "$@"
-EOF_DIRECT_TAR_FAIL
-chmod 0755 "$T/direct-reinstall-fail-bin/tar"
+exec "$Z2K_TEST_REAL_XARGS" "$@"
+EOF_DIRECT_XARGS_FAIL
+chmod 0755 "$T/direct-reinstall-fail-bin/xargs"
 printf 'повреждено перед проверкой отката\n' > "$SYS/usr/lib/z2k/version.txt"
 _out="$( (
     PATH="$T/direct-reinstall-fail-bin:$PATH"
-    Z2K_TEST_REAL_TAR="$_real_tar"
+    Z2K_TEST_REAL_XARGS="$_real_xargs"
     Z2K_TEST_DIRECT_ROOT="${SYS%/}/"
     Z2K_TEST_DIRECT_FAIL_MARKER="$T/direct-reinstall-fail-once"
-    export PATH Z2K_TEST_REAL_TAR Z2K_TEST_DIRECT_ROOT Z2K_TEST_DIRECT_FAIL_MARKER
+    export PATH Z2K_TEST_REAL_XARGS Z2K_TEST_DIRECT_ROOT Z2K_TEST_DIRECT_FAIL_MARKER
     z2k_ow_install_release --reinstall "$_CURRENT_TAG"
 ) 2>&1)"; _rc=$?
 if [ "$_rc" -ne 0 ] \
@@ -1143,6 +1191,57 @@ else
     _t_bad "healthy install did not commit target state: rc=$_rc state=$(cat "$HEALTH_SYS/etc/z2k/state/installed-release" 2>/dev/null) output=$_out"
 fi
 
+# При ошибке первой установки остановить кандидатные службы до удаления их init-скриптов.
+FRESH_SYS="$T/fresh-sys"
+FRESH_STAGE="$T/fresh-stage"
+FRESH_EVENTS="$T/fresh-service-events"
+FRESH_TG_RUNNING="$T/fresh-tg-running"
+FRESH_PANEL_RUNNING="$T/fresh-panel-running"
+FRESH_HELPER="$T/fresh-service-helper"
+mkdir -p "$FRESH_SYS/etc/z2k/state" "$FRESH_SYS/etc/init.d" "$FRESH_SYS/usr/lib" \
+    "$FRESH_SYS/usr/bin" "$FRESH_SYS/usr/sbin"
+printf 'ENABLED=1\n' > "$FRESH_SYS/etc/z2k/config"
+make_artifact "$FRESH_STAGE"
+tar -czf "$T/dist/fresh-rootfs.tar.gz" -C "$FRESH_STAGE" usr etc opt
+prepare_manifest "$T/dist/fresh-rootfs.tar.gz" "$T/fresh-UPDATES.json"
+cat > "$FRESH_HELPER" <<'EOF_FRESH_HELPER'
+#!/bin/sh
+svc=${1##*/}
+shift
+op=${1:-}
+case "$op:$svc" in
+    enable:*) exit 0 ;;
+    restart:z2k|start:z2k) : > "$FRESH_TG_RUNNING"; exit 0 ;;
+    restart:z2k-webpanel|start:z2k-webpanel) : > "$FRESH_PANEL_RUNNING"; exit 0 ;;
+    stop:z2k) echo 'z2k stop' >> "$FRESH_EVENTS"; rm -f "$FRESH_TG_RUNNING"; exit 0 ;;
+    stop:z2k-webpanel) echo 'z2k-webpanel stop' >> "$FRESH_EVENTS"; rm -f "$FRESH_PANEL_RUNNING"; exit 0 ;;
+    status:z2k) [ -e "$FRESH_TG_RUNNING" ] ;;
+    running:z2k-webpanel) [ -e "$FRESH_PANEL_RUNNING" ] ;;
+    *) exit 0 ;;
+esac
+EOF_FRESH_HELPER
+chmod 0755 "$FRESH_HELPER"
+_out="$( (
+    export Z2K_OW_SYSROOT="$FRESH_SYS" Z2K_OW_MANIFEST_PATH="$T/fresh-UPDATES.json"
+    export Z2K_OW_ARTIFACT_PATH="$T/dist/fresh-rootfs.tar.gz"
+    export Z2K_OW_TEST_SERVICE_HELPER="$FRESH_HELPER"
+    export FRESH_EVENTS FRESH_TG_RUNNING FRESH_PANEL_RUNNING
+    z2k_ow_webpanel_http_ready() { return 1; }
+    sleep() { :; }
+    z2k_ow_install_release "$_CURRENT_TAG"
+) 2>&1)"; _rc=$?
+if [ "$_rc" -ne 0 ] \
+    && printf '%s\n' "$_out" | grep -q 'Z2KOW_ROLLBACK=complete' \
+    && [ ! -e "$FRESH_TG_RUNNING" ] && [ ! -e "$FRESH_PANEL_RUNNING" ] \
+    && grep -qx 'z2k stop' "$FRESH_EVENTS" \
+    && grep -qx 'z2k-webpanel stop' "$FRESH_EVENTS" \
+    && [ ! -e "$FRESH_SYS/etc/init.d/z2k" ] \
+    && [ ! -e "$FRESH_SYS/etc/init.d/z2k-webpanel" ]; then
+    _t_ok
+else
+    _t_bad "откат первой установки оставил кандидатную службу или init-скрипт: rc=$_rc tg=$([ -e "$FRESH_TG_RUNNING" ] && echo running || echo stopped) panel=$([ -e "$FRESH_PANEL_RUNNING" ] && echo running || echo stopped) events=$(cat "$FRESH_EVENTS" 2>/dev/null) output=$_out"
+fi
+
 # С ENABLED=0 установка обновляет файлы, но не включает и не запускает dataplane.
 printf 'ENABLED=0\n' > "$HEALTH_SYS/etc/z2k/config"
 rm -f "$HEALTH_SYS/disabled-service-actions"
@@ -1286,7 +1385,7 @@ else
 fi
 # После очистки временной распаковки не оставлять пустой стандартный каталог.
 CANONICAL_SYSROOT="$T/canonical-sysroot"
-CANONICAL_TMP="$CANONICAL_SYSROOT/tmp/z2kow-install-stage"
+CANONICAL_TMP="$CANONICAL_SYSROOT/usr/lib/.z2kow-install-stage"
 CANONICAL_TMP_WORK="$CANONICAL_TMP/z2kow-release"
 CANONICAL_CLEANUP_WORK="$CANONICAL_SYSROOT/usr/lib/.z2k-install"
 mkdir -p "$CANONICAL_TMP_WORK" "$CANONICAL_CLEANUP_WORK"

@@ -94,14 +94,25 @@ for _warpd in "$WARPD_DIR"/linux-*/z2k-warpd; do
 done
 [ "$_warpd_count" -eq 7 ] || die "ожидалось 7 сборок z2k-warpd для разных архитектур, найдено: $_warpd_count"
 _tg_count=0
-for _tg in "$TG_DIR"/linux-*/tg-mtproxy-client; do
+for _tg in "$TG_DIR"/linux-*/tg-ws-proxy; do
     [ -f "$_tg" ] || continue
     _arch=${_tg#*/linux-}
-    _arch=${_arch%/tg-mtproxy-client}
-    copy_data "$_tg" "usr/lib/z2k/bin/linux-$_arch/tg-mtproxy-client" 0755
+    _arch=${_arch%/tg-ws-proxy}
+    case "$_arch" in arm64|x86_64) ;; *) die "недопустимая архитектура Rust TG WS Proxy: $_arch" ;; esac
+    copy_data "$_tg" "usr/lib/z2k/bin/linux-$_arch/tg-ws-proxy" 0755
     _tg_count=$((_tg_count + 1))
 done
-[ "$_tg_count" -eq 7 ] || die "ожидалось 7 проверенных сборок клиента Telegram для разных архитектур, найдено: $_tg_count"
+[ "$_tg_count" -eq 2 ] || die "ожидалось ровно 2 сборки Rust TG WS Proxy (ARM64/x86_64), найдено: $_tg_count"
+copy_data "$TG_DIR/LICENSE" usr/share/licenses/tg-ws-proxy-rs/LICENSE
+copy_data "$TG_DIR/PROVENANCE" usr/share/licenses/tg-ws-proxy-rs/PROVENANCE
+
+# Опубликованный install_release p-86.17 проверяет это старое имя исполняемого
+# файла после распаковки общего архива. В переходный архив входит только
+# безопасная заглушка; rootfs_bundle.py удаляет её из обычных архивов архитектур.
+for _arch in arm arm64 mips mipsel riscv64 x86 x86_64; do
+    copy_data "$ROOT/platform/openwrt/legacy-transition/tg-mtproxy-client" \
+        "usr/lib/z2k/bin/linux-$_arch/tg-mtproxy-client" 0755
+done
 
 _rt_count=0
 for _rt in "$RT_DIR"/linux-*/z2k-rt-proxy; do

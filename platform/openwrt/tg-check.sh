@@ -1,6 +1,6 @@
 #!/bin/sh
-# platform/openwrt/tg-check.sh - cron entrypoint TG health-check (Stage 3).
-# Каждые 5 минут: конвергенция TG rules + probe + kill-only backoff.
+# platform/openwrt/tg-check.sh — проверка правил и процесса Telegram на Rust.
+# Каждые 5 минут проверяет принадлежащие z2k правила nft и слушатель.
 # Никогда не стартует демона (это делает procd) и не воскрешает при disable.
 Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
 Z2K_ETC="${Z2K_ETC:-/etc/z2k}"

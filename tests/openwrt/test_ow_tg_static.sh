@@ -79,10 +79,17 @@ for _bad in 'priority dstnat -' 'priority dstnat +' 'priority filter -' 'priorit
     assert_not_contains "tg.sh: нет арифметики приоритетов ($_bad)" "$_TGCODE" "$_bad"
 done
 
-# --- один процесс на оба порта ---
-assert_contains "tg.sh: argv строит оба listen" "$TG" '"--listen=:$Z2K_TG_PORT" "--listen=:$Z2K_TG_CDN_PORT"'
-assert_contains "tg.sh: timeout 15m" "$TG" '"--timeout=$Z2K_TG_TIMEOUT"'
-assert_contains "tg.sh: GODEBUG" "$TG" 'GODEBUG=asyncpreemptoff=1'
+# --- один прозрачный слушатель Rust без релея и второго обработчика CDN ---
+assert_contains "tg.sh: Rust слушает только :1443" "$TG" '"--port=$Z2K_TG_PORT"'
+assert_contains "tg.sh: включён прозрачный режим obfuscated2" "$TG" '--transparent --pool-size=0'
+assert_contains "tg.sh: ограничение одновременных сессий" "$TG" '--max-connections=$Z2K_TG_MAX_CONNECTIONS'
+assert_not_contains "tg.sh: порт CDN 1444 не используется" "$_TGCODE" '1444|Z2K_TG_CDN_PORT'
+assert_not_contains "tg.sh: настройки старого relay отсутствуют" "$_TGCODE" 'Z2K_RELAY_URL|Z2K_RELAY_SECRET|relay-id-file|TG_MTPROTO_PROXY'
+assert_not_contains "tg.sh: старый Go-клиент не запускается" "$_TGCODE" 'exec .*tg-mtproxy-client|procd_set_param command .*tg-mtproxy-client'
+_TG_UI="$REPO/webpanel/www/js/pages/toggles.js"
+assert_contains "панель показывает неподдерживаемый тип" "$_TG_UI" 'Тип не поддерживается'
+assert_contains "панель отключает включение при неподдерживаемом типе" "$_TG_UI" 'setLockAware(enableBtn, tgRunning || tgUnavailable);'
+assert_contains "панель отключает управление при отсутствии Rust-бинарника" "$_TG_UI" 'const tgUnavailable = !tgSupported || !tgInstalled;'
 # второго сервиса нет
 if [ -f "$REPO/platform/openwrt/files/etc/init.d/z2k-tg" ]; then
     _t_bad "второй init-сервис z2k-tg существует (должен быть один owner)"
@@ -113,13 +120,14 @@ else
 fi
 # v6 — icmpv6-reject, не redirect и не drop (TCP RST невозможен для IPv6:
 # парсер ядра отвергает `reject with tcp reset` в v6-контексте — Stage 8)
-assert_contains "tg.sh: v6 reject" "$TG" 'reject with icmpv6 type port-unreachable'
-assert_not_contains "tg.sh: v6 не redirect" "$_TGCODE" 'ip6 daddr.*redirect'
+assert_contains "tg.sh: IPv6 Telegram 443 redirected" "$TG" 'tcp dport 443 ip6 daddr "@$Z2K_TG_SET6" redirect to ":$Z2K_TG_PORT"'
+assert_not_contains "tg.sh: no legacy IPv6 reject" "$_TGCODE" 'reject with icmpv6'
+assert_not_contains "tg.sh: no ordinary HTTP CDN redirect" "$_TGCODE" 'dport 80.*redirect'
 # INPUT-guard: scoped accept (порты + dnat) строго до drop; blanket
 # `ct status dnat accept` без портов обошёл бы fw4-input для чужого DNAT.
 assert_contains "tg.sh: input chain" "$TG" 'type filter hook input priority -1'
-assert_contains "tg.sh: guard accept scoped" "$TG" 'tcp dport "{ $Z2K_TG_PORT, $Z2K_TG_CDN_PORT }" ct status dnat accept'
-assert_contains "tg.sh: guard drop" "$TG" 'tcp dport "{ $Z2K_TG_PORT, $Z2K_TG_CDN_PORT }" drop'
+assert_contains "tg.sh: guard accept scoped" "$TG" 'tcp dport "$Z2K_TG_PORT" ct status dnat accept'
+assert_contains "tg.sh: guard drop" "$TG" 'tcp dport "$Z2K_TG_PORT" drop'
 if grep -E 'add rule .* ct status dnat accept' "$_TGCODE" | grep -v 'tcp dport' >/dev/null 2>&1; then
     _t_bad "tg.sh: blanket ct-status accept без портов"
 else
@@ -145,16 +153,17 @@ assert_contains "uninstall: tg cron remove" "$UNINST" 'z2k_ow_tg_cron_remove'
 assert_contains "complete builder stages only real OpenWrt runtime dependencies during install" "$REPO/platform/openwrt/release.sh" 'apk add'
 assert_not_contains "full payload builder has no component APK recipe" "$BUILDER" 'apk[[:space:]]+(build|add|del)|abuild'
 assert_contains "rootfs includes TG implementation" "$BUILDER" 'platform/openwrt/*.sh'
-assert_contains "one payload stages architecture-specific TG clients" "$BUILDER" \
-    'usr/lib/z2k/bin/linux-$_arch/tg-mtproxy-client'
-assert_contains "candidate fetches TG binaries from the pinned upstream release" \
-    "$REPO/scripts/openwrt/build-release.sh" 'fetch_upstream_tg.py'
-assert_contains "TG download verifies each upstream files_sha256 digest" \
-    "$REPO/scripts/openwrt/fetch_upstream_tg.py" 'upstream TG binary SHA-256 mismatch'
-assert_contains "TG downloader pins the exact controlled upstream commit" \
-    "$REPO/scripts/openwrt/fetch_upstream_tg.py" 'provenance.get("commit")'
-assert_contains "TG route identity is stored in persistent state" "$TG" \
-    '--relay-id-file=$Z2K_RELAY_ID_FILE'
+assert_contains "rootfs добавляет Rust-бинарник по архитектуре" "$BUILDER" \
+    'usr/lib/z2k/bin/linux-$_arch/tg-ws-proxy'
+assert_contains "кандидат собирает закреплённый исходный код Rust с локальным патчем" \
+    "$REPO/scripts/openwrt/build-release.sh" 'build_tg_ws_proxy.sh'
+assert_contains "коммит upstream Rust закреплён" "$REPO/platform/openwrt/tg-ws-proxy.pin" \
+    'COMMIT=53c8bfe5e9efa561cf61a862c0371f1f8ba33869'
+assert_contains "патч с нулевым контекстом применяется к закреплённому upstream" \
+    "$REPO/scripts/openwrt/build_tg_ws_proxy.sh" 'git -C "$_src" apply --unidiff-zero "$_patch"'
+assert_contains "сборка Rust ограничена ARM64 и x86_64" \
+    "$REPO/scripts/openwrt/build_tg_ws_proxy.sh" \
+    'aarch64-unknown-linux-musl:arm64:arm64-gcc x86_64-unknown-linux-musl:x86_64:host-gcc'
 
 # --- COMMON_HOOK в au_service_for_binary ---
 assert_contains "au: openwrt-ветка" "$AU" 'Z2K_PLATFORM:-keenetic}" = "openwrt"'

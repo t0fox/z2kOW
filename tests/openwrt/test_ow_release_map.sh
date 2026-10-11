@@ -30,8 +30,11 @@ for _unused in cf_extra_check_ips.txt ipset-exclude.txt telegram_ips.txt \
     assert_eq "unconsumed Keenetic seed $_unused is excluded from OpenWrt" \
         '' "$(_ow "files/lists/$_unused")"
 done
-assert_eq "Telegram TLS roots remain in payload" \
-    '/usr/lib/z2k/etc/z2k-roots.pem' "$(_ow files/etc/z2k-roots.pem)"
+assert_eq "путь доверенного сертификата Telegram Keenetic не меняется" \
+    '/opt/zapret2/etc/z2k-roots.pem' \
+    "$(Z2K_PLATFORM=keenetic z2k_install_paths files/etc/z2k-roots.pem)"
+assert_eq "relay-сертификат Keenetic не добавляется в OpenWrt" \
+    '' "$(_ow files/etc/z2k-roots.pem)"
 assert_eq "obsolete updater key is not a second OpenWrt trust authority" \
     '' "$(_ow files/etc/z2k-update-pub.pem)"
 assert_contains "staging materializes common source into the one full tree" \

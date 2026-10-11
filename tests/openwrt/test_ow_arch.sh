@@ -16,16 +16,22 @@ assert_eq "x86_64" "amd64" "$(z2k_ow_goarch x86_64)"
 assert_eq "mipsel_24kc" "mipsle" "$(z2k_ow_goarch mipsel_24kc)"
 assert_eq "mips64el" "mips64le" "$(z2k_ow_goarch mips64el)"
 assert_eq "armv7" "arm" "$(z2k_ow_goarch arm_cortex-a7_neon-vfpv4)"
-assert_eq "TG binary arm64" "/payload/bin/linux-arm64/tg-mtproxy-client" \
-    "$(z2k_ow_tg_bin_path /payload/bin aarch64)"
-assert_eq "TG binary mipsel" "/payload/bin/linux-mipsel/tg-mtproxy-client" \
-    "$(z2k_ow_tg_bin_path /payload/bin mipsel_24kc)"
 assert_eq "RT binary MIPS uses OpenWrt subtarget" "/payload/bin/linux-mipsel/z2k-rt-proxy" \
     "$(z2k_ow_arch_bin_path /payload/bin z2k-rt-proxy mipsel_24kc)"
 assert_eq "detector binary ARM64" "/payload/bin/linux-arm64/z2k-detect" \
     "$(z2k_ow_arch_bin_path /payload/bin z2k-detect aarch64_cortex-a53)"
-z2k_ow_tg_bin_path /payload/bin mips64el >/dev/null 2>&1 \
-    && _t_bad "отсутствующая в runtime MIPS64LE арка ошибочно поддержана" || _t_ok
+assert_eq "цель Rust для ARM64" "aarch64-unknown-linux-musl" \
+    "$(z2k_ow_tg_rust_target aarch64_cortex-a53)"
+assert_eq "цель Rust для x86_64" "x86_64-unknown-linux-musl" \
+    "$(z2k_ow_tg_rust_target x86_64)"
+assert_eq "путь к Rust-бинарнику ARM64" "/payload/bin/linux-arm64/tg-ws-proxy" \
+    "$(z2k_ow_tg_rust_bin_path /payload/bin aarch64)"
+assert_eq "путь к Rust-бинарнику x86_64" "/payload/bin/linux-x86_64/tg-ws-proxy" \
+    "$(z2k_ow_tg_rust_bin_path /payload/bin x86_64)"
+for _unsupported in armv7l i686 mips_24kc mipsel_24kc mips64el riscv64; do
+    z2k_ow_tg_rust_target "$_unsupported" >/dev/null 2>&1 \
+        && _t_bad "для $_unsupported ошибочно выбрана цель Rust" || _t_ok
+done
 z2k_ow_goarch "mips_r2_gcc" >/dev/null 2>&1 && _t_ok || _t_bad "mips (be) не маппится"
 z2k_ow_goarch "something-unknown-xyz" >/dev/null 2>&1 \
     && _t_bad "неизвестная арка угадана" || _t_ok

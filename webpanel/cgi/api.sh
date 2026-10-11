@@ -395,7 +395,31 @@ case "$method $path" in
         printf '}'
         [ -n "$tiktok_status_json" ] && printf ',"tiktok_feed_status":%s' "$tiktok_status_json"
         [ -n "$doh_status_json" ] && printf ',"doh":%s' "$doh_status_json"
-        printf ',"tunnel":{"running":%s}' "${tunnel_running:-false}"
+        if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] \
+            && command -v z2k_ow_tg_arch_supported >/dev/null 2>&1; then
+            tunnel_supported=true
+            tunnel_installed=true
+            tunnel_status='Rust TG WS Proxy'
+            tunnel_message='Прозрачный Telegram TCP/443 через Rust TG WS Proxy.'
+            if ! z2k_ow_tg_arch_supported; then
+                tunnel_supported=false
+                tunnel_installed=false
+                tunnel_status='Тип не поддерживается'
+                tunnel_message='Rust TG WS Proxy недоступен для этой архитектуры.'
+            elif [ ! -x "${Z2K_TG_RUST_BIN:-}" ]; then
+                tunnel_installed=false
+                tunnel_status='Не установлен'
+                tunnel_message='В релизе отсутствует Rust TG WS Proxy для этой архитектуры.'
+            fi
+            printf ',"tunnel":{"running":%s,"supported":%s,"installed":%s,"status":' \
+                "${tunnel_running:-false}" "$tunnel_supported" "$tunnel_installed"
+            json_string "$tunnel_status"
+            printf ',"message":'
+            json_string "$tunnel_message"
+            printf '}'
+        else
+            printf ',"tunnel":{"running":%s}' "${tunnel_running:-false}"
+        fi
         # OpenWrt capability visibility (§18): только openwrt, Keenetic-байты
         # не меняются. shapes preserved, ключи аддитивны (фрагмент уже
         # в кавычках — добавляем только запятую).

@@ -25,8 +25,7 @@ assert_contains "OpenWrt service diagnostics include compact DoH ownership state
 assert_contains "DoH diagnostics reports the LAN force-DNS flag" "$AD" 'force_lan_dns'
 assert_contains "adapter hook exported" "$ENV" 'Z2K_DIAG_HOOK='
 assert_contains "adapter hook reads procd state" "$AD" '"$_init" running'
-assert_contains "p-86.10 diagnostic reports queued Telegram CONNECT drops" "$AD" 'CONNECT throttled'
-assert_contains "OpenWrt diagnostic falls back to procd logread" "$AD" 'logread'
+assert_not_contains "диагностика OpenWrt не проверяет старые отказы CONNECT-релея" "$AD" 'CONNECT throttled|tg-mtproxy-client'
 assert_contains "adapter hook uses canonical core-ready predicate" "$AD" 'z2k_ow_core_ready'
 assert_contains "adapter hook checks nft NFQUEUE" "$AD" 'queue flags bypass to 200'
 assert_contains "adapter hook uses OpenWrt nfq path" "$AD" 'Z2K_NFQWS2'
@@ -35,7 +34,7 @@ assert_contains "direct OpenWrt diagnostic bootstraps platform env" "$DIAG" 'pla
 assert_contains "direct OpenWrt diagnostic loads hook" "$DIAG" 'platform/openwrt/env.sh'
 assert_contains "canonical nfq path is exported" "$ENV" 'export Z2K_NFQWS2'
 assert_contains "adapter hook selects architecture TG binary" "$REPO/platform/openwrt/tg.sh" \
-    'z2k_ow_tg_bin_path "${Z2K_BIN:-/usr/lib/z2k/bin}"'
+    'z2k_ow_tg_rust_bin_path "${Z2K_BIN:-/usr/lib/z2k/bin}"'
 assert_contains "adapter hook resolves architecture WARP runtime path" "$AD" 'z2k_ow_warp_bin_path "$_warp_adapter"'
 assert_contains "offload observer preserves the disabled state" "$OFFLOAD_OBSERVE" 'disabled) printf disabled ;;'
 assert_contains "offload observer reports unavailable evidence explicitly" "$OFFLOAD_OBSERVE" \
@@ -146,14 +145,12 @@ chmod +x "$T/bin/ping" "$T/bin/curl" "$T/bin/logread" "$T/bin/date"
 _today=$(date '+%Y-%m-%d')
 printf '%s 12:00:00 FAIL: warp games index unavailable — keeping current lists\n' "$_today" \
     > "$T/log/z2k-warp-games.log"
-printf '%s\n' 'identity registered for 203.0.113.7' 'CONNECT_OK' > "$T/log/tg-tunnel.log"
 printf '{"ts":%s,"results":[{"name":"Резолвер роутера","udp":"works","verdict":"works"}]}' \
     "$(date +%s)" > "$T/dns-check.json"
 _diag_full=$(PATH="$T/bin:$PATH" Z2K_TEST_NOW=0 VPS_IP=198.51.100.7 Z2K_PLATFORM=openwrt Z2K_ROOT="$REPO" Z2K_ETC="$T/etc/z2k" \
     Z2K_STATE="$T/etc/z2k/state" Z2K_TMP="$T/tmp" Z2K_LOG="$T/log" \
     Z2K_DIAG_LOGS="$T/log/z2k-warp-games.log" \
     Z2K_DIAG_STARTUP_LOG="$T/log/z2k-warp-games.log" \
-    Z2K_DIAG_TUNNEL_LOG="$T/log/tg-tunnel.log" \
     Z2K_DIAG_DNS_CHECK_JSON="$T/dns-check.json" Z2K_PING_ARGS_FILE="$T/ping-args" \
     ZAPRET2_DIR="$T/root" sh "$DIAG" --full 2>/dev/null)
 printf '%s\n' "$_diag_full" > "$T/diag-full.txt"
@@ -161,14 +158,11 @@ assert_contains "OpenWrt diag sees the actual WARP game-list failure" "$T/diag-f
     'FAIL: warp games index unavailable'
 assert_contains "OpenWrt diag identifies the native WARP log" "$T/diag-full.txt" \
     'z2k-warp-games.log'
-assert_contains "OpenWrt tunnel probes parse the upstream three-packet ping" "$T/diag-full.txt" \
-    'VPS ping 198.51.100.7     : avg 12.5 ms, loss 33%'
-assert_contains "OpenWrt tunnel clock compares against the relay date" "$T/diag-full.txt" \
-    'clock vs relay    : +0 s (ок)'
-assert_contains "OpenWrt tunnel shows its actual log path" "$T/diag-full.txt" \
-    "tunnel log        : $T/log/tg-tunnel.log"
-assert_contains "OpenWrt tunnel shows recent CONNECT events" "$T/diag-full.txt" 'CONNECT_OK'
-assert_eq "OpenWrt tunnel ping uses exactly three short-timeout packets" '-c 3 -W 2 198.51.100.7' "$(cat "$T/ping-args")"
+assert_contains "диагностика сообщает о Rust-прокси Telegram" "$T/diag-full.txt" \
+    'Прозрачный Telegram-прокси Rust WS'
+assert_not_contains "диагностика не проверяет доступность VPS разработчика" "$T/diag-full.txt" \
+    'VPS ping|clock vs relay|198\.51\.100\.7|CONNECT_OK'
+assert_eq "диагностика не запускает проверку VPS через ping" "" "$(cat "$T/ping-args" 2>/dev/null || true)"
 awk '
   /^=== что не так ===$/ { health=1; next }
   health && /^=== / { exit }
@@ -190,21 +184,16 @@ assert_contains "OpenWrt network path includes the DNS pin probe" "$T/network-pa
 assert_contains "OpenWrt network path includes Insta refresh state" "$T/network-path-section.txt" \
     'Insta IP refresh'
 
-# procd sends stdout/stderr to logread on devices where the configured file
-# logger path does not exist. The common tunnel renderer must retain that log.
-_diag_procd_log=$(PATH="$T/bin:$PATH" Z2K_TEST_NOW=0 VPS_IP=198.51.100.7 Z2K_PLATFORM=openwrt \
+# Адаптер OpenWrt показывает состояние Rust и не читает старые журналы Go-релея.
+_diag_procd_log=$(PATH="$T/bin:$PATH" Z2K_TEST_NOW=0 Z2K_PLATFORM=openwrt \
     Z2K_ROOT="$REPO" Z2K_ETC="$T/etc/z2k" Z2K_STATE="$T/etc/z2k/state" \
     Z2K_TMP="$T/tmp" Z2K_LOG="$T/log" Z2K_DIAG_LOGS="$T/log/z2k-warp-games.log" \
     Z2K_DIAG_STARTUP_LOG="$T/log/z2k-warp-games.log" \
-    Z2K_DIAG_TUNNEL_LOG="$T/log/no-tg-file.log" \
     Z2K_DIAG_DNS_CHECK_JSON="$T/dns-check.json" ZAPRET2_DIR="$T/root" \
     sh "$DIAG" --report 2>/dev/null)
 printf '%s\n' "$_diag_procd_log" > "$T/diag-procd-log.txt"
-assert_contains "OpenWrt tunnel falls back to procd logread" "$T/diag-procd-log.txt" \
-    'tunnel log        : procd logread (z2k-tg)'
-assert_contains "OpenWrt tunnel shows recent procd CONNECT events" "$T/diag-procd-log.txt" 'CONNECT_OK'
-assert_contains "OpenWrt report masks addresses from procd tunnel logs" "$T/diag-procd-log.txt" \
-    'identity registered for x.x.x.x'
+assert_not_contains "отчёт OpenWrt не содержит состояние старой регистрации" "$T/diag-procd-log.txt" \
+    'identity registered|CONNECT_OK|tg-mtproxy-client'
 
 # The OpenWrt replacement for Keenetic ip host must inspect its owned dnsmasq
 # addnhosts file and registration, not skip the shared IP-refresh evidence.
@@ -264,42 +253,57 @@ assert_contains "OpenWrt diag respects the user's disabled Insta pins state" \
 assert_contains "OpenWrt diag respects the user's disabled refresh state" \
     "$T/diag-insta-disabled.txt" 'Insta IP refresh  : disabled by user'
 
-# The shared PID predicate must ignore the HTTP-only :1444 process.
+# Адаптер OpenWrt распознаёт только слушатель Rust и сообщает о неподдерживаемой
+# архитектуре, не предлагая выведенный из работы сервис Go как резервный вариант.
+mkdir -p "$T/proc/net" "$T/root/bin"
+printf '0: 00000000:05A3 00000000:0000 0A\n' > "$T/proc/net/tcp"
+printf '\n' > "$T/proc/net/tcp6"
+printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/tg-ws-proxy"
+chmod +x "$T/root/bin/tg-ws-proxy"
 cat > "$T/bin/ps" <<'EOF'
 #!/bin/sh
-printf '%s\n' ' 123 root 1000 S tg-mtproxy-client --listen=:1444'
+printf '%s\n' ' 123 root 1000 S tg-mtproxy-client --listen=:1443'
 EOF
 chmod +x "$T/bin/ps"
-_diag_tunnel_1444=$(PATH="$T/bin:$PATH" Z2K_ROOT="$REPO" Z2K_DIAG_TUNNEL_LOG="$T/log/tg-tunnel.log" \
-    sh "$AD" tunnel 2>/dev/null)
-printf '%s\n' "$_diag_tunnel_1444" > "$T/diag-tunnel-1444.txt"
-assert_contains "HTTP-only :1444 process is not mistaken for Telegram :1443" \
-    "$T/diag-tunnel-1444.txt" 'process :1443      : 0'
-assert_contains "HTTP-only :1444 process does not make tunnel ready" \
-    "$T/diag-tunnel-1444.txt" 'state              : down'
+_diag_tunnel_legacy=$(PATH="$T/bin:$PATH" Z2K_ROOT="$REPO" Z2K_BIN="$T/root/bin" \
+    Z2K_TG_RUST_BIN="$T/root/bin/tg-ws-proxy" Z2K_TG_PORT=1443 \
+    Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc" Z2K_ADAPTER_DIR="$REPO/platform/openwrt" \
+    Z2K_OW_ARCH=x86_64 sh "$AD" tunnel 2>/dev/null)
+printf '%s\n' "$_diag_tunnel_legacy" > "$T/diag-tunnel-legacy.txt"
+assert_contains "старый процесс Go не считается Rust-прокси" "$T/diag-tunnel-legacy.txt" \
+    'процесс :1443      : 0'
+assert_contains "старый процесс Go не подтверждает готовность Rust" "$T/diag-tunnel-legacy.txt" \
+    'состояние          : не работает'
+
 cat > "$T/bin/ps" <<'EOF'
 #!/bin/sh
-printf '%s\n' ' 123 root 1000 S tg-mtproxy-client --listen=:1443 --timeout=15m'
+printf '%s\n' ' 123 root 1000 S tg-ws-proxy --port=1443 --transparent'
 EOF
-_diag_tunnel_1443=$(PATH="$T/bin:$PATH" Z2K_ROOT="$REPO" Z2K_DIAG_TUNNEL_LOG="$T/log/tg-tunnel.log" \
-    sh "$AD" tunnel 2>/dev/null)
-printf '%s\n' "$_diag_tunnel_1443" > "$T/diag-tunnel-1443.txt"
-assert_contains "Telegram listener process on :1443 is counted" \
-    "$T/diag-tunnel-1443.txt" 'process :1443      : 1'
-assert_contains "Telegram listener process on :1443 is ready" \
-    "$T/diag-tunnel-1443.txt" 'state              : ready'
+chmod +x "$T/bin/ps"
+_diag_tunnel_rust=$(PATH="$T/bin:$PATH" Z2K_ROOT="$REPO" Z2K_BIN="$T/root/bin" \
+    Z2K_TG_RUST_BIN="$T/root/bin/tg-ws-proxy" Z2K_TG_PORT=1443 \
+    Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc" Z2K_ADAPTER_DIR="$REPO/platform/openwrt" \
+    Z2K_OW_ARCH=x86_64 sh "$AD" tunnel 2>/dev/null)
+printf '%s\n' "$_diag_tunnel_rust" > "$T/diag-tunnel-rust.txt"
+assert_contains "процесс Rust и TCP-слушатель готовы" "$T/diag-tunnel-rust.txt" \
+    'состояние          : работает'
 
-_diag_report=$(PATH="$T/bin:$PATH" Z2K_TEST_NOW=121 VPS_IP=198.51.100.7 Z2K_PLATFORM=openwrt Z2K_ROOT="$REPO" \
+_diag_unsupported=$(PATH="$T/bin:$PATH" Z2K_ROOT="$REPO" Z2K_BIN="$T/root/bin" \
+    Z2K_TG_RUST_BIN="$T/root/bin/tg-ws-proxy" Z2K_TG_PORT=1443 \
+    Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc" Z2K_ADAPTER_DIR="$REPO/platform/openwrt" \
+    Z2K_OW_ARCH=mips sh "$AD" tunnel 2>/dev/null)
+printf '%s\n' "$_diag_unsupported" > "$T/diag-unsupported.txt"
+assert_contains "неподдерживаемая архитектура показана явно" \
+    "$T/diag-unsupported.txt" 'Тип не поддерживается'
+
+_diag_report=$(PATH="$T/bin:$PATH" Z2K_TEST_NOW=121 Z2K_PLATFORM=openwrt Z2K_ROOT="$REPO" \
     Z2K_ETC="$T/etc/z2k" Z2K_STATE="$T/etc/z2k/state" Z2K_TMP="$T/tmp" Z2K_LOG="$T/log" \
     Z2K_DIAG_LOGS="$T/log/z2k-warp-games.log" Z2K_DIAG_STARTUP_LOG="$T/log/z2k-warp-games.log" \
-    Z2K_DIAG_TUNNEL_LOG="$T/log/tg-tunnel.log" Z2K_DIAG_DNS_CHECK_JSON="$T/dns-check.json" \
-    ZAPRET2_DIR="$T/root" sh "$DIAG" --report 2>/dev/null)
+    Z2K_DIAG_DNS_CHECK_JSON="$T/dns-check.json" ZAPRET2_DIR="$T/root" \
+    sh "$DIAG" --report 2>/dev/null)
 printf '%s\n' "$_diag_report" > "$T/diag-report.txt"
-assert_contains "clock skew beyond the upstream 120 second threshold is unhealthy" \
-    "$T/diag-report.txt" 'clock vs relay    : +121 s — ВНЕ ДОПУСКА (±120)'
-assert_contains "report mode masks addresses in Telegram logs" "$T/diag-report.txt" 'identity registered for x.x.x.x'
-assert_not_contains "report mode does not expose raw addresses in Telegram logs" \
-    "$T/diag-report.txt" 'identity registered for 203\.0\.113\.7'
+assert_not_contains "отчёты OpenWrt не проверяют время ответа старого VPS" "$T/diag-report.txt" \
+    'clock vs relay|203\.0\.113\.7|VPS ping|213\.176\.74\.63'
 
 # fw4 recovery messages stay in logread's finite system ring buffer and only
 # the newest twenty matching lines enter a detailed firewall report.

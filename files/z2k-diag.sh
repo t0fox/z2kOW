@@ -59,7 +59,11 @@ Z2K_DIAG_HOOK="${Z2K_DIAG_HOOK:-}"
 z2k_diag_hook() {
     [ -n "$Z2K_DIAG_HOOK" ] && [ -x "$Z2K_DIAG_HOOK" ]
 }
-VPS_IP="${VPS_IP:-213.176.74.63}"
+# В диагностике Keenetic до миграции остаётся проверка старого туннеля.
+# OpenWrt этот код не вызывает: состояние туннеля проверяет Rust-адаптер.
+if [ "${Z2K_PLATFORM:-keenetic}" != openwrt ]; then
+    VPS_IP="${VPS_IP:-213.176.74.63}"
+fi
 
 MODE="full"
 case "${1:-}" in
@@ -771,12 +775,13 @@ print_iptables() {
 # =============================================================================
 print_tunnel() {
     if z2k_diag_hook; then
-        local _tunnel_rc=0
-        "$Z2K_DIAG_HOOK" tunnel || _tunnel_rc=$?
-        if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
-            print_tunnel_live_probes
-        fi
-        return "$_tunnel_rc"
+        "$Z2K_DIAG_HOOK" tunnel
+        return $?
+    fi
+    if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+        printf '\n=== Telegram Rust WS Proxy ===\n'
+        printf 'диагностика        : адаптер OpenWrt недоступен\n'
+        return 0
     fi
     printf '\n=== telegram tunnel ===\n'
     local tg_bin="/opt/sbin/tg-mtproxy-client"
@@ -827,46 +832,6 @@ print_tunnel() {
         grep -aE 'identity|registered|register attempt|занят другим|перерегистр|перевыпуск' "$tg_log" 2>/dev/null \
             | tail -8 | sed 's/^/  /'
         tail -4 "$tg_log" 2>/dev/null | sed 's/^/  /'
-    else
-        printf 'tunnel log        : нет (%s)\n' "$tg_log"
-    fi
-}
-
-# Platform-neutral relay reachability checks and tunnel log context. OpenWrt
-# supplies the owned process/listener details in its adapter; these probes are
-# the same upstream checks used by the Keenetic renderer.
-print_tunnel_live_probes() {
-    local rtt_and_loss vps_rtt vps_loss skew tg_log tg_log_lines
-    rtt_and_loss=$(ping_vps_rtt)
-    vps_rtt=$(printf '%s\n' "$rtt_and_loss" | awk '{print $1}')
-    vps_loss=$(printf '%s\n' "$rtt_and_loss" | awk '{print $2}')
-    printf 'VPS ping %s     : avg %s ms, loss %s%%\n' "$VPS_IP" "${vps_rtt:---}" "${vps_loss:---}"
-    skew=$(clock_skew_vs_relay 2>/dev/null)
-    case "$skew" in
-        ''|*[!0-9-]*) printf 'clock vs relay    : не удалось выяснить\n' ;;
-        *)  if [ "$skew" -gt 120 ] || [ "$skew" -lt -120 ]; then
-                printf 'clock vs relay    : %+d s — ВНЕ ДОПУСКА (±120), туннель не поднимется\n' "$skew"
-            else
-                printf 'clock vs relay    : %+d s (ок)\n' "$skew"
-            fi ;;
-    esac
-    tg_log="${Z2K_DIAG_TUNNEL_LOG:-${Z2K_TG_LOG_FILE:-/tmp/z2k-log/tg-tunnel.log}}"
-    if [ -r "$tg_log" ]; then
-        printf 'tunnel log        : %s\n' "$tg_log"
-        grep -aE 'identity|registered|register attempt|занят другим|перерегистр|перевыпуск' "$tg_log" 2>/dev/null \
-            | tail -8 | z2k_mask_addrs | sed 's/^/  /'
-        tail -4 "$tg_log" 2>/dev/null | z2k_mask_addrs | sed 's/^/  /'
-    elif [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] && z2k_diag_hook; then
-        tg_log_lines=$("$Z2K_DIAG_HOOK" tunnel-log 2>/dev/null)
-        if [ -n "$tg_log_lines" ]; then
-            printf 'tunnel log        : procd logread (z2k-tg)\n'
-            printf '%s\n' "$tg_log_lines" \
-                | grep -aE 'identity|registered|register attempt|занят другим|перерегистр|перевыпуск' \
-                | tail -8 | z2k_mask_addrs | sed 's/^/  /'
-            printf '%s\n' "$tg_log_lines" | tail -4 | z2k_mask_addrs | sed 's/^/  /'
-        else
-            printf 'tunnel log        : нет (%s)\n' "$tg_log"
-        fi
     else
         printf 'tunnel log        : нет (%s)\n' "$tg_log"
     fi
@@ -2148,7 +2113,16 @@ fi
 # ровно в них лежит причина двух самых частых обращений: «панель не открывается»
 # и «детектор молчит». Отсутствующие файлы пропускаются сами ([ -r ]), так что
 # лишних строк на роутере без этих подсистем не будет.
-Z2K_DIAG_LOGS="${Z2K_DIAG_LOGS:-/opt/var/log/z2k-auto-update.log /opt/var/log/z2k-scheduler.log
+if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+    Z2K_DIAG_LOGS="${Z2K_DIAG_LOGS:-/opt/var/log/z2k-auto-update.log /opt/var/log/z2k-scheduler.log
+/opt/zapret2/update-lists.log /tmp/z2k/logs/tg-ws-proxy.log
+/tmp/z2k-warp/warpd.log /tmp/z2k-log/z2k-rt-proxy.log
+/tmp/z2k-log/z2k-insta-refresh.log /tmp/z2k-log/z2k-webpanel-error.log
+/tmp/z2k-log/z2k-webpanel-sup.log /tmp/z2k-log/z2k-webpanel-startcheck.log
+/tmp/z2k-log/z2k-webpanel-wait.log}"
+    Z2K_DIAG_TUNNEL_LOG="${Z2K_DIAG_TUNNEL_LOG:-/tmp/z2k/logs/tg-ws-proxy.log}"
+else
+    Z2K_DIAG_LOGS="${Z2K_DIAG_LOGS:-/opt/var/log/z2k-auto-update.log /opt/var/log/z2k-scheduler.log
 /opt/zapret2/update-lists.log /tmp/z2k-log/tg-tunnel.log
 /tmp/z2k-warp/warpd.log /tmp/z2k-log/z2k-rt-proxy.log /tmp/z2k-log/z2k-http-tunnel.log
 /tmp/z2k-log/z2k-insta-refresh.log /tmp/z2k-log/z2k-webpanel-error.log

@@ -1,18 +1,19 @@
 #!/bin/sh
-# platform/openwrt/paths.sh - единый источник OpenWrt-путей z2k.
+# platform/openwrt/paths.sh — единый источник путей OpenWrt для z2k.
 #
 # Единственное место, где записаны литералы /etc/z2k, /usr/lib/z2k, /tmp/z2k
-# и /tmp/z2kow-install-stage.
+# и постоянный каталог временных данных установщика.
 # Все остальные файлы адаптера берут пути отсюда.
 # Каждая переменная переопределяема окружением — это же используют тесты.
 #
-# Filesystem-модель (см. ARCHITECTURE.md):
-#   /etc/z2k/          persistent: config, state/, autocircular/, user-lists/, conf/
-#   /usr/lib/z2k/      payload (read-only): lib/, lua/, fake/, lists/,
+# Модель файловой системы (см. ARCHITECTURE.md):
+#   /etc/z2k/          постоянные данные: config, state/, autocircular/, user-lists/, conf/
+#   /usr/lib/z2k/      данные продукта (только чтение): lib/, lua/, fake/, lists/,
 #                      extra_strats/, manifests/, platform/
-#   /tmp/z2k/          transient: runtime/, locks/, logs/, downloads/, generated/
+#   /tmp/z2k/          временные данные: runtime/, locks/, logs/, downloads/, generated/
+#   /usr/lib/.z2kow-install-stage/ — постоянное хранение архива и распаковки выпуска
 
-# --- persistent ---
+# --- постоянные данные ---
 Z2K_ETC="${Z2K_ETC:-/etc/z2k}"
 Z2K_CONFIG="${Z2K_CONFIG:-$Z2K_ETC/config}"
 Z2K_STATE="${Z2K_STATE:-$Z2K_ETC/state}"
@@ -45,18 +46,21 @@ Z2K_EXTRA_STRATS_DIR="${Z2K_EXTRA_STRATS_DIR:-$Z2K_ROOT/extra_strats}"
 # вызовов materialize.sh (каталог всё равно передаётся параметром).
 Z2K_MANIFESTS_DIR="${Z2K_MANIFESTS_DIR:-$Z2K_ROOT}"
 Z2K_ADAPTER_DIR="${Z2K_ADAPTER_DIR:-$Z2K_ROOT/platform/openwrt}"
-# TLS bundle для TG-демона (доставляется updater'ом через files/etc/*,
-# release_map: files/etc/* -> $Z2K_ROOT/etc/). Переопределяем для тестов.
-Z2K_TG_TLS_BUNDLE="${Z2K_TG_TLS_BUNDLE:-$Z2K_ROOT/etc/z2k-roots.pem}"
+# --- постоянный каталог для подготовки выпуска ---
+if [ -z "${Z2K_OW_INSTALL_TMP:-}" ]; then
+    case "${Z2K_OW_SYSROOT:-}" in
+        ''|/) Z2K_OW_INSTALL_TMP=/usr/lib/.z2kow-install-stage ;;
+        *) Z2K_OW_INSTALL_TMP="${Z2K_OW_SYSROOT%/}/usr/lib/.z2kow-install-stage" ;;
+    esac
+fi
 
 # --- transient (tmpfs) ---
 Z2K_TMP="${Z2K_TMP:-/tmp/z2k}"
 Z2K_AUTOCIRCULAR_FALLBACK_DIR="${Z2K_AUTOCIRCULAR_FALLBACK_DIR:-$Z2K_TMP/autocircular}"
-Z2K_OW_INSTALL_TMP="${Z2K_OW_INSTALL_TMP:-/tmp/z2kow-install-stage}"
 Z2K_WARP_TMP="${Z2K_WARP_TMP:-/tmp/z2k-warp}"
 Z2K_OW_CANON_TMP_SUFFIX="/tmp/z2k"
 Z2K_OW_CANON_WARP_TMP_SUFFIX="/tmp/z2k-warp"
-Z2K_OW_CANON_INSTALL_TMP_SUFFIX="/tmp/z2kow-install-stage"
+Z2K_OW_CANON_INSTALL_TMP_SUFFIX="/usr/lib/.z2kow-install-stage"
 Z2K_OW_CANON_JOB_PREFIX="/tmp/z2k-job-"
 Z2K_WARP_DOMAIN_RULES="${Z2K_WARP_DOMAIN_RULES:-$Z2K_WARP_TMP/domains.v1}"
 Z2K_RUN="${Z2K_RUN:-$Z2K_TMP/runtime}"

@@ -131,10 +131,10 @@ if grep -Fq 'openwrt-unified:' "$CI" \
    && grep -Fq 'scripts/openwrt/verify_source_ci.py' "$RELEASE" \
    && ! grep -Fq 'uses: ./.github/workflows/ci.yml' "$RELEASE" \
    && grep -Fq 'stage-rootfs.sh' "$BUILDER" \
-   && grep -Fq 'fetch_upstream_tg.py' "$BUILDER" \
+   && grep -Fq 'build_tg_ws_proxy.sh' "$BUILDER" \
    && grep -Fq 'RT_DIR' "$STAGER" \
    && grep -Fq 'DETECT_DIR' "$STAGER"; then
-    ok "CI builds seven architecture payloads with one checked migration fallback"
+    ok "CI проверяет Rust-сборки для ARM64 и x86_64"
 else
     no "CI builds per-architecture payloads and pins the migration fallback" \
        "seven-architecture candidate, exact-SHA gate, checked fallback, pinned TG/RT/detector and staging" "contract missing"

@@ -355,14 +355,8 @@ z2k_ow_runtime_preflight() {
             return 1
         fi
     done
-    # Required z2k-owned binaries are included in the one complete rootfs.
-    # The Telegram executable is selected by OpenWrt architecture; RT and the
-    # retained diagnostic detector keep their established direct paths.
-    _tg_bin="${Z2K_TG_BIN:-${Z2K_BIN:-/usr/lib/z2k/bin}/tg-mtproxy-client}"
-    if [ ! -x "$_tg_bin" ]; then
-        echo "z2k-openwrt: missing required binary: $_tg_bin (full release payload is incomplete)" >&2
-        return 1
-    fi
+    # На неподдерживаемых роутерах Telegram необязателен; его архитектура и
+    # состояние установки отображаются отдельно. Это не блокирует общий dataplane.
     for _n in z2k-rt-proxy z2k-detect; do
         if [ ! -x "${Z2K_BIN:-/usr/lib/z2k/bin}/$_n" ]; then
             echo "z2k-openwrt: missing required binary: ${Z2K_BIN:-/usr/lib/z2k/bin}/$_n (full release payload is incomplete)" >&2

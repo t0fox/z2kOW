@@ -1,15 +1,14 @@
 #!/bin/sh
-# platform/openwrt/arch.sh - OpenWrt arch/target -> GOARCH (имена upstream).
+# platform/openwrt/arch.sh — сопоставление архитектуры/цели OpenWrt с GOARCH.
 #
-# Upstream GOARCH-имена НЕ меняем (arm64, mipsle, ...): эта функция лишь
-# опознаёт их по строкам OpenWrt target/subtarget, когда `uname -m`
-# недостаточно точен для выбора общей release-бинарной сборки.
-# $1 — строка (OpenWrt target, e.g. aarch64_cortex-a53); empty prefers
-# /etc/openwrt_release DISTRIB_ARCH and then falls back to uname -m.
-# Печатает GOARCH; неизвестное — провал без вывода (fail-safe).
+# Имена GOARCH проекта upstream не меняем (arm64, mipsle и другие): функция
+# распознаёт их по цели и подцели OpenWrt, когда `uname -m` недостаточно точен.
+# $1 — строка цели OpenWrt, например aarch64_cortex-a53; пустое значение
+# сначала использует DISTRIB_ARCH из /etc/openwrt_release, затем `uname -m`.
+# Возвращает GOARCH; неизвестная архитектура означает безопасный отказ без вывода.
 
-# OpenWrt's target triplet distinguishes endian/ABI cases that uname -m often
-# collapses (notably 24Kc MIPS). Prefer the router's own target metadata.
+# Целевая тройка OpenWrt различает ABI и порядок байтов, которые `uname -m`
+# иногда объединяет (в частности MIPS 24Kc). Предпочитаем метаданные роутера.
 z2k_ow_detect_arch() {
     local _release="${Z2K_OW_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}" _value=""
     if [ -r "$_release" ]; then
@@ -34,7 +33,7 @@ z2k_ow_arch_name() {
     esac
 }
 
-# Resolve an executable from the complete multi-architecture release payload.
+# Найти исполняемый файл в полном релизном наборе для разных архитектур.
 z2k_ow_arch_bin_path() {
     local _root="$1" _name="$2" _arch
     _arch="$(z2k_ow_arch_name "${3:-$(z2k_ow_detect_arch)}")" || return 1
@@ -73,7 +72,7 @@ z2k_ow_goarch() {
 }
 
 # Return the architecture-specific WARP engine path inside the one full payload.
-# The directory names follow the upstream zapret2 runtime layout exactly.
+    # Имена каталогов точно соответствуют раскладке runtime zapret2 upstream.
 z2k_ow_warp_bin_path() {
     local _root="$1" _input="${2:-$(z2k_ow_detect_arch)}" _arch
     _arch="$(z2k_ow_goarch "$_input")" || return 1
@@ -85,26 +84,33 @@ z2k_ow_warp_bin_path() {
         mips) _arch=mips ;;
         mipsle) _arch=mipsel ;;
         riscv64) _arch=riscv64 ;;
-        # The pinned zapret2 runtime has no little-endian MIPS64 binaries.
+        # В закреплённом runtime zapret2 нет сборок MIPS64 с обратным порядком байтов.
         *) return 1 ;;
     esac
     printf '%s/bin/linux-%s/z2k-warpd\n' "${_root%/}" "$_arch"
 }
 
-# Select the Telegram tunnel binary from the same complete architecture bundle.
-# The installer ships every supported OpenWrt arch under one payload root.
-z2k_ow_tg_bin_path() {
-    local _root="$1" _input="${2:-$(z2k_ow_detect_arch)}" _arch
-    _arch="$(z2k_ow_goarch "$_input")" || return 1
-    case "$_arch" in
-        arm64) _arch=arm64 ;;
-        arm) _arch=arm ;;
-        amd64) _arch=x86_64 ;;
-        386) _arch=x86 ;;
-        mips) _arch=mips ;;
-        mipsle) _arch=mipsel ;;
-        riscv64) _arch=riscv64 ;;
+
+# Rust TG WS Proxy собирается только для двух поддерживаемых архитектур OpenWrt.
+# Эта проверка отделена от старого сопоставления GOARCH, чтобы остальные
+# инструменты z2k продолжали работать на прежних платформах во время миграции.
+z2k_ow_tg_rust_target() {
+    local _s
+    _s="$(printf '%s' "${1:-$(z2k_ow_detect_arch)}" | tr 'A-Z' 'a-z')"
+    case "$_s" in
+        *aarch64*|*arm64*) printf '%s\n' aarch64-unknown-linux-musl ;;
+        *x86_64*|*amd64*) printf '%s\n' x86_64-unknown-linux-musl ;;
         *) return 1 ;;
     esac
-    printf '%s/linux-%s/tg-mtproxy-client\n' "${_root%/}" "$_arch"
+}
+
+z2k_ow_tg_rust_bin_path() {
+    local _root="$1" _target _arch
+    _target="$(z2k_ow_tg_rust_target "${2:-$(z2k_ow_detect_arch)}")" || return 1
+    case "$_target" in
+        aarch64-*) _arch=arm64 ;;
+        x86_64-*) _arch=x86_64 ;;
+        *) return 1 ;;
+    esac
+    printf '%s/linux-%s/tg-ws-proxy\n' "${_root%/}" "$_arch"
 }

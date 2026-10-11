@@ -134,7 +134,7 @@ def _matches_arch(relative: PurePosixPath, arch: str) -> bool:
 
 
 def build_rootfs_bundle(staged_root: Path, output: Path, arch: str | None = None) -> None:
-    """Упаковка rootfs; arch=None сохраняет полный переходный payload."""
+    """Упаковать rootfs, оставляя выбранную архитектуру и переходный маркер."""
     if arch is not None and arch not in _ARCHES:
         raise ValueError(f"неподдерживаемая архитектура: {arch}")
     root = Path(staged_root).resolve()

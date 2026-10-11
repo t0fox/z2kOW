@@ -254,6 +254,12 @@ printf '#!/bin/sh\nprintf done > "%s/tcp16-probe-ran"\n' "$T" > "$T/root/z2k-tcp
 chmod +x "$T/root/z2k-tcp16-probe.sh"
 printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/z2k-detect"
 chmod +x "$T/root/bin/z2k-detect"
+mkdir -p "$T/root/bin/linux-arm64"
+printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/linux-arm64/tg-ws-proxy"
+chmod +x "$T/root/bin/linux-arm64/tg-ws-proxy"
+mkdir -p "$T/root/bin/linux-x86_64"
+printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/linux-x86_64/tg-ws-proxy"
+chmod +x "$T/root/bin/linux-x86_64/tg-ws-proxy"
 
 # --- CGI caller (как lighttpd; HTTP_X_Z2K_PANEL обязателен) ---
 _cgi() { # <METHOD> <PATH> [QUERY] [bodyfile]
@@ -795,6 +801,20 @@ assert_eq "update: controlled sequence comes from UPDATES.json" "134" "$(_jget "
 assert_not_contains "update: no package/snapshot versions leak into the one release API" "$OUT" "_package"
 assert_not_contains "update: payload/seed metadata is not a user update version" "$OUT" '"seed"'
 assert_eq "update: available comes from signed controlled release" "p-86.11" "$(_jget "$OUT" 'd["available"]')"
+printf 'TG_PROXY_USER_DISABLED=1\n' > "$T/etc/config"
+export Z2K_OW_ARCH=mips
+RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "статус сообщает о неподдерживаемой архитектуре" "Тип не поддерживается" "$(_jget "$OUT" 'd["tunnel"]["status"]')"
+assert_eq "статус сообщает о недоступности Rust-прокси" "false" "$(_jget "$OUT" 'd["tunnel"]["supported"]')"
+RAW="$(_cgi POST /tunnel/enable)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "включение Telegram: задача создана" "true" "$(_jget "$OUT" 'd["ok"]')"
+_jid="$(_jget "$OUT" 'd["job"]')"
+JOB_IDS="$JOB_IDS $_jid"
+_poll_job_fail "$_jid" "архитектура Telegram Rust не поддерживается"
+assert_eq "включение при неподдерживаемой архитектуре сохраняет настройку" "1" "$(grep -m1 '^TG_PROXY_USER_DISABLED=' "$T/etc/config" | cut -d= -f2)"
+assert_not_contains "включение при неподдерживаемой архитектуре не перезапускает службу" "$T/init.log" '^init:reload$'
+unset Z2K_OW_ARCH
+
 assert_eq "update: same-version reinstall is exposed only on OpenWrt" "true" "$(_jget "$OUT" 'd["reinstall_supported"]')"
 assert_eq "update: signed manifest is cached with controlled authority" "controlled" "$(cat "$AU_MANIFEST_CACHE.authority")"
 assert_eq "update: no fetch failure for valid controlled signature" "false" "$(_jget "$OUT" 'd["fetch_failed"]')"

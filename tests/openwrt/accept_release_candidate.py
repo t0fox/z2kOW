@@ -81,15 +81,16 @@ def check_installed_architecture(sysroot: Path, arch: str, label: str) -> None:
     ]
     if foreign:
         raise RuntimeError(f"{label}: установлен payload чужих архитектур: {foreign[:5]}")
-    required = (
-        sysroot / f"usr/lib/z2k/bin/linux-{arch}/tg-mtproxy-client",
+    required = [
         sysroot / f"usr/lib/z2k/bin/linux-{arch}/z2k-rt-proxy",
         sysroot / f"usr/lib/z2k/bin/linux-{arch}/z2k-detect",
         sysroot / f"usr/lib/z2k/platform/openwrt/bin/linux-{arch}/z2k-warpd",
         sysroot / f"opt/zapret2/binaries/linux-{arch}/nfqws2",
         sysroot / f"opt/zapret2/binaries/linux-{arch}/ip2net",
         sysroot / f"opt/zapret2/binaries/linux-{arch}/mdig",
-    )
+    ]
+    if arch in {"arm64", "x86_64"}:
+        required.append(sysroot / f"usr/lib/z2k/bin/linux-{arch}/tg-ws-proxy")
     missing = [str(path) for path in required if not path.is_file() or not os.access(path, os.X_OK)]
     if missing:
         raise RuntimeError(f"{label}: отсутствуют исполняемые файлы целевой архитектуры: {missing}")
@@ -121,7 +122,9 @@ def main() -> int:
     original_manifest_hash = hashlib.sha256(manifest_source.read_bytes()).hexdigest()
     original_artifact_hash = hashlib.sha256(artifact_data).hexdigest()
 
-    with tempfile.TemporaryDirectory(prefix="z2kow-candidate-acceptance-") as temp_name:
+    storage_root = Path(os.environ.get("RUNNER_TEMP", "/var/tmp")).resolve()
+    storage_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="z2kow-candidate-acceptance-", dir=storage_root) as temp_name:
         work = Path(temp_name)
         served = work / "http"
         bin_dir = work / "bin"
@@ -261,7 +264,7 @@ esac
 
         check_bootstrap("настоящий bootstrap и runtime-ссылки после свежей установки")
 
-        installed_binary = sysroot / "usr/lib/z2k/bin/linux-x86_64/tg-mtproxy-client"
+        installed_binary = sysroot / "usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy"
         if not installed_binary.is_file() or not os.access(installed_binary, os.X_OK):
             raise RuntimeError("в свежей установке отсутствует исполняемый файл x86_64")
         binary_hash = hashlib.sha256(installed_binary.read_bytes()).hexdigest()

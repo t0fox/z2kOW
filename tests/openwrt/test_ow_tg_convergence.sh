@@ -6,13 +6,13 @@ _t_plan "ow-tg-convergence"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-tgconv.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
-mkdir -p "$T/bin" "$T/root/bin" "$T/root/etc" "$T/etc" "$T/tmp"
+mkdir -p "$T/bin" "$T/root/bin/linux-x86_64" "$T/root/etc" "$T/etc" "$T/tmp"
 export PATH="$T/bin:$PATH"
-cat > "$T/root/bin/tg-mtproxy-client" <<'EOF'
+cat > "$T/root/bin/linux-x86_64/tg-ws-proxy" <<'EOF'
 #!/bin/sh
 exit 0
 EOF
-chmod +x "$T/root/bin/tg-mtproxy-client"
+chmod +x "$T/root/bin/linux-x86_64/tg-ws-proxy"
 printf 'ENABLED=1\n' > "$T/etc/config"
 
 cat > "$T/bin/nft" <<EOF
@@ -31,9 +31,9 @@ case "\$1 \$2" in
   "list chain")
     if [ -f "$T/drift" ] && [ "\$5" = z2k_tg_dst_pre ]; then exit 0; fi
     case "\$5" in
-      z2k_tg_dst_pre|z2k_tg_dst_out) printf 'tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443\ntcp dport 80 ip daddr @z2k_tg_cdn4 redirect to :1444\n' ;;
-      z2k_tg_flt_fwd|z2k_tg_flt_out) printf 'ip6 daddr @z2k_tg_dc6 tcp dport { 80, 443 } reject with icmpv6 port-unreachable\n' ;;
-      z2k_tg_flt_in) printf 'tcp dport { 1443, 1444 } ct status dnat accept\ntcp dport { 1443, 1444 } drop\n' ;;
+      z2k_tg_dst_pre) printf 'tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443\ntcp dport 443 ip6 daddr @z2k_tg_dc6 redirect to :1443\n' ;;
+      z2k_tg_dst_out) printf 'meta mark 0x40000000 return\ntcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443\ntcp dport 443 ip6 daddr @z2k_tg_dc6 redirect to :1443\n' ;;
+      z2k_tg_flt_in) printf 'tcp dport 1443 ct status dnat accept\ntcp dport 1443 drop\n' ;;
       z2k_tg_udp_mark|z2k_tg_udp_fwd) exit 1 ;;
     esac
     exit 0 ;;
@@ -58,7 +58,8 @@ chmod +x "$T/bin/curl"
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_BIN="$T/root/bin" Z2K_CONFIG="$T/etc/config"
-export Z2K_TG_BIN="$T/root/bin/tg-mtproxy-client"
+export Z2K_TG_RUST_BIN="$T/root/bin/linux-x86_64/tg-ws-proxy"
+export Z2K_ADAPTER_DIR="$REPO/platform/openwrt" Z2K_OW_ARCH=x86_64
 export Z2K_TG_HEALTH_DIR="$T/tmp/tg-health"
 . "$REPO/platform/openwrt/tg.sh" || exit 1
 z2k_ow_tg_running() { return 0; }

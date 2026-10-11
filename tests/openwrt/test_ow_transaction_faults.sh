@@ -9,6 +9,8 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-transaction-faults.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT HUP INT TERM
+printf '36 25 0:32 / %s rw - ext4 /dev/test-overlay rw\n' "$T" > "$T/mountinfo"
+export Z2K_OW_MOUNTINFO_FILE="$T/mountinfo"
 SYS="$T/sys"
 STAGE="$T/rootfs"
 ARCHIVE="$T/rootfs.tar.gz"
@@ -24,7 +26,7 @@ _tag="$(awk -F'"' '/"current"[[:space:]]*:/ {print $4; exit}' "$REPO/UPDATES.jso
 _seq="$(awk '/"seq"[[:space:]]*:/ {gsub(/[, ]/, "", $2); print $2; exit}' "$REPO/UPDATES.json")"
 printf 'release tag %s\n' "$_tag" > "$STAGE/usr/lib/z2k/version.txt"
 printf '#!/bin/sh\nexit 0\n' > "$STAGE/usr/lib/z2k/platform/openwrt/release.sh"
-for _name in tg-mtproxy-client z2k-rt-proxy z2k-detect; do
+for _name in tg-ws-proxy z2k-rt-proxy z2k-detect; do
     printf '#!/bin/sh\nexit 0\n' > "$STAGE/usr/lib/z2k/bin/linux-arm64/$_name"
     chmod 755 "$STAGE/usr/lib/z2k/bin/linux-arm64/$_name"
 done
@@ -72,7 +74,7 @@ PY
 printf "DISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"
 export Z2K_OW_TESTING=1 Z2K_OW_TEST_HEALTHCHECK=1
 export Z2K_OW_OPENWRT_RELEASE_FILE="$T/openwrt_release"
-export Z2K_OW_SYSROOT="$SYS" Z2K_ROOT="$SYS/usr/lib/z2k"
+export Z2K_OW_SYSROOT="$SYS" Z2K_ROOT="$SYS/usr/lib/z2k" Z2K_BIN=/usr/lib/z2k/bin
 export Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
 export Z2K_OW_INSTALLED_RELEASE_FILE=/etc/z2k/state/installed-release
 export Z2K_OW_INSTALL_WORK=/usr/lib/.z2k-install
@@ -80,6 +82,7 @@ export Z2K_OW_INSTALL_TMP="$T/tmp"
 export Z2K_OW_MANIFEST_PATH="$MANIFEST" Z2K_OW_ARTIFACT_PATH="$ARCHIVE"
 mkdir -p "$T/tmp"
 
+if ! command -v jsonfilter >/dev/null 2>&1; then
 jsonfilter() {
     _file= _expr= _type=0
     while [ "$#" -gt 0 ]; do
@@ -101,6 +104,7 @@ elif v is not None:
     print(v)
 PY
 }
+fi
 
 apk() {
     case "$1" in
@@ -205,9 +209,9 @@ prepare_sysroot() {
     chmod 640 "$SYS/etc/z2k/user-lists/custom.txt"
     printf 'luci sentinel\n' > "$SYS/www/cgi-bin/luci"
     chmod 644 "$SYS/www/cgi-bin/luci"
-    _old_config_stat=$(stat -c '%u:%g:%a' "$SYS/etc/z2k/config")
-    _old_user_list_stat=$(stat -c '%u:%g:%a' "$SYS/etc/z2k/user-lists/custom.txt")
-    _old_luci_stat=$(stat -c '%u:%g:%a' "$SYS/www/cgi-bin/luci")
+    _old_config_stat=$(_owner_mode "$SYS/etc/z2k/config")
+    _old_user_list_stat=$(_owner_mode "$SYS/etc/z2k/user-lists/custom.txt")
+    _old_luci_stat=$(_owner_mode "$SYS/www/cgi-bin/luci")
     printf 'old payload\n' > "$SYS/usr/lib/z2k/version.txt"
     for _svc in z2k z2k-webpanel; do
         printf '#!/bin/sh\nexit 0\n' > "$SYS/etc/init.d/$_svc"
@@ -217,15 +221,19 @@ prepare_sysroot() {
     echo 0 > "$_OLD_COUNT"
 }
 
+_owner_mode() {
+    ls -ldn "$1" 2>/dev/null | awk 'NR == 1 && NF >= 4 { print $3 ":" $4 ":" $1 }'
+}
+
 assert_operator_files_preserved() {
     _description="$1"
     if [ "$(cat "$SYS/etc/z2k/config" 2>/dev/null)" = "ENABLED=1
 USER_VALUE=preserve" ] \
         && [ "$(cat "$SYS/etc/z2k/user-lists/custom.txt" 2>/dev/null)" = "user-list preserve" ] \
         && [ "$(cat "$SYS/www/cgi-bin/luci" 2>/dev/null)" = "luci sentinel" ] \
-        && [ "$(stat -c '%u:%g:%a' "$SYS/etc/z2k/config" 2>/dev/null)" = "$_old_config_stat" ] \
-        && [ "$(stat -c '%u:%g:%a' "$SYS/etc/z2k/user-lists/custom.txt" 2>/dev/null)" = "$_old_user_list_stat" ] \
-        && [ "$(stat -c '%u:%g:%a' "$SYS/www/cgi-bin/luci" 2>/dev/null)" = "$_old_luci_stat" ]; then
+        && [ "$(_owner_mode "$SYS/etc/z2k/config")" = "$_old_config_stat" ] \
+        && [ "$(_owner_mode "$SYS/etc/z2k/user-lists/custom.txt")" = "$_old_user_list_stat" ] \
+        && [ "$(_owner_mode "$SYS/www/cgi-bin/luci")" = "$_old_luci_stat" ]; then
         _t_ok
     else
         _t_bad "$_description: конфигурация, ownership/permissions или защищённый LuCI path изменились"
@@ -329,8 +337,8 @@ else
 fi
 assert_operator_files_preserved "успешное обновление"
 
-# Reinstall through the same release engine at the same tag and sequence must
-# converge a stale receipt without touching user configuration or ownership.
+# Повторная установка той же версии через общий движок должна обновить
+# устаревшую квитанцию, не меняя пользовательские настройки и владельцев файлов.
 prepare_sysroot
 printf 'tag=%s\nseq=%s\n' "$_tag" "$_seq" > "$SYS/etc/z2k/state/installed-release"
 _out="$(z2k_ow_install_release --reinstall "$_tag" 2>&1)"; _rc=$?

@@ -18,6 +18,7 @@ SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 TECHNICAL_TAG_RE = re.compile(r"openwrt-([0-9a-f]{40})\Z")
 RELEASE_BASE = "https://github.com/t0fox/z2kOW/releases/download"
 ARTIFACT_NAME = "openwrt-rootfs.tar.gz"
+UPSTREAM_BRANCH = "z2k-enhanced"
 ARCHITECTURES = ("arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64")
 INTERNAL_ONLY_MESSAGE = "Внутренние изменения механизма выпуска и проверки обновлений. Пользовательское поведение не изменилось."
 INTERNAL_RELEASE_PATHS = {
@@ -64,8 +65,8 @@ def previous_payload_source_sha(manifest: dict[str, Any]) -> str:
 
 
 def migration_fallback_required(production_manifest: dict[str, Any]) -> bool:
-    """Return true only for a checked legacy-only production manifest."""
-    return "artifacts" not in production_manifest
+    """Retain the old-client path while a checked published manifest offers it."""
+    return "artifacts" not in production_manifest or "artifact" in production_manifest
 
 
 def release_asset_names(manifest: dict[str, Any]) -> list[str]:
@@ -142,6 +143,8 @@ def plan_publication(
         raise ValueError("source commit must be a full lowercase SHA")
     if not isinstance(upstream_commit, str) or not SHA_RE.fullmatch(upstream_commit):
         raise ValueError("upstream tag commit must be a full lowercase SHA")
+    if upstream.get("branch") != UPSTREAM_BRANCH:
+        raise ValueError("манифест публикации должен происходить из upstream-ветки z2k-enhanced")
 
     upstream_tag, upstream_seq = _version(upstream.get("current"), upstream.get("seq"), "upstream")
     controlled_tag, controlled_seq = _version(controlled.get("current"), controlled.get("seq"), "controlled")
@@ -166,6 +169,15 @@ def plan_publication(
             raise ValueError("upstream current tag changed without a sequence advance")
         if upstream_tag == controlled_tag:
             raise ValueError("upstream tag did not change with the sequence advance")
+        history_tags = [
+            entry.get("v") for entry in history if isinstance(entry, dict)
+        ]
+        if (
+            upstream_seq != controlled_seq + 1
+            or len(history_tags) < 2
+            or history_tags[-2:] != [controlled_tag, upstream_tag]
+        ):
+            raise ValueError("нельзя пропускать промежуточные версии upstream")
         if existing_product_release:
             raise ValueError(f"Product Release {upstream_tag} already exists; refusing duplicate publication")
         if existing_technical_release:
@@ -329,14 +341,27 @@ def hotfix_release_notes(repository: Path, controlled: dict[str, Any], source_sh
     previous_sha = previous_payload_source_sha(controlled)
     paths = _changed_paths(Path(repository), previous_sha, source_sha)
     changes = _change_categories(paths)
+    rust_proxy_alpha = any(
+        path.startswith("patches/tg-ws-proxy-rs/")
+        or path in {"platform/openwrt/tg.sh", "scripts/openwrt/build_tg_ws_proxy.sh"}
+        for path in paths
+    )
     if changes:
         change_text = "\n".join(f"- {item}" for item in changes)
     else:
         change_text = INTERNAL_ONLY_MESSAGE
+    alpha_status = (
+        f"Статус: альфа-тестирование нового протокола Rust TG WS Proxy; "
+        f"пользовательская версия {tag} / seq {seq} не меняется. "
+        "Приёмка на реальном OpenWrt ещё не завершена.\n\n"
+        if rust_proxy_alpha
+        else ""
+    )
     return (
         "# Техническое обновление OpenWrt\n\n"
         f"Актуальный payload z2kOW для версии {tag}.\n"
         "Пользовательская версия не меняется.\n\n"
+        f"{alpha_status}"
         "## Изменения\n\n"
         f"{change_text}\n\n"
         f"Источник: `{source_sha}`\n\n"

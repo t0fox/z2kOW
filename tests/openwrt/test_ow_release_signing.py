@@ -184,6 +184,18 @@ class ReleaseSigningTests(unittest.TestCase):
         self.assertEqual(self.invoke("sign", private=self.private_key).returncode, 0)
         self.assertNotEqual(self.invoke("verify", public=self.wrong_public_key).returncode, 0)
 
+    def test_test_signature_is_rejected_by_the_production_release_key(self) -> None:
+        production = json.loads((ROOT / "UPDATES.json").read_text(encoding="utf-8"))
+        production_key = SCRIPTS / "release-keys" / f"{production['signing']['key_id']}.pub"
+        self.assertTrue(production_key.is_file())
+        signed = self.invoke("sign", private=self.private_key)
+        self.assertEqual(signed.returncode, 0, signed.stderr)
+
+        verified = self.invoke("verify", public=production_key)
+
+        self.assertNotEqual(verified.returncode, 0)
+        self.assertIn("public key fingerprint does not match signing.key_id", verified.stderr)
+
     def test_missing_signature_fails_verification(self) -> None:
         result = self.invoke("verify", public=self.public_key)
         self.assertNotEqual(result.returncode, 0)

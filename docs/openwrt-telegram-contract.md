@@ -1,38 +1,28 @@
-# OpenWrt Telegram transport contract
+# Контракт Telegram для OpenWrt
 
-The Telegram feature keeps upstream z2k transport behavior while replacing Keenetic service and firewall mechanics with OpenWrt owners.
+> Статус: альфа-тестирование нового протокола. Реальная приёмка на OpenWrt и проверка штатных Android, iOS и Desktop-клиентов ещё не завершены.
 
-## Runtime
+## Транспорт
 
-- One Telegram client process serves the transparent Telegram path and CDN path.
-- procd owns the process lifecycle.
-- Persistent relay identity/config lives under `/etc/z2k`; transient logs/state live under `/tmp/z2k`.
-- Architecture-specific binaries come from the signed OpenWrt release payload.
+- Для `aarch64` и `x86_64` прозрачный Rust TG WS Proxy принимает Telegram TCP/443 на локальном порту `1443`.
+- Обычный Telegram-клиент не настраивается вручную. nft перенаправляет адреса MTProto DC, включая media DC, сохраняя исходный адрес для `SO_ORIGINAL_DST`.
+- Rust передаёт MTProto через WebSocket, используя upstream WSS, Cloudflare и предусмотренный upstream fallback. TLS-проверка сертификатов остаётся включённой.
+- Исходящие сокеты Rust обходят собственное nft-перенаправление по метке. Владелец таблицы — существующий OpenWrt/zapret2 runtime; Rust добавляет только принадлежащие z2k наборы и цепочки.
+- procd управляет одним экземпляром Rust. Legacy Go-клиент, relay URL/secret и listener `1444` конечной архитектуре не принадлежат.
 
-User disable/enable semantics follow upstream. Disabling the feature removes its active routing/firewall effect and stops the owned runtime without touching unrelated services.
+## CDN и другие протоколы
 
-## Firewall
+MTProto media DC — часть Telegram-транспорта и проходит через Rust так же, как остальные Telegram DC. Это не то же самое, что HTTP CDN.
 
-OpenWrt uses nftables inside the z2k runtime firewall ownership model. It does not reproduce raw iptables/ipset commands.
+HTTP-трафик, включая TCP/80, нельзя направлять в MTProto WebSocket. Для него остаются только уже существующие независимые механизмы маршрутизации z2k. Этот контракт не включает новый relay, VPS, CDN-only Telegram listener или автоматический обходной туннель. Если для отдельного CDN-протокола нет существующего маршрута, диагностика должна показывать это отдельно от статуса Rust Telegram Proxy.
 
-The adapter owns only Telegram-specific sets/chains/rules:
+## Архитектуры и состояние
 
-- IPv4 Telegram DC traffic is redirected to the local Telegram listener.
-- Telegram CDN traffic is redirected to the CDN listener.
-- IPv6 Telegram DC handling preserves the upstream fast-fallback intent.
-- Router-local and forwarded traffic are handled deliberately; direct WAN access to local listener ports is not opened.
+- Поддерживаемые target: `aarch64-unknown-linux-musl` и `x86_64-unknown-linux-musl`.
+- На прочих архитектурах WebPanel показывает «Тип не поддерживается» с пояснением; установка и включение Rust недоступны. Несовместимый бинарник и старый VPS-туннель не запускаются.
+- Обновление сохраняет пользовательские данные и использует общий signed rootfs, `install_release(tag)`, проверку архитектуры и транзакционный rollback z2kOW.
+- До router acceptance старую установленную версию можно восстановить штатным rollback. Текущая версия не должна запускать её Telegram/CDN-службы или обращаться к старому relay. После acceptance обновление удаляет их конфигурацию, правила и UI без потери несвязанных настроек.
 
-Rules must be idempotent and recoverable after fw4/network events.
+## Проверка
 
-## Health and recovery
-
-OpenWrt keeps the upstream health intent with platform-native actions:
-
-- procd handles dead-process respawn;
-- the health path verifies required nftables state and listener readiness;
-- active probe failure uses bounded recovery rather than restart loops;
-- a disabled feature is not treated as unhealthy.
-
-## Boundaries
-
-Do not add a second Telegram implementation in WebPanel or scheduler code. WebPanel, diagnostics, cron health checks, and service startup must all delegate to the same OpenWrt Telegram backend.
+QEMU OpenWrt проверки выполняются на поддерживаемых `aarch64` и `x86_64`. Они покрывают старт procd, nft ownership и reload, исходный адрес, DC/media DC, ограничение соединений, память на 128 МиБ, reconnect, WSS/Cloudflare fallback, reboot и rollback. Синтетический MTProto smoke считается только проверкой сетевого пути; полноценная приёмка требует реальных Android, iOS и Desktop клиентов и роутера.

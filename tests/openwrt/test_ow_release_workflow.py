@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The trusted OpenWrt release path builds, signs, publishes, and verifies one payload."""
+"""Проверяет сборку, подпись, публикацию и проверку релиза OpenWrt."""
 
 from __future__ import annotations
 
@@ -42,6 +42,24 @@ class ReleaseWorkflowTests(unittest.TestCase):
         initialize = workflow.split("  initialize-signing:", 1)[1].split("  validate-release:", 1)[0]
         self.assertIn("trap 'rm -f \"$private_key\"' EXIT", initialize)
         self.assertNotIn("UPSTREAM.json", workflow)
+
+    def test_release_identity_is_bound_to_the_official_branch_manifest_and_git_tag(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        validate = workflow.split("  validate-release:", 1)[1].split("  verify-source-ci:", 1)[0]
+        controlled = (ROOT / "scripts/openwrt/controlled_release.py").read_text(encoding="utf-8")
+        self.assertIn("refs/heads/z2k-enhanced", validate)
+        self.assertIn('"refs/tags/$RELEASE_TAG_INPUT"', validate)
+        self.assertIn("verify-upstream-tag", validate)
+        self.assertGreaterEqual(workflow.count("verify-upstream-tag"), 2)
+        self.assertIn("UPSTREAM_BRANCH = \"z2k-enhanced\"", controlled)
+        self.assertIn("проверенный Git-тег upstream", validate)
+
+    def test_production_workflow_checks_production_key_id_before_publishing(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        signing = workflow.split("- name: Sign and verify the exact final manifest", 1)[1]
+        self.assertIn('manifest.get("signing", {}).get("key_id") != key_id', signing)
+        self.assertIn("--public-key \"$key_file\"", signing)
+        self.assertIn("scripts/openwrt/sign_release.py verify", signing)
 
     def test_prepare_outputs_are_wired_into_sign_and_publish_jobs(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
@@ -118,6 +136,52 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('--production-baseline "$RUNNER_TEMP/production-UPDATES.json"', job)
         self.assertLess(build, attach)
         self.assertLess(attach, acceptance)
+
+    def test_openwrt_ci_requires_an_upgrade_from_the_previous_published_release(self) -> None:
+        ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        job = ci.split("  openwrt-unified:", 1)[1]
+        self.assertIn("scripts/openwrt/upgrade-acceptance.sh", job)
+        self.assertIn('"$RUNNER_TEMP/production-UPDATES.json"', job)
+        self.assertIn('"$RUNNER_TEMP/openwrt-candidate/UPDATES.json"', job)
+        self.assertLess(job.index("accept_release_candidate.py"), job.index("scripts/openwrt/upgrade-acceptance.sh"))
+        self.assertLess(job.index("scripts/openwrt/upgrade-acceptance.sh"), job.index("uses: actions/upload-artifact"))
+
+    def test_tmpfs_transition_is_required_for_every_engine_that_stages_in_tmp(self) -> None:
+        acceptance = (ROOT / "tests/openwrt/accept_release_upgrade.py").read_text(encoding="utf-8")
+        verifier = (ROOT / "scripts/openwrt/verify_upgrade_acceptance.py").read_text(encoding="utf-8")
+        self.assertIn('legacy_installer = "z2k_ow_manifest_select_artifact" not in previous_release_text', acceptance)
+        self.assertIn('previous_requires_disk_transition = previous_uses_tmpfs_install_staging(previous_paths_text)', acceptance)
+        self.assertIn('return "Z2K_OW_INSTALL_TMP:-/tmp/z2kow-install-stage" in paths_text', acceptance)
+        self.assertIn("if previous_requires_disk_transition:", acceptance)
+        self.assertIn('"previous_stage_default": "tmpfs" if previous_requires_disk_transition else "persistent"', acceptance)
+        self.assertIn('previous_stage_default == "tmpfs" and scenarios.get("legacy_tmpfs_refusal") is not True', verifier)
+
+    def test_openwrt_ci_keeps_the_p8617_to_r865_disk_transition_regression(self) -> None:
+        ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        job = ci.split("  openwrt-unified:", 1)[1]
+        self.assertIn("772b8a0892966a1894b6cc8957f4bad843534ac5/UPDATES.json", job)
+        self.assertIn("e5d287ab336eaa971ccaaecac730b94bead9e925/UPDATES.json", job)
+        self.assertIn("795f272182eaed49ae0bb90269a477c89bdb7491cf5d3924d40526dea2ec1d4d", job)
+        self.assertIn("b052e35dae2a19e1f5afe7934e860e8dbd65de2f6f424e43986ecdb6e7dbb112", job)
+        self.assertIn("legacy-tmpfs-transition", job)
+
+    def test_publish_blocks_signing_without_previous_installer_upgrade_receipt(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        publish = workflow.split("  publish-release:", 1)[1]
+        self.assertIn("scripts/openwrt/verify_upgrade_acceptance.py", publish)
+        self.assertIn('upgrade-acceptance.json', publish)
+        self.assertLess(
+            publish.index("Sign and verify the exact final manifest"),
+            publish.index("scripts/openwrt/upgrade-acceptance.sh"),
+        )
+        self.assertLess(
+            publish.index("scripts/openwrt/upgrade-acceptance.sh"),
+            publish.index("verify_upgrade_acceptance.py"),
+        )
+        self.assertLess(
+            publish.index("verify_upgrade_acceptance.py"),
+            publish.index("run: bash scripts/openwrt/publish_release.sh"),
+        )
 
     def test_shared_ci_accepts_and_verifies_only_valid_signed_manifest_shape(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")

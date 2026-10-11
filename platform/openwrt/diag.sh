@@ -63,23 +63,6 @@ _json_field() {
     sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" "$2" 2>/dev/null | head -1
 }
 
-tg_connect_queue_failures() {
-    local _log="${Z2K_DIAG_TUNNEL_LOG:-${Z2K_TG_LOG_FILE:-/tmp/z2k-log/tg-tunnel.log}}"
-    if [ -r "$_log" ]; then
-        tail -n 200 "$_log" 2>/dev/null | awk '/CONNECT throttled \(timeout\)/ {n++} END {print n+0}'
-    elif command -v logread >/dev/null 2>&1; then
-        logread 2>/dev/null | grep -E 'z2k-tg|tg-mtproxy-client' | tail -n 200 \
-            | awk '/CONNECT throttled \(timeout\)/ {n++} END {print n+0}'
-    else
-        printf '0\n'
-    fi
-}
-
-print_tunnel_log() {
-    command -v logread >/dev/null 2>&1 || return 0
-    logread 2>/dev/null | grep -E 'z2k-tg|tg-mtproxy-client' | tail -n 200
-}
-
 _ow_diag_qnum() {
     local _q
     _q=$(sed -n 's/^[[:space:]]*QNUM[[:space:]]*=[[:space:]]*//p' "$_cfg" 2>/dev/null | tail -1 | tr -d "'\" \t\r")
@@ -188,15 +171,10 @@ _ow_diag_fw4_recovery() {
 }
 
 print_health() {
-    local issues="" nfq rules warp_on tg_pid _tg_queue_failures
+    local issues="" nfq rules warp_on tg_pid
     local _warp_probe _warp_runtime_ready _warp_route_ready _warp_runtime_state _qnum _out_path _in_path
     _add() { issues="$issues  [!] $1
 "; }
-    _tg_queue_failures=$(tg_connect_queue_failures)
-    case "$_tg_queue_failures" in ''|*[!0-9]*) _tg_queue_failures=0 ;; esac
-    if [ "$_tg_queue_failures" -gt 0 ]; then
-        _add "в последних 200 строках лога телеграм-туннеля $_tg_queue_failures отказов очереди CONNECT — соединения отброшены на роутере до отправки на VPS"
-    fi
     _qnum=$(_ow_diag_qnum)
     _out_path=$(_ow_diag_fw_path_state postnat_hook postnat "$_qnum")
     _in_path=$(_ow_diag_fw_path_state prenat_hook prenat "$_qnum")
@@ -213,10 +191,10 @@ print_health() {
     rules=$(nft list ruleset 2>/dev/null | grep -c 'queue flags bypass to 200' || true)
     [ -n "$rules" ] || rules=0
     [ "$rules" -eq 8 ] 2>/dev/null || _add "NFQUEUE: правил $rules, ожидается 8"
-    tg_pid=$(_count_process 'tg-mtproxy-client.*--listen=:1443')
+    tg_pid=$(_count_process 'tg-ws-proxy.*--port=1443.*--transparent')
     [ -n "$tg_pid" ] || tg_pid=0
-    if ! _tg_disabled && [ "$tg_pid" -lt 1 ] 2>/dev/null; then
-        _add "Telegram tunnel: процесс :1443 не запущен"
+    if z2k_ow_tg_arch_supported && ! _tg_disabled && [ "$tg_pid" -lt 1 ] 2>/dev/null; then
+        _add "Telegram Rust WS Proxy: прозрачный слушатель :1443 не запущен"
     fi
     warp_on=$(_warp_enabled)
     if [ "$warp_on" = "1" ]; then
@@ -335,9 +313,9 @@ print_firewall() {
     printf 'счётчики правил:\n'
     printf '  NFQUEUE OUT packets=%s bytes=%s\n' "$(printf '%s\n' "$out_stats" | awk '{print $2}')" "$(printf '%s\n' "$out_stats" | awk '{print $3}')"
     printf '  NFQUEUE IN  packets=%s bytes=%s\n' "$(printf '%s\n' "$in_stats" | awk '{print $2}')" "$(printf '%s\n' "$in_stats" | awk '{print $3}')"
-    printf 'owned helper chains : %s\n' "$chains"
-    printf 'fw4 table           : %s\n' "$fw4"
-    printf 'Telegram sets       : total=%s dc4=%s dc6=%s cdn4=%s\n' "${tgsets:-0}" "$tg4" "$tg6" "$tgcdn"
+    printf 'служебные цепочки   : %s\n' "$chains"
+    printf 'таблица fw4         : %s\n' "$fw4"
+    printf 'наборы Telegram     : dc4=%s dc6=%s прежний-cdn=%s\n' "$tg4" "$tg6" "$tgcdn"
     printf 'persistence         : %s\n' "$persistence"
     printf 'backend             : OpenWrt nftables\n'
     _ow_diag_fw4_recovery
@@ -345,27 +323,29 @@ print_firewall() {
 
 print_tunnel() {
     local tg pid listeners
-    tg="${Z2K_TG_BIN:-$_bin/tg-mtproxy-client}"
-    printf '\n=== telegram tunnel ===\n'
+    tg="${Z2K_TG_RUST_BIN:-$_bin/tg-ws-proxy}"
+    printf '\n=== Прозрачный Telegram-прокси Rust WS ===\n'
     if [ -x "$tg" ]; then
-        printf 'binary            : %s (%s bytes)\n' "$tg" "$(wc -c < "$tg" 2>/dev/null | tr -d ' ')"
+        printf 'бинарный файл     : %s (%s байт)\n' "$tg" "$(wc -c < "$tg" 2>/dev/null | tr -d ' ')"
     else
-        printf 'binary            : (not installed: %s)\n' "$tg"
+        printf 'бинарный файл     : (не установлен: %s)\n' "$tg"
     fi
-    pid=$(_count_process 'tg-mtproxy-client.*--listen=:1443')
+    pid=$(_count_process 'tg-ws-proxy.*--port=1443.*--transparent')
     [ -n "$pid" ] || pid=0
-    printf 'process :1443      : %s\n' "$pid"
+    printf 'процесс :1443      : %s\n' "$pid"
     listeners=0
     z2k_ow_tg_socket_listening "$Z2K_TG_PORT" && listeners=$((listeners + 1))
-    z2k_ow_tg_socket_listening "$Z2K_TG_CDN_PORT" && listeners=$((listeners + 1))
     [ -n "$listeners" ] || listeners=0
-    printf 'listeners :1443/44  : %s\n' "$listeners"
-    if _tg_disabled; then
-        printf 'state              : disabled\n'
+    printf 'слушатель :1443    : %s\n' "$listeners"
+    if ! z2k_ow_tg_arch_supported; then
+        printf 'состояние          : Тип не поддерживается\n'
+        printf 'подробности        : Rust TG WS Proxy недоступен для этой архитектуры\n'
+    elif _tg_disabled; then
+        printf 'состояние          : выключен\n'
     elif [ "$pid" -gt 0 ] 2>/dev/null; then
-        printf 'state              : ready\n'
+        printf 'состояние          : работает\n'
     else
-        printf 'state              : down\n'
+        printf 'состояние          : не работает\n'
     fi
 }
 
@@ -849,6 +829,5 @@ case "$1" in
     autocircular) print_autocircular "${2:-full}" ;;
     lists) print_lists ;;
     netpath) print_netpath ;;
-    tunnel-log) print_tunnel_log ;;
     *) exit 2 ;;
 esac

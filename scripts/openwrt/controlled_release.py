@@ -44,8 +44,8 @@ def unpacked_size(path: Path) -> int:
 
 
 def migration_fallback_required(production_manifest: dict[str, object]) -> bool:
-    """Keep the old full bundle for exactly the release whose checked baseline is legacy-only."""
-    return "artifacts" not in production_manifest
+    """Keep a full bundle while any checked published baseline offers one."""
+    return "artifacts" not in production_manifest or "artifact" in production_manifest
 
 
 def _validate_controlled_manifest(manifest: dict[str, object]) -> tuple[str, str]:
@@ -178,6 +178,8 @@ def validate_architecture_assets(
 
 def controlled_from_upstream(upstream: dict[str, object], commit: str) -> dict[str, object]:
     """Adapt one live upstream release manifest into the sole OpenWrt authority."""
+    if upstream.get("branch") != UPSTREAM_BRANCH:
+        raise ValueError("манифест должен происходить из официальной ветки upstream z2k-enhanced")
     if not COMMIT_RE.fullmatch(commit):
         raise ValueError("upstream commit must be a full 40-character SHA")
     tag = upstream.get("current")
@@ -210,6 +212,58 @@ def controlled_from_upstream(upstream: dict[str, object], commit: str) -> dict[s
         },
         "history": [dict(entry) for entry in history],
     }
+
+
+def verify_upstream_tag(
+    upstream: dict[str, object],
+    pinned: dict[str, object],
+    refs_text: str,
+    tag: str,
+    seq: int,
+) -> str:
+    """Проверить манифесты и точный Git-тег официального выпуска."""
+    if not isinstance(tag, str) or not TAG_RE.fullmatch(tag):
+        raise ValueError("запрошен некорректный тег upstream")
+    if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1:
+        raise ValueError("запрошен некорректный номер upstream seq")
+
+    for manifest, label in ((upstream, "текущая ветка"), (pinned, "закреплённый Git-тег")):
+        current = manifest.get("current")
+        manifest_seq = manifest.get("seq")
+        history = manifest.get("history")
+        if manifest.get("branch") != UPSTREAM_BRANCH:
+            raise ValueError(f"{label}: манифест не принадлежит ветке upstream z2k-enhanced")
+        if (
+            current != tag
+            or not isinstance(manifest_seq, int)
+            or isinstance(manifest_seq, bool)
+            or manifest_seq != seq
+        ):
+            raise ValueError(f"{label}: current/seq не совпадают с проверяемым выпуском")
+        if (
+            not isinstance(history, list)
+            or not history
+            or not all(isinstance(entry, dict) for entry in history)
+            or history[-1].get("v") != tag
+        ):
+            raise ValueError(f"{label}: история upstream не заканчивается проверяемым тегом")
+
+    refs: dict[str, list[str]] = {}
+    for line in refs_text.splitlines():
+        parts = line.split()
+        if len(parts) != 2 or not COMMIT_RE.fullmatch(parts[0]):
+            raise ValueError("список Git-ссылок upstream повреждён")
+        refs.setdefault(parts[1], []).append(parts[0])
+
+    branch_refs = refs.get(f"refs/heads/{UPSTREAM_BRANCH}", [])
+    tag_ref = f"refs/tags/{tag}"
+    direct_refs = refs.get(tag_ref, [])
+    peeled_refs = refs.get(f"{tag_ref}^{{}}", [])
+    if len(branch_refs) != 1:
+        raise ValueError("не удалось однозначно проверить официальную ветку upstream")
+    if len(direct_refs) != 1 or len(peeled_refs) > 1:
+        raise ValueError("проверенный Git-тег upstream отсутствует или неоднозначен")
+    return peeled_refs[0] if peeled_refs else direct_refs[0]
 
 
 def compare_upstream(
@@ -452,6 +506,12 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--upstream", required=True, type=Path)
     check.add_argument("--commit", required=True)
     check.add_argument("--controlled", required=True, type=Path)
+    verify_tag = subparsers.add_parser("verify-upstream-tag")
+    verify_tag.add_argument("--upstream", required=True, type=Path)
+    verify_tag.add_argument("--pinned", required=True, type=Path)
+    verify_tag.add_argument("--refs", required=True, type=Path)
+    verify_tag.add_argument("--tag", required=True)
+    verify_tag.add_argument("--seq", required=True, type=int)
     args = parser.parse_args(argv)
     try:
         if args.command == "attach":
@@ -469,6 +529,11 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "sync":
             upstream = read_json_object(args.upstream, "upstream manifest")
             write_manifest(args.output, controlled_from_upstream(upstream, args.commit))
+        elif args.command == "verify-upstream-tag":
+            upstream = read_json_object(args.upstream, "live upstream manifest")
+            pinned = read_json_object(args.pinned, "tag-pinned upstream manifest")
+            refs = args.refs.read_text(encoding="utf-8")
+            print(verify_upstream_tag(upstream, pinned, refs, args.tag, args.seq))
         else:
             upstream = read_json_object(args.upstream, "upstream manifest")
             controlled = read_json_object(args.controlled, "controlled manifest")
@@ -483,7 +548,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 3
             print("no newer upstream release")
     except (OSError, ValueError) as error:
-        print(f"controlled release: {error}", file=sys.stderr)
+        print(f"выпуск z2kOW: {error}", file=sys.stderr)
         return 1
     return 0
 

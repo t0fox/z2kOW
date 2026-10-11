@@ -77,8 +77,12 @@ class PayloadBundleTests(unittest.TestCase):
             self.add(name)
         self.add("etc/z2k/state/installed-release", b"user state")
         self.add("other/linux-unrelated/common", b"common outside binary roots")
-        executables = ("nfqws2", "z2k-warpd", "tg-mtproxy-client")
-        for root, executable in zip(BINARY_ROOTS, executables):
+        common_executables = (
+            ("opt/zapret2/binaries", "nfqws2"),
+            ("usr/lib/z2k/platform/openwrt/bin", "z2k-warpd"),
+            ("usr/lib/z2k/bin", "z2k-rt-proxy"),
+        )
+        for root, executable in common_executables:
             self.add(f"{root}/shared-data")
             for arch in (*ARCHES, "mips64"):
                 self.add(f"{root}/linux-{arch}/{executable}", arch.encode())
@@ -86,16 +90,29 @@ class PayloadBundleTests(unittest.TestCase):
         for arch in ARCHES:
             for root, binaries in (
                 ("opt/zapret2/binaries", ("ip2net", "mdig")),
-                ("usr/lib/z2k/bin", ("z2k-rt-proxy", "z2k-detect")),
+                ("usr/lib/z2k/bin", ("z2k-detect",)),
             ):
                 for executable in binaries:
                     name = f"{root}/linux-{arch}/{executable}"
                     self.add(name)
                     (self.stage / name).chmod(0o755)
+        for arch in ("arm64", "x86_64"):
+            name = f"usr/lib/z2k/bin/linux-{arch}/tg-ws-proxy"
+            self.add(name, arch.encode())
+            (self.stage / name).chmod(0o755)
+        for arch in ARCHES:
+            name = f"usr/lib/z2k/bin/linux-{arch}/tg-mtproxy-client"
+            self.add(name, b"#!/bin/sh\nexit 126\n")
+            (self.stage / name).chmod(0o755)
 
         legacy = self.build()
         with tarfile.open(legacy) as bundle:
             self.assertIn("opt/zapret2/binaries/linux-mips64/nfqws2", bundle.getnames())
+            legacy_members = {member.name: member for member in bundle.getmembers()}
+            for arch in ARCHES:
+                legacy_path = f"usr/lib/z2k/bin/linux-{arch}/tg-mtproxy-client"
+                self.assertIn(legacy_path, legacy_members)
+                self.assertEqual(0o755, legacy_members[legacy_path].mode)
         for arch in ARCHES:
             with self.subTest(arch=arch):
                 first = self.root / f"openwrt-rootfs-{arch}.tar.gz"
@@ -108,7 +125,7 @@ class PayloadBundleTests(unittest.TestCase):
                     for name in (*shared, "other/linux-unrelated/common"):
                         self.assertIn(name, members)
                     self.assertNotIn("etc/z2k/state/installed-release", members)
-                    for root, executable in zip(BINARY_ROOTS, executables):
+                    for root, executable in common_executables:
                         self.assertIn(f"{root}/shared-data", members)
                         name = f"{root}/linux-{arch}/{executable}"
                         self.assertEqual(0o755, members[name].mode)
@@ -116,6 +133,17 @@ class PayloadBundleTests(unittest.TestCase):
                         for name in members:
                             if name.startswith(root + "/"):
                                 self.assertTrue(all(part == f"linux-{arch}" for part in Path(name).parts if part.startswith("linux-")), name)
+                    tg_binary = f"usr/lib/z2k/bin/linux-{arch}/tg-ws-proxy"
+                    if arch in ("arm64", "x86_64"):
+                        self.assertIn(tg_binary, members)
+                        self.assertEqual(arch.encode(), bundle.extractfile(tg_binary).read())
+                    else:
+                        self.assertNotIn(tg_binary, members)
+                    # Предыдущий install_release требует этот путь в выбранном
+                    # архиве. В нём допустима только инертная заглушка перехода.
+                    legacy_path = f"usr/lib/z2k/bin/linux-{arch}/tg-mtproxy-client"
+                    self.assertIn(legacy_path, members)
+                    self.assertEqual(b"#!/bin/sh\nexit 126\n", bundle.extractfile(legacy_path).read())
                     for root, binaries in (
                         ("opt/zapret2/binaries", ("ip2net", "mdig")),
                         ("usr/lib/z2k/bin", ("z2k-rt-proxy", "z2k-detect")),

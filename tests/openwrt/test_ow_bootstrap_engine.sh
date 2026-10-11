@@ -6,6 +6,8 @@ _t_plan "ow-bootstrap-engine"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-bootstrap-engine.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT HUP INT TERM
+printf '36 25 0:32 / %s rw - ext4 /dev/test-overlay rw\n' "$T" > "$T/mountinfo"
+export Z2K_OW_MOUNTINFO_FILE="$T/mountinfo"
 BIN="$T/bin"; BOOT_TMP="$T/bootstrap-tmp"; STAGE_TMP="$T/staging"
 PAYLOAD="$T/payload"; SYS="$T/sys"
 mkdir -p "$BIN" "$BOOT_TMP" "$PAYLOAD" "$SYS/usr/lib" "$STAGE_TMP"
@@ -50,10 +52,12 @@ for _pool in TCP/YT TCP/YT_GV TCP/RKN UDP/YT; do
     mkdir -p "$PAYLOAD/usr/lib/z2k/extra_strats/$_pool"
     printf 'тестовая стратегия\n' > "$PAYLOAD/usr/lib/z2k/extra_strats/$_pool/Strategy.txt"
 done
-for name in tg-mtproxy-client z2k-rt-proxy z2k-detect; do
+for name in z2k-rt-proxy z2k-detect; do
     printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/usr/lib/z2k/bin/linux-x86_64/$name"
     chmod 755 "$PAYLOAD/usr/lib/z2k/bin/linux-x86_64/$name"
 done
+printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy"
+chmod 755 "$PAYLOAD/usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy"
 printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd"
 chmod 755 "$PAYLOAD/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd"
 for pair in nfq2/nfqws2 ip2net/ip2net mdig/mdig; do
@@ -188,7 +192,7 @@ assert_contains "real install_release committed the controlled tag and sequence"
     "$SYS/etc/z2k/state/installed-release" "tag=p-86.13"
 assert_contains "real install_release committed the controlled sequence" \
     "$SYS/etc/z2k/state/installed-release" "seq=136"
-assert_file "target architecture binary was installed" "$SYS/usr/lib/z2k/bin/linux-x86_64/tg-mtproxy-client"
+assert_file "target Rust proxy was installed" "$SYS/usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy"
 assert_file "real fresh install printed its completion notice" "$T/out"
 assert_contains "bootstrap log names the selected architecture and release" "$T/out" \
     'установщик z2kOW: выбираю архив для архитектуры x86_64, выпуск p-86.13'

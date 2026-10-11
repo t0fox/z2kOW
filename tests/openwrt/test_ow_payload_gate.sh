@@ -6,6 +6,8 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 . "$REPO/platform/openwrt/release.sh"
 T="$(mktemp -d)" || exit 1
 trap 'rm -rf "$T"' EXIT HUP INT TERM
+printf '36 25 0:32 / %s rw - ext4 /dev/test-overlay rw\n' "$T" > "$T/mountinfo"
+export Z2K_OW_MOUNTINFO_FILE="$T/mountinfo"
 export Z2K_OW_SYSROOT="$T/sys"
 mkdir -p "$Z2K_OW_SYSROOT"
 export Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
@@ -22,7 +24,7 @@ files = [
     'usr/bin/z2kow', 'etc/init.d/z2k', 'etc/init.d/z2k-webpanel',
     'etc/hotplug.d/iface/90-z2k', 'etc/sysctl.d/99-z2k.conf',
     'usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft',
-    *('usr/lib/z2k/bin/linux-x86_64/' + name for name in ('tg-mtproxy-client', 'z2k-rt-proxy', 'z2k-detect')),
+    *('usr/lib/z2k/bin/linux-x86_64/' + name for name in ('tg-ws-proxy', 'z2k-rt-proxy', 'z2k-detect')),
     'usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd',
     *('opt/zapret2/binaries/linux-x86_64/' + name for name in ('nfqws2', 'ip2net', 'mdig')),
 ]

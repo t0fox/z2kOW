@@ -1348,6 +1348,9 @@ async function flowBenchmarkMeasure(status) {
       return url.href;
     };
     return {
+    const tgSupported = !tgRust || !s.tunnel || s.tunnel.supported !== false;
+    const tgInstalled = !tgRust || !s.tunnel || s.tunnel.installed !== false;
+    const tgUnavailable = !tgSupported || !tgInstalled;
       server: config.server,
       latency: endpoint(config.latency_url, "latency"),
       download: endpoint(config.download_url, "download"),
@@ -1835,7 +1838,8 @@ export async function renderToggles() {
     </div>
     <div class="card">
       <h3>Telegram туннель <span class="tg-state-badge" id="tg-state-badge" hidden></span></h3>
-      <p class="desc">Прозрачный mux-прокси к Telegram DC через выделенный VPS-relay.</p>
+      <p class="desc" id="tg-desc">Прозрачный Telegram через Rust TG WS Proxy; без обязательного VPS.</p>
+      <p class="desc" id="tg-status-note" role="status" aria-live="polite"></p>
       <div class="btn-row">
         <button class="btn btn-primary" id="tg-enable">Включить</button>
         <button class="btn btn-danger" id="tg-disable">Отключить</button>
@@ -2137,17 +2141,31 @@ export async function renderToggles() {
     });
     if (initial) wireAuHour(s.toggles && s.toggles.au_hour, auBox);
     else auHourSync(auBox);
-    // TG-tunnel state pill + button enable/disable matching reality.
+    // Транспорт Rust доступен только на двух архитектурах из сборки.
+    const tgRust = s.platform === "openwrt";
     const tgRunning = s.tunnel && s.tunnel.running === true;
     badge.hidden = false;
-    badge.textContent = tgRunning ? "Включён" : "Остановлен";
-    badge.className = "tg-state-badge " + (tgRunning ? "tg-state-on" : "tg-state-off");
+    badge.textContent = !tgSupported || !tgInstalled
+      ? (s.tunnel.status || "Недоступен")
+      : (tgRunning ? "Включён" : "Остановлен");
+    badge.className = "tg-state-badge " + (!tgSupported || !tgInstalled
+      ? "tg-state-off" : (tgRunning ? "tg-state-on" : "tg-state-off"));
+    const tgDesc = $app.querySelector("#tg-desc");
+    if (tgDesc && tgRust) {
+      tgDesc.textContent = "Прозрачный Rust TG WS Proxy для Telegram TCP/443. Устройствам не нужна настройка прокси; VPS разработчика и старый relay не используются.";
+    }
+    const tgNote = $app.querySelector("#tg-status-note");
+    if (tgNote) tgNote.textContent = s.tunnel && s.tunnel.message ? s.tunnel.message : "";
     const enableBtn = $app.querySelector("#tg-enable");
     const disableBtn = $app.querySelector("#tg-disable");
-    setLockAware(enableBtn, tgRunning);
-    setLockAware(disableBtn, !tgRunning);
-    if (enableBtn) enableBtn.title = tgRunning ? "Туннель уже запущен" : "";
-    if (disableBtn) disableBtn.title = tgRunning ? "" : "Туннель уже остановлен";
+    setLockAware(enableBtn, tgRunning || tgUnavailable);
+    setLockAware(disableBtn, !tgRunning || tgUnavailable);
+    if (enableBtn) {
+      enableBtn.title = !tgSupported ? "Тип не поддерживается" : (tgRunning ? "Прокси уже запущен" : "");
+    }
+    if (disableBtn) {
+      disableBtn.title = !tgSupported ? "Тип не поддерживается" : (!tgRunning ? "Прокси уже остановлен" : "");
+    }
   }
   await loadTogglesState();
   // Пока читался /status, юзер мог уйти — вешать обработчики уже некуда, а

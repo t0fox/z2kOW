@@ -12,7 +12,7 @@ SRC="$REPO/platform/openwrt"
 code() { for _d in $SRC; do find "$_d" -type f ! -name '.keep' ! -path '*/platform/openwrt/diag.sh'; done | while IFS= read -r _f; do sed 's/#.*$//' "$_f"; done; }
 
 # 1. демоны запускаются из procd-сервисов (ЯДРО — один сервис z2k, с Stage 3 —
-# ДВА instance: nfqws2 в init.d/z2k, tg-mtproxy-client в platform/openwrt/tg.sh;
+# ДВА instance: nfqws2 в init.d/z2k и Rust TG WS Proxy в platform/openwrt/tg.sh;
 # Stage 4 добавляет ТРЕТИЙ: z2k-rt-proxy в platform/openwrt/rt.sh, который init
 # подключает напрямую; Stage 5 добавляет ЧЕТВЁРТЫЙ: z2k-warpd в
 # platform/openwrt/warp.sh (instance того же сервиса); Stage 6 добавляет

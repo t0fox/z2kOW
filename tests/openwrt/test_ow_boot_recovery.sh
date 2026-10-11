@@ -259,18 +259,19 @@ else
     _t_bad "прерванный commit одноимённого хотфикса откатывает прежний SHA-256: $(cat "$T/hotfix-recovery.out")"
 fi
 
-# Ошибка rm после подтверждённого commit не должна оставить active без boot hook.
+# Ошибка rmdir после подтверждённой установки не должна оставлять активную
+# транзакцию без файла восстановления автозапуска.
 prepare_commit_cleanup || exit 1
 mkdir -p "$T/cleanup-bin"
-cat > "$T/cleanup-bin/rm" <<'SH'
+cat > "$T/cleanup-bin/rmdir" <<'SH'
 #!/bin/sh
-if [ "${1:-}" = -rf ] && [ "${2:-}" = "$Z2K_TEST_CLEANUP_WORK" ]; then
+if [ "${1:-}" = "$Z2K_TEST_CLEANUP_WORK" ]; then
     echo 'контролируемый отказ удаления workspace' >&2
     exit 1
 fi
-exec /bin/rm "$@"
+exec /bin/rmdir "$@"
 SH
-chmod 755 "$T/cleanup-bin/rm"
+chmod 755 "$T/cleanup-bin/rmdir"
 if PATH="$T/cleanup-bin:$PATH" Z2K_TEST_CLEANUP_WORK="$WORK" sh "$HOOK" boot > "$T/cleanup-failed.out" 2>&1; then
     _t_bad "отказ удаления workspace должен быть сообщён"
 else

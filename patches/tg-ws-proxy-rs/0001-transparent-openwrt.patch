@@ -1,0 +1,1351 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 7288759..1223d09 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1063,0 +1064 @@ dependencies = [
++ "libc",
+@@ -1069,0 +1071 @@ dependencies = [
++ "socket2",
+diff --git a/Cargo.toml b/Cargo.toml
+index fb83af2..c101485 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -44,0 +45 @@ tokio = { version = "1", features = [
++socket2 = "0.6.5"
+@@ -92,0 +94 @@ futures-util = "0.3"
++libc = "0.2"
+diff --git a/src/check.rs b/src/check.rs
+index f4fad49..8161911 100644
+--- a/src/check.rs
++++ b/src/check.rs
+@@ -71,2 +71,2 @@ impl ProbeStatus {
+-            Self::Ok(_) => "OK ",
+-            Self::Fail(_) => "FAIL",
++            Self::Ok(_) => "УСПЕХ",
++            Self::Fail(_) => "ОШИБКА",
+@@ -78 +78 @@ impl ProbeStatus {
+-            Self::Ok(d) => format!("{}ms", d.as_millis()),
++            Self::Ok(d) => format!("{} мс", d.as_millis()),
+@@ -507 +507 @@ pub async fn run_check(config: &Config) -> bool {
+-            eprintln!("Invalid outbound proxy configuration: {e}");
++            eprintln!("Неверные параметры исходящего прокси: {e}");
+@@ -537 +537 @@ pub async fn run_check_with_outbound(
+-    println!("  tg-ws-proxy connectivity check");
++    println!("  Проверка подключения tg-ws-proxy");
+@@ -552 +552 @@ pub async fn run_check_with_outbound(
+-        println!("  Nothing to check.");
++        println!("  Нет параметров для проверки.");
+@@ -554,2 +554,2 @@ pub async fn run_check_with_outbound(
+-            "  Configure --cf-domain, --cf-worker-domain, --mtproto-proxy \
+-             and/or --check-listener and re-run."
++            "  Укажите --cf-domain, --cf-worker-domain, --mtproto-proxy \
++             или --check-listener и запустите проверку повторно."
+@@ -566 +566 @@ pub async fn run_check_with_outbound(
+-        println!("Cloudflare proxy domains (DC2 WebSocket probe):");
++        println!("Домены прокси Cloudflare (проверка WebSocket для DC2):");
+@@ -585 +585 @@ pub async fn run_check_with_outbound(
+-        println!("Cloudflare Worker domains (DC2 TCP tunnel probe):");
++        println!("Домены Cloudflare Worker (проверка TCP-туннеля для DC2):");
+@@ -602 +602 @@ pub async fn run_check_with_outbound(
+-        println!("Upstream MTProto proxies:");
++        println!("Резервные MTProto-прокси:");
+@@ -625 +625 @@ pub async fn run_check_with_outbound(
+-        println!("Own listener (end-to-end MTProto probe):");
++        println!("Локальный слушатель (сквозная проверка MTProto):");
+@@ -632 +632,3 @@ pub async fn run_check_with_outbound(
+-                println!("[FAIL]  no bound socket — run it in the process that listens");
++                println!(
++                    "[ОШИБКА] нет слушающего сокета — запустите проверку в процессе, который принимает подключения"
++                );
+@@ -649 +651 @@ pub async fn run_check_with_outbound(
+-                        "{label}[SKIP]  FakeTLS listener: this probe speaks the plain transport"
++                        "{label}[ПРОПУСК] слушатель FakeTLS: проверка использует незашифрованный транспорт"
+@@ -680 +682 @@ pub async fn run_check_with_outbound(
+-        println!("  Result: one or more checks FAILED");
++        println!("  Результат: одна или несколько проверок не пройдены");
+@@ -684 +686 @@ pub async fn run_check_with_outbound(
+-        println!("  Result: nothing was checked — every requested probe was skipped");
++        println!("  Результат: проверки не выполнялись — все запрошенные пробы пропущены");
+@@ -687 +689 @@ pub async fn run_check_with_outbound(
+-        println!("  Result: all checks passed");
++        println!("  Результат: все проверки пройдены");
+diff --git a/src/config.rs b/src/config.rs
+index 2526035..d06b5cd 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -186,0 +187,4 @@ pub struct Config {
++    /// Прозрачный Linux REDIRECT-вход для TCP obfuscated2 без секрета.
++    #[arg(long, env = "TG_TRANSPARENT")]
++    pub transparent: bool,
++
+@@ -742,0 +747,15 @@ impl Config {
++        if self.transparent {
++            // При прозрачном перехвате нет локального секрета прокси;
++            // режим не должен зависеть от MTProto-релея или прокси пользователя.
++            self.secrets.clear();
++            self.mtproto_proxies.clear();
++            self.pinned_upstreams.clear();
++            self.pinned_media_upstreams.clear();
++            self.skip_tls_verify = false;
++            self.cf_disable_tls = false;
++            self.fronting_domain = None;
++            self.outbound_proxy = None;
++            self.no_proxy = None;
++            self.no_outbound_proxy = true;
++        }
++
+@@ -761 +780 @@ impl Config {
+-        if self.secrets.is_empty() {
++        if self.secrets.is_empty() && !self.transparent {
+@@ -1003 +1022 @@ impl Config {
+-        OutboundConnector::from_config(
++        let connector = OutboundConnector::from_config(
+@@ -1007 +1026,2 @@ impl Config {
+-        )
++        )?;
++        Ok(connector.with_socket_mark(self.transparent.then_some(0x4000_0000)))
+diff --git a/src/default_domains.rs b/src/default_domains.rs
+index aa254f4..906c6ef 100644
+--- a/src/default_domains.rs
++++ b/src/default_domains.rs
+@@ -100 +100 @@ pub async fn fetch_default_domains_with_outbound(outbound: &OutboundConnector) -
+-                warn!("Default domain list from GitHub was empty; using built-in fallback");
++                warn!("список доменов Cloudflare из GitHub пуст, используется встроенный список");
+@@ -108 +108 @@ pub async fn fetch_default_domains_with_outbound(outbound: &OutboundConnector) -
+-                "Failed to fetch default CF domain list ({}); using built-in fallback",
++                "не удалось получить список доменов Cloudflare ({}), используется встроенный список",
+diff --git a/src/lib.rs b/src/lib.rs
+index 75fb4ad..45bc212 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -12,0 +13 @@ pub mod splitter;
++pub mod transparent;
+diff --git a/src/main.rs b/src/main.rs
+index 5a52aec..8424f81 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -34 +34 @@ async fn main() {
+-            eprintln!("invalid outbound proxy config: {e}");
++            eprintln!("неверные параметры исходящего прокси: {e}");
+diff --git a/src/outbound/connector.rs b/src/outbound/connector.rs
+index a1827bb..c5afb6d 100644
+--- a/src/outbound/connector.rs
++++ b/src/outbound/connector.rs
+@@ -1,0 +2 @@ use std::borrow::Cow;
++use std::io;
+@@ -2,0 +4 @@ use std::net::IpAddr;
++use std::os::fd::AsRawFd;
+@@ -6 +8 @@ use async_http_proxy::{http_connect_tokio, http_connect_tokio_with_basic_auth};
+-use tokio::net::{TcpStream, lookup_host};
++use tokio::net::{TcpSocket, TcpStream, lookup_host};
+@@ -50,0 +53 @@ pub struct OutboundConnector {
++    socket_mark: Option<u32>,
+@@ -59,0 +63 @@ impl OutboundConnector {
++            socket_mark: None,
+@@ -69,0 +74 @@ impl OutboundConnector {
++            socket_mark: None,
+@@ -72,0 +78,5 @@ impl OutboundConnector {
++    pub fn with_socket_mark(mut self, mark: Option<u32>) -> Self {
++        self.socket_mark = mark;
++        self
++    }
++
+@@ -88 +98 @@ impl OutboundConnector {
+-            return connect_direct(target_host, target_port, timeout).await;
++            return connect_direct(target_host, target_port, timeout, self.socket_mark).await;
+@@ -92 +102 @@ impl OutboundConnector {
+-            return connect_direct(target_host, target_port, timeout).await;
++            return connect_direct(target_host, target_port, timeout, self.socket_mark).await;
+@@ -117,0 +128 @@ async fn connect_direct(
++    socket_mark: Option<u32>,
+@@ -119 +130 @@ async fn connect_direct(
+-    match tokio::time::timeout(timeout, connect_tcp(host, port)).await {
++    match tokio::time::timeout(timeout, connect_marked_tcp(host, port, socket_mark)).await {
+@@ -124,0 +136,56 @@ async fn connect_direct(
++async fn connect_marked_tcp(host: &str, port: u16, mark: Option<u32>) -> Result<TcpStream, String> {
++    let Some(mark) = mark else {
++        return connect_tcp(host, port).await;
++    };
++    #[cfg(target_os = "linux")]
++    {
++        let mut last_error = None;
++        let addrs = lookup_host((host, port))
++            .await
++            .map_err(|e| format!("Поиск адреса TCP-хоста: {e}"))?;
++        for addr in addrs {
++            let socket = if addr.is_ipv4() {
++                TcpSocket::new_v4()
++            } else {
++                TcpSocket::new_v6()
++            }
++            .map_err(|e| format!("Создание TCP-сокета: {e}"))?;
++            set_socket_mark(&socket, mark).map_err(|e| format!("Метка SO_MARK: {e}"))?;
++            match socket.connect(addr).await {
++                Ok(stream) => return Ok(stream),
++                Err(error) => last_error = Some(error),
++            }
++        }
++        Err(format!(
++            "Подключение TCP: {}",
++            last_error.unwrap_or_else(|| io::Error::new(
++                io::ErrorKind::AddrNotAvailable,
++                "DNS не вернул адресов"
++            ))
++        ))
++    }
++    #[cfg(not(target_os = "linux"))]
++    {
++        let _ = (host, port, mark);
++        Err("Метка SO_MARK поддерживается только в Linux".to_string())
++    }
++}
++
++#[cfg(target_os = "linux")]
++fn set_socket_mark(socket: &TcpSocket, mark: u32) -> io::Result<()> {
++    let rc = unsafe {
++        libc::setsockopt(
++            socket.as_raw_fd(),
++            libc::SOL_SOCKET,
++            libc::SO_MARK,
++            &mark as *const _ as *const libc::c_void,
++            std::mem::size_of_val(&mark) as libc::socklen_t,
++        )
++    };
++    if rc == 0 {
++        Ok(())
++    } else {
++        Err(io::Error::last_os_error())
++    }
++}
++
+@@ -199 +266 @@ async fn connect_tcp(host: &str, port: u16) -> Result<TcpStream, String> {
+-        .map_err(|e| format!("TCP connect: {e}"))
++        .map_err(|e| format!("Подключение TCP: {e}"))
+diff --git a/src/pool.rs b/src/pool.rs
+index 47647b5..20604dd 100644
+--- a/src/pool.rs
++++ b/src/pool.rs
+@@ -214 +214 @@ impl WsPool {
+-                    "pool: discarding stale DC{}{} connection",
++                    "пул: удалено устаревшее соединение для DC{}{}",
+@@ -225 +225 @@ impl WsPool {
+-                "pool hit DC{}{} ({} left)",
++                "пул: найдено соединение для DC{}{} (осталось: {})",
+@@ -270 +270 @@ impl WsPool {
+-                    "{} pool: discarding stale DC{}{} connection",
++                    "{} пул: удалено устаревшее соединение для DC{}{}",
+@@ -363 +363 @@ impl WsPool {
+-        debug!("WS pool warmup complete");
++        debug!("прогрев пула WS завершён");
+@@ -429 +429 @@ impl WsPool {
+-                "pool refilled DC{}{}: {} ready",
++                "пул для DC{}{} пополнен: готовых соединений — {}",
+@@ -460 +460 @@ impl WsPool {
+-                "{} pool refilled DC{}{} via {}",
++                "{} пул для DC{}{} пополнен через {}",
+@@ -555 +555 @@ impl WsPool {
+-                        "pool: failed to pre-connect DC{}{}",
++                        "пул: не удалось заранее подключиться к DC{}{}",
+diff --git a/src/proxy.rs b/src/proxy.rs
+index bc16678..e581517 100644
+--- a/src/proxy.rs
++++ b/src/proxy.rs
+@@ -36,0 +37 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
++use tokio::sync::Mutex as AsyncMutex;
+@@ -54,0 +56 @@ use crate::splitter::MsgSplitter;
++use crate::transparent;
+@@ -221 +223 @@ async fn accept_inbound_faketls(
+-        debug!("[{}] bad FakeTLS ClientHello record", label);
++        debug!("[{}] неверная запись ClientHello FakeTLS", label);
+@@ -228 +230 @@ async fn accept_inbound_faketls(
+-        debug!("[{}] bad FakeTLS ClientHello digest", label);
++        debug!("[{}] неверный хеш ClientHello FakeTLS", label);
+@@ -234 +236 @@ async fn accept_inbound_faketls(
+-            "[{}] FakeTLS SNI mismatch: got {:?}, expected {}",
++            "[{}] SNI FakeTLS не совпадает: получено {:?}, ожидалось {}",
+@@ -242 +244,4 @@ async fn accept_inbound_faketls(
+-        debug!("[{}] write FakeTLS ServerHello: {}", label, e);
++        debug!(
++            "[{}] не удалось отправить ServerHello FakeTLS: {}",
++            label, e
++        );
+@@ -365 +370 @@ pub async fn handle_client_with_runtime(
+-            debug!("[{}] handshake timeout", label);
++            debug!("[{}] истекло время ожидания рукопожатия", label);
+@@ -388 +393 @@ pub async fn handle_client_with_runtime(
+-            "[{}] bad handshake (wrong secret or reserved prefix)",
++            "[{}] неверное рукопожатие (неверный секрет или зарезервированный префикс)",
+@@ -408 +413 @@ pub async fn handle_client_with_runtime(
+-        "[{}] handshake ok: DC{}{} proto={:?}",
++        "[{}] рукопожатие установлено: DC{}{} протокол={:?}",
+@@ -462,0 +468,205 @@ pub async fn handle_client_with_runtime(
++/// Путь для прозрачного перехвата правилами REDIRECT на роутере. Начальный
++/// пакет obfuscated2 содержит DC и признак media, а SO_ORIGINAL_DST — точный IP DC.
++/// Начальный пакет и все последующие байты передаются выбранному узлу без изменений.
++pub async fn handle_transparent_client_with_runtime(
++    mut stream: TcpStream,
++    peer: SocketAddr,
++    config: Arc<Config>,
++    pool: Arc<WsPool>,
++    runtime: Arc<Runtime>,
++) {
++    let destination = match transparent::original_destination(&stream) {
++        Ok(destination) if destination.port() == 443 => destination,
++        Ok(destination) => {
++            debug!(
++                "[{}] прозрачное перенаправление отклонено: порт назначения не 443 ({})",
++                peer, destination
++            );
++            return;
++        }
++        Err(error) => {
++            warn!(
++                "[{}] прозрачное перенаправление: SO_ORIGINAL_DST недоступен: {}",
++                peer, error
++            );
++            return;
++        }
++    };
++    let _ = stream.set_nodelay(true);
++
++    let mut init = [0u8; crate::crypto::HANDSHAKE_LEN];
++    match tokio::time::timeout(
++        Duration::from_secs(config.handshake_timeout),
++        stream.read_exact(&mut init),
++    )
++    .await
++    {
++        Ok(Ok(_)) => {}
++        Ok(Err(error)) => {
++            debug!(
++                "[{}] не удалось прочитать начальный пакет obfuscated2: {}",
++                peer, error
++            );
++            return;
++        }
++        Err(_) => {
++            debug!(
++                "[{}] истекло время ожидания начального пакета obfuscated2",
++                peer
++            );
++            return;
++        }
++    }
++    let Some(init_info) = transparent::parse_client_init(&init) else {
++        debug!("[{}] некорректный начальный пакет obfuscated2", peer);
++        return;
++    };
++    let dc_idx = if init_info.is_media {
++        -(init_info.dc as i16)
++    } else {
++        init_info.dc as i16
++    };
++    let label = peer;
++    let target_ip = destination.ip().to_string();
++    let route = Route {
++        label,
++        config: &config,
++        runtime: &runtime,
++        pool: &pool,
++        timeouts: Timeouts::from_config(&config),
++        dc: init_info.dc,
++        is_media: init_info.is_media,
++        media: media_tag(init_info.is_media),
++        dc_idx,
++        proto: init_info.proto,
++    };
++    let Some(upstream) = select_upstream(&route, Some(&target_ip)).await else {
++        return;
++    };
++    match upstream {
++        Upstream::Ws { ws, .. } => {
++            bridge_transparent_ws(stream, ws, init, label, init_info.dc, init_info.is_media).await;
++        }
++        Upstream::Tcp(host) => {
++            match runtime
++                .outbound()
++                .connect(&host, destination.port(), route.timeouts.tcp_fallback)
++                .await
++            {
++                Ok(mut remote) => {
++                    if let Err(error) = remote.write_all(&init).await {
++                        warn!(
++                            "[{}] не удалось передать начальный пакет по резервному TCP: {}",
++                            peer, error
++                        );
++                        return;
++                    }
++                    let mut client = stream;
++                    if let Err(error) =
++                        tokio::io::copy_bidirectional(&mut client, &mut remote).await
++                    {
++                        debug!("[{}] резервное TCP-соединение закрыто: {}", peer, error);
++                    }
++                }
++                Err(error) => warn!(
++                    "[{}] не удалось открыть резервное TCP-соединение с {}: {}",
++                    peer, host, error
++                ),
++            }
++        }
++        Upstream::Mtproto(_) => {
++            warn!(
++                "[{}] прозрачный режим не использует внешний MTProto-релей",
++                peer
++            );
++        }
++    }
++}
++
++async fn bridge_transparent_ws(
++    stream: TcpStream,
++    ws: TgWsStream,
++    init: [u8; crate::crypto::HANDSHAKE_LEN],
++    label: SocketAddr,
++    dc: u32,
++    is_media: bool,
++) {
++    let (mut client_read, mut client_write) = stream.into_split();
++    let (ws_write, mut ws_read) = ws.split();
++    let ws_write = Arc::new(AsyncMutex::new(ws_write));
++
++    let mut upload = tokio::spawn({
++        let ws_write = Arc::clone(&ws_write);
++        async move {
++            if ws_write
++                .lock()
++                .await
++                .send(Message::Binary(init.to_vec()))
++                .await
++                .is_err()
++            {
++                return;
++            }
++            let mut buffer = vec![0u8; RELAY_BUF_SIZE];
++            loop {
++                let length = match client_read.read(&mut buffer).await {
++                    Ok(0) | Err(_) => break,
++                    Ok(length) => length,
++                };
++                if ws_write
++                    .lock()
++                    .await
++                    .send(Message::Binary(buffer[..length].to_vec()))
++                    .await
++                    .is_err()
++                {
++                    break;
++                }
++            }
++            let _ = ws_write.lock().await.close().await;
++        }
++    });
++
++    let mut download = tokio::spawn(async move {
++        while let Some(message) = ws_read.next().await {
++            match message {
++                Ok(Message::Binary(data)) => {
++                    if client_write.write_all(&data).await.is_err() {
++                        break;
++                    }
++                }
++                Ok(Message::Text(data)) => {
++                    if client_write.write_all(data.as_bytes()).await.is_err() {
++                        break;
++                    }
++                }
++                Ok(Message::Ping(data)) => {
++                    if ws_write
++                        .lock()
++                        .await
++                        .send(Message::Pong(data))
++                        .await
++                        .is_err()
++                    {
++                        break;
++                    }
++                }
++                Ok(Message::Pong(_)) => {}
++                _ => break,
++            }
++        }
++        let _ = client_write.shutdown().await;
++    });
++
++    tokio::select! {
++        _ = &mut upload => download.abort(),
++        _ = &mut download => upload.abort(),
++    }
++    info!(
++        "[{}] сессия WSS для DC{}{} закрыта",
++        label,
++        dc,
++        media_tag(is_media)
++    );
++}
++
+@@ -643 +853 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
+-                "[{}] DC{}{} {} — no fallback IP available",
++                "[{}] DC{}{} {} — резервный IP-адрес отсутствует",
+@@ -666 +876 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
+-        let reason = "IP in cooldown";
++        let reason = "IP в периоде ожидания";
+@@ -668 +878 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
+-            "[{}] DC{}{} {} → skipping direct WS to {}",
++            "[{}] DC{}{}: {}, прямое WS-подключение к {} пропущено",
+@@ -682 +892 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
+-            "[{}] DC{}{} every fallback failed → re-probing {}",
++            "[{}] DC{}{}: резервные маршруты недоступны, повторная проверка {}",
+@@ -693 +903 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
+-    let reason = "WS failed";
++    let reason = "сбой WS";
+@@ -725 +935 @@ impl Route<'_> {
+-                "[{}] DC{}{} → pool hit via {}",
++                "[{}] DC{}{} → соединение взято из пула через {}",
+@@ -769 +979 @@ impl Route<'_> {
+-                            "[{}] DC{}{} pinned ws tier has no --dc-ip target, skipping",
++                            "[{}] DC{}{}: для закреплённого уровня WS не задан --dc-ip, пропуск",
+@@ -781 +991 @@ impl Route<'_> {
+-                            "[{}] DC{}{} pinned cfworker tier has no destination IP, skipping",
++                            "[{}] DC{}{}: для закреплённого уровня CF Worker не задан адрес назначения, пропуск",
+@@ -809 +1019 @@ impl Route<'_> {
+-                            "[{}] DC{}{} pinned tcp tier has no fallback IP, skipping",
++                            "[{}] DC{}{}: для закреплённого уровня TCP нет резервного IP-адреса, пропуск",
+@@ -820 +1030 @@ impl Route<'_> {
+-            "[{}] DC{}{} every pinned upstream failed",
++            "[{}] DC{}{}: все закреплённые резервные подключения завершились ошибкой",
+@@ -958 +1168 @@ impl Route<'_> {
+-                "[{}] DC{}{} {} → CF Worker pool hit ({})",
++                "[{}] DC{}{}: {} — соединение Cloudflare Worker найдено в пуле ({})",
+@@ -974 +1184 @@ impl Route<'_> {
+-                    "[{}] DC{}{} CF Worker {} in cooldown, skipping",
++                    "[{}] DC{}{}: Cloudflare Worker {} на паузе, пропуск",
+@@ -981 +1191 @@ impl Route<'_> {
+-                "[{}] DC{}{} {} → trying CF Worker {} for {}",
++                "[{}] DC{}{}: {} — проверка Cloudflare Worker {} для {}",
+@@ -1005 +1215 @@ impl Route<'_> {
+-                        "[{}] DC{}{} {} → CF Worker connected ({})",
++                        "[{}] DC{}{}: {} — соединение Cloudflare Worker установлено ({})",
+@@ -1026 +1236 @@ impl Route<'_> {
+-                        "[{}] DC{}{} CF Worker {} failed, cooldown {}s",
++                        "[{}] DC{}{}: Cloudflare Worker {} недоступен, пауза {} с",
+@@ -1066 +1276 @@ impl Route<'_> {
+-                "[{}] DC{}{} {} → CF proxy pool hit ({})",
++                "[{}] DC{}{}: {} — найдено соединение CF-прокси в пуле ({})",
+@@ -1074 +1284 @@ impl Route<'_> {
+-            "[{}] DC{}{} {} → trying CF proxy via {:?}",
++            "[{}] DC{}{}: {} — проверка CF-прокси через {:?}",
+@@ -1096 +1306 @@ impl Route<'_> {
+-                "[{}] DC{}{} {} → CF proxy connected",
++                "[{}] DC{}{}: {} — подключение CF-прокси установлено",
+@@ -1110 +1320 @@ impl Route<'_> {
+-                "[{}] DC{}{} CF proxy failed (all configured domains)",
++                "[{}] DC{}{}: CF-прокси недоступен (все настроенные домены проверены)",
+@@ -1121,0 +1332,3 @@ impl Route<'_> {
++        if self.config.transparent {
++            return None;
++        }
+@@ -1125 +1338 @@ impl Route<'_> {
+-                debug!("[{}] upstream {} in cooldown, skipping", self.label, key);
++                debug!("[{}] резервный узел {} на паузе, пропуск", self.label, key);
+@@ -1142 +1355 @@ impl Route<'_> {
+-                        "[{}] DC{}{} {} → upstream {} MTProto {}",
++                        "[{}] DC{}{} {} → резервный узел MTProto {} {}",
+@@ -1155 +1368 @@ impl Route<'_> {
+-                        "[{}] upstream {} failed, cooldown {}s",
++                        "[{}] резервный узел {} недоступен, пауза {} с",
+@@ -1189 +1402 @@ impl Route<'_> {
+-                    "[{}] DC{}{} → WS connected via {} (fronted SNI {})",
++                    "[{}] DC{}{}: WS-подключение установлено через {} (SNI {})",
+@@ -1193 +1406 @@ impl Route<'_> {
+-                    "[{}] DC{}{} → WS connected via {}",
++                    "[{}] DC{}{}: WS-подключение установлено через {}",
+@@ -1250 +1463 @@ impl Route<'_> {
+-                "[{}] DC{}{} WS cooldown {}s (all domains returned redirect)",
++                "[{}] DC{}{}: пауза WS {} с (все домены перенаправили запрос)",
+@@ -1258 +1471 @@ impl Route<'_> {
+-                "[{}] DC{}{} WS cooldown {}s",
++                "[{}] DC{}{}: пауза WS {} с",
+@@ -1277 +1490 @@ impl Route<'_> {
+-            "[{}] DC{}{} TCP to {} timed out, cooldown {}s",
++            "[{}] DC{}{}: истекло время TCP-подключения к {}, пауза {} с",
+@@ -1293 +1506,5 @@ impl Route<'_> {
+-        let dst = self.runtime.fallback_ip(self.dc).unwrap_or(target_ip);
++        let dst = if self.config.transparent {
++            target_ip
++        } else {
++            self.runtime.fallback_ip(self.dc).unwrap_or(target_ip)
++        };
+@@ -1300 +1517 @@ impl Route<'_> {
+-            "[{}] DC{}{} {} → TCP fallback {}:443",
++            "[{}] DC{}{}: {} — резервное TCP-подключение к {}:443",
+@@ -1361 +1578,4 @@ async fn bridge_ws(reader: ClientReader, writer: ClientWriter, params: WsBridgeP
+-                warn!("[{}] failed to send relay init: {}", label, e);
++                warn!(
++                    "[{}] не удалось отправить начальный пакет релею: {}",
++                    label, e
++                );
+@@ -1493 +1713,4 @@ async fn connect_mtproto_upstream(
+-            warn!("[upstream] {}:{} connect error: {}", host, port, e);
++            warn!(
++                "[резервный узел] ошибка подключения к {}:{}: {}",
++                host, port, e
++            );
+@@ -1505 +1728,4 @@ async fn connect_mtproto_upstream(
+-            warn!("[upstream] {}:{} send handshake error: {}", host, port, e);
++            warn!(
++                "[резервный узел] ошибка отправки рукопожатия к {}:{}: {}",
++                host, port, e
++            );
+@@ -1525 +1751 @@ async fn connect_mtproto_upstream(
+-            "[upstream] {}:{} FakeTLS send ClientHello error: {}",
++            "[резервный узел] ошибка отправки ClientHello FakeTLS к {}:{}: {}",
+@@ -1534 +1760 @@ async fn connect_mtproto_upstream(
+-            "[upstream] {}:{} FakeTLS server handshake failed",
++            "[резервный узел] ошибка рукопожатия FakeTLS с {}:{}",
+@@ -1543 +1769 @@ async fn connect_mtproto_upstream(
+-            "[upstream] {}:{} FakeTLS send MTProto init error: {}",
++            "[резервный узел] ошибка отправки начального пакета MTProto FakeTLS к {}:{}: {}",
+@@ -1724 +1950,4 @@ async fn bridge_tcp(
+-            warn!("[{}] TCP fallback connect failed: {}", label, e);
++            warn!(
++                "[{}] не удалось подключиться по резервному TCP: {}",
++                label, e
++            );
+@@ -1734 +1963,4 @@ async fn bridge_tcp(
+-        warn!("[{}] TCP fallback: send relay init failed: {}", label, e);
++        warn!(
++            "[{}] резервный TCP: не удалось отправить начальный пакет: {}",
++            label, e
++        );
+@@ -1887 +2119 @@ fn log_session_closed(
+-        "[{}] DC{}{} {} session closed by {}: ↑{}  ↓{}  {:.1}s",
++        "[{}] сессия DC{}{} {} закрыта стороной {}: отправлено вверх {}  вниз {}  длительность {:.1} с",
+@@ -1914 +2146 @@ async fn read_inbound_handshake(
+-            debug!("[{}] read handshake: {}", label, e);
++            debug!("[{}] ошибка чтения рукопожатия: {}", label, e);
+diff --git a/src/proxy/tests.rs b/src/proxy/tests.rs
+index 2867af8..ecf4b3f 100644
+--- a/src/proxy/tests.rs
++++ b/src/proxy/tests.rs
+@@ -6,0 +7,80 @@ use crate::crypto::HANDSHAKE_LEN;
++#[tokio::test]
++async fn transparent_bridge_preserves_init_and_stream_bytes_across_ws_messages() {
++    use futures_util::{SinkExt, StreamExt};
++    use tokio::io::{AsyncReadExt, AsyncWriteExt};
++    use tokio::net::{TcpListener, TcpStream};
++    use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
++
++    let ws_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
++    let ws_addr = ws_listener.local_addr().unwrap();
++    let upload = b"client bytes split across arbitrary TCP and WS reads".to_vec();
++    let download = b"server bytes coalesced across WS messages".to_vec();
++    let expected_upload = upload.clone();
++    let expected_download = download.clone();
++    let server_upload = expected_upload.clone();
++    let server_download = expected_download.clone();
++    let server = tokio::spawn(async move {
++        let (tcp, _) = ws_listener.accept().await.unwrap();
++        let mut ws = accept_async(tcp).await.unwrap();
++        let init = match ws.next().await.unwrap().unwrap() {
++            Message::Binary(data) => data,
++            message => panic!("expected binary init, got {message:?}"),
++        };
++        let mut received = Vec::new();
++        while received.len() < server_upload.len() {
++            match ws.next().await.unwrap().unwrap() {
++                Message::Binary(data) => received.extend_from_slice(&data),
++                message => panic!("expected binary stream bytes, got {message:?}"),
++            }
++        }
++        let cut = server_download.len() / 2;
++        ws.send(Message::Binary(server_download[..cut].to_vec()))
++            .await
++            .unwrap();
++        ws.send(Message::Binary(server_download[cut..].to_vec()))
++            .await
++            .unwrap();
++        ws.close(None).await.unwrap();
++        (init, received)
++    });
++
++    let (ws, _) = connect_async(format!("ws://{ws_addr}/apiws"))
++        .await
++        .unwrap();
++    let client_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
++    let client_addr = client_listener.local_addr().unwrap();
++    let client = TcpStream::connect(client_addr);
++    let (accepted, client) = tokio::join!(client_listener.accept(), client);
++    let (bridge_tcp, _) = accepted.unwrap();
++    let mut client = client.unwrap();
++    let init = crate::crypto::generate_relay_init(crate::crypto::ProtoTag::Intermediate, 2);
++    let bridge = tokio::spawn(bridge_transparent_ws(
++        bridge_tcp,
++        ws,
++        init,
++        "127.0.0.1:12345".parse().unwrap(),
++        2,
++        false,
++    ));
++    for chunk in upload.chunks(7) {
++        client.write_all(chunk).await.unwrap();
++    }
++    let mut received_download = vec![0u8; expected_download.len()];
++    tokio::time::timeout(
++        std::time::Duration::from_secs(5),
++        client.read_exact(&mut received_download),
++    )
++    .await
++    .unwrap()
++    .unwrap();
++
++    let (received_init, received_upload) = server.await.unwrap();
++    assert_eq!(received_init.as_ref(), init);
++    assert_eq!(received_upload, expected_upload);
++    assert_eq!(received_download, expected_download);
++    tokio::time::timeout(std::time::Duration::from_secs(5), bridge)
++        .await
++        .unwrap()
++        .unwrap();
++}
++
+@@ -52 +132 @@ async fn client_handler_future_stays_compact() {
+-    eprintln!("per-client future size: {future_size} bytes");
++    eprintln!("размер асинхронной задачи одного клиента: {future_size} байт");
+diff --git a/src/server.rs b/src/server.rs
+index ed0321d..43b18d4 100644
+--- a/src/server.rs
++++ b/src/server.rs
+@@ -8 +8 @@ use std::future::Future;
+-use std::net::SocketAddr;
++use std::net::{Ipv6Addr, SocketAddr};
+@@ -11,0 +12 @@ use std::time::Duration;
++use socket2::{Domain, Protocol, Socket, Type};
+@@ -23,0 +25,24 @@ use crate::runtime::Runtime;
++fn listen_address(host: &str, port: u16) -> String {
++    let host = if host.parse::<Ipv6Addr>().is_ok() {
++        format!("[{host}]")
++    } else {
++        host.to_string()
++    };
++    format!("{host}:{port}")
++}
++
++async fn bind_server_listener(addr: SocketAddr, dual_stack: bool) -> std::io::Result<TcpListener> {
++    if dual_stack && addr.is_ipv6() {
++        let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))?;
++        socket.set_reuse_address(true)?;
++        socket.set_only_v6(false)?;
++        socket.bind(&addr.into())?;
++        socket.listen(1024)?;
++        socket.set_nonblocking(true)?;
++        let listener: std::net::TcpListener = socket.into();
++        TcpListener::from_std(listener)
++    } else {
++        TcpListener::bind(addr).await
++    }
++}
++
+@@ -46,5 +71,10 @@ impl std::fmt::Display for RunError {
+-            Self::InvalidOutbound(e) => write!(f, "invalid outbound proxy config: {e}"),
+-            Self::InvalidPin(e) => write!(f, "invalid pinned upstream config: {e}"),
+-            Self::InvalidListenAddress(addr) => write!(f, "invalid listen address: {addr}"),
+-            Self::Bind { addr, source } => write!(f, "cannot bind {addr}: {source}"),
+-            Self::CheckFailed => write!(f, "connectivity check failed"),
++            Self::InvalidOutbound(e) => write!(f, "неверная конфигурация исходящего прокси: {e}"),
++            Self::InvalidPin(e) => write!(
++                f,
++                "неверная конфигурация закреплённого резервного узла: {e}"
++            ),
++            Self::InvalidListenAddress(addr) => write!(f, "неверный адрес прослушивания: {addr}"),
++            Self::Bind { addr, source } => {
++                write!(f, "не удалось начать прослушивание {addr}: {source}")
++            }
++            Self::CheckFailed => write!(f, "проверка подключения не пройдена"),
+@@ -113,0 +144,18 @@ pub async fn run_with_listen(
++    if config.transparent {
++        if config.skip_tls_verify || config.cf_disable_tls || config.fronting_domain.is_some() {
++            warn!(
++                "прозрачный режим всегда проверяет сертификат TLS и отключает незашифрованные и fronting-маршруты"
++            );
++        }
++        config.skip_tls_verify = false;
++        config.cf_disable_tls = false;
++        config.fronting_domain = None;
++        config.outbound_proxy = None;
++        config.no_proxy = None;
++        config.no_outbound_proxy = true;
++        config.secrets.clear();
++        config.mtproto_proxies.clear();
++        config.pinned_upstreams.clear();
++        config.pinned_media_upstreams.clear();
++    }
++
+@@ -133 +181 @@ pub async fn run_with_listen(
+-        info!("Fetching default CF proxy domain list from GitHub…");
++        info!("Загрузка списка доменов CF-прокси из GitHub…");
+@@ -136 +184 @@ pub async fn run_with_listen(
+-                info!("proxy stopped");
++                info!("прокси остановлен");
+@@ -141 +189 @@ pub async fn run_with_listen(
+-        info!("  Got {} default CF domain(s)", fetched.len());
++        info!("  Загружено доменов CF по умолчанию: {}", fetched.len());
+@@ -160,2 +208,2 @@ pub async fn run_with_listen(
+-                "{flag}: tcp is a terminal tier — everything listed after it \
+-                 ({}) is never reached",
++                "{flag}: TCP является последним уровнем — следующие пункты \
++                 ({}) не будут использованы",
+@@ -193 +241,2 @@ pub async fn run_with_listen(
+-    let addr: SocketAddr = format!("{}:{}", bind_host, config.port)
++    let listen_address = listen_address(&bind_host, config.port);
++    let addr: SocketAddr = listen_address
+@@ -195 +244 @@ pub async fn run_with_listen(
+-        .map_err(|_| RunError::InvalidListenAddress(format!("{bind_host}:{}", config.port)))?;
++        .map_err(|_| RunError::InvalidListenAddress(listen_address.clone()))?;
+@@ -197 +246 @@ pub async fn run_with_listen(
+-    let listener = TcpListener::bind(addr)
++    let listener = bind_server_listener(addr, config.transparent)
+@@ -209,0 +259,5 @@ pub async fn run_with_listen(
++    let pool_size = if config.transparent {
++        0
++    } else {
++        config.pool_size
++    };
+@@ -214 +268 @@ pub async fn run_with_listen(
+-            let safe = auto_max_connections(fd_limit, config.pool_size, dc_buckets);
++            let safe = auto_max_connections(fd_limit, pool_size, dc_buckets);
+@@ -217,3 +271,3 @@ pub async fn run_with_listen(
+-                    "max-connections={} may exceed the safe limit for this system's \
+-                     FD budget (fd-limit={}, recommended ≤{}). \
+-                     Consider raising `ulimit -n` or reducing --max-connections.",
++                    "max-connections={} может превышать безопасное число соединений \
++                     для лимита дескрипторов (лимит={}, рекомендуется ≤{}). \
++                     Увеличьте `ulimit -n` или уменьшите --max-connections.",
+@@ -225 +279 @@ pub async fn run_with_listen(
+-        None => auto_max_connections(fd_limit, config.pool_size, dc_buckets),
++        None => auto_max_connections(fd_limit, pool_size, dc_buckets),
+@@ -229,9 +283,12 @@ pub async fn run_with_listen(
+-    let secret = config.primary_secret();
+-
+-    let link_host = config.link_host();
+-    let tg_link = format!(
+-        "tg://proxy?server={}&port={}&secret={}",
+-        link_host,
+-        listen_port,
+-        config.link_secret()
+-    );
++    let link_host = (!config.transparent).then(|| config.link_host());
++    let tg_link = link_host
++        .as_deref()
++        .map(|link_host| {
++            format!(
++                "tg://proxy?server={}&port={}&secret={}",
++                link_host,
++                listen_port,
++                config.link_secret()
++            )
++        })
++        .unwrap_or_default();
+@@ -241 +298 @@ pub async fn run_with_listen(
+-        "  Telegram MTProto WS Bridge Proxy  (tg-ws-proxy-rs v{})",
++        "  Прокси Telegram MTProto через WebSocket  (tg-ws-proxy-rs v{})",
+@@ -244,4 +301,3 @@ pub async fn run_with_listen(
+-    info!("  Listening on   {}:{}", bind_host, listen_port);
+-    info!("  Secret:        {}", secret);
+-    if let Some(domain) = config.listen_faketls_domain() {
+-        info!("  Inbound mode:   FakeTLS ee (SNI: {})", domain);
++    info!("  Прослушивание   {}", bound_addr);
++    if config.transparent {
++        info!("  Режим входа:    прозрачный obfuscated2 (SO_ORIGINAL_DST)");
+@@ -249 +305,6 @@ pub async fn run_with_listen(
+-        info!("  Inbound mode:   padded MTProto dd");
++        info!("  Секрет:         {}", config.primary_secret());
++        if let Some(domain) = config.listen_faketls_domain() {
++            info!("  Входящий режим: FakeTLS ee (SNI: {})", domain);
++        } else {
++            info!("  Входящий режим: MTProto dd с дополнением");
++        }
+@@ -251 +312 @@ pub async fn run_with_listen(
+-    info!("  Target DC IPs:");
++    info!("  IP-адреса дата-центров:");
+@@ -259 +320 @@ pub async fn run_with_listen(
+-        info!("  ⚠  TLS certificate verification DISABLED");
++        info!("  ⚠  Проверка сертификатов TLS отключена");
+@@ -263 +324 @@ pub async fn run_with_listen(
+-        info!("  Cloudflare proxy domain(s):");
++        info!("  Домены прокси Cloudflare:");
+@@ -265 +326 @@ pub async fn run_with_listen(
+-            info!("    {} (kws{{N}}.{} subdomains)", d, d);
++            info!("    {} (поддомены kws{{N}}.{})", d, d);
+@@ -268 +329 @@ pub async fn run_with_listen(
+-            info!("    ⚖  CF balance mode: connections are round-robin'd across domains");
++            info!("    ⚖  Балансировка CF: подключения распределяются по доменам по очереди");
+@@ -274 +335 @@ pub async fn run_with_listen(
+-        info!("  Cloudflare Worker domain(s):");
++        info!("  Домены Cloudflare Worker:");
+@@ -282,4 +343,4 @@ pub async fn run_with_listen(
+-            "  ⚠  CF transport: plaintext ws:// on port 80 — the obfuscated MTProto stream is \
+-             on the wire in the clear: every frame's auth_key_id is readable and the \
+-             obfuscation is recoverable from captured bytes (#123), so connections are \
+-             identifiable. Route media through these tiers, not text."
++            "  ⚠  Транспорт CF: незашифрованный ws:// на порту 80 передаёт поток MTProto \
++             открыто: auth_key_id каждого кадра доступен, а обфускацию можно восстановить \
++             из записанных данных (#123), поэтому подключения распознаваемы. Направляйте \
++             через эти уровни только медиа, но не текст."
+@@ -289 +350,3 @@ pub async fn run_with_listen(
+-        info!("  Pinned upstream order (default ladder is used for the rest):");
++        info!(
++            "  Порядок заданных маршрутов (для остальных действует стандартная последовательность):"
++        );
+@@ -298 +361 @@ pub async fn run_with_listen(
+-            info!("    non-media: {}", names(&config.pinned_upstreams));
++            info!("    не-медиа: {}", names(&config.pinned_upstreams));
+@@ -301 +364 @@ pub async fn run_with_listen(
+-            info!("    media: {}", names(&config.pinned_media_upstreams));
++            info!("    медиа: {}", names(&config.pinned_media_upstreams));
+@@ -303 +366 @@ pub async fn run_with_listen(
+-            info!("    media: inherits non-media pin above");
++            info!("    медиа: используется маршрут не-медиа выше");
+@@ -309 +372 @@ pub async fn run_with_listen(
+-            "  Cloudflare preferred IP(s): {}",
++            "  Предпочтительные IP Cloudflare: {}",
+@@ -319,2 +382,2 @@ pub async fn run_with_listen(
+-                "  ⚠  --cf-ip has no effect: no --cf-domain, --default-domains, \
+-                 or --cf-worker-domain route is configured"
++                "  ⚠  --cf-ip не применяется: не заданы --cf-domain, --default-domains \
++                 или маршрут --cf-worker-domain"
+@@ -326 +389 @@ pub async fn run_with_listen(
+-        info!("  Upstream MTProto proxies (WS fallback):");
++        info!("  Внешние MTProto-прокси (резервный маршрут WS):");
+@@ -333 +396 @@ pub async fn run_with_listen(
+-        info!("  Outbound proxy: {}", summary);
++        info!("  Исходящий прокси: {}", summary);
+@@ -339,4 +402,4 @@ pub async fn run_with_listen(
+-                "  ⚠  --fronting-domain {} has no effect: no --dc-ip is configured. \
+-                 Fronting only applies to a direct connection to a DC's real IP \
+-                 (matching upstream tg-ws-proxy) — it is never used for CF proxy, \
+-                 CF Worker, or upstream MTProto proxy connections.",
++                "  ⚠  --fronting-domain {} не применяется: не задан --dc-ip. \
++                 Маскировка домена работает только при прямом подключении к реальному IP \
++                 дата-центра; она не используется для CF-прокси, CF Worker и \
++                 внешнего MTProto-прокси.",
+@@ -346 +409 @@ pub async fn run_with_listen(
+-            info!("  Domain fronting: always (SNI {})", domain);
++            info!("  Маскировка домена включена (SNI {})", domain);
+@@ -351 +414 @@ pub async fn run_with_listen(
+-        "  Max connections: {} (fd-limit: {})",
++        "  Максимум соединений: {} (лимит дескрипторов: {})",
+@@ -355,4 +418,6 @@ pub async fn run_with_listen(
+-    info!("  Telegram proxy link (use this on all devices):");
+-    info!("    {}", tg_link);
+-    if config.secrets.len() > 1 {
+-        info!("  Additional per-user proxy links:");
++    if !config.transparent {
++        info!("  Ссылка прокси Telegram (используйте на всех устройствах):");
++        info!("    {}", tg_link);
++    }
++    if !config.transparent && config.secrets.len() > 1 {
++        info!("  Дополнительные персональные ссылки прокси:");
+@@ -363 +428,3 @@ pub async fn run_with_listen(
+-                link_host, listen_port, link_secret
++                link_host.as_deref().unwrap_or_default(),
++                listen_port,
++                link_secret
+@@ -368,13 +435,15 @@ pub async fn run_with_listen(
+-    if link_host != bind_host {
+-        info!(
+-            "  ℹ  Link uses auto-detected IP {}. \
+-             Use --link-ip <IP> to override.",
+-            link_host
+-        );
+-    } else if matches!(bind_host.as_str(), "127.0.0.1" | "::1") {
+-        warn!(
+-            "  ⚠  Link shows {} — only the local machine can use this link. \
+-             Run with --host 0.0.0.0 (or --link-ip <router-LAN-IP>) \
+-             so other devices on the network can connect.",
+-            bind_host
+-        );
++    if let Some(link_host) = link_host.as_deref() {
++        if link_host != bind_host {
++            info!(
++                "  ℹ  В ссылке используется автоматически определённый IP {}. \
++                 Для замены укажите --link-ip <IP>.",
++                link_host
++            );
++        } else if matches!(bind_host.as_str(), "127.0.0.1" | "::1") {
++            warn!(
++                "  ⚠  Адрес {} доступен только на этом устройстве. \
++                 Укажите --host 0.0.0.0 (или --link-ip <LAN-IP>), \
++                 чтобы разрешить подключение другим устройствам сети.",
++                bind_host
++            );
++        }
+@@ -391 +460 @@ pub async fn run_with_listen(
+-        config.pool_size,
++        pool_size,
+@@ -401,3 +470,5 @@ pub async fn run_with_listen(
+-        tokio::spawn(async move {
+-            pool_clone.warmup(&config_clone).await;
+-        });
++        if !config.transparent {
++            tokio::spawn(async move {
++                pool_clone.warmup(&config_clone).await;
++            });
++        }
+@@ -468,4 +539,11 @@ pub async fn run_with_listen(
+-                            proxy::handle_client_with_runtime(
+-                                stream, peer_addr, cfg, pool, runtime,
+-                            )
+-                            .await;
++                            if cfg.transparent {
++                                proxy::handle_transparent_client_with_runtime(
++                                    stream, peer_addr, cfg, pool, runtime,
++                                )
++                                .await;
++                            } else {
++                                proxy::handle_client_with_runtime(
++                                    stream, peer_addr, cfg, pool, runtime,
++                                )
++                                .await;
++                            }
+@@ -480 +558 @@ pub async fn run_with_listen(
+-                            warn!("accept error: {} — backing off to allow FDs to free", e);
++                            warn!("ошибка приёма подключения: {}, ожидание освобождения дескрипторов", e);
+@@ -483 +561 @@ pub async fn run_with_listen(
+-                            error!("accept error: {}", e);
++                            error!("ошибка приёма подключения: {}", e);
+@@ -500 +578 @@ pub async fn run_with_listen(
+-    info!("proxy stopped");
++    info!("прокси остановлен");
+@@ -502,0 +581,56 @@ pub async fn run_with_listen(
++
++#[cfg(all(test, target_os = "linux"))]
++mod transparent_listener_tests {
++    use super::{bind_server_listener, run_with_listen};
++    use crate::config::Config;
++    use std::net::{Ipv6Addr, SocketAddr};
++    use std::time::Duration;
++    use tokio::net::TcpStream;
++    use tokio::sync::oneshot;
++
++    #[tokio::test]
++    async fn transparent_listener_accepts_ipv4_and_ipv6() {
++        let listener = bind_server_listener("[::]:0".parse().unwrap(), true)
++            .await
++            .unwrap();
++        let port = listener.local_addr().unwrap().port();
++        let v4 = TcpStream::connect(SocketAddr::from(([127, 0, 0, 1], port)));
++        let v6 = TcpStream::connect(SocketAddr::from((Ipv6Addr::LOCALHOST, port)));
++        let (v4, v6) = tokio::join!(v4, v6);
++        assert!(v4.is_ok(), "не удалось подключиться через IPv4: {v4:?}");
++        assert!(v6.is_ok(), "не удалось подключиться через IPv6: {v6:?}");
++    }
++
++    #[tokio::test]
++    async fn transparent_server_accepts_ipv6_unspecified_bind_host() {
++        let config = Config::try_from_cli_line("--transparent --host :: --port 0").unwrap();
++        let (bound_tx, bound_rx) = oneshot::channel();
++        let (shutdown_tx, shutdown_rx) = oneshot::channel();
++        let server = tokio::spawn(run_with_listen(
++            config,
++            async move {
++                let _ = shutdown_rx.await;
++            },
++            move |info| {
++                let _ = bound_tx.send(info.addr);
++            },
++        ));
++
++        let bound_result = tokio::time::timeout(Duration::from_secs(2), bound_rx)
++            .await
++            .expect("сервер не начал слушать");
++        let bound = match bound_result {
++            Ok(bound) => bound,
++            Err(_) => panic!("сервер завершился до bind: {:?}", server.await.unwrap()),
++        };
++        assert_eq!(bound.ip(), Ipv6Addr::UNSPECIFIED);
++        let _ = shutdown_tx.send(());
++        assert!(
++            tokio::time::timeout(Duration::from_secs(2), server)
++                .await
++                .expect("сервер не остановился")
++                .unwrap()
++                .is_ok()
++        );
++    }
++}
+diff --git a/src/transparent.rs b/src/transparent.rs
+new file mode 100644
+index 0000000..1edcacc
+--- /dev/null
++++ b/src/transparent.rs
+@@ -0,0 +1,125 @@
++//! Средства Linux для прозрачного проксирования. После чтения 64-байтового
++//! заголовка obfuscated2 поток остаётся непрозрачным: Telegram WSS передаёт
++//! MTProto как единый поток байтов, поэтому границы WebSocket-кадров не должны
++//! менять или повторно шифровать данные.
++
++use std::io;
++use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
++use std::os::fd::AsRawFd;
++
++use tokio::net::TcpStream;
++
++use cipher::StreamCipher;
++
++use crate::crypto::{DC_IDX_POS, HANDSHAKE_LEN, PROTO_TAG_POS, ProtoTag, make_cipher};
++
++/// DC и тип транспорта, извлечённые из obfuscated2 без секрета.
++pub struct ClientInit {
++    pub dc: u32,
++    pub is_media: bool,
++    pub proto: crate::crypto::ProtoTag,
++}
++
++/// Получить исходный адрес назначения, сохранённый nftables REDIRECT.
++pub fn original_destination(stream: &TcpStream) -> io::Result<SocketAddr> {
++    #[cfg(target_os = "linux")]
++    {
++        let peer = stream.peer_addr()?;
++        let mapped_v4 =
++            matches!(peer, SocketAddr::V6(addr) if addr.ip().to_ipv4_mapped().is_some());
++        if peer.is_ipv4() || mapped_v4 {
++            match original_destination_v4(stream) {
++                Ok(addr) => return Ok(addr.into()),
++                Err(v4_error) => original_destination_v6(stream).map_err(|_| v4_error),
++            }
++        } else {
++            original_destination_v6(stream)
++                .or_else(|_| original_destination_v4(stream).map(Into::into))
++        }
++    }
++    #[cfg(not(target_os = "linux"))]
++    {
++        let _ = stream;
++        Err(io::Error::new(
++            io::ErrorKind::Unsupported,
++            "для прозрачного режима в Linux требуется SO_ORIGINAL_DST",
++        ))
++    }
++}
++
++#[cfg(target_os = "linux")]
++fn original_destination_v4(stream: &TcpStream) -> io::Result<SocketAddrV4> {
++    let mut addr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
++    let mut len = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
++    // SO_ORIGINAL_DST из linux/netfilter_ipv4.h.
++    let rc = unsafe {
++        libc::getsockopt(
++            stream.as_raw_fd(),
++            libc::SOL_IP,
++            80,
++            &mut addr as *mut _ as *mut libc::c_void,
++            &mut len,
++        )
++    };
++    if rc != 0 {
++        return Err(io::Error::last_os_error());
++    }
++    if (addr.sin_family as libc::c_int) != libc::AF_INET {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidData,
++            "исходный адрес назначения не является IPv4",
++        ));
++    }
++    Ok(SocketAddrV4::new(
++        Ipv4Addr::from(u32::from_be(addr.sin_addr.s_addr)),
++        u16::from_be(addr.sin_port),
++    ))
++}
++
++#[cfg(target_os = "linux")]
++fn original_destination_v6(stream: &TcpStream) -> io::Result<SocketAddr> {
++    let mut addr: libc::sockaddr_in6 = unsafe { std::mem::zeroed() };
++    let mut len = std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t;
++    // IP6T_SO_ORIGINAL_DST из linux/netfilter_ipv6/ip6_tables.h.
++    let rc = unsafe {
++        libc::getsockopt(
++            stream.as_raw_fd(),
++            libc::IPPROTO_IPV6,
++            80,
++            &mut addr as *mut _ as *mut libc::c_void,
++            &mut len,
++        )
++    };
++    if rc != 0 {
++        return Err(io::Error::last_os_error());
++    }
++    if (addr.sin6_family as libc::c_int) != libc::AF_INET6 {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidData,
++            "исходный адрес назначения не является IPv6",
++        ));
++    }
++    Ok(SocketAddr::V6(SocketAddrV6::new(
++        Ipv6Addr::from(addr.sin6_addr.s6_addr),
++        u16::from_be(addr.sin6_port),
++        addr.sin6_flowinfo,
++        addr.sin6_scope_id,
++    )))
++}
++
++/// Извлечь DC, признак media и протокол из obfuscated2 без секрета прокси.
++pub fn parse_client_init(init: &[u8; HANDSHAKE_LEN]) -> Option<ClientInit> {
++    let mut decoded = *init;
++    make_cipher(&init[8..40], &init[40..56]).apply_keystream(&mut decoded);
++    let proto = ProtoTag::from_bytes(&decoded[PROTO_TAG_POS..PROTO_TAG_POS + 4])?;
++    let dc_idx = i16::from_le_bytes([decoded[DC_IDX_POS], decoded[DC_IDX_POS + 1]]);
++    let dc = dc_idx.unsigned_abs() as u32;
++    if !((1..=5).contains(&dc) || dc == 203) {
++        return None;
++    }
++    Some(ClientInit {
++        dc,
++        is_media: dc_idx < 0,
++        proto,
++    })
++}
+diff --git a/src/ws_client.rs b/src/ws_client.rs
+index 57792eb..7910238 100644
+--- a/src/ws_client.rs
++++ b/src/ws_client.rs
+@@ -477 +477 @@ async fn connect_cf_with_path(
+-        debug!("CF edge trying {} for {}", ip, domain);
++        debug!("проверка узла CF {} для домена {}", ip, domain);
+@@ -647 +647,4 @@ pub async fn connect_ws_for_dc_with_outbound(
+-        debug!("WS trying DC{}{} → {} via {}", dc, media, domain, ip);
++        debug!(
++            "DC{}{}: проверка WS-домена {} через {}",
++            dc, media, domain, ip
++        );
+@@ -665,2 +668,2 @@ pub async fn connect_ws_for_dc_with_outbound(
+-                    "WS DC{}{} got {} from {} (redirect)",
+-                    dc, media, code, domain
++                    "DC{}{}: домен {} ответил кодом HTTP {} (перенаправление)",
++                    dc, media, domain, code
+@@ -668 +671 @@ pub async fn connect_ws_for_dc_with_outbound(
+-                // Keep trying next domain; still counts as all_redirects.
++                // Проверить следующий домен; ответ учитывается как перенаправление.
+@@ -671 +674,4 @@ pub async fn connect_ws_for_dc_with_outbound(
+-                warn!("WS DC{}{} failed on {}: {}", dc, media, domain, reason);
++                warn!(
++                    "DC{}{}: ошибка WS-подключения к {}: {}",
++                    dc, media, domain, reason
++                );
+@@ -673 +679 @@ pub async fn connect_ws_for_dc_with_outbound(
+-                all_redirects = false; // a real failure, not just a redirect
++                all_redirects = false; // Это ошибка подключения, а не перенаправление.
+@@ -676 +682,4 @@ pub async fn connect_ws_for_dc_with_outbound(
+-                warn!("WS DC{}{} timed out on {}", dc, media, domain);
++                warn!(
++                    "DC{}{}: истекло время ожидания WS-подключения к {}",
++                    dc, media, domain
++                );
+@@ -682 +691,4 @@ pub async fn connect_ws_for_dc_with_outbound(
+-                warn!("WS DC{}{} failed on {}: {}", dc, media, domain, reason);
++                warn!(
++                    "DC{}{}: ошибка WS-подключения к {}: {}",
++                    dc, media, domain, reason
++                );
+@@ -921 +933 @@ pub(crate) async fn connect_cf_ws_for_dc_with_outbound_ordered(
+-        debug!("CF WS trying DC{}{} → {}", dc, media, domain);
++        debug!("DC{}{}: проверка WS через CF-домен {}", dc, media, domain);
+@@ -939,2 +951,2 @@ pub(crate) async fn connect_cf_ws_for_dc_with_outbound_ordered(
+-                    "CF WS DC{}{} got {} from {} (redirect)",
+-                    dc, media, code, domain
++                    "DC{}{}: CF-домен {} ответил кодом HTTP {} (перенаправление)",
++                    dc, media, domain, code
+@@ -944 +956,4 @@ pub(crate) async fn connect_cf_ws_for_dc_with_outbound_ordered(
+-                warn!("CF WS DC{}{} failed on {}: {}", dc, media, domain, reason);
++                warn!(
++                    "DC{}{}: ошибка CF WS-подключения к {}: {}",
++                    dc, media, domain, reason
++                );
+@@ -948 +963,4 @@ pub(crate) async fn connect_cf_ws_for_dc_with_outbound_ordered(
+-                warn!("CF WS DC{}{} timed out on {}", dc, media, domain);
++                warn!(
++                    "DC{}{}: истекло время ожидания CF WS-подключения к {}",
++                    dc, media, domain
++                );
+@@ -1121 +1139 @@ pub async fn connect_cf_worker_ws_for_dc_with_outbound_opts(
+-        "CF Worker trying DC{}{} → {} via {}",
++        "DC{}{}: проверка CF Worker {} через {}",
+@@ -1139,2 +1157,2 @@ pub async fn connect_cf_worker_ws_for_dc_with_outbound_opts(
+-                "CF Worker DC{}{} got {} from {} (redirect)",
+-                dc, media, code, worker_domain
++                "DC{}{}: CF Worker {} ответил кодом HTTP {} (перенаправление)",
++                dc, media, worker_domain, code
+@@ -1146 +1164 @@ pub async fn connect_cf_worker_ws_for_dc_with_outbound_opts(
+-                "CF Worker DC{}{} failed on {}: {}",
++                "DC{}{}: ошибка CF Worker-подключения к {}: {}",
+@@ -1152 +1170,4 @@ pub async fn connect_cf_worker_ws_for_dc_with_outbound_opts(
+-            warn!("CF Worker DC{}{} timed out on {}", dc, media, worker_domain);
++            warn!(
++                "DC{}{}: истекло время ожидания CF Worker {}",
++                dc, media, worker_domain
++            );
+diff --git a/tests/transparent.rs b/tests/transparent.rs
+new file mode 100644
+index 0000000..66158e2
+--- /dev/null
++++ b/tests/transparent.rs
+@@ -0,0 +1,59 @@
++use clap::Parser;
++use tg_ws_proxy_rs::crypto::{ProtoTag, generate_relay_init};
++use tg_ws_proxy_rs::transparent::parse_client_init;
++
++#[test]
++fn transparent_mode_is_an_explicit_opt_in() {
++    let config = tg_ws_proxy_rs::config::Config::try_parse_from(["tg-ws-proxy", "--transparent"])
++        .unwrap()
++        .with_defaults();
++    assert!(config.transparent);
++    assert!(
++        config.secrets.is_empty(),
++        "прозрачный режим не должен создавать секрет прокси"
++    );
++}
++
++#[test]
++fn transparent_mode_discards_relay_secrets_and_tls_bypass_options() {
++    let config = tg_ws_proxy_rs::config::Config::try_parse_from([
++        "tg-ws-proxy",
++        "--transparent",
++        "--secret",
++        "0123456789abcdef0123456789abcdef",
++        "--mtproto-proxy",
++        "relay.example:443:0123456789abcdef0123456789abcdef",
++        "--danger-accept-invalid-certs",
++    ])
++    .unwrap()
++    .with_defaults();
++    assert!(config.secrets.is_empty());
++    assert!(config.mtproto_proxies.is_empty());
++    assert!(config.pinned_upstreams.is_empty());
++    assert!(config.pinned_media_upstreams.is_empty());
++    assert!(!config.skip_tls_verify);
++    assert!(config.no_outbound_proxy);
++}
++
++#[test]
++fn transparent_init_accepts_dc_and_media_marker_without_a_proxy_secret() {
++    let init = generate_relay_init(ProtoTag::Intermediate, -4);
++    let parsed = parse_client_init(&init).expect("корректный obfuscated2-пакет без секрета");
++    assert_eq!(parsed.dc, 4);
++    assert!(parsed.is_media);
++    assert_eq!(parsed.proto, ProtoTag::Intermediate);
++}
++
++#[test]
++fn transparent_init_accepts_cdn_dc_203() {
++    let init = generate_relay_init(ProtoTag::PaddedIntermediate, 203);
++    let parsed = parse_client_init(&init).expect("начальный пакет DC203");
++    assert_eq!(parsed.dc, 203);
++    assert!(!parsed.is_media);
++}
++
++#[test]
++fn transparent_init_rejects_unknown_dc_and_random_data() {
++    assert!(parse_client_init(&generate_relay_init(ProtoTag::Intermediate, 6)).is_none());
++    assert!(parse_client_init(&[0; 64]).is_none());
++}

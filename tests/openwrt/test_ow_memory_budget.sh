@@ -142,6 +142,7 @@ fi
 
 # До загрузки установщик резервирует место на диске под архив, распакованные
 # файлы и запас для отката.
+printf '36 25 0:32 / %s rw - ext4 /dev/test-overlay rw\n' "$OV" > "$MOUNTS"
 printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim 131072 50000 80000 39%% /overlay\n' > "$DF"
 if z2k_ow_overlay_download_preflight "$OV" 14132028 33712446; then
     _t_ok

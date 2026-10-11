@@ -259,9 +259,9 @@ start_service() {
         z2k_ow_fw_apply && z2k_ow_fw_verify || { z2k_ow_start_rollback; return 1; }
     fi
     z2k_ow_custom_daemons 1 || { z2k_ow_start_rollback; return 1; }
-    # TG/CDN tunnel (Stage 3): второй procd instance + nft в runtime-таблице.
-    # Прямой вызов (НЕ через custom.d-раннер): DISABLE_CUSTOM не должен
-    # гасить first-class feature. procd останавливает instance сам.
+    # Rust TG WS Proxy запускается одним экземпляром procd; его правила входят
+    # в существующую runtime-таблицу nft. Прямой вызов не зависит от custom.d,
+    # а procd самостоятельно управляет жизненным циклом процесса.
     z2k_ow_tg 1 || { z2k_ow_start_rollback; return 1; }
     # RT proxy (Stage 4): третий instance + DNS-пины + nft. DNS re-assert
     # идемпотентен — gap при рестарте нет (контракт stop_proxy).

@@ -227,7 +227,7 @@ _z2k_install_paths_openwrt() {
             # свой маппинг вместе с исполнителем (молча не теряются: drift-тест).
             echo "${or}/z2k-config-validator.sh" ;;
         files/etc/z2k-roots.pem)
-            echo "${or}/etc/z2k-roots.pem" ;;
+            : ;; # Rust TG WS Proxy использует закреплённый набор WebPKI; этот PEM нужен старому туннелю Keenetic.
         files/etc/z2k-update-pub.pem)
             : ;; # legacy updater authority; OpenWrt trusts only staged release-keys
         # Keenetic file-updater destinations. OpenWrt deployment bypasses

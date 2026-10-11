@@ -64,15 +64,12 @@ mkdir -p "$_warpd"
     done
 )
 
-# TG's upstream executable has a per-build default relay secret injected into
-# the official binary. Test the adapted source, then ship only the matching
-# upstream release binaries verified against that release's files_sha256.
-_tg="$_tmp/tg-mtproxy-client"
-(
-    cd "$ROOT/mtproxy-client"
-    GOTOOLCHAIN=local go test ./...
-)
-python3 "$ROOT/scripts/openwrt/fetch_upstream_tg.py" --manifest "$ROOT/UPDATES.json" --output "$_tg"
+# В этой версии у Telegram нет Go/VPS-резерва. Собрать закреплённый движок Rust
+# с небольшим локальным патчем прозрачного режима только для двух поддерживаемых
+# архитектур.
+_tg="$_tmp/tg-ws-proxy"
+mkdir -p "$_tg"
+sh "$ROOT/scripts/openwrt/build_tg_ws_proxy.sh" "$_tg"
 
 # These executables remain in the same complete payload as the selected TG and
 # WARP binaries. Tiny dispatch wrappers choose OpenWrt's precise target ABI.

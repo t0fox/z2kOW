@@ -1,6 +1,6 @@
 #!/bin/sh
-# One-shot p-85.8 Telegram UDP retirement, invoked by adapter postinst.
-# Runtime Telegram support after this migration is TCP-only (ports 1443/1444).
+# Однократное удаление UDP-транспорта Telegram для p-85.8 при установке адаптера.
+# После миграции Telegram работает только через TCP/443 и слушатель Rust :1443.
 
 Z2K_OW_PROC_ROOT="${Z2K_OW_PROC_ROOT:-/proc}"
 Z2K_OW_CONFIG="${Z2K_OW_CONFIG:-/etc/z2k/config}"
@@ -95,7 +95,7 @@ _z2k_ow_retire_owned_chain() {
 $_dump
 EOF_NFT_CHAIN
     [ "$_count" -gt 0 ] && [ "$_owned" = 1 ] || {
-        [ "$_count" -eq 0 ] || echo "z2k-openwrt: Telegram UDP retirement left non-matching chain $_chain untouched" >&2
+        [ "$_count" -eq 0 ] || echo "z2k-openwrt: цепочка $_chain содержит неизвестные правила; она оставлена без изменений" >&2
         return 0
     }
     "$Z2K_OW_NFT" flush chain inet zapret2 "$_chain" >/dev/null 2>&1 || return 1
@@ -118,7 +118,7 @@ _z2k_ow_retire_nft() {
         *'!z2k: Telegram UDP forwarded traffic'*)
             if [ -x "$Z2K_OW_FIREWALL" ]; then
                 "$Z2K_OW_FIREWALL" reload >/dev/null 2>&1 || {
-                    echo 'z2k-openwrt: Telegram UDP retirement could not reload fw4' >&2
+                    echo 'z2k-openwrt: не удалось перезагрузить fw4 после удаления UDP-транспорта Telegram' >&2
                     return 1
                 }
             fi ;;

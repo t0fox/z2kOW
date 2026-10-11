@@ -1,7 +1,7 @@
 #!/bin/sh
-# tests/openwrt/test_ow_no_resurrect.sh - gates G: reconvergence (hotplug rules,
-# cron check) запрещена без running+ready. После manual stop/failed start
-# ifup/cron НЕ должны пересоздавать redirect/routing state.
+# Проверяет, что повторное применение правил (hotplug и cron) запрещено без
+# running+ready. После ручной остановки или сбоя запуска ifup/cron не должны
+# пересоздавать состояние перенаправления и маршрутизации.
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-no-resurrect"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -39,21 +39,25 @@ export INIT_SCRIPT="$T/init-stub"
 export Z2K_CORE_READY="$T/ready"
 
 export Z2K_ROOT="$REPO" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
-mkdir -p "$T/etc" "$T/tmp" "$T/tmp/locks" "$T/root/bin" "$T/proc"
+mkdir -p "$T/etc" "$T/tmp" "$T/tmp/locks" \
+    "$T/root/bin/linux-arm64" "$T/root/bin/linux-x86_64" "$T/proc"
 printf 'ENABLED=1\n' > "$T/etc/config"
 export Z2K_CONFIG="$T/etc/config" Z2K_LISTS_DIR="$T/root/lists"
 export Z2K_PROC_ROOT="$T/proc" Z2K_RT_HEALTH_DIR="$T/tmp/rt-health"
-printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/tg-mtproxy-client"
 printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/z2k-rt-proxy"
-chmod +x "$T/root/bin/tg-mtproxy-client" "$T/root/bin/z2k-rt-proxy"
-export Z2K_BIN="$T/root/bin" Z2K_TG_BIN="$T/root/bin/tg-mtproxy-client" Z2K_RT_BIN="$T/root/bin/z2k-rt-proxy"
+for arch in linux-arm64 linux-x86_64; do
+    printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/$arch/tg-ws-proxy"
+    chmod +x "$T/root/bin/$arch/tg-ws-proxy"
+done
+chmod +x "$T/root/bin/z2k-rt-proxy"
+export Z2K_BIN="$T/root/bin" Z2K_RT_BIN="$T/root/bin/z2k-rt-proxy"
 # shellcheck disable=SC1090,SC1091
 . "$REPO/platform/openwrt/paths.sh" || exit 1
 . "$REPO/platform/openwrt/env.sh" || exit 1
 . "$REPO/platform/openwrt/tg.sh" || exit 1
 . "$REPO/platform/openwrt/rt.sh" || exit 1
-# This test exercises feature rule gates; consumer ownership is covered by the
-# dedicated recovery test and is stubbed here so the fixture stays minimal.
+# Здесь проверяются условия применения правил; готовность NFQUEUE проверяет
+# отдельный recovery-тест, поэтому в этой минимальной фикстуре она заглушена.
 z2k_ow_nfqws_consumer_ready() { return 0; }
 
 _mutations() { grep -cE '^(nft:(add|insert|delete|flush)|uci:(set|delete|commit))' "$T/calls" 2>/dev/null || true; }

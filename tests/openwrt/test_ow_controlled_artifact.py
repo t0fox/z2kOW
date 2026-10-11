@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -34,23 +36,46 @@ class ControlledArtifactTests(unittest.TestCase):
             "schema": 1,
             "branch": "main",
             "platform": "openwrt",
-            "current": "p-86.13",
-            "seq": 136,
+            "current": "r-86.5",
+            "seq": 141,
             "upstream": {
                 "repository": "necronicle/z2k",
                 "branch": "z2k-enhanced",
-                "tag": "p-86.13",
-                "commit": "7f630a9d459052b9c9c9eded06298f1b8f7f0a22",
+                "tag": "r-86.5",
+                "commit": "43b98092c5a337a35f5c094363f469243d7b8b80",
             },
             "history": [
                 {"v": "p-86.2", "type": "patch", "full_install": False},
                 {"v": "r-86.3", "type": "reinstall", "full_install": True},
-                {"v": "p-86.13", "type": "patch", "full_install": False},
+                {"v": "r-86.5", "type": "reinstall", "full_install": True},
             ],
         }
 
     def tearDown(self) -> None:
         self.temp.cleanup()
+
+    def _upstream(self, tag: str = "r-86.5", seq: int = 141) -> dict[str, object]:
+        return {"branch": "z2k-enhanced", "current": tag, "seq": seq, "history": [{"v": tag}]}
+
+    def _verify_upstream_tag(
+        self, upstream: dict[str, object], pinned: dict[str, object], refs: str,
+        tag: str = "r-86.5", seq: int = 141,
+    ) -> subprocess.CompletedProcess[str]:
+        live_path = self.root / "upstream-live.json"
+        pinned_path = self.root / "upstream-pinned.json"
+        refs_path = self.root / "upstream-refs.txt"
+        live_path.write_text(json.dumps(upstream), encoding="utf-8")
+        pinned_path.write_text(json.dumps(pinned), encoding="utf-8")
+        refs_path.write_text(refs, encoding="utf-8")
+        return subprocess.run(
+            [
+                sys.executable, str(MODULE_PATH), "verify-upstream-tag",
+                "--upstream", str(live_path), "--pinned", str(pinned_path),
+                "--refs", str(refs_path), "--tag", tag, "--seq", str(seq),
+            ],
+            text=True,
+            capture_output=True,
+        )
 
     def test_single_transport_artifact_hash_is_recorded_in_updates_manifest(self) -> None:
         url = self.TECHNICAL_URL
@@ -175,6 +200,7 @@ class ControlledArtifactTests(unittest.TestCase):
 
     def test_controlled_manifest_is_derived_from_the_supplied_live_upstream_manifest(self) -> None:
         upstream = {
+            "branch": "z2k-enhanced",
             "current": "r-99.12",
             "seq": 812,
             "history": [
@@ -194,7 +220,7 @@ class ControlledArtifactTests(unittest.TestCase):
         self.assertEqual(set(controlled), {"schema", "branch", "platform", "seq", "current", "upstream", "history"})
 
     def test_live_upstream_check_detects_a_release_without_using_a_fixed_version(self) -> None:
-        upstream = {"current": "p-100.2", "seq": 900, "history": [{"v": "p-100.2"}]}
+        upstream = {"branch": "z2k-enhanced", "current": "p-100.2", "seq": 900, "history": [{"v": "p-100.2"}]}
         controlled = {"current": "r-99.12", "seq": 812, "upstream": {"tag": "r-99.12"}}
 
         result = MODULE.compare_upstream(upstream, controlled, "b" * 40)
@@ -204,11 +230,47 @@ class ControlledArtifactTests(unittest.TestCase):
         self.assertEqual(result["latest_seq"], 900)
 
     def test_live_upstream_check_rejects_a_rewound_sequence(self) -> None:
-        upstream = {"current": "p-100.2", "seq": 811, "history": [{"v": "p-100.2"}]}
+        upstream = {"branch": "z2k-enhanced", "current": "p-100.2", "seq": 811, "history": [{"v": "p-100.2"}]}
         controlled = {"current": "r-99.12", "seq": 812, "upstream": {"tag": "r-99.12"}}
 
         with self.assertRaisesRegex(ValueError, "sequence moved backwards"):
             MODULE.compare_upstream(upstream, controlled, "c" * 40)
+
+    def test_only_the_official_existing_upstream_tag_can_set_product_identity(self) -> None:
+        commit = "43b98092c5a337a35f5c094363f469243d7b8b80"
+        refs = (
+            f"{commit}\trefs/heads/z2k-enhanced\n"
+            "bdc81a8b9aa4132876ea12e650034ecfe52b411a\trefs/tags/r-86.5\n"
+            f"{commit}\trefs/tags/r-86.5^{{}}\n"
+        )
+        verified = self._verify_upstream_tag(self._upstream(), self._upstream(), refs)
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+        self.assertEqual(verified.stdout.strip(), commit)
+
+    def test_forged_tag_name_cannot_replace_the_official_current_tag(self) -> None:
+        commit = "43b98092c5a337a35f5c094363f469243d7b8b80"
+        refs = f"{commit}\trefs/heads/z2k-enhanced\n{commit}\trefs/tags/r-86.7\n"
+        result = self._verify_upstream_tag(self._upstream(), self._upstream(), refs)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("проверенный Git-тег upstream", result.stderr)
+
+    def test_upstream_tag_and_sequence_must_match_live_and_tagged_manifests(self) -> None:
+        commit = "43b98092c5a337a35f5c094363f469243d7b8b80"
+        refs = f"{commit}\trefs/heads/z2k-enhanced\n{commit}\trefs/tags/r-86.5\n"
+        mismatched_tag = self._verify_upstream_tag(
+            self._upstream(), self._upstream("r-86.6", 142), refs
+        )
+        mismatched_seq = self._verify_upstream_tag(
+            self._upstream("r-86.5", 142), self._upstream("r-86.5", 142), refs
+        )
+        boolean_seq = self._upstream()
+        boolean_seq["seq"] = True
+        malformed_seq = self._verify_upstream_tag(
+            boolean_seq, boolean_seq, refs, seq=1
+        )
+        self.assertNotEqual(mismatched_tag.returncode, 0)
+        self.assertNotEqual(mismatched_seq.returncode, 0)
+        self.assertNotEqual(malformed_seq.returncode, 0)
 
 
 if __name__ == "__main__":

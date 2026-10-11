@@ -176,6 +176,7 @@ jobs:
 
           refs="$(git ls-remote https://github.com/necronicle/z2k.git \
             "refs/heads/z2k-enhanced" "refs/tags/$RELEASE_TAG_INPUT" "refs/tags/$RELEASE_TAG_INPUT^{}")"
+          printf '%s\n' "$refs" > "$RUNNER_TEMP/upstream-refs.txt"
           branch_commit="$(printf '%s\n' "$refs" | awk '$2 == "refs/heads/z2k-enhanced" {print $1}')"
           tag_commit="$(printf '%s\n' "$refs" | awk -v tag="refs/tags/$RELEASE_TAG_INPUT" '$2 == tag {print $1}')"
           peeled_commit="$(printf '%s\n' "$refs" | awk -v tag="refs/tags/$RELEASE_TAG_INPUT^{}" '$2 == tag {print $1}')"
@@ -192,6 +193,14 @@ jobs:
           if manifest.get("current") != sys.argv[2] or manifest.get("seq") != int(sys.argv[3]):
               raise SystemExit("upstream tag commit does not contain the requested release manifest")
           PY
+          verified_commit="$(python3 scripts/openwrt/controlled_release.py verify-upstream-tag \
+            --upstream "$RUNNER_TEMP/upstream-live-UPDATES.json" \
+            --pinned "$RUNNER_TEMP/upstream-pinned-UPDATES.json" \
+            --refs "$RUNNER_TEMP/upstream-refs.txt" \
+            --tag "$RELEASE_TAG_INPUT" --seq "$RELEASE_SEQ_INPUT")"
+          [[ "$verified_commit" = "$upstream_commit" ]] || {
+            echo 'не совпадает проверенный Git-тег upstream' >&2; exit 1;
+          }
 
           gh api --paginate --jq '.[].tag_name' \
             "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/github-release-tags.txt"
@@ -260,6 +269,16 @@ jobs:
           go-version: 1.25.13
           cache: true
           cache-dependency-path: z2k-warpd/go.sum
+      - name: Установить закреплённый Rust и ARM64-компилятор
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu
+          toolchain="$(sed -n 's/^TOOLCHAIN=//p' platform/openwrt/tg-ws-proxy.pin)"
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
+          "$HOME/.cargo/bin/rustup" toolchain install "$toolchain" --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Установить BusyBox для приёмки кандидата как на OpenWrt
         run: sudo apt-get update && sudo apt-get install -y busybox
       - name: Fetch and recheck the exact upstream manifest validated before CI
@@ -356,6 +375,15 @@ jobs:
           python3 tests/openwrt/accept_release_candidate.py \
             "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json" \
             "$RUNNER_TEMP/openwrt-release-candidate"
+      - name: Проверить upgrade с предыдущего подписанного production-релиза
+        run: |
+          sh scripts/openwrt/upgrade-acceptance.sh \
+            "$RUNNER_TEMP/production-UPDATES.json" \
+            UPDATES.json.sig \
+            "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json" \
+            "$RUNNER_TEMP/openwrt-release-candidate" \
+            "$RUNNER_TEMP/openwrt-release-candidate/upgrade-acceptance.json" \
+            x86_64
       - name: Reconfirm the upstream release did not advance while OpenWrt was building
         shell: bash
         run: |
@@ -614,10 +642,13 @@ jobs:
               raise SystemExit("upstream changed before production signing; review the current release")
           PY
           refs="$(git ls-remote https://github.com/necronicle/z2k.git \
-            "refs/tags/$EXPECTED_TAG" "refs/tags/$EXPECTED_TAG^{}")"
+            "refs/heads/z2k-enhanced" "refs/tags/$EXPECTED_TAG" "refs/tags/$EXPECTED_TAG^{}")"
+          printf '%s\n' "$refs" > "$RUNNER_TEMP/upstream-refs-before-signing.txt"
+          branch_commit="$(printf '%s\n' "$refs" | awk '$2 == "refs/heads/z2k-enhanced" {print $1}')"
           tag_commit="$(printf '%s\n' "$refs" | awk -v tag="refs/tags/$EXPECTED_TAG" '$2 == tag {print $1}')"
           peeled_commit="$(printf '%s\n' "$refs" | awk -v tag="refs/tags/$EXPECTED_TAG^{}" '$2 == tag {print $1}')"
           upstream_commit="${peeled_commit:-$tag_commit}"
+          [[ "$branch_commit" =~ ^[0-9a-f]{40}$ ]]
           [[ "$upstream_commit" =~ ^[0-9a-f]{40}$ ]]
           test "$upstream_commit" = "$EXPECTED_UPSTREAM_COMMIT"
           curl --fail --location --silent --show-error \
@@ -630,6 +661,14 @@ jobs:
           if manifest.get("current") != sys.argv[2] or manifest.get("seq") != int(sys.argv[3]):
               raise SystemExit("pinned upstream tag does not contain the approved current release")
           PY
+          verified_commit="$(python3 scripts/openwrt/controlled_release.py verify-upstream-tag \
+            --upstream "$RUNNER_TEMP/upstream-live-before-signing-UPDATES.json" \
+            --pinned "$RUNNER_TEMP/upstream-pinned-before-signing-UPDATES.json" \
+            --refs "$RUNNER_TEMP/upstream-refs-before-signing.txt" \
+            --tag "$EXPECTED_TAG" --seq "$EXPECTED_SEQ")"
+          [[ "$verified_commit" = "$EXPECTED_UPSTREAM_COMMIT" ]] || {
+            echo 'не совпадает проверенный Git-тег upstream перед подписью' >&2; exit 1;
+          }
       - name: Sign and verify the exact final manifest with the protected production key
         shell: bash
         env:
@@ -686,6 +725,26 @@ jobs:
             --signature "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json.sig" \
             --public-key "$key_file"
           rm -f "$private_key"
+      - name: Проверить upgrade предыдущим установщиком с точной production-подписью
+        run: |
+          sh scripts/openwrt/upgrade-acceptance.sh \
+            UPDATES.json \
+            UPDATES.json.sig \
+            "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json" \
+            "$RUNNER_TEMP/openwrt-release-candidate" \
+            "$RUNNER_TEMP/openwrt-release-candidate/upgrade-acceptance.json" \
+            x86_64 \
+            "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json.sig"
+          python3 scripts/openwrt/verify_upgrade_acceptance.py \
+            --receipt "$RUNNER_TEMP/openwrt-release-candidate/upgrade-acceptance.json" \
+            --previous-manifest UPDATES.json \
+            --previous-signature UPDATES.json.sig \
+            --candidate-manifest "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json" \
+            --candidate-signature "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json.sig" \
+            --candidate-dir "$RUNNER_TEMP/openwrt-release-candidate" \
+            --architecture x86_64
+          printf 'Проверена точная production-подпись, обновление прежним установщиком при малом объёме памяти, отказ при нехватке места и откат до публикации.\n' \
+            >> "$GITHUB_STEP_SUMMARY"
       - name: Publish immutable technical payload and optional Product Release
         shell: bash
         env:
