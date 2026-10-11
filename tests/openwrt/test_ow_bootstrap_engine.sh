@@ -197,7 +197,7 @@ export PATH="$BIN:/usr/bin:/bin" TMPDIR="$BOOT_TMP" \
 
 run_bootstrap() {
     : > "$Z2K_TEST_ID_CALL_COUNT" || return 1
-    sh "$REPO/scripts/openwrt/install.sh" "$@"
+    sh "$REPO/scripts/openwrt/install.sh"
 }
 
 if run_bootstrap > "$T/out" 2>&1; then
