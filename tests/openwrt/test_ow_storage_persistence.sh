@@ -10,7 +10,7 @@ trap 'rm -rf "$T"' EXIT HUP INT TERM
 mkdir -p "$T/work" "$T/upper" "$T/link-parent" "$T/foreign-owner"
 MEM="$T/meminfo"
 MOUNTS="$T/mountinfo"
-export Z2K_OW_MEMINFO_FILE="$MEM" Z2K_OW_MOUNTINFO_FILE="$MOUNTS"
+export Z2K_OW_MEMINFO_FILE="$MEM" Z2K_OW_MOUNTINFO_FILE="$MOUNTS" Z2K_OW_TESTING=1
 
 if ! command -v z2k_ow_storage_persistent >/dev/null 2>&1 \
     || ! command -v z2k_ow_path_components_safe >/dev/null 2>&1 \
@@ -63,7 +63,7 @@ fi
 if z2k_ow_installer_owned "$T/work"; then
     _t_ok
 else
-    _t_bad "current installer owner is accepted"
+    _t_bad "владелец установщика равен текущему пользователю"
 fi
 mkdir -p "$T/no-stat-bin"
 cat > "$T/no-stat-bin/stat" <<'EOF_NO_STAT'
@@ -76,7 +76,7 @@ PATH="$T/no-stat-bin:$PATH"
 if z2k_ow_installer_owned "$T/work"; then
     _t_ok
 else
-    _t_bad "BusyBox without the stat applet can verify the installer owner"
+    _t_bad "без applet stat владелец установщика определяется через ls"
 fi
 PATH="$_saved_path"
 TOOLBIN="$T/busybox-tools"
@@ -121,13 +121,15 @@ if [ "$(id -u)" = 0 ] && chown 65534 "$T/foreign-owner" 2>/dev/null; then
     fi
 fi
 
+Z2K_OW_TESTING=1
 mkdir -p "$T/work/stage/etc"
 printf '%s\n' z2kow-overlay-stage-v1 > "$T/work/stage.owner"
 printf 'owned\n' > "$T/work/stage/etc/owned"
 ln -s owned "$T/work/stage/etc/owned-link"
-assert_eq "owned safe symlink stage can be removed" 0 \
+assert_eq "безопасный stage с относительной ссылкой удаляется" 0 \
     "$(z2k_ow_remove_install_stage "$T/work/stage" "$T/work" >/dev/null 2>&1; echo $?)"
 
+Z2K_OW_TESTING=1
 mkdir -p "$T/work/stage/etc"
 printf '%s\n' z2kow-overlay-stage-v1 > "$T/work/stage.owner"
 printf 'foreign\n' > "$T/work/stage/etc/foreign"
