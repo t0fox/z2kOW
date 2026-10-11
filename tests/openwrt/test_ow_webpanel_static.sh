@@ -159,8 +159,8 @@ assert_contains "js: boot hook" "$REPO/webpanel/www/app.js" "applyCapabilities"
 assert_contains "js: optional identity module" "$REPO/webpanel/www/js/core/identity.js" "applyBranding"
 assert_contains "js: optional identity hook" "$REPO/webpanel/www/app.js" "optionalPanelModule"
 if grep -rlE 'openwrt|PLATFORM|capabilit' "$REPO/webpanel/www/js" 2>/dev/null \
-    | grep -vE 'loadorder\.js|toggles\.js|dns\.js|tiktok\.js|app\.js|router\.js|credits-openwrt\.js|openwrt-credits\.js|donations\.js' | grep -q .; then
-    _t_bad "js: capability-логика вне allowlisted файлов"
+    | grep -vE 'loadorder\.js|toggles\.js|dns\.js|dns-providers\.js|tiktok\.js|app\.js|router\.js|credits-openwrt\.js|openwrt-credits\.js|donations\.js' | grep -q .; then
+    _t_bad "js: логика capability находится вне разрешённого списка файлов"
 else
     _t_ok
 fi
