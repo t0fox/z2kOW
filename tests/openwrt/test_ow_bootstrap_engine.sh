@@ -84,10 +84,24 @@ cat > "$T/UPDATES.json" <<EOF
 EOF
 openssl pkeyutl -sign -rawin -inkey "$T/test.key" -in "$T/UPDATES.json" -out "$T/UPDATES.json.sig" || exit 1
 
+_test_runner_uid="$(id -u 2>/dev/null)" || exit 1
+export Z2K_TEST_RUNNER_UID="$_test_runner_uid" Z2K_TEST_ID_CALL_COUNT="$T/id-call-count"
+# Первый вызов имитирует root-check установщика, следующие возвращают UID владельца временных файлов.
 cat > "$BIN/id" <<'ID'
 #!/bin/sh
-[ "${1:-}" = -u ] && { echo 0; exit 0; }
-exit 2
+[ "${1:-}" = -u ] || exit 2
+_count=0
+if [ -r "$Z2K_TEST_ID_CALL_COUNT" ]; then
+    IFS= read -r _count < "$Z2K_TEST_ID_CALL_COUNT" || _count=0
+fi
+case "$_count" in ''|*[!0-9]*) _count=0 ;; esac
+_count=$((_count + 1))
+printf '%s\n' "$_count" > "$Z2K_TEST_ID_CALL_COUNT" || exit 2
+if [ "$_count" -eq 1 ]; then
+    printf '0\n'
+else
+    printf '%s\n' "$Z2K_TEST_RUNNER_UID"
+fi
 ID
 cat > "$BIN/apk" <<'APK'
 #!/bin/sh
@@ -181,7 +195,12 @@ export PATH="$BIN:/usr/bin:/bin" TMPDIR="$BOOT_TMP" \
     Z2KOW_MANIFEST_URL=http://127.0.0.1:17778/UPDATES.json Z2KOW_TRUST_KEY="$T/test.pub" \
     Z2K_OW_SYSROOT="$SYS" Z2K_OW_INSTALL_TMP="$STAGE_TMP" Z2K_OW_TESTING=1
 
-if sh "$REPO/scripts/openwrt/install.sh" > "$T/out" 2>&1; then
+run_bootstrap() {
+    : > "$Z2K_TEST_ID_CALL_COUNT" || return 1
+    sh "$REPO/scripts/openwrt/install.sh" "$@"
+}
+
+if run_bootstrap > "$T/out" 2>&1; then
     _t_ok
 else
     _t_bad "real fresh bootstrap engine failed: $(cat "$T/out")"
@@ -231,7 +250,7 @@ data['artifact'] = {
 path.write_text(json.dumps(data))
 PY
 openssl pkeyutl -sign -rawin -inkey "$T/test.key" -in "$T/UPDATES.json" -out "$T/UPDATES.json.sig" || exit 1
-if sh "$REPO/scripts/openwrt/install.sh" > "$T/transition-bootstrap.out" 2>&1; then
+if run_bootstrap > "$T/transition-bootstrap.out" 2>&1; then
     _t_ok
 else
     _t_bad "transition per-arch bootstrap failed: $(cat "$T/transition-bootstrap.out")"
@@ -261,7 +280,7 @@ data['artifacts'] = {'arm': {
 path.write_text(json.dumps(data))
 PY
 openssl pkeyutl -sign -rawin -inkey "$T/test.key" -in "$T/UPDATES.json" -out "$T/UPDATES.json.sig" || exit 1
-if sh "$REPO/scripts/openwrt/install.sh" > "$T/no-arch-fallback.out" 2>&1; then
+if run_bootstrap > "$T/no-arch-fallback.out" 2>&1; then
     _t_bad "bootstrap fell back to legacy artifact when artifacts map omitted x86_64"
 else
     _t_ok
@@ -283,7 +302,7 @@ data['artifact'] = {
 path.write_text(json.dumps(data))
 PY
 openssl pkeyutl -sign -rawin -inkey "$T/test.key" -in "$T/UPDATES.json" -out "$T/UPDATES.json.sig" || exit 1
-if sh "$REPO/scripts/openwrt/install.sh" > "$T/legacy-bootstrap.out" 2>&1; then
+if run_bootstrap > "$T/legacy-bootstrap.out" 2>&1; then
     _t_ok
 else
     _t_bad "legacy-only bootstrap failed: $(cat "$T/legacy-bootstrap.out")"
@@ -295,7 +314,7 @@ assert_eq "legacy-only bootstrap requests the full fallback archive" \
 cp "$T/good-UPDATES.json" "$T/UPDATES.json"
 cp "$T/good-UPDATES.json.sig" "$T/UPDATES.json.sig"
 _tar_before=$(_tar_count)
-if Z2K_TEST_WGET_MODE=truncated sh "$REPO/scripts/openwrt/install.sh" > "$T/interrupted.out" 2>&1; then
+if Z2K_TEST_WGET_MODE=truncated run_bootstrap > "$T/interrupted.out" 2>&1; then
     _t_bad "bootstrap accepted an interrupted artifact download"
 else
     _t_ok
@@ -311,7 +330,7 @@ data['artifacts']['x86_64']['sha256'] = '0' * 64
 path.write_text(json.dumps(data))
 PY
 openssl pkeyutl -sign -rawin -inkey "$T/test.key" -in "$T/UPDATES.json" -out "$T/UPDATES.json.sig" || exit 1
-if sh "$REPO/scripts/openwrt/install.sh" > "$T/wrong-sha.out" 2>&1; then
+if run_bootstrap > "$T/wrong-sha.out" 2>&1; then
     _t_bad "bootstrap accepted an archive with the wrong SHA-256"
 else
     _t_ok
@@ -323,7 +342,7 @@ cp "$T/good-UPDATES.json.sig" "$T/UPDATES.json.sig"
 
 # Exact tmpfs and live MemAvailable guards reject before requesting the archive.
 _fetches_before=$(_fetch_count)
-if Z2K_TEST_DF_KB=1 sh "$REPO/scripts/openwrt/install.sh" > "$T/low-tmpfs.out" 2>&1; then
+if Z2K_TEST_DF_KB=1 run_bootstrap > "$T/low-tmpfs.out" 2>&1; then
     _t_bad "bootstrap ignored the constrained workspace tmpfs"
 else
     _t_ok
@@ -349,7 +368,7 @@ printf '1 0 0:1 / / rw - tmpfs tmpfs rw\n' > "$T/memory-mountinfo"
 _fetches_before=$(_fetch_count)
 if Z2K_OW_MEMINFO_FILE="$T/low-meminfo" Z2K_OW_MOUNTINFO_FILE="$T/memory-mountinfo" \
     Z2K_TEST_ARTIFACT_FETCHES="$T/artifact-fetches" \
-    sh "$REPO/scripts/openwrt/install.sh" > "$T/low-memory.out" 2>&1; then
+    run_bootstrap > "$T/low-memory.out" 2>&1; then
     _t_bad "начальная установка отказывает на профиле 64 МиБ при нехватке оперативной памяти"
 else
     _t_ok
@@ -375,7 +394,7 @@ printf 'MemTotal: 131072 kB\nMemAvailable: 26544 kB\n' > "$T/low-meminfo"
 _fetches_before=$(_fetch_count)
 if Z2K_OW_MEMINFO_FILE="$T/low-meminfo" Z2K_OW_MOUNTINFO_FILE="$T/memory-mountinfo" \
     Z2K_TEST_ARTIFACT_FETCHES="$T/artifact-fetches" \
-    sh "$REPO/scripts/openwrt/install.sh" > "$T/128-disk-stage.out" 2>&1; then
+    run_bootstrap > "$T/128-disk-stage.out" 2>&1; then
     _t_bad "128 MiB disk-staged bootstrap accepted a fixture with false archive size"
 else
     _t_ok
@@ -404,7 +423,7 @@ manifest_path.write_text(json.dumps(manifest, separators=(",", ":")), encoding="
 PY
 openssl pkeyutl -sign -rawin -inkey "$T/test.key" -in "$T/UPDATES.json" -out "$T/UPDATES.json.sig" || exit 1
 Z2K_TEST_ARTIFACT="$T/openwrt-rootfs-without-arch.tar.gz" \
-    sh "$REPO/scripts/openwrt/install.sh" > "$T/missing-arch.out" 2>&1 \
+    run_bootstrap > "$T/missing-arch.out" 2>&1 \
     && _t_bad "signed rootfs without the required architecture module was accepted"
 assert_contains "missing required module is diagnosed before applying files" \
     "$T/missing-arch.out" "обязательный файл установочного кода: usr/lib/z2k/platform/openwrt/arch.sh"
