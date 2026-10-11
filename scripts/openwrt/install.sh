@@ -300,22 +300,8 @@ ENGINE="$TMP/engine"
 value() { jsonfilter -i "$MANIFEST" -e "@.$1" 2>/dev/null | head -n 1; }
 value_type() { jsonfilter -i "$MANIFEST" -t "@.$1" 2>/dev/null | head -n 1; }
 
-progress "получаю и проверяю подписанный манифест выпусков"
-_manifest_verified=0
-if [ "$_acceptance_source" = 1 ]; then
-    download "$MANIFEST_URL" "$MANIFEST" || die "не удалось получить проверенный UPDATES.json"
-    _key_id=$(value signing.key_id)
-    printf '%s' "$_key_id" | grep -Eq '^[0-9a-f]{64}$' \
-        || die "проверенный UPDATES.json содержит неверный идентификатор ключа подписи"
-    cp "$Z2KOW_TRUST_KEY" "$PUBKEY" || die "не удалось подготовить приёмочный открытый ключ"
-    download "$SIGNATURE_URL" "$SIGNATURE" || die "нет подписи проверенного UPDATES.json; релиз не опубликован"
-    _actual_key_id=$(openssl pkey -pubin -in "$PUBKEY" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')
-    [ "$_actual_key_id" = "$_key_id" ] || die "отпечаток ключа выпуска не совпадает с проверенным UPDATES.json"
-    openssl pkeyutl -verify -rawin -pubin -inkey "$PUBKEY" \
-        -in "$MANIFEST" -sigfile "$SIGNATURE" >/dev/null 2>&1 \
-        || die "подпись проверенного UPDATES.json неверна"
-    _manifest_verified=1
-else
+fetch_verified_manifest() {
+    _manifest_verified=0
     _manifest_bases="$BASE https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main"
     for _manifest_base in $_manifest_bases; do
         _candidate_manifest="$TMP/UPDATES.candidate.json"
@@ -339,7 +325,7 @@ else
             cp "$_candidate_manifest" "$TMP/UPDATES.json" \
                 && cp "$_candidate_signature" "$TMP/UPDATES.json.sig" \
                 && cp "$_candidate_pubkey" "$TMP/z2k-update-pub.pem" \
-                || die "не удалось сохранить проверенный манифест"
+                || return 1
             MANIFEST_URL="$_manifest_base/UPDATES.json"
             SIGNATURE_URL="$_manifest_base/UPDATES.json.sig"
             _manifest_verified=1
@@ -347,7 +333,27 @@ else
         fi
     done
     MANIFEST="$TMP/UPDATES.json"
-    [ "$_manifest_verified" = 1 ] || die "прямой источник и проверяемое зеркало не предоставили валидную подпись UPDATES.json"
+    [ "$_manifest_verified" = 1 ]
+}
+
+progress "получаю и проверяю подписанный манифест выпусков"
+_manifest_verified=0
+if [ "$_acceptance_source" = 1 ]; then
+    download "$MANIFEST_URL" "$MANIFEST" || die "не удалось получить проверенный UPDATES.json"
+    _key_id=$(value signing.key_id)
+    printf '%s' "$_key_id" | grep -Eq '^[0-9a-f]{64}$' \
+        || die "проверенный UPDATES.json содержит неверный идентификатор ключа подписи"
+    cp "$Z2KOW_TRUST_KEY" "$PUBKEY" || die "не удалось подготовить приёмочный открытый ключ"
+    download "$SIGNATURE_URL" "$SIGNATURE" || die "нет подписи проверенного UPDATES.json; релиз не опубликован"
+    _actual_key_id=$(openssl pkey -pubin -in "$PUBKEY" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')
+    [ "$_actual_key_id" = "$_key_id" ] || die "отпечаток ключа выпуска не совпадает с проверенным UPDATES.json"
+    openssl pkeyutl -verify -rawin -pubin -inkey "$PUBKEY" \
+        -in "$MANIFEST" -sigfile "$SIGNATURE" >/dev/null 2>&1 \
+        || die "подпись проверенного UPDATES.json неверна"
+    _manifest_verified=1
+else
+    fetch_verified_manifest \
+        || die "прямой источник и проверяемое зеркало не предоставили валидную подпись UPDATES.json"
 fi
 progress "подпись UPDATES.json подтверждена закреплённым ключом"
 
