@@ -214,9 +214,30 @@ EOF
 chmod +x "$T/bin/ubus"
 cat > "$T/bin/uci" <<EOF
 #!/bin/sh
-if [ ! -f "$T/uci-wireguard-enabled" ]; then exit 1; fi
-if [ "\$1" = show ] && [ "\$2" = network ]; then
+if [ "\$1" = show ] && [ "\$2" = firewall ]; then
+    if [ -f "$T/uci-no-lan" ]; then
+        cat <<'EOF_UCI'
+firewall.@zone[1]=zone
+firewall.@zone[1].name='wan'
+firewall.@zone[1].network='wan'
+EOF_UCI
+        exit 0
+    fi
     cat <<'EOF_UCI'
+firewall.@zone[0]=zone
+firewall.@zone[0].name='lan'
+firewall.@zone[0].network='lan'
+firewall.@zone[1]=zone
+firewall.@zone[1].name='wan'
+firewall.@zone[1].network='wan'
+EOF_UCI
+    exit 0
+fi
+if [ "\$1" = show ] && [ "\$2" = network ]; then
+    [ -f "$T/uci-wireguard-enabled" ] || exit 1
+    cat <<'EOF_UCI'
+network.lan=interface
+network.lan.device='br-lan'
 network.wgserver=interface
 network.wgserver.proto='wireguard'
 network.wgserver.listen_port='51820'
@@ -227,6 +248,12 @@ EOF_UCI
 fi
 if [ "\$1" = -q ] && [ "\$2" = get ]; then
     case "\$3" in
+        firewall.@zone\[0\].name) echo lan; exit 0 ;;
+        firewall.@zone\[0\].network) echo lan; exit 0 ;;
+        firewall.@zone\[1\].name) echo wan; exit 0 ;;
+        firewall.@zone\[1\].network) echo wan; exit 0 ;;
+        network.lan.device) echo br-lan; exit 0 ;;
+        network.wan.device) echo eth0; exit 0 ;;
         network.wgserver.listen_port) echo 51820; exit 0 ;;
         network.wgserver.device) echo wgserver; exit 0 ;;
         network.wgclient.listen_port) exit 1 ;;
@@ -336,8 +363,105 @@ mv "$T/etc/state/warp/device.json.keep" "$T/etc/state/warp/device.json"
 # --- списки: user + enabled-games, валидация, migrate ---
 export WARP_LISTS_DIR="$T/etc/user-lists/warp" WARP_GAMES_DIR="$T/root/lists/warp/games"
 export WARP_ENABLED_FILE="$WARP_LISTS_DIR/.enabled" WARP_DEVICES_FILE="$WARP_LISTS_DIR/devices.txt"
+# --- upstream p-86.18: пустой выбор и выключенные списки охватывают LAN ---
+: > "$WARP_ENABLED_FILE"
+: > "$WARP_DEVICES_FILE"
+touch "$T/uci-wireguard-enabled"
+printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_WDTT=0\n' > "$T/etc/config"
+if warp_all_traffic_mode; then _t_ok; else _t_bad "пустой выбор включает режим всей LAN"; fi
+: > "$T/nft.log"
+warp_nft_rules_apply || _t_bad "правила всей LAN применились"
+assert_contains "LAN-интерфейс входит в цепочку WARP" "$T/nft.log" \
+    'iifname br-lan meta mark set'
+assert_contains "частная сеть остаётся напрямую" "$T/nft.log" \
+    'ip daddr 192.168.0.0/16 return'
+if grep -q 'nft:add rule .*iifname eth0 .*meta mark set' "$T/nft.log"; then
+    _t_bad "WAN не должен входить в область all"
+else
+    _t_ok
+fi
+{
+    for _local_net in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 \
+        169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/3; do
+        printf 'ip daddr %s return\n' "$_local_net"
+    done
+    printf 'iifname "wgserver" return\n'
+    printf 'iifname "br-lan" meta mark set mark & 0x7fffffff ^ 0x80000000\n'
+} > "$T/nft-chain-z2k_warp_mark"
+for _chain in z2k_warp_mss z2k_warp_fwd z2k_warp_nat; do
+    printf 'chain %s { }\n' "$_chain" > "$T/nft-chain-$_chain"
+done
+if warp_nft_rules_verify; then
+    _t_ok
+else
+    _t_bad "проверка подтверждает область all только для LAN"
+fi
+printf 'iifname "eth0" meta mark set mark & 0x7fffffff ^ 0x80000000\n' \
+    >> "$T/nft-chain-z2k_warp_mark"
+if warp_nft_rules_verify; then
+    _t_bad "проверка отвергает маркировку WAN"
+else
+    _t_ok
+fi
+rm -f "$T"/nft-chain-z2k_warp_mark "$T"/nft-chain-z2k_warp_mss \
+    "$T"/nft-chain-z2k_warp_fwd "$T"/nft-chain-z2k_warp_nat
+printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_WDTT=1\n' > "$T/etc/config"
+: > "$T/nft.log"
+warp_nft_rules_apply || _t_bad "WDTT в режиме всей LAN применился"
+assert_contains "WDTT включает клиентов WireGuard-сервера" "$T/nft.log" \
+    'iifname wgserver meta mark set'
+_local_rule="$(grep -nF 'ip daddr 192.168.0.0/16 return' "$T/nft.log" | head -1 | cut -d: -f1)"
+_wg_rule="$(grep -nF 'iifname wgserver meta mark set' "$T/nft.log" | head -1 | cut -d: -f1)"
+if [ -n "$_local_rule" ] && [ -n "$_wg_rule" ] && [ "$_local_rule" -lt "$_wg_rule" ]; then
+    _t_ok
+else
+    _t_bad "домашние сети остаются прямыми и для клиентов WDTT"
+fi
+printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_WDTT=0\n' > "$T/etc/config"
+: > "$T/nft.log"
+warp_nft_rules_apply || _t_bad "отключение WDTT в режиме всей LAN применилось"
+if grep -q 'nft:add rule .*iifname wgserver meta mark set' "$T/nft.log"; then
+    _t_bad "WDTT без согласия не маркирует WireGuard-клиентов"
+else
+    _t_ok
+fi
+touch "$T/uci-no-lan"
+: > "$T/nft.log"
+if warp_nft_rules_apply; then
+    _t_bad "режим all отклоняется без обнаруженной LAN-зоны"
+else
+    _t_ok
+fi
+if grep -q 'nft:add rule .*meta mark set' "$T/nft.log"; then
+    _t_bad "без LAN-зоны не создаётся маркировка трафика"
+else
+    _t_ok
+fi
+rm -f "$T/uci-no-lan"
+printf '192.168.1.240\n' > "$WARP_DEVICES_FILE"
+if warp_all_traffic_mode; then _t_bad "выбранное, но недоступное устройство не включает всю LAN"; else _t_ok; fi
+: > "$WARP_ENABLED_FILE"
+: > "$T/nft.log"
+warp_nft_rules_apply || _t_bad "переключение на устройство применилось"
+if grep -q 'nft:add rule .*iifname br-lan meta mark set' "$T/nft.log"; then
+    _t_bad "переключение на устройство снимает маркировку всей LAN"
+else
+    _t_ok
+fi
+: > "$WARP_DEVICES_FILE"
+printf 'ещё-не-загруженный-список\n' > "$WARP_ENABLED_FILE"
+if warp_all_traffic_mode; then _t_bad "выбранный список не расширяет область до всей LAN"; else _t_ok; fi
+: > "$T/nft.log"
+warp_nft_rules_apply || _t_bad "переключение на списки применилось"
+if grep -q 'nft:add rule .*iifname br-lan meta mark set' "$T/nft.log"; then
+    _t_bad "переключение на списки снимает маркировку всей LAN"
+else
+    _t_ok
+fi
+
 # p-86.13: explicit device selection with no list uses full-device mode, but a
 # selected yet missing game list must not silently expand to all destinations.
+: > "$WARP_ENABLED_FILE"
 printf '1.1.1.1\n' > "$WARP_DEVICES_FILE"
 if warp_full_device_mode; then _t_ok; else _t_bad "full-device mode requires selected devices and no active list"; fi
 : > "$T/nft.log"

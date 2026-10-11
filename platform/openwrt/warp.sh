@@ -144,11 +144,12 @@ warp_list_routes_active() {
     nft list set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_SET" 2>/dev/null |
         grep -qE 'elements[[:space:]]*=[[:space:]]*\{[[:space:]]*[^}[:space:]]'
 }
-# WDTT means clients behind an OpenWrt WireGuard server. Match upstream:
-# those clients stay direct by default, and when opted in their complete
-# traffic uses WARP only while at least one valid WARP list is active.
+# Клиенты WireGuard-сервера остаются на прямом маршруте, пока WDTT выключен.
+# При включённом WDTT через WARP идут их пакеты из активных списков, а в режиме
+# всей LAN — весь их IPv4 интернет-трафик.
 warp_wdtt_routes_active() {
     [ "$(warp_cfg Z2K_WARP_WDTT 0)" = 1 ] || return 1
+    warp_all_traffic_mode && return 0
     warp_list_routes_active "${1:-}"
 }
 # Поля status.json/device.json — без jq (как upstream).
@@ -417,6 +418,63 @@ warp_full_device_mode() {
     [ -z "$_active_lists" ]
 }
 
+# Определяет устройства сети из зоны firewall с именем lan.
+# Маршрутизация всей LAN должна входить только с этих устройств: WAN-пакеты
+# не должны попадать в цепочку, иначе ответы интернета уйдут обратно в туннель.
+warp_lan_devices() {
+    local _zones _zone _name _networks _network _devices _iface _restore_noglob=0 _rc
+    command -v uci >/dev/null 2>&1 || return 1
+    _zones="$(uci show firewall 2>/dev/null | sed -n 's/^firewall\.\([^.=]*\)=zone$/\1/p')"
+    [ -n "$_zones" ] || return 1
+    case "$-" in *f*) ;; *) set -f; _restore_noglob=1 ;; esac
+    for _zone in $_zones; do
+        _name="$(uci -q get "firewall.$_zone.name" 2>/dev/null)"
+        [ "$_name" = lan ] || continue
+        _devices="$(uci -q get "firewall.$_zone.device" 2>/dev/null || true)"
+        _networks="$(uci -q get "firewall.$_zone.network" 2>/dev/null || true)"
+        for _iface in $_devices; do
+            case "$_iface" in ''|*[!A-Za-z0-9_.:-]*) continue ;; esac
+            [ "${#_iface}" -le 15 ] || continue
+            printf '%s\n' "$_iface"
+        done
+        for _network in $_networks; do
+            _devices="$(uci -q get "network.$_network.device" 2>/dev/null || true)"
+            [ -n "$_devices" ] || _devices="$(uci -q get "network.$_network.ifname" 2>/dev/null || true)"
+            for _iface in $_devices; do
+                case "$_iface" in ''|*[!A-Za-z0-9_.:-]*) continue ;; esac
+                [ "${#_iface}" -le 15 ] || continue
+                printf '%s\n' "$_iface"
+            done
+        done
+    done | awk '!seen[$0]++'
+    _rc=$?
+    [ "$_restore_noglob" = 1 ] && set +f
+    return "$_rc"
+}
+
+# Весь интернет-трафик LAN без списка устройств и без включённых списков.
+# Смотрим на выбор пользователя, а не на заполненность nft-сета: отсутствующий
+# или пустой выбранный список не должен неожиданно расширять область WARP.
+warp_all_traffic_mode() {
+    warp_devices_selected && return 1
+    if awk '{ line=$0; sub(/\r$/, "", line); gsub(/^[ \t]+|[ \t]+$/, "", line); if (line != "" && line !~ /^#/) found=1 } END { exit !found }' \
+        "$WARP_ENABLED_FILE" 2>/dev/null; then
+        return 1
+    fi
+    [ -z "$(warp_active_lists 2>/dev/null)" ]
+}
+
+warp_scope() {
+    [ "$(warp_flag)" = 1 ] || { printf 'off'; return 0; }
+    if warp_all_traffic_mode; then
+        printf 'all'
+    elif warp_full_device_mode; then
+        printf 'devices'
+    else
+        printf 'lists'
+    fi
+}
+
 # OpenWrt exposes WireGuard server interfaces as network sections with
 # proto=wireguard and an explicit listen_port. A client tunnel without a
 # listening port is deliberately excluded. The policy chain returns these
@@ -625,13 +683,22 @@ _warp_sets_ensure_live() {
 # --- nft chains/rules (свои chains в ЧУЖОЙ runtime-таблице) ---
 
 warp_nft_rules_apply() {
-    local _domain_set=0 _domain_rules="" _devices_selected=0 _full_device_mode=0 _wdtt_active=0 _list_active=0
-    local _wg_ifaces="" _wg_iface _wg_clients="" _wg_client _subnet
+    local _domain_set=0 _domain_rules="" _devices_selected=0 _full_device_mode=0 _all_traffic_mode=0 _wdtt_active=0 _list_active=0
+    local _wg_ifaces="" _wg_iface _wg_clients="" _wg_client _subnet _lan_ifaces="" _lan_iface
     warp_devices_selected && _devices_selected=1
     warp_full_device_mode && _full_device_mode=1
+    warp_all_traffic_mode && _all_traffic_mode=1
     _domain_rules="$(warp_validated_domains 2>/dev/null)"
     [ "$_full_device_mode" = 0 ] && warp_list_routes_active "$_domain_rules" && _list_active=1
     [ "$_full_device_mode" = 0 ] && warp_wdtt_routes_active "$_domain_rules" && _wdtt_active=1
+    if [ "$_all_traffic_mode" = 1 ]; then
+        _lan_ifaces="$(warp_lan_devices 2>/dev/null)"
+        [ -n "$_lan_ifaces" ] || {
+            _warp_mark_clear >/dev/null 2>&1 || true
+            echo "z2k-openwrt: warp: не найдены устройства firewall-зоны lan для режима all" >&2
+            return 1
+        }
+    fi
     _z2k_ow_warp_table_ok || {
         echo "z2k-openwrt: warp: нет таблицы ${Z2K_WARP_NFT_FAMILY} ${Z2K_WARP_NFT_TABLE}" >&2
         return 1
@@ -642,6 +709,14 @@ warp_nft_rules_apply() {
     # This function owns only the MARK/policy chain. MSS/FWD/NAT belong to
     # warp_nft_tun_apply() and must survive a policy-only reconcile.
     nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" 2>/dev/null || return 1
+    if [ "$_all_traffic_mode" = 1 ]; then
+        # Локальные, частные и не-unicast назначения всегда остаются напрямую.
+        for _subnet in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 \
+            169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/3; do
+            nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
+                ip daddr "$_subnet" return || return 1
+        done
+    fi
     _wg_ifaces="$(warp_wireguard_server_devices 2>/dev/null || true)"
     for _wg_iface in $_wg_ifaces; do
         if [ "$_wdtt_active" = 1 ]; then
@@ -660,6 +735,18 @@ warp_nft_rules_apply() {
                     meta mark set mark '&' 0x7fffffff '^' 0x80000000 || return 1
             done
         done
+    fi
+    if [ "$_all_traffic_mode" = 1 ]; then
+        # Маркируем только входящие пакеты с устройств LAN. Входа с WAN нет;
+        # клиенты WireGuard обслуживаются отдельно через переключатель WDTT.
+        for _lan_iface in $_lan_ifaces; do
+            nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
+                iifname "$_lan_iface" meta mark set mark '&' 0x7fffffff '^' 0x80000000 || return 1
+        done
+        if command -v warp_domain_nft_remove >/dev/null 2>&1; then
+            warp_domain_nft_remove >/dev/null 2>&1 || true
+        fi
+        return 0
     fi
     # Mark ТОЛЬКО PREROUTING, ТОЛЬКО битами маски (чужие биты живут).
     # masked-mark идиома (доказана реальными правилами): (m & ~MASK) | MARK.
@@ -720,11 +807,18 @@ warp_nft_rules_apply() {
     return 0
 }
 
+_warp_nft_iif_has() {
+    local _rules="$1" _iface="$2" _expression="$3"
+    printf '%s\n' "$_rules" | tr -s ' ' | grep -qF "iifname \"$_iface\" $_expression" && return 0
+    printf '%s\n' "$_rules" | tr -s ' ' | grep -qF "iifname $_iface $_expression"
+}
+
 warp_nft_rules_verify() {
-    local _c _out _domain_set _domain_rules _devices_selected=0 _full_device_mode=0 _wdtt_active=0 _list_active=0
-    local _wg_ifaces="" _wg_iface _wg_clients="" _wg_client _needle _local_net _subnet
+    local _c _out _domain_set _domain_rules _devices_selected=0 _full_device_mode=0 _all_traffic_mode=0 _wdtt_active=0 _list_active=0
+    local _wg_ifaces="" _wg_iface _wg_clients="" _wg_client _needle _local_net _subnet _lan_ifaces="" _lan_iface _line _allowed
     warp_devices_selected && _devices_selected=1
     warp_full_device_mode && _full_device_mode=1
+    warp_all_traffic_mode && _all_traffic_mode=1
     _domain_rules=$(warp_validated_domains 2>/dev/null)
     [ "$_full_device_mode" = 0 ] && warp_list_routes_active "$_domain_rules" && _list_active=1
     [ "$_full_device_mode" = 0 ] && warp_wdtt_routes_active "$_domain_rules" && _wdtt_active=1
@@ -734,7 +828,36 @@ warp_nft_rules_verify() {
         [ -n "$_out" ] || return 1
     done
     _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_MARK" 2>/dev/null)
-    if [ "$_full_device_mode" = 1 ]; then
+    _wg_ifaces="$(warp_wireguard_server_devices 2>/dev/null || true)"
+    if [ "$_all_traffic_mode" = 1 ]; then
+        for _local_net in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 \
+            169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/3; do
+            printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip daddr $_local_net return" || return 1
+        done
+        _lan_ifaces="$(warp_lan_devices 2>/dev/null)" || return 1
+        [ -n "$_lan_ifaces" ] || return 1
+        for _lan_iface in $_lan_ifaces; do
+            _warp_nft_iif_has "$_out" "$_lan_iface" "meta mark set" || return 1
+        done
+        # Любое MARK в режиме all обязано иметь явный вход с LAN или WDTT.
+        # Так проверка замечает случайно добавленное правило на WAN.
+        printf '%s\n' "$_out" | grep -F 'meta mark set' | while IFS= read -r _line; do
+            _allowed=0
+            for _lan_iface in $_lan_ifaces; do
+                case "$_line" in
+                    *"iifname \"$_lan_iface\" meta mark set"*|*"iifname $_lan_iface meta mark set"*) _allowed=1 ;;
+                esac
+            done
+            if [ "$_wdtt_active" = 1 ]; then
+                for _wg_iface in $_wg_ifaces; do
+                    case "$_line" in
+                        *"iifname \"$_wg_iface\" meta mark set"*|*"iifname $_wg_iface meta mark set"*) _allowed=1 ;;
+                    esac
+                done
+            fi
+            [ "$_allowed" = 1 ] || exit 1
+        done || return 1
+    elif [ "$_full_device_mode" = 1 ]; then
         printf '%s\n' "$_out" | tr -s ' ' | grep -qF \
             "ip saddr @$WARP_SET_SRC ip daddr != 0.0.0.0/8 ip daddr != 10.0.0.0/8" || return 1
         for _local_net in 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 \
@@ -747,13 +870,13 @@ warp_nft_rules_verify() {
     else
         printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip daddr @$WARP_SET meta mark set" || return 1
     fi
-    _wg_ifaces="$(warp_wireguard_server_devices 2>/dev/null || true)"
     for _wg_iface in $_wg_ifaces; do
-        _needle="iifname \"$_wg_iface\" meta mark set mark"
-        printf '%s\n' "$_out" | tr -s ' ' | grep -qF "iifname \"$_wg_iface\" return" || return 1
+        _needle="meta mark set mark"
+        _warp_nft_iif_has "$_out" "$_wg_iface" "return" || return 1
         if [ "$_wdtt_active" = 1 ]; then
-            printf '%s\n' "$_out" | tr -s ' ' | grep -qF "$_needle" || return 1
-        elif printf '%s\n' "$_out" | tr -s ' ' | grep -F "iifname \"$_wg_iface\"" | grep -qF 'meta mark set'; then
+            _warp_nft_iif_has "$_out" "$_wg_iface" "$_needle" || return 1
+        elif { printf '%s\n' "$_out" | grep -F "iifname \"$_wg_iface\""; \
+              printf '%s\n' "$_out" | grep -F "iifname $_wg_iface "; } | grep -qF 'meta mark set'; then
             return 1
         fi
     done
@@ -761,17 +884,18 @@ warp_nft_rules_verify() {
     for _wg_client in $_wg_clients; do
         if [ "$_devices_selected" = 1 ] && [ "$_list_active" = 1 ]; then
             for _subnet in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10; do
-                _needle="iifname \"$_wg_client\" ip saddr $_subnet ip daddr @$WARP_SET meta mark set"
-                printf '%s\n' "$_out" | tr -s ' ' | grep -qF "$_needle" || return 1
+                _needle="ip saddr $_subnet ip daddr @$WARP_SET meta mark set"
+                _warp_nft_iif_has "$_out" "$_wg_client" "$_needle" || return 1
             done
-        elif printf '%s\n' "$_out" | tr -s ' ' | grep -F "iifname \"$_wg_client\"" | grep -qF 'meta mark set'; then
+        elif { printf '%s\n' "$_out" | grep -F "iifname \"$_wg_client\""; \
+              printf '%s\n' "$_out" | grep -F "iifname $_wg_client "; } | grep -qF 'meta mark set'; then
             return 1
         fi
     done
     if printf '%s\n' "$_out" | tr -s ' ' | grep -qF "ip saddr @$WARP_SET_SRC meta mark set"; then
         return 1
     fi
-    if [ -n "$_domain_rules" ]; then
+    if [ "$_all_traffic_mode" = 0 ] && [ -n "$_domain_rules" ]; then
         _domain_set=$(nft list set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" 2>/dev/null) || return 1
         printf '%s\n' "$_domain_set" | grep -qF 'comment "z2k WARP DNS pairs"' || return 1
         if [ "$_devices_selected" = 1 ]; then
@@ -2018,7 +2142,7 @@ warp_selfheal() {
 # --- status (key=value для будущей панели/CLI) ---
 
 warp_status() {
-    local _installed=0 _running=0 _ready=0 _route_ready=0
+    local _installed=0 _running=0 _ready=0 _route_ready=0 _scope
     local _wg_server_available=0
     local _entries=0 _devices=0 _error="" _state="off"
     local _domain_active=0 _domain_rules=0 _domain_pairs=0 _domain_skipped=0 _domain_overflow=0 _domain_error=""
@@ -2080,8 +2204,10 @@ warp_status() {
         [ -s "$WARP_DOMAIN_ERROR" ] || _domain_error=""
     fi
     _domain_error=$(printf '%s' "$_domain_error" | tr ' \t\r\n' '_' | cut -c1-120)
-    printf 'installed=%s enabled=%s running=%s ready=%s route_ready=%s state=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s domain_active=%s domain_rules=%s domain_pairs=%s domain_skipped=%s domain_overflow=%s domain_error=%s edge_colo=%s edge_country=%s edge_rtt_ms=%s edge_checked_at=%s edge_selection=%s tunnel=%s interface=%s nft_mark=%s tun=%s pbr=%s owner=%s route_error=%s route_error_at=%s wg_server_available=%s\n' \
+    _scope="$(warp_scope)"
+    printf 'installed=%s enabled=%s running=%s ready=%s route_ready=%s state=%s scope=%s transport=%s endpoint=%s iface=%s addr=%s entries=%s devices=%s error=%s mem=%s plan=%s plan_err=%s license=%s domain_active=%s domain_rules=%s domain_pairs=%s domain_skipped=%s domain_overflow=%s domain_error=%s edge_colo=%s edge_country=%s edge_rtt_ms=%s edge_checked_at=%s edge_selection=%s tunnel=%s interface=%s nft_mark=%s tun=%s pbr=%s owner=%s route_error=%s route_error_at=%s wg_server_available=%s\n' \
         "$_installed" "$(warp_flag)" "$_running" "$_ready" "$_route_ready" "$_state" \
+        "$_scope" \
         "$(_json_str "$WARP_STATUS" transport)" "$(_json_str "$WARP_STATUS" endpoint)" \
         "$(_json_str "$WARP_STATUS" iface)" "$(_json_str "$WARP_STATUS" addr)" \
         "$_entries" "$_devices" "$_error" \

@@ -197,8 +197,9 @@ assert_contains "selected-device IP rule matches source and destination" "$WARP"
 assert_contains "selected-device domain rule matches source and destination" "$WARP" 'ip saddr "@$WARP_SET_SRC" ip saddr . ip daddr "@$WARP_DOMAIN_SET"'
 assert_not_contains "no source-only WARP catch-all rule" "$WARP" 'ip saddr @"\$WARP_SET_SRC" meta mark set'
 assert_contains "WARP UI explains list scope" "$REPO/webpanel/www/js/pages/warp.js" 'выбранным устройствам'
-assert_contains "WARP UI explains full-device mode when lists are off" "$REPO/webpanel/www/js/pages/warp.js" 'Без включённых списков весь интернет-трафик выбранных устройств идёт через WARP'
-assert_contains "WARP UI explains local destinations stay direct" "$REPO/webpanel/www/js/pages/warp.js" 'Локальные сети остаются доступны напрямую'
+assert_contains "панель объясняет полный IPv4-маршрут выбранных устройств" "$REPO/webpanel/www/js/pages/warp.js" 'Без включённых списков весь IPv4 интернет-трафик выбранных устройств идёт через WARP'
+assert_contains "панель объясняет прямой доступ к локальным сетям" "$REPO/webpanel/www/js/pages/warp.js" 'Локальные и частные сети остаются доступны напрямую'
+assert_contains "панель объясняет весь IPv4-маршрут LAN" "$REPO/webpanel/www/js/pages/warp.js" 'IPv4 интернет-трафик всей локальной сети'
 assert_contains "diagnostics warn when neither lists nor devices are selected" "$REPO/platform/openwrt/diag.sh" 'списки адресов и устройства не выбраны'
 
 _t_done

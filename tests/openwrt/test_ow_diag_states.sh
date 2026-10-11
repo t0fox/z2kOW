@@ -183,15 +183,17 @@ mkdir -p "$T/tmp/warp"
 printf '{"ready":false,"transport":"unknown","endpoint":"unknown"}\n' > "$T/tmp/warp/status.json"
 run_diag warp
 assert_out "WARP off is explicitly disabled" 'state             : disabled'
+assert_out "отключённая WARP показывает пустую область" 'область WARP      : выключено'
 assert_not_out "disabled WARP has no transport or endpoint fields" 'transport=.*endpoint=|transport[[:space:]]*:'
 printf 'GAME_WARP_ENABLED=1\n' > "$T/config"
 printf '{"ready":true,"transport":"wireguard","endpoint":"engage.cloudflareclient.com:2408"}\n' > "$T/tmp/warp/status.json"
-printf 'ready=1 route_ready=1 state=active transport=wireguard endpoint=engage.cloudflareclient.com:2408\n' \
+printf 'ready=1 route_ready=1 state=active scope=all transport=wireguard endpoint=engage.cloudflareclient.com:2408\n' \
     > "$T/warp-status"
 export Z2K_DIAG_WARP_STATUS_FIXTURE="$T/warp-status"
 run_diag warp
 assert_out "enabled ready WARP is active" 'state             : active'
 assert_out "active WARP reports transport" 'transport=wireguard'
+assert_out "диагностика показывает область всей LAN" 'область WARP      : весь IPv4 интернет-трафик локальной сети'
 printf 'ready=1 route_ready=0 state=tunnel transport=wireguard endpoint=engage.cloudflareclient.com:2408\n' \
     > "$T/warp-status"
 run_diag warp

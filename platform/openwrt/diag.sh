@@ -350,7 +350,7 @@ print_tunnel() {
 }
 
 print_warp() {
-    local on bin transport endpoint ready err state _adapter _status _route_ready _runtime_state _iface _reason
+    local on bin transport endpoint ready err state _adapter _status _scope _route_ready _runtime_state _iface _reason
     local _edge_colo _edge_country _edge_rtt _edge_selection _entries _devices
     _adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
     if [ -r "$_adapter/arch.sh" ]; then
@@ -366,6 +366,7 @@ print_warp() {
         0)
             printf 'mode              : off\n'
             printf 'state             : disabled\n'
+            printf 'область WARP      : выключено\n'
             ;;
         1)
             printf 'mode              : on\n'
@@ -413,10 +414,18 @@ print_warp() {
             transport=$(_ow_warp_status_field "$_status" transport)
             endpoint=$(_ow_warp_status_field "$_status" endpoint)
             err=$(_ow_warp_status_field "$_status" error)
+            _scope=$(_ow_warp_status_field "$_status" scope)
             [ -n "$transport" ] || transport=unavailable
             [ -n "$endpoint" ] || endpoint=unavailable
             printf 'state             : %s\n' "$state"
             printf 'status            : ready=%s transport=%s endpoint=%s\n' "$ready" "$transport" "$endpoint"
+            case "$_scope" in
+                all)     printf 'область WARP      : весь IPv4 интернет-трафик локальной сети\n' ;;
+                devices) printf 'область WARP      : IPv4 интернет-трафик выбранных устройств\n' ;;
+                lists)   printf 'область WARP      : адреса из включённых списков\n' ;;
+                off)     printf 'область WARP      : выключено\n' ;;
+                *)       printf 'область WARP      : неизвестно\n' ;;
+            esac
             [ -n "$err" ] && printf 'error             : %s\n' "$err"
             if [ -r "$_adapter/warp.sh" ]; then
                 # Use the same read-only predicates as the status API. This

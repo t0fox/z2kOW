@@ -33,6 +33,7 @@ EOF
 chmod +x "$T/root/bin/z2k-warpd"
 printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
 printf '{"id":"test-device"}\n' > "$T/etc/state/warp/device.json"
+printf 'фиксированный-список\n' > "$WARP_ENABLED_FILE"
 
 cat > "$T/bin/pidof" <<EOF
 #!/bin/sh
@@ -171,6 +172,28 @@ _out="$(warp_status)"
 printf '%s\n' "$_out" > "$T/status-ready.log"
 assert_contains "routing proof is true" "$T/status-ready.log" "route_ready=1"
 assert_contains "complete state is ready" "$T/status-ready.log" "state=ready"
+
+# Область применения WARP должна быть видна в диагностике для всех режимов.
+: > "$WARP_DEVICES_FILE"
+: > "$WARP_ENABLED_FILE"
+_out="$(warp_status)"
+printf '%s\n' "$_out" > "$T/status-scope-all.log"
+assert_contains "пустой выбор и списки показывают всю LAN" "$T/status-scope-all.log" "scope=all"
+printf '192.168.1.50\n' > "$WARP_DEVICES_FILE"
+_out="$(warp_status)"
+printf '%s\n' "$_out" > "$T/status-scope-devices.log"
+assert_contains "выбранные устройства показывают область devices" "$T/status-scope-devices.log" "scope=devices"
+: > "$WARP_DEVICES_FILE"
+printf 'не-загруженный-список\n' > "$WARP_ENABLED_FILE"
+_out="$(warp_status)"
+printf '%s\n' "$_out" > "$T/status-scope-lists.log"
+assert_contains "выбранный список показывает область lists" "$T/status-scope-lists.log" "scope=lists"
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+_out="$(warp_status)"
+printf '%s\n' "$_out" > "$T/status-scope-off.log"
+assert_contains "выключенный WARP показывает область off" "$T/status-scope-off.log" "scope=off"
+printf 'GAME_WARP_ENABLED=1\n' > "$T/etc/config"
+: > "$WARP_ENABLED_FILE"
 
 # Joint acceptance: the selected-device change uses the real OpenWrt ipset
 # adapter and changes the canonical MARK shape while preserving the healthy

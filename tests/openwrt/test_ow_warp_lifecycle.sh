@@ -30,6 +30,27 @@ ln -s "$WARP_PROC_SOURCE" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
 ln -s "$REPO/platform/openwrt/warp-domain.sh" "$T/root/platform/openwrt/warp-domain.sh" 2>/dev/null
 ln -s "$REPO/platform/openwrt/warp-check.sh" "$T/root/platform/openwrt/warp-check.sh" 2>/dev/null
 
+cat > "$T/bin/uci" <<'EOF'
+#!/bin/sh
+if [ "$1" = show ] && [ "$2" = firewall ]; then
+    printf '%s\n' "firewall.@zone[0]=zone" "firewall.@zone[0].name='lan'" "firewall.@zone[0].network='lan'"
+    exit 0
+fi
+if [ "$1" = show ] && [ "$2" = network ]; then
+    printf '%s\n' "network.lan=interface" "network.lan.proto='static'" "network.lan.device='br-lan'"
+    exit 0
+fi
+if [ "$1" = -q ] && [ "$2" = get ]; then
+    case "$3" in
+        firewall.@zone\[0\].name) printf 'lan\n'; exit 0 ;;
+        firewall.@zone\[0\].network) printf 'lan\n'; exit 0 ;;
+        network.lan.device) printf 'br-lan\n'; exit 0 ;;
+    esac
+fi
+exit 1
+EOF
+chmod +x "$T/bin/uci"
+
 cat > "$T/bin/nft" <<EOF
 #!/bin/sh
 echo "nft:\$*" >> "$T/nft.log"

@@ -5,7 +5,7 @@ _t_plan "ow-diag-warp-route"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-diag-warp-route.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
-mkdir -p "$T/bin" "$T/etc/state/warp" "$T/tmp/warp" "$T/proc/777"
+mkdir -p "$T/bin" "$T/etc/state/warp" "$T/etc/user-lists/warp" "$T/tmp/warp" "$T/proc/777"
 export PATH="$T/bin:/usr/bin:/bin"
 export Z2K_ROOT="$REPO" Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
 export Z2K_ETC="$T/etc" Z2K_STATE="$T/etc/state" Z2K_TMP="$T/tmp"
@@ -15,6 +15,7 @@ export Z2K_WARP_SOURCE_ONLY=1
 printf '#!/bin/sh\nexit 0\n' > "$WARP_BIN"
 chmod +x "$WARP_BIN"
 printf 'GAME_WARP_ENABLED=1\n' > "$Z2K_CONFIG"
+printf 'выбранный-список\n' > "$T/etc/user-lists/warp/.enabled"
 printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg","endpoint":"162.159.192.6:2408"}\n' > "$T/tmp/warp/status.json"
 printf '%s\000' "$WARP_BIN" run > "$T/proc/777/cmdline"
 
