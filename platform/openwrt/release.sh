@@ -2333,7 +2333,7 @@ z2k_ow_extract_target_payload() {
             return 1
         }
     done
-    if _extract_tg_bin="$(z2k_ow_tg_rust_bin_path "$Z2K_BIN" "$_target_arch" 2>/dev/null)"; then
+    if _extract_tg_bin="$(z2k_ow_tg_rust_bin_path "$Z2K_OW_CANON_ROOT_SUFFIX/bin" "$_target_arch" 2>/dev/null)"; then
         _extract_tg_bin=${_extract_tg_bin#/}
         [ -f "$_stage/$_extract_tg_bin" ] && [ -s "$_stage/$_extract_tg_bin" ] \
             && [ -x "$_stage/$_extract_tg_bin" ] || {
@@ -2453,7 +2453,7 @@ z2k_ow_extract_target_payload_direct() {
             return 1
         }
     done
-    if _direct_tg_bin="$(z2k_ow_tg_rust_bin_path "$Z2K_BIN" "$_direct_arch" 2>/dev/null)"; then
+    if _direct_tg_bin="$(z2k_ow_tg_rust_bin_path "$Z2K_OW_CANON_ROOT_SUFFIX/bin" "$_direct_arch" 2>/dev/null)"; then
         _direct_tg_bin=$(z2k_ow_path "$_direct_tg_bin")
         [ -f "$_direct_tg_bin" ] && [ -s "$_direct_tg_bin" ] && [ -x "$_direct_tg_bin" ] || {
             echo "z2k-openwrt: после распаковки отсутствует Rust TG WS Proxy $_direct_tg_bin" >&2
