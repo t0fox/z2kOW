@@ -41,12 +41,14 @@ UTILS="$HERE/lib/utils.sh"
 [ -f "$ACTIONS" ] || { printf '[FAIL] missing %s\n' "$ACTIONS"; exit 1; }
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/wpafix.XXXXXX") || exit 1
-# Мусор в НАСТОЯЩЕМ /tmp: пути job_log и теней зашиты в обработчиках, подменить
-# их нечем, поэтому имена уникальны и снимаются здесь же.
+# Журналы задач лежат в своём каталоге внутри фикстуры: параллельные наборы не
+# должны удалять или читать временный файл этого сценария.
+JOB_DIR="$TMP/jobs"
+mkdir -p "$JOB_DIR"
 ORPH="/tmp/z2k-strat-shadow.wpafixold$$"
 ORPH_NEW="/tmp/z2k-strat-shadow.wpafixnew$$"
 JID="wpafix$$"
-trap 'rm -rf "$TMP" "$ORPH" "$ORPH_NEW" "/tmp/z2k-job-$JID.log"' EXIT
+trap 'rm -rf "$TMP" "$ORPH" "$ORPH_NEW"' EXIT
 
 PASS=0; FAIL=0
 ok() { PASS=$((PASS+1)); printf '[PASS] %s\n' "$1"; }
@@ -187,8 +189,9 @@ act() {
       WARP_LISTS_DIR="$WLD"
       INIT_SCRIPT="$TMP/init"
       WARP_SCRIPT="$TMP/nonexistent-warp.sh"
+      Z2K_JOB_DIR="$JOB_DIR"
       export ZAPRET2_DIR CONFIG_FILE LISTS_DIR CUSTOM_STRAT_DIR WHITELIST_FILE \
-             EXTRA_DOMAINS_FILE EXCLUDE_FILE WARP_LISTS_DIR INIT_SCRIPT WARP_SCRIPT
+             EXTRA_DOMAINS_FILE EXCLUDE_FILE WARP_LISTS_DIR INIT_SCRIPT WARP_SCRIPT Z2K_JOB_DIR
       eval "${ACT_ENV:-:}"
       # shellcheck disable=SC1090
       . "$ACTIONS"
@@ -705,7 +708,7 @@ printf '\n--- 11. живой лог задачи режется по грани�
 # charset=utf-8 не разбирался JSON'ом во фронте, и модалка виснет.
 # Размер нечётный, буквы двухбайтовые — граница среза заведомо попадает внутрь
 # последовательности.
-LOGF="/tmp/z2k-job-$JID.log"
+LOGF="$JOB_DIR/z2k-job-$JID.log"
 : > "$LOGF"
 _i=0
 while [ "$_i" -lt 200 ]; do
