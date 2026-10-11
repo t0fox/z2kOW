@@ -30,37 +30,6 @@ z2kOW — open-source программное обеспечение для об�
 
 Поддержка добровольная и не открывает платные функции, сетевой доступ, отдельные конфигурации или приоритет.
 
-## Спонсоры проекта
-
-- **SupWgeneral**
-- **Alexey**
-- **Jet_sk_ya**
-- **Suharik39**
-- **ZyaK<-**
-- **Алексей Стрельцов**
-- **Diman86RUS**
-- **Alex**
-- **GRM**
-- **Dez**
-- **hoaxx**
-- **Mansurchick**
-- **Dkarloff - SEO отец**
-- **KIBERPANK**
-- **olmer2002**
-- **TiaMax**
-- **Denis**
-- **Mega Man**
-- **TheGreatYogo**
-- **logistik77**
-- **b11d11**
-- **BloodKnife39**
-- **SIGogelon**
-- **yozh**
-- **Altaec**
-- **DIDIQ Rawa**
-
----
-
 ## Что это
 
 z2kOW объединяет общую сетевую логику z2k с нативной интеграцией OpenWrt и дополнительными инструментами управления. Среди возможностей — подбор сетевых стратегий, NFQUEUE/autocircular, пользовательские списки, Telegram и RT proxy, WARP split-routing, диагностика, TCP16 и подписанные обновления.
