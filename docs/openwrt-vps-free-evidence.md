@@ -42,7 +42,9 @@
 
 `z2k-warpd` собирался отдельно от release builder командой Go с OpenWrt build tag и `openwrt-overlay/overlay.json`. Все семь target получили корректный ELF machine/endianness и статическую линковку: `arm64` (AArch64), `arm` (ARM EABI5), `amd64` (x86-64, `CGO_ENABLED=0`), `386` (i386), `mips` (MIPS32 big-endian, softfloat), `mipsle` (MIPS32 little-endian, softfloat), `riscv64` (RISC-V double-float ABI).
 
-`GOTOOLCHAIN=local go test -tags openwrt -overlay openwrt-overlay/overlay.json ./...` прошёл для всех пакетов `z2k-warpd`. Это доказывает компиляцию и unit suite; сами собранные WARP daemon бинарники в QEMU и на реальных устройствах не запускались.
+`GOTOOLCHAIN=local go test -tags openwrt -overlay openwrt-overlay/overlay.json ./...` прошёл для всех пакетов `z2k-warpd`. Это доказывает компиляцию и unit suite; кроме smoke-проверки x86/64 ниже, собранные бинарники не запускались в QEMU и на реальных устройствах.
+
+В OpenWrt 25.12.5 x86/64 VM временно запущен собранный `amd64` бинарник с командой `version`; получен ответ `z2k-warpd dev`. Временный файл из `/tmp` удалён. Это smoke-проверка запуска на x86/64, не проверка регистрации в Cloudflare или работы туннеля.
 
 ## Локальные suites
 
