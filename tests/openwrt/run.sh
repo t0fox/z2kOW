@@ -13,6 +13,32 @@ PASS=0; FAIL=0; FAILED=""
 STRICT="${OW_STRICT:-0}"
 SKIPPED=""
 
+# CI shards run on isolated GitHub runners. The default remains the entire suite.
+# Pin the heaviest suites to separate shards, based on recorded job logs;
+# every other shell/Python contract test is assigned round-robin.
+SHARD_COUNT="${OW_SHARD_COUNT:-1}"
+SHARD_INDEX="${OW_SHARD_INDEX:-0}"
+case "$SHARD_COUNT" in ''|*[!0-9]*|0) echo "invalid OW_SHARD_COUNT" >&2; exit 2 ;; esac
+case "$SHARD_INDEX" in ''|*[!0-9]*) echo "invalid OW_SHARD_INDEX" >&2; exit 2 ;; esac
+[ "$SHARD_INDEX" -lt "$SHARD_COUNT" ] || { echo "shard index out of range" >&2; exit 2; }
+_test_seq=0
+_selected=0
+_shard_select() {
+    _target=$((_test_seq % SHARD_COUNT))
+    _test_seq=$((_test_seq + 1))
+    if [ "$SHARD_COUNT" -eq 4 ]; then
+        case "${1##*/}" in
+            test_ow_offload_benchmark.sh) _target=0 ;;
+            test_ow_unified_release.sh|test_ow_webpanel_unit.sh) _target=1 ;;
+            test_ow_webpanel_cgi.sh) _target=2 ;;
+            test_ow_warp_lifecycle.sh) _target=3 ;;
+        esac
+    fi
+    [ "$_target" -eq "$SHARD_INDEX" ] || return 1
+    _selected=$((_selected + 1))
+    return 0
+}
+
 # 0. syntax-check each shell file with its declared interpreter.
 for _f in platform/openwrt/*.sh platform/openwrt/custom.d/.keep \
           platform/openwrt/bin/z2k-rt-proxy platform/openwrt/bin/z2k-detect \
@@ -36,6 +62,7 @@ done
 
 # 1. наборы (каждый — один прогон, счёт из SUITE-строки)
 for _t in tests/openwrt/test_ow_*.sh; do
+    _shard_select "$_t" || continue
     _out="$(sh "$_t" 2>&1)"
     _rc=$?
     printf '%s\n' "$_out" | grep -E '^(SUITE|FAIL|SKIP)' || true
@@ -54,6 +81,7 @@ done
 # same OpenWrt CI suite as the shell updater tests.
 for _t in tests/openwrt/test_ow_*.py; do
     [ -f "$_t" ] || continue
+    _shard_select "$_t" || continue
     if python3 "$_t"; then
         PASS=$((PASS + 1))
     else
@@ -62,6 +90,8 @@ for _t in tests/openwrt/test_ow_*.py; do
 done
 
 echo "OPENWRT: pass=$PASS fail=$FAIL"
+echo "OPENWRT-SHARD: index=$SHARD_INDEX total=$SHARD_COUNT selected=$_selected"
+[ "$_selected" -gt 0 ] || { echo "empty OpenWrt test shard" >&2; FAIL=$((FAIL + 1)); }
 [ -n "$FAILED" ] && echo "FAILED:$FAILED" >&2
 if [ "$STRICT" = "1" ] && [ -n "$SKIPPED" ]; then
     echo "STRICT-SKIP:$SKIPPED" >&2

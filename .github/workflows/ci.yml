@@ -707,6 +707,41 @@ jobs:
       - name: Run mutants
         run: GO=go sh tests/mutation.sh
 
+  openwrt-acceptance:
+    name: OpenWrt acceptance (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.25.13
+          cache: true
+          cache-dependency-path: z2k-warpd/go.sum
+      - name: Install OpenWrt test dependencies
+        run: sudo apt-get update && sudo apt-get install -y dnsmasq-base busybox lighttpd curl lua5.3
+      - name: Run every assigned OpenWrt test without skips
+        env:
+          OW_STRICT: "1"
+          OW_SHARD_COUNT: "4"
+          OW_SHARD_INDEX: ${{ matrix.shard }}
+        run: |
+          runtime_archive="$RUNNER_TEMP/zapret2-ci.tar.gz"
+          runtime_url=$(sed -n 's/^URL=//p' platform/openwrt/runtime-pin | tr -d '\r\n')
+          runtime_sha=$(sed -n 's/^SHA256=//p' platform/openwrt/runtime-pin | tr -d '\r\n')
+          curl --fail --location --silent --show-error --connect-timeout 10 --max-time 300 \
+            -o "$runtime_archive" "$runtime_url"
+          printf '%s  %s\n' "$runtime_sha" "$runtime_archive" | sha256sum -c -
+          Z2K_RT_TARBALL="$runtime_archive" sh tests/openwrt/run.sh
+
   openwrt-unified:
     name: OpenWrt full-payload release
     runs-on: ubuntu-latest
@@ -722,17 +757,6 @@ jobs:
           go-version: 1.25.13
           cache: true
           cache-dependency-path: z2k-warpd/go.sum
-      - name: Установить зависимости всех проверок OpenWrt
-        run: sudo apt-get update && sudo apt-get install -y dnsmasq-base busybox lighttpd curl lua5.3
-      - name: Выполнить полный набор OpenWrt без пропусков
-        run: |
-          runtime_archive="$RUNNER_TEMP/zapret2-ci.tar.gz"
-          runtime_url=$(sed -n 's/^URL=//p' platform/openwrt/runtime-pin | tr -d '\r\n')
-          runtime_sha=$(sed -n 's/^SHA256=//p' platform/openwrt/runtime-pin | tr -d '\r\n')
-          curl --fail --location --silent --show-error --connect-timeout 10 --max-time 300 \
-            -o "$runtime_archive" "$runtime_url"
-          printf '%s  %s\n' "$runtime_sha" "$runtime_archive" | sha256sum -c -
-          OW_STRICT=1 Z2K_RT_TARBALL="$runtime_archive" sh tests/openwrt/run.sh
       - name: Test upstream WARP engine and build per-architecture rootfs candidates
         run: |
           set -euo pipefail
