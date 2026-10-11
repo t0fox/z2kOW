@@ -48,6 +48,7 @@ js_txt = open(f"{root}/webpanel/www/js/pages/credits.js", encoding="utf-8").read
 # README: список под заголовком благодарности, до первой пустой строки после него.
 m = re.search(r'^## .*спонсор.*$', rd_txt, re.M | re.I)
 readme = []
+readme_section = m is not None
 if m:
     for line in rd_txt[m.end():].splitlines():
         if line.startswith("- **"):
@@ -80,7 +81,7 @@ for cls, name in re.findall(
 
 upstream_only = {"GregMSK", "Кожевников", "bootnet"}
 panel_local = [name for name in panel if name not in upstream_only]
-print("COUNTS", len(readme), len(menu), len(panel_local))
+print("СЧЁТЫ", len(readme), len(menu), len(panel_local), int(readme_section))
 print("UPSTREAM_ONLY_COUNT", len(upstream_only))
 missing_upstream = sorted(upstream_only - set(panel))
 leaked_upstream = sorted(upstream_only & (set(readme) | set(menu)))
@@ -88,18 +89,23 @@ if missing_upstream:
     print("UPSTREAM_ONLY_MISSING", missing_upstream)
 if leaked_upstream:
     print("UPSTREAM_ONLY_LEAK", leaked_upstream)
-for label, a, b in (("README-меню", readme, menu),
-                    ("README-панель", readme, panel_local)):
+comparisons = [("меню-панель", menu, panel_local)]
+if readme_section:
+    comparisons.extend((("README-меню", readme, menu),
+                        ("README-панель", readme, panel_local)))
+for label, a, b in comparisons:
     only_a = [x for x in a if x not in b]
     only_b = [x for x in b if x not in a]
     if only_a or only_b:
-        print(f"DIFF {label} | только слева: {only_a} | только справа: {only_b}")
+        print(f"РАСХОЖДЕНИЕ {label} | только в первом списке: {only_a} | только во втором списке: {only_b}")
 
 # Порядок тоже сверяем: расхождение обычно значит, что кого-то вставили не туда.
-if readme and menu and readme != menu:
-    print("ORDER README-меню отличается")
-if readme and panel_local and readme != panel_local:
-    print("ORDER README-панель отличается")
+if menu != panel_local:
+    print("ПОРЯДОК меню-панель отличается")
+if readme_section and readme != menu:
+    print("ПОРЯДОК README-меню отличается")
+if readme_section and readme != panel_local:
+    print("ПОРЯДОК README-панель отличается")
 
 # Ширина строк коробки — в символах.
 widths = {}
@@ -113,35 +119,39 @@ if len(widths) > 1:
 PY
 ) || { printf '[FAIL] разбор не состоялся:\n%s\n' "$OUT"; exit 1; }
 
-_counts=$(printf '%s\n' "$OUT" | grep '^COUNTS' | cut -d' ' -f2-)
-_r=$(echo "$_counts" | cut -d' ' -f1); _m=$(echo "$_counts" | cut -d' ' -f2); _p=$(echo "$_counts" | cut -d' ' -f3)
+_counts=$(printf '%s\n' "$OUT" | grep '^СЧЁТЫ' | cut -d' ' -f2-)
+_r=$(echo "$_counts" | cut -d' ' -f1); _m=$(echo "$_counts" | cut -d' ' -f2); _p=$(echo "$_counts" | cut -d' ' -f3); _readme_section=$(echo "$_counts" | cut -d' ' -f4)
 
-if [ "${_r:-0}" -gt 0 ] && [ "${_m:-0}" -gt 0 ] && [ "${_p:-0}" -gt 0 ]; then
-    ok "локальные списки найдены (README $_r, меню $_m, общий список панели $_p)"
+if [ "${_m:-0}" -gt 0 ] && [ "${_p:-0}" -gt 0 ] && { [ "${_readme_section:-0}" -eq 0 ] || [ "${_r:-0}" -gt 0 ]; }; then
+    if [ "${_readme_section:-0}" -eq 1 ]; then
+        ok "списки спонсоров найдены (README $_r, меню $_m, панель $_p)"
+    else
+        ok "списки спонсоров найдены (меню $_m, панель $_p; раздел README отсутствует)"
+    fi
 else
-    no "списки найдены везде" "  README=$_r меню=$_m панель=$_p — разбор сломался"
+    no "списки спонсоров найдены" "  README=$_r меню=$_m панель=$_p — раздел README: $_readme_section"
 fi
 
-_diff=$(printf '%s\n' "$OUT" | grep '^DIFF' || true)
+_diff=$(printf '%s\n' "$OUT" | grep '^РАСХОЖДЕНИЕ' || true)
 if [ -z "$_diff" ]; then
-    ok "состав спонсоров совпадает во всех трёх местах"
+    ok "состав спонсоров совпадает во всех опубликованных списках"
 else
-    no "состав совпадает" "$_diff"
+    no "состав спонсоров совпадает" "$_diff"
 fi
 
-_order=$(printf '%s\n' "$OUT" | grep '^ORDER' || true)
+_order=$(printf '%s\n' "$OUT" | grep '^ПОРЯДОК' || true)
 if [ -z "$_order" ]; then
-    ok "порядок спонсоров одинаков"
+    ok "порядок спонсоров совпадает во всех опубликованных списках"
 else
-    no "порядок одинаков" "$_order"
+    no "порядок спонсоров совпадает" "$_order"
 fi
 
 _upstream_only=$(printf '%s\n' "$OUT" | grep -E '^UPSTREAM_ONLY_(MISSING|LEAK)' || true)
 if [ -z "$_upstream_only" ]; then
     _upstream_count=$(printf '%s\n' "$OUT" | grep '^UPSTREAM_ONLY_COUNT ' | cut -d' ' -f2)
-    ok "upstream-only acknowledgements remain out of local README and menu ($_upstream_count)"
+    ok "спонсоры вышестоящего проекта не попали в локальные README и меню ($_upstream_count)"
 else
-    no "upstream-only acknowledgements stay in the upstream disclosure" "$_upstream_only"
+    no "спонсоры вышестоящего проекта отсутствуют в локальных списках" "$_upstream_only"
 fi
 
 _width=$(printf '%s\n' "$OUT" | grep '^WIDTH' || true)
