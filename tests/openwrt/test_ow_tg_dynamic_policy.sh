@@ -26,6 +26,12 @@ fi
 exit 0
 EOF
 chmod +x "$T/bin/nft"
+cat > "$T/bin/lock" <<EOF
+#!/bin/sh
+echo "lock:\$*" >> "$T/lock.log"
+exit 0
+EOF
+chmod +x "$T/bin/lock"
 cat > "$T/root/bin/linux-x86_64/tg-ws-proxy" <<'EOF'
 #!/bin/sh
 exit 0

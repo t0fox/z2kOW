@@ -1,0 +1,95 @@
+[package]
+name = "z2kow-tg-transparent"
+version = "0.1.0"
+edition = "2024"
+description = "Прозрачный Telegram MTProto → WSS-прокси для OpenWrt"
+license = "MIT"
+
+[[bin]]
+name = "tg-ws-proxy"
+path = "src/main.rs"
+
+[dependencies]
+# Асинхронная среда выполнения.
+# Включены только функции, используемые в src/ и tests/. `full` дополнительно
+# тянет fs/process/signal; минимальный набор сокращает дерево зависимостей.
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "io-util",
+    "time",
+    "sync",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+grammers-crypto = "0.10.0"
+grammers-mtproto = "0.10.0"
+grammers-tl-types = "0.10.0"
+# Закрепляем совместимую ревизию: glass_pumpkin rc1 несовместима с BigUint,
+# используемым grammers-crypto 0.10.0.
+glass_pumpkin = "=2.0.0-rc0"
+socket2 = "0.6.5"
+
+# WebSocket-протокол с поддержкой TLS.
+tokio-tungstenite = { version = "0.24", default-features = false, features = [
+    "rustls-tls-webpki-roots",
+    "connect",
+    "handshake",
+] }
+tungstenite = { version = "0.24", default-features = false, features = [
+    "handshake",
+] }
+
+# AES-256-CTR для обфускации MTProto.
+aes = "0.8"
+ctr = "0.9"
+cipher = "0.4"
+
+# SHA-256 для получения ключей MTProto.
+sha2 = "0.10"
+
+# Случайные байты для рукопожатия.
+rand = "0.9"
+
+# Утилиты hex-кодирования и декодирования.
+hex = "0.4"
+
+# Разбор CLI-аргументов с резервом на переменные окружения.
+clap = { version = "4", features = ["derive", "env"] }
+
+httparse = "1"
+
+# Структурированное журналирование.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Утилиты асинхронных потоков (SinkExt, StreamExt).
+futures-util = "0.3"
+libc = "0.2"
+
+# Настройка TLS с обязательной проверкой сертификатов.
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+    "logging",
+] }
+rustls-pki-types = "1"
+# Встроенное хранилище корневых сертификатов Mozilla для TLS-коннектора.
+webpki-roots = "0.26"
+# Асинхронные TLS-потоки для HTTPS GET в default_domains.
+tokio-rustls = { version = "0.26", default-features = false, features = [
+    "ring",
+    "tls12",
+    "logging",
+] }
+
+[dev-dependencies]
+rcgen = "0.12"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

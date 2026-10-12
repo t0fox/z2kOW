@@ -13,6 +13,17 @@ export PATH="/usr/sbin:/sbin:$PATH"
 . "$Z2K_ROOT/platform/openwrt/env.sh" || exit 0
 . "$Z2K_ROOT/platform/openwrt/tg.sh" || exit 0
 
-[ "${1:-check}" = "check" ] || { echo "usage: tg-check.sh [check]" >&2; exit 1; }
-z2k_ow_tg check
-exit 0
+case "${1:-check}" in
+    check)
+        z2k_ow_tg check
+        exit 0
+        ;;
+    sync-dc-map)
+        z2k_ow_tg_dc_map_sync
+        exit $?
+        ;;
+    *)
+        echo "usage: tg-check.sh [check|sync-dc-map]" >&2
+        exit 1
+        ;;
+esac

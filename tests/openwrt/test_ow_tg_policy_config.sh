@@ -16,6 +16,8 @@ TG_CIDRS6="2001:67c:4e8::/48 2001:b28:f23c::/47"
 TG_DC_MAP_PATH="/etc/z2k/telegram-dc-map.json"
 TG_DC_MAP_REFRESH_SECS="900"
 TG_DC_MAP_ENDPOINTS_PATH="/etc/z2k/telegram-dc-endpoints.tsv"
+TG_CONNECTION_MODE="manual"
+TG_CONNECTION_LIMIT="64"
 EOF
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc/z2k" Z2K_CONFIG="$T/etc/z2k/config"
@@ -36,6 +38,11 @@ assert_eq "CIDR IPv6 сохраняются с пробелами" "2001:67c:4e8
     "$(z2k_ow_tg_cfg TG_CIDRS6 '')"
 assert_eq "путь манифеста DC сохраняется" "/etc/z2k/telegram-dc-endpoints.tsv" \
     "$(z2k_ow_tg_cfg TG_DC_MAP_ENDPOINTS_PATH '')"
+assert_eq "режим Auto/Manual перенесён в OpenWrt-конфиг" "manual" \
+    "$(z2k_ow_tg_cfg TG_CONNECTION_MODE '')"
+assert_eq "ручной максимум перенесён в OpenWrt-конфиг" "64" \
+    "$(z2k_ow_tg_cfg TG_CONNECTION_LIMIT '')"
+assert_eq "ручной максимум попал в аргументы Rust" "64" "$Z2K_TG_MAX_CONNECTIONS"
 
 assert_file "старые TG-настройки перенесены в OpenWrt-конфиг" "$Z2K_TG_POLICY_CONFIG"
 assert_contains "в OpenWrt-конфиг перенесены порты" "$Z2K_TG_POLICY_CONFIG" \
@@ -66,5 +73,20 @@ assert_eq "интервал обновления DC переживает create_
     "900" "$(z2k_ow_tg_cfg TG_DC_MAP_REFRESH_SECS '')"
 assert_eq "путь манифеста переживает create_official_config" \
     "/etc/z2k/telegram-dc-endpoints.tsv" "$(z2k_ow_tg_cfg TG_DC_MAP_ENDPOINTS_PATH '')"
+assert_eq "режим Auto/Manual переживает create_official_config" "manual" \
+    "$(z2k_ow_tg_cfg TG_CONNECTION_MODE '')"
+assert_eq "ручной максимум переживает create_official_config" "64" \
+    "$(z2k_ow_tg_cfg TG_CONNECTION_LIMIT '')"
+
+# Новая установка записывает безопасную Auto-политику в OpenWrt-owned файл.
+mkdir -p "$T/default/etc/z2k"
+printf 'ENABLED=1\n' > "$T/default/etc/z2k/config"
+Z2K_CONFIG="$T/default/etc/z2k/config"
+Z2K_TG_POLICY_CONFIG="$T/default/etc/z2k/tg-policy.conf"
+z2k_ow_tg_policy_migrate || _t_bad "начальная Auto-политика"
+assert_contains "новая установка сохраняет режим Auto" "$Z2K_TG_POLICY_CONFIG" \
+    'TG_CONNECTION_MODE=auto'
+assert_contains "новая установка сохраняет безопасный Auto-предел" "$Z2K_TG_POLICY_CONFIG" \
+    'TG_CONNECTION_LIMIT=32'
 
 _t_done

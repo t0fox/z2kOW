@@ -81,10 +81,16 @@ done
 
 # --- один прозрачный слушатель Rust без релея и второго обработчика CDN ---
 assert_contains "tg.sh: Rust слушает только :1443" "$TG" '"--port=$Z2K_TG_PORT"'
-assert_contains "tg.sh: включён прозрачный режим obfuscated2" "$TG" '--transparent --pool-size=0'
+assert_contains "tg.sh: transparent включён как единственный режим" "$TG" 'z2k_ow_tg_with_argv'
+assert_not_contains "tg.sh: удалённые CLI-флаги отсутствуют" "$TG" '(^|[[:space:]])(--transparent|--pool-size|--no-outbound-proxy)([=[:space:]]|$)'
 assert_contains "tg.sh: использует persistent-кэш Telegram DC" "$TG" '--dc-map-path='
 assert_contains "tg.sh: задаёт ограниченную частоту обновления карты DC" "$TG" '--dc-map-refresh-secs='
 assert_contains "tg.sh: ограничение одновременных сессий" "$TG" '--max-connections=$Z2K_TG_MAX_CONNECTIONS'
+assert_contains "tg.sh: лимит вычисляется по бюджету FD/RAM" "$TG" 'z2k_ow_tg_connection_budget'
+assert_contains "tg-policy.sh: Auto поддерживает 17 одновременных соединений" \
+    "$REPO/platform/openwrt/tg-policy.sh" 'Z2K_TG_CONNECTION_AUTO_CAP_DEFAULT="32"'
+assert_contains "tg-policy.sh: Manual проверяется по верхней границе" \
+    "$REPO/platform/openwrt/tg-policy.sh" 'Z2K_TG_CONNECTION_HARD_CAP="128"'
 assert_not_contains "tg.sh: порт CDN 1444 не используется" "$_TGCODE" '1444|Z2K_TG_CDN_PORT'
 assert_not_contains "tg.sh: настройки старого relay отсутствуют" "$_TGCODE" 'Z2K_RELAY_URL|Z2K_RELAY_SECRET|relay-id-file|TG_MTPROTO_PROXY'
 assert_not_contains "tg.sh: старый Go-клиент не запускается" "$_TGCODE" 'exec .*tg-mtproxy-client|procd_set_param command .*tg-mtproxy-client'
@@ -161,15 +167,28 @@ assert_not_contains "full payload builder has no component APK recipe" "$BUILDER
 assert_contains "rootfs includes TG implementation" "$BUILDER" 'platform/openwrt/*.sh'
 assert_contains "rootfs добавляет Rust-бинарник по архитектуре" "$BUILDER" \
     'usr/lib/z2k/bin/linux-$_arch/tg-ws-proxy'
-assert_contains "кандидат собирает закреплённый исходный код Rust с локальным патчем" \
+assert_contains "кандидат собирает встроенный Rust crate" \
     "$REPO/scripts/openwrt/build-release.sh" 'build_tg_ws_proxy.sh'
-assert_contains "коммит upstream Rust закреплён" "$REPO/platform/openwrt/tg-ws-proxy.pin" \
-    'COMMIT=53c8bfe5e9efa561cf61a862c0371f1f8ba33869'
-assert_contains "патч с нулевым контекстом применяется к закреплённому upstream" \
-    "$REPO/scripts/openwrt/build_tg_ws_proxy.sh" 'git -C "$_src" apply --unidiff-zero "$_patch"'
+assert_contains "сборка читает локальный crate" "$REPO/scripts/openwrt/build_tg_ws_proxy.sh" \
+    'CRATE="$ROOT/platform/openwrt/tg-proxy"'
+assert_contains "сборка использует Cargo.lock" "$REPO/scripts/openwrt/build_tg_ws_proxy.sh" 'cargo "+$_toolchain" build --locked'
+assert_not_contains "сборка не клонирует upstream и не применяет patch" \
+    "$REPO/scripts/openwrt/build_tg_ws_proxy.sh" 'git clone|git -C .*apply|_patch'
+if [ -e "$REPO/platform/openwrt/tg-ws-proxy.pin" ] || \
+   [ -e "$REPO/patches/tg-ws-proxy-rs/0001-transparent-openwrt.patch" ]; then
+    _t_bad "у локальной сборки остались upstream pin или гигантский patch"
+else
+    _t_ok
+fi
 assert_contains "сборка Rust ограничена ARM64 и x86_64" \
     "$REPO/scripts/openwrt/build_tg_ws_proxy.sh" \
     'aarch64-unknown-linux-musl:arm64:arm64-gcc x86_64-unknown-linux-musl:x86_64:host-gcc'
+for _workflow in "$REPO/.github/workflows/ci.yml" "$REPO/.github/workflows/release-openwrt.yml"; do
+    assert_contains "CI берёт версию Rust из встроенного crate: $_workflow" "$_workflow" \
+        'platform/openwrt/tg-proxy/rust-toolchain.toml'
+    assert_not_contains "CI больше не читает удалённый upstream pin: $_workflow" "$_workflow" \
+        'platform/openwrt/tg-ws-proxy.pin'
+done
 
 # --- COMMON_HOOK в au_service_for_binary ---
 assert_contains "au: openwrt-ветка" "$AU" 'Z2K_PLATFORM:-keenetic}" = "openwrt"'

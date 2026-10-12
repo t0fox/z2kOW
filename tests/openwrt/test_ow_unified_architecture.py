@@ -237,7 +237,15 @@ class UnifiedArchitectureTests(unittest.TestCase):
         builder = (ROOT / "scripts/openwrt/build-release.sh").read_text(encoding="utf-8")
         stage = (ROOT / "scripts/openwrt/stage-rootfs.sh").read_text(encoding="utf-8")
         arch = (ROOT / "platform/openwrt/arch.sh").read_text(encoding="utf-8")
-        self.assertIn("build_tg_ws_proxy.sh", builder, "TG binaries must come from the pinned Rust source and local patch")
+        self.assertIn(
+            "build_tg_ws_proxy.sh",
+            builder,
+            "Бинарник Telegram proxy должен собираться из локального crate",
+        )
+        tg_crate = ROOT / "platform/openwrt/tg-proxy"
+        self.assertIn('name = "z2kow-tg-transparent"', (tg_crate / "Cargo.toml").read_text(encoding="utf-8"))
+        self.assertTrue((tg_crate / "Cargo.lock").is_file())
+        self.assertIn('build --locked', (ROOT / "scripts/openwrt/build_tg_ws_proxy.sh").read_text(encoding="utf-8"))
         self.assertIn("aarch64-unknown-linux-musl", (ROOT / "scripts/openwrt/build_tg_ws_proxy.sh").read_text(encoding="utf-8"))
         self.assertIn("x86_64-unknown-linux-musl", (ROOT / "scripts/openwrt/build_tg_ws_proxy.sh").read_text(encoding="utf-8"))
         self.assertIn("rt-proxy", builder)
