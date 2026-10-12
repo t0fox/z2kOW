@@ -134,7 +134,7 @@ fi
 
 # Файлы, которые НЕ доставляются патчем, но всё равно должны иметь контрольную
 # сумму. Пример и причина — бинарники: install.sh качает их напрямую с зеркал
-# ("${GITHUB_RAW}/mtproxy-client/builds/..."), а проверял до сих пор эвристиками
+# ("${GITHUB_RAW}/rt-proxy/builds/..."), а проверял до сих пор эвристиками
 # «ELF, больше 500 КБ, --help не падает». Это ловит обрыв закачки и чужую арку,
 # но НЕ ловит протухший ответ зеркала — ровно тот отказ, ради которого карта сумм
 # и заводилась (issue #26).
@@ -153,7 +153,7 @@ fi
 # а z2k_fetch получает по ним sha и сверяет (см. _z2k_manifest_sha в z2k.sh).
 _verify_only() {
     case "$1" in
-        mtproxy-client/builds/*|z2k-warpd/builds/*|z2k-detect/builds/*) return 0 ;;
+        rt-proxy/builds/*|z2k-warpd/builds/*|z2k-detect/builds/*) return 0 ;;
         *) return 1 ;;
     esac
 }

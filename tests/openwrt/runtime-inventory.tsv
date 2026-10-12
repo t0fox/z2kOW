@@ -14,18 +14,12 @@ files/z2k-ppe-deoffload.sh|N/A|-|-|-|-|Uses the proprietary Keenetic MediaTek PP
 files/z2k-scheduler.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/schedule.sh|-rw-r--r--|platform/openwrt/files/etc/init.d/z2k|z2k_ow_cron_install|Resident Keenetic scheduler is replaced with BusyBox cron and procd service start.
 files/z2k-tcp16-probe.sh|ADAPTED|./usr/lib/z2k/z2k-tcp16-probe.sh|-rwxr-xr-x|webpanel/cgi/actions.sh|tcp16_probe_async|Shared probe keeps upstream measurement; OpenWrt redirects state/config/service paths.
 files/z2k-tcp16-probe.sh|ADAPTED|./usr/lib/z2k/z2k-tcp16-probe.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|30 3 * * *|Nightly measurement remains at 03:30.
-files/z2k-tg-redirect.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/tg.sh|-rw-r--r--|platform/openwrt/tg.sh|z2k_ow_tg|OpenWrt uses fw4/nftables and the platform Telegram lifecycle.
-files/z2k-tg-watchdog.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/tg-check.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|tg-check.sh check|procd owns process restart; cron checks tunnel health and rules.
 files/z2k-update-lists.sh|COMMON|./usr/lib/z2k/z2k-update-lists.sh|-rwxr-xr-x|platform/openwrt/list-refresh.sh|z2k-update-lists.sh|Shared complete refresh is called with OpenWrt path/service bindings.
 files/z2k-warp.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/warp.sh|-rw-r--r--|webpanel/cgi/platform.sh|platform/openwrt/warp.sh|OpenWrt retains the user feature through its native WARP backend.
 files/z2k-warp-list-filter.awk|COMMON|./usr/lib/z2k/z2k-warp-list-filter.awk|-rw-r--r--|webpanel/cgi/actions.sh|z2k-warp-list-filter.awk|Shared list validation/filter is used by WebPanel game-list actions.
 files/init.d/S51z2k-warp|ADAPTED|./usr/lib/z2k/platform/openwrt/warp.sh|-rw-r--r--|platform/openwrt/warp.sh|procd_open_instance|WARP tunnel lifecycle is OpenWrt procd.
 files/init.d/S96z2k-rt-proxy|ADAPTED|./usr/lib/z2k/platform/openwrt/rt.sh|-rw-r--r--|platform/openwrt/rt.sh|procd_open_instance|RT proxy lifecycle/routing is OpenWrt procd and fw4.
-files/init.d/S97z2k-http-tunnel|N/A|-|-|-|-|Старый VPS-туннель TCP/80 выведен из работы; зашифрованные загрузки Telegram CDN идут через маршрутизацию MTProto media DC.
-files/init.d/S98tg-tunnel|ADAPTED|./usr/lib/z2k/platform/openwrt/tg.sh|-rw-r--r--|platform/openwrt/tg.sh|procd_open_instance|Telegram lifecycle is OpenWrt procd.
 files/init.d/S99z2k-scheduler|ADAPTED|./usr/lib/z2k/platform/openwrt/schedule.sh|-rw-r--r--|platform/openwrt/schedule.sh|Z2K_LISTS_CRON_LINE|BusyBox cron replaces the resident Keenetic scheduler.
-files/ndm/90-z2k-tg-redirect.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/tg.sh|-rw-r--r--|platform/openwrt/tg.sh|nft|NDM hooks are replaced by fw4/nftables lifecycle.
-files/ndm/91-z2k-http-tunnel-redirect.sh|N/A|-|-|-|-|Старое перенаправление VPS для TCP/80 выведено из работы; обычный HTTP не является трафиком Telegram MTProto.
 files/ndm/91-z2k-ttl-bypass.sh|N/A|-|-|-|-|Only excludes marked packets from Keenetic's optional NDM ip ttl-fix chain, which OpenWrt does not provide.
 files/ndm/92-z2k-rt-proxy-redirect.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/rt.sh|-rw-r--r--|platform/openwrt/rt.sh|nft|NDM hooks are replaced by fw4/nftables lifecycle.
 files/ndm/93-z2k-warp.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/warp.sh|-rw-r--r--|platform/openwrt/warp.sh|nft|NDM hooks are replaced by OpenWrt WARP PBR/nft adapter.

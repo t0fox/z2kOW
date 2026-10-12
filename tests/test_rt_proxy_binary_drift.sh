@@ -4,17 +4,17 @@
 # The rt-proxy binary exists in TWO places and only one of them ships:
 #
 #   rt-proxy/z2k-rt-proxy-linux-*                 <- what the Makefile builds
-#   mtproxy-client/builds/z2k-rt-proxy-linux-*    <- what lib/install.sh FETCHES
+#   rt-proxy/builds/z2k-rt-proxy-linux-*    <- what lib/install.sh FETCHES
 #
-# install.sh builds its URL as "${GITHUB_RAW}/mtproxy-client/builds/${rtp_bin}", so
+# install.sh builds its URL as "${GITHUB_RAW}/rt-proxy/builds/${rtp_bin}", so
 # a rebuild that only lands in rt-proxy/ reaches nobody. That already nearly
 # happened: a fully rebuilt, deployed and router-validated binary sat in rt-proxy/
-# while mtproxy-client/builds/ still held the previous one, and the release would
+# while rt-proxy/builds/ still held the previous one, and the release would
 # have been a silent no-op — every test green, nothing shipped.
 #
 # This asserts the two trees agree, per architecture, for exactly the arch names
 # install.sh can ask for. It is a drift guard, not a build step: if it fails, copy
-# rt-proxy/z2k-rt-proxy-linux-* over mtproxy-client/builds/.
+# rt-proxy/z2k-rt-proxy-linux-* over rt-proxy/builds/.
 #
 # The duplication itself is the real defect (one artifact, two homes, and the
 # authoritative one is not the one the build writes). Collapsing it means changing
@@ -26,7 +26,7 @@
 
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 BUILT="$HERE/rt-proxy"
-SHIPPED="$HERE/mtproxy-client/builds"
+SHIPPED="$HERE/rt-proxy/builds"
 INSTALL="$HERE/lib/install.sh"
 
 PASS=0; FAIL=0; SKIP=0
@@ -52,11 +52,11 @@ md5of() {
 # --- the fetch path is still the one this test guards ------------------------
 # If someone moves the URL, this guard must be updated with it rather than
 # silently protecting a directory nobody reads any more.
-if grep -q 'mtproxy-client/builds/\${rtp_bin}' "$INSTALL" 2>/dev/null; then
-    ok "install.sh still fetches rt-proxy from mtproxy-client/builds/"
+if grep -q 'rt-proxy/builds/\${rtp_bin}' "$INSTALL" 2>/dev/null; then
+    ok "install.sh fetches rt-proxy from its own builds/ directory"
 else
-    no "install.sh still fetches rt-proxy from mtproxy-client/builds/" \
-       "that path" "changed — update this test with it"
+    no "install.sh fetches rt-proxy from its own builds/ directory" \
+       "rt-proxy/builds/${rtp_bin}" "changed — update this test with it"
 fi
 
 # --- the arch list install.sh can ask for -----------------------------------

@@ -181,7 +181,7 @@ start() {
             t0=$(date +%s 2>/dev/null || echo 0)
             # GODEBUG=asyncpreemptoff=1: disable Go's SIGURG-based async goroutine
             # preemption — it crashes the runtime on MIPS/mipsel (soft-float
-            # Keenetics), the same guard S97z2k-http-tunnel / S98tg-tunnel use.
+            # Keenetics), the same guard другие init-скрипты use.
             GODEBUG=asyncpreemptoff=1 $BIN --listen=:$LISTEN_PORT --timeout=15m $MARK_ARG </dev/null >> "$LOG" 2>&1 &
             child=$!
             wait "$child"

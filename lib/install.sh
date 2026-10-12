@@ -287,7 +287,7 @@ z2k_restore_old_tree() {
         # 3. Рестарт ключевых daemon'ов из восстановленного дерева, чтобы
         #    в память загрузился старый (рабочий) код, а не новый частичный.
         local _svc
-        for _svc in S99zapret2 S99z2k-scheduler S98tg-tunnel S97z2k-http-tunnel S96z2k-rt-proxy S98z2k-detect; do
+        for _svc in S99zapret2 S99z2k-scheduler S96z2k-rt-proxy S98z2k-detect; do
             [ -x "/opt/etc/init.d/${_svc}" ] && /opt/etc/init.d/${_svc} restart >/dev/null 2>&1
         done
         rm -rf "${Z2K_OLD_TREE_BACKUP}.ext" 2>/dev/null
@@ -3795,14 +3795,7 @@ step_finalize() {
     print_header "Шаг 12/12: Финализация установки"
 
     # =====================================================================
-    # FIRST: re-apply preserved user flags before anything else in this
-    # step reads them. Auto-start TG tunnel below queries
-    # TG_PROXY_USER_DISABLED to decide whether to start S98tg-tunnel —
-    # if late preserve runs AFTER that, the flag is still default 0,
-    # the daemon gets started, watchdog kills it ~25s later, and the
-    # cycle repeats on every nightly auto-update reinstall. Same gap
-    # would affect Z2K_DYNAMIC_TTL and other flags that gate later
-    # actions in step_finalize.
+    # Сначала возвращаем пользовательские флаги для последующих шагов.
     # =====================================================================
     local backup_tmp_early="$Z2K_UPGRADE_BACKUP"
     if [ "$Z2K_AUTO_UPDATE" = "1" ] && [ -f "$backup_tmp_early/config" ] && [ -f "$ZAPRET2_DIR/config" ]; then
@@ -4107,86 +4100,7 @@ step_finalize() {
         fi
     fi
 
-    # Telegram transparent proxy (tg-mtproxy-client)
-    if true; then
-        print_info "Установка/обновление Telegram прокси..."
-        # Use same arch detection as zapret2 install (get_arch → map_arch_to_bin_arch)
-        local tg_arch=""
-        local hw_arch
-        hw_arch=$(get_arch 2>/dev/null || uname -m)
-        local tg_bin_arch
-        tg_bin_arch=$(map_arch_to_bin_arch "$hw_arch" 2>/dev/null || true)
-        case "$tg_bin_arch" in
-            linux-arm64)  tg_arch="arm64" ;;
-            linux-arm)    tg_arch="arm" ;;
-            linux-mipsel)   tg_arch="mipsel" ;;
-            linux-mips64el) tg_arch="mips64el" ;;
-            linux-mips64)   tg_arch="mips" ;;
-            linux-mips)     tg_arch="mips" ;;
-            linux-x86_64) tg_arch="amd64" ;;
-            linux-x86)    tg_arch="x86" ;;
-            linux-riscv64) tg_arch="riscv64" ;;
-            linux-ppc)    tg_arch="ppc64" ;;
-        esac
-        if [ -n "$tg_arch" ]; then
-            local tg_bin="tg-mtproxy-client-linux-${tg_arch}"
-            local tg_dest="/opt/sbin/tg-mtproxy-client"
-            local tg_tmp="${tg_dest}.new.$$"
-            local tg_url="${GITHUB_RAW}/mtproxy-client/builds/${tg_bin}"
-            # Download-to-temp → validate → atomic mv. НЕ удаляем рабочий
-            # бинарник до того как новый скачан и проверен (Codex 2026-05-28):
-            # transient fetch-fail НЕ должен оставить router без tg-mtproxy-client.
-            rm -f "$tg_tmp"
-            # z2k_fetch — 4-layer fallback (raw → jsdelivr → gh-proxy → DoH+pin)
-            z2k_fetch "$tg_url" "$tg_tmp" 2>/dev/null || true
-            rm -f "${tg_tmp}.etag" 2>/dev/null
-            local tg_size
-            tg_size=$(wc -c < "$tg_tmp" 2>/dev/null || echo 0)
-            # Validate: exists, >500KB, ELF magic, runs without crash
-            local tg_valid=false
-            if [ -f "$tg_tmp" ] && [ "$tg_size" -gt 500000 ] 2>/dev/null; then
-                if head -c 4 "$tg_tmp" 2>/dev/null | grep -q "ELF"; then
-                    chmod +x "$tg_tmp"
-                    if "$tg_tmp" --help 2>/dev/null; [ $? -le 2 ]; then
-                        tg_valid=true
-                    fi
-                fi
-            fi
-            if $tg_valid; then
-                # Снапшот — гейт, а не жест. Политика прописана в самой
-                # z2k_snapshot_external: «на mkdir/cp/marker fail возвращаем
-                # non-zero, чтобы callsite прервал перезапись ДО мутации». Здесь
-                # возврат игнорировался, то есть при переполненной флешке старый
-                # рабочий бинарник затирался новым, а копии для отката не
-                # оставалось — ровно тот случай, ради которого снапшот и заведён.
-                if z2k_snapshot_external "$tg_dest"; then
-                    mv -f "$tg_tmp" "$tg_dest" && chmod +x "$tg_dest"
-                    print_success "Telegram прокси установлен ($tg_arch)"
-                else
-                    rm -f "$tg_tmp"
-                    print_warning "Снапшот tg-mtproxy-client не удался — оставлен текущий рабочий бинарник"
-                fi
-            else
-                rm -f "$tg_tmp"
-                # КРИТИЧНО: оставляем существующий рабочий бинарник, НЕ удаляем.
-                if [ -x "$tg_dest" ]; then
-                    print_warning "Не удалось обновить tg-mtproxy-client — оставлен текущий рабочий бинарник"
-                elif [ "$tg_size" -le 500000 ] 2>/dev/null; then
-                    print_warning "Файл слишком маленький (${tg_size} байт) — скачивание прервалось, рабочего бинарника нет"
-                else
-                    print_warning "Бинарник не запускается на этой архитектуре ($tg_arch). Проверьте: opkg print-architecture"
-                fi
-            fi
-        else
-            print_warning "Неизвестная архитектура $hw_arch, пропускаем Telegram прокси"
-        fi
-    else
-        print_info "Telegram прокси уже установлен"
-    fi
-
-    # RuTracker rt-proxy (z2k-rt-proxy) — separate binary, hosted in the SAME
-    # place as tg-mtproxy-client (Mark's decision): ${GITHUB_RAW}/mtproxy-client/builds/.
-    # rt-proxy ships ONLY arm64/arm/mipsel/mips/amd64 (a subset of tg's archs).
+    # RuTracker rt-proxy (z2k-rt-proxy) is fetched from its own builds/ path.
     if true; then
         print_info "Установка/обновление RuTracker rt-proxy..."
         local rtp_arch=""
@@ -4205,7 +4119,7 @@ step_finalize() {
             local rtp_bin="z2k-rt-proxy-linux-${rtp_arch}"
             local rtp_dest="/opt/sbin/z2k-rt-proxy"
             local rtp_tmp="${rtp_dest}.new.$$"
-            local rtp_url="${GITHUB_RAW}/mtproxy-client/builds/${rtp_bin}"
+            local rtp_url="${GITHUB_RAW}/rt-proxy/builds/${rtp_bin}"
             # Download-to-temp → validate → atomic mv. НЕ удаляем рабочий
             # бинарник до того как новый скачан и проверен: transient fetch-fail
             # НЕ должен оставить router без z2k-rt-proxy.
@@ -4243,31 +4157,30 @@ step_finalize() {
         fi
     fi
 
-    # Cleanup legacy WS proxy init script (replaced by tunnel)
-    if [ -x /opt/etc/init.d/S97tg-mtproxy ]; then
-        /opt/etc/init.d/S97tg-mtproxy stop >/dev/null 2>&1 || true
+    # Удалить прежний Go/VPS Telegram-клиент и его правила при обновлении.
+    # Настройки TG_PROXY_USER_DISABLED и остальные значения config сохраняются.
+    for _legacy_svc in /opt/etc/init.d/S98tg-tunnel /opt/etc/init.d/S97z2k-http-tunnel; do
+        [ -x "$_legacy_svc" ] && "$_legacy_svc" stop >/dev/null 2>&1 || true
+    done
+    if command -v pidof >/dev/null 2>&1; then
+        for _legacy_pid in $(pidof tg-mtproxy-client 2>/dev/null); do
+            kill "$_legacy_pid" 2>/dev/null || true
+        done
     fi
-    rm -f /opt/etc/init.d/S97tg-mtproxy 2>/dev/null
+    sleep 1
+    if command -v pidof >/dev/null 2>&1; then
+        for _legacy_pid in $(pidof tg-mtproxy-client 2>/dev/null); do
+            kill -9 "$_legacy_pid" 2>/dev/null || true
+        done
+    fi
+    rm -f /opt/sbin/tg-mtproxy-client \
+        /opt/etc/init.d/S97tg-mtproxy /opt/etc/init.d/S98tg-tunnel \
+        /opt/etc/init.d/S97z2k-http-tunnel \
+        /opt/etc/ndm/netfilter.d/90-z2k-tg-redirect.sh \
+        /opt/etc/ndm/netfilter.d/91-z2k-http-tunnel-redirect.sh \
+        /opt/zapret2/tg-tunnel-watchdog.sh /opt/zapret2/z2k-tg-redirect.sh
 
-    # Install/update Telegram tunnel support files regardless of whether the
-    # tunnel is currently enabled. This is important for existing installs:
-    # an old S98tg-tunnel that ignores TG_PROXY_USER_DISABLED would otherwise
-    # remain on disk and resurrect the tunnel on the next reboot.
     mkdir -p /opt/etc/init.d /opt/etc/ndm/netfilter.d /opt/zapret2
-    # Fail-closed (Codex 2026-05-28): TG/HTTP-tunnel init-скрипты, NDM-хуки и
-    # watchdog деплоятся критично. Провал (incomplete WORK_DIR / disk-full) →
-    # return 1 → z2k_restore_old_tree вернёт прежнюю рабочую установку, а не
-    # закоммитит router без tunnel-инфры.
-    # Shared TG-redirect helper lib (ipset + -w-locked rules) — must land
-    # before the init script / NDM hook / watchdog that source it.
-    deploy_critical_file "files/z2k-tg-redirect.sh"              "/opt/zapret2/z2k-tg-redirect.sh" || return 1
-    # TLS anchors for the relay, deployed BEFORE the init that exports SSL_CERT_FILE.
-    # Go uses the system trust store and some Keenetic firmwares carry no ISRG root at
-    # all, which kills the tunnel with "certificate signed by unknown authority" until
-    # someone runs `opkg install ca-certificates` — impossible on a router whose opkg is
-    # broken. Carrying the roots removes that dependency entirely.
-    mkdir -p "${ZAPRET2_DIR}/etc" 2>/dev/null
-    deploy_critical_file "files/etc/z2k-roots.pem"               "${ZAPRET2_DIR}/etc/z2k-roots.pem" || return 1
 
     # Публичный ключ, которым проверяется подпись манифеста обновлений.
     #
@@ -4278,11 +4191,6 @@ step_finalize() {
     # в репозиторий не попадает никогда.
     z2k_guard_key_swap || return 1
     deploy_critical_file "files/etc/z2k-update-pub.pem"          "${ZAPRET2_DIR}/etc/z2k-update-pub.pem" || return 1
-    deploy_critical_file "files/init.d/S98tg-tunnel"             "/opt/etc/init.d/S98tg-tunnel" || return 1
-    deploy_critical_file "files/ndm/90-z2k-tg-redirect.sh"        "/opt/etc/ndm/netfilter.d/90-z2k-tg-redirect.sh" || return 1
-    print_success "Keenetic NDM hook установлен (auto-restore iptables)"
-    deploy_critical_file "files/init.d/S97z2k-http-tunnel"        "/opt/etc/init.d/S97z2k-http-tunnel" || return 1
-    deploy_critical_file "files/ndm/91-z2k-http-tunnel-redirect.sh" "/opt/etc/ndm/netfilter.d/91-z2k-http-tunnel-redirect.sh" || return 1
     deploy_critical_file "files/init.d/S96z2k-rt-proxy"            "/opt/etc/init.d/S96z2k-rt-proxy" || return 1
     deploy_critical_file "files/ndm/92-z2k-rt-proxy-redirect.sh"    "/opt/etc/ndm/netfilter.d/92-z2k-rt-proxy-redirect.sh" || return 1
     # WARP: init движка z2k-warpd (start/stop; без бинаря — exit 0) и NDM-хук,
@@ -4291,7 +4199,6 @@ step_finalize() {
     # Soft: режим опционален, провал деплоя не должен ронять установку.
     deploy_critical_file "files/init.d/S51z2k-warp"                 "/opt/etc/init.d/S51z2k-warp" || print_warning "warp: init deploy failed (режим WARP будет недоступен)"
     deploy_critical_file "files/ndm/93-z2k-warp.sh"                 "/opt/etc/ndm/netfilter.d/93-z2k-warp.sh" || print_warning "warp: NDM hook deploy failed (маршрут WARP восстановится самолечением в течение минуты)"
-    deploy_critical_file "files/z2k-tg-watchdog.sh"               "/opt/zapret2/tg-tunnel-watchdog.sh" || return 1
 
     # NFQUEUE self-heal: scheduler fires it ~1×/min to re-apply the firewall when
     # nfqws2 is up but its NFQUEUE rules are gone (boot-race WAN-skip / NDM wipe).
@@ -4318,80 +4225,7 @@ step_finalize() {
     # fail the install; the init-level OOM protection is the primary guard.
     deploy_critical_file "files/ndm/95-z2k-scheduler-watchdog.sh" "/opt/etc/ndm/netfilter.d/95-z2k-scheduler-watchdog.sh" || print_warning "scheduler-watchdog: NDM hook deploy failed"
 
-    # tg-tunnel-watchdog used to be triggered via `* * * * *` cron, but
-    # Vixie cron on Keenetic Entware doesn't reload added entries (see
-    # r-26 notes). z2k-scheduler.sh now fires the watchdog ~1×/min.
-    # Strip the legacy cron entry on every reinstall so it doesn't
-    # mislead diagnostics.
-    if command -v crontab >/dev/null 2>&1; then
-        crontab -l 2>/dev/null | grep -vE "tg-tunnel-watchdog|S97tg-mtproxy" | crontab - 2>/dev/null || true
-        z2k_fix_cron_perms
-    fi
-
-    # Auto-start Telegram tunnel — but respect TG_PROXY_USER_DISABLED on
-    # reinstalls so we don't resurrect a tunnel the user explicitly stopped.
-    local _tg_disabled=0
-    if [ -f "/opt/zapret2/config" ]; then
-        _tg_disabled=$(awk -F= '/^TG_PROXY_USER_DISABLED=/ {gsub(/[" ]/,"",$2); print $2; exit}' /opt/zapret2/config)
-    fi
-    if [ -x "/opt/sbin/tg-mtproxy-client" ] && [ "$_tg_disabled" != "1" ]; then
-        if [ -x /opt/etc/init.d/S98tg-tunnel ]; then
-            /opt/etc/init.d/S98tg-tunnel restart >/dev/null 2>&1
-        else
-            # Fallback only when init.d is missing — kill any :1443 sibling
-            # (not :1444 — that's S97z2k-http-tunnel, same binary), then
-            # start with proper daemonization to survive on MIPS.
-            for p in $(pidof tg-mtproxy-client 2>/dev/null); do
-                tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q -- "--listen=:1443" && kill "$p" 2>/dev/null
-            done
-            sleep 1
-            # CWE-59: root-owned 0700 log dir
-            # CWE-59: /tmp/z2k-log должен быть чистым root-owned каталогом. symlink /
-            # не-каталог / чужой владелец = возможная подмена атакующим (с planted
-            # symlink'ами внутри) → снести и создать заново. busybox `stat -c` нет —
-            # владельца берём из `ls -ld`.
-            if [ -L /tmp/z2k-log ] || { [ -e /tmp/z2k-log ] && [ ! -d /tmp/z2k-log ]; } || \
-               { [ -d /tmp/z2k-log ] && [ "$(ls -ld /tmp/z2k-log 2>/dev/null | awk '{print $3}')" != root ]; }; then
-                rm -rf /tmp/z2k-log 2>/dev/null
-            fi
-            mkdir -p /tmp/z2k-log 2>/dev/null && chown root /tmp/z2k-log 2>/dev/null
-            chmod 700 /tmp/z2k-log 2>/dev/null
-            ( trap '' HUP; exec /opt/sbin/tg-mtproxy-client --listen=:1443 --timeout=15m -v </dev/null >> /tmp/z2k-log/tg-tunnel.log 2>&1 ) &
-        fi
-        sleep 2
-
-        # Check for :1443 instance specifically — not just any tg-mtproxy
-        # (S97 :1444 would give a false positive).
-        tg_1443_alive=0
-        for p in $(pidof tg-mtproxy-client 2>/dev/null); do
-            tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q -- "--listen=:1443" && { tg_1443_alive=1; break; }
-        done
-        if [ "$tg_1443_alive" = "1" ]; then
-            print_success "Telegram tunnel запущен автоматически"
-        else
-            print_warning "Не удалось запустить Telegram tunnel (можно включить позже через меню [T])"
-        fi
-    elif [ "$_tg_disabled" = "1" ]; then
-        if [ -x /opt/etc/init.d/S98tg-tunnel ]; then
-            /opt/etc/init.d/S98tg-tunnel stop >/dev/null 2>&1
-        else
-            for p in $(pidof tg-mtproxy-client 2>/dev/null); do
-                tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q -- "--listen=:1443" && kill "$p" 2>/dev/null
-            done
-        fi
-        print_info "Telegram tunnel не запущен — отключён пользователем"
-    fi
-
-    # Aux init.d daemons that ride alongside S98tg-tunnel and share the
-    # same tg-mtproxy-client binary. Start unconditionally — no user-facing
-    # toggle. Silent on restart so it doesn't surface in install output.
-    if [ -x /opt/sbin/tg-mtproxy-client ] && [ -x /opt/etc/init.d/S97z2k-http-tunnel ]; then
-        /opt/etc/init.d/S97z2k-http-tunnel restart >/dev/null 2>&1 || true
-    fi
-
-    # RuTracker rt-proxy aux daemon. Start unconditionally — no user-facing
-    # toggle (same model as S97z2k-http-tunnel). Silent on restart. The init
-    # script's start() sets the ndmc DNS-override + sentinel REDIRECT itself.
+    # RuTracker rt-proxy aux daemon. Its init script applies its DNS and redirect state.
     if [ -x /opt/sbin/z2k-rt-proxy ] && [ -x /opt/etc/init.d/S96z2k-rt-proxy ]; then
         /opt/etc/init.d/S96z2k-rt-proxy restart >/dev/null 2>&1 || true
     fi
@@ -4460,7 +4294,7 @@ step_finalize() {
                 fi
             fi
             if $zd_valid; then
-                # Возврат снапшота проверяется — см. пояснение у tg-mtproxy-client
+                # Возврат снапшота проверяется — см. пояснение у z2k-rt-proxy
                 # выше: отказ снапшота сохраняет рабочий бинарник.
                 if ! z2k_snapshot_external "$zd_dest"; then
                     rm -f "$zd_tmp"
@@ -4837,7 +4671,7 @@ ROLLBACK_DIR_LEGACY="/opt/zapret2/.rollback"
 # Бинарники, которые переустановка заменяет. Лежат вне ZAPRET2_DIR, поэтому
 # транзакционный .old.$$ их не покрывает — без явного сохранения регрессия в
 # любом из них необратима на месте.
-ROLLBACK_SBIN_BINS="tg-mtproxy-client z2k-rt-proxy z2k-detect z2k-warpd"
+ROLLBACK_SBIN_BINS="z2k-rt-proxy z2k-detect z2k-warpd"
 
 # Сколько килобайт держать свободными на /opt после сохранения бинарников.
 # Снапшот не должен становиться причиной того, что установке не хватит места
@@ -5066,14 +4900,11 @@ rollback_to_snapshot() {
     return 0
 }
 
-# Init-скрипты, владеющие бинарником. У tg-mtproxy-client их два: S98tg-tunnel
-# держит :1443 (Telegram), S97z2k-http-tunnel — :1444 (cdnbase). Оба гоняют один
-# и тот же файл, поэтому подменять его можно только остановив оба.
+# Init-скрипты, владеющие обновляемыми бинарниками.
 _rollback_service_for_binary() {
     case "$1" in
         z2k-rt-proxy)      echo "/opt/etc/init.d/S96z2k-rt-proxy" ;;
         z2k-warpd)         echo "/opt/etc/init.d/S51z2k-warp" ;;
-        tg-mtproxy-client) echo "/opt/etc/init.d/S98tg-tunnel /opt/etc/init.d/S97z2k-http-tunnel" ;;
         *)                 echo "" ;;
     esac
 }
@@ -5143,8 +4974,7 @@ _rollback_pids_matching() {
 # наутро, что Telegram лежит уже с ночи.
 _rollback_restart_binary_services() {
     local svc
-    for svc in /opt/etc/init.d/S96z2k-rt-proxy /opt/etc/init.d/S98tg-tunnel \
-               /opt/etc/init.d/S97z2k-http-tunnel /opt/etc/init.d/S98z2k-detect; do
+    for svc in /opt/etc/init.d/S96z2k-rt-proxy /opt/etc/init.d/S98z2k-detect; do
         [ -x "$svc" ] || continue
         "$svc" start 2>&1 | sed "s|^|  ${svc##*/}: |"
     done
@@ -5168,7 +4998,7 @@ _rollback_verify_daemons() {
     done
     if [ -n "$failed" ]; then
         print_warning "После отката не работают:${failed}"
-        print_warning "Запустите вручную: /opt/etc/init.d/S98tg-tunnel start ; /opt/etc/init.d/S96z2k-rt-proxy start"
+        print_warning "Запустите вручную: /opt/etc/init.d/S96z2k-rt-proxy start"
         return 1
     fi
     print_success "Восстановленные демоны работают"

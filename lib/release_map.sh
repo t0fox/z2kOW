@@ -88,12 +88,6 @@ z2k_install_paths_for() {
             # /opt/etc/init.d (Entware standard), not into $ZAPRET2_DIR.
             echo "/opt/etc/init.d/S96z2k-rt-proxy"
             ;;
-        files/init.d/S98tg-tunnel)
-            # TG-tunnel supervisor — install.sh copies to /opt/etc/init.d,
-            # NOT into $ZAPRET2_DIR. Without this case a patch misplaced it to
-            # ${zd}/init.d/ (via files/init.d/* below), missing the live script.
-            echo "/opt/etc/init.d/S98tg-tunnel"
-            ;;
         files/init.d/S99z2k-scheduler)
             # Same trap, found by the completeness test rather than by another field failure:
             # install.sh:2770 deploys it to /opt/etc/init.d, so a patch touching the scheduler
@@ -105,10 +99,6 @@ z2k_install_paths_for() {
             # $ZAPRET2_DIR. Without this case a patch touching it lands in ${zd}/init.d/ and is
             # silently lost while installed_tag advances — the r-59.9 failure, again.
             echo "/opt/etc/init.d/S51z2k-warp"
-            ;;
-        files/init.d/S97z2k-http-tunnel)
-            # http-tunnel supervisor — same /opt/etc/init.d placement as above.
-            echo "/opt/etc/init.d/S97z2k-http-tunnel"
             ;;
         files/ndm/92-z2k-rt-proxy-redirect.sh)
             echo "/opt/etc/ndm/netfilter.d/92-z2k-rt-proxy-redirect.sh"
@@ -226,8 +216,6 @@ _z2k_install_paths_openwrt() {
             # Остальные files/*.sh — будущие feature layers, каждый добавит
             # свой маппинг вместе с исполнителем (молча не теряются: drift-тест).
             echo "${or}/z2k-config-validator.sh" ;;
-        files/etc/z2k-roots.pem)
-            : ;; # Rust TG WS Proxy использует закреплённый набор WebPKI; этот PEM нужен старому туннелю Keenetic.
         files/etc/z2k-update-pub.pem)
             : ;; # legacy updater authority; OpenWrt trusts only staged release-keys
         # Keenetic file-updater destinations. OpenWrt deployment bypasses
