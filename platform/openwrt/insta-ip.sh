@@ -134,9 +134,15 @@ z2k_ow_insta_flush_ip() {
 z2k_ow_insta_resolve_hosts() {
     local _hosts="$*" _cache="${Z2K_INSTA_CACHE_FILE:-${Z2K_STATE:-/etc/z2k/state}/insta-ip-candidates}"
     local _now="${Z2K_INSTA_NOW:-$(date +%s)}" _grace="${Z2K_INSTA_CACHE_STALE_GRACE:-86400}"
+    local _budget="${Z2K_INSTA_DOH_TOTAL_TIMEOUT:-30}" _started _deadline _deadline_hit=0
+    local _remaining _request_timeout
     local _work="${_cache}.z2k.$$" _host _endpoint _name _ip _path _rest _tmp _result _found _rc
     case "$_now" in ''|*[!0-9]*) return 1 ;; esac
     case "$_grace" in ''|*[!0-9]*) _grace=86400 ;; esac
+    case "$_budget" in ''|*[!0-9]*|0) _budget=30 ;; esac
+    _started=$(date +%s) || return 1
+    case "$_started" in ''|*[!0-9]*) return 1 ;; esac
+    _deadline=$((_started + _budget))
     [ ! -L "$_cache" ] || return 1
     [ ! -e "$_cache" ] || [ -f "$_cache" ] || return 1
     command -v curl >/dev/null 2>&1 || return 1
@@ -158,15 +164,29 @@ z2k_ow_insta_resolve_hosts() {
 
     _found=0
     for _host in $_hosts; do
+        if [ "$_deadline_hit" != 1 ] && [ "$(date +%s)" -ge "$_deadline" ]; then
+            _deadline_hit=1
+        fi
         case "$_host" in ''|*[!a-zA-Z0-9.-]*) continue ;; esac
         for _endpoint in 'cloudflare-dns.com|1.1.1.1|dns-query' \
             'dns.google|8.8.8.8|resolve' 'dns.adguard-dns.com|94.140.14.14|resolve'; do
+            if [ "$_deadline_hit" = 1 ] || [ "$(date +%s)" -ge "$_deadline" ]; then
+                _deadline_hit=1
+                break
+            fi
+            _remaining=$((_deadline - $(date +%s)))
+            if [ "$_remaining" -le 0 ]; then
+                _deadline_hit=1
+                break
+            fi
+            _request_timeout=8
+            [ "$_remaining" -ge "$_request_timeout" ] || _request_timeout=$_remaining
             _name="${_endpoint%%|*}"
             _rest="${_endpoint#*|}"
             _ip="${_rest%%|*}"
             _path="${_rest#*|}"
             rm -f "$_tmp"
-            if ! curl --fail --silent --show-error --connect-timeout 3 --max-time 8 \
+            if ! curl --fail --silent --show-error --connect-timeout 3 --max-time "$_request_timeout" \
                 --resolve "$_name:443:$_ip" -H 'accept: application/dns-json' \
                 "https://$_name/$_path?name=$_host&type=A" -o "$_tmp" 2>/dev/null; then
                 continue
@@ -204,6 +224,8 @@ z2k_ow_insta_resolve_hosts() {
             fi
         fi
     done
+    [ "$_deadline_hit" = 0 ] || printf '%s\n' \
+        "Срок прямых DoH-запросов исчерпан; использованы доступные записи кэша" >&2
     rm -f "$_tmp"
     if [ "$_found" = 1 ]; then
         sort -u "$_work" -o "$_work" || { rm -f "$_work"; return 1; }

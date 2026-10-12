@@ -151,6 +151,61 @@ else
     _t_ok
 fi
 
+# Даже если каждый отдельный DoH timeout соблюдён, последовательные попытки
+# на всех управляемых hostname не должны занимать несколько минут.
+cat > "$Z2K_INSTA_CACHE_FILE" <<'CACHE'
+4102444800 instagram.com 157.240.1.1 120 cloudflare-dns.com
+4102444800 www.instagram.com 157.240.1.2 120 cloudflare-dns.com
+CACHE
+_deadline_cache_hash=$(sha256sum "$Z2K_INSTA_CACHE_FILE" | awk '{print $1}')
+unset Z2K_INSTA_NOW
+_path_before_deadline=$PATH
+export T
+printf '0\n' > "$T/date.calls"
+cat > "$T/bin/date" <<'STUB'
+#!/bin/sh
+n=$(cat "$T/date.calls")
+n=$((n + 1))
+printf '%s\n' "$n" > "$T/date.calls"
+case "$n" in
+    1) echo 100 ;;
+    2) echo 101 ;;
+    3) echo 102 ;;
+    4) echo 103 ;;
+    5) echo 104 ;;
+    *) echo 106 ;;
+esac
+STUB
+cat > "$T/bin/curl" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" >> "$INSTA_DOH_TEST_LOG"
+exit 7
+STUB
+chmod 0755 "$T/bin/date" "$T/bin/curl"
+export Z2K_INSTA_DOH_TOTAL_TIMEOUT=5
+: > "$INSTA_DOH_TEST_LOG"
+_deadline_candidates=$(z2k_ow_insta_resolve_hosts instagram.com www.instagram.com 2>/dev/null)
+if [ -n "$_deadline_candidates" ]; then
+    printf '%s\n' "$_deadline_candidates" | grep -q 'instagram.com[[:space:]]157.240.1.1' \
+        && _t_ok || _t_bad "до deadline возвращён кэш первого hostname"
+    printf '%s\n' "$_deadline_candidates" | grep -q 'www.instagram.com[[:space:]]157.240.1.2' \
+        && _t_ok || _t_bad "после deadline сохранён кэш оставшихся hostname"
+    _dns_attempts=$(wc -l < "$INSTA_DOH_TEST_LOG" | tr -d ' ')
+    [ "$_dns_attempts" -le 2 ] \
+        && _t_ok \
+        || _t_bad "общий DoH deadline останавливает последовательные попытки"
+    grep -F -- '--max-time 2 ' "$INSTA_DOH_TEST_LOG" >/dev/null \
+        && _t_ok \
+        || _t_bad "последний curl ограничен оставшимся временем deadline"
+    _deadline_cache_after=$(sha256sum "$Z2K_INSTA_CACHE_FILE" | awk '{print $1}')
+    assert_eq "отказ resolver не меняет кэш" "$_deadline_cache_hash" "$_deadline_cache_after"
+else
+    _t_bad "при отказе DoH возвращается допустимый кэш"
+fi
+unset Z2K_INSTA_DOH_TOTAL_TIMEOUT
+PATH=$_path_before_deadline
+export PATH
+
 printf '# сохранённая настройка\n192.0.2.9 example.net\n192.0.2.8 instagram.com\n' > "$Z2K_INSTA_HOSTS_FILE"
 z2k_ow_insta_replace_hosts instagram.com '57.144.245.32 instagram.com' \
     || _t_bad "атомарная замена сохраняет несвязанные записи"
