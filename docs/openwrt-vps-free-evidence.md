@@ -126,3 +126,8 @@
 Контрольный поиск по committed `platform/openwrt/` и `scripts/openwrt/` по адресам старых VPS, `nip.io` и `vps-relay` (исключая TG-файлы) нашёл одно совпадение: `platform/openwrt/warp.sh` отклоняет сохранённые legacy URL как необязательный proxy. Общие Keenetic transport и Insta-IP relay остаются в shared-файлах, но OpenWrt entry points направляют загрузки через `Z2K_FETCH_VPS_OUT=1`, а Insta-IP использует отдельный прямой DoH адаптер.
 
 Legacy VPS defaults остаются в `files/z2k-warp.sh` и `files/init.d/S51z2k-warp` для Keenetic. OpenWrt WARP adapter больше не имеет встроенного VPS proxy и не вызывает этот launcher; путь clock-skew выбирается по платформе и на OpenWrt использует прямые origin’ы. Полный жизненный цикл релизов остаётся пунктом незавершённой приёмки.
+
+## Прямые внешние API, не являющиеся VPS-зависимостью
+
+- TikTok CDN discovery использует Check-Host как дополнительный источник распределённых DNS-наблюдений (кэш на 6 часов). При его отказе адаптер оставляет локальные DNS/curated-кандидаты и кэш последнего наблюдения, затем проверяет каждый IP по TLS/SNI. Suites `test_ow_tiktok_checkhost.sh` (`25/25`), `test_ow_tiktok_runtime.sh` (`196/196`) и `test_ow_tiktok_cli.sh` (`3/3`) прошли. Проверки используют заглушки, live-доступность Check-Host и CDN отдельно не измерялась.
+- FLOWOFFLOAD benchmark запускается пользователем отдельно и использует прямые endpoints выбранного провайдера: Yandex Internetometer или Cloudflare Speed Test. Если API выбранного провайдера недоступно, benchmark не стартует; основной OpenWrt datapath от него не зависит. `test_ow_offload_benchmark.sh` прошёл `142/142` на детерминированных измерительных заглушках; это не live-замер WAN.
