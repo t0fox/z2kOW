@@ -23,6 +23,7 @@ Z2K_ROOT="$ROOT" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp" \
     sh "$REPO/platform/openwrt/list-refresh.sh" || _t_bad "native list-refresh adapter failed"
 
 assert_contains "full refresh invokes upstream all mode" "$T/captured.env" 'args=all'
+assert_contains "OpenWrt отключает VPS fallback при обновлении списков" "$T/captured.env" 'Z2K_FETCH_VPS_OUT=1'
 assert_contains "full refresh uses OpenWrt service restart" "$T/captured.env" "INIT_SCRIPT=/etc/init.d/z2k"
 assert_contains "full refresh supplies OpenWrt WARP list hook" "$T/captured.env" "Z2K_WARP_IPSET_SCRIPT=$ROOT/platform/openwrt/warp.sh"
 assert_contains "full refresh uses canonical autocircular state" "$T/captured.env" "STATE_FILE=$T/etc/autocircular/state.tsv"

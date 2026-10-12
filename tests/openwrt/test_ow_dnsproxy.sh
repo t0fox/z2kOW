@@ -4,6 +4,11 @@ _t_plan ow-dnsproxy
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 T=$(mktemp -d "${TMPDIR:-/tmp}/ow-dnsproxy.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
+assert_path_presence() {
+    local _description="$1" _expected="$2" _path="$3" _actual
+    if [ -e "$_path" ]; then _actual=0; else _actual=1; fi
+    assert_eq "$_description" "$_expected" "$_actual"
+}
 export T
 mkdir -p "$T/bin" "$T/state"
 export PATH="$T/bin:$PATH" Z2K_STATE="$T/state" Z2K_ROOT="$REPO" Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
@@ -157,7 +162,7 @@ assert_not_contains 'failed post-migration provider switch does not restore stop
 assert_not_contains 'failed post-migration provider switch does not restore stopped legacy route 5054' "$Z2K_DOH_TEST_DB" 'dhcp\.@dnsmasq\[0\]\.server=.*127\.0\.0\.1#5054'
 assert_contains 'failed post-migration provider switch keeps DNS leak protection' "$Z2K_DOH_TEST_DB" "dhcp.@dnsmasq[0].noresolv='1'"
 assert_contains 'failed post-migration provider switch restores previous upstream config' "$Z2K_DOH_TEST_DB" "dnsproxy.servers.upstream='https://dns.google/dns-query'"
-assert_eq 'failed post-migration provider switch leaves dnsproxy running' 0 "$(test -e "$Z2K_DOH_RUNNING_FILE"; echo $?)"
+assert_path_presence 'failed post-migration provider switch leaves dnsproxy running' 0 "$Z2K_DOH_RUNNING_FILE"
 
 # BusyBox prints the same non-authoritative marker for valid NOERROR/NODATA
 # and dnsproxy's empty response after an upstream exchange error. The latter
@@ -306,8 +311,8 @@ assert_file 'disable restarts the previously running legacy resolver' "$T/legacy
 assert_file 'disable reenables the previously enabled legacy resolver' "$T/legacy-enabled"
 assert_contains 'disable preserves TikTok override' "$Z2K_DOH_TEST_DB" "dhcp.@dnsmasq[0].address='/v77.tiktokcdn.com/203.0.113.9'"
 assert_eq 'enable starts and routes through dnsproxy' 0 "$(z2k_ow_doh_enable >/dev/null 2>&1; echo $?)"
-assert_eq 'enable stops the restored legacy resolver after dnsproxy cutover' 1 "$(test -e "$T/legacy-running"; echo $?)"
-assert_eq 'enable disables the restored legacy resolver after dnsproxy cutover' 1 "$(test -e "$T/legacy-enabled"; echo $?)"
+assert_path_presence 'enable stops the restored legacy resolver after dnsproxy cutover' 1 "$T/legacy-running"
+assert_path_presence 'enable disables the restored legacy resolver after dnsproxy cutover' 1 "$T/legacy-enabled"
 
 printf "dnsproxy.global='dnsproxy'\ndnsproxy.global.user_marker='keep-me'\n" >> "$Z2K_DOH_TEST_DB"
 cp "$Z2K_DOH_TEST_DB" "$T/external-before"
@@ -400,19 +405,19 @@ assert_eq 'migration from an originally stopped and disabled service succeeds' 0
 assert_contains 'migration records originally disabled legacy service' "$Z2K_DOH_OLD_SERVICE_SNAPSHOT" 'enabled=0'
 assert_contains 'migration records originally stopped legacy service' "$Z2K_DOH_OLD_SERVICE_SNAPSHOT" 'running=0'
 assert_eq 'disable preserves the originally stopped and disabled service' 0 "$(z2k_ow_doh_disable >/dev/null 2>&1; echo $?)"
-assert_eq 'disable does not start a legacy service that was originally stopped' 1 "$(test -e "$T/legacy-running"; echo $?)"
-assert_eq 'disable does not enable a legacy service that was originally disabled' 1 "$(test -e "$T/legacy-enabled"; echo $?)"
+assert_path_presence 'disable does not start a legacy service that was originally stopped' 1 "$T/legacy-running"
+assert_path_presence 'disable does not enable a legacy service that was originally disabled' 1 "$T/legacy-enabled"
 
 reset_migration_fixture
 _z2k_ow_doh_uci add_list 'dhcp.@dnsmasq[0].server=127.0.0.1#5353'
 assert_eq 'migration with a preexisting dnsproxy route succeeds' 0 "$(z2k_ow_doh_install >/dev/null 2>&1; echo $?)"
 assert_contains 'migration records the preexisting dnsproxy route' "$Z2K_DOH_ROUTE_SNAPSHOT" 'route_preexisting=1'
 assert_eq 'disable refuses to stop a resolver with a preexisting dnsmasq route' 1 "$(z2k_ow_doh_disable >/dev/null 2>&1; echo $?)"
-assert_eq 'refused disable leaves dnsproxy running' 0 "$(test -e "$Z2K_DOH_RUNNING_FILE"; echo $?)"
-assert_eq 'refused disable leaves dnsproxy enabled' 0 "$(test -e "$Z2K_DOH_ENABLED_FILE"; echo $?)"
+assert_path_presence 'refused disable leaves dnsproxy running' 0 "$Z2K_DOH_RUNNING_FILE"
+assert_path_presence 'refused disable leaves dnsproxy enabled' 0 "$Z2K_DOH_ENABLED_FILE"
 assert_eq 'uninstall refuses to remove a resolver with a preexisting dnsmasq route' 1 "$(z2k_ow_doh_uninstall 1 >/dev/null 2>&1; echo $?)"
-assert_eq 'refused uninstall leaves dnsproxy running' 0 "$(test -e "$Z2K_DOH_RUNNING_FILE"; echo $?)"
-assert_eq 'refused uninstall leaves dnsproxy enabled' 0 "$(test -e "$Z2K_DOH_ENABLED_FILE"; echo $?)"
+assert_path_presence 'refused uninstall leaves dnsproxy running' 0 "$Z2K_DOH_RUNNING_FILE"
+assert_path_presence 'refused uninstall leaves dnsproxy enabled' 0 "$Z2K_DOH_ENABLED_FILE"
 reset_migration_fixture
 cat > "$T/uci-export-https-dns-proxy" <<'UCI'
 config main 'config'
@@ -465,7 +470,7 @@ assert_eq 'migration preserves an aggregated preexisting dnsproxy route' 0 "$(z2
 assert_contains 'aggregated preexisting route is recorded as external ownership' "$Z2K_DOH_ROUTE_SNAPSHOT" 'route_preexisting=1'
 assert_eq 'aggregated preexisting route is not duplicated' 1 "$(grep -F -c '127.0.0.1#5353' "$Z2K_DOH_TEST_DB")"
 assert_eq 'disable refuses to stop dnsproxy while an aggregated preexisting route remains' 1 "$(z2k_ow_doh_disable >/dev/null 2>&1; echo $?)"
-assert_eq 'blocked aggregated-route disable leaves dnsproxy running' 0 "$(test -e "$Z2K_DOH_RUNNING_FILE"; echo $?)"
+assert_path_presence 'blocked aggregated-route disable leaves dnsproxy running' 0 "$Z2K_DOH_RUNNING_FILE"
 
 # The multi-upstream API accepts mixed encrypted protocols in one dnsproxy
 # process, keeps fallback resolvers protected, and rolls the whole profile back.

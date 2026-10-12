@@ -119,7 +119,8 @@ assert_eq "retry does not bulk-clear conntrack" "0" "$(wc -l < "$T/conntrack.log
 
 # Процесс Rust вызывает тот же entry point адаптера; команда проверяет, что
 # диспетчер события возвращает ошибку синхронизации, а не скрывает её.
-if ( . "$REPO/platform/openwrt/tg-check.sh" sync-dc-map ) >"$T/tg-check.log" 2>&1; then
+: > "$T/nft.log"
+if ( set -- sync-dc-map; . "$REPO/platform/openwrt/tg-check.sh" ) >"$T/tg-check.log" 2>&1; then
     _t_ok
 else
     _t_bad "tg-check dispatches sync-dc-map: $(cat "$T/tg-check.log" "$T/nft.log")"
