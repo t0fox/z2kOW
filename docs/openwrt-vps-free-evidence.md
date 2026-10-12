@@ -186,3 +186,7 @@ Fault injection: запись нового hosts-файла и reload dnsmasq з
 ## Повторные non-TG регрессии на `dab1cca8`
 
 На текущей feature-ветке повторно прошли девять изолированных suites: bootstrap download validation `8/8`, manifest mirrors `7/7`, OpenWrt recovery `13/13`, update entry `12/12`, updater failsafe `5/5`, updater state `7/7`, release signing `12/12`, immutable release check `6/6`, release workflow `26/26` — всего `96/96`. Suites запускались отдельно от изменённого другим агентом Telegram installer. Они не проверяют clean install, полный update, transaction rollback и uninstall в QEMU.
+
+## Повторные env/cron/WARP регрессии
+
+На feature-ветке после QEMU Insta-IP fault-injection прошли `test_ow_env.sh` (`34/34`), `test_ow_schedule.sh` (`40/40`), `test_ow_warp_static.sh` (`92/92`), `test_ow_warp_parity.sh` (`39/39`) и `test_ow_warp_archmap.sh` (`6/6`) — всего `211/211`. Они проверяют OpenWrt окружение, cron entry points, фильтрацию старого VPS proxy и архитектурную карту WARP; не подтверждают регистрацию Cloudflare, работу туннеля или lifecycle полного installer. WARP остаётся опциональной функцией.
