@@ -325,3 +325,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## WARP optional-function regressions
 
 12 октября 2026 года на `b0228261` повторно прошли `test_ow_warp_static.sh` `92/92` и `test_ow_warp_parity.sh` `39/39` — `131/131`. Проверки подтверждают статическую конфигурацию и parity WARP-путей; сами по себе они не доказывают полноценный продуктовый VPS-free install/update lifecycle. Telegram не затрагивался.
+
+## Дополнительные WARP lifecycle и функциональные регрессии
+
+12 октября 2026 года на `fe104a97` прошли `test_ow_warp_lifecycle.sh` `440/440`, `test_ow_warp_functional.sh` `160/160`, `test_ow_warp_domain_paths.sh` `9/9`, `test_ow_warp_games_flow.sh` `4/4` и `test_ow_warp_manifest_env.sh` `5/5` — `618/618`. Вместе с повторными static/parity проверками выше это `749/749` WARP assertions. Suites локальные; они подтверждают адаптер, lifecycle, routing и список игр, но не требуют WARP для основного VPS-free режима и не являются live acceptance внешней инфраструктуры.
