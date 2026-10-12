@@ -1,6 +1,7 @@
-# Archived documentation
+# Архив документации
 
-Documents in this directory record retired designs or dated investigations. They are retained for historical context and are not current implementation contracts.
+Здесь сохраняются устаревшие проекты решений и датированные технические исследования. Эти документы полезны для истории и воспроизводимости, **но не являются актуальными контрактами реализации**. Действующие требования: [документация z2kOW](../README.md).
 
-- [`multiwan-2026-09-22.md`](multiwan-2026-09-22.md): WAN discovery investigation.
-- [`rollback-telegram-multiwan-2026-09-22.md`](rollback-telegram-multiwan-2026-09-22.md): retirement decision for the Telegram UDP routing experiment.
+- [\`multiwan-2026-09-22.md\`](multiwan-2026-09-22.md) — исследование обнаружения WAN.
+- [\`rollback-telegram-multiwan-2026-09-22.md\`](rollback-telegram-multiwan-2026-09-22.md) — отказ от экспериментальной UDP-маршрутизации Telegram.
+- [\`upstream-parity-matrix-snapshot-2026-10-12.md\`](upstream-parity-matrix-snapshot-2026-10-12.md) — прежний двуязычный журнал аудитов upstream (p-86.14–p-86.20), сохранённый без изменения результатов. Актуальная [матрица](../UPSTREAM-PARITY-MATRIX.md) ведётся отдельно.
