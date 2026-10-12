@@ -305,7 +305,7 @@ def _category(path: str) -> str | None:
         return "Обновлена интеграция z2kOW с OpenWrt."
     if normalized.startswith(("lib/", "lua/", "files/lua/")) or normalized.startswith(("files/z2k-", "files/S")):
         return "Обновлена логика z2k и конфигурация обработки трафика."
-    if normalized.startswith(("rt-proxy/", "z2k-detect/", "z2k-warpd/", "mtproxy-client/")):
+    if normalized.startswith(("rt-proxy/", "z2k-detect/", "z2k-warpd/", "rt-proxy/")):
         return "Обновлены сетевые компоненты OpenWrt."
     if normalized.startswith("scripts/openwrt/"):
         return "Обновлена интеграция z2kOW с OpenWrt."

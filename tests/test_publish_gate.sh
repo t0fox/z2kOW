@@ -420,30 +420,6 @@ else
     ok "manual-gate матчит CI по стабильному path (.github/workflows/ci.yml), не по переименовываемому name"
 fi
 
-# --- 16. mtproxy-сверка пинует ТОЧНУЮ прод-версию Go, не первый попавшийся ---
-#
-# Живьём воспроизведено: `command -v go` на машине с несколькими тулчейнами
-# нашёл go1.26.1, хотя прод собирается go1.25.13 — сверка байт-в-байт с таким
-# несовпадением либо ложно падает на валидном релизе, либо (хуже) случайно
-# совпадает и ничего не доказывает.
-if grep -q 'GO_VERSION:' "$CI" && grep -qE 'sed -n .s/\^\[\[:space:\]\]\*GO_VERSION' "$REL"; then
-    ok "версия Go для сверки mtproxy читается из GO_VERSION в ci.yml, а не второй раз хардкодится"
-else
-    no "версия Go читается из единого источника (ci.yml GO_VERSION)" "sed по GO_VERSION в release.sh" "не найдено"
-fi
-
-if grep -q '\$HOME/go/bin/go\$_go_ver' "$REL"; then
-    ok "release.sh требует ИМЕННО этот бинарник (\$HOME/go/bin/goX.Y.Z), не bare go из PATH"
-else
-    no "release.sh требует конкретный бинарник, не PATH" '$HOME/go/bin/go$_go_ver' "не найдено"
-fi
-
-if grep -q '"\$_go_actual" = "go\$_go_ver"' "$REL"; then
-    ok "release.sh перепроверяет, что найденный бинарник ДЕЙСТВИТЕЛЬНО сообщает нужную версию (не просто верит имени файла)"
-else
-    no "release.sh перепроверяет версию через go version" '"$_go_actual" = "go$_go_ver"' "не найдено"
-fi
-
 # --- 17. CDN не гоняется, если публикация фактически не сдвинула ветку -------
 #
 # publish, встретив устаревшего кандидата, раньше делал `exit 0` (успех) без

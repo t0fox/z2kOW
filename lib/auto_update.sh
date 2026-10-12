@@ -998,7 +998,7 @@ au_step_refresh_binaries() {
         _rb_want=$(au_manifest_file_sha "$manifest" "$_rb_path")
         # ОБНОВЛЯЕМ, А НЕ СТАВИМ. Отсутствующий бинарник — это не «его надо
         # доставить», а «его тут не должно быть»: z2k-warpd ставится только
-        # кнопкой «Установить WARP», а tg-mtproxy-client и z2k-detect — самой
+        # кнопкой «Установить WARP», а сетевые адаптеры и z2k-detect — самой
         # установкой. Без этой проверки шаг тянул семь мегабайт движка WARP на
         # роутеры, где WARP никто не включал, и панель после этого показывала
         # его установленным.
@@ -1020,7 +1020,7 @@ au_step_refresh_binaries() {
         # кнопке. Список короткий и держится рядом с причиной.
         if [ ! -f "$_rb_dest" ]; then
             case "$_rb_name" in
-                z2k-detect|tg-mtproxy-client|z2k-rt-proxy)
+                z2k-detect|z2k-rt-proxy)
                     au_log "refresh-binaries: $_rb_name отсутствует — ставлю (базовый компонент)" ;;
                 *)
                     continue ;;
@@ -1112,9 +1112,7 @@ au_step_refresh_binaries() {
     return 0
 }
 
-# Init-скрипты, владеющие бинарником. У tg-mtproxy-client их два: S98tg-tunnel
-# держит :1443 (Telegram), S97z2k-http-tunnel — :1444 (cdnbase); оба гоняют один
-# файл, поэтому подменять его можно только остановив оба.
+# Init-скрипты, владеющие обновляемыми бинарниками.
 au_service_for_binary() {
     case "$1" in
         z2k-rt-proxy)
@@ -1138,17 +1136,6 @@ au_service_for_binary() {
                 echo "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/warp-proc.sh"
             else
                 echo "/opt/etc/init.d/S51z2k-warp"
-            fi ;;
-        tg-mtproxy-client)
-            # COMMON_HOOK (openwrt TG, см. docs/openwrt-telegram-contract.md §11):
-            # на OpenWrt keenetic-пути не +x и координация молча пропускалась —
-            # бинарник менялся под живым procd-процессом. Здесь единственный
-            # владелец — сервис z2k целиком (TG instance — его часть): stop →
-            # atomic replace → start переиспользует init-конвергенцию.
-            if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
-                echo "/etc/init.d/z2k"
-            else
-                echo "/opt/etc/init.d/S98tg-tunnel /opt/etc/init.d/S97z2k-http-tunnel"
             fi ;;
     esac
 }
@@ -2081,8 +2068,8 @@ EOF
 
     # 5) smart restart — figure out which services actually need to be
     # bounced based on which files changed. Without this, patches that
-    # replace init.d scripts (e.g. p-27 replaced S98tg-tunnel) leave the
-    # OLD code still running in memory until reboot — defeats the point
+    # replace init.d scripts leave the OLD code running in memory until
+    # reboot — defeats the point
     # of shipping the fix. S99zapret2 always restarts because the nfqws2
     # input set (lua / hostlists / config / fake blobs) goes through it.
     local restart_set="S99zapret2"
@@ -2090,8 +2077,6 @@ EOF
     local f
     while IFS= read -r f; do
         case "$f" in
-            files/init.d/S98tg-tunnel)         restart_set="$restart_set S98tg-tunnel" ;;
-            files/init.d/S97z2k-http-tunnel)   restart_set="$restart_set S97z2k-http-tunnel" ;;
             files/init.d/S96z2k-rt-proxy)      restart_set="$restart_set S96z2k-rt-proxy" ;;
             files/init.d/S51z2k-warp)          restart_set="$restart_set S51z2k-warp" ;;
             files/init.d/S99z2k-scheduler)     restart_set="$restart_set S99z2k-scheduler" ;;
@@ -2367,12 +2352,11 @@ au_health_check() {
 # может сломать обновление, и это не зависит ни от одного флага фич. Ту же
 # логику мы уже применяем к nfqws2 (Z2K_AU_NFQWS_WAS_ALIVE).
 au_services_list() {
-    printf '%s\n' S98tg-tunnel S96z2k-rt-proxy S99z2k-scheduler S96z2k-webpanel
+    printf '%s\n' S96z2k-rt-proxy S99z2k-scheduler S96z2k-webpanel
 }
 
 au_service_pattern() {
     case "$1" in
-        S98tg-tunnel)      printf 'tg-mtproxy-client' ;;
         S96z2k-rt-proxy)   printf 'rt-proxy' ;;
         S99z2k-scheduler)  printf 'z2k-scheduler' ;;
         S96z2k-webpanel)   printf 'lighttpd' ;;

@@ -208,19 +208,65 @@ SIGNATURE_URL="$MANIFEST_URL.sig"
 progress "обновляю список системных программ"
 apk update || die "не удалось обновить индексы системных зависимостей"
 progress "устанавливаю средства проверки подписи и состава архива"
-apk add ca-bundle openssl-util jsonfilter || die "не удалось установить системные средства проверки подписи"
+apk add ca-bundle openssl-util jsonfilter curl || die "не удалось установить системные средства проверки подписи"
 for _tool in awk df grep openssl readlink sha256sum tar tr xargs; do
     command -v "$_tool" >/dev/null 2>&1 || die "необходимая системная команда отсутствует: $_tool"
 done
 command -v jsonfilter >/dev/null 2>&1 || die "после установки системных зависимостей отсутствует jsonfilter"
 
-if command -v wget >/dev/null 2>&1; then
-    download() { wget -q -T 60 -O "$2" "$1"; }
-elif command -v curl >/dev/null 2>&1; then
+if command -v curl >/dev/null 2>&1; then
     download() { curl --fail --location --silent --show-error --connect-timeout 10 --max-time 600 -o "$2" "$1"; }
+elif command -v wget >/dev/null 2>&1; then
+    download() { wget -q -T 15 -O "$2" "$1"; }
 else
     die "нужен wget или curl"
 fi
+
+# Релизные зеркала считаются транспортом, а не источником доверия:
+# принимаются только байты с размером и SHA-256 из подписанного манифеста.
+download_verified_artifact() {
+    _source_url="$1" _destination="$2" _want_size="$3" _want_sha="$4"
+    _download_tmp="${_destination}.download.$$"
+    _download_sources="$_source_url"
+    case "$_source_url" in
+        https://github.com/t0fox/z2kOW/releases/download/*)
+            _download_sources="$_download_sources https://ghproxy.net/$_source_url https://gh-proxy.com/$_source_url ${Z2K_OW_RELEASE_MIRRORS:-}"
+            ;;
+    esac
+    _download_bad_payload=0 _download_bad_size=0 _download_bad_sha=0 _download_rc=1
+    for _download_candidate in $_download_sources; do
+        case "$_download_candidate" in https://*/*|http://*/*) ;; *) continue ;; esac
+        rm -f "$_download_tmp"
+        if download "$_download_candidate" "$_download_tmp"; then
+            :
+        else
+            _download_rc=$?
+            continue
+        fi
+        _got_size=$(wc -c < "$_download_tmp" 2>/dev/null | tr -d ' \t\r\n')
+        if [ "$_got_size" != "$_want_size" ]; then
+            _download_bad_payload=1 _download_bad_size=1
+            continue
+        fi
+        _got_sha=$(sha256sum "$_download_tmp" 2>/dev/null | awk '{print $1}')
+        if [ "$_got_sha" = "$_want_sha" ]; then
+            mv -f "$_download_tmp" "$_destination" || { rm -f "$_download_tmp"; return 1; }
+            return 0
+        fi
+        _download_bad_payload=1 _download_bad_sha=1
+    done
+    rm -f "$_download_tmp"
+    if [ "$_download_bad_size" = 1 ] && [ "$_download_bad_sha" != 1 ]; then
+        echo "размер архива файлов роутера не совпал с проверенным UPDATES.json ни на одном источнике" >&2
+    elif [ "$_download_bad_sha" = 1 ] && [ "$_download_bad_size" != 1 ]; then
+        echo "SHA-256 архива файлов роутера не совпал с проверенным UPDATES.json ни на одном источнике" >&2
+    elif [ "$_download_bad_payload" = 1 ]; then
+        echo "размер и SHA-256 архива файлов роутера не совпали с проверенным UPDATES.json на источниках" >&2
+    else
+        echo "не удалось получить архив релиза ни из одного HTTPS источника: $_source_url (код $_download_rc)" >&2
+    fi
+    return 1
+}
 
 # Служебные файлы и временная копия установочного кода остаются во временном
 # каталоге. Сжатый архив будет записан в существующий каталог транзакции ниже.
@@ -254,32 +300,68 @@ ENGINE="$TMP/engine"
 value() { jsonfilter -i "$MANIFEST" -e "@.$1" 2>/dev/null | head -n 1; }
 value_type() { jsonfilter -i "$MANIFEST" -t "@.$1" 2>/dev/null | head -n 1; }
 
-progress "получаю манифест выпусков"
-download "$MANIFEST_URL" "$MANIFEST" || die "не удалось получить проверенный UPDATES.json"
-_key_id=$(value signing.key_id)
-printf '%s' "$_key_id" | grep -Eq '^[0-9a-f]{64}$' \
-    || die "проверенный UPDATES.json содержит неверный идентификатор ключа подписи"
+fetch_verified_manifest() {
+    _manifest_verified=0
+    # Предпочитать независимый CDN по умолчанию: DNS raw-origin в тестовой сети задерживался.
+    # Явно заданный приёмочный источник сохраняет свой приоритет.
+    if [ "${_acceptance_source:-0}" = 1 ]; then
+        _manifest_bases="$BASE https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main"
+    else
+        _manifest_bases="https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main $BASE"
+    fi
+    for _manifest_base in $_manifest_bases; do
+        _candidate_manifest="$TMP/UPDATES.candidate.json"
+        _candidate_signature="$_candidate_manifest.sig"
+        _candidate_pubkey="$_candidate_manifest.pub"
+        rm -f "$_candidate_manifest" "$_candidate_signature" "$_candidate_pubkey"
+        download "$_manifest_base/UPDATES.json" "$_candidate_manifest" || continue
+        MANIFEST="$_candidate_manifest"
+        _key_id=$(value signing.key_id)
+        printf '%s' "$_key_id" | grep -Eq '^[0-9a-f]{64}$' || continue
+        case " $BOOTSTRAP_TRUSTED_KEY_IDS " in
+            *" $_key_id "*) ;;
+            *) continue ;;
+        esac
+        download "$_manifest_base/scripts/openwrt/release-keys/$_key_id.pub" "$_candidate_pubkey" || continue
+        _actual_key_id=$(openssl pkey -pubin -in "$_candidate_pubkey" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')
+        [ "$_actual_key_id" = "$_key_id" ] || continue
+        download "$_manifest_base/UPDATES.json.sig" "$_candidate_signature" || continue
+        if openssl pkeyutl -verify -rawin -pubin -inkey "$_candidate_pubkey" \
+            -in "$_candidate_manifest" -sigfile "$_candidate_signature" >/dev/null 2>&1; then
+            cp "$_candidate_manifest" "$TMP/UPDATES.json" \
+                && cp "$_candidate_signature" "$TMP/UPDATES.json.sig" \
+                && cp "$_candidate_pubkey" "$TMP/z2k-update-pub.pem" \
+                || return 1
+            MANIFEST_URL="$_manifest_base/UPDATES.json"
+            SIGNATURE_URL="$_manifest_base/UPDATES.json.sig"
+            _manifest_verified=1
+            break
+        fi
+    done
+    MANIFEST="$TMP/UPDATES.json"
+    [ "$_manifest_verified" = 1 ]
+}
 
-# Этот ключ закреплён в самом установщике. Если загружать его рядом с
-# манифестом, подменённый манифест сможет подменить и собственный корень доверия.
+progress "получаю и проверяю подписанный манифест выпусков"
+_manifest_verified=0
 if [ "$_acceptance_source" = 1 ]; then
+    download "$MANIFEST_URL" "$MANIFEST" || die "не удалось получить проверенный UPDATES.json"
+    _key_id=$(value signing.key_id)
+    printf '%s' "$_key_id" | grep -Eq '^[0-9a-f]{64}$' \
+        || die "проверенный UPDATES.json содержит неверный идентификатор ключа подписи"
     cp "$Z2KOW_TRUST_KEY" "$PUBKEY" || die "не удалось подготовить приёмочный открытый ключ"
+    download "$SIGNATURE_URL" "$SIGNATURE" || die "нет подписи проверенного UPDATES.json; релиз не опубликован"
+    _actual_key_id=$(openssl pkey -pubin -in "$PUBKEY" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')
+    [ "$_actual_key_id" = "$_key_id" ] || die "отпечаток ключа выпуска не совпадает с проверенным UPDATES.json"
+    openssl pkeyutl -verify -rawin -pubin -inkey "$PUBKEY" \
+        -in "$MANIFEST" -sigfile "$SIGNATURE" >/dev/null 2>&1 \
+        || die "подпись проверенного UPDATES.json неверна"
+    _manifest_verified=1
 else
-    case " $BOOTSTRAP_TRUSTED_KEY_IDS " in
-        *" $_key_id "*) ;;
-        *) die "манифест ссылается на незакреплённый ключ выпуска" ;;
-    esac
-    download "$BASE/scripts/openwrt/release-keys/$_key_id.pub" "$PUBKEY" \
-        || die "не удалось получить закреплённый открытый ключ выпуска"
+    fetch_verified_manifest \
+        || die "прямой источник и проверяемое зеркало не предоставили валидную подпись UPDATES.json"
 fi
-_actual_key_id=$(openssl pkey -pubin -in "$PUBKEY" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')
-[ "$_actual_key_id" = "$_key_id" ] || die "отпечаток ключа выпуска не совпадает с проверенным UPDATES.json"
-
-download "$SIGNATURE_URL" "$SIGNATURE" || die "нет подписи проверенного UPDATES.json; релиз не опубликован"
-progress "проверяю подпись манифеста выпусков"
-openssl pkeyutl -verify -rawin -pubin -inkey "$PUBKEY" \
-    -in "$MANIFEST" -sigfile "$SIGNATURE" >/dev/null 2>&1 \
-    || die "подпись проверенного UPDATES.json неверна"
+progress "подпись UPDATES.json подтверждена закреплённым ключом"
 
 _schema=$(value schema)
 _branch=$(value branch)
@@ -370,7 +452,8 @@ z2k_ow_disk_preflight "$_install_work" "$_size" "${_unpacked:-0}" \
 
 ARTIFACT_OWNED=1
 progress "скачиваю архив выбранной архитектуры"
-download "$_url" "$ARTIFACT" || die "не удалось скачать архив релиза $_tag"
+download_verified_artifact "$_url" "$ARTIFACT" "$_size" "$_sha" \
+    || die "не удалось скачать архив релиза $_tag"
 [ "$(wc -c < "$ARTIFACT" | tr -d ' \t\r\n')" = "$_size" ] \
     || die "размер архива файлов роутера не совпал с проверенным UPDATES.json"
 [ "$(sha256sum "$ARTIFACT" | awk '{print $1}')" = "$_sha" ] \

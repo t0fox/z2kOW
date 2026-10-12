@@ -1,6 +1,5 @@
 #!/bin/sh
-# tests/test_warp_arch_parity.sh — WARP собирается и опознаётся под те же арки,
-# что и остальной проект.
+# tests/test_warp_arch_parity.sh — проверяет арки, объявленные для WARP.
 #
 # Повод: 06.09.2026, жалоба «не могу поставить WARP». Движок собирался под пять
 # арок, клиент туннеля — под девять. На остальных установка отвечала
@@ -18,24 +17,22 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS + 1)); printf '[PASS] %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf '[FAIL] %s\n' "$1"; }
 
-TG="$ROOT/mtproxy-client/builds"
 WD="$ROOT/z2k-warpd/builds"
-[ -d "$TG" ] && [ -d "$WD" ] || { echo "нет каталогов сборок"; exit 1; }
+[ -d "$WD" ] || { echo "нет каталога сборок WARP"; exit 1; }
 
-# Эталон — набор арок клиента туннеля. Синонимы имён (mipsle/mips64le/386)
-# исключаются: это временные копии, а не отдельные цели.
-_ref=$(ls "$TG" | sed -n 's/^tg-mtproxy-client-linux-//p' \
-       | grep -vxE 'mipsle|mips64le|386' | sort)
-[ -n "$_ref" ] || { echo "не нашёл сборок клиента туннеля"; exit 1; }
+# Суффиксы файлов могут отличаться от GOARCH (386→x86, mips64le→mips64el),
+# поэтому берём целевые имена из общей матрицы сборки.
+_ref=$(awk -F '\t' '$1 == "z2k-warpd" { print $6 }' "$ROOT/build-matrix.tsv" | sort -u)
+[ -n "$_ref" ] || { echo "в build-matrix.tsv нет арок WARP"; exit 1; }
 
 _miss=""
 for a in $_ref; do
     [ -f "$WD/z2k-warpd-linux-$a" ] || _miss="$_miss $a"
 done
 if [ -z "$_miss" ]; then
-    ok "движок WARP собран под все арки, что и клиент туннеля ($(echo $_ref | wc -w | tr -d ' ') штук)"
+    ok "каждая арка WARP из build-matrix.tsv имеет бинарник"
 else
-    bad "движка WARP нет под:$_miss — там установка ответит «unsupported architecture»"
+    bad "в build-matrix.tsv нет отгружаемых сборок WARP под:$_miss"
 fi
 
 # Опознание арки обязано попадать в существующий файл. Берём НАСТОЯЩУЮ функцию

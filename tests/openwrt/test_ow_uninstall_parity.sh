@@ -4,11 +4,23 @@
 _t_plan "ow-uninstall-parity"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 
-# Базовая проверка удаления привязана к историческому обзору, а не к текущему
-# пользовательскому релизу из UPDATES.json.
-assert_contains "источник проверки удаления закреплён в матрице паритета" \
-    "$REPO/docs/UPSTREAM-PARITY-MATRIX.md" \
-    '43b98092c5a337a35f5c094363f469243d7b8b80'
+# Проверяем, что upstream-коммит в манифесте задан полным SHA-1.
+_upstream_commit=$(awk '
+    /"upstream"[[:space:]]*:/ { in_upstream=1; next }
+    in_upstream && /"commit"[[:space:]]*:/ {
+        sub(/^.*"commit"[[:space:]]*:[[:space:]]*"/, "")
+        sub(/".*$/, "")
+        print
+        exit
+    }
+    in_upstream && /}/ { exit }
+' "$REPO/UPDATES.json")
+if printf '%s\n' "$_upstream_commit" | grep -Eq '^[0-9a-f]{40}$'; then
+    _t_ok
+else
+    _t_bad "manifest upstream commit is not a full SHA-1: [$_upstream_commit]"
+fi
+assert_contains "uninstall parity source is pinned" "$REPO/docs/UPSTREAM-PARITY-MATRIX.md" "43b98092c5a337a35f5c094363f469243d7b8b80"
 assert_contains "CLI exposes upstream uninstall action" "$REPO/platform/openwrt/z2kow.sh" \
     'uninstall|remove'
 assert_contains "CLI delegates to canonical uninstaller" "$REPO/platform/openwrt/z2kow.sh" \
@@ -25,6 +37,10 @@ assert_contains "uninstall preserves WARP identity" \
     "$REPO/platform/openwrt/uninstall.sh" 'device.json'
 assert_contains "uninstall uses the DoH adapter for ownership-safe cleanup" \
     "$REPO/platform/openwrt/uninstall.sh" 'z2k_ow_doh_uninstall'
+assert_contains "firewall adapter owns stop verification for init and uninstall" \
+    "$REPO/platform/openwrt/firewall.sh" 'z2k_ow_stop_verify()'
+assert_not_contains "core init does not duplicate stop verification" \
+    "$REPO/platform/openwrt/files/etc/init.d/z2k" 'z2k_ow_stop_verify() {'
 assert_contains "uninstall does not expose a second purge mode" \
     "$REPO/platform/openwrt/uninstall.sh" 'Z2K_UNINSTALL_CONFIRMED'
 unset Z2K_OW_SYSROOT
@@ -112,11 +128,11 @@ z2k_ow_fw_remove() {
     grep -v 'z2kOW' "$Z2K_OW_NFT_STATE" > "$Z2K_OW_NFT_STATE.new" || return 1
     mv -f "$Z2K_OW_NFT_STATE.new" "$Z2K_OW_NFT_STATE"
 }
-z2k_ow_stop_verify() { ! grep -q 'z2kOW' "$Z2K_OW_NFT_STATE"; }
 z2k_ow_offload_restore() {
     echo offload-restore >> "$Z2K_UNINSTALL_TEST_LOG"
     rm -f "$Z2K_FW4_OFFLOAD_STATE"
 }
+z2k_ow_stop_verify() { ! grep -q 'z2kOW' "$Z2K_OW_NFT_STATE"; }
 EOF
 cat > "$Z2K_ROOT/platform/openwrt/tg.sh" <<'EOF'
 z2k_ow_tg() {

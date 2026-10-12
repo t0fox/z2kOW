@@ -195,6 +195,18 @@ for f in $COPIES; do
     esac
 done
 
+# ==========================================================================
+# OpenWrt adapter can disable only VPS Layer 0 while keeping direct/mirrors.
+# ==========================================================================
+for f in $COPIES; do
+    r=$(run "$f" vps_fail "Z2K_FETCH_VPS_OUT=1 DIRECT_FIRST=1")
+    case "$r" in
+        "rc=0 vps=0 direct=1") ok "$f: OpenWrt VPS-layer switch uses direct source without endpoint pinning" ;;
+        NOFN) no "$f: z2k_fetch извлечена" "определение есть" "не найдено" ;;
+        *) no "$f: VPS layer disabled by adapter" "rc=0 vps=0 direct=1" "$r" ;;
+    esac
+done
+
 # ============================================================================
 # 2. Потерян ОДИН пакет: вторая попытка обязана вытащить, не уходя в фоллбэк
 # ============================================================================

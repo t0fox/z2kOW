@@ -46,9 +46,7 @@ updates:
 
   - package-ecosystem: gomod
     directories:
-      - /mtproxy-client
       - /rt-proxy
-      - /vps-relay
       - /z2k-detect
       - /z2k-verify
       - /z2k-warpd

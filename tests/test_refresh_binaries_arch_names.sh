@@ -16,7 +16,7 @@ bad() { FAIL=$((FAIL + 1)); printf '[FAIL] %s\n' "$1"; }
 # binary-updater authority to OpenWrt's controlled UPDATES.json.
 {
     printf '{\n  "files_sha256": {\n'
-    for file in "$ROOT"/mtproxy-client/builds/*-linux-* "$ROOT"/z2k-detect/builds/*-linux-*; do
+    for file in "$ROOT"/rt-proxy/builds/*-linux-* "$ROOT"/z2k-detect/builds/*-linux-*; do
         [ -f "$file" ] || continue
         printf '    "%s": "%064d",\n' "${file#"$ROOT"/}" 0
     done
@@ -37,13 +37,11 @@ for hw in aarch64 armv7l x86_64 i686 mips mipsel mips64el ppc riscv64; do
     ' sh "$ROOT")
     [ -n "$goarch" ] || { bad "$hw: architecture mapping exists"; continue; }
     paths=$(au_bin_manifest_paths "$FIXTURE" "$goarch")
-    miss=""
-    for component in tg-mtproxy-client z2k-detect; do
-        printf '%s\n' "$paths" | grep -q "/${component}-linux-" || miss="$miss $component"
-    done
-    [ -z "$miss" ] \
-        && ok "$hw (goarch=$goarch): legacy resolver finds expected binaries" \
-        || bad "$hw (goarch=$goarch): missing:$miss"
+    if printf '%s\n' "$paths" | grep -q '/z2k-detect-linux-'; then
+        ok "$hw (goarch=$goarch): legacy resolver finds the detector binary"
+    else
+        bad "$hw (goarch=$goarch): missing z2k-detect binary"
+    fi
 done
 
 if python3 - "$ROOT/UPDATES.json" <<'PY'

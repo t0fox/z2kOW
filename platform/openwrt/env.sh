@@ -25,6 +25,12 @@
 Z2K_PLATFORM="${Z2K_PLATFORM:-openwrt}"
 export Z2K_PLATFORM
 
+# OpenWrt fetches use direct GitHub and the configured mirrors. The shared
+# transport keeps its VPS layer for Keenetic, while this platform adapter
+# opens that layer's existing circuit breaker for every OpenWrt caller.
+Z2K_FETCH_VPS_OUT=1
+export Z2K_FETCH_VPS_OUT
+
 # Корень payload — единственная точка входа upstream-конвейера.
 ZAPRET2_DIR="${ZAPRET2_DIR:-$Z2K_ROOT}"
 CONFIG_DIR="${CONFIG_DIR:-$Z2K_CONF_DIR}"

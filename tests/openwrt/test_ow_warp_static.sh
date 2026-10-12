@@ -151,16 +151,11 @@ else
     _t_ok
 fi
 
-# --- VPS-proxy default равен трём копиям (S51, z2k-warp.sh, warp.sh) ---
-# (закрывающие }} S96-формы отрезаем классом [^" }] — иначе мусор в сравнении)
-_up1="$(grep -m1 -o 'http://z2kwarp:[^" }]*' "$S96")"
-_up2="$(grep -m1 -o 'http://z2kwarp:[^" }]*' "$REPO/files/init.d/S51z2k-warp")"
-_up3="$(grep -m1 -o 'http://z2kwarp:[^" }]*' "$WARP")"
-assert_eq "proxy-default во всех копиях" "$_up1" "$_up2"
-assert_eq "proxy-default в адаптере" "$_up1" "$_up3"
-# секрет релея не печатается кодом (только --proxy аргумент и дефолт):
-if grep -v '^WARP_VPS_PROXY_DEFAULT=' "$_WCODE" | grep -q 'z2kW4rpR3g2026'; then
-    _t_bad "warp.sh: секрет релея вне дефолта"
+# --- Релея VPS нет по умолчанию; старый адрес фильтруется по имени хоста. ---
+assert_not_contains "warp.sh: встроенный VPS proxy default удалён" "$WARP" 'WARP_VPS_PROXY_DEFAULT'
+assert_contains "warp.sh: пользовательский proxy проходит фильтр" "$WARP" 'warp_external_proxy'
+if grep -q 'z2kW4rpR3g2026' "$WARP"; then
+    _t_bad "warp.sh: в коде остался секрет VPS-релея"
 else
     _t_ok
 fi

@@ -6,7 +6,6 @@ files/z2k-blocked-monitor.sh|COMMON|./usr/lib/z2k/z2k-blocked-monitor.sh|-rwxr-x
 files/z2k-config-validator.sh|COMMON|./usr/lib/z2k/z2k-config-validator.sh|-rwxr-xr-x|lib/auto_update.sh|z2k-config-validator.sh|-
 files/z2k-diag.sh|ADAPTED|./usr/lib/z2k/z2k-diag.sh|-rwxr-xr-x|platform/openwrt/env.sh|Z2K_DIAG_HOOK|Common report with OpenWrt probes; fw4 recovery events come from logread with a 20-line output cap.
 files/z2k-dns-check.sh|COMMON|./usr/lib/z2k/z2k-dns-check.sh|-rwxr-xr-x|webpanel/cgi/actions.sh|DNS_CHECK_SCRIPT|Shared DNS probe is invoked by the WebPanel API.
-files/z2k-fix-tg-watchdog.sh|N/A|-|-|-|-|Upstream marks this historical one-shot patcher as a no-op; no runtime behavior to port.
 files/z2k-geosite.sh|COMMON|./usr/lib/z2k/z2k-geosite.sh|-rwxr-xr-x|files/z2k-update-lists.sh|z2k-geosite.sh|Shared geosite fetch/filter/apply logic.
 files/z2k-insta-ip-refresh.sh|ADAPTED|./usr/lib/z2k/z2k-insta-ip-refresh.sh|-rwxr-xr-x|files/z2k-update-lists.sh|z2k-insta-ip-refresh.sh|Shared fetch/HMAC/range/probe flow uses OpenWrt dnsmasq records.
 files/z2k-nfqueue-selfheal.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/fw-check.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|fw-check.sh check|OpenWrt serializes fw4/NFQUEUE reconciliation and owns/restores global flow-offload UCI state; Keenetic fastnat sysctls are not used.
@@ -14,24 +13,17 @@ files/z2k-ppe-deoffload.sh|N/A|-|-|-|-|Uses the proprietary Keenetic MediaTek PP
 files/z2k-scheduler.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/schedule.sh|-rw-r--r--|platform/openwrt/files/etc/init.d/z2k|z2k_ow_cron_install|Resident Keenetic scheduler is replaced with BusyBox cron and procd service start.
 files/z2k-tcp16-probe.sh|ADAPTED|./usr/lib/z2k/z2k-tcp16-probe.sh|-rwxr-xr-x|webpanel/cgi/actions.sh|tcp16_probe_async|Shared probe keeps upstream measurement; OpenWrt redirects state/config/service paths.
 files/z2k-tcp16-probe.sh|ADAPTED|./usr/lib/z2k/z2k-tcp16-probe.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|30 3 * * *|Nightly measurement remains at 03:30.
-files/z2k-tg-redirect.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/tg.sh|-rw-r--r--|platform/openwrt/tg.sh|z2k_ow_tg|OpenWrt uses fw4/nftables and the platform Telegram lifecycle.
-files/z2k-tg-watchdog.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/tg-check.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|tg-check.sh check|procd owns process restart; cron checks tunnel health and rules.
 files/z2k-update-lists.sh|COMMON|./usr/lib/z2k/z2k-update-lists.sh|-rwxr-xr-x|platform/openwrt/list-refresh.sh|z2k-update-lists.sh|Shared complete refresh is called with OpenWrt path/service bindings.
 files/z2k-warp.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/warp.sh|-rw-r--r--|webpanel/cgi/platform.sh|platform/openwrt/warp.sh|OpenWrt retains the user feature through its native WARP backend.
 files/z2k-warp-list-filter.awk|COMMON|./usr/lib/z2k/z2k-warp-list-filter.awk|-rw-r--r--|webpanel/cgi/actions.sh|z2k-warp-list-filter.awk|Shared list validation/filter is used by WebPanel game-list actions.
 files/init.d/S51z2k-warp|ADAPTED|./usr/lib/z2k/platform/openwrt/warp.sh|-rw-r--r--|platform/openwrt/warp.sh|procd_open_instance|WARP tunnel lifecycle is OpenWrt procd.
 files/init.d/S96z2k-rt-proxy|ADAPTED|./usr/lib/z2k/platform/openwrt/rt.sh|-rw-r--r--|platform/openwrt/rt.sh|procd_open_instance|RT proxy lifecycle/routing is OpenWrt procd and fw4.
-files/init.d/S97z2k-http-tunnel|N/A|-|-|-|-|Старый VPS-туннель TCP/80 выведен из работы; зашифрованные загрузки Telegram CDN идут через маршрутизацию MTProto media DC.
-files/init.d/S98tg-tunnel|ADAPTED|./usr/lib/z2k/platform/openwrt/tg.sh|-rw-r--r--|platform/openwrt/tg.sh|procd_open_instance|Telegram lifecycle is OpenWrt procd.
 files/init.d/S99z2k-scheduler|ADAPTED|./usr/lib/z2k/platform/openwrt/schedule.sh|-rw-r--r--|platform/openwrt/schedule.sh|Z2K_LISTS_CRON_LINE|BusyBox cron replaces the resident Keenetic scheduler.
-files/ndm/90-z2k-tg-redirect.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/tg.sh|-rw-r--r--|platform/openwrt/tg.sh|nft|NDM hooks are replaced by fw4/nftables lifecycle.
-files/ndm/91-z2k-http-tunnel-redirect.sh|N/A|-|-|-|-|Старое перенаправление VPS для TCP/80 выведено из работы; обычный HTTP не является трафиком Telegram MTProto.
 files/ndm/91-z2k-ttl-bypass.sh|N/A|-|-|-|-|Only excludes marked packets from Keenetic's optional NDM ip ttl-fix chain, which OpenWrt does not provide.
 files/ndm/92-z2k-rt-proxy-redirect.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/rt.sh|-rw-r--r--|platform/openwrt/rt.sh|nft|NDM hooks are replaced by fw4/nftables lifecycle.
 files/ndm/93-z2k-warp.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/warp.sh|-rw-r--r--|platform/openwrt/warp.sh|nft|NDM hooks are replaced by OpenWrt WARP PBR/nft adapter.
 files/ndm/94-z2k-ppe-deoffload.sh|N/A|-|-|-|-|Uses the Keenetic NDM event hook and proprietary per-flow PPE target.
 files/ndm/95-z2k-scheduler-watchdog.sh|N/A|-|-|-|-|Monitors a Keenetic resident scheduler; OpenWrt runs independent cron jobs under system cron supervision.
-files/etc/z2k-roots.pem|N/A|-|-|-|-|The bundled relay CA belongs to the retired Keenetic Go client; OpenWrt Rust TG uses its pinned WebPKI roots and does not consume this PEM.
 files/etc/z2k-update-pub.pem|N/A|-|-|-|-|Legacy Keenetic updater key; OpenWrt release verification trusts only its staged release-keys.
 files/lists/cf_extra_check_ips.txt|N/A|-|-|-|-|Keenetic-only bootstrap connectivity probe seed; no OpenWrt runtime consumer.
 files/lists/extra-domains.txt|COMMON|./usr/lib/z2k/lists/extra-domains.txt|-rw-r--r--|platform/openwrt/bootstrap.sh|Z2K_USER_LISTS/extra-domains.txt|-

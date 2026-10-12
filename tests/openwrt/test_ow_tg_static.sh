@@ -194,6 +194,6 @@ done
 assert_contains "au: openwrt-ветка" "$AU" 'Z2K_PLATFORM:-keenetic}" = "openwrt"'
 assert_contains "firewall: runtime recovery uses unified installer" "$REPO/platform/openwrt/firewall.sh" 'install_release <tag>'
 assert_not_contains "firewall: no component APK recovery path" "$REPO/platform/openwrt/firewall.sh" 'z2k-zapret2-runtime'
-assert_contains "au: keenetic-ветка цела" "$AU" '/opt/etc/init.d/S98tg-tunnel /opt/etc/init.d/S97z2k-http-tunnel'
+assert_not_contains "au: старые VPS TG-сервисы удалены" "$AU" '/opt/etc/init.d/S98tg-tunnel /opt/etc/init.d/S97z2k-http-tunnel'
 
 _t_done

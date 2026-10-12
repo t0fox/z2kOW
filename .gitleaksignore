@@ -4,4 +4,3 @@
 
 # Empty Makefile assignment: the generic rule consumed the following GOFLAGS
 # line as a credential. No secret value was present in this commit.
-2c2efada9f4aaec5fb12ec4b9eee8ec6d0f8865d:mtproxy-client/Makefile:generic-api-key:8

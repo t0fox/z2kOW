@@ -281,9 +281,9 @@ extras/discord-voice-hosts.txt
 
 Telegram работает прозрачно для устройств в локальной сети: клиентам не нужно прописывать отдельный proxy.
 
-На OpenWrt procd владеет процессом туннеля, nftables направляет Telegram traffic на локальные listeners, а health-check восстанавливает принадлежащие z2kOW runtime-правила. Пользовательское выключение Telegram считается нормальным состоянием и не должно самопроизвольно отменяться self-heal'ом.
+На OpenWrt procd владеет Rust WS-процессом, nftables направляет Telegram TCP на локальный listener, а health-check восстанавливает принадлежащие z2kOW runtime-правила. WARP и собственная VPS-инфраструктура для этого пути не требуются. Пользовательское выключение Telegram считается нормальным состоянием и не должно самопроизвольно отменяться self-heal'ом.
 
-Общий клиент находится в `mtproxy-client/`, OpenWrt glue — в `platform/openwrt/tg.sh`.
+OpenWrt использует закреплённый Rust WS Proxy через адаптер `platform/openwrt/tg.sh`.
 
 ---
 ## Обрыв на 16–20 КБ
@@ -482,9 +482,7 @@ z2kOW/
 ├── z2k-warpd/                     # WARP engine: WireGuard + MASQUE/H2
 ├── z2k-detect/                    # network/domain detector
 ├── z2k-verify/                    # verification utility
-├── mtproxy-client/                # Telegram tunnel client
 ├── rt-proxy/                      # RT proxy
-├── vps-relay/                     # relay-side components
 ├── extras/                        # дополнительные client helpers
 ├── tests/                         # common + OpenWrt tests
 ├── docs/                          # contracts и parity docs

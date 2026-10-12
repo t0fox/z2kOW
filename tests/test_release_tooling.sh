@@ -193,40 +193,17 @@ git checkout -q -- lib/install.sh
 # конфиг остался старым, версия сдвинулась.
 git checkout -q -B z2k-staging
 # Свойство про ГЕНЕРАТОР, поэтому в дереве не должно остаться постороннего
-# незарелизенного. Клон несёт рабочую копию целиком, и любая правка
-# mtproxy-client в ней упирает release.sh в отдельный гейт: туда на сборке
-# вшивается Z2K_TUNNEL_SECRET, без него пересобрать и сверить builds/ нечем.
-# Гейт правильный, но к этому свойству отношения не имеет — и делал тест
-# красным всякий раз, когда рядом лежала невыпущенная правка туннеля.
-#
-# BASELINE — ТЕГ ПРЕДЫДУЩЕГО РЕЛИЗА, А НЕ origin/z2k-enhanced.
-#
-# Раньше здесь стояло origin/z2k-enhanced, и это делало тест зависимым от того,
-# когда в чекауте последний раз делали fetch. На CI ветку подтягивают, поэтому
-# там было зелено; локально она отставала на дюжину коммитов, тест подставлял
-# СТАРЫЙ mtproxy-client — и падал на чужом гейте про Z2K_TUNNEL_SECRET, показывая
-# осмысленный на вид отказ вместо своей настоящей причины. Тест, чей вердикт
-# зависит от свежести remote-tracking ref, не проверяет ничего.
-#
-# Тег предыдущего релиза свободен от этого: release.sh сам диффает ОТ НЕГО, он
-# лежит в любом клоне и не зависит ни от какой сети.
+# незарелизенного. BASELINE — тег предыдущего релиза, он лежит в любом клоне
+# и не зависит от свежести remote-tracking refs.
 _prev_rel=$(sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' UPDATES.json | head -1)
 if [ -n "$_prev_rel" ] && git rev-parse --verify -q "$_prev_rel" >/dev/null 2>&1; then
     # rm -rf до checkout: восстановление из ссылки возвращает только то, что
     # в ней есть, и НЕ убирает файлы, появившиеся позже. Один новый файл в
     # каталоге — и дельта снова не одна.
-    rm -rf mtproxy-client
-    git checkout -q "$_prev_rel" -- mtproxy-client 2>/dev/null || true
-    # И build-matrix.tsv тоже. Гейт про Z2K_TUNNEL_SECRET срабатывает НЕ только
-    # на правку внутри mtproxy-client/, но и на правку матрицы сборок: она может
-    # изменить цель сборки модуля. Сбрасывали здесь лишь каталог, и как только
-    # матрица разошлась с прошлым релизом (05.09.2026, имена-синонимы арок),
-    # release.sh в песочнице снова упирался в чужой гейт, а тест сообщал, будто
-    # правка генератора не объявляет шагов.
     git checkout -q "$_prev_rel" -- build-matrix.tsv 2>/dev/null || true
-    git add -A mtproxy-client build-matrix.tsv 2>/dev/null || true
-    git diff --cached --quiet -- mtproxy-client build-matrix.tsv 2>/dev/null \
-        || git commit -q -m "тест: mtproxy-client и матрица к состоянию предыдущего релиза"
+    git add -A build-matrix.tsv 2>/dev/null || true
+    git diff --cached --quiet -- build-matrix.tsv 2>/dev/null \
+        || git commit -q -m "test: матрица к состоянию предыдущего релиза"
 fi
 echo "# generator touch" >> lib/config_official.sh
 git add lib/config_official.sh
@@ -268,67 +245,6 @@ fi
 git tag -d p-9999.2 >/dev/null 2>&1 || true
 git reset -q --hard "$_p4_before" 2>/dev/null || true
 git push -q -f origin "HEAD:refs/heads/z2k-enhanced" 2>/dev/null || true
-
-# --- property 5: mtproxy-client без Z2K_TUNNEL_SECRET не пересобрать и не свериться
-#
-# builds/mtproxy-client/* нельзя пересобрать байт-в-байт без настоящего
-# Z2K_TUNNEL_SECRET (см. -X main.defaultTunnelSecret в Makefile). Меняем файл
-# под mtproxy-client/builds/, ставим TYPE=reinstall (снимает builds/-гейт из
-# property "любой бинарник — reinstall") и явно НЕ задаём Z2K_TUNNEL_SECRET —
-# ожидаем отказ ИМЕННО про секрет, а не про тип релиза.
-printf 'junk-for-test\n' >> mtproxy-client/builds/tg-mtproxy-client-linux-amd64
-git add mtproxy-client/builds/tg-mtproxy-client-linux-amd64
-git commit -q -m "тест: правка mtproxy-бинарника"
-out=$(env -u Z2K_TUNNEL_SECRET sh scripts/release.sh r-9999.3 reinstall "тест: mtproxy без секрета" 2>&1); rc=$?
-if [ "$rc" -ne 0 ]; then
-    ok "release.sh отказывается собирать релиз с изменённым mtproxy-client без секрета"
-else
-    no "release.sh отказывается без секрета" "ненулевой код" "0"
-fi
-case "$out" in
-    *"Z2K_TUNNEL_SECRET"*) ok "отказ называет Z2K_TUNNEL_SECRET причиной, а не что-то другое" ;;
-    *) no "отказ называет Z2K_TUNNEL_SECRET причиной" "упоминание Z2K_TUNNEL_SECRET" "$(printf '%s' "$out" | head -1)" ;;
-esac
-if git diff --quiet -- UPDATES.json; then
-    ok "отклонённый релиз (mtproxy без секрета) не трогает манифест"
-else
-    no "отклонённый релиз (mtproxy без секрета) не трогает манифест" "без изменений" "манифест переписан"
-fi
-
-# --- property 5b: mtproxy-client SOURCE-ONLY (без единого байта в builds/) ---
-#
-# Реальная дыра, найденная живьём: правка main.go/go.mod/go.sum/Makefile без
-# последующего `make all` НЕ оставляет диффа в builds/ вообще — старый гейт,
-# завязанный только на builds/, такую рассинхронизацию не видел бы совсем.
-# main.go сам по себе не доставляем (z2k_install_paths о нём не знает —
-# исходник, не артефакт), поэтому бандлим с реальным доставляемым файлом,
-# иначе release.sh упадёт раньше с "релизить нечего", и до нужного гейта
-# дело не дойдёт вовсе.
-#
-# TYPE=reinstall, не patch: клон продолжается с property 4/5 БЕЗ отката —
-# их правки (lib/config_official.sh, mtproxy-client/builds/...) остаются в
-# том же диффе PREV_REF..HEAD и сами уже требуют reinstall. На patch тут
-# первым сработал бы ИХ гейт, а не тот, что проверяет property 5b — реальная
-# логика release.sh это не бесит, дело в накопленном состоянии теста.
-echo "// test: source-only change, builds/ untouched" >> mtproxy-client/main.go
-echo "-- test: unrelated patchable change" >> files/lua/z2k-fooling-ext.lua
-git add mtproxy-client/main.go files/lua/z2k-fooling-ext.lua
-git commit -q -m "тест: mtproxy source-only (builds/ не тронут) + не связанная патчуемая правка"
-out=$(env -u Z2K_TUNNEL_SECRET sh scripts/release.sh r-9999.4 reinstall "тест: mtproxy source-only без секрета" 2>&1); rc=$?
-if [ "$rc" -ne 0 ]; then
-    ok "release.sh отвергает SOURCE-ONLY правку mtproxy-client (builds/ не тронут) без секрета"
-else
-    no "release.sh отвергает source-only mtproxy без секрета" "ненулевой код" "0"
-fi
-case "$out" in
-    *"Z2K_TUNNEL_SECRET"*) ok "source-only: отказ называет Z2K_TUNNEL_SECRET причиной" ;;
-    *) no "source-only: отказ называет Z2K_TUNNEL_SECRET причиной" "упоминание Z2K_TUNNEL_SECRET" "$(printf '%s' "$out" | head -1)" ;;
-esac
-if git diff --quiet -- UPDATES.json; then
-    ok "отклонённый релиз (mtproxy source-only) не трогает манифест"
-else
-    no "отклонённый релиз (mtproxy source-only) не трогает манифест" "без изменений" "манифест переписан"
-fi
 
 # --- property 6: второй релиз в полёте не заводится ---------------------------
 #
@@ -411,9 +327,9 @@ esac
 rm -f untracked_probe.tmp
 
 # --- property 2: the OpenWrt manifest keeps one controlled multi-arch release --
-if python3 -c "
+if python3 - "$HERE/UPDATES.json" <<'PY'
 import json,sys
-m=json.load(open('UPDATES.json', encoding='utf-8'))
+m=json.load(open(sys.argv[1], encoding='utf-8'))
 want=['schema','branch','platform','seq','current','upstream','history','artifacts','artifact','signing']
 a=m.get('artifact',{})
 arches={'arm64','arm','x86_64','x86','mips','mipsel','riscv64'}
@@ -428,12 +344,13 @@ ok=(list(m)==want and m.get('platform')=='openwrt' and set(records)==arches
     and list(signing)==['key_id'] and len(signing.get('key_id',''))==64
     and not any(k in m for k in ('files_sha256','install_map','components','package_versions')))
 sys.exit(0 if ok else 1)
-" 2>/dev/null; then
+PY
+then
     ok "controlled UPDATES.json keeps seven architecture artifacts and one generic transition archive"
 else
     no "controlled UPDATES.json keeps seven architecture artifacts and one generic transition archive" \
        "schema,branch,platform,seq,current,upstream,history,artifacts,artifact,signing" \
-       "$(python3 -c "import json;print(','.join(json.load(open('UPDATES.json')).keys()))" 2>/dev/null)"
+       "$(python3 -c "import json,sys;print(','.join(json.load(open(sys.argv[1])).keys()))" "$HERE/UPDATES.json" 2>/dev/null)"
 fi
 
 # History is kept as one JSON object per line for the existing history parser.
@@ -444,12 +361,13 @@ else
 fi
 
 # The current release agrees with the final upstream history entry.
-if python3 -c "
+if python3 - "$HERE/UPDATES.json" <<'PY'
 import json,sys
-m=json.load(open('UPDATES.json', encoding='utf-8'))
+m=json.load(open(sys.argv[1], encoding='utf-8'))
 h=m.get('history',[])
 sys.exit(0 if h and m.get('current')==h[-1].get('v') and isinstance(h[-1].get('changed_files'),list) else 1)
-" 2>/dev/null; then
+PY
+then
     ok "current совпадает с финальной записью полной history"
 else
     no "current совпадает с финальной записью history" "current == history[-1].v" "расхождение"

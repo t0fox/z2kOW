@@ -370,15 +370,21 @@ _z2k_ow_tg_pair_set_matches() {
 }
 
 _z2k_ow_tg_nft_pairs_commit() {
-    local _pair4 _pair6 _lock _rc
+    local _pair4 _pair6 _dc4 _dc6 _lock _rc
     mkdir -p "$Z2K_TG_HEALTH_DIR" 2>/dev/null || return 1
     _lock="$Z2K_TG_HEALTH_DIR/nft-pairs.lock"
     lock "$_lock" || return 1
     _pair4="$(_z2k_ow_tg_manifest_csv 4)"
     _pair6="$(_z2k_ow_tg_manifest_csv 6)"
+    _dc4="$(_z2k_ow_tg_csv "$Z2K_TG_CIDRS")"
+    _dc6="$(_z2k_ow_tg_csv "$Z2K_TG_CIDRS6")"
     {
+        printf 'flush set %s %s %s\n' "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_SET4"
+        printf 'flush set %s %s %s\n' "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_SET6"
         printf 'flush set %s %s %s\n' "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_PAIR4"
         printf 'flush set %s %s %s\n' "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_PAIR6"
+        printf 'add element %s %s %s { %s }\n' "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_SET4" "$_dc4"
+        printf 'add element %s %s %s { %s }\n' "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_SET6" "$_dc6"
         [ -z "$_pair4" ] || printf 'add element %s %s %s { %s }\n' "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_PAIR4" "$_pair4"
         [ -z "$_pair6" ] || printf 'add element %s %s %s { %s }\n' "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_PAIR6" "$_pair6"
     } | nft -f -
@@ -500,22 +506,23 @@ z2k_ow_tg_nft_apply() {
     nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" 2>/dev/null || true
     nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" 2>/dev/null || true
     nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_IN" 2>/dev/null || true
-# Официальная карта разрешает точные пары; CIDR используется только для bootstrap.
+# Точные пары применяются первыми; CIDR fallback ловит новые DC в доверенных
+# сетях Telegram, которых ещё нет в карте. Оба пути принимают только TCP-порты
+# из локальной политики.
     # Счётчик стоит перед terminal redirect и доступен для диагностики на роутере.
     if [ "$_manifest_mode" = dynamic ]; then
         nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" \
             ip daddr . tcp dport "@$Z2K_TG_PAIR4" counter redirect to ":$Z2K_TG_PORT" || return 1
         nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" \
             ip6 daddr . tcp dport "@$Z2K_TG_PAIR6" counter redirect to ":$Z2K_TG_PORT" || return 1
-    else
-        _ports=$(z2k_ow_tg_ports) || return 1
-        for _port in $_ports; do
-            nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" \
-                tcp dport "$_port" ip daddr "@$Z2K_TG_SET4" counter redirect to ":$Z2K_TG_PORT" || return 1
-            nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" \
-                tcp dport "$_port" ip6 daddr "@$Z2K_TG_SET6" counter redirect to ":$Z2K_TG_PORT" || return 1
-        done
     fi
+    _ports=$(z2k_ow_tg_ports) || return 1
+    for _port in $_ports; do
+        nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" \
+            tcp dport "$_port" ip daddr "@$Z2K_TG_SET4" counter redirect to ":$Z2K_TG_PORT" || return 1
+        nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" \
+            tcp dport "$_port" ip6 daddr "@$Z2K_TG_SET6" counter redirect to ":$Z2K_TG_PORT" || return 1
+    done
     # Исходящие WSS/CF/TCP-сокеты Rust помечены меткой z2k DESYNC, поэтому их
     # соединения обходят это перенаправление OUTPUT и путь NFQUEUE.
     nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" \
@@ -525,15 +532,13 @@ z2k_ow_tg_nft_apply() {
             ip daddr . tcp dport "@$Z2K_TG_PAIR4" counter redirect to ":$Z2K_TG_PORT" || return 1
         nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" \
             ip6 daddr . tcp dport "@$Z2K_TG_PAIR6" counter redirect to ":$Z2K_TG_PORT" || return 1
-    else
-        _ports=$(z2k_ow_tg_ports) || return 1
-        for _port in $_ports; do
-            nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" \
-                tcp dport "$_port" ip daddr "@$Z2K_TG_SET4" counter redirect to ":$Z2K_TG_PORT" || return 1
-            nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" \
-                tcp dport "$_port" ip6 daddr "@$Z2K_TG_SET6" counter redirect to ":$Z2K_TG_PORT" || return 1
-        done
     fi
+    for _port in $_ports; do
+        nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" \
+            tcp dport "$_port" ip daddr "@$Z2K_TG_SET4" counter redirect to ":$Z2K_TG_PORT" || return 1
+        nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" \
+            tcp dport "$_port" ip6 daddr "@$Z2K_TG_SET6" counter redirect to ":$Z2K_TG_PORT" || return 1
+    done
     # Защита INPUT: слушатель принимает соединения на всех адресах; прямой доступ к :1443
     # не должны доходить до демона. Перенаправленные пакеты (LAN/локальные)
     # несут conntrack-статус dnat (ставится DNAT на всё соединение) —

@@ -23,7 +23,6 @@ cat > "$MAN" <<'JSON'
 {"files_sha256": {
  "z2k-detect/builds/z2k-detect-linux-arm64": "aa",
  "z2k-warpd/builds/z2k-warpd-linux-arm64": "bb",
- "mtproxy-client/builds/tg-mtproxy-client-linux-arm64": "cc"
 }}
 JSON
 

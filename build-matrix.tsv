@@ -1,56 +1,19 @@
-# build-matrix.tsv — ЕДИНСТВЕННЫЙ источник правды о том, чем и подо что
-# собираются наши бинарники.
-#
-# ЗАЧЕМ. Арки и флаги были переписаны от руки в трёх местах: Makefile каждого
-# модуля, кросс-сборка CI и сверка бинарников. Они разошлись ровно так, как и
-# должны были: CI собирал mtproxy-client/arm с GOARM=5, а Makefile выпускал
-# GOARM=7 — ARM-бинарник Телеграм-клиента не проверялся ни одним прогоном ни
-# разу, и комментарий в CI при этом уверенно утверждал обратное.
-#
-# Читают: .github/workflows/ci.yml (кросс-сборка и сверка байтов),
-# tests/test_build_matrix.sh (сверка с Makefile'ами и с содержимым builds/).
-#
-# Колонки, через ТАБУЛЯЦИЮ:
-#   модуль  пакет  каталог_builds  префикс_файла  GOARCH  суффикс_файла  доп_переменные
-#
-# СУФФИКС ФАЙЛА НЕ РАВЕН GOARCH, и это не описка: у mtproxy-client и rt-proxy
-# файлы называются mipsel/mips64el/x86 (так их ищет установщик по имени арки
-# роутера), тогда как Go зовёт те же цели mipsle/mips64le/386. Держать это в
-# одной колонке нельзя — расхождение имён и есть причина, по которой сверку
-# бинарников раньше не удавалось сделать общей.
-#
-# КАТАЛОГ BUILDS ТОЖЕ НЕ ОЧЕВИДЕН: бинарники rt-proxy лежат в
-# mtproxy-client/builds, а не у себя. Это исторически, и пока так — здесь это
-# записано как есть, а не как хотелось бы.
-#
-# ПРО GOARM. z2k-detect и z2k-verify собираются с GOARM=5 намеренно: ARMv7-код
-# на ARMv5 без VFP падает с illegal instruction, а проверяльщик подписи там
-# обязан работать. У mtproxy-client и rt-proxy стоит 7 — записано КАК ЕСТЬ,
-# потому что так собраны отгруженные бинарники. Сводить их к 5 — отдельная
-# работа с проверкой на живом ARM-роутере, а не правка таблицы.
-#
-# vps-relay работает только на VPS и на роутеры не едет: у него нет builds/ и
-# нет per-arch целей в Makefile (прочерки в соответствующих колонках).
+# build-matrix.tsv — единый источник арок и флагов сборки Go-компонентов.
+# Колонки: модуль, пакет, каталог сборок, имя файла, GOARCH, суффикс, флаги.
+# rt-proxy хранит собранные файлы в собственном каталоге builds/.
+# ARM-цели rt-proxy используют GOARM=7; z2k-detect и z2k-verify — GOARM=5.
 
-mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	arm64	arm64	-
-mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	arm	arm	GOARM=7
-mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	amd64	amd64	-
-mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	mips	mips	GOMIPS=softfloat
-mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	mipsle	mipsel	GOMIPS=softfloat
-mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	mips64le	mips64el	GOMIPS64=softfloat
-mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	ppc64	ppc64	-
-mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	riscv64	riscv64	-
-mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	386	x86	-
-rt-proxy	.	mtproxy-client/builds	z2k-rt-proxy	arm64	arm64	-
-rt-proxy	.	mtproxy-client/builds	z2k-rt-proxy	arm	arm	GOARM=7
-rt-proxy	.	mtproxy-client/builds	z2k-rt-proxy	amd64	amd64	-
-rt-proxy	.	mtproxy-client/builds	z2k-rt-proxy	mips	mips	GOMIPS=softfloat
+
+rt-proxy	.	rt-proxy/builds	z2k-rt-proxy	arm64	arm64	-
+rt-proxy	.	rt-proxy/builds	z2k-rt-proxy	arm	arm	GOARM=7
+rt-proxy	.	rt-proxy/builds	z2k-rt-proxy	amd64	amd64	-
+rt-proxy	.	rt-proxy/builds	z2k-rt-proxy	mips	mips	GOMIPS=softfloat
 z2k-warpd	./cmd/z2k-warpd	z2k-warpd/builds	z2k-warpd	arm64	arm64	-
 z2k-warpd	./cmd/z2k-warpd	z2k-warpd/builds	z2k-warpd	arm	arm	GOARM=7
 z2k-warpd	./cmd/z2k-warpd	z2k-warpd/builds	z2k-warpd	amd64	amd64	-
 z2k-warpd	./cmd/z2k-warpd	z2k-warpd/builds	z2k-warpd	mips	mips	GOMIPS=softfloat
 z2k-warpd	./cmd/z2k-warpd	z2k-warpd/builds	z2k-warpd	mipsle	mipsel	GOMIPS=softfloat
-rt-proxy	.	mtproxy-client/builds	z2k-rt-proxy	mipsle	mipsel	GOMIPS=softfloat
+rt-proxy	.	rt-proxy/builds	z2k-rt-proxy	mipsle	mipsel	GOMIPS=softfloat
 z2k-detect	./cmd/z2k-detect	z2k-detect/builds	z2k-detect	arm64	arm64	-
 z2k-detect	./cmd/z2k-detect	z2k-detect/builds	z2k-detect	arm	arm	GOARM=5
 z2k-detect	./cmd/z2k-detect	z2k-detect/builds	z2k-detect	amd64	amd64	-
@@ -69,37 +32,12 @@ z2k-verify	./cmd/z2k-verify	z2k-verify/builds	z2k-verify	mips64le	mips64le	GOMIP
 z2k-verify	./cmd/z2k-verify	z2k-verify/builds	z2k-verify	ppc64	ppc64	-
 z2k-verify	./cmd/z2k-verify	z2k-verify/builds	z2k-verify	riscv64	riscv64	-
 z2k-verify	./cmd/z2k-verify	z2k-verify/builds	z2k-verify	386	386	-
-vps-relay	./...	-	-	amd64	-	-
 
-# --- ВРЕМЕННЫЕ ИМЕНА-СИНОНИМЫ (добавлены 05.09.2026, подлежат удалению) --------
-#
-# Шаг refresh-binaries ищет сборки в манифесте по имени арки, и до p-82.8 он
-# брал ГОШНОЕ написание (mipsle, mips64le, 386), тогда как файлы названы
-# по-энтварному (mipsel, mips64el, x86). На этих трёх арках он не находил
-# ничего, кроме z2k-detect, и клиент туннеля, rt-proxy и warpd не обновлялись
-# НИКОГДА. Починено в p-82.8.
-#
-# Но обновление применяет апдейтер, УЖЕ лежащий на роутере, а исправленный
-# приезжает только этой же ночью. Значит в ближайший круг те же роутеры ещё раз
-# отработают старым кодом и снова ничего не получат — им пришлось бы ждать
-# вторую ночь и второй выпуск.
-#
-# Поэтому те же самые бинарники отгружаются ВТОРОЙ РАЗ под гошными именами —
-# ровно теми, которые ищет старый апдейтер. Содержимое побайтово совпадает с
-# основными файлами, git хранит их одним блобом, так что репозиторий не растёт.
-#
-# УДАЛИТЬ, когда исправленный апдейтер будет у всех: строки ниже, сами файлы и
-# записи в манифесте. Держать их дольше нужного значит возить каждому роутеру
-# лишний список и путать того, кто будет читать матрицу.
-mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	mipsle	mipsle	GOMIPS=softfloat
-mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	mips64le	mips64le	GOMIPS64=softfloat
-mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	386	386	-
-rt-proxy	.	mtproxy-client/builds	z2k-rt-proxy	mipsle	mipsle	GOMIPS=softfloat
+rt-proxy	.	rt-proxy/builds	z2k-rt-proxy	mipsle	mipsle	GOMIPS=softfloat
+rt-proxy	.	rt-proxy/builds	z2k-rt-proxy	386	x86	-
+rt-proxy	.	rt-proxy/builds	z2k-rt-proxy	riscv64	riscv64	-
 z2k-warpd	./cmd/z2k-warpd	z2k-warpd/builds	z2k-warpd	mipsle	mipsle	GOMIPS=softfloat
 
-# Движок WARP вровень с остальным проектом (06.09.2026): собирался под пять
-# арок против девяти у клиента туннеля, и на остальных установка отвечала
-# `unsupported architecture`. Разница была случайной, а не решением.
 z2k-warpd	./cmd/z2k-warpd	z2k-warpd/builds	z2k-warpd	386	x86	-
 z2k-warpd	./cmd/z2k-warpd	z2k-warpd/builds	z2k-warpd	mips64le	mips64el	GOMIPS64=softfloat
 z2k-warpd	./cmd/z2k-warpd	z2k-warpd/builds	z2k-warpd	ppc64	ppc64	-

@@ -104,7 +104,8 @@ _z2k_ow_uninstall_has_owned_install() {
     done
     # После успешного удаления остаётся только отдельная регистрация WARP.
     if [ -d "$Z2K_ETC" ]; then
-        _entry=$(find "$Z2K_ETC" -mindepth 1 ! -path "$_warp_dir" \
+        _entry=$(find "$Z2K_ETC" -mindepth 1 ! -path "$Z2K_STATE" \
+            ! -path "$_warp_dir" \
             ! -path "$_warp_dir/*" -print -quit 2>/dev/null)
         [ -n "$_entry" ] && return 0
     fi

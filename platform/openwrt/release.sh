@@ -2584,6 +2584,7 @@ z2k_ow_seed_warp_games() {
     done
     (
         export ZAPRET2_DIR="$_root"
+        export Z2K_FETCH_VPS_OUT=1
         export CONFIG_FILE="${Z2K_CONFIG:-/etc/z2k/config}"
         export Z2K_WARP_IPSET_SCRIPT="${Z2K_ADAPTER_DIR:-$_root/platform/openwrt}/warp.sh"
         export LOG_FILE="${Z2K_LOG:-/tmp/z2k/logs}/z2k-warp-games.log"

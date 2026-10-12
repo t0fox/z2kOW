@@ -274,7 +274,11 @@ fetch_to_tmp() {
     # ниже 1 КБ/с на 30 с. Без этого зависший (принявший TCP, но молчащий) VPS
     # выбирал бы весь --max-time 600, и только потом начинался прямой запрос со
     # своими 600 — до 20 минут на ассет, а их четыре, и всё это на пути установки.
-    _vps_resolve=$(_z2k_vps_gh_resolve "$url")
+    if [ "${Z2K_FETCH_VPS_OUT:-0}" = "1" ]; then
+        _vps_resolve=""
+    else
+        _vps_resolve=$(_z2k_vps_gh_resolve "$url")
+    fi
     # Повтор — только для отказа ФАЗЫ СОЕДИНЕНИЯ (см. z2k_connfail), как и в
     # трёх остальных копиях: потеря пакета рукопожатия независима, а вот упор
     # в --max-time на зависшей передаче или ответ 5xx повторять нельзя.
@@ -310,7 +314,9 @@ fetch_to_tmp() {
     # с заблокированным GitHub платил бы таймаут на каждом списке. Бюджет
     # короткий — это проба «жив или нет», а не загрузка; но если VPS-хопа нет
     # вовсе, торопиться нельзя: тогда этот запрос И ЕСТЬ единственный.
-    if [ "${Z2K_FETCH_DIRECT_FIRST:-1}" = "1" ] && [ "${Z2K_FETCH_DIRECT_OUT:-0}" != "1" ]; then
+    if [ -n "$_vps_resolve" ] \
+       && [ "${Z2K_FETCH_DIRECT_FIRST:-1}" = "1" ] \
+       && [ "${Z2K_FETCH_DIRECT_OUT:-0}" != "1" ]; then
         local _d_ct _d_raw _d_rc
         _gs_direct_tried=1
         if [ -n "$_vps_resolve" ]; then
@@ -417,6 +423,40 @@ fetch_to_tmp() {
                     -w '%{http_code}' \
                     "$url" 2>/dev/null) || { http="000"; rm -f "$tmp" 2>/dev/null; }
         # Прямой запрос свои 15 с сохраняет: за ним запасного пути нет.
+    fi
+
+    # OpenWrt отключает VPS Layer 0. После прямого origin пробуем независимые
+    # HTTPS-зеркала GitHub Releases. HTTP-ответ и содержимое списка проверяются
+    # до применения; ошибка одного зеркала не мешает следующему.
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] \
+       && ! { [ "$http" = "304" ] || { [ "$http" = "200" ] && [ -s "$tmp" ]; }; }; then
+        local _mirror_url _mirror_raw _mirror_rc _mirror_http
+        local _mirror_urls="${Z2K_GEOSITE_RELEASE_MIRRORS:-}"
+        case "$url" in
+            https://github.com/*/releases/*)
+                _mirror_urls="https://ghproxy.net/$url https://gh-proxy.com/$url $_mirror_urls" ;;
+        esac
+        for _mirror_url in $_mirror_urls; do
+            case "$_mirror_url" in https://*/*) ;; *) continue ;; esac
+            rm -f "$tmp" "${etag_file}.new" 2>/dev/null
+            _mirror_raw=$(curl -sSL --connect-timeout 10 --max-time 600 \
+                --speed-limit 1024 --speed-time 30 \
+                --etag-compare "$etag_file" \
+                --etag-save "${etag_file}.new" \
+                -o "$tmp" -D "$hdr" -w '%{http_code} %{time_connect}' \
+                "$_mirror_url" 2>/dev/null) && _mirror_rc=0 || _mirror_rc=$?
+            [ -n "$_mirror_raw" ] || _mirror_raw="000 0"
+            _mirror_http="${_mirror_raw%% *}"
+            if [ "$_mirror_rc" -eq 0 ] \
+               && { [ "$_mirror_http" = "304" ] \
+                    || { [ "$_mirror_http" = "200" ] && [ -s "$tmp" ]; }; }; then
+                http="$_mirror_http"
+                log "  $asset: ответ получен через HTTPS-зеркало $_mirror_url"
+                break
+            fi
+            log "  $asset: зеркало $_mirror_url отклонено (HTTP $_mirror_http, curl $_mirror_rc)"
+            rm -f "$tmp" "${etag_file}.new" 2>/dev/null
+        done
     fi
 
     # --etag-save пишет в отдельный файл, и сюда его переносим только непустым.
@@ -1252,8 +1292,15 @@ show_asset() {
     local asset="${1:-}"
     [ -z "$asset" ] && die "show: asset name required (e.g. ru-blocked.txt)"
     ensure_deps
-    curl -fsSL --connect-timeout 15 --max-time 600 \
-         "$RELEASE_BASE/$asset" || die "fetch $asset failed"
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+        ETAG_DIR="$TMP_DIR/show-etag"
+        mkdir -p "$ETAG_DIR" || die "show: cannot create temporary ETag directory"
+        fetch_to_tmp "$asset" || die "fetch $asset failed"
+        cat "$TMP_DIR/$asset" || die "show: cannot read fetched asset"
+    else
+        curl -fsSL --connect-timeout 15 --max-time 600 \
+             "$RELEASE_BASE/$asset" || die "fetch $asset failed"
+    fi
 }
 
 # --- status: current production line counts --------------------------------

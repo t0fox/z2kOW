@@ -80,7 +80,7 @@ if command -v shellcheck >/dev/null 2>&1; then
     printf '  (версии кодов расходятся между релизами — судья всё равно CI-раннер)\n'
     # Тот же набор файлов и исключений, что в ci.yml — маски менять ТОЛЬКО
     # синхронно с ним.
-    if { find . -name '*.sh' \( -path './z2k.sh' -o -path './z2k_cleanup.sh' -o -path './lib/*.sh' -o -path './files/*.sh' -o -path './tests/*.sh' -o -path './scripts/*.sh' -o -path './webpanel/*.sh' -o -path './webpanel/cgi/*.sh' -o -path './vps/bin/*.sh' -o -path './vps/observability/*.sh' \); \
+    if { find . -name '*.sh' \( -path './z2k.sh' -o -path './z2k_cleanup.sh' -o -path './lib/*.sh' -o -path './files/*.sh' -o -path './tests/*.sh' -o -path './scripts/*.sh' -o -path './webpanel/*.sh' -o -path './webpanel/cgi/*.sh' \); \
          find ./files/init.d -type f -name 'S*'; \
          find ./files -maxdepth 1 -type f -name 'S*'; } \
          | xargs shellcheck --severity=warning --exclude=SC1007,SC1090,SC1091,SC3043,SC3040,SC2034,SC2148,SC2154; then
@@ -288,15 +288,11 @@ step "go-модули (gofmt, vet, test, кросс-компиляция)"
 if [ -n "$GO" ]; then
     # Модули и цели — ИЗ build-matrix.tsv, единственного источника правды (см.
     # шапку самого файла). Раньше список модулей и целей для каждого был
-    # продублирован здесь руками и разошёлся с ci.yml в двух местах разом:
-    # z2k-verify не проверялся ЛОКАЛЬНО НИ РАЗУ с момента появления (цикл
-    # `for m in mtproxy-client rt-proxy vps-relay z2k-detect` о нём не знал),
-    # а arm-цели mtproxy-client/rt-proxy держали свой GOARM отдельной case-веткой,
-    # которая могла разойтись с Makefile'ами ровно так же, как уже расходилась
-    # в CI (см. комментарий build-matrix.tsv про GOARM=5 vs GOARM=7).
+    # Ранее список модулей и целей дублировался вручную и пропускал часть
+    # компонентов. Теперь список и арки читаются из build-matrix.tsv.
     _modules=$(awk -F'\t' '!/^#/ && NF>1 {print $1}' build-matrix.tsv | sort -u)
 
-    # МОДУЛИ ПРОВЕРЯЮТСЯ ПАРАЛЛЕЛЬНО. Их семь, они лежат в разных каталогах и
+    # МОДУЛИ ПРОВЕРЯЮТСЯ ПАРАЛЛЕЛЬНО. Они лежат в разных каталогах и
     # друг о друге не знают; кеш сборки Go к одновременному доступу устойчив.
     # Замер 05.09.2026: последовательно эта стадия стоила 128 c при десяти
     # ядрах, из которых занято было одно.
@@ -373,15 +369,12 @@ step "бинарники собираются из этого исходника
 # файлах. Смысл ci_local.sh — предсказывать удалённый вердикт; проверка, которой
 # здесь нет, делает предсказание ложным ровно там, где цена ошибки высшая.
 #
-# Логика дословно та же, что в ci.yml (набор берётся из build-matrix.tsv,
-# mtproxy-client пропускается — в него вшивается секрет и без него байты не
-# воспроизвести). Расходиться этим двум местам нельзя.
+# Логика дословно та же, что в ci.yml: набор берётся из build-matrix.tsv.
 if [ -n "$GO" ] && [ -f build-matrix.tsv ]; then
     brc=0
     while IFS="$(printf '\t')" read -r mod pkg bdir prefix goarch sfx extra; do
         case "$mod" in ''|\#*) continue ;; esac
         [ "$bdir" = "-" ] && continue
-        [ "$mod" = "mtproxy-client" ] && continue
         want="$bdir/$prefix-linux-$sfx"
         [ -f "$want" ] || { printf '  нет отгружаемого %s\n' "$want"; brc=1; continue; }
         [ "$extra" = "-" ] && extra=""

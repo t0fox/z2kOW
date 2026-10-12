@@ -43,10 +43,10 @@ done
 MODULES=$(printf '%s' "$MODULES" | tr ' ' '\n' | grep -v '^$' | LC_ALL=C sort)
 
 _count=$(printf '%s\n' "$MODULES" | grep -c .)
-if [ "$_count" -ge 5 ]; then
+if [ "$_count" -ge 4 ]; then
     ok "модули найдены по go.mod ($_count): $(printf '%s' "$MODULES" | tr '\n' ' ')"
 else
-    no "модули найдены по go.mod" "минимум 5" "$_count"
+    no "модули найдены по go.mod" "минимум 4" "$_count"
 fi
 
 # --- 1. Матрица сборки CI ------------------------------------------------------

@@ -125,7 +125,7 @@ MENU
 
 MENU
 
-        printf "Выберите опцию [0-5,U,R,F,E,T,W,S,P,D,I,Y,M,A,H,L]: "
+        printf "Выберите опцию [0-5,U,R,F,E,W,S,P,D,I,Y,M,A,H,L]: "
         read_input choice
 
         case "$choice" in
@@ -149,9 +149,6 @@ MENU
                 ;;
             e|E)
                 menu_game_warp
-                ;;
-            t|T)
-                menu_telegram_mtproxy
                 ;;
             w|W)
                 menu_whitelist
@@ -1398,195 +1395,6 @@ menu_game_warp() {
 
 
 # ==============================================================================
-# ПОДМЕНЮ: TELEGRAM MTPROXY
-# ==============================================================================
-
-menu_telegram_mtproxy() {
-    local MTPROXY_BIN="/opt/sbin/tg-mtproxy-client"
-
-    while true; do
-        clear_screen
-        print_header "Telegram"
-
-        # Cmdline filter '--listen=:1443' — иначе pgrep матчит S97 cdnbase
-        # daemon (тот же бинарь tg-mtproxy-client на :1444). После disable
-        # TG-туннеля S97 продолжает работать → false-positive «Включен».
-        local tunnel_running=false
-        if pgrep -f "tg-mtproxy-client .*--listen=:1443" >/dev/null 2>&1; then
-            tunnel_running=true
-        fi
-
-        print_separator
-        printf " Статус: %s\n" "$($tunnel_running && echo 'Включен' || echo 'Выключен')"
-        print_separator
-
-        cat <<'SUBMENU'
-
-Telegram для всех устройств в сети.
-Настройка на устройствах не требуется.
-
-[1] Включить
-[2] Выключить
-[B] Назад
-
-SUBMENU
-
-        printf "Выберите опцию [1-2,B]: "
-        read_input sub_choice
-
-        case "$sub_choice" in
-            1)
-                # Download binary if missing
-                if ! [ -f "$MTPROXY_BIN" ]; then
-                    print_info "Скачиваю бинарник..."
-                    local tg_arch=""
-                    local _hw_arch _tg_bin_arch
-                    _hw_arch=$(get_arch 2>/dev/null || uname -m)
-                    _tg_bin_arch=$(map_arch_to_bin_arch "$_hw_arch" 2>/dev/null || true)
-                    case "$_tg_bin_arch" in
-                        linux-arm64)  tg_arch="arm64" ;;
-                        linux-arm)    tg_arch="arm" ;;
-                        linux-mipsel)   tg_arch="mipsel" ;;
-                        linux-mips64el) tg_arch="mips64el" ;;
-                        linux-mips64)   tg_arch="mips" ;;
-                        linux-mips)     tg_arch="mips" ;;
-                        linux-x86_64) tg_arch="amd64" ;;
-                        linux-x86)    tg_arch="x86" ;;
-                        linux-riscv64) tg_arch="riscv64" ;;
-                        linux-ppc)    tg_arch="ppc64" ;;
-                    esac
-                    if [ -n "$tg_arch" ]; then
-                        local tg_bin="tg-mtproxy-client-linux-${tg_arch}"
-                        local tg_url="${GITHUB_RAW}/mtproxy-client/builds/${tg_bin}"
-                        rm -f "$MTPROXY_BIN"
-                        z2k_fetch "$tg_url" "$MTPROXY_BIN"
-                        local tg_size
-                        tg_size=$(wc -c < "$MTPROXY_BIN" 2>/dev/null || echo 0)
-                        if [ -f "$MTPROXY_BIN" ] && [ "$tg_size" -gt 500000 ] 2>/dev/null && head -c 4 "$MTPROXY_BIN" 2>/dev/null | grep -q "ELF"; then
-                            chmod +x "$MTPROXY_BIN"
-                            if "$MTPROXY_BIN" --help 2>/dev/null; [ $? -le 2 ]; then
-                                print_success "Скачан и проверен ($tg_arch)"
-                            else
-                                rm -f "$MTPROXY_BIN"
-                                print_error "Бинарник не запускается (неверная архитектура?)"
-                                print_info "Проверьте: opkg print-architecture"
-                                pause
-                                continue
-                            fi
-                        else
-                            rm -f "$MTPROXY_BIN"
-                            print_error "Не удалось скачать бинарник (файл повреждён или CDN вернул ошибку)"
-                            pause
-                            continue
-                        fi
-                    else
-                        print_error "Неизвестная архитектура: $(uname -m)"
-                        pause
-                        continue
-                    fi
-                fi
-
-                # Clear user-disabled flag before calling S98tg-tunnel; its
-                # start path intentionally refuses to run while the flag is 1.
-                if [ -f "${ZAPRET2_DIR}/config" ]; then
-                    if grep -q '^TG_PROXY_USER_DISABLED=' "${ZAPRET2_DIR}/config"; then
-                        sed -i 's/^TG_PROXY_USER_DISABLED=.*/TG_PROXY_USER_DISABLED=0/' "${ZAPRET2_DIR}/config"
-                    fi
-                fi
-
-                # Start through init when available so boot/runtime behavior
-                # stays identical and OUTPUT redirect rules are managed too.
-                if [ -x "/opt/etc/init.d/S98tg-tunnel" ]; then
-                    /opt/etc/init.d/S98tg-tunnel restart >/dev/null 2>&1
-                    # cdnbase (:1444) — тот же бинарник, включается вместе.
-                    [ -x "/opt/etc/init.d/S97z2k-http-tunnel" ] && \
-                        /opt/etc/init.d/S97z2k-http-tunnel restart >/dev/null 2>&1
-                else
-                    killall tg-mtproxy-client 2>/dev/null || true
-                    sleep 1
-                    # CWE-59: root-owned 0700 log dir
-                    # CWE-59: /tmp/z2k-log должен быть чистым root-owned каталогом. symlink /
-                    # не-каталог / чужой владелец = возможная подмена атакующим (с planted
-                    # symlink'ами внутри) → снести и создать заново. busybox `stat -c` нет —
-                    # владельца берём из `ls -ld`.
-                    if [ -L /tmp/z2k-log ] || { [ -e /tmp/z2k-log ] && [ ! -d /tmp/z2k-log ]; } || \
-                       { [ -d /tmp/z2k-log ] && [ "$(ls -ld /tmp/z2k-log 2>/dev/null | awk '{print $3}')" != root ]; }; then
-                        rm -rf /tmp/z2k-log 2>/dev/null
-                    fi
-                    mkdir -p /tmp/z2k-log 2>/dev/null && chown root /tmp/z2k-log 2>/dev/null
-                    chmod 700 /tmp/z2k-log 2>/dev/null
-                    "$MTPROXY_BIN" --listen=:1443 --timeout=15m -v >> /tmp/z2k-log/tg-tunnel.log 2>&1 &
-                fi
-                sleep 2
-
-                if pgrep -f "tg-mtproxy-client .*--listen=:1443" >/dev/null 2>&1; then
-                    print_success "Tunnel запущен"
-                    # Fallback path for installs that do not have S98 yet.
-                    if ! [ -x "/opt/etc/init.d/S98tg-tunnel" ]; then
-                        for cidr in 149.154.160.0/20 91.108.4.0/22 91.108.8.0/22 91.108.12.0/22 91.108.16.0/22 91.108.20.0/22 91.108.56.0/22 91.105.192.0/23 95.161.64.0/20 185.76.151.0/24; do
-                            iptables -t nat -C PREROUTING -d "$cidr" -p tcp --dport 443 -j REDIRECT --to-port 1443 2>/dev/null || \
-                                iptables -t nat -I PREROUTING 1 -d "$cidr" -p tcp --dport 443 -j REDIRECT --to-port 1443 2>/dev/null
-                            iptables -t nat -C OUTPUT -d "$cidr" -p tcp --dport 443 -j REDIRECT --to-port 1443 2>/dev/null || \
-                                iptables -t nat -I OUTPUT 1 -d "$cidr" -p tcp --dport 443 -j REDIRECT --to-port 1443 2>/dev/null
-                        done
-                    fi
-                    print_success "Telegram работает для всех устройств"
-                else
-                    print_error "Не удалось запустить"
-                    tail -5 /tmp/z2k-log/tg-tunnel.log 2>/dev/null
-                    rm -f "$MTPROXY_BIN"
-                    print_info "Бинарник удалён — нажмите [1] ещё раз для перескачивания"
-                fi
-                pause
-                ;;
-
-            2)
-                # Stop tunnel + cleanup. Set user-disabled marker BEFORE
-                # killing the process so the watchdog (cron, every minute)
-                # sees the flag and won't resurrect the daemon in 3 min.
-                if [ -f "${ZAPRET2_DIR}/config" ]; then
-                    if grep -q '^TG_PROXY_USER_DISABLED=' "${ZAPRET2_DIR}/config"; then
-                        sed -i 's/^TG_PROXY_USER_DISABLED=.*/TG_PROXY_USER_DISABLED=1/' "${ZAPRET2_DIR}/config"
-                    else
-                        echo "TG_PROXY_USER_DISABLED=1" >> "${ZAPRET2_DIR}/config"
-                    fi
-                fi
-                if [ -x "/opt/etc/init.d/S98tg-tunnel" ]; then
-                    /opt/etc/init.d/S98tg-tunnel stop >/dev/null 2>&1
-                    # И cdnbase (:1444), иначе процесс остаётся в памяти.
-                    [ -x "/opt/etc/init.d/S97z2k-http-tunnel" ] && \
-                        /opt/etc/init.d/S97z2k-http-tunnel stop >/dev/null 2>&1
-                else
-                    killall tg-mtproxy-client 2>/dev/null || true
-                    for cidr in 149.154.160.0/20 91.108.4.0/22 91.108.8.0/22 91.108.12.0/22 91.108.16.0/22 91.108.20.0/22 91.108.56.0/22 91.105.192.0/23 95.161.64.0/20 185.76.151.0/24; do
-                        while iptables -t nat -C PREROUTING -d "$cidr" -p tcp --dport 443 -j REDIRECT --to-port 1443 2>/dev/null; do
-                            iptables -t nat -D PREROUTING -d "$cidr" -p tcp --dport 443 -j REDIRECT --to-port 1443 2>/dev/null || break
-                        done
-                        while iptables -t nat -C OUTPUT -d "$cidr" -p tcp --dport 443 -j REDIRECT --to-port 1443 2>/dev/null; do
-                            iptables -t nat -D OUTPUT -d "$cidr" -p tcp --dport 443 -j REDIRECT --to-port 1443 2>/dev/null || break
-                        done
-                    done
-                fi
-                print_success "Telegram tunnel выключен (watchdog не будет восстанавливать)"
-                pause
-                ;;
-
-            [Bb])
-                return
-                ;;
-
-            *)
-                print_error "Неверный выбор"
-                pause
-                ;;
-        esac
-    done
-}
-
-# ==============================================================================
-# ПОДМЕНЮ: WHITELIST (ИСКЛЮЧЕНИЯ)
-# ==============================================================================
-
 menu_whitelist() {
     clear_screen
     print_header "Исключения по домену"

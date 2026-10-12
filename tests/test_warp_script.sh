@@ -213,17 +213,16 @@ assert_eq "ключ: применён" "0" "$rc"
 assert_eq "ключ: дошёл до движка через stdin" "AbC12345-dEf67890-GhI13579" "$(head -n1 "$SB/license.stdin")"
 assert_eq "ключ: в аргументах движка его нет" "0" "$(grep -c 'AbC12345' "$SB/warpd.log")"
 assert_eq "ключ: статус показывает тип аккаунта" "plan=unlimited plan_err=0" "$(W status | grep -o 'plan=[a-z]* plan_err=[01]')"
-# Напрямую не вышло — через релей, тем же ключом.
+# Отказ прямого Cloudflare завершает попытку без скрытого VPS fallback.
 clearlogs; rm -f "$SB/license.stdin"; touch "$SB/lic.directfail"
 rc=0; printf 'AbC12345-dEf67890-GhI13579' | W license >/dev/null 2>&1 || rc=$?
-assert_eq "ключ через релей: применён" "0" "$rc"
-assert_eq "ключ через релей: вторая попытка шла через --proxy" "1" "$(grep -c -- 'license .*--proxy' "$SB/warpd.log")"
-assert_eq "ключ через релей: оба раза тот же ключ" "2" "$(grep -c 'AbC12345-dEf67890-GhI13579' "$SB/license.stdin")"
-# Отказ Cloudflare через релей не повторяется: ответ был бы тем же.
+assert_eq "прямой отказ: код передан вызывающему" "1" "$rc"
+assert_eq "прямой отказ: proxy fallback не вызывается" "0" "$(grep -c -- '--proxy' "$SB/warpd.log")"
+assert_eq "прямой отказ: ключ отправлен один раз" "1" "$(grep -c 'AbC12345-dEf67890-GhI13579' "$SB/license.stdin")"
 clearlogs; rm -f "$SB/lic."*; touch "$SB/lic.reject"
 rc=0; out=$(printf 'bad-key-000' | W license 2>&1) || rc=$?
 assert_eq "отказ Cloudflare: код 3" "3" "$rc"
-assert_eq "отказ Cloudflare: через релей не повторяли" "0" "$(grep -c -- '--proxy' "$SB/warpd.log")"
+assert_eq "отказ Cloudflare: скрытый proxy fallback не запускается" "0" "$(grep -c -- '--proxy' "$SB/warpd.log")"
 assert_eq "отказ Cloudflare: текст отказа виден" "1" "$(printf '%s' "$out" | grep -c 'Invalid license')"
 rm -f "$SB/lic."* "$SB/etc/account.json"
 
@@ -278,8 +277,8 @@ clearlogs
 : > "$SB/tmp/engine.log"
 : > "$SB/warpd.log"; : > "$SB/s51.log"
 W selfheal >/dev/null 2>&1
-assert_eq "selfheal missing key: direct and relay registration attempted" "2" "$(grep -c '^register ' "$SB/warpd.log")"
-assert_eq "selfheal missing key: relay is the second attempt" "1" "$(grep -c '^register .*--proxy' "$SB/warpd.log")"
+assert_eq "selfheal missing key: одна прямая попытка регистрации" "1" "$(grep -c '^register ' "$SB/warpd.log")"
+assert_eq "selfheal missing key: proxy fallback не вызывается" "0" "$(grep -c '^register .*--proxy' "$SB/warpd.log")"
 assert_eq "selfheal missing key: daemon is not started after failed registration" "0" "$(grep -c '^start' "$SB/s51.log" 2>/dev/null || true)"
 assert_eq "selfheal missing key: registration reason is logged" "1" "$(grep -c 'нет ключа устройства — пробую зарегистрировать' "$SB/tmp/engine.log")"
 assert_eq "selfheal missing key: retry timestamp is recorded" "1" "$([ -s "$SB/tmp/register.stamp" ] && echo 1 || echo 0)"
@@ -314,7 +313,7 @@ clearlogs
 W selfheal >/dev/null 2>&1
 assert_eq "selfheal registration: disabled WARP performs no registration or start" "0" "$(cat "$SB/warpd.log" "$SB/s51.log" 2>/dev/null | grep -Ec '^(register |start$)' || true)"
 assert_eq "selfheal registration: shared helper is defined once" "1" "$(grep -c '^warp_register() {' "$SB/z2k/z2k-warp.sh")"
-assert_eq "selfheal registration: register invocations stay centralized" "2" "$(grep -c '"\$WARP_BIN" register' "$SB/z2k/z2k-warp.sh")"
+assert_eq "selfheal registration: register invocations stay centralized" "1" "$(grep -c '"\$WARP_BIN" register' "$SB/z2k/z2k-warp.sh")"
 assert_eq "selfheal registration: selfheal checks device identity" "1" "$(sed -n '/^warp_selfheal() {/,/^}/p' "$SB/z2k/z2k-warp.sh" | grep -c 'WARP_DEVICE')"
 printf 'GAME_WARP_ENABLED=1\n' > "$SB/z2k/config"
 printf '{"iface":"z2ktun0","id":"dev","endpoint":{"v4":"8.6.112.0","h2":"162.159.198.2"}}\n' > "$SB/etc/device.json"
