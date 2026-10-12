@@ -215,7 +215,7 @@ done
 command -v jsonfilter >/dev/null 2>&1 || die "после установки системных зависимостей отсутствует jsonfilter"
 
 if command -v wget >/dev/null 2>&1; then
-    download() { wget -q -T 60 -O "$2" "$1"; }
+    download() { wget -q -T 15 -O "$2" "$1"; }
 elif command -v curl >/dev/null 2>&1; then
     download() { curl --fail --location --silent --show-error --connect-timeout 10 --max-time 600 -o "$2" "$1"; }
 else
@@ -302,7 +302,13 @@ value_type() { jsonfilter -i "$MANIFEST" -t "@.$1" 2>/dev/null | head -n 1; }
 
 fetch_verified_manifest() {
     _manifest_verified=0
-    _manifest_bases="$BASE https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main"
+    # Предпочитать независимый CDN по умолчанию: DNS raw-origin в тестовой сети задерживался.
+    # Явно заданный приёмочный источник сохраняет свой приоритет.
+    if [ "${_acceptance_source:-0}" = 1 ]; then
+        _manifest_bases="$BASE https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main"
+    else
+        _manifest_bases="https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main $BASE"
+    fi
     for _manifest_base in $_manifest_bases; do
         _candidate_manifest="$TMP/UPDATES.candidate.json"
         _candidate_signature="$_candidate_manifest.sig"

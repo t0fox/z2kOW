@@ -68,6 +68,7 @@ if T="$T" FUNCTION_FILE="$T/function.sh" _run_manifest_case mirror; then
 else
     _t_bad "подпись прямого источника отклонена, зеркало выбрано"
 fi
+assert_eq "сначала запрашивается быстрое зеркало" "https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main/UPDATES.json" "$(head -n 1 "$T/mirror/sources.log")"
 assert_eq "в выбранном манифесте байты подписанного зеркала" \
     "$(cat "$T/mirror.json")" "$(cat "$T/mirror/UPDATES.json")"
 assert_contains "манифест привязан к подтверждённому зеркалу" \
@@ -83,6 +84,15 @@ if [ ! -e "$T/reject/UPDATES.json" ]; then
 else
     _t_bad "непроверенный manifest не публикуется"
 fi
+
+if _acceptance_source=1 T="$T" FUNCTION_FILE="$T/function.sh" _run_manifest_case override; then
+    _t_ok "явный приёмочный источник проверяется первым"
+else
+    _t_bad "явный приёмочный источник проверяется первым"
+fi
+assert_eq "явный источник сохраняет приоритет" \
+    "https://origin.invalid/z2kOW/main/UPDATES.json" \
+    "$(head -n 1 "$T/override/sources.log")"
 
 _untrusted_id="$(printf '%064d' 0)"
 if T="$T" FUNCTION_FILE="$T/function.sh" _run_manifest_case untrusted "$_untrusted_id"; then
