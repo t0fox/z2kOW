@@ -305,3 +305,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## QEMU DNS recovery и HTTPS после dnsmasq restart при блокировке VPS
 
 12 октября 2026 года в той же чистой OpenWrt 25.12.5 x86/64 QEMU временные output drop-правила блокировали только TCP/443 к `213.176.74.63` и `79.137.196.7`. После `/etc/init.d/dnsmasq restart` локальный DNS разрешил `api.github.com` с первой проверки; прямой `curl` к API завершился `HTTP 200`, TLS verify `0`, endpoint `140.82.113.5`. Оба block counter — `0`. Во время restart init-скрипт вывел `udhcpc: no lease`, но последующие DNS и HTTPS проверки прошли. Временная nft-таблица удалена, осталась только `inet fw4`.
+
+## Lifecycle, restart и state persistence регрессии
+
+12 октября 2026 года на `167ef750` прошли `test_ow_lifecycle.sh` `27/27`, `test_ow_restart.sh` `6/6` и `test_ow_state_persist.sh` `16/16`. Итого `49/49`, ошибок нет. Проверены OpenWrt procd start/stop rollback, общий updater restart hook и сохранение strategy state; общий release path не задействовался.
