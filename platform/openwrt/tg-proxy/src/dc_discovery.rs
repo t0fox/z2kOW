@@ -1,5 +1,5 @@
 use std::net::IpAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,6 +11,7 @@ use grammers_mtproto::mtp::{Deserialization, Encrypted, Mtp, Plain};
 use grammers_mtproto::transport::{Error as TransportError, Intermediate, Obfuscated, Transport};
 use grammers_tl_types::{Deserializable, RemoteCall, Serializable};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream};
+use tokio::process::Command;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 use tungstenite::Message;
@@ -30,6 +31,7 @@ const MAX_PACKET_BYTES: usize = 1024 * 1024;
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const MIN_REFRESH_SECS: u64 = 60 * 60;
 const MAX_REFRESH_SECS: u64 = 7 * 24 * 60 * 60;
+const OPENWRT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 // Идентификатор официального Telegram Android; для help.getConfig api_hash и вход в аккаунт не нужны.
 const TELEGRAM_CONFIG_API_ID: i32 = 4;
 
@@ -121,7 +123,7 @@ async fn bridge_ws_byte_stream(stream: DuplexStream, ws: TgWsStream) {
     let sink = Arc::new(Mutex::new(sink));
 
     let upload_sink = Arc::clone(&sink);
-    let mut upload = tokio::spawn(async move {
+    let upload = async move {
         let mut init = [0u8; crate::crypto::HANDSHAKE_LEN];
         reader
             .read_exact(&mut init)
@@ -172,10 +174,10 @@ async fn bridge_ws_byte_stream(stream: DuplexStream, ws: TgWsStream) {
             .await
             .map_err(|error| format!("не удалось закрыть исходящий WSS-поток: {error}"))?;
         Ok::<(), String>(())
-    });
+    };
 
     let download_sink = Arc::clone(&sink);
-    let mut download: tokio::task::JoinHandle<Result<(), String>> = tokio::spawn(async move {
+    let download = async move {
         loop {
             let message = source
                 .next()
@@ -187,7 +189,9 @@ async fn bridge_ws_byte_stream(stream: DuplexStream, ws: TgWsStream) {
                     .write_all(&data)
                     .await
                     .map_err(|error| format!("не удалось передать ответ WSS в MTProto: {error}"))?,
-                Message::Binary(_) => return Err("пакет ответа WSS превышает 1 MiB".to_string()),
+                Message::Binary(_) => {
+                    return Err::<(), String>("пакет ответа WSS превышает 1 MiB".to_string());
+                }
                 Message::Text(data) => writer
                     .write_all(data.as_bytes())
                     .await
@@ -205,20 +209,18 @@ async fn bridge_ws_byte_stream(stream: DuplexStream, ws: TgWsStream) {
                 _ => return Err("WSS прислал неподдерживаемый тип кадра".to_string()),
             }
         }
-    });
+    };
 
     tokio::select! {
-        result = &mut upload => {
-            if let Err(error) = result.unwrap_or_else(|error| Err(error.to_string())) {
+        result = upload => {
+            if let Err(error) = result {
                 warn!("Ошибка отправки bootstrap через WSS: {error}");
             }
-            download.abort();
         }
-        result = &mut download => {
-            if let Err(error) = result.unwrap_or_else(|error| Err(error.to_string())) {
+        result = download => {
+            if let Err(error) = result {
                 warn!("Ошибка получения bootstrap через WSS: {error}");
             }
-            upload.abort();
         }
     }
 }
@@ -471,12 +473,25 @@ pub async fn refresh_loop(
     if !transparent_ports.is_empty()
         && let Some(snapshot) = store.current()
     {
-        match write_endpoint_manifest(&endpoint_pairs_path, &snapshot, &transparent_ports) {
-            Ok(count) => info!(
-                "В nft подготовлены пары из последнего проверенного кэша Telegram DC: {count}"
-            ),
+        let sync_path = std::env::var_os("Z2K_TG_DC_MAP_SYNC").map(PathBuf::from);
+        match write_manifest_and_sync(
+            &endpoint_pairs_path,
+            &snapshot,
+            &transparent_ports,
+            sync_path.clone(),
+        )
+        .await
+        {
+            Ok(count) if sync_path.is_some() => {
+                info!("Кэш DC записан и синхронизирован через OpenWrt adapter: {count} пар");
+            }
+            Ok(count) => {
+                info!(
+                    "Manifest кэша Telegram DC обновлён: {count} пар; event adapter не задан, cron остаётся резервным механизмом"
+                );
+            }
             Err(error) => warn!(
-                "Не удалось обновить файл пар Telegram DC из кэша; сохранено предыдущее состояние: {error}"
+                "Не удалось записать manifest или синхронизировать кэш DC; прежнее nft-состояние сохранено, cron повторит проверку: {error}"
             ),
         }
     }
@@ -491,16 +506,28 @@ pub async fn refresh_loop(
                             installed.config_date
                         );
                         if !transparent_ports.is_empty() {
-                            match write_endpoint_manifest(
+                            let sync_path =
+                                std::env::var_os("Z2K_TG_DC_MAP_SYNC").map(PathBuf::from);
+                            match write_manifest_and_sync(
                                 &endpoint_pairs_path,
                                 &installed,
                                 &transparent_ports,
-                            ) {
-                                Ok(count) => info!(
-                                    "Для OpenWrt атомарно сохранены проверенные пары Telegram IP+порт: {count}"
-                                ),
+                                sync_path.clone(),
+                            )
+                            .await
+                            {
+                                Ok(count) if sync_path.is_some() => {
+                                    info!(
+                                        "Для OpenWrt синхронизированы проверенные пары Telegram IP+порт: {count}"
+                                    );
+                                }
+                                Ok(count) => {
+                                    info!(
+                                        "Manifest проверенных пар Telegram IP+порт сохранён: {count}; event adapter не задан, cron остаётся резервным механизмом"
+                                    );
+                                }
                                 Err(error) => warn!(
-                                    "Обновлена карта DC, но не её nft-пары; прошлый файл сохранён, listener продолжает работу: {error}"
+                                    "Обновлена карта DC, но nft-синхронизация не подтверждена; прежнее kernel-состояние сохранено, cron повторит проверку, listener продолжает работу: {error}"
                                 ),
                             }
                         }
@@ -524,6 +551,47 @@ pub async fn refresh_loop(
     }
 }
 
+async fn write_manifest_and_sync(
+    endpoint_pairs_path: &Path,
+    snapshot: &DcSnapshot,
+    transparent_ports: &[u16],
+    sync_path: Option<PathBuf>,
+) -> Result<usize, String> {
+    let count = write_endpoint_manifest(endpoint_pairs_path, snapshot, transparent_ports)
+        .map_err(|error| format!("manifest: {error}"))?;
+    sync_openwrt_adapter(sync_path)
+        .await
+        .map_err(|error| format!("OpenWrt nft sync: {error}"))?;
+    Ok(count)
+}
+
+/// Применить записанный endpoint-manifest через штатный OpenWrt adapter.
+/// При отказе nft транзакция сохраняет прежнее kernel-состояние; cron остаётся
+/// резервным механизмом повторной проверки.
+async fn sync_openwrt_adapter(path: Option<PathBuf>) -> Result<(), String> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    let mut child = Command::new(&path)
+        .arg("sync-dc-map")
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| format!("запуск OpenWrt adapter: {error}"))?;
+    match tokio::time::timeout(OPENWRT_SYNC_TIMEOUT, child.wait()).await {
+        Ok(Ok(status)) if status.success() => Ok(()),
+        Ok(Ok(status)) => Err(format!("OpenWrt adapter вернул {status}")),
+        Ok(Err(error)) => Err(format!("ожидание OpenWrt adapter: {error}")),
+        Err(_) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            Err(format!(
+                "OpenWrt adapter превысил тайм-аут {} секунд",
+                OPENWRT_SYNC_TIMEOUT.as_secs()
+            ))
+        }
+    }
+}
+
 fn unix_time() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -533,11 +601,91 @@ fn unix_time() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{TELEGRAM_CONFIG_API_ID, config_request, config_to_snapshot, exchange_encrypted};
+    use super::{
+        TELEGRAM_CONFIG_API_ID, config_request, config_to_snapshot, exchange_encrypted,
+        sync_openwrt_adapter, write_manifest_and_sync,
+    };
     use grammers_mtproto::mtp::Encrypted;
     use grammers_mtproto::transport::{Intermediate, Obfuscated};
     use grammers_tl_types::{self as tl, Serializable};
+    use std::fs;
+    use std::net::IpAddr;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use tokio::io::AsyncReadExt;
+
+    #[tokio::test]
+    async fn dc_manifest_is_written_before_event_hook_and_hook_errors_propagate() {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let directory = std::env::temp_dir().join(format!(
+            "tg-dc-sync-hook-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("tg-check.sh");
+        let manifest = PathBuf::from(format!("{}.manifest", path.display()));
+        fs::write(
+            &path,
+            "#!/bin/sh\n[ -s \"$0.manifest\" ] || exit 10\nprintf '%s\\n' \"$1\" > \"$0.args\"\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&path, permissions).unwrap();
+
+        let now = super::unix_time();
+        let options = crate::config::default_dc_bootstrap_ips()
+            .into_iter()
+            .map(|(id, address)| {
+                tl::types::DcOption {
+                    ipv6: address.parse::<IpAddr>().unwrap().is_ipv6(),
+                    media_only: false,
+                    tcpo_only: false,
+                    cdn: false,
+                    r#static: true,
+                    this_port_only: false,
+                    id: id as i32,
+                    ip_address: address.to_string(),
+                    port: 443,
+                    secret: None,
+                }
+                .into()
+            })
+            .collect();
+        let mut config = test_config(options);
+        config.date = now as i32;
+        config.expires = (now + 86_400) as i32;
+        let snapshot = config_to_snapshot(config).unwrap();
+
+        write_manifest_and_sync(&manifest, &snapshot, &[443, 5222], Some(path.clone()))
+            .await
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(format!("{}.args", path.display())).unwrap(),
+            "sync-dc-map\n"
+        );
+        assert!(
+            fs::read_to_string(&manifest)
+                .unwrap()
+                .starts_with("z2k-tg-dc-options-v1 ")
+        );
+
+        fs::write(&path, "#!/bin/sh\nexit 9\n").unwrap();
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&path, permissions).unwrap();
+        assert!(
+            write_manifest_and_sync(&manifest, &snapshot, &[443], Some(path.clone()))
+                .await
+                .unwrap_err()
+                .contains("OpenWrt nft sync")
+        );
+        assert!(fs::metadata(&manifest).is_ok());
+        assert!(sync_openwrt_adapter(None).await.is_ok());
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn converts_all_official_dc_option_flags_without_merging_cdn_and_media() {

@@ -4,6 +4,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -123,7 +124,7 @@ impl std::error::Error for RouteLookupError {}
 /// Кэш с резервной точной картой для первого запуска и offline-режима.
 pub struct DcMapStore {
     path: PathBuf,
-    snapshot: RwLock<Option<DcSnapshot>>,
+    snapshot: RwLock<Option<Arc<DcSnapshot>>>,
 }
 
 /// Получить только разрешённые точные пары адрес/порт для атомарного набора nft.
@@ -181,7 +182,8 @@ impl DcMapStore {
         let path = path.into();
         let now = unix_time();
         let snapshot = read_valid_snapshot(&path, now)
-            .or_else(|| read_valid_snapshot(&last_good_path(&path), now));
+            .or_else(|| read_valid_snapshot(&last_good_path(&path), now))
+            .map(Arc::new);
         Self {
             path,
             snapshot: RwLock::new(snapshot),
@@ -195,11 +197,11 @@ impl DcMapStore {
         }
     }
 
-    pub fn current(&self) -> Option<DcSnapshot> {
+    pub fn current(&self) -> Option<Arc<DcSnapshot>> {
         self.snapshot
             .read()
             .ok()
-            .and_then(|snapshot| snapshot.clone())
+            .and_then(|snapshot| snapshot.as_ref().map(Arc::clone))
     }
 
     /// Вернуть уникальные секреты точных TCP-only опций для разбора рукопожатия.
@@ -302,16 +304,16 @@ impl DcMapStore {
     pub fn install(&self, incoming: DcSnapshot, now: i64) -> Result<DcSnapshot, String> {
         validate_snapshot(&incoming, now)?;
         let previous = self.current();
-        let merged = match previous.as_ref() {
+        let merged = match previous.as_deref() {
             Some(previous) => merge_snapshots(previous, &incoming, now)?,
             None => incoming,
         };
-        persist_snapshot(&self.path, previous.as_ref(), &merged)?;
+        persist_snapshot(&self.path, previous.as_deref(), &merged)?;
         let mut current = self
             .snapshot
             .write()
             .map_err(|_| "не удалось заблокировать карту DC".to_string())?;
-        *current = Some(merged.clone());
+        *current = Some(Arc::new(merged.clone()));
         Ok(merged)
     }
 }
@@ -591,6 +593,7 @@ mod tests {
     use std::fs;
     use std::net::IpAddr;
     use std::path::PathBuf;
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::{
@@ -753,6 +756,30 @@ mod tests {
     }
 
     #[test]
+    fn current_reads_share_the_immutable_snapshot_generation() {
+        let directory = test_directory("shared-snapshot");
+        let store = DcMapStore::without_cache(directory.join("map.json"));
+        let now = unix_time();
+        let first_snapshot = current_complete(primary_endpoints_at(now));
+        store.install(first_snapshot.clone(), now).unwrap();
+
+        let first = store.current().unwrap();
+        let second = store.current().unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+
+        let mut next_snapshot = first_snapshot;
+        next_snapshot.fetched_at = now + 1;
+        next_snapshot.config_date = now + 1;
+        store.install(next_snapshot, now + 1).unwrap();
+        let next = store.current().unwrap();
+
+        assert!(!Arc::ptr_eq(&first, &next));
+        assert_eq!(first.config_date, now);
+        assert_eq!(next.config_date, now + 1);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn corrupted_primary_cache_loads_last_known_good_copy() {
         let directory = test_directory("lkg");
         let path = directory.join("map.json");
@@ -765,7 +792,7 @@ mod tests {
         fs::write(&backup, serde_json::to_vec(&snapshot).unwrap()).unwrap();
 
         let store = DcMapStore::load(&path);
-        assert_eq!(store.current(), Some(snapshot));
+        assert_eq!(store.current().as_deref(), Some(&snapshot));
         assert_eq!(
             store
                 .resolve("149.154.167.43".parse().unwrap(), 5222, false, Some(2))
@@ -1085,7 +1112,7 @@ mod tests {
             result.is_err(),
             "устаревшая конфигурация должна быть отклонена"
         );
-        assert_eq!(store.current(), Some(newer.clone()));
+        assert_eq!(store.current().as_deref(), Some(&newer));
         let cached: DcSnapshot = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         let last_good: DcSnapshot = serde_json::from_slice(&fs::read(&backup).unwrap()).unwrap();
         assert_eq!(cached, newer);

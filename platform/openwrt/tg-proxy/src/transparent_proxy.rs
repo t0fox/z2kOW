@@ -9,10 +9,68 @@ use tokio::net::TcpStream;
 use tracing::{debug, info, warn};
 
 use crate::config::Config;
+use crate::dc_map::RouteLookupError;
 use crate::routing::{self, Upstream};
 use crate::runtime::Runtime;
 use crate::transparent;
 use crate::ws_client::media_tag;
+
+fn effective_media_route(client_is_media: bool, endpoint_media_only: bool) -> bool {
+    client_is_media || endpoint_media_only
+}
+
+fn should_forward_unmapped_direct(error: &RouteLookupError, dc_hint: Option<u32>) -> bool {
+    *error == RouteLookupError::AddressNotListed && dc_hint.is_none()
+}
+
+async fn bridge_unmapped_tcp(
+    mut client: TcpStream,
+    init: [u8; crate::crypto::HANDSHAKE_LEN],
+    destination: SocketAddr,
+    peer: SocketAddr,
+    is_media: bool,
+    config: Arc<Config>,
+    runtime: Arc<Runtime>,
+) {
+    let host = destination.ip().to_string();
+    let timeout = Duration::from_secs(config.tcp_fallback_timeout);
+    match runtime
+        .outbound()
+        .connect(&host, destination.port(), timeout)
+        .await
+    {
+        Ok(mut remote) => {
+            if let Err(error) = remote.write_all(&init).await {
+                warn!(
+                    "[{}] не удалось передать начальный пакет в неизвестный прямой DC {}: {}",
+                    peer, destination, error
+                );
+                return;
+            }
+            match tokio::io::copy_bidirectional(&mut client, &mut remote).await {
+                Ok((bytes_up, bytes_down)) => info!(
+                    "[{}] неизвестный DC передан только напрямую к исходному назначению {}{}: вверх {} байт, вниз {} байт",
+                    peer,
+                    destination,
+                    media_tag(is_media),
+                    bytes_up + init.len() as u64,
+                    bytes_down
+                ),
+                Err(error) => debug!(
+                    "[{}] прямой поток к неизвестному DC {}{} завершился с ошибкой: {}",
+                    peer,
+                    destination,
+                    media_tag(is_media),
+                    error
+                ),
+            }
+        }
+        Err(error) => warn!(
+            "[{}] не удалось открыть прямой TCP к исходному назначению неизвестного DC {}: {}",
+            peer, destination, error
+        ),
+    }
+}
 
 /// Путь для прозрачного перехвата правилами REDIRECT на роутере. Начальный
 /// пакет obfuscated2 содержит DC и признак media, а SO_ORIGINAL_DST — точный IP DC.
@@ -108,6 +166,23 @@ pub async fn handle_transparent_client_with_runtime(
         init_info.dc,
     ) {
         Ok(route) => route,
+        Err(error) if should_forward_unmapped_direct(&error, init_info.dc) => {
+            warn!(
+                "[{}] адрес {} отсутствует в проверенной DC-карте; WSS relay не выбирается, поток направляется только к тому же исходному IP:port",
+                peer, destination
+            );
+            bridge_unmapped_tcp(
+                stream,
+                init,
+                destination,
+                peer,
+                init_info.is_media,
+                Arc::clone(&config),
+                Arc::clone(&runtime),
+            )
+            .await;
+            return;
+        }
         Err(error) => {
             warn!(
                 "[{}] прозрачный маршрут отклонён для {}: {} (DC из рукопожатия: {:?}, media: {})",
@@ -117,7 +192,7 @@ pub async fn handle_transparent_client_with_runtime(
         }
     };
     let dc = destination_route.id;
-    let is_media = destination_route.media_only;
+    let is_media = effective_media_route(init_info.is_media, destination_route.media_only);
     info!(
         "[{}] dcOption для {}: DC{}{}, карта={}, CDN={}, TCP-only={}, this-port-only={}, порт опции={}, порт клиента={}",
         peer,
@@ -199,5 +274,151 @@ pub async fn handle_transparent_client_with_runtime(
                 ),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{bridge_unmapped_tcp, effective_media_route, should_forward_unmapped_direct};
+    use crate::config::Config;
+    use crate::dc_map::{DcEndpoint, DcMapStore, DcSnapshot, RouteLookupError, lookup_endpoint};
+    use crate::outbound::OutboundConnector;
+    use crate::runtime::Runtime;
+    use std::net::IpAddr;
+    use std::net::Ipv4Addr;
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    #[test]
+    fn ordinary_dc_option_preserves_the_clients_media_session_hint() {
+        assert!(effective_media_route(true, false));
+        assert!(effective_media_route(true, true));
+        assert!(!effective_media_route(false, false));
+    }
+
+    #[test]
+    fn unmapped_tcp_passthrough_does_not_guess_a_dc_or_bypass_other_validation_errors() {
+        assert!(should_forward_unmapped_direct(
+            &RouteLookupError::AddressNotListed,
+            None
+        ));
+        assert!(!should_forward_unmapped_direct(
+            &RouteLookupError::AddressNotListed,
+            Some(2)
+        ));
+        assert!(!should_forward_unmapped_direct(
+            &RouteLookupError::MediaFlagMismatch,
+            None
+        ));
+        assert!(!should_forward_unmapped_direct(
+            &RouteLookupError::DcMismatch,
+            None
+        ));
+    }
+
+    #[test]
+    fn observed_unmapped_addresses_use_exact_direct_fallback_only_without_dc_hint() {
+        let store = DcMapStore::without_cache("/tmp/tg-transparent-unmapped-test.json");
+        for address in ["149.154.167.43", "91.108.56.137"] {
+            let error = store
+                .resolve_with_source(address.parse().unwrap(), 443, true, None)
+                .unwrap_err();
+            assert_eq!(error, RouteLookupError::AddressNotListed, "{address}");
+            assert!(should_forward_unmapped_direct(&error, None), "{address}");
+            assert!(
+                !should_forward_unmapped_direct(&error, Some(2)),
+                "DC hint must not let an unknown IP select a WSS route: {address}"
+            );
+        }
+    }
+
+    #[test]
+    fn official_regular_dc_option_keeps_media_session_and_media_only_validation() {
+        let now = 1_800_000_000;
+        let regular = DcEndpoint {
+            id: 2,
+            address: "149.154.167.151".parse::<IpAddr>().unwrap(),
+            port: 443,
+            ipv6: false,
+            media_only: false,
+            tcpo_only: false,
+            cdn: false,
+            is_static: false,
+            this_port_only: false,
+            secret: None,
+            last_seen: now,
+        };
+        let snapshot = DcSnapshot {
+            schema_version: 1,
+            fetched_at: now,
+            config_date: now,
+            config_expires: now + 86_400,
+            this_dc: 2,
+            endpoints: vec![regular],
+        };
+        let route = lookup_endpoint(
+            &snapshot,
+            "149.154.167.151".parse().unwrap(),
+            443,
+            true,
+            Some(2),
+        )
+        .unwrap();
+        assert!(!route.media_only);
+        assert!(effective_media_route(true, route.media_only));
+
+        let mut media_only_snapshot = snapshot;
+        media_only_snapshot.endpoints[0].media_only = true;
+        assert_eq!(
+            lookup_endpoint(
+                &media_only_snapshot,
+                "149.154.167.151".parse().unwrap(),
+                443,
+                false,
+                Some(2),
+            ),
+            Err(RouteLookupError::MediaFlagMismatch)
+        );
+    }
+
+    #[tokio::test]
+    async fn unmapped_connection_passes_the_same_destination_and_mtproto_bytes_directly() {
+        let target = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let destination = target.local_addr().unwrap();
+        let client_listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let mut client = TcpStream::connect(client_listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (proxy_side, peer) = client_listener.accept().await.unwrap();
+        let config = Arc::new(Config::try_from_cli_line("--tcp-fallback-timeout=1").unwrap());
+        let runtime = Arc::new(Runtime::new(OutboundConnector::direct()));
+        let init = [0x5a; 64];
+        let forward = tokio::spawn(bridge_unmapped_tcp(
+            proxy_side,
+            init,
+            destination,
+            peer,
+            true,
+            config,
+            runtime,
+        ));
+
+        client.write_all(b"data").await.unwrap();
+        client.shutdown().await.unwrap();
+        let (mut upstream, _) = target.accept().await.unwrap();
+        let mut received_init = [0; 64];
+        upstream.read_exact(&mut received_init).await.unwrap();
+        let mut received_payload = [0; 4];
+        upstream.read_exact(&mut received_payload).await.unwrap();
+        assert_eq!(received_init, init);
+        assert_eq!(&received_payload, b"data");
+        upstream.write_all(b"resPQ").await.unwrap();
+        upstream.shutdown().await.unwrap();
+
+        let mut response = [0; 5];
+        client.read_exact(&mut response).await.unwrap();
+        assert_eq!(&response, b"resPQ");
+        forward.await.unwrap();
     }
 }
