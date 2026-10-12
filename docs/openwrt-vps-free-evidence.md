@@ -141,7 +141,7 @@
 | RuTracker RT proxy | Независимый сторонний pool с прямым fallback; не использует собственную VPS | QEMU x86/64: полный HTTP ответ Cloudflare и `rutracker.org` при недоступном pool и блокировке VPS; RT proxy suites `171/171` | **Условно подтверждён**: если провайдер блокирует прямой сайт и сторонний pool недоступен, никакой маршрут без внешнего egress не гарантируется |
 | Telegram | Отдельный Rust-путь в работе другого агента | В рамках этой задачи Telegram код, тесты и runtime не проверялись | **Вне текущей проверки** по прямому указанию пользователя |
 | Чистая установка, обновление, rollback и удаление | Существующий signed `install_release(tag)` transaction, настройки и rollback сохранены | Bootstrap/update/recovery и release safety suites; один QEMU install attempt откатился до приёмки, когда общий start попытался задеть Telegram | **Не принято**: полный продуктовый lifecycle отсутствует как доказательство; общий CI также не запускался |
-| Архитектуры | Штатный OpenWrt runtime и дополнительные `z2k-warpd`/`z2k-rt-proxy` проверены отдельно по 7 целям | На `9e7bdc37`: OpenWrt arch `26/26`, pinned runtime artifact `29/29` (SHA совпал), WARP archmap `6/6`; на `7b7b00bd`: `nfqws2 --version` + профильный `--dry-run` под QEMU user-mode `14/14`; ранее 7 payload hashes/gzip и ABI двух дополнительных ELF `14/14` | **Частично**: QEMU/live runtime выполнен только x86/64; остальные ABI прошли CLI/parser smoke, но не полный OpenWrt runtime или сетевую NFQUEUE проверку |
+| Архитектуры | Штатный OpenWrt runtime и дополнительные `z2k-warpd`/`z2k-rt-proxy` проверены отдельно по 7 целям | На `9e7bdc37`: OpenWrt arch `26/26`, pinned runtime artifact `29/29`, WARP archmap `6/6`; на `7b7b00bd`: `nfqws2` CLI под QEMU user-mode `14/14`; на `148e89be`: версия и профильный `--dry-run` `nfqws2` внутри OpenWrt QEMU x86/64; ранее 7 payload hashes/gzip и ABI двух дополнительных ELF `14/14` | **Частично**: QEMU runtime проверен только на x86/64; во всех ABI подтверждён запуск CLI, но не полный OpenWrt runtime или сетевой NFQUEUE трафик |
 
 **Готовность к слиянию: не готово.** Главные незакрытые проверки — чистый install, обновление, полный rollback и uninstall в QEMU без запуска Telegram; live WARP control/data plane; runtime на остальных архитектурах. Локальные suites не являются GitHub CI; ветка не публиковалась.
 
@@ -404,6 +404,10 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## `nfqws2` runtime smoke по семи ABI
 
 12 октября 2026 года из того же закреплённого runtime archive извлечены только `binaries/linux-*/nfqws2`. Все семь ELF статически связаны; под установленным в Debian QEMU user-mode/binfmt каждый запустил `--version` и `--dry-run --qnum=200 --filter-tcp=443 --filter-l7=tls`: `14/14`, версия `v1.0.5.2-z2k-r0`. Проверка не открывала NFQUEUE и не генерировала пользовательский сетевой трафик, поэтому это ABI/CLI smoke, а не полноценный OpenWrt runtime. Архив и извлечённые бинарники из `/tmp` удалены.
+
+## `nfqws2` на OpenWrt QEMU
+
+12 октября 2026 года на `148e89be` закреплённый embedded runtime archive скачан и проверен по SHA-256 `02eec373b093083b426c27191bb6af260ac51e4e2739c51270270a351d2a1a16`. Только `linux-x86_64/nfqws2` передан в OpenWrt 25.12.5 x86/64 QEMU через временный локальный HTTP server; SHA-256 в госте совпал (`e8ff58236ba75c55f9bb67b38d0109fdd40cbb5718d0ffa31f59e9ebd2ad1726`). В госте `--version` сообщил `v1.0.5.2-z2k-r0`, а `--dry-run --qnum=200 --filter-tcp=443 --filter-l7=tls` — `command line parameters verified`. Это реальный запуск движка на OpenWrt, но dry-run не открывает NFQUEUE и не доказывает обработку LAN-пакетов или VPS-free пользовательский трафик. Гостевой бинарник удалён; host HTTP server остановлен и временные файлы удалены; в QEMU осталась только штатная `inet fw4`.
 
 ## Повторные updater/recovery regressions без Telegram
 
