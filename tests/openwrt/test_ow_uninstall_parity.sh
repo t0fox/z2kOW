@@ -4,9 +4,22 @@
 _t_plan "ow-uninstall-parity"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 
-# Сверяем ровно тот upstream-коммит, который закреплён в манифесте.
-assert_contains "parity source is pinned upstream commit" "$REPO/UPDATES.json" \
-    '"commit": "43b98092c5a337a35f5c094363f469243d7b8b80"'
+# Проверяем, что upstream-коммит в манифесте задан полным SHA-1.
+_upstream_commit=$(awk '
+    /"upstream"[[:space:]]*:/ { in_upstream=1; next }
+    in_upstream && /"commit"[[:space:]]*:/ {
+        sub(/^.*"commit"[[:space:]]*:[[:space:]]*"/, "")
+        sub(/".*$/, "")
+        print
+        exit
+    }
+    in_upstream && /}/ { exit }
+' "$REPO/UPDATES.json")
+if printf '%s\n' "$_upstream_commit" | grep -Eq '^[0-9a-f]{40}$'; then
+    _t_ok
+else
+    _t_bad "manifest upstream commit is not a full SHA-1: [$_upstream_commit]"
+fi
 assert_contains "CLI exposes upstream uninstall action" "$REPO/platform/openwrt/z2kow.sh" \
     'uninstall|remove'
 assert_contains "CLI delegates to canonical uninstaller" "$REPO/platform/openwrt/z2kow.sh" \

@@ -471,3 +471,11 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 Один raw-origin probe в этой итерации использовал ошибочный owner `necronicle` и получил HTTP `404` за `0,45 с`; это не проверка DNS timeout и не входит в подтверждённые результаты. Закреплённый production helper в этой итерации не запускался целиком с curl: в QEMU отдельно проверена та же цепочка доставки и Ed25519-проверки. Предыдущий полный helper E2E использовал BusyBox wget.
 
 Остаточные ограничения: полный bootstrap, установка, обновление, rollback и удаление продукта в QEMU ещё не приняты; запуск helper с curl и сценарий зависшего DNS требуют отдельной проверки. `apk update` остаётся до установки curl, хотя в этом прогоне прямые OpenWrt feeds успешно обновились при блокировке обоих VPS.
+
+## Повторные OpenWrt регрессии и устранение устаревшей проверки
+
+12 октября 2026 года в ветке `feat/openwrt-vps-free` повторно прошли bootstrap timeout/download/mirrors `1/1`, `8/8`, `13/13`; Insta-IP boundary/runtime/no-op rollback `35/35`, `26/26`, `11/11`; updater entry/failsafe/state/recovery `12/12`, `5/5`, `7/7`, `13/13`; uninstall parity `85/85` — всего `216/216` assertions. Все suites запускались в Debian WSL, Telegram suites не запускались.
+
+Первый запуск uninstall parity выявил устаревшую фикстуру: она ожидала upstream commit `43b98092c5a337a35f5c094363f469243d7b8b80`, тогда как неизменённый подписанный `UPDATES.json` закрепляет текущий полный commit `b820fdfa406acdee6e42cd6d29b46db966453857` (`p-86.18`, `seq=142`). Проверка изменена на валидацию формата SHA-1 поля именно в объекте `upstream`; после этого suite прошёл `85/85`. `UPDATES.json` и подпись не изменялись.
+
+Повторная проверка состояния QEMU после сетевых probes подтвердила только штатную nft-таблицу `inet fw4`; `/usr/lib/z2k` и installed-release отсутствуют. Поэтому эти регрессии не являются приёмкой clean install/update/rollback/uninstall продукта. Полная сборка штатного rootfs включает `scripts/openwrt/build_tg_ws_proxy.sh`; она не запускалась, чтобы не собирать и не затрагивать Telegram-компонент, который выполняет другой агент. Полная QEMU-жизненная приёмка остаётся незакрытой.
