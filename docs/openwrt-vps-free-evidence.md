@@ -289,3 +289,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Runtime artifact и OpenWrt archmap
 
 12 октября 2026 года на `18be002d` `test_ow_runtime_artifact.sh` прошёл `29/29` на архиве, загруженном по URL из `platform/openwrt/runtime-pin`: размер `4 339 405` байт, SHA-256 `02eec373b093083b426c27191bb6af260ac51e4e2739c51270270a351d2a1a16`. Suite подтвердил наличие `nfqws2`, `ip2net` и `mdig` для семи OpenWrt архитектур и запуск закреплённого x86/64 движка. `test_ow_warp_archmap.sh` прошёл `6/6`. Архив удалён после теста; продуктовый release builder не запускался.
+
+## Повторный QEMU direct HTTPS при блокировке VPS
+
+12 октября 2026 года на чистой OpenWrt 25.12.5 x86/64 QEMU, на HEAD `525f3316`, временные nft output drop-правила затрагивали только TCP/443 к `213.176.74.63` и `79.137.196.7`. При отсутствии proxy-переменных и `/dev/net/tun` прямой запрос к `https://api.github.com/zen` завершился `HTTP 200`, TLS verify `0`, endpoint `140.82.113.6`. Счётчики обоих VPS-drop правил остались `0`; после проверки временная таблица удалена, осталась только штатная `inet fw4`. Это подтверждает прямой HTTPS маршрут при недоступном старом VPS, но не полный install/update/rollback продукта.
