@@ -321,3 +321,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## WebPanel transport call path
 
 12 октября 2026 года повторно прослежен update-manifest путь WebPanel: `api.sh` загружает `webpanel/cgi/platform.sh` до `actions.sh`, а platform seam подключает `platform/openwrt/env.sh`, экспортирующий `Z2K_FETCH_VPS_OUT=1`; вложенный `z2k_fetch` наследует этот режим. `test_ow_source_order.sh` прошёл `2/2`, `test_ow_webpanel_unit.sh` — `37/37`. Вместе с list-refresh wrapper, WARP games cron и исправленным post-install seed закрыты обнаруженные OpenWrt caller-ы общего fetch transport.
+
+## WARP optional-function regressions
+
+12 октября 2026 года на `b0228261` повторно прошли `test_ow_warp_static.sh` `92/92` и `test_ow_warp_parity.sh` `39/39` — `131/131`. Проверки подтверждают статическую конфигурацию и parity WARP-путей; сами по себе они не доказывают полноценный продуктовый VPS-free install/update lifecycle. Telegram не затрагивался.
