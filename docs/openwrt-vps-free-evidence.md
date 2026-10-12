@@ -337,3 +337,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Изолированные release safety regression suites
 
 12 октября 2026 года из чистого detached snapshot `7d789e73` прошли suites без ссылок на TG: archive validation `7/7`, immutable release ref `6/6`, Ed25519 manifest signing `19/19`, storage persistence/path safety `17/17` — всего `49/49`. Они проверяют валидацию архива, подписи и хранилища; live запуск служб и полный install/update/rollback/uninstall цикл не подтверждают.
+
+## Изоляция OpenWrt geosite mirrors от Keenetic
+
+12 октября 2026 года проверка общего `files/z2k-geosite.sh` выявила, что добавленные для OpenWrt HTTPS mirrors также вызывались на Keenetic, а `show` перестал использовать прежний прямой запрос. Новые Keenetic assertions сначала упали: при отказе direct/VPS выполнялись оба mirror-запроса, а `show` проходил через VPS и mirrors. В `656decc0` mirror fallback и новый `show` transport ограничены `Z2K_PLATFORM=openwrt`; Keenetic получил исходное поведение. После исправления прошли fetch/geosite suites: `test_fetch_vps_layer_budget` `48/48`, VPS independence `4/4`, cache reinstall `41/41`, apply guard `17/17`, inject `19/19`, RKN asset `9/9`, OpenWrt geosite adapter `9/9`, list refresh adapter `9/9` — `156/156`; `sh -n` успешен.
