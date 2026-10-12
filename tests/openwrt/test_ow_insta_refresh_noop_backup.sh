@@ -8,7 +8,7 @@ FAIL=0
 cleanup() { rm -rf "$T"; }
 trap cleanup EXIT HUP INT TERM
 ok() { PASS=$((PASS + 1)); printf '[PASS] %s\n' "$1"; }
-bad() { FAIL=$((FAIL + 1)); printf '[FAIL] %s\n' "$1"; }
+bad() { FAIL=$((FAIL + 1)); printf 'FAIL[ow-insta-refresh-noop-backup]: %s\n' "$1"; }
 
 mkdir -p "$T/bin" "$T/state" "$T/lists"
 cp "$REPO/files/lists/meta-ranges.txt" "$T/lists/meta-ranges.txt"
@@ -166,5 +166,5 @@ else
     ok "conntrack не очищается при неподтверждённом rollback"
 fi
 
-printf '\ntest_ow_insta_refresh_noop_backup.sh: PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
+printf '\nSUITE[ow-insta-refresh-noop-backup]: pass=%s fail=%s\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
