@@ -665,9 +665,18 @@ jobs:
           runtime_archive="$RUNNER_TEMP/zapret2-ci.tar.gz"
           runtime_url=$(sed -n 's/^URL=//p' platform/openwrt/runtime-pin | tr -d '\r\n')
           runtime_sha=$(sed -n 's/^SHA256=//p' platform/openwrt/runtime-pin | tr -d '\r\n')
-          curl --fail --location --silent --show-error --connect-timeout 10 --max-time 300 \
-            -o "$runtime_archive" "$runtime_url"
-          printf '%s  %s\n' "$runtime_sha" "$runtime_archive" | sha256sum -c -
+          runtime_path="${runtime_url#https://github.com/}"
+          runtime_downloaded=0
+          for source in "$runtime_url" "https://ghproxy.net/https://github.com/$runtime_path" \
+              "https://gh-proxy.com/https://github.com/$runtime_path"; do
+            if curl --fail --location --silent --show-error --connect-timeout 10 --max-time 300 \
+                -o "$runtime_archive" "$source" && \
+                printf '%s  %s\n' "$runtime_sha" "$runtime_archive" | sha256sum -c -; then
+              runtime_downloaded=1
+              break
+            fi
+          done
+          test "$runtime_downloaded" -eq 1
           Z2K_RT_TARBALL="$runtime_archive" sh tests/openwrt/run.sh
 
   openwrt-unified:
