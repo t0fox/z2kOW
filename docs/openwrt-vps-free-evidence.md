@@ -235,3 +235,15 @@ Legacy `files/z2k-warp.sh` с VPS proxy default не включён в OpenWrt r
 ## Повторный прямой HTTPS E2E в чистом QEMU
 
 12 октября 2026 года повторно проверена VM `z2k-vps-free-test` через serial-консоль: OpenWrt 25.12.5 x86/64, без установленного продукта (`install_release` и `/usr/lib/z2k` отсутствуют). Временное nft output-правило отклоняло TCP/443 только к `213.176.74.63` и `79.137.196.7`. Прямой `curl --proxy '' --noproxy '*' https://api.github.com/zen` вернул HTTP 200 и 31 байт; оба счётчика старых VPS endpoint равны 0. В госте отсутствуют `/dev/net/tun` и HTTP(S)/ALL proxy-переменные. После проверки временная таблица удалена; осталась только штатная `inet fw4`. Это подтверждает прямой HTTPS из чистого OpenWrt при недоступности старых VPS, но не заменяет проверку полного product install/update/rollback/uninstall.
+
+## Повторные non-TG регрессии на `5ea94222`
+
+После QEMU E2E повторно прошли изолированные suites:
+
+- Fetch/geosite: `test_fetch_vps_layer_budget` `48/48`, `test_geosite_vps_independence` `2/2`, `test_geosite_cache_survives_reinstall` `41/41`, `test_geosite_apply_guard` `17/17`, `test_geosite_inject` `19/19`, `test_geosite_rkn_asset` `9/9` — всего `136/136`.
+- Bootstrap/updater: `test_ow_bootstrap_download_validation` `8/8`, `test_ow_bootstrap_manifest_mirrors` `7/7`, `test_ow_update_entry` `12/12`, `test_ow_updater_failsafe` `5/5`, `test_ow_updater_state` `7/7`, `test_ow_recovery` `13/13` — `52/52`.
+- Insta-IP: `test_ow_insta_boundary` `35/35`, `test_ow_insta_runtime` `24/24`, `test_ow_insta_refresh_noop_backup` `11/11` — `70/70`; `test_diag_clock_skew_vps_free` — `7/7`.
+- WARP: `test_ow_warp_static` `92/92`, `test_ow_warp_parity` `39/39`, `test_ow_warp_archmap` `6/6` — `137/137`.
+- Release/offload: `test_ow_release_signing.py` `12/12`, `test_ow_immutable_release_check.py` `6/6`, `test_ow_offload_benchmark` `142/142` — `160/160`.
+
+Итого `562/562`. Suites Telegram, изменённый другим агентом `platform/openwrt/release.sh`, installer и unified-release не запускались. Эти проверки не являются полным продуктовым install/update/rollback/uninstall в QEMU.
