@@ -345,7 +345,7 @@ fetch_to_tmp() {
                 export Z2K_FETCH_DIRECT_CONNFAILS
                 if [ "$Z2K_FETCH_DIRECT_CONNFAILS" -ge "$(z2k_uint "${Z2K_FETCH_DIRECT_GIVEUP:-2}" 2 1 20)" ]; then
                     Z2K_FETCH_DIRECT_OUT=1; export Z2K_FETCH_DIRECT_OUT
-                    log "  прямой GitHub не отвечает $Z2K_FETCH_DIRECT_CONNFAILS раз подряд — перехожу к следующему источнику"
+                    log "  прямой GitHub не отвечает $Z2K_FETCH_DIRECT_CONNFAILS раз подряд — дальше через VPS"
                 fi
             fi
             http="000"
@@ -428,7 +428,8 @@ fetch_to_tmp() {
     # OpenWrt отключает VPS Layer 0. После прямого origin пробуем независимые
     # HTTPS-зеркала GitHub Releases. HTTP-ответ и содержимое списка проверяются
     # до применения; ошибка одного зеркала не мешает следующему.
-    if ! { [ "$http" = "304" ] || { [ "$http" = "200" ] && [ -s "$tmp" ]; }; }; then
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] \
+       && ! { [ "$http" = "304" ] || { [ "$http" = "200" ] && [ -s "$tmp" ]; }; }; then
         local _mirror_url _mirror_raw _mirror_rc _mirror_http
         local _mirror_urls="${Z2K_GEOSITE_RELEASE_MIRRORS:-}"
         case "$url" in
@@ -1291,10 +1292,15 @@ show_asset() {
     local asset="${1:-}"
     [ -z "$asset" ] && die "show: asset name required (e.g. ru-blocked.txt)"
     ensure_deps
-    ETAG_DIR="$TMP_DIR/show-etag"
-    mkdir -p "$ETAG_DIR" || die "show: cannot create temporary ETag directory"
-    fetch_to_tmp "$asset" || die "fetch $asset failed"
-    cat "$TMP_DIR/$asset" || die "show: cannot read fetched asset"
+    if [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ]; then
+        ETAG_DIR="$TMP_DIR/show-etag"
+        mkdir -p "$ETAG_DIR" || die "show: cannot create temporary ETag directory"
+        fetch_to_tmp "$asset" || die "fetch $asset failed"
+        cat "$TMP_DIR/$asset" || die "show: cannot read fetched asset"
+    else
+        curl -fsSL --connect-timeout 15 --max-time 600 \
+             "$RELEASE_BASE/$asset" || die "fetch $asset failed"
+    fi
 }
 
 # --- status: current production line counts --------------------------------

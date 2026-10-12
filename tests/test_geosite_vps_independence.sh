@@ -48,6 +48,7 @@ result=$(env -i PATH="$TMP/bin:$Z2K_TEST_PATH" HOME="$TMP" \
     "$Z2K_TEST_SH" -c '
         . "$FUNCTIONS"
         RELEASE_BASE=https://github.com/t0fox/z2kOW/releases/latest/download
+        Z2K_PLATFORM=openwrt
         Z2K_FETCH_DIRECT_FIRST=1
         Z2K_FETCH_VPS_OUT=1
         _z2k_vps_gh_resolve() { printf " --resolve github.com:443:203.0.113.9"; }
@@ -71,7 +72,7 @@ esac
 
 show_rc=0
 env -i PATH="$TMP/bin:$Z2K_TEST_PATH" HOME="$TMP" \
-    CURL_LOG="$TMP/show-curl.log" Z2K_FETCH_VPS_OUT=1 \
+    CURL_LOG="$TMP/show-curl.log" Z2K_PLATFORM=openwrt Z2K_FETCH_VPS_OUT=1 \
     ZAPRET2_DIR="$TMP/show-zapret" \
     RELEASE_BASE=https://github.com/t0fox/z2kOW/releases/latest/download \
     sh "$ROOT/files/z2k-geosite.sh" show openwrt-release-operations.md \
@@ -85,6 +86,66 @@ else
     no "show поддерживает mirror fallback без VPS" \
         'rc=0 body=проверенный список mirror=gh-proxy.com vps=0' \
         "rc=$show_rc body=$(cat "$TMP/show.out" 2>/dev/null) calls=$(cat "$TMP/show-curl.log" 2>/dev/null)"
+fi
+
+# Keenetic сохраняет прежний порядок: прямой запрос, затем VPS; OpenWrt mirrors
+# не должны появляться в общей функции для остальных платформ.
+mkdir -p "$TMP/keenetic-bin"
+mkdir -p "$TMP/keenetic-etag" "$TMP/keenetic-tmp"
+cat > "$TMP/keenetic-bin/curl" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" >> "$CURL_LOG"
+url=
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --resolve) shift 2 ;;
+        https://*) url="$1"; shift ;;
+        *) shift ;;
+    esac
+done
+case "$url" in
+    *ghproxy.net*|*gh-proxy.com*) printf 'зеркала доступны только в OpenWrt\n'; exit 0 ;;
+    *) printf '000 0.010000'; exit 7 ;;
+esac
+STUB
+chmod 0755 "$TMP/keenetic-bin/curl"
+keenetic_result=$(env -i PATH="$TMP/keenetic-bin:$Z2K_TEST_PATH" HOME="$TMP" \
+    CURL_LOG="$TMP/keenetic-fetch.log" FUNCTIONS="$TMP/functions.sh" \
+    ETAG_DIR="$TMP/keenetic-etag" TMP_DIR="$TMP/keenetic-tmp" \
+    "$Z2K_TEST_SH" -c '
+        . "$FUNCTIONS"
+        RELEASE_BASE=https://github.com/t0fox/z2kOW/releases/latest/download
+        Z2K_PLATFORM=keenetic
+        Z2K_FETCH_DIRECT_FIRST=1
+        _z2k_vps_gh_resolve() { printf " --resolve github.com:443:203.0.113.9"; }
+        log() { :; }
+        if fetch_to_tmp openwrt-release-operations.md; then rc=0; else rc=$?; fi
+        v=$(grep -c -- --resolve "$CURL_LOG" 2>/dev/null); [ -n "$v" ] || v=0
+        m=$(grep -Ec "ghproxy[.]net|gh-proxy[.]com" "$CURL_LOG" 2>/dev/null); [ -n "$m" ] || m=0
+        printf "rc=%s vps=%s mirrors=%s" "$rc" "$v" "$m"
+    ')
+case "$keenetic_result" in
+    'rc=1 vps=2 mirrors=0')
+        ok "Keenetic geosite сохраняет VPS fallback без новых mirror путей" ;;
+    *)
+        no "Keenetic geosite не использует OpenWrt mirrors" \
+            'rc=1 vps=2 mirrors=0' "$keenetic_result" ;;
+esac
+
+keenetic_show_rc=0
+env -i PATH="$TMP/keenetic-bin:$Z2K_TEST_PATH" HOME="$TMP" \
+    CURL_LOG="$TMP/keenetic-show-curl.log" Z2K_PLATFORM=keenetic \
+    ZAPRET2_DIR="$TMP/keenetic-show-zapret" \
+    RELEASE_BASE=https://github.com/t0fox/z2kOW/releases/latest/download \
+    sh "$ROOT/files/z2k-geosite.sh" show openwrt-release-operations.md \
+    > "$TMP/keenetic-show.out" 2> "$TMP/keenetic-show.err" || keenetic_show_rc=$?
+if [ "$keenetic_show_rc" -ne 0 ] \
+   && ! grep -Eq 'ghproxy[.]net|gh-proxy[.]com|--resolve' "$TMP/keenetic-show-curl.log"; then
+    ok "Keenetic show сохраняет прямой запрос без новых transport слоёв"
+else
+    no "Keenetic show сохраняет прежний прямой transport" \
+        'rc!=0 mirror=0 vps=0' \
+        "rc=$keenetic_show_rc calls=$(cat "$TMP/keenetic-show-curl.log" 2>/dev/null)"
 fi
 
 printf '\ntest_geosite_vps_independence.sh: PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
