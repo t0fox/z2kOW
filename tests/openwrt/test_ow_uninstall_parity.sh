@@ -21,7 +21,7 @@ assert_not_contains "old package-manager-only message is gone" \
     "$REPO/webpanel/cgi/platform.sh" 'удаление z2k на OpenWrt — через пакетный менеджер'
 assert_contains "uninstall removes the single canonical release record" \
     "$REPO/platform/openwrt/uninstall.sh" 'Z2K_OW_INSTALLED_RELEASE_FILE'
-assert_contains "uninstall preserves WARP device identity" \
+assert_contains "uninstall preserves WARP identity" \
     "$REPO/platform/openwrt/uninstall.sh" 'device.json'
 assert_contains "uninstall uses the DoH adapter for ownership-safe cleanup" \
     "$REPO/platform/openwrt/uninstall.sh" 'z2k_ow_doh_uninstall'
@@ -180,6 +180,7 @@ cat > "$Z2K_FW4_RELOAD" <<'EOF'
 #!/bin/sh
 echo "firewall-$1" >> "$Z2K_UNINSTALL_TEST_LOG"
 [ -e "$Z2K_OW_WARP_NFT_FILE" ] && exit 0
+if [ "${Z2K_OW_FAIL_FW4_RELOAD:-0}" = 1 ]; then exit 1; fi
 if [ "${Z2K_OW_KEEP_FW4_RULE:-0}" != 1 ]; then
     grep -vF '!z2k: WARP forwarded traffic' "$Z2K_OW_FW4_STATE" > "$Z2K_OW_FW4_STATE.new"
     _rc=$?
@@ -215,8 +216,7 @@ ln -s ../init.d/z2k-webpanel "$Z2K_RC_PANEL"
 export Z2K_CORE_PROCESS="$T/core.process" Z2K_PANEL_PROCESS="$T/panel.process"
 export Z2K_TG_PROCESS="$T/tg.process" Z2K_RT_PROCESS="$T/rt.process" Z2K_WARP_PROCESS="$T/warp.process"
 
-# Upstream user data is deleted with CONFIG_DIR and the product tree; the
-# registered WARP identity is the one explicit exception.
+# User configuration is removed; registered WARP credentials are preserved.
 printf 'ENABLED=1\nUSER_SETTING=keep-only-for-test\n' > "$Z2K_ETC/config"
 printf 'user.example\n' > "$Z2K_USER_LISTS/whitelist.txt"
 printf 'custom.example\n' > "$Z2K_USER_LISTS/extra-domains.txt"
@@ -291,6 +291,8 @@ assert_contains "uninstall removes TikTok DNS integration" "$Z2K_UNINSTALL_TEST_
 [ ! -e "$Z2K_STATE/tcp16_sni.txt" ] && _t_ok || _t_bad "TCP16 state removed"
 [ ! -e "$Z2K_STATE/installed-release" ] && _t_ok || _t_bad "canonical release state removed"
 [ ! -e "$Z2K_ETC/webpanel/port" ] && _t_ok || _t_bad "WebPanel settings follow upstream uninstall semantics"
+[ -f "$WARP_DEVICE" ] && _t_ok || _t_bad "WARP identity remains available after uninstall"
+[ ! -e "$Z2K_ETC/config" ] && _t_ok || _t_bad "configuration is removed while WARP state remains"
 assert_contains "WARP identity is retained byte-for-byte" "$WARP_DEVICE" 'warp-device-preserved'
 [ "$(stat -c %a "$WARP_DEVICE" 2>/dev/null)" = 600 ] && _t_ok || _t_bad "WARP identity permissions retained"
 assert_contains "WARP account sidecar is preserved" "$(dirname "$WARP_DEVICE")/account.json" 'preserve'
@@ -327,8 +329,7 @@ assert_eq "repeated uninstall is idempotent" "0" "$_repeat_rc"
 assert_file "repeated uninstall keeps WARP identity" "$WARP_DEVICE"
 
 # Recreate a new release payload and run the real OpenWrt config bootstrap.
-# The old config/lists stay deleted; only upstream's registered WARP identity
-# is reused by reinstall.
+# A subsequent bootstrap starts without old config/lists and reuses WARP identity.
 mkdir -p "$Z2K_ROOT/share" "$Z2K_ROOT/lists" \
     "$Z2K_ROOT/extra_strats/TCP/YT" "$Z2K_ROOT/extra_strats/TCP/YT_GV" \
     "$Z2K_ROOT/extra_strats/TCP/RKN" "$Z2K_ROOT/extra_strats/UDP/YT" \
@@ -396,8 +397,7 @@ assert_eq "uninstall succeeds with services already stopped" "0" "$_stopped_rc"
 [ ! -e "$Z2K_ROOT" ] && _t_ok || _t_bad "stopped-service uninstall removes payload"
 assert_file "stopped-service uninstall retains only WARP identity" "$WARP_DEVICE"
 
-# Upstream only preserves WARP registration when that directory exists. A
-# router without WARP must still lose config/lists/state on ordinary uninstall.
+# Without WARP registration, all remaining persistent project data is removed.
 mkdir -p "$T/no-warp/etc/z2k/user-lists"
 printf 'ordinary user config\n' > "$T/no-warp/etc/z2k/config"
 (
@@ -440,5 +440,14 @@ assert_contains "fw4 cleanup failure retains its live rule with the install" \
     "$Z2K_OW_FW4_STATE" '!z2k: WARP forwarded traffic'
 assert_file "fw4 cleanup failure retains the release state" "$Z2K_STATE/installed-release"
 unset Z2K_OW_KEEP_FW4_RULE
+
+# Ошибка перезагрузки допустима, если nft подтвердил отсутствие правила.
+printf 'z2kow-owned\n' > "$Z2K_OW_WARP_NFT_FILE"
+printf '%s\n' 'table inet fw4 {' ' chain forward {' ' }' '}' > "$Z2K_OW_FW4_STATE"
+export Z2K_OW_FAIL_FW4_RELOAD=1
+_fw4_reload_rc=0; _z2k_ow_uninstall_fw4_include || _fw4_reload_rc=$?
+assert_eq "ошибка reload не мешает удалению при отсутствии правила WARP" "0" "$_fw4_reload_rc"
+[ ! -e "$Z2K_OW_WARP_NFT_FILE" ] && _t_ok || _t_bad "после проверки удалён include WARP"
+unset Z2K_OW_FAIL_FW4_RELOAD
 
 _t_done

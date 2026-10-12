@@ -102,8 +102,7 @@ _z2k_ow_uninstall_has_owned_install() {
             return 0
         fi
     done
-    # /etc/z2k is retained only as the upstream WARP identity/config directory
-    # after a successful uninstall. Ignore that one subtree on repeat calls.
+    # После успешного удаления остаётся только отдельная регистрация WARP.
     if [ -d "$Z2K_ETC" ]; then
         _entry=$(find "$Z2K_ETC" -mindepth 1 ! -path "$_warp_dir" \
             ! -path "$_warp_dir/*" -print -quit 2>/dev/null)
@@ -172,7 +171,10 @@ _z2k_ow_uninstall_fw4_include() {
         rm -f "$_file" || { rm -f "$_saved"; return 1; }
     fi
     if [ -n "$_saved" ] || printf '%s\n' "$_rules" | grep -qF "$_rule"; then
-        [ -x "$_reload" ] && "$_reload" reload >/dev/null 2>&1 || _rc=1
+        # A stopped or already-unloaded fw4 can return nonzero for reload even
+        # when no owned rule is active. The post-reload nft check is the source
+        # of truth; an owned rule that remains still fails closed below.
+        [ -x "$_reload" ] && "$_reload" reload >/dev/null 2>&1 || true
     fi
     _rules=$("$_nft" list ruleset 2>/dev/null) || _rc=1
     if printf '%s\n' "$_rules" | grep -qF "$_rule"; then
@@ -278,7 +280,7 @@ _z2k_ow_uninstall_cleanup_trap() {
 }
 
 z2k_ow_uninstall() (
-    local _rc=0 _work _state _preserved_warp=0
+    local _rc=0 _work _state
     Z2K_OW_CORE_INIT="${Z2K_OW_CORE_INIT:-$(z2k_ow_path /etc/init.d/z2k)}"
     Z2K_OW_PANEL_INIT="${Z2K_OW_PANEL_INIT:-$(z2k_ow_path /etc/init.d/z2k-webpanel)}"
     Z2K_OW_HOTPLUG_FILE="${Z2K_OW_HOTPLUG_FILE:-$(z2k_ow_path /etc/hotplug.d/iface/90-z2k)}"
@@ -353,21 +355,16 @@ z2k_ow_uninstall() (
         return 1
     fi
 
-    # A successful upstream uninstall removes config, lists, custom strategies,
-    # autocircular/TCP16/release state and panel settings. Its WARP registration
-    # directory lives outside the removed tree and survives; move that one small
-    # directory aside on the same filesystem, remove /etc/z2k, then restore it.
-    _z2k_ow_uninstall_preserve_warp_move || {
-        echo "z2k-openwrt: не удалось безопасно сохранить данные регистрации WARP; файлы программы оставлены" >&2
-        return 1
-    }
-
     _z2k_ow_uninstall_progress "удаляю рабочие файлы, резервную копию для отката и временные данные"
     rm -rf "$Z2K_OW_INSTALL_WORK" || { echo "z2k-openwrt: не удалось удалить рабочие данные транзакции установки" >&2; return 1; }
     rm -rf "$Z2K_OW_ROLLBACK_DIR" || { echo "z2k-openwrt: не удалось удалить резервную копию для отката" >&2; return 1; }
     rm -rf "$Z2K_ZAPRET2_RUNTIME" || { echo "z2k-openwrt: не удалось удалить принадлежащие z2kOW рабочие файлы zapret2" >&2; return 1; }
     rm -rf "$Z2K_TMP" "$Z2K_WARP_TMP" "$Z2K_OW_INSTALL_TMP" || {
         echo "z2k-openwrt: не удалось удалить временные файлы программы и её кэш" >&2
+        return 1
+    }
+    _z2k_ow_uninstall_preserve_warp_move || {
+        echo "z2k-openwrt: не удалось безопасно сохранить данные регистрации WARP; файлы программы оставлены" >&2
         return 1
     }
     rm -f "$Z2K_OW_HOTPLUG_FILE" "$Z2K_OW_SYSCTL_FILE" \

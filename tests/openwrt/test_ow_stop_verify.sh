@@ -74,6 +74,16 @@ printf 'ENABLED=1\nQNUM=200\n' > "$T/etc/config"
 printf '#!/bin/sh\nexit 0\n' > "$T/dnsmasq-init"
 chmod +x "$T/dnsmasq-init"
 export Z2K_DNSMASQ_INIT="$T/dnsmasq-init"
+
+# Деинсталлятор загружает адаптеры, а не init-скрипт службы. Проверим,
+# что firewall-адаптер предоставляет общий verifier обоим вызывающим сторонам.
+(
+    export Z2K_ROOT="$REPO" Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
+    . "$REPO/platform/openwrt/uninstall.sh" || exit 1
+    z2k_ow_uninstall_paths_load || exit 1
+    command -v z2k_ow_stop_verify >/dev/null 2>&1
+) && _t_ok || _t_bad "uninstall adapter loads the stop verifier"
+
 cat > "$T/rt/init.d/openwrt/functions" <<EOF
 #!/bin/sh
 zapret_apply_firewall() { echo "fw:apply" >> "$T/calls"; return 0; }
