@@ -134,7 +134,7 @@ warp_external_proxy() {
             _authority="${_authority%%/*}"
             _authority="${_authority##*@}"
             _host="${_authority%%:*}"
-            _host=$(printf '%s' "$_host" | tr '[:upper:]' '[:lower:]')
+            _host=$(printf '%s' "$_host" | LC_ALL=C tr 'A-Z' 'a-z')
             _host="${_host%.}"
             case "$_host" in
                 213.176.74.63|213.176.74.63.nip.io|79.137.196.7) return 0 ;;

@@ -675,3 +675,11 @@ Production helper скачал `UPDATES.json` с подписью, провер�
 ## GitHub Actions: серверные VPS-модули не разворачиваются workflow
 
 Проверены все файлы `.github/workflows` на этой ветке. `ci.yml` собирает отдельный Go-модуль `vps-relay`; packaging matrix помечает его `bdir=-`, то есть не включает в бинарники для роутера. `security.yml` запускает `govulncheck` для Go-модулей, включая `vps-relay`. Это проверки сохранённого серверного кода, а не запуск, доставка или сетевой вызов VPS. В workflow не обнаружены команды `ssh`/`scp`/`rsync` для деплоя, прямые старые VPS IP или deploy job для этих сервисов. Эти серверные модули оставлены вне OpenWrt runtime и не удалялись.
+
+## GitHub Actions: portable-shell and WARP regression (run for `921c4d93`)
+
+Run: [GitHub Actions `38222770881`](https://github.com/t0fox/z2kOW/actions/runs/38222770881). CI использовал ShellCheck `0.9.0` и нашёл `SC2097`/`SC2098` в пяти вызовах `test_ow_bootstrap_manifest_mirrors.sh`; `T` и `FUNCTION_FILE` экспортированы один раз до вызовов. Локально suite прошёл `13/13`, ShellCheck `0.10.0` завершился с кодом `0`.
+
+Тот же запуск выявил `test_ow_forbidden.sh` failure из-за класса `tr '[:upper:]' '[:lower:]'` в OpenWrt WARP adapter. Нормализация заменена на `LC_ALL=C tr 'A-Z' 'a-z'`; после исправления `test_ow_forbidden.sh` прошёл `4/4`, `test_ow_warp_static.sh` — `92/92`, `test_ow_warp_parity.sh` — `39/39`.
+
+`test_ow_insta_refresh_noop_backup.sh` завершился ошибкой в CI, но локально повторно прошёл `11/11`; первопричина CI расхождения не подтверждена. Несколько других job в запуске также были красными. Поэтому этот CI run не считается успешным; нужна повторная проверка после отправки исправлений и отдельная диагностика оставшихся ошибок.

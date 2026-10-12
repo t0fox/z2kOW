@@ -4,6 +4,8 @@ _t_plan "ow-bootstrap-manifest-mirrors"
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-bootstrap-manifest.XXXXXX")" || exit 1
+FUNCTION_FILE="$T/function.sh"
+export T FUNCTION_FILE
 trap 'rm -rf "$T"' EXIT HUP INT TERM
 
 awk '/^fetch_verified_manifest\(\) \{/,/^\}/' \
@@ -65,7 +67,7 @@ _run_manifest_case() {
         '
 }
 
-if T="$T" FUNCTION_FILE="$T/function.sh" _run_manifest_case mirror; then
+if _run_manifest_case mirror; then
     _t_ok "подпись прямого источника отклонена, зеркало выбрано"
 else
     _t_bad "подпись прямого источника отклонена, зеркало выбрано"
@@ -76,7 +78,7 @@ assert_eq "в выбранном манифесте байты подписан�
 assert_contains "манифест привязан к подтверждённому зеркалу" \
     "$T/mirror/sources.log" "https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main/UPDATES.json.sig"
 
-if T="$T" FUNCTION_FILE="$T/function.sh" _run_manifest_case direct; then
+if _run_manifest_case direct; then
     _t_ok "при отказе CDN принят подписанный raw-origin"
 else
     _t_bad "при отказе CDN принят подписанный raw-origin"
@@ -86,7 +88,7 @@ assert_eq "raw-origin fallback сохранил подписанный manifest"
 assert_contains "raw-origin fallback скачал подпись" \
     "$T/direct/sources.log" "https://origin.invalid/z2kOW/main/UPDATES.json.sig"
 
-if T="$T" FUNCTION_FILE="$T/function.sh" _run_manifest_case reject; then
+if _run_manifest_case reject; then
     _t_bad "отклоняются неподписанные пары со всех источников"
 else
     _t_ok "отклоняются неподписанные пары со всех источников"
@@ -97,7 +99,7 @@ else
     _t_bad "непроверенный manifest не публикуется"
 fi
 
-if _acceptance_source=1 T="$T" FUNCTION_FILE="$T/function.sh" _run_manifest_case override; then
+if _acceptance_source=1 _run_manifest_case override; then
     _t_ok "явный приёмочный источник проверяется первым"
 else
     _t_bad "явный приёмочный источник проверяется первым"
@@ -107,7 +109,7 @@ assert_eq "явный источник сохраняет приоритет" \
     "$(head -n 1 "$T/override/sources.log")"
 
 _untrusted_id="$(printf '%064d' 0)"
-if T="$T" FUNCTION_FILE="$T/function.sh" _run_manifest_case untrusted "$_untrusted_id"; then
+if _run_manifest_case untrusted "$_untrusted_id"; then
     _t_bad "открытый ключ вне закреплённого списка отклоняется"
 else
     _t_ok "открытый ключ вне закреплённого списка отклоняется"
