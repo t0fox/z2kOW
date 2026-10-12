@@ -629,3 +629,11 @@ Production helper скачал `UPDATES.json` с подписью, провер�
 ## Повторная проверка отдельности WARP
 
 На feature HEAD `0e748a25` повторно прошли non-TG наборы `test_ow_warp_static.sh` (`92/92`), `test_ow_warp_parity.sh` (`39/39`) и `test_ow_warp_archmap.sh` (`6/6`) — `137/137`. Они подтверждают, что OpenWrt adapter не использует сохранённый старый VPS proxy и сохраняет карту поддерживаемых целей. Это не подтверждает регистрацию аккаунта или живой Cloudflare tunnel; WARP остаётся отдельной опцией и не является транспортом основной VPS-free функциональности.
+
+## QEMU: OpenWrt WARP game-list refresh без VPS и WARP tunnel
+
+На OpenWrt 25.12.5 x86/64 запущен production `files/z2k-update-lists.sh warp-games` с тем же `Z2K_FETCH_VPS_OUT=1` и изолированными каталогами. Тестовый UCI/config fixture задавал `GAME_WARP_ENABLED=0`, поэтому проверялся только список, а не запуск WARP routing. Временный nft output chain блокировал TCP/443 к `213.176.74.63` и `79.137.196.7`; счётчики обоих VPS остались `0`. Proxy-переменные были сняты.
+
+Штатный индекс `YOZH3G/ru-gaming-blocklist` и файлы игр загрузились по прямому/fallback HTTPS пути; helper завершился `rc=0`, обработал `32` списка, `0` недоступных, и создал `32` отфильтрованных `.txt`. Это реальный OpenWrt list-refresh entrypoint, но не запуск crond и не проверка регистрации или туннеля WARP.
+
+После прогона временная таблица и fixture удалены; в QEMU осталась только `inet fw4`, transfer server остановлен. `/usr/lib/z2k`, системные пакеты и постоянные настройки не менялись.
