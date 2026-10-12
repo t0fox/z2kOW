@@ -421,3 +421,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Повторные DNS и diagnostics regressions без Telegram
 
 12 октября 2026 года на `0365c3c8` прошли clock skew direct-path `7/7`, AGH upstream diagnostics `19/19`, DNS/DoH adapter `266/266`, DNS check `2/2` и DNS path detection `5/5` — `299/299` уникальных assertions. Совместимый alias `test_ow_doh.sh` повторно запустил тот же DNS/DoH suite (`266/266`); повторный прогон в итог не суммируется. Сообщение `Direct DNS probe failed after 3 attempts` — ожидаемый отказной сценарий внутри suite; итоговый код каждой команды был `0`. Проверены unit/regression paths, не live-доступность всех внешних DNS-провайдеров.
+
+## TCP16 SNI adapter regressions без Telegram
+
+12 октября 2026 года `tests/openwrt/test_ow_tcp16_runtime.sh` прошёл `13/13`. Проверены Lua `z2k_sni_pick(ctx, desync)`, интеграция OpenWrt-адаптера, сгенерированная конфигурация, сохранение verdict между проверками после reboot и очистка после успешного probe. Это локальная регрессия адаптера и состояния: отдельный LAN ClientHello, успешная обработка пользовательского TLS и реальный desync в сети не проверялись. Хостовый smoke с устаревшим `--dpi-desync=fake` отклонён закреплённым `nfqws2` как неизвестный параметр; текущая реализация использует Lua actions.
