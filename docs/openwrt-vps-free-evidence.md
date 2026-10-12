@@ -593,3 +593,11 @@ Refresh зарегистрировал свой `addnhosts` через UCI и п
 ## Проверки OpenWrt после уточнения области работ
 
 12 октября повторно прошли независимые наборы: bootstrap timeout `1/1`, OpenWrt architecture `26/26` и list-refresh adapter `9/9` — всего `36/36`. Проверка интеграционного bootstrap harness завершилась `15/20`: локальный HTTP fixture на `127.0.0.1:17778` не принимал соединение, поэтому свежая установка не дошла до получения манифеста и дальнейшие assertions не являются результатом проверки продукта. Этот запуск не засчитывается как install E2E; повтор интеграционного набора исключён из текущей области работ. Полная чистая установка, обновление, rollback и удаление продукта в QEMU остаются неподтверждёнными.
+
+## QEMU: production-проверка подписанного updater manifest при блокировке VPS
+
+В работающей OpenWrt 25.12.5 x86/64 VM проверена production-функция `z2k_ow_manifest_prepare_production` из текущего feature HEAD. В `/tmp` гостя переданы только `paths.sh`, `env.sh`, `arch.sh`, `manifest.sh`, `release_state.sh`, общие `utils.sh`/`auto_update.sh` и штатный открытый ключ; rootfs продукта не устанавливался. Временная nft output-таблица отбрасывала только TCP/443 к `213.176.74.63` и `79.137.196.7`. Proxy-переменных не было; в госте были интерфейсы `lo`, `eth0`, `br-lan`, а таблица fw4 оставалась штатной.
+
+Production helper скачал `UPDATES.json` с подписью, проверил Ed25519 и структуру release для x86/64: SHA-256 `b2e3c96b04d1a36c23e22942e2878a42810a98266143b63175db4eeeee86759e`, `current=p-86.18`, `seq=142`, key ID `916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae`, `release_artifact=verified`. В отдельном прямом запросе `raw.githubusercontent.com/.../UPDATES.json` вернул HTTP 200 и 297 794 байта при той же блокировке; счётчики обоих старых VPS-IP — 0.
+
+Проверка подтверждает подписанный сетевой этап updater на OpenWrt с заблокированным старым VPS. Это не запуск `platform/openwrt/update.sh check`, не скачивание и применение release archive и не полный install/update/rollback/uninstall. После теста nft вернулась к единственной `inet fw4`, временные файлы гостя и хоста удалены, HTTP-сервер остановлен; пакеты и постоянные настройки не менялись.
