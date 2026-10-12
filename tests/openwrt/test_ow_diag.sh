@@ -275,14 +275,18 @@ assert_contains "старый процесс Go не считается Rust-п�
 assert_contains "старый процесс Go не подтверждает готовность Rust" "$T/diag-tunnel-legacy.txt" \
     'состояние          : не работает'
 
+mkdir -p "$T/proc/123"
+ln -s "$T/root/bin/tg-ws-proxy" "$T/proc/123/exe"
+printf '123\n' > "$T/tg-tunnel.pid"
 cat > "$T/bin/ps" <<'EOF'
 #!/bin/sh
-printf '%s\n' ' 123 root 1000 S tg-ws-proxy --port=1443 --transparent'
+printf '%s\n' ' 123 root 1000 S tg-ws-proxy --port=1443'
 EOF
 chmod +x "$T/bin/ps"
 _diag_tunnel_rust=$(PATH="$T/bin:$PATH" Z2K_ROOT="$REPO" Z2K_BIN="$T/root/bin" \
     Z2K_TG_RUST_BIN="$T/root/bin/tg-ws-proxy" Z2K_TG_PORT=1443 \
-    Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc" Z2K_ADAPTER_DIR="$REPO/platform/openwrt" \
+    Z2K_TG_PIDFILE="$T/tg-tunnel.pid" Z2K_CONFIG="$T/etc/config" \
+    Z2K_PROC_ROOT="$T/proc" Z2K_ADAPTER_DIR="$REPO/platform/openwrt" \
     Z2K_OW_ARCH=x86_64 sh "$AD" tunnel 2>/dev/null)
 printf '%s\n' "$_diag_tunnel_rust" > "$T/diag-tunnel-rust.txt"
 assert_contains "процесс Rust и TCP-слушатель готовы" "$T/diag-tunnel-rust.txt" \

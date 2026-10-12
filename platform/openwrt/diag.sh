@@ -191,7 +191,7 @@ print_health() {
     rules=$(nft list ruleset 2>/dev/null | grep -c 'queue flags bypass to 200' || true)
     [ -n "$rules" ] || rules=0
     [ "$rules" -eq 8 ] 2>/dev/null || _add "NFQUEUE: правил $rules, ожидается 8"
-    tg_pid=$(_count_process 'tg-ws-proxy.*--port=1443.*--transparent')
+    tg_pid=$(z2k_ow_tg_pids)
     [ -n "$tg_pid" ] || tg_pid=0
     if z2k_ow_tg_arch_supported && ! _tg_disabled && [ "$tg_pid" -lt 1 ] 2>/dev/null; then
         _add "Telegram Rust WS Proxy: прозрачный слушатель :1443 не запущен"
@@ -330,7 +330,7 @@ print_tunnel() {
     else
         printf 'бинарный файл     : (не установлен: %s)\n' "$tg"
     fi
-    pid=$(_count_process 'tg-ws-proxy.*--port=1443.*--transparent')
+    pid=$(z2k_ow_tg_pids)
     [ -n "$pid" ] || pid=0
     printf 'процесс :1443      : %s\n' "$pid"
     listeners=0

@@ -367,19 +367,20 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Установить закреплённый Rust и ARM64-компилятор
+      - name: Установить Rust из локального crate и ARM64-компилятор
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross
-          toolchain="$(sed -n 's/^TOOLCHAIN=//p' platform/openwrt/tg-ws-proxy.pin)"
+          toolchain="$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' platform/openwrt/tg-proxy/rust-toolchain.toml)"
+          [[ -n "$toolchain" ]]
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
           "$HOME/.cargo/bin/rustup" toolchain install "$toolchain" --profile minimal
           "$HOME/.cargo/bin/rustup" component add rustfmt --toolchain "$toolchain"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: Проверить патч и собрать поддерживаемые архитектуры OpenWrt
+      - name: Проверить локальный crate и собрать поддерживаемые архитектуры OpenWrt
         run: sh scripts/openwrt/build_tg_ws_proxy.sh "$RUNNER_TEMP/tg-ws-proxy" --test
 
       - name: Проверить, что Rust-набор содержит только ARM64 и x86_64
@@ -763,7 +764,8 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross dnsmasq-base busybox lighttpd curl lua5.3
-          toolchain="$(sed -n 's/^TOOLCHAIN=//p' platform/openwrt/tg-ws-proxy.pin)"
+          toolchain="$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' platform/openwrt/tg-proxy/rust-toolchain.toml)"
+          [[ -n "$toolchain" ]]
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
           "$HOME/.cargo/bin/rustup" toolchain install "$toolchain" --profile minimal
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"

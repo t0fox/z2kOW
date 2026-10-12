@@ -1,6 +1,6 @@
 #!/bin/sh
 # tests/openwrt/test_ow_tg_firewall.sh - Stage 3 Layer B: nft/argv/conntrack.
-# Mock'и: nft (с состоянием таблицы), conntrack, pidof, /proc, curl, procd.
+# Mock'и: nft (с состоянием таблицы), conntrack, pidfile, /proc, curl, procd.
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-tg-firewall"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -54,6 +54,7 @@ printf 'ENABLED=1\n' > "$T/etc/config"
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export Z2K_BIN="$T/root/bin" Z2K_RUN="$T/tmp/runtime" Z2K_LOG="$T/tmp/logs"
 export Z2K_TG_RUST_BIN="$T/root/bin/linux-x86_64/tg-ws-proxy"
+export Z2K_TG_PIDFILE="$T/tmp/tg-tunnel.pid"
 export Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc"
 export Z2K_ADAPTER_DIR="$REPO/platform/openwrt" Z2K_OW_ARCH=x86_64
 export Z2K_TG_HEALTH_DIR="$T/tmp/tg-health"
@@ -182,9 +183,12 @@ _rec() { printf 'ARGV:%s\n' "$*" >> "$T/argv.log"; }
 : > "$T/argv.log"
 z2k_ow_tg_with_argv _rec
 assert_contains "путь к бинарнику Rust" "$T/argv.log" "$T/root/bin/linux-x86_64/tg-ws-proxy"
-assert_contains "прозрачный режим включён" "$T/argv.log" '--transparent'
+assert_contains "прослушиватель привязан к IPv4 и IPv6" "$T/argv.log" '--host=::'
+assert_not_contains "transparent — единственный режим без CLI-переключателя" "$T/argv.log" '(^|[[:space:]])--transparent([=[:space:]]|$)'
+assert_not_contains "старый пул не передаётся" "$T/argv.log" '(^|[[:space:]])--pool-size([=[:space:]]|$)'
+assert_not_contains "прямой выход не требует старого флага" "$T/argv.log" '(^|[[:space:]])--no-outbound-proxy([=[:space:]]|$)'
 assert_contains "используется один порт прослушивания" "$T/argv.log" '--port=1443'
-assert_contains "число соединений ограничено" "$T/argv.log" '--max-connections=8'
+assert_contains "передан выбранный лимит соединений" "$T/argv.log" "--max-connections=$Z2K_TG_MAX_CONNECTIONS"
 assert_not_contains "аргументы VPS relay отсутствуют" "$T/argv.log" 'relay|tunnel-url|tunnel-secret|1444'
 assert_contains "Rust получает порты из политики" "$T/argv.log" "--transparent-ports=$(z2k_ow_tg_ports_csv)"
 assert_contains "Rust получает CIDR из политики" "$T/argv.log" '--transparent-cidrs='
@@ -240,7 +244,9 @@ procd_close_instance() { echo "close" >> "$T/procd.log"; }
 z2k_ow_tg_start_instance || _t_bad "start_instance rc"
 assert_contains "instance z2k-tg" "$T/procd.log" "instance:z2k-tg"
 assert_contains "procd запускает Rust-бинарник" "$T/procd.log" "param:command $T/root/bin/linux-x86_64/tg-ws-proxy"
-assert_contains "procd передаёт параметры прозрачного режима" "$T/procd.log" "--transparent"
+assert_contains "procd запускает единственный режим с IPv4 и IPv6" "$T/procd.log" "--host=::"
+assert_not_contains "procd не передаёт удалённые CLI-переключатели" "$T/procd.log" '(^|[[:space:]])(--transparent|--pool-size|--no-outbound-proxy)([=[:space:]]|$)'
+assert_contains "procd регистрирует PID своего экземпляра" "$T/procd.log" "param:pidfile $Z2K_TG_PIDFILE"
 assert_not_contains "retired Telegram UDP env is not passed to TCP client" "$T/procd.env" 'Z2K_TG_UDP|UDP_ROUTE'
 assert_contains "respawn bounded" "$T/procd.log" "param:respawn 3600 5 5"
 assert_contains "instance closed" "$T/procd.log" "close"
@@ -255,14 +261,22 @@ else
 fi
 printf 'x\n' > "$T/root/etc/z2k-roots.pem"
 
-# --- процессы: только проверка Rust-процесса ---
-mkdir -p "$T/proc/111" "$T/proc/222" "$T/proc/333"
-printf 'tg-ws-proxy --port=1443 --transparent' | tr ' ' '\0' > "$T/proc/111/cmdline"
-printf 'tg-ws-proxy --port=1444' | tr ' ' '\0' > "$T/proc/222/cmdline"
-printf 'some-other-daemon' > "$T/proc/333/cmdline"
-printf '111 222 333\n' > "$T/pidof.out"
-assert_eq "матч только :1443" "111" "$(z2k_ow_tg_pids | tr '\n' ' ' | tr -d ' ')"
-printf '\n' > "$T/pidof.out"
-z2k_ow_tg_running && _t_bad "running при пустом pidof" || _t_ok
+# --- процессы: только PID procd с точным путём установленного бинарника ---
+mkdir -p "$T/proc/111" "$T/proc/222" "$T/proc/333" "$T/other"
+cat > "$T/other/tg-ws-proxy" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$T/other/tg-ws-proxy"
+ln -s "$Z2K_TG_RUST_BIN" "$T/proc/111/exe"
+ln -s "$Z2K_TG_RUST_BIN" "$T/proc/222/exe"
+ln -s "$T/other/tg-ws-proxy" "$T/proc/333/exe"
+printf '111\n' > "$Z2K_TG_PIDFILE"
+assert_eq "PID из procd принят при совпадении пути бинарника" "111" "$(z2k_ow_tg_pids | tr '\n' ' ' | tr -d ' ')"
+printf '333\n' > "$Z2K_TG_PIDFILE"
+assert_eq "чужой бинарник с таким же именем не принимается" "" "$(z2k_ow_tg_pids)"
+printf '222\n' > "$T/unowned.pid"
+assert_eq "процесс без PID procd не считается принадлежащим адаптеру" "" "$(z2k_ow_tg_pids)"
+z2k_ow_tg_running && _t_bad "running для постороннего процесса" || _t_ok
 
 _t_done

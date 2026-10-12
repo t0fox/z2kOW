@@ -61,6 +61,9 @@ z2k-signing/
 # версию линтера, иначе вердикт CI начинает зависеть от даты прогона.
 node_modules/
 
+# Локальные артефакты сборки Rust-прокси.
+/platform/openwrt/tg-proxy/target/
+
 # Python release helpers are run directly; interpreter caches are never source.
 __pycache__/
 *.py[cod]

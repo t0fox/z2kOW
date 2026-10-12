@@ -342,7 +342,7 @@ def hotfix_release_notes(repository: Path, controlled: dict[str, Any], source_sh
     paths = _changed_paths(Path(repository), previous_sha, source_sha)
     changes = _change_categories(paths)
     rust_proxy_alpha = any(
-        path.startswith("patches/tg-ws-proxy-rs/")
+        path.startswith("platform/openwrt/tg-proxy/")
         or path in {"platform/openwrt/tg.sh", "scripts/openwrt/build_tg_ws_proxy.sh"}
         for path in paths
     )

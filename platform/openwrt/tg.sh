@@ -30,7 +30,7 @@ if [ -r "$_z2k_tg_policy" ]; then
     Z2K_TG_POLICY_LOADED=1
 fi
 Z2K_TG_PORT="${Z2K_TG_PORT:-1443}"
-Z2K_TG_MAX_CONNECTIONS="${Z2K_TG_MAX_CONNECTIONS:-8}"
+_z2k_tg_max_connections_override="${Z2K_TG_MAX_CONNECTIONS:-}"
 
 # --- nft-имена (свои sets/chains в ЧУЖОЙ runtime-таблице; таблицу не создаём) ---
 # Дефолт таблицы = дефолт pinned zapret2 runtime (ZAPRET_NFT_TABLE=zapret2):
@@ -127,6 +127,19 @@ Z2K_TG_TCP_PORTS="${Z2K_TG_TCP_PORTS:-$(z2k_ow_tg_cfg TG_TCP_PORTS "${Z2K_TG_TCP
 Z2K_TG_CIDRS="${Z2K_TG_CIDRS:-$(z2k_ow_tg_cidrs "$(z2k_ow_tg_cfg TG_CIDRS4 "${Z2K_TG_CIDRS_DEFAULT:-}")")}"
 Z2K_TG_CIDRS6="${Z2K_TG_CIDRS6:-$(z2k_ow_tg_cidrs "$(z2k_ow_tg_cfg TG_CIDRS6 "${Z2K_TG_CIDRS6_DEFAULT:-}")")}"
 Z2K_TG_DC_MAP_ENDPOINTS_PATH="${Z2K_TG_DC_MAP_ENDPOINTS_PATH:-$(z2k_ow_tg_cfg TG_DC_MAP_ENDPOINTS_PATH "${Z2K_TG_DC_MAP_ENDPOINTS_PATH_DEFAULT:-$Z2K_TG_DC_MAP_ENDPOINTS_PATH}")}"
+Z2K_TG_CONNECTION_MODE="${Z2K_TG_CONNECTION_MODE:-$(z2k_ow_tg_cfg TG_CONNECTION_MODE auto)}"
+Z2K_TG_CONNECTION_LIMIT="${Z2K_TG_CONNECTION_LIMIT:-$(z2k_ow_tg_cfg TG_CONNECTION_LIMIT 32)}"
+if [ -n "$_z2k_tg_max_connections_override" ]; then
+    Z2K_TG_CONNECTION_MODE=manual
+    Z2K_TG_CONNECTION_LIMIT="$_z2k_tg_max_connections_override"
+fi
+_z2k_tg_fd_soft="$(ulimit -n 2>/dev/null)"
+_z2k_tg_mem_total="$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo 2>/dev/null)"
+_z2k_tg_mem_available="$(awk '/^MemAvailable:/ { print $2; exit }' /proc/meminfo 2>/dev/null)"
+Z2K_TG_MAX_CONNECTIONS="$(z2k_ow_tg_connection_budget \
+    "$Z2K_TG_CONNECTION_MODE" "$Z2K_TG_CONNECTION_LIMIT" \
+    "$_z2k_tg_fd_soft" "$_z2k_tg_mem_total" \
+    "$_z2k_tg_mem_available" "$_z2k_tg_mem_available")"
 Z2K_TG_POLICY_LOADED=0
 if [ "$_z2k_tg_policy_present" = 1 ] \
     && [ -n "$Z2K_TG_CIDRS" ] && [ -n "$Z2K_TG_CIDRS6" ] \
@@ -192,6 +205,7 @@ z2k_ow_tg_status_json() {
 
 z2k_ow_tg_wanted() {
     [ "${Z2K_TG_POLICY_LOADED:-0}" = 1 ] || return 1
+    case "${Z2K_TG_MAX_CONNECTIONS:-0}" in ''|*[!0-9]*|0) return 1 ;; esac
     z2k_ow_tg_arch_supported || return 1
     [ -x "$Z2K_TG_RUST_BIN" ] || return 1
     [ "$(z2k_ow_tg_cfg ENABLED 1)" = "1" ] || return 1
@@ -199,20 +213,20 @@ z2k_ow_tg_wanted() {
     return 0
 }
 
-# Собрать аргументы демона и передать их команде $1.
-# Прозрачный режим не использует секрет прокси; аргументы передаются без печати.
+# Собрать аргументы единственного режима демона и передать их команде $1.
+# Аргументы передаются без печати.
 # Использование: z2k_ow_tg_with_argv _cb (одно слово — см. ниже).
 z2k_ow_tg_with_argv() {
     local _cb="$1"
     shift
     set -- "$Z2K_TG_RUST_BIN" "--port=$Z2K_TG_PORT" --host=:: \
-        --transparent --pool-size=0 "--max-connections=$Z2K_TG_MAX_CONNECTIONS" \
+        "--max-connections=$Z2K_TG_MAX_CONNECTIONS" \
         "--transparent-ports=$(z2k_ow_tg_ports_csv)" \
         "--transparent-cidrs=$(z2k_ow_tg_cidrs_csv "$Z2K_TG_CIDRS $Z2K_TG_CIDRS6")" \
         "--dc-map-path=$(z2k_ow_tg_cfg TG_DC_MAP_PATH "$Z2K_TG_DC_MAP_PATH_DEFAULT")" \
         "--dc-map-refresh-secs=$(z2k_ow_tg_cfg TG_DC_MAP_REFRESH_SECS "$Z2K_TG_DC_MAP_REFRESH_SECS_DEFAULT")" \
         "--dc-map-endpoints-path=$(z2k_ow_tg_cfg TG_DC_MAP_ENDPOINTS_PATH "$Z2K_TG_DC_MAP_ENDPOINTS_PATH_DEFAULT")" \
-        --default-domains --no-outbound-proxy
+        --default-domains
     "$_cb" "$@"
 }
 
@@ -225,15 +239,17 @@ _z2k_ow_tg_procd_command() { procd_set_param command "$@"; }
 # невозможно перехватить подменой PATH.
 _z2k_ow_tg_kill() { kill "$@" 2>/dev/null || true; }
 
-# PID единственного прозрачного слушателя Rust.
+# Проверить, что PID принадлежит именно бинарнику, запущенному экземпляром procd.
+# PID-файл может остаться после сбоя; сверка /proc/<pid>/exe исключает повторно
+# использованный PID и посторонние процессы с похожим именем.
 z2k_ow_tg_pids() {
-    local _p _cl
-    for _p in $(pidof tg-ws-proxy 2>/dev/null); do
-        [ -r "$Z2K_PROC_ROOT/$_p/cmdline" ] || continue
-        _cl=$(tr '\0' ' ' < "$Z2K_PROC_ROOT/$_p/cmdline" 2>/dev/null)
-        case " $_cl " in *" --transparent "*) ;; *) continue ;; esac
-        case " $_cl " in *" --port=$Z2K_TG_PORT "*) printf '%s\n' "$_p" ;; esac
-    done
+    local _p _expected _actual
+    [ -r "$Z2K_TG_PIDFILE" ] || return 0
+    IFS= read -r _p < "$Z2K_TG_PIDFILE" || return 0
+    case "$_p" in ''|*[!0-9]*) return 0 ;; esac
+    _expected=$(readlink -f "$Z2K_TG_RUST_BIN" 2>/dev/null) || return 0
+    _actual=$(readlink -f "$Z2K_PROC_ROOT/$_p/exe" 2>/dev/null) || return 0
+    [ "$_actual" = "$_expected" ] && printf '%s\n' "$_p"
     return 0
 }
 
@@ -354,7 +370,10 @@ _z2k_ow_tg_pair_set_matches() {
 }
 
 _z2k_ow_tg_nft_pairs_commit() {
-    local _pair4 _pair6
+    local _pair4 _pair6 _lock _rc
+    mkdir -p "$Z2K_TG_HEALTH_DIR" 2>/dev/null || return 1
+    _lock="$Z2K_TG_HEALTH_DIR/nft-pairs.lock"
+    lock "$_lock" || return 1
     _pair4="$(_z2k_ow_tg_manifest_csv 4)"
     _pair6="$(_z2k_ow_tg_manifest_csv 6)"
     {
@@ -363,6 +382,45 @@ _z2k_ow_tg_nft_pairs_commit() {
         [ -z "$_pair4" ] || printf 'add element %s %s %s { %s }\n' "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_PAIR4" "$_pair4"
         [ -z "$_pair6" ] || printf 'add element %s %s %s { %s }\n' "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_PAIR6" "$_pair6"
     } | nft -f -
+    _rc=$?
+    lock -u "$_lock" || true
+    return "$_rc"
+}
+
+# Синхронизировать только точные пары после обновления Rust-манифеста.
+# Один nft batch обновляет обе семьи; существующие conntrack-записи не трогаются.
+z2k_ow_tg_dc_map_sync() {
+    local _mode
+    [ "${Z2K_TG_POLICY_LOADED:-0}" = 1 ] || {
+        echo "z2k-openwrt: tg: политика Telegram TCP не загружена или некорректна" >&2
+        return 1
+    }
+    z2k_ow_tg_wanted || {
+        echo "z2k-openwrt: tg: синхронизация DC-карты пропущена, Telegram proxy выключен" >&2
+        return 1
+    }
+    _mode=$(z2k_ow_tg_manifest_mode) || {
+        echo "z2k-openwrt: tg: манифест dcOption повреждён; активные nft-пары сохранены" >&2
+        return 1
+    }
+    [ "$_mode" = dynamic ] || {
+        echo "z2k-openwrt: tg: нет динамического манифеста dcOption для nft" >&2
+        return 1
+    }
+    _z2k_ow_tg_table_ok || {
+        echo "z2k-openwrt: tg: нет таблицы $Z2K_TG_NFT_FAMILY $Z2K_TG_NFT_TABLE" >&2
+        return 1
+    }
+    _z2k_ow_tg_nft_pairs_commit || {
+        echo "z2k-openwrt: tg: nft не принял атомарное обновление пар dcOption; прежние пары сохранены" >&2
+        return 1
+    }
+    _z2k_ow_tg_pair_set_matches 4 "$Z2K_TG_PAIR4" \
+        && _z2k_ow_tg_pair_set_matches 6 "$Z2K_TG_PAIR6" || {
+            echo "z2k-openwrt: tg: nft не подтвердил новые пары dcOption" >&2
+            return 1
+        }
+    return 0
 }
 
 # Атомарно заменить оба Telegram-набора одной nft-транзакцией.
@@ -527,6 +585,7 @@ z2k_ow_tg_start_instance() {
     }
     procd_open_instance "z2k-tg"
     z2k_ow_tg_with_argv _z2k_ow_tg_procd_command
+    procd_set_param env "Z2K_TG_DC_MAP_SYNC=$Z2K_ROOT/platform/openwrt/tg-check.sh"
     procd_set_param pidfile "$Z2K_TG_PIDFILE"
     # Respawn EXPLICIT bounded (НЕ голый `respawn` и НЕ retry=0):
     #   threshold 3600s — прожил дольше: счётчик сбрасывается, падения
@@ -553,12 +612,24 @@ z2k_ow_tg() {
     case "${1:-}" in
         1)
             z2k_ow_tg_stop_legacy || return 1
-            z2k_ow_tg_wanted || { z2k_ow_tg_nft_remove; return 0; }
+            z2k_ow_tg_wanted || {
+                if command -v z2k_ow_tg_cron_remove >/dev/null 2>&1; then
+                    z2k_ow_tg_cron_remove || echo "z2k-openwrt: не удалось удалить проверку TG из cron" >&2
+                fi
+                z2k_ow_tg_nft_remove
+                return 0
+            }
             z2k_ow_tg_nft_apply || return 1
             z2k_ow_tg_conntrack_flush
             z2k_ow_tg_start_instance || return 1
+            if command -v z2k_ow_tg_cron_install >/dev/null 2>&1; then
+                z2k_ow_tg_cron_install || echo "z2k-openwrt: не удалось установить проверку TG в cron" >&2
+            fi
             ;;
         0)
+            if command -v z2k_ow_tg_cron_remove >/dev/null 2>&1; then
+                z2k_ow_tg_cron_remove || echo "z2k-openwrt: не удалось удалить проверку TG из cron" >&2
+            fi
             z2k_ow_tg_nft_remove
             ;;
         rules)

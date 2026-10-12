@@ -65,6 +65,9 @@ export Z2K_TG_RUST_BIN="$T/root/bin/linux-x86_64/tg-ws-proxy"
 export Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc"
 . "$REPO/platform/openwrt/tg.sh" || exit 1
 export Z2K_TG_TCP_PORTS
+_tg_cron_log="$T/tg-cron.log"
+z2k_ow_tg_cron_install() { echo install >> "$_tg_cron_log"; }
+z2k_ow_tg_cron_remove() { echo remove >> "$_tg_cron_log"; }
 procd_open_instance() { echo "instance:$1" >> "$T/procd.log"; }
 procd_set_param() { printf 'param:%s\n' "$*" >> "$T/procd.log"; }
 procd_close_instance() { echo close >> "$T/procd.log"; }
@@ -72,12 +75,14 @@ procd_close_instance() { echo close >> "$T/procd.log"; }
 z2k_ow_tg 1 || _t_bad "Rust запускается на поддерживаемой архитектуре"
 assert_eq "один владелец procd" 1 "$(grep -c '^instance:z2k-tg$' "$T/procd.log")"
 assert_contains "ограниченный перезапуск procd" "$T/procd.log" 'param:respawn 3600 5 5'
-assert_contains "прозрачный режим Rust и IPv6 dual-stack" "$T/procd.log" '--host=:: --transparent'
-assert_contains "ограничение числа соединений равно восьми" "$T/procd.log" '--max-connections=8'
+assert_contains "единственный режим Rust и IPv6 dual-stack" "$T/procd.log" '--host=::'
+assert_not_contains "CLI не задаёт удалённые режимы" "$T/procd.log" '(^|[[:space:]])(--transparent|--pool-size|--no-outbound-proxy)([=[:space:]]|$)'
+assert_contains "передан выбранный лимит одновременных соединений" "$T/procd.log" "--max-connections=$Z2K_TG_MAX_CONNECTIONS"
 assert_contains "Rust получил список портов из общей политики" "$T/procd.log" \
     "--transparent-ports=$(z2k_ow_tg_ports_csv)"
 assert_contains "procd запускает обновление официальной карты DC с кэшем" "$T/procd.log" \
     "--dc-map-path=$Z2K_ETC/telegram-dc-map.json --dc-map-refresh-secs=21600"
+assert_eq "запуск TG включает периодическую сверку manifest и nft" 1 "$(grep -c '^install$' "$_tg_cron_log" || true)"
 assert_not_contains "настройки старого релея не передаются Rust" "$T/procd.log" 'Z2K_RELAY_SECRET|Z2K_RELAY_URL|relay-id-file'
 _policy_port_count="$(z2k_ow_tg_ports | wc -l | tr -d ' ')"
 _expected_rules=$((_policy_port_count * 4 + 3))
@@ -95,12 +100,17 @@ assert_eq "пользовательский файл релея сохранён
 z2k_ow_tg 1 || _t_bad "повторный запуск сходится к заданному состоянию"
 assert_eq "на каждый запуск создан один экземпляр procd" 1 "$(grep -c '^instance:z2k-tg$' "$T/procd.log")"
 assert_eq "повторный набор правил не дублируется" "$_expected_rules" "$(grep -c '^nft:add rule' "$T/nft.log")"
+assert_eq "повторный запуск не размножает запись health cron" 2 "$(grep -c '^install$' "$_tg_cron_log")"
+
+z2k_ow_tg 0 || _t_bad "остановка удаляет TG-правила"
+assert_eq "остановка снимает health cron" 1 "$(grep -c '^remove$' "$_tg_cron_log" || true)"
 
 printf 'ENABLED=1\nTG_PROXY_USER_DISABLED=1\n' > "$T/etc/config"
 : > "$T/procd.log"; : > "$T/nft.log"
 z2k_ow_tg 1
 assert_eq "при пользовательском отключении нет экземпляра procd" 0 "$(grep -c '^instance:' "$T/procd.log" || true)"
 assert_eq "при пользовательском отключении нет перенаправлений" 0 "$(grep -c '^nft:add rule' "$T/nft.log" || true)"
+assert_eq "при пользовательском отключении health cron удаляется" 2 "$(grep -c '^remove$' "$_tg_cron_log")"
 
 printf 'ENABLED=1\n' > "$T/etc/config"
 Z2K_OW_ARCH=mips

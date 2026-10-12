@@ -348,8 +348,7 @@ class PublicationPolicyTests(unittest.TestCase):
     def test_rust_proxy_hotfix_notes_are_marked_as_alpha(self) -> None:
         with patch.object(MODULE.subprocess, "run") as run:
             run.return_value.stdout = (
-                "patches/tg-ws-proxy-rs/0001-transparent-openwrt.patch\n"
-                "platform/openwrt/tg.sh\n"
+                "platform/openwrt/tg-proxy/src/transparent_proxy.rs\n"
             )
             notes = MODULE.hotfix_release_notes(ROOT, controlled_manifest(), SOURCE_B)
         self.assertIn("альфа-тестирование нового протокола Rust TG WS Proxy", notes)

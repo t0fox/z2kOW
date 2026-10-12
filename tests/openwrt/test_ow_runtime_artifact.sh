@@ -4,7 +4,10 @@
 _t_plan "ow-runtime-artifact"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ARCHIVE="${Z2K_RUNTIME_ARCHIVE:-${Z2K_RT_TARBALL:-}}"
-[ -n "$ARCHIVE" ] && [ -f "$ARCHIVE" ] || { echo "FAIL[ow-runtime-artifact]: Z2K_RUNTIME_ARCHIVE is required"; exit 1; }
+[ -n "$ARCHIVE" ] && [ -f "$ARCHIVE" ] || {
+    echo "SKIP[ow-runtime-artifact]: локальный архив zapret2 не задан"
+    exit 0
+}
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/z2k-runtime-artifact.XXXXXX")" || exit 1
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
