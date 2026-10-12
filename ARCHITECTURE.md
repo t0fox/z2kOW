@@ -1,85 +1,84 @@
-# z2kOW architecture
+# Архитектура z2kOW
 
-z2kOW is an independently maintained OpenWrt port and modification of upstream z2k. The default rule for **inherited z2k features** is to keep their behavior and common implementation as close to upstream as practical, replacing only platform effects that depend on Keenetic or Entware. z2kOW also contains its own OpenWrt-specific extensions, which are deliberately isolated from common upstream logic.
+z2kOW — независимо сопровождаемая адаптация и модификация [z2k](https://github.com/necronicle/z2k) для OpenWrt. **Унаследованные функции** по возможности используют общую реализацию и сохраняют поведение upstream; платформенные операции Keenetic/Entware заменяются нативными механизмами OpenWrt. Собственные расширения z2kOW имеют отдельные границы, владельцев состояния и проверки.
 
-See [UPSTREAM.md](UPSTREAM.md) for the upstream policy and [docs/UPSTREAM-PARITY-MATRIX.md](docs/UPSTREAM-PARITY-MATRIX.md) for known differences.
+**Базовый OpenWrt не зависит от VPS, удалённого relay или WARP.** WARP — отдельный необязательный модуль. Текущий Telegram-путь — локальный прозрачный Rust-прокси, а не копия старого upstream Go/VPS-туннеля; его статус и ограничения указаны в [контракте Telegram](docs/openwrt-telegram-contract.md).
 
-## Layers
+См. [правила синхронизации](UPSTREAM.md) и [матрицу соответствия](docs/UPSTREAM-PARITY-MATRIX.md).
 
-| Layer | Responsibility | Main locations |
+## Слои
+
+| Слой | Ответственность | Код |
 |---|---|---|
-| Common z2k | Config, strategies, runtime logic, lists, diagnostics, WebPanel behavior, update semantics | `z2k.sh`, `lib/`, `files/`, `webpanel/` |
-| OpenWrt adapter | Service, firewall, networking, scheduling, paths, architecture, platform probes | `platform/openwrt/` |
-| z2kOW extensions | DoH, TikTok CDN management, FLOWOFFLOAD diagnostics and benchmarking | `platform/openwrt/doh.sh`, `tiktok.sh`, `offload-observe.sh`, `offload-benchmark.sh` |
-| OpenWrt integration files | procd services, hotplug integration, platform-owned system hooks | `platform/openwrt/files/` |
-| Release tooling | Build, stage, sign, publish, install, rollback | `scripts/openwrt/`, `platform/openwrt/release.sh` |
+| Общий z2k | Стратегии, nfqws2, autocircular, конфигурация, списки, общая диагностика и интерфейс | `z2k.sh`, `lib/`, `files/`, `webpanel/` |
+| Адаптер OpenWrt | Процессы, fw4/nftables, сеть, расписание, файлы, архитектуры, диагностика | `platform/openwrt/` |
+| Функции z2kOW | DNS через dnsproxy, TikTok Fix, локальный Telegram на Rust, измерения FLOWOFFLOAD | `platform/openwrt/dnsproxy.sh`, `tiktok.sh`, `tg.sh`, `tg-proxy/`, `offload-*.sh` |
+| Системные интеграции | Init-скрипты procd, hotplug и собственные системные файлы | `platform/openwrt/files/` |
+| Релизы | Сборка, архитектурные архивы, подписи, публикация, установка, откат | `scripts/openwrt/`, `platform/openwrt/release.sh` |
 
-Common code may contain a small explicit platform seam when moving the effect into `platform/openwrt/` is not practical. Platform-specific behavior must not silently fall back to Keenetic paths or commands.
+Общий код может содержать небольшую явную точку адаптации, если вынести эффект в `platform/openwrt/` нельзя без потери совместимости. Незаметные fallback-вызовы Keenetic-команд в OpenWrt недопустимы.
 
-## OpenWrt ownership
+## Владение ресурсами
 
-| Purpose | Path / owner |
+| Ресурс | Владелец / размещение |
 |---|---|
-| Persistent configuration and user data | `/etc/z2k` |
-| Replaceable product payload | `/usr/lib/z2k` |
-| Transient runtime state and logs | `/tmp/z2k` |
-| Core service | procd via `/etc/init.d/z2k` |
-| WebPanel service | procd via `/etc/init.d/z2k-webpanel` |
-| Firewall | fw4/nftables |
-| Network events | netifd/ubus and hotplug |
-| Scheduled maintenance | OpenWrt cron adapter |
+| Настройки и постоянные пользовательские данные | `/etc/z2k` |
+| Заменяемые файлы релиза | `/usr/lib/z2k` |
+| Временные файлы, логи и runtime | `/tmp/z2k` |
+| Основной сервис | procd: `/etc/init.d/z2k` |
+| WebPanel | procd: `/etc/init.d/z2k-webpanel` |
+| Сетевые правила | fw4/nftables; только принадлежащие z2kOW объекты |
+| Сетевые события | netifd/ubus, hotplug |
+| Плановые задачи | OpenWrt cron |
+| Защищённый DNS | системный `dnsproxy`, UCI/dnsmasq, изолированное управление своими настройками |
 
-LuCI/uhttpd, unrelated UCI sections, and unrelated firewall state are outside z2kOW ownership.
+LuCI/uhttpd, чужие UCI-секции, сторонние firewall-правила и чужие DNS-профили не принадлежат z2kOW.
 
-## Install and update
+## Установка и обновление
 
-```text
-controlled UPDATES.json + signature
-              |
-              v
-verify release metadata and artifact
-              |
-              v
-stage immutable release payload
-              |
-              v
-install_release <tag>
-              |
-              v
-migrate / converge / restart / health gate
-              |
-       commit or rollback
-```
+~~~text
+подписанный z2kOW UPDATES.json
+              ↓
+проверка подписи и параметров архива
+              ↓
+выбор архива для архитектуры устройства
+              ↓
+проверка размера и SHA-256
+              ↓
+install_release(tag)
+              ↓
+сохранение данных → применение → проверка
+              ↓
+подтверждение релиза или откат
+~~~
 
-`scripts/openwrt/install.sh` is the device bootstrap. `install_release` is the canonical OpenWrt convergence operation for fresh installation and release application. The release payload is bound by signed metadata, byte size, and SHA-256.
+`scripts/openwrt/install.sh` — начальная загрузка. `install_release(tag)` — общая транзакция установки, обновления и переустановки. Релизный payload — не набор APK; `apk` применяется только к системным зависимостям.
 
-Upstream release semantics such as preservation, migration, reset behavior, and user-visible update behavior should be retained even when OpenWrt uses a different artifact-delivery mechanism.
+Сборка формирует архивы для `arm64`, `arm`, `x86_64`, `x86`, `mips`, `mipsel`, `riscv64`. Это **не означает**, что все функции поддерживают все семь архитектур. В частности, локальный Telegram Rust ограничен `arm64` и `x86_64`.
 
-## Product state
+Поведение сохранения пользовательских данных, миграций, сброса и обновления унаследованных функций сверяется с upstream, даже если способ доставки на OpenWrt отличается. Подробнее — [операции с релизами](docs/openwrt-release-operations.md).
 
-`/etc/z2k/state/installed-release` is the canonical installed release record. CLI, WebPanel, updater, and diagnostics must interpret the same state. A running process alone does not establish that a release is installed.
+## Состояние установленной версии
 
-Release-owned and user-owned data are separate. Updating or reinstalling replaces release-owned content and preserves user-owned content according to upstream semantics.
+`/etc/z2k/state/installed-release` — каноническая запись `tag + seq`. Установщик, WebPanel, CLI, updater и диагностика используют её одинаково. Запущенный процесс сам по себе не доказывает, что релиз установлен. Квитанция `installed-artifact-sha256` позволяет учитывать исправленный проверенный артефакт при неизменной продуктовой версии и не заменяет подписанный манифест.
 
-## Feature adapters
+Release-owned и user-owned данные разделяются: установка заменяет файлы продукта, но сохраняет предусмотренные пользовательские настройки.
 
-OpenWrt adapters preserve the meaning of **inherited upstream features** while replacing their platform mechanisms:
+## Платформенные адаптеры и отличия
 
-- Keenetic init/supervision → procd.
-- iptables/ipset and NDM hooks → fw4/nftables and hotplug.
-- `ndmc` network/device operations → ubus, UCI, netifd, and native routing.
-- Entware `/opt` ownership → `/etc/z2k`, `/usr/lib/z2k`, and `/tmp/z2k`.
-- Keenetic scheduling → OpenWrt cron/procd triggers.
-- Keenetic acceleration controls → OpenWrt flow-offload capability where applicable.
+- Инициализация Keenetic → procd.
+- iptables/ipset и NDM → fw4/nftables и hotplug.
+- `ndmc` для устройств и сети → UCI, ubus, netifd и системная маршрутизация.
+- Entware `/opt` → штатное разделение `/etc/z2k`, `/usr/lib/z2k` и `/tmp/z2k`.
+- Планировщик Keenetic → cron и обработчики событий OpenWrt.
+- Аппаратное ускорение Keenetic → OpenWrt FLOWOFFLOAD только при подтверждённой поддержке.
 
-Telegram, RT proxy, WARP, TCP16, diagnostics, scheduled list refresh, and other inherited upstream features should keep upstream semantics while using these OpenWrt owners.
+RT proxy, TCP16, стратегии и диагностика адаптируют общие контракты upstream. **Telegram** — намеренно отличающаяся локальная реализация, поэтому её реальная совместимость проверяется отдельно. **DNS** работает на `dnsproxy`, а `doh.sh` оставлен как совместимый вход к адаптеру. **WARP** опционален, не используется как транспорт по умолчанию и не должен возвращать старые VPS-прокси.
 
-z2kOW-specific features such as DoH provider management, TikTok CDN overrides, and selective FLOWOFFLOAD diagnostics/benchmarking have their own contracts and tests. They must coexist with OpenWrt services and inherited behavior without claiming to be part of upstream z2k.
+## Удаление
 
-## Removal
+`z2kow uninstall` запускает штатный OpenWrt backend `platform/openwrt/uninstall.sh`. Удаляются только принадлежащие проекту службы, конфигурации, задания, маршруты, DNS-правила и файлы. Чужие ресурсы OpenWrt не трогаются. В текущем штатном сценарии **регистрация WARP сохраняется** для повторной установки; полностью очистить `/etc/z2k` можно только после успешного завершения деинсталлятора. Неудачное удаление должно оставлять достаточно состояния для безопасного повтора.
 
-Removal is also a parity feature. Its user-visible preservation and purge semantics must follow upstream z2k; only the cleanup mechanism is OpenWrt-native. OpenWrt cleanup must remove z2kOW-owned procd, nftables, hotplug, scheduler, and release-owned filesystem state without touching unrelated system configuration.
+## Правило разработки
 
-## Contributor rule
-
-Before changing inherited common code, compare the change with the pinned upstream implementation. Prefer an existing platform hook or a small new adapter over a parallel OpenWrt implementation. Keep new z2kOW-only features explicit, scoped, and testable rather than silently blending them into upstream behavior.
+Перед изменением общего кода сравните его с закреплённым upstream. Для унаследованных механизмов предпочитайте существующий адаптер или узкую точку интеграции. Новые функции z2kOW документируйте и тестируйте отдельно. Не смешивайте неподтверждённое QEMU/CI-прохождение с приёмкой на физическом роутере.

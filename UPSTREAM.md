@@ -1,72 +1,71 @@
-# Upstream tracking and parity
+# Синхронизация с upstream и соответствие z2k
 
-z2kOW is an independently maintained OpenWrt port **and modification** of [necronicle/z2k](https://github.com/necronicle/z2k) `z2k-enhanced`. It preserves upstream semantics for inherited features while adding its own OpenWrt-specific functionality.
+z2kOW — независимый порт **и модификация** [necronicle/z2k](https://github.com/necronicle/z2k), ветка `z2k-enhanced`. Общие функции по возможности следуют upstream, а собственные возможности OpenWrt могут иметь отдельный контракт.
 
-## Core rule
+## Основное правило
 
-Upstream z2k is the source of truth **for behavior inherited from upstream**, not for features introduced by z2kOW. Inherited functionality should preserve, as closely as practical:
+Upstream z2k — источник поведения **только для функций, унаследованных от него**. Для таких функций сохраняются, насколько это практически возможно:
 
-- feature set and user-visible behavior;
-- configuration and strategy semantics;
-- WebPanel behavior and actions;
-- install, update, reinstall, migration, preservation, reset, and removal semantics;
-- diagnostics and maintenance behavior;
-- scheduler intent and runtime feature flow.
+- возможности и видимые пользователю сценарии;
+- конфигурация, генерация стратегий и поведение nfqws2/autocircular;
+- общие действия WebPanel и состояния;
+- установка, обновление, переустановка, миграции, сохранение, сброс и удаление;
+- диагностика, плановые работы и управление сервисами.
 
-OpenWrt may use different platform mechanics, but a platform difference by itself is not a reason to redesign an inherited feature. Project-specific additions (for example DoH management, TikTok CDN fixes, and FLOWOFFLOAD diagnostics/benchmarking) may define their own behavior and lifecycle; they are not upstream parity requirements.
+Сам факт отличия OpenWrt от Keenetic не оправдывает переписывание работающей логики. Новые функции z2kOW — в частности, DNS на `dnsproxy`, TikTok Fix, FLOWOFFLOAD-диагностика и локальный Telegram Rust — развиваются по отдельным контрактам и **не считаются автоматически частью upstream parity**.
 
-## Allowed platform differences
+## Разрешённые отличия OpenWrt
 
-OpenWrt replaces Keenetic/Entware mechanisms with native owners:
+- procd вместо init/надзора Keenetic;
+- fw4/nftables вместо iptables/ipset/NDM;
+- netifd, ubus, UCI, hotplug и обычные маршруты Linux;
+- OpenWrt-расположение файлов вместо Entware;
+- системный `apk` для зависимостей и собственная доставка подписанных rootfs-архивов;
+- архитектурные ограничения и отдельная реализация локального Telegram.
 
-- procd for process lifecycle;
-- fw4/nftables for firewall state;
-- netifd, ubus, UCI, and hotplug for network state and events;
-- OpenWrt filesystem paths instead of Entware `/opt` ownership;
-- OpenWrt scheduling and package management;
-- OpenWrt-specific architecture and release delivery.
+Keenetic-only изменения без содержательного OpenWrt-эквивалента могут получить `N/A`. Решение необходимо объяснить и зафиксировать; отсутствующий адаптер — не то же самое, что осознанная неприменимость.
 
-Keenetic-only capabilities with no meaningful OpenWrt equivalent may be marked `N/A`, but that decision must be explicit. A missing adapter is not the same thing as an unsupported capability.
+## Разбор новых версий upstream
 
-## Upstream intake
+`.github/workflows/sync-upstream.yml` обнаруживает новые теги/`seq`, но **не публикует** их на устройства.
 
-`sync-upstream.yml` discovers upstream sequence changes. Discovery does not publish anything to routers.
+1. Закрепить тег, `seq` и commit upstream.
+2. Сравнить изменившееся поведение и файлы.
+3. Отделить переносимые функции от Keenetic/Entware/VPS-специфичных изменений.
+4. По возможности повторно использовать общий код и тонкие адаптеры.
+5. Обновить [матрицу соответствия](docs/UPSTREAM-PARITY-MATRIX.md) и, для неприменимых выпусков, реестр [`UPSTREAM-SKIPS.json`](docs/UPSTREAM-SKIPS.json).
+6. Проверить OpenWrt CI/QEMU; отличать результаты тестов от аппаратной приёмки.
+7. Публиковать релиз только через доверенный механизм z2kOW.
 
-For an upstream update:
+Проверка документационных отличий:
 
-1. Pin the upstream tag, sequence, and commit.
-2. Review common behavior changes.
-3. Reuse common upstream code where possible.
-4. Adapt only platform-specific effects.
-5. Update the [parity matrix](docs/UPSTREAM-PARITY-MATRIX.md).
-6. Publish only through the z2kOW release pipeline.
-
-The documentation-diff helper is:
-
-```sh
+~~~sh
 sh scripts/openwrt/audit-upstream-docs.sh <base-ref> <target-ref>
-```
+~~~
 
-`docs/UPSTREAM-SYNC.tsv` records reviewed upstream documentation revisions. It is an audit ledger, not a second product specification.
+`docs/UPSTREAM-SYNC.tsv` — журнал проверенных ревизий документации, не второй источник требований.
 
-## Учёт неприменимых выпусков
+## Неприменимые выпуски
 
-`docs/UPSTREAM-SKIPS.json` хранит точные upstream-тег и `seq` выпусков со статусом `not applicable` и русским объяснением. Проверка `sync-upstream.yml` включает эти номера в учёт синхронизации, поэтому повторно не предлагает тот же выпуск. Более новый `seq` по-прежнему требует отдельного разбора. Этот реестр не меняет версию продукта, `UPDATES.json`, его подпись или содержимое пакета.
+`docs/UPSTREAM-SKIPS.json` хранит конкретные тег и `seq`, статус `not applicable` и причину по-русски. Такой выпуск считается рассмотренным и не предлагается повторно, но новый `seq` требует нового анализа.
 
-## Device release authority
+Нельзя «обновлять» версию только ради смены номера, переносить Keenetic-only инфраструктуру без необходимости или менять подписанный `UPDATES.json` ради оформления статуса пропуска.
 
-Routers do not read upstream release metadata directly. The repository-root [`UPDATES.json`](UPDATES.json) is the sole device release authority for z2kOW. It records the approved upstream provenance and z2kOW artifact metadata and is authenticated by the z2kOW signing chain.
+## Единственный источник релизов для роутера
 
-This separation lets z2kOW keep upstream behavior while using an OpenWrt-native, signed release lifecycle.
+Роутеры читают только контролируемый [`UPDATES.json`](UPDATES.json) z2kOW и его подпись. Upstream `UPDATES.json` служит источником сведений для анализа, **не** удалённым каналом обновления устройства.
 
-## Divergence rule
+Состав выпуска, ссылка на артефакт, размер и SHA-256 закрепляются доверенной подписью. Отдельный VPS или удалённый relay для обновлений не обязателен. WARP остаётся независимой опциональной функцией.
 
-A common-code difference should be one of:
+## Когда допустимо расхождение
 
-- an upstream change not yet synchronized;
-- a minimal OpenWrt seam;
-- project branding/presentation that does not change inherited product semantics;
-- an explicitly documented z2kOW extension with its own behavior, ownership, and tests;
-- a documented intentional difference with a concrete compatibility or platform reason.
+Различия общего кода классифицируются как:
 
-Do not duplicate existing upstream features when they can be reused with a thin adapter. Keep z2kOW-only functionality isolated and documented so upstream updates can be integrated without silently overwriting either side.
+- новая версия upstream ещё не синхронизирована;
+- минимальная точка адаптации OpenWrt;
+- оформление/брендинг без изменения общего поведения;
+- отдельное расширение z2kOW с тестами и владельцем ресурсов;
+- явное обоснованное функциональное отличие, например Telegram Rust вместо старого пути;
+- подтверждённое `N/A` для Keenetic-only изменения.
+
+Не дублируйте реализованную upstream-функцию без причины. Не заменяйте работающие платформенные адаптеры ради формального единообразия. При расхождении обновляйте [архитектуру](ARCHITECTURE.md) и [матрицу соответствия](docs/UPSTREAM-PARITY-MATRIX.md).

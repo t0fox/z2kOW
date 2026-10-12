@@ -1,53 +1,53 @@
-# OpenWrt release policy
+# Правила выпуска z2kOW для OpenWrt
 
-This document defines maintainer policy. Device commands and recovery are in [docs/openwrt-release-operations.md](docs/openwrt-release-operations.md).
+Этот документ предназначен для сопровождающих проекта. Команды для владельцев роутеров и восстановление после ошибок — в [инструкции по установке и обновлению](docs/openwrt-release-operations.md).
 
-## Release authority
+## Источник релизов
 
-Upstream `necronicle/z2k` is an input. Routers read only the controlled z2kOW `UPDATES.json` on `main`.
+Upstream `necronicle/z2k` — **входные данные**, а не канал обновления устройств. Роутеры используют только контролируемый z2kOW [`UPDATES.json`](UPDATES.json) в `main` с доверенной подписью.
 
-A release must identify the approved upstream tag, sequence, and commit and bind the OpenWrt artifact by immutable URL, byte size, and SHA-256. Production metadata is signed with the protected z2kOW release key.
+Релиз должен указывать проверенные upstream-тег, `seq` и commit, а также неизменяемый URL архива, размер в байтах и SHA-256. Производственные метаданные подписываются отдельным защищённым ключом z2kOW.
 
-## Build model
+## Сборка
 
-The OpenWrt release is a complete staged payload. Build and staging logic lives under `scripts/openwrt/`. Device application converges through `install_release` and the OpenWrt release engine.
+Источники сборки и упаковки — `scripts/openwrt/`. Сборка создаёт полный payload и затем **семь архитектурных архивов**: `arm64`, `arm`, `x86_64`, `x86`, `mips`, `mipsel`, `riscv64`. Компоненты собираются из закреплённых исходников и для конкретного ABI; Telegram Rust входит только в поддерживаемые `arm64` и `x86_64`.
 
-Do not publish mutable files from `main` as production runtime dependencies. A release must be reproducible from a fixed repository state and fixed upstream provenance.
+Новый установщик скачивает и распаковывает архив **своей** архитектуры, а не все бинарники подряд. Переходный общий архив допустим только там, где это требуется для совместимости со старым установщиком, и не должен превращаться во второй постоянный путь доставки. Для установки, обновления и переустановки используется `install_release(tag)`.
 
-## Trusted publication
+Не публикуйте изменяемые файлы `main` как зависимости production runtime. Код, входные версии и хеши должны быть закреплены. z2kOW не упаковывается набором APK; `apk` устанавливает лишь системные зависимости.
 
-The trusted workflow is `.github/workflows/release-openwrt.yml`. It is responsible for:
+## Доверенная публикация
 
-1. validating requested upstream provenance;
-2. building the candidate from the selected repository state;
-3. producing final release metadata;
-4. signing the controlled manifest with the protected production key;
-5. publishing immutable release assets;
-6. verifying the published artifact binding;
-7. advancing `UPDATES.json` and its signature.
+Релизный механизм — `.github/workflows/release-openwrt.yml`. Его обязанности:
 
-Do not overwrite an immutable published release. Publish a new release to correct a defect.
+1. Проверить выбранные тег, `seq` и commit upstream.
+2. Собрать candidate из закреплённого состояния репозитория.
+3. Выпустить архитектурные артефакты и метаданные.
+4. Подписать контролируемый манифест защищённым производственным ключом.
+5. Разместить неизменяемые файлы релиза.
+6. Проверить опубликованные размеры, контрольные суммы и ссылки.
+7. Обновить `UPDATES.json` и его подпись только после прохождения gate.
 
-## Release review
+Нельзя подменять уже опубликованный неизменяемый релиз: для исправления нужен новый релиз либо явно предусмотренный подписанный механизм hotfix, не допускающий незаметной подмены артефакта.
 
-Before production publication:
+## Проверки перед публикацией
 
-- confirm the intended upstream tag, sequence, and commit;
-- review upstream behavior changes and platform adaptations;
-- keep the parity matrix current;
-- confirm user-owned data remains outside release-owned payload paths;
-- confirm architecture-specific runtime selection is deterministic;
-- review the exact manifest and artifact references to be signed;
-- keep the changelog limited to user-visible changes.
+- Сверить upstream provenance, [матрицу parity](docs/UPSTREAM-PARITY-MATRIX.md) и [реестр пропусков](docs/UPSTREAM-SKIPS.json).
+- Убедиться, что изменения Keenetic-only не перенесены без необходимости.
+- Проверить все семь архивов, каждый ABI и отсутствие посторонних бинарников.
+- Проверить сохранение `/etc/z2k`, миграции, откат и восстановление прерванных транзакций.
+- Подтвердить отсутствие обязательных VPS/WARP-зависимостей в OpenWrt-пути.
+- Проверить Telegram Rust только для целевых архитектур и не объявлять непроведённую аппаратную приёмку успешной.
+- Проверить `UPDATES.json`, подпись, ссылки, SHA-256 и пользовательские изменения в changelog.
 
-Release policy must not depend on temporary agent reports, one-off local paths, or test-run transcripts stored in documentation.
+CI, синтетический smoke, QEMU и проверки физического роутера — разные уровни подтверждения. В документах нельзя выдавать один уровень за другой.
 
-## Cancel a permanently red candidate
+## Отмена навсегда неуспешного кандидата
 
-The publish gate allows only one unpublished release candidate at a time. If its CI failure is permanent and the candidate will not be published, remove that candidate's remote tag so the release queue can move again:
+Gate допускает только одного ещё не опубликованного кандидата одновременно. Если CI этого кандидата не исправить и он не будет опубликован, удалить **только его** удалённый тег:
 
-```sh
+~~~sh
 git push origin :refs/tags/<candidate-tag>
-```
+~~~
 
-Use this only for the unpublished candidate named by the gate. Do not delete the release branch, change UPDATES.json, or remove a tag for an already published release. Confirm that the remote tag is gone, fix the CI failure, and create a new candidate with a new release version; release versions and tags are never reused.
+Перед удалением убедитесь, что это именно неопубликованный тег, названный gate. **Нельзя** удалять тег опубликованного релиза, релизную ветку, править `UPDATES.json` вручную или повторно использовать старые версии/теги. После устранения ошибки создайте новый кандидат с новым номером.

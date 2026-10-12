@@ -1,34 +1,39 @@
-# Documentation
+# Документация z2kOW
 
-z2kOW keeps a small set of canonical documents. Historical investigations belong under [`archive/`](archive/README.md), not in the active documentation set.
+Здесь собраны **актуальные** документы проекта. Исторические исследования и результаты отдельных экспериментов не заменяют технические контракты; архивные записи находятся в [`archive/`](archive/README.md).
 
-## Start here
+## С чего начать
 
-- [Project README](../README.md) — public technical overview, release model, WebPanel, and basic commands.
-- [Legal and use policy](../LEGAL.md) — project scope, operator responsibility, third-party references, donations, and public documentation policy.
-- [Architecture](../ARCHITECTURE.md) — common/upstream layer, OpenWrt boundary, ownership, and lifecycle.
-- [Upstream policy](../UPSTREAM.md) — how z2kOW stays aligned with upstream z2k.
-- [Parity matrix](UPSTREAM-PARITY-MATRIX.md) — current material differences from upstream.
+- [README проекта](../README.md) — обзор, возможности, установка, удаление и команды.
+- [Архитектура](../ARCHITECTURE.md) — границы общего z2k и OpenWrt, ownership, релизы.
+- [Политика upstream](../UPSTREAM.md) — что переносится из z2k, что адаптируется и пропускается.
+- [Матрица соответствия](UPSTREAM-PARITY-MATRIX.md) — открытые отличия, осознанные `N/A` и история анализов.
+- [Правовая информация](../LEGAL.md) — назначение, ответственность пользователя и сторонние сервисы.
 
-## Releases and security
+## Установка, обновления и безопасность
 
-- [Release policy](../RELEASING.md) — maintainer rules for building and publishing releases.
-- [OpenWrt release operations](openwrt-release-operations.md) — device install, update, state, and recovery.
-- [Security](../SECURITY.md) — trust boundaries, signatures, and WebPanel exposure.
+- [Установка и восстановление](openwrt-release-operations.md) — действия на роутере, состояние, rollback, удаление.
+- [Выпуск релизов](../RELEASING.md) — правила сборки, проверки, подписи и публикации.
+- [Безопасность](../SECURITY.md) — доверие к обновлениям, доступ к панели, границы гарантий.
+- [Измерения архитектурных архивов](openwrt-arch-artifacts-measurements.md) — датированные замеры, **не** универсальные системные требования.
 
-## OpenWrt feature contracts
+## Контракты возможностей OpenWrt
 
-These documents describe only platform-specific invariants that are not obvious from upstream z2k:
+| Функция | Документ | Статус / граница |
+|---|---|---|
+| WebPanel | [Интерфейс и действия](openwrt-webpanel-contract.md) | локальная сеть, procd и OpenWrt-адаптер |
+| Telegram | [Прозрачный Rust-прокси](openwrt-telegram-contract.md) | **альфа**, только arm64 и x86_64, без обязательного VPS |
+| RT proxy | [DNS, nftables и жизненный цикл](openwrt-rt-proxy-contract.md) | отдельный локальный компонент |
+| WARP | [Выборочная маршрутизация](openwrt-warp-contract.md) | **опционально**, fail-open |
+| DNS | [Описание в README](../README.md#dns-на-базе-dnsproxy) | системный dnsproxy, несколько протоколов |
+| TikTok Fix | [Описание в README](../README.md#собственные-расширения-z2kow) | собственные правила dnsmasq |
 
-- [WebPanel](openwrt-webpanel-contract.md)
-- [Telegram transport](openwrt-telegram-contract.md)
-- [RT proxy](openwrt-rt-proxy-contract.md)
-- [WARP](openwrt-warp-contract.md)
+## Исходные проверки и разработка
 
-## Development records
+- [Правила внесения изменений](../CONTRIBUTING.md).
+- [Реестр пропущенных upstream-выпусков](UPSTREAM-SKIPS.json) — машинный JSON, переводить ключи/значения статусов нельзя.
+- [Журнал сверки upstream](UPSTREAM-SYNC.tsv).
+- [Доказательства проверок VPS-free](openwrt-vps-free-evidence.md) — журнал QEMU и регрессий с датами, **не** заявление о полной приёмке.
+- [Архив разработческих материалов](archive/).
 
-- [Contributing](../CONTRIBUTING.md) — development conventions.
-- [`UPSTREAM-SYNC.tsv`](UPSTREAM-SYNC.tsv) — reviewed upstream documentation revisions used by the sync audit.
-- [`archive/`](archive/) — historical notes that are not current contracts.
-
-Active documentation should describe the current contract, not CI transcripts, elapsed times, temporary implementation stages, or one-off test reports.
+**Принцип:** контракты описывают ожидаемое поведение, результаты CI/QEMU — только реально выполненные проверки, а физический роутер требует отдельной приёмки.

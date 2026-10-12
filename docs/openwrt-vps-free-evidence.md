@@ -1,8 +1,10 @@
-# Доказательства проверки OpenWrt VPS-free
+# Журнал проверок независимости OpenWrt от VPS
 
 Дата: 12 октября 2026 года. Ветка: `feat/openwrt-vps-free`.
 
-Этот журнал фиксирует только выполненные проверки. Полная приёмка проекта ещё не пройдена.
+**Исторический журнал:** здесь сохранены наблюдения с датами, ветками, коммитами и ограничениями. Большинство записей уже на русском; команды, названия тестов, статусы и вывод инструментов оставлены в исходном виде ради воспроизводимости. Этот документ не является актуальным интерфейсным или архитектурным контрактом.
+
+После объединения направления VPS-free с `main` актуальные требования смотрите в [README](../README.md), [архитектуре](../ARCHITECTURE.md) и [контракте Telegram](openwrt-telegram-contract.md). Перечень проверок ниже не подтверждает автоматически весь релиз и работу на физическом роутере. Полная приёмка проекта ещё не пройдена.
 
 Сверка с `main`: `UPDATES.json` совпадает; в feature-коммитах нет изменений release metadata или `seq`.
 
@@ -46,7 +48,7 @@
 Проверялись адаптерные скрипты напрямую в VM; полный продуктовый rootfs туда не устанавливался.
 В чистом базовом образе `curl` отсутствовал. Для сетевых сценариев его установили в госте; штатный OpenWrt release installer включает `curl` в runtime-пакеты, а bootstrap устанавливает `jsonfilter`. Поэтому это не требование к предустановленному образу, но проверка полного package lifecycle остаётся открытой.
 
-## Отдельный бинарник WARP daemon
+## Отдельный исполняемый файл WARP
 
 `build-matrix.tsv` задаёт для `z2k-warpd` девять GOARCH: `arm64`, `arm`, `amd64`, `386`, `mips`, `mipsle`, `mips64le`, `ppc64`, `riscv64` (10 имён tracked-файлов с совместимым alias). OpenWrt release builder использует отдельную production-матрицу из семи целей: `arm64`, `arm`, `amd64`, `386`, `mips`, `mipsle`, `riscv64`; `mips64le` не входит, так как pinned upstream runtime его не поддерживает.
 
@@ -58,11 +60,11 @@
 
 В OpenWrt 25.12.5 x86/64 VM временно запущен собранный `amd64` бинарник с командой `version`; получен ответ `z2k-warpd dev`. Временный файл из `/tmp` удалён. Это smoke-проверка запуска на x86/64, не проверка регистрации в Cloudflare или работы туннеля.
 
-## Отдельный бинарник RT proxy
+## Отдельный исполняемый файл RT proxy
 
 `rt-proxy` unit suite прошёл. В `build-matrix.tsv` перечислены пять GOARCH для `z2k-rt-proxy`: `arm64`, `arm`, `amd64`, `mips` (big-endian softfloat) и `mipsle` (little-endian softfloat); шестое имя файла — совместимый alias `mipsle`. Структурная проверка выше подтвердила ELF-заголовки и статичность всех перечисленных файлов. x86/64 бинарник выполнил `--help` в OpenWrt QEMU; E2E direct HTTP/HTTPS ранее прошёл на x86/64.
 
-## Локальные suites
+## Локальные наборы тестов
 
 Все перечисленные ниже suites завершились без ошибок:
 
@@ -151,7 +153,7 @@
 
 GitHub CI для feature-ветки `feat/openwrt-vps-free` запущен после push коммита `346226f4` и завершился успешно: [run 38238233556](https://github.com/t0fox/z2kOW/actions/runs/38238233556). Ветка не создаёт PR и не меняет production release.
 
-## QEMU: clean install и отсутствие обращений к старым VPS
+## QEMU: чистая установка без обращений к старым VPS
 
 12 октября 2026 года в отдельный OpenWrt 25.12.5 x86/64 QEMU overlay установлена сборка из CI с `tag=p-86.18`, `seq=142`. Для изолированной проверки manifest был заново подписан временным тестовым Ed25519 ключом; manifest и rootfs передавались с локального HTTP сервера. Поэтому это проверка installer/payload path, не проверка production-ключа или production `UPDATES.json`. Installer завершился `rc=0`, установил выпуск, Rust `tg-ws-proxy` присутствовал и работал с `--port=1443 --transparent`, прежний Go `tg-mtproxy-client` отсутствовал. WebPanel вернул HTTP 200.
 
@@ -207,7 +209,7 @@ GitHub CI для feature-ветки `feat/openwrt-vps-free` запущен по�
 
 После тестов выполнен restart чистой QEMU OpenWrt 25.12.5 (гостевой reboot с последующим QEMU `system_reset`, затем активация serial-консоли). После загрузки `nslookup github.com` завершился успешно, `nft list tables` показал только штатную `inet fw4`, временного архива в `/tmp` не осталось. Это проверяет восстановление базовой сети и отсутствие временных правил после рестарта; жизненный цикл установленного z2kOW после reboot пока не проверен.
 
-## Regression suites без Telegram
+## Регрессионные тесты без Telegram
 
 На feature-ветке прошли шесть независимых suites (52/52): `test_ow_bootstrap_download_validation.sh` (8/8), `test_ow_bootstrap_manifest_mirrors.sh` (7/7), `test_ow_recovery.sh` (13/13), `test_ow_update_entry.sh` (12/12), `test_ow_updater_failsafe.sh` (5/5), `test_ow_updater_state.sh` (7/7). Транзакционные fault/rollback, installer, boot-recovery и uninstall parity suites не запускались: они включают TG-фикстуры/проверки либо читают изменённый другим агентом `platform/openwrt/release.sh`. Поэтому эти результаты подтверждают updater entry/state и ошибки bootstrap, но не полную транзакцию обновления, rollback или удаление продукта.
 
@@ -276,7 +278,7 @@ Fault injection: запись нового hosts-файла и reload dnsmasq з
 - `files/z2k-insta-ip-refresh.sh` сохраняет HMAC relay для Keenetic, но при `Z2K_PLATFORM=openwrt` выбирает локальный DoH и dnsmasq adapter; live refresh при заблокированных VPS-IP описан выше.
 - `platform/openwrt/warp.sh` начинает регистрацию напрямую. Сохраненный `Z2K_WARP_VPS_PROXY` не обязателен, а два старых VPS IP отклоняются фильтром. `test_ow_warp_parity.sh` повторно прошёл `39/39`; этот тест не подтверждает доступность регистрации WARP у провайдера.
 
-## QEMU verified downloader: отказ и восстановление
+## QEMU: проверенная загрузка, отказ и восстановление
 
 В OpenWrt 25.12.5 x86/64 отдельно вызвана только production-функция `download_verified_artifact` из `scripts/openwrt/install.sh`; installer не запускался. Для контролируемого отказа GitHub origin и два штатных HTTPS mirror временно направлены на loopback, старые VPS-IP блокировались отдельной nft output-таблицей, custom mirror был выключен. Helper вернул ошибку, не оставил файл назначения или `.download` временный файл. Затем включён локальный fixture mirror и повторён тот же запрос: helper принял только ожидаемые `26` байт с SHA-256 `406a2fd352e723f10cb93620be9b301e29b1e8e6d2ec2982aedc2f82411ca2e9`. Счётчики старых VPS-IP — `0`. После теста `/etc/hosts` восстановлен, временная nft-таблица удалена, осталась только `inet fw4`, локальный сервер остановлен, тестовые файлы удалены. Это проверяет fail-closed и восстановление транспортного helper на fixture-артефакте, но не является скачиванием или установкой product release.
 
@@ -335,7 +337,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 
 12 октября 2026 года на `164df65a` повторно запущены изолированные suites RuTracker proxy: static `70/70`, DNS `41/41`, firewall `43/43`, SO_MARK `17/17`. Итого `171/171`, ошибок нет. Это локальные проверки адаптера и сетевой политики; они не заменяют архитектурный QEMU E2E и проверку доступности стороннего proxy pool.
 
-## Runtime artifact и OpenWrt archmap
+## Runtime-артефакты и соответствие архитектур OpenWrt
 
 12 октября 2026 года на `18be002d` `test_ow_runtime_artifact.sh` прошёл `29/29` на архиве, загруженном по URL из `platform/openwrt/runtime-pin`: размер `4 339 405` байт, SHA-256 `02eec373b093083b426c27191bb6af260ac51e4e2739c51270270a351d2a1a16`. Suite подтвердил наличие `nfqws2`, `ip2net` и `mdig` для семи OpenWrt архитектур и запуск закреплённого x86/64 движка. `test_ow_warp_archmap.sh` прошёл `6/6`. Архив удалён после теста; продуктовый release builder не запускался.
 
@@ -343,7 +345,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 
 12 октября 2026 года на чистой OpenWrt 25.12.5 x86/64 QEMU, на HEAD `525f3316`, временные nft output drop-правила затрагивали только TCP/443 к `213.176.74.63` и `79.137.196.7`. При отсутствии proxy-переменных и `/dev/net/tun` прямой запрос к `https://api.github.com/zen` завершился `HTTP 200`, TLS verify `0`, endpoint `140.82.113.6`. Счётчики обоих VPS-drop правил остались `0`; после проверки временная таблица удалена, осталась только штатная `inet fw4`. Это подтверждает прямой HTTPS маршрут при недоступном старом VPS, но не полный install/update/rollback продукта.
 
-## DNS/DoH OpenWrt регрессии
+## Регрессионные тесты DNS/DoH для OpenWrt
 
 12 октября 2026 года на `7df1e68a` повторно прошли `test_ow_doh.sh` `266/266`, `test_ow_dnsproxy.sh` `266/266`, `test_ow_dns_check.sh` `2/2` и `test_ow_dns_detect_path.sh` `5/5`. Итого `539/539`, ошибок нет. Suites проверяют локальное управление dnsproxy/DoH, сохранение существующих dnsmasq overrides и диагностику; они не заменяют проверку пользовательского трафика после полной установки.
 
@@ -359,19 +361,19 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 
 12 октября 2026 года на `167ef750` прошли `test_ow_lifecycle.sh` `27/27`, `test_ow_restart.sh` `6/6` и `test_ow_state_persist.sh` `16/16`. Итого `49/49`, ошибок нет. Проверены OpenWrt procd start/stop rollback, общий updater restart hook и сохранение strategy state; общий release path не задействовался.
 
-## Post-install WARP game seed transport
+## Доставка игровых списков WARP после установки
 
 12 октября 2026 года аудит call path нашёл post-install background seed, который запускал `z2k-update-lists.sh warp-games` без `Z2K_FETCH_VPS_OUT=1`. Новый regression сначала упал `1/5` при очищенном окружении, подтверждая пропуск; OpenWrt release adapter теперь выставляет флаг только внутри seed subshell. После исправления прошли `test_ow_release_warp_seed.sh` `5/5`, `test_ow_warp_games_flow.sh` `4/4`, `test_ow_warp_manifest_env.sh` `5/5` и `test_ow_env.sh` `34/34` — итого `48/48`. Это закрывает post-install transport path; полный подписанный install/update/rollback всё ещё требует QEMU acceptance.
 
-## Call-path аудит общего Insta-IP refresh
+## Аудит пути вызовов общего обновления Insta-IP
 
 12 октября 2026 года подтверждено, что `platform/openwrt/diag.sh` и `list-refresh.sh` входят в общий updater с `Z2K_PLATFORM=openwrt`; `files/z2k-insta-ip-refresh.sh` тогда выбирает `platform/openwrt/insta-ip.sh` и прямые DoH резолверы. HMAC POST на старый `/resolve` остаётся только в ветке Keenetic. Повторные boundary/runtime/no-op rollback suites прошли `35/35`, `26/26` и `11/11` (итого `72/72`).
 
-## WebPanel transport call path
+## Путь вызовов транспорта WebPanel
 
 12 октября 2026 года повторно прослежен update-manifest путь WebPanel: `api.sh` загружает `webpanel/cgi/platform.sh` до `actions.sh`, а platform seam подключает `platform/openwrt/env.sh`, экспортирующий `Z2K_FETCH_VPS_OUT=1`; вложенный `z2k_fetch` наследует этот режим. `test_ow_source_order.sh` прошёл `2/2`, `test_ow_webpanel_unit.sh` — `37/37`. Вместе с list-refresh wrapper, WARP games cron и исправленным post-install seed закрыты обнаруженные OpenWrt caller-ы общего fetch transport.
 
-## WARP optional-function regressions
+## Регрессионные проверки необязательного WARP
 
 12 октября 2026 года на `b0228261` повторно прошли `test_ow_warp_static.sh` `92/92` и `test_ow_warp_parity.sh` `39/39` — `131/131`. Проверки подтверждают статическую конфигурацию и parity WARP-путей; сами по себе они не доказывают полноценный продуктовый VPS-free install/update lifecycle. Telegram не затрагивался.
 
@@ -415,7 +417,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 
 Также в госте вызвана production-функция `fetch_verified_manifest()` из того же `install.sh` с её installer-кодом загрузки и `value()` parser. Для старого VPS оставлены точечные TCP/443 drop-правила; четыре raw-origin IP получили временный TCP reset, чтобы прямой `wget` быстро отказал. Функция переключилась на `https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main/UPDATES.json`, закреплённый key ID совпал, подпись прошла внутри helper; итоговый manifest — `p-86.18`, `seq=142`, SHA-256 `b2e3c96b04d1a36c23e22942e2878a42810a98266143b63175db4eeeee86759e`, подписи — `aedb42d21959727a46f790bd1d2aa5d75b91cd6d1b828d837336c24a16e64cca`, ключа — `3afa2ad6bed59d5878156f891522b89df817cf6b3b412f4acb03d6f4164e80f3`. Выбранный `MANIFEST_URL` указывал на CDN. Старые VPS counters — 0; каждый raw-origin reject counter — 1. Временная таблица и файлы удалены, осталась только `inet fw4`. Installer целиком, запись installed-release и запуск служб не выполнялись.
 
-## Повторные targeted non-TG регрессии на текущем HEAD
+## Повторные целевые регрессионные проверки без Telegram на текущем HEAD
 
 12 октября 2026 года на `1f11d3ee` повторно прошли bootstrap download validation `8/8`, bootstrap manifest mirrors `7/7`, fetch layer budget `48/48`, geosite VPS independence `4/4`, Insta-IP boundary/runtime/no-op rollback `35/35`, `26/26`, `11/11`, OpenWrt env `34/34`, WARP static/parity `92/92` и `39/39` — итого `304/304`. Suites не запускают Telegram, общий installer или release/start lifecycle. Это регрессии локальных transport/adapters; они не закрывают полную установку, обновление, rollback и удаление продукта.
 
@@ -423,7 +425,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 
 12 октября 2026 года на `9e7bdc37` прошли `test_ow_arch.sh` `26/26`, `test_ow_runtime_artifact.sh` `29/29` и `test_ow_warp_archmap.sh` `6/6` — `61/61`. Runtime archive перед тестом скачан по закреплённому URL; размер `4 339 405` байт и SHA-256 `02eec373b093083b426c27191bb6af260ac51e4e2739c51270270a351d2a1a16` совпали с `platform/openwrt/runtime-pin`. Архив проверил наличие `nfqws2`, `ip2net` и `mdig` по семи OpenWrt ABI, installer digest, версию движка и запуск dry-run под x86/64. Временный архив удалён. Suites не затрагивают Telegram; остальные архитектуры подтверждены структурой/ограниченными smoke, но не полным OpenWrt runtime.
 
-## `nfqws2` runtime smoke по семи ABI
+## Дымовая проверка nfqws2 на семи ABI
 
 12 октября 2026 года из того же закреплённого runtime archive извлечены только `binaries/linux-*/nfqws2`. Все семь ELF статически связаны; под установленным в Debian QEMU user-mode/binfmt каждый запустил `--version` и `--dry-run --qnum=200 --filter-tcp=443 --filter-l7=tls`: `14/14`, версия `v1.0.5.2-z2k-r0`. Проверка не открывала NFQUEUE и не генерировала пользовательский сетевой трафик, поэтому это ABI/CLI smoke, а не полноценный OpenWrt runtime. Архив и извлечённые бинарники из `/tmp` удалены.
 
@@ -431,7 +433,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 
 12 октября 2026 года на `148e89be` закреплённый embedded runtime archive скачан и проверен по SHA-256 `02eec373b093083b426c27191bb6af260ac51e4e2739c51270270a351d2a1a16`. Только `linux-x86_64/nfqws2` передан в OpenWrt 25.12.5 x86/64 QEMU через временный локальный HTTP server; SHA-256 в госте совпал (`e8ff58236ba75c55f9bb67b38d0109fdd40cbb5718d0ffa31f59e9ebd2ad1726`). В госте `--version` сообщил `v1.0.5.2-z2k-r0`, а `--dry-run --qnum=200 --filter-tcp=443 --filter-l7=tls` — `command line parameters verified`. Это реальный запуск движка на OpenWrt, но dry-run не открывает NFQUEUE и не доказывает обработку LAN-пакетов или VPS-free пользовательский трафик. Гостевой бинарник удалён; host HTTP server остановлен и временные файлы удалены; в QEMU осталась только штатная `inet fw4`.
 
-## QEMU NFQUEUE pass-through при заблокированном VPS
+## QEMU: прохождение NFQUEUE при недоступном VPS
 
 12 октября 2026 года на кодовом HEAD `10d89fc8` тот же pinned `nfqws2` запущен в OpenWrt 25.12.5 x86/64 QEMU с `--qnum=200 --filter-tcp=18766`. Временный nft output chain направил TCP к локальному NAT host `10.0.2.2:18766` в queue 200 и точечно блокировал TCP/443 к старым VPS IP `213.176.74.63` и `79.137.196.7`. `wget --no-proxy` получил HTTP тело `nfqueue-e2e-ok`; nft counter очереди — 7 пакетов, оба VPS counters — 0. Это подтверждает живую передачу пакетов через NFQUEUE и pass-through в тестовом маршруте, но профиль desync не задавался и отдельный LAN-клиент не использовался. Процесс `nfqws2`, тестовые файлы и nft-таблица удалены; host HTTP server остановлен; в госте осталась только `inet fw4`.
 
@@ -443,7 +445,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 
 Отдельная попытка клиента обратиться к внешнему Cloudflare HTTP(S) в этой QEMU-схеме до NFQUEUE завершилась `Operation not permitted`; причина в тестовой топологии не локализована, поэтому внешний WAN для отдельного клиента не засчитывается. `nfqws2`, временная nft-таблица и обе VM остановлены; lease `192.168.1.108` и связанные neighbor entries удалены, host server и временные файлы убраны. В основной VM осталась только штатная `inet fw4`, `/usr/lib/z2k` отсутствует. Пользовательский роутер и продуктовый installer не запускались.
 
-## QEMU NFQUEUE TLS desync без VPS и proxy
+## QEMU: TLS desync через NFQUEUE без VPS и прокси
 
 12 октября 2026 года из архива, закреплённого в `platform/openwrt/runtime-pin`, извлечены `nfqws2` x86/64 (SHA-256 `e8ff58236ba75c55f9bb67b38d0109fdd40cbb5718d0ffa31f59e9ebd2ad1726`) и upstream Lua-модули `zapret-lib.lua` (`b67a470f23b00a8d6e732c4e5135a39b224511e0b71809d5f4616adf62674980`) и `zapret-antidpi.lua` (`83d4c85f74dc672d4da04e34a81601e92cf3cf140e5f0c94f3904bb6024b02a5`). Все три файла проверены по SHA после доставки в OpenWrt 25.12.5 x86/64 QEMU.
 
@@ -451,23 +453,23 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 
 После прогона `nfqws2` остановлен, тестовые файлы и временная таблица удалены; проверено, что осталась только штатная `inet fw4`, процесс отсутствует, `/usr/lib/z2k` не установлен. Host HTTP server и временный pinned archive остановлены/удалены. Это подтверждает обработку реального TLS-потока локальным движком без VPS, WARP и proxy в сети QEMU; обход DPI и отдельный LAN-клиент не проверялись.
 
-## Повторные updater/recovery regressions без Telegram
+## Повторные регрессии обновления и восстановления без Telegram
 
 12 октября 2026 года на `de0829fa` прошли `test_ow_update_entry.sh` `12/12`, `test_ow_updater_failsafe.sh` `5/5`, `test_ow_updater_state.sh` `7/7` и `test_ow_recovery.sh` `13/13` — `37/37`. Suites проверяют входные условия updater, fail-safe state и recovery без общего product start. Они не подтверждают полное применение подписанного rootfs, пользовательские настройки в реальном update или полный rollback/uninstall на установленном продукте.
 
-## Повторные DNS и diagnostics regressions без Telegram
+## Повторные регрессии DNS и диагностики без Telegram
 
 12 октября 2026 года на `0365c3c8` прошли clock skew direct-path `7/7`, AGH upstream diagnostics `19/19`, DNS/DoH adapter `266/266`, DNS check `2/2` и DNS path detection `5/5` — `299/299` уникальных assertions. Совместимый alias `test_ow_doh.sh` повторно запустил тот же DNS/DoH suite (`266/266`); повторный прогон в итог не суммируется. Сообщение `Direct DNS probe failed after 3 attempts` — ожидаемый отказной сценарий внутри suite; итоговый код каждой команды был `0`. Проверены unit/regression paths, не live-доступность всех внешних DNS-провайдеров.
 
-## TCP16 SNI adapter regressions без Telegram
+## Регрессии адаптера TCP16 SNI без Telegram
 
 12 октября 2026 года `tests/openwrt/test_ow_tcp16_runtime.sh` прошёл `13/13`. Проверены Lua `z2k_sni_pick(ctx, desync)`, интеграция OpenWrt-адаптера, сгенерированная конфигурация, сохранение verdict между проверками после reboot и очистка после успешного probe. Это локальная регрессия адаптера и состояния: отдельный LAN ClientHello, успешная обработка пользовательского TLS и реальный desync в сети не проверялись. Хостовый smoke с устаревшим `--dpi-desync=fake` отклонён закреплённым `nfqws2` как неизвестный параметр; текущая реализация использует Lua actions.
 
-## Повторные Insta-IP regressions без Telegram
+## Повторные регрессии Insta-IP без Telegram
 
 12 октября 2026 года на базе HEAD `1b616abc` повторно прошли `test_ow_insta_boundary.sh` `35/35`, `test_ow_insta_runtime.sh` `26/26` и `test_ow_insta_refresh_noop_backup.sh` `11/11` — `72/72`. Проверены границы OpenWrt/общего транспорта, runtime выбора и кэширования кандидатов, no-op, сохранение полного файла при неудаче restart, rollback и удержание backup при неудаче восстановления. Это изолированные regression suites, не новый live refresh. Чистая QEMU VM доступна через serial; состояние перед дальнейшими сценариями: только штатная nft-таблица `inet fw4`, дерева `/usr/lib/z2k` и `/etc/z2k/state/installed-release` нет. Установщик и сервисы не запускались.
 
-## QEMU DNS outage и восстановление без Telegram
+## QEMU: отказ DNS и восстановление без Telegram
 
 12 октября 2026 года в чистой OpenWrt 25.12.5 x86/64 QEMU временная таблица `inet vpsfree_probe` отбрасывала исходящие UDP/TCP DNS и TCP/443 только к старым VPS `213.176.74.63`, `79.137.196.7`. До отказа `nslookup github.com 127.0.0.1` вернул `140.82.114.4`. При блокировке уникальный DNS-запрос завис; его вручную прервали примерно через 30 секунд. DNS drop counter — 1 пакет, оба VPS counters — 0. Таблица удалена, `nft list tables` показал только штатную `inet fw4`; после этого повторный lookup `github.com` снова вернул `140.82.114.4`. Восстановление подтверждено, но это проверка системного dnsmasq, не продукта: `/usr/lib/z2k` и installed-release в VM отсутствуют. init/start и Telegram не запускались.
 
@@ -479,17 +481,17 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 
 12 октября 2026 года после восстановления DNS в OpenWrt QEMU при блокировке только TCP/443 к старым VPS был запущен прямой BusyBox `wget` для `https://raw.githubusercontent.com/necronicle/z2kOW/main/UPDATES.json`. За примерно 24 секунды команда не вернула статус, размер или хэш; запрос остановлен вручную. Это неопределённый probe без результата, не доказательство отказа производственного downloader: CDN fallback этим вызовом не проверялся. Счётчик правила старых VPS был 0. Временная таблица и файл удалены; проверка `nft list tables` показала только `inet fw4`.
 
-## QEMU direct jsDelivr manifest после DNS восстановления
+## QEMU: прямой доступ к манифесту jsDelivr после восстановления DNS
 
 12 октября 2026 года в OpenWrt 25.12.5 x86/64 QEMU без proxy выполнен `curl` к `https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main/UPDATES.json` при временной блокировке TCP/443 только к старым VPS `213.176.74.63` и `79.137.196.7`. `curl` завершился кодом `0`; размер — `297794` байт; SHA-256 `b2e3c96b04d1a36c23e22942e2878a42810a98266143b63175db4eeeee86759e` совпал с локальным `UPDATES.json`. Оба VPS counters — `0`. Вызов проверил доставку и целостность по локальному hash, но не выполнял проверку подписи. Временные таблица и файл удалены; после теста осталась только штатная `inet fw4`. В VM нет установленного продукта, сервисы не запускались.
 
-## Bootstrap mirror-first и ограничение ожидания
+## Приоритет зеркала при установке и ограничение времени ожидания
 
 12 октября 2026 года QEMU показал, что DNS-запрос к `raw.githubusercontent.com` не завершался в течение наблюдения; прямой `wget` был отменён. Поэтому в обычном bootstrap независимый jsDelivr теперь проверяется первым, а raw-origin остаётся fallback. Явный приёмочный источник сохраняет приоритет. Тайм-аут BusyBox `wget` снижен с `60` до `15` секунд для сетевого чтения. Новый regression сначала подтвердил прежнее значение `60` и упал, затем прошёл после исправления; manifest mirror suite прошёл `10/10`, download validation `8/8`, shell syntax — успешно.
 
 После изменения в OpenWrt 25.12.5 x86/64 QEMU запущена именно извлечённая из feature production-функция `fetch_verified_manifest()` с настоящими `wget`, `jsonfilter` и OpenSSL; тестовый сервис получил только этот helper по временной локальной HTTP-раздаче. При точечной TCP/443 блокировке старых VPS функция первой скачала manifest, закреплённый ключ и подпись с jsDelivr и успешно прошла Ed25519 verification. Результат: `MANIFEST_URL=https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main/UPDATES.json`, key ID `916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae`, `p-86.18`, `seq=142`, SHA-256 `b2e3c96b04d1a36c23e22942e2878a42810a98266143b63175db4eeeee86759e`; VPS counters — 0. Server, helper и nft-таблица удалены, в VM осталась только `inet fw4`. Установка продукта и запуск сервисов не выполнялись.
 
-## Подписанный raw-origin fallback
+## Резервная загрузка из подписанного прямого источника
 
 После переноса обычного bootstrap на CDN-first расширен `test_ow_bootstrap_manifest_mirrors.sh`: при отказе CDN suite принимает raw-origin только с валидной Ed25519-подписью, а также проверяет сохранение приоритета явного приёмочного источника. Suite прошёл `13/13`; timeout и download validation — `1/1` и `8/8`. Raw-origin fallback подтверждён на изолированной подписанной fixture; live raw-host запрос в текущей QEMU-сети остаётся неопределённым из-за задержки DNS.
 
@@ -517,7 +519,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 
 Повторная проверка состояния QEMU после сетевых probes подтвердила только штатную nft-таблицу `inet fw4`; `/usr/lib/z2k` и installed-release отсутствуют. Поэтому эти регрессии не являются приёмкой clean install/update/rollback/uninstall продукта. Полная сборка штатного rootfs включает `scripts/openwrt/build_tg_ws_proxy.sh`; она не запускалась, чтобы не собирать и не затрагивать Telegram-компонент, который выполняет другой агент. Полная QEMU-жизненная приёмка остаётся незакрытой.
 
-## QEMU: production curl downloader при DNS outage и VPS block
+## QEMU: производственный загрузчик curl при отказе DNS и блокировке VPS
 
 12 октября 2026 года в том же OpenWrt 25.12.5 x86/64 госте извлечена без изменений функция `fetch_verified_manifest()` из текущего `scripts/openwrt/install.sh`; wrapper использовал тот же `curl --connect-timeout 10 --max-time 600`, `jsonfilter`, закреплённый key ID и Ed25519-проверку. При временном drop UDP/TCP 53 запросы к CDN и raw-origin завершились контролируемой ошибкой `curl (6) Could not resolve` за 10 секунд, `verified=0`, helper вернул отказ. Счётчик DNS drop — 16; оба точечных VPS TCP/443 counters — 0.
 
@@ -527,7 +529,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 
 После этого в Debian WSL повторно прошли независимые общие regression suites без Telegram: `test_fetch_vps_layer_budget.sh` `48/48`, `test_geosite_vps_independence.sh` `4/4`, `test_diag_clock_skew_vps_free.sh` `7/7` — итого `59/59`. Проверки сохраняют Keenetic relay behavior и подтверждают OpenWrt direct/mirror и clock-diagnostic paths.
 
-## QEMU: bootstrap APK packages через OpenWrt feeds без VPS
+## QEMU: системные APK через репозитории OpenWrt без VPS
 
 12 октября 2026 года в OpenWrt 25.12.5 x86/64 QEMU временно заблокированы TCP/443 к `213.176.74.63` и `79.137.196.7`; штатный `apk fetch --output /tmp/z2k-apk-vpsfree-probe ca-bundle openssl-util jsonfilter curl` завершился `rc=0`. Из configured OpenWrt repositories напрямую получены пакеты: `ca-bundle-20260816-r1.apk` (107 337 байт, SHA-256 `22f49453c235d2caefe6859bf797a96bfcd874b1f43df6ee45dc6a48a37e57d3`), `curl-8.22.0-r1.apk` (73 944, `a5e0d63d721ccc570eeb1e9962b63b7898a610eacddf1f1a95be0e67139e7c5c`), `jsonfilter-2026.03.16~b9034210-r1.apk` (10 343, `ec2499f386a7432407bb1d1581681aac6dcd17a85469e2d0a280a01d5aab7389`) и `openssl-util-3.5.9-r1.apk` (385 462, `f975772e376ce05c46efbc4f4f2bee1575109454cb928333b65010dd526b1783`). Все четыре пакета уже были установлены до теста; команда только скачала архивы, package database и system root не менялись. Оба VPS counters остались `0`.
 
@@ -541,7 +543,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 
 После прогона временная nft-таблица удалена, `/tmp` helper и временные файлы очищены; `nft list tables` показал только штатную `inet fw4`. Package database и постоянные настройки не менялись, локальный HTTP server остановлен. Это проверка transport helper, а не чистой установки или полного product lifecycle.
 
-## QEMU: LAN-клиент через прямой WAN при блокировке старой VPS
+## QEMU: клиент LAN через прямой WAN при блокировке старого VPS
 
 12 октября 2026 года к основной OpenWrt 25.12.5 x86/64 QEMU по изолированному socket LAN была временно подключена вторая чистая OpenWrt VM. Она получила DHCP-адрес `192.168.1.108`; её трафик проходил через LAN→WAN forwarding и IPv4 masquerade основной VM. Временное правило блокировало TCP/443 к старым VPS `213.176.74.63` и `79.137.196.7`; счётчик блокировки остался `0`.
 
@@ -559,7 +561,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 
 Этот аудит отделяет сохранённую совместимость от OpenWrt call path и не удаляет legacy функции. Различие подтверждено статическим маршрутом исходников; физическое наличие и запуск всех legacy файлов в установленном полном rootfs останутся предметом незавершённой lifecycle приёмки. Подтверждённые живые прогоны, блокировки VPS и оставшиеся пробелы перечислены в основной матрице выше; полная product lifecycle приёмка всё ещё открыта.
 
-## QEMU user-mode smoke дополнительных OpenWrt бинарников
+## QEMU: дымовая проверка дополнительных бинарников OpenWrt
 
 12 октября 2026 года закреплённым Go `1.25.13` повторно собраны только OpenWrt `z2k-rt-proxy` и `z2k-warpd` из production-команд `scripts/openwrt/build-release.sh`: `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false`; для MIPS — `GOMIPS=softfloat`; WARP собран с OpenWrt tag/overlay и версией `p-86.18`. Telegram-сборщик и общий release builder не запускались. Временные бинарники удалены после проверки.
 
@@ -611,7 +613,7 @@ Refresh зарегистрировал свой `addnhosts` через UCI и п
 
 12 октября повторно прошли независимые наборы: bootstrap timeout `1/1`, OpenWrt architecture `26/26` и list-refresh adapter `9/9` — всего `36/36`. Проверка интеграционного bootstrap harness завершилась `15/20`: локальный HTTP fixture на `127.0.0.1:17778` не принимал соединение, поэтому свежая установка не дошла до получения манифеста и дальнейшие assertions не являются результатом проверки продукта. Этот запуск не засчитывается как install E2E; повтор интеграционного набора исключён из текущей области работ. Полная чистая установка, обновление, rollback и удаление продукта в QEMU остаются неподтверждёнными.
 
-## QEMU: production-проверка подписанного updater manifest при блокировке VPS
+## QEMU: проверка производственного подписанного манифеста при блокировке VPS
 
 В работающей OpenWrt 25.12.5 x86/64 VM проверена production-функция `z2k_ow_manifest_prepare_production` из текущего feature HEAD. В `/tmp` гостя переданы только `paths.sh`, `env.sh`, `arch.sh`, `manifest.sh`, `release_state.sh`, общие `utils.sh`/`auto_update.sh` и штатный открытый ключ; rootfs продукта не устанавливался. Временная nft output-таблица отбрасывала только TCP/443 к `213.176.74.63` и `79.137.196.7`. Proxy-переменных не было; в госте были интерфейсы `lo`, `eth0`, `br-lan`, а таблица fw4 оставалась штатной.
 
@@ -631,7 +633,7 @@ Production helper скачал `UPDATES.json` с подписью, провер�
 
 После сценария `/etc/hosts` совпал с исходным файлом, временная nft-таблица удалена, осталась только `inet fw4`; тестовый payload/state и transfer server удалены, продукт не устанавливался и системные пакеты/постоянные конфиги не менялись. Это проверяет подписанный manifest failover; скачивание полного release archive и его применение остаются отдельной незакрытой приёмкой.
 
-## Повторный non-TG regression прогон на `b78f457a`
+## Повторные регрессии без Telegram на `b78f457a`
 
 12 октября на актуальном feature HEAD повторно прошли `test_ow_insta_runtime.sh` (`31/31`), `test_ow_insta_boundary.sh` (`35/35`), `test_fetch_vps_layer_budget.sh` (`48/48`) и `test_geosite_vps_independence.sh` (`4/4`) — всего `118/118`. Эти наборы проверяют bounded DoH/cache поведение, платформенное отключение старого fetch-слоя и независимые geosite mirrors. Они не являются полным install/update/rollback/uninstall E2E; сетевые отказы этих suites моделируются локальными fixtures.
 
@@ -695,7 +697,7 @@ Production helper скачал `UPDATES.json` с подписью, провер�
 
 Уточнение: run `38238233556` проверял исторический r-86.5 и не принимал текущий архив. Текущий локальный p-86.17 → p-86.18 generic candidate прошёл acceptance; CI workflow теперь проверяет этот актуальный переход. Generic fallback содержит только переходную legacy-ссылку, которая удаляется при первом старте TG адаптера; архитектурные архивы и staging legacy-имени не содержат.
 
-## GitHub Actions: portable-shell and WARP regression (run for `921c4d93`)
+## GitHub Actions: переносимость shell и регрессия WARP (`921c4d93`)
 
 Run: [GitHub Actions `38222770881`](https://github.com/t0fox/z2kOW/actions/runs/38222770881). CI использовал ShellCheck `0.9.0` и нашёл `SC2097`/`SC2098` в пяти вызовах `test_ow_bootstrap_manifest_mirrors.sh`; `T` и `FUNCTION_FILE` экспортированы один раз до вызовов. Локально suite прошёл `13/13`, ShellCheck `0.10.0` завершился с кодом `0`.
 

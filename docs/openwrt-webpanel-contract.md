@@ -1,43 +1,43 @@
-# OpenWrt WebPanel contract
+# Контракт WebPanel на OpenWrt
 
-The WebPanel remains the shared z2k panel. OpenWrt adapts platform effects; it does not maintain a separate frontend fork.
+WebPanel остаётся общей панелью z2k; OpenWrt адаптирует системные операции и добавляет собственные функции, **не создавая вторую независимую копию frontend**. Брендинг z2kOW — визуальный слой, а не повод переписывать общую логику.
 
-## Ownership
+## Владение
 
-- Shared panel code: `webpanel/`.
-- OpenWrt panel adapter: `platform/openwrt/webpanel.sh` and the small platform seam in `webpanel/cgi/platform.sh`.
-- Persistent panel settings: `/etc/z2k/webpanel/` and the canonical z2k config/state paths.
-- Transient jobs/logs: `/tmp/z2k/`.
-- Service owner: procd through `/etc/init.d/z2k-webpanel`.
+- Общий интерфейс: `webpanel/`.
+- Адаптер OpenWrt: `platform/openwrt/webpanel.sh` и узкая интеграция `webpanel/cgi/platform.sh`.
+- Сохраняемые данные панели: `/etc/z2k/webpanel/` и канонические config/state.
+- Временные задачи и логи: `/tmp/z2k/`.
+- Владелец сервиса: procd (`/etc/init.d/z2k-webpanel`).
 
-LuCI/uhttpd are outside z2kOW ownership. The panel must not replace LuCI files or change OpenWrt ports 80/443.
+LuCI/uhttpd не принадлежат z2kOW. Панель не меняет файлы LuCI и порты OpenWrt `80/443`.
 
-Default z2kOW panel endpoint:
+Адрес по умолчанию:
 
-```text
+~~~text
 http://<LAN-address>:8088
-```
+~~~
 
-## Capability contract
+## Доступность функций
 
-The backend advertises a control only when the required OpenWrt implementation is present. Repository files that are not reachable in the installed payload are not sufficient evidence of a capability.
+Контрол виден или активен только при наличии соответствующего OpenWrt backend и необходимых бинарников в **установленном** payload. Файл в исходном репозитории без доставки на устройство не доказывает работоспособность.
 
-Platform-gated examples include TCP16, flow offload, custom.d, Telegram, WARP, and future operator actions. Keenetic-only controls must not be exposed through fake success paths.
+Примеры ограничений: TCP16, FLOWOFFLOAD, custom.d, Telegram Rust только на `arm64`/`x86_64`, WARP как опциональный движок, системный `dnsproxy`. Нельзя отображать успех Keenetic-only действия через фиктивный ответ.
 
-CLI, WebPanel, updater, and diagnostics use the same canonical installed-release state.
+Установщик, обновляющий механизм, CLI, WebPanel и диагностика читают общее каноническое состояние релиза. Статусы «установлено», «запущено», «работает» и «прошла сетевая проверка» должны различаться.
 
-## Mutations
+## Применение изменений
 
-Service actions go through procd-aware helpers. Firewall/network changes go through OpenWrt adapters. Release actions go through the controlled updater/install lifecycle.
+Управление сервисами выполняется через procd-aware helpers; сетевые изменения — через OpenWrt-адаптеры; релизы — через контролируемый `install_release`/updater. Отдельный прямой путь из панели не должен обходить backend и его проверки.
 
-List editing keeps the shared optimistic-concurrency behavior: the client saves against a content revision, stale writes are rejected, and accepted writes are validated and atomically replaced.
+Редактирование списков сохраняет общий механизм optimistic concurrency: клиент отправляет редакцию, устаревшие записи отклоняются, принятые валидируются и атомарно заменяются. Для DNS и TikTok Fix применяются только собственные записи и восстановление предыдущего состояния при ошибке.
 
-## Security
+## Безопасность
 
-The panel is intended for the local network. Optional authentication must use an OpenWrt-compatible local backend and must not silently fall back to Keenetic `ndmc`/NDM behavior.
+Панель рассчитана на LAN. При включении пароль использует локальный OpenWrt-совместимый backend без fallback на Keenetic `ndmc`/NDM. Сам пароль не делает публикацию в интернете безопасной.
 
-The `Донаты` route is intentionally opt-in: its QR code and fallback UI are local, while the Streamiverse iframe is requested only after the user opens that route. The donation service is not part of the panel boot path.
+Маршрут «Донаты» загружается по запросу: QR/запасной интерфейс хранятся локально, внешний iframe Streamiverse запрашивается только после открытия раздела. Донат-сервис не участвует в запуске панели и не является условием работы функций.
 
-## Removal
+## Удаление
 
-When removal is exposed in the panel, it must call the same canonical OpenWrt uninstall backend as the CLI and preserve the same user-visible semantics as upstream z2k.
+Удаление из панели и `z2kow uninstall` вызывают один и тот же OpenWrt backend, имеют одинаковые проверки и сохраняют одинаковое пользовательское состояние. Ошибки удаления не скрываются за сообщением об успехе. После неуспешной очистки не требуется вручную удалять `/etc/z2k`: состояние остаётся для корректного повтора.

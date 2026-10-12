@@ -1,31 +1,30 @@
-# OpenWrt RT proxy contract
+# Контракт RT proxy для OpenWrt
 
-The RT proxy keeps upstream z2k proxy semantics. OpenWrt replaces Keenetic DNS, service, and firewall operations with native adapters.
+RT proxy сохраняет предназначение upstream z2k, но вместо Keenetic-операций с DNS, сервисами и firewall использует собственный OpenWrt-адаптер. Для базовой работы OpenWrt **не нужен собственный VPS или WARP**. Наличие внешнего upstream в конфигурации не должно превращать его в обязательную инфраструктуру проекта.
 
-## Runtime
+## Процесс
 
-- procd owns the RT proxy process.
-- The proxy listens on the z2k RT local listener and uses the upstream proxy engine.
-- The proxy's outbound sockets use upstream's exact `--so-mark` desync-bypass option, resolved from the shared runtime config, so the proxy does not feed itself back into nfqws2.
+- RT proxy управляется через procd.
+- Слушатель использует локальный адрес/порт, определяемый общей конфигурацией z2k.
+- Исходящие сокеты получают предусмотренную upstream метку `--so-mark` для исключения самоперехвата nfqws2; её значение берётся из общего runtime.
+- Перезапуск должен использовать тот же адаптер, что диагностика, WebPanel и cron.
 
 ## DNS
 
-OpenWrt uses owned UCI/dnsmasq host records for the exact RT hostnames required by upstream behavior. It must not use broad suffix overrides when upstream semantics are exact-host.
+OpenWrt регистрирует через UCI/dnsmasq **только точные имена**, необходимые поведению upstream. Широкую подмену доменного суффикса нельзя использовать вместо правил для конкретных хостов.
 
-Only z2kOW-owned DNS records may be created or removed. Conflicting foreign records fail closed instead of being overwritten.
+Создавать и удалять разрешено лишь записи, принадлежащие z2kOW. Если обнаружено чужое конфликтующее правило, функция должна завершиться с ошибкой, **не перезаписывая его**.
 
-DNS updates are transactional: write owned records, commit, reload dnsmasq, then verify the effective result. A partial DNS state is not considered ready.
+Применение транзакционное: подготовить управляемые записи → сохранить UCI → перезагрузить dnsmasq → проверить фактический DNS-ответ. Частично применённая конфигурация не считается рабочей.
 
-## Firewall
+## Сетевые правила
 
-OpenWrt uses nftables for the RT redirect/fallback path. Rules are scoped to the RT feature and must not mutate unrelated fw4 state.
+Перенаправление RT и резервный путь создаются через nftables только в области RT. Чужая таблица fw4, правила других модулей и пользовательская маршрутизация не переписываются. IPv4/IPv6 должны сохранять смысл fallback upstream, а не механически копировать команды iptables с Keenetic.
 
-IPv4 and IPv6 handling should preserve the upstream client-fallback intent rather than blindly copying Keenetic iptables commands.
+## Жизненный цикл и восстановление
 
-## Lifecycle
-
-Preserve the upstream distinction between a process bounce and full teardown. A normal proxy restart should not unnecessarily remove DNS/firewall state and cause clients to cache a bypass path.
-
-## Recovery
-
-Health checks converge the feature toward ready state without restart storms. Disabled RT behavior is a valid state, not an error.
+- **Перезапуск процесса** не равен полному отключению. Без необходимости нельзя уничтожать DNS/firewall-правила и заставлять клиентов кэшировать обходной маршрут.
+- **Полное отключение** удаляет только собственные записи RT.
+- Health-check восстанавливает нужное состояние без циклов бесконечного рестарта.
+- Выключенный пользователем RT — нормальное состояние, не повод для self-heal.
+- Проба полного HTTP-ответа даёт больше информации, чем один TLS handshake; тесты в QEMU не заменяют проверки на реальной сети.
