@@ -248,3 +248,11 @@ Legacy `files/z2k-warp.sh` с VPS proxy default не включён в OpenWrt r
 - Локальные lifecycle/recovery/storage: `test_ow_lifecycle` `27/27`, `test_ow_boot_recovery` `28/28`, `test_ow_storage_persistence` `17/17`, `test_ow_atomic` `8/8`, `test_ow_preserve` `10/10` — `90/90`.
 
 Итого `652/652`. Suites Telegram, изменённый другим агентом `platform/openwrt/release.sh`, installer и unified-release не запускались. Эти проверки не являются полным продуктовым install/update/rollback/uninstall в QEMU.
+
+## Insta-IP: сохранение кэша при частичном отказе DoH
+
+Воспроизведение выявило потерю последней записи кэша: если один домен списка обновился, а все три DoH endpoint отказали для другого, устаревший кандидат ещё возвращался в текущем результате, но новый общий файл кэша уже не сохранял запись отказавшего домена. Регрессия сначала завершилась `25/26` из-за отсутствующей строки кэша. Исправление сохраняет записи в пределах TTL и stale-grace для имён без свежего ответа; ошибка записи временного результата завершает resolver до замены предыдущего кэша.
+
+Проверки после исправления: `test_ow_insta_runtime.sh` `26/26`, `test_ow_insta_boundary.sh` `35/35`, `test_ow_insta_refresh_noop_backup.sh` `11/11`, `sh -n` для адаптера и refresh script.
+
+В OpenWrt 25.12.5 x86/64 QEMU временный адаптер запущен напрямую из `/tmp`. Для `instagram.com` curl обращался к Cloudflare, Google Public DNS и AdGuard DoH и получил `31.13.72.174`, `157.240.205.174`, `157.240.26.174`; тестовая обёртка curl отказала только для `www.instagram.com`, где использовался кэшированный адрес с expiry `900` при test time `1000` и grace `86400`. Устаревший кандидат вернулся и остался в кэш-файле после успешного обновления первого домена. nft блокировал только старые VPS-IP; счётчики — `0`. `/dev/net/tun` и proxy-переменных нет. Временные скрипты/правило удалены, host transfer server остановлен; в госте осталась только `inet fw4`. Это проверка resolver при частичном DNS отказе, не полного refresh и системного dnsmasq reload.

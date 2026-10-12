@@ -192,8 +192,14 @@ z2k_ow_insta_resolve_hosts() {
         # При отказе резолверов используем записи с действующим TTL и
         # ограниченный устаревший кэш; HTTPS/SNI probe проверит адреса.
         if ! grep -q " $_host " "$_work" 2>/dev/null; then
-            awk -v h="$_host" -v now="$_now" -v grace="$_grace" \
-                '$2==h && $1+grace>=now {print $2 "\t" $3}' "$_cache" >> "$_result" 2>/dev/null || :
+            if [ -r "$_cache" ]; then
+                awk -v h="$_host" -v now="$_now" -v grace="$_grace" \
+                    '$2==h && $1+grace>=now {print $2 "\t" $3}' "$_cache" >> "$_result" \
+                    || { rm -f "$_work" "$_tmp" "$_result"; return 1; }
+                awk -v h="$_host" -v now="$_now" -v grace="$_grace" \
+                    '$2==h && $1+grace>=now {print}' "$_cache" >> "$_work" \
+                    || { rm -f "$_work" "$_tmp" "$_result"; return 1; }
+            fi
         fi
     done
     rm -f "$_tmp"

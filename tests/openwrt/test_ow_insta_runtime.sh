@@ -99,6 +99,41 @@ assert_contains "Cloudflare DoH использует поддерживаемы�
 assert_contains "кэш хранит срок действия и источник ответа" "$Z2K_INSTA_CACHE_FILE" 'cloudflare-dns.com'
 assert_contains "кэш хранит TTL каждой записи" "$Z2K_INSTA_CACHE_FILE" '120'
 
+# Успешное обновление одного домена не должно вытеснять ещё годный кэш
+# другого домена, для которого все DoH endpoints временно недоступны.
+printf '%s\n' '900 www.instagram.com 157.240.2.1 120 cloudflare-dns.com' >> "$Z2K_INSTA_CACHE_FILE"
+cat > "$T/bin/curl" <<'STUB'
+#!/bin/sh
+url=
+out=
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -o) out="$2"; shift 2 ;;
+        https://*) url="$1"; shift ;;
+        *) shift ;;
+    esac
+done
+case "$url" in
+    *"name=instagram.com&type=A"*) printf '{"Answer":[{"name":"instagram.com","type":1,"TTL":120,"data":"157.240.1.4"}]}' > "$out" ;;
+    *) exit 7 ;;
+esac
+STUB
+chmod 0755 "$T/bin/curl"
+_partial_candidates=$(z2k_ow_insta_resolve_hosts instagram.com www.instagram.com)
+if printf '%s\n' "$_partial_candidates" \
+    | awk -F '\t' '$1=="www.instagram.com" && $2=="157.240.2.1" {found=1} END {exit !found}'; then
+    _t_ok
+else
+    _t_bad "при отказе DNS второго домена возвращается кэш в пределах grace-period"
+fi
+assert_contains "успешное обновление первого домена сохраняет кэш второго" "$Z2K_INSTA_CACHE_FILE" '900 www.instagram.com 157.240.2.1'
+cat > "$Z2K_INSTA_CACHE_FILE" <<'CACHE'
+1120 instagram.com 157.240.1.1 120 cloudflare-dns.com
+1300 instagram.com 157.240.1.2 300 dns.google
+1240 instagram.com 157.240.1.3 240 dns.adguard-dns.com
+900 www.instagram.com 157.240.2.1 120 cloudflare-dns.com
+CACHE
+
 cat > "$T/bin/curl" <<'STUB'
 #!/bin/sh
 exit 7
