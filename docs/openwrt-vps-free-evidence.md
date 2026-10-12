@@ -617,3 +617,11 @@ Production helper скачал `UPDATES.json` с подписью, провер�
 ## Повторный non-TG regression прогон на `b78f457a`
 
 12 октября на актуальном feature HEAD повторно прошли `test_ow_insta_runtime.sh` (`31/31`), `test_ow_insta_boundary.sh` (`35/35`), `test_fetch_vps_layer_budget.sh` (`48/48`) и `test_geosite_vps_independence.sh` (`4/4`) — всего `118/118`. Эти наборы проверяют bounded DoH/cache поведение, платформенное отключение старого fetch-слоя и независимые geosite mirrors. Они не являются полным install/update/rollback/uninstall E2E; сетевые отказы этих suites моделируются локальными fixtures.
+
+## QEMU: отказ всех updater CDN и восстановление
+
+12 октября на OpenWrt 25.12.5 x86/64 проверен штатный `platform/openwrt/update.sh check` с временным updater root из committed HEAD. Тестовое состояние было `p-86.17/seq=141`. Во время первого запуска старые VPS-IP блокировались nft только на TCP/443, а `raw.githubusercontent.com`, `cdn.jsdelivr.net` и `gh-proxy.com` временно указывали на loopback. `check` завершился `rc=1`, сообщил об ошибке получения манифеста, не оставил частичный `UPDATES.json`; SHA установленного state до/после совпал. Счётчики обоих VPS endpoint — `0`.
+
+Затем исходный `/etc/hosts` восстановлен, VPS drop оставлен активным. Повторный `check` получил валидный подписанный manifest и сообщил `Доступен полный выпуск p-86.18` (`rc=0`); установленное состояние осталось неизменным. SHA `/etc/hosts` до/после совпал. После теста в госте осталась только `inet fw4`, transfer server и временный payload удалены, `/usr/lib/z2k` по-прежнему отсутствовал, package database и постоянные конфиги не менялись.
+
+Это проверяет fail-closed отказ updater при недоступности origin и mirrors и последующее восстановление прямого канала без старой VPS. Установка самого архива, rollback транзакции и uninstall полного продукта этим сценарием не проверялись.
