@@ -24,6 +24,8 @@ printf '{"schema":1,"signing":{"key_id":"%s"},"source":"mirror"}\n' "$KEY_ID" \
     > "$T/mirror.json"
 openssl pkeyutl -sign -rawin -inkey "$T/test.key" -in "$T/mirror.json" \
     -out "$T/mirror.sig" 2>/dev/null || exit 1
+openssl pkeyutl -sign -rawin -inkey "$T/test.key" -in "$T/origin.json" \
+    -out "$T/origin.sig" 2>/dev/null || exit 1
 printf 'invalid-signature' > "$T/invalid.sig"
 
 _run_manifest_case() {
@@ -48,9 +50,9 @@ _run_manifest_case() {
                     https://origin.invalid/z2kOW/main/scripts/openwrt/release-keys/*)
                         cp "$T/test.pub" "$2" ;;
                     https://origin.invalid/z2kOW/main/UPDATES.json.sig)
-                        cp "$T/invalid.sig" "$2" ;;
+                        if [ "$MODE" = direct ]; then cp "$T/origin.sig" "$2"; else cp "$T/invalid.sig" "$2"; fi ;;
                     https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main/UPDATES.json)
-                        cp "$T/mirror.json" "$2" ;;
+                        if [ "$MODE" = direct ]; then return 1; else cp "$T/mirror.json" "$2"; fi ;;
                     https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main/scripts/openwrt/release-keys/*)
                         cp "$T/test.pub" "$2" ;;
                     https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main/UPDATES.json.sig)
@@ -73,6 +75,16 @@ assert_eq "в выбранном манифесте байты подписан�
     "$(cat "$T/mirror.json")" "$(cat "$T/mirror/UPDATES.json")"
 assert_contains "манифест привязан к подтверждённому зеркалу" \
     "$T/mirror/sources.log" "https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main/UPDATES.json.sig"
+
+if T="$T" FUNCTION_FILE="$T/function.sh" _run_manifest_case direct; then
+    _t_ok "при отказе CDN принят подписанный raw-origin"
+else
+    _t_bad "при отказе CDN принят подписанный raw-origin"
+fi
+assert_eq "raw-origin fallback сохранил подписанный manifest" \
+    "$(cat "$T/origin.json")" "$(cat "$T/direct/UPDATES.json")"
+assert_contains "raw-origin fallback скачал подпись" \
+    "$T/direct/sources.log" "https://origin.invalid/z2kOW/main/UPDATES.json.sig"
 
 if T="$T" FUNCTION_FILE="$T/function.sh" _run_manifest_case reject; then
     _t_bad "отклоняются неподписанные пары со всех источников"
