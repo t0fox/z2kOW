@@ -111,7 +111,8 @@ class PayloadBundleTests(unittest.TestCase):
             legacy_members = {member.name: member for member in bundle.getmembers()}
             for arch in ARCHES:
                 legacy_path = f"usr/lib/z2k/bin/linux-{arch}/tg-mtproxy-client"
-                self.assertNotIn(legacy_path, legacy_members)
+                self.assertTrue(legacy_members[legacy_path].issym())
+                self.assertEqual("z2k-rt-proxy", legacy_members[legacy_path].linkname)
         for arch in ARCHES:
             with self.subTest(arch=arch):
                 first = self.root / f"openwrt-rootfs-{arch}.tar.gz"
@@ -147,6 +148,27 @@ class PayloadBundleTests(unittest.TestCase):
                         for executable in binaries:
                             self.assertEqual(0o755, members[f"{root}/linux-{arch}/{executable}"].mode)
                     self.assertTrue(all(member.uid == member.gid == member.mtime == 0 for member in members.values()))
+
+    def test_full_bundle_keeps_only_a_safe_legacy_updater_alias(self) -> None:
+        for arch in ARCHES:
+            root = f"usr/lib/z2k/bin/linux-{arch}"
+            self.add(f"{root}/z2k-rt-proxy", b"Rust runtime")
+            (self.stage / root / "z2k-rt-proxy").chmod(0o755)
+            self.add(f"{root}/tg-mtproxy-client", b"Go client must not ship")
+
+        legacy = self.build()
+        with tarfile.open(legacy) as bundle:
+            members = {member.name: member for member in bundle.getmembers()}
+        for arch in ARCHES:
+            alias = f"usr/lib/z2k/bin/linux-{arch}/tg-mtproxy-client"
+            self.assertIn(alias, members)
+            self.assertTrue(members[alias].issym())
+            self.assertEqual("z2k-rt-proxy", members[alias].linkname)
+
+            arch_bundle = self.root / f"openwrt-rootfs-{arch}.tar.gz"
+            MODULE.build_rootfs_bundle(self.stage, arch_bundle, arch=arch)
+            with tarfile.open(arch_bundle) as bundle:
+                self.assertNotIn(alias, bundle.getnames())
 
     def test_rejects_unknown_architecture_without_replacing_output(self) -> None:
         self.add("etc/init.d/z2k")

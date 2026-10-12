@@ -134,7 +134,7 @@ def _matches_arch(relative: PurePosixPath, arch: str) -> bool:
 
 
 def build_rootfs_bundle(staged_root: Path, output: Path, arch: str | None = None) -> None:
-    """Упаковать полный rootfs или выбранную архитектуру без прежнего Go-клиента."""
+    """Упаковать rootfs без Go-клиента, сохранив переход старого обновлятора."""
     if arch is not None and arch not in _ARCHES:
         raise ValueError(f"неподдерживаемая архитектура: {arch}")
     root = Path(staged_root).resolve()
@@ -149,6 +149,16 @@ def build_rootfs_bundle(staged_root: Path, output: Path, arch: str | None = None
     ]
     if not entries:
         raise ValueError("подготовленный rootfs пуст")
+    legacy_aliases: list[PurePosixPath] = []
+    if arch is None:
+        # p-86.17 проверяет это старое имя до установки. Ссылка на штатный Rust
+        # wrapper удовлетворяет проверке, не возвращая Go-бинарник или заглушку.
+        staged_entries = {relative: source for source, relative in entries}
+        for target_arch in _ARCHES:
+            proxy = PurePosixPath(f"usr/lib/z2k/bin/linux-{target_arch}/z2k-rt-proxy")
+            source = staged_entries.get(proxy)
+            if source is not None and stat.S_ISREG(source.lstat().st_mode) and source.stat().st_mode & 0o111:
+                legacy_aliases.append(proxy.with_name("tg-mtproxy-client"))
 
     with tempfile.NamedTemporaryFile(dir=output.parent, prefix=output.name + ".", suffix=".tmp", delete=False) as raw:
         temporary = Path(raw.name)
@@ -163,6 +173,15 @@ def build_rootfs_bundle(staged_root: Path, output: Path, arch: str | None = None
                                 archive.addfile(info, stream)
                         else:
                             archive.addfile(info)
+                    for relative in legacy_aliases:
+                        info = tarfile.TarInfo(relative.as_posix())
+                        info.uid = info.gid = 0
+                        info.uname = info.gname = "root"
+                        info.mtime = 0
+                        info.mode = 0o777
+                        info.type = tarfile.SYMTYPE
+                        info.linkname = "z2k-rt-proxy"
+                        archive.addfile(info)
         os.replace(temporary, output)
     finally:
         temporary.unlink(missing_ok=True)

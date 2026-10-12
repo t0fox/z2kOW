@@ -55,6 +55,9 @@ cat > "$T/root/bin/linux-x86_64/tg-ws-proxy" <<'EOF'
 exit 0
 EOF
 chmod +x "$T/root/bin/linux-x86_64/tg-ws-proxy"
+printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/linux-x86_64/z2k-rt-proxy"
+chmod +x "$T/root/bin/linux-x86_64/z2k-rt-proxy"
+ln -s z2k-rt-proxy "$T/root/bin/linux-x86_64/tg-mtproxy-client"
 printf 'ENABLED=1\nZ2K_RELAY_SECRET=obsolete-preserved\nZ2K_RELAY_URL=obsolete-preserved\n' > "$T/etc/config"
 printf '{"legacy":"preserved"}\n' > "$T/etc/state/relay-id.json"
 
@@ -73,6 +76,13 @@ procd_set_param() { printf 'param:%s\n' "$*" >> "$T/procd.log"; }
 procd_close_instance() { echo close >> "$T/procd.log"; }
 
 z2k_ow_tg 1 || _t_bad "Rust запускается на поддерживаемой архитектуре"
+if [ ! -e "$T/root/bin/linux-x86_64/tg-mtproxy-client" ] \
+    && [ ! -L "$T/root/bin/linux-x86_64/tg-mtproxy-client" ]; then
+    _transition_alias_removed=1
+else
+    _transition_alias_removed=0
+fi
+assert_eq "переходное имя старого клиента удаляется после запуска адаптера" 1 "$_transition_alias_removed"
 assert_eq "один владелец procd" 1 "$(grep -c '^instance:z2k-tg$' "$T/procd.log")"
 assert_contains "ограниченный перезапуск procd" "$T/procd.log" 'param:respawn 3600 5 5'
 assert_contains "единственный режим Rust и IPv6 dual-stack" "$T/procd.log" '--host=::'

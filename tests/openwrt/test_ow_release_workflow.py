@@ -203,13 +203,15 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('"previous_stage_default": "tmpfs" if previous_requires_disk_transition else "persistent"', acceptance)
         self.assertIn('previous_stage_default == "tmpfs" and scenarios.get("legacy_tmpfs_refusal") is not True', verifier)
 
-    def test_openwrt_ci_keeps_the_p8617_to_r865_disk_transition_regression(self) -> None:
+    def test_openwrt_ci_checks_p8617_against_the_current_candidate(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         job = ci.split("  openwrt-unified:", 1)[1]
         self.assertIn("772b8a0892966a1894b6cc8957f4bad843534ac5/UPDATES.json", job)
-        self.assertIn("e5d287ab336eaa971ccaaecac730b94bead9e925/UPDATES.json", job)
         self.assertIn("795f272182eaed49ae0bb90269a477c89bdb7491cf5d3924d40526dea2ec1d4d", job)
-        self.assertIn("b052e35dae2a19e1f5afe7934e860e8dbd65de2f6f424e43986ecdb6e7dbb112", job)
+        self.assertIn("p-86.17 → текущий OpenWrt-кандидат", job)
+        self.assertIn('"$RUNNER_TEMP/openwrt-candidate/UPDATES.json"', job)
+        self.assertIn('"$RUNNER_TEMP/openwrt-candidate"', job)
+        self.assertNotIn("e5d287ab336eaa971ccaaecac730b94bead9e925", job)
         self.assertIn("legacy-tmpfs-transition", job)
 
     def test_publish_blocks_signing_without_previous_installer_upgrade_receipt(self) -> None:

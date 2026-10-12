@@ -271,6 +271,22 @@ z2k_ow_tg_stop_legacy() {
     [ "${_found:-0}" = 0 ]
 }
 
+# p-86.17 требует старое имя при проверке архива, хотя новый runtime его не
+# использует. Удаляем только созданную нами ссылку после остановки прежнего
+# процесса; чужой файл или ссылку с другой целью не трогаем.
+z2k_ow_tg_remove_transition_alias() {
+    local _arch _alias _target _arch_file
+    _arch_file="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/arch.sh"
+    [ -r "$_arch_file" ] || return 0
+    . "$_arch_file" || return 1
+    _arch="${Z2K_OW_ARCH:-$(z2k_ow_detect_arch)}"
+    _alias="$(z2k_ow_arch_bin_path "${Z2K_BIN:-/usr/lib/z2k/bin}" tg-mtproxy-client "$_arch")" || return 0
+    [ -L "$_alias" ] || return 0
+    _target="$(readlink "$_alias" 2>/dev/null)" || return 1
+    [ "$_target" = z2k-rt-proxy ] || return 0
+    rm -f "$_alias"
+}
+
 z2k_ow_tg_socket_listening() {
     local _port="$(printf '%04X' "$1" 2>/dev/null)"
     [ -n "$_port" ] || return 1
@@ -617,6 +633,7 @@ z2k_ow_tg() {
     case "${1:-}" in
         1)
             z2k_ow_tg_stop_legacy || return 1
+            z2k_ow_tg_remove_transition_alias || return 1
             z2k_ow_tg_wanted || {
                 if command -v z2k_ow_tg_cron_remove >/dev/null 2>&1; then
                     z2k_ow_tg_cron_remove || echo "z2k-openwrt: не удалось удалить проверку TG из cron" >&2

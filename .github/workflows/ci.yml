@@ -735,48 +735,25 @@ jobs:
             "$RUNNER_TEMP/openwrt-candidate" \
             "$RUNNER_TEMP/openwrt-candidate/upgrade-acceptance.json" \
             x86_64
-      - name: Проверить переход p-86.17 → r-86.5 через постоянный Z2K_OW_INSTALL_TMP
+      - name: Проверить переход p-86.17 → текущий OpenWrt-кандидат
         run: |
           set -eu
-          legacy_dir="$RUNNER_TEMP/p8617-transition-candidate"
-          mkdir -p "$legacy_dir"
           previous_manifest="$RUNNER_TEMP/p8617-UPDATES.json"
           previous_signature="$RUNNER_TEMP/p8617-UPDATES.json.sig"
-          target_manifest="$RUNNER_TEMP/r865-UPDATES.json"
-          target_signature="$RUNNER_TEMP/r865-UPDATES.json.sig"
           curl --fail --location --silent --show-error \
             https://raw.githubusercontent.com/t0fox/z2kOW/772b8a0892966a1894b6cc8957f4bad843534ac5/UPDATES.json \
             -o "$previous_manifest"
           curl --fail --location --silent --show-error \
             https://raw.githubusercontent.com/t0fox/z2kOW/772b8a0892966a1894b6cc8957f4bad843534ac5/UPDATES.json.sig \
             -o "$previous_signature"
-          curl --fail --location --silent --show-error \
-            https://raw.githubusercontent.com/t0fox/z2kOW/e5d287ab336eaa971ccaaecac730b94bead9e925/UPDATES.json \
-            -o "$target_manifest"
-          curl --fail --location --silent --show-error \
-            https://raw.githubusercontent.com/t0fox/z2kOW/e5d287ab336eaa971ccaaecac730b94bead9e925/UPDATES.json.sig \
-            -o "$target_signature"
           printf '%s  %s\n' 795f272182eaed49ae0bb90269a477c89bdb7491cf5d3924d40526dea2ec1d4d "$previous_manifest" | sha256sum -c -
           printf '%s  %s\n' 06dd3104dfb851764051f27b313562fe4fab07befc85f569c6e59943e31e65c6 "$previous_signature" | sha256sum -c -
-          printf '%s  %s\n' b052e35dae2a19e1f5afe7934e860e8dbd65de2f6f424e43986ecdb6e7dbb112 "$target_manifest" | sha256sum -c -
-          printf '%s  %s\n' 69613f18dc8b9a3ae93865d39934279cd2704349f4c1181b8cf2f3aa14038b22 "$target_signature" | sha256sum -c -
-          python3 - "$target_manifest" <<'PY' > "$RUNNER_TEMP/r865-target-asset.txt"
-          import json, sys
-          manifest = json.load(open(sys.argv[1], encoding="utf-8"))
-          record = manifest.get("artifact")
-          if not isinstance(record, dict):
-              raise SystemExit("p-86.17 transition requires the exact r-86.5 generic archive")
-          print("|".join(str(record[key]) for key in ("url", "filename", "sha256", "size_bytes")))
-          PY
-          IFS='|' read -r legacy_url legacy_filename legacy_sha legacy_size < "$RUNNER_TEMP/r865-target-asset.txt"
-          curl --fail --location --silent --show-error --connect-timeout 10 --max-time 300 \
-            -o "$legacy_dir/$legacy_filename" "$legacy_url"
-          test "$(wc -c < "$legacy_dir/$legacy_filename" | tr -d ' \t\r\n')" = "$legacy_size"
-          printf '%s  %s\n' "$legacy_sha" "$legacy_dir/$legacy_filename" | sha256sum -c -
+          test -s "$RUNNER_TEMP/openwrt-candidate/openwrt-rootfs.tar.gz"
           sh scripts/openwrt/upgrade-acceptance.sh \
             "$previous_manifest" "$previous_signature" \
-            "$target_manifest" "$legacy_dir" "$RUNNER_TEMP/p8617-transition-acceptance.json" \
-            x86_64 "$target_signature" legacy-tmpfs-transition
+            "$RUNNER_TEMP/openwrt-candidate/UPDATES.json" \
+            "$RUNNER_TEMP/openwrt-candidate" "$RUNNER_TEMP/p8617-transition-acceptance.json" \
+            x86_64 "" legacy-tmpfs-transition
       - name: Upload unsigned architecture payload candidates
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

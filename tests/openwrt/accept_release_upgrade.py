@@ -111,9 +111,11 @@ class CandidateServer:
         self.signature = signature
         self.archive = archive
         self.filename = filename
+        self.requests: list[str] = []
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:  # noqa: N802 - стандартный HTTP API
+                self.server.owner.requests.append(self.path)  # type: ignore[attr-defined]
                 if self.path == "/UPDATES.json":
                     body = self.server.owner.manifest.read_bytes()  # type: ignore[attr-defined]
                 elif self.path == "/UPDATES.json.sig":
@@ -528,7 +530,8 @@ def main() -> int:
             def invoke(temp_parent: Path | None, label: str, *, low_space: bool = False, fail_starts: int = 0,
                        reinstall: bool = False, expected: bool = True, requested_tag: str | None = None,
                        bootstrap_manifest: Path | None = None,
-                       bootstrap_signature: Path | None = None) -> str:
+                       bootstrap_signature: Path | None = None,
+                       bootstrap_artifact: Path | None = None) -> str:
                 env = base_env.copy()
                 if temp_parent is None:
                     # Проверяем обычную среду панели без заданного пути:
@@ -543,6 +546,8 @@ def main() -> int:
                 env["Z2K_TEST_FAIL_Z2K_STARTS"] = str(fail_starts)
                 env.pop("Z2K_OW_BOOTSTRAP_ARTIFACT", None)
                 env.pop("Z2K_OW_ARTIFACT_PATH", None)
+                if bootstrap_artifact is not None:
+                    env["Z2K_OW_BOOTSTRAP_ARTIFACT"] = str(bootstrap_artifact)
                 service_log.write_text("", encoding="utf-8")
                 failure_count.unlink(missing_ok=True)
                 current_tag = state_record(state_path).get("tag")
@@ -679,6 +684,8 @@ def main() -> int:
                                 "-in", str(next_manifest), "-out", str(next_signature)], check=True,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+                server.manifest = next_manifest
+                server.signature = next_signature
                 next_tmp_parent = None if candidate_has_persistent_default else disk_tmp_parent
                 output = invoke(next_tmp_parent, "движок кандидата отклоняет нехватку места до остановки служб",
                                 low_space=True, expected=False, requested_tag=next_tag,
@@ -695,12 +702,18 @@ def main() -> int:
                     raise RuntimeError("отказ по месту после перехода изменил состояние работающих служб")
                 insufficient_space_passed = True
 
-                invoke(next_tmp_parent, "движок кандидата выполняет rollback после stop",
-                       fail_starts=2, expected=False, requested_tag=next_tag,
-                       bootstrap_manifest=next_manifest, bootstrap_signature=next_signature)
+                output = invoke(next_tmp_parent, "движок кандидата выполняет rollback после stop",
+                                fail_starts=2, expected=False, requested_tag=next_tag,
+                                bootstrap_manifest=next_manifest, bootstrap_signature=next_signature,
+                                bootstrap_artifact=args.candidate_archive)
                 calls = service_log.read_text(encoding="utf-8") if service_log.exists() else ""
                 if "z2k|stop" not in calls or "z2k|restart" not in calls:
-                    raise RuntimeError(f"fault injection после перехода не прошёл через stop/rollback: {calls}")
+                    downloads = (workspace / "download-destinations.log").read_text(encoding="utf-8") \
+                        if (workspace / "download-destinations.log").exists() else ""
+                    raise RuntimeError(
+                        f"fault injection после перехода не прошёл через stop/rollback: {calls}\n{output}\n"
+                        f"Пути загрузки: {downloads}\nЗапросы к тестовому серверу: {server.requests[-8:]}"
+                    )
                 if state_record(state_path) != {"tag": candidate_tag, "seq": str(candidate_seq)}:
                     raise RuntimeError("rollback движка кандидата не восстановил tag/seq")
                 if (sysroot / "usr/sbin/install_release").read_bytes() != expected_installer:
@@ -716,7 +729,7 @@ def main() -> int:
                     # постоянным и позволяет завершить следующую транзакцию.
                     invoke(None, "следующее обновление панели использует постоянный путь по умолчанию",
                            requested_tag=next_tag, bootstrap_manifest=next_manifest,
-                           bootstrap_signature=next_signature)
+                           bootstrap_signature=next_signature, bootstrap_artifact=args.candidate_archive)
                     if state_record(state_path) != {"tag": next_tag, "seq": str(candidate_seq + 1)}:
                         raise RuntimeError("обычное обновление без Z2K_OW_INSTALL_TMP не завершилось")
                     if config_path.read_bytes() != old_config:

@@ -273,12 +273,9 @@ cmp -s "$T/release-keys/$_key_id.pub" \
 _tg_count=$(find "$T/stage/usr/lib/z2k/bin" -path '*/linux-*/*' -name tg-ws-proxy -type f | wc -l | tr -d ' ')
 assert_eq "Rust TG собран только для ARM64 и x86_64" "2" "$_tg_count"
 _legacy_tg_count=$(find "$T/stage/usr/lib/z2k/bin" -path '*/linux-*/*' -name tg-mtproxy-client -type f | wc -l | tr -d ' ')
-assert_eq "OpenWrt rootfs не содержит Go Telegram-клиент или переходные заглушки" "0" "$_legacy_tg_count"
-if tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Eq '(^|/)usr/lib/z2k/bin/linux-[^/]+/tg-mtproxy-client$'; then
-    _t_bad "полный OpenWrt rootfs не должен публиковать Go Telegram-клиент или заглушку"
-else
-    _t_ok
-fi
+assert_eq "OpenWrt staging не содержит Go Telegram-бинарник" "0" "$_legacy_tg_count"
+_legacy_name_count=$(tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Ec '(^|/)tg-mtproxy-client$' || true)
+assert_eq "архив чистого staging не содержит legacy-имя" "0" "$_legacy_name_count"
 for _arch in arm64 x86_64; do
     [ -x "$T/stage/usr/lib/z2k/bin/linux-$_arch/tg-ws-proxy" ] \
         && _t_ok || _t_bad "в Rust TG payload отсутствует linux-$_arch"
