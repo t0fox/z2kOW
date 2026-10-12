@@ -178,3 +178,7 @@ Legacy VPS defaults остаются в `files/z2k-warp.sh` и `files/init.d/S51
 ## Insta-IP: отказ восстановления hosts
 
 Fault injection: запись нового hosts-файла и reload dnsmasq завершились ошибкой, после чего восстановление исходного hosts-файла также было искусственно прервано. До исправления refresh возвращал `0`, удалял резервную копию и очищал conntrack; тест воспроизвёл все три нарушения. После минимального исправления refresh возвращает ошибку, сохраняет исходный backup и не очищает conntrack до подтверждённого восстановления. Результаты: `test_ow_insta_refresh_noop_backup.sh` — 11/11, `test_ow_insta_runtime.sh` — 24/24, `test_ow_insta_boundary.sh` — 35/35. Проверка выполнена в локальных shell-тестах; отказ restore в OpenWrt QEMU отдельно не инжектировался.
+
+## Повторный доступ к QEMU для fault-injection
+
+QEMU `z2k-vps-free-test` был активен; monitor вернул `VM status: running`. SSH через `127.0.0.1:22222` сбросил соединение, serial endpoint `127.0.0.1:4445` не выдал данных за интервал чтения. Гостевая система не изменялась. Поэтому новый fault-injection restore в QEMU не выполнен; предыдущие QEMU E2E остаются подтверждением только тех сценариев, которые перечислены выше.
