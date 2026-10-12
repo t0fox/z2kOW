@@ -317,3 +317,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Call-path аудит общего Insta-IP refresh
 
 12 октября 2026 года подтверждено, что `platform/openwrt/diag.sh` и `list-refresh.sh` входят в общий updater с `Z2K_PLATFORM=openwrt`; `files/z2k-insta-ip-refresh.sh` тогда выбирает `platform/openwrt/insta-ip.sh` и прямые DoH резолверы. HMAC POST на старый `/resolve` остаётся только в ветке Keenetic. Повторные boundary/runtime/no-op rollback suites прошли `35/35`, `26/26` и `11/11` (итого `72/72`).
+
+## WebPanel transport call path
+
+12 октября 2026 года повторно прослежен update-manifest путь WebPanel: `api.sh` загружает `webpanel/cgi/platform.sh` до `actions.sh`, а platform seam подключает `platform/openwrt/env.sh`, экспортирующий `Z2K_FETCH_VPS_OUT=1`; вложенный `z2k_fetch` наследует этот режим. `test_ow_source_order.sh` прошёл `2/2`, `test_ow_webpanel_unit.sh` — `37/37`. Вместе с list-refresh wrapper, WARP games cron и исправленным post-install seed закрыты обнаруженные OpenWrt caller-ы общего fetch transport.
