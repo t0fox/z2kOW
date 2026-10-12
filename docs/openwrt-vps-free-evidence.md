@@ -425,3 +425,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## TCP16 SNI adapter regressions без Telegram
 
 12 октября 2026 года `tests/openwrt/test_ow_tcp16_runtime.sh` прошёл `13/13`. Проверены Lua `z2k_sni_pick(ctx, desync)`, интеграция OpenWrt-адаптера, сгенерированная конфигурация, сохранение verdict между проверками после reboot и очистка после успешного probe. Это локальная регрессия адаптера и состояния: отдельный LAN ClientHello, успешная обработка пользовательского TLS и реальный desync в сети не проверялись. Хостовый smoke с устаревшим `--dpi-desync=fake` отклонён закреплённым `nfqws2` как неизвестный параметр; текущая реализация использует Lua actions.
+
+## Повторные Insta-IP regressions без Telegram
+
+12 октября 2026 года на базе HEAD `1b616abc` повторно прошли `test_ow_insta_boundary.sh` `35/35`, `test_ow_insta_runtime.sh` `26/26` и `test_ow_insta_refresh_noop_backup.sh` `11/11` — `72/72`. Проверены границы OpenWrt/общего транспорта, runtime выбора и кэширования кандидатов, no-op, сохранение полного файла при неудаче restart, rollback и удержание backup при неудаче восстановления. Это изолированные regression suites, не новый live refresh. Чистая QEMU VM доступна через serial; состояние перед дальнейшими сценариями: только штатная nft-таблица `inet fw4`, дерева `/usr/lib/z2k` и `/etc/z2k/state/installed-release` нет. Установщик и сервисы не запускались.
