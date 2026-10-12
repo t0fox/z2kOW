@@ -125,5 +125,46 @@ else
     ok "после rollback временный backup удалён"
 fi
 
+cp "$T/state/before" "$T/state/insta-hosts"
+cat > "$T/bin/cp" <<'STUB'
+#!/bin/sh
+if [ "${1:-}" = -p ] && [ "$#" -eq 3 ]; then
+    case "$2" in *.z2k-backup.*) exit 1 ;; esac
+fi
+exec /bin/cp "$@"
+STUB
+chmod 0755 "$T/bin/cp"
+if INSTA_TEST_IP=57.144.245.34 DNSMASQ_FAIL_RELOAD=1 \
+    Z2K_PLATFORM=openwrt Z2K_ROOT="$REPO" ZAPRET2_DIR="$T" \
+    CONFIG_FILE="$T/config" LOG_FILE="$T/restore-fail.log" Z2K_STUB_PATH="$T/bin" \
+    Z2K_INSTA_HOSTS_FILE="$T/state/insta-hosts" \
+    Z2K_INSTA_UCI_MARKER="$T/state/uci-owned" Z2K_INSTA_UCI_BIN="$T/bin/uci" \
+    Z2K_INSTA_DNSMASQ_INIT="$T/bin/dnsmasq-init" Z2K_INSTA_CACHE_FILE="$T/state/cache" \
+    Z2K_IP_PROBE_TIMEOUT=1 Z2K_IP_PROBE_MAX_TRY=1 Z2K_IP_PROBE_KEEP=1 \
+    sh "$T/refresh.sh"; then
+    _refresh_rc=0
+else
+    _refresh_rc=$?
+fi
+if [ "$_refresh_rc" -ne 0 ]; then
+    ok "ошибка восстановления возвращена вызывающему процессу"
+else
+    bad "ошибка восстановления не должна сообщаться как успешный refresh"
+fi
+grep -q 'previous host records could not be restored' "$T/restore-fail.log" \
+    && ok "сценарий дошёл до отказа восстановления" \
+    || bad "сценарий не воспроизвёл отказ восстановления"
+_backup=$(find "$T/state" -name 'insta-hosts.z2k-backup.*' | head -1)
+if [ -n "$_backup" ] && cmp -s "$T/state/before" "$_backup"; then
+    ok "если восстановление не удалось, исходный backup сохранён для повторной попытки"
+else
+    bad "если восстановление не удалось, исходный backup должен остаться целым"
+fi
+if grep -q 'conntrack flushed for old IPs' "$T/restore-fail.log"; then
+    bad "conntrack не должен очищаться при неподтверждённом rollback"
+else
+    ok "conntrack не очищается при неподтверждённом rollback"
+fi
+
 printf '\ntest_ow_insta_refresh_noop_backup.sh: PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -486,6 +486,7 @@ if [ "$changes" -gt 0 ]; then
                 log "FAIL: dnsmasq refresh failed; previous host records restored"
             else
                 log "FAIL: dnsmasq refresh failed and previous host records could not be restored"
+                exit 1
             fi
             changes=0
         fi
