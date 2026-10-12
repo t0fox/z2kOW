@@ -1,6 +1,6 @@
 #!/bin/sh
 # Собрать прозрачный Telegram-адаптер из закреплённого MIT-upstream и
-# небольшого проверенного патча из patches/tg-ws-proxy-rs.
+# локального OpenWrt-адаптера из patches/tg-ws-proxy-rs.
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
