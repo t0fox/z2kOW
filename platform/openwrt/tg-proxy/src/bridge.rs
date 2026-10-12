@@ -1,8 +1,10 @@
 //! Двунаправленная передача transparent MTProto потока через WSS.
 
+use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::time::Duration;
 
 use cipher::StreamCipher;
 use futures_util::{SinkExt, StreamExt};
@@ -19,6 +21,105 @@ use crate::transparent;
 use crate::ws_client::{TgWsStream, media_tag};
 
 const RELAY_BUF_SIZE: usize = 16 * 1024;
+const RELAY_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+const SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
+
+#[derive(Clone)]
+struct PayloadActivity {
+    started: tokio::time::Instant,
+    last_payload_ms: Arc<AtomicUsize>,
+}
+
+impl PayloadActivity {
+    fn new() -> Self {
+        Self {
+            started: tokio::time::Instant::now(),
+            last_payload_ms: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn touch(&self) {
+        self.last_payload_ms.store(
+            self.started.elapsed().as_millis() as usize,
+            Ordering::Relaxed,
+        );
+    }
+
+    async fn idle_reached(&self, idle_timeout: Duration) {
+        let idle_ms = idle_timeout.as_millis().min(usize::MAX as u128) as usize;
+        loop {
+            let elapsed_ms = self.started.elapsed().as_millis() as usize;
+            let last_payload_ms = self.last_payload_ms.load(Ordering::Relaxed);
+            let idle_for_ms = elapsed_ms.saturating_sub(last_payload_ms);
+            if idle_for_ms >= idle_ms {
+                return;
+            }
+
+            let remaining_ms = (idle_ms - idle_for_ms).clamp(1, 1_000) as u64;
+            tokio::time::sleep(Duration::from_millis(remaining_ms)).await;
+        }
+    }
+}
+
+enum RelayDirection<T> {
+    Upload(T),
+    Download(T),
+}
+
+enum RelayCompletion<T> {
+    Ended {
+        direction: RelayDirection<T>,
+        drained: bool,
+    },
+    Idle,
+}
+
+async fn race_directions<U, D>(
+    upload: U,
+    download: D,
+    drain_timeout: Duration,
+) -> (RelayDirection<U::Output>, bool)
+where
+    U: Future<Output = D::Output>,
+    D: Future,
+{
+    tokio::pin!(upload);
+    tokio::pin!(download);
+
+    tokio::select! {
+        result = &mut upload => {
+            let drained = tokio::time::timeout(drain_timeout, &mut download).await.is_ok();
+            (RelayDirection::Upload(result), drained)
+        },
+        result = &mut download => {
+            let drained = tokio::time::timeout(drain_timeout, &mut upload).await.is_ok();
+            (RelayDirection::Download(result), drained)
+        },
+    }
+}
+
+async fn supervise_directions<U, D>(
+    upload: U,
+    download: D,
+    activity: &PayloadActivity,
+    idle_timeout: Duration,
+    drain_timeout: Duration,
+) -> RelayCompletion<U::Output>
+where
+    U: Future<Output = D::Output>,
+    D: Future,
+{
+    tokio::select! {
+        ended = race_directions(upload, download, drain_timeout) => {
+            RelayCompletion::Ended {
+                direction: ended.0,
+                drained: ended.1,
+            }
+        },
+        _ = activity.idle_reached(idle_timeout) => RelayCompletion::Idle,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn bridge_transparent_ws(
     stream: TcpStream,
@@ -46,10 +147,12 @@ pub(crate) async fn bridge_transparent_ws(
     let ws_write = Arc::new(AsyncMutex::new(ws_write));
     let bytes_up = Arc::new(AtomicU64::new(0));
     let bytes_down = Arc::new(AtomicU64::new(0));
+    let activity = PayloadActivity::new();
 
-    let mut upload = tokio::spawn({
+    let upload = {
         let ws_write = Arc::clone(&ws_write);
         let bytes_up = Arc::clone(&bytes_up);
+        let activity = activity.clone();
         async move {
             if ws_write
                 .lock()
@@ -61,6 +164,7 @@ pub(crate) async fn bridge_transparent_ws(
                 return "не удалось отправить init по WSS".to_string();
             }
             bytes_up.fetch_add(init.len() as u64, Ordering::Relaxed);
+            activity.touch();
 
             let (mut decrypt, mut encrypt) = transparent::direct_stream_ciphers(&init);
             let mut splitter = (framing == WsFraming::Packets).then(|| MsgSplitter::new(proto));
@@ -81,6 +185,7 @@ pub(crate) async fn bridge_transparent_ws(
                             return format!("ошибка отправки кадра WSS: {error}");
                         }
                         bytes_up.fetch_add(frame_len, Ordering::Relaxed);
+                        activity.touch();
                     }
                 } else {
                     if let Err(error) = ws_write
@@ -92,6 +197,7 @@ pub(crate) async fn bridge_transparent_ws(
                         return format!("ошибка отправки потока WSS: {error}");
                     }
                     bytes_up.fetch_add(length as u64, Ordering::Relaxed);
+                    activity.touch();
                 }
             };
 
@@ -109,19 +215,18 @@ pub(crate) async fn bridge_transparent_ws(
                         return format!("ошибка отправки неполного кадра WSS: {error}");
                     }
                     bytes_up.fetch_add(frame_len, Ordering::Relaxed);
+                    activity.touch();
                 }
             }
 
-            match ws_write.lock().await.close().await {
-                Ok(()) => close_reason,
-                Err(error) => format!("{close_reason}; ошибка закрытия WSS: {error}"),
-            }
+            close_reason
         }
-    });
+    };
 
-    let mut download = tokio::spawn({
+    let download = {
         let ws_write = Arc::clone(&ws_write);
         let bytes_down = Arc::clone(&bytes_down);
+        let activity = activity.clone();
         async move {
             while let Some(message) = ws_read.next().await {
                 match message {
@@ -131,6 +236,7 @@ pub(crate) async fn bridge_transparent_ws(
                             return format!("ошибка записи в TCP клиента: {error}");
                         }
                         bytes_down.fetch_add(length, Ordering::Relaxed);
+                        activity.touch();
                     }
                     Ok(Message::Text(data)) => {
                         let length = data.len() as u64;
@@ -138,6 +244,7 @@ pub(crate) async fn bridge_transparent_ws(
                             return format!("ошибка записи текста WSS в TCP клиента: {error}");
                         }
                         bytes_down.fetch_add(length, Ordering::Relaxed);
+                        activity.touch();
                     }
                     Ok(Message::Ping(data)) => {
                         if let Err(error) = ws_write.lock().await.send(Message::Pong(data)).await {
@@ -146,6 +253,7 @@ pub(crate) async fn bridge_transparent_ws(
                     }
                     Ok(Message::Pong(_)) => {}
                     Ok(Message::Close(frame)) => {
+                        let _ = client_write.shutdown().await;
                         return match frame {
                             Some(frame) => format!(
                                 "upstream закрыл WSS: код={:?}, причина={}",
@@ -161,18 +269,49 @@ pub(crate) async fn bridge_transparent_ws(
             let _ = client_write.shutdown().await;
             "upstream завершил поток WSS".to_string()
         }
-    });
-
-    let (closed_by, reason) = tokio::select! {
-        result = &mut upload => {
-            download.abort();
-            ("клиент", result.unwrap_or_else(|error| format!("задача отправки завершилась: {error}")))
-        }
-        result = &mut download => {
-            upload.abort();
-            ("upstream", result.unwrap_or_else(|error| format!("задача получения завершилась: {error}")))
-        }
     };
+
+    let (closed_by, reason) = match supervise_directions(
+        upload,
+        download,
+        &activity,
+        SESSION_IDLE_TIMEOUT,
+        RELAY_DRAIN_TIMEOUT,
+    )
+    .await
+    {
+        RelayCompletion::Ended {
+            direction: RelayDirection::Upload(reason),
+            drained,
+        } => {
+            if !drained {
+                warn!(
+                    "[{}] вторая сторона не завершилась за {:?}; завершаю WSS",
+                    label, RELAY_DRAIN_TIMEOUT
+                );
+            }
+            ("клиент", reason)
+        }
+        RelayCompletion::Ended {
+            direction: RelayDirection::Download(reason),
+            drained,
+        } => {
+            if !drained {
+                warn!(
+                    "[{}] вторая сторона не завершилась за {:?}; завершаю WSS",
+                    label, RELAY_DRAIN_TIMEOUT
+                );
+            }
+            ("upstream", reason)
+        }
+        RelayCompletion::Idle => (
+            "таймер простоя",
+            format!("нет MTProto-данных {:?}", SESSION_IDLE_TIMEOUT),
+        ),
+    };
+    if let Err(error) = ws_write.lock().await.close().await {
+        warn!("[{}] ошибка закрытия WSS: {}", label, error);
+    }
     info!(
         "[{}] сессия DC{}{} через {} закрыта стороной {}: причина={}, вверх {} байт, вниз {} байт",
         label,
@@ -184,4 +323,127 @@ pub(crate) async fn bridge_transparent_ws(
         bytes_up.load(Ordering::Relaxed),
         bytes_down.load(Ordering::Relaxed)
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        PayloadActivity, RelayCompletion, RelayDirection, race_directions, supervise_directions,
+    };
+    use std::future;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+
+    struct DropCount(Arc<AtomicUsize>);
+
+    impl Drop for DropCount {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelling_bridge_drops_both_direction_futures() {
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(AtomicUsize::new(0));
+        let upload_drop = Arc::clone(&dropped);
+        let download_drop = Arc::clone(&dropped);
+        let upload_started = Arc::clone(&started);
+        let download_started = Arc::clone(&started);
+        let task = tokio::spawn(race_directions(
+            async move {
+                upload_started.fetch_add(1, Ordering::SeqCst);
+                let _drop_count = DropCount(upload_drop);
+                future::pending::<()>().await;
+            },
+            async move {
+                download_started.fetch_add(1, Ordering::SeqCst);
+                let _drop_count = DropCount(download_drop);
+                future::pending::<()>().await;
+            },
+            Duration::from_millis(10),
+        ));
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while started.load(Ordering::SeqCst) != 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        task.abort();
+        let _ = task.await;
+
+        assert_eq!(dropped.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn completed_direction_drains_its_peer_before_teardown() {
+        let activity = PayloadActivity::new();
+        let (finish_tx, finish_rx) = oneshot::channel();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            let _ = finish_tx.send("upstream завершён".to_string());
+        });
+
+        let result = supervise_directions(
+            async { "клиент закрыл TCP".to_string() },
+            async move { finish_rx.await.unwrap() },
+            &activity,
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            RelayCompletion::Ended {
+                direction: RelayDirection::Upload(ref reason),
+                drained: true,
+            } if reason == "клиент закрыл TCP"
+        ));
+    }
+
+    #[tokio::test]
+    async fn idle_session_cancels_both_relay_directions() {
+        let activity = PayloadActivity::new();
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let upload_drop = Arc::clone(&dropped);
+        let download_drop = Arc::clone(&dropped);
+
+        let result = supervise_directions(
+            async move {
+                let _drop_count = DropCount(upload_drop);
+                future::pending::<()>().await;
+            },
+            async move {
+                let _drop_count = DropCount(download_drop);
+                future::pending::<()>().await;
+            },
+            &activity,
+            Duration::from_millis(10),
+            Duration::from_millis(10),
+        )
+        .await;
+
+        assert!(matches!(result, RelayCompletion::Idle));
+        assert_eq!(dropped.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn activity_resets_the_idle_deadline() {
+        let activity = PayloadActivity::new();
+        let touched = activity.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            touched.touch();
+        });
+        let started = tokio::time::Instant::now();
+
+        activity.idle_reached(Duration::from_millis(30)).await;
+
+        assert!(started.elapsed() >= Duration::from_millis(35));
+    }
 }

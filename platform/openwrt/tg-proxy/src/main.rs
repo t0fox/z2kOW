@@ -27,7 +27,7 @@ async fn main() {
     let config = Config::from_args();
     init_logging(&config);
 
-    match server::run(config, std::future::pending()).await {
+    match server::run(config, shutdown_signal()).await {
         Ok(()) => {}
         // Bind and InvalidListenAddress are ordinary user mistakes -- "port
         // already in use" must not reach the user as a panic with a
@@ -36,6 +36,25 @@ async fn main() {
             eprintln!("{e}");
             std::process::exit(1);
         }
+    }
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+
+        let mut terminate =
+            signal(SignalKind::terminate()).expect("не удалось подписаться на SIGTERM");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = terminate.recv() => {}
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
     }
 }
 

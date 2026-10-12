@@ -8,6 +8,7 @@ use std::time::Duration;
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
+use tokio::task::{JoinError, JoinSet};
 use tracing::{error, info, warn};
 
 use crate::config::Config;
@@ -22,6 +23,18 @@ fn listen_address(host: &str, port: u16) -> String {
         host.to_string()
     };
     format!("{host}:{port}")
+}
+
+async fn cancel_and_join_clients(clients: &mut JoinSet<()>) {
+    clients.shutdown().await;
+}
+
+fn log_client_task_result(result: Result<(), JoinError>) {
+    if let Err(error) = result
+        && error.is_panic()
+    {
+        warn!("задача Telegram-соединения завершилась аварийно: {error}");
+    }
 }
 
 async fn bind_server_listener(addr: SocketAddr, dual_stack: bool) -> std::io::Result<TcpListener> {
@@ -162,12 +175,17 @@ pub async fn run_with_listen(
     };
 
     let semaphore = Arc::new(Semaphore::new(max_connections));
+    let mut clients = JoinSet::new();
     const EMFILE: i32 = 24;
     const ENFILE: i32 = 23;
 
     loop {
         let permit = tokio::select! {
             _ = &mut shutdown => break,
+            Some(result) = clients.join_next(), if !clients.is_empty() => {
+                log_client_task_result(result);
+                continue;
+            }
             permit = Arc::clone(&semaphore).acquire_owned() => {
                 permit.expect("semaphore закрыт неожиданно")
             }
@@ -175,11 +193,14 @@ pub async fn run_with_listen(
 
         tokio::select! {
             _ = &mut shutdown => break,
+            Some(result) = clients.join_next(), if !clients.is_empty() => {
+                log_client_task_result(result);
+            }
             accepted = listener.accept() => match accepted {
                 Ok((stream, peer_addr)) => {
                     let cfg = Arc::clone(&config);
                     let runtime = Arc::clone(&runtime);
-                    tokio::spawn(async move {
+                    clients.spawn(async move {
                         let _permit = permit;
                         transparent_proxy::handle_transparent_client_with_runtime(
                             stream, peer_addr, cfg, runtime,
@@ -200,18 +221,27 @@ pub async fn run_with_listen(
     }
 
     refresh_task.abort();
+    if let Err(error) = refresh_task.await
+        && !error.is_cancelled()
+    {
+        warn!("задача обновления карты DC завершилась ошибкой при остановке: {error}");
+    }
+    cancel_and_join_clients(&mut clients).await;
     info!("прокси остановлен");
     Ok(())
 }
 
 #[cfg(all(test, target_os = "linux"))]
 mod transparent_listener_tests {
-    use super::{bind_server_listener, run_with_listen};
+    use super::{bind_server_listener, cancel_and_join_clients, run_with_listen};
     use crate::config::Config;
     use std::net::{Ipv6Addr, SocketAddr};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
     use tokio::net::TcpStream;
     use tokio::sync::oneshot;
+    use tokio::task::JoinSet;
 
     #[tokio::test]
     async fn listener_accepts_ipv4_and_ipv6() {
@@ -257,5 +287,29 @@ mod transparent_listener_tests {
                 .unwrap()
                 .is_ok()
         );
+    }
+
+    #[tokio::test]
+    async fn client_shutdown_aborts_and_joins_active_sessions_idempotently() {
+        let cleaned = Arc::new(AtomicBool::new(false));
+        let mut clients = JoinSet::new();
+        let task_cleaned = Arc::clone(&cleaned);
+        clients.spawn(async move {
+            struct MarkCleaned(Arc<AtomicBool>);
+            impl Drop for MarkCleaned {
+                fn drop(&mut self) {
+                    self.0.store(true, Ordering::SeqCst);
+                }
+            }
+            let _mark_cleaned = MarkCleaned(task_cleaned);
+            std::future::pending::<()>().await;
+        });
+        tokio::task::yield_now().await;
+
+        cancel_and_join_clients(&mut clients).await;
+        cancel_and_join_clients(&mut clients).await;
+
+        assert!(cleaned.load(Ordering::SeqCst));
+        assert!(clients.is_empty());
     }
 }

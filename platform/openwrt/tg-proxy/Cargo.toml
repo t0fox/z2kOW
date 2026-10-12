@@ -12,7 +12,7 @@ path = "src/main.rs"
 [dependencies]
 # Асинхронная среда выполнения.
 # Включены только функции, используемые в src/ и tests/. `full` дополнительно
-# тянет fs/process/signal; минимальный набор сокращает дерево зависимостей.
+# тянет fs; минимальный набор сокращает дерево зависимостей.
 tokio = { version = "1", features = [
     "rt-multi-thread",
     "macros",
@@ -20,6 +20,8 @@ tokio = { version = "1", features = [
     "io-util",
     "time",
     "sync",
+    "process",
+    "signal",
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
