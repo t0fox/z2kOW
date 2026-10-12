@@ -1,18 +1,465 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index 7288759..1223d09 100644
+index 7288759..5a2d202 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -1063,0 +1064 @@ dependencies = [
+@@ -4,0 +5,6 @@ version = 4
++[[package]]
++name = "adler2"
++version = "2.0.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
++
+@@ -12,2 +18,13 @@ dependencies = [
+- "cipher",
+- "cpufeatures",
++ "cipher 0.4.4",
++ "cpufeatures 0.2.17",
++]
++
++[[package]]
++name = "aes"
++version = "0.9.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "35f0f96ce78e38c3dc6d8948aa8163d06385be74000f3c7a95bf1eef35d3ea32"
++dependencies = [
++ "cipher 0.5.2",
++ "cpubits",
++ "cpufeatures 0.3.1",
+@@ -86,0 +104,6 @@ dependencies = [
++[[package]]
++name = "autocfg"
++version = "1.5.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
++
+@@ -107,0 +131,9 @@ dependencies = [
++[[package]]
++name = "block-buffer"
++version = "0.12.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
++dependencies = [
++ "hybrid-array",
++]
++
+@@ -142,2 +174,13 @@ dependencies = [
+- "crypto-common",
+- "inout",
++ "crypto-common 0.1.7",
++ "inout 0.1.4",
++]
++
++[[package]]
++name = "cipher"
++version = "0.5.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e8cf2a2c93cd704877c0858356ed03480ff301ee950b43f1cbe4573b088bfa6c"
++dependencies = [
++ "block-buffer 0.12.1",
++ "crypto-common 0.2.2",
++ "inout 0.2.2",
+@@ -185,0 +229,6 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
++[[package]]
++name = "cmov"
++version = "0.5.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
++
+@@ -201,0 +251,12 @@ dependencies = [
++[[package]]
++name = "const-oid"
++version = "0.10.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
++
++[[package]]
++name = "cpubits"
++version = "0.1.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "15b85f9c39137c3a891689859392b1bd49812121d0d61c9caf00d46ed5ce06ae"
++
+@@ -210,0 +272,18 @@ dependencies = [
++[[package]]
++name = "cpufeatures"
++version = "0.3.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5ca28b0ae3115b884660db4118d803791fd6756b6e88f39c0f3f7859060d7566"
++dependencies = [
 + "libc",
-@@ -1069,0 +1071 @@ dependencies = [
++]
++
++[[package]]
++name = "crc32fast"
++version = "1.5.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "01a7799fd6b852db0e61728dde9a204c423b44d689dbd432522543614b490e78"
++dependencies = [
++ "cfg-if",
++]
++
+@@ -220,0 +300,9 @@ dependencies = [
++[[package]]
++name = "crypto-common"
++version = "0.2.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
++dependencies = [
++ "hybrid-array",
++]
++
+@@ -227 +315,19 @@ dependencies = [
+- "cipher",
++ "cipher 0.4.4",
++]
++
++[[package]]
++name = "ctr"
++version = "0.10.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "baaca1c4b237092596f64d571e9db6ce4109c4ef9742e27590f1709594461f21"
++dependencies = [
++ "cipher 0.5.2",
++]
++
++[[package]]
++name = "ctutils"
++version = "0.4.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "03bb0e1cc970d482d121d9a1744999169b69a07470b3d644a7894e53fcaf4574"
++dependencies = [
++ "cmov",
+@@ -248,2 +354,2 @@ dependencies = [
+- "block-buffer",
+- "crypto-common",
++ "block-buffer 0.10.4",
++ "crypto-common 0.1.7",
+@@ -252,0 +359,12 @@ dependencies = [
++[[package]]
++name = "digest"
++version = "0.11.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
++dependencies = [
++ "block-buffer 0.12.1",
++ "const-oid",
++ "crypto-common 0.2.2",
++ "ctutils",
++]
++
+@@ -275,0 +394,11 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
++[[package]]
++name = "flate2"
++version = "1.1.10"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6e634e2e0ebac1ee034020da1ca582e17ffe4e0f5e985823721e168928136dcb"
++dependencies = [
++ "crc32fast",
++ "miniz_oxide",
++ "zlib-rs",
++]
++
+@@ -357 +486 @@ dependencies = [
+- "r-efi",
++ "r-efi 5.3.0",
+@@ -360,0 +490,89 @@ dependencies = [
++[[package]]
++name = "getrandom"
++version = "0.4.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
++dependencies = [
++ "cfg-if",
++ "libc",
++ "r-efi 6.0.0",
++ "rand_core 0.10.1",
++]
++
++[[package]]
++name = "glass_pumpkin"
++version = "2.0.0-rc0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ec260059e5d59a4899d78dff8bf59abf81f8f5b3b44e9d3ba25c9dade1390a36"
++dependencies = [
++ "getrandom 0.4.3",
++ "num-bigint",
++ "num-integer",
++ "num-traits",
++ "once_cell",
++ "rand_core 0.10.1",
++]
++
++[[package]]
++name = "grammers-crypto"
++version = "0.10.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "23fe0fbd93bce6965d08248abdfec2d2544e11cb8d5c91dba3369c0a4295fd85"
++dependencies = [
++ "aes 0.9.3",
++ "ctr 0.10.1",
++ "getrandom 0.4.3",
++ "glass_pumpkin",
++ "hmac 0.13.0",
++ "num-bigint",
++ "num-traits",
++ "pbkdf2",
++ "sha1 0.11.0",
++ "sha2 0.11.0",
++]
++
++[[package]]
++name = "grammers-mtproto"
++version = "0.10.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2a8d68ffa402c5f0707e22c29d44229eb01e968017dd0fb27e1adab953d49fc3"
++dependencies = [
++ "bytes",
++ "crc32fast",
++ "flate2",
++ "getrandom 0.4.3",
++ "grammers-crypto",
++ "grammers-tl-types",
++ "log",
++ "num-bigint",
++ "sha1 0.11.0",
++]
++
++[[package]]
++name = "grammers-tl-gen"
++version = "0.10.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1a37dda68c9e775dfbffb85b99826b5ac8144e9da40be3327e77cbcd8618fc30"
++dependencies = [
++ "grammers-tl-parser",
++]
++
++[[package]]
++name = "grammers-tl-parser"
++version = "1.2.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "646fc5eeb27461ffcc94fcf9fda3ffd9b402a20250447ae4a65c39c1a905e381"
++dependencies = [
++ "crc32fast",
++]
++
++[[package]]
++name = "grammers-tl-types"
++version = "0.10.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "67d450e2f2588af535fe85a17b9a6df8338794ee8ad6bcb1b97d61a14d472fc5"
++dependencies = [
++ "grammers-tl-gen",
++ "grammers-tl-parser",
++]
++
+@@ -379 +597,10 @@ dependencies = [
+- "digest",
++ "digest 0.10.7",
++]
++
++[[package]]
++name = "hmac"
++version = "0.13.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6303bc9732ae41b04cb554b844a762b4115a61bfaa81e3e83050991eeb56863f"
++dependencies = [
++ "digest 0.11.3",
+@@ -397,0 +625,9 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
++[[package]]
++name = "hybrid-array"
++version = "0.4.15"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "27f864f10dfb56725ce5ce5472bc52252c8f93a4ab86327122cebf62c5f59a17"
++dependencies = [
++ "typenum",
++]
++
+@@ -509,0 +746,9 @@ dependencies = [
++[[package]]
++name = "inout"
++version = "0.2.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4250ce6452e92010fdf7268ccc5d14faa80bb12fc741938534c58f16804e03c7"
++dependencies = [
++ "hybrid-array",
++]
++
+@@ -615,0 +861,10 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
++[[package]]
++name = "miniz_oxide"
++version = "0.9.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
++dependencies = [
++ "adler2",
++ "simd-adler32",
++]
++
+@@ -635,0 +891,10 @@ dependencies = [
++[[package]]
++name = "num-bigint"
++version = "0.4.8"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c89e69e7e0f03bea5ef08013795c25018e101932225a656383bd384495ecc367"
++dependencies = [
++ "num-integer",
++ "num-traits",
++]
++
+@@ -641,0 +907,18 @@ checksum = "521739c6d2bac4aa25192232afe6841231376b2b26d4d9fae5ecf8ca5772e441"
++[[package]]
++name = "num-integer"
++version = "0.1.47"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7ce2d95d4b3734dc35aa2f45e1aa22cd416814592a4f9d9205e11affd5b8e10b"
++dependencies = [
++ "num-traits",
++]
++
++[[package]]
++name = "num-traits"
++version = "0.2.19"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
++dependencies = [
++ "autocfg",
++]
++
+@@ -653,0 +937,10 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
++[[package]]
++name = "pbkdf2"
++version = "0.13.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "112d82ceb8c5bf524d9af484d4e4970c9fd5a0cc15ba14ad93dccd28873b0629"
++dependencies = [
++ "digest 0.11.3",
++ "hmac 0.13.0",
++]
++
+@@ -723,0 +1017,6 @@ checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
++[[package]]
++name = "r-efi"
++version = "6.0.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
++
+@@ -782,0 +1082,6 @@ dependencies = [
++[[package]]
++name = "rand_core"
++version = "0.10.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
++
+@@ -891,0 +1197 @@ dependencies = [
++ "serde_derive",
+@@ -913,0 +1220,13 @@ dependencies = [
++[[package]]
++name = "serde_json"
++version = "1.0.154"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
++dependencies = [
++ "itoa",
++ "memchr",
++ "serde",
++ "serde_core",
++ "zmij",
++]
++
+@@ -921,2 +1240,13 @@ dependencies = [
+- "cpufeatures",
+- "digest",
++ "cpufeatures 0.2.17",
++ "digest 0.10.7",
++]
++
++[[package]]
++name = "sha1"
++version = "0.11.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
++dependencies = [
++ "cfg-if",
++ "cpufeatures 0.3.1",
++ "digest 0.11.3",
+@@ -932,2 +1262,13 @@ dependencies = [
+- "cpufeatures",
+- "digest",
++ "cpufeatures 0.2.17",
++ "digest 0.10.7",
++]
++
++[[package]]
++name = "sha2"
++version = "0.11.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "446ba717509524cb3f22f17ecc096f10f4822d76ab5c0b9822c5f9c284e825f4"
++dependencies = [
++ "cfg-if",
++ "cpufeatures 0.3.1",
++ "digest 0.11.3",
+@@ -950,0 +1292,6 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
++[[package]]
++name = "simd-adler32"
++version = "0.3.10"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
++
+@@ -1054 +1401 @@ dependencies = [
+- "aes",
++ "aes 0.8.4",
+@@ -1056 +1403 @@ dependencies = [
+- "cipher",
++ "cipher 0.4.4",
+@@ -1058 +1405 @@ dependencies = [
+- "ctr",
++ "ctr 0.9.2",
+@@ -1059,0 +1407,4 @@ dependencies = [
++ "glass_pumpkin",
++ "grammers-crypto",
++ "grammers-mtproto",
++ "grammers-tl-types",
+@@ -1061 +1412 @@ dependencies = [
+- "hmac",
++ "hmac 0.12.1",
+@@ -1063,0 +1415 @@ dependencies = [
++ "libc",
+@@ -1069 +1421,4 @@ dependencies = [
+- "sha2",
++ "serde",
++ "serde_json",
++ "sha2 0.10.9",
 + "socket2",
+@@ -1299 +1654 @@ dependencies = [
+- "sha1",
++ "sha1 0.10.7",
+@@ -1626,0 +1982,12 @@ dependencies = [
++
++[[package]]
++name = "zlib-rs"
++version = "0.6.8"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
++
++[[package]]
++name = "zmij"
++version = "1.0.23"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 diff --git a/Cargo.toml b/Cargo.toml
-index fb83af2..c101485 100644
+index fb83af2..aa5c747 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -44,0 +45 @@ tokio = { version = "1", features = [
+@@ -44,0 +45,9 @@ tokio = { version = "1", features = [
++serde = { version = "1", features = ["derive"] }
++serde_json = "1"
++grammers-crypto = "0.10.0"
++grammers-mtproto = "0.10.0"
++grammers-tl-types = "0.10.0"
++# Закрепляем совместимую ревизию: glass_pumpkin rc1 несовместима с BigUint,
++# используемым grammers-crypto 0.10.0.
++glass_pumpkin = "=2.0.0-rc0"
 +socket2 = "0.6.5"
-@@ -92,0 +94 @@ futures-util = "0.3"
+@@ -92,0 +102 @@ futures-util = "0.3"
 +libc = "0.2"
 diff --git a/src/check.rs b/src/check.rs
 index f4fad49..8161911 100644
@@ -70,15 +517,113 @@ index f4fad49..8161911 100644
 -        println!("  Result: all checks passed");
 +        println!("  Результат: все проверки пройдены");
 diff --git a/src/config.rs b/src/config.rs
-index 2526035..d06b5cd 100644
+index 2526035..cba8d43 100644
 --- a/src/config.rs
 +++ b/src/config.rs
-@@ -186,0 +187,4 @@ pub struct Config {
+@@ -9 +9,2 @@ use std::fmt;
+-use std::net::UdpSocket;
++use std::net::{IpAddr, UdpSocket};
++use std::path::PathBuf;
+@@ -28,0 +30,46 @@ const DEFAULT_DC_IPS: &[(u32, &str)] = &[
++const DEFAULT_DC_IPV6S: &[(u32, &str)] = &[
++    (1, "2001:b28:f23d:f001::a"),
++    (2, "2001:67c:4e8:f002::a"),
++    (3, "2001:b28:f23d:f003::a"),
++    (4, "2001:67c:4e8:f004::a"),
++    (5, "2001:b28:f23f:f005::a"),
++];
++
++/// Резервная точная карта; адреса сверены с MIT-донором `AlexMelanFromRingo/tg-proxy` (`174eed26`).
++/// Совпадения по CIDR не используются.
++const DEFAULT_DC_ROUTES: &[(u32, &str, bool)] = &[
++    (1, "149.154.175.50", false),
++    (1, "149.154.175.51", false),
++    (1, "149.154.175.52", true),
++    (1, "149.154.175.53", false),
++    (1, "149.154.175.54", false),
++    (2, "149.154.167.41", false),
++    (2, "149.154.167.50", false),
++    (2, "149.154.167.51", false),
++    (2, "149.154.167.220", false),
++    (2, "95.161.76.100", false),
++    (2, "149.154.167.151", true),
++    (2, "149.154.167.222", true),
++    (2, "149.154.167.223", true),
++    (2, "149.154.162.123", true),
++    (3, "149.154.175.100", false),
++    (3, "149.154.175.101", false),
++    (3, "149.154.175.102", true),
++    (4, "149.154.167.91", false),
++    (4, "149.154.167.92", false),
++    (4, "149.154.164.250", true),
++    (4, "149.154.166.120", true),
++    (4, "149.154.166.121", true),
++    (4, "149.154.167.118", true),
++    (4, "149.154.165.111", true),
++    (5, "91.108.56.100", false),
++    (5, "91.108.56.101", false),
++    (5, "91.108.56.116", false),
++    (5, "91.108.56.126", false),
++    (5, "149.154.171.5", false),
++    (5, "91.108.56.102", true),
++    (5, "91.108.56.128", true),
++    (5, "91.108.56.151", true),
++    (203, "91.105.192.100", false),
++];
++
+@@ -43,0 +91,12 @@ pub fn default_dc_ips() -> HashMap<u32, String> {
++/// Проверенные встроенные IPv4/IPv6-адреса для первоначального запроса `help.getConfig`.
++pub fn default_dc_bootstrap_ips() -> Vec<(u32, &'static str)> {
++    let mut targets = Vec::with_capacity(DEFAULT_DC_IPS.len() + DEFAULT_DC_IPV6S.len());
++    for (dc, ipv4) in DEFAULT_DC_IPS {
++        targets.push((*dc, *ipv4));
++        if let Some((_, ipv6)) = DEFAULT_DC_IPV6S.iter().find(|(ipv6_dc, _)| ipv6_dc == dc) {
++            targets.push((*dc, *ipv6));
++        }
++    }
++    targets
++}
++
+@@ -50,0 +110,13 @@ pub fn default_dc_ip(dc: u32) -> Option<&'static str> {
++pub fn default_dc_route_for_ip(ip: IpAddr) -> Option<(u32, bool)> {
++    DEFAULT_DC_ROUTES
++        .iter()
++        .find_map(|(dc, address, is_media)| {
++            (address.parse::<IpAddr>().ok() == Some(ip)).then_some((*dc, *is_media))
++        })
++        .or_else(|| {
++            DEFAULT_DC_IPV6S.iter().find_map(|(dc, address)| {
++                (address.parse::<IpAddr>().ok() == Some(ip)).then_some((*dc, false))
++            })
++        })
++}
++
+@@ -186,0 +259,24 @@ pub struct Config {
 +    /// Прозрачный Linux REDIRECT-вход для TCP obfuscated2 без секрета.
 +    #[arg(long, env = "TG_TRANSPARENT")]
 +    pub transparent: bool,
 +
-@@ -742,0 +747,15 @@ impl Config {
++    /// TCP-порты перехвата, переданные общей политикой OpenWrt.
++    #[arg(long = "transparent-ports", value_delimiter = ',')]
++    pub transparent_ports: Vec<u16>,
++
++    /// CIDR адресов Telegram, переданные общей политикой OpenWrt.
++    #[arg(long = "transparent-cidrs", value_delimiter = ',')]
++    pub transparent_cidrs: Vec<String>,
++
++    /// Путь атомарного кэша официальных dcOption.
++    #[arg(
++        long,
++        env = "TG_DC_MAP_PATH",
++        default_value = "/etc/z2k/telegram-dc-map.json"
++    )]
++    pub dc_map_path: PathBuf,
++
++    /// Минимальный интервал обновления официальной карты DC в секундах.
++    #[arg(long, env = "TG_DC_MAP_REFRESH_SECS", default_value_t = 21_600)]
++    pub dc_map_refresh_secs: u64,
++
+@@ -742,0 +839,15 @@ impl Config {
 +        if self.transparent {
 +            // При прозрачном перехвате нет локального секрета прокси;
 +            // режим не должен зависеть от MTProto-релея или прокси пользователя.
@@ -94,16 +639,1711 @@ index 2526035..d06b5cd 100644
 +            self.no_outbound_proxy = true;
 +        }
 +
-@@ -761 +780 @@ impl Config {
+@@ -761 +872 @@ impl Config {
 -        if self.secrets.is_empty() {
 +        if self.secrets.is_empty() && !self.transparent {
-@@ -1003 +1022 @@ impl Config {
+@@ -1003 +1114 @@ impl Config {
 -        OutboundConnector::from_config(
 +        let connector = OutboundConnector::from_config(
-@@ -1007 +1026,2 @@ impl Config {
+@@ -1007 +1118,2 @@ impl Config {
 -        )
 +        )?;
 +        Ok(connector.with_socket_mark(self.transparent.then_some(0x4000_0000)))
+diff --git a/src/dc_discovery.rs b/src/dc_discovery.rs
+new file mode 100644
+index 0000000..015af1b
+--- /dev/null
++++ b/src/dc_discovery.rs
+@@ -0,0 +1,672 @@
++use std::net::IpAddr;
++use std::sync::Arc;
++use std::time::Duration;
++
++use cipher::StreamCipher;
++use futures_util::{SinkExt, StreamExt};
++use grammers_crypto::DequeBuffer;
++use grammers_mtproto::authentication;
++use grammers_mtproto::mtp::{Deserialization, Encrypted, Mtp, Plain};
++use grammers_mtproto::transport::{Error as TransportError, Intermediate, Obfuscated, Transport};
++use grammers_tl_types::{Deserializable, RemoteCall, Serializable};
++use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream};
++use tokio::sync::Mutex;
++use tracing::{info, warn};
++use tungstenite::Message;
++
++use crate::config::default_dc_bootstrap_ips;
++use crate::crypto::ProtoTag;
++use crate::dc_map::{DcEndpoint, DcSnapshot};
++use crate::runtime::Runtime;
++use crate::splitter::MsgSplitter;
++use crate::transparent::direct_stream_ciphers;
++use crate::ws_client::{CfDialOpts, TgWsStream, connect_cf_ws_for_dc_with_outbound_opts};
++
++const TELEGRAM_TCP_PORT: u16 = 443;
++const CONNECT_TIMEOUT: Duration = Duration::from_secs(6);
++const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(12);
++const MAX_PACKET_BYTES: usize = 1024 * 1024;
++const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
++const MIN_REFRESH_SECS: u64 = 60 * 60;
++const MAX_REFRESH_SECS: u64 = 7 * 24 * 60 * 60;
++// Идентификатор официального Telegram Android; для help.getConfig api_hash и вход в аккаунт не нужны.
++const TELEGRAM_CONFIG_API_ID: i32 = 4;
++
++type TelegramTransport = Obfuscated<Intermediate>;
++
++/// Получить `help.getConfig` на одном из проверенных встроенных DC без входа пользователя.
++pub async fn fetch_config(
++    runtime: &Runtime,
++    cf_domains: &[String],
++    skip_tls_verify: bool,
++    disable_cf_tls: bool,
++) -> Result<DcSnapshot, String> {
++    let mut failures = Vec::new();
++    let bootstrap = default_dc_bootstrap_ips();
++    for (dc, address) in bootstrap.iter().take(MAX_BOOTSTRAP_ATTEMPTS) {
++        match fetch_from_dc(runtime, address).await {
++            Ok(snapshot) => return Ok(snapshot),
++            Err(error) => failures.push(format!("DC{dc} {address}: {error}")),
++        }
++    }
++
++    let mut tried_dcs = Vec::new();
++    for dc in bootstrap.iter().map(|(dc, _)| *dc) {
++        if tried_dcs.contains(&dc) {
++            continue;
++        }
++        tried_dcs.push(dc);
++        match fetch_from_cf_dc(runtime, dc, cf_domains, skip_tls_verify, disable_cf_tls).await {
++            Ok(snapshot) => return Ok(snapshot),
++            Err(error) => failures.push(format!("DC{dc} через WSS: {error}")),
++        }
++    }
++
++    Err(format!(
++        "не удалось получить конфигурацию ни с одного bootstrap DC: {}",
++        failures.join("; ")
++    ))
++}
++
++async fn fetch_from_dc(runtime: &Runtime, address: &str) -> Result<DcSnapshot, String> {
++    let mut stream = runtime
++        .outbound()
++        .connect(address, TELEGRAM_TCP_PORT, CONNECT_TIMEOUT)
++        .await
++        .map_err(|error| format!("TCP-соединение: {error}"))?;
++    stream
++        .set_nodelay(true)
++        .map_err(|error| format!("TCP_NODELAY: {error}"))?;
++
++    fetch_over_stream(&mut stream).await
++}
++
++async fn fetch_from_cf_dc(
++    runtime: &Runtime,
++    dc: u32,
++    cf_domains: &[String],
++    skip_tls_verify: bool,
++    disable_cf_tls: bool,
++) -> Result<DcSnapshot, String> {
++    if cf_domains.is_empty() {
++        return Err("домены Cloudflare для WSS не настроены".to_string());
++    }
++
++    let (ws, domain, _) = connect_cf_ws_for_dc_with_outbound_opts(
++        dc,
++        cf_domains,
++        false,
++        skip_tls_verify,
++        CONNECT_TIMEOUT,
++        runtime.outbound(),
++        CfDialOpts {
++            cf_ips: runtime.cf_ips(),
++            disable_tls: disable_cf_tls,
++            fail_cooldown: runtime.cf_fail_cooldown(),
++        },
++    )
++    .await;
++    let ws = ws.ok_or_else(|| "Cloudflare WSS-соединение не установлено".to_string())?;
++    info!(
++        "Получение help.getConfig через проверенный WSS-маршрут DC{} ({})",
++        dc,
++        domain.as_deref().unwrap_or("домен неизвестен")
++    );
++
++    let mut stream = start_ws_byte_stream(ws);
++    fetch_over_stream(&mut stream).await
++}
++
++fn start_ws_byte_stream(ws: TgWsStream) -> DuplexStream {
++    let (client, relay) = tokio::io::duplex(64 * 1024);
++    tokio::spawn(bridge_ws_byte_stream(relay, ws));
++    client
++}
++
++async fn bridge_ws_byte_stream(stream: DuplexStream, ws: TgWsStream) {
++    let (mut reader, mut writer) = tokio::io::split(stream);
++    let (sink, mut source) = ws.split();
++    let sink = Arc::new(Mutex::new(sink));
++
++    let upload_sink = Arc::clone(&sink);
++    let mut upload = tokio::spawn(async move {
++        let mut init = [0u8; crate::crypto::HANDSHAKE_LEN];
++        reader
++            .read_exact(&mut init)
++            .await
++            .map_err(|error| format!("не удалось прочитать obfuscated2 bootstrap: {error}"))?;
++        upload_sink
++            .lock()
++            .await
++            .send(Message::Binary(init.to_vec()))
++            .await
++            .map_err(|error| format!("не удалось передать bootstrap по WSS: {error}"))?;
++
++        let (mut decrypt, mut encrypt) = direct_stream_ciphers(&init);
++        let mut splitter = MsgSplitter::new(ProtoTag::Intermediate);
++        let mut buffer = vec![0u8; 16 * 1024];
++        loop {
++            let length = reader
++                .read(&mut buffer)
++                .await
++                .map_err(|error| format!("ошибка чтения bootstrap-запроса: {error}"))?;
++            if length == 0 {
++                break;
++            }
++            decrypt.apply_keystream(&mut buffer[..length]);
++            for packet in splitter.split_and_encrypt(&mut buffer[..length], &mut encrypt) {
++                upload_sink
++                    .lock()
++                    .await
++                    .send(Message::Binary(packet))
++                    .await
++                    .map_err(|error| {
++                        format!("не удалось передать пакет help.getConfig по WSS: {error}")
++                    })?;
++            }
++        }
++        for packet in splitter.flush() {
++            upload_sink
++                .lock()
++                .await
++                .send(Message::Binary(packet))
++                .await
++                .map_err(|error| format!("не удалось передать остаток пакета по WSS: {error}"))?;
++        }
++        upload_sink
++            .lock()
++            .await
++            .close()
++            .await
++            .map_err(|error| format!("не удалось закрыть исходящий WSS-поток: {error}"))?;
++        Ok::<(), String>(())
++    });
++
++    let download_sink = Arc::clone(&sink);
++    let mut download: tokio::task::JoinHandle<Result<(), String>> = tokio::spawn(async move {
++        loop {
++            let message = source
++                .next()
++                .await
++                .ok_or_else(|| "Cloudflare закрыл WSS-поток".to_string())?
++                .map_err(|error| format!("ошибка чтения ответа WSS: {error}"))?;
++            match message {
++                Message::Binary(data) if data.len() <= MAX_PACKET_BYTES => writer
++                    .write_all(&data)
++                    .await
++                    .map_err(|error| format!("не удалось передать ответ WSS в MTProto: {error}"))?,
++                Message::Binary(_) => return Err("пакет ответа WSS превышает 1 MiB".to_string()),
++                Message::Text(data) => writer
++                    .write_all(data.as_bytes())
++                    .await
++                    .map_err(|error| format!("не удалось передать текстовый ответ WSS: {error}"))?,
++                Message::Ping(data) => {
++                    download_sink
++                        .lock()
++                        .await
++                        .send(Message::Pong(data))
++                        .await
++                        .map_err(|error| format!("не удалось ответить на WSS ping: {error}"))?
++                }
++                Message::Pong(_) => {}
++                Message::Close(_) => return Err("Telegram закрыл WSS-поток".to_string()),
++                _ => return Err("WSS прислал неподдерживаемый тип кадра".to_string()),
++            }
++        }
++    });
++
++    tokio::select! {
++        result = &mut upload => {
++            if let Err(error) = result.unwrap_or_else(|error| Err(error.to_string())) {
++                warn!("Ошибка отправки bootstrap через WSS: {error}");
++            }
++            download.abort();
++        }
++        result = &mut download => {
++            if let Err(error) = result.unwrap_or_else(|error| Err(error.to_string())) {
++                warn!("Ошибка получения bootstrap через WSS: {error}");
++            }
++            upload.abort();
++        }
++    }
++}
++
++async fn fetch_over_stream<S>(stream: &mut S) -> Result<DcSnapshot, String>
++where
++    S: AsyncRead + AsyncWrite + Unpin,
++{
++    let mut transport = Obfuscated::new(Intermediate::new());
++    let mut wire = Vec::with_capacity(16 * 1024);
++
++    let (request, state) =
++        authentication::step1().map_err(|error| format!("начало авторизации MTProto: {error}"))?;
++    let response = exchange_plain(stream, &mut transport, &mut wire, &request)
++        .await
++        .map_err(|error| format!("этап req_pq_multi: {error}"))?;
++    let response = grammers_tl_types::enums::ResPq::from_bytes(&response)
++        .map_err(|error| format!("разбор resPQ: {error}"))?;
++
++    let (request, state) = authentication::step2(state, response)
++        .map_err(|error| format!("обработка resPQ: {error}"))?;
++    let response = exchange_plain(stream, &mut transport, &mut wire, &request)
++        .await
++        .map_err(|error| format!("этап req_DH_params: {error}"))?;
++    let response = grammers_tl_types::enums::ServerDhParams::from_bytes(&response)
++        .map_err(|error| format!("разбор server_DH_params: {error}"))?;
++
++    let (request, state) = authentication::step3(state, response)
++        .map_err(|error| format!("обработка server_DH_params: {error}"))?;
++    let response = exchange_plain(stream, &mut transport, &mut wire, &request)
++        .await
++        .map_err(|error| format!("этап set_client_DH_params: {error}"))?;
++    let response = grammers_tl_types::enums::SetClientDhParamsAnswer::from_bytes(&response)
++        .map_err(|error| format!("разбор set_client_DH_params_answer: {error}"))?;
++
++    let auth = authentication::create_key(state, response)
++        .map_err(|error| format!("завершение авторизации MTProto: {error}"))?;
++    let mut encrypted = Encrypted::build()
++        .time_offset(auth.time_offset)
++        .first_salt(auth.first_salt)
++        .finish(auth.auth_key);
++    let request = config_request();
++    let response = exchange_encrypted(stream, &mut transport, &mut wire, &mut encrypted, &request)
++        .await
++        .map_err(|error| format!("этап help.getConfig: {error}"))?;
++    let response = grammers_tl_types::enums::Config::from_bytes(&response)
++        .map_err(|error| format!("разбор help.getConfig: {error}"))?;
++    let grammers_tl_types::enums::Config::Config(config) = response;
++    config_to_snapshot(config)
++}
++
++fn config_request() -> grammers_tl_types::functions::InvokeWithLayer<
++    grammers_tl_types::functions::InitConnection<grammers_tl_types::functions::help::GetConfig>,
++> {
++    grammers_tl_types::functions::InvokeWithLayer {
++        layer: grammers_tl_types::LAYER,
++        query: grammers_tl_types::functions::InitConnection {
++            api_id: TELEGRAM_CONFIG_API_ID,
++            device_model: "OpenWrt".to_string(),
++            system_version: "OpenWrt".to_string(),
++            app_version: env!("CARGO_PKG_VERSION").to_string(),
++            system_lang_code: "ru".to_string(),
++            lang_pack: String::new(),
++            lang_code: "ru".to_string(),
++            proxy: None,
++            params: None,
++            query: grammers_tl_types::functions::help::GetConfig {},
++        },
++    }
++}
++
++async fn exchange_plain<S, R>(
++    stream: &mut S,
++    transport: &mut TelegramTransport,
++    wire: &mut Vec<u8>,
++    request: &R,
++) -> Result<Vec<u8>, String>
++where
++    S: AsyncRead + AsyncWrite + Unpin,
++    R: Serializable,
++{
++    let mut mtp = Plain::new();
++    exchange(stream, transport, wire, &mut mtp, request).await
++}
++
++async fn exchange_encrypted<S, R>(
++    stream: &mut S,
++    transport: &mut TelegramTransport,
++    wire: &mut Vec<u8>,
++    mtp: &mut Encrypted,
++    request: &R,
++) -> Result<Vec<u8>, String>
++where
++    S: AsyncRead + AsyncWrite + Unpin,
++    R: RemoteCall,
++{
++    exchange(stream, transport, wire, mtp, request).await
++}
++
++async fn exchange<S, M, R>(
++    stream: &mut S,
++    transport: &mut TelegramTransport,
++    wire: &mut Vec<u8>,
++    mtp: &mut M,
++    request: &R,
++) -> Result<Vec<u8>, String>
++where
++    S: AsyncRead + AsyncWrite + Unpin,
++    M: Mtp,
++    R: Serializable,
++{
++    let request = request.to_bytes();
++    let deadline = tokio::time::Instant::now() + EXCHANGE_TIMEOUT;
++    loop {
++        let mut packet = DequeBuffer::with_capacity(request.len() + 64, 0);
++        let request_queued = mtp.push(&mut packet, &request).is_some();
++        let packet_finalized = mtp.finalize(&mut packet).is_some();
++        if request_queued && !packet_finalized {
++            return Err("MTProto не сформировал исходящий пакет".to_string());
++        }
++        if !packet.is_empty() {
++            transport.pack(&mut packet);
++            tokio::time::timeout_at(deadline, stream.write_all(packet.as_ref()))
++                .await
++                .map_err(|_| "истекло время передачи запроса Telegram".to_string())?
++                .map_err(|error| format!("передача запроса Telegram: {error}"))?;
++        }
++
++        loop {
++            let payload =
++                tokio::time::timeout_at(deadline, read_transport_packet(stream, transport, wire))
++                    .await
++                    .map_err(|_| "истекло время ожидания ответа Telegram".to_string())??;
++            let mut payload = payload;
++            let responses = mtp
++                .deserialize(&mut payload)
++                .map_err(|error| format!("разбор пакета MTProto: {error}"))?;
++            for response in responses {
++                match response {
++                    Deserialization::RpcResult(result) => return Ok(result.body),
++                    Deserialization::RpcError(result) => {
++                        return Err(format!(
++                            "Telegram вернул RPC-ошибку {}: {}",
++                            result.error.error_code, result.error.error_message
++                        ));
++                    }
++                    Deserialization::Failure(failure) => {
++                        return Err(format!("ответ MTProto не прошёл разбор: {}", failure.error));
++                    }
++                    Deserialization::BadMessage(message) => {
++                        return Err(format!(
++                            "Telegram отклонил сообщение MTProto, код {}",
++                            message.code
++                        ));
++                    }
++                    Deserialization::Update(_) | Deserialization::OwnUpdate { .. } => {}
++                }
++            }
++            if !request_queued {
++                break;
++            }
++        }
++    }
++}
++
++async fn read_transport_packet<S>(
++    stream: &mut S,
++    transport: &mut TelegramTransport,
++    wire: &mut Vec<u8>,
++) -> Result<Vec<u8>, String>
++where
++    S: AsyncRead + Unpin,
++{
++    let mut read_buffer = [0u8; 16 * 1024];
++    loop {
++        if !wire.is_empty() {
++            match transport.unpack(wire) {
++                Ok(offset) => {
++                    let payload = wire[offset.data_range].to_vec();
++                    wire.drain(..offset.next_offset);
++                    return Ok(payload);
++                }
++                Err(TransportError::MissingBytes) => {}
++                Err(error) => return Err(format!("кадрирование MTProto: {error}")),
++            }
++        }
++        if wire.len() >= MAX_PACKET_BYTES {
++            return Err("пакет Telegram превысил допустимый размер".to_string());
++        }
++        let read_limit = read_buffer.len().min(MAX_PACKET_BYTES - wire.len());
++        let read = stream
++            .read(&mut read_buffer[..read_limit])
++            .await
++            .map_err(|error| format!("чтение ответа Telegram: {error}"))?;
++        if read == 0 {
++            return Err("Telegram закрыл соединение во время запроса конфигурации".to_string());
++        }
++        wire.extend_from_slice(&read_buffer[..read]);
++    }
++}
++
++fn config_to_snapshot(config: grammers_tl_types::types::Config) -> Result<DcSnapshot, String> {
++    let now = unix_time();
++    let mut endpoints = Vec::with_capacity(config.dc_options.len());
++    for option in config.dc_options {
++        let grammers_tl_types::enums::DcOption::Option(option) = option;
++        let id = u32::try_from(option.id)
++            .map_err(|_| format!("dcOption содержит недопустимый DC ID {}", option.id))?;
++        let address: IpAddr = option
++            .ip_address
++            .parse()
++            .map_err(|_| format!("dcOption DC{id} содержит неверный IP-адрес"))?;
++        let port = u16::try_from(option.port)
++            .map_err(|_| format!("dcOption DC{id} содержит неверный TCP-порт"))?;
++        endpoints.push(DcEndpoint {
++            id,
++            address,
++            port,
++            ipv6: option.ipv6,
++            media_only: option.media_only,
++            tcpo_only: option.tcpo_only,
++            cdn: option.cdn,
++            is_static: option.r#static,
++            this_port_only: option.this_port_only,
++            secret: option.secret.map(hex::encode),
++            last_seen: now,
++        });
++    }
++    Ok(DcSnapshot {
++        schema_version: 1,
++        fetched_at: now,
++        config_date: i64::from(config.date),
++        config_expires: i64::from(config.expires),
++        this_dc: u32::try_from(config.this_dc)
++            .map_err(|_| "help.getConfig вернул неверный текущий DC".to_string())?,
++        endpoints,
++    })
++}
++
++/// Загружать официальную карту не чаще заданного интервала и не терять кэш при ошибке сети.
++pub async fn refresh_loop(
++    runtime: Arc<Runtime>,
++    requested_interval: u64,
++    cf_domains: Vec<String>,
++    skip_tls_verify: bool,
++    disable_cf_tls: bool,
++) {
++    let interval = requested_interval.clamp(MIN_REFRESH_SECS, MAX_REFRESH_SECS);
++    let store = Arc::clone(runtime.dc_map());
++    loop {
++        if store.refresh_due(unix_time(), interval) {
++            match fetch_config(&runtime, &cf_domains, skip_tls_verify, disable_cf_tls).await {
++                Ok(snapshot) => match store.install(snapshot, unix_time()) {
++                    Ok(installed) => info!(
++                        "Официальная карта Telegram DC обновлена: {} адресов, конфигурация от {}, кэш проверен и сохранён атомарно",
++                        installed.endpoints.len(),
++                        installed.config_date
++                    ),
++                    Err(error) => {
++                        warn!("Не удалось сохранить официальную карту Telegram DC: {error}");
++                        tokio::time::sleep(Duration::from_secs(MIN_REFRESH_SECS)).await;
++                        continue;
++                    }
++                },
++                Err(error) => {
++                    warn!(
++                        "Не удалось обновить карту Telegram DC; используются кэш и встроенная резервная карта: {error}"
++                    );
++                    tokio::time::sleep(Duration::from_secs(MIN_REFRESH_SECS)).await;
++                    continue;
++                }
++            }
++        }
++        tokio::time::sleep(Duration::from_secs(interval)).await;
++    }
++}
++
++fn unix_time() -> i64 {
++    std::time::SystemTime::now()
++        .duration_since(std::time::UNIX_EPOCH)
++        .map(|duration| duration.as_secs().min(i64::MAX as u64) as i64)
++        .unwrap_or_default()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::{TELEGRAM_CONFIG_API_ID, config_request, config_to_snapshot, exchange_encrypted};
++    use grammers_mtproto::mtp::Encrypted;
++    use grammers_mtproto::transport::{Intermediate, Obfuscated};
++    use grammers_tl_types::{self as tl, Serializable};
++    use tokio::io::AsyncReadExt;
++
++    #[test]
++    fn converts_all_official_dc_option_flags_without_merging_cdn_and_media() {
++        let option = tl::types::DcOption {
++            ipv6: true,
++            media_only: true,
++            tcpo_only: true,
++            cdn: false,
++            r#static: true,
++            this_port_only: true,
++            id: 2,
++            ip_address: "2001:db8::2".to_string(),
++            port: 5222,
++            secret: Some(vec![0xaa, 0xbb]),
++        };
++        let config = test_config(vec![option.into()]);
++        let snapshot = config_to_snapshot(config).unwrap();
++        let endpoint = &snapshot.endpoints[0];
++        assert_eq!(endpoint.id, 2);
++        assert!(endpoint.ipv6);
++        assert!(endpoint.media_only);
++        assert!(endpoint.tcpo_only);
++        assert!(!endpoint.cdn);
++        assert!(endpoint.is_static);
++        assert!(endpoint.this_port_only);
++        assert_eq!(endpoint.port, 5222);
++        assert_eq!(endpoint.secret.as_deref(), Some("aabb"));
++    }
++
++    #[test]
++    fn rejects_invalid_official_address_instead_of_guessing_a_dc() {
++        let option = tl::types::DcOption {
++            ipv6: false,
++            media_only: false,
++            tcpo_only: false,
++            cdn: false,
++            r#static: false,
++            this_port_only: false,
++            id: 2,
++            ip_address: "not-an-ip".to_string(),
++            port: 443,
++            secret: None,
++        };
++        assert!(config_to_snapshot(test_config(vec![option.into()])).is_err());
++    }
++
++    #[test]
++    fn config_request_initializes_api_layer_without_user_auth() {
++        let request = config_request();
++
++        assert_eq!(request.layer, tl::LAYER);
++        assert_eq!(request.query.api_id, TELEGRAM_CONFIG_API_ID);
++        assert_eq!(request.query.device_model, "OpenWrt");
++        assert_eq!(request.query.system_version, "OpenWrt");
++        assert_eq!(request.query.app_version, env!("CARGO_PKG_VERSION"));
++        assert_eq!(request.query.system_lang_code, "ru");
++        assert_eq!(request.query.lang_code, "ru");
++        assert!(request.query.proxy.is_none());
++        assert!(request.query.params.is_none());
++        assert_eq!(
++            request.query.query.to_bytes(),
++            tl::functions::help::GetConfig {}.to_bytes()
++        );
++    }
++
++    #[tokio::test]
++    async fn encrypted_exchange_sends_internal_request_when_push_returns_none() {
++        let (mut client, mut peer) = tokio::io::duplex(16 * 1024);
++        let peer_task = tokio::spawn(async move {
++            let mut bytes = vec![0; 16 * 1024];
++            let length = peer.read(&mut bytes).await.unwrap();
++            bytes.truncate(length);
++            bytes
++        });
++        let mut transport = Obfuscated::new(Intermediate::new());
++        let mut wire = Vec::new();
++        let mut encrypted = Encrypted::build()
++            .time_offset(0)
++            .first_salt(1)
++            .finish([0; 256]);
++
++        let result = exchange_encrypted(
++            &mut client,
++            &mut transport,
++            &mut wire,
++            &mut encrypted,
++            &tl::functions::help::GetConfig {},
++        )
++        .await;
++        drop(client);
++        let sent = peer_task.await.unwrap();
++
++        assert!(sent.len() > crate::crypto::HANDSHAKE_LEN);
++        assert!(
++            !result
++                .unwrap_err()
++                .contains("MTProto не принял запрос в исходящий пакет")
++        );
++    }
++
++    fn test_config(dc_options: Vec<tl::enums::DcOption>) -> tl::types::Config {
++        tl::types::Config {
++            default_p2p_contacts: false,
++            preload_featured_stickers: false,
++            revoke_pm_inbox: false,
++            blocked_mode: false,
++            force_try_ipv6: false,
++            date: 1_797_000_000,
++            expires: 1_797_086_400,
++            test_mode: false,
++            this_dc: 2,
++            dc_options,
++            dc_txt_domain_name: String::new(),
++            chat_size_max: 0,
++            megagroup_size_max: 0,
++            forwarded_count_max: 0,
++            online_update_period_ms: 0,
++            offline_blur_timeout_ms: 0,
++            offline_idle_timeout_ms: 0,
++            online_cloud_timeout_ms: 0,
++            notify_cloud_delay_ms: 0,
++            notify_default_delay_ms: 0,
++            push_chat_period_ms: 0,
++            push_chat_limit: 0,
++            edit_time_limit: 0,
++            revoke_time_limit: 0,
++            revoke_pm_time_limit: 0,
++            rating_e_decay: 0,
++            stickers_recent_limit: 0,
++            channels_read_media_period: 0,
++            tmp_sessions: None,
++            call_receive_timeout_ms: 0,
++            call_ring_timeout_ms: 0,
++            call_connect_timeout_ms: 0,
++            call_packet_timeout_ms: 0,
++            me_url_prefix: String::new(),
++            autoupdate_url_prefix: None,
++            gif_search_username: None,
++            venue_search_username: None,
++            img_search_username: None,
++            static_maps_provider: None,
++            caption_length_max: 0,
++            message_length_max: 0,
++            webfile_dc_id: 2,
++            suggested_lang_code: None,
++            lang_pack_version: None,
++            base_lang_pack_version: None,
++            reactions_default: None,
++            autologin_token: None,
++        }
++    }
++}
+diff --git a/src/dc_map.rs b/src/dc_map.rs
+new file mode 100644
+index 0000000..4960795
+--- /dev/null
++++ b/src/dc_map.rs
+@@ -0,0 +1,1011 @@
++use std::fmt;
++use std::fs::{self, File, OpenOptions};
++use std::io::{self, Read, Write};
++use std::net::IpAddr;
++use std::path::{Path, PathBuf};
++use std::sync::RwLock;
++use std::sync::atomic::{AtomicU64, Ordering};
++
++use serde::{Deserialize, Serialize};
++
++const CACHE_SCHEMA_VERSION: u32 = 1;
++const CACHE_MAX_BYTES: u64 = 1024 * 1024;
++const CACHE_MAX_OPTIONS: usize = 512;
++const CACHE_MAX_AGE_SECS: i64 = 90 * 24 * 60 * 60;
++const RETAIN_OLD_OPTION_SECS: i64 = 90 * 24 * 60 * 60;
++const FUTURE_CLOCK_TOLERANCE_SECS: i64 = 5 * 60;
++
++static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
++
++/// Одна запись `dcOption`, полученная из официального `help.getConfig`.
++#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub struct DcEndpoint {
++    pub id: u32,
++    pub address: IpAddr,
++    pub port: u16,
++    pub ipv6: bool,
++    pub media_only: bool,
++    pub tcpo_only: bool,
++    pub cdn: bool,
++    pub is_static: bool,
++    pub this_port_only: bool,
++    pub secret: Option<String>,
++    pub last_seen: i64,
++}
++
++impl fmt::Debug for DcEndpoint {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter
++            .debug_struct("DcEndpoint")
++            .field("id", &self.id)
++            .field("address", &self.address)
++            .field("port", &self.port)
++            .field("ipv6", &self.ipv6)
++            .field("media_only", &self.media_only)
++            .field("tcpo_only", &self.tcpo_only)
++            .field("cdn", &self.cdn)
++            .field("is_static", &self.is_static)
++            .field("this_port_only", &self.this_port_only)
++            .field("secret_present", &self.secret.is_some())
++            .field("last_seen", &self.last_seen)
++            .finish()
++    }
++}
++
++/// Проверенная копия конфигурации DC с датой получения и исходным сроком действия.
++#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub struct DcSnapshot {
++    pub schema_version: u32,
++    pub fetched_at: i64,
++    pub config_date: i64,
++    pub config_expires: i64,
++    pub this_dc: u32,
++    pub endpoints: Vec<DcEndpoint>,
++}
++
++impl fmt::Debug for DcSnapshot {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter
++            .debug_struct("DcSnapshot")
++            .field("schema_version", &self.schema_version)
++            .field("fetched_at", &self.fetched_at)
++            .field("config_date", &self.config_date)
++            .field("config_expires", &self.config_expires)
++            .field("this_dc", &self.this_dc)
++            .field("endpoint_count", &self.endpoints.len())
++            .finish()
++    }
++}
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum RouteLookupError {
++    AddressNotListed,
++    PortNotAllowed,
++    MediaFlagMismatch,
++    DcMismatch,
++    CdnEndpoint,
++    Ambiguous,
++}
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum RouteMapSource {
++    OfficialCache,
++    BuiltInFallback,
++}
++
++impl RouteMapSource {
++    pub fn as_str(self) -> &'static str {
++        match self {
++            Self::OfficialCache => "официальный кэш help.getConfig",
++            Self::BuiltInFallback => "встроенная точная резервная карта",
++        }
++    }
++}
++
++impl fmt::Display for RouteLookupError {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter.write_str(match self {
++            Self::AddressNotListed => "адрес отсутствует в проверенной карте Telegram DC",
++            Self::PortNotAllowed => "адрес разрешён только на другом порту",
++            Self::MediaFlagMismatch => "признак media не совпадает с dcOption",
++            Self::DcMismatch => "DC из рукопожатия не совпадает с dcOption",
++            Self::CdnEndpoint => "адрес относится к CDN DC и не подходит для обычного MTProto",
++            Self::Ambiguous => "для адреса найдено несколько несовместимых dcOption",
++        })
++    }
++}
++
++impl std::error::Error for RouteLookupError {}
++
++/// Кэш с резервной точной картой для первого запуска и offline-режима.
++pub struct DcMapStore {
++    path: PathBuf,
++    snapshot: RwLock<Option<DcSnapshot>>,
++}
++
++impl DcMapStore {
++    pub fn load(path: impl Into<PathBuf>) -> Self {
++        let path = path.into();
++        let now = unix_time();
++        let snapshot = read_valid_snapshot(&path, now)
++            .or_else(|| read_valid_snapshot(&last_good_path(&path), now));
++        Self {
++            path,
++            snapshot: RwLock::new(snapshot),
++        }
++    }
++
++    pub fn without_cache(path: impl Into<PathBuf>) -> Self {
++        Self {
++            path: path.into(),
++            snapshot: RwLock::new(None),
++        }
++    }
++
++    pub fn current(&self) -> Option<DcSnapshot> {
++        self.snapshot
++            .read()
++            .ok()
++            .and_then(|snapshot| snapshot.clone())
++    }
++
++    /// Вернуть уникальные секреты точных TCP-only опций для разбора рукопожатия.
++    pub fn handshake_secrets_for(&self, address: IpAddr, original_port: u16) -> Vec<Vec<u8>> {
++        let Some(snapshot) = self.current() else {
++            return Vec::new();
++        };
++        if unix_time().saturating_sub(snapshot.fetched_at) > CACHE_MAX_AGE_SECS {
++            return Vec::new();
++        }
++
++        let mut secrets = Vec::new();
++        for endpoint in snapshot.endpoints.iter().filter(|endpoint| {
++            endpoint.address == address
++                && endpoint.tcpo_only
++                && !endpoint.cdn
++                && (!endpoint.this_port_only || endpoint.port == original_port)
++        }) {
++            let Some(secret) = &endpoint.secret else {
++                continue;
++            };
++            let Ok(secret) = hex::decode(secret) else {
++                continue;
++            };
++            if !secrets.contains(&secret) {
++                secrets.push(secret);
++            }
++        }
++        secrets
++    }
++
++    pub fn refresh_due(&self, now: i64, refresh_secs: u64) -> bool {
++        let Ok(snapshot) = self.snapshot.read() else {
++            return true;
++        };
++        snapshot.as_ref().is_none_or(|cached| {
++            now.saturating_sub(cached.fetched_at) >= refresh_secs.min(i64::MAX as u64) as i64
++                || now >= cached.config_expires
++        })
++    }
++
++    /// Точный поиск сначала использует последнюю проверенную конфигурацию,
++    /// затем компактную встроенную карту. CIDR для назначения DC не применяется.
++    pub fn resolve(
++        &self,
++        address: IpAddr,
++        original_port: u16,
++        media_hint: bool,
++        dc_hint: Option<u32>,
++    ) -> Result<DcEndpoint, RouteLookupError> {
++        self.resolve_with_source(address, original_port, media_hint, dc_hint)
++            .map(|(endpoint, _)| endpoint)
++    }
++
++    pub fn resolve_with_source(
++        &self,
++        address: IpAddr,
++        original_port: u16,
++        media_hint: bool,
++        dc_hint: Option<u32>,
++    ) -> Result<(DcEndpoint, RouteMapSource), RouteLookupError> {
++        if let Some(snapshot) = self.current()
++            && unix_time().saturating_sub(snapshot.fetched_at) <= CACHE_MAX_AGE_SECS
++        {
++            match lookup_endpoint(&snapshot, address, original_port, media_hint, dc_hint) {
++                Ok(endpoint) => return Ok((endpoint, RouteMapSource::OfficialCache)),
++                Err(RouteLookupError::AddressNotListed) => {}
++                Err(error) => return Err(error),
++            }
++        }
++
++        let (id, media_only) = crate::config::default_dc_route_for_ip(address)
++            .ok_or(RouteLookupError::AddressNotListed)?;
++        if media_only && !media_hint {
++            return Err(RouteLookupError::MediaFlagMismatch);
++        }
++        if dc_hint.is_some_and(|hint| hint != id) {
++            return Err(RouteLookupError::DcMismatch);
++        }
++        Ok((
++            DcEndpoint {
++                id,
++                address,
++                port: original_port,
++                ipv6: address.is_ipv6(),
++                media_only,
++                tcpo_only: false,
++                cdn: false,
++                is_static: true,
++                this_port_only: false,
++                secret: None,
++                last_seen: 0,
++            },
++            RouteMapSource::BuiltInFallback,
++        ))
++    }
++
++    /// Принимает только полную, структурно корректную конфигурацию.
++    /// Ошибка проверки или записи оставляет активную last-known-good карту нетронутой.
++    pub fn install(&self, incoming: DcSnapshot, now: i64) -> Result<DcSnapshot, String> {
++        validate_snapshot(&incoming, now)?;
++        let previous = self.current();
++        let merged = match previous.as_ref() {
++            Some(previous) => merge_snapshots(previous, &incoming, now)?,
++            None => incoming,
++        };
++        persist_snapshot(&self.path, previous.as_ref(), &merged)?;
++        let mut current = self
++            .snapshot
++            .write()
++            .map_err(|_| "не удалось заблокировать карту DC".to_string())?;
++        *current = Some(merged.clone());
++        Ok(merged)
++    }
++}
++
++pub fn lookup_endpoint(
++    snapshot: &DcSnapshot,
++    address: IpAddr,
++    original_port: u16,
++    media_hint: bool,
++    dc_hint: Option<u32>,
++) -> Result<DcEndpoint, RouteLookupError> {
++    let for_address: Vec<&DcEndpoint> = snapshot
++        .endpoints
++        .iter()
++        .filter(|endpoint| endpoint.address == address)
++        .collect();
++    if for_address.is_empty() {
++        return Err(RouteLookupError::AddressNotListed);
++    }
++
++    let for_port: Vec<&DcEndpoint> = for_address
++        .iter()
++        .copied()
++        .filter(|endpoint| !endpoint.this_port_only || endpoint.port == original_port)
++        .collect();
++    if for_port.is_empty() {
++        return Err(RouteLookupError::PortNotAllowed);
++    }
++
++    let for_media: Vec<&DcEndpoint> = for_port
++        .iter()
++        .copied()
++        .filter(|endpoint| !endpoint.media_only || media_hint)
++        .collect();
++    if for_media.is_empty() {
++        return Err(RouteLookupError::MediaFlagMismatch);
++    }
++
++    let for_dc: Vec<&DcEndpoint> = for_media
++        .iter()
++        .copied()
++        .filter(|endpoint| dc_hint.is_none_or(|hint| endpoint.id == hint))
++        .collect();
++    if for_dc.is_empty() {
++        return Err(RouteLookupError::DcMismatch);
++    }
++
++    let first = for_dc[0];
++    if for_dc.iter().all(|endpoint| endpoint.cdn) {
++        return Err(RouteLookupError::CdnEndpoint);
++    }
++    if for_dc.iter().any(|endpoint| {
++        endpoint.id != first.id
++            || endpoint.media_only != first.media_only
++            || endpoint.cdn != first.cdn
++    }) {
++        return Err(RouteLookupError::Ambiguous);
++    }
++
++    let selected = for_dc
++        .iter()
++        .copied()
++        .find(|endpoint| endpoint.this_port_only && endpoint.port == original_port)
++        .unwrap_or(first);
++    Ok(selected.clone())
++}
++
++pub fn validate_snapshot(snapshot: &DcSnapshot, now: i64) -> Result<(), String> {
++    if snapshot.schema_version != CACHE_SCHEMA_VERSION {
++        return Err("версия схемы кэша DC не поддерживается".to_string());
++    }
++    if snapshot.fetched_at <= 0 || snapshot.fetched_at > now + FUTURE_CLOCK_TOLERANCE_SECS {
++        return Err("дата получения карты DC некорректна".to_string());
++    }
++    if snapshot.config_date <= 0 || snapshot.config_date > now + FUTURE_CLOCK_TOLERANCE_SECS {
++        return Err("дата конфигурации Telegram некорректна".to_string());
++    }
++    if snapshot.config_expires <= snapshot.config_date || !(1..=999).contains(&snapshot.this_dc) {
++        return Err("срок или текущий DC в конфигурации Telegram некорректны".to_string());
++    }
++    if snapshot.endpoints.is_empty() || snapshot.endpoints.len() > CACHE_MAX_OPTIONS {
++        return Err("число адресов DC вне допустимого диапазона".to_string());
++    }
++
++    for endpoint in &snapshot.endpoints {
++        if !(1..=999).contains(&endpoint.id) || endpoint.port == 0 {
++            return Err("идентификатор DC или порт некорректен".to_string());
++        }
++        if endpoint.ipv6 != endpoint.address.is_ipv6() || !is_public_address(endpoint.address) {
++            return Err("IP-адрес dcOption некорректен".to_string());
++        }
++        if endpoint.last_seen <= 0 || endpoint.last_seen > now + FUTURE_CLOCK_TOLERANCE_SECS {
++            return Err("дата подтверждения адреса DC некорректна".to_string());
++        }
++        if endpoint.secret.as_ref().is_some_and(|secret| {
++            secret.len() > 512 || secret.len() % 2 != 0 || hex::decode(secret).is_err()
++        }) {
++            return Err("секрет dcOption имеет неверный формат".to_string());
++        }
++    }
++
++    if !has_primary_coverage(&snapshot.endpoints) {
++        return Err("ответ help.getConfig неполный: отсутствует основной IPv4 DC".to_string());
++    }
++    Ok(())
++}
++
++pub fn merge_snapshots(
++    previous: &DcSnapshot,
++    incoming: &DcSnapshot,
++    now: i64,
++) -> Result<DcSnapshot, String> {
++    validate_snapshot(incoming, now)?;
++    if incoming.config_date < previous.config_date {
++        return Err("ответ help.getConfig старше уже сохранённой конфигурации".to_string());
++    }
++    let mut merged = incoming.clone();
++
++    for old in &previous.endpoints {
++        let replaced_by_new_option = incoming.endpoints.iter().any(|new| {
++            new.address == old.address
++                && new.port == old.port
++                && (new.id != old.id || new.media_only != old.media_only || new.cdn != old.cdn)
++        });
++        if replaced_by_new_option || now.saturating_sub(old.last_seen) > RETAIN_OLD_OPTION_SECS {
++            continue;
++        }
++        if !merged
++            .endpoints
++            .iter()
++            .any(|new| same_option_identity(new, old))
++        {
++            merged.endpoints.push(old.clone());
++        }
++    }
++
++    merged.endpoints.sort_by_key(|endpoint| {
++        (
++            endpoint.id,
++            endpoint.address,
++            endpoint.port,
++            endpoint.media_only,
++            endpoint.cdn,
++            endpoint.this_port_only,
++        )
++    });
++    if merged.endpoints.len() > CACHE_MAX_OPTIONS {
++        return Err("объединённая карта DC превышает допустимый размер".to_string());
++    }
++    Ok(merged)
++}
++
++fn has_primary_coverage(endpoints: &[DcEndpoint]) -> bool {
++    (1..=5).all(|dc| {
++        endpoints
++            .iter()
++            .any(|endpoint| endpoint.id == dc && !endpoint.media_only && !endpoint.cdn)
++    })
++}
++
++fn same_option_identity(left: &DcEndpoint, right: &DcEndpoint) -> bool {
++    left.id == right.id
++        && left.address == right.address
++        && left.port == right.port
++        && left.ipv6 == right.ipv6
++        && left.media_only == right.media_only
++        && left.tcpo_only == right.tcpo_only
++        && left.cdn == right.cdn
++        && left.is_static == right.is_static
++        && left.this_port_only == right.this_port_only
++        && left.secret == right.secret
++}
++
++fn is_public_address(address: IpAddr) -> bool {
++    match address {
++        IpAddr::V4(ip) => {
++            !ip.is_unspecified()
++                && !ip.is_loopback()
++                && !ip.is_private()
++                && !ip.is_link_local()
++                && !ip.is_multicast()
++                && !ip.is_broadcast()
++        }
++        IpAddr::V6(ip) => {
++            !ip.is_unspecified()
++                && !ip.is_loopback()
++                && !ip.is_unique_local()
++                && !ip.is_unicast_link_local()
++                && !ip.is_multicast()
++        }
++    }
++}
++
++fn read_valid_snapshot(path: &Path, now: i64) -> Option<DcSnapshot> {
++    let metadata = fs::metadata(path).ok()?;
++    if metadata.len() > CACHE_MAX_BYTES {
++        return None;
++    }
++    let file = File::open(path).ok()?;
++    let mut bytes = Vec::with_capacity(metadata.len() as usize);
++    file.take(CACHE_MAX_BYTES + 1)
++        .read_to_end(&mut bytes)
++        .ok()?;
++    if bytes.len() as u64 > CACHE_MAX_BYTES {
++        return None;
++    }
++    let snapshot: DcSnapshot = serde_json::from_slice(&bytes).ok()?;
++    validate_snapshot(&snapshot, now).ok()?;
++    Some(snapshot)
++}
++
++fn persist_snapshot(
++    path: &Path,
++    previous: Option<&DcSnapshot>,
++    incoming: &DcSnapshot,
++) -> Result<(), String> {
++    let encoded = serde_json::to_vec_pretty(incoming)
++        .map_err(|error| format!("не удалось подготовить кэш DC: {error}"))?;
++    let backup = last_good_path(path);
++    if let Some(previous) = previous {
++        let previous_bytes = serde_json::to_vec_pretty(previous)
++            .map_err(|error| format!("не удалось подготовить last-known-good кэш DC: {error}"))?;
++        atomic_write(&backup, &previous_bytes)
++            .map_err(|error| format!("не удалось сохранить last-known-good кэш DC: {error}"))?;
++    }
++    atomic_write(path, &encoded)
++        .map_err(|error| format!("не удалось атомарно сохранить кэш DC: {error}"))
++}
++
++fn last_good_path(path: &Path) -> PathBuf {
++    PathBuf::from(format!("{}.last-good", path.display()))
++}
++
++fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
++    let parent = path
++        .parent()
++        .filter(|parent| !parent.as_os_str().is_empty())
++        .unwrap_or(Path::new("."));
++    fs::create_dir_all(parent)?;
++    let name = path
++        .file_name()
++        .unwrap_or_else(|| std::ffi::OsStr::new("telegram-dc-map"))
++        .to_string_lossy();
++    let sequence = TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
++    let temporary = parent.join(format!(".{name}.{}.{}.tmp", std::process::id(), sequence));
++    let mut options = OpenOptions::new();
++    options.write(true).create_new(true);
++    #[cfg(unix)]
++    {
++        use std::os::unix::fs::OpenOptionsExt;
++        options.mode(0o600);
++    }
++    let mut file = options.open(&temporary)?;
++    let write_result = (|| {
++        file.write_all(bytes)?;
++        file.sync_all()?;
++        drop(file);
++        fs::rename(&temporary, path)?;
++        File::open(parent)?.sync_all()?;
++        Ok(())
++    })();
++    if write_result.is_err() {
++        let _ = fs::remove_file(&temporary);
++    }
++    write_result
++}
++
++fn unix_time() -> i64 {
++    std::time::SystemTime::now()
++        .duration_since(std::time::UNIX_EPOCH)
++        .map(|duration| duration.as_secs().min(i64::MAX as u64) as i64)
++        .unwrap_or_default()
++}
++
++#[cfg(test)]
++mod tests {
++    use std::fs;
++    use std::net::IpAddr;
++    use std::path::PathBuf;
++    use std::sync::atomic::{AtomicU64, Ordering};
++
++    use super::{
++        DcEndpoint, DcMapStore, DcSnapshot, RouteLookupError, lookup_endpoint, merge_snapshots,
++        unix_time, validate_snapshot,
++    };
++
++    fn endpoint(
++        id: u32,
++        ip: &str,
++        media_only: bool,
++        cdn: bool,
++        this_port_only: bool,
++    ) -> DcEndpoint {
++        DcEndpoint {
++            id,
++            address: ip.parse().unwrap(),
++            port: 443,
++            ipv6: ip.contains(':'),
++            media_only,
++            tcpo_only: true,
++            cdn,
++            is_static: true,
++            this_port_only,
++            secret: Some("aabbccdd".to_string()),
++            last_seen: 1_797_000_000,
++        }
++    }
++
++    fn complete(endpoints: Vec<DcEndpoint>) -> DcSnapshot {
++        DcSnapshot {
++            schema_version: 1,
++            fetched_at: 1_797_000_000,
++            config_date: 1_797_000_000,
++            config_expires: 1_797_086_400,
++            this_dc: 2,
++            endpoints,
++        }
++    }
++
++    fn primary_endpoints() -> Vec<DcEndpoint> {
++        (1..=5)
++            .map(|id| endpoint(id, &format!("149.154.160.{id}"), false, false, false))
++            .collect()
++    }
++
++    fn endpoint_at(
++        id: u32,
++        ip: &str,
++        media_only: bool,
++        cdn: bool,
++        this_port_only: bool,
++        last_seen: i64,
++    ) -> DcEndpoint {
++        let mut endpoint = endpoint(id, ip, media_only, cdn, this_port_only);
++        endpoint.last_seen = last_seen;
++        endpoint
++    }
++
++    fn primary_endpoints_at(now: i64) -> Vec<DcEndpoint> {
++        (1..=5)
++            .map(|id| endpoint_at(id, &format!("149.154.160.{id}"), false, false, false, now))
++            .collect()
++    }
++
++    fn current_complete(endpoints: Vec<DcEndpoint>) -> DcSnapshot {
++        let now = unix_time();
++        DcSnapshot {
++            schema_version: 1,
++            fetched_at: now,
++            config_date: now,
++            config_expires: now + 86_400,
++            this_dc: 2,
++            endpoints,
++        }
++    }
++
++    #[test]
++    fn unlisted_observed_endpoints_stay_fail_closed() {
++        let directory = test_directory("unlisted-observed");
++        let store = DcMapStore::without_cache(directory.join("map.json"));
++        let now = unix_time();
++        store
++            .install(current_complete(primary_endpoints_at(now)), now)
++            .unwrap();
++
++        for address in ["149.154.167.43", "91.108.56.137"] {
++            for media_hint in [false, true] {
++                assert_eq!(
++                    store.resolve(address.parse().unwrap(), 5222, media_hint, None),
++                    Err(RouteLookupError::AddressNotListed),
++                    "адрес {address} вне проверенной карты не должен получать назначение DC"
++                );
++            }
++        }
++
++        fs::remove_dir_all(directory).unwrap();
++    }
++
++    fn test_directory(label: &str) -> PathBuf {
++        static NEXT: AtomicU64 = AtomicU64::new(0);
++        let directory = std::env::temp_dir().join(format!(
++            "tg-dc-map-{label}-{}-{}",
++            std::process::id(),
++            NEXT.fetch_add(1, Ordering::Relaxed)
++        ));
++        fs::create_dir_all(&directory).unwrap();
++        directory
++    }
++
++    #[test]
++    fn corrupted_primary_cache_loads_last_known_good_copy() {
++        let directory = test_directory("lkg");
++        let path = directory.join("map.json");
++        let backup = PathBuf::from(format!("{}.last-good", path.display()));
++        let now = unix_time();
++        let mut endpoints = primary_endpoints_at(now);
++        endpoints.push(endpoint_at(2, "149.154.167.43", false, false, false, now));
++        let snapshot = current_complete(endpoints);
++        fs::write(&path, b"{").unwrap();
++        fs::write(&backup, serde_json::to_vec(&snapshot).unwrap()).unwrap();
++
++        let store = DcMapStore::load(&path);
++        assert_eq!(store.current(), Some(snapshot));
++        assert_eq!(
++            store
++                .resolve("149.154.167.43".parse().unwrap(), 5222, false, Some(2))
++                .unwrap()
++                .id,
++            2
++        );
++        fs::remove_dir_all(directory).unwrap();
++    }
++
++    #[test]
++    fn refresh_persists_new_map_and_keeps_previous_verified_copy() {
++        let directory = test_directory("persist");
++        let path = directory.join("map.json");
++        let store = DcMapStore::without_cache(&path);
++        let now = unix_time();
++        let first = current_complete(primary_endpoints_at(now));
++        store.install(first.clone(), now).unwrap();
++
++        let mut changed = first.clone();
++        changed.fetched_at = now + 1;
++        changed.config_date = now + 1;
++        changed.config_expires = now + 86_401;
++        changed.endpoints.push(endpoint_at(
++            2,
++            "149.154.167.43",
++            false,
++            false,
++            false,
++            now + 1,
++        ));
++        let installed = store.install(changed, now + 1).unwrap();
++        let primary: DcSnapshot = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
++        let last_good: DcSnapshot = serde_json::from_slice(
++            &fs::read(PathBuf::from(format!("{}.last-good", path.display()))).unwrap(),
++        )
++        .unwrap();
++        assert_eq!(primary, installed);
++        assert_eq!(last_good, first);
++        #[cfg(unix)]
++        {
++            use std::os::unix::fs::PermissionsExt;
++            assert_eq!(
++                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
++                0o600
++            );
++        }
++        assert!(fs::read_dir(&directory).unwrap().all(|entry| {
++            !entry
++                .unwrap()
++                .file_name()
++                .to_string_lossy()
++                .ends_with(".tmp")
++        }));
++        fs::remove_dir_all(directory).unwrap();
++    }
++
++    #[test]
++    fn dynamic_lookup_uses_the_official_dc_and_preserves_non_fixed_port() {
++        let mut endpoints = primary_endpoints();
++        endpoints.push(endpoint(2, "149.154.167.43", false, false, false));
++        let snapshot = complete(endpoints);
++
++        let route = lookup_endpoint(
++            &snapshot,
++            "149.154.167.43".parse().unwrap(),
++            5222,
++            false,
++            None,
++        )
++        .unwrap();
++
++        assert_eq!(route.id, 2);
++        assert_eq!(route.port, 443);
++        assert_eq!(route.address, "149.154.167.43".parse::<IpAddr>().unwrap());
++    }
++
++    #[test]
++    fn media_route_can_use_a_regular_dc_option() {
++        let mut endpoints = primary_endpoints();
++        endpoints.push(endpoint(2, "149.154.167.51", false, false, false));
++        let snapshot = complete(endpoints);
++
++        let route = lookup_endpoint(
++            &snapshot,
++            "149.154.167.51".parse().unwrap(),
++            443,
++            true,
++            Some(2),
++        )
++        .unwrap();
++
++        assert_eq!(route.id, 2);
++        assert!(!route.media_only);
++        assert!(!route.cdn);
++    }
++
++    #[test]
++    fn media_route_can_use_a_regular_builtin_fallback() {
++        let directory = test_directory("media-fallback");
++        let store = DcMapStore::without_cache(directory.join("map.json"));
++
++        let route = store
++            .resolve("149.154.167.51".parse().unwrap(), 443, true, Some(2))
++            .unwrap();
++
++        assert_eq!(route.id, 2);
++        assert!(!route.media_only);
++        assert!(!route.cdn);
++        fs::remove_dir_all(directory).unwrap();
++    }
++
++    #[test]
++    fn resolution_reports_official_or_exact_fallback_source() {
++        let directory = test_directory("source");
++        let path = directory.join("map.json");
++        let store = DcMapStore::without_cache(&path);
++
++        let (fallback, source) = store
++            .resolve_with_source("149.154.167.51".parse().unwrap(), 443, false, Some(2))
++            .unwrap();
++        assert_eq!(fallback.id, 2);
++        assert_eq!(source, super::RouteMapSource::BuiltInFallback);
++
++        let now = unix_time();
++        let mut endpoints = primary_endpoints_at(now);
++        endpoints.push(endpoint_at(2, "149.154.167.43", false, false, false, now));
++        store.install(current_complete(endpoints), now).unwrap();
++        let (official, source) = store
++            .resolve_with_source("149.154.167.43".parse().unwrap(), 5222, false, Some(2))
++            .unwrap();
++        assert_eq!(official.id, 2);
++        assert_eq!(source, super::RouteMapSource::OfficialCache);
++
++        assert!(
++            store
++                .resolve_with_source("149.154.167.44".parse().unwrap(), 443, false, Some(2))
++                .is_err()
++        );
++        fs::remove_dir_all(directory).unwrap();
++    }
++
++    #[test]
++    fn handshake_secrets_are_scoped_to_exact_address_port_and_tcpo_only() {
++        let directory = test_directory("handshake-secret");
++        let store = DcMapStore::without_cache(directory.join("map.json"));
++        let now = unix_time();
++        let mut endpoints = primary_endpoints_at(now);
++        let mut secret_endpoint = endpoint_at(2, "149.154.167.151", true, false, true, now);
++        secret_endpoint.port = 5222;
++        secret_endpoint.secret = Some("aabbccdd".to_string());
++        endpoints.push(secret_endpoint.clone());
++        endpoints.push(secret_endpoint);
++        let mut non_tcp_option = endpoint_at(1, "149.154.175.52", true, false, true, now);
++        non_tcp_option.port = 5222;
++        non_tcp_option.tcpo_only = false;
++        endpoints.push(non_tcp_option);
++        let mut cdn_option = endpoint_at(3, "149.154.175.102", false, true, true, now);
++        cdn_option.port = 5222;
++        endpoints.push(cdn_option);
++        store.install(current_complete(endpoints), now).unwrap();
++
++        assert_eq!(
++            store.handshake_secrets_for("149.154.167.151".parse().unwrap(), 5222),
++            [vec![0xaa, 0xbb, 0xcc, 0xdd]],
++            "секрет берётся из точной TCP-only опции и дубликат удаляется"
++        );
++        assert!(
++            store
++                .handshake_secrets_for("149.154.167.151".parse().unwrap(), 443)
++                .is_empty(),
++            "опция только для порта 5222 не применяется к порту 443"
++        );
++        assert!(
++            store
++                .handshake_secrets_for("149.154.175.52".parse().unwrap(), 5222)
++                .is_empty(),
++            "секрет без признака TCP-only не применяется к обфускации"
++        );
++        assert!(
++            store
++                .handshake_secrets_for("149.154.175.102".parse().unwrap(), 5222)
++                .is_empty(),
++            "секрет CDN-узла не применяется к обычному MTProto"
++        );
++
++        fs::remove_dir_all(directory).unwrap();
++    }
++
++    #[test]
++    fn this_port_only_rejects_another_original_port() {
++        let mut endpoints = primary_endpoints();
++        endpoints.push(endpoint(2, "149.154.167.43", false, false, true));
++        let snapshot = complete(endpoints);
++
++        assert!(
++            lookup_endpoint(
++                &snapshot,
++                "149.154.167.43".parse().unwrap(),
++                5222,
++                false,
++                None,
++            )
++            .is_err()
++        );
++    }
++
++    #[test]
++    fn media_only_and_cdn_remain_separate_flags() {
++        let mut endpoints = primary_endpoints();
++        endpoints.push(endpoint(2, "149.154.167.43", true, false, false));
++        endpoints.push(endpoint(203, "91.105.192.203", false, true, false));
++        let snapshot = complete(endpoints);
++
++        let media = lookup_endpoint(
++            &snapshot,
++            "149.154.167.43".parse().unwrap(),
++            443,
++            true,
++            Some(2),
++        )
++        .unwrap();
++        let cdn = snapshot
++            .endpoints
++            .iter()
++            .find(|endpoint| endpoint.cdn)
++            .unwrap();
++
++        assert!(media.media_only);
++        assert!(!media.cdn);
++        assert!(!cdn.media_only);
++        assert!(cdn.cdn);
++    }
++
++    #[test]
++    fn cdn_only_option_is_rejected_for_transparent_mtproto() {
++        let mut endpoints = primary_endpoints();
++        endpoints.push(endpoint(203, "91.105.192.203", false, true, false));
++        let snapshot = complete(endpoints);
++
++        let result = lookup_endpoint(
++            &snapshot,
++            "91.105.192.203".parse().unwrap(),
++            443,
++            false,
++            Some(203),
++        );
++
++        assert!(
++            result.is_err(),
++            "CDN-only dcOption нельзя направлять в обычный MTProto DC"
++        );
++    }
++
++    #[test]
++    fn an_explicit_dc_hint_must_match_the_exact_endpoint() {
++        let mut endpoints = primary_endpoints();
++        endpoints.push(endpoint(2, "149.154.167.43", false, false, false));
++        let snapshot = complete(endpoints);
++
++        assert!(
++            lookup_endpoint(
++                &snapshot,
++                "149.154.167.43".parse().unwrap(),
++                443,
++                false,
++                Some(4),
++            )
++            .is_err()
++        );
++    }
++
++    #[test]
++    fn incomplete_refresh_keeps_the_last_known_good_entries() {
++        let old = complete(primary_endpoints());
++        let partial = complete(vec![endpoint(2, "149.154.167.43", false, false, false)]);
++
++        let result = merge_snapshots(&old, &partial, old.fetched_at + 60);
++
++        assert!(result.is_err());
++        assert_eq!(old.endpoints.len(), 5);
++        validate_snapshot(&old, old.fetched_at).unwrap();
++    }
++
++    #[test]
++    fn older_config_date_preserves_last_known_good() {
++        let directory = test_directory("stale-config");
++        let path = directory.join("map.json");
++        let backup = PathBuf::from(format!("{}.last-good", path.display()));
++        let store = DcMapStore::without_cache(&path);
++        let now = unix_time();
++
++        let first = current_complete(primary_endpoints_at(now));
++        store.install(first.clone(), now).unwrap();
++
++        let mut newer = first.clone();
++        newer.fetched_at = now + 1;
++        newer.config_date = now + 1;
++        newer.config_expires = now + 86_401;
++        newer.endpoints.push(endpoint_at(
++            2,
++            "149.154.167.43",
++            false,
++            false,
++            false,
++            now + 1,
++        ));
++        let newer = store.install(newer, now + 1).unwrap();
++        let previous_last_good: DcSnapshot =
++            serde_json::from_slice(&fs::read(&backup).unwrap()).unwrap();
++
++        let mut stale = current_complete(primary_endpoints_at(now + 2));
++        stale.config_date = now;
++        let result = store.install(stale, now + 2);
++
++        assert!(
++            result.is_err(),
++            "устаревшая конфигурация должна быть отклонена"
++        );
++        assert_eq!(store.current(), Some(newer.clone()));
++        let cached: DcSnapshot = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
++        let last_good: DcSnapshot = serde_json::from_slice(&fs::read(&backup).unwrap()).unwrap();
++        assert_eq!(cached, newer);
++        assert_eq!(last_good, previous_last_good);
++        fs::remove_dir_all(directory).unwrap();
++    }
++
++    #[test]
++    fn valid_refresh_merges_region_specific_addresses_without_dropping_old_ones() {
++        let old = complete(primary_endpoints());
++        let mut endpoints = primary_endpoints();
++        endpoints.push(endpoint(2, "149.154.167.43", false, false, false));
++        let new = complete(endpoints);
++
++        let merged = merge_snapshots(&old, &new, old.fetched_at + 60).unwrap();
++
++        assert!(
++            merged
++                .endpoints
++                .iter()
++                .any(|entry| { entry.address == "149.154.167.43".parse::<IpAddr>().unwrap() })
++        );
++        assert_eq!(merged.endpoints.len(), 6);
++    }
++}
 diff --git a/src/default_domains.rs b/src/default_domains.rs
 index aa254f4..906c6ef 100644
 --- a/src/default_domains.rs
@@ -115,10 +2355,13 @@ index aa254f4..906c6ef 100644
 -                "Failed to fetch default CF domain list ({}); using built-in fallback",
 +                "не удалось получить список доменов Cloudflare ({}), используется встроенный список",
 diff --git a/src/lib.rs b/src/lib.rs
-index 75fb4ad..45bc212 100644
+index 75fb4ad..80711a5 100644
 --- a/src/lib.rs
 +++ b/src/lib.rs
-@@ -12,0 +13 @@ pub mod splitter;
+@@ -3,0 +4,2 @@ pub mod crypto;
++pub mod dc_discovery;
++pub mod dc_map;
+@@ -12,0 +15 @@ pub mod splitter;
 +pub mod transparent;
 diff --git a/src/main.rs b/src/main.rs
 index 5a52aec..8424f81 100644
@@ -247,9 +2490,12 @@ index 47647b5..20604dd 100644
 -                        "pool: failed to pre-connect DC{}{}",
 +                        "пул: не удалось заранее подключиться к DC{}{}",
 diff --git a/src/proxy.rs b/src/proxy.rs
-index bc16678..e581517 100644
+index bc16678..86ba170 100644
 --- a/src/proxy.rs
 +++ b/src/proxy.rs
+@@ -29 +29 @@ use std::sync::Mutex as StdMutex;
+-use std::sync::atomic::{AtomicUsize, Ordering};
++use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 @@ -36,0 +37 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 +use tokio::sync::Mutex as AsyncMutex;
 @@ -54,0 +56 @@ use crate::splitter::MsgSplitter;
@@ -278,7 +2524,7 @@ index bc16678..e581517 100644
 @@ -408 +413 @@ pub async fn handle_client_with_runtime(
 -        "[{}] handshake ok: DC{}{} proto={:?}",
 +        "[{}] рукопожатие установлено: DC{}{} протокол={:?}",
-@@ -462,0 +468,205 @@ pub async fn handle_client_with_runtime(
+@@ -462,0 +468,372 @@ pub async fn handle_client_with_runtime(
 +/// Путь для прозрачного перехвата правилами REDIRECT на роутере. Начальный
 +/// пакет obfuscated2 содержит DC и признак media, а SO_ORIGINAL_DST — точный IP DC.
 +/// Начальный пакет и все последующие байты передаются выбранному узлу без изменений.
@@ -290,14 +2536,7 @@ index bc16678..e581517 100644
 +    runtime: Arc<Runtime>,
 +) {
 +    let destination = match transparent::original_destination(&stream) {
-+        Ok(destination) if destination.port() == 443 => destination,
-+        Ok(destination) => {
-+            debug!(
-+                "[{}] прозрачное перенаправление отклонено: порт назначения не 443 ({})",
-+                peer, destination
-+            );
-+            return;
-+        }
++        Ok(destination) => destination,
 +        Err(error) => {
 +            warn!(
 +                "[{}] прозрачное перенаправление: SO_ORIGINAL_DST недоступен: {}",
@@ -306,16 +2545,48 @@ index bc16678..e581517 100644
 +            return;
 +        }
 +    };
++    debug!(
++        "[{}] исходное назначение прозрачного потока: {}",
++        peer, destination
++    );
++    if !transparent::supports_destination_port(destination.port(), &config.transparent_ports) {
++        debug!(
++            "[{}] прозрачное перенаправление отклонено: порт {} отсутствует в политике",
++            peer,
++            destination.port()
++        );
++        return;
++    }
++    if !transparent::is_telegram_destination(destination.ip(), &config.transparent_cidrs) {
++        debug!(
++            "[{}] прозрачное перенаправление отклонено: IP назначения {} не входит в CIDR Telegram",
++            peer,
++            destination.ip()
++        );
++        return;
++    }
 +    let _ = stream.set_nodelay(true);
 +
 +    let mut init = [0u8; crate::crypto::HANDSHAKE_LEN];
-+    match tokio::time::timeout(
-+        Duration::from_secs(config.handshake_timeout),
-+        stream.read_exact(&mut init),
-+    )
-+    .await
-+    {
-+        Ok(Ok(_)) => {}
++    let read_init = tokio::time::timeout(Duration::from_secs(config.handshake_timeout), async {
++        stream.read_exact(&mut init[..4]).await?;
++        if transparent::is_http_request(&init[..4]) {
++            return Ok::<bool, std::io::Error>(false);
++        }
++        stream.read_exact(&mut init[4..]).await?;
++        Ok(true)
++    })
++    .await;
++    match read_init {
++        Ok(Ok(true)) => {}
++        Ok(Ok(false)) => {
++            debug!(
++                "[{}] HTTP на TCP/{} не является прозрачным MTProto-потоком",
++                peer,
++                destination.port()
++            );
++            return;
++        }
 +        Ok(Err(error)) => {
 +            debug!(
 +                "[{}] не удалось прочитать начальный пакет obfuscated2: {}",
@@ -331,15 +2602,48 @@ index bc16678..e581517 100644
 +            return;
 +        }
 +    }
-+    let Some(init_info) = transparent::parse_client_init(&init) else {
-+        debug!("[{}] некорректный начальный пакет obfuscated2", peer);
++    let secret_candidates = runtime
++        .dc_map()
++        .handshake_secrets_for(destination.ip(), destination.port());
++    let Some(init_info) = transparent::parse_client_init_with_secrets(&init, &secret_candidates)
++    else {
++        debug!(
++            "[{}] неизвестное или повреждённое рукопожатие MTProto для назначения {}",
++            peer, destination
++        );
 +        return;
 +    };
-+    let dc_idx = if init_info.is_media {
-+        -(init_info.dc as i16)
-+    } else {
-+        init_info.dc as i16
++    let (destination_route, map_source) = match runtime.dc_map().resolve_with_source(
++        destination.ip(),
++        destination.port(),
++        init_info.is_media,
++        init_info.dc,
++    ) {
++        Ok(route) => route,
++        Err(error) => {
++            warn!(
++                "[{}] прозрачный маршрут отклонён для {}: {} (DC из рукопожатия: {:?}, media: {})",
++                peer, destination, error, init_info.dc, init_info.is_media
++            );
++            return;
++        }
 +    };
++    let dc = destination_route.id;
++    let is_media = destination_route.media_only;
++    info!(
++        "[{}] dcOption для {}: DC{}{}, карта={}, CDN={}, TCP-only={}, this-port-only={}, порт опции={}, порт клиента={}",
++        peer,
++        destination,
++        dc,
++        media_tag(is_media),
++        map_source.as_str(),
++        destination_route.cdn,
++        destination_route.tcpo_only,
++        destination_route.this_port_only,
++        destination_route.port,
++        destination.port()
++    );
++    let dc_idx = if is_media { -(dc as i16) } else { dc as i16 };
 +    let label = peer;
 +    let target_ip = destination.ip().to_string();
 +    let route = Route {
@@ -348,9 +2652,9 @@ index bc16678..e581517 100644
 +        runtime: &runtime,
 +        pool: &pool,
 +        timeouts: Timeouts::from_config(&config),
-+        dc: init_info.dc,
-+        is_media: init_info.is_media,
-+        media: media_tag(init_info.is_media),
++        dc,
++        is_media,
++        media: media_tag(is_media),
 +        dc_idx,
 +        proto: init_info.proto,
 +    };
@@ -358,13 +2662,31 @@ index bc16678..e581517 100644
 +        return;
 +    };
 +    match upstream {
-+        Upstream::Ws { ws, .. } => {
-+            bridge_transparent_ws(stream, ws, init, label, init_info.dc, init_info.is_media).await;
++        Upstream::Ws {
++            ws,
++            framing,
++            route_type,
++        } => {
++            bridge_transparent_ws(
++                stream,
++                ws,
++                init,
++                label,
++                destination,
++                dc,
++                is_media,
++                init_info.proto,
++                framing,
++                route_type,
++            )
++            .await;
 +        }
 +        Upstream::Tcp(host) => {
++            let (fallback_host, fallback_port) =
++                transparent::tcp_fallback_target(&host, destination);
 +            match runtime
 +                .outbound()
-+                .connect(&host, destination.port(), route.timeouts.tcp_fallback)
++                .connect(&fallback_host, fallback_port, route.timeouts.tcp_fallback)
 +                .await
 +            {
 +                Ok(mut remote) => {
@@ -376,10 +2698,22 @@ index bc16678..e581517 100644
 +                        return;
 +                    }
 +                    let mut client = stream;
-+                    if let Err(error) =
-+                        tokio::io::copy_bidirectional(&mut client, &mut remote).await
-+                    {
-+                        debug!("[{}] резервное TCP-соединение закрыто: {}", peer, error);
++                    match tokio::io::copy_bidirectional(&mut client, &mut remote).await {
++                        Ok((bytes_up, bytes_down)) => info!(
++                            "[{}] прозрачный маршрут=резервный TCP DC{}{} закрыт клиентом: вверх {} байт, вниз {} байт",
++                            peer,
++                            dc,
++                            media_tag(is_media),
++                            bytes_up,
++                            bytes_down
++                        ),
++                        Err(error) => debug!(
++                            "[{}] прозрачный маршрут=резервный TCP DC{}{} закрыт с ошибкой: {}",
++                            peer,
++                            dc,
++                            media_tag(is_media),
++                            error
++                        ),
 +                    }
 +                }
 +                Err(error) => warn!(
@@ -402,15 +2736,31 @@ index bc16678..e581517 100644
 +    ws: TgWsStream,
 +    init: [u8; crate::crypto::HANDSHAKE_LEN],
 +    label: SocketAddr,
++    destination: SocketAddr,
 +    dc: u32,
 +    is_media: bool,
++    proto: ProtoTag,
++    framing: WsFraming,
++    route_type: &'static str,
 +) {
++    info!(
++        "[{}] прозрачный маршрут: {} → DC{}{} через {} (кадрирование: {})",
++        label,
++        destination,
++        dc,
++        media_tag(is_media),
++        route_type,
++        framing.as_str()
++    );
 +    let (mut client_read, mut client_write) = stream.into_split();
 +    let (ws_write, mut ws_read) = ws.split();
 +    let ws_write = Arc::new(AsyncMutex::new(ws_write));
++    let bytes_up = Arc::new(AtomicU64::new(0));
++    let bytes_down = Arc::new(AtomicU64::new(0));
 +
 +    let mut upload = tokio::spawn({
 +        let ws_write = Arc::clone(&ws_write);
++        let bytes_up = Arc::clone(&bytes_up);
 +        async move {
 +            if ws_write
 +                .lock()
@@ -419,218 +2769,316 @@ index bc16678..e581517 100644
 +                .await
 +                .is_err()
 +            {
-+                return;
++                return "не удалось отправить init по WSS".to_string();
 +            }
++            bytes_up.fetch_add(init.len() as u64, Ordering::Relaxed);
++
++            let (mut decrypt, mut encrypt) = transparent::direct_stream_ciphers(&init);
++            let mut splitter = (framing == WsFraming::Packets).then(|| MsgSplitter::new(proto));
 +            let mut buffer = vec![0u8; RELAY_BUF_SIZE];
-+            loop {
++            let close_reason = loop {
 +                let length = match client_read.read(&mut buffer).await {
-+                    Ok(0) | Err(_) => break,
++                    Ok(0) => break "клиент закрыл TCP".to_string(),
++                    Err(error) => break format!("ошибка чтения TCP клиента: {error}"),
 +                    Ok(length) => length,
 +                };
-+                if ws_write
-+                    .lock()
-+                    .await
-+                    .send(Message::Binary(buffer[..length].to_vec()))
-+                    .await
-+                    .is_err()
-+                {
-+                    break;
-+                }
-+            }
-+            let _ = ws_write.lock().await.close().await;
-+        }
-+    });
 +
-+    let mut download = tokio::spawn(async move {
-+        while let Some(message) = ws_read.next().await {
-+            match message {
-+                Ok(Message::Binary(data)) => {
-+                    if client_write.write_all(&data).await.is_err() {
-+                        break;
++                if let Some(splitter) = splitter.as_mut() {
++                    decrypt.apply_keystream(&mut buffer[..length]);
++                    for frame in splitter.split_and_encrypt(&mut buffer[..length], &mut encrypt) {
++                        let frame_len = frame.len() as u64;
++                        if let Err(error) = ws_write.lock().await.send(Message::Binary(frame)).await
++                        {
++                            return format!("ошибка отправки кадра WSS: {error}");
++                        }
++                        bytes_up.fetch_add(frame_len, Ordering::Relaxed);
 +                    }
-+                }
-+                Ok(Message::Text(data)) => {
-+                    if client_write.write_all(data.as_bytes()).await.is_err() {
-+                        break;
-+                    }
-+                }
-+                Ok(Message::Ping(data)) => {
-+                    if ws_write
++                } else {
++                    if let Err(error) = ws_write
 +                        .lock()
 +                        .await
-+                        .send(Message::Pong(data))
++                        .send(Message::Binary(buffer[..length].to_vec()))
 +                        .await
-+                        .is_err()
 +                    {
-+                        break;
++                        return format!("ошибка отправки потока WSS: {error}");
 +                    }
++                    bytes_up.fetch_add(length as u64, Ordering::Relaxed);
 +                }
-+                Ok(Message::Pong(_)) => {}
-+                _ => break,
++            };
++
++            if let Some(splitter) = splitter.as_mut() {
++                let pending = splitter.pending_len();
++                if pending > 0 {
++                    warn!(
++                        "[{}] ошибка кадрирования MTProto: при закрытии осталось {} байт неполного пакета",
++                        label, pending
++                    );
++                }
++                for frame in splitter.flush() {
++                    let frame_len = frame.len() as u64;
++                    if let Err(error) = ws_write.lock().await.send(Message::Binary(frame)).await {
++                        return format!("ошибка отправки неполного кадра WSS: {error}");
++                    }
++                    bytes_up.fetch_add(frame_len, Ordering::Relaxed);
++                }
++            }
++
++            match ws_write.lock().await.close().await {
++                Ok(()) => close_reason,
++                Err(error) => format!("{close_reason}; ошибка закрытия WSS: {error}"),
 +            }
 +        }
-+        let _ = client_write.shutdown().await;
 +    });
 +
-+    tokio::select! {
-+        _ = &mut upload => download.abort(),
-+        _ = &mut download => upload.abort(),
-+    }
++    let mut download = tokio::spawn({
++        let ws_write = Arc::clone(&ws_write);
++        let bytes_down = Arc::clone(&bytes_down);
++        async move {
++            while let Some(message) = ws_read.next().await {
++                match message {
++                    Ok(Message::Binary(data)) => {
++                        let length = data.len() as u64;
++                        if let Err(error) = client_write.write_all(&data).await {
++                            return format!("ошибка записи в TCP клиента: {error}");
++                        }
++                        bytes_down.fetch_add(length, Ordering::Relaxed);
++                    }
++                    Ok(Message::Text(data)) => {
++                        let length = data.len() as u64;
++                        if let Err(error) = client_write.write_all(data.as_bytes()).await {
++                            return format!("ошибка записи текста WSS в TCP клиента: {error}");
++                        }
++                        bytes_down.fetch_add(length, Ordering::Relaxed);
++                    }
++                    Ok(Message::Ping(data)) => {
++                        if let Err(error) = ws_write.lock().await.send(Message::Pong(data)).await {
++                            return format!("ошибка ответа на WSS ping: {error}");
++                        }
++                    }
++                    Ok(Message::Pong(_)) => {}
++                    Ok(Message::Close(frame)) => {
++                        return match frame {
++                            Some(frame) => format!(
++                                "upstream закрыл WSS: код={:?}, причина={}",
++                                frame.code, frame.reason
++                            ),
++                            None => "upstream закрыл WSS без кода".to_string(),
++                        };
++                    }
++                    Err(error) => return format!("ошибка чтения WSS: {error}"),
++                    _ => return "upstream прислал неподдерживаемый кадр WSS".to_string(),
++                }
++            }
++            let _ = client_write.shutdown().await;
++            "upstream завершил поток WSS".to_string()
++        }
++    });
++
++    let (closed_by, reason) = tokio::select! {
++        result = &mut upload => {
++            download.abort();
++            ("клиент", result.unwrap_or_else(|error| format!("задача отправки завершилась: {error}")))
++        }
++        result = &mut download => {
++            upload.abort();
++            ("upstream", result.unwrap_or_else(|error| format!("задача получения завершилась: {error}")))
++        }
++    };
 +    info!(
-+        "[{}] сессия WSS для DC{}{} закрыта",
++        "[{}] сессия DC{}{} через {} закрыта стороной {}: причина={}, вверх {} байт, вниз {} байт",
 +        label,
 +        dc,
-+        media_tag(is_media)
++        media_tag(is_media),
++        route_type,
++        closed_by,
++        reason,
++        bytes_up.load(Ordering::Relaxed),
++        bytes_down.load(Ordering::Relaxed)
 +    );
 +}
 +
-@@ -643 +853 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
+@@ -486 +863,5 @@ enum Upstream {
+-    Ws { ws: TgWsStream, framing: WsFraming },
++    Ws {
++        ws: TgWsStream,
++        framing: WsFraming,
++        route_type: &'static str,
++    },
+@@ -528 +909 @@ fn bridge_selected(
+-        Upstream::Ws { ws, framing } => Box::pin(bridge_ws(
++        Upstream::Ws { ws, framing, .. } => Box::pin(bridge_ws(
+@@ -607,0 +989,9 @@ enum WsFraming {
++impl WsFraming {
++    fn as_str(self) -> &'static str {
++        match self {
++            Self::Packets => "пакетное",
++            Self::Tunnel => "потоковое",
++        }
++    }
++}
++
+@@ -643 +1033 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
 -                "[{}] DC{}{} {} — no fallback IP available",
 +                "[{}] DC{}{} {} — резервный IP-адрес отсутствует",
-@@ -666 +876 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
+@@ -666 +1056 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
 -        let reason = "IP in cooldown";
 +        let reason = "IP в периоде ожидания";
-@@ -668 +878 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
+@@ -668 +1058 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
 -            "[{}] DC{}{} {} → skipping direct WS to {}",
 +            "[{}] DC{}{}: {}, прямое WS-подключение к {} пропущено",
-@@ -682 +892 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
+@@ -682 +1072 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
 -            "[{}] DC{}{} every fallback failed → re-probing {}",
 +            "[{}] DC{}{}: резервные маршруты недоступны, повторная проверка {}",
-@@ -693 +903 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
+@@ -693 +1083 @@ async fn select_upstream(route: &Route<'_>, target_ip: Option<&str>) -> Option<U
 -    let reason = "WS failed";
 +    let reason = "сбой WS";
-@@ -725 +935 @@ impl Route<'_> {
+@@ -725 +1115 @@ impl Route<'_> {
 -                "[{}] DC{}{} → pool hit via {}",
 +                "[{}] DC{}{} → соединение взято из пула через {}",
-@@ -769 +979 @@ impl Route<'_> {
+@@ -730,0 +1121 @@ impl Route<'_> {
++                route_type: "прямой WSS",
+@@ -736,0 +1128 @@ impl Route<'_> {
++            route_type: "прямой WSS",
+@@ -769 +1161 @@ impl Route<'_> {
 -                            "[{}] DC{}{} pinned ws tier has no --dc-ip target, skipping",
 +                            "[{}] DC{}{}: для закреплённого уровня WS не задан --dc-ip, пропуск",
-@@ -781 +991 @@ impl Route<'_> {
+@@ -781 +1173 @@ impl Route<'_> {
 -                            "[{}] DC{}{} pinned cfworker tier has no destination IP, skipping",
 +                            "[{}] DC{}{}: для закреплённого уровня CF Worker не задан адрес назначения, пропуск",
-@@ -809 +1019 @@ impl Route<'_> {
+@@ -789,0 +1182 @@ impl Route<'_> {
++                            route_type: "WSS через Cloudflare Worker",
+@@ -797,0 +1191 @@ impl Route<'_> {
++                            route_type: "WSS через Cloudflare proxy",
+@@ -809 +1203 @@ impl Route<'_> {
 -                            "[{}] DC{}{} pinned tcp tier has no fallback IP, skipping",
 +                            "[{}] DC{}{}: для закреплённого уровня TCP нет резервного IP-адреса, пропуск",
-@@ -820 +1030 @@ impl Route<'_> {
+@@ -820 +1214 @@ impl Route<'_> {
 -            "[{}] DC{}{} every pinned upstream failed",
 +            "[{}] DC{}{}: все закреплённые резервные подключения завершились ошибкой",
-@@ -958 +1168 @@ impl Route<'_> {
+@@ -873,0 +1268 @@ impl Route<'_> {
++                route_type: "WSS через Cloudflare Worker",
+@@ -879,0 +1275 @@ impl Route<'_> {
++            route_type: "WSS через Cloudflare proxy",
+@@ -958 +1354 @@ impl Route<'_> {
 -                "[{}] DC{}{} {} → CF Worker pool hit ({})",
 +                "[{}] DC{}{}: {} — соединение Cloudflare Worker найдено в пуле ({})",
-@@ -974 +1184 @@ impl Route<'_> {
+@@ -974 +1370 @@ impl Route<'_> {
 -                    "[{}] DC{}{} CF Worker {} in cooldown, skipping",
 +                    "[{}] DC{}{}: Cloudflare Worker {} на паузе, пропуск",
-@@ -981 +1191 @@ impl Route<'_> {
+@@ -981 +1377 @@ impl Route<'_> {
 -                "[{}] DC{}{} {} → trying CF Worker {} for {}",
 +                "[{}] DC{}{}: {} — проверка Cloudflare Worker {} для {}",
-@@ -1005 +1215 @@ impl Route<'_> {
+@@ -1005 +1401 @@ impl Route<'_> {
 -                        "[{}] DC{}{} {} → CF Worker connected ({})",
 +                        "[{}] DC{}{}: {} — соединение Cloudflare Worker установлено ({})",
-@@ -1026 +1236 @@ impl Route<'_> {
+@@ -1026 +1422 @@ impl Route<'_> {
 -                        "[{}] DC{}{} CF Worker {} failed, cooldown {}s",
 +                        "[{}] DC{}{}: Cloudflare Worker {} недоступен, пауза {} с",
-@@ -1066 +1276 @@ impl Route<'_> {
+@@ -1066 +1462 @@ impl Route<'_> {
 -                "[{}] DC{}{} {} → CF proxy pool hit ({})",
 +                "[{}] DC{}{}: {} — найдено соединение CF-прокси в пуле ({})",
-@@ -1074 +1284 @@ impl Route<'_> {
+@@ -1074 +1470 @@ impl Route<'_> {
 -            "[{}] DC{}{} {} → trying CF proxy via {:?}",
 +            "[{}] DC{}{}: {} — проверка CF-прокси через {:?}",
-@@ -1096 +1306 @@ impl Route<'_> {
+@@ -1096 +1492 @@ impl Route<'_> {
 -                "[{}] DC{}{} {} → CF proxy connected",
 +                "[{}] DC{}{}: {} — подключение CF-прокси установлено",
-@@ -1110 +1320 @@ impl Route<'_> {
+@@ -1110 +1506 @@ impl Route<'_> {
 -                "[{}] DC{}{} CF proxy failed (all configured domains)",
 +                "[{}] DC{}{}: CF-прокси недоступен (все настроенные домены проверены)",
-@@ -1121,0 +1332,3 @@ impl Route<'_> {
+@@ -1121,0 +1518,3 @@ impl Route<'_> {
 +        if self.config.transparent {
 +            return None;
 +        }
-@@ -1125 +1338 @@ impl Route<'_> {
+@@ -1125 +1524 @@ impl Route<'_> {
 -                debug!("[{}] upstream {} in cooldown, skipping", self.label, key);
 +                debug!("[{}] резервный узел {} на паузе, пропуск", self.label, key);
-@@ -1142 +1355 @@ impl Route<'_> {
+@@ -1142 +1541 @@ impl Route<'_> {
 -                        "[{}] DC{}{} {} → upstream {} MTProto {}",
 +                        "[{}] DC{}{} {} → резервный узел MTProto {} {}",
-@@ -1155 +1368 @@ impl Route<'_> {
+@@ -1155 +1554 @@ impl Route<'_> {
 -                        "[{}] upstream {} failed, cooldown {}s",
 +                        "[{}] резервный узел {} недоступен, пауза {} с",
-@@ -1189 +1402 @@ impl Route<'_> {
+@@ -1189 +1588 @@ impl Route<'_> {
 -                    "[{}] DC{}{} → WS connected via {} (fronted SNI {})",
 +                    "[{}] DC{}{}: WS-подключение установлено через {} (SNI {})",
-@@ -1193 +1406 @@ impl Route<'_> {
+@@ -1193 +1592 @@ impl Route<'_> {
 -                    "[{}] DC{}{} → WS connected via {}",
 +                    "[{}] DC{}{}: WS-подключение установлено через {}",
-@@ -1250 +1463 @@ impl Route<'_> {
+@@ -1250 +1649 @@ impl Route<'_> {
 -                "[{}] DC{}{} WS cooldown {}s (all domains returned redirect)",
 +                "[{}] DC{}{}: пауза WS {} с (все домены перенаправили запрос)",
-@@ -1258 +1471 @@ impl Route<'_> {
+@@ -1258 +1657 @@ impl Route<'_> {
 -                "[{}] DC{}{} WS cooldown {}s",
 +                "[{}] DC{}{}: пауза WS {} с",
-@@ -1277 +1490 @@ impl Route<'_> {
+@@ -1277 +1676 @@ impl Route<'_> {
 -            "[{}] DC{}{} TCP to {} timed out, cooldown {}s",
 +            "[{}] DC{}{}: истекло время TCP-подключения к {}, пауза {} с",
-@@ -1293 +1506,5 @@ impl Route<'_> {
+@@ -1293 +1692,5 @@ impl Route<'_> {
 -        let dst = self.runtime.fallback_ip(self.dc).unwrap_or(target_ip);
 +        let dst = if self.config.transparent {
 +            target_ip
 +        } else {
 +            self.runtime.fallback_ip(self.dc).unwrap_or(target_ip)
 +        };
-@@ -1300 +1517 @@ impl Route<'_> {
+@@ -1300 +1703 @@ impl Route<'_> {
 -            "[{}] DC{}{} {} → TCP fallback {}:443",
 +            "[{}] DC{}{}: {} — резервное TCP-подключение к {}:443",
-@@ -1361 +1578,4 @@ async fn bridge_ws(reader: ClientReader, writer: ClientWriter, params: WsBridgeP
+@@ -1361 +1764,4 @@ async fn bridge_ws(reader: ClientReader, writer: ClientWriter, params: WsBridgeP
 -                warn!("[{}] failed to send relay init: {}", label, e);
 +                warn!(
 +                    "[{}] не удалось отправить начальный пакет релею: {}",
 +                    label, e
 +                );
-@@ -1493 +1713,4 @@ async fn connect_mtproto_upstream(
+@@ -1493 +1899,4 @@ async fn connect_mtproto_upstream(
 -            warn!("[upstream] {}:{} connect error: {}", host, port, e);
 +            warn!(
 +                "[резервный узел] ошибка подключения к {}:{}: {}",
 +                host, port, e
 +            );
-@@ -1505 +1728,4 @@ async fn connect_mtproto_upstream(
+@@ -1505 +1914,4 @@ async fn connect_mtproto_upstream(
 -            warn!("[upstream] {}:{} send handshake error: {}", host, port, e);
 +            warn!(
 +                "[резервный узел] ошибка отправки рукопожатия к {}:{}: {}",
 +                host, port, e
 +            );
-@@ -1525 +1751 @@ async fn connect_mtproto_upstream(
+@@ -1525 +1937 @@ async fn connect_mtproto_upstream(
 -            "[upstream] {}:{} FakeTLS send ClientHello error: {}",
 +            "[резервный узел] ошибка отправки ClientHello FakeTLS к {}:{}: {}",
-@@ -1534 +1760 @@ async fn connect_mtproto_upstream(
+@@ -1534 +1946 @@ async fn connect_mtproto_upstream(
 -            "[upstream] {}:{} FakeTLS server handshake failed",
 +            "[резервный узел] ошибка рукопожатия FakeTLS с {}:{}",
-@@ -1543 +1769 @@ async fn connect_mtproto_upstream(
+@@ -1543 +1955 @@ async fn connect_mtproto_upstream(
 -            "[upstream] {}:{} FakeTLS send MTProto init error: {}",
 +            "[резервный узел] ошибка отправки начального пакета MTProto FakeTLS к {}:{}: {}",
-@@ -1724 +1950,4 @@ async fn bridge_tcp(
+@@ -1724 +2136,4 @@ async fn bridge_tcp(
 -            warn!("[{}] TCP fallback connect failed: {}", label, e);
 +            warn!(
 +                "[{}] не удалось подключиться по резервному TCP: {}",
 +                label, e
 +            );
-@@ -1734 +1963,4 @@ async fn bridge_tcp(
+@@ -1734 +2149,4 @@ async fn bridge_tcp(
 -        warn!("[{}] TCP fallback: send relay init failed: {}", label, e);
 +        warn!(
 +            "[{}] резервный TCP: не удалось отправить начальный пакет: {}",
 +            label, e
 +        );
-@@ -1887 +2119 @@ fn log_session_closed(
+@@ -1887 +2305 @@ fn log_session_closed(
 -        "[{}] DC{}{} {} session closed by {}: ↑{}  ↓{}  {:.1}s",
 +        "[{}] сессия DC{}{} {} закрыта стороной {}: отправлено вверх {}  вниз {}  длительность {:.1} с",
-@@ -1914 +2146 @@ async fn read_inbound_handshake(
+@@ -1914 +2332 @@ async fn read_inbound_handshake(
 -            debug!("[{}] read handshake: {}", label, e);
 +            debug!("[{}] ошибка чтения рукопожатия: {}", label, e);
 diff --git a/src/proxy/tests.rs b/src/proxy/tests.rs
-index 2867af8..ecf4b3f 100644
+index 2867af8..412f955 100644
 --- a/src/proxy/tests.rs
 +++ b/src/proxy/tests.rs
-@@ -6,0 +7,80 @@ use crate::crypto::HANDSHAKE_LEN;
+@@ -5 +5,98 @@ use clap::Parser;
+-use crate::crypto::HANDSHAKE_LEN;
++use crate::crypto::{HANDSHAKE_LEN, make_cipher};
++
 +#[tokio::test]
-+async fn transparent_bridge_preserves_init_and_stream_bytes_across_ws_messages() {
++async fn transparent_bridge_frames_mtproto_packets_across_partial_tcp_reads() {
 +    use futures_util::{SinkExt, StreamExt};
 +    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 +    use tokio::net::{TcpListener, TcpStream};
@@ -638,7 +3086,16 @@ index 2867af8..ecf4b3f 100644
 +
 +    let ws_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 +    let ws_addr = ws_listener.local_addr().unwrap();
-+    let upload = b"client bytes split across arbitrary TCP and WS reads".to_vec();
++    let upload_plain = [
++        4, 0, 0, 0, 1, 2, 3, 4, 8, 0, 0, 0, 5, 6, 7, 8, 9, 10, 11, 12,
++    ];
++    let init = crate::crypto::generate_relay_init(crate::crypto::ProtoTag::Intermediate, 0);
++    let mut client_encrypt = make_cipher(&init[8..40], &init[40..56]);
++    let mut skipped = [0u8; HANDSHAKE_LEN];
++    client_encrypt.apply_keystream(&mut skipped);
++    let mut upload = upload_plain;
++    client_encrypt.apply_keystream(&mut upload);
++    let upload = upload.to_vec();
 +    let download = b"server bytes coalesced across WS messages".to_vec();
 +    let expected_upload = upload.clone();
 +    let expected_download = download.clone();
@@ -649,13 +3106,17 @@ index 2867af8..ecf4b3f 100644
 +        let mut ws = accept_async(tcp).await.unwrap();
 +        let init = match ws.next().await.unwrap().unwrap() {
 +            Message::Binary(data) => data,
-+            message => panic!("expected binary init, got {message:?}"),
++            message => panic!("ожидался начальный двоичный пакет, получено: {message:?}"),
 +        };
 +        let mut received = Vec::new();
++        let mut frame_lengths = Vec::new();
 +        while received.len() < server_upload.len() {
 +            match ws.next().await.unwrap().unwrap() {
-+                Message::Binary(data) => received.extend_from_slice(&data),
-+                message => panic!("expected binary stream bytes, got {message:?}"),
++                Message::Binary(data) => {
++                    frame_lengths.push(data.len());
++                    received.extend_from_slice(&data);
++                }
++                message => panic!("ожидались двоичные данные потока, получено: {message:?}"),
 +            }
 +        }
 +        let cut = server_download.len() / 2;
@@ -666,7 +3127,7 @@ index 2867af8..ecf4b3f 100644
 +            .await
 +            .unwrap();
 +        ws.close(None).await.unwrap();
-+        (init, received)
++        (init, received, frame_lengths)
 +    });
 +
 +    let (ws, _) = connect_async(format!("ws://{ws_addr}/apiws"))
@@ -678,14 +3139,17 @@ index 2867af8..ecf4b3f 100644
 +    let (accepted, client) = tokio::join!(client_listener.accept(), client);
 +    let (bridge_tcp, _) = accepted.unwrap();
 +    let mut client = client.unwrap();
-+    let init = crate::crypto::generate_relay_init(crate::crypto::ProtoTag::Intermediate, 2);
 +    let bridge = tokio::spawn(bridge_transparent_ws(
 +        bridge_tcp,
 +        ws,
 +        init,
 +        "127.0.0.1:12345".parse().unwrap(),
++        "149.154.167.51:443".parse().unwrap(),
 +        2,
 +        false,
++        ProtoTag::Intermediate,
++        WsFraming::Packets,
++        "пакетный WSS в тесте",
 +    ));
 +    for chunk in upload.chunks(7) {
 +        client.write_all(chunk).await.unwrap();
@@ -699,21 +3163,46 @@ index 2867af8..ecf4b3f 100644
 +    .unwrap()
 +    .unwrap();
 +
-+    let (received_init, received_upload) = server.await.unwrap();
++    let (received_init, received_upload, frame_lengths) = server.await.unwrap();
 +    assert_eq!(received_init.as_ref(), init);
 +    assert_eq!(received_upload, expected_upload);
++    assert_eq!(frame_lengths, [8, 12]);
 +    assert_eq!(received_download, expected_download);
 +    tokio::time::timeout(std::time::Duration::from_secs(5), bridge)
 +        .await
 +        .unwrap()
 +        .unwrap();
 +}
-+
-@@ -52 +132 @@ async fn client_handler_future_stays_compact() {
+@@ -52 +149 @@ async fn client_handler_future_stays_compact() {
 -    eprintln!("per-client future size: {future_size} bytes");
 +    eprintln!("размер асинхронной задачи одного клиента: {future_size} байт");
+diff --git a/src/runtime.rs b/src/runtime.rs
+index ef6d9e1..74f9114 100644
+--- a/src/runtime.rs
++++ b/src/runtime.rs
+@@ -8,0 +9,2 @@ use std::net::IpAddr;
++use std::path::PathBuf;
++use std::sync::Arc;
+@@ -11,0 +14 @@ use crate::config::{default_dc_ip, websocket_dc};
++use crate::dc_map::DcMapStore;
+@@ -15,0 +19 @@ pub struct Runtime {
++    dc_map: Arc<DcMapStore>,
+@@ -32,0 +37 @@ impl Runtime {
++            dc_map: Arc::new(DcMapStore::without_cache("/etc/z2k/telegram-dc-map.json")),
+@@ -38,0 +44,6 @@ impl Runtime {
++    /// Загрузить проверенный кэш карты DC из заданного файла.
++    pub fn with_dc_map_path(mut self, path: PathBuf) -> Self {
++        self.dc_map = Arc::new(DcMapStore::load(path));
++        self
++    }
++
+@@ -59,0 +71,4 @@ impl Runtime {
++    pub fn dc_map(&self) -> &Arc<DcMapStore> {
++        &self.dc_map
++    }
++
 diff --git a/src/server.rs b/src/server.rs
-index ed0321d..43b18d4 100644
+index ed0321d..20b8a2f 100644
 --- a/src/server.rs
 +++ b/src/server.rs
 @@ -8 +8 @@ use std::future::Future;
@@ -781,50 +3270,52 @@ index ed0321d..43b18d4 100644
 +        config.pinned_media_upstreams.clear();
 +    }
 +
-@@ -133 +181 @@ pub async fn run_with_listen(
+@@ -118,0 +167 @@ pub async fn run_with_listen(
++            .with_dc_map_path(config.dc_map_path.clone())
+@@ -133 +182 @@ pub async fn run_with_listen(
 -        info!("Fetching default CF proxy domain list from GitHub…");
 +        info!("Загрузка списка доменов CF-прокси из GitHub…");
-@@ -136 +184 @@ pub async fn run_with_listen(
+@@ -136 +185 @@ pub async fn run_with_listen(
 -                info!("proxy stopped");
 +                info!("прокси остановлен");
-@@ -141 +189 @@ pub async fn run_with_listen(
+@@ -141 +190 @@ pub async fn run_with_listen(
 -        info!("  Got {} default CF domain(s)", fetched.len());
 +        info!("  Загружено доменов CF по умолчанию: {}", fetched.len());
-@@ -160,2 +208,2 @@ pub async fn run_with_listen(
+@@ -160,2 +209,2 @@ pub async fn run_with_listen(
 -                "{flag}: tcp is a terminal tier — everything listed after it \
 -                 ({}) is never reached",
 +                "{flag}: TCP является последним уровнем — следующие пункты \
 +                 ({}) не будут использованы",
-@@ -193 +241,2 @@ pub async fn run_with_listen(
+@@ -193 +242,2 @@ pub async fn run_with_listen(
 -    let addr: SocketAddr = format!("{}:{}", bind_host, config.port)
 +    let listen_address = listen_address(&bind_host, config.port);
 +    let addr: SocketAddr = listen_address
-@@ -195 +244 @@ pub async fn run_with_listen(
+@@ -195 +245 @@ pub async fn run_with_listen(
 -        .map_err(|_| RunError::InvalidListenAddress(format!("{bind_host}:{}", config.port)))?;
 +        .map_err(|_| RunError::InvalidListenAddress(listen_address.clone()))?;
-@@ -197 +246 @@ pub async fn run_with_listen(
+@@ -197 +247 @@ pub async fn run_with_listen(
 -    let listener = TcpListener::bind(addr)
 +    let listener = bind_server_listener(addr, config.transparent)
-@@ -209,0 +259,5 @@ pub async fn run_with_listen(
+@@ -209,0 +260,5 @@ pub async fn run_with_listen(
 +    let pool_size = if config.transparent {
 +        0
 +    } else {
 +        config.pool_size
 +    };
-@@ -214 +268 @@ pub async fn run_with_listen(
+@@ -214 +269 @@ pub async fn run_with_listen(
 -            let safe = auto_max_connections(fd_limit, config.pool_size, dc_buckets);
 +            let safe = auto_max_connections(fd_limit, pool_size, dc_buckets);
-@@ -217,3 +271,3 @@ pub async fn run_with_listen(
+@@ -217,3 +272,3 @@ pub async fn run_with_listen(
 -                    "max-connections={} may exceed the safe limit for this system's \
 -                     FD budget (fd-limit={}, recommended ≤{}). \
 -                     Consider raising `ulimit -n` or reducing --max-connections.",
 +                    "max-connections={} может превышать безопасное число соединений \
 +                     для лимита дескрипторов (лимит={}, рекомендуется ≤{}). \
 +                     Увеличьте `ulimit -n` или уменьшите --max-connections.",
-@@ -225 +279 @@ pub async fn run_with_listen(
+@@ -225 +280 @@ pub async fn run_with_listen(
 -        None => auto_max_connections(fd_limit, config.pool_size, dc_buckets),
 +        None => auto_max_connections(fd_limit, pool_size, dc_buckets),
-@@ -229,9 +283,12 @@ pub async fn run_with_listen(
+@@ -229,9 +284,12 @@ pub async fn run_with_listen(
 -    let secret = config.primary_secret();
 -
 -    let link_host = config.link_host();
@@ -846,10 +3337,10 @@ index ed0321d..43b18d4 100644
 +            )
 +        })
 +        .unwrap_or_default();
-@@ -241 +298 @@ pub async fn run_with_listen(
+@@ -241 +299 @@ pub async fn run_with_listen(
 -        "  Telegram MTProto WS Bridge Proxy  (tg-ws-proxy-rs v{})",
 +        "  Прокси Telegram MTProto через WebSocket  (tg-ws-proxy-rs v{})",
-@@ -244,4 +301,3 @@ pub async fn run_with_listen(
+@@ -244,4 +302,3 @@ pub async fn run_with_listen(
 -    info!("  Listening on   {}:{}", bind_host, listen_port);
 -    info!("  Secret:        {}", secret);
 -    if let Some(domain) = config.listen_faketls_domain() {
@@ -857,7 +3348,7 @@ index ed0321d..43b18d4 100644
 +    info!("  Прослушивание   {}", bound_addr);
 +    if config.transparent {
 +        info!("  Режим входа:    прозрачный obfuscated2 (SO_ORIGINAL_DST)");
-@@ -249 +305,6 @@ pub async fn run_with_listen(
+@@ -249 +306,6 @@ pub async fn run_with_listen(
 -        info!("  Inbound mode:   padded MTProto dd");
 +        info!("  Секрет:         {}", config.primary_secret());
 +        if let Some(domain) = config.listen_faketls_domain() {
@@ -865,25 +3356,25 @@ index ed0321d..43b18d4 100644
 +        } else {
 +            info!("  Входящий режим: MTProto dd с дополнением");
 +        }
-@@ -251 +312 @@ pub async fn run_with_listen(
+@@ -251 +313 @@ pub async fn run_with_listen(
 -    info!("  Target DC IPs:");
 +    info!("  IP-адреса дата-центров:");
-@@ -259 +320 @@ pub async fn run_with_listen(
+@@ -259 +321 @@ pub async fn run_with_listen(
 -        info!("  ⚠  TLS certificate verification DISABLED");
 +        info!("  ⚠  Проверка сертификатов TLS отключена");
-@@ -263 +324 @@ pub async fn run_with_listen(
+@@ -263 +325 @@ pub async fn run_with_listen(
 -        info!("  Cloudflare proxy domain(s):");
 +        info!("  Домены прокси Cloudflare:");
-@@ -265 +326 @@ pub async fn run_with_listen(
+@@ -265 +327 @@ pub async fn run_with_listen(
 -            info!("    {} (kws{{N}}.{} subdomains)", d, d);
 +            info!("    {} (поддомены kws{{N}}.{})", d, d);
-@@ -268 +329 @@ pub async fn run_with_listen(
+@@ -268 +330 @@ pub async fn run_with_listen(
 -            info!("    ⚖  CF balance mode: connections are round-robin'd across domains");
 +            info!("    ⚖  Балансировка CF: подключения распределяются по доменам по очереди");
-@@ -274 +335 @@ pub async fn run_with_listen(
+@@ -274 +336 @@ pub async fn run_with_listen(
 -        info!("  Cloudflare Worker domain(s):");
 +        info!("  Домены Cloudflare Worker:");
-@@ -282,4 +343,4 @@ pub async fn run_with_listen(
+@@ -282,4 +344,4 @@ pub async fn run_with_listen(
 -            "  ⚠  CF transport: plaintext ws:// on port 80 — the obfuscated MTProto stream is \
 -             on the wire in the clear: every frame's auth_key_id is readable and the \
 -             obfuscation is recoverable from captured bytes (#123), so connections are \
@@ -892,35 +3383,35 @@ index ed0321d..43b18d4 100644
 +             открыто: auth_key_id каждого кадра доступен, а обфускацию можно восстановить \
 +             из записанных данных (#123), поэтому подключения распознаваемы. Направляйте \
 +             через эти уровни только медиа, но не текст."
-@@ -289 +350,3 @@ pub async fn run_with_listen(
+@@ -289 +351,3 @@ pub async fn run_with_listen(
 -        info!("  Pinned upstream order (default ladder is used for the rest):");
 +        info!(
 +            "  Порядок заданных маршрутов (для остальных действует стандартная последовательность):"
 +        );
-@@ -298 +361 @@ pub async fn run_with_listen(
+@@ -298 +362 @@ pub async fn run_with_listen(
 -            info!("    non-media: {}", names(&config.pinned_upstreams));
 +            info!("    не-медиа: {}", names(&config.pinned_upstreams));
-@@ -301 +364 @@ pub async fn run_with_listen(
+@@ -301 +365 @@ pub async fn run_with_listen(
 -            info!("    media: {}", names(&config.pinned_media_upstreams));
 +            info!("    медиа: {}", names(&config.pinned_media_upstreams));
-@@ -303 +366 @@ pub async fn run_with_listen(
+@@ -303 +367 @@ pub async fn run_with_listen(
 -            info!("    media: inherits non-media pin above");
 +            info!("    медиа: используется маршрут не-медиа выше");
-@@ -309 +372 @@ pub async fn run_with_listen(
+@@ -309 +373 @@ pub async fn run_with_listen(
 -            "  Cloudflare preferred IP(s): {}",
 +            "  Предпочтительные IP Cloudflare: {}",
-@@ -319,2 +382,2 @@ pub async fn run_with_listen(
+@@ -319,2 +383,2 @@ pub async fn run_with_listen(
 -                "  ⚠  --cf-ip has no effect: no --cf-domain, --default-domains, \
 -                 or --cf-worker-domain route is configured"
 +                "  ⚠  --cf-ip не применяется: не заданы --cf-domain, --default-domains \
 +                 или маршрут --cf-worker-domain"
-@@ -326 +389 @@ pub async fn run_with_listen(
+@@ -326 +390 @@ pub async fn run_with_listen(
 -        info!("  Upstream MTProto proxies (WS fallback):");
 +        info!("  Внешние MTProto-прокси (резервный маршрут WS):");
-@@ -333 +396 @@ pub async fn run_with_listen(
+@@ -333 +397 @@ pub async fn run_with_listen(
 -        info!("  Outbound proxy: {}", summary);
 +        info!("  Исходящий прокси: {}", summary);
-@@ -339,4 +402,4 @@ pub async fn run_with_listen(
+@@ -339,4 +403,4 @@ pub async fn run_with_listen(
 -                "  ⚠  --fronting-domain {} has no effect: no --dc-ip is configured. \
 -                 Fronting only applies to a direct connection to a DC's real IP \
 -                 (matching upstream tg-ws-proxy) — it is never used for CF proxy, \
@@ -929,13 +3420,13 @@ index ed0321d..43b18d4 100644
 +                 Маскировка домена работает только при прямом подключении к реальному IP \
 +                 дата-центра; она не используется для CF-прокси, CF Worker и \
 +                 внешнего MTProto-прокси.",
-@@ -346 +409 @@ pub async fn run_with_listen(
+@@ -346 +410 @@ pub async fn run_with_listen(
 -            info!("  Domain fronting: always (SNI {})", domain);
 +            info!("  Маскировка домена включена (SNI {})", domain);
-@@ -351 +414 @@ pub async fn run_with_listen(
+@@ -351 +415 @@ pub async fn run_with_listen(
 -        "  Max connections: {} (fd-limit: {})",
 +        "  Максимум соединений: {} (лимит дескрипторов: {})",
-@@ -355,4 +418,6 @@ pub async fn run_with_listen(
+@@ -355,4 +419,6 @@ pub async fn run_with_listen(
 -    info!("  Telegram proxy link (use this on all devices):");
 -    info!("    {}", tg_link);
 -    if config.secrets.len() > 1 {
@@ -946,12 +3437,12 @@ index ed0321d..43b18d4 100644
 +    }
 +    if !config.transparent && config.secrets.len() > 1 {
 +        info!("  Дополнительные персональные ссылки прокси:");
-@@ -363 +428,3 @@ pub async fn run_with_listen(
+@@ -363 +429,3 @@ pub async fn run_with_listen(
 -                link_host, listen_port, link_secret
 +                link_host.as_deref().unwrap_or_default(),
 +                listen_port,
 +                link_secret
-@@ -368,13 +435,15 @@ pub async fn run_with_listen(
+@@ -368,13 +436,15 @@ pub async fn run_with_listen(
 -    if link_host != bind_host {
 -        info!(
 -            "  ℹ  Link uses auto-detected IP {}. \
@@ -980,10 +3471,30 @@ index ed0321d..43b18d4 100644
 +                bind_host
 +            );
 +        }
-@@ -391 +460 @@ pub async fn run_with_listen(
+@@ -391 +461 @@ pub async fn run_with_listen(
 -        config.pool_size,
 +        pool_size,
-@@ -401,3 +470,5 @@ pub async fn run_with_listen(
+@@ -397,0 +468,19 @@ pub async fn run_with_listen(
++    let dc_refresh_task = if config.transparent && !config.check {
++        let runtime = Arc::clone(&runtime);
++        let interval = config.dc_map_refresh_secs;
++        let cf_domains = config.cf_domains.clone();
++        let skip_tls_verify = config.skip_tls_verify;
++        let disable_cf_tls = config.cf_disable_tls;
++        Some(tokio::spawn(async move {
++            crate::dc_discovery::refresh_loop(
++                runtime,
++                interval,
++                cf_domains,
++                skip_tls_verify,
++                disable_cf_tls,
++            )
++            .await;
++        }))
++    } else {
++        None
++    };
+@@ -401,3 +490,5 @@ pub async fn run_with_listen(
 -        tokio::spawn(async move {
 -            pool_clone.warmup(&config_clone).await;
 -        });
@@ -992,7 +3503,7 @@ index ed0321d..43b18d4 100644
 +                pool_clone.warmup(&config_clone).await;
 +            });
 +        }
-@@ -468,4 +539,11 @@ pub async fn run_with_listen(
+@@ -468,4 +559,11 @@ pub async fn run_with_listen(
 -                            proxy::handle_client_with_runtime(
 -                                stream, peer_addr, cfg, pool, runtime,
 -                            )
@@ -1008,16 +3519,20 @@ index ed0321d..43b18d4 100644
 +                                )
 +                                .await;
 +                            }
-@@ -480 +558 @@ pub async fn run_with_listen(
+@@ -480 +578 @@ pub async fn run_with_listen(
 -                            warn!("accept error: {} — backing off to allow FDs to free", e);
 +                            warn!("ошибка приёма подключения: {}, ожидание освобождения дескрипторов", e);
-@@ -483 +561 @@ pub async fn run_with_listen(
+@@ -483 +581 @@ pub async fn run_with_listen(
 -                            error!("accept error: {}", e);
 +                            error!("ошибка приёма подключения: {}", e);
-@@ -500 +578 @@ pub async fn run_with_listen(
+@@ -500 +598,5 @@ pub async fn run_with_listen(
 -    info!("proxy stopped");
++    if let Some(task) = dc_refresh_task {
++        task.abort();
++    }
++
 +    info!("прокси остановлен");
-@@ -502,0 +581,56 @@ pub async fn run_with_listen(
+@@ -502,0 +605,56 @@ pub async fn run_with_listen(
 +
 +#[cfg(all(test, target_os = "linux"))]
 +mod transparent_listener_tests {
@@ -1074,32 +3589,128 @@ index ed0321d..43b18d4 100644
 +        );
 +    }
 +}
+diff --git a/src/splitter.rs b/src/splitter.rs
+index c7a6b10..2684a02 100644
+--- a/src/splitter.rs
++++ b/src/splitter.rs
+@@ -110,0 +111,4 @@ impl MsgSplitter {
++    pub(crate) fn pending_len(&self) -> usize {
++        self.packet.len()
++    }
++
 diff --git a/src/transparent.rs b/src/transparent.rs
 new file mode 100644
-index 0000000..1edcacc
+index 0000000..ec1b9b4
 --- /dev/null
 +++ b/src/transparent.rs
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,244 @@
 +//! Средства Linux для прозрачного проксирования. После чтения 64-байтового
 +//! заголовка obfuscated2 поток остаётся непрозрачным: Telegram WSS передаёт
 +//! MTProto как единый поток байтов, поэтому границы WebSocket-кадров не должны
 +//! менять или повторно шифровать данные.
 +
 +use std::io;
-+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
++use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 +use std::os::fd::AsRawFd;
 +
 +use tokio::net::TcpStream;
 +
 +use cipher::StreamCipher;
 +
-+use crate::crypto::{DC_IDX_POS, HANDSHAKE_LEN, PROTO_TAG_POS, ProtoTag, make_cipher};
++use crate::crypto::{AesCtr256, DC_IDX_POS, HANDSHAKE_LEN, PROTO_TAG_POS, ProtoTag, make_cipher};
 +
-+/// DC и тип транспорта, извлечённые из obfuscated2 без секрета.
++/// Метаданные obfuscated2: DC может отсутствовать в прямом подключении.
 +pub struct ClientInit {
-+    pub dc: u32,
++    pub dc: Option<u32>,
 +    pub is_media: bool,
 +    pub proto: crate::crypto::ProtoTag,
++}
++
++/// Проверить исходный порт по списку общей политики OpenWrt.
++pub fn supports_destination_port(port: u16, configured_ports: &[u16]) -> bool {
++    configured_ports.contains(&port)
++}
++
++/// Проверить исходный IP по CIDR общей политики OpenWrt.
++pub fn is_telegram_destination(ip: IpAddr, cidrs: &[String]) -> bool {
++    cidrs.iter().any(|cidr| cidr_contains(cidr, ip))
++}
++
++fn cidr_contains(cidr: &str, ip: IpAddr) -> bool {
++    let (network_text, prefix_text) = cidr.split_once('/').unwrap_or((cidr, ""));
++    let Ok(network) = network_text.parse::<IpAddr>() else {
++        return false;
++    };
++    let prefix = if prefix_text.is_empty() {
++        match network {
++            IpAddr::V4(_) => 32,
++            IpAddr::V6(_) => 128,
++        }
++    } else if let Ok(prefix) = prefix_text.parse::<u8>() {
++        prefix
++    } else {
++        return false;
++    };
++
++    match (network, ip) {
++        (IpAddr::V4(network), IpAddr::V4(ip)) if prefix <= 32 => {
++            prefix_matches(&ip.octets(), &network.octets(), prefix)
++        }
++        (IpAddr::V6(network), IpAddr::V6(ip)) if prefix <= 128 => {
++            prefix_matches(&ip.octets(), &network.octets(), prefix)
++        }
++        _ => false,
++    }
++}
++
++fn prefix_matches(address: &[u8], network: &[u8], prefix: u8) -> bool {
++    let full_bytes = usize::from(prefix / 8);
++    let remaining_bits = prefix % 8;
++    if address[..full_bytes] != network[..full_bytes] {
++        return false;
++    }
++    if remaining_bits == 0 {
++        return true;
++    }
++    let mask = u8::MAX << (8 - remaining_bits);
++    address[full_bytes] & mask == network[full_bytes] & mask
++}
++
++/// Распознать HTTP по началу запроса, чтобы не принять HTTP на порту 80 за MTProto.
++pub fn is_http_request(bytes: &[u8]) -> bool {
++    [
++        b"GET ".as_slice(),
++        b"POST ",
++        b"HEAD ",
++        b"PUT ",
++        b"DELETE ",
++        b"OPTIONS ",
++        b"CONNECT ",
++        b"PATCH ",
++    ]
++    .iter()
++    .any(|method| bytes.starts_with(method))
++}
++
++/// Сохранить исходный порт при выборе TCP fallback-хоста.
++pub fn tcp_fallback_target(host: &str, original: SocketAddr) -> (String, u16) {
++    (host.to_string(), original.port())
++}
++
++pub fn dc_route_for_destination(ip: IpAddr) -> Option<(u32, bool)> {
++    crate::config::default_dc_route_for_ip(ip)
++}
++
++/// Создать парные потоковые шифры прямого obfuscated2-соединения.
++pub fn direct_stream_ciphers(init: &[u8; HANDSHAKE_LEN]) -> (AesCtr256, AesCtr256) {
++    let key = &init[8..40];
++    let iv = &init[40..56];
++    let mut decrypt = make_cipher(key, iv);
++    let mut encrypt = make_cipher(key, iv);
++    let mut handshake = [0u8; HANDSHAKE_LEN];
++    decrypt.apply_keystream(&mut handshake);
++    encrypt.apply_keystream(&mut handshake);
++    (decrypt, encrypt)
 +}
 +
 +/// Получить исходный адрес назначения, сохранённый nftables REDIRECT.
@@ -1133,7 +3744,7 @@ index 0000000..1edcacc
 +fn original_destination_v4(stream: &TcpStream) -> io::Result<SocketAddrV4> {
 +    let mut addr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
 +    let mut len = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
-+    // SO_ORIGINAL_DST из linux/netfilter_ipv4.h.
++    // Значение SO_ORIGINAL_DST из linux/netfilter_ipv4.h.
 +    let rc = unsafe {
 +        libc::getsockopt(
 +            stream.as_raw_fd(),
@@ -1189,21 +3800,53 @@ index 0000000..1edcacc
 +    )))
 +}
 +
-+/// Извлечь DC, признак media и протокол из obfuscated2 без секрета прокси.
++/// Распознать obfuscated2; DC ID присутствует только в MTProxy-рукопожатии.
 +pub fn parse_client_init(init: &[u8; HANDSHAKE_LEN]) -> Option<ClientInit> {
 +    let mut decoded = *init;
 +    make_cipher(&init[8..40], &init[40..56]).apply_keystream(&mut decoded);
 +    let proto = ProtoTag::from_bytes(&decoded[PROTO_TAG_POS..PROTO_TAG_POS + 4])?;
 +    let dc_idx = i16::from_le_bytes([decoded[DC_IDX_POS], decoded[DC_IDX_POS + 1]]);
-+    let dc = dc_idx.unsigned_abs() as u32;
-+    if !((1..=5).contains(&dc) || dc == 203) {
-+        return None;
-+    }
++    let raw_dc = dc_idx.unsigned_abs() as u32;
 +    Some(ClientInit {
-+        dc,
++        dc: (1..=999).contains(&raw_dc).then_some(raw_dc),
 +        is_media: dc_idx < 0,
 +        proto,
 +    })
++}
++
++/// Разобрать рукопожатие, используя только секреты точных официальных DC-опций.
++pub fn parse_client_init_with_secrets(
++    init: &[u8; HANDSHAKE_LEN],
++    secrets: &[Vec<u8>],
++) -> Option<ClientInit> {
++    if let Some(parsed) = parse_client_init(init) {
++        return Some(parsed);
++    }
++
++    let mut parsed: Option<ClientInit> = None;
++    for secret in secrets {
++        let Some(handshake) = crate::crypto::parse_handshake(init, secret) else {
++            continue;
++        };
++        let candidate = ClientInit {
++            dc: (1..=999)
++                .contains(&handshake.dc_id)
++                .then_some(handshake.dc_id),
++            is_media: handshake.is_media,
++            proto: handshake.proto,
++        };
++        if let Some(previous) = &parsed {
++            if previous.dc != candidate.dc
++                || previous.is_media != candidate.is_media
++                || previous.proto != candidate.proto
++            {
++                return None;
++            }
++        } else {
++            parsed = Some(candidate);
++        }
++    }
++    parsed
 +}
 diff --git a/src/ws_client.rs b/src/ws_client.rs
 index 57792eb..7910238 100644
@@ -1286,13 +3929,21 @@ index 57792eb..7910238 100644
 +            );
 diff --git a/tests/transparent.rs b/tests/transparent.rs
 new file mode 100644
-index 0000000..66158e2
+index 0000000..197f90b
 --- /dev/null
 +++ b/tests/transparent.rs
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,295 @@
++use cipher::StreamCipher;
 +use clap::Parser;
-+use tg_ws_proxy_rs::crypto::{ProtoTag, generate_relay_init};
-+use tg_ws_proxy_rs::transparent::parse_client_init;
++use std::net::{IpAddr, SocketAddr};
++use tg_ws_proxy_rs::crypto::{
++    ProtoTag, generate_client_handshake, generate_relay_init, make_cipher,
++};
++use tg_ws_proxy_rs::dc_map::{DcEndpoint, DcMapStore, DcSnapshot};
++use tg_ws_proxy_rs::splitter::MsgSplitter;
++use tg_ws_proxy_rs::transparent::{
++    direct_stream_ciphers, parse_client_init, parse_client_init_with_secrets,
++};
 +
 +#[test]
 +fn transparent_mode_is_an_explicit_opt_in() {
@@ -1331,21 +3982,249 @@ index 0000000..66158e2
 +fn transparent_init_accepts_dc_and_media_marker_without_a_proxy_secret() {
 +    let init = generate_relay_init(ProtoTag::Intermediate, -4);
 +    let parsed = parse_client_init(&init).expect("корректный obfuscated2-пакет без секрета");
-+    assert_eq!(parsed.dc, 4);
++    assert_eq!(parsed.dc, Some(4));
 +    assert!(parsed.is_media);
 +    assert_eq!(parsed.proto, ProtoTag::Intermediate);
++}
++
++#[test]
++fn transparent_init_accepts_direct_connection_without_dc_metadata() {
++    let init = generate_relay_init(ProtoTag::Intermediate, 0);
++    let parsed = parse_client_init(&init).expect("корректный прямой obfuscated2-пакет");
++    assert_eq!(parsed.dc, None);
++    assert!(!parsed.is_media);
++    assert_eq!(parsed.proto, ProtoTag::Intermediate);
++}
++
++#[test]
++fn transparent_init_decodes_secret_obfuscated2_using_official_map_secret() {
++    let secret = [0x12, 0x34, 0x56, 0x78];
++    let (init, _, _) = generate_client_handshake(&secret, -2, ProtoTag::Intermediate);
++    let now = std::time::SystemTime::now()
++        .duration_since(std::time::UNIX_EPOCH)
++        .unwrap()
++        .as_secs() as i64;
++    let directory =
++        std::env::temp_dir().join(format!("tg-secret-map-{}-{}", std::process::id(), now));
++    std::fs::create_dir_all(&directory).unwrap();
++    let mut endpoints = (1..=5)
++        .map(|id| DcEndpoint {
++            id,
++            address: format!("149.154.160.{id}").parse().unwrap(),
++            port: 443,
++            ipv6: false,
++            media_only: false,
++            tcpo_only: false,
++            cdn: false,
++            is_static: true,
++            this_port_only: false,
++            secret: None,
++            last_seen: now,
++        })
++        .collect::<Vec<_>>();
++    endpoints.push(DcEndpoint {
++        id: 2,
++        address: "149.154.167.151".parse().unwrap(),
++        port: 5222,
++        ipv6: false,
++        media_only: true,
++        tcpo_only: true,
++        cdn: false,
++        is_static: true,
++        this_port_only: true,
++        secret: Some(hex::encode(secret)),
++        last_seen: now,
++    });
++    let store = DcMapStore::without_cache(directory.join("map.json"));
++    store
++        .install(
++            DcSnapshot {
++                schema_version: 1,
++                fetched_at: now,
++                config_date: now,
++                config_expires: now + 86_400,
++                this_dc: 2,
++                endpoints,
++            },
++            now,
++        )
++        .unwrap();
++    let secrets = store.handshake_secrets_for("149.154.167.151".parse().unwrap(), 5222);
++    let parsed = parse_client_init_with_secrets(&init, &secrets)
++        .expect("официальный секрет должен позволить разобрать рукопожатие");
++
++    assert_eq!(parsed.dc, Some(2));
++    assert!(parsed.is_media);
++    assert_eq!(parsed.proto, ProtoTag::Intermediate);
++    std::fs::remove_dir_all(directory).unwrap();
++}
++
++#[test]
++fn transparent_init_rejects_wrong_secret_obfuscated2() {
++    let (init, _, _) = generate_client_handshake(&[0x12, 0x34], 2, ProtoTag::Intermediate);
++
++    assert!(
++        parse_client_init_with_secrets(&init, &[vec![0xab, 0xcd]]).is_none(),
++        "рукопожатие с неизвестным секретом должно закрываться"
++    );
++}
++
++#[test]
++fn transparent_mode_maps_destination_to_one_of_the_known_dc_fallbacks() {
++    assert_eq!(
++        tg_ws_proxy_rs::transparent::dc_route_for_destination("149.154.175.52".parse().unwrap()),
++        Some((1, true))
++    );
++    assert_eq!(
++        tg_ws_proxy_rs::transparent::dc_route_for_destination("149.154.167.151".parse().unwrap()),
++        Some((2, true))
++    );
++    assert_eq!(
++        tg_ws_proxy_rs::transparent::dc_route_for_destination("149.154.167.51".parse().unwrap()),
++        Some((2, false))
++    );
++    assert_eq!(
++        tg_ws_proxy_rs::transparent::dc_route_for_destination("149.154.175.102".parse().unwrap()),
++        Some((3, true))
++    );
++    assert_eq!(
++        tg_ws_proxy_rs::transparent::dc_route_for_destination("149.154.164.250".parse().unwrap()),
++        Some((4, true))
++    );
++    assert_eq!(
++        tg_ws_proxy_rs::transparent::dc_route_for_destination("91.108.56.102".parse().unwrap()),
++        Some((5, true))
++    );
++    assert_eq!(
++        tg_ws_proxy_rs::transparent::dc_route_for_destination("91.105.192.100".parse().unwrap()),
++        Some((203, false))
++    );
++    assert_eq!(
++        tg_ws_proxy_rs::transparent::dc_route_for_destination(
++            "2001:67c:4e8:f002::a".parse().unwrap()
++        ),
++        Some((2, false))
++    );
++    assert_eq!(
++        tg_ws_proxy_rs::transparent::dc_route_for_destination("198.51.100.25".parse().unwrap()),
++        None
++    );
++}
++
++#[test]
++fn transparent_packet_framing_survives_partial_tcp_reads_without_changing_ciphertext() {
++    let init = generate_relay_init(ProtoTag::Intermediate, 0);
++    let plaintext = [
++        4, 0, 0, 0, 1, 2, 3, 4, 8, 0, 0, 0, 5, 6, 7, 8, 9, 10, 11, 12,
++    ];
++    let mut client_encrypt = make_cipher(&init[8..40], &init[40..56]);
++    let mut skipped = [0u8; 64];
++    client_encrypt.apply_keystream(&mut skipped);
++    let mut wire = plaintext;
++    client_encrypt.apply_keystream(&mut wire);
++
++    let (mut client_decrypt, mut passthrough_encrypt) = direct_stream_ciphers(&init);
++    let mut splitter = MsgSplitter::new(ProtoTag::Intermediate);
++    let mut frames = Vec::new();
++    for part in wire.chunks(3) {
++        let mut plaintext = part.to_vec();
++        client_decrypt.apply_keystream(&mut plaintext);
++        frames.extend(splitter.split_and_encrypt(&mut plaintext, &mut passthrough_encrypt));
++    }
++    frames.extend(splitter.flush());
++
++    assert_eq!(frames.iter().map(Vec::len).collect::<Vec<_>>(), [8, 12]);
++    assert_eq!(frames.concat(), wire);
 +}
 +
 +#[test]
 +fn transparent_init_accepts_cdn_dc_203() {
 +    let init = generate_relay_init(ProtoTag::PaddedIntermediate, 203);
 +    let parsed = parse_client_init(&init).expect("начальный пакет DC203");
-+    assert_eq!(parsed.dc, 203);
++    assert_eq!(parsed.dc, Some(203));
 +    assert!(!parsed.is_media);
 +}
 +
 +#[test]
-+fn transparent_init_rejects_unknown_dc_and_random_data() {
-+    assert!(parse_client_init(&generate_relay_init(ProtoTag::Intermediate, 6)).is_none());
++fn transparent_init_preserves_dynamic_dc_and_rejects_random_data() {
++    let parsed = parse_client_init(&generate_relay_init(ProtoTag::Intermediate, 6)).unwrap();
++    assert_eq!(parsed.dc, Some(6));
++    let parsed = parse_client_init(&generate_relay_init(ProtoTag::Intermediate, -301)).unwrap();
++    assert_eq!(parsed.dc, Some(301));
++    assert!(parsed.is_media);
 +    assert!(parse_client_init(&[0; 64]).is_none());
++}
++
++#[test]
++fn transparent_mode_uses_the_configured_port_policy() {
++    let configured = [58321, 60001];
++    assert!(tg_ws_proxy_rs::transparent::supports_destination_port(
++        58321,
++        &configured
++    ));
++    assert!(!tg_ws_proxy_rs::transparent::supports_destination_port(
++        80,
++        &configured
++    ));
++    assert!(!tg_ws_proxy_rs::transparent::supports_destination_port(
++        60002,
++        &configured
++    ));
++}
++
++#[test]
++fn transparent_mode_checks_telegram_cidrs_for_both_address_families() {
++    let cidrs = vec!["192.0.2.0/24".to_string(), "2001:db8::/32".to_string()];
++    assert!(tg_ws_proxy_rs::transparent::is_telegram_destination(
++        "192.0.2.15".parse::<IpAddr>().unwrap(),
++        &cidrs
++    ));
++    assert!(tg_ws_proxy_rs::transparent::is_telegram_destination(
++        "2001:db8:1::15".parse::<IpAddr>().unwrap(),
++        &cidrs
++    ));
++    assert!(!tg_ws_proxy_rs::transparent::is_telegram_destination(
++        "198.51.100.15".parse::<IpAddr>().unwrap(),
++        &cidrs
++    ));
++    assert!(!tg_ws_proxy_rs::transparent::is_telegram_destination(
++        "2001:db9::15".parse::<IpAddr>().unwrap(),
++        &cidrs
++    ));
++}
++
++#[test]
++fn transparent_mode_rejects_http_and_unknown_handshakes() {
++    assert!(tg_ws_proxy_rs::transparent::is_http_request(
++        b"GET /api HTTP/1.1\r\n"
++    ));
++    assert!(tg_ws_proxy_rs::transparent::is_http_request(
++        b"POST /api HTTP/1.1\r\n"
++    ));
++    let unknown = [0x45; 64];
++    assert!(!tg_ws_proxy_rs::transparent::is_http_request(&unknown));
++    assert!(parse_client_init(&unknown).is_none());
++}
++
++#[test]
++fn transparent_mode_preserves_original_port_for_tcp_fallback() {
++    let original: SocketAddr = "192.0.2.10:58321".parse().unwrap();
++    assert_eq!(
++        tg_ws_proxy_rs::transparent::tcp_fallback_target("fallback.example", original),
++        ("fallback.example".to_string(), 58321)
++    );
++}
++
++#[test]
++fn transparent_mode_reads_policy_arguments_from_openwrt() {
++    let config = tg_ws_proxy_rs::config::Config::try_parse_from([
++        "tg-ws-proxy",
++        "--transparent",
++        "--transparent-ports=58321,60001",
++        "--transparent-cidrs=192.0.2.0/24,2001:db8::/32",
++    ])
++    .unwrap()
++    .with_defaults();
++    assert_eq!(config.transparent_ports, [58321, 60001]);
++    assert_eq!(config.transparent_cidrs, ["192.0.2.0/24", "2001:db8::/32"]);
 +}

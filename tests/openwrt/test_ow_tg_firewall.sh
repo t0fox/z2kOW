@@ -21,6 +21,10 @@ fi
 if [ -n "\$NFT_FAIL" ] && [ "\$1 \$2" = "\$NFT_FAIL" ]; then
     exit 1
 fi
+if [ "\$1 \$2" = "-f -" ]; then
+    while IFS= read -r _line; do echo "nft-batch:\$_line" >> "$T/nft.log"; done
+    exit 0
+fi
 exit 0
 EOF
 chmod +x "$T/bin/nft"
@@ -75,17 +79,25 @@ assert_contains "set dc4 создан" "$T/nft.log" 'add set inet zapret2 z2k_tg
 assert_contains "set dc6 создан" "$T/nft.log" 'add set inet zapret2 z2k_tg_dc6 { type ipv6_addr; flags interval; }'
 assert_contains "старый набор CDN VPS удаляется при запуске Rust" "$T/nft.log" 'delete set inet zapret2 z2k_tg_cdn4'
 assert_not_contains "старый набор HTTP CDN VPS не устанавливается" "$T/nft.log" 'add set .*z2k_tg_cdn4'
-assert_contains "dc4 элементы" "$T/nft.log" 'add element inet zapret2 z2k_tg_dc4 { 149.154.160.0/20, 91.108.4.0/22, 91.108.8.0/22, 91.108.12.0/22, 91.108.16.0/22, 91.108.20.0/22, 91.108.56.0/22, 91.105.192.0/23, 95.161.64.0/20, 185.76.151.0/24 }'
-assert_contains "dc6 элементы" "$T/nft.log" 'add element inet zapret2 z2k_tg_dc6 { 2001:67c:4e8::/48, 2001:b28:f23c::/47, 2001:b28:f23f::/48, 2a0a:f280:203::/48 }'
+assert_contains "наборы CIDR применяются одним nft batch" "$T/nft.log" 'nft:-f -'
+assert_contains "dc4 очищается внутри атомарного batch" "$T/nft.log" 'nft-batch:flush set inet zapret2 z2k_tg_dc4'
+assert_contains "dc6 очищается внутри того же атомарного batch" "$T/nft.log" 'nft-batch:flush set inet zapret2 z2k_tg_dc6'
+assert_contains "dc4 элементы" "$T/nft.log" 'nft-batch:add element inet zapret2 z2k_tg_dc4 { 149.154.160.0/20, 91.108.4.0/22, 91.108.8.0/22, 91.108.12.0/22, 91.108.16.0/22, 91.108.20.0/22, 91.108.56.0/22, 91.105.192.0/23, 95.161.64.0/20, 185.76.151.0/24 }'
+assert_contains "dc6 элементы" "$T/nft.log" 'nft-batch:add element inet zapret2 z2k_tg_dc6 { 2001:67c:4e8::/48, 2001:b28:f23c::/47, 2001:b28:f23f::/48, 2a0a:f280:203::/48 }'
+assert_not_contains "у наборов нет отдельных flush-команд" "$T/nft.log" '^nft:flush set'
 assert_not_contains "адрес VPS relay не устанавливается" "$T/nft.log" '168\.119\.95\.238'
 assert_contains "chain prerouting" "$T/nft.log" 'add chain inet zapret2 z2k_tg_dst_pre { type nat hook prerouting priority -101; }'
 assert_contains "chain output nat" "$T/nft.log" 'add chain inet zapret2 z2k_tg_dst_out { type nat hook output priority -101; }'
 assert_not_contains "старые IPv6 reject-цепочки не создаются" "$T/nft.log" 'add chain inet zapret2 z2k_tg_flt_(fwd|out)'
 assert_contains "chain input guard" "$T/nft.log" 'add chain inet zapret2 z2k_tg_flt_in { type filter hook input priority -1; }'
-assert_contains "redirect 443 pre" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_pre tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443'
-assert_contains "IPv6 TCP/443 перенаправляется в prerouting" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_pre tcp dport 443 ip6 daddr @z2k_tg_dc6 redirect to :1443'
-assert_contains "redirect 443 out" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_out tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443'
-assert_contains "IPv6 TCP/443 перенаправляется в output" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_out tcp dport 443 ip6 daddr @z2k_tg_dc6 redirect to :1443'
+for _port in $(z2k_ow_tg_ports); do
+    for _chain in "$Z2K_TG_CHAIN_PRE" "$Z2K_TG_CHAIN_OUT"; do
+        assert_contains "TCP/$_port IPv4 перенаправляется в $_chain" "$T/nft.log" \
+            "add rule inet zapret2 $_chain tcp dport $_port ip daddr @z2k_tg_dc4 counter redirect to :1443"
+        assert_contains "TCP/$_port IPv6 перенаправляется в $_chain" "$T/nft.log" \
+            "add rule inet zapret2 $_chain tcp dport $_port ip6 daddr @z2k_tg_dc6 counter redirect to :1443"
+    done
+done
 assert_not_contains "обычный HTTP/80 не перенаправляется" "$T/nft.log" 'dport 80.*redirect'
 assert_contains "метка исходящего сокета исключает цикл перенаправления" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_out meta mark 0x40000000 return'
 assert_contains "guard accept scoped" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_in tcp dport 1443 ct status dnat accept'
@@ -130,6 +142,11 @@ else
 fi
 rm -f "$T/no-table"
 
+# Ошибка batch должна остановить применение до установки новых redirect-правил.
+: > "$T/nft.log"
+NFT_FAIL='-f -' z2k_ow_tg_nft_apply 2>/dev/null && _t_bad "ошибка CIDR batch принята" || _t_ok
+assert_not_contains "ошибка CIDR batch не оставляет redirect-правил" "$T/nft.log" '^nft:add rule'
+
 # --- remove: цепочки остаются без наборов; полная очистка удаляет также старые наборы ---
 : > "$T/nft.log"
 z2k_ow_tg_nft_remove
@@ -169,11 +186,36 @@ assert_contains "прозрачный режим включён" "$T/argv.log" '
 assert_contains "используется один порт прослушивания" "$T/argv.log" '--port=1443'
 assert_contains "число соединений ограничено" "$T/argv.log" '--max-connections=8'
 assert_not_contains "аргументы VPS relay отсутствуют" "$T/argv.log" 'relay|tunnel-url|tunnel-secret|1444'
+assert_contains "Rust получает порты из политики" "$T/argv.log" "--transparent-ports=$(z2k_ow_tg_ports_csv)"
+assert_contains "Rust получает CIDR из политики" "$T/argv.log" '--transparent-cidrs='
+assert_contains "Rust получает путь атомарного кэша DC" "$T/argv.log" \
+    '--dc-map-path=/etc/z2k/telegram-dc-map.json'
+assert_contains "Rust получает ограниченный интервал обновления карты" "$T/argv.log" \
+    '--dc-map-refresh-secs=21600'
 printf 'ENABLED=1\nZ2K_RELAY_SECRET=abc123\nZ2K_RELAY_URL=wss://example.test/ws\n' > "$T/etc/config"
 : > "$T/argv.log"
 _out="$(z2k_ow_tg_with_argv _rec 2>"$T/argv.err")"
 assert_not_contains "настройки старого relay игнорируются" "$T/argv.log" 'abc123|example\.test|relay'
 assert_eq "builder молчит в stdout" "" "$_out"
+
+# Нестандартный разрешённый порт добавляется в одном источнике конфигурации
+# и автоматически попадает в обе семьи правил, оба хука и аргумент Rust.
+(
+    Z2K_TG_TCP_PORTS="$Z2K_TG_TCP_PORTS 58321"
+    Z2K_TG_POLICY_LOADED=1
+    : > "$T/nft.log"
+    z2k_ow_tg_nft_apply || exit 1
+    for _chain in "$Z2K_TG_CHAIN_PRE" "$Z2K_TG_CHAIN_OUT"; do
+        assert_contains "нестандартный порт IPv4 в $_chain" "$T/nft.log" \
+            "add rule inet zapret2 $_chain tcp dport 58321 ip daddr @z2k_tg_dc4 counter redirect to :1443"
+        assert_contains "нестандартный порт IPv6 в $_chain" "$T/nft.log" \
+            "add rule inet zapret2 $_chain tcp dport 58321 ip6 daddr @z2k_tg_dc6 counter redirect to :1443"
+    done
+    : > "$T/argv.log"
+    z2k_ow_tg_with_argv _rec
+    assert_contains "Rust получил нестандартный разрешённый порт" "$T/argv.log" \
+        "--transparent-ports=$(z2k_ow_tg_ports_csv)"
+)
 assert_eq "builder молчит в stderr" "" "$(cat "$T/argv.err")"
 printf 'ENABLED=1\n' > "$T/etc/config"
 

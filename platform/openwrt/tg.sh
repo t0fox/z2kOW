@@ -2,7 +2,7 @@
 # platform/openwrt/tg.sh — адаптер прозрачного Telegram-прокси на Rust.
 #
 # Один экземпляр Rust слушает :1443 в существующем цикле procd z2k и
-# перенаправляет только Telegram TCP/443 в существующей nft-таблице zapret2.
+# перенаправляет настроенные TCP-порты Telegram в nft-таблице zapret2.
 #
 # Использование (требует выставленных paths/env):
 #   z2k_ow_tg 1        — сверить правила/наборы и зарегистрировать procd, если запуск разрешён
@@ -14,11 +14,17 @@
 # Секреты: argv собирается в позиционных параметрах, никогда не печатается
 # (set -x и echo argv здесь запрещены — см. test_ow_tg_static.sh).
 
-# --- значения upstream (единый источник истины — files/z2k-tg-redirect.sh) ---
+# --- значения политики ---
+_z2k_tg_policy="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/tg-policy.sh"
+_z2k_tg_policy_present=0
+Z2K_TG_POLICY_LOADED=0
+if [ -r "$_z2k_tg_policy" ]; then
+    . "$_z2k_tg_policy" || return 1
+    _z2k_tg_policy_present=1
+    Z2K_TG_POLICY_LOADED=1
+fi
 Z2K_TG_PORT="${Z2K_TG_PORT:-1443}"
 Z2K_TG_MAX_CONNECTIONS="${Z2K_TG_MAX_CONNECTIONS:-8}"
-Z2K_TG_CIDRS="${Z2K_TG_CIDRS:-149.154.160.0/20 91.108.4.0/22 91.108.8.0/22 91.108.12.0/22 91.108.16.0/22 91.108.20.0/22 91.108.56.0/22 91.105.192.0/23 95.161.64.0/20 185.76.151.0/24}"
-Z2K_TG_CIDRS6="${Z2K_TG_CIDRS6:-2001:67c:4e8::/48 2001:b28:f23c::/47 2001:b28:f23f::/48 2a0a:f280:203::/48}"
 
 # --- nft-имена (свои sets/chains в ЧУЖОЙ runtime-таблице; таблицу не создаём) ---
 # Дефолт таблицы = дефолт pinned zapret2 runtime (ZAPRET_NFT_TABLE=zapret2):
@@ -59,6 +65,53 @@ z2k_ow_tg_cfg() {
     [ -n "$_v" ] && printf '%s' "$_v" || printf '%s' "$2"
 }
 
+# Настроенные порты и CIDR приводятся к спискам для shell/Rust/nft.
+# $1 — список значений; запятые и пробелы допустимы.
+_z2k_ow_tg_words() { printf '%s\n' "$1" | tr ',' ' '; }
+
+z2k_ow_tg_ports() {
+    local _input _port _seen="" _out=""
+    _input="$(_z2k_ow_tg_words "$Z2K_TG_TCP_PORTS")"
+    for _port in $_input; do
+        case "$_port" in ''|*[!0-9]*) return 1 ;; esac
+        [ "$_port" -ge 1 ] 2>/dev/null && [ "$_port" -le 65535 ] 2>/dev/null || return 1
+        case " $_seen " in *" $_port "*) return 1 ;; esac
+        _seen="$_seen $_port"
+        _out="$_out$_port\n"
+    done
+    [ -n "$_out" ] || return 1
+    printf '%b' "$_out"
+}
+
+z2k_ow_tg_ports_csv() {
+    local _port _csv="" _ports
+    _ports=$(z2k_ow_tg_ports) || return 1
+    for _port in $_ports; do
+        [ -n "$_csv" ] && _csv="$_csv,"
+        _csv="$_csv$_port"
+    done
+    printf '%s' "$_csv"
+}
+
+z2k_ow_tg_cidrs() {
+    _z2k_ow_tg_words "$1" | awk '{$1=$1; if (NF) print}'
+}
+
+z2k_ow_tg_cidrs_csv() {
+    z2k_ow_tg_cidrs "$1" | tr ' ' ',' | tr '\n' ',' | sed 's/,$//'
+}
+
+# Применить значения из пользовательского файла поверх встроенной политики.
+Z2K_TG_TCP_PORTS="${Z2K_TG_TCP_PORTS:-$(z2k_ow_tg_cfg TG_TCP_PORTS "${Z2K_TG_TCP_PORTS_DEFAULT:-}")}"
+Z2K_TG_CIDRS="${Z2K_TG_CIDRS:-$(z2k_ow_tg_cidrs "$(z2k_ow_tg_cfg TG_CIDRS4 "${Z2K_TG_CIDRS_DEFAULT:-}")")}"
+Z2K_TG_CIDRS6="${Z2K_TG_CIDRS6:-$(z2k_ow_tg_cidrs "$(z2k_ow_tg_cfg TG_CIDRS6 "${Z2K_TG_CIDRS6_DEFAULT:-}")")}"
+Z2K_TG_POLICY_LOADED=0
+if [ "$_z2k_tg_policy_present" = 1 ] \
+    && [ -n "$Z2K_TG_CIDRS" ] && [ -n "$Z2K_TG_CIDRS6" ] \
+    && z2k_ow_tg_ports >/dev/null 2>&1; then
+    Z2K_TG_POLICY_LOADED=1
+fi
+
 z2k_ow_tg_arch_supported() {
     local _arch_file="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/arch.sh"
     [ -r "$_arch_file" ] || return 1
@@ -96,7 +149,7 @@ z2k_ow_tg_panel_enable() {
 
 z2k_ow_tg_status_json() {
     local _running="${1:-false}" _supported=true _installed=true
-    local _status='Rust TG WS Proxy' _message='Прозрачный Telegram TCP/443 через Rust TG WS Proxy.'
+    local _status='Rust TG WS Proxy' _message='Прозрачный Telegram TCP через Rust TG WS Proxy на настроенных портах.'
     if ! z2k_ow_tg_arch_supported; then
         _supported=false
         _installed=false
@@ -116,6 +169,7 @@ z2k_ow_tg_status_json() {
 }
 
 z2k_ow_tg_wanted() {
+    [ "${Z2K_TG_POLICY_LOADED:-0}" = 1 ] || return 1
     z2k_ow_tg_arch_supported || return 1
     [ -x "$Z2K_TG_RUST_BIN" ] || return 1
     [ "$(z2k_ow_tg_cfg ENABLED 1)" = "1" ] || return 1
@@ -131,6 +185,10 @@ z2k_ow_tg_with_argv() {
     shift
     set -- "$Z2K_TG_RUST_BIN" "--port=$Z2K_TG_PORT" --host=:: \
         --transparent --pool-size=0 "--max-connections=$Z2K_TG_MAX_CONNECTIONS" \
+        "--transparent-ports=$(z2k_ow_tg_ports_csv)" \
+        "--transparent-cidrs=$(z2k_ow_tg_cidrs_csv "$Z2K_TG_CIDRS $Z2K_TG_CIDRS6")" \
+        "--dc-map-path=$(z2k_ow_tg_cfg TG_DC_MAP_PATH "$Z2K_TG_DC_MAP_PATH_DEFAULT")" \
+        "--dc-map-refresh-secs=$(z2k_ow_tg_cfg TG_DC_MAP_REFRESH_SECS "$Z2K_TG_DC_MAP_REFRESH_SECS_DEFAULT")" \
         --default-domains --no-outbound-proxy
     "$_cb" "$@"
 }
@@ -204,8 +262,30 @@ _z2k_ow_tg_csv() {
     printf '%s' "$_o"
 }
 
-# Конвергенция sets+chains+rules. Идемпотентна (flush+add — дублей нет).
+# Атомарно заменить оба Telegram-набора одной nft-транзакцией.
+# nft применяет batch целиком либо сохраняет прежнее содержимое наборов.
+_z2k_ow_tg_nft_sets_commit() {
+    local _dc4 _dc6
+    _dc4="$(_z2k_ow_tg_csv "$Z2K_TG_CIDRS")"
+    _dc6="$(_z2k_ow_tg_csv "$Z2K_TG_CIDRS6")"
+    {
+        printf 'flush set %s %s %s\n' "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_SET4"
+        printf 'flush set %s %s %s\n' "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_SET6"
+        printf 'add element %s %s %s { %s }\n' \
+            "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_SET4" "$_dc4"
+        printf 'add element %s %s %s { %s }\n' \
+            "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_SET6" "$_dc6"
+    } | nft -f - || return 1
+    return 0
+}
+
+# Конвергенция sets+chains+rules. Идемпотентна; CIDR-наборы меняются атомарно.
 z2k_ow_tg_nft_apply() {
+    local _port _ports
+    [ "${Z2K_TG_POLICY_LOADED:-0}" = 1 ] || {
+        echo "z2k-openwrt: tg: политика Telegram TCP не загружена или некорректна" >&2
+        return 1
+    }
     _z2k_ow_tg_table_ok || {
         echo "z2k-openwrt: tg: нет таблицы $Z2K_TG_NFT_FAMILY $Z2K_TG_NFT_TABLE (сначала fw_apply)" >&2
         return 1
@@ -220,14 +300,12 @@ z2k_ow_tg_nft_apply() {
         '{ type ipv4_addr; flags interval; }' 2>/dev/null || true
     nft add set "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_SET6" \
         '{ type ipv6_addr; flags interval; }' 2>/dev/null || true
-    nft flush set "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_SET4" 2>/dev/null || true
-    nft flush set "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_SET6" 2>/dev/null || true
-    nft add element "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_SET4" \
-        "{ $(_z2k_ow_tg_csv "$Z2K_TG_CIDRS") }" || return 1
-    nft add element "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_SET6" \
-        "{ $(_z2k_ow_tg_csv "$Z2K_TG_CIDRS6") }" || return 1
+    _z2k_ow_tg_nft_sets_commit || {
+        echo "z2k-openwrt: tg: не удалось атомарно обновить наборы CIDR Telegram" >&2
+        return 1
+    }
     # В прежних сборках отдельные цепочки фильтра отклоняли IPv6. Удалить эти
-    # принадлежащие z2k цепочки: IPv6 Telegram TCP/443 теперь тоже идёт в Rust.
+    # принадлежащие z2k цепочки: IPv6 Telegram TCP идёт в Rust по общей политике.
     for _old_chain in "$Z2K_TG_CHAIN_FWD" "$Z2K_TG_CHAIN_OUTF"; do
         nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_old_chain" 2>/dev/null || true
         nft delete chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_old_chain" 2>/dev/null || true
@@ -246,19 +324,26 @@ z2k_ow_tg_nft_apply() {
     nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" 2>/dev/null || true
     nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" 2>/dev/null || true
     nft flush chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_IN" 2>/dev/null || true
-# Telegram TCP/443 → :1443 с сохранением исходного адреса IPv4/IPv6.
-nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" \
-    tcp dport 443 ip daddr "@$Z2K_TG_SET4" redirect to ":$Z2K_TG_PORT" || return 1
-nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" \
-    tcp dport 443 ip6 daddr "@$Z2K_TG_SET6" redirect to ":$Z2K_TG_PORT" || return 1
+# Единая политика генерирует обе семьи адресов из одного списка портов.
+    # Счётчик стоит перед terminal redirect и доступен для диагностики на роутере.
+    _ports=$(z2k_ow_tg_ports) || return 1
+    for _port in $_ports; do
+        nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" \
+            tcp dport "$_port" ip daddr "@$Z2K_TG_SET4" counter redirect to ":$Z2K_TG_PORT" || return 1
+        nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" \
+            tcp dport "$_port" ip6 daddr "@$Z2K_TG_SET6" counter redirect to ":$Z2K_TG_PORT" || return 1
+    done
     # Исходящие WSS/CF/TCP-сокеты Rust помечены меткой z2k DESYNC, поэтому их
     # соединения обходят это перенаправление OUTPUT и путь NFQUEUE.
     nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" \
         meta mark 0x40000000 return || return 1
-    nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" \
-        tcp dport 443 ip daddr "@$Z2K_TG_SET4" redirect to ":$Z2K_TG_PORT" || return 1
-    nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" \
-        tcp dport 443 ip6 daddr "@$Z2K_TG_SET6" redirect to ":$Z2K_TG_PORT" || return 1
+    _ports=$(z2k_ow_tg_ports) || return 1
+    for _port in $_ports; do
+        nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" \
+            tcp dport "$_port" ip daddr "@$Z2K_TG_SET4" counter redirect to ":$Z2K_TG_PORT" || return 1
+        nft add rule "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" \
+            tcp dport "$_port" ip6 daddr "@$Z2K_TG_SET6" counter redirect to ":$Z2K_TG_PORT" || return 1
+    done
     # Защита INPUT: слушатель принимает соединения на всех адресах; прямой доступ к :1443
     # не должны доходить до демона. Перенаправленные пакеты (LAN/локальные)
     # несут conntrack-статус dnat (ставится DNAT на всё соединение) —
@@ -392,8 +477,9 @@ z2k_ow_tg_verify() {
 # caller so conntrack is flushed only when redirect/guard routing was actually
 # repaired, never for a list-only drift.
 z2k_ow_tg_nft_verify() {
-    local _s _c _out _need
+    local _s _c _out _need _port _match _ports
     Z2K_TG_NFT_DRIFT_REDIRECT=0
+    [ "${Z2K_TG_POLICY_LOADED:-0}" = 1 ] || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
     _z2k_ow_tg_table_ok || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
     for _s in "$Z2K_TG_SET4:$Z2K_TG_CIDRS" \
               "$Z2K_TG_SET6:$Z2K_TG_CIDRS6"; do
@@ -409,17 +495,18 @@ z2k_ow_tg_nft_verify() {
             Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
         [ -n "$_out" ] || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
     done
-    _out=$(nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_PRE" 2>/dev/null)
-    printf '%s\n' "$_out" | tr -s ' ' | grep -qF "tcp dport 443 ip daddr @$Z2K_TG_SET4 redirect to :$Z2K_TG_PORT" || {
-        Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
-    printf '%s\n' "$_out" | tr -s ' ' | grep -qF "tcp dport 443 ip6 daddr @$Z2K_TG_SET6 redirect to :$Z2K_TG_PORT" || {
-        Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+    _ports=$(z2k_ow_tg_ports) || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+    for _port in $_ports; do
+        for _c in "$Z2K_TG_CHAIN_PRE" "$Z2K_TG_CHAIN_OUT"; do
+            _out=$(nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_c" 2>/dev/null)
+            for _match in "ip daddr @$Z2K_TG_SET4" "ip6 daddr @$Z2K_TG_SET6"; do
+                printf '%s\n' "$_out" | tr -s ' ' | grep -Eq "tcp dport $_port $_match counter( packets [0-9]+ bytes [0-9]+)? redirect to :$Z2K_TG_PORT" || {
+                    Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+            done
+        done
+    done
     _out=$(nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_OUT" 2>/dev/null)
     printf '%s\n' "$_out" | tr -s ' ' | grep -qF 'meta mark 0x40000000 return' || {
-        Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
-    printf '%s\n' "$_out" | tr -s ' ' | grep -qF "tcp dport 443 ip daddr @$Z2K_TG_SET4 redirect to :$Z2K_TG_PORT" || {
-        Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
-    printf '%s\n' "$_out" | tr -s ' ' | grep -qF "tcp dport 443 ip6 daddr @$Z2K_TG_SET6 redirect to :$Z2K_TG_PORT" || {
         Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
     _out=$(nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$Z2K_TG_CHAIN_IN" 2>/dev/null)
     printf '%s\n' "$_out" | tr -s ' ' | grep -qF "tcp dport $Z2K_TG_PORT ct status dnat accept" || {
