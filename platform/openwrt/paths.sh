@@ -22,6 +22,10 @@ Z2K_AUTOCIRCULAR_STATE_FILE="${Z2K_AUTOCIRCULAR_STATE_FILE:-$Z2K_AUTOCIRCULAR_DI
 Z2K_USER_LISTS="${Z2K_USER_LISTS:-$Z2K_ETC/user-lists}"
 Z2K_OW_INSTALLED_RELEASE_FILE="${Z2K_OW_INSTALLED_RELEASE_FILE:-$Z2K_STATE/installed-release}"
 Z2K_RELAY_ID_FILE="${Z2K_RELAY_ID_FILE:-$Z2K_STATE/relay-id.json}"
+# Постоянные файлы OpenWrt-политики Telegram и кэша официальных DC.
+Z2K_TG_POLICY_CONFIG="${Z2K_TG_POLICY_CONFIG:-$Z2K_ETC/tg-policy.conf}"
+Z2K_TG_DC_MAP_PATH="${Z2K_TG_DC_MAP_PATH:-$Z2K_ETC/telegram-dc-map.json}"
+Z2K_TG_DC_MAP_ENDPOINTS_PATH="${Z2K_TG_DC_MAP_ENDPOINTS_PATH:-$Z2K_ETC/telegram-dc-endpoints.tsv}"
 # Fixed ownership suffixes cannot be overridden by process environment.
 Z2K_OW_CANON_ROOT_SUFFIX="/usr/lib/z2k"
 Z2K_OW_CANON_ETC_SUFFIX="/etc/z2k"

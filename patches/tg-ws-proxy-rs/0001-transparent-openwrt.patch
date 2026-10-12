@@ -517,7 +517,7 @@ index f4fad49..8161911 100644
 -        println!("  Result: all checks passed");
 +        println!("  Результат: все проверки пройдены");
 diff --git a/src/config.rs b/src/config.rs
-index 2526035..cba8d43 100644
+index 2526035..c502138 100644
 --- a/src/config.rs
 +++ b/src/config.rs
 @@ -9 +9,2 @@ use std::fmt;
@@ -598,7 +598,7 @@ index 2526035..cba8d43 100644
 +        })
 +}
 +
-@@ -186,0 +259,24 @@ pub struct Config {
+@@ -186,0 +259,32 @@ pub struct Config {
 +    /// Прозрачный Linux REDIRECT-вход для TCP obfuscated2 без секрета.
 +    #[arg(long, env = "TG_TRANSPARENT")]
 +    pub transparent: bool,
@@ -619,11 +619,19 @@ index 2526035..cba8d43 100644
 +    )]
 +    pub dc_map_path: PathBuf,
 +
++    /// Путь атомарного списка пар DC для динамической политики OpenWrt.
++    #[arg(
++        long,
++        env = "TG_DC_MAP_ENDPOINTS_PATH",
++        default_value = "/etc/z2k/telegram-dc-endpoints.tsv"
++    )]
++    pub dc_map_endpoints_path: PathBuf,
++
 +    /// Минимальный интервал обновления официальной карты DC в секундах.
 +    #[arg(long, env = "TG_DC_MAP_REFRESH_SECS", default_value_t = 21_600)]
 +    pub dc_map_refresh_secs: u64,
 +
-@@ -742,0 +839,15 @@ impl Config {
+@@ -742,0 +847,15 @@ impl Config {
 +        if self.transparent {
 +            // При прозрачном перехвате нет локального секрета прокси;
 +            // режим не должен зависеть от MTProto-релея или прокси пользователя.
@@ -639,23 +647,24 @@ index 2526035..cba8d43 100644
 +            self.no_outbound_proxy = true;
 +        }
 +
-@@ -761 +872 @@ impl Config {
+@@ -761 +880 @@ impl Config {
 -        if self.secrets.is_empty() {
 +        if self.secrets.is_empty() && !self.transparent {
-@@ -1003 +1114 @@ impl Config {
+@@ -1003 +1122 @@ impl Config {
 -        OutboundConnector::from_config(
 +        let connector = OutboundConnector::from_config(
-@@ -1007 +1118,2 @@ impl Config {
+@@ -1007 +1126,2 @@ impl Config {
 -        )
 +        )?;
 +        Ok(connector.with_socket_mark(self.transparent.then_some(0x4000_0000)))
 diff --git a/src/dc_discovery.rs b/src/dc_discovery.rs
 new file mode 100644
-index 0000000..015af1b
+index 0000000..4a8aca3
 --- /dev/null
 +++ b/src/dc_discovery.rs
-@@ -0,0 +1,672 @@
+@@ -0,0 +1,703 @@
 +use std::net::IpAddr;
++use std::path::PathBuf;
 +use std::sync::Arc;
 +use std::time::Duration;
 +
@@ -673,7 +682,7 @@ index 0000000..015af1b
 +
 +use crate::config::default_dc_bootstrap_ips;
 +use crate::crypto::ProtoTag;
-+use crate::dc_map::{DcEndpoint, DcSnapshot};
++use crate::dc_map::{DcEndpoint, DcSnapshot, write_endpoint_manifest};
 +use crate::runtime::Runtime;
 +use crate::splitter::MsgSplitter;
 +use crate::transparent::direct_stream_ciphers;
@@ -1127,21 +1136,51 @@ index 0000000..015af1b
 +pub async fn refresh_loop(
 +    runtime: Arc<Runtime>,
 +    requested_interval: u64,
++    endpoint_pairs_path: PathBuf,
++    transparent_ports: Vec<u16>,
 +    cf_domains: Vec<String>,
 +    skip_tls_verify: bool,
 +    disable_cf_tls: bool,
 +) {
 +    let interval = requested_interval.clamp(MIN_REFRESH_SECS, MAX_REFRESH_SECS);
 +    let store = Arc::clone(runtime.dc_map());
++    if !transparent_ports.is_empty()
++        && let Some(snapshot) = store.current()
++    {
++        match write_endpoint_manifest(&endpoint_pairs_path, &snapshot, &transparent_ports) {
++            Ok(count) => info!(
++                "В nft подготовлены пары из последнего проверенного кэша Telegram DC: {count}"
++            ),
++            Err(error) => warn!(
++                "Не удалось обновить файл пар Telegram DC из кэша; сохранено предыдущее состояние: {error}"
++            ),
++        }
++    }
 +    loop {
 +        if store.refresh_due(unix_time(), interval) {
 +            match fetch_config(&runtime, &cf_domains, skip_tls_verify, disable_cf_tls).await {
 +                Ok(snapshot) => match store.install(snapshot, unix_time()) {
-+                    Ok(installed) => info!(
-+                        "Официальная карта Telegram DC обновлена: {} адресов, конфигурация от {}, кэш проверен и сохранён атомарно",
-+                        installed.endpoints.len(),
-+                        installed.config_date
-+                    ),
++                    Ok(installed) => {
++                        info!(
++                            "Официальная карта Telegram DC обновлена: {} адресов, конфигурация от {}, кэш проверен и сохранён атомарно",
++                            installed.endpoints.len(),
++                            installed.config_date
++                        );
++                        if !transparent_ports.is_empty() {
++                            match write_endpoint_manifest(
++                                &endpoint_pairs_path,
++                                &installed,
++                                &transparent_ports,
++                            ) {
++                                Ok(count) => info!(
++                                    "Для OpenWrt атомарно сохранены проверенные пары Telegram IP+порт: {count}"
++                                ),
++                                Err(error) => warn!(
++                                    "Обновлена карта DC, но не её nft-пары; прошлый файл сохранён, listener продолжает работу: {error}"
++                                ),
++                            }
++                        }
++                    }
 +                    Err(error) => {
 +                        warn!("Не удалось сохранить официальную карту Telegram DC: {error}");
 +                        tokio::time::sleep(Duration::from_secs(MIN_REFRESH_SECS)).await;
@@ -1329,10 +1368,11 @@ index 0000000..015af1b
 +}
 diff --git a/src/dc_map.rs b/src/dc_map.rs
 new file mode 100644
-index 0000000..4960795
+index 0000000..19b5e4c
 --- /dev/null
 +++ b/src/dc_map.rs
-@@ -0,0 +1,1011 @@
+@@ -0,0 +1,1113 @@
++use std::collections::BTreeSet;
 +use std::fmt;
 +use std::fs::{self, File, OpenOptions};
 +use std::io::{self, Read, Write};
@@ -1458,6 +1498,56 @@ index 0000000..4960795
 +pub struct DcMapStore {
 +    path: PathBuf,
 +    snapshot: RwLock<Option<DcSnapshot>>,
++}
++
++/// Получить только разрешённые точные пары адрес/порт для атомарного набора nft.
++/// CDN исключаются; media-only сохраняются для проверки handshake в Rust.
++pub fn endpoint_pairs(snapshot: &DcSnapshot, allowed_ports: &[u16]) -> Vec<(IpAddr, u16)> {
++    let mut pairs = BTreeSet::new();
++    for endpoint in &snapshot.endpoints {
++        if endpoint.cdn {
++            continue;
++        }
++        let ports = if endpoint.this_port_only {
++            vec![endpoint.port]
++        } else {
++            allowed_ports.to_vec()
++        };
++        for port in ports {
++            if port == 0
++                || port == 80
++                || !allowed_ports.contains(&port)
++                || (endpoint.this_port_only && port != endpoint.port)
++            {
++                continue;
++            }
++            pairs.insert((endpoint.address, port));
++        }
++    }
++    pairs.into_iter().collect()
++}
++
++/// Атомарно опубликовать проверенные пары для OpenWrt. Ошибка не меняет старый файл.
++pub fn write_endpoint_manifest(
++    path: &Path,
++    snapshot: &DcSnapshot,
++    allowed_ports: &[u16],
++) -> Result<usize, String> {
++    validate_snapshot(snapshot, unix_time())?;
++    let pairs = endpoint_pairs(snapshot, allowed_ports);
++    if pairs.is_empty() {
++        return Err("в проверенной карте DC нет допустимых пар IP и TCP-порта".to_string());
++    }
++    let mut contents = format!(
++        "z2k-tg-dc-options-v1 {} {}\n",
++        snapshot.config_date, snapshot.fetched_at
++    );
++    for (address, port) in &pairs {
++        contents.push_str(&format!("{address} {port}\n"));
++    }
++    atomic_write(path, contents.as_bytes())
++        .map_err(|error| format!("не удалось атомарно сохранить пары для nft: {error}"))?;
++    Ok(pairs.len())
 +}
 +
 +impl DcMapStore {
@@ -1878,8 +1968,8 @@ index 0000000..4960795
 +    use std::sync::atomic::{AtomicU64, Ordering};
 +
 +    use super::{
-+        DcEndpoint, DcMapStore, DcSnapshot, RouteLookupError, lookup_endpoint, merge_snapshots,
-+        unix_time, validate_snapshot,
++        DcEndpoint, DcMapStore, DcSnapshot, RouteLookupError, endpoint_pairs, lookup_endpoint,
++        merge_snapshots, unix_time, validate_snapshot, write_endpoint_manifest,
 +    };
 +
 +    fn endpoint(
@@ -1950,6 +2040,57 @@ index 0000000..4960795
 +            this_dc: 2,
 +            endpoints,
 +        }
++    }
++
++    #[test]
++    fn nft_pairs_respect_endpoint_transport_and_port_flags() {
++        let mut endpoints = primary_endpoints();
++        let mut media = endpoint(2, "149.154.175.52", true, false, false);
++        media.port = 443;
++        endpoints.push(media);
++        let mut exact_port = endpoint(2, "149.154.167.151", true, false, true);
++        exact_port.port = 5222;
++        endpoints.push(exact_port);
++        endpoints.push(endpoint(2, "149.154.167.152", false, true, false));
++        let mut tcp_only_without_secret = endpoint(3, "149.154.167.153", false, false, false);
++        tcp_only_without_secret.secret = None;
++        endpoints.push(tcp_only_without_secret);
++        let mut ipv6 = endpoint(4, "2001:db8::4", false, false, false);
++        ipv6.tcpo_only = false;
++        ipv6.secret = None;
++        endpoints.push(ipv6);
++        let mut http = endpoint(5, "149.154.167.155", false, false, true);
++        http.port = 80;
++        endpoints.push(http);
++
++        let pairs = endpoint_pairs(&complete(endpoints), &[80, 443, 5222]);
++        assert!(pairs.contains(&("149.154.175.52".parse().unwrap(), 443)));
++        assert!(pairs.contains(&("149.154.175.52".parse().unwrap(), 5222)));
++        assert!(pairs.contains(&("149.154.167.151".parse().unwrap(), 5222)));
++        assert!(!pairs.contains(&("149.154.167.151".parse().unwrap(), 443)));
++        assert!(
++            !pairs
++                .iter()
++                .any(|(address, _)| address.to_string() == "149.154.167.152")
++        );
++        assert!(pairs.contains(&("149.154.167.153".parse().unwrap(), 443)));
++        assert!(pairs.contains(&("2001:db8::4".parse().unwrap(), 443)));
++        assert!(!pairs.iter().any(|(_, port)| *port == 80));
++    }
++
++    #[test]
++    fn endpoint_manifest_is_atomic_and_keeps_last_good_on_invalid_policy() {
++        let directory = test_directory("endpoint-manifest");
++        let path = directory.join("telegram-dc-endpoints.tsv");
++        let snapshot = current_complete(primary_endpoints_at(unix_time()));
++        let count = write_endpoint_manifest(&path, &snapshot, &[443, 5222]).unwrap();
++        let previous = fs::read_to_string(&path).unwrap();
++        assert_eq!(count, 10);
++        assert!(previous.starts_with("z2k-tg-dc-options-v1 "));
++        assert!(previous.contains("149.154.160.1 443\n"));
++        assert!(write_endpoint_manifest(&path, &snapshot, &[80]).is_err());
++        assert_eq!(fs::read_to_string(&path).unwrap(), previous);
++        fs::remove_dir_all(directory).unwrap();
 +    }
 +
 +    #[test]
@@ -3202,7 +3343,7 @@ index ef6d9e1..74f9114 100644
 +    }
 +
 diff --git a/src/server.rs b/src/server.rs
-index ed0321d..20b8a2f 100644
+index ed0321d..b7d7713 100644
 --- a/src/server.rs
 +++ b/src/server.rs
 @@ -8 +8 @@ use std::future::Future;
@@ -3474,10 +3615,12 @@ index ed0321d..20b8a2f 100644
 @@ -391 +461 @@ pub async fn run_with_listen(
 -        config.pool_size,
 +        pool_size,
-@@ -397,0 +468,19 @@ pub async fn run_with_listen(
+@@ -397,0 +468,23 @@ pub async fn run_with_listen(
 +    let dc_refresh_task = if config.transparent && !config.check {
 +        let runtime = Arc::clone(&runtime);
 +        let interval = config.dc_map_refresh_secs;
++        let endpoint_pairs_path = config.dc_map_endpoints_path.clone();
++        let transparent_ports = config.transparent_ports.clone();
 +        let cf_domains = config.cf_domains.clone();
 +        let skip_tls_verify = config.skip_tls_verify;
 +        let disable_cf_tls = config.cf_disable_tls;
@@ -3485,6 +3628,8 @@ index ed0321d..20b8a2f 100644
 +            crate::dc_discovery::refresh_loop(
 +                runtime,
 +                interval,
++                endpoint_pairs_path,
++                transparent_ports,
 +                cf_domains,
 +                skip_tls_verify,
 +                disable_cf_tls,
@@ -3494,7 +3639,7 @@ index ed0321d..20b8a2f 100644
 +    } else {
 +        None
 +    };
-@@ -401,3 +490,5 @@ pub async fn run_with_listen(
+@@ -401,3 +494,5 @@ pub async fn run_with_listen(
 -        tokio::spawn(async move {
 -            pool_clone.warmup(&config_clone).await;
 -        });
@@ -3503,7 +3648,7 @@ index ed0321d..20b8a2f 100644
 +                pool_clone.warmup(&config_clone).await;
 +            });
 +        }
-@@ -468,4 +559,11 @@ pub async fn run_with_listen(
+@@ -468,4 +563,11 @@ pub async fn run_with_listen(
 -                            proxy::handle_client_with_runtime(
 -                                stream, peer_addr, cfg, pool, runtime,
 -                            )
@@ -3519,20 +3664,20 @@ index ed0321d..20b8a2f 100644
 +                                )
 +                                .await;
 +                            }
-@@ -480 +578 @@ pub async fn run_with_listen(
+@@ -480 +582 @@ pub async fn run_with_listen(
 -                            warn!("accept error: {} — backing off to allow FDs to free", e);
 +                            warn!("ошибка приёма подключения: {}, ожидание освобождения дескрипторов", e);
-@@ -483 +581 @@ pub async fn run_with_listen(
+@@ -483 +585 @@ pub async fn run_with_listen(
 -                            error!("accept error: {}", e);
 +                            error!("ошибка приёма подключения: {}", e);
-@@ -500 +598,5 @@ pub async fn run_with_listen(
+@@ -500 +602,5 @@ pub async fn run_with_listen(
 -    info!("proxy stopped");
 +    if let Some(task) = dc_refresh_task {
 +        task.abort();
 +    }
 +
 +    info!("прокси остановлен");
-@@ -502,0 +605,56 @@ pub async fn run_with_listen(
+@@ -502,0 +609,56 @@ pub async fn run_with_listen(
 +
 +#[cfg(all(test, target_os = "linux"))]
 +mod transparent_listener_tests {
@@ -3929,10 +4074,10 @@ index 57792eb..7910238 100644
 +            );
 diff --git a/tests/transparent.rs b/tests/transparent.rs
 new file mode 100644
-index 0000000..197f90b
+index 0000000..2f179b6
 --- /dev/null
 +++ b/tests/transparent.rs
-@@ -0,0 +1,295 @@
+@@ -0,0 +1,300 @@
 +use cipher::StreamCipher;
 +use clap::Parser;
 +use std::net::{IpAddr, SocketAddr};
@@ -4222,9 +4367,14 @@ index 0000000..197f90b
 +        "--transparent",
 +        "--transparent-ports=58321,60001",
 +        "--transparent-cidrs=192.0.2.0/24,2001:db8::/32",
++        "--dc-map-endpoints-path=/tmp/telegram-dc-endpoints.tsv",
 +    ])
 +    .unwrap()
 +    .with_defaults();
 +    assert_eq!(config.transparent_ports, [58321, 60001]);
 +    assert_eq!(config.transparent_cidrs, ["192.0.2.0/24", "2001:db8::/32"]);
++    assert_eq!(
++        config.dc_map_endpoints_path,
++        std::path::PathBuf::from("/tmp/telegram-dc-endpoints.tsv")
++    );
 +}

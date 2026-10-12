@@ -189,7 +189,9 @@ assert_not_contains "аргументы VPS relay отсутствуют" "$T/ar
 assert_contains "Rust получает порты из политики" "$T/argv.log" "--transparent-ports=$(z2k_ow_tg_ports_csv)"
 assert_contains "Rust получает CIDR из политики" "$T/argv.log" '--transparent-cidrs='
 assert_contains "Rust получает путь атомарного кэша DC" "$T/argv.log" \
-    '--dc-map-path=/etc/z2k/telegram-dc-map.json'
+    "--dc-map-path=$Z2K_ETC/telegram-dc-map.json"
+assert_contains "Rust получает путь манифеста для динамической nft-политики" "$T/argv.log" \
+    "--dc-map-endpoints-path=$Z2K_ETC/telegram-dc-endpoints.tsv"
 assert_contains "Rust получает ограниченный интервал обновления карты" "$T/argv.log" \
     '--dc-map-refresh-secs=21600'
 printf 'ENABLED=1\nZ2K_RELAY_SECRET=abc123\nZ2K_RELAY_URL=wss://example.test/ws\n' > "$T/etc/config"

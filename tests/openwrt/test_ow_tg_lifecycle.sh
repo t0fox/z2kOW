@@ -77,7 +77,7 @@ assert_contains "ограничение числа соединений равн
 assert_contains "Rust получил список портов из общей политики" "$T/procd.log" \
     "--transparent-ports=$(z2k_ow_tg_ports_csv)"
 assert_contains "procd запускает обновление официальной карты DC с кэшем" "$T/procd.log" \
-    '--dc-map-path=/etc/z2k/telegram-dc-map.json --dc-map-refresh-secs=21600'
+    "--dc-map-path=$Z2K_ETC/telegram-dc-map.json --dc-map-refresh-secs=21600"
 assert_not_contains "настройки старого релея не передаются Rust" "$T/procd.log" 'Z2K_RELAY_SECRET|Z2K_RELAY_URL|relay-id-file'
 _policy_port_count="$(z2k_ow_tg_ports | wc -l | tr -d ' ')"
 _expected_rules=$((_policy_port_count * 4 + 3))

@@ -1,12 +1,14 @@
 #!/bin/sh
 # Единая политика прозрачного Telegram TCP для адаптера OpenWrt.
-# Порты из этого списка используются nft, проверками и аргументами Rust.
-# Параметр TG_TCP_PORTS в /etc/z2k/config может заменить этот список.
+# Это bootstrap-список портов, а не обнаружение адресов Telegram.
+# После help.getConfig nft получает только точные пары IP+порт из Rust-манифеста.
+# Параметр TG_TCP_PORTS в OpenWrt-конфиге может заменить этот список.
 # Обычный HTTP порт не включён; добавлять его можно только после отдельной
 # проверки MTProto TCP/HTTP и конфликтов с обычным HTTP/CDN.
 Z2K_TG_TCP_PORTS_DEFAULT="443 5222"
-Z2K_TG_DC_MAP_PATH_DEFAULT="/etc/z2k/telegram-dc-map.json"
+Z2K_TG_DC_MAP_PATH_DEFAULT="${Z2K_TG_DC_MAP_PATH_DEFAULT:-$Z2K_TG_DC_MAP_PATH}"
 Z2K_TG_DC_MAP_REFRESH_SECS_DEFAULT="21600"
+Z2K_TG_DC_MAP_ENDPOINTS_PATH_DEFAULT="${Z2K_TG_DC_MAP_ENDPOINTS_PATH_DEFAULT:-$Z2K_TG_DC_MAP_ENDPOINTS_PATH}"
 
 # Встроенная проверенная копия диапазонов DC для работы без обновления сети.
 # Официальный help.getConfig публикует адреса DC, а не CIDR; обновление CIDR

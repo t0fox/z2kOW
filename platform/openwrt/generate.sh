@@ -17,6 +17,56 @@
 # dirty check.
 Z2K_CONFIG_GENERATION_MARKER="${Z2K_CONFIG_GENERATION_MARKER:-${Z2K_STATE:-/etc/z2k/state}/config.generation}"
 Z2K_CONFIG_BACKUP_KEEP="${Z2K_CONFIG_BACKUP_KEEP:-3}"
+Z2K_TG_POLICY_CONFIG="${Z2K_TG_POLICY_CONFIG:-${Z2K_ETC}/tg-policy.conf}"
+
+# Перенести настройки Telegram в OpenWrt-owned файл до его перезаписи общим генератором.
+z2k_ow_tg_policy_migrate() {
+    [ -f "$Z2K_CONFIG" ] || return 0
+    local _dir _tmp _old_umask _own_file
+    _dir=$(dirname "$Z2K_TG_POLICY_CONFIG")
+    mkdir -p "$_dir" 2>/dev/null || return 1
+    _own_file="$Z2K_TG_POLICY_CONFIG"
+    [ -f "$_own_file" ] || _own_file=/dev/null
+    _tmp="$Z2K_TG_POLICY_CONFIG.tmp.$$"
+    _old_umask=$(umask)
+    umask 077
+    {
+        awk -v own="$Z2K_TG_POLICY_CONFIG" '
+            function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+            {
+                p = index($0, "="); if (!p) next
+                k = trim(substr($0, 1, p - 1))
+                managed = (k ~ /^TG_(TCP_PORTS|CIDRS4|CIDRS6|DC_MAP_PATH|DC_MAP_REFRESH_SECS|DC_MAP_ENDPOINTS_PATH)$/)
+                if (FILENAME == own) {
+                    if (managed) { v = trim(substr($0, p + 1)); if (length(v) >= 2 && ((substr(v,1,1) == "\"" && substr(v,length(v),1) == "\"") || (substr(v,1,1) == "\047" && substr(v,length(v),1) == "\047"))) v = substr(v,2,length(v)-2); own_values[k] = v }
+                    else other[++other_count] = $0
+                    next
+                }
+                if (!managed) next
+                v = trim(substr($0, p + 1))
+                if (length(v) >= 2 && ((substr(v,1,1) == "\"" && substr(v,length(v),1) == "\"") || (substr(v,1,1) == "\047" && substr(v,length(v),1) == "\047"))) v = substr(v,2,length(v)-2)
+                legacy_values[k] = v
+            }
+            END {
+                order[1]="TG_TCP_PORTS"; order[2]="TG_CIDRS4"; order[3]="TG_CIDRS6"
+                order[4]="TG_DC_MAP_PATH"; order[5]="TG_DC_MAP_REFRESH_SECS"; order[6]="TG_DC_MAP_ENDPOINTS_PATH"
+                for (i=1; i<=other_count; i++) print other[i]
+                for (i=1; i<=6; i++) {
+                    k=order[i]
+                    if (k in own_values) print k "=" own_values[k]
+                    else if (k in legacy_values) print k "=" legacy_values[k]
+                }
+            }
+        ' "$_own_file" "$Z2K_CONFIG"
+    } > "$_tmp" || { rm -f "$_tmp"; umask "$_old_umask"; return 1; }
+    if ! cmp -s "$_tmp" "$Z2K_TG_POLICY_CONFIG" 2>/dev/null; then
+        mv -f "$_tmp" "$Z2K_TG_POLICY_CONFIG" || { rm -f "$_tmp"; umask "$_old_umask"; return 1; }
+    else
+        rm -f "$_tmp"
+    fi
+    umask "$_old_umask"
+    return 0
+}
 
 z2k_ow_hash_text() {
     if command -v sha256sum >/dev/null 2>&1; then
@@ -99,6 +149,7 @@ z2k_ow_config_backup_prune() {
 
 z2k_ow_generate() {
     [ -f "$Z2K_CONFIG" ] || { echo "z2k-openwrt: нет $Z2K_CONFIG (сначала bootstrap)" >&2; return 1; }
+    z2k_ow_tg_policy_migrate || { echo "z2k-openwrt: не удалось сохранить Telegram-политику" >&2; return 1; }
     local _fp _old _dirty=0 _force="${Z2K_FORCE_CONFIG_REGEN:-0}"
     _fp=$(z2k_ow_config_fingerprint) || {
         echo "z2k-openwrt: не удалось посчитать fingerprint входов config" >&2
