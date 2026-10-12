@@ -375,6 +375,9 @@ if [ -n "$GO" ] && [ -f build-matrix.tsv ]; then
     while IFS="$(printf '\t')" read -r mod pkg bdir prefix goarch sfx extra; do
         case "$mod" in ''|\#*) continue ;; esac
         [ "$bdir" = "-" ] && continue
+        # Отгружаемые z2k-warpd builds — upstream Keenetic; OpenWrt собирает
+        # адаптированный runtime с nft overlay в общем payload CI.
+        [ "$mod" = "z2k-warpd" ] && continue
         want="$bdir/$prefix-linux-$sfx"
         [ -f "$want" ] || { printf '  нет отгружаемого %s\n' "$want"; brc=1; continue; }
         [ "$extra" = "-" ] && extra=""
