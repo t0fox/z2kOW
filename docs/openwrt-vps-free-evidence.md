@@ -125,6 +125,12 @@
 
 Контрольный поиск по committed `platform/openwrt/` и `scripts/openwrt/` по адресам старых VPS, `nip.io` и `vps-relay` (исключая TG-файлы) нашёл одно совпадение: `platform/openwrt/warp.sh` отклоняет сохранённые legacy URL как необязательный proxy. Общие Keenetic transport и Insta-IP relay остаются в shared-файлах, но OpenWrt entry points направляют загрузки через `Z2K_FETCH_VPS_OUT=1`, а Insta-IP использует отдельный прямой DoH адаптер.
 
+## Дополнительный QEMU E2E: закреплённый bootstrap runtime
+
+12 октября 2026 года в чистой OpenWrt 25.12.5 x86/64 QEMU временно установлен отдельный nft output-фильтр только для старых VPS-IP `213.176.74.63` и `79.137.196.7`. С роутера напрямую по HTTPS загружен закреплённый `runtime-pin` архив `zapret2-v1.0.5.2-z2k-r0-openwrt-embedded.tar.gz`: HTTP 200, endpoint `185.199.110.133`, 4 339 405 байт, время 3.139 секунды. SHA-256 `02eec373b093083b426c27191bb6af260ac51e4e2739c51270270a351d2a1a16` совпал с pin; `gzip -t` завершился с кодом 0, `tar -tzf` прочитал список файлов. Счётчики обоих блокирующих правил равны нулю.
+
+Проверена только прямая доставка закреплённого runtime payload; это не подтверждает полный bootstrap, проверку релизной подписи, установку продукта или обновление/rollback. После проверки nft-таблица удалена, осталась штатная `inet fw4`, временный архив удалён.
+
 Legacy VPS defaults остаются в `files/z2k-warp.sh` и `files/init.d/S51z2k-warp` для Keenetic. OpenWrt WARP adapter больше не имеет встроенного VPS proxy и не вызывает этот launcher; путь clock-skew выбирается по платформе и на OpenWrt использует прямые origin’ы. Полный жизненный цикл релизов остаётся пунктом незавершённой приёмки.
 
 ## Прямые внешние API, не являющиеся VPS-зависимостью
