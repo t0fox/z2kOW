@@ -301,3 +301,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Env, geosite и list refresh регрессии
 
 12 октября 2026 года на `56736f16` прошли `test_ow_env.sh` `34/34`, `test_ow_geosite_adapter.sh` `9/9` и `test_ow_list_refresh_adapter.sh` `9/9`. Итого `52/52`, ошибок нет. Проверена передача OpenWrt transport-настроек в общий код и адаптер обновления geosite/списков; это локальные suites, не полный сетевой update продукта.
+
+## QEMU DNS recovery и HTTPS после dnsmasq restart при блокировке VPS
+
+12 октября 2026 года в той же чистой OpenWrt 25.12.5 x86/64 QEMU временные output drop-правила блокировали только TCP/443 к `213.176.74.63` и `79.137.196.7`. После `/etc/init.d/dnsmasq restart` локальный DNS разрешил `api.github.com` с первой проверки; прямой `curl` к API завершился `HTTP 200`, TLS verify `0`, endpoint `140.82.113.5`. Оба block counter — `0`. Во время restart init-скрипт вывел `udhcpc: no lease`, но последующие DNS и HTTPS проверки прошли. Временная nft-таблица удалена, осталась только `inet fw4`.
