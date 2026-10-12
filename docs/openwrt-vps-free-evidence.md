@@ -48,15 +48,15 @@
 
 ## Отдельный бинарник WARP daemon
 
-`z2k-warpd` собирался отдельно от release builder командой Go с OpenWrt build tag и `openwrt-overlay/overlay.json`. Все семь target получили корректный ELF machine/endianness и статическую линковку: `arm64` (AArch64), `arm` (ARM EABI5), `amd64` (x86-64, `CGO_ENABLED=0`), `386` (i386), `mips` (MIPS32 big-endian, softfloat), `mipsle` (MIPS32 little-endian, softfloat), `riscv64` (RISC-V double-float ABI).
+`build-matrix.tsv` задаёт для `z2k-warpd` девять GOARCH: `arm64`, `arm`, `amd64`, `386`, `mips`, `mipsle`, `mips64le`, `ppc64`, `riscv64` (10 имён файлов с совместимым alias). Ранее записанная семиархитектурная выборка не покрывала всю матрицу.
 
-`GOTOOLCHAIN=local go test -tags openwrt -overlay openwrt-overlay/overlay.json ./...` прошёл для всех пакетов `z2k-warpd`. Это доказывает компиляцию и unit suite; кроме smoke-проверки x86/64 ниже, собранные бинарники не запускались в QEMU и на реальных устройствах.
+Повторная структурная сверка текущих артефактов по `build-matrix.tsv` проверила 34 записи для `z2k-detect`, `z2k-verify`, `rt-proxy` и `z2k-warpd`: ELF class, endian и machine совпали с GOARCH; у всех файлов отсутствует `PT_INTERP`. Это проверка имеющихся бинарников, не новая сборка и не runtime-проверка остальных архитектур. WSL в этой сессии не содержит Go toolchain, поэтому повторно скомпилировать matrix здесь не удалось. Ранее `GOTOOLCHAIN=local go test -tags openwrt -overlay openwrt-overlay/overlay.json ./...` проходил для `z2k-warpd`.
 
 В OpenWrt 25.12.5 x86/64 VM временно запущен собранный `amd64` бинарник с командой `version`; получен ответ `z2k-warpd dev`. Временный файл из `/tmp` удалён. Это smoke-проверка запуска на x86/64, не проверка регистрации в Cloudflare или работы туннеля.
 
 ## Отдельный бинарник RT proxy
 
-`rt-proxy` unit suite прошёл. По release target matrix собраны статические `z2k-rt-proxy` для `arm64`, `arm`, `amd64`, `386`, `mips` (big-endian softfloat), `mipsle` (little-endian softfloat) и `riscv64`; x86/64 бинарник выполнил `--help` в OpenWrt QEMU.
+`rt-proxy` unit suite прошёл. В `build-matrix.tsv` перечислены пять GOARCH для `z2k-rt-proxy`: `arm64`, `arm`, `amd64`, `mips` (big-endian softfloat) и `mipsle` (little-endian softfloat); шестое имя файла — совместимый alias `mipsle`. Структурная проверка выше подтвердила ELF-заголовки и статичность всех перечисленных файлов. x86/64 бинарник выполнил `--help` в OpenWrt QEMU; E2E direct HTTP/HTTPS ранее прошёл на x86/64.
 
 ## Локальные suites
 
