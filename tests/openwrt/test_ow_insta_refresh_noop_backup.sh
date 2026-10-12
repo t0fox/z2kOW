@@ -66,8 +66,8 @@ esac
 STUB
 cat > "$T/bin/dnsmasq-init" <<'STUB'
 #!/bin/sh
-[ "${1:-}" = reload ] || exit 1
-[ "${DNSMASQ_FAIL_RELOAD:-0}" != 1 ]
+[ "${1:-}" = restart ] || exit 1
+[ "${DNSMASQ_FAIL_RESTART:-0}" != 1 ]
 STUB
 chmod 0755 "$T/bin/curl" "$T/bin/jsonfilter" "$T/bin/uci" "$T/bin/dnsmasq-init"
 
@@ -99,7 +99,7 @@ else
     ok "после no-op refresh временный backup удалён"
 fi
 
-if INSTA_TEST_IP=57.144.245.33 DNSMASQ_FAIL_RELOAD=1 \
+if INSTA_TEST_IP=57.144.245.33 DNSMASQ_FAIL_RESTART=1 \
     Z2K_PLATFORM=openwrt Z2K_ROOT="$REPO" ZAPRET2_DIR="$T" \
     CONFIG_FILE="$T/config" LOG_FILE="$T/refresh.log" Z2K_STUB_PATH="$T/bin" \
     Z2K_INSTA_HOSTS_FILE="$T/state/insta-hosts" \
@@ -107,14 +107,14 @@ if INSTA_TEST_IP=57.144.245.33 DNSMASQ_FAIL_RELOAD=1 \
     Z2K_INSTA_DNSMASQ_INIT="$T/bin/dnsmasq-init" Z2K_INSTA_CACHE_FILE="$T/state/cache" \
     Z2K_IP_PROBE_TIMEOUT=1 Z2K_IP_PROBE_MAX_TRY=1 Z2K_IP_PROBE_KEEP=1 \
     sh "$T/refresh.sh"; then
-    ok "refresh с отказом reload завершился с контролируемым восстановлением"
+    ok "refresh с отказом restart завершился с контролируемым восстановлением"
 else
-    bad "refresh с отказом reload завершился с ошибкой"
+    bad "refresh с отказом restart завершился с ошибкой"
 fi
 if cmp -s "$T/state/before" "$T/state/insta-hosts"; then
-    ok "отказ reload восстановил полный предыдущий файл"
+    ok "отказ restart восстановил полный предыдущий файл"
 else
-    bad "отказ reload повредил предыдущий файл"
+    bad "отказ restart повредил предыдущий файл"
 fi
 grep -q 'previous host records restored' "$T/refresh.log" \
     && ok "журнал отметил восстановление после отказа" \
@@ -134,7 +134,7 @@ fi
 exec /bin/cp "$@"
 STUB
 chmod 0755 "$T/bin/cp"
-if INSTA_TEST_IP=57.144.245.34 DNSMASQ_FAIL_RELOAD=1 \
+if INSTA_TEST_IP=57.144.245.34 DNSMASQ_FAIL_RESTART=1 \
     Z2K_PLATFORM=openwrt Z2K_ROOT="$REPO" ZAPRET2_DIR="$T" \
     CONFIG_FILE="$T/config" LOG_FILE="$T/restore-fail.log" Z2K_STUB_PATH="$T/bin" \
     Z2K_INSTA_HOSTS_FILE="$T/state/insta-hosts" \

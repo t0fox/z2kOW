@@ -15,9 +15,11 @@ z2k_ow_insta_registered() {
         | grep -F ".addnhosts=$Z2K_INSTA_HOSTS_FILE" >/dev/null 2>&1
 }
 
-z2k_ow_insta_reload_dnsmasq() {
+z2k_ow_insta_restart_dnsmasq() {
     [ -x "$Z2K_INSTA_DNSMASQ_INIT" ] || return 1
-    "$Z2K_INSTA_DNSMASQ_INIT" reload >/dev/null 2>&1
+    # SIGHUP очищает DNS cache, но старая A-запись из addnhosts остаётся;
+    # перезапуск перечитывает атомарно заменённый файл и удаляет прежние записи.
+    "$Z2K_INSTA_DNSMASQ_INIT" restart >/dev/null 2>&1
 }
 
 # Register an exact persistent file path without replacing any existing
@@ -35,7 +37,7 @@ z2k_ow_insta_prepare() {
         "$Z2K_INSTA_UCI_BIN" commit dhcp || return 1
         printf '%s\n' "$Z2K_INSTA_HOSTS_FILE" > "$Z2K_INSTA_UCI_MARKER" || return 1
         chmod 0600 "$Z2K_INSTA_UCI_MARKER" 2>/dev/null || return 1
-        z2k_ow_insta_reload_dnsmasq || return 1
+        z2k_ow_insta_restart_dnsmasq || return 1
     fi
     return 0
 }
@@ -116,7 +118,7 @@ z2k_ow_insta_restore_hosts() {
 
 z2k_ow_insta_commit() {
     "$Z2K_INSTA_UCI_BIN" commit dhcp || return 1
-    z2k_ow_insta_reload_dnsmasq
+    z2k_ow_insta_restart_dnsmasq
 }
 
 z2k_ow_insta_flush_ip() {
@@ -229,7 +231,7 @@ z2k_ow_insta_uninstall() {
             "$Z2K_INSTA_UCI_BIN" del_list \
                 "$Z2K_INSTA_UCI_SECTION.addnhosts=$Z2K_INSTA_HOSTS_FILE" || return 1
             "$Z2K_INSTA_UCI_BIN" commit dhcp || return 1
-            z2k_ow_insta_reload_dnsmasq || return 1
+            z2k_ow_insta_restart_dnsmasq || return 1
         fi
     fi
     rm -f "$Z2K_INSTA_HOSTS_FILE" "$Z2K_INSTA_UCI_MARKER"

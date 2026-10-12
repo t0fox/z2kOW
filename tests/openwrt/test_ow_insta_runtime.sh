@@ -37,12 +37,12 @@ STUB
 cat > "$Z2K_INSTA_DNSMASQ_INIT" <<'STUB'
 #!/bin/sh
 printf '%s\n' "$*" >> "$DNSMASQ_TEST_LOG"
-[ "${1:-}" = reload ]
+[ "${1:-}" = restart ]
 STUB
 chmod 0755 "$T/bin/uci" "$Z2K_INSTA_DNSMASQ_INIT"
 
 . "$REPO/platform/openwrt/insta-ip.sh"
-z2k_ow_insta_prepare || _t_bad "register the owned dnsmasq host file"
+z2k_ow_insta_prepare || _t_bad "зарегистрировать файл dnsmasq, созданный адаптером"
 assert_contains "dnsmasq addnhosts path is persistent and scoped" "$UCI_TEST_DB" "$Z2K_INSTA_HOSTS_FILE"
 assert_file "adapter records its own UCI reference for uninstall" "$Z2K_INSTA_UCI_MARKER"
 
@@ -176,8 +176,8 @@ esac
 z2k_ow_insta_remove_host instagram.com 57.144.245.32 || _t_bad "remove stale Instagram address"
 assert_not_contains "remove affects only the exact managed hostname" "$Z2K_INSTA_HOSTS_FILE" 'instagram\.com'
 assert_contains "unrelated managed hostname survives removal" "$Z2K_INSTA_HOSTS_FILE" 'www.whatsapp.com'
-z2k_ow_insta_commit || _t_bad "commit records and reload dnsmasq"
-assert_contains "changed records reload dnsmasq" "$DNSMASQ_TEST_LOG" 'reload'
+z2k_ow_insta_commit || _t_bad "сохранить записи и перезапустить dnsmasq"
+assert_contains "изменённые записи перезапускают dnsmasq" "$DNSMASQ_TEST_LOG" 'restart'
 
 z2k_ow_insta_uninstall || _t_bad "remove only the UCI reference owned by z2k"
 assert_not_contains "uninstall removes the z2k addnhosts reference" "$UCI_TEST_DB" 'insta-hosts'
