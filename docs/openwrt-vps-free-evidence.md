@@ -700,3 +700,13 @@ Run: [GitHub Actions `38222770881`](https://github.com/t0fox/z2kOW/actions/runs/
 Тот же запуск выявил `test_ow_forbidden.sh` failure из-за класса `tr '[:upper:]' '[:lower:]'` в OpenWrt WARP adapter. Нормализация заменена на `LC_ALL=C tr 'A-Z' 'a-z'`; после исправления `test_ow_forbidden.sh` прошёл `4/4`, `test_ow_warp_static.sh` — `92/92`, `test_ow_warp_parity.sh` — `39/39`.
 
 `test_ow_insta_refresh_noop_backup.sh` завершился ошибкой в CI, но локально повторно прошёл `11/11`; первопричина CI расхождения не подтверждена. Несколько других job в запуске также были красными. Поэтому этот CI run не считается успешным; нужна повторная проверка после отправки исправлений и отдельная диагностика оставшихся ошибок.
+
+## QEMU: успешное удаление после исправления загрузки stop verifier
+
+12 октября на отдельной OpenWrt 25.12.5 x86/64 lifecycle-VM после production-подписанной переустановки `p-86.18` повторный `z2kow uninstall` воспроизвёл ошибку: `z2k_ow_stop_verify: not found`. Причина — проверка определялась только в `/etc/init.d/z2k`, а uninstaller загружал платформенные адаптеры отдельно; после частичного удаления init-скрипта тот же порядок мешал безопасному повтору.
+
+Минимальное исправление перенесло verifier в общий `platform/openwrt/firewall.sh`, который загружают обе стороны, и научило проверку остатка установки игнорировать пустой `/etc/z2k/state` вместе с сохранёнными данными WARP. `test_ow_uninstall_parity.sh` прошёл `88/88`.
+
+Для фактической проверки на disposable VM перед повтором сохранены копии двух затрагиваемых скриптов в `/tmp/vps-free-uninstall-backup`; обновлённые `uninstall.sh` и `firewall.sh` переданы по SSH в установленный экземпляр. `Z2K_UNINSTALL_CONFIRMED=1 /usr/bin/z2kow uninstall` завершился с `rc=0`. После удаления CLI, init и `/usr/lib/z2k` отсутствовали, WebPanel не отвечал на `127.0.0.1:8088`, пользовательская UCI-настройка `option addnhosts '/etc/vps-free-sentinel.hosts'` сохранилась. Временные правила блокировки обоих VPS endpoint остались с нулевыми пакетами; основной ruleset содержал `inet fw4`.
+
+Граница результата: это фактическая проверка uninstaller с вручную развернутыми двумя исправленными shell-файлами поверх production-подписанного установленного выпуска, а не подписанная установка полного feature payload. Ветка остаётся без merge/release; `UPDATES.json`, подпись и `seq=142` не менялись.

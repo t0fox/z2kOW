@@ -61,6 +61,39 @@ z2k_ow_fw_apply() {
 z2k_ow_fw_remove() { z2k_ow_fw_source || return 1; zapret_unapply_firewall; }
 z2k_ow_fw_reload_ifsets() { z2k_ow_fw_source || return 1; zapret_reload_ifsets; }
 
+# Проверить, что после teardown не осталось принадлежащих z2k правил.
+z2k_ow_stop_verify() {
+    local _tab="${Z2K_ZAPRET_NFT_TABLE:-${ZAPRET_NFT_TABLE:-zapret2}}" _rc=0 _c
+    for _pair in "postnat_hook postnat" "prenat_hook prenat"; do
+        set -- $_pair
+        if nft list chain inet "$_tab" "$1" 2>/dev/null | grep -q "jump $2"; then
+            echo "z2k-openwrt: stop_verify: остался jump $2 в $1" >&2
+            _rc=1
+        fi
+    done
+    for _c in "${Z2K_TG_CHAIN_PRE:-z2k_tg_dst_pre}" "${Z2K_TG_CHAIN_OUT:-z2k_tg_dst_out}" \
+             "${Z2K_TG_CHAIN_FWD:-z2k_tg_flt_fwd}" "${Z2K_TG_CHAIN_OUTF:-z2k_tg_flt_out}" \
+             "${Z2K_TG_CHAIN_IN:-z2k_tg_flt_in}" "${Z2K_RT_CHAIN_PRE:-z2k_rt_dst_pre}" \
+             "${Z2K_RT_CHAIN_OUT:-z2k_rt_dst_out}" "${Z2K_RT_CHAIN_IN:-z2k_rt_flt_in}" \
+             "${Z2K_RT_CHAIN_FWD6:-z2k_rt_flt6_fwd}" "${Z2K_RT_CHAIN_OUT6:-z2k_rt_flt6_out}" \
+             "${WARP_CHAIN_MARK:-z2k_warp_mark}" "${WARP_CHAIN_MSS:-z2k_warp_mss}" \
+             "${WARP_CHAIN_FWD:-z2k_warp_fwd}" "${WARP_CHAIN_NAT:-z2k_warp_nat}"; do
+        if nft list chain inet "$_tab" "$_c" >/dev/null 2>&1; then
+            echo "z2k-openwrt: stop_verify: осталась chain $_c" >&2
+            _rc=1
+        fi
+    done
+    if _z2k_ow_rt_dns_dump 2>/dev/null | grep -q '^z2k_rt_'; then
+        echo "z2k-openwrt: stop_verify: остались RT DNS-пины" >&2
+        _rc=1
+    fi
+    if ip rule show 2>/dev/null | grep -qF "fwmark ${WARP_MARK:-0x80000000}/${WARP_MASK:-0x80000000} lookup ${WARP_TABLE:-989}"; then
+        echo "z2k-openwrt: stop_verify: остался WARP PBR-tuple" >&2
+        _rc=1
+    fi
+    return $_rc
+}
+
 # OpenWrt event/periodic reconciliation shares one synchronous lock. The
 # pending file is set before lock acquisition, so an event that overlaps a
 # repair is consumed by its current owner instead of being dropped. A hard

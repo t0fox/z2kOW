@@ -37,6 +37,10 @@ assert_contains "uninstall preserves WARP device identity" \
     "$REPO/platform/openwrt/uninstall.sh" 'device.json'
 assert_contains "uninstall uses the DoH adapter for ownership-safe cleanup" \
     "$REPO/platform/openwrt/uninstall.sh" 'z2k_ow_doh_uninstall'
+assert_contains "firewall adapter owns stop verification for init and uninstall" \
+    "$REPO/platform/openwrt/firewall.sh" 'z2k_ow_stop_verify()'
+assert_not_contains "core init does not duplicate stop verification" \
+    "$REPO/platform/openwrt/files/etc/init.d/z2k" 'z2k_ow_stop_verify() {'
 assert_contains "uninstall does not expose a second purge mode" \
     "$REPO/platform/openwrt/uninstall.sh" 'Z2K_UNINSTALL_CONFIRMED'
 unset Z2K_OW_SYSROOT
@@ -124,11 +128,11 @@ z2k_ow_fw_remove() {
     grep -v 'z2kOW' "$Z2K_OW_NFT_STATE" > "$Z2K_OW_NFT_STATE.new" || return 1
     mv -f "$Z2K_OW_NFT_STATE.new" "$Z2K_OW_NFT_STATE"
 }
-z2k_ow_stop_verify() { ! grep -q 'z2kOW' "$Z2K_OW_NFT_STATE"; }
 z2k_ow_offload_restore() {
     echo offload-restore >> "$Z2K_UNINSTALL_TEST_LOG"
     rm -f "$Z2K_FW4_OFFLOAD_STATE"
 }
+z2k_ow_stop_verify() { ! grep -q 'z2kOW' "$Z2K_OW_NFT_STATE"; }
 EOF
 cat > "$Z2K_ROOT/platform/openwrt/tg.sh" <<'EOF'
 z2k_ow_tg() {
