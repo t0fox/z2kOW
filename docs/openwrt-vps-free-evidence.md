@@ -297,3 +297,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## DNS/DoH OpenWrt регрессии
 
 12 октября 2026 года на `7df1e68a` повторно прошли `test_ow_doh.sh` `266/266`, `test_ow_dnsproxy.sh` `266/266`, `test_ow_dns_check.sh` `2/2` и `test_ow_dns_detect_path.sh` `5/5`. Итого `539/539`, ошибок нет. Suites проверяют локальное управление dnsproxy/DoH, сохранение существующих dnsmasq overrides и диагностику; они не заменяют проверку пользовательского трафика после полной установки.
+
+## Env, geosite и list refresh регрессии
+
+12 октября 2026 года на `56736f16` прошли `test_ow_env.sh` `34/34`, `test_ow_geosite_adapter.sh` `9/9` и `test_ow_list_refresh_adapter.sh` `9/9`. Итого `52/52`, ошибок нет. Проверена передача OpenWrt transport-настроек в общий код и адаптер обновления geosite/списков; это локальные suites, не полный сетевой update продукта.
