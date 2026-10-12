@@ -404,3 +404,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## `nfqws2` runtime smoke по семи ABI
 
 12 октября 2026 года из того же закреплённого runtime archive извлечены только `binaries/linux-*/nfqws2`. Все семь ELF статически связаны; под установленным в Debian QEMU user-mode/binfmt каждый запустил `--version` и `--dry-run --qnum=200 --filter-tcp=443 --filter-l7=tls`: `14/14`, версия `v1.0.5.2-z2k-r0`. Проверка не открывала NFQUEUE и не генерировала пользовательский сетевой трафик, поэтому это ABI/CLI smoke, а не полноценный OpenWrt runtime. Архив и извлечённые бинарники из `/tmp` удалены.
+
+## Повторные updater/recovery regressions без Telegram
+
+12 октября 2026 года на `de0829fa` прошли `test_ow_update_entry.sh` `12/12`, `test_ow_updater_failsafe.sh` `5/5`, `test_ow_updater_state.sh` `7/7` и `test_ow_recovery.sh` `13/13` — `37/37`. Suites проверяют входные условия updater, fail-safe state и recovery без общего product start. Они не подтверждают полное применение подписанного rootfs, пользовательские настройки в реальном update или полный rollback/uninstall на установленном продукте.
