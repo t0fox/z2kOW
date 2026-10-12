@@ -48,11 +48,13 @@
 
 ## Отдельный бинарник WARP daemon
 
-`build-matrix.tsv` задаёт для `z2k-warpd` девять GOARCH: `arm64`, `arm`, `amd64`, `386`, `mips`, `mipsle`, `mips64le`, `ppc64`, `riscv64` (10 имён файлов с совместимым alias). Ранее записанная семиархитектурная выборка не покрывала всю матрицу.
+`build-matrix.tsv` задаёт для `z2k-warpd` девять GOARCH: `arm64`, `arm`, `amd64`, `386`, `mips`, `mipsle`, `mips64le`, `ppc64`, `riscv64` (10 имён tracked-файлов с совместимым alias). OpenWrt release builder использует отдельную production-матрицу из семи целей: `arm64`, `arm`, `amd64`, `386`, `mips`, `mipsle`, `riscv64`; `mips64le` не входит, так как pinned upstream runtime его не поддерживает.
 
 Структурная сверка tracked артефактов по `build-matrix.tsv` проверила 34 записи для `z2k-detect`, `z2k-verify`, `rt-proxy` и `z2k-warpd`: ELF class, endian и machine совпали с GOARCH; у всех файлов отсутствует `PT_INTERP`. Это проверяет форматы имеющихся файлов, а не runtime всех архитектур.
 
-В этой сессии закреплённый Go 1.25.13 прошёл SHA-256 проверку; `rt-proxy` unit suite прошёл, 5 GOARCH повторно собраны, все 6 имён артефактов побайтно совпали с tracked сборками. `z2k-warpd` OpenWrt unit suite прошёл; текущий source cross-built статически для всех 9 GOARCH и 10 имён файлов. Однако все 10 результатов отличаются от tracked бинарников. Последний commit этих бинарников — `132a9eb8` от 25 сентября, после него source менялся. Это существующая проблема parity между текущим `z2k-warpd` source и сохранёнными сборками; бинарники в этой работе не переписывались. Runtime на других архитектурах не подтверждён.
+В этой сессии закреплённый Go 1.25.13 прошёл SHA-256 проверку. `rt-proxy` unit suite прошёл; пять отдельных GOARCH пересобраны, их шесть tracked имён побайтно совпали. `z2k-warpd` OpenWrt unit suite прошёл; дополнительно проверена расширенная Makefile-матрица из девяти GOARCH и десяти имён, но её tracked бинарники отличаются от текущего source. OpenWrt release builder эти файлы не пакует: он компилирует оба бинарника из source при каждой сборке release.
+
+Текущие исходники повторно собраны с production-флагами builder для всех семи целей `rt-proxy` и `z2k-warpd`; все 14 результатов прошли проверку ELF class/endian/machine и отсутствия `PT_INTERP`. Для WARP включены OpenWrt build tag и overlay, версия взята из текущего `UPDATES.json` (`p-86.18`), release metadata не менялись. На amd64 запущены smoke-команды `z2k-warpd version` (ответ `z2k-warpd p-86.18`) и `z2k-rt-proxy --help`. Runtime на других архитектурах не подтверждён.
 
 В OpenWrt 25.12.5 x86/64 VM временно запущен собранный `amd64` бинарник с командой `version`; получен ответ `z2k-warpd dev`. Временный файл из `/tmp` удалён. Это smoke-проверка запуска на x86/64, не проверка регистрации в Cloudflare или работы туннеля.
 
