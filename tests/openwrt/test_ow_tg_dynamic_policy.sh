@@ -59,7 +59,8 @@ assert_contains "IPv4 адрес и порт хранятся одной пар�
 assert_contains "IPv6 адрес и порт хранятся одной парой" "$T/nft.log" 'batch:add element inet zapret2 z2k_tg_pair6 { 2001:db8::4 . 5222 }'
 assert_contains "prerouting использует IPv4 пару" "$T/nft.log" 'ip daddr . tcp dport @z2k_tg_pair4 counter redirect to :1443'
 assert_contains "output использует IPv6 пару" "$T/nft.log" 'ip6 daddr . tcp dport @z2k_tg_pair6 counter redirect to :1443'
-assert_not_contains "официальная карта отключает широкие CIDR redirect" "$T/nft.log" 'ip daddr @z2k_tg_dc4 counter redirect'
+assert_contains "доверенный CIDR fallback покрывает отсутствующий DC" "$T/nft.log" \
+    'ip daddr @z2k_tg_dc4 counter redirect to :1443'
 assert_not_contains "обычный HTTP/80 запрещён" "$T/nft.log" 'dport 80.*redirect'
 
 # Полный IPv6 без сокращения `::` тоже допустим в Rust-манифесте.
@@ -78,8 +79,8 @@ cp "$T/endpoints.good" "$T/endpoints.tsv"
 z2k_ow_tg rules || _t_bad "повторное применение после fw4 reload"
 assert_contains "после reload восстановлено IPv4-перенаправление по паре" "$T/nft.log" \
     'ip daddr . tcp dport @z2k_tg_pair4 counter redirect to :1443'
-assert_not_contains "после reload не возвращается широкий CIDR redirect" "$T/nft.log" \
-    'ip daddr @z2k_tg_dc4 counter redirect'
+assert_contains "после reload сохраняется CIDR fallback для отсутствующего DC" "$T/nft.log" \
+    'ip daddr @z2k_tg_dc4 counter redirect to :1443'
 
 # Ошибочный файл не должен менять kernel-наборы/правила; последняя nft-карта остаётся живой.
 printf 'z2k-tg-dc-options-v1 broken\n149.154.1.2; drop 443\n' > "$T/endpoints.tsv"

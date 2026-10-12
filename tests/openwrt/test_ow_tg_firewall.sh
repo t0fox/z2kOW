@@ -147,6 +147,25 @@ rm -f "$T/no-table"
 NFT_FAIL='-f -' z2k_ow_tg_nft_apply 2>/dev/null && _t_bad "ошибка CIDR batch принята" || _t_ok
 assert_not_contains "ошибка CIDR batch не оставляет redirect-правил" "$T/nft.log" '^nft:add rule'
 
+# Динамическая карта точных DC-пар должна сохранять CIDR fallback для DC,
+# который находится в доверенной сети Telegram, но отсутствует в карте.
+printf 'z2k-tg-dc-options-v1 1791782348 1791782348\n149.154.167.41 443\n' > "$T/endpoints.tsv"
+Z2K_TG_DC_MAP_ENDPOINTS_PATH="$T/endpoints.tsv"
+export Z2K_TG_DC_MAP_ENDPOINTS_PATH
+: > "$T/nft.log"
+z2k_ow_tg_nft_apply || _t_bad "dynamic nft_apply rc"
+assert_contains "dynamic карта добавляет точную пару IPv4" "$T/nft.log" \
+    'nft-batch:add element inet zapret2 z2k_tg_pair4 { 149.154.167.41 . 443 }'
+assert_contains "dynamic режим заполняет доверенные CIDR для fallback" "$T/nft.log" \
+    'nft-batch:add element inet zapret2 z2k_tg_dc4 { 149.154.160.0/20, 91.108.4.0/22, 91.108.8.0/22, 91.108.12.0/22, 91.108.16.0/22, 91.108.20.0/22, 91.108.56.0/22, 91.105.192.0/23, 95.161.64.0/20, 185.76.151.0/24 }'
+for _chain in "$Z2K_TG_CHAIN_PRE" "$Z2K_TG_CHAIN_OUT"; do
+    assert_contains "dynamic fallback TCP/5222 в $_chain" "$T/nft.log" \
+        "add rule inet zapret2 $_chain tcp dport 5222 ip daddr @z2k_tg_dc4 counter redirect to :1443"
+    assert_contains "dynamic exact pair остается в $_chain" "$T/nft.log" \
+        "add rule inet zapret2 $_chain ip daddr . tcp dport @z2k_tg_pair4 counter redirect to :1443"
+done
+unset Z2K_TG_DC_MAP_ENDPOINTS_PATH
+
 # --- remove: цепочки остаются без наборов; полная очистка удаляет также старые наборы ---
 : > "$T/nft.log"
 z2k_ow_tg_nft_remove
