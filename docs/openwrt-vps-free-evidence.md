@@ -225,3 +225,9 @@ Fault injection: запись нового hosts-файла и reload dnsmasq з
 ## QEMU verified downloader: отказ и восстановление
 
 В OpenWrt 25.12.5 x86/64 отдельно вызвана только production-функция `download_verified_artifact` из `scripts/openwrt/install.sh`; installer не запускался. Для контролируемого отказа GitHub origin и два штатных HTTPS mirror временно направлены на loopback, старые VPS-IP блокировались отдельной nft output-таблицей, custom mirror был выключен. Helper вернул ошибку, не оставил файл назначения или `.download` временный файл. Затем включён локальный fixture mirror и повторён тот же запрос: helper принял только ожидаемые `26` байт с SHA-256 `406a2fd352e723f10cb93620be9b301e29b1e8e6d2ec2982aedc2f82411ca2e9`. Счётчики старых VPS-IP — `0`. После теста `/etc/hosts` восстановлен, временная nft-таблица удалена, осталась только `inet fw4`, локальный сервер остановлен, тестовые файлы удалены. Это проверяет fail-closed и восстановление транспортного helper на fixture-артефакте, но не является скачиванием или установкой product release.
+
+## QEMU диагностика и состав WARP адаптеров
+
+`scripts/openwrt/stage-rootfs.sh` включает `files/z2k-diag.sh`. OpenWrt-ветка `clock_skew_vs_relay` получает `Date` с прямого HTTPS Cloudflare/Google, а не с nip.io relay; `test_diag_clock_skew_vps_free.sh` прошёл `7/7`. В OpenWrt 25.12.5 x86/64 запущена только эта функция из временного файла при nft-блокировке старых VPS-IP: получено расхождение `0`, счётчики VPS — `0`. После проверки осталась штатная `inet fw4`, тестовые файлы и сервер удалены.
+
+Legacy `files/z2k-warp.sh` с VPS proxy default не включён в OpenWrt rootfs builder и не вызывается OpenWrt adapter; для платформы используется `platform/openwrt/warp.sh`. VPS default общего скрипта относится к Keenetic-пути, а OpenWrt adapter запускает регистрацию напрямую и отклоняет оба legacy VPS endpoint как proxy.
