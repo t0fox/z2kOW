@@ -1,32 +1,34 @@
-# Security
+# Безопасность z2kOW
 
-## Reporting a vulnerability
+## Сообщить об уязвимости
 
-Open an issue in this repository. If public details could put users at risk before a fix is available, state that in the issue without including exploit details so a private reporting channel can be arranged.
+Проверьте вкладку **Security** репозитория GitHub: если доступна приватная отправка сообщения об уязвимости (Private vulnerability reporting), используйте её. Не публикуйте рабочий эксплойт, секреты или адреса устройств в открытых обсуждениях до согласования исправления. Если приватный канал не включён, свяжитесь с сопровождающим проекта для согласования безопасного способа передачи деталей.
 
-## Update trust
+## Доверие к обновлениям
 
-The installer and updater run with root privileges. The first bootstrap is fetched over HTTPS from this repository; that first request depends on TLS and repository integrity. The bootstrap contains pinned Ed25519 release-key fingerprints. It verifies the controlled `UPDATES.json` signature before trusting the artifact URL, expected size, and SHA-256. The digest is checked against the complete OpenWrt rootfs archive before installation.
+Установщик и updater работают с правами `root`. Первичная загрузка bootstrap выполняется по HTTPS из репозитория и зависит от TLS и целостности этого источника. Bootstrap закрепляет отпечатки доверенных открытых ключей Ed25519 и проверяет подпись контролируемого `UPDATES.json` **до** принятия URL, ожидаемого размера и SHA-256 архивов.
 
-Production signing uses a private key held in the protected GitHub production environment. The public key and trusted key identifiers are distributed with the project. A signature protects release metadata and artifact selection against a compromised repository publishing unsigned or self-signed metadata; it does not protect against compromise of the signing environment or private key.
+Подпись относится к производственным метаданным. Приватный ключ хранится в защищённом окружении публикации GitHub, не в репозитории. Подпись не защищает от компрометации самого ключа или доверенной среды сборки.
 
-The installed release replaces product-owned paths and keeps `/etc/z2k` operator data outside the release payload. See [release operations](docs/openwrt-release-operations.md) for ownership and recovery behavior.
+Архив для нужной архитектуры проверяется до применения через `install_release(tag)`. Файлы продукта заменяются независимо от конфигурации оператора `/etc/z2k`. При сбое предусмотрены откат, журнал транзакции и восстановление при загрузке. Подробности — [операции с релизами](docs/openwrt-release-operations.md).
 
-## WebPanel exposure
+## Доступ к WebPanel
 
-The WebPanel listens on HTTP and defaults to the router's LAN address on port `8088`. It is intended for access from the local network. Do not expose it to the internet or forward its port from a WAN interface.
+Панель по умолчанию доступна на LAN-адресе маршрутизатора по HTTP, порт `8088`. **Не открывайте её в WAN и не пробрасывайте порт в интернет.**
 
-Panel password authentication is optional and disabled by default. When enabled, it adds a login boundary but does not make public exposure safe. Host and request-origin checks help prevent a web page from issuing unwanted requests through a user's browser; they do not protect against a device that can directly reach the panel on the LAN.
+Парольная авторизация необязательна и по умолчанию выключена. При её включении появляется дополнительная граница доступа, но сама панель от этого не становится безопасной для публичного интернета. Проверки заголовков запроса, хоста и источника помогают против нежелательных запросов из браузера, однако не защищают от устройства с прямым доступом к панели в LAN.
 
-## Security boundaries
+## Границы безопасности
 
-- Strategy selection state stays local on the device; remote strategy reporting has been removed.
-- The release signature and artifact digest protect release integrity; they do not hide network activity from an internet provider or prove that the application itself is benign.
-- Availability probes may accept test certificates or responses where they only measure reachability. They must not be treated as proof of a destination's identity.
-- Secrets embedded in public binaries or source must be treated as public. Device-generated identity material is a separate credential and should remain on the device.
-- The project does not claim that a successful source or fixture check proves safe behavior on every router model or filesystem.
+- Состояние выбора стратегий остаётся локальным; удалённая отправка статистики стратегий удалена.
+- Отсутствие обязательного VPS/WARP не делает трафик анонимным: провайдер и удалённые сайты могут наблюдать соответствующие соединения.
+- Доступные сетевые пробы измеряют связь; в отдельных режимах они не доказывают подлинность удалённого узла или безопасность сервиса.
+- Публичные ключи и строки в исходниках/бинарниках нельзя считать секретом. Уникальные регистрационные данные устройства следует хранить локально.
+- Telegram Rust — альфа-функция с отдельными ограничениями и стадиями приёмки; успешная сборка, CI или QEMU-smoke не гарантируют корректную обработку реальных Android/iOS/Desktop-сессий.
+- Наличие функции в меню не доказывает её доступность на данном ABI или физическом роутере.
+- Изменение dnsmasq, nftables и policy routing должно ограничиваться принадлежащими z2kOW правилами; чужую конфигурацию нельзя удалять ради упрощения восстановления.
+- Подпись защищает происхождение релизных метаданных и целостность файла, но не доказывает отсутствие вредоносного поведения в самом исходном коде.
 
+## Правовая граница
 
-## Legal and deployment boundary
-
-Security guarantees do not imply that every network configuration is permitted in every jurisdiction or network. Operators are responsible for reviewing applicable requirements and third-party terms before deployment. See [LEGAL.md](LEGAL.md) for the project's public use-policy and documentation boundary.
+Технические меры безопасности не означают, что любая настройка разрешена в любой сети. Пользователь отвечает за выбор конфигурации, соблюдение применимых правил и условий сторонних сервисов. См. [LEGAL.md](LEGAL.md).
