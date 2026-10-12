@@ -285,3 +285,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Повторные RT proxy регрессии на текущем HEAD
 
 12 октября 2026 года на `164df65a` повторно запущены изолированные suites RuTracker proxy: static `70/70`, DNS `41/41`, firewall `43/43`, SO_MARK `17/17`. Итого `171/171`, ошибок нет. Это локальные проверки адаптера и сетевой политики; они не заменяют архитектурный QEMU E2E и проверку доступности стороннего proxy pool.
+
+## Runtime artifact и OpenWrt archmap
+
+12 октября 2026 года на `18be002d` `test_ow_runtime_artifact.sh` прошёл `29/29` на архиве, загруженном по URL из `platform/openwrt/runtime-pin`: размер `4 339 405` байт, SHA-256 `02eec373b093083b426c27191bb6af260ac51e4e2739c51270270a351d2a1a16`. Suite подтвердил наличие `nfqws2`, `ip2net` и `mdig` для семи OpenWrt архитектур и запуск закреплённого x86/64 движка. `test_ow_warp_archmap.sh` прошёл `6/6`. Архив удалён после теста; продуктовый release builder не запускался.
