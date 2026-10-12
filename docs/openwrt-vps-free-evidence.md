@@ -190,3 +190,7 @@ Fault injection: запись нового hosts-файла и reload dnsmasq з
 ## Повторные env/cron/WARP регрессии
 
 На feature-ветке после QEMU Insta-IP fault-injection прошли `test_ow_env.sh` (`34/34`), `test_ow_schedule.sh` (`40/40`), `test_ow_warp_static.sh` (`92/92`), `test_ow_warp_parity.sh` (`39/39`) и `test_ow_warp_archmap.sh` (`6/6`) — всего `211/211`. Они проверяют OpenWrt окружение, cron entry points, фильтрацию старого VPS proxy и архитектурную карту WARP; не подтверждают регистрацию Cloudflare, работу туннеля или lifecycle полного installer. WARP остаётся опциональной функцией.
+
+## Повторные fetch/geosite регрессии
+
+На feature-ветке повторно прошли `test_fetch_vps_layer_budget.sh` (`48/48`), `test_geosite_vps_independence.sh` (`1/1`), `test_geosite_cache_survives_reinstall.sh` (`41/41`), `test_geosite_apply_guard.sh` (`17/17`), `test_geosite_inject.sh` (`19/19`) и `test_geosite_rkn_asset.sh` (`9/9`) — всего `135/135`. Проверены retry/fallback общего fetch, прямой OpenWrt path с независимыми зеркалами и сохранение geosite cache/ETag и пользовательских данных. Это локальные тесты, не полный подписанный install/update на устройстве.
