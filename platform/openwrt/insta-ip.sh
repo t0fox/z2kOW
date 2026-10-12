@@ -135,7 +135,7 @@ z2k_ow_insta_resolve_hosts() {
     local _hosts="$*" _cache="${Z2K_INSTA_CACHE_FILE:-${Z2K_STATE:-/etc/z2k/state}/insta-ip-candidates}"
     local _now="${Z2K_INSTA_NOW:-$(date +%s)}" _grace="${Z2K_INSTA_CACHE_STALE_GRACE:-86400}"
     local _budget="${Z2K_INSTA_DOH_TOTAL_TIMEOUT:-30}" _started _deadline _deadline_hit=0
-    local _remaining _request_timeout
+    local _remaining _request_timeout _cache_lines_before _cache_lines_after _cache_used=0
     local _work="${_cache}.z2k.$$" _host _endpoint _name _ip _path _rest _tmp _result _found _rc
     case "$_now" in ''|*[!0-9]*) return 1 ;; esac
     case "$_grace" in ''|*[!0-9]*) _grace=86400 ;; esac
@@ -215,17 +215,25 @@ z2k_ow_insta_resolve_hosts() {
         # ограниченный устаревший кэш; HTTPS/SNI probe проверит адреса.
         if ! grep -q " $_host " "$_work" 2>/dev/null; then
             if [ -r "$_cache" ]; then
+                _cache_lines_before=$(wc -l < "$_result") || { rm -f "$_work" "$_tmp" "$_result"; return 1; }
                 awk -v h="$_host" -v now="$_now" -v grace="$_grace" \
                     '$2==h && $1+grace>=now {print $2 "\t" $3}' "$_cache" >> "$_result" \
                     || { rm -f "$_work" "$_tmp" "$_result"; return 1; }
+                _cache_lines_after=$(wc -l < "$_result") || { rm -f "$_work" "$_tmp" "$_result"; return 1; }
+                [ "$_cache_lines_after" -le "$_cache_lines_before" ] || _cache_used=1
                 awk -v h="$_host" -v now="$_now" -v grace="$_grace" \
                     '$2==h && $1+grace>=now {print}' "$_cache" >> "$_work" \
                     || { rm -f "$_work" "$_tmp" "$_result"; return 1; }
             fi
         fi
     done
-    [ "$_deadline_hit" = 0 ] || printf '%s\n' \
-        "Срок прямых DoH-запросов исчерпан; использованы доступные записи кэша" >&2
+    if [ "$_deadline_hit" = 1 ]; then
+        if [ "$_cache_used" = 1 ]; then
+            printf '%s\n' "Срок прямых DoH-запросов исчерпан; использованы доступные записи кэша" >&2
+        else
+            printf '%s\n' "Срок прямых DoH-запросов исчерпан; кэш не предоставил доступных записей" >&2
+        fi
+    fi
     rm -f "$_tmp"
     if [ "$_found" = 1 ]; then
         sort -u "$_work" -o "$_work" || { rm -f "$_work"; return 1; }

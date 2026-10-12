@@ -184,7 +184,7 @@ STUB
 chmod 0755 "$T/bin/date" "$T/bin/curl"
 export Z2K_INSTA_DOH_TOTAL_TIMEOUT=5
 : > "$INSTA_DOH_TEST_LOG"
-_deadline_candidates=$(z2k_ow_insta_resolve_hosts instagram.com www.instagram.com 2>/dev/null)
+_deadline_candidates=$(z2k_ow_insta_resolve_hosts instagram.com www.instagram.com 2>"$T/deadline.log")
 if [ -n "$_deadline_candidates" ]; then
     printf '%s\n' "$_deadline_candidates" | grep -q 'instagram.com[[:space:]]157.240.1.1' \
         && _t_ok || _t_bad "до deadline возвращён кэш первого hostname"
@@ -199,9 +199,39 @@ if [ -n "$_deadline_candidates" ]; then
         || _t_bad "последний curl ограничен оставшимся временем deadline"
     _deadline_cache_after=$(sha256sum "$Z2K_INSTA_CACHE_FILE" | awk '{print $1}')
     assert_eq "отказ resolver не меняет кэш" "$_deadline_cache_hash" "$_deadline_cache_after"
+    grep -Fq 'Срок прямых DoH-запросов исчерпан; использованы доступные записи кэша' "$T/deadline.log" \
+        && _t_ok || _t_bad "при наличии кандидатов журнал сообщает об использовании кэша"
 else
     _t_bad "при отказе DoH возвращается допустимый кэш"
 fi
+unset Z2K_INSTA_DOH_TOTAL_TIMEOUT
+
+# При пустом кэше журнал не должен сообщать, что были использованы кэшированные адреса.
+rm -f "$Z2K_INSTA_CACHE_FILE"
+printf '0\n' > "$T/date.calls"
+cat > "$T/bin/date" <<'STUB'
+#!/bin/sh
+n=$(cat "$T/date.calls")
+n=$((n + 1))
+printf '%s\n' "$n" > "$T/date.calls"
+case "$n" in 1) echo 100 ;; 2) echo 100 ;; 3) echo 101 ;; 4) echo 101 ;; 5) echo 102 ;; *) echo 106 ;; esac
+STUB
+chmod 0755 "$T/bin/date"
+export Z2K_INSTA_DOH_TOTAL_TIMEOUT=5
+: > "$INSTA_DOH_TEST_LOG"
+_empty_result="$T/empty-cache.out"
+_empty_log="$T/empty-cache.log"
+if z2k_ow_insta_resolve_hosts instagram.com > "$_empty_result" 2> "$_empty_log"; then
+    _empty_rc=0
+else
+    _empty_rc=$?
+fi
+[ "$_empty_rc" -ne 0 ] && _t_ok || _t_bad "при пустом кэше resolver сообщает об отказе"
+[ ! -s "$_empty_result" ] && _t_ok || _t_bad "при пустом кэше resolver не возвращает адрес"
+[ ! -e "$Z2K_INSTA_CACHE_FILE" ] && _t_ok || _t_bad "при полном DoH-отказе пустой кэш не создаётся"
+grep -Fq 'Срок прямых DoH-запросов исчерпан; кэш не предоставил доступных записей' "$_empty_log" \
+    && _t_ok || _t_bad "журнал сообщает, что кэш пуст"
+[ -s "$INSTA_DOH_TEST_LOG" ] && _t_ok || _t_bad "DoH-отказ воспроизведён до исчерпания бюджета"
 unset Z2K_INSTA_DOH_TOTAL_TIMEOUT
 PATH=$_path_before_deadline
 export PATH
