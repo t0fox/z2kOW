@@ -575,3 +575,13 @@ QEMU user-mode исполнил `z2k-warpd version` и `z2k-rt-proxy --help` д�
 ## Повторные проверки updater lifecycle
 
 12 октября повторно прошли изолированные OpenWrt suites: lifecycle `27/27`, recovery `13/13`, update entry `12/12`, updater failsafe `5/5`, updater state `7/7` — итого `64/64`. `test_ow_upgrade_acceptance.py` прошёл `2/2` на синтетических Ed25519-подписанных baseline/candidate fixture. Эти проверки покрывают локальные переходы состояния, fail-safe и валидатор приёмочной квитанции; они не устанавливают production archive и не доказывают чистую установку, реальное обновление/rollback или удаление продукта на полном OpenWrt rootfs.
+
+## QEMU: полный Insta-IP refresh при пустом кэше и отказе DoH
+
+В OpenWrt 25.12.5 x86/64 QEMU повторно запущен production `z2k-insta-ip-refresh.sh` с актуальным adapter, настоящими UCI и dnsmasq. Временный nft output chain молча отбрасывал TCP/443 к трём DoH resolver и обоим старым VPS (`213.176.74.63`, `79.137.196.7`); общий бюджет DNS был снижен до 5 секунд, кэш кандидатов пуст. До запуска в тестовом host-файле были две Instagram-записи и пользовательская `user.example`.
+
+Refresh зарегистрировал свой `addnhosts` через UCI и перезапустил настоящий dnsmasq, затем завершился с ненулевым кодом после отказа resolver. SHA-256 host-файла остался `590eed96e16c666ad8da1a72e548c06c75fd1539953cdc5fdfb6fb0326cf2845`; UCI include и runtime `addn-hosts` оставались активны, `nslookup instagram.com 127.0.0.1` вернул прежний `157.240.1.1`. Старые VPS counters — 0. Это подтверждает, что при пустом кэше отказ не удаляет рабочие DNS-записи, а возвращает ошибку примерно после заданного общего бюджета.
+
+После теста UCI-конфиг восстановлен из точной копии (`/etc/config/dhcp` SHA-256 до/после `c43757c2778625fb709c0f6124c50173c6330641dc1426d20a8766481bf3fe40`), dnsmasq перезапущен; временная nft-таблица и каталог fixture удалены, осталась только `inet fw4`. WAN сохранил маршрут через `10.0.2.2`, прямой запрос к GitHub API вернул HTTP 200. Очистку UCI в этом отказном harness выполнил восстановлением backup, поэтому этот прогон не засчитывается как проверка штатного uninstall.
+
+В тот же день повторно прошли transport regressions: direct-first `13/13`, VPS-layer budget `48/48`, geosite VPS independence `4/4`, WARP fetch-chain `3/3`, OpenWrt list-refresh adapter `9/9`. Они проверяют локальные call paths; результат не заменяет запуск cron-driven list refresh на установленном полном продукте.
