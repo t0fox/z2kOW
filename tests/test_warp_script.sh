@@ -67,7 +67,12 @@ cat > "$SB/bin/z2k-warpd-stub" <<EOF
 #!/bin/sh
 echo "\$*" >> "$SB/warpd.log"
 case "\$1" in
-    register) [ -f "$SB/reg.fail" ] && { echo "register_blocked boom" >&2; exit 1; }; echo '{"id":"dev"}' > "$SB/etc/device.json"; exit 0 ;;
+    register)
+        case "\$*" in
+            *--proxy*) [ -f "$SB/reg.proxyfail" ] && { echo "register_blocked proxy" >&2; exit 1; } ;;
+            *) [ -f "$SB/reg.fail" ] && { echo "register_blocked boom" >&2; exit 1; } ;;
+        esac
+        echo '{"id":"dev"}' > "$SB/etc/device.json"; exit 0 ;;
     license)
         cat >> "$SB/license.stdin"; echo >> "$SB/license.stdin"
         case "\$*" in
@@ -119,7 +124,19 @@ touch "$SB/reg.fail"; rm -f "$SB/etc/device.json"
 rc=0; out=$(W install 2>&1) || rc=$?
 assert_eq "install: register failure → rc 1" "1" "$rc"
 assert_eq "install: register failure reported with code" "yes" "$(printf '%s' "$out" | grep -q register_blocked && echo yes || echo no)"
+assert_eq "install: no explicit proxy means no proxy retry" "0" "$(grep -c '^register .*--proxy' "$SB/warpd.log" 2>/dev/null || true)"
 rm -f "$SB/reg.fail"
+printf '{"iface":"z2ktun0","id":"dev","endpoint":{"v4":"8.6.112.0","h2":"162.159.198.2"}}\n' > "$SB/etc/device.json"
+
+# Явная пользовательская настройка сохраняется без встроенного VPS по умолчанию.
+printf 'GAME_WARP_ENABLED=0\nZ2K_WARP_VPS_PROXY=http://proxy.example:8080\n' > "$SB/z2k/config"
+touch "$SB/reg.fail"; rm -f "$SB/etc/device.json"; : > "$SB/warpd.log"
+rc=0; W install >/dev/null 2>&1 || rc=$?
+assert_eq "install: configured proxy can complete registration" "0" "$rc"
+assert_eq "install: direct registration is attempted before proxy" "1" "$(grep -c '^register --device .*device.json$' "$SB/warpd.log")"
+assert_eq "install: retry uses only configured proxy" "1" "$(grep -c '^register --device .*device.json --proxy http://proxy.example:8080$' "$SB/warpd.log")"
+rm -f "$SB/reg.fail"
+printf 'GAME_WARP_ENABLED=0\n' > "$SB/z2k/config"
 printf '{"iface":"z2ktun0","id":"dev","endpoint":{"v4":"8.6.112.0","h2":"162.159.198.2"}}\n' > "$SB/etc/device.json"
 
 # ---------- enable (ready) ----------
@@ -226,6 +243,16 @@ assert_eq "отказ Cloudflare: скрытый proxy fallback не запус�
 assert_eq "отказ Cloudflare: текст отказа виден" "1" "$(printf '%s' "$out" | grep -c 'Invalid license')"
 rm -f "$SB/lic."* "$SB/etc/account.json"
 
+# Явно настроенный proxy доступен только после сетевого отказа; встроенного
+# адреса по умолчанию нет. Отказ Cloudflare (код 3) выше не повторялся.
+printf 'GAME_WARP_ENABLED=0\nZ2K_WARP_VPS_PROXY=http://proxy.example:8080\n' > "$SB/z2k/config"
+touch "$SB/lic.directfail"; clearlogs
+rc=0; printf 'AbC12345-dEf67890-GhI13579' | W license >/dev/null 2>&1 || rc=$?
+assert_eq "явный proxy: проверка WARP+ проходит после сетевого отказа" "0" "$rc"
+assert_eq "явный proxy: передана пользовательская настройка" "1" "$(grep -c '^license --device .*--proxy http://proxy.example:8080$' "$SB/warpd.log")"
+rm -f "$SB/lic."*
+printf 'GAME_WARP_ENABLED=0\n' > "$SB/z2k/config"
+
 # ---------- enable (no binary) ----------
 clearlogs; W disable >/dev/null 2>&1; clearlogs; mv "$SB/sbin/z2k-warpd" "$SB/sbin/z2k-warpd.off"
 rc=0; W enable >/dev/null 2>&1 || rc=$?
@@ -313,7 +340,7 @@ clearlogs
 W selfheal >/dev/null 2>&1
 assert_eq "selfheal registration: disabled WARP performs no registration or start" "0" "$(cat "$SB/warpd.log" "$SB/s51.log" 2>/dev/null | grep -Ec '^(register |start$)' || true)"
 assert_eq "selfheal registration: shared helper is defined once" "1" "$(grep -c '^warp_register() {' "$SB/z2k/z2k-warp.sh")"
-assert_eq "selfheal registration: register invocations stay centralized" "1" "$(grep -c '"\$WARP_BIN" register' "$SB/z2k/z2k-warp.sh")"
+assert_eq "selfheal registration: direct and configured-proxy attempts stay centralized" "2" "$(grep -c '"\$WARP_BIN" register' "$SB/z2k/z2k-warp.sh")"
 assert_eq "selfheal registration: selfheal checks device identity" "1" "$(sed -n '/^warp_selfheal() {/,/^}/p' "$SB/z2k/z2k-warp.sh" | grep -c 'WARP_DEVICE')"
 printf 'GAME_WARP_ENABLED=1\n' > "$SB/z2k/config"
 printf '{"iface":"z2ktun0","id":"dev","endpoint":{"v4":"8.6.112.0","h2":"162.159.198.2"}}\n' > "$SB/etc/device.json"

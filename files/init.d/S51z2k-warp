@@ -20,6 +20,15 @@ _cfg="${ZAPRET2_DIR:-/opt/zapret2}/config"
 # Go async-preempt роняет процесс на MIPS (известный краш) — выключаем.
 case "$(uname -m)" in mips*) export GODEBUG=asyncpreemptoff=1 ;; esac
 
+# Передаём только явно сохранённый proxy. Исторический встроенный VPS default
+# удалён; при отсутствии настройки движок подключается напрямую.
+_proxy=$(grep -m1 '^Z2K_WARP_VPS_PROXY=' "$_cfg" 2>/dev/null | cut -d= -f2- | tr -d "\"' ")
+if [ -n "$_proxy" ]; then
+    export Z2K_WARP_VPS_PROXY="$_proxy"
+else
+    unset Z2K_WARP_VPS_PROXY
+fi
+
 # Транспорт, выбранный в панели: auto (умолчание), wg или h2. Передаётся
 # переменной окружения, а не флагом: движок старой сборки флага не знает и
 # упал бы на разборе аргументов, а переменную просто не увидит и пойдёт

@@ -72,6 +72,10 @@ WARP_LEGACY_LIST="${WARP_LEGACY_LIST:-$ZAPRET2_DIR/lists/game-warp-ips.txt}"
 WARP_LEGACY_BIN="${WARP_LEGACY_BIN:-/opt/sbin/z2k-usque}"
 WARP_LEGACY_INIT="${WARP_LEGACY_INIT:-/opt/etc/init.d/S51usque}"
 WARP_LEGACY_DIR="${WARP_LEGACY_DIR:-/opt/etc/z2k-warp}"
+# Явно настроенный оператором proxy остаётся доступен в Keenetic; встроенного
+# VPS по умолчанию нет. OpenWrt использует отдельный адаптер и фильтрует legacy endpoint.
+[ -f "$CONFIG_FILE" ] && _warp_cfg_proxy=$(grep -m1 '^Z2K_WARP_VPS_PROXY=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"')
+WARP_VPS_PROXY="${WARP_VPS_PROXY:-${_warp_cfg_proxy:-}}"
 _wlog() {
     if [ -n "${Z2K_JOB_ID:-}" ]; then
         local _epoch
@@ -533,8 +537,9 @@ warp_fetch_engine() {
     return 0
 }
 
-# Регистрация Cloudflare выполняется напрямую. Есть device.json — движок его
-# проверяет, новое устройство не заводится.
+# Регистрация Cloudflare идёт напрямую; только при сетевом отказе пробуется
+# явно настроенный proxy. Встроенного VPS fallback нет. Есть device.json —
+# движок его проверяет, новое устройство не заводится.
 #
 # Вынесено из warp_install ОТДЕЛЬНОЙ функцией, потому что регистрация нужна не
 # только под кнопкой «Установить». Без device.json движок падает на старте, а
@@ -550,6 +555,9 @@ warp_register() {
     fi
     if out=$("$WARP_BIN" register --device "$WARP_DEVICE" 2>&1); then
         _wlog "$out"; return 0
+    fi
+    if [ -n "$WARP_VPS_PROXY" ] && out=$("$WARP_BIN" register --device "$WARP_DEVICE" --proxy "$WARP_VPS_PROXY" 2>&1); then
+        _wlog "через настроенный proxy: $out"; return 0
     fi
     _wlog "${out:-register_blocked}"
     return 1
@@ -752,13 +760,18 @@ warp_restart() {
 }
 
 # Ключ WARP+ со stdin — в движок тоже через stdin (z2k-warpd license): в
-# аргументах он был бы виден в списке процессов. Проверка выполняется напрямую.
+# аргументах он был бы виден в списке процессов. Сначала напрямую; при
+# сетевом отказе (код 1) можно повторить через явно настроенный proxy.
 warp_license() {
     local key out rc
     [ -x "$WARP_BIN" ] || { _wlog "движок не установлен — нажмите «Установить»"; return 4; }
     key=$(cat)
     _wlog "передаю ключ WARP+ на проверку через Cloudflare"
     out=$(printf '%s' "$key" | "$WARP_BIN" license --device "$WARP_DEVICE" 2>&1); rc=$?
+    if [ "$rc" = "1" ] && [ -n "$WARP_VPS_PROXY" ]; then
+        _wlog "напрямую Cloudflare не ответил — пробую через настроенный proxy..."
+        out=$(printf '%s' "$key" | "$WARP_BIN" license --device "$WARP_DEVICE" --proxy "$WARP_VPS_PROXY" 2>&1); rc=$?
+    fi
     printf '%s\n' "$out"
     return "$rc"
 }

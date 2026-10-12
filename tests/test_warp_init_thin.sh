@@ -51,6 +51,7 @@ cat > "$SB/fake-warpd-$$" <<EOF
 echo "GODEBUG=\$GODEBUG" > "$SB/env"
 echo "ARGS=\$*" >> "$SB/env"
 echo "TRANSPORT=\${Z2K_WARP_TRANSPORT-unset}" >> "$SB/env"
+echo "PROXY=\${Z2K_WARP_VPS_PROXY-unset}" >> "$SB/env"
 trap 'kill \$c 2>/dev/null; exit 0' TERM INT
 sleep 30 & c=\$!
 wait \$c
@@ -63,6 +64,7 @@ assert_eq "start writes pidfile" "yes" "$([ -s "$SB/pid" ] && echo yes || echo n
 pid=$(cat "$SB/pid")
 assert_eq "started process is alive" "alive" "$(kill -0 "$pid" 2>/dev/null && echo alive || echo dead)"
 assert_eq "engine started with 'run'" "ARGS=run" "$(grep ARGS "$SB/env")"
+assert_eq "без настройки не экспортируется VPS proxy default" "PROXY=unset" "$(grep PROXY "$SB/env")"
 
 BIN="$SB/fake-warpd-$$" PIDFILE="$SB/pid" sh "$INIT" start >/dev/null 2>&1
 sleep 1
@@ -147,6 +149,15 @@ for _case in "wg:wg" "h2:h2" "auto:unset" "udp:unset" "'h2':h2"; do
     BIN="$SB/fake-warpd-$$" PIDFILE="$SB/pid" sh "$INIT" stop >/dev/null 2>&1
     sleep 1
 done
+
+# Сохраняем пользовательский proxy, когда он явно записан в конфиге.
+printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_VPS_PROXY=http://proxy.example:8080\n' > "$SB/zd/config"
+rm -f "$SB/env"
+BIN="$SB/fake-warpd-$$" PIDFILE="$SB/pid" sh "$INIT" start >/dev/null 2>&1
+sleep 1
+assert_eq "явный пользовательский proxy передан движку" "PROXY=http://proxy.example:8080" "$(grep PROXY "$SB/env")"
+BIN="$SB/fake-warpd-$$" PIDFILE="$SB/pid" sh "$INIT" stop >/dev/null 2>&1
+sleep 1
 
 printf "\nPASSED: %d\nFAILED: %d\n" "$TESTS_PASSED" "$TESTS_FAILED"
 [ "$TESTS_FAILED" -eq 0 ]
