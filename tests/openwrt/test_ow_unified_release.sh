@@ -57,7 +57,8 @@ EOF_WGET_FAIL
 chmod 0755 "$T/download-failure-bin/wget"
 _download_error="$(PATH="$T/download-failure-bin:$PATH" \
     z2k_ow_download 'https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs-arm64.tar.gz' \
-    "$T/openwrt-rootfs-arm64.tar.gz.part" 2>&1)"
+    "$T/openwrt-rootfs-arm64.tar.gz.part" \
+    79cd59af3d8596dc51ae8bfa926f2071679f1b4b67c3d8756a449ce6f2a479ef 14 2>&1)"
 _download_rc=$?
 if [ "$_download_rc" -eq 37 ] \
     && printf '%s\n' "$_download_error" | grep -qF 'не удалось скачать архив выпуска' \
@@ -66,6 +67,50 @@ if [ "$_download_rc" -eq 37 ] \
     _t_ok
 else
     _t_bad "ошибка загрузки сообщает причину, код возврата и временный путь: rc=$_download_rc output=$_download_error"
+fi
+
+# Зеркало разрешено использовать только после сверки размера и digest,
+# подписанных в UPDATES.json. В тесте первичный источник и первое зеркало
+# возвращают чужие байты, второе зеркало — ожидаемый архив.
+mkdir -p "$T/mirror-bin"
+cat > "$T/mirror-bin/wget" <<'EOF_WGET_MIRRORS'
+#!/bin/sh
+out= url=
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -O) out="$2"; shift 2 ;;
+        -*) shift ;;
+        *) url="$1"; shift ;;
+    esac
+done
+printf '%s\n' "$url" >> "$Z2K_OW_DOWNLOAD_LOG"
+case "$url" in
+    https://github.com/*) printf 'wrong-primary' > "$out"; exit 0 ;;
+    https://ghproxy.net/*) printf 'wrong-mirror' > "$out"; exit 0 ;;
+    https://gh-proxy.com/*) printf 'verified-data' > "$out"; exit 0 ;;
+    *) exit 90 ;;
+esac
+EOF_WGET_MIRRORS
+chmod 0755 "$T/mirror-bin/wget"
+_expected_sha=$(printf verified-data | sha256sum | awk '{print $1}')
+export Z2K_OW_DOWNLOAD_LOG="$T/download.log"
+if PATH="$T/mirror-bin:$PATH" z2k_ow_download \
+    'https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs-arm64.tar.gz' \
+    "$T/mirrored.tar.gz" "$_expected_sha" 13; then
+    assert_eq "release downloader chooses the first independently verified mirror" "verified-data" "$(cat "$T/mirrored.tar.gz")"
+    assert_contains "release downloader tries direct HTTPS first" "$Z2K_OW_DOWNLOAD_LOG" 'https://github.com/'
+    assert_contains "release downloader tries independent mirror domains" "$Z2K_OW_DOWNLOAD_LOG" 'https://ghproxy.net/'
+    assert_contains "release downloader reaches second mirror after digest mismatch" "$Z2K_OW_DOWNLOAD_LOG" 'https://gh-proxy.com/'
+else
+    _t_bad "release downloader should reach a digest-valid mirror"
+fi
+if PATH="$T/download-failure-bin:$PATH" z2k_ow_download \
+    'https://github.com/t0fox/z2kOW/releases/download/p-86.13/openwrt-rootfs-arm64.tar.gz' \
+    "$T/all-sources-failed.tar.gz" "$_expected_sha" 13 >/dev/null 2>&1; then
+    _t_bad "all release sources unavailable must fail"
+else
+    [ ! -e "$T/all-sources-failed.tar.gz" ] && _t_ok \
+        || _t_bad "failed mirror attempts must not leave a partial release archive"
 fi
 printf "DISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"
 export Z2K_OW_OPENWRT_RELEASE_FILE="$T/openwrt_release"

@@ -98,6 +98,21 @@ case "$url" in
             cp "$Z2K_TEST_ARTIFACT" "$dest"
             printf '\001' | dd of="$dest" bs=1 seek=0 conv=notrunc 2>/dev/null
         else cp "$Z2K_TEST_ARTIFACT" "$dest"; fi ;;
+    https://raw.githubusercontent.com/t0fox/z2kOW/main/UPDATES.json) exit 19 ;;
+    https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main/UPDATES.json)
+        cp "$Z2K_TEST_PROD_MANIFEST" "$dest" ;;
+    https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main/UPDATES.json.sig)
+        cp "$Z2K_TEST_PROD_SIGNATURE" "$dest" ;;
+    https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main/scripts/openwrt/release-keys/*.pub)
+        cp "$Z2K_TEST_PUBKEY" "$dest" ;;
+    https://github.com/t0fox/z2kOW/releases/download/*/openwrt-rootfs.tar.gz)
+        cp "$Z2K_TEST_ARTIFACT" "$dest"
+        if [ "${Z2K_TEST_PROD_BAD_DIRECT:-0}" = 1 ]; then printf '\001' | dd of="$dest" bs=1 seek=0 conv=notrunc 2>/dev/null; fi ;;
+    https://ghproxy.net/https://github.com/t0fox/z2kOW/releases/download/*/openwrt-rootfs.tar.gz)
+        cp "$Z2K_TEST_ARTIFACT" "$dest"
+        printf '\001' | dd of="$dest" bs=1 seek=0 conv=notrunc 2>/dev/null ;;
+    https://gh-proxy.com/https://github.com/t0fox/z2kOW/releases/download/*/openwrt-rootfs.tar.gz)
+        cp "$Z2K_TEST_ARTIFACT" "$dest" ;;
     *) echo "unexpected URL: $url" >&2; exit 19 ;;
 esac
 WGET
@@ -236,6 +251,37 @@ assert_contains "bad signature is rejected by Ed25519 verification" "$T/bad-sign
 Z2K_TEST_BAD_SIGNATURE=0 Z2K_TEST_BAD_ARTIFACT=1 sh "$INSTALLER" > "$T/bad-artifact.out" 2>&1 && _t_bad "bad artifact was accepted"
 [ -f "$T/install-call" ] && _t_bad "bad artifact reached install_release" || _t_ok
 assert_contains "изменённый архив того же размера отклоняется по SHA-256" "$T/bad-artifact.out" "SHA-256 архива файлов роутера не совпал"
+
+# Production bootstrap перезапрашивает подписанную пару с независимого mirror,
+# когда прямой GitHub недоступен. Для самого архива первый источник и первое
+# зеркало дают неверный digest; второй mirror должен вернуть только точные байты.
+python3 - "$T/UPDATES.json" "$T/UPDATES.production.json" <<'PY'
+import json,sys
+source,destination=sys.argv[1:]
+value=json.load(open(source,encoding="utf-8"))
+value["artifact"]["url"]="https://github.com/t0fox/z2kOW/releases/download/openwrt-42e4dfa791bf53314fecbc75919df50fa6739088/openwrt-rootfs.tar.gz"
+with open(destination,"w",encoding="utf-8") as stream:
+    json.dump(value,stream,separators=(",",":"))
+PY
+openssl pkeyutl -sign -rawin -inkey "$T/test.key" -in "$T/UPDATES.production.json" -out "$T/UPDATES.production.json.sig" || exit 1
+sed "s/^BOOTSTRAP_TRUSTED_KEY_IDS=.*/BOOTSTRAP_TRUSTED_KEY_IDS=\"$TEST_KEY_ID\"/" \
+    "$INSTALLER" > "$T/production-installer.sh"
+grep -q "BOOTSTRAP_TRUSTED_KEY_IDS=\"$TEST_KEY_ID\"" "$T/production-installer.sh" \
+    || _t_bad "production mirror fixture uses its test trust key"
+rm -f "$T/install-call" "$SYS/etc/z2k/state/installed-release" "$T/wget.log" "$T/apk.log"
+if env -u Z2KOW_MANIFEST_URL -u Z2KOW_TRUST_KEY \
+    Z2K_TEST_PRODUCTION_MIRROR=1 Z2K_TEST_PROD_MANIFEST="$T/UPDATES.production.json" \
+    Z2K_TEST_PROD_SIGNATURE="$T/UPDATES.production.json.sig" Z2K_TEST_PUBKEY="$T/test.pub" \
+    Z2K_TEST_PROD_BAD_DIRECT=1 sh "$T/production-installer.sh" > "$T/mirror-out" 2>&1; then
+    _t_ok
+else
+    _t_bad "production bootstrap should verify CDN metadata and fall through bad artifact mirrors: $(cat "$T/mirror-out")"
+fi
+assert_eq "verified mirror bootstrap enters install_release" p-86.13 "$(cat "$T/install-call" 2>/dev/null)"
+assert_contains "bootstrap retries signed manifest through jsDelivr" "$T/wget.log" 'https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main/UPDATES.json'
+assert_contains "artifact downloader tries direct GitHub first" "$T/wget.log" 'https://github.com/t0fox/z2kOW/releases/download/'
+assert_contains "artifact downloader rejects first wrong mirror" "$T/wget.log" 'https://ghproxy.net/https://github.com/'
+assert_contains "artifact downloader reaches second mirror" "$T/wget.log" 'https://gh-proxy.com/https://github.com/'
 
 # Даже корректно подписанный архив не должен извлекать движок через опасную ссылку.
 cp -a "$T/payload" "$T/unsafe-payload"

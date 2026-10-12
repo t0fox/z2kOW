@@ -184,24 +184,44 @@ z2k_ow_path() {
 }
 
 z2k_ow_download() {
-    _url="$1" _out="$2"
-    if command -v wget >/dev/null 2>&1; then
-        if wget -q -T 60 -O "$_out" "$_url"; then
-            return 0
-        else
-            _download_rc=$?
-        fi
-    elif command -v curl >/dev/null 2>&1; then
-        if curl --fail --location --silent --show-error --connect-timeout 10 --max-time 180 -o "$_out" "$_url"; then
-            return 0
-        else
-            _download_rc=$?
-        fi
-    else
+    _url="$1" _out="$2" _expected_sha="${3:-}" _expected_size="${4:-}"
+    printf '%s' "$_url" | grep -Eq '^https://[^/]+/.+' || return 1
+    printf '%s' "$_expected_sha" | grep -Eq '^[0-9a-f]{64}$' || {
+        echo "z2k-openwrt: отказ от загрузки архива без подписанного SHA-256" >&2
+        return 1
+    }
+    case "$_expected_size" in ''|0|*[!0-9]*) return 1 ;; esac
+    _mirror_path="$_url"
+    _sources="$_url https://ghproxy.net/$_mirror_path https://gh-proxy.com/$_mirror_path ${Z2K_OW_RELEASE_MIRRORS:-}"
+    _tmp="${_out}.download.$$"
+    _download_rc=1
+    if ! command -v wget >/dev/null 2>&1 && ! command -v curl >/dev/null 2>&1; then
         echo "z2k-openwrt: нужна программа для защищённой загрузки (wget или curl)" >&2
         return 1
     fi
-    echo "z2k-openwrt: не удалось скачать архив выпуска: адрес $_url; временный файл $_out; код ошибки $_download_rc" >&2
+    for _candidate in $_sources; do
+        case "$_candidate" in https://*/*) ;; *) continue ;; esac
+        rm -f "$_tmp"
+        if command -v wget >/dev/null 2>&1; then
+            wget -q -T 60 -O "$_tmp" "$_candidate" || _download_rc=$?
+        else
+            curl --fail --location --silent --show-error --connect-timeout 10 --max-time 180 \
+                -o "$_tmp" "$_candidate" || _download_rc=$?
+        fi
+        if [ -s "$_tmp" ]; then
+            _actual_size=$(wc -c < "$_tmp" 2>/dev/null | tr -d ' \t\r\n')
+            _actual_sha=$(sha256sum "$_tmp" 2>/dev/null | awk '{print $1}')
+            if [ "$_actual_size" = "$_expected_size" ] && [ "$_actual_sha" = "$_expected_sha" ]; then
+                mv -f "$_tmp" "$_out" || { rm -f "$_tmp"; return 1; }
+                echo "z2k-openwrt: архив получен и сверён по SHA-256: $_candidate" >&2
+                return 0
+            fi
+            echo "z2k-openwrt: источник $_candidate отклонён: размер или SHA-256 не совпал" >&2
+            _download_rc=1
+        fi
+    done
+    rm -f "$_tmp"
+    echo "z2k-openwrt: не удалось скачать архив выпуска после проверки источников: адрес $_url; временный файл $_tmp; код ошибки $_download_rc" >&2
     return "$_download_rc"
 }
 
@@ -1644,7 +1664,7 @@ _z2k_ow_install_release_locked() {
         _archive="$Z2K_OW_ARTIFACT_PATH"
     else
         z2k_ow_install_progress "Загружаю архив архитектуры $_target_arch"
-        z2k_ow_download "$_url" "$_archive" || {
+        z2k_ow_download "$_url" "$_archive" "$_sha" "$_size" || {
             z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1;
         }
     fi
