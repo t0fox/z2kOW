@@ -433,3 +433,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## QEMU DNS outage и восстановление без Telegram
 
 12 октября 2026 года в чистой OpenWrt 25.12.5 x86/64 QEMU временная таблица `inet vpsfree_probe` отбрасывала исходящие UDP/TCP DNS и TCP/443 только к старым VPS `213.176.74.63`, `79.137.196.7`. До отказа `nslookup github.com 127.0.0.1` вернул `140.82.114.4`. При блокировке уникальный DNS-запрос завис; его вручную прервали примерно через 30 секунд. DNS drop counter — 1 пакет, оба VPS counters — 0. Таблица удалена, `nft list tables` показал только штатную `inet fw4`; после этого повторный lookup `github.com` снова вернул `140.82.114.4`. Восстановление подтверждено, но это проверка системного dnsmasq, не продукта: `/usr/lib/z2k` и installed-release в VM отсутствуют. init/start и Telegram не запускались.
+
+## Повторная архитектурная проверка без Telegram
+
+12 октября 2026 года на базе HEAD `31122916` повторно прошли `test_ow_arch.sh` `26/26`, `test_ow_runtime_artifact.sh` `29/29` и `test_ow_warp_archmap.sh` `6/6` — `61/61`. Runtime archive загружен напрямую без proxy из `platform/openwrt/runtime-pin`; SHA-256 совпал: `02eec373b093083b426c27191bb6af260ac51e4e2739c51270270a351d2a1a16`. Проверены карта ABI и наличие `nfqws2`, `ip2net`, `mdig` для семи целей, installer digest и x86/64 dry-run; архив удалён после прогона. Это не доказывает полный runtime на каждой архитектуре и не заменяет QEMU на отдельных ABI. Product builder и сервисы не запускались.
