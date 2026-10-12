@@ -309,3 +309,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Lifecycle, restart и state persistence регрессии
 
 12 октября 2026 года на `167ef750` прошли `test_ow_lifecycle.sh` `27/27`, `test_ow_restart.sh` `6/6` и `test_ow_state_persist.sh` `16/16`. Итого `49/49`, ошибок нет. Проверены OpenWrt procd start/stop rollback, общий updater restart hook и сохранение strategy state; общий release path не задействовался.
+
+## Post-install WARP game seed transport
+
+12 октября 2026 года аудит call path нашёл post-install background seed, который запускал `z2k-update-lists.sh warp-games` без `Z2K_FETCH_VPS_OUT=1`. Новый regression сначала упал `1/5` при очищенном окружении, подтверждая пропуск; OpenWrt release adapter теперь выставляет флаг только внутри seed subshell. После исправления прошли `test_ow_release_warp_seed.sh` `5/5`, `test_ow_warp_games_flow.sh` `4/4`, `test_ow_warp_manifest_env.sh` `5/5` и `test_ow_env.sh` `34/34` — итого `48/48`. Это закрывает post-install transport path; полный подписанный install/update/rollback всё ещё требует QEMU acceptance.

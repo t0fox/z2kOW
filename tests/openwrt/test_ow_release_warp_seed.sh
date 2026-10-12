@@ -18,17 +18,18 @@ assert_file "canonical release installer exposes first-run WARP seed" "$T/seed.s
 mkdir -p "$T/root/lists/warp/games" "$T/log" "$T/adapter"
 cat > "$T/root/z2k-update-lists.sh" <<'EOF'
 #!/bin/sh
-printf '%s|%s|%s|%s\n' "$1" "$ZAPRET2_DIR" "$CONFIG_FILE" "$LOG_FILE" >> "$SEED_CALLS"
+printf '%s|%s|%s|%s|%s\n' "$1" "$ZAPRET2_DIR" "$CONFIG_FILE" "$LOG_FILE" "$Z2K_FETCH_VPS_OUT" >> "$SEED_CALLS"
 EOF
 chmod +x "$T/root/z2k-update-lists.sh"
 export Z2K_ROOT="$T/root" Z2K_ADAPTER_DIR="$T/adapter"
 export Z2K_CONFIG="$T/etc/config" Z2K_LOG="$T/log" SEED_CALLS="$T/calls"
+unset Z2K_FETCH_VPS_OUT
 
 z2k_ow_seed_warp_games
 _n=0
 while [ ! -s "$T/calls" ] && [ "$_n" -lt 30 ]; do sleep 0.1; _n=$((_n + 1)); done
 assert_contains "empty game directory starts the shared updater in background" "$T/calls" \
-    "warp-games|$T/root|$T/etc/config|$T/log/z2k-warp-games.log"
+    "warp-games|$T/root|$T/etc/config|$T/log/z2k-warp-games.log|1"
 
 printf '1.2.3.4\n' > "$T/root/lists/warp/games/Steam.txt"
 rm -f "$T/calls"
