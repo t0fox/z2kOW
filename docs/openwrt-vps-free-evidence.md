@@ -182,3 +182,7 @@ Fault injection: запись нового hosts-файла и reload dnsmasq з
 ## Повторный доступ к QEMU для fault-injection
 
 QEMU `z2k-vps-free-test` был активен; monitor вернул `VM status: running`, а `info usernet` показал host-forward `127.0.0.1:22222 → 10.0.2.15:22`. SSH через forwarded port сбросил соединение, serial endpoint `127.0.0.1:4445` не выдал данных за интервал чтения. Гостевая система не изменялась. Поэтому новый fault-injection restore в QEMU не выполнен; предыдущие QEMU E2E остаются подтверждением только тех сценариев, которые перечислены выше.
+
+## Повторные non-TG регрессии на `dab1cca8`
+
+На текущей feature-ветке повторно прошли девять изолированных suites: bootstrap download validation `8/8`, manifest mirrors `7/7`, OpenWrt recovery `13/13`, update entry `12/12`, updater failsafe `5/5`, updater state `7/7`, release signing `12/12`, immutable release check `6/6`, release workflow `26/26` — всего `96/96`. Suites запускались отдельно от изменённого другим агентом Telegram installer. Они не проверяют clean install, полный update, transaction rollback и uninstall в QEMU.
