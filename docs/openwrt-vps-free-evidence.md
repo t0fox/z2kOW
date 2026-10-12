@@ -277,3 +277,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Повторные targeted non-TG регрессии на `f761598d`
 
 12 октября 2026 года отдельно повторены 15 non-TG suites: fetch/geosite `136/136`, clock diagnostics `7/7`, bootstrap download/manifest mirrors `15/15`, Insta-IP boundary/runtime/no-op rollback `72/72`, WARP static/parity/archmap `137/137`. Итого `367/367`. Telegram, scheduler, installer, shared release и unified-release tests исключены из-за отдельной незакоммиченной работы агента над Telegram.
+
+## Повторные bootstrap/update/recovery проверки на текущем HEAD
+
+12 октября 2026 года на `c01256fe` повторно запущены только целевые локальные suites: bootstrap download validation `8/8`, bootstrap manifest mirrors `7/7`, update entry `12/12`, updater failsafe `5/5`, updater state `7/7`, recovery `13/13`. Итого `52/52`, ошибок нет. Это unit/regression проверки скриптов и recovery-состояний; они не подтверждают полный install, обновление подписанного продукта, rollback и uninstall в QEMU. Общий release-процесс не запускался.
