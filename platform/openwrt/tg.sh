@@ -385,6 +385,27 @@ _z2k_ow_tg_pair_set_matches() {
     [ "$_expected" = "$_actual" ]
 }
 
+_z2k_ow_tg_cidr_set_matches() {
+    local _set="$1" _need="$2" _out _expected _actual
+    _out=$(nft list set "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_set" 2>/dev/null) || return 1
+    [ -n "$_out" ] || return 1
+    _expected=$(for _v in $_need; do printf '%s\n' "$_v"; done | sort)
+    _actual=$(printf '%s\n' "$_out" | awk '
+        function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+        /elements[[:space:]]*=/ { reading=1; sub(/^.*[{]/, "") }
+        reading {
+            line=$0
+            if (line ~ /[}]/) { sub(/[}].*/, "", line); reading=0 }
+            count=split(line, entries, ",")
+            for (i=1; i<=count; i++) {
+                entry=trim(entries[i])
+                if (entry != "") print entry
+            }
+        }
+    ' | sort)
+    [ "$_expected" = "$_actual" ]
+}
+
 _z2k_ow_tg_nft_pairs_commit() {
     local _pair4 _pair6 _dc4 _dc6 _lock _rc
     mkdir -p "$Z2K_TG_HEALTH_DIR" 2>/dev/null || return 1
@@ -702,7 +723,7 @@ z2k_ow_tg_verify() {
 # caller so conntrack is flushed only when redirect/guard routing was actually
 # repaired, never for a list-only drift.
 z2k_ow_tg_nft_verify() {
-    local _s _c _out _need _port _match _ports _manifest_mode
+    local _s _c _out _need _port _match _ports _manifest_mode _name
     Z2K_TG_NFT_DRIFT_REDIRECT=0
     [ "${Z2K_TG_POLICY_LOADED:-0}" = 1 ] || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
     _z2k_ow_tg_table_ok || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
@@ -710,6 +731,11 @@ z2k_ow_tg_nft_verify() {
     if [ "$_manifest_mode" = dynamic ]; then
         _z2k_ow_tg_pair_set_matches 4 "$Z2K_TG_PAIR4" || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
         _z2k_ow_tg_pair_set_matches 6 "$Z2K_TG_PAIR6" || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+        for _s in "$Z2K_TG_SET4:$Z2K_TG_CIDRS" "$Z2K_TG_SET6:$Z2K_TG_CIDRS6"; do
+            _name=${_s%%:*}; _need=${_s#*:}
+            _z2k_ow_tg_cidr_set_matches "$_name" "$_need" || {
+                Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+        done
     else
         for _s in "$Z2K_TG_SET4:$Z2K_TG_CIDRS" \
                   "$Z2K_TG_SET6:$Z2K_TG_CIDRS6"; do
@@ -731,6 +757,14 @@ z2k_ow_tg_nft_verify() {
             _out=$(nft list chain "$Z2K_TG_NFT_FAMILY" "$Z2K_TG_NFT_TABLE" "$_c" 2>/dev/null)
             for _match in "ip daddr . tcp dport @$Z2K_TG_PAIR4" "ip6 daddr . tcp dport @$Z2K_TG_PAIR6"; do
                 printf '%s\n' "$_out" | tr -s ' ' | grep -qF "$_match counter" || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+            done
+            _ports=$(z2k_ow_tg_ports) || { Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+            for _port in $_ports; do
+                for _match in "tcp dport $_port ip daddr @$Z2K_TG_SET4" \
+                              "tcp dport $_port ip6 daddr @$Z2K_TG_SET6"; do
+                    printf '%s\n' "$_out" | tr -s ' ' | grep -Eq "$_match counter( packets [0-9]+ bytes [0-9]+)? redirect to :$Z2K_TG_PORT" || {
+                        Z2K_TG_NFT_DRIFT_REDIRECT=1; return 1; }
+                done
             done
         done
     else
