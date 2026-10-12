@@ -1,54 +1,55 @@
-# OpenWrt WARP contract
+# Контракт WARP для OpenWrt
 
-WARP keeps upstream z2k user-visible semantics while OpenWrt owns process, firewall, routing, and filesystem integration.
+WARP сохраняет пользовательский смысл upstream-функции, но использует нативные OpenWrt-процессы, nftables и policy routing. **Это необязательная функция**: отсутствие бинарника, настройки или регистрации WARP не должно блокировать z2kOW, Telegram, DNS, TikTok Fix или обновления.
 
-## State model
+## Состояния
 
-WARP is optional.
+- `install`: установить проверенный движок и зарегистрировать устройство, **не** включать маршрутизацию.
+- `enable`: запустить движок, дождаться доказанного `ready`, затем включить policy routing.
+- `disable`: сначала снять policy routing, после чего остановить движок и выключить функцию.
+- Удаление бинарника не должно уничтожать постоянную регистрацию без явно выбранного действия.
+- **Fail-open:** при отсутствии `ready` выбранный трафик не направляется в неработающий туннель.
 
-- `install` installs a verified engine and registers device identity; it does not enable routing.
-- `enable` starts the engine, waits for ready state, then enables policy routing.
-- `disable` removes policy routing first, stops the active engine, and disables the feature.
-- binary removal must not silently destroy persistent device identity unless the corresponding upstream action does so.
-- self-heal is fail-open: if WARP is not ready, selected traffic must not be blackholed behind broken policy routing.
+Режимы транспорта движка: WireGuard/UDP и запасной MASQUE CONNECT-IP через HTTP/2/TCP. Наличие процесса не равно работоспособному маршруту.
 
-## Ownership
+## Владение данными
 
-Persistent device identity and user selections live under `/etc/z2k`. Runtime status/logs live under `/tmp/z2k`. Release-owned game/list data lives under `/usr/lib/z2k`.
+Идентификатор регистрации и настройки пользователя — в `/etc/z2k`, runtime/логи — в `/tmp/z2k`, файлы релиза и управляемые списки — в `/usr/lib/z2k`. Пользовательские и релизные списки имеют разных владельцев и не должны взаимно перезаписываться.
 
-User-maintained WARP lists and release-maintained lists are separate ownership domains.
+## Сетевой backend OpenWrt
 
-## OpenWrt network backend
+OpenWrt-адаптер, а не Keenetic/iptables-код движка, отвечает за:
 
-The WARP engine uses the external-network backend on OpenWrt. OpenWrt, not the engine's Keenetic/iptables path, owns:
+- наборы nftables для IP/CIDR и пар «клиент → адрес»;
+- метки пакетов и соответствующие правила policy routing;
+- отдельную таблицу маршрутов и готовность TUN-интерфейса;
+- ограничение области маршрутизации выбранными назначениями/устройствами;
+- уборку своих правил, fail-open и восстановление.
 
-- nftables destination/source sets and packet marks;
-- policy-routing rules and routing table;
-- tunnel-interface convergence;
-- cleanup and fail-open behavior.
+Нельзя параллельно использовать Keenetic backend iptables. Старый сохранённый VPS-прокси **не должен становиться значением по умолчанию**; внешний proxy допустим только при явном выборе пользователя.
 
-Do not run the upstream iptables network backend in parallel with the OpenWrt nftables backend.
+## Управление процессом
 
-## Process lifecycle
+Движком управляет procd. Запуск возможен только при корректной конфигурации, наличии бинарника и действующей регистрации. WebPanel, CLI, планировщик, диагностика и загрузочная инициализация используют **один** backend и постоянное состояние.
 
-procd owns the WARP process. The feature is started only when configuration, binary, and persistent device identity satisfy the enabled-state contract.
+## Списки и выбранные устройства
 
-WebPanel, CLI/actions, scheduler self-heal, diagnostics, and service startup must all use the same WARP backend and the same persistent state.
+Смысл фильтров и валидации upstream сохраняется. В OpenWrt допускается иная реализация через nftables и другие пути хранения, но включение одной категории не должно менять маршруты посторонних сетей.
 
-## Lists and selected clients
+Для доменных правил DNS-ответы наблюдаются на роутере и создают временную пару «клиент → IP» на время TTL. Если клиент скрывает DNS-запросы от роутера собственным DoH/DoT, эта пара не возникает автоматически; остаются IP/CIDR-правила или выбор устройства.
 
-Keep upstream filtering/validation semantics for destination lists and selected clients. OpenWrt adapters may change storage paths and nftables representation, not the meaning of accepted entries.
+## WireGuard-клиенты сервера (WDTT)
 
-## WireGuard server clients (WDTT)
+`Z2K_WARP_WDTT` по умолчанию `0` и сохраняется при регенерации конфигурации. Входящие серверные WG-интерфейсы определяются через UCI (`proto=wireguard`, допустимый `listen_port`); клиентские интерфейсы исключаются.
 
-`Z2K_WARP_WDTT` defaults to `0` and survives official config regeneration. OpenWrt identifies server-side WireGuard interfaces from UCI (`proto=wireguard` with a valid `listen_port`); client tunnel interfaces are excluded.
+При выключенном WDTT входящий трафик таких интерфейсов идёт прямо. При включённом WDTT и хотя бы одном активном списке WARP весь трафик клиентов на соответствующем интерфейсе получает WARP-метку, как в upstream. При пустых списках трафик остаётся прямым, даже если для других LAN-устройств включён полный режим. При ошибке применения изменений WebPanel восстанавливает предыдущее значение.
 
-With WDTT off, traffic entering through those server interfaces stays direct. With WDTT on and at least one active WARP destination list, all client traffic entering through those interfaces receives the WARP mark, matching upstream WDTT scope. If no destination list is active, clients remain direct, including while selected LAN devices use full-device mode. The WebPanel updates the saved setting and asks the OpenWrt adapter to reconcile nft rules; failed reconciliation restores the previous setting.
+## Нативные клиентские туннели WireGuard
 
-## Native WireGuard client tunnels
+UCI-интерфейсы WireGuard **без** `listen_port` рассматриваются как клиентские; интерфейсы со слушающим портом — как серверные и подчиняются WDTT. В режиме списков клиентский WG-трафик допускается к WARP, только если исходный адрес принадлежит частной IPv4-сети, а назначение совпадает с активным IP/CIDR или изученной доменной парой.
 
-OpenWrt UCI WireGuard interfaces without a `listen_port` are treated as client tunnels; interfaces with a configured listening port remain server interfaces and follow WDTT. In selected-device list mode, traffic entering a client tunnel is eligible for WARP when its source is in a private IPv4 range and its destination matches an active WARP IP/CIDR or learned domain pair. This path is independent of both the LAN device selection and the WDTT switch, matching upstream native WG/AWG client behavior. Public source traffic and unlisted destinations remain direct. Client tunnels do not receive a special full-device rule; the regular selected-source policy remains in effect there. DNS replies sent to these client interfaces are included in passive domain observation.
+Это независимо от выбора LAN-устройств и переключателя WDTT. Публичные адреса источника и не включённые назначения идут прямо. Отдельного правила «весь WG-клиент через WARP» не вводится. DNS-ответы на этих интерфейсах также участвуют в пассивном наблюдении.
 
-## Recovery
+## Восстановление
 
-Firewall reload, WAN reconnect, reboot, or daemon failure must converge back to the configured state. Recovery must not leave stale policy rules that route traffic to a non-ready tunnel.
+Перезагрузка fw4, переподключение WAN, reboot и падение демона должны сходиться к заданному состоянию. При неуспешной проверке нельзя оставлять устаревшие маршруты, правила или ложный зелёный `ready`. Диагностика должна отличать остановленный процесс от сломанного маршрута.
