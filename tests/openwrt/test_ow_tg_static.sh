@@ -82,10 +82,15 @@ done
 # --- один прозрачный слушатель Rust без релея и второго обработчика CDN ---
 assert_contains "tg.sh: Rust слушает только :1443" "$TG" '"--port=$Z2K_TG_PORT"'
 assert_contains "tg.sh: включён прозрачный режим obfuscated2" "$TG" '--transparent --pool-size=0'
+assert_contains "tg.sh: использует persistent-кэш Telegram DC" "$TG" '--dc-map-path='
+assert_contains "tg.sh: задаёт ограниченную частоту обновления карты DC" "$TG" '--dc-map-refresh-secs='
 assert_contains "tg.sh: ограничение одновременных сессий" "$TG" '--max-connections=$Z2K_TG_MAX_CONNECTIONS'
 assert_not_contains "tg.sh: порт CDN 1444 не используется" "$_TGCODE" '1444|Z2K_TG_CDN_PORT'
 assert_not_contains "tg.sh: настройки старого relay отсутствуют" "$_TGCODE" 'Z2K_RELAY_URL|Z2K_RELAY_SECRET|relay-id-file|TG_MTPROTO_PROXY'
 assert_not_contains "tg.sh: старый Go-клиент не запускается" "$_TGCODE" 'exec .*tg-mtproxy-client|procd_set_param command .*tg-mtproxy-client'
+assert_contains "tg.sh: CIDR-наборы заменяются одним nft batch" "$TG" 'nft -f -'
+assert_contains "tg.sh: CIDR batch helper присутствует" "$TG" '_z2k_ow_tg_nft_sets_commit'
+assert_not_contains "tg.sh: нет отдельных команд flush CIDR set" "$_TGCODE" 'nft flush set'
 _TG_UI="$REPO/webpanel/www/js/pages/toggles.js"
 assert_contains "панель показывает неподдерживаемый тип" "$_TG_UI" 'Тип не поддерживается'
 assert_contains "панель отключает включение при неподдерживаемом типе" "$_TG_UI" 'setLockAware(enableBtn, tgRunning || tgUnavailable);'
@@ -120,7 +125,8 @@ else
 fi
 # v6 — icmpv6-reject, не redirect и не drop (TCP RST невозможен для IPv6:
 # парсер ядра отвергает `reject with tcp reset` в v6-контексте — Stage 8)
-assert_contains "tg.sh: IPv6 Telegram 443 redirected" "$TG" 'tcp dport 443 ip6 daddr "@$Z2K_TG_SET6" redirect to ":$Z2K_TG_PORT"'
+assert_contains "tg.sh: IPv6 redirect uses the shared configured port" "$TG" \
+    'tcp dport "$_port" ip6 daddr "@$Z2K_TG_SET6" counter redirect to ":$Z2K_TG_PORT"'
 assert_not_contains "tg.sh: no legacy IPv6 reject" "$_TGCODE" 'reject with icmpv6'
 assert_not_contains "tg.sh: no ordinary HTTP CDN redirect" "$_TGCODE" 'dport 80.*redirect'
 # INPUT-guard: scoped accept (порты + dnat) строго до drop; blanket

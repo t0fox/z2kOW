@@ -20,6 +20,7 @@ if printf '%s\n' "$_upstream_commit" | grep -Eq '^[0-9a-f]{40}$'; then
 else
     _t_bad "manifest upstream commit is not a full SHA-1: [$_upstream_commit]"
 fi
+assert_contains "uninstall parity source is pinned" "$REPO/docs/UPSTREAM-PARITY-MATRIX.md" "43b98092c5a337a35f5c094363f469243d7b8b80"
 assert_contains "CLI exposes upstream uninstall action" "$REPO/platform/openwrt/z2kow.sh" \
     'uninstall|remove'
 assert_contains "CLI delegates to canonical uninstaller" "$REPO/platform/openwrt/z2kow.sh" \

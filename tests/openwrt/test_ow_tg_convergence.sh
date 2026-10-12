@@ -18,6 +18,11 @@ printf 'ENABLED=1\n' > "$T/etc/config"
 cat > "$T/bin/nft" <<EOF
 #!/bin/sh
 echo "nft:\$*" >> "$T/nft.log"
+if [ "\$1 \$2" = "-f -" ]; then
+    while IFS= read -r _line; do echo "nft-batch:\$_line" >> "$T/nft.log"; done
+    [ -f "$T/fw4-reload" ] && rm -f "$T/fw4-reload"
+    exit 0
+fi
 case "\$1 \$2" in
   "list table") exit 0 ;;
   "list set")
@@ -29,17 +34,24 @@ case "\$1 \$2" in
     esac
     exit 0 ;;
   "list chain")
-    if [ -f "$T/drift" ] && [ "\$5" = z2k_tg_dst_pre ]; then exit 0; fi
+    if [ -f "$T/fw4-reload" ]; then
+        case "\$5" in z2k_tg_dst_pre|z2k_tg_dst_out|z2k_tg_flt_in) exit 0 ;; esac
+    fi
     case "\$5" in
-      z2k_tg_dst_pre) printf 'tcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443\ntcp dport 443 ip6 daddr @z2k_tg_dc6 redirect to :1443\n' ;;
-      z2k_tg_dst_out) printf 'meta mark 0x40000000 return\ntcp dport 443 ip daddr @z2k_tg_dc4 redirect to :1443\ntcp dport 443 ip6 daddr @z2k_tg_dc6 redirect to :1443\n' ;;
+      z2k_tg_dst_pre|z2k_tg_dst_out)
+        [ "\$5" = z2k_tg_dst_out ] && printf 'meta mark 0x40000000 return\n'
+        for port in \$(printf '%s' "\$Z2K_TG_TCP_PORTS" | tr ',' ' '); do
+          printf 'tcp dport %s ip daddr @z2k_tg_dc4 counter packets 0 bytes 0 redirect to :1443\n' "\$port"
+          printf 'tcp dport %s ip6 daddr @z2k_tg_dc6 counter packets 0 bytes 0 redirect to :1443\n' "\$port"
+        done
+        ;;
       z2k_tg_flt_in) printf 'tcp dport 1443 ct status dnat accept\ntcp dport 1443 drop\n' ;;
       z2k_tg_udp_mark|z2k_tg_udp_fwd) exit 1 ;;
     esac
     exit 0 ;;
 esac
 case "\$1" in
-  add|flush|delete|replace|-f) [ -f "$T/drift" ] && rm -f "$T/drift" ;;
+  add|flush|delete|replace|-f) [ -f "$T/fw4-reload" ] && rm -f "$T/fw4-reload" ;;
 esac
 exit 0
 EOF
@@ -62,6 +74,7 @@ export Z2K_TG_RUST_BIN="$T/root/bin/linux-x86_64/tg-ws-proxy"
 export Z2K_ADAPTER_DIR="$REPO/platform/openwrt" Z2K_OW_ARCH=x86_64
 export Z2K_TG_HEALTH_DIR="$T/tmp/tg-health"
 . "$REPO/platform/openwrt/tg.sh" || exit 1
+export Z2K_TG_TCP_PORTS
 z2k_ow_tg_running() { return 0; }
 
 : > "$T/nft.log"; : > "$T/conntrack.log"
@@ -69,10 +82,10 @@ z2k_ow_tg check >/dev/null 2>&1 || _t_bad "healthy TG rc"
 assert_eq "healthy TG nft mutations" "0" "$(grep -Ec '^nft:(add|flush|delete|replace|-f)' "$T/nft.log" 2>/dev/null || true)"
 assert_eq "healthy TG conntrack mutations" "0" "$(wc -l < "$T/conntrack.log" | tr -d ' ')"
 
-: > "$T/nft.log"; : > "$T/conntrack.log"; : > "$T/drift"
-z2k_ow_tg check >/dev/null 2>&1 || _t_bad "drift TG rc"
-assert_eq "drift TG repaired" "1" "$([ ! -f "$T/drift" ] && echo 1 || echo 0)"
-[ "$(grep -Ec '^nft:(add|flush)' "$T/nft.log" 2>/dev/null || true)" -gt 0 ] && _t_ok || _t_bad "drift TG no nft repair"
-[ "$(wc -l < "$T/conntrack.log" | tr -d ' ')" -gt 0 ] && _t_ok || _t_bad "drift TG no conntrack repair"
+: > "$T/nft.log"; : > "$T/conntrack.log"; : > "$T/fw4-reload"
+z2k_ow_tg check >/dev/null 2>&1 || _t_bad "fw4 reload TG rc"
+assert_eq "fw4 reload восстановил TG chains" "1" "$([ ! -f "$T/fw4-reload" ] && echo 1 || echo 0)"
+[ "$(grep -Ec '^nft:(add|flush)' "$T/nft.log" 2>/dev/null || true)" -gt 0 ] && _t_ok || _t_bad "fw4 reload не восстановил правила"
+[ "$(wc -l < "$T/conntrack.log" | tr -d ' ')" -gt 0 ] && _t_ok || _t_bad "fw4 reload не сбросил только TG conntrack"
 
 _t_done
