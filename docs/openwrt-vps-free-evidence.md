@@ -198,3 +198,7 @@ Fault injection: запись нового hosts-файла и reload dnsmasq з
 ## Повторные lifecycle/recovery/storage регрессии
 
 Повторно прошли `test_ow_lifecycle.sh` (`27/27`), `test_ow_boot_recovery.sh` (`28/28`), `test_ow_storage_persistence.sh` (`17/17`), `test_ow_atomic.sh` (`8/8`) и `test_ow_preserve.sh` (`10/10`) — всего `90/90`. Подтверждены локальные переходы состояния, boot recovery, устойчивость storage, атомарные операции и сохранение чужих файлов; это не полный подписанный продуктовый install/update/rollback/uninstall в QEMU.
+
+## QEMU прямой Insta-IP DoH при отказе VPS и DNS
+
+На OpenWrt 25.12.5 x86/64 через serial запущен `z2k_ow_insta_resolve_hosts instagram.com` из штатного адаптера с настоящими `curl` и `jsonfilter`. Временная nft output-таблица блокировала только старые VPS-IP `213.176.74.63` и `79.137.196.7`; запросы прошли по прямому DoH и вернули `157.240.205.174`, `157.240.224.174`, `157.240.26.174`, счётчики обоих VPS правил — `0`. Затем заблокированы все три DoH endpoint IP (`1.1.1.1`, `8.8.8.8`, `94.140.14.14`, TCP/443): кэш вернул те же адреса; каждый endpoint получил по 6 отброшенных пакетов в ходе cache/TTL проверок. Сдвиг времени за TTL + stale grace отверг кэш. HTTP proxy переменные сняты. После теста nft содержит только `inet fw4`, SHA `/etc/config/dhcp` совпал до/после, пакеты не устанавливались, временные файлы и сервер доставки удалены. Это live DoH/cache E2E, не проверка полного refresh с реальным dnsmasq reload.
