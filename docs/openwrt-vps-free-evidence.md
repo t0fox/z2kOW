@@ -313,3 +313,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Post-install WARP game seed transport
 
 12 октября 2026 года аудит call path нашёл post-install background seed, который запускал `z2k-update-lists.sh warp-games` без `Z2K_FETCH_VPS_OUT=1`. Новый regression сначала упал `1/5` при очищенном окружении, подтверждая пропуск; OpenWrt release adapter теперь выставляет флаг только внутри seed subshell. После исправления прошли `test_ow_release_warp_seed.sh` `5/5`, `test_ow_warp_games_flow.sh` `4/4`, `test_ow_warp_manifest_env.sh` `5/5` и `test_ow_env.sh` `34/34` — итого `48/48`. Это закрывает post-install transport path; полный подписанный install/update/rollback всё ещё требует QEMU acceptance.
+
+## Call-path аудит общего Insta-IP refresh
+
+12 октября 2026 года подтверждено, что `platform/openwrt/diag.sh` и `list-refresh.sh` входят в общий updater с `Z2K_PLATFORM=openwrt`; `files/z2k-insta-ip-refresh.sh` тогда выбирает `platform/openwrt/insta-ip.sh` и прямые DoH резолверы. HMAC POST на старый `/resolve` остаётся только в ветке Keenetic. Повторные boundary/runtime/no-op rollback suites прошли `35/35`, `26/26` и `11/11` (итого `72/72`).
