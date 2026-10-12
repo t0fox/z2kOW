@@ -4,9 +4,11 @@
 _t_plan "ow-uninstall-parity"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 
-# Сверяем ровно тот upstream-коммит, который закреплён в манифесте.
-assert_contains "parity source is pinned upstream commit" "$REPO/UPDATES.json" \
-    '"commit": "43b98092c5a337a35f5c094363f469243d7b8b80"'
+# Базовая проверка удаления привязана к историческому обзору, а не к текущему
+# пользовательскому релизу из UPDATES.json.
+assert_contains "источник проверки удаления закреплён в матрице паритета" \
+    "$REPO/docs/UPSTREAM-PARITY-MATRIX.md" \
+    '43b98092c5a337a35f5c094363f469243d7b8b80'
 assert_contains "CLI exposes upstream uninstall action" "$REPO/platform/openwrt/z2kow.sh" \
     'uninstall|remove'
 assert_contains "CLI delegates to canonical uninstaller" "$REPO/platform/openwrt/z2kow.sh" \
