@@ -341,3 +341,9 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Изоляция OpenWrt geosite mirrors от Keenetic
 
 12 октября 2026 года проверка общего `files/z2k-geosite.sh` выявила, что добавленные для OpenWrt HTTPS mirrors также вызывались на Keenetic, а `show` перестал использовать прежний прямой запрос. Новые Keenetic assertions сначала упали: при отказе direct/VPS выполнялись оба mirror-запроса, а `show` проходил через VPS и mirrors. В `656decc0` mirror fallback и новый `show` transport ограничены `Z2K_PLATFORM=openwrt`; Keenetic получил исходное поведение. После исправления прошли fetch/geosite suites: `test_fetch_vps_layer_budget` `48/48`, VPS independence `4/4`, cache reinstall `41/41`, apply guard `17/17`, inject `19/19`, RKN asset `9/9`, OpenWrt geosite adapter `9/9`, list refresh adapter `9/9` — `156/156`; `sh -n` успешен.
+
+## Общий Insta-IP и diagnostics: проверка границ платформ
+
+12 октября 2026 года на `dff5a191` прошли `test_insta_dns_opt_out` `9/9`, `test_insta_refresh_cert_mismatch` `13/13`, OpenWrt Insta-IP boundary/runtime/no-op rollback `35/35`, `26/26`, `11/11` — `94/94`. Общие Keenetic assertions проверяют старый `ndmc`/HMAC `/resolve` маршрут и пользовательский `Z2K_INSTA_DNS`; OpenWrt suites покрывают прямой DoH adapter, кэш и откат записей.
+
+В тот же день `test_diag_clock_skew_vps_free.sh` прошёл `7/7`, включая прямой OpenWrt HTTPS и сохранение Keenetic relay path; `test_diag_agh_upstream.sh` — `19/19`. Итого diagnostics `26/26`. Telegram suites не запускались.
