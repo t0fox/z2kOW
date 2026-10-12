@@ -2,6 +2,12 @@
   "schema": 1,
   "skips": [
     {
+      "tag": "p-86.20",
+      "seq": 144,
+      "status": "not applicable",
+      "reason": "Выпуск меняет загрузку пакетов Entware через узел проекта и инструкции для Entware/Keenetic. OpenWrt не использует Entware и управляет пакетами штатными средствами; код выпуска не переносится."
+    },
+    {
       "tag": "p-86.19",
       "seq": 143,
       "status": "not applicable",

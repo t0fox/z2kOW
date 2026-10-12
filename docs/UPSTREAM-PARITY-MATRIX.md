@@ -2,6 +2,13 @@
 
 This matrix tracks material product differences between z2kOW and the pinned upstream z2k baseline. It is a design/status ledger, not a test report.
 
+## p-86.20 / seq 144 — not applicable
+
+- Проверенный upstream tag: `p-86.20`, commit `90eb5fdfacbf5a15af19227d5f0401c1d68fcbd8`.
+- Статус для OpenWrt: `not applicable`. Выпуск меняет загрузку пакетов Entware через узел проекта и инструкции для Entware/Keenetic. OpenWrt не использует Entware; пакетами управляют штатные средства OpenWrt.
+- Код p-86.20 не переносится. Изменения относятся к загрузке и зеркалированию Entware, VPS-прокси и документации Keenetic; `UPDATES.json` и подпись остаются под управлением доверенного процесса выпуска.
+- `docs/UPSTREAM-SKIPS.json` фиксирует тег, `seq` и причину. Проверка upstream учитывает этот `seq` как рассмотренный, но не меняет продуктовую версию и продолжает сообщать о следующих выпусках.
+
 ## p-86.19 / seq 143 — not applicable
 
 - Проверенный upstream tag: `p-86.19`, commit `6c77cef7d73751929f7142add142835af095db91`.
