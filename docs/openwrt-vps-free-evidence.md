@@ -165,6 +165,8 @@
 
 На feature-ветке прошли шесть независимых suites (52/52): `test_ow_bootstrap_download_validation.sh` (8/8), `test_ow_bootstrap_manifest_mirrors.sh` (7/7), `test_ow_recovery.sh` (13/13), `test_ow_update_entry.sh` (12/12), `test_ow_updater_failsafe.sh` (5/5), `test_ow_updater_state.sh` (7/7). Транзакционные fault/rollback, installer, boot-recovery и uninstall parity suites не запускались: они включают TG-фикстуры/проверки либо читают изменённый другим агентом `platform/openwrt/release.sh`. Поэтому эти результаты подтверждают updater entry/state и ошибки bootstrap, но не полную транзакцию обновления, rollback или удаление продукта.
 
+Дополнительно прошли `test_ow_release_signing.py` (12/12), `test_ow_immutable_release_check.py` (6/6) и `test_ow_release_workflow.py` (26/26). Итого в этих девяти изолированных non-TG suites — 96/96; они не запускают производственный release workflow и не изменяют `UPDATES.json`, но также не закрывают runtime install/rollback.
+
 Legacy VPS defaults остаются в `files/z2k-warp.sh` и `files/init.d/S51z2k-warp` для Keenetic. OpenWrt WARP adapter больше не имеет встроенного VPS proxy и не вызывает этот launcher; путь clock-skew выбирается по платформе и на OpenWrt использует прямые origin’ы. Полный жизненный цикл релизов остаётся пунктом незавершённой приёмки.
 
 ## Прямые внешние API, не являющиеся VPS-зависимостью
