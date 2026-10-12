@@ -194,3 +194,7 @@ Fault injection: запись нового hosts-файла и reload dnsmasq з
 ## Повторные fetch/geosite регрессии
 
 На feature-ветке повторно прошли `test_fetch_vps_layer_budget.sh` (`48/48`), `test_geosite_vps_independence.sh` (`1/1`), `test_geosite_cache_survives_reinstall.sh` (`41/41`), `test_geosite_apply_guard.sh` (`17/17`), `test_geosite_inject.sh` (`19/19`) и `test_geosite_rkn_asset.sh` (`9/9`) — всего `135/135`. Проверены retry/fallback общего fetch, прямой OpenWrt path с независимыми зеркалами и сохранение geosite cache/ETag и пользовательских данных. Это локальные тесты, не полный подписанный install/update на устройстве.
+
+## Повторные lifecycle/recovery/storage регрессии
+
+Повторно прошли `test_ow_lifecycle.sh` (`27/27`), `test_ow_boot_recovery.sh` (`28/28`), `test_ow_storage_persistence.sh` (`17/17`), `test_ow_atomic.sh` (`8/8`) и `test_ow_preserve.sh` (`10/10`) — всего `90/90`. Подтверждены локальные переходы состояния, boot recovery, устойчивость storage, атомарные операции и сохранение чужих файлов; это не полный подписанный продуктовый install/update/rollback/uninstall в QEMU.
