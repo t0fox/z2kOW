@@ -333,3 +333,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Прерванная QEMU-попытка release lifecycle
 
 12 октября 2026 года предпринята установка в чистой OpenWrt 25.12.5 x86/64 QEMU через `scripts/openwrt/install.sh` и реальный `install_release`, с локально подписанным временным manifest для `p-86.18`, `seq=142`, и точечными nft drop только на TCP/443 к `213.176.74.63` и `79.137.196.7`. Для исключения сборки/проверки Telegram test rootfs содержал failing stub; общий `z2k-start` всё равно попытался запустить TG, и установщик отменил операцию. Получен `Z2KOW_ROLLBACK=complete`, затем проверены отсутствие installed-release и `/usr/lib/z2k`; счётчики VPS-drop оставались нулевыми. Запуск не засчитывается как install acceptance, поскольку тест затронул TG. После rollback обнаруженная тестом `inet zapret2` удалена вручную; в госте осталась только исходная `inet fw4`. Сгенерированный `/etc/z2k` не удалялся, так как rollback сохраняет пользовательские данные. Полный install/update/rollback/uninstall QEMU цикл остаётся непроверенным.
+
+## Изолированные release safety regression suites
+
+12 октября 2026 года из чистого detached snapshot `7d789e73` прошли suites без ссылок на TG: archive validation `7/7`, immutable release ref `6/6`, Ed25519 manifest signing `19/19`, storage persistence/path safety `17/17` — всего `49/49`. Они проверяют валидацию архива, подписи и хранилища; live запуск служб и полный install/update/rollback/uninstall цикл не подтверждают.
