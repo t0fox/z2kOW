@@ -126,6 +126,8 @@
 
 Контрольный поиск по committed `platform/openwrt/` и `scripts/openwrt/` по адресам старых VPS, `nip.io` и `vps-relay` (исключая TG-файлы) нашёл одно совпадение: `platform/openwrt/warp.sh` отклоняет сохранённые legacy URL как необязательный proxy. Общие Keenetic transport и Insta-IP relay остаются в shared-файлах, но OpenWrt entry points направляют загрузки через `Z2K_FETCH_VPS_OUT=1`, а Insta-IP использует отдельный прямой DoH адаптер.
 
+Повторный вызов `z2k_install_paths_for openwrt` на feature HEAD подтвердил границу упаковки: `files/z2k-warp.sh` и `files/init.d/S51z2k-warp` не имеют OpenWrt destination; shared `files/z2k-insta-ip-refresh.sh`, `files/z2k-update-lists.sh` и `files/z2k-geosite.sh` доставляются в `/usr/lib/z2k/` и используют platform adapters. `files/z2k-diag.sh` также не доставляется file-updater картой, но включается отдельно rootfs builder-ом. В общей Keenetic-карте `files/z2k-warp.sh` и `S51z2k-warp` сохраняют штатные `/opt/zapret2/z2k-warp.sh` и `/opt/etc/init.d/S51z2k-warp`; shared Keenetic behavior не менялся.
+
 ### Сводная матрица приёмки
 
 | Область | Независимый путь OpenWrt | Подтверждение | Статус и ограничение |
