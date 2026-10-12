@@ -585,3 +585,7 @@ Refresh зарегистрировал свой `addnhosts` через UCI и п
 После теста UCI-конфиг восстановлен из точной копии (`/etc/config/dhcp` SHA-256 до/после `c43757c2778625fb709c0f6124c50173c6330641dc1426d20a8766481bf3fe40`), dnsmasq перезапущен; временная nft-таблица и каталог fixture удалены, осталась только `inet fw4`. WAN сохранил маршрут через `10.0.2.2`, прямой запрос к GitHub API вернул HTTP 200. Очистку UCI в этом отказном harness выполнил восстановлением backup, поэтому этот прогон не засчитывается как проверка штатного uninstall.
 
 В тот же день повторно прошли transport regressions: direct-first `13/13`, VPS-layer budget `48/48`, geosite VPS independence `4/4`, WARP fetch-chain `3/3`, OpenWrt list-refresh adapter `9/9`. Они проверяют локальные call paths; результат не заменяет запуск cron-driven list refresh на установленном полном продукте.
+
+## Повторная проверка release-предохранителей
+
+На текущем feature HEAD повторно прошли `test_ow_archive_validation.sh` `7/7`, `test_ow_reinstall_guard.sh` `11/11`, `test_ow_release_signing.py` `12/12` и `test_ow_release_warp_seed.sh` `5/5` — всего `35/35`. Это подтверждает локальные проверки архива, reinstall guard, подписи и WARP seed. Сценарии используют fixtures и не являются приёмкой чистой установки, обновления, rollback или uninstall полного продукта в QEMU.
