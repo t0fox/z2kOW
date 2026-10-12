@@ -327,9 +327,9 @@ esac
 rm -f untracked_probe.tmp
 
 # --- property 2: the OpenWrt manifest keeps one controlled multi-arch release --
-if python3 -c "
+if python3 - "$HERE/UPDATES.json" <<'PY'
 import json,sys
-m=json.load(open('UPDATES.json', encoding='utf-8'))
+m=json.load(open(sys.argv[1], encoding='utf-8'))
 want=['schema','branch','platform','seq','current','upstream','history','artifacts','artifact','signing']
 a=m.get('artifact',{})
 arches={'arm64','arm','x86_64','x86','mips','mipsel','riscv64'}
@@ -344,12 +344,13 @@ ok=(list(m)==want and m.get('platform')=='openwrt' and set(records)==arches
     and list(signing)==['key_id'] and len(signing.get('key_id',''))==64
     and not any(k in m for k in ('files_sha256','install_map','components','package_versions')))
 sys.exit(0 if ok else 1)
-" 2>/dev/null; then
+PY
+then
     ok "controlled UPDATES.json keeps seven architecture artifacts and one generic transition archive"
 else
     no "controlled UPDATES.json keeps seven architecture artifacts and one generic transition archive" \
        "schema,branch,platform,seq,current,upstream,history,artifacts,artifact,signing" \
-       "$(python3 -c "import json;print(','.join(json.load(open('UPDATES.json')).keys()))" 2>/dev/null)"
+       "$(python3 -c "import json,sys;print(','.join(json.load(open(sys.argv[1])).keys()))" "$HERE/UPDATES.json" 2>/dev/null)"
 fi
 
 # History is kept as one JSON object per line for the existing history parser.
@@ -360,12 +361,13 @@ else
 fi
 
 # The current release agrees with the final upstream history entry.
-if python3 -c "
+if python3 - "$HERE/UPDATES.json" <<'PY'
 import json,sys
-m=json.load(open('UPDATES.json', encoding='utf-8'))
+m=json.load(open(sys.argv[1], encoding='utf-8'))
 h=m.get('history',[])
 sys.exit(0 if h and m.get('current')==h[-1].get('v') and isinstance(h[-1].get('changed_files'),list) else 1)
-" 2>/dev/null; then
+PY
+then
     ok "current совпадает с финальной записью полной history"
 else
     no "current совпадает с финальной записью history" "current == history[-1].v" "расхождение"

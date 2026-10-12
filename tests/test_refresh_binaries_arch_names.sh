@@ -37,13 +37,11 @@ for hw in aarch64 armv7l x86_64 i686 mips mipsel mips64el ppc riscv64; do
     ' sh "$ROOT")
     [ -n "$goarch" ] || { bad "$hw: architecture mapping exists"; continue; }
     paths=$(au_bin_manifest_paths "$FIXTURE" "$goarch")
-    miss=""
-    for component in z2k-detect; do
-        printf '%s\n' "$paths" | grep -q "/${component}-linux-" || miss="$miss $component"
-    done
-    [ -z "$miss" ] \
-        && ok "$hw (goarch=$goarch): legacy resolver finds expected binaries" \
-        || bad "$hw (goarch=$goarch): missing:$miss"
+    if printf '%s\n' "$paths" | grep -q '/z2k-detect-linux-'; then
+        ok "$hw (goarch=$goarch): legacy resolver finds the detector binary"
+    else
+        bad "$hw (goarch=$goarch): missing z2k-detect binary"
+    fi
 done
 
 if python3 - "$ROOT/UPDATES.json" <<'PY'

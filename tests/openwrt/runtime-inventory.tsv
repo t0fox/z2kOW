@@ -6,7 +6,6 @@ files/z2k-blocked-monitor.sh|COMMON|./usr/lib/z2k/z2k-blocked-monitor.sh|-rwxr-x
 files/z2k-config-validator.sh|COMMON|./usr/lib/z2k/z2k-config-validator.sh|-rwxr-xr-x|lib/auto_update.sh|z2k-config-validator.sh|-
 files/z2k-diag.sh|ADAPTED|./usr/lib/z2k/z2k-diag.sh|-rwxr-xr-x|platform/openwrt/env.sh|Z2K_DIAG_HOOK|Common report with OpenWrt probes; fw4 recovery events come from logread with a 20-line output cap.
 files/z2k-dns-check.sh|COMMON|./usr/lib/z2k/z2k-dns-check.sh|-rwxr-xr-x|webpanel/cgi/actions.sh|DNS_CHECK_SCRIPT|Shared DNS probe is invoked by the WebPanel API.
-files/z2k-fix-tg-watchdog.sh|N/A|-|-|-|-|Upstream marks this historical one-shot patcher as a no-op; no runtime behavior to port.
 files/z2k-geosite.sh|COMMON|./usr/lib/z2k/z2k-geosite.sh|-rwxr-xr-x|files/z2k-update-lists.sh|z2k-geosite.sh|Shared geosite fetch/filter/apply logic.
 files/z2k-insta-ip-refresh.sh|ADAPTED|./usr/lib/z2k/z2k-insta-ip-refresh.sh|-rwxr-xr-x|files/z2k-update-lists.sh|z2k-insta-ip-refresh.sh|Shared fetch/HMAC/range/probe flow uses OpenWrt dnsmasq records.
 files/z2k-nfqueue-selfheal.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/fw-check.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|fw-check.sh check|OpenWrt serializes fw4/NFQUEUE reconciliation and owns/restores global flow-offload UCI state; Keenetic fastnat sysctls are not used.
@@ -25,7 +24,6 @@ files/ndm/92-z2k-rt-proxy-redirect.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/rt.
 files/ndm/93-z2k-warp.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/warp.sh|-rw-r--r--|platform/openwrt/warp.sh|nft|NDM hooks are replaced by OpenWrt WARP PBR/nft adapter.
 files/ndm/94-z2k-ppe-deoffload.sh|N/A|-|-|-|-|Uses the Keenetic NDM event hook and proprietary per-flow PPE target.
 files/ndm/95-z2k-scheduler-watchdog.sh|N/A|-|-|-|-|Monitors a Keenetic resident scheduler; OpenWrt runs independent cron jobs under system cron supervision.
-files/etc/z2k-roots.pem|N/A|-|-|-|-|The bundled relay CA belongs to the retired Keenetic Go client; OpenWrt Rust TG uses its pinned WebPKI roots and does not consume this PEM.
 files/etc/z2k-update-pub.pem|N/A|-|-|-|-|Legacy Keenetic updater key; OpenWrt release verification trusts only its staged release-keys.
 files/lists/cf_extra_check_ips.txt|N/A|-|-|-|-|Keenetic-only bootstrap connectivity probe seed; no OpenWrt runtime consumer.
 files/lists/extra-domains.txt|COMMON|./usr/lib/z2k/lists/extra-domains.txt|-rw-r--r--|platform/openwrt/bootstrap.sh|Z2K_USER_LISTS/extra-domains.txt|-

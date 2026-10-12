@@ -100,11 +100,12 @@ _hook "meta before tag (patch)" "$AU" \
 _hook "tag writer intact" "$AU" \
     'local tag="\$1"$' \
     'installed-tag'
-# TG binary owner (Stage 3, contract §11): openwrt-ветка возвращает сервис
-# целиком (stop -> replace -> start), keenetic-ветка — оба init-скрипта.
-_hook "tg owner openwrt" "$AU" \
-    'Z2K_PLATFORM:-keenetic\}" = "openwrt"' \
-    'S98tg-tunnel /opt/etc/init.d/S97z2k-http-tunnel'
+# Старый Go/VPS TG transport удалён; OpenWrt использует Rust WS adapter.
+if grep -qE '/opt/etc/init.d/S98tg-tunnel|/opt/etc/init.d/S97z2k-http-tunnel' "$AU"; then
+    _t_bad "старые Go/VPS TG-сервисы остались в updater"
+else
+    _t_ok
+fi
 # RT binary owner (Stage 4, contract §10): openwrt — process-only bounce
 # (DNS/rules целы), keenetic — S96 целиком.
 _hook "rt owner openwrt" "$AU" \
