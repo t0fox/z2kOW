@@ -377,7 +377,7 @@ jobs:
           [[ -n "$toolchain" ]]
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
           "$HOME/.cargo/bin/rustup" toolchain install "$toolchain" --profile minimal
-          "$HOME/.cargo/bin/rustup" component add rustfmt --toolchain "$toolchain"
+          "$HOME/.cargo/bin/rustup" component add rustfmt clippy --toolchain "$toolchain"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Проверить локальный crate и собрать поддерживаемые архитектуры OpenWrt

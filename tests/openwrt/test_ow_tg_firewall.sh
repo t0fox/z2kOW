@@ -28,6 +28,17 @@ fi
 exit 0
 EOF
 chmod +x "$T/bin/nft"
+cat > "$T/bin/lock" <<EOF
+#!/bin/sh
+# OpenWrt lock принимает lock <path> и освобождает тем же путём через -u.
+echo "lock:\$*" >> "$T/lock.log"
+case "\$#:\$1" in
+    1:*) exit 0 ;;
+    2:-u) exit 0 ;;
+    *) exit 2 ;;
+esac
+EOF
+chmod +x "$T/bin/lock"
 cat > "$T/bin/conntrack" <<EOF
 #!/bin/sh
 echo "conntrack:\$*" >> "$T/conntrack.log"
@@ -154,7 +165,10 @@ printf 'z2k-tg-dc-options-v1 1791782348 1791782348\n149.154.167.41 443\n' > "$T/
 Z2K_TG_DC_MAP_ENDPOINTS_PATH="$T/endpoints.tsv"
 export Z2K_TG_DC_MAP_ENDPOINTS_PATH
 : > "$T/nft.log"
+: > "$T/lock.log"
 z2k_ow_tg_nft_apply || _t_bad "dynamic nft_apply rc"
+assert_contains "dynamic commit acquires the OpenWrt lock" "$T/lock.log" "lock:$Z2K_TG_HEALTH_DIR/nft-pairs.lock"
+assert_contains "dynamic commit releases the OpenWrt lock" "$T/lock.log" "lock:-u $Z2K_TG_HEALTH_DIR/nft-pairs.lock"
 assert_contains "dynamic карта добавляет точную пару IPv4" "$T/nft.log" \
     'nft-batch:add element inet zapret2 z2k_tg_pair4 { 149.154.167.41 . 443 }'
 assert_contains "dynamic режим заполняет доверенные CIDR для fallback" "$T/nft.log" \

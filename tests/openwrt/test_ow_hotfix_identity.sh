@@ -41,6 +41,7 @@ make_archive() {
 import json, sys
 src, dst, sha, size = sys.argv[1:]
 d = json.load(open(src, encoding="utf-8"))
+d.pop("artifacts", None)
 d["artifact"] = {"filename":"openwrt-rootfs.tar.gz", "url":"https://github.com/t0fox/z2kOW/releases/download/openwrt-"+"a"*40+"/openwrt-rootfs.tar.gz", "sha256":sha, "size_bytes":int(size)}
 d["signing"] = {"key_id":"0"*64}
 open(dst,"w",encoding="utf-8").write(json.dumps(d))
@@ -55,12 +56,23 @@ export Z2K_OW_INSTALLED_RELEASE_FILE=/etc/z2k/state/installed-release Z2K_OW_INS
 export Z2K_OW_INSTALL_TMP="$T/tmp" Z2K_OW_MANIFEST_PATH="$MANIFEST" Z2K_OW_ARTIFACT_PATH="$ARCHIVE"
 mkdir -p "$T/tmp"
 jsonfilter() {
-    _f= _e=; while [ "$#" -gt 0 ]; do case "$1" in -i) _f="$2"; shift 2;; -e) _e="${2#@.}"; shift 2;; *) return 2;; esac; done
-    python3 - "$_f" "$_e" <<'PY'
+    _f= _e= _type=0; while [ "$#" -gt 0 ]; do case "$1" in -i) _f="$2"; shift 2;; -e) _e="${2#@.}"; shift 2;; -t) _e="${2#@.}"; _type=1; shift 2;; *) return 2;; esac; done
+    python3 - "$_f" "$_e" "$_type" <<'PY'
 import json,sys
 v=json.load(open(sys.argv[1],encoding="utf-8"))
-for k in sys.argv[2].split("."): v=v[k]
-if v is not None: print(v)
+try:
+    for k in sys.argv[2].split("."): v=v[k]
+except (KeyError, TypeError, IndexError):
+    raise SystemExit(1)
+if sys.argv[3] == "1":
+    if isinstance(v, dict): print("object")
+    elif isinstance(v, list): print("array")
+    elif isinstance(v, bool): print("boolean")
+    elif isinstance(v, int): print("int")
+    elif isinstance(v, float): print("double")
+    elif isinstance(v, str): print("string")
+    else: print("null")
+elif v is not None: print(v)
 PY
 }
 apk() { case "$1" in info) return 1;; add|del) return 0;; *) return 2;; esac; }
