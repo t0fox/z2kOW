@@ -138,6 +138,20 @@ case "$url" in
     *) echo "unexpected URL: $url" >&2; exit 2 ;;
 esac
 WGET
+cat > "$BIN/curl" <<'CURL'
+#!/bin/sh
+out= url=
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -o) out="$2"; shift 2 ;;
+        --connect-timeout|--max-time) shift 2 ;;
+        --fail|--location|--silent|--show-error) shift ;;
+        *) url="$1"; shift ;;
+    esac
+done
+[ -n "$out" ] && [ -n "$url" ] || exit 2
+exec "$(dirname "$0")/wget" -O "$out" "$url"
+CURL
 cat > "$BIN/jsonfilter" <<'JSONFILTER'
 #!/bin/sh
 exec python3 - "$@" <<'PY'
@@ -169,7 +183,7 @@ case "${2:-}" in
     *) printf 'Filesystem 1024-blocks Used Available Use%% Mounted on\nsim 4000000 100000 3900000 3%% /overlay\n' ;;
 esac
 DF
-chmod 755 "$BIN/id" "$BIN/apk" "$BIN/wget" "$BIN/jsonfilter" "$BIN/df"
+chmod 755 "$BIN/id" "$BIN/apk" "$BIN/wget" "$BIN/curl" "$BIN/jsonfilter" "$BIN/df"
 _REAL_TAR="$(command -v tar)"
 if [ -n "$_busybox" ]; then _REAL_TAR="$_busybox tar"; fi
 cat > "$BIN/tar" <<'TAR'

@@ -101,6 +101,20 @@ case "$url" in
     *) echo "unexpected URL: $url" >&2; exit 19 ;;
 esac
 WGET
+cat > "$BIN/curl" <<'CURL'
+#!/bin/sh
+out= url=
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -o) out="$2"; shift 2 ;;
+        --connect-timeout|--max-time) shift 2 ;;
+        --fail|--location|--silent|--show-error) shift ;;
+        *) url="$1"; shift ;;
+    esac
+done
+[ -n "$out" ] && [ -n "$url" ] || exit 2
+exec "$(dirname "$0")/wget" -O "$out" "$url"
+CURL
 cat > "$BIN/jsonfilter" <<'JSONFILTER'
 #!/bin/sh
 exec python3 - "$@" <<'PY'
@@ -118,7 +132,7 @@ for key in expression.split("."):
 if value is not None: print(value)
 PY
 JSONFILTER
-chmod 755 "$BIN/id" "$BIN/apk" "$BIN/df" "$BIN/wget" "$BIN/jsonfilter"
+chmod 755 "$BIN/id" "$BIN/apk" "$BIN/df" "$BIN/wget" "$BIN/curl" "$BIN/jsonfilter"
 
 cat > "$SYS/etc/openwrt_release" <<'RELEASE'
 DISTRIB_ID='OpenWrt'
@@ -150,7 +164,7 @@ assert_contains "fresh bootstrap shows the required Windows command" "$T/out" "n
 assert_not_contains "shared install/update transaction does not print the fresh-install Windows notice" "$REPO/platform/openwrt/release.sh" 'timestamps=enabled|ВАЖНО ДЛЯ WINDOWS'
 assert_eq "bootstrap installs only required OpenWrt system dependencies" \
     "update
-add ca-bundle openssl-util jsonfilter" "$(cat "$T/apk.log" 2>/dev/null)"
+add ca-bundle openssl-util jsonfilter curl" "$(cat "$T/apk.log" 2>/dev/null)"
 assert_not_contains "bootstrap contains no z2kOW APK or feed installation" "$INSTALLER" 'z2k-(adapter|webpanel|zapret2-runtime|warp-runtime)|packages\.adb|repositories\.d|apk (add|del).*z2k'
 assert_contains "production manifest default remains pinned" "$INSTALLER" 'BASE="https://raw.githubusercontent.com/t0fox/z2kOW/main"'
 luci_fixture_assert_unchanged "$SYS" "$_luci_before" "fresh bootstrap preserves LuCI and uhttpd"
