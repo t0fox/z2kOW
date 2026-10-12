@@ -208,16 +208,16 @@ SIGNATURE_URL="$MANIFEST_URL.sig"
 progress "обновляю список системных программ"
 apk update || die "не удалось обновить индексы системных зависимостей"
 progress "устанавливаю средства проверки подписи и состава архива"
-apk add ca-bundle openssl-util jsonfilter || die "не удалось установить системные средства проверки подписи"
+apk add ca-bundle openssl-util jsonfilter curl || die "не удалось установить системные средства проверки подписи"
 for _tool in awk df grep openssl readlink sha256sum tar tr xargs; do
     command -v "$_tool" >/dev/null 2>&1 || die "необходимая системная команда отсутствует: $_tool"
 done
 command -v jsonfilter >/dev/null 2>&1 || die "после установки системных зависимостей отсутствует jsonfilter"
 
-if command -v wget >/dev/null 2>&1; then
-    download() { wget -q -T 15 -O "$2" "$1"; }
-elif command -v curl >/dev/null 2>&1; then
+if command -v curl >/dev/null 2>&1; then
     download() { curl --fail --location --silent --show-error --connect-timeout 10 --max-time 600 -o "$2" "$1"; }
+elif command -v wget >/dev/null 2>&1; then
+    download() { wget -q -T 15 -O "$2" "$1"; }
 else
     die "нужен wget или curl"
 fi
