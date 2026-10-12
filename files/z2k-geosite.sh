@@ -1291,8 +1291,10 @@ show_asset() {
     local asset="${1:-}"
     [ -z "$asset" ] && die "show: asset name required (e.g. ru-blocked.txt)"
     ensure_deps
-    curl -fsSL --connect-timeout 15 --max-time 600 \
-         "$RELEASE_BASE/$asset" || die "fetch $asset failed"
+    ETAG_DIR="$TMP_DIR/show-etag"
+    mkdir -p "$ETAG_DIR" || die "show: cannot create temporary ETag directory"
+    fetch_to_tmp "$asset" || die "fetch $asset failed"
+    cat "$TMP_DIR/$asset" || die "show: cannot read fetched asset"
 }
 
 # --- status: current production line counts --------------------------------

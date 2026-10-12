@@ -69,5 +69,23 @@ case "$result" in
             'rc=0 vps=0 direct=1 mirror1=1 mirror2=1' "$result" ;;
 esac
 
+show_rc=0
+env -i PATH="$TMP/bin:$Z2K_TEST_PATH" HOME="$TMP" \
+    CURL_LOG="$TMP/show-curl.log" Z2K_FETCH_VPS_OUT=1 \
+    ZAPRET2_DIR="$TMP/show-zapret" \
+    RELEASE_BASE=https://github.com/t0fox/z2kOW/releases/latest/download \
+    sh "$ROOT/files/z2k-geosite.sh" show openwrt-release-operations.md \
+    > "$TMP/show.out" 2> "$TMP/show.err" || show_rc=$?
+if [ "$show_rc" = 0 ] \
+   && [ "$(cat "$TMP/show.out")" = "проверенный список" ] \
+   && grep -q 'gh-proxy.com' "$TMP/show-curl.log" \
+   && ! grep -q -- '--resolve' "$TMP/show-curl.log"; then
+    ok "show печатает список через mirror после отказа origin без обращения к VPS"
+else
+    no "show поддерживает mirror fallback без VPS" \
+        'rc=0 body=проверенный список mirror=gh-proxy.com vps=0' \
+        "rc=$show_rc body=$(cat "$TMP/show.out" 2>/dev/null) calls=$(cat "$TMP/show-curl.log" 2>/dev/null)"
+fi
+
 printf '\ntest_geosite_vps_independence.sh: PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
