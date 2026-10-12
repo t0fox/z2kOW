@@ -106,14 +106,6 @@ done
 copy_data "$TG_DIR/LICENSE" usr/share/licenses/tg-ws-proxy-rs/LICENSE
 copy_data "$TG_DIR/PROVENANCE" usr/share/licenses/tg-ws-proxy-rs/PROVENANCE
 
-# Опубликованный install_release p-86.17 проверяет это старое имя исполняемого
-# файла после распаковки общего архива. В переходный архив входит только
-# безопасная заглушка; rootfs_bundle.py удаляет её из обычных архивов архитектур.
-for _arch in arm arm64 mips mipsel riscv64 x86 x86_64; do
-    copy_data "$ROOT/platform/openwrt/legacy-transition/tg-mtproxy-client" \
-        "usr/lib/z2k/bin/linux-$_arch/tg-mtproxy-client" 0755
-done
-
 _rt_count=0
 for _rt in "$RT_DIR"/linux-*/z2k-rt-proxy; do
     [ -f "$_rt" ] || continue

@@ -273,15 +273,11 @@ cmp -s "$T/release-keys/$_key_id.pub" \
 _tg_count=$(find "$T/stage/usr/lib/z2k/bin" -path '*/linux-*/*' -name tg-ws-proxy -type f | wc -l | tr -d ' ')
 assert_eq "Rust TG собран только для ARM64 и x86_64" "2" "$_tg_count"
 _legacy_tg_count=$(find "$T/stage/usr/lib/z2k/bin" -path '*/linux-*/*' -name tg-mtproxy-client -type f | wc -l | tr -d ' ')
-assert_eq "переходные заглушки старого клиента подготовлены для всех архитектур" "7" "$_legacy_tg_count"
-for _arch in arm arm64 mips mipsel riscv64 x86 x86_64; do
-    [ -x "$T/stage/usr/lib/z2k/bin/linux-$_arch/tg-mtproxy-client" ] \
-        && _t_ok || _t_bad "нет переходной заглушки linux-$_arch"
-done
-if "$T/stage/usr/lib/z2k/bin/linux-x86_64/tg-mtproxy-client" >/dev/null 2>&1; then
-    _t_bad "переходная заглушка не должна запускать удалённый движок Telegram"
+assert_eq "OpenWrt rootfs не содержит Go Telegram-клиент или переходные заглушки" "0" "$_legacy_tg_count"
+if tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Eq '(^|/)usr/lib/z2k/bin/linux-[^/]+/tg-mtproxy-client$'; then
+    _t_bad "полный OpenWrt rootfs не должен публиковать Go Telegram-клиент или заглушку"
 else
-    [ "$?" -eq 126 ] && _t_ok || _t_bad "переходная заглушка отказывает с кодом 126"
+    _t_ok
 fi
 for _arch in arm64 x86_64; do
     [ -x "$T/stage/usr/lib/z2k/bin/linux-$_arch/tg-ws-proxy" ] \

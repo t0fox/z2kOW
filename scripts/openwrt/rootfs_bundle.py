@@ -20,7 +20,6 @@ _BINARY_ROOTS = (
     PurePosixPath("usr/lib/z2k/platform/openwrt/bin"),
     PurePosixPath("usr/lib/z2k/bin"),
 )
-_LEGACY_TRANSITION_ROOT = PurePosixPath("usr/lib/z2k/bin")
 
 _USER_DATA = (
     PurePosixPath("etc/z2k/config"),
@@ -134,15 +133,8 @@ def _matches_arch(relative: PurePosixPath, arch: str) -> bool:
     return True
 
 
-def _is_legacy_transition_binary(relative: PurePosixPath) -> bool:
-    return (
-        relative.name == "tg-mtproxy-client"
-        and relative.parent.parent == _LEGACY_TRANSITION_ROOT
-    )
-
-
 def build_rootfs_bundle(staged_root: Path, output: Path, arch: str | None = None) -> None:
-    """Упаковать выбранную архитектуру; переходный маркер оставить только в полном архиве."""
+    """Упаковать полный rootfs или выбранную архитектуру без прежнего Go-клиента."""
     if arch is not None and arch not in _ARCHES:
         raise ValueError(f"неподдерживаемая архитектура: {arch}")
     root = Path(staged_root).resolve()
@@ -152,9 +144,8 @@ def build_rootfs_bundle(staged_root: Path, output: Path, arch: str | None = None
     output.parent.mkdir(parents=True, exist_ok=True)
     entries = [
         (source, relative) for source, relative in _walk(root)
-        if arch is None or (
-            _matches_arch(relative, arch) and not _is_legacy_transition_binary(relative)
-        )
+        if relative.name != "tg-mtproxy-client"
+        and (arch is None or _matches_arch(relative, arch))
     ]
     if not entries:
         raise ValueError("подготовленный rootfs пуст")

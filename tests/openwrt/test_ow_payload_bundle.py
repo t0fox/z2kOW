@@ -111,8 +111,7 @@ class PayloadBundleTests(unittest.TestCase):
             legacy_members = {member.name: member for member in bundle.getmembers()}
             for arch in ARCHES:
                 legacy_path = f"usr/lib/z2k/bin/linux-{arch}/tg-mtproxy-client"
-                self.assertIn(legacy_path, legacy_members)
-                self.assertEqual(0o755, legacy_members[legacy_path].mode)
+                self.assertNotIn(legacy_path, legacy_members)
         for arch in ARCHES:
             with self.subTest(arch=arch):
                 first = self.root / f"openwrt-rootfs-{arch}.tar.gz"
