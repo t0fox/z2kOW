@@ -95,6 +95,8 @@ mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	mipsle	mipsle	GOMIPS=so
 mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	mips64le	mips64le	GOMIPS64=softfloat
 mtproxy-client	.	mtproxy-client/builds	tg-mtproxy-client	386	386	-
 rt-proxy	.	mtproxy-client/builds	z2k-rt-proxy	mipsle	mipsle	GOMIPS=softfloat
+rt-proxy	.	mtproxy-client/builds	z2k-rt-proxy	386	x86	-
+rt-proxy	.	mtproxy-client/builds	z2k-rt-proxy	riscv64	riscv64	-
 z2k-warpd	./cmd/z2k-warpd	z2k-warpd/builds	z2k-warpd	mipsle	mipsle	GOMIPS=softfloat
 
 # Движок WARP вровень с остальным проектом (06.09.2026): собирался под пять

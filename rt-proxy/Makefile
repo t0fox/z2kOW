@@ -9,9 +9,9 @@ GO ?= $(HOME)/go/bin/go1.25.13
 # after the commit — which silently defeats "rebuild and compare md5" release verification.
 GOFLAGS=-ldflags="-s -w" -trimpath -buildvcs=false
 
-.PHONY: all arm64 arm mipsel mips x86_64 local clean aliases
+.PHONY: all arm64 arm mipsel mips x86_64 x86 riscv64 local clean aliases
 
-all: arm64 arm mipsel mips x86_64 aliases
+all: arm64 arm mipsel mips x86_64 x86 riscv64 aliases
 
 arm64:
 	GOOS=linux GOARCH=arm64 $(GO) build $(GOFLAGS) -o $(BINARY)-linux-arm64
@@ -27,6 +27,12 @@ mips:
 
 x86_64:
 	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -o $(BINARY)-linux-amd64
+
+x86:
+	GOOS=linux GOARCH=386 $(GO) build $(GOFLAGS) -o $(BINARY)-linux-x86
+
+riscv64:
+	GOOS=linux GOARCH=riscv64 $(GO) build $(GOFLAGS) -o $(BINARY)-linux-riscv64
 
 local:
 	$(GO) build $(GOFLAGS) -o $(BINARY)
