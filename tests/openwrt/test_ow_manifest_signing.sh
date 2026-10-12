@@ -184,7 +184,7 @@ if z2k_ow_manifest_select_artifact "$T/per-arch.json" unsupported 2>/dev/null; t
 else
     _t_ok
 fi
-if rg -n 'artifact\.sha256' "$REPO/platform/openwrt/release.sh" "$REPO/platform/openwrt/release_state.sh" >/dev/null; then
+if grep -nE 'artifact\.sha256' "$REPO/platform/openwrt/release.sh" "$REPO/platform/openwrt/release_state.sh" >/dev/null; then
     _t_bad "release/state consumers do not parse artifact.sha256 outside the centralized selector"
 else
     _t_ok
