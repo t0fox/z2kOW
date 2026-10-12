@@ -429,3 +429,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Повторные Insta-IP regressions без Telegram
 
 12 октября 2026 года на базе HEAD `1b616abc` повторно прошли `test_ow_insta_boundary.sh` `35/35`, `test_ow_insta_runtime.sh` `26/26` и `test_ow_insta_refresh_noop_backup.sh` `11/11` — `72/72`. Проверены границы OpenWrt/общего транспорта, runtime выбора и кэширования кандидатов, no-op, сохранение полного файла при неудаче restart, rollback и удержание backup при неудаче восстановления. Это изолированные regression suites, не новый live refresh. Чистая QEMU VM доступна через serial; состояние перед дальнейшими сценариями: только штатная nft-таблица `inet fw4`, дерева `/usr/lib/z2k` и `/etc/z2k/state/installed-release` нет. Установщик и сервисы не запускались.
+
+## QEMU DNS outage и восстановление без Telegram
+
+12 октября 2026 года в чистой OpenWrt 25.12.5 x86/64 QEMU временная таблица `inet vpsfree_probe` отбрасывала исходящие UDP/TCP DNS и TCP/443 только к старым VPS `213.176.74.63`, `79.137.196.7`. До отказа `nslookup github.com 127.0.0.1` вернул `140.82.114.4`. При блокировке уникальный DNS-запрос завис; его вручную прервали примерно через 30 секунд. DNS drop counter — 1 пакет, оба VPS counters — 0. Таблица удалена, `nft list tables` показал только штатную `inet fw4`; после этого повторный lookup `github.com` снова вернул `140.82.114.4`. Восстановление подтверждено, но это проверка системного dnsmasq, не продукта: `/usr/lib/z2k` и installed-release в VM отсутствуют. init/start и Telegram не запускались.
