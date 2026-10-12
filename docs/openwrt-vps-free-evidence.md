@@ -455,3 +455,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Подписанный raw-origin fallback
 
 После переноса обычного bootstrap на CDN-first расширен `test_ow_bootstrap_manifest_mirrors.sh`: при отказе CDN suite принимает raw-origin только с валидной Ed25519-подписью, а также проверяет сохранение приоритета явного приёмочного источника. Suite прошёл `13/13`; timeout и download validation — `1/1` и `8/8`. Raw-origin fallback подтверждён на изолированной подписанной fixture; live raw-host запрос в текущей QEMU-сети остаётся неопределённым из-за задержки DNS.
+
+## Ограничение DNS timeout в BusyBox
+
+В OpenWrt QEMU команда `timeout` отсутствует. Документация BusyBox уточняет, что `wget -T` ограничивает connect/read, но не DNS query ([описание BusyBox](https://lists.busybox.net/pipermail/busybox-cvs/2013-October/034219.html)). Поэтому CDN-first не даёт raw-origin resolver задержке блокировать обычный путь, но если CDN недоступен и DNS raw-origin завис, fallback не имеет полного wall-clock timeout. Это остаточное ограничение bootstrap; автоматическое переключение при DNS timeout отдельно не подтверждено.
