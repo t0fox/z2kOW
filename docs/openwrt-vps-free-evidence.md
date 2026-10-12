@@ -214,3 +214,10 @@ Fault injection: запись нового hosts-файла и reload dnsmasq з
 Локальное воспроизведение показало, что документированная команда `show` использовала только origin. Исправление перевело её на общий `fetch_to_tmp` с временным ETag-каталогом: stdout по-прежнему содержит только список, production-файлы не меняются. Тест `test_geosite_vps_independence.sh` теперь проверяет отказ origin, переход через первое зеркало с HTTP 503 ко второму и возврат тела без `--resolve`.
 
 В OpenWrt 25.12.5 x86/64 обновлённый `files/z2k-geosite.sh` запущен из временного каталога. `github.com` был временно направлен на loopback, nft блокировал старые VPS-IP, а `Z2K_FETCH_VPS_OUT=1` отключал Layer 0. Штатная команда `show ru-blocked.txt` получила через `ghproxy.net` HTTP 200, `1 731 646` байт, SHA-256 `8b8d8d1ce37edbdc550bbb73f473f072b15432bf42b1fac5b35f95a603fec77d`; счётчики блокировки обоих VPS-IP остались `0`. После прогона `/etc/hosts` восстановлен, временная nft-таблица удалена, осталась только `inet fw4`, временный payload и HTTP-сервер доставки удалены/остановлены. Полный `fetch_all` и применение списков в продуктовый каталог в этом сценарии не запускались.
+
+## Повторная классификация legacy VPS ссылок в non-TG OpenWrt
+
+- Общие `Z2K_VPS_GH_IP` defaults сохранены для Keenetic; `platform/openwrt/env.sh` экспортирует `Z2K_FETCH_VPS_OUT=1`, а OpenWrt cron entry для WARP game lists задаёт его явно. Fetch и geosite fallback выше проверены с отключённым Layer 0.
+- В `lib/install.sh` legacy relay pin/unpin операции окружены проверкой `command -v ndmc`; это Keenetic-ветки, на OpenWrt без `ndmc` они не выполняются.
+- `files/z2k-insta-ip-refresh.sh` сохраняет HMAC relay для Keenetic, но при `Z2K_PLATFORM=openwrt` выбирает локальный DoH и dnsmasq adapter; live refresh при заблокированных VPS-IP описан выше.
+- `platform/openwrt/warp.sh` начинает регистрацию напрямую. Сохраненный `Z2K_WARP_VPS_PROXY` не обязателен, а два старых VPS IP отклоняются фильтром. `test_ow_warp_parity.sh` повторно прошёл `39/39`; этот тест не подтверждает доступность регистрации WARP у провайдера.
