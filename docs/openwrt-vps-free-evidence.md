@@ -437,3 +437,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Повторная архитектурная проверка без Telegram
 
 12 октября 2026 года на базе HEAD `31122916` повторно прошли `test_ow_arch.sh` `26/26`, `test_ow_runtime_artifact.sh` `29/29` и `test_ow_warp_archmap.sh` `6/6` — `61/61`. Runtime archive загружен напрямую без proxy из `platform/openwrt/runtime-pin`; SHA-256 совпал: `02eec373b093083b426c27191bb6af260ac51e4e2739c51270270a351d2a1a16`. Проверены карта ABI и наличие `nfqws2`, `ip2net`, `mdig` для семи целей, installer digest и x86/64 dry-run; архив удалён после прогона. Это не доказывает полный runtime на каждой архитектуре и не заменяет QEMU на отдельных ABI. Product builder и сервисы не запускались.
+
+## Неопределённый прямой raw-origin probe
+
+12 октября 2026 года после восстановления DNS в OpenWrt QEMU при блокировке только TCP/443 к старым VPS был запущен прямой BusyBox `wget` для `https://raw.githubusercontent.com/necronicle/z2kOW/main/UPDATES.json`. За примерно 24 секунды команда не вернула статус, размер или хэш; запрос остановлен вручную. Это неопределённый probe без результата, не доказательство отказа производственного downloader: CDN fallback этим вызовом не проверялся. Счётчик правила старых VPS был 0. Временная таблица и файл удалены; проверка `nft list tables` показала только `inet fw4`.
