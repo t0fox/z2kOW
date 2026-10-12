@@ -139,11 +139,8 @@ class PayloadBundleTests(unittest.TestCase):
                         self.assertEqual(arch.encode(), bundle.extractfile(tg_binary).read())
                     else:
                         self.assertNotIn(tg_binary, members)
-                    # Предыдущий install_release требует этот путь в выбранном
-                    # архиве. В нём допустима только инертная заглушка перехода.
                     legacy_path = f"usr/lib/z2k/bin/linux-{arch}/tg-mtproxy-client"
-                    self.assertIn(legacy_path, members)
-                    self.assertEqual(b"#!/bin/sh\nexit 126\n", bundle.extractfile(legacy_path).read())
+                    self.assertNotIn(legacy_path, members)
                     for root, binaries in (
                         ("opt/zapret2/binaries", ("ip2net", "mdig")),
                         ("usr/lib/z2k/bin", ("z2k-rt-proxy", "z2k-detect")),
