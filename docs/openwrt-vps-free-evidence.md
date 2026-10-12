@@ -281,3 +281,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Повторные bootstrap/update/recovery проверки на текущем HEAD
 
 12 октября 2026 года на `c01256fe` повторно запущены только целевые локальные suites: bootstrap download validation `8/8`, bootstrap manifest mirrors `7/7`, update entry `12/12`, updater failsafe `5/5`, updater state `7/7`, recovery `13/13`. Итого `52/52`, ошибок нет. Это unit/regression проверки скриптов и recovery-состояний; они не подтверждают полный install, обновление подписанного продукта, rollback и uninstall в QEMU. Общий release-процесс не запускался.
+
+## Повторные RT proxy регрессии на текущем HEAD
+
+12 октября 2026 года на `164df65a` повторно запущены изолированные suites RuTracker proxy: static `70/70`, DNS `41/41`, firewall `43/43`, SO_MARK `17/17`. Итого `171/171`, ошибок нет. Это локальные проверки адаптера и сетевой политики; они не заменяют архитектурный QEMU E2E и проверку доступности стороннего proxy pool.
