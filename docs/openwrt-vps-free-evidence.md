@@ -408,3 +408,7 @@ OpenWrt adapter теперь выполняет штатный `restart` пос�
 ## Повторные updater/recovery regressions без Telegram
 
 12 октября 2026 года на `de0829fa` прошли `test_ow_update_entry.sh` `12/12`, `test_ow_updater_failsafe.sh` `5/5`, `test_ow_updater_state.sh` `7/7` и `test_ow_recovery.sh` `13/13` — `37/37`. Suites проверяют входные условия updater, fail-safe state и recovery без общего product start. Они не подтверждают полное применение подписанного rootfs, пользовательские настройки в реальном update или полный rollback/uninstall на установленном продукте.
+
+## Повторные DNS и diagnostics regressions без Telegram
+
+12 октября 2026 года на `0365c3c8` прошли clock skew direct-path `7/7`, AGH upstream diagnostics `19/19`, DNS/DoH adapter `266/266`, DNS check `2/2` и DNS path detection `5/5` — `299/299` уникальных assertions. Совместимый alias `test_ow_doh.sh` повторно запустил тот же DNS/DoH suite (`266/266`); повторный прогон в итог не суммируется. Сообщение `Direct DNS probe failed after 3 attempts` — ожидаемый отказной сценарий внутри suite; итоговый код каждой команды был `0`. Проверены unit/regression paths, не live-доступность всех внешних DNS-провайдеров.
