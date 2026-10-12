@@ -245,5 +245,6 @@ Legacy `files/z2k-warp.sh` с VPS proxy default не включён в OpenWrt r
 - Insta-IP: `test_ow_insta_boundary` `35/35`, `test_ow_insta_runtime` `24/24`, `test_ow_insta_refresh_noop_backup` `11/11` — `70/70`; `test_diag_clock_skew_vps_free` — `7/7`.
 - WARP: `test_ow_warp_static` `92/92`, `test_ow_warp_parity` `39/39`, `test_ow_warp_archmap` `6/6` — `137/137`.
 - Release/offload: `test_ow_release_signing.py` `12/12`, `test_ow_immutable_release_check.py` `6/6`, `test_ow_offload_benchmark` `142/142` — `160/160`.
+- Локальные lifecycle/recovery/storage: `test_ow_lifecycle` `27/27`, `test_ow_boot_recovery` `28/28`, `test_ow_storage_persistence` `17/17`, `test_ow_atomic` `8/8`, `test_ow_preserve` `10/10` — `90/90`.
 
-Итого `562/562`. Suites Telegram, изменённый другим агентом `platform/openwrt/release.sh`, installer и unified-release не запускались. Эти проверки не являются полным продуктовым install/update/rollback/uninstall в QEMU.
+Итого `652/652`. Suites Telegram, изменённый другим агентом `platform/openwrt/release.sh`, installer и unified-release не запускались. Эти проверки не являются полным продуктовым install/update/rollback/uninstall в QEMU.
