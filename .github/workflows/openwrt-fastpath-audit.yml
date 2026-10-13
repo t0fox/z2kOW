@@ -1,0 +1,55 @@
+name: OpenWrt hotfix fast-path audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: Успешный CI push/main run с unsigned OpenWrt candidate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: openwrt-fastpath-audit-${{ inputs.ci_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  verify-candidate:
+    name: Проверить готовый CI candidate без публикации
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Проверить происхождение и подготовить hotfix candidate
+        id: audit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          source_sha="$(gh api "repos/$REPOSITORY/actions/runs/$CI_RUN_ID" --jq '.head_sha')"
+          tag="$(python3 -c 'import json; print(json.load(open("UPDATES.json", encoding="utf-8"))["current"])')"
+          seq="$(python3 -c 'import json; print(json.load(open("UPDATES.json", encoding="utf-8"))["seq"])')"
+          key_id="$(python3 -c 'import json; print(json.load(open("UPDATES.json", encoding="utf-8"))["signing"]["key_id"])')"
+          python3 scripts/openwrt/ci_candidate_fastpath.py fetch \
+            --repository "$REPOSITORY" --run-id "$CI_RUN_ID" --source-sha "$source_sha" \
+            --tag "$tag" --seq "$seq" --key-id "$key_id" \
+            --baseline UPDATES.json --baseline-signature UPDATES.json.sig \
+            --release-keys-dir scripts/openwrt/release-keys \
+            --output "$RUNNER_TEMP/verified-hotfix-candidate" --github-output "$GITHUB_OUTPUT"
+          printf 'source_sha=%s\n' "$source_sha" >> "$GITHUB_STEP_SUMMARY"
+          printf 'CI run: %s\n' "$CI_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Режим: только проверка; подписи и публикации нет.\n' >> "$GITHUB_STEP_SUMMARY"

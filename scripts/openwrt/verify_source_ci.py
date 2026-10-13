@@ -123,9 +123,15 @@ def main() -> int:
     source_sha = os.environ.get("SOURCE_SHA", "")
     successful_run = select_successful_run(fetch_workflow_runs(repository, source_sha, token), source_sha)
     run_id = successful_run.get("id")
+    if not isinstance(run_id, int) or run_id <= 0:
+        raise VerificationError("GitHub вернул некорректный ID проверенного CI run")
     run_url = successful_run.get("html_url", "")
     message = f"Verified successful push CI for exact source SHA {source_sha}: run {run_id} ({run_url})"
     print(message)
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if output_path:
+        with open(output_path, "a", encoding="utf-8") as output:
+            output.write(f"ci_run_id={run_id}\n")
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as summary:

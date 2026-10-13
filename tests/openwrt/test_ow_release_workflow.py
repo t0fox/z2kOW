@@ -68,7 +68,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         """После сборки повторно проверяет тег через реестр пропусков upstream."""
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         check = workflow.split(
-            "- name: Повторно проверить upstream после сборки",
+            "- name: Повторно проверить upstream перед финальной аттестацией",
             1,
         )[1].split("- uses: actions/upload-artifact", 1)[0]
 
@@ -78,12 +78,63 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("upstream-refs-after-build.txt", check)
         self.assertIn("RELEASE_UPSTREAM_COMMIT", check)
 
-    def test_release_builder_installs_arm64_cross_headers(self) -> None:
-        """Ставит ARM64-заголовки для C-зависимостей Rust-сборки релиза."""
+    def test_release_reuses_only_verified_rust_artifacts_for_the_exact_source_ci_run(self) -> None:
+        """Release берёт ABI-бинарники из проверенного CI, а при их утрате пересобирает локально."""
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
 
-        self.assertIn("gcc-aarch64-linux-gnu libc6-dev-arm64-cross", prepare)
+        verify_ci = workflow.split("  verify-source-ci:", 1)[1].split("  prepare-release:", 1)[0]
+        self.assertIn("ci_run_id: ${{ steps.verify.outputs.ci_run_id }}", verify_ci)
+        self.assertIn('CI_RUN_ID: ${{ needs.verify-source-ci.outputs.ci_run_id }}', prepare)
+        self.assertIn('gh run download "$CI_RUN_ID"', prepare)
+        self.assertIn('"z2kow-tg-rust-${SOURCE_SHA}-*"', prepare)
+        self.assertIn('--source-sha "$SOURCE_SHA" --run-id "$CI_RUN_ID"', prepare)
+        self.assertIn('build_args+=(--tg-dir "$TG_ARTIFACT_DIR")', prepare)
+        self.assertIn('Z2K_TG_EXPECTED_RUN_ID: ${{ steps.tg-artifacts.outputs.ci_run_id }}', prepare)
+        self.assertIn("Локальная Rust cross-сборка только при недоступности CI-артефактов", prepare)
+        self.assertIn("z2kow-tg-rust-${{ github.sha }}-${{ matrix.group }}", ci)
+        self.assertNotIn("gcc-aarch64-linux-gnu libc6-dev-arm64-cross", prepare)
+
+    def test_hotfix_fast_path_reuses_only_the_exact_ci_candidate_and_skips_duplicate_acceptance(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
+        publish = workflow.split("  publish-release:", 1)[1]
+        fast_path = prepare.split("id: ci-hotfix-candidate", 1)[1].split("- uses: actions/setup-go", 1)[0]
+
+        self.assertIn("if: env.RELEASE_OPERATION_INPUT == 'hotfix'", fast_path)
+        self.assertIn("needs.verify-source-ci.outputs.ci_run_id", fast_path)
+        self.assertIn("ci_candidate_fastpath.py fetch", fast_path)
+        self.assertIn("--source-sha \"$GITHUB_SHA\"", fast_path)
+        self.assertIn("--baseline UPDATES.json", fast_path)
+        self.assertIn("--baseline-signature UPDATES.json.sig", fast_path)
+        self.assertIn("ci-hotfix-candidate.outputs.fast_path != 'true'", prepare)
+        self.assertIn('if [ "${{ steps.ci-hotfix-candidate.outputs.fast_path }}" = true ]; then', prepare)
+        self.assertIn("ci-fastpath-attestation.json", publish)
+        self.assertIn("ci_candidate_fastpath.py verify-final", publish)
+        self.assertIn("Sign and verify the exact final manifest", publish)
+        self.assertIn("Publish immutable technical payload and optional Product Release", publish)
+
+    def test_fastpath_verifier_binds_ci_artifact_digest_and_acceptance_receipts(self) -> None:
+        verifier = (ROOT / "scripts/openwrt/ci_candidate_fastpath.py").read_text(encoding="utf-8")
+        self.assertIn("verify_artifact_record", verifier)
+        self.assertIn("verify_downloaded_archive", verifier)
+        self.assertIn("candidate-acceptance.json", verifier)
+        self.assertIn("upgrade-acceptance.json", verifier)
+        self.assertIn("production_signature_sha256", verifier)
+        self.assertIn("release_metadata_delta", verifier)
+        self.assertIn("неуспешные или пропущенные CI jobs", verifier)
+
+    def test_fastpath_audit_is_read_only_and_does_not_sign_or_publish(self) -> None:
+        audit = (ROOT / ".github/workflows/openwrt-fastpath-audit.yml").read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", audit)
+        self.assertIn("actions: read", audit)
+        self.assertIn("contents: read", audit)
+        self.assertIn("ci_candidate_fastpath.py fetch", audit)
+        self.assertNotIn("contents: write", audit)
+        self.assertNotIn("Z2KOW_RELEASE_PRIVATE_KEY", audit)
+        self.assertNotIn("sign_release.py", audit)
+        self.assertNotIn("publish_release.py", audit)
 
     def test_production_workflow_checks_production_key_id_before_publishing(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
@@ -117,7 +168,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
         publish = workflow.split("  publish-release:", 1)[1]
         self.assertLess(
-            prepare.index("accept_release_candidate.py"),
+            prepare.index("accept_release_matrix.py"),
             prepare.index("uses: actions/upload-artifact"),
         )
         self.assertLess(
@@ -128,7 +179,9 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('"$RUNNER_TEMP/openwrt-release-candidate"', prepare)
         self.assertIn('"$RUNNER_TEMP/openwrt-release-candidate"', publish)
         self.assertIn('--artifact-dir "$RUNNER_TEMP/openwrt-release-candidate"', publish)
-        self.assertIn("for arch in arm64 arm x86_64 x86 mips mipsel riscv64; do", prepare)
+        self.assertIn("scripts/openwrt/accept_release_matrix.py", prepare)
+        self.assertIn("--jobs 4", prepare)
+        self.assertNotIn("for arch in arm64 arm x86_64 x86 mips mipsel riscv64; do", prepare)
         acceptance = (ROOT / "tests/openwrt/accept_release_candidate.py").read_text(encoding="utf-8")
         self.assertIn("host_arch = sys.argv[3] if len(sys.argv) == 4 else \"x86_64\"", acceptance)
         self.assertIn("accepted_arches.update(previous.get(\"architectures\", []))", acceptance)
@@ -153,32 +206,92 @@ class ReleaseWorkflowTests(unittest.TestCase):
     def test_openwrt_ci_runs_all_checks_without_skipping_dependencies(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         acceptance = ci.split("  openwrt-acceptance:", 1)[1].split("  openwrt-unified:", 1)[0]
+        planner = ci.split("  openwrt-shard-plan:", 1)[1].split("  openwrt-shell-syntax:", 1)[0]
+        runtime = ci.split("  openwrt-runtime:", 1)[1].split("  openwrt-acceptance:", 1)[0]
         builder = ci.split("  openwrt-unified:", 1)[1]
         self.assertIn("fail-fast: false", acceptance)
-        self.assertIn("shard: [0, 1, 2, 3]", acceptance)
+        self.assertIn("fromJSON(needs.openwrt-shard-plan.outputs.matrix)", acceptance)
+        self.assertIn("needs: [openwrt-shard-plan, openwrt-shell-syntax, openwrt-runtime]", acceptance)
+        self.assertIn("--github-matrix", planner)
+        self.assertIn("--report", planner)
         self.assertIn('OW_STRICT: "1"', acceptance)
-        self.assertIn('OW_SHARD_COUNT: "4"', acceptance)
+        self.assertIn("OW_SKIP_SYNTAX_CHECK: \"1\"", acceptance)
+        self.assertIn("OW_SHARD_COUNT: ${{ matrix.count }}", acceptance)
         self.assertIn("OW_SHARD_INDEX:", acceptance)
         self.assertIn("lighttpd", acceptance)
         self.assertIn("curl", acceptance)
-        self.assertIn("platform/openwrt/runtime-pin", acceptance)
-        self.assertIn("sha256sum -c", acceptance)
-        self.assertIn("https://ghproxy.net/https://github.com/$runtime_path", acceptance)
-        self.assertIn("https://gh-proxy.com/https://github.com/$runtime_path", acceptance)
-        self.assertIn('test "$runtime_downloaded" -eq 1', acceptance)
-        self.assertIn('Z2K_RT_TARBALL="$runtime_archive" sh tests/openwrt/run.sh', acceptance)
-        self.assertLess(acceptance.index("sha256sum -c"), acceptance.index("sh tests/openwrt/run.sh"))
+        self.assertIn("z2kow-openwrt-runtime-${{ github.sha }}", runtime)
+        self.assertIn("sha256sum -c", runtime)
+        self.assertIn("actions/download-artifact", acceptance)
+        self.assertIn("actions/download-artifact", builder)
+        self.assertIn("--runtime-tarball", builder)
+        self.assertIn("--runtime-acceptance-passed", builder)
         self.assertIn("build-release.sh", builder)
-        self.assertIn("accept_release_candidate.py", builder)
+        self.assertIn("tg_build_artifacts.py merge", builder)
+        self.assertIn('build_args+=(--tg-dir "$RUNNER_TEMP/tg-ws-proxy")', builder)
+        self.assertIn('build_args+=(--go-dir "$RUNNER_TEMP/go-artifacts")', builder)
+        self.assertIn("scripts/openwrt/accept_release_matrix.py", builder)
         self.assertIn("upgrade-acceptance.sh", builder)
         self.assertIn("uses: actions/upload-artifact", builder)
+
+    def test_ci_profiles_acceptance_suites_and_runs_shellcheck_in_bounded_batches(self) -> None:
+        ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        shellcheck = ci.split("- name: Run shellcheck", 1)[1].split(
+            "- name: Syntax-check every shipped shell script", 1
+        )[0]
+        runner = (ROOT / "tests/openwrt/run.sh").read_text(encoding="utf-8")
+
+        self.assertIn("find . -name '*.sh'", shellcheck)
+        for path in (
+            "./z2k.sh",
+            "./z2k_cleanup.sh",
+            "./lib/*.sh",
+            "./files/*.sh",
+            "./tests/*.sh",
+            "./scripts/*.sh",
+            "./webpanel/*.sh",
+            "./webpanel/cgi/*.sh",
+        ):
+            self.assertIn(f"-path '{path}'", shellcheck)
+        self.assertIn("-print0", shellcheck)
+        self.assertIn("xargs -0 -r -P 4 -n 32 shellcheck", shellcheck)
+        self.assertIn("OPENWRT-SUITE-TIME", runner)
+
+    def test_local_full_rust_fallback_produces_a_verifiable_merged_artifact_set(self) -> None:
+        builder = (ROOT / "scripts/openwrt/build_tg_ws_proxy.sh").read_text(encoding="utf-8")
+
+        self.assertIn('_ci_run_id="${GITHUB_RUN_ID:-0}"', builder)
+        self.assertIn('elif [ "$_selected_variants" = "$_all_variants" ]; then\n    _build_group=merged', builder)
+
+    def test_ci_reuses_attested_go_artifacts_without_duplicate_cross_compilation(self) -> None:
+        ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        builder = (ROOT / "scripts/openwrt/build-release.sh").read_text(encoding="utf-8")
+        go_job = ci.split("  go:", 1)[1].split("  binaries:", 1)[0]
+        binaries = ci.split("  binaries:", 1)[1].split("  lua-check:", 1)[0]
+        shell_tests = ci.split("  tests:", 1)[1].split("  rust-tg-proxy:", 1)[0]
+        openwrt_job = ci.split("  openwrt-unified:", 1)[1]
+
+        self.assertIn("go_build_artifacts.py attest", go_job)
+        self.assertIn("z2kow-go-${{ github.sha }}-${{ matrix.module }}", go_job)
+        self.assertIn("needs: [go]", binaries)
+        self.assertIn("go_build_artifacts.py compare-repository", binaries)
+        self.assertIn("actions/download-artifact", binaries)
+        self.assertIn("actions/download-artifact", shell_tests)
+        self.assertNotIn("go build", shell_tests)
+        self.assertIn("-buildvcs=false", go_job)
+        self.assertIn("-X main.version=$release_tag", go_job)
+        self.assertIn("needs: [rust-tg-proxy, go, openwrt-runtime, openwrt-acceptance]", openwrt_job)
+        self.assertIn('go_build_artifacts.py" stage', builder)
+        self.assertIn('--go-dir "$RUNNER_TEMP/go-artifacts"', openwrt_job)
+        self.assertIn('if [ "$_reuse_go" -eq 0 ]; then', builder)
+        self.assertNotIn("go-build-v1-", openwrt_job)
 
     def test_openwrt_ci_attaches_per_arch_records_before_candidate_acceptance(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         job = ci.split("  openwrt-unified:", 1)[1]
         build = job.index("build-release.sh")
         attach = job.index("controlled_release.py attach", build)
-        acceptance = job.index("accept_release_candidate.py", attach)
+        acceptance = job.index("accept_release_matrix.py", attach)
         self.assertIn('cp UPDATES.json "$RUNNER_TEMP/production-UPDATES.json"', job)
         self.assertIn("migration-fallback", job)
         self.assertIn("--legacy-rootfs", job)
@@ -187,7 +300,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('--production-baseline "$RUNNER_TEMP/production-UPDATES.json"', job)
         self.assertLess(build, attach)
         self.assertLess(attach, acceptance)
-        self.assertIn("for arch in arm64 arm x86_64 x86 mips mipsel riscv64; do", job)
+        self.assertIn("--jobs 4", job)
 
     def test_openwrt_ci_requires_an_upgrade_from_the_previous_published_release(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
@@ -195,7 +308,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("scripts/openwrt/upgrade-acceptance.sh", job)
         self.assertIn('"$RUNNER_TEMP/production-UPDATES.json"', job)
         self.assertIn('"$RUNNER_TEMP/openwrt-candidate/UPDATES.json"', job)
-        self.assertLess(job.index("accept_release_candidate.py"), job.index("scripts/openwrt/upgrade-acceptance.sh"))
+        self.assertLess(job.index("accept_release_matrix.py"), job.index("scripts/openwrt/upgrade-acceptance.sh"))
         self.assertLess(job.index("scripts/openwrt/upgrade-acceptance.sh"), job.index("uses: actions/upload-artifact"))
 
     def test_tmpfs_transition_is_required_for_every_engine_that_stages_in_tmp(self) -> None:
@@ -248,7 +361,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
         publish = workflow.split("  publish-release:", 1)[1]
-        self.assertLess(prepare.index("build-release.sh"), prepare.index("Повторно проверить upstream после сборки"))
+        self.assertLess(prepare.index("build-release.sh"), prepare.index("Повторно проверить upstream перед финальной аттестацией"))
         self.assertLess(publish.index("Reconfirm live upstream current and exact pinned tag before production signing"), publish.index("Sign and verify the exact final manifest"))
 
     def test_candidate_plan_output_is_parsed_as_json_not_treated_as_a_path(self) -> None:

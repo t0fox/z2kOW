@@ -186,10 +186,10 @@ jobs:
           # scripts/*.sh is release tooling, never shipped to a router — but it is what
           # generates the digests routers verify against, so a bug there fails every
           # update closed. Linted with everything else.
-          { find . -name '*.sh' \( -path './z2k.sh' -o -path './z2k_cleanup.sh' -o -path './lib/*.sh' -o -path './files/*.sh' -o -path './tests/*.sh' -o -path './scripts/*.sh' -o -path './webpanel/*.sh' -o -path './webpanel/cgi/*.sh' \); \
-            find ./files/init.d -type f -name 'S*'; \
-            find ./files -maxdepth 1 -type f -name 'S*'; } \
-            | xargs shellcheck --severity=warning --exclude=SC1007,SC1090,SC1091,SC3043,SC3040,SC2034,SC2148,SC2154
+          { find . -name '*.sh' \( -path './z2k.sh' -o -path './z2k_cleanup.sh' -o -path './lib/*.sh' -o -path './files/*.sh' -o -path './tests/*.sh' -o -path './scripts/*.sh' -o -path './webpanel/*.sh' -o -path './webpanel/cgi/*.sh' \) -print0; \
+            find ./files/init.d -type f -name 'S*' -print0; \
+            find ./files -maxdepth 1 -type f -name 'S*' -print0; } \
+            | xargs -0 -r -P 4 -n 32 shellcheck --severity=warning --exclude=SC1007,SC1090,SC1091,SC3043,SC3040,SC2034,SC2148,SC2154
 
       - name: Syntax-check every shipped shell script
         run: |
@@ -290,6 +290,7 @@ jobs:
     # и вердикта нет ни у кого. Разделение даёт линтерам секунды, тестам —
     # свой честный лимит и своё имя в списке прогонов.
     timeout-minutes: 30
+    needs: [go]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -321,31 +322,13 @@ jobs:
           path: zapret2-z2k-fork
           persist-credentials: false
 
-      - name: Set up Go (for rt-proxy build-drift check below)
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Загрузить проверенные rt-proxy ELF из Go matrix
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: false
-
-      - name: Build rt-proxy (so test_rt_proxy_binary_drift.sh has something to compare)
-        # rt-proxy/z2k-rt-proxy-linux-* — build output, не в git (см. заголовок
-        # test_rt_proxy_binary_drift.sh). На свежем checkout сравнивать было не с
-        # чем, и тест штатно уходил в SKIP на каждой из 5 архитектур — не баг, но
-        # и не проверка: тот же байт-в-байт уже честно идёт в job "binaries", а
-        # здесь только собираем ЛОКАЛЬНО ТЕ ЖЕ архитектуры, что перечисляет сам
-        # install.sh, чтобы drift-сравнение в тест-сьюте тоже реально выполнялось,
-        # а не молчаливо пропускалось при каждом прогоне CI.
-        run: |
-          set -eu
-          # shellcheck disable=SC2034 # bdir/prefix — поля общей схемы TSV, здесь не нужны
-          while IFS="$(printf '\t')" read -r mod pkg bdir prefix goarch sfx extra; do
-            case "$mod" in ''|\#*) continue ;; esac
-            [ "$mod" = "rt-proxy" ] || continue
-            [ "$extra" = "-" ] && extra=""
-            # shellcheck disable=SC2086 # $extra — набор присваиваний окружения
-            ( cd rt-proxy && env CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" $extra \
-                go build -trimpath -buildvcs=false -ldflags="-s -w" -o "z2k-rt-proxy-linux-$sfx" "$pkg" )
-          done < build-matrix.tsv
+          name: z2kow-go-${{ github.sha }}-rt-proxy
+          path: ${{ runner.temp }}/z2k-go-rt-proxy
+      - name: Подготовить ELF для drift-проверки shell-набора
+        run: cp "$RUNNER_TEMP"/z2k-go-rt-proxy/z2k-rt-proxy-linux-* rt-proxy/
 
       - name: Resolve the release tag for the panel cache-buster check
         env:
@@ -359,9 +342,25 @@ jobs:
         run: sh tests/run_all.sh
 
   rust-tg-proxy:
-    name: "Rust TG WS Proxy: все ABI OpenWrt"
+    name: "Rust TG WS Proxy: ${{ matrix.group }}"
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: zig
+            variants: "arm64 x86_64 x86 riscv64"
+            tests: true
+          - group: arm
+            variants: "arm"
+            tests: false
+          - group: mips
+            variants: "mips"
+            tests: false
+          - group: mipsel
+            variants: "mipsel"
+            tests: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -369,6 +368,8 @@ jobs:
 
       - name: Установить Rust и инструменты воспроизводимой cross-сборки
         shell: bash
+        env:
+          Z2K_TG_RUN_TESTS: ${{ matrix.tests }}
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -377,25 +378,50 @@ jobs:
           [[ -n "$toolchain" ]]
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
           "$HOME/.cargo/bin/rustup" toolchain install "$toolchain" --profile minimal
-          "$HOME/.cargo/bin/rustup" component add rustfmt clippy --toolchain "$toolchain"
+          if [ "$Z2K_TG_RUN_TESTS" = true ]; then
+            "$HOME/.cargo/bin/rustup" component add rustfmt clippy --toolchain "$toolchain"
+          fi
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: Проверить локальный crate и собрать поддерживаемые архитектуры OpenWrt
-        run: sh scripts/openwrt/build_tg_ws_proxy.sh "$RUNNER_TEMP/tg-ws-proxy" --test
+      - name: Восстановить Cargo registry и проверенный build cache группы
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ runner.temp }}/z2k-tg-cargo-target
+          key: tg-cargo-v1-${{ runner.os }}-${{ matrix.group }}-${{ hashFiles('platform/openwrt/tg-proxy/Cargo.lock', 'platform/openwrt/tg-proxy/rust-toolchain.toml', 'platform/openwrt/tg-rust-targets.tsv', 'scripts/openwrt/build_tg_ws_proxy.sh') }}
 
-      - name: Проверить все целевые ELF и состав Rust-набора
-        shell: bash
+      - name: Восстановить закреплённые SDK и linker этой группы
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/z2k-tg-toolchains
+          key: tg-tools-v1-${{ runner.os }}-${{ matrix.group }}-${{ hashFiles('platform/openwrt/tg-proxy/rust-toolchain.toml', 'platform/openwrt/tg-rust-targets.tsv', 'scripts/openwrt/build_tg_ws_proxy.sh') }}
+
+      - name: Проверить локальный crate и собрать поддерживаемые архитектуры OpenWrt
+        env:
+          Z2K_TG_BUILD_GROUP: ${{ matrix.group }}
+          Z2K_TG_VARIANTS: ${{ matrix.variants }}
+          Z2K_TG_CARGO_TARGET_DIR: ${{ runner.temp }}/z2k-tg-cargo-target
+          Z2K_TG_TOOLCHAIN_CACHE: ${{ runner.temp }}/z2k-tg-toolchains
+          Z2K_TG_RUN_TESTS: ${{ matrix.tests }}
         run: |
           set -euo pipefail
-          mapfile -t targets < <(find "$RUNNER_TEMP/tg-ws-proxy" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
-          mapfile -t expected < <(awk 'NF == 10 && $1 !~ /^#/ {print "linux-" $3}' platform/openwrt/tg-rust-targets.tsv | sort -u)
-          [[ "${targets[*]}" == "${expected[*]}" ]]
-          while IFS= read -r binary; do
-            test -x "$binary"
-            ! readelf -l "$binary" | grep -q INTERP
-            readelf -h "$binary" | grep -q 'Class:'
-          done < <(find "$RUNNER_TEMP/tg-ws-proxy" -type f -name tg-ws-proxy | sort)
-          python3 tests/openwrt/verify_tg_elf.py "$RUNNER_TEMP/tg-ws-proxy"
+          if [ "$Z2K_TG_RUN_TESTS" = true ]; then
+            sh scripts/openwrt/build_tg_ws_proxy.sh "$RUNNER_TEMP/tg-ws-proxy" --test
+          else
+            sh scripts/openwrt/build_tg_ws_proxy.sh "$RUNNER_TEMP/tg-ws-proxy"
+          fi
+          python3 tests/openwrt/verify_tg_elf.py "$RUNNER_TEMP/tg-ws-proxy" --variants "$Z2K_TG_VARIANTS"
+          du -sh "$Z2K_TG_CARGO_TARGET_DIR" "$Z2K_TG_TOOLCHAIN_CACHE" "$HOME/.cargo/registry" "$HOME/.cargo/git" 2>/dev/null || true
+
+      - name: Сохранить проверенные Rust TG ELF этой матричной группы
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: z2kow-tg-rust-${{ github.sha }}-${{ matrix.group }}
+          path: ${{ runner.temp }}/tg-ws-proxy/
+          if-no-files-found: error
+          retention-days: 14
 
   go:
     name: Go ${{ matrix.module }}
@@ -421,6 +447,12 @@ jobs:
           # Кэшируем зависимости каждого оставшегося Go-модуля по его go.mod/go.sum.
           cache-dependency-path: ${{ matrix.module }}/go.*
 
+      - name: Восстановить compiler cache Go-модуля
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/z2k-go-build-cache/${{ matrix.module }}
+          key: go-build-v1-${{ runner.os }}-${{ matrix.module }}-${{ env.GO_VERSION }}-${{ hashFiles('rt-proxy/go.mod', 'rt-proxy/go.sum', 'z2k-detect/go.mod', 'z2k-detect/go.sum', 'z2k-verify/go.mod', 'z2k-verify/go.sum', 'z2k-warpd/go.mod', 'z2k-warpd/go.sum', 'build-matrix.tsv', 'scripts/openwrt/build-release.sh') }}
+
       - name: gofmt
         working-directory: ${{ matrix.module }}
         run: |
@@ -436,6 +468,8 @@ jobs:
 
       - name: go vet
         working-directory: ${{ matrix.module }}
+        env:
+          GOCACHE: ${{ runner.temp }}/z2k-go-build-cache/${{ matrix.module }}
         run: go vet ./...
 
       - name: go test (race)
@@ -446,6 +480,7 @@ jobs:
           # канонический вектор template injection (здесь значения свои и
           # статические, но привычка должна быть одна на все workflows).
           MODULE: ${{ matrix.module }}
+          GOCACHE: ${{ runner.temp }}/z2k-go-build-cache/${{ matrix.module }}
         run: |
           # -race: все четыре модуля — конкурентные сетевые демоны (туннели,
           # пулы апстримов, вотчеры). Раннер amd64, но логика синхронизации,
@@ -471,47 +506,81 @@ jobs:
       - name: OpenWrt nft overlay tests
         if: matrix.module == 'z2k-warpd'
         working-directory: z2k-warpd
+        env:
+          GOCACHE: ${{ runner.temp }}/z2k-go-build-cache/z2k-warpd
         run: go test -race -count=1 -tags openwrt -overlay openwrt-overlay/overlay.json ./...
 
       - name: Cross-compile
         working-directory: ${{ matrix.module }}
         env:
           MODULE: ${{ matrix.module }}
+          GOCACHE: ${{ runner.temp }}/z2k-go-build-cache/${{ matrix.module }}
         run: |
+          set -euo pipefail
           # Арки и флаги берутся из build-matrix.tsv — единственного места, где
           # они объявлены. Раньше список жил здесь своей жизнью и разошёлся с
           # Makefile'ами: все арки и дополнительные флаги берём из общей матрицы.
           rc=0
+          release_tag="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["current"])' "$GITHUB_WORKSPACE/UPDATES.json")"
+          artifact_dir="$RUNNER_TEMP/z2k-go-artifacts/$MODULE"
+          mkdir -p "$artifact_dir"
           # shellcheck disable=SC2034 # bdir/prefix/sfx нужны сверке байтов ниже
           while IFS="$(printf '\t')" read -r mod pkg bdir prefix goarch sfx extra; do
             case "$mod" in ''|\#*) continue ;; esac
             [ "$mod" = "$MODULE" ] || continue
             [ "$extra" = "-" ] && extra=""
+            output="$artifact_dir/$prefix-linux-$sfx"
             echo "Building linux/$goarch $extra..."
             # shellcheck disable=SC2086 # $extra — набор присваиваний окружения
-            env CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" $extra \
-              go build -trimpath -ldflags="-s -w" -o /dev/null "$pkg" || rc=1
+            if [ "$MODULE" = z2k-warpd ]; then
+              env CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" $extra \
+                go build -tags openwrt -overlay openwrt-overlay/overlay.json -trimpath -buildvcs=false \
+                -ldflags="-s -w -X main.version=$release_tag" -o "$output" "$pkg" || rc=1
+            else
+              env CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" $extra \
+                go build -trimpath -buildvcs=false -ldflags="-s -w" -o "$output" "$pkg" || rc=1
+            fi
           # Шаг выполняется внутри каталога модуля (working-directory), а
           # матрица лежит в корне — путь абсолютный, иначе «No such file».
           done < "$GITHUB_WORKSPACE/build-matrix.tsv"
+          du -sh "$GOCACHE" 2>/dev/null || true
           exit $rc
+      - name: Проверить ABI и записать provenance Go-артефакта
+        if: success()
+        env:
+          MODULE: ${{ matrix.module }}
+        run: |
+          set -euo pipefail
+          release_tag="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["current"])' UPDATES.json)"
+          python3 scripts/openwrt/go_build_artifacts.py attest \
+            --directory "$RUNNER_TEMP/z2k-go-artifacts/$MODULE" --module "$MODULE" \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --go-version "$(go version)" --release-tag "$release_tag"
+      - name: Сохранить проверенные Go ELF и provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: z2kow-go-${{ github.sha }}-${{ matrix.module }}
+          path: ${{ runner.temp }}/z2k-go-artifacts/${{ matrix.module }}/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
 
   binaries:
-    name: Отгружаемые бинарники собираются из этого исходника
+    name: Отгружаемые бинарники сверяются с Go matrix
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    needs: [go]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Загрузить ELF, собранные Go matrix
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: false
-
-      - name: Пересобрать и сверить байт-в-байт
+          pattern: z2kow-go-${{ github.sha }}-*
+          path: ${{ runner.temp }}/z2k-go-artifacts
+      - name: Сверить проверенные Go ELF с отгружаемыми файлами
         run: |
           set -eu
           # ЗАЧЕМ. Бинарники лежат в репозитории готовыми блобами, и ничто не
@@ -524,53 +593,11 @@ jobs:
           # здесь, и в Makefile'ах (go1.25.13): на 1.26.x ловили _ENOSYS на MIPS,
           # и разъехавшийся тулчейн сам по себе даст расхождение байтов.
           #
-          candidate_dir="$RUNNER_TEMP/z2k-detect-builds"
-          mkdir -p "$candidate_dir"
-          fail=0
-          while IFS="$(printf '\t')" read -r mod pkg bdir prefix goarch sfx extra; do
-            case "$mod" in ''|\#*) continue ;; esac
-            [ "$bdir" = "-" ] && continue
-            # z2k-warpd/builds are upstream Keenetic binaries; OpenWrt instead
-            # compiles its adapted runtime with the nft overlay in the unified
-            # full-payload candidate workflow.
-            [ "$mod" = "z2k-warpd" ] && continue
-            want="$bdir/$prefix-linux-$sfx"
-            if [ ! -f "$want" ]; then
-              echo "::error::нет отгружаемого $want"; fail=1; continue
-            fi
-            [ "$extra" = "-" ] && extra=""
-            # shellcheck disable=SC2086 # $extra — набор присваиваний окружения
-            ( cd "$mod" && env CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" $extra \
-                go build -ldflags="-s -w" -trimpath -buildvcs=false -o /tmp/rebuilt "$pkg" ) || {
-              echo "::error::$mod/$goarch не собирается"; fail=1; continue; }
-            if [ "$mod" = "z2k-detect" ]; then
-              cp /tmp/rebuilt "$candidate_dir/$prefix-linux-$sfx"
-              chmod 755 "$candidate_dir/$prefix-linux-$sfx"
-            fi
-            a=$(sha256sum /tmp/rebuilt | cut -d" " -f1)
-            b=$(sha256sum "$want" | cut -d" " -f1)
-            if [ "$a" = "$b" ]; then
-              echo "  ok      $want"
-            else
-              echo "::error::$want не собирается из этого исходника (сборка $a, в репо $b)"
-              fail=1
-            fi
-          done < build-matrix.tsv
-
-          if [ "$fail" != "0" ]; then
-            echo "::error::пересоберите: cd <модуль> && make all — и закоммитьте builds/"
-            exit 1
-          fi
-          echo "все проверенные бинарники собираются из этого исходника"
-
-      - name: Upload repository-built detector artifacts when source drift is found
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: z2k-detect-builds-${{ github.sha }}
-          path: ${{ runner.temp }}/z2k-detect-builds/
-          if-no-files-found: ignore
-          retention-days: 3
+          release_tag="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["current"])' UPDATES.json)"
+          python3 scripts/openwrt/go_build_artifacts.py compare-repository \
+            --artifacts "$RUNNER_TEMP/z2k-go-artifacts" --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --go-version "go version go${GO_VERSION} linux/amd64" \
+            --release-tag "$release_tag"
 
   lua-check:
     name: Luacheck
@@ -641,14 +668,84 @@ jobs:
       - name: Run mutants
         run: GO=go sh tests/mutation.sh
 
+  openwrt-shard-plan:
+    name: План OpenWrt acceptance shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Сравнить 4, 6 и 8 shard по измеренным временам
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/openwrt/shard_tests.py --report | tee -a "$GITHUB_STEP_SUMMARY"
+          matrix="$(python3 tests/openwrt/shard_tests.py --github-matrix)"
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+
+  openwrt-shell-syntax:
+    name: Синтаксис OpenWrt shell
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Проверить shell-синтаксис OpenWrt один раз
+        run: sh tests/openwrt/check_syntax.sh
+
+  openwrt-runtime:
+    name: Проверенный runtime-архив OpenWrt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Загрузить и проверить закреплённый upstream runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/zapret2-runtime.tar.gz"
+          runtime_url="$(sed -n 's/^URL=//p' platform/openwrt/runtime-pin | tr -d '\r\n')"
+          runtime_sha="$(sed -n 's/^SHA256=//p' platform/openwrt/runtime-pin | tr -d '\r\n')"
+          [[ "$runtime_url" == https://github.com/* ]]
+          [[ "$runtime_sha" =~ ^[0-9a-f]{64}$ ]]
+          runtime_path="${runtime_url#https://github.com/}"
+          runtime_downloaded=0
+          for source in "$runtime_url" "https://ghproxy.net/https://github.com/$runtime_path" \
+              "https://gh-proxy.com/https://github.com/$runtime_path"; do
+            if curl --fail --location --silent --show-error --connect-timeout 10 --max-time 300 \
+                -o "$archive" "$source" && \
+                printf '%s  %s\n' "$runtime_sha" "$archive" | sha256sum -c -; then
+              runtime_downloaded=1
+              break
+            fi
+          done
+          test "$runtime_downloaded" -eq 1
+          echo "Загружен закреплённый runtime: $runtime_sha"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: z2kow-openwrt-runtime-${{ github.sha }}
+          path: ${{ runner.temp }}/zapret2-runtime.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 2
+
   openwrt-acceptance:
-    name: OpenWrt acceptance (shard ${{ matrix.shard }}/4)
+    name: OpenWrt acceptance (shard ${{ matrix.shard }}/${{ matrix.count }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    needs: [openwrt-shard-plan, openwrt-shell-syntax, openwrt-runtime]
     strategy:
       fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3]
+      matrix: ${{ fromJSON(needs.openwrt-shard-plan.outputs.matrix) }}
     permissions:
       contents: read
     steps:
@@ -662,35 +759,33 @@ jobs:
           cache-dependency-path: z2k-warpd/go.sum
       - name: Install OpenWrt test dependencies
         run: sudo apt-get update && sudo apt-get install -y dnsmasq-base busybox lighttpd curl lua5.3
+      - name: Получить runtime только для shard, которому он нужен
+        if: matrix.runtime
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: z2kow-openwrt-runtime-${{ github.sha }}
+          path: ${{ runner.temp }}/runtime-artifact
       - name: Run every assigned OpenWrt test without skips
         env:
           OW_STRICT: "1"
-          OW_SHARD_COUNT: "4"
+          OW_SKIP_SYNTAX_CHECK: "1"
+          OW_SHARD_COUNT: ${{ matrix.count }}
           OW_SHARD_INDEX: ${{ matrix.shard }}
         run: |
-          runtime_archive="$RUNNER_TEMP/zapret2-ci.tar.gz"
-          runtime_url=$(sed -n 's/^URL=//p' platform/openwrt/runtime-pin | tr -d '\r\n')
-          runtime_sha=$(sed -n 's/^SHA256=//p' platform/openwrt/runtime-pin | tr -d '\r\n')
-          runtime_path="${runtime_url#https://github.com/}"
-          runtime_downloaded=0
-          for source in "$runtime_url" "https://ghproxy.net/https://github.com/$runtime_path" \
-              "https://gh-proxy.com/https://github.com/$runtime_path"; do
-            if curl --fail --location --silent --show-error --connect-timeout 10 --max-time 300 \
-                -o "$runtime_archive" "$source" && \
-                printf '%s  %s\n' "$runtime_sha" "$runtime_archive" | sha256sum -c -; then
-              runtime_downloaded=1
-              break
-            fi
-          done
-          test "$runtime_downloaded" -eq 1
-          Z2K_RT_TARBALL="$runtime_archive" sh tests/openwrt/run.sh
+          if [ -f "$RUNNER_TEMP/runtime-artifact/zapret2-runtime.tar.gz" ]; then
+            export Z2K_RT_TARBALL="$RUNNER_TEMP/runtime-artifact/zapret2-runtime.tar.gz"
+            export Z2K_RUNTIME_ARCHIVE="$Z2K_RT_TARBALL"
+          fi
+          sh tests/openwrt/run.sh
 
   openwrt-unified:
     name: OpenWrt full-payload release
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    needs: [rust-tg-proxy, go, openwrt-runtime, openwrt-acceptance]
     permissions:
       contents: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -698,20 +793,35 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 1.25.13
-          cache: true
-          cache-dependency-path: z2k-warpd/go.sum
-      - name: Установить toolchain для ARM64 rootfs и проверки установщика
+          cache: false
+      - name: Установить зависимости проверки rootfs и загрузить Rust ELF
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends dnsmasq-base busybox lighttpd curl lua5.3 xz-utils zstd binutils
-          toolchain="$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' platform/openwrt/tg-proxy/rust-toolchain.toml)"
-          [[ -n "$toolchain" ]]
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
-          "$HOME/.cargo/bin/rustup" toolchain install "$toolchain" --profile minimal
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          artifact_root="$RUNNER_TEMP/tg-rust-artifacts"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --pattern "z2kow-tg-rust-${GITHUB_SHA}-*" --dir "$artifact_root"
+          python3 scripts/openwrt/tg_build_artifacts.py merge \
+            --artifacts "$artifact_root" --output "$RUNNER_TEMP/tg-ws-proxy" \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
+      - name: Загрузить проверенные Go ELF всех модулей
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: z2kow-go-${{ github.sha }}-*
+          path: ${{ runner.temp }}/go-artifacts
+      - name: Получить уже проверенный upstream runtime из workflow artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: z2kow-openwrt-runtime-${{ github.sha }}
+          path: ${{ runner.temp }}/runtime-artifact
       - name: Test upstream WARP engine and build per-architecture rootfs candidates
+        env:
+          Z2K_TG_EXPECTED_RUN_ID: ${{ github.run_id }}
+          Z2K_GO_EXPECTED_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           cp UPDATES.json "$RUNNER_TEMP/production-UPDATES.json"
@@ -720,20 +830,20 @@ jobs:
           [[ "$include_legacy_fallback" == true || "$include_legacy_fallback" == false ]]
           build_args=(--out "$RUNNER_TEMP/openwrt-candidate")
           if [ "$include_legacy_fallback" = true ]; then build_args+=(--legacy-rootfs); fi
+          build_args+=(--tg-dir "$RUNNER_TEMP/tg-ws-proxy")
+          build_args+=(--go-dir "$RUNNER_TEMP/go-artifacts")
+          build_args+=(--runtime-tarball "$RUNNER_TEMP/runtime-artifact/zapret2-runtime.tar.gz" --runtime-acceptance-passed)
           sh scripts/openwrt/build-release.sh "${build_args[@]}"
           python3 scripts/openwrt/controlled_release.py attach \
             --manifest "$RUNNER_TEMP/openwrt-candidate/UPDATES.json" \
             --artifact-dir "$RUNNER_TEMP/openwrt-candidate" \
             --source-sha "$GITHUB_SHA" \
             --production-baseline "$RUNNER_TEMP/production-UPDATES.json"
-      - name: Проверить готовый кандидат установщиком с утилитами BusyBox
+      - name: Проверить готовый кандидат установщиком по всем ABI
         run: |
-          set -euo pipefail
-          for arch in arm64 arm x86_64 x86 mips mipsel riscv64; do
-            python3 tests/openwrt/accept_release_candidate.py \
-              "$RUNNER_TEMP/openwrt-candidate/UPDATES.json" \
-              "$RUNNER_TEMP/openwrt-candidate" "$arch"
-          done
+          python3 scripts/openwrt/accept_release_matrix.py \
+            "$RUNNER_TEMP/openwrt-candidate/UPDATES.json" \
+            "$RUNNER_TEMP/openwrt-candidate" --jobs 4
       - name: Upgrade acceptance с предыдущим опубликованным OpenWrt-релизом
         run: |
           sh scripts/openwrt/upgrade-acceptance.sh \
