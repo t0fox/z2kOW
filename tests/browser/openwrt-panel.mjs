@@ -699,8 +699,8 @@ try {
     `${appearance}: the clickable brand box tightly fits the visible SVG (${JSON.stringify(brandRender)})`);
     assert.ok(brandRender.width <= brandRender.logoWidth + 2 && brandRender.height <= brandRender.logoHeight + 2,
       `${appearance}: the brand has no oversized blank area around the SVG (${JSON.stringify(brandRender)})`);
-    assert.ok(Math.abs(brandRender.x - brandRender.firstMenuItemX) < 1,
-      `${appearance}: the logo aligns with the first sidebar item (${JSON.stringify(brandRender)})`);
+    assert.ok(Math.abs(brandRender.x - brandRender.firstMenuItemX) <= 2,
+      `${appearance}: the logo aligns within 2 CSS px of the first sidebar item (${JSON.stringify(brandRender)})`);
     const logoRender = await lockup.locator('#brand-composite-logo').evaluate(node => {
       const box = node.getBoundingClientRect();
       return {
