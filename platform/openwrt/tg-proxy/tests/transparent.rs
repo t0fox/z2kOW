@@ -266,17 +266,8 @@ fn transparent_mode_checks_telegram_cidrs_for_both_address_families() {
 }
 
 #[test]
-fn прозрачный_режим_отличает_http_tls_и_неизвестные_рукопожатия_от_obfuscated2() {
-    assert!(z2kow_tg_transparent::transparent::is_http_request(
-        b"GET /api HTTP/1.1\r\n"
-    ));
-    assert!(z2kow_tg_transparent::transparent::is_http_request(
-        b"POST /api HTTP/1.1\r\n"
-    ));
+fn прозрачный_режим_отличает_tls_и_неизвестные_рукопожатия_от_obfuscated2() {
     let unknown = [0x45; 64];
-    assert!(!z2kow_tg_transparent::transparent::is_http_request(
-        &unknown
-    ));
     assert!(parse_client_init(&unknown).is_none());
 
     let mut tls_client_hello = [0u8; 64];
@@ -291,6 +282,13 @@ fn transparent_mode_preserves_original_port_for_tcp_fallback() {
         z2kow_tg_transparent::transparent::tcp_fallback_target("fallback.example", original),
         ("fallback.example".to_string(), 58321)
     );
+}
+
+#[test]
+fn transparent_policy_never_accepts_tcp_80_even_if_legacy_cli_configures_it() {
+    assert!(!z2kow_tg_transparent::transparent::supports_destination_port(80, &[80, 443, 5222]));
+    assert!(z2kow_tg_transparent::transparent::supports_destination_port(443, &[80, 443, 5222]));
+    assert!(z2kow_tg_transparent::transparent::supports_destination_port(5222, &[80, 443, 5222]));
 }
 
 #[test]

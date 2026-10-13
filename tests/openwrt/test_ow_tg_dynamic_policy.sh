@@ -63,9 +63,11 @@ z2k_ow_tg_nft_apply || _t_bad "применение проверенного м�
 assert_contains "создан IPv4 набор пар" "$T/nft.log" 'type ipv4_addr . inet_service'
 assert_contains "создан IPv6 набор пар" "$T/nft.log" 'type ipv6_addr . inet_service'
 assert_contains "обе семьи обновляются одним nft batch" "$T/nft.log" 'batch:flush set inet zapret2 z2k_tg_pair4'
-assert_contains "IPv4 MTProto HTTP-порт включён только точной парой" "$T/nft.log" 'batch:add element inet zapret2 z2k_tg_pair4 { 149.154.175.52 . 80, 149.154.175.52 . 443 }'
+assert_contains "старый IPv4 manifest сохраняет разрешённый WSS-порт" "$T/nft.log" 'batch:add element inet zapret2 z2k_tg_pair4 { 149.154.175.52 . 443 }'
+assert_not_contains "старый IPv4 manifest не возвращает TCP/80" "$T/nft.log" 'batch:add element inet zapret2 z2k_tg_pair4 { 149.154.175.52 . 80'
 assert_contains "IPv4 обычный WSS-порт сохранён в точном наборе" "$T/nft.log" '149.154.175.52 . 443'
-assert_contains "IPv6 MTProto HTTP-порт включён только точной парой" "$T/nft.log" 'batch:add element inet zapret2 z2k_tg_pair6 { 2001:db8::4 . 80, 2001:db8::4 . 5222 }'
+assert_contains "старый IPv6 manifest сохраняет разрешённый WSS-порт" "$T/nft.log" 'batch:add element inet zapret2 z2k_tg_pair6 { 2001:db8::4 . 5222 }'
+assert_not_contains "старый IPv6 manifest не возвращает TCP/80" "$T/nft.log" 'batch:add element inet zapret2 z2k_tg_pair6 { 2001:db8::4 . 80'
 assert_contains "IPv6 обычный WSS-порт сохранён в точном наборе" "$T/nft.log" '2001:db8::4 . 5222'
 assert_contains "prerouting использует IPv4 пару" "$T/nft.log" 'ip daddr . tcp dport @z2k_tg_pair4 counter redirect to :1443'
 assert_contains "output использует IPv6 пару" "$T/nft.log" 'ip6 daddr . tcp dport @z2k_tg_pair6 counter redirect to :1443'
@@ -100,11 +102,13 @@ z2k_ow_tg_nft_apply 2>/dev/null && _t_bad "повреждённый манифе
 assert_not_contains "ошибка файла не запускает nft batch" "$T/nft.log" '^nft:-f -'
 assert_not_contains "ошибка файла не меняет redirect rules" "$T/nft.log" '^nft:add rule'
 
-# Порт 80 разрешён только как часть явного списка Telegram TCP-портов.
+# Старая пользовательская настройка не должна отключить остальные порты.
 _saved_ports="$Z2K_TG_TCP_PORTS"
-Z2K_TG_TCP_PORTS='80 443'
-assert_eq "политика сохраняет явный TCP/80" "80 443" \
+Z2K_TG_TCP_PORTS='80 443 5222'
+assert_eq "legacy TG_TCP_PORTS исключает TCP/80 и сохраняет остальные" "443 5222" \
     "$(z2k_ow_tg_ports | tr '\n' ' ' | sed 's/ $//')"
+assert_eq "legacy CSV для Rust содержит только поддерживаемые порты" "443,5222" \
+    "$(z2k_ow_tg_ports_csv)"
 Z2K_TG_TCP_PORTS="$_saved_ports"
 
 _t_done

@@ -89,8 +89,8 @@ assert_contains "tg.sh: ограничение одновременных сес
 assert_contains "tg.sh: лимит вычисляется по бюджету FD/RAM" "$TG" 'z2k_ow_tg_connection_budget'
 assert_contains "tg-policy.sh: Auto поддерживает 17 одновременных соединений" \
     "$REPO/platform/openwrt/tg-policy.sh" 'Z2K_TG_CONNECTION_AUTO_CAP_DEFAULT="32"'
-assert_contains "tg-policy.sh: HTTP transport включён только для проверяемых Telegram-адресов" \
-    "$REPO/platform/openwrt/tg-policy.sh" 'Z2K_TG_TCP_PORTS_DEFAULT="80 443 5222"'
+assert_contains "tg-policy.sh: стандартная политика включает только MTProto-порты" \
+    "$REPO/platform/openwrt/tg-policy.sh" 'Z2K_TG_TCP_PORTS_DEFAULT="443 5222"'
 assert_contains "tg-policy.sh: Manual проверяется по верхней границе" \
     "$REPO/platform/openwrt/tg-policy.sh" 'Z2K_TG_CONNECTION_HARD_CAP="128"'
 assert_not_contains "tg.sh: порт CDN 1444 не используется" "$_TGCODE" '1444|Z2K_TG_CDN_PORT'

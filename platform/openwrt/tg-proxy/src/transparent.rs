@@ -22,7 +22,7 @@ pub struct ClientInit {
 
 /// Проверить исходный порт по списку общей политики OpenWrt.
 pub fn supports_destination_port(port: u16, configured_ports: &[u16]) -> bool {
-    configured_ports.contains(&port)
+    port != 80 && configured_ports.contains(&port)
 }
 
 /// Проверить исходный IP по CIDR общей политики OpenWrt.
@@ -68,22 +68,6 @@ fn prefix_matches(address: &[u8], network: &[u8], prefix: u8) -> bool {
     }
     let mask = u8::MAX << (8 - remaining_bits);
     address[full_bytes] & mask == network[full_bytes] & mask
-}
-
-/// Распознать HTTP по началу запроса, чтобы не принять HTTP на порту 80 за MTProto.
-pub fn is_http_request(bytes: &[u8]) -> bool {
-    [
-        b"GET ".as_slice(),
-        b"POST ",
-        b"HEAD ",
-        b"PUT ",
-        b"DELETE ",
-        b"OPTIONS ",
-        b"CONNECT ",
-        b"PATCH ",
-    ]
-    .iter()
-    .any(|method| bytes.starts_with(method))
 }
 
 /// Сохранить исходный порт при выборе TCP fallback-хоста.

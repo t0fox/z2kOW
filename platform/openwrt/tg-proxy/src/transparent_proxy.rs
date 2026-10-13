@@ -16,9 +16,6 @@ use crate::runtime::Runtime;
 use crate::transparent;
 use crate::ws_client::media_tag;
 
-const MAX_HTTP_HEADER_BYTES: usize = 16 * 1024;
-const MAX_HTTP_HEADERS: usize = 32;
-const MAX_HTTP_BODY_BYTES: usize = 16 * 1024 * 1024 + 4;
 const INITIAL_PREFIX_LEN: usize = 8;
 
 async fn read_initial_prefix(stream: &mut TcpStream) -> std::io::Result<[u8; INITIAL_PREFIX_LEN]> {
@@ -33,151 +30,6 @@ fn effective_media_route(client_is_media: bool, endpoint_media_only: bool) -> bo
 
 fn should_forward_unmapped_direct(error: &RouteLookupError, dc_hint: Option<u32>) -> bool {
     *error == RouteLookupError::AddressNotListed && dc_hint.is_none()
-}
-
-fn trim_http_ows(mut value: &[u8]) -> &[u8] {
-    while value
-        .first()
-        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
-    {
-        value = &value[1..];
-    }
-    while value
-        .last()
-        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
-    {
-        value = &value[..value.len() - 1];
-    }
-    value
-}
-
-fn http_host_matches_dc(value: &[u8], destination: SocketAddr, dc: u32) -> bool {
-    let value = trim_http_ows(value);
-    let Ok(host) = std::str::from_utf8(value) else {
-        return false;
-    };
-    if !host.is_ascii() || host.bytes().any(|byte| byte.is_ascii_whitespace()) {
-        return false;
-    }
-    if let Ok(address) = host.parse::<SocketAddr>() {
-        return address.ip() == destination.ip() && address.port() == 80;
-    }
-    if let Ok(address) = host.parse::<std::net::IpAddr>() {
-        return address == destination.ip();
-    }
-    if host.starts_with('[') && host.ends_with(']') {
-        return host[1..host.len() - 1]
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|address| address == destination.ip());
-    }
-
-    let domain = host.strip_suffix(":80").unwrap_or(host);
-    let name = match dc {
-        1 => "pluto",
-        2 => "venus",
-        3 => "aurora",
-        4 => "vesta",
-        5 => "flora",
-        _ => return false,
-    };
-    domain.eq_ignore_ascii_case(&format!("{name}.web.telegram.org"))
-        || domain.eq_ignore_ascii_case(&format!("{name}-1.web.telegram.org"))
-}
-
-fn validate_http_request_head(
-    bytes: &[u8],
-    destination: SocketAddr,
-    dc: u32,
-) -> Result<usize, &'static str> {
-    let mut headers = [httparse::EMPTY_HEADER; MAX_HTTP_HEADERS];
-    let mut request = httparse::Request::new(&mut headers);
-    let header_len = match request.parse(bytes) {
-        Ok(httparse::Status::Complete(length)) => length,
-        Ok(httparse::Status::Partial) => return Err("HTTP-заголовок неполный"),
-        Err(_) => return Err("некорректный HTTP-запрос"),
-    };
-    if request.method != Some("POST") || request.path != Some("/api") || request.version != Some(1)
-    {
-        return Err("разрешён только POST /api HTTP/1.1");
-    }
-
-    let mut host = None;
-    let mut content_length = None;
-    for header in request.headers.iter() {
-        if header.name.eq_ignore_ascii_case("host") {
-            if host.replace(header.value).is_some() {
-                return Err("повторный HTTP Host");
-            }
-        } else if header.name.eq_ignore_ascii_case("content-length") {
-            if content_length.is_some() {
-                return Err("повторный HTTP Content-Length");
-            }
-            let value = trim_http_ows(header.value);
-            if value.is_empty() || !value.iter().all(u8::is_ascii_digit) {
-                return Err("некорректный HTTP Content-Length");
-            }
-            let text =
-                std::str::from_utf8(value).map_err(|_| "некорректный HTTP Content-Length")?;
-            let length = text
-                .parse::<usize>()
-                .map_err(|_| "некорректный HTTP Content-Length")?;
-            if length == 0 || length > MAX_HTTP_BODY_BYTES {
-                return Err("размер MTProto HTTP-тела вне допустимого диапазона");
-            }
-            content_length = Some(length);
-        } else if header.name.eq_ignore_ascii_case("transfer-encoding")
-            || header.name.eq_ignore_ascii_case("expect")
-            || header.name.eq_ignore_ascii_case("upgrade")
-            || header.name.to_ascii_lowercase().starts_with("proxy-")
-        {
-            return Err("HTTP-заголовок не поддерживается для MTProto");
-        }
-    }
-
-    let host = host.ok_or("в HTTP-запросе отсутствует Host")?;
-    if !http_host_matches_dc(host, destination, dc) {
-        return Err("HTTP Host не совпадает с проверенным DC");
-    }
-    if content_length.is_none() {
-        return Err("в HTTP-запросе отсутствует Content-Length");
-    }
-    Ok(header_len)
-}
-
-async fn read_http_transport_request(
-    stream: &mut TcpStream,
-    first_bytes: [u8; INITIAL_PREFIX_LEN],
-    destination: SocketAddr,
-    dc: u32,
-) -> Result<Vec<u8>, String> {
-    let mut request = first_bytes.to_vec();
-    loop {
-        if let Some(header_end) = request
-            .windows(4)
-            .position(|window| window == b"\r\n\r\n")
-            .map(|index| index + 4)
-        {
-            if header_end > MAX_HTTP_HEADER_BYTES {
-                return Err("HTTP-заголовок превышает допустимый размер".to_string());
-            }
-            validate_http_request_head(&request[..header_end], destination, dc)
-                .map_err(str::to_string)?;
-            return Ok(request);
-        }
-        if request.len() >= MAX_HTTP_HEADER_BYTES {
-            return Err("HTTP-заголовок превышает допустимый размер".to_string());
-        }
-        let mut chunk = [0u8; 1024];
-        let read_len = chunk.len().min(MAX_HTTP_HEADER_BYTES - request.len());
-        let count = stream
-            .read(&mut chunk[..read_len])
-            .await
-            .map_err(|error| format!("не удалось прочитать HTTP-заголовок: {error}"))?;
-        if count == 0 {
-            return Err("клиент закрыл соединение до конца HTTP-заголовка".to_string());
-        }
-        request.extend_from_slice(&chunk[..count]);
-    }
 }
 
 async fn wait_for_client_reset(client: &TcpStream) {
@@ -222,30 +74,6 @@ async fn bridge_direct_tcp(
             peer,
             is_media,
             transport: "прямой TCP",
-        },
-        config,
-        runtime,
-    )
-    .await;
-}
-
-async fn bridge_direct_http(
-    client: TcpStream,
-    initial_request: Vec<u8>,
-    destination: SocketAddr,
-    peer: SocketAddr,
-    is_media: bool,
-    config: Arc<Config>,
-    runtime: Arc<Runtime>,
-) {
-    bridge_direct_payload(
-        client,
-        DirectPayload {
-            initial: &initial_request,
-            destination,
-            peer,
-            is_media,
-            transport: "MTProto HTTP",
         },
         config,
         runtime,
@@ -373,79 +201,6 @@ pub async fn handle_transparent_client_with_runtime(
                 return;
             }
         };
-
-    if destination.port() == 80 && transparent::is_http_request(&first_bytes) {
-        let (route, map_source) = match runtime
-            .dc_map()
-            .resolve_http_for_transparent_with_source(destination.ip())
-        {
-            Ok(route) => route,
-            Err(error) => {
-                warn!(
-                    "[{}] MTProto HTTP отклонён для {}: адрес не прошёл проверку DC-карты ({})",
-                    peer, destination, error
-                );
-                return;
-            }
-        };
-        if route.tcpo_only {
-            warn!(
-                "[{}] MTProto HTTP отклонён для {}: dcOption требует транспортную обфускацию",
-                peer, destination
-            );
-            return;
-        }
-        let initial_request = match tokio::time::timeout_at(
-            handshake_deadline,
-            read_http_transport_request(&mut stream, first_bytes, destination, route.id),
-        )
-        .await
-        {
-            Ok(Ok(request)) => request,
-            Ok(Err(reason)) => {
-                debug!(
-                    "[{}] MTProto HTTP отклонён для {}: {}",
-                    peer, destination, reason
-                );
-                return;
-            }
-            Err(_) => {
-                debug!(
-                    "[{}] истекло время ожидания HTTP-заголовка от {}",
-                    peer, destination
-                );
-                return;
-            }
-        };
-        let is_media = route.media_only;
-        info!(
-            "[{}] MTProto HTTP POST /api: точный DC{}{} из {}, прямой TCP к {}",
-            peer,
-            route.id,
-            media_tag(is_media),
-            map_source.as_str(),
-            destination
-        );
-        bridge_direct_http(
-            stream,
-            initial_request,
-            destination,
-            peer,
-            is_media,
-            Arc::clone(&config),
-            Arc::clone(&runtime),
-        )
-        .await;
-        return;
-    }
-
-    if transparent::is_http_request(&first_bytes) {
-        debug!(
-            "[{}] HTTP MTProto-транспорт разрешён только на TCP/80, получено назначение {}",
-            peer, destination
-        );
-        return;
-    }
 
     let mut init = [0u8; crate::crypto::HANDSHAKE_LEN];
     init[..INITIAL_PREFIX_LEN].copy_from_slice(&first_bytes);
@@ -655,7 +410,7 @@ pub async fn handle_transparent_client_with_runtime(
 mod tests {
     use super::{
         bridge_direct_tcp, complete_unless_client_resets, effective_media_route,
-        read_initial_prefix, should_forward_unmapped_direct, validate_http_request_head,
+        should_forward_unmapped_direct,
     };
     use crate::config::Config;
     use crate::dc_map::{DcEndpoint, DcMapStore, DcSnapshot, RouteLookupError, lookup_endpoint};
@@ -669,61 +424,11 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
 
-    #[tokio::test]
-    async fn initial_prefix_contains_enough_bytes_to_recognize_http_method() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let mut client = TcpStream::connect(address).await.unwrap();
-        client.write_all(b"POST /api HTTP/1.1\r\n").await.unwrap();
-        let (mut server, _) = listener.accept().await.unwrap();
-
-        let prefix = read_initial_prefix(&mut server).await.unwrap();
-
-        assert_eq!(&prefix[..8], b"POST /ap");
-        assert!(crate::transparent::is_http_request(&prefix));
-    }
-
     #[test]
     fn ordinary_dc_option_preserves_the_clients_media_session_hint() {
         assert!(effective_media_route(true, false));
         assert!(effective_media_route(true, true));
         assert!(!effective_media_route(false, false));
-    }
-
-    #[test]
-    fn mtproto_http_accepts_only_bounded_post_api_for_the_selected_dc() {
-        let destination = "149.154.167.151:80".parse().unwrap();
-        let valid =
-            b"POST /api HTTP/1.1\r\nHost: venus.web.telegram.org:80\r\nContent-Length: 4\r\n\r\n";
-        assert_eq!(
-            validate_http_request_head(valid, destination, 2),
-            Ok(valid.len()),
-            "официальное имя DC2 и полный HTTP-заголовок принимаются"
-        );
-
-        let invalid_requests: &[&[u8]] = &[
-            b"GET /api HTTP/1.1\r\nHost: 149.154.167.151:80\r\nContent-Length: 4\r\n\r\n",
-            b"POST /other HTTP/1.1\r\nHost: 149.154.167.151:80\r\nContent-Length: 4\r\n\r\n",
-            b"POST /api HTTP/1.0\r\nHost: 149.154.167.151:80\r\nContent-Length: 4\r\n\r\n",
-            b"POST /api HTTP/1.1\r\nHost: 149.154.175.50:80\r\nContent-Length: 4\r\n\r\n",
-            b"POST /api HTTP/1.1\r\nHost: 149.154.167.151:80\r\nContent-Length: 0\r\n\r\n",
-            b"POST /api HTTP/1.1\r\nHost: 149.154.167.151:80\r\nTransfer-Encoding: chunked\r\nContent-Length: 4\r\n\r\n",
-            b"POST /api HTTP/1.1\r\nHost: 149.154.167.151:80\r\nContent-Length: 4\r\nContent-Length: 4\r\n\r\n",
-            b"POST /api HTTP/1.1\r\nHost: 149.154.167.151:80\r\nProxy-Authorization: token\r\nContent-Length: 4\r\n\r\n",
-        ];
-        for request in invalid_requests {
-            assert!(
-                validate_http_request_head(request, destination, 2).is_err(),
-                "недопустимый HTTP-заголовок принят: {}",
-                String::from_utf8_lossy(request)
-            );
-        }
-
-        let oversized = format!(
-            "POST /api HTTP/1.1\r\nHost: 149.154.167.151:80\r\nContent-Length: {}\r\n\r\n",
-            super::MAX_HTTP_BODY_BYTES + 1
-        );
-        assert!(validate_http_request_head(oversized.as_bytes(), destination, 2).is_err());
     }
 
     #[test]
