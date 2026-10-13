@@ -266,7 +266,7 @@ fn transparent_mode_checks_telegram_cidrs_for_both_address_families() {
 }
 
 #[test]
-fn прозрачный_режим_отклоняет_http_tls_и_неизвестные_рукопожатия() {
+fn прозрачный_режим_отличает_http_tls_и_неизвестные_рукопожатия_от_obfuscated2() {
     assert!(z2kow_tg_transparent::transparent::is_http_request(
         b"GET /api HTTP/1.1\r\n"
     ));

@@ -139,7 +139,6 @@ pub fn endpoint_pairs(snapshot: &DcSnapshot, allowed_ports: &[u16]) -> Vec<(IpAd
         };
         for port in ports {
             if port == 0
-                || port == 80
                 || !allowed_ports.contains(&port)
                 || (endpoint.this_port_only && port != endpoint.port)
             {
@@ -274,6 +273,43 @@ impl DcMapStore {
         self.resolve_with_source_policy(address, original_port, media_hint, dc_hint, true)
     }
 
+    /// HTTP transport не несёт подсказку DC/media из obfuscated2. Проверяем
+    /// точный IP по подтверждённой карте; ограничения CDN и this-port-only
+    /// остаются в силе.
+    pub fn resolve_http_for_transparent_with_source(
+        &self,
+        address: IpAddr,
+    ) -> Result<(DcEndpoint, RouteMapSource), RouteLookupError> {
+        if let Some(snapshot) = self.current()
+            && unix_time().saturating_sub(snapshot.fetched_at) <= CACHE_MAX_AGE_SECS
+        {
+            match lookup_http_endpoint(&snapshot, address) {
+                Ok(endpoint) => return Ok((endpoint, RouteMapSource::OfficialCache)),
+                Err(RouteLookupError::AddressNotListed) => {}
+                Err(error) => return Err(error),
+            }
+        }
+
+        let (id, media_only) = crate::config::default_dc_route_for_ip(address)
+            .ok_or(RouteLookupError::AddressNotListed)?;
+        Ok((
+            DcEndpoint {
+                id,
+                address,
+                port: 80,
+                ipv6: address.is_ipv6(),
+                media_only,
+                tcpo_only: false,
+                cdn: false,
+                is_static: true,
+                this_port_only: false,
+                secret: None,
+                last_seen: 0,
+            },
+            RouteMapSource::BuiltInFallback,
+        ))
+    }
+
     fn resolve_with_source_policy(
         &self,
         address: IpAddr,
@@ -352,6 +388,49 @@ pub fn lookup_endpoint(
     dc_hint: Option<u32>,
 ) -> Result<DcEndpoint, RouteLookupError> {
     lookup_endpoint_with_policy(snapshot, address, original_port, media_hint, dc_hint, false)
+}
+
+fn lookup_http_endpoint(
+    snapshot: &DcSnapshot,
+    address: IpAddr,
+) -> Result<DcEndpoint, RouteLookupError> {
+    let for_address: Vec<&DcEndpoint> = snapshot
+        .endpoints
+        .iter()
+        .filter(|endpoint| endpoint.address == address)
+        .collect();
+    if for_address.is_empty() {
+        return Err(RouteLookupError::AddressNotListed);
+    }
+
+    let for_port: Vec<&DcEndpoint> = for_address
+        .into_iter()
+        .filter(|endpoint| !endpoint.this_port_only || endpoint.port == 80)
+        .collect();
+    if for_port.is_empty() {
+        return Err(RouteLookupError::PortNotAllowed);
+    }
+
+    let non_cdn: Vec<&DcEndpoint> = for_port
+        .into_iter()
+        .filter(|endpoint| !endpoint.cdn)
+        .collect();
+    if non_cdn.is_empty() {
+        return Err(RouteLookupError::CdnEndpoint);
+    }
+    let dc = non_cdn[0].id;
+    if non_cdn.iter().any(|endpoint| endpoint.id != dc) {
+        return Err(RouteLookupError::Ambiguous);
+    }
+
+    let selected = non_cdn
+        .iter()
+        .copied()
+        .find(|endpoint| !endpoint.tcpo_only)
+        .unwrap_or(non_cdn[0]);
+    let mut route = selected.clone();
+    route.media_only = non_cdn.iter().all(|endpoint| endpoint.media_only);
+    Ok(route)
 }
 
 fn lookup_endpoint_with_policy(
@@ -635,7 +714,8 @@ mod tests {
 
     use super::{
         DcEndpoint, DcMapStore, DcSnapshot, RouteLookupError, endpoint_pairs, lookup_endpoint,
-        merge_snapshots, unix_time, validate_snapshot, write_endpoint_manifest,
+        lookup_http_endpoint, merge_snapshots, unix_time, validate_snapshot,
+        write_endpoint_manifest,
     };
 
     fn endpoint(
@@ -738,7 +818,7 @@ mod tests {
         assert!(pairs.contains(&("149.154.167.152".parse().unwrap(), 5222)));
         assert!(pairs.contains(&("149.154.167.153".parse().unwrap(), 443)));
         assert!(pairs.contains(&("2001:db8::4".parse().unwrap(), 443)));
-        assert!(!pairs.iter().any(|(_, port)| *port == 80));
+        assert!(pairs.contains(&("149.154.167.155".parse().unwrap(), 80)));
     }
 
     #[test]
@@ -751,7 +831,7 @@ mod tests {
         assert_eq!(count, 10);
         assert!(previous.starts_with("z2k-tg-dc-options-v1 "));
         assert!(previous.contains("149.154.160.1 443\n"));
-        assert!(write_endpoint_manifest(&path, &snapshot, &[80]).is_err());
+        assert!(write_endpoint_manifest(&path, &snapshot, &[0]).is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), previous);
         fs::remove_dir_all(directory).unwrap();
     }
@@ -1077,6 +1157,53 @@ mod tests {
         assert!(
             result.is_err(),
             "CDN-only dcOption нельзя направлять в обычный MTProto DC"
+        );
+    }
+
+    #[test]
+    fn http_dc_lookup_uses_exact_options_and_respects_transport_flags() {
+        let mut regular = endpoint(2, "149.154.167.151", false, false, false);
+        regular.tcpo_only = false;
+        let mut media = endpoint(4, "149.154.167.92", true, false, false);
+        media.tcpo_only = false;
+        let transport_obfuscated = endpoint(5, "149.154.171.5", false, false, false);
+        let fixed_port = endpoint(3, "149.154.175.100", false, false, true);
+        let cdn = endpoint(203, "91.105.192.203", false, true, false);
+        let mut endpoints = primary_endpoints();
+        endpoints.extend([regular, media, transport_obfuscated, fixed_port, cdn]);
+        let snapshot = complete(endpoints);
+
+        let regular_route = lookup_http_endpoint(&snapshot, "149.154.167.151".parse().unwrap())
+            .expect("обычный официальный DC принимает HTTP на TCP/80");
+        assert_eq!(regular_route.id, 2);
+        assert!(!regular_route.tcpo_only);
+
+        let media_route = lookup_http_endpoint(&snapshot, "149.154.167.92".parse().unwrap())
+            .expect("media-only DC определяется по точному IP");
+        assert_eq!(media_route.id, 4);
+        assert!(media_route.media_only);
+
+        let obfuscated_route =
+            lookup_http_endpoint(&snapshot, "149.154.171.5".parse().unwrap()).unwrap();
+        assert!(
+            obfuscated_route.tcpo_only,
+            "маркер tcpo_only сохраняется для отказа HTTP-маршруту"
+        );
+
+        assert_eq!(
+            lookup_http_endpoint(&snapshot, "149.154.175.100".parse().unwrap()),
+            Err(RouteLookupError::PortNotAllowed),
+            "this_port_only на другом порту запрещает HTTP/80"
+        );
+        assert_eq!(
+            lookup_http_endpoint(&snapshot, "91.105.192.203".parse().unwrap()),
+            Err(RouteLookupError::CdnEndpoint),
+            "CDN не считается обычным DC для HTTP/80"
+        );
+        assert_eq!(
+            lookup_http_endpoint(&snapshot, "149.154.167.43".parse().unwrap()),
+            Err(RouteLookupError::AddressNotListed),
+            "одного попадания в CIDR Telegram недостаточно"
         );
     }
 

@@ -3,9 +3,9 @@
 # Это bootstrap-список портов, а не обнаружение адресов Telegram.
 # После help.getConfig nft получает только точные пары IP+порт из Rust-манифеста.
 # Параметр TG_TCP_PORTS в OpenWrt-конфиге может заменить этот список.
-# Обычный HTTP порт не включён; добавлять его можно только после отдельной
-# проверки MTProto TCP/HTTP и конфликтов с обычным HTTP/CDN.
-Z2K_TG_TCP_PORTS_DEFAULT="443 5222"
+# TCP/80 включён только для MTProto HTTP: nft ограничивает его сетями Telegram,
+# а Rust требует POST /api, совпадающий Host и точный адрес из карты DC.
+Z2K_TG_TCP_PORTS_DEFAULT="80 443 5222"
 Z2K_TG_DC_MAP_PATH_DEFAULT="${Z2K_TG_DC_MAP_PATH_DEFAULT:-$Z2K_TG_DC_MAP_PATH}"
 Z2K_TG_DC_MAP_REFRESH_SECS_DEFAULT="21600"
 Z2K_TG_DC_MAP_ENDPOINTS_PATH_DEFAULT="${Z2K_TG_DC_MAP_ENDPOINTS_PATH_DEFAULT:-$Z2K_TG_DC_MAP_ENDPOINTS_PATH}"

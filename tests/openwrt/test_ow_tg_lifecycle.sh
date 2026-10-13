@@ -102,7 +102,8 @@ for _port in $(z2k_ow_tg_ports); do
         "$(grep -c "dport $_port .*redirect to :1443" "$T/nft.log")"
 done
 assert_contains "метка исходящего Rust-сокета предотвращает цикл перенаправления" "$T/nft.log" 'meta mark 0x40000000 return'
-assert_not_contains "обычный HTTP/80 не перенаправляется в Telegram" "$T/nft.log" 'dport 80.*redirect'
+assert_not_contains "TCP/80 не получает правило без адресного набора Telegram" "$T/nft.log" \
+    'tcp dport 80 counter redirect'
 assert_not_contains "старый Go-слушатель не запускается" "$T/procd.log" 'tg-mtproxy-client|1444'
 assert_eq "пользовательский файл релея сохранён для отката" '{"legacy":"preserved"}' "$(cat "$T/etc/state/relay-id.json")"
 

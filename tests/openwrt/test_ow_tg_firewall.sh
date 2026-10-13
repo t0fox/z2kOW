@@ -110,7 +110,8 @@ for _port in $(z2k_ow_tg_ports); do
             "add rule inet zapret2 $_chain tcp dport $_port ip6 daddr @z2k_tg_dc6 counter redirect to :1443"
     done
 done
-assert_not_contains "обычный HTTP/80 не перенаправляется" "$T/nft.log" 'dport 80.*redirect'
+assert_not_contains "TCP/80 не получает правило без адресного набора Telegram" "$T/nft.log" \
+    'tcp dport 80 counter redirect'
 assert_contains "метка исходящего сокета исключает цикл перенаправления" "$T/nft.log" 'add rule inet zapret2 z2k_tg_dst_out meta mark 0x40000000 return'
 assert_contains "guard accept scoped" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_in tcp dport 1443 ct status dnat accept'
 assert_contains "guard drop" "$T/nft.log" 'add rule inet zapret2 z2k_tg_flt_in tcp dport 1443 drop'

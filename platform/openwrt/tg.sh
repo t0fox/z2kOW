@@ -95,7 +95,6 @@ z2k_ow_tg_ports() {
     for _port in $_input; do
         case "$_port" in ''|*[!0-9]*) return 1 ;; esac
         [ "$_port" -ge 1 ] 2>/dev/null && [ "$_port" -le 65535 ] 2>/dev/null || return 1
-        [ "$_port" != 80 ] || return 1
         case " $_seen " in *" $_port "*) return 1 ;; esac
         _seen="$_seen $_port"
         _out="$_out$_port\n"
@@ -334,7 +333,7 @@ z2k_ow_tg_manifest_mode() {
             header=1; next
         }
         {
-            if (NF != 2 || $2 !~ /^[0-9]+$/ || $2 < 1 || $2 > 65535 || $2 == 80 || !($2 in allowed_port)) exit 1
+            if (NF != 2 || $2 !~ /^[0-9]+$/ || $2 < 1 || $2 > 65535 || !($2 in allowed_port)) exit 1
             if (index($1, ":") > 0) {
                 if ($1 !~ /^[[:xdigit:]:]+$/ || $1 ~ /:::/) exit 1
             } else {

@@ -39,15 +39,17 @@ EOF
 chmod +x "$T/root/bin/linux-x86_64/tg-ws-proxy"
 printf 'ENABLED=1\n' > "$T/etc/z2k/config"
 cat > "$T/etc/z2k/tg-policy.conf" <<'EOF'
-TG_TCP_PORTS="443 5222"
+TG_TCP_PORTS="80 443 5222"
 EOF
 cat > "$T/endpoints.tsv" <<'EOF'
 z2k-tg-dc-options-v1 1791782348 1791782348
+149.154.175.52 80
 149.154.175.52 443
+2001:db8::4 80
 2001:db8::4 5222
 EOF
-printf 'elements = { 149.154.175.52 . 443 }\n' > "$T/pair4.list"
-printf 'elements = { 2001:db8::4 . 5222 }\n' > "$T/pair6.list"
+printf 'elements = { 149.154.175.52 . 80, 149.154.175.52 . 443 }\n' > "$T/pair4.list"
+printf 'elements = { 2001:db8::4 . 80, 2001:db8::4 . 5222 }\n' > "$T/pair6.list"
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc/z2k" Z2K_TMP="$T/tmp"
 export Z2K_CONFIG="$T/etc/z2k/config" Z2K_TG_POLICY_CONFIG="$T/etc/z2k/tg-policy.conf"
@@ -61,13 +63,16 @@ z2k_ow_tg_nft_apply || _t_bad "применение проверенного м�
 assert_contains "создан IPv4 набор пар" "$T/nft.log" 'type ipv4_addr . inet_service'
 assert_contains "создан IPv6 набор пар" "$T/nft.log" 'type ipv6_addr . inet_service'
 assert_contains "обе семьи обновляются одним nft batch" "$T/nft.log" 'batch:flush set inet zapret2 z2k_tg_pair4'
-assert_contains "IPv4 адрес и порт хранятся одной парой" "$T/nft.log" 'batch:add element inet zapret2 z2k_tg_pair4 { 149.154.175.52 . 443 }'
-assert_contains "IPv6 адрес и порт хранятся одной парой" "$T/nft.log" 'batch:add element inet zapret2 z2k_tg_pair6 { 2001:db8::4 . 5222 }'
+assert_contains "IPv4 MTProto HTTP-порт включён только точной парой" "$T/nft.log" 'batch:add element inet zapret2 z2k_tg_pair4 { 149.154.175.52 . 80, 149.154.175.52 . 443 }'
+assert_contains "IPv4 обычный WSS-порт сохранён в точном наборе" "$T/nft.log" '149.154.175.52 . 443'
+assert_contains "IPv6 MTProto HTTP-порт включён только точной парой" "$T/nft.log" 'batch:add element inet zapret2 z2k_tg_pair6 { 2001:db8::4 . 80, 2001:db8::4 . 5222 }'
+assert_contains "IPv6 обычный WSS-порт сохранён в точном наборе" "$T/nft.log" '2001:db8::4 . 5222'
 assert_contains "prerouting использует IPv4 пару" "$T/nft.log" 'ip daddr . tcp dport @z2k_tg_pair4 counter redirect to :1443'
 assert_contains "output использует IPv6 пару" "$T/nft.log" 'ip6 daddr . tcp dport @z2k_tg_pair6 counter redirect to :1443'
 assert_contains "доверенный CIDR fallback покрывает отсутствующий DC" "$T/nft.log" \
     'ip daddr @z2k_tg_dc4 counter redirect to :1443'
-assert_not_contains "обычный HTTP/80 запрещён" "$T/nft.log" 'dport 80.*redirect'
+assert_not_contains "TCP/80 не получает правило без адресного набора Telegram" "$T/nft.log" \
+    'tcp dport 80 counter redirect'
 
 # Полный IPv6 без сокращения `::` тоже допустим в Rust-манифесте.
 cp "$T/endpoints.tsv" "$T/endpoints.good"
@@ -95,10 +100,11 @@ z2k_ow_tg_nft_apply 2>/dev/null && _t_bad "повреждённый манифе
 assert_not_contains "ошибка файла не запускает nft batch" "$T/nft.log" '^nft:-f -'
 assert_not_contains "ошибка файла не меняет redirect rules" "$T/nft.log" '^nft:add rule'
 
-# Порт 80 не принимается даже если его вручную добавили в общий список.
-(
-    Z2K_TG_TCP_PORTS='80 443'
-    z2k_ow_tg_ports >/dev/null 2>&1 && _t_bad "80 принят политикой" || _t_ok
-)
+# Порт 80 разрешён только как часть явного списка Telegram TCP-портов.
+_saved_ports="$Z2K_TG_TCP_PORTS"
+Z2K_TG_TCP_PORTS='80 443'
+assert_eq "политика сохраняет явный TCP/80" "80 443" \
+    "$(z2k_ow_tg_ports | tr '\n' ' ' | sed 's/ $//')"
+Z2K_TG_TCP_PORTS="$_saved_ports"
 
 _t_done
