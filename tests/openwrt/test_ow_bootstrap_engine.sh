@@ -36,7 +36,7 @@ mkdir -p "$PAYLOAD/usr/lib/z2k/platform/openwrt" "$PAYLOAD/usr/lib/z2k/lib" \
     "$PAYLOAD/opt/zapret2/binaries/linux-x86_64" \
     "$PAYLOAD/etc/init.d" "$PAYLOAD/etc/hotplug.d/iface" "$PAYLOAD/etc/sysctl.d" \
     "$PAYLOAD/usr/share/nftables.d/chain-pre/forward"
-for name in paths.sh env.sh manifest.sh release_state.sh release.sh recover_boot.sh bootstrap.sh arch.sh; do
+for name in paths.sh env.sh manifest.sh release_state.sh release.sh recover_boot.sh bootstrap.sh arch.sh tg-rust-targets.tsv; do
     cp "$REPO/platform/openwrt/$name" "$PAYLOAD/usr/lib/z2k/platform/openwrt/$name" || exit 1
 done
 cp "$REPO/platform/openwrt/owned-paths.txt" "$PAYLOAD/usr/lib/z2k/platform/openwrt/owned-paths.txt" || exit 1

@@ -91,7 +91,7 @@ z2k_ow_tg_cfg() {
 # но порт, IP-литерал и некорректные DNS-метки отклоняются.
 z2k_ow_tg_worker_normalize() {
     local _domain _label _valid=1 _was_noglob=0
-    _domain=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    _domain=$(printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     case "$_domain" in
         https://*) _domain=${_domain#https://} ;;
         http://*) _domain=${_domain#http://} ;;
@@ -239,6 +239,54 @@ z2k_ow_tg_check_action() {
 z2k_ow_tg_check_json() {
     local _report="${Z2K_TMP:-/tmp/z2k}/tg-diagnostics/report.json"
     if [ -r "$_report" ]; then cat "$_report"; else printf '{"state":"not_checked"}\n'; fi
+}
+
+# API-обработчики Telegram остаются в OpenWrt-адаптере, общий CGI только
+# вызывает платформенный интерфейс.
+panel_tg_stats_get() {
+    command -v z2k_ow_tg_stats_json >/dev/null 2>&1 \
+        || json_fail "503 Service Unavailable" "статистика Telegram доступна только на OpenWrt"
+    local tunnel_stats
+    tunnel_stats=$(z2k_ow_tg_stats_json 2>/dev/null) \
+        || json_fail "503 Service Unavailable" "процесс Telegram не вернул статистику"
+    case "$tunnel_stats" in \{*\}) ;; *) json_fail "503 Service Unavailable" "ответ статистики повреждён" ;; esac
+    json_header
+    printf '%s\n' "$tunnel_stats"
+}
+
+panel_tg_check_get() {
+    command -v z2k_ow_tg_check_json >/dev/null 2>&1 \
+        || json_fail "404 Not Found" "диагностика Telegram доступна только на OpenWrt"
+    json_header
+    z2k_ow_tg_check_json
+}
+
+panel_tg_check_post() {
+    command -v z2k_ow_tg_check_action >/dev/null 2>&1 \
+        || json_fail "404 Not Found" "диагностика Telegram доступна только на OpenWrt"
+    local job_id
+    job_id=$(svc_action_async "Проверка маршрутов Telegram" "z2k_ow_tg_check_action") \
+        || json_fail "500 Internal Server Error" "не удалось запустить диагностику Telegram"
+    json_header
+    printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
+}
+
+panel_tg_workers_post() {
+    command -v z2k_ow_tg_worker_normalize >/dev/null 2>&1 \
+        || json_fail "404 Not Found" "управление Worker доступно только на OpenWrt"
+    local body worker_domain job_id
+    body=$(read_body)
+    worker_domain=$(form_value "$body" "domain")
+    worker_domain=$(z2k_ow_tg_worker_normalize "$worker_domain") \
+        || json_fail "400 Bad Request" "укажите корректный DNS-домен Worker"
+    if [ "$PATH_INFO" = /tunnel/workers/add ]; then
+        job_id=$(svc_action_async "Добавление Telegram Worker" "z2k_ow_tg_worker_add $worker_domain")
+    else
+        job_id=$(svc_action_async "Удаление Telegram Worker" "z2k_ow_tg_worker_remove $worker_domain")
+    fi
+    [ -n "$job_id" ] || json_fail "500 Internal Server Error" "не удалось обновить список Worker"
+    json_header
+    printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
 }
 
 # Настроенные порты и CIDR приводятся к спискам для shell/Rust/nft.

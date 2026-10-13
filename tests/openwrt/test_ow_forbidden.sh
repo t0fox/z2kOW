@@ -13,7 +13,7 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 # строки как данные для assert'а отсутствия, а не использует их.
 # test_ow_insta_boundary.sh — boundary test intentionally names the upstream
 # helper and its ndmc guard as data; it verifies that OpenWrt never owns it.
-_hits="$(grep -rEin 'ndmc|/opt/etc/ndm|kmod_ndms|entware|-j PPE|ipset-exclude.*PPE' \
+_hits="$(grep -rEin --exclude-dir=target 'ndmc|/opt/etc/ndm|kmod_ndms|entware|-j PPE|ipset-exclude.*PPE' \
     "$REPO/platform/openwrt" "$REPO/tests/openwrt" \
     | grep -v -e 'test_ow_forbidden\.sh' -e 'test_ow_webpanel_static\.sh' -e 'test_ow_webpanel_package\.sh' -e 'test_ow_insta_boundary\.sh' || true)"
 [ -z "$_hits" ] && _t_ok || _t_bad "Keenetic-зависимости: $_hits"
@@ -78,7 +78,7 @@ done
 # Shipped shell обязан использовать только явные наборы (' \t\r\n',
 # 'A-Za-z0-9', '0-9'). sed/grep-классы ([[:space:]]) живы и разрешены —
 # запрет только на tr. NOTE: образцы ниже исключены из скана.
-_trbad="$(grep -rEn "tr +(-[cds]+ +)?'?\[:[a-z]+:\]" \
+_trbad="$(grep -rEn --exclude-dir=target "tr +(-[cds]+ +)?'?\[:[a-z]+:\]" \
     "$REPO/platform" "$REPO/lib" "$REPO/scripts" "$REPO/files" \
     "$REPO/vps" "$REPO/webpanel" "$REPO/z2k.sh" "$REPO/z2k_cleanup.sh" "$REPO/tests" \
     2>/dev/null | grep -v 'test_ow_forbidden\.sh' || true)"
