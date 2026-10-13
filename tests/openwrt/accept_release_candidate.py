@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import copy
 import http.server
@@ -95,12 +96,15 @@ def check_installed_architecture(sysroot: Path, arch: str, label: str) -> None:
         raise RuntimeError(f"{label}: отсутствуют исполняемые файлы целевой архитектуры: {missing}")
 
 
-def main() -> int:
-    if len(sys.argv) not in {3, 4}:
-        print("Использование: accept_release_candidate.py UPDATES.json ARTIFACT_DIRECTORY [ARCH]", file=sys.stderr)
-        return 2
-    manifest_source = Path(sys.argv[1])
-    artifact_dir = Path(sys.argv[2])
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("manifest", type=Path)
+    parser.add_argument("artifact_dir", type=Path)
+    parser.add_argument("arch", nargs="?", default="x86_64")
+    parser.add_argument("--receipt", type=Path)
+    args = parser.parse_args(argv)
+    manifest_source = args.manifest
+    artifact_dir = args.artifact_dir
     artifact_dir = artifact_dir.resolve()
     original_manifest = json.loads(manifest_source.read_text(encoding="utf-8"))
     if not isinstance(original_manifest, dict):
@@ -114,7 +118,7 @@ def main() -> int:
     seq = int(manifest["seq"])
     if manifest.get("platform") != "openwrt" or set(manifest.get("artifacts", {})) != set(ARCHITECTURES):
         raise RuntimeError("кандидат должен содержать ровно семь архитектурных архивов OpenWrt")
-    host_arch = sys.argv[3] if len(sys.argv) == 4 else "x86_64"
+    host_arch = args.arch
     distrib_arch = {
         "arm64": "aarch64_cortex-a53",
         "arm": "arm_cortex-a5",
@@ -358,36 +362,36 @@ esac
             raise RuntimeError("реальный entrypoint не прошёл через проверочный обработчик служб")
         print("ПРОЙДЕНО: настройки, пользовательские списки, LuCI, uhttpd и соседний временный файл сохранены")
         print("СТЕНД: временный rootfs Linux; apk, procd и приложение WebPanel заменены заглушками; проверка роутера не выполнялась.")
-        receipt_path = manifest_source.parent / "candidate-acceptance.json"
-        accepted_arches = {host_arch}
-        if receipt_path.is_file():
-            try:
-                previous = json.loads(receipt_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                previous = {}
-            if (
-                previous.get("manifest_sha256") == original_manifest_hash
-                and previous.get("asset_sha256") == original_asset_hashes
-                and previous.get("tag") == tag
-                and previous.get("seq") == seq
-            ):
-                accepted_arches.update(previous.get("architectures", []))
+        receipt_path = args.receipt or manifest_source.parent / f"candidate-acceptance-{host_arch}.json"
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
         receipt = {
             "schema": 1,
             "result": "passed",
             "environment": "staged-linux-rootfs",
             "router_verified": False,
-            "architectures": sorted(accepted_arches),
+            "architecture": host_arch,
             "tag": tag,
             "seq": seq,
             "manifest_sha256": original_manifest_hash,
-            "artifact_sha256": original_asset_hashes[manifest["artifacts"]["x86_64"]["filename"]],
+            "artifact_sha256": original_asset_hashes[selected_filename],
             "asset_sha256": original_asset_hashes,
         }
-        receipt_path.write_text(
-            json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
-        print("ПРОЙДЕНО: квитанция связана с исходным манифестом и точным набором архивов")
+        temp_receipt: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=receipt_path.parent,
+                prefix=f".{receipt_path.name}.", suffix=".tmp", delete=False,
+            ) as stream:
+                temp_receipt = Path(stream.name)
+                json.dump(receipt, stream, ensure_ascii=False, indent=2)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp_receipt, receipt_path)
+        finally:
+            if temp_receipt is not None:
+                temp_receipt.unlink(missing_ok=True)
+        print(f"ПРОЙДЕНО: отдельная квитанция для {host_arch} связана с manifest и payload")
 
         panel.shutdown()
         httpd.shutdown()

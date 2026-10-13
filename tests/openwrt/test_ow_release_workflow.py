@@ -183,8 +183,14 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("--jobs 4", prepare)
         self.assertNotIn("for arch in arm64 arm x86_64 x86 mips mipsel riscv64; do", prepare)
         acceptance = (ROOT / "tests/openwrt/accept_release_candidate.py").read_text(encoding="utf-8")
-        self.assertIn("host_arch = sys.argv[3] if len(sys.argv) == 4 else \"x86_64\"", acceptance)
-        self.assertIn("accepted_arches.update(previous.get(\"architectures\", []))", acceptance)
+        matrix = (ROOT / "scripts/openwrt/accept_release_matrix.py").read_text(encoding="utf-8")
+        self.assertIn('parser.add_argument("--receipt", type=Path)', acceptance)
+        self.assertIn("host_arch = args.arch", acceptance)
+        self.assertIn('receipt_path = args.receipt or manifest_source.parent / f"candidate-acceptance-{host_arch}.json"', acceptance)
+        self.assertIn('"architecture": host_arch', acceptance)
+        self.assertIn('"--receipt",', matrix)
+        self.assertIn("_aggregate_receipts(manifest, artifact_dir, receipt_dir)", matrix)
+        self.assertNotIn("accepted_arches.update", acceptance)
 
     def test_transition_fallback_uses_checked_baseline_and_is_carried_by_the_candidate(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
