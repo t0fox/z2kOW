@@ -167,8 +167,10 @@ assert_contains "uninstall: tg cron remove" "$UNINST" 'z2k_ow_tg_cron_remove'
 assert_contains "complete builder stages only real OpenWrt runtime dependencies during install" "$REPO/platform/openwrt/release.sh" 'apk add'
 assert_not_contains "full payload builder has no component APK recipe" "$BUILDER" 'apk[[:space:]]+(build|add|del)|abuild'
 assert_contains "rootfs includes TG implementation" "$BUILDER" 'platform/openwrt/*.sh'
-assert_contains "rootfs добавляет Rust-бинарник по архитектуре" "$BUILDER" \
-    'usr/lib/z2k/bin/linux-$_arch/tg-ws-proxy'
+assert_contains "rootfs добавляет Rust-бинарники по общей таблице ABI" "$BUILDER" \
+    'tg-rust-targets.tsv'
+assert_contains "rootfs размещает бинарник выбранного ABI-каталога" "$BUILDER" \
+    'usr/lib/z2k/bin/linux-$_variant/tg-ws-proxy'
 assert_contains "кандидат собирает встроенный Rust crate" \
     "$REPO/scripts/openwrt/build-release.sh" 'build_tg_ws_proxy.sh'
 assert_contains "сборка читает локальный crate" "$REPO/scripts/openwrt/build_tg_ws_proxy.sh" \
@@ -182,9 +184,9 @@ if [ -e "$REPO/platform/openwrt/tg-ws-proxy.pin" ] || \
 else
     _t_ok
 fi
-assert_contains "сборка Rust ограничена ARM64 и x86_64" \
+assert_contains "сборка Rust использует общую таблицу ABI" \
     "$REPO/scripts/openwrt/build_tg_ws_proxy.sh" \
-    'aarch64-unknown-linux-musl:arm64:arm64-gcc x86_64-unknown-linux-musl:x86_64:host-gcc'
+    'TABLE="$ROOT/platform/openwrt/tg-rust-targets.tsv"'
 for _workflow in "$REPO/.github/workflows/ci.yml" "$REPO/.github/workflows/release-openwrt.yml"; do
     assert_contains "CI берёт версию Rust из встроенного crate: $_workflow" "$_workflow" \
         'platform/openwrt/tg-proxy/rust-toolchain.toml'
