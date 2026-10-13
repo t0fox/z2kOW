@@ -308,59 +308,59 @@
   "artifacts": {
     "arm64": {
       "filename": "openwrt-rootfs-arm64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-b537a97d8f54f53ac9df5cda722bad12224fffac/openwrt-rootfs-arm64.tar.gz",
-      "sha256": "3dbf09609229ef7f62b19063184d7d9d2fb44b3d56652a6d5969cad68098e2d2",
-      "size_bytes": 13094453,
-      "unpacked_size_bytes": 30816535
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-be1d68ab2fa5007bfee9242d56471e80aca8529e/openwrt-rootfs-arm64.tar.gz",
+      "sha256": "aeeb43cb0ba4fbc5d610a52dfd3d76da4759164d83d8fbc03d4a32804a850e76",
+      "size_bytes": 12894627,
+      "unpacked_size_bytes": 30367516
     },
     "arm": {
       "filename": "openwrt-rootfs-arm.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-b537a97d8f54f53ac9df5cda722bad12224fffac/openwrt-rootfs-arm.tar.gz",
-      "sha256": "35e5ee8d4890934033166ab1350205d2e4c362ab855221c92bdc5e469971b2d0",
-      "size_bytes": 11202325,
-      "unpacked_size_bytes": 27246723
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-be1d68ab2fa5007bfee9242d56471e80aca8529e/openwrt-rootfs-arm.tar.gz",
+      "sha256": "f55b82b1aa546fe9b37e225f91c2a275e1be61cfebb63fac3555ce7cfb0efdd7",
+      "size_bytes": 11204402,
+      "unpacked_size_bytes": 27256312
     },
     "x86_64": {
       "filename": "openwrt-rootfs-x86_64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-b537a97d8f54f53ac9df5cda722bad12224fffac/openwrt-rootfs-x86_64.tar.gz",
-      "sha256": "52c18e1482a516bcd688c50fed845a0de8adbeacce5448e06bf320d50fb11e2c",
-      "size_bytes": 14006271,
-      "unpacked_size_bytes": 32875591
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-be1d68ab2fa5007bfee9242d56471e80aca8529e/openwrt-rootfs-x86_64.tar.gz",
+      "sha256": "ba884aaa535d9253766698d04d742362a23878ef0d98e81053a5317049e11ac4",
+      "size_bytes": 13800558,
+      "unpacked_size_bytes": 32356924
     },
     "x86": {
       "filename": "openwrt-rootfs-x86.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-b537a97d8f54f53ac9df5cda722bad12224fffac/openwrt-rootfs-x86.tar.gz",
-      "sha256": "bf3e2ce1d01828b1ab45637235bc8ef51055c5802e17af22ecd2ad49e42ae9f3",
-      "size_bytes": 11226816,
-      "unpacked_size_bytes": 26923459
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-be1d68ab2fa5007bfee9242d56471e80aca8529e/openwrt-rootfs-x86.tar.gz",
+      "sha256": "025225820eae85f5d80523a4d708c9b8913b69571bba255e03256ee006e625f2",
+      "size_bytes": 11228003,
+      "unpacked_size_bytes": 26933048
     },
     "mips": {
       "filename": "openwrt-rootfs-mips.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-b537a97d8f54f53ac9df5cda722bad12224fffac/openwrt-rootfs-mips.tar.gz",
-      "sha256": "d68075e5bf3cf0a9107b362f4a8281d41eee425065b96414b8bcd50383b2df59",
-      "size_bytes": 10987503,
-      "unpacked_size_bytes": 29742748
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-be1d68ab2fa5007bfee9242d56471e80aca8529e/openwrt-rootfs-mips.tar.gz",
+      "sha256": "84ab90d85249ee145890d1ba94b7d9964fb40727de08a6c6557724a3ae991db1",
+      "size_bytes": 10989768,
+      "unpacked_size_bytes": 29752337
     },
     "mipsel": {
       "filename": "openwrt-rootfs-mipsel.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-b537a97d8f54f53ac9df5cda722bad12224fffac/openwrt-rootfs-mipsel.tar.gz",
-      "sha256": "7ea2ee1a1f46019635ae81384e8c997c35876d192dc20b398928699e68035a94",
-      "size_bytes": 10935874,
-      "unpacked_size_bytes": 29746756
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-be1d68ab2fa5007bfee9242d56471e80aca8529e/openwrt-rootfs-mipsel.tar.gz",
+      "sha256": "1642462f6c0221de448bef761267370de0cf8c7177bde0f8910878c7bbd9ca85",
+      "size_bytes": 10937786,
+      "unpacked_size_bytes": 29756345
     },
     "riscv64": {
       "filename": "openwrt-rootfs-riscv64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-b537a97d8f54f53ac9df5cda722bad12224fffac/openwrt-rootfs-riscv64.tar.gz",
-      "sha256": "667edd5e8046220c9717fd21e414d0a30fdf5b8637a124cd2be500dd66640a76",
-      "size_bytes": 11004835,
-      "unpacked_size_bytes": 26641347
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-be1d68ab2fa5007bfee9242d56471e80aca8529e/openwrt-rootfs-riscv64.tar.gz",
+      "sha256": "4f5bc3e6854aa11bc2091627a7df1114e9d92be0a6a4dcdca9cf5e0a44b795db",
+      "size_bytes": 11006601,
+      "unpacked_size_bytes": 26650936
     }
   },
   "artifact": {
     "filename": "openwrt-rootfs.tar.gz",
-    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-b537a97d8f54f53ac9df5cda722bad12224fffac/openwrt-rootfs.tar.gz",
-    "sha256": "badeefc98df3b9d10ab44f09e0eb9db45460ec7df2edc44161d68779eca68ab9",
-    "size_bytes": 64846403
+    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-be1d68ab2fa5007bfee9242d56471e80aca8529e/openwrt-rootfs.tar.gz",
+    "sha256": "2c5ebc2065c57025260e8d293ca0c84ca2f50161a513b8bae65b65282746399f",
+    "size_bytes": 64438761
   },
   "signing": {
     "key_id": "916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae"
