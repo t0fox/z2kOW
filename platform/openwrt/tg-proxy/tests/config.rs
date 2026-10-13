@@ -31,3 +31,35 @@ fn websocket_hedge_limit_has_a_fixed_upper_bound() {
     assert!(Config::try_from_cli_line("--ws-hedge-limit 32").is_ok());
     assert!(Config::try_from_cli_line("--ws-hedge-limit 33").is_err());
 }
+
+#[test]
+fn worker_domains_are_normalized_and_deduplicated() {
+    let config = Config::try_from_cli_line(
+        "--cf-worker-domain=HTTPS://Worker.Example/path,worker.example,worker-two.example",
+    )
+    .unwrap();
+
+    assert_eq!(
+        config.cf_worker_domains(),
+        ["worker.example", "worker-two.example"]
+    );
+}
+
+#[test]
+fn worker_domains_reject_addresses_and_malformed_hosts() {
+    assert!(Config::try_from_cli_line("--cf-worker-domain=192.0.2.1").is_err());
+    assert!(Config::try_from_cli_line("--cf-worker-domain=worker..example").is_err());
+    assert!(Config::try_from_cli_line("--cf-worker-domain=worker.example:443").is_err());
+}
+
+#[test]
+fn worker_domains_have_a_bounded_configuration_list() {
+    assert!(Config::try_from_cli_line(
+        "--cf-worker-domain=a.example,b.example,c.example,d.example,e.example,f.example,g.example,h.example"
+    )
+    .is_ok());
+    assert!(Config::try_from_cli_line(
+        "--cf-worker-domain=a.example,b.example,c.example,d.example,e.example,f.example,g.example,h.example,i.example"
+    )
+    .is_err());
+}

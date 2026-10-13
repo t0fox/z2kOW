@@ -36,7 +36,7 @@ z2k_ow_tg_policy_migrate() {
             {
                 p = index($0, "="); if (!p) next
                 k = trim(substr($0, 1, p - 1))
-                managed = (k ~ /^TG_(TCP_PORTS|CIDRS4|CIDRS6|DC_MAP_PATH|DC_MAP_REFRESH_SECS|DC_MAP_ENDPOINTS_PATH|CONNECTION_MODE|CONNECTION_LIMIT)$/)
+                managed = (k ~ /^TG_(TCP_PORTS|CIDRS4|CIDRS6|DC_MAP_PATH|DC_MAP_REFRESH_SECS|DC_MAP_ENDPOINTS_PATH|CONNECTION_MODE|CONNECTION_LIMIT|CF_WORKER_DOMAINS)$/)
                 if (FILENAME == own) {
                     if (managed) { v = trim(substr($0, p + 1)); if (length(v) >= 2 && ((substr(v,1,1) == "\"" && substr(v,length(v),1) == "\"") || (substr(v,1,1) == "\047" && substr(v,length(v),1) == "\047"))) v = substr(v,2,length(v)-2); own_values[k] = v }
                     else other[++other_count] = $0
@@ -51,8 +51,9 @@ z2k_ow_tg_policy_migrate() {
                 order[1]="TG_TCP_PORTS"; order[2]="TG_CIDRS4"; order[3]="TG_CIDRS6"
                 order[4]="TG_DC_MAP_PATH"; order[5]="TG_DC_MAP_REFRESH_SECS"; order[6]="TG_DC_MAP_ENDPOINTS_PATH"
                 order[7]="TG_CONNECTION_MODE"; order[8]="TG_CONNECTION_LIMIT"
+                order[9]="TG_CF_WORKER_DOMAINS"
                 for (i=1; i<=other_count; i++) print other[i]
-                for (i=1; i<=8; i++) {
+                for (i=1; i<=9; i++) {
                     k=order[i]
                     if (k in own_values) print k "=" own_values[k]
                     else if (k in legacy_values) print k "=" legacy_values[k]

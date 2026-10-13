@@ -59,6 +59,7 @@ printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/linux-x86_64/z2k-rt-proxy"
 chmod +x "$T/root/bin/linux-x86_64/z2k-rt-proxy"
 ln -s z2k-rt-proxy "$T/root/bin/linux-x86_64/tg-mtproxy-client"
 printf 'ENABLED=1\nZ2K_RELAY_SECRET=obsolete-preserved\nZ2K_RELAY_URL=obsolete-preserved\n' > "$T/etc/config"
+printf 'TG_CF_WORKER_DOMAINS=worker-one.example.com worker-two.example.net\n' > "$T/etc/tg-policy.conf"
 printf '{"legacy":"preserved"}\n' > "$T/etc/state/relay-id.json"
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
@@ -92,6 +93,8 @@ assert_contains "Rust получил список портов из общей �
     "--transparent-ports=$(z2k_ow_tg_ports_csv)"
 assert_contains "procd запускает обновление официальной карты DC с кэшем" "$T/procd.log" \
     "--dc-map-path=$Z2K_ETC/telegram-dc-map.json --dc-map-refresh-secs=21600"
+assert_contains "procd передаёт Rust все заданные Worker-домены" "$T/procd.log" \
+    '--cf-worker-domain=worker-one.example.com,worker-two.example.net'
 assert_eq "запуск TG включает периодическую сверку manifest и nft" 1 "$(grep -c '^install$' "$_tg_cron_log" || true)"
 assert_not_contains "настройки старого релея не передаются Rust" "$T/procd.log" 'Z2K_RELAY_SECRET|Z2K_RELAY_URL|relay-id-file'
 _policy_port_count="$(z2k_ow_tg_ports | wc -l | tr -d ' ')"

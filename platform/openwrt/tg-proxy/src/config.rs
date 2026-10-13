@@ -8,6 +8,18 @@ use clap::{Parser, ValueEnum};
 
 use crate::outbound::OutboundConnector;
 
+const MAX_CF_WORKER_DOMAINS: usize = 8;
+
+fn validate_cf_worker_domain_count(count: usize) -> Result<(), String> {
+    if count > MAX_CF_WORKER_DOMAINS {
+        Err(format!(
+            "число доменов Telegram Cloudflare Worker не должно превышать {MAX_CF_WORKER_DOMAINS}"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 const DEFAULT_DC_IPS: &[(u32, &str)] = &[
     (1, "149.154.175.50"),
     (2, "149.154.167.51"),
@@ -195,6 +207,8 @@ pub struct Config {
         long = "cf-worker-domain",
         alias = "cfproxy-worker-domain",
         value_delimiter = ',',
+        num_args = 1..=8,
+        value_parser = parse_cf_worker_domain,
         env = "TG_CF_WORKER_DOMAIN"
     )]
     pub cf_worker_domains: Vec<String>,
@@ -361,7 +375,11 @@ pub fn split_cli_args(line: &str) -> Result<Vec<String>, String> {
 
 impl Config {
     pub fn from_args() -> Self {
-        Self::parse().with_defaults()
+        let config = Self::try_parse().unwrap_or_else(|error| error.exit());
+        validate_cf_worker_domain_count(config.cf_worker_domains.len()).unwrap_or_else(|error| {
+            clap::Error::raw(clap::error::ErrorKind::ValueValidation, error).exit()
+        });
+        config.with_defaults()
     }
 
     pub fn try_from_cli_line(line: &str) -> Result<Self, String> {
@@ -375,15 +393,24 @@ impl Config {
             }
         };
         Self::try_parse_from(args)
-            .map(Self::with_defaults)
             .map_err(|error| error.render().to_string())
+            .and_then(|config| {
+                validate_cf_worker_domain_count(config.cf_worker_domains.len())?;
+                Ok(config.with_defaults())
+            })
     }
 
     pub fn with_defaults(mut self) -> Self {
-        self.cf_worker_domains = std::mem::take(&mut self.cf_worker_domains)
-            .iter()
-            .filter_map(|domain| Self::normalize_cf_worker_domain(domain))
-            .collect();
+        let mut worker_domains = Vec::with_capacity(MAX_CF_WORKER_DOMAINS);
+        for domain in std::mem::take(&mut self.cf_worker_domains) {
+            let Some(domain) = Self::normalize_cf_worker_domain(&domain) else {
+                continue;
+            };
+            if !worker_domains.contains(&domain) && worker_domains.len() < MAX_CF_WORKER_DOMAINS {
+                worker_domains.push(domain);
+            }
+        }
+        self.cf_worker_domains = worker_domains;
         self
     }
 
@@ -392,7 +419,8 @@ impl Config {
     }
 
     fn normalize_cf_worker_domain(domain: &str) -> Option<String> {
-        let domain = domain.trim();
+        let normalized = domain.trim().to_ascii_lowercase();
+        let domain = normalized.as_str();
         if domain.is_empty() {
             return None;
         }
@@ -401,8 +429,25 @@ impl Config {
             .or_else(|| domain.strip_prefix("http://"))
             .unwrap_or(domain);
         let domain = domain.split_once('/').map_or(domain, |(host, _)| host);
-        let domain = domain.trim_end_matches('/');
-        (!domain.is_empty()).then(|| domain.to_string())
+        let domain = domain.trim_end_matches('.');
+        if domain.len() > 253 || domain.parse::<std::net::IpAddr>().is_ok() {
+            return None;
+        }
+        let labels: Vec<_> = domain.split('.').collect();
+        if labels.len() < 2
+            || labels.iter().any(|label| {
+                label.is_empty()
+                    || label.len() > 63
+                    || label.starts_with('-')
+                    || label.ends_with('-')
+                    || !label
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            })
+        {
+            return None;
+        }
+        Some(domain.to_string())
     }
 
     pub fn outbound_connector(&self) -> OutboundConnector {
@@ -412,4 +457,9 @@ impl Config {
     pub fn bind_host(&self) -> String {
         self.host.clone().unwrap_or_else(|| "::".to_string())
     }
+}
+
+fn parse_cf_worker_domain(domain: &str) -> Result<String, String> {
+    Config::normalize_cf_worker_domain(domain)
+        .ok_or_else(|| format!("неверный домен Telegram Cloudflare Worker: {domain}"))
 }

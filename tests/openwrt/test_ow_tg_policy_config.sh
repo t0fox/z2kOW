@@ -18,6 +18,7 @@ TG_DC_MAP_REFRESH_SECS="900"
 TG_DC_MAP_ENDPOINTS_PATH="/etc/z2k/telegram-dc-endpoints.tsv"
 TG_CONNECTION_MODE="manual"
 TG_CONNECTION_LIMIT="64"
+TG_CF_WORKER_DOMAINS="worker-one.example.com worker-two.example.net"
 EOF
 
 export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc/z2k" Z2K_CONFIG="$T/etc/z2k/config"
@@ -43,10 +44,15 @@ assert_eq "режим Auto/Manual перенесён в OpenWrt-конфиг" "m
 assert_eq "ручной максимум перенесён в OpenWrt-конфиг" "64" \
     "$(z2k_ow_tg_cfg TG_CONNECTION_LIMIT '')"
 assert_eq "ручной максимум попал в аргументы Rust" "64" "$Z2K_TG_MAX_CONNECTIONS"
+assert_eq "домены Telegram Worker переносятся с общим конфигом" \
+    "worker-one.example.com worker-two.example.net" \
+    "$(z2k_ow_tg_cfg TG_CF_WORKER_DOMAINS '')"
 
 assert_file "старые TG-настройки перенесены в OpenWrt-конфиг" "$Z2K_TG_POLICY_CONFIG"
 assert_contains "в OpenWrt-конфиг перенесены порты" "$Z2K_TG_POLICY_CONFIG" \
     'TG_TCP_PORTS=443 5222 58321'
+assert_contains "домены Worker перенесены в OpenWrt-owned конфиг" "$Z2K_TG_POLICY_CONFIG" \
+    'TG_CF_WORKER_DOMAINS=worker-one.example.com worker-two.example.net'
 
 # После переноса OpenWrt-конфиг остаётся источником TG-настроек.
 sed -i 's/^TG_TCP_PORTS=.*/TG_TCP_PORTS="443"/' "$Z2K_CONFIG"
@@ -77,6 +83,9 @@ assert_eq "режим Auto/Manual переживает create_official_config" "
     "$(z2k_ow_tg_cfg TG_CONNECTION_MODE '')"
 assert_eq "ручной максимум переживает create_official_config" "64" \
     "$(z2k_ow_tg_cfg TG_CONNECTION_LIMIT '')"
+assert_eq "домены Worker переживают create_official_config" \
+    "worker-one.example.com worker-two.example.net" \
+    "$(z2k_ow_tg_cfg TG_CF_WORKER_DOMAINS '')"
 
 # Новая установка записывает безопасную Auto-политику в OpenWrt-owned файл.
 mkdir -p "$T/default/etc/z2k"

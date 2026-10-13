@@ -217,7 +217,7 @@ z2k_ow_tg_wanted() {
 # Аргументы передаются без печати.
 # Использование: z2k_ow_tg_with_argv _cb (одно слово — см. ниже).
 z2k_ow_tg_with_argv() {
-    local _cb="$1"
+    local _cb="$1" _worker_domains
     shift
     set -- "$Z2K_TG_RUST_BIN" "--port=$Z2K_TG_PORT" --host=:: \
         "--max-connections=$Z2K_TG_MAX_CONNECTIONS" \
@@ -227,6 +227,11 @@ z2k_ow_tg_with_argv() {
         "--dc-map-refresh-secs=$(z2k_ow_tg_cfg TG_DC_MAP_REFRESH_SECS "$Z2K_TG_DC_MAP_REFRESH_SECS_DEFAULT")" \
         "--dc-map-endpoints-path=$(z2k_ow_tg_cfg TG_DC_MAP_ENDPOINTS_PATH "$Z2K_TG_DC_MAP_ENDPOINTS_PATH_DEFAULT")" \
         --default-domains
+    _worker_domains=$(z2k_ow_tg_cfg TG_CF_WORKER_DOMAINS "")
+    _worker_domains=$(printf '%s\n' "$_worker_domains" | tr ',' ' ' | awk '{$1=$1; gsub(/[[:space:]]+/, ","); print}')
+    if [ -n "$_worker_domains" ]; then
+        set -- "$@" "--cf-worker-domain=$_worker_domains"
+    fi
     "$_cb" "$@"
 }
 
