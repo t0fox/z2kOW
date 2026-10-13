@@ -56,6 +56,19 @@ else
     no "модули в списке загрузки" "все $_count" "не вписаны:$_absent — приедут не все, панель не откроется"
 fi
 
+# Локальный GSAP подключается без CDN; его отсутствие включает CSS-fallback.
+if [ -f "$ROOT/webpanel/www/assets/vendor/gsap.js" ] \
+    && grep -Fq 'www/assets/vendor/gsap.js' "$Z2K"; then
+    ok "локальный GSAP включён в bootstrap webpanel"
+else
+    no "доставка локального GSAP" "файл и путь в z2k.sh" "отсутствует в bootstrap"
+fi
+if sed -n '/case "$wp_file" in/,/esac/p' "$Z2K" | grep -Fq 'www/assets/vendor/gsap.js)'; then
+    ok "недоступность GSAP оставляет CSS-fallback рабочим"
+else
+    no "необязательная загрузка GSAP" "ошибка оставляет CSS-fallback" "bootstrap прерывается"
+fi
+
 # --- 2. В списке нет исчезнувших ----------------------------------------------
 _ghost=""
 for _m in $(grep -oE 'www/js/[A-Za-z0-9_/-]+\.js' "$Z2K" | sort -u); do

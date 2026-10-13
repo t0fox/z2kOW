@@ -1223,7 +1223,7 @@ download_init_script() {
     # z2k.sh bootstraps files into /tmp/z2k/; install.sh copies from /tmp/z2k/webpanel.
     local webpanel_dir="${WORK_DIR}/webpanel"
     mkdir -p "$webpanel_dir/cgi" "$webpanel_dir/www" "$webpanel_dir/init.d" \
-             "$webpanel_dir/www/fonts" \
+             "$webpanel_dir/www/fonts" "$webpanel_dir/www/assets/vendor" \
              "$webpanel_dir/www/js/core" "$webpanel_dir/www/js/data" \
              "$webpanel_dir/www/js/pages"
     # Шрифты панели тянутся сюда же. Они не роскошь: без них панель рисуется
@@ -1245,7 +1245,9 @@ download_init_script() {
         init.d/S96z2k-webpanel \
         cgi/api.sh cgi/auth.sh cgi/actions.sh \
         www/index.html www/app.js www/style.css www/favicon.svg \
+        www/assets/vendor/gsap.js \
         www/js/chrome.js \
+        www/js/motion.js \
         www/js/data/openwrt-credits.js \
         www/js/data/dns-providers.js \
         www/js/core/api.js \
@@ -1309,7 +1311,7 @@ download_init_script() {
             # пока остальные зеркала уже актуальны. Тогда не доезжает ровно
             # один файл из двадцати одного.
             case "$wp_file" in
-                www/fonts/*|www/favicon.svg)
+                www/fonts/*|www/favicon.svg|www/assets/vendor/gsap.js)
                     print_warning "Не удалось загрузить webpanel/${wp_file} (опциональный компонент)" ;;
                 *)
                     die "Не удалось загрузить webpanel/${wp_file} — без него панель не работает" ;;

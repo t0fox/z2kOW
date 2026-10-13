@@ -331,9 +331,12 @@ async function waitForDrawerSettled(page, open) {
     const nav = document.querySelector('#nav');
     const shell = document.querySelector('#menu-shell');
     const targets = [nav, document.querySelector('.topbar > .theme-toggle'), document.querySelector('#menu-backdrop')].filter(Boolean);
+    const settled = targets.every(target => window.gsap.getTweensOf(target).every(tween => tween.progress() >= 1));
+    const box = nav.getBoundingClientRect();
     return nav.classList.contains('menu-open') === expectedOpen
       && shell.classList.contains('mm-ocd--open') === expectedOpen
-      && targets.every(target => window.gsap.getTweensOf(target).every(tween => !tween.isActive()));
+      && settled
+      && (expectedOpen ? Math.abs(box.left) < 1 : Math.abs(box.right) < 1);
   }, open, { timeout: 1200 });
 }
 

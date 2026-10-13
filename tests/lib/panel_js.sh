@@ -59,7 +59,7 @@ _tmp_out="$_out.$$"
 #
 # Порядок повторяет слои разбиения: ядро, локальные данные, общие службы,
 # оболочка, страницы, маршрутизатор, запуск. Он же документирует направление зависимостей.
-_layers="js/core js/data js/state-model.js js/job.js js/chrome.js js/pages js/router.js"
+_layers="js/motion.js js/core js/data js/state-model.js js/job.js js/chrome.js js/pages js/router.js"
 {
     for _l in $_layers; do
         if [ -d "$_www/$_l" ]; then
@@ -71,7 +71,13 @@ _layers="js/core js/data js/state-model.js js/job.js js/chrome.js js/pages js/ro
     printf '%s\n' "$_www/app.js"
 } | while IFS= read -r _f; do
         printf '\n// ===== %s =====\n' "${_f#"$_www/"}"
-        cat "$_f"
+        if [ "$_f" = "$_www/js/motion.js" ]; then
+            printf '(function () {\n'
+            cat "$_f"
+            printf '\nglobalThis.motion = motion;\n})();\n'
+        else
+            cat "$_f"
+        fi
     done | sed -e '/^import .* from "[^"]*";$/d' \
              -e '/^export { .* } from "[^"]*";$/d' -e 's/^export //' \
   | sed -e 's/^\(.\)/  \1/' > "$_tmp_out"
