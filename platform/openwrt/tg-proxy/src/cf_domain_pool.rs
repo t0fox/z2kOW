@@ -166,6 +166,9 @@ pub async fn refresh_loop(runtime: Arc<crate::runtime::Runtime>) {
         let next_refresh = match pool.refresh_once(runtime.outbound()).await {
             Ok(()) => {
                 let snapshot = pool.snapshot();
+                runtime
+                    .stats()
+                    .set_cf_pool(&snapshot.domains, snapshot.fetched_at);
                 info!(
                     "Список доменов CF обновлён: {} адресов, поколение {}",
                     snapshot.domains.len(),

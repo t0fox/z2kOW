@@ -146,6 +146,22 @@ fn parse_ws_hedge_limit(value: &str) -> Result<usize, String> {
     about = "Прозрачный Telegram MTProto → WSS-прокси для OpenWrt"
 )]
 pub struct Config {
+    /// Выполнить разовую проверку маршрутов Telegram и завершить работу.
+    #[arg(long, env = "TG_CHECK")]
+    pub check: bool,
+
+    /// Вывести снимок работающего экземпляра через локальный Unix-сокет.
+    #[arg(long)]
+    pub stats: bool,
+
+    /// Путь локального сокета статистики.
+    #[arg(
+        long,
+        env = "TG_STATS_SOCKET",
+        default_value = "/var/run/z2k/tg-stats.sock"
+    )]
+    pub stats_socket_path: PathBuf,
+
     /// TCP-порты перехвата, заданные политикой OpenWrt.
     #[arg(long = "transparent-ports", value_delimiter = ',')]
     pub transparent_ports: Vec<u16>,

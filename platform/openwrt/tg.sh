@@ -66,7 +66,7 @@ Z2K_PROC_ROOT="${Z2K_PROC_ROOT:-/proc}"
 # Чтение без сорсинга: сохраняем внутренние пробелы и знаки равенства.
 # $1 key, $2 default.
 z2k_ow_tg_cfg() {
-    local _v="" _file
+    local _v="" _file _rc _found=0
     for _file in "${Z2K_TG_POLICY_CONFIG:-${Z2K_ETC:-/etc/z2k}/tg-policy.conf}" "${Z2K_CONFIG:-/etc/z2k/config}"; do
         [ -f "$_file" ] || continue
         _v=$(awk -v k="$1" '
@@ -77,12 +77,168 @@ z2k_ow_tg_cfg() {
                 value = trim(substr($0, p + 1))
                 if (length(value) >= 2 && ((substr(value,1,1) == "\"" && substr(value,length(value),1) == "\"") || (substr(value,1,1) == "\047" && substr(value,length(value),1) == "\047"))) value = substr(value,2,length(value)-2)
                 found = value
+                found_line = 1
             }
-            END { if (found != "") printf "%s", found }
+            END { if (found_line) printf "%s", found; else exit 3 }
         ' "$_file" 2>/dev/null)
-        [ -n "$_v" ] && break
+        _rc=$?
+        if [ "$_rc" = 0 ]; then _found=1; break; fi
     done
-    [ -n "$_v" ] && printf '%s' "$_v" || printf '%s' "$2"
+    if [ "$_found" = 1 ]; then printf '%s' "$_v"; else printf '%s' "$2"; fi
+}
+
+# Нормализовать адрес так же, как Rust CLI: схема и путь URL отбрасываются,
+# но порт, IP-литерал и некорректные DNS-метки отклоняются.
+z2k_ow_tg_worker_normalize() {
+    local _domain _label _valid=1 _was_noglob=0
+    _domain=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    case "$_domain" in
+        https://*) _domain=${_domain#https://} ;;
+        http://*) _domain=${_domain#http://} ;;
+    esac
+    _domain=${_domain%%/*}
+    _domain=${_domain%.}
+    [ -n "$_domain" ] && [ "${#_domain}" -le 253 ] || return 1
+    case "$_domain" in *.*) ;; *) return 1 ;; esac
+    case "$_domain" in .*|*.|*..*|*[!a-z0-9.-]*|*-.*|*.-*) return 1 ;; esac
+    case "$_domain" in *[!0-9.]* ) ;; *) return 1 ;; esac
+    case "$_domain" in *:*) return 1 ;; esac
+    local _old_ifs="$IFS"
+    IFS=.
+    case $- in *f*) _was_noglob=1 ;; *) set -f ;; esac
+    set -- $_domain
+    IFS="$_old_ifs"
+    for _label in "$@"; do
+        if [ -z "$_label" ] || [ "${#_label}" -gt 63 ]; then _valid=0; break; fi
+        case "$_label" in -*|*-) _valid=0; break ;; esac
+    done
+    [ "$_was_noglob" = 1 ] || set +f
+    [ "$_valid" = 1 ] || return 1
+    printf '%s' "$_domain"
+}
+
+z2k_ow_tg_worker_domains() {
+    local _configured _domain _normalized _seen="" _was_noglob=0
+    _configured=$(z2k_ow_tg_cfg TG_CF_WORKER_DOMAINS "")
+    _configured=$(printf '%s' "$_configured" | tr ',' ' ')
+    case $- in *f*) _was_noglob=1 ;; *) set -f ;; esac
+    for _domain in $_configured; do
+        _normalized=$(z2k_ow_tg_worker_normalize "$_domain") || continue
+        case " $_seen " in *" $_normalized "*) continue ;; esac
+        _seen="$_seen $_normalized"
+        printf '%s\n' "$_normalized"
+    done
+    [ "$_was_noglob" = 1 ] || set +f
+}
+
+_z2k_ow_tg_worker_apply() {
+    local _action="$1" _domain="$2" _config="${Z2K_TG_POLICY_CONFIG:-${Z2K_ETC:-/etc/z2k}/tg-policy.conf}"
+    local _tmp="${Z2K_TMP:-/tmp/z2k}/tg-workers.$$" _lock="${Z2K_TMP:-/tmp/z2k}/locks/tg-workers.lock"
+    local _entry _domains="" _count=0 _found=0 _updated _was_noglob=0
+    _domain=$(z2k_ow_tg_worker_normalize "$_domain") || {
+        echo 'неверный домен Cloudflare Worker' >&2
+        return 1
+    }
+    mkdir -p "$(dirname "$_config")" "$(dirname "$_lock")" "$(dirname "$_tmp")" || return 1
+    mkdir "$_lock" 2>/dev/null || {
+        echo 'изменение списка Worker уже выполняется' >&2
+        return 1
+    }
+    _updated=$(z2k_ow_tg_cfg TG_CF_WORKER_DOMAINS "")
+    _updated=$(printf '%s' "$_updated" | tr ',' ' ')
+    case $- in *f*) _was_noglob=1 ;; *) set -f ;; esac
+    for _entry in $_updated; do
+        _entry=$(z2k_ow_tg_worker_normalize "$_entry") || {
+            rmdir "$_lock" 2>/dev/null || true
+            echo 'в сохранённом списке есть неверный домен Worker' >&2
+            [ "$_was_noglob" = 1 ] || set +f
+            return 1
+        }
+        case " $_domains " in *" $_entry "*) continue ;; esac
+        if [ "$_entry" = "$_domain" ]; then _found=1; fi
+        if [ "$_action" != remove ] || [ "$_entry" != "$_domain" ]; then
+            _domains="$_domains $_entry"
+            _count=$((_count + 1))
+        fi
+    done
+    [ "$_was_noglob" = 1 ] || set +f
+    if [ "$_action" = add ]; then
+        if [ "$_found" = 0 ]; then
+            [ "$_count" -lt 8 ] || {
+                rmdir "$_lock" 2>/dev/null || true
+                echo 'можно настроить не более восьми Worker' >&2
+                return 1
+            }
+            _domains="$_domains $_domain"
+        fi
+    elif [ "$_action" != remove ]; then
+        rmdir "$_lock" 2>/dev/null || true
+        return 1
+    fi
+    _domains=$(printf '%s' "$_domains" | awk '{$1=$1; gsub(/[[:space:]]+/, ","); print}')
+    (
+        umask 077
+        if [ -r "$_config" ]; then
+            awk -F= '$1 != "TG_CF_WORKER_DOMAINS" { print }' "$_config" > "$_tmp" || exit 1
+        else
+            : > "$_tmp" || exit 1
+        fi
+        printf 'TG_CF_WORKER_DOMAINS=%s\n' "$_domains" >> "$_tmp" || exit 1
+        chmod 600 "$_tmp" 2>/dev/null || exit 1
+        mv -f "$_tmp" "$_config"
+    ) || {
+        rm -f "$_tmp"; rmdir "$_lock" 2>/dev/null || true; return 1;
+    }
+    rmdir "$_lock" 2>/dev/null || true
+    printf 'Список Worker сохранён. Применяю настройки через z2k/procd…\n'
+    "${Z2K_INIT:-/etc/init.d/z2k}" reload
+}
+
+z2k_ow_tg_worker_add() { _z2k_ow_tg_worker_apply add "$1"; }
+z2k_ow_tg_worker_remove() { _z2k_ow_tg_worker_apply remove "$1"; }
+
+_z2k_ow_tg_stats_exec() { "$@" --stats; }
+z2k_ow_tg_stats_json() { z2k_ow_tg_with_argv _z2k_ow_tg_stats_exec; }
+
+_z2k_ow_tg_check_exec() {
+    local _tmp="$1" _diagnostic_status
+    shift
+    "$@" --check > "$_tmp" 2>/dev/null
+    _diagnostic_status=$?
+    case "$_diagnostic_status" in
+        0|2) grep -q '^{.*}' "$_tmp" || return 1; return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+_z2k_ow_tg_check_cleanup() {
+    [ -z "${_z2k_tg_check_tmp:-}" ] || rm -f "$_z2k_tg_check_tmp"
+    [ -z "${_z2k_tg_check_lock:-}" ] || rmdir "$_z2k_tg_check_lock" 2>/dev/null || true
+}
+
+z2k_ow_tg_check_action() {
+    local _dir="${Z2K_TMP:-/tmp/z2k}/tg-diagnostics" _report
+    _z2k_tg_check_lock="$_dir/lock"
+    _report="$_dir/report.json"
+    mkdir -p "$_dir" || return 1
+    mkdir "$_z2k_tg_check_lock" 2>/dev/null || { echo 'диагностика Telegram уже выполняется' >&2; return 1; }
+    _z2k_tg_check_tmp="$_dir/report.$$"
+    trap '_z2k_ow_tg_check_cleanup' EXIT
+    trap 'exit 1' HUP INT TERM
+    printf '{"state":"running"}\n' > "$_z2k_tg_check_tmp" && mv -f "$_z2k_tg_check_tmp" "$_report" || return 1
+    _z2k_tg_check_tmp="$_dir/result.$$"
+    if ! z2k_ow_tg_with_argv _z2k_ow_tg_check_exec "$_z2k_tg_check_tmp"; then
+        rm -f "$_z2k_tg_check_tmp"
+        printf '{"state":"error","message":"не удалось выполнить диагностику Telegram"}\n' > "$_dir/error.$$"
+        mv -f "$_dir/error.$$" "$_report"
+        return 1
+    fi
+    mv -f "$_z2k_tg_check_tmp" "$_report"
+}
+
+z2k_ow_tg_check_json() {
+    local _report="${Z2K_TMP:-/tmp/z2k}/tg-diagnostics/report.json"
+    if [ -r "$_report" ]; then cat "$_report"; else printf '{"state":"not_checked"}\n'; fi
 }
 
 # Настроенные порты и CIDR приводятся к спискам для shell/Rust/nft.
@@ -200,7 +356,16 @@ z2k_ow_tg_status_json() {
     json_string "$_status"
     printf ',"message":'
     json_string "$_message"
-    printf '}'
+    printf ',"workers":['
+    local _sep=
+    while IFS= read -r _worker; do
+        [ -n "$_worker" ] || continue
+        printf '%s"%s"' "$_sep" "$_worker"
+        _sep=,
+    done <<EOF
+$(z2k_ow_tg_worker_domains)
+EOF
+    printf ']}'
 }
 
 z2k_ow_tg_wanted() {
@@ -217,22 +382,29 @@ z2k_ow_tg_wanted() {
 # Аргументы передаются без печати.
 # Использование: z2k_ow_tg_with_argv _cb (одно слово — см. ниже).
 z2k_ow_tg_with_argv() {
-    local _cb="$1" _worker_domains
+    local _cb="$1" _worker_domains _callback_arg="${2:-}"
+    local _dc_map_path="${Z2K_TG_DC_MAP_PATH_DEFAULT:-${Z2K_TG_DC_MAP_PATH:-/tmp/z2k/telegram-dc-map.json}}"
+    local _dc_map_refresh="${Z2K_TG_DC_MAP_REFRESH_SECS_DEFAULT:-21600}"
+    local _dc_endpoints_path="${Z2K_TG_DC_MAP_ENDPOINTS_PATH_DEFAULT:-${Z2K_TG_DC_MAP_ENDPOINTS_PATH:-/tmp/z2k/telegram-dc-endpoints.tsv}}"
     shift
     set -- "$Z2K_TG_RUST_BIN" "--port=$Z2K_TG_PORT" --host=:: \
         "--max-connections=$Z2K_TG_MAX_CONNECTIONS" \
         "--transparent-ports=$(z2k_ow_tg_ports_csv)" \
         "--transparent-cidrs=$(z2k_ow_tg_cidrs_csv "$Z2K_TG_CIDRS $Z2K_TG_CIDRS6")" \
-        "--dc-map-path=$(z2k_ow_tg_cfg TG_DC_MAP_PATH "$Z2K_TG_DC_MAP_PATH_DEFAULT")" \
-        "--dc-map-refresh-secs=$(z2k_ow_tg_cfg TG_DC_MAP_REFRESH_SECS "$Z2K_TG_DC_MAP_REFRESH_SECS_DEFAULT")" \
-        "--dc-map-endpoints-path=$(z2k_ow_tg_cfg TG_DC_MAP_ENDPOINTS_PATH "$Z2K_TG_DC_MAP_ENDPOINTS_PATH_DEFAULT")" \
+        "--dc-map-path=$(z2k_ow_tg_cfg TG_DC_MAP_PATH "$_dc_map_path")" \
+        "--dc-map-refresh-secs=$(z2k_ow_tg_cfg TG_DC_MAP_REFRESH_SECS "$_dc_map_refresh")" \
+        "--dc-map-endpoints-path=$(z2k_ow_tg_cfg TG_DC_MAP_ENDPOINTS_PATH "$_dc_endpoints_path")" \
         --default-domains
     _worker_domains=$(z2k_ow_tg_cfg TG_CF_WORKER_DOMAINS "")
     _worker_domains=$(printf '%s\n' "$_worker_domains" | tr ',' ' ' | awk '{$1=$1; gsub(/[[:space:]]+/, ","); print}')
     if [ -n "$_worker_domains" ]; then
         set -- "$@" "--cf-worker-domain=$_worker_domains"
     fi
-    "$_cb" "$@"
+    if [ -n "$_callback_arg" ]; then
+        "$_cb" "$_callback_arg" "$@"
+    else
+        "$_cb" "$@"
+    fi
 }
 
 # Обёртка procd: вызов из двух слов нельзя передать как один обратный вызов,

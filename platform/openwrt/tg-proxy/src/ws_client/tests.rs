@@ -25,6 +25,21 @@ fn media_tag_marks_only_media_dcs() {
 }
 
 #[test]
+fn диагностический_wss_запрос_сохраняет_host_origin_и_binary_protocol() {
+    let request = websocket_request(
+        "worker.example",
+        "/apiws?dst=149.154.167.51&dc=2&media=0",
+        true,
+    )
+    .unwrap();
+
+    assert_eq!(request.uri().host(), Some("worker.example"));
+    assert_eq!(request.headers()["Host"], "worker.example");
+    assert_eq!(request.headers()["Origin"], "https://web.telegram.org");
+    assert_eq!(request.headers()["Sec-WebSocket-Protocol"], "binary");
+}
+
+#[test]
 fn ordered_records_put_the_preferred_variant_first() {
     let base = || "kws2.example".to_string();
     let dash_one = || "kws2-1.example".to_string();
@@ -94,6 +109,27 @@ fn cf_ip_attempts_try_one_edge_when_every_edge_is_cooling() {
     );
 }
 
+#[test]
+fn cf_ip_attempts_prioritize_a_recently_successful_edge_for_its_domain() {
+    let domain = "recent-edge-preference.example";
+    let route = "dc2-proxy";
+    let cooldowns = CooldownMap::new();
+    let ips = ["192.0.2.1".parse().unwrap(), "192.0.2.2".parse().unwrap()];
+    remember_cf_edge(domain, ips[1]);
+
+    assert_eq!(
+        cf_ip_attempts(&ips, 0, domain, route, &cooldowns),
+        [ips[1], ips[0]]
+    );
+
+    CF_EDGE_PREFERRED
+        .get()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .remove(domain);
+}
+
 #[tokio::test]
 async fn tls_verification_rejects_self_signed_certificates() {
     install_rustls_provider();
@@ -132,6 +168,67 @@ async fn tls_verification_rejects_self_signed_certificates() {
         .await
         .expect("server task timed out")
         .ok();
+}
+
+#[tokio::test]
+#[allow(clippy::result_large_err)]
+async fn диагностическое_подключение_измеряет_tcp_tls_и_upgrade_раздельно() {
+    install_rustls_provider();
+    let (cert, key) = test_certificate("localhost");
+    let server_config = Arc::new(
+        rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(vec![cert.clone()], key)
+            .unwrap(),
+    );
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(cert).unwrap();
+    let client_config = Arc::new(
+        rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth(),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.unwrap();
+        let tls = tokio_rustls::TlsAcceptor::from(server_config)
+            .accept(tcp)
+            .await
+            .unwrap();
+        let _ws = tokio_tungstenite::accept_hdr_async(
+            tls,
+            |request: &tungstenite::handshake::server::Request,
+             mut response: tungstenite::handshake::server::Response| {
+                if request.headers().get("Sec-WebSocket-Protocol").is_some() {
+                    response
+                        .headers_mut()
+                        .insert("Sec-WebSocket-Protocol", "binary".parse().unwrap());
+                }
+                Ok(response)
+            },
+        )
+        .await
+        .unwrap();
+    });
+
+    let (mut ws, timing) = connect_probe_ws_with_config(
+        &address.ip().to_string(),
+        "localhost",
+        "/apiws",
+        true,
+        address.port(),
+        Duration::from_secs(2),
+        &crate::outbound::OutboundConnector::direct(),
+        client_config,
+    )
+    .await
+    .unwrap();
+    assert!(timing.tcp_ms.is_some());
+    assert!(timing.tls_ms.is_some());
+    assert!(timing.websocket_ms.is_some());
+    let _ = ws.close(None).await;
+    server.await.unwrap();
 }
 
 #[test]

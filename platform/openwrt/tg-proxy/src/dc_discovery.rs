@@ -22,13 +22,17 @@ use crate::dc_map::{DcEndpoint, DcSnapshot, write_endpoint_manifest};
 use crate::runtime::Runtime;
 use crate::splitter::MsgSplitter;
 use crate::transparent::direct_stream_ciphers;
-use crate::ws_client::{CfDialOpts, TgWsStream, connect_cf_ws_for_dc_with_outbound_opts};
+use crate::ws_client::{
+    CfDialOpts, TgWsStream, connect_cf_worker_ws_for_dc_with_outbound_opts,
+    connect_cf_ws_for_dc_with_outbound_opts,
+};
 
 const TELEGRAM_TCP_PORT: u16 = 443;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(6);
 const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(12);
 const MAX_PACKET_BYTES: usize = 1024 * 1024;
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
+const MAX_DISCOVERY_WORKER_ATTEMPTS: usize = 3;
 const MIN_REFRESH_SECS: u64 = 60 * 60;
 const MAX_REFRESH_SECS: u64 = 7 * 24 * 60 * 60;
 const OPENWRT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -55,6 +59,27 @@ pub async fn fetch_config(runtime: &Runtime) -> Result<DcSnapshot, String> {
             continue;
         }
         tried_dcs.push(dc);
+        let Some(address) = bootstrap
+            .iter()
+            .find_map(|(candidate_dc, address)| (*candidate_dc == dc).then_some(*address))
+        else {
+            continue;
+        };
+        for domain in worker_domains_for_discovery(runtime)
+            .iter()
+            .take(MAX_DISCOVERY_WORKER_ATTEMPTS)
+        {
+            match fetch_from_worker(runtime, domain, address, dc).await {
+                Ok(snapshot) => {
+                    runtime.stats().record_worker_success(domain);
+                    return Ok(snapshot);
+                }
+                Err(error) => {
+                    runtime.stats().record_worker_failure(domain, &error);
+                    failures.push(format!("DC{dc} через Worker {domain}: {error}"));
+                }
+            }
+        }
         match fetch_from_cf_dc(runtime, dc, &cf_domains.domains).await {
             Ok(snapshot) => return Ok(snapshot),
             Err(error) => failures.push(format!("DC{dc} через WSS: {error}")),
@@ -65,6 +90,28 @@ pub async fn fetch_config(runtime: &Runtime) -> Result<DcSnapshot, String> {
         "не удалось получить конфигурацию ни с одного bootstrap DC: {}",
         failures.join("; ")
     ))
+}
+
+fn worker_domains_for_discovery(runtime: &Runtime) -> &[String] {
+    runtime.cf_worker_domains()
+}
+
+/// Выполнить настоящий первый обмен MTProto и вернуть время до проверенного `resPQ`.
+/// Проверка не использует пользовательскую авторизацию и не сохраняет её секреты.
+pub async fn probe_res_pq<S>(stream: &mut S) -> Result<u64, String>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let started = std::time::Instant::now();
+    let mut transport = Obfuscated::new(Intermediate::new());
+    let mut wire = Vec::with_capacity(16 * 1024);
+    let (request, _) = authentication::step1()
+        .map_err(|error| format!("req_pq_multi: не удалось создать запрос: {error}"))?;
+    let response = exchange_plain(stream, &mut transport, &mut wire, &request)
+        .await
+        .map_err(|error| format!("req_pq_multi: {error}"))?;
+    parse_res_pq_response(&response)?;
+    Ok(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64)
 }
 
 async fn fetch_from_dc(runtime: &Runtime, address: &str) -> Result<DcSnapshot, String> {
@@ -112,7 +159,35 @@ async fn fetch_from_cf_dc(
     fetch_over_stream(&mut stream).await
 }
 
-fn start_ws_byte_stream(ws: TgWsStream) -> DuplexStream {
+async fn fetch_from_worker(
+    runtime: &Runtime,
+    worker_domain: &str,
+    address: &str,
+    dc: u32,
+) -> Result<DcSnapshot, String> {
+    let ws = connect_cf_worker_ws_for_dc_with_outbound_opts(
+        worker_domain,
+        address,
+        dc,
+        false,
+        CONNECT_TIMEOUT,
+        runtime.outbound(),
+        CfDialOpts {
+            cf_ips: runtime.cf_ips(),
+            fail_cooldown: runtime.cf_fail_cooldown(),
+        },
+    )
+    .await
+    .ok_or_else(|| "Worker не установил WSS-соединение".to_string())?;
+    info!(
+        "Получение help.getConfig через настроенный Worker {} для DC{}",
+        worker_domain, dc
+    );
+    let mut stream = start_ws_byte_stream(ws);
+    fetch_over_stream(&mut stream).await
+}
+
+pub(crate) fn start_ws_byte_stream(ws: TgWsStream) -> DuplexStream {
     let (client, relay) = tokio::io::duplex(64 * 1024);
     tokio::spawn(bridge_ws_byte_stream(relay, ws));
     client
@@ -242,8 +317,7 @@ where
     let response = exchange_plain(stream, &mut transport, &mut wire, &request)
         .await
         .map_err(|error| format!("этап req_pq_multi: {error}"))?;
-    let response = grammers_tl_types::enums::ResPq::from_bytes(&response)
-        .map_err(|error| format!("разбор resPQ: {error}"))?;
+    let response = parse_res_pq_response(&response)?;
 
     let (request, state) = authentication::step2(state, response)
         .map_err(|error| format!("обработка resPQ: {error}"))?;
@@ -275,6 +349,11 @@ where
         .map_err(|error| format!("разбор help.getConfig: {error}"))?;
     let grammers_tl_types::enums::Config::Config(config) = response;
     config_to_snapshot(config)
+}
+
+fn parse_res_pq_response(bytes: &[u8]) -> Result<grammers_tl_types::enums::ResPq, String> {
+    grammers_tl_types::enums::ResPq::from_bytes(bytes)
+        .map_err(|error| format!("разбор resPQ: {error}"))
 }
 
 fn config_request() -> grammers_tl_types::functions::InvokeWithLayer<
@@ -504,6 +583,9 @@ pub async fn refresh_loop(
             match fetch_config(&runtime).await {
                 Ok(snapshot) => match store.install(snapshot, unix_time()) {
                     Ok(installed) => {
+                        runtime
+                            .stats()
+                            .set_dc_map(installed.config_date as u64, installed.fetched_at);
                         info!(
                             "Официальная карта Telegram DC обновлена: {} адресов, конфигурация от {}, кэш проверен и сохранён атомарно",
                             installed.endpoints.len(),
@@ -607,21 +689,58 @@ fn unix_time() -> i64 {
 mod tests {
     use super::{
         TELEGRAM_CONFIG_API_ID, config_request, config_to_snapshot, exchange_encrypted,
-        sync_openwrt_adapter, write_manifest_and_sync,
+        parse_res_pq_response, probe_res_pq, sync_openwrt_adapter, worker_domains_for_discovery,
+        write_manifest_and_sync,
     };
+    use crate::outbound::OutboundConnector;
+    use crate::runtime::Runtime;
+    use grammers_crypto::{DequeBuffer, ObfuscatedCipher};
     use grammers_mtproto::mtp::Encrypted;
-    use grammers_mtproto::transport::{Intermediate, Obfuscated};
+    use grammers_mtproto::transport::{Intermediate, Obfuscated, Tagged, Transport};
     use grammers_tl_types::{self as tl, Serializable};
     use std::fs;
     use std::net::IpAddr;
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use tokio::io::AsyncReadExt;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn valid_res_pq_bytes() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&0x0516_2463_u32.to_le_bytes());
+        bytes.extend_from_slice(&[1; 16]);
+        bytes.extend_from_slice(&[2; 16]);
+        bytes.extend_from_slice(&[3, b'p', b'q', b'q']);
+        bytes.extend_from_slice(&0x1cb5_c415_u32.to_le_bytes());
+        bytes.extend_from_slice(&1_u32.to_le_bytes());
+        bytes.extend_from_slice(&7_i64.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn диагностика_принимает_только_корректный_res_pq() {
+        assert!(parse_res_pq_response(&valid_res_pq_bytes()).is_ok());
+        assert!(parse_res_pq_response(&[0; 4]).is_err());
+    }
+
+    #[test]
+    fn help_get_config_получает_тот_же_список_worker_что_обычная_маршрутизация() {
+        let runtime = Runtime::new(OutboundConnector::direct()).with_cf_worker_domains(vec![
+            "worker-one.example".to_string(),
+            "worker-two.example".to_string(),
+        ]);
+        assert_eq!(
+            worker_domains_for_discovery(&runtime)
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["worker-one.example", "worker-two.example"]
+        );
+    }
 
     #[tokio::test]
     async fn dc_manifest_is_written_before_event_hook_and_hook_errors_propagate() {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
         let directory = std::env::temp_dir().join(format!(
             "tg-dc-sync-hook-{}-{}",
             std::process::id(),
@@ -689,6 +808,60 @@ mod tests {
         assert!(fs::metadata(&manifest).is_ok());
         assert!(sync_openwrt_adapter(None).await.is_ok());
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn probe_res_pq_completes_real_obfuscated_intermediate_exchange_with_mock_dc() {
+        let (mut client, mut server) = tokio::io::duplex(4096);
+        let mock = tokio::spawn(async move {
+            let mut init = [0u8; 64];
+            server.read_exact(&mut init).await.unwrap();
+            let mut server_init = init;
+            server_init.reverse();
+            let mut cipher = ObfuscatedCipher::new(&server_init);
+            // Grammers шифрует все 64 байта заголовка, хотя заменяет в сети
+            // только последние восемь. Входящий ключ должен пропустить весь
+            // этот поток; ответный ключ начинается с нулевого смещения.
+            cipher.decrypt(&mut [0u8; 64]);
+
+            let mut frame_header = [0u8; 4];
+            server.read_exact(&mut frame_header).await.unwrap();
+            cipher.decrypt(&mut frame_header);
+            let request_len = u32::from_le_bytes(frame_header) as usize;
+            assert!((24..4096).contains(&request_len));
+            let mut request = vec![0u8; request_len];
+            server.read_exact(&mut request).await.unwrap();
+            cipher.decrypt(&mut request);
+            assert_eq!(
+                &request[..8],
+                &[0; 8],
+                "req_pq_multi должен быть plain MTProto"
+            );
+            assert_eq!(i64::from_le_bytes(request[8..16].try_into().unwrap()), 0);
+            assert_eq!(
+                u32::from_le_bytes(request[20..24].try_into().unwrap()),
+                0xbe7e_8ef1,
+                "клиент должен отправить Telegram req_pq_multi"
+            );
+
+            let response_body = valid_res_pq_bytes();
+            let mut response = Vec::with_capacity(response_body.len() + 20);
+            response.extend_from_slice(&0_i64.to_le_bytes());
+            response.extend_from_slice(&1_i64.to_le_bytes());
+            response.extend_from_slice(&(response_body.len() as i32).to_le_bytes());
+            response.extend_from_slice(&response_body);
+            let mut packet = DequeBuffer::with_capacity(response.len() + 8, 0);
+            packet.extend(response);
+            let mut response_transport = Intermediate::new();
+            response_transport.init_tag();
+            response_transport.pack(&mut packet);
+            cipher.encrypt(packet.as_mut());
+            server.write_all(packet.as_ref()).await.unwrap();
+        });
+
+        let elapsed = probe_res_pq(&mut client).await.unwrap();
+        mock.await.unwrap();
+        assert!(elapsed < 5_000, "mock MTProto response must be bounded");
     }
 
     #[test]

@@ -91,7 +91,9 @@ global.document = {
   title: "z2kOW",
   getElementById(id){
     if (id === "brand-profile-theme") return domById.get(id) || null;
-    return domById.get(id) || mkEl();
+    if (domById.has(id)) return domById.get(id);
+    if (process.env.Z2K_TEST_TG_FRESHNESS === "1" && id.startsWith("tg-")) return mockNode(id);
+    return mkEl();
   },
   querySelector(selector){
     const byId = /^#([A-Za-z0-9_-]+)$/.exec(selector);
@@ -165,6 +167,9 @@ const statusFixture = (process.env.Z2K_OW_CAPS === "1")
     : { ok:true, installed:"r-86.5", running:true, service:"running",
         toggles:{game_warp:"0",customd:"0",dynamic_ttl:"1",
                  ppe:"1",auto_update:"1",autohostlist:"0"}, tunnel:{running:true} };
+if (process.env.Z2K_TEST_TG_FRESHNESS === "1") {
+  statusFixture.tunnel = { running:true, workers:["worker.example"] };
+}
 if (process.env.Z2K_TEST_RELEASE_STATE_ERROR === "1") {
   statusFixture.installed = false;
   statusFixture.installed_state = "error";
@@ -225,6 +230,26 @@ const FIXTURES = {
   "/diag": { ok:true, diag:"=== что не так ===\n  явных проблем не найдено\n" },
   "/job": { ok:true, done:true, exit:0, log:"" },
 };
+if (process.env.Z2K_TEST_TG_FRESHNESS === "1") {
+  const staleAt = Math.floor(Date.now() / 1000) - 3600;
+  FIXTURES["/tunnel/check"] = {
+    checked_at: staleAt,
+    state: "healthy",
+    data_centers: [{ dc:1, state:"healthy", routes:[{
+      transport:"direct-wss", domain:"kws1.web.telegram.org", state:"healthy",
+      selected_ip:"149.154.175.50", mtproto_ms:42,
+    }] }],
+  };
+  FIXTURES["/tunnel/stats"] = {
+    listener_ready:true, max_connections:64, active_connections:0,
+    accepted_connections:3, mtproto_success:1, mtproto_failure:0,
+    wss_established:1, last_mtproto_response_at:staleAt,
+    dc_map:{ generation:1, freshness_seconds:10 },
+    cf_domain_pool:{ domains:[], freshness_seconds:10 },
+    workers:{ "worker.example": { state:"healthy", last_success_at:staleAt, last_failure_at:0 } },
+    sessions_by_dc_transport:{}, ttfb:{}, failures:{}, rss_kib:1024, rss_hwm_kib:2048,
+  };
+}
 global.fetch = async (url) => {
   const p = String(url).replace(/^.*\/cgi-bin\/api/, "").split("?")[0];
   const body = FIXTURES[p] || { ok:true };
@@ -245,6 +270,20 @@ catch (e) { console.log("ЗАГРУЗКА УПАЛА: " + e.message); process.ex
     catch (e) { errors.push(r + ": " + e.message); }
     const bad = errors.slice(before);
     console.log(`  ${bad.length ? "ПАДАЕТ" : "ok    "}  #/${r}${bad.length ? "  — " + bad[0] : ""}`);
+  }
+  if (process.env.Z2K_TEST_TG_FRESHNESS === "1") {
+    const flatten = node => `${node.textContent || ""} ${(node.children || []).map(flatten).join(" ")}`;
+    const descendants = node => [node, ...(node.children || []).flatMap(descendants)];
+    const diagnosticText = flatten(domById.get("tg-check-results") || mkEl());
+    if (!diagnosticText.includes("устарел")) errors.push("старый DC-отчёт показан без отметки об устаревании");
+    const routeState = descendants(domById.get("tg-check-results") || mkEl()).find(node => String(node.className || "").includes("tg-route-state"));
+    if (!routeState || !String(routeState.className).includes("tg-status--stale") || !routeState.textContent.startsWith("Устарел")) {
+      errors.push("устаревший healthy DC-маршрут показан как актуальный");
+    }
+    const workerState = descendants(domById.get("tg-worker-list") || mkEl()).find(node => String(node.className || "").includes("tg-worker-health"));
+    if (!workerState || !String(workerState.className).includes("tg-status--stale") || !workerState.textContent.includes("статус устарел")) {
+      errors.push("устаревший успешный Worker показан как актуальный");
+    }
   }
   if (process.env.Z2K_TEST_UPDATE_UNKNOWN === "1") {
     const banner = domById.get("update-banner").innerHTML;

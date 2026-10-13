@@ -11,6 +11,7 @@ use crate::cf_domain_pool::{CfDomainPool, CfDomainSnapshot};
 use crate::config::websocket_dc;
 use crate::dc_map::DcMapStore;
 use crate::outbound::OutboundConnector;
+use crate::stats::RuntimeStats;
 
 pub struct Runtime {
     outbound: OutboundConnector,
@@ -19,7 +20,10 @@ pub struct Runtime {
     /// Preferred Cloudflare edges from `--cf-ip`. Empty means DNS picks the
     /// anycast edge as usual.
     cf_ips: Vec<IpAddr>,
+    /// Пользовательские Worker общие для маршрутизации и DC discovery.
+    cf_worker_domains: Vec<String>,
     cf_fail_cooldown: Duration,
+    stats: Arc<RuntimeStats>,
 }
 
 impl Runtime {
@@ -33,7 +37,9 @@ impl Runtime {
                 PathBuf::from("/etc/z2k/telegram-cf-domains.json"),
             )),
             cf_ips: Vec::new(),
+            cf_worker_domains: Vec::new(),
             cf_fail_cooldown: Duration::from_secs(60),
+            stats: crate::stats::global(),
         }
     }
 
@@ -57,6 +63,11 @@ impl Runtime {
     /// Configure preferred Cloudflare edges (`--cf-ip`).
     pub fn with_cf_ips(mut self, ips: Vec<IpAddr>) -> Self {
         self.cf_ips = ips;
+        self
+    }
+
+    pub fn with_cf_worker_domains(mut self, domains: Vec<String>) -> Self {
+        self.cf_worker_domains = domains;
         self
     }
 
@@ -85,8 +96,16 @@ impl Runtime {
         &self.cf_ips
     }
 
+    pub fn cf_worker_domains(&self) -> &[String] {
+        &self.cf_worker_domains
+    }
+
     pub fn cf_fail_cooldown(&self) -> Duration {
         self.cf_fail_cooldown
+    }
+
+    pub fn stats(&self) -> &Arc<RuntimeStats> {
+        &self.stats
     }
 
     pub fn websocket_dc(&self, dc: u32) -> u32 {

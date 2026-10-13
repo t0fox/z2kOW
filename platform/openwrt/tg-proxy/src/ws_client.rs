@@ -26,6 +26,7 @@ use crate::config::websocket_dc;
 use crate::outbound::OutboundConnector;
 
 use futures_util::{SinkExt, StreamExt, stream::FuturesUnordered};
+use rustls_pki_types::ServerName;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
     Connector, MaybeTlsStream, WebSocketStream, client_async_tls_with_config,
@@ -161,12 +162,24 @@ impl<K: Eq + Hash> CooldownMap<K> {
         }
     }
 
-    pub(crate) fn set(&self, key: K, cooldown: Duration) {
-        self.entries
-            .lock()
-            .unwrap()
-            .get_or_insert_with(HashMap::new)
-            .insert(key, Instant::now() + cooldown);
+    pub(crate) fn set(&self, key: K, cooldown: Duration)
+    where
+        K: Clone,
+    {
+        let mut entries = self.entries.lock().unwrap();
+        let entries = entries.get_or_insert_with(HashMap::new);
+        let now = Instant::now();
+        entries.retain(|_, until| now < *until);
+        if entries.len() >= 512
+            && !entries.contains_key(&key)
+            && let Some(oldest) = entries
+                .iter()
+                .min_by_key(|(_, until)| *until)
+                .map(|(key, _)| key.clone())
+        {
+            entries.remove(&oldest);
+        }
+        entries.insert(key, now + cooldown);
     }
 
     pub(crate) fn clear<Q>(&self, key: &Q)
@@ -243,6 +256,9 @@ impl<K: Eq + Hash> Drop for ProbeGuard<'_, K> {
 type CfEdgeRouteKey = (IpAddr, String, String);
 
 static CF_EDGE_TLS_FAIL: CooldownMap<CfEdgeRouteKey> = CooldownMap::new();
+static CF_EDGE_PREFERRED: OnceLock<StdMutex<HashMap<String, (IpAddr, Instant)>>> = OnceLock::new();
+const CF_EDGE_PREFERENCE_TTL: Duration = Duration::from_secs(120);
+const CF_EDGE_HEDGE_DELAY: Duration = Duration::from_millis(125);
 
 /// Cloudflare-specific dial settings shared by proxy, Worker, and pool paths.
 #[derive(Clone, Copy)]
@@ -278,11 +294,52 @@ fn cf_ip_attempts(
     };
     let all_cooling = ips.iter().all(is_cooling);
     let limit = if all_cooling { 1 } else { ips.len() };
-    (0..ips.len())
+    let mut ordered = (0..ips.len())
         .map(move |offset| ips[(first + offset) % ips.len()])
+        .collect::<Vec<_>>();
+    if let Some(preferred) = preferred_cf_edge(domain)
+        && let Some(position) = ordered.iter().position(|ip| *ip == preferred)
+    {
+        ordered.swap(0, position);
+    }
+    ordered
+        .into_iter()
         .filter(|ip| all_cooling || !is_cooling(ip))
         .take(limit)
         .collect()
+}
+
+fn preferred_cf_edge(domain: &str) -> Option<IpAddr> {
+    let mut entries = CF_EDGE_PREFERRED
+        .get_or_init(|| StdMutex::new(HashMap::new()))
+        .lock()
+        .unwrap();
+    let now = Instant::now();
+    entries.retain(|_, (_, remembered_at)| {
+        now.duration_since(*remembered_at) < CF_EDGE_PREFERENCE_TTL
+    });
+    entries.get(domain).map(|(ip, _)| *ip)
+}
+
+fn remember_cf_edge(domain: &str, ip: IpAddr) {
+    let mut entries = CF_EDGE_PREFERRED
+        .get_or_init(|| StdMutex::new(HashMap::new()))
+        .lock()
+        .unwrap();
+    let now = Instant::now();
+    entries.retain(|_, (_, remembered_at)| {
+        now.duration_since(*remembered_at) < CF_EDGE_PREFERENCE_TTL
+    });
+    if entries.len() >= 256
+        && !entries.contains_key(domain)
+        && let Some(oldest) = entries
+            .iter()
+            .min_by_key(|(_, (_, remembered_at))| *remembered_at)
+            .map(|(key, _)| key.clone())
+    {
+        entries.remove(&oldest);
+    }
+    entries.insert(domain.to_string(), (ip, now));
 }
 
 /// WebSocket domains for a given DC.
@@ -348,6 +405,22 @@ pub(crate) struct WsAttempt {
     pub connect_timed_out: bool,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct WsProbeTiming {
+    pub dns_ms: Option<u64>,
+    pub tcp_ms: Option<u64>,
+    pub tls_ms: Option<u64>,
+    pub websocket_ms: Option<u64>,
+}
+
+#[derive(Debug)]
+pub(crate) struct WsProbeError {
+    pub phase: &'static str,
+    pub reason: String,
+    pub http_status: Option<u16>,
+    pub timing: WsProbeTiming,
+}
+
 impl WsAttempt {
     fn connected(ws: TgWsStream) -> Self {
         Self {
@@ -369,17 +442,81 @@ async fn connect_ws_with_path(
 ) -> WsConnectResult {
     let tcp = match outbound.connect(ip, 443, timeout).await {
         Ok(stream) => stream,
-        Err(error) if error.timed_out => return WsConnectResult::ConnectTimedOut(error.reason),
-        Err(error) if error.dns_failed => return WsConnectResult::DnsFailed(error.reason),
-        Err(error) => return WsConnectResult::Failed(error.reason),
+        Err(error) if error.timed_out => {
+            crate::stats::global().record_failure("timeout");
+            return WsConnectResult::ConnectTimedOut(error.reason);
+        }
+        Err(error) if error.dns_failed => {
+            crate::stats::global().record_failure("dns");
+            return WsConnectResult::DnsFailed(error.reason);
+        }
+        Err(error) => {
+            crate::stats::global().record_failure("tcp");
+            return WsConnectResult::Failed(error.reason);
+        }
     };
     let _ = tcp.set_nodelay(true);
 
-    let url = format!("wss://{domain}{path}");
-    let mut request = match url.into_client_request() {
+    let request = match websocket_request(domain, path, request_binary_subprotocol) {
         Ok(request) => request,
-        Err(error) => return WsConnectResult::Failed(format!("bad URL: {error}")),
+        Err(error) => return WsConnectResult::Failed(error),
     };
+
+    match tokio::time::timeout(timeout, tls_handshake_and_upgrade(tcp, request)).await {
+        Ok(Ok((ws, response))) if response.status().as_u16() == 101 => {
+            crate::stats::global().record_wss_established();
+            WsConnectResult::Connected(ws)
+        }
+        Ok(Ok((_, response)))
+            if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) =>
+        {
+            WsConnectResult::Redirect(response.status().as_u16())
+        }
+        Ok(Ok((_, response))) => {
+            record_http_failure(response.status().as_u16());
+            WsConnectResult::HttpStatus(response.status().as_u16())
+        }
+        Ok(Err(WsError::Http(response)))
+            if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) =>
+        {
+            WsConnectResult::Redirect(response.status().as_u16())
+        }
+        Ok(Err(WsError::Http(response))) => {
+            record_http_failure(response.status().as_u16());
+            WsConnectResult::HttpStatus(response.status().as_u16())
+        }
+        Ok(Err(WsError::Tls(_))) => {
+            crate::stats::global().record_failure("tls");
+            WsConnectResult::Failed("ошибка TLS handshake".to_string())
+        }
+        Ok(Err(error)) => {
+            crate::stats::global().record_failure("websocket");
+            WsConnectResult::Failed(error.to_string())
+        }
+        Err(_) => {
+            crate::stats::global().record_failure("timeout");
+            WsConnectResult::TimedOut
+        }
+    }
+}
+
+fn record_http_failure(status: u16) {
+    match status {
+        429 => crate::stats::global().record_failure("http_429"),
+        503 => crate::stats::global().record_failure("http_503"),
+        _ => crate::stats::global().record_failure("websocket"),
+    }
+}
+
+fn websocket_request(
+    domain: &str,
+    path: &str,
+    request_binary_subprotocol: bool,
+) -> Result<tungstenite::http::Request<()>, String> {
+    let url = format!("wss://{domain}{path}");
+    let mut request = url
+        .into_client_request()
+        .map_err(|error| format!("bad URL: {error}"))?;
     let headers = request.headers_mut();
     if request_binary_subprotocol {
         headers.insert("Sec-WebSocket-Protocol", HeaderValue::from_static("binary"));
@@ -394,26 +531,161 @@ async fn connect_ws_with_path(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         ),
     );
+    Ok(request)
+}
 
-    match tokio::time::timeout(timeout, tls_handshake_and_upgrade(tcp, request)).await {
-        Ok(Ok((ws, response))) if response.status().as_u16() == 101 => {
-            WsConnectResult::Connected(ws)
+pub(crate) async fn connect_probe_ws(
+    ip: &str,
+    domain: &str,
+    path: &str,
+    request_binary_subprotocol: bool,
+    timeout: Duration,
+    outbound: &OutboundConnector,
+) -> Result<(TgWsStream, WsProbeTiming), WsProbeError> {
+    connect_probe_ws_with_config(
+        ip,
+        domain,
+        path,
+        request_binary_subprotocol,
+        443,
+        timeout,
+        outbound,
+        verifying_rustls_config(),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn connect_probe_ws_with_config(
+    ip: &str,
+    domain: &str,
+    path: &str,
+    request_binary_subprotocol: bool,
+    target_port: u16,
+    timeout: Duration,
+    outbound: &OutboundConnector,
+    tls_config: Arc<rustls::ClientConfig>,
+) -> Result<(TgWsStream, WsProbeTiming), WsProbeError> {
+    let mut timing = WsProbeTiming::default();
+    let started = Instant::now();
+    let tcp = match tokio::time::timeout(timeout, outbound.connect(ip, target_port, timeout)).await
+    {
+        Ok(Ok(tcp)) => tcp,
+        Ok(Err(error)) => {
+            return Err(WsProbeError {
+                phase: if error.dns_failed { "dns" } else { "tcp" },
+                reason: error.to_string(),
+                http_status: None,
+                timing,
+            });
         }
-        Ok(Ok((_, response)))
-            if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) =>
-        {
-            WsConnectResult::Redirect(response.status().as_u16())
+        Err(_) => {
+            return Err(WsProbeError {
+                phase: "tcp",
+                reason: "истёк тайм-аут TCP connect".to_string(),
+                http_status: None,
+                timing,
+            });
         }
-        Ok(Ok((_, response))) => WsConnectResult::HttpStatus(response.status().as_u16()),
-        Ok(Err(WsError::Http(response)))
-            if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) =>
-        {
-            WsConnectResult::Redirect(response.status().as_u16())
+    };
+    timing.tcp_ms = Some(elapsed_ms(started));
+    let _ = tcp.set_nodelay(true);
+
+    let server_name = ServerName::try_from(domain.to_string()).map_err(|error| WsProbeError {
+        phase: "tls",
+        reason: format!("неверное имя TLS-сервера: {error}"),
+        http_status: None,
+        timing: timing.clone(),
+    })?;
+    let started = Instant::now();
+    let tls_stream = match tokio::time::timeout(
+        timeout,
+        tokio_rustls::TlsConnector::from(tls_config).connect(server_name, tcp),
+    )
+    .await
+    {
+        Ok(Ok(stream)) => stream,
+        Ok(Err(error)) => {
+            return Err(WsProbeError {
+                phase: "tls",
+                reason: error.to_string(),
+                http_status: None,
+                timing,
+            });
         }
-        Ok(Err(WsError::Http(response))) => WsConnectResult::HttpStatus(response.status().as_u16()),
-        Ok(Err(error)) => WsConnectResult::Failed(error.to_string()),
-        Err(_) => WsConnectResult::TimedOut,
-    }
+        Err(_) => {
+            return Err(WsProbeError {
+                phase: "tls",
+                reason: "истёк тайм-аут TLS handshake".to_string(),
+                http_status: None,
+                timing,
+            });
+        }
+    };
+    timing.tls_ms = Some(elapsed_ms(started));
+
+    let request = websocket_request(domain, path, request_binary_subprotocol).map_err(|error| {
+        WsProbeError {
+            phase: "websocket",
+            reason: error,
+            http_status: None,
+            timing: timing.clone(),
+        }
+    })?;
+    let started = Instant::now();
+    let stream = MaybeTlsStream::Rustls(tls_stream);
+    let (ws, _response) = match tokio::time::timeout(
+        timeout,
+        tokio_tungstenite::client_async_with_config(request, stream, Some(ws_config())),
+    )
+    .await
+    {
+        Ok(Ok(result)) if result.1.status().as_u16() == 101 => result,
+        Ok(Ok((_, response))) => {
+            let status = response.status().as_u16();
+            timing.websocket_ms = Some(elapsed_ms(started));
+            return Err(WsProbeError {
+                phase: "websocket",
+                reason: format!("сервер ответил HTTP {status}"),
+                http_status: Some(status),
+                timing,
+            });
+        }
+        Ok(Err(WsError::Http(response))) => {
+            let status = response.status().as_u16();
+            timing.websocket_ms = Some(elapsed_ms(started));
+            return Err(WsProbeError {
+                phase: "websocket",
+                reason: format!("сервер ответил HTTP {status}"),
+                http_status: Some(status),
+                timing,
+            });
+        }
+        Ok(Err(error)) => {
+            timing.websocket_ms = Some(elapsed_ms(started));
+            return Err(WsProbeError {
+                phase: "websocket",
+                reason: error.to_string(),
+                http_status: None,
+                timing,
+            });
+        }
+        Err(_) => {
+            timing.websocket_ms = Some(elapsed_ms(started));
+            return Err(WsProbeError {
+                phase: "websocket",
+                reason: "истёк тайм-аут WebSocket upgrade".to_string(),
+                http_status: None,
+                timing,
+            });
+        }
+    };
+    timing.websocket_ms = Some(elapsed_ms(started));
+    Ok((ws, timing))
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }
 /// Connect to a Cloudflare hostname through the configured preferred edges.
 ///
@@ -431,46 +703,78 @@ async fn connect_cf_with_path(
     outbound: &OutboundConnector,
     opts: CfDialOpts<'_>,
 ) -> WsConnectResult {
-    if opts.cf_ips.is_empty() {
-        let ip = match crate::cf_proxy_doh::resolve_cf_ip(domain, outbound).await {
-            Ok(ip) => ip,
-            Err(reason) => return WsConnectResult::DnsFailed(reason),
-        };
-        debug!("CF DNS {domain} → {ip}");
-        return connect_ws_with_path(
-            &ip,
-            domain,
-            path,
-            request_binary_subprotocol,
-            timeout,
-            outbound,
-        )
-        .await;
+    let ips = if opts.cf_ips.is_empty() {
+        match crate::cf_proxy_doh::resolve_cf_ips(domain, outbound).await {
+            Ok(ips) => ips,
+            Err(reason) => {
+                crate::stats::global().record_failure("dns");
+                return WsConnectResult::DnsFailed(reason);
+            }
+        }
+    } else {
+        opts.cf_ips.to_vec()
+    };
+    if ips.is_empty() {
+        return WsConnectResult::DnsFailed(format!("DNS CF-хоста {domain} не вернул адресов"));
     }
 
-    let first = cf_ip_start(opts.cf_ips);
+    let first = cf_ip_start(&ips);
     let cooldowns = &CF_EDGE_TLS_FAIL;
+    let route_ips = cf_ip_attempts(&ips, first, domain, route_scope, cooldowns);
+    let candidates = route_ips
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    let domain_owned = domain.to_string();
+    let path_owned = path.to_string();
+    let route_scope_owned = route_scope.to_string();
+    let (winner, failures) = race_ws_candidates(
+        candidates,
+        CF_EDGE_HEDGE_DELAY,
+        move |target| {
+            let domain = domain_owned.clone();
+            let path = path_owned.clone();
+            let outbound = outbound;
+            async move {
+                match connect_ws_with_path(
+                    &target,
+                    &domain,
+                    &path,
+                    request_binary_subprotocol,
+                    timeout,
+                    outbound,
+                )
+                .await
+                {
+                    WsConnectResult::Connected(ws) => Ok(ws),
+                    error => Err(error),
+                }
+            }
+        },
+        |failures| {
+            failures
+                .iter()
+                .any(|(_, result)| matches!(result, WsConnectResult::HttpStatus(429)))
+        },
+    )
+    .await;
+
+    if let Some((target, ws)) = winner
+        && let Ok(ip) = target.parse::<IpAddr>()
+    {
+        cooldowns.clear(&(ip, domain.to_string(), route_scope.to_string()));
+        remember_cf_edge(domain, ip);
+        return WsConnectResult::Connected(ws);
+    }
+
     let mut last_non_redirect = None;
     let mut last_redirect = None;
-
-    for ip in cf_ip_attempts(opts.cf_ips, first, domain, route_scope, cooldowns) {
-        let route_key = (ip, domain.to_string(), route_scope.to_string());
-        let target = ip.to_string();
-        debug!("проверка узла CF {} для домена {}", ip, domain);
-        match connect_ws_with_path(
-            &target,
-            domain,
-            path,
-            request_binary_subprotocol,
-            timeout,
-            outbound,
-        )
-        .await
-        {
-            WsConnectResult::Connected(ws) => {
-                cooldowns.clear(&route_key);
-                return WsConnectResult::Connected(ws);
-            }
+    for (target, result) in failures {
+        let Ok(ip) = target.parse::<IpAddr>() else {
+            continue;
+        };
+        let route_key = (ip, domain.to_string(), route_scope_owned.clone());
+        match result {
             WsConnectResult::Redirect(code) => {
                 cooldowns.clear(&route_key);
                 last_redirect = Some(code);
@@ -488,22 +792,25 @@ async fn connect_cf_with_path(
                 last_non_redirect = Some(WsConnectResult::DnsFailed(reason));
             }
             WsConnectResult::Failed(reason) => {
-                cooldowns.clear(&route_key);
+                cooldowns.set(route_key, opts.fail_cooldown);
                 last_non_redirect = Some(WsConnectResult::Failed(reason));
             }
             WsConnectResult::TimedOut => {
-                cooldowns.clear(&route_key);
+                cooldowns.set(route_key, opts.fail_cooldown);
                 last_non_redirect = Some(WsConnectResult::TimedOut);
             }
             WsConnectResult::ConnectTimedOut(reason) => {
                 cooldowns.set(route_key, opts.fail_cooldown);
                 last_non_redirect = Some(WsConnectResult::ConnectTimedOut(reason));
             }
+            WsConnectResult::Connected(_) => {
+                unreachable!("race returns successful streams separately")
+            }
         }
     }
 
     last_non_redirect.unwrap_or_else(|| {
-        WsConnectResult::Redirect(last_redirect.expect("non-empty CF IP list attempted"))
+        last_redirect.map_or(WsConnectResult::TimedOut, WsConnectResult::Redirect)
     })
 }
 

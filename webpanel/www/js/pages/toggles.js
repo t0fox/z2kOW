@@ -13,6 +13,226 @@ const flowBenchmarkRuntime = {
   lastError: "",
 };
 
+let tgRuntimeSnapshot = null;
+let tgConfiguredWorkers = [];
+const TG_DIAGNOSTICS_FRESH_SECONDS = 5 * 60;
+const TG_WORKER_FRESH_SECONDS = 15 * 60;
+
+function tgTimestampFresh(timestamp, maxAgeSeconds) {
+  const recordedAt = Number(timestamp);
+  const now = Date.now() / 1000;
+  return Number.isFinite(recordedAt) && recordedAt > 0 && recordedAt <= now + 60 && now - recordedAt <= maxAgeSeconds;
+}
+
+function tgTimestampLabel(timestamp) {
+  return Number(timestamp) > 0 ? new Date(Number(timestamp) * 1000).toLocaleString() : "время неизвестно";
+}
+
+function clearTgNode(node) {
+  if (typeof node.replaceChildren === "function") node.replaceChildren();
+  else {
+    node.innerHTML = "";
+    if (Array.isArray(node.children)) node.children.length = 0;
+  }
+}
+
+function appendTgNodes(parent, ...nodes) {
+  nodes.forEach((node) => parent.appendChild(node));
+}
+
+function renderTgWorkers(domains = [], stats = null) {
+  const list = document.getElementById("tg-worker-list");
+  if (!list) return;
+  tgConfiguredWorkers = domains.slice();
+  clearTgNode(list);
+  if (!domains.length) {
+    const empty = document.createElement("li");
+    empty.className = "tg-worker-empty";
+    empty.textContent = "Worker не настроены; Telegram использует доступные штатные маршруты.";
+    list.appendChild(empty);
+    return;
+  }
+  domains.forEach((domain) => {
+    const item = document.createElement("li");
+    item.className = "tg-worker-item";
+    const details = document.createElement("div");
+    details.className = "tg-worker-details";
+    const name = document.createElement("strong");
+    name.textContent = domain;
+    details.appendChild(name);
+    const health = stats?.workers?.[domain];
+    const state = document.createElement("span");
+    const recentSuccess = health?.state === "healthy" && tgTimestampFresh(health.last_success_at, TG_WORKER_FRESH_SECONDS);
+    const recentFailure = health?.state === "unavailable" && tgTimestampFresh(health.last_failure_at, TG_WORKER_FRESH_SECONDS);
+    state.className = `tg-worker-health ${recentSuccess ? "tg-status--healthy" : recentFailure ? "tg-status--unavailable" : health ? "tg-status--stale" : "tg-status--unverified"}`;
+    state.textContent = recentSuccess
+      ? `Последний успешный ответ ${tgTimestampLabel(health.last_success_at)}`
+      : recentFailure
+        ? `Не отвечает · ${health.last_failure || "причина не указана"}`
+        : health?.state === "healthy"
+          ? `Последний успех ${tgTimestampLabel(health.last_success_at)}; статус устарел`
+          : health?.state === "unavailable"
+            ? `Последний отказ ${tgTimestampLabel(health.last_failure_at)}; статус устарел · ${health.last_failure || "причина не указана"}`
+            : "Не проверялся";
+    details.appendChild(state);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "btn btn-danger tg-worker-remove";
+    remove.dataset.domain = domain;
+    remove.textContent = "Удалить";
+    appendTgNodes(item, details, remove);
+    list.appendChild(item);
+  });
+}
+
+function renderTgStats(snapshot, error = "") {
+  const summary = document.getElementById("tg-runtime-status");
+  const details = document.getElementById("tg-runtime-details");
+  if (!summary || !details) return;
+  if (error) {
+    summary.textContent = error;
+    clearTgNode(details);
+    return;
+  }
+  const responseKnown = Number(snapshot.last_mtproto_response_at) > 0;
+  summary.textContent = snapshot.listener_ready
+    ? `Процесс запущен, listener готов; проверенный MTProto-ответ ${responseKnown ? new Date(snapshot.last_mtproto_response_at * 1000).toLocaleString() : "ещё не получен"}.`
+    : `Процесс статистики ответил, listener не готов; проверенный MTProto-ответ ${responseKnown ? new Date(snapshot.last_mtproto_response_at * 1000).toLocaleString() : "ещё не получен"}.`;
+  const rows = [
+    ["Соединения", `${snapshot.active_connections}/${snapshot.max_connections} активны; принято ${snapshot.accepted_connections}`],
+    ["MTProto", `успехов ${snapshot.mtproto_success}; ошибок ${snapshot.mtproto_failure}; WSS ${snapshot.wss_established}`],
+    ["Память процесса", snapshot.rss_kib == null ? "RSS недоступен" : `RSS ${snapshot.rss_kib} KiB · максимум ${snapshot.rss_hwm_kib ?? "—"} KiB`],
+    ["Карта DC", `поколение ${snapshot.dc_map?.generation ?? 0}; возраст ${snapshot.dc_map?.freshness_seconds == null ? "неизвестен" : `${snapshot.dc_map.freshness_seconds} с`}`],
+    ["CF pool", `${snapshot.cf_domain_pool?.domains?.length ?? 0} доменов; возраст ${snapshot.cf_domain_pool?.freshness_seconds == null ? "неизвестен" : `${snapshot.cf_domain_pool.freshness_seconds} с`}`],
+  ];
+  const table = document.createElement("table");
+  table.className = "tg-runtime-table";
+  table.setAttribute("aria-label", "Статистика Telegram");
+  const body = document.createElement("tbody");
+  rows.forEach(([key, value]) => {
+    const row = document.createElement("tr");
+    const label = document.createElement("th");
+    const cell = document.createElement("td");
+    label.textContent = key;
+    cell.textContent = value;
+    appendTgNodes(row, label, cell);
+    body.appendChild(row);
+  });
+  Object.entries(snapshot.sessions_by_dc_transport || {}).forEach(([key, value]) => {
+    const row = document.createElement("tr");
+    const label = document.createElement("th");
+    const cell = document.createElement("td");
+    label.textContent = `Маршрут ${key}`;
+    cell.textContent = `${value} успешных сессий`;
+    appendTgNodes(row, label, cell);
+    body.appendChild(row);
+  });
+  Object.entries(snapshot.ttfb || {}).forEach(([key, value]) => {
+    const row = document.createElement("tr");
+    const label = document.createElement("th");
+    const cell = document.createElement("td");
+    label.textContent = `TTFB ${key}`;
+    cell.textContent = `p50 ${value.p50_ms} · p95 ${value.p95_ms} · p99 ${value.p99_ms} мс (n=${value.count})`;
+    appendTgNodes(row, label, cell);
+    body.appendChild(row);
+  });
+  Object.entries(snapshot.failures || {}).forEach(([key, value]) => {
+    const row = document.createElement("tr");
+    const label = document.createElement("th");
+    const cell = document.createElement("td");
+    label.textContent = `Ошибки ${key}`;
+    cell.textContent = String(value);
+    appendTgNodes(row, label, cell);
+    body.appendChild(row);
+  });
+  table.appendChild(body);
+  clearTgNode(details);
+  const scroll = document.createElement("div");
+  scroll.className = "tg-table-scroll";
+  scroll.tabIndex = 0;
+  scroll.setAttribute("aria-label", "Таблица статистики Telegram; для просмотра используйте горизонтальную прокрутку");
+  scroll.appendChild(table);
+  details.appendChild(scroll);
+  renderTgWorkers(tgConfiguredWorkers, snapshot);
+}
+
+function renderTgDiagnostics(report) {
+  const container = document.getElementById("tg-check-results");
+  if (!container) return;
+  clearTgNode(container);
+  if (!report || report.state === "not_checked") {
+    container.textContent = "Активная диагностика ещё не запускалась.";
+    return;
+  }
+  if (report.state === "running") {
+    container.textContent = "Проверка маршрутов выполняется…";
+    return;
+  }
+  if (report.state === "error") {
+    container.textContent = report.message || "Не удалось выполнить диагностику.";
+    return;
+  }
+  const stale = !tgTimestampFresh(report.checked_at, TG_DIAGNOSTICS_FRESH_SECONDS);
+  const summary = document.createElement("p");
+  summary.className = "desc";
+  summary.textContent = stale
+    ? `Результат проверки устарел (${tgTimestampLabel(report.checked_at)}). Запустите проверку снова. В свежем отчёте успех подтверждается только ответом MTProto resPQ.`
+    : `Итог: ${report.state}; проверено ${tgTimestampLabel(report.checked_at)}. Успех подтверждается только ответом MTProto resPQ.`;
+  container.appendChild(summary);
+  const table = document.createElement("table");
+  table.className = "tg-diagnostics-table";
+  table.setAttribute("aria-label", "Результаты диагностики Telegram DC1–DC5");
+  const head = document.createElement("thead");
+  const header = document.createElement("tr");
+  ["DC", "Маршрут", "Состояние", "Домен / IP", "Этапы и задержки", "Причина"].forEach((text) => {
+    const cell = document.createElement("th");
+    cell.textContent = text;
+    header.appendChild(cell);
+  });
+  head.appendChild(header);
+  table.appendChild(head);
+  const body = document.createElement("tbody");
+  const states = { healthy: "Проверен", blocked: "Блокируется", unavailable: "Недоступен", unverified: "Не проверен" };
+  (report.data_centers || []).forEach((dc) => (dc.routes || []).forEach((route) => {
+    const row = document.createElement("tr");
+    const values = [
+      `DC${dc.dc}`,
+      route.transport,
+      stale ? `Устарел · ранее ${states[route.state] || route.state}` : states[route.state] || route.state,
+      route.domain || route.selected_ip || "—",
+      [
+        route.dns_ms == null ? "" : `DNS ${route.dns_ms} мс`,
+        route.tcp_ms == null ? "" : `TCP ${route.tcp_ms} мс`,
+        route.tls_ms == null ? "" : `TLS ${route.tls_ms} мс`,
+        route.websocket_ms == null ? "" : `WS ${route.websocket_ms} мс`,
+        route.mtproto_ms == null ? "" : `MTProto ${route.mtproto_ms} мс`,
+      ].filter(Boolean).join(" · ") || "—",
+      route.reason || route.failed_stage || "—",
+    ];
+    values.forEach((value, index) => {
+      const cell = document.createElement("td");
+      if (index === 2) {
+        const state = document.createElement("span");
+        const stateClass = stale ? "tg-status--stale" : route.state === "healthy" ? "tg-status--healthy" : route.state === "blocked" || route.state === "unavailable" ? "tg-status--unavailable" : "tg-status--unverified";
+        state.className = `tg-route-state ${stateClass}`;
+        state.textContent = value;
+        cell.appendChild(state);
+      } else {
+        cell.textContent = value;
+      }
+      row.appendChild(cell);
+    });
+    body.appendChild(row);
+  }));
+  table.appendChild(body);
+  const scroll = document.createElement("div");
+  scroll.className = "tg-table-scroll";
+  scroll.tabIndex = 0;
+  scroll.setAttribute("aria-label", "Таблица результатов диагностики; для просмотра используйте горизонтальную прокрутку");
+  scroll.appendChild(table);
+  container.appendChild(scroll);
+}
+
 const TOGGLE_DEFS = [
   { key: "category_youtube", name: "YouTube",
     desc: "Обход для YouTube и Googlevideo, включая QUIC. Выключите, чтобы эти сервисы работали напрямую." },
@@ -1056,6 +1276,8 @@ async function saveFlowoffload(select, state, error) {
 }
 
 export async function renderToggles() {
+  tgRuntimeSnapshot = null;
+  tgConfiguredWorkers = [];
   $app.innerHTML = `
     <h1 class="page-title">Режимы</h1>
     <div class="card">
@@ -1117,13 +1339,41 @@ export async function renderToggles() {
       </label>
       <p class="desc" id="panel-session-ttl-note" role="status" aria-live="polite">Загружаю настройку…</p>
     </div>
-    <div class="card">
+    <div class="card telegram-tunnel-card">
       <h3>Telegram туннель <span class="tg-state-badge" id="tg-state-badge" hidden></span></h3>
       <p class="desc" id="tg-desc">Прозрачный Telegram через Rust TG WS Proxy; без обязательного VPS.</p>
       <p class="desc" id="tg-status-note" role="status" aria-live="polite"></p>
       <div class="btn-row">
         <button class="btn btn-primary" id="tg-enable">Включить</button>
         <button class="btn btn-danger" id="tg-disable">Отключить</button>
+      </div>
+      <div class="tg-openwrt-tools" id="tg-openwrt-tools" hidden>
+        <section class="tg-workers" aria-labelledby="tg-workers-title">
+          <h4 id="tg-workers-title">Cloudflare Worker</h4>
+          <p class="desc">Необязательные Worker используются как один из Telegram WSS-маршрутов и при недоступности прямого TCP во время обновления карты DC.</p>
+          <form class="tg-worker-form" id="tg-worker-form">
+            <label class="field" for="tg-worker-domain">
+              <span class="field-label">Домен Worker</span>
+              <input id="tg-worker-domain" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="253" placeholder="telegram-worker.example.workers.dev">
+            </label>
+            <button class="btn btn-primary" type="submit" id="tg-worker-add">Добавить</button>
+          </form>
+          <ul class="tg-worker-list" id="tg-worker-list"></ul>
+        </section>
+        <section class="tg-diagnostics" aria-labelledby="tg-check-title">
+          <h4 id="tg-check-title">Проверка DC1–DC5</h4>
+          <p class="desc">Проверка запускается только по кнопке. Успех подтверждается реальным обменом MTProto req_pq_multi → resPQ.</p>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="tg-check" type="button">Проверить соединение</button>
+            <button class="btn" id="tg-stats-refresh" type="button">Обновить статистику</button>
+          </div>
+          <div class="desc" id="tg-check-results" role="status" aria-live="polite">Активная диагностика ещё не запускалась.</div>
+        </section>
+        <section class="tg-runtime" aria-labelledby="tg-runtime-title">
+          <h4 id="tg-runtime-title">Состояние процесса и трафика</h4>
+          <div class="desc" id="tg-runtime-status" role="status" aria-live="polite">Статистика ещё не загружалась.</div>
+          <div id="tg-runtime-details"></div>
+        </section>
       </div>
     </div>
     <div class="card" id="policy-card">
@@ -1347,6 +1597,9 @@ export async function renderToggles() {
     else auHourSync(auBox);
     // Транспорт Rust доступен только на двух архитектурах из сборки.
     const tgRust = s.platform === "openwrt";
+    const tgTools = $app.querySelector("#tg-openwrt-tools");
+    if (tgTools) tgTools.hidden = !tgRust;
+    renderTgWorkers(s.tunnel?.workers || [], tgRuntimeSnapshot);
     const tgRunning = s.tunnel && s.tunnel.running === true;
     const tgSupported = !tgRust || !s.tunnel || s.tunnel.supported !== false;
     const tgInstalled = !tgRust || !s.tunnel || s.tunnel.installed !== false;
@@ -1380,6 +1633,100 @@ export async function renderToggles() {
   if (!onTogglesPage()) return;
   startFlowBenchmarkPolling();
   loadPanelSessionTtl();
+  void loadTgStats();
+  void loadTgCheckReport();
+
+  async function loadTgStats() {
+    if (!onTogglesPage() || $app.querySelector("#tg-openwrt-tools")?.hidden) return;
+    const button = $app.querySelector("#tg-stats-refresh");
+    if (button) button.disabled = true;
+    try {
+      const snapshot = await apiGet("/tunnel/stats");
+      if (!onTogglesPage()) return;
+      tgRuntimeSnapshot = snapshot;
+      renderTgStats(snapshot);
+    } catch {
+      if (onTogglesPage()) renderTgStats(null, "Статистика процесса недоступна. Сам процесс проверяется отдельно в строке состояния.");
+    } finally {
+      if (button && onTogglesPage()) button.disabled = false;
+    }
+  }
+
+  async function loadTgCheckReport() {
+    if (!onTogglesPage() || $app.querySelector("#tg-openwrt-tools")?.hidden) return;
+    try {
+      const report = await apiGet("/tunnel/check");
+      if (onTogglesPage()) renderTgDiagnostics(report);
+    } catch (error) {
+      if (onTogglesPage()) renderTgDiagnostics({ state: "error", message: errMsg(error) });
+    }
+  }
+
+  async function tgWorkerAction(action, domain) {
+    const list = $app.querySelector("#tg-worker-list");
+    list?.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    const addButton = $app.querySelector("#tg-worker-add");
+    if (addButton) addButton.disabled = true;
+    try {
+      const response = await apiPost(`/tunnel/workers/${action}`, { domain });
+      openJobModal(action === "add" ? "Добавление Telegram Worker" : "Удаление Telegram Worker", response.job, {
+        onDone: async (result) => {
+          const outcome = jobOutcome(result);
+          if (outcome === JOB_FAIL) toast("Сохранение или применение Worker завершилось ошибкой", "bad");
+          else if (!jobUnresolved(outcome)) toast("Список Telegram Worker обновлён");
+          if (onTogglesPage()) {
+            await refreshTogglesState();
+            await loadTgStats();
+          }
+        },
+      });
+      return true;
+    } catch (error) {
+      toastErr("Не удалось изменить Worker: ", error);
+      if (list) list.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+      if (addButton) addButton.disabled = false;
+      return false;
+    }
+  }
+
+  const workerForm = $app.querySelector("#tg-worker-form");
+  workerForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const input = $app.querySelector("#tg-worker-domain");
+    const domain = input?.value.trim() || "";
+    if (!domain) {
+      input?.focus();
+      return;
+    }
+    if (await tgWorkerAction("add", domain) && input) input.value = "";
+  });
+  const workerList = $app.querySelector("#tg-worker-list");
+  workerList?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-domain]");
+    if (button) tgWorkerAction("remove", button.dataset.domain);
+  });
+  $app.querySelector("#tg-stats-refresh")?.addEventListener("click", () => { void loadTgStats(); });
+  $app.querySelector("#tg-check")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    renderTgDiagnostics({ state: "running" });
+    try {
+      const response = await apiPost("/tunnel/check");
+      openJobModal("Проверка маршрутов Telegram", response.job, {
+        onDone: async (result) => {
+          button.disabled = false;
+          if (onTogglesPage()) {
+            await loadTgCheckReport();
+            if (jobOutcome(result) === JOB_FAIL) toast("Диагностика завершилась с ошибкой", "bad");
+          }
+        },
+      });
+    } catch (error) {
+      button.disabled = false;
+      renderTgDiagnostics({ state: "error", message: errMsg(error) });
+      toastErr("Не удалось запустить диагностику: ", error);
+    }
+  });
 
   async function tgAction(action, title) {
     const btns = [$app.querySelector("#tg-enable"), $app.querySelector("#tg-disable")];

@@ -1552,6 +1552,55 @@ EOF
         json_ok
         ;;
 
+    # ---------- Telegram Rust diagnostics and Worker routes ----------
+    "GET /tunnel/stats")
+        [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] \
+            && command -v z2k_ow_tg_stats_json >/dev/null 2>&1 \
+            || json_fail "503 Service Unavailable" "статистика Telegram доступна только на OpenWrt"
+        tunnel_stats=$(z2k_ow_tg_stats_json 2>/dev/null) \
+            || json_fail "503 Service Unavailable" "процесс Telegram не вернул статистику"
+        case "$tunnel_stats" in \{*\}) ;; *) json_fail "503 Service Unavailable" "ответ статистики повреждён" ;; esac
+        json_header
+        printf '%s\n' "$tunnel_stats"
+        exit 0
+        ;;
+    "GET /tunnel/check")
+        [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] \
+            && command -v z2k_ow_tg_check_json >/dev/null 2>&1 \
+            || json_fail "404 Not Found" "диагностика Telegram доступна только на OpenWrt"
+        json_header
+        z2k_ow_tg_check_json
+        exit 0
+        ;;
+    "POST /tunnel/check")
+        [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] \
+            && command -v z2k_ow_tg_check_action >/dev/null 2>&1 \
+            || json_fail "404 Not Found" "диагностика Telegram доступна только на OpenWrt"
+        job_id=$(svc_action_async "Проверка маршрутов Telegram" "z2k_ow_tg_check_action") \
+            || json_fail "500 Internal Server Error" "не удалось запустить диагностику Telegram"
+        json_header
+        printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
+        exit 0
+        ;;
+    "POST /tunnel/workers/add"|"POST /tunnel/workers/remove")
+        [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] \
+            && command -v z2k_ow_tg_worker_normalize >/dev/null 2>&1 \
+            || json_fail "404 Not Found" "управление Worker доступно только на OpenWrt"
+        body=$(read_body)
+        worker_domain=$(form_value "$body" "domain")
+        worker_domain=$(z2k_ow_tg_worker_normalize "$worker_domain") \
+            || json_fail "400 Bad Request" "укажите корректный DNS-домен Worker"
+        if [ "$PATH_INFO" = /tunnel/workers/add ]; then
+            job_id=$(svc_action_async "Добавление Telegram Worker" "z2k_ow_tg_worker_add $worker_domain")
+        else
+            job_id=$(svc_action_async "Удаление Telegram Worker" "z2k_ow_tg_worker_remove $worker_domain")
+        fi
+        [ -n "$job_id" ] || json_fail "500 Internal Server Error" "не удалось обновить список Worker"
+        json_header
+        printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
+        exit 0
+        ;;
+
     # ---------- TUNNEL (async — returns job_id) ----------
     "POST /tunnel/enable")
         job_id=$(svc_action_async "Запуск Telegram туннеля" "tunnel_enable")

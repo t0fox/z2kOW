@@ -87,6 +87,65 @@ assert_eq "домены Worker переживают create_official_config" \
     "worker-one.example.com worker-two.example.net" \
     "$(z2k_ow_tg_cfg TG_CF_WORKER_DOMAINS '')"
 
+# Управление Worker проверяет DNS-имя, пишет OpenWrt-owned конфиг атомарно и
+# сохраняет остальные Telegram-настройки при добавлении и удалении.
+mkdir -p "$T/tmp/z2k"
+cat > "$T/mock-init" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$Z2K_TEST_INIT_LOG"
+exit 0
+EOF
+chmod +x "$T/mock-init"
+Z2K_TMP="$T/tmp/z2k" Z2K_INIT="$T/mock-init" Z2K_TEST_INIT_LOG="$T/init.log"
+export Z2K_TMP Z2K_INIT Z2K_TEST_INIT_LOG
+assert_eq "домен Worker нормализуется" "worker.example.com" \
+    "$(z2k_ow_tg_worker_normalize ' HTTPS://Worker.Example.COM/path ')"
+for _invalid_worker in '127.0.0.1' 'worker.example:443' 'worker..example' '-bad.example'; do
+    if z2k_ow_tg_worker_normalize "$_invalid_worker" >/dev/null 2>&1; then
+        _t_bad "некорректный Worker принят: $_invalid_worker"
+    else
+        _t_ok
+    fi
+done
+z2k_ow_tg_worker_add worker-three.example.org >/dev/null || _t_bad "добавление Worker"
+assert_eq "Worker добавлен в OpenWrt-owned конфиг" \
+    "worker-one.example.com,worker-two.example.net,worker-three.example.org" \
+    "$(z2k_ow_tg_cfg TG_CF_WORKER_DOMAINS '')"
+z2k_ow_tg_worker_add worker-three.example.org >/dev/null || _t_bad "повторное добавление Worker"
+assert_eq "повторное добавление не дублирует Worker" \
+    "worker-one.example.com,worker-two.example.net,worker-three.example.org" \
+    "$(z2k_ow_tg_cfg TG_CF_WORKER_DOMAINS '')"
+z2k_ow_tg_worker_remove worker-two.example.net >/dev/null || _t_bad "удаление Worker"
+assert_eq "удалён только выбранный Worker" \
+    "worker-one.example.com,worker-three.example.org" \
+    "$(z2k_ow_tg_cfg TG_CF_WORKER_DOMAINS '')"
+assert_eq "прочие Telegram-параметры не изменились" "443 5222 58321" \
+    "$(z2k_ow_tg_cfg TG_TCP_PORTS '')"
+assert_contains "изменения Worker применены через штатный init" "$T/init.log" "reload"
+
+_worker_snapshot=$(sha256sum "$Z2K_TG_POLICY_CONFIG" | awk '{print $1}')
+if z2k_ow_tg_worker_add 'bad/worker.example' >/dev/null 2>&1; then
+    _t_bad "API-адаптер принял путь вместо домена Worker"
+else
+    _t_ok
+fi
+assert_eq "отклонённый Worker не меняет конфиг" "$_worker_snapshot" \
+    "$(sha256sum "$Z2K_TG_POLICY_CONFIG" | awk '{print $1}')"
+
+cat > "$T/full-worker-list.conf" <<'EOF'
+TG_CF_WORKER_DOMAINS=one.example,two.example,three.example,four.example,five.example,six.example,seven.example,eight.example
+EOF
+Z2K_TG_POLICY_CONFIG="$T/full-worker-list.conf"
+export Z2K_TG_POLICY_CONFIG
+if z2k_ow_tg_worker_add nine.example >/dev/null 2>&1; then
+    _t_bad "добавлен Worker сверх лимита восьми"
+else
+    _t_ok
+fi
+assert_eq "переполнение списка не меняет конфиг" \
+    "TG_CF_WORKER_DOMAINS=one.example,two.example,three.example,four.example,five.example,six.example,seven.example,eight.example" \
+    "$(cat "$Z2K_TG_POLICY_CONFIG")"
+
 # Новая установка записывает безопасную Auto-политику в OpenWrt-owned файл.
 mkdir -p "$T/default/etc/z2k"
 printf 'ENABLED=1\n' > "$T/default/etc/z2k/config"

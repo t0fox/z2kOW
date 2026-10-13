@@ -27,6 +27,36 @@ async fn main() {
     let config = Config::from_args();
     init_logging(&config);
 
+    if config.stats {
+        match z2kow_tg_transparent::stats::read_socket(&config.stats_socket_path).await {
+            Ok(snapshot) => print!("{}", String::from_utf8_lossy(&snapshot)),
+            Err(error) => {
+                eprintln!("не удалось получить статистику Telegram: {error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    if config.check {
+        match z2kow_tg_transparent::diagnostics::run(&config).await {
+            Ok(report) => {
+                println!(
+                    "{}",
+                    serde_json::to_string(&report).expect("JSON диагностики")
+                );
+                if !report.has_healthy_route() {
+                    std::process::exit(2);
+                }
+            }
+            Err(error) => {
+                eprintln!("ошибка диагностики Telegram: {error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     match server::run(config, shutdown_signal()).await {
         Ok(()) => {}
         // Bind and InvalidListenAddress are ordinary user mistakes -- "port

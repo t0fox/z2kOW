@@ -63,3 +63,12 @@ fn worker_domains_have_a_bounded_configuration_list() {
     )
     .is_err());
 }
+
+#[test]
+fn standalone_check_mode_is_an_explicit_runtime_option() {
+    let config = Config::try_from_cli_line("--check").unwrap();
+    assert!(config.check);
+
+    let config = Config::try_from_cli_line("").unwrap();
+    assert!(!config.check);
+}

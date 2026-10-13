@@ -21,7 +21,7 @@ export PATH="$T/bin:$PATH"
 export Z2K_PANEL_EXTRA_PATH="$T/bin"
 
 # --- adapter farm (настоящие файлы слоя) ---
-for _f in paths.sh env.sh arch.sh tg-rust-targets.tsv manifest.sh release_state.sh release.sh update.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh doh.sh dnsproxy.sh diag.sh offload-benchmark.sh offload-observe.sh; do
+for _f in paths.sh env.sh arch.sh tg-rust-targets.tsv tg-policy.sh manifest.sh release_state.sh release.sh update.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh doh.sh dnsproxy.sh diag.sh offload-benchmark.sh offload-observe.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
@@ -258,10 +258,17 @@ chmod +x "$T/root/z2k-tcp16-probe.sh"
 printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/z2k-detect"
 chmod +x "$T/root/bin/z2k-detect"
 mkdir -p "$T/root/bin/linux-arm64"
-printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/linux-arm64/tg-ws-proxy"
+cat > "$T/root/bin/linux-arm64/tg-ws-proxy" <<'EOF'
+#!/bin/sh
+case " $* " in
+    *' --stats '*) printf '{"listener_ready":true,"active_connections":1}\n' ;;
+    *' --check '*) printf '{"checked_at":1,"state":"partial","data_centers":[]}\n' ;;
+esac
+exit 0
+EOF
 chmod +x "$T/root/bin/linux-arm64/tg-ws-proxy"
 mkdir -p "$T/root/bin/linux-x86_64"
-printf '#!/bin/sh\nexit 0\n' > "$T/root/bin/linux-x86_64/tg-ws-proxy"
+cp "$T/root/bin/linux-arm64/tg-ws-proxy" "$T/root/bin/linux-x86_64/tg-ws-proxy"
 chmod +x "$T/root/bin/linux-x86_64/tg-ws-proxy"
 
 # --- CGI caller (как lighttpd; HTTP_X_Z2K_PANEL обязателен) ---
@@ -304,7 +311,7 @@ _poll_job() { # $1 jobid -> печатает тело последнего оп�
         _jo="$(printf '%s\n' "$_jr" | _cgi_body)"
         if [ "$(_jget "$_jo" 'd["done"]')" = "true" ]; then
             if printf '%s' "$_jo" | grep -Fq 'parameter not set'; then
-                _t_bad "async job $1 logs an unset-variable error"
+                _t_bad "async job $1 logs an unset-variable error: $_jo"
                 return 1
             fi
             printf '%s' "$_jo"
@@ -820,6 +827,46 @@ _poll_job_fail "$_jid" "архитектура Telegram Rust не поддерж
 assert_eq "включение при неподдерживаемой архитектуре сохраняет настройку" "1" "$(grep -m1 '^TG_PROXY_USER_DISABLED=' "$T/etc/config" | cut -d= -f2)"
 assert_not_contains "включение при неподдерживаемой архитектуре не перезапускает службу" "$T/mips-init.log" '^init:reload$'
 unset Z2K_OW_ARCH
+
+# Worker CRUD, local stats and explicit DC diagnostics are exposed through the
+# OpenWrt-only API; no diagnostic is started by /status.
+printf 'domain=Panel-Worker.Example' > "$T/body.txt"
+RAW="$(_cgi POST /tunnel/workers/add "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "TG Worker add accepted" "true" "$(_jget "$OUT" 'd["ok"]')"
+_worker_job="$(_jget "$OUT" 'd["job"]')"
+JOB_IDS="$JOB_IDS $_worker_job"
+_worker_result="$(_poll_job "$_worker_job")"
+assert_eq "TG Worker add job succeeds" "0" "$(_jget "$_worker_result" 'd["exit"]')"
+assert_contains "TG Worker is persisted in OpenWrt-owned config" "$T/etc/tg-policy.conf" \
+    'TG_CF_WORKER_DOMAINS=panel-worker.example'
+RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "TG Worker list appears in status" "panel-worker.example" \
+    "$(_jget "$OUT" 'd["tunnel"]["workers"][0]')"
+printf 'domain=panel-worker.example' > "$T/body.txt"
+RAW="$(_cgi POST /tunnel/workers/remove "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_worker_job="$(_jget "$OUT" 'd["job"]')"
+JOB_IDS="$JOB_IDS $_worker_job"
+_worker_result="$(_poll_job "$_worker_job")"
+assert_eq "TG Worker remove job succeeds" "0" "$(_jget "$_worker_result" 'd["exit"]')"
+assert_contains "TG Worker removal preserves an empty setting" "$T/etc/tg-policy.conf" \
+    'TG_CF_WORKER_DOMAINS='
+printf 'domain=not a domain' > "$T/body.txt"
+RAW="$(_cgi POST /tunnel/workers/add "" "$T/body.txt")"
+assert_eq "TG Worker invalid host rejected before scheduling" "Status: 400 Bad Request" \
+    "$(printf '%s\n' "$RAW" | _cgi_status)"
+RAW="$(_cgi GET /tunnel/check)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "DC diagnostics starts in an explicit untested state" "not_checked" "$(_jget "$OUT" 'd["state"]')"
+RAW="$(_cgi POST /tunnel/check)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+_check_job="$(_jget "$OUT" 'd["job"]')"
+JOB_IDS="$JOB_IDS $_check_job"
+_check_result="$(_poll_job "$_check_job")"
+assert_eq "TG DC check runs through the no-listener CLI mode" "0" "$(_jget "$_check_result" 'd["exit"]')"
+printf '%s' "$(_jget "$_check_result" 'd["log"]')" > "$T/tg-check-job.log"
+assert_not_contains "TG DC check job has no nounset diagnostics" "$T/tg-check-job.log" 'parameter not set'
+RAW="$(_cgi GET /tunnel/check)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "DC diagnostics report is cached after the user-triggered run" "partial" "$(_jget "$OUT" 'd["state"]')"
+RAW="$(_cgi GET /tunnel/stats)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "TG statistics route reads the local Rust socket client" "true" "$(_jget "$OUT" 'd["listener_ready"]')"
 
 RAW="$(_cgi POST /tunnel/disable)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "tg disable: job" "true" "$(_jget "$OUT" 'd["ok"]')"
@@ -1608,7 +1655,7 @@ T2="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wpfresh.XXXXXX")" || exit 1
 trap 'for _j in $JOB_IDS; do rm -f "$Z2K_JOB_DIR/z2k-job-$_j.log" "$Z2K_JOB_DIR/z2k-job-$_j.pid" "$Z2K_JOB_DIR/z2k-job-$_j.exit"; done; rm -rf "$T" "$T2"' EXIT INT TERM
 mkdir -p "$T2/bin" "$T2/root/platform/openwrt" "$T2/root/bin" "$T2/root/lib" \
          "$T2/etc" "$T2/tmp/z2k/runtime" "$T2/jobs"
-for _f in paths.sh env.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh offload-benchmark.sh offload-observe.sh panel.sh; do
+for _f in paths.sh env.sh tg-policy.sh manifest.sh release_state.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh offload-benchmark.sh offload-observe.sh panel.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T2/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T2/root/platform/openwrt/warp-proc.sh" 2>/dev/null

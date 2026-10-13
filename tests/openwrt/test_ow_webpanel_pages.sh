@@ -21,6 +21,17 @@ fi
 if grep -q 'Z2K_OW_CAPS' "$ROOT/tests/panel_harness.js"; then _t_ok
 else _t_bad "panel_harness.js без Z2K_OW_CAPS-ветки"; fi
 
+for _selector in tg-worker-form tg-worker-list tg-check tg-check-results tg-runtime-status tg-runtime-details; do
+    if grep -q "$_selector" "$ROOT/webpanel/www/js/pages/toggles.js"; then _t_ok
+    else _t_bad "карточка Telegram не содержит $_selector"; fi
+done
+if grep -q 'tg-diagnostics-table' "$ROOT/webpanel/www/js/pages/toggles.js"; then _t_ok
+else _t_bad "результаты DC не выводятся в таблице маршрутов"; fi
+for _style in '#111615' '#181e1c' '#1e2725' '#00ba78' '#228e5d' 'prefers-reduced-motion' 'max-width: 480px'; do
+    if grep -Fq "$_style" "$ROOT/webpanel/www/style.css"; then _t_ok
+    else _t_bad "стиль Telegram не соответствует дизайн-файлу: $_style"; fi
+done
+
 JS="$(sh "$ROOT/tests/lib/panel_js.sh")"
 ROUTES="dashboard toggles strategies state warp whitelist exclude extra-domains diag credits"
 # shellcheck disable=SC2086
@@ -28,6 +39,11 @@ _out="$(Z2K_OW_CAPS=1 node "$ROOT/tests/panel_harness.js" "$JS" $ROUTES 2>&1)"
 _rc=$?
 printf '%s\n' "$_out" | sed 's/^/    /'
 [ "$_rc" -eq 0 ] || _t_bad "харнесс завершился с rc=$_rc"
+
+_tg_fresh_out="$(Z2K_OW_CAPS=1 Z2K_TEST_TG_FRESHNESS=1 node "$ROOT/tests/panel_harness.js" "$JS" toggles 2>&1)"
+_tg_fresh_rc=$?
+printf '%s\n' "$_tg_fresh_out" | sed 's/^/    /'
+[ "$_tg_fresh_rc" -eq 0 ] && _t_ok || _t_bad "устаревшие Telegram маршруты и Worker не должны отображаться как актуальные"
 
 _geo_out="$(node "$ROOT/tests/test_warp_geo_status_ui.js" "$ROOT/webpanel/www/js/pages/warp.js" 2>&1)"
 _geo_rc=$?

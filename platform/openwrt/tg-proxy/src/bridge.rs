@@ -591,27 +591,38 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn idle_session_cancels_both_relay_directions() {
         let activity = PayloadActivity::new();
         let dropped = Arc::new(AtomicUsize::new(0));
         let upload_drop = Arc::clone(&dropped);
         let download_drop = Arc::clone(&dropped);
+        let (upload_started_tx, upload_started_rx) = tokio::sync::oneshot::channel();
+        let (download_started_tx, download_started_rx) = tokio::sync::oneshot::channel();
 
-        let result = supervise_directions(
-            async move {
-                let _drop_count = DropCount(upload_drop);
-                future::pending::<()>().await;
-            },
-            async move {
-                let _drop_count = DropCount(download_drop);
-                future::pending::<()>().await;
-            },
-            &activity,
-            Duration::from_millis(10),
-            Duration::from_millis(10),
-        )
-        .await;
+        let task = tokio::spawn(async move {
+            supervise_directions(
+                async move {
+                    let _drop_count = DropCount(upload_drop);
+                    let _ = upload_started_tx.send(());
+                    future::pending::<()>().await;
+                },
+                async move {
+                    let _drop_count = DropCount(download_drop);
+                    let _ = download_started_tx.send(());
+                    future::pending::<()>().await;
+                },
+                &activity,
+                Duration::from_millis(10),
+                Duration::from_millis(10),
+            )
+            .await
+        });
+
+        upload_started_rx.await.unwrap();
+        download_started_rx.await.unwrap();
+        tokio::time::advance(Duration::from_millis(10)).await;
+        let result = task.await.unwrap();
 
         assert!(matches!(result, RelayCompletion::Idle));
         assert_eq!(dropped.load(Ordering::SeqCst), 2);

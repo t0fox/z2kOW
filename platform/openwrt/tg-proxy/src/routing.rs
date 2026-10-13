@@ -179,6 +179,15 @@ pub(crate) fn record_mtproto_response(feedback: &RouteFeedback, latency: Duratio
         }
     };
     let cf_is_faster = update_route_latency(&feedback.direct_key, route_class, latency);
+    let (transport, worker_domain) = match &feedback.kind {
+        RouteFeedbackKind::Direct { .. } => ("direct-wss", None),
+        RouteFeedbackKind::CfWorker { route_key, .. } => ("cf-worker", Some(route_key.3.as_str())),
+        RouteFeedbackKind::CfProxy { route_key, .. } => ("cf-proxy", Some(route_key.3.as_str())),
+    };
+    crate::stats::global().record_mtproto_response(feedback.direct_key.0, transport, latency);
+    if let Some(domain) = worker_domain {
+        crate::stats::global().record_worker_success(domain);
+    }
 
     match &feedback.kind {
         RouteFeedbackKind::Direct { .. } => {
@@ -211,6 +220,14 @@ pub(crate) fn record_mtproto_response(feedback: &RouteFeedback, latency: Duratio
 }
 
 pub(crate) fn record_mtproto_failure(feedback: &RouteFeedback) {
+    let worker_domain = match &feedback.kind {
+        RouteFeedbackKind::CfWorker { route_key, .. } => Some(route_key.3.as_str()),
+        _ => None,
+    };
+    crate::stats::global().record_mtproto_failure("mtproto");
+    if let Some(domain) = worker_domain {
+        crate::stats::global().record_worker_failure(domain, "не получен MTProto-ответ");
+    }
     match &feedback.kind {
         RouteFeedbackKind::Direct { cooldown } => {
             WS_FAIL.set(feedback.direct_key.clone(), *cooldown);
@@ -854,6 +871,10 @@ impl Route<'_> {
                 }
                 None => {
                     CF_WORKER_FAIL.set(route_key, self.timeouts.cf_fail_cooldown);
+                    self.runtime.stats().record_worker_failure(
+                        worker_domain,
+                        "не установлено WSS-соединение до DC",
+                    );
                     warn!(
                         "[{}] DC{}{}: Cloudflare Worker {} недоступен, пауза {} с",
                         self.label,
@@ -1825,9 +1846,10 @@ mod tests {
         let dispatch = tracing::Dispatch::new(subscriber);
         let _guard = tracing::dispatcher::set_default(&dispatch);
 
-        let config =
-            Config::try_from_cli_line("--cf-worker-domain=127.0.0.1 --cf-connect-timeout=1")
-                .unwrap();
+        let mut config = Config::try_from_cli_line("--cf-connect-timeout=1").unwrap();
+        // IP запрещён в пользовательской конфигурации Worker; этот loopback
+        // используется только как локальная цель трассировки в unit-тесте.
+        config.cf_worker_domains.push("127.0.0.1".to_string());
         let runtime = Runtime::new(OutboundConnector::direct());
         let route = Route::new(
             SocketAddr::from(([127, 0, 0, 1], 1443)),
