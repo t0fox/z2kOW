@@ -127,14 +127,11 @@ pub struct DcMapStore {
     snapshot: RwLock<Option<Arc<DcSnapshot>>>,
 }
 
-/// Получить только разрешённые точные пары адрес/порт для атомарного набора nft.
-/// CDN исключаются; media-only сохраняются для проверки handshake в Rust.
+/// Получить точные пары адрес/порт из проверенной карты для набора nft.
+/// CDN включаются: Rust пропустит их только прямым TCP к исходному адресу.
 pub fn endpoint_pairs(snapshot: &DcSnapshot, allowed_ports: &[u16]) -> Vec<(IpAddr, u16)> {
     let mut pairs = BTreeSet::new();
     for endpoint in &snapshot.endpoints {
-        if endpoint.cdn {
-            continue;
-        }
         let ports = if endpoint.this_port_only {
             vec![endpoint.port]
         } else {
@@ -217,7 +214,6 @@ impl DcMapStore {
         for endpoint in snapshot.endpoints.iter().filter(|endpoint| {
             endpoint.address == address
                 && endpoint.tcpo_only
-                && !endpoint.cdn
                 && (!endpoint.this_port_only || endpoint.port == original_port)
         }) {
             let Some(secret) = &endpoint.secret else {
@@ -263,10 +259,40 @@ impl DcMapStore {
         media_hint: bool,
         dc_hint: Option<u32>,
     ) -> Result<(DcEndpoint, RouteMapSource), RouteLookupError> {
+        self.resolve_with_source_policy(address, original_port, media_hint, dc_hint, false)
+    }
+
+    /// Разрешает официальный CDN endpoint только для прозрачного TCP-маршрута.
+    /// Обычный resolver остаётся закрытым для CDN, чтобы не направлять его через WSS.
+    pub fn resolve_for_transparent_with_source(
+        &self,
+        address: IpAddr,
+        original_port: u16,
+        media_hint: bool,
+        dc_hint: Option<u32>,
+    ) -> Result<(DcEndpoint, RouteMapSource), RouteLookupError> {
+        self.resolve_with_source_policy(address, original_port, media_hint, dc_hint, true)
+    }
+
+    fn resolve_with_source_policy(
+        &self,
+        address: IpAddr,
+        original_port: u16,
+        media_hint: bool,
+        dc_hint: Option<u32>,
+        allow_cdn: bool,
+    ) -> Result<(DcEndpoint, RouteMapSource), RouteLookupError> {
         if let Some(snapshot) = self.current()
             && unix_time().saturating_sub(snapshot.fetched_at) <= CACHE_MAX_AGE_SECS
         {
-            match lookup_endpoint(&snapshot, address, original_port, media_hint, dc_hint) {
+            match lookup_endpoint_with_policy(
+                &snapshot,
+                address,
+                original_port,
+                media_hint,
+                dc_hint,
+                allow_cdn,
+            ) {
                 Ok(endpoint) => return Ok((endpoint, RouteMapSource::OfficialCache)),
                 Err(RouteLookupError::AddressNotListed) => {}
                 Err(error) => return Err(error),
@@ -325,6 +351,17 @@ pub fn lookup_endpoint(
     media_hint: bool,
     dc_hint: Option<u32>,
 ) -> Result<DcEndpoint, RouteLookupError> {
+    lookup_endpoint_with_policy(snapshot, address, original_port, media_hint, dc_hint, false)
+}
+
+fn lookup_endpoint_with_policy(
+    snapshot: &DcSnapshot,
+    address: IpAddr,
+    original_port: u16,
+    media_hint: bool,
+    dc_hint: Option<u32>,
+    allow_cdn: bool,
+) -> Result<DcEndpoint, RouteLookupError> {
     let for_address: Vec<&DcEndpoint> = snapshot
         .endpoints
         .iter()
@@ -362,7 +399,7 @@ pub fn lookup_endpoint(
     }
 
     let first = for_dc[0];
-    if for_dc.iter().all(|endpoint| endpoint.cdn) {
+    if !allow_cdn && for_dc.iter().all(|endpoint| endpoint.cdn) {
         return Err(RouteLookupError::CdnEndpoint);
     }
     if for_dc.iter().any(|endpoint| {
@@ -697,11 +734,8 @@ mod tests {
         assert!(pairs.contains(&("149.154.175.52".parse().unwrap(), 5222)));
         assert!(pairs.contains(&("149.154.167.151".parse().unwrap(), 5222)));
         assert!(!pairs.contains(&("149.154.167.151".parse().unwrap(), 443)));
-        assert!(
-            !pairs
-                .iter()
-                .any(|(address, _)| address.to_string() == "149.154.167.152")
-        );
+        assert!(pairs.contains(&("149.154.167.152".parse().unwrap(), 443)));
+        assert!(pairs.contains(&("149.154.167.152".parse().unwrap(), 5222)));
         assert!(pairs.contains(&("149.154.167.153".parse().unwrap(), 443)));
         assert!(pairs.contains(&("2001:db8::4".parse().unwrap(), 443)));
         assert!(!pairs.iter().any(|(_, port)| *port == 80));
@@ -972,11 +1006,10 @@ mod tests {
                 .is_empty(),
             "секрет без признака TCP-only не применяется к обфускации"
         );
-        assert!(
-            store
-                .handshake_secrets_for("149.154.175.102".parse().unwrap(), 5222)
-                .is_empty(),
-            "секрет CDN-узла не применяется к обычному MTProto"
+        assert_eq!(
+            store.handshake_secrets_for("149.154.175.102".parse().unwrap(), 5222),
+            [vec![0xaa, 0xbb, 0xcc, 0xdd]],
+            "секрет TCP-only CDN применяется только к точному официальному адресу и порту"
         );
 
         fs::remove_dir_all(directory).unwrap();
@@ -1045,6 +1078,63 @@ mod tests {
             result.is_err(),
             "CDN-only dcOption нельзя направлять в обычный MTProto DC"
         );
+    }
+
+    #[test]
+    fn transparent_cdn_lookup_requires_an_exact_official_option() {
+        let directory = test_directory("transparent-cdn");
+        let now = unix_time();
+        let mut endpoints = primary_endpoints_at(now);
+        let mut cdn = endpoint_at(203, "91.105.192.203", false, true, true, now);
+        cdn.port = 443;
+        endpoints.push(cdn);
+        let store = DcMapStore::without_cache(directory.join("map.json"));
+        store.install(current_complete(endpoints), now).unwrap();
+
+        assert_eq!(
+            store.resolve_with_source("91.105.192.203".parse().unwrap(), 443, true, Some(203)),
+            Err(RouteLookupError::CdnEndpoint),
+            "обычный resolver сохраняет запрет CDN для WSS"
+        );
+        let (route, source) = store
+            .resolve_for_transparent_with_source(
+                "91.105.192.203".parse().unwrap(),
+                443,
+                true,
+                Some(203),
+            )
+            .unwrap();
+        assert!(route.cdn);
+        assert_eq!(route.id, 203);
+        assert_eq!(source, super::RouteMapSource::OfficialCache);
+        assert_eq!(
+            store.resolve_for_transparent_with_source(
+                "91.105.192.203".parse().unwrap(),
+                443,
+                true,
+                Some(2),
+            ),
+            Err(RouteLookupError::DcMismatch)
+        );
+        assert_eq!(
+            store.resolve_for_transparent_with_source(
+                "91.105.192.203".parse().unwrap(),
+                5222,
+                true,
+                Some(203),
+            ),
+            Err(RouteLookupError::PortNotAllowed)
+        );
+        assert_eq!(
+            store.resolve_for_transparent_with_source(
+                "91.105.192.204".parse().unwrap(),
+                443,
+                true,
+                Some(203),
+            ),
+            Err(RouteLookupError::AddressNotListed)
+        );
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

@@ -40,9 +40,11 @@ fn transparent_init_accepts_direct_connection_without_dc_metadata() {
 }
 
 #[test]
-fn transparent_init_decodes_secret_obfuscated2_using_official_map_secret() {
+fn transparent_init_decodes_secret_obfuscated2_using_official_dc_and_cdn_secrets() {
     let secret = [0x12, 0x34, 0x56, 0x78];
     let (init, _, _) = generate_client_handshake(&secret, -2, ProtoTag::Intermediate);
+    let cdn_secret = [0x87, 0x65, 0x43, 0x21];
+    let (cdn_init, _, _) = generate_client_handshake(&cdn_secret, -203, ProtoTag::Intermediate);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -78,6 +80,19 @@ fn transparent_init_decodes_secret_obfuscated2_using_official_map_secret() {
         secret: Some(hex::encode(secret)),
         last_seen: now,
     });
+    endpoints.push(DcEndpoint {
+        id: 203,
+        address: "91.105.192.203".parse().unwrap(),
+        port: 443,
+        ipv6: false,
+        media_only: false,
+        tcpo_only: true,
+        cdn: true,
+        is_static: true,
+        this_port_only: true,
+        secret: Some(hex::encode(cdn_secret)),
+        last_seen: now,
+    });
     let store = DcMapStore::without_cache(directory.join("map.json"));
     store
         .install(
@@ -99,6 +114,13 @@ fn transparent_init_decodes_secret_obfuscated2_using_official_map_secret() {
     assert_eq!(parsed.dc, Some(2));
     assert!(parsed.is_media);
     assert_eq!(parsed.proto, ProtoTag::Intermediate);
+
+    let cdn_secrets = store.handshake_secrets_for("91.105.192.203".parse().unwrap(), 443);
+    let parsed_cdn = parse_client_init_with_secrets(&cdn_init, &cdn_secrets)
+        .expect("точный секрет официального CDN должен разобрать отрицательный DC index");
+    assert_eq!(parsed_cdn.dc, Some(203));
+    assert!(parsed_cdn.is_media);
+    assert_eq!(parsed_cdn.proto, ProtoTag::Intermediate);
     std::fs::remove_dir_all(directory).unwrap();
 }
 
@@ -244,7 +266,7 @@ fn transparent_mode_checks_telegram_cidrs_for_both_address_families() {
 }
 
 #[test]
-fn transparent_mode_rejects_http_and_unknown_handshakes() {
+fn прозрачный_режим_отклоняет_http_tls_и_неизвестные_рукопожатия() {
     assert!(z2kow_tg_transparent::transparent::is_http_request(
         b"GET /api HTTP/1.1\r\n"
     ));
@@ -256,6 +278,10 @@ fn transparent_mode_rejects_http_and_unknown_handshakes() {
         &unknown
     ));
     assert!(parse_client_init(&unknown).is_none());
+
+    let mut tls_client_hello = [0u8; 64];
+    tls_client_hello[..5].copy_from_slice(&[0x16, 0x03, 0x01, 0x00, 0x10]);
+    assert!(parse_client_init(&tls_client_hello).is_none());
 }
 
 #[test]

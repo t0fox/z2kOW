@@ -1,4 +1,6 @@
 pub mod bridge;
+pub mod cf_domain_pool;
+pub mod cf_proxy_doh;
 pub mod config;
 pub mod crypto;
 pub mod dc_discovery;

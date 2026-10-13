@@ -26,19 +26,39 @@ pub(super) async fn https_get(
     path: &str,
     outbound: &OutboundConnector,
 ) -> Result<String, String> {
-    https_get_with_tls_config(host, path, outbound, Arc::new(build_tls_config())).await
+    https_get_to_ip(host, host, path, &[], outbound).await
+}
+
+pub(crate) async fn https_get_to_ip(
+    connect_ip: &str,
+    host: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+    outbound: &OutboundConnector,
+) -> Result<String, String> {
+    https_get_with_tls_config(
+        connect_ip,
+        host,
+        path,
+        headers,
+        outbound,
+        Arc::new(build_tls_config()),
+    )
+    .await
 }
 
 async fn https_get_with_tls_config(
+    connect_ip: &str,
     host: &str,
     path: &str,
+    headers: &[(&str, &str)],
     outbound: &OutboundConnector,
     tls_config: Arc<rustls::ClientConfig>,
 ) -> Result<String, String> {
     let connector = TlsConnector::from(tls_config);
 
     let tcp = outbound
-        .connect(host, 443, FETCH_TIMEOUT)
+        .connect(connect_ip, 443, FETCH_TIMEOUT)
         .await
         .map_err(|e| e.reason)?;
     let _ = tcp.set_nodelay(true);
@@ -50,9 +70,16 @@ async fn https_get_with_tls_config(
         .map_err(|_| "TLS handshake timed out".to_string())?
         .map_err(|e| format!("TLS handshake: {e}"))?;
 
-    let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\nUser-Agent: tg-ws-proxy\r\n\r\n",
+    let mut request = format!(
+        "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\nUser-Agent: tg-ws-proxy\r\n"
     );
+    for (name, value) in headers {
+        request.push_str(name);
+        request.push_str(": ");
+        request.push_str(value);
+        request.push_str("\r\n");
+    }
+    request.push_str("\r\n");
     tls.write_all(request.as_bytes())
         .await
         .map_err(|e| format!("write: {e}"))?;

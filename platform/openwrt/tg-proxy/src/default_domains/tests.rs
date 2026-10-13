@@ -26,3 +26,22 @@ fn fallback_domains_are_all_decodable() {
     assert_eq!(domains.len(), FALLBACK_ENCODED.len());
     assert!(domains.iter().all(|domain| domain.ends_with(".co.uk")));
 }
+
+#[test]
+fn резервный_список_содержит_20_уникальных_доменов() {
+    let domains = fallback_domains();
+    let mut unique = domains.clone();
+    unique.sort();
+    unique.dedup();
+
+    assert_eq!(domains.len(), 20);
+    assert_eq!(unique.len(), 20);
+    assert!(domains.iter().all(|domain| domain.ends_with(".co.uk")));
+}
+
+#[test]
+fn список_flowseal_удаляет_повторяющиеся_домены() {
+    let domains = parse_domain_list("virkgj.com\nvirkgj.com\n..com\n");
+
+    assert_eq!(domains, vec!["pclead.co.uk"]);
+}

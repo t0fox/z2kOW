@@ -13,9 +13,11 @@
 //! Сертификаты TLS всегда проверяются по встроенному хранилищу WebPKI.
 
 use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::future::Future;
 use std::hash::Hash;
 use std::net::IpAddr;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -23,7 +25,7 @@ use std::time::{Duration, Instant};
 use crate::config::websocket_dc;
 use crate::outbound::OutboundConnector;
 
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{SinkExt, StreamExt, stream::FuturesUnordered};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
     Connector, MaybeTlsStream, WebSocketStream, client_async_tls_with_config,
@@ -36,6 +38,103 @@ use tungstenite::protocol::WebSocketConfig;
 
 /// A live WebSocket connection to a Telegram DC.
 pub type TgWsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+type CandidateFuture<'a, T, E> = Pin<Box<dyn Future<Output = (String, Result<T, E>)> + Send + 'a>>;
+
+fn queue_ws_candidate<'a, T, E, F, Fut>(
+    domain: String,
+    pending: &mut FuturesUnordered<CandidateFuture<'a, T, E>>,
+    connect: &F,
+) where
+    T: Send + 'a,
+    E: Send + 'a,
+    F: Fn(String) -> Fut + Clone + Send + 'a,
+    Fut: Future<Output = Result<T, E>> + Send + 'a,
+{
+    let result_domain = domain.clone();
+    let future = connect.clone()(domain);
+    pending.push(Box::pin(async move { (result_domain, future.await) }));
+}
+
+pub(crate) async fn race_ws_candidates<'a, T, E, F, Fut>(
+    domains: Vec<String>,
+    hedge_delay: Duration,
+    connect: F,
+    should_stop: impl Fn(&[(String, E)]) -> bool + Send,
+) -> (Option<(String, T)>, Vec<(String, E)>)
+where
+    T: Send + 'a,
+    E: Send + 'a,
+    F: Fn(String) -> Fut + Clone + Send + 'a,
+    Fut: Future<Output = Result<T, E>> + Send + 'a,
+{
+    let mut remaining = VecDeque::from(domains);
+    let mut pending = FuturesUnordered::new();
+    if let Some(domain) = remaining.pop_front() {
+        queue_ws_candidate(domain, &mut pending, &connect);
+    }
+
+    let delay = tokio::time::sleep(hedge_delay);
+    tokio::pin!(delay);
+    let mut hedge_started = false;
+    let mut failures = Vec::new();
+
+    while !pending.is_empty() || !remaining.is_empty() {
+        if pending.is_empty() {
+            if let Some(domain) = remaining.pop_front() {
+                queue_ws_candidate(domain, &mut pending, &connect);
+            }
+            continue;
+        }
+
+        tokio::select! {
+            outcome = pending.next() => {
+                if let Some((domain, result)) = outcome {
+                    match result {
+                        Ok(value) => return (Some((domain, value)), failures),
+                        Err(error) => {
+                            failures.push((domain, error));
+                            if should_stop(&failures) {
+                                return (None, failures);
+                            }
+                        }
+                    }
+                    if let Some(domain) = remaining.pop_front() {
+                        queue_ws_candidate(domain, &mut pending, &connect);
+                    }
+                }
+            }
+            _ = &mut delay, if !hedge_started && pending.len() < 2 && !remaining.is_empty() => {
+                hedge_started = true;
+                if let Some(domain) = remaining.pop_front() {
+                    queue_ws_candidate(domain, &mut pending, &connect);
+                }
+            }
+        }
+    }
+
+    (None, failures)
+}
+
+const DIRECT_WS_HEDGE_DELAY: Duration = Duration::from_millis(125);
+static DIRECT_WS_DIALS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(8);
+
+async fn race_direct_ws_domains<T, F, Fut>(
+    domains: Vec<String>,
+    connect: F,
+) -> (Option<(String, T)>, Vec<(String, WsConnectResult)>)
+where
+    T: Send,
+    F: Fn(String) -> Fut + Clone + Send,
+    Fut: Future<Output = Result<T, WsConnectResult>> + Send,
+{
+    race_ws_candidates(domains, DIRECT_WS_HEDGE_DELAY, connect, |failures| {
+        failures
+            .iter()
+            .any(|(_, result)| !should_try_next_ws_domain(result))
+    })
+    .await
+}
 
 /// Suffix that marks a media DC in log lines (`DC2` vs `DC2m`).
 ///
@@ -225,7 +324,11 @@ pub(crate) enum WsConnectResult {
     /// Telegram sometimes does this when WS is unavailable — the caller
     /// should fall back to direct TCP.
     Redirect(u16),
-    /// Any other non-101 status code or transport error.
+    /// HTTP-ответ без redirect и без успешного WebSocket upgrade.
+    HttpStatus(u16),
+    /// Системный DNS не смог разрешить имя Cloudflare-хоста.
+    DnsFailed(String),
+    /// Any other transport error.
     Failed(String),
     /// The TCP connect ran out the clock: nothing at `ip:443` answered.
     ///
@@ -267,6 +370,7 @@ async fn connect_ws_with_path(
     let tcp = match outbound.connect(ip, 443, timeout).await {
         Ok(stream) => stream,
         Err(error) if error.timed_out => return WsConnectResult::ConnectTimedOut(error.reason),
+        Err(error) if error.dns_failed => return WsConnectResult::DnsFailed(error.reason),
         Err(error) => return WsConnectResult::Failed(error.reason),
     };
     let _ = tcp.set_nodelay(true);
@@ -300,17 +404,13 @@ async fn connect_ws_with_path(
         {
             WsConnectResult::Redirect(response.status().as_u16())
         }
-        Ok(Ok((_, response))) => {
-            WsConnectResult::Failed(format!("unexpected HTTP status {}", response.status()))
-        }
+        Ok(Ok((_, response))) => WsConnectResult::HttpStatus(response.status().as_u16()),
         Ok(Err(WsError::Http(response)))
             if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) =>
         {
             WsConnectResult::Redirect(response.status().as_u16())
         }
-        Ok(Err(WsError::Http(response))) => {
-            WsConnectResult::Failed(format!("HTTP {} from server", response.status()))
-        }
+        Ok(Err(WsError::Http(response))) => WsConnectResult::HttpStatus(response.status().as_u16()),
         Ok(Err(error)) => WsConnectResult::Failed(error.to_string()),
         Err(_) => WsConnectResult::TimedOut,
     }
@@ -332,8 +432,13 @@ async fn connect_cf_with_path(
     opts: CfDialOpts<'_>,
 ) -> WsConnectResult {
     if opts.cf_ips.is_empty() {
+        let ip = match crate::cf_proxy_doh::resolve_cf_ip(domain, outbound).await {
+            Ok(ip) => ip,
+            Err(reason) => return WsConnectResult::DnsFailed(reason),
+        };
+        debug!("CF DNS {domain} → {ip}");
         return connect_ws_with_path(
-            domain,
+            &ip,
             domain,
             path,
             request_binary_subprotocol,
@@ -369,6 +474,18 @@ async fn connect_cf_with_path(
             WsConnectResult::Redirect(code) => {
                 cooldowns.clear(&route_key);
                 last_redirect = Some(code);
+            }
+            WsConnectResult::HttpStatus(429) => {
+                cooldowns.clear(&route_key);
+                return WsConnectResult::HttpStatus(429);
+            }
+            WsConnectResult::HttpStatus(code) => {
+                cooldowns.clear(&route_key);
+                last_non_redirect = Some(WsConnectResult::HttpStatus(code));
+            }
+            WsConnectResult::DnsFailed(reason) => {
+                cooldowns.clear(&route_key);
+                last_non_redirect = Some(WsConnectResult::DnsFailed(reason));
             }
             WsConnectResult::Failed(reason) => {
                 cooldowns.clear(&route_key);
@@ -414,10 +531,13 @@ const WS_MAX_FRAME: usize = 4 * 1024 * 1024;
 /// Every send in the bridge is awaited and flushed before the next message, so
 /// the default 128 KiB batching target only increases the retained footprint.
 const WS_WRITE_BUFFER: usize = 16 * 1024;
+/// Предел исходящей очереди: один MTProto-пакет максимального размера и запас.
+const WS_MAX_WRITE_BUFFER: usize = WS_MAX_FRAME + WS_WRITE_BUFFER;
 
 fn ws_config() -> WebSocketConfig {
     WebSocketConfig {
         write_buffer_size: WS_WRITE_BUFFER,
+        max_write_buffer_size: WS_MAX_WRITE_BUFFER,
         max_frame_size: Some(WS_MAX_FRAME),
         max_message_size: Some(WS_MAX_FRAME),
         ..WebSocketConfig::default()
@@ -446,49 +566,43 @@ pub(crate) async fn connect_ws_for_dc_with_outbound(
 ) -> WsAttempt {
     let domains = ws_domains(dc, is_media);
     let media = media_tag(is_media);
-    let mut all_redirects = true;
-    let mut connect_timed_out = false;
+    let ip = ip.to_string();
+    let (winner, failures) = race_direct_ws_domains(domains, move |domain| {
+        let ip = ip.clone();
+        async move {
+            debug!(
+                "DC{}{}: проверка WS-домена {} через {}",
+                dc, media, domain, ip
+            );
+            let _dial = DIRECT_WS_DIALS
+                .acquire()
+                .await
+                .expect("семафор direct WSS неожиданно закрыт");
+            match connect_ws_with_path(&ip, &domain, "/apiws", true, timeout, outbound).await {
+                WsConnectResult::Connected(ws) => Ok(ws),
+                result => {
+                    log_ws_domain_failure(dc, is_media, &domain, &result);
+                    Err(result)
+                }
+            }
+        }
+    })
+    .await;
 
-    for domain in &domains {
-        debug!(
-            "DC{}{}: проверка WS-домена {} через {}",
-            dc, media, domain, ip
-        );
-        let result = connect_ws_with_path(ip, domain, "/apiws", true, timeout, outbound).await;
-        let try_next_domain = should_try_next_ws_domain(&result);
+    if let Some((_, ws)) = winner {
+        return WsAttempt::connected(ws);
+    }
+
+    let mut all_redirects = !failures.is_empty();
+    let mut connect_timed_out = false;
+    for (_, result) in failures {
         match result {
-            WsConnectResult::Connected(ws) => return WsAttempt::connected(ws),
-            WsConnectResult::Redirect(code) => {
-                warn!(
-                    "DC{}{}: домен {} ответил кодом HTTP {} (перенаправление)",
-                    dc, media, domain, code
-                );
-            }
-            WsConnectResult::Failed(reason) => {
-                warn!(
-                    "DC{}{}: ошибка WS-подключения к {}: {}",
-                    dc, media, domain, reason
-                );
-                all_redirects = false;
-            }
-            WsConnectResult::TimedOut => {
-                warn!(
-                    "DC{}{}: истекло время ожидания WS-подключения к {}",
-                    dc, media, domain
-                );
-                all_redirects = false;
-            }
-            WsConnectResult::ConnectTimedOut(reason) => {
-                warn!(
-                    "DC{}{}: ошибка WS-подключения к {}: {}",
-                    dc, media, domain, reason
-                );
+            WsConnectResult::Redirect(_) => {}
+            WsConnectResult::ConnectTimedOut(_) => {
                 connect_timed_out = true;
                 all_redirects = false;
             }
-        }
-        if !try_next_domain {
-            break;
+            _ => all_redirects = false,
         }
     }
 
@@ -499,34 +613,97 @@ pub(crate) async fn connect_ws_for_dc_with_outbound(
     }
 }
 
+fn log_ws_domain_failure(dc: u32, is_media: bool, domain: &str, result: &WsConnectResult) {
+    let media = media_tag(is_media);
+    match result {
+        WsConnectResult::Connected(_) => {}
+        WsConnectResult::Redirect(code) => warn!(
+            "DC{}{}: домен {} ответил кодом HTTP {} (перенаправление)",
+            dc, media, domain, code
+        ),
+        WsConnectResult::HttpStatus(code) => {
+            warn!(
+                "DC{}{}: WS-домен {} ответил HTTP {}",
+                dc, media, domain, code
+            )
+        }
+        WsConnectResult::DnsFailed(reason) | WsConnectResult::Failed(reason) => warn!(
+            "DC{}{}: ошибка WS-подключения к {}: {}",
+            dc, media, domain, reason
+        ),
+        WsConnectResult::TimedOut => warn!(
+            "DC{}{}: истекло время ожидания WS-подключения к {}",
+            dc, media, domain
+        ),
+        WsConnectResult::ConnectTimedOut(reason) => warn!(
+            "DC{}{}: ошибка WS-подключения к {}: {}",
+            dc, media, domain, reason
+        ),
+    }
+}
+
 fn should_try_next_ws_domain(result: &WsConnectResult) -> bool {
     !matches!(result, WsConnectResult::ConnectTimedOut(_))
 }
 
-/// Each DNS record `kws{N}.{cf_domain}` should be an **orange-cloud** (proxied)
-/// A record in Cloudflare pointing at the corresponding Telegram DC IP, with
-/// the zone's SSL/TLS mode set to **Flexible**.  Cloudflare then terminates TLS
-/// from our side and forwards the WebSocket traffic as plain HTTP to Telegram.
+fn should_retry_cf_domain(result: &WsConnectResult) -> bool {
+    matches!(
+        result,
+        WsConnectResult::Failed(_) | WsConnectResult::TimedOut
+    )
+}
+
+/// Имена CF-прокси возвращаются в порядке попытки для каждой зоны.
 ///
-/// Unlike `ws_domains()`, the raw DC number is used **without** applying
-/// the `config::websocket_dc()` remap.  The user controls the Cloudflare DNS zone and
-/// creates explicit records for every DC — including non-canonical ones like
-/// DC 203 (`kws203.{cf_domain}`).  Remapping 203 → 2 would incorrectly route
-/// traffic to DC 2 instead of DC 203 (they have different IPs/servers).
-///
-/// Only the base `kws{N}` record is used, never a `kws{N}-1` one.  Through
-/// Cloudflare the hostname only selects the origin IP, and both records point
-/// at the same DC, so a `-1` record buys nothing — while the shared
-/// `--default-domains` zones do not define it at all, which made every lookup
-/// a guaranteed NXDOMAIN.  `is_media` is accepted for API compatibility only.
-///
-/// When multiple CF domains are given, they are returned in order — the first
-/// domain has highest priority.
-pub fn cf_ws_domains(dc: u32, cf_domains: &[String], _is_media: bool) -> Vec<String> {
-    cf_domains
-        .iter()
-        .map(|cf_domain| format!("kws{}.{}", dc, cf_domain))
-        .collect()
+/// Media сначала пробует `kws{N}-1`, затем `kws{N}`: не каждая зона содержит
+/// отдельную media-запись, поэтому базовое имя остаётся fallback. Номер DC не
+/// переназначается, включая нестандартные идентификаторы из официальной карты.
+pub fn cf_ws_domains(dc: u32, cf_domains: &[String], is_media: bool) -> Vec<String> {
+    let mut hosts = Vec::with_capacity(cf_domains.len() * if is_media { 2 } else { 1 });
+    for cf_domain in cf_domains {
+        if is_media {
+            hosts.push(format!("kws{dc}-1.{cf_domain}"));
+        }
+        hosts.push(format!("kws{dc}.{cf_domain}"));
+    }
+    hosts
+}
+
+pub(crate) async fn connect_cf_domain_with_outbound_opts(
+    dc: u32,
+    cf_domain: &str,
+    is_media: bool,
+    timeout: Duration,
+    outbound: &OutboundConnector,
+    opts: CfDialOpts<'_>,
+) -> WsConnectResult {
+    let hosts = cf_ws_domains(dc, &[cf_domain.to_string()], is_media);
+    let route_scope = format!("dc={dc};media={is_media};transport=cf-proxy");
+    let mut last_result = WsConnectResult::Failed("список CF-хостов пуст".to_string());
+    for host in hosts {
+        let result =
+            connect_cf_with_path(&host, "/apiws", &route_scope, true, timeout, outbound, opts)
+                .await;
+        let result = if should_retry_cf_domain(&result) {
+            debug!(
+                "DC{}{}: повторная попытка CF-хоста {}",
+                dc,
+                media_tag(is_media),
+                host
+            );
+            connect_cf_with_path(&host, "/apiws", &route_scope, true, timeout, outbound, opts).await
+        } else {
+            result
+        };
+        if matches!(
+            result,
+            WsConnectResult::Connected(_) | WsConnectResult::HttpStatus(429)
+        ) {
+            return result;
+        }
+        last_result = result;
+    }
+    last_result
 }
 
 /// Ordering policy for the Cloudflare connect loop.
@@ -597,6 +774,10 @@ impl<'a> CfAttempts<'a> {
     /// Record that the attempt just returned by `next_domain` hit the connect
     /// timeout, so it is not retried.
     fn note_timed_out(&mut self) {
+        self.skip_retry();
+    }
+
+    fn skip_retry(&mut self) {
         self.pending_retry = None;
     }
 
@@ -651,6 +832,22 @@ pub(crate) async fn connect_cf_ws_for_dc_with_outbound_ordered(
                     dc, media, domain, code
                 );
             }
+            WsConnectResult::HttpStatus(code) => {
+                warn!(
+                    "DC{}{}: CF-домен {} ответил HTTP {}",
+                    dc, media, domain, code
+                );
+                attempts.skip_retry();
+                all_redirects = false;
+            }
+            WsConnectResult::DnsFailed(reason) => {
+                warn!(
+                    "DC{}{}: DNS-ошибка CF-хоста {}: {}",
+                    dc, media, domain, reason
+                );
+                attempts.skip_retry();
+                all_redirects = false;
+            }
             WsConnectResult::Failed(reason) => {
                 warn!(
                     "DC{}{}: ошибка CF WS-подключения к {}: {}",
@@ -704,6 +901,20 @@ pub(crate) async fn connect_cf_worker_ws_for_dc_with_outbound_opts(
             warn!(
                 "DC{}{}: CF Worker {} ответил кодом HTTP {} (перенаправление)",
                 dc, media, worker_domain, code
+            );
+            None
+        }
+        WsConnectResult::HttpStatus(code) => {
+            warn!(
+                "DC{}{}: CF Worker {} ответил HTTP {}",
+                dc, media, worker_domain, code
+            );
+            None
+        }
+        WsConnectResult::DnsFailed(reason) => {
+            warn!(
+                "DC{}{}: DNS-ошибка CF Worker {}: {}",
+                dc, media, worker_domain, reason
             );
             None
         }

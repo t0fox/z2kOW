@@ -1,5 +1,6 @@
 //! Прозрачный MTProto перехват, выбор WSS fallback и передача потока.
 
+use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,7 +24,32 @@ fn should_forward_unmapped_direct(error: &RouteLookupError, dc_hint: Option<u32>
     *error == RouteLookupError::AddressNotListed && dc_hint.is_none()
 }
 
-async fn bridge_unmapped_tcp(
+async fn wait_for_client_reset(client: &TcpStream) {
+    let mut byte = [0u8; 1];
+    loop {
+        match client.peek(&mut byte).await {
+            Ok(_) => tokio::time::sleep(Duration::from_millis(25)).await,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+                ) => {}
+            Err(_) => return,
+        }
+    }
+}
+
+async fn complete_unless_client_resets<F: Future>(
+    client: &TcpStream,
+    operation: F,
+) -> Option<F::Output> {
+    tokio::select! {
+        result = operation => Some(result),
+        _ = wait_for_client_reset(client) => None,
+    }
+}
+
+async fn bridge_direct_tcp(
     mut client: TcpStream,
     init: [u8; crate::crypto::HANDSHAKE_LEN],
     destination: SocketAddr,
@@ -34,22 +60,28 @@ async fn bridge_unmapped_tcp(
 ) {
     let host = destination.ip().to_string();
     let timeout = Duration::from_secs(config.tcp_fallback_timeout);
-    match runtime
+    let connect = runtime
         .outbound()
-        .connect(&host, destination.port(), timeout)
-        .await
-    {
+        .connect(&host, destination.port(), timeout);
+    let Some(result) = complete_unless_client_resets(&client, connect).await else {
+        debug!(
+            "[{}] клиент сбросил соединение во время выбора прямого TCP-маршрута",
+            peer
+        );
+        return;
+    };
+    match result {
         Ok(mut remote) => {
             if let Err(error) = remote.write_all(&init).await {
                 warn!(
-                    "[{}] не удалось передать начальный пакет в неизвестный прямой DC {}: {}",
+                    "[{}] не удалось передать начальный пакет по прямому TCP к {}: {}",
                     peer, destination, error
                 );
                 return;
             }
             match tokio::io::copy_bidirectional(&mut client, &mut remote).await {
                 Ok((bytes_up, bytes_down)) => info!(
-                    "[{}] неизвестный DC передан только напрямую к исходному назначению {}{}: вверх {} байт, вниз {} байт",
+                    "[{}] прямой TCP к исходному назначению {}{} завершён: вверх {} байт, вниз {} байт",
                     peer,
                     destination,
                     media_tag(is_media),
@@ -66,7 +98,7 @@ async fn bridge_unmapped_tcp(
             }
         }
         Err(error) => warn!(
-            "[{}] не удалось открыть прямой TCP к исходному назначению неизвестного DC {}: {}",
+            "[{}] не удалось открыть прямой TCP к исходному назначению {}: {}",
             peer, destination, error
         ),
     }
@@ -159,19 +191,21 @@ pub async fn handle_transparent_client_with_runtime(
         );
         return;
     };
-    let (destination_route, map_source) = match runtime.dc_map().resolve_with_source(
-        destination.ip(),
-        destination.port(),
-        init_info.is_media,
-        init_info.dc,
-    ) {
+    let (destination_route, map_source) = match runtime
+        .dc_map()
+        .resolve_for_transparent_with_source(
+            destination.ip(),
+            destination.port(),
+            init_info.is_media,
+            init_info.dc,
+        ) {
         Ok(route) => route,
         Err(error) if should_forward_unmapped_direct(&error, init_info.dc) => {
             warn!(
                 "[{}] адрес {} отсутствует в проверенной DC-карте; WSS relay не выбирается, поток направляется только к тому же исходному IP:port",
                 peer, destination
             );
-            bridge_unmapped_tcp(
+            bridge_direct_tcp(
                 stream,
                 init,
                 destination,
@@ -206,11 +240,33 @@ pub async fn handle_transparent_client_with_runtime(
         destination_route.port,
         destination.port()
     );
+    if destination_route.cdn {
+        info!(
+            "[{}] официальный CDN DC{} направляется только прямым TCP к исходному назначению {}",
+            peer, destination_route.id, destination
+        );
+        bridge_direct_tcp(
+            stream,
+            init,
+            destination,
+            peer,
+            effective_media_route(init_info.is_media, destination_route.media_only),
+            Arc::clone(&config),
+            Arc::clone(&runtime),
+        )
+        .await;
+        return;
+    }
     let label = peer;
     let target_ip = destination.ip().to_string();
     let route = routing::Route::new(label, &config, &runtime, dc, is_media);
     let tcp_fallback_timeout = route.tcp_fallback_timeout();
-    let Some(upstream) = routing::select_upstream(&route, &target_ip).await else {
+    let tcp_failure_cooldown = route.tcp_fallback_failure_cooldown();
+    let Some(upstream) =
+        complete_unless_client_resets(&stream, routing::select_upstream(&route, &target_ip))
+            .await
+            .flatten()
+    else {
         return;
     };
     match upstream {
@@ -218,6 +274,7 @@ pub async fn handle_transparent_client_with_runtime(
             ws,
             framing,
             route_type,
+            feedback,
         } => {
             crate::bridge::bridge_transparent_ws(
                 stream,
@@ -230,19 +287,34 @@ pub async fn handle_transparent_client_with_runtime(
                 init_info.proto,
                 framing,
                 route_type,
+                feedback,
             )
             .await;
         }
         Upstream::Tcp(host) => {
             let (fallback_host, fallback_port) =
                 transparent::tcp_fallback_target(&host, destination);
-            match runtime
-                .outbound()
-                .connect(&fallback_host, fallback_port, tcp_fallback_timeout)
-                .await
-            {
+            let connect =
+                runtime
+                    .outbound()
+                    .connect(&fallback_host, fallback_port, tcp_fallback_timeout);
+            let Some(result) = complete_unless_client_resets(&stream, connect).await else {
+                debug!(
+                    "[{}] клиент сбросил соединение во время выбора резервного TCP",
+                    peer
+                );
+                return;
+            };
+            match result {
                 Ok(mut remote) => {
+                    routing::record_tcp_connect_success(dc, is_media, &target_ip);
                     if let Err(error) = remote.write_all(&init).await {
+                        routing::record_tcp_connect_failure(
+                            dc,
+                            is_media,
+                            &target_ip,
+                            tcp_failure_cooldown,
+                        );
                         warn!(
                             "[{}] не удалось передать начальный пакет по резервному TCP: {}",
                             peer, error
@@ -268,10 +340,21 @@ pub async fn handle_transparent_client_with_runtime(
                         ),
                     }
                 }
-                Err(error) => warn!(
-                    "[{}] не удалось открыть резервное TCP-соединение с {}: {}",
-                    peer, host, error
-                ),
+                Err(error) => {
+                    routing::record_tcp_connect_failure(
+                        dc,
+                        is_media,
+                        &target_ip,
+                        tcp_failure_cooldown,
+                    );
+                    warn!(
+                        "[{}] не удалось открыть резервное TCP-соединение с {}: {}; маршрут приостановлен на {} с",
+                        peer,
+                        host,
+                        error,
+                        tcp_failure_cooldown.as_secs()
+                    );
+                }
             }
         }
     }
@@ -279,7 +362,10 @@ pub async fn handle_transparent_client_with_runtime(
 
 #[cfg(test)]
 mod tests {
-    use super::{bridge_unmapped_tcp, effective_media_route, should_forward_unmapped_direct};
+    use super::{
+        bridge_direct_tcp, complete_unless_client_resets, effective_media_route,
+        should_forward_unmapped_direct,
+    };
     use crate::config::Config;
     use crate::dc_map::{DcEndpoint, DcMapStore, DcSnapshot, RouteLookupError, lookup_endpoint};
     use crate::outbound::OutboundConnector;
@@ -287,6 +373,8 @@ mod tests {
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
 
@@ -394,7 +482,7 @@ mod tests {
         let config = Arc::new(Config::try_from_cli_line("--tcp-fallback-timeout=1").unwrap());
         let runtime = Arc::new(Runtime::new(OutboundConnector::direct()));
         let init = [0x5a; 64];
-        let forward = tokio::spawn(bridge_unmapped_tcp(
+        let forward = tokio::spawn(bridge_direct_tcp(
             proxy_side,
             init,
             destination,
@@ -420,5 +508,63 @@ mod tests {
         client.read_exact(&mut response).await.unwrap();
         assert_eq!(&response, b"resPQ");
         forward.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn reset_client_cancels_pending_route_selection() {
+        struct DropFlag(Arc<AtomicBool>);
+        impl Drop for DropFlag {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (proxy_side, _) = listener.accept().await.unwrap();
+        socket2::SockRef::from(&client)
+            .set_linger(Some(Duration::ZERO))
+            .unwrap();
+
+        let dropped = Arc::new(AtomicBool::new(false));
+        let dropped_for_operation = Arc::clone(&dropped);
+        let operation = async move {
+            let _drop_flag = DropFlag(dropped_for_operation);
+            std::future::pending::<()>().await;
+        };
+        let task =
+            tokio::spawn(
+                async move { complete_unless_client_resets(&proxy_side, operation).await },
+            );
+        drop(client);
+
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), task)
+                .await
+                .unwrap()
+                .unwrap(),
+            None
+        );
+        assert!(dropped.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn tcp_half_close_does_not_cancel_pending_route_selection() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (proxy_side, _) = listener.accept().await.unwrap();
+        client.shutdown().await.unwrap();
+
+        let result = complete_unless_client_resets(&proxy_side, async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            7
+        })
+        .await;
+
+        assert_eq!(result, Some(7));
     }
 }

@@ -10,7 +10,7 @@
 //! Reference Python implementation:
 //!   <https://github.com/Flowseal/tg-ws-proxy/blob/main/proxy/config.py#L36>
 
-mod http;
+pub(crate) mod http;
 
 use tracing::warn;
 
@@ -22,6 +22,7 @@ const DOMAINS_URL_PATH: &str = "/Flowseal/tg-ws-proxy/refs/heads/main/.github/cf
 
 /// The real TLD suffix that the encoded `.com` maps back to.
 const REAL_SUFFIX: &str = ".co.uk";
+pub(crate) const MIN_VALID_DOMAINS: usize = 3;
 
 /// Embedded fallback list (obfuscated) used when the GitHub fetch fails.
 ///
@@ -32,6 +33,21 @@ static FALLBACK_ENCODED: &[&str] = &[
     "mkuosckvso.com",
     "zaewayzmplad.com",
     "twdmbzcm.com",
+    "awzwsldi.com",
+    "clngqrflngqin.com",
+    "tjacxbqtj.com",
+    "bxaxtxmrw.com",
+    "dmohrsgmohcrwb.com",
+    "vwbmtmoi.com",
+    "khgrre.com",
+    "ulihssf.com",
+    "tmhqsdqmfpmk.com",
+    "xwuwoqbm.com",
+    "orgcnunpj.com",
+    "zhkuldz.com",
+    "zypoljnslxa.com",
+    "efabnxaowuzs.com",
+    "zaftuzsftqdq.com",
 ];
 
 /// Deobfuscate a single encoded domain.
@@ -65,14 +81,47 @@ pub fn deobfuscate(s: &str) -> Option<String> {
 /// Parse a plain-text domain list (one domain per line; `#` comments ignored).
 /// Each line is deobfuscated before being included.
 fn parse_domain_list(text: &str) -> Vec<String> {
-    text.lines()
+    let domains: Vec<String> = text
+        .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .filter_map(deobfuscate)
+        .collect();
+    normalize_domain_pool(&domains)
+}
+
+pub(crate) fn normalize_domain_pool(domains: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    domains
+        .iter()
+        .map(|domain| domain.trim().to_ascii_lowercase())
+        .filter(|domain| valid_domain(domain) && seen.insert(domain.clone()))
         .collect()
 }
 
-fn fallback_domains() -> Vec<String> {
+pub(crate) fn valid_domain(domain: &str) -> bool {
+    if domain.is_empty() || domain.len() > 253 {
+        return false;
+    }
+    let labels: Vec<&str> = domain.split('.').collect();
+    if labels.len() < 2 {
+        return false;
+    }
+    if labels.iter().any(|label| {
+        label.is_empty()
+            || label.len() > 63
+            || label.starts_with('-')
+            || label.ends_with('-')
+            || !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    }) {
+        return false;
+    }
+    labels
+        .last()
+        .is_some_and(|tld| tld.len() >= 2 && tld.chars().any(|c| c.is_ascii_alphabetic()))
+}
+
+pub(crate) fn fallback_domains() -> Vec<String> {
     FALLBACK_ENCODED
         .iter()
         .filter_map(|s| deobfuscate(s))
@@ -93,24 +142,30 @@ pub async fn fetch_default_domains() -> Vec<String> {
 /// connector, deobfuscate it, and return the decoded domains. Falls back to
 /// the embedded list on any error.
 pub async fn fetch_default_domains_with_outbound(outbound: &OutboundConnector) -> Vec<String> {
-    match https_get(DOMAINS_URL_HOST, DOMAINS_URL_PATH, outbound).await {
-        Ok(body) => {
-            let domains = parse_domain_list(&body);
-            if domains.is_empty() {
-                warn!("список доменов Cloudflare из GitHub пуст, используется встроенный список");
-                fallback_domains()
-            } else {
-                domains
-            }
-        }
-        Err(e) => {
+    match fetch_flowseal_domains_with_outbound(outbound).await {
+        Ok(domains) => domains,
+        Err(error) => {
             warn!(
-                "не удалось получить список доменов Cloudflare ({}), используется встроенный список",
-                e
+                "не удалось обновить список доменов Cloudflare ({error}), используется встроенный список"
             );
             fallback_domains()
         }
     }
+}
+
+/// Получить и проверить текущий список Flowseal, не подменяя ошибку резервным набором.
+pub(crate) async fn fetch_flowseal_domains_with_outbound(
+    outbound: &OutboundConnector,
+) -> Result<Vec<String>, String> {
+    let body = https_get(DOMAINS_URL_HOST, DOMAINS_URL_PATH, outbound).await?;
+    let domains = parse_domain_list(&body);
+    if domains.len() < MIN_VALID_DOMAINS {
+        return Err(format!(
+            "список Flowseal содержит только {} корректных доменов; требуется не меньше {MIN_VALID_DOMAINS}",
+            domains.len()
+        ));
+    }
+    Ok(domains)
 }
 
 #[cfg(test)]

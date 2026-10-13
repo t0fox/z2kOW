@@ -100,7 +100,7 @@ pub async fn run(
 }
 
 pub async fn run_with_listen(
-    mut config: Config,
+    config: Config,
     shutdown: impl Future<Output = ()> + Send,
     on_listen: impl FnOnce(ListenInfo) + Send,
 ) -> Result<(), RunError> {
@@ -110,24 +110,25 @@ pub async fn run_with_listen(
     let runtime = Arc::new(
         Runtime::new(outbound)
             .with_dc_map_path(config.dc_map_path.clone())
+            .with_cf_domain_pool(
+                config.cf_domains.clone(),
+                config.default_domains,
+                config
+                    .dc_map_path
+                    .with_file_name("telegram-cf-domains.json"),
+            )
             .with_cf_ips(config.cf_ips.clone())
             .with_cf_fail_cooldown(Duration::from_secs(config.cf_fail_cooldown)),
     );
 
     tokio::pin!(shutdown);
-
-    if config.default_domains {
-        info!("Загрузка списка доменов CF-прокси…");
-        let fetched = tokio::select! {
-            _ = &mut shutdown => {
-                info!("прокси остановлен");
-                return Ok(());
-            }
-            fetched = crate::default_domains::fetch_default_domains_with_outbound(runtime.outbound()) => fetched,
-        };
-        info!("Загружено доменов CF: {}", fetched.len());
-        config.cf_domains.extend(fetched);
-    }
+    let cf_snapshot = runtime.cf_domains();
+    info!(
+        "Пул CF-прокси готов: {} доменов, поколение {}, время последнего обновления {}",
+        cf_snapshot.domains.len(),
+        cf_snapshot.generation,
+        cf_snapshot.fetched_at
+    );
 
     let bind_host = config.bind_host();
     let address = listen_address(&bind_host, config.port);
@@ -155,24 +156,16 @@ pub async fn run_with_listen(
     on_listen(ListenInfo { addr: bound_addr });
 
     let config = Arc::new(config);
-
-    let refresh_task = {
-        let runtime = Arc::clone(&runtime);
-        let interval = config.dc_map_refresh_secs;
-        let endpoints_path = config.dc_map_endpoints_path.clone();
-        let transparent_ports = config.transparent_ports.clone();
-        let cf_domains = config.cf_domains.clone();
-        tokio::spawn(async move {
-            crate::dc_discovery::refresh_loop(
-                runtime,
-                interval,
-                endpoints_path,
-                transparent_ports,
-                cf_domains,
-            )
-            .await;
-        })
-    };
+    let mut background_tasks = JoinSet::new();
+    if runtime.cf_domain_pool().enabled() {
+        background_tasks.spawn(crate::cf_domain_pool::refresh_loop(Arc::clone(&runtime)));
+    }
+    background_tasks.spawn(crate::dc_discovery::refresh_loop(
+        Arc::clone(&runtime),
+        config.dc_map_refresh_secs,
+        config.dc_map_endpoints_path.clone(),
+        config.transparent_ports.clone(),
+    ));
 
     let semaphore = Arc::new(Semaphore::new(max_connections));
     let mut clients = JoinSet::new();
@@ -220,12 +213,7 @@ pub async fn run_with_listen(
         }
     }
 
-    refresh_task.abort();
-    if let Err(error) = refresh_task.await
-        && !error.is_cancelled()
-    {
-        warn!("задача обновления карты DC завершилась ошибкой при остановке: {error}");
-    }
+    background_tasks.shutdown().await;
     cancel_and_join_clients(&mut clients).await;
     info!("прокси остановлен");
     Ok(())
@@ -258,7 +246,15 @@ mod transparent_listener_tests {
 
     #[tokio::test]
     async fn server_implicitly_starts_in_transparent_mode_and_stops() {
-        let config = Config::try_from_cli_line("--host :: --port 0").unwrap();
+        let state_dir =
+            std::env::temp_dir().join(format!("z2kow-server-cf-domains-{}", std::process::id()));
+        let cache_path = state_dir.join("telegram-cf-domains.json");
+        let dc_map_path = state_dir.join("telegram-dc-map.json");
+        let config = Config::try_from_cli_line(&format!(
+            "--host :: --port 0 --default-domains --dc-map-path {}",
+            dc_map_path.display()
+        ))
+        .unwrap();
         let (bound_tx, bound_rx) = oneshot::channel();
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = tokio::spawn(run_with_listen(
@@ -287,6 +283,7 @@ mod transparent_listener_tests {
                 .unwrap()
                 .is_ok()
         );
+        let _ = std::fs::remove_file(cache_path);
     }
 
     #[tokio::test]

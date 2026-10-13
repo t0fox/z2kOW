@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -150,6 +151,7 @@ fn websocket_buffers_are_bounded_for_many_connections() {
     let config = ws_config();
 
     assert_eq!(config.write_buffer_size, 16 * 1024);
+    assert_eq!(config.max_write_buffer_size, 4 * 1024 * 1024 + 16 * 1024);
     assert_eq!(config.max_frame_size, Some(4 * 1024 * 1024));
     assert_eq!(config.max_message_size, Some(4 * 1024 * 1024));
 }
@@ -223,6 +225,51 @@ async fn a_second_connection_to_the_same_host_resumes_its_tls_session() {
         "the shared config must let the second handshake resume"
     );
     let _ = tokio::time::timeout(Duration::from_secs(5), server).await;
+}
+
+#[tokio::test]
+async fn фрагментированное_binary_сообщение_возвращается_единым_mtproto_потоком() {
+    use tokio_tungstenite::tungstenite::protocol::frame::{
+        Frame,
+        coding::{Data, OpCode},
+    };
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut websocket = tokio_tungstenite::accept_async(stream).await.unwrap();
+        websocket
+            .send(Message::Frame(Frame::message(
+                b"mtproto-".to_vec(),
+                OpCode::Data(Data::Binary),
+                false,
+            )))
+            .await
+            .unwrap();
+        websocket
+            .send(Message::Frame(Frame::message(
+                b"payload".to_vec(),
+                OpCode::Data(Data::Continue),
+                true,
+            )))
+            .await
+            .unwrap();
+    });
+
+    let stream = TcpStream::connect(address).await.unwrap();
+    let request = format!("ws://{address}/apiws")
+        .into_client_request()
+        .unwrap();
+    let (mut websocket, _) = client_async_tls_with_config(request, stream, Some(ws_config()), None)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        ws_recv(&mut websocket).await.as_deref(),
+        Some(&b"mtproto-payload"[..])
+    );
+    server.await.unwrap();
 }
 
 // ─── Cloudflare attempt ordering ─────────────────────────────────────────────
@@ -316,4 +363,85 @@ fn tcp_connect_timeout_skips_sibling_ws_domains() {
     let timed_out = WsConnectResult::ConnectTimedOut("TCP connect timed out".into());
     assert!(!should_try_next_ws_domain(&timed_out));
     assert!(should_try_next_ws_domain(&WsConnectResult::TimedOut));
+}
+
+#[tokio::test]
+async fn direct_ws_hedges_sibling_hostname_and_cancels_the_loser() {
+    struct DropFlag(Arc<AtomicBool>);
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    let slow_cancelled = Arc::new(AtomicBool::new(false));
+    let slow_flag = Arc::clone(&slow_cancelled);
+    let (winner, failures) = race_direct_ws_domains(
+        vec![
+            "kws2.web.telegram.org".into(),
+            "kws2-1.web.telegram.org".into(),
+        ],
+        move |domain| {
+            let slow_flag = Arc::clone(&slow_flag);
+            async move {
+                if domain == "kws2.web.telegram.org" {
+                    let _drop_flag = DropFlag(slow_flag);
+                    std::future::pending::<Result<String, WsConnectResult>>().await
+                } else {
+                    Ok(domain)
+                }
+            }
+        },
+    )
+    .await;
+
+    assert_eq!(
+        winner,
+        Some((
+            "kws2-1.web.telegram.org".into(),
+            "kws2-1.web.telegram.org".into()
+        ))
+    );
+    assert!(failures.is_empty());
+    assert!(slow_cancelled.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn direct_ws_stops_sibling_dial_after_tcp_connect_timeout() {
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let attempts_for_connect = Arc::clone(&attempts);
+    let (winner, failures) = race_direct_ws_domains(
+        vec![
+            "kws2.web.telegram.org".into(),
+            "kws2-1.web.telegram.org".into(),
+        ],
+        move |domain| {
+            let attempts = Arc::clone(&attempts_for_connect);
+            async move {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                Err::<String, WsConnectResult>(WsConnectResult::ConnectTimedOut(domain))
+            }
+        },
+    )
+    .await;
+
+    assert!(winner.is_none());
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    assert_eq!(failures.len(), 1);
+}
+
+#[test]
+fn cf_proxy_повторяет_транспортные_сбои_но_не_http_статусы() {
+    assert!(should_retry_cf_domain(&WsConnectResult::Failed(
+        "TLS".into()
+    )));
+    assert!(should_retry_cf_domain(&WsConnectResult::TimedOut));
+    assert!(!should_retry_cf_domain(&WsConnectResult::HttpStatus(429)));
+    assert!(!should_retry_cf_domain(&WsConnectResult::HttpStatus(503)));
+    assert!(!should_retry_cf_domain(&WsConnectResult::ConnectTimedOut(
+        "TCP timeout".into()
+    )));
+    assert!(!should_retry_cf_domain(&WsConnectResult::DnsFailed(
+        "NXDOMAIN".into()
+    )));
 }

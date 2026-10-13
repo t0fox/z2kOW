@@ -38,8 +38,9 @@ const TELEGRAM_CONFIG_API_ID: i32 = 4;
 type TelegramTransport = Obfuscated<Intermediate>;
 
 /// Получить `help.getConfig` на одном из проверенных встроенных DC без входа пользователя.
-pub async fn fetch_config(runtime: &Runtime, cf_domains: &[String]) -> Result<DcSnapshot, String> {
+pub async fn fetch_config(runtime: &Runtime) -> Result<DcSnapshot, String> {
     let mut failures = Vec::new();
+    let cf_domains = runtime.cf_domains();
     let bootstrap = default_dc_bootstrap_ips();
     for (dc, address) in bootstrap.iter().take(MAX_BOOTSTRAP_ATTEMPTS) {
         match fetch_from_dc(runtime, address).await {
@@ -54,7 +55,7 @@ pub async fn fetch_config(runtime: &Runtime, cf_domains: &[String]) -> Result<Dc
             continue;
         }
         tried_dcs.push(dc);
-        match fetch_from_cf_dc(runtime, dc, cf_domains).await {
+        match fetch_from_cf_dc(runtime, dc, &cf_domains.domains).await {
             Ok(snapshot) => return Ok(snapshot),
             Err(error) => failures.push(format!("DC{dc} через WSS: {error}")),
         }
@@ -148,7 +149,11 @@ async fn bridge_ws_byte_stream(stream: DuplexStream, ws: TgWsStream) {
                 break;
             }
             decrypt.apply_keystream(&mut buffer[..length]);
-            for packet in splitter.split_and_encrypt(&mut buffer[..length], &mut encrypt) {
+            let packets = splitter.split_and_encrypt(&mut buffer[..length], &mut encrypt);
+            if let Some(error) = splitter.error() {
+                return Err(format!("некорректный пакет help.getConfig: {error}"));
+            }
+            for packet in packets {
                 upload_sink
                     .lock()
                     .await
@@ -466,7 +471,6 @@ pub async fn refresh_loop(
     requested_interval: u64,
     endpoint_pairs_path: PathBuf,
     transparent_ports: Vec<u16>,
-    cf_domains: Vec<String>,
 ) {
     let interval = requested_interval.clamp(MIN_REFRESH_SECS, MAX_REFRESH_SECS);
     let store = Arc::clone(runtime.dc_map());
@@ -497,7 +501,7 @@ pub async fn refresh_loop(
     }
     loop {
         if store.refresh_due(unix_time(), interval) {
-            match fetch_config(&runtime, &cf_domains).await {
+            match fetch_config(&runtime).await {
                 Ok(snapshot) => match store.install(snapshot, unix_time()) {
                     Ok(installed) => {
                         info!(

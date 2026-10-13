@@ -24,7 +24,12 @@ fn cloudflare_ws_domains_keep_dc_and_configured_domain_order() {
     );
     assert_eq!(
         cf_ws_domains(2, &["a.example".to_string(), "b.example".to_string()], true),
-        ["kws2.a.example", "kws2.b.example"]
+        [
+            "kws2-1.a.example",
+            "kws2.a.example",
+            "kws2-1.b.example",
+            "kws2.b.example"
+        ]
     );
     assert!(cf_ws_domains(2, &[], false).is_empty());
 }

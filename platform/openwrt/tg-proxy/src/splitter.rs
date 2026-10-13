@@ -16,6 +16,8 @@ use cipher::StreamCipher;
 use crate::crypto::{AesCtr256, ProtoTag};
 
 const MAX_HEADER_LEN: usize = 4;
+/// Максимальный MTProto-пакет согласован с пределом кадра WSS.
+const MAX_PACKET_BYTES: usize = 4 * 1024 * 1024;
 
 pub struct MsgSplitter {
     proto: ProtoTag,
@@ -24,6 +26,7 @@ pub struct MsgSplitter {
     header_len: usize,
     packet_len: Option<usize>,
     disabled: bool,
+    error: Option<String>,
 }
 
 impl MsgSplitter {
@@ -35,13 +38,19 @@ impl MsgSplitter {
             header_len: 0,
             packet_len: None,
             disabled: false,
+            error: None,
         }
+    }
+
+    /// Причина отказа, если клиент объявил пакет больше допустимого размера.
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
     }
 
     /// Split plaintext MTProto bytes into packets and encrypt them in stream
     /// order for the Telegram WebSocket connection.
     pub fn split_and_encrypt(&mut self, plaintext: &mut [u8], enc: &mut AesCtr256) -> Vec<Vec<u8>> {
-        if plaintext.is_empty() {
+        if plaintext.is_empty() || self.error.is_some() {
             return Vec::new();
         }
 
@@ -70,6 +79,16 @@ impl MsgSplitter {
                 let Some(packet_len) = self.parsed_packet_len() else {
                     continue;
                 };
+                if packet_len > MAX_PACKET_BYTES {
+                    self.error = Some(format!(
+                        "MTProto-пакет {} байт превышает лимит {} байт",
+                        packet_len, MAX_PACKET_BYTES
+                    ));
+                    self.packet.clear();
+                    self.header_len = 0;
+                    self.packet_len = None;
+                    return Vec::new();
+                }
                 if packet_len == 0 {
                     self.encrypt_into_packet(&mut plaintext[offset..], enc);
                     parts.push(std::mem::take(&mut self.packet));

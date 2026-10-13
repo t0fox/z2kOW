@@ -9,6 +9,7 @@ use tokio::net::{TcpSocket, TcpStream, lookup_host};
 pub struct OutboundError {
     pub reason: String,
     pub timed_out: bool,
+    pub dns_failed: bool,
 }
 
 impl OutboundError {
@@ -16,6 +17,15 @@ impl OutboundError {
         Self {
             reason: reason.into(),
             timed_out: false,
+            dns_failed: false,
+        }
+    }
+
+    fn dns_failed(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+            timed_out: false,
+            dns_failed: true,
         }
     }
 
@@ -23,6 +33,7 @@ impl OutboundError {
         Self {
             reason: reason.into(),
             timed_out: true,
+            dns_failed: false,
         }
     }
 }
@@ -61,50 +72,67 @@ impl OutboundConnector {
         )
         .await
         {
-            Ok(result) => result.map_err(OutboundError::failed),
+            Ok(result) => result,
             Err(_) => Err(OutboundError::timed_out("TCP connect timed out")),
         }
     }
 }
 
-async fn connect_marked_tcp(host: &str, port: u16, mark: Option<u32>) -> Result<TcpStream, String> {
+async fn connect_marked_tcp(
+    host: &str,
+    port: u16,
+    mark: Option<u32>,
+) -> Result<TcpStream, OutboundError> {
     let Some(mark) = mark else {
-        return TcpStream::connect((host, port))
-            .await
-            .map_err(|error| format!("Подключение TCP: {error}"));
+        return TcpStream::connect((host, port)).await.map_err(|error| {
+            let reason = format!("Подключение TCP: {error}");
+            if error.kind() == io::ErrorKind::NotFound {
+                OutboundError::dns_failed(reason)
+            } else {
+                OutboundError::failed(reason)
+            }
+        });
     };
 
     #[cfg(target_os = "linux")]
     {
         let mut last_error = None;
-        let addrs = lookup_host((host, port))
-            .await
-            .map_err(|error| format!("Поиск адреса TCP-хоста: {error}"))?;
+        let addrs = lookup_host((host, port)).await.map_err(|error| {
+            OutboundError::dns_failed(format!("Поиск адреса TCP-хоста: {error}"))
+        })?;
+        let mut found_address = false;
         for address in addrs {
+            found_address = true;
             let socket = if address.is_ipv4() {
                 TcpSocket::new_v4()
             } else {
                 TcpSocket::new_v6()
             }
-            .map_err(|error| format!("Создание TCP-сокета: {error}"))?;
-            set_socket_mark(&socket, mark).map_err(|error| format!("Метка SO_MARK: {error}"))?;
+            .map_err(|error| OutboundError::failed(format!("Создание TCP-сокета: {error}")))?;
+            set_socket_mark(&socket, mark)
+                .map_err(|error| OutboundError::failed(format!("Метка SO_MARK: {error}")))?;
             match socket.connect(address).await {
                 Ok(stream) => return Ok(stream),
                 Err(error) => last_error = Some(error),
             }
         }
-        Err(format!(
-            "Подключение TCP: {}",
-            last_error.unwrap_or_else(|| io::Error::new(
-                io::ErrorKind::AddrNotAvailable,
-                "DNS не вернул адресов"
-            ))
-        ))
+        let error = last_error.unwrap_or_else(|| {
+            io::Error::new(io::ErrorKind::AddrNotAvailable, "DNS не вернул адресов")
+        });
+        if found_address {
+            Err(OutboundError::failed(format!("Подключение TCP: {error}")))
+        } else {
+            Err(OutboundError::dns_failed(format!(
+                "Поиск адреса TCP-хоста: {error}"
+            )))
+        }
     }
     #[cfg(not(target_os = "linux"))]
     {
         let _ = (host, port, mark);
-        Err("Метка SO_MARK поддерживается только в Linux".to_string())
+        Err(OutboundError::failed(
+            "Метка SO_MARK поддерживается только в Linux",
+        ))
     }
 }
 
