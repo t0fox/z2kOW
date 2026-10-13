@@ -359,7 +359,7 @@ jobs:
         run: sh tests/run_all.sh
 
   rust-tg-proxy:
-    name: "Rust TG WS Proxy: ARM64 и x86_64"
+    name: "Rust TG WS Proxy: все ABI OpenWrt"
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -367,12 +367,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Установить Rust из локального crate и ARM64-компилятор
+      - name: Установить Rust и инструменты воспроизводимой cross-сборки
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+          sudo apt-get install -y --no-install-recommends binutils curl xz-utils zstd
           toolchain="$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' platform/openwrt/tg-proxy/rust-toolchain.toml)"
           [[ -n "$toolchain" ]]
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
@@ -383,14 +383,19 @@ jobs:
       - name: Проверить локальный crate и собрать поддерживаемые архитектуры OpenWrt
         run: sh scripts/openwrt/build_tg_ws_proxy.sh "$RUNNER_TEMP/tg-ws-proxy" --test
 
-      - name: Проверить, что Rust-набор содержит только ARM64 и x86_64
+      - name: Проверить все целевые ELF и состав Rust-набора
         shell: bash
         run: |
           set -euo pipefail
           mapfile -t targets < <(find "$RUNNER_TEMP/tg-ws-proxy" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
-          [[ "${targets[*]}" == "linux-arm64 linux-x86_64" ]]
-          test -x "$RUNNER_TEMP/tg-ws-proxy/linux-arm64/tg-ws-proxy"
-          test -x "$RUNNER_TEMP/tg-ws-proxy/linux-x86_64/tg-ws-proxy"
+          mapfile -t expected < <(awk 'NF == 10 && $1 !~ /^#/ {print "linux-" $3}' platform/openwrt/tg-rust-targets.tsv | sort -u)
+          [[ "${targets[*]}" == "${expected[*]}" ]]
+          while IFS= read -r binary; do
+            test -x "$binary"
+            ! readelf -l "$binary" | grep -q INTERP
+            readelf -h "$binary" | grep -q 'Class:'
+          done < <(find "$RUNNER_TEMP/tg-ws-proxy" -type f -name tg-ws-proxy | sort)
+          python3 tests/openwrt/verify_tg_elf.py "$RUNNER_TEMP/tg-ws-proxy"
 
   go:
     name: Go ${{ matrix.module }}
@@ -700,7 +705,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross dnsmasq-base busybox lighttpd curl lua5.3
+          sudo apt-get install -y --no-install-recommends dnsmasq-base busybox lighttpd curl lua5.3 xz-utils zstd binutils
           toolchain="$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' platform/openwrt/tg-proxy/rust-toolchain.toml)"
           [[ -n "$toolchain" ]]
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
@@ -723,9 +728,12 @@ jobs:
             --production-baseline "$RUNNER_TEMP/production-UPDATES.json"
       - name: Проверить готовый кандидат установщиком с утилитами BusyBox
         run: |
-          python3 tests/openwrt/accept_release_candidate.py \
-            "$RUNNER_TEMP/openwrt-candidate/UPDATES.json" \
-            "$RUNNER_TEMP/openwrt-candidate"
+          set -euo pipefail
+          for arch in arm64 arm x86_64 x86 mips mipsel riscv64; do
+            python3 tests/openwrt/accept_release_candidate.py \
+              "$RUNNER_TEMP/openwrt-candidate/UPDATES.json" \
+              "$RUNNER_TEMP/openwrt-candidate" "$arch"
+          done
       - name: Upgrade acceptance с предыдущим опубликованным OpenWrt-релизом
         run: |
           sh scripts/openwrt/upgrade-acceptance.sh \

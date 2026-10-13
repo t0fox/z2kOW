@@ -358,9 +358,12 @@ jobs:
             --output-dir "$out"
       - name: Проверить собранный rootfs через начальный установщик
         run: |
-          python3 tests/openwrt/accept_release_candidate.py \
-            "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json" \
-            "$RUNNER_TEMP/openwrt-release-candidate"
+          set -euo pipefail
+          for arch in arm64 arm x86_64 x86 mips mipsel riscv64; do
+            python3 tests/openwrt/accept_release_candidate.py \
+              "$RUNNER_TEMP/openwrt-release-candidate/UPDATES.json" \
+              "$RUNNER_TEMP/openwrt-release-candidate" "$arch"
+          done
       - name: Проверить upgrade с предыдущего подписанного production-релиза
         run: |
           sh scripts/openwrt/upgrade-acceptance.sh \
@@ -552,6 +555,7 @@ jobs:
               "result": "passed",
               "environment": "staged-linux-rootfs",
               "router_verified": False,
+              "architectures": ["arm", "arm64", "mips", "mipsel", "riscv64", "x86", "x86_64"],
               "tag": manifest.get("current"),
               "seq": manifest.get("seq"),
               "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),

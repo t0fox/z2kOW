@@ -124,12 +124,12 @@ assert_eq "при пользовательском отключении нет �
 assert_eq "при пользовательском отключении health cron удаляется" 2 "$(grep -c '^remove$' "$_tg_cron_log")"
 
 printf 'ENABLED=1\n' > "$T/etc/config"
-Z2K_OW_ARCH=mips
+Z2K_OW_ARCH=i386_geode
 export Z2K_OW_ARCH
 : > "$T/procd.log"; : > "$T/nft.log"
-assert_eq "пользователю показан статус неподдерживаемой архитектуры" 'Тип не поддерживается' "$(z2k_ow_tg_status 2>/dev/null)"
+assert_eq "пользователю показан статус неподдерживаемого x86 без SSE2" 'Тип не поддерживается' "$(z2k_ow_tg_status 2>/dev/null)"
 z2k_ow_tg 1
-assert_eq "на неподдерживаемой архитектуре процесс procd не запускается" 0 "$(grep -c '^instance:' "$T/procd.log" || true)"
-assert_eq "на неподдерживаемой архитектуре новые правила не создаются" 0 "$(grep -c '^nft:add rule' "$T/nft.log" || true)"
+assert_eq "на x86 без SSE2 процесс procd не запускается" 0 "$(grep -c '^instance:' "$T/procd.log" || true)"
+assert_eq "на x86 без SSE2 новые правила не создаются" 0 "$(grep -c '^nft:add rule' "$T/nft.log" || true)"
 
 _t_done

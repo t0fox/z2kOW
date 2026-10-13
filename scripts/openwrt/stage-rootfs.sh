@@ -72,6 +72,7 @@ copy_data "$ROOT/platform/openwrt/files/etc/sysctl.d/99-z2k.conf" etc/sysctl.d/9
 copy_data "$ROOT/platform/openwrt/files/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft" \
     usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft
 copy_data "$ROOT/platform/openwrt/files/etc/z2k/config.default" usr/lib/z2k/share/config.default
+copy_data "$ROOT/platform/openwrt/tg-rust-targets.tsv" usr/lib/z2k/platform/openwrt/tg-rust-targets.tsv
 copy_data "$ROOT/platform/openwrt/z2kow.sh" usr/bin/z2kow 0755
 copy_data "$ROOT/scripts/openwrt/install_release.sh" usr/sbin/install_release 0755
 copy_data "$ROOT/files/z2k-warp-list-filter.awk" usr/lib/z2k/z2k-warp-list-filter.awk
@@ -94,15 +95,17 @@ for _warpd in "$WARPD_DIR"/linux-*/z2k-warpd; do
 done
 [ "$_warpd_count" -eq 7 ] || die "ожидалось 7 сборок z2k-warpd для разных архитектур, найдено: $_warpd_count"
 _tg_count=0
-for _tg in "$TG_DIR"/linux-*/tg-ws-proxy; do
-    [ -f "$_tg" ] || continue
-    _arch=${_tg#*/linux-}
-    _arch=${_arch%/tg-ws-proxy}
-    case "$_arch" in arm64|x86_64) ;; *) die "недопустимая архитектура Rust TG WS Proxy: $_arch" ;; esac
-    copy_data "$_tg" "usr/lib/z2k/bin/linux-$_arch/tg-ws-proxy" 0755
+while IFS= read -r _variant; do
+    [ -n "$_variant" ] || continue
+    _tg="$TG_DIR/linux-$_variant/tg-ws-proxy"
+    [ -f "$_tg" ] && [ -x "$_tg" ] || die "нет исполняемой сборки Rust TG WS Proxy для linux-$_variant"
+    copy_data "$_tg" "usr/lib/z2k/bin/linux-$_variant/tg-ws-proxy" 0755
     _tg_count=$((_tg_count + 1))
-done
-[ "$_tg_count" -eq 2 ] || die "ожидалось ровно 2 сборки Rust TG WS Proxy (ARM64/x86_64), найдено: $_tg_count"
+done <<EOF_TG_VARIANTS
+$(awk 'NF == 10 && $1 !~ /^#/ {print $3}' "$ROOT/platform/openwrt/tg-rust-targets.tsv" | sort -u)
+EOF_TG_VARIANTS
+[ "$_tg_count" -eq "$(awk 'NF == 10 && $1 !~ /^#/ {print $3}' "$ROOT/platform/openwrt/tg-rust-targets.tsv" | sort -u | wc -l | tr -d ' ')" ] \
+    || die "число Rust TG вариантов не совпало с таблицей ABI"
 copy_data "$TG_DIR/LICENSE" usr/share/licenses/tg-ws-proxy-rs/LICENSE
 copy_data "$TG_DIR/PROVENANCE" usr/share/licenses/tg-ws-proxy-rs/PROVENANCE
 

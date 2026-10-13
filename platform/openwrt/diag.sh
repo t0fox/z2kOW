@@ -322,9 +322,21 @@ print_firewall() {
 }
 
 print_tunnel() {
-    local tg pid listeners
-    tg="${Z2K_TG_RUST_BIN:-$_bin/tg-ws-proxy}"
+    local tg pid listeners tg_abi _adapter
+    _adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
+    tg="${Z2K_TG_RUST_BIN:-}"
+    if [ -r "$_adapter/arch.sh" ]; then
+        . "$_adapter/arch.sh"
+        if [ -z "$tg" ]; then
+            tg="$(z2k_ow_tg_rust_bin_path "$_bin" 2>/dev/null)" || tg="$_bin/tg-ws-proxy"
+        fi
+        tg_abi="$(z2k_ow_tg_rust_abi 2>/dev/null)" || tg_abi="не определён"
+    else
+        tg="${tg:-$_bin/tg-ws-proxy}"
+        tg_abi="не определён"
+    fi
     printf '\n=== Прозрачный Telegram-прокси Rust WS ===\n'
+    printf 'Rust target ABI    : %s\n' "$tg_abi"
     if [ -x "$tg" ]; then
         printf 'бинарный файл     : %s (%s байт)\n' "$tg" "$(wc -c < "$tg" 2>/dev/null | tr -d ' ')"
     else

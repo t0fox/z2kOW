@@ -9,6 +9,8 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 assert_contains "WARP MIPS targets use soft-float ABI" "$REPO/scripts/openwrt/build-release.sh" \
     'mips|mipsle) GOTOOLCHAIN=local GOOS=linux GOARCH="$goarch" GOMIPS=softfloat'
 . "$REPO/platform/openwrt/arch.sh"
+Z2K_OW_TG_TARGETS_FILE="$REPO/platform/openwrt/tg-rust-targets.tsv"
+export Z2K_OW_TG_TARGETS_FILE
 
 assert_eq "целевой таргет" "arm64" "$(z2k_ow_goarch aarch64_cortex-a53)"
 assert_eq "голый aarch64" "arm64" "$(z2k_ow_goarch aarch64)"
@@ -16,19 +18,47 @@ assert_eq "x86_64" "amd64" "$(z2k_ow_goarch x86_64)"
 assert_eq "mipsel_24kc" "mipsle" "$(z2k_ow_goarch mipsel_24kc)"
 assert_eq "mips64el" "mips64le" "$(z2k_ow_goarch mips64el)"
 assert_eq "armv7" "arm" "$(z2k_ow_goarch arm_cortex-a7_neon-vfpv4)"
+assert_eq "ARMv6 metadata" "arm" "$(z2k_ow_goarch armv6l)"
+assert_eq "Cortex-A5 metadata" "arm" "$(z2k_ow_goarch arm_cortex-a5)"
 assert_eq "RT binary MIPS uses OpenWrt subtarget" "/payload/bin/linux-mipsel/z2k-rt-proxy" \
     "$(z2k_ow_arch_bin_path /payload/bin z2k-rt-proxy mipsel_24kc)"
 assert_eq "detector binary ARM64" "/payload/bin/linux-arm64/z2k-detect" \
     "$(z2k_ow_arch_bin_path /payload/bin z2k-detect aarch64_cortex-a53)"
 assert_eq "цель Rust для ARM64" "aarch64-unknown-linux-musl" \
     "$(z2k_ow_tg_rust_target aarch64_cortex-a53)"
+assert_eq "цель Rust для ARMv5 soft-float" "armv5te-unknown-linux-musleabi" \
+    "$(z2k_ow_tg_rust_target arm_xscale)"
+assert_eq "универсальная цель Rust ARMv5TE для ARMv7 soft-float" "armv5te-unknown-linux-musleabi" \
+    "$(z2k_ow_tg_rust_target armv7l)"
+assert_eq "универсальная цель Rust ARMv5TE для ARMv7 hard-float" "armv5te-unknown-linux-musleabi" \
+    "$(z2k_ow_tg_rust_target arm_cortex-a7)"
+assert_eq "универсальная цель Rust ARMv5TE для ARMv6" "armv5te-unknown-linux-musleabi" \
+    "$(z2k_ow_tg_rust_target armv6l)"
+assert_eq "универсальная цель Rust ARMv5TE для Cortex-A5" "armv5te-unknown-linux-musleabi" \
+    "$(z2k_ow_tg_rust_target arm_cortex-a5)"
+assert_eq "цель Rust Pentium 4 с SSE2 для x86" "i686-unknown-linux-musl" \
+    "$(z2k_ow_tg_rust_target i386_pentium4)"
+assert_eq "цель Rust для MIPS big-endian" "mips-unknown-linux-musl" \
+    "$(z2k_ow_tg_rust_target mips_24kc)"
+assert_eq "цель Rust для MIPS little-endian" "mipsel-unknown-linux-musl" \
+    "$(z2k_ow_tg_rust_target mipsel_24kc)"
+assert_eq "цель Rust для RISC-V LP64D" "riscv64gc-unknown-linux-musl" \
+    "$(z2k_ow_tg_rust_target riscv64_rva22)"
 assert_eq "цель Rust для x86_64" "x86_64-unknown-linux-musl" \
     "$(z2k_ow_tg_rust_target x86_64)"
 assert_eq "путь к Rust-бинарнику ARM64" "/payload/bin/linux-arm64/tg-ws-proxy" \
     "$(z2k_ow_tg_rust_bin_path /payload/bin aarch64)"
 assert_eq "путь к Rust-бинарнику x86_64" "/payload/bin/linux-x86_64/tg-ws-proxy" \
     "$(z2k_ow_tg_rust_bin_path /payload/bin x86_64)"
-for _unsupported in armv7l i686 mips_24kc mipsel_24kc mips64el riscv64; do
+assert_eq "универсальный путь к Rust-бинарнику ARMv5" "/payload/bin/linux-arm/tg-ws-proxy" \
+    "$(z2k_ow_tg_rust_bin_path /payload/bin arm_xscale)"
+assert_eq "универсальный путь к Rust-бинарнику ARMv7 hard-float" "/payload/bin/linux-arm/tg-ws-proxy" \
+    "$(z2k_ow_tg_rust_bin_path /payload/bin arm_cortex-a7)"
+assert_eq "универсальный путь к Rust-бинарнику Cortex-A5" "/payload/bin/linux-arm/tg-ws-proxy" \
+    "$(z2k_ow_tg_rust_bin_path /payload/bin arm_cortex-a5)"
+assert_eq "путь к Rust-бинарнику x86 Pentium 4" "/payload/bin/linux-x86/tg-ws-proxy" \
+    "$(z2k_ow_tg_rust_bin_path /payload/bin i386_pentium4)"
+for _unsupported in armv4 arm_cortex-m4 i386_i486 i386_geode i386_pentium-mmx i386_pentium mips64el mips_4kec riscv32; do
     z2k_ow_tg_rust_target "$_unsupported" >/dev/null 2>&1 \
         && _t_bad "для $_unsupported ошибочно выбрана цель Rust" || _t_ok
 done
@@ -52,6 +82,20 @@ printf "DISTRIB_ARCH='mipsel_24kc'\n" > "$T/openwrt_release"
 assert_eq "DISTRIB_ARCH selects little-endian MIPS runtime" "mipsle" "$(z2k_ow_detect_goarch)"
 assert_eq "little-endian MIPS binary picker" "/payload/bin/linux-mipsel/z2k-detect" \
     "$(z2k_ow_arch_bin_path /payload/bin z2k-detect)"
+for _spec in \
+    'aarch64_cortex-a53|arm64' \
+    'arm_cortex-a5|arm' \
+    'x86_64|x86_64' \
+    'i386_pentium4|x86' \
+    'mips_24kc|mips' \
+    'mipsel_24kc|mipsel' \
+    'riscv64_rva22|riscv64'; do
+    _distro_arch=${_spec%%|*}; _variant=${_spec#*|}
+    printf "DISTRIB_ARCH='%s'\n" "$_distro_arch" > "$T/openwrt_release"
+    assert_eq "runtime selects Telegram Rust variant for $_distro_arch" \
+        "/payload/bin/linux-$_variant/tg-ws-proxy" \
+        "$(z2k_ow_tg_rust_bin_path /payload/bin)"
+done
 mkdir -p "$T/bin"
 printf '#!/bin/sh\necho aarch64\n' > "$T/bin/uname"
 chmod +x "$T/bin/uname"

@@ -1925,13 +1925,19 @@ _z2k_ow_install_release_locked() {
 }
 
 # Вернуть размер файлов выбранной архитектуры для проверки свободного места.
+z2k_ow_tg_archive_variant() {
+    . "${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/arch.sh" || return 1
+    z2k_ow_tg_rust_variant
+}
+
 z2k_ow_payload_size_for_arch() {
-    _archive="$1" _arch="$2"
-    tar -tvzf "$_archive" 2>/dev/null | awk -v arch="$_arch" '
+    local _archive="$1" _arch="$2" _tg_variant=""
+    _tg_variant="$(z2k_ow_tg_archive_variant 2>/dev/null)" || true
+    tar -tvzf "$_archive" 2>/dev/null | awk -v arch="$_arch" -v tg_variant="$_tg_variant" '
         $1 ~ /^-/ && $3 ~ /^[0-9]+$/ {
             path=$NF; sub(/\/$/, "", path)
             split(path, part, "/")
-            if (part[1] == "usr" && part[2] == "lib" && part[3] == "z2k" && part[4] == "bin" && part[5] ~ /^linux-/ && part[5] != ("linux-" arch)) next
+            if (part[1] == "usr" && part[2] == "lib" && part[3] == "z2k" && part[4] == "bin" && part[5] ~ /^linux-/ && part[5] != ("linux-" arch) && !(part[5] == ("linux-" tg_variant) && part[6] == "tg-ws-proxy")) next
             if (part[1] == "usr" && part[2] == "lib" && part[3] == "z2k" && part[4] == "platform" && part[5] == "openwrt" && part[6] == "bin" && part[7] ~ /^linux-/ && part[7] != ("linux-" arch)) next
             if (part[1] == "opt" && part[2] == "zapret2" && part[3] == "binaries" && part[4] ~ /^linux-/ && part[4] != ("linux-" arch)) next
             total += $3
@@ -1942,8 +1948,9 @@ z2k_ow_payload_size_for_arch() {
 
 # Подсчитать размер файлов релиза для каждого принадлежащего ему пути за один проход.
 z2k_ow_payload_sizes_for_arch() {
-    local _ps_archive="$1" _ps_arch="$2" _ps_paths="$3"
-    tar -tvzf "$_ps_archive" 2>/dev/null | awk -v arch="$_ps_arch" -v paths="$_ps_paths" '
+    local _ps_archive="$1" _ps_arch="$2" _ps_paths="$3" _tg_variant=""
+    _tg_variant="$(z2k_ow_tg_archive_variant 2>/dev/null)" || true
+    tar -tvzf "$_ps_archive" 2>/dev/null | awk -v arch="$_ps_arch" -v paths="$_ps_paths" -v tg_variant="$_tg_variant" '
         BEGIN {
             while ((getline path < paths) > 0) {
                 sub(/^\//, "", path)
@@ -1954,7 +1961,7 @@ z2k_ow_payload_sizes_for_arch() {
         $1 ~ /^-/ && $3 ~ /^[0-9]+$/ {
             path=$NF; sub(/\/$/, "", path)
             split(path, part, "/")
-            if (part[1] == "usr" && part[2] == "lib" && part[3] == "z2k" && part[4] == "bin" && part[5] ~ /^linux-/ && part[5] != ("linux-" arch)) next
+            if (part[1] == "usr" && part[2] == "lib" && part[3] == "z2k" && part[4] == "bin" && part[5] ~ /^linux-/ && part[5] != ("linux-" arch) && !(part[5] == ("linux-" tg_variant) && part[6] == "tg-ws-proxy")) next
             if (part[1] == "usr" && part[2] == "lib" && part[3] == "z2k" && part[4] == "platform" && part[5] == "openwrt" && part[6] == "bin" && part[7] ~ /^linux-/ && part[7] != ("linux-" arch)) next
             if (part[1] == "opt" && part[2] == "zapret2" && part[3] == "binaries" && part[4] ~ /^linux-/ && part[4] != ("linux-" arch)) next
             for (i=1; i<=count; i++)
@@ -2058,7 +2065,7 @@ z2k_ow_installed_payload_ready() {
             return 1
         }
     done
-    if _ready_tg_bin="$(z2k_ow_tg_rust_bin_path "$_ready_root/bin" "$_ready_arch" 2>/dev/null)"; then
+    if _ready_tg_bin="$(z2k_ow_tg_rust_bin_path "$_ready_root/bin" 2>/dev/null)"; then
         [ -f "$_ready_tg_bin" ] && [ -s "$_ready_tg_bin" ] && [ -x "$_ready_tg_bin" ] || {
             echo "z2k-openwrt: исполняемый файл Rust TG WS Proxy отсутствует или повреждён: $_ready_tg_bin" >&2
             return 1
@@ -2250,13 +2257,17 @@ z2k_ow_overlay_download_preflight() {
 # целиком. До распаковки и перед остановкой служб проверяется место на разделах.
 z2k_ow_prepare_target_payload_list() {
     local _prepare_archive="$1" _prepare_listing="$2" _prepare_work="$3" _prepare_arch="$4"
-    local _prepare_selected="$_prepare_work/target-payload-list" _prepare_measured _prepare_required
-    awk -v arch="$_prepare_arch" '
+    local _prepare_selected="$_prepare_work/target-payload-list" _prepare_measured _prepare_required _prepare_tg_variant=""
+    _prepare_tg_variant="$(z2k_ow_tg_archive_variant 2>/dev/null)" || {
+        echo "z2k-openwrt: не найден Rust TG ABI для DISTRIB_ARCH=$(z2k_ow_detect_arch 2>/dev/null)" >&2
+        return 1
+    }
+    awk -v arch="$_prepare_arch" -v tg_variant="$_prepare_tg_variant" '
         {
             path=$0; sub(/\/$/, "", path)
             if ($0 ~ /\/$/) next
             split(path, part, "/")
-            if (part[1] == "usr" && part[2] == "lib" && part[3] == "z2k" && part[4] == "bin" && part[5] ~ /^linux-/ && part[5] != ("linux-" arch)) next
+            if (part[1] == "usr" && part[2] == "lib" && part[3] == "z2k" && part[4] == "bin" && part[5] ~ /^linux-/ && part[5] != ("linux-" arch) && !(part[5] == ("linux-" tg_variant) && part[6] == "tg-ws-proxy")) next
             if (part[1] == "usr" && part[2] == "lib" && part[3] == "z2k" && part[4] == "platform" && part[5] == "openwrt" && part[6] == "bin" && part[7] ~ /^linux-/ && part[7] != ("linux-" arch)) next
             if (part[1] == "opt" && part[2] == "zapret2" && part[3] == "binaries" && part[4] ~ /^linux-/ && part[4] != ("linux-" arch)) next
             print $0
@@ -2290,7 +2301,7 @@ z2k_ow_prepare_target_payload_list() {
             return 1
         }
     done
-    if _prepare_tg_bin="$(z2k_ow_tg_rust_bin_path "$Z2K_OW_CANON_ROOT_SUFFIX/bin" "$_prepare_arch" 2>/dev/null)"; then
+    if _prepare_tg_bin="$(z2k_ow_tg_rust_bin_path "$Z2K_OW_CANON_ROOT_SUFFIX/bin" 2>/dev/null)"; then
         _prepare_tg_bin=${_prepare_tg_bin#/}
         grep -Fqx "$_prepare_tg_bin" "$_prepare_selected" || {
             echo "z2k-openwrt: в архиве отсутствует необходимый Rust TG WS Proxy $_prepare_tg_bin" >&2
@@ -2318,10 +2329,14 @@ z2k_ow_extract_target_payload() {
     # Распакованные файлы находятся на проверенном постоянном разделе, а не в
     # памяти. Повторно оставить запас в 8 МиБ после чтения списка архива.
     z2k_ow_memory_preflight "$_memory_path" 0 0 0 8388608 0 || return 1
-    awk -v arch="$_target_arch" '
+    _target_tg_variant="$(z2k_ow_tg_archive_variant 2>/dev/null)" || {
+        echo "z2k-openwrt: не найден Rust TG ABI для DISTRIB_ARCH=$(z2k_ow_detect_arch 2>/dev/null)" >&2
+        return 1
+    }
+    awk -v arch="$_target_arch" -v tg_variant="$_target_tg_variant" '
         {
             path=$0; sub(/\/$/, "", path); split(path, part, "/")
-            foreign = (part[1] == "usr" && part[2] == "lib" && part[3] == "z2k" && part[4] == "bin" && part[5] ~ /^linux-/ && part[5] != ("linux-" arch)) \
+            foreign = (part[1] == "usr" && part[2] == "lib" && part[3] == "z2k" && part[4] == "bin" && part[5] ~ /^linux-/ && part[5] != ("linux-" arch) && !(part[5] == ("linux-" tg_variant) && part[6] == "tg-ws-proxy")) \
                 || (part[1] == "usr" && part[2] == "lib" && part[3] == "z2k" && part[4] == "platform" && part[5] == "openwrt" && part[6] == "bin" && part[7] ~ /^linux-/ && part[7] != ("linux-" arch)) \
                 || (part[1] == "opt" && part[2] == "zapret2" && part[3] == "binaries" && part[4] ~ /^linux-/ && part[4] != ("linux-" arch))
             if (foreign) exit 1
@@ -2353,7 +2368,7 @@ z2k_ow_extract_target_payload() {
             return 1
         }
     done
-    if _extract_tg_bin="$(z2k_ow_tg_rust_bin_path "$Z2K_OW_CANON_ROOT_SUFFIX/bin" "$_target_arch" 2>/dev/null)"; then
+    if _extract_tg_bin="$(z2k_ow_tg_rust_bin_path "$Z2K_OW_CANON_ROOT_SUFFIX/bin" 2>/dev/null)"; then
         _extract_tg_bin=${_extract_tg_bin#/}
         [ -f "$_stage/$_extract_tg_bin" ] && [ -s "$_stage/$_extract_tg_bin" ] \
             && [ -x "$_stage/$_extract_tg_bin" ] || {
@@ -2473,7 +2488,7 @@ z2k_ow_extract_target_payload_direct() {
             return 1
         }
     done
-    if _direct_tg_bin="$(z2k_ow_tg_rust_bin_path "$Z2K_OW_CANON_ROOT_SUFFIX/bin" "$_direct_arch" 2>/dev/null)"; then
+    if _direct_tg_bin="$(z2k_ow_tg_rust_bin_path "$Z2K_OW_CANON_ROOT_SUFFIX/bin" 2>/dev/null)"; then
         _direct_tg_bin=$(z2k_ow_path "$_direct_tg_bin")
         [ -f "$_direct_tg_bin" ] && [ -s "$_direct_tg_bin" ] && [ -x "$_direct_tg_bin" ] || {
             echo "z2k-openwrt: после распаковки отсутствует Rust TG WS Proxy $_direct_tg_bin" >&2

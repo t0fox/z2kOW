@@ -128,7 +128,7 @@ z2k_ow_bootstrap_arch() {
     _lower="$(printf '%s' "$_source" | tr 'A-Z' 'a-z')"
     case "$_lower" in
         *aarch64*|*arm64*|*cortex-a53*|*cortex-a72*|*cortex-a76*) printf '%s\n' arm64 ;;
-        *armv7*|*cortex-a7*|*cortex-a9*|*cortex-a15*) printf '%s\n' arm ;;
+        *armv5*|*armv6*|*armv7*|*arm_xscale*|*arm_arm926ej-s*|*cortex-a*) printf '%s\n' arm ;;
         *x86_64*|*amd64*) printf '%s\n' x86_64 ;;
         *i386*|*i686*|*x86*|*pentium*) printf '%s\n' x86 ;;
         *mips64el*|*mips64le*) return 1 ;;
@@ -535,6 +535,7 @@ awk '
         engine = path ~ /^usr\/lib\/z2k\/lib\/.+\.sh$/ ||
             path ~ /^usr\/lib\/z2k\/platform\/openwrt\/.+\.sh$/ ||
             path == "usr/lib/z2k/platform/openwrt/owned-paths.txt" ||
+            path == "usr/lib/z2k/platform/openwrt/tg-rust-targets.tsv" ||
             path == "usr/sbin/install_release" || path == "usr/bin/z2kow"
         if (safe && engine) print path
     }
@@ -550,6 +551,7 @@ for _required in \
     usr/lib/z2k/platform/openwrt/recover_boot.sh \
     usr/lib/z2k/platform/openwrt/bootstrap.sh \
     usr/lib/z2k/platform/openwrt/arch.sh \
+    usr/lib/z2k/platform/openwrt/tg-rust-targets.tsv \
     usr/lib/z2k/platform/openwrt/owned-paths.txt \
     usr/sbin/install_release usr/bin/z2kow; do
     grep -qx "$_required" "$_engine_files" \

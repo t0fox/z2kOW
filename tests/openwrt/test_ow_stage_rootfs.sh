@@ -50,10 +50,10 @@ for _arch in arm64 arm x86_64 x86 mips mipsel riscv64; do
         chmod 0755 "$T/$_kind/linux-$_arch/$_bin"
     done
 done
-for _arch in arm64 x86_64; do
-    mkdir -p "$T/tg/linux-$_arch"
-    printf '#!/bin/sh\nexit 0\n' > "$T/tg/linux-$_arch/tg-ws-proxy"
-    chmod 0755 "$T/tg/linux-$_arch/tg-ws-proxy"
+for _variant in $(awk 'NF == 10 && $1 !~ /^#/ {print $3}' "$ROOT/platform/openwrt/tg-rust-targets.tsv" | sort -u); do
+    mkdir -p "$T/tg/linux-$_variant"
+    printf '#!/bin/sh\nexit 0\n' > "$T/tg/linux-$_variant/tg-ws-proxy"
+    chmod 0755 "$T/tg/linux-$_variant/tg-ws-proxy"
 done
 printf 'MIT license fixture\n' > "$T/tg/LICENSE"
 printf 'upstream=test\n' > "$T/tg/PROVENANCE"
@@ -271,15 +271,18 @@ cmp -s "$T/release-keys/$_key_id.pub" \
     && _t_ok || _t_bad "obsolete generic update key is not shipped as a second authority"
 
 _tg_count=$(find "$T/stage/usr/lib/z2k/bin" -path '*/linux-*/*' -name tg-ws-proxy -type f | wc -l | tr -d ' ')
-assert_eq "Rust TG собран только для ARM64 и x86_64" "2" "$_tg_count"
+_expected_tg_count=$(awk 'NF == 10 && $1 !~ /^#/ {print $3}' "$ROOT/platform/openwrt/tg-rust-targets.tsv" | sort -u | wc -l | tr -d ' ')
+assert_eq "Rust TG содержит варианты из общей таблицы ABI" "$_expected_tg_count" "$_tg_count"
 _legacy_tg_count=$(find "$T/stage/usr/lib/z2k/bin" -path '*/linux-*/*' -name tg-mtproxy-client -type f | wc -l | tr -d ' ')
 assert_eq "OpenWrt staging не содержит Go Telegram-бинарник" "0" "$_legacy_tg_count"
 _legacy_name_count=$(tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Ec '(^|/)tg-mtproxy-client$' || true)
 assert_eq "архив чистого staging не содержит legacy-имя" "0" "$_legacy_name_count"
-for _arch in arm64 x86_64; do
-    [ -x "$T/stage/usr/lib/z2k/bin/linux-$_arch/tg-ws-proxy" ] \
-        && _t_ok || _t_bad "в Rust TG payload отсутствует linux-$_arch"
+for _variant in $(awk 'NF == 10 && $1 !~ /^#/ {print $3}' "$ROOT/platform/openwrt/tg-rust-targets.tsv" | sort -u); do
+    [ -x "$T/stage/usr/lib/z2k/bin/linux-$_variant/tg-ws-proxy" ] \
+        && _t_ok || _t_bad "в Rust TG payload отсутствует linux-$_variant"
 done
+assert_file "таблица выбора ABI включена в rootfs" \
+    "$T/stage/usr/lib/z2k/platform/openwrt/tg-rust-targets.tsv"
 for _kind in rt detect; do
     case "$_kind" in rt) _bin=z2k-rt-proxy ;; detect) _bin=z2k-detect ;; esac
     _count=$(find "$T/stage/usr/lib/z2k/bin" -path "*/linux-*/*" -name "$_bin" -type f | wc -l | tr -d ' ')

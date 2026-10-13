@@ -15,6 +15,7 @@ from typing import Iterator
 
 
 _ARCHES = ("arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64")
+_TG_TARGETS = Path(__file__).resolve().parents[2] / "platform" / "openwrt" / "tg-rust-targets.tsv"
 _BINARY_ROOTS = (
     PurePosixPath("opt/zapret2/binaries"),
     PurePosixPath("usr/lib/z2k/platform/openwrt/bin"),
@@ -125,12 +126,37 @@ def _tar_info(relative: PurePosixPath, source: Path) -> tarfile.TarInfo:
 def _matches_arch(relative: PurePosixPath, arch: str) -> bool:
     for binary_root in _BINARY_ROOTS:
         if _under(relative, binary_root):
+            if (
+                binary_root == PurePosixPath("usr/lib/z2k/bin")
+                and relative.name == "tg-ws-proxy"
+            ):
+                return relative.parent.name.removeprefix("linux-") in _tg_variants(arch)
             return all(
                 part == f"linux-{arch}"
                 for part in relative.relative_to(binary_root).parts
                 if part.startswith("linux-")
             )
     return True
+
+
+def _tg_variants(arch: str) -> set[str]:
+    """Получить варианты Rust-бинарника из общей таблицы OpenWrt/Rust ABI."""
+    variants: set[str] = set()
+    try:
+        for line_number, line in enumerate(_TG_TARGETS.read_text(encoding="utf-8").splitlines(), 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            fields = stripped.split()
+            if len(fields) != 10:
+                raise ValueError(f"неверная строка {_TG_TARGETS}:{line_number}")
+            if fields[1] == arch:
+                variants.add(fields[2])
+    except OSError as error:
+        raise ValueError(f"не удалось прочитать таблицу Rust TG: {_TG_TARGETS}: {error}") from error
+    if not variants:
+        raise ValueError(f"в таблице Rust TG не описана архитектура {arch}")
+    return variants
 
 
 def build_rootfs_bundle(staged_root: Path, output: Path, arch: str | None = None) -> None:

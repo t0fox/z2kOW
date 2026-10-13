@@ -246,8 +246,17 @@ class UnifiedArchitectureTests(unittest.TestCase):
         self.assertIn('name = "z2kow-tg-transparent"', (tg_crate / "Cargo.toml").read_text(encoding="utf-8"))
         self.assertTrue((tg_crate / "Cargo.lock").is_file())
         self.assertIn('build --locked', (ROOT / "scripts/openwrt/build_tg_ws_proxy.sh").read_text(encoding="utf-8"))
-        self.assertIn("aarch64-unknown-linux-musl", (ROOT / "scripts/openwrt/build_tg_ws_proxy.sh").read_text(encoding="utf-8"))
-        self.assertIn("x86_64-unknown-linux-musl", (ROOT / "scripts/openwrt/build_tg_ws_proxy.sh").read_text(encoding="utf-8"))
+        tg_targets = (ROOT / "platform/openwrt/tg-rust-targets.tsv").read_text(encoding="utf-8")
+        for target in (
+            "aarch64-unknown-linux-musl",
+            "armv5te-unknown-linux-musleabi",
+            "x86_64-unknown-linux-musl",
+            "i686-unknown-linux-musl",
+            "mips-unknown-linux-musl",
+            "mipsel-unknown-linux-musl",
+            "riscv64gc-unknown-linux-musl",
+        ):
+            self.assertIn(target, tg_targets)
         self.assertIn("rt-proxy", builder)
         self.assertIn("z2k-detect", builder)
         self.assertIn("RT_DIR", stage)

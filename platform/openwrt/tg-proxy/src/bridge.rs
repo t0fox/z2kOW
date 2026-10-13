@@ -3,7 +3,7 @@
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use cipher::StreamCipher;
@@ -214,8 +214,8 @@ pub(crate) async fn bridge_transparent_ws(
     let (mut client_read, mut client_write) = stream.into_split();
     let (ws_write, mut ws_read) = ws.split();
     let ws_write = Arc::new(AsyncMutex::new(ws_write));
-    let bytes_up = Arc::new(AtomicU64::new(0));
-    let bytes_down = Arc::new(AtomicU64::new(0));
+    let bytes_up = Arc::new(AtomicUsize::new(0));
+    let bytes_down = Arc::new(AtomicUsize::new(0));
     let activity = PayloadActivity::new();
     let response_state = Arc::new(AsyncMutex::new(MtprotoResponseState::NotSent));
 
@@ -235,7 +235,7 @@ pub(crate) async fn bridge_transparent_ws(
             {
                 return "не удалось отправить init по WSS".to_string();
             }
-            bytes_up.fetch_add(init.len() as u64, Ordering::Relaxed);
+            bytes_up.fetch_add(init.len(), Ordering::Relaxed);
             activity.touch();
 
             let (mut decrypt, mut encrypt) = transparent::direct_stream_ciphers(&init);
@@ -255,7 +255,7 @@ pub(crate) async fn bridge_transparent_ws(
                         return format!("ошибка кадрирования MTProto: {error}");
                     }
                     for frame in frames {
-                        let frame_len = frame.len() as u64;
+                        let frame_len = frame.len();
                         if let Err(error) =
                             send_application_frame(&ws_write, &response_state, &feedback, frame)
                                 .await
@@ -276,7 +276,7 @@ pub(crate) async fn bridge_transparent_ws(
                     {
                         return error;
                     }
-                    bytes_up.fetch_add(length as u64, Ordering::Relaxed);
+                    bytes_up.fetch_add(length, Ordering::Relaxed);
                     activity.touch();
                 }
             };
@@ -290,7 +290,7 @@ pub(crate) async fn bridge_transparent_ws(
                     );
                 }
                 for frame in splitter.flush() {
-                    let frame_len = frame.len() as u64;
+                    let frame_len = frame.len();
                     if let Err(error) =
                         send_application_frame(&ws_write, &response_state, &feedback, frame).await
                     {
@@ -329,7 +329,7 @@ pub(crate) async fn bridge_transparent_ws(
                             );
                             crate::routing::record_mtproto_response(&feedback, latency);
                         }
-                        let length = data.len() as u64;
+                        let length = data.len();
                         if let Err(error) = client_write.write_all(&data).await {
                             return format!("ошибка записи в TCP клиента: {error}");
                         }
@@ -337,7 +337,7 @@ pub(crate) async fn bridge_transparent_ws(
                         activity.touch();
                     }
                     Ok(Message::Text(data)) => {
-                        let length = data.len() as u64;
+                        let length = data.len();
                         if let Err(error) = client_write.write_all(data.as_bytes()).await {
                             return format!("ошибка записи текста WSS в TCP клиента: {error}");
                         }
@@ -617,18 +617,32 @@ mod tests {
         assert_eq!(dropped.load(Ordering::SeqCst), 2);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn activity_resets_the_idle_deadline() {
         let activity = PayloadActivity::new();
         let touched = activity.clone();
+        let (touch_tx, touch_rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(10)).await;
             touched.touch();
+            let _ = touch_tx.send(());
         });
         let started = tokio::time::Instant::now();
+        let idle = activity.idle_reached(Duration::from_millis(30));
+        tokio::pin!(idle);
 
-        activity.idle_reached(Duration::from_millis(30)).await;
+        tokio::select! {
+            _ = &mut idle => panic!("idle deadline fired before the scheduled payload"),
+            result = touch_rx => result.expect("payload task must signal its activity"),
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(29), &mut idle)
+                .await
+                .is_err()
+        );
+        tokio::time::advance(Duration::from_millis(1)).await;
+        idle.await;
 
-        assert!(started.elapsed() >= Duration::from_millis(35));
+        assert_eq!(started.elapsed(), Duration::from_millis(40));
     }
 }

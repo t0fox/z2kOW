@@ -51,7 +51,7 @@ z2k_ow_goarch() {
     case "$_s" in
         *aarch64*|*arm64*|*cortex-a53*|*cortex-a72*|*cortex-a76*)
             echo "arm64" ;;
-        *armv7*|*cortex-a7*|*cortex-a9*|*cortex-a15*)
+        *armv5*|*armv6*|*armv7*|*arm_xscale*|*arm_arm926ej-s*|*cortex-a*)
             echo "arm" ;;
         *x86_64*|*amd64*)
             echo "amd64" ;;
@@ -91,26 +91,42 @@ z2k_ow_warp_bin_path() {
 }
 
 
-# Rust TG WS Proxy собирается только для двух поддерживаемых архитектур OpenWrt.
-# Эта проверка отделена от старого сопоставления GOARCH, чтобы остальные
-# инструменты z2k продолжали работать на прежних платформах во время миграции.
-z2k_ow_tg_rust_target() {
-    local _s
-    _s="$(printf '%s' "${1:-$(z2k_ow_detect_arch)}" | tr 'A-Z' 'a-z')"
-    case "$_s" in
-        *aarch64*|*arm64*) printf '%s\n' aarch64-unknown-linux-musl ;;
-        *x86_64*|*amd64*) printf '%s\n' x86_64-unknown-linux-musl ;;
-        *) return 1 ;;
-    esac
+# Rust TG использует единый декларативный список для runtime-выбора и сборки.
+z2k_ow_tg_rust_lookup() {
+    local _source _field _table _pattern _family _variant _target _abi _linker _zig_target _cpu _std _flags
+    _source="$(printf '%s' "${1:-$(z2k_ow_detect_arch)}" | tr 'A-Z' 'a-z')"
+    _field="${2:-target}"
+    _table="${Z2K_OW_TG_TARGETS_FILE:-${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/tg-rust-targets.tsv}"
+    [ -r "$_table" ] || return 1
+    while read -r _pattern _family _variant _target _abi _linker _zig_target _cpu _std _flags; do
+        case "$_pattern" in ''|\#*) continue ;; esac
+        case "$_source" in
+            $_pattern)
+                case "$_field" in
+                    family) printf '%s\n' "$_family" ;;
+                    variant) printf '%s\n' "$_variant" ;;
+                    target) printf '%s\n' "$_target" ;;
+                    abi) printf '%s\n' "$_abi" ;;
+                    linker) printf '%s\n' "$_linker" ;;
+                    zig_target) printf '%s\n' "$_zig_target" ;;
+                    cpu) printf '%s\n' "$_cpu" ;;
+                    std) printf '%s\n' "$_std" ;;
+                    flags) printf '%s\n' "$_flags" ;;
+                    *) return 1 ;;
+                esac
+                return 0
+                ;;
+        esac
+    done < "$_table"
+    return 1
 }
 
+z2k_ow_tg_rust_target() { z2k_ow_tg_rust_lookup "${1:-$(z2k_ow_detect_arch)}" target; }
+z2k_ow_tg_rust_variant() { z2k_ow_tg_rust_lookup "${1:-$(z2k_ow_detect_arch)}" variant; }
+z2k_ow_tg_rust_abi() { z2k_ow_tg_rust_lookup "${1:-$(z2k_ow_detect_arch)}" abi; }
+
 z2k_ow_tg_rust_bin_path() {
-    local _root="$1" _target _arch
-    _target="$(z2k_ow_tg_rust_target "${2:-$(z2k_ow_detect_arch)}")" || return 1
-    case "$_target" in
-        aarch64-*) _arch=arm64 ;;
-        x86_64-*) _arch=x86_64 ;;
-        *) return 1 ;;
-    esac
-    printf '%s/linux-%s/tg-ws-proxy\n' "${_root%/}" "$_arch"
+    local _root="$1" _variant
+    _variant="$(z2k_ow_tg_rust_variant "${2:-$(z2k_ow_detect_arch)}")" || return 1
+    printf '%s/linux-%s/tg-ws-proxy\n' "${_root%/}" "$_variant"
 }

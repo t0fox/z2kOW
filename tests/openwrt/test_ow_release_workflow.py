@@ -128,6 +128,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('"$RUNNER_TEMP/openwrt-release-candidate"', prepare)
         self.assertIn('"$RUNNER_TEMP/openwrt-release-candidate"', publish)
         self.assertIn('--artifact-dir "$RUNNER_TEMP/openwrt-release-candidate"', publish)
+        self.assertIn("for arch in arm64 arm x86_64 x86 mips mipsel riscv64; do", prepare)
+        acceptance = (ROOT / "tests/openwrt/accept_release_candidate.py").read_text(encoding="utf-8")
+        self.assertIn("host_arch = sys.argv[3] if len(sys.argv) == 4 else \"x86_64\"", acceptance)
+        self.assertIn("accepted_arches.update(previous.get(\"architectures\", []))", acceptance)
 
     def test_transition_fallback_uses_checked_baseline_and_is_carried_by_the_candidate(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
@@ -183,6 +187,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('--production-baseline "$RUNNER_TEMP/production-UPDATES.json"', job)
         self.assertLess(build, attach)
         self.assertLess(attach, acceptance)
+        self.assertIn("for arch in arm64 arm x86_64 x86 mips mipsel riscv64; do", job)
 
     def test_openwrt_ci_requires_an_upgrade_from_the_previous_published_release(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")

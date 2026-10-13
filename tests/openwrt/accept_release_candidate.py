@@ -89,18 +89,18 @@ def check_installed_architecture(sysroot: Path, arch: str, label: str) -> None:
         sysroot / f"opt/zapret2/binaries/linux-{arch}/ip2net",
         sysroot / f"opt/zapret2/binaries/linux-{arch}/mdig",
     ]
-    if arch in {"arm64", "x86_64"}:
-        required.append(sysroot / f"usr/lib/z2k/bin/linux-{arch}/tg-ws-proxy")
+    required.append(sysroot / f"usr/lib/z2k/bin/linux-{arch}/tg-ws-proxy")
     missing = [str(path) for path in required if not path.is_file() or not os.access(path, os.X_OK)]
     if missing:
         raise RuntimeError(f"{label}: отсутствуют исполняемые файлы целевой архитектуры: {missing}")
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        print("Использование: accept_release_candidate.py UPDATES.json ARTIFACT_DIRECTORY", file=sys.stderr)
+    if len(sys.argv) not in {3, 4}:
+        print("Использование: accept_release_candidate.py UPDATES.json ARTIFACT_DIRECTORY [ARCH]", file=sys.stderr)
         return 2
-    manifest_source, artifact_dir = map(Path, sys.argv[1:])
+    manifest_source = Path(sys.argv[1])
+    artifact_dir = Path(sys.argv[2])
     artifact_dir = artifact_dir.resolve()
     original_manifest = json.loads(manifest_source.read_text(encoding="utf-8"))
     if not isinstance(original_manifest, dict):
@@ -114,13 +114,23 @@ def main() -> int:
     seq = int(manifest["seq"])
     if manifest.get("platform") != "openwrt" or set(manifest.get("artifacts", {})) != set(ARCHITECTURES):
         raise RuntimeError("кандидат должен содержать ровно семь архитектурных архивов OpenWrt")
-    host_arch = "x86_64"
+    host_arch = sys.argv[3] if len(sys.argv) == 4 else "x86_64"
+    distrib_arch = {
+        "arm64": "aarch64_cortex-a53",
+        "arm": "arm_cortex-a5",
+        "x86_64": "x86_64",
+        "x86": "i386_pentium4",
+        "mips": "mips_24kc",
+        "mipsel": "mipsel_24kc",
+        "riscv64": "riscv64_rva22",
+    }
+    if host_arch not in distrib_arch:
+        raise RuntimeError(f"неподдерживаемая архитектура приёмки: {host_arch}")
     selected_record = manifest["artifacts"][host_arch]
     selected_filename = str(selected_record["filename"])
     artifact_source = artifact_dir / selected_filename
     artifact_data = artifact_source.read_bytes()
     original_manifest_hash = hashlib.sha256(manifest_source.read_bytes()).hexdigest()
-    original_artifact_hash = hashlib.sha256(artifact_data).hexdigest()
 
     storage_root = Path(os.environ.get("RUNNER_TEMP", "/var/tmp")).resolve()
     storage_root.mkdir(parents=True, exist_ok=True)
@@ -215,7 +225,10 @@ esac
             '#!/bin/sh\nif [ -n "${Z2K_TEST_FAIL_HTTP_PROBES:-}" ]; then\n n=$(cat "$Z2K_TEST_HTTP_COUNT" 2>/dev/null || echo 0)\n n=$((n + 1)); printf "%s\\n" "$n" > "$Z2K_TEST_HTTP_COUNT"\n [ "$n" -le "$Z2K_TEST_FAIL_HTTP_PROBES" ] && exit 1\nfi\nexec curl --fail --silent --show-error --connect-timeout 2 --max-time 4 -o /dev/null "$Z2K_TEST_PANEL_URL"\n',
         )
         release_file = work / "openwrt_release"
-        release_file.write_text("DISTRIB_ID='OpenWrt'\nDISTRIB_RELEASE='25.12.5'\nDISTRIB_ARCH='x86_64'\n", encoding="utf-8")
+        release_file.write_text(
+            f"DISTRIB_ID='OpenWrt'\nDISTRIB_RELEASE='25.12.5'\nDISTRIB_ARCH='{distrib_arch[host_arch]}'\n",
+            encoding="utf-8",
+        )
         (sysroot / "etc/z2k/config").write_text("ENABLED=0\n# сохраняемый пользовательский параметр\n", encoding="utf-8")
         (sysroot / "etc/z2k/user-lists/custom.txt").parent.mkdir(parents=True, exist_ok=True)
         (sysroot / "etc/z2k/user-lists/custom.txt").write_text("user-domain.example\n", encoding="utf-8")
@@ -273,13 +286,13 @@ esac
             run(["sh", "-eu", "-c", '. "$Z2K_ADAPTER_DIR/paths.sh"; . "$Z2K_ADAPTER_DIR/bootstrap.sh"; z2k_ow_bootstrap'], bootstrap_env, label)
             for pair in ("nfq2/nfqws2", "ip2net/ip2net", "mdig/mdig"):
                 link = sysroot / "opt/zapret2" / pair
-                binary = sysroot / "opt/zapret2/binaries/linux-x86_64" / pair.split("/")[1]
+                binary = sysroot / f"opt/zapret2/binaries/linux-{host_arch}" / pair.split("/")[1]
                 if not link.is_symlink() or not link.is_file() or not os.access(link, os.X_OK) or link.resolve() != binary.resolve():
                     raise RuntimeError(f"bootstrap создал неверную runtime-ссылку: {link}")
 
         check_bootstrap("настоящий bootstrap и runtime-ссылки после свежей установки")
 
-        installed_binary = sysroot / "usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy"
+        installed_binary = sysroot / f"usr/lib/z2k/bin/linux-{host_arch}/tg-ws-proxy"
         if not installed_binary.is_file() or not os.access(installed_binary, os.X_OK):
             raise RuntimeError("в свежей установке отсутствует исполняемый файл x86_64")
         binary_hash = hashlib.sha256(installed_binary.read_bytes()).hexdigest()
@@ -345,18 +358,33 @@ esac
             raise RuntimeError("реальный entrypoint не прошёл через проверочный обработчик служб")
         print("ПРОЙДЕНО: настройки, пользовательские списки, LuCI, uhttpd и соседний временный файл сохранены")
         print("СТЕНД: временный rootfs Linux; apk, procd и приложение WebPanel заменены заглушками; проверка роутера не выполнялась.")
+        receipt_path = manifest_source.parent / "candidate-acceptance.json"
+        accepted_arches = {host_arch}
+        if receipt_path.is_file():
+            try:
+                previous = json.loads(receipt_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                previous = {}
+            if (
+                previous.get("manifest_sha256") == original_manifest_hash
+                and previous.get("asset_sha256") == original_asset_hashes
+                and previous.get("tag") == tag
+                and previous.get("seq") == seq
+            ):
+                accepted_arches.update(previous.get("architectures", []))
         receipt = {
             "schema": 1,
             "result": "passed",
             "environment": "staged-linux-rootfs",
             "router_verified": False,
+            "architectures": sorted(accepted_arches),
             "tag": tag,
             "seq": seq,
             "manifest_sha256": original_manifest_hash,
-            "artifact_sha256": original_artifact_hash,
+            "artifact_sha256": original_asset_hashes[manifest["artifacts"]["x86_64"]["filename"]],
             "asset_sha256": original_asset_hashes,
         }
-        (manifest_source.parent / "candidate-acceptance.json").write_text(
+        receipt_path.write_text(
             json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
         print("ПРОЙДЕНО: квитанция связана с исходным манифестом и точным набором архивов")

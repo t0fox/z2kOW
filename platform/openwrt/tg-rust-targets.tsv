@@ -1,0 +1,18 @@
+# Шаблон OpenWrt DISTRIB_ARCH | семейство payload | каталог бинарника | Rust target | ABI и минимум ISA | linker | цель Zig | CPU | режим std | флаги linker
+aarch64*	arm64	arm64	aarch64-unknown-linux-musl	AArch64-LP64-musl	zig	aarch64-linux-musl	generic	prebuilt	-static,-latomic
+arm_arm926ej-s*	arm	arm	armv5te-unknown-linux-musleabi	ARMv5TE-EABI-soft-musl	openwrt-armv5	-	xscale	prebuilt	-static,-latomic
+arm_xscale*	arm	arm	armv5te-unknown-linux-musleabi	ARMv5TE-EABI-soft-musl	openwrt-armv5	-	xscale	prebuilt	-static,-latomic
+armv5*	arm	arm	armv5te-unknown-linux-musleabi	ARMv5TE-EABI-soft-musl	openwrt-armv5	-	xscale	prebuilt	-static,-latomic
+armv6*	arm	arm	armv5te-unknown-linux-musleabi	ARMv5TE-EABI-soft-musl	openwrt-armv5	-	xscale	prebuilt	-static,-latomic
+armv7*	arm	arm	armv5te-unknown-linux-musleabi	ARMv5TE-EABI-soft-musl	openwrt-armv5	-	xscale	prebuilt	-static,-latomic
+arm_cortex-a*	arm	arm	armv5te-unknown-linux-musleabi	ARMv5TE-EABI-soft-musl	openwrt-armv5	-	xscale	prebuilt	-static,-latomic
+x86_64*	x86_64	x86_64	x86_64-unknown-linux-musl	x86_64-musl	zig	x86_64-linux-musl	x86_64	prebuilt	-static
+amd64*	x86_64	x86_64	x86_64-unknown-linux-musl	x86_64-musl	zig	x86_64-linux-musl	x86_64	prebuilt	-static
+i386_pentium4*	x86	x86	i686-unknown-linux-musl	i686-Pentium4-SSE2-musl	zig	x86-linux-musl	pentium4	prebuilt	-static
+mips_24kc*	mips	mips	mips-unknown-linux-musl	MIPS32r2-O32-soft-big-musl	openwrt-mips	-	mips32r2	build-std	-static
+mips_74kc*	mips	mips	mips-unknown-linux-musl	MIPS32r2-O32-soft-big-musl	openwrt-mips	-	mips32r2	build-std	-static
+mips_1004kc*	mips	mips	mips-unknown-linux-musl	MIPS32r2-O32-soft-big-musl	openwrt-mips	-	mips32r2	build-std	-static
+mipsel_24kc*	mipsel	mipsel	mipsel-unknown-linux-musl	MIPS32r2-O32-soft-little-musl	openwrt-mipsel	-	mips32r2	build-std	-static
+mipsel_74kc*	mipsel	mipsel	mipsel-unknown-linux-musl	MIPS32r2-O32-soft-little-musl	openwrt-mipsel	-	mips32r2	build-std	-static
+mipsel_1004kc*	mipsel	mipsel	mipsel-unknown-linux-musl	MIPS32r2-O32-soft-little-musl	openwrt-mipsel	-	mips32r2	build-std	-static
+riscv64_rva22*	riscv64	riscv64	riscv64gc-unknown-linux-musl	RV64GC-LP64D-musl	zig	riscv64-linux-musl	generic_rv64+a+f+d+c	prebuilt	-static

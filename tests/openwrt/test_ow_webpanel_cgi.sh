@@ -21,7 +21,7 @@ export PATH="$T/bin:$PATH"
 export Z2K_PANEL_EXTRA_PATH="$T/bin"
 
 # --- adapter farm (настоящие файлы слоя) ---
-for _f in paths.sh env.sh arch.sh manifest.sh release_state.sh release.sh update.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh doh.sh dnsproxy.sh diag.sh offload-benchmark.sh offload-observe.sh; do
+for _f in paths.sh env.sh arch.sh tg-rust-targets.tsv manifest.sh release_state.sh release.sh update.sh warp.sh tg.sh rt.sh firewall.sh customd.sh uci.sh schedule.sh uninstall.sh webpanel.sh panel.sh tiktok.sh doh.sh dnsproxy.sh diag.sh offload-benchmark.sh offload-observe.sh; do
     ln -s "$REPO/platform/openwrt/$_f" "$T/root/platform/openwrt/$_f" 2>/dev/null
 done
 ln -s "$REPO/platform/openwrt/warp-proc.sh" "$T/root/platform/openwrt/warp-proc.sh" 2>/dev/null
@@ -808,7 +808,7 @@ assert_contains "exclude файл" "$T/etc/user-lists/exclude.txt" "9.9.9.9"
 # --- TG disable/enable через Stage-3 контракт (WP12) ---
 : > "$T/init.log"
 printf 'TG_PROXY_USER_DISABLED=1\n' > "$T/etc/config"
-export Z2K_OW_ARCH=mips
+export Z2K_OW_ARCH=i386_geode
 RAW="$(_cgi GET /status)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "статус сообщает о неподдерживаемой архитектуре" "Тип не поддерживается" "$(_jget "$OUT" 'd["tunnel"]["status"]')"
 assert_eq "статус сообщает о недоступности Rust-прокси" "false" "$(_jget "$OUT" 'd["tunnel"]["supported"]')"

@@ -18,6 +18,15 @@ SPEC.loader.exec_module(MODULE)
 
 
 ARCHES = ("arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64")
+TG_VARIANTS = {
+    "arm64": ("arm64",),
+    "arm": ("arm",),
+    "x86_64": ("x86_64",),
+    "x86": ("x86",),
+    "mips": ("mips",),
+    "mipsel": ("mipsel",),
+    "riscv64": ("riscv64",),
+}
 BINARY_ROOTS = (
     "opt/zapret2/binaries",
     "usr/lib/z2k/platform/openwrt/bin",
@@ -96,10 +105,11 @@ class PayloadBundleTests(unittest.TestCase):
                     name = f"{root}/linux-{arch}/{executable}"
                     self.add(name)
                     (self.stage / name).chmod(0o755)
-        for arch in ("arm64", "x86_64"):
-            name = f"usr/lib/z2k/bin/linux-{arch}/tg-ws-proxy"
-            self.add(name, arch.encode())
-            (self.stage / name).chmod(0o755)
+        for arch, variants in TG_VARIANTS.items():
+            for variant in variants:
+                name = f"usr/lib/z2k/bin/linux-{variant}/tg-ws-proxy"
+                self.add(name, variant.encode())
+                (self.stage / name).chmod(0o755)
         for arch in ARCHES:
             name = f"usr/lib/z2k/bin/linux-{arch}/tg-mtproxy-client"
             self.add(name, b"#!/bin/sh\nexit 126\n")
@@ -131,14 +141,18 @@ class PayloadBundleTests(unittest.TestCase):
                         self.assertEqual(0o755, members[name].mode)
                         self.assertEqual(arch.encode(), bundle.extractfile(name).read())
                         for name in members:
-                            if name.startswith(root + "/"):
+                            if name.startswith(root + "/") and not name.endswith("/tg-ws-proxy"):
                                 self.assertTrue(all(part == f"linux-{arch}" for part in Path(name).parts if part.startswith("linux-")), name)
-                    tg_binary = f"usr/lib/z2k/bin/linux-{arch}/tg-ws-proxy"
-                    if arch in ("arm64", "x86_64"):
+                    selected_tg = TG_VARIANTS[arch]
+                    for variant in selected_tg:
+                        tg_binary = f"usr/lib/z2k/bin/linux-{variant}/tg-ws-proxy"
                         self.assertIn(tg_binary, members)
-                        self.assertEqual(arch.encode(), bundle.extractfile(tg_binary).read())
-                    else:
-                        self.assertNotIn(tg_binary, members)
+                        self.assertEqual(variant.encode(), bundle.extractfile(tg_binary).read())
+                    for other_arch, variants in TG_VARIANTS.items():
+                        if other_arch == arch:
+                            continue
+                        for variant in variants:
+                            self.assertNotIn(f"usr/lib/z2k/bin/linux-{variant}/tg-ws-proxy", members)
                     legacy_path = f"usr/lib/z2k/bin/linux-{arch}/tg-mtproxy-client"
                     self.assertNotIn(legacy_path, members)
                     for root, binaries in (

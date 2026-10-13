@@ -11,6 +11,22 @@ trap 'rm -rf "$T"' EXIT INT TERM
 BIN="$T/bin"; TMPDIR="$T/tmp"; SYS="$T/sys"
 mkdir -p "$BIN" "$TMPDIR" "$SYS/etc/init.d" "$SYS/etc/z2k/state" "$SYS/www/luci-static"
 
+sed -n '/^z2k_ow_bootstrap_arch() {/,/^}/p' "$INSTALLER" > "$T/bootstrap-arch.sh"
+. "$T/bootstrap-arch.sh"
+for _spec in \
+    'aarch64_cortex-a53|arm64' \
+    'arm_cortex-a5|arm' \
+    'x86_64|x86_64' \
+    'i386_pentium4|x86' \
+    'mips_24kc|mips' \
+    'mipsel_24kc|mipsel' \
+    'riscv64_rva22|riscv64'; do
+    DISTRIB_ARCH=${_spec%%|*}
+    assert_eq "initial bootstrap selects ${_spec#*|} for $DISTRIB_ARCH" \
+        "${_spec#*|}" "$(z2k_ow_bootstrap_arch)"
+done
+unset DISTRIB_ARCH
+
 command -v openssl >/dev/null 2>&1 || { _t_bad "openssl unavailable"; _t_done; exit $?; }
 openssl genpkey -algorithm ED25519 -out "$T/test.key" >/dev/null 2>&1 || exit 1
 openssl pkey -in "$T/test.key" -pubout -out "$T/test.pub" >/dev/null 2>&1 || exit 1
@@ -23,6 +39,7 @@ cat > "$T/payload/usr/sbin/install_release" <<'ENGINE'
 [ "$#" = 1 ] || exit 2
 printf '%s\n' "$1" > "$Z2K_TEST_INSTALL_CALL"
 [ -r "$Z2K_ADAPTER_DIR/arch.sh" ] || exit 4
+[ -r "$Z2K_ADAPTER_DIR/tg-rust-targets.tsv" ] || exit 5
 [ -s "$Z2K_OW_BOOTSTRAP_MANIFEST" ] && [ -s "$Z2K_OW_BOOTSTRAP_SIGNATURE" ] \
     && [ -s "$Z2K_OW_BOOTSTRAP_ARTIFACT" ] \
     && [ -s "$Z2K_OW_BOOTSTRAP_PUBLIC_KEY" ] || exit 3
@@ -36,6 +53,7 @@ for f in paths.sh env.sh manifest.sh release_state.sh release.sh recover_boot.sh
     printf '#!/bin/sh\n' > "$T/payload/usr/lib/z2k/platform/openwrt/$f"
 done
 cp "$REPO/platform/openwrt/arch.sh" "$T/payload/usr/lib/z2k/platform/openwrt/arch.sh" || exit 1
+cp "$REPO/platform/openwrt/tg-rust-targets.tsv" "$T/payload/usr/lib/z2k/platform/openwrt/tg-rust-targets.tsv" || exit 1
 printf '/usr/lib/z2k\n' > "$T/payload/usr/lib/z2k/platform/openwrt/owned-paths.txt"
 tar -czf "$T/openwrt-rootfs.tar.gz" -C "$T/payload" \
     usr/sbin/install_release usr/bin/z2kow usr/lib/z2k/lib/utils.sh usr/lib/z2k/lib/auto_update.sh \
@@ -43,6 +61,7 @@ tar -czf "$T/openwrt-rootfs.tar.gz" -C "$T/payload" \
     usr/lib/z2k/platform/openwrt/manifest.sh usr/lib/z2k/platform/openwrt/release_state.sh \
     usr/lib/z2k/platform/openwrt/release.sh usr/lib/z2k/platform/openwrt/recover_boot.sh \
     usr/lib/z2k/platform/openwrt/bootstrap.sh usr/lib/z2k/platform/openwrt/arch.sh \
+    usr/lib/z2k/platform/openwrt/tg-rust-targets.tsv \
     usr/lib/z2k/platform/openwrt/owned-paths.txt
 ARTIFACT_SHA="$(sha256sum "$T/openwrt-rootfs.tar.gz" | awk '{print $1}')"
 ARTIFACT_SIZE="$(wc -c < "$T/openwrt-rootfs.tar.gz" | tr -d ' \t\r\n')"

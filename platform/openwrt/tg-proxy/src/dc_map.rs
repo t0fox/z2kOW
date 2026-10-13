@@ -6,7 +6,7 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -17,7 +17,7 @@ const CACHE_MAX_AGE_SECS: i64 = 90 * 24 * 60 * 60;
 const RETAIN_OLD_OPTION_SECS: i64 = 90 * 24 * 60 * 60;
 const FUTURE_CLOCK_TOLERANCE_SECS: i64 = 5 * 60;
 
-static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static TEMP_FILE_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
 
 /// Одна запись `dcOption`, полученная из официального `help.getConfig`.
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -631,7 +631,7 @@ mod tests {
     use std::net::IpAddr;
     use std::path::PathBuf;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::{
         DcEndpoint, DcMapStore, DcSnapshot, RouteLookupError, endpoint_pairs, lookup_endpoint,
@@ -780,7 +780,7 @@ mod tests {
     }
 
     fn test_directory(label: &str) -> PathBuf {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
         let directory = std::env::temp_dir().join(format!(
             "tg-dc-map-{label}-{}-{}",
             std::process::id(),
