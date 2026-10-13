@@ -94,65 +94,107 @@ function renderTgStats(snapshot, error = "") {
     clearTgNode(details);
     return;
   }
-  const responseKnown = Number(snapshot.last_mtproto_response_at) > 0;
   summary.textContent = snapshot.listener_ready
-    ? `Процесс запущен, listener готов; проверенный MTProto-ответ ${responseKnown ? new Date(snapshot.last_mtproto_response_at * 1000).toLocaleString() : "ещё не получен"}.`
-    : `Процесс статистики ответил, listener не готов; проверенный MTProto-ответ ${responseKnown ? new Date(snapshot.last_mtproto_response_at * 1000).toLocaleString() : "ещё не получен"}.`;
-  const rows = [
-    ["Соединения", `${snapshot.active_connections}/${snapshot.max_connections} активны; принято ${snapshot.accepted_connections}`],
-    ["MTProto", `успехов ${snapshot.mtproto_success}; ошибок ${snapshot.mtproto_failure}; WSS ${snapshot.wss_established}`],
-    ["Память процесса", snapshot.rss_kib == null ? "RSS недоступен" : `RSS ${snapshot.rss_kib} KiB · максимум ${snapshot.rss_hwm_kib ?? "—"} KiB`],
-    ["Карта DC", `поколение ${snapshot.dc_map?.generation ?? 0}; возраст ${snapshot.dc_map?.freshness_seconds == null ? "неизвестен" : `${snapshot.dc_map.freshness_seconds} с`}`],
-    ["CF pool", `${snapshot.cf_domain_pool?.domains?.length ?? 0} доменов; возраст ${snapshot.cf_domain_pool?.freshness_seconds == null ? "неизвестен" : `${snapshot.cf_domain_pool.freshness_seconds} с`}`],
-  ];
-  const table = document.createElement("table");
-  table.className = "tg-runtime-table";
-  table.setAttribute("aria-label", "Статистика Telegram");
-  const body = document.createElement("tbody");
-  rows.forEach(([key, value]) => {
-    const row = document.createElement("tr");
-    const label = document.createElement("th");
-    const cell = document.createElement("td");
-    label.textContent = key;
-    cell.textContent = value;
-    appendTgNodes(row, label, cell);
-    body.appendChild(row);
-  });
-  Object.entries(snapshot.sessions_by_dc_transport || {}).forEach(([key, value]) => {
-    const row = document.createElement("tr");
-    const label = document.createElement("th");
-    const cell = document.createElement("td");
-    label.textContent = `Маршрут ${key}`;
-    cell.textContent = `${value} успешных сессий`;
-    appendTgNodes(row, label, cell);
-    body.appendChild(row);
-  });
-  Object.entries(snapshot.ttfb || {}).forEach(([key, value]) => {
-    const row = document.createElement("tr");
-    const label = document.createElement("th");
-    const cell = document.createElement("td");
-    label.textContent = `TTFB ${key}`;
-    cell.textContent = `p50 ${value.p50_ms} · p95 ${value.p95_ms} · p99 ${value.p99_ms} мс (n=${value.count})`;
-    appendTgNodes(row, label, cell);
-    body.appendChild(row);
-  });
-  Object.entries(snapshot.failures || {}).forEach(([key, value]) => {
-    const row = document.createElement("tr");
-    const label = document.createElement("th");
-    const cell = document.createElement("td");
-    label.textContent = `Ошибки ${key}`;
-    cell.textContent = String(value);
-    appendTgNodes(row, label, cell);
-    body.appendChild(row);
-  });
-  table.appendChild(body);
+    ? "Процесс запущен · listener готов принимать соединения."
+    : "Процесс статистики отвечает · listener не готов.";
+
+  const makeFact = (labelText, valueText, noteText = "") => {
+    const item = document.createElement("div");
+    item.className = "tg-summary-item";
+    const label = document.createElement("span");
+    label.className = "tg-summary-label";
+    label.textContent = labelText;
+    const value = document.createElement("strong");
+    value.className = "tg-summary-value";
+    value.textContent = valueText;
+    appendTgNodes(item, label, value);
+    if (noteText) {
+      const note = document.createElement("span");
+      note.className = "tg-summary-note";
+      note.textContent = noteText;
+      item.appendChild(note);
+    }
+    return item;
+  };
+  const age = snapshot.dc_map?.freshness_seconds;
+  const memory = snapshot.rss_kib == null ? "Недоступна" : `${(Number(snapshot.rss_kib) / 1024).toFixed(1)} МиБ`;
+  const grid = document.createElement("div");
+  grid.className = "tg-summary-grid";
+  grid.setAttribute("aria-label", "Краткая статистика Telegram");
+  appendTgNodes(grid,
+    makeFact("Активные соединения", `${snapshot.active_connections ?? 0} / ${snapshot.max_connections ?? "—"}`),
+    makeFact("Сессии с ответом", String(snapshot.mtproto_success ?? 0), "Первый непустой WSS Binary кадр; не подтверждает resPQ."),
+    makeFact("Память процесса", memory, "Текущий RSS"),
+    makeFact("Карта DC", age == null ? "Возраст неизвестен" : `${age} с назад`, "Последнее обновление карты"),
+  );
+
+  const technical = document.createElement("details");
+  technical.className = "tg-technical disclosure";
+  const technicalSummary = document.createElement("summary");
+  technicalSummary.textContent = "Техническая статистика";
+  const technicalBody = document.createElement("div");
+  technicalBody.className = "disclosure-body tg-technical-body";
+  const note = document.createElement("p");
+  note.className = "tg-runtime-note";
+  note.textContent = "Накопленная статистика процесса считает события с момента запуска; это не число текущих неисправностей. Счётчик ответа фиксирует первый непустой WSS Binary кадр и не заменяет активную проверку resPQ.";
+  technicalBody.appendChild(note);
+
+  const appendTechnicalRow = (container, labelText, key, value) => {
+    const row = document.createElement("div");
+    row.className = "tg-technical-row";
+    const label = document.createElement("span");
+    label.className = "tg-technical-label";
+    label.textContent = labelText;
+    const detail = document.createElement("span");
+    detail.className = "tg-technical-value";
+    const exactKey = document.createElement("code");
+    exactKey.textContent = key;
+    const exactValue = document.createElement("span");
+    exactValue.textContent = value == null || value === "" ? "—" : String(value);
+    appendTgNodes(detail, exactKey, exactValue);
+    appendTgNodes(row, label, detail);
+    container.appendChild(row);
+  };
+  const appendSection = (titleText, rows) => {
+    const section = document.createElement("section");
+    section.className = "tg-technical-section";
+    const title = document.createElement("h5");
+    title.textContent = titleText;
+    section.appendChild(title);
+    rows.forEach(([label, key, value]) => appendTechnicalRow(section, label, key, value));
+    technicalBody.appendChild(section);
+  };
+
+  appendSection("Процесс и соединения", [
+    ["Запущен", "process_started_at", snapshot.process_started_at ? tgTimestampLabel(snapshot.process_started_at) : "неизвестно"],
+    ["Listener готов", "listener_ready", snapshot.listener_ready],
+    ["Активные / максимум", "active_connections / max_connections", `${snapshot.active_connections ?? 0} / ${snapshot.max_connections ?? "—"}`],
+    ["Принято соединений", "accepted_connections", snapshot.accepted_connections],
+    ["Установлено WSS", "wss_established", snapshot.wss_established],
+    ["Сессии с первым ответом", "mtproto_success", snapshot.mtproto_success],
+    ["Ошибки сессий", "mtproto_failure", snapshot.mtproto_failure],
+    ["Последний первый кадр", "last_mtproto_response_at", tgTimestampLabel(snapshot.last_mtproto_response_at)],
+    ["RSS / максимум RSS", "rss_kib / rss_hwm_kib", `${snapshot.rss_kib ?? "—"} / ${snapshot.rss_hwm_kib ?? "—"} KiB`],
+  ]);
+  appendSection("Карта DC и CF", [
+    ["Поколение карты", "generation", snapshot.dc_map?.generation ?? 0],
+    ["Получена карта", "fetched_at", tgTimestampLabel(snapshot.dc_map?.fetched_at)],
+    ["Возраст карты, секунд", "freshness_seconds", snapshot.dc_map?.freshness_seconds],
+    ["Доменов CF", "cf_domain_pool.domains", snapshot.cf_domain_pool?.domains?.length ?? 0],
+    ["Возраст CF-пула, секунд", "cf_domain_pool.freshness_seconds", snapshot.cf_domain_pool?.freshness_seconds],
+  ]);
+  appendSection("Сессии по маршрутам", Object.entries(snapshot.sessions_by_dc_transport || {}).map(([key, value]) => ["Количество сессий", key, value]));
+  appendSection("Задержка первого ответа (TTFB)", Object.entries(snapshot.ttfb || {}).map(([key, value]) => [
+    "p50 / p95 / p99, мс", key,
+    `p50 ${value.p50_ms ?? "—"} · p95 ${value.p95_ms ?? "—"} · p99 ${value.p99_ms ?? "—"} · n=${value.count ?? 0}`,
+  ]));
+  appendSection("Ошибки по причинам · накопленные счётчики", Object.entries(snapshot.failures || {}).map(([key, value]) => ["Число с запуска процесса", key, value]));
+  appendSection("Состояние Worker", Object.entries(snapshot.workers || {}).map(([key, value]) => [
+    key, "workers", `${value.state || "не проверялся"}; успех ${tgTimestampLabel(value.last_success_at)}; отказ ${tgTimestampLabel(value.last_failure_at)}${value.last_failure ? `; причина: ${value.last_failure}` : ""}`,
+  ]));
+  appendTgNodes(technical, technicalSummary, technicalBody);
   clearTgNode(details);
-  const scroll = document.createElement("div");
-  scroll.className = "tg-table-scroll";
-  scroll.tabIndex = 0;
-  scroll.setAttribute("aria-label", "Таблица статистики Telegram; для просмотра используйте горизонтальную прокрутку");
-  scroll.appendChild(table);
-  details.appendChild(scroll);
+  appendTgNodes(details, grid, technical);
   renderTgWorkers(tgConfiguredWorkers, snapshot);
 }
 
@@ -179,58 +221,104 @@ function renderTgDiagnostics(report) {
     ? `Результат проверки устарел (${tgTimestampLabel(report.checked_at)}). Запустите проверку снова. В свежем отчёте успех подтверждается только ответом MTProto resPQ.`
     : `Итог: ${report.state}; проверено ${tgTimestampLabel(report.checked_at)}. Успех подтверждается только ответом MTProto resPQ.`;
   container.appendChild(summary);
-  const table = document.createElement("table");
-  table.className = "tg-diagnostics-table";
-  table.setAttribute("aria-label", "Результаты диагностики Telegram DC1–DC5");
-  const head = document.createElement("thead");
-  const header = document.createElement("tr");
-  ["DC", "Маршрут", "Состояние", "Домен / IP", "Этапы и задержки", "Причина"].forEach((text) => {
-    const cell = document.createElement("th");
-    cell.textContent = text;
-    header.appendChild(cell);
-  });
-  head.appendChild(header);
-  table.appendChild(head);
-  const body = document.createElement("tbody");
   const states = { healthy: "Проверен", blocked: "Блокируется", unavailable: "Недоступен", unverified: "Не проверен" };
-  (report.data_centers || []).forEach((dc) => (dc.routes || []).forEach((route) => {
-    const row = document.createElement("tr");
-    const values = [
-      `DC${dc.dc}`,
-      route.transport,
-      stale ? `Устарел · ранее ${states[route.state] || route.state}` : states[route.state] || route.state,
-      route.domain || route.selected_ip || "—",
-      [
-        route.dns_ms == null ? "" : `DNS ${route.dns_ms} мс`,
-        route.tcp_ms == null ? "" : `TCP ${route.tcp_ms} мс`,
-        route.tls_ms == null ? "" : `TLS ${route.tls_ms} мс`,
-        route.websocket_ms == null ? "" : `WS ${route.websocket_ms} мс`,
-        route.mtproto_ms == null ? "" : `MTProto ${route.mtproto_ms} мс`,
-      ].filter(Boolean).join(" · ") || "—",
-      route.reason || route.failed_stage || "—",
-    ];
-    values.forEach((value, index) => {
-      const cell = document.createElement("td");
-      if (index === 2) {
-        const state = document.createElement("span");
-        const stateClass = stale ? "tg-status--stale" : route.state === "healthy" ? "tg-status--healthy" : route.state === "blocked" || route.state === "unavailable" ? "tg-status--unavailable" : "tg-status--unverified";
-        state.className = `tg-route-state ${stateClass}`;
-        state.textContent = value;
-        cell.appendChild(state);
-      } else {
-        cell.textContent = value;
-      }
-      row.appendChild(cell);
+  const transports = {
+    "direct-wss": "Прямой WSS", "cf-worker": "Cloudflare Worker",
+    "cf-proxy": "Cloudflare proxy", "tcp-fallback": "TCP fallback",
+  };
+  const routeFieldLabels = {
+    transport: "Транспорт", domain: "Домен", selected_ip: "Выбранный IP",
+    state: "Состояние маршрута", failed_stage: "Этап отказа", http_status: "HTTP статус",
+    reason: "Причина", dns_ms: "DNS, мс", tcp_ms: "TCP connect, мс",
+    tls_ms: "TLS, мс", websocket_ms: "WebSocket upgrade, мс", mtproto_ms: "MTProto ответ, мс",
+  };
+  const centers = new Map((report.data_centers || []).map((dc) => [Number(dc.dc), dc]));
+  const list = document.createElement("div");
+  list.className = "tg-dc-list";
+  list.setAttribute("aria-label", "Результаты диагностики Telegram DC1–DC5");
+  const formatValue = (value) => {
+    if (value == null || value === "") return "—";
+    if (typeof value === "object") return JSON.stringify(value);
+    return String(value);
+  };
+  const stateClass = (state) => state === "healthy" ? "tg-status--healthy"
+    : state === "blocked" || state === "unavailable" ? "tg-status--unavailable" : "tg-status--unverified";
+  for (let dcNumber = 1; dcNumber <= 5; dcNumber += 1) {
+    const dc = centers.get(dcNumber) || { dc: dcNumber, state: "unverified", routes: [] };
+    const routes = Array.isArray(dc.routes) ? dc.routes : [];
+    const details = document.createElement("details");
+    details.className = "tg-dc-row";
+    const summaryRow = document.createElement("summary");
+    summaryRow.className = "tg-dc-summary";
+    const name = document.createElement("strong");
+    name.className = "tg-dc-name";
+    name.textContent = `DC${dcNumber}`;
+    const state = document.createElement("span");
+    const displayState = states[dc.state] || dc.state || "Не проверен";
+    state.className = `tg-route-state ${stale ? "tg-status--stale" : stateClass(dc.state)}`;
+    state.textContent = stale ? `Устарел · ранее ${displayState}` : displayState;
+    const count = document.createElement("span");
+    count.className = "tg-dc-route-count";
+    count.textContent = `${routes.length} ${routes.length === 1 ? "маршрут" : routes.length >= 2 && routes.length <= 4 ? "маршрута" : "маршрутов"}`;
+    appendTgNodes(summaryRow, name, state, count);
+    details.appendChild(summaryRow);
+    const routeList = document.createElement("div");
+    routeList.className = "tg-dc-routes";
+    if (!routes.length) {
+      const empty = document.createElement("p");
+      empty.className = "tg-dc-empty";
+      empty.textContent = "Для этого DC маршруты не получены.";
+      routeList.appendChild(empty);
+    }
+    routes.forEach((route) => {
+      const routeDetails = document.createElement("article");
+      routeDetails.className = "tg-dc-route";
+      const routeSummary = document.createElement("div");
+      routeSummary.className = "tg-dc-route-heading";
+      const transport = document.createElement("strong");
+      transport.textContent = transports[route.transport] || route.transport || "Маршрут без типа";
+      const routeStatus = document.createElement("span");
+      routeStatus.className = `tg-route-state ${stale ? "tg-status--stale" : stateClass(route.state)}`;
+      routeStatus.textContent = stale ? `Устарел · ранее ${states[route.state] || route.state || "неизвестен"}` : states[route.state] || route.state || "Не проверен";
+      appendTgNodes(routeSummary, transport, routeStatus);
+      routeDetails.appendChild(routeSummary);
+      const fields = document.createElement("dl");
+      fields.className = "tg-dc-route-fields";
+      Object.entries(route).forEach(([key, value]) => {
+        const row = document.createElement("div");
+        row.className = "tg-dc-route-field";
+        const label = document.createElement("dt");
+        label.textContent = routeFieldLabels[key] || key;
+        const content = document.createElement("dd");
+        const exactKey = document.createElement("code");
+        exactKey.textContent = key;
+        const exactValue = document.createElement("span");
+        exactValue.textContent = key === "http_status" && value != null ? `HTTP ${value}` : formatValue(value);
+        appendTgNodes(content, exactKey, exactValue);
+        appendTgNodes(row, label, content);
+        fields.appendChild(row);
+      });
+      routeDetails.appendChild(fields);
+      routeList.appendChild(routeDetails);
     });
-    body.appendChild(row);
-  }));
-  table.appendChild(body);
-  const scroll = document.createElement("div");
-  scroll.className = "tg-table-scroll";
-  scroll.tabIndex = 0;
-  scroll.setAttribute("aria-label", "Таблица результатов диагностики; для просмотра используйте горизонтальную прокрутку");
-  scroll.appendChild(table);
-  container.appendChild(scroll);
+    Object.entries(dc).filter(([key]) => key !== "dc" && key !== "state" && key !== "routes").forEach(([key, value]) => {
+      const extra = document.createElement("p");
+      extra.className = "tg-dc-extra";
+      const exactKey = document.createElement("code");
+      exactKey.textContent = key;
+      const exactValue = document.createElement("span");
+      exactValue.textContent = formatValue(value);
+      appendTgNodes(extra, exactKey, exactValue);
+      routeList.appendChild(extra);
+    });
+    const rawState = document.createElement("p");
+    rawState.className = "tg-dc-extra";
+    rawState.textContent = `state: ${dc.state || "unverified"}`;
+    routeList.appendChild(rawState);
+    details.appendChild(routeList);
+    list.appendChild(details);
+  }
+  container.appendChild(list);
 }
 
 const TOGGLE_DEFS = [

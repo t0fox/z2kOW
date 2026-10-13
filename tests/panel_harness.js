@@ -92,7 +92,7 @@ global.document = {
   getElementById(id){
     if (id === "brand-profile-theme") return domById.get(id) || null;
     if (domById.has(id)) return domById.get(id);
-    if (process.env.Z2K_TEST_TG_FRESHNESS === "1" && id.startsWith("tg-")) return mockNode(id);
+    if ((process.env.Z2K_TEST_TG_FRESHNESS === "1" || process.env.Z2K_TEST_TG_CARD === "1") && id.startsWith("tg-")) return mockNode(id);
     return mkEl();
   },
   querySelector(selector){
@@ -250,6 +250,43 @@ if (process.env.Z2K_TEST_TG_FRESHNESS === "1") {
     sessions_by_dc_transport:{}, ttfb:{}, failures:{}, rss_kib:1024, rss_hwm_kib:2048,
   };
 }
+if (process.env.Z2K_TEST_TG_CARD === "1") {
+  const checkedAt = Math.floor(Date.now() / 1000);
+  statusFixture.tunnel = { running:true, workers:["worker.example"] };
+  FIXTURES["/tunnel/check"] = {
+    checked_at: checkedAt,
+    state: "partial",
+    data_centers: [
+      { dc:1, state:"healthy", routes:[
+        { transport:"direct-wss", domain:"kws1.web.telegram.org", selected_ip:"149.154.175.50",
+          state:"healthy", failed_stage:null, http_status:null, reason:null, dns_ms:11, tcp_ms:21,
+          tls_ms:31, websocket_ms:41, mtproto_ms:51 },
+        { transport:"cf-proxy", domain:"edge.example.net", selected_ip:"203.0.113.9",
+          state:"unavailable", failed_stage:"websocket", http_status:503, reason:"HTTP 503 от тестового маршрута",
+          dns_ms:12, tcp_ms:22, tls_ms:32, websocket_ms:42, mtproto_ms:null },
+      ] },
+      { dc:2, state:"blocked", routes:[{ transport:"cf-worker", domain:"worker.example", selected_ip:"203.0.113.10",
+        state:"blocked", failed_stage:"websocket", http_status:403, reason:"HTTP 403 от тестового маршрута",
+        dns_ms:null, tcp_ms:24, tls_ms:34, websocket_ms:44, mtproto_ms:null }] },
+      { dc:3, state:"unavailable", routes:[{ transport:"tcp-fallback", domain:null, selected_ip:"149.154.167.91",
+        state:"unavailable", failed_stage:"tcp", http_status:null, reason:"timeout",
+        dns_ms:null, tcp_ms:3000, tls_ms:null, websocket_ms:null, mtproto_ms:null }] },
+      { dc:4, state:"unverified", routes:[] },
+      { dc:5, state:"unverified", routes:[] },
+    ],
+  };
+  FIXTURES["/tunnel/stats"] = {
+    process_started_at: checkedAt - 600, listener_ready:true, active_connections:5, max_connections:64,
+    accepted_connections:17, wss_established:14, mtproto_success:9, mtproto_failure:2,
+    last_mtproto_response_at:checkedAt - 5, dc_map:{ generation:7, fetched_at:checkedAt - 30, freshness_seconds:30 },
+    cf_domain_pool:{ domains:["edge.example.net"], freshness_seconds:20 },
+    workers:{ "worker.example": { state:"healthy", last_success_at:checkedAt - 10, last_failure_at:0 } },
+    sessions_by_dc_transport:{ "dc203:cf-proxy":2 },
+    failures:{ http_503:2, timeout:1 },
+    ttfb:{ "dc203:cf-proxy":{ count:2, p50_ms:80, p95_ms:120, p99_ms:130 } },
+    rss_kib:10240, rss_hwm_kib:12288,
+  };
+}
 global.fetch = async (url) => {
   const p = String(url).replace(/^.*\/cgi-bin\/api/, "").split("?")[0];
   const body = FIXTURES[p] || { ok:true };
@@ -284,6 +321,34 @@ catch (e) { console.log("ЗАГРУЗКА УПАЛА: " + e.message); process.ex
     if (!workerState || !String(workerState.className).includes("tg-status--stale") || !workerState.textContent.includes("статус устарел")) {
       errors.push("устаревший успешный Worker показан как актуальный");
     }
+  }
+  if (process.env.Z2K_TEST_TG_CARD === "1") {
+    const descendants = node => [node, ...(node.children || []).flatMap(descendants)];
+    const flatten = node => `${node.textContent || ""} ${(node.children || []).map(flatten).join(" ")}`;
+    const result = domById.get("tg-check-results") || mkEl();
+    const dcRows = descendants(result).filter(node => String(node.className || "").includes("tg-dc-row"));
+    if (dcRows.length !== 5) errors.push(`в кратком списке диагностики показано DC: ${dcRows.length}, ожидалось 5`);
+    const dc1 = dcRows.find(node => flatten(node).includes("DC1"));
+    const dc1Text = dc1 ? flatten(dc1) : "";
+    for (const field of ["Прямой WSS", "149.154.175.50", "HTTP 503", "websocket", "DNS", "TLS", "MTProto"]) {
+      if (!dc1Text.includes(field)) errors.push(`в раскрытых данных DC1 отсутствует ${field}`);
+    }
+    const stats = domById.get("tg-runtime-details") || mkEl();
+    const statNodes = descendants(stats);
+    const overview = statNodes.find(node => String(node.className || "").includes("tg-summary-grid"));
+    const technical = statNodes.find(node => String(node.className || "").includes("tg-technical"));
+    const overviewText = overview ? flatten(overview) : "";
+    const technicalText = technical ? flatten(technical) : "";
+    for (const field of ["Активные соединения", "Сессии с ответом", "Память процесса", "Карта DC"]) {
+      if (!overviewText.includes(field)) errors.push(`обзор статистики не содержит ${field}`);
+    }
+    if (!overviewText.includes("не подтверждает resPQ")) errors.push("статистика не отделена от активной проверки resPQ");
+    if (/dc203:cf-proxy|http_503|generation/.test(overviewText)) errors.push("в пользовательский обзор попали внутренние ключи");
+    for (const field of ["dc203:cf-proxy", "http_503", "generation", "Накопленная статистика процесса"]) {
+      if (!technicalText.includes(field)) errors.push(`в техническом разделе отсутствует ${field}`);
+    }
+    const runtimeStatus = flatten(domById.get("tg-runtime-status") || mkEl());
+    if (/проверенный MTProto-ответ/i.test(runtimeStatus)) errors.push("первый WSS Binary кадр назван проверенным MTProto-ответом");
   }
   if (process.env.Z2K_TEST_UPDATE_UNKNOWN === "1") {
     const banner = domById.get("update-banner").innerHTML;
@@ -355,5 +420,6 @@ catch (e) { console.log("ЗАГРУЗКА УПАЛА: " + e.message); process.ex
       expect(global.document.title === "z2kOW · Стратегии", "missing profile keeps the default tab brand");
     }
   }
+  if (errors.length) errors.forEach(error => console.log(`  ASSERT FAIL: ${error}`));
   process.exit(errors.length ? 1 : 0);
 })();

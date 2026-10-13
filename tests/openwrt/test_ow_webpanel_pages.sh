@@ -25,12 +25,17 @@ for _selector in tg-worker-form tg-worker-list tg-check tg-check-results tg-runt
     if grep -q "$_selector" "$ROOT/webpanel/www/js/pages/toggles.js"; then _t_ok
     else _t_bad "карточка Telegram не содержит $_selector"; fi
 done
-if grep -q 'tg-diagnostics-table' "$ROOT/webpanel/www/js/pages/toggles.js"; then _t_ok
-else _t_bad "результаты DC не выводятся в таблице маршрутов"; fi
-for _style in '#111615' '#181e1c' '#1e2725' '#00ba78' '#228e5d' 'prefers-reduced-motion' 'max-width: 480px'; do
-    if grep -Fq "$_style" "$ROOT/webpanel/www/style.css"; then _t_ok
+for _selector in tg-dc-list tg-dc-row tg-dc-route tg-summary-grid tg-technical tg-runtime-note; do
+    if grep -q "$_selector" "$ROOT/webpanel/www/js/pages/toggles.js"; then _t_ok
+    else _t_bad "карточка Telegram не содержит $_selector"; fi
+done
+for _style in '--ow-surface-1' '--ow-surface-2' '--ow-border-subtle' '--ow-accent' '--ow-radius-control' '--ow-text-primary' '--font-sans' 'prefers-reduced-motion' 'max-width: 480px'; do
+    if grep -Fq -- "$_style" "$ROOT/webpanel/www/style.css"; then _t_ok
     else _t_bad "стиль Telegram не соответствует дизайн-файлу: $_style"; fi
 done
+_tg_style="$(sed -n '/^\.telegram-tunnel-card {/,/^\/\* ---------- JOB BADGES/p' "$ROOT/webpanel/www/style.css")"
+if ! printf '%s\n' "$_tg_style" | grep -Eq -- '#111615|#181e1c|#1e2725|#505050|#00ba78|#228e5d|color-scheme[[:space:]]*:[[:space:]]*dark|font-family:[[:space:]]*-apple-system'; then _t_ok
+else _t_bad "стили Telegram переопределяют общую тему панели"; fi
 
 JS="$(sh "$ROOT/tests/lib/panel_js.sh")"
 ROUTES="dashboard toggles strategies state warp whitelist exclude extra-domains diag credits"
@@ -44,6 +49,11 @@ _tg_fresh_out="$(Z2K_OW_CAPS=1 Z2K_TEST_TG_FRESHNESS=1 node "$ROOT/tests/panel_h
 _tg_fresh_rc=$?
 printf '%s\n' "$_tg_fresh_out" | sed 's/^/    /'
 [ "$_tg_fresh_rc" -eq 0 ] && _t_ok || _t_bad "устаревшие Telegram маршруты и Worker не должны отображаться как актуальные"
+
+_tg_card_out="$(Z2K_OW_CAPS=1 Z2K_TEST_TG_CARD=1 node "$ROOT/tests/panel_harness.js" "$JS" toggles 2>&1)"
+_tg_card_rc=$?
+printf '%s\n' "$_tg_card_out" | sed 's/^/    /'
+[ "$_tg_card_rc" -eq 0 ] && _t_ok || _t_bad "компактная карточка Telegram сохраняет статусы DC, поля маршрутов и техническую статистику"
 
 _geo_out="$(node "$ROOT/tests/test_warp_geo_status_ui.js" "$ROOT/webpanel/www/js/pages/warp.js" 2>&1)"
 _geo_rc=$?

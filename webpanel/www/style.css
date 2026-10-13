@@ -3219,94 +3219,88 @@ pre.log {
 .tg-state-on  { color: var(--good); border: 1px solid var(--good); background: var(--good-alpha-soft); }
 .tg-state-off { color: var(--text-muted); border: 1px solid var(--border); background: transparent; }
 .telegram-tunnel-card {
-  --tg-page: #111615;
-  --tg-card: #181e1c;
-  --tg-input: #1e2725;
-  --tg-text: #d6d6d6;
-  --tg-muted: #8ca29a;
-  --tg-secondary: #aaa;
-  --tg-border: #505050;
-  --tg-primary: #00ba78;
-  --tg-hover: #228e5d;
-  color: var(--tg-text);
-  background: var(--tg-card);
-  border: 1px solid var(--tg-border);
-  border-radius: 12px;
-  box-shadow: 0 5px 26px rgba(0, 0, 0, .32);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
+  color: var(--ow-text-primary, var(--text));
+  background: var(--ow-surface-1, var(--bg-card));
+  border-color: var(--ow-border-subtle, var(--border));
+  border-radius: var(--ow-radius-card, 12px);
+  font-family: var(--font-sans, var(--font-system, sans-serif));
 }
 .telegram-tunnel-card h3,
-.telegram-tunnel-card h4 { color: var(--tg-text); font-size: 18px; font-weight: 500; line-height: 1.3; }
-.telegram-tunnel-card h4 { margin: 0 0 8px; }
-.telegram-tunnel-card .desc { color: var(--tg-muted); }
-.tg-openwrt-tools { margin-top: 16px; border-top: 1px solid var(--tg-border); padding-top: 16px; }
-.tg-openwrt-tools > section { margin-top: 16px; padding: 16px; background: var(--tg-page); border: 1px solid var(--tg-border); border-radius: 12px; }
-.tg-worker-form { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; }
-.tg-worker-form .field { flex: 1 1 260px; margin: 0; }
-.telegram-tunnel-card .field-label { color: var(--tg-secondary); }
-.telegram-tunnel-card input,
-.telegram-tunnel-card select,
-.telegram-tunnel-card textarea {
-  color: var(--tg-text);
-  background: var(--tg-input);
-  border: 1px solid var(--tg-border);
-  border-radius: 10px;
-  padding: 8px 12px;
-  color-scheme: dark;
+.telegram-tunnel-card h4 { color: var(--ow-text-primary, var(--text)); }
+.telegram-tunnel-card > .desc { margin-bottom: 0; color: var(--ow-text-secondary, var(--text-muted)); line-height: 1.55; }
+.telegram-tunnel-card > .desc + .desc { margin-top: var(--space-8); }
+.telegram-tunnel-card > .btn-row { margin-top: var(--space-16); }
+.tg-openwrt-tools {
+  display: grid;
+  gap: var(--space-20);
+  margin-top: var(--space-20);
+  padding-top: var(--space-16);
+  border-top: 1px solid var(--ow-border-subtle, var(--border));
 }
-.telegram-tunnel-card input:focus-visible,
-.telegram-tunnel-card select:focus-visible,
-.telegram-tunnel-card textarea:focus-visible,
-.telegram-tunnel-card button:focus-visible,
-.telegram-tunnel-card .tg-table-scroll:focus-visible {
-  outline: 2px solid var(--tg-primary);
-  outline-offset: 2px;
-}
-.telegram-tunnel-card .btn { min-height: 36px; padding: 0 15px; transition: color .2s ease-out, background-color .2s ease-out, border-color .2s ease-out, transform .2s ease-out; }
-.telegram-tunnel-card .btn-primary { color: var(--tg-page); background: var(--tg-primary); border: 1px solid var(--tg-primary); border-radius: 6px; }
-.telegram-tunnel-card .btn-primary:hover { color: var(--tg-page); background: var(--tg-hover); border-color: var(--tg-hover); }
-.telegram-tunnel-card .btn-primary:active { transform: scale(.97); }
-.telegram-tunnel-card .btn:not(.btn-primary):not(.btn-danger) { color: var(--tg-text); background: var(--tg-input); border: 1px solid var(--tg-text); border-radius: 10px; }
-.telegram-tunnel-card .btn:not(.btn-primary):not(.btn-danger):hover { background: #293431; }
-.telegram-tunnel-card .btn-danger { min-height: 36px; padding: 0 15px; border-radius: 10px; }
-.telegram-tunnel-card .btn:disabled { cursor: wait; opacity: .6; }
-.tg-worker-list { list-style: none; padding: 0; margin: 12px 0 0; }
-.tg-worker-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--tg-border); }
-.tg-worker-details { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
-.tg-worker-details strong { color: var(--tg-text); font-weight: 500; }
-.tg-worker-health, .tg-worker-empty { color: var(--tg-muted); font-size: 13px; }
+.tg-openwrt-tools > section { min-width: 0; margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; }
+.tg-openwrt-tools h4 { margin: 0; font-size: 16px; }
+.tg-openwrt-tools .desc { color: var(--ow-text-secondary, var(--text-muted)); line-height: 1.55; }
+.tg-worker-form { display: flex; align-items: end; gap: var(--space-12); flex-wrap: wrap; margin-top: var(--space-16); }
+.tg-worker-form .field { flex: 1 1 260px; min-width: 0; margin: 0; }
+.telegram-tunnel-card .field-label { color: var(--ow-text-secondary, var(--text-muted)); }
+.tg-worker-list { list-style: none; padding: 0; margin: var(--space-12) 0 0; }
+.tg-worker-item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-12); padding: var(--space-12) 0; border-bottom: 1px solid var(--ow-border-subtle, var(--border)); }
+.tg-worker-details { display: grid; gap: var(--space-4); min-width: 0; overflow-wrap: anywhere; }
+.tg-worker-details strong { color: var(--ow-text-primary, var(--text)); font-weight: 600; }
+.tg-worker-health, .tg-worker-empty { color: var(--ow-text-secondary, var(--text-muted)); font-size: 13px; line-height: 1.5; }
 .tg-worker-remove { flex: 0 0 auto; }
-.tg-runtime-table, .tg-diagnostics-table { width: 100%; border-collapse: collapse; margin: 0; }
-.tg-runtime-table { min-width: 360px; }
-.tg-diagnostics-table { min-width: 760px; }
-.tg-runtime-table th, .tg-runtime-table td, .tg-diagnostics-table th, .tg-diagnostics-table td { padding: 8px 12px; border-bottom: 1px solid var(--tg-border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
-.tg-runtime-table th, .tg-diagnostics-table th { color: var(--tg-muted); font-weight: 500; }
-.tg-runtime-table th { width: 30%; }
-.tg-diagnostics-table thead { background: var(--tg-input); }
-.tg-runtime-table tbody tr:nth-child(even), .tg-diagnostics-table tbody tr:nth-child(even) { background: var(--tg-input); }
-.tg-diagnostics-table th { white-space: nowrap; }
-.tg-table-scroll { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; border: 1px solid var(--tg-border); border-radius: 10px; }
-.tg-table-scroll:focus-visible { outline-offset: 3px; }
-.tg-route-state { display: inline-flex; align-items: center; min-height: 24px; padding: 2px 8px; border: 1px solid currentColor; border-radius: 999px; white-space: nowrap; }
-.tg-status--healthy { color: var(--tg-primary); }
-.tg-status--unavailable { color: #ff9a8b; }
-.tg-status--unverified { color: var(--tg-muted); }
-.tg-status--stale { color: #f0bf65; }
-.telegram-tunnel-card .tg-state-on { color: var(--tg-primary); border-color: var(--tg-primary); }
-.telegram-tunnel-card .tg-state-off { color: var(--tg-muted); border-color: var(--tg-border); }
+.tg-diagnostics .btn-row { gap: var(--space-8); margin-top: var(--space-16); }
+#tg-check-results { min-width: 0; margin-top: var(--space-16); }
+#tg-runtime-status { margin: var(--space-8) 0 0; color: var(--ow-text-secondary, var(--text-muted)); line-height: 1.5; }
+.tg-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-8); margin-top: var(--space-12); }
+.tg-summary-item { display: grid; align-content: start; gap: var(--space-4); min-width: 0; padding: var(--space-12); border-radius: var(--ow-radius-control, 10px); background: var(--ow-surface-2, var(--bg-subtle)); }
+.tg-summary-label, .tg-summary-note { color: var(--ow-text-secondary, var(--text-muted)); font-size: 12px; line-height: 1.45; }
+.tg-summary-value { color: var(--ow-text-primary, var(--text)); font-size: 16px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tg-summary-note { font-size: 11px; }
+.tg-technical { margin-top: var(--space-12); border-top: 1px solid var(--ow-border-subtle, var(--border)); }
+.tg-technical > summary, .tg-dc-row > summary { min-height: 40px; padding: var(--space-8) 0; color: var(--ow-text-secondary, var(--text-muted)); cursor: pointer; }
+.tg-technical > summary:hover, .tg-dc-row > summary:hover { color: var(--ow-text-primary, var(--text)); }
+.tg-technical-body { display: grid; gap: var(--space-16); padding-top: var(--space-8); }
+.tg-runtime-note { margin: 0; color: var(--ow-text-secondary, var(--text-muted)); font-size: 12px; line-height: 1.55; }
+.tg-technical-section { display: grid; gap: var(--space-8); min-width: 0; }
+.tg-technical-section h5 { margin: 0; color: var(--ow-text-primary, var(--text)); font-size: 13px; }
+.tg-technical-row { display: grid; grid-template-columns: minmax(140px, .75fr) minmax(0, 1.25fr); gap: var(--space-8); padding-bottom: var(--space-8); border-bottom: 1px solid var(--ow-border-subtle, var(--border)); }
+.tg-technical-label { color: var(--ow-text-secondary, var(--text-muted)); }
+.tg-technical-value { display: flex; flex-wrap: wrap; gap: var(--space-8); min-width: 0; overflow-wrap: anywhere; }
+.tg-technical code, .tg-dc-route-fields code, .tg-dc-extra code { color: var(--ow-text-secondary, var(--text-muted)); font-family: var(--font-mono, monospace); font-size: 12px; overflow-wrap: anywhere; }
+.tg-dc-list { display: grid; gap: 0; margin-top: var(--space-12); border-top: 1px solid var(--ow-border-subtle, var(--border)); }
+.tg-dc-row { min-width: 0; border-bottom: 1px solid var(--ow-border-subtle, var(--border)); }
+.tg-dc-summary { display: grid; grid-template-columns: minmax(42px, auto) minmax(0, 1fr) auto; align-items: center; gap: var(--space-12); }
+.tg-dc-name { color: var(--ow-text-primary, var(--text)); font-variant-numeric: tabular-nums; }
+.tg-route-state { display: inline-flex; justify-self: start; align-items: center; min-height: 26px; padding: 2px 9px; border: 1px solid currentColor; border-radius: var(--ow-radius-control, 10px); font-size: 12px; line-height: 1.35; white-space: normal; }
+.tg-status--healthy { color: var(--ow-success, var(--good)); }
+.tg-status--unavailable { color: var(--ow-danger, var(--bad)); }
+.tg-status--unverified { color: var(--ow-text-secondary, var(--text-muted)); }
+.tg-status--stale { color: var(--ow-warning, var(--warn)); }
+.tg-dc-route-count { color: var(--ow-text-secondary, var(--text-muted)); font-size: 12px; white-space: nowrap; }
+.tg-dc-routes { display: grid; gap: var(--space-8); padding: 0 0 var(--space-12) calc(var(--space-16) + 42px); }
+.tg-dc-route { min-width: 0; padding-top: var(--space-8); border-top: 1px solid var(--ow-border-subtle, var(--border)); }
+.tg-dc-route-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); min-height: 36px; }
+.tg-dc-route-heading strong { color: var(--ow-text-primary, var(--text)); font-weight: 600; }
+.tg-dc-route-fields { display: grid; gap: var(--space-4); margin: 0; padding: var(--space-8) 0; }
+.tg-dc-route-field { display: grid; grid-template-columns: minmax(120px, .7fr) minmax(0, 1.3fr); gap: var(--space-8); min-width: 0; }
+.tg-dc-route-field dt { color: var(--ow-text-secondary, var(--text-muted)); overflow-wrap: anywhere; }
+.tg-dc-route-field dd { display: flex; flex-wrap: wrap; gap: var(--space-8); min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.tg-dc-empty, .tg-dc-extra { margin: var(--space-8) 0 0; color: var(--ow-text-secondary, var(--text-muted)); font-size: 12px; overflow-wrap: anywhere; }
+.tg-dc-extra { display: flex; flex-wrap: wrap; gap: var(--space-8); }
+.telegram-tunnel-card .tg-state-on { color: var(--ow-success, var(--good)); border-color: currentColor; }
+.telegram-tunnel-card .tg-state-off { color: var(--ow-text-secondary, var(--text-muted)); border-color: var(--ow-border-subtle, var(--border)); }
 @media (max-width: 480px) {
-  .telegram-tunnel-card { padding: 16px; }
-  .tg-openwrt-tools > section { padding: 12px; }
+  .tg-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tg-technical-row, .tg-dc-route-field { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
   .tg-worker-form { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; }
   .tg-worker-form .field { min-width: 0; }
   .tg-worker-form .btn, .tg-diagnostics .btn-row .btn { width: 100%; }
-  .telegram-tunnel-card .tg-diagnostics .btn-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .telegram-tunnel-card .tg-diagnostics .btn-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-8); }
   .tg-worker-item { align-items: flex-start; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .telegram-tunnel-card .btn { transition: none; }
+  .tg-dc-summary { grid-template-columns: 42px minmax(0, 1fr); gap: var(--space-8); }
+  .tg-dc-route-count { grid-column: 2; }
+  .tg-dc-routes { padding-left: var(--space-16); }
 }
 
 /* ---------- JOB BADGES ---------- */

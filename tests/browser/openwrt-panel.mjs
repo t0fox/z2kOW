@@ -18,6 +18,9 @@ assert.equal(/webpanel-lifecycle\.sh/.test(webpanelAdapter), false,
   'panel helpers do not load stock HTTP service mutations');
 const screenshotDir = process.env.OPENWRT_SCREENSHOT_DIR || '';
 if (screenshotDir) fs.mkdirSync(screenshotDir, { recursive: true });
+const screenshotPrefix = process.env.OPENWRT_SCREENSHOT_PREFIX
+  ? `${process.env.OPENWRT_SCREENSHOT_PREFIX}-` : '';
+const tgScreenshotOnly = process.env.OPENWRT_TG_SCREENSHOT_ONLY === '1';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2k-openwrt-browser-'));
 const www = path.join(root, 'www');
 fs.cpSync(path.join(repo, 'webpanel/www'), www, { recursive: true });
@@ -48,13 +51,46 @@ const statusFixture = {
     flowoffload_status: 'configured_mode=hardware; flowtable_state=present; flowtable_flags=offload; flowtable_devices=br-lan,wan; actual_dataplane=not-observed; exemption_rules=4; nfqueue_rules=8; nfqueue_packets=26061; packet_visibility=active; circular_state=active; hardware_capability=available; hardware_requested=1; hardware_observed=not-observed; hardware_state=requested; hw_offloaded_connections=0; software_offloaded_connections=3; offloaded_connections=3; selective_state=complete; owner_state=zapret2; owner_conflict=none; runtime_health=attention; runtime_health_reason=hardware-not-observed',
     au_hour: '3',
   },
-  tunnel: { running: true },
+  tunnel: { running: true, workers: ['worker.example'] },
   doh: {
     state: 'not-installed', installed: '0', provider: 'xbox',
     endpoint: 'https://xbox-dns.ru/dns-query', bootstrap: '111.88.96.50,111.88.96.51',
     force_lan_dns: '0',
   },
   capabilities: { policy: false, ppe: false, tcp16: false, diag: true, warp: true, telegram: true, uninstall: false, offload: true },
+};
+const tgCheckedAt = Math.floor(Date.now() / 1000);
+const tgCheckFixture = {
+  checked_at: tgCheckedAt, state: 'partial', data_centers: [
+    { dc: 1, state: 'healthy', routes: [
+      { transport: 'direct-wss', domain: 'kws1.web.telegram.org', selected_ip: '149.154.175.50',
+        state: 'healthy', failed_stage: null, http_status: null, reason: null,
+        dns_ms: 11, tcp_ms: 21, tls_ms: 31, websocket_ms: 41, mtproto_ms: 51 },
+      { transport: 'cf-proxy', domain: 'edge.example.net', selected_ip: '203.0.113.9',
+        state: 'unavailable', failed_stage: 'websocket', http_status: 503, reason: 'HTTP 503 от тестового маршрута',
+        dns_ms: 12, tcp_ms: 22, tls_ms: 32, websocket_ms: 42, mtproto_ms: null },
+    ] },
+    { dc: 2, state: 'blocked', routes: [{ transport: 'cf-worker', domain: 'worker.example', selected_ip: '203.0.113.10',
+      state: 'blocked', failed_stage: 'websocket', http_status: 403, reason: 'HTTP 403 от тестового маршрута',
+      dns_ms: null, tcp_ms: 24, tls_ms: 34, websocket_ms: 44, mtproto_ms: null }] },
+    { dc: 3, state: 'unavailable', routes: [{ transport: 'tcp-fallback', domain: null, selected_ip: '149.154.167.91',
+      state: 'unavailable', failed_stage: 'tcp', http_status: null, reason: 'timeout',
+      dns_ms: null, tcp_ms: 3000, tls_ms: null, websocket_ms: null, mtproto_ms: null }] },
+    { dc: 4, state: 'unverified', routes: [] },
+    { dc: 5, state: 'unverified', routes: [] },
+  ],
+};
+const tgStatsFixture = {
+  process_started_at: tgCheckedAt - 600, listener_ready: true, active_connections: 5, max_connections: 64,
+  accepted_connections: 17, wss_established: 14, mtproto_success: 9, mtproto_failure: 2,
+  last_mtproto_response_at: tgCheckedAt - 5,
+  dc_map: { generation: 7, fetched_at: tgCheckedAt - 30, freshness_seconds: 30 },
+  cf_domain_pool: { domains: ['edge.example.net'], freshness_seconds: 20 },
+  workers: { 'worker.example': { state: 'healthy', last_success_at: tgCheckedAt - 10, last_failure_at: 0 } },
+  sessions_by_dc_transport: { 'dc203:cf-proxy': 2 },
+  failures: { http_503: 2, timeout: 1 },
+  ttfb: { 'dc203:cf-proxy': { count: 2, p50_ms: 80, p95_ms: 120, p99_ms: 130 } },
+  rss_kib: 10240, rss_hwm_kib: 12288,
 };
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
@@ -116,7 +152,9 @@ const server = http.createServer(async (req, res) => {
     Object.assign(stateEntries[3], { host: 'cdn.long-group-name-for-responsive-layout-coverage.net|6' });
     Object.assign(stateEntries[6], { host: '192.0.2.44' });
     Object.assign(stateEntries[7], { host: '2001:db8:1234:5678::44' });
-    const body = endpoint === 'state'
+    const body = endpoint === 'tunnel/check' ? tgCheckFixture
+      : endpoint === 'tunnel/stats' ? tgStatsFixture
+      : endpoint === 'state'
       ? { ok: true, entries: stateEntries }
       : endpoint === 'pools'
         ? { ok: true, pools: { tcp: 4, quic: 4 } }
@@ -1539,6 +1577,92 @@ try {
         }
       }
     }
+    await page.evaluate(() => { location.hash = '#/toggles'; window.scrollTo(0, 0); });
+    await waitForRenderedRoute(page, 'toggles');
+    const telegramCard = page.locator('.telegram-tunnel-card');
+    assert.equal(await telegramCard.isVisible(), true, `${appearance}: Telegram card is visible`);
+    await page.locator('#tg-openwrt-tools').waitFor({ state: 'visible' });
+    await page.waitForFunction(() => document.querySelector('#tg-runtime-details')?.textContent
+      && document.querySelector('#tg-check-results')?.textContent.trim());
+    if (await page.locator('body').getAttribute('data-sidebar') === 'collapsed') {
+      await page.locator('#sidebar-collapse').click();
+      await page.waitForFunction(() => document.body.getAttribute('data-sidebar') === null);
+    }
+    for (const width of [1440, 1280, 768, 390]) {
+      await page.setViewportSize({ width, height: width < 500 ? 844 : 900 });
+      await page.waitForFunction(() => [...document.querySelector('#app').getAnimations()]
+        .every(animation => animation.playState !== 'running'), null, { timeout: 1200 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      const frame = await page.evaluate(() => ({
+        viewport: document.documentElement.clientWidth,
+        pageWidth: document.documentElement.scrollWidth,
+        cardWidth: document.querySelector('.telegram-tunnel-card').getBoundingClientRect().width,
+        cardScrollWidth: document.querySelector('.telegram-tunnel-card').scrollWidth,
+        cardClientWidth: document.querySelector('.telegram-tunnel-card').clientWidth,
+        cardFont: getComputedStyle(document.querySelector('.telegram-tunnel-card')).fontFamily,
+        bodyFont: getComputedStyle(document.body).fontFamily,
+        inputColorScheme: getComputedStyle(document.querySelector('#tg-worker-domain')).colorScheme,
+        pageName: document.body.getAttribute('data-page'),
+        sidebarState: document.body.getAttribute('data-sidebar'),
+        narrowBreakpoint: matchMedia('(min-width: 768px) and (max-width: 1091px)').matches,
+        appCssWidth: getComputedStyle(document.querySelector('#app')).width,
+        overflowingElements: [...document.querySelectorAll('body *')].map(node => ({
+          tag: node.tagName, id: node.id, parentId: node.parentElement?.id || '', className: String(node.className || ''),
+          right: Math.round(node.getBoundingClientRect().right), width: Math.round(node.getBoundingClientRect().width),
+        })).filter(node => node.right > document.documentElement.clientWidth + 1 && node.width > 0
+          && (node.id === 'app' || node.parentId === 'app' || node.className.includes('telegram') || node.className.includes('flow-benchmark')))
+          .slice(0, 20),
+      }));
+      if (screenshotDir) {
+        await telegramCard.evaluate(node => node.scrollIntoView({ block: 'start', behavior: 'instant' }));
+        await waitForNavSettled(page);
+        await screenshotComponent(page, telegramCard,
+          path.join(screenshotDir, `${screenshotPrefix}${appearance}-${width}-telegram-card.png`));
+      }
+      if (tgScreenshotOnly) continue;
+      assert.ok(frame.pageWidth <= frame.viewport,
+        `${appearance}/${width}: Telegram adds no page horizontal scrolling (${JSON.stringify(frame)})`);
+      assert.ok(frame.cardScrollWidth <= frame.cardClientWidth + 1,
+        `${appearance}/${width}: card content stays within its width (${JSON.stringify(frame)})`);
+      assert.equal(frame.cardFont, frame.bodyFont, `${appearance}/${width}: Telegram inherits the panel font`);
+      assert.equal(frame.inputColorScheme, appearance, `${appearance}/${width}: Telegram controls follow the active theme`);
+      await page.waitForFunction(() => document.querySelector('.tg-summary-grid')
+        && document.querySelectorAll('#tg-check-results .tg-dc-row').length === 5, null, { timeout: 1200 });
+      assert.equal(await telegramCard.locator('.tg-dc-row').count(), 5,
+        `${appearance}/${width}: the compact list has one row for DC1–DC5`);
+      const dc1 = telegramCard.locator('.tg-dc-row').first();
+      await dc1.locator('summary').click();
+      assert.equal(await dc1.getAttribute('open'), '', `${appearance}/${width}: a DC row expands on activation`);
+      const dc1Details = await dc1.innerText();
+      for (const field of ['Прямой WSS', '149.154.175.50', 'HTTP 503', 'websocket', 'DNS', 'TCP', 'TLS', 'MTProto']) {
+        assert.ok(dc1Details.includes(field), `${appearance}/${width}: expanded DC1 keeps ${field}`);
+      }
+      const runtimeTechnical = telegramCard.locator('.tg-technical');
+      const overviewText = await telegramCard.locator('.tg-summary-grid').innerText();
+      for (const label of ['Активные соединения', 'Сессии с ответом', 'Память процесса', 'Карта DC']) {
+        assert.ok(overviewText.includes(label), `${appearance}/${width}: compact stats expose ${label}`);
+      }
+      assert.ok(overviewText.includes('не подтверждает resPQ'),
+        `${appearance}/${width}: traffic counters are distinct from a resPQ check`);
+      assert.doesNotMatch(await telegramCard.innerText(), /dc203:cf-proxy|http_503|generation/,
+        `${appearance}/${width}: raw technical keys stay in the closed disclosure`);
+      await runtimeTechnical.locator('summary').click();
+      assert.equal(await runtimeTechnical.getAttribute('open'), '', `${appearance}/${width}: technical stats expand`);
+      const technicalText = await runtimeTechnical.innerText();
+      for (const value of ['dc203:cf-proxy', 'http_503', 'generation', 'Накопленная статистика процесса']) {
+        assert.ok(technicalText.includes(value), `${appearance}/${width}: technical details retain ${value}`);
+      }
+      assert.doesNotMatch(await telegramCard.locator('#tg-runtime-status').innerText(), /проверенный MTProto-ответ/i,
+        `${appearance}/${width}: ordinary traffic does not claim to verify an MTProto response`);
+      if (screenshotDir && ((appearance === 'dark' && width === 390)
+          || (appearance === 'light' && width === 1440))) {
+        await screenshotComponent(page, telegramCard,
+          path.join(screenshotDir, `${screenshotPrefix}${appearance}-${width}-telegram-card-details.png`));
+      }
+      await runtimeTechnical.locator('summary').click();
+      await dc1.locator('summary').click();
+    }
+
     for (const width of [1080, 1081, 1085, 1090, 1091, 1092]) {
       await page.setViewportSize({ width, height: 900 });
       const edgeFrame = await page.evaluate(() => ({
