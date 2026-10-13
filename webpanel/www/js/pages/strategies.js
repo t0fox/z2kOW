@@ -4,6 +4,7 @@ import { $app, _icons, escapeHtml, skeletonLines } from "../core/dom.js";
 import { JOB_FAIL, confirmModal, jobOutcome, jobUnresolved, openJobModal, unresolvedMsg } from "../job.js";
 import { _newLoad, _stale } from "../core/loadorder.js";
 import { toast } from "../core/toast.js";
+import { motion } from "../motion.js";
 import { STATE_SORT_LABELS, groupDomain, saveOpenGroups, saveStateSort, setStatePools, stateOpenGroups, statePools, stateSort } from "../state-model.js";
 
 // Разделитель СОСТАВНОГО ключа группы («пул<sep>домен»).
@@ -711,7 +712,7 @@ async function loadState(useCache) {
       // записи для API, его резать нельзя. Делим только видимое человеку.
       // data-label attrs feed the mobile card layout (CSS pseudo-elements)
       return `
-        <tr${inGroup ? ' class="sg-member"' : ""} data-frozen="${frozen ? "true" : "false"}">
+        <tr${inGroup ? ' class="sg-member"' : ""} data-flip-id="${escapeHtml(`${e.key}${GKEY_SEP}${e.host}`)}" data-frozen="${frozen ? "true" : "false"}">
           <td data-label="">
             <button class="btn btn-danger btn-icon state-del"
                     title="Удалить запись"
@@ -804,7 +805,7 @@ async function loadState(useCache) {
       // действие (сужать его незачем: человек видит, что жмёт), а подпись.
       const whole = !query;
       return `
-        <tbody class="sg${open ? "" : " sg-closed"}" data-group="${escapeHtml(b.gkey)}">
+        <tbody class="sg${open ? "" : " sg-closed"}" data-flip-id="group:${escapeHtml(b.gkey)}" data-group="${escapeHtml(b.gkey)}">
           <tr class="sg-head">
             <td data-label="" class="sg-lead">
               <button class="btn btn-danger btn-icon sg-reset"
@@ -861,7 +862,7 @@ async function loadState(useCache) {
     const th = (k, label) => `<th class="sortable" data-sort="${k}">${label}${arrow(k)}</th>`;
     const sortLabel = STATE_SORT_LABELS[stateSort.key] || "Профиль";
     const sortArrow = stateSort.dir === "asc" ? _icons.arrowUp : _icons.arrowDown;
-    body.innerHTML = `
+    const renderTable = () => { body.innerHTML = `
       <button type="button" class="sort-trigger" id="state-sort-btn"
               aria-haspopup="dialog" aria-expanded="false">
         Сортировка: ${sortLabel} ${sortArrow}
@@ -874,7 +875,9 @@ async function loadState(useCache) {
         ${html}
       </table>
       </div>
-    `;
+    `; };
+    if (useCache) motion.flip(body, renderTable, 24);
+    else renderTable();
     body.querySelectorAll(".state-del").forEach(btn => {
       btn.addEventListener("click", () => stateDelete(btn.dataset.key, btn.dataset.host));
     });

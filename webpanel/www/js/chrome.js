@@ -1,4 +1,5 @@
 import { _icons } from "./core/dom.js";
+import { motion } from "./motion.js";
 import { STATE_SORT_LABELS, saveStateSort, stateSort } from "./state-model.js";
 
 // No-op stub — closeNavMore вызывается в navigate(), удалили overflow concept
@@ -12,14 +13,24 @@ export function initSidebar() {
   if (!button || !nav) return;
   const desktop = window.matchMedia("(min-width: 768px)");
 
-  function applyState(collapsed, persist) {
+  function applyState(collapsed, persist, animate = false) {
+    const brand = document.getElementById("panel-brand");
+    const themeToggle = document.querySelector(".topbar > .theme-toggle");
+    const before = animate ? { navWidth: getComputedStyle(nav).width,
+      bodyPadding: getComputedStyle(document.body).paddingLeft,
+      brandLeft: brand ? getComputedStyle(brand).left : null,
+      themeRight: themeToggle ? getComputedStyle(themeToggle).right : null } : null;
     if (desktop.matches && collapsed) document.body.setAttribute("data-sidebar", "collapsed");
     else document.body.removeAttribute("data-sidebar");
+    if (before) motion.sidebar(nav, document.body, before);
 
     const label = collapsed ? "Развернуть боковую панель" : "Свернуть боковую панель";
     button.setAttribute("aria-expanded", String(!collapsed));
     button.setAttribute("aria-label", label);
     button.title = label;
+    const icon = button.querySelector(".nav-ico");
+    if (icon && motion.available) motion.to(icon, { rotation: collapsed ? 180 : 0,
+      duration: motion.timing.duration.state, ease: motion.timing.ease.standard }, "sidebar-icon");
 
     for (const link of nav.querySelectorAll("a")) {
       const label = link.querySelector(".nav-label");
@@ -41,7 +52,7 @@ export function initSidebar() {
   if (desktop.addEventListener) desktop.addEventListener("change", () => applyState(collapsed, false));
   button.addEventListener("click", () => {
     collapsed = !collapsed;
-    applyState(collapsed, true);
+    applyState(collapsed, true, true);
   });
 }
 
@@ -124,7 +135,9 @@ export function initDrawer() {
     if (theme) theme.classList.add("menu-open");
     backdrop.hidden = false;
     requestAnimationFrame(() => {
+      if (!nav.classList.contains("menu-open")) return;
       backdrop.classList.add("menu-open");
+      motion.drawer(nav, theme, backdrop, true);
       const first = drawerFocusables()[0];
       if (first) first.focus();
     });
@@ -132,15 +145,25 @@ export function initDrawer() {
     document.body.style.overflow = "hidden";
   }
   function closeDrawer({ restoreFocus = true } = {}) {
-    shell.classList.remove("mm-ocd--open");
     document.body.classList.remove("mm-ocd-opened");
-    nav.classList.remove("menu-open");
-    if (theme) theme.classList.remove("menu-open");
-    backdrop.classList.remove("menu-open");
     btn.setAttribute("aria-expanded", "false");
     document.body.style.overflow = "";
     clearTimeout(backdropHideTimer);
-    backdropHideTimer = setTimeout(() => { backdrop.hidden = true; }, 450);
+    if (motion.available) {
+      motion.drawer(nav, theme, backdrop, false, () => {
+        shell.classList.remove("mm-ocd--open");
+        nav.classList.remove("menu-open");
+        if (theme) theme.classList.remove("menu-open");
+        backdrop.classList.remove("menu-open");
+        backdrop.hidden = true;
+      });
+    } else {
+      shell.classList.remove("mm-ocd--open");
+      nav.classList.remove("menu-open");
+      if (theme) theme.classList.remove("menu-open");
+      backdrop.classList.remove("menu-open");
+      backdropHideTimer = setTimeout(() => { backdrop.hidden = true; }, 450);
+    }
     if (restoreFocus) requestAnimationFrame(() => btn.focus());
   }
 
@@ -218,6 +241,8 @@ function ensureSortSheet() {
   return sheet;
 }
 
+let sortCloseTimer = 0;
+
 function renderSortOptions() {
   const box = document.getElementById("sort-sheet-options");
   if (!box) return;
@@ -258,10 +283,14 @@ export function openSortSheet(afterPick) {
   if (typeof afterPick === "function") onSortPicked = afterPick;
   const sheet = ensureSortSheet();
   const backdrop = document.getElementById("sort-sheet-backdrop");
+  clearTimeout(sortCloseTimer);
   renderSortOptions();
   sheet.hidden = false;
   backdrop.hidden = false;
-  requestAnimationFrame(() => {
+  sheet.classList.add("sheet-open");
+  backdrop.classList.add("sheet-open");
+  if (motion.available) motion.overlay(sheet, backdrop, true, { duration: motion.timing.duration.popup, fromY: 12, fromScale: 1 });
+  else requestAnimationFrame(() => {
     sheet.classList.add("sheet-open");
     backdrop.classList.add("sheet-open");
   });
@@ -274,13 +303,21 @@ function closeSortSheet() {
   const sheet = document.getElementById("sort-sheet");
   const backdrop = document.getElementById("sort-sheet-backdrop");
   if (!sheet) return;
-  sheet.classList.remove("sheet-open");
-  if (backdrop) backdrop.classList.remove("sheet-open");
+  if (sheet.hidden) return;
   const trigger = document.getElementById("state-sort-btn");
   if (trigger) trigger.setAttribute("aria-expanded", "false");
   document.body.style.overflow = "";
-  setTimeout(() => {
+  const finish = () => {
+    sheet.classList.remove("sheet-open");
+    if (backdrop) backdrop.classList.remove("sheet-open");
     sheet.hidden = true;
     if (backdrop) backdrop.hidden = true;
-  }, 220);
+  };
+  if (motion.available) motion.overlay(sheet, backdrop, false, { duration: motion.timing.duration.popup, toY: 12, toScale: 1, onComplete: finish });
+  else {
+    sheet.classList.remove("sheet-open");
+    if (backdrop) backdrop.classList.remove("sheet-open");
+    clearTimeout(sortCloseTimer);
+    sortCloseTimer = setTimeout(finish, 220);
+  }
 }

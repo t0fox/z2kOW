@@ -1,5 +1,6 @@
 import { closeNavMore } from "./chrome.js";
 import { $app, $nav, escapeHtml } from "./core/dom.js";
+import { motion } from "./motion.js";
 import { renderStrategies } from "./pages/credits.js";
 import { renderCreditsPage } from "./pages/credits-openwrt.js";
 import { renderDashboard } from "./pages/dashboard.js";
@@ -128,8 +129,11 @@ function syncTabIndicator(previous, revealActive = true) {
   };
   const targetKey = Object.values(target).join(":");
   if (tabs.dataset.tabIndicatorTarget === targetKey) return;
+  const first = !tabs.dataset.tabIndicatorTarget;
   tabs.dataset.tabIndicatorTarget = targetKey;
-  if (previous && Object.values(previous).some((value, index) => value !== Object.values(target)[index])) {
+  if (motion.available) {
+    motion.moveTabIndicator(tabs, target, first, previous);
+  } else if (previous && Object.values(previous).some((value, index) => value !== Object.values(target)[index])) {
     writeTabPosition(tabs, previous);
     requestAnimationFrame(() => {
       if (tabs.isConnected) writeTabPosition(tabs, target);
@@ -148,7 +152,14 @@ const _tabObserver = new MutationObserver(() => {
   if (tabs && !tabs.dataset.tabIndicatorTarget) syncTabIndicator(_previousTabPosition);
 });
 _tabObserver.observe($app, { childList: true, subtree: true });
-window.addEventListener("resize", () => requestAnimationFrame(() => syncTabIndicator(null)));
+function syncNavIndicator() {
+  const active = $nav.querySelector("a.active");
+  if (active) motion.moveNavIndicator($nav, active);
+}
+window.addEventListener("resize", () => requestAnimationFrame(() => {
+  syncTabIndicator(null);
+  syncNavIndicator();
+}));
 
 // Route titles have one owner; the tab starts with the active brand so it stays
 // visible when the browser shortens the title.
@@ -178,6 +189,7 @@ function showRouteFailure(error, token) {
   $app.innerHTML = '<section class="card" data-ui-fatal role="alert">' +
     '<h1 class="page-title">Не удалось загрузить страницу</h1>' +
     '<p class="desc">Обновите страницу. Подробность: ' + escapeHtml(detail) + '</p></section>';
+  motion.enterRoute($app);
 }
 
 export function navigate() {
@@ -194,6 +206,7 @@ export function navigate() {
   for (const a of $nav.querySelectorAll("a")) {
     a.classList.toggle("active", a.dataset.route === navName);
   }
+  syncNavIndicator();
   // Имя экрана в DOM: по нему стилям видно, где мы находимся. Нужно
   // ровно одному правилу — экран стратегий снимает кап ширины, потому что
   // это таблица на сотни строк, а не текст.
@@ -201,14 +214,16 @@ export function navigate() {
   refreshRouteTitle();
   closeNavMore();
   $app.innerHTML = '<section class="card" aria-live="polite">Загрузка…</section>';
+  const finishRoute = () => {
+    if (token !== _navigationToken) return;
+    syncTabIndicator(previousTabPosition);
+    motion.enterRoute($app);
+  };
   try {
     const result = routes[name]();
-    syncTabIndicator(previousTabPosition);
     if (result && typeof result.catch === "function") {
-      result.then(() => {
-        if (token === _navigationToken) syncTabIndicator(previousTabPosition);
-      }).catch(error => showRouteFailure(error, token));
-    }
+      result.then(finishRoute).catch(error => showRouteFailure(error, token));
+    } else finishRoute();
   } catch (error) {
     showRouteFailure(error, token);
   }

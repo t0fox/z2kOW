@@ -1,6 +1,8 @@
 // Shared Chosen-style presentation for every single-value select in the panel.
 // Keep the native <select> as the value and event source so route code keeps
 // its existing selectors, values, and change handlers.
+import { motion } from "../motion.js";
+
 const states = new WeakMap();
 const valueProperty = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
 const indexProperty = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "selectedIndex");
@@ -201,7 +203,12 @@ function openSelect(state) {
   const firstEnabled = Array.from(state.select.options).findIndex(option => !optionDisabled(option));
   setActiveOption(state, selected >= 0 && !optionDisabled(state.select.options[selected]) ? selected : firstEnabled);
   state.trigger.focus({ preventScroll: true });
-  requestAnimationFrame(() => {
+  if (motion.available) {
+    state.drop.classList.add("chosen-drop-open");
+    motion.overlay(state.drop, null, true, { duration: motion.timing.duration.popup, fromY: 4, fromScale: 0.99 });
+    motion.fromTo(state.arrow, { rotation: 45 }, { rotation: 225, duration: motion.timing.duration.popup,
+      ease: motion.timing.ease.standard, clearProps: "transform" }, "chosen-arrow");
+  } else requestAnimationFrame(() => {
     if (state.open) state.drop.classList.add("chosen-drop-open");
   });
 }
@@ -213,13 +220,25 @@ function closeSelect(state, restoreFocus = false) {
   state.wrapper.classList.remove("chosen-with-drop");
   state.trigger.setAttribute("aria-expanded", "false");
   state.trigger.removeAttribute("aria-activedescendant");
-  state.drop.classList.remove("chosen-drop-open", "chosen-drop-measuring");
-  state.drop.classList.add("chosen-drop-closing");
   if (state.closeTimer) window.clearTimeout(state.closeTimer);
-  state.closeTimer = window.setTimeout(() => {
-    state.drop.hidden = true;
-    state.drop.classList.remove("chosen-drop-closing", "chosen-drop-upwards");
-  }, 200);
+  if (motion.available) {
+    state.drop.style.pointerEvents = "none";
+    motion.overlay(state.drop, null, false, { duration: motion.timing.duration.popup, toY: 3, toScale: 0.99,
+      onComplete: () => {
+        state.drop.hidden = true;
+        state.drop.classList.remove("chosen-drop-open", "chosen-drop-measuring", "chosen-drop-closing", "chosen-drop-upwards");
+        state.drop.style.removeProperty("pointer-events");
+      } });
+    motion.fromTo(state.arrow, { rotation: 225 }, { rotation: 45, duration: motion.timing.duration.popup,
+      ease: motion.timing.ease.standard, clearProps: "transform" }, "chosen-arrow");
+  } else {
+    state.drop.classList.remove("chosen-drop-open", "chosen-drop-measuring");
+    state.drop.classList.add("chosen-drop-closing");
+    state.closeTimer = window.setTimeout(() => {
+      state.drop.hidden = true;
+      state.drop.classList.remove("chosen-drop-closing", "chosen-drop-upwards");
+    }, 200);
+  }
   if (restoreFocus && !state.select.disabled) state.trigger.focus({ preventScroll: true });
 }
 

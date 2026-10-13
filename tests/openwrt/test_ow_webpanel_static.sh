@@ -187,6 +187,20 @@ else
 fi
 assert_contains "static identity does not depend on /status" "$REPO/webpanel/www/index.html" 'fetch("/assets/openwrt/profile.json"'
 assert_contains "boot catches required module-graph failure" "$REPO/webpanel/www/index.html" 'data-ui-fatal'
+assert_file "общий модуль движения загружает GSAP" "$REPO/webpanel/www/js/motion.js"
+assert_contains "точка входа подключает общий модуль движения" "$REPO/webpanel/www/app.js" 'from "./js/motion.js"'
+assert_contains "GSAP-ready отключает CSS-анимации, чтобы не было двойного владельца" "$REPO/webpanel/www/style.css" 'html.motion-ready'
+GSAP="$REPO/webpanel/www/assets/vendor/gsap.js"
+assert_file "GSAP 3.15.0 is shipped locally" "$GSAP"
+assert_contains "GSAP provenance pins d2o source commit" "$REPO/webpanel/www/assets/vendor/GSAP-NOTICE.txt" 'ccf1044f5bcb4cfabe8233733c664a435df1c363'
+assert_contains "GSAP retains upstream license notice" "$GSAP" 'https://gsap.com/standard-license'
+_gsap_line="$(grep -n 'assets/vendor/gsap.js' "$REPO/webpanel/www/index.html" | head -1 | cut -d: -f1)"
+_app_line="$(grep -n '<script type="module" src="app.js' "$REPO/webpanel/www/index.html" | head -1 | cut -d: -f1)"
+if [ -n "$_gsap_line" ] && [ -n "$_app_line" ] && [ "$_gsap_line" -lt "$_app_line" ]; then
+    _t_ok
+else
+    _t_bad "GSAP vendor must load before the application module ($_gsap_line/$_app_line)"
+fi
 if grep -nE '^import .*core/identity\.js' "$REPO/webpanel/www/app.js" "$REPO/webpanel/www/js/router.js" 2>/dev/null | grep -q .; then
     _t_bad "js: optional identity is a static module dependency"
 else

@@ -2,6 +2,7 @@ import { apiGet, apiPost, errHtml, errMsg, toastErr } from "../core/api.js";
 import { $app, escapeHtml } from "../core/dom.js";
 import { _newLoad, _stale, applyCapabilities, refreshStatus } from "../core/loadorder.js";
 import { toast } from "../core/toast.js";
+import { motion } from "../motion.js";
 import { JOB_FAIL, _updateGlobalUILock, confirmModal, jobOutcome, jobUnresolved, openJobModal, setLockAware, unresolvedMsg } from "../job.js";
 import { AUTOHOSTLIST_WARNING, TOGGLES_RESTART_SERVICE, resyncToggle } from "./policy.js";
 
@@ -15,6 +16,7 @@ const flowBenchmarkRuntime = {
 
 let tgRuntimeSnapshot = null;
 let tgConfiguredWorkers = [];
+const tgMotionValues = new Map();
 const TG_DIAGNOSTICS_FRESH_SECONDS = 5 * 60;
 const TG_WORKER_FRESH_SECONDS = 15 * 60;
 
@@ -98,7 +100,8 @@ function renderTgStats(snapshot, error = "") {
     ? "Процесс запущен · listener готов принимать соединения."
     : "Процесс статистики отвечает · listener не готов.";
 
-  const makeFact = (labelText, valueText, noteText = "") => {
+  const numericFacts = [];
+  const makeFact = (labelText, valueText, noteText = "", numeric = null) => {
     const item = document.createElement("div");
     item.className = "tg-summary-item";
     const label = document.createElement("span");
@@ -107,6 +110,7 @@ function renderTgStats(snapshot, error = "") {
     const value = document.createElement("strong");
     value.className = "tg-summary-value";
     value.textContent = valueText;
+    if (numeric && Number.isFinite(Number(numeric.value))) numericFacts.push({ element: value, ...numeric });
     appendTgNodes(item, label, value);
     if (noteText) {
       const note = document.createElement("span");
@@ -118,14 +122,26 @@ function renderTgStats(snapshot, error = "") {
   };
   const age = snapshot.dc_map?.freshness_seconds;
   const memory = snapshot.rss_kib == null ? "Недоступна" : `${(Number(snapshot.rss_kib) / 1024).toFixed(1)} МиБ`;
+  const maxConnections = snapshot.max_connections ?? "—";
   const grid = document.createElement("div");
   grid.className = "tg-summary-grid";
   grid.setAttribute("aria-label", "Краткая статистика Telegram");
   appendTgNodes(grid,
-    makeFact("Активные соединения", `${snapshot.active_connections ?? 0} / ${snapshot.max_connections ?? "—"}`),
-    makeFact("Сессии с ответом", String(snapshot.mtproto_success ?? 0), "Первый непустой WSS Binary кадр; не подтверждает resPQ."),
-    makeFact("Память процесса", memory, "Текущий RSS"),
-    makeFact("Карта DC", age == null ? "Возраст неизвестен" : `${age} с назад`, "Последнее обновление карты"),
+    makeFact("Активные соединения", `${snapshot.active_connections ?? 0} / ${maxConnections}`, "", {
+      key: "active_connections", value: Number(snapshot.active_connections ?? 0),
+      format: value => `${Math.round(value)} / ${maxConnections}`,
+    }),
+    makeFact("Сессии с ответом", String(snapshot.mtproto_success ?? 0), "Первый непустой WSS Binary кадр; не подтверждает resPQ.", {
+      key: "mtproto_success", value: Number(snapshot.mtproto_success ?? 0),
+      format: value => Math.round(value).toLocaleString("ru-RU"),
+    }),
+    makeFact("Память процесса", memory, "Текущий RSS", snapshot.rss_kib == null ? null : {
+      key: "rss_mib", value: Number(snapshot.rss_kib) / 1024,
+      format: value => `${value.toFixed(1)} МиБ`,
+    }),
+    makeFact("Карта DC", age == null ? "Возраст неизвестен" : `${age} с назад`, "Последнее обновление карты", age == null ? null : {
+      key: "dc_map_age", value: Number(age), format: value => `${Math.round(value)} с назад`,
+    }),
   );
 
   const technical = document.createElement("details");
@@ -195,6 +211,13 @@ function renderTgStats(snapshot, error = "") {
   appendTgNodes(technical, technicalSummary, technicalBody);
   clearTgNode(details);
   appendTgNodes(details, grid, technical);
+  for (const fact of numericFacts) {
+    const previous = tgMotionValues.get(fact.key);
+    tgMotionValues.set(fact.key, Number(fact.value));
+    fact.element.dataset.motionValue = String(previous ?? fact.value);
+    fact.element.textContent = fact.format(previous ?? fact.value);
+    if (previous != null) motion.numberTo(fact.element, fact.value, fact.format);
+  }
   renderTgWorkers(tgConfiguredWorkers, snapshot);
 }
 

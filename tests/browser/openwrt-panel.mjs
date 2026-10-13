@@ -292,11 +292,18 @@ async function waitForRenderedRoute(page, route) {
     return document.body.getAttribute("data-page") === name
       && content.length > 0 && content !== "Загрузка…";
   }, route, { timeout: 2000 });
+  await page.waitForFunction(() => [...document.querySelectorAll('#app .page-title, #app > .card')]
+    .every(node => Number.parseFloat(getComputedStyle(node).opacity) >= 0.99
+      && getComputedStyle(node).visibility !== "hidden"), null, { timeout: 2000 });
+  await page.waitForFunction(name => {
+    const app = document.querySelector("#app");
+    const content = app ? app.innerText.trim() : "";
+    return document.body.getAttribute("data-page") === name
+      && content.length > 0 && content !== "Загрузка…";
+  }, route, { timeout: 2000 });
   const content = (await page.locator("#app").innerText()).trim();
   assert.ok(content, route + " must render visible content");
   assert.notEqual(content, "Загрузка…", route + " must leave the initial loading state");
-  await page.waitForFunction(() => [...document.querySelectorAll('#app .page-title, #app > .card')]
-    .every(node => Number.parseFloat(getComputedStyle(node).opacity) >= 0.99), null, { timeout: 2000 });
 }
 
 async function waitForCondition(predicate, description, timeoutMs = 5000) {
@@ -308,18 +315,25 @@ async function waitForCondition(predicate, description, timeoutMs = 5000) {
 }
 
 async function waitForNavSettled(page) {
-  await page.waitForFunction(() => [...document.querySelectorAll('#nav a')]
-    .every(link => link.getAnimations().every(animation => animation.playState !== 'running')),
-  null, { timeout: 1200 });
+  await waitForGsapSettled(page, ['#nav a', '#nav .nav-active-indicator']);
+}
+
+async function waitForGsapSettled(page, selectors) {
+  await page.waitForFunction(targetSelectors => {
+    if (!window.gsap) return true;
+    const targets = targetSelectors.flatMap(selector => [...document.querySelectorAll(selector)]);
+    return targets.every(target => window.gsap.getTweensOf(target).every(tween => !tween.isActive()));
+  }, selectors, { timeout: 1500 });
 }
 
 async function waitForDrawerSettled(page, open) {
   await page.waitForFunction(expectedOpen => {
     const nav = document.querySelector('#nav');
     const shell = document.querySelector('#menu-shell');
+    const targets = [nav, document.querySelector('.topbar > .theme-toggle'), document.querySelector('#menu-backdrop')].filter(Boolean);
     return nav.classList.contains('menu-open') === expectedOpen
       && shell.classList.contains('mm-ocd--open') === expectedOpen
-      && shell.getAnimations({ subtree: true }).every(animation => animation.playState !== 'running');
+      && targets.every(target => window.gsap.getTweensOf(target).every(tween => !tween.isActive()));
   }, open, { timeout: 1200 });
 }
 
@@ -601,6 +615,19 @@ try {
   assert.equal(oldBootstrapRequests, 0, 'the renamed bootstrap never requests branding.js');
   await legacyBlocked.close();
 
+  let blockedGsapRequests = 0;
+  const gsapBlocked = await browser.newPage();
+  await gsapBlocked.route('**/assets/vendor/gsap.js*', route => {
+    blockedGsapRequests += 1;
+    return route.abort('blockedbyclient');
+  });
+  await gsapBlocked.goto(`${base}/#/dashboard`);
+  await waitForRenderedRoute(gsapBlocked, 'dashboard');
+  assert.equal(blockedGsapRequests, 1, 'локальный GSAP необязателен, его запрос блокируется отдельно');
+  assert.equal(await gsapBlocked.locator('#app [data-ui-fatal]').count(), 0,
+    'панель остаётся рабочей, если локальный GSAP не загрузился');
+  await gsapBlocked.close();
+
   const routes = ['dashboard', 'toggles', 'tiktok', 'dns', 'strategies', 'warp', 'whitelist', 'exclude', 'extra-domains', 'diag', 'credits', 'state', 'pick', 'autohostlist'];
   const primaryRoutes = ['dashboard', 'toggles', 'tiktok', 'dns', 'state', 'warp', 'whitelist', 'extra-domains', 'diag', 'credits'];
   const screenshotRoutes = ['dashboard', 'toggles', 'strategies', 'warp', 'whitelist', 'exclude',
@@ -650,6 +677,80 @@ try {
     }, appearance);
     await page.goto(`${base}/#/dashboard`);
     await waitForRenderedRoute(page, 'dashboard');
+    assert.equal(await page.evaluate(() => window.gsap?.version || ''), '3.15.0',
+      `${appearance}: локальный GSAP загружается до модулей приложения`);
+    assert.ok(moduleResponses.some(response => new URL(response.url).pathname.endsWith('/assets/vendor/gsap.js')
+      && response.status === 200), `${appearance}: GSAP загружается с адреса локальной панели`);
+    assert.equal(await page.evaluate(() => document.documentElement.classList.contains('motion-ready')),
+      true, `${appearance}: общий модуль GSAP управляет анимацией интерфейса`);
+    assert.equal(await page.locator('#sidebar-collapse').evaluate(button =>
+      getComputedStyle(button).transitionDuration.split(',').every(value => parseFloat(value) === 0)),
+    true, `${appearance}: CSS-переходы выключены, когда анимацией управляет GSAP`);
+    const motionLifecycle = await page.evaluate(async () => {
+      const { motion } = await import('/js/motion.js');
+      const target = document.createElement('button');
+      document.body.appendChild(target);
+      const first = motion.to(target, { x: 100, duration: 1 }, 'rapid-toggle');
+      const latest = motion.to(target, { x: 12, duration: 0.04 }, 'rapid-toggle');
+      const replaced = Boolean(first && !first.isActive());
+      await new Promise(resolve => {
+        const wait = () => latest && latest.isActive() ? requestAnimationFrame(wait) : resolve();
+        requestAnimationFrame(wait);
+      });
+      const finalX = Number(gsap.getProperty(target, 'x'));
+      motion.dispose(target);
+      const cleared = gsap.getTweensOf(target).length === 0 && !target.style.transform;
+      target.remove();
+      return { replaced, finalX, cleared, hasFlip: motion.hasFlip };
+    });
+    assert.equal(motionLifecycle.replaced, true, `${appearance}: быстрое повторное действие отменяет устаревший tween`);
+    assert.ok(Math.abs(motionLifecycle.finalX - 12) < 0.1,
+      `${appearance}: последняя анимация достигает заданного состояния (${motionLifecycle.finalX})`);
+    assert.equal(motionLifecycle.cleared, true, `${appearance}: очистка удаляет активные tween и временные стили`);
+    assert.equal(motionLifecycle.hasFlip, true, `${appearance}: локальная сборка GSAP включает Flip для коротких списков`);
+    const motionFeatures = await page.evaluate(async () => {
+      const { motion } = await import('/js/motion.js');
+      const waitTween = tween => new Promise(resolve => {
+        const wait = () => tween && tween.isActive() ? requestAnimationFrame(wait) : resolve();
+        requestAnimationFrame(wait);
+      });
+      const number = document.createElement('strong');
+      number.dataset.motionValue = '2';
+      number.textContent = '2';
+      const numericTween = motion.numberTo(number, 5, value => String(Math.round(value)));
+      const progress = document.createElement('div');
+      progress.style.width = '20%';
+      const progressTween = motion.progressTo(progress, 75);
+      const toggle = document.createElement('label');
+      toggle.className = 'switch';
+      toggle.innerHTML = '<input type="checkbox"><span class="slider"></span>';
+      document.body.append(number, progress, toggle);
+      const checkbox = toggle.querySelector('input');
+      checkbox.checked = true;
+      checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+      const list = document.createElement('div');
+      list.style.cssText = 'position:fixed;top:10px;left:10px;display:flex;width:320px;gap:8px;';
+      list.innerHTML = '<span data-flip-id="a" style="width:80px;height:20px"></span><span data-flip-id="b" style="width:80px;height:20px"></span><span data-flip-id="c" style="width:80px;height:20px"></span>';
+      document.body.appendChild(list);
+      const flipTween = motion.flip(list, () => list.prepend(list.lastElementChild), 24);
+      await Promise.all([waitTween(numericTween), waitTween(progressTween), waitTween(flipTween)]);
+      await waitTween(gsap.getTweensOf(toggle)[0]);
+      const result = {
+        number: number.textContent,
+        progressWidth: progress.style.width,
+        progressValue: progress.getAttribute('aria-valuenow'),
+        switchOffset: getComputedStyle(toggle.querySelector('.slider'), '::before').transform,
+        flipOrder: [...list.querySelectorAll('[data-flip-id]')].map(item => item.dataset.flipId),
+      };
+      number.remove(); progress.remove(); toggle.remove(); list.remove();
+      return result;
+    });
+    assert.equal(motionFeatures.number, '5', `${appearance}: числа анимируются через GSAP`);
+    assert.equal(motionFeatures.progressWidth, '75%', `${appearance}: прогресс анимируется через GSAP`);
+    assert.equal(motionFeatures.progressValue, '75');
+    assert.match(motionFeatures.switchOffset, /matrix\(1, 0, 0, 1, 18, 0\)/,
+      `${appearance}: GSAP перемещает ручку переключателя в положение «включено»`);
+    assert.deepEqual(motionFeatures.flipOrder, ['c', 'a', 'b'], `${appearance}: Flip сохраняет порядок элементов списка`);
     await page.waitForFunction(() => {
       const theme = document.querySelector('#brand-profile-theme');
       return theme && theme.sheet && theme.sheet.cssRules.length > 0;
@@ -880,20 +981,17 @@ try {
       `header controls follow Lolz's measured 98 px trailing inset within the shell (${JSON.stringify(desktopFrame)})`);
     assert.ok(Math.abs(await page.locator('#nav .nav-ico').first().evaluate(node => node.getBoundingClientRect().width) - 20) < 1,
       'sidebar icons match the reference size');
-    const shellMotion = await page.evaluate(() => {
+    const shellMotion = await page.evaluate(async () => {
       const nav = getComputedStyle(document.querySelector('#nav'));
       const app = getComputedStyle(document.querySelector('#app'));
-      return { navDuration: nav.transitionDuration, navEasing: nav.transitionTimingFunction,
-        appDuration: app.transitionDuration, appEasing: app.transitionTimingFunction };
+      const { motion } = await import('/js/motion.js');
+      return { navDuration: nav.transitionDuration, appDuration: app.transitionDuration,
+        appTransition: app.transitionProperty, shellDuration: motion.timing.duration.shell };
     });
-    assert.deepEqual(shellMotion.navDuration.split(',').map(value => value.trim()), ['0.3s', '0.3s'],
-      'desktop sidebar left and width transition for 300 ms');
-    assert.ok(shellMotion.navEasing.split(',').every(value => value.trim() === 'ease'),
-      'desktop sidebar uses the observed ease curve');
-    assert.deepEqual(shellMotion.appDuration.split(',').map(value => value.trim()), ['0.3s', '0.3s'],
-      'desktop content margin and width follow the rail over 300 ms');
-    assert.ok(shellMotion.appEasing.split(',').every(value => value.trim() === 'ease'),
-      'desktop content follows the observed ease curve');
+    assert.equal(shellMotion.navDuration, '0s', 'анимацией боковой панели управляет GSAP');
+    assert.equal(shellMotion.appDuration, '0s', 'анимацией содержимого управляет GSAP');
+    assert.equal(shellMotion.appTransition, 'none');
+    assert.equal(shellMotion.shellDuration, 0.3, 'общая длительность анимации каркаса — 300 мс');
     assert.ok(await page.locator('#app').evaluate(node => node.getBoundingClientRect().width === 800),
       'all desktop routes use the reference 800 px content column');
     const sidebarCollapse = page.locator('#sidebar-collapse');
@@ -901,8 +999,7 @@ try {
     await page.waitForFunction(() => document.body.dataset.sidebar === 'collapsed'
       && Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 72) < 0.5
       && Math.abs(document.querySelector('#app').getBoundingClientRect().x - (innerWidth / 2 - 356.5)) < 1);
-    await page.waitForFunction(() => document.getAnimations()
-      .every(animation => animation.playState !== 'running'));
+    await waitForGsapSettled(page, ['#nav', 'body', '#sidebar-collapse .nav-ico']);
     const collapsedFrame = await page.evaluate(() => ({
       state: document.body.getAttribute('data-sidebar'),
       windowWidth: window.innerWidth,
@@ -939,8 +1036,7 @@ try {
     await sidebarCollapse.click();
     await page.waitForFunction(() => !document.body.hasAttribute('data-sidebar')
       && Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 261) < 0.5);
-    await page.waitForFunction(() => document.getAnimations()
-      .every(animation => animation.playState !== 'running'));
+    await waitForGsapSettled(page, ['#nav', 'body', '#sidebar-collapse .nav-ico']);
     assert.equal(await page.locator('body').getAttribute('data-sidebar'), null,
       `${appearance}: the collapse control restores the expanded rail`);
     assert.ok(Math.abs(await page.locator('#nav').evaluate(node => node.getBoundingClientRect().width) - 261) < 0.5);
@@ -963,8 +1059,8 @@ try {
     assert.notEqual(surfaces.successCellShadow, 'none', 'successful status cells retain their subtle glow');
     assert.equal(await page.locator('#app .card .desc').first().evaluate(node => getComputedStyle(node).lineHeight), '17.92px',
       'card descriptions use the measured 14 px / 17.92 px Lolz rhythm');
-    assert.equal(surfaces.titleAnimation, 'page-enter', 'the reference route transition is applied to page titles');
-    assert.equal(surfaces.cardAnimation, 'page-enter', 'the reference route transition is applied to cards');
+    assert.equal(surfaces.titleAnimation, 'none', 'GSAP заменяет CSS-анимацию заголовка страницы');
+    assert.equal(surfaces.cardAnimation, 'none', 'GSAP заменяет CSS-анимацию карточек');
     const buttonStyle = await page.locator('#app .btn').first().evaluate(node => {
       const style = getComputedStyle(node);
       return { height: node.getBoundingClientRect().height, radius: style.borderRadius,
@@ -977,9 +1073,8 @@ try {
       'button text follows the selected theme');
     assert.equal(buttonStyle.background, appearance === 'dark' ? 'rgb(30, 39, 37)' : 'rgb(234, 241, 239)',
       'button surfaces follow the selected theme');
-    assert.ok(buttonStyle.transitionDuration.split(',').every(value => value.trim() === '0.1s'),
-      'buttons use the measured 100 ms Lolz transition');
-    assert.ok(buttonStyle.transitionProperty.includes('all'), 'buttons retain the source transition shorthand');
+    assert.equal(buttonStyle.transitionDuration, '0s', 'анимацией кнопки управляет GSAP');
+    assert.equal(buttonStyle.transitionProperty, 'none');
     const referenceCard = page.locator('#app > .card').filter({ has: page.locator('h3') }).first();
     const staticCardBefore = await referenceCard.evaluate(node => {
       const style = getComputedStyle(node);
@@ -1017,7 +1112,7 @@ try {
       'hovered cards use the measured edge color or its light-theme equivalent');
     assert.ok(ratio(appearance === 'dark' ? '#D6D6D6' : '#182625',
       appearance === 'dark' ? '#181E1C' : '#E1ECE9') >= 4.5, 'hover card headings remain readable');
-    assert.ok(cardHover.duration.split(',').includes('0.15s'), 'cards ease their hover state over 150 ms');
+    assert.equal(cardHover.duration, '0s', 'анимацией интерактивной карточки управляет GSAP');
     await interactiveCard.evaluate(node => node.remove());
     await page.mouse.move(1, 1);
     await page.evaluate(() => { location.hash = '#/state'; });
@@ -1033,10 +1128,13 @@ try {
     });
     const primary = page.locator('button[data-qa-motion="true"]');
     await primary.hover();
-    await page.waitForFunction(() => {
-      const node = document.querySelector('button[data-qa-motion="true"]');
-      return node && getComputedStyle(node, '::before').opacity === '1';
-    });
+    await page.waitForTimeout(250);
+    const hoverLayerState = await primary.evaluate(node => ({
+      opacity: getComputedStyle(node, '::before').opacity,
+      value: node.style.getPropertyValue('--z2k-motion-hover'),
+    }));
+    assert.deepEqual(hoverLayerState, { opacity: '1', value: '1' },
+      'GSAP сохраняет слой наведения после завершения tween');
     const primaryStyle = await primary.evaluate(node => {
       const root = getComputedStyle(document.documentElement);
       const style = getComputedStyle(node);
@@ -1052,11 +1150,11 @@ try {
     assert.match(primaryStyle.backgroundImage, /linear-gradient\(88deg/,
       `primary gradient follows the source 88 degree angle (${JSON.stringify(primaryStyle)})`);
     assert.match(primaryStyle.backgroundImage, /42, 143, 92/, 'primary gradient uses the source #2A8F5C middle stop');
-    assert.match(primaryStyle.hoverLayer, /linear-gradient\(88deg/, 'primary hover is the source pseudo-element overlay');
-    assert.equal(primaryStyle.hoverDuration, '0.3s', 'primary hover overlay fades over the source 300 ms');
-    assert.equal(primaryStyle.filter, 'brightness(1.08)', 'primary hover uses the source brightness response');
-    assert.equal(primaryStyle.activeLayer, 'rgba(0, 0, 0, 0.18)', 'primary press overlays the source black tint');
-    assert.equal(primaryStyle.activeDuration, '0.15s', 'primary press overlay uses the source 150 ms fade');
+    assert.match(primaryStyle.hoverLayer, /linear-gradient\(88deg/, 'слой наведения основной кнопки — исходный градиент');
+    assert.equal(primaryStyle.hoverDuration, '0s', 'слоем наведения основной кнопки управляет GSAP');
+    assert.equal(primaryStyle.filter, 'brightness(1.08)', 'при наведении основная кнопка использует исходную яркость');
+    assert.equal(primaryStyle.activeLayer, 'rgba(0, 0, 0, 0.18)', 'нажатие добавляет исходное чёрное наложение');
+    assert.equal(primaryStyle.activeDuration, '0s', 'слоем нажатия основной кнопки управляет GSAP');
     assert.deepEqual(primaryStyle.stops.slice(0, 2), ['#20764E', '#2A8F5C']);
     assert.deepEqual(primaryStyle.stops.slice(2), ['#1C6946', '#329C6C', '#1D8254']);
     assert.equal(primaryStyle.text, 'rgb(245, 245, 245)', 'primary button text matches the source #F5F5F5');
@@ -1071,8 +1169,9 @@ try {
       scale: new DOMMatrixReadOnly(getComputedStyle(node).transform).a,
       overlay: getComputedStyle(node, '::after').opacity,
     }));
-    assert.ok(Math.abs(primaryActive.scale - 0.97) < 0.002, 'primary press uses the source scale(.97)');
-    assert.equal(primaryActive.overlay, '1', 'primary press reaches the source black-overlay state');
+    assert.ok(Math.abs(primaryActive.scale - 0.97) < 0.002,
+      `нажатие основной кнопки использует исходный scale(.97): ${JSON.stringify(primaryActive)}`);
+    assert.equal(primaryActive.overlay, '1', 'при нажатии появляется исходное чёрное наложение');
     await page.mouse.up();
     await page.evaluate(() => document.querySelector('button[data-qa-motion="true"]').remove());
     assert.ok(ratio(tokens['--ow-text-primary'], tokens['--ow-surface-1']) >= 4.5);
@@ -1123,27 +1222,24 @@ try {
         assert.equal(await control.getAttribute('aria-expanded'), 'true', 'custom select opens from pointer input');
         await listbox.waitFor({ state: 'visible' });
         assert.equal(await listbox.isVisible(), true, 'custom select presents its options while open');
-        await page.waitForFunction(() => {
-          const drop = document.querySelector('.chosen-drop-open');
-          return drop && drop.getAnimations().every(animation => animation.playState !== 'running');
-        });
-        const popupGeometry = await page.evaluate(() => {
+        await waitForGsapSettled(page, ['.chosen-drop-open', '.chosen-arrow']);
+        const popupGeometry = await page.evaluate(async () => {
           const trigger = document.querySelector('#au-hour + .chosen-single').getBoundingClientRect();
           const drop = document.querySelector('.chosen-drop-open');
           const rect = drop.getBoundingClientRect();
           const style = getComputedStyle(drop);
+          const { motion } = await import('/js/motion.js');
           return { xOffset: Math.round((rect.left - trigger.left) * 100) / 100,
             widthDelta: Math.round((rect.width - trigger.width) * 100) / 100,
             radius: style.borderRadius, animationName: style.animationName,
-            animationDuration: style.animationDuration, animationEasing: style.animationTimingFunction };
+            animationDuration: style.animationDuration, popupDuration: motion.timing.duration.popup };
         });
         assert.deepEqual([popupGeometry.xOffset, popupGeometry.widthDelta], [0, 0],
           `the Lolz dropdown aligns to its trigger on the same x-axis and width (${JSON.stringify(popupGeometry)})`);
         assert.equal(popupGeometry.radius, '10px', 'the open dropdown uses the shared control radius');
-        assert.equal(popupGeometry.animationName, 'chosenDropBelow', 'the dropdown uses its Lolz open keyframe');
-        assert.equal(popupGeometry.animationDuration, '0.2s', 'the dropdown opens over the source 200 ms');
-        assert.match(popupGeometry.animationEasing, /cubic-bezier\(0\.5, 0, 0, 1\.25\)/,
-          'the dropdown uses the source spring-like easing');
+        assert.equal(popupGeometry.animationName, 'none', 'анимацией раскрывающегося списка больше не управляет CSS');
+        assert.equal(popupGeometry.animationDuration, '0s');
+        assert.equal(popupGeometry.popupDuration, 0.2, 'общая длительность раскрытия списка — 200 мс');
         if (screenshotDir) {
           await control.evaluate(node => window.scrollTo({
             top: Math.max(0, window.scrollY + node.getBoundingClientRect().top - 80), behavior: 'instant',
@@ -1188,11 +1284,11 @@ try {
           && Math.abs(pickerGeometry[2].width - pickerGeometry[3].width) < 0.5,
         `paired mode cards share their grid widths (${JSON.stringify(pickerGeometry)})`);
         const domainField = page.locator('#pick-domain');
-        const before = await domainField.boundingBox();
+        const before = await domainField.evaluate(node => [node.offsetWidth, node.offsetHeight]);
         await page.locator('.pick-mode input[value="voice"]').check();
         assert.equal(await domainField.isDisabled(), true, 'voice mode disables the irrelevant domain field');
-        const disabled = await domainField.boundingBox();
-        assert.deepEqual([disabled.width, disabled.height], [before.width, before.height],
+        const disabled = await domainField.evaluate(node => [node.offsetWidth, node.offsetHeight]);
+        assert.deepEqual(disabled, before,
           'the domain field keeps its geometry when disabled');
         await page.locator('.pick-mode input[value="tcp13"]').check();
         assert.equal(await domainField.isDisabled(), false, 'a domain mode restores the field');
@@ -1378,26 +1474,34 @@ try {
         });
         assert.notEqual(tabIndicator.width, '', `${appearance}/${route}: active-tab width is measured from the selected link`);
         assert.equal(tabIndicator.opacity, '1', `${appearance}/${route}: source underline is visible`);
-        assert.match(tabIndicator.transition, /0\.35s cubic-bezier\(0\.4, 0, 0\.2, 1\)/,
-          `${appearance}/${route}: underline position follows Lolz easing`);
+        assert.equal(tabIndicator.transition, 'none',
+          `${appearance}/${route}: GSAP управляет анимацией индикатора вкладки`);
         assert.ok(tabIndicator.left.endsWith('px'), `${appearance}/${route}: source position variable is applied`);
-        const tabScrollMotion = await page.locator('.strat-tabs').evaluate(async tabs => {
-          const active = tabs.querySelector('.strat-tab.active');
+        await page.locator('.strat-tabs').evaluate(tabs => {
           const spacer = document.createElement('span');
+          spacer.dataset.qaTabScrollSpacer = 'true';
           spacer.style.cssText = 'flex:0 0 420px;width:420px';
           tabs.appendChild(spacer);
           tabs.scrollLeft = 40;
           tabs.dispatchEvent(new Event('scroll'));
-          await new Promise(requestAnimationFrame);
+        });
+        await page.waitForFunction(() => {
+          const tabs = document.querySelector('.strat-tabs');
+          const active = tabs && tabs.querySelector('.strat-tab.active');
+          const left = tabs && Number.parseFloat(tabs.style.getPropertyValue('--tab-left'));
+          return active && Math.abs(left - (active.offsetLeft - tabs.scrollLeft)) < 0.01;
+        }, null, { timeout: 1200 });
+        const tabScrollMotion = await page.locator('.strat-tabs').evaluate(tabs => {
+          const active = tabs.querySelector('.strat-tab.active');
           const result = { left: Number.parseFloat(tabs.style.getPropertyValue('--tab-left')),
             expectedLeft: active.offsetLeft - tabs.scrollLeft,
             marginLeft: getComputedStyle(tabs, '::after').marginLeft };
-          spacer.remove();
+          tabs.querySelector('[data-qa-tab-scroll-spacer="true"]')?.remove();
           tabs.scrollLeft = 0;
           tabs.dispatchEvent(new Event('scroll'));
           return result;
         });
-        assert.equal(tabScrollMotion.left, tabScrollMotion.expectedLeft,
+        assert.ok(Math.abs(tabScrollMotion.left - tabScrollMotion.expectedLeft) < 0.01,
           `${appearance}/${route}: source tab indicator follows horizontal scroll (${JSON.stringify(tabScrollMotion)})`);
         assert.equal(tabScrollMotion.marginLeft, '5px', `${appearance}/${route}: source underline has its 5 px inset`);
       }
@@ -1566,9 +1670,7 @@ try {
             if (!active) return false;
             const indicator = getComputedStyle(tabs, '::after');
             const close = (actual, expected) => Math.abs(parseFloat(actual) - expected) < 1;
-            return tabs.getAnimations({ subtree: true })
-              .filter(animation => animation.effect?.pseudoElement === '::after')
-              .every(animation => animation.playState !== 'running')
+            return window.gsap.getTweensOf(tabs).every(tween => !tween.isActive())
               && close(indicator.left, active.offsetLeft - tabs.scrollLeft)
               && close(indicator.top, active.offsetTop + active.offsetHeight - 2)
               && close(indicator.width, active.offsetWidth);
@@ -1590,8 +1692,7 @@ try {
     }
     for (const width of [1440, 1280, 768, 390]) {
       await page.setViewportSize({ width, height: width < 500 ? 844 : 900 });
-      await page.waitForFunction(() => [...document.querySelector('#app').getAnimations()]
-        .every(animation => animation.playState !== 'running'), null, { timeout: 1200 });
+      await waitForGsapSettled(page, ['#app > .card', '.page-title']);
       await page.evaluate(() => window.scrollTo(0, 0));
       const frame = await page.evaluate(() => ({
         viewport: document.documentElement.clientWidth,
@@ -1638,13 +1739,16 @@ try {
         assert.ok(dc1Details.includes(field), `${appearance}/${width}: expanded DC1 keeps ${field}`);
       }
       const runtimeTechnical = telegramCard.locator('.tg-technical');
+      if (await runtimeTechnical.getAttribute('open') !== null) {
+        await runtimeTechnical.locator('summary').click();
+      }
       const overviewText = await telegramCard.locator('.tg-summary-grid').innerText();
       for (const label of ['Активные соединения', 'Сессии с ответом', 'Память процесса', 'Карта DC']) {
         assert.ok(overviewText.includes(label), `${appearance}/${width}: compact stats expose ${label}`);
       }
       assert.ok(overviewText.includes('не подтверждает resPQ'),
         `${appearance}/${width}: traffic counters are distinct from a resPQ check`);
-      assert.doesNotMatch(await telegramCard.innerText(), /dc203:cf-proxy|http_503|generation/,
+      assert.doesNotMatch(overviewText, /dc203:cf-proxy|http_503|generation/,
         `${appearance}/${width}: raw technical keys stay in the closed disclosure`);
       await runtimeTechnical.locator('summary').click();
       assert.equal(await runtimeTechnical.getAttribute('open'), '', `${appearance}/${width}: technical stats expand`);
@@ -1683,7 +1787,14 @@ try {
       frozen: row.dataset.frozen,
       inlineBackground: row.style.background,
       background: getComputedStyle(row).backgroundColor,
-      selectedSurface: getComputedStyle(document.querySelector('#nav a.active')).backgroundColor,
+      selectedSurface: (() => {
+        const probe = document.createElement('span');
+        probe.style.backgroundColor = 'var(--ow-surface-selected)';
+        document.body.appendChild(probe);
+        const color = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return color;
+      })(),
     }));
     assert.equal(frozenRow.frozen, 'true', `frozen table state is semantic and themeable (${JSON.stringify(frozenRow)})`);
     assert.equal(frozenRow.inlineBackground, '', 'row color comes from the shared Lolz surface token');
@@ -1756,19 +1867,19 @@ try {
       modalTransform: getComputedStyle(modal).transform,
       transitionDuration: getComputedStyle(modal).transitionDuration,
       transitionProperty: getComputedStyle(modal).transitionProperty };
-    const transformFinished = new Promise(resolve => {
-      const timeout = window.setTimeout(() => finish(), 1000);
-      function finish(event) {
-        if (event && event.propertyName !== 'transform') return;
-        window.clearTimeout(timeout);
-        modal.removeEventListener('transitionend', finish);
-        resolve();
-      }
-      modal.addEventListener('transitionend', finish);
-    });
     openModalBackdrop(backdrop);
-    await new Promise(requestAnimationFrame);
-    await transformFinished;
+    const openedSettled = await new Promise(resolve => {
+      const deadline = performance.now() + 1500;
+      const wait = () => {
+        const settled = getComputedStyle(backdrop).opacity === '1'
+          && getComputedStyle(modal).opacity === '1'
+          && !window.gsap.getTweensOf([modal, backdrop]).some(tween => tween.isActive());
+        if (settled || performance.now() >= deadline) resolve(settled);
+        else requestAnimationFrame(wait);
+      };
+      wait();
+    });
+    if (!openedSettled) throw new Error('анимация открытия окна GSAP не достигла конечного состояния');
     const opened = { backdrop: backdrop.classList.contains('in'), modal: modal.classList.contains('in'),
       backdropOpacity: getComputedStyle(backdrop).opacity,
       modalOpacity: getComputedStyle(modal).opacity,
@@ -1782,13 +1893,13 @@ try {
   assert.equal(modalMotion.start.modalOpacity, '0', 'Lolz modal starts transparent');
   assert.ok(Math.abs(Number(modalMotion.start.modalTransform.match(/^matrix\(([^,]+)/)?.[1]) - 0.9) < 0.002,
     'Lolz modal starts at scale(.9)');
-  assert.equal(modalMotion.start.transitionDuration, '0.2s, 0.15s');
-  assert.equal(modalMotion.start.transitionProperty, 'transform, opacity');
+  assert.equal(modalMotion.start.transitionDuration, '0s');
+  assert.equal(modalMotion.start.transitionProperty, 'none');
   assert.deepEqual([modalMotion.opened.backdrop, modalMotion.opened.modal,
     modalMotion.opened.backdropOpacity, modalMotion.opened.modalOpacity], [true, true, '1', '1']);
   assert.equal(modalMotion.opened.modalTransform, 'matrix(1, 0, 0, 1, 0, 0)');
   assert.deepEqual([modalMotion.closing.backdrop, modalMotion.closing.modal, modalMotion.closing.closing],
-    [false, false, 'true']);
+    [true, true, 'true']);
   assert.equal(modalMotion.removed, true, 'modal backdrop is removed after the source close transition');
   if (screenshotDir) {
     await motionPage.evaluate(() => {
@@ -2021,22 +2132,24 @@ try {
     'opening applies the observed body scroll-state class');
   assert.equal(await mobile.locator('#nav a[data-route="dashboard"] .nav-label').innerText(), 'Дашборд',
     'a persisted desktop collapse preference does not hide mobile drawer labels');
-  const drawerMotion = await mobile.evaluate(() => ({
+  const drawerMotion = await mobile.evaluate(async () => {
+    const { motion } = await import('/js/motion.js');
+    return {
     duration: getComputedStyle(document.querySelector('#menu-shell .mm-ocd__content')).transitionDuration,
     easing: getComputedStyle(document.querySelector('#menu-shell .mm-ocd__content')).transitionTimingFunction,
     width: document.querySelector('#menu-shell .mm-ocd__content').getBoundingClientRect().width,
     shellWidth: document.querySelector('#menu-shell').getBoundingClientRect().width,
     shellDuration: getComputedStyle(document.querySelector('#menu-shell')).transitionDuration,
     shellDelay: getComputedStyle(document.querySelector('#menu-shell')).transitionDelay,
-  }));
-  assert.equal(drawerMotion.duration, '0.3s', 'the Lolz drawer slides for 300 ms');
-  assert.equal(drawerMotion.easing, 'ease', 'the drawer uses the measured ease curve');
+    motionDuration: motion.timing.duration.shell,
+    };
+  });
+  assert.equal(drawerMotion.duration, '0s', 'анимацией бокового меню не управляет CSS');
+  assert.equal(drawerMotion.shellDuration, '0s');
+  assert.equal(drawerMotion.motionDuration, 0.3, 'GSAP использует общую длительность каркаса 300 мс');
   assert.ok(Math.abs(drawerMotion.width / drawerMotion.shellWidth - 0.8) < 0.005,
     `the drawer is 80% of the browser's content viewport (${drawerMotion.width}/${drawerMotion.shellWidth}px)`);
-  assert.ok(drawerMotion.shellDuration.split(',').some(value => value.trim() === '0.3s' || value.trim() === '300ms'),
-    `the shell fades for 300 ms (${drawerMotion.shellDuration})`);
-  assert.ok(drawerMotion.shellDelay.split(',').every(value => value.trim() === '0s'),
-    'opening removes both shell transition delays');
+  assert.equal(drawerMotion.shellDelay, '0s');
   await waitForDrawerSettled(mobile, true);
   const openDrawerBox = await mobile.locator('#nav').boundingBox();
   assert.ok(Math.abs(openDrawerBox.x) < 1, 'the mobile drawer opens from the left edge');
@@ -2051,12 +2164,10 @@ try {
     'coarse-pointer navigation links meet the 44 px touch target');
   await mobile.keyboard.press('Escape');
   assert.equal(await mobile.locator('#menu-toggle').getAttribute('aria-expanded'), 'false');
-  assert.equal(await mobile.locator('#menu-shell').evaluate(node => node.classList.contains('mm-ocd--open')), false);
   assert.equal(await mobile.locator('body').evaluate(node => node.classList.contains('mm-ocd-opened')), false);
-  const closingDelay = await mobile.locator('#menu-shell').evaluate(node => getComputedStyle(node).transitionDelay);
-  assert.ok(closingDelay.split(',').some(value => value.trim() === '0.15s'),
-    'closing delays the shell fade by the measured 150 ms');
   await waitForDrawerSettled(mobile, false);
+  assert.equal(await mobile.locator('#menu-shell').evaluate(node => node.classList.contains('mm-ocd--open')), false);
+  assert.equal(await mobile.locator('#nav').evaluate(node => node.classList.contains('menu-open')), false);
   await mobile.waitForFunction(() => document.querySelector('#menu-backdrop').hidden, null, { timeout: 1000 });
   await mobile.waitForFunction(() => document.activeElement.id === 'menu-toggle', null, { timeout: 1000 });
   assert.equal(await mobile.evaluate(() => document.activeElement.id), 'menu-toggle', 'Escape restores focus to the drawer trigger');
@@ -3074,6 +3185,37 @@ try {
 
   assert.deepEqual(allPageErrors, []);
   assert.deepEqual(allConsoleErrors, []);
+
+  const videoDir = process.env.OPENWRT_VIDEO_DIR || '';
+  if (videoDir) {
+    fs.mkdirSync(videoDir, { recursive: true });
+    const motionPage = await browser.newPage({
+      viewport: { width: 1280, height: 900 },
+      colorScheme: 'dark',
+      recordVideo: { dir: videoDir, size: { width: 1280, height: 900 } },
+    });
+    await motionPage.addInitScript(() => {
+      localStorage.setItem('z2k-theme', 'dark');
+      localStorage.setItem('z2k-sidebar', 'expanded');
+    });
+    await motionPage.goto(`${base}/#/dashboard`);
+    await waitForRenderedRoute(motionPage, 'dashboard');
+    await motionPage.locator('#sidebar-collapse').click();
+    await motionPage.waitForTimeout(350);
+    await motionPage.locator('#sidebar-collapse').click();
+    await motionPage.waitForTimeout(350);
+    await motionPage.evaluate(() => { location.hash = '#/toggles'; });
+    await waitForRenderedRoute(motionPage, 'toggles');
+    await motionPage.locator('#au-hour + .chosen-single').click();
+    await motionPage.keyboard.press('Escape');
+    await motionPage.locator('.telegram-tunnel-card').scrollIntoViewIfNeeded();
+    const firstDc = motionPage.locator('#tg-check-results .tg-dc-row').first();
+    await firstDc.locator('summary').click();
+    await motionPage.waitForTimeout(350);
+    await firstDc.locator('summary').click();
+    await motionPage.waitForTimeout(350);
+    await motionPage.close();
+  }
 
   // A genuinely broken required module graph receives a visible failure state.
   const broken = await browser.newPage();

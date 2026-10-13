@@ -688,13 +688,15 @@ body[data-page="login"] #app {
   filter: brightness(1.08);
   box-shadow: var(--ow-button-glow);
 }
-.btn-primary:not(:disabled):not(.disabled):hover::before { opacity: 1; }
+html:not(.motion-ready) .btn-primary:not(:disabled):not(.disabled):hover::before { opacity: 1; }
+html.motion-ready .btn-primary::before { opacity: var(--z2k-motion-hover, 0); }
 .btn-primary::after {
   background: rgb(0 0 0 / 0.18);
   opacity: 0;
   transition: opacity var(--ow-motion-state) ease;
 }
-.btn-primary:active::after { opacity: 1; }
+html:not(.motion-ready) .btn-primary:active::after { opacity: 1; }
+html.motion-ready .btn-primary::after { opacity: var(--z2k-motion-press, 0); }
 .btn-secondary { background: var(--ow-button-secondary); color: var(--ow-text-primary); outline: 1px solid color-mix(in srgb, #8CA29A 40%, transparent); }
 .btn-secondary:hover {
   background: var(--ow-surface-hover) radial-gradient(circle, transparent 1%, var(--ow-surface-hover) 1%) center / 15000%;
@@ -702,13 +704,13 @@ body[data-page="login"] #app {
 .btn-danger { color: #F5F5F5; background: #8B3838; outline: 1px solid color-mix(in srgb, #FFFFFF 20%, transparent); }
 .btn-danger:hover { color: #F5F5F5; background: #712929 !important; }
 .btn:disabled, .btn-primary:disabled { opacity: 0.58; }
-.btn:not(:disabled):not(.disabled):active {
+html:not(.motion-ready) .btn:not(:disabled):not(.disabled):active {
   background-color: var(--ow-button-surface);
   background-size: 100%;
   transition: all var(--ow-motion-button) ease-in-out;
   transform: scale(0.97);
 }
-.btn:not(.btn-primary):not(.btn-danger):not(:disabled):not(.disabled):active {
+html:not(.motion-ready) .btn:not(.btn-primary):not(.btn-danger):not(:disabled):not(.disabled):active {
   background-color: var(--ow-button-surface);
   background-size: 100%;
   transition: all 100ms ease-in-out;
@@ -983,7 +985,7 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   content: "";
   position: absolute;
   top: 0;
-  left: -150px;
+  left: var(--z2k-motion-skeleton-left, -150px);
   width: 350px;
   height: 100%;
   background: linear-gradient(90deg, transparent, rgb(255 255 255 / .1), transparent);

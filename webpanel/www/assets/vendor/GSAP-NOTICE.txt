@@ -1,0 +1,8 @@
+GSAP 3.15.0
+
+Источник: https://github.com/t0fox/d2o/blob/ccf1044f5bcb4cfabe8233733c664a435df1c363/internal/web/assets/gsap.js
+Commit источника: ccf1044f5bcb4cfabe8233733c664a435df1c363
+SHA-256 исходного файла: 40d4a079234c19b952c255bf489e93703a5d5d230172139dd6ccdb5e08ad7f3d
+
+Скрипт поставляется локально для автономной работы панели. Исходные уведомления
+GreenSock сохранены в начале файла. Условия лицензии: https://gsap.com/standard-license

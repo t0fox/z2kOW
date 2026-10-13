@@ -17,11 +17,13 @@
 // обращений в ядро против 92 между фичами), слои идут только вниз, граф
 // ациклический. Точка входа зависит от оболочки и маршрутизатора — и всё.
 import { initDrawer, initSidebar, initTheme } from "./js/chrome.js";
+import { motion } from "./js/motion.js";
 import { navigate, refreshRouteTitle, setRouteBrandName } from "./js/router.js";
 import { apiGet } from "./js/core/api.js";
 import { applyCapabilities } from "./js/core/loadorder.js";
 import { initChosenSelects } from "./js/core/chosen-select.js";
 
+motion.init();
 initTheme();
 initSidebar();
 initDrawer();

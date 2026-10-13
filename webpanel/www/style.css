@@ -1275,7 +1275,7 @@ body[data-page="login"] #app { max-width: none; }
   color: var(--text-muted);
   transition: transform var(--dur-micro) var(--ease-emphasized);
 }
-.sg-closed .sg-toggle .icon { transform: rotate(-90deg); }
+html:not(.motion-ready) .sg-closed .sg-toggle .icon { transform: rotate(-90deg); }
 .sg-name { font-weight: 600; }
 /* Число записей, а не имён: v4 и v6 одного хоста — две записи с разными
    стратегиями, и сводка справа считает именно их. */
@@ -1426,7 +1426,7 @@ body[data-page="login"] #app { max-width: none; }
      ручкой давала 1.45:1 при требуемых 3:1 для элементов управления —
      выключенный тумблер выглядел ровной серой пилюлей без ручки, и понять,
      выключен он или просто «пустой», было нельзя. */
-  background: var(--switch-track);
+  background: var(--z2k-switch-track, var(--switch-track));
   border-radius: 22px;
   transition: background var(--dur-base) var(--spring-smooth);
 }
@@ -1441,8 +1441,9 @@ body[data-page="login"] #app { max-width: none; }
   border-radius: 50%;
   transition: transform var(--dur-base) var(--spring-snappy);
 }
-.switch input:checked + .slider { background: var(--accent); }
-.switch input:checked + .slider::before { transform: translateX(18px); }
+.switch { --z2k-switch-offset: 0px; --z2k-switch-track: var(--switch-track); }
+.switch:has(input:checked) { --z2k-switch-offset: 18px; --z2k-switch-track: var(--accent); }
+.switch .slider::before { transform: translateX(var(--z2k-switch-offset)); }
 .switch.loading { opacity: 0.5; pointer-events: none; }
 /* У выключенного тумблера не было НИКАКОГО отличия от рабочего: страница
    «Режимы» рендерит все переключатели disabled и включает их только после
@@ -1846,7 +1847,7 @@ input[type=text]:focus, input[type=password]:focus {
 .btn-disclosure .icon {
   transition: transform var(--dur-base) var(--spring-snappy);
 }
-.btn-disclosure.is-open .icon { transform: rotate(180deg); }
+html:not(.motion-ready) .btn-disclosure.is-open .icon { transform: rotate(180deg); }
 
 .wl-add {
   display: flex;
@@ -3334,7 +3335,7 @@ pre.log {
   box-shadow: var(--shadow-sm);
   transition: transform var(--dur-micro) var(--spring-snappy);
 }
-.job-badge:hover { transform: translateY(-2px); }
+html:not(.motion-ready) .job-badge:hover { transform: translateY(-2px); }
 .job-badge-dot {
   width: 8px;
   height: 8px;
@@ -3608,19 +3609,46 @@ input[type="checkbox"] { accent-color: var(--accent); }
    как «нажали» — то самое что iOS даёт всем tappable элементам. Длительность
    80ms — короче чем default transition, чтобы feel был instant. Skill rule
    scale-feedback (HIG): subtle scale 0.95–1.05 на press. */
-.btn:active,
-.menu-toggle:active,
-.nav-drawer-close:active,
-.theme-toggle button:active,
-.job-badge:active,
-.brand:active,
-.btn-icon:active {
+html:not(.motion-ready) .btn:active,
+html:not(.motion-ready) .menu-toggle:active,
+html:not(.motion-ready) .nav-drawer-close:active,
+html:not(.motion-ready) .theme-toggle button:active,
+html:not(.motion-ready) .job-badge:active,
+html:not(.motion-ready) .brand:active,
+html:not(.motion-ready) .btn-icon:active {
   transform: scale(0.96);
   transition-duration: 80ms;
 }
 /* .brand уже имеет translateY(-1px) на hover — на active объединим scale + translate */
-.brand:active { transform: translateY(-1px) scale(0.96); }
-.job-badge:active { transform: translateY(-2px) scale(0.96); }
+html:not(.motion-ready) .brand:active { transform: translateY(-1px) scale(0.96); }
+html:not(.motion-ready) .job-badge:active { transform: translateY(-2px) scale(0.96); }
+
+/* Когда локальный GSAP доступен, анимацией управляет он. Правила в style.css
+   и необязательном профиле Lolz остаются резервом для режима без JavaScript. */
+html.motion-ready,
+html.motion-ready *,
+html.motion-ready *::before,
+html.motion-ready *::after {
+  animation-name: none !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  transition-property: none !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+}
+html.motion-ready .nav-active-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  border-radius: 6px;
+  background: var(--bg-card-hover);
+  pointer-events: none;
+  will-change: transform, width, height;
+}
+html.motion-ready #nav > a { position: relative; z-index: 1; }
+html.motion-ready #nav a.active { background: transparent; }
+html:not(.motion-ready) .sg-closed .sg-toggle .icon { transform: rotate(-90deg); }
 
 /* Honor user preference for reduced motion. We don't fully disable visual
    feedback — just shorten transitions to near-zero and stop infinite
