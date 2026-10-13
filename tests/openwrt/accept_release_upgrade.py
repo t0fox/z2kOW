@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import ssl
 import subprocess
 import tempfile
 import threading
@@ -106,7 +107,8 @@ def previous_uses_tmpfs_install_staging(paths_text: str) -> bool:
 
 
 class CandidateServer:
-    def __init__(self, manifest: Path, signature: Path, archive: Path, filename: str):
+    def __init__(self, manifest: Path, signature: Path, archive: Path, filename: str,
+                 certificate: Path, private_key: Path):
         self.manifest = manifest
         self.signature = signature
         self.archive = archive
@@ -139,11 +141,14 @@ class CandidateServer:
                 pass
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(str(certificate), str(private_key))
+        self.server.socket = context.wrap_socket(self.server.socket, server_side=True)
         self.server.daemon_threads = True
         self.server.owner = self  # type: ignore[attr-defined]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
-        self.base_url = f"http://127.0.0.1:{self.server.server_port}"
+        self.base_url = f"https://127.0.0.1:{self.server.server_port}"
 
     def close(self) -> None:
         self.server.shutdown()
@@ -401,7 +406,7 @@ def main() -> int:
         reserved = ThreadingHTTPServer(("127.0.0.1", 0), BaseHTTPRequestHandler)
         port = reserved.server_port
         reserved.server_close()
-        base_url = f"http://127.0.0.1:{port}"
+        base_url = f"https://127.0.0.1:{port}"
         if not use_generic_candidate and "artifacts" in candidate_for_server and args.architecture in candidate_for_server["artifacts"]:
             candidate_for_server["artifacts"][args.architecture]["url"] = f"{base_url}/{filename}"
         if use_generic_candidate:
@@ -410,6 +415,14 @@ def main() -> int:
         # манифест, чтобы URL точно совпадал с адресом сервера.
         first_key = workspace / "candidate-first.key"
         first_public = workspace / "candidate-first.pub"
+        tls_key = workspace / "candidate-server.key"
+        tls_certificate = workspace / "candidate-server.crt"
+        subprocess.run(
+            ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+             "-keyout", str(tls_key), "-out", str(tls_certificate), "-days", "1",
+             "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1"],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
         subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(first_key)], check=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["openssl", "pkey", "-in", str(first_key), "-pubout", "-out", str(first_public)], check=True,
@@ -423,7 +436,9 @@ def main() -> int:
         subprocess.run(["openssl", "pkeyutl", "-sign", "-rawin", "-inkey", str(first_key),
                         "-in", str(signed_manifest), "-out", str(signed_signature)], check=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        server = CandidateServer(signed_manifest, signed_signature, args.candidate_archive, filename)
+        server = CandidateServer(
+            signed_manifest, signed_signature, args.candidate_archive, filename, tls_certificate, tls_key,
+        )
         # Подписываем локальный URL после привязки к порту. Если временный порт
         # изменился при создании сервера, пересоздаём подпись до первого запроса.
         actual_url = f"{server.base_url}/{filename}"
@@ -525,6 +540,8 @@ def main() -> int:
                 "Z2K_TEST_LOW_SPACE_PATH": str(sysroot / "usr/lib/.z2k-install"),
                 "Z2K_TEST_LOW_SPACE": "0",
                 "Z2K_TEST_FAIL_Z2K_STARTS": "0",
+                "SSL_CERT_FILE": str(tls_certificate),
+                "CURL_CA_BUNDLE": str(tls_certificate),
             })
 
             def invoke(temp_parent: Path | None, label: str, *, low_space: bool = False, fail_starts: int = 0,
@@ -627,7 +644,9 @@ def main() -> int:
                                 fail_starts=2, expected=False)
                 calls = service_log.read_text(encoding="utf-8") if service_log.exists() else ""
                 if "z2k|stop" not in calls or "z2k|restart" not in calls:
-                    raise RuntimeError(f"fault injection не прошёл после остановки службы: {calls}")
+                    raise RuntimeError(
+                        f"fault injection не прошёл после остановки службы: calls={calls!r}; output={output}"
+                    )
                 if state_record(state_path) != {"tag": previous_tag, "seq": str(previous_seq)}:
                     raise RuntimeError("rollback не восстановил прежний tag/seq")
                 current_installer = (sysroot / "usr/sbin/install_release").read_bytes()
