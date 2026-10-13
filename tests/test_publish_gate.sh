@@ -520,12 +520,12 @@ fi
 # описан и чтобы отказ гейта на него показывал — искать его нужно ровно в тот
 # момент, когда упёрся, а не когда-нибудь потом.
 RELDOC="$ROOT/RELEASING.md"
-if [ -f "$RELDOC" ] && grep -q '^## Cancel a permanently red candidate$' "$RELDOC" \
-   && grep -q 'git push origin :refs/tags/' "$RELDOC"; then
+if [ -f "$RELDOC" ] && grep -q '^## Отмена навсегда неуспешного кандидата$' "$RELDOC" \
+   && grep -Fq 'git push origin :refs/tags/<candidate-tag>' "$RELDOC"; then
     ok "путь отзыва мёртвого кандидата описан (и включает снятие подписанного тега)"
 else
     no "RELEASING.md описывает отзыв кандидата вместе со снятием тега" \
-       "Cancel a permanently red candidate + git push origin :refs/tags/" "не найдено"
+       "Отмена навсегда неуспешного кандидата + git push origin :refs/tags/<candidate-tag>" "не найдено"
 fi
 if grep -q 'RELEASING.md' "$REL"; then
     ok "отказ гейта отсылает к процедуре отзыва, а не оставляет наедине с тупиком"
