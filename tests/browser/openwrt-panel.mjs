@@ -553,9 +553,11 @@ async function runShellMotionTests(videoDir) {
       if (outgoing && app) {
         const style = getComputedStyle(app);
         const cardStyle = getComputedStyle(outgoing);
+        const navLinks = [...document.querySelectorAll('#nav a')]
+          .map(link => getComputedStyle(link).transform);
         window.__routeExitProbe.samples.push({ connected: outgoing.isConnected,
           opacity: Number(style.opacity), y: new DOMMatrixReadOnly(style.transform).m42,
-          cardOpacity: Number(cardStyle.opacity), cardTransform: cardStyle.transform });
+          cardOpacity: Number(cardStyle.opacity), cardTransform: cardStyle.transform, navLinks });
       }
       if (window.__routeExitProbe.samples.length < 60) requestAnimationFrame(sample);
     };
@@ -573,6 +575,9 @@ async function runShellMotionTests(videoDir) {
   check('карточки не двигаются отдельно от слоя страницы',
     routeExitProbe.samples.length > 0 && routeExitProbe.samples.every(sample =>
       sample.cardOpacity === 1 && sample.cardTransform === 'none'), routeExitProbe);
+  check('ссылки меню не масштабируются при смене активного раздела',
+    routeExitProbe.samples.length > 0 && routeExitProbe.samples.every(sample =>
+      sample.navLinks.every(transform => transform === 'none')), routeExitProbe);
   await waitForRenderedRoute(routeTestPage, 'toggles');
   check('старая вкладка удаляется после завершения перехода',
     await routeTestPage.evaluate(() => !window.__routeExitProbe.card.isConnected));
@@ -716,7 +721,17 @@ async function runShellMotionTests(videoDir) {
   await collapseTestPage.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
   await collapseTestPage.waitForTimeout(350);
   await startFrames(collapseTestPage);
-  await collapseTestPage.locator('#sidebar-collapse').click();
+  const collapseControl = collapseTestPage.locator('#sidebar-collapse');
+  const collapseControlHeight = await collapseControl.evaluate(node => node.getBoundingClientRect().height);
+  await collapseControl.click();
+  await collapseTestPage.waitForTimeout(80);
+  const collapseControlDuringMotion = await collapseControl.evaluate(node => ({
+    height: node.getBoundingClientRect().height, transform: getComputedStyle(node).transform,
+  }));
+  check('кнопка сворачивания сохраняет размер во время движения layout',
+    collapseControlDuringMotion.transform === 'none'
+      && Math.abs(collapseControlDuringMotion.height - collapseControlHeight) < 0.05,
+    { before: collapseControlHeight, during: collapseControlDuringMotion });
   await collapseTestPage.waitForTimeout(420);
   const collapseFrames = await stopFrames(collapseTestPage);
   const collapseMetrics = await collapseTestPage.evaluate(() => {
@@ -2470,7 +2485,8 @@ try {
           return { height: node.getBoundingClientRect().height, borderWidth: style.borderTopWidth,
             radius: style.borderRadius, background: style.backgroundColor };
         });
-        assert.equal(fieldStyle.height, 30, 'Lolz text controls use a compact 30 px field height');
+        assert.ok(Math.abs(fieldStyle.height - 30) < 0.05,
+          'поле сохраняет высоту 30 CSS-пикселей с допуском на дробное округление браузера');
         assert.equal(fieldStyle.borderWidth, '0px', 'Lolz text controls have no visible outline border');
         assert.equal(fieldStyle.radius, '10px', 'Lolz text controls use 10 px corners');
         assert.equal(fieldStyle.background, appearance === 'dark'

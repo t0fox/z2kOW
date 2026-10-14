@@ -249,7 +249,7 @@ function interactiveTarget(target) {
   if (!(target instanceof Element)) return null;
   const control = target.closest(".switch") || target.closest("a[href],button,input:not([type=hidden]),textarea,select,summary,[role=option],.seg-btn,.chosen-single,.sort-trigger,.sheet-option,.card.is-interactive");
   if (!control || control.matches(":disabled,[aria-disabled='true']")) return null;
-  if (control.matches("#nav a")) return null;
+  if (control.matches("#nav a,#sidebar-collapse")) return null;
   if (control.matches("details.disclosure > summary")) return null;
   if (control.matches(".switch") && control.querySelector("input:disabled")) return null;
   return control;
@@ -358,7 +358,7 @@ function pressOut(event) {
 
 function animateStateMutation(element) {
   if (!(element instanceof Element) || !element.isConnected || !hasGsap) return;
-  if (element.matches("details.disclosure > summary")) return;
+  if (element.matches("details.disclosure > summary,#nav a,#sidebar-collapse")) return;
   animateInteractionStyle(element, readInteractionStyle(element), "state-style", interactionStyles.get(element));
   if (reduced) return;
   const closedGroup = element.matches("tbody.sg") && element.classList.contains("sg-closed");
