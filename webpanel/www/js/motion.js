@@ -4,7 +4,7 @@ const Flip = typeof window !== "undefined" ? window.Flip : null;
 const reduceQuery = typeof window !== "undefined"
   ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
 
-const duration = Object.freeze({ micro: 0.1, state: 0.16, popup: 0.2, disclosure: 0.25, base: 0.28, shell: 0.3, tab: 0.3, routeExit: 0.12, routeEnter: 0.18 });
+const duration = Object.freeze({ micro: 0.1, state: 0.16, popup: 0.2, disclosure: 0.25, base: 0.28, shell: 0.3, tab: 0.3, routeExit: 0.15, routeEnter: 0.27 });
 const ease = Object.freeze({ standard: "power2.out", enter: "power3.out", spring: "back.out(1.15)" });
 const keyed = new WeakMap();
 const activities = new Map();

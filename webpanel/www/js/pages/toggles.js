@@ -1373,7 +1373,8 @@ async function flowBenchmarkRefresh() {
           : "";
       const measurementError = state.status === "stopped" && flowBenchmarkRuntime.lastError ? ` Ошибка измерения: ${flowBenchmarkRuntime.lastError}.` : "";
       const providerLabel = state.provider === "cloudflare" ? "Cloudflare (резервная диагностика)" : "Яндекс Интернетометр";
-      statusNode.textContent = `${labels[state.status] || `Интернет-тест: ${providerLabel}`}${measurementError}${lastSuccess}`;
+      const statusText = `${labels[state.status] || `Интернет-тест: ${providerLabel}`}${measurementError}${lastSuccess}`;
+      if (statusNode.textContent !== statusText) statusNode.textContent = statusText;
     }
     const resultNode = card.querySelector("#flowoffload-benchmark-result");
     if (resultNode && active) resultNode.hidden = true;
@@ -1422,7 +1423,10 @@ async function flowBenchmarkRefresh() {
       } catch (error) {
         flowBenchmarkRuntime.lastError = errMsg(error);
         console.error("FLOWOFFLOAD benchmark measurement failed", error);
-        if (statusNode) statusNode.textContent = `Ошибка измерения: ${flowBenchmarkRuntime.lastError}. Восстанавливаю режим…`;
+        if (statusNode) {
+          const errorText = `Ошибка измерения: ${flowBenchmarkRuntime.lastError}. Восстанавливаю режим…`;
+          if (statusNode.textContent !== errorText) statusNode.textContent = errorText;
+        }
         try { await apiPost("/offload/benchmark", { action: "stop" }); } catch (_) {}
         flowBenchmarkRuntime.inFlight = "";
       }

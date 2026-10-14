@@ -447,7 +447,9 @@ async function runShellMotionTests(videoDir) {
       if (page) {
         const pageStyle = getComputedStyle(page);
         const matrix = new DOMMatrixReadOnly(pageStyle.transform);
-        frame.content = { opacity: Number(pageStyle.opacity), y: matrix.m42 };
+        frame.content = { opacity: Number(pageStyle.opacity), y: matrix.m42,
+          activeTweenDurations: window.gsap?.getTweensOf(page).filter(tween => tween.isActive())
+            .map(tween => tween.duration()) || [] };
       }
       for (const selector of selectors) {
         const element = document.querySelector(selector);
@@ -609,6 +611,9 @@ async function runShellMotionTests(videoDir) {
     routeContentFrames.some(frame => frame.opacity < 0.95 && frame.y > 1)
       && routeContentFrames.some(frame => frame.opacity >= 0.99 && Math.abs(frame.y) < 0.5),
     { samples: routeContentFrames.length, first: routeContentFrames[0], last: routeContentFrames.at(-1) });
+  check('вход содержимого длится не меньше 240 мс',
+    routeContentFrames.some(frame => frame.activeTweenDurations.some(seconds => seconds >= 0.24 && seconds <= 0.35)),
+    routeContentFrames.map(frame => frame.activeTweenDurations).filter(values => values.length));
   const routeCleanup = await routeTestPage.evaluate(() => ({
     inlineOpacity: document.querySelector('#app').style.opacity,
     inlineVisibility: document.querySelector('#app').style.visibility,
@@ -971,27 +976,40 @@ async function runShellMotionTests(videoDir) {
     const summary = item.summary;
     if (await item.details.evaluate(node => node.open) !== state) await summary.click();
     await waitForDisclosureSettled(item.page, 'details.flow-benchmark-method');
+    await item.page.waitForFunction(() => {
+      const status = document.querySelector('#flowoffload-benchmark-status');
+      return status && !status.textContent.includes('Загружаю');
+    });
     await summary.scrollIntoViewIfNeeded();
     await summary.hover();
     await summary.evaluate(node => {
       const details = node.parentElement;
+      const card = node.closest('#flowoffload-benchmark');
       const motionTargets = [node, node.querySelector('.disclosure-label'), node.querySelector('.disclosure-chevron')]
         .filter(Boolean);
       window.__summaryRef = node;
       window.__summaryTargets = motionTargets;
+      window.__summaryCardRef = card;
       window.__summaryRecords = 0;
+      window.__summaryCardRecords = 0;
       new MutationObserver(records => { window.__summaryRecords += records.length; })
         .observe(details, { subtree: true, childList: true, characterData: true, attributes: true });
+      new MutationObserver(records => { window.__summaryCardRecords += records.length; })
+        .observe(card, { subtree: true, childList: true, characterData: true, attributes: true });
       const rect = node.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
       window.__summaryBase = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
-        width: rect.width, height: rect.height };
-      window.__summaryMotion = { maxDelta: 0, maxTweens: 0, frames: 0 };
+        width: rect.width, height: rect.height, cardHeight: cardRect.height };
+      window.__summaryMotion = { maxDelta: 0, maxCardHeightDelta: 0, maxTweens: 0, frames: 0 };
       const sample = () => {
         if (!window.__summaryMotion) return;
         const current = node.getBoundingClientRect();
+        const currentCard = card.getBoundingClientRect();
         const base = window.__summaryBase;
         window.__summaryMotion.maxDelta = Math.max(window.__summaryMotion.maxDelta,
           ...['left', 'top', 'right', 'bottom', 'width', 'height'].map(key => Math.abs(current[key] - base[key])));
+        window.__summaryMotion.maxCardHeightDelta = Math.max(window.__summaryMotion.maxCardHeightDelta,
+          Math.abs(currentCard.height - base.cardHeight));
         window.__summaryMotion.maxTweens = Math.max(window.__summaryMotion.maxTweens,
           ...motionTargets.map(target => window.gsap?.getTweensOf(target).filter(tween => tween.isActive()).length || 0));
         window.__summaryMotion.frames += 1;
@@ -1006,9 +1024,11 @@ async function runShellMotionTests(videoDir) {
     const result = await summary.evaluate(node => ({
       sameNode: window.__summaryRef === node,
       maxDelta: window.__summaryMotion.maxDelta,
+      maxCardHeightDelta: window.__summaryMotion.maxCardHeightDelta,
       maxTweens: window.__summaryMotion.maxTweens,
       frames: window.__summaryMotion.frames,
       mutations: window.__summaryRecords,
+      cardMutations: window.__summaryCardRecords,
       transform: getComputedStyle(node).transform,
       labelTransform: getComputedStyle(node.querySelector('.disclosure-label')).transform,
       labelSize: getComputedStyle(node.querySelector('.disclosure-label')).fontSize,
@@ -1033,6 +1053,8 @@ async function runShellMotionTests(videoDir) {
       result.labelSize === result.summarySize && result.labelFamily === result.summaryFamily, result);
     check(`${item.theme}/${item.gsapEnabled ? 'GSAP' : 'CSS'}/${result.state}: polling не меняет disclosure DOM`,
       result.sameNode && result.mutations === 0 && (quickMotionProof || result.polls >= 12), result);
+    check(`${item.theme}/${item.gsapEnabled ? 'GSAP' : 'CSS'}/${result.state}: polling сохраняет высоту карточки`,
+      result.maxCardHeightDelta <= 0.5, result);
   };
   for (const item of disclosurePages) await inspectDisclosureHold(item, false);
   for (const item of disclosurePages) await inspectDisclosureHold(item, true);

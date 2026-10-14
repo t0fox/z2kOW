@@ -987,7 +987,7 @@ html.brand-shell:not(.motion-ready) #nav a.active { background: transparent; }
 
 /* Search is the primary control for the domain table. */
 .state-voice > summary { cursor: pointer; font-weight: 500; }
-.state-voice > summary span { float: right; color: var(--text-muted); font-size: 13px; font-weight: 400; }
+.state-voice > summary #discord-voice-status { color: var(--text-muted); font-size: 13px; font-weight: 400; }
 .state-voice[open] > summary { margin-bottom: var(--space-12); }
 .state-help { margin: -4px 0 var(--space-16); }
 .state-help > summary { cursor: pointer; color: var(--accent); font-size: 13px; }
@@ -1017,7 +1017,7 @@ html.brand-shell:not(.motion-ready) #nav a.active { background: transparent; }
 .state-tools .btn-row { margin: 0; }
 @media (max-width: 600px) {
   .state-search { font-size: 16px; }
-  .state-voice > summary span { float: none; display: block; margin: 4px 0 0 16px; }
+  .state-voice > summary #discord-voice-status { display: block; margin: 4px 0 0 16px; }
   .state-tools > .btn-row { width: 100%; }
 }
 
@@ -2189,12 +2189,6 @@ html:not(.motion-ready) .btn-disclosure.is-open .icon { transform: rotate(180deg
   user-select: none;
 }
 .flow-technical summary:hover { color: var(--text); }
-.flow-technical summary span {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 400;
-}
 #flowoffload-technical .flow-technical-body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2670,7 +2664,6 @@ html:not(.motion-ready) .btn-disclosure.is-open .icon { transform: rotate(180deg
   font-size: 12px;
 }
 .tiktok-candidate-list > summary:hover { color: var(--text); }
-.tiktok-candidate-list > summary span { font-variant-numeric: tabular-nums; }
 .tiktok-candidate-list > .desc { margin: var(--space-8) 0; }
 .tiktok-candidate-rows { display: grid; }
 .tiktok-candidate {
