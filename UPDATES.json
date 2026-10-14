@@ -2,13 +2,13 @@
   "schema": 1,
   "branch": "main",
   "platform": "openwrt",
-  "seq": 142,
-  "current": "p-86.18",
+  "seq": 145,
+  "current": "p-86.21",
   "upstream": {
     "repository": "necronicle/z2k",
     "branch": "z2k-enhanced",
-    "tag": "p-86.18",
-    "commit": "b820fdfa406acdee6e42cd6d29b46db966453857"
+    "tag": "p-86.21",
+    "commit": "8e60ca678039d863ca2951c3bd049003c76331c4"
   },
   "history": [
     {"v": "r-1", "type": "reinstall", "ts": "2026-05-04T00:00:00Z", "ref": "vk-whitelist-ext", "desc": "Extend whitelist with VK service/CDN domains (vkuseraudio/vkuservideo/vk-cdn/mvk/vkpay/vkforms/etc) — fixes broken photo comments and other XHR over non-vk.com VK domains", "changed_files": ["lib/config.sh"]},
@@ -303,64 +303,67 @@
     {"v": "p-86.16", "type": "patch", "ts": "2026-10-06T11:55:04Z", "ref": "p-86.16", "desc": "Новый спонсор проекта — Кожевников. Убран сбор статистики стратегий: роутер больше ничего не отправляет на сервер проекта, пункт меню [C] и переключатель в панели удалены.", "changed_files": ["webpanel/www/index.html", "files/init.d/S99z2k-scheduler", "files/ndm/95-z2k-scheduler-watchdog.sh", "files/z2k-scheduler.sh", "lib/config_official.sh", "lib/install.sh", "lib/menu.sh", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/core/toast.js", "webpanel/www/js/pages/credits.js", "webpanel/www/js/pages/dashboard.js", "webpanel/www/js/pages/toggles.js", "z2k.sh", "UPDATES.json"], "steps": ["regen-config", "validate-config", "restart-service"], "full_install": false},
     {"v": "p-86.17", "type": "patch", "ts": "2026-10-09T22:46:11Z", "ref": "p-86.17", "desc": "Новый спонсор проекта — bootnet.", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false},
     {"v": "r-86.5", "type": "reinstall", "ts": "2026-10-10T12:08:31Z", "ref": "r-86.5", "desc": "Движок обхода обновлён до zapret2 1.0.5.2 с нашим исправлением: большой ClientHello из нескольких частей больше не зависает, если часть сегментов прошла мимо обхода — соединение продолжается с задержкой в доли секунды. Восстановление правил после пересборки сетевых правил Keenetic стало надёжнее: событие, пришедшее во время восстановления, больше не теряется (раньше обход мог молчать до минуты), а сами события пишутся в журнал для диагностики. Планировщик следит, чтобы программное ускорение NAT оставалось выключенным.", "changed_files": ["webpanel/www/index.html", "files/000-zapret2.sh", "files/z2k-diag.sh", "files/z2k-nfqueue-selfheal.sh", "lib/install.sh", "UPDATES.json"], "steps": [], "full_install": true},
-    {"v": "p-86.18", "type": "patch", "ts": "2026-10-11T13:47:15Z", "ref": "p-86.18", "desc": "WARP можно включить для всего трафика сети: если не выбрано ни одного устройства и выключены все списки, через WARP идёт весь интернет-трафик локальной сети, а домашняя сеть и роутер остаются доступны напрямую. В диагностике теперь видно, что именно сейчас идёт через WARP.", "changed_files": ["webpanel/www/index.html", "files/z2k-diag.sh", "files/z2k-warp.sh", "webpanel/www/js/pages/warp.js", "UPDATES.json"], "steps": [], "full_install": false}
+    {"v": "p-86.18", "type": "patch", "ts": "2026-10-11T13:47:15Z", "ref": "p-86.18", "desc": "WARP можно включить для всего трафика сети: если не выбрано ни одного устройства и выключены все списки, через WARP идёт весь интернет-трафик локальной сети, а домашняя сеть и роутер остаются доступны напрямую. В диагностике теперь видно, что именно сейчас идёт через WARP.", "changed_files": ["webpanel/www/index.html", "files/z2k-diag.sh", "files/z2k-warp.sh", "webpanel/www/js/pages/warp.js", "UPDATES.json"], "steps": [], "full_install": false},
+    {"v": "p-86.19", "type": "patch", "ts": "2026-10-11T15:49:15Z", "ref": "p-86.19", "desc": "Установка и обновление пакетов Entware больше не зависают у провайдеров, которые режут сервер Entware: установщик z2k качает пакеты через узел проекта. Для тех, у кого не устанавливается сам Entware, появились офлайн-установщики — ссылки и инструкция в README.", "changed_files": ["webpanel/www/index.html", "lib/install.sh", "lib/utils.sh", "webpanel/install.sh", "UPDATES.json"], "steps": [], "full_install": false},
+    {"v": "p-86.20", "type": "patch", "ts": "2026-10-11T20:47:18Z", "ref": "p-86.20", "desc": "Пакеты Entware установщик z2k теперь берёт через узел проекта тем же способом, что и сам z2k с GitHub. В README ручной обход для opkg — через зеркало узла, без логинов.", "changed_files": ["webpanel/www/index.html", "lib/utils.sh", "UPDATES.json"], "steps": [], "full_install": false},
+    {"v": "p-86.21", "type": "patch", "ts": "2026-10-14T17:44:59Z", "ref": "p-86.21", "desc": "Новые спонсоры проекта — ewgen911 и cmfifty.", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false}
   ],
   "artifacts": {
     "arm64": {
       "filename": "openwrt-rootfs-arm64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-37926114ffd4eecf15d7005f50aa8e5e0baf6c2d/openwrt-rootfs-arm64.tar.gz",
-      "sha256": "fe179bad251d2014e580e0a701f5400a471aa7beba1bd914582b6e28dd9a659d",
-      "size_bytes": 13077665,
-      "unpacked_size_bytes": 30786903
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-72d30b77fd2816ab7fecbed3211ff8907fc71888/openwrt-rootfs-arm64.tar.gz",
+      "sha256": "721e6606a61c680de7fca5f75aeec07ba84220f50415e52a65a5ea80dc44e4c3",
+      "size_bytes": 13079020,
+      "unpacked_size_bytes": 30792882
     },
     "arm": {
       "filename": "openwrt-rootfs-arm.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-37926114ffd4eecf15d7005f50aa8e5e0baf6c2d/openwrt-rootfs-arm.tar.gz",
-      "sha256": "ca9887905d326d516ba2f5a1f8729cb4f48572602c9c655e50776de8acf3d2cb",
-      "size_bytes": 13492037,
-      "unpacked_size_bytes": 31814287
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-72d30b77fd2816ab7fecbed3211ff8907fc71888/openwrt-rootfs-arm.tar.gz",
+      "sha256": "e452eae332eb887b43503735a1cb313af90e460bb2d8a533d704d903572ff9de",
+      "size_bytes": 13493330,
+      "unpacked_size_bytes": 31820266
     },
     "x86_64": {
       "filename": "openwrt-rootfs-x86_64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-37926114ffd4eecf15d7005f50aa8e5e0baf6c2d/openwrt-rootfs-x86_64.tar.gz",
-      "sha256": "632e938c2554982de3f1beffb88f14bb781d1d78528fdf59fac1b11597d94a85",
-      "size_bytes": 13975939,
-      "unpacked_size_bytes": 32716743
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-72d30b77fd2816ab7fecbed3211ff8907fc71888/openwrt-rootfs-x86_64.tar.gz",
+      "sha256": "9e3113f20cf0ca9afdfa74f2f533c4ad8071c1334ee81d0571a675996eddbc5e",
+      "size_bytes": 13977182,
+      "unpacked_size_bytes": 32722722
     },
     "x86": {
       "filename": "openwrt-rootfs-x86.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-37926114ffd4eecf15d7005f50aa8e5e0baf6c2d/openwrt-rootfs-x86.tar.gz",
-      "sha256": "b237342265c4b374bb4bafb50f94a3737848bb9c8bc1345a21fa70a57bbc64ba",
-      "size_bytes": 13510393,
-      "unpacked_size_bytes": 31553795
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-72d30b77fd2816ab7fecbed3211ff8907fc71888/openwrt-rootfs-x86.tar.gz",
+      "sha256": "365ce05ee942fa8394490f961f8592307645b7ef32af89905f332f0e53e50d78",
+      "size_bytes": 13511770,
+      "unpacked_size_bytes": 31559774
     },
     "mips": {
       "filename": "openwrt-rootfs-mips.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-37926114ffd4eecf15d7005f50aa8e5e0baf6c2d/openwrt-rootfs-mips.tar.gz",
-      "sha256": "1a016890754c1c0cbbb45b7b82b12ea077b1c7b8b52594ad9a683feae48280e3",
-      "size_bytes": 13264003,
-      "unpacked_size_bytes": 34798872
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-72d30b77fd2816ab7fecbed3211ff8907fc71888/openwrt-rootfs-mips.tar.gz",
+      "sha256": "5d2cf000a48ee0149595a0a1b170f2281b60c16b8e8a027120a45dc54199f593",
+      "size_bytes": 13265391,
+      "unpacked_size_bytes": 34804851
     },
     "mipsel": {
       "filename": "openwrt-rootfs-mipsel.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-37926114ffd4eecf15d7005f50aa8e5e0baf6c2d/openwrt-rootfs-mipsel.tar.gz",
-      "sha256": "a75deb31ac343d2e0702846e096ed67de877107ef2958786bd67a5e23f7efa0f",
-      "size_bytes": 13203312,
-      "unpacked_size_bytes": 34802880
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-72d30b77fd2816ab7fecbed3211ff8907fc71888/openwrt-rootfs-mipsel.tar.gz",
+      "sha256": "a1384e79e512a2133dc114375c48d594cc549196c0d244f9283508984e30709b",
+      "size_bytes": 13204731,
+      "unpacked_size_bytes": 34808859
     },
     "riscv64": {
       "filename": "openwrt-rootfs-riscv64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-37926114ffd4eecf15d7005f50aa8e5e0baf6c2d/openwrt-rootfs-riscv64.tar.gz",
-      "sha256": "67cc5851330fd4d60eb55ada40de9a265a94faddd968a1ad3ceacaa7745fd73b",
-      "size_bytes": 13333580,
-      "unpacked_size_bytes": 31064499
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-72d30b77fd2816ab7fecbed3211ff8907fc71888/openwrt-rootfs-riscv64.tar.gz",
+      "sha256": "2d83be7233cece0d8b76a6049ef823a46f28bd8855106984f636e422a2752de3",
+      "size_bytes": 13334985,
+      "unpacked_size_bytes": 31070478
     }
   },
   "artifact": {
     "filename": "openwrt-rootfs.tar.gz",
-    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-37926114ffd4eecf15d7005f50aa8e5e0baf6c2d/openwrt-rootfs.tar.gz",
-    "sha256": "a4cd0c1f7adc01282f77e4f1747a484a5d1fde7fa6b4db4f91b3194cf3c80e9c",
-    "size_bytes": 75635658
+    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-72d30b77fd2816ab7fecbed3211ff8907fc71888/openwrt-rootfs.tar.gz",
+    "sha256": "208d6d4f4297e1d24133f6532adc1193f0152c378985040a936fa674fba0a9ff",
+    "size_bytes": 75637058
   },
   "signing": {
     "key_id": "916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae"
