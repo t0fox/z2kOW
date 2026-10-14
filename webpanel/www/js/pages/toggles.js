@@ -425,6 +425,7 @@ function renderTgStats(snapshot, error = "") {
   const summary = document.getElementById("tg-runtime-status");
   const details = document.getElementById("tg-runtime-details");
   if (!summary || !details) return;
+  const technicalWasOpen = details.querySelector(".tg-technical")?.open ?? false;
   if (error) {
     renderTgRouteVisualization(null, error);
     summary.textContent = error;
@@ -545,6 +546,7 @@ function renderTgStats(snapshot, error = "") {
     key, "workers", `${value.state || "не проверялся"}; успех ${tgTimestampLabel(value.last_success_at)}; отказ ${tgTimestampLabel(value.last_failure_at)}${value.last_failure ? `; причина: ${value.last_failure}` : ""}`,
   ]));
   appendTgNodes(technical, technicalSummary, technicalBody);
+  technical.open = technicalWasOpen;
   clearTgNode(details);
   appendTgNodes(details, grid, technical);
   for (const fact of numericFacts) {
