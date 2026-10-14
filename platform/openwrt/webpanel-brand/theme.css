@@ -298,7 +298,6 @@ html[data-theme="light"] { scrollbar-color: #8CA29A transparent; }
   border-right-color: var(--ow-border-subtle);
   gap: 4px;
   padding: 8px 10px 12px;
-  transition: width var(--ow-motion-shell) ease;
 }
 body {
   padding-left: 0;
@@ -343,7 +342,7 @@ body {
   transition: background-color var(--ow-motion-button) linear, color var(--ow-motion-button) linear;
 }
 #nav .sidebar-collapse:hover { background: var(--ow-surface-hover); color: var(--ow-text-primary); }
-#nav .sidebar-collapse .nav-ico { flex: 0 0 20px; transition: transform var(--ow-motion-shell) ease; }
+#nav .sidebar-collapse .nav-ico { flex: 0 0 20px; }
 .theme-toggle {
   position: absolute;
   top: calc((var(--topbar-h) - 40px) / 2);
@@ -376,8 +375,6 @@ body {
   margin: var(--topbar-h) 0 0 calc(50% - 267px);
   padding: 20px 0 56px;
 }
-#panel-brand { transition: left var(--ow-motion-shell) ease; }
-.theme-toggle { transition: right var(--ow-motion-shell) ease; }
 body[data-page="strategies"] #app { width: 800px; max-width: 800px; }
 body[data-page="login"] #app {
   width: calc(100% - 32px);
@@ -670,18 +667,6 @@ html:not(.motion-ready) .btn:not(.btn-primary):not(.btn-danger):not(:disabled):n
   background-size: 100%;
   transition: all 100ms ease-in-out;
 }
-
-/* Restore the shared route transition in this skin. A short opacity/offset
-   pass matches the captured tab motion without changing layout or route code. */
-.page-title {
-  animation: page-enter var(--dur-base) var(--ease-out) both;
-}
-#app > .card {
-  animation: page-enter var(--dur-base) var(--ease-out) 20ms both;
-}
-#app > .card ~ .card { animation-delay: 40ms; }
-#app > .card ~ .card ~ .card { animation-delay: 60ms; }
-#app > .card ~ .card ~ .card ~ .card { animation-delay: 80ms; }
 
 /* Buttons use the source's 0.97 active press. */
 .menu-toggle:active, .nav-drawer-close:active,
@@ -1093,57 +1078,9 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   .menu-toggle { margin-left: 0; }
 }
 
-@media (min-width: 768px) and (max-width: 1091px) {
-  .brand { left: 10px; }
-  .theme-toggle { right: 16px; }
-  #nav { left: 0; width: 261px; }
-  #app { width: calc(100% - 304px); max-width: none; margin-left: 280px; }
-  body[data-page="strategies"] #app { width: calc(100% - 304px); max-width: none; }
-}
-
 @media (max-width: 389.98px) {
   /* Let the enlarged lockup shrink between the mobile menu and controls. */
   #brand-composite-logo { width: 248px; max-width: 100%; flex: 0 1 248px; }
-}
-
-@media (min-width: 1092px) {
-  body[data-sidebar="collapsed"] #nav {
-    left: calc(50% - 443.5px);
-    width: var(--sidebar-w-collapsed);
-  }
-  body[data-sidebar="collapsed"] #app { margin-left: calc(50% - 356.5px); }
-  body[data-sidebar="collapsed"] #panel-brand { left: calc(50% - 433.5px); }
-  body[data-sidebar="collapsed"] .theme-toggle { right: calc(50% - 345.5px); }
-}
-@media (min-width: 768px) and (max-width: 1091px) {
-  body[data-sidebar="collapsed"] #nav { width: var(--sidebar-w-collapsed); }
-  body[data-sidebar="collapsed"] #app {
-    width: calc(100% - 115px);
-    max-width: none;
-    margin-left: 91px;
-  }
-  body[data-sidebar="collapsed"][data-page="strategies"] #app { width: calc(100% - 115px); }
-}
-@media (min-width: 768px) {
-  #app { transition: margin-left var(--ow-motion-shell) ease, width var(--ow-motion-shell) ease; }
-  body[data-sidebar="collapsed"] #nav .nav-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
-  body[data-sidebar="collapsed"] #nav a,
-  body[data-sidebar="collapsed"] #nav .sidebar-collapse {
-    justify-content: center;
-    padding-right: 0;
-    padding-left: 0;
-  }
-  body[data-sidebar="collapsed"] #nav .sidebar-collapse .nav-ico { transform: rotate(180deg); }
 }
 
 :root[data-theme="light"] .topbar::before {

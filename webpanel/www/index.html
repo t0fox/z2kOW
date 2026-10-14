@@ -17,6 +17,12 @@
       if (resolved === 'light') document.documentElement.setAttribute('data-theme', 'light');
     } catch (e) { /* localStorage disabled — остаёмся на dark default */ }
   })();
+  (function() {
+    var collapsed = false;
+    try { collapsed = localStorage.getItem('z2k-sidebar') === 'collapsed'; } catch (e) {}
+    document.documentElement.classList.add('brand-shell');
+    document.documentElement.style.setProperty('--sidebar-progress', collapsed ? '1' : '0');
+  })();
 </script>
 <!-- ВЕБ-ШРИФТЫ НЕ ПОДКЛЮЧАЕМ ИЗВНЕ. НАМЕРЕННО, НЕ ЗАБЫЛИ.
      Здесь стояли preconnect на fonts.googleapis.com/fonts.gstatic.com и
@@ -36,8 +42,15 @@
 <link id="brand-mask-icon" rel="mask-icon" href="favicon.svg?v=p-86.13" color="#00BA78">
 </head>
 <body>
+<script>
+  try {
+    if (localStorage.getItem('z2k-sidebar') === 'collapsed' && matchMedia('(min-width: 768px)').matches) {
+      document.body.setAttribute('data-sidebar', 'collapsed');
+    }
+  } catch (e) {}
+</script>
 <header class="topbar">
-  <a id="panel-brand" href="#/dashboard" class="brand" aria-label="z2kOW">
+  <a id="panel-brand" href="#/dashboard" class="brand brand-composite" aria-label="z2kOW">
     <img id="brand-profile-logo" class="brand-profile-logo" src="favicon.svg?v=p-86.13" width="36" height="36" alt="">
     <span id="brand-wordmark" class="brand-wordmark">z2kOW</span>
     <svg id="brand-composite-logo" viewBox="571 168 1166 240" width="214" height="44" preserveAspectRatio="xMidYMid meet" role="img" aria-label="z2kOW">
@@ -189,6 +202,7 @@
         var icon = document.getElementById("brand-favicon");
         var mask = document.getElementById("brand-mask-icon");
         if (!brand || !image || !wordmark || !logoSvg || !icon || !mask) return;
+        document.documentElement.classList.add("brand-profile-ready");
         logoSvg.querySelectorAll("[data-brand-source]").forEach(function (source) {
           source.setAttribute("href", logo);
         });

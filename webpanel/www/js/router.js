@@ -201,6 +201,7 @@ export function navigate() {
   const hash = location.hash.replace(/^#\//, "") || "dashboard";
   const name = routes[hash] ? hash : "dashboard";
   const previousTabPosition = currentTabPosition();
+  const hasPreviousPage = $app.childElementCount > 0;
   _previousTabPosition = previousTabPosition;
   _activeRoute = name;
   const token = ++_navigationToken;
@@ -212,27 +213,27 @@ export function navigate() {
     a.classList.toggle("active", a.dataset.route === navName);
   }
   syncNavIndicator();
-  // Имя экрана в DOM: по нему стилям видно, где мы находимся. Нужно
-  // ровно одному правилу — экран стратегий снимает кап ширины, потому что
-  // это таблица на сотни строк, а не текст.
-  document.body.setAttribute("data-page", name);
   refreshRouteTitle();
   closeNavMore();
-  motion.cancelRoute();
-  $app.innerHTML = '<section class="card" aria-live="polite">Загрузка…</section>';
-  const finishRoute = () => {
+  motion.leaveRoute($app).then(() => {
     if (token !== _navigationToken) return;
-    syncTabIndicator(previousTabPosition);
-    motion.enterRoute($app);
-  };
-  try {
-    const result = routes[name]();
-    if (result && typeof result.catch === "function") {
-      result.then(finishRoute).catch(error => showRouteFailure(error, token));
-    } else finishRoute();
-  } catch (error) {
-    showRouteFailure(error, token);
-  }
+    // Имя экрана задаёт узкие исключения layout, например широкую таблицу
+    // стратегий. Меняем его вместе с содержимым после выхода старой вкладки.
+    document.body.setAttribute("data-page", name);
+    const finishRoute = () => {
+      if (token !== _navigationToken) return;
+      syncTabIndicator(previousTabPosition);
+      motion.enterRoute($app, !hasPreviousPage);
+    };
+    try {
+      const result = routes[name]();
+      if (result && typeof result.catch === "function") {
+        result.then(finishRoute).catch(error => showRouteFailure(error, token));
+      } else finishRoute();
+    } catch (error) {
+      showRouteFailure(error, token);
+    }
+  });
 }
 
 window.addEventListener("hashchange", navigate);

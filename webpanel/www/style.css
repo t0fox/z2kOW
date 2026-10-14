@@ -317,7 +317,12 @@ body {
    Desktop = left sidebar (240px) + topbar справа от него
    + main контент справа. Industry standard для admin tools.
    Narrow viewport = sidebar moves into the left drawer (media query below). */
-:root { --sidebar-w: 240px; }
+@property --sidebar-progress {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+:root { --sidebar-w: 240px; --sidebar-progress: 0; }
 .topbar {
   display: flex;
   align-items: center;
@@ -348,9 +353,11 @@ body {
 .brand-profile-logo { display: block; width: 34px; height: 34px; object-fit: contain; flex: 0 0 34px; }
 .brand-wordmark { display: block; color: inherit; font-size: 18px; font-weight: 650; line-height: 1; letter-spacing: -0.04em; }
 #brand-composite-logo { display: none; width: 214px; height: 44px; max-width: 100%; flex: 0 1 214px; overflow: visible; }
-.brand-composite { gap: 0; }
-.brand-composite #brand-composite-logo { display: block; }
-.brand-composite #brand-wordmark, .brand-composite #brand-profile-logo { display: none; }
+.brand-composite { gap: 10px; }
+html.brand-profile-ready .brand-composite { gap: 0; }
+html.brand-profile-ready .brand-composite #brand-composite-logo { display: block; }
+html.brand-profile-ready .brand-composite #brand-wordmark,
+html.brand-profile-ready .brand-composite #brand-profile-logo { display: none; }
 
 /* Default (desktop) — sidebar layout. Mobile media query overrides ниже. */
 #nav {
@@ -402,6 +409,10 @@ body {
 }
 #nav .nav-ico { flex-shrink: 0; }
 #nav .nav-label { flex: 1; }
+html.brand-shell body { padding-left: 0; transition: none; }
+html.brand-shell #nav { transition: none; will-change: auto; }
+html.brand-shell #nav > a { position: relative; z-index: 1; }
+html.brand-shell:not(.motion-ready) #nav a.active { background: transparent; }
 
 /* Подвал меню: ссылки наружу. Прижат книзу (auto-отступ
    переехал сюда с самой кнопки), отделён волосяной линией — это не разделы
@@ -611,6 +622,111 @@ body {
 .sheet-option.active { color: var(--accent); font-weight: 600; }
 .sheet-option-arrow { display: inline-flex; align-items: center; }
 
+/* Геометрия OpenWrt задана до загрузки темы: координаты первого и брендового
+   кадра совпадают. */
+@media (min-width: 768px) {
+  html.brand-shell .topbar {
+    position: fixed;
+    inset: 0 0 auto;
+    height: 58px;
+    padding: 0 20px;
+    background: transparent;
+    border: 0;
+  }
+  html.brand-shell .brand {
+    position: absolute;
+    left: calc(50% - 533.3px);
+    top: 3.475px;
+    width: 248px;
+    height: 51.05px;
+    min-width: 0;
+    overflow: visible;
+    transform: none;
+  }
+  html.brand-shell.brand-profile-ready #brand-composite-logo {
+    display: block;
+    width: 248px;
+    height: 51.05px;
+    flex: 0 1 248px;
+  }
+  html.brand-shell.brand-profile-ready .brand-composite #brand-wordmark,
+  html.brand-shell.brand-profile-ready .brand-composite #brand-profile-logo { display: none; }
+  html.brand-shell #nav {
+    top: 58px;
+    left: calc(50% - 543.3px);
+    width: calc(261px - 189px * var(--sidebar-progress));
+    gap: 4px;
+    padding: 8px 10px 12px;
+  }
+  html.brand-shell #app {
+    width: calc(800px + 189px * var(--sidebar-progress));
+    max-width: none;
+    margin: 58px 0 0 calc(50% - 267px - 189px * var(--sidebar-progress));
+    padding: 20px 0 56px;
+  }
+  html.brand-shell .theme-toggle {
+    position: absolute;
+    top: 9px;
+    right: calc(50% - 435px);
+    gap: 2px;
+    padding: 3px;
+    border-radius: 10px;
+  }
+  html.brand-shell .theme-toggle button { width: 32px; height: 32px; border-radius: 7px; }
+  html.brand-shell #nav a,
+  html.brand-shell #nav .sidebar-collapse {
+    justify-content: flex-start;
+    gap: calc(12px - 12px * var(--sidebar-progress));
+    padding-right: 12px;
+    padding-left: calc(12px + 4px * var(--sidebar-progress));
+    min-height: 36px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    border-radius: 10px;
+  }
+  html.brand-shell #nav .nav-ico { flex: 0 0 20px; }
+  html.brand-shell #nav .nav-label {
+    flex: 0 1 calc(150px - 150px * var(--sidebar-progress));
+    min-width: 0;
+    opacity: calc(1 - var(--sidebar-progress));
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  html.brand-shell #nav .nav-out {
+    flex: 0 1 calc(12px - 12px * var(--sidebar-progress));
+    width: calc(12px - 12px * var(--sidebar-progress));
+    opacity: calc(1 - var(--sidebar-progress));
+    overflow: hidden;
+  }
+  html.brand-shell #nav .sidebar-collapse .nav-ico {
+    transform: rotate(calc(180deg * var(--sidebar-progress)));
+  }
+}
+@media (min-width: 768px) and (max-width: 1091px) {
+  html.brand-shell .brand { left: 10px; }
+  html.brand-shell .theme-toggle { right: 16px; }
+  html.brand-shell #nav { left: 0; }
+  html.brand-shell body:not([data-page="login"]) #app {
+    width: calc(100% - 304px + 189px * var(--sidebar-progress));
+    margin-left: calc(280px - 189px * var(--sidebar-progress));
+  }
+}
+@media (min-width: 1092px) {
+  html.brand-shell body:not([data-page="login"]) #app {
+    width: calc(800px + 189px * var(--sidebar-progress));
+    margin-left: calc(50% - 267px - 189px * var(--sidebar-progress));
+  }
+}
+@media (min-width: 768px) and (pointer: coarse) {
+  html.brand-shell #nav a,
+  html.brand-shell #nav .sidebar-collapse { min-height: 44px; }
+}
+@media (min-width: 768px) {
+  html.brand-shell:not(.motion-ready)[data-sidebar-motion="explicit"] {
+    transition: --sidebar-progress var(--ow-motion-shell, 300ms) cubic-bezier(.45, 0, .55, 1);
+  }
+}
+
 @media (max-width: 767.98px) {
   /* Cancel desktop sidebar layout — body не reserve'ит place под sidebar */
   body { padding-left: 0; }
@@ -740,8 +856,7 @@ body {
 
 /* Flex-строка, а не просто заголовок: рядом с текстом в том же ряду стоит
    пилюля «Операция выполняется…» (.page-locked-pill — одна на страницу, в
-   нормальном потоке, без absolute). Анимация появления объявлена отдельно, в
-   секции ROUTE TRANSITION, рядом со своими @keyframes и правилами карточек. */
+   нормальном потоке, без absolute). */
 .page-title {
   font-size: 22px;
   font-weight: 600;
@@ -3841,33 +3956,6 @@ input[type="checkbox"] { accent-color: var(--accent); }
 /* Rotator «Стратегия» select: same width on every row regardless of value. */
 .state-strat-sel { min-width: 58px; }
 
-/* ---------- ROUTE TRANSITION ----------
-   Subtle fade-slide-up of page-title когда юзер переходит между разделами.
-   `backwards` fill-mode чтобы анимация начиналась с момента mount'a element'а
-   (innerHTML replace). Карточки ниже идут с лёгким staggered delay для
-   ощущения «волны». Skill: stagger-sequence 30-50ms per item. */
-.page-title {
-  animation: page-enter var(--dur-base) var(--spring-snappy) backwards;
-}
-/* Задержка считается по КАРТОЧКАМ. :nth-of-type здесь не годится: он считает
-   элементы одного тега, а первым <div> в #app лежит не карточка (баннер
-   обновления на дашборде, .strat-tabs на «Стратегиях» и «Исключениях») — из-за
-   чего первая карточка получала чужую задержку, а вторая не попадала ни под
-   одно правило и появлялась рывком. Цепочка ~ отсчитывает предшествующие
-   карточки: каждое следующее правило длиннее и специфичнее предыдущего,
-   поэтому побеждает для своей позиции. Глубже четвёртой не наращиваем — низ
-   длинной страницы не должен ждать полсекунды. */
-#app > .card {
-  animation: page-enter var(--dur-base) var(--spring-snappy) 50ms backwards;
-}
-#app > .card ~ .card { animation-delay: 100ms; }
-#app > .card ~ .card ~ .card { animation-delay: 150ms; }
-#app > .card ~ .card ~ .card ~ .card { animation-delay: 200ms; }
-@keyframes page-enter {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
 /* ---------- PRESS FEEDBACK ----------
    Apple-style tactile click: subtle scale-down (96%) на :active. Чувствуется
    как «нажали» — то самое что iOS даёт всем tappable элементам. Длительность
@@ -3913,31 +4001,13 @@ html.motion-ready #app .switch .slider::before {
 html.motion-ready #app .switch.is-unknown .slider,
 html.motion-ready #app .switch.is-unknown .slider::before { transition: none !important; }
 @media (min-width: 768px) {
-  html.motion-ready #nav {
-    transition-property: width !important;
+  html.brand-shell:not(.motion-ready)[data-sidebar-motion="explicit"] {
+    transition-property: --sidebar-progress !important;
     transition-duration: var(--ow-motion-shell, 300ms) !important;
-    transition-timing-function: cubic-bezier(.2, .8, .2, 1) !important;
-  }
-  html.motion-ready.brand-theme-ready #nav {
-    transition-property: left, width !important;
-  }
-  html.motion-ready #app {
-    transition-property: margin-left, width !important;
-    transition-duration: var(--ow-motion-shell, 300ms) !important;
-    transition-timing-function: cubic-bezier(.2, .8, .2, 1) !important;
-  }
-  html.motion-ready #panel-brand {
-    transition-property: left !important;
-    transition-duration: var(--ow-motion-shell, 300ms) !important;
-    transition-timing-function: cubic-bezier(.2, .8, .2, 1) !important;
-  }
-  html.motion-ready .topbar > .theme-toggle {
-    transition-property: right !important;
-    transition-duration: var(--ow-motion-shell, 300ms) !important;
-    transition-timing-function: cubic-bezier(.2, .8, .2, 1) !important;
+    transition-timing-function: cubic-bezier(.45, 0, .55, 1) !important;
   }
 }
-html.motion-ready .nav-active-indicator {
+.nav-active-indicator {
   position: absolute;
   top: 0;
   left: 0;
@@ -3953,6 +4023,12 @@ html.motion-ready .nav-active-indicator {
   transition-timing-function: cubic-bezier(.2, .8, .2, 1) !important;
   will-change: top, height;
 }
+html.motion-ready .nav-active-indicator {
+  transition-property: top, height, left, right !important;
+  transition-duration: var(--ow-motion-shell, 300ms) !important;
+  transition-timing-function: cubic-bezier(.2, .8, .2, 1) !important;
+}
+html .nav-active-indicator:not([data-ready="true"]) { transition: none !important; }
 html.motion-ready .disclosure > summary {
   transition-property: background-color, border-color, color, box-shadow !important;
   transition-duration: var(--disclosure-hover-duration) !important;
@@ -3974,10 +4050,6 @@ html.motion-ready #nav a.active { background: transparent; }
 html:not(.motion-ready) .sg-closed .sg-toggle .icon { transform: rotate(-90deg); }
 
 @media (prefers-reduced-motion: reduce) {
-  html.motion-ready #nav,
-  html.motion-ready #app,
-  html.motion-ready #panel-brand,
-  html.motion-ready .topbar > .theme-toggle,
   html.motion-ready .nav-active-indicator { transition-duration: 0.001ms !important; }
   html.motion-ready #app .switch .slider,
   html.motion-ready #app .switch .slider::before { transition-duration: 0.001ms !important; }

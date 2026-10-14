@@ -121,6 +121,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/cgi-bin/api/')) {
     const endpoint = url.pathname.slice('/cgi-bin/api/'.length);
     const apiRequest = { endpoint, method: req.method, marker: req.headers['x-z2k-panel'] || '',
+      pageId: req.headers['x-z2k-test-page'] || '',
       contentType: req.headers['content-type'] || '' };
     if (req.method === 'POST') {
       const chunks = [];
@@ -328,7 +329,7 @@ async function waitForRenderedRoute(page, route) {
   }, route, { timeout: 2000 });
   await page.waitForFunction(() => [...document.querySelectorAll('#app .page-title, #app > .card')]
     .every(node => Number.parseFloat(getComputedStyle(node).opacity) >= 0.99
-      && getComputedStyle(node).visibility !== "hidden"), null, { timeout: 2000 });
+      && getComputedStyle(node).visibility !== "hidden"), null, { timeout: 5000 });
   await page.waitForFunction(name => {
     const app = document.querySelector("#app");
     const content = app ? app.innerText.trim() : "";
@@ -421,6 +422,683 @@ const probeReportFixture = [
   'Verdict: HOT — blocked during TLS',
   '  → Check the TLS inspection path',
 ].join('\n');
+
+async function runShellMotionTests(videoDir) {
+  const failures = [];
+  const quickMotionProof = process.env.OPENWRT_QUICK_MOTION === '1';
+  const check = (name, condition, details) => {
+    if (!condition) failures.push({ name, details });
+  };
+  fs.mkdirSync(videoDir, { recursive: true });
+  const videoSide = process.env.OPENWRT_VIDEO_SIDE === 'before' ? 'before' : 'after';
+  const videoLabel = videoSide === 'before' ? 'ПРЕДЫДУЩАЯ РЕАЛИЗАЦИЯ' : 'ИСПРАВЛЕННАЯ РЕАЛИЗАЦИЯ';
+  const startFrames = page => page.evaluate(() => {
+    window.__shellFrames = [];
+    window.__shellCapture = true;
+    const selectors = ['#nav', '#nav .nav-active-indicator', '#panel-brand', '#app', '.topbar'];
+    const sample = () => {
+      if (!window.__shellCapture) return;
+      const rootStyle = getComputedStyle(document.documentElement);
+      const frame = { time: performance.now(), viewportWidth: innerWidth,
+        motionReady: document.documentElement.classList.contains('motion-ready'),
+        brandThemeReady: document.documentElement.classList.contains('brand-theme-ready'),
+        progress: rootStyle.getPropertyValue('--sidebar-progress').trim() };
+      const page = document.querySelector('#app');
+      if (page) {
+        const pageStyle = getComputedStyle(page);
+        const matrix = new DOMMatrixReadOnly(pageStyle.transform);
+        frame.content = { opacity: Number(pageStyle.opacity), y: matrix.m42 };
+      }
+      for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        if (!element) continue;
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        frame[selector] = {
+          left: style.left, transform: style.transform, transitionProperty: style.transitionProperty,
+          positionTransitions: element.getAnimations().map(animation => animation.transitionProperty)
+            .filter(property => /^(left|right|top|bottom|width|height|margin|margin-left|margin-right|transform)$/.test(property)),
+          layout: { left: element.offsetLeft, top: element.offsetTop },
+          rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+            width: rect.width, height: rect.height },
+        };
+      }
+      window.__shellFrames.push(frame);
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  const stopFrames = page => page.evaluate(() => {
+    window.__shellCapture = false;
+    return window.__shellFrames;
+  });
+  const saveVideo = async (page, video, name) => {
+    await page.close();
+    fs.copyFileSync(await video.path(), path.join(videoDir, name));
+  };
+  const decorateVideo = page => page.evaluate(label => {
+    const badge = document.createElement('div');
+    badge.textContent = label;
+    badge.style.cssText = 'position:fixed;z-index:99999;top:12px;left:12px;padding:6px 10px;border-radius:6px;background:#08110d;color:#00ba78;font:600 12px/1.2 sans-serif;letter-spacing:.04em;pointer-events:none';
+    document.body.append(badge);
+  }, videoLabel);
+
+  const routeVideoPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark',
+    recordVideo: { dir: videoDir, size: { width: 1440, height: 900 } } });
+  const routeVideo = routeVideoPage.video();
+  await routeVideoPage.addInitScript(() => {
+    localStorage.setItem('z2k-theme', 'dark');
+    localStorage.setItem('z2k-sidebar', 'expanded');
+  });
+  await routeVideoPage.goto(`${base}/#/dashboard`);
+  await waitForRenderedRoute(routeVideoPage, 'dashboard');
+  await routeVideoPage.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
+  await routeVideoPage.waitForTimeout(350);
+  await decorateVideo(routeVideoPage);
+  for (const route of ['toggles', 'dns', 'strategies', 'warp', 'dashboard']) {
+    await routeVideoPage.locator(`#nav a[data-route="${route}"]`).click();
+    await waitForRenderedRoute(routeVideoPage, route === 'strategies' ? 'state' : route);
+    await routeVideoPage.waitForTimeout(340);
+  }
+  await saveVideo(routeVideoPage, routeVideo, `navigation-${videoSide}.webm`);
+
+  const collapseVideoPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark',
+    recordVideo: { dir: videoDir, size: { width: 1440, height: 900 } } });
+  const collapseVideo = collapseVideoPage.video();
+  await collapseVideoPage.addInitScript(() => {
+    localStorage.setItem('z2k-theme', 'dark');
+    localStorage.setItem('z2k-sidebar', 'expanded');
+  });
+  await collapseVideoPage.goto(`${base}/#/dashboard`);
+  await waitForRenderedRoute(collapseVideoPage, 'dashboard');
+  await collapseVideoPage.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
+  await collapseVideoPage.waitForTimeout(350);
+  await decorateVideo(collapseVideoPage);
+  await collapseVideoPage.locator('#sidebar-collapse').click();
+  await collapseVideoPage.waitForTimeout(700);
+  await saveVideo(collapseVideoPage, collapseVideo, `collapse-${videoSide}.webm`);
+
+  const expandVideoPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark',
+    recordVideo: { dir: videoDir, size: { width: 1440, height: 900 } } });
+  const expandVideo = expandVideoPage.video();
+  await expandVideoPage.addInitScript(() => {
+    localStorage.setItem('z2k-theme', 'dark');
+    localStorage.setItem('z2k-sidebar', 'collapsed');
+  });
+  await expandVideoPage.goto(`${base}/#/dashboard`);
+  await waitForRenderedRoute(expandVideoPage, 'dashboard');
+  await expandVideoPage.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
+  await expandVideoPage.waitForTimeout(400);
+  await decorateVideo(expandVideoPage);
+  await expandVideoPage.locator('#sidebar-collapse').click();
+  await expandVideoPage.waitForTimeout(700);
+  await saveVideo(expandVideoPage, expandVideo, `expand-${videoSide}.webm`);
+
+  const routeTestPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+  await routeTestPage.addInitScript(() => {
+    localStorage.setItem('z2k-theme', 'dark');
+    localStorage.setItem('z2k-sidebar', 'expanded');
+  });
+  await routeTestPage.goto(`${base}/#/dashboard`);
+  await waitForRenderedRoute(routeTestPage, 'dashboard');
+  await routeTestPage.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
+  await startFrames(routeTestPage);
+  await routeTestPage.waitForTimeout(350);
+  await routeTestPage.evaluate(() => {
+    const card = document.querySelector('#app > .card');
+    window.__routeExitProbe = { app: document.querySelector('#app'), card, samples: [] };
+    const sample = () => {
+      const app = window.__routeExitProbe.app;
+      const outgoing = window.__routeExitProbe.card;
+      if (outgoing && app) {
+        const style = getComputedStyle(app);
+        const cardStyle = getComputedStyle(outgoing);
+        window.__routeExitProbe.samples.push({ connected: outgoing.isConnected,
+          opacity: Number(style.opacity), y: new DOMMatrixReadOnly(style.transform).m42,
+          cardOpacity: Number(cardStyle.opacity), cardTransform: cardStyle.transform });
+      }
+      if (window.__routeExitProbe.samples.length < 60) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+    document.querySelector('#nav a[data-route="toggles"]').click();
+  });
+  await routeTestPage.waitForTimeout(80);
+  const routeExitProbe = await routeTestPage.evaluate(() => ({
+    samples: window.__routeExitProbe.samples,
+    outgoingConnected: window.__routeExitProbe.card.isConnected,
+  }));
+  check('старая вкладка плавно выходит до подмены содержимого',
+    routeExitProbe.outgoingConnected && routeExitProbe.samples.some(sample => sample.connected
+      && sample.opacity > 0 && sample.opacity < 0.98 && sample.y < 0), routeExitProbe);
+  check('карточки не двигаются отдельно от слоя страницы',
+    routeExitProbe.samples.length > 0 && routeExitProbe.samples.every(sample =>
+      sample.cardOpacity === 1 && sample.cardTransform === 'none'), routeExitProbe);
+  await waitForRenderedRoute(routeTestPage, 'toggles');
+  check('старая вкладка удаляется после завершения перехода',
+    await routeTestPage.evaluate(() => !window.__routeExitProbe.card.isConnected));
+  const navigationRoutes = ['toggles', 'dns', 'state', 'warp', 'dashboard'];
+  const routeCycles = quickMotionProof ? 1 : 30;
+  for (let cycle = 0; cycle < routeCycles; cycle += 1) {
+    for (const route of navigationRoutes) {
+      await routeTestPage.evaluate(name => { location.hash = `#/${name}`; }, route);
+      try { await waitForRenderedRoute(routeTestPage, route); }
+      catch (error) {
+        const snapshot = await routeTestPage.evaluate(() => ({ route: document.body.dataset.page,
+          title: document.querySelector('#app .page-title')?.textContent,
+          nodes: [...document.querySelectorAll('#app .page-title, #app > .card')].map(node => ({
+            text: node.textContent.trim().slice(0, 60), opacity: getComputedStyle(node).opacity,
+            visibility: getComputedStyle(node).visibility, transform: getComputedStyle(node).transform,
+          })), tweens: window.gsap?.getTweensOf(document.querySelector('#app .page-title')).map(tween => ({
+            active: tween.isActive(), progress: tween.progress(), duration: tween.duration(),
+          })) }));
+        console.error(`Ожидание маршрута ${cycle + 1}/${route} не завершилось: ${JSON.stringify(snapshot)}`);
+        throw error;
+      }
+    }
+  }
+  await waitForGsapSettled(routeTestPage, ['#app']);
+  await routeTestPage.waitForTimeout(40);
+  const navigationFrames = await stopFrames(routeTestPage);
+  const routeContentFrames = navigationFrames.map(frame => frame.content).filter(Boolean);
+  check('переход вкладки плавно вводит содержимое единым слоем',
+    routeContentFrames.some(frame => frame.opacity < 0.95 && frame.y > 1)
+      && routeContentFrames.some(frame => frame.opacity >= 0.99 && Math.abs(frame.y) < 0.5),
+    { samples: routeContentFrames.length, first: routeContentFrames[0], last: routeContentFrames.at(-1) });
+  const routeCleanup = await routeTestPage.evaluate(() => ({
+    inlineOpacity: document.querySelector('#app').style.opacity,
+    inlineVisibility: document.querySelector('#app').style.visibility,
+    inlineTransform: document.querySelector('#app').style.transform,
+    runningAnimations: document.querySelector('#app').getAnimations().filter(animation =>
+      animation.playState === 'running').length,
+    runningTweens: window.gsap?.getTweensOf(document.querySelector('#app'))
+      .filter(tween => tween.isActive()).length || 0,
+  }));
+  check('переход очищает временные стили и анимации #app',
+    !routeCleanup.inlineOpacity && !routeCleanup.inlineVisibility && !routeCleanup.inlineTransform
+      && routeCleanup.runningAnimations === 0 && routeCleanup.runningTweens === 0, routeCleanup);
+  check('маршрут не двигает shell', navigationFrames.length > 5 &&
+    ['#nav', '#panel-brand', '#app', '.topbar'].every(selector => {
+      const samples = navigationFrames.map(frame => frame[selector]).filter(Boolean);
+      if (!samples.length) return false;
+      const first = samples[0].rect;
+      const geometry = selector === '#app' ? ['left', 'top', 'right', 'width']
+        : ['left', 'top', 'right', 'bottom', 'width', 'height'];
+      return samples.every(item => item.left === samples[0].left
+        && item.transitionProperty === 'none'
+        && (selector === '#app'
+          ? Math.abs(item.layout.left - samples[0].layout.left) <= 1
+            && Math.abs(item.layout.top - samples[0].layout.top) <= 1
+            && Math.abs(item.rect.top - first.top) <= 9
+          : geometry.every(key => Math.abs(item.rect[key] - first[key]) <= 1)
+            && item.transform === samples[0].transform));
+    }), `${navigationFrames.length} кадров / 30 циклов`);
+  check('переходы shell не включаются для left/width/margin', navigationFrames.length > 0 &&
+    navigationFrames.every(frame => !/(^|,\s*)(all|left|width|margin-left|right|transform)(,|$)/
+      .test(`${frame['#nav']?.transitionProperty},${frame['#panel-brand']?.transitionProperty},${frame['#app']?.transitionProperty},${frame['.topbar']?.transitionProperty}`)),
+  navigationFrames[0] || {});
+  fs.writeFileSync(path.join(videoDir, `navigation-frames-${videoSide}.json`), JSON.stringify(navigationFrames, null, 2));
+  await routeTestPage.close();
+
+  const coldPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+  let themeRequests = 0;
+  let profileRequests = 0;
+  await coldPage.addInitScript(index => {
+    localStorage.setItem('z2k-theme', index % 2 ? 'light' : 'dark');
+    localStorage.setItem('z2k-sidebar', index % 2 ? 'collapsed' : 'expanded');
+    window.__shellBootFrames = [];
+    const sample = () => {
+      const selectors = ['#nav', '#panel-brand', '#app', '.topbar'];
+      if (selectors.every(selector => document.querySelector(selector))) {
+        const frame = { time: performance.now(), ready: document.documentElement.classList.contains('brand-theme-ready'),
+          motionReady: document.documentElement.classList.contains('motion-ready'),
+          brandProfileReady: document.documentElement.classList.contains('brand-profile-ready'),
+          viewportWidth: innerWidth };
+        for (const selector of selectors) {
+          const node = document.querySelector(selector);
+          const style = getComputedStyle(node);
+          const rect = node.getBoundingClientRect();
+          frame[selector] = { left: style.left, transform: style.transform, transitionProperty: style.transitionProperty,
+            positionTransitions: node.getAnimations().map(animation => animation.transitionProperty)
+              .filter(property => /^(left|right|top|bottom|width|height|margin|margin-left|margin-right|transform)$/.test(property)),
+            rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+              width: rect.width, height: rect.height } };
+        }
+        window.__shellBootFrames.push(frame);
+      }
+      if (window.__shellBootFrames.length < 45) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  }, 0);
+  await coldPage.route('**/assets/openwrt/theme.css', async route => {
+    themeRequests += 1;
+    await new Promise(resolve => setTimeout(resolve, 120));
+    await route.continue();
+  });
+  await coldPage.route('**/assets/openwrt/profile.json', async route => {
+    profileRequests += 1;
+    await new Promise(resolve => setTimeout(resolve, 120));
+    await route.continue();
+  });
+  const coldLoadRuns = [];
+  const coldLoadCount = quickMotionProof ? 1 : 20;
+  for (let index = 0; index < coldLoadCount; index += 1) {
+    if (index) await coldPage.goto('about:blank');
+    await coldPage.goto(`${base}/#/dashboard`, { waitUntil: 'commit' });
+    await waitForRenderedRoute(coldPage, 'dashboard');
+    await coldPage.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
+    await coldPage.waitForFunction(() => window.__shellBootFrames?.length >= 45);
+    const samples = await coldPage.evaluate(() => window.__shellBootFrames);
+    coldLoadRuns.push(samples);
+    for (const selector of ['#nav', '#panel-brand', '#app', '.topbar']) {
+      const boxes = samples.map(frame => frame[selector]).filter(Boolean);
+      const first = boxes[0]?.rect;
+      const geometry = selector === '#app' ? ['left', 'top', 'right', 'width']
+        : ['left', 'top', 'right', 'bottom', 'width', 'height'];
+      check(`холодная загрузка ${index + 1}: ${selector} не сдвигается`, Boolean(first) && boxes.every(item =>
+        geometry.every(key => Math.abs(item.rect[key] - first[key]) <= 1)
+        && item.left === boxes[0].left && item.transform === boxes[0].transform
+        && item.positionTransitions.length === 0), { before: boxes[0], after: boxes.at(-1) });
+    }
+  }
+  check(`все ${coldLoadCount} ответа theme.css и profile.json задерживались`,
+    themeRequests === coldLoadCount && profileRequests === coldLoadCount,
+    { themeRequests, profileRequests });
+  fs.writeFileSync(path.join(videoDir, `cold-load-frames-${videoSide}.json`), JSON.stringify(coldLoadRuns, null, 2));
+  await coldPage.close();
+
+  const collapseTestPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+  await collapseTestPage.addInitScript(() => {
+    localStorage.setItem('z2k-theme', 'dark');
+    localStorage.setItem('z2k-sidebar', 'expanded');
+  });
+  await collapseTestPage.goto(`${base}/#/dashboard`);
+  await waitForRenderedRoute(collapseTestPage, 'dashboard');
+  await collapseTestPage.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
+  await collapseTestPage.waitForTimeout(350);
+  await startFrames(collapseTestPage);
+  await collapseTestPage.locator('#sidebar-collapse').click();
+  await collapseTestPage.waitForTimeout(420);
+  const collapseFrames = await stopFrames(collapseTestPage);
+  const collapseMetrics = await collapseTestPage.evaluate(() => {
+    const frames = window.__shellFrames;
+    const centers = [...document.querySelectorAll('#nav > a .nav-ico, #nav .sidebar-collapse .nav-ico')]
+      .map(node => node.getBoundingClientRect().left + node.getBoundingClientRect().width / 2);
+    return { frames, iconCenterSpread: Math.max(...centers) - Math.min(...centers),
+      progress: getComputedStyle(document.documentElement).getPropertyValue('--sidebar-progress').trim(),
+    state: document.body.dataset.sidebar,
+      activeRootTweens: window.gsap?.getTweensOf(document.documentElement).filter(tween => tween.isActive()).length || 0 };
+  });
+  const collapseBoxes = collapseFrames.map(frame => ({
+    nav: frame['#nav']?.rect, brand: frame['#panel-brand']?.rect, app: frame['#app']?.rect,
+  })).filter(frame => frame.nav && frame.brand && frame.app);
+  const initialBox = collapseBoxes[0];
+  const finalBox = collapseBoxes.at(-1);
+  check('при сворачивании sidebar остаётся на месте', Boolean(initialBox && finalBox) &&
+    collapseBoxes.every(frame => Math.abs(frame.nav.left - initialBox.nav.left) <= 1),
+  { initial: initialBox?.nav, final: finalBox?.nav });
+  check('приложение занимает освобождённую ширину без изменения правого края', Boolean(initialBox && finalBox) &&
+    collapseBoxes.every(frame => Math.abs(frame.app.right - initialBox.app.right) <= 1
+      && Math.abs(frame.app.left - frame.nav.right - 15) <= 1
+      && Math.abs(frame.app.width + frame.nav.width - initialBox.app.width - initialBox.nav.width) <= 1),
+  { initial: initialBox, final: finalBox });
+  check('логотип и шапка неподвижны при сворачивании', Boolean(initialBox) && collapseBoxes.every(frame =>
+    Math.abs(frame.brand.left - initialBox.brand.left) <= 1 && Math.abs(frame.brand.top - initialBox.brand.top) <= 1),
+  { initial: initialBox?.brand, final: finalBox?.brand });
+  check('иконки меню сохраняют общий центр', collapseMetrics.iconCenterSpread <= 1,
+    { spread: collapseMetrics.iconCenterSpread });
+  check('состояние layout доходит до свёрнутого', collapseMetrics.progress === '1' && collapseMetrics.state === 'collapsed',
+    { progress: collapseMetrics.progress, state: collapseMetrics.state });
+  const frameDeltas = collapseBoxes.slice(1).map((frame, index) => Math.max(
+    Math.abs(frame.nav.width - collapseBoxes[index].nav.width), Math.abs(frame.app.left - collapseBoxes[index].app.left),
+    Math.abs(frame.app.width - collapseBoxes[index].app.width)));
+  check('движение layout проходит кадр за кадром', frameDeltas.length > 5 && Math.max(...frameDeltas) < 45,
+    { maximumPerFrame: Math.max(...frameDeltas) });
+  check('после анимации нет конкурирующих shell transitions', collapseFrames.every(frame =>
+    !/(^|,\s*)(left|width|margin-left|right)(,|$)/.test(
+      `${frame['#nav']?.transitionProperty},${frame['#panel-brand']?.transitionProperty},${frame['#app']?.transitionProperty}`)),
+  collapseFrames[0]);
+  fs.writeFileSync(path.join(videoDir, `collapse-frames-${videoSide}.json`), JSON.stringify(collapseMetrics, null, 2));
+  await collapseTestPage.close();
+
+  const fastPage = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
+  await fastPage.addInitScript(() => localStorage.setItem('z2k-sidebar', 'expanded'));
+  await fastPage.goto(`${base}/#/dashboard`);
+  await waitForRenderedRoute(fastPage, 'dashboard');
+  await fastPage.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
+  await startFrames(fastPage);
+  const collapseButton = fastPage.locator('#sidebar-collapse');
+  await collapseButton.click();
+  await fastPage.waitForTimeout(90);
+  await collapseButton.click();
+  await fastPage.waitForTimeout(90);
+  await collapseButton.click();
+  await fastPage.waitForTimeout(500);
+  const fastFrames = await stopFrames(fastPage);
+  const fastFinal = await fastPage.evaluate(() => ({ state: document.body.dataset.sidebar,
+    activeTweens: window.gsap?.getTweensOf(document.documentElement).filter(tween => tween.isActive()).length || 0,
+    progress: getComputedStyle(document.documentElement).getPropertyValue('--sidebar-progress').trim() }));
+  check('быстрые нажатия перенаправляют единую анимацию к последнему состоянию',
+    fastFinal.state === 'collapsed' && fastFinal.progress === '1' && fastFinal.activeTweens <= 1,
+    fastFinal);
+  fs.writeFileSync(path.join(videoDir, `rapid-toggle-frames-${videoSide}.json`), JSON.stringify(fastFrames, null, 2));
+  await fastPage.close();
+
+  for (const gsapEnabled of [true, false]) {
+    const resizePage = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+    await resizePage.addInitScript(() => {
+      localStorage.setItem('z2k-theme', 'dark');
+      localStorage.setItem('z2k-sidebar', 'collapsed');
+    });
+    if (!gsapEnabled) await resizePage.route('**/assets/vendor/gsap.js', route => route.abort('failed'));
+    await resizePage.goto(`${base}/#/dashboard`);
+    await waitForRenderedRoute(resizePage, 'dashboard');
+    await resizePage.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
+    await startFrames(resizePage);
+    await resizePage.setViewportSize({ width: 760, height: 900 });
+    await resizePage.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const desktopResumeAt = await resizePage.evaluate(() => performance.now());
+    await resizePage.setViewportSize({ width: 1440, height: 900 });
+    await resizePage.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const resizeFrames = await stopFrames(resizePage);
+    const desktopResumeFrames = resizeFrames.filter(frame => frame.time >= desktopResumeAt && frame.viewportWidth === 1440);
+    const resizedShell = await resizePage.evaluate(() => {
+      const root = document.documentElement;
+      const nav = document.querySelector('#nav');
+      const app = document.querySelector('#app');
+      const navRect = nav.getBoundingClientRect();
+      const appRect = app.getBoundingClientRect();
+      return {
+        motionReady: root.classList.contains('motion-ready'),
+        brandThemeReady: root.classList.contains('brand-theme-ready'),
+        progress: getComputedStyle(root).getPropertyValue('--sidebar-progress').trim(),
+        activeTweens: window.gsap?.getTweensOf(root).filter(tween => tween.isActive()).length || 0,
+        activeCssTransitions: root.getAnimations().filter(animation =>
+          animation.transitionProperty === '--sidebar-progress' && animation.playState === 'running').length,
+        sidebarMotion: root.dataset.sidebarMotion || '',
+        navLeft: getComputedStyle(nav).left,
+        navTransition: getComputedStyle(nav).transitionProperty,
+        navRect: { left: navRect.left, right: navRect.right, width: navRect.width },
+        appRect: { left: appRect.left, right: appRect.right, width: appRect.width },
+      };
+    });
+    check(`${gsapEnabled ? 'GSAP' : 'CSS'}: viewport change не анимирует sidebar`,
+      resizedShell.progress === '1' && resizedShell.activeTweens === 0
+        && resizedShell.activeCssTransitions === 0 && !resizedShell.sidebarMotion
+        && Math.abs(resizedShell.navRect.left - 176.7) <= 1
+        && Math.abs(resizedShell.navRect.width - 72) <= 1
+        && desktopResumeFrames.length >= 2 && desktopResumeFrames.every(frame =>
+          frame.motionReady === gsapEnabled && frame.brandThemeReady
+            && frame['#nav'].transitionProperty === 'none'
+            && Math.abs(Number.parseFloat(frame['#nav'].left) - 176.7) <= 1
+            && Math.abs(frame['#nav'].rect.left - 176.7) <= 1
+            && Math.abs(frame['#nav'].rect.width - 72) <= 1)
+        && Math.abs(resizedShell.appRect.left - resizedShell.navRect.right - 15) <= 1,
+      { ...resizedShell, desktopResumeFrames: desktopResumeFrames.length,
+        frameLefts: desktopResumeFrames.map(frame => frame['#nav']?.left) });
+    await resizePage.close();
+  }
+
+  const cssMotionPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+  await cssMotionPage.route('**/assets/vendor/gsap.js*', route => route.abort('failed'));
+  await cssMotionPage.addInitScript(() => {
+    localStorage.setItem('z2k-theme', 'dark');
+    localStorage.setItem('z2k-sidebar', 'expanded');
+  });
+  await cssMotionPage.goto(`${base}/#/dashboard`);
+  await waitForRenderedRoute(cssMotionPage, 'dashboard');
+  await cssMotionPage.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
+  await startFrames(cssMotionPage);
+  await cssMotionPage.locator('#nav a[data-route="dns"]').click();
+  await waitForRenderedRoute(cssMotionPage, 'dns');
+  await cssMotionPage.waitForTimeout(400);
+  const cssRouteFrames = await stopFrames(cssMotionPage);
+  const cssRouteCleanup = await cssMotionPage.evaluate(() => ({
+    inlineOpacity: document.querySelector('#app').style.opacity,
+    inlineVisibility: document.querySelector('#app').style.visibility,
+    inlineTransform: document.querySelector('#app').style.transform,
+    runningAnimations: document.querySelector('#app').getAnimations()
+      .filter(animation => animation.playState === 'running').length,
+  }));
+  check('CSS fallback очищает временные стили после перехода',
+    !cssRouteCleanup.inlineOpacity && !cssRouteCleanup.inlineVisibility
+      && !cssRouteCleanup.inlineTransform && cssRouteCleanup.runningAnimations === 0,
+    cssRouteCleanup);
+  const cssIndicatorFrames = cssRouteFrames.map(frame => frame['#nav .nav-active-indicator']?.rect).filter(Boolean);
+  const cssIndicatorStart = cssIndicatorFrames[0]?.top;
+  const cssIndicatorEnd = cssIndicatorFrames.at(-1)?.top;
+  const cssIndicatorStyle = await cssMotionPage.locator('#nav .nav-active-indicator').evaluate(node => {
+    const style = getComputedStyle(node);
+    return { property: style.transitionProperty, duration: style.transitionDuration,
+      timing: style.transitionTimingFunction };
+  });
+  check('без GSAP вкладка двигает CSS-индикатор, shell остаётся неподвижным',
+    cssRouteFrames.length > 5 && Math.abs(cssIndicatorEnd - cssIndicatorStart) > 20
+      && cssIndicatorFrames.some(rect => Math.abs(rect.top - cssIndicatorStart) > 1
+        && Math.abs(rect.top - cssIndicatorEnd) > 1)
+      && cssRouteFrames.some(frame => frame.content && frame.content.opacity < 0.98 && frame.content.y > 0)
+      && ['#nav', '#panel-brand', '#app', '.topbar'].every(selector => {
+        const samples = cssRouteFrames.map(frame => frame[selector]).filter(Boolean);
+        const geometry = selector === '#app' ? ['left', 'right', 'width']
+          : ['left', 'top', 'right', 'bottom', 'width', 'height'];
+        return samples.length > 0 && samples.every(item => geometry
+          .every(key => Math.abs(item.rect[key] - samples[0].rect[key]) <= 1)
+          && (selector !== '#app' || Math.abs(item.rect.top - samples[0].rect.top) <= 9));
+      }), { start: cssIndicatorStart, end: cssIndicatorEnd, frames: cssRouteFrames.length,
+    tops: cssIndicatorFrames.map(rect => rect.top), style: cssIndicatorStyle });
+  await startFrames(cssMotionPage);
+  const cssCollapseButton = cssMotionPage.locator('#sidebar-collapse');
+  await cssCollapseButton.click();
+  await cssMotionPage.waitForTimeout(80);
+  await cssCollapseButton.click();
+  await cssMotionPage.waitForTimeout(80);
+  await cssCollapseButton.click();
+  await cssMotionPage.waitForFunction(() => !document.documentElement.hasAttribute('data-sidebar-motion'), null,
+    { timeout: 1500 });
+  const cssRapidFrames = await stopFrames(cssMotionPage);
+  const cssCollapsed = await cssMotionPage.evaluate(() => ({
+    gsap: Boolean(window.gsap), progress: Number(getComputedStyle(document.documentElement)
+      .getPropertyValue('--sidebar-progress')), state: document.body.dataset.sidebar,
+    sidebarMotion: document.documentElement.dataset.sidebarMotion || '',
+    nav: document.querySelector('#nav').getBoundingClientRect().toJSON(),
+    app: document.querySelector('#app').getBoundingClientRect().toJSON(),
+  }));
+  const cssFrameDeltas = cssRapidFrames.slice(1).map((frame, index) => Math.max(
+    Math.abs(frame['#nav'].rect.width - cssRapidFrames[index]['#nav'].rect.width),
+    Math.abs(frame['#app'].rect.left - cssRapidFrames[index]['#app'].rect.left),
+    Math.abs(frame['#app'].rect.width - cssRapidFrames[index]['#app'].rect.width)));
+  check('без GSAP сворачивание использует тот же layout-прогресс', !cssCollapsed.gsap
+    && cssCollapsed.progress === 1 && cssCollapsed.state === 'collapsed'
+    && !cssCollapsed.sidebarMotion && cssRapidFrames.length > 5 && Math.max(...cssFrameDeltas) < 45
+    && Math.abs(cssCollapsed.nav.width - 72) < 1
+    && Math.abs(cssCollapsed.app.left - cssCollapsed.nav.right - 15) < 1,
+  { ...cssCollapsed, cssFrames: cssRapidFrames.length, maxPerFrame: Math.max(...cssFrameDeltas) });
+  await cssMotionPage.close();
+
+  const disclosurePages = [];
+  for (const theme of ['dark', 'light']) {
+    for (const gsapEnabled of [true, false]) {
+      const recordDisclosure = theme === 'dark' && gsapEnabled;
+      const pageId = `disclosure-${theme}-${gsapEnabled ? 'gsap' : 'css'}`;
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: theme,
+        ...(recordDisclosure ? { recordVideo: { dir: videoDir, size: { width: 1280, height: 900 } } } : {}) });
+      await page.setExtraHTTPHeaders({ 'x-z2k-test-page': pageId });
+      await page.addInitScript(mode => localStorage.setItem('z2k-theme', mode), theme);
+      if (!gsapEnabled) await page.route('**/assets/vendor/gsap.js', route => route.abort('failed'));
+      await page.goto(`${base}/#/toggles`);
+      await waitForRenderedRoute(page, 'toggles');
+      await page.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
+      const details = page.locator('details.flow-benchmark-method');
+      const summary = details.locator(':scope > summary');
+      await summary.waitFor({ state: 'visible' });
+      if (theme === 'dark' && gsapEnabled) {
+        const broadSelectors = await page.evaluate(() => {
+          const matches = [];
+          const visit = rules => {
+            for (const rule of rules) {
+              if (rule.selectorText && /summary\s+span\b/.test(rule.selectorText)
+                  && !rule.selectorText.includes('.disclosure-label')) matches.push(rule.selectorText);
+              if (rule.cssRules) visit(rule.cssRules);
+            }
+          };
+          for (const sheet of document.styleSheets) {
+            try { visit(sheet.cssRules); } catch (_) {}
+          }
+          return matches;
+        });
+        check('CSS не содержит широких селекторов summary span', broadSelectors.length === 0, broadSelectors);
+      }
+      disclosurePages.push({ page, details, summary, theme, gsapEnabled, pageId,
+        video: recordDisclosure ? page.video() : null });
+    }
+  }
+  const disclosureResults = [];
+  const inspectDisclosureHold = async (item, state) => {
+    const summary = item.summary;
+    if (await item.details.evaluate(node => node.open) !== state) await summary.click();
+    await waitForDisclosureSettled(item.page, 'details.flow-benchmark-method');
+    await summary.scrollIntoViewIfNeeded();
+    await summary.hover();
+    await summary.evaluate(node => {
+      const details = node.parentElement;
+      const motionTargets = [node, node.querySelector('.disclosure-label'), node.querySelector('.disclosure-chevron')]
+        .filter(Boolean);
+      window.__summaryRef = node;
+      window.__summaryTargets = motionTargets;
+      window.__summaryRecords = 0;
+      new MutationObserver(records => { window.__summaryRecords += records.length; })
+        .observe(details, { subtree: true, childList: true, characterData: true, attributes: true });
+      const rect = node.getBoundingClientRect();
+      window.__summaryBase = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+        width: rect.width, height: rect.height };
+      window.__summaryMotion = { maxDelta: 0, maxTweens: 0, frames: 0 };
+      const sample = () => {
+        if (!window.__summaryMotion) return;
+        const current = node.getBoundingClientRect();
+        const base = window.__summaryBase;
+        window.__summaryMotion.maxDelta = Math.max(window.__summaryMotion.maxDelta,
+          ...['left', 'top', 'right', 'bottom', 'width', 'height'].map(key => Math.abs(current[key] - base[key])));
+        window.__summaryMotion.maxTweens = Math.max(window.__summaryMotion.maxTweens,
+          ...motionTargets.map(target => window.gsap?.getTweensOf(target).filter(tween => tween.isActive()).length || 0));
+        window.__summaryMotion.frames += 1;
+        requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+    const requestsBefore = apiRequests.filter(request => request.pageId === item.pageId
+      && request.endpoint === 'offload/benchmark'
+      && request.method === 'GET').length;
+    await item.page.waitForTimeout(quickMotionProof ? 450 : 20000);
+    const result = await summary.evaluate(node => ({
+      sameNode: window.__summaryRef === node,
+      maxDelta: window.__summaryMotion.maxDelta,
+      maxTweens: window.__summaryMotion.maxTweens,
+      frames: window.__summaryMotion.frames,
+      mutations: window.__summaryRecords,
+      transform: getComputedStyle(node).transform,
+      labelTransform: getComputedStyle(node.querySelector('.disclosure-label')).transform,
+      labelSize: getComputedStyle(node.querySelector('.disclosure-label')).fontSize,
+      summarySize: getComputedStyle(node).fontSize,
+      labelFamily: getComputedStyle(node.querySelector('.disclosure-label')).fontFamily,
+      summaryFamily: getComputedStyle(node).fontFamily,
+      headingText: node.textContent.trim(),
+      open: node.parentElement.open,
+    }));
+    result.theme = item.theme;
+    result.gsapEnabled = item.gsapEnabled;
+    result.state = state ? 'open' : 'closed';
+    result.polls = apiRequests.filter(request => request.pageId === item.pageId
+      && request.endpoint === 'offload/benchmark'
+      && request.method === 'GET').length - requestsBefore;
+    disclosureResults.push(result);
+    check(`${item.theme}/${item.gsapEnabled ? 'GSAP' : 'CSS'}/${result.state}: наблюдается точный заголовок`,
+      result.headingText.includes('Методика и ограничения'), result);
+    check(`${item.theme}/${item.gsapEnabled ? 'GSAP' : 'CSS'}/${result.state}: summary не масштабируется и не двигается`,
+      result.maxDelta <= 0.5 && result.transform === 'none' && result.labelTransform === 'none', result);
+    check(`${item.theme}/${item.gsapEnabled ? 'GSAP' : 'CSS'}/${result.state}: обычная типографика`,
+      result.labelSize === result.summarySize && result.labelFamily === result.summaryFamily, result);
+    check(`${item.theme}/${item.gsapEnabled ? 'GSAP' : 'CSS'}/${result.state}: polling не меняет disclosure DOM`,
+      result.sameNode && result.mutations === 0 && (quickMotionProof || result.polls >= 12), result);
+  };
+  for (const item of disclosurePages) await inspectDisclosureHold(item, false);
+  for (const item of disclosurePages) await inspectDisclosureHold(item, true);
+  for (const item of disclosurePages) {
+    await item.page.evaluate(() => document.activeElement?.blur());
+    let keyboardFocused = false;
+    for (let index = 0; index < 100 && !keyboardFocused; index += 1) {
+      await item.page.keyboard.press('Tab');
+      keyboardFocused = await item.summary.evaluate(node => node.matches(':focus-visible'));
+    }
+    const keyboard = await item.summary.evaluate(node => ({ focus: node.matches(':focus-visible'),
+      outline: getComputedStyle(node).outlineStyle }));
+    await item.page.keyboard.press('Space');
+    await item.page.waitForFunction(() => document.querySelector('details.flow-benchmark-method')?.open === false);
+    await item.page.keyboard.press('Enter');
+    await item.page.waitForFunction(() => document.querySelector('details.flow-benchmark-method')?.open === true);
+    check(`${item.theme}/${item.gsapEnabled ? 'GSAP' : 'CSS'}: Enter/Space и focus-visible работают`,
+      keyboard.focus && keyboard.outline === 'solid', keyboard);
+    await item.page.close();
+    if (item.video) fs.copyFileSync(await item.video.path(), path.join(videoDir, `disclosure-polling-${videoSide}.webm`));
+  }
+  const stalePage = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
+  await stalePage.addInitScript(() => localStorage.setItem('z2k-theme', 'dark'));
+  let releaseHeldStatus;
+  let signalHeldStatusSent;
+  const heldStatusGate = new Promise(resolve => { releaseHeldStatus = resolve; });
+  const heldStatusSent = new Promise(resolve => { signalHeldStatusSent = resolve; });
+  let heldFirstStatus = true;
+  await stalePage.route(url => url.pathname === '/cgi-bin/api/offload/benchmark'
+    && url.searchParams.get('view') === 'status', async route => {
+    if (!heldFirstStatus) { await route.continue(); return; }
+    heldFirstStatus = false;
+    await heldStatusGate;
+    await route.fulfill({ status: 200, contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({ ok: true, active: false, status: 'idle', result: null }) });
+    signalHeldStatusSent();
+  });
+  const heldStatusRequest = stalePage.waitForRequest(request => {
+    const url = new URL(request.url());
+    return url.pathname === '/cgi-bin/api/offload/benchmark' && url.searchParams.get('view') === 'status';
+  }, { timeout: 5000 });
+  await stalePage.goto(`${base}/#/toggles`);
+  await waitForRenderedRoute(stalePage, 'toggles');
+  await heldStatusRequest;
+  const staleCard = await stalePage.locator('#flowoffload-benchmark').elementHandle();
+  await staleCard.evaluate(card => {
+    window.__staleBenchmarkCard = card;
+    window.__staleBenchmarkMutations = 0;
+    window.__staleBenchmarkText = card.querySelector('#flowoffload-benchmark-status')?.textContent || '';
+    new MutationObserver(records => { window.__staleBenchmarkMutations += records.length; })
+      .observe(card, { subtree: true, childList: true, characterData: true, attributes: true });
+  });
+  await stalePage.locator('#nav a[data-route="dns"]').click();
+  await waitForRenderedRoute(stalePage, 'dns');
+  releaseHeldStatus();
+  await heldStatusSent;
+  await stalePage.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const staleRoute = await stalePage.evaluate(() => ({ route: document.body.dataset.page,
+    connected: window.__staleBenchmarkCard.isConnected,
+    mutations: window.__staleBenchmarkMutations,
+    statusBefore: window.__staleBenchmarkText,
+    statusAfter: window.__staleBenchmarkCard.querySelector('#flowoffload-benchmark-status')?.textContent || '' }));
+  check('запаздывающий ответ polling не меняет снятую со страницы карточку',
+    staleRoute.route === 'dns' && !staleRoute.connected && staleRoute.mutations === 0
+      && staleRoute.statusAfter === staleRoute.statusBefore, staleRoute);
+  await stalePage.close();
+  check('polling выполнялся в течение открытого и закрытого ожиданий', quickMotionProof
+    || disclosureResults.every(result => result.polls >= 12),
+    disclosureResults.map(({ theme, gsapEnabled, state, polls }) => ({ theme, gsapEnabled, state, polls })));
+  fs.writeFileSync(path.join(videoDir, `disclosure-polling-${videoSide}.json`), JSON.stringify(disclosureResults, null, 2));
+
+  const report = { failures, navigationFrames: navigationFrames.length, coldLoads: coldLoadRuns.length,
+    themeRequests, profileRequests, collapseFrames: collapseFrames.length, fastFrames: fastFrames.length,
+    disclosureResults, staleRoute };
+  fs.writeFileSync(path.join(videoDir, `shell-motion-report-${videoSide}.json`), JSON.stringify(report, null, 2));
+  await routeTestPage.close().catch(() => {});
+  if (failures.length) {
+    fs.writeFileSync(path.join(videoDir, `shell-motion-failures-${videoSide}.json`), JSON.stringify(failures, null, 2));
+    throw new Error(`shell motion regressions: ${JSON.stringify(failures.slice(0, 20))}`);
+  }
+}
 
 async function assertDiagDynamicStates(page, label, viewport = '1440') {
   if (await page.locator('#dns-result').count()) {
@@ -1003,11 +1681,12 @@ async function runSwitchVisualTests() {
   console.log('PASS: checked, дорожка, кружок и unknown для задержанного/ошибочного /status, dark/light, GSAP/fallback, программного изменения, отката, маршрутов и истории');
 }
 
-const motionOnly = process.env.OPENWRT_MOTION_ONLY === '1';
+  const shellOnly = process.env.OPENWRT_SHELL_ONLY === '1';
+  const motionOnly = process.env.OPENWRT_MOTION_ONLY === '1' || shellOnly;
 const switchOnly = process.env.OPENWRT_SWITCH_ONLY === '1';
 let testedRouteCount = 0;
 let totalModuleResponses = 0;
-if (motionOnly || switchOnly) {
+  if (motionOnly || switchOnly) {
   holdStatusResponses = false;
   tgRunningFixture = true;
 }
@@ -1099,30 +1778,23 @@ try {
     assert.equal(await page.evaluate(() => document.documentElement.classList.contains('motion-ready')),
       true, `${appearance}: общий модуль GSAP управляет анимацией интерфейса`);
     const shellTransitions = await page.evaluate(() => Object.fromEntries([
+      ['layout', document.documentElement],
       ['nav', document.querySelector('#nav')], ['app', document.querySelector('#app')],
       ['brand', document.querySelector('#panel-brand')], ['theme', document.querySelector('.topbar > .theme-toggle')],
     ].map(([name, element]) => [name, {
       property: getComputedStyle(element).transitionProperty,
       duration: getComputedStyle(element).transitionDuration,
     }])));
-    assert.match(shellTransitions.nav.property, /(^|,\s*)left(,|$)/,
-      `${appearance}: CSS управляет горизонтальным положением боковой панели`);
-    assert.match(shellTransitions.nav.property, /(^|,\s*)width(,|$)/,
-      `${appearance}: CSS управляет шириной боковой панели`);
-    assert.match(shellTransitions.app.property, /margin-left/,
-      `${appearance}: CSS управляет отступом контента`);
-    assert.match(shellTransitions.app.property, /width/,
-      `${appearance}: CSS управляет шириной контента`);
-    assert.match(shellTransitions.brand.property, /left/,
-      `${appearance}: CSS управляет положением логотипа`);
-    assert.match(shellTransitions.theme.property, /right/,
-      `${appearance}: CSS управляет положением переключателя темы`);
-    for (const [name, transition] of Object.entries(shellTransitions)) {
-      const durationMs = transition.duration.endsWith('ms')
-        ? parseFloat(transition.duration) : parseFloat(transition.duration) * 1000;
-      assert.ok(durationMs >= 200 && durationMs <= 350,
-        `${appearance}: переход ${name} длится в пределах 200–350 мс (${JSON.stringify(transition)})`);
-    }
+    assert.doesNotMatch(shellTransitions.layout.property, /--sidebar-progress/,
+      `${appearance}: GSAP владеет общим прогрессом layout`);
+    assert.doesNotMatch(shellTransitions.nav.property, /(^|,\s*)(left|width)(,|$)/,
+      `${appearance}: у меню нет отдельного CSS-перехода координат`);
+    assert.doesNotMatch(shellTransitions.app.property, /(^|,\s*)(margin-left|width)(,|$)/,
+      `${appearance}: у контента нет отдельного CSS-перехода геометрии`);
+    assert.doesNotMatch(shellTransitions.brand.property, /(^|,\s*)left(,|$)/,
+      `${appearance}: логотип не анимирует координаты независимо`);
+    assert.doesNotMatch(shellTransitions.theme.property, /(^|,\s*)right(,|$)/,
+      `${appearance}: переключатель темы не анимирует координаты независимо`);
     const shellGeometry = await page.evaluate(async () => {
       const nav = document.querySelector('#nav');
       const app = document.querySelector('#app');
@@ -1132,8 +1804,10 @@ try {
       const geometry = () => {
         const navBox = nav.getBoundingClientRect();
         const appBox = app.getBoundingClientRect();
+        const brandBox = brand.getBoundingClientRect();
+        const themeBox = theme.getBoundingClientRect();
         return { navLeft: navBox.left, navWidth: navBox.width, appLeft: appBox.left,
-          gap: appBox.left - navBox.right };
+          brandLeft: brandBox.left, themeRight: themeBox.right, gap: appBox.left - navBox.right };
       };
       const start = geometry();
       const gaps = [];
@@ -1147,7 +1821,8 @@ try {
       button.click();
       await sampleFor(120);
       const middle = geometry();
-      const geometryTweens = window.gsap.getTweensOf([nav, app, brand, theme]).length;
+      const layoutTweens = window.gsap.getTweensOf(document.documentElement)
+        .filter(tween => tween.isActive()).length;
       button.click();
       await sampleFor(45);
       button.click();
@@ -1158,19 +1833,25 @@ try {
       await sampleFor(360);
       const expanded = { ...geometry(), state: document.body.getAttribute('data-sidebar'),
         expanded: button.getAttribute('aria-expanded') };
-      return { start, middle, collapsed, expanded, geometryTweens, minGap: Math.min(...gaps) };
+      return { start, middle, collapsed, expanded, layoutTweens, minGap: Math.min(...gaps) };
     });
-    assert.ok(shellGeometry.middle.navLeft > shellGeometry.start.navLeft + 1,
-      `${appearance}: боковая панель плавно начинает переход, а не прыгает в конечную позицию (${JSON.stringify(shellGeometry)})`);
-    assert.ok(shellGeometry.middle.navLeft < shellGeometry.collapsed.navLeft - 1,
-      `${appearance}: положение боковой панели ещё меняется в середине перехода (${JSON.stringify(shellGeometry)})`);
+    assert.ok(Math.abs(shellGeometry.middle.navLeft - shellGeometry.start.navLeft) <= 1
+      && Math.abs(shellGeometry.collapsed.navLeft - shellGeometry.start.navLeft) <= 1,
+    `${appearance}: меню остаётся на месте при изменении ширины (${JSON.stringify(shellGeometry)})`);
+    assert.ok(shellGeometry.middle.navWidth < shellGeometry.start.navWidth - 1
+      && shellGeometry.middle.navWidth > shellGeometry.collapsed.navWidth + 1,
+    `${appearance}: ширина меню проходит промежуточное положение (${JSON.stringify(shellGeometry)})`);
     assert.ok(shellGeometry.middle.appLeft > Math.min(shellGeometry.start.appLeft, shellGeometry.collapsed.appLeft) + 1
       && shellGeometry.middle.appLeft < Math.max(shellGeometry.start.appLeft, shellGeometry.collapsed.appLeft) - 1,
     `${appearance}: контент одновременно с меню проходит промежуточное положение (${JSON.stringify(shellGeometry)})`);
+    assert.ok([shellGeometry.middle, shellGeometry.collapsed, shellGeometry.expanded].every(frame =>
+      Math.abs(frame.brandLeft - shellGeometry.start.brandLeft) <= 1
+      && Math.abs(frame.themeRight - shellGeometry.start.themeRight) <= 1),
+    `${appearance}: логотип и переключатель темы неподвижны (${JSON.stringify(shellGeometry)})`);
     assert.ok(shellGeometry.minGap >= -1,
       `${appearance}: при переходе или прерывании контент не перекрывает меню (${JSON.stringify(shellGeometry)})`);
-    assert.equal(shellGeometry.geometryTweens, 0,
-      `${appearance}: GSAP не анимирует геометрию оболочки поверх CSS`);
+    assert.equal(shellGeometry.layoutTweens, 1,
+      `${appearance}: один GSAP tween управляет состоянием layout`);
     assert.deepEqual([shellGeometry.collapsed.state, shellGeometry.collapsed.expanded], ['collapsed', 'false'],
       `${appearance}: последнее прерывающее действие сворачивает боковую панель`);
     assert.deepEqual([shellGeometry.expanded.state, shellGeometry.expanded.expanded], [null, 'true'],
@@ -1473,23 +2154,23 @@ try {
     const shellMotion = await page.evaluate(async () => {
       const nav = getComputedStyle(document.querySelector('#nav'));
       const app = getComputedStyle(document.querySelector('#app'));
+      const root = getComputedStyle(document.documentElement);
       const { motion } = await import('/js/motion.js');
-      return { navDuration: nav.transitionDuration, appDuration: app.transitionDuration,
-        appTransition: app.transitionProperty, shellDuration: motion.timing.duration.shell };
+      return { navTransition: nav.transitionProperty, appTransition: app.transitionProperty,
+        rootTransition: root.transitionProperty, shellDuration: motion.timing.duration.shell };
     });
-    assert.equal(shellMotion.navDuration, '0.3s', 'CSS плавно анимирует геометрию боковой панели');
-    assert.equal(shellMotion.appDuration, '0.3s', 'CSS плавно анимирует геометрию содержимого');
-    assert.match(shellMotion.appTransition, /margin-left/);
-    assert.match(shellMotion.appTransition, /width/);
-    assert.equal(shellMotion.shellDuration, 0.3, 'локальные эффекты оболочки сохраняют общую длительность 300 мс');
+    assert.equal(shellMotion.navTransition, 'none', 'sidebar не анимирует геометрию отдельно от состояния оболочки');
+    assert.equal(shellMotion.appTransition, 'none', 'контентная колонка следует общей временной шкале');
+    assert.equal(shellMotion.rootTransition, 'none', 'при GSAP CSS не конкурирует с timeline shell');
+    assert.equal(shellMotion.shellDuration, 0.3, 'timeline оболочки занимает 300 мс');
     assert.ok(await page.locator('#app').evaluate(node => node.getBoundingClientRect().width === 800),
       'all desktop routes use the reference 800 px content column');
     const sidebarCollapse = page.locator('#sidebar-collapse');
     await sidebarCollapse.click();
     await page.waitForFunction(() => document.body.dataset.sidebar === 'collapsed'
       && Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 72) < 0.5
-      && Math.abs(document.querySelector('#app').getBoundingClientRect().x - (innerWidth / 2 - 356.5)) < 1);
-    await waitForGsapSettled(page, ['#nav', 'body', '#sidebar-collapse .nav-ico']);
+      && Math.abs(document.querySelector('#app').getBoundingClientRect().x - (innerWidth / 2 - 456)) < 1);
+    await waitForGsapSettled(page, ['html']);
     const collapsedFrame = await page.evaluate(() => ({
       state: document.body.getAttribute('data-sidebar'),
       windowWidth: window.innerWidth,
@@ -1503,9 +2184,9 @@ try {
     }));
     assert.equal(collapsedFrame.state, 'collapsed', `${appearance}: collapse records the icon-only state`);
     assert.ok(Math.abs(collapsedFrame.railWidth - 72) < 1, `${appearance}: collapsed rail is 72 px`);
-    assert.ok(Math.abs(collapsedFrame.appX - (collapsedFrame.windowWidth / 2 - 356.5)) < 1,
-      `${appearance}: main column recenters with the compact rail (${JSON.stringify(collapsedFrame)})`);
-    assert.equal(collapsedFrame.appWidth, 800, `${appearance}: collapse preserves the desktop content width`);
+    assert.ok(Math.abs(collapsedFrame.appX - (collapsedFrame.windowWidth / 2 - 456)) < 1,
+      `${appearance}: main column stays 15 px after the fixed compact rail (${JSON.stringify(collapsedFrame)})`);
+    assert.equal(collapsedFrame.appWidth, 989, `${appearance}: collapse fills the width released by the rail`);
     assert.ok(collapsedFrame.labelWidth <= 1, `${appearance}: nav text is visually hidden in the compact rail`);
     assert.ok(collapsedFrame.scrollWidth <= collapsedFrame.clientWidth,
       `${appearance}: collapsed shell stays inside the viewport`);
@@ -1526,7 +2207,7 @@ try {
     await sidebarCollapse.click();
     await page.waitForFunction(() => !document.body.hasAttribute('data-sidebar')
       && Math.abs(document.querySelector('#nav').getBoundingClientRect().width - 261) < 0.5);
-    await waitForGsapSettled(page, ['#nav', 'body', '#sidebar-collapse .nav-ico']);
+    await waitForGsapSettled(page, ['html']);
     assert.equal(await page.locator('body').getAttribute('data-sidebar'), null,
       `${appearance}: the collapse control restores the expanded rail`);
     assert.ok(Math.abs(await page.locator('#nav').evaluate(node => node.getBoundingClientRect().width) - 261) < 0.5);
@@ -2581,10 +3262,8 @@ try {
   assert.ok(Math.abs(await fullHdShort.locator('#nav').evaluate(node => node.getBoundingClientRect().width) - 261) < 1,
     'a short Full HD browser window retains the desktop sidebar width');
   await fullHdShort.emulateMedia({ reducedMotion: 'reduce' });
-  assert.ok(Number.parseFloat(await fullHdShort.locator('#nav').evaluate(node => getComputedStyle(node).transitionDuration)) <= 0.00001,
-    'уменьшение движения почти мгновенно отключает переход геометрии меню');
-  assert.ok(Number.parseFloat(await fullHdShort.locator('#app').evaluate(node => getComputedStyle(node).transitionDuration)) <= 0.00001,
-    'уменьшение движения почти мгновенно отключает переход геометрии страницы');
+  assert.ok(Number.parseFloat(await fullHdShort.locator('html').evaluate(node => getComputedStyle(node).transitionDuration)) <= 0.00001,
+    'уменьшение движения почти мгновенно отключает переход единого состояния оболочки');
   await fullHdShort.close();
 
   const snapshotPage = await browser.newPage({ viewport: { width: 1392, height: 1104 } });
@@ -2696,18 +3375,29 @@ try {
   const beforeSlowTheme = await themeSlow.evaluate(() => ({
     ready: document.documentElement.classList.contains('brand-theme-ready'),
     navTransition: getComputedStyle(document.querySelector('#nav')).transitionProperty,
-    navLeft: document.querySelector('#nav').getBoundingClientRect().left,
+    boxes: ['#nav', '#app', '#panel-brand', '.topbar', '.theme-toggle'].map(selector => {
+      const rect = document.querySelector(selector).getBoundingClientRect();
+      return [rect.left, rect.top, rect.width, rect.height];
+    }),
   }));
-  assert.equal(beforeSlowTheme.ready, false, 'медленная опциональная тема ещё не разрешила переход положения меню');
-  assert.doesNotMatch(beforeSlowTheme.navTransition, /(^|,\s*)left(,|$)/,
-    `задержанная тема не запускает анимацию положения меню (${JSON.stringify(beforeSlowTheme)})`);
+  assert.equal(beforeSlowTheme.ready, false, 'медленная опциональная тема ещё не загружена');
+  assert.equal(beforeSlowTheme.navTransition, 'none',
+    `задержанная тема не запускает отдельный переход положения меню (${JSON.stringify(beforeSlowTheme)})`);
   await releaseThemeRequest();
   assert.equal(routeRenderedBeforeTheme, true,
     'a slow optional brand theme never blocks the first route render');
   await waitForRenderedRoute(themeSlow, 'dashboard');
   await themeSlow.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
-  assert.match(await themeSlow.locator('#nav').evaluate(node => getComputedStyle(node).transitionProperty), /(^|,\s*)left(,|$)/,
-    'после загрузки темы положение меню анимируется при действиях пользователя');
+  const afterSlowTheme = await themeSlow.evaluate(() => ['#nav', '#app', '#panel-brand', '.topbar', '.theme-toggle']
+    .map(selector => {
+      const rect = document.querySelector(selector).getBoundingClientRect();
+      return [rect.left, rect.top, rect.width, rect.height];
+    }));
+  assert.ok(afterSlowTheme.every((box, index) => {
+    const axes = index === 1 ? [0, 1, 2] : [0, 1, 2, 3];
+    return axes.every(axis => Math.abs(box[axis] - beforeSlowTheme.boxes[index][axis]) <= 1);
+  }),
+  `опциональная тема не двигает оболочку после загрузки (${JSON.stringify({ before: beforeSlowTheme.boxes, after: afterSlowTheme })})`);
   await themeSlow.close();
 
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: 'dark', isMobile: true, hasTouch: true });
@@ -3792,7 +4482,9 @@ try {
   }
 
   const videoDir = process.env.OPENWRT_VIDEO_DIR || '';
-  if (videoDir) {
+  if (shellOnly) {
+    await runShellMotionTests(videoDir || path.join(repo, '.motion-shell-proof', 'shell-only'));
+  } else if (videoDir) {
     fs.mkdirSync(videoDir, { recursive: true });
     const routeEvent = (sequence, transport, state) => ({
       sequence,
@@ -4399,6 +5091,55 @@ try {
     });
     await routeVideoPage.goto(`${base}/#/state`);
     await waitForRenderedRoute(routeVideoPage, 'state');
+    await routeVideoPage.waitForTimeout(350);
+    await routeVideoPage.evaluate(() => {
+      window.__routeExitSamples = [];
+      window.__routeEnterSamples = [];
+      window.__routeApp = document.querySelector('#app');
+      window.__routeOutgoingCard = document.querySelector('#app > .card');
+      const sample = () => {
+        const app = window.__routeApp;
+        const card = window.__routeOutgoingCard;
+        if (app) {
+          const style = getComputedStyle(app);
+          const matrix = new DOMMatrixReadOnly(style.transform);
+          const current = { connected: card?.isConnected ?? false,
+            opacity: Number(style.opacity), y: matrix.m42 };
+          if (card?.isConnected) {
+            const cardStyle = getComputedStyle(card);
+            current.cardOpacity = Number(cardStyle.opacity);
+            current.cardTransform = cardStyle.transform;
+            window.__routeExitSamples.push(current);
+          } else if (document.body.dataset.page === 'toggles') {
+            window.__routeEnterSamples.push(current);
+          }
+        }
+        if (window.__routeExitSamples.length < 60) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+      document.querySelector('#nav a[data-route="toggles"]').click();
+    });
+    await routeVideoPage.waitForTimeout(80);
+    const routeExit = await routeVideoPage.evaluate(() => ({
+      samples: window.__routeExitSamples,
+      outgoingConnected: window.__routeOutgoingCard.isConnected,
+    }));
+    assert.ok(routeExit.samples.some(sample => sample.connected
+      && sample.opacity > 0 && sample.opacity < 0.98 && sample.y < 0),
+    'старый экран плавно выходит до подмены содержимого вкладки');
+    assert.ok(routeExit.samples.every(sample => sample.cardOpacity === 1
+      && sample.cardTransform === 'none'),
+    'карточки не двигаются отдельно от слоя страницы');
+    assert.equal(routeExit.outgoingConnected, true, 'старая вкладка остаётся на месте во время выхода');
+    await waitForRenderedRoute(routeVideoPage, 'toggles');
+    await routeVideoPage.waitForTimeout(300);
+    assert.ok(await routeVideoPage.evaluate(() => window.__routeEnterSamples.some(sample =>
+      sample.opacity > 0 && sample.opacity < 0.98 && sample.y > 0)),
+    'новая вкладка входит единым слоем');
+    assert.equal(await routeVideoPage.evaluate(() => !window.__routeOutgoingCard.isConnected), true,
+      'после выхода старая вкладка удаляется');
+    assert.equal(await routeVideoPage.locator('#nav a[data-route="toggles"]').getAttribute('class')
+      .then(value => value.includes('active')), true, 'индикатор следует за выбранной вкладкой');
     await routeVideoPage.evaluate(() => {
       window.__routeGeometrySamples = [];
       window.__captureRouteGeometry = true;
@@ -4465,8 +5206,8 @@ try {
         `${name}: маршрут не двигает shell через transform`);
     }
     assert.ok(routeGeometry.app.every(box => Math.abs(box.left - routeGeometry.app[0].left) <= 1
-      && Math.abs(box.top - routeGeometry.app[0].top) <= 1),
-    '#app не прыгает по экрану при смене маршрутов');
+      && Math.abs(box.top - routeGeometry.app[0].top) <= 9),
+    '#app перемещается только на короткую дистанцию перехода, без скачков');
     assert.ok(routeGeometry.indicators.every(item => Math.abs(item.targetLeft - item.indicatorLeft) <= 1),
       'индикатор стратегии всегда совпадает с активной вкладкой текущего DOM');
     assert.equal(routeGeometry.horizontalOverflow, false, 'переходы не создают горизонтальное переполнение');
@@ -4489,7 +5230,9 @@ try {
     await motionPage.close();
     fs.copyFileSync(await telegramVideo.path(), path.join(videoDir, 'telegram-polling-30s.webm'));
   }
-  if (switchOnly) {
+  if (shellOnly) {
+    console.log('PASS: shell layout, navigation, collapse/expand, delayed branding, polling, and disclosure motion');
+  } else if (switchOnly) {
     console.log('PASS: изолированная Playwright-матрица переключателей');
   } else if (!motionOnly) {
     // A genuinely broken required module graph receives a visible failure state.

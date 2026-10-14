@@ -4,7 +4,7 @@ const Flip = typeof window !== "undefined" ? window.Flip : null;
 const reduceQuery = typeof window !== "undefined"
   ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
 
-const duration = Object.freeze({ micro: 0.1, state: 0.16, popup: 0.2, disclosure: 0.25, base: 0.28, shell: 0.3, tab: 0.35 });
+const duration = Object.freeze({ micro: 0.1, state: 0.16, popup: 0.2, disclosure: 0.25, base: 0.28, shell: 0.3, tab: 0.3, routeExit: 0.18, routeEnter: 0.27 });
 const ease = Object.freeze({ standard: "power2.out", enter: "power3.out", spring: "back.out(1.15)" });
 const keyed = new WeakMap();
 const activities = new Map();
@@ -12,7 +12,12 @@ const detailsStyles = new WeakMap();
 const detailsTargets = new WeakMap();
 const interactionStyles = new WeakMap();
 const flipAnimations = new WeakMap();
-let routeContext = null;
+let routeTimeline = null;
+let routeExitResolve = null;
+let routeFallbackAnimation = null;
+let routeTarget = null;
+let sidebarFallbackTimer = 0;
+let sidebarFallbackEnd = null;
 let activityObserver = null;
 let domObserver = null;
 let intersections = null;
@@ -245,6 +250,7 @@ function interactiveTarget(target) {
   const control = target.closest(".switch") || target.closest("a[href],button,input:not([type=hidden]),textarea,select,summary,[role=option],.seg-btn,.chosen-single,.sort-trigger,.sheet-option,.card.is-interactive");
   if (!control || control.matches(":disabled,[aria-disabled='true']")) return null;
   if (control.matches("#nav a")) return null;
+  if (control.matches("details.disclosure > summary")) return null;
   if (control.matches(".switch") && control.querySelector("input:disabled")) return null;
   return control;
 }
@@ -352,6 +358,7 @@ function pressOut(event) {
 
 function animateStateMutation(element) {
   if (!(element instanceof Element) || !element.isConnected || !hasGsap) return;
+  if (element.matches("details.disclosure > summary")) return;
   animateInteractionStyle(element, readInteractionStyle(element), "state-style", interactionStyles.get(element));
   if (reduced) return;
   const closedGroup = element.matches("tbody.sg") && element.classList.contains("sg-closed");
@@ -412,8 +419,11 @@ function initActivityObserver() {
 
 function setReduced(value) {
   reduced = Boolean(value);
-  if (!gsap) return;
   if (reduced) {
+    const routeRoot = routeTarget;
+    cancelRoute();
+    clearRouteStyles(routeRoot);
+    if (!gsap) return;
     for (const element of Array.from(activities.keys())) stopActivity(element, true);
     for (const element of document.querySelectorAll("[data-z2k-motion-active]")) {
       gsap.killTweensOf(element);
@@ -422,7 +432,7 @@ function setReduced(value) {
     }
     const children = gsap.globalTimeline.getChildren(true, true, true);
     for (const animation of children) animation.progress(1).kill();
-  } else {
+  } else if (gsap) {
     scanActivities(document.body);
     visibilityChanged();
   }
@@ -439,7 +449,7 @@ function ensureNavIndicator(nav) {
 }
 
 function moveNavIndicator(nav, active) {
-  if (!nav || !active || !hasGsap) return;
+  if (!nav || !active) return;
   const indicator = ensureNavIndicator(nav);
   const navRect = nav.getBoundingClientRect();
   const activeRect = active.getBoundingClientRect();
@@ -520,25 +530,165 @@ function dispose(target, clear = true) {
 }
 
 function cancelRoute() {
-  if (!routeContext) return;
-  routeContext.revert();
-  routeContext = null;
+  const resolveExit = routeExitResolve;
+  routeExitResolve = null;
+  const timeline = routeTimeline;
+  routeTimeline = null;
+  const fallback = routeFallbackAnimation;
+  routeFallbackAnimation = null;
+  const target = routeTarget;
+  routeTarget = null;
+  if (fallback && target) {
+    const style = getComputedStyle(target);
+    target.style.opacity = style.opacity;
+    target.style.visibility = style.visibility;
+    target.style.transform = style.transform;
+    fallback.onfinish = null;
+    fallback.oncancel = null;
+    fallback.cancel();
+  }
+  if (timeline) timeline.kill();
+  if (resolveExit) resolveExit();
 }
 
-function enterRoute(root) {
+function clearRouteStyles(root) {
+  if (!root) return;
+  if (gsap) gsap.set(root, { clearProps: "opacity,visibility,transform" });
+  else {
+    root.style.removeProperty("opacity");
+    root.style.removeProperty("visibility");
+    root.style.removeProperty("transform");
+  }
+}
+
+function runRouteFallback(root, frames, seconds, easing, onFinish) {
+  if (!root || typeof root.animate !== "function") {
+    clearRouteStyles(root);
+    if (onFinish) onFinish();
+    return null;
+  }
+  const animation = root.animate(frames, {
+    duration: seconds * 1000,
+    easing,
+    fill: "both",
+  });
+  routeTarget = root;
+  routeFallbackAnimation = animation;
+  animation.onfinish = () => {
+    if (routeFallbackAnimation !== animation) return;
+    routeFallbackAnimation = null;
+    routeTarget = null;
+    animation.onfinish = null;
+    animation.cancel();
+    clearRouteStyles(root);
+    if (onFinish) onFinish();
+  };
+  return animation;
+}
+
+function leaveRoute(root) {
   cancelRoute();
-  if (!hasGsap || !root) return;
-  if (reduced) return;
-  const title = root.querySelector(".page-title");
-  const cards = Array.from(root.querySelectorAll(":scope > .card")).slice(0, 5);
-  const targets = [title, ...cards].filter(Boolean);
-  if (!targets.length) return;
-  routeContext = gsap.context(() => {
-    gsap.fromTo(targets, { autoAlpha: 0, y: 8 }, {
-      autoAlpha: 1, y: 0, duration: duration.base, ease: ease.enter,
-      stagger: 0.035, clearProps: "opacity,visibility,transform",
-    });
-  }, root);
+  if (!root || !root.firstElementChild) {
+    clearRouteStyles(root);
+    return Promise.resolve();
+  }
+  if (reduced) {
+    clearRouteStyles(root);
+    return Promise.resolve();
+  }
+  return new Promise(resolve => {
+    const finish = () => {
+      if (routeExitResolve === finish) routeExitResolve = null;
+      if (routeTimeline === timeline) routeTimeline = null;
+      if (routeFallbackAnimation === fallback) routeFallbackAnimation = null;
+      if (routeTarget === root) routeTarget = null;
+      resolve();
+    };
+    routeExitResolve = finish;
+    let timeline = null;
+    let fallback = null;
+    if (hasGsap) {
+      timeline = gsap.timeline({ onComplete: () => {
+        clearRouteStyles(root);
+        finish();
+      } });
+      routeTimeline = timeline;
+      routeTarget = root;
+      timeline.to(root, {
+        autoAlpha: 0, y: -4, duration: duration.routeExit, ease: "power2.in",
+      });
+    } else {
+      const style = getComputedStyle(root);
+      fallback = runRouteFallback(root, [
+        { opacity: style.opacity, transform: style.transform === "none" ? "translateY(0px)" : style.transform },
+        { opacity: 0, transform: "translateY(-4px)" },
+      ], duration.routeExit, "cubic-bezier(0.3, 0, 1, 1)", finish);
+      if (!fallback) finish();
+    }
+  });
+}
+
+function enterRoute(root, immediate = false) {
+  cancelRoute();
+  if (!root || reduced || immediate) {
+    clearRouteStyles(root);
+    return;
+  }
+  if (!hasGsap) {
+    runRouteFallback(root, [
+      { opacity: 0, transform: "translateY(8px)" },
+      { opacity: 1, transform: "translateY(0px)" },
+    ], duration.routeEnter, "cubic-bezier(0.2, 0, 0, 1)");
+    return;
+  }
+  let timeline = null;
+  timeline = gsap.timeline({ onComplete: () => {
+    if (routeTimeline === timeline) routeTimeline = null;
+    if (routeTarget === root) routeTarget = null;
+    clearRouteStyles(root);
+  } });
+  routeTimeline = timeline;
+  routeTarget = root;
+  timeline.fromTo(root, { autoAlpha: 0, y: 8 }, {
+    autoAlpha: 1, y: 0, duration: duration.routeEnter, ease: ease.enter,
+  });
+}
+
+function clearSidebarFallback(root) {
+  if (sidebarFallbackTimer) clearTimeout(sidebarFallbackTimer);
+  sidebarFallbackTimer = 0;
+  if (sidebarFallbackEnd) root.removeEventListener("transitionend", sidebarFallbackEnd);
+  sidebarFallbackEnd = null;
+  root.removeAttribute("data-sidebar-motion");
+}
+
+function sidebarLayout(collapsed, immediate = false) {
+  const root = document.documentElement;
+  if (!root) return null;
+  const target = collapsed ? 1 : 0;
+  if (!hasGsap && !reduced && !immediate) {
+    if (sidebarFallbackTimer) clearTimeout(sidebarFallbackTimer);
+    if (sidebarFallbackEnd) root.removeEventListener("transitionend", sidebarFallbackEnd);
+    root.dataset.sidebarMotion = "explicit";
+    sidebarFallbackEnd = event => {
+      if (event.target === root && event.propertyName === "--sidebar-progress") clearSidebarFallback(root);
+    };
+    root.addEventListener("transitionend", sidebarFallbackEnd);
+    sidebarFallbackTimer = setTimeout(() => clearSidebarFallback(root), duration.shell * 1000 + 150);
+    root.style.setProperty("--sidebar-progress", String(target));
+    return null;
+  }
+  if (!hasGsap || reduced || immediate) {
+    clearSidebarFallback(root);
+    killKey(root, "sidebar-layout");
+    root.style.setProperty("--sidebar-progress", String(target));
+    return null;
+  }
+  clearSidebarFallback(root);
+  killKey(root, "sidebar-layout");
+  const timeline = gsap.timeline({ defaults: { duration: duration.shell, ease: "power2.inOut" } });
+  timeline.to(root, { "--sidebar-progress": target }, 0);
+  return track(root, "sidebar-layout", timeline);
 }
 
 function disclosure(details, open) { animateDisclosure(details, Boolean(open)); }
@@ -637,7 +787,9 @@ export const motion = Object.freeze({
   fromTo,
   dispose,
   cancelRoute,
+  leaveRoute,
   enterRoute,
+  sidebarLayout,
   disclosure,
   overlay,
   drawer,

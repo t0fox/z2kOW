@@ -13,18 +13,15 @@ export function initSidebar() {
   if (!button || !nav) return;
   const desktop = window.matchMedia("(min-width: 768px)");
 
-  function applyState(collapsed, persist) {
+  function applyState(collapsed, persist, animate = true) {
     if (desktop.matches && collapsed) document.body.setAttribute("data-sidebar", "collapsed");
     else document.body.removeAttribute("data-sidebar");
+    motion.sidebarLayout(collapsed && desktop.matches, !animate);
 
     const label = collapsed ? "Развернуть боковую панель" : "Свернуть боковую панель";
     button.setAttribute("aria-expanded", String(!collapsed));
     button.setAttribute("aria-label", label);
     button.title = label;
-    const icon = button.querySelector(".nav-ico");
-    if (icon && motion.available) motion.to(icon, { rotation: collapsed ? 180 : 0,
-      duration: motion.timing.duration.state, ease: motion.timing.ease.standard }, "sidebar-icon");
-
     for (const link of nav.querySelectorAll("a")) {
       const label = link.querySelector(".nav-label");
       if (!label) continue;
@@ -41,8 +38,8 @@ export function initSidebar() {
   let collapsed = false;
   try { collapsed = localStorage.getItem(SIDEBAR_KEY) === "collapsed"; }
   catch (_) {}
-  applyState(collapsed, false);
-  if (desktop.addEventListener) desktop.addEventListener("change", () => applyState(collapsed, false));
+  applyState(collapsed, false, false);
+  if (desktop.addEventListener) desktop.addEventListener("change", () => applyState(collapsed, false, false));
   button.addEventListener("click", () => {
     collapsed = !collapsed;
     applyState(collapsed, true);
@@ -170,7 +167,7 @@ export function initDrawer() {
   if (xBtn) xBtn.addEventListener("click", closeDrawer);
   // Close on nav link click (mobile UX: kbgo куда нажал)
   nav.addEventListener("click", (e) => {
-    if (e.target.closest("a[data-route]")) {
+    if (e.target.closest("a[data-route]") && nav.classList.contains("menu-open")) {
       closeDrawer({ restoreFocus: false });
       requestAnimationFrame(focusPageHeading);
     }

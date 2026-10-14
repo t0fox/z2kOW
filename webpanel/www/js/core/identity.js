@@ -41,6 +41,7 @@ export function applyBranding(status) {
   const mask = document.getElementById("brand-mask-icon");
   if (!brand || !image || !wordmark || !logoSvg || !icon || !mask) return false;
 
+  document.documentElement.classList.add("brand-profile-ready");
   logoSvg.querySelectorAll("[data-brand-source]").forEach(source => source.setAttribute("href", logo));
   brand.classList.add("brand-composite");
   wordmark.textContent = name;
