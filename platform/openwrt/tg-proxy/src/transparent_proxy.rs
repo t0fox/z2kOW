@@ -58,8 +58,8 @@ async fn complete_unless_client_resets<F: Future>(
     }
 }
 
-struct DirectPayload<'a> {
-    initial: &'a [u8],
+struct DirectPayload {
+    initial: [u8; crate::crypto::HANDSHAKE_LEN],
     destination: SocketAddr,
     peer: SocketAddr,
     is_media: bool,
@@ -69,7 +69,7 @@ struct DirectPayload<'a> {
 
 async fn bridge_direct_payload(
     mut client: TcpStream,
-    payload: DirectPayload<'_>,
+    payload: DirectPayload,
     config: Arc<Config>,
     runtime: Arc<Runtime>,
 ) {
@@ -92,7 +92,7 @@ async fn bridge_direct_payload(
     };
     match result {
         Ok(mut remote) => {
-            if let Err(error) = remote.write_all(payload.initial).await {
+            if let Err(error) = remote.write_all(&payload.initial).await {
                 if let Some(attempt) = attempt {
                     attempt.finish("failed");
                 }
@@ -253,7 +253,7 @@ pub async fn handle_transparent_client_with_runtime(
             bridge_direct_payload(
                 stream,
                 DirectPayload {
-                    initial: &init,
+                    initial: init,
                     destination,
                     peer,
                     is_media: init_info.is_media,
@@ -299,7 +299,7 @@ pub async fn handle_transparent_client_with_runtime(
         bridge_direct_payload(
             stream,
             DirectPayload {
-                initial: &init,
+                initial: init,
                 destination,
                 peer,
                 is_media: effective_media_route(init_info.is_media, destination_route.media_only),
@@ -438,7 +438,7 @@ pub async fn handle_transparent_client_with_runtime(
 #[cfg(test)]
 mod tests {
     use super::{
-        bridge_direct_tcp, complete_unless_client_resets, effective_media_route,
+        DirectPayload, bridge_direct_payload, complete_unless_client_resets, effective_media_route,
         should_forward_unmapped_direct,
     };
     use crate::config::Config;
@@ -557,15 +557,18 @@ mod tests {
         let config = Arc::new(Config::try_from_cli_line("--tcp-fallback-timeout=1").unwrap());
         let runtime = Arc::new(Runtime::new(OutboundConnector::direct()));
         let init = [0x5a; 64];
-        let forward = tokio::spawn(bridge_direct_tcp(
+        let forward = tokio::spawn(bridge_direct_payload(
             proxy_side,
-            init,
-            destination,
-            peer,
-            true,
+            DirectPayload {
+                initial: init,
+                destination,
+                peer,
+                is_media: true,
+                transport: "прямой TCP",
+                telemetry: None,
+            },
             config,
             runtime,
-            None,
         ));
 
         client.write_all(b"data").await.unwrap();
