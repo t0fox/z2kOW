@@ -2,12 +2,6 @@
   "schema": 1,
   "skips": [
     {
-      "tag": "p-86.21",
-      "seq": 145,
-      "status": "not applicable",
-      "reason": "Выпуск не меняет runtime OpenWrt: новые upstream-спонсоры ewgen911 и cmfifty добавлены в отдельное раскрытие благодарностей, а манифест и cache-buster остаются под управлением доверенного релизного процесса z2kOW."
-    },
-    {
       "tag": "p-86.20",
       "seq": 144,
       "status": "not applicable",

@@ -40,6 +40,44 @@ def _version(tag: object, seq: object, label: str) -> tuple[str, int]:
     return tag, seq
 
 
+def _validated_skip_sequences(
+    skip_registry: dict[str, Any] | None,
+    history_tags: list[str],
+    latest_seq: int,
+) -> dict[str, int]:
+    if skip_registry is None:
+        return {}
+    schema = skip_registry.get("schema")
+    if (
+        set(skip_registry) != {"schema", "skips"}
+        or not isinstance(schema, int)
+        or isinstance(schema, bool)
+        or schema != 1
+    ):
+        raise ValueError("реестр пропусков upstream повреждён")
+    records = skip_registry.get("skips")
+    if not isinstance(records, list):
+        raise ValueError("реестр пропусков upstream повреждён")
+
+    known_tags = set(history_tags)
+    skipped: dict[str, int] = {}
+    seen_sequences: set[int] = set()
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {"tag", "seq", "status", "reason"}:
+            raise ValueError("запись реестра пропусков upstream повреждена")
+        tag, seq = _version(record.get("tag"), record.get("seq"), "upstream skip")
+        reason = record.get("reason")
+        if seq > latest_seq or tag not in known_tags:
+            raise ValueError("пропуск upstream не подтверждён историей текущего манифеста")
+        if record.get("status") != "not applicable" or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("пропуск upstream должен иметь статус not applicable и причину")
+        if tag in skipped or seq in seen_sequences:
+            raise ValueError("реестр пропусков upstream содержит повторный тег или seq")
+        skipped[tag] = seq
+        seen_sequences.add(seq)
+    return skipped
+
+
 def previous_payload_source_sha(manifest: dict[str, Any]) -> str:
     artifacts = manifest.get("artifacts")
     if "artifacts" in manifest:
@@ -134,6 +172,7 @@ def plan_publication(
     upstream: dict[str, Any],
     controlled: dict[str, Any],
     upstream_commit: str,
+    skip_registry: dict[str, Any] | None = None,
     existing_product_release: bool = False,
     existing_technical_release: bool = False,
 ) -> dict[str, Any]:
@@ -153,7 +192,12 @@ def plan_publication(
         raise ValueError("requested tag/seq do not match the live upstream current release")
 
     history = upstream.get("history")
-    if not isinstance(history, list) or not history or not isinstance(history[-1], dict) or history[-1].get("v") != upstream_tag:
+    if (
+        not isinstance(history, list)
+        or not history
+        or not all(isinstance(entry, dict) for entry in history)
+        or history[-1].get("v") != upstream_tag
+    ):
         raise ValueError("upstream release history must end at current tag")
     previous_sha = previous_payload_source_sha(controlled)
 
@@ -169,15 +213,31 @@ def plan_publication(
             raise ValueError("upstream current tag changed without a sequence advance")
         if upstream_tag == controlled_tag:
             raise ValueError("upstream tag did not change with the sequence advance")
-        history_tags = [
-            entry.get("v") for entry in history if isinstance(entry, dict)
-        ]
+        history_tags = [entry.get("v") for entry in history]
         if (
-            upstream_seq != controlled_seq + 1
+            not all(isinstance(tag, str) and tag for tag in history_tags)
             or len(history_tags) < 2
-            or history_tags[-2:] != [controlled_tag, upstream_tag]
+            or history_tags[-1] != upstream_tag
+            or history_tags.count(upstream_tag) != 1
+        ):
+            raise ValueError("upstream release history contains malformed or duplicate tags")
+        base_indexes = [index for index, tag in enumerate(history_tags) if tag == controlled_tag]
+        if len(base_indexes) != 1:
+            raise ValueError("upstream release history does not identify the current production version")
+        base_index = base_indexes[0]
+        release_history = history_tags[base_index:]
+        if (
+            len(release_history) - 1 != upstream_seq - controlled_seq
+            or len(release_history) != len(set(release_history))
+            or not all(PRODUCT_TAG_RE.fullmatch(tag) for tag in release_history)
         ):
             raise ValueError("нельзя пропускать промежуточные версии upstream")
+        skipped_sequences = _validated_skip_sequences(skip_registry, history_tags, upstream_seq)
+        for offset, intermediate_tag in enumerate(release_history[1:-1], start=1):
+            if skipped_sequences.get(intermediate_tag) != controlled_seq + offset:
+                raise ValueError(
+                    f"промежуточный выпуск upstream {intermediate_tag} должен быть отмечен not applicable"
+                )
         if existing_product_release:
             raise ValueError(f"Product Release {upstream_tag} already exists; refusing duplicate publication")
         if existing_technical_release:
@@ -437,6 +497,7 @@ def _plan_command(args: argparse.Namespace) -> None:
         upstream_commit=args.upstream_commit,
         existing_product_release=args.product_release_exists,
         existing_technical_release=args.technical_release_exists,
+        skip_registry=_read_json(args.skip_registry, "реестр пропусков upstream"),
     )
     _write_json(args.output, plan)
 
@@ -588,6 +649,11 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--upstream", required=True, type=Path)
     plan.add_argument("--controlled", required=True, type=Path)
     plan.add_argument("--upstream-commit", required=True)
+    plan.add_argument(
+        "--skip-registry",
+        type=Path,
+        default=Path(__file__).resolve().parents[2] / "docs/UPSTREAM-SKIPS.json",
+    )
     plan.add_argument("--product-release-exists", action="store_true")
     plan.add_argument("--technical-release-exists", action="store_true")
     plan.add_argument("--output", required=True, type=Path)

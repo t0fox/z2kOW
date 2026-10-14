@@ -166,15 +166,71 @@ class PublicationPolicyTests(unittest.TestCase):
                     upstream_commit="e" * 40,
                 )
 
-    def test_upstream_release_cannot_skip_intermediate_sequences(self) -> None:
+    def test_upstream_release_rejects_intermediate_version_without_not_applicable_record(self) -> None:
         skipped = upstream_manifest("r-86.7", 143)
         skipped["history"] = [
             {"v": "r-86.5", "desc": "База."},
             {"v": "r-86.6", "desc": "Пропускаемый upstream-выпуск."},
             {"v": "r-86.7", "desc": "Текущий upstream-выпуск."},
         ]
-        with self.assertRaisesRegex(ValueError, "нельзя пропускать промежуточные версии upstream"):
+        with self.assertRaisesRegex(ValueError, "должен быть отмечен not applicable"):
             self.plan("upstream-release", upstream=skipped)
+
+    def test_upstream_release_can_advance_past_documented_not_applicable_versions(self) -> None:
+        advanced = upstream_manifest("p-86.21", 145)
+        advanced["history"] = [
+            {"v": "p-86.18", "desc": "Текущая production-версия."},
+            {"v": "p-86.19", "desc": "Неприменимый выпуск."},
+            {"v": "p-86.20", "desc": "Неприменимый выпуск."},
+            {"v": "p-86.21", "desc": "Текущий upstream-выпуск."},
+        ]
+        controlled = controlled_manifest()
+        controlled["current"] = "p-86.18"
+        controlled["seq"] = 142
+        skips = {
+            "schema": 1,
+            "skips": [
+                {
+                    "tag": "p-86.19",
+                    "seq": 143,
+                    "status": "not applicable",
+                    "reason": "Изменения Entware не применяются к OpenWrt.",
+                },
+                {
+                    "tag": "p-86.20",
+                    "seq": 144,
+                    "status": "not applicable",
+                    "reason": "Изменения Entware не применяются к OpenWrt.",
+                },
+            ],
+        }
+
+        plan = self.plan(
+            "upstream-release", upstream=advanced, controlled=controlled, skip_registry=skips
+        )
+
+        self.assertEqual((plan["tag"], plan["seq"], plan["product_tag"]), ("p-86.21", 145, "p-86.21"))
+        self.assertEqual((plan["base_current"], plan["base_seq"]), ("p-86.18", 142))
+
+    def test_upstream_release_rejects_skip_with_wrong_sequence(self) -> None:
+        advanced = upstream_manifest("r-86.7", 143)
+        advanced["history"] = [
+            {"v": "r-86.5", "desc": "База."},
+            {"v": "r-86.6", "desc": "Неприменимый выпуск."},
+            {"v": "r-86.7", "desc": "Текущий upstream-выпуск."},
+        ]
+        skips = {
+            "schema": 1,
+            "skips": [{
+                "tag": "r-86.6",
+                "seq": 141,
+                "status": "not applicable",
+                "reason": "Функция относится только к Keenetic.",
+            }],
+        }
+
+        with self.assertRaisesRegex(ValueError, "должен быть отмечен not applicable"):
+            self.plan("upstream-release", upstream=advanced, skip_registry=skips)
 
     def test_manifest_state_accepts_only_the_candidate_baseline_or_already_published_payload(self) -> None:
         candidate = self.plan("hotfix")
