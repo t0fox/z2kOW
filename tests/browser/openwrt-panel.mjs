@@ -315,6 +315,7 @@ async function waitForRenderedRoute(page, route) {
     return document.body.getAttribute("data-page") === name
       && content.length > 0 && content !== "Загрузка…";
   }, route, { timeout: 2000 });
+  await page.locator("#app .page-title").waitFor({ state: "visible", timeout: 2000 });
   const content = (await page.locator("#app").innerText()).trim();
   assert.ok(content, route + " must render visible content");
   assert.notEqual(content, "Загрузка…", route + " must leave the initial loading state");
@@ -1939,10 +1940,10 @@ try {
         await runtimeTechnical.locator('summary').click();
       }
       const overviewText = await telegramCard.locator('.tg-summary-grid').innerText();
-      for (const label of ['Активные соединения', 'Первый ответ WSS', 'Память процесса', 'Карта DC']) {
+      for (const label of ['Активные соединения', 'Сессии с ответом WSS', 'Память процесса', 'Карта DC']) {
         assert.ok(overviewText.includes(label), `${appearance}/${width}: compact stats expose ${label}`);
       }
-      assert.ok(overviewText.includes('Не равен проверке resPQ'),
+      assert.ok(overviewText.includes('не подтверждает resPQ'),
         `${appearance}/${width}: traffic counters are distinct from a resPQ check`);
       assert.doesNotMatch(overviewText, /dc203:cf-proxy|http_503|generation/,
         `${appearance}/${width}: raw technical keys stay in the closed disclosure`);
