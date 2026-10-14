@@ -3229,34 +3229,43 @@ pre.log {
 .telegram-tunnel-card h3,
 .telegram-tunnel-card h4 { color: var(--ow-text-primary, var(--text)); }
 .telegram-tunnel-card > .desc { margin-bottom: 0; color: var(--ow-text-secondary, var(--text-muted)); line-height: 1.55; }
-.telegram-tunnel-card > .desc + .desc { margin-top: var(--space-8); }
 .telegram-tunnel-card > .btn-row { margin-top: var(--space-16); }
+.tg-live-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-8); margin-top: var(--space-16); }
+.tg-live-summary-item { display: grid; align-content: start; gap: var(--space-4); min-width: 0; padding: var(--space-12); border-radius: var(--ow-radius-control, 10px); background: var(--ow-surface-2, var(--bg-subtle)); }
+.tg-live-summary-item > span { color: var(--ow-text-secondary, var(--text-muted)); font-size: 12px; line-height: 1.4; }
+.tg-live-summary-item > strong { display: -webkit-box; min-height: 2.6em; overflow: hidden; color: var(--ow-text-primary, var(--text)); font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.tg-advanced-settings { margin-top: var(--space-16); border-top: 1px solid var(--ow-border-subtle, var(--border)); }
+.tg-advanced-settings > summary { min-height: 44px; padding: var(--space-12) 0; color: var(--ow-text-secondary, var(--text-muted)); cursor: pointer; }
+.tg-advanced-settings > summary:hover { color: var(--ow-text-primary, var(--text)); }
+.tg-advanced-body { display: grid; gap: var(--space-16); padding-top: var(--space-8); }
+.tg-advanced-body > #tg-status-note:empty { display: none; }
 .tg-openwrt-tools {
-  display: grid;
-  gap: var(--space-20);
   margin-top: var(--space-20);
-  padding-top: var(--space-16);
   border-top: 1px solid var(--ow-border-subtle, var(--border));
 }
-.tg-openwrt-tools > section { min-width: 0; margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; }
+.tg-openwrt-tools[hidden] { display: none; }
+.tg-openwrt-tools > summary { min-height: 44px; padding: var(--space-12) 0; color: var(--ow-text-secondary, var(--text-muted)); cursor: pointer; }
+.tg-openwrt-tools > summary:hover { color: var(--ow-text-primary, var(--text)); }
+.tg-openwrt-tools-body { display: grid; gap: var(--space-20); padding-top: var(--space-8); }
+.tg-openwrt-tools-body > section { min-width: 0; margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; }
 .tg-openwrt-tools h4 { margin: 0; font-size: 16px; }
 .tg-openwrt-tools .desc { color: var(--ow-text-secondary, var(--text-muted)); line-height: 1.55; }
 .tg-worker-form { display: flex; align-items: end; gap: var(--space-12); flex-wrap: wrap; margin-top: var(--space-16); }
 .tg-worker-form .field { flex: 1 1 260px; min-width: 0; margin: 0; }
 .telegram-tunnel-card .field-label { color: var(--ow-text-secondary, var(--text-muted)); }
-.tg-worker-list { list-style: none; padding: 0; margin: var(--space-12) 0 0; }
+.tg-worker-list { min-height: 4rem; max-height: 12rem; overflow-y: auto; list-style: none; padding: 0; margin: var(--space-12) 0 0; }
 .tg-worker-item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-12); padding: var(--space-12) 0; border-bottom: 1px solid var(--ow-border-subtle, var(--border)); }
 .tg-worker-details { display: grid; gap: var(--space-4); min-width: 0; overflow-wrap: anywhere; }
 .tg-worker-details strong { color: var(--ow-text-primary, var(--text)); font-weight: 600; }
 .tg-worker-health, .tg-worker-empty { color: var(--ow-text-secondary, var(--text-muted)); font-size: 13px; line-height: 1.5; }
 .tg-worker-remove { flex: 0 0 auto; }
 .tg-diagnostics .btn-row { gap: var(--space-8); margin-top: var(--space-16); }
-#tg-check-results { min-width: 0; margin-top: var(--space-16); }
-#tg-runtime-status { margin: var(--space-8) 0 0; color: var(--ow-text-secondary, var(--text-muted)); line-height: 1.5; }
+#tg-check-results { height: 15rem; min-width: 0; margin-top: var(--space-16); overflow-y: auto; overscroll-behavior: contain; }
+#tg-runtime-status { display: -webkit-box; min-height: 3em; max-height: 3em; margin: var(--space-8) 0 0; overflow: hidden; color: var(--ow-text-secondary, var(--text-muted)); line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .tg-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-8); margin-top: var(--space-12); }
 .tg-summary-item { display: grid; align-content: start; gap: var(--space-4); min-width: 0; padding: var(--space-12); border-radius: var(--ow-radius-control, 10px); background: var(--ow-surface-2, var(--bg-subtle)); }
 .tg-summary-label, .tg-summary-note { color: var(--ow-text-secondary, var(--text-muted)); font-size: 12px; line-height: 1.45; }
-.tg-summary-value { color: var(--ow-text-primary, var(--text)); font-size: 16px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tg-summary-value { display: -webkit-box; min-height: 2.6em; overflow: hidden; color: var(--ow-text-primary, var(--text)); font-size: 16px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .tg-summary-note { font-size: 11px; }
 .tg-technical { margin-top: var(--space-12); border-top: 1px solid var(--ow-border-subtle, var(--border)); }
 .tg-technical > summary, .tg-dc-row > summary { min-height: 40px; padding: var(--space-8) 0; color: var(--ow-text-secondary, var(--text-muted)); cursor: pointer; }
@@ -3575,62 +3584,52 @@ input[type="checkbox"] { accent-color: var(--accent); }
   .wl-search input, .wl-editor textarea { font-size: 16px; }
 }
 
-/* Схема Telegram использует палитру Lolzteam из активной темы панели. */
-.tg-route-scheme {
-  --tg-route-line: var(--ow-border-subtle, var(--border));
-  --tg-route-live: var(--ow-success, var(--good));
-  --tg-route-search: var(--ow-warning, var(--warn));
-  --tg-route-fail: var(--ow-danger, var(--bad));
-  margin: 16px 0 18px;
-  padding: 14px;
+/* Поток Telegram использует цветовые переменные активной темы панели. */
+.tg-flow {
+  --tg-flow-background: var(--bg-card);
+  --tg-flow-line: var(--border);
+  --tg-flow-text: var(--text);
+  --tg-flow-muted: var(--text-muted);
+  --tg-flow-accent: var(--accent);
+  --tg-flow-direct: var(--good);
+  --tg-flow-cloudflare: var(--warn);
+  --tg-flow-tcp: color-mix(in srgb, var(--warn) 72%, var(--bad));
+  --tg-flow-failure: var(--bad);
+  display: block;
+  min-width: 0;
+  margin: 14px 0 16px;
   overflow: hidden;
-  border: 1px solid var(--ow-border-subtle, var(--border));
-  border-radius: var(--ow-radius-card, 12px);
-  background: var(--ow-surface-1, var(--bg-card));
-  color: var(--ow-text-primary, var(--text));
+  color: var(--text);
 }
-.tg-route-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 2px 8px; }
-.tg-route-heading h4 { margin: 0; color: var(--ow-text-primary, var(--text)); font-size: 14px; font-weight: 650; }
-.tg-route-process { display: block; margin-top: 3px; color: var(--ow-text-tertiary, var(--text-muted)); font-size: 11px; }
-.tg-route-live-label { display: inline-flex; align-items: center; gap: 7px; color: var(--ow-text-secondary, var(--text-muted)); font-size: 10px; white-space: nowrap; }
-.tg-route-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tg-route-line); }
-.tg-route-scheme[data-state="active"] .tg-route-live-dot { background: var(--tg-route-live); }
-.tg-route-scheme[data-state="unavailable"] .tg-route-live-dot { background: var(--tg-route-search); }
-.tg-route-svg { display: block; width: 100%; height: auto; overflow: visible; }
-.tg-route-svg--mobile { display: none; }
-.tg-route-trunk, .tg-route-path { fill: none; stroke: var(--tg-route-line); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.tg-route-path { opacity: .72; transition: stroke var(--ow-motion-state, 150ms) ease, opacity var(--ow-motion-shell, 300ms) cubic-bezier(.2,.8,.2,1); }
-.tg-route-branch-node, .tg-route-node rect { fill: var(--ow-surface-2, var(--bg-card-hover)); stroke: var(--tg-route-line); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
-.tg-route-node--engine rect { fill: var(--ow-surface-selected, var(--bg-card-hover)); stroke: var(--ow-accent, var(--accent)); }
-.tg-route-svg text { fill: var(--ow-text-primary, var(--text)); font-family: inherit; font-size: 14px; font-weight: 600; }
-.tg-route-svg .tg-route-node-sub { fill: var(--ow-text-tertiary, var(--text-muted)); font-size: 9px; font-weight: 400; }
-.tg-route-svg .tg-route-branch-title { font-size: 11px; font-weight: 650; }
-.tg-route-svg .tg-route-branch-detail { fill: var(--ow-text-secondary, var(--text-muted)); font-size: 9px; font-weight: 500; }
-.tg-route-svg .tg-route-branch-state { fill: var(--ow-text-tertiary, var(--text-muted)); font-size: 8px; font-weight: 500; }
-.tg-route-live-ring { fill: none; stroke: var(--tg-route-live); stroke-width: 2; opacity: 0; vector-effect: non-scaling-stroke; }
-.tg-route-scheme [data-route-branch][data-active="true"] .tg-route-path { stroke: var(--tg-route-live); opacity: .98; }
-.tg-route-scheme [data-route-branch][data-status="connecting"] .tg-route-path { stroke: var(--tg-route-search); opacity: .92; }
-.tg-route-scheme [data-route-branch][data-status="failed"] .tg-route-path { stroke: var(--tg-route-fail); opacity: .72; }
-.tg-route-scheme [data-route-branch][data-status="cancelled"] .tg-route-path { stroke: var(--ow-text-tertiary, var(--text-muted)); opacity: .42; }
-.tg-route-scheme [data-route-branch][data-active="true"] .tg-route-live-ring { stroke: var(--tg-route-live); opacity: .16; }
-.tg-route-caption { min-height: 18px; margin: 8px 2px 0; color: var(--ow-text-secondary, var(--text-muted)); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
-.tg-route-scheme[data-state="unavailable"] .tg-route-caption { color: var(--ow-warning, var(--warn)); }
-@media (max-width: 900px) {
-  .tg-route-svg--desktop { display: none; }
-  .tg-route-svg--mobile { display: block; max-height: 580px; }
+.tg-flow-canvas { display: block; width: 100%; height: auto; aspect-ratio: 760 / 340; }
+.tg-flow-caption {
+  display: -webkit-box;
+  min-height: 2.7em;
+  max-height: 2.7em;
+  margin: 8px 2px 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
+.tg-flow[data-state="unavailable"] .tg-flow-caption { color: var(--warn); }
 @media (max-width: 600px) {
-  .tg-route-scheme { margin: 12px 0 16px; padding: 11px 8px; }
-  .tg-route-heading { margin-inline: 3px; }
-  .tg-route-svg--mobile { max-height: none; }
-  .tg-route-svg .tg-route-branch-title { font-size: 10px; }
-  .tg-route-svg .tg-route-branch-detail { font-size: 8px; }
-  .tg-route-svg .tg-route-branch-state { font-size: 7px; }
-  .tg-route-caption { font-size: 10px; }
+  .tg-flow { margin: 12px 0 16px; }
+  .tg-flow-canvas { height: 250px; aspect-ratio: auto; }
+  .tg-flow-caption {
+    display: block;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .tg-live-summary { grid-template-columns: minmax(0, 1fr); }
 }
-@media (prefers-reduced-motion: reduce) {
-  .tg-route-path { transition-duration: .01ms; }
-}
+.tg-diagnostic-details > summary { cursor: pointer; }
 /* Rotator «Стратегия» select: same width on every row regardless of value. */
 .state-strat-sel { min-width: 58px; }
 
@@ -3680,8 +3679,8 @@ html:not(.motion-ready) .btn-icon:active {
 html:not(.motion-ready) .brand:active { transform: translateY(-1px) scale(0.96); }
 html:not(.motion-ready) .job-badge:active { transform: translateY(-2px) scale(0.96); }
 
-/* Когда локальный GSAP доступен, анимацией управляет он. Правила в style.css
-   и необязательном профиле Lolz остаются резервом для режима без JavaScript. */
+/* GSAP отвечает за локальные эффекты. Геометрией оболочки управляет CSS,
+   чтобы меню и контент всегда двигались к одному актуальному состоянию. */
 html.motion-ready,
 html.motion-ready *,
 html.motion-ready *::before,
@@ -3693,19 +3692,55 @@ html.motion-ready *::after {
   transition-duration: 0s !important;
   transition-delay: 0s !important;
 }
+@media (min-width: 768px) {
+  html.motion-ready #nav {
+    transition-property: left, width !important;
+    transition-duration: var(--ow-motion-shell, 300ms) !important;
+    transition-timing-function: cubic-bezier(.2, .8, .2, 1) !important;
+  }
+  html.motion-ready #app {
+    transition-property: margin-left, width !important;
+    transition-duration: var(--ow-motion-shell, 300ms) !important;
+    transition-timing-function: cubic-bezier(.2, .8, .2, 1) !important;
+  }
+  html.motion-ready #panel-brand {
+    transition-property: left !important;
+    transition-duration: var(--ow-motion-shell, 300ms) !important;
+    transition-timing-function: cubic-bezier(.2, .8, .2, 1) !important;
+  }
+  html.motion-ready .topbar > .theme-toggle {
+    transition-property: right !important;
+    transition-duration: var(--ow-motion-shell, 300ms) !important;
+    transition-timing-function: cubic-bezier(.2, .8, .2, 1) !important;
+  }
+}
 html.motion-ready .nav-active-indicator {
   position: absolute;
   top: 0;
   left: 0;
+  right: 0;
+  width: auto;
+  height: 0;
   z-index: 0;
   border-radius: 6px;
   background: var(--bg-card-hover);
   pointer-events: none;
-  will-change: transform, width, height;
+  transition-property: top, height, left, right !important;
+  transition-duration: var(--ow-motion-shell, 300ms) !important;
+  transition-timing-function: cubic-bezier(.2, .8, .2, 1) !important;
+  will-change: top, height;
 }
 html.motion-ready #nav > a { position: relative; z-index: 1; }
 html.motion-ready #nav a.active { background: transparent; }
 html:not(.motion-ready) .sg-closed .sg-toggle .icon { transform: rotate(-90deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  html.motion-ready #nav,
+  html.motion-ready #app,
+  html.motion-ready #panel-brand,
+  html.motion-ready .topbar > .theme-toggle,
+  html.motion-ready .nav-active-indicator { transition-duration: 0.001ms !important; }
+}
 
 /* Honor user preference for reduced motion. We don't fully disable visual
    feedback — just shorten transitions to near-zero and stop infinite

@@ -624,6 +624,7 @@ pub(crate) async fn select_upstream(route: &Route<'_>, target_ip: &str) -> Optio
     let ip_cooling = IP_FAIL.active(&route_key);
 
     if ip_cooling {
+        route.mark_cooldown("direct", "direct_wss");
         info!(
             "[{}] DC{}{}: прямой WSS для {} на паузе; пробую CF-маршрут",
             route.label, route.dc, route.media, target_ip
@@ -659,6 +660,7 @@ pub(crate) async fn select_upstream(route: &Route<'_>, target_ip: &str) -> Optio
 
     let direct_cooling = WS_FAIL.active(&route_key);
     if direct_cooling {
+        route.mark_cooldown("direct", "direct_wss");
         info!(
             "[{}] DC{}{}: прямой WSS для {} на паузе; пропускаю его до следующей проверки",
             route.label, route.dc, route.media, target_ip
@@ -750,6 +752,12 @@ impl Route<'_> {
             .map(|telemetry| telemetry.begin_attempt(branch, transport))
     }
 
+    fn mark_cooldown(&self, branch: &'static str, transport: &'static str) {
+        if let Some(telemetry) = &self.telemetry {
+            telemetry.mark_cooldown(branch, transport);
+        }
+    }
+
     /// Открыть direct WSS к проверенному IP назначения.
     async fn direct_ws_tier(&self, target_ip: &str) -> Option<Upstream> {
         let attempt = self.attempt("direct", "direct_wss");
@@ -774,6 +782,7 @@ impl Route<'_> {
                 if let Some(attempt) = attempt {
                     attempt.finish("failed");
                 }
+                self.mark_cooldown("direct", "direct_wss");
                 None
             }
         }
@@ -851,6 +860,7 @@ impl Route<'_> {
                 worker_domain.to_string(),
             );
             if CF_WORKER_FAIL.active(&route_key) {
+                self.mark_cooldown("fallback", "cloudflare_worker");
                 debug!(
                     "[{}] DC{}{}: Cloudflare Worker {} на паузе, пропуск",
                     self.label, self.dc, self.media, worker_domain
@@ -903,6 +913,7 @@ impl Route<'_> {
                         attempt.finish("failed");
                     }
                     CF_WORKER_FAIL.set(route_key, self.timeouts.cf_fail_cooldown);
+                    self.mark_cooldown("fallback", "cloudflare_worker");
                     self.runtime.stats().record_worker_failure(
                         worker_domain,
                         "не установлено WSS-соединение до DC",
@@ -927,6 +938,7 @@ impl Route<'_> {
     async fn cf_proxy(&self, dst: &str, reason: &str) -> Option<(TgWsStream, String)> {
         let route_key = direct_route_key(self.dc, self.is_media, dst);
         if CF_PROXY_ROUTE_FAIL.active(&route_key) {
+            self.mark_cooldown("fallback", "cloudflare_proxy");
             debug!(
                 "[{}] DC{}{}: CF proxy для {} на паузе после сетевых отказов",
                 self.label, self.dc, self.media, dst
@@ -978,6 +990,7 @@ impl Route<'_> {
             if _route_probe.is_some() {
                 CF_PROXY_ROUTE_FAIL.set(route_key, self.timeouts.cf_fail_cooldown);
             }
+            self.mark_cooldown("fallback", "cloudflare_proxy");
             return None;
         }
 
@@ -1095,6 +1108,7 @@ impl Route<'_> {
 
         if route_unavailable {
             CF_PROXY_ROUTE_FAIL.set(route_key, self.timeouts.cf_fail_cooldown);
+            self.mark_cooldown("fallback", "cloudflare_proxy");
             warn!(
                 "[{}] DC{}{}: CF proxy для {} получил два сетевых отказа; повторная проверка через {} с",
                 self.label,
@@ -1239,6 +1253,7 @@ impl Route<'_> {
             return None;
         }
         if IP_FAIL.active(&route_key) {
+            self.mark_cooldown("fallback", "tcp_fallback");
             info!(
                 "[{}] DC{}{}: прямой TCP к {} пропущен до истечения cooldown",
                 self.label, self.dc, self.media, target_ip

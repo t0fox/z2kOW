@@ -239,6 +239,7 @@ function interactiveTarget(target) {
   if (!(target instanceof Element)) return null;
   const control = target.closest(".switch") || target.closest("a[href],button,input:not([type=hidden]),textarea,select,summary,[role=option],.seg-btn,.chosen-single,.sort-trigger,.sheet-option,.card.is-interactive");
   if (!control || control.matches(":disabled,[aria-disabled='true']")) return null;
+  if (control.matches("#nav a")) return null;
   if (control.matches(".switch") && control.querySelector("input:disabled")) return null;
   return control;
 }
@@ -473,14 +474,12 @@ function moveNavIndicator(nav, active) {
   const indicator = ensureNavIndicator(nav);
   const navRect = nav.getBoundingClientRect();
   const activeRect = active.getBoundingClientRect();
-  const target = { x: activeRect.left - navRect.left, y: activeRect.top - navRect.top + nav.scrollTop,
-    width: activeRect.width, height: activeRect.height };
-  if (!indicator.dataset.ready || reduced) {
-    gsap.set(indicator, target);
-    indicator.dataset.ready = "true";
-  } else {
-    to(indicator, { ...target, duration: duration.base, ease: ease.standard }, "position");
-  }
+  const style = getComputedStyle(nav);
+  indicator.style.left = `${activeRect.left - navRect.left - parseFloat(style.borderLeftWidth || 0)}px`;
+  indicator.style.right = `${navRect.right - activeRect.right - parseFloat(style.borderRightWidth || 0)}px`;
+  indicator.style.top = `${activeRect.top - navRect.top - parseFloat(style.borderTopWidth || 0) + nav.scrollTop}px`;
+  indicator.style.height = `${activeRect.height}px`;
+  indicator.dataset.ready = "true";
 }
 
 function moveTabIndicator(tabs, position, first = false, previous = null) {
@@ -605,31 +604,6 @@ function drawer(nav, theme, backdrop, open, onComplete) {
   return null;
 }
 
-function sidebar(nav, body, before) {
-  if (!hasGsap || reduced || !before) return;
-  const navWidth = getComputedStyle(nav).width;
-  const bodyPadding = getComputedStyle(body).paddingLeft;
-  const brand = document.getElementById("panel-brand");
-  const theme = document.querySelector(".topbar > .theme-toggle");
-  const navBefore = before.navWidth;
-  const bodyBefore = before.bodyPadding;
-  if (navBefore !== navWidth) fromTo(nav, { width: navBefore }, { width: navWidth, duration: duration.shell,
-    ease: ease.standard, clearProps: "width", onComplete: () => {
-      const active = nav.querySelector("a.active");
-      if (active) moveNavIndicator(nav, active);
-    } }, "sidebar-width");
-  if (bodyBefore !== bodyPadding) fromTo(body, { paddingLeft: bodyBefore }, { paddingLeft: bodyPadding,
-    duration: duration.shell, ease: ease.standard, clearProps: "paddingLeft" }, "sidebar-body");
-  if (brand && before.brandLeft != null && before.brandLeft !== getComputedStyle(brand).left) {
-    fromTo(brand, { left: before.brandLeft }, { left: getComputedStyle(brand).left,
-      duration: duration.shell, ease: ease.standard, clearProps: "left" }, "sidebar-brand");
-  }
-  if (theme && before.themeRight != null && before.themeRight !== getComputedStyle(theme).right) {
-    fromTo(theme, { right: before.themeRight }, { right: getComputedStyle(theme).right,
-      duration: duration.shell, ease: ease.standard, clearProps: "right" }, "sidebar-theme");
-  }
-}
-
 function flip(container, mutate, maxItems = 24) {
   if (typeof mutate !== "function") return null;
   const items = container && container.querySelectorAll ? Array.from(container.querySelectorAll("[data-flip-id]")) : [];
@@ -693,7 +667,6 @@ export const motion = Object.freeze({
   disclosure,
   overlay,
   drawer,
-  sidebar,
   moveNavIndicator,
   moveTabIndicator,
   flip,

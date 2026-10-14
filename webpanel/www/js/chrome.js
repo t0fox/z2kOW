@@ -13,16 +13,9 @@ export function initSidebar() {
   if (!button || !nav) return;
   const desktop = window.matchMedia("(min-width: 768px)");
 
-  function applyState(collapsed, persist, animate = false) {
-    const brand = document.getElementById("panel-brand");
-    const themeToggle = document.querySelector(".topbar > .theme-toggle");
-    const before = animate ? { navWidth: getComputedStyle(nav).width,
-      bodyPadding: getComputedStyle(document.body).paddingLeft,
-      brandLeft: brand ? getComputedStyle(brand).left : null,
-      themeRight: themeToggle ? getComputedStyle(themeToggle).right : null } : null;
+  function applyState(collapsed, persist) {
     if (desktop.matches && collapsed) document.body.setAttribute("data-sidebar", "collapsed");
     else document.body.removeAttribute("data-sidebar");
-    if (before) motion.sidebar(nav, document.body, before);
 
     const label = collapsed ? "Развернуть боковую панель" : "Свернуть боковую панель";
     button.setAttribute("aria-expanded", String(!collapsed));
@@ -52,7 +45,7 @@ export function initSidebar() {
   if (desktop.addEventListener) desktop.addEventListener("change", () => applyState(collapsed, false));
   button.addEventListener("click", () => {
     collapsed = !collapsed;
-    applyState(collapsed, true, true);
+    applyState(collapsed, true);
   });
 }
 

@@ -481,6 +481,10 @@ impl ConnectionTelemetry {
         }
     }
 
+    pub fn mark_cooldown(&self, branch: &'static str, transport: &'static str) {
+        self.set_attempt_state(branch, transport, "cooldown");
+    }
+
     pub fn select_transport(&self, branch: &'static str, transport: &'static str) {
         if !self.tracked {
             return;
@@ -857,6 +861,25 @@ mod tests {
                 .iter()
                 .any(|event| { event.branch == "fallback" && event.state == "cancelled" })
         );
+    }
+
+    #[test]
+    fn cooldown_добавляется_в_ограниченную_телеметрию_маршрута() {
+        let stats = Arc::new(RuntimeStats::new());
+        let guard = stats.connection_started();
+        let telemetry = guard.telemetry();
+        telemetry.set_dc(2, false);
+        telemetry
+            .begin_attempt("direct", "direct_wss")
+            .finish("failed");
+
+        telemetry.mark_cooldown("direct", "direct_wss");
+
+        let session = &stats.snapshot().active_sessions[0];
+        assert_eq!(session.direct_state, "cooldown");
+        assert_eq!(session.events.back().unwrap().state, "cooldown");
+        assert_eq!(session.events.back().unwrap().transport, "direct_wss");
+        drop(guard);
     }
 
     #[test]

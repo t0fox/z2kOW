@@ -2,9 +2,9 @@ import { apiGet, apiPost, errHtml, errMsg, toastErr } from "../core/api.js";
 import { $app, escapeHtml } from "../core/dom.js";
 import { _newLoad, _stale, applyCapabilities, refreshStatus } from "../core/loadorder.js";
 import { toast } from "../core/toast.js";
-import { motion } from "../motion.js";
 import { JOB_FAIL, _updateGlobalUILock, confirmModal, jobOutcome, jobUnresolved, openJobModal, setLockAware, unresolvedMsg } from "../job.js";
 import { AUTOHOSTLIST_WARNING, TOGGLES_RESTART_SERVICE, resyncToggle } from "./policy.js";
+import { mountTelegramFlow } from "../tg-flow.js";
 
 const flowBenchmarkRuntime = {
   pollTimer: 0,
@@ -16,328 +16,57 @@ const flowBenchmarkRuntime = {
 
 let tgRuntimeSnapshot = null;
 let tgConfiguredWorkers = [];
-const tgMotionValues = new Map();
 let tgRouteViewSequence = 0;
 const TG_DIAGNOSTICS_FRESH_SECONDS = 5 * 60;
 const TG_WORKER_FRESH_SECONDS = 15 * 60;
 const tgRouteRuntime = {
   pollTimer: 0,
-  eventCursors: new Map(),
-  processStartedAt: 0,
-  motionTimeline: null,
-  ambientTimeline: null,
+  flow: null,
   observer: null,
   visibilityHandler: null,
-  motionPreference: null,
-  motionPreferenceHandler: null,
   schedulePoll: null,
-  acceptedConnections: null,
-  skipNextEvents: false,
-  ambientKey: "",
-};
-
-const TG_ROUTE_TRANSPORTS = {
-  direct_wss: "Прямой WSS",
-  cloudflare_worker: "Cloudflare Worker",
-  cloudflare_proxy: "Cloudflare Proxy",
-  tcp_fallback: "TCP fallback",
-  tcp_passthrough: "Прямой TCP passthrough",
-  unknown_wss: "WSS-транспорт не определён",
 };
 
 function destroyTgRouteVisualization() {
   if (tgRouteRuntime.pollTimer) clearTimeout(tgRouteRuntime.pollTimer);
   tgRouteRuntime.pollTimer = 0;
-  tgRouteRuntime.motionTimeline?.kill();
-  tgRouteRuntime.ambientTimeline?.kill();
-  tgRouteRuntime.motionTimeline = null;
-  tgRouteRuntime.ambientTimeline = null;
-  if (tgRouteRuntime.visibilityHandler) {
-    document.removeEventListener("visibilitychange", tgRouteRuntime.visibilityHandler);
-  }
+  tgRouteRuntime.flow?.destroy();
+  tgRouteRuntime.flow = null;
+  tgRouteRuntime.visibilityHandler && document.removeEventListener("visibilitychange", tgRouteRuntime.visibilityHandler);
   tgRouteRuntime.visibilityHandler = null;
-  if (tgRouteRuntime.motionPreference && tgRouteRuntime.motionPreferenceHandler) {
-    tgRouteRuntime.motionPreference.removeEventListener("change", tgRouteRuntime.motionPreferenceHandler);
-  }
-  tgRouteRuntime.motionPreference = null;
-  tgRouteRuntime.motionPreferenceHandler = null;
   tgRouteRuntime.schedulePoll = null;
   tgRouteRuntime.observer?.disconnect();
   tgRouteRuntime.observer = null;
-  tgRouteRuntime.eventCursors.clear();
-  tgRouteRuntime.processStartedAt = 0;
-  tgRouteRuntime.acceptedConnections = null;
-  tgRouteRuntime.ambientKey = "";
-  tgRouteRuntime.skipNextEvents = false;
-}
-
-function tgRouteBranchLabel(state) {
-  if (state === "connecting") return "соединение устанавливается";
-  if (state === "connected") return "upstream установлен";
-  if (state === "selected") return "маршрут выбран";
-  if (state === "failed") return "попытка не удалась";
-  if (state === "cancelled") return "попытка отменена";
-  if (state === "skipped") return "пропущен по состоянию маршрута";
-  return "ожидание";
-}
-
-function tgRouteBranch(session, branch) {
-  const isDirect = branch === "direct";
-  const state = isDirect ? session.direct_state : session.fallback_state;
-  const transport = isDirect ? session.direct_transport : session.fallback_transport;
-  return { state: state || "idle", transport: transport || "" };
-}
-
-function tgRouteBranchState(sessions, branch) {
-  const states = sessions.map(session => tgRouteBranch(session, branch).state);
-  return ["selected", "connecting", "connected", "failed", "cancelled", "skipped"]
-    .find(state => states.includes(state)) || "idle";
-}
-
-function tgRouteBranchTransports(sessions, branch) {
-  return [...new Set(sessions.map(session => {
-    const route = tgRouteBranch(session, branch);
-    return route.state !== "idle" && route.transport ? TG_ROUTE_TRANSPORTS[route.transport] || "Неизвестный транспорт" : "";
-  }).filter(Boolean))];
-}
-
-function tgRouteText(snapshot, error) {
-  if (error) return { state: "unavailable", caption: "Данные маршрута временно недоступны." };
-  if (!snapshot || Number(snapshot.active_connections || 0) === 0) {
-    return { state: "idle", caption: "Нет активных соединений · схема без подсветки." };
-  }
-  if (!Array.isArray(snapshot.active_sessions)) {
-    return { state: "unavailable", caption: "Активные соединения есть; подробности маршрута недоступны." };
-  }
-  if (!snapshot.active_sessions.length) {
-    const note = snapshot.route_sessions_truncated
-      ? "Часть активных соединений не вошла в ограниченный снимок."
-      : "Прокси сообщил активные соединения, но не вернул их маршрут.";
-    return { state: "unavailable", caption: note };
-  }
-
-  const sessions = snapshot.active_sessions;
-  const activeConnections = Number(snapshot.active_connections || 0);
-  const directSelected = sessions.filter(session => session.direct_state === "selected").length;
-  const fallbackSelected = sessions.filter(session => session.fallback_state === "selected").length;
-  const directState = tgRouteBranchState(sessions, "direct");
-  const fallbackState = tgRouteBranchState(sessions, "fallback");
-  const directBusy = ["connecting", "connected"].includes(directState);
-  const fallbackBusy = ["connecting", "connected"].includes(fallbackState);
-  const selectedTransports = new Map();
-  sessions.forEach(session => {
-    const transport = session.selected_transport;
-    if (transport) selectedTransports.set(transport, (selectedTransports.get(transport) || 0) + 1);
-  });
-  const transportLabels = [...selectedTransports].map(([transport, count]) =>
-    `${TG_ROUTE_TRANSPORTS[transport] || "Неизвестный транспорт"}${count > 1 ? ` · ${count}` : ""}`);
-  const selectedCount = directSelected + fallbackSelected;
-  const dcValues = new Set(sessions.map(session => session.dc).filter(Number.isInteger));
-  const dcText = dcValues.size === 1 ? `DC${[...dcValues][0]}` : dcValues.size > 1 ? "несколько DC" : "DC неизвестен";
-  const mediaText = sessions.some(session => session.is_media === true) ? " · media" : "";
-  const responseSeen = sessions.some(session => session.telegram_response_seen === true);
-  const parallelCheck = sessions.some(session =>
-    ["connecting", "connected"].includes(session.direct_state)
-      && ["connecting", "connected"].includes(session.fallback_state));
-  const shownConnections = snapshot.route_sessions_truncated
-    ? `${sessions.length} из ${activeConnections} активных соединений в снимке`
-    : `${activeConnections} активных соединений`;
-  const caption = selectedCount
-    ? `${transportLabels.join(" / ")} · ${selectedCount} из ${sessions.length} маршрутизированных · ${shownConnections} · ${dcText}${mediaText}`
-    : `Выбор маршрута · ${shownConnections} · ${dcText}${mediaText}`;
-  const confirmation = responseSeen
-    ? " Первый непустой WSS Binary кадр получен; это не подтверждение resPQ."
-    : " Открытый upstream не подтверждает ответ Telegram или resPQ.";
-  const parallelNote = parallelCheck
-    ? " Параллельные upstream-попытки выполняются одновременно."
-    : "";
-
-  return {
-    state: "active",
-    caption: `${caption}.${parallelNote}${confirmation}`,
-    directSelected: directSelected > 0,
-    fallbackSelected: fallbackSelected > 0,
-    directState,
-    fallbackState,
-    directBusy,
-    fallbackBusy,
-    directTransports: tgRouteBranchTransports(sessions, "direct"),
-    fallbackTransports: tgRouteBranchTransports(sessions, "fallback"),
-    transports: transportLabels,
-    sessions,
-  };
-}
-
-function tgRouteSetSvgState(root, branch, status) {
-  root?.querySelectorAll(`[data-route-branch="${branch}"]`).forEach(group => {
-    group.dataset.status = status;
-    group.dataset.active = String(["connecting", "connected", "selected"].includes(status));
-  });
-}
-
-function tgRouteAnimateEvents(root, sessions) {
-  const gsap = window.gsap;
-  if (!gsap || matchMedia("(prefers-reduced-motion: reduce)").matches || document.hidden) return;
-  const events = [];
-  sessions.forEach(session => {
-    const previous = tgRouteRuntime.eventCursors.get(session.id);
-    const sessionEvents = session.events || [];
-    const newest = sessionEvents.length ? sessionEvents[sessionEvents.length - 1].sequence : 0;
-    if (previous == null || tgRouteRuntime.skipNextEvents) {
-      tgRouteRuntime.eventCursors.set(session.id, newest);
-      return;
-    }
-    const oldest = sessionEvents.length ? sessionEvents[0].sequence : newest;
-    if (previous < oldest - 1) {
-      // Часть журнала уже вытеснена; показываем только актуальный снимок.
-      tgRouteRuntime.eventCursors.set(session.id, newest);
-      return;
-    }
-    (session.events || []).filter(event => event.sequence > previous)
-      .forEach(event => events.push(event));
-    tgRouteRuntime.eventCursors.set(session.id, newest);
-  });
-  for (const id of tgRouteRuntime.eventCursors.keys()) {
-    if (!sessions.some(session => session.id === id)) tgRouteRuntime.eventCursors.delete(id);
-  }
-  tgRouteRuntime.skipNextEvents = false;
-  if (!events.length) return;
-  // Снимки нескольких сессий не содержат общего времени событий. Их порядок
-  // нельзя выдавать за единую последовательность, поэтому показываем итог
-  // без проигрывания несвязанных переходов подряд.
-  if (sessions.length > 1) return;
-
-  tgRouteRuntime.motionTimeline?.kill();
-  const timeline = gsap.timeline({ defaults: { ease: "power2.inOut", overwrite: "auto" } });
-  events.sort((left, right) => left.sequence - right.sequence).forEach(event => {
-    if (!["direct", "fallback"].includes(event.branch)) return;
-    const groups = [...root.querySelectorAll(`[data-route-branch="${event.branch}"]`)];
-    const paths = groups.flatMap(group => [...group.querySelectorAll(".tg-route-path")]);
-    if (!paths.length) return;
-    if (event.state === "failed" || event.state === "cancelled") {
-      timeline.to(paths, { opacity: 0.28, duration: 0.28, ease: "power2.out" });
-    } else if (event.state === "connecting") {
-      timeline.to(paths, { opacity: 0.76, duration: 0.24, ease: "power2.inOut" });
-    } else if (event.state === "selected") {
-      paths.forEach(path => {
-        const length = Math.max(1, path.getTotalLength());
-        gsap.set(path, { strokeDasharray: length, strokeDashoffset: length });
-      });
-      timeline.to(paths, { strokeDashoffset: 0, opacity: 1, duration: 0.72, ease: "power2.inOut" });
-    } else if (event.state === "first_binary_response") {
-      timeline.fromTo(groups, { scale: 0.992 }, { scale: 1, duration: 0.34, ease: "power2.out" });
-    }
-  });
-  tgRouteRuntime.motionTimeline = timeline;
-}
-
-function tgRouteStartAmbient(root) {
-  const gsap = window.gsap;
-  const groups = [...root.querySelectorAll('[data-route-branch][data-active="true"]')];
-  const key = groups.map(group => group.dataset.routeBranch).sort().join(",");
-  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches || false;
-  if (!key || !gsap || reducedMotion || document.hidden) {
-    tgRouteRuntime.ambientTimeline?.kill();
-    tgRouteRuntime.ambientTimeline = null;
-    tgRouteRuntime.ambientKey = key;
-    return;
-  }
-  if (key === tgRouteRuntime.ambientKey && tgRouteRuntime.ambientTimeline) return;
-  tgRouteRuntime.ambientTimeline?.kill();
-  tgRouteRuntime.ambientTimeline = null;
-  tgRouteRuntime.ambientKey = key;
-  const rings = groups.flatMap(group => [...group.querySelectorAll(".tg-route-live-ring")]);
-  if (!rings.length) return;
-  tgRouteRuntime.ambientTimeline = gsap.fromTo(
-    rings,
-    { opacity: 0.18, scale: 0.88, transformOrigin: "center center" },
-    {
-      opacity: 0.74,
-      scale: 1.75,
-      duration: 1.65,
-      ease: "sine.inOut",
-      repeat: -1,
-      yoyo: true,
-      stagger: 0.18,
-    },
-  );
 }
 
 function renderTgRouteVisualization(snapshot, error = "") {
-  const root = document.getElementById("tg-route-scheme");
-  if (!root) return;
-  const processStartedAt = Number(snapshot?.process_started_at || 0);
-  const acceptedConnections = Number(snapshot?.accepted_connections || 0);
-  if (processStartedAt && (tgRouteRuntime.processStartedAt !== processStartedAt
-      || (tgRouteRuntime.acceptedConnections != null && acceptedConnections < tgRouteRuntime.acceptedConnections))) {
-    tgRouteRuntime.eventCursors.clear();
-    tgRouteRuntime.skipNextEvents = tgRouteRuntime.processStartedAt !== 0;
-    tgRouteRuntime.processStartedAt = processStartedAt;
-  }
-  if (snapshot) tgRouteRuntime.acceptedConnections = acceptedConnections;
-  const view = tgRouteText(snapshot, error);
-  root.dataset.state = view.state;
-  root.querySelector("#tg-route-caption").textContent = view.caption;
-  const available = view.state === "active";
-  const direct = available ? view.directState : "idle";
-  const fallback = available ? view.fallbackState : "idle";
-  tgRouteSetSvgState(root, "direct", direct);
-  tgRouteSetSvgState(root, "fallback", fallback);
-  root.querySelectorAll("[data-route-transport]").forEach(node => {
-    const isDirect = node.dataset.routeTransport === "direct";
-    const transports = isDirect ? view.directTransports : view.fallbackTransports;
-    const fallbackLabel = isDirect ? "Прямой WSS" : "Резервный транспорт не выбран";
-    node.textContent = available ? (transports?.join(" / ") || fallbackLabel) : "Ожидание активного потока";
-  });
-  root.querySelectorAll("[data-route-status]").forEach(node => {
-    const branch = node.dataset.routeStatus;
-    const state = branch === "direct" ? direct : fallback;
-    node.textContent = tgRouteBranchLabel(state);
-  });
-  const dcLabel = view.state === "active" ? view.caption.match(/\bDC\d+\b|\bнесколько DC\b|\bDC неизвестен\b/)?.[0] || "DC неизвестен" : "DC определяется по карте";
-  root.querySelectorAll("[data-route-dc]").forEach(node => { node.textContent = dcLabel; });
-  if (available) tgRouteAnimateEvents(root, view.sessions);
-  else {
-    tgRouteRuntime.eventCursors.clear();
-    tgRouteRuntime.motionTimeline?.kill();
-    tgRouteRuntime.motionTimeline = null;
-  }
-  tgRouteStartAmbient(root);
+  const canvas = document.getElementById("tg-flow-canvas");
+  if (!canvas) return null;
+  if (!tgRouteRuntime.flow) tgRouteRuntime.flow = mountTelegramFlow(canvas);
+  return tgRouteRuntime.flow.update(snapshot, error);
 }
 
 function mountTgRouteVisualization(onTogglesPage, reloadStats) {
   destroyTgRouteVisualization();
-  const root = document.getElementById("tg-route-scheme");
-  if (!root) return;
-  if (typeof window.MutationObserver !== "function") return;
-  tgRouteRuntime.observer = new window.MutationObserver(() => {
-    if (!root.isConnected) destroyTgRouteVisualization();
-  });
-  tgRouteRuntime.observer.observe(document.getElementById("app"), { childList: true, subtree: true });
+  const root = document.getElementById("tg-flow");
+  const canvas = root?.querySelector("#tg-flow-canvas");
+  if (!root || !canvas) return;
+  tgRouteRuntime.flow = mountTelegramFlow(canvas);
+  if (typeof window.MutationObserver === "function") {
+    tgRouteRuntime.observer = new window.MutationObserver(() => {
+      if (!root.isConnected) destroyTgRouteVisualization();
+    });
+    tgRouteRuntime.observer.observe(document.getElementById("app"), { childList: true, subtree: true });
+  }
   tgRouteRuntime.visibilityHandler = () => {
     if (document.hidden) {
       if (tgRouteRuntime.pollTimer) clearTimeout(tgRouteRuntime.pollTimer);
       tgRouteRuntime.pollTimer = 0;
-      tgRouteRuntime.motionTimeline?.kill();
-      tgRouteRuntime.ambientTimeline?.kill();
-      tgRouteRuntime.motionTimeline = null;
-      tgRouteRuntime.ambientTimeline = null;
-      tgRouteRuntime.skipNextEvents = true;
     } else {
-      tgRouteRuntime.skipNextEvents = true;
       void reloadStats().finally(() => tgRouteRuntime.schedulePoll?.());
     }
   };
   document.addEventListener("visibilitychange", tgRouteRuntime.visibilityHandler);
-  tgRouteRuntime.motionPreference = window.matchMedia?.("(prefers-reduced-motion: reduce)") || null;
-  tgRouteRuntime.motionPreferenceHandler = () => {
-    if (tgRouteRuntime.motionPreference?.matches) {
-      tgRouteRuntime.motionTimeline?.progress(1).kill();
-      tgRouteRuntime.motionTimeline = null;
-    }
-    tgRouteStartAmbient(root);
-  };
-  tgRouteRuntime.motionPreference?.addEventListener("change", tgRouteRuntime.motionPreferenceHandler);
   const schedule = () => {
     if (!onTogglesPage() || document.hidden || tgRouteRuntime.pollTimer
         || document.getElementById("tg-openwrt-tools")?.hidden) return;
@@ -349,11 +78,9 @@ function mountTgRouteVisualization(onTogglesPage, reloadStats) {
       schedule();
     }, active ? 3000 : 6500);
   };
-  // Для активной сессии обновляем состояние умеренно часто, в простое — реже.
   tgRouteRuntime.schedulePoll = schedule;
   schedule();
 }
-
 function tgTimestampFresh(timestamp, maxAgeSeconds) {
   const recordedAt = Number(timestamp);
   const now = Date.now() / 1000;
@@ -380,28 +107,51 @@ function renderTgWorkers(domains = [], stats = null) {
   const list = document.getElementById("tg-worker-list");
   if (!list) return;
   tgConfiguredWorkers = domains.slice();
-  clearTgNode(list);
+  const current = new Map([...list.querySelectorAll(".tg-worker-item")].map(item => [item.dataset.domain, item]));
   if (!domains.length) {
-    const empty = document.createElement("li");
-    empty.className = "tg-worker-empty";
+    current.forEach(item => item.remove());
+    let empty = list.querySelector(".tg-worker-empty");
+    if (!empty) {
+      empty = document.createElement("li");
+      empty.className = "tg-worker-empty";
+      list.appendChild(empty);
+    }
     empty.textContent = "Worker не настроены; Telegram использует доступные штатные маршруты.";
-    list.appendChild(empty);
     return;
   }
+  list.querySelector(".tg-worker-empty")?.remove();
+  const retained = new Set();
   domains.forEach((domain) => {
-    const item = document.createElement("li");
-    item.className = "tg-worker-item";
-    const details = document.createElement("div");
-    details.className = "tg-worker-details";
-    const name = document.createElement("strong");
-    name.textContent = domain;
-    details.appendChild(name);
+    let item = current.get(domain);
+    if (!item) {
+      item = document.createElement("li");
+      item.className = "tg-worker-item";
+      item.dataset.domain = domain;
+      const details = document.createElement("div");
+      details.className = "tg-worker-details";
+      const name = document.createElement("strong");
+      name.className = "tg-worker-name";
+      const state = document.createElement("span");
+      state.className = "tg-worker-health";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "btn btn-danger tg-worker-remove";
+      remove.dataset.domain = domain;
+      remove.textContent = "Удалить";
+      appendTgNodes(details, name, state);
+      appendTgNodes(item, details, remove);
+      list.appendChild(item);
+    }
+    retained.add(domain);
+    const name = item.querySelector(".tg-worker-name");
+    if (name && name.textContent !== domain) name.textContent = domain;
     const health = stats?.workers?.[domain];
-    const state = document.createElement("span");
+    const state = item.querySelector(".tg-worker-health");
     const recentSuccess = health?.state === "healthy" && tgTimestampFresh(health.last_success_at, TG_WORKER_FRESH_SECONDS);
     const recentFailure = health?.state === "unavailable" && tgTimestampFresh(health.last_failure_at, TG_WORKER_FRESH_SECONDS);
-    state.className = `tg-worker-health ${recentSuccess ? "tg-status--healthy" : recentFailure ? "tg-status--unavailable" : health ? "tg-status--stale" : "tg-status--unverified"}`;
-    state.textContent = recentSuccess
+    const stateClass = `tg-worker-health ${recentSuccess ? "tg-status--healthy" : recentFailure ? "tg-status--unavailable" : health ? "tg-status--stale" : "tg-status--unverified"}`;
+    if (state.className !== stateClass) state.className = stateClass;
+    const stateText = recentSuccess
       ? `Последний успешный ответ ${tgTimestampLabel(health.last_success_at)}`
       : recentFailure
         ? `Не отвечает · ${health.last_failure || "причина не указана"}`
@@ -410,172 +160,213 @@ function renderTgWorkers(domains = [], stats = null) {
           : health?.state === "unavailable"
             ? `Последний отказ ${tgTimestampLabel(health.last_failure_at)}; статус устарел · ${health.last_failure || "причина не указана"}`
             : "Не проверялся";
-    details.appendChild(state);
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "btn btn-danger tg-worker-remove";
-    remove.dataset.domain = domain;
-    remove.textContent = "Удалить";
-    appendTgNodes(item, details, remove);
-    list.appendChild(item);
+    if (state && state.textContent !== stateText) state.textContent = stateText;
   });
+  current.forEach((item, domain) => { if (!retained.has(domain)) item.remove(); });
+}
+
+function ensureTgSummaryFact(grid, key, labelText, noteText) {
+  let item = [...grid.querySelectorAll(".tg-summary-item")].find(node => node.dataset.tgFact === key);
+  if (!item) {
+    item = document.createElement("div");
+    item.className = "tg-summary-item";
+    item.dataset.tgFact = key;
+    const label = document.createElement("span");
+    label.className = "tg-summary-label";
+    const value = document.createElement("strong");
+    value.className = "tg-summary-value";
+    const note = document.createElement("span");
+    note.className = "tg-summary-note";
+    appendTgNodes(item, label, value, note);
+    grid.appendChild(item);
+  }
+  const label = item.querySelector(".tg-summary-label");
+  const note = item.querySelector(".tg-summary-note");
+  if (label.textContent !== labelText) label.textContent = labelText;
+  if (note.textContent !== (noteText || "")) note.textContent = noteText || "";
+  note.hidden = !noteText;
+  return item.querySelector(".tg-summary-value");
+}
+
+function ensureTgTechnical(details) {
+  let grid = details.querySelector(":scope > .tg-summary-grid");
+  if (!grid) {
+    grid = document.createElement("div");
+    grid.className = "tg-summary-grid";
+    grid.setAttribute("aria-label", "Подробная статистика Telegram");
+    details.appendChild(grid);
+  }
+  let technical = details.querySelector(":scope > .tg-technical");
+  if (!technical) {
+    technical = document.createElement("details");
+    technical.className = "tg-technical disclosure";
+    const summary = document.createElement("summary");
+    summary.textContent = "Техническая статистика";
+    const body = document.createElement("div");
+    body.className = "disclosure-body tg-technical-body";
+    const note = document.createElement("p");
+    note.className = "tg-runtime-note";
+    note.textContent = "Счётчики накоплены с момента запуска процесса. Первый WSS Binary кадр не подтверждает успешную проверку MTProto resPQ.";
+    body.appendChild(note);
+    appendTgNodes(technical, summary, body);
+    details.appendChild(technical);
+  }
+  return { grid, technicalBody: technical.querySelector(".tg-technical-body") };
+}
+
+function updateTgTechnicalSection(body, sectionKey, titleText, rows) {
+  let section = [...body.querySelectorAll(":scope > .tg-technical-section")]
+    .find(node => node.dataset.tgSection === sectionKey);
+  if (!section) {
+    section = document.createElement("section");
+    section.className = "tg-technical-section";
+    section.dataset.tgSection = sectionKey;
+    const title = document.createElement("h5");
+    const rowList = document.createElement("div");
+    rowList.className = "tg-technical-rows";
+    appendTgNodes(section, title, rowList);
+    body.appendChild(section);
+  }
+  const title = section.querySelector("h5");
+  if (title.textContent !== titleText) title.textContent = titleText;
+  const rowList = section.querySelector(".tg-technical-rows");
+  const current = new Map([...rowList.querySelectorAll(":scope > .tg-technical-row")]
+    .map(row => [row.dataset.tgRow, row]));
+  const retained = new Set();
+  rows.forEach(([labelText, key, value, identity = key]) => {
+    let row = current.get(identity);
+    if (!row) {
+      row = document.createElement("div");
+      row.className = "tg-technical-row";
+      row.dataset.tgRow = identity;
+      const label = document.createElement("span");
+      label.className = "tg-technical-label";
+      const detail = document.createElement("span");
+      detail.className = "tg-technical-value";
+      const exactKey = document.createElement("code");
+      const exactValue = document.createElement("span");
+      appendTgNodes(detail, exactKey, exactValue);
+      appendTgNodes(row, label, detail);
+      rowList.appendChild(row);
+    }
+    retained.add(identity);
+    const label = row.querySelector(".tg-technical-label");
+    const exactKey = row.querySelector("code");
+    const exactValue = row.querySelector(".tg-technical-value span");
+    const displayValue = value == null || value === "" ? "—" : String(value);
+    if (label.textContent !== labelText) label.textContent = labelText;
+    if (exactKey.textContent !== key) exactKey.textContent = key;
+    if (exactValue.textContent !== displayValue) exactValue.textContent = displayValue;
+  });
+  current.forEach((row, key) => { if (!retained.has(key)) row.remove(); });
+}
+
+function tgConnectionCountLabel(value, maximum) {
+  const count = Math.max(0, Number(value) || 0);
+  const remainder = count % 10;
+  const hundred = count % 100;
+  const suffix = remainder === 1 && hundred !== 11 ? "соединение"
+    : remainder >= 2 && remainder <= 4 && !(hundred >= 12 && hundred <= 14)
+      ? "соединения" : "соединений";
+  return count + " / " + (maximum == null ? "—" : maximum) + " " + suffix;
 }
 
 function renderTgStats(snapshot, error = "") {
   const summary = document.getElementById("tg-runtime-status");
   const details = document.getElementById("tg-runtime-details");
+  const count = document.getElementById("tg-active-count");
+  const routeSummary = document.getElementById("tg-active-route");
   if (!summary || !details) return;
-  const technicalWasOpen = details.querySelector(".tg-technical")?.open ?? false;
+  const routeView = renderTgRouteVisualization(snapshot, error);
+  if (count) {
+    const text = error ? "Недоступно" : tgConnectionCountLabel(snapshot && snapshot.active_connections, snapshot && snapshot.max_connections);
+    if (count.textContent !== text) count.textContent = text;
+  }
+  if (routeSummary) {
+    const text = routeView ? routeView.transportLabel || "Недоступно" : "Не удалось получить состояние";
+    if (routeSummary.textContent !== text) routeSummary.textContent = text;
+  }
   if (error) {
-    renderTgRouteVisualization(null, error);
-    summary.textContent = error;
-    clearTgNode(details);
+    summary.textContent = "Статистика недоступна";
+    details.dataset.stale = "true";
     return;
   }
-  renderTgRouteVisualization(snapshot);
+  if (!snapshot) return;
   summary.textContent = snapshot.listener_ready
-    ? "Процесс запущен · listener готов принимать соединения."
+    ? "Процесс запущен · listener готов."
     : "Процесс статистики отвечает · listener не готов.";
+  delete details.dataset.stale;
 
-  const numericFacts = [];
-  const makeFact = (labelText, valueText, noteText = "", numeric = null) => {
-    const item = document.createElement("div");
-    item.className = "tg-summary-item";
-    const label = document.createElement("span");
-    label.className = "tg-summary-label";
-    label.textContent = labelText;
-    const value = document.createElement("strong");
-    value.className = "tg-summary-value";
-    value.textContent = valueText;
-    if (numeric && Number.isFinite(Number(numeric.value))) numericFacts.push({ element: value, ...numeric });
-    appendTgNodes(item, label, value);
-    if (noteText) {
-      const note = document.createElement("span");
-      note.className = "tg-summary-note";
-      note.textContent = noteText;
-      item.appendChild(note);
-    }
-    return item;
-  };
-  const age = snapshot.dc_map?.freshness_seconds;
-  const memory = snapshot.rss_kib == null ? "Недоступна" : `${(Number(snapshot.rss_kib) / 1024).toFixed(1)} МиБ`;
-  const maxConnections = snapshot.max_connections ?? "—";
-  const grid = document.createElement("div");
-  grid.className = "tg-summary-grid";
-  grid.setAttribute("aria-label", "Краткая статистика Telegram");
-  appendTgNodes(grid,
-    makeFact("Активные соединения", `${snapshot.active_connections ?? 0} / ${maxConnections}`, "", {
-      key: "active_connections", value: Number(snapshot.active_connections ?? 0),
-      format: value => `${Math.round(value)} / ${maxConnections}`,
-    }),
-    makeFact("Сессии с ответом", String(snapshot.mtproto_success ?? 0), "Первый непустой WSS Binary кадр; не подтверждает resPQ.", {
-      key: "mtproto_success", value: Number(snapshot.mtproto_success ?? 0),
-      format: value => Math.round(value).toLocaleString("ru-RU"),
-    }),
-    makeFact("Память процесса", memory, "Текущий RSS", snapshot.rss_kib == null ? null : {
-      key: "rss_mib", value: Number(snapshot.rss_kib) / 1024,
-      format: value => `${value.toFixed(1)} МиБ`,
-    }),
-    makeFact("Карта DC", age == null ? "Возраст неизвестен" : `${age} с назад`, "Последнее обновление карты", age == null ? null : {
-      key: "dc_map_age", value: Number(age), format: value => `${Math.round(value)} с назад`,
-    }),
-  );
+  const ensured = ensureTgTechnical(details);
+  const grid = ensured.grid;
+  const technicalBody = ensured.technicalBody;
+  const age = snapshot.dc_map && snapshot.dc_map.freshness_seconds;
+  const memory = snapshot.rss_kib == null ? "Недоступна" : (Number(snapshot.rss_kib) / 1024).toFixed(1) + " МиБ";
+  const summaryFacts = [
+    ["active_connections", "Активные соединения", tgConnectionCountLabel(snapshot.active_connections, snapshot.max_connections), "Текущие TCP-соединения"],
+    ["mtproto_success", "Первый ответ WSS", String(snapshot.mtproto_success ?? 0), "Не равен проверке resPQ"],
+    ["rss", "Память процесса", memory, "Текущий RSS"],
+    ["dc_map", "Карта DC", age == null ? "Возраст неизвестен" : age + " с назад", "Последнее обновление карты"],
+  ];
+  summaryFacts.forEach(([key, label, value, note]) => {
+    const target = ensureTgSummaryFact(grid, key, label, note);
+    if (target.textContent !== value) target.textContent = value;
+  });
 
-  const technical = document.createElement("details");
-  technical.className = "tg-technical disclosure";
-  const technicalSummary = document.createElement("summary");
-  technicalSummary.textContent = "Техническая статистика";
-  const technicalBody = document.createElement("div");
-  technicalBody.className = "disclosure-body tg-technical-body";
-  const note = document.createElement("p");
-  note.className = "tg-runtime-note";
-  note.textContent = "Накопленная статистика процесса считает события с момента запуска; это не число текущих неисправностей. Счётчик ответа фиксирует первый непустой WSS Binary кадр и не заменяет активную проверку resPQ.";
-  technicalBody.appendChild(note);
-
-  const appendTechnicalRow = (container, labelText, key, value) => {
-    const row = document.createElement("div");
-    row.className = "tg-technical-row";
-    const label = document.createElement("span");
-    label.className = "tg-technical-label";
-    label.textContent = labelText;
-    const detail = document.createElement("span");
-    detail.className = "tg-technical-value";
-    const exactKey = document.createElement("code");
-    exactKey.textContent = key;
-    const exactValue = document.createElement("span");
-    exactValue.textContent = value == null || value === "" ? "—" : String(value);
-    appendTgNodes(detail, exactKey, exactValue);
-    appendTgNodes(row, label, detail);
-    container.appendChild(row);
-  };
-  const appendSection = (titleText, rows) => {
-    const section = document.createElement("section");
-    section.className = "tg-technical-section";
-    const title = document.createElement("h5");
-    title.textContent = titleText;
-    section.appendChild(title);
-    rows.forEach(([label, key, value]) => appendTechnicalRow(section, label, key, value));
-    technicalBody.appendChild(section);
-  };
-
-  appendSection("Процесс и соединения", [
+  updateTgTechnicalSection(technicalBody, "process", "Процесс и соединения", [
     ["Запущен", "process_started_at", snapshot.process_started_at ? tgTimestampLabel(snapshot.process_started_at) : "неизвестно"],
     ["Listener готов", "listener_ready", snapshot.listener_ready],
-    ["Активные / максимум", "active_connections / max_connections", `${snapshot.active_connections ?? 0} / ${snapshot.max_connections ?? "—"}`],
+    ["Активные / максимум", "active_connections / max_connections", (snapshot.active_connections ?? 0) + " / " + (snapshot.max_connections ?? "—")],
     ["Принято соединений", "accepted_connections", snapshot.accepted_connections],
     ["Установлено WSS", "wss_established", snapshot.wss_established],
     ["Сессии с первым ответом", "mtproto_success", snapshot.mtproto_success],
     ["Ошибки сессий", "mtproto_failure", snapshot.mtproto_failure],
     ["Последний первый кадр", "last_mtproto_response_at", tgTimestampLabel(snapshot.last_mtproto_response_at)],
-    ["RSS / максимум RSS", "rss_kib / rss_hwm_kib", `${snapshot.rss_kib ?? "—"} / ${snapshot.rss_hwm_kib ?? "—"} KiB`],
+    ["RSS / максимум RSS", "rss_kib / rss_hwm_kib", (snapshot.rss_kib ?? "—") + " / " + (snapshot.rss_hwm_kib ?? "—") + " KiB"],
   ]);
-  appendSection("Карта DC и CF", [
+  updateTgTechnicalSection(technicalBody, "dc-map", "Карта DC и CF", [
     ["Поколение карты", "generation", snapshot.dc_map?.generation ?? 0],
     ["Получена карта", "fetched_at", tgTimestampLabel(snapshot.dc_map?.fetched_at)],
     ["Возраст карты, секунд", "freshness_seconds", snapshot.dc_map?.freshness_seconds],
     ["Доменов CF", "cf_domain_pool.domains", snapshot.cf_domain_pool?.domains?.length ?? 0],
     ["Возраст CF-пула, секунд", "cf_domain_pool.freshness_seconds", snapshot.cf_domain_pool?.freshness_seconds],
   ]);
-  appendSection("Сессии по маршрутам", Object.entries(snapshot.sessions_by_dc_transport || {}).map(([key, value]) => ["Количество сессий", key, value]));
-  appendSection("Задержка первого ответа (TTFB)", Object.entries(snapshot.ttfb || {}).map(([key, value]) => [
+  updateTgTechnicalSection(technicalBody, "sessions", "Сессии по маршрутам", Object.entries(snapshot.sessions_by_dc_transport || {}).map(([key, value]) => ["Количество сессий", key, value]));
+  updateTgTechnicalSection(technicalBody, "ttfb", "Задержка первого ответа (TTFB)", Object.entries(snapshot.ttfb || {}).map(([key, value]) => [
     "p50 / p95 / p99, мс", key,
-    `p50 ${value.p50_ms ?? "—"} · p95 ${value.p95_ms ?? "—"} · p99 ${value.p99_ms ?? "—"} · n=${value.count ?? 0}`,
+    "p50 " + (value.p50_ms ?? "—") + " · p95 " + (value.p95_ms ?? "—") + " · p99 " + (value.p99_ms ?? "—") + " · n=" + (value.count ?? 0),
   ]));
-  appendSection("Ошибки по причинам · накопленные счётчики", Object.entries(snapshot.failures || {}).map(([key, value]) => ["Число с запуска процесса", key, value]));
-  appendSection("Состояние Worker", Object.entries(snapshot.workers || {}).map(([key, value]) => [
-    key, "workers", `${value.state || "не проверялся"}; успех ${tgTimestampLabel(value.last_success_at)}; отказ ${tgTimestampLabel(value.last_failure_at)}${value.last_failure ? `; причина: ${value.last_failure}` : ""}`,
+  updateTgTechnicalSection(technicalBody, "failures", "Ошибки по причинам · накопленные счётчики", Object.entries(snapshot.failures || {}).map(([key, value]) => ["Число с запуска процесса", key, value]));
+  updateTgTechnicalSection(technicalBody, "workers", "Состояние Worker", Object.entries(snapshot.workers || {}).map(([key, value]) => [
+    key, "workers", (value.state || "не проверялся") + "; успех " + tgTimestampLabel(value.last_success_at)
+      + "; отказ " + tgTimestampLabel(value.last_failure_at) + (value.last_failure ? "; причина: " + value.last_failure : ""), key,
   ]));
-  appendTgNodes(technical, technicalSummary, technicalBody);
-  technical.open = technicalWasOpen;
-  clearTgNode(details);
-  appendTgNodes(details, grid, technical);
-  for (const fact of numericFacts) {
-    const previous = tgMotionValues.get(fact.key);
-    tgMotionValues.set(fact.key, Number(fact.value));
-    fact.element.dataset.motionValue = String(previous ?? fact.value);
-    fact.element.textContent = fact.format(previous ?? fact.value);
-    if (previous != null) motion.numberTo(fact.element, fact.value, fact.format);
-  }
   renderTgWorkers(tgConfiguredWorkers, snapshot);
 }
-
 function renderTgDiagnostics(report) {
   const container = document.getElementById("tg-check-results");
   if (!container) return;
+  const overview = document.getElementById("tg-last-diagnostic");
+  const setOverview = text => { if (overview && overview.textContent !== text) overview.textContent = text; };
   clearTgNode(container);
   if (!report || report.state === "not_checked") {
+    setOverview("Ещё не запускалась");
     container.textContent = "Активная диагностика ещё не запускалась.";
     return;
   }
   if (report.state === "running") {
+    setOverview("Выполняется");
     container.textContent = "Проверка маршрутов выполняется…";
     return;
   }
   if (report.state === "error") {
+    setOverview("Ошибка проверки");
     container.textContent = report.message || "Не удалось выполнить диагностику.";
     return;
   }
   const stale = !tgTimestampFresh(report.checked_at, TG_DIAGNOSTICS_FRESH_SECONDS);
+  setOverview(stale ? "Устарела · " + tgTimestampLabel(report.checked_at)
+    : (report.state === "healthy" ? "Успешна · " : "Есть недоступные пути · ") + tgTimestampLabel(report.checked_at));
   const summary = document.createElement("p");
   summary.className = "desc";
   summary.textContent = stale
@@ -585,7 +376,7 @@ function renderTgDiagnostics(report) {
   const states = { healthy: "Проверен", blocked: "Блокируется", unavailable: "Недоступен", unverified: "Не проверен" };
   const transports = {
     "direct-wss": "Прямой WSS", "cf-worker": "Cloudflare Worker",
-    "cf-proxy": "Cloudflare proxy", "tcp-fallback": "TCP fallback",
+    "cf-proxy": "Прокси Cloudflare", "tcp-fallback": "Резервный TCP",
   };
   const routeFieldLabels = {
     transport: "Транспорт", domain: "Домен", selected_ip: "Выбранный IP",
@@ -1792,101 +1583,81 @@ export async function renderToggles() {
       <p class="desc" id="panel-session-ttl-note" role="status" aria-live="polite">Загружаю настройку…</p>
     </div>
     <div class="card telegram-tunnel-card">
-      <h3>Telegram туннель <span class="tg-state-badge" id="tg-state-badge" hidden></span></h3>
-      <p class="desc" id="tg-desc">Прозрачный Telegram через Rust TG WS Proxy; без обязательного VPS.</p>
-      <p class="desc" id="tg-status-note" role="status" aria-live="polite"></p>
-      <section class="tg-route-scheme" id="tg-route-scheme" data-state="idle" aria-labelledby="tg-route-title">
-        <div class="tg-route-heading">
-          <div>
-            <h4 id="tg-route-title">Схема соединения</h4>
-            <span class="tg-route-process" data-route-dc>DC определяется по карте</span>
-          </div>
-          <span class="tg-route-live-label"><span class="tg-route-live-dot" aria-hidden="true"></span>состояние потока</span>
-        </div>
-        <svg class="tg-route-svg tg-route-svg--desktop" viewBox="0 0 900 300" role="img" aria-labelledby="tg-route-desktop-title tg-route-desktop-desc">
-          <title id="tg-route-desktop-title">Маршрут Telegram через прокси z2kOW</title>
-          <desc id="tg-route-desktop-desc">Клиент проходит через nftables и Rust прокси. Дальше показаны прямой WSS и резервный маршрут с фактическим транспортом.</desc>
-          <path class="tg-route-trunk" d="M150 150H205M355 150H405" />
-          <g data-route-branch="direct" data-active="false" data-status="idle">
-            <path class="tg-route-path" d="M565 150C590 150 575 75 605 75H750C775 75 765 150 795 150" />
-            <circle class="tg-route-live-ring" cx="583" cy="113" r="8" />
-            <rect class="tg-route-branch-node" x="605" y="43" width="145" height="64" rx="10" />
-            <text class="tg-route-branch-title" x="677" y="66" text-anchor="middle">Прямой маршрут</text>
-            <text class="tg-route-branch-detail" x="677" y="84" text-anchor="middle" data-route-transport="direct">Ожидание активного потока</text>
-            <text class="tg-route-branch-state" x="677" y="101" text-anchor="middle" data-route-status="direct">ожидание</text>
-          </g>
-          <g data-route-branch="fallback" data-active="false" data-status="idle">
-            <path class="tg-route-path" d="M565 150C590 150 575 225 605 225H750C775 225 765 150 795 150" />
-            <circle class="tg-route-live-ring" cx="583" cy="187" r="8" />
-            <rect class="tg-route-branch-node" x="605" y="193" width="145" height="64" rx="10" />
-            <text class="tg-route-branch-title" x="677" y="216" text-anchor="middle">Резервный маршрут</text>
-            <text class="tg-route-branch-detail" x="677" y="234" text-anchor="middle" data-route-transport="fallback">Ожидание активного потока</text>
-            <text class="tg-route-branch-state" x="677" y="251" text-anchor="middle" data-route-status="fallback">ожидание</text>
-          </g>
-          <g class="tg-route-node"><rect x="22" y="120" width="128" height="60" rx="10" /><text x="86" y="156" text-anchor="middle">Клиент LAN</text></g>
-          <g class="tg-route-node"><rect x="205" y="120" width="150" height="60" rx="10" /><text x="280" y="145" text-anchor="middle">nftables</text><text class="tg-route-node-sub" x="280" y="162" text-anchor="middle">прозрачное перенаправление</text></g>
-          <g class="tg-route-node tg-route-node--engine"><rect x="405" y="120" width="160" height="60" rx="10" /><text x="485" y="145" text-anchor="middle">Rust прокси</text><text class="tg-route-node-sub" x="485" y="162" text-anchor="middle">карта DC · выбор маршрута</text></g>
-          <g class="tg-route-node"><rect x="795" y="120" width="95" height="60" rx="10" /><text x="842" y="156" text-anchor="middle">Telegram</text></g>
-        </svg>
-        <svg class="tg-route-svg tg-route-svg--mobile" viewBox="0 0 360 535" role="img" aria-labelledby="tg-route-mobile-title tg-route-mobile-desc">
-          <title id="tg-route-mobile-title">Маршрут Telegram через прокси z2kOW</title>
-          <desc id="tg-route-mobile-desc">Клиент проходит через nftables и Rust прокси, затем использует один из двух отображённых маршрутов к Telegram.</desc>
-          <path class="tg-route-trunk" d="M180 68V100M180 154V185" />
-          <g data-route-branch="direct" data-active="false" data-status="idle">
-            <path class="tg-route-path" d="M180 239C180 263 88 257 88 288V387C88 423 180 414 180 448" />
-            <circle class="tg-route-live-ring" cx="147" cy="264" r="7" />
-            <rect class="tg-route-branch-node" x="10" y="288" width="156" height="99" rx="10" />
-            <text class="tg-route-branch-title" x="88" y="311" text-anchor="middle">Прямой маршрут</text>
-            <text class="tg-route-branch-detail" x="88" y="336" text-anchor="middle" data-route-transport="direct">Ожидание активного потока</text>
-            <text class="tg-route-branch-state" x="88" y="364" text-anchor="middle" data-route-status="direct">ожидание</text>
-          </g>
-          <g data-route-branch="fallback" data-active="false" data-status="idle">
-            <path class="tg-route-path" d="M180 239C180 263 272 257 272 288V387C272 423 180 414 180 448" />
-            <circle class="tg-route-live-ring" cx="213" cy="264" r="7" />
-            <rect class="tg-route-branch-node" x="194" y="288" width="156" height="99" rx="10" />
-            <text class="tg-route-branch-title" x="272" y="311" text-anchor="middle">Резервный маршрут</text>
-            <text class="tg-route-branch-detail" x="272" y="336" text-anchor="middle" data-route-transport="fallback">Ожидание активного потока</text>
-            <text class="tg-route-branch-state" x="272" y="364" text-anchor="middle" data-route-status="fallback">ожидание</text>
-          </g>
-          <g class="tg-route-node"><rect x="100" y="14" width="160" height="54" rx="10" /><text x="180" y="47" text-anchor="middle">Клиент LAN</text></g>
-          <g class="tg-route-node"><rect x="100" y="100" width="160" height="54" rx="10" /><text x="180" y="123" text-anchor="middle">nftables</text><text class="tg-route-node-sub" x="180" y="141" text-anchor="middle">прозрачное перенаправление</text></g>
-          <g class="tg-route-node tg-route-node--engine"><rect x="100" y="185" width="160" height="54" rx="10" /><text x="180" y="208" text-anchor="middle">Rust прокси</text><text class="tg-route-node-sub" x="180" y="226" text-anchor="middle">карта DC · выбор маршрута</text></g>
-          <g class="tg-route-node"><rect x="100" y="448" width="160" height="54" rx="10" /><text x="180" y="481" text-anchor="middle">Telegram</text></g>
-        </svg>
-        <p class="tg-route-caption" id="tg-route-caption" role="status" aria-live="polite">Нет активных соединений · схема без подсветки.</p>
+      <h3>Telegram «Поток» <span class="tg-state-badge" id="tg-state-badge" hidden></span></h3>
+      <p class="desc" id="tg-desc">Состояние маршрута берётся из телеметрии Rust-прокси.</p>
+      <section class="tg-flow" id="tg-flow" data-state="idle" aria-label="Схема потока Telegram">
+        <canvas class="tg-flow-canvas" id="tg-flow-canvas" width="760" height="340" role="img"
+          aria-label="Поток соединений через tg-ws-proxy" aria-describedby="tg-flow-caption">
+          Схема потока соединений через tg-ws-proxy.
+        </canvas>
+        <p class="tg-flow-caption" id="tg-flow-caption" role="status" aria-live="polite">Нет активных соединений</p>
       </section>
+      <div class="tg-live-summary" aria-label="Сводка соединения">
+        <div class="tg-live-summary-item"><span>Активные соединения</span><strong id="tg-active-count">Нет данных</strong></div>
+        <div class="tg-live-summary-item"><span>Тип подключения</span><strong id="tg-active-route">Не определён</strong></div>
+        <div class="tg-live-summary-item"><span>Последняя диагностика</span><strong id="tg-last-diagnostic">Ещё не запускалась</strong></div>
+      </div>
       <div class="btn-row">
         <button class="btn btn-primary" id="tg-enable">Включить</button>
         <button class="btn btn-danger" id="tg-disable">Отключить</button>
+        <button class="btn btn-primary" id="tg-check" type="button">Проверить соединение</button>
       </div>
-      <div class="tg-openwrt-tools" id="tg-openwrt-tools" hidden>
-        <section class="tg-workers" aria-labelledby="tg-workers-title">
-          <h4 id="tg-workers-title">Cloudflare Worker</h4>
-          <p class="desc">Необязательные Worker используются как один из Telegram WSS-маршрутов и при недоступности прямого TCP во время обновления карты DC.</p>
-          <form class="tg-worker-form" id="tg-worker-form">
-            <label class="field" for="tg-worker-domain">
-              <span class="field-label">Домен Worker</span>
-              <input id="tg-worker-domain" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="253" placeholder="telegram-worker.example.workers.dev">
-            </label>
-            <button class="btn btn-primary" type="submit" id="tg-worker-add">Добавить</button>
-          </form>
-          <ul class="tg-worker-list" id="tg-worker-list"></ul>
-        </section>
-        <section class="tg-diagnostics" aria-labelledby="tg-check-title">
-          <h4 id="tg-check-title">Проверка DC1–DC5</h4>
-          <p class="desc">Проверка запускается только по кнопке. Успех подтверждается реальным обменом MTProto req_pq_multi → resPQ.</p>
-          <div class="btn-row">
-            <button class="btn btn-primary" id="tg-check" type="button">Проверить соединение</button>
-            <button class="btn" id="tg-stats-refresh" type="button">Обновить статистику</button>
-          </div>
-          <div class="desc" id="tg-check-results" role="status" aria-live="polite">Активная диагностика ещё не запускалась.</div>
-        </section>
-        <section class="tg-runtime" aria-labelledby="tg-runtime-title">
-          <h4 id="tg-runtime-title">Состояние процесса и трафика</h4>
-          <div class="desc" id="tg-runtime-status" role="status" aria-live="polite">Статистика ещё не загружалась.</div>
-          <div id="tg-runtime-details"></div>
-        </section>
-      </div>
+      <details class="tg-advanced-settings disclosure" id="tg-advanced-settings">
+        <summary>Дополнительные настройки</summary>
+        <div class="disclosure-body tg-advanced-body">
+          <p class="desc" id="tg-status-note" role="status" aria-live="polite"></p>
+      <details class="tg-openwrt-tools disclosure" id="tg-openwrt-tools">
+        <summary>Инструменты и подробная статистика</summary>
+        <div class="disclosure-body tg-openwrt-tools-body">
+          <section class="tg-workers" aria-label="Настройки Telegram Worker">
+            <details class="tg-worker-settings disclosure" id="tg-worker-settings">
+              <summary>Cloudflare Worker</summary>
+              <div class="disclosure-body">
+                <p class="desc">Необязательные Worker используются как один из Telegram WSS-маршрутов и при недоступности прямого TCP во время обновления карты DC.</p>
+                <form class="tg-worker-form" id="tg-worker-form">
+                  <label class="field" for="tg-worker-domain">
+                    <span class="field-label">Домен Worker</span>
+                    <input id="tg-worker-domain" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="253" placeholder="telegram-worker.example.workers.dev">
+                  </label>
+                  <button class="btn btn-primary" type="submit" id="tg-worker-add">Добавить</button>
+                </form>
+                <ul class="tg-worker-list" id="tg-worker-list"></ul>
+              </div>
+            </details>
+          </section>
+          <section class="tg-diagnostics" aria-label="Диагностика Telegram">
+            <details class="tg-diagnostic-details disclosure" id="tg-diagnostic-details">
+              <summary>Подробные результаты DC1–DC5</summary>
+              <div class="disclosure-body">
+                <p class="desc">Проверка запускается только по кнопке. Успех подтверждается реальным обменом MTProto req_pq_multi → resPQ.</p>
+                <div class="desc" id="tg-check-results" role="status" aria-live="polite">Активная диагностика ещё не запускалась.</div>
+              </div>
+            </details>
+            <div class="btn-row">
+              <button class="btn" id="tg-stats-refresh" type="button">Обновить статистику</button>
+            </div>
+          </section>
+          <section class="tg-runtime" aria-label="Статистика процесса и трафика">
+            <div class="desc" id="tg-runtime-status" role="status" aria-live="polite">Статистика ещё не загружалась.</div>
+            <div id="tg-runtime-details">
+              <div class="tg-summary-grid" aria-label="Подробная статистика Telegram">
+                <div class="tg-summary-item" data-tg-fact="active_connections"><span class="tg-summary-label">Активные соединения</span><strong class="tg-summary-value">Неизвестно</strong><span class="tg-summary-note">Текущие TCP-соединения</span></div>
+                <div class="tg-summary-item" data-tg-fact="mtproto_success"><span class="tg-summary-label">Первый ответ WSS</span><strong class="tg-summary-value">Неизвестно</strong><span class="tg-summary-note">Не равен проверке resPQ</span></div>
+                <div class="tg-summary-item" data-tg-fact="rss"><span class="tg-summary-label">Память процесса</span><strong class="tg-summary-value">Неизвестно</strong><span class="tg-summary-note">Текущий RSS</span></div>
+                <div class="tg-summary-item" data-tg-fact="dc_map"><span class="tg-summary-label">Карта DC</span><strong class="tg-summary-value">Неизвестно</strong><span class="tg-summary-note">Последнее обновление карты</span></div>
+              </div>
+              <details class="tg-technical disclosure">
+                <summary>Техническая статистика</summary>
+                <div class="disclosure-body tg-technical-body">
+                  <p class="tg-runtime-note">Счётчики накоплены с момента запуска процесса. Первый WSS Binary кадр не подтверждает успешную проверку MTProto resPQ.</p>
+                </div>
+              </details>
+            </div>
+          </section>
+        </div>
+      </details>
+        </div>
+      </details>
     </div>
     <div class="card" id="policy-card">
       <h3>Политика доступа Keenetic</h3>
@@ -2111,6 +1882,8 @@ export async function renderToggles() {
     const tgRust = s.platform === "openwrt";
     const tgTools = $app.querySelector("#tg-openwrt-tools");
     if (tgTools) tgTools.hidden = !tgRust;
+    const tgCheckButton = $app.querySelector("#tg-check");
+    if (tgCheckButton) tgCheckButton.hidden = !tgRust;
     renderTgWorkers(s.tunnel?.workers || [], tgRuntimeSnapshot);
     const tgRunning = s.tunnel && s.tunnel.running === true;
     const tgSupported = !tgRust || !s.tunnel || s.tunnel.supported !== false;
@@ -2124,7 +1897,7 @@ export async function renderToggles() {
       ? "tg-state-off" : (tgRunning ? "tg-state-on" : "tg-state-off"));
     const tgDesc = $app.querySelector("#tg-desc");
     if (tgDesc && tgRust) {
-      tgDesc.textContent = "Прозрачный Rust TG WS Proxy для Telegram TCP/443. Устройствам не нужна настройка прокси; VPS разработчика и старый relay не используются.";
+      tgDesc.textContent = "Состояние маршрута берётся из телеметрии Rust-прокси.";
     }
     const tgNote = $app.querySelector("#tg-status-note");
     if (tgNote) tgNote.textContent = s.tunnel && s.tunnel.message ? s.tunnel.message : "";

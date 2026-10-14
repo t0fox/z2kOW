@@ -387,6 +387,7 @@ pub async fn handle_transparent_client_with_runtime(
                             tcp_failure_cooldown,
                         );
                         attempt.finish("failed");
+                        telemetry.mark_cooldown("fallback", "tcp_fallback");
                         warn!(
                             "[{}] не удалось передать начальный пакет по резервному TCP: {}",
                             peer, error
@@ -422,6 +423,7 @@ pub async fn handle_transparent_client_with_runtime(
                         &target_ip,
                         tcp_failure_cooldown,
                     );
+                    telemetry.mark_cooldown("fallback", "tcp_fallback");
                     warn!(
                         "[{}] не удалось открыть резервное TCP-соединение с {}: {}; маршрут приостановлен на {} с",
                         peer,
