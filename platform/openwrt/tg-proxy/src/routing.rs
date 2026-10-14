@@ -11,6 +11,7 @@ use tracing::{debug, info, warn};
 use crate::cf_domain_pool::CfDomainPool;
 use crate::config::{Config, WsRoutingPolicy};
 use crate::runtime::Runtime;
+use crate::stats::{ConnectionTelemetry, RouteAttemptGuard};
 use crate::ws_client::{
     CfDialOpts, CooldownMap, ProbeSet, TgWsStream, WsAttempt, WsConnectResult,
     connect_cf_domain_with_outbound_opts, connect_cf_worker_ws_for_dc_with_outbound_opts,
@@ -532,6 +533,7 @@ pub(crate) struct Route<'a> {
     timeouts: Timeouts,
     dc: u32,
     is_media: bool,
+    telemetry: Option<ConnectionTelemetry>,
     /// Cached [`media_tag`] for this DC, used in every log line.
     media: &'static str,
 }
@@ -543,6 +545,7 @@ impl<'a> Route<'a> {
         runtime: &'a Runtime,
         dc: u32,
         is_media: bool,
+        telemetry: Option<ConnectionTelemetry>,
     ) -> Self {
         Self {
             label,
@@ -551,6 +554,7 @@ impl<'a> Route<'a> {
             timeouts: Timeouts::from_config(config),
             dc,
             is_media,
+            telemetry,
             media: media_tag(is_media),
         }
     }
@@ -740,19 +744,39 @@ pub(crate) async fn select_upstream(route: &Route<'_>, target_ip: &str) -> Optio
 }
 
 impl Route<'_> {
+    fn attempt(&self, branch: &'static str, transport: &'static str) -> Option<RouteAttemptGuard> {
+        self.telemetry
+            .as_ref()
+            .map(|telemetry| telemetry.begin_attempt(branch, transport))
+    }
+
     /// Открыть direct WSS к проверенному IP назначения.
     async fn direct_ws_tier(&self, target_ip: &str) -> Option<Upstream> {
-        self.direct_ws(target_ip).await.map(|ws| Upstream::Ws {
-            ws: Box::new(ws),
-            framing: WsFraming::Packets,
-            route_type: "прямой WSS",
-            feedback: RouteFeedback::direct(
-                self.dc,
-                self.is_media,
-                target_ip,
-                self.timeouts.ws_fail_cooldown,
-            ),
-        })
+        let attempt = self.attempt("direct", "direct_wss");
+        match self.direct_ws(target_ip).await {
+            Some(ws) => {
+                if let Some(attempt) = attempt {
+                    attempt.finish("connected");
+                }
+                Some(Upstream::Ws {
+                    ws: Box::new(ws),
+                    framing: WsFraming::Packets,
+                    route_type: "прямой WSS",
+                    feedback: RouteFeedback::direct(
+                        self.dc,
+                        self.is_media,
+                        target_ip,
+                        self.timeouts.ws_fail_cooldown,
+                    ),
+                })
+            }
+            None => {
+                if let Some(attempt) = attempt {
+                    attempt.finish("failed");
+                }
+                None
+            }
+        }
     }
 
     /// Перебрать Cloudflare Worker и Cloudflare proxy.
@@ -847,6 +871,8 @@ impl Route<'_> {
                 self.label, self.dc, self.media, reason, worker_domain, dst
             );
 
+            let attempt = self.attempt("fallback", "cloudflare_worker");
+
             let ws = connect_cf_worker_ws_for_dc_with_outbound_opts(
                 worker_domain,
                 dst,
@@ -863,6 +889,9 @@ impl Route<'_> {
 
             match ws {
                 Some(ws) => {
+                    if let Some(attempt) = attempt {
+                        attempt.finish("connected");
+                    }
                     info!(
                         "[{}] DC{}{}: {} — соединение Cloudflare Worker установлено ({})",
                         self.label, self.dc, self.media, reason, worker_domain
@@ -870,6 +899,9 @@ impl Route<'_> {
                     return Some((ws, worker_domain.to_string()));
                 }
                 None => {
+                    if let Some(attempt) = attempt {
+                        attempt.finish("failed");
+                    }
                     CF_WORKER_FAIL.set(route_key, self.timeouts.cf_fail_cooldown);
                     self.runtime.stats().record_worker_failure(
                         worker_domain,
@@ -954,6 +986,7 @@ impl Route<'_> {
         let is_media = self.is_media;
         let destination = dst.to_string();
         let timeout = self.timeouts.cf_connect;
+        let attempt = self.attempt("fallback", "cloudflare_proxy");
         let (winner, failures) = race_candidates(
             candidates,
             CF_PROXY_HEDGE_DELAY,
@@ -1049,6 +1082,9 @@ impl Route<'_> {
         }
 
         if let Some((domain, ws)) = winner {
+            if let Some(attempt) = attempt {
+                attempt.finish("connected");
+            }
             CF_PROXY_ROUTE_FAIL.clear(&route_key);
             info!(
                 "[{}] DC{}{}: {} — подключение CF-прокси установлено ({})",
@@ -1067,6 +1103,10 @@ impl Route<'_> {
                 dst,
                 self.timeouts.cf_fail_cooldown.as_secs()
             );
+        }
+
+        if let Some(attempt) = attempt {
+            attempt.finish("failed");
         }
 
         advance_cf_proxy_domain(self.dc, &pool.domains, domains.len());
@@ -1296,6 +1336,7 @@ mod tests {
             &runtime,
             dc,
             false,
+            None,
         );
 
         CF_PROXY_ROUTE_FAIL.set(key.clone(), Duration::from_secs(30));
@@ -1624,6 +1665,7 @@ mod tests {
             &runtime,
             2,
             false,
+            None,
         );
         let target_ip = "149.154.167.51";
         let route_key = (2, false, target_ip.to_string());
@@ -1647,6 +1689,7 @@ mod tests {
             &runtime,
             2,
             false,
+            None,
         );
         assert!(
             disabled_route
@@ -1857,6 +1900,7 @@ mod tests {
             &runtime,
             2,
             true,
+            None,
         );
 
         let _ = route

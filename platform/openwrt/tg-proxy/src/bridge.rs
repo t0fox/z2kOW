@@ -17,6 +17,7 @@ use tungstenite::Message;
 use crate::crypto::ProtoTag;
 use crate::routing::{RouteFeedback, WsFraming};
 use crate::splitter::MsgSplitter;
+use crate::stats::ConnectionTelemetry;
 use crate::transparent;
 use crate::ws_client::{TgWsStream, media_tag};
 
@@ -201,6 +202,7 @@ pub(crate) async fn bridge_transparent_ws(
     framing: WsFraming,
     route_type: &'static str,
     feedback: RouteFeedback,
+    telemetry: ConnectionTelemetry,
 ) {
     info!(
         "[{}] прозрачный маршрут: {} → DC{}{} через {} (кадрирование: {})",
@@ -311,6 +313,7 @@ pub(crate) async fn bridge_transparent_ws(
         let activity = activity.clone();
         let response_state = Arc::clone(&response_state);
         let feedback = feedback.clone();
+        let telemetry = telemetry.clone();
         async move {
             while let Some(message) = ws_read.next().await {
                 match message {
@@ -319,6 +322,7 @@ pub(crate) async fn bridge_transparent_ws(
                             && let Some(latency) =
                                 record_first_mtproto_response(&response_state).await
                         {
+                            telemetry.mark_first_wss_binary();
                             info!(
                                 "[{}] первый MTProto ответ DC{}{} через {} получен за {} мс",
                                 label,

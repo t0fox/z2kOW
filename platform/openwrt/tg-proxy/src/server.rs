@@ -275,11 +275,12 @@ pub async fn run_with_listen(
                     let cfg = Arc::clone(&config);
                     let runtime = Arc::clone(&runtime);
                     let connection = runtime.stats().connection_started();
+                    let telemetry = connection.telemetry();
                     clients.spawn(async move {
                         let _connection = connection;
                         let _permit = permit;
                         transparent_proxy::handle_transparent_client_with_runtime(
-                            stream, peer_addr, cfg, runtime,
+                            stream, peer_addr, cfg, runtime, telemetry,
                         ).await;
                     });
                 }
