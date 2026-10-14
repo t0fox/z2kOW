@@ -194,13 +194,13 @@ class PublicationPolicyTests(unittest.TestCase):
                     "tag": "p-86.19",
                     "seq": 143,
                     "status": "not applicable",
-                    "reason": "Изменения Entware не применяются к OpenWrt.",
+                    "reason": "Этот выпуск не меняет поведение на целевой платформе.",
                 },
                 {
                     "tag": "p-86.20",
                     "seq": 144,
                     "status": "not applicable",
-                    "reason": "Изменения Entware не применяются к OpenWrt.",
+                    "reason": "Этот выпуск не меняет поведение на целевой платформе.",
                 },
             ],
         }
@@ -225,7 +225,7 @@ class PublicationPolicyTests(unittest.TestCase):
                 "tag": "r-86.6",
                 "seq": 141,
                 "status": "not applicable",
-                "reason": "Функция относится только к Keenetic.",
+                "reason": "Этот выпуск не меняет поведение на целевой платформе.",
             }],
         }
 
