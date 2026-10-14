@@ -36,7 +36,11 @@ global.HTMLOptionElement = class HTMLOptionElement {};
 
 // --- Минимальный DOM ---------------------------------------------------------
 const mkEl = () => ({
-  _h: "", style: {}, dataset: {},
+  _h: "", style: {
+    setProperty(k, v) { this[k] = String(v); },
+    getPropertyValue(k) { return this[k] || ""; },
+    removeProperty(k) { const old = this[k] || ""; delete this[k]; return old; },
+  }, dataset: {},
   classList: { add(){}, remove(){}, toggle(){}, contains(){ return false; } },
   children: [],
   set innerHTML(v){ this._h = String(v); }, get innerHTML(){ return this._h; },

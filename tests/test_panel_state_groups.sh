@@ -113,8 +113,9 @@ function mkEl(key) {
     _sel: key, _h: "", style: {
       setProperty(k, v) { this[k] = String(v); },
       getPropertyValue(k) { return this[k] || ""; },
+      removeProperty(k) { const old = this[k] || ""; delete this[k]; return old; },
     }, dataset: {}, attributes: {}, children: [],
-    hidden: false, disabled: false, value: "", listeners: {},
+    hidden: false, disabled: false, value: "", listeners: {}, scrollTop: 0,
     classList: {
       add(...c) { c.forEach(x => cls.add(x)); }, remove(...c) { c.forEach(x => cls.delete(x)); },
       toggle(c, on) { if (on === undefined ? !cls.has(c) : on) cls.add(c); else cls.delete(c); },
@@ -137,7 +138,8 @@ function mkEl(key) {
     removeAttribute(k) { delete this.attributes[k]; },
     querySelector(s) { return sel(this._sel + ">" + s); },
     querySelectorAll(s) { return String(s).split(",").map(p => sel(this._sel + ">" + p.trim())); },
-    closest() { return null; }, focus() {}, blur() {}, click() {}, insertAdjacentHTML() {}, scrollIntoView() {},
+    closest() { return null; }, getBoundingClientRect() { return { left: 0, right: 0, top: 0, height: 0 }; },
+    focus() {}, blur() {}, click() {}, insertAdjacentHTML() {}, scrollIntoView() {},
     fire(t, ev) { (this.listeners[t] || []).slice().forEach(f => f(ev || {})); },
   };
 }

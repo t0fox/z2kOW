@@ -65,8 +65,8 @@ const mkEl = () => {
     // «страница не отрисовалась: Cannot read propert» — сообщение, по
     // которому до причины ещё надо докопаться, хотя ломался мок, а не панель.
     value: "",
-    _h: "", style: { setProperty(k,v){ this[k]=String(v); }, getPropertyValue(k){ return this[k] || ""; } }, dataset: {}, classList: { add(){}, remove(){}, toggle(){}, contains(){return false} },
-    children: [], attributes: {},
+    _h: "", style: { setProperty(k,v){ this[k]=String(v); }, getPropertyValue(k){ return this[k] || ""; }, removeProperty(k){ const old=this[k] || ""; delete this[k]; return old; } }, dataset: {}, classList: { add(){}, remove(){}, toggle(){}, contains(){return false} },
+    children: [], attributes: {}, scrollTop: 0,
     // DOM mocks remain attached until a test explicitly removes them.
     isConnected: true,
     set innerHTML(v){ this._h = String(v); noteRendered(this._h); },
@@ -89,7 +89,8 @@ const mkEl = () => {
       return mkEl();
     },
     querySelectorAll(selector){ return queryChildren(this, selector); },
-    closest(){ return null; }, focus(){}, blur(){}, click(){}, insertAdjacentHTML(){},
+    closest(){ return null; }, getBoundingClientRect(){ return { left: 0, right: 0, top: 0, height: 0 }; },
+    focus(){}, blur(){}, click(){}, insertAdjacentHTML(){},
     scrollIntoView(){}, remove(){},
   };
   return el;

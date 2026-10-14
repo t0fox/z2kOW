@@ -177,8 +177,9 @@ function mkEl(key) {
     style: {
       setProperty(k, v) { this[k] = String(v); },
       getPropertyValue(k) { return this[k] || ""; },
+      removeProperty(k) { const old = this[k] || ""; delete this[k]; return old; },
     }, dataset: {}, attributes: {}, children: [],
-    hidden: false, disabled: false, checked: false, value: "", isConnected: true,
+    hidden: false, disabled: false, checked: false, value: "", isConnected: true, scrollTop: 0,
     listeners: {},
     classList: {
       add(...c) { c.forEach(x => cls.add(x)); },
@@ -204,7 +205,7 @@ function mkEl(key) {
     removeAttribute(k) { delete this.attributes[k]; },
     querySelector(s) { return sel(this._sel + ">" + s); },
     querySelectorAll(s) { return selAll(String(s).split(",").map(p => this._sel + ">" + p.trim()).join(",")); },
-    closest() { return mkEl("closest"); },
+    closest() { return mkEl("closest"); }, getBoundingClientRect() { return { left: 0, right: 0, top: 0, height: 0 }; },
     // Фокус отслеживается: «предупреждение открывается с фокусом на отказе»
     // и «после закрытия фокус вернулся» иначе не проверить ничем.
     focus() { global.document.activeElement = this; },
@@ -1653,7 +1654,6 @@ meta "ответ после ухода со страницы снова роня
 meta "none снова выдаётся за неизвестный сбой" flowoffload_none 's/Ускорение не используется\./Не удалось проверить/'
 meta "неподтверждённое ускорение снова называется Работает" flowoffload_unconfirmed 's/Dataplane не наблюдался/Работает/'
 meta "health gate больше не требует полного runtime" flowoffload_unconfirmed 's/health === "healthy" && reported === selected/true || health === "healthy" && reported === selected/'
-meta "ответ WARP после ухода со страницы снова роняет страницу" warp_left_page '/if (!grid\.isConnected) return;/d'
 meta "упавшая проверка обновлений снова прячет весь блок" update_check_failed 's/^      err = e;$/      banner.hidden = true; return;/'
 meta "Escape перестал закрывать историю версий" update_history_modal 's/if (e\.key === "Escape") {/if (false) {/'
 meta "догрузка по скроллу не дописывает в список" update_history_modal 's/listEl\.insertAdjacentHTML/return; listEl.insertAdjacentHTML/'

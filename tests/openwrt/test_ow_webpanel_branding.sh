@@ -51,10 +51,11 @@ grep -Fq '<svg id="brand-composite-logo"' "$REPO/webpanel/www/index.html" \
     && ! grep -Fq 'brand-logo-window' "$REPO/webpanel/www/style.css" \
     && grep -Fq 'viewBox="571 168 1166 240" width="214" height="44"' "$REPO/webpanel/www/index.html" \
     && grep -Fq '#brand-composite-logo { display: none; width: 214px; height: 44px;' "$REPO/webpanel/www/style.css" \
-    && grep -Fq '.brand-composite #brand-composite-logo { display: block;' "$REPO/webpanel/www/style.css" \
-    && grep -Fq '.brand-composite #brand-wordmark, .brand-composite #brand-profile-logo { display: none;' "$REPO/webpanel/www/style.css" \
+    && grep -Fq 'html.brand-profile-ready .brand-composite #brand-composite-logo { display: block;' "$REPO/webpanel/www/style.css" \
+    && grep -Fq 'html.brand-profile-ready .brand-composite #brand-wordmark,' "$REPO/webpanel/www/style.css" \
+    && grep -Fq 'html.brand-profile-ready .brand-composite #brand-profile-logo { display: none;' "$REPO/webpanel/www/style.css" \
     && grep -Fq '.topbar { padding: 0 var(--space-16); gap: 12px; }' "$REPO/webpanel/www/style.css" \
-    && _t_ok || _t_bad "the shared brand slot uses a transparent, sidebar-sized inline SVG lockup"
+    && _t_ok || _t_bad "слот бренда выбирает прозрачный inline SVG только после загрузки профиля"
 
 if node - "$REPO/webpanel/www/index.html" <<'NODE'
 const fs = require("fs");
