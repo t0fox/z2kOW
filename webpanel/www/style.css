@@ -1426,7 +1426,7 @@ html:not(.motion-ready) .sg-closed .sg-toggle .icon { transform: rotate(-90deg);
      ручкой давала 1.45:1 при требуемых 3:1 для элементов управления —
      выключенный тумблер выглядел ровной серой пилюлей без ручки, и понять,
      выключен он или просто «пустой», было нельзя. */
-  background: var(--z2k-switch-track, var(--switch-track));
+  background: var(--switch-track);
   border-radius: 22px;
   transition: background var(--dur-base) var(--spring-smooth);
 }
@@ -1441,9 +1441,34 @@ html:not(.motion-ready) .sg-closed .sg-toggle .icon { transform: rotate(-90deg);
   border-radius: 50%;
   transition: transform var(--dur-base) var(--spring-snappy);
 }
-.switch { --z2k-switch-offset: 0px; --z2k-switch-track: var(--switch-track); }
-.switch:has(input:checked) { --z2k-switch-offset: 18px; --z2k-switch-track: var(--accent); }
-.switch .slider::before { transform: translateX(var(--z2k-switch-offset)); }
+.switch input[type="checkbox"]:checked + .slider { background: var(--accent); }
+.switch input[type="checkbox"] + .slider::before { transform: translateX(0); }
+.switch input[type="checkbox"]:checked + .slider::before { transform: translateX(18px); }
+.switch.is-unknown::after {
+  content: "?";
+  position: absolute;
+  z-index: 2;
+  top: -5px;
+  right: -5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--warning);
+  color: var(--bg-card);
+  box-shadow: 0 0 0 1px var(--bg-card);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+.switch.is-unknown input[type="checkbox"] + .slider {
+  background: repeating-linear-gradient(135deg, var(--switch-track) 0 4px, var(--bg-card-hover) 4px 8px);
+  transition: none !important;
+}
+.switch.is-unknown input[type="checkbox"] + .slider::before {
+  transform: translateX(9px) !important;
+  transition: none !important;
+}
 .switch.loading { opacity: 0.5; pointer-events: none; }
 /* У выключенного тумблера не было НИКАКОГО отличия от рабочего: страница
    «Режимы» рендерит все переключатели disabled и включает их только после
@@ -3875,11 +3900,26 @@ html.motion-ready *::after {
   transition-duration: 0s !important;
   transition-delay: 0s !important;
 }
+html.motion-ready #app .switch .slider {
+  transition-property: background, box-shadow !important;
+  transition-duration: var(--dur-base) !important;
+  transition-timing-function: var(--spring-smooth) !important;
+}
+html.motion-ready #app .switch .slider::before {
+  transition-property: transform !important;
+  transition-duration: var(--dur-base) !important;
+  transition-timing-function: var(--spring-snappy) !important;
+}
+html.motion-ready #app .switch.is-unknown .slider,
+html.motion-ready #app .switch.is-unknown .slider::before { transition: none !important; }
 @media (min-width: 768px) {
   html.motion-ready #nav {
-    transition-property: left, width !important;
+    transition-property: width !important;
     transition-duration: var(--ow-motion-shell, 300ms) !important;
     transition-timing-function: cubic-bezier(.2, .8, .2, 1) !important;
+  }
+  html.motion-ready.brand-theme-ready #nav {
+    transition-property: left, width !important;
   }
   html.motion-ready #app {
     transition-property: margin-left, width !important;
@@ -3939,6 +3979,8 @@ html:not(.motion-ready) .sg-closed .sg-toggle .icon { transform: rotate(-90deg);
   html.motion-ready #panel-brand,
   html.motion-ready .topbar > .theme-toggle,
   html.motion-ready .nav-active-indicator { transition-duration: 0.001ms !important; }
+  html.motion-ready #app .switch .slider,
+  html.motion-ready #app .switch .slider::before { transition-duration: 0.001ms !important; }
 }
 
 /* Honor user preference for reduced motion. We don't fully disable visual

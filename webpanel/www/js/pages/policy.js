@@ -1,6 +1,7 @@
 import { refreshStatus } from "../core/loadorder.js";
+import { markSwitchUnknown, setSwitchChecked } from "../core/dom.js";
 import { toast } from "../core/toast.js";
-import { _activeJobs, awaitPanelBack } from "../job.js";
+import { _activeJobs, awaitPanelBack, setLockAware } from "../job.js";
 
 // Toggles that restart nfqws2 under the hood (see actions.sh:toggle_*).
 // After toggling we should wait for the service to come back to "active"
@@ -21,13 +22,19 @@ export const AUTOHOSTLIST_WARNING =
 
 // Дождаться панели и взять фактическое значение из конфига, а не гадать.
 export async function resyncToggle(key, box) {
-  const s = await awaitPanelBack();
-  if (!s || !s.toggles) return;
+  let s;
+  try { s = await awaitPanelBack(); }
+  catch (_) { s = null; }
+  if (!s?.toggles || (s.toggles[key] !== "0" && s.toggles[key] !== "1")) {
+    markSwitchUnknown(box);
+    setLockAware(box, true);
+    return;
+  }
   // За время ожидания юзер мог запустить новую задачу — её результат
   // свежее нашего чтения, не затираем.
   if (_activeJobs.size) return;
   const on = s.toggles[key] === "1";
-  box.checked = on;
+  setSwitchChecked(box, on);
   toast("Связь есть — фактически " + (on ? "включено" : "выключено"));
   refreshStatus();
 }

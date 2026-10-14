@@ -1,5 +1,5 @@
 import { apiGet, apiPost, errHtml, errMsg, toastErr } from "../core/api.js";
-import { $app, escapeHtml } from "../core/dom.js";
+import { $app, escapeHtml, markSwitchKnown, markSwitchUnknown, setSwitchChecked } from "../core/dom.js";
 import { _newLoad, _stale, applyCapabilities, refreshStatus } from "../core/loadorder.js";
 import { toast } from "../core/toast.js";
 import { JOB_FAIL, _updateGlobalUILock, confirmModal, jobOutcome, jobUnresolved, openJobModal, setLockAware, unresolvedMsg } from "../job.js";
@@ -510,6 +510,19 @@ const TOGGLE_DEFS = [
       </div>` },
 ];
 
+function toggleStatusIsComplete(s) {
+  if (!s || !s.toggles) return false;
+  const definitions = s.platform === "openwrt" ? TOGGLE_DEFS : TOGGLE_DEFS.filter(t => !t.openwrtOnly);
+  return definitions.every(t => s.toggles[t.key] === "0" || s.toggles[t.key] === "1");
+}
+
+function markTogglesUnknown() {
+  $app.querySelectorAll(".switch input[type=checkbox]").forEach(box => {
+    markSwitchUnknown(box);
+    setLockAware(box, true);
+  });
+}
+
 // Разброс запуска: z2k-auto-update.sh сдвигает старт на 0..60 минут
 // (z2k_host_jitter 3600) — одинаково для конкретного роутера, но по флоту
 // врассыпную, иначе тысяча роутеров придёт к GitHub в одну секунду.
@@ -645,7 +658,7 @@ const TOGGLE_API_NAME = {
 };
 
 function syncFastroute(box, toggles) {
-  box.checked = toggles.fastroute === "1";
+  setSwitchChecked(box, toggles.fastroute === "1");
   setLockAware(box, toggles.fastroute_available !== "1");
   const state = $app.querySelector("#fastroute-status");
   if (state) state.textContent = toggles.fastroute_status || "Состояние маршрутного кэша недоступно.";
@@ -657,6 +670,8 @@ async function refreshFastroute(box) {
     const s = await apiGet("/status");
     if (box.isConnected) syncFastroute(box, s.toggles);
   } catch (_) {
+    markSwitchUnknown(box);
+    setLockAware(box, true);
     const state = $app.querySelector("#fastroute-status");
     if (state) state.textContent = "Не удалось проверить состояние маршрутного кэша.";
   }
@@ -1532,7 +1547,7 @@ export async function renderToggles() {
             <div class="t-desc">${t.desc}</div>
             ${t.extra || ""}
           </div>
-          <label class="switch">
+          <label class="switch is-unknown" aria-busy="true">
             <input type="checkbox" disabled>
             <span class="slider"></span>
           </label>
@@ -1754,6 +1769,7 @@ export async function renderToggles() {
     let s;
     try {
       s = await apiGet("/status");
+      if (!toggleStatusIsComplete(s)) throw new Error("Ответ /status не содержит состояния всех переключателей.");
     } catch (e) {
       if (_stale("toggles", seq) || !onTogglesPage()) return;
       if (!errBox) return;
@@ -1762,10 +1778,7 @@ export async function renderToggles() {
       // знает даже, что включено. Свитчи глушим тем же проходом — после
       // удачной загрузки они уже разлочены, и повторный провал оставил бы их
       // живыми под текстом «заблокированы».
-      TOGGLE_DEFS.forEach(t => {
-        const row = $app.querySelector(`[data-key="${t.key}"]`);
-        if (row) setLockAware(row.querySelector("input"), true);
-      });
+      markTogglesUnknown();
       setLockAware($app.querySelector("#tg-enable"), true);
       setLockAware($app.querySelector("#tg-disable"), true);
       // Селектор времени — тот же класс: не зная состояния, панель не знает
@@ -1796,8 +1809,16 @@ export async function renderToggles() {
     let s;
     try {
       s = await apiGet("/status");
+      if (!toggleStatusIsComplete(s)) throw new Error("Ответ /status не содержит состояния всех переключателей.");
     } catch (e) {
-      if (!_stale("toggles", seq) && onTogglesPage()) toastErr("Не удалось обновить состояние режимов: ", e);
+      if (!_stale("toggles", seq) && onTogglesPage()) {
+        markTogglesUnknown();
+        toastErr("Не удалось обновить состояние режимов: ", e);
+        if (errBox) {
+          errBox.hidden = false;
+          errBox.innerHTML = `<p class="desc" style="color:var(--bad)">Не удалось обновить состояние: ${errHtml(e)}. Переключатели помечены как неизвестные и заблокированы.</p>`;
+        }
+      }
       return null;
     }
     if (_stale("toggles", seq) || !onTogglesPage()) return null;
@@ -1857,7 +1878,9 @@ export async function renderToggles() {
       const box = row.querySelector("input");
       if (t.key === "auto_update") auBox = box;
       const checked = s.toggles[t.key] === "1";
-      if (initial || box !== document.activeElement) box.checked = checked;
+      const control = box.closest(".switch");
+      if (control?.classList.contains("loading")) markSwitchKnown(box);
+      else setSwitchChecked(box, checked);
       if (t.key === "fastroute") {
         const state = row.querySelector("#fastroute-status");
         if (state) state.textContent = s.toggles.fastroute_status || "Состояние маршрутного кэша недоступно.";
@@ -1872,7 +1895,7 @@ export async function renderToggles() {
           // джоба: ответ придёт через десяток секунд, а тумблер уже стоит
           // в новом положении — расхождение выглядело бы как залипание.
           if (t.key === "auto_update") auHourSync(box);
-          toggleClick(t.key, box);
+          toggleClick(t.key, box, refreshTogglesState);
         });
       }
     });
@@ -2198,7 +2221,7 @@ export async function renderToggles() {
   _updateGlobalUILock();
 }
 
-async function toggleClick(key, box) {
+async function toggleClick(key, box, refreshToggles) {
   const sw = box.closest(".switch");
   const wanted = box.checked ? "1" : "0";
   if (key === "autohostlist" && wanted === "1") {
@@ -2217,7 +2240,7 @@ async function toggleClick(key, box) {
     box.disabled = false;
     if (!go) {
       // Событие change уже переставило чекбокс — возвращаем его сами.
-      box.checked = false;
+      setSwitchChecked(box, false);
       return;
     }
   }
@@ -2243,7 +2266,7 @@ async function toggleClick(key, box) {
   try {
     resp = await apiPost("/toggle/" + TOGGLE_API_NAME[key], { value: wanted });
   } catch (e) {
-    box.checked = !box.checked; // revert
+    setSwitchChecked(box, !box.checked); // revert
     box.disabled = false;
     sw.classList.remove("loading");
     toastErr("Ошибка: ", e);
@@ -2255,10 +2278,11 @@ async function toggleClick(key, box) {
     // opening a background-job modal would take longer than the operation.
     sw.classList.remove("loading");
     box.disabled = false;
-    box.checked = wanted === "1";
+    setSwitchChecked(box, wanted === "1");
     if (key === "auto_update") auHourSync(box);
     toast(wanted === "1" ? "Включено" : "Выключено");
-    refreshStatus();
+    if (refreshToggles) void refreshToggles();
+    else refreshStatus();
     return;
   }
   // Backend async — открываем модалку с live-логом. Состояние switch'а
@@ -2277,7 +2301,7 @@ async function toggleClick(key, box) {
       if (outcome === JOB_FAIL) {
         // Toggle failed — revert checkbox чтобы UI отражал реальное
         // состояние (старое значение сохранилось в config).
-        box.checked = !box.checked;
+        setSwitchChecked(box, !box.checked);
         toast(key === "fastroute" ? "Не удалось применить настройку — проверьте состояние кэша и журнал" : "Не получилось — вернул как было", "bad");
       } else if (jobUnresolved(outcome)) {
         // Итог неизвестен: в конфиге ничего не откатывалось, поэтому не
@@ -2293,15 +2317,23 @@ async function toggleClick(key, box) {
       if (key === "auto_update") auHourSync(box);
       if (key === "fastroute") {
         apiGet("/status").then(s => {
-          box.checked = s.toggles.fastroute === "1";
+          if (s.toggles?.fastroute !== "0" && s.toggles?.fastroute !== "1") throw new Error("Ответ /status не содержит состояние fastroute.");
+          setSwitchChecked(box, s.toggles.fastroute === "1");
           const state = $app.querySelector("#fastroute-status");
           if (state) state.textContent = s.toggles.fastroute_status || "Состояние маршрутного кэша недоступно.";
         }).catch(() => {
+          markSwitchUnknown(box);
+          setLockAware(box, true);
           const state = $app.querySelector("#fastroute-status");
           if (state) state.textContent = "Не удалось проверить состояние маршрутного кэша.";
         });
       }
-      if (restarts && !jobUnresolved(outcome)) setTimeout(refreshStatus, 500);
+      if (restarts && !jobUnresolved(outcome)) {
+        setTimeout(() => {
+          if (refreshToggles && box.isConnected) void refreshToggles();
+          else refreshStatus();
+        }, 500);
+      }
     },
   });
 }

@@ -18,6 +18,8 @@ assert.equal(/webpanel-lifecycle\.sh/.test(webpanelAdapter), false,
   'panel helpers do not load stock HTTP service mutations');
 const screenshotDir = process.env.OPENWRT_SCREENSHOT_DIR || '';
 if (screenshotDir) fs.mkdirSync(screenshotDir, { recursive: true });
+const switchScreenshotDir = process.env.OPENWRT_SWITCH_SCREENSHOT_DIR || '';
+if (switchScreenshotDir) fs.mkdirSync(switchScreenshotDir, { recursive: true });
 const screenshotPrefix = process.env.OPENWRT_SCREENSHOT_PREFIX
   ? `${process.env.OPENWRT_SCREENSHOT_PREFIX}-` : '';
 const tgScreenshotOnly = process.env.OPENWRT_TG_SCREENSHOT_ONLY === '1';
@@ -59,7 +61,8 @@ const pendingStatusResponses = [];
 const statusFixture = {
   ok: true, installed: 'p-86.1', running: true, service: 'active', platform: 'openwrt',
   toggles: {
-    game_warp: '0', customd: '0', dynamic_ttl: '1',
+    game_warp: '0', category_youtube: '1', category_rkn: '1', category_discord_voice: '1',
+    customd: '0', dynamic_ttl: '1',
     ppe: '1', auto_update: '1', autohostlist: '0', fastroute: '0',
     fastroute_available: '0', flowoffload: 'hardware',
     flowoffload_status: 'configured_mode=hardware; flowtable_state=present; flowtable_flags=offload; flowtable_devices=br-lan,wan; actual_dataplane=not-observed; exemption_rules=4; nfqueue_rules=8; nfqueue_packets=26061; packet_visibility=active; circular_state=active; hardware_capability=available; hardware_requested=1; hardware_observed=not-observed; hardware_state=requested; hw_offloaded_connections=0; software_offloaded_connections=3; offloaded_connections=3; selective_state=complete; owner_state=zapret2; owner_conflict=none; runtime_health=attention; runtime_health_reason=hardware-not-observed',
@@ -657,16 +660,362 @@ async function assertStrategyTabsAllowManualScroll(page, label) {
   assert.equal(position.scrollLeft, 0, `${label}: manual scrolling stays at the user's selected position (${JSON.stringify(position)})`);
 }
 
+async function readSwitchVisuals(page) {
+  return page.locator('#app .switch').evaluateAll(controls => {
+    const tokenColor = name => {
+      const probe = document.createElement('span');
+      probe.style.backgroundColor = `var(${name})`;
+      document.body.appendChild(probe);
+      const color = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return color;
+    };
+    return controls.map(control => {
+      const input = control.querySelector('input[type="checkbox"]');
+      const slider = control.querySelector('.slider');
+      const thumb = getComputedStyle(slider, '::before');
+      const matrix = thumb.transform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(thumb.transform);
+      const key = control.closest('[data-key]')?.dataset.key || input.id;
+      return {
+        key,
+        checked: input.checked,
+        disabled: input.disabled,
+        state: control.classList.contains('is-unknown') ? 'unknown' : 'known',
+        busy: control.getAttribute('aria-busy'),
+        track: getComputedStyle(slider).backgroundColor,
+        trackImage: getComputedStyle(slider).backgroundImage,
+        unknownMarker: getComputedStyle(control, '::after').content,
+        expectedTrack: tokenColor(input.checked ? '--accent' : '--switch-track'),
+        thumbX: matrix.m41,
+        expectedThumbX: input.checked ? 18 : 0,
+        inlineOffset: control.style.getPropertyValue('--z2k-switch-offset'),
+        inlineTrack: control.style.getPropertyValue('--z2k-switch-track'),
+      };
+    });
+  });
+}
+
+async function waitForSwitchTransitions(page) {
+  await page.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'),
+    null, { timeout: 5000 });
+  const maxDuration = await page.evaluate(() => {
+    const value = getComputedStyle(document.documentElement).getPropertyValue('--dur-base').trim();
+    const number = Number.parseFloat(value) || 0;
+    return number * (value.endsWith('ms') ? 1 : 1000) + 30;
+  });
+  await page.waitForTimeout(maxDuration);
+  await page.waitForFunction(() => [...document.querySelectorAll('#app .switch .slider')]
+    .every(slider => slider.getAnimations({ subtree: true }).every(animation => animation.playState !== 'running')),
+  null, { timeout: 1500 });
+}
+
+function assertSwitchVisuals(visuals, expected, label) {
+  const mismatches = visuals.filter(item => item.checked !== (expected[item.key] === '1')
+    || item.track !== item.expectedTrack || Math.abs(item.thumbX - item.expectedThumbX) > 0.1
+    || item.inlineOffset || item.inlineTrack || item.state !== 'known');
+  assert.deepEqual(mismatches, [], `${label}: checked → дорожка/кружок без inline override (${JSON.stringify(mismatches)})`);
+}
+
+async function runSwitchVisualTests() {
+  const switchKeys = ['category_youtube', 'category_rkn', 'category_discord_voice', 'customd',
+    'dynamic_ttl', 'ppe', 'fastroute', 'auto_update', 'autohostlist'];
+  const values = state => Object.fromEntries(switchKeys.map(key => [key, state[key] || '0']));
+  const allOn = values(Object.fromEntries(switchKeys.map(key => [key, '1'])));
+  const allOff = values({});
+  const mixed = values({ category_youtube: '1', category_rkn: '0', category_discord_voice: '1',
+    customd: '0', dynamic_ttl: '1', ppe: '0', fastroute: '1', auto_update: '0', autohostlist: '1' });
+
+  async function createPage({ theme = 'dark', gsap = true, state = mixed, delayed = false, failStatus = false } = {}) {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, colorScheme: theme });
+    const togglePosts = [];
+    let currentState = state;
+    let statusCalls = 0;
+    page.on('request', request => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname.includes('/toggle/')) togglePosts.push(request.url());
+    });
+    await page.addInitScript(mode => localStorage.setItem('z2k-theme', mode), theme);
+    if (!gsap) await page.route('**/assets/vendor/gsap.js*', route => route.abort('blockedbyclient'));
+    let hold = delayed;
+    let signalFirstStatus;
+    const firstStatus = new Promise(resolve => { signalFirstStatus = resolve; });
+    const pending = [];
+    page.route('**/cgi-bin/api/status', async route => {
+      statusCalls += 1;
+      if (pending.length === 0 && hold) signalFirstStatus();
+      if (hold) await new Promise(resolve => pending.push(resolve));
+      if (failStatus) {
+        await route.fulfill({ status: 503, contentType: 'application/json',
+          body: JSON.stringify({ ok: false, error: 'Тестовая недоступность /status' }) });
+        return;
+      }
+      const fixture = structuredClone(statusFixture);
+      fixture.toggles = { ...fixture.toggles, ...currentState };
+      fixture.capabilities = { ...fixture.capabilities, ppe: true };
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture) });
+    });
+    return {
+      page,
+      firstStatus,
+      togglePosts,
+      get statusCalls() { return statusCalls; },
+      setState(next) { currentState = next; },
+      releaseStatus() { hold = false; pending.splice(0).forEach(resolve => resolve()); },
+    };
+  }
+
+  const delayed = await createPage({ state: allOn, delayed: true });
+  await delayed.page.goto(`${base}/#/toggles`);
+  await waitForRenderedRoute(delayed.page, 'toggles');
+  await delayed.firstStatus;
+  const delayedBefore = await readSwitchVisuals(delayed.page);
+  assert.ok(delayedBefore.length >= switchKeys.length, 'задержанный /status оставляет все строки режимов на странице');
+  delayed.releaseStatus();
+  await delayed.page.waitForFunction(() => {
+    const input = document.querySelector('[data-key="category_youtube"] input');
+    return input && !input.disabled;
+  }, null, { timeout: 3000 });
+  await waitForSwitchTransitions(delayed.page);
+  const delayedAfter = await readSwitchVisuals(delayed.page);
+  console.log(`Измерение задержанного /status: ${delayedAfter.filter(item => item.checked).length}/${delayedAfter.length} включены; дорожка ${delayedAfter[0].track}; кружок ${delayedAfter[0].thumbX}px; inline overrides пусты`);
+  assertSwitchVisuals(delayedAfter, allOn, 'задержанный /status со всеми включёнными режимами');
+  if (switchScreenshotDir) {
+    const reproducedBefore = await delayed.page.evaluate(() => {
+      const legacy = document.createElement('style');
+      legacy.id = 'legacy-switch-variables';
+      legacy.textContent = '.switch .slider { background: var(--z2k-switch-track, var(--switch-track)) !important; } .switch .slider::before { transform: translateX(var(--z2k-switch-offset, 0px)) !important; }';
+      document.head.appendChild(legacy);
+      document.querySelectorAll('#app .switch').forEach(control => {
+        control.style.setProperty('--z2k-switch-offset', '0px');
+        control.style.setProperty('--z2k-switch-track', 'var(--switch-track)');
+      });
+      return true;
+    });
+    assert.equal(reproducedBefore, true);
+    await waitForSwitchTransitions(delayed.page);
+    const beforeVisuals = await readSwitchVisuals(delayed.page);
+    assert.ok(beforeVisuals.every(item => item.checked && item.inlineOffset === '0px' && item.inlineTrack),
+      'контрольный снимок воспроизводит старое inline-состояние при checked=true');
+    await delayed.page.screenshot({ path: path.join(switchScreenshotDir, 'before-stale-inline.png'), fullPage: true });
+    await delayed.page.evaluate(() => {
+      document.getElementById('legacy-switch-variables')?.remove();
+      document.querySelectorAll('#app .switch').forEach(control => {
+        control.style.removeProperty('--z2k-switch-offset');
+        control.style.removeProperty('--z2k-switch-track');
+      });
+    });
+    await waitForSwitchTransitions(delayed.page);
+    const afterVisuals = await readSwitchVisuals(delayed.page);
+    assertSwitchVisuals(afterVisuals, allOn, 'после удаления старого inline override');
+    await delayed.page.screenshot({ path: path.join(switchScreenshotDir, 'after-backend-state.png'), fullPage: true });
+    fs.writeFileSync(path.join(switchScreenshotDir, 'measurements.json'), JSON.stringify({
+      note: 'До: CSS/inline variables старого syncSwitches воспроизведены при backend=1; после: реальный checked определяет вид.',
+      before: beforeVisuals,
+      after: afterVisuals,
+    }, null, 2) + '\n');
+  }
+  assert.ok(delayedBefore.every(item => item.state === 'unknown' && item.busy === 'true' && item.disabled),
+    `пока API отвечает, состояние помечено неизвестным (${JSON.stringify(delayedBefore)})`);
+  assert.ok(delayedBefore.every(item => item.trackImage.includes('repeating-linear-gradient')
+    && Math.abs(item.thumbX - 9) < 0.1 && item.unknownMarker === '"?"'),
+  `до ответа API тумблеры явно показывают неизвестное состояние (${JSON.stringify(delayedBefore)})`);
+  assert.equal(await delayed.page.evaluate(() => window.gsap?.version || ''), '3.15.0', 'проверка выполняется с GSAP');
+  const delayedTransitions = await delayed.page.locator('#app .switch').first().evaluate(node => ({
+    track: getComputedStyle(node.querySelector('.slider')).transitionProperty,
+    thumb: getComputedStyle(node.querySelector('.slider'), '::before').transitionProperty,
+  }));
+  assert.match(delayedTransitions.track, /background/, 'GSAP не отключает CSS-переход дорожки');
+  assert.match(delayedTransitions.thumb, /transform/, 'GSAP не отключает CSS-переход кружка');
+  assert.deepEqual(delayed.togglePosts, [], 'GET /status не отправляет POST для визуальной синхронизации');
+  await delayed.page.close();
+
+  const off = await createPage({ state: allOff });
+  await off.page.goto(`${base}/#/toggles`);
+  await waitForRenderedRoute(off.page, 'toggles');
+  await off.page.waitForFunction(() => [...document.querySelectorAll('#app .switch input')]
+    .every(input => !input.closest('.switch').classList.contains('is-unknown')), null, { timeout: 3000 });
+  await waitForSwitchTransitions(off.page);
+  assertSwitchVisuals(await readSwitchVisuals(off.page), allOff, 'все режимы выключены');
+  assert.deepEqual(off.togglePosts, [], 'GET /status со всеми нулями не отправляет POST');
+  await off.page.close();
+
+  const mixedPage = await createPage({ state: mixed });
+  await mixedPage.page.goto(`${base}/#/toggles`);
+  await waitForRenderedRoute(mixedPage.page, 'toggles');
+  await mixedPage.page.waitForFunction(() => [...document.querySelectorAll('#app .switch input')]
+    .every(input => !input.closest('.switch').classList.contains('is-unknown')), null, { timeout: 3000 });
+  await waitForSwitchTransitions(mixedPage.page);
+  assertSwitchVisuals(await readSwitchVisuals(mixedPage.page), mixed, 'смешанные значения backend');
+  await mixedPage.page.evaluate(() => {
+    document.querySelectorAll('#app .switch input').forEach(input => { input.checked = !input.checked; });
+  });
+  await mixedPage.page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await waitForSwitchTransitions(mixedPage.page);
+  const programmatic = await readSwitchVisuals(mixedPage.page);
+  const inverted = Object.fromEntries(Object.entries(mixed).map(([key, value]) => [key, value === '1' ? '0' : '1']));
+  assertSwitchVisuals(programmatic, inverted, 'программное изменение checked без change');
+  assert.deepEqual(mixedPage.togglePosts, [], 'присваивание checked без change не отправляет POST');
+  await mixedPage.page.close();
+
+  for (const theme of ['dark', 'light']) {
+    for (const gsap of [true, false]) {
+      const pageContext = await createPage({ theme, gsap, state: mixed });
+      await pageContext.page.goto(`${base}/#/toggles`);
+      await waitForRenderedRoute(pageContext.page, 'toggles');
+      await pageContext.page.waitForFunction(() => [...document.querySelectorAll('#app .switch input')]
+        .every(input => !input.closest('.switch').classList.contains('is-unknown')), null, { timeout: 3000 });
+      await waitForSwitchTransitions(pageContext.page);
+      assertSwitchVisuals(await readSwitchVisuals(pageContext.page), mixed, `${theme}, GSAP ${gsap ? 'включён' : 'отключён'}`);
+      if (gsap) {
+        const transitions = await pageContext.page.locator('#app .switch').first().evaluate(control => ({
+          track: getComputedStyle(control.querySelector('.slider')).transitionProperty,
+          thumb: getComputedStyle(control.querySelector('.slider'), '::before').transitionProperty,
+        }));
+        assert.match(transitions.track, /background/, `${theme}: CSS сохраняет переход дорожки при motion-ready`);
+        assert.match(transitions.thumb, /transform/, `${theme}: CSS сохраняет переход кружка при motion-ready`);
+      }
+      await pageContext.page.close();
+    }
+  }
+
+  const failure = await createPage({ state: allOff });
+  let failedTogglePosts = 0;
+  await failure.page.route('**/cgi-bin/api/toggle/**', route => {
+    failedTogglePosts += 1;
+    return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'Тестовая ошибка применения' }) });
+  });
+  await failure.page.goto(`${base}/#/toggles`);
+  await waitForRenderedRoute(failure.page, 'toggles');
+  await failure.page.locator('[data-key="category_youtube"] input').check({ force: true });
+  await failure.page.waitForFunction(() => document.querySelector('[data-key="category_youtube"] input')?.checked === false,
+    null, { timeout: 3000 });
+  assert.equal(failedTogglePosts, 1, 'ошибка применения получена после одного пользовательского изменения');
+  await waitForSwitchTransitions(failure.page);
+  assertSwitchVisuals(await readSwitchVisuals(failure.page), allOff, 'откат после ошибки применения');
+  await failure.page.close();
+
+  const jobFailure = await createPage({ state: allOff });
+  await jobFailure.page.route('**/cgi-bin/api/toggle/**', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, job: 'switch-failure-fixture' }),
+  }));
+  await jobFailure.page.route('**/cgi-bin/api/job*', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ done: true, exit: 1, status: 'failed', log: 'Тестовый провал задачи' }),
+  }));
+  await jobFailure.page.goto(`${base}/#/toggles`);
+  await waitForRenderedRoute(jobFailure.page, 'toggles');
+  await jobFailure.page.locator('[data-key="category_youtube"] input').check({ force: true });
+  await jobFailure.page.waitForFunction(() => {
+    const input = document.querySelector('[data-key="category_youtube"] input');
+    return input?.checked === false && !input.disabled && !input.closest('.switch').classList.contains('loading');
+  }, null, { timeout: 3000 });
+  await waitForSwitchTransitions(jobFailure.page);
+  assertSwitchVisuals(await readSwitchVisuals(jobFailure.page), allOff, 'откат после ошибки фоновой задачи');
+  await jobFailure.page.close();
+
+  const restart = await createPage({ state: allOff });
+  await restart.page.route('**/cgi-bin/api/toggle/**', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, job: 'switch-restart-fixture' }),
+  }));
+  await restart.page.route('**/cgi-bin/api/job*', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ done: true, exit: 0, status: 'done', log: 'Тестовый рестарт завершён' }),
+  }));
+  await restart.page.goto(`${base}/#/toggles`);
+  await waitForRenderedRoute(restart.page, 'toggles');
+  const statusCallsBeforeRestart = restart.statusCalls;
+  restart.setState({ ...allOff, category_youtube: '1' });
+  await restart.page.locator('[data-key="category_youtube"] input').check({ force: true });
+  await restart.page.waitForFunction(() => {
+    const input = document.querySelector('[data-key="category_youtube"] input');
+    return input?.checked === true && !input.disabled && !input.closest('.switch').classList.contains('loading');
+  }, null, { timeout: 3000 });
+  await waitForCondition(() => restart.statusCalls > statusCallsBeforeRestart, 'GET /status после фонового рестарта', 3000);
+  await waitForSwitchTransitions(restart.page);
+  assertSwitchVisuals(await readSwitchVisuals(restart.page), { ...allOff, category_youtube: '1' },
+    'GET /status после завершения рестарта');
+  assert.ok(restart.statusCalls > statusCallsBeforeRestart, 'после фонового рестарта перечитан backend status');
+  await restart.page.close();
+
+  const unavailable = await createPage({ failStatus: true });
+  await unavailable.page.goto(`${base}/#/toggles`);
+  await waitForRenderedRoute(unavailable.page, 'toggles');
+  await unavailable.page.locator('#toggles-error').waitFor({ state: 'visible' });
+  const unavailableVisuals = await readSwitchVisuals(unavailable.page);
+  assert.ok(unavailableVisuals.every(item => item.state === 'unknown' && item.busy === 'true' && item.disabled),
+    `ошибка API показывает неизвестное состояние вместо выключенных режимов (${JSON.stringify(unavailableVisuals)})`);
+  assert.ok(unavailableVisuals.every(item => item.trackImage.includes('repeating-linear-gradient')
+    && Math.abs(item.thumbX - 9) < 0.1 && item.unknownMarker === '"?"'),
+  `ошибка API визуально отличается от выключенного состояния (${JSON.stringify(unavailableVisuals)})`);
+  await unavailable.page.close();
+
+  const unavailableAfterKnownOn = await createPage({ state: mixed });
+  await unavailableAfterKnownOn.page.goto(`${base}/#/toggles`);
+  await waitForRenderedRoute(unavailableAfterKnownOn.page, 'toggles');
+  await unavailableAfterKnownOn.page.waitForFunction(() => {
+    const input = document.querySelector('[data-key="category_rkn"] input');
+    return input && !input.disabled && !input.closest('.switch').classList.contains('is-unknown');
+  }, null, { timeout: 3000 });
+  await unavailableAfterKnownOn.page.route('**/cgi-bin/api/status', route => route.fulfill({
+    status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'Тестовая ошибка повторного /status' }),
+  }));
+  await unavailableAfterKnownOn.page.route('**/cgi-bin/api/toggle/**', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }),
+  }));
+  await unavailableAfterKnownOn.page.locator('[data-key="category_rkn"] input').focus();
+  await unavailableAfterKnownOn.page.keyboard.press('Space');
+  await unavailableAfterKnownOn.page.waitForFunction(() => {
+    const input = document.querySelector('[data-key="category_rkn"] input');
+    return input?.checked === true && input.closest('.switch').classList.contains('is-unknown');
+  }, null, { timeout: 3000 });
+  const staleKnownVisuals = await readSwitchVisuals(unavailableAfterKnownOn.page);
+  const staleKnownOn = staleKnownVisuals.find(item => item.key === 'category_rkn');
+  assert.equal(staleKnownOn.checked, true, 'неподтверждённый checked остаётся только техническим значением');
+  assert.equal(staleKnownOn.state, 'unknown');
+  assert.ok(staleKnownOn.trackImage.includes('repeating-linear-gradient') && staleKnownOn.unknownMarker === '"?"',
+    `повторная ошибка /status визуально перекрывает устаревшее checked=true (${JSON.stringify(staleKnownOn)})`);
+  await unavailableAfterKnownOn.page.close();
+
+  const history = await createPage({ state: mixed });
+  await history.page.goto(`${base}/#/toggles`);
+  await waitForRenderedRoute(history.page, 'toggles');
+  await waitForSwitchTransitions(history.page);
+  assertSwitchVisuals(await readSwitchVisuals(history.page), mixed, 'первая загрузка перед навигацией');
+  await history.page.locator('a[data-route="dashboard"]').click();
+  await waitForRenderedRoute(history.page, 'dashboard');
+  for (const route of ['toggles', 'dashboard', 'toggles']) {
+    await history.page.evaluate(name => { location.hash = `#/${name}`; }, route);
+    await waitForRenderedRoute(history.page, route);
+  }
+  await waitForSwitchTransitions(history.page);
+  assertSwitchVisuals(await readSwitchVisuals(history.page), mixed, 'быстрый возврат на страницу режимов');
+  await history.page.reload();
+  await waitForRenderedRoute(history.page, 'toggles');
+  await waitForSwitchTransitions(history.page);
+  assertSwitchVisuals(await readSwitchVisuals(history.page), mixed, 'Reload');
+  await history.page.locator('a[data-route="dashboard"]').click();
+  await waitForRenderedRoute(history.page, 'dashboard');
+  await history.page.goBack();
+  await waitForRenderedRoute(history.page, 'toggles');
+  await waitForSwitchTransitions(history.page);
+  assertSwitchVisuals(await readSwitchVisuals(history.page), mixed, 'Back');
+  await history.page.goForward();
+  await waitForRenderedRoute(history.page, 'dashboard');
+  await history.page.close();
+
+  console.log('PASS: checked, дорожка, кружок и unknown для задержанного/ошибочного /status, dark/light, GSAP/fallback, программного изменения, отката, маршрутов и истории');
+}
+
 const motionOnly = process.env.OPENWRT_MOTION_ONLY === '1';
+const switchOnly = process.env.OPENWRT_SWITCH_ONLY === '1';
 let testedRouteCount = 0;
 let totalModuleResponses = 0;
-if (motionOnly) {
+if (motionOnly || switchOnly) {
   holdStatusResponses = false;
   tgRunningFixture = true;
 }
 
 try {
-  if (!motionOnly) {
+  if (switchOnly) {
+    await runSwitchVisualTests();
+  } else if (!motionOnly) {
   // The old URL is a representative filter-list match. The renamed URL must
   // never be requested as a required bootstrap dependency.
   let oldBootstrapRequests = 0;
@@ -742,6 +1091,7 @@ try {
     }, appearance);
     await page.goto(`${base}/#/dashboard`);
     await waitForRenderedRoute(page, 'dashboard');
+    await page.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
     assert.equal(await page.evaluate(() => window.gsap?.version || ''), '3.15.0',
       `${appearance}: локальный GSAP загружается до модулей приложения`);
     assert.ok(moduleResponses.some(response => new URL(response.url).pathname.endsWith('/assets/vendor/gsap.js')
@@ -2343,10 +2693,21 @@ try {
       null, { timeout: 1200 });
     routeRenderedBeforeTheme = true;
   } catch {}
+  const beforeSlowTheme = await themeSlow.evaluate(() => ({
+    ready: document.documentElement.classList.contains('brand-theme-ready'),
+    navTransition: getComputedStyle(document.querySelector('#nav')).transitionProperty,
+    navLeft: document.querySelector('#nav').getBoundingClientRect().left,
+  }));
+  assert.equal(beforeSlowTheme.ready, false, 'медленная опциональная тема ещё не разрешила переход положения меню');
+  assert.doesNotMatch(beforeSlowTheme.navTransition, /(^|,\s*)left(,|$)/,
+    `задержанная тема не запускает анимацию положения меню (${JSON.stringify(beforeSlowTheme)})`);
   await releaseThemeRequest();
   assert.equal(routeRenderedBeforeTheme, true,
     'a slow optional brand theme never blocks the first route render');
   await waitForRenderedRoute(themeSlow, 'dashboard');
+  await themeSlow.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
+  assert.match(await themeSlow.locator('#nav').evaluate(node => getComputedStyle(node).transitionProperty), /(^|,\s*)left(,|$)/,
+    'после загрузки темы положение меню анимируется при действиях пользователя');
   await themeSlow.close();
 
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: 'dark', isMobile: true, hasTouch: true });
@@ -4128,7 +4489,9 @@ try {
     await motionPage.close();
     fs.copyFileSync(await telegramVideo.path(), path.join(videoDir, 'telegram-polling-30s.webm'));
   }
-  if (!motionOnly) {
+  if (switchOnly) {
+    console.log('PASS: изолированная Playwright-матрица переключателей');
+  } else if (!motionOnly) {
     // A genuinely broken required module graph receives a visible failure state.
     const broken = await browser.newPage();
     await broken.route('**/js/pages/dashboard.js*', route => route.abort('failed'));

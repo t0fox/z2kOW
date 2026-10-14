@@ -1,5 +1,5 @@
 import { apiGet, apiPost, errHtml, toastErr } from "../core/api.js";
-import { $app, escapeHtml, humanAgo } from "../core/dom.js";
+import { $app, escapeHtml, humanAgo, markSwitchUnknown, setSwitchChecked } from "../core/dom.js";
 import { _newLoad, _stale } from "../core/loadorder.js";
 import { JOB_FAIL, jobOutcome, jobUnresolved, openJobModal, setLockAware, unresolvedMsg } from "../job.js";
 import { toast } from "../core/toast.js";
@@ -602,8 +602,10 @@ async function refreshTikTokPage() {
     if (_stale("tiktok", seq) || !document.getElementById("tiktok-toggle")) return;
     const toggle = document.getElementById("tiktok-toggle");
     const supported = state.platform === "openwrt";
-    toggle.disabled = !supported;
-    toggle.checked = !!(state.toggles && state.toggles.tiktok_feed === "1");
+    const enabled = state.toggles?.tiktok_feed;
+    if (enabled === "0" || enabled === "1") setSwitchChecked(toggle, enabled === "1");
+    else markSwitchUnknown(toggle);
+    toggle.disabled = !supported || (enabled !== "0" && enabled !== "1");
     const nav = document.querySelector('a[data-route="tiktok"]');
     if (nav) nav.style.display = supported ? "" : "none";
     const unsupported = document.getElementById("tiktok-unsupported");
@@ -612,7 +614,9 @@ async function refreshTikTokPage() {
   } catch (error) {
     const note = document.getElementById("tiktok-error");
     if (note) note.innerHTML = `Не удалось прочитать состояние: ${errHtml(error)}`;
-    setLockAware(document.getElementById("tiktok-toggle"), true);
+    const toggle = document.getElementById("tiktok-toggle");
+    markSwitchUnknown(toggle);
+    setLockAware(toggle, true);
   }
 }
 
@@ -639,7 +643,7 @@ async function changeTikTok(enabled) {
       },
     });
   } catch (error) {
-    toggle.checked = !enabled;
+    setSwitchChecked(toggle, !enabled);
     toggle.disabled = false;
     toastErr("Не удалось изменить TikTok Fix: ", error);
   }
@@ -651,7 +655,7 @@ export async function renderTikTok() {
     <div class="card">
       <h3>Исправление ленты TikTok</h3>
       <p class="desc">Автоматически подбирает рабочий CDN. Можно выбрать проверенный узел вручную и настроить политику для каждого управляемого домена.</p>
-      <div class="toggle-row"><div class="t-text"><div class="t-name">Исправление ленты</div><div class="t-desc">DNS-подмена применяется только к пяти управляемым CDN-доменам.</div></div><label class="switch"><input id="tiktok-toggle" type="checkbox" disabled><span class="slider"></span></label></div>
+      <div class="toggle-row"><div class="t-text"><div class="t-name">Исправление ленты</div><div class="t-desc">DNS-подмена применяется только к пяти управляемым CDN-доменам.</div></div><label class="switch is-unknown" aria-busy="true"><input id="tiktok-toggle" type="checkbox" disabled><span class="slider"></span></label></div>
       <p id="tiktok-error" class="desc" role="alert"></p>
       <p id="tiktok-unsupported" class="desc" hidden>Этот раздел доступен только на OpenWrt.</p>
     </div>

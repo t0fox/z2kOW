@@ -31,7 +31,7 @@
      объявлена через @font-face в style.css (webpanel/www/fonts/). -->
 <link rel="stylesheet" href="style.css?v=p-86.13">
 <!-- Keep optional branding off the route boot path; apply it as soon as its local CSS is ready. -->
-<link id="brand-profile-theme" rel="stylesheet" media="print" onload="this.media='all';this.onload=null" href="/assets/openwrt/theme.css">
+<link id="brand-profile-theme" rel="stylesheet" media="print" onload="this.media='all';this.onload=null;requestAnimationFrame(function(){requestAnimationFrame(function(){document.documentElement.classList.add('brand-theme-ready')})})" href="/assets/openwrt/theme.css">
 <link id="brand-favicon" rel="icon" href="favicon.svg?v=p-86.13" type="image/svg+xml" sizes="any">
 <link id="brand-mask-icon" rel="mask-icon" href="favicon.svg?v=p-86.13" color="#00BA78">
 </head>
@@ -204,7 +204,15 @@
           themeLink.rel = "stylesheet";
           document.head.appendChild(themeLink);
         }
-        if (themeLink.href !== new URL(theme, document.baseURI).href) themeLink.href = theme;
+        if (themeLink.href !== new URL(theme, document.baseURI).href) {
+          document.documentElement.classList.remove("brand-theme-ready");
+          themeLink.onload = function () {
+            requestAnimationFrame(function () {
+              requestAnimationFrame(function () { document.documentElement.classList.add("brand-theme-ready"); });
+            });
+          };
+          themeLink.href = theme;
+        }
         window.__z2kBrandName = name;
         if (typeof window.__z2kRefreshRouteTitle === "function") window.__z2kRefreshRouteTitle();
       })

@@ -298,7 +298,7 @@ html[data-theme="light"] { scrollbar-color: #8CA29A transparent; }
   border-right-color: var(--ow-border-subtle);
   gap: 4px;
   padding: 8px 10px 12px;
-  transition: left var(--ow-motion-shell) ease, width var(--ow-motion-shell) ease;
+  transition: width var(--ow-motion-shell) ease;
 }
 body {
   padding-left: 0;

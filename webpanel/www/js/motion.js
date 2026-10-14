@@ -382,7 +382,6 @@ function initStateObserver() {
           if (node.nodeType !== 1) continue;
           scanActivities(node);
           rememberInteractions(node);
-          syncSwitches(node);
         }
         const target = record.target instanceof Element ? record.target : record.target.parentElement;
         if (target && (target.matches("[role=status],[aria-live],.tcp16-state,.policy-status,.job-modal-status")
@@ -409,43 +408,6 @@ function initActivityObserver() {
   }
   scanActivities(document.body);
   document.addEventListener("visibilitychange", visibilityChanged);
-}
-
-function switchColors(checked) {
-  const root = getComputedStyle(document.documentElement);
-  return {
-    "--z2k-switch-offset": checked ? "18px" : "0px",
-    "--z2k-switch-track": root.getPropertyValue(checked ? "--accent" : "--switch-track").trim(),
-  };
-}
-
-function switchState(input) {
-  const control = input instanceof HTMLInputElement && input.closest(".switch");
-  if (!control) return;
-  if (reduced || !hasGsap) {
-    control.style.removeProperty("--z2k-switch-offset");
-    control.style.removeProperty("--z2k-switch-track");
-    return;
-  }
-  gsap.set(control, switchColors(!input.checked));
-  to(control, { ...switchColors(input.checked), duration: duration.base, ease: ease.standard,
-    onComplete: () => {
-      control.style.removeProperty("--z2k-switch-offset");
-      control.style.removeProperty("--z2k-switch-track");
-    } }, "switch-state");
-}
-
-function switchChanged(event) {
-  if (event.target instanceof HTMLInputElement && event.target.matches(".switch input[type=checkbox]")) switchState(event.target);
-}
-
-function syncSwitches(root) {
-  const controls = root instanceof Element && root.matches(".switch") ? [root] : [];
-  root.querySelectorAll?.(".switch").forEach(control => controls.push(control));
-  controls.forEach(control => {
-    const input = control.querySelector("input[type=checkbox]");
-    if (input) gsap.set(control, switchColors(input.checked));
-  });
 }
 
 function setReduced(value) {
@@ -522,10 +484,8 @@ function init() {
   document.addEventListener("pointerdown", pressIn, true);
   document.addEventListener("pointerup", pressOut, true);
   document.addEventListener("pointercancel", pressOut, true);
-  document.addEventListener("change", switchChanged, true);
   initStateObserver();
   initActivityObserver();
-  syncSwitches(document.body);
   animateActivityOnReducedChange();
 }
 
@@ -687,7 +647,6 @@ export const motion = Object.freeze({
   numberTo,
   progressTo,
   status,
-  switchState,
   refreshActivity: scanActivities,
   snapshot: target => ({
     activeTweens: gsap && target ? gsap.getTweensOf(target).length : 0,

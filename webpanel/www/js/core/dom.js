@@ -10,6 +10,28 @@ export const $toastStack = document.getElementById("toast-stack");
 
 export const $nav = document.getElementById("nav");
 
+export function markSwitchKnown(input) {
+  if (!(input instanceof HTMLInputElement)) return;
+  const control = input.closest(".switch");
+  if (!control) return;
+  control.classList.remove("is-unknown");
+  control.setAttribute("aria-busy", "false");
+}
+
+export function setSwitchChecked(input, checked) {
+  if (!(input instanceof HTMLInputElement)) return;
+  input.checked = Boolean(checked);
+  markSwitchKnown(input);
+}
+
+export function markSwitchUnknown(input) {
+  if (!(input instanceof HTMLInputElement)) return;
+  const control = input.closest(".switch");
+  if (!control) return;
+  control.classList.add("is-unknown");
+  control.setAttribute("aria-busy", "true");
+}
+
 export function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"

@@ -1,5 +1,5 @@
 import { apiGet, apiGetText, apiPost, apiPostText, errHtml, toastErr } from "../core/api.js";
-import { $app, _icons, escapeHtml, humanAgo, skeletonBlocks, skeletonLines, statusIcon } from "../core/dom.js";
+import { $app, _icons, escapeHtml, humanAgo, markSwitchKnown, markSwitchUnknown, setSwitchChecked, skeletonBlocks, skeletonLines, statusIcon } from "../core/dom.js";
 import { _newLoad, _stale } from "../core/loadorder.js";
 import { toast } from "../core/toast.js";
 import { JOB_FAIL, _updateGlobalUILock, awaitPanelBack, foreignJobsActive, jobOutcome, jobUnresolved, openJobModal, setLockAware, trackJob, unresolvedMsg } from "../job.js";
@@ -157,7 +157,7 @@ export async function renderWarp() {
             Без списков через WARP идёт IPv4 интернет-трафик выбранных устройств; если устройств тоже не выбрано — всей локальной сети.
             Локальные и частные сети остаются доступны напрямую.</div>
         </div>
-        <label class="switch" id="warp-switch" hidden>
+        <label class="switch is-unknown" id="warp-switch" aria-busy="true" hidden>
           <input type="checkbox" disabled>
           <span class="slider"></span>
         </label>
@@ -176,7 +176,7 @@ export async function renderWarp() {
           <div class="t-name">Клиенты WireGuard-сервера через WARP</div>
           <div class="t-desc">Когда включены списки или действует режим всей локальной сети, IPv4 интернет-трафик клиентов WireGuard-сервера тоже может идти через WARP. Выключено — их трафик идёт напрямую.</div>
         </div>
-        <label class="switch">
+        <label class="switch is-unknown" aria-busy="true">
           <input type="checkbox" id="warp-wdtt-toggle" disabled>
           <span class="slider"></span>
         </label>
@@ -347,6 +347,7 @@ async function loadWarpNeighbors() {
       <div class="warp-games">${offline.map(row).join("")}</div>
     </details>` : "");
   host.querySelectorAll("[data-mac] input").forEach(box => {
+    markSwitchKnown(box);
     box.addEventListener("change", () => warpNeighborToggle(box));
   });
 }
@@ -362,7 +363,7 @@ async function warpNeighborToggle(box) {
     loadWarpDevices();
     loadWarpStatus();
   } catch (e) {
-    box.checked = !box.checked;
+    setSwitchChecked(box, !box.checked);
     toastErr("Не сохранилось: ", e);
   } finally {
     box.disabled = false;
@@ -407,6 +408,7 @@ async function loadWarpGames() {
         </label>
       </div>`).join("")}`;
   host.querySelectorAll("[data-game] input").forEach(box => {
+    markSwitchKnown(box);
     box.addEventListener("change", () => warpGameToggle(box));
   });
 }
@@ -439,7 +441,7 @@ async function warpGameToggle(box) {
   try {
     await apiPost("/warp/games/toggle", { name: name, value: wanted });
   } catch (e) {
-    box.checked = !box.checked;   // revert: the server did not accept it
+    setSwitchChecked(box, !box.checked);   // revert: the server did not accept it
     toastErr("Ошибка: ", e);
     box.disabled = false;
     return;
@@ -458,6 +460,11 @@ async function loadWarpStatus() {
     d = await apiGet("/warp/status");
   } catch (e) {
     if (_stale("warpStatus", seq)) return;
+    [document.querySelector("#warp-switch input"), document.getElementById("warp-wdtt-toggle")].forEach(box => {
+      if (!box) return;
+      markSwitchUnknown(box);
+      setLockAware(box, true);
+    });
     grid.innerHTML = `<div class="status-cell bad"><div class="label">Ошибка</div><div class="value">${errHtml(e)}</div></div>`;
     return;
   }
@@ -465,6 +472,15 @@ async function loadWarpStatus() {
   // The request may finish after the router has rendered another page. The
   // old grid is then detached; do not write a late response into dead DOM.
   if (!grid.isConnected) return;
+  if (d.enabled !== "0" && d.enabled !== "1") {
+    [document.querySelector("#warp-switch input"), document.getElementById("warp-wdtt-toggle")].forEach(box => {
+      if (!box) return;
+      markSwitchUnknown(box);
+      setLockAware(box, true);
+    });
+    grid.innerHTML = '<div class="status-cell bad"><div class="label">Ошибка</div><div class="value">Состояние WARP неизвестно.</div></div>';
+    return;
+  }
   const enabled = d.enabled === "1";
   const installed = !!d.installed;
   const domainState = document.getElementById("warp-domain-state");
@@ -509,7 +525,8 @@ async function loadWarpStatus() {
   // «всегда» возвращала тумблер во «вкл» через секунду после того, как его
   // выключили, — ровно в тот момент, когда им прерывают зависшее включение.
   if (box) {
-    if (!warpActing()) box.checked = enabled;
+    if (!warpActing()) setSwitchChecked(box, enabled);
+    else markSwitchKnown(box);
     // Под чужой задачей тумблер заперт замком — правим его запомненное
     // состояние, а не .disabled напрямую (иначе снятие замка вернёт старое).
     setLockAware(box, false);
@@ -520,9 +537,11 @@ async function loadWarpStatus() {
   const wdttRow = document.getElementById("warp-wdtt-row");
   const wdttBox = document.getElementById("warp-wdtt-toggle");
   const wgServerAvailable = d.wg_server_available === true;
+  const wdttKnown = typeof d.wdtt_enabled === "boolean";
   if (wdttRow) wdttRow.hidden = !installed || !wgServerAvailable;
-  if (wdttBox) wdttBox.checked = !!d.wdtt_enabled;
-  if (wdttBox) wdttBox.disabled = !installed || !wgServerAvailable || warpActing();
+  if (wdttBox && wdttKnown) setSwitchChecked(wdttBox, d.wdtt_enabled);
+  else if (wdttBox) markSwitchUnknown(wdttBox);
+  if (wdttBox) wdttBox.disabled = !wdttKnown || !installed || !wgServerAvailable || warpActing();
   const plusBox = document.getElementById("warp-plus");
   if (plusBox) plusBox.hidden = !installed;
   const plusState = document.getElementById("warp-plus-state");
@@ -606,7 +625,7 @@ async function warpWdttToggle(box) {
   const wanted = box.checked ? "1" : "0";
   const previous = !box.checked;
   if (warpActing() || foreignJobsActive("warp")) {
-    box.checked = previous;
+    setSwitchChecked(box, previous);
     toast("Дождитесь завершения текущей операции с WARP", "bad");
     return;
   }
@@ -615,7 +634,7 @@ async function warpWdttToggle(box) {
     await apiPost("/warp/wdtt", { value: wanted });
     toast(wanted === "1" ? "Трафик клиентов WireGuard-сервера идёт через WARP" : "Клиенты WireGuard-сервера идут напрямую");
   } catch (e) {
-    box.checked = previous;
+    setSwitchChecked(box, previous);
     toastErr("Не удалось применить: ", e);
   } finally {
     box.disabled = false;
@@ -830,7 +849,7 @@ async function warpToggle(box) {
     resp = await apiPost("/toggle/game-warp", { value: wanted });
   } catch (e) {
     warpReqEnd();
-    box.checked = !box.checked;
+    setSwitchChecked(box, !box.checked);
     box.disabled = false;
     toastErr("Ошибка: ", e);
     return;
@@ -839,7 +858,7 @@ async function warpToggle(box) {
   box.disabled = false;
   warpTrack((wanted === "1" ? "Включаю" : "Отключаю") + " WARP-туннель", resp.job, (outcome, d) => {
     if (outcome === JOB_FAIL) {
-      box.checked = wanted !== "1";
+      setSwitchChecked(box, wanted !== "1");
       toast((wanted === "1" ? "Не включилось: " : "Не выключилось: ") + jobReason(d), "bad");
     } else {
       toast(wanted === "1" ? "Включено" : "Выключено");
@@ -912,6 +931,7 @@ function renderOwnToggles(lists) {
         </label>
       </div>`).join("");
   host.querySelectorAll("[data-own] input").forEach(cb => {
+    markSwitchKnown(cb);
     cb.addEventListener("change", () => warpOwnToggle(cb));
   });
 }
@@ -924,7 +944,7 @@ async function warpOwnToggle(box) {
   try {
     await apiPost("/warp/list/toggle", { name, value: wanted });
   } catch (e) {
-    box.checked = !box.checked;
+    setSwitchChecked(box, !box.checked);
     toastErr("Ошибка: ", e);
     box.disabled = false;
     return;
