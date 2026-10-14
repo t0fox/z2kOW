@@ -1263,6 +1263,7 @@ download_init_script() {
         www/js/core/toast.js \
         www/js/core/time.js \
         www/js/job.js \
+        www/js/tg-flow.js \
         www/js/pages/credits.js \
         www/js/pages/credits-openwrt.js \
         www/js/pages/dashboard.js \
