@@ -537,8 +537,6 @@ export function mountTelegramFlow(canvas) {
     if (destroyed || !context || !canvas.width || !canvas.height) return;
     const cssWidth = canvas.width / pixelRatio;
     const cssHeight = canvas.height / pixelRatio;
-    const width = canvas.width;
-    const height = canvas.height;
     context.setTransform(scaleX, 0, 0, scaleY, 0, 0);
     context.globalCompositeOperation = "source-over";
     context.globalAlpha = 1;
