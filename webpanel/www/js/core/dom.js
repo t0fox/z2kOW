@@ -45,6 +45,78 @@ export const _icons = {
   lockOpen:     '<svg class="icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="10" width="18" height="12" rx="2"/><path d="M7 10V7a5 5 0 0 1 9.33-2.5"/><circle cx="12" cy="16" r="1"/></svg>',
 };
 
+const inlineDisclosureSelectors = ".credits-upstream, .probe-raw, .state-help, .policy-help, .upd-details, .tiktok-candidate-details";
+const compactDisclosureSelectors = ".dns-group, .tiktok-candidate-group, .warp-offline, .flow-technical, .flow-benchmark-run-details, .flow-benchmark-snapshots, .tg-openwrt-tools, .tg-worker-settings, .tg-diagnostic-details, .tg-technical";
+
+function disclosureVariant(details) {
+  const requested = details.dataset.disclosureVariant;
+  if (["card", "compact", "inline"].includes(requested)) return requested;
+  if (details.matches(inlineDisclosureSelectors)) return "inline";
+  if (details.matches(compactDisclosureSelectors) || details.parentElement.closest("details")) return "compact";
+  if (details.matches(".state-voice, .tg-advanced-settings, .warp-manual, .card")
+    || details.parentElement.matches(".card")) return "card";
+  return "inline";
+}
+
+function decorateDisclosure(details) {
+  details.classList.add("disclosure", `disclosure-${disclosureVariant(details)}`);
+  const summary = details.querySelector(":scope > summary");
+  if (!summary) return;
+
+  if (!summary.querySelector(":scope > .disclosure-label")) {
+    const label = document.createElement("span");
+    label.className = "disclosure-label";
+    while (summary.firstChild) label.append(summary.firstChild);
+    summary.append(label);
+  }
+  if (!summary.querySelector(":scope > .disclosure-chevron")) {
+    const chevron = document.createElement("span");
+    chevron.className = "disclosure-chevron";
+    chevron.setAttribute("aria-hidden", "true");
+    chevron.innerHTML = _icons.chevronDown;
+    summary.append(chevron);
+  }
+  const expanded = String(details.open);
+  if (summary.getAttribute("aria-expanded") !== expanded) summary.setAttribute("aria-expanded", expanded);
+
+  let body = details.querySelector(":scope > .disclosure-body");
+  const extraChildren = Array.from(details.children).filter(child => child !== summary && child !== body);
+  if (!body && extraChildren.length) {
+    body = document.createElement("div");
+    body.className = "disclosure-body";
+    extraChildren.forEach(child => body.append(child));
+    details.append(body);
+  } else if (body && extraChildren.length) {
+    extraChildren.forEach(child => body.append(child));
+  }
+}
+
+export function decorateDisclosures(root) {
+  if (!root) return;
+  const details = root instanceof Element && root.matches("details") ? [root] : [];
+  root.querySelectorAll?.("details").forEach(node => details.push(node));
+  details.forEach(decorateDisclosure);
+}
+
+export function observeDisclosures(root) {
+  if (!root) return null;
+  decorateDisclosures(root);
+  root.addEventListener("toggle", event => {
+    const details = event.target;
+    if (!(details instanceof HTMLDetailsElement)) return;
+    const summary = details.querySelector(":scope > summary");
+    if (summary) summary.setAttribute("aria-expanded", String(details.open));
+  }, true);
+  if (typeof MutationObserver !== "function") return null;
+  const observer = new MutationObserver(records => {
+    for (const record of records) {
+      for (const node of record.addedNodes) if (node.nodeType === Node.ELEMENT_NODE) decorateDisclosures(node);
+    }
+  });
+  observer.observe(root, { childList: true, subtree: true });
+  return observer;
+}
+
 // Status icon picker for the dashboard cells. "" kind = no icon (neutral).
 export function statusIcon(kind) {
   if (kind === "good") return _icons.statusGood;

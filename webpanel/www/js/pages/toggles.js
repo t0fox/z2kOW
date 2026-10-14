@@ -1606,9 +1606,9 @@ export async function renderToggles() {
         <summary>Дополнительные настройки</summary>
         <div class="disclosure-body tg-advanced-body">
           <p class="desc" id="tg-status-note" role="status" aria-live="polite"></p>
-      <details class="tg-openwrt-tools disclosure" id="tg-openwrt-tools">
-        <summary>Инструменты и подробная статистика</summary>
-        <div class="disclosure-body tg-openwrt-tools-body">
+      <section class="tg-openwrt-tools" id="tg-openwrt-tools" aria-labelledby="tg-openwrt-tools-title">
+        <h4 id="tg-openwrt-tools-title">Инструменты и подробная статистика</h4>
+        <div class="tg-openwrt-tools-body">
           <section class="tg-workers" aria-label="Настройки Telegram Worker">
             <details class="tg-worker-settings disclosure" id="tg-worker-settings">
               <summary>Cloudflare Worker</summary>
@@ -1655,7 +1655,7 @@ export async function renderToggles() {
             </div>
           </section>
         </div>
-      </details>
+      </section>
         </div>
       </details>
     </div>
@@ -1926,8 +1926,6 @@ export async function renderToggles() {
     if (!onTogglesPage() || $app.querySelector("#tg-openwrt-tools")?.hidden) return;
     if (tgStatsRequest.inFlight) return;
     tgStatsRequest.inFlight = true;
-    const button = $app.querySelector("#tg-stats-refresh");
-    if (button) button.disabled = true;
     try {
       const snapshot = await apiGet("/tunnel/stats");
       if (!onTogglesPage()) return;
@@ -1939,7 +1937,6 @@ export async function renderToggles() {
       if (onTogglesPage()) renderTgStats(null, "Статистика процесса недоступна. Сам процесс проверяется отдельно в строке состояния.");
     } finally {
       tgStatsRequest.inFlight = false;
-      if (button && onTogglesPage()) button.disabled = false;
       if (onTogglesPage()) {
         if (tgRouteRuntime.pollTimer) clearTimeout(tgRouteRuntime.pollTimer);
         tgRouteRuntime.pollTimer = 0;

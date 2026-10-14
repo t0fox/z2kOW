@@ -1,5 +1,5 @@
 import { closeNavMore } from "./chrome.js";
-import { $app, $nav, escapeHtml } from "./core/dom.js";
+import { $app, $nav, escapeHtml, observeDisclosures } from "./core/dom.js";
 import { motion } from "./motion.js";
 import { renderStrategies } from "./pages/credits.js";
 import { renderCreditsPage } from "./pages/credits-openwrt.js";
@@ -77,6 +77,8 @@ const NAV_OF_ROUTE = {
   autohostlist: "extra-domains",
 };
 
+observeDisclosures($app);
+
 let _activeRoute = routes[location.hash.replace(/^#\//, "")] ? location.hash.replace(/^#\//, "") : "dashboard";
 let _navigationToken = 0;
 let _previousTabPosition = null;
@@ -88,6 +90,7 @@ function currentTabPosition() {
   const active = tabs && tabs.querySelector('.strat-tab[aria-selected="true"], .strat-tab.active');
   if (!active) return null;
   return {
+    tabs,
     left: active.offsetLeft - tabs.scrollLeft,
     top: active.offsetTop,
     width: active.offsetWidth,
@@ -122,18 +125,20 @@ function syncTabIndicator(previous, revealActive = true) {
     }), { passive: true });
   }
   const target = {
+    tabs,
     left: active.offsetLeft - tabs.scrollLeft,
     top: active.offsetTop,
     width: active.offsetWidth,
     height: active.offsetHeight,
   };
-  const targetKey = Object.values(target).join(":");
+  const targetKey = [target.left, target.top, target.width, target.height].join(":");
   if (tabs.dataset.tabIndicatorTarget === targetKey) return;
   const first = !tabs.dataset.tabIndicatorTarget;
   tabs.dataset.tabIndicatorTarget = targetKey;
   if (motion.available) {
-    motion.moveTabIndicator(tabs, target, first, previous);
-  } else if (previous && Object.values(previous).some((value, index) => value !== Object.values(target)[index])) {
+    motion.moveTabIndicator(tabs, target, first, previous?.tabs === tabs ? previous : null);
+  } else if (previous?.tabs === tabs && ["left", "top", "width", "height"]
+    .some(key => previous[key] !== target[key])) {
     writeTabPosition(tabs, previous);
     requestAnimationFrame(() => {
       if (tabs.isConnected) writeTabPosition(tabs, target);
@@ -213,6 +218,7 @@ export function navigate() {
   document.body.setAttribute("data-page", name);
   refreshRouteTitle();
   closeNavMore();
+  motion.cancelRoute();
   $app.innerHTML = '<section class="card" aria-live="polite">Загрузка…</section>';
   const finishRoute = () => {
     if (token !== _navigationToken) return;

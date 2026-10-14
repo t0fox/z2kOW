@@ -1,4 +1,4 @@
-import { $app, _icons, escapeHtml } from "../core/dom.js";
+import { $app, escapeHtml } from "../core/dom.js";
 import { openwrtCredits } from "../data/openwrt-credits.js";
 import { renderCredits } from "./credits.js";
 
@@ -38,10 +38,7 @@ export function renderCreditsPage() {
       ${renderLocalCredits()}
     </section>
     <details class="credits-upstream" id="credits-upstream">
-      <summary class="btn btn-secondary">
-        <span>Upstream z2k / Keenetic</span>
-        <span class="credits-upstream__arrow">${_icons.chevronDown}</span>
-      </summary>
+      <summary class="btn btn-secondary">Upstream z2k / Keenetic</summary>
       <div class="credits-upstream__body">
         <p class="credits-upstream__description">Благодарности оригинального проекта z2k. Указанные здесь тестирование и вклад относятся к upstream/Keenetic и не означают тестирование z2kOW на OpenWrt.</p>
         <div data-upstream-grid></div>

@@ -446,51 +446,6 @@ body[data-page="login"] #app {
   letter-spacing: 0;
   text-transform: none;
 }
-.credits-upstream {
-  display: block;
-  margin: 10px 0;
-  padding: 5px;
-  border-radius: 12px;
-  background: var(--ow-surface-2);
-}
-.credits-upstream > summary {
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  min-height: 34px;
-  padding: 0 20px 0 12px;
-  border: 0;
-  border-radius: 10px;
-  background: var(--ow-surface-2);
-  color: var(--ow-text-primary);
-  font: 500 14px/34px var(--font-sans);
-  text-align: left;
-  cursor: pointer;
-  list-style: none;
-  transition: all 100ms ease-in-out;
-}
-.credits-upstream > summary::-webkit-details-marker { display: none; }
-.credits-upstream > summary::marker { content: ""; }
-.credits-upstream > summary.btn.btn-secondary:hover { background: inherit; }
-.credits-upstream > summary.btn.btn-secondary:not(:disabled):not(.disabled):active {
-  line-height: 34px;
-  transform: none;
-  background: var(--ow-surface-2);
-  background-size: auto;
-}
-.credits-upstream > summary:focus-visible {
-  outline: 2px solid var(--ow-focus-ring);
-  outline-offset: 2px;
-}
-.credits-upstream__arrow {
-  display: inline-flex;
-  align-items: center;
-  color: var(--ow-text-secondary);
-  transition: transform 200ms ease;
-}
-.credits-upstream[open] .credits-upstream__arrow { transform: rotate(180deg); }
 .credits-upstream__body {
   margin-top: 5px;
   padding: 10px 12px;
@@ -1202,11 +1157,6 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
   input[type="number"], input[type="url"], textarea, select { min-height: 44px; }
   .theme-toggle button, .menu-toggle, .nav-drawer-close { min-width: 44px; }
   .btn:not(.btn-icon) { height: var(--ow-touch-target-height); line-height: var(--ow-touch-target-height); }
-  .credits-upstream > summary.btn.btn-secondary {
-    min-height: var(--ow-button-height);
-    height: var(--ow-button-height);
-    line-height: var(--ow-button-height);
-  }
   .state-table .btn-icon, .state-table .btn-danger {
     min-height: var(--ow-touch-target-height);
     height: auto;
@@ -1607,4 +1557,118 @@ select option { background: var(--ow-surface-1); color: var(--ow-text-primary); 
     height: var(--ow-touch-target-height);
     min-height: var(--ow-touch-target-height);
   }
+}
+
+/* Единая геометрия раскрытий поверх страниц и кнопочных reset-правил. */
+#app details.disclosure > summary {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 50px;
+  height: auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--ow-radius-control);
+  color: var(--ow-text-primary);
+  font: inherit;
+  line-height: 1.4;
+  text-align: left;
+  list-style: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#app details.disclosure > summary::-webkit-details-marker { display: none; }
+#app details.disclosure > summary::marker { content: ""; }
+#app details.disclosure > summary:hover { background: var(--ow-surface-hover); }
+#app details.disclosure > summary:focus-visible {
+  outline: 2px solid var(--ow-focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--ow-focus-ring) 10%, transparent);
+}
+#app details.disclosure > summary .disclosure-label {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+#app details.disclosure > summary .disclosure-chevron {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  place-items: center;
+  margin-left: auto;
+  color: var(--ow-text-secondary);
+}
+#app details.disclosure > summary .disclosure-chevron .icon { width: 16px; height: 16px; }
+#app details.disclosure-card {
+  padding: 0;
+  border: 1px solid var(--ow-border-subtle);
+  border-radius: var(--ow-radius-card);
+  background: var(--ow-surface-1);
+  transition-property: border-color, background-color, box-shadow;
+  transition-duration: 120ms;
+  transition-timing-function: ease;
+}
+#app details.disclosure-card > summary { min-height: 54px; padding-inline: 15px; }
+#app details.disclosure-card[open] {
+  border-color: color-mix(in srgb, var(--ow-accent) 32%, var(--ow-border-subtle));
+  background: linear-gradient(110deg, color-mix(in srgb, var(--ow-accent) 7%, transparent), transparent 56%), var(--ow-surface-1);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ow-accent) 70%, transparent),
+    0 0 24px color-mix(in srgb, var(--ow-accent) 4%, transparent);
+}
+#app details.disclosure-card > .disclosure-body { padding: 2px 16px 16px 54px; }
+#app details.disclosure-compact {
+  border: 1px solid transparent;
+  border-radius: var(--ow-radius-control);
+  transition-property: border-color, background-color;
+  transition-duration: 120ms;
+  transition-timing-function: ease;
+}
+#app details.disclosure-compact > summary { min-height: 48px; padding-inline: 12px; color: var(--ow-text-secondary); }
+#app details.disclosure-compact[open] {
+  border-color: color-mix(in srgb, var(--ow-accent) 18%, var(--ow-border-subtle));
+  background: color-mix(in srgb, var(--ow-accent) 4%, var(--ow-surface-1));
+}
+#app details.disclosure-compact .disclosure-body { padding: 1px 12px 13px 44px; }
+#app details.disclosure-compact[open] > summary:hover { background: transparent; }
+#app details.disclosure-inline {
+  display: block;
+  margin: 10px 0;
+  padding: 0;
+  border-top: 1px solid var(--ow-border-subtle);
+  border-bottom: 1px solid var(--ow-border-subtle);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+#app details.disclosure-inline > summary { min-height: 48px; margin-block: 2px; padding-inline: 5px 9px; }
+#app details.disclosure-inline .disclosure-body { padding: 0 8px 15px 37px; }
+#app details.disclosure-inline > summary.btn { height: auto; line-height: 1.4; }
+#app details.disclosure > .disclosure-body {
+  min-width: 0;
+  overflow: visible;
+  user-select: text;
+  -webkit-user-select: text;
+}
+#app details.state-voice > summary .disclosure-label { justify-content: space-between; }
+#app details.state-voice > summary .disclosure-label > span {
+  color: var(--ow-text-secondary);
+  font-size: 13px;
+  font-weight: 400;
+}
+@media (max-width: 767.98px) {
+  #app details.disclosure-card > .disclosure-body { padding-left: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.motion-ready #app details.disclosure > summary,
+  html.motion-ready #app details.disclosure .disclosure-chevron,
+  html.motion-ready #app details.disclosure-card,
+  html.motion-ready #app details.disclosure-compact { transition-duration: 0.001ms !important; }
 }

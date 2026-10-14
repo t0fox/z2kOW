@@ -24,6 +24,19 @@ const tgScreenshotOnly = process.env.OPENWRT_TG_SCREENSHOT_ONLY === '1';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2k-openwrt-browser-'));
 const www = path.join(root, 'www');
 fs.cpSync(path.join(repo, 'webpanel/www'), www, { recursive: true });
+const tgFlowFixturePath = path.join(www, 'js/tg-flow.js');
+let tgFlowFixture = fs.readFileSync(tgFlowFixturePath, 'utf8');
+const tgFlowInstrumentation = [
+  ['export function mountTelegramFlow(canvas) {', 'export function mountTelegramFlow(canvas) {\n  const testMetrics = window.__tgFlowTestMetrics ||= { mounts: 0, destroys: 0, resizes: 0, processedEvents: 0 };\n  testMetrics.mounts += 1;'],
+  ['  function processEvent(session, event, now) {', '  function processEvent(session, event, now) {\n    testMetrics.processedEvents += 1;'],
+  ['  function resize() {', '  function resize() {\n    testMetrics.resizes += 1;'],
+  ['    destroy() {\n      if (destroyed) return;', '    destroy() {\n      if (destroyed) return;\n      testMetrics.destroys += 1;'],
+];
+for (const [needle, replacement] of tgFlowInstrumentation) {
+  assert.ok(tgFlowFixture.includes(needle), `тестовый стенд находит точку учёта ${needle}`);
+  tgFlowFixture = tgFlowFixture.replace(needle, replacement);
+}
+fs.writeFileSync(tgFlowFixturePath, tgFlowFixture);
 const profileDir = path.join(www, 'assets/openwrt');
 fs.mkdirSync(profileDir, { recursive: true });
 for (const name of ['mark.svg', 'logo.png', 'favicon.svg', 'theme.css', 'profile.json']) {
@@ -41,6 +54,7 @@ let statusResponsesCompleted = 0;
 let holdStatusResponses = true;
 let moveOnReinstall = false;
 let reinstallFixtureActive = false;
+let disclosurePickFixture = false;
 const pendingStatusResponses = [];
 const statusFixture = {
   ok: true, installed: 'p-86.1', running: true, service: 'active', platform: 'openwrt',
@@ -176,6 +190,9 @@ const server = http.createServer(async (req, res) => {
           ? { ok: true, pools: [{ pool: 'tcp', custom: 0, line: '' }, { pool: 'quic', custom: 0, line: '' }] }
           : endpoint === 'strategy/unique-set'
             ? { ok: true, result: null }
+            : endpoint === 'strategy/pick' && disclosurePickFixture
+              ? { ok: true, result: { target: 'example.test', mode: 'tcp13',
+                  tcp: { target: 'example.test', strategy: '--dpi-desync=fake' }, quic: null } }
             : endpoint === 'update/status' || (endpoint === 'update/check' && req.method === 'POST')
               ? (moveOnReinstall
                 ? { ok: true, installed: 'p-86.13', installed_seq: 136, available: 'p-86.14', available_seq: 137,
@@ -640,7 +657,16 @@ async function assertStrategyTabsAllowManualScroll(page, label) {
   assert.equal(position.scrollLeft, 0, `${label}: manual scrolling stays at the user's selected position (${JSON.stringify(position)})`);
 }
 
+const motionOnly = process.env.OPENWRT_MOTION_ONLY === '1';
+let testedRouteCount = 0;
+let totalModuleResponses = 0;
+if (motionOnly) {
+  holdStatusResponses = false;
+  tgRunningFixture = true;
+}
+
 try {
+  if (!motionOnly) {
   // The old URL is a representative filter-list match. The renamed URL must
   // never be requested as a required bootstrap dependency.
   let oldBootstrapRequests = 0;
@@ -668,6 +694,7 @@ try {
   await gsapBlocked.close();
 
   const routes = ['dashboard', 'toggles', 'tiktok', 'dns', 'strategies', 'warp', 'whitelist', 'exclude', 'extra-domains', 'diag', 'credits', 'state', 'pick', 'autohostlist'];
+  testedRouteCount = routes.length;
   const primaryRoutes = ['dashboard', 'toggles', 'tiktok', 'dns', 'state', 'warp', 'whitelist', 'extra-domains', 'diag', 'credits'];
   const screenshotRoutes = ['dashboard', 'toggles', 'strategies', 'warp', 'whitelist', 'exclude',
     'extra-domains', 'diag', 'tiktok', 'dns', 'credits', 'state', 'pick', 'autohostlist'];
@@ -694,7 +721,6 @@ try {
   };
   const allPageErrors = [];
   const allConsoleErrors = [];
-  let totalModuleResponses = 0;
 
   for (const appearance of ['dark', 'light']) {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: appearance });
@@ -1803,7 +1829,7 @@ try {
     const flowCanvas = flowDiagram.locator('#tg-flow-canvas');
     assert.equal(await flowCanvas.count(), 1,
       `${appearance}: схема потока отрисована одним Canvas`);
-    assert.equal(await telegramCard.locator('svg').count(), 0,
+    assert.equal(await telegramCard.locator('svg').evaluateAll(nodes => nodes.filter(node => !node.closest('.disclosure-chevron')).length), 0,
       `${appearance}: старая SVG-схема удалена`);
     assert.equal(await flowDiagram.getAttribute('data-state'), 'active',
       `${appearance}: состояние схемы следует телеметрии активной сессии`);
@@ -1915,8 +1941,6 @@ try {
       await advanced.locator(':scope > summary').click();
       await waitForDisclosureSettled(page, '#tg-advanced-settings');
       await page.locator('#tg-openwrt-tools').waitFor({ state: 'visible' });
-      await page.locator('#tg-openwrt-tools > summary').click();
-      await waitForDisclosureSettled(page, '#tg-openwrt-tools');
       await page.waitForFunction(() => document.querySelector('.tg-summary-grid')
         && document.querySelectorAll('#tg-check-results .tg-dc-row').length === 5, null, { timeout: 1200 });
       assert.equal(await telegramCard.locator('#tg-check').evaluate(node => node.closest('#tg-advanced-settings') === null), true,
@@ -1965,8 +1989,6 @@ try {
       await dc1.locator('summary').click();
       await diagnosticDetails.locator(':scope > summary').click();
       await waitForDisclosureSettled(page, '#tg-diagnostic-details');
-      await page.locator('#tg-openwrt-tools > summary').click();
-      await waitForDisclosureSettled(page, '#tg-openwrt-tools');
       await advanced.locator(':scope > summary').click();
       await waitForDisclosureSettled(page, '#tg-advanced-settings');
     }
@@ -3403,6 +3425,7 @@ try {
 
   assert.deepEqual(allPageErrors, []);
   assert.deepEqual(allConsoleErrors, []);
+  }
 
   const videoDir = process.env.OPENWRT_VIDEO_DIR || '';
   if (videoDir) {
@@ -3446,9 +3469,51 @@ try {
       colorScheme: 'dark',
       recordVideo: { dir: videoDir, size: { width: 1280, height: 900 } },
     });
+    const telegramVideo = motionPage.video();
     await motionPage.addInitScript(() => {
       localStorage.setItem('z2k-theme', 'dark');
       localStorage.setItem('z2k-sidebar', 'expanded');
+      const metrics = window.__tgFlowTestMetrics = {
+        mounts: 0, destroys: 0, resizes: 0, processedEvents: 0,
+        canvasBackingWrites: [], canvasContextReads: 0, canvasContextChanges: 0, canvasContext: null,
+        canvasRemovals: 0,
+      };
+      for (const name of ['width', 'height']) {
+        const descriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, name);
+        Object.defineProperty(HTMLCanvasElement.prototype, name, {
+          ...descriptor,
+          set(value) {
+            if (this.id === 'tg-flow-canvas') metrics.canvasBackingWrites.push({ name, value: Number(value) });
+            descriptor.set.call(this, value);
+          },
+        });
+      }
+      const setterProbe = document.createElement('canvas');
+      setterProbe.id = 'tg-flow-canvas';
+      setterProbe.width = 1;
+      setterProbe.height = 1;
+      metrics.canvasSetterProbeWrites = metrics.canvasBackingWrites.length;
+      metrics.canvasBackingWrites.length = 0;
+      const getContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (...args) {
+        const context = getContext.apply(this, args);
+        if (this.id === 'tg-flow-canvas') {
+          metrics.canvasContextReads += 1;
+          if (metrics.canvasContext && metrics.canvasContext !== context) metrics.canvasContextChanges += 1;
+          metrics.canvasContext ||= context;
+        }
+        return context;
+      };
+      new MutationObserver(records => {
+        for (const record of records) {
+          for (const node of record.removedNodes) {
+            if (node.nodeType === Node.ELEMENT_NODE
+              && (node.id === 'tg-flow-canvas' || node.querySelector?.('#tg-flow-canvas'))) {
+              metrics.canvasRemovals += 1;
+            }
+          }
+        }
+      }).observe(document, { childList: true, subtree: true });
     });
     await motionPage.route('**/cgi-bin/api/tunnel/stats', route =>
       failStatsApi ? route.abort('failed') : route.continue());
@@ -3468,7 +3533,7 @@ try {
     const caption = motionPage.locator('#tg-flow-caption');
     await motionPage.waitForFunction(() => document.querySelector('#tg-flow')?.dataset.state === 'active');
     assert.match(await caption.innerText(), /Прямой WSS/, 'видео начинается с выбранного прямого WSS');
-    assert.equal(await card.locator('svg').count(), 0, 'в Telegram-карточке осталась только Canvas-схема');
+    assert.equal(await card.locator('#tg-flow svg').count(), 0, 'сама схема Telegram отрисована только в Canvas');
     const firstFrame = await canvas.evaluate(node => node.toDataURL());
     await motionPage.waitForTimeout(280);
     const nextFrame = await canvas.evaluate(node => node.toDataURL());
@@ -3500,31 +3565,48 @@ try {
       null, { timeout: 3000 });
     await motionPage.locator('#tg-advanced-settings > summary').click();
     await waitForDisclosureSettled(motionPage, '#tg-advanced-settings');
-    await motionPage.locator('#tg-openwrt-tools > summary').click();
-    await waitForDisclosureSettled(motionPage, '#tg-openwrt-tools');
     await motionPage.locator('#tg-stats-refresh').waitFor({ state: 'visible' });
     await motionPage.locator('#tg-diagnostic-details > summary').click();
     await waitForDisclosureSettled(motionPage, '#tg-diagnostic-details');
 
     const captureTelegramLayout = () => motionPage.evaluate(() => {
       const cardNode = document.querySelector('.telegram-tunnel-card');
+      const appRect = document.querySelector('#app').getBoundingClientRect();
       const cardRect = cardNode.getBoundingClientRect();
+      const relativeBox = (node, origin) => {
+        if (!node) return [];
+        const rect = node.getBoundingClientRect();
+        return [rect.x - origin.x, rect.y - origin.y, rect.width, rect.height]
+          .map(value => Math.round(value * 100) / 100);
+      };
+      const flowNode = document.querySelector('#tg-flow');
+      const flowStyle = getComputedStyle(flowNode);
+      const flowParentStyle = getComputedStyle(flowNode.parentElement);
       const box = node => {
         const rect = node.getBoundingClientRect();
         return [rect.x - cardRect.x, rect.y - cardRect.y, rect.width, rect.height]
           .map(value => Math.round(value * 100) / 100);
       };
-      const neighbor = node => {
-        const rect = node?.getBoundingClientRect();
-        return rect ? [rect.x, rect.y, rect.width, rect.height].map(value => Math.round(value * 100) / 100) : [];
-      };
       return {
-        cardHeight: Math.round(cardRect.height * 100) / 100,
+        viewport: [window.innerWidth, document.documentElement.clientWidth, window.scrollY],
+        app: [appRect.width, appRect.height].map(value => Math.round(value * 100) / 100),
+        card: relativeBox(cardNode, appRect),
+        flow: box(flowNode),
+        flowStyle: {
+          display: flowStyle.display, width: flowStyle.width, maxWidth: flowStyle.maxWidth,
+          margin: flowStyle.margin, alignSelf: flowStyle.alignSelf,
+          transform: flowStyle.transform, transformOrigin: flowStyle.transformOrigin,
+          parentDisplay: flowParentStyle.display, parentWidth: flowParentStyle.width,
+          parentAlign: flowParentStyle.alignItems, parentJustify: flowParentStyle.justifyContent,
+          parentClasses: flowNode.parentElement.className,
+        },
+        canvasAttributes: [document.querySelector('#tg-flow-canvas').getAttribute('width'),
+          document.querySelector('#tg-flow-canvas').getAttribute('height')],
         canvas: box(document.querySelector('#tg-flow-canvas')),
         caption: box(document.querySelector('#tg-flow-caption')),
         buttons: ['#tg-enable', '#tg-disable', '#tg-check'].map(selector => box(document.querySelector(selector))),
-        previous: neighbor(cardNode.previousElementSibling),
-        next: neighbor(cardNode.nextElementSibling),
+        previous: relativeBox(cardNode.previousElementSibling, appRect),
+        next: relativeBox(cardNode.nextElementSibling, appRect),
       };
     });
     let baselineTelegramLayout = await captureTelegramLayout();
@@ -3533,8 +3615,8 @@ try {
       const flatten = value => Array.isArray(value) ? value.flatMap(flatten)
         : value && typeof value === 'object' ? Object.values(value).flatMap(flatten) : [value];
       const stableNumbers = value => flatten({
-        cardHeight: value.cardHeight, canvas: value.canvas, caption: value.caption,
-        buttons: value.buttons, previous: value.previous, next: value.next,
+        app: value.app, card: value.card, flow: value.flow, canvas: value.canvas, caption: value.caption,
+        buttons: value.buttons,
       });
       const expected = stableNumbers(baselineTelegramLayout);
       const actual = stableNumbers(current);
@@ -3544,7 +3626,14 @@ try {
     };
     const refreshRoute = async (snapshot, expectedText) => {
       tgStatsResponse = snapshot;
-      await motionPage.locator('#tg-stats-refresh').click();
+      const before = apiRequests.filter(request => request.endpoint === 'tunnel/stats').length;
+      await motionPage.evaluate(() => {
+        const button = document.querySelector('#tg-stats-refresh');
+        button.focus({ preventScroll: true });
+        button.click();
+      });
+      await waitForCondition(() => apiRequests.filter(request => request.endpoint === 'tunnel/stats').length > before,
+        'ответ на обновление Telegram statistics');
       await motionPage.waitForFunction(expected => document.querySelector('#tg-flow-caption')?.textContent.includes(expected), expectedText);
       await motionPage.waitForFunction(expected => document.querySelector('[data-tg-row="accepted_connections"] .tg-technical-value span')?.textContent === expected,
         String(snapshot.accepted_connections));
@@ -3581,7 +3670,7 @@ try {
       events: [routeEvent(10, 'direct_wss', 'connecting'), routeEvent(11, 'cloudflare_worker', 'connecting'),
         routeEvent(12, 'direct_wss', 'selected'), routeEvent(13, 'cloudflare_worker', 'cancelled')],
     }), 'Параллельная гонка');
-    assert.match(await caption.innerText(), /победил Прямой WSS.*отменены Cloudflare Worker/,
+    assert.match(await caption.innerText(), /победил Прямой WSS.*остальные попытки отменены/,
       'Параллельная гонка показывает победителя и отменённую конкурирующую попытку');
     if (screenshotDir) {
       await screenshotComponent(motionPage, card,
@@ -3619,26 +3708,48 @@ try {
       direct: { state: 'selected', transport: 'direct_wss' }, selected: 'direct_wss',
       events: [routeEvent(18, 'direct_wss', 'selected')], accepted: 25,
     }), 'Прямой WSS');
+    await motionPage.locator('#tg-runtime-details .tg-technical > summary').click();
+    await waitForDisclosureSettled(motionPage, '#tg-runtime-details .tg-technical');
     baselineTelegramLayout = await captureTelegramLayout();
+    await motionPage.evaluate(() => {
+      window.__tgPollingRefs = {
+        root: document.querySelector('#tg-flow'),
+        canvas: document.querySelector('#tg-flow-canvas'),
+        caption: document.querySelector('#tg-flow-caption'),
+        advanced: document.querySelector('#tg-advanced-settings'),
+        tools: document.querySelector('#tg-openwrt-tools'),
+        diagnostics: document.querySelector('#tg-diagnostic-details'),
+        technical: document.querySelector('#tg-runtime-details .tg-technical'),
+        row: document.querySelector('#tg-runtime-details [data-tg-row="accepted_connections"]'),
+      };
+    });
+    await motionPage.locator('#tg-stats-refresh').evaluate(button => button.focus({ preventScroll: true }));
     const persistentRefs = await motionPage.evaluate(() => ({
-      root: document.querySelector('#tg-flow'),
-      canvas: document.querySelector('#tg-flow-canvas'),
-      caption: document.querySelector('#tg-flow-caption'),
-      advanced: document.querySelector('#tg-advanced-settings'),
-      tools: document.querySelector('#tg-openwrt-tools'),
-      diagnostics: document.querySelector('#tg-diagnostic-details'),
-      technical: document.querySelector('#tg-runtime-details .tg-technical'),
-      row: document.querySelector('#tg-runtime-details [data-tg-row="accepted_connections"]'),
       focusId: document.activeElement.id,
       scrollY: window.scrollY,
     }));
-    for (let index = 0; index < 20; index += 1) {
-      const active = 1 + (index % 10);
-      await refreshRoute(routeScenario({
-        direct: { state: 'selected', transport: 'direct_wss' }, selected: 'direct_wss', dc: 5,
-        active, accepted: 30 + index,
-        events: [routeEvent(30 + index, 'direct_wss', 'first_binary_response')],
-      }), 'Прямой WSS');
+    await motionPage.evaluate(() => {
+      const metrics = window.__tgFlowTestMetrics;
+      metrics.canvasBackingWrites.length = 0;
+      metrics.canvasContextReads = 0;
+      metrics.canvasContextChanges = 0;
+      metrics.canvasRemovals = 0;
+      metrics.mountsBeforePolling = metrics.mounts;
+      metrics.destroysBeforePolling = metrics.destroys;
+      metrics.processedEventsBeforePolling = metrics.processedEvents;
+      metrics.resizesBeforePolling = metrics.resizes;
+    });
+    const identicalPollSnapshot = routeScenario({
+      direct: { state: 'selected', transport: 'direct_wss' }, selected: 'direct_wss', dc: 5,
+      active: 1, accepted: 25,
+      events: [routeEvent(18, 'direct_wss', 'selected'), routeEvent(19, 'direct_wss', 'first_binary_response')],
+    });
+    for (let index = 0; index < 100; index += 1) {
+      const snapshot = index < 50 ? identicalPollSnapshot : {
+        ...identicalPollSnapshot, accepted_connections: 26 + index - 50,
+      };
+      await refreshRoute(snapshot, 'Прямой WSS');
+      await motionPage.evaluate(() => window.dispatchEvent(new Event('resize')));
       const updateState = await motionPage.evaluate(expected => {
         const selectors = {
           root: '#tg-flow', canvas: '#tg-flow-canvas', caption: '#tg-flow-caption',
@@ -3646,36 +3757,111 @@ try {
           diagnostics: '#tg-diagnostic-details', technical: '#tg-runtime-details .tg-technical',
           row: '#tg-runtime-details [data-tg-row="accepted_connections"]',
         };
+        const sameDom = Object.fromEntries(Object.entries(selectors)
+          .map(([key, selector]) => [key, document.querySelector(selector) === window.__tgPollingRefs[key]]));
         return {
-          sameDom: Object.entries(expected).filter(([key]) => selectors[key])
-            .every(([key, node]) => document.querySelector(selectors[key]) === node),
-          disclosures: ['#tg-advanced-settings', '#tg-openwrt-tools', '#tg-diagnostic-details',
+          sameDom,
+          disclosures: ['#tg-advanced-settings', '#tg-diagnostic-details',
             '#tg-runtime-details .tg-technical'].map(selector => document.querySelector(selector).open),
           focusId: document.activeElement.id,
           scrollY: window.scrollY,
           canvasCount: document.querySelectorAll('#tg-flow-canvas').length,
-          svgCount: document.querySelectorAll('.telegram-tunnel-card svg').length,
+          svgCount: [...document.querySelectorAll('.telegram-tunnel-card svg')]
+            .filter(svg => !svg.closest('.disclosure-chevron')).length,
         };
       }, persistentRefs);
-      assert.equal(updateState.sameDom, true, `опрос ${index + 1}: Canvas и детали не пересоздаются`);
-      assert.deepEqual(updateState.disclosures, [true, true, true, true], `опрос ${index + 1}: раскрытые подробности остаются открыты`);
+      assert.ok(Object.values(updateState.sameDom).every(Boolean),
+        `опрос ${index + 1}: Canvas и детали не пересоздаются (${JSON.stringify(updateState.sameDom)})`);
+      assert.deepEqual(updateState.disclosures, [true, true, true], `опрос ${index + 1}: раскрытые подробности остаются открыты`);
       assert.equal(updateState.focusId, persistentRefs.focusId, `опрос ${index + 1}: фокус сохраняется`);
       assert.equal(updateState.scrollY, persistentRefs.scrollY, `опрос ${index + 1}: прокрутка сохраняется`);
       assert.equal(updateState.canvasCount, 1, `опрос ${index + 1}: остаётся один Canvas`);
       assert.equal(updateState.svgCount, 0, `опрос ${index + 1}: SVG-схема не возвращается`);
     }
+    const pollingMetrics = await motionPage.evaluate(() => window.__tgFlowTestMetrics);
+    assert.equal(pollingMetrics.canvasSetterProbeWrites, 2, 'тестовый перехват видит записи обоих backing dimensions');
+    assert.ok(pollingMetrics.resizes - pollingMetrics.resizesBeforePolling >= 100,
+      '100 синтетических resize-событий дошли до реального resize()');
+    assert.equal(pollingMetrics.canvasBackingWrites.length, 0,
+      '100 polling-обновлений без изменения CSS-размера не сбрасывают backing store Canvas');
+    assert.equal(pollingMetrics.mounts, pollingMetrics.mountsBeforePolling,
+      'polling не повторяет mountTelegramFlow');
+    assert.equal(pollingMetrics.destroys, pollingMetrics.destroysBeforePolling,
+      'polling не уничтожает поток Telegram');
+    assert.equal(pollingMetrics.processedEvents - pollingMetrics.processedEventsBeforePolling, 1,
+      'один новый event sequence обрабатывается ровно один раз среди повторных snapshots');
+    assert.equal(pollingMetrics.canvasContextChanges, 0, 'polling сохраняет тот же Canvas context');
+    assert.equal(pollingMetrics.canvasRemovals, 0, 'polling ни на кадр не удаляет схему Canvas');
+    assert.equal(pollingMetrics.canvasContextReads, 0, 'polling не запрашивает новый Canvas context');
+
+    const canvasBeforeResize = await canvas.evaluate(node => ({ width: node.width, height: node.height }));
+    await canvas.evaluate(node => {
+      node.style.height = `${Math.round(node.getBoundingClientRect().height) - 24}px`;
+      window.dispatchEvent(new Event('resize'));
+    });
+    const cssResize = await canvas.evaluate(node => ({
+      width: node.width, height: node.height,
+      expectedWidth: Math.round(node.getBoundingClientRect().width * window.devicePixelRatio),
+      expectedHeight: Math.round(node.getBoundingClientRect().height * window.devicePixelRatio),
+    }));
+    assert.deepEqual([cssResize.width, cssResize.height], [cssResize.expectedWidth, cssResize.expectedHeight],
+      'CSS resize sets physical Canvas dimensions from CSS size and DPR');
+    assert.notDeepEqual([cssResize.width, cssResize.height], [canvasBeforeResize.width, canvasBeforeResize.height],
+      'CSS resize changes at least one backing dimension');
+    const expectedCssWrites = [
+      ...(cssResize.expectedWidth !== canvasBeforeResize.width ? ['width'] : []),
+      ...(cssResize.expectedHeight !== canvasBeforeResize.height ? ['height'] : []),
+    ];
+    const actualCssWrites = await motionPage.evaluate(() => window.__tgFlowTestMetrics.canvasBackingWrites.map(write => write.name));
+    assert.deepEqual(actualCssWrites, expectedCssWrites,
+      'CSS resize записывает только физические размеры, которые действительно изменились');
+    await canvas.evaluate(node => { node.style.height = ''; window.dispatchEvent(new Event('resize')); });
+    await motionPage.evaluate(() => { window.__tgFlowTestMetrics.canvasBackingWrites.length = 0; });
+    const canvasBeforeDpr = await canvas.evaluate(node => ({ width: node.width, height: node.height }));
+    const dprSession = await motionPage.context().newCDPSession(motionPage);
+    await dprSession.send('Emulation.setDeviceMetricsOverride', {
+      width: 1280, height: 900, deviceScaleFactor: 2, mobile: false,
+    });
+    await motionPage.evaluate(() => window.dispatchEvent(new Event('resize')));
+    const dprResize = await canvas.evaluate(node => ({
+      dpr: window.devicePixelRatio, width: node.width, height: node.height,
+      expectedWidth: Math.round(node.getBoundingClientRect().width * window.devicePixelRatio),
+      expectedHeight: Math.round(node.getBoundingClientRect().height * window.devicePixelRatio),
+    }));
+    assert.equal(dprResize.dpr, 2, 'тестовое окружение меняет физический DPR');
+    assert.deepEqual([dprResize.width, dprResize.height], [dprResize.expectedWidth, dprResize.expectedHeight],
+      'изменение DPR пересчитывает обе backing dimensions');
+    assert.notDeepEqual([dprResize.width, dprResize.height], [canvasBeforeDpr.width, canvasBeforeDpr.height],
+      'изменение DPR меняет физический размер Canvas при прежнем CSS-размере');
+    assert.deepEqual(await motionPage.evaluate(() => window.__tgFlowTestMetrics.canvasBackingWrites.map(write => write.name)),
+      ['width', 'height'], 'новый DPR обновляет оба изменившихся физических размера');
+    assert.equal(await canvas.evaluate(node => node.getContext('2d').getImageData(1, 1, 1, 1).data[3]), 255,
+      'после CSS resize и изменения DPR схема снова полностью отрисована');
+    await dprSession.send('Emulation.setDeviceMetricsOverride', {
+      width: 1280, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    await dprSession.detach();
+    await canvas.evaluate(node => { node.style.width = ''; window.dispatchEvent(new Event('resize')); });
+    await motionPage.waitForTimeout(50);
+    await motionPage.evaluate(() => {
+      const metrics = window.__tgFlowTestMetrics;
+      metrics.canvasBackingWrites.length = 0;
+      metrics.canvasContextReads = 0;
+      metrics.canvasContextChanges = 0;
+      metrics.canvasRemovals = 0;
+    });
 
     await refreshRoute(routeScenario({
       direct: { state: 'failed', transport: 'direct_wss' },
       fallback: { state: 'failed', transport: 'cloudflare_proxy' }, selected: null,
       events: [routeEvent(51, 'direct_wss', 'failed'), routeEvent(52, 'cloudflare_proxy', 'failed')],
-    }), 'Недоступен');
+    }), 'маршрут недоступен');
     assert.equal(await flow.getAttribute('data-state'), 'unavailable',
       'отказы всех попыток показываются без вымышленного успеха');
 
     failStatsApi = true;
     await motionPage.locator('#tg-stats-refresh').click();
-    await motionPage.waitForFunction(() => document.querySelector('#tg-flow')?.dataset.state === 'unavailable');
+    await motionPage.waitForFunction(() => document.querySelector('#tg-flow-caption')?.textContent.includes('Статистика маршрутов недоступна'));
     assert.equal(await motionPage.locator('#tg-active-route').innerText(), 'Недоступно',
       'потеря API помечает транспорт недоступным');
     assert.match(await caption.innerText(), /статистика маршрутов недоступна/i,
@@ -3716,17 +3902,241 @@ try {
     await motionPage.waitForFunction(() => document.querySelectorAll('#tg-flow-canvas').length === 1);
     assert.equal(await motionPage.locator('#tg-flow-canvas').count(), 1,
       'быстрая смена вкладки не оставляет дубликаты схемы');
-    tgRunningFixture = true;
-    await motionPage.close();
-  }
-  // A genuinely broken required module graph receives a visible failure state.
-  const broken = await browser.newPage();
-  await broken.route('**/js/pages/dashboard.js*', route => route.abort('failed'));
-  await broken.goto(`${base}/#/dashboard`);
-  await broken.locator('#app [data-ui-fatal]').waitFor({ state: 'visible', timeout: 2000 });
-  assert.match(await broken.locator('#app').innerText(), /Не удалось загрузить интерфейс/);
 
-  console.log(`PASS: real browser OpenWrt document root; ${routes.length} routes in dark/light; one-brand, contrast, keyboard, responsive, blocker, and broken-module cases; ${totalModuleResponses} module responses`);
+    const disclosurePage = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
+    await disclosurePage.addInitScript(() => localStorage.setItem('z2k-theme', 'dark'));
+    const disclosureRoutes = ['credits', 'diag', 'dns', 'state', 'pick', 'tiktok', 'toggles', 'dashboard', 'warp'];
+    const disclosureVariants = new Set();
+    disclosurePickFixture = true;
+    for (const route of disclosureRoutes) {
+      await disclosurePage.goto(`${base}/#/${route}`);
+      await waitForRenderedRoute(disclosurePage, route);
+      if (route === 'diag') {
+        await disclosurePage.locator('#probe-domain').fill('example.test');
+        await disclosurePage.locator('#probe-run').click();
+        await disclosurePage.locator('#probe-result details.probe-raw').waitFor({ state: 'attached' });
+      }
+      if (route === 'pick') {
+        await disclosurePage.locator('#pick-result details.probe-raw').waitFor({ state: 'attached' });
+      }
+      const report = await disclosurePage.evaluate(() => ({
+        page: document.body.dataset.page,
+        details: [...document.querySelectorAll('#app details')].map(details => {
+          const summary = details.querySelector(':scope > summary');
+          const body = [...details.children].find(child => child !== summary);
+          const style = summary ? getComputedStyle(summary) : null;
+          const variants = ['card', 'compact', 'inline'].filter(name => details.classList.contains(`disclosure-${name}`));
+          return {
+            variants,
+            baseClass: details.classList.contains('disclosure'),
+            summary: Boolean(summary),
+            label: Boolean(summary?.querySelector(':scope > .disclosure-label')),
+            chevron: Boolean(summary?.querySelector(':scope > .disclosure-chevron > svg.icon')),
+            marker: style ? style.listStyleType : '',
+            userSelect: style?.userSelect || '',
+            bodyOverflow: body ? getComputedStyle(body).overflow : '',
+            bodyUserSelect: body ? getComputedStyle(body).userSelect : '',
+          };
+        }),
+        overflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      }));
+      for (const [index, detail] of report.details.entries()) {
+        assert.equal(detail.baseClass, true, `${route}/${index}: общий класс раскрытия назначен`);
+        assert.equal(detail.variants.length, 1, `${route}/${index}: ровно один общий вариант (${JSON.stringify(detail.variants)})`);
+        assert.equal(detail.summary, true, `${route}/${index}: сохранён прямой summary`);
+        assert.equal(detail.label, true, `${route}/${index}: заголовок имеет общий контейнер`);
+        assert.equal(detail.chevron, true, `${route}/${index}: используется общий SVG-шеврон`);
+        assert.equal(detail.marker, 'none', `${route}/${index}: нативный маркер скрыт`);
+        assert.equal(detail.userSelect, 'none', `${route}/${index}: заголовок не выделяется как текст`);
+        assert.notEqual(detail.bodyOverflow, 'hidden', `${route}/${index}: содержимое не обрезается`);
+        assert.equal(detail.bodyUserSelect, 'text', `${route}/${index}: содержимое остаётся выделяемым`);
+        disclosureVariants.add(detail.variants[0]);
+      }
+      assert.equal(report.overflow, true, `${route}: нет горизонтального переполнения страницы`);
+      if (screenshotDir && route === 'credits') {
+        await disclosurePage.locator('#credits-upstream').screenshot({ path: path.join(screenshotDir, 'disclosure-inline-closed.png') });
+        const summary = disclosurePage.locator('#credits-upstream > summary');
+        await summary.click();
+        await waitForDisclosureSettled(disclosurePage, '#credits-upstream');
+        await disclosurePage.locator('#credits-upstream').screenshot({ path: path.join(screenshotDir, 'disclosure-inline-open.png') });
+        await summary.click();
+        await waitForDisclosureSettled(disclosurePage, '#credits-upstream');
+      }
+      if (screenshotDir && route === 'state') {
+        const summary = disclosurePage.locator('#app details.state-voice > summary');
+        await disclosurePage.locator('#app details.state-voice').screenshot({ path: path.join(screenshotDir, 'disclosure-card-and-inline.png') });
+        await disclosurePage.locator('#app details.state-help').screenshot({ path: path.join(screenshotDir, 'disclosure-help-inline.png') });
+        await summary.click();
+        await waitForDisclosureSettled(disclosurePage, '#app details.state-voice');
+        await disclosurePage.locator('#app details.state-voice').screenshot({ path: path.join(screenshotDir, 'disclosure-card-open.png') });
+        await summary.click();
+        await waitForDisclosureSettled(disclosurePage, '#app details.state-voice');
+      }
+      if (screenshotDir && route === 'dns') {
+        await disclosurePage.locator('#app details.dns-group').first().screenshot({ path: path.join(screenshotDir, 'disclosure-compact.png') });
+      }
+      if (screenshotDir && route === 'diag') {
+        const summary = disclosurePage.locator('#probe-result details.probe-raw > summary');
+        await summary.click();
+        await waitForDisclosureSettled(disclosurePage, '#probe-result details.probe-raw');
+        await disclosurePage.locator('#probe-result details.probe-raw').screenshot({ path: path.join(screenshotDir, 'disclosure-raw-details-open.png') });
+      }
+    }
+    disclosurePickFixture = false;
+    assert.deepEqual([...disclosureVariants].sort(), ['card', 'compact', 'inline'],
+      'по панели используются все три согласованных варианта раскрытия');
+
+    await disclosurePage.goto(`${base}/#/toggles`);
+    await waitForRenderedRoute(disclosurePage, 'toggles');
+    const primaryDisclosure = disclosurePage.locator('#tg-advanced-settings');
+    const primarySummary = primaryDisclosure.locator(':scope > summary');
+    await primarySummary.click();
+    await waitForDisclosureSettled(disclosurePage, '#tg-advanced-settings');
+    assert.equal(await primaryDisclosure.evaluate(node => node.open), true, 'Enter/Space сохраняют нативное открытие секции');
+    await disclosurePage.keyboard.press('Enter');
+    await disclosurePage.waitForFunction(() => !document.querySelector('#tg-advanced-settings')?.open);
+    await disclosurePage.keyboard.press('Space');
+    await disclosurePage.waitForFunction(() => document.querySelector('#tg-advanced-settings')?.open);
+    await disclosurePage.evaluate(() => {
+      const summary = document.querySelector('#tg-advanced-settings > summary');
+      for (let index = 0; index < 10; index += 1) summary.click();
+    });
+    await waitForDisclosureSettled(disclosurePage, '#tg-advanced-settings');
+    const settledDisclosure = await primaryDisclosure.evaluate(details => ({
+      open: details.open,
+      expanded: details.querySelector(':scope > summary').getAttribute('aria-expanded'),
+      temporaryStyles: [...details.children].filter(child => child.tagName !== 'SUMMARY')
+        .some(child => child.style.height || child.style.overflow || child.style.opacity || child.style.transform),
+    }));
+    assert.deepEqual(settledDisclosure, { open: true, expanded: 'true', temporaryStyles: false },
+      '10 быстрых переключений завершаются в согласованном состоянии без inline-остатков');
+    await disclosurePage.keyboard.press('Tab');
+    await primarySummary.evaluate(summary => summary.focus());
+    const focusVisible = await primarySummary.evaluate(summary => ({
+      matches: summary.matches(':focus-visible'), outline: getComputedStyle(summary).outlineStyle,
+    }));
+    assert.deepEqual(focusVisible, { matches: true, outline: 'solid' },
+      'клавиатурный фокус виден на строке заголовка');
+    await disclosurePage.emulateMedia({ reducedMotion: 'reduce' });
+    await primarySummary.click();
+    await disclosurePage.waitForFunction(() => !document.querySelector('#tg-advanced-settings')?.open);
+    assert.equal(await primaryDisclosure.evaluate(details => details.getAnimations().length), 0,
+      'reduced motion отключает переход раскрытия');
+    await disclosurePage.close();
+
+    const routeVideoPage = await browser.newPage({
+      viewport: { width: 1280, height: 900 }, colorScheme: 'dark',
+      recordVideo: { dir: videoDir, size: { width: 1280, height: 900 } },
+    });
+    const routeVideo = routeVideoPage.video();
+    await routeVideoPage.addInitScript(() => {
+      localStorage.setItem('z2k-theme', 'dark');
+      localStorage.setItem('z2k-sidebar', 'expanded');
+    });
+    await routeVideoPage.goto(`${base}/#/state`);
+    await waitForRenderedRoute(routeVideoPage, 'state');
+    await routeVideoPage.evaluate(() => {
+      window.__routeGeometrySamples = [];
+      window.__captureRouteGeometry = true;
+      const sample = () => {
+        if (!window.__captureRouteGeometry) return;
+        const box = selector => {
+          const element = document.querySelector(selector);
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+            width: rect.width, height: rect.height, transform: getComputedStyle(element).transform };
+        };
+        const tabs = document.querySelector('.strat-tabs');
+        const active = tabs?.querySelector('.strat-tab.active, .strat-tab[aria-selected="true"]');
+        const targetLeft = tabs && active ? active.offsetLeft - tabs.scrollLeft : null;
+        const indicatorLeft = tabs ? Number.parseFloat(tabs.style.getPropertyValue('--tab-left')) : null;
+        window.__routeGeometrySamples.push({
+          nav: box('#nav'), topbar: box('.topbar'), app: box('#app'),
+          indicator: tabs && active ? { targetLeft, indicatorLeft } : null,
+          horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        });
+        requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+    for (let cycle = 0; cycle < 30; cycle += 1) {
+      for (const route of ['pick', 'dashboard', 'state', 'toggles']) {
+        await routeVideoPage.evaluate(name => { location.hash = `#/${name}`; }, route);
+        await waitForRenderedRoute(routeVideoPage, route);
+      }
+    }
+    await routeVideoPage.evaluate(() => {
+      for (const route of ['dashboard', 'state', 'pick', 'toggles']) {
+        history.replaceState(null, '', `#/${route}`);
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }
+    });
+    await waitForRenderedRoute(routeVideoPage, 'toggles');
+    await waitForGsapSettled(routeVideoPage, ['#app', '#app .page-title', '#app > .card', '.strat-tabs']);
+    await routeVideoPage.waitForTimeout(500);
+    const routeGeometry = await routeVideoPage.evaluate(() => {
+      window.__captureRouteGeometry = false;
+      const samples = window.__routeGeometrySamples;
+      const shell = key => samples.map(sample => sample[key]).filter(Boolean);
+      return {
+        sampleCount: samples.length,
+        nav: shell('nav'), topbar: shell('topbar'), app: shell('app'),
+        indicators: samples.map(sample => sample.indicator).filter(Boolean),
+        horizontalOverflow: samples.some(sample => sample.horizontalOverflow),
+        finalHash: location.hash,
+        finalPage: document.body.dataset.page,
+        activeTweens: window.gsap
+          ? window.gsap.getTweensOf([document.querySelector('#app'), ...document.querySelectorAll('#app *')])
+            .filter(tween => tween.isActive()).length : 0,
+      };
+    });
+    assert.ok(routeGeometry.sampleCount > 250, `30 циклов снимают геометрию по кадрам (${routeGeometry.sampleCount})`);
+    for (const [name, boxes] of [['#nav', routeGeometry.nav], ['topbar', routeGeometry.topbar]]) {
+      const baseline = boxes[0];
+      assert.ok(boxes.every(box => ['left', 'top', 'right', 'bottom', 'width', 'height']
+        .every(key => Math.abs(box[key] - baseline[key]) <= 1)),
+      `${name}: границы shell стабильны на каждом кадре навигации`);
+      assert.ok(boxes.every(box => box.transform === baseline.transform),
+        `${name}: маршрут не двигает shell через transform`);
+    }
+    assert.ok(routeGeometry.app.every(box => Math.abs(box.left - routeGeometry.app[0].left) <= 1
+      && Math.abs(box.top - routeGeometry.app[0].top) <= 1),
+    '#app не прыгает по экрану при смене маршрутов');
+    assert.ok(routeGeometry.indicators.every(item => Math.abs(item.targetLeft - item.indicatorLeft) <= 1),
+      'индикатор стратегии всегда совпадает с активной вкладкой текущего DOM');
+    assert.equal(routeGeometry.horizontalOverflow, false, 'переходы не создают горизонтальное переполнение');
+    assert.equal(routeGeometry.finalHash, '#/toggles', 'серия быстрых переходов сохраняет последний hash');
+    assert.equal(routeGeometry.finalPage, 'toggles', 'серия быстрых переходов показывает последний маршрут');
+    assert.equal(routeGeometry.activeTweens, 0, 'после цикла не остаются активные tween для #app');
+    if (screenshotDir) {
+      await routeVideoPage.screenshot({ path: path.join(screenshotDir, 'navigation-30-cycles-after.png'), fullPage: true });
+    }
+    await routeVideoPage.close();
+    fs.copyFileSync(await routeVideo.path(), path.join(videoDir, 'navigation-30-cycles.webm'));
+
+    tgRunningFixture = true;
+    if (screenshotDir) {
+      await motionPage.locator('#tg-flow-canvas').scrollIntoViewIfNeeded();
+      await waitForNavSettled(motionPage);
+      await screenshotComponent(motionPage, card, path.join(screenshotDir, 'telegram-canvas-stable-after.png'));
+    }
+    await motionPage.waitForTimeout(30000);
+    await motionPage.close();
+    fs.copyFileSync(await telegramVideo.path(), path.join(videoDir, 'telegram-polling-30s.webm'));
+  }
+  if (!motionOnly) {
+    // A genuinely broken required module graph receives a visible failure state.
+    const broken = await browser.newPage();
+    await broken.route('**/js/pages/dashboard.js*', route => route.abort('failed'));
+    await broken.goto(`${base}/#/dashboard`);
+    await broken.locator('#app [data-ui-fatal]').waitFor({ state: 'visible', timeout: 2000 });
+    assert.match(await broken.locator('#app').innerText(), /Не удалось загрузить интерфейс/);
+
+    console.log(`PASS: real browser OpenWrt document root; ${testedRouteCount} routes in dark/light; one-brand, contrast, keyboard, responsive, blocker, and broken-module cases; ${totalModuleResponses} module responses`);
+  } else {
+    console.log('PASS: focused motion regression block; Telegram, route transitions, and disclosures');
+  }
 } finally {
   await browser.close();
   await new Promise(resolve => server.close(resolve));

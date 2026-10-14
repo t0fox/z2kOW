@@ -1674,31 +1674,122 @@ ol.steps > li::marker,
 }
 .how-to-note b { color: var(--warn); }
 
-/* ---------- DISCLOSURE (smooth Apple-like expand/collapse) ----------
-   Native <details> snaps open instantly. Apple-style — smooth height
-   animation. Modern CSS trick: grid-template-rows 0fr → 1fr animatable
-   между keyframes без JS. Все modern браузеры supports (Chrome 117+,
-   Safari 17.4+, FF 121+). Контент должен быть в .disclosure-body
-   wrapper'е с overflow:hidden. */
-.disclosure .disclosure-body {
+/* ---------- Единая система раскрывающихся секций ---------- */
+.disclosure {
+  --disclosure-hover-duration: 120ms;
+  --disclosure-icon-duration: 200ms;
+  min-width: 0;
+}
+.disclosure > summary {
+  display: flex;
+  min-width: 0;
+  min-height: 50px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-radius: var(--ow-radius-control, 12px);
+  color: var(--ow-text-primary, var(--text));
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  -webkit-user-select: none;
+  outline: none;
+  transition-property: background-color, border-color, color, box-shadow;
+  transition-duration: var(--disclosure-hover-duration);
+  transition-timing-function: ease;
+}
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary::marker { content: ""; }
+.disclosure > summary:hover { background: var(--ow-surface-hover, var(--bg-card-hover)); }
+.disclosure > summary:focus-visible {
+  outline: 2px solid var(--ow-focus, var(--accent));
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--ow-focus, var(--accent)) 10%, transparent);
+}
+.disclosure-label {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+}
+.disclosure-chevron {
   display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows var(--dur-base) var(--spring-smooth);
-  will-change: grid-template-rows;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  place-items: center;
+  margin-left: auto;
+  color: var(--ow-text-secondary, var(--text-muted));
+  transition-property: transform, color;
+  transition-duration: var(--disclosure-icon-duration), var(--disclosure-hover-duration);
+  transition-timing-function: cubic-bezier(.2, .75, .25, 1), ease;
 }
-.disclosure[open] .disclosure-body {
-  grid-template-rows: 1fr;
+.disclosure-chevron .icon { width: 16px; height: 16px; }
+.disclosure > summary:hover .disclosure-chevron { color: var(--ow-accent, var(--accent)); }
+.disclosure[open] > summary .disclosure-chevron {
+  color: var(--ow-accent-bright, var(--accent));
+  transform: rotate(180deg);
 }
-.disclosure .disclosure-body > * {
-  overflow: hidden;
-  opacity: 0;
-  transform: translateY(-2px);
-  transition: opacity var(--dur-base) var(--spring-smooth),
-              transform var(--dur-base) var(--spring-snappy);
+.disclosure-body { min-width: 0; user-select: text; -webkit-user-select: text; }
+
+.disclosure-card {
+  border: 1px solid var(--ow-border-subtle, var(--border));
+  border-radius: var(--ow-radius-card, var(--radius));
+  background: var(--ow-surface-1, var(--bg-card));
+  transition-property: border-color, background-color, box-shadow;
+  transition-duration: var(--disclosure-hover-duration);
+  transition-timing-function: ease;
 }
-.disclosure[open] .disclosure-body > * {
-  opacity: 1;
-  transform: translateY(0);
+.disclosure-card > summary { min-height: 54px; padding-inline: 15px; }
+.disclosure-card[open] {
+  border-color: color-mix(in srgb, var(--ow-accent, var(--accent)) 32%, var(--ow-border-subtle, var(--border)));
+  background: linear-gradient(110deg, color-mix(in srgb, var(--ow-accent, var(--accent)) 7%, transparent), transparent 56%),
+    var(--ow-surface-1, var(--bg-card));
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ow-accent, var(--accent)) 70%, transparent),
+    0 0 24px color-mix(in srgb, var(--ow-accent, var(--accent)) 4%, transparent);
+}
+.disclosure-card > .disclosure-body { padding: 2px 16px 16px 54px; }
+
+.disclosure-compact {
+  border: 1px solid transparent;
+  border-radius: var(--ow-radius-control, 12px);
+  transition-property: border-color, background-color;
+  transition-duration: var(--disclosure-hover-duration);
+  transition-timing-function: ease;
+}
+.disclosure-compact > summary {
+  min-height: 48px;
+  padding-inline: 12px;
+  color: var(--ow-text-secondary, var(--text-muted));
+}
+.disclosure-compact[open] {
+  border-color: color-mix(in srgb, var(--ow-accent, var(--accent)) 18%, var(--ow-border-subtle, var(--border)));
+  background: color-mix(in srgb, var(--ow-accent, var(--accent)) 4%, var(--ow-surface-1, var(--bg-card)));
+}
+.disclosure-compact .disclosure-body { padding: 1px 12px 13px 44px; }
+.disclosure-compact[open] > summary:hover { background: transparent; }
+
+.disclosure-inline {
+  border-top: 1px solid var(--ow-border-subtle, var(--border));
+  border-bottom: 1px solid var(--ow-border-subtle, var(--border));
+}
+.disclosure-inline > summary { min-height: 48px; margin-block: 2px; padding-inline: 5px 9px; }
+.disclosure-inline > summary:hover { background: var(--ow-surface-2, var(--bg-subtle)); }
+.disclosure-inline .disclosure-body { padding: 0 8px 15px 37px; }
+
+.state-voice > summary .disclosure-label { justify-content: space-between; }
+.state-voice > summary .disclosure-label > span:not(.disclosure-chevron) {
+  color: var(--ow-text-secondary, var(--text-muted));
+  font-size: 13px;
+  font-weight: 400;
+}
+.state-voice[open] > summary { margin-bottom: var(--space-12); }
+.state-help > summary { color: var(--ow-accent, var(--accent)); font-size: 13px; }
+.state-help[open] > summary { margin-bottom: var(--space-8); }
+
+@media (max-width: 767.98px) {
+  .disclosure-card > .disclosure-body { padding-left: 16px; }
 }
 
 /* ---------- BUTTONS ---------- */
@@ -3244,8 +3335,6 @@ pre.log {
   border-top: 1px solid var(--ow-border-subtle, var(--border));
 }
 .tg-openwrt-tools[hidden] { display: none; }
-.tg-openwrt-tools > summary { min-height: 44px; padding: var(--space-12) 0; color: var(--ow-text-secondary, var(--text-muted)); cursor: pointer; }
-.tg-openwrt-tools > summary:hover { color: var(--ow-text-primary, var(--text)); }
 .tg-openwrt-tools-body { display: grid; gap: var(--space-20); padding-top: var(--space-8); }
 .tg-openwrt-tools-body > section { min-width: 0; margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; }
 .tg-openwrt-tools h4 { margin: 0; font-size: 16px; }
@@ -3584,6 +3673,100 @@ input[type="checkbox"] { accent-color: var(--accent); }
   .wl-search input, .wl-editor textarea { font-size: 16px; }
 }
 
+/* Итоговая геометрия трёх вариантов после стилей отдельных страниц. */
+#app details.disclosure > summary {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 50px;
+  height: auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  line-height: 1.4;
+  text-align: left;
+  list-style: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#app details.disclosure > summary::-webkit-details-marker { display: none; }
+#app details.disclosure > summary::marker { content: ""; }
+#app details.disclosure > summary:focus-visible {
+  outline: 2px solid var(--ow-focus, var(--accent));
+  outline-offset: 2px;
+}
+#app details.disclosure > summary .disclosure-label {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+#app details.disclosure > summary .disclosure-chevron {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  place-items: center;
+  margin-left: auto;
+}
+#app details.disclosure > summary .disclosure-chevron .icon { width: 16px; height: 16px; }
+#app details.disclosure > .disclosure-body {
+  min-width: 0;
+  overflow: visible;
+  user-select: text;
+  -webkit-user-select: text;
+}
+#app details.disclosure-card {
+  border: 1px solid var(--ow-border-subtle, var(--border));
+  border-radius: var(--ow-radius-card, var(--radius));
+  background: var(--ow-surface-1, var(--bg-card));
+  transition-property: border-color, background-color, box-shadow;
+  transition-duration: var(--disclosure-hover-duration, 120ms);
+  transition-timing-function: ease;
+}
+#app details.disclosure-card > summary { min-height: 54px; padding-inline: 15px; }
+#app details.disclosure-card[open] {
+  border-color: color-mix(in srgb, var(--ow-accent, var(--accent)) 32%, var(--ow-border-subtle, var(--border)));
+  background: linear-gradient(110deg, color-mix(in srgb, var(--ow-accent, var(--accent)) 7%, transparent), transparent 56%),
+    var(--ow-surface-1, var(--bg-card));
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ow-accent, var(--accent)) 70%, transparent),
+    0 0 24px color-mix(in srgb, var(--ow-accent, var(--accent)) 4%, transparent);
+}
+#app details.disclosure-card > .disclosure-body { padding: 2px 16px 16px 54px; }
+#app details.disclosure-compact {
+  border: 1px solid transparent;
+  border-radius: var(--ow-radius-control, 12px);
+  transition-property: border-color, background-color;
+  transition-duration: var(--disclosure-hover-duration, 120ms);
+  transition-timing-function: ease;
+}
+#app details.disclosure-compact > summary { min-height: 48px; padding-inline: 12px; }
+#app details.disclosure-compact[open] {
+  border-color: color-mix(in srgb, var(--ow-accent, var(--accent)) 18%, var(--ow-border-subtle, var(--border)));
+  background: color-mix(in srgb, var(--ow-accent, var(--accent)) 4%, var(--ow-surface-1, var(--bg-card)));
+}
+#app details.disclosure-compact .disclosure-body { padding: 1px 12px 13px 44px; }
+#app details.disclosure-compact[open] > summary:hover { background: transparent; }
+#app details.disclosure-inline {
+  border-top: 1px solid var(--ow-border-subtle, var(--border));
+  border-bottom: 1px solid var(--ow-border-subtle, var(--border));
+}
+#app details.disclosure-inline > summary { min-height: 48px; margin-block: 2px; padding-inline: 5px 9px; }
+#app details.disclosure-inline .disclosure-body { padding: 0 8px 15px 37px; }
+#app details.state-voice > summary .disclosure-label { justify-content: space-between; }
+#app details.state-voice > summary .disclosure-label > span {
+  color: var(--ow-text-secondary, var(--text-muted));
+  font-size: 13px;
+  font-weight: 400;
+}
+@media (max-width: 767.98px) {
+  #app details.disclosure-card > .disclosure-body { padding-left: 16px; }
+}
+
 /* Поток Telegram использует цветовые переменные активной темы панели. */
 .tg-flow {
   --tg-flow-background: var(--bg-card);
@@ -3730,6 +3913,22 @@ html.motion-ready .nav-active-indicator {
   transition-timing-function: cubic-bezier(.2, .8, .2, 1) !important;
   will-change: top, height;
 }
+html.motion-ready .disclosure > summary {
+  transition-property: background-color, border-color, color, box-shadow !important;
+  transition-duration: var(--disclosure-hover-duration) !important;
+  transition-timing-function: ease !important;
+}
+html.motion-ready .disclosure-chevron {
+  transition-property: transform, color !important;
+  transition-duration: var(--disclosure-icon-duration), var(--disclosure-hover-duration) !important;
+  transition-timing-function: cubic-bezier(.2, .75, .25, 1), ease !important;
+}
+html.motion-ready .disclosure-card,
+html.motion-ready .disclosure-compact {
+  transition-property: border-color, background-color, box-shadow !important;
+  transition-duration: var(--disclosure-hover-duration) !important;
+  transition-timing-function: ease !important;
+}
 html.motion-ready #nav > a { position: relative; z-index: 1; }
 html.motion-ready #nav a.active { background: transparent; }
 html:not(.motion-ready) .sg-closed .sg-toggle .icon { transform: rotate(-90deg); }
@@ -3756,6 +3955,10 @@ html:not(.motion-ready) .sg-closed .sg-toggle .icon { transform: rotate(-90deg);
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+  html.motion-ready .disclosure > summary,
+  html.motion-ready .disclosure-chevron,
+  html.motion-ready .disclosure-card,
+  html.motion-ready .disclosure-compact { transition-duration: 0.001ms !important; }
   .job-badge-dot {
     /* Static rather than pulsing — colour still signals "busy", no motion. */
     opacity: 1;

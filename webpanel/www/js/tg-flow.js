@@ -464,13 +464,19 @@ export function mountTelegramFlow(canvas) {
     const rect = canvas.getBoundingClientRect();
     const width = Math.max(1, rect.width);
     const height = Math.max(1, rect.height);
-    pixelRatio = Math.min(2.5, Math.max(1, window.devicePixelRatio || 1));
-    canvas.width = Math.round(width * pixelRatio);
-    canvas.height = Math.round(height * pixelRatio);
+    const nextPixelRatio = Math.min(2.5, Math.max(1, window.devicePixelRatio || 1));
+    const ratioChanged = nextPixelRatio !== pixelRatio;
+    pixelRatio = nextPixelRatio;
+    const backingWidth = Math.round(width * pixelRatio);
+    const backingHeight = Math.round(height * pixelRatio);
+    const backingStoreChanged = canvas.width !== backingWidth || canvas.height !== backingHeight;
+    if (canvas.width !== backingWidth) canvas.width = backingWidth;
+    if (canvas.height !== backingHeight) canvas.height = backingHeight;
     scaleX = canvas.width / WIDTH;
     scaleY = canvas.height / HEIGHT;
-    if (motionPreference?.matches || !inView || document.hidden) draw();
-    else startLoop();
+    const canAnimate = !motionPreference?.matches && inView && !document.hidden;
+    if (backingStoreChanged || ratioChanged || !canAnimate) draw();
+    if (canAnimate) startLoop();
   }
 
   function strokePath(path, color, alpha, width, dash = [], glow = 0) {

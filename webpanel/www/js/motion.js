@@ -4,7 +4,7 @@ const Flip = typeof window !== "undefined" ? window.Flip : null;
 const reduceQuery = typeof window !== "undefined"
   ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
 
-const duration = Object.freeze({ micro: 0.1, state: 0.16, popup: 0.2, base: 0.28, shell: 0.3, tab: 0.35 });
+const duration = Object.freeze({ micro: 0.1, state: 0.16, popup: 0.2, disclosure: 0.25, base: 0.28, shell: 0.3, tab: 0.35 });
 const ease = Object.freeze({ standard: "power2.out", enter: "power3.out", spring: "back.out(1.15)" });
 const keyed = new WeakMap();
 const activities = new Map();
@@ -82,13 +82,18 @@ function restoreStyles(saved) {
 }
 
 function disclosureElements(details) {
-  const summary = details && details.querySelector(":scope > summary");
-  return details ? Array.from(details.children).filter(child => child !== summary) : [];
+  const body = details && details.querySelector(":scope > .disclosure-body");
+  return body ? [body] : [];
 }
 
 function animateDisclosure(details, open) {
-  if (!details || !gsap || !hasGsap) return;
+  if (!details) return;
   const children = disclosureElements(details);
+  if (!gsap || !hasGsap || !children.length) {
+    details.open = open;
+    details.querySelector(":scope > summary")?.setAttribute("aria-expanded", String(open));
+    return;
+  }
   const saved = detailsStyles.get(details) || saveStyles(children);
   detailsTargets.set(details, open);
   const current = detailsStyles.get(details);
@@ -111,27 +116,27 @@ function animateDisclosure(details, open) {
       child.style.opacity = "0";
       child.style.visibility = "visible";
     }
-    const animation = to(children, {
-      height: "auto", opacity: 1, y: 0, duration: duration.base, ease: ease.standard,
+    const animation = to(children[0], {
+      height: "auto", opacity: 1, y: 0, duration: duration.disclosure, ease: ease.standard,
       onComplete: () => restoreStyles(saved),
     }, "disclosure");
     if (!animation) restoreStyles(saved);
     return;
   }
 
-  const displays = children.map(child => getComputedStyle(child).display);
   details.querySelector(":scope > summary")?.setAttribute("aria-expanded", "false");
   if (reduced) {
     details.open = false;
     restoreStyles(saved);
     return;
   }
-  children.forEach((child, index) => {
-    child.style.display = displays[index] === "none" ? "block" : displays[index];
-    child.style.overflow = "hidden";
-  });
-  const animation = to(children, {
-    height: 0, opacity: 0, y: -3, duration: duration.base, ease: ease.standard,
+  const body = children[0];
+  const display = getComputedStyle(body).display;
+  body.style.display = display === "none" ? "block" : display;
+  body.style.height = `${body.getBoundingClientRect().height}px`;
+  body.style.overflow = "hidden";
+  const animation = to(body, {
+    height: 0, opacity: 0, y: -3, duration: duration.disclosure, ease: ease.standard,
     onComplete: () => {
       if (detailsTargets.get(details) !== false) return;
       details.open = false;
@@ -361,7 +366,9 @@ function animateStateMutation(element) {
   if (element.matches(".nav-active-indicator,.strat-tabs,.chosen-drop")) return;
   const stateful = element.matches("[aria-pressed],[aria-selected],[aria-expanded],[data-kind],[data-state],[role=status],[aria-live],.active,.status-cell,.job-modal-status")
     || /(?:^|\s)(?:is-(?:on|off|running|success|error|active|enabled|healthy|unavailable)|status-(?:ok|bad|good|warn))(?:\s|$)/.test(element.className || "");
-  if (stateful) status(element);
+  // Схема, Canvas и её live-caption несут состояние для данных интерфейса,
+  // но не являются индикаторами для масштабирования при каждом polling.
+  if (stateful && !element.closest(".tg-flow")) status(element);
 }
 
 function initStateObserver() {
@@ -552,9 +559,15 @@ function dispose(target, clear = true) {
   if (clear) gsap.set(target, { clearProps: "transform,opacity,visibility,backgroundPosition" });
 }
 
+function cancelRoute() {
+  if (!routeContext) return;
+  routeContext.revert();
+  routeContext = null;
+}
+
 function enterRoute(root) {
+  cancelRoute();
   if (!hasGsap || !root) return;
-  if (routeContext) routeContext.revert();
   if (reduced) return;
   const title = root.querySelector(".page-title");
   const cards = Array.from(root.querySelectorAll(":scope > .card")).slice(0, 5);
@@ -663,6 +676,7 @@ export const motion = Object.freeze({
   to,
   fromTo,
   dispose,
+  cancelRoute,
   enterRoute,
   disclosure,
   overlay,
