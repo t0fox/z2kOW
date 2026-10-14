@@ -46,7 +46,7 @@ export const _icons = {
 };
 
 const inlineDisclosureSelectors = ".credits-upstream, .probe-raw, .state-help, .policy-help, .upd-details, .tiktok-candidate-details";
-const compactDisclosureSelectors = ".dns-group, .tiktok-candidate-group, .warp-offline, .flow-technical, .flow-benchmark-run-details, .flow-benchmark-snapshots, .tg-openwrt-tools, .tg-worker-settings, .tg-diagnostic-details, .tg-technical";
+const compactDisclosureSelectors = ".dns-group, .tiktok-candidate-group, .warp-offline, .flow-technical, .flow-benchmark-run-details, .flow-benchmark-snapshots, .tg-worker-settings, .tg-diagnostic-details, .tg-technical";
 
 function disclosureVariant(details) {
   const requested = details.dataset.disclosureVariant;
@@ -92,7 +92,7 @@ function decorateDisclosure(details) {
 }
 
 export function decorateDisclosures(root) {
-  if (!root) return;
+  if (!root || typeof Element === "undefined") return;
   const details = root instanceof Element && root.matches("details") ? [root] : [];
   root.querySelectorAll?.("details").forEach(node => details.push(node));
   details.forEach(decorateDisclosure);

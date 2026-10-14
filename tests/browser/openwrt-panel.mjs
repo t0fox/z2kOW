@@ -1999,9 +1999,12 @@ try {
     await waitForRenderedRoute(page, 'dashboard');
     await page.evaluate(() => { location.hash = '#/toggles'; });
     await waitForRenderedRoute(page, 'toggles');
-    await page.waitForFunction(() => document.querySelector('#tg-flow')?.dataset.state === 'idle');
+    await page.waitForFunction(() => document.querySelector('#tg-flow')?.dataset.state === 'idle'
+      && document.querySelector('#tg-flow-caption')?.textContent.includes('Нет активных соединений'));
     const idleRoute = page.locator('#tg-flow');
-    assert.match(await idleRoute.locator('#tg-flow-caption').innerText(), /Нет активных соединений/,
+    const idleCaption = idleRoute.locator('#tg-flow-caption');
+    await idleCaption.waitFor({ state: 'visible' });
+    assert.match(await idleCaption.innerText(), /Нет активных соединений/,
       `${appearance}: при отсутствии соединений схема показывает пустое состояние`);
     assert.equal(await idleRoute.locator('#tg-flow-canvas').count(), 1,
       `${appearance}: Canvas сохраняется в состоянии простоя`);
