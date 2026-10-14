@@ -14,6 +14,8 @@ use tracing::info;
 
 const MAX_COUNTER_KEYS: usize = 96;
 const MAX_TTFB_SAMPLES: usize = 128;
+const MAX_ACTIVE_ROUTE_SESSIONS: usize = 64;
+const MAX_ROUTE_EVENTS: usize = 6;
 
 static GLOBAL: LazyLock<Arc<RuntimeStats>> = LazyLock::new(|| Arc::new(RuntimeStats::new()));
 
@@ -101,6 +103,8 @@ pub struct RuntimeStats {
     workers: Mutex<BTreeMap<String, WorkerState>>,
     cf_domains: Mutex<Vec<String>>,
     cf_fetched_at: AtomicCounterU64,
+    next_route_session_id: AtomicCounterU64,
+    route_sessions: Mutex<BTreeMap<u64, RouteSession>>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -124,6 +128,8 @@ pub struct StatsSnapshot {
     pub process_started_at: u64,
     pub listener_ready: bool,
     pub active_connections: usize,
+    pub active_sessions: Vec<ActiveRouteSession>,
+    pub route_sessions_truncated: bool,
     pub max_connections: usize,
     pub accepted_connections: u64,
     pub wss_established: u64,
@@ -138,6 +144,68 @@ pub struct StatsSnapshot {
     pub ttfb: BTreeMap<String, LatencyPercentiles>,
     pub rss_kib: Option<u64>,
     pub rss_hwm_kib: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ActiveRouteSession {
+    pub id: u64,
+    pub dc: Option<u32>,
+    pub is_media: Option<bool>,
+    pub stage: &'static str,
+    pub direct_state: &'static str,
+    pub direct_transport: Option<&'static str>,
+    pub fallback_state: &'static str,
+    pub fallback_transport: Option<&'static str>,
+    pub selected_transport: Option<&'static str>,
+    pub telegram_response_seen: bool,
+    pub events: VecDeque<ActiveRouteEvent>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ActiveRouteEvent {
+    pub sequence: u64,
+    pub branch: &'static str,
+    pub transport: &'static str,
+    pub state: &'static str,
+}
+
+struct RouteSession {
+    snapshot: ActiveRouteSession,
+    next_event_sequence: u64,
+}
+
+impl RouteSession {
+    fn new(id: u64) -> Self {
+        Self {
+            snapshot: ActiveRouteSession {
+                id,
+                dc: None,
+                is_media: None,
+                stage: "accepted",
+                direct_state: "idle",
+                direct_transport: None,
+                fallback_state: "idle",
+                fallback_transport: None,
+                selected_transport: None,
+                telegram_response_seen: false,
+                events: VecDeque::with_capacity(MAX_ROUTE_EVENTS),
+            },
+            next_event_sequence: 1,
+        }
+    }
+
+    fn event(&mut self, branch: &'static str, transport: &'static str, state: &'static str) {
+        if self.snapshot.events.len() == MAX_ROUTE_EVENTS {
+            self.snapshot.events.pop_front();
+        }
+        self.snapshot.events.push_back(ActiveRouteEvent {
+            sequence: self.next_event_sequence,
+            branch,
+            transport,
+            state,
+        });
+        self.next_event_sequence = self.next_event_sequence.saturating_add(1);
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -158,6 +226,7 @@ impl RuntimeStats {
     pub fn new() -> Self {
         Self {
             started_at: AtomicCounterU64::new(unix_time()),
+            next_route_session_id: AtomicCounterU64::new(0),
             ..Self::default()
         }
     }
@@ -173,7 +242,24 @@ impl RuntimeStats {
     pub fn connection_started(self: &Arc<Self>) -> ConnectionGuard {
         self.accepted_connections.fetch_add(1, Ordering::Relaxed);
         self.active_connections.fetch_add(1, Ordering::AcqRel);
-        ConnectionGuard(Arc::clone(self))
+        let id = self.next_route_session_id.fetch_add(1, Ordering::Relaxed) + 1;
+        let tracked = {
+            let mut sessions = self.route_sessions.lock().expect("маршруты заняты");
+            if sessions.len() >= MAX_ACTIVE_ROUTE_SESSIONS {
+                false
+            } else {
+                sessions.insert(id, RouteSession::new(id));
+                true
+            }
+        };
+        ConnectionGuard {
+            stats: Arc::clone(self),
+            telemetry: ConnectionTelemetry {
+                stats: Arc::clone(self),
+                id,
+                tracked,
+            },
+        }
     }
 
     pub fn record_wss_established(&self) {
@@ -273,10 +359,21 @@ impl RuntimeStats {
                 percentile_stats(samples).map(|stats| (key.clone(), stats))
             })
             .collect();
+        let active_sessions = {
+            let sessions = self.route_sessions.lock().expect("маршруты заняты");
+            sessions
+                .values()
+                .map(|session| session.snapshot.clone())
+                .collect::<Vec<_>>()
+        };
+        let active_connections = self.active_connections.load(Ordering::Acquire);
+        let route_sessions_truncated = active_connections > active_sessions.len();
         StatsSnapshot {
             process_started_at: self.started_at.load(Ordering::Acquire),
             listener_ready: self.listener_ready.load(Ordering::Acquire),
-            active_connections: self.active_connections.load(Ordering::Acquire),
+            active_connections,
+            route_sessions_truncated,
+            active_sessions,
             max_connections: self.max_connections.load(Ordering::Acquire),
             accepted_connections: self.accepted_connections.load(Ordering::Acquire),
             wss_established: self.wss_established.load(Ordering::Acquire),
@@ -320,11 +417,207 @@ impl RuntimeStats {
     }
 }
 
-pub struct ConnectionGuard(Arc<RuntimeStats>);
+pub struct ConnectionGuard {
+    stats: Arc<RuntimeStats>,
+    telemetry: ConnectionTelemetry,
+}
+
+impl ConnectionGuard {
+    pub fn telemetry(&self) -> ConnectionTelemetry {
+        self.telemetry.clone()
+    }
+}
+
+#[derive(Clone)]
+pub struct ConnectionTelemetry {
+    stats: Arc<RuntimeStats>,
+    id: u64,
+    tracked: bool,
+}
+
+impl ConnectionTelemetry {
+    pub fn set_stage(&self, stage: &'static str) {
+        if !self.tracked {
+            return;
+        }
+        if let Some(session) = self
+            .stats
+            .route_sessions
+            .lock()
+            .expect("маршруты заняты")
+            .get_mut(&self.id)
+        {
+            session.snapshot.stage = stage;
+        }
+    }
+
+    pub fn set_dc(&self, dc: u32, is_media: bool) {
+        if !self.tracked {
+            return;
+        }
+        if let Some(session) = self
+            .stats
+            .route_sessions
+            .lock()
+            .expect("маршруты заняты")
+            .get_mut(&self.id)
+        {
+            session.snapshot.dc = Some(dc);
+            session.snapshot.is_media = Some(is_media);
+        }
+    }
+
+    pub fn begin_attempt(
+        &self,
+        branch: &'static str,
+        transport: &'static str,
+    ) -> RouteAttemptGuard {
+        self.set_attempt_state(branch, transport, "connecting");
+        RouteAttemptGuard {
+            telemetry: self.clone(),
+            branch,
+            transport,
+            complete: false,
+        }
+    }
+
+    pub fn select_transport(&self, branch: &'static str, transport: &'static str) {
+        if !self.tracked {
+            return;
+        }
+        if let Some(session) = self
+            .stats
+            .route_sessions
+            .lock()
+            .expect("маршруты заняты")
+            .get_mut(&self.id)
+        {
+            let losing_branch = if branch == "direct" {
+                "fallback"
+            } else {
+                "direct"
+            };
+            let (losing_state, losing_transport) = if losing_branch == "direct" {
+                (
+                    session.snapshot.direct_state,
+                    session.snapshot.direct_transport,
+                )
+            } else {
+                (
+                    session.snapshot.fallback_state,
+                    session.snapshot.fallback_transport,
+                )
+            };
+            if losing_state == "connected" {
+                if losing_branch == "direct" {
+                    session.snapshot.direct_state = "cancelled";
+                } else {
+                    session.snapshot.fallback_state = "cancelled";
+                }
+                if let Some(losing_transport) = losing_transport {
+                    session.event(losing_branch, losing_transport, "cancelled");
+                }
+            }
+            session.snapshot.stage = "upstream_ready";
+            session.snapshot.selected_transport = Some(transport);
+            session.snapshot.telegram_response_seen = false;
+            if branch == "direct" {
+                session.snapshot.direct_state = "selected";
+                session.snapshot.direct_transport = Some(transport);
+            } else {
+                session.snapshot.fallback_state = "selected";
+                session.snapshot.fallback_transport = Some(transport);
+            }
+            session.event(branch, transport, "selected");
+        }
+    }
+
+    pub fn mark_first_wss_binary(&self) {
+        if !self.tracked {
+            return;
+        }
+        if let Some(session) = self
+            .stats
+            .route_sessions
+            .lock()
+            .expect("маршруты заняты")
+            .get_mut(&self.id)
+        {
+            let transport = session.snapshot.selected_transport.unwrap_or("unknown");
+            let branch = if transport == "direct_wss" {
+                "direct"
+            } else {
+                "fallback"
+            };
+            session.snapshot.stage = "first_wss_binary_response";
+            session.snapshot.telegram_response_seen = true;
+            session.event(branch, transport, "first_binary_response");
+        }
+    }
+
+    fn set_attempt_state(
+        &self,
+        branch: &'static str,
+        transport: &'static str,
+        state: &'static str,
+    ) {
+        if !self.tracked {
+            return;
+        }
+        if let Some(session) = self
+            .stats
+            .route_sessions
+            .lock()
+            .expect("маршруты заняты")
+            .get_mut(&self.id)
+        {
+            session.snapshot.stage = "routing";
+            if branch == "direct" {
+                session.snapshot.direct_state = state;
+                session.snapshot.direct_transport = Some(transport);
+            } else {
+                session.snapshot.fallback_state = state;
+                session.snapshot.fallback_transport = Some(transport);
+            }
+            session.event(branch, transport, state);
+        }
+    }
+}
+
+pub struct RouteAttemptGuard {
+    telemetry: ConnectionTelemetry,
+    branch: &'static str,
+    transport: &'static str,
+    complete: bool,
+}
+
+impl RouteAttemptGuard {
+    pub fn finish(mut self, state: &'static str) {
+        self.telemetry
+            .set_attempt_state(self.branch, self.transport, state);
+        self.complete = true;
+    }
+}
+
+impl Drop for RouteAttemptGuard {
+    fn drop(&mut self) {
+        if !self.complete {
+            self.telemetry
+                .set_attempt_state(self.branch, self.transport, "cancelled");
+        }
+    }
+}
 
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
-        self.0.active_connections.fetch_sub(1, Ordering::AcqRel);
+        if self.telemetry.tracked {
+            self.stats
+                .route_sessions
+                .lock()
+                .expect("маршруты заняты")
+                .remove(&self.telemetry.id);
+        }
+        self.stats.active_connections.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
@@ -516,9 +809,115 @@ mod tests {
         let stats = Arc::new(RuntimeStats::new());
         let guard = stats.connection_started();
         assert_eq!(stats.snapshot().active_connections, 1);
+        assert_eq!(stats.snapshot().active_sessions.len(), 1);
         drop(guard);
         assert_eq!(stats.snapshot().active_connections, 0);
+        assert!(stats.snapshot().active_sessions.is_empty());
         assert_eq!(stats.snapshot().accepted_connections, 1);
+    }
+
+    #[test]
+    fn попытка_маршрута_сохраняет_фактические_состояния_и_ограниченный_журнал() {
+        let stats = Arc::new(RuntimeStats::new());
+        let guard = stats.connection_started();
+        let telemetry = guard.telemetry();
+        telemetry.set_dc(2, false);
+
+        for _ in 0..4 {
+            telemetry
+                .begin_attempt("direct", "direct_wss")
+                .finish("failed");
+        }
+
+        let snapshot = stats.snapshot();
+        let session = &snapshot.active_sessions[0];
+        assert_eq!(session.dc, Some(2));
+        assert_eq!(session.direct_state, "failed");
+        assert_eq!(session.direct_transport, Some("direct_wss"));
+        assert_eq!(session.events.len(), super::MAX_ROUTE_EVENTS);
+        assert_eq!(session.events.front().unwrap().sequence, 3);
+        assert_eq!(session.events.back().unwrap().sequence, 8);
+        drop(guard);
+        assert!(stats.snapshot().active_sessions.is_empty());
+    }
+
+    #[test]
+    fn отменённая_параллельная_попытка_не_остаётся_подключающейся() {
+        let stats = Arc::new(RuntimeStats::new());
+        let guard = stats.connection_started();
+        let telemetry = guard.telemetry();
+        let attempt = telemetry.begin_attempt("fallback", "cloudflare_proxy");
+        drop(attempt);
+
+        let session = &stats.snapshot().active_sessions[0];
+        assert_eq!(session.fallback_state, "cancelled");
+        assert!(
+            session
+                .events
+                .iter()
+                .any(|event| { event.branch == "fallback" && event.state == "cancelled" })
+        );
+    }
+
+    #[test]
+    fn проигравшая_подключённая_ветка_отменяется_при_выборе_победителя() {
+        let stats = Arc::new(RuntimeStats::new());
+        let guard = stats.connection_started();
+        let telemetry = guard.telemetry();
+        telemetry
+            .begin_attempt("direct", "direct_wss")
+            .finish("connected");
+        telemetry
+            .begin_attempt("fallback", "cloudflare_proxy")
+            .finish("connected");
+
+        telemetry.select_transport("direct", "direct_wss");
+
+        let snapshot = stats.snapshot();
+        let session = &snapshot.active_sessions[0];
+        assert_eq!(session.direct_state, "selected");
+        assert_eq!(session.selected_transport, Some("direct_wss"));
+        assert_eq!(session.fallback_state, "cancelled");
+        assert!(
+            session
+                .events
+                .iter()
+                .any(|event| { event.branch == "fallback" && event.state == "cancelled" })
+        );
+    }
+
+    #[test]
+    fn переполнение_активных_снимков_помечается_без_роста_памяти() {
+        let stats = Arc::new(RuntimeStats::new());
+        let connections = (0..=super::MAX_ACTIVE_ROUTE_SESSIONS)
+            .map(|_| {
+                let guard = stats.connection_started();
+                let telemetry = guard.telemetry();
+                telemetry.set_dc(2, false);
+                for _ in 0..3 {
+                    telemetry
+                        .begin_attempt("fallback", "cloudflare_proxy")
+                        .finish("failed");
+                }
+                guard
+            })
+            .collect::<Vec<_>>();
+        let snapshot = stats.snapshot();
+        assert_eq!(
+            snapshot.active_connections,
+            super::MAX_ACTIVE_ROUTE_SESSIONS + 1
+        );
+        assert_eq!(
+            snapshot.active_sessions.len(),
+            super::MAX_ACTIVE_ROUTE_SESSIONS
+        );
+        assert!(snapshot.route_sessions_truncated);
+        assert!(
+            serde_json::to_vec(&snapshot).unwrap().len() < 64 * 1024,
+            "активная телеметрия не должна переполнять ограниченный stats API"
+        );
+        drop(connections);
+        assert!(stats.snapshot().active_sessions.is_empty());
     }
 
     #[test]

@@ -13,6 +13,7 @@ use crate::config::Config;
 use crate::dc_map::RouteLookupError;
 use crate::routing::{self, Upstream};
 use crate::runtime::Runtime;
+use crate::stats::ConnectionTelemetry;
 use crate::transparent;
 use crate::ws_client::media_tag;
 
@@ -65,6 +66,7 @@ async fn bridge_direct_tcp(
     is_media: bool,
     config: Arc<Config>,
     runtime: Arc<Runtime>,
+    telemetry: Option<ConnectionTelemetry>,
 ) {
     bridge_direct_payload(
         client,
@@ -74,6 +76,7 @@ async fn bridge_direct_tcp(
             peer,
             is_media,
             transport: "прямой TCP",
+            telemetry,
         },
         config,
         runtime,
@@ -87,6 +90,7 @@ struct DirectPayload<'a> {
     peer: SocketAddr,
     is_media: bool,
     transport: &'static str,
+    telemetry: Option<ConnectionTelemetry>,
 }
 
 async fn bridge_direct_payload(
@@ -95,12 +99,17 @@ async fn bridge_direct_payload(
     config: Arc<Config>,
     runtime: Arc<Runtime>,
 ) {
+    let attempt = payload
+        .telemetry
+        .as_ref()
+        .map(|telemetry| telemetry.begin_attempt("direct", "tcp_passthrough"));
     let host = payload.destination.ip().to_string();
     let timeout = Duration::from_secs(config.tcp_fallback_timeout);
     let connect = runtime
         .outbound()
         .connect(&host, payload.destination.port(), timeout);
     let Some(result) = complete_unless_client_resets(&client, connect).await else {
+        drop(attempt);
         debug!(
             "[{}] клиент сбросил соединение во время выбора прямого TCP-маршрута",
             payload.peer
@@ -110,11 +119,20 @@ async fn bridge_direct_payload(
     match result {
         Ok(mut remote) => {
             if let Err(error) = remote.write_all(payload.initial).await {
+                if let Some(attempt) = attempt {
+                    attempt.finish("failed");
+                }
                 warn!(
                     "[{}] не удалось передать начальные данные по маршруту {} к {}: {}",
                     payload.peer, payload.transport, payload.destination, error
                 );
                 return;
+            }
+            if let Some(attempt) = attempt {
+                attempt.finish("connected");
+            }
+            if let Some(telemetry) = payload.telemetry.as_ref() {
+                telemetry.select_transport("direct", "tcp_passthrough");
             }
             match tokio::io::copy_bidirectional(&mut client, &mut remote).await {
                 Ok((bytes_up, bytes_down)) => info!(
@@ -136,10 +154,15 @@ async fn bridge_direct_payload(
                 ),
             }
         }
-        Err(error) => warn!(
-            "[{}] не удалось открыть маршрут {} к исходному назначению {}: {}",
-            payload.peer, payload.transport, payload.destination, error
-        ),
+        Err(error) => {
+            if let Some(attempt) = attempt {
+                attempt.finish("failed");
+            }
+            warn!(
+                "[{}] не удалось открыть маршрут {} к исходному назначению {}: {}",
+                payload.peer, payload.transport, payload.destination, error
+            );
+        }
     }
 }
 
@@ -151,7 +174,9 @@ pub async fn handle_transparent_client_with_runtime(
     peer: SocketAddr,
     config: Arc<Config>,
     runtime: Arc<Runtime>,
+    telemetry: ConnectionTelemetry,
 ) {
+    telemetry.set_stage("reading_original_destination");
     let destination = match transparent::original_destination(&stream) {
         Ok(destination) => destination,
         Err(error) => {
@@ -259,6 +284,7 @@ pub async fn handle_transparent_client_with_runtime(
                 init_info.is_media,
                 Arc::clone(&config),
                 Arc::clone(&runtime),
+                Some(telemetry),
             )
             .await;
             return;
@@ -273,6 +299,8 @@ pub async fn handle_transparent_client_with_runtime(
     };
     let dc = destination_route.id;
     let is_media = effective_media_route(init_info.is_media, destination_route.media_only);
+    telemetry.set_dc(dc, is_media);
+    telemetry.set_stage("routing");
     info!(
         "[{}] dcOption для {}: DC{}{}, карта={}, CDN={}, TCP-only={}, this-port-only={}, порт опции={}, порт клиента={}",
         peer,
@@ -299,13 +327,21 @@ pub async fn handle_transparent_client_with_runtime(
             effective_media_route(init_info.is_media, destination_route.media_only),
             Arc::clone(&config),
             Arc::clone(&runtime),
+            Some(telemetry),
         )
         .await;
         return;
     }
     let label = peer;
     let target_ip = destination.ip().to_string();
-    let route = routing::Route::new(label, &config, &runtime, dc, is_media);
+    let route = routing::Route::new(
+        label,
+        &config,
+        &runtime,
+        dc,
+        is_media,
+        Some(telemetry.clone()),
+    );
     let tcp_fallback_timeout = route.tcp_fallback_timeout();
     let tcp_failure_cooldown = route.tcp_fallback_failure_cooldown();
     let Some(upstream) =
@@ -322,6 +358,13 @@ pub async fn handle_transparent_client_with_runtime(
             route_type,
             feedback,
         } => {
+            let (branch, transport) = match route_type {
+                "прямой WSS" => ("direct", "direct_wss"),
+                "WSS через Cloudflare Worker" => ("fallback", "cloudflare_worker"),
+                "WSS через Cloudflare proxy" => ("fallback", "cloudflare_proxy"),
+                _ => ("fallback", "unknown_wss"),
+            };
+            telemetry.select_transport(branch, transport);
             crate::bridge::bridge_transparent_ws(
                 stream,
                 *ws,
@@ -334,12 +377,14 @@ pub async fn handle_transparent_client_with_runtime(
                 framing,
                 route_type,
                 feedback,
+                telemetry.clone(),
             )
             .await;
         }
         Upstream::Tcp(host) => {
             let (fallback_host, fallback_port) =
                 transparent::tcp_fallback_target(&host, destination);
+            let attempt = telemetry.begin_attempt("fallback", "tcp_fallback");
             let connect =
                 runtime
                     .outbound()
@@ -361,12 +406,15 @@ pub async fn handle_transparent_client_with_runtime(
                             &target_ip,
                             tcp_failure_cooldown,
                         );
+                        attempt.finish("failed");
                         warn!(
                             "[{}] не удалось передать начальный пакет по резервному TCP: {}",
                             peer, error
                         );
                         return;
                     }
+                    attempt.finish("connected");
+                    telemetry.select_transport("fallback", "tcp_fallback");
                     let mut client = stream;
                     match tokio::io::copy_bidirectional(&mut client, &mut remote).await {
                         Ok((bytes_up, bytes_down)) => info!(
@@ -387,6 +435,7 @@ pub async fn handle_transparent_client_with_runtime(
                     }
                 }
                 Err(error) => {
+                    attempt.finish("failed");
                     routing::record_tcp_connect_failure(
                         dc,
                         is_media,
@@ -536,6 +585,7 @@ mod tests {
             true,
             config,
             runtime,
+            None,
         ));
 
         client.write_all(b"data").await.unwrap();

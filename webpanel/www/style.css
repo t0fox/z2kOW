@@ -3574,6 +3574,63 @@ input[type="checkbox"] { accent-color: var(--accent); }
 @media (max-width: 600px) {
   .wl-search input, .wl-editor textarea { font-size: 16px; }
 }
+
+/* Схема Telegram использует палитру Lolzteam из активной темы панели. */
+.tg-route-scheme {
+  --tg-route-line: var(--ow-border-subtle, var(--border));
+  --tg-route-live: var(--ow-success, var(--good));
+  --tg-route-search: var(--ow-warning, var(--warn));
+  --tg-route-fail: var(--ow-danger, var(--bad));
+  margin: 16px 0 18px;
+  padding: 14px;
+  overflow: hidden;
+  border: 1px solid var(--ow-border-subtle, var(--border));
+  border-radius: var(--ow-radius-card, 12px);
+  background: var(--ow-surface-1, var(--bg-card));
+  color: var(--ow-text-primary, var(--text));
+}
+.tg-route-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 2px 8px; }
+.tg-route-heading h4 { margin: 0; color: var(--ow-text-primary, var(--text)); font-size: 14px; font-weight: 650; }
+.tg-route-process { display: block; margin-top: 3px; color: var(--ow-text-tertiary, var(--text-muted)); font-size: 11px; }
+.tg-route-live-label { display: inline-flex; align-items: center; gap: 7px; color: var(--ow-text-secondary, var(--text-muted)); font-size: 10px; white-space: nowrap; }
+.tg-route-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tg-route-line); }
+.tg-route-scheme[data-state="active"] .tg-route-live-dot { background: var(--tg-route-live); }
+.tg-route-scheme[data-state="unavailable"] .tg-route-live-dot { background: var(--tg-route-search); }
+.tg-route-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.tg-route-svg--mobile { display: none; }
+.tg-route-trunk, .tg-route-path { fill: none; stroke: var(--tg-route-line); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.tg-route-path { opacity: .72; transition: stroke var(--ow-motion-state, 150ms) ease, opacity var(--ow-motion-shell, 300ms) cubic-bezier(.2,.8,.2,1); }
+.tg-route-branch-node, .tg-route-node rect { fill: var(--ow-surface-2, var(--bg-card-hover)); stroke: var(--tg-route-line); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.tg-route-node--engine rect { fill: var(--ow-surface-selected, var(--bg-card-hover)); stroke: var(--ow-accent, var(--accent)); }
+.tg-route-svg text { fill: var(--ow-text-primary, var(--text)); font-family: inherit; font-size: 14px; font-weight: 600; }
+.tg-route-svg .tg-route-node-sub { fill: var(--ow-text-tertiary, var(--text-muted)); font-size: 9px; font-weight: 400; }
+.tg-route-svg .tg-route-branch-title { font-size: 11px; font-weight: 650; }
+.tg-route-svg .tg-route-branch-detail { fill: var(--ow-text-secondary, var(--text-muted)); font-size: 9px; font-weight: 500; }
+.tg-route-svg .tg-route-branch-state { fill: var(--ow-text-tertiary, var(--text-muted)); font-size: 8px; font-weight: 500; }
+.tg-route-live-ring { fill: none; stroke: var(--tg-route-live); stroke-width: 2; opacity: 0; vector-effect: non-scaling-stroke; }
+.tg-route-scheme [data-route-branch][data-active="true"] .tg-route-path { stroke: var(--tg-route-live); opacity: .98; }
+.tg-route-scheme [data-route-branch][data-status="connecting"] .tg-route-path { stroke: var(--tg-route-search); opacity: .92; }
+.tg-route-scheme [data-route-branch][data-status="failed"] .tg-route-path { stroke: var(--tg-route-fail); opacity: .72; }
+.tg-route-scheme [data-route-branch][data-status="cancelled"] .tg-route-path { stroke: var(--ow-text-tertiary, var(--text-muted)); opacity: .42; }
+.tg-route-scheme [data-route-branch][data-active="true"] .tg-route-live-ring { stroke: var(--tg-route-live); opacity: .16; }
+.tg-route-caption { min-height: 18px; margin: 8px 2px 0; color: var(--ow-text-secondary, var(--text-muted)); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.tg-route-scheme[data-state="unavailable"] .tg-route-caption { color: var(--ow-warning, var(--warn)); }
+@media (max-width: 900px) {
+  .tg-route-svg--desktop { display: none; }
+  .tg-route-svg--mobile { display: block; max-height: 580px; }
+}
+@media (max-width: 600px) {
+  .tg-route-scheme { margin: 12px 0 16px; padding: 11px 8px; }
+  .tg-route-heading { margin-inline: 3px; }
+  .tg-route-svg--mobile { max-height: none; }
+  .tg-route-svg .tg-route-branch-title { font-size: 10px; }
+  .tg-route-svg .tg-route-branch-detail { font-size: 8px; }
+  .tg-route-svg .tg-route-branch-state { font-size: 7px; }
+  .tg-route-caption { font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tg-route-path { transition-duration: .01ms; }
+}
 /* Rotator «Стратегия» select: same width on every row regardless of value. */
 .state-strat-sel { min-width: 58px; }
 

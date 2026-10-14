@@ -82,6 +82,11 @@ const tgCheckFixture = {
 };
 const tgStatsFixture = {
   process_started_at: tgCheckedAt - 600, listener_ready: true, active_connections: 5, max_connections: 64,
+  active_sessions: Array.from({ length: 5 }, (_, index) => ({
+    id: index + 1, dc: 2, is_media: false, stage: 'upstream_ready',
+    direct_state: 'selected', fallback_state: 'idle', selected_transport: 'direct_wss',
+    telegram_response_seen: false, events: [],
+  })),
   accepted_connections: 17, wss_established: 14, mtproto_success: 9, mtproto_failure: 2,
   last_mtproto_response_at: tgCheckedAt - 5,
   dc_map: { generation: 7, fetched_at: tgCheckedAt - 30, freshness_seconds: 30 },
@@ -92,6 +97,7 @@ const tgStatsFixture = {
   ttfb: { 'dc203:cf-proxy': { count: 2, p50_ms: 80, p95_ms: 120, p99_ms: 130 } },
   rss_kib: 10240, rss_hwm_kib: 12288,
 };
+let tgStatsResponse = tgStatsFixture;
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
   if (url.pathname.startsWith('/cgi-bin/api/')) {
@@ -153,7 +159,7 @@ const server = http.createServer(async (req, res) => {
     Object.assign(stateEntries[6], { host: '192.0.2.44' });
     Object.assign(stateEntries[7], { host: '2001:db8:1234:5678::44' });
     const body = endpoint === 'tunnel/check' ? tgCheckFixture
-      : endpoint === 'tunnel/stats' ? tgStatsFixture
+      : endpoint === 'tunnel/stats' ? tgStatsResponse
       : endpoint === 'state'
       ? { ok: true, entries: stateEntries }
       : endpoint === 'pools'
@@ -1686,6 +1692,42 @@ try {
     await waitForRenderedRoute(page, 'toggles');
     const telegramCard = page.locator('.telegram-tunnel-card');
     assert.equal(await telegramCard.isVisible(), true, `${appearance}: Telegram card is visible`);
+    await page.waitForFunction(() => document.querySelector('#tg-route-scheme')?.dataset.state === 'active');
+    const routeScheme = page.locator('#tg-route-scheme');
+    assert.equal(await routeScheme.locator('[data-route-branch="direct"]').first().getAttribute('data-active'), 'true',
+      `${appearance}: the active direct WSS path follows live session telemetry`);
+    assert.equal(await routeScheme.locator('[data-route-branch="fallback"]').first().getAttribute('data-active'), 'false',
+      `${appearance}: the unused fallback path remains quiet`);
+    assert.match(await routeScheme.locator('#tg-route-caption').innerText(), /Прямой WSS.*5 активных соединений/,
+      `${appearance}: the diagram describes the live transport and connection count`);
+    assert.doesNotMatch(await routeScheme.innerText(), /resPQ.*подтверждён/i,
+      `${appearance}: a live WSS path does not claim Telegram resPQ confirmation`);
+    assert.doesNotMatch(await routeScheme.innerText(), /transparent redirect|DC map\s*·\s*route selection/i,
+      `${appearance}: diagram annotations follow the Russian panel language`);
+    assert.equal(await routeScheme.locator('button, select, input').count(), 0,
+      `${appearance}: the route diagram has no scenario controls`);
+    const routePulse = await routeScheme.evaluate(node => {
+      const ring = node.querySelector('.tg-route-svg--desktop [data-route-branch="direct"] .tg-route-live-ring');
+      const ringBox = ring.getBoundingClientRect();
+      const branchBox = ring.parentElement.querySelector('.tg-route-branch-node').getBoundingClientRect();
+      return {
+        looping: window.gsap.getTweensOf(ring).some(tween => tween.repeat() === -1),
+        visible: ringBox.right <= branchBox.left || ringBox.left >= branchBox.right
+          || ringBox.bottom <= branchBox.top || ringBox.top >= branchBox.bottom,
+      };
+    });
+    assert.equal(routePulse.looping, true, `${appearance}: an active route keeps a continuous loop`);
+    assert.equal(routePulse.visible, true, `${appearance}: the route pulse is visible beyond the branch node`);
+    const routeColors = await routeScheme.evaluate(node => {
+      const probe = document.createElement('span');
+      probe.style.borderColor = 'var(--ow-border-subtle, var(--border))';
+      document.body.appendChild(probe);
+      const result = { diagram: getComputedStyle(node).borderColor, lolzTheme: getComputedStyle(probe).borderColor };
+      probe.remove();
+      return result;
+    });
+    assert.equal(routeColors.diagram, routeColors.lolzTheme,
+      `${appearance}: route scheme uses the active Lolzteam theme border token`);
     await page.locator('#tg-openwrt-tools').waitFor({ state: 'visible' });
     await page.waitForFunction(() => document.querySelector('#tg-runtime-details')?.textContent
       && document.querySelector('#tg-check-results')?.textContent.trim());
@@ -1693,7 +1735,7 @@ try {
       await page.locator('#sidebar-collapse').click();
       await page.waitForFunction(() => document.body.getAttribute('data-sidebar') === null);
     }
-    for (const width of [1440, 1280, 768, 390]) {
+    for (const width of [1440, 1280, 768, 390, 375, 320]) {
       await page.setViewportSize({ width, height: width < 500 ? 844 : 900 });
       await waitForGsapSettled(page, ['#app > .card', '.page-title']);
       await page.evaluate(() => window.scrollTo(0, 0));
@@ -1730,6 +1772,8 @@ try {
         `${appearance}/${width}: card content stays within its width (${JSON.stringify(frame)})`);
       assert.equal(frame.cardFont, frame.bodyFont, `${appearance}/${width}: Telegram inherits the panel font`);
       assert.equal(frame.inputColorScheme, appearance, `${appearance}/${width}: Telegram controls follow the active theme`);
+      assert.equal(await routeScheme.locator('.tg-route-svg--mobile').first().evaluate(node => getComputedStyle(node).display !== 'none'),
+        width <= 900, `${appearance}/${width}: compact schematic switches layout at the panel breakpoint`);
       await page.waitForFunction(() => document.querySelector('.tg-summary-grid')
         && document.querySelectorAll('#tg-check-results .tg-dc-row').length === 5, null, { timeout: 1200 });
       assert.equal(await telegramCard.locator('.tg-dc-row').count(), 5,
@@ -1769,6 +1813,20 @@ try {
       await runtimeTechnical.locator('summary').click();
       await dc1.locator('summary').click();
     }
+
+    const savedTgStats = tgStatsResponse;
+    tgStatsResponse = { ...tgStatsFixture, active_connections: 0, active_sessions: [] };
+    await page.evaluate(() => { location.hash = '#/dashboard'; });
+    await waitForRenderedRoute(page, 'dashboard');
+    await page.evaluate(() => { location.hash = '#/toggles'; });
+    await waitForRenderedRoute(page, 'toggles');
+    await page.waitForFunction(() => document.querySelector('#tg-route-scheme')?.dataset.state === 'idle');
+    const idleRoute = page.locator('#tg-route-scheme');
+    assert.match(await idleRoute.locator('#tg-route-caption').innerText(), /Нет активных соединений/,
+      `${appearance}: no connections keep the diagram static and explicit`);
+    assert.equal(await idleRoute.locator('[data-route-branch][data-active="true"]').count(), 0,
+      `${appearance}: idle telemetry lights no route branch`);
+    tgStatsResponse = savedTgStats;
 
     for (const width of [1080, 1081, 1085, 1090, 1091, 1092]) {
       await page.setViewportSize({ width, height: 900 });
@@ -3192,6 +3250,34 @@ try {
   const videoDir = process.env.OPENWRT_VIDEO_DIR || '';
   if (videoDir) {
     fs.mkdirSync(videoDir, { recursive: true });
+    const transitionEvents = (events) => events.map(([sequence, branch, transport, state]) => ({
+      sequence, branch, transport, state,
+    }));
+    const routeScenario = ({ direct, fallback, selected, events, processStartedAt = tgCheckedAt - 600, accepted = 18, active = 1 }) => ({
+      ...tgStatsFixture,
+      process_started_at: processStartedAt,
+      accepted_connections: accepted,
+      active_connections: active,
+      active_sessions: active ? [{
+        id: 700,
+        dc: 2,
+        is_media: false,
+        stage: selected ? 'upstream_ready' : 'routing',
+        direct_state: direct.state,
+        direct_transport: direct.transport || null,
+        fallback_state: fallback.state,
+        fallback_transport: fallback.transport || null,
+        selected_transport: selected,
+        telegram_response_seen: false,
+        events: transitionEvents(events),
+      }] : [],
+    });
+    const directRoute = () => routeScenario({
+      direct: { state: 'selected', transport: 'direct_wss' },
+      fallback: { state: 'idle' }, selected: 'direct_wss',
+      events: [[1, 'direct', 'direct_wss', 'selected']],
+    });
+    let failStatsApi = false;
     const motionPage = await browser.newPage({
       viewport: { width: 1280, height: 900 },
       colorScheme: 'dark',
@@ -3201,6 +3287,9 @@ try {
       localStorage.setItem('z2k-theme', 'dark');
       localStorage.setItem('z2k-sidebar', 'expanded');
     });
+    await motionPage.route('**/cgi-bin/api/tunnel/stats', route =>
+      failStatsApi ? route.abort('failed') : route.continue());
+    tgStatsResponse = directRoute();
     await motionPage.goto(`${base}/#/dashboard`);
     await waitForRenderedRoute(motionPage, 'dashboard');
     await motionPage.locator('#sidebar-collapse').click();
@@ -3209,14 +3298,93 @@ try {
     await motionPage.waitForTimeout(350);
     await motionPage.evaluate(() => { location.hash = '#/toggles'; });
     await waitForRenderedRoute(motionPage, 'toggles');
-    await motionPage.locator('#au-hour + .chosen-single').click();
-    await motionPage.keyboard.press('Escape');
     await motionPage.locator('.telegram-tunnel-card').scrollIntoViewIfNeeded();
-    const firstDc = motionPage.locator('#tg-check-results .tg-dc-row').first();
-    await firstDc.locator('summary').click();
-    await motionPage.waitForTimeout(350);
-    await firstDc.locator('summary').click();
-    await motionPage.waitForTimeout(350);
+    const routeCaption = motionPage.locator('#tg-route-caption');
+    await motionPage.waitForFunction(() => document.querySelector('#tg-route-scheme')?.dataset.state === 'active');
+    assert.match(await routeCaption.innerText(), /Прямой WSS/, 'video starts on a direct WSS fixture');
+    await motionPage.waitForFunction(() => {
+      const ring = document.querySelector('.tg-route-svg--desktop [data-route-branch="direct"] .tg-route-live-ring');
+      return window.gsap.getTweensOf(ring).some(tween => tween.repeat() === -1);
+    });
+    await motionPage.emulateMedia({ reducedMotion: 'reduce' });
+    await motionPage.waitForFunction(() => {
+      const ring = document.querySelector('.tg-route-svg--desktop [data-route-branch="direct"] .tg-route-live-ring');
+      return window.gsap.getTweensOf(ring).every(tween => tween.repeat() !== -1);
+    }, null, { timeout: 1000 });
+    await motionPage.emulateMedia({ reducedMotion: 'no-preference' });
+    await motionPage.waitForFunction(() => {
+      const ring = document.querySelector('.tg-route-svg--desktop [data-route-branch="direct"] .tg-route-live-ring');
+      return window.gsap.getTweensOf(ring).some(tween => tween.repeat() === -1);
+    });
+    const refreshRoute = async (snapshot, expectedText) => {
+      tgStatsResponse = snapshot;
+      await motionPage.locator('#tg-stats-refresh').click();
+      await motionPage.waitForFunction(expected => document.querySelector('#tg-route-caption')?.textContent.includes(expected), expectedText);
+    };
+    await refreshRoute(routeScenario({
+      direct: { state: 'failed', transport: 'direct_wss' },
+      fallback: { state: 'selected', transport: 'cloudflare_proxy' }, selected: 'cloudflare_proxy',
+      events: [[2, 'direct', 'direct_wss', 'failed'], [3, 'fallback', 'cloudflare_proxy', 'connecting'],
+        [4, 'fallback', 'cloudflare_proxy', 'connected'], [5, 'fallback', 'cloudflare_proxy', 'selected']],
+    }), 'Cloudflare Proxy');
+    await waitForGsapSettled(motionPage, ['.tg-route-path']);
+    assert.match(await routeCaption.innerText(), /не подтверждает ответ Telegram|не подтверждение resPQ/,
+      'a selected WSS upstream is not presented as Telegram confirmation');
+    if (screenshotDir) {
+      await screenshotComponent(motionPage, motionPage.locator('.telegram-tunnel-card'),
+        path.join(screenshotDir, `${screenshotPrefix}tg-route-fallback-desktop.png`));
+    }
+    await refreshRoute(routeScenario({
+      direct: { state: 'selected', transport: 'direct_wss' },
+      fallback: { state: 'failed', transport: 'cloudflare_proxy' }, selected: 'direct_wss',
+      events: [[6, 'fallback', 'cloudflare_proxy', 'failed'], [7, 'direct', 'direct_wss', 'connecting'],
+        [8, 'direct', 'direct_wss', 'connected'], [9, 'direct', 'direct_wss', 'selected']],
+    }), 'Прямой WSS');
+    await waitForGsapSettled(motionPage, ['.tg-route-path']);
+
+    await refreshRoute(routeScenario({
+      direct: { state: 'failed', transport: 'direct_wss' },
+      fallback: { state: 'failed', transport: 'cloudflare_proxy' }, selected: null,
+      events: [[10, 'direct', 'direct_wss', 'failed'], [11, 'fallback', 'cloudflare_proxy', 'failed']],
+    }), 'Выбор маршрута');
+    assert.equal(await motionPage.locator('.tg-route-svg--desktop [data-route-branch][data-status="failed"]').count(), 2,
+      'all unavailable routes remain visibly failed without a synthetic success');
+
+    // Несколько быстрых снимков не должны оставлять старую ветку или tween.
+    await refreshRoute(routeScenario({
+      direct: { state: 'selected', transport: 'direct_wss' }, fallback: { state: 'failed', transport: 'cloudflare_proxy' },
+      selected: 'direct_wss', events: [[12, 'direct', 'direct_wss', 'selected']],
+    }), 'Прямой WSS');
+    await refreshRoute(routeScenario({
+      direct: { state: 'failed', transport: 'direct_wss' }, fallback: { state: 'selected', transport: 'cloudflare_proxy' },
+      selected: 'cloudflare_proxy', events: [[13, 'direct', 'direct_wss', 'failed'], [14, 'fallback', 'cloudflare_proxy', 'selected']],
+    }), 'Cloudflare Proxy');
+    assert.equal(await motionPage.locator('#tg-route-scheme [data-route-branch="fallback"]').first().getAttribute('data-status'), 'selected',
+      'rapid route changes end on the latest real transport');
+
+    failStatsApi = true;
+    await motionPage.locator('#tg-stats-refresh').click();
+    await motionPage.waitForFunction(() => document.querySelector('#tg-route-scheme')?.dataset.state === 'unavailable');
+    assert.equal(await motionPage.locator('#tg-route-scheme [data-route-branch][data-active="true"]').count(), 0,
+      'API loss immediately clears the previously selected route');
+    failStatsApi = false;
+
+    await refreshRoute(routeScenario({
+      direct: { state: 'selected', transport: 'direct_wss' }, fallback: { state: 'idle' }, selected: 'direct_wss',
+      events: [[1, 'direct', 'direct_wss', 'selected']], processStartedAt: tgCheckedAt + 1, accepted: 1,
+    }), 'Прямой WSS');
+    assert.equal(await motionPage.locator('#tg-route-scheme [data-route-branch="direct"]').first().getAttribute('data-status'), 'selected',
+      'proxy restart uses only the new process snapshot');
+
+    await refreshRoute(routeScenario({
+      direct: { state: 'idle' }, fallback: { state: 'idle' }, selected: null, events: [], active: 0,
+    }), 'Нет активных соединений');
+    assert.equal(await motionPage.locator('#tg-route-scheme [data-route-branch][data-active="true"]').count(), 0,
+      'no active connections leave both branches static');
+    if (screenshotDir) {
+      await screenshotComponent(motionPage, motionPage.locator('.telegram-tunnel-card'),
+        path.join(screenshotDir, `${screenshotPrefix}tg-route-idle-desktop.png`));
+    }
     await motionPage.close();
   }
 
