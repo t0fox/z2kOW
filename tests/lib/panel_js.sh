@@ -59,7 +59,7 @@ _tmp_out="$_out.$$"
 #
 # Порядок повторяет слои разбиения: ядро, локальные данные, общие службы,
 # оболочка, страницы, маршрутизатор, запуск. Он же документирует направление зависимостей.
-_layers="js/motion.js js/core js/data js/state-model.js js/job.js js/chrome.js js/pages js/router.js"
+_layers="js/motion.js js/core js/data js/state-model.js js/job.js js/chrome.js js/tg-flow.js js/pages js/router.js"
 {
     for _l in $_layers; do
         if [ -d "$_www/$_l" ]; then

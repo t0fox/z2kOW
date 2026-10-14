@@ -24,6 +24,38 @@ function noteRendered(html) {
   const m = String(html).match(RENDERED_BUG);
   if (m) errors.push("отрисована ошибка: " + m[0]);
 }
+function matchesSimpleSelector(node, selector) {
+  const attribute = /^\[data-([\w-]+)(?:=["']([^"']*)["'])?\]$/.exec(selector);
+  if (attribute) {
+    const key = attribute[1].replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+    return Object.hasOwn(node.dataset || {}, key)
+      && (attribute[2] == null || String(node.dataset[key]) === attribute[2]);
+  }
+  if (selector.startsWith("#")) return String(node.id || "") === selector.slice(1);
+  if (selector.startsWith(".")) return String(node.className || "").split(/\s+/).includes(selector.slice(1));
+  return String(node.tagName || "").toLowerCase() === selector.toLowerCase();
+}
+function matchesSelector(node, selector) {
+  const parts = selector.trim().split(/\s+/);
+  if (!matchesSimpleSelector(node, parts.pop())) return false;
+  let ancestor = node.parentNode;
+  while (parts.length) {
+    const part = parts.pop();
+    while (ancestor && !matchesSimpleSelector(ancestor, part)) ancestor = ancestor.parentNode;
+    if (!ancestor) return false;
+    ancestor = ancestor.parentNode;
+  }
+  return true;
+}
+function queryChildren(root, selector) {
+  const direct = selector.startsWith(":scope > ");
+  const target = direct ? selector.slice(9).trim() : selector.trim();
+  const candidates = [];
+  const visit = node => (node.children || []).forEach(child => { candidates.push(child); visit(child); });
+  if (direct) candidates.push(...(root.children || []));
+  else visit(root);
+  return candidates.filter(node => matchesSelector(node, target));
+}
 const mkEl = () => {
   const el = {
     // value ОБЯЗАН быть, и обязан быть строкой. У настоящего поля ввода он
@@ -49,7 +81,14 @@ const mkEl = () => {
       return false;
     },
     setAttribute(k,v){ this.attributes[k]=String(v); this[k]=String(v); if (k === "id" && BRAND_CASE) domById.set(String(v), this); }, getAttribute(k){ return this.attributes[k]; },
-    removeAttribute(){}, querySelector(){ return mkEl(); }, querySelectorAll(){ return []; },
+    removeAttribute(){}, querySelector(selector){
+      const match = queryChildren(this, selector)[0];
+      if (match) return match;
+      if (String(this.id || "").startsWith("tg-")
+          && (process.env.Z2K_TEST_TG_CARD === "1" || process.env.Z2K_TEST_TG_FRESHNESS === "1")) return null;
+      return mkEl();
+    },
+    querySelectorAll(selector){ return queryChildren(this, selector); },
     closest(){ return null; }, focus(){}, blur(){}, click(){}, insertAdjacentHTML(){},
     scrollIntoView(){}, remove(){},
   };

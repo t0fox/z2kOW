@@ -41,7 +41,7 @@ function destroyTgRouteVisualization() {
 
 function renderTgRouteVisualization(snapshot, error = "") {
   const canvas = document.getElementById("tg-flow-canvas");
-  if (!canvas) return null;
+  if (!canvas || typeof canvas.getContext !== "function") return null;
   if (!tgRouteRuntime.flow) tgRouteRuntime.flow = mountTelegramFlow(canvas);
   return tgRouteRuntime.flow.update(snapshot, error);
 }
@@ -50,7 +50,7 @@ function mountTgRouteVisualization(onTogglesPage, reloadStats) {
   destroyTgRouteVisualization();
   const root = document.getElementById("tg-flow");
   const canvas = root?.querySelector("#tg-flow-canvas");
-  if (!root || !canvas) return;
+  if (!root || !canvas || typeof canvas.getContext !== "function") return;
   tgRouteRuntime.flow = mountTelegramFlow(canvas);
   if (typeof window.MutationObserver === "function") {
     tgRouteRuntime.observer = new window.MutationObserver(() => {
@@ -206,7 +206,7 @@ function ensureTgTechnical(details) {
     body.className = "disclosure-body tg-technical-body";
     const note = document.createElement("p");
     note.className = "tg-runtime-note";
-    note.textContent = "Счётчики накоплены с момента запуска процесса. Первый WSS Binary кадр не подтверждает успешную проверку MTProto resPQ.";
+    note.textContent = "Накопленная статистика процесса с момента запуска. Первый WSS Binary кадр не подтверждает успешную проверку MTProto resPQ.";
     body.appendChild(note);
     appendTgNodes(technical, summary, body);
     details.appendChild(technical);
@@ -304,7 +304,7 @@ function renderTgStats(snapshot, error = "") {
   const memory = snapshot.rss_kib == null ? "Недоступна" : (Number(snapshot.rss_kib) / 1024).toFixed(1) + " МиБ";
   const summaryFacts = [
     ["active_connections", "Активные соединения", tgConnectionCountLabel(snapshot.active_connections, snapshot.max_connections), "Текущие TCP-соединения"],
-    ["mtproto_success", "Первый ответ WSS", String(snapshot.mtproto_success ?? 0), "Не равен проверке resPQ"],
+    ["mtproto_success", "Сессии с ответом WSS", String(snapshot.mtproto_success ?? 0), "Первый WSS Binary кадр не подтверждает resPQ"],
     ["rss", "Память процесса", memory, "Текущий RSS"],
     ["dc_map", "Карта DC", age == null ? "Возраст неизвестен" : age + " с назад", "Последнее обновление карты"],
   ];
