@@ -235,7 +235,8 @@ function tgRouteStartAmbient(root) {
   const gsap = window.gsap;
   const groups = [...root.querySelectorAll('[data-route-branch][data-active="true"]')];
   const key = groups.map(group => group.dataset.routeBranch).sort().join(",");
-  if (!key || !gsap || matchMedia("(prefers-reduced-motion: reduce)").matches || document.hidden) {
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches || false;
+  if (!key || !gsap || reducedMotion || document.hidden) {
     tgRouteRuntime.ambientTimeline?.kill();
     tgRouteRuntime.ambientTimeline = null;
     tgRouteRuntime.ambientKey = key;
@@ -308,7 +309,8 @@ function mountTgRouteVisualization(onTogglesPage, reloadStats) {
   destroyTgRouteVisualization();
   const root = document.getElementById("tg-route-scheme");
   if (!root) return;
-  tgRouteRuntime.observer = new MutationObserver(() => {
+  if (typeof window.MutationObserver !== "function") return;
+  tgRouteRuntime.observer = new window.MutationObserver(() => {
     if (!root.isConnected) destroyTgRouteVisualization();
   });
   tgRouteRuntime.observer.observe(document.getElementById("app"), { childList: true, subtree: true });
@@ -327,15 +329,15 @@ function mountTgRouteVisualization(onTogglesPage, reloadStats) {
     }
   };
   document.addEventListener("visibilitychange", tgRouteRuntime.visibilityHandler);
-  tgRouteRuntime.motionPreference = matchMedia("(prefers-reduced-motion: reduce)");
+  tgRouteRuntime.motionPreference = window.matchMedia?.("(prefers-reduced-motion: reduce)") || null;
   tgRouteRuntime.motionPreferenceHandler = () => {
-    if (tgRouteRuntime.motionPreference.matches) {
+    if (tgRouteRuntime.motionPreference?.matches) {
       tgRouteRuntime.motionTimeline?.progress(1).kill();
       tgRouteRuntime.motionTimeline = null;
     }
     tgRouteStartAmbient(root);
   };
-  tgRouteRuntime.motionPreference.addEventListener("change", tgRouteRuntime.motionPreferenceHandler);
+  tgRouteRuntime.motionPreference?.addEventListener("change", tgRouteRuntime.motionPreferenceHandler);
   const schedule = () => {
     if (!onTogglesPage() || document.hidden || tgRouteRuntime.pollTimer
         || document.getElementById("tg-openwrt-tools")?.hidden) return;

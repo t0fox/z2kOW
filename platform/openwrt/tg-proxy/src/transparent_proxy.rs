@@ -58,32 +58,6 @@ async fn complete_unless_client_resets<F: Future>(
     }
 }
 
-async fn bridge_direct_tcp(
-    client: TcpStream,
-    init: [u8; crate::crypto::HANDSHAKE_LEN],
-    destination: SocketAddr,
-    peer: SocketAddr,
-    is_media: bool,
-    config: Arc<Config>,
-    runtime: Arc<Runtime>,
-    telemetry: Option<ConnectionTelemetry>,
-) {
-    bridge_direct_payload(
-        client,
-        DirectPayload {
-            initial: &init,
-            destination,
-            peer,
-            is_media,
-            transport: "прямой TCP",
-            telemetry,
-        },
-        config,
-        runtime,
-    )
-    .await;
-}
-
 struct DirectPayload<'a> {
     initial: &'a [u8],
     destination: SocketAddr,
@@ -276,15 +250,18 @@ pub async fn handle_transparent_client_with_runtime(
                 "[{}] адрес {} отсутствует в проверенной DC-карте; WSS relay не выбирается, поток направляется только к тому же исходному IP:port",
                 peer, destination
             );
-            bridge_direct_tcp(
+            bridge_direct_payload(
                 stream,
-                init,
-                destination,
-                peer,
-                init_info.is_media,
+                DirectPayload {
+                    initial: &init,
+                    destination,
+                    peer,
+                    is_media: init_info.is_media,
+                    transport: "прямой TCP",
+                    telemetry: Some(telemetry),
+                },
                 Arc::clone(&config),
                 Arc::clone(&runtime),
-                Some(telemetry),
             )
             .await;
             return;
@@ -319,15 +296,18 @@ pub async fn handle_transparent_client_with_runtime(
             "[{}] официальный CDN DC{} направляется только прямым TCP к исходному назначению {}",
             peer, destination_route.id, destination
         );
-        bridge_direct_tcp(
+        bridge_direct_payload(
             stream,
-            init,
-            destination,
-            peer,
-            effective_media_route(init_info.is_media, destination_route.media_only),
+            DirectPayload {
+                initial: &init,
+                destination,
+                peer,
+                is_media: effective_media_route(init_info.is_media, destination_route.media_only),
+                transport: "прямой TCP",
+                telemetry: Some(telemetry),
+            },
             Arc::clone(&config),
             Arc::clone(&runtime),
-            Some(telemetry),
         )
         .await;
         return;
