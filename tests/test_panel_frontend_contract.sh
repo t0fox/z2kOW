@@ -301,7 +301,8 @@ global.prompt = () => null;
 
 const STATUS = {
   ok: true, installed: "r-73", service: "active",
-  toggles: { game_warp: "0", customd: "0",
+  toggles: { game_warp: "0", category_youtube: "1", category_rkn: "1",
+             category_discord_voice: "1", customd: "0",
              dynamic_ttl: "1", stats: "1", ppe: "1", fastroute: "1", fastroute_available: "1", auto_update: "1", autohostlist: "0",
              au_hour: "02" },
   tunnel: { running: false },
@@ -1675,7 +1676,7 @@ meta "спрашивают и при выключении" autohostlist_off 's/k
 meta "спрашивают на любом тумблере" other_toggle_no_warn 's/key === "autohostlist" && wanted === "1"/wanted === "1"/'
 # Прерывание действий WARP — по мутанту на каждую строку, ради которой всё писалось.
 meta "итог перебитого действия снова трогает тумблер" warp_interrupt_toggle 's/^ *if (_warpJob !== jobId) return;$//'
-meta "перечитанный статус снова перетирает нажатое" warp_interrupt_toggle 's/if (!warpActing()) box.checked = enabled;/box.checked = enabled;/'
+meta "перечитанный статус снова перетирает нажатое" warp_interrupt_toggle 's/if (!warpActing()) setSwitchChecked(box, enabled);/if (true) setSwitchChecked(box, enabled);/'
 meta "WARP-действия снова идут модалкой" warp_interrupt_toggle 's/^\( *\)trackJob(title, jobId, {$/\1openJobModal(title, jobId, {/'
 meta "выбор транспорта снова заперт своим же действием" warp_interrupt_transport 's/if (foreignJobsActive("warp")) {/if (_warpJob) {/'
 # Час автообновления: мутант на каждую строку, ради которой сценарий написан.

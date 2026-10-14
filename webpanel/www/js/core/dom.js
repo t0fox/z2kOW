@@ -10,8 +10,13 @@ export const $toastStack = document.getElementById("toast-stack");
 
 export const $nav = document.getElementById("nav");
 
+function isSwitchInput(input) {
+  return Boolean(input && typeof input.closest === "function"
+    && (typeof HTMLInputElement === "undefined" || input instanceof HTMLInputElement));
+}
+
 export function markSwitchKnown(input) {
-  if (!(input instanceof HTMLInputElement)) return;
+  if (!isSwitchInput(input)) return;
   const control = input.closest(".switch");
   if (!control) return;
   control.classList.remove("is-unknown");
@@ -19,13 +24,13 @@ export function markSwitchKnown(input) {
 }
 
 export function setSwitchChecked(input, checked) {
-  if (!(input instanceof HTMLInputElement)) return;
+  if (!isSwitchInput(input)) return;
   input.checked = Boolean(checked);
   markSwitchKnown(input);
 }
 
 export function markSwitchUnknown(input) {
-  if (!(input instanceof HTMLInputElement)) return;
+  if (!isSwitchInput(input)) return;
   const control = input.closest(".switch");
   if (!control) return;
   control.classList.add("is-unknown");

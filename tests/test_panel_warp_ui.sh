@@ -45,7 +45,8 @@ assert_eq "UI does not call ready alone fully working" "1" "$(count 'маршр�
 assert_eq "UI names recovery state" "1" "$(count 'соединение потеряно, восстанавливается')"
 assert_eq "WDTT toggle row" "1" "$(count 'id="warp-wdtt-row"')"
 assert_eq "WDTT toggle endpoint" "1" "$(count '"/warp/wdtt"')"
-assert_eq "WDTT defaults from public status" "1" "$(count 'wdttBox.checked = !!d.wdtt_enabled')"
+assert_eq "WDTT applies a known value from public status" "1" "$(count 'setSwitchChecked(wdttBox, d.wdtt_enabled)')"
+assert_eq "WDTT reports an unknown public status" "1" "$(count 'else if (wdttBox) markSwitchUnknown(wdttBox)')"
 assert_eq "WDTT control requires a configured WireGuard server" "1" "$(count 'wdttRow.hidden = !installed || !wgServerAvailable')"
 assert_eq "WDTT capability comes from public status" "1" "$(count 'd.wg_server_available === true')"
 
