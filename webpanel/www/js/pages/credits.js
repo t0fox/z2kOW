@@ -325,6 +325,27 @@ export function renderCredits() {
           всех незаметно.
         </p>
       </div>
+      <div class="card credits-card sponsor-card">
+        <div class="credits-badge sponsor-badge">${_icons.heart} Спонсор проекта</div>
+        <div class="credits-name">ewgen911</div>
+        <p class="desc">
+          Спасибо, ewgen911. Номер 911 набирают, когда помощь нужна прямо
+          сейчас, и с обходом так же: сайт перестал открываться — чинить надо
+          сегодня, а не к следующему релизу. Поддержка оплачивает узел, зеркала
+          обновлений и проверки на живых роутерах, без которых такой скорости
+          не бывает.
+        </p>
+      </div>
+      <div class="card credits-card sponsor-card">
+        <div class="credits-badge sponsor-badge">${_icons.heart} Спонсор проекта</div>
+        <div class="credits-name">cmfifty</div>
+        <p class="desc">
+          Спасибо, cmfifty. Пятьдесят сантиметров — это ровно тот шаг, на
+          который блокировки каждый раз уходят вперёд, и его приходится
+          догонять: замер, правка, проверка, релиз. Поддержка оплачивает узел,
+          зеркала и проверки на живом железе, то есть каждый такой шаг.
+        </p>
+      </div>
     </div>
   `;
 }
