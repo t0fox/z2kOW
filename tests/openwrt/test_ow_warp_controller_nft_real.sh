@@ -51,7 +51,12 @@ if [ "${1:-}" = --inside ]; then
     ready=$("$CRATE/target/debug/z2k-warp-controller" nft-fw4-forward-verify \
         inet fw4 forward z2ktun0 0x80000000 0x80000000 \
         '!z2k: WARP forwarded traffic')
-    [ "$ready" = ready=1 ]
+    if [ "$ready" != ready=1 ]; then
+        printf 'FAIL[ow-warp-controller-real-nft]: %s; %s\n' \
+            "$ready" "$(nft --version)" >&3
+        nft -a list chain inet fw4 forward >&3 || true
+        exit 1
+    fi
     nft list chain inet fw4 forward | grep -F 'oifname "z2ktun0" accept comment "!z2k: WARP forwarded traffic"'
     nft add chain inet fw4 conflict
     nft add rule inet fw4 conflict oifname eth0 accept \
