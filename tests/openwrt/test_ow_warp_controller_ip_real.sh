@@ -10,7 +10,6 @@ if [ "${1:-}" = --inside ]; then
     trap 'ip link del z2ktun0 2>/dev/null || true' EXIT HUP INT TERM
     Z2K_WARP_REAL_IPROUTE2=1 Z2K_WARP_REAL_STATE="$T/state" cargo test --offline \
         --manifest-path "$CRATE/Cargo.toml" --test real_routes -- --nocapture
-    printf 'SUITE[ow-warp-controller-real-ip]: pass\n'
     exit 0
 fi
 for tool in cargo unshare ip; do
@@ -41,3 +40,4 @@ if [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ]; then
 else
     unshare -Urn sh "$0" --inside "$T" "$CRATE"
 fi
+printf '\nSUITE[ow-warp-controller-real-ip]: pass\n'
