@@ -54,6 +54,17 @@ while IFS= read -r _t; do
             fi
             _passed="$(printf '%s\n' "$_out" | sed -n 's/^SUITE\[.*\]: pass=\([0-9]*\) fail=.*/\1/p')"
             _failed="$(printf '%s\n' "$_out" | sed -n 's/^SUITE\[.*\]: pass=[0-9]* fail=\([0-9]*\)/\1/p')"
+            if [ -z "$_failed" ]; then
+                if [ "$_suite_rc" -eq 0 ]; then
+                    [ -n "$_passed" ] || _passed=1
+                    _failed=0
+                else
+                    _failed=1
+                fi
+            fi
+            if [ "$_suite_rc" -ne 0 ] && [ "$_failed" = "0" ]; then
+                _failed=1
+            fi
             PASS=$((PASS + ${_passed:-0}))
             FAIL=$((FAIL + ${_failed:-1}))
             { [ "$_suite_rc" -eq 0 ] && [ "${_failed:-1}" = "0" ]; } || FAILED="$FAILED ${_t##*/}"

@@ -328,7 +328,8 @@ print_tunnel() {
 
 print_warp() {
     local on bin transport endpoint ready err state _adapter _status _scope _route_ready _runtime_state _iface _reason
-    local _edge_colo _edge_country _edge_rtt _edge_selection _entries _devices
+    local _route_tunnel _route_interface _route_mark _route_tun _route_pbr _route_owner
+    local _edge_colo _edge_country _edge_rtt _edge_selection _entries _devices _health
     _adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}"
     if [ -r "$_adapter/arch.sh" ]; then
         . "$_adapter/arch.sh"
@@ -405,12 +406,19 @@ print_warp() {
             esac
             [ -n "$err" ] && printf 'error             : %s\n' "$err"
             if [ -r "$_adapter/warp.sh" ]; then
-                # Use the same read-only predicates as the status API. This
-                # distinguishes an established tunnel from proven OpenWrt PBR.
+                # Rust status already contains the canonical, read-only route proof.
                 Z2K_WARP_SOURCE_ONLY=1
                 if . "$_adapter/warp.sh" 2>/dev/null; then
                     unset Z2K_WARP_SOURCE_ONLY
                     [ -n "$_route_ready" ] || _route_ready=unavailable
+                    _route_tunnel=$(_ow_warp_status_field "$_status" tunnel)
+                    _route_interface=$(_ow_warp_status_field "$_status" interface)
+                    _route_mark=$(_ow_warp_status_field "$_status" nft_mark)
+                    _route_tun=$(_ow_warp_status_field "$_status" tun)
+                    _route_pbr=$(_ow_warp_status_field "$_status" pbr)
+                    _route_owner=$(_ow_warp_status_field "$_status" owner)
+                    _iface=$(_ow_warp_status_field "$_status" iface)
+                    [ "$_route_interface" = present ] || _iface=unavailable
                     _edge_colo=$(printf '%s\n' "$_status" | sed -n 's/.* edge_colo=\([^ ]*\).*/\1/p')
                     _edge_country=$(printf '%s\n' "$_status" | sed -n 's/.* edge_country=\([^ ]*\).*/\1/p')
                     _edge_rtt=$(printf '%s\n' "$_status" | sed -n 's/.* edge_rtt_ms=\([^ ]*\).*/\1/p')
@@ -423,31 +431,27 @@ print_warp() {
                     [ -n "$_edge_country" ] || _edge_country=unavailable
                     case "$_edge_rtt" in ''|0) _edge_rtt=unavailable ;; esac
                     [ -n "$_edge_selection" ] || _edge_selection=unavailable
-                    warp_status_routing_proofs >/dev/null 2>&1 || true
                     printf 'route_ready       : %s\n' "$_route_ready"
-                    printf 'TUN interface      : %s\n' "${WARP_ROUTE_INTERFACE:-unavailable}"
-                    printf 'nft mark path     : %s\n' "${WARP_ROUTE_NFT_MARK:-unavailable}"
-                    printf 'TUN dataplane      : %s\n' "${WARP_ROUTE_TUN:-unavailable}"
-                    printf 'PBR rule+route     : %s\n' "${WARP_ROUTE_PBR:-unavailable}"
-                    printf 'PBR owner record   : %s\n' "${WARP_ROUTE_OWNER:-unavailable}"
+                    printf 'TUN interface      : %s\n' "$_iface"
+                    printf 'nft mark path     : %s\n' "${_route_mark:-unavailable}"
+                    printf 'TUN dataplane      : %s\n' "${_route_tun:-unavailable}"
+                    printf 'PBR rule+route     : %s\n' "${_route_pbr:-unavailable}"
+                    printf 'PBR owner record   : %s\n' "${_route_owner:-unavailable}"
                     printf 'selected sets      : destinations=%s devices=%s\n' "$_entries" "$_devices"
                     if [ "$_route_ready" = 1 ]; then
                         _reason=confirmed
                     elif [ "$ready" != true ]; then
                         _reason='transport proof incomplete'
+                    elif [ "$_route_tunnel" != present ] || [ "$_route_interface" != present ]; then
+                        _reason='live tunnel process or interface is not proven'
+                    elif [ "$_route_mark" = absent ] || [ "$_route_tun" = absent ]; then
+                        _reason='nft/tun rules absent or inconsistent'
+                    elif [ "$_route_pbr" = absent ]; then
+                        _reason='policy route/rules absent, duplicated, or inconsistent'
+                    elif [ "$_route_owner" = absent ]; then
+                        _reason='OpenWrt route ownership record absent or inconsistent'
                     else
-                        _iface="$(_warp_live_iface)"
-                        if ! _warp_proven_ready; then
-                            _reason='live tunnel process or interface is not proven'
-                        elif ! warp_nft_tun_verify "$_iface" >/dev/null 2>&1; then
-                            _reason='nft/tun rules absent or inconsistent'
-                        elif ! warp_pbr_verify >/dev/null 2>&1; then
-                            _reason='policy route/rules absent, duplicated, or inconsistent'
-                        elif ! warp_pbr_owner_verify "$_iface" >/dev/null 2>&1; then
-                            _reason='OpenWrt route ownership record absent or inconsistent'
-                        else
-                            _reason='route status changed during diagnostic probe'
-                        fi
+                        _reason='routing proof unavailable'
                     fi
                     printf 'routing reason   : %s\n' "$_reason"
                     printf 'edge             : colo=%s country=%s rtt_ms=%s selection=%s\n' \
@@ -469,6 +473,10 @@ print_warp() {
     esac
     if [ -x "$bin" ]; then printf 'engine            : installed\n'; else printf 'engine            : missing\n'; fi
     if [ -s "$_warp_device" ]; then printf 'device            : registered\n'; else printf 'device            : missing\n'; fi
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ]; then
+        _health=$(Z2K_WARP_PROTOCOL_VERSION=1 "$WARP_CONTROLLER_BIN" health-observation 2>/dev/null)
+        [ -n "$_health" ] && printf 'health observation: %s\n' "$_health"
+    fi
     printf 'status file       : %s\n' "$_warp_status"
 }
 

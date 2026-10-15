@@ -2,10 +2,26 @@
 # Regression: WARP instance registration can be skipped when the startup
 # mutation lock is busy; the existing WARP tick must re-register it once.
 . "$(dirname "$0")/helper.sh"
-_t_plan "ow-warp-missing-instance"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-warpmiss.XXXXXX")" || exit 1
-trap 'rm -rf "$T"' EXIT INT TERM
+
+if [ "${1:-}" = "--inside" ]; then
+    T="$2"
+else
+    for tool in cargo unshare ip nft; do
+        command -v "$tool" >/dev/null 2>&1 || { echo "требуется реальный инструмент $tool" >&2; exit 1; }
+    done
+    T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-warpmiss.XXXXXX")" || exit 1
+    _cleanup() { _rc=$?; trap - EXIT HUP INT TERM; rm -rf "$T"; exit "$_rc"; }
+    trap _cleanup EXIT HUP INT TERM
+    CARGO_TARGET_DIR="$T/cargo-target"
+    export CARGO_TARGET_DIR
+    cargo build --manifest-path "$REPO/platform/openwrt/warp-controller/Cargo.toml" --bin z2k-warp-controller || exit 1
+    export WARP_CONTROLLER_BIN="$CARGO_TARGET_DIR/debug/z2k-warp-controller"
+    unshare -Urn sh "$0" --inside "$T"
+    exit $?
+fi
+
+_t_plan "ow-warp-missing-instance"
 
 mkdir -p "$T/bin" "$T/etc/state/warp" "$T/tmp/warp" "$T/lists/warp/games" "$T/proc"
 export PATH="$T/bin:$PATH"
@@ -34,6 +50,11 @@ chmod +x "$T/bin/pidof" "$WARP_BIN"
 cat > "$T/bin/ubus" <<'EOF'
 #!/bin/sh
 [ "$1" = "-S" ] && [ "$2" = "call" ] && [ "$3" = "service" ] && [ "$4" = "list" ] || exit 2
+if [ "${PROCD_SERVICE_MODE:-active}" = inactive ]; then
+    printf '%s\n' '{"network":{}}'
+    exit 0
+fi
+if [ "${PROCD_SERVICE_MODE:-active}" = unreadable ]; then exit 1; fi
 if [ -e "$PROCD_WARP_PRESENT_FILE" ]; then
     printf '%s\n' '{"z2k":{"instances":{"z2k":{"running":true},"z2k-warp":{"running":false}}}}'
 else
@@ -41,6 +62,22 @@ else
 fi
 EOF
 chmod +x "$T/bin/ubus"
+cat > "$T/bin/init" <<'EOF'
+#!/bin/sh
+case "${1:-}" in
+    running) [ -e "$PROCD_WARP_PRESENT_FILE" ] ;;
+    restart)
+        echo restart >> "$CALLS"
+        [ -e "$WARP_PROCD_RECOVERY_FILE" ] && echo recovery-preserved >> "$CALLS"
+        : > "$PROCD_WARP_PRESENT_FILE"
+        printf 'registered\n' > "$WARP_PROCD_INSTANCE_FILE"
+        rm -f "$WARP_PROCD_RECOVERY_FILE"
+        ;;
+    *) exit 2 ;;
+esac
+EOF
+chmod +x "$T/bin/init"
+export Z2K_INIT="$T/bin/init"
 printf 'GAME_WARP_ENABLED=1\n' > "$Z2K_CONFIG"
 printf '{"id":"mock-device","addr":"172.16.9.9"}\n' > "$WARP_DEVICE"
 printf '{"ready":false}\n' > "$WARP_STATUS"
@@ -51,36 +88,23 @@ printf '{"ready":false}\n' > "$WARP_STATUS"
 Z2K_WARP_SOURCE_ONLY=1
 . "$REPO/platform/openwrt/warp.sh" || exit 1
 
-# Isolate the missing-process branch while preserving the real check dispatcher,
-# mutation lock and procd-service rebuild helper.
+# Check the Rust state machine and real iproute2/nftables in an isolated netns;
+# only ubus/procd's owning init action is represented by the local fixture.
 z2k_ow_core_ready() { return 0; }
-warp_note_death() { :; }
-_warp_converge_off_keep_probe() { echo fail-open >> "$CALLS"; return 0; }
-_warp_converge_off() { echo converge-off >> "$CALLS"; return 0; }
-_z2k_ow_service_running() { return 0; }
-procd_open_instance() { echo "procd:$1" >> "$CALLS"; }
-procd_set_param() { :; }
-procd_close_instance() { : > "$PROCD_WARP_PRESENT_FILE"; }
-_z2k_ow_warp_service_restart() {
-    echo restart >> "$CALLS"
-    # Model the owning init service's stop phase: the retry latch must survive
-    # this internal restart, but is cleared by the new successful registration.
-    z2k_ow_warp 0 >/dev/null 2>&1
-    [ -e "$WARP_PROCD_RECOVERY_FILE" ] && echo recovery-preserved >> "$CALLS"
-    warp_start_instance
-}
-_warp_wait_and_pbr() { echo bounded-ready-wait >> "$CALLS"; return 0; }
-warp_pbr_down() { return 0; }
-warp_nft_remove() { return 0; }
 
 # No process and no procd registration: one bounded owner-service rebuild is
 # needed. The local marker is stale from an earlier registration and must not
 # be trusted over the live procd registry.
 printf 'registered\n' > "$WARP_PROCD_INSTANCE_FILE"
-z2k_ow_warp check >/dev/null 2>&1
+if z2k_ow_warp check >"$T/check-first.log" 2>&1; then
+    _check_rc=0
+else
+    _check_rc=$?
+    cat "$T/check-first.log"
+fi
+assert_eq "controller completes the bounded recovery check" 0 "$_check_rc"
 assert_eq "missing procd instance is re-registered once" "1" "$(grep -c '^restart$' "$CALLS" 2>/dev/null || true)"
 assert_eq "internal restart preserves one-shot latch until registration" "1" "$(grep -c '^recovery-preserved$' "$CALLS" 2>/dev/null || true)"
-assert_eq "rebuild waits for proven ready before PBR" "1" "$(grep -c '^bounded-ready-wait$' "$CALLS" 2>/dev/null || true)"
 assert_eq "registered instance marker exists" "1" "$([ -e "$WARP_PROCD_INSTANCE_FILE" ] && echo 1 || echo 0)"
 assert_eq "recovery attempt cleared after registration" "0" "$([ -e "$WARP_PROCD_RECOVERY_FILE" ] && echo 1 || echo 0)"
 
@@ -92,10 +116,10 @@ assert_eq "registered instance is left to procd" "1" "$(grep -c '^restart$' "$CA
 # Missing registration is not enough to restart an owning service which is
 # itself stopped; this protects intentional stop from resurrection.
 rm -f "$WARP_PROCD_INSTANCE_FILE" "$WARP_PROCD_RECOVERY_FILE" "$PROCD_WARP_PRESENT_FILE"
-_z2k_ow_service_running() { return 1; }
+PROCD_SERVICE_MODE=inactive; export PROCD_SERVICE_MODE
 z2k_ow_warp check >/dev/null 2>&1
 assert_eq "inactive owner service is not resurrected" "1" "$(grep -c '^restart$' "$CALLS" 2>/dev/null || true)"
-_z2k_ow_service_running() { return 0; }
+PROCD_SERVICE_MODE=active; export PROCD_SERVICE_MODE
 
 # Failed first repair is bounded too: one failed attempt cannot restart the
 # core service every minute until an operator or a new explicit action retries.
@@ -112,12 +136,10 @@ assert_eq "stopping/not-ready core is not resurrected" "1" "$(grep -c '^restart$
 
 # Stop removes the registration marker so a later intentional service start can
 # register a fresh WARP instance, while config itself remains untouched.
-warp_pbr_down() { return 0; }
-warp_nft_remove() { return 0; }
 : > "$WARP_PROCD_INSTANCE_FILE"
 z2k_ow_warp 0 >/dev/null 2>&1
 assert_eq "intentional stop removes registration marker" "0" "$([ -e "$WARP_PROCD_INSTANCE_FILE" ] && echo 1 || echo 0)"
 assert_eq "intentional stop clears stale recovery latch" "0" "$([ -e "$WARP_PROCD_RECOVERY_FILE" ] && echo 1 || echo 0)"
-assert_eq "stop preserves selected WARP setting" "1" "$(warp_flag)"
+assert_eq "stop preserves selected WARP setting" "1" "$(warp_cfg GAME_WARP_ENABLED "")"
 
 _t_done

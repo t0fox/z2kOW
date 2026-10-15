@@ -1,4 +1,14 @@
-use crate::state::{EngineStatus, Observation, ProcessStatus, RuntimeReadiness, runtime_readiness};
+use std::{fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
+
+use crate::{
+    config::{self, MatchOrder},
+    process,
+    state::{
+        EngineStatus, Observation, ProcessStatus, RuntimeReadiness, observe_warp_process,
+        read_engine_status, runtime_readiness,
+    },
+    status::Paths,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HealthAction {
@@ -51,6 +61,96 @@ pub struct HealthObservations {
     pub process: ProcessStatus,
     pub engine: EngineStatus,
     pub iface_present: Option<bool>,
+}
+
+pub struct HealthPlan {
+    pub action: HealthAction,
+    pub interface: Option<String>,
+    pub defer_reason: Option<&'static str>,
+}
+
+pub(crate) fn observe(paths: &Paths) -> HealthPlan {
+    let engine = read_engine_status(&paths.status);
+    let interface = match &engine {
+        EngineStatus::Ready { iface } => Some(iface.clone()),
+        EngineStatus::NotReady | EngineStatus::Unreadable => None,
+    };
+    let iface_present = match interface.as_deref() {
+        Some(iface) if valid_interface(iface) => {
+            match process::output(Command::new("ip").args(["link", "show", "dev", iface])) {
+                Ok(output) => Some(output.status.success()),
+                Err(_) => None,
+            }
+        }
+        Some(_) => Some(false),
+        None => None,
+    };
+    let observations = HealthObservations {
+        config_enabled: read_flag(&paths.config, "ENABLED", "1", MatchOrder::Last),
+        feature_enabled: read_flag(&paths.config, "GAME_WARP_ENABLED", "", MatchOrder::First),
+        binary_present: file_present(&paths.warp_bin, |metadata| {
+            metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+        }),
+        device_present: file_present(&paths.device, |metadata| {
+            metadata.is_file() && metadata.len() > 0
+        }),
+        process: observe_warp_process(&paths.proc_root),
+        engine,
+        iface_present,
+    };
+    let defer_reason = defer_reason(&observations);
+    HealthPlan {
+        action: plan(observations),
+        interface,
+        defer_reason,
+    }
+}
+
+fn defer_reason(observations: &HealthObservations) -> Option<&'static str> {
+    if matches!(observations.config_enabled, Observation::Unreadable) {
+        return Some("config-unreadable");
+    }
+    if matches!(observations.feature_enabled, Observation::Unreadable) {
+        return Some("feature-config-unreadable");
+    }
+    if matches!(observations.binary_present, Observation::Unreadable) {
+        return Some("warp-binary-unreadable");
+    }
+    if matches!(observations.device_present, Observation::Unreadable) {
+        return Some("device-identity-unreadable");
+    }
+    if observations.process == ProcessStatus::Unreadable {
+        return Some("proc-unreadable");
+    }
+    match &observations.engine {
+        EngineStatus::Unreadable => Some("engine-status-unreadable"),
+        EngineStatus::Ready { .. } if observations.iface_present.is_none() => {
+            Some("tunnel-interface-unreadable")
+        }
+        _ => None,
+    }
+}
+
+fn read_flag(path: &Path, key: &str, default: &str, order: MatchOrder) -> Observation<bool> {
+    match config::read_value(path, key, default, order) {
+        Ok(value) => Observation::Known(value == "1"),
+        Err(_) => Observation::Unreadable,
+    }
+}
+
+fn file_present(path: &Path, predicate: impl FnOnce(&fs::Metadata) -> bool) -> Observation<bool> {
+    match fs::metadata(path) {
+        Ok(metadata) => Observation::Known(predicate(&metadata)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Observation::Known(false),
+        Err(_) => Observation::Unreadable,
+    }
+}
+
+fn valid_interface(value: &str) -> bool {
+    let Some(suffix) = value.strip_prefix("z2ktun") else {
+        return false;
+    };
+    (suffix.len() == 1 || suffix.len() == 2) && suffix.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 pub fn plan_boot(

@@ -22,6 +22,14 @@ assert_contains "daemon writes the shared pair snapshot" "$DAEMON" \
 assert_contains "daemon writes the shared health status" "$DAEMON" \
     'StatusPath: "/tmp/z2k-warp/domain-status.json"'
 
+# Доменный observer принадлежит Rust-контроллеру: Shell сохраняет только
+# имена entrypoint-функций для procd и старых вызывающих скриптов.
+if grep -Eq 'nft[[:space:]]+(add|create|flush|delete)|nft[[:space:]]+-f[[:space:]]+-|awk .*WARP_DOMAIN_FILTER|uci (show|-q get)|ubus call' "$DOMAIN"; then
+    _t_bad "в warp-domain.sh осталась Shell-реализация доменных правил"
+else
+    _t_ok
+fi
+
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-warp-paths.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 WARP_DOMAIN_RULES="$T/domains.v1"

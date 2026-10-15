@@ -51,6 +51,6 @@ assert_eq "WARP binary comes from the architecture bundle" \
 assert_not_contains "no standalone WARP component downloader" \
     "$REPO/platform/openwrt/warp.sh" 'warp_fetch_engine'
 assert_contains "missing engine directs users to full convergence" \
-    "$REPO/platform/openwrt/warp.sh" 'restore it with install_release <tag>'
+    "$REPO/platform/openwrt/warp.sh" 'восстановите полный выпуск через install_release <тег>'
 
 _t_done

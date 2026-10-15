@@ -185,6 +185,14 @@ printf '192.168.7.50 dev br-lan lladdr aa:bb:cc:dd:ee:ff REACHABLE\n' > "$T/ip-n
 . "$REPO/platform/openwrt/arch.sh"
 _warp_arch="$(z2k_ow_arch_name)" || exit 1
 mkdir -p "$T/root/platform/openwrt/bin/linux-$_warp_arch"
+# Status is served by the real Rust controller now. Build a host executable
+# for this isolated CGI sysroot instead of stubbing the panel-facing command.
+_warp_cargo_target="$T/warp-cargo-target"
+CARGO_TARGET_DIR="$_warp_cargo_target" cargo build --offline --locked \
+    --manifest-path "$REPO/platform/openwrt/warp-controller/Cargo.toml" || exit 1
+cp "$_warp_cargo_target/debug/z2k-warp-controller" \
+   "$T/root/platform/openwrt/bin/linux-$_warp_arch/z2k-warp-controller"
+chmod 0755 "$T/root/platform/openwrt/bin/linux-$_warp_arch/z2k-warp-controller"
 cat > "$T/root/platform/openwrt/bin/linux-$_warp_arch/z2k-warpd" <<'EOF'
 #!/bin/sh
 exit 0

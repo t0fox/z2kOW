@@ -2,10 +2,9 @@ use std::{path::PathBuf, process::Command};
 use warp_controller::routing::{RouteConfig, apply_policy, remove_policy};
 
 #[test]
+#[ignore = "требуется изолированное network namespace с CAP_NET_ADMIN"]
 fn actual_iproute2_policy_is_idempotent_and_owned() {
-    if std::env::var_os("Z2K_WARP_REAL_IPROUTE2").is_none() {
-        return;
-    }
+    assert!(std::env::var_os("Z2K_WARP_REAL_IPROUTE2").is_some());
     let root = std::env::var_os("Z2K_WARP_REAL_STATE")
         .map(PathBuf::from)
         .expect("задайте каталог временного состояния для реального теста");

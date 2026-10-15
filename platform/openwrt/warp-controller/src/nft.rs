@@ -52,7 +52,121 @@ pub struct DomainRemoveConfig<'a> {
     pub full: bool,
 }
 
+pub struct DomainVerifyConfig<'a> {
+    pub pair_family: &'a str,
+    pub pair_table: &'a str,
+    pub pair_set: &'a str,
+    pub observer_family: &'a str,
+    pub observer_table: &'a str,
+    pub output_chain: &'a str,
+    pub forward_chain: &'a str,
+    pub group: &'a str,
+}
+
 const DOMAIN_PAIR_SET_COMMENT: &str = "z2k WARP DNS pairs";
+
+pub fn verify_domain_observer(config: &DomainVerifyConfig<'_>) -> io::Result<bool> {
+    let group_number = config
+        .group
+        .parse::<u16>()
+        .map_err(|_| invalid("неверный NFLOG group"))?;
+    if config.group.is_empty() || !config.group.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(invalid("неверный NFLOG group"));
+    }
+    let _ = group_number;
+
+    let tables = command_output("nft", &["list", "tables"])?;
+    if !table_exists(&tables, config.pair_family, config.pair_table)
+        || !table_exists(&tables, config.observer_family, config.observer_table)
+    {
+        return Ok(false);
+    }
+    let pair_output = command_output(
+        "nft",
+        &["list", "table", config.pair_family, config.pair_table],
+    )?;
+    if domain_pair_set_matches(
+        &pair_output,
+        config.pair_family,
+        config.pair_table,
+        config.pair_set,
+    )?
+    .is_none()
+    {
+        return Ok(false);
+    }
+    let observer_output = command_output(
+        "nft",
+        &[
+            "list",
+            "table",
+            config.observer_family,
+            config.observer_table,
+        ],
+    )?;
+    if !domain_observer_table_owned(
+        &observer_output,
+        config.observer_family,
+        config.observer_table,
+    )? || domain_observer_chain_owned(&observer_output, config.output_chain, "output")?.is_none()
+        || domain_observer_chain_owned(&observer_output, config.forward_chain, "forward")?.is_none()
+    {
+        return Ok(false);
+    }
+    let output = command_output(
+        "nft",
+        &[
+            "list",
+            "chain",
+            config.observer_family,
+            config.observer_table,
+            config.output_chain,
+        ],
+    )?;
+    if !domain_observer_chain_has_group(&output, config.output_chain, config.group) {
+        return Ok(false);
+    }
+    let forward = command_output(
+        "nft",
+        &[
+            "list",
+            "chain",
+            config.observer_family,
+            config.observer_table,
+            config.forward_chain,
+        ],
+    )?;
+    Ok(domain_observer_chain_has_group(
+        &forward,
+        config.forward_chain,
+        config.group,
+    ))
+}
+
+fn command_output(program: &str, args: &[&str]) -> io::Result<String> {
+    let output = process::output(Command::new(program).args(args))?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "{program}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    String::from_utf8(output.stdout)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
+fn table_exists(tables: &str, family: &str, table: &str) -> bool {
+    tables.lines().any(|line| {
+        let mut fields = line.split_whitespace();
+        fields.next() == Some("table")
+            && fields.next() == Some(family)
+            && fields.next() == Some(table)
+    })
+}
+
+fn invalid(message: &'static str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, message)
+}
 
 pub fn domain_pair_set_matches(
     table_output: &str,
@@ -731,6 +845,23 @@ pub fn parse_set_inventory(
         destinations: parse_one_set(table_output, destination_set)?,
         sources: parse_one_set(table_output, source_set)?,
     })
+}
+
+pub fn count_ipv4_set_elements(set_output: &str) -> usize {
+    let Some(elements_start) = set_output.find("elements") else {
+        return 0;
+    };
+    let Some(open_brace_relative) = set_output[elements_start..].find('{') else {
+        return 0;
+    };
+    let body_start = elements_start + open_brace_relative + 1;
+    let Some(close_brace_relative) = set_output[body_start..].find('}') else {
+        return 0;
+    };
+    set_output[body_start..body_start + close_brace_relative]
+        .split(|character: char| !(character.is_ascii_digit() || character == '.'))
+        .filter(|candidate| candidate.parse::<std::net::Ipv4Addr>().is_ok())
+        .count()
 }
 
 pub fn sets_match(inventory: &SetInventory, destinations: &[String], sources: &[String]) -> bool {

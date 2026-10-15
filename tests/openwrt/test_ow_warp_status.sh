@@ -5,13 +5,19 @@
 _t_plan "ow-warp-status"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 WARP_SCRIPT="${WARP_SCRIPT:-$REPO/platform/openwrt/warp.sh}"
+WARP_CONTROLLER_BIN="${WARP_CONTROLLER_BIN:-$REPO/platform/openwrt/warp-controller/target/debug/z2k-warp-controller}"
+if [ ! -x "$WARP_CONTROLLER_BIN" ]; then
+    cargo build --offline --manifest-path "$REPO/platform/openwrt/warp-controller/Cargo.toml"
+fi
+export WARP_CONTROLLER_BIN
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-warps.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 
 mkdir -p "$T/bin" "$T/root/bin" "$T/etc/state/warp" "$T/etc/user-lists/warp" \
     "$T/root/lists/warp" "$T/tmp/warp" "$T/proc/7777"
 export PATH="$T/bin:$PATH"
-export Z2K_ROOT="$T/root" Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
+export Z2K_ROOT="$T/root" Z2K_ADAPTER_DIR="$REPO/platform/openwrt" \
+    Z2K_ETC="$T/etc" Z2K_TMP="$T/tmp"
 export WARP_DOMAIN_RULES="$T/tmp/warp/domains.v1"
 export WARP_DOMAIN_SNAPSHOT="$T/tmp/warp/domain-pairs.v1"
 export WARP_DOMAIN_STATUS="$T/tmp/warp/domain-status.json"
@@ -41,19 +47,44 @@ cat "$T/pidof.out" 2>/dev/null
 EOF
 chmod +x "$T/bin/pidof"
 : > "$T/pidof.out"
+cat > "$T/bin/uci" <<'EOF'
+#!/bin/sh
+case "$*" in
+  '-d @ show network'|'-d @ show firewall') exit 0 ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$T/bin/uci"
 
 cat > "$T/bin/ip" <<EOF
 #!/bin/sh
+if [ "\$*" = '-j link show' ] \
+    || [ "\$*" = '-4 -j rule show' ] \
+    || [ "\$*" = '-4 -j route show table all' ]; then
+    printf '%s\\n' 'BusyBox ip: invalid option -- j' >&2
+    exit 1
+fi
+if [ "\$*" = 'link show' ]; then
+    printf '%s\\n' '1: lo: <LOOPBACK,UP> mtu 65536 qdisc noqueue state UNKNOWN'
+    if [ -f "$T/link-z2ktun0" ]; then
+        printf '%s\\n' '7: z2ktun0: <POINTOPOINT,UP> mtu 1420 qdisc noqueue state UNKNOWN'
+    fi
+    exit 0
+fi
 if [ "\$1" = link ] && [ "\$2" = show ]; then
     [ -f "$T/link-\$4" ] && exit 0
     exit 1
 fi
-if [ "\$1" = rule ] && [ "\$2" = show ]; then
+if { [ "\$1" = rule ] && [ "\$2" = show ]; } \
+    || { [ "\$1" = -4 ] && [ "\$2" = rule ] && [ "\$3" = show ]; }; then
     cat "$T/ip-rules" 2>/dev/null
     exit 0
 fi
-if [ "\$1" = route ] && [ "\$2" = show ]; then
-    cat "$T/ip-route-\$4" 2>/dev/null
+if { [ "\$1" = route ] && [ "\$2" = show ]; } \
+    || { [ "\$1" = -4 ] && [ "\$2" = route ] && [ "\$3" = show ]; }; then
+    _table="\$4"
+    [ "\$1" != -4 ] || _table="\$5"
+    cat "$T/ip-route-\$_table" 2>/dev/null
     exit 0
 fi
 exit 0
@@ -63,12 +94,69 @@ chmod +x "$T/bin/ip"
 cat > "$T/bin/nft" <<EOF
 #!/bin/sh
 echo "nft:\$*" >> "$T/nft.log"
+if [ "\$1" = "-f" ] && [ "\$2" = "-" ]; then
+    while IFS= read -r _line; do
+        printf 'nft:%s\\n' "\$_line" >> "$T/nft.log"
+        case "\$_line" in
+            'flush chain inet zapret2 z2k_warp_mark') : > "$T/nft-mark-rule" ;;
+            'add rule inet zapret2 z2k_warp_mark '*)
+                printf '%s\\n' "\${_line#add rule inet zapret2 z2k_warp_mark }" \
+                    >> "$T/nft-mark-rule" ;;
+        esac
+    done
+    exit 0
+fi
+if [ "\$1" = list ] && [ "\$2" = tables ]; then
+    if [ "\${HAVE_NFT:-0}" = 1 ]; then
+        printf '%s\\n' 'table inet zapret2' 'table inet fw4'
+    fi
+    exit 0
+fi
+if [ "\$1" = list ] && [ "\$2" = table ] && [ "\$3" = inet ] && [ "\$4" = zapret2 ]; then
+    [ "\${HAVE_NFT:-0}" = 1 ] || exit 1
+    cat <<'NFT_TABLE'
+table inet zapret2 {
+    set z2k_warp_dst4 {
+        type ipv4_addr
+        flags interval
+    }
+    set z2k_warp_src4 {
+        type ipv4_addr
+        flags interval
+    }
+    chain z2k_warp_mark {
+        type filter hook prerouting priority mangle; policy accept;
+NFT_TABLE
+    if [ "\${HAVE_MARK:-1}" = 1 ]; then
+        if [ -s "$T/nft-mark-rule" ]; then
+            sed 's/^/        /' "$T/nft-mark-rule"
+        else
+            printf '%s\\n' '        ip daddr @z2k_warp_dst4 meta mark set mark & 0x7fffffff ^ 0x80000000'
+        fi
+    fi
+    cat <<'NFT_TABLE'
+    }
+    chain z2k_warp_mss {
+        oifname "z2ktun0" tcp flags syn tcp option maxseg size set rt mtu
+        iifname "z2ktun0" tcp flags syn tcp option maxseg size set 1240
+    }
+    chain z2k_warp_fwd {
+        oifname "z2ktun0" accept
+    }
+    chain z2k_warp_nat {
+        oifname "z2ktun0" masquerade
+    }
+}
+NFT_TABLE
+    exit 0
+fi
 if [ "\$1" = list ] && [ "\$2" = table ]; then exit 0; fi
 if [ "\$1" = list ] && [ "\$2" = set ]; then exit 0; fi
 if [ "\$1" = list ] && [ "\$2" = chain ]; then
     [ "\${HAVE_NFT:-0}" = 1 ] || exit 0
     if [ "\$4" = fw4 ] && [ "\$5" = forward ]; then
-        printf '%s\n' 'meta mark & 0x80000000 == 0x80000000 oifname "z2ktun*" accept comment "!z2k: WARP forwarded traffic"'
+        printf '%s\n' 'chain forward {' '    type filter hook forward priority filter; policy accept;' \
+            '    meta mark & 0x80000000 == 0x80000000 oifname "z2ktun*" accept comment "!z2k: WARP forwarded traffic"' '}'
         exit 0
     fi
     if [ "\$5" = z2k_warp_mark ]; then
@@ -99,9 +187,6 @@ fi
 exit 0
 EOF
 chmod +x "$T/bin/nft"
-
-# A matching live process is part of the existing proof contract.
-printf 'z2k-warpd\0run\0--device\0%s\0' "$WARP_DEVICE" > "$T/proc/7777/cmdline"
 
 # shellcheck disable=SC1090,SC1091
 . "$WARP_SCRIPT" || { _t_bad "source"; exit 1; }
@@ -139,11 +224,14 @@ assert_contains "engine error is preserved" "$T/status-engine-error.log" "error=
 assert_contains "engine error is not connecting" "$T/status-engine-error.log" "state=error"
 
 # Transport readiness without platform routing is a distinct state.
+mkdir -p "$T/proc/7777"
+printf 'z2k-warpd\0run\0--device\0%s\0' "$WARP_DEVICE" > "$T/proc/7777/cmdline"
+printf 'z2k-warpd\n' > "$T/proc/7777/comm"
 printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg"}\n' > "$WARP_STATUS"
 : > "$WARP_LOG"
 printf '7777\n' > "$T/pidof.out"
 : > "$T/link-z2ktun0"
-rm -f "$T/ip-rules" "$T/ip-route-989" "$WARP_PBR_OWNER"
+rm -f "$T/ip-rules" "$T/ip-route-989" "$WARP_PBR_OWNER" "$WARP_PROBE_OWNER"
 unset HAVE_NFT
 _out="$(warp_status)"
 printf '%s\n' "$_out" > "$T/status-no-route.log"
@@ -162,6 +250,7 @@ pref=500
 table=989
 iface=z2ktun0
 EOF
+printf 'iface=z2ktun0\naddr=172.16.9.9\n' > "$WARP_PROBE_OWNER"
 export HAVE_NFT=1
 export HAVE_MARK=0
 _out="$(warp_status)"

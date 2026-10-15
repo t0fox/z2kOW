@@ -41,19 +41,25 @@ assert_eq "warp command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' 
 _n="$(grep -c 'procd_set_param command' "$REPO/platform/openwrt/files/etc/init.d/z2k-webpanel" 2>/dev/null)"
 assert_eq "panel command ровно один" "1" "$(printf '%s' "$_n" | tr -d ' ')"
 
-# 2. The only adapter-owned nft table is the narrowly scoped passive DNS
-# observer. It may only log ordinary DNS replies (no verdict/redirect/queue),
-# and is guarded by an exact ownership comment before any mutation.
-_table_writers="$(grep --exclude-dir=target -rlE 'nft[[:space:]]+(add|create)[[:space:]]+table' "$REPO/platform/openwrt" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
-assert_eq "единственная nft-table — passive DNS observer" "$REPO/platform/openwrt/warp-domain.sh " "$_table_writers"
-assert_contains "observer table has exact owner marker" "$REPO/platform/openwrt/warp-domain.sh" 'comment "z2k WARP passive DNS observer"'
-assert_contains "observer refuses unowned table" "$REPO/platform/openwrt/warp-domain.sh" 'nft-observer-table-conflict'
+# 2. Passive DNS observer имеет один Rust-владелец. Он пишет только NFLOG
+# обычных DNS-ответов и проверяет маркер владения до изменения чужой таблицы.
+assert_contains "Rust-контроллер создаёт observer table" \
+    "$REPO/platform/openwrt/warp-controller/src/main.rs" \
+    'render_domain_observer_table_create_batch'
+assert_contains "Rust observer table имеет маркер владельца" \
+    "$REPO/platform/openwrt/warp-controller/src/nft.rs" \
+    'z2k WARP passive DNS observer'
+assert_contains "Rust observer отклоняет чужую таблицу" \
+    "$REPO/platform/openwrt/warp-controller/src/main.rs" \
+    'domain_observer_table_owned'
 if code | grep -qiE 'nft[[:space:]]+(add|insert|replace|delete)[[:space:]].*(accept|drop|reject|redirect|dnat|snat|masquerade|queue)'; then
     _t_bad "observer принимает решение о firewall-трафике"
 else
     _t_ok
 fi
-assert_contains "observer logs DNS responses only" "$REPO/platform/openwrt/warp-domain.sh" 'th sport 53 counter log group'
+assert_contains "Rust observer logs DNS responses only" \
+    "$REPO/platform/openwrt/warp-controller/src/nft.rs" \
+    'th sport 53 counter log group'
 
 # 3. своих offload-правил нет (делегировано zapret2 через FLOWOFFLOAD конфига).
 # FLOWOFFLOAD= и `nft list ... flowtable` в адаптере могут только сохранять
@@ -114,23 +120,45 @@ code | grep -vE 'nft list set|name !~ /' | grep -qE 'lanif|wanif|nft_fill_ifsets
 grep -q 'zapret_reload_ifsets' "$REPO/platform/openwrt/firewall.sh" \
     && _t_ok || _t_bad "нет делегирования ifsets в zapret2"
 _nftbuilders="$(grep --exclude-dir=target -rlE 'nft add|nft create' "$REPO/platform/openwrt" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
-_expected="$REPO/platform/openwrt/customd.sh $REPO/platform/openwrt/rt.sh $REPO/platform/openwrt/tg.sh $REPO/platform/openwrt/warp-domain.sh $REPO/platform/openwrt/warp.sh "
+_expected="$REPO/platform/openwrt/customd.sh $REPO/platform/openwrt/rt.sh $REPO/platform/openwrt/tg.sh "
 if [ -z "$_nftbuilders" ]; then
-    _t_bad "нет TG/RT/WARP builder'ов (ожидались tg.sh rt.sh warp.sh)"
+    _t_bad "нет ожидаемых Shell nft-builder'ов customd/RT/TG"
 elif [ "$_nftbuilders" = "$_expected" ]; then
     _t_ok
 else
-    _t_bad "firewall строят не только tg.sh+rt.sh+warp.sh: $_nftbuilders"
+    _t_bad "Shell nft-builder'ы отличаются от customd/RT/TG: $_nftbuilders"
+fi
+assert_contains "WARP MARK batch принадлежит Rust-контроллеру" \
+    "$REPO/platform/openwrt/warp-controller/src/main.rs" 'nft::apply_transaction(&batch)'
+# Shell entrypoints must not keep an alternate nft/iproute2 mutation path.
+if sed 's/#.*$//' "$REPO/platform/openwrt/warp.sh" | \
+    grep -qE '(^|[;&|[:space:]])(nft[[:space:]]+(list|add|create|insert|replace|flush|delete)|ip[[:space:]]+(-[46][[:space:]]+)?(route|rule)[[:space:]])'; then
+    _t_bad "warp.sh содержит прямые Shell-операции с nft или маршрутами"
+else
+    _t_ok
+fi
+if sed 's/#.*$//' "$REPO/platform/openwrt/warp.sh" | \
+    grep -qE 'uci show (network|firewall)|ip -4 neigh show|ubus call .*get_clients|^warp_active_lists\(\)|^warp_validated_dst\(\)'; then
+    _t_bad "warp.sh содержит Shell-разбор списков или OpenWrt-интерфейсов"
+else
+    _t_ok
+fi
+if sed 's/#.*$//' "$REPO/platform/openwrt/warp.sh" | \
+    grep -qE 'if[[:space:]]+\[[[:space:]]+-x[[:space:]]+"?\$\{?WARP_CONTROLLER_BIN'; then
+    _t_bad "warp.sh сохраняет старую Shell-ветку при отсутствии Rust-контроллера"
+else
+    _t_ok
 fi
 # 8b. TG/RT/WARP rules mutate only the zapret2 runtime table; the passive DNS
 # observer exception is isolated from forwarding verdicts (checked above).
-assert_contains "zapret2 table is verified before WARP writes" "$REPO/platform/openwrt/warp.sh" '_z2k_ow_warp_table_ok'
+assert_contains "Rust проверяет существование nft-таблицы перед WARP writes" \
+    "$REPO/platform/openwrt/warp-controller/src/main.rs" 'nft_table_exists'
 grep -q '_z2k_ow_tg_table_ok' "$REPO/platform/openwrt/tg.sh" \
     && _t_ok || _t_bad "tg.sh пишет без проверки таблицы"
 grep -q '_z2k_ow_rt_table_ok' "$REPO/platform/openwrt/rt.sh" \
     && _t_ok || _t_bad "rt.sh пишет без проверки таблицы"
-grep -q '_z2k_ow_warp_table_ok' "$REPO/platform/openwrt/warp.sh" \
-    && _t_ok || _t_bad "warp.sh пишет без проверки таблицы"
+grep -q 'nft_table_exists(&tables, &family, &table)' "$REPO/platform/openwrt/warp-controller/src/main.rs" \
+    && _t_ok || _t_bad "Rust пишет WARP без проверки таблицы"
 # Штатный /etc/init.d/firewall reload для fw4 допускается; запрещены команды
 # второго firewall-фреймворка и прямой запуск fw4/iptables-правил.
 code | grep -qE '(^|[;&|][[:space:]]*)(iptables[[:space:]]+(-A|-I)|(/usr/)?(sbin/)?fw3|(/usr/)?(sbin/)?fw4)([[:space:]]|$)' \

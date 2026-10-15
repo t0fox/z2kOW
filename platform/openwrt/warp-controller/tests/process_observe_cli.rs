@@ -27,6 +27,28 @@ fn observe(root: &Path) -> String {
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
+fn pids(root: &Path) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_z2k-warp-controller"))
+        .arg("process-pids")
+        .arg(root)
+        .output()
+        .expect("запуск CLI-контроллера");
+    assert!(
+        output.status.success(),
+        "CLI завершился с ошибкой: {:?}",
+        output
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+fn pids_status(root: &Path) -> std::process::ExitStatus {
+    Command::new(env!("CARGO_BIN_EXE_z2k-warp-controller"))
+        .arg("process-pids")
+        .arg(root)
+        .status()
+        .expect("запуск CLI-контроллера")
+}
+
 fn process(root: &Path, pid: &str, comm: &str, cmdline: &[u8]) {
     let directory = root.join(pid);
     fs::create_dir_all(&directory).unwrap();
@@ -51,6 +73,27 @@ fn только_процесс_z2k_warpd_run_считается_живым_дв�
 
     assert_eq!(observe(&root), "present");
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn pids_cli_возвращает_только_процессы_движка_с_командой_run() {
+    let root = temporary_path();
+    fs::create_dir(&root).unwrap();
+    process(&root, "101", "z2k-warpd", b"/usr/bin/z2k-warpd\0run\0");
+    process(&root, "102", "z2k-warpd", b"/usr/bin/z2k-warpd\0register\0");
+    process(&root, "103", "sleep", b"sleep\0run\0");
+
+    assert_eq!(pids(&root), "101");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn pids_cli_откладывает_действие_при_ошибке_чтения_procfs() {
+    let root = temporary_path();
+    fs::write(&root, "это файл, а не proc root").unwrap();
+
+    assert!(!pids_status(&root).success());
+    fs::remove_file(root).unwrap();
 }
 
 #[test]

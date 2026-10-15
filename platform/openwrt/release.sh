@@ -2638,7 +2638,7 @@ z2k_ow_install_lock_release() {
 # Перед заменой активного payload установщик использует тот же lock, что и
 # WARP CLI, cron и procd. Архив и staging подготавливаются до захвата lock.
 z2k_ow_release_warp_lock_acquire() {
-    local _adapter="$1" _saved_source_only="${Z2K_WARP_SOURCE_ONLY:-}"
+    local _adapter="$1" _saved_source_only="${Z2K_WARP_SOURCE_ONLY:-}" _pidof_rc
     if [ ! -e "$_adapter/warp.sh" ] && [ ! -L "$_adapter/warp.sh" ]; then
         return 0
     fi
@@ -2660,6 +2660,27 @@ z2k_ow_release_warp_lock_acquire() {
         Z2K_WARP_SOURCE_ONLY="$_saved_source_only"
     else
         unset Z2K_WARP_SOURCE_ONLY
+    fi
+    # WARP не обязателен. На старых установках и неподдерживаемых целях может
+    # не быть Rust-контроллера; procd уже остановлен. Продолжать можно, только
+    # если pidof подтверждает отсутствие Go-движка; иначе прекращаем обновление.
+    if [ ! -x "${WARP_CONTROLLER_BIN:-}" ]; then
+        command -v pidof >/dev/null 2>&1 || {
+            echo "z2k-openwrt: не могу проверить процессы WARP без контроллера; замена payload остановлена" >&2
+            return 1
+        }
+        if pidof z2k-warpd >/dev/null 2>&1; then _pidof_rc=0; else _pidof_rc=$?; fi
+        case "$_pidof_rc" in
+            1) Z2K_OW_RELEASE_WARP_LOCK_HELD=0; return 0 ;;
+            0)
+                echo "z2k-openwrt: z2k-warpd ещё работает без контроллера; замена payload остановлена" >&2
+                return 1
+                ;;
+            *)
+                echo "z2k-openwrt: не удалось проверить процессы WARP без контроллера; замена payload остановлена" >&2
+                return 1
+                ;;
+        esac
     fi
     _z2k_ow_warp_lock "${WARP_LOCK_WAIT:-30}" || {
         echo "z2k-openwrt: WARP занят; замену payload можно повторить позже" >&2

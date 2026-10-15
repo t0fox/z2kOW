@@ -126,6 +126,12 @@ if [ "${1:-}" = --inside ]; then
         inet z2k_warp_controller_test z2k_dst z2k_src
     nft list set inet z2k_warp_controller_test z2k_dst | grep -F '1.2.3.4'
     nft list set inet z2k_warp_controller_test z2k_src | grep -F '192.168.1.9'
+    _set_count=$("$CRATE/target/debug/z2k-warp-controller" nft-set-count \
+        inet z2k_warp_controller_test z2k_dst)
+    [ "$_set_count" = 1 ] || {
+        echo "Rust nft-set-count вернул $_set_count вместо одного адреса" >&2
+        exit 1
+    }
     before="$(nft -a list table inet z2k_warp_controller_test)"
     "$CRATE/target/debug/z2k-warp-controller" nft-sync \
         "$T/users" "$T/games" "$T/users/.enabled" "$T/users/devices.txt" \

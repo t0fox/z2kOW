@@ -1,11 +1,12 @@
 #!/bin/sh
-# tests/openwrt/test_ow_warp_parity.sh - p-84.18 parity на OW-адаптере.
-# Upstream semantics -> platform/openwrt/warp.sh (НЕ копия files/z2k-warp.sh):
-# transport auto/wg/h2, restart/license глаголы, .disabled списков,
-# supersession последнего действия, status-поля license/plan.
+# tests/openwrt/test_ow_warp_parity.sh - OpenWrt/procd и Go-контракт WARP.
+# Сетевое состояние, списки, блокировки и планы переходов проверяются Rust.
 . "$(dirname "$0")/helper.sh"
 _t_plan "ow-warp-parity"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+cargo build --offline --locked --manifest-path "$REPO/platform/openwrt/warp-controller/Cargo.toml" --bin z2k-warp-controller
+WARP_CONTROLLER_BIN="$REPO/platform/openwrt/warp-controller/target/debug/z2k-warp-controller"
+export WARP_CONTROLLER_BIN
 . "$REPO/tests/lib/common.sh"
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-wpar.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
@@ -141,65 +142,13 @@ printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_VPS_PROXY=http://proxy.example:8080\n' > "
 warp_start_instance >/dev/null 2>&1
 assert_contains "окружение экземпляра сохраняет пользовательский proxy" "$T/calls" "Z2K_WARP_VPS_PROXY=http://proxy.example:8080"
 
-# --- 2. restart: disabled = noop; enabled = pbr-down, bounce, wait ---
-printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
-warp_restart >/dev/null 2>&1
-assert_eq "restart disabled rc" "0" "$?"
-# enabled-путь: ставим флаг, живой демон, ready-статус.
-printf 'GAME_WARP_ENABLED=1\nZ2K_WARP_TRANSPORT=auto\n' > "$T/etc/config"
-mkdir -p "$T/proc/4242"
-printf 'z2k-warpd run' | tr ' ' '\0' > "$T/proc/4242/cmdline"
-printf '4242\n' > "$T/pidof.out"
-export Z2K_PROC_ROOT="$T/proc"
-printf '{"ready":true,"transport":"auto","iface":"z2ktun0","addr":"172.16.9.9"}\n' > "$T/tmp/warp-status.json"
-export WARP_STATUS="$T/tmp/warp-status.json"
-_z2k_ow_warp_kill() { echo "kill:$*" >> "$T/calls"; return 0; }
-z2k_write_date_stub "$T/bin/date"
-# A pre-existing ready marker must not prove a post-restart daemon is ready.
-# Keep this explicit and bounded; otherwise the default 120s wait can hide a
-# stale-marker regression behind a slow CI failure.
-WARP_READY_WAIT=4
-Z2K_TEST_NOW_SHIFT=120; export Z2K_TEST_NOW_SHIFT
-if _warp_wait_ready 2 >/dev/null 2>&1; then
-    _t_bad "stale ready status accepted"
-else
-    [ "$?" = "1" ] && _t_ok || _t_bad "stale ready status returned unexpected rc"
-fi
-unset Z2K_TEST_NOW_SHIFT
-# Successful restart fixtures model a status published by the new daemon,
-# Advance the wait's clock backwards rather than relying on unsupported
-# touch timestamp options or a wall-clock second boundary.
-Z2K_TEST_NOW_SHIFT=-120; export Z2K_TEST_NOW_SHIFT
-: > "$T/calls"
-: > "$T/have-pbr"
-: > "$T/have-route"
-printf 'mark=0x80000000\nmask=0x80000000\npref=500\ntable=989\niface=z2ktun0\n' > "$WARP_PBR_OWNER"
-warp_restart >/dev/null 2>&1
-_restart_rc=$?
-unset Z2K_TEST_NOW_SHIFT
-assert_eq "restart enabled rc" "0" "$_restart_rc"
-# PBR down раньше kill (fail open: сначала снять маршрут).
-_pb="$(grep -n 'ip:rule del\|ip:route del' "$T/calls" | head -1 | cut -d: -f1)"
-_kill="$(grep -n '^kill:' "$T/calls" | head -1 | cut -d: -f1)"
-if [ -n "$_pb" ] && [ -n "$_kill" ] && [ "$_pb" -lt "$_kill" ]; then _t_ok
-else _t_bad "restart: PBR down не первым (pbr=$_pb kill=$_kill)"; fi
-
-# Активный procd должен пересобрать instance, иначе respawn сохранит старый
-# transport env. Сервисный рестарт здесь stubbed, но порядок и повторный
-# захват feature-lock остаются реальными.
-WARP_READY_WAIT=4
-_z2k_ow_service_running() { return 0; }
-_z2k_ow_warp_service_restart() { touch "$WARP_STATUS"; echo "service-restart" >> "$T/calls"; return 0; }
-Z2K_TEST_NOW_SHIFT=-120; export Z2K_TEST_NOW_SHIFT
-: > "$T/calls"
-: > "$T/have-pbr"
-: > "$T/have-route"
-printf 'mark=0x80000000\nmask=0x80000000\npref=500\ntable=989\niface=z2ktun0\n' > "$WARP_PBR_OWNER"
-warp_restart >/dev/null 2>&1
-_restart_rc=$?
-unset Z2K_TEST_NOW_SHIFT
-assert_eq "restart active service rc" "0" "$_restart_rc"
-assert_contains "restart rebuilds procd instance" "$T/calls" "service-restart"
+# --- 2. procd transition планирует Rust ---
+assert_eq "restart выключенного WARP не пересобирает службу" "none" \
+    "$($WARP_CONTROLLER_BIN service-plan restart 0 1 1)"
+assert_eq "restart включённого WARP пересобирает instance" "rebuild" \
+    "$($WARP_CONTROLLER_BIN service-plan restart 1 1 1)"
+assert_eq "непрочитанное состояние procd откладывает restart" "defer" \
+    "$($WARP_CONTROLLER_BIN service-plan restart 1 unreadable 1)"
 
 # --- 3. license: rc-контракт + ключ не в логах ---
 printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
@@ -260,57 +209,34 @@ assert_eq "старый VPS proxy не используется повторно
 assert_eq "лицензия отправлена только напрямую" "1" "$(wc -l < "$WARP_CALLS" | tr -d ' ')"
 assert_not_contains "в запрос лицензии не добавлен старый proxy" "$WARP_CALLS" '--proxy'
 
-# --- 4. lists: .disabled respected ---
-mkdir -p "$T/etc/user-lists/warp"
-export WARP_LISTS_DIR="$T/etc/user-lists/warp" WARP_GAMES_DIR="$T/root/lists/warp/games"
-export WARP_DEVICES_FILE="$T/etc/user-lists/warp/devices.txt"
-printf '1.2.3.0/24\n' > "$T/etc/user-lists/warp/mygame.txt"
-printf '5.6.7.0/24\n' > "$T/etc/user-lists/warp/other.txt"
-if warp_active_lists | grep -q mygame.txt; then _t_ok
-else _t_bad "active без disabled потерял mygame"; fi
-printf 'mygame\n' > "$T/etc/user-lists/warp/.disabled"
-if warp_active_lists | grep -q mygame.txt; then
-    _t_bad "disabled mygame всё ещё active"
-else
-    _t_ok
-fi
-if warp_active_lists | grep -q other.txt; then _t_ok
-else _t_bad "disabled задел соседа other"; fi
-rm -f "$T/etc/user-lists/warp/.disabled"
-
-# --- 5. supersession: op-file + current + preemption ---
-export WARP_OP_FILE="$T/warp-op" WARP_LOCK_DIR="$T/warp-lock" WARP_LOCK_WAIT=2
+# --- 3. supersession и lock выполняет Rust, Shell-функций больше нет. ---
+export WARP_OP_FILE="$T/warp-op" WARP_LOCK_DIR="$T/warp-lock" \
+    Z2K_WARP_LOCK_DIR="$T/warp-lock" WARP_LOCK_WAIT=2
 rm -rf "$T/warp-lock" "$T/warp-op"
-warp_op_begin
-assert_eq "op file == self" "$$" "$(cat "$T/warp-op")"
-warp_op_current && _t_ok || _t_bad "self не current"
+"$WARP_CONTROLLER_BIN" op-begin "$T/warp-op" "$$"
+assert_eq "Rust op file == caller" "$$" "$(cat "$T/warp-op")"
+assert_eq "Rust считает владельца current" current \
+    "$("$WARP_CONTROLLER_BIN" op-current "$T/warp-op" "$$")"
 printf '99999999\n' > "$T/warp-op"
-warp_op_current && _t_bad "чужой pid current" || _t_ok
+assert_eq "Rust замечает supersession" superseded \
+    "$("$WARP_CONTROLLER_BIN" op-current "$T/warp-op" "$$")"
 rm -f "$T/warp-op"
-warp_op_current && _t_ok || _t_bad "без op-file не current (lifecycle сломан)"
-# wait прерывается чужим действием с кодом 3.
-printf '{"ready":false}\n' > "$T/tmp/warp-status.json"
-printf '4242\n' > "$T/pidof.out"
-warp_op_begin
-( printf '123456\n' > "$T/warp-op"; sleep 3 ) &
-export WARP_READY_WAIT=8
-if _warp_wait_ready 8 >/dev/null 2>&1; then
-    _t_bad "superseded wait прошёл"
-else
-    [ "$?" = "3" ] && _t_ok || _t_bad "superseded wait код не 3"
-fi
-wait 2>/dev/null
-rm -f "$T/warp-op"
-# lock preemption: живой чужой holder + мы current + stale -> забираем.
-# (stale по смерти holder'а; живой holder без current -> fail как раньше.)
-mkdir -p "$T/warp-lock"
-(false &) ; _dead=$!; wait "$_dead" 2>/dev/null
-printf '%s' "$_dead" > "$T/warp-lock/pid"
-warp_op_begin
-_z2k_ow_warp_lock 2 >/dev/null && _t_ok || _t_bad "stale lock не взят текущим"
-_z2k_ow_warp_unlock
+assert_eq "отсутствующее намерение остаётся current" current \
+    "$("$WARP_CONTROLLER_BIN" op-current "$T/warp-op" "$$")"
+"$WARP_CONTROLLER_BIN" op-begin "$T/warp-op" "$$"
+printf 'malformed\n' > "$T/warp-op"
+assert_eq "повреждённое намерение не маскируется" unreadable \
+    "$("$WARP_CONTROLLER_BIN" op-current "$T/warp-op" "$$")"
+"$WARP_CONTROLLER_BIN" op-clear "$T/warp-op" "$$"
 
-# --- 6. status несёт license/plan-поля ---
+# Lock с умершим владельцем безопасно удаляется по проверке /proc identity.
+mkdir -p "$T/warp-lock"
+printf '4294967295 1\n' > "$T/warp-lock/owner"
+printf '4294967295\n' > "$T/warp-lock/pid"
+"$WARP_CONTROLLER_BIN" lock-acquire "$$" 2 >/dev/null && _t_ok || _t_bad "Rust не забрал lock после умершего владельца"
+"$WARP_CONTROLLER_BIN" lock-release "$$" && _t_ok || _t_bad "Rust не снял lock своего владельца"
+
+# --- 4. status несёт license/plan-поля ---
 export WARP_DEVICE="$T/etc/state/warp/device.json"
 : > "$WARP_DEVICE"
 mkdir -p "$T/etc/state/warp"

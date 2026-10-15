@@ -61,14 +61,25 @@ done
 # `nft flush set` (потеря контента при mid-failure) в коде быть не может.
 # Batch helper пишет "flush set" через echo в `nft -f -`, это не матчится.
 assert_not_contains "sets: нет отдельного live flush" "$_WCODE" 'nft flush set'
-assert_contains "sets: atomic batch через nft -f -" "$WARP" 'nft -f -'
+assert_contains "sets: Rust applies nft as one atomic batch" \
+    "$REPO/platform/openwrt/warp-controller/src/nft.rs" 'args(["-f", "-"])'
 # Defect 2: service state — только через procd/init, НЕ pidof конкретного
 # демона (мёртвый nfqws2 при живом сервисе врал бы "остановлен").
 assert_not_contains "warp: нет pidof-детектива сервиса" "$_WCODE" 'pidof nfqws2'
 # Defect 8: flock не гарантирован на target — лок обязан быть mkdir-based.
 assert_not_contains "warp: нет flock-зависимости" "$_WCODE" 'flock'
-assert_contains "warp: mutation lock helper" "$WARP" '_z2k_ow_warp_lock()'
-assert_contains "warp: service-state helper" "$WARP" '_z2k_ow_service_running()'
+assert_not_contains "warp: нет Shell-fallback lifecycle" "$WARP" '_warp_enable_shell'
+assert_not_contains "warp: нет Shell-fallback lifecycle" "$WARP" '_warp_disable_shell'
+assert_not_contains "warp: нет Shell-fallback lifecycle" "$WARP" '_warp_restart_shell'
+assert_not_contains "warp: нет Shell-fallback lifecycle" "$WARP" '_warp_remove_shell'
+assert_contains "warp-proc: updater-hook делегирует процесс Rust" "$WARPP" 'engine-refresh'
+assert_not_contains "warp-proc: нет Shell-управления PID" "$WARPP" 'warp_pids'
+assert_not_contains "warp-proc: нет Shell-снятия маршрутов" "$WARPP" 'warp_pbr_down'
+assert_not_contains "warp-proc: нет Shell-ожидания ready" "$WARPP" '_warp_wait_ready'
+assert_contains "Rust: lifecycle владеет блокировкой" \
+    "$REPO/platform/openwrt/warp-controller/src/service.rs" 'acquire_user_lock()'
+assert_contains "Rust: lifecycle читает состояние procd" \
+    "$REPO/platform/openwrt/warp-controller/src/service.rs" 'fn service_state()'
 # Defect 4: каждый `ip rule del` обязан нести pref (exact owned delete).
 # Комментарии режем (атрибуция упоминает del без pref в тексте).
 if sed 's/#.*$//' "$WARP" 2>/dev/null | grep 'ip rule del' | grep -qv 'pref'; then
@@ -109,9 +120,11 @@ fi
 assert_contains "warp.sh: table 989" "$WARP" 'WARP_TABLE="${WARP_TABLE:-989}"'
 assert_contains "warp.sh: pref 500" "$WARP" 'WARP_RULE_PREF="${WARP_RULE_PREF:-500}"'
 # masked op, не blind set-mark:
-assert_contains "warp.sh: masked mark op" "$WARP" "meta mark set mark '&' 0x7fffffff '^' 0x80000000"
-assert_contains "warp.sh: verifies final fw4 forward policy" "$WARP" '_warp_fw4_forward_verify'
-assert_contains "warp.sh: runtime fw4 fallback is exact" "$WARP" 'nft insert rule "$WARP_FW4_FAMILY"'
+assert_contains "Rust: masked mark preserves foreign bits" \
+    "$REPO/platform/openwrt/warp-controller/src/nft.rs" 'MARK_EXPRESSION: &str = "meta mark set mark & 0x7fffffff ^ 0x80000000"'
+assert_contains "Shell delegates event reconciliation to Rust" "$WARP" '_warp_controller event rules'
+assert_contains "Rust owns exact fw4 fallback reconciliation" \
+    "$REPO/platform/openwrt/warp-controller/src/main.rs" 'nft-fw4-forward-apply'
 if grep -qE 'meta mark set 0x' "$_WCODE"; then
     _t_bad "warp.sh: blind mark-assign (чужие биты не выживут)"
 else
@@ -132,24 +145,23 @@ assert_not_contains "warp.sh: нет mark в output-цепочках" "$_WCODE" 
 assert_not_contains "stage: нет APK-компонента warpd" "$REPO/scripts/openwrt/stage-rootfs.sh" 'z2k-warp-runtime'
 assert_contains "генератор: флаг дефолт 0" "$REPO/lib/config_official.sh" 'saved_GAME_WARP_ENABLED="0"'
 
-# --- OpenWrt uses the shared upstream parser; static routing still has a
-# bounded fallback if the optional domain parser is missing. ---
-_src_of() { awk '/^# --- z2k warp SOURCE filter/,/^# --- end z2k warp SOURCE filter/' "$1" | grep -v '^# ---' | sed 's/^[[:space:]]*//'; }
-assert_contains "OpenWrt destination list uses shared parser" "$WARP" 'awk -v mode=ipset -f "$WARP_DOMAIN_FILTER"'
-assert_contains "OpenWrt keeps static-only parser fallback" "$WARP" 'Static WARP destination fallback'
-_canon_src="$(_src_of "$S96")"
-assert_eq "source-фильтр identical" "$_canon_src" "$(_src_of "$WARP")"
+# --- Rust owns list parsing and network state; Shell has no dataplane path. ---
+assert_contains "Rust validates destination list entries" \
+    "$REPO/platform/openwrt/warp-controller/src/lists.rs" 'pub fn validate_entries'
+assert_not_contains "Shell has no static destination parser fallback" "$WARP" 'Static WARP destination fallback'
+if grep -qE '(^|[;&|[:space:]])(ip|nft)[[:space:]]+(rule|route|add|delete|flush|insert|replace|set|chain|table)([[:space:]]|$)' "$_WCODE"; then
+    _t_bad "warp.sh: Shell изменяет маршруты или nftables"
+else
+    _t_ok
+fi
 
 # --- MSS coupling с Go-константой (как test_warp_mss_both_ways) ---
 _MTU="$(sed -n 's/^[[:space:]]*MTU[[:space:]]*=[[:space:]]*\([0-9]*\).*/\1/p' "$REPO/z2k-warpd/internal/engine/engine.go" | head -1)"
 assert_eq "MTU читается" "1280" "$_MTU"
-assert_eq "inbound MSS = MTU-40" "set 1240" "$(grep -o 'maxseg size set [0-9][0-9]*' "$WARP" | head -1 | sed 's/.*size //')"
-assert_contains "outbound clamp-to-PMTU" "$WARP" 'maxseg size set rt mtu'
-if grep -q 'iifname.*clamp-mss-to-pmtu\|maxseg size set rt mtu.*iifname' "$_WCODE"; then
-    _t_bad "warp.sh: зеркальный PMTU-clamp на inbound (дал бы 1460)"
-else
-    _t_ok
-fi
+assert_contains "Rust inbound MSS = MTU-40" \
+    "$REPO/platform/openwrt/warp-controller/src/nft.rs" 'maxseg size set 1240'
+assert_contains "Rust outbound MSS clamps to route MTU" \
+    "$REPO/platform/openwrt/warp-controller/src/nft.rs" 'maxseg size set rt mtu'
 
 # --- Релея VPS нет по умолчанию; старый адрес фильтруется по имени хоста. ---
 assert_not_contains "warp.sh: встроенный VPS proxy default удалён" "$WARP" 'WARP_VPS_PROXY_DEFAULT'
@@ -182,14 +194,17 @@ for _e in /usr/bin/z2kow /usr/sbin/install_release /etc/init.d/z2k /etc/init.d/z
     if grep -qxF "$_e" "$OWNED"; then _t_ok; else _t_bad "owned-paths.txt не содержит $_e"; fi
 done
 
-# p-86.13 semantics: selected devices with no active lists use full-device mode,
-# while active lists keep source-and-destination scoping and local networks bypass.
-assert_contains "scope detector is independent of online IP resolution" "$WARP" 'warp_devices_selected()'
-assert_contains "full-device mode requires an explicit device selection" "$WARP" 'warp_full_device_mode()'
-assert_contains "full-device mode excludes the unspecified network" "$WARP" 'ip daddr != 0.0.0.0/8'
-assert_contains "full-device mode excludes private LAN destinations" "$WARP" 'ip daddr != 192.168.0.0/16'
-assert_contains "selected-device IP rule matches source and destination" "$WARP" 'ip saddr "@$WARP_SET_SRC" ip daddr "@$WARP_SET"'
-assert_contains "selected-device domain rule matches source and destination" "$WARP" 'ip saddr "@$WARP_SET_SRC" ip saddr . ip daddr "@$WARP_DOMAIN_SET"'
+# p-86.13 semantics принадлежат контроллеру Rust.
+assert_contains "Rust определяет область выбранных устройств" \
+    "$REPO/platform/openwrt/warp-controller/src/lists.rs" 'policy_scope'
+assert_contains "Rust full-device mode excludes unspecified destinations" \
+    "$REPO/platform/openwrt/warp-controller/src/nft.rs" '"0.0.0.0/8"'
+assert_contains "Rust full-device mode excludes private LAN destinations" \
+    "$REPO/platform/openwrt/warp-controller/src/nft.rs" '"192.168.0.0/16"'
+assert_contains "Rust selected-device IP rule matches source and destination" \
+    "$REPO/platform/openwrt/warp-controller/src/nft.rs" 'ip saddr @{} ip daddr @{} {MARK_EXPRESSION}'
+assert_contains "Rust selected-device domain rule matches source and destination" \
+    "$REPO/platform/openwrt/warp-controller/src/nft.rs" 'ip saddr . ip daddr @{} {MARK_EXPRESSION}'
 assert_not_contains "no source-only WARP catch-all rule" "$WARP" 'ip saddr @"\$WARP_SET_SRC" meta mark set'
 assert_contains "WARP UI explains list scope" "$REPO/webpanel/www/js/pages/warp.js" 'выбранным устройствам'
 assert_contains "панель объясняет полный IPv4-маршрут выбранных устройств" "$REPO/webpanel/www/js/pages/warp.js" 'Без включённых списков весь IPv4 интернет-трафик выбранных устройств идёт через WARP'

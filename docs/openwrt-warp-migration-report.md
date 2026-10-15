@@ -2,6 +2,20 @@
 
 Дата замеров: 2026-10-15. Проверки и сборки выполнялись в WSL Debian и OpenWrt 25.12.5 QEMU. WARP остаётся выключенным, пока пользователь его не включит; Rust-контроллер поставляется как одноразовый CLI. Go `z2k-warpd` и его транспортные протоколы не изменялись.
 
+## Текущий срез: удаление дублирующей Shell-логики
+
+- `platform/openwrt/warp.sh` сокращён до OpenWrt/procd glue: загрузка путей и env, сборка команды Go-движка для procd и dispatch в одноразовый Rust CLI. Shell-бизнес-fallback удалён; без Rust-контроллера WARP-команды завершаются ошибкой, а необязательная подсистема остаётся выключенной.
+- `warp-proc.sh` и `warp-domain.sh` оставлены тонкими OpenWrt entrypoints. Rust владеет lifecycle, списками, состоянием WARP, nftables, PBR, health-check и восстановлением. Go `z2k-warpd` и его протоколы не менялись.
+- В WSL прошли `cargo fmt --check`, полный `cargo test --offline --locked` и Clippy с `-D warnings`. Реальный Shell-entrypoint прошёл с `ip` и `nft` в network namespace; static — 98/98, disable-guard — 11/11, lifecycle — pass. Проверка подтвердила отсутствие nft/PBR-мутаций при исправном повторном reconcile.
+- OpenWrt 25.12.5 QEMU прошёл актуальный `qemu-warp-disable-remove.sh` с настоящими procd, iproute2 и nftables: отказ при неверном владении маршрутом, безопасное состояние при временной ошибке nft и сохранение registration/license/list данных после remove.
+- `scripts/openwrt/build_warp_controller.sh --test` собрал все 7 вариантов из `rust-targets.tsv`; каждый статический ELF запущен через соответствующий QEMU-user. Для MIPS BE/LE использован установленный `nightly-2026-07-21` с `rust-src`; без сети пропущена только повторная проверка установки rustup, сами компиляторы, SDK, линкеры и эмуляторы реальные.
+- На физическом роутере сохранён read-only baseline: OpenWrt 25.12.5, `mediatek/filogic`, AArch64; `GAME_WARP_ENABLED=0`, PBR отсутствует, таблица 989 пуста, nft содержит штатные `fw4` и `zapret2`, процесс WARP не запущен. Штатный бинарник Rust-контроллера не установлен; `device.json` присутствует. Production-profile AArch64 ELF из матрицы временно запущен командой `health-observation`, вернул `UNKNOWN`, затем удалён. После проверки конфигурация, маршруты и nft совпали с baseline; откат временного файла подтверждён.
+- Полный `tests/openwrt/run.sh` в WSL после обновления main завершился `4237 pass, 0 fail` (146 suites); пропущены только runtime-artifact и RT somark из-за отсутствующих внешних архивов. Текущий `qemu-warp-disable-remove.sh` отдельно прошёл на OpenWrt 25.12.5 QEMU с настоящими procd, iproute2 и nftables; после теста baseline маршрутов, nft и интерфейса восстановлен.
+- В прежней 30-повторной серии list-sync использовался x86_64-musl ELF SHA-256 `99af858689fd79e80d697a16fd1b0342501295ec9086f320744127ee6c4f59cd`: Shell 2,011 с wall / 1,283 с user / 0,615 с system; Rust 0,476 / 0,165 / 0,109 с. Пиковый RSS обоих дочерних процессов — 11 452 KiB; nft-вызовы — 120 против 30. Это исторический узкий замер синхронизации списков, не полного WARP.
+- В этой сессии production-profile собраны и запущены через QEMU-user все 7 Rust ABI: ARM, AArch64, MIPS BE/LE, riscv64, x86 и x86_64. Локальный `PROVENANCE` записывает базовый commit `f5d454b`; поскольку рабочее дерево содержало незакоммиченный код миграции, эти ELF использовались только для локальной проверки, не как релизные артефакты. CI должен собрать артефакты уже для итогового commit.
+- Go-матрица содержит `mips64le` и `ppc64`, которых нет среди production-ready Rust-целей. По решению пользователя fallback удалён везде; WARP на этих архитектурах не поддержан до появления и проверки Rust-цели.
+- Актуальный QEMU disable/remove прошёл, но полный install/update/remove на текущем rootfs ещё не выполнен. Полный активный Go-туннель через procd, восстановление после SIGKILL/обрыва туннеля, перезапуск сети и reboot на текущем исходнике тоже не проверялись. Миграция не объявляется завершённой.
+
 ## Последний этап: tri-state procd и cooldown регистрации в Rust
 
 - Конечный автомат `service-plan` выбирает `rebuild`, `reload`, `none` или `defer` для `enable`, `disable` и `restart`. Ошибка `ubus service list` больше не считается подтверждением остановленной службы: Rust откладывает переход, Shell не вызывает procd без достоверного состояния. procd и фактический service action остаются OpenWrt-интеграцией.
@@ -223,33 +237,33 @@
 
 | Состав | Размер |
 |---|---:|
-| Shell-only на `HEAD`: `warp.sh`, `warp-domain.sh`, list filter | 149 090 байт |
-| Текущие три Shell-файла | 181 928 байт |
-| Rust controller ELF, x86_64 | 925 032 байта |
-| Текущая сумма этих Shell-файлов и x86_64 ELF | 1 106 960 байт |
+| Три Shell-entrypoint на `HEAD`: `warp.sh`, `warp-proc.sh`, `warp-domain.sh` | 185 169 байт |
+| Текущие три Shell-entrypoint | 20 360 байт |
+| Production-profile Rust controller ELF, AArch64 | 1 014 672 байта |
+| AArch64 ELF и три текущих Shell-entrypoint | 1 035 032 байта |
+| Изменение этой суммы относительно трёх старых Shell-файлов | +849 863 байта |
+| Все 7 Rust ELF в многоплатформенном payload | 8 203 804 байта |
+| Все 7 ELF и три текущих Shell-entrypoint | 8 224 164 байта |
 
-Итоговая полная ABI-сборка зафиксированного в рабочем дереве Rust-контроллера: build script собрал семь вариантов и запустил каждый с version через соответствующий QEMU-user. PROVENANCE.source_sha=8626cec5852b51ea4b1585215908f4ef2438f5e3 обозначает Git HEAD и не является хэшем незакоммиченных изменений исходников; ниже указаны также hashes бинарников и закреплённых build inputs.
+Таблица фиксирует текущие production-profile артефакты; размер установленного на конкретный роутер ELF равен строке его ABI. Три Shell-entrypoint — только OpenWrt glue; Go `z2k-warpd` в сравнении не менялся.
 
-| Go ABI | Rust target | Размер ELF | SHA-256 |
-|---|---|---:|---|
-| arm / GOARM=7 | armv5te-unknown-linux-musleabi (soft-float; qemu-arm) | 867 056 байт | 2b1416fbbf749b0a341400c8810cecbe873ecd978a44e7d555e2fad53a125e74 |
-| arm64 | aarch64-unknown-linux-musl | 810 608 байт | ffdbc4730a0e0543748447546427cc213bae2787dfc760f81e520ea2bc0ebb21 |
-| mips | mips-unknown-linux-musl (BE) | 1 117 408 байт | f106af566b0d70c72b43bdf990ac5494488e8e35e1a8f9df9205bc69ac407ebe |
-| mipsle | mipsel-unknown-linux-musl | 1 117 408 байт | 9515ffdf954248b1e8cb9fd1dcc4fa243fa97491f7aa8a472bd5a751aa204028 |
-| riscv64 | riscv64gc-unknown-linux-musl | 779 064 байта | c5ad7f40548cae636a47ff06c382b0987542f7bbedcf3e7024bb7382754c7b61 |
-| 386 | i686-unknown-linux-musl | 867 384 байта | 236ae102bf1e854e4588e48c80872cbe0add637a02d8ef4d919461147885d0e9 |
-| amd64 | x86_64-unknown-linux-musl | 925 032 байта | a7506cd1f7d871ad07d28e44aafa2da4e375d21fc57956c34ce032da85a8f5d7 |
+| Go ABI | Rust target | Размер ELF | SHA-256 | Запуск |
+|---|---|---:|---|---|
+| arm / GOARM=7 | armv5te-unknown-linux-musleabi (soft-float) | 1 076 000 байт | e9958a7964d345187f96fa6159a76d1e93fe1bb6582810e0124b5f7fac275b0b | QEMU-user |
+| arm64 | aarch64-unknown-linux-musl | 1 014 672 байта | f1c60e3e28348373f1ee281873a9a7846609d69022c10ec60502a4ff9b685a08 | QEMU-user, роутер |
+| mips | mips-unknown-linux-musl (BE) | 1 445 260 байт | 2904d18a84775b5cd8c98a2a3cb8a000cf7ee4057b6b1e19e08b665b0ecd6ae7 | QEMU-user |
+| mipsle | mipsel-unknown-linux-musl | 1 445 260 байт | b7735bed32d1cc993cb017c2e6257c9e089e5102ea990f77052ccd0ddbfc774c | QEMU-user |
+| riscv64 | riscv64gc-unknown-linux-musl | 962 288 байт | e7388326f003af28d295e80044b178723fd96ef77091b5f7cec7f547848fb5bc | QEMU-user |
+| 386 | i686-unknown-linux-musl | 1 088 748 байт | 29507dadc16986bd14e9a5d2bd88815d84bd1632c55204af8f39de6025e0370f | QEMU-user |
+| amd64 | x86_64-unknown-linux-musl | 1 171 576 байт | d75301a4d58f7f72a64bc7ecbe2b9157fff55fe83f926b98d31fb3a4461a2992 | QEMU-user |
 
-PROVENANCE фиксирует Cargo.lock SHA-256 6caadf1435846cbbd353faedde1133fe009dc84a178ee3b18b394688719fb350, таблицу targets 9821d2c0e59505e4c4f006c818ad08f1485e2e6a8b29bfdb5d86a71830c23be1, build script 060c178df3f13fcc557e27bc958dd30b3f218df52254197e080770bfd27d86ac и все toolchain hashes. Для Go ABI mips64le и ppc64 production-ready Rust target не заявлен; там остаётся Shell fallback. ARM артефакт собран для ARMv5te soft-float и успешно запущен через qemu-arm; отдельный запуск полного OpenWrt guest на ARMv7 не выполнялся.
-
-Shell-only baseline на `HEAD` — 149 090 байт. Текущая сумма трёх Shell-файлов и x86_64 ELF — 1 106 960 байт; она не включает Go-движок, общую OpenWrt платформу, библиотеки или данные списков. Размер компонента вырос, сокращение Shell ещё не достигнуто.
+Go ABI `mips64le` и `ppc64` не имеют production-ready Rust-цели в текущей таблице. По решению пользователя Shell fallback удалён; WARP на этих двух ABI недоступен.
 
 ## Незакрытые acceptance-гейты
 
-1. Завершить перенос оставшейся lifecycle-координации и сократить OpenWrt glue после прохождения остальных acceptance-гейтов. Планировщик `enable/disable/restart`, service observation и cooldown решения теперь в Rust, но Shell всё ещё координирует часть регистрации, DNS observer и procd; три текущих Shell-файла занимают 181 928 байт. Для `mips64le` и `ppc64` Rust target отсутствует, поэтому Shell fallback остаётся обязательным.
-2. Текущий x86_64 ELF прошёл полный OpenWrt QEMU install/update/WARP-remove/uninstall и updater overlap: p-86.18 → p-86.19 → p-86.20; проверено сохранение регистрационных файлов, license, config и списка. Применялись одноразовый acceptance key и синтетический account sentinel; реальная регистрация Cloudflare и Go-туннель не запускались.
-3. Проверить procd как владельца реального `z2k-warpd` и восстановление после SIGKILL Go-движка, обрыва активного туннеля, перезапуска сети и перезагрузки роутера. В QEMU не было настоящей регистрации Cloudflare и работающего WARP-туннеля.
-4. Измерить полный сценарий до/после с реальным Go-туннелем, включая CPU, RSS, время и установленный размер. Текущий замер охватывает только list-sync; выводов об ускорении всего WARP нет.
-5. Сверка всей build-matrix.tsv завершена. Семь поддерживаемых Rust-вариантов (arm, AArch64, MIPS BE/LE, riscv64, i686 и x86_64) собраны из текущего рабочего дерева и каждый запущен через соответствующий QEMU-user; таблица размеров и SHA-256 приведена выше. Для mips64le и ppc64 production-ready Rust target отсутствует, поэтому Shell fallback сохранён. ARM-вариант — ARMv5te soft-float: он собран и запущен, но отдельный OpenWrt system-QEMU запуск на ARMv7 не выполнялся.
+1. Повторить полный OpenWrt QEMU package install/update/disable/remove/uninstall на текущих артефактах. Прошедший QEMU-тест проверял disable/remove; текущий package lifecycle относится к более раннему срезу.
+2. Проверить procd как владельца реального `z2k-warpd` и восстановление после SIGKILL Go-движка, обрыва активного туннеля, перезапуска сети и reboot. QEMU не запускал зарегистрированный Go-туннель; текущий роутер оставался в состоянии WARP off.
+3. Выполнить acceptance после установки hotfix на роутер. Сейчас там нет production Rust-контроллера; выполнен только временный запуск AArch64 CLI с сохранённым baseline и проверенным удалением.
+4. Измерить полный сценарий до/после на реальном Go-туннеле: время, CPU, RSS и размер установленного компонента. Имеющийся замер покрывает только list-sync; полного прироста производительности не заявляется.
 
 Миграция не объявляется завершённой, пока эти проверки и пользовательские acceptance-гейты не пройдены.

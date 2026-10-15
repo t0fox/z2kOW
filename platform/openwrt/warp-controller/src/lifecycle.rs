@@ -4,6 +4,7 @@ use crate::state::Observation;
 pub enum ServiceIntent {
     Enable,
     Disable,
+    Remove,
     Restart,
 }
 
@@ -31,8 +32,10 @@ pub fn service_action(
 
     match intent {
         ServiceIntent::Enable if !was_enabled || !process_running => ServiceAction::Rebuild,
-        ServiceIntent::Disable if process_running => ServiceAction::Rebuild,
-        ServiceIntent::Enable | ServiceIntent::Disable => ServiceAction::Reload,
+        ServiceIntent::Disable | ServiceIntent::Remove if process_running => ServiceAction::Rebuild,
+        ServiceIntent::Enable | ServiceIntent::Disable | ServiceIntent::Remove => {
+            ServiceAction::Reload
+        }
         ServiceIntent::Restart if was_enabled => ServiceAction::Rebuild,
         ServiceIntent::Restart => ServiceAction::None,
     }
@@ -132,6 +135,7 @@ mod tests {
         for intent in [
             ServiceIntent::Enable,
             ServiceIntent::Disable,
+            ServiceIntent::Remove,
             ServiceIntent::Restart,
         ] {
             assert_eq!(

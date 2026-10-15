@@ -130,7 +130,15 @@ unset WP_PIDFILE
 
 # --- port: free / ours / foreign (WP21) ---
 export WP_PIDFILE="$T/run.pid"
-assert_eq "port: свободен" "0" "$(wp_port_free_or_ours 18099; echo $?)"
+# Keep the free-port fixture independent from listeners left by other WSL jobs.
+WP_TEST_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
+export WP_TEST_PORT
+cat > "$T/bin/ss" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$T/bin/ss"
+assert_eq "port: свободен" "0" "$(wp_port_free_or_ours "$WP_TEST_PORT" 127.0.0.1; echo $?)"
 printf '#!/bin/sh\nsleep 30\n' > "$T/tmp/z2k/runtime/webpanel/lighttpd-probe"
 chmod +x "$T/tmp/z2k/runtime/webpanel/lighttpd-probe"
 "$T/tmp/z2k/runtime/webpanel/lighttpd-probe" "$T/tmp/z2k/runtime/webpanel/x" &
@@ -144,10 +152,10 @@ kill -9 "$_wp_pid" 2>/dev/null
 rm -f "$T/run.pid"
 cat > "$T/bin/ss" <<'EOF'
 #!/bin/sh
-printf 'LISTEN 0 128 *:18099 *:* users:(("foreign",pid=1,fd=3))\n'
+printf 'LISTEN 0 128 *:%s *:* users:(("foreign",pid=1,fd=3))\n' "$WP_TEST_PORT"
 EOF
 chmod +x "$T/bin/ss"
-wp_port_free_or_ours 18099 >/dev/null 2>&1 && _t_bad "port: чужой пропущен" || _t_ok
+wp_port_free_or_ours "$WP_TEST_PORT" 127.0.0.1 >/dev/null 2>&1 && _t_bad "port: чужой пропущен" || _t_ok
 # Адресный конфликт: чужой сокет на том же числовом порту, но только на
 # другом IPv4, не мешает конкретному LAN bind панели. Старый глобальный grep
 # ошибочно запрещал старт и на адресе, который ядро разрешает.

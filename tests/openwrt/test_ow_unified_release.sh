@@ -49,6 +49,26 @@ T="$(mktemp -d)" || exit 1
 trap 'rm -rf "$T"' EXIT HUP INT TERM
 printf '36 25 0:32 / %s rw - ext4 /dev/test-overlay rw\n37 36 0:33 / /tmp rw - tmpfs tmpfs rw\n' "$T" > "$T/mountinfo"
 export Z2K_OW_MOUNTINFO_FILE="$T/mountinfo"
+
+# WARP остаётся необязательным: без Rust-контроллера обновление возможно,
+# если после остановки служб Go-движок отсутствует; при активном движке — нет.
+WARP_CONTROLLER_BIN="$T/no-z2k-warp-controller"
+pidof() { return "${Z2K_TEST_PIDOF_RC:-1}"; }
+Z2K_TEST_PIDOF_RC=1
+if z2k_ow_release_warp_lock_acquire "$REPO/platform/openwrt"; then
+    _t_ok "release continues without optional WARP controller when daemon is absent"
+else
+    _t_bad "release continues without optional WARP controller when daemon is absent"
+fi
+Z2K_TEST_PIDOF_RC=0
+if z2k_ow_release_warp_lock_acquire "$REPO/platform/openwrt"; then
+    _t_bad "release refuses to replace payload while daemon runs without controller"
+else
+    _t_ok "release refuses to replace payload while daemon runs without controller"
+fi
+unset -f pidof
+unset WARP_CONTROLLER_BIN Z2K_TEST_PIDOF_RC
+
 mkdir -p "$T/download-failure-bin"
 cat > "$T/download-failure-bin/wget" <<'EOF_WGET_FAIL'
 #!/bin/sh
@@ -135,8 +155,29 @@ make_artifact() {
     printf 'x86 detect\n' > "$_stage/usr/lib/z2k/bin/linux-x86_64/z2k-detect"
     printf 'arm64 warp\n' > "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd"
     printf 'x86 warp\n' > "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd"
-    printf 'arm64 controller\n' > "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warp-controller"
-    printf 'x86 controller\n' > "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warp-controller"
+    write_lock_controller() {
+        cat > "$1" <<'EOF_WARP_CONTROLLER'
+#!/bin/sh
+set -eu
+_lock="${Z2K_WARP_LOCK_DIR:?}"
+case "${1:-}" in
+    lock-acquire)
+        mkdir -p "$(dirname "$_lock")"
+        mkdir "$_lock"
+        printf '%s\n' "${2:?}" > "$_lock/pid"
+        ;;
+    lock-release)
+        [ "$(cat "$_lock/pid" 2>/dev/null)" = "${2:-}" ] || exit 1
+        rm -f "$_lock/pid"
+        rmdir "$_lock"
+        ;;
+    *) exit 64 ;;
+esac
+EOF_WARP_CONTROLLER
+        chmod 0755 "$1"
+    }
+    write_lock_controller "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warp-controller"
+    write_lock_controller "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warp-controller"
     chmod 0755 \
         "$_stage/usr/lib/z2k/bin/linux-arm64/tg-ws-proxy" \
         "$_stage/usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy" \

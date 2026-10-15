@@ -10,11 +10,30 @@ IFACE=z2ktun0
 ADDR=172.16.9.9
 NFT_FAMILY=inet
 NFT_TABLE=z2k_warp_lifecycle
+NFT_BIN="$(command -v nft)"
 MASTER=""
 RENAMED=0
 ADDR_CREATED=0
 NFT_TABLE_CREATED=0
 FW4_RULE_CREATED=0
+NFT_EXEC_DISABLED=0
+
+# iproute2 возвращает status 2, когда таблица ещё не создана. Это пустое
+# состояние; ошибки чтения или вывода должны оставаться ошибками теста.
+ip_routes_989() {
+    local _routes _status
+    if _routes=$(ip -4 route show table 989 2>&1); then
+        [ -n "$_routes" ] && printf '%s\n' "$_routes"
+        return 0
+    else
+        _status=$?
+    fi
+    if [ "$_status" -eq 2 ] && [ "$_routes" = 'Error: ipv4: FIB table does not exist.' ]; then
+        return 0
+    fi
+    printf '%s\n' "$_routes" >&2
+    return "$_status"
+}
 
 restore_master() {
     [ -n "$MASTER" ] || return 0
@@ -31,6 +50,10 @@ restore_master() {
 cleanup() {
     _rc=$?
     trap - EXIT HUP INT TERM
+    if [ "$NFT_EXEC_DISABLED" = 1 ]; then
+        chmod 755 "$NFT_BIN" >/dev/null 2>&1 || _rc=1
+        NFT_EXEC_DISABLED=0
+    fi
     "$BIN" route-remove-owned "$IFACE" "$ADDR" 989 500 499 \
         0x80000000 0x80000000 "$T/tmp/warp/pbr.owner" \
         "$T/tmp/warp/probe-route.owner" >/dev/null 2>&1 || _rc=1
@@ -59,7 +82,7 @@ trap 'exit 1' HUP INT TERM
 
 [ -x "$BIN" ] && [ -r "$WARP" ] && [ -r "$HELPER" ]
 [ ! -e "$IFACE" ] || { echo 'z2ktun0 уже занят в QEMU' >&2; exit 1; }
-[ -z "$(ip -4 route show table 989)" ] || {
+[ -z "$(ip_routes_989)" ] || {
     echo 'таблица 989 занята до начала QEMU teardown-теста' >&2; exit 1;
 }
 ! ip -4 rule show | grep -Eq '^(499|500):' || {
@@ -113,7 +136,7 @@ ADDR_CREATED=1
 ip link show dev "$IFACE" >/dev/null
 ip addr show dev "$IFACE" | grep -F "$ADDR/32" >/dev/null
 ip -4 rule show > "$T/rules.initial"
-ip -4 route show table 989 > "$T/routes.initial"
+ip_routes_989 > "$T/routes.initial"
 "$BIN" route-reconcile "$IFACE" "$ADDR" 989 500 499 0x80000000 0x80000000 \
     "$T/tmp/warp/pbr.owner" "$T/tmp/warp/probe-route.owner" | grep -qx 'changed=1'
 "$BIN" route-verify "$IFACE" "$ADDR" 989 500 499 0x80000000 0x80000000 \
@@ -132,13 +155,43 @@ nft add set "$NFT_FAMILY" "$NFT_TABLE" z2k_warp_src4 '{ type ipv4_addr; }'
 FW4_RULE_CREATED=1
 nft list chain inet fw4 forward | grep -F '!z2k: WARP forwarded traffic' >/dev/null
 
-# Shell передаёт Rust структурированную конфигурацию disable-state v1 через stdin.
+# Ошибка владения маршрутом не должна фиксировать выключенное состояние и
+# удалять остальную настройку. После восстановления записи очистка повторяется.
+cp "$T/tmp/warp/pbr.owner" "$T/tmp/warp/pbr.owner.saved"
+printf 'foreign-owner\n' > "$T/tmp/warp/pbr.owner"
+if sh "$WARP" disable > "$T/disable-route-error.log" 2>&1; then
+    echo 'disable принял чужую запись владельца маршрута' >&2
+    exit 1
+fi
+grep -qx GAME_WARP_ENABLED=1 "$T/etc/config"
+grep -q '^warp-disable-pbr-remove-failed ' "$T/tmp/warp/route-error"
+ip -4 rule show | grep -q 'lookup 989'
+[ -n "$(ip_routes_989)" ]
+nft list chain inet fw4 forward | grep -F '!z2k: WARP forwarded traffic' >/dev/null
+mv "$T/tmp/warp/pbr.owner.saved" "$T/tmp/warp/pbr.owner"
+
+# Недоступный nft оставляет флаг включённым даже после снятия PBR: следующий
+# запуск повторяет очистку, не возвращая маршрутизацию.
+chmod 000 "$NFT_BIN"
+NFT_EXEC_DISABLED=1
+if sh "$WARP" disable > "$T/disable-nft-error.log" 2>&1; then
+    echo 'disable скрыл ошибку выполнения nft' >&2
+    exit 1
+fi
+chmod 755 "$NFT_BIN"
+NFT_EXEC_DISABLED=0
+grep -qx GAME_WARP_ENABLED=1 "$T/etc/config"
+grep -q '^warp-disable-' "$T/tmp/warp/route-error"
+! ip -4 rule show | grep -q 'lookup 989'
+[ -z "$(ip_routes_989)" ]
+
+# Rust формирует disable-state и передаёт конфигурацию дочерней команде через stdin.
 sh "$WARP" disable
 [ "$(grep '^GAME_WARP_ENABLED=' "$CONFIG_FILE" | cut -d= -f2)" = 0 ]
 "$BIN" route-verify "$IFACE" "$ADDR" 989 500 499 0x80000000 0x80000000 \
     "$T/tmp/warp/pbr.owner" "$T/tmp/warp/probe-route.owner" | grep -qx 'ready=0'
 ip -4 rule show | grep -E 'lookup 989' && { echo 'PBR правило осталось после disable' >&2; exit 1; }
-[ -z "$(ip -4 route show table 989)" ]
+[ -z "$(ip_routes_989)" ]
 ! nft list chain inet fw4 forward | grep -F '!z2k: WARP forwarded traffic'
 ! nft list chain "$NFT_FAMILY" "$NFT_TABLE" z2k_warp_mark | grep -q counter
 

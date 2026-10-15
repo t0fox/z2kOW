@@ -52,48 +52,19 @@ WARP_DOMAIN_RUNTIME_BIN="$TMP/z2k-warpd"
 Z2K_WARP_SOURCE_ONLY=1
 . "$ROOT/platform/openwrt/warp.sh"
 
-_warp_controller_disable_state
-check equal "$(cat "$TMP/args")" disable-state
-cat > "$TMP/expected" <<EOF
-version=1
-config=$TMP/config
-interface=z2ktun0
-probe_address=172.16.9.9
-table=989
-user_pref=500
-probe_pref=499
-mark=0x80000000
-mask=0x80000000
-pbr_owner=$TMP/pbr.owner
-probe_owner=$TMP/probe.owner
-route_error=$TMP/route-error
-fw4_family=inet
-fw4_table=fw4
-fw4_chain=forward
-fw4_comment=!z2k: WARP forwarded traffic
-nft_family=inet
-nft_table=zapret2
-mark_chain=z2k_warp_mark
-mss_chain=z2k_warp_mss
-forward_chain=z2k_warp_fwd
-nat_chain=z2k_warp_nat
-observer_family=inet
-observer_table=z2k_warp_dns
-pair_family=inet
-pair_table=zapret2
-pair_set=z2k_warp_domain4
-domain_error=$TMP/domain-error
-EOF
-check cmp -s "$TMP/expected" "$TMP/input"
+if ! warp_disable </dev/null; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: Rust disable-команда должна вызвать контроллер" >&2
+else
+    PASS=$((PASS + 1))
+fi
+printf 'lifecycle\ndisable\n' > "$TMP/expected"
+check cmp -s "$TMP/expected" "$TMP/args"
+check equal "$(wc -c < "$TMP/input" | tr -d ' ')" 0
 
 WARP_TEST_EXIT=1
 export WARP_TEST_EXIT
-warp_op_current() { return 0; }
-warp_running() { return 1; }
-_warp_service_transition() { : > "$TMP/service-transition"; }
-_warp_procd_recovery_clear() { : > "$TMP/recovery-clear"; }
-warp_unpin_legacy() { : > "$TMP/unpin"; }
-if warp_disable; then
+if warp_disable </dev/null; then
     FAIL=$((FAIL + 1))
     echo "FAIL: отказ очистки должен прервать отключение" >&2
 else
@@ -102,23 +73,17 @@ fi
 check equal "$(sed -n 's/^GAME_WARP_ENABLED=//p' "$TMP/config")" 1
 check exists "$TMP/procd-instance"
 check exists "$TMP/procd-recovery"
-check missing "$TMP/service-transition"
-check missing "$TMP/recovery-clear"
-check missing "$TMP/unpin"
 
 WARP_CONTROLLER_BIN="$TMP/no-controller"
-warp_pbr_down() { return 1; }
 if warp_disable; then
     FAIL=$((FAIL + 1))
-    echo "FAIL: legacy-совместимость должна прервать отключение при ошибке PBR" >&2
+    echo "FAIL: отключение без Rust-контроллера должно завершиться ошибкой" >&2
 else
     PASS=$((PASS + 1))
 fi
 check equal "$(sed -n 's/^GAME_WARP_ENABLED=//p' "$TMP/config")" 1
-check equal "$(sed -n 's/ .*//p' "$TMP/route-error")" warp-disable-pbr-remove-failed
 check exists "$TMP/procd-instance"
 check exists "$TMP/procd-recovery"
-check missing "$TMP/service-transition"
 
 echo "SUITE[warp-disable-guard]: pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ]

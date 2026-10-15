@@ -194,15 +194,24 @@ class UnifiedArchitectureTests(unittest.TestCase):
     def test_webpanel_cannot_bind_luci_ports_and_warp_scopes_selected_devices(self) -> None:
         panel = (ROOT / "platform/openwrt/webpanel.sh").read_text(encoding="utf-8")
         warp = (ROOT / "platform/openwrt/warp.sh").read_text(encoding="utf-8")
+        warp_service = (ROOT / "platform/openwrt/warp-controller/src/service.rs").read_text(encoding="utf-8")
+        warp_nft = (ROOT / "platform/openwrt/warp-controller/src/nft.rs").read_text(encoding="utf-8")
         ui = (ROOT / "webpanel/www/js/pages/warp.js").read_text(encoding="utf-8")
         self.assertTrue('80|443)' in panel, "panel must refuse the two LuCI listener ports")
-        self.assertTrue("warp_devices_selected()" in warp, "selection intent must survive an offline client")
-        self.assertTrue("warp_full_device_mode()" in warp, "p-86.13 full-device mode must be explicit")
-        self.assertTrue("ip daddr != 192.168.0.0/16" in warp, "local LAN destinations must stay direct")
-        self.assertTrue('ip saddr "@$WARP_SET_SRC" ip daddr "@$WARP_SET"' in warp,
-                        "list mode must intersect selected devices with enabled destinations")
-        self.assertNotIn('ip saddr "@$WARP_SET_SRC" meta mark set', warp,
-                         "full-device mode must still exclude non-tunnel destinations")
+        self.assertIn("_warp_controller ipset", warp,
+                      "the OpenWrt adapter must delegate list operations to Rust")
+        self.assertIn("resolve_selected_devices", warp_service,
+                      "Rust must own selected-device address discovery")
+        self.assertTrue("PRIVATE_AND_NON_UNICAST" in warp_nft,
+                        "Rust full-device mode must leave local and non-unicast traffic direct")
+        self.assertTrue('"ip saddr @{} ip daddr @{} {MARK_EXPRESSION}"' in warp_nft,
+                        "Rust device mode must intersect selected devices with enabled destinations")
+        self.assertTrue('"ip daddr @{} {MARK_EXPRESSION}"' in warp_nft,
+                        "Rust list mode must mark enabled destinations")
+        self.assertTrue('"ip saddr @{} {} {MARK_EXPRESSION}"' in warp_nft,
+                        "Rust full-device mode must exclude non-tunnel destinations")
+        self.assertNotIn("ip daddr != 192.168.0.0/16", warp,
+                         "nft policy expressions must not be duplicated in Shell")
         self.assertTrue("выбранным устройствам" in ui, "existing UI must retain list-scoping guidance")
 
     def test_bootstrap_and_payload_support_multiple_router_architectures(self) -> None:

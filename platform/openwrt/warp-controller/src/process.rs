@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const OPERATION_LIMIT: Duration = Duration::from_secs(30);
+const OPERATION_LIMIT: Duration = Duration::from_secs(180);
 const CHILD_LIMIT: Duration = Duration::from_secs(5);
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -22,6 +22,20 @@ pub fn output(command: &mut Command) -> io::Result<Output> {
 
 pub fn output_with_input(command: &mut Command, input: &[u8]) -> io::Result<Output> {
     output_inner(command, Some(input), operation_deadline(), CHILD_LIMIT)
+}
+
+pub fn output_with_timeout(command: &mut Command, timeout: Duration) -> io::Result<Output> {
+    let deadline = Instant::now() + timeout;
+    output_inner(command, None, deadline, timeout)
+}
+
+pub fn output_with_input_timeout(
+    command: &mut Command,
+    input: &[u8],
+    timeout: Duration,
+) -> io::Result<Output> {
+    let deadline = Instant::now() + timeout;
+    output_inner(command, Some(input), deadline, timeout)
 }
 
 fn operation_deadline() -> Instant {

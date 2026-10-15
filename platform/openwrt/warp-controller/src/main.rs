@@ -20,7 +20,7 @@ use warp_controller::{
     state::{
         EngineStatus, Observation, PolicyAction, ProcessStatus, RuntimeReadiness,
         observe_warp_process, plan_policy, read_engine_status, read_engine_status_snapshot,
-        runtime_readiness,
+        runtime_readiness, warp_process_pids,
     },
 };
 
@@ -37,8 +37,50 @@ fn run() -> io::Result<()> {
     match args.next().as_deref() {
         Some("nft-sync") => run_nft_sets_command(&mut args, true),
         Some("nft-sets-verify") => run_nft_sets_command(&mut args, false),
+        Some("nft-set-count") => run_nft_set_count(&mut args),
         Some("nft-chain-clear") => run_nft_chain_clear(&mut args),
         Some("disable-state") => run_disable_state(&mut args),
+        Some("status") => {
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы status"));
+            }
+            warp_controller::status::print_status()
+        }
+        Some("route-proof") => {
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы route-proof"));
+            }
+            warp_controller::status::print_routing_proofs()
+        }
+        Some("ipset") => warp_controller::service::ipset(&mut args),
+        Some("reload-lists") => warp_controller::service::reload_lists(&mut args),
+        Some("migrate") => warp_controller::service::migrate_lists(&mut args),
+        Some("install") => warp_controller::service::install(&mut args),
+        Some("register") => warp_controller::service::register(&mut args),
+        Some("lifecycle") => {
+            let code = warp_controller::service::user_lifecycle(&mut args)?;
+            process::exit(code.clamp(0, 255) as i32);
+        }
+        Some("engine-refresh") => {
+            let code = warp_controller::service::engine_refresh(&mut args)?;
+            process::exit(code.clamp(0, 255) as i32);
+        }
+        Some("license") => {
+            let code = warp_controller::service::license(&mut args)?;
+            process::exit(code.clamp(0, 255) as i32);
+        }
+        Some("nft-mark-sync") => warp_controller::service::mark_rules(&mut args, true),
+        Some("nft-mark-check") => warp_controller::service::mark_rules(&mut args, false),
+        Some("health-check") => warp_controller::service::health_check(&mut args),
+        Some("health-observation") => {
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы health-observation"));
+            }
+            println!("{}", warp_controller::health_observation::current()?);
+            Ok(())
+        }
+        Some("event") => warp_controller::service::event(&mut args),
+        Some("domain-procd-ready") => warp_controller::service::domain_procd_ready(&mut args),
         Some("nft-warp-remove") => run_nft_warp_remove(&mut args),
         Some("nft-fw4-forward-apply") => run_nft_fw4_forward_apply(&mut args),
         Some("nft-fw4-forward-verify") => run_nft_fw4_forward_verify(&mut args),
@@ -183,16 +225,16 @@ fn run() -> io::Result<()> {
             if args.next().is_some() {
                 return Err(invalid("лишние аргументы nft-domain-verify"));
             }
-            let ready = verify_domain_nft(
-                &pair_family,
-                &pair_table,
-                &pair_set,
-                &observer_family,
-                &observer_table,
-                &output_chain,
-                &forward_chain,
-                &group,
-            )?;
+            let ready = nft::verify_domain_observer(&nft::DomainVerifyConfig {
+                pair_family: &pair_family,
+                pair_table: &pair_table,
+                pair_set: &pair_set,
+                observer_family: &observer_family,
+                observer_table: &observer_table,
+                output_chain: &output_chain,
+                forward_chain: &forward_chain,
+                group: &group,
+            })?;
             println!("ready={}", u8::from(ready));
             Ok(())
         }
@@ -466,6 +508,24 @@ fn run() -> io::Result<()> {
             );
             Ok(())
         }
+        Some("process-pids") => {
+            let proc_root = required(&mut args, "корень procfs")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы process-pids"));
+            }
+            match warp_process_pids(proc_root.as_ref()) {
+                Observation::Known(pids) => {
+                    for pid in pids {
+                        println!("{pid}");
+                    }
+                    Ok(())
+                }
+                Observation::Unreadable => Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "список процессов WARP временно недоступен",
+                )),
+            }
+        }
         Some("runtime-observe") => run_runtime_observe(&mut args),
         Some("ready-observe-since") => run_ready_observe_since(&mut args),
         Some("health-plan") => run_health_plan(&mut args),
@@ -665,6 +725,18 @@ fn run_nft_sets_command(args: &mut impl Iterator<Item = String>, apply: bool) ->
         &sources,
     )?;
     nft::apply_transaction(&batch)
+}
+
+fn run_nft_set_count(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let family = required(args, "семейство nft")?;
+    let table = required(args, "таблица nft")?;
+    let set = required(args, "набор nft")?;
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы nft-set-count"));
+    }
+    let output = command_output("nft", &["list", "set", &family, &table, &set])?;
+    println!("{}", nft::count_ipv4_set_elements(&output));
+    Ok(())
 }
 
 fn invalid(message: &str) -> io::Error {
@@ -1435,73 +1507,6 @@ impl DisableOperations for RuntimeDisableOperations<'_> {
     fn record_failure(&mut self, reason: &str) -> io::Result<()> {
         route_error::set(&self.config.route_error_file, reason)
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn verify_domain_nft(
-    pair_family: &str,
-    pair_table: &str,
-    pair_set: &str,
-    observer_family: &str,
-    observer_table: &str,
-    output_chain: &str,
-    forward_chain: &str,
-    group: &str,
-) -> io::Result<bool> {
-    let group_number = group
-        .parse::<u16>()
-        .map_err(|_| invalid("неверный NFLOG group"))?;
-    if group.is_empty() || !group.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(invalid("неверный NFLOG group"));
-    }
-    let _ = group_number;
-
-    let tables = command_output("nft", &["list", "tables"])?;
-    if !nft_table_exists(&tables, pair_family, pair_table)
-        || !nft_table_exists(&tables, observer_family, observer_table)
-    {
-        return Ok(false);
-    }
-    let pair_output = command_output("nft", &["list", "table", pair_family, pair_table])?;
-    if nft::domain_pair_set_matches(&pair_output, pair_family, pair_table, pair_set)?.is_none() {
-        return Ok(false);
-    }
-    let observer_output =
-        command_output("nft", &["list", "table", observer_family, observer_table])?;
-    if !nft::domain_observer_table_owned(&observer_output, observer_family, observer_table)?
-        || nft::domain_observer_chain_owned(&observer_output, output_chain, "output")?.is_none()
-        || nft::domain_observer_chain_owned(&observer_output, forward_chain, "forward")?.is_none()
-    {
-        return Ok(false);
-    }
-    let output = command_output(
-        "nft",
-        &[
-            "list",
-            "chain",
-            observer_family,
-            observer_table,
-            output_chain,
-        ],
-    )?;
-    if !nft::domain_observer_chain_has_group(&output, output_chain, group) {
-        return Ok(false);
-    }
-    let forward = command_output(
-        "nft",
-        &[
-            "list",
-            "chain",
-            observer_family,
-            observer_table,
-            forward_chain,
-        ],
-    )?;
-    Ok(nft::domain_observer_chain_has_group(
-        &forward,
-        forward_chain,
-        group,
-    ))
 }
 
 fn run_route_command(args: &mut impl Iterator<Item = String>, apply: bool) -> io::Result<()> {

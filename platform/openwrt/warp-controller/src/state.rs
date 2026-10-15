@@ -64,9 +64,30 @@ pub fn runtime_readiness(
 }
 
 pub fn observe_warp_process(proc_root: &Path) -> ProcessStatus {
+    let (pids, unreadable) = find_warp_pids(proc_root);
+    if !pids.is_empty() {
+        ProcessStatus::Present
+    } else if unreadable {
+        ProcessStatus::Unreadable
+    } else {
+        ProcessStatus::Absent
+    }
+}
+
+pub fn warp_process_pids(proc_root: &Path) -> Observation<Vec<String>> {
+    let (pids, unreadable) = find_warp_pids(proc_root);
+    if unreadable {
+        Observation::Unreadable
+    } else {
+        Observation::Known(pids)
+    }
+}
+
+fn find_warp_pids(proc_root: &Path) -> (Vec<String>, bool) {
     let Ok(entries) = fs::read_dir(proc_root) else {
-        return ProcessStatus::Unreadable;
+        return (Vec::new(), true);
     };
+    let mut pids = Vec::new();
     let mut unreadable = false;
     for entry in entries {
         let entry = match entry {
@@ -103,14 +124,10 @@ pub fn observe_warp_process(proc_root: &Path) -> ProcessStatus {
             }
         };
         if cmdline.split(|byte| *byte == 0).any(|arg| arg == b"run") {
-            return ProcessStatus::Present;
+            pids.push(pid.into_owned());
         }
     }
-    if unreadable {
-        ProcessStatus::Unreadable
-    } else {
-        ProcessStatus::Absent
-    }
+    (pids, unreadable)
 }
 
 pub fn read_engine_status(path: &Path) -> EngineStatus {

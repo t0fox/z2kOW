@@ -10,6 +10,10 @@ export PATH="$T/bin:/usr/bin:/bin"
 export Z2K_ROOT="$REPO" Z2K_ADAPTER_DIR="$REPO/platform/openwrt"
 export Z2K_ETC="$T/etc" Z2K_STATE="$T/etc/state" Z2K_TMP="$T/tmp"
 export Z2K_CONFIG="$T/etc/config" Z2K_PROC_ROOT="$T/proc"
+export WARP_CONTROLLER_BIN="${WARP_CONTROLLER_BIN:-$REPO/platform/openwrt/warp-controller/target/debug/z2k-warp-controller}"
+if [ ! -x "$WARP_CONTROLLER_BIN" ]; then
+    cargo build --offline --manifest-path "$REPO/platform/openwrt/warp-controller/Cargo.toml"
+fi
 export WARP_BIN="$T/bin/z2k-warpd" WARP_PBR_OWNER="$T/tmp/warp/pbr.owner"
 export Z2K_WARP_SOURCE_ONLY=1
 printf '#!/bin/sh\nexit 0\n' > "$WARP_BIN"
@@ -18,23 +22,72 @@ printf 'GAME_WARP_ENABLED=1\n' > "$Z2K_CONFIG"
 printf 'выбранный-список\n' > "$T/etc/user-lists/warp/.enabled"
 printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg","endpoint":"162.159.192.6:2408"}\n' > "$T/tmp/warp/status.json"
 printf '%s\000' "$WARP_BIN" run > "$T/proc/777/cmdline"
+printf 'z2k-warpd\n' > "$T/proc/777/comm"
 
 cat > "$T/bin/pidof" <<'EOF'
 #!/bin/sh
 printf '777\n'
 EOF
+cat > "$T/bin/uci" <<'EOF'
+#!/bin/sh
+case "$*" in
+  '-d @ show network'|'-d @ show firewall') exit 0 ;;
+  *) exit 1 ;;
+esac
+EOF
 cat > "$T/bin/ip" <<'EOF'
 #!/bin/sh
 case "$*" in
   'link show dev z2ktun0') exit 0 ;;
-  'rule show') cat "${IP_RULES:-/dev/null}" ;;
-  'route show table 989') cat "${IP_ROUTE:-/dev/null}" ;;
+  '-j link show'|'-4 -j rule show'|'-4 -j route show table all')
+    printf '%s\n' 'BusyBox ip: invalid option -- j' >&2
+    exit 1 ;;
+  'link show')
+    printf '%s\n' '1: lo: <LOOPBACK,UP> mtu 65536 qdisc noqueue state UNKNOWN' \
+      '7: z2ktun0: <POINTOPOINT,UP> mtu 1420 qdisc noqueue state UNKNOWN'
+    exit 0 ;;
+  'rule show'|'-4 rule show') cat "${IP_RULES:-/dev/null}" ;;
+  'route show table 989'|'-4 route show table 989') cat "${IP_ROUTE:-/dev/null}" ;;
   *) exit 1 ;;
 esac
 EOF
 cat > "$T/bin/nft" <<'EOF'
 #!/bin/sh
 case "$*" in
+  'list tables')
+    if [ "${NFT_FULL:-0}" = 1 ]; then
+      printf '%s\n' 'table inet zapret2' 'table inet fw4'
+    fi
+    exit 0 ;;
+  'list table inet zapret2')
+    [ "${NFT_FULL:-0}" = 1 ] || exit 1
+    cat <<'NFT_TABLE'
+table inet zapret2 {
+    set z2k_warp_dst4 {
+        type ipv4_addr
+        flags interval
+    }
+    set z2k_warp_src4 {
+        type ipv4_addr
+        flags interval
+    }
+    chain z2k_warp_mark {
+        type filter hook prerouting priority mangle; policy accept;
+        ip daddr @z2k_warp_dst4 meta mark set mark & 0x7fffffff ^ 0x80000000
+    }
+    chain z2k_warp_mss {
+        oifname "z2ktun0" tcp flags syn tcp option maxseg size set rt mtu
+        iifname "z2ktun0" tcp flags syn tcp option maxseg size set 1240
+    }
+    chain z2k_warp_fwd {
+        oifname "z2ktun0" accept
+    }
+    chain z2k_warp_nat {
+        oifname "z2ktun0" masquerade
+    }
+}
+NFT_TABLE
+    exit 0 ;;
   'list chain inet zapret2 z2k_warp_mark')
     [ "${NFT_FULL:-0}" = 1 ] || exit 1
     printf '%s\n' 'ip daddr @z2k_warp_dst4 meta mark set meta mark & 0x7fffffff ^ 0x80000000' ;;
@@ -49,14 +102,17 @@ case "$*" in
     printf '%s\n' 'oifname "z2ktun0" masquerade' ;;
   'list chain inet fw4 forward')
     [ "${NFT_FULL:-0}" = 1 ] || exit 1
-    printf '%s\n' 'meta mark & 0x80000000 == 0x80000000 oifname "z2ktun*" accept comment "!z2k: WARP forwarded traffic"' ;;
+    printf '%s\n' 'chain forward {' \
+      '    type filter hook forward priority filter; policy accept;' \
+      '    meta mark & 0x80000000 == 0x80000000 oifname "z2ktun*" accept comment "!z2k: WARP forwarded traffic"' \
+      '}' ;;
   'list table inet zapret2') [ "${NFT_FULL:-0}" = 1 ] ;;
   'list set inet zapret2 z2k_warp_dst4'|'list set inet zapret2 z2k_warp_src4')
     [ "${NFT_FULL:-0}" = 1 ] && printf '%s\n' 'elements = { }' ;;
   *) exit 1 ;;
 esac
 EOF
-chmod +x "$T/bin/pidof" "$T/bin/ip" "$T/bin/nft"
+chmod +x "$T/bin/pidof" "$T/bin/uci" "$T/bin/ip" "$T/bin/nft"
 
 run_diag() {
     Z2K_ROOT="$REPO" Z2K_ADAPTER_DIR="$REPO/platform/openwrt" \
@@ -78,6 +134,7 @@ printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg","en
 printf '499: from 172.16.9.9/32 lookup 989\n500: from all fwmark 0x80000000/0x80000000 lookup 989\n' > "$T/ip-rules"
 printf 'default dev z2ktun0\n' > "$T/ip-route"
 printf 'mark=0x80000000\nmask=0x80000000\npref=500\ntable=989\niface=z2ktun0\n' > "$WARP_PBR_OWNER"
+printf 'iface=z2ktun0\naddr=172.16.9.9\n' > "$T/tmp/warp/probe-route.owner"
 NFT_FULL=1 IP_RULES="$T/ip-rules" IP_ROUTE="$T/ip-route" run_diag
 assert_contains "all OpenWrt route probes promote tunnel to routing-ready" "$T/output" 'route_ready       : 1'
 assert_contains "canonical route proof includes nft mark path" "$T/output" 'nft mark path     : present'
@@ -89,6 +146,7 @@ assert_contains "diag prints actual Cloudflare edge metadata" "$T/output" 'edge 
 
 # The top-line health summary must use the same runtime proof as the WARP
 # detail/API. A daemon ready bit alone does not prove OpenWrt nft/TUN/PBR.
+rm -f "$WARP_PBR_OWNER" "$T/tmp/warp/probe-route.owner"
 cat > "$T/bin/init" <<'EOF'
 #!/bin/sh
 case "$1" in running) exit 0 ;; *) exit 1 ;; esac
