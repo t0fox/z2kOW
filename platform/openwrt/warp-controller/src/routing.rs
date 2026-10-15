@@ -37,7 +37,13 @@ pub struct RouteConfig<'a> {
     pub probe_owner: &'a Path,
 }
 
-pub fn verify_policy(config: &RouteConfig<'_>) -> Result<bool, String> {
+struct PolicyObservation {
+    inventory: RouteInventory,
+    pbr_owner: Option<BTreeMap<String, String>>,
+    probe_owner: Option<BTreeMap<String, String>>,
+}
+
+fn validate_policy(config: &RouteConfig<'_>) -> Result<(), String> {
     if !valid_tun(config.interface)
         || config.probe_address.parse::<Ipv4Addr>().is_err()
         || config.mask == 0
@@ -45,50 +51,71 @@ pub fn verify_policy(config: &RouteConfig<'_>) -> Result<bool, String> {
     {
         return Err("неверные параметры WARP route policy".into());
     }
+    Ok(())
+}
+
+fn observe_policy(config: &RouteConfig<'_>) -> Result<Option<PolicyObservation>, String> {
+    validate_policy(config)?;
     if !command_ok("ip", &["link", "show", "dev", config.interface])? {
-        return Ok(false);
+        return Ok(None);
     }
 
-    let inventory = snapshot(config)?;
-    let pbr_owner = read_owner(config.pbr_owner)?;
-    let probe_owner = read_owner(config.probe_owner)?;
-    Ok(inventory.user_rule
-        && inventory.probe_rule
-        && inventory.default_route
-        && pbr_owner
+    Ok(Some(PolicyObservation {
+        inventory: snapshot(config)?,
+        pbr_owner: read_owner(config.pbr_owner)?,
+        probe_owner: read_owner(config.probe_owner)?,
+    }))
+}
+
+fn policy_ready(observation: &PolicyObservation, config: &RouteConfig<'_>) -> bool {
+    observation.inventory.user_rule
+        && observation.inventory.probe_rule
+        && observation.inventory.default_route
+        && observation
+            .pbr_owner
             .as_ref()
             .is_some_and(|owner| owner_matches(owner, config))
-        && probe_owner
+        && observation
+            .probe_owner
             .as_ref()
-            .is_some_and(|owner| probe_owner_matches(owner, config)))
+            .is_some_and(|owner| probe_owner_matches(owner, config))
+}
+
+pub fn verify_policy(config: &RouteConfig<'_>) -> Result<bool, String> {
+    let Some(observation) = observe_policy(config)? else {
+        return Ok(false);
+    };
+    Ok(policy_ready(&observation, config))
 }
 
 pub fn reconcile_policy(config: &RouteConfig<'_>) -> Result<bool, String> {
-    if verify_policy(config)? {
+    let Some(observation) = observe_policy(config)? else {
+        // Повторное чтение сохраняет восстановление при кратком исчезновении TUN.
+        apply_policy(config, true)?;
+        return Ok(true);
+    };
+    if policy_ready(&observation, config) {
         return Ok(false);
     }
-    apply_policy(config, true)?;
-    if !verify_policy(config)? {
-        return Err("iproute2 не подтвердил согласованное WARP-состояние".into());
-    }
+    apply_policy_observation(config, true, observation)?;
     Ok(true)
 }
 
 pub fn apply_policy(config: &RouteConfig<'_>, include_user_rule: bool) -> Result<bool, String> {
-    if !valid_tun(config.interface)
-        || config.probe_address.parse::<Ipv4Addr>().is_err()
-        || config.mask == 0
-        || config.mark & !config.mask != 0
-    {
-        return Err("неверные параметры WARP route policy".into());
-    }
-    if !command_ok("ip", &["link", "show", "dev", config.interface])? {
+    let Some(observation) = observe_policy(config)? else {
         return Err(format!("TUN-интерфейс {} не найден", config.interface));
-    }
+    };
+    apply_policy_observation(config, include_user_rule, observation)
+}
 
-    let mut inventory = snapshot(config)?;
-    let pbr_owner = read_owner(config.pbr_owner)?;
-    let probe_owner = read_owner(config.probe_owner)?;
+fn apply_policy_observation(
+    config: &RouteConfig<'_>,
+    include_user_rule: bool,
+    observation: PolicyObservation,
+) -> Result<bool, String> {
+    let inventory = observation.inventory;
+    let pbr_owner = observation.pbr_owner;
+    let probe_owner = observation.probe_owner;
     let pbr_owned = pbr_owner
         .as_ref()
         .is_some_and(|owner| owner_matches(owner, config));
@@ -162,19 +189,18 @@ pub fn apply_policy(config: &RouteConfig<'_>, include_user_rule: bool) -> Result
         return Err(error);
     }
 
-    inventory = match snapshot(config) {
-        Ok(inventory) => inventory,
-        Err(error) => {
+    if changed {
+        let after = match snapshot(config) {
+            Ok(inventory) => inventory,
+            Err(error) => {
+                rollback_added(config, added_user, added_probe, added_route);
+                return Err(error);
+            }
+        };
+        if !after.default_route || !after.probe_rule || (include_user_rule && !after.user_rule) {
             rollback_added(config, added_user, added_probe, added_route);
-            return Err(error);
+            return Err("iproute2 не подтвердил установленное WARP-состояние".into());
         }
-    };
-    if !inventory.default_route
-        || !inventory.probe_rule
-        || (include_user_rule && !inventory.user_rule)
-    {
-        rollback_added(config, added_user, added_probe, added_route);
-        return Err("iproute2 не подтвердил установленное WARP-состояние".into());
     }
 
     if !probe_owner_matches

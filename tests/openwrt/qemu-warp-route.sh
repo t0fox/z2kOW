@@ -56,17 +56,40 @@ if ! ip -4 addr show dev "$IFACE" | grep -Fq '172.16.9.9/32'; then
     ADDR_CREATED=1
 fi
 
-_apply=$("$BIN" route-reconcile "$IFACE" 172.16.9.9 989 500 499 \
+# Считаем вызовы настоящего iproute2, не подменяя его поведение.
+mkdir "$T/bin"
+cat > "$T/bin/ip" <<'IP_WRAPPER'
+#!/bin/sh
+printf '%s\n' "$*" >> "$Z2K_IP_TRACE"
+exec /sbin/ip "$@"
+IP_WRAPPER
+chmod 0755 "$T/bin/ip"
+: > "$T/ip.trace"
+_apply=$(PATH="$T/bin:$PATH" Z2K_IP_TRACE="$T/ip.trace" \
+    "$BIN" route-reconcile "$IFACE" 172.16.9.9 989 500 499 \
     0x80000000 0x80000000 "$T/pbr.owner" "$T/probe.owner")
 [ "$_apply" = changed=1 ]
+_ip_calls=$(wc -l < "$T/ip.trace" | tr -d ' ')
+[ "$_ip_calls" = 8 ] || {
+    echo "установка route-reconcile вызвала ip $_ip_calls раз вместо 8" >&2
+    exit 1
+}
 _verify=$("$BIN" route-verify "$IFACE" 172.16.9.9 989 500 499 \
     0x80000000 0x80000000 "$T/pbr.owner" "$T/probe.owner")
 [ "$_verify" = ready=1 ]
+
 ip -4 rule show > "$T/rules.before"
 ip -4 route show table 989 > "$T/routes.before"
-_apply=$("$BIN" route-reconcile "$IFACE" 172.16.9.9 989 500 499 \
+: > "$T/ip.trace"
+_apply=$(PATH="$T/bin:$PATH" Z2K_IP_TRACE="$T/ip.trace" \
+    "$BIN" route-reconcile "$IFACE" 172.16.9.9 989 500 499 \
     0x80000000 0x80000000 "$T/pbr.owner" "$T/probe.owner")
 [ "$_apply" = changed=0 ]
+_ip_calls=$(wc -l < "$T/ip.trace" | tr -d ' ')
+[ "$_ip_calls" = 3 ] || {
+    echo "исправное route-reconcile вызвало ip $_ip_calls раз вместо 3" >&2
+    exit 1
+}
 ip -4 rule show > "$T/rules.after"
 ip -4 route show table 989 > "$T/routes.after"
 cmp "$T/rules.before" "$T/rules.after"
@@ -80,10 +103,17 @@ grep -F "default dev $IFACE" "$T/routes.after"
 rm "$T/probe.owner"
 ip -4 rule show > "$T/rules.owner-repair.before"
 ip -4 route show table 989 > "$T/routes.owner-repair.before"
-_apply=$("$BIN" route-reconcile "$IFACE" 172.16.9.9 989 500 499 \
+: > "$T/ip.trace"
+_apply=$(PATH="$T/bin:$PATH" Z2K_IP_TRACE="$T/ip.trace" \
+    "$BIN" route-reconcile "$IFACE" 172.16.9.9 989 500 499 \
     0x80000000 0x80000000 "$T/pbr.owner" "$T/probe.owner")
 [ "$_apply" = changed=1 ]
 [ -s "$T/probe.owner" ]
+_ip_calls=$(wc -l < "$T/ip.trace" | tr -d ' ')
+[ "$_ip_calls" = 3 ] || {
+    echo "восстановление route-reconcile вызвало ip $_ip_calls раз вместо 3" >&2
+    exit 1
+}
 _verify=$("$BIN" route-verify "$IFACE" 172.16.9.9 989 500 499 \
     0x80000000 0x80000000 "$T/pbr.owner" "$T/probe.owner")
 [ "$_verify" = ready=1 ]
