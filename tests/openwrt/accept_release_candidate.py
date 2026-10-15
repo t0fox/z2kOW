@@ -10,6 +10,7 @@ import http.server
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -302,6 +303,25 @@ esac
             raise RuntimeError("в свежей установке отсутствует исполняемый файл x86_64")
         binary_hash = hashlib.sha256(installed_binary.read_bytes()).hexdigest()
         engine = sysroot / "usr/sbin/install_release"
+        controller_binary = sysroot / f"usr/lib/z2k/platform/openwrt/bin/linux-{host_arch}/z2k-warp-controller"
+        qemu_arch = {
+            "arm": "arm",
+            "arm64": "aarch64",
+            "x86": "i386",
+            "mips": "mips",
+            "mipsel": "mipsel",
+            "riscv64": "riscv64",
+        }.get(host_arch)
+        controller_runner = controller_binary
+        if qemu_arch:
+            qemu = shutil.which(f"qemu-{qemu_arch}")
+            if not qemu:
+                raise RuntimeError(f"для реального запуска WARP ELF {host_arch} нужен qemu-{qemu_arch}")
+            controller_runner = bin_dir / "z2k-warp-controller-qemu"
+            write_executable(
+                controller_runner,
+                f"#!/bin/sh\nexec {shlex.quote(qemu)} {shlex.quote(str(controller_binary))} \"$@\"\n",
+            )
         engine_env = env.copy()
         engine_env.update(
             {
@@ -314,6 +334,8 @@ esac
                 "Z2K_OW_BOOTSTRAP_SIGNATURE": str(signature),
                 "Z2K_OW_BOOTSTRAP_ARTIFACT": str(served_artifact),
                 "Z2K_OW_BOOTSTRAP_PUBLIC_KEY": str(pubkey),
+                "WARP_CONTROLLER_BIN": str(controller_runner),
+                "WARP_LOCK_DIR": str(work / "warp-mutate.lock"),
             }
         )
         no_op = run([str(engine), tag], engine_env, "повторный запуск распознан как no-op")

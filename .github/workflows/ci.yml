@@ -883,7 +883,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends dnsmasq-base busybox lighttpd curl lua5.3 xz-utils zstd binutils
+          sudo apt-get install -y --no-install-recommends dnsmasq-base busybox lighttpd curl lua5.3 xz-utils zstd binutils qemu-user
           artifact_root="$RUNNER_TEMP/tg-rust-artifacts"
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --pattern "z2kow-tg-rust-${GITHUB_SHA}-*" --dir "$artifact_root"
