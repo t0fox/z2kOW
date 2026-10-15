@@ -130,7 +130,7 @@ assert_contains "restart-set openwrt" "$AU" 'S96z2k-webpanel'
 assert_contains "release_map cgi" "$RM" 'webpanel/cgi/*.sh)'
 assert_contains "release_map www" "$RM" 'webpanel/www/*)'
 assert_contains "release_map template" "$RM" 'webpanel/lighttpd.conf)'
-assert_contains "release_map dns-check" "$RM" 'files/z2k-dns-check.sh)'
+assert_not_contains "release_map no longer packages DNS checker" "$RM" 'files/z2k-dns-check.sh)'
 
 # The complete payload builder stages webpanel assets into its one rootfs.
 assert_contains "rootfs builder stages webpanel brand assets" "$REPO/scripts/openwrt/stage-rootfs.sh" 'platform/openwrt/webpanel-brand/*'

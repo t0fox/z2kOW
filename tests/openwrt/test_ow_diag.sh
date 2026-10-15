@@ -11,6 +11,7 @@ STAGE="$REPO/scripts/openwrt/stage-rootfs.sh"
 
 assert_file "OpenWrt diagnostics adapter exists" "$AD"
 assert_file "OpenWrt offload observer exists" "$OFFLOAD_OBSERVE"
+assert_not_contains "retired DNS formatter is absent" "$AD" 'print_doh'
 assert_contains "common diagnostic has neutral hook" "$DIAG" 'Z2K_DIAG_HOOK='
 assert_contains "health delegates through hook" "$DIAG" '"$Z2K_DIAG_HOOK" health'
 assert_contains "firewall delegates through hook" "$DIAG" '"$Z2K_DIAG_HOOK" firewall'
@@ -21,8 +22,6 @@ assert_contains "offload delegates through hook" "$DIAG" '"$Z2K_DIAG_HOOK" offlo
 assert_contains "autocircular delegates through hook" "$DIAG" '"$Z2K_DIAG_HOOK" autocircular'
 assert_contains "lists delegate through hook" "$DIAG" '"$Z2K_DIAG_HOOK" lists'
 assert_contains "network path delegates through hook" "$DIAG" '"$Z2K_DIAG_HOOK" netpath'
-assert_contains "OpenWrt service diagnostics include compact DoH ownership state" "$AD" 'print_doh'
-assert_contains "DoH diagnostics reports the LAN force-DNS flag" "$AD" 'force_lan_dns'
 assert_contains "adapter hook exported" "$ENV" 'Z2K_DIAG_HOOK='
 assert_contains "adapter hook reads procd state" "$AD" '"$_init" running'
 assert_not_contains "диагностика OpenWrt не проверяет старые отказы CONNECT-релея" "$AD" 'CONNECT throttled|tg-mtproxy-client'
@@ -42,8 +41,6 @@ assert_contains "offload observer reports unavailable evidence explicitly" "$OFF
 assert_contains "adapter hook reports unavailable backend" "$AD" 'backend=unavailable'
 assert_contains "adapter hook reports selected FLOWOFFLOAD" "$AD" 'flowoffload mode'
 assert_contains "adapter hook reports zapret2 flowtable" "$AD" 'zapret2 flowtable'
-assert_contains "DoH diagnostic prints canonical state and reason fields" "$AD" 'state: %s'
-assert_contains "DoH diagnostic prints resolved proxy and dnsmasq runtime fields" "$AD" 'dnsmasq: %s'
 assert_contains "adapter hook reports exemptions" "$AD" 'exemptions'
 assert_contains "adapter hook reports owner conflict" "$AD" 'owner conflict'
 assert_contains "adapter hook separates packet visibility" "$AD" 'packet visibility'
@@ -65,40 +62,6 @@ assert_not_contains "OpenWrt diagnostics do not depend on NDM journal files" "$A
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-diag-version.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT INT TERM
 mkdir -p "$T/root" "$T/etc/z2k/state"
-
-# Verify the actual DoH diagnostic formatter with a canonical runtime snapshot.
-mkdir -p "$T/doh-adapter"
-cat > "$T/doh-adapter/doh.sh" <<'EOF'
-#!/bin/sh
-z2k_ow_doh_status() {
-    printf 'state=working reason= installed=1 enabled=1 provider=xbox package_owner=z2kow proxy=available dnsmasq=available force_lan_dns=1\n'
-}
-EOF
-_diag_doh=$(Z2K_ROOT="$REPO" Z2K_ADAPTER_DIR="$T/doh-adapter" Z2K_STATE="$T/etc/z2k/state" \
-    sh "$AD" doh 2>/dev/null)
-printf '%s\n' "$_diag_doh" > "$T/diag-doh.txt"
-assert_contains "DoH diagnostic exposes the canonical working state" "$T/diag-doh.txt" 'state: working'
-assert_contains "DoH diagnostic reports no active error reason as none" "$T/diag-doh.txt" 'reason: none'
-assert_contains "DoH diagnostic reports a live proxy as available" "$T/diag-doh.txt" 'proxy: available'
-assert_contains "DoH diagnostic reports a live dnsmasq route as available" "$T/diag-doh.txt" 'dnsmasq: available'
-
-cat > "$T/doh-adapter/doh.sh" <<'EOF'
-#!/bin/sh
-z2k_ow_doh_status() {
-    printf 'state=not-installed reason= installed=0 enabled=0 provider=unknown package_owner=none proxy=not-applicable dnsmasq=not-applicable force_lan_dns=0\n'
-}
-EOF
-_diag_doh_removed=$(Z2K_ROOT="$REPO" Z2K_ADAPTER_DIR="$T/doh-adapter" Z2K_STATE="$T/etc/z2k/state" \
-    sh "$AD" doh 2>/dev/null)
-printf '%s\n' "$_diag_doh_removed" > "$T/diag-doh-removed.txt"
-assert_contains "DoH diagnostic identifies the package as absent after Remove" \
-    "$T/diag-doh-removed.txt" 'package: absent'
-assert_contains "DoH diagnostic has no owner after Remove" \
-    "$T/diag-doh-removed.txt" 'owner: none'
-assert_contains "DoH diagnostic labels the absent proxy as not applicable" \
-    "$T/diag-doh-removed.txt" 'proxy: not-applicable'
-assert_contains "DoH diagnostic labels absent dnsmasq integration as not applicable" \
-    "$T/diag-doh-removed.txt" 'dnsmasq: not-applicable'
 
 printf 'tag=p-86.11\nseq=134\n' > "$T/etc/z2k/state/installed-release"
 printf "DISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"

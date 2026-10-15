@@ -4719,8 +4719,8 @@ try {
       }
     }
     disclosurePickFixture = false;
-    assert.deepEqual([...disclosureVariants].sort(), ['card', 'compact', 'inline'],
-      'по панели используются все три согласованных варианта раскрытия');
+    assert.ok(disclosureVariants.has('card') && disclosureVariants.has('inline'),
+      'remaining disclosure layouts keep the shared card and inline variants');
 
     await disclosurePage.goto(`${base}/#/toggles`);
     await waitForRenderedRoute(disclosurePage, 'toggles');

@@ -101,22 +101,239 @@ done
 tar -czf "$T/openwrt-rootfs.tar.gz" -C "$T/stage" . || exit 1
 _release_tag=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["current"])' "$ROOT/UPDATES.json")
 _tar_index=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/www/index.html)
+if tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Eq '/(dns-providers\.js|pages/dns\.js|dnsproxy\.sh|doh\.sh|z2k-dns-check\.sh) "app.js?v=$_release_tag" \
+    && _t_ok || _t_bad "final payload WebPanel index uses the controlled release cache-buster"
+_tar_app=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/www/app.js)
+printf '%s\n' "$_tar_app" | grep -Fq "identity.js?v=$_release_tag" \
+    && _t_ok || _t_bad "final payload WebPanel scripts use the controlled release cache-buster"
+printf '%s\n' "$_tar_index" | grep -Fq 'id="brand-profile-theme"' \
+    && _t_ok || _t_bad "final payload retains the branded WebPanel source while stamping cache-busters"
+_tar_wan=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/lib/wan.sh)
+printf '%s\n' "$_tar_wan" | grep -Fq 'lo) return 0 ;;' \
+    && _t_ok || _t_bad "final payload ships shared WAN discovery that accepts routed bridges"
+_diag_mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
+    | awk '$NF ~ /platform\/openwrt\/diag\.sh$/ { print $1 }')
+assert_eq "final release tarball keeps the OpenWrt diagnostics adapter executable" \
+    "-rwxr-xr-x" "$_diag_mode"
+_tcp16_probe_mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
+    | awk '$NF ~ /usr\/lib\/z2k\/z2k-tcp16-probe\.sh$/ { print $1 }')
+assert_eq "final release tarball includes executable TCP16 probe" \
+    "-rwxr-xr-x" "$_tcp16_probe_mode"
+for _path in usr/lib/z2k/lua/z2k-tcp16.lua \
+    usr/lib/z2k/lists/tcp16_targets.txt usr/lib/z2k/lists/tcp16_nets.txt \
+    usr/lib/z2k/lists/sni_wl_candidates.txt \
+    usr/lib/z2k/platform/openwrt/tcp16-check.sh; do
+    tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq "./$_path" \
+        && _t_ok || _t_bad "final rootfs is missing mandatory TCP16 runtime path $_path"
+done
+for _path in usr/lib/z2k/z2k-geosite.sh usr/lib/z2k/z2k-update-lists.sh \
+    usr/lib/z2k/z2k-blocked-monitor.sh; do
+    tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq "./$_path" \
+        && _t_ok || _t_bad "final rootfs is missing upstream runtime executor $_path"
+done
+if tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fq './usr/lib/z2k/z2k-stats-upload.sh'; then
+    _t_bad "final rootfs must not ship the retired strategy-stats uploader"
+else
+    _t_ok
+fi
+find "$ROOT/files/fake" -type f -print > "$T/fake-inventory"
+while IFS= read -r _source; do
+    _rel=${_source#"$ROOT/files/fake/"}
+    tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq "./usr/lib/z2k/fake/$_rel" \
+        && _t_ok || _t_bad "final rootfs omits registered fake blob $_rel"
+    grep -Fq "$_rel" "$ROOT/platform/openwrt/optbase.sh" \
+        && _t_ok || _t_bad "fake blob $_rel is not registered by the nfqws2 argv builder"
+done < "$T/fake-inventory"
+
+# QUIC probes and nfqws2 must consume the same staged fake directory. The
+# x86_64 detector fixture fails unless its wrapper exports that exact path and
+# the selected QUIC blob exists there.
+_detect="$T/stage/usr/lib/z2k/bin/z2k-detect"
+_detect_arch="$T/stage/usr/lib/z2k/bin/linux-x86_64/z2k-detect"
+cat > "$_detect_arch" <<'EOF'
+#!/bin/sh
+[ "$Z2K_FAKE_DIR" = "$Z2K_EXPECT_FAKE_DIR" ] || exit 10
+[ -s "$Z2K_FAKE_DIR/quic_initial_www_google_com.bin" ] || exit 11
+printf 'fake-dir=%s\n' "$Z2K_FAKE_DIR"
+EOF
+chmod 0755 "$_detect_arch"
+_probe_out="$(Z2K_OW_ARCH=x86_64 Z2K_EXPECT_FAKE_DIR="$T/stage/usr/lib/z2k/fake" \
+    "$_detect" blob-path 2>&1)"
+printf '%s\n' "$_probe_out" | grep -Fq "fake-dir=$T/stage/usr/lib/z2k/fake" \
+    && _t_ok || _t_bad "QUIC detector reads the same /usr/lib/z2k/fake directory staged for nfqws2"
+tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq './usr/lib/z2k/platform/openwrt/list-refresh.sh' \
+    && _t_ok || _t_bad "final rootfs inventory omits the native 04:00 list-refresh adapter"
+[ -x "$T/stage/usr/lib/z2k/platform/openwrt/list-refresh.sh" ] \
+    && _t_ok || _t_bad "native list-refresh adapter is executable in the final rootfs"
+for _source in "$ROOT"/files/lua/*.lua; do
+    _module=${_source##*/}
+    _rel=${_source#"$ROOT/"}
+    tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq "./usr/lib/z2k/lua/$_module" \
+        && _t_ok || _t_bad "final rootfs inventory omits upstream Lua module $_module"
+    _alias=${_module%.lua}
+    grep -qF "$_alias" "$ROOT/platform/openwrt/optbase.sh" \
+        && _t_ok || _t_bad "upstream Lua module $_alias is not reached from nfqws2 argv builder"
+    grep -Fq "$_rel|" "$ROOT/tests/openwrt/runtime-inventory.tsv" \
+        && _t_ok || _t_bad "upstream Lua module $_rel has no completeness inventory row"
+done
+
+# Машиночитаемый перечень runtime upstream: каждый прямой runtime-скрипт
+# поставляется либо имеет явную причину замены или неприменимости в OpenWrt.
+_inventory="$ROOT/tests/openwrt/runtime-inventory.tsv"
+while IFS='|' read -r _source _state _member _mode _witness_file _witness _reason; do
+    case "$_source" in ''|\#*) continue ;; esac
+    [ -f "$ROOT/$_source" ] \
+        && _t_ok || _t_bad "runtime inventory source is missing: $_source"
+    case "$_state" in
+        COMMON|ADAPTED)
+            tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq "$_member" \
+                && _t_ok || _t_bad "$_state component $_source is absent from final rootfs at $_member"
+            _actual_mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
+                | awk -v member="$_member" '$NF==member { print $1 }')
+            assert_eq "$_state component $_source final mode" "$_mode" "$_actual_mode"
+            if [ -n "$_witness_file" ] && [ -f "$ROOT/$_witness_file" ]; then
+                assert_contains "$_state component $_source runtime wiring" "$ROOT/$_witness_file" "$_witness"
+            else
+                _t_bad "$_state component $_source has no verifiable runtime wiring witness"
+            fi
+            ;;
+        N/A)
+            [ "$_member" = - ] && [ -n "$_reason" ] \
+                && _t_ok || _t_bad "N/A component $_source needs a technical reason and no payload target"
+            _base=${_source##*/}
+            if tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -F "/$_base" >/dev/null 2>&1; then
+                _t_bad "N/A source $_source unexpectedly ships in the product rootfs"
+            else
+                _t_ok
+            fi
+            ;;
+        "MISSING BUG")
+            _t_bad "upstream runtime component remains classified MISSING BUG: $_source"
+            ;;
+        *)
+            _t_bad "invalid runtime inventory state [$_state] for $_source"
+            ;;
+    esac
+done < "$_inventory"
+for _source in "$ROOT"/files/*.sh "$ROOT"/files/init.d/* "$ROOT"/files/ndm/*.sh \
+    "$ROOT"/files/*.awk "$ROOT"/files/S99zapret2.new; do
+    [ -f "$_source" ] || continue
+    _rel=${_source#"$ROOT/"}
+    grep -Fq "$_rel|" "$_inventory" \
+        && _t_ok || _t_bad "upstream runtime source $_rel has no completeness inventory row"
+done
+for _source in "$ROOT"/files/lists/* "$ROOT"/files/lists/extra_strats/*/*/* \
+    "$ROOT"/files/lists/extra_strats/*/*/*/*; do
+    [ -f "$_source" ] || continue
+    _rel=${_source#"$ROOT/"}
+    grep -Fq "$_rel|" "$ROOT/tests/openwrt/runtime-inventory.tsv" \
+        && _t_ok || _t_bad "upstream list source $_rel has no completeness inventory row"
+done
+for _source in "$ROOT"/files/etc/*; do
+    [ -f "$_source" ] || continue
+    _rel=${_source#"$ROOT/"}
+    grep -Fq "$_rel|" "$ROOT/tests/openwrt/runtime-inventory.tsv" \
+        && _t_ok || _t_bad "upstream runtime trust/TLS source $_rel has no completeness inventory row"
+done
+_geosite_mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
+    | awk '$NF ~ /usr\/lib\/z2k\/z2k-geosite\.sh$/ { print $1 }')
+assert_eq "final release tarball keeps the geosite executor executable" \
+    "-rwxr-xr-x" "$_geosite_mode"
+_list_update_mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
+    | awk '$NF ~ /usr\/lib\/z2k\/z2k-update-lists\.sh$/ { print $1 }')
+assert_eq "final release tarball keeps list updater executable" \
+    "-rwxr-xr-x" "$_list_update_mode"
+for _script in tg-check.sh rt-check.sh warp-check.sh fw-check.sh list-refresh.sh tcp16-check.sh; do
+    _mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
+        | awk -v path="platform/openwrt/$_script" 'index($NF, path) { print $1 }')
+    assert_eq "final rootfs makes directly invoked $_script executable" \
+        "-rwxr-xr-x" "$_mode"
+done
+for _script in z2k-tcp16-probe.sh z2k-geosite.sh z2k-update-lists.sh \
+    z2k-blocked-monitor.sh \
+    z2k-insta-ip-refresh.sh; do
+    _mode=$(tar -tvzf "$T/openwrt-rootfs.tar.gz" \
+        | awk -v path="usr/lib/z2k/$_script" 'index($NF, path) { print $1 }')
+    assert_eq "final rootfs makes upstream executor $_script executable" \
+        "-rwxr-xr-x" "$_mode"
+done
+tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Fxq './usr/lib/z2k/platform/openwrt/insta-ip.sh' \
+    && _t_ok || _t_bad "final rootfs omits the OpenWrt dnsmasq adapter for upstream IP refresh"
+[ -x "$T/stage/usr/lib/z2k/platform/openwrt/tcp16-check.sh" ] \
+    && _t_ok || _t_bad "first-result TCP16 scheduler entrypoint remains executable"
+[ -x "$T/stage/usr/lib/z2k/platform/openwrt/update.sh" ] \
+    && _t_ok || _t_bad "canonical update.sh remains executable for CLI and cron"
+cmp -s "$T/release-keys/$_key_id.pub" \
+    "$T/stage/usr/lib/z2k/platform/openwrt/release-keys/$_key_id.pub" \
+    && _t_ok || _t_bad "current release trust key is included in the complete payload"
+[ ! -e "$T/stage/opt/zapret2/etc/z2k-update-pub.pem" ] \
+    && _t_ok || _t_bad "obsolete generic update key is not shipped as a second authority"
+
+_tg_count=$(find "$T/stage/usr/lib/z2k/bin" -path '*/linux-*/*' -name tg-ws-proxy -type f | wc -l | tr -d ' ')
+_expected_tg_count=$(awk 'NF == 10 && $1 !~ /^#/ {print $3}' "$ROOT/platform/openwrt/tg-rust-targets.tsv" | sort -u | wc -l | tr -d ' ')
+assert_eq "Rust TG содержит варианты из общей таблицы ABI" "$_expected_tg_count" "$_tg_count"
+_legacy_tg_count=$(find "$T/stage/usr/lib/z2k/bin" -path '*/linux-*/*' -name tg-mtproxy-client -type f | wc -l | tr -d ' ')
+assert_eq "OpenWrt staging не содержит Go Telegram-бинарник" "0" "$_legacy_tg_count"
+_legacy_name_count=$(tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Ec '(^|/)tg-mtproxy-client$' || true)
+assert_eq "архив чистого staging не содержит legacy-имя" "0" "$_legacy_name_count"
+for _variant in $(awk 'NF == 10 && $1 !~ /^#/ {print $3}' "$ROOT/platform/openwrt/tg-rust-targets.tsv" | sort -u); do
+    [ -x "$T/stage/usr/lib/z2k/bin/linux-$_variant/tg-ws-proxy" ] \
+        && _t_ok || _t_bad "в Rust TG payload отсутствует linux-$_variant"
+done
+assert_file "таблица выбора ABI включена в rootfs" \
+    "$T/stage/usr/lib/z2k/platform/openwrt/tg-rust-targets.tsv"
+for _kind in rt detect; do
+    case "$_kind" in rt) _bin=z2k-rt-proxy ;; detect) _bin=z2k-detect ;; esac
+    _count=$(find "$T/stage/usr/lib/z2k/bin" -path "*/linux-*/*" -name "$_bin" -type f | wc -l | tr -d ' ')
+    assert_eq "all seven $_kind binaries staged" "7" "$_count"
+done
+assert_file "MIT-лицензия upstream Rust добавлена в rootfs" "$T/stage/usr/share/licenses/tg-ws-proxy-rs/LICENSE"
+printf "DISTRIB_ARCH='mips_24kc'\n" > "$T/openwrt_release"
+_out=$(Z2K_OW_OPENWRT_RELEASE_FILE="$T/openwrt_release" "$T/stage/usr/lib/z2k/bin/z2k-rt-proxy" argv)
+assert_eq "RT wrapper resolves big-endian MIPS from OpenWrt target" "rt-mips
+argv" "$_out"
+printf "DISTRIB_ARCH='aarch64_cortex-a53'\n" > "$T/openwrt_release"
+_out=$(Z2K_OW_OPENWRT_RELEASE_FILE="$T/openwrt_release" "$T/stage/usr/lib/z2k/bin/z2k-detect" argv)
+assert_eq "detector wrapper resolves ARM64 from OpenWrt target" "detect-arm64
+argv" "$_out"
+
+# Настоящий bootstrap должен связать runtime с обычными исполняемыми файлами,
+# а не с каталогами, которые тоже проходят проверку shell -x.
+if (
+    Z2K_ROOT="$T/stage/usr/lib/z2k"
+    Z2K_ETC="$T/bootstrap-etc"
+    Z2K_TMP="$T/bootstrap-tmp"
+    Z2K_ZAPRET2_RUNTIME="$T/stage/opt/zapret2"
+    Z2K_OW_LEGACY_DETECT_INIT="$T/no-legacy-init"
+    Z2K_OW_PROC_ROOT="$T/no-proc"
+    export Z2K_ROOT Z2K_ETC Z2K_TMP Z2K_ZAPRET2_RUNTIME \
+        Z2K_OW_LEGACY_DETECT_INIT Z2K_OW_PROC_ROOT
+    . "$ROOT/platform/openwrt/paths.sh"
+    . "$ROOT/platform/openwrt/bootstrap.sh"
+    z2k_ow_bootstrap || exit 1
+    for _pair in nfq2/nfqws2 ip2net/ip2net mdig/mdig; do
+        _link="$Z2K_ZAPRET2_RUNTIME/$_pair"
+        [ -L "$_link" ] && [ -f "$_link" ] && [ -x "$_link" ] || {
+            echo "runtime-ссылка не указывает на исполняемый файл: $_link" >&2
+            exit 1
+        }
+    done
+); then
+    _t_ok
+else
+    _t_bad "настоящий bootstrap создаёт рабочие ссылки для всех трёх runtime-бинарников"
+fi
+_t_done
+; then
+    _t_bad "retired DNS management files leaked into rootfs"
+else
+    _t_ok
+fi
 printf '%s\n' "$_tar_index" | grep -Fq "app.js?v=$_release_tag" \
     && _t_ok || _t_bad "final payload WebPanel index uses the controlled release cache-buster"
 _tar_app=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/www/app.js)
 printf '%s\n' "$_tar_app" | grep -Fq "identity.js?v=$_release_tag" \
     && _t_ok || _t_bad "final payload WebPanel scripts use the controlled release cache-buster"
-_tar_dns_catalog=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/www/js/data/dns-providers.js)
-printf '%s\n' "$_tar_dns_catalog" | grep -Fq 'https://xbox-dns.ru/dns-query' \
-    && _t_ok || _t_bad "complete signed-release payload carries the DNS endpoint catalog"
-if printf '%s\n' "$_tar_dns_catalog" | grep -Eq 'resolverIps|ipv4:|ipv6:|83\.220\.169\.155|94\.140\.14\.14'; then
-    _t_bad "DNS catalog must use provider domain endpoints rather than pinned provider IPs"
-else
-    _t_ok
-fi
-_tar_dns_page=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/www/js/pages/dns.js)
-printf '%s\n' "$_tar_dns_page" | grep -Fq "../data/dns-providers.js?v=$_release_tag" \
-    && _t_ok || _t_bad "DNS catalog import is versioned with its signed rootfs release"
 printf '%s\n' "$_tar_index" | grep -Fq 'id="brand-profile-theme"' \
     && _t_ok || _t_bad "final payload retains the branded WebPanel source while stamping cache-busters"
 _tar_wan=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/lib/wan.sh)

@@ -1249,7 +1249,6 @@ download_init_script() {
         www/js/chrome.js \
         www/js/motion.js \
         www/js/data/openwrt-credits.js \
-        www/js/data/dns-providers.js \
         www/js/core/api.js \
         www/js/core/auth.js \
         www/js/core/identity.js \
@@ -1268,7 +1267,6 @@ download_init_script() {
         www/js/pages/credits-openwrt.js \
         www/js/pages/dashboard.js \
         www/js/pages/diag.js \
-        www/js/pages/dns.js \
         www/js/pages/donations.js \
         www/js/pages/exclude.js \
         www/js/pages/extra-domains.js \
