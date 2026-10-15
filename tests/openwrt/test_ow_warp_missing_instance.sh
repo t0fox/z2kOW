@@ -27,7 +27,8 @@ else
     cargo build --locked --manifest-path "$REPO/platform/openwrt/warp-controller/Cargo.toml" --bin z2k-warp-controller || exit 1
     export WARP_CONTROLLER_BIN="$CARGO_TARGET_DIR/debug/z2k-warp-controller"
     if [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ] && [ "$(id -u)" -ne 0 ]; then
-        sudo -n unshare -n sh "$0" --inside "$T"
+        sudo -n env WARP_CONTROLLER_BIN="$WARP_CONTROLLER_BIN" \
+            unshare -n sh "$0" --inside "$T"
     elif [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ]; then
         unshare -n sh "$0" --inside "$T"
     else

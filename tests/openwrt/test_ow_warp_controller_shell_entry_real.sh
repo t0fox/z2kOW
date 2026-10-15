@@ -169,9 +169,28 @@ for tool in cargo unshare ip nft python3; do
     command -v "$tool" >/dev/null 2>&1 || { echo "требуется реальный инструмент $tool" >&2; exit 1; }
 done
 T="$(mktemp -d "/tmp/z2k-warp-controller-shell.XXXXXX")"
-trap 'rm -rf "$T"' EXIT HUP INT TERM
+_cleanup() {
+    _rc=$?
+    trap - EXIT HUP INT TERM
+    if [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ] && [ "$(id -u)" -ne 0 ]; then
+        sudo -n rm -rf "$T" || _rc=$?
+    else
+        rm -rf "$T" || _rc=$?
+    fi
+    exit "$_rc"
+}
+trap _cleanup EXIT HUP INT TERM
 CARGO_TARGET_DIR="$T/cargo-target" cargo build --offline --locked \
     --manifest-path "$CRATE/Cargo.toml" --bin z2k-warp-controller
 export CARGO_TARGET_DIR="$T/cargo-target"
 export WARP_CONTROLLER_BIN="$CARGO_TARGET_DIR/debug/z2k-warp-controller"
-unshare -Urn sh "$0" --inside "$T"
+if [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ]; then
+    if [ "$(id -u)" -eq 0 ]; then
+        unshare -n sh "$0" --inside "$T"
+    else
+        sudo -n env WARP_CONTROLLER_BIN="$WARP_CONTROLLER_BIN" \
+            unshare -n sh "$0" --inside "$T"
+    fi
+else
+    unshare -Urn sh "$0" --inside "$T"
+fi
