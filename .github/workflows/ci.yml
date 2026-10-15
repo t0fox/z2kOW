@@ -840,6 +840,8 @@ jobs:
           "$HOME/.cargo/bin/rustup" toolchain install 1.98.0 --profile minimal
           "$HOME/.cargo/bin/rustup" default 1.98.0
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Собрать Rust-контроллер и подготовить Cargo cache для acceptance
+        run: cargo build --locked --manifest-path platform/openwrt/warp-controller/Cargo.toml --bin z2k-warp-controller
       - name: Получить runtime только для shard, которому он нужен
         if: matrix.runtime
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0

@@ -352,35 +352,6 @@ PY3
     ) &
 }
 
-# OpenWrt WARP refresh uses a separate process-only procd hook. Mutate its
-# stop wait in isolation, then run the existing lifecycle fixture against that
-# copy so it proves replace cannot pass a still-live old PID.
-ow_warp_proc_mutant() {
-    desc="$1"; from="$2"; to="$3"
-    _mut_start; _id="$MUT_SEQ"; _dir="$WORK/ow-warp-proc.$_id"
-    (
-        mkdir -p "$_dir"
-        cp "$ROOT/platform/openwrt/warp-proc.sh" "$_dir/warp-proc.sh"
-        if ! grep -qF "$from" "$_dir/warp-proc.sh"; then
-            printf 'stale\t%s (anchor not found)\n' "$desc" > "$VERD/$_id"
-            exit 0
-        fi
-        python3 - "$_dir/warp-proc.sh" "$from" "$to" <<'PY'
-import sys
-path, old, new = sys.argv[1:]
-with open(path, encoding='utf-8') as f:
-    source = f.read()
-with open(path, 'w', encoding='utf-8') as f:
-    f.write(source.replace(old, new, 1))
-PY
-        if WARP_PROC_SOURCE="$_dir/warp-proc.sh" sh "$ROOT/tests/openwrt/test_ow_warp_lifecycle.sh" >/dev/null 2>&1; then
-            printf 'fail\tOpenWrt WARP process hook: %s\n' "$desc" > "$VERD/$_id"
-        else
-            printf 'pass\tOpenWrt WARP process hook: %s\n' "$desc" > "$VERD/$_id"
-        fi
-    ) &
-}
-
 # A user without WARP installed must not have the engine fetched during a base install.
 installer_mutant "refresh path installs an unrequested WARP engine" \
     lib/install.sh \
@@ -427,10 +398,6 @@ installer_mutant "scheduler no longer dispatches WARP selfheal" \
     files/z2k-scheduler.sh \
     '    z2k_scheduler_warp_selfheal_tick "${ZAPRET2_DIR}/z2k-warp.sh" "$TMP_STATE" "$now_epoch"' \
     '    : # WARP selfheal dispatch removed'
-
-ow_warp_proc_mutant "binary replacement starts before old WARP daemon exits" \
-    'if [ "$#" -gt 0 ] && ! warp_wait_pids_stopped "${WARP_PROC_STOP_WAIT:-5}" "$@"; then' \
-    'if false; then'
 
 # ---------------------------------------------------------------------------
 # Init-script mutants — files/init.d/S51z2k-warp against tests/test_warp_init_thin.sh

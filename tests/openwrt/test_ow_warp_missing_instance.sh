@@ -11,13 +11,28 @@ else
         command -v "$tool" >/dev/null 2>&1 || { echo "требуется реальный инструмент $tool" >&2; exit 1; }
     done
     T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-ow-warpmiss.XXXXXX")" || exit 1
-    _cleanup() { _rc=$?; trap - EXIT HUP INT TERM; rm -rf "$T"; exit "$_rc"; }
+    _cleanup() {
+        _rc=$?
+        trap - EXIT HUP INT TERM
+        if [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ] && [ "$(id -u)" -ne 0 ]; then
+            sudo -n rm -rf "$T" || _rc=$?
+        else
+            rm -rf "$T" || _rc=$?
+        fi
+        exit "$_rc"
+    }
     trap _cleanup EXIT HUP INT TERM
     CARGO_TARGET_DIR="$T/cargo-target"
     export CARGO_TARGET_DIR
-    cargo build --manifest-path "$REPO/platform/openwrt/warp-controller/Cargo.toml" --bin z2k-warp-controller || exit 1
+    cargo build --locked --manifest-path "$REPO/platform/openwrt/warp-controller/Cargo.toml" --bin z2k-warp-controller || exit 1
     export WARP_CONTROLLER_BIN="$CARGO_TARGET_DIR/debug/z2k-warp-controller"
-    unshare -Urn sh "$0" --inside "$T"
+    if [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ] && [ "$(id -u)" -ne 0 ]; then
+        sudo -n unshare -n sh "$0" --inside "$T"
+    elif [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ]; then
+        unshare -n sh "$0" --inside "$T"
+    else
+        unshare -Urn sh "$0" --inside "$T"
+    fi
     exit $?
 fi
 

@@ -331,3 +331,52 @@ fn user_lifecycle_откладывается_во_время_обновлени�
     assert!(String::from_utf8_lossy(&output.stderr).contains("идёт обновление z2kOW"));
     assert!(!fixture.trace.exists());
 }
+
+#[test]
+fn engine_refresh_stop_не_разрешает_замену_пока_pid_движка_жив() {
+    let fixture = Fixture::new();
+    let proc_root = fixture.root.join("proc");
+    let pid_dir = proc_root.join("424242");
+    fs::create_dir_all(&pid_dir).unwrap();
+    fs::write(pid_dir.join("comm"), "z2k-warpd\n").unwrap();
+    fs::write(
+        pid_dir.join("cmdline"),
+        b"z2k-warpd\0run\0--device\0/tmp/device.json\0",
+    )
+    .unwrap();
+
+    let bin = fixture.system_commands();
+    let kill = bin.join("kill");
+    fs::write(
+        &kill,
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$WARP_TEST_KILL_TRACE\"\nexit 0\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&kill).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&kill, permissions).unwrap();
+
+    let kill_trace = fixture.root.join("kill.trace");
+    let output = fixture
+        .controller("engine-refresh")
+        .arg("stop")
+        .env("Z2K_PROC_ROOT", &proc_root)
+        .env("Z2K_TMP", fixture.root.join("tmp"))
+        .env("Z2K_ETC", fixture.root.join("etc"))
+        .env("WARP_STATUS", fixture.root.join("status.json"))
+        .env("WARP_PBR_OWNER", fixture.root.join("pbr.owner"))
+        .env("WARP_PROBE_OWNER", fixture.root.join("probe.owner"))
+        .env("WARP_PROC_STOP_WAIT", "1")
+        .env("WARP_TEST_KILL_TRACE", &kill_trace)
+        .env(
+            "PATH",
+            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+        )
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("не завершился после SIGTERM"));
+    assert_eq!(fs::read_to_string(kill_trace).unwrap(), "-TERM 424242\n");
+    assert!(!fixture.root.join("warp/mutate.lock").exists());
+}
