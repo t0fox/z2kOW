@@ -84,6 +84,15 @@ EOF_NFT
     export Z2K_WARP_SOURCE_ONLY
     . "$ROOT/platform/openwrt/warp.sh"
 
+    _z2k_ow_warp_lock 1
+    [ -f "$WARP_LOCK_DIR/owner" ] || { echo 'Rust lock wrapper не записал владельца' >&2; exit 1; }
+    if _z2k_ow_warp_lock 0; then
+        echo 'Rust lock wrapper повторно выдал занятую блокировку' >&2
+        exit 1
+    fi
+    _z2k_ow_warp_unlock
+    [ ! -e "$WARP_LOCK_DIR" ] || { echo 'Rust lock wrapper не снял принадлежащую блокировку' >&2; exit 1; }
+
     : > "$T/procd.log"
     procd_open_instance() { printf 'open: %s\n' "$1" >> "$T/procd.log"; }
     procd_set_param() {

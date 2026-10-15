@@ -121,6 +121,15 @@ _warp_controller() {
     Z2K_WARP_LOCK_DIR="$WARP_LOCK_DIR" "$WARP_CONTROLLER_BIN" "$@"
 }
 
+_z2k_ow_warp_lock() {
+    local _wait="${1:-30}"
+    _warp_controller lock-acquire "$$" "$_wait"
+}
+
+_z2k_ow_warp_unlock() {
+    _warp_controller lock-release "$$"
+}
+
 _wlog() {
     if [ -n "${Z2K_JOB_ID:-}" ]; then
         local _epoch
