@@ -5,8 +5,24 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 CRATE="$ROOT/platform/openwrt/warp-controller"
 if [ "${1:-}" = --inside ]; then
     T="$2"
+    _trace_file="$T/nft-test.trace"
+    exec 3>&2
+    exec 2>"$_trace_file"
+    set -x
+    _cleanup_nft_test() {
+        _rc=$?
+        trap - EXIT HUP INT TERM
+        set +x
+        if [ "$_rc" -ne 0 ]; then
+            printf 'FAIL[ow-warp-controller-real-nft]: внутренняя проверка завершилась с кодом %s\n' "$_rc" >&3
+            tail -n 80 "$_trace_file" >&3
+        fi
+        nft delete table inet fw4 2>/dev/null || true
+        nft delete table inet z2k_warp_controller_test 2>/dev/null || true
+        exit "$_rc"
+    }
+    trap _cleanup_nft_test EXIT HUP INT TERM
     nft add table inet z2k_warp_controller_test
-    trap 'nft delete table inet fw4 2>/dev/null || true; nft delete table inet z2k_warp_controller_test 2>/dev/null || true' EXIT HUP INT TERM
     nft add table inet fw4
     nft add chain inet fw4 forward '{ type filter hook forward priority filter; policy accept; }'
     mkdir -p "$T/list-users" "$T/list-games" "$T/all-users" "$T/full-users"
