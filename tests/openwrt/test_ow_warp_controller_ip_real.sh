@@ -8,7 +8,7 @@ if [ "${1:-}" = --inside ]; then
     ip link add z2ktun0 type dummy
     ip link set z2ktun0 up
     trap 'ip link del z2ktun0 2>/dev/null || true' EXIT HUP INT TERM
-    Z2K_WARP_REAL_IPROUTE2=1 Z2K_WARP_REAL_STATE="$T/state" cargo test \
+    Z2K_WARP_REAL_IPROUTE2=1 Z2K_WARP_REAL_STATE="$T/state" cargo test --offline \
         --manifest-path "$CRATE/Cargo.toml" --test real_routes -- --nocapture
     exit 0
 fi
@@ -18,4 +18,5 @@ done
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-warp-controller-ip.XXXXXX")"
 trap 'rm -rf "$T"' EXIT HUP INT TERM
 mkdir -p "$T/state"
+cargo test --manifest-path "$CRATE/Cargo.toml" --test real_routes --no-run
 unshare -Urn "$0" --inside "$T" "$CRATE"

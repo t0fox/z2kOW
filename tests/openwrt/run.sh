@@ -45,6 +45,10 @@ while IFS= read -r _t; do
             _out="$(sh "$_t" 2>&1)"
             _suite_rc=$?
             printf '%s\n' "$_out" | grep -E '^(SUITE|FAIL|SKIP)' || true
+            if [ "$_suite_rc" -ne 0 ]; then
+                printf 'OPENWRT-TEST-OUTPUT: %s\n' "${_t##*/}" >&2
+                printf '%s\n' "$_out" >&2
+            fi
             if printf '%s\n' "$_out" | grep -q '^SKIP'; then
                 SKIPPED="$SKIPPED ${_t##*/}"
             fi
