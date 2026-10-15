@@ -263,15 +263,6 @@ const server = http.createServer(async (req, res) => {
                               ].join('\n') }
         : endpoint === 'diag/probe' && req.method === 'POST'
           ? { ok: true, report: probeReportFixture }
-        : endpoint === 'dns/check' && req.method === 'GET'
-          ? { ok: true, own: '1.1.1.1\nhttps://dns.example.test/dns-query', result: {
-            intercept: true, intercept_by: 'router', stub: '198.18.0.1', servers: [
-              { name: 'Resolver A', udp: 'works', udp_ms: 18, doh: 'spoof', doh_ms: 74,
-                dot: 'silent', dot_ms: null, current: true, yt: 'empty' },
-              { name: 'Resolver B', udp: 'silent', udp_ms: null, doh: 'works', doh_ms: 25,
-                dot: 'spoof', dot_ms: 97, current: false, yt: '' },
-            ],
-          } }
         : endpoint === 'exclude'
           ? { ok: true, entries: ['1.1.1.1', '192.0.2.10', '2001:db8:1234:5678::abcd', '203.0.113.64/27'],
               legacy_domains: ['legacy.example.net', 'long-legacy-domain-name-for-layout-review.example.org'] }
@@ -497,7 +488,7 @@ async function runShellMotionTests(videoDir) {
   await routeVideoPage.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
   await routeVideoPage.waitForTimeout(350);
   await decorateVideo(routeVideoPage);
-  for (const route of ['toggles', 'dns', 'strategies', 'warp', 'dashboard']) {
+  for (const route of ['toggles', 'tiktok', 'strategies', 'warp', 'dashboard']) {
     await routeVideoPage.locator(`#nav a[data-route="${route}"]`).click();
     await waitForRenderedRoute(routeVideoPage, route === 'strategies' ? 'state' : route);
     await routeVideoPage.waitForTimeout(340);
@@ -583,7 +574,7 @@ async function runShellMotionTests(videoDir) {
   await waitForRenderedRoute(routeTestPage, 'toggles');
   check('старая вкладка удаляется после завершения перехода',
     await routeTestPage.evaluate(() => !window.__routeExitProbe.card.isConnected));
-  const navigationRoutes = ['toggles', 'dns', 'state', 'warp', 'dashboard'];
+  const navigationRoutes = ['toggles', 'tiktok', 'state', 'warp', 'dashboard'];
   const routeCycles = quickMotionProof ? 1 : 30;
   for (let cycle = 0; cycle < routeCycles; cycle += 1) {
     for (const route of navigationRoutes) {
@@ -868,8 +859,8 @@ async function runShellMotionTests(videoDir) {
   await waitForRenderedRoute(cssMotionPage, 'dashboard');
   await cssMotionPage.waitForFunction(() => document.documentElement.classList.contains('brand-theme-ready'));
   await startFrames(cssMotionPage);
-  await cssMotionPage.locator('#nav a[data-route="dns"]').click();
-  await waitForRenderedRoute(cssMotionPage, 'dns');
+  await cssMotionPage.locator('#nav a[data-route="tiktok"]').click();
+  await waitForRenderedRoute(cssMotionPage, 'tiktok');
   await cssMotionPage.waitForTimeout(400);
   const cssRouteFrames = await stopFrames(cssMotionPage);
   const cssRouteCleanup = await cssMotionPage.evaluate(() => ({
@@ -1107,8 +1098,8 @@ async function runShellMotionTests(videoDir) {
     new MutationObserver(records => { window.__staleBenchmarkMutations += records.length; })
       .observe(card, { subtree: true, childList: true, characterData: true, attributes: true });
   });
-  await stalePage.locator('#nav a[data-route="dns"]').click();
-  await waitForRenderedRoute(stalePage, 'dns');
+  await stalePage.locator('#nav a[data-route="tiktok"]').click();
+  await waitForRenderedRoute(stalePage, 'tiktok');
   releaseHeldStatus();
   await heldStatusSent;
   await stalePage.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -1118,7 +1109,7 @@ async function runShellMotionTests(videoDir) {
     statusBefore: window.__staleBenchmarkText,
     statusAfter: window.__staleBenchmarkCard.querySelector('#flowoffload-benchmark-status')?.textContent || '' }));
   check('запаздывающий ответ polling не меняет снятую со страницы карточку',
-    staleRoute.route === 'dns' && !staleRoute.connected && staleRoute.mutations === 0
+    staleRoute.route === 'tiktok' && !staleRoute.connected && staleRoute.mutations === 0
       && staleRoute.statusAfter === staleRoute.statusBefore, staleRoute);
   await stalePage.close();
   check('polling выполнялся в течение открытого и закрытого ожиданий', quickMotionProof
@@ -1138,51 +1129,6 @@ async function runShellMotionTests(videoDir) {
 }
 
 async function assertDiagDynamicStates(page, label, viewport = '1440') {
-  if (await page.locator('#dns-result').count()) {
-  await page.locator('#dns-result details.dns-group').first().waitFor({ state: 'attached' });
-  const groups = page.locator('#dns-result details.dns-group');
-  assert.equal(await groups.count(), 3, `${label}: previous DNS result renders all three paths`);
-  assert.deepEqual(await page.locator('#dns-result .dns-path').allTextContents(),
-    ['Обычный DNS', 'Шифрованный DoH', 'Шифрованный DoT'],
-    `${label}: DNS paths remain separately discoverable`);
-  assert.ok(await groups.evaluateAll(nodes => nodes.every(node => !node.open)),
-    `${label}: DNS result groups start collapsed`);
-  await groups.nth(0).locator('summary').click();
-  await groups.nth(1).locator('summary').click();
-  await groups.nth(2).locator('summary').click();
-  const dnsState = await groups.evaluateAll(nodes => nodes.map(node => ({
-    path: node.querySelector('.dns-path')?.textContent.trim(),
-    open: node.open,
-    note: node.querySelector('.dns-count')?.textContent.trim(),
-    tally: node.querySelector('.dns-tally')?.textContent.trim(),
-    tallyClass: node.querySelector('.dns-tally')?.className,
-    rows: Array.from(node.querySelectorAll('li')).map(row => ({
-      name: row.querySelector('span')?.textContent.trim(),
-      state: row.querySelector('.dns-state')?.textContent.trim(),
-      stateClass: row.querySelector('.dns-state')?.className,
-      current: row.querySelector('.dns-cur')?.textContent.trim() || '',
-      youtube: row.querySelector('.dns-yt')?.textContent.trim() || '',
-    })),
-  })));
-  assert.ok(dnsState.every(group => group.open && group.rows.length === 2),
-    `${label}: each expanded DNS path shows both fixture servers (${JSON.stringify(dnsState)})`);
-  assert.deepEqual(dnsState.map(group => group.tally), [
-    '1 целых · 1 без ответа', '1 целых · 1 подменено', '1 подменено · 1 без ответа',
-  ], `${label}: path summaries count working, substituted and silent responses (${JSON.stringify(dnsState)})`);
-  assert.deepEqual(dnsState.map(group => group.tallyClass), [
-    'dns-tally dns-good', 'dns-tally dns-bad', 'dns-tally dns-bad',
-  ]);
-  assert.match(dnsState[0].note, /порт 53 завёрнут роутером.*заглушка 198\.18\.0\.1/);
-  assert.ok(dnsState.every(group => group.rows.some(row => row.name.includes('Resolver A')
-    && row.current === 'используется сейчас' && row.youtube === 'нет адреса для youtube.com')),
-  `${label}: current resolver and missing YouTube address tags appear on each path`);
-  assert.match(dnsState[0].rows[0].state, /честно 18 мс/);
-  assert.match(dnsState[1].rows[0].state, /ответ подменён 74 мс/);
-  assert.match(dnsState[2].rows[1].state, /ответ подменён 97 мс/);
-  assert.equal(await page.locator('#dns-own-text').inputValue(),
-    '1.1.1.1\nhttps://dns.example.test/dns-query', `${label}: custom resolver text is restored`);
-
-  }
   if (await page.locator('#probe-run').count()) {
   const requestStart = apiRequests.length;
   await page.locator('#probe-domain').fill('https://example.test/path');
@@ -1220,11 +1166,6 @@ async function assertDiagDynamicStates(page, label, viewport = '1440') {
     const screenshotBase = `${label.replace(/[^a-z\d]+/gi, '-').toLowerCase()}-${viewport}-diag-dynamic`;
     await page.screenshot({ path: path.join(screenshotDir, `${screenshotBase}.png`),
       fullPage: viewport === '390' });
-    if (viewport !== '390' && await page.locator('#dns-result').count()) {
-      await page.locator('#dns-result').screenshot({
-        path: path.join(screenshotDir, `${screenshotBase}-dns-results.png`),
-      });
-    }
   }
   }
 }
@@ -1758,11 +1699,11 @@ try {
     'панель остаётся рабочей, если локальный GSAP не загрузился');
   await gsapBlocked.close();
 
-  const routes = ['dashboard', 'toggles', 'tiktok', 'dns', 'strategies', 'warp', 'whitelist', 'exclude', 'extra-domains', 'diag', 'credits', 'state', 'pick', 'autohostlist'];
+  const routes = ['dashboard', 'toggles', 'tiktok', 'strategies', 'warp', 'whitelist', 'exclude', 'extra-domains', 'diag', 'credits', 'state', 'pick', 'autohostlist'];
   testedRouteCount = routes.length;
-  const primaryRoutes = ['dashboard', 'toggles', 'tiktok', 'dns', 'state', 'warp', 'whitelist', 'extra-domains', 'diag', 'credits'];
+  const primaryRoutes = ['dashboard', 'toggles', 'tiktok', 'state', 'warp', 'whitelist', 'extra-domains', 'diag', 'credits'];
   const screenshotRoutes = ['dashboard', 'toggles', 'strategies', 'warp', 'whitelist', 'exclude',
-    'extra-domains', 'diag', 'tiktok', 'dns', 'credits', 'state', 'pick', 'autohostlist'];
+    'extra-domains', 'diag', 'tiktok', 'credits', 'state', 'pick', 'autohostlist'];
   const responsiveScreenshotRoutes = ['dashboard', 'state', 'warp'];
   const requiredTokens = ['--ow-canvas', '--ow-surface-1', '--ow-surface-2', '--ow-surface-hover',
     '--ow-surface-selected', '--ow-border-subtle', '--ow-border-strong', '--ow-text-primary',
@@ -2533,18 +2474,6 @@ try {
           'WARP QA includes both switch states without changing track geometry');
         await offlineDisclosure.locator('summary').click();
       }
-      if (route === 'dns') {
-        const editorStyle = await page.locator('#dns-own-text').evaluate(node => {
-          const style = getComputedStyle(node);
-          return { borderWidth: style.borderTopWidth, radius: style.borderRadius,
-            background: style.backgroundColor, minHeight: style.minHeight };
-        });
-        assert.equal(editorStyle.borderWidth, '0px', 'specialized text editors keep Lolz borderless controls');
-        assert.equal(editorStyle.radius, '10px', 'specialized text editors use the reference radius');
-        assert.equal(editorStyle.background, appearance === 'dark'
-          ? 'rgb(24, 30, 28)' : 'rgb(234, 241, 239)', 'specialized text editors use the theme control surface');
-        assert.equal(editorStyle.minHeight, '76px', 'the diagnostics editor retains its task-specific working area');
-      }
       if (route === 'diag') {
         assert.equal(await page.locator('#dns-run, #doh-card').count(), 0,
           'Diagnostics has no duplicate DNS controls');
@@ -2554,11 +2483,6 @@ try {
         }));
         assert.ok(logViewport.scrollHeight > logViewport.height && logViewport.overflowY === 'auto',
           `long diagnostic output stays inside its own scroll container (${JSON.stringify(logViewport)})`);
-        await assertDiagDynamicStates(page, appearance);
-      }
-      if (route === 'dns') {
-        assert.deepEqual(await page.locator('#dns-protocol option').evaluateAll(options => options.map(option => option.value)),
-          ['doh', 'doh3', 'dot', 'doq', 'dnscrypt']);
         await assertDiagDynamicStates(page, appearance);
       }
       if (route === 'tiktok') {
@@ -4236,285 +4160,6 @@ try {
   assert.doesNotMatch(failOpenText, /● Работает/);
   await failOpen.page.close();
 
-  const dohPage = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, colorScheme: 'dark' });
-  await dohPage.addInitScript(() => localStorage.setItem('z2k-theme', 'dark'));
-  dohPage.on('pageerror', error => allPageErrors.push(error.message));
-  let dohStatus = { state: 'not-installed', installed: '0', enabled: '0', provider: 'unknown', protocol: 'doh', actual_protocol: '', local_dns_state: 'unknown', upstream_state: 'unconfirmed', external_config: '0' };
-  let dohJobNumber = 0;
-  let acceptNextDohConfirm = false;
-  let holdNextDohJobResult = false;
-  let releaseHeldDohJob = null;
-  let dohStatusCalls = 0;
-  let autohostlistFixture = '0';
-  let tiktokRefreshVersion = 0;
-  let failNextDohUninstall = true;
-  const failedDohJobIds = new Set();
-  let tgRunningFixture = true;
-  let tgJobNumber = 0;
-  const dohConfirmMessages = [];
-  const dohActions = [];
-  dohPage.on('dialog', async dialog => {
-    dohConfirmMessages.push(dialog.message());
-    if (acceptNextDohConfirm) {
-      acceptNextDohConfirm = false;
-      await dialog.accept();
-    } else {
-      await dialog.dismiss();
-    }
-  });
-  dohPage.route('**/cgi-bin/api/status', route => {
-    dohStatusCalls += 1;
-    const fixture = structuredClone(statusFixture);
-    fixture.doh = structuredClone(dohStatus);
-    fixture.tunnel = { running: tgRunningFixture };
-    fixture.toggles.autohostlist = autohostlistFixture;
-    fixture.toggles.tiktok_feed = '1';
-    fixture.tiktok_feed_status = {
-      state: 'healthy', selected_ip: '203.0.113.9', mode: 'auto', candidate_verified: '1',
-      dns_override_applied: '1', selected_source_domain: 'www.tiktokcdn.com', candidates: [],
-      failure_count: String(tiktokRefreshVersion),
-    };
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture) });
-  });
-  dohPage.route('**/cgi-bin/api/doh/**', async route => {
-    const endpoint = new URL(route.request().url()).pathname.split('/').pop();
-    const body = route.request().postDataJSON() || {};
-    dohActions.push({ endpoint, body });
-    if (endpoint === 'profile') {
-      const encodeList = value => Buffer.from(value || '').toString('base64');
-      dohStatus = {
-        ...dohStatus, state: 'working', installed: '1', enabled: '1', running: '1', provider: 'profile',
-        protocol: 'doh', actual_protocol: 'doh', upstream_state: 'confirmed', local_dns_state: 'working',
-        endpoint: body.upstreams.split('\n')[0], bootstrap: body.bootstrap, external_config: '0', confirm_remove: '1', reason: '',
-        profile_upstreams_b64: encodeList(body.upstreams), profile_fallbacks_b64: encodeList(body.fallbacks),
-        profile_routes_b64: encodeList(body.routes), profile_bootstrap_b64: encodeList(body.bootstrap), profile_mode: body.mode,
-      };
-    }
-    if (endpoint === 'install') dohStatus = { ...dohStatus, state: 'disabled', installed: '1', enabled: '0', running: '0', external_config: '0' };
-    if (endpoint === 'enable') dohStatus = { ...dohStatus, state: 'working', installed: '1', enabled: '1', running: '1', reason: '' };
-    if (endpoint === 'disable') dohStatus = { ...dohStatus, state: 'disabled', installed: '1', enabled: '0', running: '0', reason: '' };
-    if (endpoint === 'uninstall') {
-      if (failNextDohUninstall) {
-        failNextDohUninstall = false;
-        failedDohJobIds.add(`doh-fixture-${dohJobNumber + 1}`);
-      } else {
-        dohStatus = { state: 'not-installed', installed: '0', enabled: '0', provider: 'unknown', external_config: '0', confirm_remove: '0' };
-      }
-    }
-    dohJobNumber += 1;
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, job: `doh-fixture-${dohJobNumber}` }) });
-  });
-  dohPage.route('**/cgi-bin/api/tunnel/**', route => {
-    tgJobNumber += 1;
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, job: `tg-fixture-${tgJobNumber}` }) });
-  });
-  dohPage.route('**/cgi-bin/api/job**', async route => {
-    if (holdNextDohJobResult) {
-      holdNextDohJobResult = false;
-      await new Promise(resolve => { releaseHeldDohJob = resolve; });
-    }
-    const jobId = new URL(route.request().url()).searchParams.get('id');
-    return route.fulfill({
-      status: 200, contentType: 'application/json', body: JSON.stringify({ done: true,
-        exit: failedDohJobIds.has(jobId) ? 1 : 0, status: failedDohJobIds.has(jobId) ? 'failed' : 'done',
-        log: failedDohJobIds.has(jobId) ? 'DoH: apk del https-dns-proxy завершился ошибкой' : 'ok' }),
-    });
-  });
-  await dohPage.goto(`${base}/#/dns`);
-  await waitForRenderedRoute(dohPage, 'dns');
-  assert.equal(await dohPage.locator('a[data-route="dns"]').getAttribute('class'), 'active');
-  const dohCard = dohPage.locator('#doh-card');
-  assert.equal(await dohCard.isVisible(), true, 'DoH controls are shown on OpenWrt');
-  try {
-    await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Не установлен'));
-  } catch (error) {
-    throw new Error(`${error.message}; /status calls=${dohStatusCalls}; page errors=${allPageErrors.slice(-5).join(' | ')}`);
-  }
-  assert.match(await dohCard.innerText(), /Статус: Не установлен/);
-  assert.equal(await dohCard.locator('#dns-protocol').inputValue(), 'doh');
-  const catalogGroups = await dohCard.locator('#doh-provider optgroup').evaluateAll(groups => groups.map(group => ({
-    label: group.label, providers: [...group.querySelectorAll('option')].map(option => option.value),
-  })));
-  assert.deepEqual(catalogGroups.map(group => group.label), ['Универсальные', 'С фильтрацией', 'Региональные и Smart DNS', 'Персональные'],
-    'the catalog groups providers by category');
-  assert.ok(catalogGroups.flatMap(group => group.providers).includes('quad9'), 'catalog includes Quad9');
-  assert.ok(catalogGroups.flatMap(group => group.providers).includes('google'), 'catalog includes Google Public DNS');
-  assert.equal(await dohCard.locator('#doh-provider option[value="custom"]').count(), 1,
-    'the custom endpoint remains available outside catalog categories');
-  assert.deepEqual(await dohPage.locator('#app h2').allInnerTexts(), ['Настройка', 'Дополнительно', 'Проверка'],
-    'DNS is organized into setup, additional controls, and checks');
-  await dohCard.locator('#doh-provider').selectOption('quad9');
-  assert.equal(await dohCard.locator('#dns-protocol option[value="doq"]').evaluate(option => option.hidden), false,
-    'Quad9 exposes its supported DoQ endpoint');
-  await dohCard.locator('#doh-provider').selectOption('google');
-  assert.equal(await dohPage.locator('#doh-custom-fields').isVisible(), false,
-    'catalog entries use their confirmed endpoint without custom fields');
-  assert.equal(await dohCard.locator('[data-doh-action]').count(), 1,
-    'not-installed state offers only Install');
-  assert.equal(await dohCard.locator('#doh-provider-panel').count(), 0,
-    'provider controls do not sit in a nested card');
-  await dohCard.locator('#doh-provider').selectOption('google');
-  await dohCard.locator('#doh-add-upstream').click();
-  assert.match(await dohCard.locator('#dns-profile-queue').innerText(), /https:\/\/dns\.google\/dns-query/,
-    'adding a catalog choice queues its original domain endpoint');
-  assert.equal(dohActions.length, 0, 'choosing or queueing a catalog endpoint does not apply it automatically');
-
-  await dohCard.getByRole('button', { name: 'Установить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-1"] #job-close').waitFor({ state: 'visible' });
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-1"] #job-close').click();
-  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Выключен'));
-  assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
-    ['apply', 'check', 'uninstall'], 'freshly installed DoH offers Apply, Check and Remove until a resolver is configured');
-  assert.equal(await dohCard.locator('#doh-force-dns').count(), 0,
-    'force DNS is not exposed as an unrelated extra stage');
-
-  dohStatus = {
-    ...dohStatus, state: 'disabled', enabled: '0', running: '0', external_config: '1', confirm_remove: '1', package_owner: 'external',
-    provider: 'unknown', endpoint: '', profile_upstreams_b64: '', profile_fallbacks_b64: '', profile_routes_b64: '', profile_bootstrap_b64: '', profile_mode: '',
-  };
-  await dohPage.reload();
-  await waitForRenderedRoute(dohPage, 'dns');
-  await dohPage.waitForFunction(() => document.querySelector('#doh-ownership-warning')?.hidden === false);
-  await dohCard.locator('#doh-provider').selectOption('google');
-  await dohCard.locator('#doh-add-upstream').click();
-  await dohCard.locator('#doh-provider').selectOption('quad9');
-  await dohCard.locator('#dns-protocol').selectOption('doq');
-  await dohCard.locator('#doh-upstream-role').selectOption('fallback');
-  await dohCard.locator('#doh-add-upstream').click();
-  assert.match(await dohCard.locator('#dns-profile-queue').innerText(), /Основные upstream[\s\S]*dns\.google[\s\S]*Аварийный fallback[\s\S]*dns\.quad9/,
-    'the profile supports multiple role groups with unchanged domain endpoints');
-  await dohPage.locator('#dns-profile-bootstrap').fill('1.1.1.1\n2001:4860:4860::8888');
-  await dohPage.locator('#dns-upstream-mode').selectOption('parallel');
-  await dohPage.locator('#dns-route-domain').fill('video.example');
-  await dohPage.locator('#dns-route-upstream').selectOption('fallbacks:0');
-  await dohPage.locator('#dns-route-add').click();
-  assert.match(await dohPage.locator('#dns-profile-rules-list').innerText(), /video\.example\s*→\s*quic:\/\/dns\.quad9\.net:853/,
-    'доменное правило направляется на выбранный upstream или fallback');
-  const profileBody = {
-    upstreams: 'https://dns.google/dns-query', fallbacks: 'quic://dns.quad9.net:853',
-    routes: 'video.example=quic://dns.quad9.net:853', protocol: 'doq', mode: 'parallel', bootstrap: '1.1.1.1\n2001:4860:4860::8888', replace: '1',
-  };
-  assert.match(await dohCard.locator('#dns-profile-warning').innerText(), /Незашифрованный fallback отключён/,
-    'the profile explicitly states that there is no plain DNS fallback');
-  assert.equal(await dohCard.locator('#dns-profile-ack').count(), 1,
-    'mixing universal and filtering catalog categories requires acknowledgement');
-  await dohCard.locator('#dns-profile-ack').check();
-  await dohCard.getByRole('button', { name: 'Применить' }).click();
-  assert.match(dohConfirmMessages.at(-1), /конфигурация dnsproxy/i,
-    'replacing external dnsproxy configuration requires explicit confirmation');
-  assert.equal(dohActions.length, 1, 'dismissing the ownership warning does not submit a profile');
-  acceptNextDohConfirm = true;
-  await dohCard.getByRole('button', { name: 'Применить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-2"] #job-close').waitFor({ state: 'visible' });
-  assert.deepEqual(dohActions[1], { endpoint: 'profile', body: profileBody },
-    'Отправка профиля передаёт выбранный DoQ и точные параметры DNS');
-  assert.equal(Object.hasOwn(dohActions[1].body, 'plain_fallback'), false,
-    'the profile request contains no plain fallback setting');
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-2"] #job-close').click();
-  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Работает'));
-  assert.match(await dohCard.innerText(), /DNS роутера: ответы DNS подтверждены/);
-  assert.match(await dohCard.innerText(), /Защищённый upstream: подтверждён · фактически: DoH/);
-  assert.equal(await dohCard.locator('#doh-ownership-warning').isVisible(), false,
-    'a successful profile apply no longer reports its own resolver as external');
-  assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
-    ['apply', 'check', 'disable', 'uninstall'], 'configured working DoH offers Stop');
-  await dohCard.getByRole('button', { name: 'Остановить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').waitFor({ state: 'visible' });
-  assert.deepEqual(dohActions[2], { endpoint: 'disable', body: {} }, 'Stop calls the existing DoH disable action');
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-3"] #job-close').click();
-  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Выключен'));
-  assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
-    ['apply', 'check', 'enable', 'uninstall'], 'stopping DoH retains its config and offers Start');
-  await dohCard.getByRole('button', { name: 'Запустить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-4"] #job-close').waitFor({ state: 'visible' });
-  assert.deepEqual(dohActions[3], { endpoint: 'enable', body: {} }, 'Start calls the existing DoH enable action');
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-4"] #job-close').click();
-  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Работает'));
-
-  dohStatus = { ...dohStatus, state: 'error', enabled: '1', running: '0', reason: 'proxy-not-running' };
-  await dohPage.reload();
-  await waitForRenderedRoute(dohPage, 'dns');
-  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Ошибка'));
-  assert.match(await dohCard.innerText(), /сервис dnsproxy не запущен/i);
-  assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
-    ['apply', 'check', 'disable', 'uninstall'], 'error state keeps Stop available while the service remains enabled');
-  assert.match(await dohPage.locator('#dns-profile-queue').innerText(),
-    /Основные upstream[\s\S]*Google Public DNS[\s\S]*https:\/\/dns\.google[\s\S]*Аварийный fallback[\s\S]*Quad9[\s\S]*quic:\/\/dns\.quad9/,
-    'после перезагрузки профиль восстанавливает DoH upstream и DoQ fallback');
-  assert.equal(await dohPage.locator('#dns-profile-bootstrap').inputValue(), '1.1.1.1\n2001:4860:4860::8888',
-    'both IPv4 and IPv6 bootstrap resolvers are restored from profile status');
-  assert.equal(await dohPage.locator('#dns-upstream-mode').inputValue(), 'parallel',
-    'saved upstream mode is restored from profile status');
-  assert.match(await dohPage.locator('#dns-profile-rules-list').innerText(), /video\.example\s*→\s*quic:\/\/dns\.quad9\.net:853/,
-    'после перезагрузки доменное правило восстанавливается из состояния DNS');
-  assert.equal(dohStatus.profile_upstreams_b64, Buffer.from(profileBody.upstreams).toString('base64'));
-  assert.equal(dohStatus.profile_fallbacks_b64, Buffer.from(profileBody.fallbacks).toString('base64'));
-  assert.equal(dohStatus.profile_routes_b64, Buffer.from(profileBody.routes).toString('base64'));
-  assert.equal(dohStatus.profile_bootstrap_b64, Buffer.from(profileBody.bootstrap).toString('base64'));
-
-  await dohPage.evaluate(() => { window.__dnsPageRoot = document.querySelector('#app').firstElementChild; });
-  holdNextDohJobResult = true;
-  const dohStatusCallsBeforeCheck = dohStatusCalls;
-  await dohCard.getByRole('button', { name: 'Проверить' }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').waitFor({ state: 'visible' });
-  assert.equal(dohActions[4].endpoint, 'check', 'diagnostics use a separate Check action');
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-5"] #job-close').click();
-  await dohPage.evaluate(() => {
-    window.scrollTo(0, 650);
-    const input = document.querySelector('#dns-profile-bootstrap');
-    input.focus({ preventScroll: true });
-    input.setSelectionRange(8, 19);
-    window.__dnsExpectedScroll = window.scrollY;
-    window.__dnsExpectedSelection = [input.selectionStart, input.selectionEnd];
-  });
-  await dohPage.waitForFunction(() => new Promise(resolve => {
-    const y = window.scrollY;
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve(y === window.scrollY)));
-  }));
-  await dohPage.evaluate(() => { window.__dnsExpectedScroll = window.scrollY; });
-  assert.equal(typeof releaseHeldDohJob, 'function');
-  releaseHeldDohJob();
-  releaseHeldDohJob = null;
-  await waitForCondition(() => dohStatusCalls > dohStatusCallsBeforeCheck, 'DNS /status refresh');
-  await dohPage.waitForTimeout(50);
-  const dnsRefreshDomState = await dohPage.evaluate(() => ({
-    expectedScroll: window.__dnsExpectedScroll, scroll: window.scrollY,
-    rootSame: document.querySelector('#app').firstElementChild === window.__dnsPageRoot,
-    focusedId: document.activeElement?.id,
-    expectedSelection: window.__dnsExpectedSelection,
-    selection: [document.activeElement?.selectionStart, document.activeElement?.selectionEnd],
-  }));
-  assert.equal(dnsRefreshDomState.scroll, dnsRefreshDomState.expectedScroll, 'DNS status refresh preserves window.scrollY');
-  assert.equal(dnsRefreshDomState.rootSame, true, 'DNS status refresh keeps the original page root');
-  assert.equal(dnsRefreshDomState.focusedId, 'dns-profile-bootstrap', 'DNS status refresh preserves focused input');
-  assert.deepEqual(dnsRefreshDomState.selection, dnsRefreshDomState.expectedSelection, 'DNS status refresh preserves the input cursor');
-
-  acceptNextDohConfirm = true;
-  await dohCard.getByRole('button', { name: 'Удалить', exact: true }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').waitFor({ state: 'visible' });
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').filter({ hasText: 'Закрыть' }).waitFor({ state: 'visible' });
-  assert.equal(await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').innerText(), 'Закрыть',
-    'a failed uninstall never presents the success action Готово');
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-6"] #job-close').click();
-  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Ошибка'));
-  acceptNextDohConfirm = true;
-  await dohCard.getByRole('button', { name: 'Удалить', exact: true }).click();
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-7"] #job-close').waitFor({ state: 'visible' });
-  await dohPage.locator('.modal-backdrop[data-job-id="doh-fixture-7"] #job-close').click();
-  await dohPage.waitForFunction(() => document.querySelector('#doh-status')?.innerText.includes('Статус: Не установлен'));
-  assert.deepEqual(dohActions[5], { endpoint: 'uninstall', body: { confirm: '1' } },
-    'confirmed Remove submits the server-required external package confirmation');
-  assert.deepEqual(dohActions[6], { endpoint: 'uninstall', body: { confirm: '1' } },
-    'a failed Remove remains retryable after state is refreshed');
-  assert.deepEqual(await dohCard.locator('[data-doh-action]').evaluateAll(buttons => buttons.map(button => button.dataset.dohAction)),
-    ['install'], 'Remove immediately returns the card to Install-only state');
-  assert.equal(await dohCard.locator('#doh-ownership-warning').isVisible(), false,
-    'the external ownership warning disappears after package removal');
-  assert.deepEqual(dohActions.map(action => action.endpoint), ['install', 'profile', 'disable', 'enable', 'check', 'uninstall', 'uninstall']);
-  assert.equal(await dohPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
-    'compact DoH controls do not introduce mobile horizontal overflow');
-  await dohPage.close();
-
   assert.deepEqual(allPageErrors, []);
   assert.deepEqual(allConsoleErrors, []);
   }
@@ -4999,7 +4644,7 @@ try {
 
     const disclosurePage = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
     await disclosurePage.addInitScript(() => localStorage.setItem('z2k-theme', 'dark'));
-    const disclosureRoutes = ['credits', 'diag', 'dns', 'state', 'pick', 'tiktok', 'toggles', 'dashboard', 'warp'];
+    const disclosureRoutes = ['credits', 'diag', 'state', 'pick', 'tiktok', 'toggles', 'dashboard', 'warp'];
     const disclosureVariants = new Set();
     disclosurePickFixture = true;
     for (const route of disclosureRoutes) {
@@ -5065,9 +4710,6 @@ try {
         await disclosurePage.locator('#app details.state-voice').screenshot({ path: path.join(screenshotDir, 'disclosure-card-open.png') });
         await summary.click();
         await waitForDisclosureSettled(disclosurePage, '#app details.state-voice');
-      }
-      if (screenshotDir && route === 'dns') {
-        await disclosurePage.locator('#app details.dns-group').first().screenshot({ path: path.join(screenshotDir, 'disclosure-compact.png') });
       }
       if (screenshotDir && route === 'diag') {
         const summary = disclosurePage.locator('#probe-result details.probe-raw > summary');
