@@ -983,9 +983,18 @@ pub fn fw4_forward_matches(
     let wildcard = format!(
         "meta mark & {mask} == {mark} oifname \"z2ktun*\" accept comment {escaped_comment}"
     );
+    let mut expected = vec![exact, wildcard];
+    for mark_expression in nft_mark_prefix_expressions(mark, mask) {
+        expected.push(format!(
+            "{mark_expression} oifname \"{interface}\" accept comment {escaped_comment}"
+        ));
+        expected.push(format!(
+            "{mark_expression} oifname \"z2ktun*\" accept comment {escaped_comment}"
+        ));
+    }
     Ok(rules
         .iter()
-        .any(|rule| rule.contains(&exact) || rule.contains(&wildcard)))
+        .any(|rule| expected.iter().any(|expression| rule.contains(expression))))
 }
 
 pub fn render_fw4_forward_remove_batch(
@@ -1061,6 +1070,37 @@ fn valid_mark(value: &str) -> bool {
         return false;
     };
     !hex.is_empty() && hex.len() <= 8 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn nft_mark_prefix_expressions(mark: &str, mask: &str) -> Vec<String> {
+    let Some(mark) = mark
+        .strip_prefix("0x")
+        .or_else(|| mark.strip_prefix("0X"))
+        .and_then(|value| u32::from_str_radix(value, 16).ok())
+    else {
+        return Vec::new();
+    };
+    let Some(mask) = mask
+        .strip_prefix("0x")
+        .or_else(|| mask.strip_prefix("0X"))
+        .and_then(|value| u32::from_str_radix(value, 16).ok())
+    else {
+        return Vec::new();
+    };
+    if mark & !mask != 0 {
+        return Vec::new();
+    }
+    let prefix = mask.leading_ones();
+    if prefix == 0 || mask != u32::MAX << (32 - prefix) {
+        return Vec::new();
+    }
+
+    let value = format!("0x{mark:x}");
+    let mut expressions = vec![format!("meta mark {value}/{prefix}")];
+    if prefix == 32 {
+        expressions.push(format!("meta mark {value}"));
+    }
+    expressions
 }
 
 fn nft_quote(value: &str) -> io::Result<String> {
@@ -1429,4 +1469,39 @@ fn valid_ipv4_entry(entry: &str, allow_cidr: bool) -> bool {
         return false;
     }
     address.parse::<std::net::Ipv4Addr>().is_ok() && (allow_cidr || prefix.is_none())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fw4_forward_matches;
+
+    #[test]
+    fn verifies_nft_1_0_9_canonical_fw4_mark_rule() {
+        let output = "table inet fw4 {\n\tchain forward { # handle 1\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tmeta mark 0x80000000/1 oifname \"z2ktun0\" accept comment \"!z2k: WARP forwarded traffic\" # handle 2\n\t}\n}\n";
+
+        assert!(
+            fw4_forward_matches(
+                output,
+                "forward",
+                "z2ktun0",
+                "0x80000000",
+                "0x80000000",
+                "!z2k: WARP forwarded traffic",
+            )
+            .unwrap()
+        );
+
+        let foreign = output.replace("0x80000000/1", "0x40000000/1");
+        assert!(
+            !fw4_forward_matches(
+                &foreign,
+                "forward",
+                "z2ktun0",
+                "0x80000000",
+                "0x80000000",
+                "!z2k: WARP forwarded traffic",
+            )
+            .unwrap()
+        );
+    }
 }
