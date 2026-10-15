@@ -5,7 +5,6 @@ files/z2k-auto-update.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/update.sh|-rwxr-
 files/z2k-blocked-monitor.sh|COMMON|./usr/lib/z2k/z2k-blocked-monitor.sh|-rwxr-xr-x|platform/openwrt/z2kow.sh|blocked-monitor|Shared capture/parser behavior; OpenWrt redirects cache to tmpfs.
 files/z2k-config-validator.sh|COMMON|./usr/lib/z2k/z2k-config-validator.sh|-rwxr-xr-x|lib/auto_update.sh|z2k-config-validator.sh|-
 files/z2k-diag.sh|ADAPTED|./usr/lib/z2k/z2k-diag.sh|-rwxr-xr-x|platform/openwrt/env.sh|Z2K_DIAG_HOOK|Common report with OpenWrt probes; fw4 recovery events come from logread with a 20-line output cap.
-files/z2k-dns-check.sh|COMMON|./usr/lib/z2k/z2k-dns-check.sh|-rwxr-xr-x|webpanel/cgi/actions.sh|DNS_CHECK_SCRIPT|Shared DNS probe is invoked by the WebPanel API.
 files/z2k-geosite.sh|COMMON|./usr/lib/z2k/z2k-geosite.sh|-rwxr-xr-x|files/z2k-update-lists.sh|z2k-geosite.sh|Shared geosite fetch/filter/apply logic.
 files/z2k-insta-ip-refresh.sh|ADAPTED|./usr/lib/z2k/z2k-insta-ip-refresh.sh|-rwxr-xr-x|files/z2k-update-lists.sh|z2k-insta-ip-refresh.sh|Shared fetch/HMAC/range/probe flow uses OpenWrt dnsmasq records.
 files/z2k-nfqueue-selfheal.sh|ADAPTED|./usr/lib/z2k/platform/openwrt/fw-check.sh|-rwxr-xr-x|platform/openwrt/schedule.sh|fw-check.sh check|OpenWrt serializes fw4/NFQUEUE reconciliation and owns/restores global flow-offload UCI state; Keenetic fastnat sysctls are not used.
