@@ -850,6 +850,7 @@ jobs:
         env:
           OW_STRICT: "1"
           OW_SKIP_SYNTAX_CHECK: "1"
+          Z2K_WARP_ROOT_NETNS: "1"
           OW_SHARD_COUNT: ${{ matrix.count }}
           OW_SHARD_INDEX: ${{ matrix.shard }}
         run: |

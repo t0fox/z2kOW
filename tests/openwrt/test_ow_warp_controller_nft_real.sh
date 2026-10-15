@@ -306,8 +306,28 @@ for tool in cargo unshare nft ip; do
 done
 cargo build --manifest-path "$CRATE/Cargo.toml" --bin z2k-warp-controller
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-warp-controller-nft.XXXXXX")"
-trap 'rm -rf "$T"' EXIT HUP INT TERM
+_cleanup_temp() {
+    _rc=$?
+    trap - EXIT HUP INT TERM
+    if [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ] && [ "$(id -u)" -ne 0 ]; then
+        sudo -n rm -rf "$T" || _rc=$?
+    else
+        rm -rf "$T" || _rc=$?
+    fi
+    exit "$_rc"
+}
+trap _cleanup_temp EXIT HUP INT TERM
 mkdir -p "$T/users" "$T/games"
 printf '1.2.3.4\n' > "$T/users/public.txt"
 printf '192.168.1.9\n' > "$T/users/devices.txt"
-unshare -Urn "$0" --inside "$T"
+if [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ]; then
+    if [ "$(id -u)" -eq 0 ]; then
+        unshare -n "$0" --inside "$T"
+    else
+        sudo -n env HOME="$HOME" PATH="$PATH" CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" \
+            RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" \
+            unshare -n "$0" --inside "$T"
+    fi
+else
+    unshare -Urn "$0" --inside "$T"
+fi

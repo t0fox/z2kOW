@@ -338,6 +338,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('toolchain install 1.98.0 --profile minimal', acceptance)
         self.assertIn('rustup" default 1.98.0', acceptance)
         self.assertIn('echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"', acceptance)
+        self.assertIn('Z2K_WARP_ROOT_NETNS: "1"', acceptance)
 
     def test_openwrt_ci_requires_an_upgrade_from_the_previous_published_release(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
