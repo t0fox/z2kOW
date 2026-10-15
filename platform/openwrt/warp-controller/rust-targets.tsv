@@ -1,0 +1,8 @@
+# Runtime каталог | Rust target | linker | Zig triple | CPU | std
+arm64	aarch64-unknown-linux-musl	zig	aarch64-linux-musl	generic	prebuilt
+arm	armv5te-unknown-linux-musleabi	openwrt-armv5	-	xscale	prebuilt
+x86_64	x86_64-unknown-linux-musl	zig	x86_64-linux-musl	x86_64	prebuilt
+x86	i686-unknown-linux-musl	zig	x86-linux-musl	pentium4	prebuilt
+mips	mips-unknown-linux-musl	openwrt-mips	-	mips32r2	build-std
+mipsel	mipsel-unknown-linux-musl	openwrt-mipsel	-	mips32r2	build-std
+riscv64	riscv64gc-unknown-linux-musl	zig	riscv64-linux-musl	generic_rv64+a+f+d+c	prebuilt

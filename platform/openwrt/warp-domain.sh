@@ -23,11 +23,19 @@ WARP_DOMAIN_TABLE_COMMENT="z2k WARP passive DNS observer"
 WARP_DOMAIN_CHAIN_COMMENT="z2k WARP passive DNS observer chain"
 
 warp_validated_domains() {
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ] && command -v _warp_controller >/dev/null 2>&1; then
+        _warp_controller domains-list "$WARP_LISTS_DIR" "$WARP_GAMES_DIR" "$WARP_ENABLED_FILE"
+        return $?
+    fi
     warp_active_lists 2>/dev/null | while IFS= read -r _f; do cat "$_f" 2>/dev/null; done |
         awk -v mode=domains -f "$WARP_DOMAIN_FILTER" 2>/dev/null | LC_ALL=C sort -u
 }
 
 warp_domain_error_set() {
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ] && command -v _warp_controller >/dev/null 2>&1; then
+        _warp_controller domains-error "$WARP_DOMAIN_ERROR" "${1:-}"
+        return $?
+    fi
     mkdir -p "$(dirname "$WARP_DOMAIN_ERROR")" 2>/dev/null || return 1
     if [ -n "$1" ]; then
         printf '%s\n' "$1" > "$WARP_DOMAIN_ERROR"
@@ -38,6 +46,11 @@ warp_domain_error_set() {
 
 warp_domain_rules_load() {
     local _tmp="${WARP_DOMAIN_RULES}.new.$$" _count
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ] && command -v _warp_controller >/dev/null 2>&1; then
+        _warp_controller domains-sync "$WARP_LISTS_DIR" "$WARP_GAMES_DIR" \
+            "$WARP_ENABLED_FILE" "$WARP_DOMAIN_RULES" "$WARP_DOMAIN_ERROR"
+        return $?
+    fi
     mkdir -p "$(dirname "$WARP_DOMAIN_RULES")" 2>/dev/null || {
         warp_domain_error_set state-dir-unavailable
         return 1
@@ -70,6 +83,14 @@ warp_domain_rules_load() {
 
 warp_domain_set_ensure() {
     _z2k_ow_warp_table_ok || { warp_domain_error_set zapret2-table-unavailable; return 1; }
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ] && command -v _warp_controller >/dev/null 2>&1; then
+        _warp_controller nft-domain-set-ensure \
+            "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" || {
+            warp_domain_error_set nft-pair-set-unavailable
+            return 1
+        }
+        return 0
+    fi
     local _set
     _set=$(nft list set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" 2>/dev/null) || _set=""
     if [ -n "$_set" ]; then
@@ -91,6 +112,10 @@ warp_domain_lan_devices() {
     if [ -n "${Z2K_WARP_DOMAIN_LAN_DEVICES:-}" ]; then
         printf '%s\n' "$Z2K_WARP_DOMAIN_LAN_DEVICES" | tr ' ' '\n' | LC_ALL=C sort -u
         return 0
+    fi
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ] && command -v _warp_controller >/dev/null 2>&1; then
+        _warp_controller interfaces lan
+        return $?
     fi
     command -v uci >/dev/null 2>&1 && command -v ubus >/dev/null 2>&1 || return 0
     local _section _net _dev
@@ -137,6 +162,29 @@ warp_domain_chain_ensure() {
 warp_domain_observer_rules_apply() {
     local _dev _table
     warp_domain_rules_load >/dev/null 2>&1 || true
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ] && command -v _warp_controller >/dev/null 2>&1; then
+        local _devices _wg_devices
+        _devices="$(warp_domain_lan_devices)"
+        if command -v warp_wireguard_server_devices >/dev/null 2>&1; then
+            _wg_devices="$(warp_wireguard_server_devices 2>/dev/null || true)"
+            [ -z "$_wg_devices" ] || _devices="$(printf '%s\n%s\n' "$_devices" "$_wg_devices")"
+        fi
+        if command -v warp_wireguard_client_devices >/dev/null 2>&1; then
+            _wg_devices="$(warp_wireguard_client_devices 2>/dev/null || true)"
+            [ -z "$_wg_devices" ] || _devices="$(printf '%s\n%s\n' "$_devices" "$_wg_devices")"
+        fi
+        _devices="$(printf '%s\n' "$_devices" | awk 'NF && !seen[$0]++' | tr '\n' ',' | sed 's/,$//')"
+        [ -n "$_devices" ] || { warp_domain_error_set lan-device-unavailable; return 1; }
+        _warp_controller nft-domain-observer-apply \
+            "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" \
+            "$WARP_DOMAIN_NFT_OUT" "$WARP_DOMAIN_NFT_FWD" \
+            "$WARP_DOMAIN_NFLOG_GROUP" "$_devices" || {
+            warp_domain_error_set nft-observer-rules-failed
+            return 1
+        }
+        warp_domain_error_set ""
+        return 0
+    fi
     _table=$(nft list table "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" 2>/dev/null)
     if [ -z "$_table" ]; then
         nft add table "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" \
@@ -188,10 +236,19 @@ warp_domain_observer_rules_apply() {
 }
 
 warp_domain_backend_ready() {
-    local _set _table _out _fwd _rules
+    local _set _table _out _fwd _rules _controller_ready
     [ ! -s "$WARP_DOMAIN_ERROR" ] || return 1
-    _rules=$(warp_validated_domains 2>/dev/null)
+    _rules=$(warp_validated_domains 2>/dev/null) || return 1
     [ -n "$_rules" ] || return 1
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ]; then
+        _controller_ready="$(_warp_controller nft-domain-verify \
+            "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" \
+            "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" \
+            "$WARP_DOMAIN_NFT_OUT" "$WARP_DOMAIN_NFT_FWD" \
+            "$WARP_DOMAIN_NFLOG_GROUP" 2>/dev/null)" || return 1
+        [ "$_controller_ready" = ready=1 ] || return 1
+        return 0
+    fi
     _set=$(nft list set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" 2>/dev/null) || return 1
     printf '%s\n' "$_set" | grep -qF 'comment "z2k WARP DNS pairs"' || return 1
     _table=$(nft list table "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" 2>/dev/null) || return 1
@@ -209,8 +266,8 @@ warp_domain_backend_ready() {
 # binary is never allowed to silently fall back to per-client ipset rules.
 warp_domain_observer_procd_ready() {
     local _domains
-    _domains=$(warp_validated_domains 2>/dev/null)
-    if [ ! -r "$WARP_DOMAIN_FILTER" ]; then
+    _domains=$(warp_validated_domains 2>/dev/null) || return 1
+    if [ ! -r "$WARP_DOMAIN_FILTER" ] && [ ! -x "${WARP_CONTROLLER_BIN:-}" ]; then
         [ -n "$_domains" ] && warp_domain_error_set domain-filter-missing
         return 1
     fi
@@ -235,6 +292,19 @@ warp_domain_observer_procd_ready() {
 
 warp_domain_nft_remove() {
     local _full="${1:-}" _tables _table _main_table _conflict=0 _rc=0
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ] && command -v _warp_controller >/dev/null 2>&1; then
+        local _remove_set=0
+        [ "$_full" = full ] && _remove_set=1
+        _warp_controller nft-domain-remove \
+            "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" \
+            "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" \
+            "$_remove_set" || {
+            warp_domain_error_set nft-domain-remove-failed
+            return 1
+        }
+        warp_domain_error_set ""
+        return 0
+    fi
     _tables=$(nft list tables 2>/dev/null) || return 1
     if printf '%s\n' "$_tables" | grep -qxF "table $WARP_DOMAIN_NFT_FAMILY $WARP_DOMAIN_NFT_TABLE"; then
         _table=$(nft list table "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" 2>/dev/null) || return 1

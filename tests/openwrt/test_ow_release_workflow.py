@@ -273,6 +273,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         builder = (ROOT / "scripts/openwrt/build-release.sh").read_text(encoding="utf-8")
         go_job = ci.split("  go:", 1)[1].split("  binaries:", 1)[0]
+        warp_job = ci.split("  warp-controller:", 1)[1].split("  go:", 1)[0]
         binaries = ci.split("  binaries:", 1)[1].split("  lua-check:", 1)[0]
         shell_tests = ci.split("  tests:", 1)[1].split("  rust-tg-proxy:", 1)[0]
         openwrt_job = ci.split("  openwrt-unified:", 1)[1]
@@ -286,9 +287,17 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn("go build", shell_tests)
         self.assertIn("-buildvcs=false", go_job)
         self.assertIn("-X main.version=$release_tag", go_job)
-        self.assertIn("needs: [rust-tg-proxy, go, openwrt-runtime, openwrt-acceptance]", openwrt_job)
+        self.assertIn("needs: [rust-tg-proxy, warp-controller, go, openwrt-runtime, openwrt-acceptance]", openwrt_job)
+        self.assertIn('variants: "arm64 x86_64 x86 riscv64"', warp_job)
+        self.assertIn('variants: "arm"', warp_job)
+        self.assertIn('variants: "mips"', warp_job)
+        self.assertIn('variants: "mipsel"', warp_job)
+        self.assertIn("warp_controller_artifacts.py verify", warp_job)
+        self.assertIn("z2kow-warp-controller-${{ github.sha }}-${{ matrix.group }}", warp_job)
         self.assertIn('go_build_artifacts.py" stage', builder)
         self.assertIn('--go-dir "$RUNNER_TEMP/go-artifacts"', openwrt_job)
+        self.assertIn("warp_controller_artifacts.py merge", openwrt_job)
+        self.assertIn('--warp-controller-dir "$RUNNER_TEMP/warp-controller"', openwrt_job)
         self.assertIn('if [ "$_reuse_go" -eq 0 ]; then', builder)
         self.assertNotIn("go-build-v1-", openwrt_job)
 
@@ -307,6 +316,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertLess(build, attach)
         self.assertLess(attach, acceptance)
         self.assertIn("--jobs 4", job)
+
+    def test_release_reuses_verified_warp_controller_artifacts_or_cross_builds_all_abis(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
+
+        self.assertIn("z2kow-warp-controller-${SOURCE_SHA}-*", prepare)
+        self.assertIn("warp_controller_artifacts.py merge", prepare)
+        self.assertIn("Z2K_WARP_CONTROLLER_EXPECTED_RUN_ID", prepare)
+        self.assertIn("build_warp_controller.sh \"$RUNNER_TEMP/warp-controller\" --test", prepare)
+        self.assertIn('--warp-controller-dir "$WARP_CONTROLLER_ARTIFACT_DIR"', prepare)
 
     def test_openwrt_ci_requires_an_upgrade_from_the_previous_published_release(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")

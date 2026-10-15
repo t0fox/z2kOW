@@ -89,6 +89,7 @@ class PayloadBundleTests(unittest.TestCase):
         common_executables = (
             ("opt/zapret2/binaries", "nfqws2"),
             ("usr/lib/z2k/platform/openwrt/bin", "z2k-warpd"),
+            ("usr/lib/z2k/platform/openwrt/bin", "z2k-warp-controller"),
             ("usr/lib/z2k/bin", "z2k-rt-proxy"),
         )
         for root, executable in common_executables:

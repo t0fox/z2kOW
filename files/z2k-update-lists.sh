@@ -626,7 +626,7 @@ update_list() {
 #
 # Top-level (not nested in main) so the unit tests can drive it against a
 # stubbed update_list.
-update_warp_game_list() {
+_update_warp_game_list_locked_body() {
     local base_url="${Z2K_WARP_BASE_URL:-https://raw.githubusercontent.com/YOZH3G/ru-gaming-blocklist/main}"
     local wdir="${ZAPRET2_DIR}/lists/warp"
     local gdir="$wdir/games"
@@ -776,10 +776,70 @@ update_warp_game_list() {
 
     log_msg "OK: warp game lists refreshed ($ok lists, $skipped unavailable)"
 
-    # WARP is routing-only — reload the ipset live if the mode is on. The
-    # default keeps Keenetic's historical path; OpenWrt supplies its config
-    # and platform-owned reload script through the adapter seam.
+    return 0
+}
+
+# На OpenWrt обновление релизных списков использует общий lock панели, init,
+# hotplug и восстановления. Повторная загрузка ipset идёт после unlock, потому
+# что warp.sh берёт этот lock для собственной мутации.
+update_warp_game_list() {
     local _warp_ipset_script="${Z2K_WARP_IPSET_SCRIPT:-${ZAPRET2_DIR}/z2k-warp.sh}"
+    local _warp_openwrt_lock=0 _warp_update_rc=0 _warp_saved_source_only="${Z2K_WARP_SOURCE_ONLY:-}"
+    local _warp_install_work="${Z2K_OW_INSTALL_WORK:-/usr/lib/.z2k-install}"
+
+    case "$_warp_ipset_script" in
+        */platform/openwrt/warp.sh)
+            if [ ! -r "$_warp_ipset_script" ]; then
+                log_msg "FAIL: недоступен OpenWrt lock WARP"
+                return 1
+            fi
+            Z2K_WARP_SOURCE_ONLY=1
+            if ! . "$_warp_ipset_script"; then
+                if [ -n "$_warp_saved_source_only" ]; then
+                    Z2K_WARP_SOURCE_ONLY="$_warp_saved_source_only"
+                else
+                    unset Z2K_WARP_SOURCE_ONLY
+                fi
+                log_msg "FAIL: не удалось загрузить OpenWrt lock WARP"
+                return 1
+            fi
+            if [ -n "$_warp_saved_source_only" ]; then
+                Z2K_WARP_SOURCE_ONLY="$_warp_saved_source_only"
+            else
+                unset Z2K_WARP_SOURCE_ONLY
+            fi
+            if ! _z2k_ow_warp_lock "${WARP_LOCK_WAIT:-30}"; then
+                log_msg "FAIL: WARP занят, обновление игровых списков отложено"
+                return 1
+            fi
+            _warp_openwrt_lock=1
+            if [ -e "$_warp_install_work/transaction-active" ] \
+                || [ -L "$_warp_install_work/transaction-active" ]; then
+                if ! _z2k_ow_warp_unlock; then
+                    log_msg "FAIL: не удалось освободить lock WARP во время обновления релиза"
+                    return 1
+                fi
+                _warp_openwrt_lock=0
+                log_msg "WARP обновляется; игровые списки будут обновлены следующим запуском"
+                return 1
+            fi
+            ;;
+    esac
+
+    if _update_warp_game_list_locked_body; then
+        _warp_update_rc=0
+    else
+        _warp_update_rc=$?
+    fi
+
+    if [ "$_warp_openwrt_lock" = 1 ] && ! _z2k_ow_warp_unlock; then
+        log_msg "FAIL: не удалось освободить lock WARP после обновления списков"
+        return 1
+    fi
+    [ "$_warp_update_rc" = 0 ] || return "$_warp_update_rc"
+
+    # Keenetic сохраняет прежний путь; OpenWrt вызывает reload только после
+    # освобождения общего mutation lock.
     if [ "$(grep -m1 '^GAME_WARP_ENABLED=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' | tr -d ' ')" = "1" ] \
        && [ -x "$_warp_ipset_script" ]; then
         sh "$_warp_ipset_script" ipset >>"$LOG_FILE" 2>&1

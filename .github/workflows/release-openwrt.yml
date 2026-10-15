@@ -352,6 +352,45 @@ jobs:
           export PATH="$HOME/.cargo/bin:$PATH"
           sh scripts/openwrt/build_tg_ws_proxy.sh "$RUNNER_TEMP/tg-ws-proxy"
           printf 'directory=%s\n' "$RUNNER_TEMP/tg-ws-proxy" >> "$GITHUB_OUTPUT"
+      - name: Скачать проверенные Rust WARP ELF из CI этого исходного SHA
+        id: warp-controller-artifacts
+        if: steps.ci-hotfix-candidate.outputs.fast_path != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN_ID: ${{ needs.verify-source-ci.outputs.ci_run_id }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          artifact_root="$RUNNER_TEMP/warp-controller-artifacts"
+          merged="$RUNNER_TEMP/warp-controller"
+          if gh run download "$CI_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --pattern "z2kow-warp-controller-${SOURCE_SHA}-*" --dir "$artifact_root"; then
+            python3 scripts/openwrt/warp_controller_artifacts.py merge \
+              --artifacts "$artifact_root" --output "$merged" \
+              --source-sha "$SOURCE_SHA" --run-id "$CI_RUN_ID"
+            printf 'directory=%s\nci_run_id=%s\n' "$merged" "$CI_RUN_ID" >> "$GITHUB_OUTPUT"
+            printf 'Переиспользованы проверенные Rust WARP ELF из CI run %s.\n' "$CI_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf 'directory=\nci_run_id=\n' >> "$GITHUB_OUTPUT"
+            printf 'Артефакты Rust WARP CI run %s недоступны; будет выполнена локальная проверенная cross-сборка.\n' "$CI_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Локальная Rust WARP cross-сборка только при недоступности CI-артефактов
+        id: warp-controller-fallback
+        if: steps.ci-hotfix-candidate.outputs.fast_path != 'true' && steps.warp-controller-artifacts.outputs.directory == ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends binutils curl xz-utils zstd qemu-user
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
+          "$HOME/.cargo/bin/rustup" toolchain install 1.98.0 --profile minimal
+          "$HOME/.cargo/bin/rustup" component add rustfmt clippy --toolchain 1.98.0
+          export PATH="$HOME/.cargo/bin:$PATH"
+          Z2K_SOURCE_SHA="$GITHUB_SHA" \
+            sh scripts/openwrt/build_warp_controller.sh "$RUNNER_TEMP/warp-controller" --test
+          printf 'directory=%s\n' "$RUNNER_TEMP/warp-controller" >> "$GITHUB_OUTPUT"
       - name: Установить BusyBox для приёмки кандидата как на OpenWrt
         if: steps.ci-hotfix-candidate.outputs.fast_path != 'true'
         run: sudo apt-get update && sudo apt-get install -y busybox
@@ -374,6 +413,8 @@ jobs:
         env:
           TG_ARTIFACT_DIR: ${{ steps.tg-artifacts.outputs.directory || steps.tg-fallback.outputs.directory }}
           Z2K_TG_EXPECTED_RUN_ID: ${{ steps.tg-artifacts.outputs.ci_run_id }}
+          WARP_CONTROLLER_ARTIFACT_DIR: ${{ steps.warp-controller-artifacts.outputs.directory || steps.warp-controller-fallback.outputs.directory }}
+          Z2K_WARP_CONTROLLER_EXPECTED_RUN_ID: ${{ steps.warp-controller-artifacts.outputs.ci_run_id }}
           Z2K_GO_CACHE_ROOT: ${{ runner.temp }}/z2k-go-build-cache
         shell: bash
         run: |
@@ -402,6 +443,7 @@ jobs:
             build_args=(--out "$out")
             if [ "$include_legacy_fallback" = true ]; then build_args+=(--legacy-rootfs); fi
             build_args+=(--tg-dir "$TG_ARTIFACT_DIR")
+            build_args+=(--warp-controller-dir "$WARP_CONTROLLER_ARTIFACT_DIR")
             sh scripts/openwrt/build-release.sh "${build_args[@]}"
             python3 scripts/openwrt/controlled_release.py attach \
               --manifest "$out/UPDATES.json" \

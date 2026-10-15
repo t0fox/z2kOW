@@ -1,0 +1,19 @@
+[package]
+name = "z2k-warp-controller"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Одноразовый OpenWrt-контроллер состояния WARP"
+
+[dependencies]
+serde_json = "1.0"
+
+[lib]
+name = "warp_controller"
+path = "src/lib.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

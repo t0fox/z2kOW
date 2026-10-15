@@ -41,7 +41,7 @@ for _f in zapret-lib zapret-antidpi zapret-auto; do
 done
 tar -czf "$T/runtime.tar.gz" -C "$T" runtime || exit 1
 
-for _name in warpd tg rt detect; do mkdir -p "$T/$_name"; done
+for _name in warpd tg rt detect warp-controller; do mkdir -p "$T/$_name"; done
 for _arch in arm64 arm x86_64 x86 mips mipsel riscv64; do
     mkdir -p "$T/warpd/linux-$_arch" "$T/rt/linux-$_arch" "$T/detect/linux-$_arch"
     for _spec in "warpd:z2k-warpd" "rt:z2k-rt-proxy" "detect:z2k-detect"; do
@@ -49,6 +49,11 @@ for _arch in arm64 arm x86_64 x86 mips mipsel riscv64; do
         printf '#!/bin/sh\nprintf "%%s\\n" "%s-%s" "$*"\n' "$_kind" "$_arch" > "$T/$_kind/linux-$_arch/$_bin"
         chmod 0755 "$T/$_kind/linux-$_arch/$_bin"
     done
+done
+for _arch in arm arm64 mips mipsel riscv64 x86 x86_64; do
+    mkdir -p "$T/warp-controller/linux-$_arch"
+    printf '#!/bin/sh\nexit 0\n' > "$T/warp-controller/linux-$_arch/z2k-warp-controller"
+    chmod 0755 "$T/warp-controller/linux-$_arch/z2k-warp-controller"
 done
 for _variant in $(awk 'NF == 10 && $1 !~ /^#/ {print $3}' "$ROOT/platform/openwrt/tg-rust-targets.tsv" | sort -u); do
     mkdir -p "$T/tg/linux-$_variant"
@@ -71,7 +76,7 @@ tar -czf "$T/runtime-incomplete.tar.gz" -C "$T" runtime-incomplete || exit 1
 mkdir -p "$T/stage-incomplete"
 if sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$T/stage-incomplete" \
     "$T/runtime-incomplete.tar.gz" "$T/warpd" "$T/tg" "$T/rt" "$T/detect" \
-    "$T/release-keys" >/dev/null 2>&1; then
+    "$T/warp-controller" "$T/release-keys" >/dev/null 2>&1; then
     _t_bad "staging rejects an engine archive missing linux-mipsel"
 else
     _t_ok
@@ -79,7 +84,13 @@ fi
 
 mkdir -p "$T/stage"
 sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$T/stage" "$T/runtime.tar.gz" \
-    "$T/warpd" "$T/tg" "$T/rt" "$T/detect" "$T/release-keys" || exit 1
+    "$T/warpd" "$T/tg" "$T/rt" "$T/detect" "$T/warp-controller" "$T/release-keys" || exit 1
+
+for _arch in arm arm64 mips mipsel riscv64 x86 x86_64; do
+    _path="$T/stage/usr/lib/z2k/platform/openwrt/bin/linux-$_arch/z2k-warp-controller"
+    [ -f "$_path" ] && [ -x "$_path" ] \
+        && _t_ok || _t_bad "staging сохраняет Rust WARP ABI linux-$_arch"
+done
 
 for _binary in nfqws2 ip2net mdig; do
     _path="$T/stage/opt/zapret2/binaries/linux-x86_64/$_binary"

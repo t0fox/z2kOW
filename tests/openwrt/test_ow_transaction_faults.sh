@@ -32,6 +32,8 @@ for _name in tg-ws-proxy z2k-rt-proxy z2k-detect; do
 done
 printf '#!/bin/sh\nexit 0\n' > "$STAGE/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd"
 chmod 755 "$STAGE/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd"
+printf '#!/bin/sh\nexit 0\n' > "$STAGE/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warp-controller"
+chmod 755 "$STAGE/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warp-controller"
 for _name in nfqws2 ip2net mdig; do
     printf '#!/bin/sh\nexit 0\n' > "$STAGE/opt/zapret2/binaries/linux-arm64/$_name"
     chmod 755 "$STAGE/opt/zapret2/binaries/linux-arm64/$_name"

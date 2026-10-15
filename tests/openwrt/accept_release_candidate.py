@@ -86,6 +86,7 @@ def check_installed_architecture(sysroot: Path, arch: str, label: str) -> None:
         sysroot / f"usr/lib/z2k/bin/linux-{arch}/z2k-rt-proxy",
         sysroot / f"usr/lib/z2k/bin/linux-{arch}/z2k-detect",
         sysroot / f"usr/lib/z2k/platform/openwrt/bin/linux-{arch}/z2k-warpd",
+        sysroot / f"usr/lib/z2k/platform/openwrt/bin/linux-{arch}/z2k-warp-controller",
         sysroot / f"opt/zapret2/binaries/linux-{arch}/nfqws2",
         sysroot / f"opt/zapret2/binaries/linux-{arch}/ip2net",
         sysroot / f"opt/zapret2/binaries/linux-{arch}/mdig",

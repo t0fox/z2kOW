@@ -423,6 +423,78 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  warp-controller:
+    name: Rust WARP controller ${{ matrix.group }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: zig
+            variants: "arm64 x86_64 x86 riscv64"
+            tests: true
+          - group: arm
+            variants: "arm"
+            tests: false
+          - group: mips
+            variants: "mips"
+            tests: false
+          - group: mipsel
+            variants: "mipsel"
+            tests: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Установить Rust и эмуляторы ABI
+        shell: bash
+        env:
+          RUN_TESTS: ${{ matrix.tests }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends binutils curl xz-utils zstd qemu-user
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
+          "$HOME/.cargo/bin/rustup" toolchain install 1.98.0 --profile minimal
+          if [ "$RUN_TESTS" = true ]; then
+            "$HOME/.cargo/bin/rustup" component add rustfmt clippy --toolchain 1.98.0
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Восстановить Cargo cache и закреплённые ABI toolchain
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ runner.temp }}/z2k-warp-cargo-target
+            ${{ runner.temp }}/z2k-warp-toolchains
+          key: warp-cargo-v1-${{ runner.os }}-${{ matrix.group }}-${{ hashFiles('platform/openwrt/warp-controller/Cargo.lock', 'platform/openwrt/warp-controller/rust-targets.tsv', 'scripts/openwrt/build_warp_controller.sh') }}
+      - name: Собрать и проверить запуск каждого Rust ABI
+        env:
+          Z2K_SOURCE_SHA: ${{ github.sha }}
+          Z2K_WARP_CONTROLLER_GROUP: ${{ matrix.group }}
+          Z2K_WARP_CONTROLLER_VARIANTS: ${{ matrix.variants }}
+          Z2K_WARP_CARGO_TARGET_DIR: ${{ runner.temp }}/z2k-warp-cargo-target
+          Z2K_WARP_TOOLCHAIN_CACHE: ${{ runner.temp }}/z2k-warp-toolchains
+          RUN_TESTS: ${{ matrix.tests }}
+        run: |
+          set -euo pipefail
+          if [ "$RUN_TESTS" = true ]; then
+            sh scripts/openwrt/build_warp_controller.sh "$RUNNER_TEMP/warp-controller" --test
+          else
+            sh scripts/openwrt/build_warp_controller.sh "$RUNNER_TEMP/warp-controller"
+          fi
+          python3 scripts/openwrt/warp_controller_artifacts.py verify \
+            --directory "$RUNNER_TEMP/warp-controller" --source-sha "$GITHUB_SHA" --group "$Z2K_WARP_CONTROLLER_GROUP"
+      - name: Сохранить проверенные Rust WARP ELF группы
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: z2kow-warp-controller-${{ github.sha }}-${{ matrix.group }}
+          path: ${{ runner.temp }}/warp-controller/
+          if-no-files-found: error
+          retention-days: 14
+
   go:
     name: Go ${{ matrix.module }}
     runs-on: ubuntu-latest
@@ -782,7 +854,7 @@ jobs:
     name: OpenWrt full-payload release
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    needs: [rust-tg-proxy, go, openwrt-runtime, openwrt-acceptance]
+    needs: [rust-tg-proxy, warp-controller, go, openwrt-runtime, openwrt-acceptance]
     permissions:
       contents: read
       actions: read
@@ -808,6 +880,12 @@ jobs:
           python3 scripts/openwrt/tg_build_artifacts.py merge \
             --artifacts "$artifact_root" --output "$RUNNER_TEMP/tg-ws-proxy" \
             --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
+          warp_artifact_root="$RUNNER_TEMP/warp-controller-artifacts"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --pattern "z2kow-warp-controller-${GITHUB_SHA}-*" --dir "$warp_artifact_root"
+          python3 scripts/openwrt/warp_controller_artifacts.py merge \
+            --artifacts "$warp_artifact_root" --output "$RUNNER_TEMP/warp-controller" \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
       - name: Загрузить проверенные Go ELF всех модулей
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -822,6 +900,7 @@ jobs:
         env:
           Z2K_TG_EXPECTED_RUN_ID: ${{ github.run_id }}
           Z2K_GO_EXPECTED_RUN_ID: ${{ github.run_id }}
+          Z2K_WARP_CONTROLLER_EXPECTED_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           cp UPDATES.json "$RUNNER_TEMP/production-UPDATES.json"
@@ -831,6 +910,7 @@ jobs:
           build_args=(--out "$RUNNER_TEMP/openwrt-candidate")
           if [ "$include_legacy_fallback" = true ]; then build_args+=(--legacy-rootfs); fi
           build_args+=(--tg-dir "$RUNNER_TEMP/tg-ws-proxy")
+          build_args+=(--warp-controller-dir "$RUNNER_TEMP/warp-controller")
           build_args+=(--go-dir "$RUNNER_TEMP/go-artifacts")
           build_args+=(--runtime-tarball "$RUNNER_TEMP/runtime-artifact/zapret2-runtime.tar.gz" --runtime-acceptance-passed)
           sh scripts/openwrt/build-release.sh "${build_args[@]}"

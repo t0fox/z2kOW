@@ -1,0 +1,1604 @@
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
+use std::time::Duration;
+use std::{env, io, process};
+use warp_controller::{
+    config::{self, MatchOrder},
+    devices, domain_state, health, lifecycle, list_ops, lists,
+    lock::MutationLock,
+    nft,
+    openwrt::InterfaceKind,
+    operation::{self, OperationState},
+    recovery, registration, route_error,
+    routing::{
+        RouteConfig, apply_policy, reconcile_policy, remove_policy, remove_policy_from_owner_files,
+        verify_policy,
+    },
+    state::{
+        EngineStatus, Observation, PolicyAction, ProcessStatus, RuntimeReadiness,
+        observe_warp_process, plan_policy, read_engine_status, read_engine_status_snapshot,
+        runtime_readiness,
+    },
+};
+
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("z2k-warp-controller: {error}");
+        process::exit(1);
+    }
+}
+
+fn run() -> io::Result<()> {
+    let mut args = env::args().skip(1);
+    match args.next().as_deref() {
+        Some("nft-sync") => run_nft_sets_command(&mut args, true),
+        Some("nft-sets-verify") => run_nft_sets_command(&mut args, false),
+        Some("nft-chain-clear") => run_nft_chain_clear(&mut args),
+        Some("disable-state") => run_disable_state(&mut args),
+        Some("nft-warp-remove") => run_nft_warp_remove(&mut args),
+        Some("nft-fw4-forward-apply") => run_nft_fw4_forward_apply(&mut args),
+        Some("nft-fw4-forward-verify") => run_nft_fw4_forward_verify(&mut args),
+        Some("nft-fw4-forward-remove") => run_nft_fw4_forward_remove(&mut args),
+        Some("interfaces") => run_interface_list(&mut args),
+        Some("device-ips") => {
+            let selected = required(&mut args, "файл выбранных устройств")?;
+            let leases = required(&mut args, "файл DHCP leases")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы device-ips"));
+            }
+            for address in devices::resolve_selected_devices(selected.as_ref(), leases.as_ref())? {
+                println!("{address}");
+            }
+            Ok(())
+        }
+        Some("nft-tun-apply") => {
+            let _lock = acquire_global_lock()?;
+            let family = required(&mut args, "семейство nft")?;
+            let table = required(&mut args, "таблица nft")?;
+            let mss_chain = required(&mut args, "MSS-цепочка")?;
+            let forward_chain = required(&mut args, "forward-цепочка")?;
+            let nat_chain = required(&mut args, "NAT-цепочка")?;
+            let interface = required(&mut args, "TUN-интерфейс")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы nft-tun-apply"));
+            }
+            let batch = nft::render_tun_batch(
+                &family,
+                &table,
+                &mss_chain,
+                &forward_chain,
+                &nat_chain,
+                &interface,
+            )?;
+            nft::apply_transaction(&batch)
+        }
+        Some("nft-tun-verify") => {
+            let ready = run_nft_tun_verify(&mut args)?;
+            println!("ready={}", u8::from(ready));
+            Ok(())
+        }
+        Some("nft-mark-apply") => run_nft_mark(&mut args, true).map(|_| ()),
+        Some("nft-mark-verify") => {
+            let ready = run_nft_mark(&mut args, false)?;
+            println!("ready={}", u8::from(ready));
+            Ok(())
+        }
+        Some("nft-domain-set-ensure") => {
+            let _lock = acquire_global_lock()?;
+            let family = required(&mut args, "семейство nft")?;
+            let table = required(&mut args, "таблица nft")?;
+            let set = required(&mut args, "набор доменных пар")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы nft-domain-set-ensure"));
+            }
+            let table_output = command_output("nft", &["list", "table", &family, &table])?;
+            if nft::domain_pair_set_matches(&table_output, &family, &table, &set)?.is_some() {
+                return Ok(());
+            }
+            let batch = nft::render_domain_pair_set_create_batch(&family, &table, &set)?;
+            nft::apply_transaction(&batch)
+        }
+        Some("nft-domain-observer-apply") => {
+            let _lock = acquire_global_lock()?;
+            let family = required(&mut args, "семейство nft observer")?;
+            let table = required(&mut args, "таблица nft observer")?;
+            let output_chain = required(&mut args, "output chain observer")?;
+            let forward_chain = required(&mut args, "forward chain observer")?;
+            let group = required(&mut args, "NFLOG group")?;
+            let devices = parse_interface_csv(&required(&mut args, "устройства observer")?)?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы nft-domain-observer-apply"));
+            }
+
+            let mut tables_output = command_output("nft", &["list", "tables"])?;
+            let mut table_exists = nft_table_exists(&tables_output, &family, &table);
+            if !table_exists {
+                let batch = nft::render_domain_observer_table_create_batch(&family, &table)?;
+                nft::apply_transaction(&batch)?;
+                tables_output = command_output("nft", &["list", "tables"])?;
+                table_exists = nft_table_exists(&tables_output, &family, &table);
+                if !table_exists {
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "nft observer table отсутствует после создания",
+                    ));
+                }
+            }
+            let table_output = command_output("nft", &["list", "table", &family, &table])?;
+            if !nft::domain_observer_table_owned(&table_output, &family, &table)? {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "nft observer table занят другим владельцем",
+                ));
+            }
+            let output_exists =
+                nft::domain_observer_chain_owned(&table_output, &output_chain, "output")?.is_some();
+            let forward_exists =
+                nft::domain_observer_chain_owned(&table_output, &forward_chain, "forward")?
+                    .is_some();
+
+            let output_matches = if output_exists {
+                let output =
+                    command_output("nft", &["list", "chain", &family, &table, &output_chain])?;
+                nft::domain_observer_chain_rules_match(&output, &output_chain, &devices, &group)
+            } else {
+                false
+            };
+            let forward_matches = if forward_exists {
+                let output =
+                    command_output("nft", &["list", "chain", &family, &table, &forward_chain])?;
+                nft::domain_observer_chain_rules_match(&output, &forward_chain, &devices, &group)
+            } else {
+                false
+            };
+            if table_exists && output_matches && forward_matches {
+                return Ok(());
+            }
+            let batch = nft::render_domain_observer_batch(&nft::DomainObserverConfig {
+                family: &family,
+                table: &table,
+                output_chain: &output_chain,
+                forward_chain: &forward_chain,
+                group: &group,
+                devices: &devices,
+                table_exists,
+                output_exists,
+                forward_exists,
+            })?;
+            nft::apply_transaction(&batch)
+        }
+        Some("nft-domain-verify") => {
+            let pair_family = required(&mut args, "семейство nft доменных пар")?;
+            let pair_table = required(&mut args, "таблица nft доменных пар")?;
+            let pair_set = required(&mut args, "набор nft доменных пар")?;
+            let observer_family = required(&mut args, "семейство nft observer")?;
+            let observer_table = required(&mut args, "таблица nft observer")?;
+            let output_chain = required(&mut args, "output chain observer")?;
+            let forward_chain = required(&mut args, "forward chain observer")?;
+            let group = required(&mut args, "NFLOG group")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы nft-domain-verify"));
+            }
+            let ready = verify_domain_nft(
+                &pair_family,
+                &pair_table,
+                &pair_set,
+                &observer_family,
+                &observer_table,
+                &output_chain,
+                &forward_chain,
+                &group,
+            )?;
+            println!("ready={}", u8::from(ready));
+            Ok(())
+        }
+        Some("nft-domain-remove") => {
+            let _lock = acquire_global_lock()?;
+            let observer_family = required(&mut args, "семейство nft observer")?;
+            let observer_table = required(&mut args, "таблица nft observer")?;
+            let pair_family = required(&mut args, "семейство nft доменных пар")?;
+            let pair_table = required(&mut args, "таблица nft доменных пар")?;
+            let pair_set = required(&mut args, "набор nft доменных пар")?;
+            let full = parse_bool(&required(&mut args, "полное удаление")?)?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы nft-domain-remove"));
+            }
+            remove_domain_nft_state(
+                &observer_family,
+                &observer_table,
+                &pair_family,
+                &pair_table,
+                &pair_set,
+                full,
+            )
+        }
+        Some("route-apply") => run_route_command(&mut args, true),
+        Some("route-remove") => run_route_command(&mut args, false),
+        Some("route-remove-owned") => run_route_remove_owned_command(&mut args),
+        Some("route-reconcile") => run_route_reconcile_command(&mut args),
+        Some("route-verify") => run_route_verify_command(&mut args),
+        Some("list-save") => {
+            let _lock = acquire_global_lock()?;
+            let dir = required(&mut args, "каталог списков")?;
+            let name = required(&mut args, "имя списка")?;
+            let mode = required(&mut args, "режим сохранения")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы list-save"));
+            }
+            let result = list_ops::save_list(dir.as_ref(), &name, &mode, io::stdin().lock())?;
+            println!(
+                "saved={} saved_ip={} saved_domain={} skipped_invalid={}",
+                result.saved, result.saved_ip, result.saved_domain, result.skipped_invalid
+            );
+            Ok(())
+        }
+        Some("list-migrate") => {
+            let _lock = acquire_global_lock()?;
+            let user_dir = required(&mut args, "каталог пользовательских списков")?;
+            let games_dir = required(&mut args, "каталог игровых списков")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы list-migrate"));
+            }
+            list_ops::migrate_lists(user_dir.as_ref(), games_dir.as_ref())
+        }
+        Some("list-delete") => {
+            let _lock = acquire_global_lock()?;
+            let dir = required(&mut args, "каталог списков")?;
+            let name = required(&mut args, "имя списка")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы list-delete"));
+            }
+            list_ops::delete_list(dir.as_ref(), &name)
+        }
+        Some("list-user-toggle") => {
+            let _lock = acquire_global_lock()?;
+            let dir = required(&mut args, "каталог списков")?;
+            let name = required(&mut args, "имя списка")?;
+            let enabled = parse_bool(&required(&mut args, "состояние списка")?)?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы list-user-toggle"));
+            }
+            list_ops::toggle_user_list(dir.as_ref(), &name, enabled)
+        }
+        Some("list-game-toggle") => {
+            let _lock = acquire_global_lock()?;
+            let enabled_file = required(&mut args, "файл включённых игр")?;
+            let games_dir = required(&mut args, "каталог игровых списков")?;
+            let name = required(&mut args, "имя игры")?;
+            let enabled = parse_bool(&required(&mut args, "состояние игры")?)?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы list-game-toggle"));
+            }
+            list_ops::toggle_game_list(enabled_file.as_ref(), games_dir.as_ref(), &name, enabled)
+        }
+        Some("devices-save") => {
+            let _lock = acquire_global_lock()?;
+            let dir = required(&mut args, "каталог списков")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы devices-save"));
+            }
+            let (entries, dropped) = list_ops::save_devices(dir.as_ref(), io::stdin().lock())?;
+            println!("entries={entries} dropped={dropped}");
+            Ok(())
+        }
+        Some("devices-toggle") => {
+            let _lock = acquire_global_lock()?;
+            let dir = required(&mut args, "каталог списков")?;
+            let mac = required(&mut args, "MAC-адрес устройства")?;
+            let enabled = parse_bool(&required(&mut args, "состояние устройства")?)?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы devices-toggle"));
+            }
+            list_ops::toggle_device(dir.as_ref(), &mac, enabled)
+        }
+        Some("domains-list") => {
+            let user_dir = required(&mut args, "каталог пользовательских списков")?;
+            let games_dir = required(&mut args, "каталог игровых списков")?;
+            let enabled = required(&mut args, "файл включённых игр")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы domains-list"));
+            }
+            let domains = lists::load_active_domains(
+                user_dir.as_ref(),
+                games_dir.as_ref(),
+                enabled.as_ref(),
+            )?;
+            for domain in domains
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>()
+            {
+                println!("{domain}");
+            }
+            Ok(())
+        }
+        Some("policy-scope") => {
+            let user_dir = required(&mut args, "каталог пользовательских списков")?;
+            let games_dir = required(&mut args, "каталог игровых списков")?;
+            let enabled = required(&mut args, "файл включённых игр")?;
+            let devices = required(&mut args, "файл выбранных устройств")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы policy-scope"));
+            }
+            let scope = lists::policy_scope(
+                user_dir.as_ref(),
+                games_dir.as_ref(),
+                enabled.as_ref(),
+                devices.as_ref(),
+            )?;
+            println!("{}", scope.as_str());
+            Ok(())
+        }
+        Some("domains-sync") => {
+            let _lock = acquire_global_lock()?;
+            let user_dir = required(&mut args, "каталог пользовательских списков")?;
+            let games_dir = required(&mut args, "каталог игровых списков")?;
+            let enabled = required(&mut args, "файл включённых игр")?;
+            let rules = required(&mut args, "файл правил domains.v1")?;
+            let error = required(&mut args, "файл ошибки domain observer")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы domains-sync"));
+            }
+            let domains = lists::load_active_domains(
+                user_dir.as_ref(),
+                games_dir.as_ref(),
+                enabled.as_ref(),
+            )?;
+            let rendered = domain_state::sync_rules_file(rules.as_ref(), error.as_ref(), &domains)?;
+            if let Some(error) = rendered.error {
+                println!("error={error}");
+            }
+            Ok(())
+        }
+        Some("domains-error") => {
+            let error = required(&mut args, "файл ошибки domain observer")?;
+            let code = required(&mut args, "код ошибки domain observer")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы domains-error"));
+            }
+            domain_state::set_error_file(error.as_ref(), &code)
+        }
+        Some("route-error-set") => {
+            let _lock = acquire_global_lock()?;
+            let error = required(&mut args, "файл ошибки маршрутизации")?;
+            let reason = required(&mut args, "код ошибки маршрутизации")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы route-error-set"));
+            }
+            route_error::set_if_absent(error.as_ref(), &reason)
+        }
+        Some("route-error-clear") => {
+            let _lock = acquire_global_lock()?;
+            let error = required(&mut args, "файл ошибки маршрутизации")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы route-error-clear"));
+            }
+            route_error::clear(error.as_ref())
+        }
+        Some("op-begin") => {
+            let path = required(&mut args, "файл намерения WARP")?;
+            let pid = parse_pid(&required(&mut args, "PID действия WARP")?)?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы op-begin"));
+            }
+            let _lock = acquire_operation_lock(path.as_ref())?;
+            operation::begin(path.as_ref(), pid)
+        }
+        Some("op-current") => {
+            let path = required(&mut args, "файл намерения WARP")?;
+            let pid = parse_pid(&required(&mut args, "PID действия WARP")?)?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы op-current"));
+            }
+            let _lock = acquire_operation_lock(path.as_ref())?;
+            let state = operation::current(path.as_ref(), pid);
+            println!(
+                "{}",
+                match state {
+                    OperationState::Current => "current",
+                    OperationState::Superseded => "superseded",
+                    OperationState::Unreadable => "unreadable",
+                }
+            );
+            Ok(())
+        }
+        Some("op-clear") => {
+            let path = required(&mut args, "файл намерения WARP")?;
+            let pid = parse_pid(&required(&mut args, "PID действия WARP")?)?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы op-clear"));
+            }
+            let _lock = acquire_operation_lock(path.as_ref())?;
+            operation::clear_if_owner(path.as_ref(), pid).map(|_| ())
+        }
+        Some("procd-recovery-claim") => {
+            let path = required(&mut args, "файл маркера восстановления WARP")?;
+            let timestamp = required(&mut args, "время попытки восстановления")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы procd-recovery-claim"));
+            }
+            println!(
+                "{}",
+                if recovery::claim(path.as_ref(), &timestamp)? {
+                    "claimed"
+                } else {
+                    "exists"
+                }
+            );
+            Ok(())
+        }
+        Some("procd-recovery-clear") => {
+            let path = required(&mut args, "файл маркера восстановления WARP")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы procd-recovery-clear"));
+            }
+            recovery::clear(path.as_ref())
+        }
+        Some("register-due") => run_register_due(&mut args),
+        Some("state-observe") => {
+            let status = required(&mut args, "файл состояния WARP")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы state-observe"));
+            }
+            match read_engine_status(status.as_ref()) {
+                EngineStatus::Ready { iface } => println!("ready {iface}"),
+                EngineStatus::NotReady => println!("not-ready"),
+                EngineStatus::Unreadable => println!("unreadable"),
+            }
+            Ok(())
+        }
+        Some("process-observe") => {
+            let proc_root = required(&mut args, "корень procfs")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы process-observe"));
+            }
+            let status = observe_warp_process(proc_root.as_ref());
+            println!(
+                "{}",
+                match status {
+                    ProcessStatus::Present => "present",
+                    ProcessStatus::Absent => "absent",
+                    ProcessStatus::Unreadable => "unreadable",
+                }
+            );
+            Ok(())
+        }
+        Some("runtime-observe") => run_runtime_observe(&mut args),
+        Some("ready-observe-since") => run_ready_observe_since(&mut args),
+        Some("health-plan") => run_health_plan(&mut args),
+        Some("boot-plan") => run_boot_plan(&mut args),
+        Some("service-plan") => run_service_plan(&mut args),
+        Some("policy-plan") => {
+            let enabled = parse_policy_observation(
+                &required(&mut args, "состояние WARP")?,
+                "enabled",
+                "disabled",
+            )?;
+            let engine = parse_policy_observation(
+                &required(&mut args, "состояние движка")?,
+                "ready",
+                "not-ready",
+            )?;
+            let policy = parse_policy_observation(
+                &required(&mut args, "состояние PBR")?,
+                "present",
+                "absent",
+            )?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы policy-plan"));
+            }
+            let action = plan_policy(enabled, engine, policy);
+            println!(
+                "{}",
+                match action {
+                    PolicyAction::Defer => "defer",
+                    PolicyAction::Noop => "noop",
+                    PolicyAction::ApplyPolicy => "apply",
+                    PolicyAction::RemovePolicy => "remove",
+                }
+            );
+            Ok(())
+        }
+        Some("lock-acquire") => {
+            let pid = required(&mut args, "PID владельца lock")?
+                .parse::<u32>()
+                .map_err(|_| invalid("неверный PID владельца lock"))?;
+            let wait = required(&mut args, "время ожидания lock")?
+                .parse::<u64>()
+                .map_err(|_| invalid("неверное время ожидания lock"))?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы lock-acquire"));
+            }
+            let path = env::var_os("Z2K_WARP_LOCK_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("/tmp/z2k/warp/mutate.lock"));
+            if !MutationLock::acquire_for_process(&path, pid, Duration::from_secs(wait))? {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "операция WARP уже выполняется",
+                ));
+            }
+            Ok(())
+        }
+        Some("lock-release") => {
+            let pid = required(&mut args, "PID владельца lock")?
+                .parse::<u32>()
+                .map_err(|_| invalid("неверный PID владельца lock"))?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы lock-release"));
+            }
+            let path = env::var_os("Z2K_WARP_LOCK_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("/tmp/z2k/warp/mutate.lock"));
+            if !MutationLock::release_for_process(&path, pid)? {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "текущий процесс не владеет lock WARP",
+                ));
+            }
+            Ok(())
+        }
+        Some("config-read") => {
+            let path = required(&mut args, "файл конфигурации")?;
+            let key = required(&mut args, "ключ конфигурации")?;
+            let default = required(&mut args, "значение по умолчанию")?;
+            let order = match required(&mut args, "порядок совпадений")?.as_str() {
+                "first" => MatchOrder::First,
+                "last" => MatchOrder::Last,
+                _ => return Err(invalid("порядок совпадений должен быть first или last")),
+            };
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы config-read"));
+            }
+            println!(
+                "{}",
+                config::read_value(path.as_ref(), &key, &default, order)?
+            );
+            Ok(())
+        }
+        Some("warp-flag-set") => {
+            let path = required(&mut args, "файл конфигурации WARP")?;
+            let value = required(&mut args, "значение флага WARP")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы warp-flag-set"));
+            }
+            config::set_warp_enabled(path.as_ref(), &value)
+        }
+        Some("config-flag-set") => {
+            let path = required(&mut args, "файл конфигурации WARP")?;
+            let key = required(&mut args, "ключ настройки WARP")?;
+            let value = required(&mut args, "значение флага WARP")?;
+            if args.next().is_some() {
+                return Err(invalid("лишние аргументы config-flag-set"));
+            }
+            config::set_config_flag(path.as_ref(), &key, &value)
+        }
+        Some("version") => {
+            println!("{}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
+        _ => Err(invalid("неизвестная команда контроллера WARP")),
+    }
+}
+
+fn required(args: &mut impl Iterator<Item = String>, description: &str) -> io::Result<String> {
+    args.next()
+        .ok_or_else(|| invalid(&format!("не задан {description}")))
+}
+
+fn run_interface_list(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let kind = match required(args, "тип интерфейсов")?.as_str() {
+        "lan" => InterfaceKind::Lan,
+        "wireguard-servers" => InterfaceKind::WireGuardServers,
+        "wireguard-clients" => InterfaceKind::WireGuardClients,
+        _ => return Err(invalid("неизвестный тип интерфейсов")),
+    };
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы interfaces"));
+    }
+    for interface in warp_controller::openwrt::discover_interfaces(kind)? {
+        println!("{interface}");
+    }
+    Ok(())
+}
+
+fn run_nft_sets_command(args: &mut impl Iterator<Item = String>, apply: bool) -> io::Result<()> {
+    let _lock = acquire_global_lock()?;
+    let user_dir = required(args, "каталог пользовательских списков")?;
+    let games_dir = required(args, "каталог игровых списков")?;
+    let enabled = required(args, "файл включённых игр")?;
+    let devices = required(args, "файл устройств")?;
+    let family = required(args, "семейство nft")?;
+    let table = required(args, "таблица nft")?;
+    let dst_set = required(args, "набор адресов назначения")?;
+    let src_set = required(args, "набор адресов источника")?;
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы nft sets command"));
+    }
+
+    let snapshot = lists::load_active_lists(
+        user_dir.as_ref(),
+        games_dir.as_ref(),
+        enabled.as_ref(),
+        devices.as_ref(),
+    )?;
+    let destinations = lists::normalize_destinations(&snapshot.validation.addresses.join("\n"));
+    let leases_file = env::var_os("WARP_DHCP_LEASES")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp/dhcp.leases"));
+    let mut sources =
+        devices::resolve_selected_devices_from_text(&snapshot.device_sources, &leases_file)?;
+    sources.sort();
+    sources.dedup();
+    if destinations.is_empty()
+        && sources.is_empty()
+        && snapshot.validation.domains.is_empty()
+        && snapshot.has_nonempty_input
+    {
+        return Err(invalid(
+            "непустые источники не содержат допустимых адресов; nft не изменён",
+        ));
+    }
+
+    let table_output = command_output("nft", &["list", "table", &family, &table])?;
+    let inventory = nft::parse_set_inventory(&table_output, &family, &table, &dst_set, &src_set)?;
+    if nft::sets_match(&inventory, &destinations, &sources) {
+        if !apply {
+            println!("ready=1");
+        }
+        return Ok(());
+    }
+    if !apply {
+        println!("ready=0");
+        return Ok(());
+    }
+    let batch = nft::render_set_batch_with_create(
+        &family,
+        &table,
+        &dst_set,
+        &src_set,
+        &inventory,
+        &destinations,
+        &sources,
+    )?;
+    nft::apply_transaction(&batch)
+}
+
+fn invalid(message: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, message)
+}
+
+fn parse_bool(value: &str) -> io::Result<bool> {
+    match value {
+        "0" => Ok(false),
+        "1" => Ok(true),
+        _ => Err(invalid("ожидается 0 или 1")),
+    }
+}
+
+fn run_service_plan(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let intent = match required(args, "действие жизненного цикла WARP")?.as_str()
+    {
+        "enable" => lifecycle::ServiceIntent::Enable,
+        "disable" => lifecycle::ServiceIntent::Disable,
+        "restart" => lifecycle::ServiceIntent::Restart,
+        _ => return Err(invalid("неверное действие service-plan")),
+    };
+    let was_enabled = parse_bool(&required(args, "прежний флаг WARP")?)?;
+    let service_active = match required(args, "состояние службы procd")?.as_str() {
+        "1" => Observation::Known(true),
+        "0" => Observation::Known(false),
+        "unreadable" => Observation::Unreadable,
+        _ => return Err(invalid("ожидается 0, 1 или unreadable для службы procd")),
+    };
+    let process_running = parse_bool(&required(args, "состояние процесса WARP")?)?;
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы service-plan"));
+    }
+
+    let action = lifecycle::service_action(intent, was_enabled, service_active, process_running);
+    println!(
+        "{}",
+        match action {
+            lifecycle::ServiceAction::Defer => "defer",
+            lifecycle::ServiceAction::None => "none",
+            lifecycle::ServiceAction::Reload => "reload",
+            lifecycle::ServiceAction::Rebuild => "rebuild",
+        }
+    );
+    Ok(())
+}
+
+fn run_register_due(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let stamp_path = PathBuf::from(required(args, "файл попытки регистрации")?);
+    let now = required(args, "текущее время")?
+        .parse::<u64>()
+        .map_err(|_| invalid("неверное текущее время регистрации"))?;
+    let retry_seconds = required(args, "интервал повторной регистрации")?
+        .parse::<u64>()
+        .map_err(|_| invalid("неверный интервал повторной регистрации"))?;
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы register-due"));
+    }
+
+    let result = match registration::attempt_due(&stamp_path, now, retry_seconds) {
+        Observation::Known(true) => "due",
+        Observation::Known(false) => "wait",
+        Observation::Unreadable => "defer",
+    };
+    println!("{result}");
+    Ok(())
+}
+
+fn parse_policy_observation(
+    value: &str,
+    true_value: &str,
+    false_value: &str,
+) -> io::Result<Observation<bool>> {
+    match value {
+        value if value == true_value => Ok(Observation::Known(true)),
+        value if value == false_value => Ok(Observation::Known(false)),
+        "unreadable" => Ok(Observation::Unreadable),
+        _ => Err(invalid("неверное наблюдение policy-plan")),
+    }
+}
+
+fn run_health_plan(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let config_path = PathBuf::from(required(args, "файл конфигурации WARP")?);
+    let binary_path = PathBuf::from(required(args, "бинарник движка WARP")?);
+    let device_path = PathBuf::from(required(args, "файл регистрации WARP")?);
+    let status_path = PathBuf::from(required(args, "файл состояния WARP")?);
+    let proc_root = PathBuf::from(required(args, "корень procfs")?);
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы health-plan"));
+    }
+
+    let engine = read_engine_status(&status_path);
+    let iface_present = observe_interface(&engine);
+    let ready_iface = match &engine {
+        EngineStatus::Ready { iface } => Some(iface.clone()),
+        EngineStatus::NotReady | EngineStatus::Unreadable => None,
+    };
+    let action = health::plan(health::HealthObservations {
+        config_enabled: read_config_flag(&config_path, "ENABLED", "1", MatchOrder::Last),
+        feature_enabled: read_config_flag(&config_path, "GAME_WARP_ENABLED", "", MatchOrder::First),
+        binary_present: file_observation(&binary_path, |metadata| {
+            metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+        }),
+        device_present: file_observation(&device_path, |metadata| {
+            metadata.is_file() && metadata.len() > 0
+        }),
+        process: observe_warp_process(&proc_root),
+        engine,
+        iface_present,
+    });
+    let action_name = match action {
+        health::HealthAction::Defer => "defer",
+        health::HealthAction::Disabled => "disabled",
+        health::HealthAction::BinaryMissing => "binary-missing",
+        health::HealthAction::DeviceMissing => "device-missing",
+        health::HealthAction::ProcessAbsent => "process-absent",
+        health::HealthAction::NotReady => "not-ready",
+        health::HealthAction::Ready => "ready",
+    };
+    if action == health::HealthAction::Ready {
+        println!("{action_name} {}", ready_iface.as_deref().unwrap_or(""));
+    } else {
+        println!("{action_name}");
+    }
+    Ok(())
+}
+
+fn run_boot_plan(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let config_path = PathBuf::from(required(args, "файл конфигурации WARP")?);
+    let binary_path = PathBuf::from(required(args, "бинарник движка WARP")?);
+    let device_path = PathBuf::from(required(args, "файл регистрации WARP")?);
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы boot-plan"));
+    }
+
+    let action = health::plan_boot(
+        read_config_flag(&config_path, "ENABLED", "1", MatchOrder::Last),
+        read_config_flag(&config_path, "GAME_WARP_ENABLED", "", MatchOrder::First),
+        file_observation(&binary_path, |metadata| {
+            metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+        }),
+        file_observation(&device_path, |metadata| {
+            metadata.is_file() && metadata.len() > 0
+        }),
+    );
+    println!(
+        "{}",
+        match action {
+            health::BootAction::Defer => "defer",
+            health::BootAction::Skip => "unwanted",
+            health::BootAction::Start => "wanted",
+        }
+    );
+    Ok(())
+}
+
+fn read_config_flag(
+    path: &std::path::Path,
+    key: &str,
+    default: &str,
+    order: MatchOrder,
+) -> Observation<bool> {
+    match config::read_value(path, key, default, order) {
+        Ok(value) => Observation::Known(value == "1"),
+        Err(_) => Observation::Unreadable,
+    }
+}
+
+fn file_observation(
+    path: &std::path::Path,
+    is_present: impl FnOnce(&fs::Metadata) -> bool,
+) -> Observation<bool> {
+    match fs::metadata(path) {
+        Ok(metadata) => Observation::Known(is_present(&metadata)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Observation::Known(false),
+        Err(_) => Observation::Unreadable,
+    }
+}
+
+fn observe_interface(engine: &EngineStatus) -> Option<bool> {
+    match engine {
+        EngineStatus::Ready { iface } if valid_warp_interface(iface) => {
+            command_output("ip", &["-j", "link", "show"])
+                .and_then(|output| link_exists(&output, iface))
+                .ok()
+        }
+        EngineStatus::Ready { .. } => Some(false),
+        EngineStatus::NotReady | EngineStatus::Unreadable => None,
+    }
+}
+
+fn run_runtime_observe(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let status_path = required(args, "файл состояния WARP")?;
+    let proc_root = required(args, "корень procfs")?;
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы runtime-observe"));
+    }
+
+    let process = observe_warp_process(proc_root.as_ref());
+    match process {
+        ProcessStatus::Absent => {
+            println!("not-ready absent -");
+            return Ok(());
+        }
+        ProcessStatus::Unreadable => {
+            println!("unreadable unreadable -");
+            return Ok(());
+        }
+        ProcessStatus::Present => {}
+    }
+
+    let engine = read_engine_status(status_path.as_ref());
+    let iface_present = match &engine {
+        EngineStatus::Ready { iface } if valid_warp_interface(iface) => {
+            match command_output("ip", &["-j", "link", "show"]) {
+                Ok(output) => link_exists(&output, iface).ok(),
+                Err(_) => None,
+            }
+        }
+        EngineStatus::Ready { .. } => Some(false),
+        EngineStatus::NotReady | EngineStatus::Unreadable => None,
+    };
+    match runtime_readiness(process, engine, iface_present) {
+        RuntimeReadiness::Ready { iface } => println!("ready present {iface}"),
+        RuntimeReadiness::NotReady => println!("not-ready present -"),
+        RuntimeReadiness::Unreadable => println!("unreadable present -"),
+    }
+    Ok(())
+}
+
+fn run_ready_observe_since(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let status_path = PathBuf::from(required(args, "файл состояния WARP")?);
+    let proc_root = PathBuf::from(required(args, "корень procfs")?);
+    let started_at = required(args, "время начала ожидания")?
+        .parse::<u64>()
+        .map_err(|_| invalid("время начала ожидания должно быть epoch в секундах"))?;
+    if started_at == 0 {
+        return Err(invalid("неизвестное время начала ожидания"));
+    }
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы ready-observe-since"));
+    }
+
+    let process = observe_warp_process(proc_root.as_ref());
+    let (engine, status_modified) = read_engine_status_snapshot(&status_path);
+    let iface_present = observe_interface(&engine);
+    match health::ready_since(process, engine, iface_present, status_modified, started_at) {
+        RuntimeReadiness::Ready { iface } => println!("ready {iface}"),
+        RuntimeReadiness::NotReady => println!("not-ready"),
+        RuntimeReadiness::Unreadable => println!("unreadable"),
+    }
+    Ok(())
+}
+
+fn valid_warp_interface(iface: &str) -> bool {
+    let Some(suffix) = iface.strip_prefix("z2ktun") else {
+        return false;
+    };
+    (1..=2).contains(&suffix.len()) && suffix.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn link_exists(output: &str, iface: &str) -> io::Result<bool> {
+    let links: Vec<serde_json::Value> = serde_json::from_str(output)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    for link in links {
+        let name = link
+            .get("ifname")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| invalid("ip link JSON не содержит имя интерфейса"))?;
+        if name == iface {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn parse_interface_csv(value: &str) -> io::Result<Vec<String>> {
+    if value.is_empty() {
+        return Ok(Vec::new());
+    }
+    let interfaces: Vec<String> = value.split(',').map(str::to_owned).collect();
+    if interfaces.iter().any(String::is_empty) {
+        return Err(invalid(
+            "список сетевых интерфейсов содержит пустой элемент",
+        ));
+    }
+    Ok(interfaces)
+}
+
+fn nft_table_exists(tables: &str, family: &str, table: &str) -> bool {
+    let expected = format!("table {family} {table}");
+    tables.lines().any(|line| line.trim() == expected)
+}
+
+fn run_nft_mark(args: &mut impl Iterator<Item = String>, apply: bool) -> io::Result<bool> {
+    let _lock = acquire_global_lock()?;
+    let family = required(args, "семейство nft")?;
+    let table = required(args, "таблица nft")?;
+    let chain = required(args, "MARK-цепочка")?;
+    let destination_set = required(args, "набор назначения")?;
+    let source_set = required(args, "набор источника")?;
+    let domain_set = required(args, "доменный набор")?;
+    let user_dir = required(args, "каталог пользовательских списков")?;
+    let games_dir = required(args, "каталог игровых списков")?;
+    let enabled_file = required(args, "файл включённых игр")?;
+    let devices_file = required(args, "файл выбранных устройств")?;
+    let config_file = required(args, "файл настроек")?;
+    let lan_ifaces = parse_interface_csv(&required(args, "LAN-интерфейсы")?)?;
+    let wireguard_servers = parse_interface_csv(&required(args, "WG server-интерфейсы")?)?;
+    let wireguard_clients = parse_interface_csv(&required(args, "WG client-интерфейсы")?)?;
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы nft-mark command"));
+    }
+    let policy_inputs = lists::load_mark_policy_inputs(
+        user_dir.as_ref(),
+        games_dir.as_ref(),
+        enabled_file.as_ref(),
+        devices_file.as_ref(),
+    )?;
+    let wdtt_enabled =
+        config::read_value(config_file.as_ref(), "Z2K_WARP_WDTT", "0", MatchOrder::Last)? == "1";
+    let tables = command_output("nft", &["list", "tables"])?;
+    if !nft_table_exists(&tables, &family, &table) {
+        if apply {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "таблица nft отсутствует для MARK-цепочки",
+            ));
+        }
+        return Ok(false);
+    }
+    let table_output = command_output("nft", &["list", "table", &family, &table])?;
+    let inventory = nft::parse_set_inventory(
+        &table_output,
+        &family,
+        &table,
+        &destination_set,
+        &source_set,
+    )?;
+    let flags = nft::plan_mark_flags(
+        policy_inputs.scope.as_str(),
+        wdtt_enabled,
+        !policy_inputs.domains.is_empty(),
+        inventory
+            .destinations
+            .as_ref()
+            .is_some_and(|destinations| !destinations.is_empty()),
+    )?;
+    let domain_rules_active =
+        !policy_inputs.domains.is_empty() && policy_inputs.scope.as_str() != "all";
+    let domain_set_for_rules = if domain_rules_active {
+        domain_set.as_str()
+    } else {
+        ""
+    };
+    let batch = nft::render_mark_batch(&nft::MarkConfig {
+        family: &family,
+        table: &table,
+        chain: &chain,
+        destination_set: &destination_set,
+        source_set: &source_set,
+        domain_set: domain_set_for_rules,
+        scope: policy_inputs.scope.as_str(),
+        wdtt_active: flags.wdtt_active,
+        list_active: flags.list_active,
+        lan_ifaces: &lan_ifaces,
+        wireguard_servers: &wireguard_servers,
+        wireguard_clients: &wireguard_clients,
+    })?;
+    if domain_rules_active {
+        let pair_set = nft::domain_pair_set_matches(&table_output, &family, &table, &domain_set)?;
+        if pair_set.is_none() {
+            if apply {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "доменный nft-набор отсутствует для MARK-цепочки",
+                ));
+            }
+            return Ok(false);
+        }
+    }
+    if nft::mark_chain_matches(&table_output, &family, &table, &chain, &batch)? == Some(true) {
+        return Ok(true);
+    }
+    if apply {
+        nft::apply_transaction(&batch)?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+fn run_nft_tun_verify(args: &mut impl Iterator<Item = String>) -> io::Result<bool> {
+    let _lock = acquire_global_lock()?;
+    let family = required(args, "семейство nft")?;
+    let table = required(args, "таблица nft")?;
+    let mss_chain = required(args, "MSS-цепочка")?;
+    let forward_chain = required(args, "forward-цепочка")?;
+    let nat_chain = required(args, "NAT-цепочка")?;
+    let interface = required(args, "TUN-интерфейс")?;
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы nft-tun-verify"));
+    }
+
+    let tables = command_output("nft", &["list", "tables"])?;
+    if !nft_table_exists(&tables, &family, &table) {
+        return Ok(false);
+    }
+    let output = command_output("nft", &["list", "table", &family, &table])?;
+    nft::tun_chains_match(
+        &output,
+        &family,
+        &table,
+        &mss_chain,
+        &forward_chain,
+        &nat_chain,
+        &interface,
+    )
+}
+
+fn run_nft_chain_clear(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let _lock = acquire_global_lock()?;
+    let family = required(args, "семейство nft")?;
+    let table = required(args, "таблица nft")?;
+    let chains = args.collect::<Vec<_>>();
+    if chains.is_empty() {
+        return Err(invalid("не заданы nft-цепочки для очистки"));
+    }
+    clear_nft_chains(&family, &table, &chains)
+}
+
+fn clear_nft_chains(family: &str, table: &str, chains: &[String]) -> io::Result<()> {
+    let tables = command_output("nft", &["list", "tables"])?;
+    if !nft_table_exists(&tables, family, table) {
+        return Ok(());
+    }
+    let output = command_output("nft", &["list", "table", family, table])?;
+    let chains = chains.iter().map(String::as_str).collect::<Vec<_>>();
+    let batch = nft::render_chain_flush_batch(&output, family, table, &chains)?;
+    if batch.is_empty() {
+        Ok(())
+    } else {
+        nft::apply_transaction(&batch)
+    }
+}
+
+fn run_nft_fw4_forward_apply(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let _lock = acquire_global_lock()?;
+    let family = required(args, "семейство fw4")?;
+    let table = required(args, "таблица fw4")?;
+    let chain = required(args, "цепочка fw4")?;
+    let interface = required(args, "TUN-интерфейс")?;
+    let mark = required(args, "метка WARP")?;
+    let mask = required(args, "маска WARP")?;
+    let comment = required(args, "комментарий fw4")?;
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы nft-fw4-forward-apply"));
+    }
+    let output = command_output("nft", &["list", "chain", &family, &table, &chain])?;
+    let batch = nft::render_fw4_forward_apply_batch(
+        &output, &family, &table, &chain, &interface, &mark, &mask, &comment,
+    )?;
+    if batch.is_empty() {
+        Ok(())
+    } else {
+        nft::apply_transaction(&batch)
+    }
+}
+
+fn run_nft_fw4_forward_verify(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let family = required(args, "семейство fw4")?;
+    let table = required(args, "таблица fw4")?;
+    let chain = required(args, "цепочка fw4")?;
+    let interface = required(args, "TUN-интерфейс")?;
+    let mark = required(args, "метка WARP")?;
+    let mask = required(args, "маска WARP")?;
+    let comment = required(args, "комментарий fw4")?;
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы nft-fw4-forward-verify"));
+    }
+    let tables = command_output("nft", &["list", "tables"])?;
+    if !nft_table_exists(&tables, &family, &table) {
+        println!("ready=0");
+        return Ok(());
+    }
+    let output = command_output("nft", &["list", "chain", &family, &table, &chain])?;
+    let ready = nft::fw4_forward_matches(&output, &chain, &interface, &mask, &mark, &comment)?;
+    println!("ready={}", u8::from(ready));
+    Ok(())
+}
+
+fn run_nft_fw4_forward_remove(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let _lock = acquire_global_lock()?;
+    let family = required(args, "семейство fw4")?;
+    let table = required(args, "таблица fw4")?;
+    let chain = required(args, "цепочка fw4")?;
+    let comment = required(args, "комментарий fw4")?;
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы nft-fw4-forward-remove"));
+    }
+    remove_fw4_forward_rule(&family, &table, &chain, &comment)
+}
+
+fn remove_fw4_forward_rule(
+    family: &str,
+    table: &str,
+    chain: &str,
+    comment: &str,
+) -> io::Result<()> {
+    let tables = command_output("nft", &["list", "tables"])?;
+    if !nft_table_exists(&tables, family, table) {
+        return Ok(());
+    }
+    let output = command_output("nft", &["-a", "list", "chain", family, table, chain])?;
+    let batch = nft::render_fw4_forward_remove_batch(&output, family, table, chain, comment)?;
+    if batch.is_empty() {
+        Ok(())
+    } else {
+        nft::apply_transaction(&batch)
+    }
+}
+
+fn run_nft_warp_remove(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let _lock = acquire_global_lock()?;
+    let family = required(args, "семейство nft WARP")?;
+    let table = required(args, "таблица nft WARP")?;
+    let full = parse_bool(&required(args, "полное удаление nft WARP")?)?;
+    let chains = (0..4)
+        .map(|_| required(args, "WARP-цепочка"))
+        .collect::<io::Result<Vec<_>>>()?;
+    let sets = (0..2)
+        .map(|_| required(args, "WARP-набор"))
+        .collect::<io::Result<Vec<_>>>()?;
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы nft-warp-remove"));
+    }
+    let tables = command_output("nft", &["list", "tables"])?;
+    if !nft_table_exists(&tables, &family, &table) {
+        return Ok(());
+    }
+    let output = command_output("nft", &["list", "table", &family, &table])?;
+    let chains = chains.iter().map(String::as_str).collect::<Vec<_>>();
+    let sets = sets.iter().map(String::as_str).collect::<Vec<_>>();
+    let batch = nft::render_warp_remove_batch(&output, &family, &table, &chains, &sets, full)?;
+    if batch.is_empty() {
+        Ok(())
+    } else {
+        nft::apply_transaction(&batch)
+    }
+}
+
+fn remove_domain_nft_state(
+    observer_family: &str,
+    observer_table: &str,
+    pair_family: &str,
+    pair_table: &str,
+    pair_set: &str,
+    full: bool,
+) -> io::Result<()> {
+    let tables_output = command_output("nft", &["list", "tables"])?;
+    let observer_exists = nft_table_exists(&tables_output, observer_family, observer_table);
+    if observer_exists {
+        let output = command_output("nft", &["list", "table", observer_family, observer_table])?;
+        if !nft::domain_observer_table_owned(&output, observer_family, observer_table)? {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "nft observer table занят другим владельцем",
+            ));
+        }
+    }
+    let pair_set_exists = if nft_table_exists(&tables_output, pair_family, pair_table) {
+        let output = command_output("nft", &["list", "table", pair_family, pair_table])?;
+        nft::domain_pair_set_matches(&output, pair_family, pair_table, pair_set)?.is_some()
+    } else {
+        false
+    };
+    let batch = nft::render_domain_remove_batch(&nft::DomainRemoveConfig {
+        family: observer_family,
+        observer_table,
+        pair_family,
+        pair_table,
+        pair_set,
+        observer_exists,
+        pair_set_exists,
+        full,
+    })?;
+    if batch.is_empty() {
+        Ok(())
+    } else {
+        nft::apply_transaction(&batch)
+    }
+}
+
+fn run_disable_state(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let _lock = acquire_global_lock()?;
+    let config_path = PathBuf::from(required(args, "файл конфигурации WARP")?);
+    let fallback_interface = required(args, "TUN-интерфейс fallback")?;
+    let fallback_address = required(args, "IPv4-адрес probe fallback")?;
+    let route_table = parse_u32(&required(args, "номер таблицы маршрутов")?)?;
+    let user_pref = parse_u32(&required(args, "приоритет пользовательского правила")?)?;
+    let probe_pref = parse_u32(&required(args, "приоритет probe-правила")?)?;
+    let mark = parse_u32(&required(args, "метка fwmark")?)?;
+    let mask = parse_u32(&required(args, "маска fwmark")?)?;
+    let pbr_owner = PathBuf::from(required(args, "файл владельца PBR")?);
+    let probe_owner = PathBuf::from(required(args, "файл владельца probe")?);
+    let fw4_family = required(args, "семейство fw4")?;
+    let fw4_table = required(args, "таблица fw4")?;
+    let fw4_chain = required(args, "цепочка fw4")?;
+    let fw4_comment = required(args, "комментарий fw4")?;
+    let nft_family = required(args, "семейство nft WARP")?;
+    let nft_table = required(args, "таблица nft WARP")?;
+    let mark_chain = required(args, "MARK-цепочка WARP")?;
+    let mss_chain = required(args, "MSS-цепочка WARP")?;
+    let forward_chain = required(args, "forward-цепочка WARP")?;
+    let nat_chain = required(args, "NAT-цепочка WARP")?;
+    let observer_family = required(args, "семейство nft observer")?;
+    let observer_table = required(args, "таблица nft observer")?;
+    let pair_family = required(args, "семейство nft доменных пар")?;
+    let pair_table = required(args, "таблица nft доменных пар")?;
+    let pair_set = required(args, "набор nft доменных пар")?;
+    let domain_error = PathBuf::from(required(args, "файл ошибки domain observer")?);
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы disable-state"));
+    }
+
+    let route = RouteConfig {
+        interface: &fallback_interface,
+        probe_address: &fallback_address,
+        table: route_table,
+        user_pref,
+        probe_pref,
+        mark,
+        mask,
+        pbr_owner: &pbr_owner,
+        probe_owner: &probe_owner,
+    };
+    let mut errors = Vec::new();
+    if let Err(error) = remove_policy_from_owner_files(&route) {
+        errors.push(format!("PBR: {error}"));
+    }
+    if let Err(error) = remove_fw4_forward_rule(&fw4_family, &fw4_table, &fw4_chain, &fw4_comment) {
+        errors.push(format!("fw4: {error}"));
+    }
+    let chains = vec![mark_chain, mss_chain, forward_chain, nat_chain];
+    if let Err(error) = clear_nft_chains(&nft_family, &nft_table, &chains) {
+        errors.push(format!("nft WARP: {error}"));
+    }
+    match remove_domain_nft_state(
+        &observer_family,
+        &observer_table,
+        &pair_family,
+        &pair_table,
+        &pair_set,
+        false,
+    ) {
+        Ok(()) => {
+            if let Err(error) = domain_state::set_error_file(&domain_error, "") {
+                errors.push(format!("marker domain observer: {error}"));
+            }
+        }
+        Err(error) => {
+            if let Err(marker_error) =
+                domain_state::set_error_file(&domain_error, "nft-domain-remove-failed")
+            {
+                errors.push(format!("marker domain observer: {marker_error}"));
+            }
+            errors.push(format!("domain observer: {error}"));
+        }
+    }
+    if let Err(error) = config::set_config_flag(&config_path, "GAME_WARP_ENABLED", "0") {
+        errors.push(format!("флаг WARP: {error}"));
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(io::Error::other(errors.join("; ")))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_domain_nft(
+    pair_family: &str,
+    pair_table: &str,
+    pair_set: &str,
+    observer_family: &str,
+    observer_table: &str,
+    output_chain: &str,
+    forward_chain: &str,
+    group: &str,
+) -> io::Result<bool> {
+    let group_number = group
+        .parse::<u16>()
+        .map_err(|_| invalid("неверный NFLOG group"))?;
+    if group.is_empty() || !group.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(invalid("неверный NFLOG group"));
+    }
+    let _ = group_number;
+
+    let tables = command_output("nft", &["list", "tables"])?;
+    if !nft_table_exists(&tables, pair_family, pair_table)
+        || !nft_table_exists(&tables, observer_family, observer_table)
+    {
+        return Ok(false);
+    }
+    let pair_output = command_output("nft", &["list", "table", pair_family, pair_table])?;
+    if nft::domain_pair_set_matches(&pair_output, pair_family, pair_table, pair_set)?.is_none() {
+        return Ok(false);
+    }
+    let observer_output =
+        command_output("nft", &["list", "table", observer_family, observer_table])?;
+    if !nft::domain_observer_table_owned(&observer_output, observer_family, observer_table)?
+        || nft::domain_observer_chain_owned(&observer_output, output_chain, "output")?.is_none()
+        || nft::domain_observer_chain_owned(&observer_output, forward_chain, "forward")?.is_none()
+    {
+        return Ok(false);
+    }
+    let output = command_output(
+        "nft",
+        &[
+            "list",
+            "chain",
+            observer_family,
+            observer_table,
+            output_chain,
+        ],
+    )?;
+    if !nft::domain_observer_chain_has_group(&output, output_chain, group) {
+        return Ok(false);
+    }
+    let forward = command_output(
+        "nft",
+        &[
+            "list",
+            "chain",
+            observer_family,
+            observer_table,
+            forward_chain,
+        ],
+    )?;
+    Ok(nft::domain_observer_chain_has_group(
+        &forward,
+        forward_chain,
+        group,
+    ))
+}
+
+fn run_route_command(args: &mut impl Iterator<Item = String>, apply: bool) -> io::Result<()> {
+    let _lock = acquire_global_lock()?;
+    let interface = required(args, "TUN-интерфейс")?;
+    let probe_address = required(args, "IPv4-адрес probe")?;
+    let table = parse_u32(&required(args, "номер таблицы")?)?;
+    let user_pref = parse_u32(&required(args, "приоритет пользовательского правила")?)?;
+    let probe_pref = parse_u32(&required(args, "приоритет probe-правила")?)?;
+    let mark = parse_u32(&required(args, "метка fwmark")?)?;
+    let mask = parse_u32(&required(args, "маска fwmark")?)?;
+    let pbr_owner = PathBuf::from(required(args, "файл владельца PBR")?);
+    let probe_owner = PathBuf::from(required(args, "файл владельца probe")?);
+    let include_user = if apply {
+        Some(parse_bool(&required(args, "признак PBR")?)?)
+    } else {
+        None
+    };
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы route command"));
+    }
+    let config = RouteConfig {
+        interface: &interface,
+        probe_address: &probe_address,
+        table,
+        user_pref,
+        probe_pref,
+        mark,
+        mask,
+        pbr_owner: &pbr_owner,
+        probe_owner: &probe_owner,
+    };
+    if let Some(include_user) = include_user {
+        apply_policy(&config, include_user).map_err(io::Error::other)?;
+    } else {
+        remove_policy(&config).map_err(io::Error::other)?;
+    }
+    Ok(())
+}
+
+fn run_route_remove_owned_command(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let _lock = acquire_global_lock()?;
+    let fallback_interface = required(args, "резервный TUN-интерфейс")?;
+    let fallback_probe_address = required(args, "резервный IPv4-адрес probe")?;
+    let table = parse_u32(&required(args, "номер таблицы")?)?;
+    let user_pref = parse_u32(&required(args, "приоритет пользовательского правила")?)?;
+    let probe_pref = parse_u32(&required(args, "приоритет probe-правила")?)?;
+    let mark = parse_u32(&required(args, "метка fwmark")?)?;
+    let mask = parse_u32(&required(args, "маска fwmark")?)?;
+    let pbr_owner = PathBuf::from(required(args, "файл владельца PBR")?);
+    let probe_owner = PathBuf::from(required(args, "файл владельца probe")?);
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы route-remove-owned"));
+    }
+    let fallback = RouteConfig {
+        interface: &fallback_interface,
+        probe_address: &fallback_probe_address,
+        table,
+        user_pref,
+        probe_pref,
+        mark,
+        mask,
+        pbr_owner: &pbr_owner,
+        probe_owner: &probe_owner,
+    };
+    remove_policy_from_owner_files(&fallback).map_err(io::Error::other)?;
+    Ok(())
+}
+
+fn run_route_reconcile_command(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let _lock = acquire_global_lock()?;
+    let interface = required(args, "TUN-интерфейс")?;
+    let probe_address = required(args, "IPv4-адрес probe")?;
+    let table = parse_u32(&required(args, "номер таблицы")?)?;
+    let user_pref = parse_u32(&required(args, "приоритет пользовательского правила")?)?;
+    let probe_pref = parse_u32(&required(args, "приоритет probe-правила")?)?;
+    let mark = parse_u32(&required(args, "метка fwmark")?)?;
+    let mask = parse_u32(&required(args, "маска fwmark")?)?;
+    let pbr_owner = PathBuf::from(required(args, "файл владельца PBR")?);
+    let probe_owner = PathBuf::from(required(args, "файл владельца probe")?);
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы route-reconcile"));
+    }
+    let config = RouteConfig {
+        interface: &interface,
+        probe_address: &probe_address,
+        table,
+        user_pref,
+        probe_pref,
+        mark,
+        mask,
+        pbr_owner: &pbr_owner,
+        probe_owner: &probe_owner,
+    };
+    let changed = reconcile_policy(&config).map_err(io::Error::other)?;
+    println!("changed={}", u8::from(changed));
+    Ok(())
+}
+
+fn run_route_verify_command(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let interface = required(args, "TUN-интерфейс")?;
+    let probe_address = required(args, "IPv4-адрес probe")?;
+    let table = parse_u32(&required(args, "номер таблицы")?)?;
+    let user_pref = parse_u32(&required(args, "приоритет пользовательского правила")?)?;
+    let probe_pref = parse_u32(&required(args, "приоритет probe-правила")?)?;
+    let mark = parse_u32(&required(args, "метка fwmark")?)?;
+    let mask = parse_u32(&required(args, "маска fwmark")?)?;
+    let pbr_owner = PathBuf::from(required(args, "файл владельца PBR")?);
+    let probe_owner = PathBuf::from(required(args, "файл владельца probe")?);
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы route-verify"));
+    }
+    let config = RouteConfig {
+        interface: &interface,
+        probe_address: &probe_address,
+        table,
+        user_pref,
+        probe_pref,
+        mark,
+        mask,
+        pbr_owner: &pbr_owner,
+        probe_owner: &probe_owner,
+    };
+    println!(
+        "ready={}",
+        if verify_policy(&config).map_err(io::Error::other)? {
+            1
+        } else {
+            0
+        }
+    );
+    Ok(())
+}
+
+fn acquire_global_lock() -> io::Result<Option<MutationLock>> {
+    if env::var("Z2K_WARP_LOCK_HELD").as_deref() == Ok("1") {
+        return Ok(None);
+    }
+    let path = env::var_os("Z2K_WARP_LOCK_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp/z2k/warp/mutate.lock"));
+    MutationLock::acquire(&path, Duration::from_secs(30))?
+        .map(Some)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::WouldBlock, "операция WARP уже выполняется"))
+}
+
+fn acquire_operation_lock(path: &std::path::Path) -> io::Result<MutationLock> {
+    let parent = path.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "путь действия WARP не содержит каталог",
+        )
+    })?;
+    let name = path.file_name().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "неверный путь действия WARP")
+    })?;
+    let lock_path = parent.join(format!(".{}.mutate.lock", name.to_string_lossy()));
+    MutationLock::acquire(&lock_path, Duration::from_secs(5))?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "изменение намерения WARP уже выполняется",
+        )
+    })
+}
+
+fn parse_pid(value: &str) -> io::Result<u32> {
+    let pid = value
+        .parse::<u32>()
+        .map_err(|_| invalid("неверный PID действия WARP"))?;
+    if pid == 0 {
+        return Err(invalid("PID действия WARP должен быть положительным"));
+    }
+    Ok(pid)
+}
+
+fn parse_u32(value: &str) -> io::Result<u32> {
+    let parsed = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .map(|hex| u32::from_str_radix(hex, 16))
+        .unwrap_or_else(|| value.parse::<u32>());
+    parsed.map_err(|_| invalid("неверное целое число"))
+}
+
+fn command_output(program: &str, args: &[&str]) -> io::Result<String> {
+    let output = process::Command::new(program).args(args).output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "{} завершилась с ошибкой: {}",
+            program,
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    String::from_utf8(output.stdout)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}

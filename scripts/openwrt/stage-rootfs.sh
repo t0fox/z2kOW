@@ -10,7 +10,8 @@ WARPD_DIR="${3:-}"
 TG_DIR="${4:-}"
 RT_DIR="${5:-}"
 DETECT_DIR="${6:-}"
-RELEASE_KEYS_DIR="${7:-$ROOT/scripts/openwrt/release-keys}"
+WARP_CONTROLLER_DIR="${7:-}"
+RELEASE_KEYS_DIR="${8:-$ROOT/scripts/openwrt/release-keys}"
 
 die() { printf 'подготовка OpenWrt rootfs: %s\n' "$*" >&2; exit 1; }
 copy_data() {
@@ -23,12 +24,14 @@ copy_data() {
 
 [ -n "$STAGE" ] && [ -n "$RUNTIME_ARCHIVE" ] && [ -n "$WARPD_DIR" ] \
     && [ -n "$TG_DIR" ] && [ -n "$RT_DIR" ] && [ -n "$DETECT_DIR" ] \
-    || die "использование: $0 STAGING_ROOT ZAPRET2_RUNTIME_TARBALL Z2K_WARPD_DIR TG_DIR RT_DIR DETECT_DIR"
+    && [ -n "$WARP_CONTROLLER_DIR" ] \
+    || die "использование: $0 STAGING_ROOT ZAPRET2_RUNTIME_TARBALL Z2K_WARPD_DIR TG_DIR RT_DIR DETECT_DIR WARP_CONTROLLER_DIR [RELEASE_KEYS_DIR]"
 [ -f "$RUNTIME_ARCHIVE" ] || die "нет архива runtime zapret2"
 [ -d "$WARPD_DIR" ] || die "нет каталога архитектурных сборок z2k-warpd"
 [ -d "$TG_DIR" ] || die "нет каталога сборок клиента Telegram"
 [ -d "$RT_DIR" ] || die "нет каталога сборок RT-прокси"
 [ -d "$DETECT_DIR" ] || die "нет каталога сборок диагностического детектора"
+[ -d "$WARP_CONTROLLER_DIR" ] || die "нет каталога сборок Rust WARP controller"
 case "$STAGE" in /|/etc|/usr|/usr/lib|/www) die "небезопасный каталог подготовки: $STAGE" ;; esac
 mkdir -p "$STAGE"
 [ -z "$(find "$STAGE" -mindepth 1 -print -quit 2>/dev/null)" ] \
@@ -94,6 +97,16 @@ for _warpd in "$WARPD_DIR"/linux-*/z2k-warpd; do
     _warpd_count=$((_warpd_count + 1))
 done
 [ "$_warpd_count" -eq 7 ] || die "ожидалось 7 сборок z2k-warpd для разных архитектур, найдено: $_warpd_count"
+_warp_controller_count=0
+for _variant in arm arm64 mips mipsel riscv64 x86 x86_64; do
+    _warp_controller="$WARP_CONTROLLER_DIR/linux-$_variant/z2k-warp-controller"
+    [ -f "$_warp_controller" ] && [ -x "$_warp_controller" ] \
+        || die "нет исполняемого Rust WARP controller для linux-$_variant"
+    copy_data "$_warp_controller" \
+        "usr/lib/z2k/platform/openwrt/bin/linux-$_variant/z2k-warp-controller" 0755
+    _warp_controller_count=$((_warp_controller_count + 1))
+done
+[ "$_warp_controller_count" -eq 7 ] || die "ожидалось 7 сборок Rust WARP controller"
 _tg_count=0
 while IFS= read -r _variant; do
     [ -n "$_variant" ] || continue

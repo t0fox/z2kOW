@@ -37,6 +37,10 @@ if [ -z "${WARP_DOMAIN_RUNTIME_BIN:-}" ]; then
     fi
 fi
 WARP_BIN="${WARP_BIN:-$WARP_DOMAIN_RUNTIME_BIN}"
+if [ -z "${WARP_CONTROLLER_BIN:-}" ]; then
+    WARP_CONTROLLER_BIN="$(z2k_ow_arch_bin_path "$_warp_adapter/bin" z2k-warp-controller 2>/dev/null)" || \
+        WARP_CONTROLLER_BIN="$_warp_adapter/bin/linux-unsupported/z2k-warp-controller"
+fi
 WARP_DEVICE="${WARP_DEVICE:-${Z2K_STATE:-/etc/z2k/state}/warp/device.json}"
 WARP_STATUS="${WARP_STATUS:-${Z2K_TMP:-/tmp/z2k}/warp/status.json}"
 WARP_LOG="${WARP_LOG:-${Z2K_TMP:-/tmp/z2k}/warp/warpd.log}"
@@ -105,8 +109,18 @@ _wlog() {
     fi
 }
 _z2k_ow_warp_mut() { [ -n "$Z2K_WARP_QUIET" ] || printf '%s\n' "$1"; }
-warp_flag() { grep -m1 '^GAME_WARP_ENABLED=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2 | tr -d '" '; }
+warp_flag() {
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ]; then
+        _warp_controller config-read "$CONFIG_FILE" GAME_WARP_ENABLED "" first
+        return $?
+    fi
+    grep -m1 '^GAME_WARP_ENABLED=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2 | tr -d '" '
+}
 warp_set_flag() {
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ]; then
+        _warp_controller warp-flag-set "$CONFIG_FILE" "$1"
+        return $?
+    fi
     if ! command -v set_flag >/dev/null 2>&1; then
         local _utils="${Z2K_LIB:-${Z2K_ROOT:-/usr/lib/z2k}/lib}/utils.sh"
         [ -r "$_utils" ] || { _wlog "cannot load canonical config writer"; return 1; }
@@ -117,6 +131,10 @@ warp_set_flag() {
     set_flag GAME_WARP_ENABLED "$1" "$CONFIG_FILE"
 }
 warp_cfg() { # $1 key, $2 default: чтение конфига без сорсинга
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ]; then
+        _warp_controller config-read "$CONFIG_FILE" "$1" "$2" last
+        return $?
+    fi
     local _v=""
     [ -f "$CONFIG_FILE" ] && \
         _v=$(awk -F= -v k="$1" '$1==k {v=$2; gsub(/[" ]/,"",v)} END {print v}' "$CONFIG_FILE" 2>/dev/null)
@@ -200,10 +218,25 @@ warp_last_error() {
 # (Единая точка для всех путей: init смотрит ENABLED раньше сам,
 # но cron/hotplug идут мимо него.)
 warp_wanted_boot() {
-    [ "$(warp_cfg ENABLED 1)" = "1" ] || return 1
-    [ "$(warp_flag)" = "1" ] || return 1
-    [ -x "$WARP_BIN" ] || return 1
-    [ -s "$WARP_DEVICE" ] || return 1
+    local _plan
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ]; then
+        _plan="$(_warp_controller boot-plan "$CONFIG_FILE" "$WARP_BIN" "$WARP_DEVICE")" || _plan=defer
+        _WARP_BOOT_PLAN="$_plan"
+        case "$_plan" in
+            wanted) return 0 ;;
+            unwanted) return 1 ;;
+            *) _WARP_BOOT_PLAN=defer; return 2 ;;
+        esac
+    fi
+    if [ -e "$CONFIG_FILE" ] && [ ! -f "$CONFIG_FILE" ]; then
+        _WARP_BOOT_PLAN=defer
+        return 2
+    fi
+    [ "$(warp_cfg ENABLED 1)" = "1" ] || { _WARP_BOOT_PLAN=unwanted; return 1; }
+    [ "$(warp_flag)" = "1" ] || { _WARP_BOOT_PLAN=unwanted; return 1; }
+    [ -x "$WARP_BIN" ] || { _WARP_BOOT_PLAN=unwanted; return 1; }
+    [ -s "$WARP_DEVICE" ] || { _WARP_BOOT_PLAN=unwanted; return 1; }
+    _WARP_BOOT_PLAN=wanted
     return 0
 }
 
@@ -267,6 +300,10 @@ _z2k_ow_warp_procd_command() { procd_set_param command "$@"; }
 # --- списки: active + валидация (канонические awk-блоки upstream) ---
 
 warp_lists_migrate() {
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller list-migrate "$WARP_LISTS_DIR" "$WARP_GAMES_DIR"
+        return $?
+    fi
     [ -d "$WARP_LISTS_DIR" ] || mkdir -p "$WARP_LISTS_DIR" || {
         _wlog "cannot create $WARP_LISTS_DIR"; return 1; }
     mkdir -p "$WARP_GAMES_DIR" 2>/dev/null
@@ -368,6 +405,10 @@ _warp_openwrt_active_client_ip() {
 # Сосед из kernel neighbour table имеет приоритет над lease fallback;
 # публичный IPv4 и IPv6 всегда отбрасываются.
 warp_devices_ips() {
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller device-ips "$WARP_DEVICES_FILE" "$WARP_DHCP_LEASES"
+        return $?
+    fi
     [ -s "$WARP_DEVICES_FILE" ] || return 0
     local _neigh _clients
     _neigh=$(ip -4 neigh show 2>/dev/null | awk '$0 ~ /lladdr/ {for (i=1;i<=NF;i++) if ($i=="lladdr") printf "%s %s;", tolower($(i+1)), $1}')
@@ -414,6 +455,12 @@ warp_devices_ips() {
 # Keep selection intent separate from neighbour/lease resolution. An offline
 # selected client must not turn an empty source set into all-LAN scope.
 warp_devices_selected() {
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        local _scope
+        _scope="$(_warp_controller policy-scope "$WARP_LISTS_DIR" "$WARP_GAMES_DIR" \
+            "$WARP_ENABLED_FILE" "$WARP_DEVICES_FILE")" || return 2
+        case "$_scope" in full|devices) return 0 ;; *) return 1 ;; esac
+    fi
     [ -s "$WARP_DEVICES_FILE" ] || return 1
     awk '
         { line=$0; sub(/\r$/, "", line); gsub(/^[ \t]+|[ \t]+$/, "", line) }
@@ -425,6 +472,13 @@ warp_devices_selected() {
 # Match upstream p-86.13: explicitly selected devices with no active WARP
 # lists use full-device mode. An enabled-but-empty list still means list mode.
 warp_full_device_mode() {
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        local _scope
+        _scope="$(_warp_controller policy-scope "$WARP_LISTS_DIR" "$WARP_GAMES_DIR" \
+            "$WARP_ENABLED_FILE" "$WARP_DEVICES_FILE")" || return 2
+        [ "$_scope" = full ]
+        return $?
+    fi
     local _active_lists
     warp_devices_selected || return 1
     if awk '{ sub(/^[ \t]+/, ""); if ($0 != "" && $0 !~ /^#/) found=1 } END { exit !found }' \
@@ -439,6 +493,10 @@ warp_full_device_mode() {
 # Маршрутизация всей LAN должна входить только с этих устройств: WAN-пакеты
 # не должны попадать в цепочку, иначе ответы интернета уйдут обратно в туннель.
 warp_lan_devices() {
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller interfaces lan
+        return $?
+    fi
     local _zones _zone _name _networks _network _devices _iface _restore_noglob=0 _rc
     command -v uci >/dev/null 2>&1 || return 1
     _zones="$(uci show firewall 2>/dev/null | sed -n 's/^firewall\.\([^.=]*\)=zone$/\1/p')"
@@ -473,6 +531,13 @@ warp_lan_devices() {
 # Смотрим на выбор пользователя, а не на заполненность nft-сета: отсутствующий
 # или пустой выбранный список не должен неожиданно расширять область WARP.
 warp_all_traffic_mode() {
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        local _scope
+        _scope="$(_warp_controller policy-scope "$WARP_LISTS_DIR" "$WARP_GAMES_DIR" \
+            "$WARP_ENABLED_FILE" "$WARP_DEVICES_FILE")" || return 2
+        [ "$_scope" = all ]
+        return $?
+    fi
     warp_devices_selected && return 1
     if awk '{ line=$0; sub(/\r$/, "", line); gsub(/^[ \t]+|[ \t]+$/, "", line); if (line != "" && line !~ /^#/) found=1 } END { exit !found }' \
         "$WARP_ENABLED_FILE" 2>/dev/null; then
@@ -483,6 +548,18 @@ warp_all_traffic_mode() {
 
 warp_scope() {
     [ "$(warp_flag)" = 1 ] || { printf 'off'; return 0; }
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        local _scope
+        _scope="$(_warp_controller policy-scope "$WARP_LISTS_DIR" "$WARP_GAMES_DIR" \
+            "$WARP_ENABLED_FILE" "$WARP_DEVICES_FILE")" || return 1
+        case "$_scope" in
+            all) printf 'all' ;;
+            full|devices) printf 'devices' ;;
+            lists) printf 'lists' ;;
+            *) return 1 ;;
+        esac
+        return 0
+    fi
     if warp_all_traffic_mode; then
         printf 'all'
     elif warp_full_device_mode; then
@@ -497,6 +574,10 @@ warp_scope() {
 # listening port is deliberately excluded. The policy chain returns these
 # clients to direct routing before LAN/list rules unless WDTT is enabled.
 warp_wireguard_server_devices() {
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller interfaces wireguard-servers
+        return $?
+    fi
     command -v uci >/dev/null 2>&1 || return 0
     uci show network 2>/dev/null |
         sed -n "s/^network\.\([A-Za-z0-9_.-][A-Za-z0-9_.-]*\)\.proto='wireguard'$/\1/p" |
@@ -522,6 +603,10 @@ warp_wireguard_server_devices() {
 # selection. Invalid non-empty listen_port values are excluded instead of
 # being guessed to be client interfaces.
 warp_wireguard_client_devices() {
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller interfaces wireguard-clients
+        return $?
+    fi
     command -v uci >/dev/null 2>&1 || return 0
     uci show network 2>/dev/null |
         sed -n "s/^network\.\([A-Za-z0-9_.-][A-Za-z0-9_.-]*\)\.proto='wireguard'$/\1/p" |
@@ -665,6 +750,14 @@ _warp_nft_sets_commit() {
 # пустоту. Возврат 0 = live-состояние корректно.
 warp_nft_sets_load() {
     local _dst _src _domains
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller nft-sync "$WARP_LISTS_DIR" "$WARP_GAMES_DIR" \
+            "$WARP_ENABLED_FILE" "$WARP_DEVICES_FILE" \
+            "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_SET" "$WARP_SET_SRC" || return 1
+        command -v warp_domain_rules_load >/dev/null 2>&1 && warp_domain_rules_load >/dev/null 2>&1 || true
+        _z2k_ow_warp_mut "NFT_CREATED: sets $WARP_SET/$WARP_SET_SRC"
+        return 0
+    fi
     _dst="$(warp_validated_dst)"
     _src="$(warp_devices_ips)"
     _domains="$(warp_validated_domains 2>/dev/null)"
@@ -702,12 +795,27 @@ _warp_sets_ensure_live() {
 warp_nft_rules_apply() {
     local _domain_set=0 _domain_rules="" _devices_selected=0 _full_device_mode=0 _all_traffic_mode=0 _wdtt_active=0 _list_active=0
     local _wg_ifaces="" _wg_iface _wg_clients="" _wg_client _subnet _lan_ifaces="" _lan_iface
-    warp_devices_selected && _devices_selected=1
-    warp_full_device_mode && _full_device_mode=1
-    warp_all_traffic_mode && _all_traffic_mode=1
+    local _controller_scope _controller_lan="" _controller_wg_servers="" _controller_wg_clients=""
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _controller_scope="$(_warp_controller policy-scope "$WARP_LISTS_DIR" "$WARP_GAMES_DIR" \
+            "$WARP_ENABLED_FILE" "$WARP_DEVICES_FILE")" || return 1
+        case "$_controller_scope" in
+            all) _all_traffic_mode=1 ;;
+            full) _full_device_mode=1; _devices_selected=1 ;;
+            devices) _devices_selected=1 ;;
+            lists) ;;
+            *) return 1 ;;
+        esac
+    else
+        warp_devices_selected && _devices_selected=1
+        warp_full_device_mode && _full_device_mode=1
+        warp_all_traffic_mode && _all_traffic_mode=1
+    fi
     _domain_rules="$(warp_validated_domains 2>/dev/null)"
-    [ "$_full_device_mode" = 0 ] && warp_list_routes_active "$_domain_rules" && _list_active=1
-    [ "$_full_device_mode" = 0 ] && warp_wdtt_routes_active "$_domain_rules" && _wdtt_active=1
+    if [ ! -x "$WARP_CONTROLLER_BIN" ]; then
+        [ "$_full_device_mode" = 0 ] && warp_list_routes_active "$_domain_rules" && _list_active=1
+        [ "$_full_device_mode" = 0 ] && warp_wdtt_routes_active "$_domain_rules" && _wdtt_active=1
+    fi
     if [ "$_all_traffic_mode" = 1 ]; then
         _lan_ifaces="$(warp_lan_devices 2>/dev/null)"
         [ -n "$_lan_ifaces" ] || {
@@ -715,6 +823,41 @@ warp_nft_rules_apply() {
             echo "z2k-openwrt: warp: не найдены устройства firewall-зоны lan для режима all" >&2
             return 1
         }
+    fi
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _wg_ifaces="$(warp_wireguard_server_devices 2>/dev/null)" || return 1
+    else
+        _wg_ifaces="$(warp_wireguard_server_devices 2>/dev/null || true)"
+    fi
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        if [ "$_all_traffic_mode" = 1 ]; then
+            _controller_lan="$(printf '%s\n' "$_lan_ifaces" | tr '\n' ',' | sed 's/,$//')"
+        fi
+        if [ -n "$_domain_rules" ] && [ "$_all_traffic_mode" = 0 ] && \
+            command -v warp_domain_set_ensure >/dev/null 2>&1 && warp_domain_set_ensure; then
+            _domain_set=1
+        fi
+        if [ "$_devices_selected" = 1 ] && [ "$_full_device_mode" = 0 ]; then
+            if [ -x "$WARP_CONTROLLER_BIN" ]; then
+                _wg_clients="$(warp_wireguard_client_devices 2>/dev/null)" || return 1
+            else
+                _wg_clients="$(warp_wireguard_client_devices 2>/dev/null || true)"
+            fi
+        fi
+        _controller_wg_servers="$(printf '%s\n' "$_wg_ifaces" | tr '\n' ',' | sed 's/,$//')"
+        _controller_wg_clients="$(printf '%s\n' "$_wg_clients" | tr '\n' ',' | sed 's/,$//')"
+        _warp_controller nft-mark-apply \
+            "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_MARK" \
+            "$WARP_SET" "$WARP_SET_SRC" "$WARP_DOMAIN_SET" \
+            "$WARP_LISTS_DIR" "$WARP_GAMES_DIR" "$WARP_ENABLED_FILE" "$WARP_DEVICES_FILE" "$CONFIG_FILE" \
+            "$_controller_lan" \
+            "$_controller_wg_servers" "$_controller_wg_clients" || return 1
+        if [ "$_domain_set" = 1 ] && command -v warp_domain_observer_rules_apply >/dev/null 2>&1; then
+            warp_domain_observer_rules_apply || true
+        elif [ -z "$_domain_rules" ] && command -v warp_domain_nft_remove >/dev/null 2>&1; then
+            warp_domain_nft_remove >/dev/null 2>&1 || true
+        fi
+        return 0
     fi
     _z2k_ow_warp_table_ok || {
         echo "z2k-openwrt: warp: нет таблицы ${Z2K_WARP_NFT_FAMILY} ${Z2K_WARP_NFT_TABLE}" >&2
@@ -734,7 +877,6 @@ warp_nft_rules_apply() {
                 ip daddr "$_subnet" return || return 1
         done
     fi
-    _wg_ifaces="$(warp_wireguard_server_devices 2>/dev/null || true)"
     for _wg_iface in $_wg_ifaces; do
         if [ "$_wdtt_active" = 1 ]; then
             nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
@@ -744,7 +886,11 @@ warp_nft_rules_apply() {
             iifname "$_wg_iface" return || return 1
     done
     if [ "$_devices_selected" = 1 ] && [ "$_list_active" = 1 ]; then
-        _wg_clients="$(warp_wireguard_client_devices 2>/dev/null || true)"
+        if [ -x "$WARP_CONTROLLER_BIN" ]; then
+            _wg_clients="$(warp_wireguard_client_devices 2>/dev/null)" || return 1
+        else
+            _wg_clients="$(warp_wireguard_client_devices 2>/dev/null || true)"
+        fi
         for _wg_client in $_wg_clients; do
             for _subnet in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10; do
                 nft add rule "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" \
@@ -833,19 +979,59 @@ _warp_nft_iif_has() {
 warp_nft_rules_verify() {
     local _c _out _domain_set _domain_rules _devices_selected=0 _full_device_mode=0 _all_traffic_mode=0 _wdtt_active=0 _list_active=0
     local _wg_ifaces="" _wg_iface _wg_clients="" _wg_client _needle _local_net _subnet _lan_ifaces="" _lan_iface _line _allowed
-    warp_devices_selected && _devices_selected=1
-    warp_full_device_mode && _full_device_mode=1
-    warp_all_traffic_mode && _all_traffic_mode=1
-    _domain_rules=$(warp_validated_domains 2>/dev/null)
-    [ "$_full_device_mode" = 0 ] && warp_list_routes_active "$_domain_rules" && _list_active=1
-    [ "$_full_device_mode" = 0 ] && warp_wdtt_routes_active "$_domain_rules" && _wdtt_active=1
+    local _controller_ready _controller_scope _controller_lan="" _controller_wg_servers="" _controller_wg_clients=""
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _controller_scope="$(_warp_controller policy-scope "$WARP_LISTS_DIR" "$WARP_GAMES_DIR" \
+            "$WARP_ENABLED_FILE" "$WARP_DEVICES_FILE")" || return 2
+        case "$_controller_scope" in
+            all) _all_traffic_mode=1 ;;
+            full) _full_device_mode=1; _devices_selected=1 ;;
+            devices) _devices_selected=1 ;;
+            lists) ;;
+            *) return 2 ;;
+        esac
+    else
+        warp_devices_selected && _devices_selected=1
+        warp_full_device_mode && _full_device_mode=1
+        warp_all_traffic_mode && _all_traffic_mode=1
+    fi
+    if [ ! -x "$WARP_CONTROLLER_BIN" ]; then
+        _domain_rules=$(warp_validated_domains 2>/dev/null)
+        [ "$_full_device_mode" = 0 ] && warp_list_routes_active "$_domain_rules" && _list_active=1
+        [ "$_full_device_mode" = 0 ] && warp_wdtt_routes_active "$_domain_rules" && _wdtt_active=1
+    fi
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        if [ "$_all_traffic_mode" = 1 ]; then
+            _controller_lan="$(warp_lan_devices 2>/dev/null)" || return 1
+            _controller_lan="$(printf '%s\n' "$_controller_lan" | tr '\n' ',' | sed 's/,$//')"
+        fi
+        _controller_wg_servers="$(warp_wireguard_server_devices 2>/dev/null)" || return 2
+        _controller_wg_servers="$(printf '%s\n' "$_controller_wg_servers" | tr '\n' ',' | sed 's/,$//')"
+        _controller_wg_clients="$(warp_wireguard_client_devices 2>/dev/null)" || return 2
+        _controller_wg_clients="$(printf '%s\n' "$_controller_wg_clients" | tr '\n' ',' | sed 's/,$//')"
+        _controller_ready="$(_warp_controller nft-mark-verify \
+            "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_MARK" \
+            "$WARP_SET" "$WARP_SET_SRC" "$WARP_DOMAIN_SET" \
+            "$WARP_LISTS_DIR" "$WARP_GAMES_DIR" "$WARP_ENABLED_FILE" "$WARP_DEVICES_FILE" "$CONFIG_FILE" \
+            "$_controller_lan" \
+            "$_controller_wg_servers" "$_controller_wg_clients" 2>/dev/null)" || return 2
+        case "$_controller_ready" in
+            ready=1) return 0 ;;
+            ready=0) return 1 ;;
+            *) return 2 ;;
+        esac
+    fi
     _z2k_ow_warp_table_ok || return 1
     for _c in "$WARP_CHAIN_MARK" "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
         _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$_c" 2>/dev/null) || return 1
         [ -n "$_out" ] || return 1
     done
     _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_MARK" 2>/dev/null)
-    _wg_ifaces="$(warp_wireguard_server_devices 2>/dev/null || true)"
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _wg_ifaces="$(warp_wireguard_server_devices 2>/dev/null)" || return 2
+    else
+        _wg_ifaces="$(warp_wireguard_server_devices 2>/dev/null || true)"
+    fi
     if [ "$_all_traffic_mode" = 1 ]; then
         for _local_net in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 \
             169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/3; do
@@ -943,7 +1129,18 @@ _warp_fw4_forward_line() {
 _warp_fw4_forward_verify() {
     local _iface="$1" _out _exact _include
     [ -n "$_iface" ] || return 1
-    _out="$(nft list chain "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" 2>/dev/null)" || return 1
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        local _ready
+        _ready="$(_warp_controller nft-fw4-forward-verify \
+            "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" \
+            "$_iface" "$WARP_MARK" "$WARP_MASK" "$WARP_FW4_RULE_COMMENT" 2>/dev/null)" || return 2
+        case "$_ready" in
+            ready=1) return 0 ;;
+            ready=0) return 1 ;;
+            *) return 2 ;;
+        esac
+    fi
+    _out="$(nft list chain "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" 2>/dev/null)" || return 2
     _exact="$(_warp_fw4_forward_line "$_iface")"
     _include="$(_warp_fw4_forward_line 'z2ktun*')"
     printf '%s\n' "$_out" | grep -qF "$_exact" && return 0
@@ -953,6 +1150,12 @@ _warp_fw4_forward_verify() {
 _warp_fw4_forward_apply() {
     local _iface="$1" _out _marker _line
     [ -n "$_iface" ] || return 1
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller nft-fw4-forward-apply \
+            "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" \
+            "$_iface" "$WARP_MARK" "$WARP_MASK" "$WARP_FW4_RULE_COMMENT"
+        return $?
+    fi
     _warp_fw4_forward_verify "$_iface" >/dev/null 2>&1 && return 0
     _out="$(nft list chain "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" 2>/dev/null)" || return 1
     _marker="comment \"$WARP_FW4_RULE_COMMENT\""
@@ -976,6 +1179,12 @@ _warp_fw4_forward_apply() {
 
 _warp_fw4_forward_remove_runtime() {
     local _out _line _handle _rc=0
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller nft-fw4-forward-remove \
+            "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" \
+            "$WARP_FW4_RULE_COMMENT"
+        return $?
+    fi
     _out="$(nft -a list chain "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" 2>/dev/null)" || return 1
     while IFS= read -r _line; do
         case "$_line" in
@@ -997,10 +1206,22 @@ EOF_FW4
 }
 
 warp_nft_tun_verify() {
-    local _iface="$1" _out
+    local _iface="$1" _out _ready
     [ -n "$_iface" ] || return 1
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _ready="$(_warp_controller nft-tun-verify \
+            "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" \
+            "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT" "$_iface" 2>/dev/null)" || return 2
+        case "$_ready" in
+            ready=1) ;;
+            ready=0) return 1 ;;
+            *) return 2 ;;
+        esac
+        _warp_fw4_forward_verify "$_iface"
+        return $?
+    fi
     for _c in "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
-        _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$_c" 2>/dev/null) || return 1
+        _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$_c" 2>/dev/null) || return 2
         [ -n "$_out" ] || return 1
     done
     _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_MSS" 2>/dev/null)
@@ -1010,12 +1231,23 @@ warp_nft_tun_verify() {
     printf '%s\n' "$_out" | grep -q "oifname .*$_iface.* accept" || return 1
     _out=$(nft list chain "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_CHAIN_NAT" 2>/dev/null)
     printf '%s\n' "$_out" | grep -q "oifname .*$_iface.* masquerade" || return 1
-    _warp_fw4_forward_verify "$_iface" || return 1
+    _warp_fw4_forward_verify "$_iface" || return $?
     return 0
 }
 
 warp_nft_sets_verify() {
-    local _want _got _list
+    local _want _got _list _ready
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _ready="$(_warp_controller nft-sets-verify "$WARP_LISTS_DIR" "$WARP_GAMES_DIR" \
+            "$WARP_ENABLED_FILE" "$WARP_DEVICES_FILE" \
+            "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_SET" "$WARP_SET_SRC" \
+            2>/dev/null)" || return 2
+        case "$_ready" in
+            ready=1) return 0 ;;
+            ready=0) return 1 ;;
+            *) return 2 ;;
+        esac
+    fi
     _z2k_ow_warp_table_ok || return 1
     _want="$(warp_validated_dst | sed 's#/32$##' | sort -u)"
     _list="$(nft list set "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_SET" 2>/dev/null)" || return 1
@@ -1035,6 +1267,16 @@ warp_nft_sets_verify() {
 warp_nft_tun_apply() {
     local _iface="$1" _fam="${Z2K_WARP_NFT_FAMILY}" _tab="${Z2K_WARP_NFT_TABLE}"
     [ -n "$_iface" ] || return 1
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller nft-tun-apply "$_fam" "$_tab" "$WARP_CHAIN_MSS" \
+            "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT" "$_iface" || return 1
+        _warp_fw4_forward_apply "$_iface" || {
+            _warp_tun_clear >/dev/null 2>&1 || true
+            return 1
+        }
+        _z2k_ow_warp_mut "NFT_CREATED: tun $WARP_CHAIN_MSS/$WARP_CHAIN_FWD/$WARP_CHAIN_NAT $_iface"
+        return 0
+    fi
     # MSS 1240 = engine.MTU(1280)-40 (coupling держит тест с Go-константой):
     # outbound — clamp-to-PMTU, inbound — explicit (НЕ зеркальный PMTU-clamp:
     # дал бы 1460 с LAN-моста; полевое измерение upstream).
@@ -1066,6 +1308,11 @@ warp_nft_tun_apply() {
 _warp_tun_clear() {
     local _c _table _rc=0
     _warp_fw4_forward_remove_runtime || _rc=1
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller nft-chain-clear "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" \
+            "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT" || _rc=1
+        return "$_rc"
+    fi
     _table="$(nft list table "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" 2>/dev/null)" || return "$_rc"
     for _c in "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT"; do
         _warp_table_contains_chain "$_table" "$_c" || continue
@@ -1079,6 +1326,11 @@ _warp_tun_clear() {
 # для быстрого re-enable (удаляет их только полный stop/remove).
 _warp_mark_clear() {
     local _table
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller nft-chain-clear "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" \
+            "$WARP_CHAIN_MARK"
+        return $?
+    fi
     _table="$(nft list table "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" 2>/dev/null)" || return 0
     _warp_table_contains_chain "$_table" "$WARP_CHAIN_MARK" || return 0
     nft flush chain "${Z2K_WARP_NFT_FAMILY}" "${Z2K_WARP_NFT_TABLE}" "$WARP_CHAIN_MARK" 2>/dev/null
@@ -1087,6 +1339,20 @@ _warp_mark_clear() {
 warp_nft_remove() {
     # $1: "full" — снести и sets (remove/uninstall); иначе только chains.
     local _full="${1:-}" _c _s _tables _table _rc=0
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        local _full_arg=0
+        [ "$_full" = "full" ] && _full_arg=1
+        _warp_controller nft-fw4-forward-remove "$WARP_FW4_FAMILY" \
+            "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" "$WARP_FW4_RULE_COMMENT" || _rc=1
+        if command -v warp_domain_nft_remove >/dev/null 2>&1; then
+            warp_domain_nft_remove "$_full" || _rc=1
+        fi
+        _warp_controller nft-warp-remove "$Z2K_WARP_NFT_FAMILY" \
+            "$Z2K_WARP_NFT_TABLE" "$_full_arg" \
+            "$WARP_CHAIN_MARK" "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT" \
+            "$WARP_SET" "$WARP_SET_SRC" || _rc=1
+        return "$_rc"
+    fi
     _tables="$(nft list tables 2>/dev/null)" || return 1
     if printf '%s\n' "$_tables" | grep -qxF "table $WARP_FW4_FAMILY $WARP_FW4_TABLE"; then
         _warp_fw4_forward_remove_runtime || _rc=1
@@ -1135,12 +1401,42 @@ _warp_iface_valid() {
     return 0
 }
 
+_warp_process_check() {
+    local _state
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _state="$(_warp_controller process-observe "${Z2K_PROC_ROOT:-/proc}" 2>/dev/null)" || return 2
+        case "$_state" in
+            present) return 0 ;;
+            absent) return 1 ;;
+            *) return 2 ;;
+        esac
+    fi
+    warp_running
+}
+
+_warp_runtime_observe() {
+    local _state
+    _state="$(_warp_controller runtime-observe "$WARP_STATUS" "${Z2K_PROC_ROOT:-/proc}" 2>/dev/null)" || return 2
+    case "$_state" in
+        ready\ present\ z2ktun[0-9]|ready\ present\ z2ktun[0-9][0-9]) return 0 ;;
+        'not-ready absent -'|'not-ready present -') return 1 ;;
+        'unreadable unreadable -'|'unreadable present -') return 2 ;;
+        *) return 2 ;;
+    esac
+}
+
 # proven ready: status ready=true + ЖИВОЙ matching-процесс + валидный iface.
 # (Файл alone врёт после kill -9: defer Remove не выполняется.)
 _warp_proven_ready() {
+    local _rc _state _iface
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_verify_confirm _warp_runtime_observe || { _rc=$?; return "$_rc"; }
+        return 0
+    fi
+    if _warp_verify_confirm _warp_process_check; then :; else _rc=$?; return "$_rc"; fi
     [ "$(_json_raw "$WARP_STATUS" ready)" = "true" ] || return 1
-    warp_running || return 1
-    _warp_iface_valid "$(_warp_live_iface)" || return 1
+    _iface="$(_warp_live_iface)"
+    _warp_verify_confirm _warp_iface_valid "$_iface" || return 1
     return 0
 }
 
@@ -1252,6 +1548,10 @@ warp_probe_route_up() {
     _iface="$(_warp_live_iface)"
     _warp_iface_valid "$_iface" || return 1
     _addr="$(_warp_probe_addr)" || return 1
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller_route_apply "$_iface" "$_addr" 0
+        return $?
+    fi
     _warp_pbr_check "$_iface" || return 1
     _route="$(ip route show table "$WARP_TABLE" 2>/dev/null)" || return 1
     _route="$(printf '%s\n' "$_route" | sed 's/[[:space:]]*$//')"
@@ -1361,6 +1661,11 @@ _warp_probe_route_down() {
 
 warp_pbr_down() {
     local _rc=0
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller_route_remove || _rc=1
+        _z2k_ow_warp_mut "PBR_DOWN"
+        return "$_rc"
+    fi
     # Route+rule ПЕРВЫМИ (мгновенный fail-open), затем тишина.
     # Rule: ТОЛЬКО exact owned delete (pref+mark/mask+table, bounded от
     # дубликатов) — чужое не трогаем (defect 4). Legacy unmasked-формы нет:
@@ -1468,7 +1773,7 @@ warp_start_instance() {
     if mkdir -p "$(dirname "$WARP_PROCD_INSTANCE_FILE")" 2>/dev/null &&
         printf 'registered\n' > "$_regtmp" 2>/dev/null &&
         mv -f "$_regtmp" "$WARP_PROCD_INSTANCE_FILE" 2>/dev/null; then
-        rm -f "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null
+        _warp_procd_recovery_clear || _wlog "не удалось очистить маркер восстановления procd WARP"
     else
         rm -f "$_regtmp" 2>/dev/null
         _wlog "не удалось записать маркер регистрации procd WARP"
@@ -1531,9 +1836,24 @@ warp_register() {
 
 # Пора ли пробовать регистрацию снова (метка ДО попытки).
 warp_register_due() {
-    local _now _last
+    local _now _last _result
     _now=$(date +%s 2>/dev/null) || return 1
-    _last=$(cat "$WARP_REG_STAMP" 2>/dev/null)
+    case "$_now" in ''|*[!0-9]*) return 1 ;; esac
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _result="$(_warp_controller register-due "$WARP_REG_STAMP" \
+            "$_now" "$WARP_REG_RETRY" 2>/dev/null)" || return 2
+        case "$_result" in
+            due) return 0 ;;
+            wait) return 1 ;;
+            defer) return 2 ;;
+            *) return 2 ;;
+        esac
+    fi
+    if [ -e "$WARP_REG_STAMP" ]; then
+        _last=$(cat "$WARP_REG_STAMP" 2>/dev/null) || return 2
+    else
+        _last=0
+    fi
     case "$_last" in ''|*[!0-9]*) _last=0 ;; esac
     [ "$((_now - _last))" -ge "$WARP_REG_RETRY" ]
 }
@@ -1583,7 +1903,7 @@ warp_unpin_legacy() {
 # не новое намерение пользователя, а хвост текущего flow (иначе stale op-file
 # убивал бы refresh, W44).
 _warp_wait_ready() {
-    local _waited=0 _t0 _mt _last_log=0
+    local _waited=0 _t0 _mt _last_log=0 _state
     _t0=$(date +%s 2>/dev/null || echo 0)
     while [ "$_waited" -lt "${1:-$WARP_READY_WAIT}" ]; do
         if warp_running; then
@@ -1600,7 +1920,13 @@ _warp_wait_ready() {
             _wlog "ожидаю подтверждённую готовность туннеля: ${_waited}/${1:-$WARP_READY_WAIT} с"
             _last_log=$_waited
         fi
-        if [ "$(_json_raw "$WARP_STATUS" ready)" = "true" ] && warp_running; then
+        if [ -x "$WARP_CONTROLLER_BIN" ]; then
+            _state="$(_warp_controller ready-observe-since "$WARP_STATUS" \
+                "${Z2K_PROC_ROOT:-/proc}" "$_t0" 2>/dev/null)" || _state=unreadable
+            case "$_state" in
+                ready\ z2ktun[0-9]|ready\ z2ktun[0-9][0-9]) return 0 ;;
+            esac
+        elif [ "$(_json_raw "$WARP_STATUS" ready)" = "true" ] && warp_running; then
             if command -v stat >/dev/null 2>&1; then
                 _mt=$(stat -c %Y "$WARP_STATUS" 2>/dev/null || echo 0)
                 case "$_mt" in ''|*[!0-9]*) _mt=0 ;; esac
@@ -1616,15 +1942,31 @@ _warp_wait_ready() {
 # PBR install: conflict-check + tun-правила + route + rule.
 # Требует proven ready у вызывающего ИЛИ проверяет сам (дёшево).
 warp_pbr_up() {
-    local _mode="${1:-full}" _iface _routes _rules _route_ok=0 _rule_ok=0
+    local _mode="${1:-full}" _iface _addr _routes _rules _route_ok=0 _rule_ok=0
     _warp_proven_ready || return 1
     _iface="$(_warp_live_iface)"
-    _warp_pbr_check "$_iface" || return 1
+    if [ ! -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_pbr_check "$_iface" || return 1
+    fi
     warp_probe_route_up || return 1
     if [ "$_mode" = "repair" ]; then
         warp_nft_tun_verify "$_iface" >/dev/null 2>&1 || warp_nft_tun_apply "$_iface" || return 1
     else
         warp_nft_tun_apply "$_iface" || return 1
+    fi
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _addr="$(_warp_probe_addr)" || {
+            _warp_controller_route_remove >/dev/null 2>&1 || true
+            _warp_tun_clear >/dev/null 2>&1 || true
+            return 1
+        }
+        _warp_controller_route_apply "$_iface" "$_addr" 1 || {
+            _warp_controller_route_remove >/dev/null 2>&1 || true
+            _warp_tun_clear >/dev/null 2>&1 || true
+            return 1
+        }
+        _z2k_ow_warp_mut "PBR_UP: table $WARP_TABLE pref $WARP_RULE_PREF mark $WARP_MARK/$_iface"
+        return 0
     fi
     # Дальше — PBR-мутации: ЛЮБОЙ провал после первой откатываем целиком
     # (defect 3: failed enable обязан fail open, без полу-PBR).
@@ -1719,7 +2061,55 @@ _warp_owner_write() {
 # crash holder'а никого не вешает навсегда.
 WARP_LOCK_DIR="${WARP_LOCK_DIR:-${Z2K_TMP:-/tmp/z2k}/warp/mutate.lock}"
 WARP_LOCK_STALE_SECS="${WARP_LOCK_STALE_SECS:-300}"
+_warp_controller() {
+    local _owner
+    [ -x "${WARP_CONTROLLER_BIN:-}" ] || return 127
+    _owner="$(cat "$WARP_LOCK_DIR/pid" 2>/dev/null)" || _owner=
+    if [ "$_owner" = "$$" ]; then
+        Z2K_WARP_LOCK_DIR="$WARP_LOCK_DIR" Z2K_WARP_LOCK_HELD=1 "$WARP_CONTROLLER_BIN" "$@"
+    else
+        Z2K_WARP_LOCK_DIR="$WARP_LOCK_DIR" Z2K_WARP_LOCK_HELD=0 "$WARP_CONTROLLER_BIN" "$@"
+    fi
+}
+_warp_controller_route_apply() {
+    _warp_controller route-apply "$1" "$2" "$WARP_TABLE" "$WARP_RULE_PREF" \
+        "$WARP_PROBE_RULE_PREF" "$WARP_MARK" "$WARP_MASK" \
+        "$WARP_PBR_OWNER" "$WARP_PROBE_OWNER" "$3"
+}
+_warp_controller_route_reconcile() {
+    local _addr
+    _addr="$(_warp_probe_addr)" || return 1
+    _warp_controller route-reconcile "$1" "$_addr" "$WARP_TABLE" "$WARP_RULE_PREF" \
+        "$WARP_PROBE_RULE_PREF" "$WARP_MARK" "$WARP_MASK" \
+        "$WARP_PBR_OWNER" "$WARP_PROBE_OWNER"
+}
+_warp_controller_route_remove() {
+    local _iface="" _addr=""
+    _iface="$(_warp_live_iface 2>/dev/null)" || _iface=
+    _addr="$(_warp_probe_addr 2>/dev/null)" || _addr=
+    _warp_controller route-remove-owned "$_iface" "$_addr" \
+        "$WARP_TABLE" "$WARP_RULE_PREF" "$WARP_PROBE_RULE_PREF" \
+        "$WARP_MARK" "$WARP_MASK" "$WARP_PBR_OWNER" "$WARP_PROBE_OWNER"
+}
+_warp_controller_disable_state() {
+    local _iface="" _addr=""
+    _iface="$(_warp_live_iface 2>/dev/null)" || _iface=
+    _addr="$(_warp_probe_addr 2>/dev/null)" || _addr=
+    _warp_controller disable-state "$CONFIG_FILE" "$_iface" "$_addr" \
+        "$WARP_TABLE" "$WARP_RULE_PREF" "$WARP_PROBE_RULE_PREF" \
+        "$WARP_MARK" "$WARP_MASK" "$WARP_PBR_OWNER" "$WARP_PROBE_OWNER" \
+        "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" \
+        "$WARP_FW4_RULE_COMMENT" "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" \
+        "$WARP_CHAIN_MARK" "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT" \
+        "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" \
+        "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" \
+        "$WARP_DOMAIN_ERROR"
+}
 _z2k_ow_warp_lock() {
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ]; then
+        _warp_controller lock-acquire "$$" "${1:-30}"
+        return $?
+    fi
     local _t="${1:-30}" _waited=0 _owner=""
     case "$_t" in ''|*[!0-9]*) _t=30 ;; esac
     mkdir -p "$(dirname "$WARP_LOCK_DIR")" 2>/dev/null || true
@@ -1752,6 +2142,10 @@ _z2k_ow_warp_lock() {
     return 0
 }
 _z2k_ow_warp_unlock() {
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ]; then
+        _warp_controller lock-release "$$"
+        return $?
+    fi
     # Снимает только свой лок (чужой не трогаем никогда).
     local _owner=""
     _owner=$(cat "$WARP_LOCK_DIR/pid" 2>/dev/null)
@@ -1780,22 +2174,37 @@ _warp_locked() {
     local _rc
     _z2k_ow_warp_lock "${WARP_LOCK_WAIT:-30}" || {
         _wlog "mutation lock busy ($*)"; return 1; }
+    if [ "${_WARP_USER_ACTION:-0}" = 1 ] && _z2k_ow_install_transaction_active; then
+        _z2k_ow_warp_unlock || true
+        _wlog "идёт обновление z2kOW; действие WARP отложено"
+        return 1
+    fi
     "$@"
     _rc=$?
     _z2k_ow_warp_unlock
     return $_rc
 }
 
+_z2k_ow_install_transaction_active() {
+    local _work="${Z2K_OW_INSTALL_WORK:-/usr/lib/.z2k-install}"
+    [ -e "$_work/transaction-active" ] || [ -L "$_work/transaction-active" ]
+}
+
 # User entry-points publish intent before waiting for the feature lock. This
 # lets a newer panel action supersede a long restart/enable while the older
 # action is still waiting, instead of timing out behind its lock.
 _warp_user_locked() {
-    local _rc _owner
-    warp_op_begin
+    local _rc _owner _WARP_USER_ACTION=1
+    warp_op_begin || { _wlog "не удалось опубликовать действие WARP"; return 1; }
     _warp_locked "$@"
     _rc=$?
-    _owner=$(cat "$WARP_OP_FILE" 2>/dev/null)
-    [ "$_owner" = "$$" ] && rm -f "$WARP_OP_FILE" 2>/dev/null
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ]; then
+        _warp_controller op-clear "$WARP_OP_FILE" "$$" || \
+            _wlog "не удалось очистить завершённое действие WARP"
+    else
+        _owner=$(cat "$WARP_OP_FILE" 2>/dev/null)
+        [ "$_owner" = "$$" ] && rm -f "$WARP_OP_FILE" 2>/dev/null
+    fi
     return $_rc
 }
 
@@ -1812,12 +2221,21 @@ _warp_user_locked() {
 # "текущесть" у долгого пользовательского enable.
 WARP_OP_FILE="${WARP_OP_FILE:-${Z2K_TMP:-/tmp/z2k}/warp/op}"
 warp_op_begin() {
-    mkdir -p "$(dirname "$WARP_OP_FILE")" 2>/dev/null
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ]; then
+        _warp_controller op-begin "$WARP_OP_FILE" "$$"
+        return $?
+    fi
+    mkdir -p "$(dirname "$WARP_OP_FILE")" 2>/dev/null || return 1
     printf '%s\n' "$$" > "$WARP_OP_FILE" 2>/dev/null
-    return 0
 }
 # Всё ещё ли это действие последнее (нет op-file = не user-контекст = да).
 warp_op_current() {
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ]; then
+        local _state
+        _state="$(_warp_controller op-current "$WARP_OP_FILE" "$$" 2>/dev/null)" || return 0
+        [ "$_state" != superseded ]
+        return $?
+    fi
     [ -f "$WARP_OP_FILE" ] || return 0
     [ "$(cat "$WARP_OP_FILE" 2>/dev/null)" = "$$" ]
 }
@@ -1831,15 +2249,22 @@ warp_op_superseded() {
 # disable течёт instance). Прямой ubus-запрос first, init running — fallback.
 # Z2K_INIT переопределимо тестам (mock-init).
 _z2k_ow_service_running() {
-    local _init="${Z2K_INIT:-/etc/init.d/z2k}" _ubus=""
+    local _init="${Z2K_INIT:-/etc/init.d/z2k}" _ubus="" _services _service_rc
     for _ubus in ubus /sbin/ubus /usr/sbin/ubus; do
         if command -v "$_ubus" >/dev/null 2>&1; then
-            "$_ubus" -S call service list 2>/dev/null | grep -q '"z2k":{' && return 0
+            _services=$("$_ubus" -S call service list 2>/dev/null) || return 2
+            printf '%s\n' "$_services" | grep -q '"z2k":{' && return 0
             return 1
         fi
     done
     [ -x "$_init" ] || return 1
-    "$_init" running >/dev/null 2>&1
+    if "$_init" running >/dev/null 2>&1; then
+        return 0
+    else
+        _service_rc=$?
+    fi
+    [ "$_service_rc" = 1 ] && return 1
+    return 2
 }
 
 # The local marker records that start_service once registered WARP, but the
@@ -1859,11 +2284,34 @@ _z2k_ow_warp_procd_instance_registered() {
     return 2
 }
 
+_warp_procd_recovery_claim() {
+    local _result
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _result="$(_warp_controller procd-recovery-claim "$WARP_PROCD_RECOVERY_FILE" "$1")" || return 2
+        case "$_result" in
+            claimed) return 0 ;;
+            exists) return 1 ;;
+            *) return 2 ;;
+        esac
+    fi
+    [ ! -e "$WARP_PROCD_RECOVERY_FILE" ] || return 1
+    mkdir -p "$(dirname "$WARP_PROCD_RECOVERY_FILE")" 2>/dev/null || return 2
+    printf 'attempted %s\n' "$1" > "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null || return 2
+}
+
+_warp_procd_recovery_clear() {
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller procd-recovery-clear "$WARP_PROCD_RECOVERY_FILE"
+    else
+        rm -f "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null
+    fi
+}
+
 warp_enable() {
-    local _was_enabled _need_rebuild
+    local _was_enabled
     _wlog "включаю WARP: готовлю списки и маршрутизацию"
     warp_op_current || { warp_op_superseded; return 3; }
-    rm -f "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null
+    _warp_procd_recovery_clear || true
     _was_enabled="$(warp_flag)"
     warp_set_flag 1 || { _wlog "не удалось записать GAME_WARP_ENABLED"; return 1; }
     warp_unpin_legacy
@@ -1886,15 +2334,7 @@ warp_enable() {
     warp_nft_sets_load || { _wlog "списки не загрузились"; warp_set_flag 0 || _wlog "не удалось сбросить GAME_WARP_ENABLED"; return 1; }
     _wlog "применяю nft-правила и передаю запуск службе procd"
     warp_nft_rules_apply || { _wlog "nft chains не встали"; warp_set_flag 0 || _wlog "не удалось сбросить GAME_WARP_ENABLED"; return 1; }
-    _need_rebuild=0
-    if _z2k_ow_service_running && { [ "$_was_enabled" != "1" ] || ! warp_running; }; then
-        _need_rebuild=1
-    fi
-    if [ "$_need_rebuild" = "1" ]; then
-        _z2k_ow_warp_service_rebuild || return $?
-    else
-        _z2k_ow_warp_service_reload || return $?
-    fi
+    _warp_service_transition enable "$_was_enabled" "$(warp_running && printf 1 || printf 0)" || return $?
     _wlog "жду готовность движка и затем проверю PBR-маршрут"
     _warp_wait_and_pbr
 }
@@ -1927,7 +2367,14 @@ _warp_wait_and_pbr() {
 # ТОЛЬКО если сервис активен (defect 2): на остановленном сервисе intent
 # записан, конвергенция — на старте; весь z2k сам НЕ стартуем (W46).
 _z2k_ow_warp_service_reload() {
-    _z2k_ow_service_running || return 0
+    local _service_rc
+    if _z2k_ow_service_running; then
+        :
+    else
+        _service_rc=$?
+        [ "$_service_rc" = 1 ] && return 0
+        return 2
+    fi
     "${Z2K_INIT:-/etc/init.d/z2k}" reload >/dev/null 2>&1
 }
 
@@ -1936,8 +2383,14 @@ _z2k_ow_warp_service_reload() {
 # z2k_ow_warp lifecycle calls can acquire it; the caller regains ownership
 # before it proceeds to readiness/PBR checks.
 _z2k_ow_warp_service_rebuild() {
-    local _held=0 _owner="" _recovery_rebuild=0 _restart_rc=0
-    _z2k_ow_service_running || return 0
+    local _held=0 _owner="" _recovery_rebuild=0 _restart_rc=0 _service_rc
+    if _z2k_ow_service_running; then
+        :
+    else
+        _service_rc=$?
+        [ "$_service_rc" = 1 ] && return 0
+        return 2
+    fi
     _owner=$(cat "$WARP_LOCK_DIR/pid" 2>/dev/null)
     [ "$_owner" = "$$" ] && _held=1
     [ "$_held" = "1" ] && _z2k_ow_warp_unlock
@@ -1957,28 +2410,101 @@ _z2k_ow_warp_service_rebuild() {
     return "$_restart_rc"
 }
 
+_warp_service_transition() {
+    local _intent="$1" _was_enabled="$2" _process_running="$3"
+    local _service_active=0 _action="" _service_rc
+    [ "$_was_enabled" = "1" ] || _was_enabled=0
+    [ "$_process_running" = "1" ] || _process_running=0
+    if _z2k_ow_service_running; then
+        _service_active=1
+    else
+        _service_rc=$?
+        case "$_service_rc" in
+            1) _service_active=0 ;;
+            *) _service_active=unreadable ;;
+        esac
+    fi
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _action="$(_warp_controller service-plan "$_intent" "$_was_enabled" \
+            "$_service_active" "$_process_running")" || {
+            _wlog "не удалось определить действие службы WARP"
+            return 1
+        }
+    else
+        [ "$_service_active" != unreadable ] || {
+            _wlog "состояние службы procd временно не читается; переход отложен"
+            return 2
+        }
+        case "$_intent" in
+            enable)
+                if [ "$_service_active" != "1" ]; then
+                    _action=none
+                elif [ "$_was_enabled" != "1" ] || [ "$_process_running" != "1" ]; then
+                    _action=rebuild
+                else
+                    _action=reload
+                fi
+                ;;
+            disable)
+                if [ "$_service_active" != "1" ]; then
+                    _action=none
+                elif [ "$_process_running" = "1" ]; then
+                    _action=rebuild
+                else
+                    _action=reload
+                fi
+                ;;
+            restart)
+                if [ "$_was_enabled" = "1" ] && [ "$_service_active" = "1" ]; then
+                    _action=rebuild
+                else
+                    _action=none
+                fi
+                ;;
+            *)
+                _wlog "неизвестное действие жизненного цикла WARP"
+                return 1
+                ;;
+        esac
+    fi
+    case "$_action" in
+        defer)
+            _wlog "состояние службы procd временно не подтверждено; переход отложен"
+            return 2
+            ;;
+        none) return 0 ;;
+        reload) _z2k_ow_warp_service_reload ;;
+        rebuild) _z2k_ow_warp_service_rebuild ;;
+        *)
+            _wlog "контроллер вернул неизвестное действие службы WARP"
+            return 1
+            ;;
+    esac
+}
+
 warp_disable() {
     local _was_running _rc=0
     _wlog "выключаю WARP: сначала снимаю маршрутизацию, затем останавливаю instance"
     # Порядок (defect 1): PBR down ПЕРВЫМ -> clears -> flag 0 -> reconcile.
     # Reload при flag=1 пересоздал бы instance (окно "выключен, но работает").
     warp_op_current || { warp_op_superseded; return 3; }
-    rm -f "$WARP_PROCD_INSTANCE_FILE" "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null
+    rm -f "$WARP_PROCD_INSTANCE_FILE" 2>/dev/null
+    _warp_procd_recovery_clear || true
     warp_unpin_legacy
     _was_running=0
     warp_running && _was_running=1
-    warp_pbr_down || _rc=1
-    _warp_tun_clear || _rc=1
-    _warp_mark_clear || _rc=1
-    if command -v warp_domain_nft_remove >/dev/null 2>&1; then
-        warp_domain_nft_remove || _rc=1
-    fi
-    warp_set_flag 0 || _rc=1
-    if [ "$_was_running" = "1" ] && _z2k_ow_service_running; then
-        _z2k_ow_warp_service_rebuild || return $?
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller_disable_state || _rc=1
     else
-        _z2k_ow_warp_service_reload || return $?
+        warp_pbr_down || _rc=1
+        _warp_tun_clear || _rc=1
+        _warp_mark_clear || _rc=1
+        if command -v warp_domain_nft_remove >/dev/null 2>&1; then
+            warp_domain_nft_remove || _rc=1
+        fi
+        warp_set_flag 0 || _rc=1
     fi
+    _warp_service_transition disable 0 "$_was_running" || return $?
     # Invariant: успех disable => процесса нет (а не только flag=0).
     if warp_running; then
         _wlog "disable: процесс всё ещё жив после reconcile"
@@ -2002,14 +2528,14 @@ warp_restart() {
     if [ "$(warp_flag)" != "1" ]; then
         return 0
     fi
-    rm -f "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null
+    _warp_procd_recovery_clear || true
     warp_pbr_down >/dev/null 2>&1 || { _wlog "restart: не удалось снять PBR перед перезапуском"; return 1; }
     if warp_running; then
         for _p in $(warp_pids); do _z2k_ow_warp_kill "$_p"; done
     fi
     # procd respawn uses the already-committed instance definition, including
     # its old env. Rebuild that definition through the owning service.
-    _z2k_ow_warp_service_rebuild || return $?
+    _warp_service_transition restart 1 "$(warp_running && printf 1 || printf 0)" || return $?
     _wlog "служба пересоздана; жду подтверждения туннеля и восстановлю PBR"
     _warp_wait_and_pbr
 }
@@ -2076,6 +2602,12 @@ warp_note_death() {
 # Sets reload только при изменении входов (хеш), без рестарта движка.
 warp_nft_sets_reload_if_changed() {
     local _hfile="${Z2K_TMP:-/tmp/z2k}/warp/sets.hash" _h="" _old=""
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        warp_nft_sets_verify >/dev/null 2>&1 && return 0
+        warp_nft_sets_load >/dev/null 2>&1 || return 1
+        warp_nft_sets_verify >/dev/null 2>&1
+        return $?
+    fi
     if ! mkdir -p "$(dirname "$_hfile")" 2>/dev/null; then
         warp_nft_sets_verify >/dev/null 2>&1 && return 0
         warp_nft_sets_load >/dev/null 2>&1 || return 1
@@ -2246,11 +2778,20 @@ z2k_ow_warp() {
 _z2k_ow_warp_dispatch() {
     case "${1:-}" in
         1)
+            local _boot_rc
             # Boot converge: sets + instance; PBR — только если proven ready
             # (на старте почти surely нет; tick доведёт). Ошибка возвращается
             # вызывающему init-скрипту для soft-fail лога; сервис не валится.
-            if ! warp_wanted_boot; then
-                rm -f "$WARP_PROCD_INSTANCE_FILE" "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null
+            if warp_wanted_boot; then
+                :
+            else
+                _boot_rc=$?
+                if [ "$_boot_rc" = 2 ]; then
+                    _wlog "состояние WARP при запуске не подтверждено; запуск отложен без изменений"
+                    return 0
+                fi
+                rm -f "$WARP_PROCD_INSTANCE_FILE" 2>/dev/null
+                _warp_procd_recovery_clear || true
                 return 0
             fi
             warp_nft_sets_load >/dev/null 2>&1 || return 1
@@ -2266,12 +2807,13 @@ _z2k_ow_warp_dispatch() {
             rm -f "$WARP_PROCD_INSTANCE_FILE" 2>/dev/null
             # Keep the one-shot latch only while this stop belongs to the
             # automatic recovery restart; an ordinary stop/start starts fresh.
-            [ -e "$WARP_PROCD_REBUILD_FILE" ] || rm -f "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null
+            [ -e "$WARP_PROCD_REBUILD_FILE" ] || _warp_procd_recovery_clear || true
             warp_pbr_down >/dev/null 2>&1 || _rc=1
             warp_nft_remove >/dev/null 2>&1 || _rc=1
             return "$_rc"
             ;;
         rules)
+            local _boot_rc
             # hotplug/firewall-reload: sets (если изменились; плюс ensure при
             # сносе таблицы — MARK-правилам не на что ссылаться) + base chains;
             # затем dynamic TUN по proven-ready (defect 6: одного route/rule
@@ -2306,6 +2848,11 @@ _z2k_ow_warp_dispatch() {
                     fi
                 fi
             else
+                _boot_rc=$?
+                if [ "$_boot_rc" = 2 ]; then
+                    _wlog "состояние WARP при hotplug не подтверждено; проверка отложена без мутаций"
+                    return 0
+                fi
                 local _rc=0
                 warp_pbr_down >/dev/null 2>&1 || _rc=1
                 warp_nft_remove >/dev/null 2>&1 || _rc=1
@@ -2362,7 +2909,12 @@ _z2k_ow_warp_dispatch() {
 # PBR present-and-valid? Ровно одна exact rule (defect 4: дубликат exact —
 # тоже invalid, verify=false), плюс route на живой iface.
 warp_pbr_verify() {
-    local _iface _addr _n _pn
+    local _iface _addr _n _pn _observed
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _observed="$(_warp_pbr_observe)"
+        [ "$_observed" = present ]
+        return $?
+    fi
     _iface="$(_warp_live_iface)"
     [ -n "$_iface" ] || return 1
     _addr="$(_warp_probe_addr)" || return 1
@@ -2383,6 +2935,10 @@ warp_status_routing_ready() {
 
 _warp_route_error_set() {
     local _reason="$1" _at
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller route-error-set "$WARP_ROUTE_ERROR_FILE" "$_reason"
+        return $?
+    fi
     [ -s "$WARP_ROUTE_ERROR_FILE" ] && return 0
     _at="$(date +%s 2>/dev/null || echo 0)"
     mkdir -p "$(dirname "$WARP_ROUTE_ERROR_FILE")" 2>/dev/null || return 1
@@ -2394,6 +2950,10 @@ _warp_route_error_set() {
 }
 
 _warp_route_error_clear() {
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller route-error-clear "$WARP_ROUTE_ERROR_FILE"
+        return $?
+    fi
     rm -f "$WARP_ROUTE_ERROR_FILE" "$WARP_ROUTE_ERROR_FILE.new."* 2>/dev/null || true
 }
 
@@ -2402,6 +2962,46 @@ _warp_route_error_clear() {
 _warp_verify_confirm() {
     "$@" && return 0
     "$@"
+}
+
+_warp_pbr_observe() {
+    local _iface _addr _result
+    _iface="$(_warp_live_iface)"
+    _addr="$(_warp_probe_addr)" || { printf '%s\n' unreadable; return 0; }
+    _result="$(_warp_controller route-verify \
+        "$_iface" "$_addr" "$WARP_TABLE" "$WARP_RULE_PREF" "$WARP_PROBE_RULE_PREF" \
+        "$WARP_MARK" "$WARP_MASK" "$WARP_PBR_OWNER" "$WARP_PROBE_OWNER" 2>/dev/null)" || {
+        printf '%s\n' unreadable
+        return 0
+    }
+    case "$_result" in
+        ready=1) printf '%s\n' present ;;
+        ready=0) printf '%s\n' absent ;;
+        *) printf '%s\n' unreadable ;;
+    esac
+}
+
+_warp_policy_plan() {
+    local _action
+    [ "$#" = 3 ] || return 2
+    _action="$(_warp_controller policy-plan "$1" "$2" "$3" 2>/dev/null)" || return 2
+    case "$_action" in defer|noop|apply|remove) _WARP_POLICY_ACTION="$_action" ;; *) return 2 ;; esac
+}
+
+_warp_enabled_config_observe() {
+    local _value
+    if [ -x "${WARP_CONTROLLER_BIN:-}" ]; then
+        _warp_controller config-read "$CONFIG_FILE" ENABLED 1 last
+        return $?
+    fi
+    if [ -f "$CONFIG_FILE" ]; then
+        _value="$(awk -F= -v k=ENABLED '$1==k {v=$2; gsub(/[" ]/,"",v)} END {print v}' \
+            "$CONFIG_FILE" 2>/dev/null)" || return 2
+    else
+        _value=1
+    fi
+    [ -n "$_value" ] || _value=1
+    printf '%s\n' "$_value"
 }
 
 _warp_route_fail_open() {
@@ -2499,6 +3099,16 @@ _warp_converge_off() {
 # fall back to the normal teardown so a stale route cannot survive a crash.
 _warp_converge_off_keep_probe() {
     local _rc=0
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _warp_controller_route_remove >/dev/null 2>&1 || _rc=1
+        if warp_probe_route_up >/dev/null 2>&1; then
+            _warp_tun_clear >/dev/null 2>&1 || _rc=1
+            return "$_rc"
+        fi
+        _warp_route_error_set probe-route-unavailable || true
+        _warp_converge_off keep >/dev/null 2>&1 || _rc=1
+        return "$_rc"
+    fi
     _warp_rule_delete_exact >/dev/null 2>&1 || _rc=1
     _warp_route_release_owned >/dev/null 2>&1 || _rc=1
     if [ "$_rc" = "0" ]; then
@@ -2513,76 +3123,149 @@ _warp_converge_off_keep_probe() {
     return "$_rc"
 }
 
+_warp_health_device_missing() {
+    _warp_route_error_set device-identity-missing || true
+    _warp_converge_off keep >/dev/null 2>&1 || return 1
+    if warp_register_due; then
+        mkdir -p "$(dirname "$WARP_REG_STAMP")" 2>/dev/null || return 1
+        date +%s > "$WARP_REG_STAMP" 2>/dev/null || return 1
+        { _wlog "нет ключа — регистрирую"; warp_register; } >>"$WARP_LOG" 2>&1 || return 1
+        _z2k_ow_warp_service_restart || return 1
+    fi
+    return 0
+}
+
+_warp_health_process_absent() {
+    local _procd_instance_rc _recovery_claim_rc _service_rc
+    warp_note_death
+    _warp_route_error_set daemon-not-running || true
+    _warp_converge_off keep >/dev/null 2>&1 || return 1
+    _z2k_ow_warp_procd_instance_registered
+    _procd_instance_rc=$?
+    if [ "$_procd_instance_rc" = "1" ]; then
+        if _z2k_ow_service_running; then
+            _warp_procd_recovery_claim "$(date +%s 2>/dev/null || echo 0)"
+            _recovery_claim_rc=$?
+            if [ "$_recovery_claim_rc" = "0" ]; then
+                _wlog "нет регистрации z2k-warp в procd — одна попытка восстановления сервиса"
+                if _z2k_ow_warp_service_rebuild && [ -e "$WARP_PROCD_INSTANCE_FILE" ]; then
+                    _warp_wait_and_pbr >/dev/null 2>&1 || return 1
+                else
+                    _wlog "восстановление регистрации z2k-warp не подтверждено; повторов до явного restart нет"
+                    return 1
+                fi
+            elif [ "$_recovery_claim_rc" != "1" ]; then
+                return 1
+            fi
+        else
+            _service_rc=$?
+            [ "$_service_rc" = "1" ] || return 1
+        fi
+    elif [ "$_procd_instance_rc" = "2" ]; then
+        return 1
+    fi
+    return 0
+}
+
 z2k_ow_warp_check() {
-    local _procd_instance_rc _rc=0
+    local _ready_rc _rc=0 _configured _gate="" _iface
     mkdir -p "${Z2K_TMP:-/tmp/z2k}/warp" 2>/dev/null || return 1
+    if [ -x "$WARP_CONTROLLER_BIN" ]; then
+        _gate="$(_warp_controller health-plan "$CONFIG_FILE" "$WARP_BIN" \
+            "$WARP_DEVICE" "$WARP_STATUS" "${Z2K_PROC_ROOT:-/proc}")" || {
+            _wlog "состояние WARP временно не подтверждено; проверка отложена без мутаций"
+            return 0
+        }
+        case "$_gate" in
+            defer)
+                _wlog "состояние WARP временно не подтверждено; проверка отложена без мутаций"
+                return 0
+                ;;
+            disabled) _warp_converge_off full; return $? ;;
+            binary-missing)
+                _warp_route_error_set warp-binary-missing || true
+                _warp_converge_off keep
+                return $?
+                ;;
+            device-missing) _warp_health_device_missing; return $? ;;
+            process-absent) _warp_health_process_absent; return $? ;;
+            not-ready) _warp_converge_off_keep_probe; return $? ;;
+            ready\ *) _iface=${_gate#ready }; _gate=ready ;;
+            *)
+                _wlog "контроллер вернул неизвестное состояние WARP; проверка отложена"
+                return 0
+                ;;
+        esac
+    else
     # Graduated gates (НЕ один wanted: устройству без ключа нужен
     # register-recovery, а не молчаливый converge-to-off).
-    [ "$(warp_cfg ENABLED 1)" = "1" ] || { _warp_converge_off full; return $?; }
+    if _configured="$(_warp_enabled_config_observe)"; then :; else
+        _wlog "конфигурация WARP временно не читается; проверка отложена без мутаций"
+        return 0
+    fi
+    [ "$_configured" = "1" ] || { _warp_converge_off full; return $?; }
     [ "$(warp_flag)" = "1" ] || { _warp_converge_off full; return $?; }
     [ -x "$WARP_BIN" ] || {
         _warp_route_error_set warp-binary-missing || true
         _warp_converge_off keep
         return $?
     }
-    if [ ! -s "$WARP_DEVICE" ]; then
-        _warp_route_error_set device-identity-missing || true
-        _warp_converge_off keep >/dev/null 2>&1 || return 1
-        if warp_register_due; then
-            mkdir -p "$(dirname "$WARP_REG_STAMP")" 2>/dev/null || return 1
-            date +%s > "$WARP_REG_STAMP" 2>/dev/null || return 1
-            { _wlog "нет ключа — регистрирую"; warp_register; } >>"$WARP_LOG" 2>&1 || return 1
-            _z2k_ow_warp_service_restart || return 1
+    [ -s "$WARP_DEVICE" ] || { _warp_health_device_missing; return $?; }
+    if _warp_verify_confirm _warp_process_check; then
+        :
+    else
+        _ready_rc=$?
+        if [ "$_ready_rc" = "2" ]; then
+            _wlog "состояние процесса WARP временно не подтверждено; проверка отложена без мутаций"
+            return 0
         fi
-        return 0
+        _warp_health_process_absent
+        return $?
     fi
-    if ! warp_running; then
-        warp_note_death
-        _warp_route_error_set daemon-not-running || true
-        _warp_converge_off keep >/dev/null 2>&1 || return 1
-        # A registered process crash is procd's bounded-respawn domain. Trust
-        # the live procd registry, not our marker: a service restart can drop
-        # the instance while a lock-blocked stop leaves that marker stale.
-        # Latch one repair before releasing the feature lock for init restart;
-        # explicit stop/config/core-ready gates still prevent resurrection.
-        _z2k_ow_warp_procd_instance_registered
-        _procd_instance_rc=$?
-        if [ "$_procd_instance_rc" = "1" ] &&
-            [ ! -e "$WARP_PROCD_RECOVERY_FILE" ] &&
-            _z2k_ow_service_running; then
-            mkdir -p "$(dirname "$WARP_PROCD_RECOVERY_FILE")" 2>/dev/null || return 1
-            printf 'attempted %s\n' "$(date +%s 2>/dev/null || echo 0)" > "$WARP_PROCD_RECOVERY_FILE" 2>/dev/null || return 1
-            _wlog "нет регистрации z2k-warp в procd — одна попытка восстановления сервиса"
-            if _z2k_ow_warp_service_rebuild && [ -e "$WARP_PROCD_INSTANCE_FILE" ]; then
-                _warp_wait_and_pbr >/dev/null 2>&1 || return 1
-            else
-                _wlog "восстановление регистрации z2k-warp не подтверждено; повторов до явного restart нет"
-                return 1
+    fi
+    if [ "$_gate" = ready ] || _warp_proven_ready; then
+        [ "$_gate" = ready ] || _iface="$(_warp_live_iface)"
+        if [ -x "$WARP_CONTROLLER_BIN" ]; then
+            _warp_policy_plan enabled ready "$(_warp_pbr_observe)" || {
+                _wlog "состояние PBR WARP временно не подтверждено; проверка отложена без мутаций"
+                return 0
+            }
+            if [ "$_WARP_POLICY_ACTION" = defer ]; then
+                _wlog "конечная машина WARP отложила изменение политики"
+                return 0
             fi
-        elif [ "$_procd_instance_rc" = "2" ]; then
-            return 1
         fi
-        return 0
-    fi
-    if _warp_proven_ready; then
-        local _iface
-        _iface="$(_warp_live_iface)"
         # Read-only probes first.  Every repair is tied to the failed layer;
         # healthy MARK/TUN/PBR/owner state performs zero nft/ip/filesystem
         # mutations, even when the tick runs every minute.
         if ! warp_nft_sets_reload_if_changed >/dev/null 2>&1; then
-            _warp_verify_confirm warp_nft_sets_verify >/dev/null 2>&1 || {
+            if _warp_verify_confirm warp_nft_sets_verify >/dev/null 2>&1; then :; else
+                _ready_rc=$?
+                if [ "$_ready_rc" = "2" ]; then
+                    _wlog "состояние nft-наборов WARP временно не подтверждено; проверка отложена без мутаций"
+                    return 0
+                fi
                 _warp_route_fail_open nft-sets-read-failed
                 return 1
-            }
+            fi
         fi
-        if ! _warp_verify_confirm warp_nft_rules_verify >/dev/null 2>&1; then
+        if _warp_verify_confirm warp_nft_rules_verify >/dev/null 2>&1; then :; else
+            _ready_rc=$?
+            if [ "$_ready_rc" = "2" ]; then
+                _wlog "состояние nft WARP временно не подтверждено; проверка отложена без мутаций"
+                return 0
+            fi
             warp_nft_rules_apply >/dev/null 2>&1 || {
                 _warp_route_fail_open nft-mark-apply-failed
                 return 1
             }
         fi
-        if ! _warp_verify_confirm warp_nft_tun_verify "$_iface" >/dev/null 2>&1; then
+        if _warp_verify_confirm warp_nft_tun_verify "$_iface" >/dev/null 2>&1; then :; else
+            _ready_rc=$?
+            if [ "$_ready_rc" = "2" ]; then
+                _wlog "состояние nft WARP TUN временно не подтверждено; проверка отложена без мутаций"
+                return 0
+            fi
             warp_nft_tun_apply "$_iface" >/dev/null 2>&1 || {
                 if [ "${_WARP_CONFLICT:-0}" = "1" ]; then
                     _warp_route_fail_open fw4-forward-conflict
@@ -2592,7 +3275,12 @@ z2k_ow_warp_check() {
                 return 1
             }
         fi
-        if ! _warp_verify_confirm warp_pbr_verify >/dev/null 2>&1; then
+        if [ -x "$WARP_CONTROLLER_BIN" ]; then
+            _warp_controller_route_reconcile "$_iface" >/dev/null 2>&1 || {
+                _warp_route_fail_open pbr-apply-failed
+                return 1
+            }
+        elif ! _warp_verify_confirm warp_pbr_verify >/dev/null 2>&1; then
             warp_pbr_up repair >/dev/null 2>&1 || {
                 _warp_route_fail_open pbr-apply-failed
                 return 1
@@ -2607,36 +3295,65 @@ z2k_ow_warp_check() {
             _warp_route_fail_open nft-sets-verify-failed
             return 1
         }
-        _warp_verify_confirm warp_nft_rules_verify >/dev/null 2>&1 || {
+        if _warp_verify_confirm warp_nft_rules_verify >/dev/null 2>&1; then :; else
+            _ready_rc=$?
+            if [ "$_ready_rc" = "2" ]; then
+                _wlog "состояние nft WARP временно не подтверждено; проверка отложена без мутаций"
+                return 0
+            fi
             _warp_route_fail_open nft-mark-verify-failed
             return 1
-        }
-        _warp_verify_confirm warp_nft_tun_verify "$_iface" >/dev/null 2>&1 || {
-            if ! _warp_verify_confirm _warp_fw4_forward_verify "$_iface" >/dev/null 2>&1; then
-                _warp_route_fail_open fw4-forward-verify-failed
-            else
+        fi
+        if _warp_verify_confirm warp_nft_tun_verify "$_iface" >/dev/null 2>&1; then :; else
+            _ready_rc=$?
+            if [ "$_ready_rc" = "2" ]; then
+                _wlog "состояние nft WARP TUN временно не подтверждено; проверка отложена без мутаций"
+                return 0
+            fi
+            if _warp_verify_confirm _warp_fw4_forward_verify "$_iface" >/dev/null 2>&1; then
                 _warp_route_fail_open tun-verify-failed
+            else
+                _ready_rc=$?
+                if [ "$_ready_rc" = "2" ]; then
+                    _wlog "состояние fw4 WARP временно не подтверждено; проверка отложена без мутаций"
+                    return 0
+                fi
+                _warp_route_fail_open fw4-forward-verify-failed
             fi
             return 1
-        }
+        fi
         _warp_verify_confirm warp_pbr_verify >/dev/null 2>&1 || {
             _warp_route_fail_open pbr-verify-failed
             return 1
         }
-        _warp_verify_confirm warp_pbr_owner_verify "$_iface" >/dev/null 2>&1 || {
-            _warp_route_fail_open owner-verify-failed
-            return 1
-        }
+        if [ ! -x "$WARP_CONTROLLER_BIN" ]; then
+            _warp_verify_confirm warp_pbr_owner_verify "$_iface" >/dev/null 2>&1 || {
+                _warp_route_fail_open owner-verify-failed
+                return 1
+            }
+        fi
         _warp_route_error_clear
     else
+        _ready_rc=$?
+        if [ "$_ready_rc" = "2" ]; then
+            _wlog "состояние WARP временно не подтверждено; проверка отложена без мутаций"
+            return 0
+        fi
         _warp_converge_off_keep_probe || return 1
     fi
     return "$_rc"
 }
 
 _z2k_ow_warp_service_restart() {
+    local _service_rc
     # Как reload: только при активном сервисе (defect 2 — не pidof nfqws2).
-    _z2k_ow_service_running || return 0
+    if _z2k_ow_service_running; then
+        :
+    else
+        _service_rc=$?
+        [ "$_service_rc" = 1 ] && return 0
+        return 2
+    fi
     "${Z2K_INIT:-/etc/init.d/z2k}" restart >/dev/null 2>&1
 }
 

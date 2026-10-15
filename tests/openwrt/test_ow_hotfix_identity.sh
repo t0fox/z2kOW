@@ -21,11 +21,16 @@ mkdir -p "$STAGE/usr/lib/z2k/platform/openwrt/bin/linux-arm64" \
 
 make_archive() {
     _payload="$1"
-    cp -a "$REPO/platform/openwrt/." "$STAGE/usr/lib/z2k/platform/openwrt/" || return 1
+    _platform_archive="$T/openwrt-platform.tar.gz"
+    tar --exclude='platform/openwrt/tg-proxy/target' \
+        --exclude='platform/openwrt/warp-controller/target' \
+        -czf "$_platform_archive" -C "$REPO" platform/openwrt || return 1
+    tar -xzf "$_platform_archive" -C "$STAGE/usr/lib/z2k" || return 1
     printf 'release tag %s\n%s\n' "$TAG" "$_payload" > "$STAGE/usr/lib/z2k/version.txt"
     for _p in "$STAGE/usr/lib/z2k/bin/linux-arm64/tg-ws-proxy" \
         "$STAGE/usr/lib/z2k/bin/linux-arm64/z2k-rt-proxy" "$STAGE/usr/lib/z2k/bin/linux-arm64/z2k-detect" \
         "$STAGE/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd" \
+        "$STAGE/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warp-controller" \
         "$STAGE/opt/zapret2/binaries/linux-arm64/nfqws2" "$STAGE/opt/zapret2/binaries/linux-arm64/ip2net" \
         "$STAGE/opt/zapret2/binaries/linux-arm64/mdig" "$STAGE/usr/bin/z2kow" \
         "$STAGE/usr/sbin/install_release" "$STAGE/etc/init.d/z2k" "$STAGE/etc/init.d/z2k-webpanel"; do

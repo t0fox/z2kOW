@@ -135,6 +135,8 @@ make_artifact() {
     printf 'x86 detect\n' > "$_stage/usr/lib/z2k/bin/linux-x86_64/z2k-detect"
     printf 'arm64 warp\n' > "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd"
     printf 'x86 warp\n' > "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd"
+    printf 'arm64 controller\n' > "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warp-controller"
+    printf 'x86 controller\n' > "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warp-controller"
     chmod 0755 \
         "$_stage/usr/lib/z2k/bin/linux-arm64/tg-ws-proxy" \
         "$_stage/usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy" \
@@ -143,7 +145,9 @@ make_artifact() {
         "$_stage/usr/lib/z2k/bin/linux-arm64/z2k-detect" \
         "$_stage/usr/lib/z2k/bin/linux-x86_64/z2k-detect" \
         "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd" \
-        "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd"
+        "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd" \
+        "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warp-controller" \
+        "$_stage/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warp-controller"
     printf 'arm64 dataplane\n' > "$_stage/opt/zapret2/binaries/linux-arm64/nfqws2"
     printf 'x86 dataplane\n' > "$_stage/opt/zapret2/binaries/linux-x86_64/nfqws2"
     printf 'arm64 ip2net\n' > "$_stage/opt/zapret2/binaries/linux-arm64/ip2net"
@@ -430,6 +434,8 @@ if [ -f "$SYS/usr/lib/z2k/bin/linux-arm64/tg-ws-proxy" ] \
     && [ ! -e "$SYS/usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy" ] \
     && [ -f "$SYS/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warpd" ] \
     && [ ! -e "$SYS/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd" ] \
+    && [ -f "$SYS/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warp-controller" ] \
+    && [ ! -e "$SYS/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warp-controller" ] \
     && [ -f "$SYS/opt/zapret2/binaries/linux-arm64/nfqws2" ] \
     && [ ! -e "$SYS/opt/zapret2/binaries/linux-x86_64/nfqws2" ]; then
     _t_ok
@@ -818,7 +824,11 @@ esac
 EOF
 chmod 755 "$BOOTSTRAP_SYS/etc/init.d/z2k"
 mkdir -p "$BOOTSTRAP_ENGINE/platform"
-cp -R "$REPO/platform/openwrt" "$BOOTSTRAP_ENGINE/platform/openwrt"
+_bootstrap_platform_archive="$T/bootstrap-openwrt-platform.tar.gz"
+tar --exclude='platform/openwrt/tg-proxy/target' \
+    --exclude='platform/openwrt/warp-controller/target' \
+    -czf "$_bootstrap_platform_archive" -C "$REPO" platform/openwrt || exit 1
+tar -xzf "$_bootstrap_platform_archive" -C "$BOOTSTRAP_ENGINE" || exit 1
 cp -R "$REPO/lib" "$BOOTSTRAP_ENGINE/lib"
 make_artifact "$T/bootstrap-payload"
 cat > "$T/bootstrap-payload/etc/init.d/z2k" <<EOF

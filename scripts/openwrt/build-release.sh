@@ -5,6 +5,7 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 OUT=""
 TG_DIR=""
 GO_DIR=""
+WARP_CONTROLLER_DIR=""
 RUNTIME_TARBALL=""
 _runtime_acceptance_passed=0
 _legacy_rootfs=0
@@ -12,14 +13,15 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --out) [ "$#" -ge 2 ] || { echo "--out requires a directory" >&2; exit 2; }; OUT="$2"; shift 2 ;;
         --tg-dir) [ "$#" -ge 2 ] || { echo "--tg-dir requires a directory" >&2; exit 2; }; TG_DIR="$2"; shift 2 ;;
+        --warp-controller-dir) [ "$#" -ge 2 ] || { echo "--warp-controller-dir requires a directory" >&2; exit 2; }; WARP_CONTROLLER_DIR="$2"; shift 2 ;;
         --go-dir) [ "$#" -ge 2 ] || { echo "--go-dir: укажите каталог артефактов" >&2; exit 2; }; GO_DIR="$2"; shift 2 ;;
         --runtime-tarball) [ "$#" -ge 2 ] || { echo "--runtime-tarball требует путь" >&2; exit 2; }; RUNTIME_TARBALL="$2"; shift 2 ;;
         --runtime-acceptance-passed) _runtime_acceptance_passed=1; shift ;;
         --legacy-rootfs) _legacy_rootfs=1; shift ;;
-        *) echo "использование: build-release.sh --out DIR [--legacy-rootfs] [--tg-dir DIR] [--go-dir DIR] [--runtime-tarball FILE] [--runtime-acceptance-passed]" >&2; exit 2 ;;
+        *) echo "использование: build-release.sh --out DIR [--legacy-rootfs] [--tg-dir DIR] [--warp-controller-dir DIR] [--go-dir DIR] [--runtime-tarball FILE] [--runtime-acceptance-passed]" >&2; exit 2 ;;
     esac
 done
-[ -n "$OUT" ] || { echo "использование: build-release.sh --out DIR [--legacy-rootfs] [--tg-dir DIR] [--go-dir DIR] [--runtime-tarball FILE] [--runtime-acceptance-passed]" >&2; exit 2; }
+[ -n "$OUT" ] || { echo "использование: build-release.sh --out DIR [--legacy-rootfs] [--tg-dir DIR] [--warp-controller-dir DIR] [--go-dir DIR] [--runtime-tarball FILE] [--runtime-acceptance-passed]" >&2; exit 2; }
 [ "$_runtime_acceptance_passed" -eq 0 ] || [ -n "$RUNTIME_TARBALL" ] \
     || { echo "build-release: флаг пройденной приёмки требует --runtime-tarball" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "build-release: python3 is required" >&2; exit 1; }
@@ -131,6 +133,25 @@ else
     sh "$ROOT/scripts/openwrt/build_tg_ws_proxy.sh" "$_tg"
 fi
 
+if [ -n "$WARP_CONTROLLER_DIR" ]; then
+    [ -d "$WARP_CONTROLLER_DIR" ] && [ ! -L "$WARP_CONTROLLER_DIR" ] \
+        || { echo "build-release: каталог Rust WARP controller отсутствует или является ссылкой" >&2; exit 1; }
+    WARP_CONTROLLER_DIR="$(CDPATH= cd -- "$WARP_CONTROLLER_DIR" && pwd)"
+    if [ -n "${Z2K_WARP_CONTROLLER_EXPECTED_RUN_ID:-}" ]; then
+        python3 "$ROOT/scripts/openwrt/warp_controller_artifacts.py" verify \
+            --directory "$WARP_CONTROLLER_DIR" --source-sha "$_source_sha" \
+            --run-id "$Z2K_WARP_CONTROLLER_EXPECTED_RUN_ID"
+    else
+        python3 "$ROOT/scripts/openwrt/warp_controller_artifacts.py" verify \
+            --directory "$WARP_CONTROLLER_DIR" --source-sha "$_source_sha"
+    fi
+    _warp_controller="$WARP_CONTROLLER_DIR"
+else
+    _warp_controller="$_tmp/warp-controller"
+    Z2K_SOURCE_SHA="$_source_sha" sh "$ROOT/scripts/openwrt/build_warp_controller.sh" \
+        "$_warp_controller" --test
+fi
+
 # These executables remain in the same complete payload as the selected TG and
 # WARP binaries. Tiny dispatch wrappers choose OpenWrt's precise target ABI.
 if [ "$_reuse_go" -eq 0 ]; then
@@ -179,7 +200,8 @@ fi
 OUT="$(mkdir -p "$OUT" && CDPATH= cd -- "$OUT" && pwd)"
 _stage="$_tmp/rootfs"
 mkdir -p "$_stage"
-sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$_stage" "$_runtime" "$_warpd" "$_tg" "$_rt" "$_detect"
+sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$_stage" "$_runtime" "$_warpd" \
+    "$_tg" "$_rt" "$_detect" "$_warp_controller"
 for arch in arm64 arm x86_64 x86 mips mipsel riscv64; do
     python3 "$ROOT/scripts/openwrt/rootfs_bundle.py" --root "$_stage" \
         --output "$OUT/openwrt-rootfs-$arch.tar.gz" --arch "$arch"

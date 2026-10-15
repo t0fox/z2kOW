@@ -20,6 +20,51 @@ WHITELIST_FILE="${WHITELIST_FILE:-$LISTS_DIR/whitelist.txt}"
 EXTRA_DOMAINS_FILE="${EXTRA_DOMAINS_FILE:-$LISTS_DIR/extra-domains.txt}"
 WARP_SCRIPT="${WARP_SCRIPT:-$ZAPRET2_DIR/z2k-warp.sh}"
 WARP_LISTS_DIR="${WARP_LISTS_DIR:-$LISTS_DIR/warp}"
+_warp_controller_path() {
+    [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] || return 1
+    [ -x "${WARP_CONTROLLER_BIN:-}" ] && { printf '%s\n' "$WARP_CONTROLLER_BIN"; return 0; }
+    local _adapter="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}" _bin
+    [ -r "$_adapter/arch.sh" ] || return 1
+    . "$_adapter/arch.sh" || return 1
+    _bin="$(z2k_ow_arch_bin_path "$_adapter/bin" z2k-warp-controller 2>/dev/null)" || return 1
+    [ -x "$_bin" ] || return 1
+    printf '%s\n' "$_bin"
+}
+
+_warp_controller_cli() {
+    local _bin
+    _bin="$(_warp_controller_path)" || return 127
+    Z2K_WARP_LOCK_DIR="${WARP_LOCK_DIR:-${Z2K_TMP:-/tmp/z2k}/warp/mutate.lock}" "$_bin" "$@"
+}
+
+_warp_devices_controller_mutate() {
+    local _file="$WARP_LISTS_DIR/devices.txt" _backup="$WARP_LISTS_DIR/.devices.rollback.$$"
+    local _had_old=0 _output="" _rc
+    if [ -f "$_file" ]; then
+        cp -p "$_file" "$_backup" || return 1
+        _had_old=1
+    else
+        : > "$_backup" || return 1
+    fi
+    if _output="$(_warp_controller_cli "$@")"; then
+        if warp_ipset_reload_if_enabled --reconcile-rules; then
+            rm -f "$_backup"
+            [ -z "$_output" ] || printf '%s\n' "$_output"
+            return 0
+        fi
+        _rc=1
+    else
+        _rc=$?
+        [ "$_rc" -eq 127 ] && { rm -f "$_backup"; return 127; }
+    fi
+    if [ "$_had_old" = 1 ]; then
+        mv -f "$_backup" "$_file" || return 1
+    else
+        rm -f "$_file" "$_backup" || return 1
+    fi
+    warp_ipset_reload_if_enabled --reconcile-rules >/dev/null 2>&1 || true
+    return "$_rc"
+}
 # Списки в $WARP_LISTS_DIR — целиком пользовательские, их не трогает никто, кроме
 # панели. Автоматически обновляются только per-game списки в подкаталоге games/
 # (z2k-update-lists.sh перезаписывает их целиком), и панель в них не пишет вовсе —
@@ -2489,13 +2534,23 @@ warp_ipset_reload_if_enabled() {
 # interfaces. Keep the saved choice if WARP is off; when it is on, reconcile
 # nft rules immediately and roll the config back if the adapter rejects it.
 warp_wdtt_set() {
-    local value="$1" old
+    local value="$1" old _set_rc _setter=shell
     case "$value" in 0|1) ;; *) echo "value must be 0 or 1" >&2; return 1 ;; esac
     old=$(read_flag "Z2K_WARP_WDTT" "$CONFIG_FILE" "0")
-    set_flag "Z2K_WARP_WDTT" "$value" "$CONFIG_FILE" || return 1
+    if _warp_controller_cli config-flag-set "$CONFIG_FILE" Z2K_WARP_WDTT "$value"; then
+        _setter=controller
+    else
+        _set_rc=$?
+        [ "$_set_rc" -eq 127 ] || return "$_set_rc"
+        set_flag "Z2K_WARP_WDTT" "$value" "$CONFIG_FILE" || return 1
+    fi
     if [ "$(read_flag "GAME_WARP_ENABLED" "$CONFIG_FILE" "0")" = "1" ] && [ -f "$WARP_SCRIPT" ]; then
         sh "$WARP_SCRIPT" ipset --reconcile-rules >/dev/null 2>&1 || {
-            set_flag "Z2K_WARP_WDTT" "$old" "$CONFIG_FILE" || true
+            if [ "$_setter" = controller ]; then
+                _warp_controller_cli config-flag-set "$CONFIG_FILE" Z2K_WARP_WDTT "$old" || true
+            else
+                set_flag "Z2K_WARP_WDTT" "$old" "$CONFIG_FILE" || true
+            fi
             sh "$WARP_SCRIPT" ipset --reconcile-rules >/dev/null 2>&1 || true
             echo "не удалось применить правило WDTT" >&2
             return 1
@@ -2719,7 +2774,7 @@ warp_devices_commit() {
 }
 
 warp_device_toggle() {
-    local mac val="$2" f="$WARP_LISTS_DIR/devices.txt" tmp
+    local mac val="$2" f="$WARP_LISTS_DIR/devices.txt" tmp _rc
     mac=$(printf '%s' "$1" | tr 'A-Z-' 'a-z:')
     case "$mac" in
         ??:??:??:??:??:??) ;;
@@ -2727,6 +2782,12 @@ warp_device_toggle() {
     esac
     case "$mac" in *[!0-9a-f:]*) return 1 ;; esac
     warp_lists_ensure_dir || return 1
+    if _warp_devices_controller_mutate devices-toggle "$WARP_LISTS_DIR" "$mac" "$val"; then
+        return 0
+    else
+        _rc=$?
+        [ "$_rc" -eq 127 ] || return "$_rc"
+    fi
     tmp="$WARP_LISTS_DIR/.devices.$$"
     {
         [ -f "$f" ] && awk -v m="$mac" '{ l = tolower($0); gsub(/-/, ":", l); gsub(/^[ \t]+|[ \t]+$/, "", l); if (l != m) print }' "$f"
@@ -2740,6 +2801,13 @@ warp_device_toggle() {
 warp_devices_save() {
     # stdin → devices.txt; stdout: "entries=N dropped=M"
     warp_lists_ensure_dir || return 1
+    local _rc
+    if _warp_devices_controller_mutate devices-save "$WARP_LISTS_DIR"; then
+        return 0
+    else
+        _rc=$?
+        [ "$_rc" -eq 127 ] || return "$_rc"
+    fi
     local tmp="$WARP_LISTS_DIR/.devices.$$"
     awk '
     # --- z2k warp SOURCE filter (canonical; keep byte-identical in both copies) ---
@@ -2805,11 +2873,17 @@ warp_list_toggle() {
 
 _warp_list_toggle_locked() {
     # warp_list_toggle <name> <0|1>
-    local name="$1" want="$2" tmp
+    local name="$1" want="$2" tmp _rc
     warp_name_ok "$name" || { echo "invalid list name" >&2; return 1; }
     case "$want" in 0|1) ;; *) echo "value must be 0 or 1" >&2; return 1 ;; esac
     [ -f "$WARP_LISTS_DIR/$name.txt" ] || { echo "no such list" >&2; return 1; }
     warp_lists_ensure_dir
+    if _warp_controller_cli list-user-toggle "$WARP_LISTS_DIR" "$name" "$want"; then
+        return 0
+    else
+        _rc=$?
+        [ "$_rc" -eq 127 ] || return "$_rc"
+    fi
     tmp="${WARP_USER_OFF_FILE}.$$"
     if [ -f "$WARP_USER_OFF_FILE" ]; then
         grep -vxF "$name" "$WARP_USER_OFF_FILE" > "$tmp" 2>/dev/null || : > "$tmp"
@@ -2885,11 +2959,17 @@ warp_game_toggle() {
 
 _warp_game_toggle_locked() {
     # warp_game_toggle <name> <0|1>
-    local name="$1" want="$2" tmp
+    local name="$1" want="$2" tmp _rc
     warp_name_ok "$name" || { echo "invalid list name" >&2; return 1; }
     case "$want" in 0|1) ;; *) echo "value must be 0 or 1" >&2; return 1 ;; esac
     [ -f "$WARP_GAMES_DIR/$name.txt" ] || { echo "no such game list" >&2; return 1; }
     warp_lists_ensure_dir
+    if _warp_controller_cli list-game-toggle "$WARP_ENABLED_FILE" "$WARP_GAMES_DIR" "$name" "$want"; then
+        return 0
+    else
+        _rc=$?
+        [ "$_rc" -eq 127 ] || return "$_rc"
+    fi
     tmp="${WARP_ENABLED_FILE}.$$"
     # Rewrite without the name, then re-add it when switching on. Doing it in
     # that order makes a double-on idempotent instead of writing the name twice,
@@ -2918,12 +2998,20 @@ warp_list_save() {
     # rejects /0). One unparseable line aborts a whole `ipset restore` stream,
     # and v6 entries would silently do nothing (WARP routing has no v6 leg).
     # Output: "saved=N skipped_invalid=M" (N = valid address lines written).
-    local name="$1" mode="${2:-replace}"
+    local name="$1" mode="${2:-replace}" _controller_output _controller_rc
     warp_name_ok "$name" || { echo "invalid list name" >&2; return 1; }
     case "$mode" in replace|append|create) ;; *) echo "invalid mode" >&2; return 1 ;; esac
     warp_lists_ensure_dir
     [ -d "$WARP_LISTS_DIR" ] || { echo "lists dir unavailable" >&2; return 1; }
     local file="$WARP_LISTS_DIR/$name.txt"
+    if _controller_output="$(_warp_controller_cli list-save "$WARP_LISTS_DIR" "$name" "$mode")"; then
+        warp_ipset_reload_if_enabled
+        printf '%s\n' "$_controller_output"
+        return 0
+    else
+        _controller_rc=$?
+        [ "$_controller_rc" -eq 127 ] || return "$_controller_rc"
+    fi
     if [ "$mode" = "create" ]; then
         # Заявка на имя атомарна. Проверка [ -f ] и запись ниже разнесены во
         # времени на всё чтение тела, и два одновременных «создать» с одним
@@ -3004,7 +3092,7 @@ warp_list_read_path() {
 }
 
 warp_list_delete() {
-    local name="$1"
+    local name="$1" _rc
     warp_name_ok "$name" || { echo "invalid list name" >&2; return 1; }
     local file="$WARP_LISTS_DIR/$name.txt"
     # Удаление ИДЕМПОТЕНТНО: несуществующий список — это уже требуемый
@@ -3012,6 +3100,13 @@ warp_list_delete() {
     # отправить два запроса) не должен показывать «не получилось» на списке,
     # которого и так больше нет.
     [ -f "$file" ] || return 0
+    if _warp_controller_cli list-delete "$WARP_LISTS_DIR" "$name"; then
+        warp_ipset_reload_if_enabled
+        return 0
+    else
+        _rc=$?
+        [ "$_rc" -eq 127 ] || return "$_rc"
+    fi
     rm -f "$file" || { echo "delete failed" >&2; return 1; }
     # Отметку «выключен» уносим вместе со списком: новый список с тем же именем
     # должен родиться включённым, как любой новый, а не унаследовать чужой выбор.

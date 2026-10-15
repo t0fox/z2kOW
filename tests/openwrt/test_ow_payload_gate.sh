@@ -29,6 +29,7 @@ files = [
     'usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft',
     *('usr/lib/z2k/bin/linux-x86_64/' + name for name in ('tg-ws-proxy', 'z2k-rt-proxy', 'z2k-detect')),
     'usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd',
+    'usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warp-controller',
     *('opt/zapret2/binaries/linux-x86_64/' + name for name in ('nfqws2', 'ip2net', 'mdig')),
 ]
 for name in files:
@@ -58,6 +59,15 @@ rm -f "$T/missing-tg/usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy" || exit 1
 tar -czf "$T/missing-tg.tar.gz" -C "$T/missing-tg" usr etc opt || exit 1
 if check_extract "$T/missing-tg.tar.gz" "$T/missing-tg-stage" "$T/missing-tg-work"; then
     _t_bad "архив без Rust TG WS Proxy выбранной архитектуры отклонён"
+else
+    _t_ok
+fi
+
+cp -a "$T/valid" "$T/missing-controller" || exit 1
+rm -f "$T/missing-controller/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warp-controller" || exit 1
+tar -czf "$T/missing-controller.tar.gz" -C "$T/missing-controller" usr etc opt || exit 1
+if check_extract "$T/missing-controller.tar.gz" "$T/missing-controller-stage" "$T/missing-controller-work"; then
+    _t_bad "архив без Rust WARP controller выбранной архитектуры отклонён"
 else
     _t_ok
 fi

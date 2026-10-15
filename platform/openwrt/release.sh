@@ -924,6 +924,10 @@ z2k_ow_cleanup_temp_workspace() {
 # проверки файлов, состояния релиза и восстановленных служб.
 z2k_ow_rollback_install() {
     _rollback_phase="$1"
+    z2k_ow_release_warp_lock_release || {
+        echo "z2k-openwrt: блокировку WARP не удалось снять перед откатом; данные восстановления оставлены в $_work" >&2
+        return 1
+    }
     echo "z2k-openwrt: этап «$_rollback_phase» не выполнен; восстанавливается предыдущий релиз" >&2
     z2k_ow_suspend_startup "$_work" || return 1
     # До восстановления файлов остановить обе кандидатные службы. При первой
@@ -1783,6 +1787,10 @@ _z2k_ow_install_release_locked() {
             return 1
         }
     fi
+    z2k_ow_release_warp_lock_acquire "$_adapter" || {
+        z2k_ow_rollback_install "ожидание блокировки WARP перед заменой файлов"
+        return 1
+    }
     if [ "$_same_artifact_reinstall" = 1 ]; then
         printf 'V|2\n' > "$_transaction" || { z2k_ow_rollback_install "запись журнала повторной установки"; return 1; }
         z2k_ow_install_progress "Освобождаю место прежних файлов после проверки архива"
@@ -1807,6 +1815,14 @@ _z2k_ow_install_release_locked() {
             return 1
         fi
     fi
+
+    # procd stop/start hooks используют тот же lock; транзакционный маркер
+    # удерживает cron и ручные действия до завершения commit или rollback.
+    z2k_ow_release_warp_lock_release || {
+        echo "z2k-openwrt: не удалось освободить блокировку WARP перед запуском служб" >&2
+        z2k_ow_rollback_install "освобождение блокировки WARP перед запуском служб"
+        return 1
+    }
 
     _state_dir="$(dirname "$_state")"
     mkdir -p "$_state_dir" || {
@@ -2075,6 +2091,7 @@ z2k_ow_installed_payload_ready() {
         "$_ready_root/bin/linux-$_ready_arch/z2k-rt-proxy" \
         "$_ready_root/bin/linux-$_ready_arch/z2k-detect" \
         "$_ready_root/platform/openwrt/bin/linux-$_ready_arch/z2k-warpd" \
+        "$_ready_root/platform/openwrt/bin/linux-$_ready_arch/z2k-warp-controller" \
         "$_ready_runtime/binaries/linux-$_ready_arch/nfqws2" \
         "$_ready_runtime/binaries/linux-$_ready_arch/ip2net" \
         "$_ready_runtime/binaries/linux-$_ready_arch/mdig"; do
@@ -2293,6 +2310,7 @@ z2k_ow_prepare_target_payload_list() {
         "usr/lib/z2k/bin/linux-$_prepare_arch/z2k-rt-proxy" \
         "usr/lib/z2k/bin/linux-$_prepare_arch/z2k-detect" \
         "usr/lib/z2k/platform/openwrt/bin/linux-$_prepare_arch/z2k-warpd" \
+        "usr/lib/z2k/platform/openwrt/bin/linux-$_prepare_arch/z2k-warp-controller" \
         "opt/zapret2/binaries/linux-$_prepare_arch/nfqws2" \
         "opt/zapret2/binaries/linux-$_prepare_arch/ip2net" \
         "opt/zapret2/binaries/linux-$_prepare_arch/mdig"; do
@@ -2360,6 +2378,7 @@ z2k_ow_extract_target_payload() {
         "usr/lib/z2k/bin/linux-$_target_arch/z2k-rt-proxy" \
         "usr/lib/z2k/bin/linux-$_target_arch/z2k-detect" \
         "usr/lib/z2k/platform/openwrt/bin/linux-$_target_arch/z2k-warpd" \
+        "usr/lib/z2k/platform/openwrt/bin/linux-$_target_arch/z2k-warp-controller" \
         "opt/zapret2/binaries/linux-$_target_arch/nfqws2" \
         "opt/zapret2/binaries/linux-$_target_arch/ip2net" \
         "opt/zapret2/binaries/linux-$_target_arch/mdig"; do
@@ -2479,6 +2498,7 @@ z2k_ow_extract_target_payload_direct() {
         "usr/lib/z2k/bin/linux-$_direct_arch/z2k-rt-proxy" \
         "usr/lib/z2k/bin/linux-$_direct_arch/z2k-detect" \
         "usr/lib/z2k/platform/openwrt/bin/linux-$_direct_arch/z2k-warpd" \
+        "usr/lib/z2k/platform/openwrt/bin/linux-$_direct_arch/z2k-warp-controller" \
         "opt/zapret2/binaries/linux-$_direct_arch/nfqws2" \
         "opt/zapret2/binaries/linux-$_direct_arch/ip2net" \
         "opt/zapret2/binaries/linux-$_direct_arch/mdig"; do
@@ -2606,6 +2626,45 @@ z2k_ow_install_lock_release() {
     rmdir "$_lock" 2>/dev/null
 }
 
+# Перед заменой активного payload установщик использует тот же lock, что и
+# WARP CLI, cron и procd. Архив и staging подготавливаются до захвата lock.
+z2k_ow_release_warp_lock_acquire() {
+    local _adapter="$1" _saved_source_only="${Z2K_WARP_SOURCE_ONLY:-}"
+    if [ ! -e "$_adapter/warp.sh" ] && [ ! -L "$_adapter/warp.sh" ]; then
+        return 0
+    fi
+    [ -r "$_adapter/warp.sh" ] || {
+        echo "z2k-openwrt: адаптер WARP недоступен; замена payload остановлена" >&2
+        return 1
+    }
+    Z2K_WARP_SOURCE_ONLY=1
+    if ! . "$_adapter/warp.sh"; then
+        if [ -n "$_saved_source_only" ]; then
+            Z2K_WARP_SOURCE_ONLY="$_saved_source_only"
+        else
+            unset Z2K_WARP_SOURCE_ONLY
+        fi
+        echo "z2k-openwrt: не удалось загрузить блокировку WARP перед заменой payload" >&2
+        return 1
+    fi
+    if [ -n "$_saved_source_only" ]; then
+        Z2K_WARP_SOURCE_ONLY="$_saved_source_only"
+    else
+        unset Z2K_WARP_SOURCE_ONLY
+    fi
+    _z2k_ow_warp_lock "${WARP_LOCK_WAIT:-30}" || {
+        echo "z2k-openwrt: WARP занят; замену payload можно повторить позже" >&2
+        return 1
+    }
+    Z2K_OW_RELEASE_WARP_LOCK_HELD=1
+}
+
+z2k_ow_release_warp_lock_release() {
+    [ "${Z2K_OW_RELEASE_WARP_LOCK_HELD:-0}" = 1 ] || return 0
+    _z2k_ow_warp_unlock || return 1
+    Z2K_OW_RELEASE_WARP_LOCK_HELD=0
+}
+
 # Установщик OpenWrt не проходит через установщик Keenetic, который создаёт
 # списки WARP для игр. После успешной установки запустить общий обновлятор,
 # если списки пусты; доступность источника не влияет на проверку релиза и откат.
@@ -2631,12 +2690,17 @@ z2k_ow_seed_warp_games() {
 # Общая точка входа для новой установки и всех обновлений.
 z2k_ow_install_release() {
     local _lock _rc
+    Z2K_OW_RELEASE_WARP_LOCK_HELD=0
     _lock="$(z2k_ow_path "${Z2K_OW_INSTALL_LOCK:-/usr/lib/.z2k-install.lock}")"
     z2k_ow_install_lock_acquire "$_lock" || return 1
     if _z2k_ow_install_release_locked "$@"; then
         _rc=0
     else
         _rc=$?
+    fi
+    if ! z2k_ow_release_warp_lock_release; then
+        echo "z2k-openwrt: не удалось снять блокировку WARP после замены payload" >&2
+        [ "$_rc" -ne 0 ] || _rc=1
     fi
     z2k_ow_install_lock_release "$_lock" || {
         echo "z2k-openwrt: не удалось снять блокировку установщика $_lock" >&2
