@@ -1645,48 +1645,6 @@ tiktok_use_auto() {
     z2k_ow_tiktok_use_auto
 }
 
-# Защищённый DNS подключается в OpenWrt как дополнительный пакет. Адаптер
-# выбирает готовые настройки и проверяет пользовательские протоколы и адреса.
-doh_adapter_load() {
-    [ "${Z2K_PLATFORM:-keenetic}" = openwrt ] || return 1
-    . "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/doh.sh"
-}
-
-doh_install_action() { doh_adapter_load && z2k_ow_doh_install; }
-doh_uninstall_action() { doh_adapter_load && z2k_ow_doh_uninstall "${Z2K_DOH_REQUEST_CONFIRM:-0}"; }
-doh_enable_action() { doh_adapter_load && z2k_ow_doh_enable; }
-doh_disable_action() { doh_adapter_load && z2k_ow_doh_disable; }
-doh_restart_action() { doh_adapter_load && z2k_ow_doh_restart; }
-doh_check_action() { doh_adapter_load && z2k_ow_doh_check; }
-doh_provider_action() {
-    doh_adapter_load && z2k_ow_doh_select_provider \
-        "${Z2K_DOH_REQUEST_PROVIDER:-}" \
-        "${Z2K_DOH_REQUEST_ENDPOINT:-}" \
-        "${Z2K_DOH_REQUEST_BOOTSTRAP:-}" \
-        "${Z2K_DOH_REQUEST_REPLACE:-0}" \
-        "${Z2K_DOH_REQUEST_PROTOCOL:-doh}"
-}
-doh_profile_action() {
-    doh_adapter_load && z2k_ow_doh_apply_profile \
-        "${Z2K_DOH_REQUEST_UPSTREAMS:-}" \
-        "${Z2K_DOH_REQUEST_FALLBACKS:-}" \
-        "${Z2K_DOH_REQUEST_ROUTES:-}" \
-        "${Z2K_DOH_REQUEST_MODE:-load_balance}" \
-        "${Z2K_DOH_REQUEST_BOOTSTRAPS:-}" \
-        "${Z2K_DOH_REQUEST_REPLACE:-0}"
-}
-doh_force_dns_action() {
-    case "${1:-}" in 0|1) ;; *) return 1 ;; esac
-    doh_adapter_load && z2k_ow_doh_set_force_dns "$1"
-}
-doh_cache_action() {
-    doh_adapter_load && z2k_ow_doh_set_cache \
-        "${Z2K_DOH_REQUEST_CACHE_ENABLED:-}" \
-        "${Z2K_DOH_REQUEST_CACHE_SIZE:-}"
-}
-doh_diagnostics_action() { doh_adapter_load && z2k_ow_doh_diagnostics; }
-doh_recover_action() { doh_adapter_load && z2k_ow_doh_recover; }
-
 toggle_autohostlist() {
     # Z2K_AUTOHOSTLIST — switches MODE_FILTER between hostlist and autohostlist
     # (see lib/config_official.sh). This is NOT an out-of-band setting:
@@ -2592,88 +2550,6 @@ warp_devices_read() {
 # Действие не бесплатное: у Cloudflare есть лимит устройств на аккаунт, и каждое
 # нажатие тратит одно. Поэтому кнопка снабжена предупреждением, а не спрятана:
 # спрятанный рычаг ищут наугад, предупреждённый — по делу.
-# --- проверка DNS ---------------------------------------------------------
-#
-# Обёртка над files/z2k-dns-check.sh: он спрашивает публичные серверы и решает,
-# кто отвечает честно. Ничего не меняет, пишет только в tmpfs.
-#
-# Долгая по природе (заблокированный сервер стоит полного таймаута), поэтому
-# вызывается задачей, как установка WARP, а не синхронно из запроса.
-DNS_CHECK_SCRIPT="${DNS_CHECK_SCRIPT:-$ZAPRET2_DIR/z2k-dns-check.sh}"
-DNS_CHECK_OUT="${DNS_CHECK_OUT:-/tmp/z2k-dns-check.json}"
-DNS_CHECK_OWN="${DNS_CHECK_OWN:-$ZAPRET2_DIR/lists/dns-check.txt}"
-
-dns_check_run() {
-    [ -f "$DNS_CHECK_SCRIPT" ] || { echo "нет $DNS_CHECK_SCRIPT"; return 1; }
-    job_progress "DNS: проверяю стандартные и пользовательские резолверы по UDP, DoH и DoT"
-    # Прогресс скрипт пишет в stderr, готовый JSON — в stdout и в файл.
-    # В журнал задачи пускаем ТОЛЬКО прогресс: JSON там нечитаем, а человек
-    # смотрит туда, чтобы понять, что работа идёт.
-    # Порядок редиректов здесь ОБРАТНЫЙ обычному и нарочно: сперва stderr
-    # уходит туда, куда сейчас смотрит stdout (в журнал), и только потом stdout
-    # затыкается. Написав привычное `>/dev/null 2>&1`, мы отправили бы в никуда
-    # и прогресс тоже.
-    # shellcheck disable=SC2069
-    Z2K_DNS_OUT="$DNS_CHECK_OUT" Z2K_DNS_OWN="$DNS_CHECK_OWN" \
-        sh "$DNS_CHECK_SCRIPT" 2>&1 >/dev/null || {
-            job_progress "DNS: проверка завершилась ошибкой; подробность указана выше"
-            return 1
-        }
-    if [ -s "$DNS_CHECK_OUT" ]; then
-        local _dns_server_count _dns_responders
-        _dns_server_count=$(grep -o '"name"[[:space:]]*:' "$DNS_CHECK_OUT" | wc -l | tr -d ' ')
-        _dns_responders=$(grep -o '"verdict"[[:space:]]*:[[:space:]]*"works"' "$DNS_CHECK_OUT" | wc -l | tr -d ' ')
-        job_progress "DNS: проверено серверов: ${_dns_server_count:-0}; хотя бы один рабочий путь: ${_dns_responders:-0}"
-    else
-        job_progress "DNS: проверка завершилась, но файл результата пуст"
-    fi
-    return 0
-}
-
-# Последний результат. Пусто — проверку ещё не запускали.
-dns_check_last() {
-    [ -s "$DNS_CHECK_OUT" ] && cat "$DNS_CHECK_OUT"
-}
-
-# Свои серверы человека. Одна строка — один сервер: адрес для UDP или ссылка
-# для DoH. Файл лежит в lists/ рядом с остальными пользовательскими списками,
-# поэтому переживает обновление и переустановку.
-dns_check_own_read() {
-    [ -f "$DNS_CHECK_OWN" ] && cat "$DNS_CHECK_OWN"
-    return 0
-}
-
-dns_check_own_save() {
-    local tmp="${DNS_CHECK_OWN}.new.$$" kept=0 dropped=0 line
-    mkdir -p "$(dirname "$DNS_CHECK_OWN")" 2>/dev/null
-    : > "$tmp" || return 1
-    # `|| [ -n "$line" ]` — БЕЗ НЕГО ТЕРЯЕТСЯ ПОСЛЕДНЯЯ СТРОКА.
-    #
-    # Тело POST приходит через $(read_body), а подстановка срезает хвостовой
-    # перевод строки. `read` на незавершённой строке возвращает ненулевой код,
-    # и цикл заканчивается ДО обработки — то есть до тела не доходит ровно то,
-    # что человек набрал последним. Вписал один сервер, не нажав Enter, —
-    # сохранилось ноль записей, а форма честно сказала «Сохранено», потому что
-    # провала не было. Ровно эта жалоба и пришла из поля.
-    while IFS= read -r line || [ -n "$line" ]; do
-        line=$(printf '%s' "$line" | tr -d ' \t\r')
-        case "$line" in ''|'#'*) continue ;; esac
-        case "$line" in
-            https://*)
-                printf '%s\n' "$line" >> "$tmp"; kept=$((kept + 1)) ;;
-            *[!0-9.]*)
-                dropped=$((dropped + 1)) ;;
-            *.*.*.*)
-                printf '%s\n' "$line" >> "$tmp"; kept=$((kept + 1)) ;;
-            *)
-                dropped=$((dropped + 1)) ;;
-        esac
-    done
-    mv -f "$tmp" "$DNS_CHECK_OWN" && chmod 644 "$DNS_CHECK_OWN"
-    printf 'entries=%s dropped=%s\n' "$kept" "$dropped"
-    return 0
-}
-
 warp_reregister() {
     local dev="${WARP_DEVICE:-/opt/etc/z2k-warp/device.json}"
     local init="${WARP_INIT:-/opt/etc/init.d/S51z2k-warp}"

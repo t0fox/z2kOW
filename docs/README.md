@@ -25,7 +25,6 @@
 | Telegram | [Прозрачный Rust-прокси](openwrt-telegram-contract.md) | **альфа**, только arm64 и x86_64, без обязательного VPS |
 | RT proxy | [DNS, nftables и жизненный цикл](openwrt-rt-proxy-contract.md) | отдельный локальный компонент |
 | WARP | [Выборочная маршрутизация](openwrt-warp-contract.md) | **опционально**, fail-open |
-| DNS | [Описание в README](../README.md#dns-на-базе-dnsproxy) | системный dnsproxy, несколько протоколов |
 | TikTok Fix | [Описание в README](../README.md#собственные-расширения-z2kow) | собственные правила dnsmasq |
 
 ## Исходные проверки и разработка

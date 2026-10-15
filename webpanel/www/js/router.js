@@ -5,7 +5,6 @@ import { renderStrategies } from "./pages/credits.js";
 import { renderCreditsPage } from "./pages/credits-openwrt.js";
 import { renderDashboard } from "./pages/dashboard.js";
 import { renderDiag } from "./pages/diag.js";
-import { renderDns } from "./pages/dns.js";
 import { renderDonations } from "./pages/donations.js";
 import { renderExcludeAddresses, renderExcludeDomains } from "./pages/exclude.js";
 import { renderAutohostlistDomains, renderExtraDomains } from "./pages/extra-domains.js";
@@ -19,7 +18,6 @@ const routes = {
   dashboard: renderDashboard,
   toggles: renderToggles,
   tiktok: renderTikTok,
-  dns: renderDns,
   warp: renderWarp,
   // «Исключения» — одна страница с двумя подвкладками. Два маршрута, потому
   // что подвкладка обязана быть адресом: её можно дать ссылкой и она
@@ -47,7 +45,6 @@ const ROUTE_TITLES = {
   dashboard:       "Дашборд",
   toggles:         "Режимы",
   tiktok:          "TikTok Fix",
-  dns:             "DNS",
   warp:            "WARP",
   // Обе подвкладки «Исключений» — один раздел, значит и один заголовок.
   whitelist:       "Исключения",

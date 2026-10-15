@@ -31,7 +31,6 @@ z2k_ow_uninstall_paths_load() {
     unset Z2K_WARP_SOURCE_ONLY
     . "$_adapter/insta-ip.sh" || return 1
     . "$_adapter/tiktok.sh" || return 1
-    . "$_adapter/doh.sh" || return 1
     return 0
 }
 
@@ -332,13 +331,12 @@ z2k_ow_uninstall() (
 
     # Keep exact OpenWrt-owned service integrations removable even if an older
     # stop path missed them. Each adapter removes only its own nft/UCI entries.
-    _z2k_ow_uninstall_progress "очищаю принадлежащие интеграции Telegram, RT, WARP, Insta, TikTok и DoH"
+    _z2k_ow_uninstall_progress "очищаю принадлежащие интеграции Telegram, RT, WARP, Insta и TikTok"
     z2k_ow_tg cleanup || _rc=1
     z2k_ow_rt cleanup || _rc=1
     z2k_ow_warp cleanup || _rc=1
     z2k_ow_insta_uninstall || _rc=1
     z2k_ow_tiktok_uninstall || _rc=1
-    z2k_ow_doh_uninstall || _rc=1
     z2k_ow_fw_remove || _rc=1
     _z2k_ow_uninstall_progress "проверяю firewall и восстанавливаю исходные offload-настройки"
     z2k_ow_stop_verify || _rc=1
