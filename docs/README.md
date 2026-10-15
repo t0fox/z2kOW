@@ -22,10 +22,10 @@
 | Функция | Документ | Статус / граница |
 |---|---|---|
 | WebPanel | [Интерфейс и действия](openwrt-webpanel-contract.md) | локальная сеть, procd и OpenWrt-адаптер |
-| Telegram | [Прозрачный Rust-прокси](openwrt-telegram-contract.md) | **альфа**, только arm64 и x86_64, без обязательного VPS |
-| RT proxy | [DNS, nftables и жизненный цикл](openwrt-rt-proxy-contract.md) | отдельный локальный компонент |
+| Telegram | [Прозрачный Rust-прокси](openwrt-telegram-contract.md) | **рабочая сборка**, семь семейств архитектур, без обязательного VPS |
+| RT proxy | [Сетевая интеграция и жизненный цикл](openwrt-rt-proxy-contract.md) | отдельный локальный компонент |
 | WARP | [Выборочная маршрутизация](openwrt-warp-contract.md) | **опционально**, fail-open |
-| TikTok Fix | [Описание в README](../README.md#собственные-расширения-z2kow) | собственные правила dnsmasq |
+| TikTok Fix | [Описание в README](../README.md#собственные-расширения-z2kow) | проверка CDN-адресов и автоматическое переключение |
 
 ## Исходные проверки и разработка
 
