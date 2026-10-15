@@ -4,6 +4,8 @@ use std::{
     process::Command,
 };
 
+use crate::process;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InterfaceKind {
     Lan,
@@ -88,9 +90,7 @@ fn parse_lan_interfaces_with_runtime(
 
 fn ubus_interface_device(network: &str) -> io::Result<Option<String>> {
     let object = format!("network.interface.{network}");
-    let output = Command::new("ubus")
-        .args(["call", &object, "status"])
-        .output()?;
+    let output = process::output(Command::new("ubus").args(["call", &object, "status"]))?;
     if !output.status.success() {
         return Ok(None);
     }
@@ -240,7 +240,7 @@ fn parse_uci_values(raw: &str) -> io::Result<Vec<String>> {
 }
 
 fn command_output(program: &str, args: &[&str]) -> io::Result<String> {
-    let output = Command::new(program).args(args).output()?;
+    let output = process::output(Command::new(program).args(args))?;
     if !output.status.success() {
         return Err(io::Error::other(format!(
             "{} завершилась с ошибкой: {}",

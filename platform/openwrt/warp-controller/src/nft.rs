@@ -1,7 +1,6 @@
-use std::{
-    io::{self, Write},
-    process::{Command, Stdio},
-};
+use std::{io, process::Command};
+
+use crate::process;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct SetInventory {
@@ -1290,18 +1289,8 @@ pub fn render_set_batch_with_create(
 }
 
 pub fn apply_transaction(batch: &str) -> io::Result<()> {
-    let mut child = Command::new("nft")
-        .args(["-f", "-"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| io::Error::other("не удалось открыть stdin nft"))?
-        .write_all(batch.as_bytes())?;
-    let output = child.wait_with_output()?;
+    let output =
+        process::output_with_input(Command::new("nft").args(["-f", "-"]), batch.as_bytes())?;
     if output.status.success() {
         return Ok(());
     }

@@ -25,6 +25,7 @@ use warp_controller::{
 };
 
 fn main() {
+    warp_controller::process::start_operation();
     if let Err(error) = run() {
         eprintln!("z2k-warp-controller: {error}");
         process::exit(1);
@@ -973,9 +974,8 @@ fn link_exists_text(output: &str, iface: &str) -> io::Result<bool> {
 }
 
 fn live_link_exists(iface: &str) -> io::Result<bool> {
-    let json = process::Command::new("ip")
-        .args(["-j", "link", "show"])
-        .output()?;
+    let json =
+        warp_controller::process::output(process::Command::new("ip").args(["-j", "link", "show"]))?;
     if json.status.success() {
         let output = String::from_utf8(json.stdout)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
@@ -984,9 +984,8 @@ fn live_link_exists(iface: &str) -> io::Result<bool> {
     if !json_output_unsupported(&json) {
         return Err(command_error("ip -j link show", &json.stderr));
     }
-    let text = process::Command::new("ip")
-        .args(["link", "show"])
-        .output()?;
+    let text =
+        warp_controller::process::output(process::Command::new("ip").args(["link", "show"]))?;
     if !text.status.success() {
         return Err(command_error("ip link show", &text.stderr));
     }
@@ -1688,7 +1687,7 @@ fn parse_u32(value: &str) -> io::Result<u32> {
 }
 
 fn command_output(program: &str, args: &[&str]) -> io::Result<String> {
-    let output = process::Command::new(program).args(args).output()?;
+    let output = warp_controller::process::output(process::Command::new(program).args(args))?;
     if !output.status.success() {
         return Err(io::Error::other(format!(
             "{} завершилась с ошибкой: {}",

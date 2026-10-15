@@ -7,6 +7,7 @@ use std::{
     process::{Command, Output},
 };
 
+use crate::process;
 use serde_json::{Map, Number, Value};
 
 #[derive(Debug)]
@@ -388,9 +389,7 @@ fn run_ip_output(arguments: &[&str]) -> Result<String, String> {
 }
 
 fn run_ip_command(arguments: &[&str]) -> Result<Output, String> {
-    Command::new("ip")
-        .args(arguments)
-        .output()
+    process::output(Command::new("ip").args(arguments))
         .map_err(|error| format!("не удалось запустить iproute2: {error}"))
 }
 
@@ -427,9 +426,7 @@ fn json_output_unsupported(output: &Output) -> bool {
 }
 
 fn command_ok(program: &str, arguments: &[&str]) -> Result<bool, String> {
-    let output = Command::new(program)
-        .args(arguments)
-        .output()
+    let output = process::output(Command::new(program).args(arguments))
         .map_err(|error| format!("не удалось запустить {program}: {error}"))?;
     Ok(output.status.success())
 }

@@ -10,6 +10,7 @@ pub mod lock;
 pub mod nft;
 pub mod openwrt;
 pub mod operation;
+pub mod process;
 pub mod recovery;
 pub mod registration;
 pub mod route_error;

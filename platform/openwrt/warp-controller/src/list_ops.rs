@@ -332,11 +332,10 @@ fn atomic_replace(path: &Path, contents: &[u8]) -> io::Result<()> {
             let (uid, gid) = effective_ids()?;
             if metadata.uid() != uid || metadata.gid() != gid {
                 let owner = format!("{}:{}", metadata.uid(), metadata.gid());
-                let status = std::process::Command::new("chown")
-                    .arg(owner)
-                    .arg(&temp)
-                    .status()?;
-                if !status.success() {
+                let output = crate::process::output(
+                    std::process::Command::new("chown").arg(owner).arg(&temp),
+                )?;
+                if !output.status.success() {
                     return Err(io::Error::other(
                         "не удалось сохранить владельца файла списка",
                     ));

@@ -1,3 +1,4 @@
+use crate::process;
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -96,9 +97,7 @@ fn parse_selections(contents: &str) -> Vec<Selection> {
 }
 
 fn discover_neighbors(selected_macs: &HashSet<String>) -> io::Result<HashMap<String, String>> {
-    let json = Command::new("ip")
-        .args(["-4", "-j", "neigh", "show"])
-        .output()?;
+    let json = process::output(Command::new("ip").args(["-4", "-j", "neigh", "show"]))?;
     if json.status.success() {
         return parse_neighbors(&json.stdout, selected_macs);
     }
@@ -218,7 +217,7 @@ fn json_output_unsupported(output: &std::process::Output) -> bool {
 }
 
 fn discover_active_clients(selected_macs: &HashSet<String>) -> io::Result<HashSet<String>> {
-    let output = match Command::new("ubus").arg("list").output() {
+    let output = match process::output(Command::new("ubus").arg("list")) {
         Ok(output) => output,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(HashSet::new()),
         Err(error) => return Err(error),
@@ -229,9 +228,7 @@ fn discover_active_clients(selected_macs: &HashSet<String>) -> io::Result<HashSe
     let objects = String::from_utf8_lossy(&output.stdout);
     let mut active = HashSet::new();
     for object in objects.lines().filter(|line| valid_hostapd_name(line)) {
-        let output = Command::new("ubus")
-            .args(["call", object, "get_clients"])
-            .output()?;
+        let output = process::output(Command::new("ubus").args(["call", object, "get_clients"]))?;
         if !output.status.success() {
             return Err(command_error("ubus call get_clients", &output.stderr));
         }
@@ -385,7 +382,7 @@ fn valid_hostapd_name(value: &str) -> bool {
 }
 
 fn command_output(program: &str, args: &[&str]) -> io::Result<Vec<u8>> {
-    let output = Command::new(program).args(args).output()?;
+    let output = process::output(Command::new(program).args(args))?;
     if output.status.success() {
         Ok(output.stdout)
     } else {
