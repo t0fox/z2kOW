@@ -36,7 +36,11 @@ pub fn record(
         HealthAction::ProcessAbsent => ("degraded", "daemon-not-running"),
         HealthAction::NotReady => ("degraded", "tunnel-not-ready"),
     };
-    let reason = defer_reason.unwrap_or(default_reason);
+    let reason = if action == HealthAction::Defer {
+        defer_reason.unwrap_or(default_reason)
+    } else {
+        default_reason
+    };
     if !valid_token(reason) {
         return Err(io::Error::new(
             ErrorKind::InvalidInput,
@@ -232,6 +236,24 @@ mod tests {
         assert_eq!(
             render(&path, 120).unwrap(),
             "state=DEGRADED observed_at=100 last_success_age_s=20 source=health-check reason=tunnel-not-ready"
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn disabled_state_uses_explicit_reason_when_other_observations_are_unreadable() {
+        let (path, directory) = path("health.json");
+        record(
+            &path,
+            HealthAction::Disabled,
+            Some("engine-status-unreadable"),
+            100,
+        )
+        .unwrap();
+
+        assert_eq!(
+            render(&path, 100).unwrap(),
+            "state=DISABLED observed_at=100 last_success_age_s=0 source=health-check reason=explicitly-disabled"
         );
         fs::remove_dir_all(directory).unwrap();
     }
