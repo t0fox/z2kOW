@@ -1931,6 +1931,15 @@ _z2k_ow_install_release_locked() {
         echo "z2k-openwrt: релиз установлен, но журнал транзакции не удалён" >&2
         return 1
     }
+    # One-time old DNS cleanup, after a successfully committed/verified release.
+    # Failure is non-fatal: keep the previous DNS working rather than damage
+    # a router or report a committed release as rolled back.
+    if [ "${Z2K_OW_TESTING:-0}" != 1 ] \
+        && [ -r "$_adapter/retire-dns.sh" ]; then
+        if ! sh "$_adapter/retire-dns.sh"; then
+            echo "z2k-openwrt: old DNS cleanup deferred; saved resolver configuration kept untouched" >&2
+        fi
+    fi
     if [ "${Z2K_OW_TESTING:-0}" != 1 ] && command -v z2k_ow_retire_discovery >/dev/null 2>&1; then
         z2k_ow_retire_discovery || {
             echo "z2k-openwrt: релиз установлен; очистка старых данных обнаружения узлов отложена до следующего запуска" >&2

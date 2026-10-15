@@ -337,6 +337,12 @@ z2k_ow_uninstall() (
     z2k_ow_warp cleanup || _rc=1
     z2k_ow_insta_uninstall || _rc=1
     z2k_ow_tiktok_uninstall || _rc=1
+    # Remove only exactly-owned legacy DNS routing, without touching the
+    # resolver package itself. A failed attempt must not remove foreign DNS.
+    _legacy_dns_cleanup="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/retire-dns.sh"
+    if [ -r "$_legacy_dns_cleanup" ]; then
+        sh "$_legacy_dns_cleanup" || echo "z2k-openwrt: прежний DNS оставлен без изменений из-за неоднозначного состояния" >&2
+    fi
     z2k_ow_fw_remove || _rc=1
     _z2k_ow_uninstall_progress "проверяю firewall и восстанавливаю исходные offload-настройки"
     z2k_ow_stop_verify || _rc=1

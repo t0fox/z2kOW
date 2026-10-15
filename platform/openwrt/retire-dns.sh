@@ -1,16 +1,16 @@
 #!/bin/sh
 # One-time compatibility cleanup for installations created before removal of
 # the integrated DNS editor. Never install/remove/stop any resolver package.
-_state="\${Z2K_STATE:-/etc/z2k/state}"
+_state="${Z2K_STATE:-/etc/z2k/state}"
 [ -d "$_state" ] && [ ! -L "$_state" ] || exit 0
 _route="$_state/.dnsproxy-dnsmasq-snapshot"
 _redirect="$_state/.dnsproxy-lan-redirect-owned"
 [ -s "$_route" ] || [ -s "$_redirect" ] || exit 0
-_uci_bin="\${Z2K_DNS_RETIRE_UCI_BIN:-uci}"
-_dnsmasq_init="\${Z2K_DNS_RETIRE_DNSMASQ_INIT:-/etc/init.d/dnsmasq}"
-_fw_init="\${Z2K_DNS_RETIRE_FIREWALL_INIT:-/etc/init.d/firewall}"
-_fw4_bin="\${Z2K_DNS_RETIRE_FW4_BIN:-fw4}"
-_lookup_bin="\${Z2K_DNS_RETIRE_NSLOOKUP_BIN:-nslookup}"
+_uci_bin="${Z2K_DNS_RETIRE_UCI_BIN:-uci}"
+_dnsmasq_init="${Z2K_DNS_RETIRE_DNSMASQ_INIT:-/etc/init.d/dnsmasq}"
+_fw_init="${Z2K_DNS_RETIRE_FIREWALL_INIT:-/etc/init.d/firewall}"
+_fw4_bin="${Z2K_DNS_RETIRE_FW4_BIN:-fw4}"
+_lookup_bin="${Z2K_DNS_RETIRE_NSLOOKUP_BIN:-nslookup}"
 _upstream='127.0.0.1#5353'
 _key='dhcp.@dnsmasq[0]'
 _warn() { printf 'z2kow: old DNS cleanup: %s\n' "$*" >&2; }
