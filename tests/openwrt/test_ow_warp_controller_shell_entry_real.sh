@@ -702,12 +702,12 @@ export CARGO_TARGET_DIR="$T/cargo-target"
 export WARP_CONTROLLER_BIN="$CARGO_TARGET_DIR/debug/z2k-warp-controller"
 if [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ]; then
     if [ "$(id -u)" -eq 0 ]; then
-        unshare -n "$0" --inside "$T"
+        unshare -n sh "$0" --inside "$T"
     else
         sudo -n env HOME="$HOME" PATH="$PATH" CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" \
             RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" CARGO_TARGET_DIR="$CARGO_TARGET_DIR" \
-            WARP_CONTROLLER_BIN="$WARP_CONTROLLER_BIN" unshare -n "$0" --inside "$T"
+            WARP_CONTROLLER_BIN="$WARP_CONTROLLER_BIN" unshare -n sh "$0" --inside "$T"
     fi
 else
-    unshare -Urn "$0" --inside "$T"
+    unshare -Urn sh "$0" --inside "$T"
 fi

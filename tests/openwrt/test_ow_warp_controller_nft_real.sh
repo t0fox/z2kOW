@@ -322,12 +322,12 @@ printf '1.2.3.4\n' > "$T/users/public.txt"
 printf '192.168.1.9\n' > "$T/users/devices.txt"
 if [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ]; then
     if [ "$(id -u)" -eq 0 ]; then
-        unshare -n "$0" --inside "$T"
+        unshare -n sh "$0" --inside "$T"
     else
         sudo -n env HOME="$HOME" PATH="$PATH" CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" \
             RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" \
-            unshare -n "$0" --inside "$T"
+            unshare -n sh "$0" --inside "$T"
     fi
 else
-    unshare -Urn "$0" --inside "$T"
+    unshare -Urn sh "$0" --inside "$T"
 fi

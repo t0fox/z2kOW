@@ -31,12 +31,12 @@ mkdir -p "$T/state"
 cargo test --manifest-path "$CRATE/Cargo.toml" --test real_routes --no-run
 if [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ]; then
     if [ "$(id -u)" -eq 0 ]; then
-        unshare -n "$0" --inside "$T" "$CRATE"
+        unshare -n sh "$0" --inside "$T" "$CRATE"
     else
         sudo -n env HOME="$HOME" PATH="$PATH" CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" \
             RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" \
-            unshare -n "$0" --inside "$T" "$CRATE"
+            unshare -n sh "$0" --inside "$T" "$CRATE"
     fi
 else
-    unshare -Urn "$0" --inside "$T" "$CRATE"
+    unshare -Urn sh "$0" --inside "$T" "$CRATE"
 fi
