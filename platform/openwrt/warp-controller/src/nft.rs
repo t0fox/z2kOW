@@ -932,17 +932,10 @@ pub fn render_fw4_forward_apply_batch(
     }
     let rules = fw4_chain_rules(chain_output, chain)?;
     let escaped_comment = nft_quote(comment)?;
-    let exact = format!(
-        "meta mark & {mask} == {mark} oifname \"{interface}\" accept comment {escaped_comment}"
-    );
-    let wildcard = format!(
-        "meta mark & {mask} == {mark} oifname \"z2ktun*\" accept comment {escaped_comment}"
-    );
-    if rules
-        .iter()
-        .any(|rule| rule.contains(&exact) || rule.contains(&wildcard))
-    {
-        return Ok(String::new());
+    for rule in &rules {
+        if fw4_forward_rule_matches(rule, interface, mark, mask, comment)? {
+            return Ok(String::new());
+        }
     }
     let marker = format!("comment {escaped_comment}");
     if rules.iter().any(|rule| rule.contains(&marker)) {
@@ -951,7 +944,31 @@ pub fn render_fw4_forward_apply_batch(
             "правило fw4 WARP занято другим выражением",
         ));
     }
+    let exact = format!(
+        "meta mark & {mask} == {mark} oifname \"{interface}\" accept comment {escaped_comment}"
+    );
     Ok(format!("insert rule {family} {table} {chain} {exact}\n"))
+}
+
+fn fw4_forward_rule_matches(
+    rule: &str,
+    interface: &str,
+    mark: &str,
+    mask: &str,
+    comment: &str,
+) -> io::Result<bool> {
+    let escaped_comment = nft_quote(comment)?;
+    let mut mark_expressions = vec![format!("meta mark & {mask} == {mark}")];
+    mark_expressions.extend(nft_mark_prefix_expressions(mark, mask));
+    let interfaces = [interface, "z2ktun*"];
+    Ok(mark_expressions.iter().any(|mark_expression| {
+        interfaces.iter().any(|output_interface| {
+            let expression = format!(
+                "{mark_expression} oifname \"{output_interface}\" accept comment {escaped_comment}"
+            );
+            rule.contains(&expression)
+        })
+    }))
 }
 
 pub fn fw4_forward_matches(
@@ -976,25 +993,12 @@ pub fn fw4_forward_matches(
         ));
     }
     let rules = fw4_chain_rules(chain_output, chain)?;
-    let escaped_comment = nft_quote(comment)?;
-    let exact = format!(
-        "meta mark & {mask} == {mark} oifname \"{interface}\" accept comment {escaped_comment}"
-    );
-    let wildcard = format!(
-        "meta mark & {mask} == {mark} oifname \"z2ktun*\" accept comment {escaped_comment}"
-    );
-    let mut expected = vec![exact, wildcard];
-    for mark_expression in nft_mark_prefix_expressions(mark, mask) {
-        expected.push(format!(
-            "{mark_expression} oifname \"{interface}\" accept comment {escaped_comment}"
-        ));
-        expected.push(format!(
-            "{mark_expression} oifname \"z2ktun*\" accept comment {escaped_comment}"
-        ));
+    for rule in rules {
+        if fw4_forward_rule_matches(rule, interface, mark, mask, comment)? {
+            return Ok(true);
+        }
     }
-    Ok(rules
-        .iter()
-        .any(|rule| expected.iter().any(|expression| rule.contains(expression))))
+    Ok(false)
 }
 
 pub fn render_fw4_forward_remove_batch(
@@ -1473,7 +1477,7 @@ fn valid_ipv4_entry(entry: &str, allow_cidr: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::fw4_forward_matches;
+    use super::{fw4_forward_matches, render_fw4_forward_apply_batch};
 
     #[test]
     fn verifies_nft_1_0_9_canonical_fw4_mark_rule() {
@@ -1490,6 +1494,20 @@ mod tests {
             )
             .unwrap()
         );
+        assert!(
+            render_fw4_forward_apply_batch(
+                output,
+                "inet",
+                "fw4",
+                "forward",
+                "z2ktun0",
+                "0x80000000",
+                "0x80000000",
+                "!z2k: WARP forwarded traffic",
+            )
+            .unwrap()
+            .is_empty()
+        );
 
         let foreign = output.replace("0x80000000/1", "0x40000000/1");
         assert!(
@@ -1502,6 +1520,19 @@ mod tests {
                 "!z2k: WARP forwarded traffic",
             )
             .unwrap()
+        );
+        assert!(
+            render_fw4_forward_apply_batch(
+                &foreign,
+                "inet",
+                "fw4",
+                "forward",
+                "z2ktun0",
+                "0x80000000",
+                "0x80000000",
+                "!z2k: WARP forwarded traffic",
+            )
+            .is_err()
         );
     }
 }
