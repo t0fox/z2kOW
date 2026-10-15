@@ -40,4 +40,4 @@ if [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ]; then
 else
     unshare -Urn sh "$0" --inside "$T" "$CRATE"
 fi
-printf '\nSUITE[ow-warp-controller-real-ip]: pass\n'
+printf '\nSUITE[ow-warp-controller-real-ip]: pass=1 fail=0\n'

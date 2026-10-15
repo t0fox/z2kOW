@@ -678,7 +678,7 @@ EOF_NFT
     Z2K_WARP_LOCK_DIR="$WARP_LOCK_DIR" "$_real_controller" lock-release "$$"
     [ ! -e "$WARP_LOCK_DIR" ]
 
-    printf 'SUITE[ow-warp-controller-shell-entry-real]: pass\n'
+    printf 'SUITE[ow-warp-controller-shell-entry-real]: pass=1 fail=0\n'
     exit 0
 fi
 

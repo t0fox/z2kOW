@@ -318,7 +318,7 @@ EOF_IP
         exit 1
     fi
     nft list chain inet z2k_warp_controller_test z2k_foreign | grep -F 'counter'
-    printf 'SUITE[ow-warp-controller-real-nft]: pass\n'
+    printf 'SUITE[ow-warp-controller-real-nft]: pass=1 fail=0\n'
     exit 0
 fi
 
