@@ -86,7 +86,8 @@ domain_error=$TMP/domain-error
 EOF
 check cmp -s "$TMP/expected" "$TMP/input"
 
-_warp_controller_disable_state() { return 1; }
+WARP_TEST_EXIT=1
+export WARP_TEST_EXIT
 warp_op_current() { return 0; }
 warp_running() { return 1; }
 _warp_service_transition() { : > "$TMP/service-transition"; }
