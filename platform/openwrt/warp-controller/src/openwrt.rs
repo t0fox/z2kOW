@@ -18,9 +18,7 @@ pub fn discover_interfaces(kind: InterfaceKind) -> io::Result<Vec<String>> {
     match kind {
         InterfaceKind::Lan => {
             let firewall = command_output("uci", &["-d", "@", "show", "firewall"])?;
-            parse_lan_interfaces_with_runtime(&firewall, &network, |name| {
-                ubus_interface_device(name).ok().flatten()
-            })
+            parse_lan_interfaces_with_runtime(&firewall, &network, ubus_interface_device)
         }
         InterfaceKind::WireGuardServers => parse_wireguard_interfaces(&network, true),
         InterfaceKind::WireGuardClients => parse_wireguard_interfaces(&network, false),
@@ -40,13 +38,13 @@ pub fn parse_interface_lists(
 }
 
 fn parse_lan_interfaces(firewall: &str, network: &str) -> io::Result<Vec<String>> {
-    parse_lan_interfaces_with_runtime(firewall, network, |_| None)
+    parse_lan_interfaces_with_runtime(firewall, network, |_| Ok(None))
 }
 
 fn parse_lan_interfaces_with_runtime(
     firewall: &str,
     network: &str,
-    mut runtime_device: impl FnMut(&str) -> Option<String>,
+    mut runtime_device: impl FnMut(&str) -> io::Result<Option<String>>,
 ) -> io::Result<Vec<String>> {
     let firewall = UciConfig::parse(firewall, "firewall")?;
     let network = UciConfig::parse(network, "network")?;
@@ -68,7 +66,7 @@ fn parse_lan_interfaces_with_runtime(
         );
         for network_name in firewall.tokens(section, "network") {
             let network_device =
-                runtime_device(&network_name).or_else(|| network.joined(&network_name, "device"));
+                runtime_device(&network_name)?.or_else(|| network.joined(&network_name, "device"));
             let network_device = match network_device {
                 Some(device) if !device.is_empty() => Some(device),
                 _ => network.joined(&network_name, "ifname"),
@@ -92,11 +90,20 @@ fn ubus_interface_device(network: &str) -> io::Result<Option<String>> {
     let object = format!("network.interface.{network}");
     let output = process::output(Command::new("ubus").args(["call", &object, "status"]))?;
     if !output.status.success() {
-        return Ok(None);
+        if String::from_utf8_lossy(&output.stderr).trim() == "Command failed: Not found" {
+            return Ok(None);
+        }
+        return Err(io::Error::other(format!(
+            "ubus call {object} status завершился с ошибкой: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
     }
-    let Ok(status) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
-        return Ok(None);
-    };
+    let status = serde_json::from_slice::<serde_json::Value>(&output.stdout).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("ubus call {object} status вернул некорректный JSON: {error}"),
+        )
+    })?;
     Ok(status
         .get("device")
         .and_then(serde_json::Value::as_str)
@@ -272,7 +279,7 @@ mod tests {
         );
 
         let interfaces = parse_lan_interfaces_with_runtime(firewall, network, |name| {
-            (name == "lan").then(|| "br-runtime".to_owned())
+            Ok((name == "lan").then(|| "br-runtime".to_owned()))
         })
         .unwrap();
 
