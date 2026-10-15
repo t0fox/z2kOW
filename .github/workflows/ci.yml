@@ -486,7 +486,8 @@ jobs:
             sh scripts/openwrt/build_warp_controller.sh "$RUNNER_TEMP/warp-controller"
           fi
           python3 scripts/openwrt/warp_controller_artifacts.py verify \
-            --directory "$RUNNER_TEMP/warp-controller" --source-sha "$GITHUB_SHA" --group "$Z2K_WARP_CONTROLLER_GROUP"
+            --directory "$RUNNER_TEMP/warp-controller" --source-sha "$GITHUB_SHA" \
+            --group "$Z2K_WARP_CONTROLLER_GROUP" --run-id "$GITHUB_RUN_ID"
       - name: Сохранить проверенные Rust WARP ELF группы
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -830,7 +831,15 @@ jobs:
           cache: true
           cache-dependency-path: z2k-warpd/go.sum
       - name: Install OpenWrt test dependencies
-        run: sudo apt-get update && sudo apt-get install -y dnsmasq-base busybox lighttpd curl lua5.3
+        run: sudo apt-get update && sudo apt-get install -y dnsmasq-base busybox lighttpd curl lua5.3 nftables iproute2 util-linux
+      - name: Установить Rust для реальных тестов WARP
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
+          "$HOME/.cargo/bin/rustup" toolchain install 1.98.0 --profile minimal
+          "$HOME/.cargo/bin/rustup" default 1.98.0
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Получить runtime только для shard, которому он нужен
         if: matrix.runtime
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0

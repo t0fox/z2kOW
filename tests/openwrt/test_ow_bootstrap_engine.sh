@@ -60,6 +60,8 @@ printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/usr/lib/z2k/bin/linux-x86_64/tg-ws-prox
 chmod 755 "$PAYLOAD/usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy"
 printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd"
 chmod 755 "$PAYLOAD/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warpd"
+printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warp-controller"
+chmod 755 "$PAYLOAD/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warp-controller"
 for pair in nfq2/nfqws2 ip2net/ip2net mdig/mdig; do
     name="${pair#*/}"
     printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/opt/zapret2/binaries/linux-x86_64/$name"
@@ -226,6 +228,7 @@ assert_contains "real install_release committed the controlled tag and sequence"
 assert_contains "real install_release committed the controlled sequence" \
     "$SYS/etc/z2k/state/installed-release" "seq=136"
 assert_file "target Rust proxy was installed" "$SYS/usr/lib/z2k/bin/linux-x86_64/tg-ws-proxy"
+assert_file "WARP controller was installed" "$SYS/usr/lib/z2k/platform/openwrt/bin/linux-x86_64/z2k-warp-controller"
 assert_file "real fresh install printed its completion notice" "$T/out"
 assert_contains "bootstrap log names the selected architecture and release" "$T/out" \
     'установщик z2kOW: выбираю архив для архитектуры x86_64, выпуск p-86.13'

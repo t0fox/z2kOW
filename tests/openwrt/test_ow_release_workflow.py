@@ -293,6 +293,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('variants: "mips"', warp_job)
         self.assertIn('variants: "mipsel"', warp_job)
         self.assertIn("warp_controller_artifacts.py verify", warp_job)
+        self.assertIn('--group "$Z2K_WARP_CONTROLLER_GROUP" --run-id "$GITHUB_RUN_ID"', warp_job)
         self.assertIn("z2kow-warp-controller-${{ github.sha }}-${{ matrix.group }}", warp_job)
         self.assertIn('go_build_artifacts.py" stage', builder)
         self.assertIn('--go-dir "$RUNNER_TEMP/go-artifacts"', openwrt_job)
@@ -320,12 +321,23 @@ class ReleaseWorkflowTests(unittest.TestCase):
     def test_release_reuses_verified_warp_controller_artifacts_or_cross_builds_all_abis(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
+        builder = (ROOT / "scripts/openwrt/build-release.sh").read_text(encoding="utf-8")
 
         self.assertIn("z2kow-warp-controller-${SOURCE_SHA}-*", prepare)
         self.assertIn("warp_controller_artifacts.py merge", prepare)
         self.assertIn("Z2K_WARP_CONTROLLER_EXPECTED_RUN_ID", prepare)
         self.assertIn("build_warp_controller.sh \"$RUNNER_TEMP/warp-controller\" --test", prepare)
         self.assertIn('--warp-controller-dir "$WARP_CONTROLLER_ARTIFACT_DIR"', prepare)
+        self.assertIn('--run-id "${GITHUB_RUN_ID:-0}"', builder)
+
+    def test_openwrt_acceptance_installs_real_warp_test_tools(self) -> None:
+        ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        acceptance = ci.split("  openwrt-acceptance:", 1)[1].split("  openwrt-unified:", 1)[0]
+
+        self.assertIn("apt-get install -y dnsmasq-base busybox lighttpd curl lua5.3 nftables iproute2 util-linux", acceptance)
+        self.assertIn('toolchain install 1.98.0 --profile minimal', acceptance)
+        self.assertIn('rustup" default 1.98.0', acceptance)
+        self.assertIn('echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"', acceptance)
 
     def test_openwrt_ci_requires_an_upgrade_from_the_previous_published_release(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")

@@ -143,7 +143,8 @@ if [ -n "$WARP_CONTROLLER_DIR" ]; then
             --run-id "$Z2K_WARP_CONTROLLER_EXPECTED_RUN_ID"
     else
         python3 "$ROOT/scripts/openwrt/warp_controller_artifacts.py" verify \
-            --directory "$WARP_CONTROLLER_DIR" --source-sha "$_source_sha"
+            --directory "$WARP_CONTROLLER_DIR" --source-sha "$_source_sha" \
+            --run-id "${GITHUB_RUN_ID:-0}"
     fi
     _warp_controller="$WARP_CONTROLLER_DIR"
 else
