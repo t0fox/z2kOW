@@ -2095,15 +2095,36 @@ _warp_controller_disable_state() {
     local _iface="" _addr=""
     _iface="$(_warp_live_iface 2>/dev/null)" || _iface=
     _addr="$(_warp_probe_addr 2>/dev/null)" || _addr=
-    _warp_controller disable-state "$CONFIG_FILE" "$_iface" "$_addr" \
-        "$WARP_TABLE" "$WARP_RULE_PREF" "$WARP_PROBE_RULE_PREF" \
-        "$WARP_MARK" "$WARP_MASK" "$WARP_PBR_OWNER" "$WARP_PROBE_OWNER" \
-        "$WARP_FW4_FAMILY" "$WARP_FW4_TABLE" "$WARP_FW4_CHAIN" \
-        "$WARP_FW4_RULE_COMMENT" "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" \
-        "$WARP_CHAIN_MARK" "$WARP_CHAIN_MSS" "$WARP_CHAIN_FWD" "$WARP_CHAIN_NAT" \
-        "$WARP_DOMAIN_NFT_FAMILY" "$WARP_DOMAIN_NFT_TABLE" \
-        "$Z2K_WARP_NFT_FAMILY" "$Z2K_WARP_NFT_TABLE" "$WARP_DOMAIN_SET" \
-        "$WARP_DOMAIN_ERROR"
+    {
+        printf 'version=1\n'
+        printf 'config=%s\n' "$CONFIG_FILE"
+        printf 'interface=%s\n' "$_iface"
+        printf 'probe_address=%s\n' "$_addr"
+        printf 'table=%s\n' "$WARP_TABLE"
+        printf 'user_pref=%s\n' "$WARP_RULE_PREF"
+        printf 'probe_pref=%s\n' "$WARP_PROBE_RULE_PREF"
+        printf 'mark=%s\n' "$WARP_MARK"
+        printf 'mask=%s\n' "$WARP_MASK"
+        printf 'pbr_owner=%s\n' "$WARP_PBR_OWNER"
+        printf 'probe_owner=%s\n' "$WARP_PROBE_OWNER"
+        printf 'route_error=%s\n' "$WARP_ROUTE_ERROR_FILE"
+        printf 'fw4_family=%s\n' "$WARP_FW4_FAMILY"
+        printf 'fw4_table=%s\n' "$WARP_FW4_TABLE"
+        printf 'fw4_chain=%s\n' "$WARP_FW4_CHAIN"
+        printf 'fw4_comment=%s\n' "$WARP_FW4_RULE_COMMENT"
+        printf 'nft_family=%s\n' "$Z2K_WARP_NFT_FAMILY"
+        printf 'nft_table=%s\n' "$Z2K_WARP_NFT_TABLE"
+        printf 'mark_chain=%s\n' "$WARP_CHAIN_MARK"
+        printf 'mss_chain=%s\n' "$WARP_CHAIN_MSS"
+        printf 'forward_chain=%s\n' "$WARP_CHAIN_FWD"
+        printf 'nat_chain=%s\n' "$WARP_CHAIN_NAT"
+        printf 'observer_family=%s\n' "$WARP_DOMAIN_NFT_FAMILY"
+        printf 'observer_table=%s\n' "$WARP_DOMAIN_NFT_TABLE"
+        printf 'pair_family=%s\n' "$Z2K_WARP_NFT_FAMILY"
+        printf 'pair_table=%s\n' "$Z2K_WARP_NFT_TABLE"
+        printf 'pair_set=%s\n' "$WARP_DOMAIN_SET"
+        printf 'domain_error=%s\n' "$WARP_DOMAIN_ERROR"
+    } | _warp_controller disable-state
 }
 _z2k_ow_warp_lock() {
     if [ -x "${WARP_CONTROLLER_BIN:-}" ]; then
@@ -2488,22 +2509,43 @@ warp_disable() {
     # Порядок (defect 1): PBR down ПЕРВЫМ -> clears -> flag 0 -> reconcile.
     # Reload при flag=1 пересоздал бы instance (окно "выключен, но работает").
     warp_op_current || { warp_op_superseded; return 3; }
-    rm -f "$WARP_PROCD_INSTANCE_FILE" 2>/dev/null
-    _warp_procd_recovery_clear || true
-    warp_unpin_legacy
     _was_running=0
     warp_running && _was_running=1
     if [ -x "$WARP_CONTROLLER_BIN" ]; then
-        _warp_controller_disable_state || _rc=1
+        if ! _warp_controller_disable_state; then
+            _wlog "очистка WARP не завершена; настройка и procd instance сохранены для повтора"
+            return 1
+        fi
     else
-        warp_pbr_down || _rc=1
+        if ! warp_pbr_down; then
+            _warp_route_error_set warp-disable-pbr-remove-failed || true
+            _wlog "не удалось снять PBR; procd instance оставлен для безопасного повтора"
+            return 1
+        fi
         _warp_tun_clear || _rc=1
         _warp_mark_clear || _rc=1
         if command -v warp_domain_nft_remove >/dev/null 2>&1; then
             warp_domain_nft_remove || _rc=1
         fi
-        warp_set_flag 0 || _rc=1
+        if [ "$_rc" != "0" ]; then
+            _warp_route_error_set warp-disable-cleanup-failed || true
+            _wlog "очистка WARP не завершена; настройка и procd instance сохранены для повтора"
+            return 1
+        fi
+        _warp_route_error_clear || {
+            _warp_route_error_set warp-disable-marker-clear-failed || true
+            _wlog "не удалось очистить маркер WARP; настройка и procd instance сохранены"
+            return 1
+        }
+        if ! warp_set_flag 0; then
+            _warp_route_error_set warp-disable-config-commit-failed || true
+            _wlog "не удалось сохранить выключенное состояние WARP; procd instance сохранён"
+            return 1
+        fi
     fi
+    rm -f "$WARP_PROCD_INSTANCE_FILE" 2>/dev/null
+    _warp_procd_recovery_clear || true
+    warp_unpin_legacy
     _warp_service_transition disable 0 "$_was_running" || return $?
     # Invariant: успех disable => процесса нет (а не только flag=0).
     if warp_running; then

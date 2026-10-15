@@ -96,14 +96,39 @@ fn parse_selections(contents: &str) -> Vec<Selection> {
 }
 
 fn discover_neighbors(selected_macs: &HashSet<String>) -> io::Result<HashMap<String, String>> {
-    let output = command_output("ip", &["-4", "-j", "neigh", "show"])?;
-    parse_neighbors(&output, selected_macs)
+    let json = Command::new("ip")
+        .args(["-4", "-j", "neigh", "show"])
+        .output()?;
+    if json.status.success() {
+        return parse_neighbors(&json.stdout, selected_macs);
+    }
+    if !json_output_unsupported(&json) {
+        return Err(command_error("ip -4 -j neigh show", &json.stderr));
+    }
+    let text = command_output("ip", &["-4", "neigh", "show"])?;
+    parse_neighbors(&text, selected_macs)
 }
 
 fn parse_neighbors(
     output: &[u8],
     selected_macs: &HashSet<String>,
 ) -> io::Result<HashMap<String, String>> {
+    let first = output
+        .iter()
+        .copied()
+        .find(|byte| !byte.is_ascii_whitespace());
+    match first {
+        Some(b'[') | None => {}
+        Some(byte) if byte.is_ascii_digit() => {
+            return parse_busybox_neighbors(output, selected_macs);
+        }
+        Some(_) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "не удалось распознать вывод `ip neigh`",
+            ));
+        }
+    }
     let entries: Value = serde_json::from_slice(output).map_err(|error| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -140,6 +165,56 @@ fn parse_neighbors(
         }
     }
     Ok(neighbors)
+}
+
+fn parse_busybox_neighbors(
+    output: &[u8],
+    selected_macs: &HashSet<String>,
+) -> io::Result<HashMap<String, String>> {
+    let output = std::str::from_utf8(output).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("`ip neigh` вернул не-UTF8: {error}"),
+        )
+    })?;
+    let mut neighbors = HashMap::new();
+    for line in output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let mut fields = line.split_whitespace();
+        let Some(address) = fields.next().and_then(normalize_private_ipv4) else {
+            continue;
+        };
+        let mut link_address = None;
+        while let Some(field) = fields.next() {
+            if field == "lladdr" {
+                link_address = fields.next();
+                break;
+            }
+        }
+        let Some(mac) = link_address.and_then(canonical_mac) else {
+            continue;
+        };
+        if selected_macs.contains(&mac) {
+            neighbors.entry(mac).or_insert(address);
+        }
+    }
+    Ok(neighbors)
+}
+
+fn json_output_unsupported(output: &std::process::Output) -> bool {
+    let text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+    .to_ascii_lowercase();
+    text.contains("busybox")
+        || text.contains("usage: ip")
+        || text.contains("invalid option")
+        || text.contains("unrecognized option")
 }
 
 fn discover_active_clients(selected_macs: &HashSet<String>) -> io::Result<HashSet<String>> {
@@ -399,6 +474,27 @@ mod tests {
             Some("192.168.1.9")
         );
         assert_eq!(neighbors.len(), 1);
+    }
+
+    #[test]
+    fn вывод_busybox_ip_neigh_фильтрует_выбранные_mac() {
+        let selected = HashSet::from(["aa:bb:cc:dd:ee:ff".to_owned()]);
+        let neighbors = parse_neighbors(
+            b"192.168.1.9 dev br-lan lladdr AA:BB:CC:DD:EE:FF STALE\n10.0.0.2 dev br-lan lladdr 00:11:22:33:44:55 REACHABLE\n",
+            &selected,
+        )
+        .unwrap();
+        assert_eq!(
+            neighbors.get("aa:bb:cc:dd:ee:ff").map(String::as_str),
+            Some("192.168.1.9")
+        );
+        assert_eq!(neighbors.len(), 1);
+    }
+
+    #[test]
+    fn повреждённый_json_ip_neigh_не_становится_пустым_текстом() {
+        let selected = HashSet::from(["aa:bb:cc:dd:ee:ff".to_owned()]);
+        assert!(parse_neighbors(b"{broken", &selected).is_err());
     }
 
     #[test]

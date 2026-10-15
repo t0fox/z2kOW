@@ -1,9 +1,13 @@
 use std::{
-    collections::BTreeMap, fs, io, net::Ipv4Addr, os::unix::fs::PermissionsExt, path::Path,
-    process::Command,
+    collections::BTreeMap,
+    fs, io,
+    net::Ipv4Addr,
+    os::unix::fs::PermissionsExt,
+    path::Path,
+    process::{Command, Output},
 };
 
-use serde_json::Value;
+use serde_json::{Map, Number, Value};
 
 #[derive(Debug)]
 pub struct RouteObservation {
@@ -313,8 +317,45 @@ pub fn remove_policy_from_owner_files(fallback: &RouteConfig<'_>) -> Result<bool
 }
 
 fn snapshot(config: &RouteConfig<'_>) -> Result<RouteInventory, String> {
-    let rules = run_ip_output(&["-4", "-j", "rule", "show"])?;
-    let table = run_ip_output(&["-4", "-j", "route", "show", "table", "all"])?;
+    let rule_args = ["-4", "-j", "rule", "show"];
+    let rules_output = run_ip_command(&rule_args)?;
+    let json_rules = if rules_output.status.success() {
+        Some(ip_output_text(rules_output, &rule_args)?)
+    } else if json_output_unsupported(&rules_output) {
+        None
+    } else {
+        return Err(format!(
+            "не удалось прочитать состояние iproute2: {}",
+            rule_args.join(" ")
+        ));
+    };
+
+    let route_args = ["-4", "-j", "route", "show", "table", "all"];
+    let json_table = if json_rules.is_some() {
+        let table_output = run_ip_command(&route_args)?;
+        if table_output.status.success() {
+            Some(ip_output_text(table_output, &route_args)?)
+        } else if json_output_unsupported(&table_output) {
+            None
+        } else {
+            return Err(format!(
+                "не удалось прочитать состояние iproute2: {}",
+                route_args.join(" ")
+            ));
+        }
+    } else {
+        None
+    };
+
+    let (rules, table) = match (json_rules, json_table) {
+        (Some(rules), Some(table)) => (rules, table),
+        _ => {
+            let rules = run_ip_output(&["-4", "rule", "show"])?;
+            let table_id = config.table.to_string();
+            let table = run_ip_output(&["-4", "route", "show", "table", &table_id])?;
+            (rules, table)
+        }
+    };
     inspect_routes(
         &RouteObservation {
             rules,
@@ -342,13 +383,23 @@ fn run_ip(arguments: &[&str]) -> Result<(), String> {
 }
 
 fn run_ip_output(arguments: &[&str]) -> Result<String, String> {
-    let output = Command::new("ip")
+    let output = run_ip_command(arguments)?;
+    ip_output_text(output, arguments)
+}
+
+fn run_ip_command(arguments: &[&str]) -> Result<Output, String> {
+    Command::new("ip")
         .args(arguments)
         .output()
-        .map_err(|error| format!("не удалось запустить iproute2: {error}"))?;
+        .map_err(|error| format!("не удалось запустить iproute2: {error}"))
+}
+
+fn ip_output_text(output: Output, arguments: &[&str]) -> Result<String, String> {
     if !output.status.success() {
-        if arguments.len() == 4
-            && arguments[0..3] == ["route", "show", "table"]
+        let route_table_query = (arguments.len() == 4
+            && arguments[0..3] == ["route", "show", "table"])
+            || (arguments.len() == 5 && arguments[0..4] == ["-4", "route", "show", "table"]);
+        if route_table_query
             && output.stdout.is_empty()
             && String::from_utf8_lossy(&output.stderr).contains("FIB table does not exist")
         {
@@ -360,6 +411,19 @@ fn run_ip_output(arguments: &[&str]) -> Result<String, String> {
         ));
     }
     String::from_utf8(output.stdout).map_err(|error| format!("iproute2 вернул не-UTF8: {error}"))
+}
+
+fn json_output_unsupported(output: &Output) -> bool {
+    let text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+    .to_ascii_lowercase();
+    text.contains("busybox")
+        || text.contains("usage: ip")
+        || text.contains("invalid option")
+        || text.contains("unrecognized option")
 }
 
 fn command_ok(program: &str, arguments: &[&str]) -> Result<bool, String> {
@@ -550,26 +614,25 @@ pub fn inspect_routes(
         .parse::<Ipv4Addr>()
         .map_err(|_| "неверный IPv4-адрес probe".to_owned())?;
 
-    let rules: Value = serde_json::from_str(&observed.rules)
-        .map_err(|error| format!("не удалось разобрать JSON ip rule: {error}"))?;
-    let rules = rules
-        .as_array()
-        .ok_or_else(|| "iproute2 вернул не-массив JSON для правил".to_owned())?;
+    let rules = parse_rule_observation(&observed.rules)?;
 
     let mut inventory = RouteInventory::default();
     let mut user_count = 0;
     let mut probe_count = 0;
-    for rule in rules {
+    for rule in &rules {
         let pref = json_u32(rule, "priority")
             .ok_or_else(|| format!("ip rule без допустимого priority: {rule}"))?;
         let rule_table = json_table(rule.get("table"));
         let source = rule_source(rule)?;
         let found_mark = json_mark(rule)?;
-        let exact_user = pref == user_pref
+        let has_extra_selector = rule.get("_z2k_extra_selector").is_some();
+        let exact_user = !has_extra_selector
+            && pref == user_pref
             && source == "all"
             && found_mark == Some((mark, mask))
             && rule_table == Some(table);
-        let exact_probe = pref == probe_pref
+        let exact_probe = !has_extra_selector
+            && pref == probe_pref
             && source_matches_probe(source, &observed.probe_address)
             && found_mark.is_none()
             && rule_table == Some(table);
@@ -599,13 +662,9 @@ pub fn inspect_routes(
         return Err("приоритет WARP продублирован".into());
     }
 
-    let routes: Value = serde_json::from_str(&observed.table)
-        .map_err(|error| format!("не удалось разобрать JSON ip route: {error}"))?;
-    let routes = routes
-        .as_array()
-        .ok_or_else(|| "iproute2 вернул не-массив JSON для маршрутов".to_owned())?;
+    let routes = parse_route_observation(&observed.table, table)?;
     let mut route_count = 0;
-    for route in routes {
+    for route in &routes {
         let route_table = match route.get("table") {
             Some(value) => json_table(Some(value))
                 .ok_or_else(|| format!("ip route содержит неверную table: {route}"))?,
@@ -624,6 +683,237 @@ pub fn inspect_routes(
     }
     inventory.default_route = route_count == 1;
     Ok(inventory)
+}
+
+fn parse_rule_observation(contents: &str) -> Result<Vec<Value>, String> {
+    if contents.trim_start().starts_with('[') {
+        let rules: Value = serde_json::from_str(contents)
+            .map_err(|error| format!("не удалось разобрать JSON ip rule: {error}"))?;
+        return rules
+            .as_array()
+            .cloned()
+            .ok_or_else(|| "iproute2 вернул не-массив JSON для правил".to_owned());
+    }
+    if contents.trim().is_empty() {
+        return Err("ip rule вернул пустой вывод".into());
+    }
+
+    let mut rules = Vec::new();
+    for line in contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let (priority, body) = line
+            .split_once(':')
+            .ok_or_else(|| format!("не удалось разобрать правило BusyBox ip: {line}"))?;
+        let priority = priority
+            .trim()
+            .parse::<u32>()
+            .map_err(|_| format!("не удалось разобрать приоритет BusyBox ip: {line}"))?;
+        let tokens: Vec<_> = body.split_whitespace().collect();
+        let mut source = None;
+        let mut fwmark = None;
+        let mut fwmask = None;
+        let mut table = None;
+        let mut extra_selector = false;
+        let mut index = 0;
+
+        while index < tokens.len() {
+            let token = tokens[index];
+            index += 1;
+            match token {
+                "from" => {
+                    let value = next_rule_value(&tokens, &mut index, line)?;
+                    if source.replace(value).is_some() {
+                        return Err(format!(
+                            "правило BusyBox ip содержит повторный from: {line}"
+                        ));
+                    }
+                }
+                "fwmark" => {
+                    let value = next_rule_value(&tokens, &mut index, line)?;
+                    if fwmark.replace(value).is_some() {
+                        return Err(format!(
+                            "правило BusyBox ip содержит повторный fwmark: {line}"
+                        ));
+                    }
+                }
+                "fwmask" => {
+                    let value = next_rule_value(&tokens, &mut index, line)?;
+                    if fwmask.replace(value).is_some() {
+                        return Err(format!(
+                            "правило BusyBox ip содержит повторный fwmask: {line}"
+                        ));
+                    }
+                }
+                "lookup" | "table" => {
+                    let value = next_rule_value(&tokens, &mut index, line);
+                    let value = value?;
+                    if table.replace(value).is_some() {
+                        return Err(format!(
+                            "правило BusyBox ip содержит повторную таблицу: {line}"
+                        ));
+                    }
+                }
+                "to"
+                | "iif"
+                | "oif"
+                | "tos"
+                | "uidrange"
+                | "ipproto"
+                | "sport"
+                | "dport"
+                | "realms"
+                | "suppress_prefixlength"
+                | "suppress_ifgroup"
+                | "goto" => {
+                    extra_selector = true;
+                    let _ = next_rule_value(&tokens, &mut index, line)?;
+                }
+                "not" | "l3mdev" | "blackhole" | "unreachable" | "prohibit" | "throw" | "nat" => {
+                    extra_selector = true
+                }
+                _ => extra_selector = true,
+            }
+        }
+
+        let mut rule = Map::new();
+        rule.insert("priority".into(), Value::Number(Number::from(priority)));
+        rule.insert(
+            "src".into(),
+            Value::String(source.unwrap_or_else(|| "all".into())),
+        );
+        if let Some(fwmark) = fwmark {
+            rule.insert("fwmark".into(), Value::String(fwmark));
+        }
+        if let Some(fwmask) = fwmask {
+            rule.insert("fwmask".into(), Value::String(fwmask));
+        }
+        if let Some(table) = table {
+            rule.insert("table".into(), Value::String(table));
+        }
+        if extra_selector {
+            rule.insert("_z2k_extra_selector".into(), Value::Bool(true));
+        }
+        rules.push(Value::Object(rule));
+    }
+    Ok(rules)
+}
+
+fn next_rule_value(tokens: &[&str], index: &mut usize, line: &str) -> Result<String, String> {
+    let value = tokens
+        .get(*index)
+        .ok_or_else(|| format!("у правила BusyBox ip отсутствует значение: {line}"))?;
+    *index += 1;
+    Ok((*value).to_owned())
+}
+
+fn parse_route_observation(contents: &str, table: u32) -> Result<Vec<Value>, String> {
+    if contents.trim_start().starts_with('[') {
+        let routes: Value = serde_json::from_str(contents)
+            .map_err(|error| format!("не удалось разобрать JSON ip route: {error}"))?;
+        return routes
+            .as_array()
+            .cloned()
+            .ok_or_else(|| "iproute2 вернул не-массив JSON для маршрутов".to_owned());
+    }
+
+    let mut routes = Vec::new();
+    for line in contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let tokens: Vec<_> = line.split_whitespace().collect();
+        let mut index = 0;
+        let mut route = Map::new();
+        if matches!(
+            tokens.first(),
+            Some(
+                &"unicast"
+                    | &"local"
+                    | &"broadcast"
+                    | &"blackhole"
+                    | &"unreachable"
+                    | &"prohibit"
+                    | &"throw"
+                    | &"nat"
+            )
+        ) {
+            route.insert("type".into(), Value::String(tokens[0].to_owned()));
+            index += 1;
+        }
+        let destination = tokens
+            .get(index)
+            .ok_or_else(|| format!("не удалось разобрать маршрут BusyBox ip: {line}"))?;
+        route.insert("dst".into(), Value::String((*destination).to_owned()));
+        route.insert("table".into(), Value::Number(Number::from(table)));
+        index += 1;
+        let mut unexpected_attribute = false;
+
+        while index < tokens.len() {
+            let token = tokens[index];
+            index += 1;
+            match token {
+                "dev" | "scope" | "metric" | "table" => {
+                    let value = tokens.get(index).ok_or_else(|| {
+                        format!("у маршрута BusyBox ip отсутствует значение: {line}")
+                    })?;
+                    index += 1;
+                    if token == "table" {
+                        let value = json_table(Some(&Value::String((*value).to_owned())))
+                            .ok_or_else(|| {
+                                format!("маршрут BusyBox ip содержит неверную таблицу: {line}")
+                            })?;
+                        if value != table {
+                            return Err(format!(
+                                "маршрут BusyBox ip вышел за запрошенную таблицу: {line}"
+                            ));
+                        }
+                    }
+                    let key = if token == "metric" { "metric" } else { token };
+                    if route
+                        .insert(key.into(), Value::String((*value).to_owned()))
+                        .is_some()
+                    {
+                        unexpected_attribute = true;
+                    }
+                }
+                "via" => {
+                    let mut value = tokens.get(index).ok_or_else(|| {
+                        format!("у маршрута BusyBox ip отсутствует gateway: {line}")
+                    })?;
+                    index += 1;
+                    if matches!(*value, "inet" | "inet6") {
+                        value = tokens.get(index).ok_or_else(|| {
+                            format!("у маршрута BusyBox ip отсутствует gateway: {line}")
+                        })?;
+                        index += 1;
+                    }
+                    if route
+                        .insert("gateway".into(), Value::String((*value).to_owned()))
+                        .is_some()
+                    {
+                        unexpected_attribute = true;
+                    }
+                }
+                "proto" | "src" | "prefsrc" => {
+                    unexpected_attribute = true;
+                    let _ = tokens.get(index).ok_or_else(|| {
+                        format!("у маршрута BusyBox ip отсутствует значение: {line}")
+                    })?;
+                    index += 1;
+                }
+                _ => unexpected_attribute = true,
+            }
+        }
+        if unexpected_attribute {
+            route.insert("_z2k_unexpected_attribute".into(), Value::Bool(true));
+        }
+        routes.push(Value::Object(route));
+    }
+    Ok(routes)
 }
 
 fn json_u32(object: &Value, key: &str) -> Option<u32> {
@@ -725,6 +1015,7 @@ fn exact_default_route_json(route: &Value, interface: &str, table: u32) -> bool 
         && matches!(json_string(route.get("dst")), Some("default" | "0.0.0.0/0"))
         && json_string(route.get("dev")) == Some(interface)
         && json_table(route.get("table")).unwrap_or(254) == table
+        && route.get("_z2k_unexpected_attribute").is_none()
         && route.get("gateway").is_none()
         && route.get("via").is_none()
         && route.get("metric").is_none()
@@ -736,4 +1027,28 @@ fn valid_tun(interface: &str) -> bool {
         return false;
     };
     (suffix.len() == 1 || suffix.len() == 2) && suffix.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RouteConfig, RouteInventory, snapshot};
+    use std::path::Path;
+
+    #[test]
+    #[ignore = "ручной smoke в WSL с BusyBox ip и реальным состоянием таблицы маршрутов"]
+    fn снимок_маршрутов_читает_реальный_busybox_ip() {
+        let config = RouteConfig {
+            interface: "z2ktun0",
+            probe_address: "172.16.9.9",
+            table: 989,
+            user_pref: 500,
+            probe_pref: 499,
+            mark: 0x8000_0000,
+            mask: 0x8000_0000,
+            pbr_owner: Path::new("/tmp/z2k-warp-unused-pbr-owner"),
+            probe_owner: Path::new("/tmp/z2k-warp-unused-probe-owner"),
+        };
+
+        assert_eq!(snapshot(&config).unwrap(), RouteInventory::default());
+    }
 }

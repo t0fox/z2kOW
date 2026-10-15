@@ -30,6 +30,45 @@ fn exact_owned_rules_and_route_are_recognized() {
 }
 
 #[test]
+fn вывод_busybox_ip_распознаёт_точные_правила_warp() {
+    let observed = RouteObservation {
+        rules: "0: from all lookup local\n499: from 172.16.9.9 lookup 989\n500: from all fwmark 0x80000000/0x80000000 lookup 989\n32766: from all lookup main\n32767: from all lookup default\n".into(),
+        table: "default dev z2ktun0 scope link\n".into(),
+        interface: "z2ktun0".into(),
+        probe_address: "172.16.9.9".into(),
+    };
+
+    let result = inspect_routes(&observed, 500, 499, 0x8000_0000, 0x8000_0000, 989).unwrap();
+    assert!(result.probe_rule);
+    assert!(result.user_rule);
+    assert!(result.default_route);
+}
+
+#[test]
+fn лишний_атрибут_маршрута_busybox_не_считается_владением_warp() {
+    let observed = RouteObservation {
+        rules: "499: from 172.16.9.9 lookup 989\n500: from all fwmark 0x80000000/0x80000000 lookup 989\n".into(),
+        table: "default dev z2ktun0 scope link proto static\n".into(),
+        interface: "z2ktun0".into(),
+        probe_address: "172.16.9.9".into(),
+    };
+
+    assert!(inspect_routes(&observed, 500, 499, 0x8000_0000, 0x8000_0000, 989).is_err());
+}
+
+#[test]
+fn пустой_вывод_busybox_ip_rule_остаётся_ошибкой_чтения() {
+    let observed = RouteObservation {
+        rules: String::new(),
+        table: String::new(),
+        interface: "z2ktun0".into(),
+        probe_address: "172.16.9.9".into(),
+    };
+
+    assert!(inspect_routes(&observed, 500, 499, 0x8000_0000, 0x8000_0000, 989).is_err());
+}
+
+#[test]
 fn foreign_route_and_overlapping_mark_fail_closed() {
     let mut observed = RouteObservation {
         rules: "[]".into(),

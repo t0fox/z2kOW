@@ -1,5 +1,6 @@
 pub mod config;
 pub mod devices;
+pub mod disable;
 pub mod domain_state;
 pub mod health;
 pub mod lifecycle;

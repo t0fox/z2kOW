@@ -132,13 +132,7 @@ nft add set "$NFT_FAMILY" "$NFT_TABLE" z2k_warp_src4 '{ type ipv4_addr; }'
 FW4_RULE_CREATED=1
 nft list chain inet fw4 forward | grep -F '!z2k: WARP forwarded traffic' >/dev/null
 
-"$BIN" disable-state "$CONFIG_FILE" "$IFACE" "$ADDR" 989 500 499 \
-    0x80000000 0x80000000 "$T/tmp/warp/pbr.owner" \
-    "$T/tmp/warp/probe-route.owner" inet fw4 forward \
-    '!z2k: WARP forwarded traffic' "$NFT_FAMILY" "$NFT_TABLE" \
-    z2k_warp_mark z2k_warp_mss z2k_warp_fwd z2k_warp_nat \
-    inet "$WARP_DOMAIN_NFT_TABLE" "$NFT_FAMILY" "$NFT_TABLE" \
-    "$WARP_DOMAIN_SET" "$WARP_DOMAIN_ERROR"
+# Shell передаёт Rust структурированную конфигурацию disable-state v1 через stdin.
 sh "$WARP" disable
 [ "$(grep '^GAME_WARP_ENABLED=' "$CONFIG_FILE" | cut -d= -f2)" = 0 ]
 "$BIN" route-verify "$IFACE" "$ADDR" 989 500 499 0x80000000 0x80000000 \

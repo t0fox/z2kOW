@@ -5,7 +5,9 @@ use std::time::Duration;
 use std::{env, io, process};
 use warp_controller::{
     config::{self, MatchOrder},
-    devices, domain_state, health, lifecycle, list_ops, lists,
+    devices,
+    disable::{self, CleanupFailure, Config as DisableConfig, DisableOperations},
+    domain_state, health, lifecycle, list_ops, lists,
     lock::MutationLock,
     nft,
     openwrt::InterfaceKind,
@@ -844,9 +846,7 @@ fn file_observation(
 fn observe_interface(engine: &EngineStatus) -> Option<bool> {
     match engine {
         EngineStatus::Ready { iface } if valid_warp_interface(iface) => {
-            command_output("ip", &["-j", "link", "show"])
-                .and_then(|output| link_exists(&output, iface))
-                .ok()
+            live_link_exists(iface).ok()
         }
         EngineStatus::Ready { .. } => Some(false),
         EngineStatus::NotReady | EngineStatus::Unreadable => None,
@@ -876,10 +876,7 @@ fn run_runtime_observe(args: &mut impl Iterator<Item = String>) -> io::Result<()
     let engine = read_engine_status(status_path.as_ref());
     let iface_present = match &engine {
         EngineStatus::Ready { iface } if valid_warp_interface(iface) => {
-            match command_output("ip", &["-j", "link", "show"]) {
-                Ok(output) => link_exists(&output, iface).ok(),
-                Err(_) => None,
-            }
+            live_link_exists(iface).ok()
         }
         EngineStatus::Ready { .. } => Some(false),
         EngineStatus::NotReady | EngineStatus::Unreadable => None,
@@ -924,6 +921,9 @@ fn valid_warp_interface(iface: &str) -> bool {
 }
 
 fn link_exists(output: &str, iface: &str) -> io::Result<bool> {
+    if !output.trim_start().starts_with('[') {
+        return link_exists_text(output, iface);
+    }
     let links: Vec<serde_json::Value> = serde_json::from_str(output)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     for link in links {
@@ -936,6 +936,76 @@ fn link_exists(output: &str, iface: &str) -> io::Result<bool> {
         }
     }
     Ok(false)
+}
+
+fn link_exists_text(output: &str, iface: &str) -> io::Result<bool> {
+    let mut found_link = false;
+    for line in output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let Some((index, link)) = line.split_once(':') else {
+            continue;
+        };
+        if index.trim().parse::<u32>().is_err() {
+            continue;
+        }
+        let (name, _) = link.trim_start().split_once(':').ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "ip link не содержит имя интерфейса",
+            )
+        })?;
+        found_link = true;
+        let name = name.split('@').next().unwrap_or(name);
+        if name == iface {
+            return Ok(true);
+        }
+    }
+    if !found_link {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "ip link вернул некорректный текстовый список интерфейсов",
+        ));
+    }
+    Ok(false)
+}
+
+fn live_link_exists(iface: &str) -> io::Result<bool> {
+    let json = process::Command::new("ip")
+        .args(["-j", "link", "show"])
+        .output()?;
+    if json.status.success() {
+        let output = String::from_utf8(json.stdout)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        return link_exists(&output, iface);
+    }
+    if !json_output_unsupported(&json) {
+        return Err(command_error("ip -j link show", &json.stderr));
+    }
+    let text = process::Command::new("ip")
+        .args(["link", "show"])
+        .output()?;
+    if !text.status.success() {
+        return Err(command_error("ip link show", &text.stderr));
+    }
+    let output = String::from_utf8(text.stdout)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    link_exists(&output, iface)
+}
+
+fn json_output_unsupported(output: &process::Output) -> bool {
+    let text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+    .to_ascii_lowercase();
+    text.contains("busybox")
+        || text.contains("usage: ip")
+        || text.contains("invalid option")
+        || text.contains("unrecognized option")
 }
 
 fn parse_interface_csv(value: &str) -> io::Result<Vec<String>> {
@@ -1255,89 +1325,116 @@ fn remove_domain_nft_state(
 }
 
 fn run_disable_state(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
-    let _lock = acquire_global_lock()?;
-    let config_path = PathBuf::from(required(args, "файл конфигурации WARP")?);
-    let fallback_interface = required(args, "TUN-интерфейс fallback")?;
-    let fallback_address = required(args, "IPv4-адрес probe fallback")?;
-    let route_table = parse_u32(&required(args, "номер таблицы маршрутов")?)?;
-    let user_pref = parse_u32(&required(args, "приоритет пользовательского правила")?)?;
-    let probe_pref = parse_u32(&required(args, "приоритет probe-правила")?)?;
-    let mark = parse_u32(&required(args, "метка fwmark")?)?;
-    let mask = parse_u32(&required(args, "маска fwmark")?)?;
-    let pbr_owner = PathBuf::from(required(args, "файл владельца PBR")?);
-    let probe_owner = PathBuf::from(required(args, "файл владельца probe")?);
-    let fw4_family = required(args, "семейство fw4")?;
-    let fw4_table = required(args, "таблица fw4")?;
-    let fw4_chain = required(args, "цепочка fw4")?;
-    let fw4_comment = required(args, "комментарий fw4")?;
-    let nft_family = required(args, "семейство nft WARP")?;
-    let nft_table = required(args, "таблица nft WARP")?;
-    let mark_chain = required(args, "MARK-цепочка WARP")?;
-    let mss_chain = required(args, "MSS-цепочка WARP")?;
-    let forward_chain = required(args, "forward-цепочка WARP")?;
-    let nat_chain = required(args, "NAT-цепочка WARP")?;
-    let observer_family = required(args, "семейство nft observer")?;
-    let observer_table = required(args, "таблица nft observer")?;
-    let pair_family = required(args, "семейство nft доменных пар")?;
-    let pair_table = required(args, "таблица nft доменных пар")?;
-    let pair_set = required(args, "набор nft доменных пар")?;
-    let domain_error = PathBuf::from(required(args, "файл ошибки domain observer")?);
     if args.next().is_some() {
-        return Err(invalid("лишние аргументы disable-state"));
+        return Err(invalid(
+            "disable-state получает конфигурацию только через stdin",
+        ));
     }
-
+    let config = DisableConfig::read(io::stdin().lock())?;
+    let _lock = acquire_global_lock()?;
     let route = RouteConfig {
-        interface: &fallback_interface,
-        probe_address: &fallback_address,
-        table: route_table,
-        user_pref,
-        probe_pref,
-        mark,
-        mask,
-        pbr_owner: &pbr_owner,
-        probe_owner: &probe_owner,
+        interface: &config.interface,
+        probe_address: &config.probe_address,
+        table: config.table,
+        user_pref: config.user_pref,
+        probe_pref: config.probe_pref,
+        mark: config.mark,
+        mask: config.mask,
+        pbr_owner: &config.pbr_owner,
+        probe_owner: &config.probe_owner,
     };
-    let mut errors = Vec::new();
-    if let Err(error) = remove_policy_from_owner_files(&route) {
-        errors.push(format!("PBR: {error}"));
-    }
-    if let Err(error) = remove_fw4_forward_rule(&fw4_family, &fw4_table, &fw4_chain, &fw4_comment) {
-        errors.push(format!("fw4: {error}"));
-    }
-    let chains = vec![mark_chain, mss_chain, forward_chain, nat_chain];
-    if let Err(error) = clear_nft_chains(&nft_family, &nft_table, &chains) {
-        errors.push(format!("nft WARP: {error}"));
-    }
-    match remove_domain_nft_state(
-        &observer_family,
-        &observer_table,
-        &pair_family,
-        &pair_table,
-        &pair_set,
-        false,
-    ) {
-        Ok(()) => {
-            if let Err(error) = domain_state::set_error_file(&domain_error, "") {
-                errors.push(format!("marker domain observer: {error}"));
-            }
-        }
-        Err(error) => {
-            if let Err(marker_error) =
-                domain_state::set_error_file(&domain_error, "nft-domain-remove-failed")
-            {
-                errors.push(format!("marker domain observer: {marker_error}"));
-            }
-            errors.push(format!("domain observer: {error}"));
-        }
-    }
-    if let Err(error) = config::set_config_flag(&config_path, "GAME_WARP_ENABLED", "0") {
-        errors.push(format!("флаг WARP: {error}"));
+    let mut operations = RuntimeDisableOperations {
+        config: &config,
+        route,
+    };
+    disable::run(&mut operations)
+}
+
+struct RuntimeDisableOperations<'a> {
+    config: &'a DisableConfig,
+    route: RouteConfig<'a>,
+}
+
+impl DisableOperations for RuntimeDisableOperations<'_> {
+    fn remove_routes(&mut self) -> io::Result<()> {
+        remove_policy_from_owner_files(&self.route)
+            .map(|_| ())
+            .map_err(io::Error::other)
     }
 
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(io::Error::other(errors.join("; ")))
+    fn remove_remaining_state(&mut self) -> Vec<CleanupFailure> {
+        let mut errors = Vec::new();
+        if let Err(error) = remove_fw4_forward_rule(
+            &self.config.fw4_family,
+            &self.config.fw4_table,
+            &self.config.fw4_chain,
+            &self.config.fw4_comment,
+        ) {
+            errors.push(CleanupFailure {
+                reason: "warp-disable-fw4-remove-failed",
+                message: format!("fw4: {error}"),
+            });
+        }
+        let chains = [
+            self.config.mark_chain.clone(),
+            self.config.mss_chain.clone(),
+            self.config.forward_chain.clone(),
+            self.config.nat_chain.clone(),
+        ];
+        if let Err(error) =
+            clear_nft_chains(&self.config.nft_family, &self.config.nft_table, &chains)
+        {
+            errors.push(CleanupFailure {
+                reason: "warp-disable-nft-remove-failed",
+                message: format!("nft WARP: {error}"),
+            });
+        }
+        match remove_domain_nft_state(
+            &self.config.observer_family,
+            &self.config.observer_table,
+            &self.config.pair_family,
+            &self.config.pair_table,
+            &self.config.pair_set,
+            false,
+        ) {
+            Ok(()) => {
+                if let Err(error) = domain_state::set_error_file(&self.config.domain_error_file, "")
+                {
+                    errors.push(CleanupFailure {
+                        reason: "warp-disable-domain-marker-failed",
+                        message: format!("marker domain observer: {error}"),
+                    });
+                }
+            }
+            Err(error) => {
+                errors.push(CleanupFailure {
+                    reason: "warp-disable-domain-remove-failed",
+                    message: format!("domain observer: {error}"),
+                });
+                if let Err(marker_error) = domain_state::set_error_file(
+                    &self.config.domain_error_file,
+                    "nft-domain-remove-failed",
+                ) {
+                    errors.push(CleanupFailure {
+                        reason: "warp-disable-domain-marker-failed",
+                        message: format!("marker domain observer: {marker_error}"),
+                    });
+                }
+            }
+        }
+        errors
+    }
+
+    fn clear_failure_marker(&mut self) -> io::Result<()> {
+        route_error::clear(&self.config.route_error_file)
+    }
+
+    fn commit_disabled(&mut self) -> io::Result<()> {
+        config::set_config_flag(&self.config.config_file, "GAME_WARP_ENABLED", "0")
+    }
+
+    fn record_failure(&mut self, reason: &str) -> io::Result<()> {
+        route_error::set(&self.config.route_error_file, reason)
     }
 }
 
@@ -1601,4 +1698,24 @@ fn command_output(program: &str, args: &[&str]) -> io::Result<String> {
     }
     String::from_utf8(output.stdout)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
+fn command_error(program: &str, stderr: &[u8]) -> io::Error {
+    io::Error::other(format!(
+        "{} завершилась с ошибкой: {}",
+        program,
+        String::from_utf8_lossy(stderr).trim()
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::link_exists;
+
+    #[test]
+    fn вывод_busybox_ip_link_распознаёт_tun_warp() {
+        let links = "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN qlen 1000\n12: z2ktun0: <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> mtu 1280 qdisc fq_codel state UNKNOWN qlen 500\n";
+        assert!(link_exists(links, "z2ktun0").unwrap());
+        assert!(!link_exists(links, "z2ktun1").unwrap());
+    }
 }
