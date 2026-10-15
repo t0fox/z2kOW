@@ -226,7 +226,6 @@ _z2k_install_paths_openwrt() {
             echo "${or}/www/${repo_path#webpanel/www/}" ;;
         webpanel/lighttpd.conf)
             echo "${or}/webpanel/lighttpd.conf.in" ;;
-            echo "${or}/z2k-dns-check.sh" ;;
         files/z2k-update-lists.sh)
             # The common helper is also the OpenWrt owner of the WARP gaming
             # list refresh. Its warp-games entrypoint is platform-neutral;
