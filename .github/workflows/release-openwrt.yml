@@ -391,9 +391,9 @@ jobs:
           Z2K_SOURCE_SHA="$GITHUB_SHA" \
             sh scripts/openwrt/build_warp_controller.sh "$RUNNER_TEMP/warp-controller" --test
           printf 'directory=%s\n' "$RUNNER_TEMP/warp-controller" >> "$GITHUB_OUTPUT"
-      - name: Установить BusyBox для приёмки кандидата как на OpenWrt
+      - name: Установить BusyBox и QEMU для приёмки кандидата по ABI
         if: steps.ci-hotfix-candidate.outputs.fast_path != 'true'
-        run: sudo apt-get update && sudo apt-get install -y busybox
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends busybox qemu-user
       - name: Fetch and recheck the exact upstream manifest validated before CI
         shell: bash
         run: |

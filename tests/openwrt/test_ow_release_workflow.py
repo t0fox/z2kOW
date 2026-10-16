@@ -330,6 +330,14 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('--warp-controller-dir "$WARP_CONTROLLER_ARTIFACT_DIR"', prepare)
         self.assertIn('--run-id "${GITHUB_RUN_ID:-0}"', builder)
 
+    def test_release_installs_qemu_before_cross_arch_candidate_acceptance(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+        prepare = workflow.split("  prepare-release:", 1)[1].split("  publish-release:", 1)[0]
+
+        install = prepare.index("sudo apt-get install -y --no-install-recommends busybox qemu-user")
+        acceptance = prepare.index("scripts/openwrt/accept_release_matrix.py")
+        self.assertLess(install, acceptance)
+
     def test_openwrt_acceptance_installs_real_warp_test_tools(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         acceptance = ci.split("  openwrt-acceptance:", 1)[1].split("  openwrt-unified:", 1)[0]
