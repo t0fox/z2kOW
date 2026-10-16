@@ -37,6 +37,12 @@ assert_contains "service: restores TikTok only when config toggle is enabled" "$
 assert_contains "service: runs explicit TikTok evaluation after core-ready" "$SVC" "tiktok-check.sh\" check explicit"
 assert_contains "service stop: removes TikTok schedule" "$SVC" "z2k_ow_tiktok_cron_remove"
 assert_contains "service stop: clears owned TikTok pin" "$SVC" "z2k_ow_tiktok_stop"
+_stop_impl="$(sed -n '/^_z2k_ow_stop_service_impl() {/,/^}/p' "$SVC")"
+if printf '%s\n' "$_stop_impl" | grep -q 'z2k_ow_customd_stop_instances'; then
+    _t_bad "service stop удаляет экземпляры через procd_kill из собственного hook"
+else
+    _t_ok
+fi
 assert_contains "panel: ready is not marker-only" "$REPO/webpanel/cgi/platform.sh" "z2k_ow_core_ready"
 
 _t_done

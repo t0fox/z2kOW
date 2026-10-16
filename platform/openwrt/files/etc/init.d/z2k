@@ -162,49 +162,63 @@ z2k_install_recovery_ready() {
 }
 
 _z2k_ow_start_lock_acquire() {
-    local _lock="$Z2K_START_LOCK" _boot _owner _owner_boot
+    local _operation="${1:-start}" _lock="$Z2K_START_LOCK" _boot _owner _owner_boot _owner_operation
+    case "$_operation" in start|stop) ;; *) return 1 ;; esac
     mkdir -p "$(dirname "$_lock")" || return 1
     _boot="$(cat "$Z2K_START_BOOT_ID_FILE" 2>/dev/null)"
     _z2k_ow_start_lock_boot_id_valid "$_boot" || {
-        echo "z2k-openwrt: не удалось определить загрузку для блокировки старта" >&2
+        echo "z2k-openwrt: не удалось определить загрузку для блокировки службы" >&2
         return 1
     }
     if mkdir "$_lock" 2>/dev/null; then
         if printf '%s\n' "$$" > "$_lock/pid" \
-            && printf '%s\n' "$_boot" > "$_lock/boot-id"; then
+            && printf '%s\n' "$_boot" > "$_lock/boot-id" \
+            && printf '%s\n' "$_operation" > "$_lock/operation"; then
             return 0
         fi
-        rm -f "$_lock/pid" "$_lock/boot-id" 2>/dev/null || true
+        rm -f "$_lock/pid" "$_lock/boot-id" "$_lock/operation" 2>/dev/null || true
         rmdir "$_lock" 2>/dev/null || true
         return 1
     fi
     [ -d "$_lock" ] && [ ! -L "$_lock" ] || return 1
     _owner="$(cat "$_lock/pid" 2>/dev/null)"
     _owner_boot="$(cat "$_lock/boot-id" 2>/dev/null)"
+    _owner_operation="$(cat "$_lock/operation" 2>/dev/null)"
     case "$_owner" in ''|*[!0-9]*)
-        echo "z2k-openwrt: у блокировки старта нет корректного владельца; запуск отклонён" >&2
+        echo "z2k-openwrt: у блокировки службы нет корректного владельца; операция отклонена" >&2
         return 1
         ;;
     esac
     _z2k_ow_start_lock_boot_id_valid "$_owner_boot" || {
-        echo "z2k-openwrt: метаданные блокировки старта неполны; запуск отклонён" >&2
+        echo "z2k-openwrt: метаданные блокировки службы неполны; операция отклонена" >&2
         return 1
     }
     if [ "$_owner_boot" = "$_boot" ] && kill -0 "$_owner" 2>/dev/null; then
-        echo "z2k-openwrt: запуск уже выполняется (PID $_owner); повторный запуск отклонён" >&2
+        if [ "$_operation" = stop ] && [ "$_owner_operation" = stop ]; then
+            echo "z2k-openwrt: повторный stop во время остановки пропущен" >&2
+            return 2
+        fi
+        case "$_owner_operation" in start|stop) ;; *)
+            echo "z2k-openwrt: метаданные активной блокировки неполны; операция отклонена" >&2
+            return 1
+            ;;
+        esac
+        echo "z2k-openwrt: операция службы уже выполняется (PID $_owner); повтор отклонён" >&2
         return 1
     fi
     # Перед очисткой повторно сверяем PID и boot-id владельца.
     [ "$(cat "$_lock/pid" 2>/dev/null)" = "$_owner" ] \
-        && [ "$(cat "$_lock/boot-id" 2>/dev/null)" = "$_owner_boot" ] || return 1
-    rm -f "$_lock/pid" "$_lock/boot-id" 2>/dev/null || return 1
+        && [ "$(cat "$_lock/boot-id" 2>/dev/null)" = "$_owner_boot" ] \
+        && [ "$(cat "$_lock/operation" 2>/dev/null)" = "$_owner_operation" ] || return 1
+    rm -f "$_lock/pid" "$_lock/boot-id" "$_lock/operation" 2>/dev/null || return 1
     rmdir "$_lock" 2>/dev/null || return 1
     mkdir "$_lock" 2>/dev/null || return 1
     if printf '%s\n' "$$" > "$_lock/pid" \
-        && printf '%s\n' "$_boot" > "$_lock/boot-id"; then
+        && printf '%s\n' "$_boot" > "$_lock/boot-id" \
+        && printf '%s\n' "$_operation" > "$_lock/operation"; then
         return 0
     fi
-    rm -f "$_lock/pid" "$_lock/boot-id" 2>/dev/null || true
+    rm -f "$_lock/pid" "$_lock/boot-id" "$_lock/operation" 2>/dev/null || true
     rmdir "$_lock" 2>/dev/null || true
     return 1
 }
@@ -222,7 +236,7 @@ _z2k_ow_start_lock_release() {
     _owner_boot="$(cat "$_lock/boot-id" 2>/dev/null)"
     _boot="$(cat "$Z2K_START_BOOT_ID_FILE" 2>/dev/null)"
     [ "$_owner" = "$$" ] && [ -n "$_boot" ] && [ "$_owner_boot" = "$_boot" ] || return 0
-    rm -f "$_lock/pid" "$_lock/boot-id" 2>/dev/null || return 1
+    rm -f "$_lock/pid" "$_lock/boot-id" "$_lock/operation" 2>/dev/null || return 1
     rmdir "$_lock" 2>/dev/null
 }
 
@@ -230,6 +244,7 @@ _z2k_ow_start_lock_is_owner() {
     local _lock="$Z2K_START_LOCK" _boot _owner_boot
     [ -d "$_lock" ] && [ ! -L "$_lock" ] || return 1
     [ "$(cat "$_lock/pid" 2>/dev/null)" = "$$" ] || return 1
+    [ "$(cat "$_lock/operation" 2>/dev/null)" = start ] || return 1
     _owner_boot="$(cat "$_lock/boot-id" 2>/dev/null)"
     _boot="$(cat "$Z2K_START_BOOT_ID_FILE" 2>/dev/null)"
     [ -n "$_boot" ] && [ "$_owner_boot" = "$_boot" ]
@@ -355,12 +370,12 @@ _z2k_ow_start_service_impl() {
     return 0
 }
 
-# rc.common может получить вложенный start из hook/службы во время старта.
-# Блокировка делает такой повтор безвредным: второй экземпляр завершается до
-# UCI, firewall и регистрации procd; SIGKILL оставляет PID для безопасного reap.
+# rc.common может получить повторный start из hook/службы во время старта.
+# Блокировка завершается до UCI, firewall и регистрации procd; после SIGKILL
+# следующий вызов безопасно удалит запись умершего владельца.
 start_service() {
     local _start_rc
-    _z2k_ow_start_lock_acquire || return 1
+    _z2k_ow_start_lock_acquire start || return 1
     if _z2k_ow_start_service_impl "$@"; then
         return 0
     else
@@ -439,7 +454,7 @@ service_started() {
     return "$_started_rc"
 }
 
-stop_service() {
+_z2k_ow_stop_service_impl() {
     z2k_load_adapter || return 1
     # shellcheck disable=SC1090
     [ -f "$Z2K_CONFIG" ] && . "$Z2K_CONFIG"
@@ -459,9 +474,8 @@ stop_service() {
     # Агрегируем ошибки (каждый шаг best-effort, но итог честный): молчаливый
     # частичный стоп хуже громкого.
     z2k_ow_custom_daemons 0 || _rc=1
-    if command -v z2k_ow_customd_stop_instances >/dev/null 2>&1; then
-        z2k_ow_customd_stop_instances 2>/dev/null || _rc=1
-    fi
+    # Procd удаляет экземпляры z2k после возврата из stop_service. Не вызываем
+    # procd_kill z2k отсюда: он повторно входит в этот же stop hook.
     # TG chains снять (sets оставить); демона останавливает сам procd.
     z2k_ow_tg 0 || _rc=1
     # RT full stop: redirect/guard + DNS-пины снять (процесс — через procd).
@@ -486,4 +500,27 @@ stop_service() {
         z2k_ow_autohostlist_sync || _rc=1
     fi
     return $_rc
+}
+
+# Вложенный rc.common stop не должен повторять teardown. Внешний вызов
+# выполняет полный проход; повтор возвращает успех без дополнительных мутаций.
+stop_service() {
+    local _lock_rc _stop_rc
+    if _z2k_ow_start_lock_acquire stop; then
+        :
+    else
+        _lock_rc=$?
+        [ "$_lock_rc" -eq 2 ] && return 0
+        return 1
+    fi
+    if _z2k_ow_stop_service_impl "$@"; then
+        _stop_rc=0
+    else
+        _stop_rc=$?
+    fi
+    _z2k_ow_start_lock_release || {
+        echo "z2k-openwrt: не удалось снять блокировку после stop" >&2
+        [ "$_stop_rc" -ne 0 ] || _stop_rc=1
+    }
+    return "$_stop_rc"
 }
