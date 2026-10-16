@@ -22,6 +22,7 @@ pub fn run() -> io::Result<()> {
         Some("nft-set-count") => run_nft_set_count(&mut args),
         Some("nft-chain-clear") => run_nft_chain_clear(&mut args),
         Some("disable-state") => run_disable_state(&mut args),
+        Some("disable-cleanup") => run_disable_cleanup(&mut args),
         Some("status") => {
             if args.next().is_some() {
                 return Err(invalid("лишние аргументы status"));
@@ -54,6 +55,7 @@ pub fn run() -> io::Result<()> {
         Some("nft-mark-sync") => warp_controller::service::mark_rules(&mut args, true),
         Some("nft-mark-check") => warp_controller::service::mark_rules(&mut args, false),
         Some("health-check") => warp_controller::service::health_check(&mut args),
+        Some("ready-event") => warp_controller::service::ready_event(&mut args),
         Some("health-observation") => {
             if args.next().is_some() {
                 return Err(invalid("лишние аргументы health-observation"));

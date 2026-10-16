@@ -17,6 +17,8 @@ func (e *Engine) scanEdges(ctx context.Context) []edgepick.Result {
 	if e.cfg.Mode == ladder.ModeH2 || len(e.cfg.EdgeCandidates) == 0 {
 		return nil
 	}
+	started := time.Now()
+	defer e.timing("edge_scan", started, "")
 	scanCtx, cancel := context.WithTimeout(ctx, edgeScanBudget)
 	defer cancel()
 	wan, err := e.cfg.EdgeWAN(e.cfg.EdgeCandidates[0].Host)
@@ -63,16 +65,22 @@ func (e *Engine) checkEdge(ctx context.Context, step account.Step) (edgepick.Res
 	if step.Transport != "wg" || step.Host == "" || step.Port < 1 || step.Port > 65535 {
 		return edgepick.Result{}, false
 	}
+	candidate := ladder.Label(step)
+	started := time.Now()
 	tr, err := e.open(ctx, step, e.tunDev.Handle())
+	e.timing("handshake", started, candidate)
 	if err != nil {
 		e.cfg.Logf("edge: %s handshake failed: %v", ladder.Label(step), err)
 		return edgepick.Result{}, false
 	}
 	defer tr.Close()
+	started = time.Now()
 	if err := e.cfg.Probe(ctx, e.iface); err != nil {
+		e.timing("transit", started, candidate)
 		e.cfg.Logf("edge: %s no transit: %v", ladder.Label(step), err)
 		return edgepick.Result{}, false
 	}
+	e.timing("transit", started, candidate)
 	meta, rtt, loss, geoErr := e.cfg.GeoProbe(ctx, e.iface)
 	result := edgepick.Result{Step: step, RTT: rtt, LossPct: loss, CheckedAt: e.cfg.Now()}
 	if geoErr != nil || meta.Country == "" {

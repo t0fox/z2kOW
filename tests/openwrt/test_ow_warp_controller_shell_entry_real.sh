@@ -4,6 +4,21 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 CRATE="$ROOT/platform/openwrt/warp-controller"
 
+grep -qx '/usr/lib/z2k' \
+    "$ROOT/platform/openwrt/owned-paths.txt" || {
+    echo 'release не владеет каталогом OpenWrt-компонентов' >&2
+    exit 1
+}
+if grep -qx '/usr/lib/z2k/platform/openwrt/warp-ready-event.sh' \
+    "$ROOT/platform/openwrt/owned-paths.txt"; then
+    echo 'ready-event ошибочно объявлен отдельно внутри владеемого каталога' >&2
+    exit 1
+fi
+[ -f "$ROOT/platform/openwrt/warp-ready-event.sh" ] || {
+    echo 'OpenWrt ready-event entrypoint отсутствует' >&2
+    exit 1
+}
+
 if [ "$#" -ge 1 ] && [ "$1" = --inside ]; then
     T="$2"
     ip link add z2ktun0 type dummy
@@ -17,7 +32,7 @@ if [ "$#" -ge 1 ] && [ "$1" = --inside ]; then
         "$T/tmp/z2k/runtime" "$T/lists/warp/games" "$T/proc/101" "$T/mock-bin"
     printf 'ENABLED=1\nGAME_WARP_ENABLED=1\nZ2K_WARP_TRANSPORT=wg\n' > "$T/etc/config"
     printf '{"id":"test-device","addr":"172.16.9.9"}\n' > "$T/etc/state/warp/device.json"
-    printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg"}\n' > "$T/tmp/z2k/warp/status.json"
+    printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg","pid":101}\n' > "$T/tmp/z2k/warp/status.json"
     printf 'z2k-warpd\n' > "$T/proc/101/comm"
     printf '/usr/bin/z2k-warpd\000run\000' > "$T/proc/101/cmdline"
     : > "$T/etc/user-lists/warp/devices.txt"
@@ -134,15 +149,84 @@ EOF_WARP_INIT
     }
     procd_close_instance() { printf 'close\n' >> "$T/procd.log"; }
 
-    z2k_ow_warp 1
+    Z2K_WARP_DIAGNOSTICS=1 z2k_ow_warp 1
     grep -q '^open: main$' "$T/procd.log"
     grep -q '^param: command ' "$T/procd.log"
     grep -q ' --net-backend=external' "$T/procd.log"
     grep -q 'Z2K_WARP_TRANSPORT=wg' "$T/procd.log"
+    grep -q 'Z2K_WARP_READY_SCRIPT=' "$T/procd.log"
+    grep -q 'Z2K_WARP_PROTOCOL_VERSION=1' "$T/procd.log"
+    grep -q 'WARP_BIN=' "$T/procd.log"
+    grep -q 'Z2K_WARP_DIAGNOSTICS=1' "$T/procd.log"
     grep -q '^param: respawn 3600 5 5$' "$T/procd.log"
     ip -4 rule show | grep -q 'lookup 989'
     ip -4 route show table 989 | grep -q 'default dev z2ktun0'
     nft list table inet z2k_warp_shell_test >/dev/null
+
+    : > "$T/commands.log"
+    sh "$ROOT/platform/openwrt/warp-ready-event.sh" 101
+    if grep -Eq '^ip: (.* )?(route (add|replace|del)|rule (add|del))([[:space:]]|$)' "$T/commands.log"; then
+        echo 'повторное событие ready изменило исправную маршрутизацию' >&2
+        exit 1
+    fi
+    if grep -q '^nft: -f -$' "$T/commands.log"; then
+        echo 'повторное событие ready отправило лишнюю nft-транзакцию' >&2
+        exit 1
+    fi
+
+    # Имитация procd respawn: прежний PID исчезает, новый PID публикует ready.
+    rm -rf "$T/proc/101"
+    mkdir -p "$T/proc/102"
+    printf 'z2k-warpd\n' > "$T/proc/102/comm"
+    printf '/usr/bin/z2k-warpd\000run\000' > "$T/proc/102/cmdline"
+    printf '{"ready":true,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg","pid":102}\n' > "$T/tmp/z2k/warp/status.json"
+    _warp_controller event stop
+    if ip -4 rule show | grep -q 'lookup 989'; then
+        echo 'подготовка восстановления оставила старый WARP ip rule' >&2
+        exit 1
+    fi
+    : > "$T/commands.log"
+    sh "$ROOT/platform/openwrt/warp-ready-event.sh" 101
+    if [ -s "$T/commands.log" ]; then
+        echo 'позднее событие убитого процесса вызвало сетевые операции' >&2
+        cat "$T/commands.log" >&2
+        exit 1
+    fi
+    sh "$ROOT/platform/openwrt/warp-ready-event.sh" 102
+    ip -4 rule show | grep -q 'lookup 989'
+    ip -4 route show table 989 | grep -q 'default dev z2ktun0'
+    nft list table inet z2k_warp_shell_test >/dev/null
+
+    mkdir -p "$T/proc/424242"
+    printf 'z2k-warp-controller\n' > "$T/proc/424242/comm"
+    printf '424242\n' > "$WARP_OP_FILE"
+    : > "$T/commands.log"
+    if sh "$ROOT/platform/openwrt/warp-ready-event.sh" 102; then
+        echo 'ready-event не отложил восстановление во время lifecycle-операции' >&2
+        exit 1
+    fi
+    ip -4 rule show | grep -q 'lookup 989'
+    if grep -Eq '^ip: (.* )?(route (add|replace|del)|rule (add|del))([[:space:]]|$)' "$T/commands.log"; then
+        echo 'ready-event мутировал PBR во время lifecycle-операции' >&2
+        exit 1
+    fi
+    rm -rf "$T/proc/424242"
+    rm -f "$WARP_OP_FILE"
+
+    cp "$WARP_STATUS" "$T/status-ready.json"
+    printf '{"ready":' > "$WARP_STATUS"
+    : > "$T/commands.log"
+    if sh "$ROOT/platform/openwrt/warp-ready-event.sh" 102; then
+        echo 'ready-event принял повреждённый статус за готовность' >&2
+        exit 1
+    fi
+    if [ -s "$T/commands.log" ]; then
+        echo 'UNKNOWN readiness вызвал сетевые операции:' >&2
+        cat "$T/commands.log" >&2
+        exit 1
+    fi
+    ip -4 rule show | grep -q 'lookup 989'
+    mv "$T/status-ready.json" "$WARP_STATUS"
 
     : > "$T/commands.log"
     z2k_ow_warp rules
@@ -243,7 +327,7 @@ EOF_PROCESS
         exit 1
     fi
     Z2K_PROC_ROOT="$T/proc"; export Z2K_PROC_ROOT
-    rm -f "$T/proc/101/comm" "$T/proc/101/cmdline"
+    rm -f "$T/proc/102/comm" "$T/proc/102/cmdline"
 
     # start должен оставаться fail-open, если procd ещё не поднял новый процесс.
     WARP_PROC_WAIT=1 WARP_PROC_STOP_WAIT=1 \

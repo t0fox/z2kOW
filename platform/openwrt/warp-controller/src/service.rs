@@ -570,7 +570,14 @@ fn disable_user(
     if process == ProcessStatus::Unreadable {
         return Ok(2);
     }
-    timing.measure("nft_cleanup", || run_disable_state(paths))?;
+    if let Err(error) = timing.measure("pbr_cleanup", || remove_routes(paths)) {
+        return Err(disable_failure(
+            paths,
+            "warp-disable-pbr-remove-failed",
+            error,
+        ));
+    }
+    timing.measure("nft_cleanup", || run_disable_cleanup(paths))?;
     let transition = timing.measure("procd_transition", || {
         transition_service(crate::lifecycle::ServiceIntent::Disable, false, lock, pid)
     });
@@ -618,7 +625,7 @@ fn disable_user(
         }
     }
 
-    if let Err(error) = timing.measure("pbr_cleanup", || remove_routes(paths)) {
+    if let Err(error) = timing.measure("pbr_finalize", || remove_routes(paths)) {
         return Err(disable_failure(paths, "warp-disable-pbr-remains", error));
     }
     if let Err(error) = timing.measure("runtime_marker_cleanup", || {
@@ -903,7 +910,7 @@ fn install_probe_route(paths: &Paths) {
     let _ = routing::apply_policy(&route, false);
 }
 
-fn run_disable_state(paths: &Paths) -> io::Result<()> {
+fn run_disable_cleanup(paths: &Paths) -> io::Result<()> {
     let status = read_json(&paths.status);
     let interface = status
         .get("iface")
@@ -940,7 +947,9 @@ fn run_disable_state(paths: &Paths) -> io::Result<()> {
     );
     let executable = env::current_exe()?;
     let mut command = Command::new(executable);
-    command.arg("disable-state").env("Z2K_WARP_LOCK_HELD", "1");
+    command
+        .arg("disable-cleanup")
+        .env("Z2K_WARP_LOCK_HELD", "1");
     let output = process::output_with_input_timeout(
         &mut command,
         input.as_bytes(),
@@ -1182,6 +1191,99 @@ pub fn health_check(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
         HealthAction::NotReady => converge_probe_only(&paths),
         HealthAction::Ready => reconcile_ready(&paths, plan.interface.as_deref().unwrap_or("")),
     }
+}
+
+pub fn ready_event(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    let pid = args
+        .next()
+        .ok_or_else(|| invalid("ожидается PID процесса z2k-warpd"))?
+        .parse::<u32>()
+        .map_err(|_| invalid("неверный PID процесса z2k-warpd"))?;
+    if pid == 0 || args.next().is_some() {
+        return Err(invalid("неверные аргументы ready-event"));
+    }
+    crate::status::require_protocol_v1()?;
+    let paths = Paths::from_env();
+
+    ready_event_operation_clear(&paths)?;
+    let Some(_lock) = acquire_user_lock()? else {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "ready-event WARP должен владеть mutation lock",
+        ));
+    };
+    ready_event_operation_clear(&paths)?;
+    if !ready_event_process_matches(&paths, pid)? {
+        return Ok(());
+    }
+
+    let plan = health::observe(&paths);
+    match plan.action {
+        HealthAction::Defer => Err(ready_event_deferred(
+            plan.defer_reason.unwrap_or("state-unreadable"),
+        )),
+        HealthAction::Ready => {
+            ready_event_operation_clear(&paths)?;
+            if !ready_event_process_matches(&paths, pid)? {
+                return Ok(());
+            }
+            let confirmed = health::observe(&paths);
+            match confirmed.action {
+                HealthAction::Defer => Err(ready_event_deferred(
+                    confirmed.defer_reason.unwrap_or("state-unreadable"),
+                )),
+                HealthAction::Ready => {
+                    ready_event_operation_clear(&paths)?;
+                    if !ready_event_process_matches(&paths, pid)? {
+                        return Ok(());
+                    }
+                    reconcile_ready(&paths, confirmed.interface.as_deref().unwrap_or_default())
+                }
+                _ => Ok(()),
+            }
+        }
+        _ => Ok(()),
+    }
+}
+
+fn ready_event_operation_clear(paths: &Paths) -> io::Result<()> {
+    match crate::operation::active(&operation_path(), &paths.proc_root) {
+        Ok(false) => Ok(()),
+        Ok(true) => Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "операция WARP уже выполняется",
+        )),
+        Err(error) => Err(ready_event_deferred(&format!(
+            "operation-owner-unreadable: {error}"
+        ))),
+    }
+}
+
+fn ready_event_process_matches(paths: &Paths, pid: u32) -> io::Result<bool> {
+    if !known_warp_pids(paths)?
+        .iter()
+        .any(|current| current == &pid.to_string())
+    {
+        return Ok(false);
+    }
+    let contents = fs::read(&paths.status)
+        .map_err(|error| ready_event_deferred(&format!("engine-status-unreadable: {error}")))?;
+    let value: serde_json::Value = serde_json::from_slice(&contents)
+        .map_err(|error| ready_event_deferred(&format!("engine-status-unreadable: {error}")))?;
+    let status_pid = value
+        .get("pid")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| ready_event_deferred("engine-status-pid-unreadable"))?;
+    Ok(status_pid == u64::from(pid))
+}
+
+fn ready_event_deferred(reason: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::WouldBlock,
+        format!(
+            "состояние WARP временно не подтверждено; событие готовности отложено без изменений ({reason})"
+        ),
+    )
 }
 
 pub fn event(args: &mut impl Iterator<Item = String>) -> io::Result<()> {

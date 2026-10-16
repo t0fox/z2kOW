@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"runtime"
 	"runtime/debug"
@@ -329,6 +330,7 @@ func cmdRun(args []string) int {
 		Logf:         logf,
 		Proxy:        *proxy,
 		SkipNetSetup: skipNetSetup,
+		Diagnostics:  *verbose || os.Getenv("Z2K_WARP_DIAGNOSTICS") == "1",
 		NewTransport: func(step account.Step, dev tun.Device, d *account.Device) (transport.Transport, error) {
 			switch step.Transport {
 			case "wg":
@@ -338,6 +340,21 @@ func cmdRun(args []string) int {
 			}
 			return nil, fmt.Errorf("unknown transport %q", step.Transport)
 		},
+	}
+	if controller := os.Getenv("Z2K_WARP_READY_SCRIPT"); controller != "" {
+		cfg.ReadyEvent = func() {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				command := exec.CommandContext(ctx, controller, strconv.Itoa(os.Getpid()))
+				command.Env = append(os.Environ(), "WARP_DEVICE="+*devPath, "WARP_STATUS="+*stPath)
+				command.Stdout = os.Stdout
+				command.Stderr = os.Stderr
+				if err := command.Run(); err != nil {
+					logf("ready-event: вызов контроллера не выполнен: %v", err)
+				}
+			}()
+		}
 	}
 	if device, err := account.Load(*devPath); err == nil {
 		pools := edgepick.ReadPools(*poolPath)
@@ -361,8 +378,6 @@ func cmdRun(args []string) int {
 		cfg.ForceStep = &s
 		logf("forced transport %s", s.Transport+":"+s.Host+":"+strconv.Itoa(s.Port))
 	}
-	_ = verbose
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	rules, _ := domainroute.ParseRules([]byte("v1\n"))

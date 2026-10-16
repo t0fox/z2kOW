@@ -817,6 +817,17 @@ fn disable_ждёт_завершения_go_после_возврата_procd_st
         String::from_utf8_lossy(&output.stderr).contains("stage=process_stop_wait"),
         "этап ожидания Go должен попадать в диагностику"
     );
+    let diagnostics = String::from_utf8_lossy(&output.stderr);
+    let pbr_cleanup = diagnostics
+        .find("stage=pbr_cleanup")
+        .expect("очистка PBR должна попадать в диагностику");
+    let procd_transition = diagnostics
+        .find("stage=procd_transition")
+        .expect("переход procd должен попадать в диагностику");
+    assert!(
+        pbr_cleanup < procd_transition,
+        "фактическая очистка PBR должна быть измерена до остановки Go: {diagnostics}"
+    );
     assert_eq!(
         fs::read_to_string(&fixture.config).unwrap(),
         "GAME_WARP_ENABLED=0\nother=value\n"

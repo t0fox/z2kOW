@@ -66,6 +66,34 @@ pub fn current(path: &Path, pid: u32) -> OperationState {
     }
 }
 
+pub fn active(path: &Path, proc_root: &Path) -> io::Result<bool> {
+    let contents = match fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    let owner = contents.trim_end_matches(['\n', '\r']);
+    let pid = owner
+        .parse::<u32>()
+        .map_err(|_| io::Error::new(ErrorKind::InvalidData, "PID операции WARP повреждён"))?;
+    if pid == 0 {
+        return Err(io::Error::new(
+            ErrorKind::InvalidData,
+            "PID операции WARP должен быть положительным",
+        ));
+    }
+    fs::metadata(proc_root)?;
+    match fs::metadata(proc_root.join(pid.to_string())) {
+        Ok(metadata) if metadata.is_dir() => Ok(true),
+        Ok(_) => Err(io::Error::new(
+            ErrorKind::InvalidData,
+            "владелец операции WARP не является процессом",
+        )),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 pub fn clear_if_owner(path: &Path, pid: u32) -> io::Result<bool> {
     if pid == 0 {
         return Err(io::Error::new(
@@ -120,4 +148,45 @@ fn sync_parent(path: &Path) -> io::Result<()> {
         )
     })?;
     fs::File::open(parent)?.sync_all()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn active_ignores_a_stale_owner_without_deleting_its_marker() {
+        let root = std::env::temp_dir().join(format!("z2k-warp-operation-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let proc_root = root.join("proc");
+        let marker = root.join("tmp/op");
+        fs::create_dir_all(&proc_root).unwrap();
+        fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        fs::write(&marker, "424242\n").unwrap();
+
+        assert!(!active(&marker, &proc_root).unwrap());
+        assert_eq!(fs::read_to_string(&marker).unwrap(), "424242\n");
+
+        fs::create_dir(proc_root.join("424242")).unwrap();
+        assert!(active(&marker, &proc_root).unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn active_treats_a_damaged_marker_as_unknown() {
+        let root =
+            std::env::temp_dir().join(format!("z2k-warp-operation-bad-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let proc_root = root.join("proc");
+        let marker = root.join("tmp/op");
+        fs::create_dir_all(&proc_root).unwrap();
+        fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        fs::write(&marker, "not-a-pid\n").unwrap();
+
+        assert_eq!(
+            active(&marker, &proc_root).unwrap_err().kind(),
+            ErrorKind::InvalidData
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 }

@@ -92,6 +92,10 @@ for _arch in arm arm64 mips mipsel riscv64 x86 x86_64; do
         && _t_ok || _t_bad "staging сохраняет Rust WARP ABI linux-$_arch"
 done
 
+_ready_event="$T/stage/usr/lib/z2k/platform/openwrt/warp-ready-event.sh"
+[ -x "$_ready_event" ] \
+    && _t_ok || _t_bad "staging сохраняет право исполнения обратного вызова готовности Go"
+
 for _binary in nfqws2 ip2net mdig; do
     _path="$T/stage/opt/zapret2/binaries/linux-x86_64/$_binary"
     [ -f "$_path" ] && [ -x "$_path" ] \

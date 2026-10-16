@@ -213,6 +213,10 @@ pub fn prepare(operations: &mut impl DisableOperations) -> io::Result<()> {
         );
     }
 
+    cleanup(operations)
+}
+
+pub fn cleanup(operations: &mut impl DisableOperations) -> io::Result<()> {
     let errors = operations.remove_remaining_state();
     if !errors.is_empty() {
         let reason = errors[0].reason;

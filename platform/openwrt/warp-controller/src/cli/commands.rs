@@ -789,6 +789,17 @@ pub(super) fn remove_domain_nft_state(
 }
 
 pub(super) fn run_disable_state(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    run_disable_command(args, true)
+}
+
+pub(super) fn run_disable_cleanup(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    run_disable_command(args, false)
+}
+
+fn run_disable_command(
+    args: &mut impl Iterator<Item = String>,
+    remove_routes: bool,
+) -> io::Result<()> {
     if args.next().is_some() {
         return Err(invalid(
             "disable-state получает конфигурацию только через stdin",
@@ -811,7 +822,11 @@ pub(super) fn run_disable_state(args: &mut impl Iterator<Item = String>) -> io::
         config: &config,
         route,
     };
-    disable::prepare(&mut operations)
+    if remove_routes {
+        disable::prepare(&mut operations)
+    } else {
+        disable::cleanup(&mut operations)
+    }
 }
 
 struct RuntimeDisableOperations<'a> {

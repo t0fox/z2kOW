@@ -50,7 +50,10 @@ trap 'exit 1' HUP INT TERM
 [ -x "$INIT" ] && [ -x "$CONTROLLER" ]
 [ -x /sbin/procd ] && command -v ubus >/dev/null 2>&1
 [ -x /usr/sbin/nft ] && command -v ip >/dev/null 2>&1
-ip -Version | grep -Fq iproute2
+ip -Version 2>&1 | grep -Eq 'iproute2|BusyBox' || {
+    echo 'QEMU требует рабочий iproute2 или BusyBox ip' >&2
+    exit 1
+}
 [ ! -e "$MAIN_INIT" ] || { echo 'QEMU содержит службу z2k; нужен чистый тестовый образ' >&2; exit 1; }
 [ ! -e "$T" ] || { echo 'каталог QEMU procd-теста уже занят' >&2; exit 1; }
 _fixture_created=1
@@ -264,16 +267,6 @@ while ! ip link show dev br-lan >/dev/null 2>&1 && [ "$_waited" -lt 15 ]; do
     _waited=$((_waited + 1))
 done
 ip link show dev br-lan >/dev/null 2>&1
-_waited=0
-while ! grep -Fqx startup-reconcile "$CONTROLLER_CALLS" && \
-    [ "$_waited" -lt 10 ]; do
-    sleep 1
-    _waited=$((_waited + 1))
-done
-grep -Fqx startup-reconcile "$CONTROLLER_CALLS" || {
-    echo 'network reload не запустил ready reconcile WARP' >&2
-    exit 1
-}
 kill -0 "$_recovered_pid"
 [ "$(cat "$PID_FILE")" = "$_recovered_pid" ]
 ubus -S call service list '{"name":"z2k-warp"}' > "$T/registry.network"
@@ -287,7 +280,23 @@ warp_enable >/dev/null 2>&1 || _enable_rc=$?
     exit 1
 }
 assert_main_pids_unchanged
-warp_disable >/dev/null 2>&1
+Z2K_WARP_DIAGNOSTICS=1 warp_disable > "$T/disable-timing.log" 2>&1
+awk '/stage=pbr_cleanup / { pbr = NR } /stage=nft_cleanup / { nft = NR } /stage=procd_transition / { procd = NR } /stage=process_stop_wait / { wait = NR } END { exit !(pbr > 0 && pbr < nft && nft < procd && procd < wait) }' \
+    "$T/disable-timing.log" || {
+    echo 'выключение не записало PBR → nft → procd → ожидание процесса' >&2
+    cat "$T/disable-timing.log" >&2
+    exit 1
+}
+sed -n 's/.*stage=pbr_cleanup duration_ms=\([0-9][0-9]*\).*/QEMU_TIMING pbr_cleanup_ms=\1/p' \
+    "$T/disable-timing.log" | tail -n 1
+sed -n 's/.*stage=nft_cleanup duration_ms=\([0-9][0-9]*\).*/QEMU_TIMING nft_cleanup_ms=\1/p' \
+    "$T/disable-timing.log" | tail -n 1
+sed -n 's/.*stage=procd_transition duration_ms=\([0-9][0-9]*\).*/QEMU_TIMING procd_transition_ms=\1/p' \
+    "$T/disable-timing.log" | tail -n 1
+sed -n 's/.*stage=process_stop_wait duration_ms=\([0-9][0-9]*\).*/QEMU_TIMING process_stop_wait_ms=\1/p' \
+    "$T/disable-timing.log" | tail -n 1
+sed -n 's/.*stage=total duration_ms=\([0-9][0-9]*\).*/QEMU_TIMING disable_total_ms=\1/p' \
+    "$T/disable-timing.log" | tail -n 1
 assert_main_pids_unchanged
 _enable_rc=0
 warp_enable >/dev/null 2>&1 || _enable_rc=$?

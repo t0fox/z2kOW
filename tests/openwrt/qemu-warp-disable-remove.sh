@@ -179,7 +179,7 @@ mv "$T/tmp/warp/pbr.owner.saved" "$T/tmp/warp/pbr.owner"
 # запуск повторяет очистку, не возвращая маршрутизацию.
 chmod 000 "$NFT_BIN"
 NFT_EXEC_DISABLED=1
-if sh "$WARP" disable > "$T/disable-nft-error.log" 2>&1; then
+if Z2K_WARP_DIAGNOSTICS=1 sh "$WARP" disable > "$T/disable-nft-error.log" 2>&1; then
     echo 'disable скрыл ошибку выполнения nft' >&2
     exit 1
 fi
@@ -189,9 +189,30 @@ grep -qx GAME_WARP_ENABLED=1 "$T/etc/config"
 grep -q '^warp-disable-' "$T/tmp/warp/route-error"
 ! ip -4 rule show | grep -q 'lookup 989'
 [ -z "$(ip_routes_989)" ]
+awk '/stage=pbr_cleanup / { pbr = NR } /stage=nft_cleanup / { nft = NR } END { exit !(pbr > 0 && nft > pbr) }' \
+    "$T/disable-nft-error.log" || {
+    echo 'диагностика не разделила измерение PBR и nft в порядке выключения' >&2
+    exit 1
+}
+sed -n 's/.*stage=pbr_cleanup duration_ms=\([0-9][0-9]*\).*/QEMU_TIMING nft_failure_pbr_cleanup_ms=\1/p' \
+    "$T/disable-nft-error.log" | tail -n 1
+sed -n 's/.*stage=nft_cleanup duration_ms=\([0-9][0-9]*\).*/QEMU_TIMING nft_failure_attempt_ms=\1/p' \
+    "$T/disable-nft-error.log" | tail -n 1
 
-# Rust формирует disable-state и передаёт конфигурацию дочерней команде через stdin.
-sh "$WARP" disable
+# Rust отдельно измеряет снятие PBR до nft/fw4 и остановки WARP.
+Z2K_WARP_DIAGNOSTICS=1 sh "$WARP" disable > "$T/disable-success.log" 2>&1
+awk '/stage=pbr_cleanup / { pbr = NR } /stage=nft_cleanup / { nft = NR } /stage=procd_transition / { procd = NR } END { exit !(pbr > 0 && pbr < nft && nft < procd) }' \
+    "$T/disable-success.log" || {
+    echo 'выключение не записало PBR → nft → procd в измеряемом порядке' >&2
+    cat "$T/disable-success.log" >&2
+    exit 1
+}
+sed -n 's/.*stage=pbr_cleanup duration_ms=\([0-9][0-9]*\).*/QEMU_TIMING disable_pbr_cleanup_ms=\1/p' \
+    "$T/disable-success.log" | tail -n 1
+sed -n 's/.*stage=nft_cleanup duration_ms=\([0-9][0-9]*\).*/QEMU_TIMING disable_nft_cleanup_ms=\1/p' \
+    "$T/disable-success.log" | tail -n 1
+sed -n 's/.*stage=procd_transition duration_ms=\([0-9][0-9]*\).*/QEMU_TIMING procd_transition_ms=\1/p' \
+    "$T/disable-success.log" | tail -n 1
 [ "$(grep '^GAME_WARP_ENABLED=' "$CONFIG_FILE" | cut -d= -f2)" = 0 ]
 "$BIN" route-verify "$IFACE" "$ADDR" 989 500 499 0x80000000 0x80000000 \
     "$T/tmp/warp/pbr.owner" "$T/tmp/warp/probe-route.owner" | grep -qx 'ready=0'

@@ -55,6 +55,8 @@ type Config struct {
 	// работают как раньше, nat.Ensure/Remove не вызываются вовсе.
 	// Default false = Keenetic iptables как сейчас, побайтово.
 	SkipNetSetup   bool
+	Diagnostics    bool
+	ReadyEvent     func()
 	EdgeCandidates []account.Step
 	EdgeCachePath  string
 	GeoProbe       func(context.Context, string) (edgepick.Meta, time.Duration, int, error)
@@ -148,6 +150,8 @@ type Engine struct {
 	currentStep account.Step
 	edges       map[account.Step]edgepick.Result
 	edgeGeo     map[account.Step]edgeGeoState
+	operationID string
+	startedAt   time.Time
 }
 
 type edgeGeoState struct {
@@ -159,6 +163,8 @@ type edgeGeoState struct {
 // невосстановимых состояний (нет device.json, нет TUN).
 func Run(ctx context.Context, cfg Config) error {
 	cfg.defaults()
+	startedAt := time.Now()
+	operationID := fmt.Sprintf("%d-%d", os.Getpid(), startedAt.UnixNano())
 	// Замок ДО всего: пока он не наш, мы не трогаем ни TUN, ни status.json —
 	// иначе обречённый второй экземпляр сносит состояние живого первого.
 	lockPath := cfg.LockPath
@@ -171,8 +177,11 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	defer release()
 
-	e := &Engine{cfg: cfg, st: &status.Writer{Path: cfg.StatusPath, MinInterval: time.Second}, since: cfg.Now(), edgeGeo: make(map[account.Step]edgeGeoState)}
-	defer e.st.Remove()
+	e := &Engine{cfg: cfg, st: &status.Writer{Path: cfg.StatusPath, MinInterval: time.Second}, since: cfg.Now(), edgeGeo: make(map[account.Step]edgeGeoState), operationID: operationID, startedAt: startedAt}
+	defer func() {
+		e.st.Remove()
+		e.timing("total_lifecycle", e.startedAt, "")
+	}()
 
 	d, err2 := account.Load(cfg.DevicePath)
 	err = err2
@@ -424,6 +433,14 @@ func (e *Engine) serve(ctx context.Context, tr transport.Transport, step account
 		if !committed && mon.Proven() {
 			committed = true
 			e.commitGood(lad)
+			if e.cfg.ReadyEvent != nil {
+				if err := e.st.Flush(); err != nil {
+					e.cfg.Logf("ready-event: статус не записан: %v", err)
+				} else {
+					e.cfg.ReadyEvent()
+				}
+			}
+			e.timing("ready", e.startedAt, "")
 		}
 		if probeEdge {
 			e.st.Flush()
@@ -462,6 +479,17 @@ func (e *Engine) serve(ctx context.Context, tr transport.Transport, step account
 			return false
 		}
 	}
+}
+
+func (e *Engine) timing(stage string, started time.Time, candidate string) {
+	if !e.cfg.Diagnostics {
+		return
+	}
+	if candidate == "" {
+		e.cfg.Logf("WARP_TIMING operation_id=%s stage=%s duration_ms=%d", e.operationID, stage, time.Since(started).Milliseconds())
+		return
+	}
+	e.cfg.Logf("WARP_TIMING operation_id=%s stage=%s candidate=%s duration_ms=%d", e.operationID, stage, candidate, time.Since(started).Milliseconds())
 }
 
 func (e *Engine) activeEdgeProbeDue(step account.Step, now time.Time) bool {

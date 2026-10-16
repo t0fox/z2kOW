@@ -61,6 +61,106 @@ func TestForeignEdgeSelectedBeforeFasterDomestic(t *testing.T) {
 	<-done
 }
 
+func TestСобытиеГотовностиВидитЗаписанныйСтатусПослеПроверкиТрафика(t *testing.T) {
+	h := newHarness(t, baseDevice(), map[string]bool{"wg:854": true})
+	cfg := h.config()
+	observed := make(chan *status.Status, 1)
+	calls := 0
+	cfg.ReadyEvent = func() {
+		calls++
+		observed <- readStatus(h)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = Run(ctx, cfg); close(done) }()
+
+	select {
+	case got := <-observed:
+		if got == nil || !got.Ready {
+			t.Fatalf("событие готовности увидело незаписанный или неподтверждённый статус: %+v", got)
+		}
+	case <-time.After(5 * time.Second):
+		cancel()
+		<-done
+		t.Fatal("событие готовности не последовало за подтверждённым транзитным трафиком")
+	}
+	cancel()
+	<-done
+	if calls != 1 {
+		t.Fatalf("число вызовов ready-event = %d, ожидался один на переход готовности", calls)
+	}
+}
+
+func TestДиагностикаПоказываетЭтапыЗапускаСОднимИдентификаторомОперации(t *testing.T) {
+	h := newHarness(t, baseDevice(), map[string]bool{"wg:854": true})
+	step := account.Step{Transport: "wg", Host: "188.114.96.23", Port: 854}
+	cfg := h.config()
+	cfg.Diagnostics = true
+	cfg.EdgeCandidates = []account.Step{step}
+	cfg.EdgeCachePath = filepath.Join(h.dir, "edge-cache.json")
+	cfg.EdgeWAN = func(string) (string, error) { return "usb0|192.0.2.2", nil }
+	cfg.Tick = 100 * time.Millisecond
+	cfg.GeoProbe = func(context.Context, string) (edgepick.Meta, time.Duration, int, error) {
+		return edgepick.Meta{Colo: "HEL", Country: "FI"}, 25 * time.Millisecond, 0, nil
+	}
+	var logMu sync.Mutex
+	var logs []string
+	cfg.Logf = func(format string, args ...any) {
+		logMu.Lock()
+		logs = append(logs, fmt.Sprintf(format, args...))
+		logMu.Unlock()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = Run(ctx, cfg); close(done) }()
+	waitFor(t, "timed startup ready", func() bool {
+		s := readStatus(h)
+		return s != nil && s.Ready
+	})
+	cancel()
+	<-done
+
+	stages := map[string]bool{}
+	operationID := ""
+	logMu.Lock()
+	defer logMu.Unlock()
+	for _, line := range logs {
+		if !strings.Contains(line, "WARP_TIMING ") {
+			continue
+		}
+		for _, field := range strings.Fields(line) {
+			if strings.HasPrefix(field, "operation_id=") {
+				current := strings.TrimPrefix(field, "operation_id=")
+				if operationID == "" {
+					operationID = current
+				} else if current != operationID {
+			t.Fatalf("идентификатор операции в замерах изменился: %q затем %q", operationID, current)
+				}
+			}
+			if strings.HasPrefix(field, "stage=") {
+				stages[strings.TrimPrefix(field, "stage=")] = true
+			}
+		}
+	}
+	for _, stage := range []string{"edge_scan", "handshake", "transit", "ready", "total_lifecycle"} {
+		if !stages[stage] {
+			t.Errorf("в журнале отсутствует этап замера %q: %v", stage, logs)
+		}
+	}
+	if operationID == "" {
+		t.Fatal("у журнала замеров отсутствует идентификатор операции")
+	}
+}
+
+func TestЗамерыНеПишутсяБезРежимаДиагностики(t *testing.T) {
+	var got []string
+	e := &Engine{cfg: Config{Logf: func(format string, args ...any) { got = append(got, fmt.Sprintf(format, args...)) }}, operationID: "test-op"}
+	e.timing("handshake", time.Now(), "")
+	if len(got) != 0 {
+		t.Fatalf("без диагностики появились записи замеров: %v", got)
+	}
+}
+
 func TestCurrentUnscannedWGStepGetsGeoAfterHealthyProof(t *testing.T) {
 	h := newHarness(t, baseDevice(), map[string]bool{"wg:2408": true})
 	candidate := account.Step{Transport: "wg", Host: "188.114.96.23", Port: 2408}

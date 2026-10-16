@@ -4,9 +4,16 @@ set -eu
 
 BIN=/tmp/z2k-warp-controller
 T=/tmp/z2k-warp-qemu-benchmark
+SHELL_BASELINE="${Z2K_WARP_BENCHMARK_SHELL_BASELINE:-/tmp/warp-shell-baseline.sh}"
 FAMILY=inet
 TABLE=z2k_warp_bench
 ITERATIONS=30
+
+[ -r "$SHELL_BASELINE" ] || {
+    echo 'Укажите файл прежней Shell-реализации через Z2K_WARP_BENCHMARK_SHELL_BASELINE' >&2
+    exit 1
+}
+export Z2K_WARP_BENCHMARK_SHELL_BASELINE="$SHELL_BASELINE"
 
 cleanup() {
     nft delete table "$FAMILY" "$TABLE" >/dev/null 2>&1 || true
@@ -40,7 +47,7 @@ export Z2K_WARP_SOURCE_ONLY=1
 
 if ! WARP_CONTROLLER_BIN=/tmp/missing-warp-controller \
     /usr/bin/time -v sh -c '
-        . /tmp/warp.sh
+        . "$Z2K_WARP_BENCHMARK_SHELL_BASELINE"
         i=0
         while [ "$i" -lt 30 ]; do
             warp_nft_sets_load >/dev/null || exit 1
@@ -53,7 +60,7 @@ fi
 
 if ! WARP_CONTROLLER_BIN="$BIN" \
     /usr/bin/time -v sh -c '
-        . /tmp/warp.sh
+        . "$Z2K_WARP_BENCHMARK_SHELL_BASELINE"
         i=0
         while [ "$i" -lt 30 ]; do
             warp_nft_sets_load >/dev/null || exit 1
@@ -64,6 +71,7 @@ if ! WARP_CONTROLLER_BIN="$BIN" \
     exit 1
 fi
 
+printf 'Историческая Shell-реализация: %s\n' "$SHELL_BASELINE"
 printf 'МЕТОД: 30 повторных вызовов warp_nft_sets_load; реальные nft и OpenWrt userspace\n'
 printf 'Shell fallback:\n'
 cat "$T/shell.time"

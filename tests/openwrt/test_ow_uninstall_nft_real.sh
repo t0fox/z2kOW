@@ -108,4 +108,13 @@ for tool in unshare nft; do
 done
 T="$(mktemp -d "${TMPDIR:-/tmp}/z2k-uninstall-nft.XXXXXX")"
 trap 'rm -rf "$T"' EXIT HUP INT TERM
-unshare -Urn "$0" --inside "$T"
+if [ "${Z2K_WARP_ROOT_NETNS:-0}" = 1 ]; then
+    if [ "$(id -u)" -eq 0 ]; then
+        unshare -n sh "$0" --inside "$T"
+    else
+        sudo -n env Z2K_OW_UNINSTALL_SOURCE="${Z2K_OW_UNINSTALL_SOURCE:-$ROOT/platform/openwrt/uninstall.sh}" \
+            unshare -n sh "$0" --inside "$T"
+    fi
+else
+    unshare -Urn sh "$0" --inside "$T"
+fi

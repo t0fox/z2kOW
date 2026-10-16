@@ -40,6 +40,7 @@ else
     sh "$T/install.sh"
     test -x /usr/bin/z2kow
     test -x "$CONTROLLER"
+    test -x /usr/lib/z2k/platform/openwrt/warp-ready-event.sh
     grep -qx GAME_WARP_ENABLED=0 /etc/z2k/config
 fi
 

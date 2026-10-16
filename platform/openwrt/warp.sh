@@ -226,10 +226,17 @@ warp_start_instance() {
         GODEBUG=asyncpreemptoff=1 \
         Z2K_WARP_PROBE_SOURCE=1 \
         Z2K_WARP_OPENWRT=1 \
+        "Z2K_WARP_READY_SCRIPT=$Z2K_ADAPTER_DIR/warp-ready-event.sh" \
+        Z2K_WARP_PROTOCOL_VERSION=1 \
+        "WARP_BIN=$WARP_BIN" \
+        "WARP_DEVICE=$WARP_DEVICE" \
+        "WARP_STATUS=$WARP_STATUS" \
         "Z2K_WARP_TRANSPORT=$(warp_transport)" \
         "Z2K_WARP_DOMAIN_RULES=$WARP_DOMAIN_RULES" \
         "Z2K_WARP_DOMAIN_SNAPSHOT=$WARP_DOMAIN_SNAPSHOT" \
         "Z2K_WARP_DOMAIN_STATUS=$WARP_DOMAIN_STATUS"
+    [ "${Z2K_WARP_DIAGNOSTICS:-0}" != 1 ] || \
+        set -- "$@" Z2K_WARP_DIAGNOSTICS=1
     [ -z "$_proxy" ] || set -- "$@" "Z2K_WARP_VPS_PROXY=$_proxy"
     if command -v warp_domain_observer_procd_ready >/dev/null 2>&1 &&
         _domain_state="$(warp_domain_observer_procd_ready 2>/dev/null)"; then
