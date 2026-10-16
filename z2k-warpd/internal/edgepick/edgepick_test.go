@@ -57,6 +57,20 @@ func TestCacheIgnoresCorruptionAndMissingFile(t *testing.T) {
 	}
 }
 
+func TestVersionOneCacheRemainsReadable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "edge-cache.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"wan":"wan0|192.0.2.2","saved_at":"2026-09-25T12:00:00Z","results":[{"step":{"transport":"wg","host":"188.114.96.17","port":2408},"country":"DE","colo":"FRA","checked_at":"2026-09-25T12:00:00Z"}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	if got := LoadCache(path, "wan0|192.0.2.2", now); len(got) != 1 || got[0].Country != "DE" {
+		t.Fatalf("положительный кэш v1 не прочитан: %+v", got)
+	}
+	if got := LoadFailures(path, "wan0|192.0.2.2", now); len(got) != 0 {
+		t.Fatalf("в кэше v1 неожиданно найдены отказы: %+v", got)
+	}
+}
+
 func TestWANIdentityMatchesSelectedSourceInterface(t *testing.T) {
 	ifaces := map[string][]string{"usb0": {"192.0.2.2"}, "wifi0": {"198.51.100.5"}}
 	if got := identityForIP("192.0.2.2", ifaces); got != "usb0|192.0.2.2" {
