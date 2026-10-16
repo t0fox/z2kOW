@@ -65,6 +65,7 @@ _z2k_ow_uninstall_validate_paths() {
     _z2k_ow_uninstall_path_is_safe "$Z2K_OW_INSTALL_WORK" /usr/lib/.z2k-install || return 1
     _z2k_ow_uninstall_path_is_safe "$Z2K_OW_INSTALL_LOCK" /usr/lib/.z2k-install.lock || return 1
     _z2k_ow_uninstall_path_is_safe "$Z2K_OW_CORE_INIT" /etc/init.d/z2k || return 1
+    _z2k_ow_uninstall_path_is_safe "$Z2K_OW_WARP_INIT" /etc/init.d/z2k-warp || return 1
     _z2k_ow_uninstall_path_is_safe "$Z2K_OW_PANEL_INIT" /etc/init.d/z2k-webpanel || return 1
     _z2k_ow_uninstall_path_is_safe "$Z2K_OW_HOTPLUG_FILE" /etc/hotplug.d/iface/90-z2k || return 1
     _z2k_ow_uninstall_path_is_safe "$Z2K_OW_SYSCTL_FILE" /etc/sysctl.d/99-z2k.conf || return 1
@@ -94,7 +95,7 @@ _z2k_ow_uninstall_has_owned_install() {
     for _entry in "$Z2K_ROOT" "$Z2K_ZAPRET2_RUNTIME" "$Z2K_TMP" \
         "$Z2K_OW_INSTALL_TMP" "$Z2K_WARP_TMP" "$Z2K_OW_INSTALL_WORK" \
         "$Z2K_OW_ROLLBACK_DIR" "$Z2K_OW_INSTALL_LOCK" \
-        "$Z2K_OW_CORE_INIT" "$Z2K_OW_PANEL_INIT" \
+        "$Z2K_OW_CORE_INIT" "$Z2K_OW_WARP_INIT" "$Z2K_OW_PANEL_INIT" \
         "$Z2K_OW_HOTPLUG_FILE" "$Z2K_OW_SYSCTL_FILE" "$Z2K_OW_WARP_NFT_FILE" \
         "$Z2K_OW_CLI_FILE" "$Z2K_OW_INSTALL_RELEASE_FILE"; do
         if [ -e "$_entry" ] || [ -L "$_entry" ]; then
@@ -193,6 +194,96 @@ _z2k_ow_uninstall_fw4_include() {
     return 0
 }
 
+_z2k_ow_uninstall_zapret2_table() {
+    local _nft="${Z2K_OW_NFT_BIN:-nft}" _rules _table
+    if ! command -v "$_nft" >/dev/null 2>&1 && [ ! -x "$_nft" ]; then
+        echo "z2k-openwrt: команда nft недоступна; невозможно проверить таблицу zapret2" >&2
+        return 1
+    fi
+    _rules=$("$_nft" list ruleset 2>/dev/null) || {
+        echo "z2k-openwrt: не удалось прочитать nft перед удалением таблицы zapret2" >&2
+        return 1
+    }
+    if ! printf '%s\n' "$_rules" | awk '$0 == "table inet zapret2 {" { found=1 } END { exit !found }'; then
+        return 0
+    fi
+    _table=$("$_nft" list table inet zapret2 2>/dev/null) || {
+        echo "z2k-openwrt: не удалось проверить владение таблицей inet zapret2" >&2
+        return 1
+    }
+    if ! printf '%s\n' "$_table" | awk '
+        function brace_delta(text, i, char, quoted, escaped, delta) {
+            delta=0
+            quoted=0
+            escaped=0
+            for (i=1; i<=length(text); i++) {
+                char=substr(text, i, 1)
+                if (quoted) {
+                    if (escaped) escaped=0
+                    else if (char == "\\") escaped=1
+                    else if (char == "\"") quoted=0
+                    continue
+                }
+                if (char == "\"") quoted=1
+                else if (char == "{") delta++
+                else if (char == "}") delta--
+            }
+            return delta
+        }
+        {
+            line=$0
+            sub(/^[[:space:]]*/, "", line)
+            sub(/[[:space:]]*$/, "", line)
+            if (line == "") next
+            if (!header) {
+                if (line != "table inet zapret2 {") { bad=1; next }
+                header=1
+                depth=1
+                next
+            }
+            if (trailer) { bad=1; next }
+            if (depth == 1) {
+                if (line == "}") {
+                    depth=0
+                    trailer=1
+                    next
+                }
+                if (line !~ /^(set|chain|flowtable)[[:space:]]+[[:alnum:]_]+[[:space:]]+[{]$/) {
+                    bad=1
+                    next
+                }
+                kind=$1
+                name=$2
+                key=kind ":" name
+                if (seen[key]++) bad=1
+                if (kind == "set" && name !~ /^(zapret|ipban|nozapret|zapret6|ipban6|nozapret6|wanif|wanif6|lanif)$/) bad=1
+                if (kind == "flowtable" && name != "ft") bad=1
+                if (kind == "chain" && name !~ /^(flow_offload|flow_offload_zapret|flow_offload_always|forward_hook|input_hook|output_hook|postnat_hook|prenat_hook|forward|input|output|postnat|prenat)$/) bad=1
+            }
+            depth += brace_delta($0)
+            if (depth < 1) bad=1
+            if (depth == 0) trailer=1
+        }
+        END { exit !(header && trailer && depth == 0 && !bad) }
+    '; then
+        echo "z2k-openwrt: таблица inet zapret2 содержит неизвестные объекты; удаление остановлено" >&2
+        return 1
+    fi
+    "$_nft" delete table inet zapret2 || {
+        echo "z2k-openwrt: не удалось удалить принадлежащую таблицу inet zapret2" >&2
+        return 1
+    }
+    _rules=$("$_nft" list ruleset 2>/dev/null) || {
+        echo "z2k-openwrt: не удалось проверить удаление таблицы inet zapret2" >&2
+        return 1
+    }
+    if printf '%s\n' "$_rules" | awk '$0 == "table inet zapret2 {" { found=1 } END { exit !found }'; then
+        echo "z2k-openwrt: таблица inet zapret2 осталась после удаления" >&2
+        return 1
+    fi
+    return 0
+}
+
 _z2k_ow_uninstall_preserve_warp_move() {
     local _warp_dir _backup _moved=0
     _warp_dir=$(dirname "$WARP_DEVICE")
@@ -282,6 +373,7 @@ _z2k_ow_uninstall_cleanup_trap() {
 z2k_ow_uninstall() (
     local _rc=0 _work _state
     Z2K_OW_CORE_INIT="${Z2K_OW_CORE_INIT:-$(z2k_ow_path /etc/init.d/z2k)}"
+    Z2K_OW_WARP_INIT="${Z2K_OW_WARP_INIT:-$(z2k_ow_path /etc/init.d/z2k-warp)}"
     Z2K_OW_PANEL_INIT="${Z2K_OW_PANEL_INIT:-$(z2k_ow_path /etc/init.d/z2k-webpanel)}"
     Z2K_OW_HOTPLUG_FILE="${Z2K_OW_HOTPLUG_FILE:-$(z2k_ow_path /etc/hotplug.d/iface/90-z2k)}"
     Z2K_OW_SYSCTL_FILE="${Z2K_OW_SYSCTL_FILE:-$(z2k_ow_path /etc/sysctl.d/99-z2k.conf)}"
@@ -292,7 +384,7 @@ z2k_ow_uninstall() (
     Z2K_OW_INSTALL_WORK="${Z2K_OW_INSTALL_WORK:-$(z2k_ow_path /usr/lib/.z2k-install)}"
     Z2K_OW_INSTALL_LOCK="${Z2K_OW_INSTALL_LOCK:-$(z2k_ow_path /usr/lib/.z2k-install.lock)}"
     WARP_DEVICE="${WARP_DEVICE:-$Z2K_STATE/warp/device.json}"
-    export Z2K_OW_CORE_INIT Z2K_OW_PANEL_INIT Z2K_OW_HOTPLUG_FILE Z2K_OW_SYSCTL_FILE \
+    export Z2K_OW_CORE_INIT Z2K_OW_WARP_INIT Z2K_OW_PANEL_INIT Z2K_OW_HOTPLUG_FILE Z2K_OW_SYSCTL_FILE \
         Z2K_OW_WARP_NFT_FILE Z2K_OW_CLI_FILE Z2K_OW_INSTALL_RELEASE_FILE \
         Z2K_OW_ROLLBACK_DIR Z2K_OW_INSTALL_WORK Z2K_OW_INSTALL_LOCK WARP_DEVICE
 
@@ -322,9 +414,10 @@ z2k_ow_uninstall() (
 
     # Сначала удалить задания cron, затем остановить службы, пока доступны их
     # адаптеры и состояние.
-    _z2k_ow_uninstall_progress "снимаю расписания и останавливаю основную службу и панель управления"
+    _z2k_ow_uninstall_progress "снимаю расписания и останавливаю службы z2k, WARP и панели управления"
     _z2k_ow_uninstall_remove_cron || _rc=1
     _z2k_ow_uninstall_service "$Z2K_OW_PANEL_INIT" "панели управления" || _rc=1
+    _z2k_ow_uninstall_service "$Z2K_OW_WARP_INIT" "службы WARP" || _rc=1
     _z2k_ow_uninstall_service "$Z2K_OW_CORE_INIT" "основной службы" || _rc=1
     _z2k_ow_uninstall_stop_owned_nfqws || _rc=1
     _z2k_ow_uninstall_verify_processes || _rc=1
@@ -347,6 +440,9 @@ z2k_ow_uninstall() (
     _z2k_ow_uninstall_progress "проверяю firewall и восстанавливаю исходные offload-настройки"
     z2k_ow_stop_verify || _rc=1
     _z2k_ow_uninstall_fw4_include || _rc=1
+    if [ "$_rc" = 0 ]; then
+        _z2k_ow_uninstall_zapret2_table || _rc=1
+    fi
     if [ -f "$Z2K_FW4_OFFLOAD_STATE" ]; then
         if command -v z2k_ow_offload_restore >/dev/null 2>&1; then
             z2k_ow_offload_restore || _rc=1
@@ -377,7 +473,7 @@ z2k_ow_uninstall() (
         echo "z2k-openwrt: не удалось удалить принадлежащие z2kOW команды или сценарии OpenWrt" >&2
         return 1
     }
-    rm -f "$Z2K_OW_PANEL_INIT" "$Z2K_OW_CORE_INIT" || {
+    rm -f "$Z2K_OW_PANEL_INIT" "$Z2K_OW_WARP_INIT" "$Z2K_OW_CORE_INIT" || {
         echo "z2k-openwrt: не удалось удалить принадлежащие z2kOW скрипты запуска procd" >&2
         return 1
     }

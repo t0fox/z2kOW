@@ -3,6 +3,7 @@
 /usr/bin/z2kow
 /usr/sbin/install_release
 /etc/init.d/z2k
+/etc/init.d/z2k-warp
 /etc/init.d/z2k-webpanel
 /etc/hotplug.d/iface/90-z2k
 /etc/sysctl.d/99-z2k.conf

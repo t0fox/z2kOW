@@ -9,6 +9,7 @@ WARP="$REPO/platform/openwrt/warp.sh"
 WARPP="$REPO/platform/openwrt/warp-proc.sh"
 WARPC="$REPO/platform/openwrt/warp-check.sh"
 INIT="$REPO/platform/openwrt/files/etc/init.d/z2k"
+WARP_INIT="$REPO/platform/openwrt/files/etc/init.d/z2k-warp"
 HOTPLUG="$REPO/platform/openwrt/files/etc/hotplug.d/iface/90-z2k"
 SCHED="$REPO/platform/openwrt/schedule.sh"
 UNINST="$REPO/platform/openwrt/uninstall.sh"
@@ -27,7 +28,7 @@ assert_contains "fw4 WARP include is mark-scoped" "$FW4" \
 # Tripwire класса heredoc-backtick: dash ПАРСИТ backquotes внутри unquoted
 # heredoc (и выполняет их при сборке моков) — однажды это молча роняло весь
 # lifecycle-сьют. Все скрипты слоя, ВКЛЮЧАЯ сами тесты, проходят dash -n.
-for _f in "$WARP" "$WARPP" "$WARPC" \
+for _f in "$WARP" "$WARP_INIT" "$WARPP" "$WARPC" \
     "$REPO/tests/openwrt/test_ow_warp_static.sh" \
     "$REPO/tests/openwrt/test_ow_warp_functional.sh" \
     "$REPO/tests/openwrt/test_ow_warp_lifecycle.sh"; do
@@ -100,14 +101,22 @@ else
 fi
 assert_contains "warp.sh: GODEBUG (mips-guard как S51)" "$WARP" 'GODEBUG=asyncpreemptoff=1'
 
-# --- один procd instance z2k-warp, второго сервиса нет ---
-assert_contains "warp.sh: instance z2k-warp" "$WARP" 'procd_open_instance "z2k-warp"'
-assert_eq "procd_open_instance в коде один" "1" "$(grep -c 'procd_open_instance "z2k-warp"' "$_WCODE")"
-if [ -f "$REPO/platform/openwrt/files/etc/init.d/z2k-warp" ]; then
-    _t_bad "второй init-сервис z2k-warp существует"
-else
-    _t_ok
-fi
+# --- отдельная procd-служба WARP; основной z2k остаётся владельцем только своих процессов ---
+assert_file "init-служба z2k-warp существует" "$WARP_INIT"
+assert_contains "warp service: отдельный init entrypoint" "$WARP_INIT" 'USE_PROCD=1'
+assert_contains "warp service: instance main" "$WARP" 'procd_open_instance "main"'
+assert_contains "warp service: перед запуском удаляет legacy instance" "$WARP_INIT" 'procd-legacy-warp-remove'
+assert_contains "warp service: после запуска назначает one-shot reconcile" "$WARP_INIT" 'startup-reconcile'
+_RELOAD_BODY="$T/warp.reload"
+sed -n '/^reload_service() {/,/^}/p' "$WARP_INIT" \
+    > "$_RELOAD_BODY"
+assert_contains "warp reload waits for confirmed ready" \
+    "$_RELOAD_BODY" 'warp_startup_reconcile'
+assert_contains "hotplug: network ifup requests ready reconciliation" \
+    "$HOTPLUG" 'z2k_ow_warp startup-reconcile'
+assert_contains "main service: stop делегирует WARP" "$INIT" 'z2k_ow_warp 0'
+assert_contains "stage: ставит отдельный WARP init" "$REPO/scripts/openwrt/stage-rootfs.sh" 'etc/init.d/z2k-warp'
+assert_not_contains "warp.sh: больше нет nested instance" "$WARP" 'procd_open_instance "z2k-warp"'
 
 # --- mark/mask/table/pref: НЕ keenetic, disjoint по аудиту ---
 assert_contains "warp.sh: mark бит31" "$WARP" 'WARP_MARK="${WARP_MARK:-0x80000000}"'
@@ -124,7 +133,7 @@ assert_contains "Rust: masked mark preserves foreign bits" \
     "$REPO/platform/openwrt/warp-controller/src/nft.rs" 'MARK_EXPRESSION: &str = "meta mark set mark & 0x7fffffff ^ 0x80000000"'
 assert_contains "Shell delegates event reconciliation to Rust" "$WARP" '_warp_controller event rules'
 assert_contains "Rust owns exact fw4 fallback reconciliation" \
-    "$REPO/platform/openwrt/warp-controller/src/main.rs" 'nft-fw4-forward-apply'
+    "$REPO/platform/openwrt/warp-controller/src/cli/mod.rs" 'nft-fw4-forward-apply'
 if grep -qE 'meta mark set 0x' "$_WCODE"; then
     _t_bad "warp.sh: blind mark-assign (чужие биты не выживут)"
 else
@@ -183,7 +192,9 @@ assert_contains "schedule: install пара" "$SCHED" 'z2k_ow_warp_cron_install'
 assert_contains "schedule: remove пара" "$SCHED" 'z2k_ow_warp_cron_remove'
 assert_contains "uninstall: warp cleanup" "$UNINST" 'z2k_ow_warp cleanup'
 assert_contains "uninstall: warp cron remove" "$UNINST" 'z2k_ow_warp_cron_remove'
+assert_contains "uninstall: removes separate WARP service" "$UNINST" 'Z2K_OW_WARP_INIT'
 assert_contains "ownership: release paths" "$OWNED" '/usr/sbin/install_release'
+assert_contains "ownership: WARP init path" "$OWNED" '/etc/init.d/z2k-warp'
 assert_contains "ownership: fw4 include" "$OWNED" \
     '/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft'
 

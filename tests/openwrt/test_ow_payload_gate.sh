@@ -24,7 +24,8 @@ import pathlib, sys
 root = pathlib.Path(sys.argv[1])
 files = [
     'usr/lib/z2k/platform/openwrt/release.sh', 'usr/sbin/install_release',
-    'usr/bin/z2kow', 'etc/init.d/z2k', 'etc/init.d/z2k-webpanel',
+    'usr/bin/z2kow', 'etc/init.d/z2k', 'etc/init.d/z2k-warp',
+    'etc/init.d/z2k-webpanel',
     'etc/hotplug.d/iface/90-z2k', 'etc/sysctl.d/99-z2k.conf',
     'usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft',
     *('usr/lib/z2k/bin/linux-x86_64/' + name for name in ('tg-ws-proxy', 'z2k-rt-proxy', 'z2k-detect')),
@@ -72,7 +73,8 @@ else
     _t_ok
 fi
 
-for _path in etc/init.d/z2k etc/init.d/z2k-webpanel usr/bin/z2kow; do
+for _path in etc/init.d/z2k etc/init.d/z2k-warp \
+    etc/init.d/z2k-webpanel usr/bin/z2kow; do
     _case="$T/$(printf '%s' "$_path" | tr / _)"
     cp -a "$T/valid" "$_case" || exit 1
     chmod 0644 "$_case/$_path"

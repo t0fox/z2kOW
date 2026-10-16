@@ -12,8 +12,10 @@ pub enum ServiceIntent {
 pub enum ServiceAction {
     Defer,
     None,
+    Start,
+    Stop,
     Reload,
-    Rebuild,
+    Restart,
 }
 
 pub fn service_action(
@@ -26,18 +28,19 @@ pub fn service_action(
         Observation::Known(active) => active,
         Observation::Unreadable => return ServiceAction::Defer,
     };
-    if !service_active {
-        return ServiceAction::None;
-    }
-
     match intent {
-        ServiceIntent::Enable if !was_enabled || !process_running => ServiceAction::Rebuild,
-        ServiceIntent::Disable | ServiceIntent::Remove if process_running => ServiceAction::Rebuild,
-        ServiceIntent::Enable | ServiceIntent::Disable | ServiceIntent::Remove => {
-            ServiceAction::Reload
+        ServiceIntent::Enable if !service_active && process_running => ServiceAction::Defer,
+        ServiceIntent::Enable if !service_active || !process_running => ServiceAction::Start,
+        ServiceIntent::Enable if !was_enabled => ServiceAction::Restart,
+        ServiceIntent::Enable => ServiceAction::Reload,
+        ServiceIntent::Disable | ServiceIntent::Remove if service_active || process_running => {
+            ServiceAction::Stop
         }
-        ServiceIntent::Restart if was_enabled => ServiceAction::Rebuild,
-        ServiceIntent::Restart => ServiceAction::None,
+        ServiceIntent::Disable | ServiceIntent::Remove => ServiceAction::None,
+        ServiceIntent::Restart if !was_enabled => ServiceAction::None,
+        ServiceIntent::Restart if service_active => ServiceAction::Restart,
+        ServiceIntent::Restart if process_running => ServiceAction::Defer,
+        ServiceIntent::Restart => ServiceAction::Start,
     }
 }
 
@@ -54,7 +57,7 @@ mod tests {
                 false,
                 Observation::Known(true),
                 true,
-                ServiceAction::Rebuild,
+                ServiceAction::Restart,
             ),
             (
                 ServiceIntent::Enable,
@@ -68,35 +71,42 @@ mod tests {
                 true,
                 Observation::Known(true),
                 false,
-                ServiceAction::Rebuild,
+                ServiceAction::Start,
+            ),
+            (
+                ServiceIntent::Enable,
+                false,
+                Observation::Known(false),
+                false,
+                ServiceAction::Start,
             ),
             (
                 ServiceIntent::Enable,
                 false,
                 Observation::Known(false),
                 true,
-                ServiceAction::None,
+                ServiceAction::Defer,
             ),
             (
                 ServiceIntent::Disable,
                 true,
                 Observation::Known(true),
                 true,
-                ServiceAction::Rebuild,
+                ServiceAction::Stop,
             ),
             (
                 ServiceIntent::Disable,
                 true,
                 Observation::Known(true),
                 false,
-                ServiceAction::Reload,
+                ServiceAction::Stop,
             ),
             (
                 ServiceIntent::Disable,
                 true,
                 Observation::Known(false),
                 true,
-                ServiceAction::None,
+                ServiceAction::Stop,
             ),
             (
                 ServiceIntent::Restart,
@@ -110,14 +120,21 @@ mod tests {
                 true,
                 Observation::Known(true),
                 true,
-                ServiceAction::Rebuild,
+                ServiceAction::Restart,
             ),
             (
                 ServiceIntent::Restart,
                 true,
                 Observation::Known(false),
                 true,
-                ServiceAction::None,
+                ServiceAction::Defer,
+            ),
+            (
+                ServiceIntent::Restart,
+                true,
+                Observation::Known(false),
+                false,
+                ServiceAction::Start,
             ),
         ];
 

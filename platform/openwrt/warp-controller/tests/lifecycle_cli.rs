@@ -3,8 +3,11 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::PathBuf,
     process::{Command, Stdio},
-    time::{SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+use warp_controller::lock::MutationLock;
 
 struct Fixture {
     root: PathBuf,
@@ -78,6 +81,7 @@ exit 21
             .env("WARP_GAMES_DIR", &self.games)
             .env("WARP_ENABLED_FILE", self.user_lists.join(".enabled"))
             .env("WARP_DEVICES_FILE", self.user_lists.join("devices.txt"))
+            .env("WARP_OP_FILE", self.root.join("warp/op"))
             .env("Z2K_WARP_LOCK_DIR", self.root.join("warp/mutate.lock"))
             .env("Z2K_WARP_PROTOCOL_VERSION", "1")
             .env("TRACE", &self.trace)
@@ -180,6 +184,64 @@ fn restart_выключенного_warp_идемпотентен_и_не_тро
         "GAME_WARP_ENABLED=0\nother=value\n"
     );
     assert!(!fixture.trace.exists());
+}
+
+#[test]
+fn lifecycle_always_reports_total_and_only_reports_stages_in_diagnostic_mode() {
+    let fixture = Fixture::new();
+    fs::write(&fixture.config, "GAME_WARP_ENABLED=0\nother=value\n").unwrap();
+
+    let diagnostic = fixture
+        .controller("lifecycle")
+        .arg("restart")
+        .env("Z2K_WARP_DIAGNOSTICS", "1")
+        .output()
+        .unwrap();
+    assert!(
+        diagnostic.status.success(),
+        "{}",
+        String::from_utf8_lossy(&diagnostic.stderr)
+    );
+    assert!(diagnostic.stdout.is_empty());
+    let diagnostic_stderr = String::from_utf8_lossy(&diagnostic.stderr);
+    let diagnostic_lines: Vec<_> = diagnostic_stderr
+        .lines()
+        .filter(|line| line.starts_with("WARP_TIMING "))
+        .collect();
+    let total = diagnostic_lines
+        .iter()
+        .find(|line| line.contains("stage=total"))
+        .expect("должна быть итоговая длительность lifecycle");
+    let operation_id = total
+        .split_whitespace()
+        .find_map(|field| field.strip_prefix("operation_id="))
+        .expect("итог должен содержать operation ID");
+    assert!(total.contains("action=restart"));
+    assert!(total.contains("duration_ms="));
+    assert!(diagnostic_lines.iter().any(|line| {
+        line.contains(&format!("operation_id={operation_id}"))
+            && line.contains("stage=mutation_lock")
+    }));
+
+    let quiet = fixture
+        .controller("lifecycle")
+        .arg("restart")
+        .output()
+        .unwrap();
+    assert!(quiet.status.success());
+    let quiet_stderr = String::from_utf8_lossy(&quiet.stderr);
+    let quiet_lines: Vec<_> = quiet_stderr
+        .lines()
+        .filter(|line| line.starts_with("WARP_TIMING "))
+        .collect();
+    assert_eq!(quiet_lines.len(), 1);
+    assert!(quiet_lines[0].contains("stage=total"));
+    assert!(!quiet_lines[0].contains("stage=mutation_lock"));
+    let quiet_operation_id = quiet_lines[0]
+        .split_whitespace()
+        .find_map(|field| field.strip_prefix("operation_id="))
+        .expect("итог должен содержать operation ID");
+    assert_ne!(operation_id, quiet_operation_id);
 }
 
 #[test]
@@ -379,4 +441,384 @@ fn engine_refresh_stop_не_разрешает_замену_пока_pid_дви�
     assert!(String::from_utf8_lossy(&output.stderr).contains("не завершился после SIGTERM"));
     assert_eq!(fs::read_to_string(kill_trace).unwrap(), "-TERM 424242\n");
     assert!(!fixture.root.join("warp/mutate.lock").exists());
+}
+
+#[test]
+fn restart_warp_не_перезапускает_z2k_и_сохраняет_pid_основных_служб() {
+    let fixture = Fixture::new();
+    fs::write(&fixture.config, "GAME_WARP_ENABLED=1\nother=value\n").unwrap();
+
+    let core_pids = [
+        (fixture.root.join("nfqws2.pid"), "101"),
+        (fixture.root.join("rt-proxy.pid"), "202"),
+        (fixture.root.join("tg-proxy.pid"), "303"),
+    ];
+    for (path, pid) in &core_pids {
+        fs::write(path, format!("{pid}\n")).unwrap();
+    }
+
+    let z2k_init = fixture.root.join("etc/init.d/z2k");
+    let warp_init = fixture.root.join("etc/init.d/z2k-warp");
+    fs::create_dir_all(z2k_init.parent().unwrap()).unwrap();
+    fs::write(
+        &z2k_init,
+        r##"#!/bin/sh
+case "$1" in
+  running) exit 0 ;;
+  restart)
+    printf 'restart\n' >> "$Z2K_MAIN_INIT_TRACE"
+    printf '901\n' > "$Z2K_NFQWS2_PID_FILE"
+    printf '902\n' > "$Z2K_RT_PID_FILE"
+    printf '903\n' > "$Z2K_TG_PID_FILE"
+    exit 0
+    ;;
+esac
+exit 1
+"##,
+    )
+    .unwrap();
+    fs::write(
+        &warp_init,
+        r##"#!/bin/sh
+case "$1" in
+  running) exit 0 ;;
+  restart|reload|start) printf '%s enabled=%s\n' "$1" "$(sed -n 's/^GAME_WARP_ENABLED=//p' "$CONFIG_FILE" | head -n 1)" >> "$WARP_INIT_TRACE"; exit 0 ;;
+  stop)
+    printf 'stop enabled=%s\n' "$(sed -n 's/^GAME_WARP_ENABLED=//p' "$CONFIG_FILE" | head -n 1)" >> "$WARP_INIT_TRACE"
+    rm -rf "$Z2K_PROC_ROOT/424242"
+    exit 0
+    ;;
+esac
+exit 1
+"##,
+    )
+    .unwrap();
+    for path in [&z2k_init, &warp_init] {
+        let mut permissions = fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).unwrap();
+    }
+
+    let bin = fixture.system_commands();
+    let ubus = bin.join("ubus");
+    fs::write(
+        &ubus,
+        "#!/bin/sh\nprintf '%s\\n' '{\"z2k\":{\"instances\":{\"z2k\":{\"running\":true}}},\"z2k-warp\":{\"instances\":{\"main\":{\"running\":true}}}}'\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&ubus).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&ubus, permissions).unwrap();
+
+    let proc_root = fixture.root.join("proc");
+    let warp_pid = proc_root.join("424242");
+    fs::create_dir_all(&warp_pid).unwrap();
+    fs::write(warp_pid.join("comm"), "z2k-warpd\n").unwrap();
+    fs::write(
+        warp_pid.join("cmdline"),
+        b"z2k-warpd\0run\0--device\0/tmp/device.json\0",
+    )
+    .unwrap();
+
+    let main_trace = fixture.root.join("z2k-init.trace");
+    let warp_trace = fixture.root.join("z2k-warp-init.trace");
+    let output = fixture
+        .controller("lifecycle")
+        .arg("restart")
+        .env("Z2K_INIT", &z2k_init)
+        .env("Z2K_WARP_INIT", &warp_init)
+        .env("Z2K_MAIN_INIT_TRACE", &main_trace)
+        .env("WARP_INIT_TRACE", &warp_trace)
+        .env("Z2K_NFQWS2_PID_FILE", &core_pids[0].0)
+        .env("Z2K_RT_PID_FILE", &core_pids[1].0)
+        .env("Z2K_TG_PID_FILE", &core_pids[2].0)
+        .env("Z2K_PROC_ROOT", &proc_root)
+        .env("WARP_STATUS", fixture.root.join("status.json"))
+        .env("WARP_PBR_OWNER", fixture.root.join("pbr.owner"))
+        .env("WARP_PROBE_OWNER", fixture.root.join("probe.owner"))
+        .env("WARP_ROUTE_ERROR_FILE", fixture.root.join("route-error"))
+        .env("WARP_OP_FILE", fixture.root.join("warp/op"))
+        .env("WARP_PROCD_RECOVERY_FILE", fixture.root.join("recovery"))
+        .env("WARP_PROCD_REBUILD_FILE", fixture.root.join("rebuild"))
+        .env("WARP_READY_WAIT", "1")
+        .env(
+            "PATH",
+            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+        )
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        !main_trace.exists(),
+        "WARP lifecycle перезапустил основной z2k: {}",
+        fs::read_to_string(&main_trace).unwrap_or_default()
+    );
+    assert_eq!(
+        fs::read_to_string(&warp_trace).unwrap(),
+        "restart enabled=1\n"
+    );
+    for (path, pid) in &core_pids {
+        assert_eq!(fs::read_to_string(path).unwrap(), format!("{pid}\n"));
+    }
+
+    fs::create_dir_all(&warp_pid).unwrap();
+    fs::write(warp_pid.join("comm"), "z2k-warpd\n").unwrap();
+    fs::write(
+        warp_pid.join("cmdline"),
+        b"z2k-warpd\0run\0--device\0/tmp/device.json\0",
+    )
+    .unwrap();
+    let output = fixture
+        .controller("lifecycle")
+        .arg("disable")
+        .env("Z2K_INIT", &z2k_init)
+        .env("Z2K_WARP_INIT", &warp_init)
+        .env("Z2K_MAIN_INIT_TRACE", &main_trace)
+        .env("WARP_INIT_TRACE", &warp_trace)
+        .env("Z2K_NFQWS2_PID_FILE", &core_pids[0].0)
+        .env("Z2K_RT_PID_FILE", &core_pids[1].0)
+        .env("Z2K_TG_PID_FILE", &core_pids[2].0)
+        .env("Z2K_PROC_ROOT", &proc_root)
+        .env("WARP_STATUS", fixture.root.join("status.json"))
+        .env("WARP_PBR_OWNER", fixture.root.join("pbr.owner"))
+        .env("WARP_PROBE_OWNER", fixture.root.join("probe.owner"))
+        .env("WARP_ROUTE_ERROR_FILE", fixture.root.join("route-error"))
+        .env("WARP_OP_FILE", fixture.root.join("warp/op"))
+        .env(
+            "WARP_PROCD_INSTANCE_FILE",
+            fixture.root.join("procd-instance"),
+        )
+        .env("WARP_PROCD_RECOVERY_FILE", fixture.root.join("recovery"))
+        .env("WARP_PROCD_REBUILD_FILE", fixture.root.join("rebuild"))
+        .env("WARP_READY_WAIT", "1")
+        .env(
+            "PATH",
+            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+        )
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&fixture.config).unwrap(),
+        "GAME_WARP_ENABLED=0\nother=value\n"
+    );
+    assert_eq!(
+        fs::read_to_string(&warp_trace).unwrap(),
+        "restart enabled=1\nstop enabled=1\n"
+    );
+    assert!(!warp_pid.exists(), "procd stop оставил z2k-warpd");
+    assert!(!main_trace.exists(), "disable перезапустил основной z2k");
+    for (path, pid) in &core_pids {
+        assert_eq!(fs::read_to_string(path).unwrap(), format!("{pid}\n"));
+    }
+}
+
+#[test]
+fn миграция_procd_удаляет_старый_warp_instance_до_запуска_новой_службы() {
+    let fixture = Fixture::new();
+    let bin = fixture.system_commands();
+    let proc_root = fixture.root.join("proc");
+    let old_warp = proc_root.join("424242");
+    fs::create_dir_all(&old_warp).unwrap();
+    fs::write(old_warp.join("comm"), "z2k-warpd\n").unwrap();
+    fs::write(
+        old_warp.join("cmdline"),
+        b"z2k-warpd\0run\0--device\0/tmp/device.json\0",
+    )
+    .unwrap();
+
+    let ubus = bin.join("ubus");
+    fs::write(
+        &ubus,
+        r##"#!/bin/sh
+printf '%s\n' "$*" >> "$WARP_TEST_UBUS_TRACE"
+if [ "$1" = -S ] && [ "$2" = call ] && [ "$3" = service ] && [ "$4" = list ]; then
+    if [ -f "$WARP_TEST_LEGACY_REMOVED" ]; then
+        printf '%s\n' '{"z2k":{"instances":{"z2k":{"running":true}}}}'
+    else
+        printf '%s\n' '{"z2k":{"instances":{"z2k":{"running":true},"z2k-warp":{"running":true}}}}'
+    fi
+    exit 0
+fi
+if [ "$1" = call ] && [ "$2" = service ] && [ "$3" = delete ] \
+    && [ "$4" = '{"name":"z2k","instance":"z2k-warp"}' ]; then
+    : > "$WARP_TEST_LEGACY_REMOVED"
+    rm -rf "$Z2K_PROC_ROOT/424242"
+    exit 0
+fi
+exit 1
+"##,
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&ubus).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&ubus, permissions).unwrap();
+
+    let removed = fixture.root.join("legacy-removed");
+    let trace = fixture.root.join("ubus.trace");
+    let output = fixture
+        .controller("procd-legacy-warp-remove")
+        .env("Z2K_PROC_ROOT", &proc_root)
+        .env("WARP_TEST_LEGACY_REMOVED", &removed)
+        .env("WARP_TEST_UBUS_TRACE", &trace)
+        .env(
+            "PATH",
+            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+        )
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(removed.exists());
+    assert!(
+        !old_warp.exists(),
+        "старый Go-процесс должен быть удалён procd"
+    );
+    let trace = fs::read_to_string(trace).unwrap();
+    assert!(trace.contains("call service delete {\"name\":\"z2k\",\"instance\":\"z2k-warp\"}"));
+}
+
+#[test]
+fn startup_reconcile_не_держит_mutation_lock_во_время_ожидания_ready() {
+    let fixture = Fixture::new();
+    fs::write(&fixture.config, "GAME_WARP_ENABLED=1\n").unwrap();
+    let proc_root = fixture.root.join("proc");
+    fs::create_dir_all(&proc_root).unwrap();
+    let status = fixture.root.join("status.json");
+    fs::write(&status, "{\"ready\":false}\n").unwrap();
+    let lock_path = fixture.root.join("warp/mutate.lock");
+
+    let mut child = fixture
+        .controller("startup-reconcile")
+        .env("Z2K_PROC_ROOT", &proc_root)
+        .env("WARP_STATUS", &status)
+        .env("WARP_READY_WAIT", "4")
+        .env("Z2K_WARP_LOCK_DIR", &lock_path)
+        .spawn()
+        .unwrap();
+    thread::sleep(Duration::from_millis(250));
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "ожидание ready должно продолжаться"
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let mut acquired = false;
+    while Instant::now() < deadline {
+        if let Some(lock) = MutationLock::acquire(&lock_path, Duration::ZERO).unwrap() {
+            drop(lock);
+            acquired = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        acquired,
+        "boot-reconcile удержал общий mutation lock во время ожидания"
+    );
+    assert!(child.wait().unwrap().success());
+}
+
+#[test]
+fn disable_ждёт_завершения_go_после_возврата_procd_stop() {
+    let fixture = Fixture::new();
+    fs::write(&fixture.config, "GAME_WARP_ENABLED=1\nother=value\n").unwrap();
+
+    let proc_root = fixture.root.join("proc");
+    let warp_pid = proc_root.join("424242");
+    fs::create_dir_all(&warp_pid).unwrap();
+    fs::write(warp_pid.join("comm"), "z2k-warpd\n").unwrap();
+    fs::write(
+        warp_pid.join("cmdline"),
+        b"z2k-warpd\0run\0--device\0/tmp/device.json\0",
+    )
+    .unwrap();
+
+    let bin = fixture.system_commands();
+    let ubus = bin.join("ubus");
+    fs::write(
+        &ubus,
+        "#!/bin/sh\nprintf '%s\\n' '{\"z2k-warp\":{\"instances\":{\"main\":{\"running\":true}}}}'\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&ubus).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&ubus, permissions).unwrap();
+
+    let warp_init = fixture.root.join("etc/init.d/z2k-warp");
+    fs::create_dir_all(warp_init.parent().unwrap()).unwrap();
+    fs::write(
+        &warp_init,
+        [
+            "#!/bin/sh\n",
+            "case \"$1\" in\n",
+            "  stop)\n",
+            "    (sleep 1; rm -rf \"$Z2K_PROC_ROOT/424242\") ",
+            "</dev/null >/dev/null 2>&1 &\n",
+            "    exit 0\n",
+            "    ;;\n",
+            "esac\n",
+            "exit 1\n",
+        ]
+        .concat(),
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&warp_init).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&warp_init, permissions).unwrap();
+
+    let output = fixture
+        .controller("lifecycle")
+        .arg("disable")
+        .env("Z2K_WARP_INIT", &warp_init)
+        .env("Z2K_PROC_ROOT", &proc_root)
+        .env("WARP_STATUS", fixture.root.join("status.json"))
+        .env("WARP_PBR_OWNER", fixture.root.join("pbr.owner"))
+        .env("WARP_PROBE_OWNER", fixture.root.join("probe.owner"))
+        .env("WARP_ROUTE_ERROR_FILE", fixture.root.join("route-error"))
+        .env("WARP_DOMAIN_ERROR", fixture.root.join("domain-error"))
+        .env(
+            "WARP_PROCD_INSTANCE_FILE",
+            fixture.root.join("procd-instance"),
+        )
+        .env("WARP_PROCD_RECOVERY_FILE", fixture.root.join("recovery"))
+        .env("Z2K_WARP_DIAGNOSTICS", "1")
+        .env(
+            "PATH",
+            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+        )
+        .output()
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while warp_pid.exists() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        !warp_pid.exists(),
+        "тестовый процесс не завершился по таймеру"
+    );
+    assert!(
+        output.status.success(),
+        "disable должен дождаться завершения после возврата procd stop: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("stage=process_stop_wait"),
+        "этап ожидания Go должен попадать в диагностику"
+    );
+    assert_eq!(
+        fs::read_to_string(&fixture.config).unwrap(),
+        "GAME_WARP_ENABLED=0\nother=value\n"
+    );
 }

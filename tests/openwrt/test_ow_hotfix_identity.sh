@@ -33,7 +33,8 @@ make_archive() {
         "$STAGE/usr/lib/z2k/platform/openwrt/bin/linux-arm64/z2k-warp-controller" \
         "$STAGE/opt/zapret2/binaries/linux-arm64/nfqws2" "$STAGE/opt/zapret2/binaries/linux-arm64/ip2net" \
         "$STAGE/opt/zapret2/binaries/linux-arm64/mdig" "$STAGE/usr/bin/z2kow" \
-        "$STAGE/usr/sbin/install_release" "$STAGE/etc/init.d/z2k" "$STAGE/etc/init.d/z2k-webpanel"; do
+        "$STAGE/usr/sbin/install_release" "$STAGE/etc/init.d/z2k" \
+        "$STAGE/etc/init.d/z2k-warp" "$STAGE/etc/init.d/z2k-webpanel"; do
         printf '#!/bin/sh\nexit 0\n' > "$_p"; chmod 755 "$_p"
     done
     printf 'hotplug\n' > "$STAGE/etc/hotplug.d/iface/90-z2k"

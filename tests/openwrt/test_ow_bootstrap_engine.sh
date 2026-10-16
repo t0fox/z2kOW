@@ -67,7 +67,7 @@ for pair in nfq2/nfqws2 ip2net/ip2net mdig/mdig; do
     printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/opt/zapret2/binaries/linux-x86_64/$name"
     chmod 755 "$PAYLOAD/opt/zapret2/binaries/linux-x86_64/$name"
 done
-for name in z2k z2k-webpanel; do
+for name in z2k z2k-warp z2k-webpanel; do
     printf '#!/bin/sh\nexit 0\n' > "$PAYLOAD/etc/init.d/$name"
     chmod 755 "$PAYLOAD/etc/init.d/$name"
 done

@@ -53,6 +53,11 @@ fi
 if [ -f "$Z2K_ROOT/platform/openwrt/warp.sh" ]; then
     Z2K_WARP_SOURCE_ONLY=1; export Z2K_WARP_SOURCE_ONLY
     # shellcheck disable=SC1090,SC1091
-    . "$Z2K_ROOT/platform/openwrt/warp.sh" 2>/dev/null && \
+    if . "$Z2K_ROOT/platform/openwrt/warp.sh" 2>/dev/null; then
         z2k_ow_warp rules 2>/dev/null || true
+        if [ "$ACTION" = "ifup" ]; then
+            ( z2k_ow_warp startup-reconcile ) </dev/null \
+                >/dev/null 2>&1 &
+        fi
+    fi
 fi

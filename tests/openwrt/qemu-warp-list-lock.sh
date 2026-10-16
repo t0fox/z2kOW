@@ -18,6 +18,7 @@ export ZAPRET2_DIR="$T/lists" CONFIG_FILE="$T/config" LOG_FILE="$T/update.log"
 export Z2K_LISTS_DIR="$T/lists/lists"
 export Z2K_TMP="$T/tmp" Z2K_OW_INSTALL_WORK="$T/install-work"
 export WARP_LOCK_DIR="$T/mutate.lock" WARP_CONTROLLER_BIN="$BIN"
+export WARP_INIT="$T/missing-init"
 export Z2K_WARP_IPSET_SCRIPT="$WARP"
 export Z2K_WARP_NFT_TABLE=z2k_warp_list_lock_test
 mkdir -p "$ZAPRET2_DIR/lists/warp/games"
@@ -91,13 +92,11 @@ z2k_ow_release_warp_lock_acquire "$Z2K_ADAPTER_DIR"
 [ "$(cat "$WARP_LOCK_DIR/pid")" = "$$" ]
 z2k_ow_release_warp_lock_release
 [ ! -e "$WARP_LOCK_DIR" ]
-_manual_action_ran=0
-_manual_action() {
-    _manual_action_ran=1
-}
-if _warp_user_locked _manual_action; then
-    echo 'ручное действие WARP продолжилось во время транзакции релиза' >&2
+if warp_disable > "$T/manual-disable.log" 2>&1; then
+    echo 'ручной disable не отложен во время транзакции релиза' >&2
     exit 1
 fi
-[ "$_manual_action_ran" = 0 ]
+grep -Fq 'идёт обновление z2kOW; действие WARP отложено' "$T/manual-disable.log"
+[ ! -e "$WARP_LOCK_DIR" ]
+grep -qx GAME_WARP_ENABLED=0 "$CONFIG_FILE"
 printf 'SUITE[ow-warp-list-lock-openwrt-qemu]: pass\n'

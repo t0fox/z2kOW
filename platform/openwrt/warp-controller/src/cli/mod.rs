@@ -62,6 +62,10 @@ pub fn run() -> io::Result<()> {
             Ok(())
         }
         Some("event") => warp_controller::service::event(&mut args),
+        Some("procd-legacy-warp-remove") => {
+            warp_controller::service::procd_legacy_warp_remove(&mut args)
+        }
+        Some("startup-reconcile") => warp_controller::service::startup_reconcile(&mut args),
         Some("domain-procd-ready") => warp_controller::service::domain_procd_ready(&mut args),
         Some("nft-warp-remove") => run_nft_warp_remove(&mut args),
         Some("nft-fw4-forward-apply") => run_nft_fw4_forward_apply(&mut args),

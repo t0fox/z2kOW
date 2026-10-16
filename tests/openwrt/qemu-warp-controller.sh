@@ -75,13 +75,15 @@ Z2K_WARP_LOCK_DIR="$T/killed-owner.lock" "$BIN" lock-release "$$"
 # Health state is observed from real OpenWrt files, /proc and iproute2.
 _health="$T/health"
 mkdir -p "$_health"
-[ "$("$BIN" service-plan enable 0 1 1)" = rebuild ]
+[ "$("$BIN" service-plan enable 0 1 1)" = restart ]
 [ "$("$BIN" service-plan enable 1 1 1)" = reload ]
-[ "$("$BIN" service-plan enable 1 1 0)" = rebuild ]
-[ "$("$BIN" service-plan disable 1 1 1)" = rebuild ]
-[ "$("$BIN" service-plan disable 1 1 0)" = reload ]
-[ "$("$BIN" service-plan disable 1 0 1)" = none ]
-[ "$("$BIN" service-plan restart 1 1 0)" = rebuild ]
+[ "$("$BIN" service-plan enable 1 1 0)" = start ]
+[ "$("$BIN" service-plan enable 0 0 0)" = start ]
+[ "$("$BIN" service-plan enable 0 0 1)" = defer ]
+[ "$("$BIN" service-plan disable 1 1 1)" = stop ]
+[ "$("$BIN" service-plan disable 1 1 0)" = stop ]
+[ "$("$BIN" service-plan disable 1 0 1)" = stop ]
+[ "$("$BIN" service-plan restart 1 1 0)" = restart ]
 [ "$("$BIN" service-plan restart 0 1 1)" = none ]
 _config="$_health/config"
 _engine="$_health/z2k-warpd"

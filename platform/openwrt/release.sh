@@ -243,7 +243,7 @@ z2k_ow_legacy_path_allowed() {
     case "$_legacy_path" in
         usr/lib/z2k|usr/lib/z2k/*|opt/zapret2|opt/zapret2/* \
         |usr/bin/z2kow|usr/sbin/install_release \
-        |etc/init.d/z2k|etc/init.d/z2k-webpanel|etc/init.d/z2k-detect \
+        |etc/init.d/z2k|etc/init.d/z2k-warp|etc/init.d/z2k-webpanel|etc/init.d/z2k-detect \
         |etc/hotplug.d/iface/90-z2k|etc/sysctl.d/99-z2k.conf \
         |usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft)
             return 0 ;;
@@ -2315,6 +2315,7 @@ z2k_ow_prepare_target_payload_list() {
         "usr/bin/z2kow" \
         "usr/sbin/install_release" \
         "etc/init.d/z2k" \
+        "etc/init.d/z2k-warp" \
         "etc/init.d/z2k-webpanel" \
         "usr/lib/z2k/bin/linux-$_prepare_arch/z2k-rt-proxy" \
         "usr/lib/z2k/bin/linux-$_prepare_arch/z2k-detect" \
@@ -2383,6 +2384,7 @@ z2k_ow_extract_target_payload() {
         "usr/bin/z2kow" \
         "usr/sbin/install_release" \
         "etc/init.d/z2k" \
+        "etc/init.d/z2k-warp" \
         "etc/init.d/z2k-webpanel" \
         "usr/lib/z2k/bin/linux-$_target_arch/z2k-rt-proxy" \
         "usr/lib/z2k/bin/linux-$_target_arch/z2k-detect" \
@@ -2412,7 +2414,7 @@ z2k_ow_remove_owned_paths() {
         [ -n "$_rel" ] || continue
         case "$_rel" in
             /usr/lib/z2k|/opt/zapret2|/usr/bin/z2kow|/usr/sbin/install_release|\
-            /etc/init.d/z2k|/etc/init.d/z2k-webpanel|/etc/hotplug.d/iface/90-z2k|\
+            /etc/init.d/z2k|/etc/init.d/z2k-warp|/etc/init.d/z2k-webpanel|/etc/hotplug.d/iface/90-z2k|\
             /etc/sysctl.d/99-z2k.conf|/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft) ;;
             *) echo "z2k-openwrt: неизвестный принадлежащий релизу путь оставлен без изменений: $_rel" >&2; return 1 ;;
         esac
@@ -2503,6 +2505,7 @@ z2k_ow_extract_target_payload_direct() {
         "usr/bin/z2kow" \
         "usr/sbin/install_release" \
         "etc/init.d/z2k" \
+        "etc/init.d/z2k-warp" \
         "etc/init.d/z2k-webpanel" \
         "usr/lib/z2k/bin/linux-$_direct_arch/z2k-rt-proxy" \
         "usr/lib/z2k/bin/linux-$_direct_arch/z2k-detect" \

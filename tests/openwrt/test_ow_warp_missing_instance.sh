@@ -72,9 +72,9 @@ if [ "${PROCD_SERVICE_MODE:-active}" = inactive ]; then
 fi
 if [ "${PROCD_SERVICE_MODE:-active}" = unreadable ]; then exit 1; fi
 if [ -e "$PROCD_WARP_PRESENT_FILE" ]; then
-    printf '%s\n' '{"z2k":{"instances":{"z2k":{"running":true},"z2k-warp":{"running":false}}}}'
+    printf '%s\n' '{"z2k-warp":{"instances":{"main":{"running":false}}}}'
 else
-    printf '%s\n' '{"z2k":{"instances":{"z2k":{"running":true}}}}'
+    printf '%s\n' '{"z2k-warp":{"instances":{}}}'
 fi
 EOF
 chmod +x "$T/bin/ubus"
@@ -93,7 +93,7 @@ case "${1:-}" in
 esac
 EOF
 chmod +x "$T/bin/init"
-export Z2K_INIT="$T/bin/init"
+export Z2K_WARP_INIT="$T/bin/init"
 printf 'GAME_WARP_ENABLED=1\n' > "$Z2K_CONFIG"
 printf '{"id":"mock-device","addr":"172.16.9.9"}\n' > "$WARP_DEVICE"
 printf '{"ready":false}\n' > "$WARP_STATUS"

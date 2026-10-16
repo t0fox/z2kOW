@@ -208,12 +208,14 @@ EOF_WARP_CONTROLLER
     printf '#!/bin/sh\nexit 0\n' > "$_stage/usr/bin/z2kow"
     printf '#!/bin/sh\nexit 0\n' > "$_stage/usr/sbin/install_release"
     printf '#!/bin/sh\nexit 0\n' > "$_stage/etc/init.d/z2k"
+    printf '#!/bin/sh\nexit 0\n' > "$_stage/etc/init.d/z2k-warp"
     printf '#!/bin/sh\nexit 0\n' > "$_stage/etc/init.d/z2k-webpanel"
     printf '# product hotplug\n' > "$_stage/etc/hotplug.d/iface/90-z2k"
     printf 'net.ipv4.ip_forward=1\n' > "$_stage/etc/sysctl.d/99-z2k.conf"
     printf 'table inet z2k-test {}\n' > "$_stage/usr/share/nftables.d/chain-pre/forward/90-z2k-warp.nft"
     chmod 0755 "$_stage/usr/bin/z2kow" "$_stage/usr/sbin/install_release" \
-        "$_stage/etc/init.d/z2k" "$_stage/etc/init.d/z2k-webpanel"
+        "$_stage/etc/init.d/z2k" "$_stage/etc/init.d/z2k-warp" \
+        "$_stage/etc/init.d/z2k-webpanel"
 }
 
 prepare_manifest() {

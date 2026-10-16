@@ -191,6 +191,20 @@ pub struct CleanupFailure {
 }
 
 pub fn run(operations: &mut impl DisableOperations) -> io::Result<()> {
+    prepare(operations)?;
+
+    if let Err(error) = operations.commit_disabled() {
+        return fail(
+            operations,
+            "warp-disable-config-commit-failed",
+            format!("флаг WARP: {error}"),
+        );
+    }
+
+    Ok(())
+}
+
+pub fn prepare(operations: &mut impl DisableOperations) -> io::Result<()> {
     if let Err(error) = operations.remove_routes() {
         return fail(
             operations,
@@ -217,15 +231,6 @@ pub fn run(operations: &mut impl DisableOperations) -> io::Result<()> {
             format!("маркер ошибки WARP: {error}"),
         );
     }
-
-    if let Err(error) = operations.commit_disabled() {
-        return fail(
-            operations,
-            "warp-disable-config-commit-failed",
-            format!("флаг WARP: {error}"),
-        );
-    }
-
     Ok(())
 }
 

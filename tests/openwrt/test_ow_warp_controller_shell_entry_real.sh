@@ -53,14 +53,19 @@ EOF_IP
 printf 'nft:' >> "$T/commands.log"
 printf ' %s' "\$@" >> "$T/commands.log"
 printf '\n' >> "$T/commands.log"
+if [ -e "$T/nft-fail-once" ] && [ "\$1" = -f ] && [ "\$2" = - ]; then
+    rm -f "$T/nft-fail-once"
+    exit 1
+fi
 exec "$REAL_NFT" "\$@"
 EOF_NFT
     chmod 0755 "$T/mock-bin/ip" "$T/mock-bin/nft" "$T/mock-bin/uci"
 
     export Z2K_ROOT="$ROOT" Z2K_ADAPTER_DIR="$ROOT/platform/openwrt"
+    export T
     export Z2K_ETC="$T/etc" Z2K_STATE="$T/etc/state" Z2K_TMP="$T/tmp/z2k"
     export Z2K_LISTS_DIR="$T/lists" Z2K_RUN="$T/tmp/z2k/runtime"
-    export Z2K_PROC_ROOT="$T/proc" Z2K_INIT="$T/no-init"
+    export Z2K_PROC_ROOT="$T/proc" WARP_INIT="$T/warp-init" Z2K_WARP_INIT="$T/warp-init"
     export CONFIG_FILE="$T/etc/config" WARP_BIN WARP_DOMAIN_RUNTIME_BIN="$WARP_BIN"
     export WARP_DEVICE="$T/etc/state/warp/device.json"
     export WARP_STATUS="$T/tmp/z2k/warp/status.json"
@@ -79,6 +84,33 @@ EOF_NFT
     export Z2K_WARP_NFT_TABLE=z2k_warp_shell_test
     export Z2K_WARP_QUIET=""
     PATH="$T/mock-bin:$PATH"; export PATH
+
+    cat > "$WARP_INIT" <<'EOF_WARP_INIT'
+#!/bin/sh
+. "$Z2K_ADAPTER_DIR/paths.sh"
+. "$Z2K_ADAPTER_DIR/arch.sh"
+. "$Z2K_ADAPTER_DIR/env.sh"
+Z2K_WARP_SOURCE_ONLY=1
+export Z2K_WARP_SOURCE_ONLY
+. "$Z2K_ADAPTER_DIR/warp.sh"
+procd_open_instance() { printf 'open: %s\n' "$1" >> "$T/procd.log"; }
+procd_set_param() {
+    printf 'param:' >> "$T/procd.log"
+    for _value in "$@"; do printf ' %s' "$_value" >> "$T/procd.log"; done
+    printf '\n' >> "$T/procd.log"
+}
+procd_close_instance() { printf 'close\n' >> "$T/procd.log"; }
+case "$1" in
+    start)
+        _warp_controller procd-legacy-warp-remove || exit $?
+        _warp_controller event rules || exit $?
+        warp_start_instance
+        ;;
+    stop) _warp_controller event stop ;;
+    *) exit 2 ;;
+esac
+EOF_WARP_INIT
+    chmod 0755 "$WARP_INIT"
 
     Z2K_WARP_SOURCE_ONLY=1
     export Z2K_WARP_SOURCE_ONLY
@@ -103,7 +135,7 @@ EOF_NFT
     procd_close_instance() { printf 'close\n' >> "$T/procd.log"; }
 
     z2k_ow_warp 1
-    grep -q '^open: z2k-warp$' "$T/procd.log"
+    grep -q '^open: main$' "$T/procd.log"
     grep -q '^param: command ' "$T/procd.log"
     grep -q ' --net-backend=external' "$T/procd.log"
     grep -q 'Z2K_WARP_TRANSPORT=wg' "$T/procd.log"
@@ -123,6 +155,55 @@ EOF_NFT
         exit 1
     fi
 
+    nft list table inet z2k_warp_shell_test > "$T/nft-before"
+    printf '2.2.2.2\n' > "$T/etc/user-lists/warp/smoke.txt"
+    : > "$T/nft-fail-once"
+    if z2k_ow_warp rules; then
+        echo 'отказ nft транзакции был ошибочно принят за успех' >&2
+        exit 1
+    fi
+    if [ -e "$T/nft-fail-once" ]; then
+        echo 'контроллер не дошёл до nft транзакции' >&2
+        exit 1
+    fi
+    nft list set inet z2k_warp_shell_test z2k_warp_dst4 \
+        > "$T/nft-after-fail"
+    grep -q '1.1.1.1' "$T/nft-after-fail"
+    if grep -q '2.2.2.2' "$T/nft-after-fail"; then
+        echo 'ошибка nft транзакции применила неполный набор' >&2
+        exit 1
+    fi
+    if ip -4 rule show | grep -q 'lookup 989'; then
+        echo 'fail-open оставил WARP ip rule после сбоя nft' >&2
+        exit 1
+    fi
+    if ip -4 route show table 989 | grep -q .; then
+        echo 'fail-open оставил маршрут WARP после сбоя nft' >&2
+        exit 1
+    fi
+
+    : > "$T/commands.log"
+    z2k_ow_warp rules
+    nft list table inet z2k_warp_shell_test >/dev/null
+    nft list set inet z2k_warp_shell_test z2k_warp_dst4 \
+        | grep -q '2.2.2.2'
+    ip -4 rule show | grep -q 'lookup 989'
+    ip -4 route show table 989 | grep -q 'default dev z2ktun0'
+
+    _cycle=1
+    while [ "$_cycle" -le 3 ]; do
+        z2k_ow_warp 0
+        if ip -4 rule show | grep -q 'lookup 989'; then
+            echo 'повторный disable оставил WARP ip rule' >&2
+            exit 1
+        fi
+        z2k_ow_warp 1
+        ip -4 rule show | grep -q 'lookup 989'
+        ip -4 route show table 989 | grep -q 'default dev z2ktun0'
+        nft list table inet z2k_warp_shell_test >/dev/null
+        _cycle=$((_cycle + 1))
+    done
+
     cat > "$T/warpd-fixture.py" <<'EOF_PROCESS'
 import ctypes
 import time
@@ -138,6 +219,18 @@ EOF_PROCESS
         sleep 0.02
     done
     Z2K_PROC_ROOT=/proc; export Z2K_PROC_ROOT
+
+    : > "$T/commands.log"
+    WARP_READY_WAIT=1 z2k_ow_warp startup-reconcile
+    if grep -Eq '^ip: (.* )?(route (add|replace|del)|rule (add|del))([[:space:]]|$)' "$T/commands.log"; then
+        echo 'startup-reconcile изменил исправную маршрутизацию' >&2
+        exit 1
+    fi
+    if grep -q '^nft: -f -$' "$T/commands.log"; then
+        echo 'startup-reconcile повторно применил nft транзакцию' >&2
+        exit 1
+    fi
+
     "$ROOT/platform/openwrt/warp-proc.sh" stop
     if kill -0 "$WARP_PID" 2>/dev/null; then
         echo 'engine-refresh stop оставил процесс z2k-warpd' >&2

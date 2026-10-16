@@ -143,9 +143,9 @@ warp_start_instance >/dev/null 2>&1
 assert_contains "окружение экземпляра сохраняет пользовательский proxy" "$T/calls" "Z2K_WARP_VPS_PROXY=http://proxy.example:8080"
 
 # --- 2. procd transition планирует Rust ---
-assert_eq "restart выключенного WARP не пересобирает службу" "none" \
+assert_eq "restart выключенного WARP не запускает службу" "none" \
     "$($WARP_CONTROLLER_BIN service-plan restart 0 1 1)"
-assert_eq "restart включённого WARP пересобирает instance" "rebuild" \
+assert_eq "restart включённого WARP перезапускает отдельный instance" "restart" \
     "$($WARP_CONTROLLER_BIN service-plan restart 1 1 1)"
 assert_eq "непрочитанное состояние procd откладывает restart" "defer" \
     "$($WARP_CONTROLLER_BIN service-plan restart 1 unreadable 1)"

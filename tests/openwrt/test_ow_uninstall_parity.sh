@@ -69,6 +69,7 @@ export WARP_DEVICE="$Z2K_STATE/warp/device.json"
 export Z2K_UNINSTALL_TEST_LOG="$T/uninstall.log"
 export Z2K_CRON_TAB="$T/etc/crontabs/root"
 export Z2K_OW_CORE_INIT="$T/etc/init.d/z2k"
+export Z2K_OW_WARP_INIT="$T/etc/init.d/z2k-warp"
 export Z2K_OW_PANEL_INIT="$T/etc/init.d/z2k-webpanel"
 export Z2K_OW_HOTPLUG_FILE="$T/etc/hotplug.d/iface/90-z2k"
 export Z2K_OW_SYSCTL_FILE="$T/etc/sysctl.d/99-z2k.conf"
@@ -81,6 +82,8 @@ export Z2K_OW_INSTALL_LOCK="$T/usr/lib/.z2k-install.lock"
 export Z2K_FW4_OFFLOAD_STATE="$Z2K_STATE/fw4-offload.state"
 export Z2K_OW_NFT_STATE="$T/nft-state"
 export Z2K_OW_FW4_STATE="$T/fw4-state"
+export Z2K_OW_NFT_ZAPRET2_STATE="$T/zapret2-state"
+export Z2K_OW_NFT_LOG="$T/nft.log"
 export Z2K_OW_NFT_BIN="$T/bin/nft"
 export Z2K_FW4_RELOAD="$T/etc/init.d/firewall"
 export Z2K_OW_PROC_ROOT="$T/proc"
@@ -186,8 +189,16 @@ EOF
 
 cat > "$Z2K_OW_NFT_BIN" <<'EOF'
 #!/bin/sh
-[ "$1" = list ] && [ "$2" = ruleset ] || exit 2
-cat "$Z2K_OW_FW4_STATE"
+printf '%s\n' "$*" >> "$Z2K_OW_NFT_LOG"
+case "$*" in
+    'list ruleset')
+        cat "$Z2K_OW_FW4_STATE"
+        [ ! -f "$Z2K_OW_NFT_ZAPRET2_STATE" ] || cat "$Z2K_OW_NFT_ZAPRET2_STATE"
+        ;;
+    'list table inet zapret2') cat "$Z2K_OW_NFT_ZAPRET2_STATE" ;;
+    'delete table inet zapret2') rm -f "$Z2K_OW_NFT_ZAPRET2_STATE" ;;
+    *) exit 2 ;;
+esac
 EOF
 cat > "$Z2K_FW4_RELOAD" <<'EOF'
 #!/bin/sh
@@ -222,9 +233,20 @@ case "$1" in
 esac
 exit 0
 EOF
-chmod +x "$Z2K_OW_CORE_INIT" "$Z2K_OW_PANEL_INIT"
-export Z2K_RC_CORE="$T/etc/rc.d/S90z2k" Z2K_RC_PANEL="$T/etc/rc.d/S95z2k-webpanel"
+cat > "$Z2K_OW_WARP_INIT" <<'EOF'
+#!/bin/sh
+echo "warp-init-$1" >> "$Z2K_UNINSTALL_TEST_LOG"
+case "$1" in
+    disable) rm -f "$Z2K_RC_WARP" ;;
+    stop) rm -f "$Z2K_WARP_PROCESS" ;;
+esac
+exit 0
+EOF
+chmod +x "$Z2K_OW_CORE_INIT" "$Z2K_OW_WARP_INIT" "$Z2K_OW_PANEL_INIT"
+export Z2K_RC_CORE="$T/etc/rc.d/S90z2k" Z2K_RC_WARP="$T/etc/rc.d/S23z2k-warp" \
+    Z2K_RC_PANEL="$T/etc/rc.d/S95z2k-webpanel"
 ln -s ../init.d/z2k "$Z2K_RC_CORE"
+ln -s ../init.d/z2k-warp "$Z2K_RC_WARP"
 ln -s ../init.d/z2k-webpanel "$Z2K_RC_PANEL"
 export Z2K_CORE_PROCESS="$T/core.process" Z2K_PANEL_PROCESS="$T/panel.process"
 export Z2K_TG_PROCESS="$T/tg.process" Z2K_RT_PROCESS="$T/rt.process" Z2K_WARP_PROCESS="$T/warp.process"
@@ -259,6 +281,42 @@ printf 'chain foreign keep\nrule z2kOW core\nrule z2k_tg owned\nrule z2k_rt owne
     > "$Z2K_OW_NFT_STATE"
 printf '%s\n' 'table inet fw4 {' ' chain forward {' \
     '  comment "!z2k: WARP forwarded traffic";' ' }' '}' > "$Z2K_OW_FW4_STATE"
+cat > "$Z2K_OW_NFT_ZAPRET2_STATE" <<'EOF_ZAPRET2_NFT'
+table inet zapret2 {
+    flowtable ft {
+        hook ingress priority filter
+        devices = { "wan" }
+    }
+    chain flow_offload {
+        jump flow_offload_zapret
+    }
+    chain flow_offload_zapret {
+        goto flow_offload_always
+    }
+    chain flow_offload_always {
+        flow add @ft
+    }
+    set zapret {
+        type ipv4_addr
+        elements = { 192.0.2.1 }
+    }
+}
+EOF_ZAPRET2_NFT
+_zapret_awk_path="$PATH"
+if command -v busybox >/dev/null 2>&1; then
+    cat > "$T/bin/awk" <<'EOF_BUSYBOX_AWK'
+#!/bin/sh
+exec busybox awk "$@"
+EOF_BUSYBOX_AWK
+    chmod +x "$T/bin/awk"
+    _zapret_awk_path="$T/bin:$PATH"
+fi
+if PATH="$_zapret_awk_path" _z2k_ow_uninstall_zapret2_table; then
+    [ ! -e "$Z2K_OW_NFT_ZAPRET2_STATE" ] && _t_ok \
+        || _t_bad "standard zapret2 flowtable/chain inventory was not deleted"
+else
+    _t_bad "standard zapret2 flowtable/chain inventory blocks uninstall"
+fi
 printf 'config dnsmasq\nlist dhcp.@dnsmasq[0].addnhosts=/etc/z2k/state/insta-hosts # z2k-insta-hosts\nconfig domain z2k_rt_rutracker\nconfig domain foreign\n' \
     > "$Z2K_OW_DHCP_UCI"
 printf 'foreign firewall config\n' > "$T/etc/config/firewall"
@@ -336,6 +394,8 @@ assert_file "foreign legacy /opt/zapret is not claimed" "$T/opt/zapret/keep"
 [ ! -e "$Z2K_TMP" ] && _t_ok || _t_bad "transient runtime/log/cache removed"
 [ ! -e "$Z2K_OW_INSTALL_TMP" ] && _t_ok || _t_bad "install transaction staging removed"
 [ ! -e "$Z2K_RC_CORE" ] && _t_ok || _t_bad "core procd enable link removed"
+[ ! -e "$Z2K_OW_WARP_INIT" ] && _t_ok || _t_bad "WARP procd service removed"
+[ ! -e "$Z2K_RC_WARP" ] && _t_ok || _t_bad "WARP procd enable link removed"
 [ ! -e "$Z2K_RC_PANEL" ] && _t_ok || _t_bad "WebPanel procd enable link removed"
 _repeat_rc=0; Z2K_UNINSTALL_CONFIRMED=1 z2k_ow_uninstall || _repeat_rc=$?
 assert_eq "repeated uninstall is idempotent" "0" "$_repeat_rc"
@@ -392,8 +452,18 @@ case "$1" in
 esac
 exit 0
 EOF
-chmod +x "$Z2K_OW_CORE_INIT" "$Z2K_OW_PANEL_INIT"
+cat > "$Z2K_OW_WARP_INIT" <<'EOF'
+#!/bin/sh
+echo "warp-init-$1" >> "$Z2K_UNINSTALL_TEST_LOG"
+case "$1" in
+    disable) rm -f "$Z2K_RC_WARP" ;;
+    stop) rm -f "$Z2K_WARP_PROCESS" ;;
+esac
+exit 0
+EOF
+chmod +x "$Z2K_OW_CORE_INIT" "$Z2K_OW_WARP_INIT" "$Z2K_OW_PANEL_INIT"
 ln -s ../init.d/z2k "$Z2K_RC_CORE"
+ln -s ../init.d/z2k-warp "$Z2K_RC_WARP"
 ln -s ../init.d/z2k-webpanel "$Z2K_RC_PANEL"
 printf 'tag=r-86.13\nseq=136\n' > "$Z2K_OW_INSTALLED_RELEASE_FILE"
 printf 'z2kow-owned\n' > "$Z2K_OW_HOTPLUG_FILE"
@@ -433,11 +503,17 @@ cp "$REPO/platform/openwrt/uninstall.sh" "$Z2K_ROOT/platform/openwrt/uninstall.s
 printf 'tag=p-86.13\nseq=136\n' > "$Z2K_STATE/installed-release"
 printf '{"id":"warp-device-preserved"}\n' > "$WARP_DEVICE"
 export Z2K_OW_FAIL_CLEANUP=rt
+printf '%s\n' 'table inet zapret2 {' ' set zapret {' '  type ipv4_addr' ' }' '}' \
+    > "$Z2K_OW_NFT_ZAPRET2_STATE"
+: > "$Z2K_OW_NFT_LOG"
 _failure_rc=0; Z2K_UNINSTALL_CONFIRMED=1 z2k_ow_uninstall >/dev/null 2>&1 || _failure_rc=$?
 assert_eq "cleanup failure returns an error" "1" "$_failure_rc"
 assert_file "cleanup failure preserves product for retry" "$Z2K_ROOT/platform/openwrt/uninstall.sh"
 assert_file "cleanup failure preserves canonical release metadata" "$Z2K_STATE/installed-release"
 assert_file "cleanup failure preserves WARP identity" "$WARP_DEVICE"
+assert_not_contains "cleanup failure does not inspect or delete the shared table" \
+    "$Z2K_OW_NFT_LOG" '^list table inet zapret2$'
+rm -f "$Z2K_OW_NFT_ZAPRET2_STATE"
 unset Z2K_OW_FAIL_CLEANUP
 
 # If fw4 cannot converge after removing the include, put the include back and

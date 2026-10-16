@@ -49,6 +49,10 @@ if ! grep -qx Z2K_WARP_TRANSPORT=h2 /etc/z2k/config; then
     printf 'Z2K_WARP_TRANSPORT=h2\n' >> /etc/z2k/config
 fi
 mkdir -p "${USER_LIST%/*}"
+mkdir -p "${DEVICE%/*}"
+if [ ! -s "$DEVICE" ]; then
+    (umask 077; printf '{"acceptance_sentinel":"warp-device"}\n' > "$DEVICE")
+fi
 test -s "$DEVICE"
 if [ ! -s "$ACCOUNT" ]; then
     (umask 077; printf '{"acceptance_sentinel":"warp-account"}\n' > "$ACCOUNT")
@@ -242,7 +246,7 @@ if [ "$_retry_uninstall" = 1 ]; then
     fi
 fi
 for path in /usr/lib/z2k /usr/bin/z2kow /usr/sbin/install_release \
-    /etc/init.d/z2k /etc/init.d/z2k-webpanel; do
+    /etc/init.d/z2k /etc/init.d/z2k-warp /etc/init.d/z2k-webpanel; do
     [ ! -e "$path" ] && [ ! -L "$path" ]
 done
 ! pidof z2k-warpd >/dev/null 2>&1

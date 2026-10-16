@@ -2,7 +2,7 @@
 # platform/openwrt/warp.sh - Game WARP glue (Stage 5).
 #
 # Upstream contract: docs/openwrt-warp-contract.md (+mark allocation).
-# Optional feature: бинаря нет = фичи нет. procd instance "z2k-warp",
+# Optional feature: бинаря нет = фичи нет. Отдельная procd-служба z2k-warp,
 # nft sets/chains в runtime-таблице, PBR (mark + table 989) ТОЛЬКО при
 # доказанной ready. Fail open всегда: нет ready = нет маршрута.
 #
@@ -41,6 +41,7 @@ if [ -z "${WARP_CONTROLLER_BIN:-}" ]; then
     WARP_CONTROLLER_BIN="$(z2k_ow_arch_bin_path "$_warp_adapter/bin" z2k-warp-controller 2>/dev/null)" || \
         WARP_CONTROLLER_BIN="$_warp_adapter/bin/linux-unsupported/z2k-warp-controller"
 fi
+WARP_INIT="${WARP_INIT:-/etc/init.d/z2k-warp}"
 WARP_DEVICE="${WARP_DEVICE:-${Z2K_STATE:-/etc/z2k/state}/warp/device.json}"
 WARP_STATUS="${WARP_STATUS:-${Z2K_TMP:-/tmp/z2k}/warp/status.json}"
 WARP_LOG="${WARP_LOG:-${Z2K_TMP:-/tmp/z2k}/warp/warpd.log}"
@@ -214,7 +215,7 @@ warp_start_instance() {
     }
     local _proxy _regtmp _domain_state
     _proxy="$(warp_external_proxy)"
-    procd_open_instance "z2k-warp"
+    procd_open_instance "main"
     warp_with_argv _z2k_ow_warp_procd_command
     # procd_set_param env публикует весь параметр одним блоком: повторный
     # вызов заменяет предыдущий набор на BusyBox/OpenWrt, поэтому GODEBUG,
@@ -262,7 +263,7 @@ warp_start_instance() {
         rm -f "$_regtmp" 2>/dev/null
         _wlog "не удалось записать маркер регистрации procd WARP"
     fi
-    _z2k_ow_warp_mut "PROCESS_ACTION: instance z2k-warp opened"
+    _z2k_ow_warp_mut "PROCESS_ACTION: отдельная служба WARP открыла instance main"
     return 0
 }
 
@@ -290,12 +291,12 @@ _z2k_ow_warp_dispatch() {
     case "${1:-}" in
         1)
             if warp_wanted_boot; then
-                _warp_controller event rules || {
-                    _wlog "не удалось применить состояние WARP перед запуском procd"
-                    return 1
+                [ -x "$WARP_INIT" ] || {
+                    _wlog "отдельная procd-служба WARP отсутствует"
+                    return 0
                 }
-                warp_start_instance || {
-                    _wlog "procd не принял instance WARP"
+                "$WARP_INIT" start || {
+                    _wlog "procd не принял отдельную службу WARP"
                     return 1
                 }
             else
@@ -310,6 +311,7 @@ _z2k_ow_warp_dispatch() {
         0)
             # WARP опционален: остановка z2k не зависит от отсутствующего
             # Rust-компонента, когда WARP не установлен для этой системы.
+            if [ -x "$WARP_INIT" ]; then "$WARP_INIT" stop || return 1; fi
             [ -x "${WARP_CONTROLLER_BIN:-}" ] || return 0
             _warp_controller event stop
             ;;
@@ -319,8 +321,15 @@ _z2k_ow_warp_dispatch() {
             fi
             _warp_controller event rules
             ;;
+        startup-reconcile)
+            if command -v z2k_ow_core_ready >/dev/null 2>&1; then
+                z2k_ow_core_ready || return 0
+            fi
+            _warp_controller startup-reconcile
+            ;;
         proc-bounce) _warp_controller event proc-bounce ;;
         cleanup)
+            if [ -x "$WARP_INIT" ]; then "$WARP_INIT" stop || return 1; fi
             [ -x "${WARP_CONTROLLER_BIN:-}" ] || return 0
             _warp_controller event cleanup
             ;;
@@ -341,7 +350,7 @@ _z2k_ow_warp_dispatch() {
         ipset) shift; warp_ipset "$@" ;;
         migrate) warp_migrate ;;
         *)
-            echo "использование: z2k_ow_warp {1|0|rules|proc-bounce|cleanup|check|install|enable|disable|remove|restart|license|status|selfheal|reload-lists|ipset|migrate}" >&2
+            echo "использование: z2k_ow_warp {1|0|rules|startup-reconcile|proc-bounce|cleanup|check|install|enable|disable|remove|restart|license|status|selfheal|reload-lists|ipset|migrate}" >&2
             return 1
             ;;
     esac

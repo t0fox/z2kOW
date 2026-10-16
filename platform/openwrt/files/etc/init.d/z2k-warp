@@ -1,0 +1,82 @@
+#!/bin/sh /etc/rc.common
+# Отдельный владелец procd instance z2k-warpd для OpenWrt WARP.
+
+USE_PROCD=1
+START=23
+STOP=89
+
+Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
+Z2K_ADAPTER_DIR="${Z2K_ADAPTER_DIR:-$Z2K_ROOT/platform/openwrt}"
+
+z2k_warp_load() {
+    # shellcheck disable=SC1090,SC1091
+    . "$Z2K_ADAPTER_DIR/paths.sh" || return 1
+    . "$Z2K_ADAPTER_DIR/arch.sh" || return 1
+    . "$Z2K_ADAPTER_DIR/env.sh" || return 1
+    Z2K_WARP_SOURCE_ONLY=1
+    export Z2K_WARP_SOURCE_ONLY
+    # shellcheck disable=SC1090,SC1091
+    . "$Z2K_ADAPTER_DIR/warp.sh" || return 1
+    return 0
+}
+
+service_triggers() {
+    procd_add_reload_trigger network firewall
+}
+
+start_service() {
+    z2k_warp_load || return 1
+    [ -x "$WARP_CONTROLLER_BIN" ] || return 0
+
+    warp_wanted_boot
+    _boot_rc=$?
+    if [ "$_boot_rc" = 0 ]; then
+        _warp_controller procd-legacy-warp-remove || {
+            _wlog "не удалось безопасно удалить прежний вложенный WARP instance"
+            return 1
+        }
+        _warp_controller event rules || {
+            _wlog "не удалось подготовить правила WARP до старта туннеля"
+            return 1
+        }
+        warp_start_instance
+        return $?
+    fi
+
+    if [ "$_boot_rc" = 2 ]; then
+        _wlog "состояние WARP при запуске не подтверждено; запуск отложен"
+        return 0
+    fi
+    _warp_controller event stop || return 1
+    _warp_controller procd-legacy-warp-remove
+}
+
+warp_startup_reconcile() {
+    # Вызов конечен и работает только при загрузке без активной операции панели.
+    [ -e "$WARP_OP_FILE" ] && return 0
+    (
+        _warp_controller startup-reconcile >/dev/null 2>&1
+    ) </dev/null >/dev/null 2>&1 &
+    return 0
+}
+
+service_started() {
+    z2k_warp_load || return 1
+    [ -x "$WARP_CONTROLLER_BIN" ] || return 0
+    warp_startup_reconcile
+}
+
+stop_service() {
+    z2k_warp_load || return 0
+    [ -x "$WARP_CONTROLLER_BIN" ] || return 0
+    _warp_controller event stop
+}
+
+reload_service() {
+    z2k_warp_load || return 1
+    [ -x "$WARP_CONTROLLER_BIN" ] || return 0
+    _health_rc=0
+    _warp_controller health-check || _health_rc=$?
+    warp_startup_reconcile
+    return "$_health_rc"
+}

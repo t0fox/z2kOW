@@ -21,14 +21,19 @@ NFT_EXEC_DISABLED=0
 # iproute2 возвращает status 2, когда таблица ещё не создана. Это пустое
 # состояние; ошибки чтения или вывода должны оставаться ошибками теста.
 ip_routes_989() {
-    local _routes _status
+    local _routes _status _missing_table
     if _routes=$(ip -4 route show table 989 2>&1); then
         [ -n "$_routes" ] && printf '%s\n' "$_routes"
         return 0
     else
         _status=$?
     fi
-    if [ "$_status" -eq 2 ] && [ "$_routes" = 'Error: ipv4: FIB table does not exist.' ]; then
+    _missing_table="$(printf '%s\n' \
+        'Error: ipv4: FIB table does not exist.' 'Dump terminated')"
+    if [ "$_status" -eq 2 ] && {
+        [ "$_routes" = 'Error: ipv4: FIB table does not exist.' ] ||
+            [ "$_routes" = "$_missing_table" ]
+    }; then
         return 0
     fi
     printf '%s\n' "$_routes" >&2
@@ -118,7 +123,7 @@ export WARP_DEVICE="$T/etc/state/warp/device.json"
 export WARP_CONTROLLER_BIN="$BIN" WARP_DOMAIN_RUNTIME_BIN="$T/z2k-warpd"
 export WARP_DOMAIN_HELPER="$HELPER" WARP_DOMAIN_FILTER=/tmp/z2k-warp/z2k-warp-list-filter.awk
 export WARP_LOCK_DIR="$T/tmp/warp/mutate.lock" Z2K_WARP_LOCK_DIR="$T/tmp/warp/mutate.lock"
-export Z2K_INIT="$T/missing-init" Z2K_WARP_NFT_FAMILY="$NFT_FAMILY"
+export Z2K_WARP_INIT="$T/missing-init" Z2K_WARP_NFT_FAMILY="$NFT_FAMILY"
 export Z2K_WARP_NFT_TABLE="$NFT_TABLE" WARP_FW4_FAMILY=inet WARP_FW4_TABLE=fw4
 export WARP_FW4_CHAIN=forward WARP_FW4_RULE_COMMENT='!z2k: WARP forwarded traffic'
 export WARP_ROUTE_ERROR_FILE="$T/tmp/warp/route-error"

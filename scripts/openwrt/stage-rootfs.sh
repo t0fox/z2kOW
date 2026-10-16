@@ -69,6 +69,7 @@ for src in "$ROOT"/platform/openwrt/webpanel-brand/*; do
 done
 
 copy_data "$ROOT/platform/openwrt/files/etc/init.d/z2k" etc/init.d/z2k 0755
+copy_data "$ROOT/platform/openwrt/files/etc/init.d/z2k-warp" etc/init.d/z2k-warp 0755
 copy_data "$ROOT/platform/openwrt/files/etc/init.d/z2k-webpanel" etc/init.d/z2k-webpanel 0755
 copy_data "$ROOT/platform/openwrt/files/etc/hotplug.d/iface/90-z2k" etc/hotplug.d/iface/90-z2k 0755
 copy_data "$ROOT/platform/openwrt/files/etc/sysctl.d/99-z2k.conf" etc/sysctl.d/99-z2k.conf

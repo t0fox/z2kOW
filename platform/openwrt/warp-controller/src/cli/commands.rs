@@ -161,8 +161,10 @@ pub(super) fn run_service_plan(args: &mut impl Iterator<Item = String>) -> io::R
         match action {
             lifecycle::ServiceAction::Defer => "defer",
             lifecycle::ServiceAction::None => "none",
+            lifecycle::ServiceAction::Start => "start",
+            lifecycle::ServiceAction::Stop => "stop",
             lifecycle::ServiceAction::Reload => "reload",
-            lifecycle::ServiceAction::Rebuild => "rebuild",
+            lifecycle::ServiceAction::Restart => "restart",
         }
     );
     Ok(())
@@ -809,7 +811,7 @@ pub(super) fn run_disable_state(args: &mut impl Iterator<Item = String>) -> io::
         config: &config,
         route,
     };
-    disable::run(&mut operations)
+    disable::prepare(&mut operations)
 }
 
 struct RuntimeDisableOperations<'a> {

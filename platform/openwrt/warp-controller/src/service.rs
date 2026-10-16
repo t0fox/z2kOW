@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
@@ -27,6 +27,66 @@ use crate::{
     },
     status::Paths,
 };
+
+struct LifecycleTiming {
+    operation_id: String,
+    action: &'static str,
+    diagnostics: bool,
+    started: Instant,
+}
+
+impl LifecycleTiming {
+    fn new(action: &'static str) -> Self {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        Self {
+            operation_id: format!("{}-{timestamp}", std::process::id()),
+            action,
+            diagnostics: env::var("Z2K_WARP_DIAGNOSTICS").as_deref() == Ok("1"),
+            started: Instant::now(),
+        }
+    }
+
+    fn measure<T>(&self, stage: &str, operation: impl FnOnce() -> T) -> T {
+        let started = Instant::now();
+        let result = operation();
+        if self.diagnostics {
+            eprintln!(
+                "WARP_TIMING operation_id={} action={} stage={} duration_ms={}",
+                self.operation_id,
+                self.action,
+                stage,
+                started.elapsed().as_millis()
+            );
+        }
+        result
+    }
+
+    fn finish(&self, result: &io::Result<i32>) {
+        let status = match result {
+            Ok(code) => format!("ok code={code}"),
+            Err(_) => "error".to_owned(),
+        };
+        eprintln!(
+            "WARP_TIMING operation_id={} action={} stage=total duration_ms={} result={}",
+            self.operation_id,
+            self.action,
+            self.started.elapsed().as_millis(),
+            status
+        );
+    }
+}
+
+fn lifecycle_action(intent: crate::lifecycle::ServiceIntent) -> &'static str {
+    match intent {
+        crate::lifecycle::ServiceIntent::Enable => "enable",
+        crate::lifecycle::ServiceIntent::Disable => "disable",
+        crate::lifecycle::ServiceIntent::Remove => "remove",
+        crate::lifecycle::ServiceIntent::Restart => "restart",
+    }
+}
 
 pub fn migrate_lists(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
     if args.next().is_some() {
@@ -124,14 +184,189 @@ pub fn user_lifecycle(args: &mut impl Iterator<Item = String>) -> io::Result<i32
         return Err(invalid("лишние аргументы lifecycle"));
     }
 
+    let timing = LifecycleTiming::new(lifecycle_action(intent));
     let operation = operation_path();
     let pid = std::process::id();
-    crate::operation::begin(&operation, pid)?;
-    let result = run_user_lifecycle(intent, pid);
-    match crate::operation::clear_if_owner(&operation, pid) {
-        Ok(_) => result,
-        Err(error) if result.is_ok() => Err(error),
-        Err(_) => result,
+    let result = match timing.measure("operation_begin", || {
+        crate::operation::begin(&operation, pid)
+    }) {
+        Ok(()) => {
+            let result = run_user_lifecycle(intent, pid, &timing);
+            match timing.measure("operation_clear", || {
+                crate::operation::clear_if_owner(&operation, pid)
+            }) {
+                Ok(_) => result,
+                Err(error) if result.is_ok() => Err(error),
+                Err(_) => result,
+            }
+        }
+        Err(error) => Err(error),
+    };
+    timing.finish(&result);
+    result
+}
+
+pub fn procd_legacy_warp_remove(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы procd-legacy-warp-remove"));
+    }
+
+    let paths = Paths::from_env();
+    let _lock = acquire_lock()?;
+    remove_legacy_procd_instance(&paths)
+}
+
+fn remove_legacy_procd_instance(paths: &Paths) -> io::Result<()> {
+    let Some(registry) = query_service_registry()? else {
+        return Ok(());
+    };
+    if !legacy_warp_instance_registered(&registry) {
+        return Ok(());
+    }
+
+    remove_routes(paths)?;
+    let all_pids = known_warp_pids(paths)?;
+    let pids = match legacy_warp_instance_pid(&registry) {
+        Some(pid) => all_pids
+            .into_iter()
+            .filter(|current| current == &pid)
+            .collect(),
+        None if new_warp_instance_registered(&registry) && !all_pids.is_empty() => {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "нельзя отличить PID старого WARP от новой службы procd",
+            ));
+        }
+        None => all_pids,
+    };
+    let mut deleted = false;
+    for ubus in ["ubus", "/sbin/ubus", "/usr/sbin/ubus"] {
+        let mut command = Command::new(ubus);
+        command.args([
+            "call",
+            "service",
+            "delete",
+            r#"{"name":"z2k","instance":"z2k-warp"}"#,
+        ]);
+        match process::output_with_timeout(&mut command, Duration::from_secs(10)) {
+            Ok(output) if output.status.success() => {
+                deleted = true;
+                break;
+            }
+            Ok(output) => {
+                return Err(io::Error::other(format!(
+                    "procd не удалил старый z2k/z2k-warp instance: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                )));
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    if !deleted {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "не найдена команда ubus для удаления старого WARP instance",
+        ));
+    }
+
+    let registry = query_service_registry()?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "не удалось проверить удаление старого WARP instance через ubus",
+        )
+    })?;
+    if legacy_warp_instance_registered(&registry) {
+        return Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "старый z2k/z2k-warp instance остался в реестре procd",
+        ));
+    }
+
+    let deadline = std::time::Instant::now()
+        + Duration::from_secs(bounded_seconds("WARP_PROC_STOP_WAIT", 5, 60));
+    loop {
+        let active = known_warp_pids(paths)?;
+        if pids
+            .iter()
+            .all(|pid| !active.iter().any(|current| current == pid))
+        {
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "старый z2k-warpd не завершился после удаления procd instance",
+            ));
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+pub fn startup_reconcile(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
+    if args.next().is_some() {
+        return Err(invalid("лишние аргументы startup-reconcile"));
+    }
+    crate::status::require_protocol_v1()?;
+    let paths = Paths::from_env();
+    if config::read_value(&paths.config, "GAME_WARP_ENABLED", "", MatchOrder::First)? != "1" {
+        return Ok(());
+    }
+    let wait = bounded_seconds("WARP_READY_WAIT", 120, 600);
+    let started_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if started_at == 0 {
+        return Ok(());
+    }
+    let pid = std::process::id();
+    let deadline = std::time::Instant::now() + Duration::from_secs(wait);
+    loop {
+        if !operation_is_current(pid) {
+            return Ok(());
+        }
+        let Some(lock) = acquire_lock()? else {
+            return Ok(());
+        };
+        if !operation_is_current(pid)
+            || config::read_value(&paths.config, "GAME_WARP_ENABLED", "", MatchOrder::First)? != "1"
+        {
+            drop(lock);
+            return Ok(());
+        }
+
+        let process = observe_warp_process(&paths.proc_root);
+        if process == ProcessStatus::Present {
+            install_probe_route(&paths);
+        }
+        let (engine, modified) = read_engine_status_snapshot(&paths.status);
+        let iface_present = match &engine {
+            EngineStatus::Ready { iface } if valid_interface(iface) => {
+                let mut command = Command::new("ip");
+                command.args(["link", "show", "dev", iface]);
+                process::output_with_timeout(&mut command, Duration::from_secs(5))
+                    .ok()
+                    .map(|output| output.status.success())
+            }
+            EngineStatus::Ready { .. } => Some(false),
+            EngineStatus::NotReady | EngineStatus::Unreadable => None,
+        };
+        if let RuntimeReadiness::Ready { iface } =
+            health::ready_since(process, engine, iface_present, modified, started_at)
+        {
+            if operation_is_current(pid) {
+                reconcile_ready(&paths, &iface)?;
+            }
+            return Ok(());
+        }
+        drop(lock);
+
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return Ok(());
+        }
+        thread::sleep((deadline - now).min(Duration::from_secs(2)));
     }
 }
 
@@ -162,7 +397,7 @@ pub fn engine_refresh(args: &mut impl Iterator<Item = String>) -> io::Result<i32
             let pids = known_warp_pids(&paths)?;
             terminate_warp_pids(&paths, &pids, bounded_seconds("WARP_PROC_STOP_WAIT", 5, 60))?;
             let wait = bounded_seconds("WARP_PROC_WAIT", 60, 600);
-            match wait_ready_and_reconcile_for(&paths, pid, wait)? {
+            match wait_ready_and_reconcile_for(&paths, pid, wait, None)? {
                 0 => Ok(0),
                 _ => {
                     // Обновление остаётся fail-open: отсутствие ready не должно
@@ -225,10 +460,14 @@ fn terminate_warp_pids(paths: &Paths, pids: &[String], wait_seconds: u64) -> io:
     }
 }
 
-fn run_user_lifecycle(intent: crate::lifecycle::ServiceIntent, pid: u32) -> io::Result<i32> {
-    crate::status::require_protocol_v1()?;
+fn run_user_lifecycle(
+    intent: crate::lifecycle::ServiceIntent,
+    pid: u32,
+    timing: &LifecycleTiming,
+) -> io::Result<i32> {
+    timing.measure("protocol_check", crate::status::require_protocol_v1)?;
     let paths = Paths::from_env();
-    let Some(lock) = acquire_user_lock()? else {
+    let Some(lock) = timing.measure("mutation_lock", acquire_user_lock)? else {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "lifecycle WARP должен владеть mutation lock",
@@ -240,108 +479,206 @@ fn run_user_lifecycle(intent: crate::lifecycle::ServiceIntent, pid: u32) -> io::
     }
 
     match intent {
-        crate::lifecycle::ServiceIntent::Enable => enable(&paths, &mut lock, pid),
-        crate::lifecycle::ServiceIntent::Disable => disable_user(&paths, &mut lock, pid),
-        crate::lifecycle::ServiceIntent::Remove => remove_user(&paths, &mut lock, pid),
-        crate::lifecycle::ServiceIntent::Restart => restart_user(&paths, &mut lock, pid),
+        crate::lifecycle::ServiceIntent::Enable => enable(&paths, &mut lock, pid, timing),
+        crate::lifecycle::ServiceIntent::Disable => disable_user(&paths, &mut lock, pid, timing),
+        crate::lifecycle::ServiceIntent::Remove => remove_user(&paths, &mut lock, pid, timing),
+        crate::lifecycle::ServiceIntent::Restart => restart_user(&paths, &mut lock, pid, timing),
     }
 }
 
-fn enable(paths: &Paths, lock: &mut Option<MutationLock>, pid: u32) -> io::Result<i32> {
-    let was_enabled =
-        config::read_value(&paths.config, "GAME_WARP_ENABLED", "", MatchOrder::First)? == "1";
-    let recovery = recovery_path();
-    let _ = crate::recovery::clear(&recovery);
-    config::set_warp_enabled(&paths.config, "1")?;
-    if !executable(&paths.warp_bin) {
+fn enable(
+    paths: &Paths,
+    lock: &mut Option<MutationLock>,
+    pid: u32,
+    timing: &LifecycleTiming,
+) -> io::Result<i32> {
+    let was_enabled = timing.measure("configuration", || -> io::Result<bool> {
+        let was_enabled =
+            config::read_value(&paths.config, "GAME_WARP_ENABLED", "", MatchOrder::First)? == "1";
+        let _ = crate::recovery::clear(&recovery_path());
+        config::set_warp_enabled(&paths.config, "1")?;
+        if !executable(&paths.warp_bin) {
+            config::set_warp_enabled(&paths.config, "0")?;
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "движок WARP не установлен",
+            ));
+        }
+        unpin_legacy();
+        Ok(was_enabled)
+    })?;
+
+    let registration_ok = timing.measure("registration", || -> io::Result<bool> {
+        match fs::metadata(&paths.device) {
+            Ok(metadata) if metadata.is_file() && metadata.len() > 0 => {}
+            Ok(_) => {
+                if register_engine(paths, true).is_err() {
+                    eprintln!(
+                        "идентификатор WARP пока не зарегистрирован; восстановление продолжится в health-check"
+                    );
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                if register_engine(paths, true).is_err() {
+                    eprintln!(
+                        "идентификатор WARP пока не зарегистрирован; восстановление продолжится в health-check"
+                    );
+                }
+            }
+            Err(_) => return Ok(false),
+        }
+        Ok(true)
+    })?;
+    if !registration_ok {
+        return Ok(2);
+    }
+
+    if let Err(error) = timing.measure("nft_list_sync", || sync_sets(paths, true)) {
         config::set_warp_enabled(&paths.config, "0")?;
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "движок WARP не установлен",
+        return Err(error);
+    }
+    let _ = timing.measure("domain_policy", || apply_domain_policy(paths));
+    if let Err(error) = timing.measure("mark_sync", || sync_mark(paths, true)) {
+        config::set_warp_enabled(&paths.config, "0")?;
+        return Err(error);
+    }
+
+    let process = observe_warp_process(&paths.proc_root);
+    if process == ProcessStatus::Unreadable {
+        return Ok(2);
+    }
+    if let Some(code) = timing.measure("procd_transition", || {
+        transition_service(
+            crate::lifecycle::ServiceIntent::Enable,
+            was_enabled,
+            lock,
+            pid,
+        )
+    })? {
+        return Ok(code);
+    }
+    wait_ready_and_reconcile(paths, pid, timing)
+}
+
+fn disable_user(
+    paths: &Paths,
+    lock: &mut Option<MutationLock>,
+    pid: u32,
+    timing: &LifecycleTiming,
+) -> io::Result<i32> {
+    let process = observe_warp_process(&paths.proc_root);
+    if process == ProcessStatus::Unreadable {
+        return Ok(2);
+    }
+    timing.measure("nft_cleanup", || run_disable_state(paths))?;
+    let transition = timing.measure("procd_transition", || {
+        transition_service(crate::lifecycle::ServiceIntent::Disable, false, lock, pid)
+    });
+    match transition {
+        Ok(Some(3)) => return Ok(3),
+        Ok(Some(_)) => {
+            return Err(disable_failure(
+                paths,
+                "warp-disable-procd-state-unknown",
+                io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "состояние службы WARP не подтверждено; выключение отложено",
+                ),
+            ));
+        }
+        Err(error) => {
+            return Err(disable_failure(
+                paths,
+                "warp-disable-procd-stop-failed",
+                error,
+            ));
+        }
+        Ok(None) => {}
+    }
+
+    let process = timing.measure("process_stop_wait", || wait_for_warp_process_stop(paths));
+    match process {
+        ProcessStatus::Absent => {}
+        ProcessStatus::Present => {
+            return Err(disable_failure(
+                paths,
+                "warp-disable-process-still-running",
+                io::Error::other("после stop службы WARP процесс z2k-warpd всё ещё работает"),
+            ));
+        }
+        ProcessStatus::Unreadable => {
+            return Err(disable_failure(
+                paths,
+                "warp-disable-process-state-unknown",
+                io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "после stop службы WARP состояние процесса z2k-warpd не подтверждено",
+                ),
+            ));
+        }
+    }
+
+    if let Err(error) = timing.measure("pbr_cleanup", || remove_routes(paths)) {
+        return Err(disable_failure(paths, "warp-disable-pbr-remains", error));
+    }
+    if let Err(error) = timing.measure("runtime_marker_cleanup", || {
+        remove_runtime_marker("WARP_PROCD_INSTANCE_FILE", "/tmp/z2k/warp/procd-instance")
+    }) {
+        return Err(disable_failure(
+            paths,
+            "warp-disable-marker-remove-failed",
+            error,
+        ));
+    }
+    let _ = crate::recovery::clear(&recovery_path());
+    if let Err(error) = timing.measure("configuration", || {
+        config::set_warp_enabled(&paths.config, "0")
+    }) {
+        return Err(disable_failure(
+            paths,
+            "warp-disable-config-commit-failed",
+            error,
         ));
     }
     unpin_legacy();
-
-    match fs::metadata(&paths.device) {
-        Ok(metadata) if metadata.is_file() && metadata.len() > 0 => {}
-        Ok(_) => {
-            if register_engine(paths, true).is_err() {
-                eprintln!(
-                    "идентификатор WARP пока не зарегистрирован; восстановление продолжится в health-check"
-                );
-            }
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            if register_engine(paths, true).is_err() {
-                eprintln!(
-                    "идентификатор WARP пока не зарегистрирован; восстановление продолжится в health-check"
-                );
-            }
-        }
-        Err(_) => return Ok(2),
-    }
-
-    if let Err(error) = sync_sets(paths, true) {
-        config::set_warp_enabled(&paths.config, "0")?;
-        return Err(error);
-    }
-    let _ = apply_domain_policy(paths);
-    if let Err(error) = sync_mark(paths, true) {
-        config::set_warp_enabled(&paths.config, "0")?;
-        return Err(error);
-    }
-
-    let process = observe_warp_process(&paths.proc_root);
-    if process == ProcessStatus::Unreadable {
-        return Ok(2);
-    }
-    if let Some(code) = transition_service(
-        crate::lifecycle::ServiceIntent::Enable,
-        was_enabled,
-        process,
-        lock,
-        pid,
-    )? {
-        return Ok(code);
-    }
-    wait_ready_and_reconcile(paths, pid)
+    Ok(0)
 }
 
-fn disable_user(paths: &Paths, lock: &mut Option<MutationLock>, pid: u32) -> io::Result<i32> {
-    let process = observe_warp_process(&paths.proc_root);
-    if process == ProcessStatus::Unreadable {
-        return Ok(2);
+fn wait_for_warp_process_stop(paths: &Paths) -> ProcessStatus {
+    // Реальный QEMU stop занял 46,97 с; ждём до минуты после асинхронного возврата procd.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let process = observe_warp_process(&paths.proc_root);
+        if matches!(process, ProcessStatus::Absent) || Instant::now() >= deadline {
+            return process;
+        }
+        thread::sleep(Duration::from_millis(100));
     }
-    run_disable_state(paths)?;
-    remove_runtime_marker("WARP_PROCD_INSTANCE_FILE", "/tmp/z2k/warp/procd-instance")?;
-    let _ = crate::recovery::clear(&recovery_path());
-    unpin_legacy();
+}
 
-    if let Some(code) = transition_service(
-        crate::lifecycle::ServiceIntent::Disable,
-        false,
-        process,
-        lock,
-        pid,
-    )? {
-        return Ok(code);
-    }
-    match observe_warp_process(&paths.proc_root) {
-        ProcessStatus::Absent => Ok(0),
-        ProcessStatus::Present => Err(io::Error::other(
-            "после disable процесс z2k-warpd всё ещё работает",
+fn disable_failure(paths: &Paths, reason: &str, error: io::Error) -> io::Error {
+    match crate::route_error::set(&paths.route_error, reason) {
+        Ok(()) => error,
+        Err(marker_error) => io::Error::other(format!(
+            "{error}; не удалось сохранить причину неполного выключения WARP: {marker_error}"
         )),
-        ProcessStatus::Unreadable => Ok(2),
     }
 }
 
-fn remove_user(paths: &Paths, lock: &mut Option<MutationLock>, pid: u32) -> io::Result<i32> {
-    let result = disable_user(paths, lock, pid)?;
+fn remove_user(
+    paths: &Paths,
+    lock: &mut Option<MutationLock>,
+    pid: u32,
+    timing: &LifecycleTiming,
+) -> io::Result<i32> {
+    let result = disable_user(paths, lock, pid, timing)?;
     if result != 0 || !operation_is_current(pid) {
         return Ok(if result == 0 { 3 } else { result });
     }
-    event_stop(paths, true)?;
-    remove_custom_engine(paths)?;
+    timing.measure("remove_cleanup", || {
+        event_stop(paths, true)?;
+        remove_custom_engine(paths)
+    })?;
     Ok(0)
 }
 
@@ -377,7 +714,12 @@ fn remove_custom_engine(paths: &Paths) -> io::Result<()> {
     Ok(())
 }
 
-fn restart_user(paths: &Paths, lock: &mut Option<MutationLock>, pid: u32) -> io::Result<i32> {
+fn restart_user(
+    paths: &Paths,
+    lock: &mut Option<MutationLock>,
+    pid: u32,
+    timing: &LifecycleTiming,
+) -> io::Result<i32> {
     if config::read_value(&paths.config, "GAME_WARP_ENABLED", "", MatchOrder::First)? != "1" {
         return Ok(0);
     }
@@ -386,26 +728,30 @@ fn restart_user(paths: &Paths, lock: &mut Option<MutationLock>, pid: u32) -> io:
         return Ok(2);
     }
     let _ = crate::recovery::clear(&recovery_path());
-    remove_routes(paths)?;
-    if let Some(code) = transition_service(
-        crate::lifecycle::ServiceIntent::Restart,
-        true,
-        process,
-        lock,
-        pid,
-    )? {
+    timing.measure("pbr_cleanup", || remove_routes(paths))?;
+    if let Some(code) = timing.measure("procd_transition", || {
+        transition_service(crate::lifecycle::ServiceIntent::Restart, true, lock, pid)
+    })? {
         return Ok(code);
     }
-    wait_ready_and_reconcile(paths, pid)
+    wait_ready_and_reconcile(paths, pid, timing)
 }
 
 fn transition_service(
     intent: crate::lifecycle::ServiceIntent,
     was_enabled: bool,
-    process: ProcessStatus,
     lock: &mut Option<MutationLock>,
     pid: u32,
 ) -> io::Result<Option<i32>> {
+    if lock.is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "миграция WARP требует владения mutation lock",
+        ));
+    }
+    let paths = Paths::from_env();
+    remove_legacy_procd_instance(&paths)?;
+    let process = observe_warp_process(&paths.proc_root);
     let process_running = match process {
         ProcessStatus::Present => true,
         ProcessStatus::Absent => false,
@@ -419,13 +765,15 @@ fn transition_service(
     let service_action = match action {
         crate::lifecycle::ServiceAction::Defer => return Ok(Some(2)),
         crate::lifecycle::ServiceAction::None => return Ok(None),
+        crate::lifecycle::ServiceAction::Start => "start",
+        crate::lifecycle::ServiceAction::Stop => "stop",
         crate::lifecycle::ServiceAction::Reload => "reload",
-        crate::lifecycle::ServiceAction::Rebuild => "restart",
+        crate::lifecycle::ServiceAction::Restart => "restart",
     };
     if lock.take().is_none() {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
-            "нельзя перестроить procd instance без владения mutation lock",
+            "нельзя управлять WARP procd instance без владения mutation lock",
         ));
     }
 
@@ -441,7 +789,7 @@ fn transition_service(
         }
         fs::write(&rebuild_marker, b"")?;
     }
-    let init = env::var_os("Z2K_INIT").unwrap_or_else(|| "/etc/init.d/z2k".into());
+    let init = env::var_os("Z2K_WARP_INIT").unwrap_or_else(|| "/etc/init.d/z2k-warp".into());
     let mut command = Command::new(init);
     command.arg(service_action);
     let action_result = process::output_with_timeout(&mut command, Duration::from_secs(120));
@@ -462,7 +810,7 @@ fn transition_service(
     let action_result = action_result?;
     if !action_result.status.success() {
         return Err(io::Error::other(format!(
-            "procd не подтвердил действие {service_action} для z2k"
+            "procd не подтвердил действие {service_action} службы WARP"
         )));
     }
     if !operation_is_current(pid) {
@@ -471,16 +819,23 @@ fn transition_service(
     Ok(None)
 }
 
-fn wait_ready_and_reconcile(paths: &Paths, pid: u32) -> io::Result<i32> {
+fn wait_ready_and_reconcile(paths: &Paths, pid: u32, timing: &LifecycleTiming) -> io::Result<i32> {
     let wait = env::var("WARP_READY_WAIT")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .filter(|seconds| *seconds > 0 && *seconds <= 600)
         .unwrap_or(120);
-    wait_ready_and_reconcile_for(paths, pid, wait)
+    timing.measure("go_ready_wait", || {
+        wait_ready_and_reconcile_for(paths, pid, wait, Some(timing))
+    })
 }
 
-fn wait_ready_and_reconcile_for(paths: &Paths, pid: u32, wait: u64) -> io::Result<i32> {
+fn wait_ready_and_reconcile_for(
+    paths: &Paths,
+    pid: u32,
+    wait: u64,
+    timing: Option<&LifecycleTiming>,
+) -> io::Result<i32> {
     let started_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -511,7 +866,11 @@ fn wait_ready_and_reconcile_for(paths: &Paths, pid: u32, wait: u64) -> io::Resul
         };
         match health::ready_since(process, engine, iface_present, modified, started_at) {
             RuntimeReadiness::Ready { iface } => {
-                reconcile_ready(paths, &iface)?;
+                if let Some(timing) = timing {
+                    timing.measure("pbr_reconcile", || reconcile_ready(paths, &iface))?;
+                } else {
+                    reconcile_ready(paths, &iface)?;
+                }
                 return Ok(0);
             }
             RuntimeReadiness::NotReady | RuntimeReadiness::Unreadable => {}
@@ -845,6 +1204,7 @@ pub fn event(args: &mut impl Iterator<Item = String>) -> io::Result<()> {
                 &paths,
                 std::process::id(),
                 bounded_seconds("WARP_PROC_WAIT", 60, 600),
+                None,
             )?;
             Ok(())
         }
@@ -1136,9 +1496,9 @@ fn external_proxy(paths: &Paths) -> String {
 
 fn service_state() -> io::Result<Option<bool>> {
     if let Some(value) = query_service_registry()? {
-        return Ok(Some(value.get("z2k").is_some()));
+        return Ok(Some(value.get("z2k-warp").is_some()));
     }
-    let init = env::var_os("Z2K_INIT").unwrap_or_else(|| "/etc/init.d/z2k".into());
+    let init = env::var_os("Z2K_WARP_INIT").unwrap_or_else(|| "/etc/init.d/z2k-warp".into());
     let mut command = Command::new(init);
     command.arg("running");
     match process::output(&mut command) {
@@ -1177,17 +1537,39 @@ fn procd_warp_instance_registered() -> io::Result<bool> {
             "ubus недоступен для проверки WARP instance",
         )
     })?;
-    Ok(contains_key(&value, "z2k-warp"))
+    Ok(new_warp_instance_registered(&value))
 }
 
-fn contains_key(value: &serde_json::Value, key: &str) -> bool {
-    match value {
-        serde_json::Value::Object(object) => {
-            object.contains_key(key) || object.values().any(|value| contains_key(value, key))
-        }
-        serde_json::Value::Array(values) => values.iter().any(|value| contains_key(value, key)),
-        _ => false,
-    }
+fn new_warp_instance_registered(value: &serde_json::Value) -> bool {
+    value
+        .get("z2k-warp")
+        .and_then(|service| service.get("instances"))
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|instances| instances.contains_key("main"))
+}
+
+fn legacy_warp_instance_registered(value: &serde_json::Value) -> bool {
+    value
+        .get("z2k")
+        .and_then(|service| service.get("instances"))
+        .and_then(|instances| instances.get("z2k-warp"))
+        .is_some()
+}
+
+fn legacy_warp_instance_pid(value: &serde_json::Value) -> Option<String> {
+    let pid = value
+        .get("z2k")?
+        .get("instances")?
+        .get("z2k-warp")?
+        .get("pid")?;
+    let pid = pid
+        .as_u64()
+        .map(|pid| pid.to_string())
+        .or_else(|| pid.as_str().map(str::to_owned))?;
+    pid.parse::<u32>()
+        .ok()
+        .filter(|pid| *pid > 0)
+        .map(|pid| pid.to_string())
 }
 
 fn claim_procd_recovery() -> io::Result<bool> {
@@ -1209,11 +1591,11 @@ fn restart_service_if_running() -> io::Result<()> {
         None => {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
-                "состояние службы z2k временно не подтверждено",
+                "состояние службы WARP временно не подтверждено",
             ));
         }
     }
-    let init = env::var_os("Z2K_INIT").unwrap_or_else(|| "/etc/init.d/z2k".into());
+    let init = env::var_os("Z2K_WARP_INIT").unwrap_or_else(|| "/etc/init.d/z2k-warp".into());
     let mut command = Command::new(init);
     command.arg("restart");
     let output = process::output(&mut command)?;
@@ -1221,7 +1603,7 @@ fn restart_service_if_running() -> io::Result<()> {
         Ok(())
     } else {
         Err(io::Error::other(
-            "procd не подтвердил перезапуск службы z2k",
+            "procd не подтвердил перезапуск службы WARP",
         ))
     }
 }

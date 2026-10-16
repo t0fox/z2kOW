@@ -41,7 +41,7 @@ done
 printf '#!/bin/sh\nexit 0\n' > "$STAGE/usr/bin/z2kow"
 printf '#!/bin/sh\nexit 0\n' > "$STAGE/usr/sbin/install_release"
 chmod 755 "$STAGE/usr/bin/z2kow" "$STAGE/usr/sbin/install_release"
-for _svc in z2k z2k-webpanel; do
+for _svc in z2k z2k-warp z2k-webpanel; do
     printf '#!/bin/sh\nexit 0\n' > "$STAGE/etc/init.d/$_svc"
     chmod 755 "$STAGE/etc/init.d/$_svc"
 done
