@@ -22,6 +22,8 @@ service_triggers() {
 Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
 Z2K_ETC="${Z2K_ETC:-/etc/z2k}"
 Z2K_RUN="${Z2K_RUN:-${Z2K_TMP:-/tmp/z2k}/runtime}"
+Z2K_START_LOCK="${Z2K_START_LOCK:-$Z2K_RUN/start.lock}"
+Z2K_START_BOOT_ID_FILE="${Z2K_START_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}"
 
 z2k_load_adapter() {
     # shellcheck disable=SC1090,SC1091
@@ -159,7 +161,81 @@ z2k_install_recovery_ready() {
     return 1
 }
 
-start_service() {
+_z2k_ow_start_lock_acquire() {
+    local _lock="$Z2K_START_LOCK" _boot _owner _owner_boot
+    mkdir -p "$(dirname "$_lock")" || return 1
+    _boot="$(cat "$Z2K_START_BOOT_ID_FILE" 2>/dev/null)"
+    _z2k_ow_start_lock_boot_id_valid "$_boot" || {
+        echo "z2k-openwrt: не удалось определить загрузку для блокировки старта" >&2
+        return 1
+    }
+    if mkdir "$_lock" 2>/dev/null; then
+        if printf '%s\n' "$$" > "$_lock/pid" \
+            && printf '%s\n' "$_boot" > "$_lock/boot-id"; then
+            return 0
+        fi
+        rm -f "$_lock/pid" "$_lock/boot-id" 2>/dev/null || true
+        rmdir "$_lock" 2>/dev/null || true
+        return 1
+    fi
+    [ -d "$_lock" ] && [ ! -L "$_lock" ] || return 1
+    _owner="$(cat "$_lock/pid" 2>/dev/null)"
+    _owner_boot="$(cat "$_lock/boot-id" 2>/dev/null)"
+    case "$_owner" in ''|*[!0-9]*)
+        echo "z2k-openwrt: у блокировки старта нет корректного владельца; запуск отклонён" >&2
+        return 1
+        ;;
+    esac
+    _z2k_ow_start_lock_boot_id_valid "$_owner_boot" || {
+        echo "z2k-openwrt: метаданные блокировки старта неполны; запуск отклонён" >&2
+        return 1
+    }
+    if [ "$_owner_boot" = "$_boot" ] && kill -0 "$_owner" 2>/dev/null; then
+        echo "z2k-openwrt: запуск уже выполняется (PID $_owner); повторный запуск отклонён" >&2
+        return 1
+    fi
+    # Перед очисткой повторно сверяем PID и boot-id владельца.
+    [ "$(cat "$_lock/pid" 2>/dev/null)" = "$_owner" ] \
+        && [ "$(cat "$_lock/boot-id" 2>/dev/null)" = "$_owner_boot" ] || return 1
+    rm -f "$_lock/pid" "$_lock/boot-id" 2>/dev/null || return 1
+    rmdir "$_lock" 2>/dev/null || return 1
+    mkdir "$_lock" 2>/dev/null || return 1
+    if printf '%s\n' "$$" > "$_lock/pid" \
+        && printf '%s\n' "$_boot" > "$_lock/boot-id"; then
+        return 0
+    fi
+    rm -f "$_lock/pid" "$_lock/boot-id" 2>/dev/null || true
+    rmdir "$_lock" 2>/dev/null || true
+    return 1
+}
+
+_z2k_ow_start_lock_boot_id_valid() {
+    case "$1" in ''|*[!0-9a-f-]*) return 1 ;; esac
+    case "$1" in ????????-????-????-????-????????????) return 0 ;; esac
+    return 1
+}
+
+_z2k_ow_start_lock_release() {
+    local _lock="$Z2K_START_LOCK" _boot _owner _owner_boot
+    [ -d "$_lock" ] && [ ! -L "$_lock" ] || return 0
+    _owner="$(cat "$_lock/pid" 2>/dev/null)"
+    _owner_boot="$(cat "$_lock/boot-id" 2>/dev/null)"
+    _boot="$(cat "$Z2K_START_BOOT_ID_FILE" 2>/dev/null)"
+    [ "$_owner" = "$$" ] && [ -n "$_boot" ] && [ "$_owner_boot" = "$_boot" ] || return 0
+    rm -f "$_lock/pid" "$_lock/boot-id" 2>/dev/null || return 1
+    rmdir "$_lock" 2>/dev/null
+}
+
+_z2k_ow_start_lock_is_owner() {
+    local _lock="$Z2K_START_LOCK" _boot _owner_boot
+    [ -d "$_lock" ] && [ ! -L "$_lock" ] || return 1
+    [ "$(cat "$_lock/pid" 2>/dev/null)" = "$$" ] || return 1
+    _owner_boot="$(cat "$_lock/boot-id" 2>/dev/null)"
+    _boot="$(cat "$Z2K_START_BOOT_ID_FILE" 2>/dev/null)"
+    [ -n "$_boot" ] && [ "$_owner_boot" = "$_boot" ]
+}
+
+_z2k_ow_start_service_impl() {
     z2k_install_recovery_ready || return 1
     z2k_load_adapter || return 1
     # If reboot interrupted a temporary benchmark transaction, restore its
@@ -279,13 +355,28 @@ start_service() {
     return 0
 }
 
+# rc.common может получить вложенный start из hook/службы во время старта.
+# Блокировка делает такой повтор безвредным: второй экземпляр завершается до
+# UCI, firewall и регистрации procd; SIGKILL оставляет PID для безопасного reap.
+start_service() {
+    local _start_rc
+    _z2k_ow_start_lock_acquire || return 1
+    if _z2k_ow_start_service_impl "$@"; then
+        return 0
+    else
+        _start_rc=$?
+    fi
+    _z2k_ow_start_lock_release || echo "z2k-openwrt: не удалось снять блокировку неудачного старта" >&2
+    return "$_start_rc"
+}
+
 # service_started: вызывает rc.common ПОСЛЕ commit в procd (см. /etc/rc.common:
 # start() { rc_procd start_service; ...; service_started; }), и — в отличие от
 # start_service — его rc ПРОБРАСЫВАЕТСЯ в rc `init start` и дальше в job.
 # Здесь — всё, что требует ЖИВЫХ процессов: consumer → TG → RT verify →
 # core-ready ПОСЛЕДНИМ. Провал: loud + best-effort teardown + return 1
 # (job nonzero, ready отсутствует, degraded виден).
-service_started() {
+_z2k_ow_service_started_impl() {
     z2k_load_adapter >/dev/null 2>&1 || return 1
     # shellcheck disable=SC1090
     [ -f "$Z2K_CONFIG" ] && . "$Z2K_CONFIG"
@@ -326,6 +417,26 @@ service_started() {
         ( sh "$Z2K_ROOT/platform/openwrt/tcp16-check.sh" ) </dev/null >/dev/null 2>&1 &
     fi
     return 0
+}
+
+service_started() {
+    local _started_rc
+    if [ -e "$Z2K_START_LOCK" ] || [ -L "$Z2K_START_LOCK" ]; then
+        _z2k_ow_start_lock_is_owner || {
+            echo "z2k-openwrt: post-start другого запуска отклонён" >&2
+            return 1
+        }
+    fi
+    if _z2k_ow_service_started_impl "$@"; then
+        _started_rc=0
+    else
+        _started_rc=$?
+    fi
+    _z2k_ow_start_lock_release || {
+        echo "z2k-openwrt: не удалось снять блокировку старта" >&2
+        [ "$_started_rc" -ne 0 ] || _started_rc=1
+    }
+    return "$_started_rc"
 }
 
 stop_service() {

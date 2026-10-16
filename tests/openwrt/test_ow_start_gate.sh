@@ -304,4 +304,51 @@ _us=$(cat "$T/usleep.count" 2>/dev/null || echo 0)
 [ "$_us" -ge 3 ] && _t_ok || _t_bad "readiness: usleep polls=$_us"
 kill "$_BG" 2>/dev/null
 
+# --- 8. повторный start из pre-spawn hook не повторяет транзакцию ---
+# Блокировка захватывается до bootstrap и остаётся до проверки готовности.
+z2k_ow_warp() {
+    echo "warp:$1" >> "$T/calls"
+    if [ "$1" = "1" ] && [ -f "$T/reenter-start" ] && [ ! -f "$T/reenter-fired" ]; then
+        : > "$T/reenter-fired"
+        start_service >/dev/null 2>&1
+        echo "nested-start-rc=$?" >> "$T/calls"
+    fi
+    return 0
+}
+: > "$T/reenter-start"
+_run
+assert_contains "вложенный запуск отклонён" "$T/calls" "nested-start-rc=1"
+[ "$(grep -c '^boot$' "$T/calls")" = 1 ] && _t_ok || _t_bad "вложенный запуск повторил bootstrap"
+[ "$(grep -c '^fw:apply$' "$T/calls")" = 1 ] && _t_ok || _t_bad "вложенный запуск повторил применение nftables"
+rm -f "$T/reenter-start" "$T/reenter-fired"
+
+# --- 9. параллельный запуск отклоняется до первой мутации ---
+# Во время установки журнал содержал более ста вложенных start, пока первый
+# запуск ещё настраивал dataplane. Владелец блокировки должен остановить второй.
+sleep 60 & _LOCK_OWNER=$!
+mkdir -p "$T/run/start.lock"
+printf '%s\n' "$_LOCK_OWNER" > "$T/run/start.lock/pid"
+cat /proc/sys/kernel/random/boot_id > "$T/run/start.lock/boot-id"
+mv "$T/run/start.lock/boot-id" "$T/start-lock-boot-id.saved"
+: > "$T/calls"
+start_service >/dev/null 2>&1
+assert_eq "неполное чтение блокировки отклоняет запуск" "1" "$?"
+[ -d "$T/run/start.lock" ] && [ ! -s "$T/calls" ] && _t_ok || _t_bad "ошибка чтения сняла активную блокировку или изменила службы"
+mv "$T/start-lock-boot-id.saved" "$T/run/start.lock/boot-id"
+: > "$T/calls"
+start_service >/dev/null 2>&1
+_rc=$?
+assert_eq "параллельный запуск отклонён" "1" "$_rc"
+[ ! -s "$T/calls" ] && _t_ok || _t_bad "параллельный запуск изменил состояние служб"
+: > "$T/run/starting"
+Z2K_START_CONSUMER_TIMEOUT=1 service_started >/dev/null 2>&1
+assert_eq "параллельный post-start отклонён" "1" "$?"
+[ -f "$T/run/starting" ] && _t_ok || _t_bad "параллельный post-start удалил маркер активного запуска"
+kill -9 "$_LOCK_OWNER" 2>/dev/null
+wait "$_LOCK_OWNER" 2>/dev/null || true
+_z2k_ow_start_lock_acquire
+assert_eq "устаревшая блокировка очищена после SIGKILL" "0" "$?"
+_z2k_ow_start_lock_release
+[ ! -e "$T/run/start.lock" ] && _t_ok || _t_bad "блокировка старта осталась после восстановления владельца"
+
 _t_done
