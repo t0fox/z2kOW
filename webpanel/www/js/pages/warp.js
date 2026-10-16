@@ -41,8 +41,11 @@ function warpActing() { return !!_warpJob || _warpReqs > 0; }
 // с логом у этих действий нет, а причина нужна сразу. Рамки и отметки
 // времени обёртки задачи (svc_action_async) пропускаются.
 function jobReason(d) {
-  const lines = String((d && d.log) || "").split("\n").map(l => l.trim())
-    .filter(l => l && !/^─+$/.test(l) && !/^\[\d\d:\d\d:\d\d\]/.test(l));
+  const lines = String((d && d.log) || "").split("\n")
+    .map(l => l.trim().replace(/^@z2k-ts:\d+\|/, ""))
+    .filter(l => l && !/^─+$/.test(l) && !/^\[\d\d:\d\d:\d\d\]/.test(l)
+      && !/^Итог: .* — ошибка выполнения, код \d+/.test(l)
+      && !/^Завершено с кодом \d+$/.test(l));
   return lines.length ? lines[lines.length - 1].replace(/^\[z2k-warp\]\s*/, "") : "причина в логе задачи";
 }
 

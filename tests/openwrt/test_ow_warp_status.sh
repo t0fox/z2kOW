@@ -27,6 +27,7 @@ export CONFIG_FILE="$T/etc/config" WARP_BIN="$T/root/bin/z2k-warpd"
 export WARP_DEVICE="$T/etc/state/warp/device.json"
 export WARP_STATUS="$T/tmp/warp/status.json" WARP_LOG="$T/tmp/warp/warpd.log"
 export WARP_PBR_OWNER="$T/tmp/warp/pbr.owner" WARP_PROBE_OWNER="$T/tmp/warp/probe-route.owner" Z2K_PROC_ROOT="$T/proc"
+export WARP_LOCK_DIR="$T/tmp/warp/mutate.lock"
 export WARP_LISTS_DIR="$T/etc/user-lists/warp" WARP_GAMES_DIR="$T/root/lists/warp"
 export WARP_ENABLED_FILE="$T/etc/user-lists/warp/.enabled"
 export WARP_DEVICES_FILE="$T/etc/user-lists/warp/devices.txt"
@@ -321,5 +322,21 @@ _out="$(warp_status)"
 printf '%s\n' "$_out" > "$T/status-domain-active.log"
 assert_contains "observer rule count survives status projection" "$T/status-domain-active.log" "domain_rules=1"
 assert_contains "active observer is not reported unavailable" "$T/status-domain-active.log" "domain_active=1"
+
+# Отсутствующий procd init — ошибка установки. Включение должно сообщить о ней
+# до записи желаемого состояния и любых изменений nftables.
+printf 'GAME_WARP_ENABLED=0\n' > "$T/etc/config"
+rm -rf "$T/proc/7777"
+Z2K_WARP_INIT="$T/bin/missing-z2k-warp-init"; export Z2K_WARP_INIT
+: > "$T/nft.log"
+_out="$(warp_enable 2>&1)"; _rc=$?
+if [ "$_rc" -ne 0 ] \
+    && [ "$(grep -m1 '^GAME_WARP_ENABLED=' "$T/etc/config" | cut -d= -f2)" = 0 ] \
+    && printf '%s\n' "$_out" | grep -q 'служба procd WARP' \
+    && [ ! -s "$T/nft.log" ]; then
+    _t_ok
+else
+    _t_bad "отсутствующая procd-служба не оставила включённый флаг и не меняла nft: rc=$_rc config=$(cat "$T/etc/config") nft=$(cat "$T/nft.log") output=$_out"
+fi
 
 _t_done

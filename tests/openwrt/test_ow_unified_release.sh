@@ -412,6 +412,31 @@ else
     _t_bad "legacy full migration to $_CURRENT_TAG retires old strategy telemetry without losing release state: rc=$_rc checks=$_state_ok/$_identity_ok/$_old_ok/$_telemetry_ok/$_version_ok/$_config_ok state=$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null) old=$(test -e "$SYS/usr/lib/z2k/legacy.txt" && echo present || echo absent) uploader=$(test -e "$SYS/usr/lib/z2k/z2k-stats-upload.sh" && echo present || echo absent) version=$(cat "$SYS/usr/lib/z2k/version.txt" 2>/dev/null) config=$(cat "$SYS/etc/z2k/config" 2>/dev/null) output=$_out"
 fi
 
+# Установщик может запуститься из версии, в карте владения которой ещё нет
+# новой procd-службы. Init WARP из архива всё равно должен установиться.
+mkdir -p "$T/legacy-adapter"
+for _adapter_entry in "$REPO/platform/openwrt"/*; do
+    _adapter_name=${_adapter_entry##*/}
+    [ "$_adapter_name" = owned-paths.txt ] && continue
+    ln -s "$_adapter_entry" "$T/legacy-adapter/$_adapter_name"
+done
+grep -Fvx '/etc/init.d/z2k-warp' "$REPO/platform/openwrt/owned-paths.txt" \
+    > "$T/legacy-adapter/owned-paths.txt"
+rm -f "$SYS/etc/init.d/z2k-warp"
+_legacy_warp_out="$( (
+    Z2K_ADAPTER_DIR="$T/legacy-adapter"
+    export Z2K_ADAPTER_DIR
+    z2k_ow_install_release "$_CURRENT_TAG"
+) 2>&1)"; _legacy_warp_rc=$?
+if [ "$_legacy_warp_rc" -eq 0 ] \
+    && ! printf '%s\n' "$_legacy_warp_out" | grep -q "^none $_CURRENT_TAG$" \
+    && [ -f "$SYS/etc/init.d/z2k-warp" ] \
+    && [ -s "$SYS/etc/init.d/z2k-warp" ] && [ -x "$SYS/etc/init.d/z2k-warp" ]; then
+    _t_ok
+else
+    _t_bad "повторная установка восстанавливает WARP procd init, даже если список старого релиза его не знает: rc=$_legacy_warp_rc output=$_legacy_warp_out"
+fi
+
 # Same-version hotfix должен применяться обычным install_release(tag)
 # по новому SHA-256 payload и не менять пользовательский tag/seq.
 _initial_install_output="$_out"

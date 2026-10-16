@@ -436,7 +436,12 @@ z2k_ow_archive_safe() {
 z2k_ow_owned_paths() {
     _owned="${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/owned-paths.txt"
     [ -r "$_owned" ] || return 1
-    cat "$_owned"
+    cat "$_owned" || return 1
+    # Старый установщик мог обновить карту владения, не зная о новой службе.
+    # WARP init входит в каждый полный OpenWrt payload и всегда должен
+    # участвовать в проверке, установке и откате.
+    grep -Fqx '/etc/init.d/z2k-warp' "$_owned" \
+        || printf '%s\n' '/etc/init.d/z2k-warp'
 }
 
 z2k_ow_restore_paths() {
@@ -1715,7 +1720,7 @@ _z2k_ow_install_release_locked() {
             || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     else
         z2k_ow_install_progress "Заранее проверяю место для архива, распаковки и отката"
-        z2k_ow_overlay_preflight "$_archive" "$_target_arch" "$_adapter/owned-paths.txt" \
+        z2k_ow_overlay_preflight "$_archive" "$_target_arch" "$_paths" \
             "$_work/archive-list" "$_work" "$_stage" \
             || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     fi
@@ -1731,7 +1736,7 @@ _z2k_ow_install_release_locked() {
             || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     else
         z2k_ow_install_progress "Повторно проверяю место после установки системных зависимостей"
-        z2k_ow_overlay_preflight "$_archive" "$_target_arch" "$_adapter/owned-paths.txt" \
+        z2k_ow_overlay_preflight "$_archive" "$_target_arch" "$_paths" \
             "$_work/archive-list" "$_work" "$_stage" \
             || { z2k_ow_cleanup_install_workspace "$_work" "$_tmp_work"; return 1; }
     fi

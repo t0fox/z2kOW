@@ -1219,6 +1219,7 @@ echo "warp-stub:\$*" >> "$T/warp-stub.log"
 case "\$1" in
     status) echo 'installed=1 enabled=0 ready=0 transport= endpoint= iface= addr= entries=0 devices=1 error= mem=0 wdtt=0' ;;
     ipset) [ ! -f "$T/fail-warp-ipset" ] ;;
+    enable) echo 'z2k-warp-controller: служба procd WARP не найдена: /etc/init.d/z2k-warp' >&2; exit 1 ;;
     *) exit 0 ;;
 esac
 EOF
@@ -1233,6 +1234,17 @@ for _wa in install remove; do
     _poll_job_ok "$_jid" "warp $_wa"
 done
 assert_contains "warp: стаб вызывался" "$T/warp-stub.log" "warp-stub:install"
+printf 'value=1\n' > "$T/body.txt"
+RAW="$(_cgi POST /toggle/game-warp "" "$T/body.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "warp enable failure: job выдан" "true" "$(_jget "$OUT" 'd["ok"]')"
+_jid="$(_jget "$OUT" 'd["job"]')"
+JOB_IDS="$JOB_IDS $_jid"
+_job="$(_poll_job "$_jid")"
+printf '%s\n' "$_job" > "$T/warp-enable-failed-job.json"
+assert_contains "warp enable failure: причина procd сохранена" \
+    "$T/warp-enable-failed-job.json" "служба procd WARP не найдена"
+assert_not_contains "warp enable failure: нет ложного сообщения об отсутствии WARP" \
+    "$T/warp-enable-failed-job.json" "WARP не установлен — нажмите"
 mv "$T/etc/state/warp/device.json" "$T/device.json.bak"
 RAW="$(_cgi POST /warp/reregister)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
 assert_eq "warp reregister: job выдан" "true" "$(_jget "$OUT" 'd["ok"]')"

@@ -495,15 +495,17 @@ fn enable(
     let was_enabled = timing.measure("configuration", || -> io::Result<bool> {
         let was_enabled =
             config::read_value(&paths.config, "GAME_WARP_ENABLED", "", MatchOrder::First)? == "1";
-        let _ = crate::recovery::clear(&recovery_path());
-        config::set_warp_enabled(&paths.config, "1")?;
         if !executable(&paths.warp_bin) {
-            config::set_warp_enabled(&paths.config, "0")?;
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 "движок WARP не установлен",
             ));
         }
+        if !was_enabled {
+            require_warp_init()?;
+        }
+        let _ = crate::recovery::clear(&recovery_path());
+        config::set_warp_enabled(&paths.config, "1")?;
         unpin_legacy();
         Ok(was_enabled)
     })?;
@@ -558,6 +560,31 @@ fn enable(
         return Ok(code);
     }
     wait_ready_and_reconcile(paths, pid, timing)
+}
+
+fn require_warp_init() -> io::Result<()> {
+    let init = env::var_os("Z2K_WARP_INIT").unwrap_or_else(|| "/etc/init.d/z2k-warp".into());
+    let path = Path::new(&init);
+    let metadata = fs::metadata(path).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("служба procd WARP не найдена: {}", path.display()),
+            )
+        } else {
+            error
+        }
+    })?;
+    if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "служба procd WARP не является исполняемым файлом: {}",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn disable_user(
