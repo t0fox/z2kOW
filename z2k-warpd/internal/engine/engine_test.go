@@ -134,7 +134,7 @@ func TestДиагностикаПоказываетЭтапыЗапускаСО�
 				if operationID == "" {
 					operationID = current
 				} else if current != operationID {
-			t.Fatalf("идентификатор операции в замерах изменился: %q затем %q", operationID, current)
+					t.Fatalf("идентификатор операции в замерах изменился: %q затем %q", operationID, current)
 				}
 			}
 			if strings.HasPrefix(field, "stage=") {
