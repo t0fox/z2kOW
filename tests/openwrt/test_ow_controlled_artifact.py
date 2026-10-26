@@ -406,8 +406,43 @@ class ControlledArtifactTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), target_commit)
 
+    def test_historical_product_release_can_precede_a_newer_pending_upstream_release(self) -> None:
+        target_commit = "9fafc758d48e52a845efd48c839d1051e5c60b78"
+        branch_commit = "e5d9850802174e6098687f09945cace33afe3a8c"
+        target = {
+            "branch": "z2k-enhanced",
+            "current": "p-86.24",
+            "seq": 149,
+            "history": [{"v": "p-86.22"}, {"v": "p-86.23"}, {"v": "r-86.6"}, {"v": "p-86.24"}],
+        }
+        live = {
+            "branch": "z2k-enhanced",
+            "current": "r-87",
+            "seq": 150,
+            "history": [
+                {"v": "p-86.22"}, {"v": "p-86.23"}, {"v": "r-86.6"},
+                {"v": "p-86.24"}, {"v": "r-87"},
+            ],
+        }
+        skips = {
+            "schema": 1,
+            "skips": [
+                {"tag": "p-86.23", "seq": 147, "status": "not applicable", "reason": "Изменение адаптировано."},
+                {"tag": "r-86.6", "seq": 148, "status": "not applicable", "reason": "Собственная реализация."},
+            ],
+        }
+        refs = (
+            f"{branch_commit}\trefs/heads/z2k-enhanced\n"
+            f"{target_commit}\trefs/tags/p-86.24\n"
+        )
+
+        result = self._verify_upstream_tag(live, target, refs, "p-86.24", 149, skips)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), target_commit)
+
     def test_upstream_product_release_rejects_an_unregistered_or_misnumbered_newer_release(self) -> None:
-        """Запрещает пропускать выпуск без точной записи тега и seq."""
+        """Отклоняет live-историю, где seq не соответствует числу версий после цели."""
         target_commit = "a" * 40
         branch_commit = "b" * 40
         target = {
@@ -418,21 +453,11 @@ class ControlledArtifactTests(unittest.TestCase):
         }
         live = {
             "branch": "z2k-enhanced",
-            "current": "p-86.19",
-            "seq": 143,
-            "history": [{"v": "r-86.5"}, {"v": "p-86.18"}, {"v": "p-86.19"}],
+            "current": "p-86.20",
+            "seq": 145,
+            "history": [{"v": "r-86.5"}, {"v": "p-86.18"}, {"v": "p-86.19"}, {"v": "p-86.20"}],
         }
-        registry = {
-            "schema": 1,
-            "skips": [
-                {
-                    "tag": "p-86.19",
-                    "seq": 142,
-                    "status": "not applicable",
-                    "reason": "Выпуск предназначен для другой платформы.",
-                }
-            ],
-        }
+        registry = {"schema": 1, "skips": []}
         refs = (
             f"{branch_commit}\trefs/heads/z2k-enhanced\n"
             f"{target_commit}\trefs/tags/p-86.18\n"

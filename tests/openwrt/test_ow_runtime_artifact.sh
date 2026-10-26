@@ -14,14 +14,14 @@ trap 'rm -rf "$TMP"' EXIT INT TERM
 _url="$(sed -n 's/^URL=//p' "$ROOT/platform/openwrt/runtime-pin" | head -1)"
 _sha="$(sed -n 's/^SHA256=//p' "$ROOT/platform/openwrt/runtime-pin" | head -1)"
 assert_eq "official upstream archive URL" \
-    "https://github.com/necronicle/zapret2-z2k/releases/download/v1.0.6-z2k-r0/zapret2-v1.0.6-z2k-r0-openwrt-embedded.tar.gz" \
+    "https://github.com/necronicle/zapret2-z2k/releases/download/v1.0.5.2-z2k-r0/zapret2-v1.0.5.2-z2k-r0-openwrt-embedded.tar.gz" \
     "$_url"
 assert_eq "verified upstream archive SHA-256" \
-    "821088de54e2470a3e5999b677f5d24d38f7cb0f1dcede2d5877d3efa45f6453" "$_sha"
+    "02eec373b093083b426c27191bb6af260ac51e4e2739c51270270a351d2a1a16" "$_sha"
 assert_eq "pinned archive bytes match the digest" "$_sha" "$(sha256sum "$ARCHIVE" | awk '{print $1}')"
-assert_eq "pinned archive exact length" "4343580" "$(wc -c < "$ARCHIVE" | tr -d ' ')"
+assert_eq "pinned archive exact length" "4339405" "$(wc -c < "$ARCHIVE" | tr -d ' ')"
 
-_root='zapret2-v1.0.6-z2k-r0'
+_root='zapret2-v1.0.5.2-z2k-r0'
 for _arch in arm arm64 mips mipsel riscv64 x86 x86_64; do
     for _binary in nfqws2 ip2net mdig; do
         tar -tzf "$ARCHIVE" | grep -Fxq "$_root/binaries/linux-$_arch/$_binary" \
@@ -36,7 +36,7 @@ assert_eq "root-run installer digest remains verified" \
 tar -xOzf "$ARCHIVE" "$_root/binaries/linux-x86_64/nfqws2" > "$TMP/nfqws2" || exit 1
 chmod 0755 "$TMP/nfqws2"
 _version="$("$TMP/nfqws2" --version 2>&1)"
-case "$_version" in *"v1.0.6-z2k-r0"*) _t_ok ;; *) _t_bad "host engine reports pinned version: $_version" ;; esac
+case "$_version" in *"v1.0.5.2-z2k-r0"*) _t_ok ;; *) _t_bad "host engine reports pinned version: $_version" ;; esac
 "$TMP/nfqws2" --dry-run --qnum=200 --filter-tcp=443 --filter-l7=tls > "$TMP/dry-run" 2>&1 \
     && grep -q 'command line parameters verified' "$TMP/dry-run" \
     && _t_ok || _t_bad "pinned engine accepts a TLS profile in dry-run mode"

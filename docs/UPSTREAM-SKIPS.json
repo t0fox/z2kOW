@@ -14,12 +14,6 @@
       "reason": "Выпуск переносит собственные VPS-реле и связанные адреса Telegram/WARP. В z2kOW Telegram и WARP реализованы отдельно; VPS-адреса, relay-код и upstream-манифест не переносятся."
     },
     {
-      "tag": "p-86.24",
-      "seq": 149,
-      "status": "not applicable",
-      "reason": "Обновления стратегий, DNS, сторожа движка и Discord fake перенесены в OpenWrt-код и входят в r-87; отдельный выпуск p-86.24 не публикуется."
-    },
-    {
       "tag": "p-86.20",
       "seq": 144,
       "status": "not applicable",

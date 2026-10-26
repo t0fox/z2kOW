@@ -297,6 +297,12 @@ def verify_upstream_tag(
         or live_history[-1].get("v") != live_tag
     ):
         raise ValueError("текущая история upstream повреждена или отстала от проверяемого выпуска")
+    live_tags = [entry.get("v") for entry in live_history]
+    if (
+        not all(isinstance(entry_tag, str) and entry_tag for entry_tag in live_tags)
+        or len(live_tags) != len(set(live_tags))
+    ):
+        raise ValueError("в актуальной истории upstream найдены некорректные или повторные теги")
     pinned_history = pinned.get("history")
     if (
         pinned.get("current") != tag
@@ -319,23 +325,16 @@ def verify_upstream_tag(
     newer_entries = live_history[target_index + 1 :]
     if live_seq - seq != len(newer_entries):
         raise ValueError("между проверяемым выпуском и live upstream есть неучтённые версии")
+    # Более новый выпуск остаётся ожидающим; release policy проверяет пропуски
+    # только между production-базой и выбранным тегом из pinned-манифеста.
+    # Старые upstream-истории содержат архивные теги p-N без точки; проверяем
+    # формат только для выпусков после цели, которые ещё могут быть кандидатами.
+    if any(
+        not isinstance(entry.get("v"), str) or not TAG_RE.fullmatch(entry["v"])
+        for entry in newer_entries
+    ):
+        raise ValueError("в актуальной истории upstream найден некорректный новый тег")
     skips = _validated_skip_records(upstream, skip_registry)
-    skips_by_tag = {entry["tag"]: entry for entry in skips}
-    for offset, entry in enumerate(newer_entries, start=1):
-        newer_tag = entry.get("v")
-        newer_seq = seq + offset
-        if not isinstance(newer_tag, str) or not TAG_RE.fullmatch(newer_tag):
-            raise ValueError("в актуальной истории upstream найден некорректный тег")
-        skip = skips_by_tag.get(newer_tag)
-        if (
-            skip is None
-            or skip.get("seq") != newer_seq
-            or skip.get("status") != "not applicable"
-        ):
-            raise ValueError(
-                f"после {tag} найден применимый или неучтённый выпуск upstream "
-                f"{newer_tag} (seq {newer_seq})"
-            )
     if any(entry["tag"] == tag or entry["seq"] == seq for entry in skips):
         raise ValueError("целевой выпуск upstream отмечен неприменимым")
 

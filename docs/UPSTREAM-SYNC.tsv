@@ -52,9 +52,3 @@ lib/install.sh	92556eca6a09c027550bdd825eb440aa8656c09f	62522c9474ea1de73cf65842
 docs/telegram-reference-comparison-2026-09-21.md	317f9f7307253625cdf203a557068a71b3f46022	45b42ae38261d0817d3d07f6df22a37fbe94e00f	DOC ONLY	Описание upstream Telegram не переносится в собственную Rust-реализацию z2kOW.
 docs/telegram-transport-field-2026-09-21.md	be218a357a54241ac6e9299564578126a24725a4	126aae53e5befdbba3d64858de1facf6c8496b28	DOC ONLY	Описание upstream Telegram не переносится в собственную Rust-реализацию z2kOW.
 vps/RUNBOOK.md	bdaf64602cacbce0a516dab74f46bf3879a0d194	f751a05c388d85589ac2af7edb2837860221f544	DOC ONLY	Инструкции upstream VPS-инфраструктуры не относятся к OpenWrt и не переносятся.
-
-# r-87 / seq 150 / e5d9850802174e6098687f09945cace33afe3a8c: runtime 1.0.6 и DNS health-check адаптированы; VPS/TG не менялись.
-files/z2k-dns-redirect.sh	fb0093bbd7c665487c515eda3c4eb94a33ad5e7a697a45f71a026637aff2853b	2c9dc42b8dd71ec8665c9f225386682a1dc7eae8317d1de119a27e824bd45c80	ADAPTED	Upstream закрепил health-check на локальном резолвере; OpenWrt-проверка уже использует 127.0.0.1, правила остаются на fw4/nftables.
-lib/install.sh	56daf3c6ae62df44eefb94a0fb4fe7cfc6375141250770fdacce5fdcd48c836b	35439d4d8e1f6186087a2390b4904da251935819da91a5249eadf86808d833ef	ADAPTED	Пин общего движка обновлён до v1.0.6-z2k-r0; Keenetic-путь установки не переносится, OpenWrt использует закреплённый runtime archive.
-webpanel/www/index.html	5873df8b2c1a6dcc90e242112f90986932d439b860a43ec0d3d58d3ad52aa492	f037678a4ddd5f7f9d45a7bbc2cc87ff4cc525f4f28ddc5b8f6c3835756be78e	DOC ONLY	Upstream cache-buster r-87 не копируется: версию локальной WebPanel задаёт доверенная сборка z2kOW.
-platform/openwrt/runtime-pin	-	-	OPENWRT RELEVANT	Закреплён официальный OpenWrt runtime archive v1.0.6-z2k-r0 с SHA-256, проверенным по опубликованному архиву.
