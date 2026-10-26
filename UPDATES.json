@@ -2,13 +2,13 @@
   "schema": 1,
   "branch": "main",
   "platform": "openwrt",
-  "seq": 149,
-  "current": "p-86.24",
+  "seq": 150,
+  "current": "r-87",
   "upstream": {
     "repository": "necronicle/z2k",
     "branch": "z2k-enhanced",
-    "tag": "p-86.24",
-    "commit": "9fafc758d48e52a845efd48c839d1051e5c60b78"
+    "tag": "r-87",
+    "commit": "e5d9850802174e6098687f09945cace33afe3a8c"
   },
   "history": [
     {"v": "r-1", "type": "reinstall", "ts": "2026-05-04T00:00:00Z", "ref": "vk-whitelist-ext", "desc": "Extend whitelist with VK service/CDN domains (vkuseraudio/vkuservideo/vk-cdn/mvk/vkpay/vkforms/etc) — fixes broken photo comments and other XHR over non-vk.com VK domains", "changed_files": ["lib/config.sh"]},
@@ -310,64 +310,65 @@
     {"v": "p-86.22", "type": "patch", "ts": "2026-10-16T11:33:01Z", "ref": "p-86.22", "desc": "Новый спонсор проекта — Ret80.", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false},
     {"v": "p-86.23", "type": "patch", "ts": "2026-10-18T17:47:16Z", "ref": "p-86.23", "desc": "Исправлено включение WARP на роутерах, где регистрация у Cloudflare не проходила из-за ошибки проверки сертификата. Если WARP не удаётся зарегистрировать, диагностика теперь прямо называет причину.", "changed_files": ["webpanel/www/index.html", "files/etc/z2k-roots.pem", "files/init.d/S51z2k-warp", "files/z2k-diag.sh", "files/z2k-warp.sh", "UPDATES.json"], "steps": [], "full_install": false},
     {"v": "r-86.6", "type": "reinstall", "ts": "2026-10-24T18:19:22Z", "ref": "r-86.6", "desc": "Аварийный перенос инфраструктуры на 85.192.60.175: восстановлены подключения к Telegram, установка и обновление в сетях, где прежний IP недоступен. Штатные адреса заменяются автоматически, пользовательские реле и ключи установок сохраняются.", "changed_files": ["webpanel/www/index.html", "files/init.d/S51z2k-warp", "files/init.d/S98tg-tunnel", "files/z2k-diag.sh", "files/z2k-geosite.sh", "files/z2k-insta-ip-refresh.sh", "files/z2k-update-lists.sh", "files/z2k-warp.sh", "lib/config_official.sh", "lib/install.sh", "lib/utils.sh", "mtproxy-client/builds/tg-mtproxy-client-linux-386", "mtproxy-client/builds/tg-mtproxy-client-linux-amd64", "mtproxy-client/builds/tg-mtproxy-client-linux-arm", "mtproxy-client/builds/tg-mtproxy-client-linux-arm64", "mtproxy-client/builds/tg-mtproxy-client-linux-mips", "mtproxy-client/builds/tg-mtproxy-client-linux-mips64el", "mtproxy-client/builds/tg-mtproxy-client-linux-mips64le", "mtproxy-client/builds/tg-mtproxy-client-linux-mipsel", "mtproxy-client/builds/tg-mtproxy-client-linux-mipsle", "mtproxy-client/builds/tg-mtproxy-client-linux-ppc64", "mtproxy-client/builds/tg-mtproxy-client-linux-riscv64", "mtproxy-client/builds/tg-mtproxy-client-linux-x86", "z2k.sh", "UPDATES.json"], "steps": ["regen-config", "validate-config", "refresh-binaries", "restart-service"], "full_install": false},
-    {"v": "p-86.24", "type": "patch", "ts": "2026-10-26T06:21:04Z", "ref": "p-86.24", "desc": "Стратегии обхода обновлены и выстроены по качеству по замерам: роутеры подберут их заново, а QUIC для YouTube стартует в несколько раз быстрее. Добавлены защита DNS от подмены ответов провайдером и сторож движка, голос Discord переведён на новый фейк. Новый спонсор проекта — Шулепов Александр.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "files/fake/quic_initial_steamcommunity_com.bin", "files/fake/rdp.bin", "files/fake/stun2.bin", "files/fake/tls_clienthello_sochi_park.bin", "files/fake/tls_clienthello_www_sferum_ru.bin", "files/lists/extra_strats/TCP/RKN/Discord.txt", "files/lists/tcp16_targets.txt", "files/lua/z2k-alert.lua", "files/lua/z2k-nfqws1-compat.lua", "files/lua/z2k-tcp16.lua", "files/ndm/89-z2k-dns-redirect.sh", "files/z2k-diag.sh", "files/z2k-dns-redirect.sh", "files/z2k-nfqueue-selfheal.sh", "files/z2k-scheduler.sh", "files/z2k-tcp16-probe.sh", "lib/config.sh", "lib/config_official.sh", "lib/install.sh", "lib/menu.sh", "lib/strategies.sh", "lib/utils.sh", "quic_strats.ini", "strats_new2.txt", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/pages/credits.js", "webpanel/www/js/pages/dashboard.js", "webpanel/www/js/pages/toggles.js", "z2k-detect/builds/z2k-detect-linux-386", "z2k-detect/builds/z2k-detect-linux-amd64", "z2k-detect/builds/z2k-detect-linux-arm", "z2k-detect/builds/z2k-detect-linux-arm64", "z2k-detect/builds/z2k-detect-linux-mips", "z2k-detect/builds/z2k-detect-linux-mips64le", "z2k-detect/builds/z2k-detect-linux-mipsle", "z2k-detect/builds/z2k-detect-linux-ppc64", "z2k-detect/builds/z2k-detect-linux-riscv64", "z2k.sh", "UPDATES.json"], "steps": ["regen-strategies", "regen-config", "validate-config", "refresh-binaries", "restart-service"], "full_install": false}
+    {"v": "p-86.24", "type": "patch", "ts": "2026-10-26T06:21:04Z", "ref": "p-86.24", "desc": "Стратегии обхода обновлены и выстроены по качеству по замерам: роутеры подберут их заново, а QUIC для YouTube стартует в несколько раз быстрее. Добавлены защита DNS от подмены ответов провайдером и сторож движка, голос Discord переведён на новый фейк. Новый спонсор проекта — Шулепов Александр.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "files/fake/quic_initial_steamcommunity_com.bin", "files/fake/rdp.bin", "files/fake/stun2.bin", "files/fake/tls_clienthello_sochi_park.bin", "files/fake/tls_clienthello_www_sferum_ru.bin", "files/lists/extra_strats/TCP/RKN/Discord.txt", "files/lists/tcp16_targets.txt", "files/lua/z2k-alert.lua", "files/lua/z2k-nfqws1-compat.lua", "files/lua/z2k-tcp16.lua", "files/ndm/89-z2k-dns-redirect.sh", "files/z2k-diag.sh", "files/z2k-dns-redirect.sh", "files/z2k-nfqueue-selfheal.sh", "files/z2k-scheduler.sh", "files/z2k-tcp16-probe.sh", "lib/config.sh", "lib/config_official.sh", "lib/install.sh", "lib/menu.sh", "lib/strategies.sh", "lib/utils.sh", "quic_strats.ini", "strats_new2.txt", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/pages/credits.js", "webpanel/www/js/pages/dashboard.js", "webpanel/www/js/pages/toggles.js", "z2k-detect/builds/z2k-detect-linux-386", "z2k-detect/builds/z2k-detect-linux-amd64", "z2k-detect/builds/z2k-detect-linux-arm", "z2k-detect/builds/z2k-detect-linux-arm64", "z2k-detect/builds/z2k-detect-linux-mips", "z2k-detect/builds/z2k-detect-linux-mips64le", "z2k-detect/builds/z2k-detect-linux-mipsle", "z2k-detect/builds/z2k-detect-linux-ppc64", "z2k-detect/builds/z2k-detect-linux-riscv64", "z2k.sh", "UPDATES.json"], "steps": ["regen-strategies", "regen-config", "validate-config", "refresh-binaries", "restart-service"], "full_install": false},
+    {"v": "r-87", "type": "reinstall", "ts": "2026-10-26T12:48:23Z", "ref": "r-87", "desc": "Движок обхода обновлён до zapret2 1.0.6. Исправлена редкая ошибка памяти при сборке длинного ClientHello, которая могла уронить движок, а рабочие HTTP-сайты с редиректом на адрес с параметрами больше не уходят в ротацию по ошибке.", "changed_files": ["webpanel/www/index.html", "files/z2k-dns-redirect.sh", "lib/install.sh", "UPDATES.json"], "steps": ["restart-service"], "full_install": true}
   ],
   "artifacts": {
     "arm64": {
       "filename": "openwrt-rootfs-arm64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs-arm64.tar.gz",
-      "sha256": "25bbff53526e1d503329708e17ec93fe67f18799114076fbab56f0db65bd62e5",
-      "size_bytes": 13581638,
-      "unpacked_size_bytes": 31603548
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-015ff6ffd591d92eb78ed387e86b51a1f9085c98/openwrt-rootfs-arm64.tar.gz",
+      "sha256": "b4c89a2e8a76f743fb025bd3a8d5c8a8a1aea3de8107a05c112d0739fc456297",
+      "size_bytes": 13582401,
+      "unpacked_size_bytes": 31604653
     },
     "arm": {
       "filename": "openwrt-rootfs-arm.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs-arm.tar.gz",
-      "sha256": "e98639ff8f979f3d9cb63dea55ae8dff9e49c62cf2ed8f8a6692803dc9f5daf6",
-      "size_bytes": 14016222,
-      "unpacked_size_bytes": 32761020
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-015ff6ffd591d92eb78ed387e86b51a1f9085c98/openwrt-rootfs-arm.tar.gz",
+      "sha256": "ebbda389c2236519d71c5907db947c6e8a21846613799bc1d454820fa85fc41f",
+      "size_bytes": 14016600,
+      "unpacked_size_bytes": 32762117
     },
     "x86_64": {
       "filename": "openwrt-rootfs-x86_64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs-x86_64.tar.gz",
-      "sha256": "d132d1dbde6bf6b2115084c1585e2d89aa9cb30019cd525de67c113bd8631c8e",
-      "size_bytes": 14525344,
-      "unpacked_size_bytes": 33728196
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-015ff6ffd591d92eb78ed387e86b51a1f9085c98/openwrt-rootfs-x86_64.tar.gz",
+      "sha256": "08a8f49cf1e14a69635541a961d20eb951dd3007638a2a344f300db174fb3b4f",
+      "size_bytes": 14525702,
+      "unpacked_size_bytes": 33729165
     },
     "x86": {
       "filename": "openwrt-rootfs-x86.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs-x86.tar.gz",
-      "sha256": "9d628df6d88087c8f30404e8c1280f679937b9d46fa580cf4e183147d235b9f0",
-      "size_bytes": 14048614,
-      "unpacked_size_bytes": 32481268
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-015ff6ffd591d92eb78ed387e86b51a1f9085c98/openwrt-rootfs-x86.tar.gz",
+      "sha256": "bf0069624df782ca279453c9d60fe602bda1a576a1a92a943061b28bf1715344",
+      "size_bytes": 14049238,
+      "unpacked_size_bytes": 32482365
     },
     "mips": {
       "filename": "openwrt-rootfs-mips.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs-mips.tar.gz",
-      "sha256": "8f25e0a6bc13ca3912d480025438434ecca1eed5d04431784bf10a74ec4533d6",
-      "size_bytes": 13878078,
-      "unpacked_size_bytes": 36016565
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-015ff6ffd591d92eb78ed387e86b51a1f9085c98/openwrt-rootfs-mips.tar.gz",
+      "sha256": "6ddfcedb7fff092303aead2e34b6589209708f35d1177f0cfa948f1f3db2697e",
+      "size_bytes": 13878615,
+      "unpacked_size_bytes": 36017594
     },
     "mipsel": {
       "filename": "openwrt-rootfs-mipsel.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs-mipsel.tar.gz",
-      "sha256": "d87be755204a9d138a8204be2cd9ec4d7f15f24ab329c6f67f5d4543212ae1b9",
-      "size_bytes": 13819719,
-      "unpacked_size_bytes": 36020573
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-015ff6ffd591d92eb78ed387e86b51a1f9085c98/openwrt-rootfs-mipsel.tar.gz",
+      "sha256": "148618c0754e2bb4fcbe886ded69bbd398596eb8cf22948ef53bf6f2e1faa44e",
+      "size_bytes": 13819979,
+      "unpacked_size_bytes": 36021502
     },
     "riscv64": {
       "filename": "openwrt-rootfs-riscv64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs-riscv64.tar.gz",
-      "sha256": "d5d9bf68666f83ff95abcb663e05fd91180aa7e65b46e52b9de88fff38b5d3d8",
-      "size_bytes": 13857215,
-      "unpacked_size_bytes": 31825864
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-015ff6ffd591d92eb78ed387e86b51a1f9085c98/openwrt-rootfs-riscv64.tar.gz",
+      "sha256": "3ddaaf84344ac4be9063d179b2eb83dc5d210375f60c06aa8d6607f455b163ca",
+      "size_bytes": 13857064,
+      "unpacked_size_bytes": 31826825
     }
   },
   "artifact": {
     "filename": "openwrt-rootfs.tar.gz",
-    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs.tar.gz",
-    "sha256": "b5ebfd25ce92c138636a3355d1e5d008897f2916fd0f7197c2ce80ffe8729aa4",
-    "size_bytes": 79857397
+    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-015ff6ffd591d92eb78ed387e86b51a1f9085c98/openwrt-rootfs.tar.gz",
+    "sha256": "06b2103ffcf77d72aa3dd608a9ffe7f568a6a664ca471ee506acc24ea6635211",
+    "size_bytes": 79856990
   },
   "signing": {
     "key_id": "916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae"
