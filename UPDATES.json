@@ -2,13 +2,13 @@
   "schema": 1,
   "branch": "main",
   "platform": "openwrt",
-  "seq": 146,
-  "current": "p-86.22",
+  "seq": 149,
+  "current": "p-86.24",
   "upstream": {
     "repository": "necronicle/z2k",
     "branch": "z2k-enhanced",
-    "tag": "p-86.22",
-    "commit": "5a43c8f25d209542424e1e9d76ce33b0bf6637f7"
+    "tag": "p-86.24",
+    "commit": "9fafc758d48e52a845efd48c839d1051e5c60b78"
   },
   "history": [
     {"v": "r-1", "type": "reinstall", "ts": "2026-05-04T00:00:00Z", "ref": "vk-whitelist-ext", "desc": "Extend whitelist with VK service/CDN domains (vkuseraudio/vkuservideo/vk-cdn/mvk/vkpay/vkforms/etc) — fixes broken photo comments and other XHR over non-vk.com VK domains", "changed_files": ["lib/config.sh"]},
@@ -307,64 +307,67 @@
     {"v": "p-86.19", "type": "patch", "ts": "2026-10-11T15:49:15Z", "ref": "p-86.19", "desc": "Установка и обновление пакетов Entware больше не зависают у провайдеров, которые режут сервер Entware: установщик z2k качает пакеты через узел проекта. Для тех, у кого не устанавливается сам Entware, появились офлайн-установщики — ссылки и инструкция в README.", "changed_files": ["webpanel/www/index.html", "lib/install.sh", "lib/utils.sh", "webpanel/install.sh", "UPDATES.json"], "steps": [], "full_install": false},
     {"v": "p-86.20", "type": "patch", "ts": "2026-10-11T20:47:18Z", "ref": "p-86.20", "desc": "Пакеты Entware установщик z2k теперь берёт через узел проекта тем же способом, что и сам z2k с GitHub. В README ручной обход для opkg — через зеркало узла, без логинов.", "changed_files": ["webpanel/www/index.html", "lib/utils.sh", "UPDATES.json"], "steps": [], "full_install": false},
     {"v": "p-86.21", "type": "patch", "ts": "2026-10-14T17:44:59Z", "ref": "p-86.21", "desc": "Новые спонсоры проекта — ewgen911 и cmfifty.", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false},
-    {"v": "p-86.22", "type": "patch", "ts": "2026-10-16T11:33:01Z", "ref": "p-86.22", "desc": "Новый спонсор проекта — Ret80.", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false}
+    {"v": "p-86.22", "type": "patch", "ts": "2026-10-16T11:33:01Z", "ref": "p-86.22", "desc": "Новый спонсор проекта — Ret80.", "changed_files": ["webpanel/www/index.html", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false},
+    {"v": "p-86.23", "type": "patch", "ts": "2026-10-18T17:47:16Z", "ref": "p-86.23", "desc": "Исправлено включение WARP на роутерах, где регистрация у Cloudflare не проходила из-за ошибки проверки сертификата. Если WARP не удаётся зарегистрировать, диагностика теперь прямо называет причину.", "changed_files": ["webpanel/www/index.html", "files/etc/z2k-roots.pem", "files/init.d/S51z2k-warp", "files/z2k-diag.sh", "files/z2k-warp.sh", "UPDATES.json"], "steps": [], "full_install": false},
+    {"v": "r-86.6", "type": "reinstall", "ts": "2026-10-24T18:19:22Z", "ref": "r-86.6", "desc": "Аварийный перенос инфраструктуры на 85.192.60.175: восстановлены подключения к Telegram, установка и обновление в сетях, где прежний IP недоступен. Штатные адреса заменяются автоматически, пользовательские реле и ключи установок сохраняются.", "changed_files": ["webpanel/www/index.html", "files/init.d/S51z2k-warp", "files/init.d/S98tg-tunnel", "files/z2k-diag.sh", "files/z2k-geosite.sh", "files/z2k-insta-ip-refresh.sh", "files/z2k-update-lists.sh", "files/z2k-warp.sh", "lib/config_official.sh", "lib/install.sh", "lib/utils.sh", "mtproxy-client/builds/tg-mtproxy-client-linux-386", "mtproxy-client/builds/tg-mtproxy-client-linux-amd64", "mtproxy-client/builds/tg-mtproxy-client-linux-arm", "mtproxy-client/builds/tg-mtproxy-client-linux-arm64", "mtproxy-client/builds/tg-mtproxy-client-linux-mips", "mtproxy-client/builds/tg-mtproxy-client-linux-mips64el", "mtproxy-client/builds/tg-mtproxy-client-linux-mips64le", "mtproxy-client/builds/tg-mtproxy-client-linux-mipsel", "mtproxy-client/builds/tg-mtproxy-client-linux-mipsle", "mtproxy-client/builds/tg-mtproxy-client-linux-ppc64", "mtproxy-client/builds/tg-mtproxy-client-linux-riscv64", "mtproxy-client/builds/tg-mtproxy-client-linux-x86", "z2k.sh", "UPDATES.json"], "steps": ["regen-config", "validate-config", "refresh-binaries", "restart-service"], "full_install": false},
+    {"v": "p-86.24", "type": "patch", "ts": "2026-10-26T06:21:04Z", "ref": "p-86.24", "desc": "Стратегии обхода обновлены и выстроены по качеству по замерам: роутеры подберут их заново, а QUIC для YouTube стартует в несколько раз быстрее. Добавлены защита DNS от подмены ответов провайдером и сторож движка, голос Discord переведён на новый фейк. Новый спонсор проекта — Шулепов Александр.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "files/fake/quic_initial_steamcommunity_com.bin", "files/fake/rdp.bin", "files/fake/stun2.bin", "files/fake/tls_clienthello_sochi_park.bin", "files/fake/tls_clienthello_www_sferum_ru.bin", "files/lists/extra_strats/TCP/RKN/Discord.txt", "files/lists/tcp16_targets.txt", "files/lua/z2k-alert.lua", "files/lua/z2k-nfqws1-compat.lua", "files/lua/z2k-tcp16.lua", "files/ndm/89-z2k-dns-redirect.sh", "files/z2k-diag.sh", "files/z2k-dns-redirect.sh", "files/z2k-nfqueue-selfheal.sh", "files/z2k-scheduler.sh", "files/z2k-tcp16-probe.sh", "lib/config.sh", "lib/config_official.sh", "lib/install.sh", "lib/menu.sh", "lib/strategies.sh", "lib/utils.sh", "quic_strats.ini", "strats_new2.txt", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/pages/credits.js", "webpanel/www/js/pages/dashboard.js", "webpanel/www/js/pages/toggles.js", "z2k-detect/builds/z2k-detect-linux-386", "z2k-detect/builds/z2k-detect-linux-amd64", "z2k-detect/builds/z2k-detect-linux-arm", "z2k-detect/builds/z2k-detect-linux-arm64", "z2k-detect/builds/z2k-detect-linux-mips", "z2k-detect/builds/z2k-detect-linux-mips64le", "z2k-detect/builds/z2k-detect-linux-mipsle", "z2k-detect/builds/z2k-detect-linux-ppc64", "z2k-detect/builds/z2k-detect-linux-riscv64", "z2k.sh", "UPDATES.json"], "steps": ["regen-strategies", "regen-config", "validate-config", "refresh-binaries", "restart-service"], "full_install": false}
   ],
   "artifacts": {
     "arm64": {
       "filename": "openwrt-rootfs-arm64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f8afcc9e9fd98e3feecfa0254de782844262d32a/openwrt-rootfs-arm64.tar.gz",
-      "sha256": "646ec23ba2bd568c9c02056acc248f0108f9ecb760d71ad5d597fe98f4861c8d",
-      "size_bytes": 13554738,
-      "unpacked_size_bytes": 31541192
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs-arm64.tar.gz",
+      "sha256": "25bbff53526e1d503329708e17ec93fe67f18799114076fbab56f0db65bd62e5",
+      "size_bytes": 13581638,
+      "unpacked_size_bytes": 31603548
     },
     "arm": {
       "filename": "openwrt-rootfs-arm.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f8afcc9e9fd98e3feecfa0254de782844262d32a/openwrt-rootfs-arm.tar.gz",
-      "sha256": "a7d87547039d01e2c278307bb524b25546427977e7a7ecfde1c0215cb1070871",
-      "size_bytes": 13991351,
-      "unpacked_size_bytes": 32634168
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs-arm.tar.gz",
+      "sha256": "e98639ff8f979f3d9cb63dea55ae8dff9e49c62cf2ed8f8a6692803dc9f5daf6",
+      "size_bytes": 14016222,
+      "unpacked_size_bytes": 32761020
     },
     "x86_64": {
       "filename": "openwrt-rootfs-x86_64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f8afcc9e9fd98e3feecfa0254de782844262d32a/openwrt-rootfs-x86_64.tar.gz",
-      "sha256": "76604e54e54d443fb2839b686d3259467352e5f822e92dbd79be29345e54c2c3",
-      "size_bytes": 14496032,
-      "unpacked_size_bytes": 33636880
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs-x86_64.tar.gz",
+      "sha256": "d132d1dbde6bf6b2115084c1585e2d89aa9cb30019cd525de67c113bd8631c8e",
+      "size_bytes": 14525344,
+      "unpacked_size_bytes": 33728196
     },
     "x86": {
       "filename": "openwrt-rootfs-x86.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f8afcc9e9fd98e3feecfa0254de782844262d32a/openwrt-rootfs-x86.tar.gz",
-      "sha256": "a66c7dca53f91828672bc92a351a3c157900b8b85223cbbd44833cd922ac6514",
-      "size_bytes": 14028999,
-      "unpacked_size_bytes": 32395520
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs-x86.tar.gz",
+      "sha256": "9d628df6d88087c8f30404e8c1280f679937b9d46fa580cf4e183147d235b9f0",
+      "size_bytes": 14048614,
+      "unpacked_size_bytes": 32481268
     },
     "mips": {
       "filename": "openwrt-rootfs-mips.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f8afcc9e9fd98e3feecfa0254de782844262d32a/openwrt-rootfs-mips.tar.gz",
-      "sha256": "dd14873310588c2705241ae7a22ec89882d93c33671236386dbaa380eb6c693a",
-      "size_bytes": 13852478,
-      "unpacked_size_bytes": 35959345
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs-mips.tar.gz",
+      "sha256": "8f25e0a6bc13ca3912d480025438434ecca1eed5d04431784bf10a74ec4533d6",
+      "size_bytes": 13878078,
+      "unpacked_size_bytes": 36016565
     },
     "mipsel": {
       "filename": "openwrt-rootfs-mipsel.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f8afcc9e9fd98e3feecfa0254de782844262d32a/openwrt-rootfs-mipsel.tar.gz",
-      "sha256": "3bc7f50e64f808500c3519b23456cde732b5b690b5cb64ef99d5eff468db0c14",
-      "size_bytes": 13790300,
-      "unpacked_size_bytes": 35963353
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs-mipsel.tar.gz",
+      "sha256": "d87be755204a9d138a8204be2cd9ec4d7f15f24ab329c6f67f5d4543212ae1b9",
+      "size_bytes": 13819719,
+      "unpacked_size_bytes": 36020573
     },
     "riscv64": {
       "filename": "openwrt-rootfs-riscv64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f8afcc9e9fd98e3feecfa0254de782844262d32a/openwrt-rootfs-riscv64.tar.gz",
-      "sha256": "f212c585f37963cd5aea7e4c032dbecda342ec77ea0fc295810e643306c31732",
-      "size_bytes": 13828950,
-      "unpacked_size_bytes": 31764308
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs-riscv64.tar.gz",
+      "sha256": "d5d9bf68666f83ff95abcb663e05fd91180aa7e65b46e52b9de88fff38b5d3d8",
+      "size_bytes": 13857215,
+      "unpacked_size_bytes": 31825864
     }
   },
   "artifact": {
     "filename": "openwrt-rootfs.tar.gz",
-    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-f8afcc9e9fd98e3feecfa0254de782844262d32a/openwrt-rootfs.tar.gz",
-    "sha256": "f4360db1f129f048fc2e31648753f4f21367c15a94395cbe795ca387baf09017",
-    "size_bytes": 79756430
+    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-961feefc350273fbdf3ae3bf300d71ec53554dda/openwrt-rootfs.tar.gz",
+    "sha256": "b5ebfd25ce92c138636a3355d1e5d008897f2916fd0f7197c2ce80ffe8729aa4",
+    "size_bytes": 79857397
   },
   "signing": {
     "key_id": "916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae"
