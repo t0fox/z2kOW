@@ -134,6 +134,11 @@ read_globals = {
     "rawsend_opts",
     "rawsend_opts_base",
     "reconstruct_opts",
+    -- Глобальные функции движка, вызываемые совместимыми фулингами nfqws1.
+    "blob_or_def",
+    "resolve_range",
+    "zero_based_pos",
+    "genhost",
     "VERDICT_MODIFY",
     "IP_MF",
     "IP6F_MORE_FRAG",

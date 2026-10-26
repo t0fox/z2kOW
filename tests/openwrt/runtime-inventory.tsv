@@ -45,6 +45,7 @@ files/lists/youtube_ips6.txt|N/A|-|-|-|-|Keenetic-only static YouTube IPv6 seed;
 files/lua/z2k-alert.lua|COMMON|./usr/lib/z2k/lua/z2k-alert.lua|-rw-r--r--|platform/openwrt/optbase.sh|z2k-alert|-
 files/lua/z2k-fooling-ext.lua|COMMON|./usr/lib/z2k/lua/z2k-fooling-ext.lua|-rw-r--r--|platform/openwrt/optbase.sh|z2k-fooling-ext|-
 files/lua/z2k-modern-core.lua|COMMON|./usr/lib/z2k/lua/z2k-modern-core.lua|-rw-r--r--|platform/openwrt/optbase.sh|z2k-modern-core|-
+files/lua/z2k-nfqws1-compat.lua|COMMON|./usr/lib/z2k/lua/z2k-nfqws1-compat.lua|-rw-r--r--|platform/openwrt/optbase.sh|z2k-nfqws1-compat|-
 files/lua/z2k-quic-silence.lua|COMMON|./usr/lib/z2k/lua/z2k-quic-silence.lua|-rw-r--r--|platform/openwrt/optbase.sh|z2k-quic-silence|-
 files/lua/z2k-range-rand.lua|COMMON|./usr/lib/z2k/lua/z2k-range-rand.lua|-rw-r--r--|platform/openwrt/optbase.sh|z2k-range-rand|-
 files/lua/z2k-state-persist.lua|COMMON|./usr/lib/z2k/lua/z2k-state-persist.lua|-rw-r--r--|platform/openwrt/optbase.sh|z2k-state-persist|-

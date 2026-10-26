@@ -9,7 +9,7 @@ H.test('ordinary cross-domain redirects are neutral',function()
     H.eq('neutral',classify('HTTP/1.1 302 Found\r\nLocation: https://login.example.org/\r\n\r\n'))
 end)
 H.test('known portals are detected in absolute and scheme-relative redirects',function()
-    for _,url in ipairs({'https://warning.rt.ru/', '//eais.rkn.gov.ru/blocked'}) do
+    for _,url in ipairs({'https://warning.rt.ru/', '//eais.rkn.gov.ru/blocked', 'https://block.mts.ru/', 'http://blocked.domru.ru/?u=x', 'https://zapret-info.gov.ru/'}) do
         H.eq('hard_fail',classify('HTTP/1.1 302 Found\r\nLocation: '..url..'\r\n\r\n'))
     end
 end)

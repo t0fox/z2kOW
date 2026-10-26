@@ -205,7 +205,7 @@ generate_nfqws2_opt_from_strategies() {
     # срабатываний. Значение измерено, поэтому держим его, а не умолчание.
     # Оба порога обязаны лежать ниже окна перехвата NFQWS2_UDP_PKT_IN/OUT —
     # см. комментарий там же. Same change mirrored in quic_strats.ini.
-    quic_udp="--filter-udp=443 --filter-l7=quic --in-range=a --out-range=a --payload=all --lua-desync=circular:fails=3:time=60:udp_in=1:udp_out=5:key=quic:nld=2 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=3:ip_autottl=-2,3-20:strategy=1 --lua-desync=send:payload=quic_initial:dir=out:ipfrag=z2k_ipfrag3_tiny:ipfrag_pos_udp=8:ipfrag_pos2=32:ipfrag_overlap12=8:ipfrag_overlap23=8:ipfrag_disorder:ipfrag_next2=255:strategy=1 --lua-desync=drop:payload=quic_initial:dir=out:strategy=1 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=4:ip_autottl=-2,3-20:strategy=2 --lua-desync=send:payload=quic_initial:dir=out:ipfrag=z2k_ipfrag3_tiny:ipfrag_pos_udp=8:ipfrag_pos2=32:ipfrag_overlap12=8:ipfrag_overlap23=8:ipfrag_disorder:ipfrag_next2=255:strategy=2 --lua-desync=drop:payload=quic_initial:dir=out:strategy=2 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic_rutracker:repeats=6:strategy=3 --lua-desync=send:payload=quic_initial:dir=out:ipfrag=z2k_ipfrag3:ipfrag_pos_udp=16:ipfrag_pos2=48:ipfrag_overlap12=8:ipfrag_overlap23=8:ipfrag_disorder:ipfrag_next2=255:strategy=3 --lua-desync=drop:payload=quic_initial:dir=out:strategy=3 --lua-desync=fake:payload=quic_initial:dir=out:blob=fake_default_quic:repeats=6:ip_autottl=-2,3-20:strategy=4 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=6:payload=all:ip_autottl=-2,3-20:strategy=5 --lua-desync=send:payload=quic_initial:dir=out:ipfrag:ipfrag_pos_udp=16:strategy=5 --lua-desync=drop:payload=quic_initial:dir=out:strategy=5 --lua-desync=udplen:payload=quic_initial:dir=out:increment=4:strategy=6 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=2:strategy=6 --lua-desync=udplen:payload=quic_initial:dir=out:increment=8:pattern=0xFEA82025:strategy=7 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=2:strategy=7 --lua-desync=fake:payload=quic_initial:dir=out:blob=0x00000000000000000000000000000000:repeats=2:payload=all:strategy=8 --lua-desync=send:payload=quic_initial:dir=out:ipfrag:ipfrag_pos_udp=8:strategy=8 --lua-desync=drop:payload=quic_initial:dir=out:strategy=8 --lua-desync=fake:payload=quic_initial:dir=out:blob=fake_default_quic:repeats=11:ip_autottl=-2,3-20:strategy=9 --lua-desync=send:payload=quic_initial:dir=out:ipfrag:ipfrag_pos_udp=24:strategy=9 --lua-desync=drop:payload=quic_initial:dir=out:strategy=9 --lua-desync=fake:payload=quic_initial:dir=out:blob=fake_default_quic:repeats=3:strategy=10 --lua-desync=z2k_quic_morph_v2:payload=quic_initial:dir=out:packets=2:noise=2:pad_min=12:pad_max=72:strategy=11 --lua-desync=z2k_quic_morph_v2:payload=quic_initial:dir=out:packets=2:profile=2:noise=2:pad_min=8:pad_max=64:ipfrag_pos_udp=16:ipfrag_pos2=56:ipfrag_overlap12=16:ipfrag_overlap23=8:strategy=12 --lua-desync=z2k_timing_morph:payload=quic_initial:dir=out:packets=2:chance=85:fakes=2:pad_min=12:pad_max=72:strategy=13"
+    quic_udp="--filter-udp=443 --filter-l7=quic --in-range=a --out-range=a --payload=all --lua-desync=circular:fails=3:time=60:udp_in=1:udp_out=5:key=quic:nld=2 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=3:ip_autottl=-2,3-20:strategy=1 --lua-desync=send:payload=quic_initial:dir=out:ipfrag=z2k_ipfrag3_tiny:ipfrag_pos_udp=8:ipfrag_pos2=32:ipfrag_overlap12=8:ipfrag_overlap23=8:ipfrag_disorder:ipfrag_next2=255:strategy=1 --lua-desync=drop:payload=quic_initial:dir=out:strategy=1 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=4:ip_autottl=-2,3-20:strategy=2 --lua-desync=send:payload=quic_initial:dir=out:ipfrag=z2k_ipfrag3_tiny:ipfrag_pos_udp=8:ipfrag_pos2=32:ipfrag_overlap12=8:ipfrag_overlap23=8:ipfrag_disorder:ipfrag_next2=255:strategy=2 --lua-desync=drop:payload=quic_initial:dir=out:strategy=2 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic_rutracker:repeats=3:strategy=3 --lua-desync=send:payload=quic_initial:dir=out:ipfrag=z2k_ipfrag3:ipfrag_pos_udp=16:ipfrag_pos2=48:ipfrag_overlap12=8:ipfrag_overlap23=8:ipfrag_disorder:ipfrag_next2=255:strategy=3 --lua-desync=drop:payload=quic_initial:dir=out:strategy=3 --lua-desync=fake:payload=quic_initial:dir=out:blob=fake_default_quic:repeats=6:ip_autottl=-2,3-20:strategy=4 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=6:payload=all:ip_autottl=-2,3-20:strategy=5 --lua-desync=send:payload=quic_initial:dir=out:ipfrag:ipfrag_pos_udp=16:strategy=5 --lua-desync=drop:payload=quic_initial:dir=out:strategy=5 --lua-desync=udplen:payload=quic_initial:dir=out:increment=4:strategy=6 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=2:strategy=6 --lua-desync=udplen:payload=quic_initial:dir=out:increment=8:pattern=0xFEA82025:strategy=7 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=2:strategy=7 --lua-desync=fake:payload=quic_initial:dir=out:blob=0x00000000000000000000000000000000:repeats=2:payload=all:strategy=8 --lua-desync=send:payload=quic_initial:dir=out:ipfrag:ipfrag_pos_udp=8:strategy=8 --lua-desync=drop:payload=quic_initial:dir=out:strategy=8 --lua-desync=fake:payload=quic_initial:dir=out:blob=fake_default_quic:repeats=11:ip_autottl=-2,3-20:strategy=9 --lua-desync=send:payload=quic_initial:dir=out:ipfrag:ipfrag_pos_udp=24:strategy=9 --lua-desync=drop:payload=quic_initial:dir=out:strategy=9 --lua-desync=fake:payload=quic_initial:dir=out:blob=fake_default_quic:repeats=3:strategy=10 --lua-desync=z2k_quic_morph_v2:payload=quic_initial:dir=out:packets=2:noise=2:pad_min=12:pad_max=72:strategy=11 --lua-desync=z2k_quic_morph_v2:payload=quic_initial:dir=out:packets=2:profile=2:noise=2:pad_min=8:pad_max=64:ipfrag_pos_udp=16:ipfrag_pos2=56:ipfrag_overlap12=16:ipfrag_overlap23=8:strategy=12 --lua-desync=z2k_timing_morph:payload=quic_initial:dir=out:packets=2:chance=85:fakes=2:pad_min=12:pad_max=72:strategy=13"
 
     # If category strategy files exist, prefer them over hardcoded QUIC defaults.
     # Имя файла сменилось вместе с ключом пула. Старый lists/custom-strategies/
@@ -234,10 +234,9 @@ generate_nfqws2_opt_from_strategies() {
     # --payload=discord_ip_discovery,stun — гейтим именно discovery/STUN-сигнатуры
     # (не quic_initial — то для QUIC/443, не для голоса). БЕЗ keepalive (см.
     # NFQWS2_PORTS_UDP_KEEPALIVE ниже — отключён по этой же причине).
-    # Пул — на блобе quic_dbankcloud (порт z4r); снимок ACTIVE_DISCORD_UDP от
-    # Flowseal, добавленный 26.08.2026, снят 10.09.2026 по решению Марка —
-    # чужие блобы не берём, очередь вернулась к прежней шестёрке.
-    # strategy=1 = базовый fake quic_dbankcloud repeats=10 (рычаг bol-van против
+    # Голосовой пул использует QUIC Initial с SNI steamcommunity.com.
+    # Порядок плеч и число повторов подобраны upstream по замерам.
+    # strategy=1 — первое плечо пула; для новых соединений его обновит замер.
     # просадки голоса — "поиграться репитами" #6915; 10 = рабочий референс юзера);
     # 2-6 — fallback'и (разные repeats/ttl) для circular-перебора, все под d4-cutoff.
     # 2026-04-30: blob мигрирован quic_google → quic_dbankcloud (TSPU
@@ -251,7 +250,7 @@ generate_nfqws2_opt_from_strategies() {
     # `send` + `drop` are tagged on every circular arm: circular skips untagged
     # actions. They replay the real discovery/STUN request after its decoys and
     # prevent the queued copy from disappearing at the postrouting NFQUEUE hook.
-    discord_udp="--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --in-range=a --out-range=a --payload=all --lua-desync=circular:fails=3:time=60:udp_in=1:udp_out=4:key=discord_udp:hostkey=z2k_nohost_key --in-range=x --out-range=-d4 --payload=discord_ip_discovery,stun --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=10:strategy=1 --lua-desync=send:dir=out:strategy=1 --lua-desync=drop:dir=out:strategy=1 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=3:strategy=2 --lua-desync=send:dir=out:strategy=2 --lua-desync=drop:dir=out:strategy=2 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=6:strategy=3 --lua-desync=send:dir=out:strategy=3 --lua-desync=drop:dir=out:strategy=3 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=6:ip_autottl=-2,3-20:strategy=4 --lua-desync=send:dir=out:strategy=4 --lua-desync=drop:dir=out:strategy=4 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=4:strategy=5 --lua-desync=send:dir=out:strategy=5 --lua-desync=drop:dir=out:strategy=5 --lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=5:strategy=6 --lua-desync=send:dir=out:strategy=6 --lua-desync=drop:dir=out:strategy=6"
+    discord_udp="--filter-udp=50000-50100,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --in-range=a --out-range=a --payload=all --lua-desync=circular:fails=3:time=60:udp_in=1:udp_out=4:key=discord_udp:hostkey=z2k_nohost_key --in-range=x --out-range=-d4 --payload=discord_ip_discovery,stun --lua-desync=fake:payload=all:blob=quic_initial_steamcommunity_com:repeats=6:strategy=1 --lua-desync=send:dir=out:strategy=1 --lua-desync=drop:dir=out:strategy=1 --lua-desync=fake:payload=all:blob=quic_initial_steamcommunity_com:repeats=10:strategy=2 --lua-desync=send:dir=out:strategy=2 --lua-desync=drop:dir=out:strategy=2 --lua-desync=fake:payload=all:blob=quic_initial_steamcommunity_com:repeats=3:strategy=3 --lua-desync=send:dir=out:strategy=3 --lua-desync=drop:dir=out:strategy=3 --lua-desync=fake:payload=all:blob=quic_initial_steamcommunity_com:repeats=6:ip_autottl=-2,3-20:strategy=4 --lua-desync=send:dir=out:strategy=4 --lua-desync=drop:dir=out:strategy=4 --lua-desync=fake:payload=all:blob=quic_initial_steamcommunity_com:repeats=4:strategy=5 --lua-desync=send:dir=out:strategy=5 --lua-desync=drop:dir=out:strategy=5 --lua-desync=fake:payload=all:blob=quic_initial_steamcommunity_com:repeats=5:strategy=6 --lua-desync=send:dir=out:strategy=6 --lua-desync=drop:dir=out:strategy=6"
 
     # Дефолт для пула, чей Strategy.txt пуст или нечитаем.
     #
@@ -1543,7 +1542,7 @@ generate_nfqws2_opt_from_strategies() {
         # и поштучного перебора имён здесь больше нет — механизм в ротации не
         # участвует (решение Марка 10.09.2026).
         sni_pick="--lua-desync=z2k_sni_pick:payload=tls_client_hello:dir=out:blob=z2k_ch${_sp_k:+:$_sp_k}${_sp_n:+:$_sp_n}"
-        sni_pick="$sni_pick --lua-desync=fake:payload=tls_client_hello:dir=out:blob=z2k_ch:optional:repeats=8:tcp_ts=-1000"
+        sni_pick="$sni_pick --lua-desync=fake:payload=tls_client_hello:dir=out:blob=z2k_ch:optional:repeats=8:tcp_ts=-1000:tcp_md5"
     fi
 
     if [ -n "$rkn_circ" ]; then
@@ -1583,11 +1582,13 @@ generate_nfqws2_opt_from_strategies() {
     # googlevideo.com (confirmed by hostlist.c:262-281). Circular pins per-SLD
     # thanks to nld=2, so youtube.com and googlevideo.com maintain independent
     # strategy picks even though they share the key=google_tls state.
-    # GV strategies renumbered 23..44 to avoid collision with YT's 1..22.
+    # GV strategies follow the final YouTube slot so both pools share one key.
     # Pre-Phase-3 else path keeps the legacy two-profile layout for rollback.
     if [ "$Z2K_REFACTOR_PHASE3" = "1" ]; then
-        local youtube_gv_rebased
-        youtube_gv_rebased=$(rebase_strategy_ids "$youtube_gv_tcp" 22)
+        local youtube_gv_rebased yt_last_slot
+        yt_last_slot=$(printf '%s' "$youtube_tcp" | grep -o ':strategy=[0-9]*' | sed 's/.*=//' | sort -n | tail -1)
+        [ -n "$yt_last_slot" ] || yt_last_slot=33
+        youtube_gv_rebased=$(rebase_strategy_ids "$youtube_gv_tcp" "$yt_last_slot")
         # Extract ONLY non-circular --lua-desync=* tokens from GV.
         # Global options (--filter-tcp, --filter-l7, --payload, --out-range,
         # --in-range) are dropped — youtube_tcp's own globals govern the
@@ -1617,12 +1618,11 @@ generate_nfqws2_opt_from_strategies() {
         add_hostlist_line "${extra_strats_dir}/TCP/YT_GV/List.txt" "$wl_excl --hostlist=${extra_strats_dir}/TCP/YT_GV/List.txt $youtube_gv_tcp --new"
     fi
 
-    # QUIC — общий профиль: ютуб плюс весь набор списков РКН.
+    # QUIC — общий профиль: YouTube, РКН и HTTP/3-список Discord.
     #
     # Набор ТОТ ЖЕ, что у TCP-профиля (rkn_lists_head + rkn_lists_tail): основной
     # список, дополнительные домены, найденное детектором и автохостлист, если он
-    # включён. Discord-список сюда НЕ идёт — его UDP живёт на своих портах и
-    # разбирается профилем discord_udp.
+    # включён. Голос Discord остаётся в отдельном профиле discord_udp.
     #
     # Порядок списков значения не имеет (движок объединяет), но ютубовский стоит
     # первым намеренно: так видно, что профиль вырос из него, а не появился из
@@ -1635,6 +1635,10 @@ generate_nfqws2_opt_from_strategies() {
     if [ "$category_rkn" != 0 ]; then
         quic_lists="$quic_lists $rkn_lists_head$rkn_lists_tail"
         [ -n "$quic_anchor" ] || quic_anchor="${extra_strats_dir}/TCP/RKN/List.txt"
+    fi
+    if [ "$category_voice" != 0 ] && [ -s "$discord_tcp_hostlist" ]; then
+        quic_lists="$quic_lists --hostlist=$discord_tcp_hostlist"
+        [ -n "$quic_anchor" ] || quic_anchor="$discord_tcp_hostlist"
     fi
     if [ -n "$quic_anchor" ]; then
         add_hostlist_line "$quic_anchor" "$wl_excl $quic_lists $quic_udp --new"
@@ -2029,6 +2033,8 @@ create_official_config() {
     local saved_Z2K_PPE_DEOFFLOAD="1"
     local saved_Z2K_PPE_DEOFFLOAD_QUIC="1"
     local saved_Z2K_FASTROUTE_OFF="1"
+    local saved_Z2K_DNS_REDIRECT="1"
+    local saved_Z2K_SNI_STALL="1"
     # Вход в панель по паролю. Умолчание 0 — выключено; панель годами ставили
     # без пароля, и регенерация конфига не должна его однажды включить.
     #
@@ -2114,6 +2120,10 @@ create_official_config() {
         # NAT (S99 z2k_fastroute_wanted, панель toggle_fastroute). Тот же класс.
         saved_Z2K_FASTROUTE_OFF=$(safe_config_read "Z2K_FASTROUTE_OFF" "$config_file" "1")
         case "$saved_Z2K_FASTROUTE_OFF" in 0|1) ;; *) saved_Z2K_FASTROUTE_OFF=1 ;; esac
+        saved_Z2K_DNS_REDIRECT=$(safe_config_read "Z2K_DNS_REDIRECT" "$config_file" "1")
+        case "$saved_Z2K_DNS_REDIRECT" in 0|1) ;; *) saved_Z2K_DNS_REDIRECT=1 ;; esac
+        saved_Z2K_SNI_STALL=$(safe_config_read "Z2K_SNI_STALL" "$config_file" "1")
+        case "$saved_Z2K_SNI_STALL" in 0|1) ;; *) saved_Z2K_SNI_STALL=1 ;; esac
         saved_Z2K_PANEL_AUTH=$(safe_config_read "Z2K_PANEL_AUTH" "$config_file" "0")
         saved_Z2K_AUTO_UPDATE_ENABLED=$(safe_config_read "Z2K_AUTO_UPDATE_ENABLED" "$config_file" "1")
         saved_Z2K_TIKTOK_FEED_ENABLED=$(safe_config_read "Z2K_TIKTOK_FEED_ENABLED" "$config_file" "0")
@@ -2239,7 +2249,7 @@ NFQWS2_ENABLE=1
 NFQWS2_PORTS_TCP="80,443,2053,2083,2087,2096,5222,8443"
 
 # UDP ports to process (will be filtered by --filter-udp in NFQWS2_OPT)
-NFQWS2_PORTS_UDP="443,50000-50099,1400,3478-3481,5349,19294-19344"
+NFQWS2_PORTS_UDP="443,50000-50100,1400,3478-3481,5349,19294-19344"
 
 # Discord voice/STUN: KEEPALIVE DISABLED (empty) — по канону bol-van.
 # Раньше (2026-06-11) на discord-портах connbytes-лимит снимался (keepalive),
@@ -2534,6 +2544,10 @@ Z2K_PPE_DEOFFLOAD_QUIC=${saved_Z2K_PPE_DEOFFLOAD_QUIC}
 # там, где нет драйвера аппаратного NAT (портированная KeeneticOS на Cudy и
 # т.п.). 0 — не трогать никогда. Тумблер в панели, «Режимы».
 Z2K_FASTROUTE_OFF=${saved_Z2K_FASTROUTE_OFF}
+# Перенаправление обычного DNS LAN-клиентов на системный резолвер OpenWrt.
+Z2K_DNS_REDIRECT=${saved_Z2K_DNS_REDIRECT}
+# Включатель обхода обрыва на 16 КБ, управляемого результатом пробы линии.
+Z2K_SNI_STALL=${saved_Z2K_SNI_STALL}
 Z2K_PANEL_AUTH=${saved_Z2K_PANEL_AUTH}
 Z2K_AUTO_UPDATE_ENABLED=${saved_Z2K_AUTO_UPDATE_ENABLED}
 Z2K_TIKTOK_FEED_ENABLED=${saved_Z2K_TIKTOK_FEED_ENABLED}

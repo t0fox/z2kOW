@@ -423,7 +423,7 @@ build_tls_profile_params() {
         prefix="${prefix} --filter-l7=tls"
     fi
     if ! params_has_payload "$params"; then
-        # z2r-style dual payload: wide scope for range/failure detection,
+        # dual payload: wide scope for range/failure detection,
         # narrow scope (tls_client_hello,http_req) for actual strategies
         payload="--payload=tls_client_hello,http_req,http_reply,unknown,tls_server_hello"
     fi
@@ -496,7 +496,7 @@ EOF
 }
 
 # ==============================================================================
-# АВТОТЕСТ ПО КАТЕГОРИЯМ (Z4R МЕТОД)
+# АВТОТЕСТ ПО КАТЕГОРИЯМ
 # ==============================================================================
 
 # ==============================================================================
@@ -504,7 +504,7 @@ EOF
 # ==============================================================================
 
 # ==============================================================================
-# АВТОТЕСТ ПО КАТЕГОРИЯМ V2 (Z4R РЕФЕРЕНС)
+# АВТОТЕСТ ПО КАТЕГОРИЯМ V2
 # ==============================================================================
 
 # ==============================================================================
@@ -524,7 +524,7 @@ EOF
 # BLOCKCHECK HTTP (port 80)
 # ==============================================================================
 
-# Применить разные стратегии для YouTube TCP, YouTube GV, RKN (Z4R метод)
+# Применить разные стратегии для YouTube TCP, YouTube GV, RKN
 # Параметры: номера стратегий для каждой категории
 # Purge a stale keepalive NFQUEUE rule + ipset that the engine's firewall
 # teardown leaves behind. ipt.sh's ipt_do_nfqws_in_out early-returns on an
@@ -713,7 +713,7 @@ save_category_strategies() {
     mkdir -p "$CONFIG_DIR" 2>/dev/null
 
     cat > "$config_file" <<EOF
-# Category Strategies Configuration (Z4R format)
+# Category Strategies Configuration
 # Format: CATEGORY:STRATEGY_NUM
 # Updated: $(date)
 

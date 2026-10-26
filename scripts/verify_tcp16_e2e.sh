@@ -129,15 +129,20 @@ i=0
 while [ "$i" -lt 60 ]; do
     i=$((i + 1))
     sleep 15
-    if ! rsh "pgrep -f z2k-tcp16-probe.sh >/dev/null 2>&1"; then
-        # процесса нет — либо отработала, либо не запускалась
-        [ -n "$(rsh "cat /opt/zapret2/state/tcp16.flag 2>/dev/null" || true)" ] && break
+    # Идёт ли проба — по её замку, как это делает панель: pgrep -f ловил и
+    # редактор, открывший файл пробы. Завершённым прогон считаем по отметке
+    # завершения, а не по флагу: флаг проба ставит в СЕРЕДИНЕ работы.
+    if ! rsh "[ -d /tmp/z2k-tcp16-probe.lock ] && kill -0 \"\$(cat /tmp/z2k-tcp16-probe.lock/pid 2>/dev/null)\" 2>/dev/null"; then
+        [ -n "$(rsh "cat /opt/zapret2/state/tcp16.flag.ts 2>/dev/null" || true)" ] && break
     fi
     printf '    проба идёт, %s с\n' "$((i * 15))"
 done
 
 FLAG=$(rsh "cat /opt/zapret2/state/tcp16.flag 2>/dev/null" || true)
-NAMES=$(rsh "grep -vc '^#' /opt/zapret2/state/tcp16_sni.txt 2>/dev/null" || echo 0)
+# Имена считаем так же, как панель: только для сетей, где блок найден, и
+# awk-ом — `grep -vc` на отсутствующем файле печатает «0» и свой код возврата
+# подставлял сюда мусор.
+NAMES=$(rsh "awk -F'\t' 'FILENAME==ARGV[1]{if(\$1~/^[0-9]+\$/)w[\$1]=1;next} \$1~/^[0-9]+\$/&&\$2!=\"\"&&w[\$1]{n++} END{print n+0}' /opt/zapret2/state/tcp16_asn.txt /opt/zapret2/state/tcp16_sni.txt 2>/dev/null" || echo 0)
 INCFG=$(rsh "grep -c -- '--lua-desync=z2k_sni_pick' /opt/zapret2/config 2>/dev/null" || echo 0)
 ALIVE=$(rsh "pgrep nfqws2 | wc -l" || echo 0)
 VER=$(rsh "cat /opt/zapret2/.z2k-installed-tag 2>/dev/null" || true)

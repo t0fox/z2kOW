@@ -456,6 +456,12 @@ fn last_error(paths: &Paths, enabled: bool) -> String {
     {
         return error.to_owned();
     }
+    if let Some(parent) = paths.device.parent()
+        && let Ok(error) = fs::read_to_string(parent.join("registration-error"))
+        && !error.trim().is_empty()
+    {
+        return error.split_whitespace().collect::<Vec<_>>().join("_");
+    }
     let Ok(log) = fs::read_to_string(&paths.log) else {
         return String::new();
     };

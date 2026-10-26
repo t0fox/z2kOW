@@ -346,6 +346,13 @@ export function renderCredits() {
           зеркала и проверки на живом железе, то есть каждый такой шаг.
         </p>
       </div>
+      <div class="card credits-card sponsor-card">
+        <div class="credits-badge sponsor-badge">${_icons.heart} Спонсор проекта</div>
+        <div class="credits-name">Шулепов Александр</div>
+        <p class="desc">
+          Спасибо, Александр, за поддержку разработки и проверки релизов z2k.
+        </p>
+      </div>
     </div>
   `;
 }

@@ -33,7 +33,7 @@ function tls_client_hello_mod(payload, mods)
         .. ",sni_snt_new=" .. tostring(mods.sni_snt_new)
 end
 
-local FAKE_NOW = 1700000000
+local FAKE_NOW = 1700000000 -- двигается тестом перечитки карт
 os.time = function() return FAKE_NOW end
 
 local function load_with(env)
@@ -128,6 +128,86 @@ do
     is("без карты имён работает общее закрепление", "общее", z2k_sni_for(v4(91, 98), "общее"))
     restore()
     os.remove(asnf); os.remove(netf)
+end
+
+-- ----- IPv6: только точная /32, без «накрыть весь /16» -------------------------
+-- Ревью 25.10.2026: префикс «2620::/32» клался ключом «2620:», поиск строил
+-- «2620:0» и промахивался, а запасной ключ «g1:» отдавал ЛЮБОМУ адресу с
+-- первой группой 0x2620 имя из этой /32 — 2620:1ec:: (Microsoft) получал имя
+-- соседа по /16.
+do
+    local asnf, netf, snif = os.tmpname(), os.tmpname(), os.tmpname()
+    local f = io.open(asnf, "w"); f:write("54113\n13335\n"); f:close()
+    f = io.open(netf, "w")
+    f:write("54113\t2620::/32\n")
+    f:write("13335\t2606:4700::/32\n")
+    f:close()
+    f = io.open(snif, "w"); f:write("54113\tfastly.example\n13335\thcaptcha.com\n"); f:close()
+
+    local restore = load_with({ Z2K_TCP16_ASN = asnf, Z2K_TCP16_NETS = netf, Z2K_TCP16_SNI = snif })
+    is("v6: точная /32 со второй группой 0 находится", "fastly.example", z2k_sni_for(v6(0x2620, 0), nil))
+    is("v6: сосед по /16 имени НЕ получает", nil, z2k_sni_for(v6(0x2620, 0x1ec), nil))
+    is("v6: обычная /32 находится", "hcaptcha.com", z2k_sni_for(v6(0x2606, 0x4700), nil))
+    is("v6: чужая /32 рядом — ничего", nil, z2k_sni_for(v6(0x2606, 0x4701), nil))
+    restore()
+    os.remove(asnf); os.remove(netf); os.remove(snif)
+end
+
+-- ----- общая /16 у нескольких AS -----------------------------------------------
+-- Огрубление до /16 склеивает соседей (2066 таких подсетей). Прежде
+-- выигрывала последняя строка файла, и адрес мог получить имя чужой AS, а своё
+-- — потерять.
+do
+    local asnf, netf, snif = os.tmpname(), os.tmpname(), os.tmpname()
+    local f = io.open(asnf, "w"); f:write("100\n200\n"); f:close()
+    f = io.open(netf, "w")
+    f:write("100\t162.247.0.0/16\n")   -- в карте имён её нет
+    f:write("200\t162.247.0.0/16\n")   -- имя есть у неё
+    f:write("100\t203.0.0.0/16\n")     -- только AS100
+    f:close()
+    f = io.open(snif, "w"); f:write("200\tshared.example\n"); f:close()
+
+    local restore = load_with({ Z2K_TCP16_ASN = asnf, Z2K_TCP16_NETS = netf, Z2K_TCP16_SNI = snif })
+    is("общая /16: берём имя той AS, у которой оно есть", "shared.example", z2k_sni_for(v4(162, 247), nil))
+    is("своя /16 без имени — ничего", nil, z2k_sni_for(v4(203, 0), nil))
+    restore()
+    os.remove(asnf); os.remove(netf); os.remove(snif)
+end
+
+-- ----- карты перечитываются после прогона пробы ---------------------------------
+-- Ревью 25.10.2026: карты грузились один раз на процесс, и ночная замена
+-- протухшего имени не действовала до случайного перезапуска службы.
+do
+    local asnf, netf, snif, verf = os.tmpname(), os.tmpname(), os.tmpname(), os.tmpname()
+    local f = io.open(asnf, "w"); f:write("100\n"); f:close()
+    f = io.open(netf, "w"); f:write("100\t91.98.0.0/16\n"); f:close()
+    f = io.open(snif, "w"); f:write("100\told.example\n"); f:close()
+    f = io.open(verf, "w"); f:write("1000\n"); f:close()
+
+    local restore = load_with({ Z2K_TCP16_ASN = asnf, Z2K_TCP16_NETS = netf,
+        Z2K_TCP16_SNI = snif, Z2K_TCP16_VER = verf, Z2K_TCP16_RECHECK = "10" })
+    is("карта прочитана", "old.example", z2k_sni_for(v4(91, 98), nil))
+
+    -- проба подменила карту и обновила версию
+    f = io.open(snif, "w"); f:write("100\tfresh.example\n"); f:close()
+    f = io.open(verf, "w"); f:write("2000\n"); f:close()
+    is("в окне дросселя старое имя ещё действует", "old.example", z2k_sni_for(v4(91, 98), nil))
+    FAKE_NOW = FAKE_NOW + 11
+    is("после дросселя подхвачено новое имя", "fresh.example", z2k_sni_for(v4(91, 98), nil))
+
+    -- версия не менялась — перечитки нет даже после дросселя
+    f = io.open(snif, "w"); f:write("100\tignored.example\n"); f:close()
+    FAKE_NOW = FAKE_NOW + 11
+    is("без смены версии карта не перечитывается", "fresh.example", z2k_sni_for(v4(91, 98), nil))
+
+    -- новый список сетей тоже подхватывается
+    f = io.open(netf, "w"); f:write("100\t203.0.0.0/16\n"); f:close()
+    f = io.open(verf, "w"); f:write("3000\n"); f:close()
+    FAKE_NOW = FAKE_NOW + 11
+    is("новый список сетей действует: прежний адрес выпал", nil, z2k_sni_for(v4(91, 98), nil))
+    is("новый список сетей действует: новый адрес получил имя", "ignored.example", z2k_sni_for(v4(203, 0), nil))
+    restore()
+    os.remove(asnf); os.remove(netf); os.remove(snif); os.remove(verf)
 end
 
 -- ----- файл не даёт ничего лишнего --------------------------------------------

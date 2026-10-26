@@ -13,6 +13,30 @@ local BLOCK_PORTALS = {
     ["warning.rt.ru"] = true,
     ["warn.beeline.ru"] = true,
     ["deny.megafon.ru"] = true,
+    -- 25.10.2026: заглушки провайдеров и реестра. Только полные имена хостов:
+    -- общие фразы («access denied») сигнатурой не считаем, см. body_marker ниже.
+    ["vigruzki.rkn.gov.ru"] = true,
+    ["blocklist.rkn.gov.ru"] = true,
+    ["blacklist.rkn.gov.ru"] = true,
+    ["nap.rkn.gov.ru"] = true,
+    ["zapret-info.gov.ru"] = true,
+    ["blocked.mgts.ru"] = true,
+    ["block.mts.ru"] = true,
+    ["zapret.mts.ru"] = true,
+    ["rkn.megafon.ru"] = true,
+    ["blocked.beeline.ru"] = true,
+    ["block.beeline.ru"] = true,
+    ["blocked.tele2.ru"] = true,
+    ["restriction.tele2.ru"] = true,
+    ["blocked.yota.ru"] = true,
+    ["blocking.ttk.ru"] = true,
+    ["block.ttk.ru"] = true,
+    ["blocked.domru.ru"] = true,
+    ["block.domru.ru"] = true,
+    ["blocked.2kom.ru"] = true,
+    ["blocked.ugmk-telecom.ru"] = true,
+    -- стаб ТСПУ: «сервер» ov.google.com в теле ответа на чужой домен
+    ["ov.google.com"] = true,
 }
 
 local function body_marker(body)

@@ -68,7 +68,7 @@ printf '%s\n' "$_tcp443_line" | grep -qF -- \
 _quic_line="$(printf '%s\n' "$NFQWS" | grep -m1 -- '--filter-udp=443' || true)"
 printf '%s\n' "$_quic_line" | grep -qF -- \
     "--hostlist=$Z2K_EXTRA_STRATS_DIR/TCP/RKN/Discord.txt" \
-    && _t_bad "Discord hostlist ошибочно попал в QUIC профиль" || _t_ok
+    && _t_ok || _t_bad "Discord HTTP/3 hostlist не попал в QUIC профиль"
 
 # Preserve upstream precedence when the compatibility mirror is present.
 printf '%s\n' 'legacy-discord.example' > "$Z2K_EXTRA_STRATS_DIR/TCP_Discord.txt"

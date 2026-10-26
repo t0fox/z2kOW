@@ -174,7 +174,13 @@ print_health() {
         if [ ! -x "$_warp_bin" ]; then
             _add "WARP: z2k-warpd отсутствует в $_warp_bin"
         elif [ ! -s "$_warp_device" ]; then
-            _add "WARP: устройство не зарегистрировано"
+            _warp_probe=$(_ow_warp_status_snapshot 2>/dev/null)
+            _warp_registration_error=$(_ow_warp_status_field "$_warp_probe" error)
+            if [ -n "$_warp_registration_error" ]; then
+                _add "WARP: регистрация не выполнена — $_warp_registration_error"
+            else
+                _add "WARP: устройство не зарегистрировано"
+            fi
         else
             _warp_probe=$(_ow_warp_status_snapshot 2>/dev/null)
             _warp_runtime_ready=$(_ow_warp_status_field "$_warp_probe" ready)

@@ -70,8 +70,8 @@ custom_runner zapret_custom_daemons 1
 custom_runner zapret_custom_firewall_nft 1
 assert_contains "STUN queue/options" "$T/calls" 'daemon:1:2000:--qnum=65300'
 assert_contains "Discord queue/options" "$T/calls" 'daemon:1:2001:--qnum=65301'
-assert_contains "Discord discovery: decoy followed by original datagram" "$T/calls" \
-    'daemon:1:2000:--qnum=65300 --payload=discord_ip_discovery --lua-desync=fake:blob=0x00000000000000000000000000000000:repeats=2 --lua-desync=send:dir=out --lua-desync=drop:dir=out'
+assert_contains "Discord discovery: валидный STUN-декой и исходная дейтаграмма" "$T/calls" \
+    'daemon:1:2000:--qnum=65300 --payload=discord_ip_discovery --lua-desync=fake:blob=0x000100002112a442000000000000000000000000:repeats=1 --lua-desync=send:dir=out --lua-desync=drop:dir=out'
 assert_contains "STUN: decoy followed by original datagram" "$T/calls" \
     'daemon:1:2001:--qnum=65301 --payload=stun --lua-desync=fake:blob=0x00000000000000000000000000000000:repeats=2 --lua-desync=send:dir=out --lua-desync=drop:dir=out'
 assert_contains "STUN magic predicate" "$T/calls" '0x2112A442'

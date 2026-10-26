@@ -5,7 +5,8 @@
 # This OpenWrt postrouting NFQUEUE owns discovery packets ahead of qnum 200.
 # Preserve the original request after the decoy; dropping only the queued copy
 # avoids losing the Discord IP-discovery handshake on this hook.
-NFQWS_OPT_DESYNC_DISCORD_MEDIA="${NFQWS_OPT_DESYNC_DISCORD_MEDIA:---payload=discord_ip_discovery --lua-desync=fake:blob=0x00000000000000000000000000000000:repeats=2 --lua-desync=send:dir=out --lua-desync=drop:dir=out}"
+# Проверенный в D2K приём: один валидный STUN-запрос (20 байт) перед IP Discovery.
+NFQWS_OPT_DESYNC_DISCORD_MEDIA="${NFQWS_OPT_DESYNC_DISCORD_MEDIA:---payload=discord_ip_discovery --lua-desync=fake:blob=0x000100002112a442000000000000000000000000:repeats=1 --lua-desync=send:dir=out --lua-desync=drop:dir=out}"
 DISCORD_MEDIA_PORT_RANGE="${DISCORD_MEDIA_PORT_RANGE:-50000-50099,19294-19344}"
 
 alloc_dnum DNUM_DISCORD_MEDIA

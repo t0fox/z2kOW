@@ -238,6 +238,16 @@ warp_start_instance() {
     [ "${Z2K_WARP_DIAGNOSTICS:-0}" != 1 ] || \
         set -- "$@" Z2K_WARP_DIAGNOSTICS=1
     [ -z "$_proxy" ] || set -- "$@" "Z2K_WARP_VPS_PROXY=$_proxy"
+    # OpenWrt trusts its installed ca-bundle; use it instead of Keenetic's
+    # separately shipped roots while keeping registration and WARP in Rust.
+    if [ -n "${SSL_CERT_FILE:-}" ] && [ -r "$SSL_CERT_FILE" ]; then
+        set -- "$@" "SSL_CERT_FILE=$SSL_CERT_FILE"
+    else
+        for _cert in /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-bundle.crt; do
+            if [ -r "$_cert" ]; then set -- "$@" "SSL_CERT_FILE=$_cert"; break; fi
+        done
+    fi
+    [ -d /etc/ssl/certs ] && set -- "$@" SSL_CERT_DIR=/etc/ssl/certs
     if command -v warp_domain_observer_procd_ready >/dev/null 2>&1 &&
         _domain_state="$(warp_domain_observer_procd_ready 2>/dev/null)"; then
         set -- "$@" \

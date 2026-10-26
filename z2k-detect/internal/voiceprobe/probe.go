@@ -86,10 +86,12 @@ func (o *Options) withDefaults() {
 }
 
 // voiceBlobs — фальшивки боевого профиля discord_udp, в порядке проверки.
+// С 25.10.2026 весь голосовой пул на одном блобе: QUIC Initial с SNI
+// steamcommunity.com (имя блоба = имя файла). Прежние active_discord_udp и
+// quic_dbankcloud из пула и из доставки сняты, предлагать их в стратегию нельзя:
+// движок их не знает.
 var voiceBlobs = []struct{ name, file string }{
-	{"active_discord_udp", "active_discord_udp.bin"},
-	{"stun", "stun.bin"},
-	{"quic_dbankcloud", "quic_initial_dbankcloud_ru.bin"},
+	{"quic_initial_steamcommunity_com", "quic_initial_steamcommunity_com.bin"},
 }
 
 // Run меряет голосовой поток.

@@ -10,6 +10,42 @@
 # partially rewritten state file.
 Z2K_QUIC_STATE_MIGRATION_MARKER="${Z2K_QUIC_STATE_MIGRATION_MARKER:-${Z2K_STATE:-/etc/z2k/state}/quic-pool-key-migrated}"
 Z2K_SLD_STATE_MIGRATION_MARKER="${Z2K_SLD_STATE_MIGRATION_MARKER:-${Z2K_STATE:-/etc/z2k/state}/domain-sld-v1.done}"
+Z2K_POOL_RENUMBER_MIGRATION_MARKER="${Z2K_POOL_RENUMBER_MIGRATION_MARKER:-${Z2K_STATE:-/etc/z2k/state}/pool-renumber-v1.done}"
+Z2K_CUSTOM_BLOB_MIGRATION_MARKER="${Z2K_CUSTOM_BLOB_MIGRATION_MARKER:-${Z2K_STATE:-/etc/z2k/state}/custom-blobs-v1.done}"
+
+# p-86.24 снимает два старых фейка. Переносим ссылки в пользовательских
+# стратегиях до запуска nfqws2 и оставляем рядом снимок для отката.
+z2k_ow_migrate_custom_blobs() {
+    local _dir="${Z2K_EXTRA_STRATEGIES_RUNTIME:-${Z2K_USER_LISTS:-/etc/z2k/user-lists}/custom-strategies}"
+    local _marker="$Z2K_CUSTOM_BLOB_MIGRATION_MARKER"
+    local _file _tmp _failed=0 _moved=0
+    [ -f "$_marker" ] && return 0
+    for _file in "$_dir"/*.txt; do
+        [ -f "$_file" ] && [ ! -L "$_file" ] || continue
+        grep -Eq 'blob=(quic_dbankcloud|tls_clienthello_www_onetrust_com)([^A-Za-z0-9_]|$)' "$_file" 2>/dev/null || continue
+        [ -f "$_file.pre-blob-migration-v1" ] || cp -p "$_file" "$_file.pre-blob-migration-v1" 2>/dev/null || { _failed=1; continue; }
+        _tmp="$_file.mig"
+        if sed \
+            -e 's/blob=quic_dbankcloud:/blob=quic_initial_steamcommunity_com:/g' \
+            -e 's/blob=quic_dbankcloud\([[:space:]]\)/blob=quic_initial_steamcommunity_com\1/g' \
+            -e 's/blob=quic_dbankcloud$/blob=quic_initial_steamcommunity_com/' \
+            -e 's/blob=tls_clienthello_www_onetrust_com:/blob=tls_clienthello_www_sferum_ru:/g' \
+            -e 's/blob=tls_clienthello_www_onetrust_com\([[:space:]]\)/blob=tls_clienthello_www_sferum_ru\1/g' \
+            -e 's/blob=tls_clienthello_www_onetrust_com$/blob=tls_clienthello_www_sferum_ru/' \
+            "$_file" > "$_tmp" 2>/dev/null && [ -s "$_tmp" ] && mv -f "$_tmp" "$_file" 2>/dev/null; then
+            _moved=$((_moved + 1))
+        else
+            rm -f "$_tmp" 2>/dev/null
+            _failed=1
+        fi
+    done
+    if [ "$_failed" = 0 ]; then
+        mkdir -p "$(dirname "$_marker")" 2>/dev/null || return 1
+        : > "$_marker" 2>/dev/null || return 1
+    fi
+    [ "$_moved" = 0 ] || echo "z2k-openwrt: обновлены фейки в пользовательских стратегиях ($_moved файл(ов))"
+    return 0
+}
 
 _z2k_ow_state_lock_acquire() {
     local _path="$1" _lock="${1}.lock" _now _stamp _age
@@ -272,6 +308,83 @@ z2k_ow_migrate_quic_state() {
         fi
     fi
     [ "$_failed" -eq 0 ]
+}
+
+# p-86.24 reordered TCP/QUIC strategy pools. Automatic picks must be measured
+# again; user-frozen picks keep the same technique through the published map.
+# Run after yt_quic -> quic and before nfqws2 can read any state copy.
+z2k_ow_migrate_pool_renumber() {
+    [ -f "$Z2K_POOL_RENUMBER_MIGRATION_MARKER" ] && return 0
+    local _primary="${STATE_FILE:-${Z2K_AUTOCIRCULAR_DIR:-${Z2K_ETC:-/etc/z2k}/autocircular}/state.tsv}"
+    local _fallback="${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-${Z2K_AUTOCIRCULAR_FALLBACK_DIR:-${Z2K_TMP:-/tmp/z2k}/autocircular}}/z2k-autocircular-state.tsv"
+    local _legacy="${Z2K_AUTOCIRCULAR_LEGACY_FALLBACK_OVERRIDE:-/tmp/z2k-autocircular-state.tsv}"
+    local _runtime="${Z2K_ZAPRET2_RUNTIME:-/opt/zapret2}/extra_strats/cache/autocircular/state.tsv"
+    local _rkn='1=41,2=6,3=19,4=33,5=17,6=2,7=3,8=23,9=22,10=x,11=30,12=15,13=24,14=20,15=28,16=26,17=21,18=42,19=8,20=32,21=25,22=50,23=53,24=31,25=54,26=46,27=55,28=38,29=45,30=16,31=48,32=34,33=47,34=49,35=5,36=18,37=4,38=44,39=14,40=x,41=13,42=36,43=35,44=37,45=x,46=x,47=39,48=51,49=40,50=52'
+    local _yt='1=1,2=17,3=20,4=13,5=28,6=25,7=30,8=3,9=19,10=10,11=2,12=15,13=21,14=14,15=7,16=29,17=9,18=24,19=16,20=5,21=23,22=4'
+    local _gv='1=3,2=25,3=7,4=17,5=6,6=31,7=5,8=12,9=4,10=11,11=32,12=28,13=13,14=1,15=8,16=22,17=18,18=19,19=16,20=20,21=14,22=9'
+    local _quic='1=4,2=10,3=5,4=18,5=3,6=2,7=14,8=8,9=7'
+    local _discord='1=2,2=3,3=1,4=4,5=5,6=6'
+    local _seen=" " _file _locked="" _failed=0 _changed=0 _tmp _content _rc
+
+    for _file in "$_primary" "$_fallback" "$_legacy" "$_runtime"; do
+        case "$_seen" in *" $_file "*) continue ;; esac
+        _seen="$_seen$_file "
+        [ -f "$_file" ] || continue
+        if ! _z2k_ow_state_lock_acquire "$_file"; then
+            echo "z2k-openwrt: state busy during pool migration: $_file" >&2
+            _failed=1
+            break
+        fi
+        _locked="$_locked $_file"
+        if ! awk -F '\t' '$1 ~ /^(rkn_tcp|yt_tcp|gv_tcp|google_tls|quic|discord_udp)$/ { found=1; exit } END { exit !found }' "$_file" 2>/dev/null; then
+            continue
+        fi
+        _tmp="${_file}.pool-renumber.$$"
+        _content="${_tmp}.content"
+        if ! cp -p "$_file" "$_tmp" 2>/dev/null || \
+           ! awk -F '\t' -v RKN="$_rkn" -v YT="$_yt" -v GV="$_gv" -v QU="$_quic" -v DV="$_discord" '
+                function load(s, m,   n, a, i, kv) { n=split(s,a,","); for (i=1;i<=n;i++) { split(a[i],kv,"="); m[kv[1]]=kv[2] } }
+                function remap(m, n) { return (n in m) ? m[n] : "" }
+                BEGIN { OFS="\t"; load(RKN,rkn); load(YT,yt); load(GV,gv); load(QU,qu); load(DV,dv) }
+                /^#/ || NF < 3 { print; next }
+                $1 == "rkn_tcp" { n=remap(rkn,$3+0) }
+                $1 == "yt_tcp" { n=remap(yt,$3+0) }
+                $1 == "gv_tcp" { n=remap(gv,$3+0) }
+                $1 == "google_tls" { s=$3+0; if (s<=22) n=remap(yt,s); else { n=remap(gv,s-22); if (n!="" && n!="x") n+=33 } }
+                $1 == "quic" { n=remap(qu,$3+0) }
+                $1 ~ /^(rkn_tcp|yt_tcp|gv_tcp|google_tls|quic)$/ && $5 != "frozen" { n="x" }
+                $1 == "discord_udp" { n=($5 == "frozen") ? remap(dv,$3+0) : "x" }
+                $1 ~ /^(rkn_tcp|yt_tcp|gv_tcp|google_tls|quic|discord_udp)$/ { if (n == "x") next; if (n != "") $3=n }
+                { print }
+            ' "$_file" > "$_content" 2>/dev/null; then
+            _failed=1
+        fi
+        if [ "$_failed" -eq 0 ] && cmp -s "$_file" "$_content" 2>/dev/null; then
+            rm -f "$_tmp" "$_content"
+        elif [ "$_failed" -eq 0 ]; then
+            if [ ! -f "$_file.pre-pool-renumber-v1" ] && ! cp -p "$_file" "$_file.pre-pool-renumber-v1" 2>/dev/null; then
+                _failed=1
+            elif ! cat "$_content" > "$_tmp" 2>/dev/null || ! mv -f "$_tmp" "$_file" 2>/dev/null; then
+                _failed=1
+            else
+                _changed=$((_changed + 1))
+                rm -f "$_content"
+            fi
+        fi
+        rm -f "$_tmp" "$_content"
+        [ "$_failed" -eq 0 ] || break
+    done
+    for _file in $_locked; do _z2k_ow_state_lock_release "$_file"; done
+    [ "$_failed" -eq 0 ] || return 1
+    mkdir -p "$(dirname "$Z2K_POOL_RENUMBER_MIGRATION_MARKER")" 2>/dev/null || return 1
+    _tmp="${Z2K_POOL_RENUMBER_MIGRATION_MARKER}.tmp.$$"
+    if ! printf 'strategy pools migrated to p-86.24\n' > "$_tmp" 2>/dev/null || \
+       ! mv -f "$_tmp" "$Z2K_POOL_RENUMBER_MIGRATION_MARKER" 2>/dev/null; then
+        rm -f "$_tmp" 2>/dev/null
+        return 1
+    fi
+    [ "$_changed" -eq 0 ] || echo "z2k-openwrt: перенесены закреплённые стратегии пулов p-86.24; автоматические выборы сброшены"
+    return 0
 }
 
 # Upstream p-86.2 changes domain rotation from full hostnames to the native

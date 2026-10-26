@@ -514,16 +514,16 @@ fn enable(
         match fs::metadata(&paths.device) {
             Ok(metadata) if metadata.is_file() && metadata.len() > 0 => {}
             Ok(_) => {
-                if register_engine(paths, true).is_err() {
+                if let Err(error) = register_engine(paths, true) {
                     eprintln!(
-                        "идентификатор WARP пока не зарегистрирован; восстановление продолжится в health-check"
+                        "идентификатор WARP пока не зарегистрирован ({error}); восстановление продолжится в health-check"
                     );
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                if register_engine(paths, true).is_err() {
+                if let Err(error) = register_engine(paths, true) {
                     eprintln!(
-                        "идентификатор WARP пока не зарегистрирован; восстановление продолжится в health-check"
+                        "идентификатор WARP пока не зарегистрирован ({error}); восстановление продолжится в health-check"
                     );
                 }
             }
@@ -1550,11 +1550,20 @@ fn register_engine(paths: &Paths, write_retry_stamp: bool) -> io::Result<()> {
     }
     let mut command = Command::new(&paths.warp_bin);
     command.args(["register", "--device"]).arg(&paths.device);
-    let result = process::output_with_timeout(&mut command, Duration::from_secs(90))?;
+    system_ca_environment(&mut command);
+    let result = match process::output_with_timeout(&mut command, Duration::from_secs(90)) {
+        Ok(result) => result,
+        Err(error) => {
+            record_registration_error(paths, &format!("регистрация WARP: {error}"));
+            return Err(error);
+        }
+    };
     if !result.status.success() {
+        let direct_error = registration_detail(&result.stderr, result.status.code());
         let proxy = external_proxy(paths);
         if proxy.is_empty() {
-            return Err(io::Error::other("регистрация WARP не выполнена"));
+            record_registration_error(paths, &direct_error);
+            return Err(io::Error::other(direct_error));
         }
         let mut command = Command::new(&paths.warp_bin);
         command
@@ -1562,18 +1571,93 @@ fn register_engine(paths: &Paths, write_retry_stamp: bool) -> io::Result<()> {
             .arg(&paths.device)
             .arg("--proxy")
             .arg(proxy);
-        if !process::output_with_timeout(&mut command, Duration::from_secs(90))?
-            .status
-            .success()
-        {
-            return Err(io::Error::other(
-                "регистрация WARP через proxy не выполнена",
-            ));
+        system_ca_environment(&mut command);
+        let proxied = match process::output_with_timeout(&mut command, Duration::from_secs(90)) {
+            Ok(result) => result,
+            Err(error) => {
+                record_registration_error(paths, &format!("регистрация WARP через proxy: {error}"));
+                return Err(error);
+            }
+        };
+        if !proxied.status.success() {
+            let detail = registration_detail(&proxied.stderr, proxied.status.code());
+            record_registration_error(paths, &format!("proxy: {detail}"));
+            return Err(io::Error::other(format!(
+                "регистрация WARP через proxy: {detail}"
+            )));
         }
     }
+    clear_registration_error(paths);
     let mut permissions = fs::metadata(&paths.device)?.permissions();
     permissions.set_mode(0o600);
     fs::set_permissions(&paths.device, permissions)
+}
+
+fn system_ca_environment(command: &mut Command) {
+    let configured_file = env::var_os("SSL_CERT_FILE").filter(|path| Path::new(path).is_file());
+    if configured_file.is_none() {
+        for candidate in [
+            "/etc/ssl/cert.pem",
+            "/etc/ssl/certs/ca-certificates.crt",
+            "/etc/ssl/certs/ca-bundle.crt",
+        ] {
+            if Path::new(candidate).is_file() {
+                command.env("SSL_CERT_FILE", candidate);
+                break;
+            }
+        }
+    }
+    let configured_dir = env::var_os("SSL_CERT_DIR")
+        .filter(|path| std::env::split_paths(path).any(|directory| directory.is_dir()));
+    if configured_dir.is_none() && Path::new("/etc/ssl/certs").is_dir() {
+        command.env("SSL_CERT_DIR", "/etc/ssl/certs");
+    }
+}
+
+fn registration_detail(stderr: &[u8], code: Option<i32>) -> String {
+    let detail = String::from_utf8_lossy(stderr)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if detail.is_empty() {
+        format!(
+            "регистрация WARP завершилась с кодом {}",
+            code.unwrap_or(-1)
+        )
+    } else {
+        detail.chars().take(240).collect()
+    }
+}
+
+fn record_registration_error(paths: &Paths, detail: &str) {
+    let Some(parent) = paths.device.parent() else {
+        return;
+    };
+    if fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let path = parent.join("registration-error");
+    let temporary = parent.join(format!(".registration-error.new.{}", std::process::id()));
+    let _ = fs::remove_file(&temporary);
+    let Ok(mut file) = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temporary)
+    else {
+        return;
+    };
+    if file.write_all(detail.as_bytes()).is_ok() {
+        let _ = fs::rename(&temporary, &path);
+    } else {
+        let _ = fs::remove_file(&temporary);
+    }
+}
+
+fn clear_registration_error(paths: &Paths) {
+    if let Some(parent) = paths.device.parent() {
+        let _ = fs::remove_file(parent.join("registration-error"));
+    }
 }
 
 fn write_stamp(path: &Path, now: u64) -> io::Result<()> {

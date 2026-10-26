@@ -897,6 +897,9 @@ LUA_Z2K_RANGE_RAND="$ZAPRET_BASE/lua/z2k-range-rand.lua"
 # чистый нативный circular() из zapret-auto.lua (простая ротация fails→next).
 LUA_Z2K_MODERN_CORE="$ZAPRET_BASE/lua/z2k-modern-core.lua"
 [ -f "$LUA_Z2K_MODERN_CORE" ] && LUAOPT="$LUAOPT --lua-init=@$LUA_Z2K_MODERN_CORE"
+# Совместимые фулинги, перенесённые из winws: badseq и hostfakesplit altorder.
+LUA_Z2K_NFQWS1_COMPAT="$ZAPRET_BASE/lua/z2k-nfqws1-compat.lua"
+[ -f "$LUA_Z2K_NFQWS1_COMPAT" ] && LUAOPT="$LUAOPT --lua-init=@$LUA_Z2K_NFQWS1_COMPAT"
 # z2k-http-strats.lua больше не грузится и удалён из проекта. 33 функции
 # z2k_http_* держали страты 8..40 профиля http_rkn, пока их не сняли осознанно
 # 2026-06-04 (9f63a39, сверка пулов с z4r/Flowseal/remittor): пул сжат до
@@ -1043,13 +1046,20 @@ QUIC1_BLOB="$ZAPRET_BASE/files/fake/quic_1.bin"
 QUIC_RUTRACKER_BLOB="$ZAPRET_BASE/files/fake/quic_initial_rutracker_org.bin"
 [ -s "$QUIC_RUTRACKER_BLOB" ] && NFQWS2_OPT_BASE="$NFQWS2_OPT_BASE --blob=quic_rutracker:@$QUIC_RUTRACKER_BLOB"
 
-# Russian banking-cloud QUIC decoy from flowseal 1.9.8 (PR #12216) — used by the
-# Discord UDP profile as a fake blob where the google-QUIC fingerprint is flagged.
-QUIC_DBANKCLOUD_BLOB="$ZAPRET_BASE/files/fake/quic_initial_dbankcloud_ru.bin"
-[ -s "$QUIC_DBANKCLOUD_BLOB" ] && NFQWS2_OPT_BASE="$NFQWS2_OPT_BASE --blob=quic_dbankcloud:@$QUIC_DBANKCLOUD_BLOB"
+QUIC_STEAMCOMMUNITY_BLOB="$ZAPRET_BASE/files/fake/quic_initial_steamcommunity_com.bin"
+[ -s "$QUIC_STEAMCOMMUNITY_BLOB" ] && NFQWS2_OPT_BASE="$NFQWS2_OPT_BASE --blob=quic_initial_steamcommunity_com:@$QUIC_STEAMCOMMUNITY_BLOB"
 
-TLS_ONETRUST_BLOB="$ZAPRET_BASE/files/fake/tls_clienthello_www_onetrust_com.bin"
-[ -s "$TLS_ONETRUST_BLOB" ] && NFQWS2_OPT_BASE="$NFQWS2_OPT_BASE --blob=tls_clienthello_www_onetrust_com:@$TLS_ONETRUST_BLOB"
+TLS_SFERUM_BLOB="$ZAPRET_BASE/files/fake/tls_clienthello_www_sferum_ru.bin"
+[ -s "$TLS_SFERUM_BLOB" ] && NFQWS2_OPT_BASE="$NFQWS2_OPT_BASE --blob=tls_clienthello_www_sferum_ru:@$TLS_SFERUM_BLOB"
+
+TLS_SOCHI_PARK_BLOB="$ZAPRET_BASE/files/fake/tls_clienthello_sochi_park.bin"
+[ -s "$TLS_SOCHI_PARK_BLOB" ] && NFQWS2_OPT_BASE="$NFQWS2_OPT_BASE --blob=tls_clienthello_sochi_park:@$TLS_SOCHI_PARK_BLOB"
+
+STUN2_BLOB="$ZAPRET_BASE/files/fake/stun2.bin"
+[ -s "$STUN2_BLOB" ] && NFQWS2_OPT_BASE="$NFQWS2_OPT_BASE --blob=stun2:@$STUN2_BLOB"
+
+RDP_BLOB="$ZAPRET_BASE/files/fake/rdp.bin"
+[ -s "$RDP_BLOB" ] && NFQWS2_OPT_BASE="$NFQWS2_OPT_BASE --blob=rdp:@$RDP_BLOB"
 
 TLS_T2_BLOB="$ZAPRET_BASE/files/fake/t2.bin"
 [ -s "$TLS_T2_BLOB" ] && NFQWS2_OPT_BASE="$NFQWS2_OPT_BASE --blob=t2:@$TLS_T2_BLOB"

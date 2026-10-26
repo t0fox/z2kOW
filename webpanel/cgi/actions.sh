@@ -1567,6 +1567,18 @@ toggle_dynamic_ttl() {
     job_progress "Динамический TTL: настройка применена"
 }
 
+toggle_dns_redirect() {
+    [ "${Z2K_PLATFORM:-keenetic}" = "openwrt" ] || return 1
+    local want="$1"
+    case "$want" in 0|1) ;; *) return 1 ;; esac
+    set_flag "Z2K_DNS_REDIRECT" "$want" "$CONFIG_FILE" || return 1
+    if [ "$want" = 1 ]; then
+        sh "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/dns-redirect.sh" reset
+    else
+        sh "${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt/dns-redirect.sh" remove
+    fi
+}
+
 toggle_auto_update() {
     # Z2K_AUTO_UPDATE_ENABLED — nightly unattended update (default 1).
     # It does not touch NFQWS2_OPT and is read
@@ -3115,6 +3127,20 @@ diag_is_complete() {
 _tcp16_count() {
     awk '!/^#/ && NF {n++} END {print n + 0}' "$1" 2>/dev/null || echo 0
 }
+_tcp16_bypassed() {
+    awk -F '\t' '
+        FILENAME == ARGV[1] { if ($1 ~ /^[0-9]+$/) want[$1]=1; next }
+        $1 ~ /^[0-9]+$/ && $2 != "" && want[$1] && !seen[$1]++ { n++ }
+        END { print n + 0 }
+    ' "$1" "$2" 2>/dev/null || echo 0
+}
+_tcp16_running() {
+    local _dir="${Z2K_TCP16_LOCK:-/tmp/z2k-tcp16-probe.lock}" _owner
+    [ -d "$_dir" ] || return 1
+    _owner=$(cat "$_dir/pid" 2>/dev/null)
+    case "$_owner" in ''|*[!0-9]*) return 1 ;; esac
+    kill -0 "$_owner" 2>/dev/null
+}
 tcp16_status_json() {
     local flag="${Z2K_TCP16_FLAG:-${ZAPRET2_DIR}/state/tcp16.flag}"
     local stamp="${Z2K_TCP16_TIMESTAMP:-$flag.ts}"
@@ -3122,7 +3148,7 @@ tcp16_status_json() {
     local asn="${Z2K_TCP16_ASN:-${ZAPRET2_DIR}/state/tcp16_asn.txt}"
     local names="${Z2K_TCP16_SNI:-${ZAPRET2_DIR}/state/tcp16_sni.txt}"
     local candidates="${Z2K_TCP16_CANDIDATES:-${ZAPRET2_DIR}/lists/sni_wl_candidates.txt}"
-    local f="" ts="" age="" duration="" in_cfg=false running=false verdict=unmeasured
+    local f="" ts="" started="" age="" duration="" in_cfg=false running=false stale=false verdict=unmeasured
     [ -s "$flag" ] && f=$(cat "$flag" 2>/dev/null)
     case "$f" in 0|1) ;; *) f="" ;; esac
     # Метка времени — только вместе с ответом: одна без другого означает, что
@@ -3131,21 +3157,25 @@ tcp16_status_json() {
         ts=$(cat "$stamp" 2>/dev/null)
         case "$ts" in ''|*[!0-9]*) ts="" ;; *) age=$(( $(date +%s) - ts )) ;; esac
     fi
+    _tcp16_running && running=true
+    started=$(cat "$flag.started" 2>/dev/null)
+    case "$started" in ''|*[!0-9]*) started="" ;; esac
+    if [ "$running" = false ] && [ -n "$started" ] && [ "${ts:-0}" -lt "$started" ] 2>/dev/null; then
+        stale=true
+    fi
     [ -r "$duration_file" ] && duration=$(cat "$duration_file" 2>/dev/null)
     case "$duration" in ''|*[!0-9]*) duration="" ;; esac
     case "$f" in 1) verdict=blocked ;; 0) verdict=clear ;; esac
     grep -q -- '--lua-desync=z2k_sni_pick' "$CONFIG_FILE" 2>/dev/null && in_cfg=true
-    # Идёт ли проба: по процессу, а не по метке — метка появляется в конце.
-    pgrep -f 'z2k-tcp16-probe.sh' >/dev/null 2>&1 && running=true
     printf '{"ok":true,"measured":'; json_string "$f"
     printf ',"verdict":'; json_string "$verdict"
     printf ',"timestamp":'; json_string "$ts"
     printf ',"duration":%s' "${duration:-null}"
     printf ',"age":%s' "${age:-null}"
     printf ',"nets_blocked":%s' "$(_tcp16_count "$asn")"
-    printf ',"names":%s' "$(_tcp16_count "$names")"
+    printf ',"nets_bypassed":%s' "$(_tcp16_bypassed "$asn" "$names")"
     printf ',"candidates":%s' "$(_tcp16_count "$candidates")"
-    printf ',"in_config":%s,"running":%s}\n' "$in_cfg" "$running"
+    printf ',"in_config":%s,"running":%s,"stale":%s}\n' "$in_cfg" "$running" "$stale"
 }
 
 # Ручной запуск пробы — та же команда, что у планировщика в 03:30, без
@@ -3155,7 +3185,7 @@ tcp16_status_json() {
 tcp16_probe_async() {
     local _probe="${Z2K_TCP16_PROBE:-${ZAPRET2_DIR}/z2k-tcp16-probe.sh}"
     [ -r "$_probe" ] || return 3
-    if pgrep -f 'z2k-tcp16-probe.sh' >/dev/null 2>&1; then
+    if _tcp16_running; then
         return 4
     fi
     svc_action_async "Проба линии на обрыв 16 КБ" "sh \"$_probe\""

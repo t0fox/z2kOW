@@ -58,7 +58,8 @@ reload_service() {
     [ -f "$Z2K_CONFIG" ] && . "$Z2K_CONFIG"
     [ -f "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" ] || return 0
     Z2K_FW_EVENT_SETTLE="${Z2K_FW_EVENT_SETTLE:-2}"
-    z2k_ow_fw_event reload
+    z2k_ow_fw_event reload || return 1
+    sh "$Z2K_ROOT/platform/openwrt/dns-redirect.sh" sync >/dev/null 2>&1 || true
 }
 
 # BusyBox builds differ: some have an executable usleep applet, some only
@@ -308,6 +309,14 @@ _z2k_ow_start_service_impl() {
     if command -v z2k_ow_migrate_quic_state >/dev/null 2>&1; then
         z2k_ow_migrate_quic_state || return 1
     fi
+    if command -v z2k_ow_migrate_custom_blobs >/dev/null 2>&1; then
+        z2k_ow_migrate_custom_blobs || return 1
+    fi
+    # p-86.24 reorder: reset automatic picks and translate frozen selections
+    # before the engine reads its per-host strategy state.
+    if command -v z2k_ow_migrate_pool_renumber >/dev/null 2>&1; then
+        z2k_ow_migrate_pool_renumber || return 1
+    fi
     # p-86.2 changes autocircular keys to the domain's second-level scope.
     # Merge and migrate persistent/fallback rows while the old nfqws2 instance
     # is stopped, before the new procd instance can read state.tsv.
@@ -318,6 +327,7 @@ _z2k_ow_start_service_impl() {
     # core-ready снимаем ПЕРВЫМ: дальше — либо новый ready в самом конце,
     # либо его отсутствие при любом провале (деградация видна /status).
     rm -f "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" "$Z2K_RUN/stopping" 2>/dev/null
+    sh "$Z2K_ROOT/platform/openwrt/dns-redirect.sh" remove >/dev/null 2>&1 || _rc=1
 
     local _base _qnum
     _base="$(z2k_ow_optbase)" || return 1
@@ -414,6 +424,8 @@ _z2k_ow_service_started_impl() {
         _z2k_ow_wait_feature rt && z2k_ow_rt_verify || { z2k_ow_start_rollback; return 1; }
     fi
     : > "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" || { z2k_ow_start_rollback; return 1; }
+    # Защита обычного DNS — отдельная fail-open функция на nftables.
+    sh "$Z2K_ROOT/platform/openwrt/dns-redirect.sh" sync >/dev/null 2>&1 || true
     # TikTok CDN repair is an OpenWrt-only soft feature: it starts only after
     # core-ready and can never make the z2k dataplane fail its health gate.
     if z2k_ow_tiktok_enabled; then

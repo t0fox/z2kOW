@@ -201,14 +201,14 @@ const statusFixture = (process.env.Z2K_OW_CAPS === "1")
     ? { ok:true, installed:true, running:true, service:"active",
         toggles:{game_warp:"0",category_youtube:"1",category_rkn:"1",
                  category_discord_voice:"1",customd:"0",dynamic_ttl:"1",
-                 ppe:"1",fastroute:"0",auto_update:"1",autohostlist:"0"},
+                 ppe:"1",fastroute:"0",dns_redirect:"0",auto_update:"1",autohostlist:"0"},
         tunnel:{running:false}, platform:"openwrt",
         capabilities:{policy:false,ppe:false,tcp16:false,diag:false,
                       warp:true,telegram:true,uninstall:false} }
     : { ok:true, installed:"r-86.5", running:true, service:"running",
         toggles:{game_warp:"0",category_youtube:"1",category_rkn:"1",
                  category_discord_voice:"1",customd:"0",dynamic_ttl:"1",
-                 ppe:"1",fastroute:"0",auto_update:"1",autohostlist:"0"}, tunnel:{running:true} };
+                 ppe:"1",fastroute:"0",dns_redirect:"0",auto_update:"1",autohostlist:"0"}, tunnel:{running:true} };
 if (process.env.Z2K_TEST_TG_FRESHNESS === "1") {
   statusFixture.tunnel = { running:true, workers:["worker.example"] };
 }
@@ -233,7 +233,7 @@ const FIXTURES = {
   // tests/openwrt/test_ow_webpanel_pages.sh: исполняет OW-ветки фронта
   // (applyCapabilities, OW-текст dynamic_ttl, title). Дефолт — Keenetic 1-в-1.
   "/status": statusFixture,
-  "/toggles": { ok:true, game_warp:"0",customd:"0",dynamic_ttl:"1",
+  "/toggles": { ok:true, game_warp:"0",customd:"0",dynamic_ttl:"1",dns_redirect:"0",
                 ppe:"1",auto_update:"1",autohostlist:"0" },
   "/strategy/pools": { ok:true, pools:[
     {pool:"rkn_tcp",custom:0,line:""},{pool:"yt_tcp",custom:1,line:"--filter-tcp=443"},

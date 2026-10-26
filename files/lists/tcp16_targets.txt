@@ -17,7 +17,7 @@
 # id	asn	conf	провайдер	ip	порт
 HE-01	24940	*	Hetzner	91.98.156.82	443	
 HE-02	24940	*	Hetzner	46.62.154.37	443	
-HE-02	24940	*	Hetzner HTTP	185.189.229.124	80	
+HE-02H	24940	*	Hetzner HTTP	185.189.229.124	80	
 HE-03	213230	-	Hetzner Cloud 2	5.161.249.234	443	
 HE-04	213230	-	Hetzner Cloud 2	178.156.225.186	443	
 HE-05	212317	-	Hetzner Cloud 3	5.78.155.139	443	

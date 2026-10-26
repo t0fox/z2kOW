@@ -42,7 +42,7 @@ trap 'rm -rf "$T"' EXIT
 #
 # Вырезаем ровно ту склейку, что стоит в пробе, и кормим её поддельными картой
 # и списком. Подстановки путей — через те же имена переменных, что в скрипте.
-awk '/^            _cand_run="\$CAND"$/,/^            fi$/' "$PROBE" > "$T/join.sh"
+awk '/НАЧАЛО СКЛЕЙКИ СПИСКА КАНДИДАТОВ/,/КОНЕЦ СКЛЕЙКИ СПИСКА КАНДИДАТОВ/' "$PROBE" > "$T/join.sh"
 if [ ! -s "$T/join.sh" ]; then
     no "в пробе есть склейка списка кандидатов" "блок кода" "не найден"
 else
@@ -51,22 +51,36 @@ else
     {
         printf 'CAND="%s"\n' "$T/cand"
         printf 'SNIOUT="%s"\n' "$T/sniout"
-        sed 's/^            //' "$T/join.sh"
-        printf 'cat "$_cand_run"\n'
+        printf '_cand_all="%s/all"\n_cand_quick="%s/quick"\n_cand_tail="%s/tail"\n' "$T" "$T" "$T"
+        printf 'QUICK="${QUICK:-2}"\n'
+        sed 's/^    //' "$T/join.sh"
+        printf 'echo "--ALL"; cat "$_cand_all"; echo "--QUICK"; cat "$_cand_quick"; echo "--TAIL"; cat "$_cand_tail"\n'
     } > "$T/run.sh"
     OUT=$(sh "$T/run.sh" 2>/dev/null)
-    eq "первым идёт имя из карты" "louisvuitton.com" "$(printf '%s\n' "$OUT" | sed -n 1p)"
-    eq "вторым — второе имя из карты" "hcaptcha.com" "$(printf '%s\n' "$OUT" | sed -n 2p)"
-    eq "дубли убраны" "1" "$(printf '%s\n' "$OUT" | grep -c '^hcaptcha.com$')"
-    eq "louisvuitton.com не повторён" "1" "$(printf '%s\n' "$OUT" | grep -c '^louisvuitton.com$')"
-    eq "комментарии не попали в перебор" "0" "$(printf '%s\n' "$OUT" | grep -c '^#')"
-    eq "остальной список на месте" "1" "$(printf '%s\n' "$OUT" | grep -c '^300.ya.ru$')"
+    ALL=$(printf '%s\n' "$OUT" | sed -n '/^--ALL$/,/^--QUICK$/p' | sed '1d;$d')
+    QUICK=$(printf '%s\n' "$OUT" | sed -n '/^--QUICK$/,/^--TAIL$/p' | sed '1d;$d')
+    TAIL=$(printf '%s\n' "$OUT" | sed -n '/^--TAIL$/,$p' | sed '1d')
+    eq "первым идёт имя из карты" "louisvuitton.com" "$(printf '%s\n' "$ALL" | sed -n 1p)"
+    eq "вторым — второе имя из карты" "hcaptcha.com" "$(printf '%s\n' "$ALL" | sed -n 2p)"
+    eq "дубли убраны" "1" "$(printf '%s\n' "$ALL" | grep -c '^hcaptcha.com$')"
+    eq "louisvuitton.com не повторён" "1" "$(printf '%s\n' "$ALL" | grep -c '^louisvuitton.com$')"
+    eq "комментарии не попали в перебор" "0" "$(printf '%s\n' "$ALL" | grep -c '^#')"
+    eq "остальной список на месте" "1" "$(printf '%s\n' "$ALL" | grep -c '^300.ya.ru$')"
+
+    # Две фазы: быстрая — голова списка, хвост — всё остальное, без потерь и
+    # без пересечения.
+    eq "быстрая фаза — ровно QUICK имён" "2" "$(printf '%s\n' "$QUICK" | grep -c .)"
+    eq "в быстрой фазе — найденные имена" "louisvuitton.com hcaptcha.com" "$(printf '%s\n' "$QUICK" | tr '\n' ' ' | sed 's/ $//')"
+    eq "хвост — остаток списка" "vk.com 300.ya.ru" "$(printf '%s\n' "$TAIL" | tr '\n' ' ' | sed 's/ $//')"
+    eq "фазы не пересекаются и ничего не теряют" "$(printf '%s\n' "$ALL" | grep -c .)" \
+        "$(( $(printf '%s\n' "$QUICK" | grep -c .) + $(printf '%s\n' "$TAIL" | grep -c .) ))"
 
     # Карты ещё нет (первая установка) — перебор обязан идти по штатному списку,
     # а не падать и не остаться пустым.
     rm -f "$T/sniout"
     OUT2=$(sh "$T/run.sh" 2>/dev/null)
-    eq "без карты берётся штатный список" "hcaptcha.com" "$(printf '%s\n' "$OUT2" | grep -v '^#' | sed -n 1p)"
+    ALL2=$(printf '%s\n' "$OUT2" | sed -n '/^--ALL$/,/^--QUICK$/p' | sed '1d;$d')
+    eq "без карты берётся штатный список" "hcaptcha.com" "$(printf '%s\n' "$ALL2" | sed -n 1p)"
 fi
 
 # --- 2. Список кандидатов ----------------------------------------------------

@@ -39,10 +39,11 @@ Z2K_FW_CRON_LINE="*/5 * * * * $Z2K_ROOT/platform/openwrt/fw-check.sh check # z2k
 # retries an unmeasured line every ten minutes after first service start. The
 # direct nightly command preserves the full remeasurement; the small check
 # adapter is a no-op once a valid persistent verdict exists.
-Z2K_TCP16_NIGHTLY_CRON_LINE="30 3 * * * sh $Z2K_ROOT/z2k-tcp16-probe.sh # z2k-tcp16-nightly"
+Z2K_TCP16_NIGHTLY_CRON_LINE="30 3 * * * sh $Z2K_ROOT/platform/openwrt/tcp16-check.sh force # z2k-tcp16-nightly"
 Z2K_TCP16_FIRST_CRON_LINE="*/10 * * * * sh $Z2K_ROOT/platform/openwrt/tcp16-check.sh # z2k-tcp16-first-result"
 Z2K_TIKTOK_CRON_LINE="*/3 * * * * sh $Z2K_ROOT/platform/openwrt/tiktok-check.sh check automatic # z2k-tiktok-health"
 Z2K_TIKTOK_FULL_CRON_LINE="7,37 * * * * sh $Z2K_ROOT/platform/openwrt/tiktok-check.sh check scheduled # z2k-tiktok-full-discovery"
+Z2K_DNS_REDIRECT_CRON_LINE="*/1 * * * * sh $Z2K_ROOT/platform/openwrt/dns-redirect.sh check # z2k-dns-redirect"
 
 # Read the selected hour as data.  The config is a shell fragment, so never
 # source it from cron/postinst.  The last assignment wins for the normal
@@ -96,11 +97,12 @@ z2k_ow_cron_install() {
     # (иначе правка расписания в новой версии плодила бы дубли).
     # Запись — temp в том же каталоге + rename (shared crontab нельзя
     # оставить обрезанным при сбое).
-    awk '!index($0, "# z2k-updater") && !index($0, "# z2k-warp-games") && !index($0, "# z2k-lists") && !index($0, "# z2k-stats-upload")' \
+    awk '!index($0, "# z2k-updater") && !index($0, "# z2k-warp-games") && !index($0, "# z2k-lists") && !index($0, "# z2k-stats-upload") && !index($0, "# z2k-dns-redirect")' \
         "$Z2K_CRON_TAB" > "$Z2K_CRON_TAB.new" 2>/dev/null || return 1
     printf '%s\n' "$Z2K_CRON_LINE" >> "$Z2K_CRON_TAB.new" || return 1
     printf '%s\n' "$Z2K_WARP_GAMES_CRON_LINE" >> "$Z2K_CRON_TAB.new" || return 1
     printf '%s\n' "$Z2K_LISTS_CRON_LINE" >> "$Z2K_CRON_TAB.new" || return 1
+    printf '%s\n' "$Z2K_DNS_REDIRECT_CRON_LINE" >> "$Z2K_CRON_TAB.new" || return 1
     mv -f "$Z2K_CRON_TAB.new" "$Z2K_CRON_TAB" || return 1
     # cron в части сборок выключен по умолчанию — фиксируем намерение
     # (enable) и поднимаем best-effort, если его нет в процессах; дважды
@@ -117,7 +119,7 @@ z2k_ow_cron_remove() {
     [ -f "$Z2K_CRON_TAB" ] || return 0
     # Та же атомарность; z2k-only файл (все строки наши) после remove пуст,
     # но цел — grep rc=1 здесь НЕ ошибка (см. install выше).
-    awk '!index($0, "# z2k-updater") && !index($0, "# z2k-warp-games") && !index($0, "# z2k-lists") && !index($0, "# z2k-stats-upload")' \
+    awk '!index($0, "# z2k-updater") && !index($0, "# z2k-warp-games") && !index($0, "# z2k-lists") && !index($0, "# z2k-stats-upload") && !index($0, "# z2k-dns-redirect")' \
         "$Z2K_CRON_TAB" > "$Z2K_CRON_TAB.new" 2>/dev/null || return 1
     mv -f "$Z2K_CRON_TAB.new" "$Z2K_CRON_TAB" || return 1
     return 0

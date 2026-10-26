@@ -45,3 +45,10 @@ docs/archive/multiwan-2026-09-22.md	-	54ede60995f15223caf4eeb45f2d3354b1e2ab3c	R
 docs/archive/rollback-telegram-multiwan-2026-09-22.md	-	4a798de3525ab9e93c7e227156b369280091849c	RETIRED/HISTORICAL	Archived Telegram rollback decision; not a current implementation contract.
 docs/multiwan-2026-09-22.md	bae68ddc06b3fe6f1dcbba5a1341889dc353d3f2	-	RETIRED/HISTORICAL	Moved to docs/archive with an explicit historical-only banner.
 docs/rollback-telegram-multiwan-2026-09-22.md	ad30cd36882aaf8035fca6263cf995544952fe01	-	RETIRED/HISTORICAL	Moved to docs/archive with an explicit historical-only banner.
+
+# p-86.23..p-86.24: переносимые изменения стратегий и DNS учтены; собственные VPS/TG изменения классифицированы отдельно.
+README.md	392981b42ae40daa9672f053908ddd5108c1595e	7dc09706a6fb8d058faa0fdc85e13fd92202a178	OPENWRT RELEVANT	Перенесены актуальные пулы, Discord HTTP/3 и защита обычного DNS; собственные VPS/TG-функции исключены.
+lib/install.sh	92556eca6a09c027550bdd825eb440aa8656c09f	62522c9474ea1de73cf658428f5cd638c7072aed	OPENWRT RELEVANT	Обычный DNS перенаправлен через nftables; ссылки пользовательских стратегий на снятые fake-блобы мигрируются до запуска; VPS-миграции не переносятся.
+docs/telegram-reference-comparison-2026-09-21.md	317f9f7307253625cdf203a557068a71b3f46022	45b42ae38261d0817d3d07f6df22a37fbe94e00f	DOC ONLY	Описание upstream Telegram не переносится в собственную Rust-реализацию z2kOW.
+docs/telegram-transport-field-2026-09-21.md	be218a357a54241ac6e9299564578126a24725a4	126aae53e5befdbba3d64858de1facf6c8496b28	DOC ONLY	Описание upstream Telegram не переносится в собственную Rust-реализацию z2kOW.
+vps/RUNBOOK.md	bdaf64602cacbce0a516dab74f46bf3879a0d194	f751a05c388d85589ac2af7edb2837860221f544	DOC ONLY	Инструкции upstream VPS-инфраструктуры не относятся к OpenWrt и не переносятся.

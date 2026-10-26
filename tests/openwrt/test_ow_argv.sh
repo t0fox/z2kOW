@@ -35,7 +35,7 @@ echo "$BASE" | grep -q -- '--ipcache-hostname=1' && _t_ok || _t_bad "нет ipca
 echo "$BASE" | grep -q -- '--user=nobody' && _t_ok || _t_bad "нет --user"
 echo "$BASE" | grep -q -- '--fwmark=0x40000000' && _t_ok || _t_bad "нет fwmark"
 for _lua in z2k-alert z2k-quic-silence z2k-tcp16 z2k-fooling-ext \
-            z2k-range-rand z2k-modern-core z2k-state-persist; do
+            z2k-range-rand z2k-modern-core z2k-nfqws1-compat z2k-state-persist; do
     echo "$BASE" | grep -qF -- "--lua-init=@$T/root/lua/$_lua.lua" \
         && _t_ok || _t_bad "нет lua-init $_lua"
 done
@@ -61,7 +61,7 @@ while IFS= read -r _f; do
 done <"$T/luainits"
 # fork: lib+antidpi безусловно (как S99), auto — только при наличии файла
 assert_eq "fork lua-init: lib+antidpi" "2" "$_fork"
-assert_eq "z2k lua-init: все 7" "7" "$_z2k"
+assert_eq "z2k lua-init: все 8" "8" "$_z2k"
 [ -z "$_miss" ] && _t_ok || _t_bad "lua-init в никуда:$_miss"
 
 _t_done

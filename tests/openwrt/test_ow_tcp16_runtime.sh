@@ -90,13 +90,13 @@ Z2K_PLATFORM=openwrt Z2K_ROOT="$R" Z2K_ETC="$E" Z2K_TMP="$TMPROOT" \
 assert_eq "persistent verdict survives reboot check" "1" "$(cat "$T/count" 2>/dev/null)"
 assert_eq "persistent state still says blocked" "1" "$(cat "$E/state/tcp16.flag" 2>/dev/null)"
 
-# Nightly/manual invocation is the same full probe and updates the result only
-# after success, which also removes the TCP16 config integration.
+# Nightly/manual force bypasses the first-result guard, maps OpenWrt's canonical
+# paths, and updates the result only after success.
 Z2K_PLATFORM=openwrt Z2K_ROOT="$R" Z2K_ETC="$E" Z2K_TMP="$TMPROOT" \
     Z2K_BIN="$R/bin" Z2K_TCP16_PROBE="$REPO/files/z2k-tcp16-probe.sh" \
     Z2K_TCP16_LOG="$TMPROOT/tcp16.log" Z2K_TCP16_LOCK="$TMPROOT/locks/tcp16" \
     TCP16_COUNT_FILE="$T/count" TCP16_RESULT=0 Z2K_TCP16_WAIT_BIN=0 \
-    sh "$REPO/files/z2k-tcp16-probe.sh" > "$T/nightly.log" 2>&1
+    sh "$R/platform/openwrt/tcp16-check.sh" force > "$T/nightly.log" 2>&1
 assert_eq "nightly probe refreshes clear verdict" "0" "$(cat "$E/state/tcp16.flag" 2>/dev/null)"
 assert_not_contains "clear verdict removes generated TCP16 config" "--lua-desync=z2k_sni_pick" "$(cat "$E/config")"
 
@@ -112,7 +112,7 @@ printf '%s\n' "$_argv" > "$T/nfqws2-argv"
 assert_contains "nfqws2 argv loads the TCP16 Lua module" "$T/nfqws2-argv" "z2k-tcp16.lua"
 assert_contains "successful service-start path calls first-result adapter" \
     "$REPO/platform/openwrt/files/etc/init.d/z2k" "tcp16-check.sh"
-grep -qF 'Z2K_TCP16_NIGHTLY_CRON_LINE="30 3 * * * sh $Z2K_ROOT/z2k-tcp16-probe.sh' \
+grep -qF 'Z2K_TCP16_NIGHTLY_CRON_LINE="30 3 * * * sh $Z2K_ROOT/platform/openwrt/tcp16-check.sh force' \
     "$REPO/platform/openwrt/schedule.sh" \
     && _t_ok || _t_bad "OpenWrt cron keeps upstream 03:30 probe"
 

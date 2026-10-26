@@ -302,6 +302,7 @@ case "$method $path" in
         category_rkn=$(read_flag "Z2K_CATEGORY_RKN" "$CONFIG_FILE" "1")
         category_discord_voice=$(read_flag "Z2K_CATEGORY_DISCORD_VOICE" "$CONFIG_FILE" "1")
         dynamic_ttl=$(read_flag "Z2K_DYNAMIC_TTL" "$CONFIG_FILE" "1")
+        dns_redirect=$(read_flag "Z2K_DNS_REDIRECT" "$CONFIG_FILE" "1")
         ppe=$(read_flag "Z2K_PPE_DEOFFLOAD" "$CONFIG_FILE" "1")
         fastroute_snapshot
         auto_update=$(read_flag "Z2K_AUTO_UPDATE_ENABLED" "$CONFIG_FILE" "1")
@@ -374,6 +375,7 @@ case "$method $path" in
         printf ',"ppe":';                    json_string "${ppe:-1}"
         printf ',"fastroute":';              json_string "${fastroute:-1}"
         printf ',"fastroute_status":';        json_string "$(fastroute_status)"
+        printf ',"dns_redirect":';           json_string "${dns_redirect:-1}"
         printf ',"auto_update":';            json_string "${auto_update:-1}"
         printf ',"au_hour":';                json_string "${au_hour:-02}"
         printf ',"autohostlist":';           json_string "${autohostlist:-0}"
@@ -438,6 +440,7 @@ case "$method $path" in
         category_rkn=$(read_flag "Z2K_CATEGORY_RKN" "$CONFIG_FILE" "1")
         category_discord_voice=$(read_flag "Z2K_CATEGORY_DISCORD_VOICE" "$CONFIG_FILE" "1")
         dynamic_ttl=$(read_flag "Z2K_DYNAMIC_TTL" "$CONFIG_FILE" "1")
+        dns_redirect=$(read_flag "Z2K_DNS_REDIRECT" "$CONFIG_FILE" "1")
         ppe=$(read_flag "Z2K_PPE_DEOFFLOAD" "$CONFIG_FILE" "1")
         auto_update=$(read_flag "Z2K_AUTO_UPDATE_ENABLED" "$CONFIG_FILE" "1")
         autohostlist=$(read_flag "Z2K_AUTOHOSTLIST" "$CONFIG_FILE" "0")
@@ -449,6 +452,7 @@ case "$method $path" in
         printf ',"category_rkn":';             json_string "${category_rkn:-1}"
         printf ',"category_discord_voice":';   json_string "${category_discord_voice:-1}"
         printf ',"dynamic_ttl":';             json_string "${dynamic_ttl:-1}"
+        printf ',"dns_redirect":';            json_string "${dns_redirect:-1}"
         printf ',"ppe":';                     json_string "${ppe:-1}"
         printf ',"auto_update":';             json_string "${auto_update:-1}"
         printf ',"autohostlist":';            json_string "${autohostlist:-0}"
@@ -550,6 +554,7 @@ case "$method $path" in
     "POST /toggle/dynamic-ttl"|\
     "POST /toggle/ppe"|\
     "POST /toggle/fastroute"|\
+    "POST /toggle/dns-redirect"|\
     "POST /toggle/auto-update"|\
     "POST /toggle/tiktok-feed"|\
     "POST /toggle/category-youtube"|\
@@ -572,6 +577,7 @@ case "$method $path" in
             /toggle/dynamic-ttl)     _toggle_fn=toggle_dynamic_ttl;     _label="Динамический TTL" ;;
             /toggle/ppe)             _toggle_fn=toggle_ppe;             _label="PPE de-offload" ;;
             /toggle/fastroute)       _toggle_fn=toggle_fastroute;       _label="Программный fastpath" ;;
+            /toggle/dns-redirect)    _toggle_fn=toggle_dns_redirect;    _label="Защита открытого DNS" ;;
             /toggle/auto-update)     _toggle_fn=toggle_auto_update;     _label="Автообновление" ;;
             /toggle/tiktok-feed)     _toggle_fn=toggle_tiktok_feed;     _label="TikTok — исправление ленты" ;;
             /toggle/autohostlist)    _toggle_fn=toggle_autohostlist;    _label="Автохостлист" ;;
@@ -581,7 +587,7 @@ case "$method $path" in
         # not regenerate config or restart a service. A job modal for this
         # single config write is slower than the operation itself.
         case "$_toggle_fn" in
-            toggle_auto_update)
+            toggle_auto_update|toggle_dns_redirect)
                 "$_toggle_fn" "$val" || json_fail "500 Internal Server Error" "не удалось сохранить настройку"
                 json_header
                 printf '{"ok":true,"value":'; json_string "$val"; printf '}\n'

@@ -2243,10 +2243,6 @@ TMPJUNK
         # quic_rutracker → quic_initial_rutracker_org.bin
         [ ! -e "$fakedir/quic_rutracker" ] && [ -f "$fakedir/quic_initial_rutracker_org.bin" ] && \
             ln -sf quic_initial_rutracker_org.bin "$fakedir/quic_rutracker"
-        # quic_dbankcloud → quic_initial_dbankcloud_ru.bin
-        # (referenced by discord_udp strats 1-4 + game-mode default arm)
-        [ ! -e "$fakedir/quic_dbankcloud" ] && [ -f "$fakedir/quic_initial_dbankcloud_ru.bin" ] && \
-            ln -sf quic_initial_dbankcloud_ru.bin "$fakedir/quic_dbankcloud"
     fi
 
     # Install blocked-monitor helper (runtime diagnostics for blocked domains).

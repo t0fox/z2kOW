@@ -1140,7 +1140,10 @@ download_fake_blobs() {
 tls_clienthello_max_ru.bin
 tls_clienthello_14.bin
 tls_clienthello_www_google_com.bin
-tls_clienthello_www_onetrust_com.bin
+tls_clienthello_www_sferum_ru.bin
+tls_clienthello_sochi_park.bin
+stun2.bin
+rdp.bin
 tls_clienthello_activated.bin
 tls_clienthello_4pda_to.bin
 tls_clienthello_vk_com.bin
@@ -1150,7 +1153,7 @@ syn_packet.bin
 stun.bin
 quic_initial_www_google_com.bin
 quic_initial_rutracker_org.bin
-quic_initial_dbankcloud_ru.bin
+quic_initial_steamcommunity_com.bin
 quic_1.bin
 quic_4.bin
 quic_5.bin
@@ -1391,6 +1394,14 @@ download_init_script() {
         print_success "Загружено: files/lua/z2k-modern-core.lua"
     else
         die "Ошибка загрузки files/lua/z2k-modern-core.lua"
+    fi
+
+    url="${GITHUB_RAW}/files/lua/z2k-nfqws1-compat.lua"
+    output="${lua_dir}/z2k-nfqws1-compat.lua"
+    if z2k_fetch "$url" "$output"; then
+        print_success "Загружено: files/lua/z2k-nfqws1-compat.lua"
+    else
+        die "Ошибка загрузки files/lua/z2k-nfqws1-compat.lua"
     fi
 
     # z2k-http-strats.lua здесь больше не качается — файл удалён из проекта.

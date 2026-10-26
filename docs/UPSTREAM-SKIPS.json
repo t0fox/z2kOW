@@ -2,6 +2,12 @@
   "schema": 1,
   "skips": [
     {
+      "tag": "r-86.6",
+      "seq": 148,
+      "status": "not applicable",
+      "reason": "Выпуск переносит собственные VPS-реле и связанные адреса Telegram/WARP. В z2kOW Telegram и WARP реализованы отдельно; VPS-адреса, relay-код и upstream-манифест не переносятся."
+    },
+    {
       "tag": "p-86.20",
       "seq": 144,
       "status": "not applicable",

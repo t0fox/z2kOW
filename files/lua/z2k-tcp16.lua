@@ -31,8 +31,60 @@
 -- Огрубление до /16 (v4) и /32 (v6) намеренное: точных префиксов у этих AS
 -- около 52 тысяч, а огрублённых — 6 тысяч. Цена — имя достанется соседям по
 -- /16; замерено, что лишний фейк рабочим сайтам не мешает.
+-- КАРТЫ ПЕРЕЧИТЫВАЮТСЯ, А НЕ ГРУЗЯТСЯ РАЗ НА ВЕСЬ ПРОЦЕСС.
+--
+-- Проба обновляет список сетей и карту имён каждую ночь, но службу
+-- перезапускает только когда механизм появляется в конфиге или уходит из
+-- него. Рантайм же читал карты однажды — и ночная замена протухшего имени не
+-- действовала до случайного перезапуска (ревью 25.10.2026). Теперь проба
+-- после каждой подмены пишет в state/tcp16.ver отметку времени, а здесь не
+-- чаще раза в Z2K_TCP16_RECHECK секунд читается одна её строка: сменилась —
+-- карты перечитываются. На горячем пути это сравнение двух чисел.
+local Z2K_TCP16_RECHECK = tonumber(os.getenv("Z2K_TCP16_RECHECK")) or 10
+local z2k_ver_seen, z2k_ver_at = nil, nil
 local z2k_nets, z2k_nets_loaded = nil, false
+local z2k_asn_sni, z2k_asn_sni_loaded = nil, false
+
+local function z2k_maps_refresh()
+	local now = os.time()
+	if z2k_ver_at and now < z2k_ver_at + Z2K_TCP16_RECHECK then return end
+	z2k_ver_at = now
+	local path = os.getenv("Z2K_TCP16_VER") or "/opt/zapret2/state/tcp16.ver"
+	local f = io.open(path, "r")
+	local v = f and f:read("*l") or ""
+	if f then f:close() end
+	if v ~= z2k_ver_seen then
+		if z2k_ver_seen ~= nil then
+			DLOG("z2k_tcp16: карты обновлены пробой — перечитываю")
+		end
+		z2k_ver_seen = v
+		z2k_nets, z2k_nets_loaded = nil, false
+		z2k_asn_sni, z2k_asn_sni_loaded = nil, false
+	end
+end
+
+-- КЛЮЧИ ОТДЕЛЬНО ДЛЯ v4 И v6, И ОБА ЧИСЛОВЫЕ.
+--
+-- Прежде v6-префикс «2620::/32» клался ключом «2620:» (вторая группа пустая),
+-- а поиск строил «2620:0» и не находил его — выручал запасной ключ «g1:»,
+-- который накрывал ВЕСЬ /16: адрес Microsoft 2620:1ec:: получал имя Fastly из
+-- соседней /32 (ревью 25.10.2026). Числовой ключ из двух первых групп снимает
+-- и промах, и запасной ключ. Разные таблицы — чтобы ключи v4 и v6 не могли
+-- совпасть в принципе.
+local function v6key(g1, g2) return g1 * 65536 + g2 end
+
+-- Первые две группы IPv6-префикса «a:b::/n», «a::/n», «a:b:c::/n».
+local function v6groups(p)
+	local addr = p:match("^([^/]+)") or p
+	local head = addr:match("^(.-)::") or addr
+	local g1s, g2s = head:match("^(%x+):(%x*)")
+	if not g1s then g1s = head:match("^(%x+)$") end
+	if not g1s then return nil end
+	return tonumber(g1s, 16), tonumber(g2s or "", 16) or 0
+end
+
 local function z2k_nets_load()
+	z2k_maps_refresh()
 	if z2k_nets_loaded then return z2k_nets end
 	z2k_nets_loaded = true
 	local asnpath = os.getenv("Z2K_TCP16_ASN") or "/opt/zapret2/state/tcp16_asn.txt"
@@ -49,33 +101,42 @@ local function z2k_nets_load()
 	local netpath = os.getenv("Z2K_TCP16_NETS") or "/opt/zapret2/lists/tcp16_nets.txt"
 	local nf = io.open(netpath, "r")
 	if not nf then return nil end
-	local set, cnt = {}, 0
+	-- ОДНА СЕТЬ — НЕСКОЛЬКО AS. Огрубление до /16 склеивает соседей: 2066
+	-- подсетей общие у двух и более AS, и прежняя запись «последняя по файлу
+	-- выигрывает» отдавала адрес соседу вместе с его именем. Теперь при
+	-- совпадении ключа храним список, а выбирает его тот, кто ищет имя.
+	local set4, set6, cnt = {}, {}, 0
+	local function put(set, k, a)
+		local cur = set[k]
+		if cur == nil then set[k] = a; cnt = cnt + 1; return end
+		if type(cur) == "string" then
+			if cur ~= a then set[k] = { cur, a } end
+			return
+		end
+		for _, x in ipairs(cur) do if x == a then return end end
+		cur[#cur + 1] = a
+	end
 	for line in nf:lines() do
 		local a, p = line:match("^(%d+)\t([^%s]+)")
 		if a and p and want[a] then
-			-- v4 «a.b.0.0/16» кладём ключом a*256+b, v6 «xxxx:yyyy::/32» —
-			-- первыми двумя группами. Сравнение потом идёт по тому же ключу.
 			local o1, o2 = p:match("^(%d+)%.(%d+)%.")
 			if o1 then
-				set[tonumber(o1) * 256 + tonumber(o2)] = a
-				cnt = cnt + 1
+				put(set4, tonumber(o1) * 256 + tonumber(o2), a)
 			else
-				local g1, g2 = p:match("^(%x+):(%x*):")
-				if g1 then
-					set[(g1 or "") .. ":" .. (g2 or "")] = a
-					cnt = cnt + 1
-				end
+				local g1, g2 = v6groups(p)
+				if g1 then put(set6, v6key(g1, g2), a) end
 			end
 		end
 	end
 	nf:close()
 	if cnt == 0 then return nil end
 	DLOG("z2k_tcp16: карта сетей загружена, " .. cnt .. " записей")
-	z2k_nets = set
-	return set
+	z2k_nets = { v4 = set4, v6 = set6 }
+	return z2k_nets
 end
 
--- Какой AS принадлежит адрес назначения.
+-- Какой AS принадлежит адрес назначения: имя AS, список имён (когда /16
+-- общая) либо nil.
 local function z2k_asn_of(desync)
 	local set = z2k_nets_load()
 	if not set then return nil end
@@ -83,13 +144,11 @@ local function z2k_asn_of(desync)
 	if not d then return nil end
 	if d.ip and d.ip.ip_dst then
 		local b = d.ip.ip_dst
-		if #b >= 2 then return set[b:byte(1) * 256 + b:byte(2)] end
+		if #b >= 2 then return set.v4[b:byte(1) * 256 + b:byte(2)] end
 	elseif d.ip6 and d.ip6.ip6_dst then
 		local b = d.ip6.ip6_dst
 		if #b >= 4 then
-			local g1 = string.format("%x", b:byte(1) * 256 + b:byte(2))
-			local g2 = string.format("%x", b:byte(3) * 256 + b:byte(4))
-			return set[g1 .. ":" .. g2] or set[g1 .. ":"]
+			return set.v6[v6key(b:byte(1) * 256 + b:byte(2), b:byte(3) * 256 + b:byte(4))]
 		end
 	end
 	return nil
@@ -100,8 +159,8 @@ end
 -- Одного имени на всех не бывает. Замер 30.08.2026 на линии владельца:
 -- hcaptcha.com бьёт двадцать AS, но НЕ Hetzner; Hetzner, DigitalOcean и OVH
 -- берёт 300.ya.ru; Melbicom — ad.adriver.ru; семь AS не берёт ничто из списка.
-local z2k_asn_sni, z2k_asn_sni_loaded = nil, false
 local function z2k_asn_sni_load()
+	z2k_maps_refresh()
 	if z2k_asn_sni_loaded then return z2k_asn_sni end
 	z2k_asn_sni_loaded = true
 	local path = os.getenv("Z2K_TCP16_SNI") or "/opt/zapret2/state/tcp16_sni.txt"
@@ -150,7 +209,14 @@ function z2k_sni_for(desync, pin)
 	local m = z2k_asn_sni_load()
 	if not m then return pin end
 	local asn = z2k_asn_of(desync)
-	if asn and m[asn] then return m[asn] end
+	if asn == nil then return nil end
+	if type(asn) == "string" then return m[asn] end
+	-- Общая /16 у нескольких AS: берём имя первой, для которой оно известно.
+	-- Порядок — как в карте сетей; имя соседа лучше, чем ничего, но имя
+	-- «своей» AS встретится раньше, если она в карте есть.
+	for _, a in ipairs(asn) do
+		if m[a] then return m[a] end
+	end
 	return nil
 end
 

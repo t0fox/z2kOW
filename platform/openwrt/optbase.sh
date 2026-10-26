@@ -16,7 +16,7 @@ z2k_ow_optbase() {
 
     # Порядок lua-init — как в S99: сначала fork (lib→antidpi→auto),
     # затем z2k-расширения (alert/quic-silence/tcp16 — детекторы, затем
-    # fooling/range-rand/modern-core, последним state-persist, который
+    # fooling/range-rand/modern-core/nfqws1-compat, последним state-persist, который
     # оборачивает circular из zapret-auto).
     _lib="$Z2K_ZAPRET2_RUNTIME/lua/zapret-lib.lua"
     [ -f "$_lib" ] || _lib="$_lib.gz"
@@ -27,7 +27,7 @@ z2k_ow_optbase() {
     [ -f "$_auto" ] || _auto="$_auto.gz"
     [ -f "$_auto" ] && _opt="$_opt --lua-init=@$_auto"
     for _f in z2k-alert z2k-quic-silence z2k-tcp16 z2k-fooling-ext \
-             z2k-range-rand z2k-modern-core z2k-state-persist; do
+             z2k-range-rand z2k-modern-core z2k-nfqws1-compat z2k-state-persist; do
         [ -f "$Z2K_LUA_DIR/$_f.lua" ] && _opt="$_opt --lua-init=@$Z2K_LUA_DIR/$_f.lua"
     done
     # NOTE: переходный гард z2k-silence.lua из S99 здесь НЕ нужен: это
@@ -56,8 +56,11 @@ z2k_ow_optbase() {
                "quic6:quic_6.bin" \
                "quic1:quic_1.bin" \
                "quic_rutracker:quic_initial_rutracker_org.bin" \
-               "quic_dbankcloud:quic_initial_dbankcloud_ru.bin" \
-               "tls_clienthello_www_onetrust_com:tls_clienthello_www_onetrust_com.bin" \
+               "quic_initial_steamcommunity_com:quic_initial_steamcommunity_com.bin" \
+               "tls_clienthello_www_sferum_ru:tls_clienthello_www_sferum_ru.bin" \
+               "tls_clienthello_sochi_park:tls_clienthello_sochi_park.bin" \
+               "stun2:stun2.bin" \
+               "rdp:rdp.bin" \
                "t2:t2.bin"; do
         [ -s "$Z2K_FAKE_DIR/${_b#*:}" ] \
             && _opt="$_opt --blob=${_b%%:*}:@$Z2K_FAKE_DIR/${_b#*:}"

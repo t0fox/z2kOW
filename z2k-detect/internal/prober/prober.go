@@ -15,8 +15,8 @@ import (
 
 // httpReadLimit caps how many response bytes the HTTP cutoff probe will
 // consume. Picked to comfortably exceed the ~14-34KB window where some
-// RU-DPI deployments terminate CDN/hosting connections (the dpi-detector
-// project documents this signature). If we successfully read this much,
+// RU-DPI deployments terminate CDN/hosting connections (this signature is
+// documented by the reference measurement sets). If we successfully read this much,
 // the path is "deep enough" to consider not-cut.
 const httpReadLimit = 32 * 1024
 

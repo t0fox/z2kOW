@@ -33,7 +33,7 @@ z2k_mark_shipped_fallback() {
     return 0
 }
 
-# Скачать списки доменов из zapret4rocket
+# Скачать списки доменов
 download_domain_lists() {
     print_header "Загрузка списков доменов"
     print_info "Источник: локальные snapshot-списки из ${ZAPRET2_DIR}/files/lists"
@@ -749,7 +749,7 @@ NINTENDO
             print_info "Добавлены домены Nintendo в whitelist"
         fi
 
-        # Дозаписать банки и расширения для российских сервисов (flowseal 1.9.8 sync)
+        # Дозаписать банки и расширения для российских сервисов
         if ! grep -q "^sber.ru$" "$whitelist" 2>/dev/null; then
             cat >> "$whitelist" <<'BANKS'
 

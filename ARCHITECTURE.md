@@ -12,7 +12,7 @@ z2kOW — независимо сопровождаемая адаптация �
 |---|---|---|
 | Общий z2k | Стратегии, nfqws2, autocircular, конфигурация, списки, общая диагностика и интерфейс | `z2k.sh`, `lib/`, `files/`, `webpanel/` |
 | Адаптер OpenWrt | Процессы, fw4/nftables, сеть, расписание, файлы, архитектуры, диагностика | `platform/openwrt/` |
-| Функции z2kOW | DNS через dnsproxy, TikTok Fix, локальный Telegram на Rust, измерения FLOWOFFLOAD | `platform/openwrt/dnsproxy.sh`, `tiktok.sh`, `tg.sh`, `tg-proxy/`, `offload-*.sh` |
+| Функции z2kOW | TikTok Fix, локальный Telegram на Rust, измерения FLOWOFFLOAD, Rust-контроллер WARP | `platform/openwrt/tiktok.sh`, `tg.sh`, `tg-proxy/`, `offload-*.sh`, `warp-controller/` |
 | Системные интеграции | Init-скрипты procd, hotplug и собственные системные файлы | `platform/openwrt/files/` |
 | Релизы | Сборка, архитектурные архивы, подписи, публикация, установка, откат | `scripts/openwrt/`, `platform/openwrt/release.sh` |
 
@@ -30,7 +30,7 @@ z2kOW — независимо сопровождаемая адаптация �
 | Сетевые правила | fw4/nftables; только принадлежащие z2kOW объекты |
 | Сетевые события | netifd/ubus, hotplug |
 | Плановые задачи | OpenWrt cron |
-| Защищённый DNS | системный `dnsproxy`, UCI/dnsmasq, изолированное управление своими настройками |
+| Защита обычного DNS | системный dnsmasq и отдельные правила перенаправления fw4/nftables |
 
 LuCI/uhttpd, чужие UCI-секции, сторонние firewall-правила и чужие DNS-профили не принадлежат z2kOW.
 
@@ -73,7 +73,7 @@ Release-owned и user-owned данные разделяются: установ�
 - Планировщик Keenetic → cron и обработчики событий OpenWrt.
 - Аппаратное ускорение Keenetic → OpenWrt FLOWOFFLOAD только при подтверждённой поддержке.
 
-RT proxy, TCP16, стратегии и диагностика адаптируют общие контракты upstream. **Telegram** — намеренно отличающаяся локальная реализация, поэтому её реальная совместимость проверяется отдельно. **DNS** работает на `dnsproxy`, а `doh.sh` оставлен как совместимый вход к адаптеру. **WARP** опционален, не используется как транспорт по умолчанию и не должен возвращать старые VPS-прокси.
+RT proxy, TCP16, стратегии, защиту обычного DNS и диагностику адаптируют общие контракты upstream. **Telegram** и **WARP** управляются собственными Rust-реализациями; они не используют upstream VPS-путь. WARP остаётся опциональным и не включается как транспорт по умолчанию.
 
 ## Удаление
 

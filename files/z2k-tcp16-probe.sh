@@ -26,20 +26,7 @@
 PATH=/opt/bin:/opt/sbin:/usr/bin:/bin:/usr/sbin:/sbin
 export PATH
 
-Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}"
-if [ "${Z2K_PLATFORM:-}" = "openwrt" ] || [ -f "$Z2K_ROOT/platform/openwrt/paths.sh" ]; then
-    # Keep upstream probe logic, redirect only platform-owned paths and
-    # execution hooks. OpenWrt's detector is part of the signed rootfs; unlike
-    # Keenetic this path must never fetch an uncoordinated binary by itself.
-    . "$Z2K_ROOT/platform/openwrt/paths.sh" || exit 2
-    . "$Z2K_ROOT/platform/openwrt/env.sh" || exit 2
-    Z2K_PLATFORM=openwrt
-    DETECT_DIRS="${DETECT_DIRS:-$Z2K_BIN $Z2K_ROOT}"
-    PATH="$Z2K_BIN:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
-    export Z2K_PLATFORM PATH
-else
-    ZAPRET2_DIR="${ZAPRET2_DIR:-/opt/zapret2}"
-fi
+ZAPRET2_DIR="${ZAPRET2_DIR:-/opt/zapret2}"
 # ГДЕ ИСКАТЬ БИНАРНИК. Штатное место установки — /opt/sbin/z2k-detect: туда
 # его кладёт установщик, оттуда его обновляет шаг refresh-binaries. Прежде
 # здесь стоял только путь внутри каталога обхода, и у КАЖДОГО пользователя
@@ -50,63 +37,30 @@ fi
 # Каталог обхода оставлен вторым: там бинарник может оказаться на стендах и у
 # тех, кто ставил его вручную.
 DETECT_DIRS="${DETECT_DIRS:-/opt/sbin $ZAPRET2_DIR}"
-if [ -z "${DETECT:-}" ]; then
+if [ -n "${Z2K_DETECT_BIN:-}" ]; then
+    _detect_dir=$(dirname "$Z2K_DETECT_BIN")
+    case " $DETECT_DIRS " in *" $_detect_dir "*) ;; *) DETECT_DIRS="$_detect_dir $DETECT_DIRS" ;; esac
+fi
+DETECT="${DETECT:-${Z2K_DETECT_BIN:-}}"
+if [ -z "$DETECT" ] || [ ! -x "$DETECT" ]; then
+    DETECT=""
     for _d in $DETECT_DIRS; do
         if [ -x "$_d/z2k-detect" ]; then DETECT="$_d/z2k-detect"; break; fi
     done
     DETECT="${DETECT:-${DETECT_DIRS%% *}/z2k-detect}"
 fi
 TARGETS="${TARGETS:-${Z2K_TCP16_TARGETS:-$ZAPRET2_DIR/lists/tcp16_targets.txt}}"
-FLAG="${Z2K_TCP16_FLAG:-$ZAPRET2_DIR/state/tcp16.flag}"
+FLAG="${FLAG:-${Z2K_TCP16_FLAG:-$ZAPRET2_DIR/state/tcp16.flag}}"
 # Список AS, где блок найден: по нему рантайм решает, кому ставить имя, а кому
 # не надо. Без него имя уходит всему пулу подряд.
-ASNOUT="${Z2K_TCP16_ASN:-$ZAPRET2_DIR/state/tcp16_asn.txt}"
-SNIOUT="${Z2K_TCP16_SNI:-$ZAPRET2_DIR/state/tcp16_sni.txt}"
+ASNOUT="${ASNOUT:-${Z2K_TCP16_ASN:-$ZAPRET2_DIR/state/tcp16_asn.txt}}"
+SNIOUT="${SNIOUT:-${Z2K_TCP16_SNI:-$ZAPRET2_DIR/state/tcp16_sni.txt}}"
 CAND="${CAND:-${Z2K_TCP16_CANDIDATES:-$ZAPRET2_DIR/lists/sni_wl_candidates.txt}}"
 LOG="${LOG:-${Z2K_TCP16_LOG:-/tmp/z2k-tcp16-probe.log}}"
 STAMP="${Z2K_TCP16_TIMESTAMP:-$FLAG.ts}"
 DURATION="${Z2K_TCP16_DURATION:-$FLAG.duration}"
 CONFIG="${CONFIG:-${Z2K_CONFIG:-$ZAPRET2_DIR/config}}"
-
-z2k_tcp16_progress() {
-    [ -n "${Z2K_JOB_ID:-}" ] || return 0
-    local _epoch
-    _epoch=$(date +%s 2>/dev/null) || _epoch=
-    case "$_epoch" in
-        ''|*[!0-9]*) printf 'TCP16: %s\n' "$*" >&2 ;;
-        *) printf '@z2k-ts:%s|TCP16: %s\n' "$_epoch" "$*" >&2 ;;
-    esac
-}
-
-if [ "$Z2K_PLATFORM" = openwrt ]; then
-    mkdir -p "$(dirname "$FLAG")" "$(dirname "$ASNOUT")" \
-        "$(dirname "$SNIOUT")" "$(dirname "$LOG")" \
-        "$(dirname "${Z2K_TCP16_LOCK:-/tmp/z2k/locks/tcp16-probe}")" 2>/dev/null || exit 2
-    _lock="${Z2K_TCP16_LOCK:-/tmp/z2k/locks/tcp16-probe}"
-    _lock_wait=0
-    while ! mkdir "$_lock" 2>/dev/null; do
-        _lock_pid=$(cat "$_lock/pid" 2>/dev/null)
-        case "$_lock_pid" in
-            ''|*[!0-9]*) ;;
-            *)
-                if ! kill -0 "$_lock_pid" 2>/dev/null; then
-                    rm -rf "$_lock" 2>/dev/null
-                    continue
-                fi
-                echo "проба уже выполняется (pid $_lock_pid)" >&2
-                exit 0
-                ;;
-        esac
-        _lock_wait=$((_lock_wait + 1))
-        [ "$_lock_wait" -lt 5 ] || { echo "проба уже запускается" >&2; exit 0; }
-        sleep 1
-    done
-    printf '%s\n' "$$" > "$_lock/pid"
-    _tcp16_unlock() {
-        [ "$(cat "$_lock/pid" 2>/dev/null)" = "$$" ] && rm -rf "$_lock" 2>/dev/null
-    }
-    trap _tcp16_unlock EXIT HUP INT TERM
-fi
+STATE_DIR="${Z2K_TCP16_STATE_DIR:-$ZAPRET2_DIR/state}"
 _probe_started=$(date +%s 2>/dev/null)
 case "$_probe_started" in ''|*[!0-9]*) _probe_started=0 ;; esac
 
@@ -155,12 +109,10 @@ BATCH="${BATCH:-5}"
 # лезть в сеть. Установка кладёт его за секунды, а лишний поход за семью
 # мегабайтами при живом установщике не нужен никому.
 if ! [ -x "$DETECT" ]; then
-    z2k_tcp16_progress "жду бинарник z2k-detect, который устанавливает release-процесс"
     _wait=0
     while [ "$_wait" -lt "${Z2K_TCP16_WAIT_BIN:-120}" ]; do
         sleep 5
         _wait=$((_wait + 5))
-        [ $((_wait % 30)) -ne 0 ] || z2k_tcp16_progress "бинарник ещё не появился; ожидание ${_wait}/${Z2K_TCP16_WAIT_BIN:-120} с"
         for _d in $DETECT_DIRS; do
             [ -x "$_d/z2k-detect" ] && { DETECT="$_d/z2k-detect"; break; }
         done
@@ -169,14 +121,16 @@ if ! [ -x "$DETECT" ]; then
 fi
 
 if ! [ -x "$DETECT" ] || ! "$DETECT" tcp16 -h >/dev/null 2>&1; then
+    if [ "${Z2K_PLATFORM:-keenetic}" = openwrt ]; then
+        echo "поставленный OpenWrt z2k-detect недоступен или не поддерживает tcp16 ($DETECT) — проба отложена" >&2
+        exit 2
+    fi
     if [ -x "$DETECT" ]; then
         echo "бинарник не умеет tcp16 — обновляю его"
     else
         echo "бинарника пробы нет ($DETECT) — достаю его"
     fi
-    if [ "$Z2K_PLATFORM" = openwrt ]; then
-        echo "детектор отсутствует или не поддерживает tcp16 в controlled OpenWrt payload" >&2
-    elif [ -r "$ZAPRET2_DIR/lib/auto_update.sh" ]; then
+    if [ -r "$ZAPRET2_DIR/lib/auto_update.sh" ]; then
         # shellcheck source=/dev/null
         . "$ZAPRET2_DIR/lib/utils.sh" >/dev/null 2>&1
         # shellcheck source=/dev/null
@@ -245,9 +199,47 @@ fi
 [ -s "$CAND" ] || { echo "нет списка имён: $CAND — отложено" >&2; exit 2; }
 mkdir -p "$(dirname "$FLAG")" 2>/dev/null
 
-# Без -confirmed: список AS нужен ПОЛНЫЙ, иначе имя не достанется тем, кого
-# режут, но чья AS не помечена звёздочкой. Полный прогон стоит около минуты
-# и делается раз в неделю.
+# ОДИН ПРОГОН ЗА РАЗ.
+#
+# Планировщик (после установки, ночью в 03:30) и кнопка панели не знают друг о
+# друге, а у двух одновременных прогонов общие временные файлы, журнал и
+# пересборка конфига с перезапуском службы (ревью 25.10.2026). Замок — каталог
+# с номером процесса: mkdir атомарен и есть в BusyBox. Владелец умер (SIGKILL,
+# перезагрузка без чистки tmpfs не бывает) — замок снимается.
+LOCKDIR="${Z2K_TCP16_LOCK:-/tmp/z2k-tcp16-probe.lock}"
+if ! mkdir "$LOCKDIR" 2>/dev/null; then
+    _lp=$(cat "$LOCKDIR/pid" 2>/dev/null)
+    if [ -n "$_lp" ] && kill -0 "$_lp" 2>/dev/null; then
+        echo "проба уже идёт (процесс $_lp) — второй прогон не запускаю" >&2
+        exit 2
+    fi
+    rm -rf "$LOCKDIR" 2>/dev/null
+    mkdir "$LOCKDIR" 2>/dev/null || { echo "замок пробы занят — отложено" >&2; exit 2; }
+fi
+echo "$$" > "$LOCKDIR/pid"
+
+# Оборванный прогон обязан оборвать и замер. Раньше родительский скрипт
+# умирал от SIGTERM, а z2k-detect доживал сиротой и дописывал карту во
+# временный файл, которую уже некому было подставить (25.10.2026). Теперь
+# номер текущего замера лежит в замке, и обработчик сигнала гасит его: сам
+# z2k-detect на SIGTERM выходит, ничего не записав.
+_t16_cleanup() {
+    _cp=$(cat "$LOCKDIR/child" 2>/dev/null)
+    [ -n "$_cp" ] && kill "$_cp" 2>/dev/null
+    rm -f "$SNIOUT.new" "$_cand_all" "$_cand_quick" "$_cand_tail" "$_miss" 2>/dev/null
+    rm -rf "$LOCKDIR" 2>/dev/null
+}
+trap _t16_cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
+
+# Отметка «прогон начат». Вместе с отметкой «прогон завершён» ($FLAG.ts) она
+# говорит планировщику, что прошлый прогон оборвался и его пора повторить:
+# раньше повтор шёл, только пока не было флага, а флаг ставится в середине
+# прогона — оборванный после этого прогон ждал ночи (25.10.2026).
+date +%s > "$FLAG.started" 2>/dev/null
+
 # GODEBUG=asyncpreemptoff=1 — обязательно, а не на всякий случай.
 #
 # На MIPS вытеснение горутин по SIGURG роняет Go-бинарники: демон z2k-detect
@@ -259,147 +251,213 @@ DETECT_ENV="GODEBUG=asyncpreemptoff=1"
 # Вывод пробы идёт и в журнал, и на экран: кнопка в панели показывает живой
 # лог задачи, а раньше три минуты висела пустая рамка — всё уходило только в
 # $LOG, и человеку казалось, что ничего не делается (Марк, 11.09.2026). Код
-# возврата через файл: в конвейере с tee $? — это код tee.
-_rcf="$LOG.rc"
+# возврата через файл: в конвейере с tee $? — это код tee. Нет файла кода —
+# замер не дошёл до конца, это «не мерили» (255), а не «блок есть».
+_rcf="$LOG.rc.$$"
 run_logged() {   # run_logged <как писать в LOG: > или >> > <команда...>
     local _mode="$1"; shift
     rm -f "$_rcf"
+    # Конвейер — в фоне, а мы ждём его встроенным wait: обработчик сигнала
+    # оболочка выполняет только ПОСЛЕ завершения команды переднего плана, а
+    # wait прерывается сигналом сразу. Иначе SIGTERM доходил бы до обработчика
+    # лишь тогда, когда замер уже кончился сам.
     if [ "$_mode" = ">>" ]; then
-        { "$@" 2>&1; echo "$?" > "$_rcf"; } | tee -a "$LOG"
+        { "$@" 2>&1 & echo "$!" > "$LOCKDIR/child"; wait "$!"; echo "$?" > "$_rcf"; } | tee -a "$LOG" &
     else
-        { "$@" 2>&1; echo "$?" > "$_rcf"; } | tee "$LOG"
+        { "$@" 2>&1 & echo "$!" > "$LOCKDIR/child"; wait "$!"; echo "$?" > "$_rcf"; } | tee "$LOG" &
     fi
-    local _r; _r=$(cat "$_rcf" 2>/dev/null || echo 1); rm -f "$_rcf"
+    wait "$!"
+    rm -f "$LOCKDIR/child"
+    local _r; _r=$(cat "$_rcf" 2>/dev/null || echo 255); rm -f "$_rcf"
     return "$_r"
 }
 
-echo "проба линии: $(grep -vc '^#' "$TARGETS" 2>/dev/null || echo '?') мишеней в $PARALLEL потоков, качаю с каждой по 20 КБ"
-z2k_tcp16_progress "проверяю ${TARGETS##*/}: TCP-соединения и передачу 20 КБ по каждой мишени"
+_t16_count() { awk '!/^#/ && NF { n++ } END { print n + 0 }' "$1" 2>/dev/null || echo 0; }
+
+# Версия карт для рантайма: z2k-tcp16.lua перечитывает списки сетей и имён,
+# когда меняется этот файл, — без перезапуска службы. Раньше рантайм читал их
+# один раз на весь процесс, и ночное обновление имени не действовало до
+# случайного перезапуска (ревью 25.10.2026).
+VERFILE="$STATE_DIR/tcp16.ver"
+bump_ver() { date +%s > "$VERFILE.tmp" 2>/dev/null && mv -f "$VERFILE.tmp" "$VERFILE"; }
+
+# ПРИВЕСТИ КОНФИГ В СООТВЕТСТВИЕ С ИЗМЕРЕННЫМ.
+#
+# Механизм попадает в конфиг только при флаге 1, а флаг появляется ЗДЕСЬ —
+# уже после того, как обновление пересобрало конфиг. Без этого шага человек
+# получал новую версию с выключенным механизмом и ждал бы следующей
+# пересборки неизвестно сколько: r-81.1 у тех, кому он установился, именно так
+# и молчал.
+#
+# Конфиг собираем во ВРЕМЕННЫЙ файл тем же генератором и сравниваем с
+# работающим по наличию механизма. Прежняя проверка «флаг 1, а механизма в
+# конфиге нет» не знала остальных условий генератора (выключатель
+# Z2K_SNI_STALL, выключенная категория РКН, пул без circular): там она
+# пересобирала конфиг и перезапускала службу на каждом прогоне навсегда. Теперь
+# решает сам генератор: не включил — значит так и надо, перезапуска нет.
+# Проверка валидатором идёт ДО подмены: негодный конфиг не становится боевым
+# (прежде генератор подменял файл, а проверка шла после).
+reconcile_config() {
+    CONFIG="${CONFIG:-${Z2K_CONFIG:-$ZAPRET2_DIR/config}}"
+    [ -r "$ZAPRET2_DIR/lib/config_official.sh" ] || { echo "генератор конфига недоступен — пересборку пропустил" >&2; return 0; }
+    [ -s "$CONFIG" ] || { echo "нет конфига $CONFIG — пересборку пропустил" >&2; return 0; }
+    # Замок стратегий панели: пересборка не должна вклиниться в её транзакцию
+    # над пулами. Ждём до минуты.
+    _scl="${STRATEGY_CONFIG_LOCK:-/tmp/z2k-strategy-config.lock}"
+    _w=0
+    while ! mkdir "$_scl" 2>/dev/null; do
+        _o=$(cat "$_scl/pid" 2>/dev/null)
+        if [ -n "$_o" ] && ! kill -0 "$_o" 2>/dev/null; then rm -rf "$_scl"; continue; fi
+        _w=$((_w + 1)); [ "$_w" -le 60 ] || { echo "панель держит замок стратегий — пересборку отложил" >&2; return 1; }
+        sleep 1
+    done
+    echo "$$" > "$_scl/pid"
+    # Сохранённые настройки генератор читает из целевого файла, поэтому
+    # временный начинается копией работающего.
+    _tmpcfg="$CONFIG.tcp16.$$"
+    _rc=0
+    if cp -p "$CONFIG" "$_tmpcfg" 2>/dev/null && (
+            # shellcheck source=/dev/null
+            . "$ZAPRET2_DIR/lib/utils.sh" >/dev/null 2>&1
+            # shellcheck source=/dev/null
+            . "$ZAPRET2_DIR/lib/config_official.sh" >/dev/null 2>&1
+            command -v create_official_config >/dev/null 2>&1 || exit 1
+            create_official_config "$_tmpcfg" >/dev/null 2>&1
+        ); then
+        _have=0; grep -q -- "--lua-desync=z2k_sni_pick" "$CONFIG" 2>/dev/null && _have=1
+        _new=0; grep -q -- "--lua-desync=z2k_sni_pick" "$_tmpcfg" 2>/dev/null && _new=1
+        if [ "$_have" = "$_new" ]; then
+            echo "механизм в конфиге: $_have — пересборка не нужна"
+        elif [ -r "$ZAPRET2_DIR/z2k-config-validator.sh" ] \
+             && { sh "$ZAPRET2_DIR/z2k-config-validator.sh" "$_tmpcfg" >/dev/null 2>&1; [ "$?" -ge 2 ]; }; then
+            echo "новый конфиг не прошёл проверку — работающий не трогаю" >&2
+            _rc=3
+        elif mv -f "$_tmpcfg" "$CONFIG" 2>/dev/null; then
+            echo "механизм в конфиге: было $_have, стало $_new — конфиг пересобран"
+            [ -x /opt/etc/init.d/S99zapret2 ] && /opt/etc/init.d/S99zapret2 restart >/dev/null 2>&1 \
+                && echo "сервис перезапущен"
+        fi
+    else
+        echo "генератор конфига не отработал — работающий не трогаю" >&2
+        _rc=1
+    fi
+    rm -f "$_tmpcfg" "$_tmpcfg.tmp" 2>/dev/null
+    rm -rf "$_scl" 2>/dev/null
+    return "$_rc"
+}
+
+echo "проба линии: $(_t16_count "$TARGETS") мишеней в $PARALLEL потоков, качаю с каждой по 20 КБ"
 run_logged ">" env $DETECT_ENV "$DETECT" tcp16 -targets "$TARGETS" -parallel "$PARALLEL" -asn-out "$ASNOUT"
 rc=$?
 
 case "$rc" in
-    1)  # блок есть
-        z2k_tcp16_progress "обрыв на объёме подтверждён; ищу рабочее SNI-имя отдельно для каждой сети"
-        printf '1\n' > "$FLAG.new.$$" && mv -f "$FLAG.new.$$" "$FLAG" || exit 3
-        # Имя на каждую найденную сеть. Пишем во временный файл и подменяем
-        # разом: половина карты хуже, чем прежняя целая.
-        if [ -s "$CAND" ]; then
-            echo
-            # УЖЕ НАЙДЕННЫЕ ИМЕНА — В НАЧАЛО ПЕРЕБОРА.
-            #
-            # Перебор идёт сверху вниз и останавливается на первом подошедшем
-            # имени, а карта пересобирается каждую ночь с нуля. Без этой
-            # склейки сеть, чьё имя лежит в хвосте списка, каждую ночь платит
-            # за весь путь до него заново: замер 16.09.2026 — louisvuitton.com
-            # для AS20860 стоит на 1247-м месте, это двенадцать минут перебора
-            # ради значения, которое мы уже знаем.
-            #
-            # Порядок внутри остального списка не трогаем: он выстрадан
-            # замером и отвечает за то, что большинство сетей решается за
-            # десятки имён.
-            _cand_run="$CAND"
-            if [ -s "$SNIOUT" ]; then
-                _cand_run="/tmp/z2k-tcp16-cand.$$"
-                { awk -F'\t' '/^[0-9]/ && $2 != "" { print $2 }' "$SNIOUT" 2>/dev/null
-                  grep -v '^#' "$CAND" 2>/dev/null
-                } | awk 'NF && !seen[$0]++' > "$_cand_run" 2>/dev/null \
-                    || _cand_run="$CAND"
-            fi
-            echo "подбор имён: $(grep -vc '^#' "$_cand_run" 2>/dev/null || echo '?') кандидатов на каждую сеть с обрывом, пачками по $BATCH"
-            z2k_tcp16_progress "сканирую кандидатов пачками по $BATCH и сохраняю прежнюю карту до полного результата"
-            if run_logged ">>" env $DETECT_ENV "$DETECT" tcp16 -targets "$TARGETS" -scan "$_cand_run" -per-asn \
-                 -sni-out "$SNIOUT.new" -parallel "$PARALLEL" -batch "$BATCH"; then
-                mv -f "$SNIOUT.new" "$SNIOUT"
-            else
-                rm -f "$SNIOUT.new"
-                echo "подбор имён не дал результата, карта оставлена прежней" >&2
-            fi
-            [ "$_cand_run" = "$CAND" ] || rm -f "$_cand_run"
-        fi
-        ;;
-    0)  # блока нет
-        z2k_tcp16_progress "проба завершена: обрыв на объёме не обнаружен"
-        printf '0\n' > "$FLAG.new.$$" && mv -f "$FLAG.new.$$" "$FLAG" || exit 3 ;;
-    *)  # мишени не ответили вовсе — не мерили; прежний ответ не трогаем,
-        # чтобы обрыв связи не выключил людям рабочий обход.
-        echo "проба не состоялась (код $rc), флаг оставлен как был" >&2
+    1)  printf '1\n' > "$FLAG.new" && mv -f "$FLAG.new" "$FLAG"; bump_ver ;;   # блок есть
+    0)  printf '0\n' > "$FLAG.new" && mv -f "$FLAG.new" "$FLAG"; bump_ver ;;   # блока нет
+    3)  # мишени не ответили вовсе — не мерили; прежний ответ и список сетей не
+        # трогаем, чтобы обрыв связи не выключил людям рабочий обход.
+        echo "мишени не ответили — флаг и список сетей оставлены как были" >&2
+        exit 2 ;;
+    *)  echo "проба не состоялась (код $rc), флаг и список сетей оставлены как были" >&2
         exit 2 ;;
 esac
 
-# Метка времени рядом: по ней видно, когда мерили, и не пора ли перемерить.
-# Keep both values on persistent OpenWrt state; publish only after a successful
-# verdict and name scan so a failed probe cannot make old data look fresh.
+# ПОДБОР ИМЁН — ДВЕ ФАЗЫ.
+#
+# Быстрая фаза: уже найденные имена плюс верх списка кандидатов. Порядок
+# списка выстрадан замером — подавляющее большинство сетей решается в первых
+# десятках имён (25.10.2026: hcaptcha.com первым подошёл 26 сетям из 34). По её
+# итогу карта сразу подставляется и механизм включается: человек получает
+# обход через минуты, а не после полного перебора.
+#
+# Длинный хвост — только для сетей, оставшихся без имени. Прежде каждую ночь
+# полный перебор всех кандидатов шёл для каждой такой сети заново (десятки
+# минут на слабом роутере, ревью 25.10.2026). Сеть, где хвост не дал ничего,
+# записывается в отрицательный кэш и неделю хвостом не перебирается: быстрая
+# фаза по-прежнему пробует для неё свежие имена каждую ночь.
+QUICK="${Z2K_TCP16_QUICK:-200}"
+NONAME="$STATE_DIR/tcp16_noname.txt"
+NONAME_TTL="${Z2K_TCP16_NONAME_TTL:-604800}"
+_cand_all="/tmp/z2k-tcp16-cand.$$"
+_cand_quick="/tmp/z2k-tcp16-quick.$$"
+_cand_tail="/tmp/z2k-tcp16-tail.$$"
+_miss="/tmp/z2k-tcp16-miss.$$"
+
+if [ "$(cat "$FLAG" 2>/dev/null)" = "1" ]; then
+    # Уже найденные имена — в начало: карта пересобирается каждую ночь, и сеть,
+    # чьё имя лежит в хвосте списка, без этого платила бы за весь путь до него
+    # заново (замер 16.09.2026 — louisvuitton.com для AS20860 на 1247-м месте).
+    # НАЧАЛО СКЛЕЙКИ СПИСКА КАНДИДАТОВ — границы объявлены явно: их вырезает
+    # tests/test_tcp16_candidates.sh, и угаданная вырезка уже краснела на
+    # исправном коде (та же беда была у блока добычи бинарника).
+    { awk -F'\t' '/^[0-9]/ && $2 != "" { print $2 }' "$SNIOUT" 2>/dev/null
+      grep -v '^#' "$CAND" 2>/dev/null
+    } | awk 'NF && !seen[$0]++' > "$_cand_all"
+    head -n "$QUICK" "$_cand_all" > "$_cand_quick"
+    tail -n +"$((QUICK + 1))" "$_cand_all" > "$_cand_tail"
+    # КОНЕЦ СКЛЕЙКИ СПИСКА КАНДИДАТОВ
+
+    echo
+    echo "подбор имён, быстрая фаза: $(_t16_count "$_cand_quick") кандидатов на каждую сеть с обрывом из $(_t16_count "$ASNOUT"), пачками по $BATCH"
+    run_logged ">>" env $DETECT_ENV "$DETECT" tcp16 -targets "$TARGETS" -scan "$_cand_quick" -per-asn \
+        -asn-in "$ASNOUT" -prev "$SNIOUT" -sni-out "$SNIOUT.new" -parallel "$PARALLEL" -batch "$BATCH"
+    rc=$?
+    case "$rc" in
+        0|2) mv -f "$SNIOUT.new" "$SNIOUT" && bump_ver ;;
+        *)   rm -f "$SNIOUT.new"
+             echo "подбор имён не состоялся (код $rc), карта оставлена прежней" >&2
+             exit 2 ;;
+    esac
+    reconcile_config
+
+    # Сети с блоком, но без имени, и без свежей записи в отрицательном кэше.
+    # Файлы кэша и карты обязаны существовать: awk на отсутствующем файле
+    # обрывает разбор целиком, и список сетей без имени выходил пустым.
+    [ -f "$NONAME" ] || : > "$NONAME"
+    [ -f "$SNIOUT" ] || : > "$SNIOUT"
+    _now=$(date +%s)
+    awk -F'\t' -v now="$_now" -v ttl="$NONAME_TTL" '
+        FILENAME == ARGV[1] { if ($1 ~ /^[0-9]+$/ && $2 != "") named[$1] = 1; next }
+        FILENAME == ARGV[2] { if ($1 ~ /^[0-9]+$/ && now - $2 < ttl) fresh[$1] = 1; next }
+        $1 ~ /^[0-9]+$/ && !named[$1] && !fresh[$1] { print $1 }
+    ' "$SNIOUT" "$NONAME" "$ASNOUT" 2>/dev/null > "$_miss"
+    if [ -s "$_miss" ] && [ -s "$_cand_tail" ]; then
+        echo
+        echo "подбор имён, хвост: $(_t16_count "$_cand_tail") кандидатов для $(_t16_count "$_miss") сетей без имени"
+        run_logged ">>" env $DETECT_ENV "$DETECT" tcp16 -targets "$TARGETS" -scan "$_cand_tail" -per-asn \
+            -asn-in "$_miss" -asn-keep "$ASNOUT" -prev "$SNIOUT" -sni-out "$SNIOUT.new" \
+            -parallel "$PARALLEL" -batch "$BATCH"
+        rc=$?
+        case "$rc" in
+            0|2)
+                mv -f "$SNIOUT.new" "$SNIOUT" && bump_ver
+                # Отрицательный кэш: сети, где и хвост не дал имени, — с меткой
+                # времени; нашедшие имя и выпавшие из списка сетей — вон.
+                awk -F'\t' -v now="$_now" '
+                    FILENAME == ARGV[1] { if ($1 ~ /^[0-9]+$/ && $2 != "") named[$1] = 1; next }
+                    FILENAME == ARGV[2] { if ($1 ~ /^[0-9]+$/) inlist[$1] = 1; next }
+                    FILENAME == ARGV[3] { if ($1 ~ /^[0-9]+$/) miss[$1] = 1; next }
+                    $1 ~ /^[0-9]+$/ && inlist[$1] && !named[$1] && !miss[$1] { print; next }
+                    END { for (a in miss) if (!named[a]) print a "\t" now }
+                ' "$SNIOUT" "$ASNOUT" "$_miss" "$NONAME" 2>/dev/null > "$NONAME.new"
+                mv -f "$NONAME.new" "$NONAME" 2>/dev/null
+                ;;
+            *)  rm -f "$SNIOUT.new"
+                echo "хвост подбора не состоялся (код $rc), карта быстрой фазы оставлена" >&2 ;;
+        esac
+    fi
+fi
+
+# Метка «прогон завершён»: по ней видно, когда мерили, и не пора ли
+# перемерить; вместе с меткой начала она говорит, что прогон дошёл до конца.
 _probe_finished=$(date +%s 2>/dev/null)
 case "$_probe_finished" in ''|*[!0-9]*) _probe_finished="$_probe_started" ;; esac
 _probe_duration=$((_probe_finished - _probe_started))
 [ "$_probe_duration" -ge 0 ] 2>/dev/null || _probe_duration=0
+mkdir -p "$(dirname "$STAMP")" "$(dirname "$DURATION")" 2>/dev/null || exit 3
 printf '%s\n' "$_probe_finished" > "$STAMP.new.$$" && mv -f "$STAMP.new.$$" "$STAMP" || exit 3
 printf '%s\n' "$_probe_duration" > "$DURATION.new.$$" && mv -f "$DURATION.new.$$" "$DURATION" || exit 3
 
-# ПЕРЕСОБРАТЬ КОНФИГ, ЕСЛИ ОТВЕТ ИЗМЕНИЛ КАРТИНУ.
-#
-# Механизм попадает в конфиг только при флаге 1, а флаг появляется ЗДЕСЬ —
-# то есть уже после того, как обновление пересобрало конфиг. Без этого шага
-# человек получал новую версию с выключенным механизмом и ждал бы следующей
-# пересборки неизвестно сколько: r-81.1 у тех, кому он установился, именно так
-# и молчал.
-#
-# Сравниваем НАМЕРЕНИЕ с фактом: должен ли механизм быть в конфиге и есть ли он
-# там сейчас. Совпало — не трогаем ничего, это ночной прогон, и лишний
-# перезапуск сервиса людям не нужен.
-want=0
-[ "$(cat "$FLAG" 2>/dev/null)" = "1" ] && want=1
-have=0
-grep -q -- "--lua-desync=z2k_sni_pick" "$CONFIG" 2>/dev/null && have=1
-
-if [ "$want" != "$have" ]; then
-    z2k_tcp16_progress "результат меняет конфигурацию; пересобираю и проверяю её перед restart"
-    echo "механизм должен быть в конфиге: $want, сейчас: $have — пересобираю"
-    if [ "$Z2K_PLATFORM" = openwrt ]; then
-        # Keep the one upstream config generator. OpenWrt only supplies its
-        # persistent TCP16 flag, generated config path, health validator and
-        # service control; never call the Keenetic init script here.
-        . "$Z2K_LIB/utils.sh" >/dev/null 2>&1 || exit 3
-        . "$Z2K_LIB/strategies.sh" >/dev/null 2>&1 || exit 3
-        . "$Z2K_LIB/config_official.sh" >/dev/null 2>&1 || exit 3
-        . "$Z2K_ROOT/platform/openwrt/generate.sh" >/dev/null 2>&1 || exit 3
-        Z2K_FORCE_CONFIG_REGEN=1
-        export Z2K_FORCE_CONFIG_REGEN
-        z2k_ow_generate || { echo "OpenWrt config generation failed" >&2; exit 3; }
-        if [ -x "$Z2K_ROOT/z2k-config-validator.sh" ]; then
-            sh "$Z2K_ROOT/z2k-config-validator.sh" >/dev/null 2>&1
-            [ "$?" -ge 2 ] && { echo "конфиг не прошёл проверку — сервис не трогаю" >&2; exit 3; }
-        fi
-        if [ -x "$INIT_SCRIPT" ] && "$INIT_SCRIPT" running >/dev/null 2>&1; then
-            z2k_tcp16_progress "конфигурация прошла проверку; перезапускаю службу"
-            "$INIT_SCRIPT" restart >/dev/null 2>&1 || { echo "OpenWrt service restart failed" >&2; exit 3; }
-            echo "OpenWrt config regenerated and service restarted"
-        else
-            echo "OpenWrt config regenerated; service is not running"
-        fi
-    elif [ -r "$ZAPRET2_DIR/lib/config_official.sh" ]; then
-        # Тот же путь, которым пересобирает обновление: utils.sh нужен
-        # генератору для safe_config_read и печати.
-        # shellcheck source=/dev/null
-        . "$ZAPRET2_DIR/lib/utils.sh" >/dev/null 2>&1
-        # shellcheck source=/dev/null
-        . "$ZAPRET2_DIR/lib/config_official.sh" >/dev/null 2>&1
-        if command -v create_official_config >/dev/null 2>&1; then
-            create_official_config "$CONFIG" >/dev/null 2>&1
-            # Проверяем ПЕРЕД перезапуском: пустить сервис в негодный конфиг
-            # хуже, чем оставить как было.
-            if [ -x "$ZAPRET2_DIR/z2k-config-validator.sh" ]; then
-                sh "$ZAPRET2_DIR/z2k-config-validator.sh" >/dev/null 2>&1
-                [ "$?" -ge 2 ] && { echo "конфиг не прошёл проверку — сервис не трогаю" >&2; exit 3; }
-            fi
-            [ -x /opt/etc/init.d/S99zapret2 ] && /opt/etc/init.d/S99zapret2 restart >/dev/null 2>&1
-            echo "конфиг пересобран, сервис перезапущен"
-        else
-            echo "генератор конфига недоступен — пересборку пропустил" >&2
-        fi
-    fi
-fi
+reconcile_config
 
 tail -2 "$LOG"
 exit 0

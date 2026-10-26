@@ -28,7 +28,7 @@ assert_eq "одна WARP health-строка" "1" "$(grep -c 'z2k-warp-health' "
 assert_contains "WARP health вызывает OpenWrt check" "$Z2K_CRON_TAB" "/r/platform/openwrt/warp-check.sh check"
 z2k_ow_tcp16_cron_install >/dev/null 2>&1 || { echo "FAIL[ow-schedule]: TCP16 install" >&2; exit 1; }
 assert_eq "одна TCP16 ночная строка" "1" "$(grep -c 'z2k-tcp16-nightly' "$Z2K_CRON_TAB")"
-assert_contains "TCP16 запускается в upstream 03:30" "$Z2K_CRON_TAB" "30 3 * * * sh /r/z2k-tcp16-probe.sh # z2k-tcp16-nightly"
+assert_contains "TCP16 запускается в upstream 03:30 через OpenWrt path adapter" "$Z2K_CRON_TAB" "30 3 * * * sh /r/platform/openwrt/tcp16-check.sh force # z2k-tcp16-nightly"
 assert_eq "одна TCP16 первичная retry-строка" "1" "$(grep -c 'z2k-tcp16-first-result' "$Z2K_CRON_TAB")"
 assert_contains "TCP16 initial retry через native adapter" "$Z2K_CRON_TAB" "*/10 * * * * sh /r/platform/openwrt/tcp16-check.sh # z2k-tcp16-first-result"
 z2k_ow_tiktok_cron_install >/dev/null 2>&1 || { echo "FAIL[ow-schedule]: TikTok install" >&2; exit 1; }

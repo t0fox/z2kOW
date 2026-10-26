@@ -48,9 +48,9 @@ LIB_DIR="${LIB_DIR:-${WORK_DIR}/lib}"
 # override cross-branch test installs. Default only kicks in when
 # utils.sh is sourced from outside the z2k.sh bootstrap (rare path).
 GITHUB_RAW="${GITHUB_RAW:-https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced}"
-# Z4R_BASE_URL / Z4R_LISTS_URL / Z2R_BASE_URL удалены: константы указывали на
-# сторонние репозитории zapret4rocket и не читались ничем — всё качается через
-# GITHUB_RAW + z2k_fetch. Оставлять их значило заявлять зависимость, которой нет.
+# Константы с адресами сторонних репозиториев удалены: они не читались ничем —
+# всё качается через GITHUB_RAW + z2k_fetch. Оставлять их значило заявлять
+# зависимость, которой нет.
 
 # VPS SNI-passthrough egress для GitHub — см. z2k.sh для полного docstring.
 # RU блокирует Fastly anycast github; наш VPS форвардит SNI-совпавшие
@@ -303,7 +303,7 @@ fi
 # тоже, и ссылаться на них — значит получить пул, который не стартует.
 z2k_emergency_tcp_pool() {
     local key="$1"
-    printf '%s' "--filter-tcp=443,2053,2083,2087,2096,8443 --filter-l7=tls --payload=tls_client_hello,http_req,http_reply,unknown,tls_server_hello --out-range=-s34228 --lua-desync=circular:fails=3:time=60:key=${key}:nld=2 --lua-desync=tls_client_hello_clone:payload=tls_client_hello:dir=out:blob=z2k_real_www_google_com:sni_del:sni_first=www.google.com:sni_snt_new=0:fallback=fake_default_tls:strategy=1 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=z2k_real_www_google_com:repeats=6:tls_mod=rnd,dupsid:strategy=1 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1,midsld:strategy=1 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1,sniext+1:seqovl=1:strategy=2 --lua-desync=tls_client_hello_clone:payload=tls_client_hello:dir=out:blob=z2k_real_www_microsoft_com:sni_del:sni_first=www.microsoft.com:sni_snt_new=0:fallback=fake_default_tls:strategy=3 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=z2k_real_www_microsoft_com:repeats=6:tcp_ts=-1000:badsum:tls_mod=rnd,dupsid:strategy=3 --lua-desync=fakedsplit:payload=tls_client_hello:dir=out:pos=1:strategy=3"
+    printf '%s' "--filter-tcp=443,2053,2083,2087,2096,8443 --filter-l7=tls --payload=tls_client_hello,http_req,http_reply,unknown,tls_server_hello --out-range=-s34228 --lua-desync=circular:fails=3:time=60:key=${key}:nld=2 --lua-desync=tls_client_hello_clone:payload=tls_client_hello:dir=out:blob=z2k_real_www_google_com:sni_del:sni_first=www.google.com:sni_snt_new=0:fallback=fake_default_tls:strategy=1 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=z2k_real_www_google_com:repeats=6:tls_mod=rnd,dupsid:strategy=1 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1,midsld:strategy=1 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1,sniext+1:seqovl=1:strategy=2 --lua-desync=tls_client_hello_clone:payload=tls_client_hello:dir=out:blob=z2k_real_www_microsoft_com:sni_del:sni_first=www.microsoft.com:sni_snt_new=0:fallback=fake_default_tls:strategy=3 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=z2k_real_www_microsoft_com:repeats=6:tcp_ts=-1000:badsum:tls_mod=rnd,dupsid:strategy=3 --lua-desync=fakedsplit:payload=tls_client_hello:dir=out:pos=1:tcp_ts=-1000:badsum:strategy=3"
 }
 
 # Лесенка repeats 11/6/3 — не произвол: её дважды пытались срезать и дважды
@@ -730,7 +730,7 @@ z2k_fetch() {
     # ЧЕТВЁРТЫЙ СЛОЙ (ndmc "ip host") УБРАН 30.08.2026.
     #
     # Он писал ПОСТОЯННЫЕ записи в конфиг роутера пользователя. Приём был
-    # скопирован из чужого проекта (zapret4rocket) коммитом f4897e2 от 23.04,
+    # скопирован из стороннего проекта коммитом f4897e2 от 23.04,
     # и в описании того коммита прямым текстом стоит «not tested».
     #
     # На поле это дало помойку: у GitHub много адресов, CDN отдаёт разные, и

@@ -21,3 +21,6 @@ discord-activities.com
 discordactivities.com
 discordsays.com
 updates.discord.com
+discord.app
+discord.status
+discordsez.com

@@ -60,7 +60,23 @@ const (
 	// от линии, где RTT сам по себе огромен.
 	readTimeoutMin = 1500 * time.Millisecond
 	readTimeoutMax = 12 * time.Second
+
+	// ConfirmReadTimeout — нижняя граница ожидания при ПЕРЕПРОВЕРКЕ обрыва.
+	//
+	// Обрыв по таймауту неотличим от медленного ответа: здоровый сервер,
+	// однажды ответивший за 1,7 с при ожидании 3×RTT=1,5 с, давал «блок» на
+	// 19 КБ (ревью 25.10.2026). Блок — это заморозка: ответа нет вовсе, и
+	// шесть секунд ожидания его не воскресят, а медленный сервер за них
+	// успевает. Перепроверка идёт только для мишеней, где обрыв уже увидели,
+	// поэтому стоит секунды на весь прогон, а не на каждую пробу.
+	ConfirmReadTimeout = 6 * time.Second
 )
+
+// Opts — необязательные параметры пробы.
+type Opts struct {
+	// MinReadTimeout поднимает нижнюю границу ожидания ответа (0 — штатная).
+	MinReadTimeout time.Duration
+}
 
 // Target — мишень пробы: адрес, порт и AS, к которой он принадлежит.
 type Target struct {
@@ -71,7 +87,7 @@ type Target struct {
 	Port     int
 	// SNI — имя, которое надо предъявить этой мишени. Пусто у большинства:
 	// туда ходим по адресу. Непустое у тех, кто без имени отвечает не тем
-	// сервисом — у эталонного dpi-detector таких семь, все Fastly. Без имени
+	// сервисом — в референсном наборе мишеней таких семь, все Fastly. Без имени
 	// они отвечают чужой заглушкой, и обрыв по объёму на них не наступает
 	// никогда: мы меряли не то, что они меряют.
 	SNI string
@@ -86,6 +102,11 @@ type Result struct {
 	DiedAtKB int    // на каком накопленном объёме умерло
 	Err      string // человеческая причина, если проба не состоялась
 	RTT      time.Duration
+	// Passed — все запросы прошли до конца. Только это и значит «имя
+	// подошло»: соединение, оборвавшееся на 3-11 КБ, живое (Alive), но не
+	// блок (Detected=false) — и прежняя проверка «Alive && !Detected»
+	// засчитывала такой обрыв как успех (ревью 25.10.2026).
+	Passed bool
 }
 
 var padPool = func() string {
@@ -100,7 +121,16 @@ var padPool = func() string {
 
 // Probe гоняет пробу по одной мишени. sni пустой — идём без SNI (по адресу).
 func Probe(ctx context.Context, t Target, sni string) Result {
+	return ProbeOpt(ctx, t, sni, Opts{})
+}
+
+// ProbeOpt — Probe с необязательными параметрами.
+func ProbeOpt(ctx context.Context, t Target, sni string, o Opts) Result {
 	res := Result{Target: t, SNI: sni}
+	minRead := readTimeoutMin
+	if o.MinReadTimeout > minRead {
+		minRead = o.MinReadTimeout
+	}
 
 	d := net.Dialer{Timeout: connectTimeout}
 	addr := net.JoinHostPort(t.IP, fmt.Sprint(t.Port))
@@ -172,8 +202,8 @@ func Probe(ctx context.Context, t Target, sni string) Result {
 			// распознаётся втрое быстрее прежнего.
 			rtt := time.Since(reqStart)
 			readTimeout = rtt * 3
-			if readTimeout < readTimeoutMin {
-				readTimeout = readTimeoutMin
+			if readTimeout < minRead {
+				readTimeout = minRead
 			}
 			if readTimeout > readTimeoutMax {
 				readTimeout = readTimeoutMax
@@ -182,8 +212,16 @@ func Probe(ctx context.Context, t Target, sni string) Result {
 		// Пауза между запросами: без неё десять запросов уходят одной
 		// очередью, и коробка видит поток иначе, чем видит его браузер, —
 		// вердикт становится плавающим.
-		time.Sleep(chunkDelay)
+		// Отмена посреди пробы — не вердикт: вызывающий проверит ctx и
+		// результат не засчитает.
+		select {
+		case <-ctx.Done():
+			res.Err = "отменено"
+			return res
+		case <-time.After(chunkDelay):
+		}
 	}
+	res.Passed = true
 	return res
 }
 

@@ -477,6 +477,31 @@ assert_contains "FLOWOFFLOAD=hardware survives direct regeneration" "FLOWOFFLOAD
 FLOW_OUT=$(test_flowoffload_preserve "reinstall" "software" "old")
 assert_contains "reinstall: FLOWOFFLOAD recovered from .old backup" "FLOWOFFLOAD=software" "$FLOW_OUT"
 
+printf "\n--- DNS redirect and TCP16 flags survive config regeneration ---\n"
+test_openwrt_flags() {
+    local tag="$1" dns="$2" sni="$3" root="${MOCK_DIR}/ow-flags-$1"
+    rm -rf "$root"
+    mkdir -p "$root/extra_strats/TCP/YT" "$root/extra_strats/TCP/YT_GV" \
+        "$root/extra_strats/TCP/RKN" "$root/extra_strats/UDP/YT" "$root/lists"
+    echo "youtube.com" > "$root/extra_strats/TCP/YT/List.txt"
+    echo "googlevideo.com" > "$root/extra_strats/TCP/YT_GV/List.txt"
+    echo "youtube.com" > "$root/extra_strats/UDP/YT/List.txt"
+    echo "rutracker.org" > "$root/extra_strats/TCP/RKN/List.txt"
+    echo "whitelisted.example.com" > "$root/lists/whitelist.txt"
+    echo "--filter-tcp=443 --filter-l7=tls --lua-desync=circular:fails=3:time=60:key=rkn_tcp --lua-desync=fake:strategy=1" \
+        > "$root/extra_strats/TCP/RKN/Strategy.txt"
+    printf 'ENABLED=1\nZ2K_DNS_REDIRECT=%s\nZ2K_SNI_STALL=%s\n' "$dns" "$sni" > "$root/config"
+    ( ZAPRET2_DIR="$root" create_official_config "$root/config" >/dev/null 2>&1 )
+    grep -E '^Z2K_(DNS_REDIRECT|SNI_STALL)=' "$root/config"
+    rm -rf "$root"
+}
+OW_FLAGS=$(test_openwrt_flags "disabled" "0" "0")
+assert_contains "DNS redirect off survives regeneration" "Z2K_DNS_REDIRECT=0" "$OW_FLAGS"
+assert_contains "TCP16 SNI stall off survives regeneration" "Z2K_SNI_STALL=0" "$OW_FLAGS"
+OW_FLAGS=$(test_openwrt_flags "defaults" "1" "1")
+assert_contains "DNS redirect defaults on" "Z2K_DNS_REDIRECT=1" "$OW_FLAGS"
+assert_contains "TCP16 SNI stall defaults on" "Z2K_SNI_STALL=1" "$OW_FLAGS"
+
 printf "\n--- TikTok manual CDN choice survives official config regeneration ---\n"
 test_tiktok_manual_preserve() {
     local tag="$1" mode="$2" ip="$3" root="${MOCK_DIR}/tiktok-${1}"

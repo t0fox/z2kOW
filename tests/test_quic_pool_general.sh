@@ -83,10 +83,11 @@ else
         *) no "QUIC несёт дополнительные домены" "--hostlist=…extra-domains.txt" "нет" ;; esac
     case "$QLINE" in *"discovered-domains.txt"*) no "QUIC не подключает retired discovery" "absent" "$QLINE" ;;
         *) ok "QUIC не подключает retired discovery" ;; esac
-    # Discord — отдельный профиль на своих портах: его список здесь только
-    # раздул бы сопоставление и ничего не дал.
-    case "$QLINE" in *TCP_Discord*) no "Discord-список в QUIC не попал" "без него" "есть" ;;
-        *) ok "Discord-список в QUIC не попал" ;; esac
+    # Discord-список в QUIC — с 25.10.2026: cdn.discordapp.com и
+    # media.discordapp.net объявляют HTTP/3, без списка их QUIC резался.
+    # Голос — отдельный профиль на своих портах, к этому не относится.
+    case "$QLINE" in *"TCP_Discord.txt"*) ok "QUIC несёт список Discord" ;;
+        *) no "QUIC несёт список Discord" "--hostlist=…TCP_Discord.txt" "нет" ;; esac
     case "$QLINE" in *key=quic:*) ok "ключ пула — quic" ;;
         *) no "ключ пула — quic" "key=quic" "$(printf '%s' "$QLINE" | grep -o 'key=[a-z_]*' | head -1)" ;; esac
     case "$QLINE" in *key=yt_quic*) no "старого ключа в конфиге нет" "без yt_quic" "есть" ;;

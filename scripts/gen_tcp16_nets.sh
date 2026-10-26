@@ -36,13 +36,23 @@ asn=sys.argv[1]
 try: d=json.load(sys.stdin)
 except Exception: sys.exit(0)
 v4=set(); v6=set()
+# Короткие префиксы разворачиваем во все покрытые блоки /16 или /32;
+# прежнее огрубление оставляло только первый блок. Ограничение расширения
+# IPv6 не даёт развернуть один большой префикс в десятки тысяч записей.
+MAXEXP=256
 for x in d.get("data",{}).get("prefixes",[]):
     try: n=ipaddress.ip_network(x["prefix"], strict=False)
     except Exception: continue
     if n.version==4 and n.prefixlen>=8:
-        v4.add(str(ipaddress.ip_network((int(n.network_address)>>16<<16, 16))))
+        if n.prefixlen<16:
+            for s in n.subnets(new_prefix=16): v4.add(str(s))
+        else:
+            v4.add(str(ipaddress.ip_network((int(n.network_address)>>16<<16, 16))))
     elif n.version==6 and n.prefixlen>=16:
-        v6.add(str(ipaddress.ip_network((int(n.network_address)>>96<<96, 32))))
+        if n.prefixlen<32 and (1<<(32-n.prefixlen))<=MAXEXP:
+            for s in n.subnets(new_prefix=32): v6.add(str(s))
+        else:
+            v6.add(str(ipaddress.ip_network((int(n.network_address)>>96<<96, 32))))
 for p in sorted(v4)+sorted(v6): print(asn+"\t"+p)
 ' "$as"
 done
