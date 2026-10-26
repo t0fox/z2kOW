@@ -63,7 +63,7 @@ const statusFixture = {
   toggles: {
     game_warp: '0', category_youtube: '1', category_rkn: '1', category_discord_voice: '1',
     customd: '0', dynamic_ttl: '1',
-    ppe: '1', auto_update: '1', autohostlist: '0', fastroute: '0',
+    ppe: '1', auto_update: '1', autohostlist: '0', fastroute: '0', dns_redirect: '0',
     fastroute_available: '0', flowoffload: 'hardware',
     flowoffload_status: 'configured_mode=hardware; flowtable_state=present; flowtable_flags=offload; flowtable_devices=br-lan,wan; actual_dataplane=not-observed; exemption_rules=4; nfqueue_rules=8; nfqueue_packets=26061; packet_visibility=active; circular_state=active; hardware_capability=available; hardware_requested=1; hardware_observed=not-observed; hardware_state=requested; hw_offloaded_connections=0; software_offloaded_connections=3; offloaded_connections=3; selective_state=complete; owner_state=zapret2; owner_conflict=none; runtime_health=attention; runtime_health_reason=hardware-not-observed',
     au_hour: '3',
@@ -2365,6 +2365,13 @@ try {
         assert.equal(await control.evaluate(node => getComputedStyle(node).borderRadius), '10px',
           'desktop form controls match the 10 px reference radius');
         assert.equal(await control.getAttribute('role'), 'combobox', 'custom selects expose a combobox control');
+        await page.waitForFunction(() => {
+          const toggle = document.querySelector('[data-key="auto_update"] input');
+          const select = document.querySelector('#au-hour');
+          const row = document.querySelector('#au-hour-row');
+          return toggle?.checked === true && select?.disabled === false
+            && select.options.length === 24 && row?.hidden === false;
+        }, null, { timeout: 5000 });
         const listbox = page.locator(`#${await control.getAttribute('aria-controls')}`);
         assert.equal(await listbox.getAttribute('role'), 'listbox', 'custom select options expose a listbox');
         await control.click();
