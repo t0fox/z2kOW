@@ -66,7 +66,7 @@ z2k_ow_manifest_select_artifact() {
     if [ -n "$_expected_url" ]; then
         [ "$_url" = "$_expected_url" ] || return 1
     else
-        printf '%s' "$_url" | grep -Eq '^https://github[.]com/t0fox/z2kOW/releases/download/(openwrt-[0-9a-f]{40}|[pr]-[0-9]+([.][0-9]+)+)/[^/]+$' || return 1
+        printf '%s' "$_url" | grep -Eq '^https://github[.]com/t0fox/z2kOW/releases/download/(openwrt-[0-9a-f]{40}|(p-[0-9]+([.][0-9]+)+|r-[0-9]+([.][0-9]+)*))/[^/]+$' || return 1
         case "$_url" in */"$_filename") ;; *) return 1 ;; esac
     fi
 
@@ -121,7 +121,7 @@ z2k_ow_manifest_shape_ok() {
     [ "$(z2k_ow_manifest_value "$_m" upstream.branch)" = z2k-enhanced ] || return 1
     [ "$(z2k_ow_manifest_value "$_m" upstream.tag)" = "$_tag" ] || return 1
     _commit=$(z2k_ow_manifest_value "$_m" upstream.commit) || return 1
-    printf '%s' "$_tag" | grep -Eq '^[pr]-[0-9]+(\.[0-9]+)+$' || return 1
+    printf '%s' "$_tag" | grep -Eq '^(p-[0-9]+(\.[0-9]+)+|r-[0-9]+(\.[0-9]+)*)$' || return 1
     printf '%s' "$_seq" | grep -Eq '^[1-9][0-9]*$' || return 1
     printf '%s' "$_commit" | grep -Eq '^[0-9a-f]{40}$'
 }

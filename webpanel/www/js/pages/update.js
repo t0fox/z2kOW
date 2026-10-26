@@ -232,7 +232,7 @@ function openApplyModal(jobId, target, operation = "update") {
       let refreshDelay = 500;
       if (reinstalling) {
         const log = (result && result.log) || "";
-        const moved = /Z2KOW_REINSTALL_UPDATE_AVAILABLE:([pr]-[0-9]+(?:\.[0-9]+)+)/.exec(log);
+        const moved = /Z2KOW_REINSTALL_UPDATE_AVAILABLE:((?:p-[0-9]+(?:\.[0-9]+)+|r-[0-9]+(?:\.[0-9]+)*))/.exec(log);
         if (moved) {
           refreshDelay = 300;
         } else if (result && result.exit === 0) {

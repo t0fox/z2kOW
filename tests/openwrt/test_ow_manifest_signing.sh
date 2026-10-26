@@ -16,7 +16,7 @@ case "$KEY_ID" in *[!0-9a-f]*|'') echo 'FAIL[ow-manifest-signing]: could not der
 [ "${#KEY_ID}" -eq 64 ] || { echo 'FAIL[ow-manifest-signing]: malformed test key id' >&2; exit 1; }
 cp "$T/test.pub" "$T/keys/$KEY_ID.pub"
 cat > "$T/UPDATES.json" <<EOF
-{"signing":{"key_id":"$KEY_ID"},"current":"p-86.13"}
+{"signing":{"key_id":"$KEY_ID"},"current":"r-87"}
 EOF
 openssl pkeyutl -sign -rawin -inkey "$T/test.key" -in "$T/UPDATES.json" -out "$T/UPDATES.json.sig" >/dev/null 2>&1 || exit 1
 
@@ -69,7 +69,7 @@ z2k_ow_manifest_verify_signature "$T/UPDATES.json" "$T/UPDATES.json.sig" \
     && _t_ok || _t_bad "valid Ed25519 signature verifies using signing.key_id"
 
 cp "$T/UPDATES.json" "$T/modified.json"
-sed 's/p-86.13/p-86.14/' "$T/UPDATES.json" > "$T/modified.json"
+sed 's/r-87/r-88/' "$T/UPDATES.json" > "$T/modified.json"
 z2k_ow_manifest_verify_signature "$T/modified.json" "$T/UPDATES.json.sig" \
     && _t_bad "modified manifest was rejected" || _t_ok
 
@@ -116,12 +116,12 @@ manifest = {
     "schema": 1,
     "branch": "main",
     "platform": "openwrt",
-    "current": "p-86.13",
-    "seq": 135,
+    "current": "r-87",
+    "seq": 150,
     "upstream": {
         "repository": "necronicle/z2k",
         "branch": "z2k-enhanced",
-        "tag": "p-86.13",
+        "tag": "r-87",
         "commit": "b" * 40,
     },
     "signing": {"key_id": "c" * 64},

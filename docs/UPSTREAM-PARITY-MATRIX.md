@@ -21,9 +21,10 @@
 
 | Версия и происхождение | Решение | Причина |
 |---|---|---|
-| `p-86.24` / `seq 149` / `9fafc758d48e52a845efd48c839d1051e5c60b78` | Перенос и адаптация | Обновлены общие пулы, fake-блобы, Discord HTTP/3 и TCP16; защита обычного DNS адаптирована к fw4/nftables с fail-open; добавлена миграция закреплённых стратегий. Keenetic-watchdog nfqueue закрыт procd respawn и OpenWrt fw-check. WARP и Telegram остаются нашими реализациями. |
+| `r-87` / `seq 150` / `e5d9850802174e6098687f09945cace33afe3a8c` | Перенос и адаптация полной переустановки | Движок закреплён на `v1.0.6-z2k-r0`; DNS health-check в OpenWrt уже всегда обращается к локальному `127.0.0.1`, как требует новое поведение upstream. Изменение DNS redirect в upstream не переносит Keenetic `iptables`: сохранены fw4/nftables и fail-open. VPS/TG изменений в `r-87` нет. |
+| `p-86.24` / `seq 149` / `9fafc758d48e52a845efd48c839d1051e5c60b78` | Перенос и адаптация, включённые в `r-87`; отдельный выпуск не публикуется | Обновлены общие пулы, fake-блобы, Discord HTTP/3 и TCP16; защита обычного DNS адаптирована к fw4/nftables с fail-open; добавлена миграция закреплённых стратегий. Keenetic-watchdog nfqueue закрыт procd respawn и OpenWrt fw-check. WARP и Telegram остаются нашими реализациями. |
 | `r-86.6` / `seq 148` / `1f73737464f99a01e40564c1b1cd8a52d40622d9` | `not applicable` | Выпуск переносит собственные VPS-реле и связанные адреса Telegram/WARP. Эти сервисы и транспорт у нас реализованы отдельно; VPS-адреса и подписанные метаданные upstream не переносим. |
-| `p-86.23` / `seq 147` / `3d54cb6f075de2c455ec51b9a1dc752f9c660f31` | Адаптация WARP, включённая в `p-86.24`; отдельный выпуск не публикуется | Исправление доверия к системным CA и отображения причины регистрации перенесено в Rust-контроллер и OpenWrt-диагностику. |
+| `p-86.23` / `seq 147` / `3d54cb6f075de2c455ec51b9a1dc752f9c660f31` | Адаптация WARP, включённая в `r-87`; отдельный выпуск не публикуется | Исправление доверия к системным CA и отображения причины регистрации перенесено в Rust-контроллер и OpenWrt-диагностику. |
 | `p-86.21` / `seq 145` / `8e60ca678039d863ca2951c3bd049003c76331c4` | Адаптация благодарностей в z2kOW | Спонсоры `ewgen911` и `cmfifty` добавлены в отдельное upstream-раскрытие; upstream-манифест и cache-buster остаются под управлением доверенного релизного процесса z2kOW. |
 | `p-86.20` / `seq 144` / `90eb5fdfacbf5a15af19227d5f0401c1d68fcbd8` | `not applicable` | Изменения доставки Entware, VPS-зеркал и материалов для Keenetic. OpenWrt использует штатные системные пакеты и собственный релизный путь. |
 | `p-86.19` / `seq 143` / `6c77cef7d73751929f7142add142835af095db91` | `not applicable` | Офлайн-установка Entware и связанный с ней интерфейс не нужны для OpenWrt. |
@@ -81,7 +82,7 @@
 | `files/000-zapret2.sh` — устранить потерю событий и ограничить циклы восстановления | `ADAPTED`: общий путь `z2k_ow_fw_event`, PID-lock и pending marker; тесты `test_ow_fw_events.sh`, `test_ow_fw_check.sh`, `test_ow_iface.sh`. NDM-hook — `N/A`. |
 | `files/z2k-diag.sh` — журнал событий NDM | `ADAPTED`: bounded `logread` с фильтром `z2k-fw4`, а не журнал NDM; `test_ow_diag.sh`. |
 | `files/z2k-nfqueue-selfheal.sh` — fastnat sysctl Keenetic | Механизм `N/A`, эффект `ADAPTED`: сохранение/восстановление настроек fw4 offload; `test_ow_offload.sh`. |
-| `lib/install.sh` — проверенный runtime pin и fallback hook | Общий pin `v1.0.5.2-z2k-r0` сохранён; Keenetic heredoc не запускается, OpenWrt применяет `install_release`. |
+| `lib/install.sh` — проверенный runtime pin и fallback hook | Общий pin `v1.0.6-z2k-r0` сохранён; Keenetic heredoc не запускается, OpenWrt применяет `install_release`. |
 | `tests/test_ndm_hook_fallback_sync.sh` | `N/A` — NDM-hook не устанавливается на OpenWrt; собственный путь событий имеет отдельные тесты. |
 | `tests/test_ndm_hook_storm.sh` | `ADAPTED` — параллельные события, trailing repair, ограничение повторов и финальная проверка. |
 | `tests/test_nfqueue_selfheal.sh` | Проверка fastnat заменена тестом OpenWrt offload ownership. |

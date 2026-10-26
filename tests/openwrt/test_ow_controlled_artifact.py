@@ -327,6 +327,23 @@ class ControlledArtifactTests(unittest.TestCase):
         self.assertEqual(verified.returncode, 0, verified.stderr)
         self.assertEqual(verified.stdout.strip(), commit)
 
+    def test_plain_reinstall_tag_r87_is_a_valid_upstream_product_tag(self) -> None:
+        commit = "e5d9850802174e6098687f09945cace33afe3a8c"
+        upstream = {
+            "branch": "z2k-enhanced",
+            "current": "r-87",
+            "seq": 150,
+            "history": [{"v": "p-86.22"}, {"v": "r-87"}],
+        }
+        refs = f"{commit}\trefs/heads/z2k-enhanced\n{commit}\trefs/tags/r-87\n"
+
+        verified = self._verify_upstream_tag(
+            upstream, upstream, refs, tag="r-87", seq=150
+        )
+
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+        self.assertEqual(verified.stdout.strip(), commit)
+
     def test_forged_tag_name_cannot_replace_the_official_current_tag(self) -> None:
         commit = "43b98092c5a337a35f5c094363f469243d7b8b80"
         refs = f"{commit}\trefs/heads/z2k-enhanced\n{commit}\trefs/tags/r-86.7\n"

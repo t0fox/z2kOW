@@ -155,7 +155,7 @@ jobs:
             RELEASE_TAG_INPUT="$controlled_tag"
             RELEASE_SEQ_INPUT="$controlled_seq"
           fi
-          [[ "$RELEASE_TAG_INPUT" =~ ^[pr]-[0-9]+(\.[0-9]+)+$ ]]
+          [[ "$RELEASE_TAG_INPUT" =~ ^(p-[0-9]+(\.[0-9]+)+|r-[0-9]+(\.[0-9]+)*)$ ]]
           [[ "$RELEASE_SEQ_INPUT" =~ ^[1-9][0-9]*$ ]]
           refs="$(git ls-remote https://github.com/necronicle/z2k.git \
             "refs/heads/z2k-enhanced" "refs/tags/$RELEASE_TAG_INPUT" "refs/tags/$RELEASE_TAG_INPUT^{}")"

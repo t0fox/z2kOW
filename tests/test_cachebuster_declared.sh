@@ -49,7 +49,7 @@ _manifest="$(cat "$ROOT/UPDATES.json")"
 #    also covers candidate versions newer than the source checkout's manifest.
 cur="$(printf '%s\n' "$_manifest" | sed -n 's/.*"current"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
 candidate="${Z2K_RELEASE_CANDIDATE_VERSION:-$cur}"
-if [ -n "$candidate" ] && printf '%s' "$candidate" | grep -Eq '^[pr]-[0-9]+(\.[0-9]+)+$'; then
+if [ -n "$candidate" ] && printf '%s' "$candidate" | grep -Eq '^(p-[0-9]+(\.[0-9]+)+|r-[0-9]+(\.[0-9]+)*)$'; then
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/z2k-cachebuster.XXXXXX")" || exit 1
     trap 'rm -rf "$tmp"' EXIT HUP INT TERM
     mkdir -p "$tmp/www"
@@ -67,7 +67,7 @@ for path in root.rglob("*"):
     if path.suffix not in {".html", ".js", ".css"}:
         continue
     data = path.read_bytes()
-    versions = re.findall(rb"[?&]v=([pr]-[0-9]+(?:\.[0-9]+)+)", data)
+    versions = re.findall(rb"[?&]v=((?:p-[0-9]+(?:\.[0-9]+)+|r-[0-9]+(?:\.[0-9]+)*))", data)
     if versions and any(version != expected for version in versions):
         raise SystemExit(f"stale asset version in {path}")
     count += len(versions)
@@ -78,6 +78,13 @@ PY
         ok "staged panel cache-busters match release candidate ($candidate)"
     else
         no "staged panel cache-busters match release candidate" "stamp failed or staged assets still use an old tag"
+    fi
+    if GITHUB_ENV="$tmp/release.env" GITHUB_WORKSPACE="$ROOT" GITHUB_REF=refs/heads/main INPUT_CANDIDATE=r-87 \
+        bash "$ROOT/scripts/ci/resolve-release-tag.sh" \
+        && grep -Fqx 'Z2K_RELEASE_CANDIDATE_VERSION=r-87' "$tmp/release.env"; then
+        ok "CI release tag resolver accepts r-87"
+    else
+        no "CI release tag resolver accepts r-87" "r-87 не прошёл проверку тега кандидата"
     fi
 else
     no "staged panel cache-busters match release candidate" "invalid candidate=$candidate (manifest current=$cur)"

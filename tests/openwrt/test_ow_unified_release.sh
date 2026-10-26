@@ -49,6 +49,14 @@ T="$(mktemp -d)" || exit 1
 trap 'rm -rf "$T"' EXIT HUP INT TERM
 printf '36 25 0:32 / %s rw - ext4 /dev/test-overlay rw\n37 36 0:33 / /tmp rw - tmpfs tmpfs rw\n' "$T" > "$T/mountinfo"
 export Z2K_OW_MOUNTINFO_FILE="$T/mountinfo"
+printf '{"current":"r-87","seq":150}\n' > "$T/r87-manifest.json"
+if z2k_ow_release_state_write "$T/r87-state" "$T/r87-manifest.json" \
+    && [ "$(z2k_ow_release_state_read "$T/r87-state")" = "tag=r-87
+seq=150" ]; then
+    _t_ok "release state accepts the plain reinstall tag r-87"
+else
+    _t_bad "release state accepts the plain reinstall tag r-87"
+fi
 
 # WARP остаётся необязательным: без Rust-контроллера обновление возможно,
 # если после остановки служб Go-движок отсутствует; при активном движке — нет.

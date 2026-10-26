@@ -14,7 +14,7 @@ import tarfile
 from pathlib import Path
 
 
-TAG_RE = re.compile(r"[pr]-[0-9]+(?:\.[0-9]+)+\Z")
+TAG_RE = re.compile(r"(?:p-[0-9]+(?:\.[0-9]+)+|r-[0-9]+(?:\.[0-9]+)*)\Z")
 ARTIFACT_NAME = "openwrt-rootfs.tar.gz"
 ARCHITECTURES = ("arm64", "arm", "x86_64", "x86", "mips", "mipsel", "riscv64")
 ARCHIVE_NAME_TEMPLATE = "openwrt-rootfs-{arch}.tar.gz"

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-PRODUCT_TAG_RE = re.compile(r"[pr]-[0-9]+(?:\.[0-9]+)+\Z")
+PRODUCT_TAG_RE = re.compile(r"(?:p-[0-9]+(?:\.[0-9]+)+|r-[0-9]+(?:\.[0-9]+)*)\Z")
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 TECHNICAL_TAG_RE = re.compile(r"openwrt-([0-9a-f]{40})\Z")
 RELEASE_BASE = "https://github.com/t0fox/z2kOW/releases/download"

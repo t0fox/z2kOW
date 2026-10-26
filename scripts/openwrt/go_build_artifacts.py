@@ -132,7 +132,7 @@ def _validate_inputs(source_sha: str, run_id: str, go_version: str, release_tag:
         raise ValueError("GitHub Actions run ID неверен")
     if not go_version.startswith("go version go1.25.13 "):
         raise ValueError(f"неожиданный Go toolchain: {go_version}")
-    if not re.fullmatch(r"[pr]-[0-9]+(?:\.[0-9]+)+", release_tag):
+    if not re.fullmatch(r"(?:p-[0-9]+(?:\.[0-9]+)+|r-[0-9]+(?:\.[0-9]+)*)", release_tag):
         raise ValueError("release tag неверен")
 
 

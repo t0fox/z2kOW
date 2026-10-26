@@ -43,7 +43,7 @@ printf '%s\n' "$1" > "$Z2K_TEST_INSTALL_CALL"
 [ -s "$Z2K_OW_BOOTSTRAP_MANIFEST" ] && [ -s "$Z2K_OW_BOOTSTRAP_SIGNATURE" ] \
     && [ -s "$Z2K_OW_BOOTSTRAP_ARTIFACT" ] \
     && [ -s "$Z2K_OW_BOOTSTRAP_PUBLIC_KEY" ] || exit 3
-printf 'tag=%s\nseq=%s\n' "$1" 136 > "$Z2K_TEST_SYSROOT/etc/z2k/state/installed-release"
+printf 'tag=%s\nseq=%s\n' "$1" 150 > "$Z2K_TEST_SYSROOT/etc/z2k/state/installed-release"
 ENGINE
 chmod 755 "$T/payload/usr/sbin/install_release"
 printf '#!/bin/sh\nexit 0\n' > "$T/payload/usr/bin/z2kow"
@@ -66,7 +66,7 @@ tar -czf "$T/openwrt-rootfs.tar.gz" -C "$T/payload" \
 ARTIFACT_SHA="$(sha256sum "$T/openwrt-rootfs.tar.gz" | awk '{print $1}')"
 ARTIFACT_SIZE="$(wc -c < "$T/openwrt-rootfs.tar.gz" | tr -d ' \t\r\n')"
 cat > "$T/UPDATES.json" <<EOF
-{"schema":1,"branch":"main","platform":"openwrt","seq":136,"current":"p-86.13","upstream":{"repository":"necronicle/z2k","branch":"z2k-enhanced","tag":"p-86.13","commit":"7f630a9d459052b9c9c9eded06298f1b8f7f0a22"},"signing":{"key_id":"$TEST_KEY_ID"},"history":[{"v":"p-86.13","type":"patch","ts":"2026-10-02T06:39:48Z","ref":"p-86.13","desc":"fixture","changed_files":["files/z2k-warp.sh"]}],"artifact":{"filename":"openwrt-rootfs.tar.gz","url":"http://127.0.0.1:17777/openwrt-rootfs.tar.gz","sha256":"$ARTIFACT_SHA","size_bytes":$ARTIFACT_SIZE}}
+{"schema":1,"branch":"main","platform":"openwrt","seq":150,"current":"r-87","upstream":{"repository":"necronicle/z2k","branch":"z2k-enhanced","tag":"r-87","commit":"e5d9850802174e6098687f09945cace33afe3a8c"},"signing":{"key_id":"$TEST_KEY_ID"},"history":[{"v":"r-87","type":"reinstall","ts":"2026-10-26T12:48:23Z","ref":"r-87","desc":"fixture","changed_files":["lib/install.sh"]}],"artifact":{"filename":"openwrt-rootfs.tar.gz","url":"http://127.0.0.1:17777/openwrt-rootfs.tar.gz","sha256":"$ARTIFACT_SHA","size_bytes":$ARTIFACT_SIZE}}
 EOF
 openssl pkeyutl -sign -rawin -inkey "$T/test.key" -in "$T/UPDATES.json" -out "$T/UPDATES.json.sig" || exit 1
 
@@ -190,9 +190,9 @@ export PATH="$BIN:/usr/bin:/bin" TMPDIR Z2K_TEST_MANIFEST="$T/UPDATES.json" \
     Z2K_OW_MEMINFO_FILE="$T/healthy-memory"
 
 if sh "$INSTALLER" > "$T/out" 2>&1; then _t_ok; else _t_bad "fresh bootstrap failed: $(cat "$T/out")"; fi
-assert_eq "bootstrap enters the unified installer once with controlled tag" p-86.13 "$(cat "$T/install-call" 2>/dev/null)"
-assert_eq "fresh bootstrap writes the single installed release state" "tag=p-86.13
-seq=136" "$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null)"
+assert_eq "bootstrap enters the unified installer once with controlled tag" r-87 "$(cat "$T/install-call" 2>/dev/null)"
+assert_eq "fresh bootstrap writes the single installed release state" "tag=r-87
+seq=150" "$(cat "$SYS/etc/z2k/state/installed-release" 2>/dev/null)"
 assert_contains "successful fresh bootstrap prints Windows TCP timestamps notice" "$T/out" "ВАЖНО ДЛЯ WINDOWS"
 assert_contains "fresh bootstrap shows the required Windows command" "$T/out" "netsh interface tcp set global timestamps=enabled"
 assert_not_contains "shared install/update transaction does not print the fresh-install Windows notice" "$REPO/platform/openwrt/release.sh" 'timestamps=enabled|ВАЖНО ДЛЯ WINDOWS'
@@ -296,7 +296,7 @@ if env -u Z2KOW_MANIFEST_URL -u Z2KOW_TRUST_KEY \
 else
     _t_bad "production bootstrap should verify CDN metadata and fall through bad artifact mirrors: $(cat "$T/mirror-out")"
 fi
-assert_eq "verified mirror bootstrap enters install_release" p-86.13 "$(cat "$T/install-call" 2>/dev/null)"
+assert_eq "verified mirror bootstrap enters install_release" r-87 "$(cat "$T/install-call" 2>/dev/null)"
 assert_contains "bootstrap retries signed manifest through jsDelivr" "$T/wget.log" 'https://cdn.jsdelivr.net/gh/t0fox/z2kOW@main/UPDATES.json'
 assert_contains "artifact downloader tries direct GitHub first" "$T/wget.log" 'https://github.com/t0fox/z2kOW/releases/download/'
 assert_contains "artifact downloader rejects first wrong mirror" "$T/wget.log" 'https://ghproxy.net/https://github.com/'

@@ -114,6 +114,18 @@ class PublicationPolicyTests(unittest.TestCase):
         self.assertEqual((plan["tag"], plan["seq"]), ("r-86.6", 142))
         self.assertEqual(plan["product_tag"], "r-86.6")
 
+    def test_product_release_accepts_plain_reinstall_tag_r87(self) -> None:
+        advanced = upstream_manifest("r-87", 142)
+        advanced["history"] = [
+            {"v": "r-86.5", "desc": "Базовая версия."},
+            {"v": "r-87", "desc": "Обновлён движок zapret2."},
+        ]
+
+        plan = self.plan("upstream-release", upstream=advanced)
+
+        self.assertEqual((plan["tag"], plan["seq"]), ("r-87", 142))
+        self.assertEqual(plan["product_tag"], "r-87")
+
     def test_same_version_fix_selects_a_technical_hotfix_payload(self) -> None:
         plan = self.plan("hotfix")
         self.assertEqual(plan["operation"], "hotfix")

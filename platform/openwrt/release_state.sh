@@ -6,7 +6,7 @@ z2k_ow_release_state_read() {
     [ -r "$_state" ] || return 1
     awk '
         NR == 1 {
-            if ($0 !~ /^tag=[pr]-[0-9]+(\.[0-9]+)+$/) bad = 1
+            if ($0 !~ /^tag=(p-[0-9]+(\.[0-9]+)+|r-[0-9]+(\.[0-9]+)*)$/) bad = 1
             else tag = substr($0, 5)
             next
         }

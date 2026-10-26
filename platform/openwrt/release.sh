@@ -37,7 +37,7 @@ z2k_ow_release_state_tag() {
             # установленной версией в статусе, интерфейсе и командах обновления.
             [ "$(wc -l < "$_state" 2>/dev/null | tr -d ' \t\r\n')" = 1 ] || return 0
             _tag=$(sed -n '1p' "$_state" | tr -d ' \t\r\n')
-            printf '%s' "$_tag" | grep -Eq '^[pr]-[0-9]+(\.[0-9]+)+$' || return 0
+            printf '%s' "$_tag" | grep -Eq '^(p-[0-9]+(\.[0-9]+)+|r-[0-9]+(\.[0-9]+)*)$' || return 0
             printf '%s\n' "$_tag"
             return 0
         }
@@ -68,7 +68,7 @@ z2k_ow_release_state_write() {
     local _state="$1" _manifest="$2" _tag _seq _tmp
     _tag="$(z2k_ow_json_value "$_manifest" current)" || return 1
     _seq="$(z2k_ow_json_value "$_manifest" seq)" || return 1
-    printf '%s' "$_tag" | grep -Eq '^[pr]-[0-9]+(\.[0-9]+)+$' || return 1
+    printf '%s' "$_tag" | grep -Eq '^(p-[0-9]+(\.[0-9]+)+|r-[0-9]+(\.[0-9]+)*)$' || return 1
     printf '%s' "$_seq" | grep -Eq '^[1-9][0-9]*$' || return 1
     mkdir -p "$(dirname "$_state")" || return 1
     _tmp="${_state}.z2k-new.$$"
@@ -1491,7 +1491,7 @@ _z2k_ow_install_release_locked() {
         }
         _requested="$1"
     fi
-    printf '%s' "$_requested" | grep -Eq '^[pr]-[0-9]+(\.[0-9]+)+$' || {
+    printf '%s' "$_requested" | grep -Eq '^(p-[0-9]+(\.[0-9]+)+|r-[0-9]+(\.[0-9]+)*)$' || {
         echo "Использование: install_release [--reinstall] <тег-релиза>" >&2
         return 2
     }

@@ -26,7 +26,7 @@ from go_build_artifacts import (  # noqa: E402
 SOURCE_SHA = "a" * 40
 RUN_ID = "123456789"
 GO_VERSION = "go version go1.25.13 linux/amd64"
-RELEASE_TAG = "p-86.18"
+RELEASE_TAG = "r-87"
 
 
 def fake_elf(goarch: str) -> bytes:

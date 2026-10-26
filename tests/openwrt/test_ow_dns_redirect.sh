@@ -15,6 +15,7 @@ cat "$Z2K_DNS_TEST_ROUTES"
 STUB
 cat > "$T/bin/nslookup" <<'STUB'
 #!/bin/sh
+[ "$#" -eq 4 ] && [ "$4" = "127.0.0.1" ] || exit 3
 case "$(cat "$Z2K_DNS_TEST_MODE")" in
     ok) echo "Name: $1"; exit 0 ;;
     nx) echo "** server can't find $1: NXDOMAIN"; exit 1 ;;

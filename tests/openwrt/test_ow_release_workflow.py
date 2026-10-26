@@ -11,6 +11,14 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_release_dispatch_accepts_the_plain_r87_tag(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
+
+        self.assertIn(
+            '[[ "$RELEASE_TAG_INPUT" =~ ^(p-[0-9]+(\\.[0-9]+)+|r-[0-9]+(\\.[0-9]+)*)$ ]]',
+            workflow,
+        )
+
     def test_release_has_one_setup_and_publish_workflow_on_main(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")

@@ -60,7 +60,7 @@ class UnifiedArchitectureTests(unittest.TestCase):
         self.assertEqual(manifest["platform"], "openwrt")
         self.assertIsInstance(manifest["seq"], int)
         self.assertGreater(manifest["seq"], 0)
-        self.assertRegex(manifest["current"], r"^[pr]-[0-9]+(?:\.[0-9]+)+$")
+        self.assertRegex(manifest["current"], r"^(?:p-[0-9]+(?:\.[0-9]+)+|r-[0-9]+(?:\.[0-9]+)*)$")
         self.assertEqual(manifest["upstream"]["repository"], "necronicle/z2k")
         self.assertEqual(manifest["upstream"]["branch"], "z2k-enhanced")
         self.assertEqual(manifest["upstream"]["tag"], manifest["current"])
@@ -72,7 +72,7 @@ class UnifiedArchitectureTests(unittest.TestCase):
         self.assertEqual(artifact["filename"], "openwrt-rootfs.tar.gz")
         self.assertRegex(
             artifact["url"],
-            r"^https://github\.com/t0fox/z2kOW/releases/download/(?:openwrt-[0-9a-f]{40}|[pr]-[0-9]+(?:\.[0-9]+)+)/openwrt-rootfs\.tar\.gz$",
+            r"^https://github\.com/t0fox/z2kOW/releases/download/(?:openwrt-[0-9a-f]{40}|(?:p-[0-9]+(?:\.[0-9]+)+|r-[0-9]+(?:\.[0-9]+)*))/openwrt-rootfs\.tar\.gz$",
         )
         self.assertRegex(artifact["sha256"], r"^[0-9a-f]{64}$")
         self.assertIsInstance(artifact["size_bytes"], int)

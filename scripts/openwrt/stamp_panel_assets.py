@@ -10,8 +10,8 @@ import sys
 from pathlib import Path
 
 
-TAG_RE = re.compile(r"[pr]-[0-9]+(?:\.[0-9]+)+\Z")
-ASSET_RE = re.compile(rb"([?&]v=)(?:[pr]-[0-9]+(?:\.[0-9]+)+)")
+TAG_RE = re.compile(r"(?:p-[0-9]+(?:\.[0-9]+)+|r-[0-9]+(?:\.[0-9]+)*)\Z")
+ASSET_RE = re.compile(rb"([?&]v=)(?:p-[0-9]+(?:\.[0-9]+)+|r-[0-9]+(?:\.[0-9]+)*)")
 ASSET_SUFFIXES = {".css", ".html", ".js"}
 
 

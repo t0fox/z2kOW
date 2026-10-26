@@ -374,7 +374,7 @@ _upstream_tag=$(value upstream.tag)
 _upstream_commit=$(value upstream.commit)
 [ "$_schema" = 1 ] && [ "$_branch" = main ] && [ "$_platform" = openwrt ] \
     || die "проверенный UPDATES.json имеет неподдерживаемую схему"
-printf '%s' "$_tag" | grep -Eq '^[pr]-[0-9]+(\.[0-9]+)+$' \
+printf '%s' "$_tag" | grep -Eq '^(p-[0-9]+(\.[0-9]+)+|r-[0-9]+(\.[0-9]+)*)$' \
     || die "проверенный UPDATES.json содержит неверную версию релиза"
 printf '%s' "$_seq" | grep -Eq '^[1-9][0-9]*$' \
     || die "проверенный UPDATES.json содержит неверный номер версии"
@@ -412,7 +412,7 @@ if [ "$_acceptance_source" = 1 ]; then
         || die "проверенный UPDATES.json содержит неверный URL архива"
 else
     [ "$_filename" = "$_expected_filename" ] \
-        && printf '%s' "$_url" | grep -Eq "^https://github[.]com/t0fox/z2kOW/releases/download/(openwrt-[0-9a-f]{40}|[pr]-[0-9]+([.][0-9]+)+)/$_expected_filename_escaped\$" \
+        && printf '%s' "$_url" | grep -Eq "^https://github[.]com/t0fox/z2kOW/releases/download/(openwrt-[0-9a-f]{40}|(p-[0-9]+([.][0-9]+)+|r-[0-9]+([.][0-9]+)*))/$_expected_filename_escaped\$" \
         || die "проверенный UPDATES.json содержит неверный URL архива"
 fi
 printf '%s' "$_sha" | grep -Eq '^[0-9a-f]{64}$' \

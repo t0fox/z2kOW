@@ -20,7 +20,7 @@ PY
 )"
 fi
 
-if [[ ! "$tag" =~ ^[pr]-[0-9]+(\.[0-9]+)+$ ]]; then
+if [[ ! "$tag" =~ ^(p-[0-9]+(\.[0-9]+)+|r-[0-9]+(\.[0-9]+)*)$ ]]; then
   printf 'invalid release candidate tag: %s\n' "$tag" >&2
   exit 1
 fi
