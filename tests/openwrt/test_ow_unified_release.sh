@@ -808,9 +808,15 @@ cp "$T/UPDATES.json" "$T/reinstall-newer.json"
 _CURRENT_TAG_PREFIX=${_CURRENT_TAG%.*}
 _CURRENT_TAG_PATCH=${_CURRENT_TAG##*.}
 case "$_CURRENT_TAG_PATCH" in
-    ''|*[!0-9]*) _t_bad "cannot derive a newer race-fixture tag from $_CURRENT_TAG"; exit 1 ;;
+    ''|*[!0-9]*)
+        # У тега r-X нет patch-суффикса; первая patch-версия этой линии — p-X.1.
+        case "$_CURRENT_TAG" in
+            r-[0-9]*) _RACE_TAG="p-${_CURRENT_TAG#r-}.1" ;;
+            *) _t_bad "cannot derive a newer race-fixture tag from $_CURRENT_TAG"; exit 1 ;;
+        esac
+        ;;
+    *) _RACE_TAG="$_CURRENT_TAG_PREFIX.$((_CURRENT_TAG_PATCH + 1))" ;;
 esac
-_RACE_TAG="$_CURRENT_TAG_PREFIX.$((_CURRENT_TAG_PATCH + 1))"
 _RACE_SEQ=$((_CURRENT_SEQ + 1))
 "$Z2K_TEST_PYTHON" - "$T/reinstall-newer.json" "$_RACE_TAG" "$_RACE_SEQ" <<'PY'
 import json, sys
