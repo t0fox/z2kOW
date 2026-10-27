@@ -852,15 +852,15 @@ case "$method $path" in
     "GET /warp/status")
         result=$(warp_status_info)
         _wf() {
-            local _key="$1" _tok
+            local _key="$1" _tok _value=""
             set -f
             for _tok in $result; do
                 case "$_tok" in
-                    "$_key="*) printf '%s' "${_tok#*=}"; set +f; return 0 ;;
+                    "$_key="*) _value=${_tok#*=} ;;
                 esac
             done
             set +f
-            return 0
+            printf '%s' "$_value"
         }
         # `warp_status_info` appends adapter-owned tokens after the saved
         # enabled flag. Capture one token only so `wdtt=0` cannot leak into
