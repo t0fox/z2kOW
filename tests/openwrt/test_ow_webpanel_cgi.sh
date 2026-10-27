@@ -1147,10 +1147,41 @@ else
     _t_ok
 fi
 
-RAW="$(_cgi GET /dns/check)"
-assert_eq "removed DNS checker returns 404" "Status: 404 Not Found" "$(printf '%s\n' "$RAW" | _cgi_status)"
-RAW="$(_cgi POST /dns/own)"
-assert_eq "removed custom resolver route returns 404" "Status: 404 Not Found" "$(printf '%s\n' "$RAW" | _cgi_status)"
+DNS_CHECK_OUT="$T/tmp/z2k-dns-check.json"
+DNS_CHECK_OWN="$T/etc/user-lists/dns-check.txt"
+DNS_CHECK_SCRIPT="$T/root/z2k-dns-check.sh"
+export DNS_CHECK_OUT DNS_CHECK_OWN DNS_CHECK_SCRIPT
+RAW="$(_cgi GET /dns/check)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "DNS check: GET доступен" "Status: 200 OK" "$(printf '%s\n' "$RAW" | _cgi_status)"
+assert_eq "DNS check: без результата возвращается null" "true" "$(_jget "$OUT" 'd["result"] is None')"
+assert_eq "DNS check: свой список сначала пуст" "" "$(_jget "$OUT" 'd["own"]')"
+
+printf '{"intercept":false,"servers":[]}\n' > "$DNS_CHECK_OUT"
+printf '1.1.1.2\nhttps://dns.example.org/dns-query\nnot a resolver' > "$T/dns-own.txt"
+RAW="$(_cgi POST /dns/own "" "$T/dns-own.txt")"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "DNS check: собственные серверы сохраняются" "Status: 200 OK" "$(printf '%s\n' "$RAW" | _cgi_status)"
+printf '%s\n' "$OUT" > "$T/dns-own-response"
+assert_contains "DNS check: счётчик принятых и отброшенных строк" "$T/dns-own-response" "entries=2 dropped=1"
+printf '1.1.1.2\nhttps://dns.example.org/dns-query\n' > "$T/dns-own-expected.txt"
+cmp -s "$T/dns-own-expected.txt" "$DNS_CHECK_OWN" && _t_ok || _t_bad "DNS check сохранил невалидный список своих серверов"
+RAW="$(_cgi GET /dns/check)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "DNS check: последнее JSON-результат читается" "false" "$(_jget "$OUT" 'd["result"] is None')"
+assert_eq "DNS check: сохранённый список читается обратно" "1.1.1.2
+https://dns.example.org/dns-query" "$(_jget "$OUT" 'd["own"]')"
+
+cat > "$DNS_CHECK_SCRIPT" <<'EOF_DNS_CHECK'
+#!/bin/sh
+printf '{"intercept":false,"servers":[]}\n' > "$Z2K_DNS_OUT"
+echo "проверка завершена" >&2
+EOF_DNS_CHECK
+chmod 0755 "$DNS_CHECK_SCRIPT"
+RAW="$(_cgi POST /dns/check)"; OUT="$(printf '%s\n' "$RAW" | _cgi_body)"
+assert_eq "DNS check: запуск возвращает фоновую задачу" "Status: 200 OK" "$(printf '%s\n' "$RAW" | _cgi_status)"
+_jid="$(_jget "$OUT" 'd["job"]')"
+[ -n "$_jid" ] && [ "$_jid" != null ] && _t_ok || _t_bad "DNS check не вернул id фоновой задачи"
+JOB_IDS="$JOB_IDS $_jid"
+_poll_job_ok "$_jid" "DNS check"
+assert_file "DNS check: результат сохранён" "$DNS_CHECK_OUT"
 RAW="$(_cgi POST /stats/ack)"
 assert_eq "retired stats acknowledgement route returns 404" "Status: 404 Not Found" "$(printf '%s\n' "$RAW" | _cgi_status)"
 

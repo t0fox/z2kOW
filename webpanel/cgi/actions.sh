@@ -79,8 +79,12 @@ read_flag() {
     # read_flag <key> <file> [default]
     local key="$1" file="$2" def="${3:-0}"
     [ -f "$file" ] || { printf '%s' "$def"; return 0; }
-    local raw val
-    raw=$(grep "^${key}=" "$file" 2>/dev/null | head -1)
+    local line="" raw="" val=""
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            "${key}="*) raw="$line"; break ;;
+        esac
+    done < "$file"
     if [ -z "$raw" ]; then
         printf '%s' "$def"
         return 0
@@ -90,7 +94,13 @@ read_flag() {
     # апострофа ('\'') здесь НЕЛЬЗЯ: safe_config_read из lib/utils.sh его тоже не
     # разворачивает, и панель показывала бы не то имя политики, с которым реально
     # работает сервис.
-    val=$(printf '%s' "$raw" | cut -d'=' -f2- | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//; s/^'\''//; s/'\''$//')
+    val="${raw#*=}"
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+    val="${val#\"}"
+    val="${val%\"}"
+    val="${val#\'}"
+    val="${val%\'}"
     # An empty value (e.g. `DROP_DPI_RST=` with nothing after the equals)
     # must fall back to the default, not propagate as "" — otherwise the
     # caller's printf emits `"key":,` which breaks JSON. Caught in the wild
@@ -320,13 +330,20 @@ is_running() {
 }
 
 service_status_string() {
-    if is_running; then
+    local _run="${1:-}" _inst="${2:-}"
+    if [ -n "$_run" ]; then
+        [ "$_run" = "true" ] && { echo "active"; return 0; }
+    elif is_running; then
         echo "active"
+        return 0
+    fi
+    if [ -n "$_inst" ]; then
+        [ "$_inst" = "true" ] && { echo "stopped"; return 0; }
     elif is_installed; then
         echo "stopped"
-    else
-        echo "not_installed"
+        return 0
     fi
+    echo "not_installed"
 }
 
 # Source BOTH utils.sh (for safe_config_read and helpers) and
@@ -1075,7 +1092,7 @@ job_reap() {
         [ -f "$f" ] || continue
         id=${f##*/}; id=${id#z2k-job-}; id=${id%.log}
         # моложе часа — не трогаем в любом случае
-        find "$f" -maxdepth 0 -mmin +60 >/dev/null 2>&1 || continue
+        [ -n "$(find "$f" -maxdepth 0 -mmin +60 2>/dev/null)" ] || continue
         if [ ! -f "$(_z2k_job_file "$id" exit)" ]; then
             pid=$(cat "$(_z2k_job_file "$id" pid)" 2>/dev/null)
             if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
@@ -2310,6 +2327,59 @@ CATALOG
     return 0
 }
 
+# --- DNS-диагностика ---------------------------------------------------------
+# На OpenWrt скрипт лежит в неизменяемом payload, а свои серверы — в user-lists.
+# Результат остаётся в tmpfs и не меняет настройки dnsmasq или DNS клиентов.
+DNS_CHECK_SCRIPT="${DNS_CHECK_SCRIPT:-$ZAPRET2_DIR/z2k-dns-check.sh}"
+DNS_CHECK_OUT="${DNS_CHECK_OUT:-/tmp/z2k-dns-check.json}"
+DNS_CHECK_OWN="${DNS_CHECK_OWN:-${Z2K_USER_LISTS:-$ZAPRET2_DIR/lists}/dns-check.txt}"
+
+dns_check_run() {
+    [ -f "$DNS_CHECK_SCRIPT" ] || { echo "нет $DNS_CHECK_SCRIPT" >&2; return 1; }
+    # В журнал задачи уходит прогресс из stderr; готовый JSON остаётся в файле.
+    # Порядок редиректов здесь намеренный: stderr наследует журнал, stdout
+    # подавляется после этого.
+    # shellcheck disable=SC2069
+    Z2K_DNS_OUT="$DNS_CHECK_OUT" Z2K_DNS_OWN="$DNS_CHECK_OWN" \
+        sh "$DNS_CHECK_SCRIPT" 2>&1 >/dev/null || return 1
+    return 0
+}
+
+dns_check_last() {
+    [ -s "$DNS_CHECK_OUT" ] && cat "$DNS_CHECK_OUT"
+}
+
+dns_check_own_read() {
+    [ -f "$DNS_CHECK_OWN" ] && cat "$DNS_CHECK_OWN"
+    return 0
+}
+
+dns_check_own_save() {
+    local tmp="${DNS_CHECK_OWN}.new.$$" kept=0 dropped=0 line
+    mkdir -p "$(dirname "$DNS_CHECK_OWN")" 2>/dev/null || return 1
+    : > "$tmp" || return 1
+    # read возвращает ненулевой код для последней строки без перевода строки;
+    # обработать её всё равно надо.
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=$(printf '%s' "$line" | tr -d ' \t\r')
+        case "$line" in ''|'#'*) continue ;; esac
+        case "$line" in
+            https://*) printf '%s\n' "$line" >> "$tmp"; kept=$((kept + 1)) ;;
+            *[!0-9.]*) dropped=$((dropped + 1)) ;;
+            *.*.*.*) printf '%s\n' "$line" >> "$tmp"; kept=$((kept + 1)) ;;
+            *) dropped=$((dropped + 1)) ;;
+        esac
+    done
+    if mv -f "$tmp" "$DNS_CHECK_OWN"; then
+        chmod 0644 "$DNS_CHECK_OWN" 2>/dev/null || true
+    else
+        rm -f "$tmp"
+        return 1
+    fi
+    printf 'entries=%s dropped=%s\n' "$kept" "$dropped"
+    return 0
+}
+
 # --- extra-domains ---
 # Live hostlist для autocircular. Подхватывается сервисом без рестарта
 # (memory feedback_no_service_restart_for_hostlist). Если файл редактируют
@@ -2675,13 +2745,15 @@ warp_device_toggle() {
         _rc=$?
         [ "$_rc" -eq 127 ] || return "$_rc"
     fi
+    _list_lock "$f" || { echo "список занят, повторите" >&2; return 1; }
     tmp="$WARP_LISTS_DIR/.devices.$$"
     {
         [ -f "$f" ] && awk -v m="$mac" '{ l = tolower($0); gsub(/-/, ":", l); gsub(/^[ \t]+|[ \t]+$/, "", l); if (l != m) print }' "$f"
         [ "$val" = "1" ] && printf '%s\n' "$mac"
         true
-    } > "$tmp" || { rm -f "$tmp"; return 1; }
-    warp_devices_commit "$tmp" || { rm -f "$tmp"; return 1; }
+    } > "$tmp" || { rm -f "$tmp"; _list_unlock "$f"; return 1; }
+    warp_devices_commit "$tmp" || { rm -f "$tmp"; _list_unlock "$f"; return 1; }
+    _list_unlock "$f"
     return 0
 }
 
@@ -2695,6 +2767,8 @@ warp_devices_save() {
         _rc=$?
         [ "$_rc" -eq 127 ] || return "$_rc"
     fi
+    local f="$WARP_LISTS_DIR/devices.txt"
+    _list_lock "$f" || { echo "список занят, повторите" >&2; return 1; }
     local tmp="$WARP_LISTS_DIR/.devices.$$"
     awk '
     # --- z2k warp SOURCE filter (canonical; keep byte-identical in both copies) ---
@@ -2725,11 +2799,13 @@ warp_devices_save() {
         if (ip_ok($0)) { print $0; n++; next }
         d++
     }
-    END { printf "entries=%d dropped=%d\n", n, d > "/dev/stderr" }' > "$tmp" 2> "$tmp.stat" || { rm -f "$tmp" "$tmp.stat"; return 1; }
+    END { printf "entries=%d dropped=%d\n", n, d > "/dev/stderr" }' > "$tmp" 2> "$tmp.stat" || { rm -f "$tmp" "$tmp.stat"; _list_unlock "$f"; return 1; }
     if ! warp_devices_commit "$tmp"; then
         rm -f "$tmp" "$tmp.stat"
+        _list_unlock "$f"
         return 1
     fi
+    _list_unlock "$f"
     cat "$tmp.stat"; rm -f "$tmp.stat"
     return 0
 }
@@ -2789,7 +2865,7 @@ warp_lists() {
     local f name entries size mtime
     for f in "$WARP_LISTS_DIR"/*.txt; do
         [ -f "$f" ] || continue
-        name=$(basename "$f" .txt)
+        name=${f##*/}; name=${name%.txt}
         [ "$name" = "devices" ] && continue   # устройства — своя карточка, не список адресов
         entries=$(_warp_destination_count "$f")
         size=$(wc -c < "$f" | tr -d ' ')
@@ -2817,8 +2893,15 @@ warp_game_enabled() {
 }
 
 _warp_destination_count() {
-    awk -v mode=save -f "$ZAPRET2_DIR/z2k-warp-list-filter.awk" "$1" 2>/dev/null \
-        | awk '$0 !~ /^#/ && NF { n++ } END { print n+0 }'
+    local _cnt _ip=0 _dom=0 _tok
+    _cnt=$(awk -v mode=count -f "$ZAPRET2_DIR/z2k-warp-list-filter.awk" "$1" 2>/dev/null)
+    for _tok in $_cnt; do
+        case "$_tok" in
+            ip=*) _ip=${_tok#ip=} ;;
+            domain=*) _dom=${_tok#domain=} ;;
+        esac
+    done
+    printf '%d\n' $(( ${_ip:-0} + ${_dom:-0} ))
 }
 
 warp_games() {
@@ -2827,7 +2910,7 @@ warp_games() {
     local f name entries
     for f in "$WARP_GAMES_DIR"/*.txt; do
         [ -f "$f" ] || continue
-        name=$(basename "$f" .txt)
+        name=${f##*/}; name=${name%.txt}
         entries=$(_warp_destination_count "$f")
         printf '%s\t%s\t%s\n' "$name" "${entries:-0}" "$(warp_game_enabled "$name" && echo 1 || echo 0)"
     done
@@ -2899,6 +2982,7 @@ warp_list_save() {
         _controller_rc=$?
         [ "$_controller_rc" -eq 127 ] || return "$_controller_rc"
     fi
+    _list_lock "$file" || { echo "список занят, повторите" >&2; return 1; }
     if [ "$mode" = "create" ]; then
         # Заявка на имя атомарна. Проверка [ -f ] и запись ниже разнесены во
         # времени на всё чтение тела, и два одновременных «создать» с одним
@@ -2917,6 +3001,7 @@ warp_list_save() {
             else
                 echo "не удалось создать список: ${_mkerr:-нет доступа к $WARP_LISTS_DIR}" >&2
             fi
+            _list_unlock "$file"
             return 1
         }
     fi
@@ -2924,9 +3009,9 @@ warp_list_save() {
     # scratch files (lighttpd mod_cgi runs requests in parallel).
     local raw="$file.z2k-raw.$$" tmp="$file.z2k-new.$$"
 
-    cat > "$raw" || { rm -f "$raw"; _warp_create_abort "$mode" "$file"; echo "read body failed" >&2; return 1; }
+    cat > "$raw" || { rm -f "$raw"; _warp_create_abort "$mode" "$file"; _list_unlock "$file"; echo "read body failed" >&2; return 1; }
     local filter="$ZAPRET2_DIR/z2k-warp-list-filter.awk"
-    awk -v mode=save -f "$filter" "$raw" > "$tmp" || { rm -f "$raw" "$tmp"; _warp_create_abort "$mode" "$file"; echo "sanitize failed" >&2; return 1; }
+    awk -v mode=save -f "$filter" "$raw" > "$tmp" || { rm -f "$raw" "$tmp"; _warp_create_abort "$mode" "$file"; _list_unlock "$file"; echo "sanitize failed" >&2; return 1; }
 
     local total saved skipped saved_ip saved_domain counts
     counts=$(awk -v mode=count -f "$filter" "$raw")
@@ -2944,7 +3029,7 @@ warp_list_save() {
         # в 1.2.3.45.6.7.8 — панель рапортует saved=1, а загрузчик ipset и
         # счётчик записей видят НОЛЬ валидных адресов, пропадают оба.
         _list_end_nl "$file"
-        cat "$tmp" >> "$file" || { rm -f "$tmp"; echo "write failed" >&2; return 1; }
+        cat "$tmp" >> "$file" || { rm -f "$tmp"; _list_unlock "$file"; echo "write failed" >&2; return 1; }
     else
         # Подмена целиком, а не `cat "$tmp" > "$file"`: cat СНАЧАЛА обнуляет
         # цель, и обрыв питания или ENOSPC на середине превращал список из 18k
@@ -2952,10 +3037,11 @@ warp_list_save() {
         # пустой ipset. Заявку create (noclobber выше) rename не снимает: имя не
         # освобождается ни на мгновение, оно лишь начинает указывать на новый
         # inode, и параллельный create по-прежнему упирается в занятое имя.
-        _file_replace "$file" "$tmp" || { _warp_create_abort "$mode" "$file"; echo "write failed" >&2; return 1; }
+        _file_replace "$file" "$tmp" || { _list_unlock "$file"; _warp_create_abort "$mode" "$file"; echo "write failed" >&2; return 1; }
     fi
     rm -f "$tmp"
     chmod 644 "$file" 2>/dev/null || true
+    _list_unlock "$file"
     warp_ipset_reload_if_enabled
     printf 'saved=%d saved_ip=%d saved_domain=%d skipped_invalid=%d\n' \
         "${saved:-0}" "${saved_ip:-0}" "${saved_domain:-0}" "${skipped:-0}"

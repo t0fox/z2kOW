@@ -212,6 +212,11 @@ export function navigate() {
   syncNavIndicator();
   refreshRouteTitle();
   closeNavMore();
+  document.querySelectorAll(".modal-backdrop:not([data-job-id])").forEach(el => {
+    const cancelBtn = el.querySelector("#confirm-cancel, #typed-cancel");
+    if (cancelBtn) cancelBtn.click();
+    else el.remove();
+  });
   motion.leaveRoute($app).then(() => {
     if (token !== _navigationToken) return;
     // Имя экрана задаёт узкие исключения layout, например широкую таблицу

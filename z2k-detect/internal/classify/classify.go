@@ -254,6 +254,8 @@ type Options struct {
 	// зондов: одна гипотеза это две посылки, её видно в дампе целиком, и с
 	// боевым плечом её можно сверить побайтово.
 	Only string
+	// onlyPoison нужен для повторной проверки собранной гипотезы, которой нет в poisons().
+	onlyPoison *poison
 	// Skip — гипотезы, которые НЕ пробовать. Нужен поиску общего приёма для
 	// двух приветствий: находку на старом перепроверяют на новом, и если она
 	// не прошла, перебор надо продолжить со следующей, а не получить ту же.
@@ -704,6 +706,19 @@ func runPoisonProbe(ctx context.Context, ip net.IP, port uint16, tr Trigger, p p
 	return probePoison(ctx, ip, port, tr, p, opt.Timeout)
 }
 
+func poisonCandidates(opt Options) []poison {
+	candidates := poisons()
+	if opt.onlyPoison == nil {
+		return candidates
+	}
+	for _, candidate := range candidates {
+		if candidate.name == opt.onlyPoison.name {
+			return candidates
+		}
+	}
+	return []poison{*opt.onlyPoison}
+}
+
 // poison — чем отравляем буфер пересборки. Смысл каждого варианта один:
 // коробка обязана сегмент проглотить, сервер — выбросить. Различаются они
 // только тем, ЧЕМ именно сервер его забракует.
@@ -1045,7 +1060,7 @@ func sweepPoisons(ctx context.Context, addr string, tr Trigger, opt Options, res
 		}
 	}
 
-	for _, p := range poisons() {
+	for _, p := range poisonCandidates(opt) {
 		if ctx.Err() != nil {
 			break
 		}

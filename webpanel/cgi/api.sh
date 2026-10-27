@@ -46,7 +46,8 @@ panel_tg_workers_post() { json_fail "404 Not Found" "управление Worker
 # Common status projection; OpenWrt release_state.sh overrides it with the
 # same installed-release record used by its CLI and installer.
 status_installed_json() {
-    _installed=$(is_installed && echo true || echo false)
+    _installed="${installed:-}"
+    [ -n "$_installed" ] || _installed=$(is_installed && echo true || echo false)
     printf '"installed":%s' "${_installed:-false}"
 }
 update_state_error() { printf 'Запись установленного выпуска отсутствует или повреждена'; }
@@ -293,8 +294,9 @@ case "$method $path" in
 
     # ---------- STATUS ----------
     "GET /status"|"GET /")
+        installed=$(is_installed && echo true || echo false)
         running=$(is_running   && echo true || echo false)
-        svc_state=$(service_status_string)
+        svc_state=$(service_status_string "$running" "$installed")
         disable_cd=$(read_flag "DISABLE_CUSTOM" "$CONFIG_FILE" "1")
         # UI wants positive "customd_enabled"
         if [ "$disable_cd" = "0" ]; then customd="1"; else customd="0"; fi
@@ -304,7 +306,7 @@ case "$method $path" in
         dynamic_ttl=$(read_flag "Z2K_DYNAMIC_TTL" "$CONFIG_FILE" "1")
         dns_redirect=$(read_flag "Z2K_DNS_REDIRECT" "$CONFIG_FILE" "1")
         ppe=$(read_flag "Z2K_PPE_DEOFFLOAD" "$CONFIG_FILE" "1")
-        fastroute_snapshot
+        fastroute_snapshot "$running"
         auto_update=$(read_flag "Z2K_AUTO_UPDATE_ENABLED" "$CONFIG_FILE" "1")
         # Час ночного обновления. Нормализуем здесь, а не в панели: конфиг
         # правят и руками, а селектор без совпадающего варианта показал бы
@@ -849,11 +851,21 @@ case "$method $path" in
     # ---------- WARP (webpanel «WARP» section) ----------
     "GET /warp/status")
         result=$(warp_status_info)
-        _wf() { printf ' %s ' "$result" | sed -n "s/.*[[:space:]]$1=\([^ ]*\).*/\1/p" | head -1; }
+        _wf() {
+            local _key="$1" _tok
+            set -f
+            for _tok in $result; do
+                case "$_tok" in
+                    "$_key="*) printf '%s' "${_tok#*=}"; set +f; return 0 ;;
+                esac
+            done
+            set +f
+            return 0
+        }
         # `warp_status_info` appends adapter-owned tokens after the saved
         # enabled flag. Capture one token only so `wdtt=0` cannot leak into
         # the public enabled value.
-        w_enabled=$(printf '%s' "$result" | sed -n 's/.*enabled=\([^ ]*\).*/\1/p')
+        w_enabled=$(_wf enabled)
         w_inst_j=false;  [ "$(_wf installed)" = "1" ] && w_inst_j=true
         w_running_j=false; [ "$(_wf running)" = "1" ] && w_running_j=true
         w_ready_j=false; [ "$(_wf ready)" = "1" ] && w_ready_j=true
@@ -986,7 +998,7 @@ case "$method $path" in
         n_mac=$(form_value "$body" "mac")
         n_val=$(form_value "$body" "value")
         case "$n_val" in 0|1) ;; *) json_fail "400 Bad Request" "value must be 0 or 1" ;; esac
-        warp_device_toggle "$n_mac" "$n_val" || json_fail "400 Bad Request" "bad mac or save failed"
+        _err=$(warp_device_toggle "$n_mac" "$n_val" 2>&1) || json_fail "400 Bad Request" "${_err:-bad mac or save failed}"
         json_ok
         ;;
 
@@ -1000,7 +1012,12 @@ case "$method $path" in
         if [ "${CONTENT_LENGTH:-0}" -gt 2097152 ] 2>/dev/null; then
             json_fail "413 Payload Too Large" "list too large (max 2 MB)"
         fi
-        result=$(read_body_raw | warp_devices_save) || json_fail "400 Bad Request" "save failed"
+        _err_f="/tmp/z2k-wdev-err.$$"
+        result=$(read_body_raw | warp_devices_save 2>"$_err_f") || {
+            _err=$(cat "$_err_f" 2>/dev/null); rm -f "$_err_f"
+            json_fail "400 Bad Request" "${_err:-save failed}"
+        }
+        rm -f "$_err_f"
         w_n=$(printf '%s' "$result" | sed -n 's/.*entries=\([0-9]*\).*/\1/p')
         w_d=$(printf '%s' "$result" | sed -n 's/.*dropped=\([0-9]*\).*/\1/p')
         json_header
@@ -1230,7 +1247,7 @@ case "$method $path" in
             0|1) ;;
             *) json_fail "400 Bad Request" "value must be 0 or 1" ;;
         esac
-        warp_game_toggle "$g_name" "$g_val" || json_fail "400 Bad Request" "toggle failed"
+        _err=$(warp_game_toggle "$g_name" "$g_val" 2>&1) || json_fail "400 Bad Request" "${_err:-toggle failed}"
         # Same live-apply path the list editor uses: the set is rebuilt on the
         # spot, so a switch takes effect without a restart.
         warp_ipset_reload_if_enabled --reconcile-rules
@@ -1298,12 +1315,21 @@ case "$method $path" in
         if [ "${CONTENT_LENGTH:-0}" -gt 2097152 ] 2>/dev/null; then
             json_fail "413 Payload Too Large" "list too large (max 2 MB)"
         fi
-        result=$(read_body_raw | warp_list_save "$w_name" "$w_mode") || \
-            json_fail "400 Bad Request" "save failed"
-        w_saved=$(printf '%s' "$result" | sed -n 's/.*saved=\([0-9]*\).*/\1/p')
-        w_saved_ip=$(printf '%s' "$result" | sed -n 's/.*saved_ip=\([0-9]*\).*/\1/p')
-        w_saved_domain=$(printf '%s' "$result" | sed -n 's/.*saved_domain=\([0-9]*\).*/\1/p')
-        w_inv=$(printf '%s' "$result" | sed -n 's/.*skipped_invalid=\([0-9]*\).*/\1/p')
+        _err_f="/tmp/z2k-wlist-err.$$"
+        result=$(read_body_raw | warp_list_save "$w_name" "$w_mode" 2>"$_err_f") || {
+            _err=$(cat "$_err_f" 2>/dev/null); rm -f "$_err_f"
+            json_fail "400 Bad Request" "${_err:-save failed}"
+        }
+        rm -f "$_err_f"
+        w_saved=0; w_saved_ip=0; w_saved_domain=0; w_inv=0
+        for _tok in $result; do
+            case "$_tok" in
+                saved=*)           w_saved=${_tok#saved=} ;;
+                saved_ip=*)        w_saved_ip=${_tok#saved_ip=} ;;
+                saved_domain=*)    w_saved_domain=${_tok#saved_domain=} ;;
+                skipped_invalid=*) w_inv=${_tok#skipped_invalid=} ;;
+            esac
+        done
         json_header
         printf '{"ok":true,"saved":%d,"saved_ip":%d,"saved_domain":%d,"skipped_invalid":%d}\n' \
             "${w_saved:-0}" "${w_saved_ip:-0}" "${w_saved_domain:-0}" "${w_inv:-0}"
@@ -1320,7 +1346,7 @@ case "$method $path" in
             0|1) ;;
             *) json_fail "400 Bad Request" "value must be 0 or 1" ;;
         esac
-        warp_list_toggle "$l_name" "$l_val" || json_fail "400 Bad Request" "toggle failed"
+        _err=$(warp_list_toggle "$l_name" "$l_val" 2>&1) || json_fail "400 Bad Request" "${_err:-toggle failed}"
         warp_ipset_reload_if_enabled --reconcile-rules
         json_header
         printf '{"ok":true,"name":'; json_string "$l_name"
@@ -1407,6 +1433,38 @@ case "$method $path" in
         job_cancel "$id" || json_fail "409 Conflict" "задача уже завершена или не найдена"
         json_header
         printf '{"ok":true,"cancelled":'; json_string "$id"; printf '}\n'
+        exit 0
+        ;;
+
+    # ---------- DNS diagnostics ----------
+    "GET /dns/check")
+        _last=$(dns_check_last)
+        json_header
+        if [ -n "$_last" ]; then
+            printf '{"ok":true,"result":%s,"own":' "$_last"
+            json_string "$(dns_check_own_read)"
+            printf '}\n'
+        else
+            printf '{"ok":true,"result":null,"own":'
+            json_string "$(dns_check_own_read)"
+            printf '}\n'
+        fi
+        exit 0
+        ;;
+
+    "POST /dns/check")
+        job_id=$(svc_action_async "Проверка DNS" "dns_check_run")
+        json_header
+        printf '{"ok":true,"job":'; json_string "$job_id"; printf '}\n'
+        exit 0
+        ;;
+
+    "POST /dns/own")
+        body=$(read_body)
+        _res=$(printf '%s' "$body" | dns_check_own_save) \
+            || json_fail "500 Internal Server Error" "не удалось сохранить список DNS-серверов"
+        json_header
+        printf '{"ok":true,"saved":'; json_string "$_res"; printf '}\n'
         exit 0
         ;;
 

@@ -50,7 +50,7 @@ env:
 jobs:
   actionlint:
     name: Workflow lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -80,7 +80,7 @@ jobs:
 
   eslint:
     name: ESLint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Один линтер по одному большому файлу — минуты хватает с большим запасом.
     timeout-minutes: 10
     steps:
@@ -88,7 +88,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: npm
@@ -110,14 +110,14 @@ jobs:
 
   browser-webpanel:
     name: WebPanel browser regressions
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: npm
@@ -139,7 +139,7 @@ jobs:
 
   shellcheck:
     name: ShellCheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Только линтеры и проверки целостности — минуты хватает с запасом.
     # Тесты уехали в отдельный джоб: держать их здесь значило узнавать о
     # сломанном синтаксисе через двадцать минут.
@@ -283,7 +283,7 @@ jobs:
 
   tests:
     name: Shell tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Отдельный джоб, а не хвост линтеров. Раньше всё жило в одном: сломанный
     # синтаксис узнавался через двадцать минут вместе с тестами, а вышедший за
     # лимит джоб GitHub помечает CANCELLED — это неотличимо от ручной отмены,
@@ -300,6 +300,18 @@ jobs:
           # проверка вырождается в skip, то есть в отсутствие защиты.
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Проверить атомарность mkdir для файловых блокировок
+        run: |
+          cd "$RUNNER_TEMP"
+          both=0
+          for _ in $(seq 1 200); do
+            rm -rf L w
+            (mkdir L 2>/dev/null && echo x >> w) & (mkdir L 2>/dev/null && echo x >> w) & wait
+            [ "$(wc -l < w)" -ge 2 ] && both=$((both + 1))
+          done
+          echo "оба mkdir успешны: $both из 200"
+          [ "$both" = 0 ] || { echo "::error::mkdir раннера не атомарен ($(mkdir --version | head -1)) — блокировки z2k нельзя проверить"; exit 1; }
 
       - name: Install lua
         # test_tcp16_lua.sh гоняет lua-харнесс. Без lua набор молча
@@ -343,7 +355,7 @@ jobs:
 
   rust-tg-proxy:
     name: "Rust TG WS Proxy: ${{ matrix.group }}"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -425,7 +437,7 @@ jobs:
 
   warp-controller:
     name: Rust WARP controller ${{ matrix.group }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -498,7 +510,7 @@ jobs:
 
   go:
     name: Go ${{ matrix.module }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       # Падение одного модуля не должно прятать вердикт по остальным: при
@@ -640,7 +652,7 @@ jobs:
 
   binaries:
     name: Отгружаемые бинарники сверяются с Go matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     needs: [go]
     steps:
@@ -674,7 +686,7 @@ jobs:
 
   lua-check:
     name: Luacheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -721,7 +733,7 @@ jobs:
 
   mutation:
     name: Mutation Testing
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -743,7 +755,7 @@ jobs:
 
   openwrt-shard-plan:
     name: План OpenWrt acceptance shards
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -762,7 +774,7 @@ jobs:
 
   openwrt-shell-syntax:
     name: Синтаксис OpenWrt shell
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -773,7 +785,7 @@ jobs:
 
   openwrt-runtime:
     name: Проверенный runtime-архив OpenWrt
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -813,7 +825,7 @@ jobs:
 
   openwrt-acceptance:
     name: OpenWrt acceptance (shard ${{ matrix.shard }}/${{ matrix.count }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     needs: [openwrt-shard-plan, openwrt-shell-syntax, openwrt-runtime]
     strategy:
@@ -864,7 +876,7 @@ jobs:
 
   openwrt-unified:
     name: OpenWrt full-payload release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     needs: [rust-tg-proxy, warp-controller, go, openwrt-runtime, openwrt-acceptance]
     permissions:

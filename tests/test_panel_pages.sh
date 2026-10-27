@@ -25,7 +25,7 @@ if ! command -v node >/dev/null 2>&1; then
     exit 0
 fi
 
-ROUTES="dashboard toggles strategies state warp whitelist exclude extra-domains diag credits"
+ROUTES="dashboard toggles strategies state warp whitelist exclude extra-domains autohostlist diag credits"
 
 # shellcheck disable=SC2086
 out=$(node "$ROOT/tests/panel_harness.js" "$(sh "$(cd "$(dirname "$0")" && pwd)/lib/panel_js.sh")" $ROUTES 2>&1)
@@ -34,6 +34,12 @@ printf '%s\n' "$out" | sed 's/^/    /'
 for r in $ROUTES; do
     if printf '%s\n' "$out" | grep -q "ok  *#/$r$"; then ok "страница #/$r отрисовалась"
     else no "страница #/$r НЕ отрисовалась"; fi
+done
+
+DIAG="$ROOT/webpanel/www/js/pages/diag.js"
+for _feature in 'id="dns-run"' 'id="dns-own-save"' 'apiPost("/dns/check"' 'apiPostText("/dns/own"'; do
+    if grep -Fq -- "$_feature" "$DIAG"; then ok "DNS-диагностика панели: $_feature"
+    else no "DNS-диагностика панели отсутствует: $_feature"; fi
 done
 
 # Мета-проверки: тест обязан ЛОВИТЬ поломку, иначе он декорация. Случаев ДВА, и

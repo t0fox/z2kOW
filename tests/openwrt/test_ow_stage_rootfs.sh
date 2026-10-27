@@ -86,6 +86,10 @@ mkdir -p "$T/stage"
 sh "$ROOT/scripts/openwrt/stage-rootfs.sh" "$T/stage" "$T/runtime.tar.gz" \
     "$T/warpd" "$T/tg" "$T/rt" "$T/detect" "$T/warp-controller" "$T/release-keys" || exit 1
 
+assert_file "OpenWrt rootfs включает DNS-диагностику" "$T/stage/usr/lib/z2k/z2k-dns-check.sh"
+[ -x "$T/stage/usr/lib/z2k/z2k-dns-check.sh" ] \
+    && _t_ok || _t_bad "DNS checker в OpenWrt rootfs не исполняемый"
+
 for _arch in arm arm64 mips mipsel riscv64 x86 x86_64; do
     _path="$T/stage/usr/lib/z2k/platform/openwrt/bin/linux-$_arch/z2k-warp-controller"
     [ -f "$_path" ] && [ -x "$_path" ] \
@@ -110,7 +114,7 @@ printf '%s\n' "$_tar_index" | grep -Fq "app.js?v=$_release_tag" \
 _tar_app=$(tar -xOzf "$T/openwrt-rootfs.tar.gz" ./usr/lib/z2k/www/app.js)
 printf '%s\n' "$_tar_app" | grep -Fq "identity.js?v=$_release_tag" \
     && _t_ok || _t_bad "final payload WebPanel scripts use the controlled release cache-buster"
-if tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Eq '/(dns-providers\.js|pages/dns\.js|dnsproxy\.sh|doh\.sh|z2k-dns-check\.sh)$'; then
+if tar -tzf "$T/openwrt-rootfs.tar.gz" | grep -Eq '/(dns-providers\.js|pages/dns\.js|dnsproxy\.sh|doh\.sh)$'; then
     _t_bad "retired DNS management files leaked into rootfs"
 else
     _t_ok

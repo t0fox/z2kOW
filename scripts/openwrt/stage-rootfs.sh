@@ -81,6 +81,7 @@ copy_data "$ROOT/platform/openwrt/z2kow.sh" usr/bin/z2kow 0755
 copy_data "$ROOT/scripts/openwrt/install_release.sh" usr/sbin/install_release 0755
 copy_data "$ROOT/files/z2k-warp-list-filter.awk" usr/lib/z2k/z2k-warp-list-filter.awk
 copy_data "$ROOT/files/z2k-diag.sh" usr/lib/z2k/z2k-diag.sh 0755
+copy_data "$ROOT/files/z2k-dns-check.sh" usr/lib/z2k/z2k-dns-check.sh 0755
 for _key in "$RELEASE_KEYS_DIR"/*.pub; do
     [ -f "$_key" ] || continue
     _key_id=${_key##*/}

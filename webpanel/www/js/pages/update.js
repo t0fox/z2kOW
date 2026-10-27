@@ -1,4 +1,4 @@
-import { apiGet, apiPost, errHtml, toastErr } from "../core/api.js";
+import { apiGet, apiPost, errHtml, errMsg, toastErr } from "../core/api.js";
 import { closeModalBackdrop, openModalBackdrop } from "../core/modal.js";
 import { _icons, escapeHtml, humanAgo } from "../core/dom.js";
 import { refreshStatus } from "../core/loadorder.js";
@@ -90,7 +90,7 @@ export async function refreshUpdateBanner(opts = {}) {
       </div>
     `;
   } else if (unknown) {
-    const why = err ? escapeHtml(err.message)
+    const why = err ? escapeHtml(errMsg(err))
       : installed === "unknown" || installed === "?"
         ? "установленная версия не зарегистрирована"
         : "список версий не скачался";

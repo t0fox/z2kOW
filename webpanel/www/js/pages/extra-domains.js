@@ -51,10 +51,25 @@ export async function renderAutohostlistDomains() {
         Если сюда попал сайт, которому обход не нужен — удалите его,
         и он больше не вернётся.
       </p>
+      <div class="probe-row" id="ah-search-wrap" style="margin-bottom:10px" hidden>
+        <input type="search" id="ah-search" placeholder="Поиск по найденным доменам…"
+               autocomplete="off" autocapitalize="none" spellcheck="false">
+      </div>
       <ul class="wl-list" id="ah-list">${skeletonLines(5)}</ul>
     </div>
   `);
+  const search = document.getElementById("ah-search");
+  if (search) search.addEventListener("input", () => filterAutohostlistDomains(search.value));
   loadAutohostlistDomains();
+}
+
+function filterAutohostlistDomains(query) {
+  const list = document.getElementById("ah-list");
+  if (!list) return;
+  const q = String(query || "").trim().toLowerCase();
+  list.querySelectorAll("li[data-domain]").forEach(li => {
+    li.hidden = q.length > 0 && !(li.dataset.domain || "").toLowerCase().includes(q);
+  });
 }
 
 async function loadAutohostlistDomains() {
@@ -64,16 +79,21 @@ async function loadAutohostlistDomains() {
   try {
     const d = await apiGet("/autohostlist-domains");
     if (_stale("autohostDomains", seq)) return;
-    if (!d.domains.length) {
+    const domains = Array.isArray(d && d.domains) ? d.domains : [];
+    const searchWrap = document.getElementById("ah-search-wrap");
+    if (searchWrap) searchWrap.hidden = domains.length < 5;
+    if (!domains.length) {
       list.innerHTML = `<li class="wl-empty">(пока ничего не найдено)</li>`;
       return;
     }
-    list.innerHTML = d.domains.map(dom => `
-      <li><span>${escapeHtml(dom)}</span><button class="btn-icon" title="Удалить" aria-label="Удалить ${escapeHtml(dom)}" data-del="${escapeHtml(dom)}">${_icons.close}</button></li>
+    list.innerHTML = domains.map(dom => `
+      <li data-domain="${escapeHtml(dom)}"><span>${escapeHtml(dom)}</span><button class="btn-icon" title="Удалить" aria-label="Удалить ${escapeHtml(dom)}" data-del="${escapeHtml(dom)}">${_icons.close}</button></li>
     `).join("");
     list.querySelectorAll("button[data-del]").forEach(btn => {
       btn.addEventListener("click", () => ahDelete(btn.dataset.del));
     });
+    const search = document.getElementById("ah-search");
+    if (search && search.value) filterAutohostlistDomains(search.value);
   } catch (e) {
     if (_stale("autohostDomains", seq)) return;
     list.innerHTML = `<li style="color:var(--bad)">${errHtml(e)}</li>`;

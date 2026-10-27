@@ -1,4 +1,4 @@
-import { apiGet, apiGetText, apiPost, apiPostText, errHtml, toastErr } from "../core/api.js";
+import { apiGet, apiGetText, apiPost, apiPostText, errHtml, errMsg, toastErr } from "../core/api.js";
 import { $app, _icons, escapeHtml, humanAgo, markSwitchKnown, markSwitchUnknown, setSwitchChecked, skeletonBlocks, skeletonLines, statusIcon } from "../core/dom.js";
 import { _newLoad, _stale } from "../core/loadorder.js";
 import { toast } from "../core/toast.js";
@@ -64,6 +64,7 @@ function warpPendingUI() {
   if (_warpJob) {
     _warpPoll = setInterval(() => {
       if (!document.getElementById("warp-status-grid")) { clearInterval(_warpPoll); _warpPoll = null; return; }
+      if (typeof document.hidden === "boolean" && document.hidden) return;
       loadWarpStatus();
     }, 3000);
   }
@@ -129,6 +130,15 @@ function fmtSize(b) {
   if (b < 1024) return b + " Б";
   if (b < 1048576) return Math.round(b / 1024) + " КБ";
   return (b / 1048576).toFixed(1) + " МБ";
+}
+
+function filterWarpGames(query) {
+  const q = String(query || "").trim().toLowerCase();
+  document.querySelectorAll("#warp-games .toggle-row[data-game], #warp-own .toggle-row[data-own]").forEach(row => {
+    const key = (row.getAttribute("data-game") || row.getAttribute("data-own") || "").toLowerCase();
+    const label = (row.querySelector(".t-name")?.textContent || "").toLowerCase();
+    row.hidden = q.length > 0 && !key.includes(q) && !label.includes(q);
+  });
 }
 
 function warpEdgeStatusCell(d) {
@@ -212,6 +222,10 @@ export async function renderWarp() {
         чем меньше направлений в туннеле, тем меньше на него завязано. Списки только для
         чтения; свои домены и адреса добавляйте ниже, отдельным списком.
       </p>
+      <div class="probe-row" style="margin-bottom:10px">
+        <input type="search" id="warp-games-search" placeholder="Поиск игры или сервиса (например, Steam, Roblox, Discord)…"
+               autocomplete="off" autocapitalize="none" spellcheck="false">
+      </div>
       <div id="warp-games" class="warp-games">${skeletonBlocks(3)}</div>
       <div class="warp-own" id="warp-own" hidden>
         <h4 class="warp-own-title">Свои списки</h4>
@@ -278,6 +292,8 @@ export async function renderWarp() {
   `;
   const box = $app.querySelector('[data-key="game_warp"] input');
   box.addEventListener("change", () => warpToggle(box));
+  const gamesSearch = document.getElementById("warp-games-search");
+  if (gamesSearch) gamesSearch.addEventListener("input", () => filterWarpGames(gamesSearch.value));
   document.getElementById("warp-wdtt-toggle").addEventListener("change", (e) => warpWdttToggle(e.target));
   document.getElementById("warp-install-btn").addEventListener("click", warpInstall);
   document.getElementById("warp-remove-btn").addEventListener("click", warpRemove);
@@ -353,6 +369,7 @@ async function loadWarpNeighbors() {
     markSwitchKnown(box);
     box.addEventListener("change", () => warpNeighborToggle(box));
   });
+  _updateGlobalUILock();
 }
 
 async function warpNeighborToggle(box) {
@@ -414,6 +431,9 @@ async function loadWarpGames() {
     markSwitchKnown(box);
     box.addEventListener("change", () => warpGameToggle(box));
   });
+  const gamesSearch = document.getElementById("warp-games-search");
+  if (gamesSearch && gamesSearch.value) filterWarpGames(gamesSearch.value);
+  _updateGlobalUILock();
 }
 
 function scheduleWarpGamesRetry() {
@@ -904,6 +924,7 @@ async function loadWarpLists() {
     list.querySelectorAll("button[data-del]").forEach(b => {
       b.addEventListener("click", () => warpDelete(b.dataset.del));
     });
+    _updateGlobalUILock();
   } catch (e) {
     if (_stale("warpLists", seq)) return;
     list.innerHTML = `<li style="color:var(--bad)">${errHtml(e)}</li>`;
@@ -937,6 +958,9 @@ function renderOwnToggles(lists) {
     markSwitchKnown(cb);
     cb.addEventListener("change", () => warpOwnToggle(cb));
   });
+  const gamesSearch = document.getElementById("warp-games-search");
+  if (gamesSearch && gamesSearch.value) filterWarpGames(gamesSearch.value);
+  _updateGlobalUILock();
 }
 
 async function warpOwnToggle(box) {
@@ -1052,7 +1076,7 @@ async function warpImport(e) {
   }
   let text;
   try { text = await file.text(); }
-  catch (err) { toast("Не удалось прочитать файл: " + err.message, "bad"); return; }
+  catch (err) { toast("Не удалось прочитать файл: " + errMsg(err), "bad"); return; }
   const suggested = (file.name.replace(/\.txt$/i, "").replace(/[^A-Za-z0-9._-]/g, "-").replace(/^[.-]+/, "") || "list").slice(0, 64);
   let name = prompt("Имя списка для импорта:", suggested);
   if (name === null) return;
@@ -1080,7 +1104,7 @@ async function warpImport(e) {
     loadWarpLists();
     loadWarpStatus();
   } catch (err) {
-    toast("Ошибка импорта: " + err.message, "bad");
+    toast("Ошибка импорта: " + errMsg(err), "bad");
   } finally {
     if (btn) btn.disabled = false;
   }
