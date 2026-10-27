@@ -2482,8 +2482,10 @@ try {
         await offlineDisclosure.locator('summary').click();
       }
       if (route === 'diag') {
-        assert.equal(await page.locator('#dns-run, #doh-card').count(), 0,
-          'Diagnostics has no duplicate DNS controls');
+        assert.equal(await page.locator('#dns-run').count(), 1,
+          'Diagnostics exposes the DNS checker once');
+        assert.equal(await page.locator('#doh-card').count(), 0,
+          'Diagnostics has no duplicate legacy DNS card');
         const logViewport = await page.locator('#diag-output').evaluate(node => ({
           height: node.clientHeight, scrollHeight: node.scrollHeight,
           overflowY: getComputedStyle(node).overflowY,
