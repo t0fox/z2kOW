@@ -33,6 +33,24 @@ class UpgradeAcceptanceVerifierTests(unittest.TestCase):
         self.assertIn("z2k_ow_manifest_select_artifact", previous_release)
         self.assertTrue(ACCEPTANCE_MODULE.previous_uses_tmpfs_install_staging(tmpfs_paths))
 
+    def test_legacy_transition_uses_tag_accepted_by_previous_installer(self) -> None:
+        manifest = {
+            "current": "r-87",
+            "upstream": {"tag": "r-87"},
+            "history": [{"v": "r-86"}, {"v": "r-87"}],
+        }
+        prepare = getattr(ACCEPTANCE_MODULE, "legacy_transition_manifest", None)
+        self.assertTrue(callable(prepare), "переходная фикстура должна подготовить совместимый манифест")
+        candidate, tag = prepare(manifest)
+        self.assertEqual(tag, "r-87.1")
+        self.assertEqual(candidate["current"], "r-87.1")
+        self.assertEqual(candidate["upstream"]["tag"], "r-87.1")
+        self.assertEqual(candidate["history"][-1]["v"], "r-87.1")
+        self.assertEqual(manifest["current"], "r-87")
+
+        candidate, tag = prepare({"current": "p-87.1"})
+        self.assertEqual((tag, candidate["current"]), ("p-87.1", "p-87.1"))
+
     def test_accepts_exact_signed_baseline_and_candidate_receipt(self) -> None:
         with tempfile.TemporaryDirectory(prefix="z2k-upgrade-receipt-") as temp:
             root = Path(temp)

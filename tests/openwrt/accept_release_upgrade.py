@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import ssl
 import subprocess
@@ -104,6 +105,23 @@ def persistent_storage(path: Path) -> bool:
 def previous_uses_tmpfs_install_staging(paths_text: str) -> bool:
     """Определяет требования к хранилищу независимо от поколения установщика."""
     return "Z2K_OW_INSTALL_TMP:-/tmp/z2kow-install-stage" in paths_text
+
+
+def legacy_transition_manifest(manifest: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """Подготавливает синтетический тег, который принимает старый p-86.17."""
+    candidate = dict(manifest)
+    tag = str(candidate["current"])
+    if re.fullmatch(r"[pr]-[0-9]+", tag):
+        tag += ".1"
+    candidate["current"] = tag
+
+    upstream = candidate.get("upstream")
+    if isinstance(upstream, dict):
+        candidate["upstream"] = {**upstream, "tag": tag}
+    history = candidate.get("history")
+    if isinstance(history, list) and history and isinstance(history[-1], dict):
+        candidate["history"] = [*history[:-1], {**history[-1], "v": tag}]
+    return candidate, tag
 
 
 class CandidateServer:
@@ -349,6 +367,8 @@ def main() -> int:
     previous_seq = int(previous_manifest["seq"])
     candidate_tag = str(candidate_manifest["current"])
     candidate_seq = int(candidate_manifest["seq"])
+    if args.legacy_tmpfs_transition:
+        candidate_manifest, candidate_tag = legacy_transition_manifest(candidate_manifest)
     if candidate_manifest.get("platform") != "openwrt" or previous_manifest.get("platform") != "openwrt":
         raise RuntimeError("upgrade acceptance работает только с манифестами OpenWrt")
     if candidate_tag == previous_tag and candidate_seq == previous_seq:
