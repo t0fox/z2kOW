@@ -37,6 +37,7 @@ const context = {
   },
   _newLoad: () => calls,
   _stale: () => false,
+  _updateGlobalUILock: () => {},
   escapeHtml: (value) => String(value),
   warpEntries: (count) => `${count} entries`,
   setInterval: (callback, ms) => {
