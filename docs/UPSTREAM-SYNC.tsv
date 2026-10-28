@@ -30,8 +30,8 @@ docs/telegram-transport-field-2026-09-21.md	be218a357a54241ac6e9299564578126a247
 docs/telegram-udp-recovery-2026-09-22.md	74d85058a1cd5e2252ce041c24d000b74e8ecc4c	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
 docs/telegram-udp-relay.md	cf7f8f8881babf2a6c779552d346abee0c0261bf	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
 docs/UPSTREAM-PARITY-MATRIX.md	64a9d85fd69c8f5503f9b6c6d1662027e2d01875	687b8962812669a4ab47ce432fa18e2354acdff0	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference; includes the full p-86.16 source range and OpenWrt adaptation record.
-docs/UPSTREAM-PARITY-MATRIX.md	-	6f5cafec0c1a8a9d75038156959386dd861a2a4b	OPENWRT RELEVANT	Добавлены записи p-87.1/p-87.2: совместимые изменения входят в p-87.2, WARP адаптирован в Rust-контроллере, Telegram остаётся собственной реализацией.
-docs/UPSTREAM-SKIPS.json	d0db9d6531670077a628d807151033c7d7d0a4b7	e9e242f10d38295206c14d9e1a7fd7af0c96a7c3	OPENWRT RELEVANT	p-87.1 учтён как промежуточный выпуск, объединённый с p-87.2; его совместимые изменения перенесены и не выпускаются отдельно.
+docs/UPSTREAM-PARITY-MATRIX.md	6f5cafec0c1a8a9d75038156959386dd861a2a4b	1f6da14a5559fb1545963b82a25b9ae0741f2e35	OPENWRT RELEVANT	Матрица фиксирует отдельную публикацию p-87.1 и последующий перенос p-87.2; WARP адаптирован в Rust-контроллере, Telegram остаётся собственной реализацией.
+docs/UPSTREAM-SKIPS.json	e9e242f10d38295206c14d9e1a7fd7af0c96a7c3	d0db9d6531670077a628d807151033c7d7d0a4b7	OPENWRT RELEVANT	Запись p-87.1 удалена из списка пропусков: Product Release уже опубликован в origin/main; p-86.23 остаётся учтён как отдельный пропуск.
 docs/UPSTREAM-SYNC.md	ed781053e16484feed7922de40f5705b12d8b66d	-	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
 docs/webpanel-list-editor.md	-	8441f0d2aee6cdaf0c310581c6369ad3c3b8652a	OPENWRT RELEVANT	Current OpenWrt user, architecture, release, security, or parity documentation/reference.
 docs/whitelist-bulk-2026-09-22.md	6f87d3af703f14b946ae989aba1a7a64150a0fca	-	RETIRED/HISTORICAL	Retired plan, experiment, or report removed or consolidated during documentation cleanup.
@@ -61,6 +61,6 @@ lib/install.sh	56daf3c6ae62df44eefb94a0fb4fe7cfc6375141250770fdacce5fdcd48c836b	
 webpanel/www/index.html	5873df8b2c1a6dcc90e242112f90986932d439b860a43ec0d3d58d3ad52aa492	f037678a4ddd5f7f9d45a7bbc2cc87ff4cc525f4f28ddc5b8f6c3835756be78e	DOC ONLY	Upstream cache-buster r-87 не копируется: версию локальной WebPanel задаёт доверенная сборка z2kOW.
 platform/openwrt/runtime-pin	-	-	OPENWRT RELEVANT	Закреплён официальный OpenWrt runtime archive v1.0.6-z2k-r0 с SHA-256, проверенным по опубликованному архиву.
 
-# p-87.2 / seq 152 / 405cf630970784fc92f36f5959ae235ea70d15bb; source range 4b495b7c..5a7f028e.
+# p-87.1 / seq 151 / fe45485ba4b317cdf77e6be3397260ace60e1d37 уже опубликован отдельно; p-87.2 / seq 152 / 405cf630970784fc92f36f5959ae235ea70d15bb; source range 4b495b7c..5a7f028e.
 # Перенесены QUIC arm 2 и миграция v2, пропущенная миграция пулов v1, общая маркировка SO_MARK, helper-функции classify и проверка диапазона портов; девять Go-бинарников пересобраны.
 # В Rust-контроллер перенесён `enable --if-idle`: он без ожидания берёт общий mutation lock, учитывает активный маркер операции и передаёт lock в lifecycle. Очистка маркера и однострочная нормализация ошибки уже выполняются Rust-контроллером; shell API только передаёт аргумент. Telegram и VPS relay остаются собственными реализациями; VPS-relay, UPDATES.json/signature и upstream cache-buster исключены; p-86.23 остаётся отдельным пропуском.

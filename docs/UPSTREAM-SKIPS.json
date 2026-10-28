@@ -2,12 +2,6 @@
   "schema": 1,
   "skips": [
     {
-      "tag": "p-87.1",
-      "seq": 151,
-      "status": "not applicable",
-      "reason": "Все совместимые изменения p-87.1, включая адаптацию WARP в Rust-контроллере, включены в общий выпуск p-87.2; отдельный Product Release p-87.1 не создаётся."
-    },
-    {
       "tag": "p-86.23",
       "seq": 147,
       "status": "not applicable",
