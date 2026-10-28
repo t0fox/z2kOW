@@ -1097,7 +1097,7 @@ z2k_ow_service_call() {
     (
         # rc.common использует этот lock на FD 1000; ждём ограниченно, чтобы
         # зависший фоновый процесс не удерживал установку бесконечно.
-        if command -v flock >/dev/null 2>&1; then
+        if [ "${Z2K_OW_TESTING:-0}" != 1 ] && command -v flock >/dev/null 2>&1; then
             _service_name="$(basename "$(readlink "$_service_path" 2>/dev/null)")"
             [ -n "$_service_name" ] || _service_name=$(basename "$_service_path")
             exec 1000>"/var/lock/procd_${_service_name}.lock" || exit 1
