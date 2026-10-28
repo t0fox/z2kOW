@@ -1083,7 +1083,7 @@ z2k_ow_recover_transaction() {
 }
 
 z2k_ow_service_call() {
-    local _service_path="${1:-}"
+    local _service_path="${1:-}" _service_name _lock_wait
     shift
     [ -n "$_service_path" ] || return 1
 
@@ -1094,22 +1094,36 @@ z2k_ow_service_call() {
         return $?
     fi
 
-    # При новой установке движок запущен из временной распаковки. procd наследует
-    # окружение вызывающего init-скрипта; если передать ему эти переменные,
-    # перезапущенные службы продолжат искать файлы в каталоге, который удалит
-    # install.sh после завершения.
-    if [ -n "${Z2K_OW_BOOTSTRAP_MANIFEST:-}" ]; then
-        (
+    (
+        # rc.common использует этот lock на FD 1000; ждём ограниченно, чтобы
+        # зависший фоновый процесс не удерживал установку бесконечно.
+        if command -v flock >/dev/null 2>&1; then
+            _service_name="$(basename "$(readlink "$_service_path" 2>/dev/null)")"
+            [ -n "$_service_name" ] || _service_name=$(basename "$_service_path")
+            exec 1000>"/var/lock/procd_${_service_name}.lock" || exit 1
+            _lock_wait=0
+            while ! flock -n 1000 >/dev/null 2>&1; do
+                if [ "$_lock_wait" -ge 30 ]; then
+                    echo "z2k-openwrt: истекло ожидание procd-lock службы $_service_name (30 с)" >&2
+                    exit 1
+                fi
+                sleep 1
+                _lock_wait=$((_lock_wait + 1))
+            done
+        fi
+
+        # При новой установке движок запущен из временной распаковки. procd
+        # наследует окружение вызывающего init-скрипта; если передать ему эти
+        # переменные, службы будут искать файлы в удаляемом install workspace.
+        if [ -n "${Z2K_OW_BOOTSTRAP_MANIFEST:-}" ]; then
             unset Z2K_ADAPTER_DIR Z2K_LIB Z2K_AU_PUBKEY \
                 Z2K_OW_BOOTSTRAP_MANIFEST Z2K_OW_BOOTSTRAP_SIGNATURE \
                 Z2K_OW_BOOTSTRAP_ARTIFACT Z2K_OW_BOOTSTRAP_PUBLIC_KEY \
                 Z2KOW_MANIFEST_URL Z2KOW_TRUST_KEY \
                 Z2K_OW_INSTALL_TMP Z2K_OW_SYSROOT TMPDIR
-            "$_service_path" "$@"
-        )
-    else
+        fi
         "$_service_path" "$@"
-    fi
+    )
 }
 
 # Сопоставить путь с самым длинным mountpoint, а не с именем устройства df.
@@ -1860,6 +1874,7 @@ _z2k_ow_install_release_locked() {
             fi
             _svc_name=$(basename "$_svc")
             _enable_log="$_work/$_svc_name-enable.log"
+            z2k_ow_install_progress "Включаю автозапуск службы $_svc_name"
             if ! z2k_ow_service_call "$_svc" enable >"$_enable_log" 2>&1; then
                 echo "z2k-openwrt: не удалось включить автозапуск обязательной службы: $_svc" >&2
                 tail -n 30 "$_enable_log" >&2 || true
@@ -1868,6 +1883,7 @@ _z2k_ow_install_release_locked() {
             fi
             _restart_log="$_work/$_svc_name-restart.log"
             _start_log="$_work/$_svc_name-start.log"
+            z2k_ow_install_progress "Перезапускаю службу $_svc_name"
             if z2k_ow_service_call "$_svc" restart >"$_restart_log" 2>&1; then
                 :
             else

@@ -189,6 +189,14 @@ Z2K_DIAG_STARTUP_LOG="${Z2K_DIAG_STARTUP_LOG:-$Z2K_AU_LOG_FILE}"
 Z2K_DIAG_TUNNEL_LOG="${Z2K_DIAG_TUNNEL_LOG:-$Z2K_LOG/tg-ws-proxy.log}"
 export Z2K_DIAG_LOGS Z2K_DIAG_STARTUP_LOG Z2K_DIAG_TUNNEL_LOG
 
+# Фоновые задачи не должны наследовать FD 1000: rc.common держит на нём procd-lock.
+z2k_ow_run_detached() {
+    (
+        exec 1000>&- 2>/dev/null || :
+        "$@"
+    ) </dev/null >/dev/null 2>&1 &
+}
+
 # Shared one-shot consumer predicate.  service_started wraps this in the
 # existing bounded wait; health/recovery callers use it once.  The PID and
 # NFQUEUE owner must match, so a different nfqws2 cannot make z2k ready.

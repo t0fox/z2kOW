@@ -430,7 +430,7 @@ _z2k_ow_service_started_impl() {
     # core-ready and can never make the z2k dataplane fail its health gate.
     if z2k_ow_tiktok_enabled; then
         if z2k_ow_tiktok_cron_install; then
-            ( sh "$Z2K_ROOT/platform/openwrt/tiktok-check.sh" check explicit ) </dev/null >/dev/null 2>&1 &
+            z2k_ow_run_detached sh "$Z2K_ROOT/platform/openwrt/tiktok-check.sh" check explicit
         else
             echo "z2k-openwrt: warning: could not install TikTok CDN health schedule" >&2
         fi
@@ -441,7 +441,7 @@ _z2k_ow_service_started_impl() {
     # service start. Keep startup bounded: the full probe runs detached, and
     # its persistent verdict suppresses later first-result cron retries.
     if [ -x "$Z2K_TCP16_PROBE" ] && [ -x "$Z2K_ROOT/platform/openwrt/tcp16-check.sh" ]; then
-        ( sh "$Z2K_ROOT/platform/openwrt/tcp16-check.sh" ) </dev/null >/dev/null 2>&1 &
+        z2k_ow_run_detached sh "$Z2K_ROOT/platform/openwrt/tcp16-check.sh"
     fi
     return 0
 }

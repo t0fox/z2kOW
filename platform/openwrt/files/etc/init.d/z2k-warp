@@ -54,9 +54,7 @@ start_service() {
 warp_startup_reconcile() {
     # Вызов конечен и работает только при загрузке без активной операции панели.
     [ -e "$WARP_OP_FILE" ] && return 0
-    (
-        _warp_controller startup-reconcile >/dev/null 2>&1
-    ) </dev/null >/dev/null 2>&1 &
+    z2k_ow_run_detached _warp_controller startup-reconcile
     return 0
 }
 
