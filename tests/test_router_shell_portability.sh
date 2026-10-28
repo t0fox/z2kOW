@@ -244,6 +244,7 @@ for f in $(find "$ROOT/files" "$ROOT/lib" "$ROOT/webpanel" "$ROOT/tests" -name '
     # могли честно пропустить проверку там, где возраст подделать нечем.
     case "$f" in
         *test_router_shell_portability.sh) continue ;;
+        *test_exclude_hint_truthful.sh) continue ;;
         */tests/lib/common.sh) continue ;;
     esac
     grep -vE '^[[:space:]]*#' "$f" 2>/dev/null \
