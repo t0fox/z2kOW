@@ -180,6 +180,17 @@ pub fn user_lifecycle(args: &mut impl Iterator<Item = String>) -> io::Result<i32
             ));
         }
     };
+
+    let if_idle_env = env::var("Z2K_WARP_IF_IDLE").is_ok_and(|value| value == "1");
+    let if_idle = match (intent, args.next().as_deref()) {
+        (crate::lifecycle::ServiceIntent::Enable, Some("--if-idle")) => true,
+        (crate::lifecycle::ServiceIntent::Enable, None) => if_idle_env,
+        (crate::lifecycle::ServiceIntent::Enable, Some(_)) => {
+            return Err(invalid("неверный параметр lifecycle enable"));
+        }
+        (_, None) => false,
+        (_, Some(_)) => return Err(invalid("--if-idle доступен только для enable")),
+    };
     if args.next().is_some() {
         return Err(invalid("лишние аргументы lifecycle"));
     }
@@ -187,11 +198,46 @@ pub fn user_lifecycle(args: &mut impl Iterator<Item = String>) -> io::Result<i32
     let timing = LifecycleTiming::new(lifecycle_action(intent));
     let operation = operation_path();
     let pid = std::process::id();
+    let prelocked = if if_idle {
+        let probe = (|| -> io::Result<Option<MutationLock>> {
+            let Some(lock) = timing.measure("mutation_lock", || {
+                acquire_user_lock_with_wait(Duration::ZERO)
+            })?
+            else {
+                return Ok(None);
+            };
+            let paths = Paths::from_env();
+            let active = timing.measure("operation_check", || {
+                crate::operation::active(&operation, &paths.proc_root)
+            })?;
+            Ok((!active).then_some(lock))
+        })();
+        match probe {
+            Ok(Some(lock)) => Some(lock),
+            Ok(None) => {
+                let result = Ok(0);
+                timing.finish(&result);
+                return result;
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                let result = Ok(0);
+                timing.finish(&result);
+                return result;
+            }
+            Err(error) => {
+                let result = Err(error);
+                timing.finish(&result);
+                return result;
+            }
+        }
+    } else {
+        None
+    };
     let result = match timing.measure("operation_begin", || {
         crate::operation::begin(&operation, pid)
     }) {
         Ok(()) => {
-            let result = run_user_lifecycle(intent, pid, &timing);
+            let result = run_user_lifecycle(intent, pid, &timing, prelocked);
             match timing.measure("operation_clear", || {
                 crate::operation::clear_if_owner(&operation, pid)
             }) {
@@ -464,10 +510,15 @@ fn run_user_lifecycle(
     intent: crate::lifecycle::ServiceIntent,
     pid: u32,
     timing: &LifecycleTiming,
+    prelocked: Option<MutationLock>,
 ) -> io::Result<i32> {
     timing.measure("protocol_check", crate::status::require_protocol_v1)?;
     let paths = Paths::from_env();
-    let Some(lock) = timing.measure("mutation_lock", acquire_user_lock)? else {
+    let lock = match prelocked {
+        Some(lock) => Some(lock),
+        None => timing.measure("mutation_lock", acquire_user_lock)?,
+    };
+    let Some(lock) = lock else {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "lifecycle WARP должен владеть mutation lock",
@@ -2142,19 +2193,32 @@ fn parse_mark(value: &str) -> u32 {
 }
 
 fn acquire_lock() -> io::Result<Option<MutationLock>> {
+    acquire_lock_with_wait(Duration::from_secs(30))
+}
+
+fn acquire_lock_with_wait(wait: Duration) -> io::Result<Option<MutationLock>> {
     if env::var("Z2K_WARP_LOCK_HELD").as_deref() == Ok("1") {
         return Ok(None);
     }
     let path = env::var_os("Z2K_WARP_LOCK_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp/z2k/warp/mutate.lock"));
-    MutationLock::acquire(&path, Duration::from_secs(30))?
-        .map(Some)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::WouldBlock, "операция WARP уже выполняется"))
+    match MutationLock::acquire(&path, wait)? {
+        Some(lock) => Ok(Some(lock)),
+        None if wait.is_zero() => Ok(None),
+        None => Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "операция WARP уже выполняется",
+        )),
+    }
 }
 
 fn acquire_user_lock() -> io::Result<Option<MutationLock>> {
-    let lock = acquire_lock()?;
+    acquire_user_lock_with_wait(Duration::from_secs(30))
+}
+
+fn acquire_user_lock_with_wait(wait: Duration) -> io::Result<Option<MutationLock>> {
+    let lock = acquire_lock_with_wait(wait)?;
     if install_transaction_active()? {
         return Err(io::Error::new(
             io::ErrorKind::WouldBlock,

@@ -501,6 +501,119 @@ _z2k_migrate_quic_pool_key()
 	return 0
 }
 
+# Перенос номеров плеч между версиями пулов. Каждый перенос обрабатывает
+# основной state.tsv и резервную копию в tmpfs под отдельной отметкой версии.
+_z2k_migrate_pool_renumber()
+{
+	local ver="$1" keys="$2" what="$3"; shift 3
+	local base="${EXTRA_STRATS_DIR:-$ZAPRET_BASE/extra_strats}/cache/autocircular"
+	local done_flag="${ZAPRET_BASE}/state/pool-renumber-$ver.done"
+	[ -f "$done_flag" ] && return 0
+	local fallback="${Z2K_STATE_FALLBACK:-${Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE:-/tmp}/z2k-autocircular-state.tsv}"
+
+	local f moved=0 pending=0 status
+	for f in "$base/state.tsv" "$fallback"; do
+		[ -s "$f" ] || continue
+		# Если снимок совпадает с текущим файлом, предыдущий запуск оборвался
+		# до атомарной замены — перенос нужно повторить. Отличие означает, что
+		# замена уже прошла и повторно применять таблицу нельзя.
+		if [ -f "$f.pre-renumber-$ver" ]; then
+			if cmp -s "$f" "$f.pre-renumber-$ver"; then
+				:
+			else
+				status=$?
+				if [ "$status" = "1" ]; then continue; fi
+				pending=$((pending + 1))
+				continue
+			fi
+		fi
+		if awk -F'\t' -v K="$keys" '$1 ~ "^(" K ")$" { found = 1; exit } END { exit !found }' "$f" 2>/dev/null; then
+			:
+		else
+			status=$?
+			if [ "$status" = "1" ]; then continue; fi
+			pending=$((pending + 1))
+			continue
+		fi
+		if ( set -C; printf '%s' "$(date +%s 2>/dev/null || echo 0)" > "$f.lock" ) 2>/dev/null; then
+			if awk -F'\t' "$@" "$f" > "$f.mig" 2>/dev/null && [ -f "$f.mig" ]; then
+				chmod 644 "$f.mig" 2>/dev/null || true
+				chown nobody "$f.mig" 2>/dev/null || true
+				# Сначала снимок, потом подмена: при сбое исходный файл можно повторить.
+				if cp -p "$f" "$f.pre-renumber-$ver" 2>/dev/null \
+					&& mv -f "$f.mig" "$f" 2>/dev/null; then
+					moved=$((moved + 1))
+				else
+					pending=$((pending + 1))
+				fi
+			else
+				pending=$((pending + 1))
+			fi
+			if ! rm -f "$f.mig" "$f.lock" 2>/dev/null; then
+				pending=$((pending + 1))
+			fi
+		else
+			pending=$((pending + 1))
+		fi
+	done
+
+	if [ "$pending" = "0" ]; then
+		mkdir -p "${ZAPRET_BASE}/state" 2>/dev/null
+		: > "$done_flag" 2>/dev/null
+	fi
+	[ "$moved" = "0" ] || echo "Перенесены номера стратегий в состоянии автоподбора ($what)"
+	return 0
+}
+
+# Таблицы соответствия старых плеч новым после перестановки пулов 26.10.2026.
+_z2k_migrate_pool_renumber_v1()
+{
+	local rkn_map='1=41,2=6,3=19,4=33,5=17,6=2,7=3,8=23,9=22,10=x,11=30,12=15,13=24,14=20,15=28,16=26,17=21,18=42,19=8,20=32,21=25,22=50,23=53,24=31,25=54,26=46,27=55,28=38,29=45,30=16,31=48,32=34,33=47,34=49,35=5,36=18,37=4,38=44,39=14,40=x,41=13,42=36,43=35,44=37,45=x,46=x,47=39,48=51,49=40,50=52'
+	local yt_map='1=1,2=17,3=20,4=13,5=28,6=25,7=30,8=3,9=19,10=10,11=2,12=15,13=21,14=14,15=7,16=29,17=9,18=24,19=16,20=5,21=23,22=4'
+	local gv_map='1=3,2=25,3=7,4=17,5=6,6=31,7=5,8=12,9=4,10=11,11=32,12=28,13=13,14=1,15=8,16=22,17=18,18=19,19=16,20=20,21=14,22=9'
+	local quic_map='1=4,2=10,3=5,4=18,5=3,6=2,7=14,8=8,9=7'
+	local dv_map='1=2,2=3,3=1,4=4,5=5,6=6'
+	_z2k_migrate_pool_renumber v1 'rkn_tcp|yt_tcp|gv_tcp|google_tls|quic|discord_udp' \
+		'rkn — 55, yt/gv — 33, quic — 18, голосовой пул' \
+		-v RKN="$rkn_map" -v YT="$yt_map" -v GV="$gv_map" -v QU="$quic_map" -v DV="$dv_map" '
+		function load(s, m,   n, a, i, kv) { n = split(s, a, ","); for (i = 1; i <= n; i++) { split(a[i], kv, "="); m[kv[1]] = kv[2] } }
+		# Пустое значение оставляет незнакомый номер; x удаляет снятое плечо.
+		function remap(m, n) { return (n in m) ? m[n] : "" }
+		BEGIN { OFS = "\t"; load(RKN, rkn); load(YT, yt); load(GV, gv); load(QU, qu); load(DV, dv) }
+		/^#/ || NF < 3 { print; next }
+		$1 == "rkn_tcp" { n = remap(rkn, $3 + 0) }
+		$1 == "yt_tcp" { n = remap(yt, $3 + 0) }
+		$1 == "gv_tcp" { n = remap(gv, $3 + 0) }
+		$1 == "google_tls" {
+			s = $3 + 0
+			if (s <= 22) n = remap(yt, s)
+			else { n = remap(gv, s - 22); if (n != "" && n != "x") n += 33 }
+		}
+		$1 == "quic" { n = remap(qu, $3 + 0) }
+		$1 ~ /^(rkn_tcp|yt_tcp|gv_tcp|google_tls|quic)$/ && $5 != "frozen" { n = "x" }
+		$1 == "discord_udp" { n = ($5 == "frozen") ? remap(dv, $3 + 0) : "x" }
+		$1 ~ /^(rkn_tcp|yt_tcp|gv_tcp|google_tls|quic|discord_udp)$/ {
+			if (n == "x") next
+			if (n != "") $3 = n
+		}
+		{ print }'
+}
+
+# После вставки нового второго плеча QUIC прежние 2–17 сдвинулись на один,
+# а старое 18-е плечо удалено. Остальные записи остаются без изменений.
+_z2k_migrate_pool_renumber_v2()
+{
+	_z2k_migrate_pool_renumber v2 'quic' 'QUIC: добавлено плечо 2, плечо 18 удалено' '
+		BEGIN { OFS = "\t" }
+		/^#/ || NF < 3 { print; next }
+		$1 == "quic" {
+			s = $3 + 0
+			if (s == 18) next
+			if (s >= 2 && s <= 17) $3 = s + 1
+		}
+		{ print }'
+}
+
 # ДОЗАПИСЬ ДОМЕНОВ KEENETIC В БЕЛЫЙ СПИСОК (16.09.2026).
 #
 # keenetic.name, mykeenetic.com/.net/.ru, netcraze.net и crazedns.ru — имена, по
@@ -1165,10 +1278,11 @@ z2k_ensure_user_exclude_file()
 {
 	local f="${ZAPRET_BASE}/ipset/zapret-hosts-user-exclude.txt"
 	local doc="${ZAPRET_BASE}/ipset/zapret-hosts-user-exclude.README.txt"
+	local tmp="/tmp/z2k_excl_readme.$$"
 	mkdir -p "$(dirname "$f")" 2>/dev/null || return 0
 
-	# Документация наша, не пользовательская — обновляем всегда.
-	cat > "$doc" <<'Z2KEXCL'
+	# Не переписываем неизменившуюся подсказку при каждом вызове start_fw.
+	cat > "$tmp" 2>/dev/null <<'Z2KEXCL'
 Исключения из обхода — ПО АДРЕСАТУ.
 
 Файл: zapret-hosts-user-exclude.txt (рядом с этим)
@@ -1204,6 +1318,12 @@ WebRTC) ломаются от модификации их пакетов. Впи
 
 Удобнее всего править через веб-панель: «Исключения» → «Адреса».
 Z2KEXCL
+	if [ -f "$tmp" ]; then
+		if [ ! -f "$doc" ] || ! cmp -s "$tmp" "$doc" 2>/dev/null; then
+			cp "$tmp" "$doc" 2>/dev/null || true
+		fi
+		rm -f "$tmp" 2>/dev/null
+	fi
 
 	[ -e "$f" ] && return 0
 	: > "$f" 2>/dev/null || return 0
@@ -2809,6 +2929,10 @@ start()
     # при старте, и правка файла под работающим демоном была бы гонкой с его
     # собственным снимком.
     _z2k_migrate_quic_pool_key
+    # Перенос перенумерованных пулов тоже выполняется до старта демона.
+    _z2k_migrate_pool_renumber_v1
+    # Перенумерация QUIC применяется после общей перестановки пулов.
+    _z2k_migrate_pool_renumber_v2
 
     if ! start_daemons; then
         echo "ERROR: zapret2 service NOT started — обход не работает"

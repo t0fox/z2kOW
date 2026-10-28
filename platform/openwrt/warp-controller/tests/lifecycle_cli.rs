@@ -187,6 +187,99 @@ fn restart_выключенного_warp_идемпотентен_и_не_тро
 }
 
 #[test]
+fn enable_if_idle_с_флагом_или_переменной_не_трогает_активную_операцию() {
+    for use_flag in [true, false] {
+        let fixture = Fixture::new();
+        let proc_root = fixture.root.join("proc");
+        let active_pid = 424242;
+        let operation = fixture.root.join("warp/op");
+        fs::create_dir_all(proc_root.join(active_pid.to_string())).unwrap();
+        fs::create_dir_all(operation.parent().unwrap()).unwrap();
+        fs::write(&operation, format!("{active_pid}\n")).unwrap();
+        fs::write(&fixture.config, "GAME_WARP_ENABLED=0\nother=value\n").unwrap();
+
+        let mut command = fixture.controller("lifecycle");
+        command
+            .arg("enable")
+            .env("WARP_BIN", fixture.root.join("missing-engine"))
+            .env("Z2K_PROC_ROOT", &proc_root);
+        if use_flag {
+            command.arg("--if-idle");
+        } else {
+            command.env("Z2K_WARP_IF_IDLE", "1");
+        }
+        let output = command.output().unwrap();
+
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            fs::read_to_string(&fixture.config).unwrap(),
+            "GAME_WARP_ENABLED=0\nother=value\n"
+        );
+        assert_eq!(
+            fs::read_to_string(&operation).unwrap(),
+            format!("{active_pid}\n")
+        );
+        assert!(!fixture.root.join("warp/mutate.lock").exists());
+        assert!(!fixture.trace.exists());
+    }
+}
+
+#[test]
+fn enable_if_idle_не_перебивает_активный_mutation_lock() {
+    let fixture = Fixture::new();
+    let lock = MutationLock::acquire(&fixture.root.join("warp/mutate.lock"), Duration::ZERO)
+        .unwrap()
+        .expect("фикстура должна владеть mutation lock");
+    fs::write(&fixture.config, "GAME_WARP_ENABLED=0\nother=value\n").unwrap();
+    let output = fixture
+        .controller("lifecycle")
+        .args(["enable", "--if-idle"])
+        .env("WARP_BIN", fixture.root.join("missing-engine"))
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&fixture.config).unwrap(),
+        "GAME_WARP_ENABLED=0\nother=value\n"
+    );
+    assert!(!fixture.root.join("warp/op").exists());
+    assert!(!fixture.trace.exists());
+    drop(lock);
+}
+
+#[test]
+fn enable_if_idle_игнорирует_устаревший_маркер() {
+    let fixture = Fixture::new();
+    let proc_root = fixture.root.join("proc");
+    fs::create_dir_all(&proc_root).unwrap();
+    let operation = fixture.root.join("warp/op");
+    fs::create_dir_all(operation.parent().unwrap()).unwrap();
+    fs::write(&operation, "424242\n").unwrap();
+    fs::write(&fixture.config, "GAME_WARP_ENABLED=0\nother=value\n").unwrap();
+    let output = fixture
+        .controller("lifecycle")
+        .args(["enable", "--if-idle"])
+        .env("WARP_BIN", fixture.root.join("missing-engine"))
+        .env("Z2K_PROC_ROOT", &proc_root)
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("движок WARP не установлен"));
+    assert!(!operation.exists());
+    assert!(!fixture.root.join("warp/mutate.lock").exists());
+}
+
+#[test]
 fn lifecycle_always_reports_total_and_only_reports_stages_in_diagnostic_mode() {
     let fixture = Fixture::new();
     fs::write(&fixture.config, "GAME_WARP_ENABLED=0\nother=value\n").unwrap();

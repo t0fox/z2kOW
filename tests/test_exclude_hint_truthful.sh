@@ -34,6 +34,17 @@ HINT="$SB/ipset/zapret-hosts-user-exclude.README.txt"
 [ -s "$HINT" ] || { bad "z2k_ensure_user_exclude_file не создала подсказку"
                     printf '\nPASSED: 0\nFAILED: 1\n'; exit 1; }
 
+# Повторный старт не должен переписывать неизменившуюся подсказку на флешке.
+touch -t 200001010000 "$HINT"
+hint_mtime=$(stat -c %Y "$HINT")
+ZAPRET_BASE="$SB" sh -c "$ENSURE
+z2k_ensure_user_exclude_file" >/dev/null 2>&1
+if [ "$(stat -c %Y "$HINT")" = "$hint_mtime" ]; then
+    ok "неизменившаяся подсказка не переписывается при старте"
+else
+    bad "неизменившаяся подсказка не переписывается при старте"
+fi
+
 # --- 1. Комментарий после # разрешён и сказано об этом прямо -----------------
 if grep -q 'Комментарии после #' "$HINT" && grep -q '# камера' "$HINT"; then
     ok "подсказка разрешает комментарий после # и показывает пример"

@@ -396,3 +396,24 @@ func TestLoopbackGuardRejectsMisresolvedTarget(t *testing.T) {
 		t.Fatalf("вердикт = %s (%s), ждали %s", res.Verdict, res.Reason, VerdictFlaky)
 	}
 }
+
+func TestRawEchoRejectsOutOfRangePort(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	_, err := RawEcho(ctx, "127.0.0.1:65536", Trigger{Payload: payload}, time.Second)
+	if err == nil || err.Error() != "classify: порт 65536 вне диапазона" {
+		t.Fatalf("RawEcho с портом 65536 вернул ошибку %v; ожидалась ошибка диапазона порта", err)
+	}
+}
+
+func TestSweepPoisonsRejectsOutOfRangePortBeforeProbes(t *testing.T) {
+	res := &Result{}
+	_, ok := sweepPoisons(context.Background(), "127.0.0.1:65536", Trigger{Payload: payload}, Options{Repeats: 1, Timeout: time.Second}, res)
+	if ok || res.Probes != 0 {
+		t.Fatalf("sweepPoisons для порта 65536 вернул успех %v и выполнил %d проб; ожидался отказ до проб", ok, res.Probes)
+	}
+	if res.ErrorCode != "PROBE_PROCESS_FAILED" || res.FailureStage != "target" {
+		t.Fatalf("ошибка цели = %s/%s; ожидалось PROBE_PROCESS_FAILED/target", res.ErrorCode, res.FailureStage)
+	}
+}

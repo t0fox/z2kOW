@@ -285,7 +285,7 @@ warp_start_instance() {
 }
 
 warp_install() { _warp_controller install; }
-warp_enable() { _warp_controller lifecycle enable; }
+warp_enable() { _warp_controller lifecycle enable "$@"; }
 warp_disable() { _warp_controller lifecycle disable; }
 warp_restart() { _warp_controller lifecycle restart; }
 warp_license() { _warp_controller license; }
@@ -357,7 +357,7 @@ _z2k_ow_warp_dispatch() {
             _warp_controller health-check
             ;;
         install) warp_install ;;
-        enable) warp_enable ;;
+        enable) shift; warp_enable "$@" ;;
         disable) warp_disable ;;
         remove) warp_remove ;;
         restart) warp_restart ;;
@@ -367,7 +367,7 @@ _z2k_ow_warp_dispatch() {
         ipset) shift; warp_ipset "$@" ;;
         migrate) warp_migrate ;;
         *)
-            echo "использование: z2k_ow_warp {1|0|rules|startup-reconcile|proc-bounce|cleanup|check|install|enable|disable|remove|restart|license|status|selfheal|reload-lists|ipset|migrate}" >&2
+            echo "использование: z2k_ow_warp {1|0|rules|startup-reconcile|proc-bounce|cleanup|check|install|enable [--if-idle]|disable|remove|restart|license|status|selfheal|reload-lists|ipset|migrate}" >&2
             return 1
             ;;
     esac
@@ -381,7 +381,7 @@ z2k_ow_warp_check() { _warp_controller health-check; }
 
 case "${1:-}" in
     install) warp_install ;;
-    enable) warp_enable ;;
+    enable) shift; warp_enable "$@" ;;
     disable) warp_disable ;;
     remove) warp_remove ;;
     restart) warp_restart ;;
@@ -392,7 +392,7 @@ case "${1:-}" in
     ipset) shift; warp_ipset "$@" ;;
     migrate) warp_migrate ;;
     *)
-        echo "использование: $0 {install|enable|disable|remove|restart|license|status|selfheal|reload-lists|ipset|migrate}" >&2
+        echo "использование: $0 {install|enable [--if-idle]|disable|remove|restart|license|status|selfheal|reload-lists|ipset|migrate}" >&2
         exit 1
         ;;
 esac

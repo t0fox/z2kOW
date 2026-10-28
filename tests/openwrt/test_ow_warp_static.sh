@@ -81,6 +81,10 @@ assert_contains "Rust: lifecycle владеет блокировкой" \
     "$REPO/platform/openwrt/warp-controller/src/service.rs" 'acquire_user_lock()'
 assert_contains "Rust: lifecycle читает состояние procd" \
     "$REPO/platform/openwrt/warp-controller/src/service.rs" 'fn service_state()'
+assert_contains "warp.sh: enable прокидывает аргументы Rust lifecycle" \
+    "$WARP" '_warp_controller lifecycle enable "$@"'
+assert_contains "warp.sh: CLI прокидывает флаг --if-idle" \
+    "$WARP" 'enable) shift; warp_enable "$@" ;;'
 # Defect 4: каждый `ip rule del` обязан нести pref (exact owned delete).
 # Комментарии режем (атрибуция упоминает del без pref в тексте).
 if sed 's/#.*$//' "$WARP" 2>/dev/null | grep 'ip rule del' | grep -qv 'pref'; then
