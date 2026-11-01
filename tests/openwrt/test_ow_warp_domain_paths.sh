@@ -16,11 +16,11 @@ assert_eq "setup error uses same tmpfs directory" "/tmp/z2k-warp/domain-setup-er
 # Cross-component contract: these are the paths the running observer actually
 # opens and writes; a shell-only path refactor must not drift from them.
 assert_contains "daemon reads the shared domain rules path" "$DAEMON" \
-    'DomainPath: "/tmp/z2k-warp/domains.v1"'
+    'DomainPath: envOr("Z2K_WARP_DOMAIN_RULES", "/tmp/z2k-warp/domains.v1")'
 assert_contains "daemon writes the shared pair snapshot" "$DAEMON" \
-    'SnapshotPath: "/tmp/z2k-warp/domain-pairs.v1"'
+    'SnapshotPath: envOr("Z2K_WARP_DOMAIN_SNAPSHOT", "/tmp/z2k-warp/domain-pairs.v1")'
 assert_contains "daemon writes the shared health status" "$DAEMON" \
-    'StatusPath: "/tmp/z2k-warp/domain-status.json"'
+    'StatusPath: envOr("Z2K_WARP_DOMAIN_STATUS", "/tmp/z2k-warp/domain-status.json")'
 
 # Доменный observer принадлежит Rust-контроллеру: Shell сохраняет только
 # имена entrypoint-функций для procd и старых вызывающих скриптов.

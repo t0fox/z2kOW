@@ -12,7 +12,7 @@ globals = {
     -- Рантайм обхода обрыва на 16 КБ (files/lua/z2k-tcp16.lua). Глобальны,
     -- потому что движок ищет десинк-функцию по имени в _G, а закрепление и
     -- выбор имени бьёт напрямую юнит-тест.
-    "z2k_sni_pick", "z2k_sni_pinned", "z2k_sni_for",
+    "z2k_sni_pick", "z2k_sni_pinned", "z2k_sni_for", "z2k_sni_fake",
     -- Поправки к штатному детектору неудач (files/lua/z2k-alert.lua) и
     -- детектор молчания QUIC (files/lua/z2k-quic-silence.lua). Движок ищет и
     -- детектор, и таймер-функцию по имени в _G.
@@ -61,6 +61,7 @@ read_globals = {
     "l3_len",
     "l3_base_len",
     "l3_extra_len",
+    "l3l4_extra_len",
     "l4_len",
     "rawsend_dissect",
     "rawsend_dissect_ipfrag",

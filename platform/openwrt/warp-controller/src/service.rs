@@ -2283,8 +2283,7 @@ fn sync_sets(paths: &Paths, apply: bool) -> io::Result<bool> {
         &["list", "table", &paths.nft_family, &paths.nft_table],
     )?;
     let exclusions = lists::load_warp_exclusions(&paths.user_lists)?;
-    let exclusion_addresses =
-        lists::normalize_destinations(&exclusions.addresses.join("\n"));
+    let exclusion_addresses = lists::normalize_destinations(&exclusions.addresses.join("\n"));
     if !sync_address_exclusion_set(paths, &table, &exclusion_addresses, apply)? {
         return Ok(false);
     }
@@ -2337,8 +2336,7 @@ fn sync_mark(paths: &Paths, apply: bool) -> io::Result<bool> {
         &["list", "table", &paths.nft_family, &paths.nft_table],
     )?;
     let exclusions = lists::load_warp_exclusions(&paths.user_lists)?;
-    let exclusion_addresses =
-        lists::normalize_destinations(&exclusions.addresses.join("\n"));
+    let exclusion_addresses = lists::normalize_destinations(&exclusions.addresses.join("\n"));
     if !sync_address_exclusion_set(paths, &table, &exclusion_addresses, apply)?
         || !ensure_domain_exclusion_set(paths, apply)?
     {

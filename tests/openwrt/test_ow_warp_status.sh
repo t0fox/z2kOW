@@ -125,6 +125,18 @@ table inet zapret2 {
         type ipv4_addr
         flags interval
     }
+    set z2k_warp_excl4 {
+        type ipv4_addr
+        flags interval
+        comment "z2k WARP address exclusions"
+    }
+    set z2k_warp_domain_excl4 {
+        type ipv4_addr
+        flags timeout
+        timeout 1h
+        size 8192
+        comment "z2k WARP domain exclusions"
+    }
     chain z2k_warp_mark {
         type filter hook prerouting priority mangle; policy accept;
 NFT_TABLE
@@ -132,6 +144,8 @@ NFT_TABLE
         if [ -s "$T/nft-mark-rule" ]; then
             sed 's/^/        /' "$T/nft-mark-rule"
         else
+            printf '%s\\n' '        ip daddr @z2k_warp_excl4 return'
+            printf '%s\\n' '        ip daddr @z2k_warp_domain_excl4 return'
             printf '%s\\n' '        ip daddr @z2k_warp_dst4 meta mark set mark & 0x7fffffff ^ 0x80000000'
         fi
     fi
@@ -293,10 +307,9 @@ mkdir -p "$WARP_GAMES_DIR"
 printf '8.8.8.8\n' > "$WARP_GAMES_DIR/steam.txt"
 printf 'steam\n' > "$WARP_ENABLED_FILE"
 printf '192.168.1.50\n' > "$WARP_DEVICES_FILE"
-# This suite's nft fake verifies the resulting MARK shape but does not model
-# live set contents. Keep the adapter in its not-yet-proven-ready path here;
-# full post-reconcile set/TUN/PBR proofs are exercised with stateful nft in the
-# production device-toggle acceptance in test_ow_warp_functional.sh.
+# Подмена nft здесь не хранит содержимое наборов. Сохраняем готовность
+# маршрута и проверяем MARK-правило; полную сверку наборов, TUN и PBR проверяет
+# test_ow_warp_functional.sh на настоящем nft в изолированном сетевом пространстве.
 printf '{"ready":false,"iface":"z2ktun0","addr":"172.16.9.9","transport":"wg"}\n' > "$WARP_STATUS"
 : > "$T/nft.log"
 warp_ipset --reconcile-rules || _t_bad "device apply while route-ready rc"

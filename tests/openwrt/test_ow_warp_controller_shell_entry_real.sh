@@ -26,7 +26,23 @@ if [ "$#" -ge 1 ] && [ "$1" = --inside ]; then
     nft add table inet fw4
     nft add chain inet fw4 forward "{ type filter hook forward priority filter; policy accept; }"
     nft add table inet z2k_warp_shell_test
-    trap 'if [ -n "${WARP_PID:-}" ]; then kill -TERM "$WARP_PID" 2>/dev/null || true; fi; nft delete table inet fw4 2>/dev/null || true; nft delete table inet z2k_warp_shell_test 2>/dev/null || true; ip link del z2ktun0 2>/dev/null || true' EXIT HUP INT TERM
+    _cleanup() {
+        _rc=$?
+        if [ "$_rc" -ne 0 ]; then
+            echo 'Диагностика команд WARP перед очисткой:' >&2
+            cat "$T/commands.log" >&2 2>/dev/null || true
+            nft list table inet "${Z2K_WARP_NFT_TABLE:-z2k_warp_shell_test}" >&2 || true
+        fi
+        if [ -n "${WARP_PID:-}" ]; then kill -TERM "$WARP_PID" 2>/dev/null || true; fi
+        nft delete table inet fw4 2>/dev/null || true
+        nft delete table inet z2k_warp_shell_test 2>/dev/null || true
+        ip link del z2ktun0 2>/dev/null || true
+        exit "$_rc"
+    }
+    trap _cleanup EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
 
     mkdir -p "$T/etc/user-lists/warp" "$T/etc/state/warp" "$T/tmp/z2k/warp" \
         "$T/tmp/z2k/runtime" "$T/lists/warp/games" "$T/proc/101" "$T/mock-bin"
@@ -117,8 +133,16 @@ procd_set_param() {
 procd_close_instance() { printf 'close\n' >> "$T/procd.log"; }
 case "$1" in
     start)
-        _warp_controller procd-legacy-warp-remove || exit $?
-        _warp_controller event rules || exit $?
+        _warp_controller procd-legacy-warp-remove || {
+            _rc=$?
+            nft list table inet "$Z2K_WARP_NFT_TABLE" >&2 || true
+            exit "$_rc"
+        }
+        _warp_controller event rules || {
+            _rc=$?
+            nft list table inet "$Z2K_WARP_NFT_TABLE" >&2 || true
+            exit "$_rc"
+        }
         warp_start_instance
         ;;
     stop) _warp_controller event stop ;;

@@ -248,6 +248,25 @@ pub(crate) fn verify_mark(paths: &Paths) -> io::Result<bool> {
             .as_ref()
             .is_some_and(|destinations| !destinations.is_empty()),
     )?;
+    let exclusions = crate::lists::load_warp_exclusions(&paths.user_lists)?;
+    let exclusion_addresses =
+        crate::lists::normalize_destinations(&exclusions.addresses.join("\n"));
+    if nft::exclusion_address_set_matches(
+        &table,
+        &paths.nft_family,
+        &paths.nft_table,
+        &paths.exclude_set,
+        &exclusion_addresses,
+    )? != Some(true)
+        || nft::domain_exclusion_set_matches(
+            &table,
+            &paths.nft_family,
+            &paths.nft_table,
+            &paths.domain_exclude_set,
+        )? != Some(true)
+    {
+        return Ok(false);
+    }
     let domain_active = !inputs.domains.is_empty() && inputs.scope.as_str() != "all";
     if domain_active
         && nft::domain_pair_set_matches(
@@ -267,7 +286,7 @@ pub(crate) fn verify_mark(paths: &Paths) -> io::Result<bool> {
     };
     let servers = openwrt::discover_interfaces(InterfaceKind::WireGuardServers)?;
     let clients = openwrt::discover_interfaces(InterfaceKind::WireGuardClients)?;
-    let expected = nft::render_mark_batch(&MarkConfig {
+    let mut expected = nft::render_mark_batch(&MarkConfig {
         family: &paths.nft_family,
         table: &paths.nft_table,
         chain: &paths.mark_chain,
@@ -281,6 +300,14 @@ pub(crate) fn verify_mark(paths: &Paths) -> io::Result<bool> {
         wireguard_servers: &servers,
         wireguard_clients: &clients,
     })?;
+    nft::insert_mark_exclusion_rules(
+        &mut expected,
+        &paths.nft_family,
+        &paths.nft_table,
+        &paths.mark_chain,
+        &paths.exclude_set,
+        &paths.domain_exclude_set,
+    )?;
     Ok(nft::mark_chain_matches(
         &table,
         &paths.nft_family,
@@ -706,10 +733,7 @@ impl Paths {
             src_set: env_string("WARP_SET_SRC", "z2k_warp_src4"),
             domain_set: env_string("WARP_DOMAIN_SET", "z2k_warp_domain4"),
             exclude_set: env_string("WARP_EXCLUDE_SET", "z2k_warp_excl4"),
-            domain_exclude_set: env_string(
-                "WARP_DOMAIN_EXCLUDE_SET",
-                "z2k_warp_domain_excl4",
-            ),
+            domain_exclude_set: env_string("WARP_DOMAIN_EXCLUDE_SET", "z2k_warp_domain_excl4"),
             mark_chain: env_string("WARP_CHAIN_MARK", "z2k_warp_mark"),
             mss_chain: env_string("WARP_CHAIN_MSS", "z2k_warp_mss"),
             forward_chain: env_string("WARP_CHAIN_FWD", "z2k_warp_fwd"),
