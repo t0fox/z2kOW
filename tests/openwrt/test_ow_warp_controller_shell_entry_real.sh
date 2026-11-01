@@ -31,6 +31,7 @@ if [ "$#" -ge 1 ] && [ "$1" = --inside ]; then
         if [ "$_rc" -ne 0 ]; then
             echo 'Диагностика команд WARP перед очисткой:' >&2
             cat "$T/commands.log" >&2 2>/dev/null || true
+            cat "$T/nft-transactions.log" >&2 2>/dev/null || true
             nft list table inet "${Z2K_WARP_NFT_TABLE:-z2k_warp_shell_test}" >&2 || true
         fi
         if [ -n "${WARP_PID:-}" ]; then kill -TERM "$WARP_PID" 2>/dev/null || true; fi
@@ -87,6 +88,11 @@ printf '\n' >> "$T/commands.log"
 if [ -e "$T/nft-fail-once" ] && [ "\$1" = -f ] && [ "\$2" = - ]; then
     rm -f "$T/nft-fail-once"
     exit 1
+fi
+if [ "\$1" = -f ] && [ "\$2" = - ]; then
+    printf '%s\n' '--- nft transaction ---' >> "$T/nft-transactions.log"
+    tee -a "$T/nft-transactions.log" | "$REAL_NFT" "\$@"
+    exit \$?
 fi
 exec "$REAL_NFT" "\$@"
 EOF_NFT
