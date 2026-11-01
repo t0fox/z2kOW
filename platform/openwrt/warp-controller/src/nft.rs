@@ -64,6 +64,8 @@ pub struct DomainVerifyConfig<'a> {
 }
 
 const DOMAIN_PAIR_SET_COMMENT: &str = "z2k WARP DNS pairs";
+const DOMAIN_EXCLUSION_SET_COMMENT: &str = "z2k WARP domain exclusions";
+const ADDRESS_EXCLUSION_SET_COMMENT: &str = "z2k WARP address exclusions";
 
 pub fn verify_domain_observer(config: &DomainVerifyConfig<'_>) -> io::Result<bool> {
     let group_number = config
@@ -223,6 +225,165 @@ pub fn render_domain_pair_set_create_batch(
     Ok(format!(
         "add set {family} {table} {set} {{ type ipv4_addr . ipv4_addr; flags timeout; timeout 1h; size 8192; comment \"{DOMAIN_PAIR_SET_COMMENT}\"; }}\n"
     ))
+}
+
+pub fn domain_exclusion_set_matches(
+    table_output: &str,
+    family: &str,
+    table: &str,
+    set: &str,
+) -> io::Result<Option<bool>> {
+    for identifier in [family, table, set] {
+        if !valid_identifier(identifier) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "имя nft-набора доменных исключений содержит недопустимые символы",
+            ));
+        }
+    }
+    let header = format!("table {family} {table} {{");
+    if !table_output.lines().any(|line| line.trim() == header) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "ответ nft не содержит ожидаемую таблицу",
+        ));
+    }
+    let Some(block) = extract_nft_block(table_output, "set", set) else {
+        return Ok(None);
+    };
+    let normalized = block.split_whitespace().collect::<Vec<_>>().join(" ");
+    let owned = normalized.contains("type ipv4_addr")
+        && normalized.contains("flags timeout")
+        && normalized.contains("timeout 1h")
+        && normalized.contains("size 8192")
+        && normalized.contains(&format!("comment \"{DOMAIN_EXCLUSION_SET_COMMENT}\""));
+    if owned {
+        Ok(Some(true))
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "набор доменных исключений nft занят или несовместим",
+        ))
+    }
+}
+
+pub fn render_domain_exclusion_set_create_batch(
+    family: &str,
+    table: &str,
+    set: &str,
+) -> io::Result<String> {
+    for identifier in [family, table, set] {
+        if !valid_identifier(identifier) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "имя nft-набора доменных исключений содержит недопустимые символы",
+            ));
+        }
+    }
+    Ok(format!(
+        "add set {family} {table} {set} {{ type ipv4_addr; flags timeout; timeout 1h; size 8192; comment \"{DOMAIN_EXCLUSION_SET_COMMENT}\"; }}\n"
+    ))
+}
+
+pub fn exclusion_address_set_matches(
+    table_output: &str,
+    family: &str,
+    table: &str,
+    set: &str,
+    addresses: &[String],
+) -> io::Result<Option<bool>> {
+    for identifier in [family, table, set] {
+        if !valid_identifier(identifier) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "имя nft-набора исключений содержит недопустимые символы",
+            ));
+        }
+    }
+    let header = format!("table {family} {table} {{");
+    if !table_output.lines().any(|line| line.trim() == header) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "ответ nft не содержит ожидаемую таблицу",
+        ));
+    }
+    let Some(block) = extract_nft_block(table_output, "set", set) else {
+        return Ok(None);
+    };
+    let normalized = block.split_whitespace().collect::<Vec<_>>().join(" ");
+    let owned = normalized.contains("type ipv4_addr")
+        && normalized.contains("flags interval")
+        && normalized.contains(&format!("comment \"{ADDRESS_EXCLUSION_SET_COMMENT}\""));
+    if !owned {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "набор адресных исключений nft занят или несовместим",
+        ));
+    }
+    let actual = parse_one_set(table_output, set)?;
+    Ok(Some(set_matches(&actual, addresses)))
+}
+
+pub fn render_exclusion_address_set_batch(
+    family: &str,
+    table: &str,
+    set: &str,
+    exists: bool,
+    addresses: &[String],
+) -> io::Result<String> {
+    for identifier in [family, table, set] {
+        if !valid_identifier(identifier) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "имя nft-набора исключений содержит недопустимые символы",
+            ));
+        }
+    }
+    if addresses.iter().any(|entry| !valid_ipv4_entry(entry, true)) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "набор WARP-исключений содержит недопустимый IPv4-элемент",
+        ));
+    }
+    let mut batch = if exists {
+        format!("flush set {family} {table} {set}\n")
+    } else {
+        format!(
+            "add set {family} {table} {set} {{ type ipv4_addr; flags interval; comment \"{ADDRESS_EXCLUSION_SET_COMMENT}\"; }}\n"
+        )
+    };
+    append_elements(&mut batch, family, table, set, addresses);
+    Ok(batch)
+}
+
+pub fn insert_mark_exclusion_rules(
+    batch: &mut String,
+    family: &str,
+    table: &str,
+    chain: &str,
+    address_set: &str,
+    domain_set: &str,
+) -> io::Result<()> {
+    for identifier in [family, table, chain, address_set, domain_set] {
+        if !valid_identifier(identifier) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "имя nft-объекта исключений содержит недопустимые символы",
+            ));
+        }
+    }
+    let marker = format!("flush chain {family} {table} {chain}\n");
+    let Some(index) = batch.find(&marker) else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "MARK batch не содержит точки вставки исключений",
+        ));
+    };
+    let rules = format!(
+        "add rule {family} {table} {chain} ip daddr @{address_set} return\nadd rule {family} {table} {chain} ip daddr @{domain_set} return\n"
+    );
+    batch.insert_str(index + marker.len(), &rules);
+    Ok(())
 }
 
 pub fn render_domain_observer_table_create_batch(family: &str, table: &str) -> io::Result<String> {

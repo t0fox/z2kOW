@@ -381,6 +381,21 @@ pub fn run() -> io::Result<()> {
             if let Some(error) = rendered.error {
                 println!("error={error}");
             }
+            let exclusions = lists::load_warp_exclusions(user_dir.as_ref())?;
+            let exclusion_rules = env::var_os("WARP_DOMAIN_EXCLUDE_RULES")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("/tmp/z2k-warp/domains-excl.v1"));
+            let exclusion_error = env::var_os("WARP_DOMAIN_EXCLUDE_ERROR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("/tmp/z2k-warp/domain-exclusion-setup-error"));
+            let rendered = domain_state::sync_rules_file(
+                &exclusion_rules,
+                &exclusion_error,
+                &exclusions.domains,
+            )?;
+            if let Some(error) = rendered.error {
+                println!("exclusion_error={error}");
+            }
             Ok(())
         }
         Some("domains-error") => {

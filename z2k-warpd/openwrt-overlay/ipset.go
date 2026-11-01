@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -141,4 +142,214 @@ func (s PairSet) ReplaceAll(changes []Change, now time.Time) error {
 		}
 	}
 	return s.Apply(changes, now)
+}
+
+const nftExclusionSetOwner = "comment \"z2k WARP domain exclusions\""
+
+// ExclSet пишет DNS-исключения в общий nft-набор, который заранее создаёт Rust.
+type ExclSet struct{}
+
+func (s ExclSet) Apply(changes []Change, now time.Time) error {
+	backend, selected, err := openWrtNFTExclFromEnv()
+	if selected {
+		if err != nil || backend == nil {
+			return err
+		}
+		return backend.Apply(changes, now)
+	}
+	return errors.New("не настроен nft-бэкенд WARP OpenWrt")
+}
+
+func (s ExclSet) ReplaceAll(changes []Change, now time.Time) error {
+	backend, selected, err := openWrtNFTExclFromEnv()
+	if selected {
+		if err != nil || backend == nil {
+			return err
+		}
+		return backend.ReplaceAll(changes, now)
+	}
+	return errors.New("не настроен nft-бэкенд WARP OpenWrt")
+}
+
+type nftExclSet struct {
+	binary, family, table, set string
+	lazy                       bool
+	check                      func() error
+	run                        func(string) error
+}
+
+var nftExclStates = struct {
+	sync.Mutex
+	sets map[string]map[netip.Addr]time.Time
+}{sets: make(map[string]map[netip.Addr]time.Time)}
+
+func openWrtNFTExclFromEnv() (*nftExclSet, bool, error) {
+	if os.Getenv("Z2K_WARP_DOMAIN_DISABLED") == "1" {
+		return nil, true, nil
+	}
+	family := os.Getenv("Z2K_WARP_DOMAIN_NFT_FAMILY")
+	table := os.Getenv("Z2K_WARP_DOMAIN_NFT_TABLE")
+	set := os.Getenv("Z2K_WARP_DOMAIN_NFT_EXCL_SET")
+	binary := os.Getenv("Z2K_WARP_DOMAIN_NFT")
+	configured := family != "" || table != "" || set != "" || binary != ""
+	if !configured {
+		if os.Getenv("Z2K_WARP_OPENWRT") == "1" {
+			return nil, true, errors.New("не настроен nft-бэкенд исключений WARP OpenWrt")
+		}
+		return nil, false, nil
+	}
+	if family != "inet" || table != "zapret2" || !nftIdentifier.MatchString(set) {
+		return nil, true, errors.New("неверная конфигурация nft-бэкенда исключений WARP OpenWrt")
+	}
+	return &nftExclSet{
+		binary: binary, family: family, table: table, set: set,
+		lazy: os.Getenv("Z2K_WARP_DOMAIN_NFT_LAZY") == "1",
+	}, true, nil
+}
+
+func (s *nftExclSet) key() string { return s.family + "/" + s.table + "/" + s.set }
+
+func (s *nftExclSet) Apply(changes []Change, now time.Time) error {
+	return s.update(changes, now, false)
+}
+
+func (s *nftExclSet) ReplaceAll(changes []Change, now time.Time) error {
+	return s.update(changes, now, true)
+}
+
+func (s *nftExclSet) update(changes []Change, now time.Time, replace bool) error {
+	if s == nil || !nftIdentifier.MatchString(s.family) || !nftIdentifier.MatchString(s.table) || !nftIdentifier.MatchString(s.set) {
+		return errors.New("неверная конфигурация nft-набора исключений WARP OpenWrt")
+	}
+	nftExclStates.Lock()
+	defer nftExclStates.Unlock()
+	current := nftExclStates.sets[s.key()]
+	next := make(map[netip.Addr]time.Time, len(current)+len(changes))
+	if !replace {
+		for address, expiry := range current {
+			if expiry.After(now) {
+				next[address] = expiry
+			}
+		}
+	}
+	type operation struct {
+		expiry time.Time
+		delete bool
+	}
+	operations := make(map[netip.Addr]operation, len(changes)+len(current))
+	if !replace {
+		for address, expiry := range current {
+			if !expiry.After(now) {
+				operations[address] = operation{delete: true}
+			}
+		}
+	}
+	for _, change := range changes {
+		if !EligibleDestination(change.Dest) {
+			return errors.New("неверный адрес исключения WARP")
+		}
+		address := change.Dest
+		if change.Delete || !change.Expiry.After(now) {
+			delete(next, address)
+			operations[address] = operation{delete: true}
+			continue
+		}
+		if expiry, ok := current[address]; ok && expiry.After(now) && expiry.Equal(change.Expiry) {
+			continue
+		}
+		next[address] = change.Expiry
+		operations[address] = operation{expiry: change.Expiry}
+	}
+	if len(next) > MaxPairs {
+		return errors.New("превышен предел исключений WARP OpenWrt")
+	}
+	if s.lazy {
+		hasAdd := false
+		for _, op := range operations {
+			if !op.delete {
+				hasAdd = true
+				break
+			}
+		}
+		if !hasAdd {
+			nftExclStates.sets[s.key()] = next
+			return nil
+		}
+	}
+	if len(operations) == 0 && !replace {
+		nftExclStates.sets[s.key()] = next
+		return nil
+	}
+	if err := s.ensureOwned(); err != nil {
+		return err
+	}
+	addresses := make([]netip.Addr, 0, len(operations))
+	for address := range operations {
+		addresses = append(addresses, address)
+	}
+	sort.Slice(addresses, func(i, j int) bool { return addresses[i].Less(addresses[j]) })
+	var script strings.Builder
+	if replace {
+		fmt.Fprintf(&script, "flush set %s %s %s\n", s.family, s.table, s.set)
+	}
+	for _, address := range addresses {
+		op := operations[address]
+		if !replace || op.delete {
+			fmt.Fprintf(&script, "destroy element %s %s %s { %s }\n", s.family, s.table, s.set, address)
+		}
+		if op.delete {
+			continue
+		}
+		seconds := nftExclusionTimeoutSeconds(op.expiry, now)
+		fmt.Fprintf(&script, "add element %s %s %s { %s timeout %ds }\n", s.family, s.table, s.set, address, seconds)
+	}
+	if s.run != nil {
+		if err := s.run(script.String()); err != nil {
+			return err
+		}
+	} else {
+		binary := s.binary
+		if binary == "" {
+			binary = "nft"
+		}
+		cmd := exec.Command(binary, "-f", "-")
+		cmd.Stdin = strings.NewReader(script.String())
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("применение исключений WARP OpenWrt: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+	}
+	nftExclStates.sets[s.key()] = next
+	return nil
+}
+
+func (s *nftExclSet) ensureOwned() error {
+	if s.check != nil {
+		return s.check()
+	}
+	binary := s.binary
+	if binary == "" {
+		binary = "nft"
+	}
+	output, err := exec.Command(binary, "list", "set", s.family, s.table, s.set).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("проверка nft-набора исключений WARP OpenWrt: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if !strings.Contains(string(output), nftExclusionSetOwner) {
+		return errors.New("nft-набор исключений WARP OpenWrt принадлежит другому компоненту")
+	}
+	return nil
+}
+
+func nftExclusionTimeoutSeconds(expiry, now time.Time) int {
+	seconds := int(expiry.Sub(now).Seconds())
+	if expiry.After(now.Add(time.Duration(seconds) * time.Second)) {
+		seconds++
+	}
+	if seconds < 1 {
+		seconds = 1
+	}
+	if seconds > 3600 {
+		seconds = 3600
+	}
+	return seconds
 }

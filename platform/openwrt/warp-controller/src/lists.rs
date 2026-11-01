@@ -70,6 +70,18 @@ pub fn load_active_domains(
     Ok(validate_entries(&combined).domains)
 }
 
+pub fn load_warp_exclusions(user_dir: &Path) -> io::Result<ListValidation> {
+    let contents = read_optional(&user_dir.join("exclude.txt"))?.unwrap_or_default();
+    let validation = validate_entries(&contents);
+    if validation.invalid > 0 && validation.addresses.is_empty() && validation.domains.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "файл исключений WARP содержит только недопустимые записи",
+        ));
+    }
+    Ok(validation)
+}
+
 pub fn policy_scope(
     user_dir: &Path,
     games_dir: &Path,
@@ -163,7 +175,10 @@ fn read_active_list_contents(
                 let Some(name) = path.file_stem().and_then(|x| x.to_str()) else {
                     continue;
                 };
-                if name.starts_with('.') || disabled.iter().any(|value| value == name) {
+                if name.starts_with('.')
+                    || name == "exclude"
+                    || disabled.iter().any(|value| value == name)
+                {
                     continue;
                 }
                 selected.push(path);
@@ -221,6 +236,7 @@ fn valid_list_name(name: &str) -> bool {
         && name.len() <= 64
         && !name.starts_with(['.', '-'])
         && name != "devices"
+        && name != "exclude"
         && name
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))

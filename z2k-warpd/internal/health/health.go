@@ -3,7 +3,7 @@
 // Три сигнала, от дешёвого к дорогому:
 //  1. Health() транспорта каждую секунду — бесплатно. rx растёт → жив.
 //  2. tx растёт, rx стоит дольше Doubt → одна e2e-проба через TUN (GET
-//     1.1.1.1/cdn-cgi/trace с адреса туннеля, warp=on). Арбитр, не тик.
+//     1.1.1.1/cdn-cgi/trace с адреса туннеля, warp=on или warp=plus). Арбитр, не тик.
 //  3. Fails проб подряд → Dead; дальше решает лестница.
 //
 // Простой без трафика — не смерть: если никто не шлёт, нечему и приходить.
@@ -228,11 +228,23 @@ func TraceProbe(timeout time.Duration) Prober {
 		if err != nil {
 			return err
 		}
-		if !strings.Contains(string(body), "warp=on") {
+		if !traceViaWarp(body) {
 			return errors.New("probe: warp=off")
 		}
 		return nil
 	}
+}
+
+// traceViaWarp принимает только отдельную строку поля trace, чтобы не принять
+// постороннее значение, содержащее текст warp=on.
+func traceViaWarp(body []byte) bool {
+	for _, line := range strings.Split(string(body), "\n") {
+		switch strings.TrimSpace(line) {
+		case "warp=on", "warp=plus":
+			return true
+		}
+	}
+	return false
 }
 
 // probeLocalAddr returns the first IPv4 address on iface only for the

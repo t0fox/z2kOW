@@ -43,6 +43,13 @@ import (
 
 var version = "dev"
 
+func envOr(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}
+
 const (
 	defaultDevice = "/opt/etc/z2k-warp/device.json"
 	defaultStatus = "/tmp/z2k-warp/status.json"
@@ -383,8 +390,13 @@ func cmdRun(args []string) int {
 	rules, _ := domainroute.ParseRules([]byte("v1\n"))
 	observer := domainroute.NewObserver(rules)
 	options := domainroute.Options{
-		DomainPath: "/tmp/z2k-warp/domains.v1", SnapshotPath: "/tmp/z2k-warp/domain-pairs.v1",
-		StatusPath: "/tmp/z2k-warp/domain-status.json", PairSet: domainroute.PairSet{},
+		DomainPath: envOr("Z2K_WARP_DOMAIN_RULES", "/tmp/z2k-warp/domains.v1"),
+		SnapshotPath: envOr("Z2K_WARP_DOMAIN_SNAPSHOT", "/tmp/z2k-warp/domain-pairs.v1"),
+		StatusPath: envOr("Z2K_WARP_DOMAIN_STATUS", "/tmp/z2k-warp/domain-status.json"),
+		PairSet: domainroute.PairSet{},
+		ExcludePath: envOr("Z2K_WARP_DOMAIN_EXCLUDE_RULES", "/tmp/z2k-warp/domains-excl.v1"),
+		ExcludeSnapshotPath: envOr("Z2K_WARP_DOMAIN_EXCLUDE_SNAPSHOT", "/tmp/z2k-warp/domain-excl-pairs.v1"),
+		ExclSet: domainroute.ExclSet{},
 	}
 	if err := runEngineAndObserver(ctx, func(c context.Context) error { return engine.Run(c, cfg) }, func(c context.Context) error { return observer.Run(c, options) }); err != nil {
 		// Другой экземпляр уже держит туннель — это нормальный исход гонки

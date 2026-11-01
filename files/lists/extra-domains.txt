@@ -2,6 +2,8 @@
 #
 # (cf-assets.www, dash, workers, developers, community, support, radar,
 # blog, partnerlocator, playground.ai, status, canto, и т.д.).
+# Cloudflare Zero Trust использует поддомены <id>.cloudflare-gateway.com.
+cloudflare-gateway.com
 # Cloudflare-инфраструктура — официально в РФ не заблокирована, но ТСПУ
 # Tapo IoT cameras — Mosline (МО) DPI режет
 # TLS handshake к их облаку. Камеры не видны наружу пока home-облако TP-Link

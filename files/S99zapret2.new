@@ -614,6 +614,34 @@ _z2k_migrate_pool_renumber_v2()
 		{ print }'
 }
 
+# Прямой переход от локальных пулов p-87.2 к финальным пулам p-87.7.
+# Автоподбор TCP начинается заново; закреплённые записи переносятся только
+# когда техника найдена в новом пуле. QUIC сохраняется только для плеч с теми
+# же действиями; для изменённых и снятых плеч сбрасываются все записи.
+_z2k_migrate_pool_renumber_v3()
+{
+	local rkn_map='1=36,2=37,3=x,4=18,5=41,6=42,7=30,8=x,9=3,10=17,11=38,12=x,13=45,14=19,15=25,16=34,17=x,18=20,19=x,20=21,21=x,22=x,23=22,24=x,25=x,26=27,27=x,28=x,29=15,30=x,31=x,32=x,33=31,34=32,35=39,36=40,37=35,38=23,39=24,40=47,41=x,42=26,43=x,44=29,45=50,46=x,47=55,48=46,49=x,50=x,51=57,52=53,53=x,54=49,55=51'
+	local yt_map='1=5,2=4,3=9,4=16,5=8,6=1,7=10,8=6,9=14,10=17,11=x,12=x,13=18,14=19,15=25,16=13,17=7,18=x,19=15,20=x,21=11,22=20,23=28,24=38,25=32,26=x,27=x,28=33,29=30,30=40,31=x,32=x,33=x'
+	local gv_map='1=x,2=10,3=7,4=13,5=19,6=2,7=x,8=11,9=x,10=27,11=30,12=21,13=28,14=25,15=x,16=22,17=3,18=14,19=23,20=16,21=x,22=17,23=x,24=1,25=24,26=x,27=x,28=8,29=x,30=x,31=36,32=37,33=x'
+	local quic_map='1=x,2=2,3=x,4=x,5=5,6=6,7=7,8=x,9=x,10=10,11=x,12=12,13=13,14=14,15=x,16=16,17=17,18=x'
+	_z2k_migrate_pool_renumber v3 'rkn_tcp|yt_tcp|gv_tcp|google_tls|quic' \
+		'p-87.7: TCP 57/41/39 и QUIC 20' \
+		-v RKN="$rkn_map" -v YT="$yt_map" -v GV="$gv_map" -v QUIC="$quic_map" -v YTSIZE=41 '
+		function load(s, m,   n, a, i, kv) { n = split(s, a, ","); for (i = 1; i <= n; i++) { split(a[i], kv, "="); m[kv[1]] = kv[2] } }
+		function remap(m, n) { return (n in m) ? m[n] : "x" }
+		BEGIN { OFS = "\t"; load(RKN, rkn); load(YT, yt); load(GV, gv); load(QUIC, quic) }
+		/^#/ || NF < 3 { print; next }
+		$1 == "rkn_tcp" { n = remap(rkn, $3 + 0) }
+		$1 == "yt_tcp" { n = remap(yt, $3 + 0) }
+		$1 == "gv_tcp" { n = remap(gv, $3 + 0) }
+		$1 == "google_tls" { s = $3 + 0; if (s <= 33) n = remap(yt, s); else { n = remap(gv, s - 33); if (n != "x") n += YTSIZE } }
+		$1 == "quic" { n = remap(quic, $3 + 0) }
+		$1 ~ /^(rkn_tcp|yt_tcp|gv_tcp|google_tls)$/ && $5 != "frozen" { next }
+		$1 ~ /^(rkn_tcp|yt_tcp|gv_tcp|google_tls|quic)$/ && n == "x" { next }
+		$1 ~ /^(rkn_tcp|yt_tcp|gv_tcp|google_tls|quic)$/ && n != "" { $3 = n }
+		{ print }'
+}
+
 # ДОЗАПИСЬ ДОМЕНОВ KEENETIC В БЕЛЫЙ СПИСОК (16.09.2026).
 #
 # keenetic.name, mykeenetic.com/.net/.ru, netcraze.net и crazedns.ru — имена, по
@@ -2933,6 +2961,7 @@ start()
     _z2k_migrate_pool_renumber_v1
     # Перенумерация QUIC применяется после общей перестановки пулов.
     _z2k_migrate_pool_renumber_v2
+    _z2k_migrate_pool_renumber_v3
 
     if ! start_daemons; then
         echo "ERROR: zapret2 service NOT started — обход не работает"

@@ -3,10 +3,14 @@
 # Чтение списков, состояние доменов и nft-операции принадлежат Rust-контроллеру.
 
 WARP_DOMAIN_SET="${WARP_DOMAIN_SET:-z2k_warp_domain4}"
+WARP_DOMAIN_EXCLUDE_SET="${WARP_DOMAIN_EXCLUDE_SET:-${Z2K_WARP_DOMAIN_EXCLUDE_SET:-z2k_warp_domain_excl4}}"
 WARP_DOMAIN_RULES="${WARP_DOMAIN_RULES:-${Z2K_WARP_DOMAIN_RULES:-${Z2K_WARP_TMP:-/tmp/z2k-warp}/domains.v1}}"
+WARP_DOMAIN_EXCLUDE_RULES="${WARP_DOMAIN_EXCLUDE_RULES:-${Z2K_WARP_DOMAIN_EXCLUDE_RULES:-${Z2K_WARP_TMP:-/tmp/z2k-warp}/domains-excl.v1}}"
 WARP_DOMAIN_SNAPSHOT="${WARP_DOMAIN_SNAPSHOT:-/tmp/z2k-warp/domain-pairs.v1}"
+WARP_DOMAIN_EXCLUDE_SNAPSHOT="${WARP_DOMAIN_EXCLUDE_SNAPSHOT:-${Z2K_WARP_DOMAIN_EXCLUDE_SNAPSHOT:-/tmp/z2k-warp/domain-excl-pairs.v1}}"
 WARP_DOMAIN_STATUS="${WARP_DOMAIN_STATUS:-/tmp/z2k-warp/domain-status.json}"
 WARP_DOMAIN_ERROR="${WARP_DOMAIN_ERROR:-/tmp/z2k-warp/domain-setup-error}"
+WARP_DOMAIN_EXCLUDE_ERROR="${WARP_DOMAIN_EXCLUDE_ERROR:-/tmp/z2k-warp/domain-exclusion-setup-error}"
 WARP_DOMAIN_NFT_FAMILY="${WARP_DOMAIN_NFT_FAMILY:-inet}"
 WARP_DOMAIN_NFT_TABLE="${WARP_DOMAIN_NFT_TABLE:-z2k_warp_dns}"
 WARP_DOMAIN_NFT_OUT="${WARP_DOMAIN_NFT_OUT:-z2k_dns_output}"

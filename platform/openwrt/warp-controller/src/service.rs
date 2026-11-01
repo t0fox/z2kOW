@@ -1407,9 +1407,15 @@ pub fn domain_procd_ready(args: &mut impl Iterator<Item = String>) -> io::Result
     crate::status::require_protocol_v1()?;
     let paths = Paths::from_env();
     let _lock = acquire_lock()?;
-    let domains =
-        lists::load_active_domains(&paths.user_lists, &paths.games, &paths.enabled_lists)?;
-    let active = !domains.is_empty();
+    let inputs = lists::load_mark_policy_inputs(
+        &paths.user_lists,
+        &paths.games,
+        &paths.enabled_lists,
+        &paths.devices,
+    )?;
+    let exclusions = lists::load_warp_exclusions(&paths.user_lists)?;
+    let active = (!inputs.domains.is_empty() && inputs.scope.as_str() != "all")
+        || !exclusions.domains.is_empty();
 
     if runtime != engine || !executable(Path::new(&runtime)) || paths.warp_bin != Path::new(&engine)
     {
@@ -1462,7 +1468,8 @@ pub fn domain_procd_ready(args: &mut impl Iterator<Item = String>) -> io::Result
         forward_chain: &forward_chain,
         group: &group,
     };
-    let ready = nft::verify_domain_observer(&verify).unwrap_or(false);
+    let ready = ensure_domain_exclusion_set(&paths, false)?
+        && nft::verify_domain_observer(&verify).unwrap_or(false);
     if !ready {
         domain_state::set_error_file(&domain_error_path(), "domain-backend-unavailable")?;
         return Err(io::Error::other("nft backend domain observer не готов"));
@@ -1540,6 +1547,19 @@ fn remove_warp_nft(paths: &Paths, full: bool) -> io::Result<()> {
         "nft",
         &["list", "table", &paths.nft_family, &paths.nft_table],
     )?;
+    let _ = nft::exclusion_address_set_matches(
+        &output,
+        &paths.nft_family,
+        &paths.nft_table,
+        &paths.exclude_set,
+        &[],
+    )?;
+    let _ = nft::domain_exclusion_set_matches(
+        &output,
+        &paths.nft_family,
+        &paths.nft_table,
+        &paths.domain_exclude_set,
+    )?;
     let batch = nft::render_warp_remove_batch(
         &output,
         &paths.nft_family,
@@ -1550,7 +1570,13 @@ fn remove_warp_nft(paths: &Paths, full: bool) -> io::Result<()> {
             paths.forward_chain.as_str(),
             paths.nat_chain.as_str(),
         ],
-        &[paths.dst_set.as_str(), paths.src_set.as_str()],
+        &[
+            paths.dst_set.as_str(),
+            paths.src_set.as_str(),
+            paths.domain_set.as_str(),
+            paths.exclude_set.as_str(),
+            paths.domain_exclude_set.as_str(),
+        ],
         full,
     )?;
     if batch.is_empty() {
@@ -2256,6 +2282,12 @@ fn sync_sets(paths: &Paths, apply: bool) -> io::Result<bool> {
         "nft",
         &["list", "table", &paths.nft_family, &paths.nft_table],
     )?;
+    let exclusions = lists::load_warp_exclusions(&paths.user_lists)?;
+    let exclusion_addresses =
+        lists::normalize_destinations(&exclusions.addresses.join("\n"));
+    if !sync_address_exclusion_set(paths, &table, &exclusion_addresses, apply)? {
+        return Ok(false);
+    }
     let inventory = nft::parse_set_inventory(
         &table,
         &paths.nft_family,
@@ -2304,6 +2336,14 @@ fn sync_mark(paths: &Paths, apply: bool) -> io::Result<bool> {
         "nft",
         &["list", "table", &paths.nft_family, &paths.nft_table],
     )?;
+    let exclusions = lists::load_warp_exclusions(&paths.user_lists)?;
+    let exclusion_addresses =
+        lists::normalize_destinations(&exclusions.addresses.join("\n"));
+    if !sync_address_exclusion_set(paths, &table, &exclusion_addresses, apply)?
+        || !ensure_domain_exclusion_set(paths, apply)?
+    {
+        return Ok(false);
+    }
     let inventory = nft::parse_set_inventory(
         &table,
         &paths.nft_family,
@@ -2342,7 +2382,7 @@ fn sync_mark(paths: &Paths, apply: bool) -> io::Result<bool> {
     };
     let servers = openwrt::discover_interfaces(InterfaceKind::WireGuardServers)?;
     let clients = openwrt::discover_interfaces(InterfaceKind::WireGuardClients)?;
-    let batch = nft::render_mark_batch(&MarkConfig {
+    let mut batch = nft::render_mark_batch(&MarkConfig {
         family: &paths.nft_family,
         table: &paths.nft_table,
         chain: &paths.mark_chain,
@@ -2360,6 +2400,14 @@ fn sync_mark(paths: &Paths, apply: bool) -> io::Result<bool> {
         wireguard_servers: &servers,
         wireguard_clients: &clients,
     })?;
+    nft::insert_mark_exclusion_rules(
+        &mut batch,
+        &paths.nft_family,
+        &paths.nft_table,
+        &paths.mark_chain,
+        &paths.exclude_set,
+        &paths.domain_exclude_set,
+    )?;
     if nft::mark_chain_matches(
         &table,
         &paths.nft_family,
@@ -2378,28 +2426,93 @@ fn sync_mark(paths: &Paths, apply: bool) -> io::Result<bool> {
 }
 
 fn apply_domain_policy(paths: &Paths) -> io::Result<()> {
-    let domains =
-        lists::load_active_domains(&paths.user_lists, &paths.games, &paths.enabled_lists)?;
-    let scope = lists::policy_scope(
+    let inputs = lists::load_mark_policy_inputs(
         &paths.user_lists,
         &paths.games,
         &paths.enabled_lists,
         &paths.devices,
     )?;
-    if domains.is_empty() || scope.as_str() == "all" {
+    let exclusions = lists::load_warp_exclusions(&paths.user_lists)?;
+    let domains = if inputs.scope.as_str() == "all" {
+        Vec::new()
+    } else {
+        inputs.domains
+    };
+    let exclusion_domains = exclusions.domains;
+    let rules = domain_rules_path();
+    let error = domain_error_path();
+    let exclusion_rules = domain_exclusion_rules_path();
+    let exclusion_error = domain_exclusion_error_path();
+    let _ = domain_state::sync_rules_file(&rules, &error, &domains);
+    let _ = domain_state::sync_rules_file(&exclusion_rules, &exclusion_error, &exclusion_domains);
+
+    if domains.is_empty() && exclusion_domains.is_empty() {
         if remove_domain_state(paths, false).is_ok() {
-            let _ = domain_state::set_error_file(&domain_error_path(), "");
+            let _ = domain_state::set_error_file(&error, "");
         } else {
-            let _ = domain_state::set_error_file(&domain_error_path(), "nft-domain-remove-failed");
+            let _ = domain_state::set_error_file(&error, "nft-domain-remove-failed");
         }
         return Ok(());
     }
-    let rules = domain_rules_path();
-    let error = domain_error_path();
-    let _ = domain_state::sync_rules_file(&rules, &error, &domains);
     ensure_domain_pair_set(paths)?;
+    ensure_domain_exclusion_set(paths, true)?;
     let _ = apply_domain_observer(&error);
     Ok(())
+}
+
+fn ensure_domain_exclusion_set(paths: &Paths, apply: bool) -> io::Result<bool> {
+    let table = command_output(
+        "nft",
+        &["list", "table", &paths.nft_family, &paths.nft_table],
+    )?;
+    if nft::domain_exclusion_set_matches(
+        &table,
+        &paths.nft_family,
+        &paths.nft_table,
+        &paths.domain_exclude_set,
+    )?
+    .is_some()
+    {
+        return Ok(true);
+    }
+    if !apply {
+        return Ok(false);
+    }
+    nft::apply_transaction(&nft::render_domain_exclusion_set_create_batch(
+        &paths.nft_family,
+        &paths.nft_table,
+        &paths.domain_exclude_set,
+    )?)?;
+    Ok(true)
+}
+
+fn sync_address_exclusion_set(
+    paths: &Paths,
+    table: &str,
+    addresses: &[String],
+    apply: bool,
+) -> io::Result<bool> {
+    let current = nft::exclusion_address_set_matches(
+        table,
+        &paths.nft_family,
+        &paths.nft_table,
+        &paths.exclude_set,
+        addresses,
+    )?;
+    if current == Some(true) {
+        return Ok(true);
+    }
+    if !apply {
+        return Ok(false);
+    }
+    nft::apply_transaction(&nft::render_exclusion_address_set_batch(
+        &paths.nft_family,
+        &paths.nft_table,
+        &paths.exclude_set,
+        current.is_some(),
+        addresses,
+    )?)?;
+    Ok(true)
 }
 
 fn ensure_domain_pair_set(paths: &Paths) -> io::Result<()> {
@@ -2515,7 +2628,7 @@ fn apply_domain_observer(error: &Path) -> io::Result<()> {
     domain_state::set_error_file(error, "")
 }
 
-fn remove_domain_state(paths: &Paths, full: bool) -> io::Result<()> {
+fn remove_domain_state(paths: &Paths, _full: bool) -> io::Result<()> {
     let observer_family = env_string("WARP_DOMAIN_NFT_FAMILY", "inet");
     let observer_table = env_string("WARP_DOMAIN_NFT_TABLE", "z2k_warp_dns");
     let tables = command_output("nft", &["list", "tables"])?;
@@ -2529,11 +2642,19 @@ fn remove_domain_state(paths: &Paths, full: bool) -> io::Result<()> {
             ));
         }
     }
+    let mut domain_exclusion_set_exists = false;
     let pair_set_exists = if table_exists(&tables, &paths.nft_family, &paths.nft_table) {
         let output = command_output(
             "nft",
             &["list", "table", &paths.nft_family, &paths.nft_table],
         )?;
+        domain_exclusion_set_exists = nft::domain_exclusion_set_matches(
+            &output,
+            &paths.nft_family,
+            &paths.nft_table,
+            &paths.domain_exclude_set,
+        )?
+        .is_some();
         nft::domain_pair_set_matches(
             &output,
             &paths.nft_family,
@@ -2544,7 +2665,7 @@ fn remove_domain_state(paths: &Paths, full: bool) -> io::Result<()> {
     } else {
         false
     };
-    let batch = nft::render_domain_remove_batch(&DomainRemoveConfig {
+    let mut batch = nft::render_domain_remove_batch(&DomainRemoveConfig {
         family: &observer_family,
         observer_table: &observer_table,
         pair_family: &paths.nft_family,
@@ -2552,8 +2673,14 @@ fn remove_domain_state(paths: &Paths, full: bool) -> io::Result<()> {
         pair_set: &paths.domain_set,
         observer_exists,
         pair_set_exists,
-        full,
+        full: false,
     })?;
+    if domain_exclusion_set_exists {
+        batch.push_str(&format!(
+            "flush set {} {} {}\n",
+            paths.nft_family, paths.nft_table, paths.domain_exclude_set
+        ));
+    }
     if !batch.is_empty() {
         nft::apply_transaction(&batch)?;
     }
@@ -2591,6 +2718,18 @@ fn domain_error_path() -> PathBuf {
     env::var_os("WARP_DOMAIN_ERROR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp/z2k-warp/domain-setup-error"))
+}
+
+fn domain_exclusion_rules_path() -> PathBuf {
+    env::var_os("WARP_DOMAIN_EXCLUDE_RULES")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp/z2k-warp/domains-excl.v1"))
+}
+
+fn domain_exclusion_error_path() -> PathBuf {
+    env::var_os("WARP_DOMAIN_EXCLUDE_ERROR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp/z2k-warp/domain-exclusion-setup-error"))
 }
 
 fn env_string(name: &str, default: &str) -> String {

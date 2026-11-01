@@ -275,7 +275,7 @@ panel_auth_gate
 # Крупные загрузки (списки, своя стратегия) идут через read_body_raw и свои
 # собственные потолки в мегабайтах — их это ограничение не касается.
 case "$PATH_INFO" in
-    /warp/list/save|/warp/devices/save|/whitelist/import|/strategy/pool/save|/strategy/pool/validate|/state/bulk|/whitelist/save|/extra-domains/save) ;;
+    /warp/list/save|/warp/exclusions/save|/warp/devices/save|/whitelist/import|/strategy/pool/save|/strategy/pool/validate|/state/bulk|/whitelist/save|/extra-domains/save) ;;
     *)
         if [ "${CONTENT_LENGTH:-0}" -gt "$Z2K_MAX_BODY" ] 2>/dev/null; then
             json_fail "413 Payload Too Large" "запрос слишком большой"
@@ -1275,6 +1275,17 @@ case "$method $path" in
         exit 0
         ;;
 
+    # Отдельный пользовательский список WARP-исключений, не смешанный со списками маршрутизации.
+    "GET /warp/exclusions")
+        warp_lists_ensure_dir || json_fail "500 Internal Server Error" "каталог исключений WARP недоступен"
+        w_file="$WARP_LISTS_DIR/exclude.txt"
+        printf 'Status: 200 OK\r\n'
+        printf 'Content-Type: text/plain; charset=utf-8\r\n'
+        printf 'Cache-Control: no-store\r\n\r\n'
+        [ ! -f "$w_file" ] || cat "$w_file"
+        exit 0
+        ;;
+
     # Raw list content (text/plain, NOT JSON) — feeds both the editor
     # textarea and the «скачать .txt» export, so no JSON-escape roundtrip
     # of a 300 KB body on a MIPS CPU.
@@ -1294,6 +1305,32 @@ case "$method $path" in
         exit 0
         ;;
 
+    # Сохранить исключения WARP отдельно от обычных списков назначения.
+    "POST /warp/exclusions/save")
+        if [ "${CONTENT_LENGTH:-0}" -gt 2097152 ] 2>/dev/null; then
+            json_fail "413 Payload Too Large" "список слишком большой (максимум 2 МБ)"
+        fi
+        _err_f="/tmp/z2k-wexclude-err.$$"
+        result=$(read_body_raw | warp_exclusions_save 2>"$_err_f") || {
+            _err=$(cat "$_err_f" 2>/dev/null); rm -f "$_err_f"
+            json_fail "400 Bad Request" "${_err:-не удалось сохранить исключения}"
+        }
+        rm -f "$_err_f"
+        w_saved=0; w_saved_ip=0; w_saved_domain=0; w_inv=0
+        for _tok in $result; do
+            case "$_tok" in
+                saved=*)           w_saved=${_tok#saved=} ;;
+                saved_ip=*)        w_saved_ip=${_tok#saved_ip=} ;;
+                saved_domain=*)    w_saved_domain=${_tok#saved_domain=} ;;
+                skipped_invalid=*) w_inv=${_tok#skipped_invalid=} ;;
+            esac
+        done
+        json_header
+        printf '{"ok":true,"saved":%d,"saved_ip":%d,"saved_domain":%d,"skipped_invalid":%d}\n' \
+            "${w_saved:-0}" "${w_saved_ip:-0}" "${w_saved_domain:-0}" "${w_inv:-0}"
+        exit 0
+        ;;
+
     # Body — raw list text (textarea save / .txt import), как /whitelist/import.
     # name & mode идут в QUERY_STRING чтобы не кодировать сотни КБ в urlencoded.
     "POST /warp/list/save")
@@ -1304,6 +1341,7 @@ case "$method $path" in
         # Mirror warp_name_ok: the handler validates too, but fail fast with a
         # clear 400 before touching the body.
         case "$w_name" in
+            exclude) json_fail "400 Bad Request" "исключения сохраняются через /warp/exclusions/save" ;;
             .*|-*|*[!A-Za-z0-9._-]*) json_fail "400 Bad Request" "invalid list name" ;;
         esac
         case "$w_mode" in

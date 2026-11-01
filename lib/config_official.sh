@@ -1536,13 +1536,10 @@ generate_nfqws2_opt_from_strategies() {
         local _sp_k _sp_n
         _sp_k=$(printf '%s' "$_sp_circ" | sed -n 's/.*:\(key=[a-z_]*\).*/\1/p')
         _sp_n=$(printf '%s' "$_sp_circ" | sed -n 's/.*:\(nld=[0-9]*\).*/\1/p')
-        # Подстановка имени — чистый рантайм карты «сеть → имя» из
-        # state/tcp16_sni.txt (её готовит проба): z2k_sni_pick подбирает blob
-        # z2k_ch по AS адресата, следующий fake его отправляет. Сторожа обрыва
-        # и поштучного перебора имён здесь больше нет — механизм в ротации не
-        # участвует (решение Марка 10.09.2026).
-        sni_pick="--lua-desync=z2k_sni_pick:payload=tls_client_hello:dir=out:blob=z2k_ch${_sp_k:+:$_sp_k}${_sp_n:+:$_sp_n}"
-        sni_pick="$sni_pick --lua-desync=fake:payload=tls_client_hello:dir=out:blob=z2k_ch:optional:repeats=8:tcp_ts=-1000:tcp_md5"
+        # Компактный фейк подставляет имя из state/tcp16_sni.txt и проверяет
+        # MSS после подготовки пакета. Без подходящего MSS или записи для сети
+        # он безопасно пропускает отправку; Telegram-прокси работает отдельно.
+        sni_pick="--lua-desync=z2k_sni_fake:payload=tls_client_hello:dir=out:repeats=8:tcp_ts=-1000:tcp_md5"
     fi
 
     if [ -n "$rkn_circ" ]; then
@@ -1653,22 +1650,16 @@ generate_nfqws2_opt_from_strategies() {
     # + hostkey=z2k_nohost_key for stable hostless rotation keying)
     [ "$category_voice" = 0 ] || nfqws2_opt_lines="$nfqws2_opt_lines$discord_udp --new\\n"
 
-    # Здесь стоял webrtc_bypass — пустой профиль udp/1024-65535 × l7=stun,
-    # который ничего не десинкал и служил щитом: он ловил P2P-STUN (WebRTC в
-    # браузере, peer-to-peer голос Discord) РАНЬШЕ широкого профиля game_udp,
-    # чтобы тот не выстрелил по нему фейками. Тот же класс проблемы, из-за
-    # которого до него откатывали TCP-catchall игрового режима (2203de2:
-    # фейки прилетали ответам LAN-клиентам и ядро рвало соединение RST'ом).
-    #
-    # Удалён: game_udp больше нет — игровой режим переехал на туннель WARP в
-    # r-61.1 (d078a60), игры с IP-блоком маршрутизируются через Cloudflare, а
-    # не десинкаются. Щит пережил то, от чего защищал: после discord_udp не
-    # осталось ни одного широкого UDP-профиля, а в очередь и так заворачиваются
-    # только порты из NFQWS2_PORTS_UDP (443 + диапазоны Discord).
-    #
-    # ЕСЛИ когда-нибудь снова появится широкий UDP-профиль после discord_udp
-    # или NFQWS2_PORTS_UDP расширят на большой диапазон — щит нужно вернуть,
-    # иначе P2P-голос и WebRTC поймают чужие фейки.
+    # Профиль WireGuard из p-87.3; MTProto остаётся у отдельного Rust-прокси,
+    # игровой и неизвестный UDP этот профиль не перехватывает.
+    nfqws2_opt_lines="$nfqws2_opt_lines--filter-udp=590-600,49152-65535 --filter-l7=wireguard --out-range=<n2 --payload=wireguard_initiation,wireguard_response,wireguard_cookie --lua-desync=circular:fails=2:time=300:retrans=3:nld=2 --lua-desync=fake:blob=0x00000000:repeats=6:strategy=1 --lua-desync=fake:blob=quic_google:repeats=6:strategy=2 --new\\n"
+
+    # Раньше webrtc_bypass защищал STUN/WebRTC от широкого игрового профиля.
+    # Сам игровой профиль удалён, а игры с IP-блоком маршрутизирует WARP.
+    # Сейчас в очередь добавлены широкие порты WireGuard, но его профиль
+    # совпадает только с filter-l7=wireguard и не десинкал STUN, Discord,
+    # MTProto или неизвестный UDP. Если появится широкий профиль без такого
+    # фильтра, верни отдельную защиту STUN до него.
 
     # HTTP RKN (port 80): autocircular bypass of ISP DPI redirect (302 → block page).
     # 7 strategies from blockcheck2 results, ordered by simplicity.
@@ -2248,8 +2239,8 @@ NFQWS2_ENABLE=1
 # попадают в NFQUEUE вовсе, и расщепить их нечем: см. профиль wa_noise.
 NFQWS2_PORTS_TCP="80,443,2053,2083,2087,2096,5222,8443"
 
-# UDP ports to process (will be filtered by --filter-udp in NFQWS2_OPT)
-NFQWS2_PORTS_UDP="443,50000-50100,1400,3478-3481,5349,19294-19344"
+# UDP-порты очереди NFQWS2; каждый профиль дополнительно ограничен своим --filter-udp/--filter-l7.
+NFQWS2_PORTS_UDP="443,50000-50100,1400,3478-3481,5349,19294-19344,590-600,49152-65535"
 
 # Discord voice/STUN: KEEPALIVE DISABLED (empty) — по канону bol-van.
 # Раньше (2026-06-11) на discord-портах connbytes-лимит снимался (keepalive),

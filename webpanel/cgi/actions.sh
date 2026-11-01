@@ -2838,6 +2838,7 @@ _warp_list_toggle_locked() {
     # warp_list_toggle <name> <0|1>
     local name="$1" want="$2" tmp _rc
     warp_name_ok "$name" || { echo "invalid list name" >&2; return 1; }
+    [ "$name" != "exclude" ] || { echo "исключения WARP нельзя включить или выключить как список" >&2; return 1; }
     case "$want" in 0|1) ;; *) echo "value must be 0 or 1" >&2; return 1 ;; esac
     [ -f "$WARP_LISTS_DIR/$name.txt" ] || { echo "no such list" >&2; return 1; }
     warp_lists_ensure_dir
@@ -2867,6 +2868,7 @@ warp_lists() {
         [ -f "$f" ] || continue
         name=${f##*/}; name=${name%.txt}
         [ "$name" = "devices" ] && continue   # устройства — своя карточка, не список адресов
+        [ "$name" = "exclude" ] && continue   # исключения WARP редактируются отдельно
         entries=$(_warp_destination_count "$f")
         size=$(wc -c < "$f" | tr -d ' ')
         # busybox: date -r (no stat -c), see update_status_string
@@ -2956,6 +2958,15 @@ _warp_game_toggle_locked() {
 }
 
 warp_list_save() {
+    [ "${1:-}" != "exclude" ] || { echo "исключения WARP сохраняются отдельным действием" >&2; return 1; }
+    _warp_list_save "$@"
+}
+
+warp_exclusions_save() {
+    _warp_list_save exclude replace
+}
+
+_warp_list_save() {
     # stdin: raw list text (textarea save or .txt import).
     # $1=name (без .txt), $2=mode replace|append|create (create = replace, но
     # отказывается затирать существующий файл — защита «нового списка» в UI
@@ -3059,6 +3070,7 @@ warp_list_read_path() {
     # Валидация имени + печать пути файла (для raw-отдачи в api.sh).
     local name="$1"
     warp_name_ok "$name" || { echo "invalid list name" >&2; return 1; }
+    [ "$name" != "exclude" ] || { echo "исключения WARP читаются отдельным действием" >&2; return 1; }
     local file="$WARP_LISTS_DIR/$name.txt"
     [ -f "$file" ] || return 2
     printf '%s' "$file"
@@ -3067,6 +3079,7 @@ warp_list_read_path() {
 warp_list_delete() {
     local name="$1" _rc
     warp_name_ok "$name" || { echo "invalid list name" >&2; return 1; }
+    [ "$name" != "exclude" ] || { echo "исключения WARP очищаются в отдельной карточке" >&2; return 1; }
     local file="$WARP_LISTS_DIR/$name.txt"
     # Удаление ИДЕМПОТЕНТНО: несуществующий список — это уже требуемый
     # результат, а не ошибка. Повторный клик по «удалить» (панель успевает

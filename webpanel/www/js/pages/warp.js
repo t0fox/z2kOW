@@ -110,7 +110,7 @@ const WARP_ERRORS = {
 };
 
 function warpNameValid(n) {
-  return /^[A-Za-z0-9._-]{1,64}$/.test(n) && !/^[.-]/.test(n);
+  return n !== "exclude" && /^[A-Za-z0-9._-]{1,64}$/.test(n) && !/^[.-]/.test(n);
 }
 
 // «1 адрес, 2 адреса, 5 адресов» — а не скобочная форма.
@@ -277,9 +277,17 @@ export async function renderWarp() {
       </div>
       <ul class="wl-list" id="warp-lists">${skeletonLines(3)}</ul>
     </div>
+    <div class="card">
+      <h3>Исключения из WARP</h3>
+      <p class="desc">Укажите IPv4-адрес, CIDR-подсеть или домен на строку. Эти назначения обходят WARP
+        во всех режимах. Домены обновляются по обычным DNS-ответам через роутер; DoH/DoT и IPv6 не перехватываются.
+        Изменения применяются сразу, если WARP включён.</p>
+      <p class="desc" id="warp-exclusions-state">Загрузка исключений…</p>
+      <button class="btn" id="warp-exclusions-edit">Редактировать исключения</button>
+    </div>
     <div class="card" id="warp-editor-card" hidden>
       <h3 id="warp-editor-title"></h3>
-      <p class="desc">Один IPv4-адрес, подсеть или домен на строку. IPv6 и невалидные строки
+      <p class="desc" id="warp-editor-hint">Один IPv4-адрес, подсеть или домен на строку. IPv6 и невалидные строки
         отбрасываются; после сохранения покажем их количество.</p>
       <textarea id="warp-editor" class="warp-editor" spellcheck="false"
                 autocomplete="off" autocapitalize="off" autocorrect="off"
@@ -308,6 +316,7 @@ export async function renderWarp() {
   });
   document.getElementById("warp-devices-save").addEventListener("click", warpDevicesSave);
   document.getElementById("warp-new-btn").addEventListener("click", warpNewList);
+  document.getElementById("warp-exclusions-edit").addEventListener("click", warpExclusionsEdit);
   document.getElementById("warp-import-btn").addEventListener("click", () => {
     document.getElementById("warp-import-file").click();
   });
@@ -319,6 +328,7 @@ export async function renderWarp() {
   loadWarpStatus();
   loadWarpGames().then(scheduleWarpGamesRetry);
   loadWarpLists();
+  loadWarpExclusions();
   loadWarpNeighbors();
   loadWarpDevices();
   _updateGlobalUILock();
@@ -889,6 +899,45 @@ async function warpToggle(box) {
   });
 }
 
+async function loadWarpExclusions() {
+  const state = document.getElementById("warp-exclusions-state");
+  if (!state) return;
+  try {
+    const text = await apiGetText("/warp/exclusions");
+    const count = text.split(/\r?\n/).filter(line => {
+      const value = line.trim();
+      return value && !value.startsWith("#");
+    }).length;
+    state.textContent = count ? "Сохранено записей: " + count : "Пока нет исключений.";
+  } catch (e) {
+    state.innerHTML = errHtml(e);
+  }
+}
+
+async function warpExclusionsEdit() {
+  const card = document.getElementById("warp-editor-card");
+  const ta = document.getElementById("warp-editor");
+  card.dataset.name = "exclude";
+  card.dataset.mode = "exclude";
+  document.getElementById("warp-editor-title").textContent = "Исключения из WARP";
+  document.getElementById("warp-editor-hint").textContent =
+    "IPv4-адрес, подсеть или домен на строку. Назначения из этого списка всегда обходят WARP.";
+  card.hidden = false;
+  ta.value = "";
+  let text;
+  try {
+    text = await apiGetText("/warp/exclusions");
+  } catch (e) {
+    toastErr("Не удалось загрузить исключения: ", e);
+    if (card.dataset.mode === "exclude") card.hidden = true;
+    return;
+  }
+  if (card.dataset.mode !== "exclude" || card.dataset.name !== "exclude") return;
+  ta.value = text;
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+  ta.focus();
+}
+
 async function loadWarpLists() {
   const list = document.getElementById("warp-lists");
   if (!list) return;
@@ -1017,19 +1066,23 @@ async function warpEditOpen(name, prefill) {
 async function warpEditorSave() {
   const card = document.getElementById("warp-editor-card");
   const name = card.dataset.name;
+  const isExclusions = card.dataset.mode === "exclude";
   const mode = card.dataset.mode === "create" ? "create" : "replace";
-  if (!warpNameValid(name)) { toast("Некорректное имя списка", "bad"); return; }
+  if (!isExclusions && !warpNameValid(name)) { toast("Некорректное имя списка", "bad"); return; }
   const btn = document.getElementById("warp-editor-save");
   if (btn.disabled) return;
   btn.disabled = true;
   try {
-    const d = await apiPostText("/warp/list/save?name=" + encodeURIComponent(name) + "&mode=" + mode,
-      document.getElementById("warp-editor").value);
+    const endpoint = isExclusions
+      ? "/warp/exclusions/save"
+      : "/warp/list/save?name=" + encodeURIComponent(name) + "&mode=" + mode;
+    const d = await apiPostText(endpoint, document.getElementById("warp-editor").value);
     let msg = `Сохранено: ${addrs(d.saved_ip ?? d.saved)}, ${warpDomains(d.saved_domain || 0)}`;
     if (d.skipped_invalid > 0) msg += " (отброшено невалидных строк: " + d.skipped_invalid + ")";
     toast(msg);
     card.hidden = true;
-    loadWarpLists();
+    if (isExclusions) loadWarpExclusions();
+    else loadWarpLists();
     loadWarpStatus();
   } catch (e) {
     toastErr("Ошибка: ", e);
